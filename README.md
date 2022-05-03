@@ -1,4 +1,4 @@
-# fnes
+# fnesemu
 
 A NES Emulator written in Flutter Web
 

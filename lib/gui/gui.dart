@@ -20,11 +20,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter NES',
+      title: 'fnesemu',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const MainView(title: 'Flutter NES'),
+      home: const MainView(title: 'fnesemu'),
     );
   }
 }
