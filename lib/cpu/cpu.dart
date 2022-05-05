@@ -3,6 +3,8 @@ import 'dart:core';
 import 'dart:developer';
 
 // Project imports:
+import 'package:fnesemu/cpu/util.dart';
+
 import 'bus.dart';
 import 'disasm.dart';
 
@@ -37,6 +39,16 @@ class Cpu {
 
   void onNMI() {
     interrupt(nmi: true);
+  }
+
+  var _holdIRQ = false;
+
+  void holdIRQ() {
+    _holdIRQ = true;
+  }
+
+  void releaseIRQ() {
+    _holdIRQ = false;
   }
 
   int cycle = 0;
@@ -492,6 +504,7 @@ class Cpu {
         final addr = pop() | (pop() << 8);
         regs.PC = addr;
         cycle += 6;
+        _assertInterrupt = false;
         break;
 
       // BCC
@@ -588,16 +601,22 @@ class Cpu {
         break;
 
       default:
-        log("unimplemented opcode: $op\n");
+        log("unimplemented opcode: ${hex8(op)}\n");
         return;
+    }
+
+    if (_assertInterrupt) {
+      _assertInterrupt = false;
+      interrupt();
+    }
+    if (_holdIRQ && (regs.P & Flags.I) == 0) {
+      _assertInterrupt = true;
     }
   }
 
-  void interrupt({bool brk = false, bool nmi = false}) {
-    if (!brk && !nmi && (regs.P & Flags.I) == 0) {
-      return;
-    }
+  bool _assertInterrupt = false;
 
+  void interrupt({bool brk = false, bool nmi = false}) {
     push(regs.PC >> 8);
     push(regs.PC & 0xff);
     push(regs.P);
@@ -609,10 +628,11 @@ class Cpu {
 
   void reset() {
     cycle = 0;
+    regs.S = 0xfd;
     regs.P = 0x00 | Flags.B | Flags.R;
+
     const addr = 0xfffc;
     regs.PC = read(addr) | (read(addr + 1) << 8);
-    regs.S = 0xfd;
   }
 
   void push(int val) {

@@ -31,9 +31,10 @@ class Nes {
   }
 
   String dump() {
-    final cpuDump = cpu.dump();
+    final cpuDump = cpu.dump(showRegs:true);
     final dump = "${cpuDump.substring(0, 48)}\n"
         "${cpuDump.substring(48)}\n"
+        "${cpu.dump(showZeroPage: true)}\n"
         "${fps.toStringAsFixed(2)}fps\n"
         "${ppu.dump(showSpriteVram: true)}\n"
         "${apu.dump()}";

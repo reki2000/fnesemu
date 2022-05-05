@@ -3,6 +3,8 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import 'package:fnesemu/cpu/util.dart';
+
 import 'bus.dart';
 
 class _EnvelopeUnit {
@@ -244,10 +246,9 @@ class Apu {
   final triangle = TriangleWave();
   final noise = NoiseWave();
 
-  int reg4015 = 0;
   bool dpcmEnabled = false;
 
-  bool frameIrqOn = false;
+  bool frameIRQHold = false;
 
   void write(int reg, int val) {
     switch (reg) {
@@ -329,7 +330,6 @@ class Apu {
       case 0x4014:
         return;
       case 0x4015:
-        reg4015 = val;
         pulse0.enabled = val & 0x01 != 0;
         pulse1.enabled = val & 0x02 != 0;
         triangle.enabled = val & 0x04 != 0;
@@ -337,12 +337,15 @@ class Apu {
         dpcmEnabled = val & 0x10 != 0;
         return;
       case 0x4017:
-        frameCounterMode0 = val & 0x80 != 0;
-        frameIRQEnabled = val & 0x40 != 0;
+        frameCounterMode0 = (val & 0x80) == 0;
+        if ((val & 0x40) != 0) {
+          frameIRQHold = false;
+          bus.releaseIRQ();
+        }
         frameCountTick = 0;
         return;
       default:
-        log("Unsupported apu write at 0x${reg.toRadixString(16).padLeft(4, '0')}");
+        log("Unsupported apu write at 0x${hex16(reg)}");
         return;
     }
   }
@@ -350,18 +353,19 @@ class Apu {
   int read(int reg) {
     switch (reg) {
       case 0x4015:
-        final result = (frameIrqOn ? 0x40 : 0) |
+        final result = (frameIRQHold ? 0x40 : 0) |
             (pulse0.lengthCounter > 0 ? 0x01 : 0) |
             (pulse1.lengthCounter > 0 ? 0x02 : 0) |
             (triangle.lengthCounter > 0 ? 0x04 : 0) |
             (noise.lengthCounter > 0 ? 0x08 : 0);
-        frameIrqOn = false;
+        frameIRQHold = false;
+        bus.releaseIRQ();
         return result;
 
       case 0x4017:
         return 0;
       default:
-        log("Unsupported apu read at 0x${reg.toRadixString(16).padLeft(4, '0')}");
+        log("Unsupported apu read at 0x${hex16(reg)}");
         return 0;
     }
   }
@@ -419,11 +423,6 @@ class Apu {
     noise.countLength();
   }
 
-  void makeIRQ() {
-    frameIrqOn = true;
-  }
-
-  bool frameIRQEnabled = false;
   bool frameCounterMode0 = false;
   int frameCountTick = 0;
 
@@ -431,17 +430,18 @@ class Apu {
   void countApuFrame() {
     if (frameCounterMode0) {
       countEnvelope();
-      if (frameCountTick == 0 || frameCountTick == 2) {
+      if (frameCountTick == 1 || frameCountTick == 3) {
         countLength();
       }
-      if (frameCountTick == 3 && frameIRQEnabled) {
-        makeIRQ();
+      if (frameCountTick == 3) {
+        frameIRQHold = true;
+        bus.holdIRQ();
       }
     } else {
-      if (frameCountTick != 4) {
+      if (frameCountTick != 3) {
         countEnvelope();
       }
-      if (frameCountTick == 0 || frameCountTick == 3) {
+      if (frameCountTick == 1 || frameCountTick == 4) {
         countLength();
       }
     }

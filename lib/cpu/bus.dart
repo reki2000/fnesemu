@@ -95,4 +95,7 @@ class Bus {
   void onNMI() => cpu.onNMI();
 
   void onReset() => cpu.reset();
+
+  void holdIRQ() => cpu.holdIRQ();
+  void releaseIRQ() => cpu.releaseIRQ();
 }

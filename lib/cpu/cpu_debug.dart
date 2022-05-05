@@ -36,17 +36,18 @@ extension CpuDebugger on Cpu {
         .toUpperCase();
   }
 
-  String dump({bool showZero = false, showStack = false}) {
+  String dump(
+      {bool showRegs = false, bool showZeroPage = false, showStack = false}) {
     final code = dumpNesTest();
     // for (int i = -1; i < 2; i++) {
     //   code += dumpMem(regs.PC + i * 16, regs.PC);
     // }
 
     String mem = "";
-    if (showZero || showStack) {
-      mem += "+0 +1 +2 +3 +4 +5 +6 +7 +8 +9 +a +b +c +d +e +f\n";
+    if (showZeroPage || showStack) {
+      mem += "addr: +0 +1 +2 +3 +4 +5 +6 +7 +8 +9 +a +b +c +d +e +f\n";
     }
-    if (showZero) {
+    if (showZeroPage) {
       for (int i = 0; i < 16; i++) {
         mem += dumpMem(i * 16, 0xffff);
       }
@@ -57,7 +58,7 @@ extension CpuDebugger on Cpu {
       }
     }
 
-    return "$code\n$mem";
+    return "${showRegs ? code : ""}$mem";
   }
 
   String dumpMem(int addr, int target) {
