@@ -7,12 +7,13 @@ import 'package:flutter/services.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
+import 'package:fnesemu/gui/sound_player_null.dart';
 
 // Project imports:
 import '../cpu/bus_debug.dart';
 import '../cpu/ppu_joypad.dart';
 import 'nes.dart';
-import 'sound_player_web.dart';
+import 'sound_player.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
@@ -40,7 +41,7 @@ class MainView extends StatefulWidget {
 class _MainViewState extends State<MainView> {
   final _focusNode = FocusNode();
 
-  final _mPlayer = SoundPlayer();
+  final _mPlayer = getSoundPlayerInstance();
 
   String _romName = "";
 
@@ -48,7 +49,7 @@ class _MainViewState extends State<MainView> {
   void initState() {
     super.initState();
     nes.renderAudio = (Float32List buf) async => _mPlayer.push(buf);
-    //setRomFile("hello/hello.nes");
+    setRomFile("bomb.nes");
   }
 
   void setRomFile(String rom) async {
