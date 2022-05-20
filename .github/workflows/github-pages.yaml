@@ -1,0 +1,39 @@
+# nekomimi-daimao/kanban_memo/.github/workflows/github-pages.yml
+name: github pages
+
+on:
+  push:
+    branches: [ main ]
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Repository
+        id: version
+        run: |
+          REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
+          echo ::set-output name=repository::$REPOSITORY
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '2.10.5'
+          channel: 'stable'
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - run: flutter build web --web-renderer html --base-href /${{ steps.version.outputs.repository }}/
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
