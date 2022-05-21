@@ -7,6 +7,10 @@ This project is under experimental.
 - 60 fps on i5-8250
 - supports mapper type 0 and 3
 
+# How to use
+
+https://reki2000.github.io/fnesemu/
+
 # How to run
 
 `flutter run -d chrome`
