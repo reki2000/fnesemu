@@ -49,7 +49,7 @@ class _MainViewState extends State<MainView> {
   void initState() {
     super.initState();
     nes.renderAudio = (Float32List buf) async => _mPlayer.push(buf);
-    setRomFile("bomb.nes");
+    //setRomFile("hello.nes");
   }
 
   void setRomFile(String rom) async {

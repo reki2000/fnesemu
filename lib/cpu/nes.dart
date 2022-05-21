@@ -30,14 +30,17 @@ class Nes {
     bus = Bus(cpu, ppu, apu);
   }
 
-  String dump() {
-    final cpuDump = cpu.dump(showRegs:true);
+  String dump(
+      {bool showZeroPage = false,
+      bool showSpriteVram = false,
+      bool showApu = false}) {
+    final cpuDump = cpu.dump(showRegs: true);
     final dump = "${cpuDump.substring(0, 48)}\n"
         "${cpuDump.substring(48)}\n"
-        "${cpu.dump(showZeroPage: true)}\n"
+        "${cpu.dump(showZeroPage: showZeroPage)}\n"
         "${fps.toStringAsFixed(2)}fps\n"
-        "${ppu.dump(showSpriteVram: true)}\n"
-        "${apu.dump()}";
+        "${ppu.dump(showSpriteVram: showSpriteVram)}\n"
+        "${showApu ? apu.dump() : ""}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';
   }
