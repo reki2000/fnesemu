@@ -33,11 +33,12 @@ class Nes {
   String dump(
       {bool showZeroPage = false,
       bool showSpriteVram = false,
+      bool showStack = false,
       bool showApu = false}) {
     final cpuDump = cpu.dump(showRegs: true);
     final dump = "${cpuDump.substring(0, 48)}\n"
         "${cpuDump.substring(48)}\n"
-        "${cpu.dump(showZeroPage: showZeroPage)}\n"
+        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}\n"
         "${fps.toStringAsFixed(2)}fps\n"
         "${ppu.dump(showSpriteVram: showSpriteVram)}\n"
         "${showApu ? apu.dump() : ""}";
