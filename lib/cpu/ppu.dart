@@ -4,14 +4,11 @@ import 'dart:typed_data';
 
 // Project imports:
 import 'bus.dart';
-import 'ppu_joypad.dart';
 import 'ppu_render.dart';
 import 'util.dart';
 
 class Ppu {
   late final Bus bus;
-
-  final joypad = Joypad();
 
   int ctl1 = 0;
   int ctl2 = 0;
@@ -83,9 +80,9 @@ class Ppu {
   void write(int reg, int val) {
     switch (reg) {
       case 0x2000: // ppu control 1
-        final nmiEnabled = nmiOnVBlank();
+        final nmiDisabled = !nmiOnVBlank();
         ctl1 = val;
-        if (isVBlank && !nmiEnabled && nmiOnVBlank()) {
+        if (isVBlank && nmiDisabled && nmiOnVBlank()) {
           bus.onNMI();
         }
         tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03) << 10;
@@ -131,9 +128,6 @@ class Ppu {
         writeVram(vramAddr, val);
         vramAddr += vramIncrement() ? 32 : 1;
         break;
-      case 0x4016:
-        joypad.reset();
-        return;
 
       default:
         log("Unsupported ppu write at 0x${reg.toRadixString(16).padLeft(4, '0')}");
@@ -146,7 +140,7 @@ class Ppu {
       case 0x2002:
         first = true;
         final _status = status;
-        isVBlank = false;
+        //isVBlank = false;
         return _status;
       case 0x2007:
         var data = vramBuffer;
@@ -156,10 +150,6 @@ class Ppu {
         }
         vramAddr += vramIncrement() ? 32 : 1;
         return data;
-      case 0x4016:
-        return joypad.read();
-      case 0x04017:
-        return joypad.read2();
 
       default:
         log("Unsupported ppu read at 0x${reg.toRadixString(16).padLeft(4, '0')}");
@@ -184,10 +174,16 @@ class Ppu {
   final buffer = Uint8List.fromList(
       List.filled(screenWidth * screenHeight * 4, 0, growable: false));
 
-  exec() {
+  void exec() {
     if (scanLine < 240) {
       renderLine();
-    } else if (scanLine == 240) {
+      scanLine++;
+      return;
+    }
+
+    scanLine++;
+
+    if (scanLine == 241) {
       isVBlank = true;
       if (nmiOnVBlank()) {
         bus.onNMI();
@@ -196,13 +192,10 @@ class Ppu {
       detectObj0 = false;
       isVBlank = false;
       //renderLine();
+    } else if (scanLine == 262) {
+      scanLine = 0;
     }
 
     cycle += 341;
-
-    scanLine++;
-    if (scanLine == 262) {
-      scanLine = 0;
-    }
   }
 }
