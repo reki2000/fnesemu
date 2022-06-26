@@ -1,7 +1,9 @@
+// Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu/gui/sound_player.dart';
+// Project imports:
+import 'sound_player.dart';
 
 class SoundPlayerImpl extends SoundPlayer {
   SoundPlayerImpl() {

@@ -6,6 +6,7 @@ import 'apu.dart';
 import 'cpu.dart';
 import 'mapper.dart';
 import 'ppu.dart';
+import 'joypad.dart';
 
 class Bus {
   final Cpu cpu;
@@ -17,6 +18,8 @@ class Bus {
     ppu.bus = this;
     apu.bus = this;
   }
+
+  final joypad = Joypad();
 
   final vram = List<int>.filled(0x2000, 0, growable: false);
   final charROM = List<int>.filled(0x2000, 0, growable: true);
@@ -57,16 +60,15 @@ class Bus {
 
   final List<int> ram = List.filled(0x800, 0, growable: false);
 
-  Mapper mapper = Mapper0();
+  Mapper mapper = Mapper();
 
   int read(int addr) {
     if (addr < 0x800) {
       return ram[addr];
-    } else if (0x2000 <= addr && addr <= 0x2007 ||
-        addr == 0x4014 ||
-        addr == 0x4016 ||
-        addr == 0x4017) {
+    } else if (0x2000 <= addr && addr <= 0x2007 || addr == 0x4014) {
       return ppu.read(addr);
+    } else if (addr == 0x4016 || addr == 0x4017) {
+      return joypad.read(addr);
     } else if (0x4000 <= addr && addr <= 0x401f) {
       return apu.read(addr);
     } else {
@@ -83,9 +85,9 @@ class Bus {
       final src = data << 8;
       ppu.onDMA(ram.sublist(src, src + 256));
       cpu.cycle += 514;
-    } else if ((0x4000 <= addr && addr <= 0x4013) ||
-        addr == 0x4015 ||
-        addr == 0x4017) {
+    } else if (addr == 0x4016 || addr == 0x4017) {
+      joypad.write(addr, data);
+    } else if ((0x4000 <= addr && addr <= 0x4013) || addr == 0x4015) {
       apu.write(addr, data);
     } else {
       mapper.write(addr, data);
