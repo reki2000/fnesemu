@@ -85,7 +85,9 @@ class Nes {
         renderVideo(ppu.buffer);
         return;
       }
-      cpu.exec();
+      if (!cpu.exec()) {
+        forceBreak = true;
+      }
     }
     ppu.exec();
     renderVideo(ppu.buffer);
@@ -102,7 +104,9 @@ class Nes {
           forceBreak = false;
           return;
         }
-        cpu.exec();
+        if (!cpu.exec()) {
+          forceBreak = true;
+        }
       }
       ppu.exec();
     }
