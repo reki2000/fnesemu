@@ -7,11 +7,12 @@ import 'package:flutter/services.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
-import 'package:fnesemu/gui/sound_player_null.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 // Project imports:
 import '../cpu/bus_debug.dart';
-import '../cpu/ppu_joypad.dart';
+import '../cpu/cpu_debug.dart';
+import '../cpu/joypad.dart';
 import 'nes.dart';
 import 'sound_player.dart';
 
@@ -107,6 +108,43 @@ class _MainViewState extends State<MainView> {
     );
   }
 
+  void showDisasm(BuildContext context, int addr) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          final asm = nes.cpu.dumpDisasm(addr);
+          const margin10 = EdgeInsets.all(10.0);
+          return Scaffold(
+            appBar: AppBar(title: const Text('Disaseembler')),
+            body: Container(
+              alignment: Alignment.center,
+              // child: const Expanded(
+              child: SingleChildScrollView(
+                  scrollDirection: Axis.vertical,
+                  child: Row(
+                    children: [
+                      Column(children: [
+                        Container(
+                            margin: margin10,
+                            child: SelectableText(
+                              asm,
+                              style: debugStyle,
+                              toolbarOptions: const ToolbarOptions(
+                                copy: true,
+                                selectAll: true,
+                              ),
+                              showCursor: true,
+                            ))
+                      ]),
+                    ],
+                  )),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _button(String text, void Function() func) => Container(
       margin: const EdgeInsets.all(5.0),
       child: ElevatedButton(child: Text(text), onPressed: func));
@@ -118,7 +156,7 @@ class _MainViewState extends State<MainView> {
     return RawKeyboardListener(
       child: Scaffold(
         appBar: AppBar(
-          title: Text(widget.title),
+          title: Row(children: [Text(widget.title), _versionText()]),
         ),
         body: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -157,9 +195,7 @@ class _MainViewState extends State<MainView> {
                   child: TextField(onChanged: (v) {
                     nes.breakpoint = int.parse(v, radix: 16);
                   })),
-              // button("Disasm", () {
-              //   log(nes.cpu.dumpDisasm(nes.breakpoint));
-              // }),
+              _button("Disasm", () => showDisasm(context, nes.breakpoint)),
               _button("VRAM", () => showVram(context)),
             ]),
           ],
@@ -171,7 +207,7 @@ class _MainViewState extends State<MainView> {
           case RawKeyDownEvent:
             for (final entry in keys.entries) {
               if (entry.key == e.data.logicalKey) {
-                nes.ppu.joypad.keyDown(entry.value);
+                nes.bus.joypad.keyDown(entry.value);
                 break;
               }
             }
@@ -179,7 +215,7 @@ class _MainViewState extends State<MainView> {
           case RawKeyUpEvent:
             for (final entry in keys.entries) {
               if (entry.key == e.data.logicalKey) {
-                nes.ppu.joypad.keyUp(entry.value);
+                nes.bus.joypad.keyUp(entry.value);
                 break;
               }
             }
@@ -189,3 +225,20 @@ class _MainViewState extends State<MainView> {
     );
   }
 }
+
+Widget _versionText() => FutureBuilder<PackageInfo>(
+      future: PackageInfo.fromPlatform(),
+      builder: (context, snapshot) {
+        switch (snapshot.connectionState) {
+          case ConnectionState.done:
+            return Align(
+              alignment: Alignment.bottomCenter,
+              child: Text(
+                ' ${snapshot.data!.version}-${snapshot.data!.buildNumber}',
+              ),
+            );
+          default:
+            return const SizedBox();
+        }
+      },
+    );

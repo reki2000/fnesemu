@@ -3,10 +3,9 @@ import 'dart:core';
 import 'dart:developer';
 
 // Project imports:
-import 'package:fnesemu/cpu/util.dart';
-
 import 'bus.dart';
 import 'disasm.dart';
+import 'util.dart';
 
 class Regs {
   int A = 0;
@@ -61,7 +60,7 @@ class Cpu {
     bus.write(addr, data);
   }
 
-  void exec() {
+  bool exec() {
     final op = pc();
 
     switch (op) {
@@ -602,7 +601,7 @@ class Cpu {
 
       default:
         log("unimplemented opcode: ${hex8(op)}\n");
-        return;
+        return false;
     }
 
     if (_assertInterrupt) {
@@ -612,6 +611,7 @@ class Cpu {
     if (_holdIRQ && (regs.P & Flags.I) == 0) {
       _assertInterrupt = true;
     }
+    return true;
   }
 
   bool _assertInterrupt = false;
