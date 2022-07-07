@@ -140,7 +140,7 @@ class Ppu {
       case 0x2002:
         first = true;
         final _status = status;
-        //isVBlank = false;
+        isVBlank = false;
         return _status;
       case 0x2007:
         var data = vramBuffer;
@@ -185,7 +185,8 @@ class Ppu {
 
     if (scanLine == 241) {
       isVBlank = true;
-      if (nmiOnVBlank()) {
+    } else if (scanLine == 242) {
+      if (nmiOnVBlank() && isVBlank) {
         bus.onNMI();
       }
     } else if (scanLine == 261) {
