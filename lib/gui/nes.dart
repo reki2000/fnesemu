@@ -45,7 +45,7 @@ class _NesWidgetState extends State<NesWidget> {
             height: 480,
             color: Colors.black,
             child: RawImage(image: screenImage, scale: 0.5)),
-        Text(nes.dump(), style: debugStyle),
+        Text(nes.dump(showZeroPage: true, showStack: true), style: debugStyle),
       ],
     );
   }

@@ -1,14 +1,10 @@
 // Project imports:
 import 'ppu.dart';
-import 'ppu_joypad.dart';
 import 'util.dart';
 
 extension PpuDebugger on Ppu {
   String dump({showSpriteVram = false}) {
-    final joys = PadButton.values
-        .map((j) => "${j.name}:${joypad.isPressed[j.index] ? "*" : "-"}");
-    return "$joys\n"
-        "ctl1:${hex8(ctl1)} "
+    return "ctl1:${hex8(ctl1)} "
         "ctl2:${hex8(ctl2)} "
         "status:${hex8(status)} "
         "tmp:${hex16(tmpVramAddr)} "
