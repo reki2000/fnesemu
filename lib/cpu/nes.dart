@@ -22,6 +22,7 @@ class Nes {
 
   int breakpoint = 0;
   bool forceBreak = false;
+  bool enableDebugLog = false;
 
   Nes() {
     ppu = Ppu();
@@ -73,6 +74,9 @@ class Nes {
 
   void execStep() async {
     cpu.exec();
+    if (enableDebugLog) {
+      cpu.debugLog();
+    }
     renderVideo(ppu.buffer);
     renderAudio(apu.buffer);
   }
@@ -87,6 +91,9 @@ class Nes {
       }
       if (!cpu.exec()) {
         forceBreak = true;
+      }
+      if (enableDebugLog) {
+        cpu.debugLog();
       }
     }
     ppu.exec();
@@ -106,6 +113,9 @@ class Nes {
         }
         if (!cpu.exec()) {
           forceBreak = true;
+        }
+        if (enableDebugLog) {
+          cpu.debugLog();
         }
       }
       ppu.exec();

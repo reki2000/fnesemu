@@ -4,9 +4,9 @@ import 'dart:developer';
 // Project imports:
 import 'apu.dart';
 import 'cpu.dart';
+import 'joypad.dart';
 import 'mapper.dart';
 import 'ppu.dart';
-import 'joypad.dart';
 
 class Bus {
   final Cpu cpu;
