@@ -7,6 +7,20 @@ import 'disasm.dart';
 import 'util.dart';
 
 extension CpuDebugger on Cpu {
+  static String _debugLog = "";
+
+  static void clearDebugLog() {
+    _debugLog = "";
+  }
+
+  void debugLog() {
+    _debugLog += dumpNesTest() + "\n";
+  }
+
+  String dumpDebugLog() {
+    return _debugLog;
+  }
+
   String dumpDisasm(int addr, {toAddrOffset = 0x200}) {
     var result = "";
     for (var pc = addr; pc < addr + toAddrOffset;) {
