@@ -54,6 +54,9 @@ class Nes {
       case 0:
         bus.mapper = Mapper0();
         break;
+      case 2:
+        bus.mapper = Mapper2();
+        break;
       case 3:
         bus.mapper = Mapper3();
         break;

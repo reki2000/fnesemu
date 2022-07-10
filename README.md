@@ -2,10 +2,10 @@
 
 A NES Emulator written in Flutter Web
 
-This project is under experimental.
+This project is under experiment.
 
-- 60 fps on i5-8250
-- supports mapper type 0 and 3
+- almost 60 fps on chrome/i5-8250
+- supports mapper type 0,2 and 3
 
 # How to use
 
