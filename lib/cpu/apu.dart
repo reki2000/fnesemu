@@ -235,8 +235,127 @@ class NoiseWave with _LengthCounter {
   }
 }
 
+class DPCMWave {
+  final int Function(int) fetch;
+  final void Function() interrupt;
+
+  DPCMWave(this.fetch, this.interrupt);
+
+  int _initAddress = 0;
+  int _initLength = 0;
+
+  bool _loop = false;
+  bool _irqEnabled = false;
+  int _initTimer = 0;
+
+  int _address = 0;
+  int _length = 0;
+  int _sample = 0;
+  bool _silence = true;
+
+  final _timerTable = [
+    // these are cpu cycles. 1 apu cycles = 2 cpu cycles
+    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54
+  ];
+  int _timer = 0;
+
+  int _counter = 0;
+  int _deltaCounter = 0;
+
+  set mode(int val) {
+    _irqEnabled = (val & 0x80) != 0;
+    _loop = (val & 0x40) != 0;
+    _initTimer = _timerTable[val & 0x0f] ~/ 2;
+    _timer = _initTimer;
+  }
+
+  set address(int addr) {
+    _initAddress = (addr << 6) + 0xc000;
+    _address = _initAddress;
+  }
+
+  set length(int length) {
+    _initLength = (length << 4) + 1;
+    _length = _initLength;
+  }
+
+  int get length => _length;
+
+  set deltaCounter(int counter) {
+    _deltaCounter = counter;
+  }
+
+  bool _fillSampleBuffer() {
+    if (_length == 0) {
+      if (!_loop) {
+        return true; // true means no sample data
+      }
+
+      _address = _initAddress;
+      _length = _initLength;
+      if (_irqEnabled) {
+        interrupt();
+      }
+    }
+
+    _sample = fetch(_address);
+
+    _address++;
+    _address &= 0xffff;
+    _length--;
+    return false;
+  }
+
+  void _updateDeltaCounter() {
+    final bit = _sample & 0x01;
+    _sample >>= 1;
+
+    if (bit == 0) {
+      if (_deltaCounter > 1) {
+        _deltaCounter -= 2;
+      }
+    } else {
+      if (_deltaCounter < 126) {
+        _deltaCounter += 2;
+      }
+    }
+  }
+
+  Int8List synth(int cycles) {
+    final buf = Int8List(cycles);
+
+    for (int i = 0; i < buf.length; i++) {
+      if (_timer == 0) {
+        if (!_silence) {
+          _updateDeltaCounter();
+        }
+
+        if (_counter == 0) {
+          _silence = _fillSampleBuffer();
+          _counter = 7;
+        } else {
+          _counter--;
+        }
+
+        _timer = _initTimer;
+      } else {
+        _timer--;
+      }
+
+      buf[i] = _silence ? 0 : _deltaCounter;
+    }
+
+    return buf;
+  }
+}
+
 class Apu {
-  late final Bus bus;
+  late final Bus _bus;
+
+  set bus(Bus bus) {
+    _bus = bus;
+    dpcm = DPCMWave(bus.read, bus.holdIRQ);
+  }
 
   int cycle = 0;
 
@@ -244,6 +363,7 @@ class Apu {
   final pulse1 = _PulseWave(1);
   final triangle = TriangleWave();
   final noise = NoiseWave();
+  late final DPCMWave dpcm;
 
   bool dpcmEnabled = false;
 
@@ -324,9 +444,17 @@ class Apu {
         noise.envelope.keyOn();
         return;
       case 0x4010:
+        dpcm.mode = val;
+        return;
       case 0x4011:
+        dpcm.deltaCounter = val;
+        return;
       case 0x4012:
+        dpcm.address = val;
+        return;
       case 0x4013:
+        dpcm.length = val;
+        return;
       case 0x4014:
         return;
       case 0x4015:
@@ -355,11 +483,13 @@ class Apu {
   int read(int reg) {
     switch (reg) {
       case 0x4015:
-        final result = (frameIRQHold ? 0x40 : 0) |
+        final result = (frameIRQHold ? 0x80 : 0) | // shold be DMC.IRQHold
+            (frameIRQHold ? 0x40 : 0) |
             (pulse0.lengthCounter > 0 ? 0x01 : 0) |
             (pulse1.lengthCounter > 0 ? 0x02 : 0) |
             (triangle.lengthCounter > 0 ? 0x04 : 0) |
-            (noise.lengthCounter > 0 ? 0x08 : 0);
+            (noise.lengthCounter > 0 ? 0x08 : 0) |
+            (dpcm.length > 0 ? 0x10 : 0);
         releaseFrameIRQ();
         return result;
 
@@ -373,13 +503,13 @@ class Apu {
 
   void releaseFrameIRQ() {
     frameIRQHold = false;
-    bus.releaseIRQ();
+    _bus.releaseIRQ();
   }
 
   void setFrameIRQ() {
     if (frameIRQEnabled) {
       frameIRQHold = true;
-      bus.holdIRQ();
+      _bus.holdIRQ();
     }
   }
 
@@ -409,7 +539,7 @@ class Apu {
       final p1 = pulse1.synth(tickCycles);
       final t = triangle.synth(tickCycles);
       final n = noise.synth(tickCycles);
-      final d = synthDPCM(tickCycles);
+      final d = dpcm.synth(tickCycles);
 
       for (int i = 0; i < tickCycles; i++) {
         final pulseOut = pulseOutTable[p0[i] + p1[i]];
@@ -462,11 +592,5 @@ class Apu {
     if (frameCountTick == (frameCounterMode0 ? 4 : 5)) {
       frameCountTick = 0;
     }
-  }
-
-  Int8List synthDPCM(int cycles) {
-    final buf = Int8List(cycles);
-    buf.fillRange(0, buf.length, 0);
-    return buf;
   }
 }
