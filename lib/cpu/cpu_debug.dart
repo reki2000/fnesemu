@@ -6,15 +6,58 @@ import 'cpu.dart';
 import 'disasm.dart';
 import 'util.dart';
 
+class RingBuffer {
+  final _buf = List.filled(3, "");
+  int _index = 0;
+  bool _skipped = false;
+  bool _recovered = false;
+
+  void _add(String item) {
+    _buf[_index] = item;
+    _index++;
+    if (_index == _buf.length) {
+      _index = 0;
+    }
+  }
+
+  bool addOnlyNewItem(String item) {
+    if (!_buf.contains(item)) {
+      _add(item);
+      if (_skipped) {
+        _recovered = true;
+      } else {
+        _recovered = false;
+      }
+      _skipped = false;
+      return true;
+    }
+    _recovered = false;
+    _skipped = true;
+    return false;
+  }
+
+  bool get recovered => _recovered;
+}
+
 extension CpuDebugger on Cpu {
   static String _debugLog = "";
+  static final ringBuffer = RingBuffer();
 
   static void clearDebugLog() {
     _debugLog = "";
   }
 
   void debugLog() {
-    _debugLog += dumpNesTest() + "\n";
+    final log = dumpNesTest();
+    // check redundancy of the first 73 chars which represents the CPU state
+    // C78C  10 FB     BPL $C789                       A:00 X:00 Y:00 P:32 SP:FD
+    final state = log.substring(0, 74);
+    if (ringBuffer.addOnlyNewItem(state)) {
+      if (ringBuffer.recovered) {
+        _debugLog += "...supress...\n";
+      }
+      _debugLog += log + "\n";
+    }
   }
 
   String dumpDebugLog() {
@@ -46,8 +89,8 @@ extension CpuDebugger on Cpu {
     final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
     final ppuHorizontalCycle = (ppuCycle % 341).toString().padLeft(3, " ");
 
-    return "$asm $reg PPU:$ppuScanline,$ppuHorizontalCycle CYC:$cycle"
-        .toUpperCase();
+    final result = "$asm $reg PPU:$ppuScanline,$ppuHorizontalCycle CYC:$cycle";
+    return result.toUpperCase();
   }
 
   String dump(
