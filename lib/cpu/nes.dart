@@ -22,6 +22,7 @@ class Nes {
 
   int breakpoint = 0;
   bool forceBreak = false;
+  bool enableDebugLog = false;
 
   Nes() {
     ppu = Ppu();
@@ -38,9 +39,8 @@ class Nes {
     final cpuDump = cpu.dump(showRegs: true);
     final dump = "${cpuDump.substring(0, 48)}\n"
         "${cpuDump.substring(48)}\n"
-        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}\n"
-        "${fps.toStringAsFixed(2)}fps\n"
-        "${ppu.dump(showSpriteVram: showSpriteVram)}\n"
+        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
+        "${ppu.dump(showSpriteVram: showSpriteVram)}"
         "${showApu ? apu.dump() : ""}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';
@@ -73,6 +73,9 @@ class Nes {
 
   void execStep() async {
     cpu.exec();
+    if (enableDebugLog) {
+      cpu.debugLog();
+    }
     renderVideo(ppu.buffer);
     renderAudio(apu.buffer);
   }
@@ -87,6 +90,9 @@ class Nes {
       }
       if (!cpu.exec()) {
         forceBreak = true;
+      }
+      if (enableDebugLog) {
+        cpu.debugLog();
       }
     }
     ppu.exec();
@@ -106,6 +112,9 @@ class Nes {
         }
         if (!cpu.exec()) {
           forceBreak = true;
+        }
+        if (enableDebugLog) {
+          cpu.debugLog();
         }
       }
       ppu.exec();
