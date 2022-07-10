@@ -73,7 +73,6 @@ class _NesWidgetState extends State<NesWidget> {
   @override
   void initState() {
     super.initState();
-    _focusNode.requestFocus();
     nes.renderVideo = renderVideo;
   }
 
@@ -91,6 +90,7 @@ class _NesWidgetState extends State<NesWidget> {
 
   @override
   Widget build(BuildContext ctx) {
+    _focusNode.requestFocus();
     return Column(
       children: [
         keyListener(
