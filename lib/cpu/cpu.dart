@@ -600,7 +600,7 @@ class Cpu {
         break;
 
       default:
-        log("unimplemented opcode: ${hex8(op)}\n");
+        log("unimplemented opcode: ${hex8(op)} at ${hex16(regs.PC)}\n");
         return false;
     }
 
