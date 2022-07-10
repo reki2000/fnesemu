@@ -12,7 +12,7 @@ class Mapper {
     return 0xff;
   }
 
-  void writeVram(int add, int data) {}
+  void writeVram(int addr, int data) {}
 
   late final List<Uint8List> _programRoms;
   late final List<Uint8List> _charRoms;
@@ -34,7 +34,7 @@ class Mapper0 extends Mapper {
   @override
   void init() {
     if (_programRoms.length > 1) {
-      _highMemBank = 1;
+      _highMemBank = _programRoms.length - 1;
     }
   }
 
@@ -71,5 +71,41 @@ class Mapper3 extends Mapper0 {
   @override
   int readVram(int addr) {
     return _charBank[addr & 0x1fff];
+  }
+}
+
+class Mapper2 extends Mapper0 {
+  static final _emptyBank = Uint8List(1024 * 16);
+  Uint8List _progBank = _emptyBank;
+  final Uint8List _vram = Uint8List(1024 * 8);
+
+  @override
+  void write(int addr, int data) {
+    if (addr & 0x8000 == 0x8000) {
+      _progBank = _programRoms[data & 0x0f];
+    }
+  }
+
+  @override
+  int read(int addr) {
+    final bank = addr & 0xc000;
+    final offset = addr & 0x3fff;
+    if (bank == 0x8000) {
+      return _progBank[offset];
+    } else if (bank == 0xc000) {
+      return _programRoms[_highMemBank][offset];
+    }
+
+    return 0xff;
+  }
+
+  @override
+  int readVram(int addr) {
+    return _vram[addr & 0x1fff];
+  }
+
+  @override
+  void writeVram(int addr, int data) {
+    _vram[addr & 0x1fff] = data & 0xff;
   }
 }
