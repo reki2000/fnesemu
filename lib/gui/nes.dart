@@ -13,6 +13,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../cpu/joypad.dart';
 import '../cpu/nes.dart';
 
+final nes = Nes();
+
+final debugStyle = GoogleFonts.robotoMono(fontSize: 12);
+
 Widget keyListener(
     {required BuildContext context,
     required Widget child,
@@ -64,6 +68,7 @@ class NesWidget extends StatefulWidget {
 class _NesWidgetState extends State<NesWidget> {
   ui.Image? screenImage;
   final _focusNode = FocusNode();
+  bool _showDebugView = false;
 
   @override
   void initState() {
@@ -95,12 +100,22 @@ class _NesWidgetState extends State<NesWidget> {
               color: Colors.black,
               child: RawImage(image: screenImage, scale: 0.5)),
         ),
-        Text(nes.dump(showZeroPage: true, showStack: true), style: debugStyle),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Checkbox(
+              value: _showDebugView,
+              onChanged: (on) => setState(() {
+                    _showDebugView = on ?? false;
+                  })),
+          Text("${nes.fps.toStringAsFixed(2)} fps"),
+        ]),
+        if (_showDebugView)
+          Text(
+              nes.dump(
+                showZeroPage: true,
+                showStack: true,
+              ),
+              style: debugStyle),
       ],
     );
   }
 }
-
-final nes = Nes();
-
-final debugStyle = GoogleFonts.robotoMono(fontSize: 12);

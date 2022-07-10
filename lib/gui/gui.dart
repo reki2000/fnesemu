@@ -11,7 +11,6 @@ import 'package:fnesemu/cpu/cpu_debug.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 // Project imports:
-import '../cpu/bus_debug.dart';
 import 'debug/debug_log.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
@@ -46,6 +45,8 @@ class _MainViewState extends State<MainView> {
 
   String _romName = "";
 
+  bool showDebugView = false;
+
   @override
   void initState() {
     super.initState();
@@ -62,8 +63,26 @@ class _MainViewState extends State<MainView> {
     setState(() {});
   }
 
+  void _reset() async {
+    _mPlayer.stop();
+    nes.reset();
+    CpuDebugger.clearDebugLog();
+  }
+
+  void _setFile() async {
+    final picked = await FilePicker.platform.pickFiles();
+    if (picked != null) {
+      _reset();
+      nes.setRom(picked.files.first.bytes!);
+      setState(() {
+        _romName = picked.files.first.name;
+      });
+    }
+  }
+
   Widget _button(String text, void Function() func) => Container(
-      margin: const EdgeInsets.all(5.0),
+      margin:
+          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
       child: ElevatedButton(child: Text(text), onPressed: func));
 
   @override
@@ -75,17 +94,8 @@ class _MainViewState extends State<MainView> {
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
+          const NesWidget(),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(_romName),
-            _button("File", () async {
-              final picked = await FilePicker.platform.pickFiles();
-              if (picked != null) {
-                nes.setRom(picked.files.first.bytes!);
-                setState(() {
-                  _romName = picked.files.first.name;
-                });
-              }
-            }),
             _button("Run", () async {
               await _mPlayer.resume();
               nes.run();
@@ -94,19 +104,10 @@ class _MainViewState extends State<MainView> {
               _mPlayer.stop();
               nes.stop();
             }),
-            _button("Reset", () async {
-              _mPlayer.stop();
-              nes.reset();
-              CpuDebugger.clearDebugLog();
-            }),
-            Checkbox(
-                value: nes.enableDebugLog,
-                onChanged: (on) {
-                  nes.enableDebugLog = on ?? false;
-                  setState(() {});
-                }),
+            _button("Reset", _reset),
+            _button("File", _setFile),
+            Text(_romName),
           ]),
-          const NesWidget(),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             _button("Step", nes.execStep),
             _button("Line", nes.execLine),
@@ -119,6 +120,11 @@ class _MainViewState extends State<MainView> {
             _button("Disasm", () => showDisasm(context, nes.breakpoint)),
             _button("VRAM", () => showVram(context)),
             _button("Log", () => showDebugLog(context)),
+            Checkbox(
+                value: nes.enableDebugLog,
+                onChanged: (on) => setState(() {
+                      nes.enableDebugLog = on ?? false;
+                    })),
           ]),
         ],
       ),
