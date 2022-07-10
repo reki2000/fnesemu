@@ -248,6 +248,7 @@ class Apu {
   bool dpcmEnabled = false;
 
   bool frameIRQHold = false;
+  bool frameIRQEnabled = false;
 
   void write(int reg, int val) {
     switch (reg) {
@@ -338,8 +339,10 @@ class Apu {
       case 0x4017:
         frameCounterMode0 = (val & 0x80) == 0;
         if ((val & 0x40) != 0) {
-          frameIRQHold = false;
-          bus.releaseIRQ();
+          frameIRQEnabled = false;
+          releaseFrameIRQ();
+        } else {
+          frameIRQEnabled = true;
         }
         frameCountTick = 0;
         return;
@@ -357,8 +360,7 @@ class Apu {
             (pulse1.lengthCounter > 0 ? 0x02 : 0) |
             (triangle.lengthCounter > 0 ? 0x04 : 0) |
             (noise.lengthCounter > 0 ? 0x08 : 0);
-        frameIRQHold = false;
-        bus.releaseIRQ();
+        releaseFrameIRQ();
         return result;
 
       case 0x4017:
@@ -366,6 +368,18 @@ class Apu {
       default:
         log("Unsupported apu read at 0x${hex16(reg)}");
         return 0;
+    }
+  }
+
+  void releaseFrameIRQ() {
+    frameIRQHold = false;
+    bus.releaseIRQ();
+  }
+
+  void setFrameIRQ() {
+    if (frameIRQEnabled) {
+      frameIRQHold = true;
+      bus.holdIRQ();
     }
   }
 
@@ -433,8 +447,7 @@ class Apu {
         countLength();
       }
       if (frameCountTick == 3) {
-        frameIRQHold = true;
-        bus.holdIRQ();
+        setFrameIRQ();
       }
     } else {
       if (frameCountTick != 3) {
