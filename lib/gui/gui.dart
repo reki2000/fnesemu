@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
@@ -44,23 +43,12 @@ class _MainViewState extends State<MainView> {
   final _mPlayer = getSoundPlayerInstance();
 
   String _romName = "";
-
-  bool showDebugView = false;
+  bool isRunning = false;
 
   @override
   void initState() {
     super.initState();
     nes.renderAudio = (Float32List buf) async => _mPlayer.push(buf);
-    //setRomFile("hello.nes");
-  }
-
-  void setRomFile(String rom) async {
-    nes.stop();
-    _romName = rom;
-    final body = await rootBundle.load("rom/$rom");
-    nes.setRom(Uint8List.sublistView(body));
-
-    setState(() {});
   }
 
   void _reset() async {
@@ -74,6 +62,7 @@ class _MainViewState extends State<MainView> {
     if (picked != null) {
       _reset();
       nes.setRom(picked.files.first.bytes!);
+
       setState(() {
         _romName = picked.files.first.name;
       });
@@ -96,13 +85,20 @@ class _MainViewState extends State<MainView> {
         children: <Widget>[
           const NesWidget(),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _button("Run", () async {
-              await _mPlayer.resume();
-              nes.run();
-            }),
-            _button("Stop", () async {
-              _mPlayer.stop();
-              nes.stop();
+            _button(isRunning ? "Stop" : "Run", () async {
+              if (isRunning) {
+                _mPlayer.stop();
+                nes.stop();
+                setState(() {
+                  isRunning = false;
+                });
+              } else {
+                await _mPlayer.resume();
+                nes.run();
+                setState(() {
+                  isRunning = true;
+                });
+              }
             }),
             _button("Reset", _reset),
             _button("File", _setFile),
@@ -140,7 +136,7 @@ Widget _versionText() => FutureBuilder<PackageInfo>(
             return Align(
               alignment: Alignment.bottomCenter,
               child: Text(
-                ' ${snapshot.data!.version}-${snapshot.data!.buildNumber}',
+                ' ${snapshot.data!.version}',
               ),
             );
           default:
