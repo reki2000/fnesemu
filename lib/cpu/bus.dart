@@ -85,9 +85,11 @@ class Bus {
       final src = data << 8;
       ppu.onDMA(ram.sublist(src, src + 256));
       cpu.cycle += 514;
-    } else if (addr == 0x4016 || addr == 0x4017) {
+    } else if (addr == 0x4016) {
       joypad.write(addr, data);
-    } else if ((0x4000 <= addr && addr <= 0x4013) || addr == 0x4015) {
+    } else if ((0x4000 <= addr && addr <= 0x4013) ||
+        addr == 0x4015 ||
+        addr == 0x4017) {
       apu.write(addr, data);
     } else {
       mapper.write(addr, data);
