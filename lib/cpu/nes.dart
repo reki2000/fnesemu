@@ -39,9 +39,8 @@ class Nes {
     final cpuDump = cpu.dump(showRegs: true);
     final dump = "${cpuDump.substring(0, 48)}\n"
         "${cpuDump.substring(48)}\n"
-        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}\n"
-        "${fps.toStringAsFixed(2)}fps\n"
-        "${ppu.dump(showSpriteVram: showSpriteVram)}\n"
+        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
+        "${ppu.dump(showSpriteVram: showSpriteVram)}"
         "${showApu ? apu.dump() : ""}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';

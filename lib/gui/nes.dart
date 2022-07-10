@@ -106,6 +106,8 @@ class _NesWidgetState extends State<NesWidget> {
               onChanged: (on) => setState(() {
                     _showDebugView = on ?? false;
                   })),
+          const Text("Debug Info"),
+          const SizedBox(width: 30.0),
           Text("${nes.fps.toStringAsFixed(2)} fps"),
         ]),
         if (_showDebugView)
@@ -113,6 +115,7 @@ class _NesWidgetState extends State<NesWidget> {
               nes.dump(
                 showZeroPage: true,
                 showStack: true,
+                showApu: true,
               ),
               style: debugStyle),
       ],
