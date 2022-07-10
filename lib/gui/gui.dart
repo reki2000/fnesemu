@@ -7,10 +7,10 @@ import 'package:flutter/services.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
-import 'package:fnesemu/cpu/cpu_debug.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 // Project imports:
+import '../cpu/cpu_debug.dart';
 import 'debug/debug_log.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
