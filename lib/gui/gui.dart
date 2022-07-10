@@ -58,7 +58,7 @@ class _MainViewState extends State<MainView> {
   }
 
   void _setFile() async {
-    final picked = await FilePicker.platform.pickFiles();
+    final picked = await FilePicker.platform.pickFiles(withData: true);
     if (picked != null) {
       _reset();
       nes.setRom(picked.files.first.bytes!);
