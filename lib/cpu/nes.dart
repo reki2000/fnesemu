@@ -157,5 +157,3 @@ class Nes {
     cpu.reset();
   }
 }
-
-class UInt8List {}

@@ -66,29 +66,31 @@ class NesWidget extends StatefulWidget {
 }
 
 class _NesWidgetState extends State<NesWidget> {
-  ui.Image? screenImage;
   final _focusNode = FocusNode();
   bool _showDebugView = false;
+  ui.Image? screenImage;
 
   @override
   void initState() {
     super.initState();
-    nes.renderVideo = (Uint8List buf) async => renderVideo(buf);
+    _focusNode.requestFocus();
+    nes.renderVideo = renderVideo;
   }
 
-  void renderVideo(Uint8List buf) async {
-    ui.decodeImageFromPixels(buf, 256, 240, ui.PixelFormat.rgba8888, (image) {
-      setState(() {
-        screenImage?.dispose();
-        screenImage = image;
-      });
+  Future<void> renderVideo(Uint8List buf) async {
+    ui.decodeImageFromPixels(
+        buf, 256, 240, ui.PixelFormat.rgba8888, _updateImage);
+  }
+
+  void _updateImage(ui.Image image) {
+    setState(() {
+      screenImage?.dispose();
+      screenImage = image;
     });
   }
 
   @override
   Widget build(BuildContext ctx) {
-    _focusNode.requestFocus();
-
     return Column(
       children: [
         keyListener(
