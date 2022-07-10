@@ -40,10 +40,12 @@ class Mapper0 extends Mapper {
 
   @override
   int read(int addr) {
-    if (0x8000 < addr && addr < 0xc000) {
-      return _programRoms[0][addr - 0x8000];
-    } else if (0xc000 <= addr && addr < 0x10000) {
-      return _programRoms[_highMemBank][addr - 0xc000];
+    final bank = addr & 0xc000;
+    final offset = addr & 0x3fff;
+    if (bank == 0x8000) {
+      return _programRoms[0][offset];
+    } else if (bank == 0xc000) {
+      return _programRoms[_highMemBank][offset];
     }
 
     return 0xff;
@@ -51,53 +53,23 @@ class Mapper0 extends Mapper {
 
   @override
   int readVram(int addr) {
-    if (0x0000 < addr && addr < 0x2000) {
-      return _charRoms[0][addr];
-    }
-    return 0xff;
+    return _charRoms[0][addr & 0x1fff];
   }
 }
 
-class Mapper3 extends Mapper {
+class Mapper3 extends Mapper0 {
   static final _emptyBank = Uint8List(1024 * 8);
-
   Uint8List _charBank = _emptyBank;
-  int _highMemBank = 0;
-
-  @override
-  void init() {
-    if (_programRoms.length > 1) {
-      _highMemBank = 1;
-    }
-  }
-
-  @override
-  int read(int addr) {
-    if (0x8000 < addr && addr < 0xc000) {
-      return _programRoms[1][addr - 0x8000];
-    } else if (0xc000 <= addr && addr < 0x10000) {
-      return _programRoms[_highMemBank][addr - 0xc000];
-    }
-
-    return 0xff;
-  }
 
   @override
   void write(int addr, int data) {
-    if (0x8000 < addr && addr < 0x10000) {
-      if (data < _charRoms.length) {
-        _charBank = _charRoms[data];
-      } else {
-        _charBank = _emptyBank;
-      }
+    if (addr & 0x8000 == 0x8000) {
+      _charBank = _charRoms[data & 0x03];
     }
   }
 
   @override
   int readVram(int addr) {
-    if (0x0000 <= addr && addr < 0x2000) {
-      _charBank[addr];
-    }
-    return 0xff;
+    return _charBank[addr & 0x1fff];
   }
 }
