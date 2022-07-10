@@ -66,29 +66,17 @@ class NesWidget extends StatefulWidget {
 }
 
 class _NesWidgetState extends State<NesWidget> {
-  ui.Image? screenImage;
   final _focusNode = FocusNode();
   bool _showDebugView = false;
 
   @override
   void initState() {
     super.initState();
-    nes.renderVideo = (Uint8List buf) async => renderVideo(buf);
-  }
-
-  void renderVideo(Uint8List buf) async {
-    ui.decodeImageFromPixels(buf, 256, 240, ui.PixelFormat.rgba8888, (image) {
-      setState(() {
-        screenImage?.dispose();
-        screenImage = image;
-      });
-    });
+    _focusNode.requestFocus();
   }
 
   @override
   Widget build(BuildContext ctx) {
-    _focusNode.requestFocus();
-
     return Column(
       children: [
         keyListener(
@@ -98,7 +86,7 @@ class _NesWidgetState extends State<NesWidget> {
               width: 512,
               height: 480,
               color: Colors.black,
-              child: RawImage(image: screenImage, scale: 0.5)),
+              child: _NesImageWidget()),
         ),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Checkbox(
@@ -120,5 +108,37 @@ class _NesWidgetState extends State<NesWidget> {
               style: debugStyle),
       ],
     );
+  }
+}
+
+class _NesImageWidget extends StatefulWidget {
+  @override
+  State<_NesImageWidget> createState() => _NesImageWidgetState();
+}
+
+class _NesImageWidgetState extends State<_NesImageWidget> {
+  ui.Image? screenImage;
+
+  @override
+  void initState() {
+    super.initState();
+    nes.renderVideo = renderVideo;
+  }
+
+  Future<void> renderVideo(Uint8List buf) async {
+    ui.decodeImageFromPixels(
+        buf, 256, 240, ui.PixelFormat.rgba8888, _updateImage);
+  }
+
+  void _updateImage(ui.Image image) {
+    setState(() {
+      screenImage?.dispose();
+      screenImage = image;
+    });
+  }
+
+  @override
+  Widget build(BuildContext ctx) {
+    return RawImage(image: screenImage, scale: 0.5);
   }
 }
