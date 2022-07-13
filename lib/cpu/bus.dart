@@ -102,4 +102,7 @@ class Bus {
 
   void holdIRQ() => cpu.holdIRQ();
   void releaseIRQ() => cpu.releaseIRQ();
+
+  void onScanLine() => mapper.onScanLine(holdIRQ);
+  void onVblank() => mapper.onVblank();
 }
