@@ -60,6 +60,9 @@ class Nes {
       case 3:
         bus.mapper = Mapper3();
         break;
+      case 4:
+        bus.mapper = Mapper4();
+        break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
         return;

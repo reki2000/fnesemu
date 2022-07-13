@@ -29,8 +29,7 @@ class NesFile {
       offset += 512;
     }
     for (var i = 0; i < programRomLength; i++) {
-      program.add(Uint8List.fromList(
-          body.getRange(offset, offset + 16 * 1024).toList(growable: false)));
+      program.add(body.sublist(offset, offset + 16 * 1024));
       offset += 16 * 1024;
     }
 
@@ -41,8 +40,7 @@ class NesFile {
         character.add(Uint8List.fromList(padded));
         break;
       }
-      character.add(Uint8List.fromList(
-          body.getRange(offset, offset + 8 * 1024).toList(growable: false)));
+      character.add(body.sublist(offset, offset + 8 * 1024));
       offset += 8 * 1024;
     }
   }
