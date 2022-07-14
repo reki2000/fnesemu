@@ -5,7 +5,7 @@ import 'dart:developer';
 import 'apu.dart';
 import 'cpu.dart';
 import 'joypad.dart';
-import 'mapper.dart';
+import 'mapper/mapper.dart';
 import 'ppu.dart';
 
 class Bus {

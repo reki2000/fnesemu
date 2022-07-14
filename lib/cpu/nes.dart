@@ -10,7 +10,8 @@ import 'apu_debug.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_debug.dart';
-import 'mapper.dart';
+import 'mapper/mapper.dart';
+import 'mapper/mapper1.dart';
 import 'ppu.dart';
 import 'ppu_debug.dart';
 
@@ -53,6 +54,9 @@ class Nes {
     switch (nesFile.mapper) {
       case 0:
         bus.mapper = Mapper0();
+        break;
+      case 1:
+        bus.mapper = Mapper1();
         break;
       case 2:
         bus.mapper = Mapper2();
