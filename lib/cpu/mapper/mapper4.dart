@@ -1,122 +1,10 @@
 // Dart imports:
-import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu/cpu/util.dart';
+// Project imports:
+import 'mapper.dart';
 
-class Mapper {
-  int read(int addr) {
-    return 0xff;
-  }
-
-  void write(int addr, int data) {}
-
-  int readVram(int addr) {
-    return 0xff;
-  }
-
-  void writeVram(int addr, int data) {}
-
-  late final List<Uint8List> _programRoms;
-  late final List<Uint8List> _charRoms;
-
-  void loadProgramRom(List<Uint8List> roms) {
-    _programRoms = roms;
-  }
-
-  void loadCharRom(List<Uint8List> roms) {
-    _charRoms = roms;
-  }
-
-  void init() {}
-
-  void onScanLine(void Function() irqCallback) {}
-  void onVblank() {}
-}
-
-class Mapper0 extends Mapper {
-  int _highMemBank = 0;
-
-  @override
-  void init() {
-    if (_programRoms.length > 1) {
-      _highMemBank = _programRoms.length - 1;
-    }
-  }
-
-  @override
-  int read(int addr) {
-    final bank = addr & 0xc000;
-    final offset = addr & 0x3fff;
-    if (bank == 0x8000) {
-      return _programRoms[0][offset];
-    } else if (bank == 0xc000) {
-      return _programRoms[_highMemBank][offset];
-    }
-
-    return 0xff;
-  }
-
-  @override
-  int readVram(int addr) {
-    return _charRoms[0][addr & 0x1fff];
-  }
-}
-
-class Mapper3 extends Mapper0 {
-  static final _emptyBank = Uint8List(1024 * 8);
-  Uint8List _charBank = _emptyBank;
-
-  @override
-  void write(int addr, int data) {
-    if (addr & 0x8000 == 0x8000) {
-      _charBank = _charRoms[data & 0x03];
-    }
-  }
-
-  @override
-  int readVram(int addr) {
-    return _charBank[addr & 0x1fff];
-  }
-}
-
-class Mapper2 extends Mapper0 {
-  static final _emptyBank = Uint8List(1024 * 16);
-  Uint8List _progBank = _emptyBank;
-  final Uint8List _vram = Uint8List(1024 * 8);
-
-  @override
-  void write(int addr, int data) {
-    if (addr & 0x8000 == 0x8000) {
-      _progBank = _programRoms[data & 0x0f];
-    }
-  }
-
-  @override
-  int read(int addr) {
-    final bank = addr & 0xc000;
-    final offset = addr & 0x3fff;
-    if (bank == 0x8000) {
-      return _progBank[offset];
-    } else if (bank == 0xc000) {
-      return _programRoms[_highMemBank][offset];
-    }
-
-    return 0xff;
-  }
-
-  @override
-  int readVram(int addr) {
-    return _vram[addr & 0x1fff];
-  }
-
-  @override
-  void writeVram(int addr, int data) {
-    _vram[addr & 0x1fff] = data & 0xff;
-  }
-}
-
-// MMC : Mapper4
+// https://www.nesdev.org/wiki/MMC3
 class Mapper4 extends Mapper {
   int _r = 0;
 
@@ -147,7 +35,7 @@ class Mapper4 extends Mapper {
 
   @override
   void init() {
-    for (final char8k in _charRoms) {
+    for (final char8k in charRoms) {
       for (int i = 0; i < 8 * 1024; i += 1024) {
         _chrRom1K.add(char8k.sublist(i, i + 1024));
       }
@@ -155,7 +43,7 @@ class Mapper4 extends Mapper {
     _chrBank[0] = _chrBank1K;
     _chrBank[1] = _chrBank2K;
 
-    for (final prog16k in _programRoms) {
+    for (final prog16k in programRoms) {
       for (int i = 0; i < 16 * 1024; i += 8 * 1024) {
         _progRom8K.add(prog16k.sublist(i, i + 8 * 1024));
       }
@@ -173,7 +61,7 @@ class Mapper4 extends Mapper {
     final reg = addr & 0xe000;
     final isOdd = addr & 1 == 1;
     if (reg == 0x6000 && _ramEnabled && _ramWriteEnabled) {
-      _ram[reg & 0x1fff] = data;
+      _ram[addr & 0x1fff] = data;
     } else if (reg == 0x8000) {
       if (isOdd) {
         switch (_r) {
@@ -261,7 +149,6 @@ class Mapper4 extends Mapper {
       _irqCounter--;
       if (_irqCounter == 0) {
         if (_irqEnabled) {
-          log("irq");
           irqCallback();
         }
       }
