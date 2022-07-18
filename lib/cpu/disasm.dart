@@ -118,18 +118,18 @@ void setupDisasm() {
 }
 
 String disasm(final int pc, int op, int a, int b) {
-  final val = _ops[op];
-  if (val == null) {
-    return "---";
-  }
-
-  final inst = val[0];
-  var set = "";
-
   final addr = hex16(pc);
   final x = hex8(op);
   final y = hex8(a);
   final z = hex8(b);
+
+  final val = _ops[op];
+  if (val == null) {
+    return "$addr  $x        ---";
+  }
+
+  final inst = val[0];
+  var set = "";
 
   final rel = pc + 2 + ((a + 128) & 0xff) - 128;
 

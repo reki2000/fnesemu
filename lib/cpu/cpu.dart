@@ -36,18 +36,18 @@ class Cpu {
     setupDisasm();
   }
 
-  void onNMI() {
+  void onNmi() {
     interrupt(nmi: true);
   }
 
-  var _holdIRQ = false;
+  var _holdIrq = false;
 
-  void holdIRQ() {
-    _holdIRQ = true;
+  void holdIrq() {
+    _holdIrq = true;
   }
 
-  void releaseIRQ() {
-    _holdIRQ = false;
+  void releaseIrq() {
+    _holdIrq = false;
   }
 
   int cycle = 0;
@@ -503,7 +503,7 @@ class Cpu {
         final addr = pop() | (pop() << 8);
         regs.PC = addr;
         cycle += 6;
-        _assertInterrupt = false;
+        _assertIrq = false;
         break;
 
       // BCC
@@ -604,17 +604,18 @@ class Cpu {
         return false;
     }
 
-    if (_assertInterrupt) {
-      _assertInterrupt = false;
+    if (_assertIrq) {
+      _assertIrq = false;
+      _holdIrq = false;
       interrupt();
     }
-    if (_holdIRQ && (regs.P & Flags.I) == 0) {
-      _assertInterrupt = true;
+    if (_holdIrq && (regs.P & Flags.I) == 0) {
+      _assertIrq = true;
     }
     return true;
   }
 
-  bool _assertInterrupt = false;
+  bool _assertIrq = false;
 
   void interrupt({bool brk = false, bool nmi = false}) {
     push(regs.PC >> 8);

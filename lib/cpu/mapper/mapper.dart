@@ -1,22 +1,18 @@
 // Dart imports:
 import 'dart:typed_data';
 
-export 'mapper0.dart';
-export 'mapper1.dart';
-export 'mapper2.dart';
-export 'mapper3.dart';
-export 'mapper4.dart';
+export 'nrom.dart';
+export 'mmc1.dart';
+export 'uxrom.dart';
+export 'cnrom.dart';
+export 'mmc3.dart';
 
 class Mapper {
-  int read(int addr) {
-    return 0xff;
-  }
+  int read(int addr) => 0xff;
 
   void write(int addr, int data) {}
 
-  int readVram(int addr) {
-    return 0xff;
-  }
+  int readVram(int addr) => 0xff;
 
   void writeVram(int addr, int data) {}
 
@@ -33,6 +29,9 @@ class Mapper {
 
   void init() {}
 
-  void onScanLine(void Function() irqCallback) {}
-  void onVblank() {}
+  void Function(bool) holdIrq = ((_) {});
+
+  void Function(bool) mirrorVertical = ((_) {});
+
+  String dump() => "rom: ";
 }
