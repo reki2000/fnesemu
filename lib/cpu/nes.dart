@@ -74,7 +74,6 @@ class Nes {
 
     bus.mapper.loadProgramRom(nesFile.program);
     bus.mapper.loadCharRom(nesFile.character);
-    bus.mapper.init();
 
     bus.mirrorVertical(nesFile.mirrorVertical);
     bus.mapper.mirrorVertical = bus.mirrorVertical;
