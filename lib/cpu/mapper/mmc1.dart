@@ -1,7 +1,9 @@
 // Dart imports:
+import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import '../util.dart';
 import 'mapper.dart';
 
 // MMC1
@@ -19,7 +21,6 @@ class MapperMMC1 extends Mapper {
   bool _ramEnabled = true;
   int _ramBank = 0;
 
-  //final List<Uint8List> _chrRom4K = List.empty(growable: true);
   final _vram4k =
       List.generate(2, (_) => Uint8List.fromList(List.filled(4 * 1024, 0)));
 
@@ -27,7 +28,8 @@ class MapperMMC1 extends Mapper {
   final _chrBank = [0, 1];
 
   // cpu 2 x 16k banks (8000-bfff, c000-ffff)
-  final _progBank = [0, 1];
+  final _prgBank = [0, 1];
+  int _prgBank0 = 0;
 
   @override
   void init() {
@@ -36,6 +38,9 @@ class MapperMMC1 extends Mapper {
     //     _chrRom4K.add(char8k.sublist(i, i + 4 * 1024));
     //   }
     // }
+    _prgBank0 = 0;
+    _prgBank[0] = _prgBank0;
+    _prgBank[1] = programRoms.length - 1;
   }
 
   @override
@@ -43,89 +48,144 @@ class MapperMMC1 extends Mapper {
     final bank = addr & 0xe000;
 
     // ram
-    if (bank == 0x6000 && _ramEnabled) {
-      _ram8k[_ramBank][addr & 0x1fff] = data;
+    if (bank == 0x6000) {
+      if (_ramEnabled) {
+        _ram8k[_ramBank][addr & 0x1fff] = data;
+      }
       return;
     }
 
     // shift register reset
-    if (data & 0x80 != 0) {
+    if (bit7(data)) {
       _counter = 0;
       _shiftReg = 0;
-      _progBank[1] = programRoms.length - 1;
+      _prgBank[1] = programRoms.length - 1;
       return;
     }
 
     // shift register write
-    _shiftReg <<= 1;
-    _shiftReg |= data & 0x01;
+    _shiftReg >>= 1;
+    _shiftReg |= ((data & 0x01) << 4);
     _counter++;
 
     // the fifth write to control
     if (_counter == 5) {
       switch (bank) {
         case 0x8000:
-          _chrBank4k = _shiftReg & 0x10 != 0;
+          _chrBank4k = bit4(_shiftReg);
+          if (!_chrBank4k) {
+            _chrBank[0] = 0;
+            _chrBank[1] = 1;
+          }
+
           _prgBankMode = (_shiftReg >> 2) & 0x03;
-          switch (_prgBankMode) {
+          _setPrgBank();
+
+          _mirroring = _shiftReg & 0x03;
+          switch (_mirroring) {
             case 2:
-              _progBank[0] = 0;
+              mirrorVertical(true);
               break;
             case 3:
-              _progBank[1] = programRoms.length - 1;
+              mirrorVertical(false);
               break;
           }
-          _mirroring = _shiftReg & 0x03;
           break;
+
         case 0xa000:
           if (_chrBank4k) {
             _chrBank[0] = _shiftReg & 0x01;
           }
-          _ramBank = (_shiftReg >> 1) & 0x03;
+
+          // S[OUX]ROM supports RAM
+          _ramBank = (_shiftReg >> 2) & 0x03;
+
+          // 256KB bank
+          if (bit4(_shiftReg) && programRoms.length == 32) {
+            _prgBank0 |= 0x10;
+          } else {
+            _prgBank0 &= ~0x10;
+          }
+          _setPrgBank();
           break;
+
         case 0xc000:
           if (_chrBank4k) {
             _chrBank[1] = _shiftReg & 0x01;
+
+            // S[OUX]ROM supports RAM
+            _ramBank = (_shiftReg >> 2) & 0x03;
+
+            // 256KB bank
+            if (bit4(_shiftReg) && programRoms.length == 32) {
+              _prgBank0 |= 0x10;
+            } else {
+              _prgBank0 &= ~0x10;
+            }
+            _setPrgBank();
           }
-          _ramBank = (_shiftReg >> 1) & 0x03;
           break;
+
         case 0xe000:
-          _ramEnabled = _shiftReg & 0x10 == 0;
+          _ramEnabled = !bit4(_shiftReg);
+
           switch (_prgBankMode) {
             case 0:
             case 1:
-              _progBank[0] = _shiftReg & 0x0e;
-              _progBank[1] = (_shiftReg & 0x0e) + 1;
+              _prgBank0 = _shiftReg & 0x0e;
+              _setPrgBank();
               break;
             case 2:
-              _progBank[1] = _shiftReg & 0x0f;
-              break;
             case 3:
-              _progBank[0] = _shiftReg & 0x0f;
+              _prgBank0 = _shiftReg & 0x0f;
+              _setPrgBank();
               break;
           }
           break;
       }
+
       _shiftReg = 0;
       _counter = 0;
     }
   }
 
+  void _setPrgBank() {
+    switch (_prgBankMode) {
+      case 0:
+      case 1:
+        _prgBank[0] = _prgBank0;
+        _prgBank[1] = _prgBank0 + 1;
+        break;
+      case 2:
+        _prgBank[0] = 0;
+        _prgBank[1] = _prgBank0;
+        break;
+      case 3:
+        _prgBank[0] = _prgBank0;
+        _prgBank[1] = programRoms.length - 1;
+        break;
+    }
+  }
+
   @override
   int read(int addr) {
-    if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? _ram8k[_ramBank][addr & 0x1fff] : 0xff;
-    }
-
-    final bank = addr >> 14;
+    final bank = addr & 0xe000;
     final offset = addr & 0x3fff;
 
     switch (bank) {
-      case 2:
-        return programRoms[_progBank[0]][offset];
-      case 3:
-        return programRoms[_progBank[1]][offset];
+      case 0x6000:
+        return _ramEnabled ? _ram8k[_ramBank][addr & 0x1fff] : 0xff;
+
+      case 0x8000:
+      case 0xa000:
+        return programRoms[_prgBank[0]][offset];
+
+      case 0xc000:
+      case 0xe000:
+        return programRoms[_prgBank[1]][offset];
     }
+
+    log("mmc1: invalid addr: ${hex16(addr)}");
     return 0xff;
   }
 
@@ -141,5 +201,18 @@ class MapperMMC1 extends Mapper {
     final bank = (addr >> 12) & 0x1;
     final offset = addr & 0x0fff;
     _vram4k[_chrBank[bank]][offset] = data & 0xff;
+  }
+
+  @override
+  String dump() {
+    final range0_1 = range(0, 2);
+
+    final chrBanks = range0_1.map((i) => hex8(_chrBank[i])).toList().join(" ");
+    final prgBanks = range0_1.map((i) => hex8(_prgBank[i])).toList().join(" ");
+    final ramBank = hex8(_ramBank);
+
+    return "rom: "
+        "chr:${_chrBank4k ? '4k' : '8k'} $chrBanks prg:mode$_prgBankMode $prgBanks ram:${_ramEnabled ? '*' : '-'} $ramBank"
+        "\n";
   }
 }
