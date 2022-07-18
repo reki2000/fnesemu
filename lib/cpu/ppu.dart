@@ -177,7 +177,6 @@ class Ppu {
   void exec() {
     if (scanLine < 240) {
       renderLine();
-      bus.onScanLine();
       scanLine++;
       return;
     }

@@ -2,9 +2,10 @@
 import 'dart:typed_data';
 
 // Project imports:
-import 'mapper0.dart';
+import 'nrom.dart';
 
-class Mapper3 extends Mapper0 {
+// https://www.nesdev.org/wiki/INES_Mapper_003
+class MapperCNROM extends MapperNROM {
   static final _emptyBank = Uint8List(1024 * 8);
   Uint8List _charBank = _emptyBank;
 

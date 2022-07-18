@@ -43,7 +43,7 @@ class _MainViewState extends State<MainView> {
   final _mPlayer = getSoundPlayerInstance();
 
   String _romName = "";
-  bool isRunning = false;
+  bool _isRunning = false;
 
   @override
   void initState() {
@@ -52,6 +52,9 @@ class _MainViewState extends State<MainView> {
   }
 
   void _reset() async {
+    setState(() {
+      _isRunning = false;
+    });
     _mPlayer.stop();
     nes.reset();
     CpuDebugger.clearDebugLog();
@@ -85,18 +88,18 @@ class _MainViewState extends State<MainView> {
         children: <Widget>[
           const NesWidget(),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _button(isRunning ? "Stop" : "Run", () async {
-              if (isRunning) {
+            _button(_isRunning ? "Stop" : "Run", () async {
+              if (_isRunning) {
                 _mPlayer.stop();
                 nes.stop();
                 setState(() {
-                  isRunning = false;
+                  _isRunning = false;
                 });
               } else {
                 await _mPlayer.resume();
                 nes.run();
                 setState(() {
-                  isRunning = true;
+                  _isRunning = true;
                 });
               }
             }),

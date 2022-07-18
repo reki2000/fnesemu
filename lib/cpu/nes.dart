@@ -11,7 +11,6 @@ import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_debug.dart';
 import 'mapper/mapper.dart';
-import 'mapper/mapper1.dart';
 import 'ppu.dart';
 import 'ppu_debug.dart';
 
@@ -42,7 +41,8 @@ class Nes {
         "${cpuDump.substring(48)}\n"
         "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
         "${ppu.dump(showSpriteVram: showSpriteVram)}"
-        "${showApu ? apu.dump() : ""}";
+        "${showApu ? apu.dump() : ""}"
+        "${bus.mapper.dump()}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';
   }
@@ -53,19 +53,19 @@ class Nes {
 
     switch (nesFile.mapper) {
       case 0:
-        bus.mapper = Mapper0();
+        bus.mapper = MapperNROM();
         break;
       case 1:
-        bus.mapper = Mapper1();
+        bus.mapper = MapperMMC1();
         break;
       case 2:
-        bus.mapper = Mapper2();
+        bus.mapper = MapperUxROM();
         break;
       case 3:
-        bus.mapper = Mapper3();
+        bus.mapper = MapperCNROM();
         break;
       case 4:
-        bus.mapper = Mapper4();
+        bus.mapper = MapperMMC3();
         break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
@@ -76,7 +76,10 @@ class Nes {
     bus.mapper.loadCharRom(nesFile.character);
     bus.mapper.init();
 
-    bus.mirrorVertical = nesFile.mirrorVertical;
+    bus.mirrorVertical(nesFile.mirrorVertical);
+    bus.mapper.mirrorVertical = bus.mirrorVertical;
+
+    bus.mapper.holdIrq = (hold) => hold ? cpu.holdIrq() : cpu.releaseIrq();
 
     bus.onReset();
   }

@@ -27,7 +27,7 @@ extension BusDebugger on Bus {
               : (addr + i) == target + 1
                   ? "]"
                   : " ") +
-          hex8(charROM[addr + i]);
+          hex8(mapper.readVram(addr + i));
     }
     return str + "\n";
   }

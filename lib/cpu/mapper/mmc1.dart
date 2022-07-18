@@ -6,7 +6,7 @@ import 'mapper.dart';
 
 // MMC1
 // https://www.nesdev.org/wiki/MMC1
-class Mapper1 extends Mapper {
+class MapperMMC1 extends Mapper {
   int _shiftReg = 0;
   int _counter = 0;
 

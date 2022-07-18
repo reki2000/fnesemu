@@ -2,9 +2,10 @@
 import 'dart:typed_data';
 
 // Project imports:
-import 'mapper0.dart';
+import 'nrom.dart';
 
-class Mapper2 extends Mapper0 {
+// https://www.nesdev.org/wiki/UxROM
+class MapperUxROM extends MapperNROM {
   static final _emptyBank = Uint8List(1024 * 16);
   Uint8List _progBank = _emptyBank;
   final Uint8List _vram = Uint8List(1024 * 8);

@@ -1,7 +1,8 @@
 // Project imports:
 import 'mapper.dart';
 
-class Mapper0 extends Mapper {
+// https://www.nesdev.org/wiki/NROM
+class MapperNROM extends Mapper {
   int _highMemBank = 0;
 
   @override
