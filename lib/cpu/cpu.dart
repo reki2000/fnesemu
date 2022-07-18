@@ -636,8 +636,9 @@ class Cpu {
   }
 
   void interrupt({bool brk = false, bool nmi = false}) {
-    push(regs.PC >> 8);
-    push(regs.PC & 0xff);
+    final pushAddr = brk ? regs.PC + 1 : regs.PC;
+    push(pushAddr >> 8);
+    push(pushAddr & 0xff);
     push(regs.P);
     regs.P = (regs.P & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
 
@@ -647,6 +648,11 @@ class Cpu {
 
   void reset() {
     cycle = 0;
+
+    regs.A = 0;
+    regs.X = 0;
+    regs.Y = 0;
+
     regs.S = 0xfd;
     regs.P = 0x00 | Flags.B | Flags.R;
 
