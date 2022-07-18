@@ -227,7 +227,7 @@ class NoiseWave with _LengthCounter {
         reg |= nextBit << 15;
         counter = _table[timer];
       }
-      buf[i] = ((reg & 0x01) == 0) ? 0 : (reg & 0xf) * envelope.volume ~/ 15;
+      buf[i] = !bit0(reg) ? 0 : (reg & 0xf) * envelope.volume ~/ 15;
       counter--;
     }
 
@@ -263,8 +263,8 @@ class DPCMWave {
   int _deltaCounter = 0;
 
   set mode(int val) {
-    _irqEnabled = (val & 0x80) != 0;
-    _loop = (val & 0x40) != 0;
+    _irqEnabled = bit7(val);
+    _loop = bit6(val);
     _initTimer = _timerTable[val & 0x0f] ~/ 2;
     _timer = _initTimer;
   }
@@ -374,14 +374,14 @@ class Apu {
     switch (reg) {
       case 0x4000:
         pulse0.dutyType = val >> 6;
-        pulse0.halt = val & 0x20 != 0;
+        pulse0.halt = bit5(val);
         pulse0.envelope.prepare(
-            disabled: (val & 0x10) != 0, loop: pulse0.halt, n: val & 0x0f);
+            disabled: bit4(val & 0x10), loop: pulse0.halt, n: val & 0x0f);
         return;
       case 0x4001:
-        pulse0.sweep.enabled = (val & 0x80) != 0;
+        pulse0.sweep.enabled = bit7(val);
         pulse0.sweep.period = (val & 0x70) >> 4;
-        pulse0.sweep.negate = (val & 0x08) != 0;
+        pulse0.sweep.negate = bit3(val);
         pulse0.sweep.shift = val & 0x07;
         return;
       case 0x4002:
@@ -396,13 +396,13 @@ class Apu {
       case 0x4004:
         pulse1.dutyType = val >> 6;
         pulse1.halt = val & 0x20 != 0;
-        pulse1.envelope.prepare(
-            disabled: (val & 0x10) != 0, loop: pulse1.halt, n: val & 0x0f);
+        pulse1.envelope
+            .prepare(disabled: bit4(val), loop: pulse1.halt, n: val & 0x0f);
         return;
       case 0x4005:
-        pulse1.sweep.enabled = val & 0x80 != 0;
+        pulse1.sweep.enabled = bit7(val);
         pulse1.sweep.period = (val & 0x70) >> 4;
-        pulse1.sweep.negate = val & 0x8 != 0;
+        pulse1.sweep.negate = bit3(val);
         pulse1.sweep.shift = val & 0x7;
         return;
       case 0x4006:
@@ -415,7 +415,7 @@ class Apu {
         return;
 
       case 0x4008:
-        triangle.halt = val & 0x80 != 0;
+        triangle.halt = bit7(val);
         return;
       case 0x4009:
         return;
@@ -436,7 +436,7 @@ class Apu {
       case 0x400d:
         return;
       case 0x400e:
-        noise.short = val & 0x80 != 0;
+        noise.short = bit7(val);
         noise.timer = val & 0x0f;
         return;
       case 0x400f:
@@ -458,15 +458,15 @@ class Apu {
       case 0x4014:
         return;
       case 0x4015:
-        pulse0.enabled = val & 0x01 != 0;
-        pulse1.enabled = val & 0x02 != 0;
-        triangle.enabled = val & 0x04 != 0;
-        noise.enabled = val & 0x08 != 0;
-        dpcmEnabled = val & 0x10 != 0;
+        pulse0.enabled = bit0(val);
+        pulse1.enabled = bit1(val);
+        triangle.enabled = bit2(val);
+        noise.enabled = bit3(val);
+        dpcmEnabled = bit4(val);
         return;
       case 0x4017:
-        frameCounterMode0 = (val & 0x80) == 0;
-        if ((val & 0x40) != 0) {
+        frameCounterMode0 = !bit7(val);
+        if (bit6(val)) {
           frameIRQEnabled = false;
           releaseFrameIRQ();
         } else {

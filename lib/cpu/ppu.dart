@@ -40,23 +40,23 @@ class Ppu {
   }
 
   // ppu control 1
-  bool nmiOnVBlank() => ctl1 & 0x80 != 0;
-  bool ppuMasterSlave() => ctl1 & 40 != 0;
-  bool objSize() => ctl1 & 0x20 != 0;
-  bool bgTable() => ctl1 & 0x10 != 0;
-  bool objTable() => ctl1 & 0x08 != 0;
-  bool vramIncrement() => ctl1 & 0x04 != 0;
+  bool nmiOnVBlank() => bit7(ctl1);
+  bool ppuMasterSlave() => bit6(ctl1);
+  bool objSize() => bit5(ctl1);
+  bool bgTable() => bit4(ctl1);
+  bool objTable() => bit3(ctl1);
+  bool vramIncrement() => bit2(ctl1);
   int baseNameAddr() => ctl1 & 0x03;
 
   // ppu control 2
-  bool strongRed() => ctl2 & 0x80 != 0;
-  bool strongGreen() => ctl2 & 0x40 != 0;
-  bool strongBlue() => ctl2 & 0x20 != 0;
-  bool showSprite() => ctl2 & 0x10 != 0;
-  bool showBg() => ctl2 & 0x08 != 0;
-  bool clipLeftEdgeSprite() => ctl2 & 0x04 == 0;
-  bool clipLeftEdgeBg() => ctl2 & 0x02 == 0;
-  bool colorMode() => ctl2 & 0x01 != 0;
+  bool strongRed() => bit7(ctl2);
+  bool strongGreen() => bit6(ctl2);
+  bool strongBlue() => bit5(ctl2);
+  bool showSprite() => bit4(ctl2);
+  bool showBg() => bit3(ctl2);
+  bool clipLeftEdgeSprite() => !bit2(ctl2);
+  bool clipLeftEdgeBg() => !bit1(ctl2);
+  bool colorMode() => bit0(ctl2);
 
   // status register
   set isVBlank(bool on) {
@@ -67,7 +67,7 @@ class Ppu {
     }
   }
 
-  bool get isVBlank => (status & 0x80) != 0;
+  bool get isVBlank => bit7(status);
 
   set detectObj0(bool on) {
     if (on) {
@@ -185,7 +185,6 @@ class Ppu {
 
     if (scanLine == 241) {
       isVBlank = true;
-    } else if (scanLine == 242) {
       if (nmiOnVBlank() && isVBlank) {
         bus.onNMI();
       }
