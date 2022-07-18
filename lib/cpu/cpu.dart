@@ -36,20 +36,6 @@ class Cpu {
     setupDisasm();
   }
 
-  void onNmi() {
-    interrupt(nmi: true);
-  }
-
-  var _holdIrq = false;
-
-  void holdIrq() {
-    _holdIrq = true;
-  }
-
-  void releaseIrq() {
-    _holdIrq = false;
-  }
-
   int cycle = 0;
 
   int read(int addr) {
@@ -61,6 +47,30 @@ class Cpu {
   }
 
   bool exec() {
+    if (_assertIrq) {
+      _assertIrq = false;
+      _holdIrq = false;
+      interrupt();
+      return true;
+    }
+
+    // exec irq on the next execution
+    if (_holdIrq && (regs.P & Flags.I) == 0) {
+      _assertIrq = true;
+    }
+
+    if (_assertNmi) {
+      _assertNmi = false;
+      _holdNmi = false;
+      interrupt(nmi: true);
+      return true;
+    }
+
+    // exec nmi on the next execution
+    if (_holdNmi) {
+      _assertNmi = true;
+    }
+
     final op = pc();
 
     switch (op) {
@@ -604,18 +614,26 @@ class Cpu {
         return false;
     }
 
-    if (_assertIrq) {
-      _assertIrq = false;
-      _holdIrq = false;
-      interrupt();
-    }
-    if (_holdIrq && (regs.P & Flags.I) == 0) {
-      _assertIrq = true;
-    }
     return true;
   }
 
+  bool _holdNmi = false;
+  bool _assertNmi = false;
+
+  void onNmi() {
+    _holdNmi = true;
+  }
+
+  bool _holdIrq = false;
   bool _assertIrq = false;
+
+  void holdIrq() {
+    _holdIrq = true;
+  }
+
+  void releaseIrq() {
+    _holdIrq = false;
+  }
 
   void interrupt({bool brk = false, bool nmi = false}) {
     push(regs.PC >> 8);
