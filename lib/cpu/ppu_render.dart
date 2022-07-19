@@ -34,49 +34,65 @@ extension PpuRenderer on Ppu {
     putRGBPixel(y, x, r, g, b);
   }
 
-  int fetchObjBuffer(List<ObjBuffer> objs) {
+  List<ObjBuffer> fetchObjBuffer() {
     // sprite
     final objBase = objTable() ? 0x1000 : 0;
     final objVSize = objSize() ? 16 : 8;
 
+    final objs = List.generate(8, (_) => ObjBuffer());
+
+    if (!showSprite()) {
+      return objs;
+    }
+
+    // detect objects on this scanline
     int objCount = 0;
     for (int i = 0; i < 64; i++) {
       final objy = objRam[i * 4];
       if (objy < scanLine && scanLine <= objy + objVSize) {
-        final pattern = objRam[i * 4 + 1];
-        final attribute = objRam[i * 4 + 2];
-
-        final objScanY = scanLine - objy - 1;
-        final lowerOffset = (objScanY >= 8) ? 1 : 0;
-        final objAddr = objSize()
-            ? (((pattern & 0xfe) + lowerOffset) * 16 | (pattern & 0x01) << 12)
-            : objBase | (pattern * 16);
-
-        // flip vertically
-        final objFineY = objScanY & 0x07;
-        final offset =
-            (attribute & 0x80 != 0) ? ((objVSize - 1) - objFineY) : objFineY;
-
-        final p0 = readVram(objAddr + offset);
-        final p1 = (readVram(objAddr + offset + 8));
-
-        final needFlip = attribute & 0x40 != 0;
-        objs[objCount].pattern0 = needFlip ? flip8(p0) : p0;
-        objs[objCount].pattern1 = (needFlip ? flip8(p1) : p1) << 1;
-
-        objs[objCount].isPrior = attribute & 0x20 == 0;
-        objs[objCount].palette = attribute & 0x03;
-        objs[objCount].x = objRam[i * 4 + 3];
-        objs[objCount].index = i;
-
-        objCount++;
-        if (objCount >= 8) {
-          // should check overflow flag
+        objs[objCount++].index = i;
+        if (objCount == 8) {
           break;
         }
       }
     }
-    return objCount;
+
+    // fetch object pattern data from vram
+    for (final obj in objs) {
+      if (obj.unused()) {
+        // read vram anyway for mapper rom's edge detection
+        readVram(objSize() ? 0x1000 : objBase);
+        continue;
+      }
+
+      final objNo = obj.index;
+      final objY = objRam[objNo * 4];
+      final pattern = objRam[objNo * 4 + 1];
+      final attribute = objRam[objNo * 4 + 2];
+
+      final objScanY = scanLine - objY - 1;
+      final lowerOffset = (objScanY >= 8) ? 1 : 0;
+      final objAddr = objSize()
+          ? (((pattern & 0xfe) + lowerOffset) * 16 | (pattern & 0x01) << 12)
+          : objBase | (pattern * 16);
+
+      // flip vertically
+      final objFineY = objScanY & 0x07;
+      final offset = bit7(attribute) ? ((objVSize - 1) - objFineY) : objFineY;
+
+      final p0 = readVram(objAddr + offset);
+      final p1 = readVram(objAddr + offset + 8);
+
+      final needHFlip = bit6(attribute);
+      obj.pattern0 = needHFlip ? flip8(p0) : p0;
+      obj.pattern1 = (needHFlip ? flip8(p1) : p1) << 1;
+
+      obj.isPrior = !bit5(attribute);
+      obj.palette = attribute & 0x03;
+      obj.x = objRam[objNo * 4 + 3];
+    }
+
+    return objs;
   }
 
   void vramAddrWrapAroundX() {
@@ -133,9 +149,7 @@ extension PpuRenderer on Ppu {
 
     final fineY = (vramAddr >> 12) & 0x07;
 
-    final objs =
-        List<ObjBuffer>.generate(8, (_) => ObjBuffer(), growable: false);
-    final objCount = fetchObjBuffer(objs);
+    final objs = fetchObjBuffer();
 
     final bgBase = bgTable() ? 0x1000 : 0x0000;
     const paletteBase = 0x3f00;
@@ -198,8 +212,10 @@ extension PpuRenderer on Ppu {
 
       // overwrite dot color by obj
       if (!(clipLeftEdgeSprite() && 1 <= x && x <= 8) && showSprite()) {
-        for (int i = 0; i < objCount; i++) {
-          final o = objs[i];
+        for (final o in objs) {
+          if (o.unused()) {
+            continue;
+          }
           if (o.x <= x && x < o.x + 8) {
             final objColorNum =
                 ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)) >> 7;
@@ -239,7 +255,10 @@ extension PpuRenderer on Ppu {
 // +-------- Flip sprite vertically
 
 class ObjBuffer {
-  int index = 0;
+  static const int _unusedIndex = 64;
+  bool unused() => index == _unusedIndex;
+
+  int index = _unusedIndex; // OAM index: 64 means unused
   int x = 0;
   bool isPrior = false;
   int palette = 0;

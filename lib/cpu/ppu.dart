@@ -29,7 +29,7 @@ class Ppu {
 
   int cycle = 0;
 
-  final objRam = List<int>.filled(0x100, 0, growable: false);
+  final objRam = List<int>.filled(0x100, 0);
 
   void onDMA(List<int> data) {
     for (int i = 0; i < 256; i++) {
@@ -87,19 +87,24 @@ class Ppu {
         }
         tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03) << 10;
         break;
+
       case 0x2001: // ppu control 2
         ctl2 = val;
         break;
+
       case 0x2002: // status
         break;
+
       case 0x2003: // sprite address
         objAddr = val;
         break;
+
       case 0x2004: // sprite access
         objRam[objAddr] = val;
         objAddr++;
         objAddr &= 0xff;
         break;
+
       case 0x2005: // scroll
         if (first) {
           scrollX = val;
@@ -108,12 +113,13 @@ class Ppu {
           first = false;
         } else {
           scrollY = val;
-          tmpVramAddr = (tmpVramAddr & ~0xf3e0) |
+          tmpVramAddr = (tmpVramAddr & ~0x7be0) |
               ((val >> 3) << 5) |
               ((val & 0x07) << 12);
           first = true;
         }
         break;
+
       case 0x2006: // vram address
         if (first) {
           tmpVramAddr = (val & 0x3f) << 8 | tmpVramAddr & 0xff;
@@ -124,6 +130,7 @@ class Ppu {
           first = true;
         }
         break;
+
       case 0x2007: // vram access
         writeVram(vramAddr, val);
         vramAddr += vramIncrement() ? 32 : 1;
@@ -142,6 +149,7 @@ class Ppu {
         final _status = status;
         isVBlank = false;
         return _status;
+
       case 0x2007:
         var data = vramBuffer;
         vramBuffer = readVram(vramAddr);

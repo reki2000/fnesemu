@@ -1,5 +1,4 @@
 // Dart imports:
-import 'dart:developer';
 
 // Project imports:
 import 'apu.dart';
@@ -62,8 +61,10 @@ class Bus {
       return joypad.read(addr);
     } else if (0x4000 <= addr && addr <= 0x401f) {
       return apu.read(addr);
-    } else {
+    } else if (addr >= 0x6000) {
       return mapper.read(addr);
+    } else {
+      return 0xff;
     }
   }
 
@@ -82,7 +83,7 @@ class Bus {
         addr == 0x4015 ||
         addr == 0x4017) {
       apu.write(addr, data);
-    } else {
+    } else if (addr >= 0x6000) {
       mapper.write(addr, data);
     }
   }
