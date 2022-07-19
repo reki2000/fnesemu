@@ -4,7 +4,9 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../rom/nes_file.dart';
+import 'package:fnesemu/cpu/joypad.dart';
+
+import 'rom/nes_file.dart';
 import 'apu.dart';
 import 'apu_debug.dart';
 import 'bus.dart';
@@ -143,7 +145,6 @@ class Nes {
   double fps = 0.0;
 
   void run() async {
-    // await _mPlayer.resume();
     final startAt = DateTime.now();
     var frames = 0;
     _timer?.cancel();
@@ -158,11 +159,13 @@ class Nes {
 
   void stop() async {
     _timer?.cancel();
-    // await _mPlayer.stop();
   }
 
   void reset() {
     stop();
     cpu.reset();
   }
+
+  void keyDown(PadButton k) => bus.joypad.keyDown(k);
+  void keyUp(PadButton k) => bus.joypad.keyUp(k);
 }

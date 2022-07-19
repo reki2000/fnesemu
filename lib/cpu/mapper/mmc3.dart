@@ -29,8 +29,8 @@ class MapperMMC3 extends Mapper {
   final List<Uint8List> _chrRom1k = [];
   final List<Uint8List> _prgRom8k = [];
 
-  late final _chrBankMask;
-  late final _prgBankMask;
+  late final int _chrBankMask;
+  late final int _prgBankMask;
 
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
   //  each bank has 4 x 1k banks (000-3ff, 400-7ff, 800-bff, c00-fff)

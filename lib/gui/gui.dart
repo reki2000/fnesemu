@@ -6,10 +6,10 @@ import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 // Project imports:
 import '../cpu/cpu_debug.dart';
+import '../cpu/nes.dart';
 import 'debug/debug_log.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
@@ -17,23 +17,24 @@ import 'nes.dart';
 import 'sound_player.dart';
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  final String title;
+  const MyApp({Key? key, required this.title}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'fnesemu',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const MainView(title: 'fnesemu'),
-    );
+        title: title,
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        home: const Scaffold(
+          body: MainView(),
+        ));
   }
 }
 
 class MainView extends StatefulWidget {
-  const MainView({Key? key, required this.title}) : super(key: key);
-  final String title;
+  const MainView({Key? key}) : super(key: key);
 
   @override
   State<MainView> createState() => _MainViewState();
@@ -45,10 +46,12 @@ class _MainViewState extends State<MainView> {
   String _romName = "";
   bool _isRunning = false;
 
+  final emulator = Nes();
+
   @override
   void initState() {
     super.initState();
-    nes.renderAudio = (Float32List buf) async => _mPlayer.push(buf);
+    emulator.renderAudio = (Float32List buf) async => _mPlayer.push(buf);
   }
 
   void _reset() async {
@@ -56,7 +59,7 @@ class _MainViewState extends State<MainView> {
       _isRunning = false;
     });
     _mPlayer.stop();
-    nes.reset();
+    emulator.reset();
     CpuDebugger.clearDebugLog();
   }
 
@@ -64,7 +67,7 @@ class _MainViewState extends State<MainView> {
     final picked = await FilePicker.platform.pickFiles(withData: true);
     if (picked != null) {
       _reset();
-      nes.setRom(picked.files.first.bytes!);
+      emulator.setRom(picked.files.first.bytes!);
 
       setState(() {
         _romName = picked.files.first.name;
@@ -79,71 +82,50 @@ class _MainViewState extends State<MainView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(children: [Text(widget.title), _versionText()]),
-      ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const NesWidget(),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _button(_isRunning ? "Stop" : "Run", () async {
-              if (_isRunning) {
-                _mPlayer.stop();
-                nes.stop();
-                setState(() {
-                  _isRunning = false;
-                });
-              } else {
-                await _mPlayer.resume();
-                nes.run();
-                setState(() {
-                  _isRunning = true;
-                });
-              }
-            }),
-            _button("Reset", _reset),
-            _button("File", _setFile),
-            Text(_romName),
-          ]),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _button("Step", nes.execStep),
-            _button("Line", nes.execLine),
-            _button("Frame", nes.execFrame),
-            SizedBox(
-                width: 50,
-                child: TextField(onChanged: (v) {
-                  nes.breakpoint = int.parse(v, radix: 16);
-                })),
-            _button("Disasm", () => showDisasm(context, nes.breakpoint)),
-            _button("VRAM", () => showVram(context)),
-            _button("Log", () => showDebugLog(context)),
-            Checkbox(
-                value: nes.enableDebugLog,
-                onChanged: (on) => setState(() {
-                      nes.enableDebugLog = on ?? false;
-                    })),
-          ]),
-        ],
-      ),
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        NesWidget(emulator: emulator),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _button(_isRunning ? "Stop" : "Run", () async {
+            if (_isRunning) {
+              _mPlayer.stop();
+              emulator.stop();
+              setState(() {
+                _isRunning = false;
+              });
+            } else {
+              await _mPlayer.resume();
+              emulator.run();
+              setState(() {
+                _isRunning = true;
+              });
+            }
+          }),
+          _button("Reset", _reset),
+          _button("File", _setFile),
+          Text(_romName),
+        ]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _button("Step", emulator.execStep),
+          _button("Line", emulator.execLine),
+          _button("Frame", emulator.execFrame),
+          SizedBox(
+              width: 50,
+              child: TextField(onChanged: (v) {
+                emulator.breakpoint =
+                    (v.length == 4) ? int.parse(v, radix: 16) : 0;
+              })),
+          _button("Disasm", () => showDisasm(context, emulator)),
+          _button("VRAM", () => showVram(context, emulator)),
+          _button("Log", () => showDebugLog(context, emulator)),
+          Checkbox(
+              value: emulator.enableDebugLog,
+              onChanged: (on) => setState(() {
+                    emulator.enableDebugLog = on ?? false;
+                  })),
+        ]),
+      ],
     );
   }
 }
-
-Widget _versionText() => FutureBuilder<PackageInfo>(
-      future: PackageInfo.fromPlatform(),
-      builder: (context, snapshot) {
-        switch (snapshot.connectionState) {
-          case ConnectionState.done:
-            return Align(
-              alignment: Alignment.bottomCenter,
-              child: Text(
-                ' ${snapshot.data!.version}',
-              ),
-            );
-          default:
-            return const SizedBox();
-        }
-      },
-    );
