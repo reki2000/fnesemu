@@ -83,8 +83,10 @@ class Ppu {
         final nmiDisabled = !nmiOnVBlank();
         ctl1 = val;
         if (isVBlank && nmiDisabled && nmiOnVBlank()) {
-          bus.onNMI();
+          bus.onNmi();
         }
+        // t: ...GH.. ........ <- d: ......GH
+        //    <used elsewhere> <- d: ABCDEF..
         tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03) << 10;
         break;
 
@@ -108,12 +110,15 @@ class Ppu {
       case 0x2005: // scroll
         if (first) {
           scrollX = val;
+          // t: ....... ...ABCDE <- d: ABCDE...
+          // x:              FGH <- d: .....FGH
           tmpVramAddr = (tmpVramAddr & ~0x1f) | (val >> 3);
           fineX = val & 0x07;
           first = false;
         } else {
           scrollY = val;
-          tmpVramAddr = (tmpVramAddr & ~0x7be0) |
+          // t: FGH..AB CDE..... <- d: ABCDEFGH
+          tmpVramAddr = (tmpVramAddr & ~0x73e0) |
               ((val >> 3) << 5) |
               ((val & 0x07) << 12);
           first = true;
@@ -122,9 +127,14 @@ class Ppu {
 
       case 0x2006: // vram address
         if (first) {
+          // t: .CDEFGH ........ <- d: ..CDEFGH
+          //        <unused>     <- d: AB......
+          // t: Z...... ........ <- 0 (bit Z is cleared)
           tmpVramAddr = (val & 0x3f) << 8 | tmpVramAddr & 0xff;
           first = false;
         } else {
+          // t: ....... ABCDEFGH <- d: ABCDEFGH
+          // v: <...all bits...> <- t: <...all bits...>
           tmpVramAddr = (tmpVramAddr & 0xff00) | val;
           vramAddr = tmpVramAddr;
           first = true;
@@ -194,7 +204,7 @@ class Ppu {
     if (scanLine == 241) {
       isVBlank = true;
       if (nmiOnVBlank() && isVBlank) {
-        bus.onNMI();
+        bus.onNmi();
       }
     } else if (scanLine == 261) {
       detectObj0 = false;

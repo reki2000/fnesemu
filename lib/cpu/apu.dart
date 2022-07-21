@@ -354,7 +354,7 @@ class Apu {
 
   set bus(Bus bus) {
     _bus = bus;
-    dpcm = DPCMWave(bus.read, bus.holdIRQ);
+    dpcm = DPCMWave(bus.read, bus.holdIrq);
   }
 
   int cycle = 0;
@@ -503,13 +503,13 @@ class Apu {
 
   void releaseFrameIRQ() {
     frameIRQHold = false;
-    _bus.releaseIRQ();
+    _bus.releaseIrq();
   }
 
   void setFrameIRQ() {
     if (frameIRQEnabled) {
       frameIRQHold = true;
-      _bus.holdIRQ();
+      _bus.holdIrq();
     }
   }
 
