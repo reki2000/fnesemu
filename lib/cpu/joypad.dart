@@ -1,4 +1,5 @@
-import 'package:fnesemu/cpu/util.dart';
+// Project imports:
+import 'util.dart';
 
 class Joypad {
   final isPressed = List.filled(8, false);

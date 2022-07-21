@@ -4,17 +4,16 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import 'package:fnesemu/cpu/joypad.dart';
-
-import 'rom/nes_file.dart';
 import 'apu.dart';
 import 'apu_debug.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_debug.dart';
+import 'joypad.dart';
 import 'mapper/mapper.dart';
 import 'ppu.dart';
 import 'ppu_debug.dart';
+import 'rom/nes_file.dart';
 
 class Nes {
   late final Ppu ppu;
