@@ -80,7 +80,7 @@ class Nes {
     bus.mirrorVertical(nesFile.mirrorVertical);
     bus.mapper.mirrorVertical = bus.mirrorVertical;
 
-    bus.mapper.holdIrq = (hold) => hold ? cpu.holdIrq() : cpu.releaseIrq();
+    bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
     bus.onReset();
   }

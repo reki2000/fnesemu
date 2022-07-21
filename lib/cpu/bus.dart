@@ -88,13 +88,13 @@ class Bus {
     }
   }
 
-  void onNMI() => cpu.onNmi();
+  void onNmi() => cpu.onNmi();
 
   void onReset() {
     mapper.init();
     cpu.reset();
   }
 
-  void holdIRQ() => cpu.holdIrq();
-  void releaseIRQ() => cpu.releaseIrq();
+  void holdIrq() => cpu.holdIrq();
+  void releaseIrq() => cpu.releaseIrq();
 }
