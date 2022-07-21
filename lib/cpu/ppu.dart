@@ -29,7 +29,7 @@ class Ppu {
 
   int cycle = 0;
 
-  final objRam = List<int>.filled(0x100, 0, growable: false);
+  final objRam = List<int>.filled(0x100, 0);
 
   void onDMA(List<int> data) {
     for (int i = 0; i < 256; i++) {
@@ -40,23 +40,23 @@ class Ppu {
   }
 
   // ppu control 1
-  bool nmiOnVBlank() => ctl1 & 0x80 != 0;
-  bool ppuMasterSlave() => ctl1 & 40 != 0;
-  bool objSize() => ctl1 & 0x20 != 0;
-  bool bgTable() => ctl1 & 0x10 != 0;
-  bool objTable() => ctl1 & 0x08 != 0;
-  bool vramIncrement() => ctl1 & 0x04 != 0;
+  bool nmiOnVBlank() => bit7(ctl1);
+  bool ppuMasterSlave() => bit6(ctl1);
+  bool objSize() => bit5(ctl1);
+  bool bgTable() => bit4(ctl1);
+  bool objTable() => bit3(ctl1);
+  bool vramIncrement() => bit2(ctl1);
   int baseNameAddr() => ctl1 & 0x03;
 
   // ppu control 2
-  bool strongRed() => ctl2 & 0x80 != 0;
-  bool strongGreen() => ctl2 & 0x40 != 0;
-  bool strongBlue() => ctl2 & 0x20 != 0;
-  bool showSprite() => ctl2 & 0x10 != 0;
-  bool showBg() => ctl2 & 0x08 != 0;
-  bool clipLeftEdgeSprite() => ctl2 & 0x04 == 0;
-  bool clipLeftEdgeBg() => ctl2 & 0x02 == 0;
-  bool colorMode() => ctl2 & 0x01 != 0;
+  bool strongRed() => bit7(ctl2);
+  bool strongGreen() => bit6(ctl2);
+  bool strongBlue() => bit5(ctl2);
+  bool showSprite() => bit4(ctl2);
+  bool showBg() => bit3(ctl2);
+  bool clipLeftEdgeSprite() => !bit2(ctl2);
+  bool clipLeftEdgeBg() => !bit1(ctl2);
+  bool colorMode() => bit0(ctl2);
 
   // status register
   set isVBlank(bool on) {
@@ -67,7 +67,7 @@ class Ppu {
     }
   }
 
-  bool get isVBlank => (status & 0x80) != 0;
+  bool get isVBlank => bit7(status);
 
   set detectObj0(bool on) {
     if (on) {
@@ -83,47 +83,64 @@ class Ppu {
         final nmiDisabled = !nmiOnVBlank();
         ctl1 = val;
         if (isVBlank && nmiDisabled && nmiOnVBlank()) {
-          bus.onNMI();
+          bus.onNmi();
         }
+        // t: ...GH.. ........ <- d: ......GH
+        //    <used elsewhere> <- d: ABCDEF..
         tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03) << 10;
         break;
+
       case 0x2001: // ppu control 2
         ctl2 = val;
         break;
+
       case 0x2002: // status
         break;
+
       case 0x2003: // sprite address
         objAddr = val;
         break;
+
       case 0x2004: // sprite access
         objRam[objAddr] = val;
         objAddr++;
         objAddr &= 0xff;
         break;
+
       case 0x2005: // scroll
         if (first) {
           scrollX = val;
+          // t: ....... ...ABCDE <- d: ABCDE...
+          // x:              FGH <- d: .....FGH
           tmpVramAddr = (tmpVramAddr & ~0x1f) | (val >> 3);
           fineX = val & 0x07;
           first = false;
         } else {
           scrollY = val;
-          tmpVramAddr = (tmpVramAddr & ~0xf3e0) |
+          // t: FGH..AB CDE..... <- d: ABCDEFGH
+          tmpVramAddr = (tmpVramAddr & ~0x73e0) |
               ((val >> 3) << 5) |
               ((val & 0x07) << 12);
           first = true;
         }
         break;
+
       case 0x2006: // vram address
         if (first) {
+          // t: .CDEFGH ........ <- d: ..CDEFGH
+          //        <unused>     <- d: AB......
+          // t: Z...... ........ <- 0 (bit Z is cleared)
           tmpVramAddr = (val & 0x3f) << 8 | tmpVramAddr & 0xff;
           first = false;
         } else {
+          // t: ....... ABCDEFGH <- d: ABCDEFGH
+          // v: <...all bits...> <- t: <...all bits...>
           tmpVramAddr = (tmpVramAddr & 0xff00) | val;
           vramAddr = tmpVramAddr;
           first = true;
         }
         break;
+
       case 0x2007: // vram access
         writeVram(vramAddr, val);
         vramAddr += vramIncrement() ? 32 : 1;
@@ -142,6 +159,7 @@ class Ppu {
         final _status = status;
         isVBlank = false;
         return _status;
+
       case 0x2007:
         var data = vramBuffer;
         vramBuffer = readVram(vramAddr);
@@ -185,9 +203,8 @@ class Ppu {
 
     if (scanLine == 241) {
       isVBlank = true;
-    } else if (scanLine == 242) {
       if (nmiOnVBlank() && isVBlank) {
-        bus.onNMI();
+        bus.onNmi();
       }
     } else if (scanLine == 261) {
       detectObj0 = false;

@@ -36,20 +36,6 @@ class Cpu {
     setupDisasm();
   }
 
-  void onNMI() {
-    interrupt(nmi: true);
-  }
-
-  var _holdIRQ = false;
-
-  void holdIRQ() {
-    _holdIRQ = true;
-  }
-
-  void releaseIRQ() {
-    _holdIRQ = false;
-  }
-
   int cycle = 0;
 
   int read(int addr) {
@@ -61,6 +47,30 @@ class Cpu {
   }
 
   bool exec() {
+    if (_assertIrq) {
+      _assertIrq = false;
+      _holdIrq = false;
+      interrupt();
+      return true;
+    }
+
+    // exec irq on the next execution
+    if (_holdIrq && (regs.P & Flags.I) == 0) {
+      _assertIrq = true;
+    }
+
+    if (_assertNmi) {
+      _assertNmi = false;
+      _holdNmi = false;
+      interrupt(nmi: true);
+      return true;
+    }
+
+    // exec nmi on the next execution
+    if (_holdNmi) {
+      _assertNmi = true;
+    }
+
     final op = pc();
 
     switch (op) {
@@ -503,7 +513,7 @@ class Cpu {
         final addr = pop() | (pop() << 8);
         regs.PC = addr;
         cycle += 6;
-        _assertInterrupt = false;
+        _assertIrq = false;
         break;
 
       // BCC
@@ -604,21 +614,31 @@ class Cpu {
         return false;
     }
 
-    if (_assertInterrupt) {
-      _assertInterrupt = false;
-      interrupt();
-    }
-    if (_holdIRQ && (regs.P & Flags.I) == 0) {
-      _assertInterrupt = true;
-    }
     return true;
   }
 
-  bool _assertInterrupt = false;
+  bool _holdNmi = false;
+  bool _assertNmi = false;
+
+  void onNmi() {
+    _holdNmi = true;
+  }
+
+  bool _holdIrq = false;
+  bool _assertIrq = false;
+
+  void holdIrq() {
+    _holdIrq = true;
+  }
+
+  void releaseIrq() {
+    _holdIrq = false;
+  }
 
   void interrupt({bool brk = false, bool nmi = false}) {
-    push(regs.PC >> 8);
-    push(regs.PC & 0xff);
+    final pushAddr = brk ? regs.PC + 1 : regs.PC;
+    push(pushAddr >> 8);
+    push(pushAddr & 0xff);
     push(regs.P);
     regs.P = (regs.P & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
 
@@ -628,6 +648,11 @@ class Cpu {
 
   void reset() {
     cycle = 0;
+
+    regs.A = 0;
+    regs.X = 0;
+    regs.Y = 0;
+
     regs.S = 0xfd;
     regs.P = 0x00 | Flags.B | Flags.R;
 

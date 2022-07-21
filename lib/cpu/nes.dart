@@ -4,15 +4,16 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../rom/nes_file.dart';
 import 'apu.dart';
 import 'apu_debug.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_debug.dart';
-import 'mapper.dart';
+import 'joypad.dart';
+import 'mapper/mapper.dart';
 import 'ppu.dart';
 import 'ppu_debug.dart';
+import 'rom/nes_file.dart';
 
 class Nes {
   late final Ppu ppu;
@@ -41,7 +42,8 @@ class Nes {
         "${cpuDump.substring(48)}\n"
         "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
         "${ppu.dump(showSpriteVram: showSpriteVram)}"
-        "${showApu ? apu.dump() : ""}";
+        "${showApu ? apu.dump() : ""}"
+        "${bus.mapper.dump()}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';
   }
@@ -52,13 +54,19 @@ class Nes {
 
     switch (nesFile.mapper) {
       case 0:
-        bus.mapper = Mapper0();
+        bus.mapper = MapperNROM();
+        break;
+      case 1:
+        bus.mapper = MapperMMC1();
         break;
       case 2:
-        bus.mapper = Mapper2();
+        bus.mapper = MapperUxROM();
         break;
       case 3:
-        bus.mapper = Mapper3();
+        bus.mapper = MapperCNROM();
+        break;
+      case 4:
+        bus.mapper = MapperMMC3();
         break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
@@ -67,9 +75,11 @@ class Nes {
 
     bus.mapper.loadProgramRom(nesFile.program);
     bus.mapper.loadCharRom(nesFile.character);
-    bus.mapper.init();
 
-    bus.mirrorVertical = nesFile.mirrorVertical;
+    bus.mirrorVertical(nesFile.mirrorVertical);
+    bus.mapper.mirrorVertical = bus.mirrorVertical;
+
+    bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
     bus.onReset();
   }
@@ -134,7 +144,6 @@ class Nes {
   double fps = 0.0;
 
   void run() async {
-    // await _mPlayer.resume();
     final startAt = DateTime.now();
     var frames = 0;
     _timer?.cancel();
@@ -149,11 +158,13 @@ class Nes {
 
   void stop() async {
     _timer?.cancel();
-    // await _mPlayer.stop();
   }
 
   void reset() {
     stop();
     cpu.reset();
   }
+
+  void keyDown(PadButton k) => bus.joypad.keyDown(k);
+  void keyUp(PadButton k) => bus.joypad.keyUp(k);
 }

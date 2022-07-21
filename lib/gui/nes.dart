@@ -1,4 +1,5 @@
 // Dart imports:
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -6,21 +7,17 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// Package imports:
-import 'package:google_fonts/google_fonts.dart';
-
 // Project imports:
 import '../cpu/joypad.dart';
 import '../cpu/nes.dart';
-
-final nes = Nes();
-
-final debugStyle = GoogleFonts.robotoMono(fontSize: 12);
+import '../styles.dart';
 
 Widget keyListener(
     {required BuildContext context,
     required Widget child,
-    required FocusNode focusNode}) {
+    required FocusNode focusNode,
+    required void Function(PadButton) keyDown,
+    required void Function(PadButton) keyUp}) {
   final keys = <LogicalKeyboardKey, PadButton>{
     LogicalKeyboardKey.arrowDown: PadButton.down,
     LogicalKeyboardKey.arrowUp: PadButton.up,
@@ -40,7 +37,7 @@ Widget keyListener(
         case RawKeyDownEvent:
           for (final entry in keys.entries) {
             if (entry.key == e.data.logicalKey) {
-              nes.bus.joypad.keyDown(entry.value);
+              keyDown(entry.value);
               break;
             }
           }
@@ -48,7 +45,7 @@ Widget keyListener(
         case RawKeyUpEvent:
           for (final entry in keys.entries) {
             if (entry.key == e.data.logicalKey) {
-              nes.bus.joypad.keyUp(entry.value);
+              keyUp(entry.value);
               break;
             }
           }
@@ -59,7 +56,8 @@ Widget keyListener(
 }
 
 class NesWidget extends StatefulWidget {
-  const NesWidget({Key? key}) : super(key: key);
+  final Nes emulator;
+  const NesWidget({Key? key, required this.emulator}) : super(key: key);
 
   @override
   State<NesWidget> createState() => _NesWidgetState();
@@ -73,7 +71,7 @@ class _NesWidgetState extends State<NesWidget> {
   @override
   void initState() {
     super.initState();
-    nes.renderVideo = renderVideo;
+    widget.emulator.renderVideo = renderVideo;
   }
 
   Future<void> renderVideo(Uint8List buf) async {
@@ -91,36 +89,40 @@ class _NesWidgetState extends State<NesWidget> {
   @override
   Widget build(BuildContext ctx) {
     _focusNode.requestFocus();
-    return Column(
-      children: [
-        keyListener(
-          context: ctx,
-          focusNode: _focusNode,
-          child: Container(
-              width: 512,
-              height: 480,
-              color: Colors.black,
-              child: RawImage(image: screenImage, scale: 0.5)),
-        ),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Checkbox(
-              value: _showDebugView,
-              onChanged: (on) => setState(() {
-                    _showDebugView = on ?? false;
-                  })),
-          const Text("Debug Info"),
-          const SizedBox(width: 30.0),
-          Text("${nes.fps.toStringAsFixed(2)} fps"),
-        ]),
-        if (_showDebugView)
-          Text(
-              nes.dump(
-                showZeroPage: true,
-                showStack: true,
-                showApu: true,
-              ),
-              style: debugStyle),
-      ],
+    return RepaintBoundary(
+      child: Column(
+        children: [
+          keyListener(
+              context: ctx,
+              focusNode: _focusNode,
+              keyDown: widget.emulator.keyDown,
+              keyUp: widget.emulator.keyUp,
+              child: Container(
+                width: 512,
+                height: 480,
+                color: Colors.black,
+                child: RawImage(image: screenImage, scale: 0.5),
+              )),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Checkbox(
+                value: _showDebugView,
+                onChanged: (on) => setState(() {
+                      _showDebugView = on ?? false;
+                    })),
+            const Text("Debug Info"),
+            const SizedBox(width: 30.0),
+            Text("${widget.emulator.fps.toStringAsFixed(2)} fps"),
+          ]),
+          if (_showDebugView)
+            Text(
+                widget.emulator.dump(
+                  showZeroPage: true,
+                  showStack: true,
+                  showApu: true,
+                ),
+                style: debugStyle),
+        ],
+      ),
     );
   }
 }

@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 
 // Project imports:
 import '../../cpu/cpu_debug.dart';
-import '../nes.dart';
+import '../../cpu/nes.dart';
+import '../../styles.dart';
 
-void showDebugLog(BuildContext context) {
+void showDebugLog(BuildContext context, Nes emulator) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(builder: (BuildContext context) {
-      final asm = nes.cpu.dumpDebugLog();
+      final asm = emulator.cpu.dumpDebugLog();
       const margin10 = EdgeInsets.all(10.0);
       final node = FocusNode();
       node.requestFocus;
