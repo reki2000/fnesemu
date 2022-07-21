@@ -157,7 +157,6 @@ class MapperMMC3 extends Mapper {
       case 0xc000:
         if (isOdd) {
           _irqReload = true;
-          _irqCounter = 0;
         } else {
           _irqLatch = data;
         }
@@ -197,7 +196,7 @@ class MapperMMC3 extends Mapper {
   }
 
   void _tickIrq() {
-    if (_irqCounter == 0 && _irqEnabled) {
+    if (_irqCounter == 0 && _irqEnabled && _irqLatch != 0) {
       holdIrq(true);
     }
 
