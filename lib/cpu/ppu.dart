@@ -42,7 +42,7 @@ class Ppu {
   // ppu control 1
   bool nmiOnVBlank() => bit7(ctl1);
   bool ppuMasterSlave() => bit6(ctl1);
-  bool objSize() => bit5(ctl1);
+  bool objSize16() => bit5(ctl1);
   bool bgTable() => bit4(ctl1);
   bool objTable() => bit3(ctl1);
   bool vramIncrement() => bit2(ctl1);
