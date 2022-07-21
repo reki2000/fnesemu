@@ -22,6 +22,9 @@ class _Obj {
 }
 
 extension PpuRenderer on Ppu {
+  // base vram address for palette
+  static const paletteBase = 0x3f00;
+
   void _putRGBPixel(int y, int x, int r, int g, int b) {
     final index = (y * screenWidth + x) * 4;
     buffer[index + 0] = r;
@@ -175,27 +178,28 @@ extension PpuRenderer on Ppu {
     return _BG(char1: bgChar1, char2: bgChar2, palette: bgPalette);
   }
 
-  int _renderObjs(
-      List<_Obj> objs, int x, int bgColorNum, int color, int paletteBase) {
+  int _renderObjs(List<_Obj> objs, int x, int bgColorNum, int color) {
     for (final o in objs) {
-      if (o.unused()) {
-        continue;
-      }
-      if (o.x <= x && x < o.x + 8) {
+      if (!o.unused() && o.x <= x && x < o.x + 8) {
         final objColorNum = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)) >> 7;
         o.pattern0 <<= 1;
         o.pattern1 <<= 1;
 
-        if (o.index == 0 && objColorNum != 0 && bgColorNum != 0) {
-          detectObj0 = true;
-        }
-
-        if (objColorNum == 0 || (!o.isPrior && bgColorNum != 0)) {
+        if (objColorNum == 0) {
           continue;
         }
 
-        color = readVram(paletteBase + 0x10 + o.palette * 4 + objColorNum);
-        break;
+        if (bgColorNum != 0) {
+          if (o.index == 0 && objColorNum != 0) {
+            detectObj0 = true;
+          }
+
+          if (!o.isPrior) {
+            return color;
+          }
+        }
+
+        return readVram(paletteBase + 0x10 + o.palette * 4 + objColorNum);
       }
     }
     return color;
@@ -220,7 +224,6 @@ extension PpuRenderer on Ppu {
     final objs = _fetchObjBuffer();
 
     final bgBase = bgTable() ? 0x1000 : 0x0000;
-    const paletteBase = 0x3f00;
     final color0 = readVram(paletteBase);
 
     int bgChar1 = 0;
@@ -275,7 +278,7 @@ extension PpuRenderer on Ppu {
 
       // overwrite dot color by obj
       if (!(clipLeftEdgeSprite() && 1 <= x && x <= 8) && showSprite()) {
-        color = _renderObjs(objs, x, bgColorNum, color, paletteBase);
+        color = _renderObjs(objs, x, bgColorNum, color);
       }
 
       _putPixel(scanLine, x, color);
