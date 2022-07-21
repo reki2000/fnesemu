@@ -56,76 +56,6 @@ extension PpuRenderer on Ppu {
     _putRGBPixel(y, x, r, g, b);
   }
 
-  List<_Obj> _fetchObjBuffer() {
-    // sprite
-    final objBase = objTable() ? 0x1000 : 0;
-    final objVSize = objSize() ? 16 : 8;
-
-    final objs = List.generate(8, (_) => _Obj());
-
-    if (!showSprite()) {
-      return objs;
-    }
-
-    // detect objects on this scanline
-    int objCount = 0;
-    for (int i = 0; i < 64; i++) {
-      final objy = objRam[i * 4];
-      if (objy < scanLine && scanLine <= objy + objVSize) {
-        objs[objCount++].index = i;
-        if (objCount == 8) {
-          break;
-        }
-      }
-    }
-
-    // fetch object pattern data from vram
-    for (final obj in objs) {
-      if (obj.unused()) {
-        // read vram anyway for mapper rom's edge detection
-        readVram(objSize() ? 0x1000 : objBase);
-        continue;
-      }
-
-      final objNo = obj.index;
-      final objY = objRam[objNo * 4];
-      final pattern = objRam[objNo * 4 + 1];
-
-      // attribute
-      // 76543210
-      // ||||||||
-      // ||||||++- Palette (4 to 7) of sprite
-      // |||+++--- Unimplemented
-      // ||+------ Priority (0: in front of background; 1: behind background)
-      // |+------- Flip sprite horizontally
-      // +-------- Flip sprite vertically
-      final attribute = objRam[objNo * 4 + 2];
-
-      final objScanY = scanLine - objY - 1;
-      final lowerOffset = (objScanY >= 8) ? 1 : 0;
-      final objAddr = objSize()
-          ? (((pattern & 0xfe) + lowerOffset) * 16 | (pattern & 0x01) << 12)
-          : objBase | (pattern * 16);
-
-      // flip vertically
-      final objFineY = objScanY & 0x07;
-      final offset = bit7(attribute) ? ((objVSize - 1) - objFineY) : objFineY;
-
-      final p0 = readVram(objAddr + offset);
-      final p1 = readVram(objAddr + offset + 8);
-
-      final needHFlip = bit6(attribute);
-      obj.pattern0 = needHFlip ? flip8(p0) : p0;
-      obj.pattern1 = (needHFlip ? flip8(p1) : p1) << 1;
-
-      obj.isPrior = !bit5(attribute);
-      obj.palette = attribute & 0x03;
-      obj.x = objRam[objNo * 4 + 3];
-    }
-
-    return objs;
-  }
-
   void _wrapAroundX() {
     if (vramAddr & 0x1f == 31) {
       vramAddr &= ~0x001F;
@@ -153,6 +83,88 @@ extension PpuRenderer on Ppu {
       }
       vramAddr = (vramAddr & ~0x03E0) | (y << 5);
     }
+  }
+
+  List<_Obj> _fetchObj() {
+    // sprite
+    final objBase = objTable() ? 0x1000 : 0;
+    final objVSize = objSize16() ? 16 : 8;
+
+    final objs = List.generate(8, (_) => _Obj());
+
+    if (!showSprite()) {
+      return objs;
+    }
+
+    // detect objects on this scanline
+    int objCount = 0;
+    for (int i = 0; i < 64; i++) {
+      final objy = objRam[i * 4];
+      if (objy < scanLine && scanLine <= objy + objVSize) {
+        objs[objCount++].index = i;
+        if (objCount == 8) {
+          break;
+        }
+      }
+    }
+
+    // fetch object pattern data from vram
+    for (final obj in objs) {
+      if (obj.unused()) {
+        // read vram anyway for mapper rom's edge detection
+        readVram(objSize16() ? 0x1000 : objBase);
+        continue;
+      }
+
+      final objNo = obj.index;
+      final objY = objRam[objNo * 4];
+      final pattern = objRam[objNo * 4 + 1];
+
+      // attribute
+      // 76543210
+      // ||||||||
+      // ||||||++- Palette (4 to 7) of sprite
+      // |||+++--- Unimplemented
+      // ||+------ Priority (0: in front of background; 1: behind background)
+      // |+------- Flip sprite horizontally
+      // +-------- Flip sprite vertically
+      final attribute = objRam[objNo * 4 + 2];
+
+      final objScanY = scanLine - objY - 1;
+      final objFineY = objScanY & 0x07;
+      final flipV = bit7(attribute);
+
+      // pattern address
+      // size8x8:
+      //   +0000 (00a 00b) x8 (01a 01b) x8 (02a 02b) x8 ... (a,b is plane0,1)
+      // size8x16:
+      //   +0000 (00a 00b) x8 (00c 00d) x8 (02a 02b) x8 ... (c,d is plane0,1 for the lower half)
+      //   +1000 (01a 01b) x8 (01c 01d) x8 (03a 03b) x8 ....
+      late final int objAddr;
+      if (objSize16()) {
+        final lowerOffset = ((objScanY >= 8) ? 1 : 0) ^ (flipV ? 1 : 0);
+        objAddr =
+            (((pattern & 0xfe) + lowerOffset) << 4) | ((pattern & 0x01) << 12);
+      } else {
+        objAddr = objBase | (pattern << 4);
+      }
+
+      final offset = flipV ? (7 - objFineY) : objFineY;
+
+      final p0 = readVram(objAddr + offset);
+      final p1 = readVram(objAddr + offset + 8);
+
+      final flipH = bit6(attribute);
+      obj.pattern0 = flipH ? flip8(p0) : p0;
+      obj.pattern1 = flipH ? flip8(p1) : p1;
+      obj.pattern1 <<= 1;
+
+      obj.isPrior = !bit5(attribute);
+      obj.palette = attribute & 0x03;
+      obj.x = objRam[objNo * 4 + 3];
+    }
+
+    return objs;
   }
 
   int _fetchBGPalette() {
@@ -221,7 +233,7 @@ extension PpuRenderer on Ppu {
     final fineY = (vramAddr >> 12) & 0x07;
 
     // dot 257-320 of prev line: obj read
-    final objs = _fetchObjBuffer();
+    final objs = _fetchObj();
 
     final bgBase = bgTable() ? 0x1000 : 0x0000;
     final color0 = readVram(paletteBase);
