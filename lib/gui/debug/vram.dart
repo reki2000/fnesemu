@@ -3,14 +3,15 @@ import 'package:flutter/material.dart';
 
 // Project imports:
 import '../../cpu/bus_debug.dart';
-import '../nes.dart';
+import '../../cpu/nes.dart';
+import '../../styles.dart';
 
-void showVram(BuildContext context) {
+void showVram(BuildContext context, Nes emulator) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (BuildContext context) {
-        final vramDump = nes.bus.debug(showVram: true);
-        final charDump = nes.bus.debug(showChar: true);
+        final vramDump = emulator.bus.debug(showVram: true);
+        final charDump = emulator.bus.debug(showChar: true);
         const margin10 = EdgeInsets.all(10.0);
         return Scaffold(
           appBar: AppBar(title: const Text('VRAM')),

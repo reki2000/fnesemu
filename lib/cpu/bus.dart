@@ -1,11 +1,10 @@
 // Dart imports:
-import 'dart:developer';
 
 // Project imports:
 import 'apu.dart';
 import 'cpu.dart';
 import 'joypad.dart';
-import 'mapper.dart';
+import 'mapper/mapper.dart';
 import 'ppu.dart';
 
 class Bus {
@@ -22,21 +21,12 @@ class Bus {
   final joypad = Joypad();
 
   final vram = List<int>.filled(0x2000, 0, growable: false);
-  final charROM = List<int>.filled(0x2000, 0, growable: true);
 
   int mirrorMask = 0x17ff;
-  set mirrorVertical(bool vertical) {
+  void mirrorVertical(bool vertical) {
     // mirrorVertical:   0x2000 = 0x2800, 0x2400 = 0x2c00, mask 0x37ff
     // mirrorHorizontal: 0x2000 = 0x2400, 0x2800 = 0x2c00, mask 0x3bff
     mirrorMask = vertical ? 0x17ff : 0x1bff;
-  }
-
-  set rom(List<int> rom) {
-    if (rom.length != 0x2000) {
-      log("invalid char rom size!");
-    } else {
-      charROM.replaceRange(0, 0x2000, rom);
-    }
   }
 
   int readVram(int addr) {
@@ -71,8 +61,10 @@ class Bus {
       return joypad.read(addr);
     } else if (0x4000 <= addr && addr <= 0x401f) {
       return apu.read(addr);
-    } else {
+    } else if (addr >= 0x6000) {
       return mapper.read(addr);
+    } else {
+      return 0xff;
     }
   }
 
@@ -91,15 +83,18 @@ class Bus {
         addr == 0x4015 ||
         addr == 0x4017) {
       apu.write(addr, data);
-    } else {
+    } else if (addr >= 0x6000) {
       mapper.write(addr, data);
     }
   }
 
-  void onNMI() => cpu.onNMI();
+  void onNmi() => cpu.onNmi();
 
-  void onReset() => cpu.reset();
+  void onReset() {
+    mapper.init();
+    cpu.reset();
+  }
 
-  void holdIRQ() => cpu.holdIRQ();
-  void releaseIRQ() => cpu.releaseIRQ();
+  void holdIrq() => cpu.holdIrq();
+  void releaseIrq() => cpu.releaseIrq();
 }

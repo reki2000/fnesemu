@@ -9,6 +9,7 @@ extension ApuDebugger on Apu {
         "1:${pulse1.enabled ? '*' : '-'} ${hex8(pulse1.lengthCounter)} ${hex8(pulse1.envelope.volume)} "
         "t:${triangle.enabled ? '*' : '-'} ${hex8(triangle.lengthCounter)} "
         "n:${noise.enabled ? '*' : '-'} ${hex8(noise.lengthCounter)} ${hex8(pulse0.envelope.volume)} "
-        "d:${dpcmEnabled ? '*' : '-'} ${hex8(noise.length)}";
+        "d:${dpcmEnabled ? '*' : '-'} ${hex8(noise.length)}"
+        "\n";
   }
 }

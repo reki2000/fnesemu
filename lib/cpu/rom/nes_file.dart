@@ -20,17 +20,22 @@ class NesFile {
 
     final has512trainer = flags1 & 0x04 != 0;
 
-    mapper = body[7] & 0xf0 | (flags1 >> 4);
+    mapper = ((body[8] & 0x0f) << 16) | body[7] & 0xf0 | (flags1 >> 4);
 
-    log("loaded len:${body.length} mapper:$mapper prog:$programRomLength char:$characterRomLength vertical:$mirrorVertical");
+    final ramSize = body[10] == 0 ? 0 : (64 << (body[10] & 0x0f));
+    final nvramSize = body[10] == 0 ? 0 : (64 << (body[10] >> 4));
+
+    final chrRamSize = body[11] == 0 ? 0 : (64 << (body[11] & 0x0f));
+    final chrNvramSize = body[11] == 0 ? 0 : (64 << (body[11] >> 4));
+
+    log("loaded len:${body.length} mapper:$mapper prog:16*$programRomLength char:8*$characterRomLength vertical:$mirrorVertical ram:${ramSize}k/${nvramSize}k chrRam:${chrRamSize}k/${chrNvramSize}k");
 
     var offset = 16;
     if (has512trainer) {
       offset += 512;
     }
     for (var i = 0; i < programRomLength; i++) {
-      program.add(Uint8List.fromList(
-          body.getRange(offset, offset + 16 * 1024).toList(growable: false)));
+      program.add(body.sublist(offset, offset + 16 * 1024));
       offset += 16 * 1024;
     }
 
@@ -41,8 +46,7 @@ class NesFile {
         character.add(Uint8List.fromList(padded));
         break;
       }
-      character.add(Uint8List.fromList(
-          body.getRange(offset, offset + 8 * 1024).toList(growable: false)));
+      character.add(body.sublist(offset, offset + 8 * 1024));
       offset += 8 * 1024;
     }
   }

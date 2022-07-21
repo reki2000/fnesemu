@@ -1,3 +1,6 @@
+// Project imports:
+import 'util.dart';
+
 class Joypad {
   final isPressed = List.filled(8, false);
   var counter = 0;
@@ -15,7 +18,7 @@ class Joypad {
   }
 
   void write(int addr, int data) {
-    if ((data & 0x01) != 0) {
+    if (bit0(data)) {
       return;
     }
 

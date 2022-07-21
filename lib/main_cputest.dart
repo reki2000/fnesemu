@@ -7,7 +7,7 @@ import 'cpu/bus.dart';
 import 'cpu/cpu.dart';
 import 'cpu/cpu_debug.dart';
 import 'cpu/ppu.dart';
-import 'rom/nes_file.dart';
+import 'cpu/rom/nes_file.dart';
 
 void log(String s) {
   stdout.writeln(s);
