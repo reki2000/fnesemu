@@ -75,10 +75,11 @@ mixin _LengthCounter {
 
 class _SweepUnit {
   int freq = 0;
-  bool enabled = false;
-  bool negate = false;
-  int period = 0;
-  int shift = 0;
+
+  bool _enabled = false;
+  bool _negate = false;
+  int _period = 0;
+  int _shift = 0;
 
   int _counter = 0;
   final int _adjust;
@@ -87,30 +88,46 @@ class _SweepUnit {
     this._adjust,
   );
 
+  String debug() {
+    return "${_enabled ? (_negate ? '-' : '+') : ' '}$_shift:"
+        "$_counter/$_period ${hex16(freq)}";
+  }
+
+  void reload(int val) {
+    _enabled = bit7(val);
+    _period = (val & 0x70) >> 4;
+    _negate = bit3(val);
+    _shift = val & 0x07;
+  }
+
   void sweep() {
-    if (!enabled || shift == 0) {
+    if (!_enabled || _shift == 0) {
       return;
     }
 
-    if (_counter > 0) {
-      if (negate) {
-        freq -= (freq >> shift);
+    if (_counter == 0) {
+      if (_negate) {
+        freq -= (freq >> _shift);
         freq -= _adjust;
       } else {
-        freq += (freq >> shift);
+        freq += (freq >> _shift);
       }
+
       if (freq > 0x7ff) {
         freq = 0x7ff;
       } else if (freq < 0) {
         freq = 0;
       }
+
+      _counter = _period + 1;
+    } else {
       _counter--;
     }
     return;
   }
 
   void keyOn() {
-    _counter = period;
+    _counter = _period + 1;
   }
 }
 
@@ -146,8 +163,7 @@ class _PulseWave with _LengthCounter {
         lengthCounter == 0 ||
         sweep.freq == 0x7ff ||
         sweep.freq <= 8) {
-      buf.fillRange(0, buf.length, 0);
-      return Int8List(cycles);
+      return buf;
     }
 
     for (int i = 0; i < buf.length; i++) {
@@ -180,7 +196,6 @@ class TriangleWave with _LengthCounter {
     final buf = Int8List(cycles);
 
     if (!enabled || lengthCounter == 0 || freq == 0x7ff || freq <= 8) {
-      buf.fillRange(0, buf.length, 0);
       return buf;
     }
 
@@ -367,96 +382,114 @@ class Apu {
 
   bool dpcmEnabled = false;
 
-  bool frameIRQHold = false;
-  bool frameIRQEnabled = false;
+  bool frameIrqHold = false;
+  bool frameIrqEnabled = false;
 
   void write(int reg, int val) {
     switch (reg) {
+      // pulse wave 0
       case 0x4000:
         pulse0.dutyType = val >> 6;
         pulse0.halt = bit5(val);
-        pulse0.envelope.prepare(
-            disabled: bit4(val & 0x10), loop: pulse0.halt, n: val & 0x0f);
+        pulse0.envelope
+            .prepare(disabled: bit4(val), loop: pulse0.halt, n: val & 0x0f);
         return;
+
       case 0x4001:
-        pulse0.sweep.enabled = bit7(val);
-        pulse0.sweep.period = (val & 0x70) >> 4;
-        pulse0.sweep.negate = bit3(val);
-        pulse0.sweep.shift = val & 0x07;
+        pulse0.sweep.reload(val);
         return;
+
       case 0x4002:
         pulse0.sweep.freq = pulse0.sweep.freq & 0x700 | val;
         return;
+
       case 0x4003:
-        pulse0.sweep.freq = pulse0.sweep.freq & 0xff | ((val & 0x07) << 8);
+        pulse0.sweep.freq = (pulse0.sweep.freq & 0xff) | ((val & 0x07) << 8);
         pulse0.setLength(val >> 3);
         pulse0.noteOn();
         return;
 
+      // pulse wave 1
       case 0x4004:
         pulse1.dutyType = val >> 6;
-        pulse1.halt = val & 0x20 != 0;
+        pulse1.halt = bit5(val);
         pulse1.envelope
             .prepare(disabled: bit4(val), loop: pulse1.halt, n: val & 0x0f);
         return;
+
       case 0x4005:
-        pulse1.sweep.enabled = bit7(val);
-        pulse1.sweep.period = (val & 0x70) >> 4;
-        pulse1.sweep.negate = bit3(val);
-        pulse1.sweep.shift = val & 0x7;
+        pulse1.sweep.reload(val);
         return;
+
       case 0x4006:
         pulse1.sweep.freq = pulse1.sweep.freq & 0x700 | val;
         return;
+
       case 0x4007:
-        pulse1.sweep.freq = pulse1.sweep.freq & 0xff | ((val & 0x07) << 8);
+        pulse1.sweep.freq = (pulse1.sweep.freq & 0xff) | ((val & 0x07) << 8);
         pulse1.setLength(val >> 3);
         pulse1.noteOn();
         return;
 
+      // triangle wave
       case 0x4008:
         triangle.halt = bit7(val);
         return;
+
       case 0x4009:
         return;
+
       case 0x400a:
         triangle.freq = triangle.freq & 0x700 | val;
         return;
+
       case 0x400b:
         triangle.freq = triangle.freq & 0xff | ((val & 0x07) << 8);
         triangle.setLength(val >> 3);
         triangle.prepare();
         return;
 
+      // noise wave
       case 0x400c:
         noise.halt = val & 0x20 != 0;
-        noise.envelope.prepare(
-            disabled: (val & 0x10) != 0, loop: noise.halt, n: val & 0x0f);
+        noise.envelope
+            .prepare(disabled: bit4(val), loop: noise.halt, n: val & 0x0f);
         return;
+
       case 0x400d:
         return;
+
       case 0x400e:
         noise.short = bit7(val);
         noise.timer = val & 0x0f;
         return;
+
       case 0x400f:
         noise.setLength(val >> 3);
         noise.envelope.keyOn();
         return;
+
+      // DPCM
       case 0x4010:
         dpcm.mode = val;
         return;
+
       case 0x4011:
         dpcm.deltaCounter = val;
         return;
+
       case 0x4012:
         dpcm.address = val;
         return;
+
       case 0x4013:
         dpcm.length = val;
         return;
+
       case 0x4014:
         return;
+
+      // control
       case 0x4015:
         pulse0.enabled = bit0(val);
         pulse1.enabled = bit1(val);
@@ -464,16 +497,18 @@ class Apu {
         noise.enabled = bit3(val);
         dpcmEnabled = bit4(val);
         return;
+
       case 0x4017:
         frameCounterMode0 = !bit7(val);
         if (bit6(val)) {
-          frameIRQEnabled = false;
+          frameIrqEnabled = false;
           releaseFrameIRQ();
         } else {
-          frameIRQEnabled = true;
+          frameIrqEnabled = true;
         }
         frameCountTick = 0;
         return;
+
       default:
         log("Unsupported apu write at 0x${hex16(reg)}");
         return;
@@ -483,8 +518,8 @@ class Apu {
   int read(int reg) {
     switch (reg) {
       case 0x4015:
-        final result = (frameIRQHold ? 0x80 : 0) | // shold be DMC.IRQHold
-            (frameIRQHold ? 0x40 : 0) |
+        final result = (frameIrqHold ? 0x80 : 0) | // shold be DMC.IRQHold
+            (frameIrqHold ? 0x40 : 0) |
             (pulse0.lengthCounter > 0 ? 0x01 : 0) |
             (pulse1.lengthCounter > 0 ? 0x02 : 0) |
             (triangle.lengthCounter > 0 ? 0x04 : 0) |
@@ -502,48 +537,59 @@ class Apu {
   }
 
   void releaseFrameIRQ() {
-    frameIRQHold = false;
+    frameIrqHold = false;
     _bus.releaseIrq();
   }
 
   void setFrameIRQ() {
-    if (frameIRQEnabled) {
-      frameIRQHold = true;
+    if (frameIrqEnabled) {
+      frameIrqHold = true;
       _bus.holdIrq();
     }
   }
 
-  // 1cycle = 1.78MHz = 0.56us
-  // 40.58 cpu cycle ~= 44100Hz = 22.67us
-  // 29830 cpu cycle = 1/60s = 16.6ms
-  //
-  // rendar 1 frame = 60Hz
-  // 735 samples = 1/60 sec * 44100 Hz
-  static const execCycles = 29830 ~/ 2 + 1000;
-  static final pulseOutTable =
+  //                cpu cycle  frequency   duration
+  // cpu cycle:             1    1.78MHz     0.56us
+  // audio samples:     40.58    44100Hz    22.67us
+  // 1 NTSCframe:       29830       60Hz     16.6ms = 735 audio samples
+
+  // generates sound outout for 1 frame at one APU emulation
+  // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio) + buffer
+  static const _execCycles = 29830 ~/ 2 + 1000;
+
+  // output volume conversion table for pulse channles
+  static final _pulseOutTable =
       List<double>.generate(32, (n) => n == 0 ? 0 : 95.52 / (8128.0 / n + 100));
-  static final tndOutTable = List<double>.generate(
+
+  // output volume conversion table for tnd: triange, noise, dpcm channels
+  static final _tndOutTable = List<double>.generate(
       204, (n) => n == 0 ? 0 : 163.67 / (24329.0 / n + 100));
 
-  final buffer =
-      Float32List.fromList(List.filled(execCycles, 0.0, growable: false));
+  // sound output buffer: 0.0 to 1.0 for 1 screen frame
+  final buffer = Float32List.fromList(List.filled(_execCycles, 0.0));
 
   void exec() {
     var bufferIndex = 0;
-    final ticksInFrame = frameCounterMode0 ? 4 : 5;
-    final tickCycles = execCycles ~/ ticksInFrame;
+    final framesInExec = frameCounterMode0 ? 4 : 5;
+    final cyclesBase = _execCycles ~/ framesInExec;
 
-    for (int tick = 0; tick < ticksInFrame; tick++) {
-      cycle += tickCycles;
-      final p0 = pulse0.synth(tickCycles);
-      final p1 = pulse1.synth(tickCycles);
-      final t = triangle.synth(tickCycles);
-      final n = noise.synth(tickCycles);
-      final d = dpcm.synth(tickCycles);
+    for (int frame = 0; frame < framesInExec; frame++) {
+      // the last loop's tickCycles has extra cycles to fill all the rest of the buffer
+      final frameCycles = cyclesBase +
+          ((frame != framesInExec - 1)
+              ? 0
+              : (buffer.length - cyclesBase * framesInExec));
 
-      for (int i = 0; i < tickCycles; i++) {
-        final pulseOut = pulseOutTable[p0[i] + p1[i]];
-        final elseOut = tndOutTable[t[i] * 3 + n[i] * 2 + d[i]];
+      cycle += frameCycles;
+      final p0 = pulse0.synth(frameCycles);
+      final p1 = pulse1.synth(frameCycles);
+      final t = triangle.synth(frameCycles);
+      final n = noise.synth(frameCycles);
+      final d = dpcm.synth(frameCycles);
+
+      for (int i = 0; i < frameCycles; i++) {
+        final pulseOut = _pulseOutTable[p0[i] + p1[i]];
+        final elseOut = _tndOutTable[t[i] * 3 + n[i] * 2 + d[i]];
         buffer[bufferIndex++] = pulseOut + elseOut;
       }
 
