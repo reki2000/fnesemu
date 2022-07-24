@@ -2,11 +2,9 @@
 import 'dart:io';
 
 // Project imports:
-import 'cpu/apu.dart';
 import 'cpu/bus.dart';
 import 'cpu/cpu.dart';
 import 'cpu/cpu_debug.dart';
-import 'cpu/ppu.dart';
 import 'cpu/rom/nes_file.dart';
 
 void log(String s) {
@@ -15,8 +13,8 @@ void log(String s) {
 
 void main() async {
   log("running fnesemu...");
-  final cpu = Cpu();
-  final bus = Bus(cpu, Ppu(), Apu());
+  final bus = Bus();
+  final cpu = Cpu(bus);
   final file = NesFile();
 
   final f = File("assets/rom/nestest.nes");
