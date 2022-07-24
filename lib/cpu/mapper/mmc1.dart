@@ -62,6 +62,8 @@ class MapperMMC1 extends Mapper {
     if (bank == 0x6000) {
       if (_ramEnabled) {
         _ram8k[_ramBank][addr & 0x1fff] = data;
+      } else {
+        log("mmc1: write to disabled ram: ${hex16(addr)} ${hex8(data)}");
       }
       return;
     }
@@ -111,12 +113,8 @@ class MapperMMC1 extends Mapper {
           // S[OUX]ROM supports RAM
           _ramBank = (_shiftReg >> 2) & 0x03;
 
-          // 256KB bank
-          if (bit4(_shiftReg) && programRoms.length == 32) {
-            _prgBank0 |= 0x10;
-          } else {
-            _prgBank0 &= ~0x10;
-          }
+          // 512k ROM A18 select
+          _prgBank512 = bit4(_shiftReg) && programRoms.length == 32;
           _setPrgBank();
           break;
 
@@ -148,8 +146,10 @@ class MapperMMC1 extends Mapper {
               _setPrgBank();
               break;
           }
+
           break;
       }
+      //log("mmc1: ${hex16(addr)} <= ${hex8(_shiftReg)} ${dump()}");
 
       _shiftReg = 0;
       _counter = 0;
@@ -170,7 +170,7 @@ class MapperMMC1 extends Mapper {
         break;
       case 3:
         _prgBank[0] = _prgBank0 | a18;
-        _prgBank[1] = programRoms.length - 1;
+        _prgBank[1] = (programRoms.length - 1) & 0x0f | a18;
         break;
     }
   }
@@ -220,7 +220,7 @@ class MapperMMC1 extends Mapper {
     final ramBank = hex8(_ramBank);
 
     return "rom: "
-        "chr:${_chrBank4k ? '4k' : '8k'} $chrBanks prg:mode$_prgBankMode $prgBanks ram:${_ramEnabled ? '*' : '-'} $ramBank"
+        "chr:${_chrBank4k ? '4k' : '8k'} $chrBanks prg:mode$_prgBankMode $prgBanks ram:${_ramEnabled ? '*' : '-'}$ramBank"
         "\n";
   }
 }
