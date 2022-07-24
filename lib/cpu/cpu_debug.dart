@@ -7,10 +7,12 @@ import 'disasm.dart';
 import 'util.dart';
 
 class RingBuffer {
-  final _buf = List.filled(3, "");
+  final List<String> _buf;
   int _index = 0;
   bool _skipped = false;
   bool _recovered = false;
+
+  RingBuffer(int size) : _buf = List.filled(size, "");
 
   void _add(String item) {
     _buf[_index] = item;
@@ -41,7 +43,7 @@ class RingBuffer {
 
 extension CpuDebugger on Cpu {
   static String _debugLog = "";
-  static final ringBuffer = RingBuffer();
+  static final ringBuffer = RingBuffer(10);
 
   static void clearDebugLog() {
     _debugLog = "";
@@ -51,12 +53,13 @@ extension CpuDebugger on Cpu {
     final log = dumpNesTest();
     // check redundancy of the first 73 chars which represents the CPU state
     // C78C  10 FB     BPL $C789                       A:00 X:00 Y:00 P:32 SP:FD
+    // change of X or Y is ignored for X,Y are often used as a loop counter
     final state = log.substring(0, 74);
-    if (ringBuffer.addOnlyNewItem(state)) {
+    if (ringBuffer.addOnlyNewItem(state.replaceRange(53, 63, "          "))) {
       if (ringBuffer.recovered) {
         _debugLog += "...supress...\n";
       }
-      _debugLog += log + "\n";
+      _debugLog += state + "\n";
     }
   }
 
