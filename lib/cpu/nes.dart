@@ -162,7 +162,7 @@ class Nes {
 
   void reset() {
     stop();
-    cpu.reset();
+    bus.onReset();
   }
 
   void keyDown(PadButton k) => bus.joypad.keyDown(k);
