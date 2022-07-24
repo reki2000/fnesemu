@@ -26,10 +26,10 @@ class Nes {
   bool enableDebugLog = false;
 
   Nes() {
-    ppu = Ppu();
-    apu = Apu();
-    cpu = Cpu();
-    bus = Bus(cpu, ppu, apu);
+    bus = Bus();
+    cpu = Cpu(bus);
+    ppu = Ppu(bus);
+    apu = Apu(bus);
   }
 
   String dump(

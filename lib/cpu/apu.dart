@@ -367,9 +367,10 @@ class DPCMWave {
 class Apu {
   late final Bus _bus;
 
-  set bus(Bus bus) {
+  Apu(bus) {
     _bus = bus;
-    dpcm = DPCMWave(bus.read, bus.holdIrq);
+    _bus.apu = this;
+    dpcm = DPCMWave(_bus.read, _bus.holdIrq);
   }
 
   int cycle = 0;
