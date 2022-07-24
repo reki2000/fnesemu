@@ -9,38 +9,49 @@ import 'mapper.dart';
 // MMC1
 // https://www.nesdev.org/wiki/MMC1
 class MapperMMC1 extends Mapper {
-  int _shiftReg = 0;
-  int _counter = 0;
+  late int _shiftReg;
+  late int _counter;
 
-  bool _chrBank4k = false;
-  int _prgBankMode = 0;
   int _mirroring = 0;
 
+  // ram on 6000-7fff, 8k x 4 banks
   final _ram8k =
       List.generate(4, (_) => Uint8List.fromList(List.filled(8 * 1024, 0)));
-  bool _ramEnabled = true;
-  int _ramBank = 0;
+  late bool _ramEnabled = true;
+  late int _ramBank;
+
+  late bool _chrBank4k;
+
+  // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
+  final _chrBank = [0, 0];
 
   final _vram4k =
       List.generate(2, (_) => Uint8List.fromList(List.filled(4 * 1024, 0)));
 
-  // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
-  final _chrBank = [0, 1];
+  // program rom bank mode: 0-3
+  late int _prgBankMode;
+  late bool _prgBank512;
 
   // cpu 2 x 16k banks (8000-bfff, c000-ffff)
-  final _prgBank = [0, 1];
-  int _prgBank0 = 0;
+  final _prgBank = [0, 0];
+  late int _prgBank0;
 
   @override
   void init() {
-    // for (final char8k in charRoms) {
-    //   for (int i = 0; i < 8 * 1024; i += 4 * 1024) {
-    //     _chrRom4K.add(char8k.sublist(i, i + 4 * 1024));
-    //   }
-    // }
+    _shiftReg = 0;
+    _counter = 0;
+
+    _ramBank = 0;
+    _ramEnabled = true;
+
+    _chrBank4k = false;
+    _chrBank[0] = 0;
+    _chrBank[1] = 1;
+
+    _prgBankMode = 3;
     _prgBank0 = 0;
-    _prgBank[0] = _prgBank0;
-    _prgBank[1] = programRoms.length - 1;
+    _prgBank512 = false;
+    _setPrgBank();
   }
 
   @override
@@ -116,12 +127,8 @@ class MapperMMC1 extends Mapper {
             // S[OUX]ROM supports RAM
             _ramBank = (_shiftReg >> 2) & 0x03;
 
-            // 256KB bank
-            if (bit4(_shiftReg) && programRoms.length == 32) {
-              _prgBank0 |= 0x10;
-            } else {
-              _prgBank0 &= ~0x10;
-            }
+            // 512k ROM A18 select
+            _prgBank512 = bit4(_shiftReg) && programRoms.length == 32;
             _setPrgBank();
           }
           break;
@@ -150,18 +157,19 @@ class MapperMMC1 extends Mapper {
   }
 
   void _setPrgBank() {
+    final a18 = _prgBank512 ? 0x10 : 0;
     switch (_prgBankMode) {
       case 0:
       case 1:
-        _prgBank[0] = _prgBank0;
-        _prgBank[1] = _prgBank0 + 1;
+        _prgBank[0] = _prgBank0 | a18;
+        _prgBank[1] = (_prgBank0 + 1) | a18;
         break;
       case 2:
-        _prgBank[0] = 0;
-        _prgBank[1] = _prgBank0;
+        _prgBank[0] = 0 | a18;
+        _prgBank[1] = _prgBank0 | a18;
         break;
       case 3:
-        _prgBank[0] = _prgBank0;
+        _prgBank[0] = _prgBank0 | a18;
         _prgBank[1] = programRoms.length - 1;
         break;
     }
