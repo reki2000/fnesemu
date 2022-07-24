@@ -20,7 +20,7 @@ class Bus {
 
   final joypad = Joypad();
 
-  final vram = List<int>.filled(0x2000, 0, growable: false);
+  final vram = List<int>.filled(0x2000, 0);
 
   int mirrorMask = 0x17ff;
   void mirrorVertical(bool vertical) {
@@ -48,7 +48,7 @@ class Bus {
     vram[addr & 0x1fff] = val;
   }
 
-  final List<int> ram = List.filled(0x800, 0, growable: false);
+  final List<int> ram = List.filled(0x800, 0);
 
   Mapper mapper = Mapper();
 
@@ -92,6 +92,7 @@ class Bus {
 
   void onReset() {
     mapper.init();
+    cpu.releaseIrq();
     cpu.reset();
   }
 
