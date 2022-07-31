@@ -22,7 +22,7 @@ void main() async {
   final body = await f.readAsBytes();
   await file.load(body);
 
-  bus.mapper.loadProgramRom(file.program);
+  bus.mapper.setRom(file.character, file.program);
   cpu.regs.PC = 0xc000;
   cpu.regs.P = 0x24;
   cpu.regs.S = 0xfd;

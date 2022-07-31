@@ -13,7 +13,7 @@ class MapperUxROM extends MapperNROM {
   @override
   void write(int addr, int data) {
     if (addr & 0x8000 == 0x8000) {
-      _progBank = programRoms[data & 0x0f];
+      _progBank = prgRoms[data & 0x0f];
     }
   }
 
@@ -24,7 +24,7 @@ class MapperUxROM extends MapperNROM {
     if (bank == 0x8000) {
       return _progBank[offset];
     } else if (bank == 0xc000) {
-      return programRoms[programRoms.length - 1][offset];
+      return prgRoms[prgRoms.length - 1][offset];
     }
 
     return 0xff;

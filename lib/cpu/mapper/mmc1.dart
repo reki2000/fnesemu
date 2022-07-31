@@ -72,7 +72,7 @@ class MapperMMC1 extends Mapper {
     if (bit7(data)) {
       _counter = 0;
       _shiftReg = 0;
-      _prgBank[1] = programRoms.length - 1;
+      _prgBank[1] = prgRoms.length - 1;
       return;
     }
 
@@ -114,7 +114,7 @@ class MapperMMC1 extends Mapper {
           _ramBank = (_shiftReg >> 2) & 0x03;
 
           // 512k ROM A18 select
-          _prgBank512 = bit4(_shiftReg) && programRoms.length == 32;
+          _prgBank512 = bit4(_shiftReg) && prgRoms.length == 32;
           _setPrgBank();
           break;
 
@@ -126,7 +126,7 @@ class MapperMMC1 extends Mapper {
             _ramBank = (_shiftReg >> 2) & 0x03;
 
             // 512k ROM A18 select
-            _prgBank512 = bit4(_shiftReg) && programRoms.length == 32;
+            _prgBank512 = bit4(_shiftReg) && prgRoms.length == 32;
             _setPrgBank();
           }
           break;
@@ -170,7 +170,7 @@ class MapperMMC1 extends Mapper {
         break;
       case 3:
         _prgBank[0] = _prgBank0 | a18;
-        _prgBank[1] = (programRoms.length - 1) & 0x0f | a18;
+        _prgBank[1] = (prgRoms.length - 1) & 0x0f | a18;
         break;
     }
   }
@@ -186,11 +186,11 @@ class MapperMMC1 extends Mapper {
 
       case 0x8000:
       case 0xa000:
-        return programRoms[_prgBank[0]][offset];
+        return prgRoms[_prgBank[0]][offset];
 
       case 0xc000:
       case 0xe000:
-        return programRoms[_prgBank[1]][offset];
+        return prgRoms[_prgBank[1]][offset];
     }
 
     log("mmc1: invalid addr: ${hex16(addr)}");
