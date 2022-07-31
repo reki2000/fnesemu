@@ -7,6 +7,7 @@ export 'uxrom.dart';
 export 'cnrom.dart';
 export 'mmc3.dart';
 export 'vrc1.dart';
+export 'vrc4.dart';
 
 class Mapper {
   // banked rom data
@@ -16,6 +17,7 @@ class Mapper {
   // load bank data from original sized rom data
   void loadRom({required int chrBankSizeK, required int prgBankSizeK}) {
     // resize chr roms from 8k to 4k
+    chrRoms.clear();
     for (final char8k in _chrRoms8k) {
       for (int i = 0; i < 8 * 1024; i += chrBankSizeK * 1024) {
         chrRoms.add(char8k.sublist(i, i + chrBankSizeK * 1024));
@@ -23,6 +25,7 @@ class Mapper {
     }
 
     // resize prg roms from 16k to 8k
+    prgRoms.clear();
     for (final prog16k in _prgRoms16k) {
       for (int i = 0; i < 16 * 1024; i += prgBankSizeK * 1024) {
         prgRoms.add(prog16k.sublist(i, i + prgBankSizeK * 1024));

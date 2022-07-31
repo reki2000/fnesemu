@@ -71,6 +71,15 @@ class Nes {
       case 75:
         bus.mapper = MapperVrc1();
         break;
+      case 21:
+        bus.mapper = MapperVrc4a4c();
+        break;
+      case 23:
+        bus.mapper = MapperVrc4f4e();
+        break;
+      case 25:
+        bus.mapper = MapperVrc4b4d();
+        break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
         return;
