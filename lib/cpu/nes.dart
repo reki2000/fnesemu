@@ -68,14 +68,15 @@ class Nes {
       case 4:
         bus.mapper = MapperMMC3();
         break;
+      case 75:
+        bus.mapper = MapperVrc1();
+        break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
         return;
     }
 
-    bus.mapper.loadProgramRom(nesFile.program);
-    bus.mapper.loadCharRom(nesFile.character);
-
+    bus.mapper.setRom(nesFile.character, nesFile.program);
     bus.mirrorVertical(nesFile.mirrorVertical);
     bus.mapper.mirrorVertical = bus.mirrorVertical;
 
