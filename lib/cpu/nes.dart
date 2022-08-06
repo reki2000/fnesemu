@@ -26,10 +26,10 @@ class Nes {
   bool enableDebugLog = false;
 
   Nes() {
-    ppu = Ppu();
-    apu = Apu();
-    cpu = Cpu();
-    bus = Bus(cpu, ppu, apu);
+    bus = Bus();
+    cpu = Cpu(bus);
+    ppu = Ppu(bus);
+    apu = Apu(bus);
   }
 
   String dump(
@@ -68,14 +68,24 @@ class Nes {
       case 4:
         bus.mapper = MapperMMC3();
         break;
+      case 75:
+        bus.mapper = MapperVrc1();
+        break;
+      case 21:
+        bus.mapper = MapperVrc4a4c();
+        break;
+      case 23:
+        bus.mapper = MapperVrc4f4e();
+        break;
+      case 25:
+        bus.mapper = MapperVrc4b4d();
+        break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
         return;
     }
 
-    bus.mapper.loadProgramRom(nesFile.program);
-    bus.mapper.loadCharRom(nesFile.character);
-
+    bus.mapper.setRom(nesFile.character, nesFile.program);
     bus.mirrorVertical(nesFile.mirrorVertical);
     bus.mapper.mirrorVertical = bus.mirrorVertical;
 

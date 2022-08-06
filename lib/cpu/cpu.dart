@@ -30,21 +30,20 @@ class Flags {
 class Cpu {
   final regs = Regs();
 
-  late final Bus bus;
+  final Bus bus;
 
-  Cpu() {
+  Cpu(this.bus) {
+    bus.cpu = this;
+
     setupDisasm();
+    read = bus.read;
+    write = bus.write;
   }
 
   int cycle = 0;
 
-  int read(int addr) {
-    return bus.read(addr);
-  }
-
-  void write(int addr, int data) {
-    bus.write(addr, data);
-  }
+  late final int Function(int) read;
+  late final void Function(int, int) write;
 
   bool exec() {
     if (_assertIrq) {
@@ -674,8 +673,7 @@ class Cpu {
 
   int pc() {
     final op = read(regs.PC);
-    regs.PC++;
-    regs.PC &= 0xffff;
+    regs.PC = (regs.PC + 1) & 0xffff;
     return op;
   }
 
@@ -706,7 +704,7 @@ class Cpu {
   }
 
   void flagsNZ(int acm) {
-    final negative = (acm & 0x80 != 0) ? Flags.N : 0;
+    final negative = bit7(acm) ? Flags.N : 0;
     final zero = (acm & 0xff == 0) ? Flags.Z : 0;
 
     regs.P = (regs.P & 0x7d) | Flags.R | negative | zero;
@@ -748,9 +746,7 @@ class Cpu {
     }
   }
 
-  int immediate() {
-    return pc();
-  }
+  int immediate() => pc();
 
   int zeropage() {
     cycle += 1;

@@ -7,8 +7,8 @@ class MapperNROM extends Mapper {
 
   @override
   void init() {
-    if (programRoms.length > 1) {
-      _highMemBank = programRoms.length - 1;
+    if (prgRoms.length > 1) {
+      _highMemBank = prgRoms.length - 1;
     }
   }
 
@@ -17,9 +17,9 @@ class MapperNROM extends Mapper {
     final bank = addr & 0xc000;
     final offset = addr & 0x3fff;
     if (bank == 0x8000) {
-      return programRoms[0][offset];
+      return prgRoms[0][offset];
     } else if (bank == 0xc000) {
-      return programRoms[_highMemBank][offset];
+      return prgRoms[_highMemBank][offset];
     }
 
     return 0xff;
@@ -27,6 +27,6 @@ class MapperNROM extends Mapper {
 
   @override
   int readVram(int addr) {
-    return charRoms[0][addr & 0x1fff];
+    return chrRoms[0][addr & 0x1fff];
   }
 }
