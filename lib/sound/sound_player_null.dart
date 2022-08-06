@@ -17,5 +17,5 @@ class SoundPlayerImpl extends SoundPlayer {
   Future<void> stop() async {}
 
   @override
-  void push(Float32List buf) {}
+  void push(Float32List input, int inputSampleRate) {}
 }

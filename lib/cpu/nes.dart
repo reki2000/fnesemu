@@ -25,6 +25,9 @@ class Nes {
   bool forceBreak = false;
   bool enableDebugLog = false;
 
+  static const cpuClock = 1789773;
+  static const apuClock = cpuClock ~/ 2;
+
   Nes() {
     bus = Bus();
     cpu = Cpu(bus);
