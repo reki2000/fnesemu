@@ -65,8 +65,11 @@ class NesWidget extends StatefulWidget {
 
 class _NesWidgetState extends State<NesWidget> {
   final _focusNode = FocusNode();
+  final _imageStream = StreamController<ui.Image>();
+  final _fpsStream = StreamController<double>();
+  final _debugStream = StreamController<String>();
+
   bool _showDebugView = false;
-  ui.Image? screenImage;
 
   @override
   void initState() {
@@ -74,16 +77,28 @@ class _NesWidgetState extends State<NesWidget> {
     widget.emulator.renderVideo = renderVideo;
   }
 
-  Future<void> renderVideo(Uint8List buf) async {
-    ui.decodeImageFromPixels(
-        buf, 256, 240, ui.PixelFormat.rgba8888, _updateImage);
+  @override
+  void dispose() {
+    _imageStream.close();
+    _fpsStream.close();
+    _debugStream.close();
+    _focusNode.dispose();
+    super.dispose();
   }
 
-  void _updateImage(ui.Image image) {
-    setState(() {
-      screenImage?.dispose();
-      screenImage = image;
-    });
+  Future<void> renderVideo(Uint8List buf) async {
+    _fpsStream.sink.add(widget.emulator.fps);
+
+    if (_showDebugView) {
+      _debugStream.sink.add(widget.emulator.dump(
+        showZeroPage: true,
+        showStack: true,
+        showApu: true,
+      ));
+    }
+
+    ui.decodeImageFromPixels(buf, 256, 240, ui.PixelFormat.rgba8888,
+        (img) => _imageStream.sink.add(img));
   }
 
   @override
@@ -92,35 +107,41 @@ class _NesWidgetState extends State<NesWidget> {
     return RepaintBoundary(
       child: Column(
         children: [
+          // main view
           keyListener(
               context: ctx,
               focusNode: _focusNode,
               keyDown: widget.emulator.keyDown,
               keyUp: widget.emulator.keyUp,
               child: Container(
-                width: 512,
-                height: 480,
-                color: Colors.black,
-                child: RawImage(image: screenImage, scale: 0.5),
-              )),
+                  width: 512,
+                  height: 480,
+                  color: Colors.black,
+                  child: StreamBuilder<ui.Image>(
+                      stream: _imageStream.stream,
+                      builder: (ctx, snapshot) =>
+                          RawImage(image: snapshot.data, scale: 0.5)))),
+
+          // debug control
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             Checkbox(
                 value: _showDebugView,
-                onChanged: (on) => setState(() {
-                      _showDebugView = on ?? false;
-                    })),
+                onChanged: (on) =>
+                    setState(() => _showDebugView = on ?? false)),
             const Text("Debug Info"),
             const SizedBox(width: 30.0),
-            Text("${widget.emulator.fps.toStringAsFixed(2)} fps"),
+            StreamBuilder<double>(
+                stream: _fpsStream.stream,
+                builder: (ctx, snapshot) =>
+                    Text("${(snapshot.data ?? 0.0).toStringAsFixed(2)} fps")),
           ]),
+
+          // debug view
           if (_showDebugView)
-            Text(
-                widget.emulator.dump(
-                  showZeroPage: true,
-                  showStack: true,
-                  showApu: true,
-                ),
-                style: debugStyle),
+            StreamBuilder<String>(
+                stream: _debugStream.stream,
+                builder: (ctx, snapshot) =>
+                    Text(snapshot.data ?? "", style: debugStyle)),
         ],
       ),
     );
