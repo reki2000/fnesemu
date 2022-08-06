@@ -48,7 +48,7 @@ class Nes {
     // return '${fps.toStringAsFixed(2)}fps';
   }
 
-  void setRom(Uint8List body) {
+  bool setRom(Uint8List body) {
     stop();
     final nesFile = NesFile()..load(body);
 
@@ -82,7 +82,7 @@ class Nes {
         break;
       default:
         log("unimplemented mapper:${nesFile.mapper}!");
-        return;
+        return false;
     }
 
     bus.mapper.setRom(nesFile.character, nesFile.program);
@@ -92,6 +92,7 @@ class Nes {
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
     bus.onReset();
+    return true;
   }
 
   void execStep() async {
