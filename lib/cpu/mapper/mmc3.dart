@@ -25,10 +25,6 @@ class MapperMMC3 extends Mapper {
   bool _ramEnabled = false;
   bool _ramWriteEnabled = false;
 
-  // resized rom data, originally they are: chr:8k, prg:16k
-  final List<Uint8List> _chrRom1k = [];
-  final List<Uint8List> _prgRom8k = [];
-
   late final int _chrBankMask;
   late final int _prgBankMask;
 
@@ -50,37 +46,27 @@ class MapperMMC3 extends Mapper {
 
   @override
   void init() {
-    // resize chr roms from 8k to 1k
-    for (final char8k in charRoms) {
-      for (int i = 0; i < 8 * 1024; i += 1024) {
-        _chrRom1k.add(char8k.sublist(i, i + 1024));
-      }
-    }
+    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     _chrBank[0] = _chrBankR2_5;
     _chrBank[1] = _chrBankR0_1;
-    _chrBankMask = _chrRom1k.length - 1;
-    if (_chrRom1k.length & _chrBankMask != 0) {
+    _chrBankMask = chrRoms.length - 1;
+    if (chrRoms.length & _chrBankMask != 0) {
       log("invalid chr rom size: ${_chrBank.length}k");
       return;
     }
 
     // resize prg roms from 16k to 8k
-    for (final prog16k in programRoms) {
-      for (int i = 0; i < 16 * 1024; i += 8 * 1024) {
-        _prgRom8k.add(prog16k.sublist(i, i + 8 * 1024));
-      }
-    }
-    _prgBankMask = _prgRom8k.length - 1;
-    if (_prgBankMask & _prgRom8k.length != 0) {
-      log("invalid prg rom size: ${_prgRom8k.length}k");
+    _prgBankMask = prgRoms.length - 1;
+    if (_prgBankMask & prgRoms.length != 0) {
+      log("invalid prg rom size: ${prgRoms.length}k");
       return;
     }
 
-    _prgBank2ndLast[0] = _prgRom8k.length - 2;
+    _prgBank2ndLast[0] = prgRoms.length - 2;
     _prgBank[0] = _prgBank0; // 0x8000-0x9fff
     _prgBank[1] = _prgBankA000; // 0xa000-0xbfff
     _prgBank[2] = _prgBank2ndLast; // 0xc000-0xdfff
-    _prgBank[3] = [_prgRom8k.length - 1]; // 0xe000-0xffff
+    _prgBank[3] = [prgRoms.length - 1]; // 0xe000-0xffff
   }
 
   @override
@@ -177,7 +163,7 @@ class MapperMMC3 extends Mapper {
       return _ramEnabled ? _ram[offset] : 0xff;
     }
 
-    return _prgRom8k[_prgBank[bank][0]][offset];
+    return prgRoms[_prgBank[bank][0]][offset];
   }
 
   @override
@@ -192,7 +178,7 @@ class MapperMMC3 extends Mapper {
     final bank = addr >> 10;
     final offset = addr & 0x03ff;
 
-    return _chrRom1k[_chrBank[bank >> 2][bank & 0x03]][offset];
+    return chrRoms[_chrBank[bank >> 2][bank & 0x03]][offset];
   }
 
   void _tickIrq() {

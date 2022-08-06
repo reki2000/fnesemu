@@ -28,7 +28,13 @@ class NesFile {
     final chrRamSize = body[11] == 0 ? 0 : (64 << (body[11] & 0x0f));
     final chrNvramSize = body[11] == 0 ? 0 : (64 << (body[11] >> 4));
 
-    log("loaded len:${body.length} mapper:$mapper prog:16*$programRomLength char:8*$characterRomLength vertical:$mirrorVertical ram:${ramSize}k/${nvramSize}k chrRam:${chrRamSize}k/${chrNvramSize}k");
+    log("loaded len:${body.length} "
+        "mapper:$mapper "
+        "prog:16k*$programRomLength "
+        "char:8k*$characterRomLength "
+        "vertical:$mirrorVertical "
+        "ram:${ramSize}k/${nvramSize}k "
+        "chrRam:${chrRamSize}k/${chrNvramSize}k");
 
     var offset = 16;
     if (has512trainer) {

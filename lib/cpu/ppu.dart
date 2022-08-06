@@ -8,7 +8,11 @@ import 'ppu_render.dart';
 import 'util.dart';
 
 class Ppu {
-  late final Bus bus;
+  final Bus bus;
+
+  Ppu(this.bus) {
+    bus.ppu = this;
+  }
 
   int ctl1 = 0;
   int ctl2 = 0;
@@ -189,8 +193,8 @@ class Ppu {
     bus.writeVram(addr, val);
   }
 
-  final buffer = Uint8List.fromList(
-      List.filled(screenWidth * screenHeight * 4, 0, growable: false));
+  final buffer =
+      Uint8List.fromList(List.filled(screenWidth * screenHeight * 4, 0));
 
   void exec() {
     if (scanLine < 240) {

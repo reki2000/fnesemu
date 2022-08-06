@@ -12,7 +12,7 @@ class MapperCNROM extends MapperNROM {
   @override
   void write(int addr, int data) {
     if (addr & 0x8000 == 0x8000) {
-      _charBank = charRoms[data & 0x03];
+      _charBank = chrRoms[data & 0x03];
     }
   }
 

@@ -8,15 +8,9 @@ import 'mapper/mapper.dart';
 import 'ppu.dart';
 
 class Bus {
-  final Cpu cpu;
-  final Ppu ppu;
-  final Apu apu;
-
-  Bus(this.cpu, this.ppu, this.apu) {
-    cpu.bus = this;
-    ppu.bus = this;
-    apu.bus = this;
-  }
+  late final Cpu cpu;
+  late final Ppu ppu;
+  late final Apu apu;
 
   final joypad = Joypad();
 

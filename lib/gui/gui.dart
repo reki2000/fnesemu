@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
+import 'util_web.dart';
 
 // Project imports:
 import '../cpu/cpu_debug.dart';
 import '../cpu/nes.dart';
-import 'debug/debug_log.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
 import 'nes.dart';
@@ -118,7 +118,8 @@ class _MainViewState extends State<MainView> {
               })),
           _button("Disasm", () => showDisasm(context, emulator)),
           _button("VRAM", () => showVram(context, emulator)),
-          _button("Log", () => showDebugLog(context, emulator)),
+          _button("Log", () => debugJsConsole(emulator.cpu.dumpDebugLog())),
+          //showDebugLog(context, emulator)),
           Checkbox(
               value: emulator.enableDebugLog,
               onChanged: (on) => setState(() {
