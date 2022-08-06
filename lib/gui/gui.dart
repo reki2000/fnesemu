@@ -1,12 +1,10 @@
-// Dart imports:
-import 'dart:typed_data';
-
 // Flutter imports:
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
-import 'util_web.dart';
 
 // Project imports:
 import '../cpu/cpu_debug.dart';
@@ -14,7 +12,7 @@ import '../cpu/nes.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
 import 'nes.dart';
-import 'sound_player.dart';
+import '../sound/sound_player.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -51,7 +49,9 @@ class _MainViewState extends State<MainView> {
   @override
   void initState() {
     super.initState();
-    emulator.renderAudio = (Float32List buf) async => _mPlayer.push(buf);
+    emulator.renderAudio = (buf) async {
+      _mPlayer.push(buf, Nes.apuClock);
+    };
   }
 
   void _reset() async {
@@ -75,7 +75,6 @@ class _MainViewState extends State<MainView> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text("load error")));
       }
-      ;
     }
   }
 
@@ -122,7 +121,7 @@ class _MainViewState extends State<MainView> {
               })),
           _button("Disasm", () => showDisasm(context, emulator)),
           _button("VRAM", () => showVram(context, emulator)),
-          _button("Log", () => debugJsConsole(emulator.cpu.dumpDebugLog())),
+          _button("Log", () => log(emulator.cpu.dumpDebugLog())),
           //showDebugLog(context, emulator)),
           Checkbox(
               value: emulator.enableDebugLog,
