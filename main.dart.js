@@ -38672,7 +38672,7 @@ YQ(){if(this.b<=0)this.gH9().bY(0)},
 gH9(){var s=this,r=s.k4$
 if(r===$){$.Pr()
 A.bq(r,"_resampler")
-r=s.k4$=new A.a8V(A.x(t.S,t.GG),B.r,new A.xr(),B.r,B.r,s.gYF(),s.gYP(),B.zv)}return r},
+r=s.k4$=new A.a8V(A.x(t.S,t.GG),B.r,new A.xr(),B.r,B.r,s.gYF(),s.gYP(),B.zw)}return r},
 $iaj:1}
 A.V1.prototype={
 $0(){var s=null
@@ -64343,7 +64343,7 @@ n=Date.now()
 o.a=0
 p=q.y
 if(p!=null)p.ae(0)
-q.y=A.Iq(B.zw,new A.YD(o,q,new A.df(n,!1)))
+q.y=A.Iq(B.zv,new A.YD(o,q,new A.df(n,!1)))
 return A.M(null,r)}})
 return A.N($async$uW,r)},
 bY(a){var s=0,r=A.O(t.z),q=this,p
@@ -64376,9 +64376,8 @@ while(true)switch(s){case 0:return A.M(null,r)}})
 return A.N($async$$1,r)},
 $S:147}
 A.YD.prototype={
-$1(a){var s=this.b
-s.tU()
-s.z=++this.a.a/(B.f.bU(A.c1(0,Date.now()-this.c.a).a,1000)/1000)},
+$1(a){var s=this,r=s.b
+if(r.z<=60){r.tU();++s.a.a}r.z=s.a.a/(B.f.bU(A.c1(0,Date.now()-s.c.a).a,1000)/1000)},
 $S:57}
 A.ZQ.prototype={
 a8H(a){var s,r,q,p=this
@@ -68356,9 +68355,9 @@ B.zs=new A.aH(125e3)
 B.zt=new A.aH(15e3)
 B.fc=new A.aH(15e4)
 B.zu=new A.aH(15e5)
-B.zv=new A.aH(16667)
+B.zv=new A.aH(16e3)
+B.zw=new A.aH(16667)
 B.m5=new A.aH(167e3)
-B.zw=new A.aH(17e3)
 B.W=new A.aH(2e5)
 B.fd=new A.aH(2e6)
 B.zx=new A.aH(225e3)
