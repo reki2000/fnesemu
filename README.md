@@ -11,6 +11,7 @@ This project is under experiment.
     - 2: UxROM
     - 3: CNROM
     - 4: MMC3
+    - 75: VRC1
     - 21,23,25: VRC2,4 *partially
 
 # How to use
