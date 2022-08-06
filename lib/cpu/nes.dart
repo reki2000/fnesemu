@@ -158,9 +158,11 @@ class Nes {
     final startAt = DateTime.now();
     var frames = 0;
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 17), (timer) {
-      execFrame();
-      frames++;
+    _timer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      if (fps <= 60.0) {
+        execFrame();
+        frames++;
+      }
       fps = frames /
           (DateTime.now().difference(startAt).inMilliseconds.toDouble() /
               1000.0);
