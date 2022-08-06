@@ -6,12 +6,11 @@ import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
-import 'package:fnesemu/gui/util_web.dart';
+import 'util_web.dart';
 
 // Project imports:
 import '../cpu/cpu_debug.dart';
 import '../cpu/nes.dart';
-import 'debug/debug_log.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
 import 'nes.dart';

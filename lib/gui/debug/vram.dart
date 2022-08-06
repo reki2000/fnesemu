@@ -1,9 +1,10 @@
-// Flutter imports:
+// Dart imports:
 import 'dart:async';
 import 'dart:typed_data';
-
-import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
+
+// Flutter imports:
+import 'package:flutter/material.dart';
 
 // Project imports:
 import '../../cpu/nes.dart';
