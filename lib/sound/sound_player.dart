@@ -11,6 +11,6 @@ abstract class SoundPlayer {
 
   Future<void> stop();
 
-  // resample input buffer (int8 for every apu cycle = 890kHz) for sampleRate(44100Hz)
-  void push(Float32List buf);
+  // 0.0-1.0 float32
+  void push(Float32List input, int inputSampleRate);
 }

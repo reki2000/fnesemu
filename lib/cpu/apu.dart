@@ -555,8 +555,8 @@ class Apu {
   // 1 NTSCframe:       29830       60Hz     16.6ms = 735 audio samples
 
   // generates sound outout for 1 frame at one APU emulation
-  // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio) + buffer
-  static const _execCycles = 29830 ~/ 2 + 1000;
+  // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio)
+  static const _execCycles = 29830 ~/ 2;
 
   // output volume conversion table for pulse channles
   static final _pulseOutTable =
