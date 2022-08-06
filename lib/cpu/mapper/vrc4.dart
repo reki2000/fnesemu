@@ -17,7 +17,7 @@ class MapperVrc4 extends Mapper {
 
   // ram 8k
   final Uint8List _ram = Uint8List.fromList(List.filled(8 * 1024, 0));
-  bool _ramEnabled = false;
+  bool _ramEnabled = true;
 
   int _chrBankMask = 0;
   int _prgBankMask = 0;
@@ -166,7 +166,6 @@ class MapperVrc4 extends Mapper {
   }
 
   void _setIrqControl(data) {
-    log("vrc4 irq ${hex8(data)}");
     _irqEnabledAfterAcknoledge = bit0(data);
     _irqEnabled = bit1(data);
     if (_irqEnabled) {
