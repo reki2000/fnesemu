@@ -4,15 +4,15 @@ A NES Emulator written in Flutter Web
 
 This project is under experiment.
 
-- almost 50 fps on chrome/i5-8250
-- supperted iNES mapper types:
+- almost 60 fps on chrome/i5-8250
+- supported iNES mapper types:
     - 0: NROM
     - 1: MMC1 w/o battery backup, *partially 
     - 2: UxROM
     - 3: CNROM
     - 4: MMC3
     - 75: VRC1
-    - 21,23,25: VRC2,4 *partially
+    - 21,23,25: VRC2,4 *IRQ is ad-hoc emulated
 
 # How to use
 
