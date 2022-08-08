@@ -566,7 +566,7 @@ class Apu {
   static final _tndOutTable = List<double>.generate(
       204, (n) => n == 0 ? 0 : 163.67 / (24329.0 / n + 100));
 
-  // sound output buffer: 0.0 to 1.0 for 1 screen frame
+  // sound output buffer: -1.0 to 1.0 for 1 screen frame
   final buffer = Float32List.fromList(List.filled(_execCycles, 0.0));
 
   void exec() {
@@ -591,7 +591,7 @@ class Apu {
       for (int i = 0; i < frameCycles; i++) {
         final pulseOut = _pulseOutTable[p0[i] + p1[i]];
         final elseOut = _tndOutTable[t[i] * 3 + n[i] * 2 + d[i]];
-        buffer[bufferIndex++] = pulseOut + elseOut;
+        buffer[bufferIndex++] = (pulseOut + elseOut) * 2 - 1.0;
       }
 
       countApuFrame();
