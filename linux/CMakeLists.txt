@@ -51,6 +51,7 @@ add_executable(${BINARY_NAME}
   "my_application.cc"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
 )
+
 apply_standard_settings(${BINARY_NAME})
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
