@@ -9,10 +9,10 @@ import 'package:file_picker/file_picker.dart';
 // Project imports:
 import '../cpu/cpu_debug.dart';
 import '../cpu/nes.dart';
+import 'sound_player.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
 import 'nes.dart';
-import '../sound/sound_player.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -39,7 +39,7 @@ class MainView extends StatefulWidget {
 }
 
 class _MainViewState extends State<MainView> {
-  final _mPlayer = getSoundPlayerInstance();
+  final _mPlayer = SoundPlayer();
 
   String _romName = "";
   bool _isRunning = false;
@@ -52,6 +52,12 @@ class _MainViewState extends State<MainView> {
     emulator.renderAudio = (buf) async {
       _mPlayer.push(buf, Nes.apuClock);
     };
+  }
+
+  @override
+  void dispose() {
+    _mPlayer.dispose();
+    super.dispose();
   }
 
   void _reset() async {
@@ -92,7 +98,6 @@ class _MainViewState extends State<MainView> {
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           _button(_isRunning ? "Stop" : "Run", () async {
             if (_isRunning) {
-              _mPlayer.stop();
               emulator.stop();
               setState(() {
                 _isRunning = false;
