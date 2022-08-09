@@ -18,7 +18,7 @@ class MyWorkletProcessor extends AudioWorkletProcessor {
 
         if (out.length + keepBufferSize < buffer.length) {
             for (let i=0; i<out.length; i++) {
-                out[i] = buffer[i] * 2 - 1.0;
+                out[i] = buffer[i];
             }
             buffer = buffer.slice(out.length);
         }
