@@ -101,9 +101,6 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
-# add this line at the very end of the install commands
-install(FILES ${PROJECT_BINARY_DIR}/native/libmastream.so DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
-
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
 set(FLUTTER_ASSET_DIR_NAME "flutter_assets")
@@ -118,6 +115,3 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
-
-# add this line
-add_subdirectory("./native")
