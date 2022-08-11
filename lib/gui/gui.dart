@@ -35,7 +35,6 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
-  final focusNode = FocusNode();
 
   String _romName = "";
   bool _isRunning = false;
@@ -79,7 +78,6 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _run() {
-    focusNode.requestFocus();
     controller.run();
     setState(() {
       _isRunning = true;
@@ -136,7 +134,7 @@ class _MainPageState extends State<MainPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           // main view
-          NesView(controller: controller, focusNode: focusNode),
+          NesView(controller: controller),
 
           // debug view if enabled
           if (controller.debugOption.showDebugView)
