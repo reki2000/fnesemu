@@ -17,7 +17,7 @@ dependencies:
   file_picker: ^5.0.1
   js: ^0.6.3
   package_info_plus: ^1.0.6
-  mp_audio_stream: ^0.0.1
+  mp_audio_stream: ^0.1.0
 
 dev_dependencies:
   flutter_test:
