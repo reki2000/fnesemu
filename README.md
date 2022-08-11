@@ -1,10 +1,15 @@
 # fnesemu
 
-A NES Emulator written in Flutter Web
+A multi-platform NES Emulator written in Flutter
 
 This project is under experiment.
 
-- almost 60 fps on chrome/i5-8250
+- runs almost 60 fps on i5-8250
+- running on platforms:
+    - Web
+    - Windows
+    - Linux
+    - Android
 - supported iNES mapper types:
     - 0: NROM
     - 1: MMC1 w/o battery backup, *partially 
@@ -14,21 +19,23 @@ This project is under experiment.
     - 75: VRC1
     - 21,23,25: VRC2,4 *IRQ is ad-hoc emulated
 
-# How to use
+# How to use 
 
-https://reki2000.github.io/fnesemu/
+1. visit https://reki2000.github.io/fnesemu/
 
-# How to run
+1. select `.nes` file from 'File' button, then click 'Run' to start emulation.
 
-`flutter run -d chrome`
-
-select `.nes` file from 'File' button and click 'Run', then emulation starts.
-
-# Joypad-Keyboard assignment
+## Joypad-Keyboard assignment
 
 | A | B | select | start | UP | DOWN | LEFT | RIGHT |
 |---|---|--------|-------|----|------|------|------|
 | X | Z | A | S | UP | DOWN | LEFT | RIGHT |
+
+## How to build and run on local machine
+
+```
+flutter run -d [windows|linux|chrome|your-android-device]
+```
 
 # How to test 6502 emulation
 
