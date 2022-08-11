@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.fnes">
+    package="com.reki2000.fnesemu">
    <application
-        android:label="fnes"
+        android:label="fnesemu"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

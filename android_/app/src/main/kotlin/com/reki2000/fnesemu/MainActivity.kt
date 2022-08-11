@@ -1,4 +1,4 @@
-package com.example.fnes
+package com.reki2000.fnesemu
 
 import io.flutter.embedding.android.FlutterActivity
 
