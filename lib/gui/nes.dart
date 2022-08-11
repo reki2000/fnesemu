@@ -70,18 +70,21 @@ class _NesWidgetState extends State<NesWidget> {
   }
 
   Future<void> renderVideo(Uint8List buf) async {
-    _fpsStream.sink.add(widget.emulator.fps);
+    _fpsStream.add(widget.emulator.fps);
 
     if (_showDebugView) {
-      _debugStream.sink.add(widget.emulator.dump(
-        showZeroPage: true,
-        showStack: true,
-        showApu: true,
-      ));
+      showDebug();
     }
+    ui.decodeImageFromPixels(
+        buf, 256, 240, ui.PixelFormat.rgba8888, (img) => _imageStream.add(img));
+  }
 
-    ui.decodeImageFromPixels(buf, 256, 240, ui.PixelFormat.rgba8888,
-        (img) => _imageStream.sink.add(img));
+  void showDebug() {
+    _debugStream.add(widget.emulator.dump(
+      showZeroPage: true,
+      showStack: true,
+      showApu: true,
+    ));
   }
 
   @override
@@ -111,8 +114,14 @@ class _NesWidgetState extends State<NesWidget> {
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             Checkbox(
                 value: _showDebugView,
-                onChanged: (on) =>
-                    setState(() => _showDebugView = on ?? false)),
+                onChanged: (on) => setState(() {
+                      _showDebugView = on ?? false;
+                      if (_showDebugView) {
+                        showDebug();
+                      } else {
+                        _debugStream.add("");
+                      }
+                    })),
             const Text("Debug Info"),
             const SizedBox(width: 30.0),
             StreamBuilder<double>(
@@ -122,11 +131,10 @@ class _NesWidgetState extends State<NesWidget> {
           ]),
 
           // debug view
-          if (_showDebugView)
-            StreamBuilder<String>(
-                stream: _debugStream.stream,
-                builder: (ctx, snapshot) =>
-                    Text(snapshot.data ?? "", style: debugStyle)),
+          StreamBuilder<String>(
+              stream: _debugStream.stream,
+              builder: (ctx, snapshot) =>
+                  Text(snapshot.data ?? "", style: debugStyle)),
         ],
       ),
     );
