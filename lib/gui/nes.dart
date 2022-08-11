@@ -12,49 +12,6 @@ import '../cpu/joypad.dart';
 import '../cpu/nes.dart';
 import '../styles.dart';
 
-Widget keyListener(
-    {required BuildContext context,
-    required Widget child,
-    required FocusNode focusNode,
-    required void Function(PadButton) keyDown,
-    required void Function(PadButton) keyUp}) {
-  final keys = <LogicalKeyboardKey, PadButton>{
-    LogicalKeyboardKey.arrowDown: PadButton.down,
-    LogicalKeyboardKey.arrowUp: PadButton.up,
-    LogicalKeyboardKey.arrowLeft: PadButton.left,
-    LogicalKeyboardKey.arrowRight: PadButton.right,
-    LogicalKeyboardKey.keyX: PadButton.a,
-    LogicalKeyboardKey.keyZ: PadButton.b,
-    LogicalKeyboardKey.keyA: PadButton.select,
-    LogicalKeyboardKey.keyS: PadButton.start,
-  };
-
-  return RawKeyboardListener(
-    child: child,
-    focusNode: focusNode,
-    onKey: (e) {
-      switch (e.runtimeType) {
-        case RawKeyDownEvent:
-          for (final entry in keys.entries) {
-            if (entry.key == e.data.logicalKey) {
-              keyDown(entry.value);
-              break;
-            }
-          }
-          break;
-        case RawKeyUpEvent:
-          for (final entry in keys.entries) {
-            if (entry.key == e.data.logicalKey) {
-              keyUp(entry.value);
-              break;
-            }
-          }
-          break;
-      }
-    },
-  );
-}
-
 class NesWidget extends StatefulWidget {
   final Nes emulator;
   const NesWidget({Key? key, required this.emulator}) : super(key: key);
@@ -64,7 +21,6 @@ class NesWidget extends StatefulWidget {
 }
 
 class _NesWidgetState extends State<NesWidget> {
-  final _focusNode = FocusNode();
   final _imageStream = StreamController<ui.Image>();
   final _fpsStream = StreamController<double>();
   final _debugStream = StreamController<String>();
@@ -77,12 +33,39 @@ class _NesWidgetState extends State<NesWidget> {
     widget.emulator.renderVideo = renderVideo;
   }
 
+  static final keys = {
+    PhysicalKeyboardKey.arrowDown: PadButton.down,
+    PhysicalKeyboardKey.arrowUp: PadButton.up,
+    PhysicalKeyboardKey.arrowLeft: PadButton.left,
+    PhysicalKeyboardKey.arrowRight: PadButton.right,
+    PhysicalKeyboardKey.keyX: PadButton.a,
+    PhysicalKeyboardKey.keyZ: PadButton.b,
+    PhysicalKeyboardKey.keyA: PadButton.select,
+    PhysicalKeyboardKey.keyS: PadButton.start,
+  };
+
+  bool _keyHandler(KeyEvent e) {
+    for (final entry in keys.entries) {
+      if (entry.key == e.physicalKey) {
+        switch (e.runtimeType) {
+          case KeyDownEvent:
+            widget.emulator.keyDown(entry.value);
+            break;
+          case KeyUpEvent:
+            widget.emulator.keyUp(entry.value);
+            break;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   @override
   void dispose() {
     _imageStream.close();
     _fpsStream.close();
     _debugStream.close();
-    _focusNode.dispose();
     super.dispose();
   }
 
@@ -103,16 +86,18 @@ class _NesWidgetState extends State<NesWidget> {
 
   @override
   Widget build(BuildContext ctx) {
-    _focusNode.requestFocus();
     return RepaintBoundary(
       child: Column(
         children: [
           // main view
-          keyListener(
-              context: ctx,
-              focusNode: _focusNode,
-              keyDown: widget.emulator.keyDown,
-              keyUp: widget.emulator.keyUp,
+          Focus(
+              onFocusChange: (on) {
+                if (on) {
+                  HardwareKeyboard.instance.addHandler(_keyHandler);
+                } else {
+                  HardwareKeyboard.instance.removeHandler(_keyHandler);
+                }
+              },
               child: Container(
                   width: 512,
                   height: 480,
