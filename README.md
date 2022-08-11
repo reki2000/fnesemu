@@ -22,7 +22,6 @@ This project is under experiment.
 # How to use 
 
 1. visit https://reki2000.github.io/fnesemu/
-
 1. select `.nes` file from 'File' button, then click 'Run' to start emulation.
 
 ## Joypad-Keyboard assignment
@@ -34,10 +33,14 @@ This project is under experiment.
 ## How to build and run on local machine
 
 ```
+git submodule update --init
 flutter run -d [windows|linux|chrome|your-android-device]
 ```
 
-# How to test 6502 emulation
+# How to develop
+
+
+## test 6502 emulation
 
 ```
 curl https://raw.githubusercontent.com/christopherpow/nes-test-roms/master/other/nestest.log > assets/nestest.log
