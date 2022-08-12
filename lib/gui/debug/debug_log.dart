@@ -2,8 +2,8 @@
 import 'package:flutter/material.dart';
 
 // Project imports:
-import '../../cpu/cpu_debug.dart';
-import '../../cpu/nes.dart';
+import '../../core/component/cpu_debug.dart';
+import '../../core/nes.dart';
 import '../../styles.dart';
 
 void showDebugLog(BuildContext context, Nes emulator) {
