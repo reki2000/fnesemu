@@ -5,24 +5,27 @@ import 'dart:io';
 import 'core/component/bus.dart';
 import 'core/component/cpu.dart';
 import 'core/component/cpu_debug.dart';
+import 'core/mapper/nrom.dart';
 import 'core/rom/nes_file.dart';
+import 'util.dart';
 
 void log(String s) {
   stdout.writeln(s);
 }
 
 void main() async {
-  log("running fnesemu...");
+  log("running fnesemu cpu test...");
   final bus = Bus();
   final cpu = Cpu(bus);
-  final file = NesFile();
 
   final f = File("assets/rom/nestest.nes");
   log("loading: $f");
   final body = await f.readAsBytes();
-  file.load(body);
+  final file = NesFile()..load(body);
 
+  bus.mapper = MapperNROM();
   bus.mapper.setRom(file.character, file.program);
+  bus.mapper.init();
   cpu.regs.PC = 0xc000;
   cpu.regs.P = 0x24;
   cpu.regs.S = 0xfd;
@@ -30,9 +33,11 @@ void main() async {
 
   final testLog = File("assets/nestest.log");
   final testLogs = await testLog.readAsLines();
-  var prevLine = "";
-  for (var l in testLogs) {
+
+  String prevLine = "";
+  for (final l in testLogs) {
     final result = cpu.dumpNesTest();
+
     if (l.substring(0, 4) + l.substring(48) !=
         result.substring(0, 4) + result.substring(48)) {
       final prevFlag = int.parse(prevLine.substring(65, 67), radix: 16);
@@ -44,6 +49,7 @@ void main() async {
       log("result  : $result ${_dumpF(resultFlag)}");
       break;
     }
+
     cpu.exec();
     prevLine = l;
   }
