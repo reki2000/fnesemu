@@ -38,6 +38,7 @@ class MapperMMC1 extends Mapper {
 
   @override
   void init() {
+    _mirroring = 0;
     _shiftReg = 0;
     _counter = 0;
 
