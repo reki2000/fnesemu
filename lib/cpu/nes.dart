@@ -15,18 +15,18 @@ import 'ppu.dart';
 import 'ppu_debug.dart';
 import 'rom/nes_file.dart';
 
+/// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes {
   late final Ppu ppu;
   late final Apu apu;
   late final Cpu cpu;
   late final Bus bus;
 
-  int breakpoint = 0;
-  bool forceBreak = false;
-  bool enableDebugLog = false;
-
   static const cpuClock = 1789773;
   static const apuClock = cpuClock ~/ 2;
+
+  static const cpuCyclesInScanline = 114;
+  static const scanlinesInFrame = 262;
 
   Nes() {
     bus = Bus();
@@ -34,6 +34,44 @@ class Nes {
     ppu = Ppu(bus);
     apu = Apu(bus);
   }
+
+  int nextPpuCycle = 0;
+  int nextApuCycle = 0;
+
+  /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
+  void exec() async {
+    cpu.exec();
+    if (cpu.cycle >= nextPpuCycle) {
+      ppu.exec();
+      nextPpuCycle += cpuCyclesInScanline;
+    }
+    if (cpu.cycle >= nextApuCycle) {
+      apu.exec();
+      nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
+    }
+  }
+
+  /// returns screen buffer as 250x240xargb
+  Uint8List ppuBuffer() {
+    return ppu.buffer;
+  }
+
+  // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
+  Float32List apuBuffer() {
+    return apu.buffer;
+  }
+
+  /// handles reset button events
+  void reset() {
+    nextPpuCycle = cpuCyclesInScanline;
+    nextApuCycle = scanlinesInFrame * cpuCyclesInScanline;
+    stop();
+    bus.onReset();
+  }
+
+  /// handles pad down/up events
+  void padDown(PadButton k) => bus.joypad.keyDown(k);
+  void padUp(PadButton k) => bus.joypad.keyUp(k);
 
   String dump(
       {bool showZeroPage = false,
@@ -51,9 +89,15 @@ class Nes {
     // return '${fps.toStringAsFixed(2)}fps';
   }
 
+  // loads an iNES format rom file.
+  // returns false when load failed or unknown mapper type.
   bool setRom(Uint8List body) {
     stop();
-    final nesFile = NesFile()..load(body);
+
+    final nesFile = NesFile();
+    if (nesFile.load(body)) {
+      return false;
+    }
 
     switch (nesFile.mapper) {
       case 0:
@@ -97,6 +141,12 @@ class Nes {
     bus.onReset();
     return true;
   }
+
+  // below will be deprecated
+
+  int breakpoint = 0;
+  bool forceBreak = false;
+  bool enableDebugLog = false;
 
   void execStep() async {
     cpu.exec();
@@ -174,11 +224,6 @@ class Nes {
 
   void stop() async {
     _timer?.cancel();
-  }
-
-  void reset() {
-    stop();
-    bus.onReset();
   }
 
   void keyDown(PadButton k) => bus.joypad.keyDown(k);
