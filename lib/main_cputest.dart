@@ -20,7 +20,7 @@ void main() async {
   final f = File("assets/rom/nestest.nes");
   log("loading: $f");
   final body = await f.readAsBytes();
-  await file.load(body);
+  file.load(body);
 
   bus.mapper.setRom(file.character, file.program);
   cpu.regs.PC = 0xc000;

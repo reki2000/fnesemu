@@ -73,13 +73,14 @@ class _MainViewState extends State<MainView> {
     final picked = await FilePicker.platform.pickFiles(withData: true);
     if (picked != null) {
       _reset();
-      if (emulator.setRom(picked.files.first.bytes!)) {
+      try {
+        emulator.setRom(picked.files.first.bytes!);
         setState(() {
           _romName = picked.files.first.name;
         });
-      } else {
+      } catch (e) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("load error")));
+            .showSnackBar(SnackBar(content: Text(e.toString())));
       }
     }
   }

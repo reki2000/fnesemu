@@ -90,14 +90,12 @@ class Nes {
   }
 
   // loads an iNES format rom file.
-  // returns false when load failed or unknown mapper type.
-  bool setRom(Uint8List body) {
+  // throws exception if the mapper typ of the rom file is not supported.
+  void setRom(Uint8List body) {
     stop();
 
     final nesFile = NesFile();
-    if (nesFile.load(body)) {
-      return false;
-    }
+    nesFile.load(body);
 
     switch (nesFile.mapper) {
       case 0:
@@ -128,8 +126,7 @@ class Nes {
         bus.mapper = MapperVrc4b4d();
         break;
       default:
-        log("unimplemented mapper:${nesFile.mapper}!");
-        return false;
+        throw Exception("unimplemented mapper:${nesFile.mapper}!");
     }
 
     bus.mapper.setRom(nesFile.character, nesFile.program);
@@ -139,7 +136,6 @@ class Nes {
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
     bus.onReset();
-    return true;
   }
 
   // below will be deprecated
