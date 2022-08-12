@@ -34,6 +34,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
+  final focusNode = FocusNode();
 
   String _romName = "";
   bool _isRunning = false;
@@ -41,6 +42,8 @@ class _MainPageState extends State<MainPage> {
   @override
   void initState() {
     super.initState();
+
+    // start automatic playback the emulator's audio output
     (() async {
       await for (final buf in controller.audioStream) {
         _mPlayer.push(buf, controller.apuClock);
@@ -54,27 +57,55 @@ class _MainPageState extends State<MainPage> {
     super.dispose();
   }
 
-  void _reset() async {
+  void _loadRomFile() async {
+    _mPlayer.resume(); // web platform requires this
+
+    final picked = await FilePicker.platform.pickFiles(withData: true);
+    if (picked == null) {
+      return;
+    }
+
+    try {
+      controller.setRom(picked.files.first.bytes!);
+      setState(() {
+        _romName = picked.files.first.name;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+    _run();
+  }
+
+  void _run() {
+    focusNode.requestFocus();
+    controller.run();
+    setState(() {
+      _isRunning = true;
+    });
+  }
+
+  void _stop() {
+    controller.stop();
+    setState(() {
+      _isRunning = false;
+    });
+  }
+
+  void _reset() {
     controller.reset();
   }
 
-  void _setFile() async {
-    _mPlayer.resume();
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked != null) {
-      _reset();
-      try {
-        controller.setRom(picked.files.first.bytes!);
-        setState(() {
-          _romName = picked.files.first.name;
-          _isRunning = true;
-        });
-        controller.run();
-      } catch (e) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
-      }
-    }
+  void _debug(bool on) {
+    setState(() {
+      controller.debugOption =
+          controller.debugOption.copyWith(showDebugView: on);
+    });
+  }
+
+  IconButton _iconButton(
+      IconData icon, String tooltip, void Function() onPress) {
+    return IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onPress);
   }
 
   @override
@@ -83,58 +114,26 @@ class _MainPageState extends State<MainPage> {
       appBar:
           AppBar(leading: const SizedBox(), title: Text(_romName), actions: [
         // file load button
-        IconButton(
-            icon: const Icon(Icons.file_open_outlined),
-            tooltip: "Load ROM",
-            onPressed: _setFile),
+        _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
         // run / pause button
         _isRunning
-            ? IconButton(
-                icon: const Icon(Icons.pause),
-                tooltip: "Pause",
-                onPressed: () async {
-                  controller.stop();
-                  setState(() {
-                    _isRunning = false;
-                  });
-                })
-            : IconButton(
-                icon: const Icon(Icons.play_arrow),
-                tooltip: "Run",
-                onPressed: () async {
-                  controller.run();
-                  setState(() {
-                    _isRunning = true;
-                  });
-                }),
+            ? _iconButton(Icons.pause, "Pause", _stop)
+            : _iconButton(Icons.play_arrow, "Run", _run),
         // reset button
-        IconButton(
-            icon: const Icon(Icons.restart_alt),
-            tooltip: "Reset",
-            onPressed: _reset),
+        _iconButton(Icons.restart_alt, "Reset", _reset),
         // debug on/off button
         controller.debugOption.showDebugView
-            ? IconButton(
-                icon: const Icon(Icons.bug_report_outlined),
-                tooltip: "Disable Debug Options",
-                onPressed: () => setState(() {
-                      controller.debugOption =
-                          controller.debugOption.copyWith(showDebugView: false);
-                    }))
-            : IconButton(
-                icon: const Icon(Icons.bug_report),
-                tooltip: "Enable Debug Options",
-                onPressed: () => setState(() {
-                      controller.debugOption =
-                          controller.debugOption.copyWith(showDebugView: true);
-                    })),
+            ? _iconButton(Icons.bug_report_outlined, "Disable Debug Options",
+                () => _debug(false))
+            : _iconButton(
+                Icons.bug_report, "Enable Debug Options", () => _debug(true)),
       ]),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           // main view
-          NesView(controller: controller),
+          NesView(controller: controller, focusNode: focusNode),
 
           // debug view if enabled
           if (controller.debugOption.showDebugView)
