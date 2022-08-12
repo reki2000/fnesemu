@@ -10,11 +10,11 @@ class NesFile {
   bool mirrorVertical = false;
   bool hasBatteryBackup = false;
 
-  bool load(Uint8List body) {
+  /// throws exception when load failed
+  void load(Uint8List body) {
     // check if enough length for iNES header
     if (body.length < 16) {
-      log("ERROR: too short iNES header");
-      return false;
+      throw Exception("too short iNES header");
     }
 
     // check if proper iNES header "NES[EOF]"
@@ -22,8 +22,7 @@ class NesFile {
         body[1] == 0x45 &&
         body[2] == 0x53 &&
         body[3] == 0x1a)) {
-      log("ERROR: not iNES header");
-      return false;
+      throw Exception("not iNES header");
     }
 
     final programRomLength = body[4];
@@ -60,8 +59,8 @@ class NesFile {
     final requiredFileSize =
         offset + programRomLength * 16 * 1024 + characterRomLength * 8 * 1024;
     if (body.length < requiredFileSize) {
-      log("ERROR: not enough file length: need $requiredFileSize but {body.length}");
-      return false;
+      throw Exception(
+          "not enough file length: need $requiredFileSize but {body.length}");
     }
 
     // load rom data
@@ -80,7 +79,5 @@ class NesFile {
       character.add(body.sublist(offset, offset + 8 * 1024));
       offset += 8 * 1024;
     }
-
-    return true;
   }
 }
