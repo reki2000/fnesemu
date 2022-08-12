@@ -4,30 +4,45 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 // Flutter imports:
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // Project imports:
-import '../cpu/pad_button.dart';
 import '../styles.dart';
 import 'nes_controller.dart';
 
-class NesView extends StatelessWidget {
+class NesView extends StatefulWidget {
   final NesController controller;
-  NesView({Key? key, required this.controller}) : super(key: key);
 
-  bool _showDebugView = false;
+  const NesView({Key? key, required this.controller}) : super(key: key);
+
+  @override
+  _NewViewState createState() => _NewViewState();
+}
+
+class _NewViewState extends State<NesView> {
+  late final Stream<ui.Image> _imageStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageStream = widget.controller.imageStream.asyncMap(renderVideo);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   static final keys = {
-    PhysicalKeyboardKey.arrowDown: PadButton.down,
-    PhysicalKeyboardKey.arrowUp: PadButton.up,
-    PhysicalKeyboardKey.arrowLeft: PadButton.left,
-    PhysicalKeyboardKey.arrowRight: PadButton.right,
-    PhysicalKeyboardKey.keyX: PadButton.a,
-    PhysicalKeyboardKey.keyZ: PadButton.b,
-    PhysicalKeyboardKey.keyA: PadButton.select,
-    PhysicalKeyboardKey.keyS: PadButton.start,
+    PhysicalKeyboardKey.arrowDown: NesPadButton.down,
+    PhysicalKeyboardKey.arrowUp: NesPadButton.up,
+    PhysicalKeyboardKey.arrowLeft: NesPadButton.left,
+    PhysicalKeyboardKey.arrowRight: NesPadButton.right,
+    PhysicalKeyboardKey.keyX: NesPadButton.a,
+    PhysicalKeyboardKey.keyZ: NesPadButton.b,
+    PhysicalKeyboardKey.keyA: NesPadButton.select,
+    PhysicalKeyboardKey.keyS: NesPadButton.start,
   };
 
   bool _keyHandler(KeyEvent e) {
@@ -35,10 +50,10 @@ class NesView extends StatelessWidget {
       if (entry.key == e.physicalKey) {
         switch (e.runtimeType) {
           case KeyDownEvent:
-            controller.padDown(entry.value);
+            widget.controller.padDown(entry.value);
             break;
           case KeyUpEvent:
-            controller.padUp(entry.value);
+            widget.controller.padUp(entry.value);
             break;
         }
         return true;
@@ -56,24 +71,9 @@ class NesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    void _setFile() async {
-      final picked = await FilePicker.platform.pickFiles(withData: true);
-      if (picked != null) {
-        controller.reset();
-        try {
-          controller.setRom(picked.files.first.bytes!);
-          controller.run();
-        } catch (e) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(e.toString())));
-        }
-      }
-    }
-
     return RepaintBoundary(
       child: Column(
         children: [
-          ElevatedButton(child: const Text("Load"), onPressed: _setFile),
           // main view
           Focus(
               onFocusChange: (on) {
@@ -88,7 +88,7 @@ class NesView extends StatelessWidget {
                   height: 480,
                   color: Colors.black,
                   child: StreamBuilder<ui.Image>(
-                      stream: controller.imageStream.asyncMap(renderVideo),
+                      stream: _imageStream,
                       builder: (ctx, snapshot) =>
                           RawImage(image: snapshot.data, scale: 0.5)))),
 
@@ -96,14 +96,14 @@ class NesView extends StatelessWidget {
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             const SizedBox(width: 30.0),
             StreamBuilder<double>(
-                stream: controller.fpsStream,
+                stream: widget.controller.fpsStream,
                 builder: (ctx, snapshot) =>
                     Text("${(snapshot.data ?? 0.0).toStringAsFixed(2)} fps")),
           ]),
 
           // debug view
           StreamBuilder<String>(
-              stream: controller.debugStream,
+              stream: widget.controller.debugStream,
               builder: (ctx, snapshot) =>
                   Text(snapshot.data ?? "", style: debugStyle)),
         ],

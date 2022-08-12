@@ -1,5 +1,4 @@
-// Flutter imports:
-import 'dart:developer';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -7,14 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
 // Project imports:
-import '../cpu/cpu_debug.dart';
 import '../cpu/nes.dart';
 import 'nes_controller.dart';
 import 'nes_view.dart';
 import 'sound_player.dart';
-import 'debug/disasm.dart';
-import 'debug/vram.dart';
-import 'nes.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -42,18 +37,19 @@ class MainView extends StatefulWidget {
 
 class _MainViewState extends State<MainView> {
   final _mPlayer = SoundPlayer();
+  final controller = NesController();
 
   String _romName = "";
   bool _isRunning = false;
 
-  final emulator = Nes();
-
   @override
   void initState() {
     super.initState();
-    emulator.renderAudio = (buf) async {
-      _mPlayer.push(buf, Nes.apuClock);
-    };
+    (() async {
+      await for (final buf in controller.audioStream) {
+        _mPlayer.push(buf, Nes.apuClock);
+      }
+    })();
   }
 
   @override
@@ -67,16 +63,16 @@ class _MainViewState extends State<MainView> {
       _isRunning = false;
     });
     _mPlayer.stop();
-    emulator.reset();
-    CpuDebugger.clearDebugLog();
+    controller.reset();
   }
 
   void _setFile() async {
+    _mPlayer.resume();
     final picked = await FilePicker.platform.pickFiles(withData: true);
     if (picked != null) {
       _reset();
       try {
-        emulator.setRom(picked.files.first.bytes!);
+        controller.setRom(picked.files.first.bytes!);
         setState(() {
           _romName = picked.files.first.name;
         });
@@ -94,7 +90,6 @@ class _MainViewState extends State<MainView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = NesController();
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
@@ -103,13 +98,13 @@ class _MainViewState extends State<MainView> {
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           _button(_isRunning ? "Stop" : "Run", () async {
             if (_isRunning) {
-              emulator.stop();
+              controller.stop();
               setState(() {
                 _isRunning = false;
               });
             } else {
               await _mPlayer.resume();
-              emulator.run();
+              controller.run();
               setState(() {
                 _isRunning = true;
               });
@@ -119,27 +114,31 @@ class _MainViewState extends State<MainView> {
           _button("File", _setFile),
           Text(_romName),
         ]),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _button("Step", emulator.execStep),
-          _button("Line", emulator.execLine),
-          _button("Frame", emulator.execFrame),
-          SizedBox(
-              width: 50,
-              child: TextField(onChanged: (v) {
-                emulator.breakpoint =
-                    (v.length == 4) ? int.parse(v, radix: 16) : 0;
-              })),
-          _button("Disasm", () => showDisasm(context, emulator)),
-          _button("VRAM", () => showVram(context, emulator)),
-          _button("Log", () => log(emulator.cpu.dumpDebugLog())),
-          //showDebugLog(context, emulator)),
-          Checkbox(
-              value: emulator.enableDebugLog,
-              onChanged: (on) => setState(() {
-                    emulator.enableDebugLog = on ?? false;
-                  })),
-        ]),
       ],
     );
+  }
+}
+
+class DebugControl extends StatelessWidget {
+  final NesController controller;
+
+  const DebugControl({Key? key, required this.controller}) : super(key: key);
+
+  Widget _button(String text, void Function() func) => Container(
+      margin:
+          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
+      child: ElevatedButton(child: Text(text), onPressed: func));
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      _button("Step", controller.runStep),
+      _button("Line", controller.runScanLine),
+      _button("Frame", controller.runFrame),
+      SizedBox(width: 50, child: TextField(onChanged: (v) {})),
+      _button("Disasm", () => {}),
+      _button("VRAM", () => {}),
+      _button("Log", () => {}),
+    ]);
   }
 }
