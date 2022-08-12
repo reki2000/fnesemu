@@ -74,16 +74,36 @@ class NesController {
     _renderAll();
   }
 
-  void runScanLine() {
-    final cycleUntil = _emulator.exec() + 114;
-    while (_emulator.exec() < cycleUntil) {}
+  bool runScanLine({skipRender = false}) {
+    final result = _emulator.exec();
+    if (!result.i1) {
+      stop();
+      return false;
+    }
+
+    final cycleUntil = result.i0 + 114;
+
+    while (true) {
+      final result = _emulator.exec();
+      if (!result.i1) {
+        stop();
+        return false;
+      }
+
+      final currentCycle = result.i0;
+      if (currentCycle >= cycleUntil) {
+        break;
+      }
+    }
     _renderAll();
+    return true;
   }
 
   void runFrame() {
     for (int i = 0; i < 261; i++) {
-      final cycleUntil = _emulator.exec() + 114;
-      while (_emulator.exec() < cycleUntil) {}
+      if (!runScanLine(skipRender: true)) {
+        return;
+      }
     }
     _renderAll();
   }

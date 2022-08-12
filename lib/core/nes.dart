@@ -42,8 +42,13 @@ class Nes {
   int nextApuCycle = 0;
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
-  int exec() {
-    cpu.exec();
+  /// returns current CPU cycle and bool - false when unimplemented instruction is found
+  Pair<int, bool> exec() {
+    final cpuOk = cpu.exec();
+    if (!cpuOk) {
+      return Pair(cpu.cycle, false);
+    }
+
     if (cpu.cycle >= nextPpuCycle) {
       ppu.exec();
       nextPpuCycle += cpuCyclesInScanline;
@@ -52,7 +57,7 @@ class Nes {
       apu.exec();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
-    return cpu.cycle;
+    return Pair(cpu.cycle, true);
   }
 
   /// returns screen buffer as 250x240xargb

@@ -7,7 +7,6 @@ import 'core/component/cpu.dart';
 import 'core/component/cpu_debug.dart';
 import 'core/mapper/nrom.dart';
 import 'core/rom/nes_file.dart';
-import 'util.dart';
 
 void log(String s) {
   stdout.writeln(s);
