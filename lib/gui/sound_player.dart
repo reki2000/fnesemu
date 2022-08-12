@@ -1,5 +1,7 @@
+// Dart imports:
 import 'dart:typed_data';
 
+// Package imports:
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 class SoundPlayer {
@@ -11,8 +13,6 @@ class SoundPlayer {
   int _bufIndex = 0;
 
   Future<void> resume() async => _audioStream.resume();
-
-  Future<void> stop() async {}
 
   void dispose() => _audioStream.uninit();
 

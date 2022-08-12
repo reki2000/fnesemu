@@ -2,10 +2,10 @@
 import 'dart:io';
 
 // Project imports:
-import 'cpu/bus.dart';
-import 'cpu/cpu.dart';
-import 'cpu/cpu_debug.dart';
-import 'cpu/rom/nes_file.dart';
+import 'core/component/bus.dart';
+import 'core/component/cpu.dart';
+import 'core/component/cpu_debug.dart';
+import 'core/rom/nes_file.dart';
 
 void log(String s) {
   stdout.writeln(s);
@@ -20,7 +20,7 @@ void main() async {
   final f = File("assets/rom/nestest.nes");
   log("loading: $f");
   final body = await f.readAsBytes();
-  await file.load(body);
+  file.load(body);
 
   bus.mapper.setRom(file.character, file.program);
   cpu.regs.PC = 0xc000;
