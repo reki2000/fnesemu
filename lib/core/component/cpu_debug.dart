@@ -2,9 +2,9 @@
 import 'dart:core';
 
 // Project imports:
+import '../../util.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
-import '../../util.dart';
 
 class RingBuffer {
   final List<String> _buf;

@@ -1,6 +1,6 @@
 // Project imports:
-import 'bus.dart';
 import '../../util.dart';
+import 'bus.dart';
 
 extension BusDebugger on Bus {
   String debug({bool showVram = false, bool showChar = false}) {

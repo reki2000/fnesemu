@@ -1,7 +1,9 @@
+// Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/gui/debug/disasm.dart';
 
+// Project imports:
 import '../nes_controller.dart';
+import 'disasm.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {

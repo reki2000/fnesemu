@@ -2,19 +2,18 @@
 import 'dart:typed_data';
 
 // Project imports:
-import 'package:fnesemu/core/component/chr_rom_debug.dart';
-
 import '../util.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
 import 'component/bus.dart';
+import 'component/chr_rom_debug.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
-import 'mapper/mapper.dart';
-import 'pad_button.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
+import 'mapper/mapper.dart';
+import 'pad_button.dart';
 import 'rom/nes_file.dart';
 
 export 'pad_button.dart';

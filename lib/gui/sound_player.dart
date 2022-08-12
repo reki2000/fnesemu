@@ -1,5 +1,7 @@
+// Dart imports:
 import 'dart:typed_data';
 
+// Package imports:
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 class SoundPlayer {
