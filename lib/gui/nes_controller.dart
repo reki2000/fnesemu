@@ -5,6 +5,15 @@ import '../core/nes.dart';
 
 typedef NesPadButton = PadButton;
 
+/// Parameters for debugging features
+class DebugOption {
+  final bool showDebugView;
+
+  DebugOption({this.showDebugView = false});
+}
+
+/// A Controller of NES emulator core.
+/// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
 class NesController {
   final _emulator = Nes();
 
@@ -12,6 +21,24 @@ class NesController {
 
   Timer? _timer;
   double _fps = 0.0;
+
+  DebugOption _debugOption = DebugOption();
+
+  DebugOption get debugOption => _debugOption;
+
+  set debugOption(DebugOption opt) {
+    _debugOption = opt;
+    if (opt.showDebugView) {
+      _pushDebug();
+    } else {
+      _debugStream.add("");
+    }
+  }
+
+  void _pushDebug() {
+    _debugStream.add(
+        _emulator.dump(showZeroPage: true, showStack: true, showApu: true));
+  }
 
   int get apuClock => Nes.apuClock;
 
@@ -36,24 +63,29 @@ class NesController {
 
   void runStep() {
     _emulator.exec();
+    _renderAll();
   }
 
   void runScanLine() {
     final cycleUntil = _emulator.exec() + 114;
     while (_emulator.exec() < cycleUntil) {}
+    _renderAll();
   }
 
   void runFrame() {
     for (int i = 0; i < 261; i++) {
-      runScanLine();
+      final cycleUntil = _emulator.exec() + 114;
+      while (_emulator.exec() < cycleUntil) {}
     }
+    _renderAll();
+  }
+
+  void _renderAll() {
     _imageStream.add(_emulator.ppuBuffer());
     _audioStream.add(_emulator.apuBuffer());
-    _debugStream.add(_emulator.dump(
-      showZeroPage: true,
-      showStack: true,
-      showApu: true,
-    ));
+    if (_debugOption.showDebugView) {
+      _pushDebug();
+    }
     _fpsStream.add(_fps);
   }
 
