@@ -14,6 +14,22 @@ class Ppu {
     bus.ppu = this;
   }
 
+  reset() {
+    ctl1 = 0;
+    ctl2 = 0;
+    status = 0;
+    objAddr = 0;
+    scrollX = 0;
+    scrollY = 0;
+    tmpVramAddr = 0;
+    vramAddr = 0;
+    fineX = 0;
+    first = true;
+    vramBuffer = 0;
+    scanLine = 0;
+    cycle = 0;
+  }
+
   int ctl1 = 0;
   int ctl2 = 0;
   int status = 0;

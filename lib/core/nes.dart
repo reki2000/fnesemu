@@ -146,6 +146,6 @@ class Nes {
 
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
-    bus.onReset();
+    reset();
   }
 }
