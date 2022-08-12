@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
 // Project imports:
+import 'debug/debug_controller.dart';
+import 'debug/vram.dart';
 import 'nes_controller.dart';
 import 'nes_view.dart';
 import 'sound_player.dart';
@@ -122,32 +124,8 @@ class _MainViewState extends State<MainView> {
 
         // debug view if enabled
         if (controller.debugOption.showDebugView)
-          DebugControl(controller: controller),
+          DebugController(controller: controller),
       ],
     );
-  }
-}
-
-class DebugControl extends StatelessWidget {
-  final NesController controller;
-
-  const DebugControl({Key? key, required this.controller}) : super(key: key);
-
-  Widget _button(String text, void Function() func) => Container(
-      margin:
-          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
-      child: ElevatedButton(child: Text(text), onPressed: func));
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      _button("Step", controller.runStep),
-      _button("Line", controller.runScanLine),
-      _button("Frame", controller.runFrame),
-      SizedBox(width: 50, child: TextField(onChanged: (v) {})),
-      _button("Disasm", () => {}),
-      _button("VRAM", () => {}),
-      _button("Log", () => {}),
-    ]);
   }
 }

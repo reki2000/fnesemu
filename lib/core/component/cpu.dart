@@ -4,8 +4,8 @@ import 'dart:developer';
 
 // Project imports:
 import 'bus.dart';
-import '../disasm.dart';
-import '../util.dart';
+import 'cpu_disasm.dart';
+import '../../util.dart';
 
 class Regs {
   int A = 0;
@@ -34,8 +34,6 @@ class Cpu {
 
   Cpu(this.bus) {
     bus.cpu = this;
-
-    setupDisasm();
     read = bus.read;
     write = bus.write;
   }

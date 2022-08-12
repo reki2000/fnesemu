@@ -1,6 +1,6 @@
 // Project imports:
 import 'ppu.dart';
-import '../util.dart';
+import '../../util.dart';
 
 class _BG {
   final int char1;
