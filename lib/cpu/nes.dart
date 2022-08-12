@@ -1,6 +1,5 @@
 // Dart imports:
 import 'dart:async';
-import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
@@ -9,8 +8,8 @@ import 'apu_debug.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_debug.dart';
-import 'joypad.dart';
 import 'mapper/mapper.dart';
+import 'pad_button.dart';
 import 'ppu.dart';
 import 'ppu_debug.dart';
 import 'rom/nes_file.dart';
@@ -39,7 +38,7 @@ class Nes {
   int nextApuCycle = 0;
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
-  void exec() async {
+  int exec() {
     cpu.exec();
     if (cpu.cycle >= nextPpuCycle) {
       ppu.exec();
@@ -49,6 +48,7 @@ class Nes {
       apu.exec();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
+    return cpu.cycle;
   }
 
   /// returns screen buffer as 250x240xargb

@@ -8,8 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // Project imports:
-import '../cpu/joypad.dart';
 import '../cpu/nes.dart';
+import '../cpu/pad_button.dart';
 import '../styles.dart';
 
 class NesWidget extends StatefulWidget {

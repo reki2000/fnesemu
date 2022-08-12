@@ -1,4 +1,5 @@
 // Project imports:
+import 'pad_button.dart';
 import 'util.dart';
 
 class Joypad {
@@ -60,15 +61,4 @@ class Joypad {
         .map((j) => "${j.name}:${isPressed[j.index] ? "*" : "-"}");
     return "$joys";
   }
-}
-
-enum PadButton {
-  a,
-  b,
-  select,
-  start,
-  up,
-  down,
-  left,
-  right,
 }
