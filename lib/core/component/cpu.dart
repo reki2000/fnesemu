@@ -4,8 +4,8 @@ import 'dart:developer';
 
 // Project imports:
 import 'bus.dart';
-import 'disasm.dart';
-import 'util.dart';
+import '../disasm.dart';
+import '../util.dart';
 
 class Regs {
   int A = 0;

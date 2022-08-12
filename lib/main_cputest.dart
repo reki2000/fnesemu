@@ -2,10 +2,10 @@
 import 'dart:io';
 
 // Project imports:
-import 'cpu/bus.dart';
-import 'cpu/cpu.dart';
-import 'cpu/cpu_debug.dart';
-import 'cpu/rom/nes_file.dart';
+import 'core/component/bus.dart';
+import 'core/component/cpu.dart';
+import 'core/component/cpu_debug.dart';
+import 'core/rom/nes_file.dart';
 
 void log(String s) {
   stdout.writeln(s);

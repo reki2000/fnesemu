@@ -1,12 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
 
 // Project imports:
-import '../cpu/nes.dart';
 import 'nes_controller.dart';
 import 'nes_view.dart';
 import 'sound_player.dart';
@@ -47,7 +44,7 @@ class _MainViewState extends State<MainView> {
     super.initState();
     (() async {
       await for (final buf in controller.audioStream) {
-        _mPlayer.push(buf, Nes.apuClock);
+        _mPlayer.push(buf, controller.apuClock);
       }
     })();
   }
