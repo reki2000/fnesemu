@@ -14,6 +14,8 @@ import 'ppu.dart';
 import 'ppu_debug.dart';
 import 'rom/nes_file.dart';
 
+export 'pad_button.dart';
+
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes {
   late final Ppu ppu;
