@@ -12,8 +12,6 @@ class SoundPlayer {
 
   Future<void> resume() async => _audioStream.resume();
 
-  Future<void> stop() async {}
-
   void dispose() => _audioStream.uninit();
 
   // resample input buffer (Float32 0.0-1.0 890kHz) to 44.1kHz
