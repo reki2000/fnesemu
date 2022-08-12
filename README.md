@@ -5,11 +5,7 @@ A multi-platform NES Emulator written in Flutter
 This project is under experiment.
 
 - runs almost 60 fps on i5-8250
-- running on platforms:
-    - Web
-    - Windows
-    - Linux
-    - Android
+- running on all flutter-supported platforms - Android, iOS, macOS, Linux, Windows and Web
 - supported iNES mapper types:
     - 0: NROM
     - 1: MMC1 w/o battery backup, *partially 
@@ -22,7 +18,8 @@ This project is under experiment.
 # How to use 
 
 1. visit https://reki2000.github.io/fnesemu/
-1. select `.nes` file from 'File' button, then click 'Run' to start emulation.
+1. select `.nes` file by click 'Load ROM' icon (a square and a small arrow) on the leftmost of the App bar icons
+1. click 'Run' icon (a right-directed triangle) to start emulation
 
 ## Joypad-Keyboard assignment
 
