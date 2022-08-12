@@ -1,13 +1,16 @@
 // Dart imports:
-import 'dart:async';
 import 'dart:typed_data';
 
 // Project imports:
+import 'package:fnesemu/core/component/chr_rom_debug.dart';
+
+import '../util.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
+import 'component/cpu_disasm.dart';
 import 'mapper/mapper.dart';
 import 'pad_button.dart';
 import 'component/ppu.dart';
@@ -67,7 +70,6 @@ class Nes {
   void reset() {
     nextPpuCycle = cpuCyclesInScanline;
     nextApuCycle = scanlinesInFrame * cpuCyclesInScanline;
-    stop();
     bus.onReset();
   }
 
@@ -75,6 +77,7 @@ class Nes {
   void padDown(PadButton k) => bus.joypad.keyDown(k);
   void padUp(PadButton k) => bus.joypad.keyUp(k);
 
+  /// returns the emulator's internal status report
   String dump(
       {bool showZeroPage = false,
       bool showSpriteVram = false,
@@ -91,11 +94,18 @@ class Nes {
     // return '${fps.toStringAsFixed(2)}fps';
   }
 
+  // returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
+  Uint8List renderChrRom() {
+    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
+  }
+
+  // returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
+  Pair<String, int> disasm(int addr) =>
+      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
+
   // loads an iNES format rom file.
   // throws exception if the mapper typ of the rom file is not supported.
   void setRom(Uint8List body) {
-    stop();
-
     final nesFile = NesFile();
     nesFile.load(body);
 
@@ -139,91 +149,4 @@ class Nes {
 
     bus.onReset();
   }
-
-  // below will be deprecated
-
-  int breakpoint = 0;
-  bool forceBreak = false;
-  bool enableDebugLog = false;
-
-  void execStep() async {
-    cpu.exec();
-    if (enableDebugLog) {
-      cpu.debugLog();
-    }
-    renderVideo(ppu.buffer);
-    renderAudio(apu.buffer);
-  }
-
-  void execLine() async {
-    final cycle = cpu.cycle;
-    while (cpu.cycle - cycle < 114) {
-      if (cpu.regs.PC == breakpoint) {
-        stop();
-        renderVideo(ppu.buffer);
-        return;
-      }
-      if (!cpu.exec()) {
-        forceBreak = true;
-      }
-      if (enableDebugLog) {
-        cpu.debugLog();
-      }
-    }
-    ppu.exec();
-    renderVideo(ppu.buffer);
-    renderAudio(apu.buffer);
-  }
-
-  void execFrame() async {
-    final cycle = cpu.cycle;
-    for (int j = 0; j < 262; j++) {
-      while (cpu.cycle - cycle < 114 * (j + 1)) {
-        if (cpu.regs.PC == breakpoint || forceBreak) {
-          stop();
-          renderVideo(ppu.buffer);
-          forceBreak = false;
-          return;
-        }
-        if (!cpu.exec()) {
-          forceBreak = true;
-        }
-        if (enableDebugLog) {
-          cpu.debugLog();
-        }
-      }
-      ppu.exec();
-    }
-    apu.exec();
-    renderVideo(ppu.buffer);
-    renderAudio(apu.buffer);
-  }
-
-  Future<void> Function(Uint8List) renderVideo = ((_) async {});
-  Future<void> Function(Float32List) renderAudio = ((_) async {});
-
-  Timer? _timer;
-  double fps = 0.0;
-
-  void run() async {
-    final startAt = DateTime.now();
-    var frames = 0;
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      if (fps <= 60.0) {
-        execFrame();
-        frames++;
-      }
-      fps = frames /
-          (DateTime.now().difference(startAt).inMilliseconds.toDouble() /
-              1000.0);
-    });
-  }
-
-  void stop() async {
-    _timer?.cancel();
-  }
-
-  void keyDown(PadButton k) => bus.joypad.keyDown(k);
-  void keyUp(PadButton k) => bus.joypad.keyUp(k);
 }
