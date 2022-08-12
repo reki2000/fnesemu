@@ -121,14 +121,16 @@ class _MainPageState extends State<MainPage> {
         _isRunning
             ? _iconButton(Icons.pause, "Pause", _stop)
             : _iconButton(Icons.play_arrow, "Run", _run),
+
         // reset button
         _iconButton(Icons.restart_alt, "Reset", _reset),
+
         // debug on/off button
         controller.debugOption.showDebugView
-            ? _iconButton(Icons.bug_report_outlined, "Disable Debug Options",
-                () => _debug(false))
-            : _iconButton(
-                Icons.bug_report, "Enable Debug Options", () => _debug(true)),
+            ? _iconButton(
+                Icons.bug_report, "Disable Debug Options", () => _debug(false))
+            : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
+                () => _debug(true)),
       ]),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
