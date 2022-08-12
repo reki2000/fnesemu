@@ -3,9 +3,8 @@ import 'dart:core';
 import 'dart:developer';
 
 // Project imports:
-import 'bus.dart';
-import 'cpu_disasm.dart';
 import '../../util.dart';
+import 'bus.dart';
 
 class Regs {
   int A = 0;

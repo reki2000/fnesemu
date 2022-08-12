@@ -1,10 +1,10 @@
 // Dart imports:
 
 // Project imports:
+import '../mapper/mapper.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'pad.dart';
-import '../mapper/mapper.dart';
 import 'ppu.dart';
 
 class Bus {
