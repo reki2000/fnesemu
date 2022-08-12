@@ -90,9 +90,17 @@ class _MainViewState extends State<MainView> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
+        // main view
         NesView(controller: controller),
-        //NesWidget(emulator: emulator),
+
+        // controllers
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Checkbox(
+              value: controller.debugOption.showDebugView,
+              onChanged: (on) => setState(() {
+                    controller.debugOption =
+                        DebugOption(showDebugView: on ?? false);
+                  })),
           _button(_isRunning ? "Stop" : "Run", () async {
             if (_isRunning) {
               controller.stop();
@@ -111,6 +119,10 @@ class _MainViewState extends State<MainView> {
           _button("File", _setFile),
           Text(_romName),
         ]),
+
+        // debug view if enabled
+        if (controller.debugOption.showDebugView)
+          DebugControl(controller: controller),
       ],
     );
   }
