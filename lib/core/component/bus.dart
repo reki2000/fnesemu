@@ -86,6 +86,8 @@ class Bus {
 
   void onReset() {
     mapper.init();
+    ppu.reset();
+    apu.reset();
     cpu.releaseIrq();
     cpu.reset();
   }
