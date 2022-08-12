@@ -3,8 +3,8 @@ import 'dart:core';
 
 // Project imports:
 import 'cpu.dart';
-import '../disasm.dart';
-import '../util.dart';
+import 'cpu_disasm.dart';
+import '../../util.dart';
 
 class RingBuffer {
   final List<String> _buf;
@@ -73,8 +73,8 @@ extension CpuDebugger on Cpu {
       final op = read(pc);
       final a = read(pc + 1);
       final b = read(pc + 2);
-      result += disasm(pc, op, a, b).padRight(47, " ") + "\n";
-      pc += nextPC(op);
+      result += Disasm.disasm(pc, op, a, b).padRight(47, " ") + "\n";
+      pc += Disasm.nextPC(op);
     }
     return result;
   }
@@ -84,7 +84,7 @@ extension CpuDebugger on Cpu {
     final a = read(regs.PC + 1);
     final b = read(regs.PC + 2);
 
-    final asm = disasm(regs.PC, op, a, b).padRight(47, " ");
+    final asm = Disasm.disasm(regs.PC, op, a, b).padRight(47, " ");
     final reg =
         "A:${hex8(regs.A)} X:${hex8(regs.X)} Y:${hex8(regs.Y)} P:${hex8(regs.P)} SP:${hex8(regs.S)}";
 

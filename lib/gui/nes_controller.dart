@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../core/nes.dart';
+import '../util.dart';
 
 typedef NesPadButton = PadButton;
 
@@ -105,4 +106,7 @@ class NesController {
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<String> get debugStream => _debugStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
+
+  Uint8List renderChrRom() => _emulator.renderChrRom();
+  Pair<String, int> disasm(int addr) => _emulator.disasm(addr);
 }
