@@ -364,6 +364,7 @@ class DPCMWave {
   }
 }
 
+/// Emulates NES APU
 class Apu {
   late final Bus _bus;
 
@@ -371,6 +372,15 @@ class Apu {
     _bus = bus;
     _bus.apu = this;
     dpcm = DPCMWave(_bus.read, _bus.holdIrq);
+  }
+
+  void reset() {
+    cycle = 0;
+    frameIrqHold = false;
+    frameIrqEnabled = false;
+    frameCounterMode0 = false;
+    frameCountTick = 0;
+    dpcmEnabled = false;
   }
 
   int cycle = 0;
@@ -385,6 +395,8 @@ class Apu {
 
   bool frameIrqHold = false;
   bool frameIrqEnabled = false;
+  bool frameCounterMode0 = false;
+  int frameCountTick = 0;
 
   void write(int reg, int val) {
     switch (reg) {
@@ -566,9 +578,10 @@ class Apu {
   static final _tndOutTable = List<double>.generate(
       204, (n) => n == 0 ? 0 : 163.67 / (24329.0 / n + 100));
 
-  // sound output buffer: -1.0 to 1.0 for 1 screen frame
+  /// sound output buffer: -1.0 to 1.0 for 1 screen frame
   final buffer = Float32List.fromList(List.filled(_execCycles, 0.0));
 
+  /// Generates APU 1Frame output and set it to the apu output buffer
   void exec() {
     var bufferIndex = 0;
     final framesInExec = frameCounterMode0 ? 4 : 5;
@@ -594,17 +607,17 @@ class Apu {
         buffer[bufferIndex++] = (pulseOut + elseOut) * 2 - 1.0;
       }
 
-      countApuFrame();
+      _countApuFrame();
     }
   }
 
-  void countEnvelope() {
+  void _countEnvelope() {
     pulse0.envelope.count();
     pulse1.envelope.count();
     noise.envelope.count();
   }
 
-  void countLength() {
+  void _countLength() {
     pulse0.countLength();
     pulse0.sweep.sweep();
     pulse1.countLength();
@@ -613,25 +626,22 @@ class Apu {
     noise.countLength();
   }
 
-  bool frameCounterMode0 = false;
-  int frameCountTick = 0;
-
   // called almost 240Hz or 192Hz
-  void countApuFrame() {
+  void _countApuFrame() {
     if (frameCounterMode0) {
-      countEnvelope();
+      _countEnvelope();
       if (frameCountTick == 1 || frameCountTick == 3) {
-        countLength();
+        _countLength();
       }
       if (frameCountTick == 3) {
         setFrameIRQ();
       }
     } else {
       if (frameCountTick != 3) {
-        countEnvelope();
+        _countEnvelope();
       }
       if (frameCountTick == 1 || frameCountTick == 4) {
-        countLength();
+        _countLength();
       }
     }
 
