@@ -4,34 +4,20 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 // Flutter imports:
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // Project imports:
-import '../cpu/nes.dart';
 import '../cpu/pad_button.dart';
 import '../styles.dart';
+import 'nes_controller.dart';
 
-class NesWidget extends StatefulWidget {
-  final Nes emulator;
-  const NesWidget({Key? key, required this.emulator}) : super(key: key);
-
-  @override
-  State<NesWidget> createState() => _NesWidgetState();
-}
-
-class _NesWidgetState extends State<NesWidget> {
-  final _imageStream = StreamController<ui.Image>();
-  final _fpsStream = StreamController<double>();
-  final _debugStream = StreamController<String>();
+class NesView extends StatelessWidget {
+  final NesController controller;
+  NesView({Key? key, required this.controller}) : super(key: key);
 
   bool _showDebugView = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.emulator.renderVideo = renderVideo;
-  }
 
   static final keys = {
     PhysicalKeyboardKey.arrowDown: PadButton.down,
@@ -49,10 +35,10 @@ class _NesWidgetState extends State<NesWidget> {
       if (entry.key == e.physicalKey) {
         switch (e.runtimeType) {
           case KeyDownEvent:
-            widget.emulator.keyDown(entry.value);
+            controller.padDown(entry.value);
             break;
           case KeyUpEvent:
-            widget.emulator.keyUp(entry.value);
+            controller.padUp(entry.value);
             break;
         }
         return true;
@@ -61,37 +47,33 @@ class _NesWidgetState extends State<NesWidget> {
     return false;
   }
 
-  @override
-  void dispose() {
-    _imageStream.close();
-    _fpsStream.close();
-    _debugStream.close();
-    super.dispose();
-  }
-
-  Future<void> renderVideo(Uint8List buf) async {
-    _fpsStream.add(widget.emulator.fps);
-
-    if (_showDebugView) {
-      showDebug();
-    }
+  Future<ui.Image> renderVideo(Uint8List buf) {
+    final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-        buf, 256, 240, ui.PixelFormat.rgba8888, (img) => _imageStream.add(img));
-  }
-
-  void showDebug() {
-    _debugStream.add(widget.emulator.dump(
-      showZeroPage: true,
-      showStack: true,
-      showApu: true,
-    ));
+        buf, 256, 240, ui.PixelFormat.rgba8888, completer.complete);
+    return completer.future;
   }
 
   @override
-  Widget build(BuildContext ctx) {
+  Widget build(BuildContext context) {
+    void _setFile() async {
+      final picked = await FilePicker.platform.pickFiles(withData: true);
+      if (picked != null) {
+        controller.reset();
+        try {
+          controller.setRom(picked.files.first.bytes!);
+          controller.run();
+        } catch (e) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      }
+    }
+
     return RepaintBoundary(
       child: Column(
         children: [
+          ElevatedButton(child: const Text("Load"), onPressed: _setFile),
           // main view
           Focus(
               onFocusChange: (on) {
@@ -106,33 +88,22 @@ class _NesWidgetState extends State<NesWidget> {
                   height: 480,
                   color: Colors.black,
                   child: StreamBuilder<ui.Image>(
-                      stream: _imageStream.stream,
+                      stream: controller.imageStream.asyncMap(renderVideo),
                       builder: (ctx, snapshot) =>
                           RawImage(image: snapshot.data, scale: 0.5)))),
 
           // debug control
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Checkbox(
-                value: _showDebugView,
-                onChanged: (on) => setState(() {
-                      _showDebugView = on ?? false;
-                      if (_showDebugView) {
-                        showDebug();
-                      } else {
-                        _debugStream.add("");
-                      }
-                    })),
-            const Text("Debug Info"),
             const SizedBox(width: 30.0),
             StreamBuilder<double>(
-                stream: _fpsStream.stream,
+                stream: controller.fpsStream,
                 builder: (ctx, snapshot) =>
                     Text("${(snapshot.data ?? 0.0).toStringAsFixed(2)} fps")),
           ]),
 
           // debug view
           StreamBuilder<String>(
-              stream: _debugStream.stream,
+              stream: controller.debugStream,
               builder: (ctx, snapshot) =>
                   Text(snapshot.data ?? "", style: debugStyle)),
         ],

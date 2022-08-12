@@ -9,6 +9,8 @@ import 'package:file_picker/file_picker.dart';
 // Project imports:
 import '../cpu/cpu_debug.dart';
 import '../cpu/nes.dart';
+import 'nes_controller.dart';
+import 'nes_view.dart';
 import 'sound_player.dart';
 import 'debug/disasm.dart';
 import 'debug/vram.dart';
@@ -92,10 +94,12 @@ class _MainViewState extends State<MainView> {
 
   @override
   Widget build(BuildContext context) {
+    final controller = NesController();
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        NesWidget(emulator: emulator),
+        NesView(controller: controller),
+        //NesWidget(emulator: emulator),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           _button(_isRunning ? "Stop" : "Run", () async {
             if (_isRunning) {
