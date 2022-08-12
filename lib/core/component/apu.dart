@@ -3,8 +3,8 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import '../../util.dart';
 import 'bus.dart';
-import 'util.dart';
 
 class _EnvelopeUnit {
   int volume = 0;

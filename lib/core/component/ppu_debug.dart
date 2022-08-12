@@ -1,6 +1,6 @@
 // Project imports:
+import '../../util.dart';
 import 'ppu.dart';
-import 'util.dart';
 
 extension PpuDebugger on Ppu {
   String dump({showSpriteVram = false}) {

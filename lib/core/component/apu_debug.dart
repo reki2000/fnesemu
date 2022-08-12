@@ -1,6 +1,6 @@
 // Project imports:
+import '../../util.dart';
 import 'apu.dart';
-import 'util.dart';
 
 extension ApuDebugger on Apu {
   String dump() {

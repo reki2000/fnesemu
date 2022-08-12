@@ -3,14 +3,28 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 class NesFile {
-  final program = List<Uint8List>.empty(growable: true);
-  final character = List<Uint8List>.empty(growable: true);
+  final program = <Uint8List>[];
+  final character = <Uint8List>[];
   late final int mapper;
 
   bool mirrorVertical = false;
   bool hasBatteryBackup = false;
 
-  Future<void> load(Uint8List body) async {
+  /// throws exception when load failed
+  void load(Uint8List body) {
+    // check if enough length for iNES header
+    if (body.length < 16) {
+      throw Exception("too short iNES header");
+    }
+
+    // check if proper iNES header "NES[EOF]"
+    if (!(body[0] == 0x4e &&
+        body[1] == 0x45 &&
+        body[2] == 0x53 &&
+        body[3] == 0x1a)) {
+      throw Exception("not iNES header");
+    }
+
     final programRomLength = body[4];
     final characterRomLength = body[5];
     final flags1 = body[6];
@@ -40,6 +54,16 @@ class NesFile {
     if (has512trainer) {
       offset += 512;
     }
+
+    // check if the file has enough size
+    final requiredFileSize =
+        offset + programRomLength * 16 * 1024 + characterRomLength * 8 * 1024;
+    if (body.length < requiredFileSize) {
+      throw Exception(
+          "not enough file length: need $requiredFileSize but {body.length}");
+    }
+
+    // load rom data
     for (var i = 0; i < programRomLength; i++) {
       program.add(body.sublist(offset, offset + 16 * 1024));
       offset += 16 * 1024;
@@ -56,12 +80,4 @@ class NesFile {
       offset += 8 * 1024;
     }
   }
-}
-
-class Header {
-  String magic;
-  int programRomLength;
-  int characterRomLength;
-
-  Header(this.magic, this.programRomLength, this.characterRomLength);
 }

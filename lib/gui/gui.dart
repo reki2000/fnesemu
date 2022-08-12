@@ -1,18 +1,14 @@
 // Flutter imports:
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
 
 // Project imports:
-import '../cpu/cpu_debug.dart';
-import '../cpu/nes.dart';
+import 'debug/debug_controller.dart';
+import 'nes_controller.dart';
+import 'nes_view.dart';
 import 'sound_player.dart';
-import 'debug/disasm.dart';
-import 'debug/vram.dart';
-import 'nes.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -25,33 +21,35 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: const Scaffold(
-          body: MainView(),
-        ));
+        home: const MainPage());
   }
 }
 
-class MainView extends StatefulWidget {
-  const MainView({Key? key}) : super(key: key);
+class MainPage extends StatefulWidget {
+  const MainPage({Key? key}) : super(key: key);
 
   @override
-  State<MainView> createState() => _MainViewState();
+  _MainPageState createState() => _MainPageState();
 }
 
-class _MainViewState extends State<MainView> {
+class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
+  final controller = NesController();
+  final focusNode = FocusNode();
 
   String _romName = "";
   bool _isRunning = false;
 
-  final emulator = Nes();
-
   @override
   void initState() {
     super.initState();
-    emulator.renderAudio = (buf) async {
-      _mPlayer.push(buf, Nes.apuClock);
-    };
+
+    // start automatic playback the emulator's audio output
+    (() async {
+      await for (final buf in controller.audioStream) {
+        _mPlayer.push(buf, controller.apuClock);
+      }
+    })();
   }
 
   @override
@@ -60,81 +58,89 @@ class _MainViewState extends State<MainView> {
     super.dispose();
   }
 
-  void _reset() async {
+  void _loadRomFile() async {
+    _mPlayer.resume(); // web platform requires this
+
+    final picked = await FilePicker.platform.pickFiles(withData: true);
+    if (picked == null) {
+      return;
+    }
+
+    try {
+      controller.setRom(picked.files.first.bytes!);
+      setState(() {
+        _romName = picked.files.first.name;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+    _run();
+  }
+
+  void _run() {
+    focusNode.requestFocus();
+    controller.run();
+    setState(() {
+      _isRunning = true;
+    });
+  }
+
+  void _stop() {
+    controller.stop();
     setState(() {
       _isRunning = false;
     });
-    _mPlayer.stop();
-    emulator.reset();
-    CpuDebugger.clearDebugLog();
   }
 
-  void _setFile() async {
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked != null) {
-      _reset();
-      if (emulator.setRom(picked.files.first.bytes!)) {
-        setState(() {
-          _romName = picked.files.first.name;
-        });
-      } else {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("load error")));
-      }
-    }
+  void _reset() {
+    controller.reset();
   }
 
-  Widget _button(String text, void Function() func) => Container(
-      margin:
-          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
-      child: ElevatedButton(child: Text(text), onPressed: func));
+  void _debug(bool on) {
+    setState(() {
+      controller.debugOption =
+          controller.debugOption.copyWith(showDebugView: on);
+    });
+  }
+
+  IconButton _iconButton(
+      IconData icon, String tooltip, void Function() onPress) {
+    return IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onPress);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        NesWidget(emulator: emulator),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _button(_isRunning ? "Stop" : "Run", () async {
-            if (_isRunning) {
-              emulator.stop();
-              setState(() {
-                _isRunning = false;
-              });
-            } else {
-              await _mPlayer.resume();
-              emulator.run();
-              setState(() {
-                _isRunning = true;
-              });
-            }
-          }),
-          _button("Reset", _reset),
-          _button("File", _setFile),
-          Text(_romName),
-        ]),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _button("Step", emulator.execStep),
-          _button("Line", emulator.execLine),
-          _button("Frame", emulator.execFrame),
-          SizedBox(
-              width: 50,
-              child: TextField(onChanged: (v) {
-                emulator.breakpoint =
-                    (v.length == 4) ? int.parse(v, radix: 16) : 0;
-              })),
-          _button("Disasm", () => showDisasm(context, emulator)),
-          _button("VRAM", () => showVram(context, emulator)),
-          _button("Log", () => log(emulator.cpu.dumpDebugLog())),
-          //showDebugLog(context, emulator)),
-          Checkbox(
-              value: emulator.enableDebugLog,
-              onChanged: (on) => setState(() {
-                    emulator.enableDebugLog = on ?? false;
-                  })),
-        ]),
-      ],
+    return Scaffold(
+      appBar:
+          AppBar(leading: const SizedBox(), title: Text(_romName), actions: [
+        // file load button
+        _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
+
+        // run / pause button
+        _isRunning
+            ? _iconButton(Icons.pause, "Pause", _stop)
+            : _iconButton(Icons.play_arrow, "Run", _run),
+        // reset button
+        _iconButton(Icons.restart_alt, "Reset", _reset),
+        // debug on/off button
+        controller.debugOption.showDebugView
+            ? _iconButton(Icons.bug_report_outlined, "Disable Debug Options",
+                () => _debug(false))
+            : _iconButton(
+                Icons.bug_report, "Enable Debug Options", () => _debug(true)),
+      ]),
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          // main view
+          NesView(controller: controller, focusNode: focusNode),
+
+          // debug view if enabled
+          if (controller.debugOption.showDebugView)
+            DebugController(controller: controller),
+        ],
+      ),
     );
   }
 }

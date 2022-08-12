@@ -3,9 +3,9 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import '../../util.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
-import 'util.dart';
 
 class Ppu {
   final Bus bus;
