@@ -7,7 +7,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 // Project imports:
-import '../../cpu/nes.dart';
+import '../../core/nes.dart';
 
 const _width = 128;
 const _height = 256 * 2;

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import '../cpu/nes.dart';
+import '../core/nes.dart';
 
 typedef NesPadButton = PadButton;
 
@@ -12,6 +12,8 @@ class NesController {
 
   Timer? _timer;
   double _fps = 0.0;
+
+  int get apuClock => Nes.apuClock;
 
   void run() {
     final startAt = DateTime.now();

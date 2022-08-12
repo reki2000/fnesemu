@@ -3,15 +3,15 @@ import 'dart:async';
 import 'dart:typed_data';
 
 // Project imports:
-import 'apu.dart';
-import 'apu_debug.dart';
-import 'bus.dart';
-import 'cpu.dart';
-import 'cpu_debug.dart';
+import 'component/apu.dart';
+import 'component/apu_debug.dart';
+import 'component/bus.dart';
+import 'component/cpu.dart';
+import 'component/cpu_debug.dart';
 import 'mapper/mapper.dart';
 import 'pad_button.dart';
-import 'ppu.dart';
-import 'ppu_debug.dart';
+import 'component/ppu.dart';
+import 'component/ppu_debug.dart';
 import 'rom/nes_file.dart';
 
 export 'pad_button.dart';
