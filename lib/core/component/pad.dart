@@ -1,6 +1,6 @@
 // Project imports:
 import '../pad_button.dart';
-import '../util.dart';
+import '../../util.dart';
 
 class Joypad {
   final isPressed = List.filled(8, false);

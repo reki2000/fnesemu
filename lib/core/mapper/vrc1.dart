@@ -1,5 +1,5 @@
 // Project imports:
-import '../util.dart';
+import '../../util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/MMC3
