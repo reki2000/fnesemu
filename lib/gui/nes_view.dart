@@ -13,8 +13,10 @@ import 'nes_controller.dart';
 
 class NesView extends StatefulWidget {
   final NesController controller;
+  final FocusNode focusNode;
 
-  const NesView({Key? key, required this.controller}) : super(key: key);
+  const NesView({Key? key, required this.controller, required this.focusNode})
+      : super(key: key);
 
   @override
   _NewViewState createState() => _NewViewState();
@@ -76,6 +78,7 @@ class _NewViewState extends State<NesView> {
         children: [
           // main view
           Focus(
+              focusNode: widget.focusNode,
               onFocusChange: (on) {
                 if (on) {
                   HardwareKeyboard.instance.addHandler(_keyHandler);
