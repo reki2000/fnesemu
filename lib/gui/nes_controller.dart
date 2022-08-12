@@ -9,8 +9,13 @@ typedef NesPadButton = PadButton;
 /// Parameters for debugging features
 class DebugOption {
   final bool showDebugView;
+  final int breakPoint;
 
-  DebugOption({this.showDebugView = false});
+  DebugOption({this.breakPoint = 0, this.showDebugView = false});
+
+  copyWith({int? breakPoint, bool? showDebugView}) => DebugOption(
+      breakPoint: breakPoint ?? this.breakPoint,
+      showDebugView: showDebugView ?? this.showDebugView);
 }
 
 /// A Controller of NES emulator core.

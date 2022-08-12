@@ -5,7 +5,6 @@ import 'package:file_picker/file_picker.dart';
 
 // Project imports:
 import 'debug/debug_controller.dart';
-import 'debug/vram.dart';
 import 'nes_controller.dart';
 import 'nes_view.dart';
 import 'sound_player.dart';
@@ -21,20 +20,18 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: const Scaffold(
-          body: MainView(),
-        ));
+        home: const MainPage());
   }
 }
 
-class MainView extends StatefulWidget {
-  const MainView({Key? key}) : super(key: key);
+class MainPage extends StatefulWidget {
+  const MainPage({Key? key}) : super(key: key);
 
   @override
-  State<MainView> createState() => _MainViewState();
+  _MainPageState createState() => _MainPageState();
 }
 
-class _MainViewState extends State<MainView> {
+class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
 
@@ -58,10 +55,6 @@ class _MainViewState extends State<MainView> {
   }
 
   void _reset() async {
-    setState(() {
-      _isRunning = false;
-    });
-    _mPlayer.stop();
     controller.reset();
   }
 
@@ -74,7 +67,9 @@ class _MainViewState extends State<MainView> {
         controller.setRom(picked.files.first.bytes!);
         setState(() {
           _romName = picked.files.first.name;
+          _isRunning = true;
         });
+        controller.run();
       } catch (e) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.toString())));
@@ -82,50 +77,70 @@ class _MainViewState extends State<MainView> {
     }
   }
 
-  Widget _button(String text, void Function() func) => Container(
-      margin:
-          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
-      child: ElevatedButton(child: Text(text), onPressed: func));
-
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        // main view
-        NesView(controller: controller),
+    return Scaffold(
+      appBar:
+          AppBar(leading: const SizedBox(), title: Text(_romName), actions: [
+        // file load button
+        IconButton(
+            icon: const Icon(Icons.file_open_outlined),
+            tooltip: "Load ROM",
+            onPressed: _setFile),
 
-        // controllers
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Checkbox(
-              value: controller.debugOption.showDebugView,
-              onChanged: (on) => setState(() {
-                    controller.debugOption =
-                        DebugOption(showDebugView: on ?? false);
-                  })),
-          _button(_isRunning ? "Stop" : "Run", () async {
-            if (_isRunning) {
-              controller.stop();
-              setState(() {
-                _isRunning = false;
-              });
-            } else {
-              await _mPlayer.resume();
-              controller.run();
-              setState(() {
-                _isRunning = true;
-              });
-            }
-          }),
-          _button("Reset", _reset),
-          _button("File", _setFile),
-          Text(_romName),
-        ]),
+        // run / pause button
+        _isRunning
+            ? IconButton(
+                icon: const Icon(Icons.pause),
+                tooltip: "Pause",
+                onPressed: () async {
+                  controller.stop();
+                  setState(() {
+                    _isRunning = false;
+                  });
+                })
+            : IconButton(
+                icon: const Icon(Icons.play_arrow),
+                tooltip: "Run",
+                onPressed: () async {
+                  controller.run();
+                  setState(() {
+                    _isRunning = true;
+                  });
+                }),
+        // reset button
+        IconButton(
+            icon: const Icon(Icons.restart_alt),
+            tooltip: "Reset",
+            onPressed: _reset),
+        // debug on/off button
+        controller.debugOption.showDebugView
+            ? IconButton(
+                icon: const Icon(Icons.bug_report_outlined),
+                tooltip: "Disable Debug Options",
+                onPressed: () => setState(() {
+                      controller.debugOption =
+                          controller.debugOption.copyWith(showDebugView: false);
+                    }))
+            : IconButton(
+                icon: const Icon(Icons.bug_report),
+                tooltip: "Enable Debug Options",
+                onPressed: () => setState(() {
+                      controller.debugOption =
+                          controller.debugOption.copyWith(showDebugView: true);
+                    })),
+      ]),
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          // main view
+          NesView(controller: controller),
 
-        // debug view if enabled
-        if (controller.debugOption.showDebugView)
-          DebugController(controller: controller),
-      ],
+          // debug view if enabled
+          if (controller.debugOption.showDebugView)
+            DebugController(controller: controller),
+        ],
+      ),
     );
   }
 }
