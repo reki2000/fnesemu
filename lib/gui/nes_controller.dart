@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../cpu/nes.dart';
-import '../cpu/pad_button.dart';
+
+typedef NesPadButton = PadButton;
 
 class NesController {
   final _emulator = Nes();
+
+  void dispose() {}
 
   Timer? _timer;
   double _fps = 0.0;
