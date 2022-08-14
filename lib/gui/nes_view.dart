@@ -5,16 +5,18 @@ import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 // Project imports:
 import '../styles.dart';
 import 'nes_controller.dart';
+import 'virtual_pad.dart';
 
 class NesView extends StatefulWidget {
   final NesController controller;
+  final FocusNode focusNode;
 
-  const NesView({Key? key, required this.controller}) : super(key: key);
+  const NesView({Key? key, required this.controller, required this.focusNode})
+      : super(key: key);
 
   @override
   _NewViewState createState() => _NewViewState();
@@ -26,7 +28,7 @@ class _NewViewState extends State<NesView> {
   @override
   void initState() {
     super.initState();
-    _imageStream = widget.controller.imageStream.asyncMap(renderVideo);
+    _imageStream = widget.controller.imageStream.asyncMap(_renderVideo);
   }
 
   @override
@@ -34,35 +36,7 @@ class _NewViewState extends State<NesView> {
     super.dispose();
   }
 
-  static final keys = {
-    PhysicalKeyboardKey.arrowDown: NesPadButton.down,
-    PhysicalKeyboardKey.arrowUp: NesPadButton.up,
-    PhysicalKeyboardKey.arrowLeft: NesPadButton.left,
-    PhysicalKeyboardKey.arrowRight: NesPadButton.right,
-    PhysicalKeyboardKey.keyX: NesPadButton.a,
-    PhysicalKeyboardKey.keyZ: NesPadButton.b,
-    PhysicalKeyboardKey.keyA: NesPadButton.select,
-    PhysicalKeyboardKey.keyS: NesPadButton.start,
-  };
-
-  bool _keyHandler(KeyEvent e) {
-    for (final entry in keys.entries) {
-      if (entry.key == e.physicalKey) {
-        switch (e.runtimeType) {
-          case KeyDownEvent:
-            widget.controller.padDown(entry.value);
-            break;
-          case KeyUpEvent:
-            widget.controller.padUp(entry.value);
-            break;
-        }
-        return true;
-      }
-    }
-    return false;
-  }
-
-  Future<ui.Image> renderVideo(Uint8List buf) {
+  Future<ui.Image> _renderVideo(Uint8List buf) {
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
         buf, 256, 240, ui.PixelFormat.rgba8888, completer.complete);
@@ -71,18 +45,12 @@ class _NewViewState extends State<NesView> {
 
   @override
   Widget build(BuildContext context) {
-    final focusNode = FocusNode(
-        onKeyEvent: ((node, event) => _keyHandler(event)
-            ? KeyEventResult.handled
-            : KeyEventResult.ignored));
-    focusNode.requestFocus();
-
     return RepaintBoundary(
       child: Column(
         children: [
           // main view
           Focus(
-              focusNode: focusNode,
+              focusNode: widget.focusNode,
               child: Container(
                   width: 512,
                   height: 480,
@@ -91,6 +59,9 @@ class _NewViewState extends State<NesView> {
                       stream: _imageStream,
                       builder: (ctx, snapshot) =>
                           RawImage(image: snapshot.data, scale: 0.5)))),
+
+          // virtual pad
+          VirtualPadWidget(controller: widget.controller),
 
           // debug control
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
