@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 // Project imports:
-import 'gui/gui.dart';
+import 'gui/app.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
