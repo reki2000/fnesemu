@@ -1,4 +1,5 @@
 // Flutter imports:
+
 import 'package:flutter/material.dart';
 
 // Package imports:
@@ -6,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 
 // Project imports:
 import 'debug/debug_controller.dart';
+import 'key_handler.dart';
 import 'nes_controller.dart';
 import 'nes_view.dart';
 import 'sound_player.dart';
@@ -35,6 +37,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
+  late final FocusNode _focusNode;
 
   String _romName = "";
   bool _isRunning = false;
@@ -42,6 +45,12 @@ class _MainPageState extends State<MainPage> {
   @override
   void initState() {
     super.initState();
+
+    final keyHandler = KeyHandler(controller: controller);
+    _focusNode = FocusNode(
+        onKeyEvent: ((_, event) => keyHandler.handle(event)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored));
 
     // start automatic playback the emulator's audio output
     (() async {
@@ -79,6 +88,7 @@ class _MainPageState extends State<MainPage> {
 
   void _run() {
     controller.run();
+    _focusNode.requestFocus();
     setState(() {
       _isRunning = true;
     });
@@ -92,6 +102,7 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _reset() {
+    _focusNode.requestFocus();
     controller.reset();
   }
 
@@ -134,7 +145,10 @@ class _MainPageState extends State<MainPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           // main view
-          NesView(controller: controller),
+          NesView(
+            controller: controller,
+            focusNode: _focusNode,
+          ),
 
           // debug view if enabled
           if (controller.debugOption.showDebugView)

@@ -121,18 +121,31 @@ class NesController {
 
   void setRom(Uint8List body) => _emulator.setRom(body);
 
-  void padDown(PadButton k) => _emulator.padDown(k);
-  void padUp(PadButton k) => _emulator.padUp(k);
+  void padDown(NesPadButton k) {
+    _padDownStream.add(k);
+    _emulator.padDown(k);
+  }
+
+  void padUp(NesPadButton k) {
+    _padUpStream.add(k);
+    _emulator.padUp(k);
+  }
 
   final _imageStream = StreamController<Uint8List>();
   final _audioStream = StreamController<Float32List>();
   final _fpsStream = StreamController<double>();
   final _debugStream = StreamController<String>();
 
+  final _padUpStream = StreamController<NesPadButton>.broadcast();
+  final _padDownStream = StreamController<NesPadButton>.broadcast();
+
   Stream<Uint8List> get imageStream => _imageStream.stream;
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<String> get debugStream => _debugStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
+
+  Stream<NesPadButton> get padUpStream => _padUpStream.stream;
+  Stream<NesPadButton> get padDownStream => _padDownStream.stream;
 
   Uint8List renderChrRom() => _emulator.renderChrRom();
   Pair<String, int> disasm(int addr) => _emulator.disasm(addr);
