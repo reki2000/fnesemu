@@ -2,6 +2,7 @@ cputest:
 	dart run lib/main_cputest.dart 
 
 format:
+	fltter pub get
 	flutter pub run import_path_converter:main
 	flutter pub run import_sorter:main
 
