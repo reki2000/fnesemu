@@ -1,5 +1,6 @@
 // Flutter imports:
 
+// Flutter imports:
 import 'package:flutter/material.dart';
 
 // Package imports:
@@ -83,7 +84,10 @@ class _MainPageState extends State<MainPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
-    _run();
+    _reset();
+    if (!controller.debugOption.showDebugView) {
+      _run();
+    }
   }
 
   void _run() {
