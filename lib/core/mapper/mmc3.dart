@@ -21,16 +21,17 @@ class MapperMMC3 extends Mapper {
   bool _irqEnabled = false;
 
   // ram
-  final Uint8List _ram = Uint8List.fromList(List.filled(8 * 1024, 0));
+  final Uint8List _ram = Uint8List(8 * 1024);
   bool _ramEnabled = false;
   bool _ramWriteEnabled = false;
 
-  late final int _chrBankMask;
-  late final int _prgBankMask;
+  int _chrBankMask = 0;
+  int _prgBankMask = 0;
 
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
-  //  each bank has 4 x 1k banks (000-3ff, 400-7ff, 800-bff, c00-fff)
   // each item points one of _chrBankR2_5 or _chrBankR0_1
+  //
+  // each bank has 4 x 1k banks (000-3ff, 400-7ff, 800-bff, c00-fff)
   final List<List<int>> _chrBank = [[], []];
 
   final _chrBankR2_5 = List.filled(4, 0);
@@ -47,8 +48,13 @@ class MapperMMC3 extends Mapper {
   @override
   void init() {
     loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
+    if (chrRoms.isEmpty) {
+      // TNROM: chr ram 1k x 8
+      chrRoms.addAll(List.generate(8, (i) => Uint8List(1024)));
+    }
     _chrBank[0] = _chrBankR2_5;
     _chrBank[1] = _chrBankR0_1;
+
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
       log("invalid chr rom size: ${_chrBank.length}k");
@@ -179,6 +185,14 @@ class MapperMMC3 extends Mapper {
     final offset = addr & 0x03ff;
 
     return chrRoms[_chrBank[bank >> 2][bank & 0x03]][offset];
+  }
+
+  @override
+  void writeVram(int addr, int data) {
+    final bank = addr >> 10;
+    final offset = addr & 0x03ff;
+
+    chrRoms[_chrBank[bank >> 2][bank & 0x03]][offset] = data;
   }
 
   void _tickIrq() {

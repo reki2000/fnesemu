@@ -8,7 +8,7 @@ This project is under experiment.
 - running on all flutter-supported platforms - Android, iOS, macOS, Linux, Windows and Web
 - supported iNES mapper types:
     - 0: NROM
-    - 1: MMC1 w/o battery backup, *partially 
+    - 1: MMC1 w/o battery backup
     - 2: UxROM
     - 3: CNROM
     - 4: MMC3
