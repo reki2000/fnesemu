@@ -81,32 +81,6 @@ class Nes {
   void padDown(PadButton k) => bus.joypad.keyDown(k);
   void padUp(PadButton k) => bus.joypad.keyUp(k);
 
-  /// returns the emulator's internal status report
-  String dump(
-      {bool showZeroPage = false,
-      bool showSpriteVram = false,
-      bool showStack = false,
-      bool showApu = false}) {
-    final cpuDump = cpu.dump(showRegs: true);
-    final dump = "${cpuDump.substring(0, 48)}\n"
-        "${cpuDump.substring(48)}\n"
-        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
-        "${ppu.dump(showSpriteVram: showSpriteVram)}"
-        "${showApu ? apu.dump() : ""}"
-        "${bus.mapper.dump()}";
-    return dump;
-    // return '${fps.toStringAsFixed(2)}fps';
-  }
-
-  // returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
-  Uint8List renderChrRom() {
-    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
-  }
-
-  // returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
-  Pair<String, int> disasm(int addr) =>
-      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
-
   // loads an iNES format rom file.
   // throws exception if the mapper typ of the rom file is not supported.
   void setRom(Uint8List body) {
@@ -153,4 +127,36 @@ class Nes {
 
     reset();
   }
+
+  /// debug: returns the emulator's internal status report
+  String dump(
+      {bool showZeroPage = false,
+      bool showSpriteVram = false,
+      bool showStack = false,
+      bool showApu = false}) {
+    final cpuDump = cpu.dump(showRegs: true);
+    final dump = "${cpuDump.substring(0, 48)}\n"
+        "${cpuDump.substring(48)}\n"
+        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
+        "${ppu.dump(showSpriteVram: showSpriteVram)}"
+        "${showApu ? apu.dump() : ""}"
+        "${bus.mapper.dump()}";
+    return dump;
+    // return '${fps.toStringAsFixed(2)}fps';
+  }
+
+  // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
+  Uint8List renderChrRom() {
+    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
+  }
+
+  // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
+  Pair<String, int> disasm(int addr) =>
+      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
+
+  // debug: returns PC register
+  int get pc => cpu.regs.PC;
+
+  // debug: set debug logging
+  String get state => cpu.trace();
 }
