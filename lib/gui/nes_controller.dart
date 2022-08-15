@@ -5,6 +5,7 @@ import 'dart:typed_data';
 // Project imports:
 import '../core/nes.dart';
 import '../util.dart';
+import 'debug/trace.dart';
 
 typedef NesPadButton = PadButton;
 
@@ -12,12 +13,15 @@ typedef NesPadButton = PadButton;
 class DebugOption {
   final bool showDebugView;
   final int breakPoint;
+  final bool log;
 
-  DebugOption({this.breakPoint = 0, this.showDebugView = false});
+  DebugOption(
+      {this.breakPoint = 0, this.showDebugView = false, this.log = false});
 
-  copyWith({int? breakPoint, bool? showDebugView}) => DebugOption(
+  copyWith({int? breakPoint, bool? showDebugView, bool? log}) => DebugOption(
       breakPoint: breakPoint ?? this.breakPoint,
-      showDebugView: showDebugView ?? this.showDebugView);
+      showDebugView: showDebugView ?? this.showDebugView,
+      log: log ?? this.log);
 }
 
 /// A Controller of NES emulator core.
@@ -25,31 +29,12 @@ class DebugOption {
 class NesController {
   final _emulator = Nes();
 
-  void dispose() {}
-
   Timer? _timer;
   double _fps = 0.0;
 
-  DebugOption _debugOption = DebugOption();
-
-  DebugOption get debugOption => _debugOption;
-
-  set debugOption(DebugOption opt) {
-    _debugOption = opt;
-    if (opt.showDebugView) {
-      _pushDebug();
-    } else {
-      _debugStream.add("");
-    }
-  }
-
-  void _pushDebug() {
-    _debugStream.add(
-        _emulator.dump(showZeroPage: true, showStack: true, showApu: true));
-  }
-
   int get apuClock => Nes.apuClock;
 
+  /// runs emulation with 16ms timer
   void run() {
     final startAt = DateTime.now();
     var frames = 0;
@@ -65,25 +50,57 @@ class NesController {
     });
   }
 
-  void stop() async {
+  /// stops emulation
+  void stop() {
     _timer?.cancel();
   }
 
+  /// executes emulation with 1 cpu instruction
   void runStep() {
     _emulator.exec();
     _renderAll();
   }
 
-  void runScanLine() {
-    final cycleUntil = _emulator.exec() + 114;
-    while (_emulator.exec() < cycleUntil) {}
+  /// executes emulation during 1 scanline
+  bool runScanLine({skipRender = false}) {
+    if (debugOption.breakPoint == _emulator.pc) {
+      stop();
+      return false;
+    }
+
+    // exec 1 cpu instruction!
+    final result = _emulator.exec();
+
+    _tracer?.addLog(_emulator.state);
+
+    if (!result.i1) {
+      stop();
+      return false;
+    }
+    final cycleUntil = result.i0 + 114;
+
+    while (true) {
+      final result = _emulator.exec();
+      if (!result.i1) {
+        stop();
+        return false;
+      }
+
+      final currentCycle = result.i0;
+      if (currentCycle >= cycleUntil) {
+        break;
+      }
+    }
     _renderAll();
+    return true;
   }
 
+  /// executes emulation during 1 frame
   void runFrame() {
     for (int i = 0; i < 261; i++) {
-      final cycleUntil = _emulator.exec() + 114;
-      while (_emulator.exec() < cycleUntil) {}
+      if (!runScanLine(skipRender: true)) {
+        return;
+      }
     }
     _renderAll();
   }
@@ -101,19 +118,68 @@ class NesController {
 
   void setRom(Uint8List body) => _emulator.setRom(body);
 
-  void padDown(PadButton k) => _emulator.padDown(k);
-  void padUp(PadButton k) => _emulator.padUp(k);
+  // screen/audio/fps
 
   final _imageStream = StreamController<Uint8List>();
   final _audioStream = StreamController<Float32List>();
   final _fpsStream = StreamController<double>();
-  final _debugStream = StreamController<String>();
 
   Stream<Uint8List> get imageStream => _imageStream.stream;
   Stream<Float32List> get audioStream => _audioStream.stream;
-  Stream<String> get debugStream => _debugStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
+
+  // pad
+
+  final _padUpStream = StreamController<NesPadButton>.broadcast();
+  final _padDownStream = StreamController<NesPadButton>.broadcast();
+
+  Stream<NesPadButton> get padUpStream => _padUpStream.stream;
+  Stream<NesPadButton> get padDownStream => _padDownStream.stream;
+
+  void padDown(NesPadButton k) {
+    _padDownStream.add(k);
+    _emulator.padDown(k);
+  }
+
+  void padUp(NesPadButton k) {
+    _padUpStream.add(k);
+    _emulator.padUp(k);
+  }
+
+  // interafaces for debugging features
+
+  final _debugStream = StreamController<String>();
+  Stream<String> get debugStream => _debugStream.stream;
+
+  DebugOption _debugOption = DebugOption();
+
+  DebugOption get debugOption => _debugOption;
+
+  Trace? _tracer;
+
+  set debugOption(DebugOption opt) {
+    _debugOption = opt;
+    if (opt.showDebugView) {
+      _pushDebug();
+    } else {
+      _debugStream.add("");
+    }
+
+    if (opt.log) {
+      _tracer = Trace(_traceStream);
+    } else {
+      _tracer = null;
+    }
+  }
+
+  void _pushDebug() {
+    _debugStream.add(
+        _emulator.dump(showZeroPage: true, showStack: true, showApu: true));
+  }
 
   Uint8List renderChrRom() => _emulator.renderChrRom();
   Pair<String, int> disasm(int addr) => _emulator.disasm(addr);
+
+  final _traceStream = StreamController<String>.broadcast();
+  Stream<String> get traceStream => _traceStream.stream;
 }

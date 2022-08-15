@@ -42,8 +42,13 @@ class Nes {
   int nextApuCycle = 0;
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
-  int exec() {
-    cpu.exec();
+  /// returns current CPU cycle and bool - false when unimplemented instruction is found
+  Pair<int, bool> exec() {
+    final cpuOk = cpu.exec();
+    if (!cpuOk) {
+      return Pair(cpu.cycle, false);
+    }
+
     if (cpu.cycle >= nextPpuCycle) {
       ppu.exec();
       nextPpuCycle += cpuCyclesInScanline;
@@ -52,7 +57,7 @@ class Nes {
       apu.exec();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
-    return cpu.cycle;
+    return Pair(cpu.cycle, true);
   }
 
   /// returns screen buffer as 250x240xargb
@@ -75,32 +80,6 @@ class Nes {
   /// handles pad down/up events
   void padDown(PadButton k) => bus.joypad.keyDown(k);
   void padUp(PadButton k) => bus.joypad.keyUp(k);
-
-  /// returns the emulator's internal status report
-  String dump(
-      {bool showZeroPage = false,
-      bool showSpriteVram = false,
-      bool showStack = false,
-      bool showApu = false}) {
-    final cpuDump = cpu.dump(showRegs: true);
-    final dump = "${cpuDump.substring(0, 48)}\n"
-        "${cpuDump.substring(48)}\n"
-        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
-        "${ppu.dump(showSpriteVram: showSpriteVram)}"
-        "${showApu ? apu.dump() : ""}"
-        "${bus.mapper.dump()}";
-    return dump;
-    // return '${fps.toStringAsFixed(2)}fps';
-  }
-
-  // returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
-  Uint8List renderChrRom() {
-    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
-  }
-
-  // returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
-  Pair<String, int> disasm(int addr) =>
-      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
 
   // loads an iNES format rom file.
   // throws exception if the mapper typ of the rom file is not supported.
@@ -146,6 +125,38 @@ class Nes {
 
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
-    bus.onReset();
+    reset();
   }
+
+  /// debug: returns the emulator's internal status report
+  String dump(
+      {bool showZeroPage = false,
+      bool showSpriteVram = false,
+      bool showStack = false,
+      bool showApu = false}) {
+    final cpuDump = cpu.dump(showRegs: true);
+    final dump = "${cpuDump.substring(0, 48)}\n"
+        "${cpuDump.substring(48)}\n"
+        "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
+        "${ppu.dump(showSpriteVram: showSpriteVram)}"
+        "${showApu ? apu.dump() : ""}"
+        "${bus.mapper.dump()}";
+    return dump;
+    // return '${fps.toStringAsFixed(2)}fps';
+  }
+
+  // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
+  Uint8List renderChrRom() {
+    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
+  }
+
+  // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
+  Pair<String, int> disasm(int addr) =>
+      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
+
+  // debug: returns PC register
+  int get pc => cpu.regs.PC;
+
+  // debug: set debug logging
+  String get state => cpu.trace();
 }

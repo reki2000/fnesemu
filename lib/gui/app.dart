@@ -1,4 +1,6 @@
 // Flutter imports:
+
+// Flutter imports:
 import 'package:flutter/material.dart';
 
 // Package imports:
@@ -6,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 
 // Project imports:
 import 'debug/debug_controller.dart';
+import 'key_handler.dart';
 import 'nes_controller.dart';
 import 'nes_view.dart';
 import 'sound_player.dart';
@@ -35,7 +38,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
-  final focusNode = FocusNode();
+  late final FocusNode _focusNode;
 
   String _romName = "";
   bool _isRunning = false;
@@ -43,6 +46,12 @@ class _MainPageState extends State<MainPage> {
   @override
   void initState() {
     super.initState();
+
+    final keyHandler = KeyHandler(controller: controller);
+    _focusNode = FocusNode(
+        onKeyEvent: ((_, event) => keyHandler.handle(event)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored));
 
     // start automatic playback the emulator's audio output
     (() async {
@@ -75,12 +84,15 @@ class _MainPageState extends State<MainPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
-    _run();
+    _reset();
+    if (!controller.debugOption.showDebugView) {
+      _run();
+    }
   }
 
   void _run() {
-    focusNode.requestFocus();
     controller.run();
+    _focusNode.requestFocus();
     setState(() {
       _isRunning = true;
     });
@@ -94,6 +106,7 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _reset() {
+    _focusNode.requestFocus();
     controller.reset();
   }
 
@@ -121,20 +134,25 @@ class _MainPageState extends State<MainPage> {
         _isRunning
             ? _iconButton(Icons.pause, "Pause", _stop)
             : _iconButton(Icons.play_arrow, "Run", _run),
+
         // reset button
         _iconButton(Icons.restart_alt, "Reset", _reset),
+
         // debug on/off button
         controller.debugOption.showDebugView
-            ? _iconButton(Icons.bug_report_outlined, "Disable Debug Options",
-                () => _debug(false))
-            : _iconButton(
-                Icons.bug_report, "Enable Debug Options", () => _debug(true)),
+            ? _iconButton(
+                Icons.bug_report, "Disable Debug Options", () => _debug(false))
+            : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
+                () => _debug(true)),
       ]),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           // main view
-          NesView(controller: controller, focusNode: focusNode),
+          NesView(
+            controller: controller,
+            focusNode: _focusNode,
+          ),
 
           // debug view if enabled
           if (controller.debugOption.showDebugView)

@@ -6,65 +6,17 @@ import '../../util.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
-class RingBuffer {
-  final List<String> _buf;
-  int _index = 0;
-  bool _skipped = false;
-  bool _recovered = false;
-
-  RingBuffer(int size) : _buf = List.filled(size, "");
-
-  void _add(String item) {
-    _buf[_index] = item;
-    _index++;
-    if (_index == _buf.length) {
-      _index = 0;
-    }
-  }
-
-  bool addOnlyNewItem(String item) {
-    if (!_buf.contains(item)) {
-      _add(item);
-      if (_skipped) {
-        _recovered = true;
-      } else {
-        _recovered = false;
-      }
-      _skipped = false;
-      return true;
-    }
-    _recovered = false;
-    _skipped = true;
-    return false;
-  }
-
-  bool get recovered => _recovered;
-}
-
 extension CpuDebugger on Cpu {
-  static String _debugLog = "";
-  static final ringBuffer = RingBuffer(10);
+  String trace() {
+    final op = read(regs.PC);
+    final a = read(regs.PC + 1);
+    final b = read(regs.PC + 2);
 
-  static void clearDebugLog() {
-    _debugLog = "";
-  }
+    final asm = Disasm.disasm(regs.PC, op, a, b).padRight(47, " ");
+    final reg =
+        "A:${hex8(regs.A)} X:${hex8(regs.X)} Y:${hex8(regs.Y)} P:${hex8(regs.P)} SP:${hex8(regs.S)}";
 
-  void debugLog() {
-    final log = dumpNesTest();
-    // check redundancy of the first 73 chars which represents the CPU state
-    // C78C  10 FB     BPL $C789                       A:00 X:00 Y:00 P:32 SP:FD
-    // change of X or Y is ignored for X,Y are often used as a loop counter
-    final state = log.substring(0, 74);
-    if (ringBuffer.addOnlyNewItem(state.replaceRange(53, 63, "          "))) {
-      if (ringBuffer.recovered) {
-        _debugLog += "...supress...\n";
-      }
-      _debugLog += state + "\n";
-    }
-  }
-
-  String dumpDebugLog() {
-    return _debugLog;
+    return "$asm $reg".toUpperCase();
   }
 
   String dumpDisasm(int addr, {toAddrOffset = 0x200}) {
