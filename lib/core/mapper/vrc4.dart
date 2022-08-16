@@ -159,10 +159,12 @@ class MapperVrc4 extends Mapper {
 
   void _setIrqLatchLow(data) {
     _irqLatch = (_irqLatch & 0xf0) | (data & 0x0f);
+    holdIrq(false);
   }
 
   void _setIrqLatchHigh(data) {
     _irqLatch = (_irqLatch & 0x0f) | ((data & 0x0f) << 4);
+    holdIrq(false);
   }
 
   void _setIrqControl(data) {
@@ -171,13 +173,35 @@ class MapperVrc4 extends Mapper {
     if (_irqEnabled) {
       _irqCounter = _irqLatch;
     }
+    _prescaledClock = 0;
     _irqModeCycle = bit2(data);
+    holdIrq(false);
   }
 
   void _setIrqAcknoledge() {
     _irqEnabled = _irqEnabledAfterAcknoledge;
-    if (_irqEnabled) {
-      _irqCounter = _irqLatch;
+    holdIrq(false);
+  }
+
+  static const cyclesToTickIrq = 341;
+  int _prescaledClock = 0;
+  int _prevCycle = 0;
+
+  @override
+  void handleClock(int cycles) {
+    if (_irqEnabled && !_irqModeCycle) {
+      _prescaledClock += (cycles - _prevCycle) * 3;
+      _prevCycle = cycles;
+
+      while (_prescaledClock >= cyclesToTickIrq) {
+        _prescaledClock -= cyclesToTickIrq;
+        _irqCounter += 1;
+
+        if (_irqCounter == 0x100) {
+          _irqCounter = _irqLatch;
+          holdIrq(true);
+        }
+      }
     }
   }
 
@@ -195,32 +219,12 @@ class MapperVrc4 extends Mapper {
     return 0xff;
   }
 
-  int _a12 = 0;
-
   @override
   int readVram(int addr) {
-    // a12 edge detection for IRQ
-    final a12 = addr & 0x1000;
-    if (a12 != 0 && _a12 == 0) {
-      _tickIrq();
-    }
-    _a12 = a12;
-
     final bank = addr >> 10; // 1 1100 0000 0000
     final offset = addr & 0x03ff;
 
     return chrRoms[_chrBank[bank]][offset];
-  }
-
-  void _tickIrq() {
-    if (_irqEnabled) {
-      if (_irqCounter == 0xff && !_irqModeCycle) {
-        _irqCounter = _irqLatch;
-        holdIrq(true);
-      } else {
-        _irqCounter++;
-      }
-    }
   }
 
   @override
