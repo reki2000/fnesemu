@@ -29,30 +29,45 @@ class DebugOption {
 class NesController {
   final _emulator = Nes();
 
-  Timer? _timer;
+  bool _isRunning = true;
   double _fps = 0.0;
 
   int get apuClock => Nes.apuClock;
 
   /// runs emulation with 16ms timer
-  void run() {
-    final startAt = DateTime.now();
+  void run() async {
+    var startAt = DateTime.now();
+    var nextStartAt = startAt;
     var frames = 0;
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      if (_fps <= 60.0) {
+    var nextFrames = 0;
+
+    while (_isRunning) {
+      await Future.delayed(const Duration(milliseconds: 1));
+
+      // calculate fps
+      final now = DateTime.now();
+      _fps =
+          frames * 1000.0 / now.difference(startAt).inMilliseconds.toDouble();
+
+      if (_fps < 60.1) {
         runFrame();
         frames++;
+        nextFrames++;
       }
-      _fps = frames /
-          (DateTime.now().difference(startAt).inMilliseconds.toDouble() /
-              1000.0);
-    });
+
+      // refresh the time range as recent 2 seconds for the next fps calculation
+      if (now.difference(nextStartAt).inMilliseconds > 2000) {
+        startAt = nextStartAt;
+        frames = nextFrames;
+        nextStartAt = now;
+        nextFrames = 0;
+      }
+    }
   }
 
   /// stops emulation
   void stop() {
-    _timer?.cancel();
+    _isRunning = false;
   }
 
   /// executes emulation with 1 cpu instruction
