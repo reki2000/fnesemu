@@ -63,35 +63,35 @@ class NesController {
 
   /// executes emulation during 1 scanline
   bool runScanLine({skipRender = false}) {
-    if (debugOption.breakPoint == _emulator.pc) {
-      stop();
-      return false;
-    }
-
-    // exec 1 cpu instruction!
-    final result = _emulator.exec();
-
-    _tracer?.addLog(_emulator.state);
-
-    if (!result.i1) {
-      stop();
-      return false;
-    }
-    final cycleUntil = result.i0 + 114;
+    int? startCycle;
 
     while (true) {
+      if (debugOption.breakPoint == _emulator.pc) {
+        stop();
+        return false;
+      }
+
+      // exec 1 cpu instruction
       final result = _emulator.exec();
+
+      _tracer?.addLog(_emulator.state);
+
       if (!result.i1) {
         stop();
         return false;
       }
 
       final currentCycle = result.i0;
-      if (currentCycle >= cycleUntil) {
+
+      startCycle ??= currentCycle;
+
+      if (currentCycle - startCycle >= Nes.cpuCyclesInScanline) {
         break;
       }
     }
-    _renderAll();
+    if (!skipRender) {
+      _renderAll();
+    }
     return true;
   }
 
