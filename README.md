@@ -17,7 +17,7 @@ This project is under experiment.
 
 # How to use 
 
-1. visit https://reki2000.github.io/fnesemu/
+1. visit [demo site](https://reki2000.github.io/fnesemu/main) or [latest unstable demo site](https://reki2000.github.io/fnesemu/develop)
 1. select `.nes` file by click 'Load ROM' icon (a square and a small arrow) on the leftmost of the App bar icons
 1. click 'Run' icon (a right-directed triangle) to start emulation
 
@@ -29,9 +29,11 @@ This project is under experiment.
 
 ## How to build and run on local machine
 
+Requires flutter 3.0.5 with at least one enabled device.
+
 ```
 git submodule update --init
-flutter run -d [windows|linux|chrome|your-android-device]
+flutter run -d [windows|linux|chrome|macos|your-android-device|your-ios-device] --release
 ```
 
 # How to develop
