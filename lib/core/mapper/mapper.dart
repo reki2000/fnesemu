@@ -59,4 +59,6 @@ class Mapper {
   void Function(bool) mirrorVertical = ((_) {});
 
   String dump() => "rom: ";
+
+  void handleClock(int cycles) {}
 }

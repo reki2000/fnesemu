@@ -51,6 +51,7 @@ class Nes {
 
     if (cpu.cycle >= nextPpuCycle) {
       ppu.exec();
+      bus.mapper.handleClock(cpu.cycle);
       nextPpuCycle += cpuCyclesInScanline;
     }
     if (cpu.cycle >= nextApuCycle) {
