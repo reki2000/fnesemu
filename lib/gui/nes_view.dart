@@ -65,7 +65,6 @@ class _NewViewState extends State<NesView> {
 
           // debug control
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const SizedBox(width: 30.0),
             StreamBuilder<double>(
                 stream: widget.controller.fpsStream,
                 builder: (ctx, snapshot) =>
