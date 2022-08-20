@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
+import '../component/bus.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
@@ -127,13 +128,17 @@ class MapperVrc4 extends Mapper {
   void _setMirror(int data) {
     switch (data & 0x03) {
       case 0:
-        mirrorVertical(true);
+        mirror(Mirror.vertical);
         break;
       case 1:
-        mirrorVertical(false);
+        mirror(Mirror.horizontal);
         break;
       case 2:
+        mirror(Mirror.oneScreenLow);
+        break;
       case 3:
+        mirror(Mirror.oneScreenHigh);
+        break;
     }
   }
 

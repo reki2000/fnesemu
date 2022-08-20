@@ -121,8 +121,8 @@ class Nes {
     }
 
     bus.mapper.setRom(nesFile.character, nesFile.program);
-    bus.mirrorVertical(nesFile.mirrorVertical);
-    bus.mapper.mirrorVertical = bus.mirrorVertical;
+    bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
+    bus.mapper.mirror = (v) => bus.mirror;
 
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 

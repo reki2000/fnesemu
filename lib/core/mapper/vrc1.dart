@@ -1,5 +1,6 @@
 // Project imports:
 import '../../util.dart';
+import '../component/bus.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/MMC3
@@ -39,7 +40,7 @@ class MapperVrc1 extends Mapper {
         break;
 
       case 0x9000:
-        mirrorVertical(!bit0(data));
+        mirror(bit0(data) ? Mirror.horizontal : Mirror.vertical);
         _chrBit0 = bit1(data) ? 0x10 : 0;
         _chrBit1 = bit2(data) ? 0x10 : 0;
         _chrBank[0] = (_chrBank[0] & 0x0f) | _chrBit0;
