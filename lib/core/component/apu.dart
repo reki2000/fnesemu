@@ -274,6 +274,7 @@ class NoiseWave with _LengthCounter {
 class DPCMWave {
   final int Function(int) fetch;
   final void Function() interrupt;
+  bool enabled = false;
 
   DPCMWave(this.fetch, this.interrupt);
 
@@ -359,6 +360,9 @@ class DPCMWave {
 
   Int8List synth(int cycles) {
     final buf = Int8List(cycles);
+    if (!enabled) {
+      return buf;
+    }
 
     for (int i = 0; i < buf.length; i++) {
       if (_timer == 0) {
@@ -401,7 +405,8 @@ class Apu {
     frameIrqEnabled = false;
     frameCounterMode0 = false;
     frameCountTick = 0;
-    dpcmEnabled = false;
+    write(0x4015, 0);
+    buffer.fillRange(0, buffer.length, 0.0);
   }
 
   int cycle = 0;
@@ -411,8 +416,6 @@ class Apu {
   final triangle = TriangleWave();
   final noise = NoiseWave();
   late final DPCMWave dpcm;
-
-  bool dpcmEnabled = false;
 
   bool frameIrqHold = false;
   bool frameIrqEnabled = false;
@@ -487,7 +490,7 @@ class Apu {
 
       // noise wave
       case 0x400c:
-        noise.halt = val & 0x20 != 0;
+        noise.halt = bit5(val);
         noise.envelope
             .prepare(disabled: bit4(val), loop: noise.halt, n: val & 0x0f);
         return;
@@ -531,7 +534,7 @@ class Apu {
         pulse1.enabled = bit1(val);
         triangle.enabled = bit2(val);
         noise.enabled = bit3(val);
-        dpcmEnabled = bit4(val);
+        dpcm.enabled = bit4(val);
         return;
 
       case 0x4017:
