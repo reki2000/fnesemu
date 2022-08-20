@@ -13,7 +13,7 @@ This project is under experiment.
     - 3: CNROM
     - 4: MMC3
     - 75: VRC1
-    - 21,23,25: VRC2,4 *IRQ is ad-hoc emulated
+    - 21,23,25: VRC2,4
 
 # How to use 
 
