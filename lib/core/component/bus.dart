@@ -7,6 +7,26 @@ import 'cpu.dart';
 import 'pad.dart';
 import 'ppu.dart';
 
+class Mirror {
+  //                0x2000/0x2400 0x2800/0x2c00
+  // Vertical       0x2000 0x2400 0x2000 0x2400  A/A B/B mask: 0x7ff set: 0
+  // Horizontal     0x2000 0x2000 0x2400 0x2400  A/B A/B mask: 0xbff set: 0
+  // OneScreenLow   0x2000 0x2000 0x2000 0x2000  A/A A/A mask: 0x3ff set: 0
+  // OneScreenHigh  0x2400 0x2400 0x2400 0x2400  B/B B/B mask: 0x3ff set: 0x400
+  final int _mask;
+  final int _on;
+  Mirror({required int mask, required int on})
+      : _mask = mask,
+        _on = on;
+
+  static final vertical = Mirror(mask: 0x17ff, on: 0);
+  static final horizontal = Mirror(mask: 0x1bff, on: 0);
+  static final oneScreenLow = Mirror(mask: 0x13ff, on: 0);
+  static final oneScreenHigh = Mirror(mask: 0x13ff, on: 0x400);
+
+  int mask(int addr) => addr & _mask | _on;
+}
+
 class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
@@ -16,18 +36,16 @@ class Bus {
 
   final vram = List<int>.filled(0x2000, 0);
 
-  int mirrorMask = 0x17ff;
-  void mirrorVertical(bool vertical) {
-    // mirrorVertical:   0x2000 = 0x2800, 0x2400 = 0x2c00, mask 0x37ff
-    // mirrorHorizontal: 0x2000 = 0x2400, 0x2800 = 0x2c00, mask 0x3bff
-    mirrorMask = vertical ? 0x17ff : 0x1bff;
+  Mirror _mirror = Mirror.horizontal;
+  void mirror(Mirror mirror) {
+    _mirror = mirror;
   }
 
   int readVram(int addr) {
     if (addr < 0x2000) {
       return mapper.readVram(addr);
     } else if (addr < 0x3000) {
-      return vram[addr & mirrorMask];
+      return vram[_mirror.mask(addr)];
     }
     return vram[addr & 0x1fff];
   }
@@ -37,7 +55,7 @@ class Bus {
       return mapper.writeVram(addr, val);
     }
     if (addr < 0x3000) {
-      vram[addr & mirrorMask] = val;
+      vram[_mirror.mask(addr)] = val;
     }
     vram[addr & 0x1fff] = val;
   }

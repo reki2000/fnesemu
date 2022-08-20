@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
+import '../component/bus.dart';
 import 'mapper.dart';
 
 // MMC1
@@ -97,11 +98,17 @@ class MapperMMC1 extends Mapper {
 
           _mirroring = _shiftReg & 0x03;
           switch (_mirroring) {
+            case 0:
+              mirror(Mirror.oneScreenLow);
+              break;
+            case 1:
+              mirror(Mirror.oneScreenHigh);
+              break;
             case 2:
-              mirrorVertical(true);
+              mirror(Mirror.horizontal);
               break;
             case 3:
-              mirrorVertical(false);
+              mirror(Mirror.vertical);
               break;
           }
           break;

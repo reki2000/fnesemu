@@ -1,6 +1,9 @@
 // Dart imports:
 import 'dart:typed_data';
 
+// Project imports:
+import '../component/bus.dart';
+
 export 'nrom.dart';
 export 'mmc1.dart';
 export 'uxrom.dart';
@@ -56,7 +59,7 @@ class Mapper {
 
   void Function(bool) holdIrq = ((_) {});
 
-  void Function(bool) mirrorVertical = ((_) {});
+  void Function(Mirror) mirror = ((_) {});
 
   String dump() => "rom: ";
 
