@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
+import '../nes.dart';
 import 'bus.dart';
 
 class _EnvelopeUnit {
@@ -180,34 +181,54 @@ class _PulseWave with _LengthCounter {
 
 class TriangleWave with _LengthCounter {
   int freq = 0;
-  int _counter = 0;
   int _timer = 0;
   int _index = 0;
+
   static final table = List.generate(16, (index) => 15 - index)
     ..addAll(List.generate(16, (index) => index));
 
   void prepare() {
     _timer = freq + 1;
-    _counter = _timer;
     _index = 0;
+    _needLinearReload = true;
+  }
+
+  int linearReload = 0;
+  bool linearControl = false;
+
+  int _linear = 0;
+  bool _needLinearReload = false;
+
+  void countLinear() {
+    if (_needLinearReload) {
+      _linear = linearReload;
+    } else if (_linear > 0) {
+      _linear--;
+    }
+
+    if (!linearControl) {
+      _needLinearReload = false;
+    }
   }
 
   Int8List synth(int cycles) {
     final buf = Int8List(cycles);
 
-    if (!enabled || lengthCounter == 0 || freq == 0x7ff || freq <= 8) {
+    if (!enabled ||
+        _linear == 0 ||
+        lengthCounter == 0 ||
+        // freq == 0x7ff ||
+        freq < 2) {
       return buf;
     }
 
     for (int i = 0; i < buf.length; i++) {
-      if (_counter <= 0) {
-        _counter = _timer;
-        _index++;
-        _index &= 0x1f;
+      if (_timer <= 0) {
+        _timer = freq + 1;
+        _index = (_index + 1) & 0x1f;
       }
       buf[i] = table[_index];
-      _counter--;
-      _counter--;
+      _timer -= 2;
     }
     return buf;
   }
@@ -447,6 +468,8 @@ class Apu {
       // triangle wave
       case 0x4008:
         triangle.halt = bit7(val);
+        triangle.linearControl = bit7(val);
+        triangle.linearReload = val & 0x7f;
         return;
 
       case 0x4009:
@@ -543,6 +566,7 @@ class Apu {
 
       case 0x4017:
         return 0;
+
       default:
         log("Unsupported apu read at 0x${hex16(reg)}");
         return 0;
@@ -565,10 +589,12 @@ class Apu {
   // cpu cycle:             1    1.78MHz     0.56us
   // audio samples:     40.58    44100Hz    22.67us
   // 1 NTSCframe:       29830       60Hz     16.6ms = 735 audio samples
+  //                    29754 = (261 * 114)
 
   // generates sound outout for 1 frame at one APU emulation
   // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio)
-  static const _execCycles = 29830 ~/ 2;
+  static const _execCycles =
+      Nes.scanlinesInFrame * Nes.cpuCyclesInScanline ~/ 2;
 
   // output volume conversion table for pulse channles
   static final _pulseOutTable =
@@ -614,6 +640,7 @@ class Apu {
   void _countEnvelope() {
     pulse0.envelope.count();
     pulse1.envelope.count();
+    triangle.countLinear();
     noise.envelope.count();
   }
 

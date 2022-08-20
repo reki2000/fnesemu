@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
+import '../nes.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
 
@@ -226,11 +227,11 @@ class Ppu {
       if (nmiOnVBlank() && isVBlank) {
         bus.onNmi();
       }
-    } else if (scanLine == 261) {
+    } else if (scanLine == Nes.scanlinesInFrame - 1) {
       detectObj0 = false;
       isVBlank = false;
       //renderLine();
-    } else if (scanLine == 262) {
+    } else if (scanLine == Nes.scanlinesInFrame) {
       scanLine = 0;
     }
 
