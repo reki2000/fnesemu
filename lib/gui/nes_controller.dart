@@ -97,7 +97,7 @@ class NesController {
 
   /// executes emulation during 1 frame
   void runFrame() {
-    for (int i = 0; i < 261; i++) {
+    for (int i = 0; i < Nes.scanlinesInFrame; i++) {
       if (!runScanLine(skipRender: true)) {
         return;
       }
