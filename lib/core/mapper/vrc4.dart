@@ -196,7 +196,6 @@ class MapperVrc4 extends Mapper {
   void handleClock(int cycles) {
     if (_irqEnabled && !_irqModeCycle) {
       _prescaledClock += (cycles - _prevCycle) * 3;
-      _prevCycle = cycles;
 
       while (_prescaledClock >= cyclesToTickIrq) {
         _prescaledClock -= cyclesToTickIrq;
@@ -208,6 +207,7 @@ class MapperVrc4 extends Mapper {
         }
       }
     }
+    _prevCycle = cycles;
   }
 
   @override
