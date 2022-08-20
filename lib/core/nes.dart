@@ -120,10 +120,10 @@ class Nes {
         throw Exception("unimplemented mapper:${nesFile.mapper}!");
     }
 
-    bus.mapper.setRom(nesFile.character, nesFile.program);
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
-    bus.mapper.mirror = (v) => bus.mirror;
 
+    bus.mapper.setRom(nesFile.character, nesFile.program);
+    bus.mapper.mirror = bus.mirror;
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
     reset();
