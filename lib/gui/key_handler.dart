@@ -25,11 +25,12 @@ class KeyHandler {
       switch (e.runtimeType) {
         case KeyDownEvent:
           controller.padDown(button);
-          return true;
+          break;
         case KeyUpEvent:
           controller.padUp(button);
-          return true;
+          break;
       }
+      return true;
     }
     return false;
   }
