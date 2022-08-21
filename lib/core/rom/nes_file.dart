@@ -2,10 +2,13 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../util.dart';
+
 class NesFile {
   final program = <Uint8List>[];
   final character = <Uint8List>[];
   late final int mapper;
+  late final int subMapper;
 
   bool mirrorVertical = false;
   bool hasBatteryBackup = false;
@@ -25,16 +28,19 @@ class NesFile {
       throw Exception("not iNES header");
     }
 
+    // final isNes20 = body[7] & 0x0c == 0x08;
+
     final programRomLength = body[4];
     final characterRomLength = body[5];
     final flags1 = body[6];
 
-    mirrorVertical = flags1 & 0x01 != 0;
-    hasBatteryBackup = flags1 & 0x02 != 0;
+    mirrorVertical = bit0(flags1);
+    hasBatteryBackup = bit1(flags1);
 
-    final has512trainer = flags1 & 0x04 != 0;
+    final has512trainer = bit2(flags1);
 
     mapper = ((body[8] & 0x0f) << 16) | body[7] & 0xf0 | (flags1 >> 4);
+    subMapper = body[8] >> 4;
 
     final ramSize = body[10] == 0 ? 0 : (64 << (body[10] & 0x0f));
     final nvramSize = body[10] == 0 ? 0 : (64 << (body[10] >> 4));
@@ -43,7 +49,7 @@ class NesFile {
     final chrNvramSize = body[11] == 0 ? 0 : (64 << (body[11] >> 4));
 
     log("loaded len:${body.length} "
-        "mapper:$mapper "
+        "mapper:$mapper-$subMapper "
         "prog:16k*$programRomLength "
         "char:8k*$characterRomLength "
         "vertical:$mirrorVertical "
