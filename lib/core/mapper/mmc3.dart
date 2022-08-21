@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
-import '../component/bus.dart';
 import 'mapper.dart';
+import 'mirror.dart';
 
 // https://www.nesdev.org/wiki/MMC3
 class MapperMMC3 extends Mapper {

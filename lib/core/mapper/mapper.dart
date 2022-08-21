@@ -2,8 +2,8 @@
 import 'dart:typed_data';
 
 // Project imports:
-import '../component/bus.dart';
 import 'cnrom.dart';
+import 'mirror.dart';
 import 'mmc1.dart';
 import 'mmc3.dart';
 import 'namco163.dart';
