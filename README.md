@@ -14,6 +14,7 @@ This project is under experiment.
     - 4: MMC3
     - 75: VRC1
     - 21,23,25: VRC2,4
+    - 19: Namco163 * not supported waveform sound and name table remapping
 
 # How to use 
 

@@ -116,6 +116,9 @@ class Nes {
       case 25:
         bus.mapper = MapperVrc4b4d();
         break;
+      case 19:
+        bus.mapper = MapperNamco163();
+        break;
       default:
         throw Exception("unimplemented mapper:${nesFile.mapper}!");
     }

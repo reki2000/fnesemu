@@ -11,6 +11,7 @@ export 'cnrom.dart';
 export 'mmc3.dart';
 export 'vrc1.dart';
 export 'vrc4.dart';
+export 'namco163.dart';
 
 class Mapper {
   // banked rom data
