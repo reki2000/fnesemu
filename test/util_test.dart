@@ -1,5 +1,8 @@
-import 'package:fnesemu/util.dart';
+// Package imports:
 import 'package:test/test.dart';
+
+// Project imports:
+import '../lib/util.dart';
 
 void main() {
   test('partial bit set ', () {
