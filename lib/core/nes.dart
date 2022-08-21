@@ -29,7 +29,7 @@ class Nes {
   static const apuClock = cpuClock ~/ 2;
 
   static const cpuCyclesInScanline = 114;
-  static const scanlinesInFrame = 261;
+  static const scanlinesInFrame = 262;
 
   Nes() {
     bus = Bus();
