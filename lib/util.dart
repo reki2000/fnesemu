@@ -29,10 +29,12 @@ bool bit1(int a) => a & 0x02 != 0;
 bool bit0(int a) => a & 0x01 != 0;
 
 // sets partial bits in a int value
-int setLowByte(int src, int val) => (src & ~0xff) | (val & 0xff);
-int setHighByte(int src, int val) => (src & ~0xff00) | ((val & 0xff) << 8);
-int setLow4Bit(int src, int val) => (src & ~0x0f) | (val & 0x0f);
-int setHigh4Bit(int src, int val) => (src & ~0xf0) | ((val & 0xf) << 4);
+extension IntExt on int {
+  int withLowByte(int val) => (this & ~0xff) | (val & 0xff);
+  int withHighByte(int val) => (this & ~0xff00) | ((val & 0xff) << 8);
+  int withLow4Bit(int val) => (this & ~0x0f) | (val & 0x0f);
+  int withHigh4Bit(int val) => (this & ~0xf0) | ((val & 0xf) << 4);
+}
 
 /// makes range object
 List<int> range(int start, int end) => [for (var i = start; i < end; i++) i];
