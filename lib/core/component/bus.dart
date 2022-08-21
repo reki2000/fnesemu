@@ -15,16 +15,21 @@ class Mirror {
   // OneScreenHigh  0x2400 0x2400 0x2400 0x2400  B/B B/B mask: 0x3ff set: 0x400
   final int _mask;
   final int _on;
-  Mirror({required int mask, required int on})
-      : _mask = mask,
-        _on = on;
+  final String _name;
 
-  static final vertical = Mirror(mask: 0x17ff, on: 0);
-  static final horizontal = Mirror(mask: 0x1bff, on: 0);
-  static final oneScreenLow = Mirror(mask: 0x13ff, on: 0);
-  static final oneScreenHigh = Mirror(mask: 0x13ff, on: 0x400);
+  Mirror({required int mask, required int on, required String name})
+      : _mask = mask,
+        _on = on,
+        _name = name;
+
+  static final vertical = Mirror(mask: 0x17ff, on: 0, name: "v ");
+  static final horizontal = Mirror(mask: 0x1bff, on: 0, name: "h ");
+  static final oneScreenLow = Mirror(mask: 0x13ff, on: 0, name: "1l");
+  static final oneScreenHigh = Mirror(mask: 0x13ff, on: 0x400, name: "1h");
 
   int mask(int addr) => addr & _mask | _on;
+
+  String get name => _name;
 }
 
 class Bus {
