@@ -26,7 +26,7 @@ class Bus {
     if (addr < 0x2000) {
       return mapper.readVram(addr);
     } else if (addr < 0x3000) {
-      return vram[_mirror.mask(addr)];
+      return vram[_mirror.mask(addr & 0x1fff)];
     }
     return vram[addr & 0x1fff];
   }
@@ -36,7 +36,7 @@ class Bus {
       return mapper.writeVram(addr, val);
     }
     if (addr < 0x3000) {
-      vram[_mirror.mask(addr)] = val;
+      vram[_mirror.mask(addr & 0x1fff)] = val;
     }
     vram[addr & 0x1fff] = val;
   }
