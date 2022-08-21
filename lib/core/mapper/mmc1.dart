@@ -16,8 +16,7 @@ class MapperMMC1 extends Mapper {
   int _mirroring = 0;
 
   // ram on 6000-7fff, 8k x 4 banks
-  final _ram8k =
-      List.generate(4, (_) => Uint8List.fromList(List.filled(8 * 1024, 0)));
+  final _ram8k = List.generate(4, (_) => Uint8List(8 * 1024));
   late bool _ramEnabled = true;
   late int _ramBank;
 
@@ -26,8 +25,7 @@ class MapperMMC1 extends Mapper {
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
   final _chrBank = [0, 0];
 
-  final _vram4k =
-      List.generate(2, (_) => Uint8List.fromList(List.filled(4 * 1024, 0)));
+  final _vram4k = List.generate(2, (_) => Uint8List(4 * 1024));
 
   // program rom bank mode: 0-3
   late int _prgBankMode;
@@ -105,10 +103,10 @@ class MapperMMC1 extends Mapper {
               mirror(Mirror.oneScreenHigh);
               break;
             case 2:
-              mirror(Mirror.horizontal);
+              mirror(Mirror.vertical);
               break;
             case 3:
-              mirror(Mirror.vertical);
+              mirror(Mirror.horizontal);
               break;
           }
           break;
