@@ -10,6 +10,7 @@ import 'namco163.dart';
 import 'nrom.dart';
 import 'uxrom.dart';
 import 'vrc1.dart';
+import 'vrc3.dart';
 import 'vrc4.dart';
 
 class Mapper {
@@ -35,6 +36,8 @@ class Mapper {
         return MapperVrc4b4d();
       case 19:
         return MapperNamco163();
+      case 73:
+        return MapperVrc3();
       default:
         throw Exception("unimplemented mapper:$iNesMapper!");
     }
