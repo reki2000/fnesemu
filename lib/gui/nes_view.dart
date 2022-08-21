@@ -36,10 +36,17 @@ class _NewViewState extends State<NesView> {
     super.dispose();
   }
 
+  static const maskLinesTop = 8;
+  static const maskLinesBottom = 8;
+
   Future<ui.Image> _renderVideo(Uint8List buf) {
     final completer = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-        buf, 256, 240, ui.PixelFormat.rgba8888, completer.complete);
+        buf.sublist(4 * 256 * maskLinesTop, 4 * 256 * (240 - maskLinesBottom)),
+        256,
+        240 - maskLinesTop - maskLinesBottom,
+        ui.PixelFormat.rgba8888,
+        completer.complete);
     return completer.future;
   }
 
@@ -52,8 +59,8 @@ class _NewViewState extends State<NesView> {
           Focus(
               focusNode: widget.focusNode,
               child: Container(
-                  width: 512,
-                  height: 480,
+                  width: 256 * 2,
+                  height: (240 - maskLinesTop - maskLinesBottom) * 2,
                   color: Colors.black,
                   child: StreamBuilder<ui.Image>(
                       stream: _imageStream,
