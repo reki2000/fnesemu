@@ -4,16 +4,14 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
-import '../component/bus.dart';
 import 'mapper.dart';
+import 'mirror.dart';
 
 // MMC1
 // https://www.nesdev.org/wiki/MMC1
 class MapperMMC1 extends Mapper {
   late int _shiftReg;
   late int _counter;
-
-  int _mirroring = 0;
 
   // ram on 6000-7fff, 8k x 4 banks
   final _ram8k = List.generate(4, (_) => Uint8List(8 * 1024));
@@ -35,9 +33,15 @@ class MapperMMC1 extends Mapper {
   final _prgBank = [0, 0];
   late int _prgBank0;
 
+  static final _mirrors = [
+    Mirror.oneScreenLow,
+    Mirror.oneScreenHigh,
+    Mirror.vertical,
+    Mirror.horizontal,
+  ];
+
   @override
   void init() {
-    _mirroring = 0;
     _shiftReg = 0;
     _counter = 0;
 
@@ -94,21 +98,7 @@ class MapperMMC1 extends Mapper {
           _prgBankMode = (_shiftReg >> 2) & 0x03;
           _setPrgBank();
 
-          _mirroring = _shiftReg & 0x03;
-          switch (_mirroring) {
-            case 0:
-              mirror(Mirror.oneScreenLow);
-              break;
-            case 1:
-              mirror(Mirror.oneScreenHigh);
-              break;
-            case 2:
-              mirror(Mirror.vertical);
-              break;
-            case 3:
-              mirror(Mirror.horizontal);
-              break;
-          }
+          mirror(_mirrors[_shiftReg & 0x03]);
           break;
 
         case 0xa000:

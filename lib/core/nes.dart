@@ -13,6 +13,7 @@ import 'component/cpu_disasm.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
 import 'mapper/mapper.dart';
+import 'mapper/mirror.dart';
 import 'pad_button.dart';
 import 'rom/nes_file.dart';
 
