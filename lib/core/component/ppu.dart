@@ -210,8 +210,7 @@ class Ppu {
     bus.writeVram(addr, val);
   }
 
-  final buffer =
-      Uint8List.fromList(List.filled(screenWidth * screenHeight * 4, 0));
+  final buffer = Uint8List(screenWidth * screenHeight * 4);
 
   void exec() {
     if (scanLine < 240) {
@@ -230,7 +229,6 @@ class Ppu {
     } else if (scanLine == Nes.scanlinesInFrame - 1) {
       detectObj0 = false;
       isVBlank = false;
-      //renderLine();
     } else if (scanLine == Nes.scanlinesInFrame) {
       scanLine = 0;
     }
