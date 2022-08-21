@@ -3,17 +3,43 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../component/bus.dart';
-
-export 'nrom.dart';
-export 'mmc1.dart';
-export 'uxrom.dart';
-export 'cnrom.dart';
-export 'mmc3.dart';
-export 'vrc1.dart';
-export 'vrc4.dart';
-export 'namco163.dart';
+import 'cnrom.dart';
+import 'mmc1.dart';
+import 'mmc3.dart';
+import 'namco163.dart';
+import 'nrom.dart';
+import 'uxrom.dart';
+import 'vrc1.dart';
+import 'vrc4.dart';
 
 class Mapper {
+  static Mapper of(int iNesMapper) {
+    switch (iNesMapper) {
+      case 0:
+        return MapperNROM();
+      case 1:
+        return MapperMMC1();
+      case 2:
+        return MapperUxROM();
+      case 3:
+        return MapperCNROM();
+      case 4:
+        return MapperMMC3();
+      case 75:
+        return MapperVrc1();
+      case 21:
+        return MapperVrc4a4c();
+      case 23:
+        return MapperVrc4f4e();
+      case 25:
+        return MapperVrc4b4d();
+      case 19:
+        return MapperNamco163();
+      default:
+        throw Exception("unimplemented mapper:$iNesMapper!");
+    }
+  }
+
   // banked rom data
   final List<Uint8List> chrRoms = [];
   final List<Uint8List> prgRoms = [];
