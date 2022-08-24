@@ -1,6 +1,9 @@
 // Dart imports:
 
 // Project imports:
+import 'dart:developer';
+
+import '../../util.dart';
 import '../mapper/mapper.dart';
 import '../mapper/mirror.dart';
 import 'apu.dart';
@@ -15,9 +18,10 @@ class Bus {
 
   final joypad = Joypad();
 
-  final vram = List<int>.filled(0x2000, 0);
+  final vram = List<int>.filled(1024 * 2, 0);
 
   Mirror _mirror = Mirror.horizontal;
+
   void mirror(Mirror mirror) {
     _mirror = mirror;
   }
@@ -25,20 +29,28 @@ class Bus {
   int readVram(int addr) {
     if (addr < 0x2000) {
       return mapper.readVram(addr);
-    } else if (addr < 0x3000) {
-      return vram[_mirror.mask(addr & 0x1fff)];
     }
-    return vram[addr & 0x1fff];
+
+    if (addr < 0x3f00) {
+      return vram[_mirror.mask(addr & 0x0fff)];
+    }
+
+    log("invalid vram addr ${hex16(addr)}");
+    return 0xff;
   }
 
   void writeVram(int addr, int val) {
     if (addr < 0x2000) {
-      return mapper.writeVram(addr, val);
+      mapper.writeVram(addr, val);
+      return;
     }
-    if (addr < 0x3000) {
-      vram[_mirror.mask(addr & 0x1fff)] = val;
+
+    if (addr < 0x3f00) {
+      vram[_mirror.mask(addr & 0x0fff)] = val;
+      return;
     }
-    vram[addr & 0x1fff] = val;
+
+    log("invalid vram addr ${hex16(addr)}");
   }
 
   final List<int> ram = List.filled(0x800, 0);
