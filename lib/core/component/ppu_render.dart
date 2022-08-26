@@ -1,4 +1,5 @@
 // Project imports:
+import '../../spec.dart';
 import '../../util.dart';
 import 'ppu.dart';
 
@@ -26,7 +27,7 @@ extension PpuRenderer on Ppu {
   static const paletteBase = 0x3f00;
 
   void _putRGBPixel(int y, int x, int r, int g, int b) {
-    final index = (y * screenWidth + x) * 4;
+    final index = (y * Spec.width + x) * 4;
     buffer[index + 0] = r;
     buffer[index + 1] = g;
     buffer[index + 2] = b;

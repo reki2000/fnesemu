@@ -3,6 +3,7 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import '../../spec.dart';
 import '../../util.dart';
 import '../nes.dart';
 import 'bus.dart';
@@ -222,7 +223,7 @@ class Ppu {
     palette[addr & 0x1f] = val;
   }
 
-  final buffer = Uint8List(screenWidth * screenHeight * 4);
+  final buffer = Uint8List(Spec.width * Spec.height * 4);
 
   void exec() {
     if (scanLine < 240) {
