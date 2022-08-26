@@ -1,6 +1,3 @@
-const screenWidth = 256;
-const screenHeight = 240;
-
 /// print a 8 bit value as 1 hexadecimal digit
 String hex8(int x) {
   return x.toRadixString(16).padLeft(2, "0");
@@ -27,6 +24,15 @@ bool bit3(int a) => a & 0x08 != 0;
 bool bit2(int a) => a & 0x04 != 0;
 bool bit1(int a) => a & 0x02 != 0;
 bool bit0(int a) => a & 0x01 != 0;
+
+// sets partial bits in a int value
+extension IntExt on int {
+  int withLowByte(int val) => (this & ~0xff) | (val & 0xff);
+  int withHighByte(int val) => (this & ~0xff00) | ((val & 0xff) << 8);
+
+  int with4Bit(int val, {int lsbPosition = 0}) =>
+      (this & ~(0x0f << lsbPosition)) | ((val & 0x0f) << lsbPosition);
+}
 
 /// makes range object
 List<int> range(int start, int end) => [for (var i = start; i < end; i++) i];

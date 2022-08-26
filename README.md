@@ -12,8 +12,10 @@ This project is under experiment.
     - 2: UxROM
     - 3: CNROM
     - 4: MMC3
+    - 73: VRC3
     - 75: VRC1
-    - 21,23,25: VRC2,4 *IRQ is ad-hoc emulated
+    - 21,23,25: VRC2,4
+    - 19: Namco163 *no waveform sound support
 
 # How to use 
 

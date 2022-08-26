@@ -1,12 +1,13 @@
 // Dart imports:
-import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/util.dart';
 
 // Project imports:
+import '../spec.dart';
 import '../styles.dart';
 import 'nes_controller.dart';
 import 'virtual_pad.dart';
@@ -19,16 +20,22 @@ class NesView extends StatefulWidget {
       : super(key: key);
 
   @override
-  _NewViewState createState() => _NewViewState();
+  State<NesView> createState() => _NewViewState();
 }
 
 class _NewViewState extends State<NesView> {
-  late final Stream<ui.Image> _imageStream;
+  final _imageNotifier = ValueNotifier<ui.Image?>(null);
+
+  static const _maskLinesTop = 8;
+  static const _maskLinesBottom = 8;
+  static const _height = Spec.height - _maskLinesTop - _maskLinesBottom;
+  static const _width = Spec.width;
 
   @override
   void initState() {
     super.initState();
-    _imageStream = widget.controller.imageStream.asyncMap(_renderVideo);
+    widget.controller.imageStream.listen(
+        (buf) => _renderVideo(buf, (image) => _imageNotifier.value = image));
   }
 
   @override
@@ -36,29 +43,35 @@ class _NewViewState extends State<NesView> {
     super.dispose();
   }
 
-  Future<ui.Image> _renderVideo(Uint8List buf) {
-    final completer = Completer<ui.Image>();
+  void _renderVideo(Uint8List buf, void Function(ui.Image) callback) {
     ui.decodeImageFromPixels(
-        buf, 256, 240, ui.PixelFormat.rgba8888, completer.complete);
-    return completer.future;
+        buf.sublist(4 * _width * _maskLinesTop,
+            4 * _width * (Spec.height - _maskLinesBottom)),
+        _width,
+        _height,
+        ui.PixelFormat.rgba8888,
+        callback);
   }
 
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // main view
           Focus(
               focusNode: widget.focusNode,
               child: Container(
-                  width: 512,
-                  height: 480,
+                  width: _width * 2,
+                  height: _height * 2,
                   color: Colors.black,
-                  child: StreamBuilder<ui.Image>(
-                      stream: _imageStream,
-                      builder: (ctx, snapshot) =>
-                          RawImage(image: snapshot.data, scale: 0.5)))),
+                  child: Container(
+                      width: _width.toDouble(),
+                      height: _height.toDouble(),
+                      transform: (Matrix4.identity() * 2),
+                      child:
+                          CustomPaint(painter: ImagePainter(_imageNotifier))))),
 
           // virtual pad
           VirtualPadWidget(controller: widget.controller),
@@ -79,5 +92,28 @@ class _NewViewState extends State<NesView> {
         ],
       ),
     );
+  }
+}
+
+class ImagePainter extends CustomPainter {
+  static final _paint = Paint();
+  static const _offset = Offset(0.0, 0.0);
+
+  final ValueNotifier<ui.Image?> notifier;
+
+  ImagePainter(this.notifier) : super(repaint: notifier);
+
+  @override
+  void paint(ui.Canvas canvas, ui.Size size) {
+    if (notifier.value != null) {
+      canvas.save();
+      canvas.drawImage(notifier.value!, _offset, _paint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
   }
 }

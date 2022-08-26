@@ -1,15 +1,48 @@
 // Dart imports:
 import 'dart:typed_data';
 
-export 'nrom.dart';
-export 'mmc1.dart';
-export 'uxrom.dart';
-export 'cnrom.dart';
-export 'mmc3.dart';
-export 'vrc1.dart';
-export 'vrc4.dart';
+// Project imports:
+import 'cnrom.dart';
+import 'mirror.dart';
+import 'mmc1.dart';
+import 'mmc3.dart';
+import 'namco163.dart';
+import 'nrom.dart';
+import 'uxrom.dart';
+import 'vrc1.dart';
+import 'vrc3.dart';
+import 'vrc4.dart';
 
 class Mapper {
+  static Mapper of(int iNesMapper) {
+    switch (iNesMapper) {
+      case 0:
+        return MapperNROM();
+      case 1:
+        return MapperMMC1();
+      case 2:
+        return MapperUxROM();
+      case 3:
+        return MapperCNROM();
+      case 4:
+        return MapperMMC3();
+      case 75:
+        return MapperVrc1();
+      case 21:
+        return MapperVrc4a4c();
+      case 23:
+        return MapperVrc4f4e();
+      case 25:
+        return MapperVrc4b4d();
+      case 19:
+        return MapperNamco163();
+      case 73:
+        return MapperVrc3();
+      default:
+        throw Exception("unimplemented mapper:$iNesMapper!");
+    }
+  }
+
   // banked rom data
   final List<Uint8List> chrRoms = [];
   final List<Uint8List> prgRoms = [];
@@ -56,7 +89,7 @@ class Mapper {
 
   void Function(bool) holdIrq = ((_) {});
 
-  void Function(bool) mirrorVertical = ((_) {});
+  void Function(Mirror) mirror = ((_) {});
 
   String dump() => "rom: ";
 

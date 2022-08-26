@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
+import 'mirror.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
@@ -16,7 +17,7 @@ class MapperVrc4 extends Mapper {
   bool _irqModeCycle = false;
 
   // ram 8k
-  final Uint8List _ram = Uint8List.fromList(List.filled(8 * 1024, 0));
+  final Uint8List _ram = Uint8List(8 * 1024);
   bool _ramEnabled = true;
 
   int _chrBankMask = 0;
@@ -65,6 +66,7 @@ class MapperVrc4 extends Mapper {
     writeExt(addr, data);
   }
 
+  // overriden in subclasses, which calls writeReg with mapped `reg`
   void writeExt(addr, data) {}
 
   void writeReg(int addr, int reg, int data) {
@@ -116,25 +118,37 @@ class MapperVrc4 extends Mapper {
     }
   }
 
-  bool writeRam(int addr, int data) {
-    if (addr & 0xe000 == 0x6000 && _ramEnabled) {
-      _ram[addr & 0x1fff] = data;
-      return true;
+  @override
+  int read(int addr) {
+    final bank = (addr >> 13) & 0x03;
+    final offset = addr & 0x1fff;
+
+    if ((addr & 0xe000) == 0x6000) {
+      return _ramEnabled ? _ram[offset] : 0xff;
     }
-    return false;
+    if (addr & 0x8000 == 0x8000) {
+      return prgRoms[_prgBank[bank][0]][offset];
+    }
+    return 0xff;
   }
 
+  @override
+  int readVram(int addr) {
+    final bank = addr >> 10; // 1 1100 0000 0000
+    final offset = addr & 0x03ff;
+
+    return chrRoms[_chrBank[bank]][offset];
+  }
+
+  static final _mirrors = [
+    Mirror.vertical,
+    Mirror.horizontal,
+    Mirror.oneScreenLow,
+    Mirror.oneScreenHigh
+  ];
+
   void _setMirror(int data) {
-    switch (data & 0x03) {
-      case 0:
-        mirrorVertical(true);
-        break;
-      case 1:
-        mirrorVertical(false);
-        break;
-      case 2:
-      case 3:
-    }
+    mirror(_mirrors[data & 0x03]);
   }
 
   void _setControl(int data) {
@@ -158,12 +172,12 @@ class MapperVrc4 extends Mapper {
   }
 
   void _setIrqLatchLow(data) {
-    _irqLatch = (_irqLatch & 0xf0) | (data & 0x0f);
+    _irqLatch = _irqLatch.with4Bit(data);
     holdIrq(false);
   }
 
   void _setIrqLatchHigh(data) {
-    _irqLatch = (_irqLatch & 0x0f) | ((data & 0x0f) << 4);
+    _irqLatch = _irqLatch.with4Bit(data, lsbPosition: 4);
     holdIrq(false);
   }
 
@@ -191,7 +205,6 @@ class MapperVrc4 extends Mapper {
   void handleClock(int cycles) {
     if (_irqEnabled && !_irqModeCycle) {
       _prescaledClock += (cycles - _prevCycle) * 3;
-      _prevCycle = cycles;
 
       while (_prescaledClock >= cyclesToTickIrq) {
         _prescaledClock -= cyclesToTickIrq;
@@ -203,28 +216,7 @@ class MapperVrc4 extends Mapper {
         }
       }
     }
-  }
-
-  @override
-  int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
-    final offset = addr & 0x1fff;
-
-    if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? _ram[offset] : 0xff;
-    }
-    if (addr & 0x8000 == 0x8000) {
-      return prgRoms[_prgBank[bank][0]][offset];
-    }
-    return 0xff;
-  }
-
-  @override
-  int readVram(int addr) {
-    final bank = addr >> 10; // 1 1100 0000 0000
-    final offset = addr & 0x03ff;
-
-    return chrRoms[_chrBank[bank]][offset];
+    _prevCycle = cycles;
   }
 
   @override

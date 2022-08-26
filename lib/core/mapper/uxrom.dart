@@ -6,14 +6,14 @@ import 'nrom.dart';
 
 // https://www.nesdev.org/wiki/UxROM
 class MapperUxROM extends MapperNROM {
-  static final _emptyBank = Uint8List(1024 * 16);
-  Uint8List _progBank = _emptyBank;
+  int _progBank = 0;
+
   final Uint8List _vram = Uint8List(1024 * 8);
 
   @override
   void write(int addr, int data) {
     if (addr & 0x8000 == 0x8000) {
-      _progBank = prgRoms[data & 0x0f];
+      _progBank = data & 0x0f;
     }
   }
 
@@ -22,7 +22,7 @@ class MapperUxROM extends MapperNROM {
     final bank = addr & 0xc000;
     final offset = addr & 0x3fff;
     if (bank == 0x8000) {
-      return _progBank[offset];
+      return prgRoms[_progBank][offset];
     } else if (bank == 0xc000) {
       return prgRoms[prgRoms.length - 1][offset];
     }
