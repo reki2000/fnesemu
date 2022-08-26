@@ -1,6 +1,3 @@
-const screenWidth = 256;
-const screenHeight = 240;
-
 /// print a 8 bit value as 1 hexadecimal digit
 String hex8(int x) {
   return x.toRadixString(16).padLeft(2, "0");
