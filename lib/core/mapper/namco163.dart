@@ -4,17 +4,19 @@ import 'dart:typed_data';
 // Project imports:
 import '../../util.dart';
 import 'mapper.dart';
+import 'mirror.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_019
 class MapperNamco163 extends Mapper {
-  // ppu 12 x 1k banks (0000-1fff)
-  final _chrBank = List<int>.generate(8, (i) => i);
+  // ppu 12 x 1k banks (0000-1fff, 0x2000-0x2fff)
+  // bank
+  //   chrRoms.length    : nametable A
+  //   chrRoms.length + 1: nametable B
+  final _chrBank = List<int>.filled(12, 0);
 
   // use chrRam at 0x0000, 0x1000
   final _chrRamEnabled = [false, false];
-
-  // mapping varm address to NES internal name table vram (false:0x2000 or true:0x2400)
-  final _chrRamNameTableB = List<bool>.generate(12, (_) => false);
+  final _chrRam = Uint8List(1024 * 2);
 
   // cpu 4 x 8k banks (8000-9fff, a000-bfff, c000-dfff, e000-ffff)
   final _prgBank = [0, 1, 2, 3];
@@ -29,6 +31,11 @@ class MapperNamco163 extends Mapper {
     loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     _prgBank[3] = prgRoms.length - 1;
     _prgBankMask = prgRoms.length - 1;
+
+    for (int i = 8; i < 12; i++) {
+      _chrBank[i] = chrRoms.length;
+    }
+    mirror(Mirror.external);
   }
 
   @override
@@ -79,12 +86,10 @@ class MapperNamco163 extends Mapper {
 
         // if not chrRam, use last 32 bank
         if (!_chrRamEnabled[bank >> 2]) {
-          _chrBank[(reg - 0x8000) >> 11] =
-              chrRoms.length - 0x20 + (data - 0xe0);
-          return;
+          _chrBank[bank] = chrRoms.length - 0x20 + (data - 0xe0);
+        } else {
+          _chrBank[bank] = chrRoms.length + (data & 1);
         }
-
-        _chrRamNameTableB[bank] = bit0(data);
         break;
 
       // nametable select
@@ -93,7 +98,7 @@ class MapperNamco163 extends Mapper {
       case 0xd000:
       case 0xd800:
         final bank = (reg - 0x8000) >> 11;
-        _chrRamNameTableB[bank] = bit0(data);
+        _chrBank[bank] = chrRoms.length + (data & 1);
         break;
 
       // prg rom bank 0x8000 select
@@ -106,8 +111,8 @@ class MapperNamco163 extends Mapper {
       // prg rom bank 0xa000 select
       case 0xe800:
         _prgBank[1] = data & _prgBankMask;
-        _chrRamEnabled[0] = bit6(data);
-        _chrRamEnabled[1] = bit7(data);
+        _chrRamEnabled[0] = !bit6(data);
+        _chrRamEnabled[1] = !bit7(data);
         break;
 
       // prg rom bank 0xc000 select
@@ -158,7 +163,23 @@ class MapperNamco163 extends Mapper {
     final bank = addr >> 10;
     final offset = addr & 0x03ff;
 
-    return chrRoms[_chrBank[bank]][offset];
+    final ramBank = _chrBank[bank] - chrRoms.length;
+    if (ramBank >= 0) {
+      return _chrRam[offset + (ramBank << 10)];
+    } else {
+      return chrRoms[_chrBank[bank]][offset];
+    }
+  }
+
+  @override
+  void writeVram(int addr, int data) {
+    final bank = addr >> 10;
+    final offset = addr & 0x03ff;
+
+    final ramBank = _chrBank[bank] - chrRoms.length;
+    if (ramBank >= 0) {
+      _chrRam[offset + (ramBank << 10)] = data;
+    }
   }
 
   // IRQ
@@ -191,8 +212,14 @@ class MapperNamco163 extends Mapper {
 
   @override
   String dump() {
-    final chrBanks =
-        range(0, 12).map((i) => hex8(_chrBank[i])).toList().join(" ");
+    final chrBanks = range(0, 12)
+        .map((i) => (_chrBank[i] < chrRoms.length)
+            ? hex8(_chrBank[i])
+            : _chrBank[i] == chrRoms.length
+                ? " A"
+                : " B")
+        .toList()
+        .join(" ");
 
     final prgBanks =
         range(0, 4).map((i) => hex8(_prgBank[i])).toList().join(" ");

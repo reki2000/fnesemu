@@ -27,7 +27,7 @@ class Bus {
   }
 
   int readVram(int addr) {
-    if (addr < 0x2000) {
+    if (addr < 0x2000 || _mirror.isExternal) {
       return mapper.readVram(addr);
     }
 
@@ -40,9 +40,8 @@ class Bus {
   }
 
   void writeVram(int addr, int val) {
-    if (addr < 0x2000) {
-      mapper.writeVram(addr, val);
-      return;
+    if (addr < 0x2000 || _mirror.isExternal) {
+      return mapper.writeVram(addr, val);
     }
 
     if (addr < 0x3f00) {
