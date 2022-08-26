@@ -63,8 +63,6 @@ class NesController {
 
   /// executes emulation during 1 scanline
   bool runScanLine({skipRender = false}) {
-    int? startCycle;
-
     while (true) {
       if (debugOption.breakPoint == _emulator.pc) {
         stop();
@@ -76,16 +74,12 @@ class NesController {
 
       _tracer?.addLog(_emulator.state);
 
-      if (!result.i1) {
+      if (!result.stopped) {
         stop();
         return false;
       }
 
-      final currentCycle = result.i0;
-
-      startCycle ??= currentCycle;
-
-      if (currentCycle - startCycle >= Nes.cpuCyclesInScanline) {
+      if (result.scanlineRendered) {
         break;
       }
     }
