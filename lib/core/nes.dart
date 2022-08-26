@@ -19,6 +19,14 @@ import 'rom/nes_file.dart';
 
 export 'pad_button.dart';
 
+// data class to conver the result of 'exec'
+class ExecResult {
+  final int cycles;
+  final bool stopped;
+  final bool scanlineRendered;
+  ExecResult(this.cycles, this.stopped, this.scanlineRendered);
+}
+
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes {
   late final Ppu ppu;
@@ -44,22 +52,24 @@ class Nes {
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
-  Pair<int, bool> exec() {
+  ExecResult exec() {
     final cpuOk = cpu.exec();
     if (!cpuOk) {
-      return Pair(cpu.cycle, false);
+      return ExecResult(cpu.cycle, false, false);
     }
 
+    bool rendered = false;
     if (cpu.cycle >= nextPpuCycle) {
       ppu.exec();
       bus.mapper.handleClock(cpu.cycle);
       nextPpuCycle += cpuCyclesInScanline;
+      rendered = true;
     }
     if (cpu.cycle >= nextApuCycle) {
       apu.exec();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
-    return Pair(cpu.cycle, true);
+    return ExecResult(cpu.cycle, true, rendered);
   }
 
   /// returns screen buffer as 250x240xargb
