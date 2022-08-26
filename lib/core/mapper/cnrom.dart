@@ -6,8 +6,13 @@ import 'nrom.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_003
 class MapperCNROM extends MapperNROM {
-  static final _emptyBank = Uint8List(1024 * 8);
-  Uint8List _charBank = _emptyBank;
+  late Uint8List _charBank;
+
+  @override
+  void init() {
+    super.init();
+    _charBank = chrRoms[0];
+  }
 
   @override
   void write(int addr, int data) {

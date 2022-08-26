@@ -3,7 +3,9 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import '../../spec.dart';
 import '../../util.dart';
+import '../nes.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
 
@@ -50,6 +52,8 @@ class Ppu {
   int cycle = 0;
 
   final objRam = List<int>.filled(0x100, 0);
+
+  final palette = List<int>.filled(0x20, 0);
 
   void onDMA(List<int> data) {
     for (int i = 0; i < 256; i++) {
@@ -181,10 +185,11 @@ class Ppu {
         return _status;
 
       case 0x2007:
-        var data = vramBuffer;
-        vramBuffer = readVram(vramAddr);
-        if (0x3f00 <= vramAddr && vramAddr <= 0x3fff) {
-          data = vramBuffer;
+        var data = readVram(vramAddr);
+        if (vramAddr < 0x3f00) {
+          final swap = vramBuffer;
+          vramBuffer = data;
+          data = swap;
         }
         vramAddr += vramIncrement() ? 32 : 1;
         return data;
@@ -196,21 +201,29 @@ class Ppu {
   }
 
   int readVram(int addr) {
+    if (addr < 0x3f00) {
+      return bus.readVram(addr);
+    }
+
     if (addr == 0x3f10 || addr == 0x3f14 || addr == 0x3f18 || addr == 0x3f1c) {
       addr &= 0x3f0f;
     }
-    return bus.readVram(addr);
+    return palette[addr & 0x1f];
   }
 
   void writeVram(int addr, int val) {
+    if (addr < 0x3f00) {
+      bus.writeVram(addr, val);
+      return;
+    }
+
     if (addr == 0x3f10 || addr == 0x3f14 || addr == 0x3f18 || addr == 0x3f1c) {
       addr &= 0x3f0f;
     }
-    bus.writeVram(addr, val);
+    palette[addr & 0x1f] = val;
   }
 
-  final buffer =
-      Uint8List.fromList(List.filled(screenWidth * screenHeight * 4, 0));
+  final buffer = Uint8List(Spec.width * Spec.height * 4);
 
   void exec() {
     if (scanLine < 240) {
@@ -226,11 +239,10 @@ class Ppu {
       if (nmiOnVBlank() && isVBlank) {
         bus.onNmi();
       }
-    } else if (scanLine == 261) {
+    } else if (scanLine == Nes.scanlinesInFrame - 1) {
       detectObj0 = false;
       isVBlank = false;
-      //renderLine();
-    } else if (scanLine == 262) {
+    } else if (scanLine == Nes.scanlinesInFrame) {
       scanLine = 0;
     }
 

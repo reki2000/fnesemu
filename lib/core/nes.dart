@@ -13,10 +13,19 @@ import 'component/cpu_disasm.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
 import 'mapper/mapper.dart';
+import 'mapper/mirror.dart';
 import 'pad_button.dart';
 import 'rom/nes_file.dart';
 
 export 'pad_button.dart';
+
+// data class to conver the result of 'exec'
+class ExecResult {
+  final int cycles;
+  final bool stopped;
+  final bool scanlineRendered;
+  ExecResult(this.cycles, this.stopped, this.scanlineRendered);
+}
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes {
@@ -43,22 +52,24 @@ class Nes {
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
-  Pair<int, bool> exec() {
+  ExecResult exec() {
     final cpuOk = cpu.exec();
     if (!cpuOk) {
-      return Pair(cpu.cycle, false);
+      return ExecResult(cpu.cycle, false, false);
     }
 
+    bool rendered = false;
     if (cpu.cycle >= nextPpuCycle) {
       ppu.exec();
       bus.mapper.handleClock(cpu.cycle);
       nextPpuCycle += cpuCyclesInScanline;
+      rendered = true;
     }
     if (cpu.cycle >= nextApuCycle) {
       apu.exec();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
-    return Pair(cpu.cycle, true);
+    return ExecResult(cpu.cycle, true, rendered);
   }
 
   /// returns screen buffer as 250x240xargb
@@ -83,47 +94,16 @@ class Nes {
   void padUp(PadButton k) => bus.joypad.keyUp(k);
 
   // loads an iNES format rom file.
-  // throws exception if the mapper typ of the rom file is not supported.
+  // throws exception if the mapper type of the rom file is not supported.
   void setRom(Uint8List body) {
     final nesFile = NesFile();
     nesFile.load(body);
 
-    switch (nesFile.mapper) {
-      case 0:
-        bus.mapper = MapperNROM();
-        break;
-      case 1:
-        bus.mapper = MapperMMC1();
-        break;
-      case 2:
-        bus.mapper = MapperUxROM();
-        break;
-      case 3:
-        bus.mapper = MapperCNROM();
-        break;
-      case 4:
-        bus.mapper = MapperMMC3();
-        break;
-      case 75:
-        bus.mapper = MapperVrc1();
-        break;
-      case 21:
-        bus.mapper = MapperVrc4a4c();
-        break;
-      case 23:
-        bus.mapper = MapperVrc4f4e();
-        break;
-      case 25:
-        bus.mapper = MapperVrc4b4d();
-        break;
-      default:
-        throw Exception("unimplemented mapper:${nesFile.mapper}!");
-    }
+    bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
+    bus.mapper = Mapper.of(nesFile.mapper);
     bus.mapper.setRom(nesFile.character, nesFile.program);
-    bus.mirrorVertical(nesFile.mirrorVertical);
-    bus.mapper.mirrorVertical = bus.mirrorVertical;
-
+    bus.mapper.mirror = bus.mirror;
     bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
 
     reset();

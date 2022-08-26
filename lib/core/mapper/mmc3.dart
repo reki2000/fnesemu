@@ -5,6 +5,7 @@ import 'dart:typed_data';
 // Project imports:
 import '../../util.dart';
 import 'mapper.dart';
+import 'mirror.dart';
 
 // https://www.nesdev.org/wiki/MMC3
 class MapperMMC3 extends Mapper {
@@ -142,7 +143,7 @@ class MapperMMC3 extends Mapper {
           _ramEnabled = bit7(data);
           _ramWriteEnabled = !bit6(data);
         } else {
-          mirrorVertical(!bit0(data));
+          mirror(bit0(data) ? Mirror.horizontal : Mirror.vertical);
         }
         break;
 
