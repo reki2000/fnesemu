@@ -6,12 +6,14 @@ This project is under experiment.
 
 - runs almost 60 fps on i5-8250
 - running on all flutter-supported platforms - Android, iOS, macOS, Linux, Windows and Web
+- no SRAM backup feature
 - supported iNES mapper types:
     - 0: NROM
-    - 1: MMC1 w/o battery backup
+    - 1: MMC1
     - 2: UxROM
     - 3: CNROM
     - 4: MMC3
+    - 9,10: MMC2,4
     - 73: VRC3
     - 75: VRC1
     - 21,23,25: VRC2,4
@@ -19,7 +21,7 @@ This project is under experiment.
 
 # How to use 
 
-1. visit [demo site](https://reki2000.github.io/fnesemu/main) or [latest unstable demo site](https://reki2000.github.io/fnesemu/develop)
+1. visit [demo site](https://reki2000.github.io/fnesemu/main)
 1. select `.nes` file by click 'Load ROM' icon (a square and a small arrow) on the leftmost of the App bar icons
 1. click 'Run' icon (a right-directed triangle) to start emulation
 
