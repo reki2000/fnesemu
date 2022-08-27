@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'cnrom.dart';
 import 'mirror.dart';
 import 'mmc1.dart';
+import 'mmc2.dart';
 import 'mmc3.dart';
 import 'namco163.dart';
 import 'nrom.dart';
@@ -26,6 +27,8 @@ class Mapper {
         return MapperCNROM();
       case 4:
         return MapperMMC3();
+      case 9:
+        return MapperMMC2();
       case 75:
         return MapperVrc1();
       case 21:
