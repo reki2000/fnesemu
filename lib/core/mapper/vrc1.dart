@@ -1,7 +1,7 @@
 // Project imports:
 import '../../util.dart';
-import 'mirror.dart';
 import 'mapper.dart';
+import 'mirror.dart';
 
 // https://www.nesdev.org/wiki/MMC3
 class MapperVrc1 extends Mapper {

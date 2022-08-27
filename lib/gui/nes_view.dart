@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/util.dart';
 
 // Project imports:
 import '../spec.dart';
