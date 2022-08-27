@@ -7,6 +7,7 @@ import 'mirror.dart';
 import 'mmc1.dart';
 import 'mmc2.dart';
 import 'mmc3.dart';
+import 'mmc4.dart';
 import 'namco163.dart';
 import 'nrom.dart';
 import 'uxrom.dart';
@@ -29,6 +30,8 @@ class Mapper {
         return MapperMMC3();
       case 9:
         return MapperMMC2();
+      case 10:
+        return MapperMMC4();
       case 75:
         return MapperVrc1();
       case 21:
