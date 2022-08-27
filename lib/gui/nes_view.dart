@@ -64,7 +64,7 @@ class _NewViewState extends State<NesView> {
               child: Container(
                   width: _width.toDouble(),
                   height: _height.toDouble(),
-                  transform: (Matrix4.identity() * 2),
+                  transform: (Matrix4.identity() * 2.0),
                   child: CustomPaint(painter: ImagePainter(_imageNotifier)))),
 
           // virtual pad
