@@ -125,8 +125,7 @@ class _MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar:
-          AppBar(leading: const SizedBox(), title: Text(_romName), actions: [
+      appBar: AppBar(title: Text(_romName), actions: [
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
@@ -145,6 +144,14 @@ class _MainPageState extends State<MainPage> {
             : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
                 () => _debug(true)),
       ]),
+      drawer: Drawer(
+          child: ListView(children: [
+        ListTile(
+          title: const Text("License"),
+          trailing: const Icon(Icons.arrow_forward),
+          onTap: () => showLicensePage(context: context),
+        ),
+      ])),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
