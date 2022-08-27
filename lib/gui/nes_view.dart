@@ -14,10 +14,8 @@ import 'virtual_pad.dart';
 
 class NesView extends StatefulWidget {
   final NesController controller;
-  final FocusNode focusNode;
 
-  const NesView({Key? key, required this.controller, required this.focusNode})
-      : super(key: key);
+  const NesView({Key? key, required this.controller}) : super(key: key);
 
   @override
   State<NesView> createState() => _NewViewState();
@@ -60,18 +58,15 @@ class _NewViewState extends State<NesView> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // main view
-          Focus(
-              focusNode: widget.focusNode,
+          Container(
+              width: _width * 2,
+              height: _height * 2,
+              color: Colors.black,
               child: Container(
-                  width: _width * 2,
-                  height: _height * 2,
-                  color: Colors.black,
-                  child: Container(
-                      width: _width.toDouble(),
-                      height: _height.toDouble(),
-                      transform: (Matrix4.identity() * 2),
-                      child:
-                          CustomPaint(painter: ImagePainter(_imageNotifier))))),
+                  width: _width.toDouble(),
+                  height: _height.toDouble(),
+                  transform: (Matrix4.identity() * 2),
+                  child: CustomPaint(painter: ImagePainter(_imageNotifier)))),
 
           // virtual pad
           VirtualPadWidget(controller: widget.controller),
