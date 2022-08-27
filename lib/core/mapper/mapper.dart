@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 // Project imports:
 import 'cnrom.dart';
+import 'mapper088.dart';
+import 'namco118.dart';
 import 'mirror.dart';
 import 'mmc1.dart';
 import 'mmc2.dart';
@@ -44,6 +46,10 @@ class Mapper {
         return MapperNamco163();
       case 73:
         return MapperVrc3();
+      case 88:
+        return Mapper088();
+      case 206:
+        return MapperNamco118();
       default:
         throw Exception("unimplemented mapper:$iNesMapper!");
     }
