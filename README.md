@@ -22,7 +22,7 @@ This project is under experiment.
 
 # How to use 
 
-1. visit [demo site](https://reki2000.github.io/fnesemu/)
+1. visit [demo site](https://fnesemu.codemagic.app) or [latest version](https://reki2000.github.io/fnesemu/)
 1. select `.nes` file by click 'Load ROM' icon (a square and a small arrow) on the leftmost of the App bar icons
 1. click 'Run' icon (a right-directed triangle) to start emulation
 

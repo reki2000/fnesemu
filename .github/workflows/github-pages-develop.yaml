@@ -3,10 +3,8 @@ name: github pages
 
 on:
   push:
-    branches-ignore:
-      - '**'
-    tags:
-      - 'v*'
+    branches:
+      - 'develop'
 
 jobs:
   build:
