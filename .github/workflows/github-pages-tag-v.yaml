@@ -3,9 +3,10 @@ name: github pages
 
 on:
   push:
-    branches: [ main ]
-
-  workflow_dispatch:
+    branches-ignore:
+      - '**'
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -31,7 +32,7 @@ jobs:
       - run: flutter --version
       - run: flutter pub get
       - run: flutter test
-      - run: flutter build web --base-href /${{ steps.version.outputs.repository }}/
+      - run: flutter build web --base-href /
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
