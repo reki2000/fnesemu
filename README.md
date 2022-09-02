@@ -34,7 +34,7 @@ This project is under experiment.
 
 ## How to build and run on local machine
 
-Requires flutter 3.0.5 with at least one enabled device.
+Requires flutter 3.3.0 with at least one enabled device.
 
 ```
 git submodule update --init
