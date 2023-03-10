@@ -32,10 +32,6 @@ void pushDisasmPage(BuildContext context, NesController controller) {
                   child: SelectableText(
                     asm,
                     style: debugStyle,
-                    toolbarOptions: const ToolbarOptions(
-                      copy: true,
-                      selectAll: true,
-                    ),
                     showCursor: true,
                   ))));
     }),

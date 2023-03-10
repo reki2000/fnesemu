@@ -136,7 +136,7 @@ class Nes {
       Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
 
   // debug: returns PC register
-  int get pc => cpu.regs.PC;
+  int get pc => cpu.regs.pc;
 
   // debug: set debug logging
   String get state => cpu.trace();

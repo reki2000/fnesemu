@@ -25,9 +25,9 @@ void main() async {
   bus.mapper = MapperNROM();
   bus.mapper.setRom(file.character, file.program);
   bus.mapper.init();
-  cpu.regs.PC = 0xc000;
-  cpu.regs.P = 0x24;
-  cpu.regs.S = 0xfd;
+  cpu.regs.pc = 0xc000;
+  cpu.regs.p = 0x24;
+  cpu.regs.s = 0xfd;
   cpu.cycle = 7;
 
   final testLog = File("assets/nestest.log");
