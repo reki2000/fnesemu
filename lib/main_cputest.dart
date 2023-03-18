@@ -2,6 +2,7 @@
 import 'dart:io';
 
 // Project imports:
+import 'core/component/apu.dart';
 import 'core/component/bus.dart';
 import 'core/component/cpu.dart';
 import 'core/component/cpu_debug.dart';
@@ -16,6 +17,7 @@ void main() async {
   log("running fnesemu cpu test...");
   final bus = Bus();
   final cpu = Cpu(bus);
+  Apu(bus);
 
   final f = File("assets/rom/nestest.nes");
   log("loading: $f");
@@ -53,6 +55,7 @@ void main() async {
     prevLine = l;
   }
   //print("\$02:${hex8(cpu.read(2))} \$03:${hex8(cpu.read(3))}");
+  log("cpu test completed successfully.");
 }
 
 String _dumpF(int val) {
