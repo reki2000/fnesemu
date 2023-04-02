@@ -4,29 +4,31 @@ A Cross-Platform NES Emulator Built with Flutter
 
 This project is currently experimental.
 
-Achieves nearly 60 fps on an i5-8250 processor
-Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
-SRAM backup feature not yet implemented
-Supports the following iNES mapper types:
-0: NROM
-1: MMC1
-2: UxROM
-3: CNROM
-4: MMC3
-9,10: MMC2,4
-73: VRC3
-75: VRC1
-21,23,25: VRC2,4
-19: Namco163 (waveform sound not supported)
-88,206: Namco118
+- Achieves nearly 60 fps on an i5-8250 processor
+- Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
+- SRAM backup feature not yet implemented
+- Supports the following iNES mapper types:
+  - 0: NROM
+  - 1: MMC1
+  - 2: UxROM
+  - 3: CNROM
+  - 4: MMC3
+  - 9,10: MMC2,4
+  - 73: VRC3
+  - 75: VRC1
+  - 21,23,25: VRC2,4
+  - 19: Namco163 (waveform sound not supported)
+  - 88,206: Namco118
 
 # How to use 
 
-1. visit [demo site](https://fnesemu.codemagic.app) or [latest version](https://reki2000.github.io/fnesemu/)
-1. select `.nes` file by click 'Load ROM' icon (a square and a small arrow) on the leftmost of the App bar icons
-1. click 'Run' icon (a right-directed triangle) to start emulation
+1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
+1. Select the `.nes` file by clicking on the 'Load ROM' icon (a square and small arrow) on the leftmost of the App bar icons
+1. Click on the 'Run' icon (a right-directed triangle) to start emulation
 
 ## Joypad-Keyboard assignment
+
+Here is the joypad-keyboard assignment table for your reference:
 
 | A | B | select | start | UP | DOWN | LEFT | RIGHT |
 |---|---|--------|-------|----|------|------|------|
@@ -34,7 +36,8 @@ Supports the following iNES mapper types:
 
 ## How to build and run on local machine
 
-Requires flutter 3.7.6 with at least one enabled device.
+To build and run fnesemu on a local machine, you will need flutter 3.7.0 with at least one enabled device. 
+Follow these steps:
 
 ```
 git submodule update --init
@@ -43,10 +46,15 @@ flutter run -d [windows|linux|chrome|macos|your-android-device|your-ios-device] 
 
 # How to develop
 
+## To add more mapper type support
 
-## test 6502 emulation
+TBD
 
-This 6502 emulator core has been validated using the Nestest ROM by comparing register and flag values against the Nestest log.
+## To test 6502 emulation
+
+The 6502 emulator core used in fnesemu has been validated using the Nestest ROM by comparing register and flag values against the Nestest log.
+
+To test the 6502 emulation, run the following command:
 
 ```
 $ curl https://raw.githubusercontent.com/christopherpow/nes-test-roms/master/other/nestest.log > assets/nestest.log
