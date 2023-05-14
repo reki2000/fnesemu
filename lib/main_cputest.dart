@@ -1,5 +1,6 @@
 // Dart imports:
 import 'dart:io';
+import 'dart:typed_data';
 
 // Project imports:
 import 'core/component/apu.dart';
@@ -25,7 +26,7 @@ void main() async {
   final file = NesFile()..load(body);
 
   bus.mapper = MapperNROM();
-  bus.mapper.setRom(file.character, file.program);
+  bus.mapper.setRom(file.character, file.program, Uint8List(0));
   bus.mapper.init();
   cpu.regs.pc = 0xc000;
   cpu.regs.p = 0x24;

@@ -52,6 +52,7 @@ class NesController {
 
   /// stops emulation
   void stop() {
+    _emulator.saveSram();
     _timer?.cancel();
   }
 
@@ -108,7 +109,10 @@ class NesController {
     _fpsStream.add(_fps);
   }
 
-  void reset() => _emulator.reset();
+  void reset() {
+    _emulator.saveSram();
+    _emulator.reset();
+  }
 
   void setRom(Uint8List body) {
     if (_debugOption.showDebugView) {

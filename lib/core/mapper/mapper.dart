@@ -17,7 +17,7 @@ import 'vrc1.dart';
 import 'vrc3.dart';
 import 'vrc4.dart';
 
-class Mapper {
+abstract class Mapper {
   static Mapper of(int iNesMapper) {
     switch (iNesMapper) {
       case 0:
@@ -59,6 +59,9 @@ class Mapper {
   final List<Uint8List> chrRoms = [];
   final List<Uint8List> prgRoms = [];
 
+  // SRAM
+  Uint8List sram = Uint8List(0);
+
   // load bank data from original sized rom data
   void loadRom({required int chrBankSizeK, required int prgBankSizeK}) {
     // resize chr roms from 8k to 4k
@@ -83,11 +86,15 @@ class Mapper {
   // will be deprecated
   late final List<Uint8List> _chrRoms8k;
 
-  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k) {
+  void setRom(
+      List<Uint8List> chrRom8k, List<Uint8List> prgRom16k, Uint8List _sram) {
     _chrRoms8k = chrRom8k;
     _prgRoms16k = prgRom16k;
+    sram = _sram;
     loadRom(chrBankSizeK: 8, prgBankSizeK: 16);
   }
+
+  void Function(List<Uint8List>) saveSram = ((_) {});
 
   int read(int addr) => 0xff;
 
@@ -97,7 +104,11 @@ class Mapper {
 
   void writeVram(int addr, int data) {}
 
-  void init() {}
+  void init();
+
+  Uint8List exportSram() {
+    return Uint8List(0);
+  }
 
   void Function(bool) holdIrq = ((_) {});
 

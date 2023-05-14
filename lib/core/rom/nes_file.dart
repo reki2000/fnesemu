@@ -3,6 +3,8 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import 'package:archive/archive_io.dart';
+
 import '../../util.dart';
 
 class NesFile {
@@ -10,6 +12,7 @@ class NesFile {
   final character = <Uint8List>[];
   late final int mapper;
   late final int subMapper;
+  late final String crc;
 
   bool mirrorVertical = false;
   bool hasBatteryBackup = false;
@@ -28,8 +31,10 @@ class NesFile {
         body[3] == 0x1a)) {
       throw Exception("not iNES header");
     }
-
     // final isNes20 = body[7] & 0x0c == 0x08;
+
+    // caclurate CRC32 of entire file
+    crc = (Crc32()..add(body.toList())).close().map((val) => hex8(val)).join();
 
     final programRomLength = body[4];
     final characterRomLength = body[5];
@@ -43,8 +48,8 @@ class NesFile {
     mapper = ((body[8] & 0x0f) << 16) | body[7] & 0xf0 | (flags1 >> 4);
     subMapper = body[8] >> 4;
 
-    final ramSize = body[10] == 0 ? 0 : (64 << (body[10] & 0x0f));
-    final nvramSize = body[10] == 0 ? 0 : (64 << (body[10] >> 4));
+    final ramSize = (body[10] & 0x0f) == 0 ? 0 : (64 << (body[10] & 0x0f));
+    final nvramSize = (body[10] >> 4) == 0 ? 0 : (64 << (body[10] >> 4));
 
     final chrRamSize = body[11] == 0 ? 0 : (64 << (body[11] & 0x0f));
     final chrNvramSize = body[11] == 0 ? 0 : (64 << (body[11] >> 4));
@@ -54,8 +59,9 @@ class NesFile {
         "prog:16k*$programRomLength "
         "char:8k*$characterRomLength "
         "vertical:$mirrorVertical "
-        "ram:${ramSize}k/${nvramSize}k "
-        "chrRam:${chrRamSize}k/${chrNvramSize}k");
+        "ram:${ramSize ~/ 1024}k/${nvramSize ~/ 1024}k "
+        "chrRam:${chrRamSize}k/${chrNvramSize}k "
+        "${hasBatteryBackup ? 'bb' : ''}");
 
     var offset = 16;
     if (has512trainer) {

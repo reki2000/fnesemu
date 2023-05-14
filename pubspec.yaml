@@ -20,6 +20,7 @@ dependencies:
   package_info_plus: ^3.0.3
   mp_audio_stream: ^0.1.4
   test: ^1.21.1
+  archive: ^3.1.2
 
 dev_dependencies:
   flutter_test:

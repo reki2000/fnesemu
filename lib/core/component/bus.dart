@@ -16,6 +16,7 @@ class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
   late final Apu apu;
+  late final Mapper mapper;
 
   final joypad = Joypad();
 
@@ -54,8 +55,6 @@ class Bus {
   }
 
   final List<int> ram = List.filled(0x800, 0);
-
-  Mapper mapper = Mapper();
 
   int read(int addr) {
     if (addr < 0x800) {

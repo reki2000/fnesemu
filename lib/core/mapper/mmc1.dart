@@ -14,7 +14,7 @@ class MapperMMC1 extends Mapper {
   late int _counter;
 
   // ram on 6000-7fff, 8k x 4 banks
-  final _ram8k = List.generate(4, (_) => Uint8List(8 * 1024));
+  late List<Uint8List> _ram8k;
   late bool _ramEnabled = true;
   late int _ramBank;
 
@@ -45,6 +45,9 @@ class MapperMMC1 extends Mapper {
     _shiftReg = 0;
     _counter = 0;
 
+    _ram8k = sram.isEmpty
+        ? List.generate(4, (_) => Uint8List(8 * 1024))
+        : sram.split(8 * 1024);
     _ramBank = 0;
     _ramEnabled = true;
 
@@ -56,6 +59,12 @@ class MapperMMC1 extends Mapper {
     _prgBank0 = 0;
     _prgBank512 = false;
     _setPrgBank();
+  }
+
+  @override
+  Uint8List exportSram() {
+    return Uint8List.fromList(_ram8k.fold(
+        List<int>.empty(growable: true), (acm, l) => acm..addAll(l)));
   }
 
   @override
