@@ -124,41 +124,47 @@ class _MainPageState extends State<MainPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar:
-          AppBar(leading: const SizedBox(), title: Text(_romName), actions: [
-        // file load button
-        _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
+    return Focus(
+        focusNode: _focusNode,
+        child: Scaffold(
+          appBar: AppBar(title: Text(_romName), actions: [
+            // file load button
+            _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
-        // run / pause button
-        _isRunning
-            ? _iconButton(Icons.pause, "Pause", _stop)
-            : _iconButton(Icons.play_arrow, "Run", _run),
+            // run / pause button
+            _isRunning
+                ? _iconButton(Icons.pause, "Pause", _stop)
+                : _iconButton(Icons.play_arrow, "Run", _run),
 
-        // reset button
-        _iconButton(Icons.restart_alt, "Reset", _reset),
+            // reset button
+            _iconButton(Icons.restart_alt, "Reset", _reset),
 
-        // debug on/off button
-        controller.debugOption.showDebugView
-            ? _iconButton(
-                Icons.bug_report, "Disable Debug Options", () => _debug(false))
-            : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
-                () => _debug(true)),
-      ]),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          // main view
-          NesView(
-            controller: controller,
-            focusNode: _focusNode,
+            // debug on/off button
+            controller.debugOption.showDebugView
+                ? _iconButton(Icons.bug_report, "Disable Debug Options",
+                    () => _debug(false))
+                : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
+                    () => _debug(true)),
+          ]),
+          drawer: Drawer(
+              child: ListView(children: [
+            ListTile(
+              title: const Text("License"),
+              trailing: const Icon(Icons.arrow_forward),
+              onTap: () => showLicensePage(context: context),
+            ),
+          ])),
+          body: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              // main view
+              NesView(controller: controller),
+
+              // debug view if enabled
+              if (controller.debugOption.showDebugView)
+                DebugController(controller: controller),
+            ],
           ),
-
-          // debug view if enabled
-          if (controller.debugOption.showDebugView)
-            DebugController(controller: controller),
-        ],
-      ),
-    );
+        ));
   }
 }
