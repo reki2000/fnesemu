@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
-import 'mirror.dart';
 import 'mapper.dart';
+import 'mirror.dart';
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 class MapperVrc4 extends Mapper {

@@ -8,13 +8,13 @@ import 'cpu_disasm.dart';
 
 extension CpuDebugger on Cpu {
   String trace() {
-    final op = read(regs.PC);
-    final a = read(regs.PC + 1);
-    final b = read(regs.PC + 2);
+    final op = read(regs.pc);
+    final a = read(regs.pc + 1);
+    final b = read(regs.pc + 2);
 
-    final asm = Disasm.disasm(regs.PC, op, a, b).padRight(47, " ");
+    final asm = Disasm.disasm(regs.pc, op, a, b).padRight(47, " ");
     final reg =
-        "A:${hex8(regs.A)} X:${hex8(regs.X)} Y:${hex8(regs.Y)} P:${hex8(regs.P)} SP:${hex8(regs.S)}";
+        "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
 
     return "$asm $reg".toUpperCase();
   }
@@ -32,13 +32,13 @@ extension CpuDebugger on Cpu {
   }
 
   String dumpNesTest() {
-    final op = read(regs.PC);
-    final a = read(regs.PC + 1);
-    final b = read(regs.PC + 2);
+    final op = read(regs.pc);
+    final a = read(regs.pc + 1);
+    final b = read(regs.pc + 2);
 
-    final asm = Disasm.disasm(regs.PC, op, a, b).padRight(47, " ");
+    final asm = Disasm.disasm(regs.pc, op, a, b).padRight(47, " ");
     final reg =
-        "A:${hex8(regs.A)} X:${hex8(regs.X)} Y:${hex8(regs.Y)} P:${hex8(regs.P)} SP:${hex8(regs.S)}";
+        "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
 
     final ppuCycle = cycle * 3;
     final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
@@ -71,9 +71,9 @@ extension CpuDebugger on Cpu {
       }
     }
     if (showStack) {
-      final base = (regs.S & 0xf0) | 0x100;
+      final base = (regs.s & 0xf0) | 0x100;
       for (int i = 0; i < 2; i++) {
-        mem += dumpMem(base - 16 + i * 16, regs.S | 0x100);
+        mem += dumpMem(base - 16 + i * 16, regs.s | 0x100);
       }
     }
 

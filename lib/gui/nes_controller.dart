@@ -110,7 +110,12 @@ class NesController {
 
   void reset() => _emulator.reset();
 
-  void setRom(Uint8List body) => _emulator.setRom(body);
+  void setRom(Uint8List body) {
+    if (_debugOption.showDebugView) {
+      _pushDebug();
+    }
+    _emulator.setRom(body);
+  }
 
   // screen/audio/fps
 
