@@ -26,8 +26,6 @@ class MapperVrc3 extends Mapper {
 
   @override
   void init() {
-    loadRom(chrBankSizeK: 8, prgBankSizeK: 16);
-
     if (prgRoms.length - 1 & prgRoms.length != 0) {
       log("invalid prg rom size: ${prgRoms.length}k");
       return;

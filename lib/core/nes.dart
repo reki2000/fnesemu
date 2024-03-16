@@ -35,7 +35,7 @@ class Nes {
   late final Cpu cpu;
   late final Bus bus;
 
-  final _storage = Storage();
+  final _storage = await Storage.of();
 
   static const cpuClock = 1789773;
   static const apuClock = cpuClock ~/ 2;
@@ -111,7 +111,8 @@ class Nes {
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
     bus.mapper = Mapper.of(nesFile.mapper)
-      ..setRom(nesFile.character, nesFile.program, _storage.load(crc))
+      ..setRom(nesFile.character, nesFile.program,
+          hasBatteryBackup ? _storage.load(crc) : Uint8List(0))
       ..mirror = bus.mirror
       ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
 

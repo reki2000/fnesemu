@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 // Package imports:
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Project imports:
 import 'debug/debug_controller.dart';
@@ -39,6 +40,7 @@ class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
   late final FocusNode _focusNode;
+  late final SharedPreferences _prefs;
 
   String _romName = "";
   bool _isRunning = false;
@@ -59,6 +61,10 @@ class _MainPageState extends State<MainPage> {
         _mPlayer.push(buf, controller.apuClock);
       }
     })();
+
+    () async {
+      _prefs = await SharedPreferences.getInstance();
+    }();
   }
 
   @override

@@ -2,6 +2,7 @@
 import 'dart:typed_data';
 
 // Project imports:
+import '../../util.dart';
 import 'cnrom.dart';
 import 'mapper088.dart';
 import 'namco118.dart';
@@ -59,39 +60,22 @@ abstract class Mapper {
   final List<Uint8List> chrRoms = [];
   final List<Uint8List> prgRoms = [];
 
-  // SRAM
-  Uint8List sram = Uint8List(0);
-
-  // load bank data from original sized rom data
-  void loadRom({required int chrBankSizeK, required int prgBankSizeK}) {
-    // resize chr roms from 8k to 4k
-    chrRoms.clear();
-    for (final char8k in _chrRoms8k) {
-      for (int i = 0; i < 8 * 1024; i += chrBankSizeK * 1024) {
-        chrRoms.add(char8k.sublist(i, i + chrBankSizeK * 1024));
-      }
-    }
-
-    // resize prg roms from 16k to 8k
-    prgRoms.clear();
-    for (final prog16k in _prgRoms16k) {
-      for (int i = 0; i < 16 * 1024; i += prgBankSizeK * 1024) {
-        prgRoms.add(prog16k.sublist(i, i + prgBankSizeK * 1024));
-      }
-    }
+  // utility to load bank data to chrRoms and prgRoms from original sized rom data
+  void loadRom(List<Uint8List> chrRoms8k, int chrBankSizeK,
+      List<Uint8List> prgRoms16k, int prgBankSizeK) {
+    chrRoms
+      ..clear()
+      ..addAll(Uint8ListEx.join(chrRoms8k).split(chrBankSizeK * 1024));
+    prgRoms
+      ..clear()
+      ..addAll(Uint8ListEx.join(prgRoms16k).split(prgBankSizeK * 1024));
   }
 
-  // will be deprecated
-  late final List<Uint8List> _prgRoms16k;
-  // will be deprecated
-  late final List<Uint8List> _chrRoms8k;
-
-  void setRom(
-      List<Uint8List> chrRom8k, List<Uint8List> prgRom16k, Uint8List _sram) {
-    _chrRoms8k = chrRom8k;
-    _prgRoms16k = prgRom16k;
-    sram = _sram;
-    loadRom(chrBankSizeK: 8, prgBankSizeK: 16);
+  // set rom data from fix-sized chunks of rom data (chr: 8k, prg: 16k)
+  // sramLoaded: SRAM data, if empty, mapper should prepare a new one with proper size
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 8, prgRom16k, 16);
   }
 
   void Function(List<Uint8List>) saveSram = ((_) {});

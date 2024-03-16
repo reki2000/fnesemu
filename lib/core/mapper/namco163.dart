@@ -27,8 +27,13 @@ class MapperNamco163 extends Mapper {
   final _ramProtect = [false, false, false, false];
 
   @override
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 1, prgRom16k, 8);
+  }
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     _prgBank[3] = prgRoms.length - 1;
     _prgBankMask = prgRoms.length - 1;
 

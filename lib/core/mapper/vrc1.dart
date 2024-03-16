@@ -1,4 +1,6 @@
 // Project imports:
+import 'dart:typed_data';
+
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
@@ -16,8 +18,13 @@ class MapperVrc1 extends Mapper {
   final List<int> _prgBank = [0, 1, 2, 3];
 
   @override
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 4, prgRom16k, 8);
+  }
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 4, prgBankSizeK: 8);
     _prgBank[3] = prgRoms.length - 1;
   }
 

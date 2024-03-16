@@ -47,8 +47,13 @@ class MapperMMC3 extends Mapper {
   final _prgBankA000 = [0]; // for a000-bfff
 
   @override
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 1, prgRom16k, 8);
+  }
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     if (chrRoms.isEmpty) {
       // TNROM: chr ram 1k x 8
       chrRoms.addAll(List.generate(8, (i) => Uint8List(1024)));

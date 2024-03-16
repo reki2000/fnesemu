@@ -23,7 +23,7 @@ class MapperMMC1 extends Mapper {
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
   final _chrBank = [0, 0];
 
-  final _vram4k = List.generate(2, (_) => Uint8List(4 * 1024));
+  final _vram4k = Uint8ListEx.ofEmptyList(2, 4 * 1024);
 
   // program rom bank mode: 0-3
   late int _prgBankMode;
@@ -41,13 +41,20 @@ class MapperMMC1 extends Mapper {
   ];
 
   @override
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 8, prgRom16k, 16);
+
+    _ram8k = sramLoaded.isEmpty
+        ? Uint8ListEx.ofEmptyList(4, 8 * 1024)
+        : sramLoaded.split(8 * 1024);
+  }
+
+  @override
   void init() {
     _shiftReg = 0;
     _counter = 0;
 
-    _ram8k = sram.isEmpty
-        ? List.generate(4, (_) => Uint8List(8 * 1024))
-        : sram.split(8 * 1024);
     _ramBank = 0;
     _ramEnabled = true;
 
@@ -63,8 +70,7 @@ class MapperMMC1 extends Mapper {
 
   @override
   Uint8List exportSram() {
-    return Uint8List.fromList(_ram8k.fold(
-        List<int>.empty(growable: true), (acm, l) => acm..addAll(l)));
+    return Uint8ListEx.join(_ram8k);
   }
 
   @override

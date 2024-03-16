@@ -15,8 +15,13 @@ class MapperMMC2 extends Mapper {
   final _latch = [0, 0]; // latch = fd: 0,   fe: 2
 
   @override
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 4, prgRom16k, 8);
+  }
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 4, prgBankSizeK: 8);
     _prgBanks[1] = prgRoms.length - 3;
     _prgBanks[2] = prgRoms.length - 2;
     _prgBanks[3] = prgRoms.length - 1;
