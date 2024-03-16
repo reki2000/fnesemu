@@ -6,8 +6,8 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 0.3.10+0
 
 environment:
-  sdk: ">=2.16.1 <4.0.0"
-  flutter: ^3.10.0
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ^3.19.0
 
 dependencies:
   flutter:
@@ -17,7 +17,7 @@ dependencies:
   google_fonts: ^6.2.1
   file_picker: ^6.2.0
   js: ^0.6.5
-  package_info_plus: ^4.2.0
+  package_info_plus: ^5.0.1
   mp_audio_stream: ^0.1.4
   test: ^1.21.1
 
