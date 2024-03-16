@@ -20,7 +20,7 @@ extension PpuDebugger on Ppu {
 
   String dumpObjVram(int addr, int target) {
     addr &= 0xf0;
-    var str = "obj: " + hex16(addr) + ":";
+    var str = "obj: ${hex16(addr)}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
@@ -29,6 +29,6 @@ extension PpuDebugger on Ppu {
                   : " ") +
           hex8(objRam[(addr + i) & 0xff]);
     }
-    return str + "\n";
+    return "$str\n";
   }
 }

@@ -20,7 +20,7 @@ extension BusDebugger on Bus {
 
   String dumpChar(int addr, int target) {
     addr &= 0x1ff0;
-    var str = hex16(addr) + ":";
+    var str = "${hex16(addr)}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
@@ -29,12 +29,12 @@ extension BusDebugger on Bus {
                   : " ") +
           hex8(mapper.readVram(addr + i));
     }
-    return str + "\n";
+    return "$str\n";
   }
 
   String dumpVram(int addr, int target) {
     addr &= 0x1ff0;
-    var str = hex16(0x2000 + addr) + ":";
+    var str = "${hex16(0x2000 + addr)}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
@@ -43,6 +43,6 @@ extension BusDebugger on Bus {
                   : " ") +
           hex8(vram[addr + i]);
     }
-    return str + "\n";
+    return "$str\n";
   }
 }
