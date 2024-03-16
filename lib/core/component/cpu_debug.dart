@@ -25,7 +25,7 @@ extension CpuDebugger on Cpu {
       final op = read(pc);
       final a = read(pc + 1);
       final b = read(pc + 2);
-      result += Disasm.disasm(pc, op, a, b).padRight(47, " ") + "\n";
+      result += "${Disasm.disasm(pc, op, a, b).padRight(47, " ")}\n";
       pc += Disasm.nextPC(op);
     }
     return result;
@@ -82,7 +82,7 @@ extension CpuDebugger on Cpu {
 
   String dumpMem(int addr, int target) {
     addr &= 0xfff0;
-    var str = hex16(addr) + ":";
+    var str = "${hex16(addr)}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
@@ -91,6 +91,6 @@ extension CpuDebugger on Cpu {
                   : " ") +
           hex8(read(addr + i));
     }
-    return str + "\n";
+    return "$str\n";
   }
 }
