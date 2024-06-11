@@ -35,8 +35,24 @@ jobs:
       - run: flutter test
       - run: flutter build web --base-href /${{ steps.version.outputs.repository }}/
 
+      - name: Upload dist as artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: dist
+          path: ./build/web
+
+  deploy:
+    runs-on: ubuntu-22.04
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: dist
+          path: ./build/web
+
       - name: Deploy
-        if: github.ref == 'refs/heads/develop'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
