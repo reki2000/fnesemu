@@ -22,7 +22,7 @@ jobs:
         id: version
         run: |
           REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
-         run: echo "{name}={value}" >> $GITHUB_OUTPUT
+          run: echo "{name}={value}" >> $GITHUB_OUTPUT
 
       - name: Flutter
         uses: subosito/flutter-action@v2
