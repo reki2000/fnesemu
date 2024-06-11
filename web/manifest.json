@@ -1,6 +1,6 @@
 {
-    "name": "fnes",
-    "short_name": "fnes",
+    "name": "fnesemu",
+    "short_name": "fnesemu",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
