@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - 'develop'
+  pull_request:
+    branches:
+      - 'develop'
 
 jobs:
   build:
@@ -33,6 +36,7 @@ jobs:
       - run: flutter build web --base-href /${{ steps.version.outputs.repository }}/
 
       - name: Deploy
+        if: github.ref == 'refs/heads/develop'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
