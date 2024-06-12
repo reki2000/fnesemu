@@ -12,7 +12,7 @@ import 'vram.dart';
 class DebugController extends StatelessWidget {
   final NesController controller;
 
-  const DebugController({Key? key, required this.controller}) : super(key: key);
+  const DebugController({super.key, required this.controller});
 
   Widget _button(String text, void Function() func) => Container(
       margin:
