@@ -23,10 +23,10 @@ class KeyHandler {
     NesPadButton? button = _keys[e.physicalKey];
     if (button != null) {
       switch (e.runtimeType) {
-        case KeyDownEvent:
+        case KeyDownEvent _:
           controller.padDown(button);
           break;
-        case KeyUpEvent:
+        case KeyUpEvent _:
           controller.padUp(button);
           break;
       }
