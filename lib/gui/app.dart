@@ -15,7 +15,7 @@ import 'sound_player.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
-  const MyApp({Key? key, required this.title}) : super(key: key);
+  const MyApp({super.key, required this.title});
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +29,7 @@ class MyApp extends StatelessWidget {
 }
 
 class MainPage extends StatefulWidget {
-  const MainPage({Key? key}) : super(key: key);
+  const MainPage({super.key});
 
   @override
   _MainPageState createState() => _MainPageState();
