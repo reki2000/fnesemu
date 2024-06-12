@@ -14,7 +14,7 @@ import 'virtual_pad.dart';
 class NesView extends StatefulWidget {
   final NesController controller;
 
-  const NesView({Key? key, required this.controller}) : super(key: key);
+  const NesView({super.key, required this.controller});
 
   @override
   State<NesView> createState() => _NewViewState();

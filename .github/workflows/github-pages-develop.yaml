@@ -27,6 +27,7 @@ jobs:
           cache: true
       - run: flutter --version
       - run: flutter pub get
+      - run: flutter clean
       - run: flutter test
       - run: |
           REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
