@@ -25,7 +25,6 @@ class MapperVrc6 extends Mapper {
 
   // ppu 8 x 1k banks
   final List<int> _chrBank = [0, 1, 2, 3, 4, 5, 6, 7];
-  final List<int> _namBank = [0, 1, 2, 3];
 
   final List<int> _ppuReg = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -82,7 +81,7 @@ class MapperVrc6 extends Mapper {
         if (addr == 0xb003) {
           _ramEnabled = bit7(data);
 
-          _setMirror(data >> 4);
+          _setMirror((data & 0x0f) >> 2);
 
           switch (data & 0x03) {
             case 0:
