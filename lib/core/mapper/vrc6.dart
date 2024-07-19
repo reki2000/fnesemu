@@ -6,9 +6,12 @@ import 'dart:typed_data';
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
+import 'vrc6_apu.dart';
 
 // https://www.nesdev.org/wiki/VRC6
 class MapperVrc6 extends Mapper {
+  final Vrc6Apu _apu = Vrc6Apu();
+
   // IRQ related counters, flags etc.
   int _irqLatch = 0;
   int _irqCounter = 0;
@@ -60,62 +63,72 @@ class MapperVrc6 extends Mapper {
 
   @override
   void write(addr, data) {
+    if (addr == 0xb003) {
+      _ramEnabled = bit7(data);
+
+      _setMirror((data & 0x0f) >> 2);
+
+      switch (data & 0x03) {
+        case 0:
+          for (int i = 0; i < 8; i++) {
+            _chrBank[i] = i;
+          }
+          break;
+
+        case 1:
+          for (var i = 0; i < 8; i++) {
+            _chrBank[i] = i >> 1;
+          }
+          break;
+
+        case 2:
+        case 3:
+          for (var i = 0; i < 4; i++) {
+            _chrBank[i] = i;
+          }
+          for (var i = 4; i < 8; i++) {
+            _chrBank[i] = i >> 1;
+          }
+          break;
+      }
+
+      return;
+    }
+
     switch (addr & 0xf000) {
       case 0x6000:
       case 0x7000:
         if (_ramEnabled) {
           _ram[addr & 0x1fff] = data;
         }
-        break;
+        return;
 
       case 0x8000:
         _prgBank8000 = data & _prgBankMask;
         _prgBank[0] = _prgBank8000 << 1;
         _prgBank[1] = (_prgBank8000 << 1) + 1;
-        break;
+        return;
+
       case 0xc000:
         _prgBank[2] = data & _prgBankMask;
-        break;
+        return;
 
+      case 0x9000:
+      case 0xa000:
       case 0xb000:
-        if (addr == 0xb003) {
-          _ramEnabled = bit7(data);
-
-          _setMirror((data & 0x0f) >> 2);
-
-          switch (data & 0x03) {
-            case 0:
-              for (int i = 0; i < 8; i++) {
-                _chrBank[i] = i;
-              }
-              break;
-            case 1:
-              for (var i = 0; i < 8; i++) {
-                _chrBank[i] = i >> 1;
-              }
-              break;
-
-            case 2:
-            case 3:
-              for (var i = 0; i < 4; i++) {
-                _chrBank[i] = i;
-              }
-              for (var i = 4; i < 8; i++) {
-                _chrBank[i] = i >> 1;
-              }
-              break;
-          }
-        }
-        break;
+        _apu.write(addr & 0xf000 | addrToReg(addr), data);
+        return;
 
       case 0xd000:
+        _ppuReg[addrToReg(addr)] = data;
+        return;
+
       case 0xe000:
-        writeExt(addr, data);
-        break;
+        _ppuReg[0x04 | addrToReg(addr)] = data;
+        return;
 
       case 0xf000:
-        final reg = addr & 0x03;
-        switch (reg) {
+        switch (addrToReg(addr)) {
           case 0:
             return _setIrqLatchLow(data);
           case 1:
@@ -123,15 +136,12 @@ class MapperVrc6 extends Mapper {
           case 2:
             return _setIrqAcknoledge();
         }
-        break;
     }
   }
 
   // overriden in subclasses, which calls writeReg with mapped `reg`
-  void writeExt(addr, data) {}
-
-  void writeReg(int reg, int data) {
-    _ppuReg[reg] = data;
+  int addrToReg(int addr) {
+    return addr & 0x03;
   }
 
   @override
@@ -211,6 +221,16 @@ class MapperVrc6 extends Mapper {
   }
 
   @override
+  void handleApu() {
+    _apu.exec();
+  }
+
+  @override
+  Float32List apuBuffer() {
+    return _apu.buffer;
+  }
+
+  @override
   String dump() {
     final chrBanks =
         range(0, 8).map((i) => hex8(_chrBank[i])).toList().join(" ");
@@ -223,24 +243,20 @@ class MapperVrc6 extends Mapper {
         "/${_irqLatch.toRadixString(10).padLeft(3, "0")} "
         "chr: $chrBanks prg: $prgBanks r:$reg "
         "ram:${_ramEnabled ? '*' : ' '}"
+        "\n"
+        "apu: ${_apu.dump()}"
         "\n";
   }
 }
 
 class MapperVrc6a extends MapperVrc6 {
   // VRC6a +0x00, +0x01, +0x02, +0x03
-  @override
-  void writeExt(addr, data) {
-    return writeReg((((addr - 0xd000) & 0xf000) >> 10) | addr & 0x03, data);
-  }
 }
 
 class MapperVrc6b extends MapperVrc6 {
   // VRC6b +0x00, +0x02, +0x01, +0x03
   @override
-  void writeExt(addr, data) {
-    return writeReg(
-        (((addr - 0xd000) & 0xf000) >> 10) | (addr & 1) << 1 | (addr & 2) >> 1,
-        data);
+  int addrToReg(int addr) {
+    return ((addr & 1) << 1) | ((addr & 2) >> 1);
   }
 }

@@ -1,4 +1,5 @@
 // Dart imports:
+import 'dart:math';
 import 'dart:typed_data';
 
 // Project imports:
@@ -67,6 +68,7 @@ class Nes {
     }
     if (cpu.cycle >= nextApuCycle) {
       apu.exec();
+      bus.mapper.handleApu();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
     return ExecResult(cpu.cycle, true, rendered);
@@ -79,6 +81,22 @@ class Nes {
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
   Float32List apuBuffer() {
+    final aux = bus.mapper.apuBuffer();
+    if (aux.isNotEmpty) {
+      final mix = Float32List(aux.length);
+
+      // mix apu.buffer + aux with normalization
+      var maxVolume = 1.0;
+      for (int i = 0; i < aux.length; i++) {
+        maxVolume = max(maxVolume, (aux[i] + apu.buffer[i]).abs());
+      }
+
+      for (int i = 0; i < aux.length; i++) {
+        mix[i] = (aux[i] + apu.buffer[i]) / maxVolume;
+      }
+
+      return mix;
+    }
     return apu.buffer;
   }
 

@@ -111,4 +111,7 @@ class Mapper {
   String dump() => "rom: ";
 
   void handleClock(int cycles) {}
+
+  void handleApu() {}
+  Float32List apuBuffer() => Float32List(0);
 }
