@@ -21,9 +21,8 @@ class MapperNamco118 extends Mapper {
   final _prgBanks = [0, 0, 0, 0];
 
   @override
-  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
-      Uint8List sramLoaded) {
-    loadRom(chrRom8k, 1, prgRom16k, 8);
+  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
+    loadRom(chrRom, 1, prgRom, 8);
   }
 
   @override

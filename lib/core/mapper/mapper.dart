@@ -61,52 +61,47 @@ abstract class Mapper {
     }
   }
 
-  // banked rom data
-  final List<Uint8List> chrRoms = [];
-  final List<Uint8List> prgRoms = [];
-
-  // utility to load bank data to chrRoms and prgRoms from original sized rom data
-  void loadRom(List<Uint8List> chrRoms8k, int chrBankSizeK,
-      List<Uint8List> prgRoms16k, int prgBankSizeK) {
-    chrRoms
-      ..clear()
-      ..addAll(Uint8ListEx.join(chrRoms8k).split(chrBankSizeK * 1024));
-    prgRoms
-      ..clear()
-      ..addAll(Uint8ListEx.join(prgRoms16k).split(prgBankSizeK * 1024));
-  }
-
   // set rom data from fix-sized chunks of rom data (chr: 8k, prg: 16k)
   // sramLoaded: SRAM data, if empty, mapper should prepare a new one with proper size
-  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
-      Uint8List sramLoaded) {
-    loadRom(chrRom8k, 8, prgRom16k, 16);
+  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
+    loadRom(chrRom, 8, prgRom, 16);
   }
-
-  void Function(List<Uint8List>) saveSram = ((_) {});
-
-  int read(int addr) => 0xff;
-
-  void write(int addr, int data) {}
-
-  int readVram(int addr) => 0xff;
-
-  void writeVram(int addr, int data) {}
 
   void init();
 
-  Uint8List exportSram() {
-    return Uint8List(0);
-  }
+  int read(int addr) => 0xff;
+  void write(int addr, int data) {}
 
-  void Function(bool) holdIrq = ((_) {});
+  int readVram(int addr) => 0xff;
+  void writeVram(int addr, int data) {}
 
-  void Function(Mirror) mirror = ((_) {});
-
-  String dump() => "rom: ";
+  Uint8List exportSram() => Uint8List(0);
 
   void handleClock(int cycles) {}
 
   void handleApu() {}
   Float32List apuBuffer() => Float32List(0);
+
+  String dump() => "rom: ";
+
+  void Function(List<Uint8List>) saveSram = ((_) {});
+
+  void Function(bool) holdIrq = ((_) {});
+
+  void Function(Mirror) mirror = ((_) {});
+
+  // banked rom data
+  final List<Uint8List> chrRoms = [];
+  final List<Uint8List> prgRoms = [];
+
+  // utility to load bank data to chrRoms and prgRoms from original sized rom data
+  void loadRom(
+      Uint8List chrRom, int chrBankSizeK, Uint8List prgRom, int prgBankSizeK) {
+    chrRoms
+      ..clear()
+      ..addAll(chrRom.split(chrBankSizeK * 1024));
+    prgRoms
+      ..clear()
+      ..addAll(prgRom.split(prgBankSizeK * 1024));
+  }
 }

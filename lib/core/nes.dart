@@ -129,7 +129,9 @@ class Nes {
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
     bus.mapper = Mapper.of(nesFile.mapper)
-      ..setRom(nesFile.character, nesFile.program,
+      ..setRom(
+          Uint8ListEx.join(nesFile.character),
+          Uint8ListEx.join(nesFile.program),
           hasBatteryBackup ? storage.load(crc) : Uint8List(0))
       ..mirror = bus.mirror
       ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());

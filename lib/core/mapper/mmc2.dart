@@ -1,24 +1,20 @@
 // Dart imports:
-import 'dart:typed_data';
-
 // Project imports:
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
+import 'sram.dart';
 
-// https://www.nesdev.org/wiki/NROM
-class MapperMMC2 extends Mapper {
-  final _ram = Uint8List(0x2000);
-
+// https://www.nesdev.org/wiki/MMC2
+class MapperMMC2 extends Mapper with Sram {
   final _prgBanks = [0, 0, 0, 0];
   final _chrBanks = [0, 0, 0, 0]; // 0,1: 0xFD  2,3: 0xFE
   final _latch = [0, 0]; // latch = fd: 0,   fe: 2
 
   @override
-  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
-      Uint8List sramLoaded) {
-    loadRom(chrRom8k, 4, prgRom16k, 8);
-  }
+  int get chrRomSizeK => 4;
+  @override
+  int get prgRomSizeK => 8;
 
   @override
   void init() {
@@ -33,7 +29,7 @@ class MapperMMC2 extends Mapper {
     switch (bank) {
       case 0x6000:
       case 0x7000:
-        _ram[addr - 0x6000] = data;
+        ram[addr - 0x6000] = data;
         break;
 
       case 0xa000:
@@ -65,7 +61,7 @@ class MapperMMC2 extends Mapper {
     final offset = addr & 0x1fff;
 
     if (addr & 0xe000 == 0x6000) {
-      return _ram[offset];
+      return ram[offset];
     }
 
     final bank = (addr - 0x8000) >> 13; // 0-3

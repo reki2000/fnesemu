@@ -18,9 +18,8 @@ class MapperVrc1 extends Mapper {
   final List<int> _prgBank = [0, 1, 2, 3];
 
   @override
-  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
-      Uint8List sramLoaded) {
-    loadRom(chrRom8k, 4, prgRom16k, 8);
+  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
+    loadRom(chrRom, 4, prgRom, 8);
   }
 
   @override
