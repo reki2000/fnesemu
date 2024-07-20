@@ -62,13 +62,13 @@ class _SawToothWave with _Wave {
   int accum = 0;
 
   int _timer = 0;
-  bool _even = false;
-  int _accumrator = 0;
+  int _count = 0;
+  int _accumlator = 0;
 
   @override
   void reset() {
-    _even = false;
-    _accumrator = 0;
+    _count = 0;
+    _accumlator = 0;
   }
 
   Int8List synth(int cycles) {
@@ -81,12 +81,15 @@ class _SawToothWave with _Wave {
     for (int i = 0; i < buf.length; i++) {
       if (_timer <= 0) {
         _timer = _freq + 1;
-        _even = !_even;
-        if (_even) {
-          _accumrator = (_accumrator + accum) & 0xff;
+        _count++;
+        if (_count == 14) {
+          _count = 0;
+        }
+        if ((_count & 0x01) == 0) {
+          accum = (_accumlator + accum) & 0xff;
         }
       }
-      buf[i] = _accumrator >> 3;
+      buf[i] = _accumlator >> 3;
       _timer--;
     }
     return buf;
