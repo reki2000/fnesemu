@@ -1,8 +1,5 @@
 // Dart imports:
 
-// Project imports:
-import 'dart:typed_data';
-
 import '../../util.dart';
 import 'mapper.dart';
 
@@ -21,9 +18,9 @@ class MapperNamco118 extends Mapper {
   final _prgBanks = [0, 0, 0, 0];
 
   @override
-  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
-    loadRom(chrRom, 1, prgRom, 8);
-  }
+  int get chrRomSizeK => 1;
+  @override
+  int get prgRomSizeK => 8;
 
   @override
   void init() {

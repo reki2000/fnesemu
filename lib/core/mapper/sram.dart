@@ -5,8 +5,6 @@ import 'mapper.dart';
 mixin Sram on Mapper {
   late final Uint8List ram;
 
-  int get chrRomSizeK;
-  int get prgRomSizeK;
   int get sramSizeK => 8;
 
   @override

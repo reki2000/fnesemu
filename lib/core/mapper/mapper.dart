@@ -64,8 +64,11 @@ abstract class Mapper {
   // set rom data from fix-sized chunks of rom data (chr: 8k, prg: 16k)
   // sramLoaded: SRAM data, if empty, mapper should prepare a new one with proper size
   void setRom(Uint8List chrRom, Uint8List prgRom, Uint8List sram) {
-    loadRom(chrRom, 8, prgRom, 16);
+    loadRom(chrRom, chrRomSizeK, prgRom, prgRomSizeK);
   }
+
+  int get chrRomSizeK => 8;
+  int get prgRomSizeK => 16;
 
   void init();
 
@@ -97,9 +100,6 @@ abstract class Mapper {
   // utility to load bank data to chrRoms and prgRoms from original sized rom data
   void loadRom(
       Uint8List chrRom, int chrBankSizeK, Uint8List prgRom, int prgBankSizeK) {
-    print(
-        "chrRom: ${chrRom.length} $chrBankSizeK prgRom:  ${prgRom.length} $prgBankSizeK");
-
     chrRoms
       ..clear()
       ..addAll(chrRom.split(chrBankSizeK * 1024));

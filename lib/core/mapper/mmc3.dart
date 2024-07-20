@@ -50,7 +50,7 @@ class MapperMMC3 extends Mapper with Sram {
   int get chrRomSizeK => 1;
   @override
   int get prgRomSizeK => 8;
-  @override
+
   @override
   void init() {
     if (chrRoms.isEmpty) {

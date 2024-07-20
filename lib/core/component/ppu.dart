@@ -180,8 +180,9 @@ class Ppu {
     switch (reg) {
       case 0x2002:
         first = true;
-        isVBlank = false;
-        return status;
+        final status2 = status;
+        isVBlank = false; // isVBlanks is a setter, changing status
+        return status2;
 
       case 0x2007:
         var data = readVram(vramAddr);
