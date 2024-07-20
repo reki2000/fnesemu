@@ -26577,9 +26577,7 @@ _.d=15
 _.zj$=a
 _.hn$=b},
 UF:function UF(a,b){var _=this
-_.b=_.a=0
-_.c=!1
-_.d=0
+_.d=_.c=_.b=_.a=0
 _.zj$=a
 _.hn$=b},
 OA:function OA(a,b,c,d){var _=this
@@ -88686,15 +88684,13 @@ if(r<=0){r=q.c=q.hn$+1
 q.d=q.d-1&15}p[s]=q.d<=q.a?q.b:0
 q.c=r-1}return p}}
 A.UF.prototype={
-dN(a){this.c=!1
-this.d=0},
+dN(a){this.d=this.c=0},
 hF(a){var s,r,q,p=this,o=new Int8Array(a)
 if(!p.zj$)return o
 for(s=0;s<a;++s){r=p.b
 if(r<=0){r=p.b=p.hn$+1
-q=!p.c
-p.c=q
-if(q)p.d=p.d+p.a&255}o[s]=p.d>>>3
+q=++p.c
+if(((q===14?p.c=0:q)&1)===0)p.a=p.d+p.a&255}o[s]=p.d>>>3
 p.b=r-1}return o}}
 A.OA.prototype={
 bF(a,b,c){var s,r=this
