@@ -75,7 +75,7 @@ class _NewViewState extends State<NesView> {
             StreamBuilder<double>(
                 stream: widget.controller.fpsStream,
                 builder: (ctx, snapshot) =>
-                    Text("${(snapshot.data ?? 0.0).toStringAsFixed(2)} fps")),
+                    Text("${((snapshot.data ?? 0.0)).round()} fps")),
           ]),
 
           // debug view
