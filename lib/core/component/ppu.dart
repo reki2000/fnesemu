@@ -180,9 +180,8 @@ class Ppu {
     switch (reg) {
       case 0x2002:
         first = true;
-        final _status = status;
         isVBlank = false;
-        return _status;
+        return status;
 
       case 0x2007:
         var data = readVram(vramAddr);
