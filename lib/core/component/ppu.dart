@@ -223,7 +223,7 @@ class Ppu {
     palette[addr & 0x1f] = val;
   }
 
-  final buffer = Uint8List(Spec.width * Spec.height * 4);
+  final buffer = Uint32List(Spec.width * Spec.height);
 
   void exec() {
     if (scanLine < 240) {
