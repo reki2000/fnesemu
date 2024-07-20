@@ -39,8 +39,8 @@ class NesController {
     final startAt = DateTime.now();
     var frames = 0;
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      if (_fps <= 60.0) {
+    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+      if (_fps < 60.0) {
         runFrame();
         frames++;
       }
