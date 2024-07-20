@@ -17,6 +17,7 @@ This project is currently experimental.
   - 73: VRC3
   - 75: VRC1
   - 21,23,25: VRC2,4
+  - 24,26: VRC6 (with audio)
   - 19: Namco163 (waveform sound not supported)
   - 88,206: Namco118
 
