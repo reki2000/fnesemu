@@ -40,9 +40,13 @@ class MapperVrc6 extends Mapper {
   int mode = 0;
 
   @override
-  void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
+  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k,
+      Uint8List sramLoaded) {
+    loadRom(chrRom8k, 1, prgRom16k, 8);
+  }
 
+  @override
+  void init() {
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
       log("invalid chr rom size: ${chrRoms.length}k");
