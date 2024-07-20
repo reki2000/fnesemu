@@ -5,15 +5,13 @@ import 'package:fnesemu/util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Storage {
-  final SharedPreferences _prefs;
-  Storage(SharedPreferences prefs) : _prefs = prefs;
+  late final SharedPreferences _prefs;
 
-  static of() async {
-    final prefs = await SharedPreferences.getInstance();
-    return Storage(prefs);
+  static of() {
+    final s = Storage();
+    SharedPreferences.getInstance().then((prefs) => s._prefs = prefs);
+    return s;
   }
-
-  Future<SharedPreferences> completer = SharedPreferences.getInstance();
 
   void save(String key, Uint8List data) {
     _prefs.setString(key, data.toBase64());

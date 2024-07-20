@@ -16,7 +16,7 @@ class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
   late final Apu apu;
-  late final Mapper mapper;
+  late Mapper mapper;
 
   final joypad = Joypad();
 
