@@ -10,7 +10,7 @@ mixin Sram on Mapper {
   int get sramSizeK => 8;
 
   @override
-  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
+  void setRom(Uint8List chrRom, Uint8List prgRom, Uint8List sram) {
     loadRom(chrRom, chrRomSizeK, prgRom, prgRomSizeK);
 
     ram = sram.isEmpty ? Uint8List(sramSizeK * 1024) : sram;
