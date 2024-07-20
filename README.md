@@ -6,7 +6,7 @@ This project is currently experimental.
 
 - Achieves nearly 60 fps on an i5-8250 processor
 - Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
-- SRAM backup feature not yet implemented
+- SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)
 - Supports the following iNES mapper types:
   - 0: NROM
   - 1: MMC1

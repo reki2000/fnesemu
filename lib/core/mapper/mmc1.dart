@@ -14,7 +14,7 @@ class MapperMMC1 extends Mapper {
   late int _counter;
 
   // ram on 6000-7fff, 8k x 4 banks
-  final _ram8k = List.generate(4, (_) => Uint8List(8 * 1024));
+  late List<Uint8List> _ram8kx4;
   late bool _ramEnabled = true;
   late int _ramBank;
 
@@ -23,7 +23,7 @@ class MapperMMC1 extends Mapper {
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
   final _chrBank = [0, 0];
 
-  final _vram4k = List.generate(2, (_) => Uint8List(4 * 1024));
+  final _vram4k = Uint8ListEx.ofEmptyList(2, 4 * 1024);
 
   // program rom bank mode: 0-3
   late int _prgBankMode;
@@ -39,6 +39,15 @@ class MapperMMC1 extends Mapper {
     Mirror.vertical,
     Mirror.horizontal,
   ];
+
+  @override
+  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
+    loadRom(chrRom, 8, prgRom, 16);
+
+    _ram8kx4 = sram.isEmpty
+        ? Uint8ListEx.ofEmptyList(4, 8 * 1024)
+        : sram.split(8 * 1024);
+  }
 
   @override
   void init() {
@@ -59,13 +68,18 @@ class MapperMMC1 extends Mapper {
   }
 
   @override
+  Uint8List exportSram() {
+    return Uint8ListEx.join(_ram8kx4);
+  }
+
+  @override
   void write(int addr, int data) {
     final bank = addr & 0xe000;
 
     // ram
     if (bank == 0x6000) {
       if (_ramEnabled) {
-        _ram8k[_ramBank][addr & 0x1fff] = data;
+        _ram8kx4[_ramBank][addr & 0x1fff] = data;
       } else {
         log("mmc1: write to disabled ram: ${hex16(addr)} ${hex8(data)}");
       }
@@ -178,7 +192,7 @@ class MapperMMC1 extends Mapper {
 
     switch (bank) {
       case 0x6000:
-        return _ramEnabled ? _ram8k[_ramBank][addr & 0x1fff] : 0xff;
+        return _ramEnabled ? _ram8kx4[_ramBank][addr & 0x1fff] : 0xff;
 
       case 0x8000:
       case 0xa000:

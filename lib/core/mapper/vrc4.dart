@@ -1,14 +1,14 @@
 // Dart imports:
 import 'dart:developer';
-import 'dart:typed_data';
 
 // Project imports:
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
+import 'sram.dart';
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
-class MapperVrc4 extends Mapper {
+class MapperVrc4 extends Mapper with Sram {
   // IRQ related counters, flags etc.
   int _irqLatch = 0;
   int _irqCounter = 0;
@@ -17,8 +17,12 @@ class MapperVrc4 extends Mapper {
   bool _irqModeCycle = false;
 
   // ram 8k
-  final Uint8List _ram = Uint8List(8 * 1024);
   bool _ramEnabled = true;
+
+  @override
+  int get chrRomSizeK => 1;
+  @override
+  int get prgRomSizeK => 8;
 
   int _chrBankMask = 0;
   int _prgBankMask = 0;
@@ -36,7 +40,6 @@ class MapperVrc4 extends Mapper {
 
   @override
   void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
       log("invalid chr rom size: ${chrRoms.length}k");
@@ -59,7 +62,7 @@ class MapperVrc4 extends Mapper {
   @override
   void write(addr, data) {
     if ((addr & 0xe000 == 0x6000) && _ramEnabled) {
-      _ram[addr & 0x1fff] = data;
+      ram[addr & 0x1fff] = data;
       return;
     }
 
@@ -124,7 +127,7 @@ class MapperVrc4 extends Mapper {
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? _ram[offset] : 0xff;
+      return _ramEnabled ? ram[offset] : 0xff;
     }
     if (addr & 0x8000 == 0x8000) {
       return prgRoms[_prgBank[bank][0]][offset];

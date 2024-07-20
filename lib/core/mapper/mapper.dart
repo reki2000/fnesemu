@@ -2,6 +2,7 @@
 import 'dart:typed_data';
 
 // Project imports:
+import '../../util.dart';
 import 'cnrom.dart';
 import 'mapper088.dart';
 import 'mirror.dart';
@@ -18,7 +19,7 @@ import 'vrc3.dart';
 import 'vrc4.dart';
 import 'vrc6.dart';
 
-class Mapper {
+abstract class Mapper {
   static Mapper of(int iNesMapper) {
     switch (iNesMapper) {
       case 0:
@@ -60,58 +61,50 @@ class Mapper {
     }
   }
 
-  // banked rom data
-  final List<Uint8List> chrRoms = [];
-  final List<Uint8List> prgRoms = [];
-
-  // load bank data from original sized rom data
-  void loadRom({required int chrBankSizeK, required int prgBankSizeK}) {
-    // resize chr roms from 8k to 4k
-    chrRoms.clear();
-    for (final char8k in _chrRoms8k) {
-      for (int i = 0; i < 8 * 1024; i += chrBankSizeK * 1024) {
-        chrRoms.add(char8k.sublist(i, i + chrBankSizeK * 1024));
-      }
-    }
-
-    // resize prg roms from 16k to 8k
-    prgRoms.clear();
-    for (final prog16k in _prgRoms16k) {
-      for (int i = 0; i < 16 * 1024; i += prgBankSizeK * 1024) {
-        prgRoms.add(prog16k.sublist(i, i + prgBankSizeK * 1024));
-      }
-    }
+  // set rom data from fix-sized chunks of rom data (chr: 8k, prg: 16k)
+  // sramLoaded: SRAM data, if empty, mapper should prepare a new one with proper size
+  void setRom(Uint8List chrRom, Uint8List prgRom, Uint8List sram) {
+    loadRom(chrRom, chrRomSizeK, prgRom, prgRomSizeK);
   }
 
-  // will be deprecated
-  late final List<Uint8List> _prgRoms16k;
-  // will be deprecated
-  late final List<Uint8List> _chrRoms8k;
+  int get chrRomSizeK => 8;
+  int get prgRomSizeK => 16;
 
-  void setRom(List<Uint8List> chrRom8k, List<Uint8List> prgRom16k) {
-    _chrRoms8k = chrRom8k;
-    _prgRoms16k = prgRom16k;
-    loadRom(chrBankSizeK: 8, prgBankSizeK: 16);
-  }
+  void init();
 
   int read(int addr) => 0xff;
-
   void write(int addr, int data) {}
 
   int readVram(int addr) => 0xff;
-
   void writeVram(int addr, int data) {}
 
-  void init() {}
-
-  void Function(bool) holdIrq = ((_) {});
-
-  void Function(Mirror) mirror = ((_) {});
-
-  String dump() => "rom: ";
+  Uint8List exportSram() => Uint8List(0);
 
   void handleClock(int cycles) {}
 
   void handleApu() {}
   Float32List apuBuffer() => Float32List(0);
+
+  String dump() => "rom: ";
+
+  void Function(List<Uint8List>) saveSram = ((_) {});
+
+  void Function(bool) holdIrq = ((_) {});
+
+  void Function(Mirror) mirror = ((_) {});
+
+  // banked rom data
+  final List<Uint8List> chrRoms = [];
+  final List<Uint8List> prgRoms = [];
+
+  // utility to load bank data to chrRoms and prgRoms from original sized rom data
+  void loadRom(
+      Uint8List chrRom, int chrBankSizeK, Uint8List prgRom, int prgBankSizeK) {
+    chrRoms
+      ..clear()
+      ..addAll(chrRom.split(chrBankSizeK * 1024));
+    prgRoms
+      ..clear()
+      ..addAll(prgRom.split(prgBankSizeK * 1024));
+  }
 }
