@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 /// print a 8 bit value as 1 hexadecimal digit
 String hex8(int x) {
   return x.toRadixString(16).padLeft(2, "0");
@@ -42,4 +45,29 @@ class Pair<S, T> {
   final S i0;
   final T i1;
   Pair(this.i0, this.i1);
+}
+
+// Uint8
+extension Uint8ListEx on Uint8List {
+  List<Uint8List> split(int size) {
+    return List.generate(
+        length ~/ size, (i) => sublist(i * size, (i + 1) * size));
+  }
+
+  String toBase64() {
+    return base64.encode(this);
+  }
+
+  static Uint8List fromBase64(String base64) {
+    return Uint8List.fromList(base64Decode(base64));
+  }
+
+  static Uint8List join(List<Uint8List> list) {
+    return Uint8List.fromList(
+        list.fold(List<int>.empty(growable: true), (acm, l) => acm..addAll(l)));
+  }
+
+  static List<Uint8List> ofEmptyList(int count, int size) {
+    return List.generate(count, (_) => Uint8List(size));
+  }
 }

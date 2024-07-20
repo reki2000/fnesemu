@@ -16,8 +16,12 @@ class MapperVrc1 extends Mapper {
   final List<int> _prgBank = [0, 1, 2, 3];
 
   @override
+  int get chrRomSizeK => 4;
+  @override
+  int get prgRomSizeK => 8;
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 4, prgBankSizeK: 8);
     _prgBank[3] = prgRoms.length - 1;
   }
 

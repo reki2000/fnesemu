@@ -3,11 +3,13 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import 'package:fnesemu/core/mapper/sram.dart';
+
 import '../../util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/VRC3
-class MapperVrc3 extends Mapper {
+class MapperVrc3 extends Mapper with Sram {
   // IRQ related counters, flags etc.
   int _irqLatch = 0;
   int _irqCounter = 0;
@@ -15,8 +17,10 @@ class MapperVrc3 extends Mapper {
   bool _irqEnabledAfterAcknoledge = false;
   bool _irqMode16bit = false;
 
-  // ram 8k
-  final _ram = Uint8List(8 * 1024);
+  @override
+  int get chrRomSizeK => 8;
+  @override
+  int get prgRomSizeK => 16;
 
   // rom 0x8000-0xbfff 16k bank
   late int _prgBank;
@@ -26,8 +30,6 @@ class MapperVrc3 extends Mapper {
 
   @override
   void init() {
-    loadRom(chrBankSizeK: 8, prgBankSizeK: 16);
-
     if (prgRoms.length - 1 & prgRoms.length != 0) {
       log("invalid prg rom size: ${prgRoms.length}k");
       return;
@@ -42,7 +44,7 @@ class MapperVrc3 extends Mapper {
     switch (reg) {
       case 0x6000:
       case 0x7000:
-        _ram[addr & 0x1fff] = data;
+        ram[addr & 0x1fff] = data;
         return;
 
       case 0xf000:
@@ -78,7 +80,7 @@ class MapperVrc3 extends Mapper {
   @override
   int read(int addr) {
     if (addr & 0xe000 == 0x6000) {
-      return _ram[addr & 0x1fff];
+      return ram[addr & 0x1fff];
     }
 
     final bank = addr & 0xc000;

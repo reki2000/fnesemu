@@ -17,6 +17,7 @@ import 'mapper/mapper.dart';
 import 'mapper/mirror.dart';
 import 'pad_button.dart';
 import 'rom/nes_file.dart';
+import 'storage.dart';
 
 export 'pad_button.dart';
 
@@ -34,6 +35,8 @@ class Nes {
   late final Apu apu;
   late final Cpu cpu;
   late final Bus bus;
+
+  final storage = Storage.of();
 
   static const cpuClock = 1789773;
   static const apuClock = cpuClock ~/ 2;
@@ -111,20 +114,36 @@ class Nes {
   void padDown(PadButton k) => bus.joypad.keyDown(k);
   void padUp(PadButton k) => bus.joypad.keyUp(k);
 
+  // ROM CRC
+  String crc = "";
+  bool hasBatteryBackup = false;
+
   // loads an iNES format rom file.
   // throws exception if the mapper type of the rom file is not supported.
   void setRom(Uint8List body) {
     final nesFile = NesFile();
     nesFile.load(body);
+    crc = nesFile.crc;
+    hasBatteryBackup = nesFile.hasBatteryBackup;
 
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
-    bus.mapper = Mapper.of(nesFile.mapper);
-    bus.mapper.setRom(nesFile.character, nesFile.program);
-    bus.mapper.mirror = bus.mirror;
-    bus.mapper.holdIrq = (hold) => hold ? bus.holdIrq() : bus.releaseIrq();
+    bus.mapper = Mapper.of(nesFile.mapper)
+      ..setRom(
+          Uint8ListEx.join(nesFile.character),
+          Uint8ListEx.join(nesFile.program),
+          hasBatteryBackup ? storage.load(crc) : Uint8List(0))
+      ..mirror = bus.mirror
+      ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
 
     reset();
+  }
+
+  /// save SRAM
+  void saveSram() {
+    if (hasBatteryBackup) {
+      storage.save(crc, bus.mapper.exportSram());
+    }
   }
 
   /// debug: returns the emulator's internal status report

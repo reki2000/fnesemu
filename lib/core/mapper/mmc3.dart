@@ -6,9 +6,10 @@ import 'dart:typed_data';
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
+import 'sram.dart';
 
 // https://www.nesdev.org/wiki/MMC3
-class MapperMMC3 extends Mapper {
+class MapperMMC3 extends Mapper with Sram {
   // bank register
   int _r = 0;
 
@@ -22,7 +23,6 @@ class MapperMMC3 extends Mapper {
   bool _irqEnabled = false;
 
   // ram
-  final Uint8List _ram = Uint8List(8 * 1024);
   bool _ramEnabled = false;
   bool _ramWriteEnabled = false;
 
@@ -47,8 +47,12 @@ class MapperMMC3 extends Mapper {
   final _prgBankA000 = [0]; // for a000-bfff
 
   @override
+  int get chrRomSizeK => 1;
+  @override
+  int get prgRomSizeK => 8;
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     if (chrRoms.isEmpty) {
       // TNROM: chr ram 1k x 8
       chrRoms.addAll(List.generate(8, (i) => Uint8List(1024)));
@@ -84,7 +88,7 @@ class MapperMMC3 extends Mapper {
     switch (reg) {
       case 0x6000:
         if (_ramEnabled && _ramWriteEnabled) {
-          _ram[addr & 0x1fff] = data;
+          ram[addr & 0x1fff] = data;
         }
         break;
 
@@ -167,7 +171,7 @@ class MapperMMC3 extends Mapper {
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? _ram[offset] : 0xff;
+      return _ramEnabled ? ram[offset] : 0xff;
     }
 
     return prgRoms[_prgBank[bank][0]][offset];

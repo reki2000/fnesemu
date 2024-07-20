@@ -6,10 +6,11 @@ import 'dart:typed_data';
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
+import 'sram.dart';
 import 'vrc6_apu.dart';
 
 // https://www.nesdev.org/wiki/VRC6
-class MapperVrc6 extends Mapper {
+class MapperVrc6 extends Mapper with Sram {
   final Vrc6Apu _apu = Vrc6Apu();
 
   // IRQ related counters, flags etc.
@@ -20,8 +21,12 @@ class MapperVrc6 extends Mapper {
   bool _irqModeCycle = false;
 
   // ram 8k 6000-7fff
-  final Uint8List _ram = Uint8List(8 * 1024);
   bool _ramEnabled = true;
+
+  @override
+  int get chrRomSizeK => 1;
+  @override
+  int get prgRomSizeK => 8;
 
   int _chrBankMask = 0;
   int _prgBankMask = 0;
@@ -41,8 +46,6 @@ class MapperVrc6 extends Mapper {
 
   @override
   void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
-
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
       log("invalid chr rom size: ${chrRoms.length}k");
@@ -99,7 +102,7 @@ class MapperVrc6 extends Mapper {
       case 0x6000:
       case 0x7000:
         if (_ramEnabled) {
-          _ram[addr & 0x1fff] = data;
+          ram[addr & 0x1fff] = data;
         }
         return;
 
@@ -150,7 +153,7 @@ class MapperVrc6 extends Mapper {
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? _ram[offset] : 0xff;
+      return _ramEnabled ? ram[offset] : 0xff;
     }
     if (addr & 0x8000 == 0x8000) {
       return prgRoms[_prgBank[bank]][offset];

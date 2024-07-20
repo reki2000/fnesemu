@@ -5,9 +5,10 @@ import 'dart:typed_data';
 import '../../util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
+import 'sram.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_019
-class MapperNamco163 extends Mapper {
+class MapperNamco163 extends Mapper with Sram {
   // ppu 12 x 1k banks (0000-1fff, 0x2000-0x2fff)
   // bank
   //   chrRoms.length    : nametable A
@@ -23,12 +24,15 @@ class MapperNamco163 extends Mapper {
   int _prgBankMask = 0x3f;
 
   // 8k RAM
-  final _ram = Uint8List(8 * 1024);
   final _ramProtect = [false, false, false, false];
 
   @override
+  int get chrRomSizeK => 1;
+  @override
+  int get prgRomSizeK => 8;
+
+  @override
   void init() {
-    loadRom(chrBankSizeK: 1, prgBankSizeK: 8);
     _prgBank[3] = prgRoms.length - 1;
     _prgBankMask = prgRoms.length - 1;
 
@@ -64,7 +68,7 @@ class MapperNamco163 extends Mapper {
       case 0x7000:
       case 0x7800:
         if (!_ramProtect[(addr - 0x6000) >> 11]) {
-          _ram[addr - 0x6000] = data;
+          ram[addr & 0x1fff] = data;
         }
         return;
 
@@ -146,6 +150,13 @@ class MapperNamco163 extends Mapper {
         return _irqCounter & 0xff;
       case 0x5800:
         return _irqCounter >> 8;
+
+      // ram
+      case 0x6000:
+      case 0x6800:
+      case 0x7000:
+      case 0x7800:
+        return ram[addr - 0x6000];
     }
 
     if (addr >= 0x8000) {
