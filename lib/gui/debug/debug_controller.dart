@@ -12,12 +12,12 @@ import 'vram.dart';
 class DebugController extends StatelessWidget {
   final NesController controller;
 
-  const DebugController({Key? key, required this.controller}) : super(key: key);
+  const DebugController({super.key, required this.controller});
 
   Widget _button(String text, void Function() func) => Container(
       margin:
           const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
-      child: ElevatedButton(child: Text(text), onPressed: func));
+      child: ElevatedButton(onPressed: func, child: Text(text)));
 
   @override
   Widget build(BuildContext context) {

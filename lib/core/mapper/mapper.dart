@@ -5,18 +5,19 @@ import 'dart:typed_data';
 import '../../util.dart';
 import 'cnrom.dart';
 import 'mapper088.dart';
-import 'namco118.dart';
 import 'mirror.dart';
 import 'mmc1.dart';
 import 'mmc2.dart';
 import 'mmc3.dart';
 import 'mmc4.dart';
+import 'namco118.dart';
 import 'namco163.dart';
 import 'nrom.dart';
 import 'uxrom.dart';
 import 'vrc1.dart';
 import 'vrc3.dart';
 import 'vrc4.dart';
+import 'vrc6.dart';
 
 abstract class Mapper {
   static Mapper of(int iNesMapper) {
@@ -43,6 +44,10 @@ abstract class Mapper {
         return MapperVrc4f4e();
       case 25:
         return MapperVrc4b4d();
+      case 24:
+        return MapperVrc6a();
+      case 26:
+        return MapperVrc6b();
       case 19:
         return MapperNamco163();
       case 73:
@@ -101,4 +106,7 @@ abstract class Mapper {
   String dump() => "rom: ";
 
   void handleClock(int cycles) {}
+
+  void handleApu() {}
+  Float32List apuBuffer() => Float32List(0);
 }

@@ -10,14 +10,14 @@ class VirtualPadWidget extends StatelessWidget {
   final NesController controller;
 
   const VirtualPadWidget({
-    Key? key,
+    super.key,
     required this.controller,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     // build a tap-effected button
-    Widget _button(IconData icon, NesPadButton button, {String name = ""}) {
+    Widget button(IconData icon, NesPadButton button, {String name = ""}) {
       return InkResponse(
           canRequestFocus: false,
           containedInkWell: false,
@@ -43,14 +43,14 @@ class VirtualPadWidget extends StatelessWidget {
         width: 512,
         margin: const EdgeInsets.all(10.0),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          _button(Icons.arrow_back, NesPadButton.left),
-          _button(Icons.arrow_upward, NesPadButton.up),
-          _button(Icons.arrow_downward, NesPadButton.down),
-          _button(Icons.arrow_forward, NesPadButton.right),
-          _button(Icons.circle, NesPadButton.select, name: "sel"),
-          _button(Icons.circle, NesPadButton.start, name: "sta"),
-          _button(Icons.circle, NesPadButton.b, name: "B"),
-          _button(Icons.circle, NesPadButton.a, name: "A"),
+          button(Icons.arrow_back, NesPadButton.left),
+          button(Icons.arrow_upward, NesPadButton.up),
+          button(Icons.arrow_downward, NesPadButton.down),
+          button(Icons.arrow_forward, NesPadButton.right),
+          button(Icons.circle, NesPadButton.select, name: "sel"),
+          button(Icons.circle, NesPadButton.start, name: "sta"),
+          button(Icons.circle, NesPadButton.b, name: "B"),
+          button(Icons.circle, NesPadButton.a, name: "A"),
         ]));
   }
 }

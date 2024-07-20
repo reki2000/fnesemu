@@ -20,9 +20,9 @@ class Disasm {
   static final _ops = _initOps();
 
   static Map<int, List<Object>> _initOps() {
-    final _ops = <int, List<Object>>{};
-    if (_ops.isEmpty) {
-      _ops.addAll({
+    final ops = <int, List<Object>>{};
+    if (ops.isEmpty) {
+      ops.addAll({
         0x00: ["BRK", _Operand.none],
         0x08: ["PHP", _Operand.none],
         0x10: ["BPL", _Operand.rel],
@@ -85,42 +85,42 @@ class Disasm {
 
       var opcode = 0x00;
       for (var i in ["ORA", "AND", "EOR", "ADC", "STA", "LDA", "CMP", "SBC"]) {
-        _ops[opcode + 0x01] = [i, _Operand.indx];
-        _ops[opcode + 0x05] = [i, _Operand.zero];
-        _ops[opcode + 0x09] = [i, _Operand.immed];
-        _ops[opcode + 0x0d] = [i, _Operand.abs];
-        _ops[opcode + 0x11] = [i, _Operand.indy];
-        _ops[opcode + 0x15] = [i, _Operand.zerox];
-        _ops[opcode + 0x19] = [i, _Operand.absy];
-        _ops[opcode + 0x1d] = [i, _Operand.absx];
+        ops[opcode + 0x01] = [i, _Operand.indx];
+        ops[opcode + 0x05] = [i, _Operand.zero];
+        ops[opcode + 0x09] = [i, _Operand.immed];
+        ops[opcode + 0x0d] = [i, _Operand.abs];
+        ops[opcode + 0x11] = [i, _Operand.indy];
+        ops[opcode + 0x15] = [i, _Operand.zerox];
+        ops[opcode + 0x19] = [i, _Operand.absy];
+        ops[opcode + 0x1d] = [i, _Operand.absx];
         opcode += 0x20;
       }
 
       opcode = 0x00;
       for (var i in ["SLO", "RLA", "SRE", "RRA", "SAX", "LAX", "DCP", "ISC"]) {
-        _ops[opcode + 0x03] = [i, _Operand.indx];
-        _ops[opcode + 0x07] = [i, _Operand.zero];
-        _ops[opcode + 0x0f] = [i, _Operand.abs];
+        ops[opcode + 0x03] = [i, _Operand.indx];
+        ops[opcode + 0x07] = [i, _Operand.zero];
+        ops[opcode + 0x0f] = [i, _Operand.abs];
         opcode += 0x20;
       }
 
       opcode = 0x00;
       for (var i in ["ANC", "ANC", "ALR", "ARR", "XAA", "LAX", "AXS", "SBC"]) {
-        _ops[opcode + 0x0b] = [i, _Operand.immed];
+        ops[opcode + 0x0b] = [i, _Operand.immed];
         opcode += 0x20;
       }
 
       opcode = 0x00;
       for (var i in ["ASL", "ROL", "LSR", "ROR", "STX", "LDX", "DEC", "INC"]) {
-        _ops[opcode + 0x06] = [i, _Operand.zero];
-        _ops[opcode + 0x0e] = [i, _Operand.abs];
-        _ops[opcode + 0x16] = [i, _Operand.zerox];
-        _ops[opcode + 0x1e] = [i, _Operand.absx];
+        ops[opcode + 0x06] = [i, _Operand.zero];
+        ops[opcode + 0x0e] = [i, _Operand.abs];
+        ops[opcode + 0x16] = [i, _Operand.zerox];
+        ops[opcode + 0x1e] = [i, _Operand.absx];
         opcode += 0x20;
       }
     }
 
-    return _ops;
+    return ops;
   }
 
   static String disasm(final int pc, int op, int a, int b) {

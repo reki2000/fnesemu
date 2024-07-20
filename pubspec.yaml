@@ -3,21 +3,21 @@ description: A multiplatform NES Emulator written in Flutter.
 
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 0.3.9+0
+version: 0.3.11+0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
-  flutter: ^3.7.0
+  flutter: ^3.22.0
 
 dependencies:
   flutter:
     sdk: flutter
 
   cupertino_icons: ^1.0.2
-  google_fonts: ^4.0.3
-  file_picker: ^5.2.6
+  google_fonts: ^6.2.1
+  file_picker: ^8.0.0
   js: ^0.6.5
-  package_info_plus: ^3.0.3
+  package_info_plus: ^8.0.0
   mp_audio_stream: ^0.1.4
   test: ^1.21.1
   archive: ^3.1.2
@@ -27,7 +27,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  flutter_lints: ^1.0.0
+  flutter_lints: ^3.0.1
   import_sorter: ^4.6.0
   import_path_converter: ^1.0.1
 
