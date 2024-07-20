@@ -89,7 +89,7 @@ extension PpuRenderer on Ppu {
     final objBase = objTable() ? 0x1000 : 0;
     final objVSize = objSize16() ? 16 : 8;
 
-    final objs = List.generate(8, (_) => _Obj());
+    final objs = List.generate(8, (_) => _Obj(), growable: false);
 
     if (!showSprite()) {
       return objs;
