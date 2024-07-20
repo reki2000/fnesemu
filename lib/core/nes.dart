@@ -76,7 +76,7 @@ class Nes {
 
   /// returns screen buffer as 250x240xargb
   Uint8List ppuBuffer() {
-    return ppu.buffer;
+    return ppu.buffer.buffer.asUint8List();
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples

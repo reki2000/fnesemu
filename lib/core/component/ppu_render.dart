@@ -22,17 +22,16 @@ class _Obj {
   int pattern1 = 0;
 }
 
+extension Take3<T> on List<T> {
+  List<R> take3<R>(R Function(T, T, T) transform) => [
+        for (int i = 0; i < length - 1; i += 3)
+          transform(this[i], this[i + 1], this[i + 2]),
+      ];
+}
+
 extension PpuRenderer on Ppu {
   // base vram address for palette
   static const paletteBase = 0x3f00;
-
-  void _putRGBPixel(int y, int x, int r, int g, int b) {
-    final index = (y * Spec.width + x) * 4;
-    buffer[index + 0] = r;
-    buffer[index + 1] = g;
-    buffer[index + 2] = b;
-    buffer[index + 3] = 0xff;
-  }
 
   // https://wiki.nesdev.org/w/index.php/PPU_palettes
   static final _colorRGB = """
@@ -46,15 +45,14 @@ extension PpuRenderer on Ppu {
       .map((s) => int.parse(s))
       .toList(growable: false);
 
+  // pre-calculate ARGB value
+  static final _colorRGBA = _colorRGB
+      .take3((r, g, b) => 0xff000000 | (b << 16) | (g << 8) | r)
+      .toList(growable: false);
+
   // color: 0-0x3f
   void _putPixel(int y, int x, int color) {
-    color &= 0x3f;
-    final index = color * 3;
-    final r = _colorRGB[index];
-    final g = _colorRGB[index + 1];
-    final b = _colorRGB[index + 2];
-
-    _putRGBPixel(y, x, r, g, b);
+    buffer[y * Spec.width + x] = _colorRGBA[color & 0x3f];
   }
 
   void _wrapAroundX() {
