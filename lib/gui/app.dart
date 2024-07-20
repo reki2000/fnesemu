@@ -1,10 +1,8 @@
 // Flutter imports:
-
-// Flutter imports:
-import 'package:flutter/material.dart';
-
 // Package imports:
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 // Project imports:
 import 'debug/debug_controller.dart';
@@ -38,7 +36,7 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final controller = NesController();
-  late final FocusNode _focusNode;
+  late final KeyHandler keyHandler;
 
   String _romName = "";
   bool _isRunning = false;
@@ -47,11 +45,9 @@ class _MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
 
-    final keyHandler = KeyHandler(controller: controller);
-    _focusNode = FocusNode(
-        onKeyEvent: ((_, event) => keyHandler.handle(event)
-            ? KeyEventResult.handled
-            : KeyEventResult.ignored));
+    keyHandler = KeyHandler(controller: controller);
+
+    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
 
     // start automatic playback the emulator's audio output
     (() async {
@@ -63,6 +59,7 @@ class _MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
+    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
     _mPlayer.dispose();
     super.dispose();
   }
@@ -92,7 +89,6 @@ class _MainPageState extends State<MainPage> {
 
   void _run() {
     controller.run();
-    _focusNode.requestFocus();
     setState(() {
       _isRunning = true;
     });
@@ -106,7 +102,6 @@ class _MainPageState extends State<MainPage> {
   }
 
   void _reset() {
-    _focusNode.requestFocus();
     controller.reset();
   }
 
@@ -124,47 +119,45 @@ class _MainPageState extends State<MainPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-        focusNode: _focusNode,
-        child: Scaffold(
-          appBar: AppBar(title: Text(_romName), actions: [
-            // file load button
-            _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
+    return Scaffold(
+      appBar: AppBar(title: Text(_romName), actions: [
+        // file load button
+        _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
-            // run / pause button
-            _isRunning
-                ? _iconButton(Icons.pause, "Pause", _stop)
-                : _iconButton(Icons.play_arrow, "Run", _run),
+        // run / pause button
+        _isRunning
+            ? _iconButton(Icons.pause, "Pause", _stop)
+            : _iconButton(Icons.play_arrow, "Run", _run),
 
-            // reset button
-            _iconButton(Icons.restart_alt, "Reset", _reset),
+        // reset button
+        _iconButton(Icons.restart_alt, "Reset", _reset),
 
-            // debug on/off button
-            controller.debugOption.showDebugView
-                ? _iconButton(Icons.bug_report, "Disable Debug Options",
-                    () => _debug(false))
-                : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
-                    () => _debug(true)),
-          ]),
-          drawer: Drawer(
-              child: ListView(children: [
-            ListTile(
-              title: const Text("License"),
-              trailing: const Icon(Icons.arrow_forward),
-              onTap: () => showLicensePage(context: context),
-            ),
-          ])),
-          body: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              // main view
-              NesView(controller: controller),
+        // debug on/off button
+        controller.debugOption.showDebugView
+            ? _iconButton(
+                Icons.bug_report, "Disable Debug Options", () => _debug(false))
+            : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
+                () => _debug(true)),
+      ]),
+      drawer: Drawer(
+          child: ListView(children: [
+        ListTile(
+          title: const Text("License"),
+          trailing: const Icon(Icons.arrow_forward),
+          onTap: () => showLicensePage(context: context),
+        ),
+      ])),
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          // main view
+          NesView(controller: controller),
 
-              // debug view if enabled
-              if (controller.debugOption.showDebugView)
-                DebugController(controller: controller),
-            ],
-          ),
-        ));
+          // debug view if enabled
+          if (controller.debugOption.showDebugView)
+            DebugController(controller: controller),
+        ],
+      ),
+    );
   }
 }

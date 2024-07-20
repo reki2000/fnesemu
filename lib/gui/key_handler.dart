@@ -5,8 +5,9 @@ import 'package:flutter/services.dart';
 import 'nes_controller.dart';
 
 class KeyHandler {
-  final NesController controller;
   KeyHandler({required this.controller});
+
+  final NesController controller;
 
   static final _keys = {
     PhysicalKeyboardKey.arrowDown: NesPadButton.down,
@@ -20,18 +21,18 @@ class KeyHandler {
   };
 
   bool handle(KeyEvent e) {
-    NesPadButton? button = _keys[e.physicalKey];
+    var button = _keys[e.physicalKey];
+
     if (button != null) {
-      switch (e.runtimeType) {
-        case KeyDownEvent _:
-          controller.padDown(button);
-          break;
-        case KeyUpEvent _:
-          controller.padUp(button);
-          break;
+      if (e is KeyDownEvent) {
+        controller.padDown(button);
+        return true;
+      } else if (e is KeyUpEvent) {
+        controller.padUp(button);
+        return true;
       }
-      return true;
     }
+
     return false;
   }
 }
