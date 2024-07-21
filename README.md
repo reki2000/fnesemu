@@ -37,7 +37,7 @@ Here is the joypad-keyboard assignment table for your reference:
 
 ## How to build and run on local machine
 
-To build and run fnesemu on a local machine, you will need flutter 3.7.0 with at least one enabled device. 
+To build and run fnesemu on a local machine, you will need flutter 3.22.0 with at least one enabled device. 
 Follow these steps:
 
 ```
