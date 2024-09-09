@@ -1,6 +1,5 @@
 // Flutter imports:
 // Package imports:
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -67,15 +66,19 @@ class MainPageState extends State<MainPage> {
   void _loadRomFile() async {
     _mPlayer.resume(); // web platform requires this
 
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked == null) {
-      return;
-    }
+    // final picked = await FilePicker.platform.pickFiles(withData: true);
+    // if (picked == null) {
+    //   return;
+    // }
+    // final file = picked.files.first.bytes!;
+    // final name = picked.files.first.name;
+    const name = "pcetest.pce";
+    final file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
 
     try {
-      controller.setRom(picked.files.first.bytes!);
+      controller.setRom(file);
       setState(() {
-        _romName = picked.files.first.name;
+        _romName = name;
       });
     } catch (e) {
       ScaffoldMessenger.of(context)
@@ -84,6 +87,7 @@ class MainPageState extends State<MainPage> {
     _reset();
     if (!controller.debugOption.showDebugView) {
       _run();
+      _debug(true);
     }
   }
 

@@ -52,7 +52,6 @@ class NesController {
 
   /// stops emulation
   void stop() {
-    _emulator.saveSram();
     _timer?.cancel();
   }
 
@@ -94,6 +93,7 @@ class NesController {
   void runFrame() {
     for (int i = 0; i < Nes.scanlinesInFrame; i++) {
       if (!runScanLine(skipRender: true)) {
+        _renderAll();
         return;
       }
     }
@@ -110,8 +110,8 @@ class NesController {
   }
 
   void reset() {
-    _emulator.saveSram();
     _emulator.reset();
+    _renderAll();
   }
 
   void setRom(Uint8List body) {
@@ -180,9 +180,21 @@ class NesController {
         _emulator.dump(showZeroPage: true, showStack: true, showApu: true));
   }
 
-  Uint8List renderChrRom() => _emulator.renderChrRom();
   Pair<String, int> disasm(int addr) => _emulator.disasm(addr);
 
   final _traceStream = StreamController<String>.broadcast();
   Stream<String> get traceStream => _traceStream.stream;
+
+  List<int> dumpVram() => _emulator.dumpVram();
+  int read(int addr) => _emulator.read(addr);
+
+  runUntilRts() {
+    while (true) {
+      _emulator.exec();
+      if (_emulator.dump().contains("60        RTS")) {
+        break;
+      }
+    }
+    _renderAll();
+  }
 }

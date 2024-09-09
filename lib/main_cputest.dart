@@ -1,15 +1,13 @@
 // Dart imports:
 import 'dart:io';
-import 'dart:typed_data';
 
 // Project imports:
 import 'core/component/apu.dart';
 import 'core/component/bus.dart';
 import 'core/component/cpu.dart';
 import 'core/component/cpu_debug.dart';
-import 'core/mapper/nrom.dart';
-import 'core/rom/nes_file.dart';
-import 'util.dart';
+import 'core/mapper/rom.dart';
+import 'core/rom/pce_file.dart';
 
 void log(String s) {
   stdout.writeln(s);
@@ -18,44 +16,34 @@ void log(String s) {
 void main() async {
   log("running fnesemu cpu test...");
   final bus = Bus();
-  final cpu = Cpu(bus);
+  final cpu = Cpu2(bus);
   Apu(bus);
 
-  final f = File("assets/rom/nestest.nes");
+  final f = File("assets/rom/pcetest.pce");
   log("loading: $f");
   final body = await f.readAsBytes();
-  final file = NesFile()..load(body);
+  log("loaded: ${body.length} bytes");
+  final file = PceFile()..load(body);
+  log("loaded: ${file.banks.length} banks, crc:${file.crc}");
 
-  bus.mapper = MapperNROM();
-  bus.mapper.setRom(Uint8ListEx.join(file.character),
-      Uint8ListEx.join(file.program), Uint8List(0));
-  bus.mapper.init();
-  cpu.regs.pc = 0xc000;
-  cpu.regs.p = 0x24;
-  cpu.regs.s = 0xfd;
-  cpu.cycle = 7;
+  bus.rom = Rom(file.banks);
+  cpu.reset();
 
-  final testLog = File("assets/nestest.log");
-  final testLogs = await testLog.readAsLines();
+  // dump rom
+  // for (int i = 0x0000; i < 0x2000; i += 16) {
+  //   String line = "${hex16(i)}: ";
+  //   for (int j = 0; j < 16; j++) {
+  //     line += "${hex8(file.banks[0][i + j])} ";
+  //   }
+  //   log(line);
+  // }
 
-  String prevLine = "";
-  for (final l in testLogs) {
-    final result = cpu.dumpNesTest();
+  // disasm vector
+  // log(cpu.dumpDisasm(0xe073, toAddrOffset: 150));
 
-    if (l.substring(0, 4) + l.substring(48) !=
-        result.substring(0, 4) + result.substring(48)) {
-      final prevFlag = int.parse(prevLine.substring(65, 67), radix: 16);
-      final expectFlag = int.parse(l.substring(65, 67), radix: 16);
-      final resultFlag = int.parse(result.substring(65, 67), radix: 16);
-
-      log("previous: $prevLine ${_dumpF(prevFlag)}");
-      log("expected: $l ${_dumpF(expectFlag)}");
-      log("result  : $result ${_dumpF(resultFlag)}");
-      break;
-    }
-
+  for (int i = 0; i < 1000; i++) {
+    log(cpu.dumpNesTest());
     cpu.exec();
-    prevLine = l;
   }
   //print("\$02:${hex8(cpu.read(2))} \$03:${hex8(cpu.read(3))}");
   log("cpu test completed successfully.");
@@ -64,7 +52,7 @@ void main() async {
 String _dumpF(int val) {
   return "N:${_f(val, Flags.N)} "
       "V:${_f(val, Flags.V)} "
-      "R:${_f(val, Flags.R)} "
+      "T:${_f(val, Flags.T)} "
       "B:${_f(val, Flags.B)} "
       "D:${_f(val, Flags.D)} "
       "I:${_f(val, Flags.I)} "

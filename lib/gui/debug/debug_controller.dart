@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 // Project imports:
 import '../nes_controller.dart';
 import 'disasm.dart';
+import 'mem.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
@@ -27,6 +28,7 @@ class DebugController extends StatelessWidget {
       _button("Step", controller.runStep),
       _button("Line", controller.runScanLine),
       _button("Frame", controller.runFrame),
+      _button("Rts", controller.runUntilRts),
       SizedBox(
           width: 50,
           child: TextField(onChanged: (v) {
@@ -42,6 +44,7 @@ class DebugController extends StatelessWidget {
             }
           })),
       _button("Disasm", () => pushDisasmPage(context, controller)),
+      _button("Mem", () => pushMemPage(context, controller)),
       _button("VRAM", () => pushVramPage(context, controller)),
       _button("Log", () {
         final currentOn = controller.debugOption.log;

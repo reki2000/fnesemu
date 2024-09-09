@@ -6,21 +6,23 @@ import '../../styles.dart';
 import '../../util.dart';
 import '../nes_controller.dart';
 
+// get 40 lines of disassemble string
+_asm(int addr, NesController controller) => range(0, 40)
+    .fold(Pair([""], addr), (a, _) {
+      final asm = controller.disasm(a.i1);
+      return Pair(a.i0..add(asm.i0), a.i1 + asm.i1);
+    })
+    .i0
+    .join("\n");
+
 void pushDisasmPage(BuildContext context, NesController controller) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(builder: (BuildContext context) {
-      // get 20 lines of disassemble string
-      final asm = range(0, 20)
-          .fold<Pair<List<String>, int>>(Pair(<String>[], 0), (a, b) {
-            final asm = controller.disasm(b);
-            return Pair(a.i0..add(asm.i0), asm.i1);
-          })
-          .i0
-          .join("");
-
       const margin10 = EdgeInsets.all(10.0);
       final node = FocusNode();
       node.requestFocus;
+
+      final addrNotifier = ValueNotifier<int>(0);
 
       return Scaffold(
           appBar: AppBar(title: const Text('DisAseembler')),
@@ -28,12 +30,40 @@ void pushDisasmPage(BuildContext context, NesController controller) {
               margin: margin10,
               alignment: Alignment.topLeft,
               child: Focus(
-                  focusNode: node,
-                  child: SelectableText(
-                    asm,
-                    style: debugStyle,
-                    showCursor: true,
-                  ))));
+                focusNode: node,
+                child: Column(children: [
+                  ValueListenableBuilder<int>(
+                      valueListenable: addrNotifier,
+                      builder: (context, addr, child) => SelectableText(
+                            _asm(addr, controller),
+                            style: debugStyle,
+                            showCursor: true,
+                          )),
+                  Row(children: [
+                    SizedBox(
+                        width: 50,
+                        child: TextField(onChanged: (v) {
+                          if (v.length == 4) {
+                            addrNotifier.value = int.parse(v, radix: 16);
+                          }
+                        })),
+                    ElevatedButton(
+                        child: const Text("--"),
+                        onPressed: () => addrNotifier.value =
+                            (addrNotifier.value - 0x400) & 0xffff),
+                    ElevatedButton(
+                        child: const Text("-"),
+                        onPressed: () => addrNotifier.value =
+                            (addrNotifier.value - 0x20) & 0xffff),
+                    ElevatedButton(
+                        child: const Text("+"),
+                        onPressed: () => addrNotifier.value += 0x20),
+                    ElevatedButton(
+                        child: const Text("++"),
+                        onPressed: () => addrNotifier.value += 0x400),
+                  ]),
+                ]),
+              )));
     }),
   );
 }

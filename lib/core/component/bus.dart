@@ -1,102 +1,168 @@
 // Dart imports:
 
-// Dart imports:
-import 'dart:developer';
-
-// Project imports:
-import '../../util.dart';
-import '../mapper/mapper.dart';
-import '../mapper/mirror.dart';
+import '../mapper/rom.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'pad.dart';
-import 'ppu.dart';
+import 'vdc.dart';
 
 class Bus {
   late final Cpu cpu;
-  late final Ppu ppu;
+  late final Vdc vdc;
   late final Apu apu;
-  late Mapper mapper;
+
+  late Rom rom;
 
   final joypad = Joypad();
 
-  final vram = List<int>.filled(1024 * 2, 0);
+  final List<int> ram = List.filled(0x2000, 0);
 
-  Mirror _mirror = Mirror.horizontal;
+  int read(int addr) {
+    final bank = addr >> 13;
+    final offset = addr & 0x1fff;
 
-  void mirror(Mirror mirror) {
-    _mirror = mirror;
-  }
+    if (bank <= 0x3f) {
+      return rom.read(addr);
+    } else if (0xf8 <= bank && bank <= 0xfb) {
+      return ram[offset];
+    } else if (bank == 0xff) {
+      // VDC
+      if (offset <= 0x0400) {
+        return switch (offset & 0x03) {
+          0 => vdc.readReg(),
+          2 => vdc.readLsb(),
+          3 => vdc.readMsb(),
+          int() => 0
+        };
+      }
 
-  int readVram(int addr) {
-    if (addr < 0x2000 || _mirror.isExternal) {
-      return mapper.readVram(addr);
+      switch (offset) {
+        case 0x0400:
+        case 0x0401:
+        case 0x0402:
+        case 0x0403:
+        case 0x0404:
+        case 0x0405:
+          return 0; // VCE
+        case 0x0800:
+        case 0x0801:
+        case 0x0802:
+        case 0x0803:
+        case 0x0804:
+        case 0x0805:
+        case 0x0806:
+        case 0x0807:
+        case 0x0808:
+        case 0x0809:
+          return 0; // PSG
+        case 0x0c00:
+        case 0x0c01:
+          return 0; // タイマー
+        case 0x1000:
+          return joypad.read(addr);
+        case 0x1402:
+        case 0x1403:
+          return 0; // 割り込みコントローラ
+      }
     }
 
-    if (addr < 0x3f00) {
-      return vram[_mirror.mask(addr & 0x0fff)];
-    }
-
-    log("invalid vram addr ${hex16(addr)}");
     return 0xff;
   }
 
-  void writeVram(int addr, int val) {
-    if (addr < 0x2000 || _mirror.isExternal) {
-      return mapper.writeVram(addr, val);
-    }
-
-    if (addr < 0x3f00) {
-      vram[_mirror.mask(addr & 0x0fff)] = val;
-      return;
-    }
-
-    log("invalid vram addr ${hex16(addr)}");
-  }
-
-  final List<int> ram = List.filled(0x800, 0);
-
-  int read(int addr) {
-    if (addr < 0x800) {
-      return ram[addr];
-    } else if (0x2000 <= addr && addr <= 0x2007 || addr == 0x4014) {
-      return ppu.read(addr);
-    } else if (addr == 0x4016 || addr == 0x4017) {
-      return joypad.read(addr);
-    } else if (0x4000 <= addr && addr <= 0x401f) {
-      return apu.read(addr);
-    } else if (addr >= 0x6000) {
-      return mapper.read(addr);
-    } else {
-      return 0xff;
-    }
-  }
-
   void write(int addr, int data) {
-    if (addr < 0x800) {
-      ram[addr] = data & 0xff;
-    } else if (0x2000 <= addr && addr <= 0x200f) {
-      ppu.write(addr, data);
-    } else if (0x4014 == addr) {
-      final src = data << 8;
-      ppu.onDMA(ram.sublist(src, src + 256));
-      cpu.cycle += 514;
-    } else if (addr == 0x4016) {
-      joypad.write(addr, data);
-    } else if ((0x4000 <= addr && addr <= 0x4013) ||
-        addr == 0x4015 ||
-        addr == 0x4017) {
-      apu.write(addr, data);
-    } else if (addr >= 0x6000) {
-      mapper.write(addr, data);
+    final bank = addr >> 13;
+    final offset = addr & 0x1fff;
+
+    if (0xf8 <= bank && bank <= 0xfb) {
+      ram[offset] = data;
+    } else if (bank == 0xff) {
+      // VDC
+      if (offset <= 0x0400) {
+        switch (offset & 0x03) {
+          case 0:
+            vdc.writeReg(data);
+            break;
+          case 2:
+            vdc.writeLsb(data);
+            break;
+          case 3:
+            vdc.writeMsb(data);
+            return;
+        }
+        return;
+      }
+
+      // VCE
+      if (offset <= 0x0800) {
+        return;
+      }
+
+      switch (offset) {
+        // VDC
+        case 0x0000:
+          writeVdcReg(data);
+          break;
+        case 0x0001:
+          writeVdcLsb(data);
+          break;
+        case 0x0002:
+          writeVdcMsb(data);
+          return;
+
+        // VCE
+        case 0x0400:
+        case 0x0401:
+        case 0x0402:
+        case 0x0403:
+        case 0x0404:
+        case 0x0405:
+          return;
+
+        // PSG
+        case 0x0800:
+        case 0x0801:
+        case 0x0802:
+        case 0x0803:
+        case 0x0804:
+        case 0x0805:
+        case 0x0806:
+        case 0x0807:
+        case 0x0808:
+        case 0x0809:
+          return;
+
+        // タイマー
+        case 0x0c00:
+        case 0x0c01:
+          return;
+
+        case 0x1000:
+          return;
+
+        // 割り込みコントローラ
+        case 0x1402:
+        case 0x1403:
+          return;
+      }
     }
+  }
+
+  void writeVdcReg(value) {
+    vdc.writeReg(value);
+  }
+
+  void writeVdcLsb(value) {
+    vdc.writeLsb(value);
+  }
+
+  void writeVdcMsb(value) {
+    vdc.writeMsb(value);
   }
 
   void onNmi() => cpu.onNmi();
 
   void onReset() {
-    mapper.init();
-    ppu.reset();
+    vdc.reset();
     apu.reset();
     cpu.releaseIrq();
     cpu.reset();

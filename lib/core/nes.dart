@@ -1,5 +1,4 @@
 // Dart imports:
-import 'dart:math';
 import 'dart:typed_data';
 
 // Project imports:
@@ -7,16 +6,13 @@ import '../util.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
 import 'component/bus.dart';
-import 'component/chr_rom_debug.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
-import 'component/ppu.dart';
-import 'component/ppu_debug.dart';
-import 'mapper/mapper.dart';
-import 'mapper/mirror.dart';
+import 'component/vdc.dart';
+import 'mapper/rom.dart';
 import 'pad_button.dart';
-import 'rom/nes_file.dart';
+import 'rom/pce_file.dart';
 import 'storage.dart';
 
 export 'pad_button.dart';
@@ -31,9 +27,9 @@ class ExecResult {
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes {
-  late final Ppu ppu;
+  late final Vdc2 vdc;
   late final Apu apu;
-  late final Cpu cpu;
+  late final Cpu2 cpu;
   late final Bus bus;
 
   final storage = Storage.of();
@@ -46,8 +42,8 @@ class Nes {
 
   Nes() {
     bus = Bus();
-    cpu = Cpu(bus);
-    ppu = Ppu(bus);
+    cpu = Cpu2(bus);
+    vdc = Vdc2(bus);
     apu = Apu(bus);
   }
 
@@ -64,14 +60,12 @@ class Nes {
 
     bool rendered = false;
     if (cpu.cycle >= nextPpuCycle) {
-      ppu.exec();
-      bus.mapper.handleClock(cpu.cycle);
+      vdc.exec();
       nextPpuCycle += cpuCyclesInScanline;
       rendered = true;
     }
     if (cpu.cycle >= nextApuCycle) {
       apu.exec();
-      bus.mapper.handleApu();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
     return ExecResult(cpu.cycle, true, rendered);
@@ -79,27 +73,11 @@ class Nes {
 
   /// returns screen buffer as 250x240xargb
   Uint8List ppuBuffer() {
-    return ppu.buffer.buffer.asUint8List();
+    return vdc.buffer.buffer.asUint8List();
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
   Float32List apuBuffer() {
-    final aux = bus.mapper.apuBuffer();
-    if (aux.isNotEmpty) {
-      final mix = Float32List(aux.length);
-
-      // mix apu.buffer + aux with normalization
-      var maxVolume = 1.0;
-      for (int i = 0; i < aux.length; i++) {
-        maxVolume = max(maxVolume, (aux[i] + apu.buffer[i]).abs());
-      }
-
-      for (int i = 0; i < aux.length; i++) {
-        mix[i] = (aux[i] + apu.buffer[i]) / maxVolume;
-      }
-
-      return mix;
-    }
     return apu.buffer;
   }
 
@@ -116,34 +94,17 @@ class Nes {
 
   // ROM CRC
   String crc = "";
-  bool hasBatteryBackup = false;
 
   // loads an iNES format rom file.
   // throws exception if the mapper type of the rom file is not supported.
   void setRom(Uint8List body) {
-    final nesFile = NesFile();
+    final nesFile = PceFile();
     nesFile.load(body);
     crc = nesFile.crc;
-    hasBatteryBackup = nesFile.hasBatteryBackup;
 
-    bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
-
-    bus.mapper = Mapper.of(nesFile.mapper)
-      ..setRom(
-          Uint8ListEx.join(nesFile.character),
-          Uint8ListEx.join(nesFile.program),
-          hasBatteryBackup ? storage.load(crc) : Uint8List(0))
-      ..mirror = bus.mirror
-      ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
+    bus.rom = Rom(nesFile.banks);
 
     reset();
-  }
-
-  /// save SRAM
-  void saveSram() {
-    if (hasBatteryBackup) {
-      storage.save(crc, bus.mapper.exportSram());
-    }
   }
 
   /// debug: returns the emulator's internal status report
@@ -153,28 +114,27 @@ class Nes {
       bool showStack = false,
       bool showApu = false}) {
     final cpuDump = cpu.dump(showRegs: true);
-    final dump = "${cpuDump.substring(0, 48)}\n"
-        "${cpuDump.substring(48)}\n"
+    final dump = "$cpuDump\n"
         "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
-        "${ppu.dump(showSpriteVram: showSpriteVram)}"
         "${showApu ? apu.dump() : ""}"
-        "${bus.mapper.dump()}";
+        "${bus.rom.dump()}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';
   }
 
-  // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
-  Uint8List renderChrRom() {
-    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
-  }
-
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
-  Pair<String, int> disasm(int addr) =>
-      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
+  Pair<String, int> disasm(int addr) => Pair(
+      cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(cpu.read(addr)));
 
   // debug: returns PC register
   int get pc => cpu.regs.pc;
 
   // debug: set debug logging
   String get state => cpu.trace();
+
+  // debug: dump vram
+  List<int> dumpVram() => vdc.vram.toList(growable: false);
+
+  // debug: read mem
+  int read(int addr) => bus.cpu.read(addr);
 }
