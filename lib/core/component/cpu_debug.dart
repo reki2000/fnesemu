@@ -73,14 +73,14 @@ extension CpuDebugger on Cpu {
       }
     }
 
-    final pcMem =
-        "${dumpMem(regs.pc & 0xfff0, regs.pc)}${dumpMem((regs.pc + 16) & 0xfff0, regs.pc)}";
+    // final pcMem =
+    //     "${dumpMem(regs.pc & 0xfff0, regs.pc)}${dumpMem((regs.pc + 16) & 0xfff0, regs.pc)}";
 
     final code = "${dumpNesTest()}\n";
 
     String mpr = "mpr: ${regs.mpr.map((e) => hex8(e)).join(" ")}\n";
 
-    return "${showRegs ? (code + pcMem) : ""}${mem.isNotEmpty ? (mpr + header) : ''}$mem";
+    return "${showRegs ? code : ""}${mem.isNotEmpty ? (mpr + header) : ''}$mem";
   }
 
   String dumpMem(int addr, int target) {

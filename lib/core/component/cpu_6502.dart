@@ -293,8 +293,9 @@ mixin Cpu6502 on Cpu {
       case 0x0e:
       case 0x1e:
         final addr = address(op, st: true);
-        final acm = read(addr) << 1;
+        int acm = read(addr) << 1;
         flags(acm);
+        acm &= 0xff;
         write(addr, acm);
         cycle += 4;
         break;
@@ -316,6 +317,7 @@ mixin Cpu6502 on Cpu {
         final mlb = acm & 0x01;
         acm >>= 1;
         flags(acm);
+        acm &= 0xff;
         regs.p |= mlb;
         write(addr, acm);
         cycle += 4;
@@ -340,6 +342,7 @@ mixin Cpu6502 on Cpu {
         acm |= carry();
         final msb = (acm >> 8) & 0x01;
         flags(acm);
+        acm &= 0xff;
         regs.p |= msb;
         write(addr, acm);
         cycle += 4;
@@ -363,6 +366,7 @@ mixin Cpu6502 on Cpu {
         final bit0 = acm & 0x01;
         acm = (acm >> 1) | (carry() << 7);
         flags(acm);
+        acm &= 0xff;
         regs.p = (regs.p & ~Flags.C) | bit0;
         write(addr, acm);
         cycle += 4;
@@ -424,7 +428,7 @@ mixin Cpu6502 on Cpu {
       case 0xee:
       case 0xfe:
         final addr = address(op, st: true);
-        final acm = read(addr) + 1;
+        final acm = (read(addr) + 1) & 0xff;
         flagsNZ(acm);
         write(addr, acm);
         cycle += 4;
@@ -452,7 +456,7 @@ mixin Cpu6502 on Cpu {
       case 0xce:
       case 0xde:
         final addr = address(op, st: true);
-        final acm = read(addr) - 1;
+        final acm = (read(addr) - 1) & 0xff;
         flagsNZ(acm);
         write(addr, acm);
         cycle += 4;

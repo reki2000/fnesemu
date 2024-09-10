@@ -43,6 +43,11 @@ class Vdc {
   int rr = 0x00;
   int or = 0x00;
 
+  int bgWidthBits = 5;
+  int bgHeightBits = 5;
+  bool bgTreatPlane23Zero = false;
+  int vramDotWidth = 0;
+
   final vram = List<int>.filled(0x10000, 0); // 2 bytes per word
 
   int readReg() {
@@ -114,6 +119,48 @@ class Vdc {
           0x1800 => 128,
           int() => throw UnimplementedError(),
         };
+      case 0x09:
+        vramDotWidth = val & 0x03;
+        bgWidthBits = switch (val & 0x18) {
+          0x00 => 5,
+          0x08 => 6,
+          0x10 => 7,
+          0x18 => 7,
+          int() => throw UnimplementedError(),
+        };
+        bgHeightBits = switch (val & 0x20) {
+          0x00 => 5,
+          0x20 => 6,
+          int() => throw UnimplementedError(),
+        };
+        bgTreatPlane23Zero = val & 0x80 == 0;
+        print(
+            "bgTreadPlace32Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: $bgWidthBits x $bgHeightBits");
+        break;
     }
+  }
+
+  final colorTable = List<int>.filled(512, 0x1ff, growable: false);
+  int colorTableAddress = 0;
+
+  writeColorTableLsb(int val) {
+    colorTable[colorTableAddress] =
+        colorTable[colorTableAddress] & 0xff00 | val;
+  }
+
+  writeColorTableMsb(int val) {
+    // print(
+    //     "writeColorTableAddress: $colorTableAddress, ${colorTable[colorTableAddress] & 0xff | (val << 8)}");
+    colorTable[colorTableAddress] =
+        colorTable[colorTableAddress] & 0xff | (val << 8);
+    colorTableAddress++;
+  }
+
+  writeColorTableAddressLsb(int val) {
+    colorTableAddress = colorTableAddress & 0xff00 | val;
+  }
+
+  writeColorTableAddressMsb(int val) {
+    colorTableAddress = (val << 8) | colorTableAddress & 0xff;
   }
 }

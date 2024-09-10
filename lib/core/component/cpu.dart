@@ -76,8 +76,12 @@ class Cpu {
   int read(int addr) =>
       bus.read((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff);
 
-  void write(addr, data) => bus.write(
-      ((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff), data);
+  void write(addr, data) {
+    if (data >= 256) {
+      print("data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
+    }
+    bus.write(((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff), data);
+  }
 
   void preExec() {
     if (assertIrq) {

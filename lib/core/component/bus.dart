@@ -77,7 +77,7 @@ class Bus {
       ram[offset] = data;
     } else if (bank == 0xff) {
       // VDC
-      if (offset <= 0x0400) {
+      if (offset < 0x0400) {
         switch (offset & 0x03) {
           case 0:
             vdc.writeReg(data);
@@ -93,31 +93,29 @@ class Bus {
       }
 
       // VCE
-      if (offset <= 0x0800) {
+      if (offset < 0x0800) {
+        switch (offset & 0x07) {
+          case 0x00:
+            return;
+          case 0x02:
+            vdc.writeColorTableAddressLsb(data);
+            break;
+          case 0x03:
+            vdc.writeColorTableAddressMsb(data);
+            break;
+          case 0x04:
+            vdc.writeColorTableLsb(data);
+            break;
+          case 0x05:
+            vdc.writeColorTableMsb(data);
+            break;
+          case _:
+            return;
+        }
         return;
       }
 
       switch (offset) {
-        // VDC
-        case 0x0000:
-          writeVdcReg(data);
-          break;
-        case 0x0001:
-          writeVdcLsb(data);
-          break;
-        case 0x0002:
-          writeVdcMsb(data);
-          return;
-
-        // VCE
-        case 0x0400:
-        case 0x0401:
-        case 0x0402:
-        case 0x0403:
-        case 0x0404:
-        case 0x0405:
-          return;
-
         // PSG
         case 0x0800:
         case 0x0801:

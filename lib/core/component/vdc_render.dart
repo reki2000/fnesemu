@@ -11,35 +11,11 @@ mixin VdcRenderer on Vdc {
   int line = 0;
   int h = 0;
 
-  bool initialized = false;
-
-  initTest() {
-    if (initialized) {
-      return;
-    }
-    initialized = true;
-    for (int c = 0; c < palette.length; c++) {
-      final bright = ((c & 0x8) != 0 ? 0x80 : 0);
-      final r = ((c & 0x04) != 0 ? 0x7f : 0) | bright;
-      final g = ((c & 0x02) != 0 ? 0x7f : 0) | bright;
-      final b = ((c & 0x01) != 0 ? 0x7f : 0) | bright;
-      palette[c] = 0xff000000 | (r << 16) | (g << 8) | b;
-    }
-
-    for (var i = 0; i < 32 * 32; i++) {
-      vram[i] = 0x400 + i;
-    }
-    for (var i = 0x4000; i < 0x8000; i++) {
-      vram[i] = i - 0x4000;
-    }
-  }
-
   // render a line;
   void exec() {
-    initTest();
-    if (line >= 14 && line < 240) {
+    if (line >= 14 && line < 256) {
       for (h = 0; h < Spec.width; h++) {
-        // if (h != 0 || line != 0) {
+        // if (h != 0 || line != 14) {
         //   continue;
         // }
         render();
@@ -55,15 +31,28 @@ mixin VdcRenderer on Vdc {
   }
 
   void render() {
-    final tile = vram[((line >> 3) << 5) | (h >> 3)];
+    final tile = vram[((line >> 3) << bgWidthBits) | (h >> 3)];
     final paletteNo = tile >> 12;
-    final addr = ((tile & 0xfff) << 4) | line & 0x07;
-    final pattern0 = vram[addr];
-    final pattern1 = vram[addr + 8];
+    int colorNo = 0;
 
-    final shiftBits = (7 - (h & 7)) << 1;
-    final colorNo =
-        (pattern0 >> shiftBits) & 0x03 | ((pattern1 >> shiftBits) << 2) & 0xc;
+    final shiftBits = (7 - (h & 7));
+    if (vramDotWidth == 3) {
+      final addr = ((tile & 0xfff) << 3) | line & 0x07;
+      final pattern0 = (vram[addr]) >> (shiftBits + 8);
+      final pattern1 = (vram[addr]) >> shiftBits;
+      colorNo = bgTreatPlane23Zero
+          ? ((pattern0 & 0x01) | (pattern1 << 1) & 0x02)
+          : ((pattern0 << 2) & 0x04 | (pattern1 << 3) & 0x08);
+    } else {
+      final addr = ((tile & 0xfff) << 4) | line & 0x07;
+      final pattern01 = (vram[addr]) >> shiftBits;
+      final pattern23 = (vram[addr + 8]) >> shiftBits;
+
+      colorNo = (pattern01 & 0x01) |
+          (pattern01 >> 7) & 0x02 |
+          (pattern23 << 2) & 0x04 |
+          (pattern23 << 5) & 0x08;
+    }
 
     // print(
     //     "p:${palette[colorNo].toRadixString(16)}, colorNo:$colorNo, h:$h, line:$line, tile: ${hex16(tile)}, palette: $paletteNo, addr: ${hex16(addr)}, pattern0: $pattern0, pattern1: $pattern1");
@@ -71,7 +60,22 @@ mixin VdcRenderer on Vdc {
     pset(h, line, paletteNo, colorNo);
   }
 
+  static const map3to8 = [
+    0x00,
+    0x24,
+    0x49,
+    0x6d,
+    0x92,
+    0xb6,
+    0xdb,
+    0xff,
+  ];
+
   pset(h, l, paletteNo, colorNo) {
-    buffer[l * Spec.width + h] = palette[colorNo];
+    final c = colorTable[(paletteNo << 4) | colorNo];
+    final r = map3to8[c & 0x07];
+    final g = map3to8[(c >> 3) & 0x07];
+    final b = map3to8[(c >> 6) & 0x07];
+    buffer[l * Spec.width + h] = 0xff000000 | r | (g << 8) | (b << 16);
   }
 }
