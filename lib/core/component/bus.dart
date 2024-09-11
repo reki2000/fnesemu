@@ -17,6 +17,33 @@ class Bus {
 
   final List<int> ram = List.filled(0x2000, 0);
 
+  bool _holdIrq1 = false;
+  bool _holdIrq2 = false;
+  bool _holdTirq = false;
+
+  bool maskIrq1 = false;
+  bool maskIrq2 = false;
+  bool maskTIrq = false;
+
+  static const prescalerSize = 1024;
+  int timerSize = 0;
+  int timerPrescaler = 0;
+  int timerCounter = 0;
+
+  execTimer(int cycles) {
+    timerPrescaler -= cycles;
+    if (timerPrescaler < 0) {
+      timerPrescaler += prescalerSize;
+
+      if (timerCounter > 0) {
+        timerCounter--;
+        if (timerCounter == 0) {
+          holdTirq();
+        }
+      }
+    }
+  }
+
   int read(int addr) {
     final bank = addr >> 13;
     final offset = addr & 0x1fff;
@@ -60,9 +87,16 @@ class Bus {
           return 0; // タイマー
         case 0x1000:
           return joypad.read(addr);
+
+        // 割り込みコントローラ
         case 0x1402:
+          return (maskIrq1 ? 0x02 : 0) |
+              (maskIrq2 ? 0x01 : 0) |
+              (maskTIrq ? 0x04 : 0);
         case 0x1403:
-          return 0; // 割り込みコントローラ
+          return (_holdIrq1 ? 0 : 0x02) |
+              (_holdIrq2 ? 0x01 : 0) |
+              (_holdTirq ? 0x04 : 0);
       }
     }
 
@@ -131,7 +165,14 @@ class Bus {
 
         // タイマー
         case 0x0c00:
+          timerSize = data & 0x7f;
+          return;
         case 0x0c01:
+          if (data & 0x01 != 0 && timerCounter == 0) {
+            timerCounter = timerSize;
+          } else if (data & 0x01 == 0) {
+            timerCounter = 0;
+          }
           return;
 
         case 0x1000:
@@ -139,7 +180,12 @@ class Bus {
 
         // 割り込みコントローラ
         case 0x1402:
+          maskIrq2 = data & 0x01 != 0;
+          maskIrq1 = data & 0x02 != 0;
+          maskTIrq = data & 0x04 != 0;
+          return;
         case 0x1403:
+          acknoledgeTirq();
           return;
       }
     }
@@ -157,15 +203,57 @@ class Bus {
     vdc.writeMsb(value);
   }
 
+  holdIrq1() {
+    _holdIrq1 = true;
+    if (!maskIrq1) {
+      cpu.holdInterrupt(Interrupt.irq1);
+    }
+  }
+
+  holdIrq2() {
+    _holdIrq2 = true;
+    if (!maskIrq2) {
+      cpu.holdInterrupt(Interrupt.irq2);
+    }
+  }
+
+  holdTirq() {
+    _holdTirq = true;
+    if (!maskTIrq) {
+      cpu.holdInterrupt(Interrupt.tirq);
+    }
+  }
+
+  acknoledgeIrq1() {
+    _holdIrq1 = false;
+    cpu.releaseInterrupt(Interrupt.irq1);
+  }
+
+  acknoledgeIrq2() {
+    _holdIrq2 = false;
+    cpu.releaseInterrupt(Interrupt.irq2);
+  }
+
+  acknoledgeTirq() {
+    _holdTirq = false;
+    cpu.releaseInterrupt(Interrupt.tirq);
+  }
+
   void onNmi() => cpu.onNmi();
 
   void onReset() {
+    _holdIrq1 = false;
+    _holdIrq2 = false;
+    _holdTirq = false;
+    maskIrq1 = false;
+    maskIrq2 = false;
+    maskTIrq = false;
+
     vdc.reset();
     apu.reset();
-    cpu.releaseIrq();
     cpu.reset();
   }
 
-  void holdIrq() => cpu.holdIrq();
-  void releaseIrq() => cpu.releaseIrq();
+  void holdIrq() => {};
+  void releaseIrq() => {};
 }

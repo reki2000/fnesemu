@@ -540,7 +540,6 @@ extension Cpu6502 on Cpu {
         final addr = pop() | (pop() << 8);
         regs.pc = addr;
         cycle += 6;
-        assertIrq = false;
         break;
 
       // BCC

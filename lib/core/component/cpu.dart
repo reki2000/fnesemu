@@ -55,6 +55,13 @@ class Cpu2 extends Cpu {
   }
 }
 
+enum Interrupt {
+  irq1,
+  irq2,
+  tirq,
+  nmi,
+}
+
 class Cpu {
   Cpu(this.bus) {
     bus.cpu = this;
@@ -84,28 +91,52 @@ class Cpu {
   }
 
   void preExec() {
-    if (assertIrq) {
-      assertIrq = false;
-      _holdIrq = false;
-      interrupt();
+    if (assertIrq1) {
+      assertIrq1 = false;
+      holdIrq1 = false;
+      interrupt(irq1: true);
       return;
     }
 
     // exec irq on the next execution
-    if (_holdIrq && (regs.p & Flags.I) == 0) {
-      assertIrq = true;
+    if (holdIrq1 && (regs.p & Flags.I) == 0) {
+      assertIrq1 = true;
     }
 
-    if (_assertNmi) {
-      _assertNmi = false;
-      _holdNmi = false;
+    if (assertIrq2) {
+      assertIrq2 = false;
+      holdIrq2 = false;
+      interrupt(irq2: true);
+      return;
+    }
+
+    // exec irq on the next execution
+    if (holdIrq2 && (regs.p & Flags.I) == 0) {
+      assertIrq2 = true;
+    }
+
+    if (assertTirq) {
+      assertTirq = false;
+      holdTirq = false;
+      interrupt(tirq: true);
+      return;
+    }
+
+    // exec irq on the next execution
+    if (holdTirq && (regs.p & Flags.I) == 0) {
+      assertTirq = true;
+    }
+
+    if (assertNmi) {
+      assertNmi = false;
+      holdNmi = false;
       interrupt(nmi: true);
       return;
     }
 
     // exec nmi on the next execution
-    if (_holdNmi) {
-      _assertNmi = true;
+    if (holdNmi) {
+      assertNmi = true;
     }
 
     if (tFlagOn) {
@@ -118,36 +149,86 @@ class Cpu {
 
   // interrupt handling
 
-  bool _holdNmi = false;
-  bool _assertNmi = false;
-
   void onNmi() {
-    _holdNmi = true;
+    holdNmi = true;
   }
 
-  bool _holdIrq = false;
-  bool assertIrq = false;
-
-  void holdIrq() {
-    _holdIrq = true;
+  void holdInterrupt(Interrupt int) {
+    switch (int) {
+      case Interrupt.irq1:
+        holdIrq1 = true;
+        break;
+      case Interrupt.irq2:
+        holdIrq2 = true;
+        break;
+      case Interrupt.tirq:
+        holdTirq = true;
+        break;
+      case Interrupt.nmi:
+        holdNmi = true;
+        break;
+    }
   }
 
-  void releaseIrq() {
-    _holdIrq = false;
+  void releaseInterrupt(Interrupt int) {
+    switch (int) {
+      case Interrupt.irq1:
+        holdIrq1 = false;
+        break;
+      case Interrupt.irq2:
+        holdIrq2 = false;
+        break;
+      case Interrupt.tirq:
+        holdTirq = false;
+        break;
+      case Interrupt.nmi:
+        holdNmi = false;
+        break;
+    }
   }
 
-  void interrupt({bool brk = false, bool nmi = false}) {
+  bool holdNmi = false;
+  bool assertNmi = false;
+
+  bool holdIrq1 = false;
+  bool assertIrq1 = false;
+
+  bool holdIrq2 = false;
+  bool assertIrq2 = false;
+
+  bool holdTirq = false;
+  bool assertTirq = false;
+
+  void interrupt(
+      {bool brk = false,
+      bool nmi = false,
+      bool irq1 = false,
+      bool irq2 = false,
+      bool tirq = false}) {
     final pushAddr = brk ? regs.pc + 1 : regs.pc;
     push(pushAddr >> 8);
     push(pushAddr & 0xff);
     push(regs.p);
     regs.p = (regs.p & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
 
-    final addr = nmi ? 0xfffa : 0xfffe;
+    final addr = irq2
+        ? 0xfff6
+        : irq1
+            ? 0xfff8
+            : tirq
+                ? 0xfffa
+                : nmi
+                    ? 0xfffc
+                    : 0xfffe;
     regs.pc = read(addr) | (read(addr + 1) << 8);
   }
 
   void reset() {
+    holdIrq1 = false;
+    holdIrq2 = false;
+    holdTirq = false;
+    holdNmi = false;
+
     cycle = 0;
 
     regs.a = 0;

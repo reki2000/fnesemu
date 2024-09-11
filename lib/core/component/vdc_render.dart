@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/component/cpu.dart';
+
 import '../../spec.dart';
 import 'vdc.dart';
 
@@ -22,10 +24,15 @@ extension VdcRenderer on Vdc {
     line++;
     if (line == 261) {
       vd = 0x20;
+      if (enableVBlank) {
+        bus.cpu.holdInterrupt(Interrupt.irq1);
+      }
+      execDmaSatb();
     }
     if (line == 261) {
       line = 0;
     }
+    execDmaVram();
   }
 
   void _render() {

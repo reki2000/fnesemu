@@ -72,7 +72,7 @@ class MainPageState extends State<MainPage> {
     // }
     // final file = picked.files.first.bytes!;
     // final name = picked.files.first.name;
-    const name = "text2.pce";
+    const name = "gradius.pce";
     final file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
 
     try {

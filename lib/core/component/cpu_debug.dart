@@ -78,9 +78,11 @@ extension CpuDebugger on Cpu {
 
     final code = "${dumpNesTest()}\n";
 
-    String mpr = "mpr: ${regs.mpr.map((e) => hex8(e)).join(" ")}\n";
+    String mpr = "mpr: ${regs.mpr.map((e) => hex8(e)).join(" ")} ";
+    String irq =
+        "irq: ${holdIrq1 ? "1" : "-"} ${holdIrq2 ? "2" : "-"} ${holdTirq ? "T" : "-"} ";
 
-    return "${showRegs ? code : ""}${mem.isNotEmpty ? (mpr + header) : ''}$mem";
+    return "${showRegs ? code : ""}${mem.isNotEmpty ? (mpr + irq + "\n" + header) : ''}$mem";
   }
 
   String dumpMem(int addr, int target) {

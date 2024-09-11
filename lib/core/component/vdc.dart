@@ -1,5 +1,6 @@
 // Dart imports:
 import 'bus.dart';
+import 'cpu.dart';
 
 class Vdc {
   final Bus bus;
@@ -45,6 +46,8 @@ class Vdc {
   final vram = List<int>.filled(0x10000, 0); // 2 bytes per word
 
   int readReg() {
+    bus.acknoledgeIrq1();
+
     final value = vd | bsy | dv | ds | rr | or | cr;
     dv = ds = rr = or = cr = 0;
     return value;
@@ -79,6 +82,25 @@ class Vdc {
         break;
       case 0x05:
         cr = cr & 0xff00 | val;
+        break;
+      case 0x0f:
+        enableDmaCgIrq = val & 0x01 != 0;
+        enableDmaVramIrq = val & 0x02 != 0;
+        dmaSrcDir = val & 0x04 != 0 ? -1 : 1;
+        dmaDstDir = val & 0x08 != 0 ? -1 : 1;
+        dmaSatbAlways = val & 0x10 != 0;
+        break;
+      case 0x10:
+        dmaSrc = dmaSrc & 0xff00 | val;
+        break;
+      case 0x11:
+        dmaDst = dmaDst & 0xff00 | val;
+        break;
+      case 0x12:
+        dmaLen = dmaLen & 0xff00 | val;
+        break;
+      case 0x13:
+        dmaSrcSatb = dmaSrcSatb & 0xff00 | val;
         break;
     }
   }
@@ -129,7 +151,21 @@ class Vdc {
         };
         bgTreatPlane23Zero = val & 0x80 == 0;
         print(
-            "bgTreadPlace32Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: $bgWidthBits x $bgHeightBits");
+            "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: $bgWidthBits x $bgHeightBits");
+        break;
+
+      case 0x10:
+        dmaSrc = dmaSrc & 0xff | (val << 8);
+        break;
+      case 0x11:
+        dmaDst = dmaDst & 0xff | (val << 8);
+        break;
+      case 0x12:
+        dmaLen = dmaLen & 0xff | (val << 8);
+        break;
+      case 0x13:
+        dmaSrcSatb = dmaSrcSatb & 0xff | (val << 8);
+        dmaSatb = true;
         break;
     }
   }
@@ -139,22 +175,73 @@ class Vdc {
 
   writeColorTableLsb(int val) {
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress] & 0xff00 | val;
+        colorTable[colorTableAddress] & 0x0100 | val;
   }
 
   writeColorTableMsb(int val) {
     // print(
     //     "writeColorTableAddress: $colorTableAddress, ${colorTable[colorTableAddress] & 0xff | (val << 8)}");
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress] & 0xff | (val << 8);
-    colorTableAddress++;
+        colorTable[colorTableAddress] & 0xff | ((val & 0x01) << 8);
+    colorTableAddress = (colorTableAddress + 1) & 0x1ff;
   }
 
   writeColorTableAddressLsb(int val) {
-    colorTableAddress = colorTableAddress & 0xff00 | val;
+    colorTableAddress = colorTableAddress & 0x0100 | val;
   }
 
   writeColorTableAddressMsb(int val) {
-    colorTableAddress = (val << 8) | colorTableAddress & 0xff;
+    colorTableAddress = ((val & 0x01) << 8) | colorTableAddress & 0xff;
   }
+
+  int dmaSrc = 0;
+  int dmaSrcDir = 0;
+  int dmaDst = 0;
+  int dmaDstDir = 0;
+  int dmaLen = 0;
+  bool enableDmaVramIrq = false;
+  bool enableDmaCgIrq = false;
+
+  int dmaSrcSatb = 0;
+  bool dmaSatb = false;
+  bool dmaSatbAlways = false;
+
+  execDmaSatb() {
+    if (dmaSatb) {
+      if (!dmaSatbAlways) {
+        dmaSatb = false;
+      }
+    }
+
+    //
+    if (enableDmaCgIrq) {
+      ds = 0x08;
+      bus.cpu.holdInterrupt(Interrupt.irq1);
+    }
+  }
+
+  execDmaVram() {
+    if (dmaLen == 0) {
+      return;
+    }
+
+    for (int i = 0; i < 1024; i++) {
+      vram[dmaDst] = vram[dmaSrc];
+      dmaSrc = (dmaSrc + dmaSrcDir) & 0xffff;
+      dmaDst = (dmaDst + dmaDstDir) & 0xffff;
+      dmaLen--;
+
+      if (dmaLen == 0) {
+        if (enableDmaVramIrq) {
+          dv = 0x10;
+          bus.cpu.holdInterrupt(Interrupt.irq1);
+        }
+        break;
+      }
+    }
+
+    dmaLen = 0;
+  }
+
+  int dmaCgLen = 0;
 }

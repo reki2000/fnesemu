@@ -35,11 +35,14 @@ class Nes {
 
   final storage = Storage.of();
 
-  static const cpuClock = 1789773;
-  static const apuClock = cpuClock ~/ 2;
+  static const systemClock = 21477270;
+  static const apuClock = systemClock ~/ 2;
 
   static const cpuCyclesInScanline = 114;
   static const scanlinesInFrame = 262;
+
+  static const cpuHighSpeedClockPerCycle = 3;
+  static const cpuLowSpeedClockPerCycle = 12;
 
   Nes() {
     bus = Bus();
@@ -51,24 +54,37 @@ class Nes {
   int nextPpuCycle = 0;
   int nextApuCycle = 0;
 
-  /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
+  /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   ExecResult exec() {
+    final cpuCycle = cpu.cycle;
+
     final cpuOk = cpu.exec();
+
+    final clocks = (cpu.cycle - cpuCycle) *
+        (cpu.isHighSpeed
+            ? cpuHighSpeedClockPerCycle
+            : cpuLowSpeedClockPerCycle);
+
+    bus.execTimer(clocks ~/ 3);
+
     if (!cpuOk) {
       return ExecResult(cpu.cycle, false, false);
     }
 
     bool rendered = false;
+
     if (cpu.cycle >= nextPpuCycle) {
       vdc.exec();
       nextPpuCycle += cpuCyclesInScanline;
       rendered = true;
     }
+
     if (cpu.cycle >= nextApuCycle) {
       apu.exec();
       nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
+
     return ExecResult(cpu.cycle, true, rendered);
   }
 
@@ -96,14 +112,14 @@ class Nes {
   // ROM CRC
   String crc = "";
 
-  // loads an iNES format rom file.
+  // loads an .pce format rom file.
   // throws exception if the mapper type of the rom file is not supported.
   void setRom(Uint8List body) {
-    final nesFile = PceFile();
-    nesFile.load(body);
-    crc = nesFile.crc;
+    final file = PceFile();
+    file.load(body);
+    crc = file.crc;
 
-    bus.rom = Rom(nesFile.banks);
+    bus.rom = Rom(file.banks);
 
     reset();
   }
