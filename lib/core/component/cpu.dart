@@ -29,7 +29,7 @@ class Flags {
   static const N = 0x80;
 }
 
-class Cpu2 extends Cpu with Cpu6502, Cpu65c02, Cpu6280 {
+class Cpu2 extends Cpu {
   Cpu2(super.bus);
 
   bool exec() {
@@ -78,7 +78,7 @@ class Cpu {
 
   void write(addr, data) {
     if (data >= 256) {
-      print("data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
+      print("cpu.write: data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
     }
     bus.write(((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff), data);
   }

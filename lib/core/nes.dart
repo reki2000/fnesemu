@@ -10,6 +10,7 @@ import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
 import 'component/vdc.dart';
+import 'component/vdc_render.dart';
 import 'mapper/rom.dart';
 import 'pad_button.dart';
 import 'rom/pce_file.dart';
@@ -27,7 +28,7 @@ class ExecResult {
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes {
-  late final Vdc2 vdc;
+  late final Vdc vdc;
   late final Apu apu;
   late final Cpu2 cpu;
   late final Bus bus;
@@ -43,7 +44,7 @@ class Nes {
   Nes() {
     bus = Bus();
     cpu = Cpu2(bus);
-    vdc = Vdc2(bus);
+    vdc = Vdc(bus);
     apu = Apu(bus);
   }
 
@@ -73,7 +74,7 @@ class Nes {
 
   /// returns screen buffer as 250x240xargb
   Uint8List ppuBuffer() {
-    return vdc.buffer.buffer.asUint8List();
+    return VdcRenderer.buffer.buffer.asUint8List();
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples

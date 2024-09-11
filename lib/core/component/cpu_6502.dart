@@ -3,7 +3,7 @@ import 'dart:core';
 
 import 'cpu.dart';
 
-mixin Cpu6502 on Cpu {
+extension Cpu6502 on Cpu {
   bool exec6502(int op) {
     switch (op) {
       // LDA

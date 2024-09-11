@@ -1,11 +1,5 @@
 // Dart imports:
-import 'package:fnesemu/core/component/vdc_render.dart';
-
 import 'bus.dart';
-
-class Vdc2 extends Vdc with VdcRenderer {
-  Vdc2(super.bus);
-}
 
 class Vdc {
   final Bus bus;

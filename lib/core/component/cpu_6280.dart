@@ -3,7 +3,7 @@ import 'dart:core';
 
 import 'cpu.dart';
 
-mixin Cpu6280 on Cpu {
+extension Cpu6280 on Cpu {
   bool exec6280(op) {
     switch (op) {
       // SXY : swap X and Y

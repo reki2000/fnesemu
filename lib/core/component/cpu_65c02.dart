@@ -3,7 +3,7 @@ import 'dart:core';
 
 import 'cpu.dart';
 
-mixin Cpu65c02 on Cpu {
+extension Cpu65c02 on Cpu {
   bool exec65c02(op) {
     switch (op) {
       // BRA

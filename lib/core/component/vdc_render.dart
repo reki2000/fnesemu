@@ -3,13 +3,11 @@ import 'dart:typed_data';
 import '../../spec.dart';
 import 'vdc.dart';
 
-mixin VdcRenderer on Vdc {
-  final buffer = Uint32List(Spec.width * Spec.height);
+extension VdcRenderer on Vdc {
+  static final buffer = Uint32List(Spec.width * Spec.height);
 
-  final Uint32List palette = Uint32List(16);
-
-  int line = 0;
-  int h = 0;
+  static int line = 0;
+  static int h = 0;
 
   // render a line;
   void exec() {
@@ -18,7 +16,7 @@ mixin VdcRenderer on Vdc {
         // if (h != 0 || line != 14) {
         //   continue;
         // }
-        render();
+        _render();
       }
     }
     line++;
@@ -30,7 +28,7 @@ mixin VdcRenderer on Vdc {
     }
   }
 
-  void render() {
+  void _render() {
     final tile = vram[((line >> 3) << bgWidthBits) | (h >> 3)];
     final paletteNo = tile >> 12;
     int colorNo = 0;
@@ -38,11 +36,10 @@ mixin VdcRenderer on Vdc {
     final shiftBits = (7 - (h & 7));
     if (vramDotWidth == 3) {
       final addr = ((tile & 0xfff) << 3) | line & 0x07;
-      final pattern0 = (vram[addr]) >> (shiftBits + 8);
-      final pattern1 = (vram[addr]) >> shiftBits;
+      final pattern01 = (vram[addr]) >> shiftBits;
       colorNo = bgTreatPlane23Zero
-          ? ((pattern0 & 0x01) | (pattern1 << 1) & 0x02)
-          : ((pattern0 << 2) & 0x04 | (pattern1 << 3) & 0x08);
+          ? ((pattern01 & 0x01) | (pattern01 << 7) & 0x02)
+          : ((pattern01 << 2) & 0x04 | (pattern01 << 5) & 0x08);
     } else {
       final addr = ((tile & 0xfff) << 4) | line & 0x07;
       final pattern01 = (vram[addr]) >> shiftBits;
@@ -54,13 +51,12 @@ mixin VdcRenderer on Vdc {
           (pattern23 << 5) & 0x08;
     }
 
-    // print(
-    //     "p:${palette[colorNo].toRadixString(16)}, colorNo:$colorNo, h:$h, line:$line, tile: ${hex16(tile)}, palette: $paletteNo, addr: ${hex16(addr)}, pattern0: $pattern0, pattern1: $pattern1");
-
-    pset(h, line, paletteNo, colorNo);
+    final c = colorTable[(paletteNo << 4) | colorNo];
+    buffer[line * Spec.width + h] = _rgba[c];
   }
 
-  static const map3to8 = [
+  // preliminary building an RGBA color map for all 512 colors
+  static const _map3to8 = [
     0x00,
     0x24,
     0x49,
@@ -71,11 +67,12 @@ mixin VdcRenderer on Vdc {
     0xff,
   ];
 
-  pset(h, l, paletteNo, colorNo) {
-    final c = colorTable[(paletteNo << 4) | colorNo];
-    final r = map3to8[c & 0x07];
-    final g = map3to8[(c >> 3) & 0x07];
-    final b = map3to8[(c >> 6) & 0x07];
-    buffer[l * Spec.width + h] = 0xff000000 | r | (g << 8) | (b << 16);
-  }
+  static final Uint32List _rgba = Uint32List.fromList(
+    List.generate(512, (i) {
+      final r = _map3to8[i & 0x07];
+      final g = _map3to8[(i >> 3) & 0x07];
+      final b = _map3to8[(i >> 6) & 0x07];
+      return 0xff000000 | r | (g << 8) | (b << 16);
+    }, growable: false),
+  );
 }
