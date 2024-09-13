@@ -33,25 +33,26 @@ class Cpu2 extends Cpu {
   Cpu2(super.bus);
 
   bool exec() {
+    bool result = true;
+    cycle = 0;
+
     preExec();
 
     final op = pc();
 
-    if (exec6502(op)) {
-      return true;
+    if (!exec6502(op) && !exec65c02(op) && !exec6280(op)) {
+      log("unimplemented opcode: ${hex8(op)} at ${hex16(regs.pc)}\n");
+      cycle += 2;
+      result = false;
     }
 
-    if (exec65c02(op)) {
-      return true;
-    }
+    clock = cycle *
+        (isHighSpeed ? Cpu.highSpeedClockPerCycle : Cpu.lowSpeedClockPerCycle);
 
-    if (exec6280(op)) {
-      return true;
-    }
+    cycles += cycle;
+    clocks += clock;
 
-    log("unimplemented opcode: ${hex8(op)} at ${hex16(regs.pc)}\n");
-    cycle += 2;
-    return true;
+    return result;
   }
 }
 
@@ -70,12 +71,18 @@ class Cpu {
   final regs = Regs();
 
   bool isHighSpeed = false;
+  static const highSpeedClockPerCycle = 3;
+  static const lowSpeedClockPerCycle = 12;
 
   bool tFlagOn = false;
 
   final Bus bus;
 
   int cycle = 0;
+  int clock = 0;
+
+  int cycles = 0;
+  int clocks = 0;
 
   static const zeroAddr = 0x2000;
   static const stackAddr = 0x2100;

@@ -13,15 +13,18 @@ class Vdc {
 
   int reg = 0;
 
-  int lsb = 0;
-  int msb = 0;
+  int readLatch = 0;
 
   int mawr = 0;
   int marr = 0;
   int addrInc = 0;
 
+  int scrollX = 0;
+  int scrollY = 0;
+
   bool enableBg = false;
   bool enableSprite = false;
+
   bool enableVBlank = false;
   bool enableScanlineIrq = false;
   bool enalbeSpriteCollision = false;
@@ -29,17 +32,25 @@ class Vdc {
 
   int writeLatch = 0;
 
-  int cr = 0;
+  int status = 0;
+  static const bsy = 0x40;
+  static const vd = 0x20;
+  static const dv = 0x10;
+  static const ds = 0x08;
+  static const rr = 0x04;
+  static const or = 0x02;
+  static const cr = 0x01;
 
-  int vd = 0x00;
-  int bsy = 0x00;
-  int dv = 0x00;
-  int ds = 0x00;
-  int rr = 0x00;
-  int or = 0x00;
+  int rasterCompareRegister = 0;
+
+  int controlRegister = 0;
 
   int bgWidthBits = 5;
   int bgHeightBits = 5;
+
+  int bgWidthMask = 0x1f;
+  int bgHeightMask = 0x1f;
+
   bool bgTreatPlane23Zero = false;
   int vramDotWidth = 0;
 
@@ -48,20 +59,20 @@ class Vdc {
   int readReg() {
     bus.acknoledgeIrq1();
 
-    final value = vd | bsy | dv | ds | rr | or | cr;
-    dv = ds = rr = or = cr = 0;
+    final value = status;
+    status = 0;
     return value;
   }
 
   int readLsb() {
-    return lsb;
+    return readLatch & 0xff;
   }
 
   int readMsb() {
+    final val = readLatch >> 8;
     marr = (marr + addrInc) & 0xffff;
-    lsb = vram[marr] & 0xff;
-    msb = vram[marr] >> 8;
-    return msb;
+    readLatch = vram[marr];
+    return val;
   }
 
   writeReg(int val) {
@@ -81,7 +92,23 @@ class Vdc {
         writeLatch = val;
         break;
       case 0x05:
-        cr = cr & 0xff00 | val;
+        enalbeSpriteCollision = val & 0x01 != 0;
+        enableSpriteOverflow = val & 0x02 != 0;
+        enableScanlineIrq = val & 0x04 != 0;
+        enableVBlank = val & 0x08 != 0;
+
+        enableSprite = val & 0x40 != 0;
+        enableBg = val & 0x80 != 0;
+
+        break;
+      case 0x06:
+        rasterCompareRegister = rasterCompareRegister & 0xff00 | val;
+        break;
+      case 0x07:
+        scrollX = scrollX & 0xff00 | val;
+        break;
+      case 0x08:
+        scrollY = val;
         break;
       case 0x0f:
         enableDmaCgIrq = val & 0x01 != 0;
@@ -113,28 +140,28 @@ class Vdc {
         break;
       case 0x01:
         marr = val << 8 | marr & 0xff;
-        lsb = vram[marr] & 0xff;
-        msb = vram[marr] >> 8;
+        readLatch = vram[marr];
         break;
       case 0x02:
         vram[mawr] = val << 8 | writeLatch;
         mawr = (mawr + addrInc) & 0xffff;
         break;
       case 0x05:
-        cr = val << 8 | cr & 0xff;
-        enableBg = cr & 0x80 != 0;
-        enableSprite = cr & 0x40 != 0;
-        enableVBlank = cr & 0x08 != 0;
-        enableScanlineIrq = cr & 0x040 != 0;
-        enalbeSpriteCollision = cr & 0x01 != 0;
-        enableSpriteOverflow = cr & 0x02 != 0;
-        addrInc = switch (cr & 0x1800) {
-          0x0000 => 1,
-          0x0800 => 32,
-          0x1000 => 64,
-          0x1800 => 128,
+        addrInc = switch (cr & 0x18) {
+          0x00 => 1,
+          0x08 => 32,
+          0x10 => 64,
+          0x18 => 128,
           int() => throw UnimplementedError(),
         };
+      case 0x06:
+        rasterCompareRegister = val << 8 | rasterCompareRegister & 0xff;
+        break;
+      case 0x07:
+        scrollX = scrollX & 0xff | (val << 8);
+        break;
+      case 0x08:
+        break;
       case 0x09:
         vramDotWidth = val & 0x03;
         bgWidthBits = switch (val & 0x18) {
@@ -144,11 +171,15 @@ class Vdc {
           0x18 => 7,
           int() => throw UnimplementedError(),
         };
+        bgWidthMask = (1 << bgWidthBits) - 1;
+
         bgHeightBits = switch (val & 0x20) {
           0x00 => 5,
           0x20 => 6,
           int() => throw UnimplementedError(),
         };
+        bgHeightMask = (1 << bgHeightBits) - 1;
+
         bgTreatPlane23Zero = val & 0x80 == 0;
         print(
             "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: $bgWidthBits x $bgHeightBits");
@@ -215,7 +246,7 @@ class Vdc {
 
     //
     if (enableDmaCgIrq) {
-      ds = 0x08;
+      status |= ds;
       bus.cpu.holdInterrupt(Interrupt.irq1);
     }
   }
@@ -233,7 +264,7 @@ class Vdc {
 
       if (dmaLen == 0) {
         if (enableDmaVramIrq) {
-          dv = 0x10;
+          status |= dv;
           bus.cpu.holdInterrupt(Interrupt.irq1);
         }
         break;

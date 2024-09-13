@@ -596,8 +596,7 @@ class Apu {
 
   // generates sound outout for 1 frame at one APU emulation
   // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio)
-  static const _execCycles =
-      Nes.scanlinesInFrame * Nes.cpuCyclesInScanline ~/ 2;
+  static const _execCycles = Nes.scanlinesInFrame * Nes.clocksInScanline ~/ 2;
 
   // output volume conversion table for pulse channles
   static final _pulseOutTable =

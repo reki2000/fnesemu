@@ -11,44 +11,62 @@ extension VdcRenderer on Vdc {
   static int line = 0;
   static int h = 0;
 
+  static int y = 0;
+  static int x = 0;
+
   // render a line;
   void exec() {
+    y = (line + scrollY) & bgHeightMask;
+
     if (line >= 14 && line < 256) {
+      // 242 lines
       for (h = 0; h < Spec.width; h++) {
         // if (h != 0 || line != 14) {
         //   continue;
         // }
         _render();
       }
+
+      if (line == rasterCompareRegister - 0x0040) {
+        if (enableScanlineIrq) {
+          status |= Vdc.rr;
+          bus.cpu.holdInterrupt(Interrupt.irq1);
+        }
+      }
     }
-    line++;
-    if (line == 261) {
-      vd = 0x20;
+
+    if (line == 260) {
       if (enableVBlank) {
+        status |= Vdc.vd;
         bus.cpu.holdInterrupt(Interrupt.irq1);
       }
       execDmaSatb();
     }
-    if (line == 261) {
+
+    if (line == 263) {
       line = 0;
     }
+
     execDmaVram();
+
+    line++;
   }
 
   void _render() {
-    final tile = vram[((line >> 3) << bgWidthBits) | (h >> 3)];
+    final x = (h + scrollX) & bgWidthMask;
+    final tile = vram[((y >> 3) << bgWidthBits) | (x >> 3)];
     final paletteNo = tile >> 12;
     int colorNo = 0;
 
-    final shiftBits = (7 - (h & 7));
+    final shiftBits = (7 - (x & 7));
     if (vramDotWidth == 3) {
-      final addr = ((tile & 0xfff) << 3) | line & 0x07;
+      final addr = ((tile & 0xfff) << 3) | y & 0x07;
       final pattern01 = (vram[addr]) >> shiftBits;
       colorNo = bgTreatPlane23Zero
           ? ((pattern01 & 0x01) | (pattern01 << 7) & 0x02)
           : ((pattern01 << 2) & 0x04 | (pattern01 << 5) & 0x08);
     } else {
-      final addr = ((tile & 0xfff) << 4) | line & 0x07;
+      final addr = ((tile & 0xfff) << 4) | y & 0x07;
       final pattern01 = (vram[addr]) >> shiftBits;
       final pattern23 = (vram[addr + 8]) >> shiftBits;
 

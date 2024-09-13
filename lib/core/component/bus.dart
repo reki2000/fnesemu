@@ -149,44 +149,59 @@ class Bus {
         return;
       }
 
-      switch (offset) {
-        // PSG
-        case 0x0800:
-        case 0x0801:
-        case 0x0802:
-        case 0x0803:
-        case 0x0804:
-        case 0x0805:
-        case 0x0806:
-        case 0x0807:
-        case 0x0808:
-        case 0x0809:
-          return;
+      // PSG
+      if (offset < 0x0c00) {
+        switch (offset) {
+          case 0x0800:
+          case 0x0801:
+          case 0x0802:
+          case 0x0803:
+          case 0x0804:
+          case 0x0805:
+          case 0x0806:
+          case 0x0807:
+          case 0x0808:
+          case 0x0809:
+            return;
+        }
+        return;
+      }
 
-        // タイマー
-        case 0x0c00:
-          timerSize = data & 0x7f;
-          return;
-        case 0x0c01:
-          if (data & 0x01 != 0 && timerCounter == 0) {
-            timerCounter = timerSize;
-          } else if (data & 0x01 == 0) {
-            timerCounter = 0;
-          }
-          return;
+      if (offset < 0x1000) {
+        switch (offset & 0x03) {
+          // タイマー
+          case 0x00:
+            timerSize = data & 0x7f;
+            return;
+          case 0x01:
+            if (data & 0x01 != 0 && timerCounter == 0) {
+              timerCounter = timerSize;
+            } else if (data & 0x01 == 0) {
+              timerCounter = 0;
+            }
+            return;
+        }
+        return;
+      }
 
-        case 0x1000:
-          return;
+      // I/O
+      if (offset < 0x1400) {
+        return;
+      }
 
-        // 割り込みコントローラ
-        case 0x1402:
-          maskIrq2 = data & 0x01 != 0;
-          maskIrq1 = data & 0x02 != 0;
-          maskTIrq = data & 0x04 != 0;
-          return;
-        case 0x1403:
-          acknoledgeTirq();
-          return;
+      // 割り込みコントローラ
+      if (offset < 0x1800) {
+        switch (offset & 0x03) {
+          case 0x02:
+            maskIrq2 = data & 0x01 != 0;
+            maskIrq1 = data & 0x02 != 0;
+            maskTIrq = data & 0x04 != 0;
+            return;
+          case 0x03:
+            acknoledgeTirq();
+            return;
+        }
+        return;
       }
     }
   }

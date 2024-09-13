@@ -36,13 +36,9 @@ class Nes {
   final storage = Storage.of();
 
   static const systemClock = 21477270;
-  static const apuClock = systemClock ~/ 2;
 
-  static const cpuCyclesInScanline = 114;
+  static const clocksInScanline = systemClock ~/ 60 ~/ scanlinesInFrame;
   static const scanlinesInFrame = 262;
-
-  static const cpuHighSpeedClockPerCycle = 3;
-  static const cpuLowSpeedClockPerCycle = 12;
 
   Nes() {
     bus = Bus();
@@ -51,38 +47,25 @@ class Nes {
     apu = Apu(bus);
   }
 
-  int nextPpuCycle = 0;
-  int nextApuCycle = 0;
+  int nextVdcClocks = 0;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   ExecResult exec() {
-    final cpuCycle = cpu.cycle;
-
     final cpuOk = cpu.exec();
 
-    final clocks = (cpu.cycle - cpuCycle) *
-        (cpu.isHighSpeed
-            ? cpuHighSpeedClockPerCycle
-            : cpuLowSpeedClockPerCycle);
-
-    bus.execTimer(clocks ~/ 3);
+    bus.execTimer(cpu.clock ~/ 3);
 
     if (!cpuOk) {
-      return ExecResult(cpu.cycle, false, false);
+      return ExecResult(cpu.cycles, false, false);
     }
 
     bool rendered = false;
 
-    if (cpu.cycle >= nextPpuCycle) {
+    if (cpu.clocks >= nextVdcClocks) {
       vdc.exec();
-      nextPpuCycle += cpuCyclesInScanline;
+      nextVdcClocks += clocksInScanline;
       rendered = true;
-    }
-
-    if (cpu.cycle >= nextApuCycle) {
-      apu.exec();
-      nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
     }
 
     return ExecResult(cpu.cycle, true, rendered);
@@ -100,8 +83,7 @@ class Nes {
 
   /// handles reset button events
   void reset() {
-    nextPpuCycle = cpuCyclesInScanline;
-    nextApuCycle = scanlinesInFrame * cpuCyclesInScanline;
+    nextVdcClocks = clocksInScanline;
     bus.onReset();
   }
 

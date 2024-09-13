@@ -32,8 +32,6 @@ class NesController {
   Timer? _timer;
   double _fps = 0.0;
 
-  int get apuClock => Nes.apuClock;
-
   /// runs emulation with 16ms timer
   void run() {
     final startAt = DateTime.now();
@@ -130,6 +128,8 @@ class NesController {
   Stream<Uint8List> get imageStream => _imageStream.stream;
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
+
+  final audioSampleRate = 22050;
 
   // pad
 

@@ -52,6 +52,13 @@ void pushVramPage(BuildContext context, NesController controller) {
                   builder: (context, addr, child) =>
                       _dump(controller.dumpVram(), addr)),
               Row(children: [
+                SizedBox(
+                    width: 50,
+                    child: TextField(onChanged: (v) {
+                      if (v.length == 4) {
+                        addrNotifier.value = int.parse(v, radix: 16);
+                      }
+                    })),
                 ElevatedButton(
                     child: const Text("-"),
                     onPressed: () => addrNotifier.value =
