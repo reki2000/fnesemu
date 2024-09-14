@@ -187,6 +187,7 @@ class NesController {
 
   List<int> dumpVram() => _emulator.dumpVram();
   int read(int addr) => _emulator.read(addr);
+  List<int> dumpColorTable() => _emulator.dumpColorTable();
 
   runUntilRts() {
     while (true) {

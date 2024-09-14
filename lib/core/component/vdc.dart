@@ -1,4 +1,5 @@
 // Dart imports:
+import '../../util.dart';
 import 'bus.dart';
 import 'cpu.dart';
 
@@ -9,7 +10,19 @@ class Vdc {
     bus.vdc = this;
   }
 
-  reset() {}
+  String dump() {
+    final scr =
+        "x:${hex16(scrollX)} y:${hex8(scrollY)} rr:${hex16(rasterCompareRegister)} inc:${hex8(addrInc)}";
+    final flags =
+        "irq:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
+    return "vdc: $scr $flags";
+  }
+
+  reset() {
+    for (int i = 0; i < vram.length; i++) {
+      vram[i] = 0;
+    }
+  }
 
   int reg = 0;
 
@@ -26,7 +39,7 @@ class Vdc {
   bool enableSprite = false;
 
   bool enableVBlank = false;
-  bool enableScanlineIrq = false;
+  bool enableRasterCompareIrq = false;
   bool enalbeSpriteCollision = false;
   bool enableSpriteOverflow = false;
 
@@ -88,19 +101,21 @@ class Vdc {
         break;
       case 0x01:
         marr = marr & 0xff00 | val;
+        break;
       case 0x02:
         writeLatch = val;
         break;
+
       case 0x05:
         enalbeSpriteCollision = val & 0x01 != 0;
         enableSpriteOverflow = val & 0x02 != 0;
-        enableScanlineIrq = val & 0x04 != 0;
+        enableRasterCompareIrq = val & 0x04 != 0;
         enableVBlank = val & 0x08 != 0;
 
         enableSprite = val & 0x40 != 0;
         enableBg = val & 0x80 != 0;
-
         break;
+
       case 0x06:
         rasterCompareRegister = rasterCompareRegister & 0xff00 | val;
         break;
@@ -110,6 +125,30 @@ class Vdc {
       case 0x08:
         scrollY = val;
         break;
+
+      case 0x09:
+        vramDotWidth = val & 0x03;
+        bgWidthBits = switch (val & 0x30) {
+          0x00 => 5,
+          0x10 => 6,
+          0x20 => 7,
+          0x30 => 7,
+          int() => throw UnimplementedError(),
+        };
+        bgWidthMask = (1 << bgWidthBits) - 1;
+
+        bgHeightBits = switch (val & 0x40) {
+          0x00 => 5,
+          0x40 => 6,
+          int() => throw UnimplementedError(),
+        };
+        bgHeightMask = (1 << bgHeightBits) - 1;
+
+        bgTreatPlane23Zero = val & 0x80 == 0;
+        print(
+            "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
+        break;
+
       case 0x0f:
         enableDmaCgIrq = val & 0x01 != 0;
         enableDmaVramIrq = val & 0x02 != 0;
@@ -117,6 +156,7 @@ class Vdc {
         dmaDstDir = val & 0x08 != 0 ? -1 : 1;
         dmaSatbAlways = val & 0x10 != 0;
         break;
+
       case 0x10:
         dmaSrc = dmaSrc & 0xff00 | val;
         break;
@@ -146,14 +186,17 @@ class Vdc {
         vram[mawr] = val << 8 | writeLatch;
         mawr = (mawr + addrInc) & 0xffff;
         break;
+
       case 0x05:
-        addrInc = switch (cr & 0x18) {
+        addrInc = switch (val & 0x18) {
           0x00 => 1,
           0x08 => 32,
           0x10 => 64,
           0x18 => 128,
           int() => throw UnimplementedError(),
         };
+        break;
+
       case 0x06:
         rasterCompareRegister = val << 8 | rasterCompareRegister & 0xff;
         break;
@@ -162,27 +205,8 @@ class Vdc {
         break;
       case 0x08:
         break;
+
       case 0x09:
-        vramDotWidth = val & 0x03;
-        bgWidthBits = switch (val & 0x18) {
-          0x00 => 5,
-          0x08 => 6,
-          0x10 => 7,
-          0x18 => 7,
-          int() => throw UnimplementedError(),
-        };
-        bgWidthMask = (1 << bgWidthBits) - 1;
-
-        bgHeightBits = switch (val & 0x20) {
-          0x00 => 5,
-          0x20 => 6,
-          int() => throw UnimplementedError(),
-        };
-        bgHeightMask = (1 << bgHeightBits) - 1;
-
-        bgTreatPlane23Zero = val & 0x80 == 0;
-        print(
-            "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: $bgWidthBits x $bgHeightBits");
         break;
 
       case 0x10:
@@ -204,6 +228,16 @@ class Vdc {
   final colorTable = List<int>.filled(512, 0x1ff, growable: false);
   int colorTableAddress = 0;
 
+  int readColorTableLsb() {
+    return colorTable[colorTableAddress] & 0xff;
+  }
+
+  int readColorTableMsb() {
+    final value = (colorTable[colorTableAddress] >> 8) | 0xfe;
+    colorTableAddress = (colorTableAddress + 1) & 0x1ff;
+    return value;
+  }
+
   writeColorTableLsb(int val) {
     colorTable[colorTableAddress] =
         colorTable[colorTableAddress] & 0x0100 | val;
@@ -213,7 +247,7 @@ class Vdc {
     // print(
     //     "writeColorTableAddress: $colorTableAddress, ${colorTable[colorTableAddress] & 0xff | (val << 8)}");
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress] & 0xff | ((val & 0x01) << 8);
+        ((val & 0x01) << 8) | colorTable[colorTableAddress] & 0xff;
     colorTableAddress = (colorTableAddress + 1) & 0x1ff;
   }
 

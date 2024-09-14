@@ -1,5 +1,6 @@
 // Flutter imports:
 // Package imports:
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -66,14 +67,14 @@ class MainPageState extends State<MainPage> {
   void _loadRomFile() async {
     _mPlayer.resume(); // web platform requires this
 
-    // final picked = await FilePicker.platform.pickFiles(withData: true);
-    // if (picked == null) {
-    //   return;
-    // }
-    // final file = picked.files.first.bytes!;
-    // final name = picked.files.first.name;
-    const name = "gradius.pce";
-    final file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
+    final picked = await FilePicker.platform.pickFiles(withData: true);
+    if (picked == null) {
+      return;
+    }
+    final file = picked.files.first.bytes!;
+    final name = picked.files.first.name;
+    // const name = "latch.pce";
+    // final file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
 
     try {
       controller.setRom(file);

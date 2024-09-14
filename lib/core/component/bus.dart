@@ -50,9 +50,13 @@ class Bus {
 
     if (bank <= 0x3f) {
       return rom.read(addr);
-    } else if (0xf8 <= bank && bank <= 0xfb) {
+    }
+
+    if (0xf8 <= bank && bank <= 0xfb) {
       return ram[offset];
-    } else if (bank == 0xff) {
+    }
+
+    if (bank == 0xff) {
       // VDC
       if (offset <= 0x0400) {
         return switch (offset & 0x03) {
@@ -60,6 +64,15 @@ class Bus {
           2 => vdc.readLsb(),
           3 => vdc.readMsb(),
           int() => 0
+        };
+      }
+
+      // VCE
+      if (offset < 0x0800) {
+        return switch (offset & 0x07) {
+          0x02 => vdc.readColorTableLsb(),
+          0x03 => vdc.readColorTableMsb(),
+          int() => 0xff
         };
       }
 
@@ -109,16 +122,19 @@ class Bus {
 
     if (0xf8 <= bank && bank <= 0xfb) {
       ram[offset] = data;
-    } else if (bank == 0xff) {
+      return;
+    }
+
+    if (bank == 0xff) {
       // VDC
       if (offset < 0x0400) {
         switch (offset & 0x03) {
           case 0:
             vdc.writeReg(data);
-            break;
+            return;
           case 2:
             vdc.writeLsb(data);
-            break;
+            return;
           case 3:
             vdc.writeMsb(data);
             return;
@@ -133,17 +149,15 @@ class Bus {
             return;
           case 0x02:
             vdc.writeColorTableAddressLsb(data);
-            break;
+            return;
           case 0x03:
             vdc.writeColorTableAddressMsb(data);
-            break;
+            return;
           case 0x04:
             vdc.writeColorTableLsb(data);
-            break;
+            return;
           case 0x05:
             vdc.writeColorTableMsb(data);
-            break;
-          case _:
             return;
         }
         return;

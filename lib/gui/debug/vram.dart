@@ -1,8 +1,4 @@
 // Dart imports:
-import 'dart:async';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 // Flutter imports:
 import 'package:flutter/material.dart';
 
@@ -10,18 +6,6 @@ import 'package:flutter/material.dart';
 import '../../styles.dart';
 import '../../util.dart';
 import '../nes_controller.dart';
-
-Widget _uint8Image(Uint8List buf) {
-  final completer = Completer<Widget>();
-
-  ui.decodeImageFromPixels(buf, 128, 256 * 2, ui.PixelFormat.rgba8888,
-      (img) => completer.complete(RawImage(image: img, scale: 0.5)));
-
-  return FutureBuilder<Widget>(
-    future: completer.future,
-    builder: (ctx, snapshot) => snapshot.data ?? const Text("loading..."),
-  );
-}
 
 Widget _dump(List<int> buf, int start) {
   final lines = <String>[];

@@ -20,6 +20,7 @@ extension Cpu65c02 on Cpu {
         regs.p = (a & Flags.V) | (regs.p & ~Flags.V);
         write(addr, a);
         cycle += 5;
+        break;
 
       // TRB : Test and Reset Bits with A
       case 0x14:

@@ -91,9 +91,9 @@ class Cpu {
       bus.read((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff);
 
   void write(addr, data) {
-    if (data >= 256) {
-      print("cpu.write: data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
-    }
+    // if (data >= 256) {
+    //   print("cpu.write: data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
+    // }
     bus.write(((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff), data);
   }
 
@@ -235,8 +235,18 @@ class Cpu {
     holdIrq2 = false;
     holdTirq = false;
     holdNmi = false;
+    assertIrq1 = false;
+    assertIrq2 = false;
+    assertTirq = false;
+    assertNmi = false;
 
+    tFlagOn = false;
+
+    isHighSpeed = false;
     cycle = 0;
+    clock = 0;
+    cycles = 0;
+    clocks = 0;
 
     regs.a = 0;
     regs.x = 0;

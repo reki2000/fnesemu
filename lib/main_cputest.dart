@@ -48,18 +48,3 @@ void main() async {
   //print("\$02:${hex8(cpu.read(2))} \$03:${hex8(cpu.read(3))}");
   log("cpu test completed successfully.");
 }
-
-String _dumpF(int val) {
-  return "N:${_f(val, Flags.N)} "
-      "V:${_f(val, Flags.V)} "
-      "T:${_f(val, Flags.T)} "
-      "B:${_f(val, Flags.B)} "
-      "D:${_f(val, Flags.D)} "
-      "I:${_f(val, Flags.I)} "
-      "Z:${_f(val, Flags.Z)} "
-      "C:${_f(val, Flags.C)} ";
-}
-
-int _f(int val, int flag) {
-  return (val & flag != 0) ? 1 : 0;
-}

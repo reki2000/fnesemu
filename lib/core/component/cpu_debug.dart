@@ -82,7 +82,7 @@ extension CpuDebugger on Cpu {
     String irq =
         "irq: ${holdIrq1 ? "1" : "-"} ${holdIrq2 ? "2" : "-"} ${holdTirq ? "T" : "-"} ";
 
-    return "${showRegs ? code : ""}${mem.isNotEmpty ? (mpr + irq + "\n" + header) : ''}$mem";
+    return "${showRegs ? code : ""}${mem.isNotEmpty ? ("$mpr$irq\n$header") : ''}$mem";
   }
 
   String dumpMem(int addr, int target) {

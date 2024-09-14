@@ -116,7 +116,7 @@ class Nes {
     final dump = "$cpuDump\n"
         "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
         "${showApu ? apu.dump() : ""}"
-        "${bus.rom.dump()}";
+        "${bus.vdc.dump()}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';
   }
@@ -136,4 +136,7 @@ class Nes {
 
   // debug: read mem
   int read(int addr) => bus.cpu.read(addr);
+
+  // debug: dump color table
+  List<int> dumpColorTable() => vdc.colorTable;
 }
