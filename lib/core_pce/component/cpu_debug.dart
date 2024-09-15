@@ -9,11 +9,11 @@ import 'cpu_disasm.dart';
 extension CpuDebugger on Cpu {
   String _disasm(pc) {
     final op = read(pc);
-    final a = read(pc + 1);
-    final b = read(pc + 2);
-    final c = read(pc + 4) << 8 | read(pc + 3);
-    final d = read(pc + 6) << 8 | read(pc + 5);
-    return Disasm.disasm(pc, op, a, b, c: c, d: d).padRight(47, " ");
+    final pc1 = read(pc + 1);
+    final pc2 = read(pc + 2);
+    final pc34 = read(pc + 4) << 8 | read(pc + 3);
+    final pc56 = read(pc + 6) << 8 | read(pc + 5);
+    return Disasm.disasm(pc, op, pc1, pc2, c: pc34, d: pc56).padRight(47, " ");
   }
 
   String _mprAddr(int addr) {
@@ -25,7 +25,7 @@ extension CpuDebugger on Cpu {
   }
 
   String trace() {
-    return "${_disasm(pc)} ${_reg()}".toUpperCase();
+    return "${_disasm(regs.pc)} ${_reg()}".toUpperCase();
   }
 
   String dumpDisasm(int addr, {toAddrOffset = 0x200}) {

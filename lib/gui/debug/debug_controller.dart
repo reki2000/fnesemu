@@ -1,6 +1,4 @@
 // Dart imports:
-import 'dart:developer';
-
 // Flutter imports:
 import 'package:flutter/material.dart';
 
@@ -23,8 +21,6 @@ class DebugController extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    controller.traceStream.listen((event) => log(event));
-
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       _button("Step", controller.runStep),
       _button("Line", controller.runScanLine),

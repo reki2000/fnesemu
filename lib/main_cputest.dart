@@ -2,12 +2,12 @@
 import 'dart:io';
 
 // Project imports:
-import 'core/component/apu.dart';
-import 'core/component/bus.dart';
-import 'core/component/cpu.dart';
-import 'core/component/cpu_debug.dart';
-import 'core/mapper/rom.dart';
-import 'core/rom/pce_file.dart';
+import 'core_pce/component/apu.dart';
+import 'core_pce/component/bus.dart';
+import 'core_pce/component/cpu.dart';
+import 'core_pce/component/cpu_debug.dart';
+import 'core_pce/mapper/rom.dart';
+import 'core_pce/rom/pce_file.dart';
 
 void log(String s) {
   stdout.writeln(s);

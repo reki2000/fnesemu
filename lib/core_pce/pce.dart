@@ -27,7 +27,7 @@ class ExecResult {
 }
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes {
+class Pce {
   late final Vdc vdc;
   late final Apu apu;
   late final Cpu2 cpu;
@@ -40,7 +40,7 @@ class Nes {
   static const clocksInScanline = systemClock ~/ 60 ~/ scanlinesInFrame;
   static const scanlinesInFrame = 262;
 
-  Nes() {
+  Pce() {
     bus = Bus();
     cpu = Cpu2(bus);
     vdc = Vdc(bus);
@@ -62,13 +62,15 @@ class Nes {
 
     bool rendered = false;
 
-    if (cpu.clocks >= nextVdcClocks) {
+    while (cpu.clocks >= nextVdcClocks) {
       vdc.exec();
       nextVdcClocks += clocksInScanline;
+      // print(
+      //     "cpu.clocks:${cpu.clocks} cpu.cycles:${cpu.cycles} nextVdcClocks: $nextVdcClocks");
       rendered = true;
     }
 
-    return ExecResult(cpu.cycle, true, rendered);
+    return ExecResult(cpu.cycles, true, rendered);
   }
 
   /// returns screen buffer as 250x240xargb

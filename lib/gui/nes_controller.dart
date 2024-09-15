@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 // Project imports:
-import '../core/nes.dart';
+import '../core_pce/pce.dart';
 import '../util.dart';
 import 'debug/trace.dart';
 
@@ -27,7 +27,7 @@ class DebugOption {
 /// A Controller of NES emulator core.
 /// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
 class NesController {
-  final _emulator = Nes();
+  final _emulator = Pce();
 
   Timer? _timer;
   double _fps = 0.0;
@@ -56,6 +56,7 @@ class NesController {
   /// executes emulation with 1 cpu instruction
   void runStep() {
     _emulator.exec();
+    _tracer?.addLog(_emulator.state);
     _renderAll();
   }
 
@@ -89,7 +90,7 @@ class NesController {
 
   /// executes emulation during 1 frame
   void runFrame() {
-    for (int i = 0; i < Nes.scanlinesInFrame; i++) {
+    for (int i = 0; i < Pce.scanlinesInFrame; i++) {
       if (!runScanLine(skipRender: true)) {
         _renderAll();
         return;
@@ -168,9 +169,13 @@ class NesController {
       _debugStream.add("");
     }
 
-    if (opt.log) {
+    if (opt.log && _tracer == null) {
       _tracer = Trace(_traceStream);
+      _traceSubscription = _traceStream.stream.listen((log) {
+        print(log.replaceAll("\n", ""));
+      }, onDone: () => _traceSubscription?.cancel());
     } else {
+      _traceSubscription?.cancel();
       _tracer = null;
     }
   }
@@ -183,7 +188,7 @@ class NesController {
   Pair<String, int> disasm(int addr) => _emulator.disasm(addr);
 
   final _traceStream = StreamController<String>.broadcast();
-  Stream<String> get traceStream => _traceStream.stream;
+  StreamSubscription<String>? _traceSubscription;
 
   List<int> dumpVram() => _emulator.dumpVram();
   int read(int addr) => _emulator.read(addr);

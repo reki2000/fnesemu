@@ -33,17 +33,14 @@ class Cpu2 extends Cpu {
   Cpu2(super.bus);
 
   bool exec() {
-    bool result = true;
     cycle = 0;
 
-    preExec();
-
     final op = pc();
+    final result = exec6502(op) || exec65c02(op) || exec6280(op);
 
-    if (!exec6502(op) && !exec65c02(op) && !exec6280(op)) {
+    if (!result) {
       log("unimplemented opcode: ${hex8(op)} at ${hex16(regs.pc)}\n");
       cycle += 2;
-      result = false;
     }
 
     clock = cycle *
@@ -51,6 +48,8 @@ class Cpu2 extends Cpu {
 
     cycles += cycle;
     clocks += clock;
+
+    handleIrq();
 
     return result;
   }
@@ -68,15 +67,13 @@ class Cpu {
     bus.cpu = this;
   }
 
+  final Bus bus;
+
   final regs = Regs();
 
   bool isHighSpeed = false;
   static const highSpeedClockPerCycle = 3;
   static const lowSpeedClockPerCycle = 12;
-
-  bool tFlagOn = false;
-
-  final Bus bus;
 
   int cycle = 0;
   int clock = 0;
@@ -86,6 +83,8 @@ class Cpu {
 
   static const zeroAddr = 0x2000;
   static const stackAddr = 0x2100;
+
+  bool tFlagOn = false;
 
   int read(int addr) =>
       bus.read((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff);
@@ -97,53 +96,29 @@ class Cpu {
     bus.write(((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff), data);
   }
 
-  void preExec() {
-    if (assertIrq1) {
-      assertIrq1 = false;
-      holdIrq1 = false;
-      interrupt(irq1: true);
-      return;
-    }
-
+  void handleIrq() {
     // exec irq on the next execution
     if (holdIrq1 && (regs.p & Flags.I) == 0) {
-      assertIrq1 = true;
-    }
-
-    if (assertIrq2) {
-      assertIrq2 = false;
-      holdIrq2 = false;
-      interrupt(irq2: true);
-      return;
+      holdIrq1 = false;
+      interrupt(irq1: true);
     }
 
     // exec irq on the next execution
     if (holdIrq2 && (regs.p & Flags.I) == 0) {
-      assertIrq2 = true;
-    }
-
-    if (assertTirq) {
-      assertTirq = false;
-      holdTirq = false;
-      interrupt(tirq: true);
-      return;
+      holdIrq2 = false;
+      interrupt(irq2: true);
     }
 
     // exec irq on the next execution
     if (holdTirq && (regs.p & Flags.I) == 0) {
-      assertTirq = true;
-    }
-
-    if (assertNmi) {
-      assertNmi = false;
-      holdNmi = false;
-      interrupt(nmi: true);
-      return;
+      holdTirq = false;
+      interrupt(tirq: true);
     }
 
     // exec nmi on the next execution
     if (holdNmi) {
-      assertNmi = true;
+      holdNmi = false;
+      interrupt(nmi: true);
     }
 
     if (tFlagOn) {
@@ -195,16 +170,9 @@ class Cpu {
   }
 
   bool holdNmi = false;
-  bool assertNmi = false;
-
   bool holdIrq1 = false;
-  bool assertIrq1 = false;
-
   bool holdIrq2 = false;
-  bool assertIrq2 = false;
-
   bool holdTirq = false;
-  bool assertTirq = false;
 
   void interrupt(
       {bool brk = false,
@@ -231,14 +199,13 @@ class Cpu {
   }
 
   void reset() {
+    cycles = 0;
+    clocks = 0;
+
     holdIrq1 = false;
     holdIrq2 = false;
     holdTirq = false;
     holdNmi = false;
-    assertIrq1 = false;
-    assertIrq2 = false;
-    assertTirq = false;
-    assertNmi = false;
 
     tFlagOn = false;
 

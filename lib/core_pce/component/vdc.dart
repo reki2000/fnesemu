@@ -22,7 +22,52 @@ class Vdc {
     for (int i = 0; i < vram.length; i++) {
       vram[i] = 0;
     }
+
+    for (int i = 0; i < colorTable.length; i++) {
+      colorTable[i] = 0;
+    }
+
+    line = 0;
+    h = 0;
+
+    status = 0;
+    rasterCompareRegister = 0;
+    controlRegister = 0;
+    scrollX = 0;
+    scrollY = 0;
+    enableBg = false;
+    enableSprite = false;
+    enableVBlank = false;
+    enableRasterCompareIrq = false;
+    enalbeSpriteCollision = false;
+    enableSpriteOverflow = false;
+    writeLatch = 0;
+    readLatch = 0;
+    mawr = 0;
+    marr = 0;
+    addrInc = 0;
+    reg = 0;
+    vramDotWidth = 0;
+    bgWidthBits = 5;
+    bgHeightBits = 5;
+    bgWidthMask = 0x1f;
+    bgHeightMask = 0x1f;
+    bgTreatPlane23Zero = false;
+    dmaSrc = 0;
+    dmaSrcDir = 0;
+    dmaDst = 0;
+    dmaDstDir = 0;
+    dmaLen = 0;
+    dma = false;
+    enableDmaVramIrq = false;
+    enableDmaCgIrq = false;
+    dmaSrcSatb = 0;
+    dmaSatb = false;
+    dmaSatbAlways = false;
   }
+
+  int line = 0; // vertical counter
+  int h = 0; // horizontal counter
 
   int reg = 0;
 
@@ -97,13 +142,13 @@ class Vdc {
     // print("writeLsb: ${hex8(val)}");
     switch (reg) {
       case 0x00:
-        mawr = mawr & 0xff00 | val;
+        mawr = mawr.withLowByte(val);
         break;
       case 0x01:
-        marr = marr & 0xff00 | val;
+        marr = marr.withLowByte(val);
         break;
       case 0x02:
-        writeLatch = val;
+        writeLatch = writeLatch.withLowByte(val);
         break;
 
       case 0x05:
@@ -145,29 +190,29 @@ class Vdc {
         bgHeightMask = (1 << bgHeightBits) - 1;
 
         bgTreatPlane23Zero = val & 0x80 == 0;
-        print(
-            "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
+        // print(
+        //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
         break;
 
       case 0x0f:
-        enableDmaCgIrq = val & 0x01 != 0;
-        enableDmaVramIrq = val & 0x02 != 0;
-        dmaSrcDir = val & 0x04 != 0 ? -1 : 1;
-        dmaDstDir = val & 0x08 != 0 ? -1 : 1;
-        dmaSatbAlways = val & 0x10 != 0;
+        enableDmaCgIrq = bit0(val);
+        enableDmaVramIrq = bit1(val);
+        dmaSrcDir = bit2(val) ? -1 : 1;
+        dmaDstDir = bit3(val) ? -1 : 1;
+        dmaSatbAlways = bit4(val);
         break;
 
       case 0x10:
-        dmaSrc = dmaSrc & 0xff00 | val;
+        dmaSrc = dmaSrc.withLowByte(val);
         break;
       case 0x11:
-        dmaDst = dmaDst & 0xff00 | val;
+        dmaDst = dmaDst.withLowByte(val);
         break;
       case 0x12:
-        dmaLen = dmaLen & 0xff00 | val;
+        dmaLen = dmaLen.withLowByte(val);
         break;
       case 0x13:
-        dmaSrcSatb = dmaSrcSatb & 0xff00 | val;
+        dmaSrcSatb = dmaSrcSatb.withLowByte(val);
         break;
     }
   }
@@ -176,14 +221,15 @@ class Vdc {
     // print("writeMsb: ${hex8(val)}");
     switch (reg) {
       case 0x00:
-        mawr = val << 8 | mawr & 0xff;
+        mawr = mawr.withHighByte(val);
         break;
       case 0x01:
-        marr = val << 8 | marr & 0xff;
+        marr = marr.withHighByte(val);
         readLatch = vram[marr];
         break;
       case 0x02:
-        vram[mawr] = val << 8 | writeLatch;
+        writeLatch = writeLatch.withHighByte(val);
+        vram[mawr] = writeLatch;
         mawr = (mawr + addrInc) & 0xffff;
         break;
 
@@ -217,6 +263,7 @@ class Vdc {
         break;
       case 0x12:
         dmaLen = dmaLen & 0xff | (val << 8);
+        dma = true;
         break;
       case 0x13:
         dmaSrcSatb = dmaSrcSatb & 0xff | (val << 8);
@@ -264,6 +311,7 @@ class Vdc {
   int dmaDst = 0;
   int dmaDstDir = 0;
   int dmaLen = 0;
+  bool dma = false;
   bool enableDmaVramIrq = false;
   bool enableDmaCgIrq = false;
 
@@ -276,19 +324,20 @@ class Vdc {
       if (!dmaSatbAlways) {
         dmaSatb = false;
       }
-    }
-
-    //
-    if (enableDmaCgIrq) {
-      status |= ds;
-      bus.cpu.holdInterrupt(Interrupt.irq1);
+      //
+      if (enableDmaCgIrq) {
+        status |= ds;
+        bus.cpu.holdInterrupt(Interrupt.irq1);
+      }
     }
   }
 
   execDmaVram() {
-    if (dmaLen == 0) {
+    if (!dma) {
       return;
     }
+
+    dma = false;
 
     for (int i = 0; i < 1024; i++) {
       vram[dmaDst] = vram[dmaSrc];
@@ -304,9 +353,5 @@ class Vdc {
         break;
       }
     }
-
-    dmaLen = 0;
   }
-
-  int dmaCgLen = 0;
 }

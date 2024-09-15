@@ -1,15 +1,12 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/component/cpu.dart';
+import 'package:fnesemu/core_pce/component/cpu.dart';
 
 import '../../spec.dart';
 import 'vdc.dart';
 
 extension VdcRenderer on Vdc {
   static final buffer = Uint32List(Spec.width * Spec.height);
-
-  static int line = 0;
-  static int h = 0;
 
   static int y = 0;
   static int x = 0;
@@ -92,7 +89,7 @@ extension VdcRenderer on Vdc {
         (p23 >> 5) & 0x08;
 
     final c = colorTable[(paletteNo << 4) | colorNo];
-    buffer[(y % Spec.height) * Spec.width + (x % Spec.width)] = _rgba[c];
+    buffer[(line - 14) * Spec.width + (x % Spec.width)] = _rgba[c];
   }
 
   // preliminary building an RGBA color map for all 512 colors

@@ -156,7 +156,7 @@ extension Cpu6502 on Cpu {
           flagsNZ(c);
           regs.p = (regs.p & ~Flags.C) | carry;
         } else {
-          flagsV(a, b, c, sub: true);
+          flagsV(a, b, c, sub: false);
           c &= 0xff;
         }
         cycle += 2;
@@ -302,10 +302,10 @@ extension Cpu6502 on Cpu {
 
       // LSR
       case 0x4a:
-        final mlb = regs.a & 0x01;
+        final lsb = regs.a & 0x01;
         regs.a >>= 1;
         flags(regs.a);
-        regs.p |= mlb;
+        regs.p |= lsb;
         cycle += 2;
         break;
       case 0x46:

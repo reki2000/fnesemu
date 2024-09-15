@@ -226,19 +226,19 @@ class Disasm {
       case _Operand.rel:
         return "$addr  $x $y     $inst \$${hex16(rel)}";
       case _Operand.zerorel:
-        return "$addr  $x $y $z  $inst \$($y), ${hex16(rel2)}";
+        return "$addr  $x $y $z  $inst \$$y, ${hex16(rel2)}";
       case _Operand.zpind:
         return "$addr  $x $y     $inst \$($y) $set";
       case _Operand.blk:
         return "$addr  $x $blk0 $blk1 $blk2  $inst $blk0,$blk1,$blk2 $set";
       case _Operand.immedzero:
-        return "$addr  $x $y $z  $inst #$y, \$($z) $set";
+        return "$addr  $x $y $z  $inst #$y, \$$z $set";
       case _Operand.immedabs:
-        return "$addr  $x $y $z  $inst #$y, \$($y) $set";
+        return "$addr  $x $y $z  $inst #$y, \$$z $set";
       case _Operand.immedzerox:
-        return "$addr  $x $y $z  $inst #$y, \$($z + X) $set";
+        return "$addr  $x $y $z  $inst #$y, \$$z, X $set";
       case _Operand.immedabsx:
-        return "$addr  $x $y $z  $inst #$y, \$($z + Y) $set";
+        return "$addr  $x $y $z  $inst #$y, \$$z, X $set";
 
       default:
         return "$addr  $x        $inst";

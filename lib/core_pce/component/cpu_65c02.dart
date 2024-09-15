@@ -1,6 +1,7 @@
 // Dart imports:
 import 'dart:core';
 
+import '../../util.dart';
 import 'cpu.dart';
 
 extension Cpu65c02 on Cpu {
@@ -38,7 +39,6 @@ extension Cpu65c02 on Cpu {
         write(zeropage(), 0);
         cycle += 2;
         break;
-
       case 0x74:
         write(zeropageXY(regs.x), 0);
         cycle += 2;
@@ -63,7 +63,6 @@ extension Cpu65c02 on Cpu {
       case 0x77:
         final value = read(zeropage());
         write(zeropage(), value & ~(1 << (op >> 4)));
-        regs.p = 0;
         cycle += 7;
         break;
 
@@ -78,7 +77,6 @@ extension Cpu65c02 on Cpu {
       case 0xf7:
         final value = read(zeropage());
         write(zeropage(), value | (1 << ((op & 0x70) >> 4)));
-        regs.p = 0;
         cycle += 7;
         break;
 
@@ -120,7 +118,7 @@ extension Cpu65c02 on Cpu {
         cycle += 4;
         break;
 
-      // BBS : Branch if bit n is Set (also some 65c02)
+      // BBR : Branch if bit n is Reset (also some 65c02)
       case 0x0f:
       case 0x1f:
       case 0x2f:
@@ -130,11 +128,11 @@ extension Cpu65c02 on Cpu {
       case 0x6f:
       case 0x7f:
         int value = read(zeropage());
-        branch((value >> (op >> 4)) & 0x01 == 1);
+        branch(!bit0(value >> (op >> 4)));
         cycle += 5;
         break;
 
-      // BBR : Branch if bit n is Reset (also some 65c02)
+      // BBS : Branch if bit n is Set (also some 65c02)
       case 0x8f:
       case 0x9f:
       case 0xaf:
@@ -144,7 +142,7 @@ extension Cpu65c02 on Cpu {
       case 0xef:
       case 0xff:
         int value = read(zeropage());
-        branch((value >> ((op & 0x70) >> 4)) & 0x01 == 0);
+        branch(bit0(value >> ((op & 0x70) >> 4)));
         cycle += 5;
         break;
 

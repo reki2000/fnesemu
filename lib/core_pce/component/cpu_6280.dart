@@ -121,7 +121,7 @@ extension Cpu6280 on Cpu {
           _ => 0, // never reach
         };
         final a = n & read(addr);
-        regs.p = (a & 0xc0) | ((a == 0) ? Flags.Z : 0) | (regs.p & 0x0d);
+        regs.p = (a & 0xc0) | ((a == 0) ? Flags.Z : 0) | (regs.p & 0x3d);
         cycle += 6;
         break;
 
@@ -151,7 +151,6 @@ extension Cpu6280 on Cpu {
           count = 0x10000;
         }
         while (count-- != 0) {
-          to &= 0xffff;
           from &= 0xffff;
           write(to, read(from++));
           cycle += 6;
@@ -171,7 +170,7 @@ extension Cpu6280 on Cpu {
         while (count-- != 0) {
           from &= 0xffff;
           write((to + alt) & 0xffff, read(from++));
-          alt = (alt == 0) ? 1 : 0;
+          alt ^= 1;
           cycle += 6;
         }
         cycle += 17;
@@ -189,7 +188,7 @@ extension Cpu6280 on Cpu {
         while (count-- != 0) {
           to &= 0xffff;
           write(to++, read((from + alt) & 0xffff));
-          alt = (alt == 0) ? 1 : 0;
+          alt ^= 1;
           cycle += 6;
         }
         cycle += 17;
@@ -197,7 +196,7 @@ extension Cpu6280 on Cpu {
 
       // BSR
       case 0x44:
-        push((regs.pc & 0xff00) >> 8);
+        push(regs.pc >> 8);
         push(regs.pc & 0xff);
         branch(true);
         cycle += 5;

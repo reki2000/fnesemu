@@ -64,17 +64,20 @@ class MainPageState extends State<MainPage> {
     super.dispose();
   }
 
-  void _loadRomFile() async {
+  void _loadRomFile({String name = ""}) async {
     _mPlayer.resume(); // web platform requires this
 
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked == null) {
-      return;
+    Uint8List file;
+    if (name == "") {
+      final picked = await FilePicker.platform.pickFiles(withData: true);
+      if (picked == null) {
+        return;
+      }
+      file = picked.files.first.bytes!;
+      name = picked.files.first.name;
+    } else {
+      file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
     }
-    final file = picked.files.first.bytes!;
-    final name = picked.files.first.name;
-    // const name = "latch.pce";
-    // final file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
 
     try {
       controller.setRom(file);
@@ -126,6 +129,11 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
+        // file load button
+        _iconButton(Icons.file_open_outlined, "Test", () {
+          _loadRomFile(name: "gradius.pce");
+        }),
+
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
