@@ -27,13 +27,13 @@ class Pad {
 
   int get port => selectLRDU
       ? (!isPressed[PadButton.left.index] ? 0x08 : 0) |
-          (!isPressed[PadButton.right.index] ? 0x04 : 0) |
-          (!isPressed[PadButton.down.index] ? 0x02 : 0) |
+          (!isPressed[PadButton.down.index] ? 0x04 : 0) |
+          (!isPressed[PadButton.right.index] ? 0x02 : 0) |
           (!isPressed[PadButton.up.index] ? 0x01 : 0)
       : (!isPressed[PadButton.start.index] ? 0x08 : 0) |
           (!isPressed[PadButton.select.index] ? 0x04 : 0) |
-          (!isPressed[PadButton.b.index] ? 0x02 : 0) |
-          (!isPressed[PadButton.a.index] ? 0x01 : 0);
+          (!isPressed[PadButton.a.index] ? 0x02 : 0) |
+          (!isPressed[PadButton.b.index] ? 0x01 : 0);
 
   String dump({showSpriteVram = false}) {
     final joys = PadButton.values

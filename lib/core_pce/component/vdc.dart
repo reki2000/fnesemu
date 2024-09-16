@@ -65,7 +65,7 @@ class Vdc {
     dmaLen = 0;
     dma = false;
     enableDmaVramIrq = false;
-    enableDmaCgIrq = false;
+    enableDmaSatIrq = false;
     dmaSrcSatb = 0;
     dmaSatb = false;
     dmaSatbAlways = false;
@@ -119,6 +119,8 @@ class Vdc {
 
   final vram = List<int>.filled(0x10000, 0); // 2 bytes per word
 
+  final sat = List<int>.filled(0x100, 0);
+
   int readReg() {
     bus.pic.acknoledgeIrq1();
 
@@ -140,7 +142,7 @@ class Vdc {
 
   writeReg(int val) {
     // print("writeReg: ${hex8(reg)}");
-    reg = val & 0x0f;
+    reg = val & 0x1f;
   }
 
   writeLsb(int val) {
@@ -201,7 +203,7 @@ class Vdc {
         break;
 
       case 0x0f:
-        enableDmaCgIrq = bit0(val);
+        enableDmaSatIrq = bit0(val);
         enableDmaVramIrq = bit1(val);
         dmaSrcDir = bit2(val) ? -1 : 1;
         dmaDstDir = bit3(val) ? -1 : 1;
@@ -264,6 +266,8 @@ class Vdc {
       case 0x09:
         break;
 
+      case 0x0f:
+        break;
       case 0x10:
         dmaSrc = dmaSrc.withHighByte(val);
         break;
@@ -322,19 +326,24 @@ class Vdc {
   int dmaLen = 0;
   bool dma = false;
   bool enableDmaVramIrq = false;
-  bool enableDmaCgIrq = false;
+  bool enableDmaSatIrq = false;
 
   int dmaSrcSatb = 0;
   bool dmaSatb = false;
   bool dmaSatbAlways = false;
 
   execDmaSatb() {
+    // print("execDmaSatb : $dmaSatb ${hex16(dmaSrcSatb)}");
     if (dmaSatb) {
+      for (int i = 0; i < sat.length; i++) {
+        sat[i] = vram[(dmaSrcSatb + i) & 0xffff];
+      }
+
       if (!dmaSatbAlways) {
         dmaSatb = false;
       }
-      //
-      if (enableDmaCgIrq) {
+
+      if (enableDmaSatIrq) {
         status |= ds;
         bus.cpu.holdInterrupt(Interrupt.irq1);
       }
