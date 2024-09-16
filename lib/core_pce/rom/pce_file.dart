@@ -17,7 +17,8 @@ class PceFile {
     // load rom data
     const bankSize = 8 * 1024;
 
-    body = body.sublist(0x200); // skip header
+    final hasHeader = body.sublist(16, 200).every((e) => e == 0);
+    body = body.sublist(hasHeader ? 0x200 : 0); // skip header
 
     int offset = 0;
     while (offset + bankSize < body.length) {
