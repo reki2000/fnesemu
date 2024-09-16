@@ -31,7 +31,7 @@ class Timer {
 
         if (counter < 0) {
           counter = size;
-          bus.holdTirq();
+          bus.pic.holdTirq();
         }
       }
     }

@@ -9,6 +9,7 @@ import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
+import 'component/pic.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_render.dart';
@@ -34,6 +35,7 @@ class Pce {
   late final Cpu2 cpu;
   late final Bus bus;
   late final Timer timer;
+  late final Pic pic;
 
   final storage = Storage.of();
 
@@ -48,6 +50,7 @@ class Pce {
     vdc = Vdc(bus);
     apu = Apu(bus);
     timer = Timer(bus);
+    pic = Pic(bus);
   }
 
   int nextVdcClocks = 0;

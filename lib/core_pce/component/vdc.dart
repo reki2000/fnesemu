@@ -115,7 +115,7 @@ class Vdc {
   final vram = List<int>.filled(0x10000, 0); // 2 bytes per word
 
   int readReg() {
-    bus.acknoledgeIrq1();
+    bus.pic.acknoledgeIrq1();
 
     final value = status;
     status = 0;

@@ -5,6 +5,7 @@ import '../mapper/rom.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'pad.dart';
+import 'pic.dart';
 import 'timer.dart';
 import 'vdc.dart';
 
@@ -12,22 +13,14 @@ class Bus {
   late final Cpu cpu;
   late final Vdc vdc;
   late final Apu apu;
+  late final Timer timer;
+  late final Pic pic;
 
   late Rom rom;
 
   final joypad = Joypad();
 
   final List<int> ram = List.filled(0x2000, 0);
-
-  bool _holdIrq1 = false;
-  bool _holdIrq2 = false;
-  bool _holdTirq = false;
-
-  bool maskIrq1 = false;
-  bool maskIrq2 = false;
-  bool maskTIrq = false;
-
-  late final Timer timer;
 
   int read(int addr) {
     final bank = addr >> 13;
@@ -43,7 +36,7 @@ class Bus {
 
     if (bank == 0xff) {
       // VDC
-      if (offset <= 0x0400) {
+      if (offset < 0x0400) {
         return switch (offset & 0x03) {
           0 => vdc.readReg(),
           2 => vdc.readLsb(),
@@ -66,6 +59,7 @@ class Bus {
         return 0;
       }
 
+      // Timer
       if (offset < 0x1000) {
         return switch (offset & 0x03) {
           0x00 => timer.counter,
@@ -78,14 +72,11 @@ class Bus {
         return 0;
       }
 
+      // PIC
       if (offset < 0x1800) {
         return switch (offset & 0x03) {
-          0x02 => (maskIrq1 ? 0x02 : 0) |
-              (maskIrq2 ? 0x01 : 0) |
-              (maskTIrq ? 0x04 : 0),
-          0x03 => (_holdIrq1 ? 0 : 0x02) |
-              (_holdIrq2 ? 0x01 : 0) |
-              (_holdTirq ? 0x04 : 0),
+          0x02 => pic.mask,
+          0x03 => pic.hold,
           int() => 0
         };
       }
@@ -159,9 +150,9 @@ class Bus {
         return;
       }
 
+      // Timer
       if (offset < 0x1000) {
         switch (offset & 0x03) {
-          // タイマー
           case 0x00:
             timer.size = data & 0x7f;
             return;
@@ -177,16 +168,14 @@ class Bus {
         return;
       }
 
-      // 割り込みコントローラ
+      // PIC
       if (offset < 0x1800) {
         switch (offset & 0x03) {
           case 0x02:
-            maskIrq2 = bit0(data);
-            maskIrq1 = bit1(data);
-            maskTIrq = bit2(data);
+            pic.mask = data & 0x07;
             return;
           case 0x03:
-            acknoledgeTirq();
+            pic.acknoledgeTirq();
             return;
         }
         return;
@@ -194,56 +183,14 @@ class Bus {
     }
   }
 
-  holdIrq1() {
-    _holdIrq1 = true;
-    if (!maskIrq1) {
-      cpu.holdInterrupt(Interrupt.irq1);
-    }
-  }
-
-  holdIrq2() {
-    _holdIrq2 = true;
-    if (!maskIrq2) {
-      cpu.holdInterrupt(Interrupt.irq2);
-    }
-  }
-
-  holdTirq() {
-    _holdTirq = true;
-    if (!maskTIrq) {
-      cpu.holdInterrupt(Interrupt.tirq);
-    }
-  }
-
-  acknoledgeIrq1() {
-    _holdIrq1 = false;
-    cpu.releaseInterrupt(Interrupt.irq1);
-  }
-
-  acknoledgeIrq2() {
-    _holdIrq2 = false;
-    cpu.releaseInterrupt(Interrupt.irq2);
-  }
-
-  acknoledgeTirq() {
-    _holdTirq = false;
-    cpu.releaseInterrupt(Interrupt.tirq);
-  }
-
   void onNmi() => cpu.onNmi();
 
   void onReset() {
-    _holdIrq1 = false;
-    _holdIrq2 = false;
-    _holdTirq = false;
-    maskIrq1 = false;
-    maskIrq2 = false;
-    maskTIrq = false;
-
     vdc.reset();
     apu.reset();
     cpu.reset();
     timer.reset();
+    pic.reset();
   }
 
   void holdIrq() => {};
