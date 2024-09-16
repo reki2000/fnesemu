@@ -18,7 +18,7 @@ class Bus {
 
   late Rom rom;
 
-  final joypad = Joypad();
+  final joypad = Pad();
 
   final List<int> ram = List.filled(0x2000, 0);
 
@@ -69,7 +69,7 @@ class Bus {
       }
 
       if (offset < 0x1400) {
-        return 0;
+        return joypad.port & 0x0f | 0xf0;
       }
 
       // PIC
@@ -165,6 +165,7 @@ class Bus {
 
       // I/O
       if (offset < 0x1400) {
+        joypad.port = data & 0x03;
         return;
       }
 

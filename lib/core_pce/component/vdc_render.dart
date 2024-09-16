@@ -98,7 +98,7 @@ extension VdcRenderer on Vdc {
         (p23 >> 5) & 0x08;
 
     final c = colorTable[(paletteNo << 4) | colorNo];
-    buffer[(displayLine - 14) * Spec.width + (x % Spec.width)] = _rgba[c];
+    buffer[(displayLine - 14) * Spec.width + h] = _rgba[c];
   }
 
   // preliminary building an RGBA color map for all 512 colors
