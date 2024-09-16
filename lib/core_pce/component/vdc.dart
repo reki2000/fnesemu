@@ -162,13 +162,14 @@ class Vdc {
         break;
 
       case 0x06:
-        rasterCompareRegister = rasterCompareRegister & 0xff00 | val;
+        rasterCompareRegister = rasterCompareRegister.withLowByte(val);
         break;
       case 0x07:
-        scrollX = scrollX & 0xff00 | val;
+        scrollX = scrollX.withLowByte(val);
         break;
       case 0x08:
-        scrollY = val;
+        scrollY = scrollY.withLowByte(val);
+        // print("scrollY LSB: ${hex8(val)} $scrollY");
         break;
 
       case 0x09:
@@ -190,8 +191,8 @@ class Vdc {
         bgHeightMask = (1 << bgHeightBits) - 1;
 
         bgTreatPlane23Zero = val & 0x80 == 0;
-        // print(
-        //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
+        print(
+            "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
         break;
 
       case 0x0f:
@@ -244,29 +245,31 @@ class Vdc {
         break;
 
       case 0x06:
-        rasterCompareRegister = val << 8 | rasterCompareRegister & 0xff;
+        rasterCompareRegister = rasterCompareRegister.withHighByte(val & 0x03);
         break;
       case 0x07:
-        scrollX = scrollX & 0xff | (val << 8);
+        scrollX = scrollX.withHighByte(val & 0x03);
         break;
       case 0x08:
+        scrollY = scrollY.withHighByte(val & 0x01);
+        // print("scrollY MSB: ${hex8(val)} $scrollY");
         break;
 
       case 0x09:
         break;
 
       case 0x10:
-        dmaSrc = dmaSrc & 0xff | (val << 8);
+        dmaSrc = dmaSrc.withHighByte(val);
         break;
       case 0x11:
-        dmaDst = dmaDst & 0xff | (val << 8);
+        dmaDst = dmaDst.withHighByte(val);
         break;
       case 0x12:
-        dmaLen = dmaLen & 0xff | (val << 8);
+        dmaLen = dmaLen.withHighByte(val);
         dma = true;
         break;
       case 0x13:
-        dmaSrcSatb = dmaSrcSatb & 0xff | (val << 8);
+        dmaSrcSatb = dmaSrcSatb.withHighByte(val);
         dmaSatb = true;
         break;
     }

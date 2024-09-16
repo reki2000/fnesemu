@@ -136,6 +136,7 @@ class Cpu {
   }
 
   void holdInterrupt(Interrupt int) {
+    // print("interrupted: $int ${hex16(regs.pc)}");
     switch (int) {
       case Interrupt.irq1:
         holdIrq1 = true;

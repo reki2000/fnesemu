@@ -194,7 +194,7 @@ extension Cpu6502 on Cpu {
         int c = a - ((carry() ^ 0x01) + b);
 
         if (isDecimal()) {
-          final carry = (c >= 100) ? Flags.C : 0;
+          final carry = (0 <= c && c < 100) ? Flags.C : 0;
           c %= 100;
           c = (c % 10) | ((c ~/ 10) << 4);
           flagsNZ(c);

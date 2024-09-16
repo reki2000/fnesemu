@@ -9,6 +9,7 @@ import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
+import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_render.dart';
 import 'mapper/rom.dart';
@@ -32,6 +33,7 @@ class Pce {
   late final Apu apu;
   late final Cpu2 cpu;
   late final Bus bus;
+  late final Timer timer;
 
   final storage = Storage.of();
 
@@ -45,6 +47,7 @@ class Pce {
     cpu = Cpu2(bus);
     vdc = Vdc(bus);
     apu = Apu(bus);
+    timer = Timer(bus);
   }
 
   int nextVdcClocks = 0;
@@ -54,7 +57,7 @@ class Pce {
   ExecResult exec() {
     final cpuOk = cpu.exec();
 
-    bus.execTimer(cpu.clock ~/ 3);
+    bus.timer.exec(cpu.clock);
 
     if (!cpuOk) {
       return ExecResult(cpu.cycles, false, false);

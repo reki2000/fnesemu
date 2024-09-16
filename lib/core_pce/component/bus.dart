@@ -1,9 +1,11 @@
 // Dart imports:
 
+import '../../util.dart';
 import '../mapper/rom.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'pad.dart';
+import 'timer.dart';
 import 'vdc.dart';
 
 class Bus {
@@ -25,24 +27,7 @@ class Bus {
   bool maskIrq2 = false;
   bool maskTIrq = false;
 
-  static const prescalerSize = 1024;
-  int timerSize = 0;
-  int timerPrescaler = 0;
-  int timerCounter = 0;
-
-  execTimer(int cycles) {
-    timerPrescaler -= cycles;
-    if (timerPrescaler < 0) {
-      timerPrescaler += prescalerSize;
-
-      if (timerCounter > 0) {
-        timerCounter--;
-        if (timerCounter == 0) {
-          holdTirq();
-        }
-      }
-    }
-  }
+  late final Timer timer;
 
   int read(int addr) {
     final bank = addr >> 13;
@@ -76,40 +61,33 @@ class Bus {
         };
       }
 
-      switch (offset) {
-        case 0x0400:
-        case 0x0401:
-        case 0x0402:
-        case 0x0403:
-        case 0x0404:
-        case 0x0405:
-          return 0; // VCE
-        case 0x0800:
-        case 0x0801:
-        case 0x0802:
-        case 0x0803:
-        case 0x0804:
-        case 0x0805:
-        case 0x0806:
-        case 0x0807:
-        case 0x0808:
-        case 0x0809:
-          return 0; // PSG
-        case 0x0c00:
-        case 0x0c01:
-          return 0; // タイマー
-        case 0x1000:
-          return joypad.read(addr);
+      // PSG
+      if (offset < 0x0c00) {
+        return 0;
+      }
 
-        // 割り込みコントローラ
-        case 0x1402:
-          return (maskIrq1 ? 0x02 : 0) |
+      if (offset < 0x1000) {
+        return switch (offset & 0x03) {
+          0x00 => timer.counter,
+          0x01 => timer.counter,
+          int() => 0
+        };
+      }
+
+      if (offset < 0x1400) {
+        return 0;
+      }
+
+      if (offset < 0x1800) {
+        return switch (offset & 0x03) {
+          0x02 => (maskIrq1 ? 0x02 : 0) |
               (maskIrq2 ? 0x01 : 0) |
-              (maskTIrq ? 0x04 : 0);
-        case 0x1403:
-          return (_holdIrq1 ? 0 : 0x02) |
+              (maskTIrq ? 0x04 : 0),
+          0x03 => (_holdIrq1 ? 0 : 0x02) |
               (_holdIrq2 ? 0x01 : 0) |
-              (_holdTirq ? 0x04 : 0);
+              (_holdTirq ? 0x04 : 0),
+          int() => 0
+        };
       }
     }
 
@@ -185,14 +163,10 @@ class Bus {
         switch (offset & 0x03) {
           // タイマー
           case 0x00:
-            timerSize = data & 0x7f;
+            timer.size = data & 0x7f;
             return;
           case 0x01:
-            if (data & 0x01 != 0 && timerCounter == 0) {
-              timerCounter = timerSize;
-            } else if (data & 0x01 == 0) {
-              timerCounter = 0;
-            }
+            timer.trigger(bit0(data));
             return;
         }
         return;
@@ -207,9 +181,9 @@ class Bus {
       if (offset < 0x1800) {
         switch (offset & 0x03) {
           case 0x02:
-            maskIrq2 = data & 0x01 != 0;
-            maskIrq1 = data & 0x02 != 0;
-            maskTIrq = data & 0x04 != 0;
+            maskIrq2 = bit0(data);
+            maskIrq1 = bit1(data);
+            maskTIrq = bit2(data);
             return;
           case 0x03:
             acknoledgeTirq();
@@ -218,18 +192,6 @@ class Bus {
         return;
       }
     }
-  }
-
-  void writeVdcReg(value) {
-    vdc.writeReg(value);
-  }
-
-  void writeVdcLsb(value) {
-    vdc.writeLsb(value);
-  }
-
-  void writeVdcMsb(value) {
-    vdc.writeMsb(value);
   }
 
   holdIrq1() {
@@ -281,6 +243,7 @@ class Bus {
     vdc.reset();
     apu.reset();
     cpu.reset();
+    timer.reset();
   }
 
   void holdIrq() => {};
