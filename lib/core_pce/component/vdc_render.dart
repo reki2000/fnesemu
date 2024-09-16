@@ -8,13 +8,19 @@ import 'vdc.dart';
 extension VdcRenderer on Vdc {
   static final buffer = Uint32List(Spec.width * Spec.height);
 
-  static int y = 0;
+  static int renderLine = 0;
   static int x = 0;
+
+  static int displayStartLine = 14;
 
   // render a line;
   void exec() {
-    if (line >= 14 && line < 256) {
-      y = (line - 14 + scrollY);
+    if (displayLine == displayStartLine) {
+      renderLine = scrollY;
+    }
+
+    if (displayLine >= displayStartLine &&
+        displayLine < displayStartLine + 242) {
       // 242 lines
       for (h = 0; h < Spec.width; h++) {
         // if (!(h == 0 && line == 15)) {
@@ -23,15 +29,17 @@ extension VdcRenderer on Vdc {
         _render();
       }
 
-      if (line == rasterCompareRegister - 0x40) {
+      if (displayLine == rasterCompareRegister - 0x40) {
         if (enableRasterCompareIrq) {
           status |= Vdc.rr;
           bus.cpu.holdInterrupt(Interrupt.irq1);
         }
       }
+
+      renderLine++;
     }
 
-    if (line == 260) {
+    if (displayLine == 260) {
       if (enableVBlank) {
         status |= Vdc.vd;
         bus.cpu.holdInterrupt(Interrupt.irq1);
@@ -39,13 +47,13 @@ extension VdcRenderer on Vdc {
       execDmaSatb();
     }
 
-    if (line == 264) {
-      line = 0;
+    if (displayLine == 264) {
+      displayLine = 0;
     }
 
     execDmaVram();
 
-    line++;
+    displayLine++;
   }
 
   static int paletteNo = 0;
@@ -57,14 +65,15 @@ extension VdcRenderer on Vdc {
 
     if (h == 0 || (x & 0x07) == 0) {
       final nameTableAddress =
-          (((y >> 3) & bgHeightMask) << bgWidthBits) | ((x >> 3) & bgWidthMask);
+          (((renderLine >> 3) & bgHeightMask) << bgWidthBits) |
+              ((x >> 3) & bgWidthMask);
       // print(
       //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${hex16(addr)}");
       final tile = vram[nameTableAddress];
       paletteNo = tile >> 12;
 
       if (vramDotWidth == 3) {
-        final addr = ((tile & 0xfff) << 4) | y & 0x07;
+        final addr = ((tile & 0xfff) << 4) | renderLine & 0x07;
         if (bgTreatPlane23Zero) {
           pattern01 = (vram[addr]);
           pattern23 = 0;
@@ -73,7 +82,7 @@ extension VdcRenderer on Vdc {
           pattern23 = (vram[addr]);
         }
       } else {
-        final addr = ((tile & 0xfff) << 4) | y & 0x07;
+        final addr = ((tile & 0xfff) << 4) | renderLine & 0x07;
         pattern01 = (vram[addr]);
         pattern23 = (vram[addr + 8]);
       }
@@ -89,7 +98,7 @@ extension VdcRenderer on Vdc {
         (p23 >> 5) & 0x08;
 
     final c = colorTable[(paletteNo << 4) | colorNo];
-    buffer[(line - 14) * Spec.width + (x % Spec.width)] = _rgba[c];
+    buffer[(displayLine - 14) * Spec.width + (x % Spec.width)] = _rgba[c];
   }
 
   // preliminary building an RGBA color map for all 512 colors

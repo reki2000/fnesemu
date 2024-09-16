@@ -130,11 +130,6 @@ class Cpu {
   }
 
   // interrupt handling
-
-  void onNmi() {
-    holdNmi = true;
-  }
-
   void holdInterrupt(Interrupt int) {
     // print("interrupted: $int ${hex16(regs.pc)}");
     switch (int) {

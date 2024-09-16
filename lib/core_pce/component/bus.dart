@@ -183,7 +183,7 @@ class Bus {
     }
   }
 
-  void onNmi() => cpu.onNmi();
+  void onNmi() => cpu.holdInterrupt(Interrupt.nmi);
 
   void onReset() {
     vdc.reset();

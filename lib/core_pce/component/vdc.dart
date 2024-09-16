@@ -1,4 +1,6 @@
 // Dart imports:
+import 'package:fnesemu/core_pce/component/vdc_render.dart';
+
 import '../../util.dart';
 import 'bus.dart';
 import 'cpu.dart';
@@ -15,7 +17,10 @@ class Vdc {
         "x:${hex16(scrollX)} y:${hex8(scrollY)} rr:${hex16(rasterCompareRegister)} inc:${hex8(addrInc)}";
     final flags =
         "irq:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
-    return "vdc: $scr $flags";
+    final bg =
+        "bg:${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
+    final line = " line: $displayLine ${VdcRenderer.renderLine}";
+    return "vdc: $scr $flags $bg $line";
   }
 
   reset() {
@@ -27,7 +32,7 @@ class Vdc {
       colorTable[i] = 0;
     }
 
-    line = 0;
+    displayLine = 0;
     h = 0;
 
     status = 0;
@@ -66,7 +71,7 @@ class Vdc {
     dmaSatbAlways = false;
   }
 
-  int line = 0; // vertical counter
+  int displayLine = 0; // vertical counter
   int h = 0; // horizontal counter
 
   int reg = 0;
@@ -191,8 +196,8 @@ class Vdc {
         bgHeightMask = (1 << bgHeightBits) - 1;
 
         bgTreatPlane23Zero = val & 0x80 == 0;
-        print(
-            "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
+        // print(
+        //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
         break;
 
       case 0x0f:
@@ -252,6 +257,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.withHighByte(val & 0x01);
+        VdcRenderer.renderLine = scrollY - VdcRenderer.displayStartLine;
         // print("scrollY MSB: ${hex8(val)} $scrollY");
         break;
 
