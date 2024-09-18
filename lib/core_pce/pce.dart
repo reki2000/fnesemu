@@ -3,13 +3,13 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../util.dart';
-import 'component/apu.dart';
-import 'component/apu_debug.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
 import 'component/pic.dart';
+import 'component/psg.dart';
+import 'component/psg_debug.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_render.dart';
@@ -31,7 +31,7 @@ class ExecResult {
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Pce {
   late final Vdc vdc;
-  late final Apu apu;
+  late final Psg psg;
   late final Cpu2 cpu;
   late final Bus bus;
   late final Timer timer;
@@ -41,19 +41,20 @@ class Pce {
 
   static const systemClock = 21477270;
 
-  static const clocksInScanline = systemClock ~/ 60 ~/ scanlinesInFrame;
-  static const scanlinesInFrame = 262;
+  static const clocksInScanline = systemClock ~/ 59.97 ~/ scanlinesInFrame;
+  static const scanlinesInFrame = 263;
 
   Pce() {
     bus = Bus();
     cpu = Cpu2(bus);
     vdc = Vdc(bus);
-    apu = Apu(bus);
+    psg = Psg(bus);
     timer = Timer(bus);
     pic = Pic(bus);
   }
 
   int nextVdcClocks = 0;
+  int nextPsgClocks = 0;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -76,6 +77,11 @@ class Pce {
       rendered = true;
     }
 
+    while (cpu.clocks >= nextPsgClocks) {
+      psg.exec(clocksInScanline);
+      nextPsgClocks += clocksInScanline;
+    }
+
     return ExecResult(cpu.cycles, true, rendered);
   }
 
@@ -86,7 +92,7 @@ class Pce {
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
   Float32List apuBuffer() {
-    return apu.buffer;
+    return psg.buffer;
   }
 
   /// handles reset button events
@@ -123,7 +129,7 @@ class Pce {
     final cpuDump = cpu.dump(showRegs: true);
     final dump = "$cpuDump\n"
         "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
-        "${showApu ? apu.dump() : ""}"
+        "${showApu ? psg.dump() : ""}"
         "${bus.vdc.dump()}";
     return dump;
     // return '${fps.toStringAsFixed(2)}fps';

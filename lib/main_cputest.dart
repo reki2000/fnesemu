@@ -1,11 +1,11 @@
 // Dart imports:
 import 'dart:io';
 
-// Project imports:
-import 'core_pce/component/apu.dart';
 import 'core_pce/component/bus.dart';
 import 'core_pce/component/cpu.dart';
 import 'core_pce/component/cpu_debug.dart';
+// Project imports:
+import 'core_pce/component/psg.dart';
 import 'core_pce/mapper/rom.dart';
 import 'core_pce/rom/pce_file.dart';
 
@@ -17,7 +17,7 @@ void main() async {
   log("running fnesemu cpu test...");
   final bus = Bus();
   final cpu = Cpu2(bus);
-  Apu(bus);
+  Psg(bus);
 
   final f = File("assets/rom/pcetest.pce");
   log("loading: $f");

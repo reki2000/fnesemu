@@ -2,17 +2,17 @@
 
 import '../../util.dart';
 import '../mapper/rom.dart';
-import 'apu.dart';
 import 'cpu.dart';
 import 'pad.dart';
 import 'pic.dart';
+import 'psg.dart';
 import 'timer.dart';
 import 'vdc.dart';
 
 class Bus {
   late final Cpu cpu;
   late final Vdc vdc;
-  late final Apu apu;
+  late final Psg psg;
   late final Timer timer;
   late final Pic pic;
 
@@ -134,19 +134,7 @@ class Bus {
 
       // PSG
       if (offset < 0x0c00) {
-        switch (offset) {
-          case 0x0800:
-          case 0x0801:
-          case 0x0802:
-          case 0x0803:
-          case 0x0804:
-          case 0x0805:
-          case 0x0806:
-          case 0x0807:
-          case 0x0808:
-          case 0x0809:
-            return;
-        }
+        psg.write(data & 0x0f, data);
         return;
       }
 
@@ -188,7 +176,7 @@ class Bus {
 
   void onReset() {
     vdc.reset();
-    apu.reset();
+    psg.reset();
     cpu.reset();
     timer.reset();
     pic.reset();
