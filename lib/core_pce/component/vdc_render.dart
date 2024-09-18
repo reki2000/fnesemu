@@ -11,7 +11,6 @@ class Sprite {
   late final int y;
   late final int patternNo;
   late final int paletteNo;
-  late final int pttern;
   late final bool cgModeTreal01Zero;
   late final bool vFlip;
   late final bool hFlip;
@@ -23,14 +22,27 @@ class Sprite {
     no = i >> 2;
     y = sat[i] & 0x3ff;
     x = sat[i + 1] & 0x3ff;
-    patternNo = (sat[i + 2] >> 1) & 0x3ff;
+
     cgModeTreal01Zero = sat[i + 2] & 0x01 != 0;
     vFlip = (sat[i + 3] & 0x8000) != 0;
     hFlip = (sat[i + 3] & 0x0800) != 0;
-    height = switch ((sat[i + 3] >> 12) & 0x03) { 0 => 16, 1 => 32, _ => 64 };
-    width = switch ((sat[i + 3] >> 8) & 0x01) { 0 => 16, _ => 32 };
     priority = (sat[i + 3] & 0x80) != 0;
     paletteNo = sat[i + 3] & 0x0f;
+
+    height = switch ((sat[i + 3] >> 12) & 0x03) { 0 => 16, 1 => 32, _ => 64 };
+    width = switch ((sat[i + 3] >> 8) & 0x01) { 0 => 16, _ => 32 };
+
+    int patternMask = 0;
+    if (height == 64) {
+      patternMask |= 0x06;
+    } else if (height == 32) {
+      patternMask |= 0x02;
+      ;
+    }
+    if (width == 32) {
+      patternMask |= 0x01;
+    }
+    patternNo = (sat[i + 2] >> 1) & 0x3ff & ~patternMask;
   }
 }
 
@@ -121,8 +133,9 @@ extension VdcRenderer on Vdc {
     final spColor = enableSprite ? _renderSprite() : 0;
     final bgColor = enableBg ? _renderBg() : 0;
 
-    buffer[(displayLine - 14) * Spec.width + h] =
-        _rgba[colorTable[(spColor & 0x0f != 0) ? spColor : bgColor]];
+    buffer[(displayLine - 14) * Spec.width + h] = (spColor & 0xff000000 != 0)
+        ? spColor
+        : _rgba[colorTable[(spColor & 0x0f != 0) ? spColor : bgColor]];
   }
 
   int _renderBg() {
@@ -184,6 +197,18 @@ extension VdcRenderer on Vdc {
     }
   }
 
+  static bool showSpriteBorder = false;
+  static const showSpriteNoOffset = 2;
+
+  // define a bit pattern which respresents the image of the digit in 3x5 matrix
+  static const digitPattern = [
+    "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",
+    "o.o ..o ..o ..o o.o o.. o.. ..o o.o o.o o.o o.o o.. o.o o.. o.. ",
+    "o.o ..o ooo ooo ooo ooo ooo ..o ooo ooo ooo oo. o.. o.o ooo ooo ",
+    "o.o ..o o.. ..o ..o ..o o.o ..o o.o ..o o.o o.o o.. o.o o.. o.. ",
+    "ooo ..o ooo ooo ..o ooo ooo ..o ooo ooo o.o oo. ooo oo. ooo o.. ",
+  ];
+
   int _renderSprite() {
     for (int i = 0; i < spriteBufIndex; i++) {
       final sp = spriteBuf[i];
@@ -199,14 +224,30 @@ extension VdcRenderer on Vdc {
         final y = flippedY & 0x0f;
         final y2 = flippedY >> 4;
 
-        // const borderColor = 0x100 | 0xff;
-        // if (hh == 0 || hh == sp.width - 1) {
-        //   return borderColor;
-        // }
+        if (showSpriteBorder) {
+          if (0 == hh && 0 == vv && sp.no == 0x13) {
+            print(
+                "sp: ${sp.no}, x: ${sp.x}, y: ${sp.y}, p: ${sp.patternNo}, pal: ${sp.paletteNo}, cg: ${sp.cgModeTreal01Zero}, v: ${sp.vFlip}, h: ${sp.hFlip}, h: ${sp.height}, w: ${sp.width}, p: ${sp.priority}");
+          }
 
-        // if (vv == 0 || vv == sp.height - 1) {
-        //   return borderColor;
-        // }
+          const borderColor = 0xffffffff;
+          if (hh == 0 || hh == sp.width - 1) {
+            return borderColor;
+          }
+
+          if (vv == 0 || vv == sp.height - 1) {
+            return borderColor;
+          }
+
+          final hh2 = hh - showSpriteNoOffset;
+          final vv2 = vv - showSpriteNoOffset;
+          if (0 <= vv2 && vv2 < 5 && 0 <= hh2 && hh2 < 4 * 2) {
+            final digit = (sp.no >> (4 - (hh2 & 0x04))) & 0x0f;
+            if (digitPattern[vv2][digit * 4 + hh2] == 'o') {
+              return borderColor;
+            }
+          }
+        }
 
         int p0, p1, p2, p3;
         if (vramDotWidth == 3) {
@@ -222,7 +263,7 @@ extension VdcRenderer on Vdc {
             p2 = p3 = 0;
           }
         } else {
-          final addr = ((sp.patternNo + x2 + y2 * (sp.width >> 4)) << 6) + y;
+          final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
           p0 = vram[addr + 00];
           p1 = vram[addr + 16];
           p2 = vram[addr + 32];
