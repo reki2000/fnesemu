@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/core_pce/component/cpu.dart';
+import 'package:fnesemu/util.dart';
 
 import '../../spec.dart';
 import 'vdc.dart';
@@ -197,17 +198,7 @@ extension VdcRenderer on Vdc {
     }
   }
 
-  static bool showSpriteBorder = false;
-  static const showSpriteNoOffset = 2;
-
-  // define a bit pattern which respresents the image of the digit in 3x5 matrix
-  static const digitPattern = [
-    "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",
-    "o.o ..o ..o ..o o.o o.. o.. ..o o.o o.o o.o o.o o.. o.o o.. o.. ",
-    "o.o ..o ooo ooo ooo ooo ooo ..o ooo ooo ooo oo. o.. o.o ooo ooo ",
-    "o.o ..o o.. ..o ..o ..o o.o ..o o.o ..o o.o o.o o.. o.o o.. o.. ",
-    "ooo ..o ooo ooo ..o ooo ooo ..o ooo ooo o.o oo. ooo oo. ooo o.. ",
-  ];
+  static bool showSpriteBorder = true;
 
   int _renderSprite() {
     for (int i = 0; i < spriteBufIndex; i++) {
@@ -239,13 +230,8 @@ extension VdcRenderer on Vdc {
             return borderColor;
           }
 
-          final hh2 = hh - showSpriteNoOffset;
-          final vv2 = vv - showSpriteNoOffset;
-          if (0 <= vv2 && vv2 < 5 && 0 <= hh2 && hh2 < 4 * 2) {
-            final digit = (sp.no >> (4 - (hh2 & 0x04))) & 0x0f;
-            if (digitPattern[vv2][digit * 4 + hh2] == 'o') {
-              return borderColor;
-            }
+          if (sp.no.drawValue(hh - 2, vv - 2, 3)) {
+            return borderColor;
           }
         }
 
