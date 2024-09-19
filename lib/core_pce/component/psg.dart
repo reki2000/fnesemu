@@ -20,7 +20,7 @@ class Wave {
   int currentL = 0;
   int currentR = 0;
 
-  static final table = List.filled(32, 0);
+  static final table = List.filled(32, 0, growable: false);
 
   void reset() {
     counter = 0;
@@ -40,12 +40,9 @@ class Wave {
     tableWriteIndex = (tableWriteIndex + 1) & 0x1f;
   }
 
+  // generate 2 channel interleaved 5bit PCM
   Int8List synth(int cycles) {
     final buf = Int8List(cycles * 2);
-
-    if (!enabled) {
-      return buf;
-    }
 
     for (int i = 0; i < buf.length; i += 2) {
       buf[i] = currentL;
@@ -126,7 +123,7 @@ class Psg {
         return;
 
       case 0x06: // waveform
-        waves[ch].pushWave(val & 0x0f);
+        waves[ch].pushWave(val & 0x1f);
         return;
 
       case 0x07: // noise ch4 or 5 only
@@ -149,36 +146,34 @@ class Psg {
     return 0xff;
   }
 
-  // output volume conversion table for wave channles
-  static final _waveOutTable =
-      List<double>.generate(32, (n) => n == 0 ? 0 : 95.52 / (8128.0 / n + 100));
-
   /// sound output buffer: -1.0 to 1.0 for 1 screen frame @
-  var buffer = Float32List(0);
+  final buffer = Float32List(21477270 / 59.97 ~/ 6 * 2);
+  var bufferIndex = 0;
 
   /// Generates APU 1Frame output and set it to the apu output buffer
   void exec(elapsedClocks) {
     final cycles = elapsedClocks ~/ 3 ~/ 2; // 3.579545MHz
-    buffer = Float32List(cycles * 2);
 
     var out = List.filled(6, Int8List(0));
     for (int i = 0; i < waves.length; i++) {
       out[i] = waves[i].synth(cycles); // 0 - 32, 2 channel interleave
     }
 
-    var bufferIndex = 0;
     for (int i = 0; i < cycles * 2; i += 2) {
-      double volL = 0;
-      double volR = 0;
+      int volL = 0;
+      int volR = 0;
       for (int j = 0; j < waves.length; j++) {
-        volL += _waveOutTable[out[j][i]];
-        volR += _waveOutTable[out[j][i + 1]];
+        volL += out[j][i];
+        volR += out[j][i + 1];
       }
 
       buffer[bufferIndex++] =
           (volL * (ampL + 1) / 16) / waves.length / 32 - 1.0;
       buffer[bufferIndex++] =
           (volR * (ampR + 1) / 16) / waves.length / 32 - 1.0;
+      if (bufferIndex >= buffer.length) {
+        bufferIndex = 0;
+      }
     }
   }
 }

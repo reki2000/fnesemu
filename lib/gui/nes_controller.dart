@@ -130,7 +130,7 @@ class NesController {
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
 
-  final audioSampleRate = 22050;
+  final audioSampleRate = 21477270 ~/ 6;
 
   // pad
 

@@ -134,7 +134,7 @@ class Bus {
 
       // PSG
       if (offset < 0x0c00) {
-        psg.write(data & 0x0f, data);
+        psg.write(offset & 0x0f, data);
         return;
       }
 
