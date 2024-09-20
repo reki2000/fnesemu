@@ -168,13 +168,14 @@ class Disasm {
         opcode += 0x20;
       }
 
-      opcode = 0x00;
       for (var i in range(0, 8)) {
-        ops[opcode + 0x07] = ["RMB$i", _Operand.zerorel];
-        ops[opcode + 0x87] = ["SMB$i", _Operand.zerorel];
-        ops[opcode + 0x0f] = ["BBR$i", _Operand.zerorel];
-        ops[opcode + 0x8f] = ["BBS$i", _Operand.zerorel];
-        opcode += 0x10;
+        ops[i * 0x10 + 0x07] = ["RMB$i", _Operand.zero];
+        ops[i * 0x10 + 0x87] = ["SMB$i", _Operand.zero];
+      }
+
+      for (var i in range(0, 8)) {
+        ops[i * 0x10 + 0x0f] = ["BBR$i", _Operand.zerorel];
+        ops[i * 0x10 + 0x8f] = ["BBS$i", _Operand.zerorel];
       }
     }
 
@@ -226,7 +227,7 @@ class Disasm {
       case _Operand.rel:
         return "$addr  $x $y     $inst \$${hex16(rel)}";
       case _Operand.zerorel:
-        return "$addr  $x $y $z  $inst \$$y, ${hex16(rel2)}";
+        return "$addr  $x $y $z  $inst \$$y, \$${hex16(rel2)}";
       case _Operand.zpind:
         return "$addr  $x $y     $inst \$($y) $set";
       case _Operand.blk:

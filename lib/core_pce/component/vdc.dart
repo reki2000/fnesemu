@@ -19,7 +19,7 @@ class Vdc {
         "irq:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
     final bg =
         "bg:${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
-    final line = " line: $displayLine ${VdcRenderer.renderLine}";
+    final line = " line: $scanLine ${VdcRenderer.renderLine}";
     return "vdc: $scr $flags $bg $line";
   }
 
@@ -32,7 +32,7 @@ class Vdc {
       colorTable[i] = 0;
     }
 
-    displayLine = 0;
+    scanLine = 0;
     h = 0;
 
     status = 0;
@@ -71,7 +71,7 @@ class Vdc {
     dmaSatbAlways = false;
   }
 
-  int displayLine = 0; // vertical counter
+  int scanLine = 0; // vertical counter
   int h = 0; // horizontal counter
 
   int reg = 0;
@@ -96,13 +96,14 @@ class Vdc {
   int writeLatch = 0;
 
   int status = 0;
-  static const bsy = 0x40;
-  static const vd = 0x20;
-  static const dv = 0x10;
-  static const ds = 0x08;
-  static const rr = 0x04;
-  static const or = 0x02;
-  static const cr = 0x01;
+
+  static const statusBusy = 0x40;
+  static const statusVBlank = 0x20; // vblank irq
+  static const statusDmaVram = 0x10; // dma vram irq
+  static const statusDmaSat = 0x08; // dma satb irq
+  static const statusRasterCompare = 0x04; // raster compare
+  static const statusSpriteOverflow = 0x02; // sprite overflow
+  static const statusSpriteCollision = 0x01; // sprite collision
 
   int rasterCompareRegister = 0;
 
@@ -176,6 +177,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.withLowByte(val);
+        VdcRenderer.renderLine = scrollY;
         // print("scrollY LSB: ${hex8(val)} $scrollY");
         break;
 
@@ -259,7 +261,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.withHighByte(val & 0x01);
-        VdcRenderer.renderLine = scrollY - VdcRenderer.displayStartLine;
+        VdcRenderer.renderLine = scrollY;
         // print("scrollY MSB: ${hex8(val)} $scrollY");
         break;
 
@@ -285,6 +287,8 @@ class Vdc {
     }
   }
 
+  // VCE
+
   final colorTable = List<int>.filled(512, 0x1ff, growable: false);
   int colorTableAddress = 0;
 
@@ -300,24 +304,24 @@ class Vdc {
 
   writeColorTableLsb(int val) {
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress] & 0x0100 | val;
+        colorTable[colorTableAddress].withLowByte(val);
   }
 
   writeColorTableMsb(int val) {
-    // print(
-    //     "writeColorTableAddress: $colorTableAddress, ${colorTable[colorTableAddress] & 0xff | (val << 8)}");
     colorTable[colorTableAddress] =
-        ((val & 0x01) << 8) | colorTable[colorTableAddress] & 0xff;
+        colorTable[colorTableAddress].withHighByte(val & 1);
     colorTableAddress = (colorTableAddress + 1) & 0x1ff;
   }
 
   writeColorTableAddressLsb(int val) {
-    colorTableAddress = colorTableAddress & 0x0100 | val;
+    colorTableAddress = colorTableAddress.withLowByte(val);
   }
 
   writeColorTableAddressMsb(int val) {
-    colorTableAddress = ((val & 0x01) << 8) | colorTableAddress & 0xff;
+    colorTableAddress = colorTableAddress.withHighByte(val);
   }
+
+  // DMA
 
   int dmaSrc = 0;
   int dmaSrcDir = 0;
@@ -344,7 +348,7 @@ class Vdc {
       }
 
       if (enableDmaSatIrq) {
-        status |= ds;
+        status |= statusDmaSat;
         bus.cpu.holdInterrupt(Interrupt.irq1);
       }
     }
@@ -365,7 +369,7 @@ class Vdc {
 
       if (dmaLen == 0) {
         if (enableDmaVramIrq) {
-          status |= dv;
+          status |= statusDmaVram;
           bus.cpu.holdInterrupt(Interrupt.irq1);
         }
         break;

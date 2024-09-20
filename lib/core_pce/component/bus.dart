@@ -48,8 +48,8 @@ class Bus {
       // VCE
       if (offset < 0x0800) {
         return switch (offset & 0x07) {
-          0x02 => vdc.readColorTableLsb(),
-          0x03 => vdc.readColorTableMsb(),
+          0x04 => vdc.readColorTableLsb(),
+          0x05 => vdc.readColorTableMsb(),
           int() => 0xff
         };
       }

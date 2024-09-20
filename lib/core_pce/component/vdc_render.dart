@@ -69,6 +69,8 @@ final Uint32List _rgba = Uint32List.fromList(
 );
 
 extension VdcRenderer on Vdc {
+  static bool debug = false;
+
   static final buffer = Uint32List(Spec.width * Spec.height);
 
   static int renderLine = 0;
@@ -78,13 +80,14 @@ extension VdcRenderer on Vdc {
 
   // render a line;
   void exec() {
-    if (displayLine == displayStartLine) {
+    final displayLine = scanLine - displayStartLine;
+
+    if (displayLine == 0) {
       renderLine = scrollY;
     }
 
     // 242 lines
-    if (displayLine >= displayStartLine &&
-        displayLine < displayStartLine + 242) {
+    if (0 <= displayLine && displayLine < 242) {
       _fillSpriteBuffer();
 
       for (h = 0; h < Spec.width; h++) {
@@ -94,9 +97,21 @@ extension VdcRenderer on Vdc {
         _render();
       }
 
-      if (displayLine - displayStartLine == rasterCompareRegister - 0x40) {
+      // debug: show line counter by 16 lines
+      if (debug &&
+          displayLine >= 0x10 &&
+          0 <= displayLine & 0x0f &&
+          displayLine & 0x0f < 5) {
+        for (int x = 0; x < 4 * 2; x++) {
+          if ((displayLine & 0xf0).drawHexValue(x, displayLine & 0x0f, 2)) {
+            buffer[(displayLine - 5) * Spec.width + 1 + x] = 0xffffffff;
+          }
+        }
+      }
+
+      if (displayLine + 0x40 == rasterCompareRegister) {
         if (enableRasterCompareIrq) {
-          status |= Vdc.rr;
+          status |= Vdc.statusRasterCompare;
           bus.cpu.holdInterrupt(Interrupt.irq1);
         }
       }
@@ -104,9 +119,9 @@ extension VdcRenderer on Vdc {
       renderLine++;
     }
 
-    if (displayLine == 260) {
+    if (scanLine == 260) {
       if (enableVBlank) {
-        status |= Vdc.vd;
+        status |= Vdc.statusVBlank;
         bus.cpu.holdInterrupt(Interrupt.irq1);
       }
 
@@ -117,13 +132,13 @@ extension VdcRenderer on Vdc {
       }
     }
 
-    if (displayLine == 264) {
-      displayLine = 0;
-    }
-
     execDmaVram();
 
-    displayLine++;
+    scanLine++;
+
+    if (scanLine == 264) {
+      scanLine = 0;
+    }
   }
 
   static int paletteNo = 0;
@@ -134,7 +149,7 @@ extension VdcRenderer on Vdc {
     final spColor = enableSprite ? _renderSprite() : 0;
     final bgColor = enableBg ? _renderBg() : 0;
 
-    buffer[(displayLine - 14) * Spec.width + h] = (spColor & 0xff000000 != 0)
+    buffer[(scanLine - 14) * Spec.width + h] = (spColor & 0xff000000 != 0)
         ? spColor
         : _rgba[colorTable[(spColor & 0x0f != 0) ? spColor : bgColor]];
   }
@@ -187,18 +202,18 @@ extension VdcRenderer on Vdc {
 
   _fillSpriteBuffer() {
     spriteBufIndex = 0;
-    final y = displayLine - displayStartLine + 64;
+    final y = scanLine - displayStartLine + 64;
     for (final sp in sprites) {
       if (sp.y <= y && y < sp.y + sp.height) {
-        spriteBuf[spriteBufIndex++] = sp;
-        if (spriteBufIndex == 16) {
+        if (spriteBufIndex == 17) {
+          status |= Vdc.statusSpriteOverflow;
+          bus.cpu.holdInterrupt(Interrupt.irq1);
           break;
         }
+        spriteBuf[spriteBufIndex++] = sp;
       }
     }
   }
-
-  static bool showSpriteBorder = true;
 
   int _renderSprite() {
     for (int i = 0; i < spriteBufIndex; i++) {
@@ -210,28 +225,23 @@ extension VdcRenderer on Vdc {
         final x = flippedX & 0x0f;
         final x2 = flippedX >> 4;
 
-        final vv = displayLine - displayStartLine + 64 - sp.y;
+        final vv = scanLine - displayStartLine + 64 - sp.y;
         final flippedY = sp.vFlip ? sp.height - vv : vv;
         final y = flippedY & 0x0f;
         final y2 = flippedY >> 4;
 
-        if (showSpriteBorder) {
-          if (0 == hh && 0 == vv && sp.no == 0x13) {
-            print(
-                "sp: ${sp.no}, x: ${sp.x}, y: ${sp.y}, p: ${sp.patternNo}, pal: ${sp.paletteNo}, cg: ${sp.cgModeTreal01Zero}, v: ${sp.vFlip}, h: ${sp.hFlip}, h: ${sp.height}, w: ${sp.width}, p: ${sp.priority}");
-          }
+        if (debug) {
+          // if (0 == hh && 0 == vv && sp.no == 0x13) {
+          //   print(
+          //       "sp: ${sp.no}, x: ${sp.x}, y: ${sp.y}, p: ${sp.patternNo}, pal: ${sp.paletteNo}, cg: ${sp.cgModeTreal01Zero}, v: ${sp.vFlip}, h: ${sp.hFlip}, h: ${sp.height}, w: ${sp.width}, p: ${sp.priority}");
+          // }
 
-          const borderColor = 0xffffffff;
-          if (hh == 0 || hh == sp.width - 1) {
-            return borderColor;
-          }
-
-          if (vv == 0 || vv == sp.height - 1) {
-            return borderColor;
-          }
-
-          if (sp.no.drawValue(hh - 2, vv - 2, 3)) {
-            return borderColor;
+          if (hh == 0 ||
+              hh == sp.width - 1 ||
+              vv == 0 ||
+              vv == sp.height - 1 ||
+              sp.no.drawValue(hh - 2, vv - 2, 3)) {
+            return 0xffffffff;
           }
         }
 

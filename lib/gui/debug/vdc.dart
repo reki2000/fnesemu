@@ -93,38 +93,32 @@ Future<ui.Image> renderVram(colorTable, List<int> vram) {
 }
 
 Future<ui.Image> renderBg(colorTable, List<int> vram) {
-  int tileSize = 8;
-  int bgWidth = 32;
-  int bgHeight = 32;
-  int width = (tileSize * bgWidth + tileSize * 2) * 2;
-  int height = tileSize * bgHeight;
+  const tileSize = 8;
+  const bgWidth = 128;
+  const bgHeight = 32;
+  const width = tileSize * bgWidth;
+  const height = tileSize * bgHeight;
 
   final buf = Uint32List(width * height);
 
-  for (int base = 0; base < 2; base++) {
-    final vramOffset = base * 0x400;
-    final imageOffset = base * (tileSize * bgWidth + tileSize * 2);
+  for (int ty = 0; ty < bgHeight; ty++) {
+    for (int tx = 0; tx < bgWidth; tx++) {
+      final pattern = vram[tx + ty * bgWidth];
+      final palette = pattern >> 12;
 
-    for (int ty = 0; ty < bgHeight; ty++) {
-      for (int tx = 0; tx < bgWidth; tx++) {
-        final pattern = vram[vramOffset | tx + ty * 32];
-        final palette = pattern >> 12;
+      for (int y = 0; y < tileSize; y++) {
+        final addr = (pattern & 0xfff) * 16 + y;
+        final p01 = vram[addr];
+        final p23 = vram[addr + 8];
 
-        for (int y = 0; y < tileSize; y++) {
-          final addr = (pattern & 0xfff) * 16 + y;
-          final p01 = vram[addr];
-          final p23 = vram[addr + 8];
-
-          for (int x = 0; x < tileSize; x++) {
-            final p0 = (p01 >> (8 + tileSize - x - 1)) & 1;
-            final p1 = (p01 >> (0 + tileSize - x - 1)) & 1;
-            final p2 = (p23 >> (8 + tileSize - x - 1)) & 1;
-            final p3 = (p23 >> (0 + tileSize - x - 1)) & 1;
-            final p = p0 | (p1 << 1) | (p2 << 2) | (p3 << 3);
-            final c = colorTable[palette * 16 + p];
-            buf[tx * tileSize + x + (ty * tileSize + y) * width + imageOffset] =
-                _rgba[c];
-          }
+        for (int x = 0; x < tileSize; x++) {
+          final p0 = (p01 >> (8 + tileSize - x - 1)) & 1;
+          final p1 = (p01 >> (0 + tileSize - x - 1)) & 1;
+          final p2 = (p23 >> (8 + tileSize - x - 1)) & 1;
+          final p3 = (p23 >> (0 + tileSize - x - 1)) & 1;
+          final p = p0 | (p1 << 1) | (p2 << 2) | (p3 << 3);
+          final c = colorTable[(palette << 4) | p];
+          buf[tx * tileSize + x + (ty * tileSize + y) * width] = _rgba[c];
         }
       }
     }
