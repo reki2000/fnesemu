@@ -18,6 +18,11 @@ class Sprite {
   late final int height;
   late final int width;
   late final bool priority;
+  int p0 = 0;
+  int p1 = 0;
+  int p2 = 0;
+  int p3 = 0;
+  int fetchedX2 = -1;
 
   Sprite.of(List<int> sat, int i) {
     no = i >> 2;
@@ -28,7 +33,7 @@ class Sprite {
     vFlip = (sat[i + 3] & 0x8000) != 0;
     hFlip = (sat[i + 3] & 0x0800) != 0;
     priority = (sat[i + 3] & 0x80) != 0;
-    paletteNo = sat[i + 3] & 0x0f;
+    paletteNo = ((sat[i + 3] & 0x0f) << 4) | 0x100;
 
     height = switch ((sat[i + 3] >> 12) & 0x03) { 0 => 16, 1 => 32, _ => 64 };
     width = switch ((sat[i + 3] >> 8) & 0x01) { 0 => 16, _ => 32 };
@@ -69,7 +74,7 @@ final Uint32List _rgba = Uint32List.fromList(
 );
 
 extension VdcRenderer on Vdc {
-  static bool debug = false;
+  static bool debug = true;
 
   static final buffer = Uint32List(Spec.width * Spec.height);
 
@@ -77,10 +82,11 @@ extension VdcRenderer on Vdc {
   static int x = 0;
 
   static int displayStartLine = 14;
+  static int displayLine = 0;
 
   // render a line;
   void exec() {
-    final displayLine = scanLine - displayStartLine;
+    displayLine = scanLine - displayStartLine;
 
     if (displayLine == 0) {
       renderLine = scrollY;
@@ -141,18 +147,18 @@ extension VdcRenderer on Vdc {
     }
   }
 
-  static int paletteNo = 0;
-  static int pattern01 = 0;
-  static int pattern23 = 0;
-
   void _render() {
     final spColor = enableSprite ? _renderSprite() : 0;
     final bgColor = enableBg ? _renderBg() : 0;
 
-    buffer[(scanLine - 14) * Spec.width + h] = (spColor & 0xff000000 != 0)
+    buffer[displayLine * Spec.width + h] = (spColor & 0xff000000 != 0)
         ? spColor
         : _rgba[colorTable[(spColor & 0x0f != 0) ? spColor : bgColor]];
   }
+
+  static int paletteNo = 0;
+  static int pattern01 = 0;
+  static int pattern23 = 0;
 
   int _renderBg() {
     final x = (h + scrollX);
@@ -177,8 +183,8 @@ extension VdcRenderer on Vdc {
         }
       } else {
         final addr = ((tile & 0xfff) << 4) | renderLine & 0x07;
-        pattern01 = (vram[addr]);
-        pattern23 = (vram[addr + 8]);
+        pattern01 = vram[addr];
+        pattern23 = vram[addr + 8];
       }
     }
 
@@ -200,25 +206,32 @@ extension VdcRenderer on Vdc {
       List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
   static int spriteBufIndex = 0;
 
-  static final sprite0 = List<int>.filled(16, 0); // x of sprite 0
+  static final sprite0 = List<bool>.filled(32, false); // x of sprite 0
+
+  static int max = 0;
 
   _fillSpriteBuffer() {
     spriteBufIndex = 0;
-    final y = scanLine - displayStartLine + 64;
+    final y = displayLine + 64;
 
     for (final sp in sprites) {
       if (sp.y <= y && y < sp.y + sp.height) {
-        if (spriteBufIndex == 17) {
-          status |= Vdc.statusSpriteOverflow;
-          bus.cpu.holdInterrupt(Interrupt.irq1);
+        if (spriteBufIndex == 16) {
+          if (enableSpriteOverflow && status & Vdc.statusSpriteOverflow == 0) {
+            status |= Vdc.statusSpriteOverflow;
+            bus.cpu.holdInterrupt(Interrupt.irq1);
+          }
           break;
         }
         spriteBuf[spriteBufIndex++] = sp;
+        sp.fetchedX2 = -1;
       }
     }
 
-    for (int i = 0; i < sprite0.length; i++) {
-      sprite0[i] = -1;
+    if (enalbeSpriteCollision) {
+      for (int i = 0; i < sprite0.length; i++) {
+        sprite0[i] = false;
+      }
     }
   }
 
@@ -232,7 +245,7 @@ extension VdcRenderer on Vdc {
         final x = flippedX & 0x0f;
         final x2 = flippedX >> 4;
 
-        final vv = scanLine - displayStartLine + 64 - sp.y;
+        final vv = displayLine + 64 - sp.y;
         final flippedY = sp.vFlip ? sp.height - vv : vv;
         final y = flippedY & 0x0f;
         final y2 = flippedY >> 4;
@@ -252,35 +265,52 @@ extension VdcRenderer on Vdc {
           }
         }
 
-        int p0, p1, p2, p3;
-        if (vramDotWidth == 3) {
-          final addr = ((sp.patternNo + x2 + y2 * (sp.width >> 4)) << 5) + y;
+        // fetch pattern data if x2 is changed
+        if (x2 != sp.fetchedX2) {
+          sp.fetchedX2 = x2;
 
-          if (sp.cgModeTreal01Zero) {
-            p0 = p1 = 0;
-            p2 = vram[addr + 00];
-            p3 = vram[addr + 16];
+          if (vramDotWidth == 3) {
+            final addr = ((sp.patternNo + x2 + y2 * (sp.width >> 4)) << 5) + y;
+
+            if (sp.cgModeTreal01Zero) {
+              sp.p0 = sp.p1 = 0;
+              sp.p2 = vram[addr + 00];
+              sp.p3 = vram[addr + 16];
+            } else {
+              sp.p0 = vram[addr + 00];
+              sp.p1 = vram[addr + 16];
+              sp.p2 = sp.p3 = 0;
+            }
           } else {
-            p0 = vram[addr + 00];
-            p1 = vram[addr + 16];
-            p2 = p3 = 0;
+            final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
+            sp.p0 = vram[addr + 00];
+            sp.p1 = vram[addr + 16];
+            sp.p2 = vram[addr + 32];
+            sp.p3 = vram[addr + 48];
           }
-        } else {
-          final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
-          p0 = vram[addr + 00];
-          p1 = vram[addr + 16];
-          p2 = vram[addr + 32];
-          p3 = vram[addr + 48];
         }
 
         final shiftBits = 15 - x;
-        final colorNo = ((p0 >> shiftBits) & 0x01) |
-            (((p1 >> shiftBits) << 1) & 0x02) |
-            (((p2 >> shiftBits) << 2) & 0x04) |
-            (((p3 >> shiftBits) << 3) & 0x08);
+        final colorNo = ((sp.p0 >> shiftBits) & 0x01) |
+            (((sp.p1 >> shiftBits) << 1) & 0x02) |
+            (((sp.p2 >> shiftBits) << 2) & 0x04) |
+            (((sp.p3 >> shiftBits) << 3) & 0x08);
+
+        if (enalbeSpriteCollision) {
+          if (sp.no == 0) {
+            sprite0[hh] = true;
+          } else {
+            if (colorNo != 0 &&
+                sprite0[hh] &&
+                status & Vdc.statusSpriteCollision == 0) {
+              status |= Vdc.statusSpriteCollision;
+              bus.cpu.holdInterrupt(Interrupt.irq1);
+            }
+          }
+        }
 
         if (colorNo != 0) {
-          return 0x100 | (sp.paletteNo << 4) | colorNo;
+          return sp.paletteNo | colorNo;
         }
       }
     }

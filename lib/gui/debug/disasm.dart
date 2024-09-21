@@ -19,13 +19,31 @@ class DebugDisasm extends StatelessWidget {
   final margin10 = const EdgeInsets.all(10.0);
   final node = FocusNode();
 
-  _asm(int addr) => range(0, 50)
-      .fold(Pair([""], addr), (a, _) {
-        final asm = debugger.disasm(a.i1);
-        return Pair(a.i0..add(asm.i0), a.i1 + asm.i1);
-      })
-      .i0
-      .join("\n");
+  List<Pair<int, String>> _asm(int addr, int lines) {
+    final result = List<Pair<int, String>>.empty(growable: true);
+
+    for (int i = 0; i < lines; i++) {
+      final asm = debugger.disasm(addr);
+      result.add(Pair(addr, asm.i0));
+      addr += asm.i1;
+    }
+
+    return result;
+  }
+
+  // To show backward lines correctly, we need to start from earlier address and succesding to the current address
+  List<Pair<int, String>> _backward(int addr, int lines) {
+    final result = List.filled(lines, Pair(0, ""), growable: true);
+
+    var current = addr - lines * 6;
+    while (current < addr) {
+      final asm = debugger.disasm(current);
+      result.add(Pair(current, asm.i0));
+      current += asm.i1;
+    }
+
+    return result.sublist(result.length - lines);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +80,9 @@ class DebugDisasm extends StatelessWidget {
             ValueListenableBuilder<int>(
                 valueListenable: addrNotifier,
                 builder: (context, addr, child) => SelectableText(
-                      _asm(addr),
+                      (_backward(addr, 5)..addAll(_asm(addr, 40)))
+                          .map((s) => (s.i0 == addr ? "=>" : "  ") + s.i1)
+                          .join("\n"),
                       style: debugStyle,
                       showCursor: true,
                     )),

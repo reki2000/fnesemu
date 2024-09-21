@@ -2,7 +2,6 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
 
-// Project imports:
 import '../core_controller.dart';
 import 'mem.dart';
 import 'vram.dart';
@@ -21,9 +20,12 @@ class DebugController extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       _button("Step", controller.runStep),
+      _button("Next", () {
+        controller.debugger.debugOption.breakPoint = controller.debugger.nextPc;
+        controller.run();
+      }),
       _button("Line", controller.runScanLine),
       _button("Frame", controller.runFrame),
-      _button("Rts", controller.runUntilRts),
       SizedBox(
           width: 50,
           child: TextField(onChanged: (v) {
@@ -37,7 +39,6 @@ class DebugController extends StatelessWidget {
               }
             }
           })),
-      _button("Disasm", () => controller.debugger.toggleDisasm()),
       _button("Mem", () => pushMemPage(context, controller)),
       _button("VRAM", () => pushVramPage(context, controller)),
       _button("VDC", () => controller.debugger.toggleVdc()),

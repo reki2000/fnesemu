@@ -26,7 +26,6 @@ final Uint32List _rgba = Uint32List.fromList(
     final r = _map3to8[(i >> 3) & 0x07];
     final g = _map3to8[(i >> 6) & 0x07];
     return 0xff000000 | (b << 16) | (g << 8) | r;
-    //return (r << 24) | (g << 16) | (b << 8) | 0xff;
   }, growable: false),
 );
 
@@ -92,39 +91,57 @@ Future<ui.Image> renderVram(colorTable, List<int> vram) {
   return _decodeImage(buf.buffer.asUint8List(), width, height);
 }
 
-Future<ui.Image> renderBg(colorTable, List<int> vram) {
+Future<ui.Image> renderBg(
+    colorTable, List<int> vram, int bgWidth, int bgHeight) {
   const tileSize = 8;
-  const bgWidth = 128;
-  const bgHeight = 32;
-  const width = tileSize * bgWidth;
-  const height = tileSize * bgHeight;
+  const imageWidth = 128 * tileSize;
+  const imageHeight = 64 * tileSize;
 
-  final buf = Uint32List(width * height);
+  // final blockSizeX = 128 ~/ bgWidth;
+  // final blockSizeY = 64 ~/ bgHeight;
+
+  final buf = Uint32List(imageWidth * imageHeight);
+
+  // for (int blockY = 0; blockY < blockSizeY; blockY++) {
+  //   for (int blockX = 0; blockX < blockSizeX; blockX++) {
+  const vramOffset = 0;
+  const imageOffset = 0;
+  //     final vramOffset = (blockX + blockY * blockSizeX) * 16 * bgWidth * bgHeight;
+  //     final imageOffset = blockX * tileSize * bgWidth + (blockY * tileSize * bgHeight) * imageWidth;
 
   for (int ty = 0; ty < bgHeight; ty++) {
     for (int tx = 0; tx < bgWidth; tx++) {
-      final pattern = vram[tx + ty * bgWidth];
-      final palette = pattern >> 12;
+      final pattern = vram[tx + ty * bgWidth + vramOffset];
+      final palette = pattern >> 12 << 4;
 
       for (int y = 0; y < tileSize; y++) {
         final addr = (pattern & 0xfff) * 16 + y;
-        final p01 = vram[addr];
-        final p23 = vram[addr + 8];
+        final pattern01 = vram[addr];
+        final pattern23 = vram[addr + 8];
 
         for (int x = 0; x < tileSize; x++) {
-          final p0 = (p01 >> (8 + tileSize - x - 1)) & 1;
-          final p1 = (p01 >> (0 + tileSize - x - 1)) & 1;
-          final p2 = (p23 >> (8 + tileSize - x - 1)) & 1;
-          final p3 = (p23 >> (0 + tileSize - x - 1)) & 1;
-          final p = p0 | (p1 << 1) | (p2 << 2) | (p3 << 3);
-          final c = colorTable[(palette << 4) | p];
-          buf[tx * tileSize + x + (ty * tileSize + y) * width] = _rgba[c];
+          final shiftBits = (7 - (x & 7));
+          final p01 = pattern01 >> shiftBits;
+          final p23 = pattern23 >> shiftBits;
+
+          final color = (p01 & 0x01) |
+              (p01 >> 7) & 0x02 |
+              (p23 << 2) & 0x04 |
+              (p23 >> 5) & 0x08;
+
+          final c = colorTable[palette | color];
+          buf[imageOffset +
+              tx * tileSize +
+              x +
+              (ty * tileSize + y) * imageWidth] = _rgba[c];
         }
       }
     }
+    //   }
+    // }
   }
 
-  return _decodeImage(buf.buffer.asUint8List(), width, height);
+  return _decodeImage(buf.buffer.asUint8List(), imageWidth, imageHeight);
 }
 
 _decodeImage(Uint8List buf, int width, int height) {
@@ -154,13 +171,16 @@ class DebugVdc extends StatelessWidget {
       alignment: Alignment.center,
       margin: const EdgeInsets.all(10.0),
       child: Column(children: [
-        // Image.memory(
-        //   Uint8List.view(buf.buffer),
-        // ),
-        _futureImage(renderColorTable(debugger.dumpColorTable())),
-        _futureImage(
-            renderVram(debugger.dumpColorTable(), debugger.dumpVram())),
-        _futureImage(renderBg(debugger.dumpColorTable(), debugger.dumpVram())),
+        Row(children: [
+          _futureImage(renderColorTable(debugger.dumpColorTable())),
+          _futureImage(
+              renderVram(debugger.dumpColorTable(), debugger.dumpVram())),
+        ]),
+        _futureImage(renderBg(
+            debugger.dumpColorTable(),
+            debugger.dumpVram(),
+            debugger.core.vdc.bgWidthMask + 1,
+            debugger.core.vdc.bgHeightMask + 1)),
       ]),
     );
   }

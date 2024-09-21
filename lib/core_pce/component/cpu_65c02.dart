@@ -61,8 +61,8 @@ extension Cpu65c02 on Cpu {
       case 0x57:
       case 0x67:
       case 0x77:
-        final value = read(zeropage());
-        write(zeropage(), value & ~(1 << (op >> 4)));
+        final addr = zeropage();
+        write(addr, read(addr) & ~(1 << (op >> 4)));
         cycle += 7;
         break;
 
@@ -75,8 +75,8 @@ extension Cpu65c02 on Cpu {
       case 0xd7:
       case 0xe7:
       case 0xf7:
-        final value = read(zeropage());
-        write(zeropage(), value | (1 << ((op & 0x70) >> 4)));
+        final addr = zeropage();
+        write(addr, read(addr) | (1 << ((op & 0x70) >> 4)));
         cycle += 7;
         break;
 

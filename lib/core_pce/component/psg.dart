@@ -60,6 +60,7 @@ class Wave {
         currentR = out * (volumeR + 1) >> 9;
       }
     }
+
     return buf;
   }
 }

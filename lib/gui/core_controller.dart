@@ -102,6 +102,7 @@ class CoreController {
 
   void reset() {
     _core.reset();
+    debugger.debugOption.breakPoint = 0;
     debugger.pushStream();
     _renderAll();
   }

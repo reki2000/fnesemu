@@ -16,9 +16,9 @@ class DebugOption {
 }
 
 class Debugger {
-  final Pce _core;
+  final Pce core;
 
-  Debugger(this._core);
+  Debugger(this.core);
 
   // interafaces for debugging features
   final debugOption = DebugOption();
@@ -36,8 +36,8 @@ class Debugger {
       debugOption.text = "";
     } else {
       debugOption.text =
-          _core.dump(showZeroPage: true, showStack: true, showApu: true);
-      debugOption.disasmAddress = _core.pc;
+          core.dump(showZeroPage: true, showStack: true, showApu: true);
+      debugOption.disasmAddress = core.pc;
     }
     _debugStream.add(debugOption);
   }
@@ -75,9 +75,11 @@ class Debugger {
     pushStream();
   }
 
-  Pair<String, int> disasm(int addr) => _core.disasm(addr);
+  int get nextPc => (core.pc + core.disasm(core.pc).i1) & 0xffff;
 
-  List<int> dumpVram() => _core.dumpVram();
-  int read(int addr) => _core.read(addr);
-  List<int> dumpColorTable() => _core.dumpColorTable();
+  Pair<String, int> disasm(int addr) => core.disasm(addr);
+
+  List<int> dumpVram() => core.dumpVram();
+  int read(int addr) => core.read(addr);
+  List<int> dumpColorTable() => core.dumpColorTable();
 }
