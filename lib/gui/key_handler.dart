@@ -2,12 +2,12 @@
 import 'package:flutter/services.dart';
 
 // Project imports:
-import 'nes_controller.dart';
+import 'core_controller.dart';
 
 class KeyHandler {
   KeyHandler({required this.controller});
 
-  final NesController controller;
+  final CoreController controller;
 
   static final _keys = {
     PhysicalKeyboardKey.arrowDown: NesPadButton.down,

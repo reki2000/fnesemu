@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import '../nes_controller.dart';
+import 'debugger.dart';
 
 const _map3to8 = [
   0x00,
@@ -143,28 +143,25 @@ _futureImage(Future<ui.Image> future) {
   );
 }
 
-void pushVdcPage(BuildContext context, NesController controller) {
-  Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (BuildContext context) {
-        return Scaffold(
-          appBar: AppBar(title: const Text('VDC')),
-          body: Container(
-            alignment: Alignment.center,
-            margin: const EdgeInsets.all(10.0),
-            child: Column(children: [
-              // Image.memory(
-              //   Uint8List.view(buf.buffer),
-              // ),
-              _futureImage(renderColorTable(controller.dumpColorTable())),
-              _futureImage(renderVram(
-                  controller.dumpColorTable(), controller.dumpVram())),
-              _futureImage(
-                  renderBg(controller.dumpColorTable(), controller.dumpVram())),
-            ]),
-          ),
-        );
-      },
-    ),
-  );
+class DebugVdc extends StatelessWidget {
+  final Debugger debugger;
+
+  const DebugVdc({super.key, required this.debugger});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      margin: const EdgeInsets.all(10.0),
+      child: Column(children: [
+        // Image.memory(
+        //   Uint8List.view(buf.buffer),
+        // ),
+        _futureImage(renderColorTable(debugger.dumpColorTable())),
+        _futureImage(
+            renderVram(debugger.dumpColorTable(), debugger.dumpVram())),
+        _futureImage(renderBg(debugger.dumpColorTable(), debugger.dumpVram())),
+      ]),
+    );
+  }
 }

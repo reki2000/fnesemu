@@ -4,11 +4,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// Project imports:
+import '../styles.dart';
+import 'core_controller.dart';
+import 'core_view.dart';
 import 'debug/debug_controller.dart';
+// Project imports:
+import 'debug/debug_pane.dart';
+import 'debug/debugger.dart';
 import 'key_handler.dart';
-import 'nes_controller.dart';
-import 'nes_view.dart';
 import 'sound_player.dart';
 
 class MyApp extends StatelessWidget {
@@ -35,11 +38,10 @@ class MainPage extends StatefulWidget {
 
 class MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
-  final controller = NesController();
+  final controller = CoreController();
   late final KeyHandler keyHandler;
 
   String _romName = "";
-  bool _isRunning = false;
 
   @override
   void initState() {
@@ -89,34 +91,33 @@ class MainPageState extends State<MainPage> {
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
     _reset();
-    if (!controller.debugOption.showDebugView) {
+    if (!controller.debugger.debugOption.showDebugView) {
       _run();
       _debug(true);
     }
   }
 
   void _run() {
-    controller.run();
     setState(() {
-      _isRunning = true;
+      controller.run();
     });
   }
 
   void _stop() {
-    controller.stop();
     setState(() {
-      _isRunning = false;
+      controller.stop();
     });
   }
 
   void _reset() {
-    controller.reset();
+    setState(() {
+      controller.reset();
+    });
   }
 
   void _debug(bool on) {
     setState(() {
-      controller.debugOption =
-          controller.debugOption.copyWith(showDebugView: on);
+      controller.debugger.setDebugView(on);
     });
   }
 
@@ -138,7 +139,7 @@ class MainPageState extends State<MainPage> {
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
         // run / pause button
-        _isRunning
+        controller.isRunning()
             ? _iconButton(Icons.pause, "Pause", _stop)
             : _iconButton(Icons.play_arrow, "Run", _run),
 
@@ -146,7 +147,7 @@ class MainPageState extends State<MainPage> {
         _iconButton(Icons.restart_alt, "Reset", _reset),
 
         // debug on/off button
-        controller.debugOption.showDebugView
+        controller.debugger.debugOption.showDebugView
             ? _iconButton(
                 Icons.bug_report, "Disable Debug Options", () => _debug(false))
             : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
@@ -160,17 +161,29 @@ class MainPageState extends State<MainPage> {
           onTap: () => showLicensePage(context: context),
         ),
       ])),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          // main view
-          NesView(controller: controller),
+      body: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                // main view
+                CoreView(controller: controller),
 
-          // debug view if enabled
-          if (controller.debugOption.showDebugView)
-            DebugController(controller: controller),
-        ],
-      ),
+                // debug view if enabled
+                StreamBuilder<DebugOption>(
+                    stream: controller.debugger.debugStream,
+                    builder: (ctx, snapshot) =>
+                        Text(snapshot.data?.text ?? "", style: debugStyle)),
+                if (controller.debugger.debugOption.showDebugView)
+                  DebugController(controller: controller),
+              ],
+            ),
+            if (controller.debugger.debugOption.showDebugView)
+              DebugPane(debugger: controller.debugger),
+          ]),
     );
   }
 }

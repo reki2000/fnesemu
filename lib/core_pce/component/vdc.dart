@@ -318,7 +318,7 @@ class Vdc {
   }
 
   writeColorTableAddressMsb(int val) {
-    colorTableAddress = colorTableAddress.withHighByte(val);
+    colorTableAddress = colorTableAddress.withHighByte(val & 1);
   }
 
   // DMA

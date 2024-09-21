@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 // Project imports:
 import '../../styles.dart';
 import '../../util.dart';
-import '../nes_controller.dart';
+import '../core_controller.dart';
 
 Widget _dump(List<int> buf, int start) {
   final lines = <String>[];
@@ -19,7 +19,7 @@ Widget _dump(List<int> buf, int start) {
   return Text(lines.join('\n'), style: debugStyle);
 }
 
-void pushVramPage(BuildContext context, NesController controller) {
+void pushVramPage(BuildContext context, CoreController controller) {
   final addrNotifier = ValueNotifier<int>(0);
 
   Navigator.of(context).push(
@@ -34,7 +34,7 @@ void pushVramPage(BuildContext context, NesController controller) {
               ValueListenableBuilder<int>(
                   valueListenable: addrNotifier,
                   builder: (context, addr, child) =>
-                      _dump(controller.dumpVram(), addr)),
+                      _dump(controller.debugger.dumpVram(), addr)),
               Row(children: [
                 SizedBox(
                     width: 50,

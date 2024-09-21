@@ -6,20 +6,19 @@ import 'package:flutter/material.dart';
 
 // Project imports:
 import '../spec.dart';
-import '../styles.dart';
-import 'nes_controller.dart';
+import 'core_controller.dart';
 import 'virtual_pad.dart';
 
-class NesView extends StatefulWidget {
-  final NesController controller;
+class CoreView extends StatefulWidget {
+  final CoreController controller;
 
-  const NesView({super.key, required this.controller});
+  const CoreView({super.key, required this.controller});
 
   @override
-  State<NesView> createState() => _NewViewState();
+  State<CoreView> createState() => _NewViewState();
 }
 
-class _NewViewState extends State<NesView> {
+class _NewViewState extends State<CoreView> {
   final imageNotifier = ValueNotifier<ui.Image?>(null);
 
   static const maskLinesTop = 0;
@@ -78,12 +77,6 @@ class _NewViewState extends State<NesView> {
                 builder: (ctx, snapshot) =>
                     Text("${((snapshot.data ?? 0.0)).round()} fps")),
           ]),
-
-          // debug view
-          StreamBuilder<String>(
-              stream: widget.controller.debugStream,
-              builder: (ctx, snapshot) =>
-                  Text(snapshot.data ?? "", style: debugStyle)),
         ],
       ),
     );

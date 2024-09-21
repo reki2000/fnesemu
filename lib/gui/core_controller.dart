@@ -1,33 +1,24 @@
 // Dart imports:
 import 'dart:async';
-import 'dart:typed_data';
 
 // Project imports:
+import 'package:flutter/foundation.dart';
+
 import '../core_pce/pce.dart';
-import '../util.dart';
-import 'debug/trace.dart';
+import 'debug/debugger.dart';
 
 typedef NesPadButton = PadButton;
 
-/// Parameters for debugging features
-class DebugOption {
-  final bool showDebugView;
-  final int breakPoint;
-  final bool log;
-
-  DebugOption(
-      {this.breakPoint = 0, this.showDebugView = false, this.log = false});
-
-  copyWith({int? breakPoint, bool? showDebugView, bool? log}) => DebugOption(
-      breakPoint: breakPoint ?? this.breakPoint,
-      showDebugView: showDebugView ?? this.showDebugView,
-      log: log ?? this.log);
-}
-
-/// A Controller of NES emulator core.
+/// A Controller of the emulator core.
 /// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
-class NesController {
-  final _emulator = Pce();
+class CoreController {
+  late Pce _core;
+  late Debugger debugger;
+
+  CoreController() {
+    _core = Pce();
+    debugger = Debugger(_core);
+  }
 
   Timer? _timer;
   double _fps = 0.0;
@@ -55,23 +46,26 @@ class NesController {
 
   /// executes emulation with 1 cpu instruction
   void runStep() {
-    _emulator.exec();
-    _tracer?.addLog(_emulator.state);
+    _core.exec();
+    debugger.addLog(_core.state);
     _renderAll();
   }
 
   /// executes emulation during 1 scanline
   bool runScanLine({skipRender = false}) {
     while (true) {
-      if (debugOption.breakPoint == _emulator.pc) {
+      if (debugger.debugOption.breakPoint == _core.pc) {
         stop();
         return false;
       }
 
       // exec 1 cpu instruction
-      final result = _emulator.exec();
+      final result = _core.exec();
 
-      _tracer?.addLog(_emulator.state);
+      // need this check for performance
+      if (debugger.debugOption.log) {
+        debugger.addLog(_core.state);
+      }
 
       if (!result.stopped) {
         stop();
@@ -100,24 +94,25 @@ class NesController {
   }
 
   void _renderAll() {
-    _imageStream.add(_emulator.ppuBuffer());
-    _audioStream.add(_emulator.apuBuffer());
-    if (_debugOption.showDebugView) {
-      _pushDebug();
-    }
+    _imageStream.add(_core.ppuBuffer());
+    _audioStream.add(_core.apuBuffer());
+    debugger.pushStream();
     _fpsStream.add(_fps);
   }
 
   void reset() {
-    _emulator.reset();
+    _core.reset();
+    debugger.pushStream();
     _renderAll();
   }
 
   void setRom(Uint8List body) {
-    if (_debugOption.showDebugView) {
-      _pushDebug();
-    }
-    _emulator.setRom(body);
+    _core.setRom(body);
+    debugger.pushStream();
+  }
+
+  bool isRunning() {
+    return _timer?.isActive ?? false;
   }
 
   // screen/audio/fps
@@ -142,62 +137,18 @@ class NesController {
 
   void padDown(NesPadButton k) {
     _padDownStream.add(k);
-    _emulator.padDown(k);
+    _core.padDown(k);
   }
 
   void padUp(NesPadButton k) {
     _padUpStream.add(k);
-    _emulator.padUp(k);
+    _core.padUp(k);
   }
-
-  // interafaces for debugging features
-
-  final _debugStream = StreamController<String>();
-  Stream<String> get debugStream => _debugStream.stream;
-
-  DebugOption _debugOption = DebugOption();
-
-  DebugOption get debugOption => _debugOption;
-
-  Trace? _tracer;
-
-  set debugOption(DebugOption opt) {
-    _debugOption = opt;
-    if (opt.showDebugView) {
-      _pushDebug();
-    } else {
-      _debugStream.add("");
-    }
-
-    if (opt.log && _tracer == null) {
-      _tracer = Trace(_traceStream);
-      _traceSubscription = _traceStream.stream.listen((log) {
-        print(log.replaceAll("\n", ""));
-      }, onDone: () => _traceSubscription?.cancel());
-    } else {
-      _traceSubscription?.cancel();
-      _tracer = null;
-    }
-  }
-
-  void _pushDebug() {
-    _debugStream.add(
-        _emulator.dump(showZeroPage: true, showStack: true, showApu: true));
-  }
-
-  Pair<String, int> disasm(int addr) => _emulator.disasm(addr);
-
-  final _traceStream = StreamController<String>.broadcast();
-  StreamSubscription<String>? _traceSubscription;
-
-  List<int> dumpVram() => _emulator.dumpVram();
-  int read(int addr) => _emulator.read(addr);
-  List<int> dumpColorTable() => _emulator.dumpColorTable();
 
   runUntilRts() {
     while (true) {
-      _emulator.exec();
-      if (_emulator.dump().contains("60        RTS")) {
+      _core.exec();
+      if (_core.dump().contains("60        RTS")) {
         break;
       }
     }

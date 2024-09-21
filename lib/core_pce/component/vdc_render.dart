@@ -136,7 +136,7 @@ extension VdcRenderer on Vdc {
 
     scanLine++;
 
-    if (scanLine == 264) {
+    if (scanLine == 263) {
       scanLine = 0;
     }
   }
@@ -164,7 +164,7 @@ extension VdcRenderer on Vdc {
       // print(
       //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${hex16(addr)}");
       final tile = vram[nameTableAddress];
-      paletteNo = tile >> 12;
+      paletteNo = tile >> 12 << 4;
 
       if (vramDotWidth == 3) {
         final addr = ((tile & 0xfff) << 4) | renderLine & 0x07;
@@ -191,7 +191,7 @@ extension VdcRenderer on Vdc {
         (p23 << 2) & 0x04 |
         (p23 >> 5) & 0x08;
 
-    return (paletteNo << 4) | colorNo;
+    return paletteNo | colorNo;
   }
 
   static final sprites =
@@ -200,9 +200,12 @@ extension VdcRenderer on Vdc {
       List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
   static int spriteBufIndex = 0;
 
+  static final sprite0 = List<int>.filled(16, 0); // x of sprite 0
+
   _fillSpriteBuffer() {
     spriteBufIndex = 0;
     final y = scanLine - displayStartLine + 64;
+
     for (final sp in sprites) {
       if (sp.y <= y && y < sp.y + sp.height) {
         if (spriteBufIndex == 17) {
@@ -212,6 +215,10 @@ extension VdcRenderer on Vdc {
         }
         spriteBuf[spriteBufIndex++] = sp;
       }
+    }
+
+    for (int i = 0; i < sprite0.length; i++) {
+      sprite0[i] = -1;
     }
   }
 

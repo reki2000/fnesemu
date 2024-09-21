@@ -5,15 +5,15 @@ import 'package:flutter/material.dart';
 // Project imports:
 import '../../styles.dart';
 import '../../util.dart';
-import '../nes_controller.dart';
+import '../core_controller.dart';
 
-Widget _dump(NesController controller, int start) {
+Widget _dump(CoreController controller, int start) {
   final lines = <String>[];
   for (var i = 0; i < 64; i++) {
     String line = "${hex16((start + i * 16) & 0xffff)}: ";
     for (var j = 0; j < 16; j++) {
       final addr = (start + i * 16 + j) & 0xffff;
-      line += "${hex8(controller.read(addr))} ";
+      line += "${hex8(controller.debugger.read(addr))} ";
     }
     lines.add(line);
   }
@@ -21,7 +21,7 @@ Widget _dump(NesController controller, int start) {
   return Text(lines.join('\n'), style: debugStyle);
 }
 
-void pushMemPage(BuildContext context, NesController controller) {
+void pushMemPage(BuildContext context, CoreController controller) {
   final addrNotifier = ValueNotifier<int>(0);
 
   Navigator.of(context).push(

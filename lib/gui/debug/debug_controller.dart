@@ -3,14 +3,12 @@
 import 'package:flutter/material.dart';
 
 // Project imports:
-import '../nes_controller.dart';
-import 'disasm.dart';
+import '../core_controller.dart';
 import 'mem.dart';
-import 'vdc.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
-  final NesController controller;
+  final CoreController controller;
 
   const DebugController({super.key, required this.controller});
 
@@ -32,23 +30,18 @@ class DebugController extends StatelessWidget {
             if (v.length == 4) {
               try {
                 final breakPoint = int.parse(v, radix: 16);
-                controller.debugOption =
-                    controller.debugOption.copyWith(breakPoint: breakPoint);
+                controller.debugger.debugOption.breakPoint = breakPoint;
               } catch (e) {
                 ScaffoldMessenger.of(context)
                     .showSnackBar(SnackBar(content: Text(e.toString())));
               }
             }
           })),
-      _button("Disasm", () => pushDisasmPage(context, controller)),
+      _button("Disasm", () => controller.debugger.toggleDisasm()),
       _button("Mem", () => pushMemPage(context, controller)),
       _button("VRAM", () => pushVramPage(context, controller)),
-      _button("VDC", () => pushVdcPage(context, controller)),
-      _button("Log", () {
-        final currentOn = controller.debugOption.log;
-        controller.debugOption =
-            controller.debugOption.copyWith(log: !currentOn);
-      }),
+      _button("VDC", () => controller.debugger.toggleVdc()),
+      _button("Log", () => controller.debugger.toggleLog()),
     ]);
   }
 }
