@@ -19,6 +19,7 @@ class CoreController {
   CoreController() {
     _core = Pce();
     debugger = Debugger(_core);
+    _core.audioStream = _audioStream.sink;
   }
 
   Timer? _timer;
@@ -30,7 +31,7 @@ class CoreController {
     var frames = 0;
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      if (_fps < 60.0) {
+      if (_fps < 59.97) {
         runFrame();
         frames++;
       }
@@ -96,7 +97,6 @@ class CoreController {
 
   void _renderAll() {
     _imageStream.add(_core.imageBuffer());
-    _audioStream.add(_core.apuBuffer());
     debugger.pushStream();
     _fpsStream.add(_fps);
   }
@@ -127,7 +127,7 @@ class CoreController {
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
 
-  final audioSampleRate = 21477270 ~/ 6;
+  final audioSampleRate = Pce.audioSampleRate;
 
   // pad
 

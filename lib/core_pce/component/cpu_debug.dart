@@ -17,7 +17,8 @@ extension CpuDebugger on Cpu {
   }
 
   String _mprAddr(int addr) {
-    return "${addr >> 13}:${hex8(regs.mpr[(addr >> 13) & 7])}:${hex16(addr & 0x1fff)}";
+    // return "${addr >> 13}:${hex8(regs.mpr[(addr >> 13) & 7])}:${hex16(addr & 0x1fff)}";
+    return hex8(regs.mpr[(addr >> 13) & 7]);
   }
 
   String _reg() {
@@ -31,7 +32,7 @@ extension CpuDebugger on Cpu {
   String dumpDisasm(int addr, {toAddrOffset = 0x200}) {
     var result = "";
     for (var pc = addr; pc < addr + toAddrOffset;) {
-      result += "${_mprAddr(addr)}: ${_disasm(pc)} ";
+      result += "${_mprAddr(addr)}:${_disasm(pc)} ";
       pc += Disasm.nextPC(read(pc));
     }
     return result;
@@ -42,7 +43,7 @@ extension CpuDebugger on Cpu {
     // final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
     // final ppuHorizontalCycle = (ppuCycle % 341).toString().padLeft(3, " ");
 
-    final result = "${_mprAddr(regs.pc)} ${_disasm(regs.pc)} ${_reg()}";
+    final result = "${_mprAddr(regs.pc)}:${_disasm(regs.pc)} ${_reg()}";
     return result.toUpperCase();
   }
 
@@ -51,8 +52,7 @@ extension CpuDebugger on Cpu {
       showRegs = false,
       showZeroPage = false,
       showStack = false}) {
-    const header =
-        "addr:           +0 +1 +2 +3 +4 +5 +6 +7 +8 +9 +a +b +c +d +e +f\n";
+    const header = "bk:addr: +0 +1 +2 +3 +4 +5 +6 +7 +8 +9 +a +b +c +d +e +f\n";
 
     String mem = "";
 

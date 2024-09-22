@@ -1,4 +1,5 @@
 // Dart imports:
+import 'dart:async';
 import 'dart:typed_data';
 
 // Project imports:
@@ -55,7 +56,7 @@ class Pce {
   }
 
   int nextVdcClocks = 0;
-  int nextPsgClocks = 0;
+  int prevPsgClocks = 0;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -78,9 +79,10 @@ class Pce {
       rendered = true;
     }
 
-    while (cpu.clocks >= nextPsgClocks) {
-      psg.exec(clocksInScanline);
-      nextPsgClocks += clocksInScanline;
+    while (cpu.clocks >= prevPsgClocks + clocksInScanline) {
+      final elapsed = (cpu.clocks - prevPsgClocks) ~/ 6 * 6;
+      prevPsgClocks += elapsed;
+      audioStream?.add(psg.exec(elapsed));
     }
 
     return ExecResult(cpu.cycles, true, rendered);
@@ -92,14 +94,14 @@ class Pce {
         vdc.hSize, vdc.vSize, VdcRenderer.buffer.buffer.asUint8List());
   }
 
-  // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
-  Float32List apuBuffer() {
-    return psg.buffer;
-  }
+  StreamSink<Float32List>? audioStream;
+
+  static const audioSampleRate = Psg.audioSamplingRate;
 
   /// handles reset button events
   void reset() {
     nextVdcClocks = clocksInScanline;
+    prevPsgClocks = clocksInScanline;
     bus.onReset();
   }
 
