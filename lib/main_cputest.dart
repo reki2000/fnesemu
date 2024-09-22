@@ -19,7 +19,7 @@ void main() async {
   final cpu = Cpu2(bus);
   Psg(bus);
 
-  final f = File("assets/rom/pcetest.pce");
+  final f = File("assets/roms/pcetest.pce");
   log("loading: $f");
   final body = await f.readAsBytes();
   log("loaded: ${body.length} bytes");

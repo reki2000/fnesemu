@@ -4,6 +4,7 @@ import 'dart:async';
 // Project imports:
 import 'package:flutter/foundation.dart';
 
+import '../core/types.dart';
 import '../core_pce/pce.dart';
 import 'debug/debugger.dart';
 
@@ -94,7 +95,7 @@ class CoreController {
   }
 
   void _renderAll() {
-    _imageStream.add(_core.ppuBuffer());
+    _imageStream.add(_core.imageBuffer());
     _audioStream.add(_core.apuBuffer());
     debugger.pushStream();
     _fpsStream.add(_fps);
@@ -118,11 +119,11 @@ class CoreController {
 
   // screen/audio/fps
 
-  final _imageStream = StreamController<Uint8List>();
+  final _imageStream = StreamController<ImageBuffer>();
   final _audioStream = StreamController<Float32List>();
   final _fpsStream = StreamController<double>();
 
-  Stream<Uint8List> get imageStream => _imageStream.stream;
+  Stream<ImageBuffer> get imageStream => _imageStream.stream;
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
 

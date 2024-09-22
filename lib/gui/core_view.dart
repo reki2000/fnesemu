@@ -4,8 +4,7 @@ import 'dart:ui' as ui;
 // Flutter imports:
 import 'package:flutter/material.dart';
 
-// Project imports:
-import '../spec.dart';
+import 'config.dart';
 import 'core_controller.dart';
 import 'virtual_pad.dart';
 
@@ -15,26 +14,25 @@ class CoreView extends StatefulWidget {
   const CoreView({super.key, required this.controller});
 
   @override
-  State<CoreView> createState() => _NewViewState();
+  State<CoreView> createState() => _CoreViewState();
 }
 
-class _NewViewState extends State<CoreView> {
+class _CoreViewState extends State<CoreView> {
   final imageNotifier = ValueNotifier<ui.Image?>(null);
 
-  static const maskLinesTop = 0;
-  static const maskLinesBottom = 0;
-  static const height = Spec.height - maskLinesTop - maskLinesBottom;
-  static const width = Spec.width;
+  static final config = Config();
 
   @override
   void initState() {
     super.initState();
     widget.controller.imageStream.listen((buf) => ui.decodeImageFromPixels(
-        buf.sublist(4 * width * maskLinesTop,
-            4 * width * (Spec.height - maskLinesBottom)),
-        width,
-        height,
+        buf.buffer,
+        buf.width,
+        buf.height,
         ui.PixelFormat.rgba8888,
+        targetWidth: config.imageWidth,
+        targetHeight: config.imageHeight,
+        allowUpscaling: true,
         (image) => imageNotifier.value = image));
   }
 
@@ -51,8 +49,8 @@ class _NewViewState extends State<CoreView> {
         children: [
           // main view
           Container(
-            width: width * 2,
-            height: height * 2,
+            width: config.imageWidth * 1,
+            height: config.imageHeight * 1,
             color: Colors.black,
             child: ValueListenableBuilder(
               valueListenable: imageNotifier,
@@ -60,7 +58,6 @@ class _NewViewState extends State<CoreView> {
                 return image != null
                     ? RawImage(
                         image: image,
-                        scale: 0.5,
                       )
                     : const FittedBox();
               },

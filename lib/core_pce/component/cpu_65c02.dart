@@ -17,8 +17,7 @@ extension Cpu65c02 on Cpu {
       case 0x0c:
         final addr = (op == 0x04) ? zeropage() : absolute();
         final a = read(addr) | regs.a;
-        flagsNZ(a);
-        regs.p = (a & Flags.V) | (regs.p & ~Flags.V);
+        regs.p = ((a == 0) ? Flags.Z : 0) | (regs.p & ~Flags.Z);
         write(addr, a);
         cycle += 5;
         break;
@@ -28,8 +27,7 @@ extension Cpu65c02 on Cpu {
       case 0x1c:
         final addr = (op == 0x14) ? zeropage() : absolute();
         final a = read(addr) & ~regs.a;
-        flagsNZ(a);
-        regs.p = (a & Flags.V) | (regs.p & ~Flags.V);
+        regs.p = ((a == 0) ? Flags.Z : 0) | (regs.p & ~Flags.Z);
         write(addr, a);
         cycle += 5;
         break;

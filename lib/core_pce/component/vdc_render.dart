@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:fnesemu/core_pce/component/cpu.dart';
 import 'package:fnesemu/util.dart';
 
-import '../../spec.dart';
 import 'vdc.dart';
 
 class Sprite {
@@ -76,27 +75,28 @@ final Uint32List _rgba = Uint32List.fromList(
 extension VdcRenderer on Vdc {
   static bool debug = true;
 
-  static final buffer = Uint32List(Spec.width * Spec.height);
+  static Uint32List buffer = Uint32List(256 * 242);
 
-  static int renderLine = 0;
-  static int x = 0;
+  static int bgRenderLine = 0;
 
   static int displayStartLine = 14;
   static int displayLine = 0;
+  static int displayX = 0;
 
   // render a line;
   void exec() {
     displayLine = scanLine - displayStartLine;
 
     if (displayLine == 0) {
-      renderLine = scrollY;
+      bgRenderLine = scrollY & bgScrollMaskY;
+      // buffer = Uint32List(hSize * vSize);
     }
 
     // 242 lines
     if (0 <= displayLine && displayLine < 242) {
       _fillSpriteBuffer();
 
-      for (h = 0; h < Spec.width; h++) {
+      for (scanX = 0; scanX < hSize; scanX++) {
         // if (!(h == 0 && line == 15)) {
         //   continue;
         // }
@@ -110,7 +110,7 @@ extension VdcRenderer on Vdc {
           displayLine & 0x0f < 5) {
         for (int x = 0; x < 4 * 2; x++) {
           if ((displayLine & 0xf0).drawHexValue(x, displayLine & 0x0f, 2)) {
-            buffer[(displayLine - 5) * Spec.width + 1 + x] = 0xffffffff;
+            buffer[(displayLine - 5) * hSize + 1 + x] = 0xffffffff;
           }
         }
       }
@@ -121,8 +121,6 @@ extension VdcRenderer on Vdc {
           bus.cpu.holdInterrupt(Interrupt.irq1);
         }
       }
-
-      renderLine++;
     }
 
     if (scanLine == 260) {
@@ -141,6 +139,7 @@ extension VdcRenderer on Vdc {
     execDmaVram();
 
     scanLine++;
+    bgRenderLine = (bgRenderLine + 1) & bgScrollMaskY;
 
     if (scanLine == 263) {
       scanLine = 0;
@@ -151,7 +150,7 @@ extension VdcRenderer on Vdc {
     final spColor = enableSprite ? _renderSprite() : 0;
     final bgColor = enableBg ? _renderBg() : 0;
 
-    buffer[displayLine * Spec.width + h] = (spColor & 0xff000000 != 0)
+    buffer[displayLine * hSize + scanX] = (spColor & 0xff000000 != 0)
         ? spColor
         : _rgba[colorTable[(spColor & 0x0f != 0) ? spColor : bgColor]];
   }
@@ -161,11 +160,11 @@ extension VdcRenderer on Vdc {
   static int pattern23 = 0;
 
   int _renderBg() {
-    final x = (h + scrollX);
+    final x = (scanX + scrollX) & bgScrollMaskX;
 
-    if (h == 0 || (x & 0x07) == 0) {
+    if (scanX == 0 || (x & 0x07) == 0) {
       final nameTableAddress =
-          (((renderLine >> 3) & bgHeightMask) << bgWidthBits) |
+          (((bgRenderLine >> 3) & bgHeightMask) << bgWidthBits) |
               ((x >> 3) & bgWidthMask);
       // print(
       //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${hex16(addr)}");
@@ -173,7 +172,7 @@ extension VdcRenderer on Vdc {
       paletteNo = tile >> 12 << 4;
 
       if (vramDotWidth == 3) {
-        final addr = ((tile & 0xfff) << 4) | renderLine & 0x07;
+        final addr = ((tile & 0xfff) << 4) | bgRenderLine & 0x07;
         if (bgTreatPlane23Zero) {
           pattern01 = (vram[addr]);
           pattern23 = 0;
@@ -182,7 +181,7 @@ extension VdcRenderer on Vdc {
           pattern23 = (vram[addr]);
         }
       } else {
-        final addr = ((tile & 0xfff) << 4) | renderLine & 0x07;
+        final addr = ((tile & 0xfff) << 4) | bgRenderLine & 0x07;
         pattern01 = vram[addr];
         pattern23 = vram[addr + 8];
       }
@@ -238,7 +237,7 @@ extension VdcRenderer on Vdc {
   int _renderSprite() {
     for (int i = 0; i < spriteBufIndex; i++) {
       final sp = spriteBuf[i];
-      final hh = h + 32 - sp.x;
+      final hh = scanX + 32 - sp.x;
 
       if (0 <= hh && hh < sp.width) {
         final flippedX = sp.hFlip ? sp.width - hh : hh;

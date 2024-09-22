@@ -33,6 +33,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/
+    - assets/roms/
 
 import_path_converter:
   relative: true # true->相対パスに変換, false->パッケージパスに変換(デフォルト: false)

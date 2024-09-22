@@ -2,6 +2,7 @@
 import 'dart:typed_data';
 
 // Project imports:
+import '../core/types.dart';
 import '../util.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
@@ -85,9 +86,10 @@ class Pce {
     return ExecResult(cpu.cycles, true, rendered);
   }
 
-  /// returns screen buffer as 250x240xargb
-  Uint8List ppuBuffer() {
-    return VdcRenderer.buffer.buffer.asUint8List();
+  /// returns screen buffer as hSize x vSize argb
+  ImageBuffer imageBuffer() {
+    return ImageBuffer(
+        vdc.hSize, vdc.vSize, VdcRenderer.buffer.buffer.asUint8List());
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples

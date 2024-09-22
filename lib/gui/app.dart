@@ -78,7 +78,7 @@ class MainPageState extends State<MainPage> {
       file = picked.files.first.bytes!;
       name = picked.files.first.name;
     } else {
-      file = (await rootBundle.load('rom/$name')).buffer.asUint8List();
+      file = (await rootBundle.load('assets/roms/$name')).buffer.asUint8List();
     }
 
     try {
@@ -130,8 +130,16 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        // file load button
-        _iconButton(Icons.file_open_outlined, "Test", () {
+        _iconButton(Icons.file_open_outlined, "valkyrie", () {
+          _loadRomFile(name: "valkyrie.pce");
+        }),
+        _iconButton(Icons.file_open_outlined, "genpei", () {
+          _loadRomFile(name: "genpei.pce");
+        }),
+        _iconButton(Icons.file_open_outlined, "rtype1", () {
+          _loadRomFile(name: "rtype1.pce");
+        }),
+        _iconButton(Icons.file_open_outlined, "gradius", () {
           _loadRomFile(name: "gradius.pce");
         }),
 

@@ -1,4 +1,6 @@
 // Dart imports:
+import 'dart:typed_data';
+
 import 'package:fnesemu/core_pce/component/vdc_render.dart';
 
 import '../../util.dart';
@@ -13,14 +15,15 @@ class Vdc {
   }
 
   String dump() {
+    final hv = "${hSize}x$vSize";
     final scr =
         "x:${hex16(scrollX)} y:${hex8(scrollY)} rr:${hex16(rasterCompareRegister)} inc:${hex8(addrInc)}";
     final flags =
         "irq:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
     final bg =
         "bg:${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
-    final line = " line: $scanLine ${VdcRenderer.renderLine}";
-    return "vdc: $scr $flags $bg $line";
+    final line = " line: $scanLine ${VdcRenderer.bgRenderLine}";
+    return "vdc: $hv $scr $flags $bg $line";
   }
 
   reset() {
@@ -33,7 +36,7 @@ class Vdc {
     }
 
     scanLine = 0;
-    h = 0;
+    scanX = 0;
 
     status = 0;
     rasterCompareRegister = 0;
@@ -72,7 +75,10 @@ class Vdc {
   }
 
   int scanLine = 0; // vertical counter
-  int h = 0; // horizontal counter
+  int scanX = 0; // horizontal counter
+
+  int hSize = 256; // rendered image width
+  int vSize = 242; // rendered image height
 
   int reg = 0;
 
@@ -114,6 +120,9 @@ class Vdc {
 
   int bgWidthMask = 0x1f;
   int bgHeightMask = 0x1f;
+
+  int bgScrollMaskX = 0xff;
+  int bgScrollMaskY = 0xff;
 
   bool bgTreatPlane23Zero = false;
   int vramDotWidth = 0;
@@ -177,8 +186,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.withLowByte(val);
-        VdcRenderer.renderLine = scrollY;
-        // print("scrollY LSB: ${hex8(val)} $scrollY");
+        VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
       case 0x09:
@@ -191,6 +199,7 @@ class Vdc {
           int() => throw UnimplementedError(),
         };
         bgWidthMask = (1 << bgWidthBits) - 1;
+        bgScrollMaskX = (1 << (bgWidthBits + 3)) - 1;
 
         bgHeightBits = switch (val & 0x40) {
           0x00 => 5,
@@ -198,10 +207,29 @@ class Vdc {
           int() => throw UnimplementedError(),
         };
         bgHeightMask = (1 << bgHeightBits) - 1;
+        bgScrollMaskY = (1 << (bgHeightBits + 3)) - 1;
 
         bgTreatPlane23Zero = val & 0x80 == 0;
         // print(
         //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
+        break;
+
+      // Horizontal Sync Register
+      case 0x0a:
+        break;
+      // Horizontal Display Register
+      case 0x0b:
+        hSize = ((val & 0x3f) + 1) << 3;
+        VdcRenderer.buffer = Uint32List(hSize * vSize);
+        break;
+      // Vertical Sync Register
+      case 0x0c:
+        break;
+      // Vertical Display Register
+      case 0x0d:
+        break;
+      // Vertical Display End Position Register
+      case 0x0e:
         break;
 
       case 0x0f:
@@ -261,11 +289,26 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.withHighByte(val & 0x01);
-        VdcRenderer.renderLine = scrollY;
-        // print("scrollY MSB: ${hex8(val)} $scrollY");
+        VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
       case 0x09:
+        break;
+
+      // Horizontal Sync Register
+      case 0x0a:
+        break;
+      // Horizontal Display Register
+      case 0x0b:
+        break;
+      // Vertical Sync Register
+      case 0x0c:
+        break;
+      // Vertical Display Register
+      case 0x0d:
+        break;
+      // Vertical Display End Position Register
+      case 0x0e:
         break;
 
       case 0x0f:

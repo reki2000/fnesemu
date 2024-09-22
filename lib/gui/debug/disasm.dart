@@ -45,6 +45,9 @@ class DebugDisasm extends StatelessWidget {
     return result.sublist(result.length - lines);
   }
 
+  _button(String text, void Function() func) =>
+      TextButton(onPressed: func, child: Text(text));
+
   @override
   Widget build(BuildContext context) {
     node.requestFocus;
@@ -62,20 +65,18 @@ class DebugDisasm extends StatelessWidget {
                       addrNotifier.value = int.parse(v, radix: 16);
                     }
                   })),
-              TextButton(
-                  child: const Text("--"),
-                  onPressed: () => addrNotifier.value =
-                      (addrNotifier.value - 0x400) & 0xffff),
-              TextButton(
-                  child: const Text("-"),
-                  onPressed: () => addrNotifier.value =
-                      (addrNotifier.value - 0x20) & 0xffff),
-              TextButton(
-                  child: const Text("+"),
-                  onPressed: () => addrNotifier.value += 0x20),
-              TextButton(
-                  child: const Text("++"),
-                  onPressed: () => addrNotifier.value += 0x400),
+              _button("--", () {
+                addrNotifier.value = (addrNotifier.value - 0x400) & 0xffff;
+              }),
+              _button("-", () {
+                addrNotifier.value = (addrNotifier.value - 0x20) & 0xffff;
+              }),
+              _button("+", () {
+                addrNotifier.value += 0x20;
+              }),
+              _button("++", () {
+                addrNotifier.value += 0x400;
+              }),
             ]),
             ValueListenableBuilder<int>(
                 valueListenable: addrNotifier,
