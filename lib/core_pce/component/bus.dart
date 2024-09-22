@@ -1,7 +1,5 @@
 // Dart imports:
 
-import 'package:fnesemu/core_pce/component/cpu_debug.dart';
-
 import '../../util.dart';
 import '../mapper/rom.dart';
 import 'cpu.dart';
@@ -92,14 +90,13 @@ class Bus {
     final offset = addr & 0x1fff;
 
     if (0xf8 <= bank && bank <= 0xfb) {
-      final logAddrs = [0x33cb, 0x3420, 0x1c, 0x1d];
-      for (final addr in logAddrs) {
-        if (offset == addr & 0x1fff) {
-          print(
-              "ram write: ${hex16(addr)} ${hex8(data)}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
-        }
-      }
-
+      // final logAddrs = [0x33cb, 0x3420, 0x1c, 0x1d];
+      // for (final addr in logAddrs) {
+      //   if (offset == addr & 0x1fff) {
+      //     print(
+      //         "ram write: ${hex16(addr)} ${hex8(data)}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+      //   }
+      // }
       ram[offset] = data;
       return;
     }

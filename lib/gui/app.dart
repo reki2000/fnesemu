@@ -130,8 +130,8 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        _iconButton(Icons.file_open_outlined, "draspi", () {
-          _loadRomFile(name: "draspi.pce");
+        _iconButton(Icons.file_open_outlined, "berabo", () {
+          _loadRomFile(name: "berabo.pce");
         }),
         _iconButton(Icons.file_open_outlined, "valkyrie", () {
           _loadRomFile(name: "valkyrie.pce");
@@ -139,11 +139,11 @@ class MainPageState extends State<MainPage> {
         _iconButton(Icons.file_open_outlined, "genpei", () {
           _loadRomFile(name: "genpei.pce");
         }),
-        _iconButton(Icons.file_open_outlined, "rtype1", () {
-          _loadRomFile(name: "rtype1.pce");
+        _iconButton(Icons.file_open_outlined, "deta", () {
+          _loadRomFile(name: "deta.pce");
         }),
-        _iconButton(Icons.file_open_outlined, "gradius", () {
-          _loadRomFile(name: "gradius.pce");
+        _iconButton(Icons.file_open_outlined, "parodius", () {
+          _loadRomFile(name: "parodius.pce");
         }),
 
         // file load button
