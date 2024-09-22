@@ -115,8 +115,8 @@ extension Cpu6280 on Cpu {
         final n = immediate();
         final addr = switch (op) {
           0x83 => zeropage(),
-          0x93 => zeropageXY(regs.x),
-          0xa3 => absolute(),
+          0xa3 => zeropageXY(regs.x),
+          0x93 => absolute(),
           0xb3 => absoluteXY(regs.x),
           _ => 0, // never reach
         };
