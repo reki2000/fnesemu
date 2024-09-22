@@ -15,15 +15,16 @@ class Vdc {
   }
 
   String dump() {
-    final hv = "${hSize}x$vSize";
+    final regs = "${hex8(reg)}r${hex16(marr)}w${hex16(mawr)}";
     final scr =
-        "x:${hex16(scrollX)} y:${hex8(scrollY)} rr:${hex16(rasterCompareRegister)} inc:${hex8(addrInc)}";
+        "scr:${hex16(scrollX).substring(1)},${hex16(scrollY).substring(1)},${hex16(rasterCompareRegister).substring(1)}+${hex8(addrInc)}";
     final flags =
-        "irq:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
+        "i:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
     final bg =
-        "bg:${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
-    final line = " line: $scanLine ${VdcRenderer.bgRenderLine}";
-    return "vdc: $hv $scr $flags $bg $line";
+        "bg:${hSize}x$vSize ${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
+    final line =
+        "l:$scanLine,${VdcRenderer.bgRenderLine} f:${VdcRenderer.frames}";
+    return "vdc: $regs $bg $scr $flags $line";
   }
 
   reset() {
@@ -72,6 +73,8 @@ class Vdc {
     dmaSrcSatb = 0;
     dmaSatb = false;
     dmaSatbAlways = false;
+
+    resetRenderer();
   }
 
   int scanLine = 0; // vertical counter
@@ -269,6 +272,10 @@ class Vdc {
         writeLatch = writeLatch.withHighByte(val);
         vram[mawr] = writeLatch;
         mawr = (mawr + addrInc) & 0xffff;
+        // if (mawr == 0x7c00) {
+        //   print(
+        //       "frame:${VdcRenderer.frames} write vram: 7c00\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+        // }
         break;
 
       case 0x05:

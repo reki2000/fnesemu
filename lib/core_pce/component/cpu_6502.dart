@@ -140,7 +140,7 @@ extension Cpu6502 on Cpu {
         int a = 0;
 
         if (t) {
-          addr = zeropageXY(regs.x);
+          addr = Cpu.zeroAddr | regs.x;
           a = read(addr);
         } else {
           a = regs.a;
@@ -184,7 +184,7 @@ extension Cpu6502 on Cpu {
         int a = 0;
 
         if (t) {
-          addr = zeropageXY(regs.x);
+          addr = Cpu.zeroAddr | regs.x;
           a = read(addr);
         } else {
           a = regs.a;
@@ -223,9 +223,9 @@ extension Cpu6502 on Cpu {
       case 0x31:
       case 0x32:
         if (regs.p & Flags.T != 0) {
-          int a = read(regs.x);
-          a &= readAddressing(op);
-          write(regs.x, a);
+          final addr = regs.x | Cpu.zeroAddr;
+          final a = read(addr) & readAddressing(op);
+          write(addr, a);
           cycle += 2;
           flagsNZ(a);
         } else {
@@ -246,9 +246,9 @@ extension Cpu6502 on Cpu {
       case 0x51:
       case 0x52:
         if (regs.p & Flags.T != 0) {
-          int a = read(regs.x);
-          a ^= readAddressing(op);
-          write(regs.x, a);
+          final addr = regs.x | Cpu.zeroAddr;
+          final a = read(addr) ^ readAddressing(op);
+          write(addr, a);
           cycle += 2;
           flagsNZ(a);
         } else {
@@ -269,9 +269,9 @@ extension Cpu6502 on Cpu {
       case 0x11:
       case 0x12:
         if (regs.p & Flags.T != 0) {
-          int a = read(regs.x);
-          a |= readAddressing(op);
-          write(regs.x, a);
+          final addr = regs.x | Cpu.zeroAddr;
+          final a = read(addr) | readAddressing(op);
+          write(addr, a);
           cycle += 2;
           flagsNZ(a);
         } else {

@@ -30,7 +30,9 @@ class Flags {
 }
 
 class Cpu2 extends Cpu {
-  Cpu2(super.bus);
+  Cpu2(super.bus) {
+    bus.cpu = this;
+  }
 
   bool exec() {
     cycle = 0;
@@ -63,11 +65,9 @@ enum Interrupt {
 }
 
 class Cpu {
-  Cpu(this.bus) {
-    bus.cpu = this;
-  }
-
   final Bus bus;
+
+  Cpu(this.bus);
 
   final regs = Regs();
 

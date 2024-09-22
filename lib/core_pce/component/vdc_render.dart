@@ -75,13 +75,21 @@ final Uint32List _rgba = Uint32List.fromList(
 extension VdcRenderer on Vdc {
   static bool debug = true;
 
-  static Uint32List buffer = Uint32List(256 * 242);
+  static Uint32List buffer = Uint32List(0);
 
   static int bgRenderLine = 0;
 
   static int displayStartLine = 14;
   static int displayLine = 0;
   static int displayX = 0;
+
+  static int frames = 0;
+
+  resetRenderer() {
+    bgRenderLine = 0;
+    frames = 0;
+    buffer = Uint32List(hSize * vSize);
+  }
 
   // render a line;
   void exec() {
@@ -143,6 +151,7 @@ extension VdcRenderer on Vdc {
 
     if (scanLine == 263) {
       scanLine = 0;
+      frames++;
     }
   }
 
@@ -216,7 +225,8 @@ extension VdcRenderer on Vdc {
     for (final sp in sprites) {
       if (sp.y <= y && y < sp.y + sp.height) {
         if (spriteBufIndex == 16) {
-          if (enableSpriteOverflow && status & Vdc.statusSpriteOverflow == 0) {
+          if (enableSpriteOverflow &&
+              (status & Vdc.statusSpriteOverflow) == 0) {
             status |= Vdc.statusSpriteOverflow;
             bus.cpu.holdInterrupt(Interrupt.irq1);
           }
@@ -250,7 +260,7 @@ extension VdcRenderer on Vdc {
         final y2 = flippedY >> 4;
 
         if (debug) {
-          // if (0 == hh && 0 == vv && sp.no == 0x13) {
+          // if (0 == hh && 0 == vv && sp.no == 0) {
           //   print(
           //       "sp: ${sp.no}, x: ${sp.x}, y: ${sp.y}, p: ${sp.patternNo}, pal: ${sp.paletteNo}, cg: ${sp.cgModeTreal01Zero}, v: ${sp.vFlip}, h: ${sp.hFlip}, h: ${sp.height}, w: ${sp.width}, p: ${sp.priority}");
           // }
@@ -259,7 +269,7 @@ extension VdcRenderer on Vdc {
               hh == sp.width - 1 ||
               vv == 0 ||
               vv == sp.height - 1 ||
-              sp.no.drawValue(hh - 2, vv - 2, 3)) {
+              sp.no.drawValue(hh - 2, vv - 2, 2)) {
             return 0xffffffff;
           }
         }

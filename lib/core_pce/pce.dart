@@ -145,7 +145,7 @@ class Pce {
   int get pc => cpu.regs.pc;
 
   // debug: set debug logging
-  String get state => cpu.trace();
+  String get state => "${cpu.trace()} ${vdc.dump()}";
 
   // debug: dump vram
   List<int> dumpVram() => vdc.vram.toList(growable: false);

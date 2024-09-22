@@ -25,7 +25,7 @@ extension CpuDebugger on Cpu {
   }
 
   String trace() {
-    return "${_disasm(regs.pc)} ${_reg()}".toUpperCase();
+    return "${_disasm(regs.pc)} ${_reg()} cy:$cycles".toUpperCase();
   }
 
   String dumpDisasm(int addr, {toAddrOffset = 0x200}) {
@@ -76,7 +76,7 @@ extension CpuDebugger on Cpu {
     // final pcMem =
     //     "${dumpMem(regs.pc & 0xfff0, regs.pc)}${dumpMem((regs.pc + 16) & 0xfff0, regs.pc)}";
 
-    final code = "${dumpNesTest()}\n";
+    final code = "${dumpNesTest()} cy:$cycles\n";
 
     String mpr = "mpr: ${regs.mpr.map((e) => hex8(e)).join(" ")} ";
     String irq =

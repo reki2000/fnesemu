@@ -220,8 +220,10 @@ extension Cpu6280 on Cpu {
         cycle += 2;
         break;
 
+      // NOP
       default:
-        return false;
+        cycle += 2;
+        return true;
     }
 
     return true;

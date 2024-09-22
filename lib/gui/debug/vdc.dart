@@ -29,22 +29,26 @@ final Uint32List _rgba = Uint32List.fromList(
   }, growable: false),
 );
 
-Future<ui.Image> renderColorTable(colorTable) {
+Future<ui.Image> renderColorTable(colorTable, int selected) {
   int size = 8;
-  int width = size * 16 + size * 1 + size * 16;
-  int height = size * 16;
+  int width = size + size * 16;
+  int height = size * 32;
 
   final buf = Uint32List(width * height);
 
-  for (int p = 0; p < 16; p++) {
+  for (int p = 0; p < 32; p++) {
+    if (p == selected) {
+      for (int x = 0; x < 7; x++) {
+        buf[x + (p * size + 4) * width] = 0xff000000;
+      }
+    }
+
     for (int c = 0; c < 16; c++) {
-      int bg = _rgba[colorTable[p << 4 | c]];
-      int sp = _rgba[colorTable[p << 4 | c] | 0x100];
+      int color = _rgba[colorTable[p << 4 | c]];
+
       for (int y = 0; y < size - 1; y++) {
         for (int x = 0; x < size - 1; x++) {
-          buf[c * size + x + (p * size + y) * width] = bg;
-          buf[c * size + x + (p * size + y) * width + (size * 16 + size * 1)] =
-              sp;
+          buf[size + c * size + x + (p * size + y) * width] = color;
         }
       }
     }
@@ -53,12 +57,13 @@ Future<ui.Image> renderColorTable(colorTable) {
   return _decodeImage(buf.buffer.asUint8List(), width, height);
 }
 
-Future<ui.Image> renderVram(colorTable, List<int> vram) {
+Future<ui.Image> renderVram(colorTable, List<int> vram, int paletteNo) {
   int tileSize = 8;
   int width = (tileSize * 16 + tileSize * 1) * 4;
   int height = (tileSize * 16 + tileSize * 1) * 4;
 
   final buf = Uint32List(width * height);
+  final palette = paletteNo << 4;
 
   for (int baseY = 0; baseY < 4; baseY++) {
     for (int baseX = 0; baseX < 4; baseX++) {
@@ -79,7 +84,7 @@ Future<ui.Image> renderVram(colorTable, List<int> vram) {
               final p2 = (p23 >> (8 + tileSize - x - 1)) & 1;
               final p3 = (p23 >> (0 + tileSize - x - 1)) & 1;
               final p = p0 | (p1 << 1) | (p2 << 2) | (p3 << 3);
-              final c = colorTable[p];
+              final c = colorTable[palette | p];
               buf[tx * 8 + x + (ty * 8 + y) * width + imageOffset] = _rgba[c];
             }
           }
@@ -163,7 +168,9 @@ _futureImage(Future<ui.Image> future) {
 class DebugVdc extends StatelessWidget {
   final Debugger debugger;
 
-  const DebugVdc({super.key, required this.debugger});
+  DebugVdc({super.key, required this.debugger});
+
+  final paletteNo = ValueNotifier(0);
 
   @override
   Widget build(BuildContext context) {
@@ -172,9 +179,27 @@ class DebugVdc extends StatelessWidget {
       margin: const EdgeInsets.all(10.0),
       child: Column(children: [
         Row(children: [
-          _futureImage(renderColorTable(debugger.dumpColorTable())),
-          _futureImage(
-              renderVram(debugger.dumpColorTable(), debugger.dumpVram())),
+          TextButton(
+              child: const Text("^"),
+              onPressed: () {
+                paletteNo.value = (paletteNo.value - 1) & 0x1f;
+              }),
+          TextButton(
+              child: const Text("v"),
+              onPressed: () {
+                paletteNo.value = (paletteNo.value + 1) & 0x1f;
+              }),
+          ValueListenableBuilder(
+              valueListenable: paletteNo,
+              builder: (context, value, child) {
+                return Row(children: [
+                  Text("$value"),
+                  _futureImage(
+                      renderColorTable(debugger.dumpColorTable(), value)),
+                  _futureImage(renderVram(
+                      debugger.dumpColorTable(), debugger.dumpVram(), value)),
+                ]);
+              }),
         ]),
         _futureImage(renderBg(
             debugger.dumpColorTable(),

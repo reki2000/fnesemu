@@ -130,6 +130,9 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
+        _iconButton(Icons.file_open_outlined, "draspi", () {
+          _loadRomFile(name: "draspi.pce");
+        }),
         _iconButton(Icons.file_open_outlined, "valkyrie", () {
           _loadRomFile(name: "valkyrie.pce");
         }),

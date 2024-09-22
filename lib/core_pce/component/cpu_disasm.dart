@@ -117,6 +117,7 @@ class Disasm {
         0x9e: ["STZ", _Operand.absx],
         0x54: ["CSL", _Operand.none],
         0xd4: ["CSH", _Operand.none],
+        0xf4: ["SET", _Operand.none],
         0x44: ["BSR", _Operand.rel],
         0x34: ["BIT", _Operand.zerox],
         0x3c: ["BIT", _Operand.absx],
@@ -233,13 +234,13 @@ class Disasm {
       case _Operand.blk:
         return "$addr  $x $blk0 $blk1 $blk2  $inst $blk0,$blk1,$blk2 $set";
       case _Operand.immedzero:
-        return "$addr  $x $y $z  $inst #$y, \$$z $set";
+        return "$addr  $x $y $z  $inst #\$$y, \$$z $set";
       case _Operand.immedabs:
-        return "$addr  $x $y $z  $inst #$y, \$$z $set";
+        return "$addr  $x $y $z  $inst #\$$y, \$$z $set";
       case _Operand.immedzerox:
-        return "$addr  $x $y $z  $inst #$y, \$$z, X $set";
+        return "$addr  $x $y $z  $inst #\$$y, \$$z, X $set";
       case _Operand.immedabsx:
-        return "$addr  $x $y $z  $inst #$y, \$$z, X $set";
+        return "$addr  $x $y $z  $inst #\$$y, \$$z, X $set";
 
       default:
         return "$addr  $x        $inst";
