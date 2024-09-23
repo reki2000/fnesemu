@@ -15,7 +15,7 @@ class Vdc {
   }
 
   String dump() {
-    final regs = "${hex8(reg)}r${hex16(marr)}w${hex16(mawr)}";
+    final regs = "${hex8(reg)} r${hex16(marr)} w${hex16(mawr)}";
     final scr =
         "scr:${hex16(scrollX).substring(1)},${hex16(scrollY).substring(1)},${hex16(rasterCompareRegister).substring(1)}+${hex8(addrInc)}";
     final flags =

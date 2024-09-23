@@ -82,4 +82,5 @@ class Debugger {
   List<int> dumpVram() => core.dumpVram();
   int read(int addr) => core.read(addr);
   List<int> dumpColorTable() => core.dumpColorTable();
+  List<int> dumpSpriteTable() => core.dumpSpriteTable();
 }

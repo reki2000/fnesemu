@@ -156,12 +156,30 @@ extension VdcRenderer on Vdc {
   }
 
   void _render() {
-    final spColor = enableSprite ? _renderSprite() : 0;
-    final bgColor = enableBg ? _renderBg() : 0;
+    final spColor =
+        enableSprite ? _renderSprite() : SpriteColor(0, isPrior: false);
 
-    buffer[displayLine * hSize + scanX] = (spColor & 0xff000000 != 0)
-        ? spColor
-        : _rgba[colorTable[(spColor & 0x0f != 0) ? spColor : bgColor]];
+    int color = 0;
+    if (spColor.isDirect) {
+      color = spColor.color;
+    } else {
+      int colorNo = 0;
+
+      if (spColor.isPrior) {
+        colorNo = spColor.color;
+      } else {
+        final bgColor = enableBg ? _renderBg() : 0;
+
+        if (bgColor & 0x0f == 0) {
+          colorNo = spColor.color;
+        } else {
+          colorNo = bgColor;
+        }
+      }
+      color = _rgba[colorTable[colorNo]];
+    }
+
+    buffer[displayLine * hSize + scanX] = color;
   }
 
   static int paletteNo = 0;
@@ -244,7 +262,7 @@ extension VdcRenderer on Vdc {
     }
   }
 
-  int _renderSprite() {
+  SpriteColor _renderSprite() {
     for (int i = 0; i < spriteBufIndex; i++) {
       final sp = spriteBuf[i];
       final hh = scanX + 32 - sp.x;
@@ -270,7 +288,7 @@ extension VdcRenderer on Vdc {
               vv == 0 ||
               vv == sp.height - 1 ||
               sp.no.drawValue(hh - 2, vv - 2, 2)) {
-            return 0xffffffff;
+            return SpriteColor(0xffffffff, isDirect: true);
           }
         }
 
@@ -318,12 +336,20 @@ extension VdcRenderer on Vdc {
           }
         }
 
-        if (colorNo != 0) {
-          return sp.paletteNo | colorNo;
+        if (colorNo > 0) {
+          return SpriteColor(sp.paletteNo | colorNo, isPrior: sp.priority);
         }
       }
     }
 
-    return 0;
+    return SpriteColor(0, isPrior: false);
   }
+}
+
+class SpriteColor {
+  final int color;
+  final bool isDirect;
+  final bool isPrior;
+
+  SpriteColor(this.color, {this.isDirect = false, this.isPrior = true});
 }

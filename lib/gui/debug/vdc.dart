@@ -7,6 +7,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/debugger.dart';
+import '../../styles.dart';
+import '../../util.dart';
 
 const _map3to8 = [
   0x00,
@@ -165,48 +167,112 @@ _futureImage(Future<ui.Image> future) {
   );
 }
 
+String _dumpSat(List<int> sat, bool second) {
+  final buf = StringBuffer();
+  final offset = second ? 32 : 0;
+
+  for (int i = offset; i < offset + 32; i++) {
+    final sp = _Sprite.of(sat, i * 4);
+    final xy = "${sp.x.toString().padLeft(4)},${sp.y.toString().padLeft(4)}";
+    final patNo =
+        "${sp.patternNo.toString().padLeft(4)} ${hex16(sp.patternNo << 6)}";
+    buf.write(
+        "${i.toString().padLeft(2)} $xy  $patNo ${sp.paletteNo.toString().padLeft(2)} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "} \n");
+  }
+
+  return buf.toString();
+}
+
+class _Sprite {
+  late final int no;
+  late final int x;
+  late final int y;
+  late final int patternNo;
+  late final int paletteNo;
+  late final bool cgModeTreal01Zero;
+  late final bool vFlip;
+  late final bool hFlip;
+  late final int height;
+  late final int width;
+  late final bool priority;
+
+  _Sprite.of(List<int> sat, int i) {
+    no = i >> 2;
+    y = sat[i] & 0x3ff;
+    x = sat[i + 1] & 0x3ff;
+
+    cgModeTreal01Zero = sat[i + 2] & 0x01 != 0;
+    vFlip = (sat[i + 3] & 0x8000) != 0;
+    hFlip = (sat[i + 3] & 0x0800) != 0;
+    priority = (sat[i + 3] & 0x80) != 0;
+    paletteNo = ((sat[i + 3] & 0x0f) << 4) | 0x100;
+
+    height = switch ((sat[i + 3] >> 12) & 0x03) { 0 => 16, 1 => 32, _ => 64 };
+    width = switch ((sat[i + 3] >> 8) & 0x01) { 0 => 16, _ => 32 };
+
+    int patternMask = 0;
+    if (height == 64) {
+      patternMask |= 0x06;
+    } else if (height == 32) {
+      patternMask |= 0x02;
+      ;
+    }
+    if (width == 32) {
+      patternMask |= 0x01;
+    }
+    patternNo = (sat[i + 2] >> 1) & 0x3ff & ~patternMask;
+  }
+}
+
 class DebugVdc extends StatelessWidget {
   final Debugger debugger;
 
   DebugVdc({super.key, required this.debugger});
 
-  final paletteNo = ValueNotifier(0);
+  final _paletteNo = ValueNotifier(0);
+
+  Widget _paletteNoListener(Function builder) => ValueListenableBuilder(
+        valueListenable: _paletteNo,
+        builder: (context, value, child) => builder(value),
+      );
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      margin: const EdgeInsets.all(10.0),
-      child: Column(children: [
-        Row(children: [
-          TextButton(
-              child: const Text("^"),
-              onPressed: () {
-                paletteNo.value = (paletteNo.value - 1) & 0x1f;
-              }),
-          TextButton(
-              child: const Text("v"),
-              onPressed: () {
-                paletteNo.value = (paletteNo.value + 1) & 0x1f;
-              }),
-          ValueListenableBuilder(
-              valueListenable: paletteNo,
-              builder: (context, value, child) {
-                return Row(children: [
-                  Text("$value"),
-                  _futureImage(
-                      renderColorTable(debugger.dumpColorTable(), value)),
-                  _futureImage(renderVram(
-                      debugger.dumpColorTable(), debugger.dumpVram(), value)),
-                ]);
-              }),
+  Widget build(BuildContext context) => Container(
+        alignment: Alignment.center,
+        margin: const EdgeInsets.all(10.0),
+        child: Column(children: [
+          Row(children: [
+            Text(_dumpSat(debugger.dumpSpriteTable(), false),
+                style: debugStyle),
+            Text(_dumpSat(debugger.dumpSpriteTable(), true), style: debugStyle),
+            Row(children: [
+              Column(children: [
+                Row(children: [
+                  IconButton(
+                      icon: const Icon(Icons.arrow_upward),
+                      onPressed: () {
+                        _paletteNo.value = (_paletteNo.value - 1) & 0x1f;
+                      }),
+                  IconButton(
+                      icon: const Icon(Icons.arrow_downward),
+                      onPressed: () {
+                        _paletteNo.value = (_paletteNo.value + 1) & 0x1f;
+                      }),
+                  _paletteNoListener(
+                      (value) => Text("$value", style: debugStyle)),
+                ]),
+                _paletteNoListener((value) => _futureImage(
+                    renderColorTable(debugger.dumpColorTable(), value))),
+              ]),
+              _paletteNoListener((value) => _futureImage(renderVram(
+                  debugger.dumpColorTable(), debugger.dumpVram(), value))),
+            ]),
+          ]),
+          _futureImage(renderBg(
+              debugger.dumpColorTable(),
+              debugger.dumpVram(),
+              debugger.core.vdc.bgWidthMask + 1,
+              debugger.core.vdc.bgHeightMask + 1)),
         ]),
-        _futureImage(renderBg(
-            debugger.dumpColorTable(),
-            debugger.dumpVram(),
-            debugger.core.vdc.bgWidthMask + 1,
-            debugger.core.vdc.bgHeightMask + 1)),
-      ]),
-    );
-  }
+      );
 }

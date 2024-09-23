@@ -157,4 +157,7 @@ class Pce {
 
   // debug: dump color table
   List<int> dumpColorTable() => vdc.colorTable;
+
+  // debug: dump sprite table
+  List<int> dumpSpriteTable() => vdc.sat;
 }
