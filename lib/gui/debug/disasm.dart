@@ -1,10 +1,10 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
 
+import '../../core/debugger.dart';
 // Project imports:
 import '../../styles.dart';
 import '../../util.dart';
-import 'debugger.dart';
 
 // get 40 lines of disassemble string
 

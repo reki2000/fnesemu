@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import 'debugger.dart';
+import '../../core/debugger.dart';
 
 const _map3to8 = [
   0x00,

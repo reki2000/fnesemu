@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 
 // Project imports:
-import 'core_controller.dart';
+import '../core/core_controller.dart';
 
 /// provides virtual pad buttons such as left, up, down, right, select, start, b and a.
 /// those buttons handle `tapDown` and tapUp` events

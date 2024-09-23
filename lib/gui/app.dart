@@ -4,13 +4,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/core_controller.dart';
+import '../core/debugger.dart';
 import '../styles.dart';
-import 'core_controller.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
 // Project imports:
 import 'debug/debug_pane.dart';
-import 'debug/debugger.dart';
 import 'key_handler.dart';
 import 'sound_player.dart';
 
@@ -130,6 +130,9 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
+        _iconButton(Icons.file_open_outlined, "momoden2", () {
+          _loadRomFile(name: "momoden2.pce");
+        }),
         _iconButton(Icons.file_open_outlined, "berabo", () {
           _loadRomFile(name: "berabo.pce");
         }),

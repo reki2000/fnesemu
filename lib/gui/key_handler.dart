@@ -2,7 +2,7 @@
 import 'package:flutter/services.dart';
 
 // Project imports:
-import 'core_controller.dart';
+import '../core/core_controller.dart';
 
 class KeyHandler {
   KeyHandler({required this.controller});

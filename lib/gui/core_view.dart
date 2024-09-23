@@ -4,8 +4,8 @@ import 'dart:ui' as ui;
 // Flutter imports:
 import 'package:flutter/material.dart';
 
+import '../core/core_controller.dart';
 import 'config.dart';
-import 'core_controller.dart';
 import 'virtual_pad.dart';
 
 class CoreView extends StatefulWidget {

@@ -1,12 +1,13 @@
 // Dart imports:
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'debugger.dart';
+import 'frame_counter.dart';
 // Project imports:
-import 'package:flutter/foundation.dart';
 
-import '../core/types.dart';
-import '../core_pce/pce.dart';
-import 'debug/debugger.dart';
+import 'pce/pce.dart';
+import 'types.dart';
 
 typedef NesPadButton = PadButton;
 
@@ -22,28 +23,52 @@ class CoreController {
     _core.audioStream = _audioStream.sink;
   }
 
-  Timer? _timer;
+  // used in main loop to periodically execute the emulator. if null, the emulator is stopped.
+  bool _running = false;
+
+  // used to calculate the next frame timing
+  int _nextFrameClock = 0;
+
+  // calculated fps
   double _fps = 0.0;
 
-  /// runs emulation with 16ms timer
-  void run() {
-    final startAt = DateTime.now();
-    var frames = 0;
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
-      if (_fps < 59.97) {
+  final fpsLimit = 59.97;
+
+  /// runs emulation continuously
+  void run() async {
+    final fpsCounter = FrameCounter(); // shortlife counter
+    final runSpeedCounter = FrameCounter(); // wholelife counter
+
+    runSpeedCounter.startAt = DateTime.now();
+    _running = true;
+    while (_running) {
+      // Wait for a while to avoid busy loop
+      await Future.delayed(const Duration());
+
+      // run emulation until the next frame timing
+      if (_core.cpu.clocks < _nextFrameClock) {
         runFrame();
-        frames++;
+        fpsCounter.count();
+        runSpeedCounter.count();
+        continue;
       }
-      _fps = frames /
-          (DateTime.now().difference(startAt).inMilliseconds.toDouble() /
-              1000.0);
-    });
+
+      final now = DateTime.now();
+
+      // proceed the emulation when fps is lower than the limit
+      if (runSpeedCounter.fps(now) < fpsLimit + 0.1) {
+        _nextFrameClock =
+            Pce.systemClock * runSpeedCounter.elapsedMilliseconds(now) ~/ 1000;
+      }
+
+      // update fps using the average of 2 measurement windows
+      _fps = fpsCounter.fps(now);
+    }
   }
 
   /// stops emulation
   void stop() {
-    _timer?.cancel();
+    _running = false;
   }
 
   /// executes emulation with 1 cpu instruction
@@ -102,6 +127,10 @@ class CoreController {
   }
 
   void reset() {
+    _running = false;
+    _nextFrameClock = 0;
+    _fps = 0.0;
+
     _core.reset();
     debugger.debugOption.breakPoint = 0;
     debugger.pushStream();
@@ -114,7 +143,7 @@ class CoreController {
   }
 
   bool isRunning() {
-    return _timer?.isActive ?? false;
+    return _running;
   }
 
   // screen/audio/fps
@@ -130,7 +159,6 @@ class CoreController {
   final audioSampleRate = Pce.audioSampleRate;
 
   // pad
-
   final _padUpStream = StreamController<NesPadButton>.broadcast();
   final _padDownStream = StreamController<NesPadButton>.broadcast();
 
@@ -145,15 +173,5 @@ class CoreController {
   void padUp(NesPadButton k) {
     _padUpStream.add(k);
     _core.padUp(k);
-  }
-
-  runUntilRts() {
-    while (true) {
-      _core.exec();
-      if (_core.dump().contains("60        RTS")) {
-        break;
-      }
-    }
-    _renderAll();
   }
 }

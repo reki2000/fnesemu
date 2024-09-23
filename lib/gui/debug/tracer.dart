@@ -34,11 +34,11 @@ class RingBuffer {
   }
 }
 
-class Trace {
+class Tracer {
   final StreamController<String> traceStreamController;
   final _ringBuffer = RingBuffer(40);
 
-  Trace(this.traceStreamController);
+  Tracer(this.traceStreamController);
 
   void addLog(String log) {
     // check redundancy of the first 73 chars which represents the CPU state

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'debugger.dart';
+import '../../core/debugger.dart';
 import 'disasm.dart';
 import 'vdc.dart';
 

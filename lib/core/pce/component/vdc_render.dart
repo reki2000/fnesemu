@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core_pce/component/cpu.dart';
+import 'package:fnesemu/core/pce/component/cpu.dart';
 import 'package:fnesemu/util.dart';
 
 import 'vdc.dart';

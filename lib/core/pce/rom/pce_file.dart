@@ -4,7 +4,7 @@ import 'dart:typed_data';
 // Project imports:
 import 'package:archive/archive_io.dart';
 
-import '../../util.dart';
+import '../../../util.dart';
 
 class PceFile {
   final banks = List<Uint8List>.filled(0, Uint8List(0), growable: true);

@@ -2,9 +2,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import '../../util.dart';
 // Project imports:
-import '../core/types.dart';
-import '../util.dart';
+import '../types.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';

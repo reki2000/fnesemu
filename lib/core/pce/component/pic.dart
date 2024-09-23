@@ -1,6 +1,6 @@
-import 'package:fnesemu/core_pce/component/bus.dart';
+import 'package:fnesemu/core/pce/component/bus.dart';
 
-import '../../util.dart';
+import '../../../util.dart';
 import 'cpu.dart';
 
 class Pic {

@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import '../../core_pce/pce.dart';
-import '../../util.dart';
-import 'trace.dart';
+import '../gui/debug/tracer.dart';
+import '../util.dart';
+import 'pce/pce.dart';
 
 /// Parameters for debugging features
 class DebugOption {
@@ -42,7 +42,7 @@ class Debugger {
     _debugStream.add(debugOption);
   }
 
-  Trace? _tracer;
+  Tracer? _tracer;
   final _traceStream = StreamController<String>.broadcast();
   StreamSubscription<String>? _traceSubscription;
 
@@ -51,7 +51,7 @@ class Debugger {
     pushStream();
 
     if (debugOption.log && _tracer == null) {
-      _tracer = Trace(_traceStream);
+      _tracer = Tracer(_traceStream);
       _traceSubscription = _traceStream.stream.listen((log) {
         print(log.replaceAll("\n", ""));
       }, onDone: () => _traceSubscription?.cancel());
