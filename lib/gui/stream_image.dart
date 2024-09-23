@@ -17,7 +17,7 @@ class StreamImageWidget extends StatefulWidget {
   });
 
   @override
-  _StreamImageWidgetState createState() => _StreamImageWidgetState();
+  State<StreamImageWidget> createState() => _StreamImageWidgetState();
 }
 
 class _StreamImageWidgetState extends State<StreamImageWidget>

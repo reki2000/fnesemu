@@ -28,48 +28,56 @@ class Vdc {
   }
 
   reset() {
-    for (int i = 0; i < vram.length; i++) {
-      vram[i] = 0;
-    }
+    vram.fillRange(0, vram.length, 0);
+    colorTable.fillRange(0, colorTable.length, 0x1ff);
+    sat.fillRange(0, sat.length, 0);
 
-    for (int i = 0; i < colorTable.length; i++) {
-      colorTable[i] = 0;
-    }
+    reg = 0;
+
+    status = 0;
+
+    controlRegister = 0;
 
     scanLine = 0;
     scanX = 0;
-
-    status = 0;
-    rasterCompareRegister = 0;
-    controlRegister = 0;
     scrollX = 0;
     scrollY = 0;
+    rasterCompareRegister = 0;
+
     enableBg = false;
     enableSprite = false;
+
     enableVBlank = false;
     enableRasterCompareIrq = false;
     enalbeSpriteCollision = false;
     enableSpriteOverflow = false;
+    enableDmaVramIrq = false;
+    enableDmaSatIrq = false;
+
     writeLatch = 0;
     readLatch = 0;
     mawr = 0;
     marr = 0;
-    addrInc = 0;
-    reg = 0;
+    addrInc = 1;
+
     vramDotWidth = 0;
+    hSize = 256;
+    vSize = 242;
+
     bgWidthBits = 5;
     bgHeightBits = 5;
     bgWidthMask = 0x1f;
     bgHeightMask = 0x1f;
+    bgScrollMaskX = 0xff;
+    bgScrollMaskY = 0xff;
     bgTreatPlane23Zero = false;
+
     dmaSrc = 0;
     dmaSrcDir = 0;
     dmaDst = 0;
     dmaDstDir = 0;
     dmaLen = 0;
     dma = false;
-    enableDmaVramIrq = false;
-    enableDmaSatIrq = false;
     dmaSrcSatb = 0;
     dmaSatb = false;
     dmaSatbAlways = false;
@@ -89,7 +97,7 @@ class Vdc {
 
   int mawr = 0;
   int marr = 0;
-  int addrInc = 0;
+  int addrInc = 1;
 
   int scrollX = 0;
   int scrollY = 0;
