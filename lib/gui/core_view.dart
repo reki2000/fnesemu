@@ -1,8 +1,10 @@
 // Dart imports:
+import 'dart:async';
 import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/gui/stream_image.dart';
 
 import '../core/core_controller.dart';
 import 'config.dart';
@@ -18,7 +20,7 @@ class CoreView extends StatefulWidget {
 }
 
 class _CoreViewState extends State<CoreView> {
-  final imageNotifier = ValueNotifier<ui.Image?>(null);
+  final imageStream = StreamController<ui.Image>();
 
   static final config = Config();
 
@@ -30,10 +32,10 @@ class _CoreViewState extends State<CoreView> {
         buf.width,
         buf.height,
         ui.PixelFormat.rgba8888,
-        targetWidth: config.imageWidth,
-        targetHeight: config.imageHeight,
-        allowUpscaling: true,
-        (image) => imageNotifier.value = image));
+        // targetWidth: config.imageWidth,
+        // targetHeight: config.imageHeight,
+        // allowUpscaling: true,
+        (image) => imageStream.sink.add(image)));
   }
 
   @override
@@ -48,21 +50,10 @@ class _CoreViewState extends State<CoreView> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // main view
-          Container(
-            width: config.imageWidth * 1,
-            height: config.imageHeight * 1,
-            color: Colors.black,
-            child: ValueListenableBuilder(
-              valueListenable: imageNotifier,
-              builder: (context, image, child) {
-                return image != null
-                    ? RawImage(
-                        image: image,
-                      )
-                    : const FittedBox();
-              },
-            ),
-          ),
+          StreamImageWidget(
+              imageStream: imageStream.stream,
+              width: config.imageWidth * 1,
+              height: config.imageHeight * 1),
 
           // virtual pad
           VirtualPadWidget(controller: widget.controller),

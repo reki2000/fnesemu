@@ -215,7 +215,6 @@ class _Sprite {
       patternMask |= 0x06;
     } else if (height == 32) {
       patternMask |= 0x02;
-      ;
     }
     if (width == 32) {
       patternMask |= 0x01;
