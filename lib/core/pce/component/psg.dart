@@ -9,38 +9,53 @@ import '../pce.dart';
 import 'bus.dart';
 
 class Wave {
+  bool enabled = false;
+
   int freq = 0;
+  int freqOffset = 0;
+
+  final table = List.filled(32, 0, growable: false);
   int counter = 0;
   int tableIndex = 0;
   int tableWriteIndex = 0;
+
   int volume = 0;
   int volumeL = 0;
   int volumeR = 0;
-  bool enabled = false;
-  int lfoFreq = 0;
 
   bool dda = false;
   int ddaValue = 0;
-  int prevDdaValue = 0;
 
   bool noise = false;
   int noiseFreq = 0;
+  int noiseIndex = 0;
   final random = math.Random();
 
   int currentL = 0;
   int currentR = 0;
 
-  static final table = List.filled(32, 0, growable: false);
-
   void reset() {
+    enabled = false;
+
+    freq = 0;
+    freqOffset = 0;
+
+    table.fillRange(0, table.length, 0);
     counter = 0;
     tableIndex = 0;
     tableWriteIndex = 0;
+
     volume = 0;
     volumeL = 0;
     volumeR = 0;
-    enabled = false;
-    lfoFreq = 0;
+
+    dda = false;
+    ddaValue = 0;
+
+    noise = false;
+    noiseFreq = 0;
+    noiseIndex = 0;
+
     currentL = 0;
     currentR = 0;
   }
@@ -60,14 +75,11 @@ class Wave {
   }
 
   List<int> synthDda(List<int> out) {
-    for (int i = 0; i < out.length; i += 2) {
-      if (prevDdaValue != ddaValue) {
-        prevDdaValue = ddaValue;
-        final out = (ddaValue - 16) * (volume + 1);
-        currentL = out * (volumeL + 1) ~/ (32 * 16);
-        currentR = out * (volumeR + 1) ~/ (32 * 16);
-      }
+    final vol = (ddaValue - 16) * (volume + 1);
+    currentL = vol * (volumeL + 1) ~/ (32 * 16);
+    currentR = vol * (volumeR + 1) ~/ (32 * 16);
 
+    for (int i = 0; i < out.length; i += 2) {
       out[i + 0] += currentL;
       out[i + 1] += currentR;
     }
@@ -82,11 +94,14 @@ class Wave {
 
         if (counter == 1) {
           counter = noiseFreq;
+          noiseIndex = (noiseIndex + 1) & 0x3f;
 
-          // volume: 5bit volumeLR: 4bit = 9bit
-          final out = (random.nextDouble() - 0.5) * (volume + 1);
-          currentL = out * (volumeL + 1) ~/ 32;
-          currentR = out * (volumeR + 1) ~/ 32;
+          if (noiseIndex == 0 || noiseIndex == 0x10) {
+            // volume: 5bit volumeLR: 4bit = 9bit
+            final out = (random.nextDouble() > 0.5) ? 31 : 0;
+            currentL = out * (volumeL + 1) ~/ 32;
+            currentR = out * (volumeR + 1) ~/ 32;
+          }
         }
       }
 
@@ -99,14 +114,11 @@ class Wave {
 
   List<int> synthWave(List<int> out) {
     for (int i = 0; i < out.length; i += 2) {
-      out[i + 0] += currentL;
-      out[i + 1] += currentR;
-
       for (int i = 0; i < Psg.divider; i++) {
         counter = (counter - 1) & 0xfff;
 
         if (counter == 1) {
-          counter = freq;
+          counter = _clip(freq + freqOffset, 0, 0xfff);
           tableIndex = (tableIndex + 1) & 0x1f;
 
           // volume: 5bit volumeLR: 4bit = 9bit
@@ -116,9 +128,20 @@ class Wave {
           currentR = out * (volumeR + 1) ~/ (32 * 16);
         }
       }
+
+      out[i + 0] += currentL;
+      out[i + 1] += currentR;
     }
 
     return out;
+  }
+
+  int _clip(int val, int min, int max) {
+    return val < min
+        ? min
+        : val > max
+            ? max
+            : val;
   }
 }
 
@@ -150,6 +173,11 @@ class Psg {
   int ch = 0;
   int ampL = 0;
   int ampR = 0;
+
+  int lfoFreq = 0;
+  bool lfoEnabled = false;
+  int lfoControl = 0;
+  int lfoCounter = 0;
 
   void write(int reg, int val) {
     switch (reg) {
@@ -187,24 +215,35 @@ class Psg {
 
       case 0x06: // waveform
         if (waves[ch].dda) {
-          waves[ch].ddaValue = val;
+          if (waves[ch].enabled) {
+            waves[ch].ddaValue = val;
+          } else {
+            waves[ch].tableWriteIndex = 0;
+          }
         } else {
-          waves[ch].pushWave(val & 0x1f);
+          if (!waves[ch].enabled) {
+            waves[ch].pushWave(val);
+          }
         }
         return;
 
       case 0x07: // noise ch4 or 5 only
         if (ch == 4 || ch == 5) {
           waves[ch].noise = bit7(val);
-          waves[ch].noiseFreq = val & 0x1f;
+          waves[ch].noiseFreq = (val & 0x1f) ^ 0x1f;
         }
         return;
 
       case 0x08:
-        waves[ch].lfoFreq = val;
+        lfoFreq = val;
         return;
 
       case 0x09: // LFO control ch0 or 1 only
+        lfoEnabled = bit7(val);
+        if (!lfoEnabled) {
+          waves[1].tableIndex = 0;
+        }
+        lfoControl = val & 0x03;
         return;
 
       default:
@@ -219,19 +258,41 @@ class Psg {
 
   /// Generates the output with the duration against given elapsed clocks
   Float32List exec(int elapsedClocks) {
-    final cycles =
-        elapsedClocks ~/ 3 ~/ 2 ~/ divider; // 3.579545MHz / 8(sample)
+    final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
 
     final buffer = Float32List(cycles * 2); // -1.0 .. 1.0 2 channel interleaved
 
     final out = List<int>.filled(buffer.length, 0);
-    for (int i = 0; i < waves.length; i++) {
-      waves[i].synth(out); // -16 .. 15, 2 channel interleaved 5bit PCM
+    int addedChannels = 0;
+
+    for (int i = waves.length - 1; i >= 0; i--) {
+      if (i == 1 && lfoEnabled) {
+        // proceed lfo index
+        for (int j = 0; j < out.length; j++) {
+          lfoCounter = (lfoCounter - 1) & 0x3ffff;
+          if (lfoCounter == 0) {
+            lfoCounter = 0;
+            waves[1].tableIndex = (waves[1].tableIndex + 1) & 0x1f;
+          }
+        }
+
+        // apply lfo offset to wave 0
+        final lfoVal = waves[1].table[waves[1].tableIndex];
+        waves[0].freqOffset = switch (lfoControl) {
+          1 => lfoVal - 16,
+          2 => (lfoVal << 4) - 256,
+          3 => (lfoVal << 8) - 4096,
+          _ => 0
+        };
+      } else if (waves[i].enabled) {
+        addedChannels++;
+        waves[i].synth(out); // -16 .. 15, 2 channel interleaved 5bit PCM
+      }
     }
 
     for (int i = 0; i < buffer.length; i += 2) {
-      buffer[i + 0] = out[i + 0] * (ampL + 1) / 16 / waves.length / 32;
-      buffer[i + 1] = out[i + 1] * (ampR + 1) / 16 / waves.length / 32;
+      buffer[i + 0] = out[i + 0] * (ampL + 1) / (16 * addedChannels * 32);
+      buffer[i + 1] = out[i + 1] * (ampR + 1) / (16 * addedChannels * 32);
     }
 
     return buffer;
