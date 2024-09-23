@@ -399,6 +399,7 @@ extension Cpu6502 on Cpu {
       case 0xd9: // 110 110 01
       case 0xc1: // 110 000 01
       case 0xd1: // 110 100 01
+      case 0xd2: // 110 100 10
         final cmp = regs.a - readAddressing(op);
         cycle += 2;
         flags(cmp, sub: true);
