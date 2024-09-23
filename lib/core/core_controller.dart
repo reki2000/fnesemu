@@ -36,13 +36,13 @@ class CoreController {
 
   /// runs emulation continuously
   void run() async {
-    final fpsCounter = FrameCounter(); // shortlife counter
+    final fpsCounter =
+        FrameCounter(duration: const Duration(seconds: 5)); // shortlife counter
     final runSpeedCounter = FrameCounter(); // wholelife counter
 
-    runSpeedCounter.startAt = DateTime.now();
     _running = true;
     while (_running) {
-      // Wait for a while to avoid busy loop
+      // wait the event loop to be done
       await Future.delayed(const Duration());
 
       // run emulation until the next frame timing
@@ -56,12 +56,12 @@ class CoreController {
       final now = DateTime.now();
 
       // proceed the emulation when fps is lower than the limit
-      if (runSpeedCounter.fps(now) < fpsLimit + 0.1) {
-        _nextFrameClock =
-            Pce.systemClock * runSpeedCounter.elapsedMilliseconds(now) ~/ 1000;
+      if (runSpeedCounter.fps(now) < fpsLimit) {
+        _nextFrameClock = Pce.systemClockHz *
+            runSpeedCounter.elapsedMilliseconds(now) ~/
+            1000;
       }
 
-      // update fps using the average of 2 measurement windows
       _fps = fpsCounter.fps(now);
     }
   }
@@ -71,17 +71,29 @@ class CoreController {
     _running = false;
   }
 
+  void reset() {
+    _running = false;
+    _nextFrameClock = 0;
+    _fps = 0.0;
+
+    _core.reset();
+    debugger.debugOption.breakPoint = 0;
+    debugger.pushStream();
+
+    _renderAll();
+  }
+
   /// executes emulation with 1 cpu instruction
   void runStep() {
     _core.exec();
-    debugger.addLog(_core.state);
+    debugger.addLog(_core.tracingState);
     _renderAll();
   }
 
   /// executes emulation during 1 scanline
   bool runScanLine({skipRender = false}) {
     while (true) {
-      if (debugger.debugOption.breakPoint == _core.pc) {
+      if (debugger.debugOption.breakPoint == _core.programCounter) {
         stop();
         return false;
       }
@@ -91,7 +103,7 @@ class CoreController {
 
       // need this check for performance
       if (debugger.debugOption.log) {
-        debugger.addLog(_core.state);
+        debugger.addLog(_core.tracingState);
       }
 
       if (!result.stopped) {
@@ -124,17 +136,6 @@ class CoreController {
     _imageStream.add(_core.imageBuffer());
     debugger.pushStream();
     _fpsStream.add(_fps);
-  }
-
-  void reset() {
-    _running = false;
-    _nextFrameClock = 0;
-    _fps = 0.0;
-
-    _core.reset();
-    debugger.debugOption.breakPoint = 0;
-    debugger.pushStream();
-    _renderAll();
   }
 
   void setRom(Uint8List body) {

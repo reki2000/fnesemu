@@ -37,7 +37,7 @@ class Debugger {
     } else {
       debugOption.text =
           core.dump(showZeroPage: true, showStack: true, showApu: true);
-      debugOption.disasmAddress = core.pc;
+      debugOption.disasmAddress = core.programCounter;
     }
     _debugStream.add(debugOption);
   }
@@ -75,12 +75,13 @@ class Debugger {
     pushStream();
   }
 
-  int get nextPc => (core.pc + core.disasm(core.pc).i1) & 0xffff;
+  int get nextPc =>
+      (core.programCounter + core.disasm(core.programCounter).i1) & 0xffff;
 
   Pair<String, int> disasm(int addr) => core.disasm(addr);
 
-  List<int> dumpVram() => core.dumpVram();
+  List<int> dumpVram() => core.vram;
   int read(int addr) => core.read(addr);
-  List<int> dumpColorTable() => core.dumpColorTable();
-  List<int> dumpSpriteTable() => core.dumpSpriteTable();
+  List<int> dumpColorTable() => core.colorTable;
+  List<int> dumpSpriteTable() => core.spriteTable;
 }

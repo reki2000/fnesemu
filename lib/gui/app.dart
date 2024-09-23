@@ -90,11 +90,16 @@ class MainPageState extends State<MainPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
+
     _reset();
-    if (!controller.debugger.debugOption.showDebugView) {
-      _run();
-      _debug(true);
-    }
+
+    // temporaryly autostart for debug
+    // if (!controller.debugger.debugOption.showDebugView) {
+    //   _run();
+    // }
+
+    _run();
+    _debug(true);
   }
 
   void _run() {
@@ -111,6 +116,7 @@ class MainPageState extends State<MainPage> {
 
   void _reset() {
     setState(() {
+      controller.stop();
       controller.reset();
     });
   }

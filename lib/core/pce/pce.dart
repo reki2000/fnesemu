@@ -18,7 +18,6 @@ import 'component/vdc_render.dart';
 import 'mapper/rom.dart';
 import 'pad_button.dart';
 import 'rom/pce_file.dart';
-import 'storage.dart';
 
 export 'pad_button.dart';
 
@@ -39,12 +38,10 @@ class Pce {
   late final Timer timer;
   late final Pic pic;
 
-  final storage = Storage.of();
+  static const systemClockHz = 21477270; // 21.47727MHz
 
-  static const systemClock = 21477270;
-
-  static const clocksInScanline = systemClock ~/ 59.97 ~/ scanlinesInFrame;
   static const scanlinesInFrame = 263;
+  static const clocksInScanline = systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   Pce() {
     bus = Bus();
@@ -55,8 +52,8 @@ class Pce {
     pic = Pic(bus);
   }
 
-  int nextVdcClocks = 0;
-  int prevPsgClocks = 0;
+  int nextVdcClocks = clocksInScanline;
+  int prevPsgClocks = clocksInScanline;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -144,20 +141,20 @@ class Pce {
       cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(cpu.read(addr)));
 
   // debug: returns PC register
-  int get pc => cpu.regs.pc;
+  int get programCounter => cpu.regs.pc;
 
   // debug: set debug logging
-  String get state => "${cpu.trace()} ${vdc.dump()}";
+  String get tracingState => "${cpu.trace()} ${vdc.dump()}";
 
   // debug: dump vram
-  List<int> dumpVram() => vdc.vram.toList(growable: false);
+  List<int> get vram => vdc.vram.toList(growable: false);
+
+  // debug: dump color table
+  List<int> get colorTable => vdc.colorTable;
+
+  // debug: dump sprite table
+  List<int> get spriteTable => vdc.sat;
 
   // debug: read mem
   int read(int addr) => bus.cpu.read(addr);
-
-  // debug: dump color table
-  List<int> dumpColorTable() => vdc.colorTable;
-
-  // debug: dump sprite table
-  List<int> dumpSpriteTable() => vdc.sat;
 }

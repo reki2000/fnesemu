@@ -1,6 +1,7 @@
 class FrameCounter {
   late Duration? duration;
 
+  // when duration is set, this connter is reset every duration with only one previous window
   FrameCounter({this.duration}) {
     startAt =
         DateTime.now().add(duration != null ? -duration! : -const Duration());
