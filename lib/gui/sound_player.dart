@@ -7,9 +7,13 @@ import 'package:mp_audio_stream/mp_audio_stream.dart';
 class SoundPlayer {
   static const _outputSampleRate = 44100;
   static const _channels = 2;
+  static const _bufferMilliSec = 200;
 
   final _audioStream = getAudioStream()
-    ..init(sampleRate: _outputSampleRate, channels: _channels);
+    ..init(
+        bufferMilliSec: _bufferMilliSec,
+        sampleRate: _outputSampleRate,
+        channels: _channels);
 
   static const _bufferLength = 1024 * _channels;
   final _buf = Float32List(_bufferLength);
