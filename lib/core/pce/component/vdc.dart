@@ -230,8 +230,9 @@ class Vdc {
         break;
       // Horizontal Display Register
       case 0x0b:
+        final oldHSize = hSize;
         hSize = ((val & 0x3f) + 1) << 3;
-        VdcRenderer.buffer = Uint32List(hSize * vSize);
+        if (oldHSize != hSize) VdcRenderer.buffer = Uint32List(hSize * vSize);
         break;
       // Vertical Sync Register
       case 0x0c:
@@ -280,9 +281,9 @@ class Vdc {
         writeLatch = writeLatch.withHighByte(val);
         vram[mawr] = writeLatch;
         mawr = (mawr + addrInc) & 0xffff;
-        // if (mawr == 0x7c00) {
+        // if (mawr == 0x7f00 && writeLatch == 0x0060) {
         //   print(
-        //       "frame:${VdcRenderer.frames} write vram: 7c00\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+        //       "frame:${VdcRenderer.frames} write vram: ${hex16(mawr)}\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
         // }
         break;
 
