@@ -116,6 +116,8 @@ class Pce {
     file.load(body);
     crc = file.crc;
 
+    print("loaded: file.bank.length: ${file.banks.length}");
+
     bus.rom = Rom(file.banks);
 
     reset();

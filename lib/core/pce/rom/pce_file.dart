@@ -25,6 +25,7 @@ class PceFile {
       banks.add(body.sublist(offset, offset + bankSize));
       offset += bankSize;
     }
+
     if (offset < body.length) {
       // Create a new Uint8List of length bankSize and copy the remaining bytes into it
       Uint8List padded = Uint8List(bankSize);

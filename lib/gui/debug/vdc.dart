@@ -77,16 +77,19 @@ Future<ui.Image> renderVram(colorTable, List<int> vram, int paletteNo) {
         for (int tx = 0; tx < 16; tx++) {
           for (int y = 0; y < 8; y++) {
             final addr = (tx + ty * 16) * 16 + y;
-            final p01 = vram[vramOffset | addr];
-            final p23 = vram[vramOffset | addr + 8];
+            final pattern01 = vram[vramOffset | addr];
+            final pattern23 = vram[vramOffset | addr + 8];
 
-            for (int x = 0; x < 8; x++) {
-              final p0 = (p01 >> (8 + tileSize - x - 1)) & 1;
-              final p1 = (p01 >> (0 + tileSize - x - 1)) & 1;
-              final p2 = (p23 >> (8 + tileSize - x - 1)) & 1;
-              final p3 = (p23 >> (0 + tileSize - x - 1)) & 1;
-              final p = p0 | (p1 << 1) | (p2 << 2) | (p3 << 3);
-              final c = colorTable[palette | p];
+            for (int x = 0; x < tileSize; x++) {
+              final shiftBits = (7 - (x & 7));
+              final p01 = pattern01 >> shiftBits;
+              final p23 = pattern23 >> shiftBits;
+
+              final color = (p01 & 0x01) |
+                  (p01 >> 7) & 0x02 |
+                  (p23 << 2) & 0x04 |
+                  (p23 >> 5) & 0x08;
+              final c = colorTable[((color == 0) ? 0 : palette) | color];
               buf[tx * 8 + x + (ty * 8 + y) * width + imageOffset] = _rgba[c];
             }
           }
@@ -136,7 +139,7 @@ Future<ui.Image> renderBg(
               (p23 << 2) & 0x04 |
               (p23 >> 5) & 0x08;
 
-          final c = colorTable[palette | color];
+          final c = colorTable[((color == 0) ? 0 : palette) | color];
           buf[imageOffset +
               tx * tileSize +
               x +
@@ -223,17 +226,36 @@ class _Sprite {
   }
 }
 
-class DebugVdc extends StatelessWidget {
+class DebugVdc extends StatefulWidget {
   final Debugger debugger;
 
-  DebugVdc({super.key, required this.debugger});
+  const DebugVdc({super.key, required this.debugger});
 
-  final _paletteNo = ValueNotifier(0);
+  @override
+  State<DebugVdc> createState() => _DebugVdc();
+}
 
-  Widget _paletteNoListener(Function builder) => ValueListenableBuilder(
-        valueListenable: _paletteNo,
-        builder: (context, value, child) => builder(value),
-      );
+class _DebugVdc extends State<DebugVdc> {
+  int _paletteNo = 0;
+  bool _useSecond = false;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  List<int> _colorTable(bool second) {
+    final colorTable = List<int>.from(widget.debugger.dumpColorTable());
+    if (second) {
+      colorTable[0] = 0x1ff;
+    }
+    return colorTable;
+  }
 
   @override
   Widget build(BuildContext context) => Container(
@@ -241,37 +263,40 @@ class DebugVdc extends StatelessWidget {
         margin: const EdgeInsets.all(10.0),
         child: Column(children: [
           Row(children: [
-            Text(_dumpSat(debugger.dumpSpriteTable(), false),
+            Text(_dumpSat(widget.debugger.dumpSpriteTable(), false),
                 style: debugStyle),
-            Text(_dumpSat(debugger.dumpSpriteTable(), true), style: debugStyle),
+            Text(_dumpSat(widget.debugger.dumpSpriteTable(), true),
+                style: debugStyle),
             Row(children: [
               Column(children: [
                 Row(children: [
+                  Switch(
+                      value: _useSecond,
+                      onChanged: (onoff) => setState(() => _useSecond = onoff)),
                   IconButton(
                       icon: const Icon(Icons.arrow_upward),
-                      onPressed: () {
-                        _paletteNo.value = (_paletteNo.value - 1) & 0x1f;
-                      }),
+                      onPressed: () => setState(() {
+                            _paletteNo = (_paletteNo - 1) & 0x1f;
+                          })),
                   IconButton(
                       icon: const Icon(Icons.arrow_downward),
-                      onPressed: () {
-                        _paletteNo.value = (_paletteNo.value + 1) & 0x1f;
-                      }),
-                  _paletteNoListener(
-                      (value) => Text("$value", style: debugStyle)),
+                      onPressed: () => setState(() {
+                            _paletteNo = (_paletteNo + 1) & 0x1f;
+                          })),
+                  Text("$_paletteNo", style: debugStyle),
                 ]),
-                _paletteNoListener((value) => _futureImage(
-                    renderColorTable(debugger.dumpColorTable(), value))),
+                _futureImage(
+                    renderColorTable(_colorTable(_useSecond), _paletteNo)),
               ]),
-              _paletteNoListener((value) => _futureImage(renderVram(
-                  debugger.dumpColorTable(), debugger.dumpVram(), value))),
+              _futureImage(renderVram(_colorTable(_useSecond),
+                  widget.debugger.dumpVram(), _paletteNo)),
             ]),
           ]),
           _futureImage(renderBg(
-              debugger.dumpColorTable(),
-              debugger.dumpVram(),
-              debugger.core.vdc.bgWidthMask + 1,
-              debugger.core.vdc.bgHeightMask + 1)),
+              widget.debugger.dumpColorTable(),
+              widget.debugger.dumpVram(),
+              widget.debugger.core.vdc.bgWidthMask + 1,
+              widget.debugger.core.vdc.bgHeightMask + 1)),
         ]),
       );
 }

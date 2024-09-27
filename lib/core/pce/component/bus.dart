@@ -26,7 +26,7 @@ class Bus {
     final bank = addr >> 13;
     final offset = addr & 0x1fff;
 
-    if (bank <= 0x3f) {
+    if (bank <= 0x7f) {
       return rom.read(addr);
     }
 
@@ -61,11 +61,7 @@ class Bus {
 
       // Timer
       if (offset < 0x1000) {
-        return switch (offset & 0x03) {
-          0x00 => timer.counter,
-          0x01 => timer.counter,
-          int() => 0
-        };
+        return timer.counter & 0x7f;
       }
 
       if (offset < 0x1400) {
@@ -147,7 +143,7 @@ class Bus {
 
       // Timer
       if (offset < 0x1000) {
-        switch (offset & 0x03) {
+        switch (offset & 0x01) {
           case 0x00:
             timer.size = data & 0x7f;
             return;
