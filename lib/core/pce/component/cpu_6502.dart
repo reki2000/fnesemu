@@ -378,15 +378,15 @@ extension Cpu6502 on Cpu {
       case 0x34: // 001 101 00 65c02
       case 0x3c: // 001 111 00 65c02
       case 0x89: // 100 010 01 65c02
-        final a = regs.a &
-            switch (op) {
-              0x3c => read(absoluteXY(regs.x)),
-              0x34 => read(zeropageXY(regs.x)),
-              0x89 => immediate(),
-              _ => read(address(op))
-            };
-        flagsNZ(a);
-        regs.p = (a & Flags.V) | (regs.p & ~Flags.V);
+        final dst = switch (op) {
+          0x3c => read(absoluteXY(regs.x)),
+          0x34 => read(zeropageXY(regs.x)),
+          0x89 => immediate(),
+          _ => read(address(op))
+        };
+        regs.p = (dst & 0xc0) |
+            ((dst & regs.a == 0) ? Flags.Z : 0) |
+            (regs.p & 0x3d);
         cycle += 2;
         break;
 
