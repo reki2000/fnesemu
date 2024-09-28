@@ -141,6 +141,8 @@ class MainPageState extends State<MainPage> {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
         _iconButton(Icons.file_open_outlined, "Load ROM",
+            () => _loadRomFile(name: "akumajou.nes")),
+        _iconButton(Icons.file_open_outlined, "Load ROM",
             () => _loadRomFile(name: "valkyrie.pce")),
 
         // file load button

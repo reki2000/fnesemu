@@ -72,10 +72,12 @@ class Joypad {
 
   int _read1() {
     final result = isPressed[buttons[scanOrder[counter]]]! ? 0x41 : 0x40;
+
     counter++;
     if (counter == 8) {
       counter = 0;
     }
+
     return result;
   }
 

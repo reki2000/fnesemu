@@ -5,7 +5,7 @@ import 'package:fnesemu/util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Storage {
-  late final SharedPreferences _prefs;
+  SharedPreferences? _prefs;
 
   static of() {
     final s = Storage();
@@ -14,12 +14,12 @@ class Storage {
   }
 
   void save(String key, Uint8List data) {
-    _prefs.setString(key, data.toBase64());
+    _prefs?.setString(key, data.toBase64());
     log("saveed $key size:${data.length}");
   }
 
   Uint8List load(String key) {
-    final data = _prefs.getString(key);
+    final data = _prefs?.getString(key);
     if (data == null) {
       log("loading $key: not found");
       return Uint8List(0);

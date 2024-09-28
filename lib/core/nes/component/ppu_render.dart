@@ -50,11 +50,6 @@ extension PpuRenderer on Ppu {
       .take3((r, g, b) => 0xff000000 | (b << 16) | (g << 8) | r)
       .toList(growable: false);
 
-  // color: 0-0x3f
-  void _putPixel(int y, int x, int color) {
-    buffer[y * Nes.imageWidth + x] = _colorRGBA[color & 0x3f];
-  }
-
   void _wrapAroundX() {
     if (vramAddr & 0x1f == 31) {
       vramAddr &= ~0x001F;
@@ -292,7 +287,7 @@ extension PpuRenderer on Ppu {
         color = _renderObjs(objs, x, bgColorNum, color);
       }
 
-      _putPixel(scanLine, x, color);
+      buffer[scanLine * Nes.imageWidth + x] = _colorRGBA[color & 0x3f];
     }
 
     // wrap around Y
