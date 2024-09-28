@@ -86,4 +86,9 @@ class Debugger {
   List<int> dumpColorTable() => core.colorTable;
   List<int> dumpSpriteTable() => core.spriteTable;
   ImageBuffer renderBg() => core.renderBg();
+  List<String> spriteInfo() => core.spriteInfo();
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
+      core.renderVram(useSecondBgColor, paletteNo);
+  ImageBuffer renderColorTable(int paletteNo) =>
+      core.renderColorTable(paletteNo);
 }

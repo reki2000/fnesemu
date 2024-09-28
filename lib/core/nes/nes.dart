@@ -241,4 +241,15 @@ class Nes implements Core {
   // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
   @override
   ImageBuffer renderBg() => ChrRomDebugger.renderChrRom(bus.ppu.readVram);
+
+  @override
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
+      ImageBuffer(0, 0, Uint8List(0));
+
+  @override
+  ImageBuffer renderColorTable(int paletteNo) =>
+      ImageBuffer(0, 0, Uint8List(0));
+
+  @override
+  List<String> spriteInfo() => List.empty();
 }

@@ -74,4 +74,7 @@ abstract class Core {
 
   // debug: dump vram
   ImageBuffer renderBg();
+  List<String> spriteInfo();
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo);
+  ImageBuffer renderColorTable(int paletteNo);
 }

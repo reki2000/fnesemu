@@ -188,4 +188,13 @@ class Pce implements Core {
   // debug: render BG
   @override
   ImageBuffer renderBg() => vdc.renderBg();
+  @override
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
+      vdc.renderVram(useSecondBgColor, paletteNo);
+  @override
+  ImageBuffer renderColorTable(int paletteNo) =>
+      vdc.renderColorTable(paletteNo);
+
+  @override
+  List<String> spriteInfo() => vdc.spriteInfo();
 }
