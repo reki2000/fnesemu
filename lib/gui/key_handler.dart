@@ -16,10 +16,10 @@ class KeyHandler {
       PhysicalKeyboardKey.arrowUp: PadButton.up,
       PhysicalKeyboardKey.arrowLeft: PadButton.left,
       PhysicalKeyboardKey.arrowRight: PadButton.right,
-      PhysicalKeyboardKey.keyX: controller.buttons[6],
-      PhysicalKeyboardKey.keyZ: controller.buttons[7],
       PhysicalKeyboardKey.keyA: controller.buttons[4],
       PhysicalKeyboardKey.keyS: controller.buttons[5],
+      PhysicalKeyboardKey.keyZ: controller.buttons[6],
+      PhysicalKeyboardKey.keyX: controller.buttons[7],
     };
   }
 

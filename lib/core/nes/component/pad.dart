@@ -19,12 +19,12 @@ class Joypad {
   final scanOrder = [
     7, // A
     6, // B
-    0, // left
-    1, // right
     4, // select
     5, // start
     2, // up
     3, // down
+    0, // left
+    1, // right
   ];
 
   var counter = 0;
