@@ -256,33 +256,26 @@ class Psg {
   }
 
   // generate table which has output volume values, 15 to 0 with each step -1.5dB
-  final volumeTable =
-      Float32List.fromList(List.generate(16, (i) => 1 / (16 - i)));
+  final volumeTable = List.generate(16, (i) => i == 0 ? 0 : (0.3 / (16 - i)));
 
   /// Generates the output with the duration against given elapsed clocks
   Float32List exec(int elapsedClocks) {
     final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
 
-    final buffer = Float32List(cycles * 2); // -1.0 .. 1.0 2 channel interleaved
-
-    final out = List<int>.filled(buffer.length, 0);
-    int addedChannels = 0;
+    final out = List<int>.filled(cycles * 2, 0);
 
     for (int i = waves.length - 1; i >= 0; i--) {
       if (i == 1 && lfoEnabled) {
         _applyLfo(out.length);
       } else if (waves[i].enabled) {
-        addedChannels++;
         waves[i].synth(out); // -16 .. 15, 2 channel interleaved 5bit PCM
       }
     }
 
-    if (addedChannels == 0) {
-      return buffer;
-    }
+    final buffer = Float32List(cycles * 2); // -1.0 .. 1.0 2 channel interleaved
 
-    final ampLrate = volumeTable[ampL] / addedChannels / 16;
-    final ampRrate = volumeTable[ampR] / addedChannels / 16;
+    final ampLrate = volumeTable[ampL] / 6 / 16;
+    final ampRrate = volumeTable[ampR] / 6 / 16;
     for (int i = 0; i < buffer.length; i += 2) {
       buffer[i + 0] = out[i + 0] * ampLrate;
       buffer[i + 1] = out[i + 1] * ampRrate;

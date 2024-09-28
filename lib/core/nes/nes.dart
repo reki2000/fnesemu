@@ -64,7 +64,7 @@ class Nes implements Core {
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
 
-  StreamSink<Float32List>? _audioSink;
+  StreamSink<AudioBuffer>? _audioSink;
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -112,7 +112,7 @@ class Nes implements Core {
         buf[i] = buf[i + 1] = (aux[i >> 1] + apu.buffer[i >> 1]) / maxVolume;
       }
 
-      _audioSink?.add(buf);
+      _pushAudioStream(buf);
       return;
     }
 
@@ -122,7 +122,7 @@ class Nes implements Core {
       stereo[i] = stereo[i + 1] = apu.buffer[i >> 1];
     }
 
-    _audioSink?.add(stereo);
+    _pushAudioStream(stereo);
   }
 
   /// returns screen buffer as 250 240 argb
@@ -133,12 +133,13 @@ class Nes implements Core {
   }
 
   @override
-  setAudioStream(StreamSink<Float32List>? sink) {
+  setAudioStream(StreamSink<AudioBuffer>? sink) {
     _audioSink = sink;
   }
 
-  @override
-  int get audioSampleRate => apuClock;
+  _pushAudioStream(Float32List buffer) {
+    _audioSink?.add(AudioBuffer(apuClock, 2, buffer));
+  }
 
   /// handles reset button events
   @override

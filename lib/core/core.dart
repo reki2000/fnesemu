@@ -29,9 +29,7 @@ abstract class Core {
   /// returns screen buffer as hSize x vSize argb
   ImageBuffer imageBuffer();
 
-  setAudioStream(StreamSink<Float32List>? stream);
-
-  int get audioSampleRate;
+  setAudioStream(StreamSink<AudioBuffer>? stream);
 
   /// handles reset button events
   void reset();

@@ -84,7 +84,8 @@ class Pce implements Core {
     while (cpu.clocks >= _prevPsgClocks + clocksInScanline) {
       final elapsed = (cpu.clocks - _prevPsgClocks) ~/ 6 * 6;
       _prevPsgClocks += elapsed;
-      _audioStream?.add(psg.exec(elapsed));
+      _audioStream
+          ?.add(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
     }
 
     return ExecResult(cpu.cycles, true, rendered);
@@ -97,15 +98,12 @@ class Pce implements Core {
         vdc.hSize, vdc.vSize, VdcRenderer.buffer.buffer.asUint8List());
   }
 
-  StreamSink<Float32List>? _audioStream;
+  StreamSink<AudioBuffer>? _audioStream;
 
   @override
-  setAudioStream(StreamSink<Float32List>? stream) {
+  setAudioStream(StreamSink<AudioBuffer>? stream) {
     _audioStream = stream;
   }
-
-  @override
-  int get audioSampleRate => Psg.audioSamplingRate;
 
   /// handles reset button events
   @override

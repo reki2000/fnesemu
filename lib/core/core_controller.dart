@@ -14,12 +14,12 @@ import 'types.dart';
 /// A Controller of the emulator core.
 /// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
 class CoreController {
-  late Core _core;
-  late Debugger debugger;
-
   CoreController() {
     setCore("pce");
   }
+
+  late Core _core;
+  late Debugger debugger;
 
   void setCore(String core) {
     stop();
@@ -177,14 +177,12 @@ class CoreController {
 
   // screen/audio/fps
   final _imageStream = StreamController<ImageBuffer>();
-  final _audioStream = StreamController<Float32List>();
+  final _audioStream = StreamController<AudioBuffer>();
   final _fpsStream = StreamController<double>();
 
   Stream<ImageBuffer> get imageStream => _imageStream.stream;
-  Stream<Float32List> get audioStream => _audioStream.stream;
+  Stream<AudioBuffer> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
-
-  int get audioSampleRate => _core.audioSampleRate;
 
   // pad
   final _padUpStream = StreamController<PadButton>.broadcast();
