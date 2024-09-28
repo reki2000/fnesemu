@@ -139,18 +139,6 @@ class MainPageState extends State<MainPage> {
         _iconButton(Icons.file_open_outlined, "momoden2", () {
           _loadRomFile(name: "momoden2.pce");
         }),
-        _iconButton(Icons.file_open_outlined, "berabo", () {
-          _loadRomFile(name: "berabo.pce");
-        }),
-        _iconButton(Icons.file_open_outlined, "valkyrie", () {
-          _loadRomFile(name: "valkyrie.pce");
-        }),
-        _iconButton(Icons.file_open_outlined, "genpei", () {
-          _loadRomFile(name: "genpei.pce");
-        }),
-        _iconButton(Icons.file_open_outlined, "deta", () {
-          _loadRomFile(name: "deta.pce");
-        }),
         _iconButton(Icons.file_open_outlined, "parodius", () {
           _loadRomFile(name: "parodius.pce");
         }),

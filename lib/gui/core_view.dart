@@ -32,9 +32,6 @@ class _CoreViewState extends State<CoreView> {
         buf.width,
         buf.height,
         ui.PixelFormat.rgba8888,
-        // targetWidth: config.imageWidth,
-        // targetHeight: config.imageHeight,
-        // allowUpscaling: true,
         (image) => imageStream.sink.add(image)));
   }
 

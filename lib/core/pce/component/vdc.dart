@@ -397,14 +397,14 @@ class Vdc {
 
   execDmaSatb() {
     // print("execDmaSatb : $dmaSatb ${hex16(dmaSrcSatb)}");
-    if (dmaSatb) {
+    if (dmaSatb || dmaSatbAlways) {
       for (int i = 0; i < sat.length; i++) {
         sat[i] = vram[(dmaSrcSatb + i) & 0xffff];
       }
 
-      if (!dmaSatbAlways) {
-        dmaSatb = false;
-      }
+      fetchSatb();
+
+      dmaSatb = false;
 
       if (enableDmaSatIrq) {
         status |= statusDmaSat;

@@ -42,7 +42,6 @@ class Sprite {
       patternMask |= 0x06;
     } else if (height == 32) {
       patternMask |= 0x02;
-      ;
     }
     if (width == 32) {
       patternMask |= 0x01;
@@ -63,7 +62,7 @@ const _map3to8 = [
   0xff,
 ];
 
-final Uint32List _rgba = Uint32List.fromList(
+final Uint32List rgba = Uint32List.fromList(
   List.generate(512, (i) {
     final b = _map3to8[i & 0x07];
     final r = _map3to8[(i >> 3) & 0x07];
@@ -136,12 +135,10 @@ extension VdcRenderer on Vdc {
         status |= Vdc.statusVBlank;
         bus.cpu.holdInterrupt(Interrupt.irq1);
       }
+    }
 
+    if (scanLine == 261) {
       execDmaSatb();
-
-      for (int i = 0; i < sprites.length; i++) {
-        sprites[i] = Sprite.of(sat, i * 4);
-      }
     }
 
     execDmaVram();
@@ -176,7 +173,7 @@ extension VdcRenderer on Vdc {
           colorNo = bgColor;
         }
       }
-      color = _rgba[colorTable[colorNo]];
+      color = rgba[colorTable[colorNo]];
     }
 
     buffer[displayLine * hSize + scanX] = color;
@@ -235,6 +232,12 @@ extension VdcRenderer on Vdc {
   static final sprite0 = List<bool>.filled(32, false); // x of sprite 0
 
   static int max = 0;
+
+  fetchSatb() {
+    for (int i = 0; i < sprites.length; i++) {
+      sprites[i] = Sprite.of(sat, i * 4);
+    }
+  }
 
   _fillSpriteBuffer() {
     spriteBufIndex = 0;

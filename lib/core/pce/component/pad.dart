@@ -1,19 +1,34 @@
 // Project imports:
 import '../../../util.dart';
-import '../pad_button.dart';
+import '../../pad_button.dart';
 
 class Pad {
-  final isPressed = List.filled(8, false);
+  final buttons = [
+    PadButton.up, // 0
+    PadButton.down, // 1
+    PadButton.left, // 2
+    PadButton.right, // 3
+    PadButton("I"), // 4
+    PadButton("II"), // 5
+    PadButton("select"), // 6
+    PadButton("Run"), // 7
+  ];
+
+  Pad() {
+    isPressed = {for (var e in buttons) e: false};
+  }
+
+  late Map<PadButton, bool> isPressed;
 
   bool selectLRDU = false; // else RunSelect12
   bool clear = false;
 
-  void keyDown(PadButton d) {
-    isPressed[d.index] = true;
+  void keyDown(int controllerId, PadButton d) {
+    isPressed[d] = true;
   }
 
-  void keyUp(PadButton d) {
-    isPressed[d.index] = false;
+  void keyUp(int controllerID, PadButton d) {
+    isPressed[d] = false;
   }
 
   reset() {
@@ -26,18 +41,17 @@ class Pad {
   }
 
   int get port => selectLRDU
-      ? (!isPressed[PadButton.left.index] ? 0x08 : 0) |
-          (!isPressed[PadButton.down.index] ? 0x04 : 0) |
-          (!isPressed[PadButton.right.index] ? 0x02 : 0) |
-          (!isPressed[PadButton.up.index] ? 0x01 : 0)
-      : (!isPressed[PadButton.start.index] ? 0x08 : 0) |
-          (!isPressed[PadButton.select.index] ? 0x04 : 0) |
-          (!isPressed[PadButton.a.index] ? 0x02 : 0) |
-          (!isPressed[PadButton.b.index] ? 0x01 : 0);
+      ? (!isPressed[buttons[2]]! ? 0x08 : 0) |
+          (!isPressed[buttons[1]]! ? 0x04 : 0) |
+          (!isPressed[buttons[3]]! ? 0x02 : 0) |
+          (!isPressed[buttons[0]]! ? 0x01 : 0)
+      : (!isPressed[buttons[7]]! ? 0x08 : 0) |
+          (!isPressed[buttons[6]]! ? 0x04 : 0) |
+          (!isPressed[buttons[4]]! ? 0x02 : 0) |
+          (!isPressed[buttons[5]]! ? 0x01 : 0);
 
-  String dump({showSpriteVram = false}) {
-    final joys = PadButton.values
-        .map((j) => "${j.name}:${isPressed[j.index] ? "*" : "-"}");
+  String dump() {
+    final joys = buttons.map((j) => "${j.name}:${isPressed[j]! ? "*" : "-"}");
     return "$joys";
   }
 }

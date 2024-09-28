@@ -2,7 +2,8 @@ import 'dart:async';
 
 import '../gui/debug/tracer.dart';
 import '../util.dart';
-import 'pce/pce.dart';
+import 'core.dart';
+import 'types.dart';
 
 /// Parameters for debugging features
 class DebugOption {
@@ -16,7 +17,7 @@ class DebugOption {
 }
 
 class Debugger {
-  final Pce core;
+  final Core core;
 
   Debugger(this.core);
 
@@ -84,4 +85,5 @@ class Debugger {
   int read(int addr) => core.read(addr);
   List<int> dumpColorTable() => core.colorTable;
   List<int> dumpSpriteTable() => core.spriteTable;
+  ImageBuffer renderBg() => core.renderBg();
 }

@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/debugger.dart';
+import '../../core/types.dart';
 import '../../styles.dart';
 import '../../util.dart';
 
@@ -31,7 +32,7 @@ final Uint32List _rgba = Uint32List.fromList(
   }, growable: false),
 );
 
-Future<ui.Image> renderColorTable(colorTable, int selected) {
+ImageBuffer renderColorTable(colorTable, int selected) {
   int size = 8;
   int width = size + size * 16;
   int height = size * 32;
@@ -56,10 +57,14 @@ Future<ui.Image> renderColorTable(colorTable, int selected) {
     }
   }
 
-  return _decodeImage(buf.buffer.asUint8List(), width, height);
+  return ImageBuffer(
+    width,
+    height,
+    buf.buffer.asUint8List(),
+  );
 }
 
-Future<ui.Image> renderVram(colorTable, List<int> vram, int paletteNo) {
+ImageBuffer renderVram(colorTable, List<int> vram, int paletteNo) {
   int tileSize = 8;
   int width = (tileSize * 16 + tileSize * 1) * 4;
   int height = (tileSize * 16 + tileSize * 1) * 4;
@@ -98,74 +103,21 @@ Future<ui.Image> renderVram(colorTable, List<int> vram, int paletteNo) {
     }
   }
 
-  return _decodeImage(buf.buffer.asUint8List(), width, height);
+  return ImageBuffer(
+    width,
+    height,
+    buf.buffer.asUint8List(),
+  );
 }
 
-Future<ui.Image> renderBg(
-    colorTable, List<int> vram, int bgWidth, int bgHeight) {
-  const tileSize = 8;
-  const imageWidth = 128 * tileSize;
-  const imageHeight = 64 * tileSize;
-
-  // final blockSizeX = 128 ~/ bgWidth;
-  // final blockSizeY = 64 ~/ bgHeight;
-
-  final buf = Uint32List(imageWidth * imageHeight);
-
-  // for (int blockY = 0; blockY < blockSizeY; blockY++) {
-  //   for (int blockX = 0; blockX < blockSizeX; blockX++) {
-  const vramOffset = 0;
-  const imageOffset = 0;
-  //     final vramOffset = (blockX + blockY * blockSizeX) * 16 * bgWidth * bgHeight;
-  //     final imageOffset = blockX * tileSize * bgWidth + (blockY * tileSize * bgHeight) * imageWidth;
-
-  for (int ty = 0; ty < bgHeight; ty++) {
-    for (int tx = 0; tx < bgWidth; tx++) {
-      final pattern = vram[tx + ty * bgWidth + vramOffset];
-      final palette = pattern >> 12 << 4;
-
-      for (int y = 0; y < tileSize; y++) {
-        final addr = (pattern & 0xfff) * 16 + y;
-        final pattern01 = vram[addr];
-        final pattern23 = vram[addr + 8];
-
-        for (int x = 0; x < tileSize; x++) {
-          final shiftBits = (7 - (x & 7));
-          final p01 = pattern01 >> shiftBits;
-          final p23 = pattern23 >> shiftBits;
-
-          final color = (p01 & 0x01) |
-              (p01 >> 7) & 0x02 |
-              (p23 << 2) & 0x04 |
-              (p23 >> 5) & 0x08;
-
-          final c = colorTable[((color == 0) ? 0 : palette) | color];
-          buf[imageOffset +
-              tx * tileSize +
-              x +
-              (ty * tileSize + y) * imageWidth] = _rgba[c];
-        }
-      }
-    }
-    //   }
-    // }
-  }
-
-  return _decodeImage(buf.buffer.asUint8List(), imageWidth, imageHeight);
-}
-
-_decodeImage(Uint8List buf, int width, int height) {
+_imageBufferRenderer(ImageBuffer buf) {
   final completer = Completer<ui.Image>();
 
-  ui.decodeImageFromPixels(buf.buffer.asUint8List(), width, height,
+  ui.decodeImageFromPixels(buf.buffer, buf.width, buf.height,
       ui.PixelFormat.rgba8888, (image) => completer.complete(image));
 
-  return completer.future;
-}
-
-_futureImage(Future<ui.Image> future) {
   return FutureBuilder(
-    future: future,
+    future: completer.future,
     builder: (context, image) => RawImage(image: image.data),
   );
 }
@@ -285,18 +237,14 @@ class _DebugVdc extends State<DebugVdc> {
                           })),
                   Text("$_paletteNo", style: debugStyle),
                 ]),
-                _futureImage(
+                _imageBufferRenderer(
                     renderColorTable(_colorTable(_useSecond), _paletteNo)),
               ]),
-              _futureImage(renderVram(_colorTable(_useSecond),
+              _imageBufferRenderer(renderVram(_colorTable(_useSecond),
                   widget.debugger.dumpVram(), _paletteNo)),
             ]),
           ]),
-          _futureImage(renderBg(
-              widget.debugger.dumpColorTable(),
-              widget.debugger.dumpVram(),
-              widget.debugger.core.vdc.bgWidthMask + 1,
-              widget.debugger.core.vdc.bgHeightMask + 1)),
+          _imageBufferRenderer(widget.debugger.renderBg()),
         ]),
       );
 }

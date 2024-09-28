@@ -166,7 +166,7 @@ class Psg {
   int cycle = 0;
 
   static const divider = 8; // divider for 3.579545MHz
-  static const audioSamplingRate = Pce.systemClockHz ~/ 6 ~/ divider;
+  static const audioSamplingRate = Pce.systemClockHz_ ~/ 6 ~/ divider;
 
   final waves = List<Wave>.generate(6, (_) => Wave());
 

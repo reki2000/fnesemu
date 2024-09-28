@@ -3,22 +3,24 @@ import 'package:flutter/services.dart';
 
 // Project imports:
 import '../core/core_controller.dart';
+import '../core/pad_button.dart';
 
 class KeyHandler {
-  KeyHandler({required this.controller});
+  KeyHandler({required this.controller}) {
+    _keys = {
+      PhysicalKeyboardKey.arrowDown: PadButton.down,
+      PhysicalKeyboardKey.arrowUp: PadButton.up,
+      PhysicalKeyboardKey.arrowLeft: PadButton.left,
+      PhysicalKeyboardKey.arrowRight: PadButton.right,
+      PhysicalKeyboardKey.keyX: controller.buttons[4],
+      PhysicalKeyboardKey.keyZ: controller.buttons[5],
+      PhysicalKeyboardKey.keyA: controller.buttons[6],
+      PhysicalKeyboardKey.keyS: controller.buttons[7],
+    };
+  }
 
   final CoreController controller;
-
-  static final _keys = {
-    PhysicalKeyboardKey.arrowDown: NesPadButton.down,
-    PhysicalKeyboardKey.arrowUp: NesPadButton.up,
-    PhysicalKeyboardKey.arrowLeft: NesPadButton.left,
-    PhysicalKeyboardKey.arrowRight: NesPadButton.right,
-    PhysicalKeyboardKey.keyX: NesPadButton.a,
-    PhysicalKeyboardKey.keyZ: NesPadButton.b,
-    PhysicalKeyboardKey.keyA: NesPadButton.select,
-    PhysicalKeyboardKey.keyS: NesPadButton.start,
-  };
+  late Map<PhysicalKeyboardKey, PadButton> _keys;
 
   bool handle(KeyEvent e) {
     var button = _keys[e.physicalKey];

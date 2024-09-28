@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'core.dart';
+import 'core_factory.dart';
 import 'debugger.dart';
 import 'frame_counter.dart';
 // Project imports:
@@ -9,25 +11,21 @@ import 'frame_counter.dart';
 import 'pce/pce.dart';
 import 'types.dart';
 
-typedef NesPadButton = PadButton;
-
 /// A Controller of the emulator core.
 /// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
 class CoreController {
-  late Pce _core;
+  late Core _core;
   late Debugger debugger;
 
   CoreController() {
-    _core = Pce();
+    _core = CoreFactory.ofPce();
     debugger = Debugger(_core);
-    _core.audioStream = _audioStream.sink;
+    _core.setAudioStream(_audioStream.sink);
   }
 
   // used in main loop to periodically execute the emulator. if null, the emulator is stopped.
   bool _running = false;
-
-  // used to calculate the next frame timing
-  int _nextFrameClock = 0;
+  int _runningCount = 0;
 
   // calculated fps
   double _fps = 0.0;
@@ -38,42 +36,52 @@ class CoreController {
   void run() async {
     final fpsCounter =
         FrameCounter(duration: const Duration(seconds: 5)); // shortlife counter
-    final runSpeedCounter = FrameCounter(); // wholelife counter
+    final initialCpuClocks = _core.clocks;
+    int nextFrameClocks = 0;
+    final runStartedAt = DateTime.now();
+
+    await stop();
 
     _running = true;
+    _runningCount++;
+
     while (_running) {
       // wait the event loop to be done
       await Future.delayed(const Duration());
 
       // run emulation until the next frame timing
-      if (_core.cpu.clocks < _nextFrameClock) {
+      if (_core.clocks - initialCpuClocks < nextFrameClocks) {
         runFrame();
         fpsCounter.count();
-        runSpeedCounter.count();
         continue;
       }
 
       final now = DateTime.now();
 
-      // proceed the emulation when fps is lower than the limit
-      if (runSpeedCounter.fps(now) < fpsLimit) {
-        _nextFrameClock = Pce.systemClockHz *
-            runSpeedCounter.elapsedMilliseconds(now) ~/
-            1000;
-      }
+      // proceed the emulation
+      nextFrameClocks = _core.systemClockHz *
+          (now.difference(runStartedAt).inMilliseconds) ~/
+          1000;
 
       _fps = fpsCounter.fps(now);
     }
+
+    _runningCount--;
   }
 
   /// stops emulation
-  void stop() {
+  stop() async {
     _running = false;
+
+    while (_runningCount > 0) {
+      await Future.delayed(const Duration());
+    }
+
+    return true;
   }
 
   void reset() {
     _running = false;
-    _nextFrameClock = 0;
     _fps = 0.0;
 
     _core.reset();
@@ -123,7 +131,7 @@ class CoreController {
 
   /// executes emulation during 1 frame
   void runFrame() {
-    for (int i = 0; i < Pce.scanlinesInFrame; i++) {
+    for (int i = 0; i < _core.scanlinesInFrame; i++) {
       if (!runScanLine(skipRender: true)) {
         _renderAll();
         return;
@@ -139,7 +147,9 @@ class CoreController {
   }
 
   void setRom(Uint8List body) {
+    stop();
     _core.setRom(body);
+    reset();
     debugger.pushStream();
   }
 
@@ -157,22 +167,24 @@ class CoreController {
   Stream<Float32List> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
 
-  final audioSampleRate = Pce.audioSampleRate;
+  int get audioSampleRate => _core.audioSampleRate;
 
   // pad
-  final _padUpStream = StreamController<NesPadButton>.broadcast();
-  final _padDownStream = StreamController<NesPadButton>.broadcast();
+  final _padUpStream = StreamController<PadButton>.broadcast();
+  final _padDownStream = StreamController<PadButton>.broadcast();
 
-  Stream<NesPadButton> get padUpStream => _padUpStream.stream;
-  Stream<NesPadButton> get padDownStream => _padDownStream.stream;
+  Stream<PadButton> get padUpStream => _padUpStream.stream;
+  Stream<PadButton> get padDownStream => _padDownStream.stream;
 
-  void padDown(NesPadButton k) {
+  void padDown(PadButton k) {
     _padDownStream.add(k);
-    _core.padDown(k);
+    _core.padDown(0, k);
   }
 
-  void padUp(NesPadButton k) {
+  void padUp(PadButton k) {
     _padUpStream.add(k);
-    _core.padUp(k);
+    _core.padUp(0, k);
   }
+
+  List<PadButton> get buttons => _core.buttons;
 }
