@@ -14,13 +14,14 @@ mixin _Wave {
   void reset() {} // to be overridden
 
   void setLowFreq(int val) {
-    _freq = (_freq & 0x700) | val;
+    _freq = _freq.withLowByte(val);
   }
 
   void setHighFreq(int val) {
-    _freq = (_freq & 0xff) | ((val & 0x07) << 8);
+    _freq = _freq.withHighByte(val & 0x07);
     _enabled = bit7(val);
-    if (_enabled) {
+
+    if (!_enabled) {
       reset();
     }
   }
@@ -46,11 +47,13 @@ class _PulseWave with _Wave {
     }
 
     for (int i = 0; i < buf.length; i++) {
+      buf[i] = _dutyCycle <= duty ? volume : 0;
+
       if (_timer <= 0) {
         _timer = _freq + 1;
         _dutyCycle = (_dutyCycle - 1) & 0x0f;
       }
-      buf[i] = _dutyCycle <= duty ? volume : 0;
+
       _timer--;
     }
 
@@ -158,14 +161,6 @@ class Vrc6Apu {
     }
   }
 
-  //                cpu cycle  frequency   duration
-  // cpu cycle:             1    1.78MHz     0.56us
-  // audio samples:     40.58    44100Hz    22.67us
-  // 1 NTSCframe:       29830       60Hz     16.6ms = 735 audio samples
-  //                    29754 = (261 * 114)
-
-  // generates sound outout for 1 frame at one APU emulation
-  // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio)
   static const _execCycles =
       Nes.scanlinesInFrame_ * Nes.cpuCyclesInScanline ~/ 2;
 
