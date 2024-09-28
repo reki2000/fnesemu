@@ -65,6 +65,10 @@ ImageBuffer renderColorTable(colorTable, int selected) {
 }
 
 ImageBuffer renderVram(colorTable, List<int> vram, int paletteNo) {
+  if (vram.length < 0x8000) {
+    return ImageBuffer(0, 0, Uint8List(0));
+  }
+
   int tileSize = 8;
   int width = (tileSize * 16 + tileSize * 1) * 4;
   int height = (tileSize * 16 + tileSize * 1) * 4;

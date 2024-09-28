@@ -38,14 +38,11 @@ class Cpu {
   }
 
   int cycle = 0;
-  int clocks = 0;
 
   late final int Function(int) read;
   late final void Function(int, int) write;
 
   bool exec() {
-    final startCycle = cycle;
-
     if (_assertIrq) {
       _assertIrq = false;
       _holdIrq = false;
@@ -612,8 +609,6 @@ class Cpu {
         return execUnofficials(op);
     }
 
-    clocks += (cycle - startCycle) * 3;
-
     return true;
   }
 
@@ -907,7 +902,6 @@ class Cpu {
 
   void reset() {
     cycle = 0;
-    clocks = 0;
 
     regs.a = 0;
     regs.x = 0;

@@ -1,6 +1,8 @@
 // Dart imports:
 import 'dart:typed_data';
 
+import '../../types.dart';
+
 class ChrRomDebugger {
   static const _width = 128;
   static const _height = 256 * 2;
@@ -22,7 +24,7 @@ class ChrRomDebugger {
   }
 
   /// returns chr-rom image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format
-  static Uint8List renderChrRom(int Function(int) readChrRom) {
+  static ImageBuffer renderChrRom(int Function(int) readChrRom) {
     final buf = Uint8List(_width * _height * 4);
 
     int x = 0;
@@ -37,6 +39,6 @@ class ChrRomDebugger {
       }
     }
 
-    return buf;
+    return ImageBuffer(_width, _height, buf);
   }
 }

@@ -99,13 +99,11 @@ class MainPageState extends State<MainPage> {
 
     _reset();
 
-    // temporaryly autostart for debug
-    // if (!controller.debugger.debugOption.showDebugView) {
-    //   _run();
-    // }
-
-    _run();
-    _debug(true);
+    if (!controller.debugger.debugOption.showDebugView) {
+      setState(() {
+        _run();
+      });
+    }
   }
 
   void _run() {
@@ -142,12 +140,8 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        _iconButton(Icons.file_open_outlined, "momoden2", () {
-          _loadRomFile(name: "momoden2.pce");
-        }),
-        _iconButton(Icons.file_open_outlined, "parodius", () {
-          _loadRomFile(name: "parodius.pce");
-        }),
+        _iconButton(Icons.file_open_outlined, "Load ROM",
+            () => _loadRomFile(name: "valkyrie.pce")),
 
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),

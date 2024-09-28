@@ -24,6 +24,13 @@ import 'storage.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes implements Core {
+  Nes() {
+    bus = Bus();
+    cpu = Cpu(bus);
+    ppu = Ppu(bus);
+    apu = Apu(bus);
+  }
+
   late final Ppu ppu;
   late final Apu apu;
   late final Cpu cpu;
@@ -32,33 +39,32 @@ class Nes implements Core {
   final storage = Storage.of();
 
   static const cpuClock = 1789773;
+
   static const apuClock = cpuClock ~/ 2;
 
-  static const cpuCyclesInScanline = 114;
-
   static const scanlinesInFrame_ = 262;
+
+  static const cpuCyclesInScanline = cpuClock / 59.97 ~/ scanlinesInFrame_;
+
+  static const imageWidth = 256;
+  static const imageHeight = 240;
 
   @override
   int get scanlinesInFrame => scanlinesInFrame_;
 
   @override
-  int get clocksInScanline => cpuCyclesInScanline * 3;
+  int get clocksInScanline => cpuCyclesInScanline;
 
   @override
   int get systemClockHz => cpuClock;
 
-  Nes() {
-    bus = Bus();
-    cpu = Cpu(bus);
-    ppu = Ppu(bus);
-    apu = Apu(bus);
-  }
-
   @override
-  int get clocks => cpu.clocks;
+  int get clocks => cpu.cycle;
 
-  int nextPpuCycle = 0;
-  int nextApuCycle = 0;
+  int _nextPpuCycle = 0;
+  int _nextApuCycle = 0;
+
+  StreamSink<Float32List>? _audioSink;
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -70,38 +76,31 @@ class Nes implements Core {
     }
 
     bool rendered = false;
-    if (cpu.cycle >= nextPpuCycle) {
+    if (cpu.cycle >= _nextPpuCycle) {
       ppu.exec();
       bus.mapper.handleClock(cpu.cycle);
-      nextPpuCycle += cpuCyclesInScanline;
+      _nextPpuCycle += cpuCyclesInScanline;
       rendered = true;
     }
-    if (cpu.cycle >= nextApuCycle) {
+
+    if (cpu.cycle >= _nextApuCycle) {
       apu.exec();
       bus.mapper.handleApu();
-      nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
+      _nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
 
       _pushApuBuffer();
     }
+
     return ExecResult(cpu.cycle, true, rendered);
-  }
-
-  static const imageWidth = 256;
-  static const imageHeight = 240;
-
-  /// returns screen buffer as 250x240xargb
-  @override
-  ImageBuffer imageBuffer() {
-    return ImageBuffer(
-        imageWidth, imageHeight, ppu.buffer.buffer.asUint8List());
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
   void _pushApuBuffer() {
     final aux = bus.mapper.apuBuffer();
 
+    // if mapper has aux buffer, mix with apu buffer
     if (aux.isNotEmpty) {
-      final mix = Float32List(aux.length * 2);
+      final buf = Float32List(aux.length * 2);
 
       // mix apu.buffer + aux with normalization
       var maxVolume = 1.0;
@@ -109,21 +108,28 @@ class Nes implements Core {
         maxVolume = max(maxVolume, (aux[i] + apu.buffer[i]).abs());
       }
 
-      for (int i = 0; i < mix.length; i += 2) {
-        mix[i] = mix[i + 1] = (aux[i >> 1] + apu.buffer[i >> 1]) / maxVolume;
+      for (int i = 0; i < buf.length; i += 2) {
+        buf[i] = buf[i + 1] = (aux[i >> 1] + apu.buffer[i >> 1]) / maxVolume;
       }
 
-      _audioSink?.add(mix);
+      _audioSink?.add(buf);
       return;
     }
 
-    final mix = Float32List(apu.buffer.length * 2);
+    final stereo = Float32List(apu.buffer.length * 2);
 
-    for (int i = 0; i < mix.length; i += 2) {
-      mix[i] = mix[i + 1] = apu.buffer[i >> 1];
+    for (int i = 0; i < stereo.length; i += 2) {
+      stereo[i] = stereo[i + 1] = apu.buffer[i >> 1];
     }
 
-    _audioSink?.add(mix);
+    _audioSink?.add(stereo);
+  }
+
+  /// returns screen buffer as 250 240 argb
+  @override
+  ImageBuffer imageBuffer() {
+    return ImageBuffer(
+        imageWidth, imageHeight, ppu.buffer.buffer.asUint8List());
   }
 
   @override
@@ -131,16 +137,14 @@ class Nes implements Core {
     _audioSink = sink;
   }
 
-  StreamSink<Float32List>? _audioSink;
-
   @override
-  int get audioSampleRate => systemClockHz ~/ 6;
+  int get audioSampleRate => apuClock;
 
   /// handles reset button events
   @override
   void reset() {
-    nextPpuCycle = cpuCyclesInScanline;
-    nextApuCycle = scanlinesInFrame * cpuCyclesInScanline;
+    _nextPpuCycle = cpuCyclesInScanline;
+    _nextApuCycle = scanlinesInFrame * cpuCyclesInScanline;
     bus.onReset();
   }
 
@@ -204,11 +208,6 @@ class Nes implements Core {
     // return '${fps.toStringAsFixed(2)}fps';
   }
 
-  // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
-  Uint8List renderChrRom() {
-    return ChrRomDebugger.renderChrRom(bus.ppu.readVram);
-  }
-
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
   Pair<String, int> disasm(int addr) =>
@@ -228,17 +227,17 @@ class Nes implements Core {
 
   // debug: dump color table
   @override
-  List<int> get colorTable => List.empty();
+  List<int> get colorTable => List.filled(512, 0);
 
   // debug: dump sprite table
   @override
-  List<int> get spriteTable => List.empty();
+  List<int> get spriteTable => List.filled(64 * 4, 0);
 
   // debug: read mem
   @override
   int read(int addr) => bus.read(addr);
 
-  // debug: dump vram
+  // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
   @override
-  ImageBuffer renderBg() => ImageBuffer(10, 10, Uint8List(10 * 10 * 4));
+  ImageBuffer renderBg() => ChrRomDebugger.renderChrRom(bus.ppu.readVram);
 }

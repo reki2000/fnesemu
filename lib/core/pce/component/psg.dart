@@ -3,7 +3,6 @@ import 'dart:developer';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-// Project imports:
 import '../../../util.dart';
 import '../pce.dart';
 import 'bus.dart';
@@ -256,6 +255,10 @@ class Psg {
     return 0xff;
   }
 
+  // generate table which has output volume values, 15 to 0 with each step -1.5dB
+  final volumeTable =
+      Float32List.fromList(List.generate(16, (i) => 1 / (16 - i)));
+
   /// Generates the output with the duration against given elapsed clocks
   Float32List exec(int elapsedClocks) {
     final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
@@ -267,34 +270,43 @@ class Psg {
 
     for (int i = waves.length - 1; i >= 0; i--) {
       if (i == 1 && lfoEnabled) {
-        // proceed lfo index
-        for (int j = 0; j < out.length; j++) {
-          lfoCounter = (lfoCounter - 1) & 0x3ffff;
-          if (lfoCounter == 0) {
-            lfoCounter = 0;
-            waves[1].tableIndex = (waves[1].tableIndex + 1) & 0x1f;
-          }
-        }
-
-        // apply lfo offset to wave 0
-        final lfoVal = waves[1].table[waves[1].tableIndex];
-        waves[0].freqOffset = switch (lfoControl) {
-          1 => lfoVal - 16,
-          2 => (lfoVal << 4) - 256,
-          3 => (lfoVal << 8) - 4096,
-          _ => 0
-        };
+        _applyLfo(out.length);
       } else if (waves[i].enabled) {
         addedChannels++;
         waves[i].synth(out); // -16 .. 15, 2 channel interleaved 5bit PCM
       }
     }
 
+    if (addedChannels == 0) {
+      return buffer;
+    }
+
+    final ampLrate = volumeTable[ampL] / addedChannels / 16;
+    final ampRrate = volumeTable[ampR] / addedChannels / 16;
     for (int i = 0; i < buffer.length; i += 2) {
-      buffer[i + 0] = out[i + 0] * (ampL + 1) / (16 * addedChannels * 32);
-      buffer[i + 1] = out[i + 1] * (ampR + 1) / (16 * addedChannels * 32);
+      buffer[i + 0] = out[i + 0] * ampLrate;
+      buffer[i + 1] = out[i + 1] * ampRrate;
     }
 
     return buffer;
+  }
+
+  _applyLfo(int length) {
+    for (int j = 0; j < length; j++) {
+      lfoCounter = (lfoCounter - 1) & 0x3ffff;
+      if (lfoCounter == 0) {
+        lfoCounter = 0;
+        waves[1].tableIndex = (waves[1].tableIndex + 1) & 0x1f;
+      }
+    }
+
+    // apply lfo offset to wave 0
+    final lfoVal = waves[1].table[waves[1].tableIndex];
+    waves[0].freqOffset = switch (lfoControl) {
+      1 => lfoVal - 16,
+      2 => (lfoVal << 4) - 256,
+      3 => (lfoVal << 8) - 4096,
+      _ => 0
+    };
   }
 }

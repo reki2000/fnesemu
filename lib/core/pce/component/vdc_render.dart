@@ -72,7 +72,7 @@ final Uint32List rgba = Uint32List.fromList(
 );
 
 extension VdcRenderer on Vdc {
-  static bool debug = true;
+  static bool debug = false;
 
   static Uint32List buffer = Uint32List(0);
 
@@ -271,12 +271,12 @@ extension VdcRenderer on Vdc {
       final hh = scanX + 32 - sp.x;
 
       if (0 <= hh && hh < sp.width) {
-        final flippedX = sp.hFlip ? sp.width - hh : hh;
+        final flippedX = sp.hFlip ? sp.width - hh - 1 : hh;
         final x = flippedX & 0x0f;
         final x2 = flippedX >> 4;
 
         final vv = displayLine + 64 - sp.y;
-        final flippedY = sp.vFlip ? sp.height - vv : vv;
+        final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
         final y = flippedY & 0x0f;
         final y2 = flippedY >> 4;
 
