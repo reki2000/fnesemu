@@ -82,7 +82,13 @@ class MainPageState extends State<MainPage> {
     }
 
     try {
+      controller.setCore(name.endsWith(".pce")
+          ? "pce"
+          : name.endsWith(".nes")
+              ? "nes"
+              : "unknown");
       controller.setRom(file);
+      keyHandler.init();
       setState(() {
         _romName = name;
       });

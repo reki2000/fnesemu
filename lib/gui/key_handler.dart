@@ -7,15 +7,19 @@ import '../core/pad_button.dart';
 
 class KeyHandler {
   KeyHandler({required this.controller}) {
+    init();
+  }
+
+  init() {
     _keys = {
       PhysicalKeyboardKey.arrowDown: PadButton.down,
       PhysicalKeyboardKey.arrowUp: PadButton.up,
       PhysicalKeyboardKey.arrowLeft: PadButton.left,
       PhysicalKeyboardKey.arrowRight: PadButton.right,
-      PhysicalKeyboardKey.keyX: controller.buttons[4],
-      PhysicalKeyboardKey.keyZ: controller.buttons[5],
-      PhysicalKeyboardKey.keyA: controller.buttons[6],
-      PhysicalKeyboardKey.keyS: controller.buttons[7],
+      PhysicalKeyboardKey.keyX: controller.buttons[6],
+      PhysicalKeyboardKey.keyZ: controller.buttons[7],
+      PhysicalKeyboardKey.keyA: controller.buttons[4],
+      PhysicalKeyboardKey.keyS: controller.buttons[5],
     };
   }
 

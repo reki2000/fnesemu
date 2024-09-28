@@ -51,7 +51,16 @@ class Nes implements Core {
   void padUp(int controllerId, PadButton k) {}
 
   @override
-  List<PadButton> get buttons => throw UnimplementedError();
+  List<PadButton> get buttons => [
+        PadButton.left,
+        PadButton.right,
+        PadButton.up,
+        PadButton.down,
+        PadButton("Select"),
+        PadButton("Start"),
+        PadButton("A"),
+        PadButton("B"),
+      ];
 
   @override
   int get programCounter => 0;

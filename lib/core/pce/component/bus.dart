@@ -1,5 +1,7 @@
 // Dart imports:
 
+import 'dart:typed_data';
+
 import '../../../util.dart';
 import '../mapper/rom.dart';
 import 'cpu.dart';
@@ -16,7 +18,7 @@ class Bus {
   late final Timer timer;
   late final Pic pic;
 
-  late Rom rom;
+  Rom rom = Rom(List.filled(4, Uint8List(0x2000)));
 
   final joypad = Pad();
 

@@ -8,10 +8,10 @@ class Pad {
     PadButton.down, // 1
     PadButton.left, // 2
     PadButton.right, // 3
-    PadButton("I"), // 4
-    PadButton("II"), // 5
-    PadButton("select"), // 6
-    PadButton("Run"), // 7
+    PadButton("Sel"), // 4
+    PadButton("Run"), // 5
+    PadButton("II"), // 6
+    PadButton("I"), // 7
   ];
 
   Pad() {
@@ -45,10 +45,10 @@ class Pad {
           (!isPressed[buttons[1]]! ? 0x04 : 0) |
           (!isPressed[buttons[3]]! ? 0x02 : 0) |
           (!isPressed[buttons[0]]! ? 0x01 : 0)
-      : (!isPressed[buttons[7]]! ? 0x08 : 0) |
-          (!isPressed[buttons[6]]! ? 0x04 : 0) |
-          (!isPressed[buttons[4]]! ? 0x02 : 0) |
-          (!isPressed[buttons[5]]! ? 0x01 : 0);
+      : (!isPressed[buttons[5]]! ? 0x08 : 0) | // Run
+          (!isPressed[buttons[4]]! ? 0x04 : 0) | // Select
+          (!isPressed[buttons[7]]! ? 0x02 : 0) | // I
+          (!isPressed[buttons[6]]! ? 0x01 : 0); // II
 
   String dump() {
     final joys = buttons.map((j) => "${j.name}:${isPressed[j]! ? "*" : "-"}");

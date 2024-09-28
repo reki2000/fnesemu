@@ -18,9 +18,30 @@ class CoreController {
   late Debugger debugger;
 
   CoreController() {
-    _core = CoreFactory.ofPce();
+    setCore("pce");
+  }
+
+  void setCore(String core) {
+    stop();
+    switch (core) {
+      case 'pce':
+        _core = CoreFactory.ofPce();
+        break;
+      case 'nes':
+        _core = CoreFactory.ofNes();
+        break;
+      default:
+        throw Exception('unsupported core: $core');
+    }
+
+    _initCore();
+  }
+
+  _initCore() {
     debugger = Debugger(_core);
     _core.setAudioStream(_audioStream.sink);
+    debugger.pushStream();
+    reset();
   }
 
   // used in main loop to periodically execute the emulator. if null, the emulator is stopped.
@@ -29,8 +50,6 @@ class CoreController {
 
   // calculated fps
   double _fps = 0.0;
-
-  final fpsLimit = 59.97;
 
   /// runs emulation continuously
   void run() async {
@@ -158,7 +177,6 @@ class CoreController {
   }
 
   // screen/audio/fps
-
   final _imageStream = StreamController<ImageBuffer>();
   final _audioStream = StreamController<Float32List>();
   final _fpsStream = StreamController<double>();
