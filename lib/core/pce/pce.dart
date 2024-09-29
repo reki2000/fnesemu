@@ -173,14 +173,6 @@ class Pce implements Core {
   @override
   List<int> get vram => vdc.vram.toList(growable: false);
 
-  // debug: dump color table
-  @override
-  List<int> get colorTable => vdc.colorTable;
-
-  // debug: dump sprite table
-  @override
-  List<int> get spriteTable => vdc.sat;
-
   // debug: read mem
   @override
   int read(int addr) => bus.cpu.read(addr);

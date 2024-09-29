@@ -20,15 +20,17 @@ abstract class Core {
   int get scanlinesInFrame;
   int get clocksInScanline;
 
+  // returns elapsed CPU clocks
   int get clocks;
 
-  /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
+  /// exec 1 cpu instruction and render image/audio if it passed enough cycles
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   ExecResult exec();
 
-  /// returns screen buffer as hSize x vSize argb
+  /// returns screen image buffer
   ImageBuffer imageBuffer();
 
+  // receives audio stream sink to push rendered audio buffer
   setAudioStream(StreamSink<AudioBuffer>? stream);
 
   /// handles reset button events
@@ -38,9 +40,10 @@ abstract class Core {
   void padDown(int controllerId, PadButton k);
   void padUp(int controllerId, PadButton k);
 
+  /// returns list of buttons
   List<PadButton> get buttons;
 
-  // loads an .pce format rom file.
+  // loads an rom file.
   // throws exception if the mapper type of the rom file is not supported.
   void setRom(Uint8List body);
 
@@ -51,23 +54,17 @@ abstract class Core {
       bool showStack = false,
       bool showApu = false});
 
-  // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
+  // debug: returns dis-assembled instruction in Pair<String nmemonic, int nextAddr>
   Pair<String, int> disasm(int addr);
 
   // debug: returns PC register
   int get programCounter;
 
-  // debug: set debug logging
+  // debug: returns tracing CPU state - disassembed next instruction and current registers
   String get tracingState;
 
   // debug: dump vram
   List<int> get vram;
-
-  // debug: dump color table
-  List<int> get colorTable;
-
-  // debug: dump sprite table
-  List<int> get spriteTable;
 
   // debug: read mem
   int read(int addr);

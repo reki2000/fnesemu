@@ -23,22 +23,37 @@ class SoundPlayer {
 
   void dispose() => _audioStream.uninit();
 
-  // resample input buffer (Float32 0.0-1.0 890kHz, 2 channels) to 44.1kHz
-  void push(Float32List input, int inputSampleRate) {
-    final skip = inputSampleRate / _outputSampleRate;
+  // resample input buffer (Float32 0.0-1.0 890kHz, 1 or 2 channels) to 44.1kHz
+  void push(Float32List input, int inputSampleRate, int inputChannels) {
     double index = 0.0;
+    final skip = inputSampleRate / _outputSampleRate;
 
-    while (index < input.length / _channels) {
-      final i = index.toInt() * _channels;
-      for (var j = 0; j < _channels; j++) {
-        _buf[_bufIndex++] = input[i + j];
-      }
+    if (inputChannels == 1 && _channels == 2) {
+      while (index < input.length) {
+        final i = index.toInt();
 
-      if (_bufIndex == _buf.length) {
-        _bufIndex = 0;
-        _audioStream.push(_buf);
+        _buf[_bufIndex++] = input[i];
+        _buf[_bufIndex++] = input[i];
+
+        if (_bufIndex == _buf.length) {
+          _bufIndex = 0;
+          _audioStream.push(_buf);
+        }
+        index += skip;
       }
-      index += skip;
+    } else if (inputChannels == 2 && _channels == 2) {
+      while (index < input.length / _channels) {
+        final i = index.toInt() * 2;
+
+        _buf[_bufIndex++] = input[i];
+        _buf[_bufIndex++] = input[i + 1];
+
+        if (_bufIndex == _buf.length) {
+          _bufIndex = 0;
+          _audioStream.push(_buf);
+        }
+        index += skip;
+      }
     }
   }
 }

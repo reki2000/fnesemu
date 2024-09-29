@@ -54,7 +54,7 @@ class MainPageState extends State<MainPage> {
     // start automatic playback the emulator's audio output
     (() async {
       await for (final buf in controller.audioStream) {
-        _mPlayer.push(buf.buffer, buf.sampleRate);
+        _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
       }
     })();
   }

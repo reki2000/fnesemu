@@ -10,6 +10,10 @@ import '../../core/types.dart';
 import '../../styles.dart';
 
 _imageBufferRenderer(ImageBuffer buf) {
+  if (buf.buffer.isEmpty) {
+    return const SizedBox();
+  }
+
   final completer = Completer<ui.Image>();
 
   ui.decodeImageFromPixels(buf.buffer, buf.width, buf.height,
@@ -42,14 +46,6 @@ class _DebugVdc extends State<DebugVdc> {
   @override
   void dispose() {
     super.dispose();
-  }
-
-  List<int> _colorTable(bool second) {
-    final colorTable = List<int>.from(widget.debugger.dumpColorTable());
-    if (second) {
-      colorTable[0] = 0x1ff;
-    }
-    return colorTable;
   }
 
   @override

@@ -100,7 +100,7 @@ class Nes implements Core {
 
     // if mapper has aux buffer, mix with apu buffer
     if (aux.isNotEmpty) {
-      final buf = Float32List(aux.length * 2);
+      final buf = Float32List(aux.length);
 
       // mix apu.buffer + aux with normalization
       var maxVolume = 1.0;
@@ -108,21 +108,15 @@ class Nes implements Core {
         maxVolume = max(maxVolume, (aux[i] + apu.buffer[i]).abs());
       }
 
-      for (int i = 0; i < buf.length; i += 2) {
-        buf[i] = buf[i + 1] = (aux[i >> 1] + apu.buffer[i >> 1]) / maxVolume;
+      for (int i = 0; i < buf.length; i++) {
+        buf[i] = (aux[i >> 1] + apu.buffer[i >> 1]) / maxVolume;
       }
 
       _pushAudioStream(buf);
       return;
     }
 
-    final stereo = Float32List(apu.buffer.length * 2);
-
-    for (int i = 0; i < stereo.length; i += 2) {
-      stereo[i] = stereo[i + 1] = apu.buffer[i >> 1];
-    }
-
-    _pushAudioStream(stereo);
+    _pushAudioStream(apu.buffer);
   }
 
   /// returns screen buffer as 250 240 argb
@@ -138,7 +132,7 @@ class Nes implements Core {
   }
 
   _pushAudioStream(Float32List buffer) {
-    _audioSink?.add(AudioBuffer(apuClock, 2, buffer));
+    _audioSink?.add(AudioBuffer(apuClock, 1, buffer));
   }
 
   /// handles reset button events
@@ -225,14 +219,6 @@ class Nes implements Core {
   // debug: dump vram
   @override
   List<int> get vram => bus.vram;
-
-  // debug: dump color table
-  @override
-  List<int> get colorTable => List.filled(512, 0);
-
-  // debug: dump sprite table
-  @override
-  List<int> get spriteTable => List.filled(64 * 4, 0);
 
   // debug: read mem
   @override
