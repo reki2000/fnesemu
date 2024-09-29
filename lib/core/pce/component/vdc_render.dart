@@ -154,7 +154,7 @@ extension VdcRenderer on Vdc {
 
   void _render() {
     final spColor =
-        enableSprite ? _renderSprite() : SpriteColor(0, isPrior: false);
+        enableSprite ? _renderSprite() : const SpriteColor(0, isPrior: false);
 
     int color = 0;
     if (spColor.isDirect) {
@@ -291,7 +291,7 @@ extension VdcRenderer on Vdc {
               vv == 0 ||
               vv == sp.height - 1 ||
               sp.no.drawValue(hh - 2, vv - 2, 2)) {
-            return SpriteColor(0xffffffff, isDirect: true);
+            return const SpriteColor(0xffffffff, isDirect: true);
           }
         }
 
@@ -345,7 +345,7 @@ extension VdcRenderer on Vdc {
       }
     }
 
-    return SpriteColor(0, isPrior: false);
+    return const SpriteColor(0, isPrior: false);
   }
 }
 
@@ -354,5 +354,5 @@ class SpriteColor {
   final bool isDirect;
   final bool isPrior;
 
-  SpriteColor(this.color, {this.isDirect = false, this.isPrior = true});
+  const SpriteColor(this.color, {this.isDirect = false, this.isPrior = true});
 }
