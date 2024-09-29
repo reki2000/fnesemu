@@ -41,6 +41,8 @@ class MainPageState extends State<MainPage> {
   final controller = CoreController();
   late final KeyHandler keyHandler;
 
+  bool _running = false;
+
   String _romName = "";
 
   @override
@@ -82,14 +84,14 @@ class MainPageState extends State<MainPage> {
     }
 
     try {
-      controller.setCore(name.endsWith(".pce")
-          ? "pce"
-          : name.endsWith(".nes")
-              ? "nes"
-              : "unknown");
-      controller.setRom(file);
-      keyHandler.init();
       setState(() {
+        controller.setCore(name.endsWith(".pce")
+            ? "pce"
+            : name.endsWith(".nes")
+                ? "nes"
+                : "unknown");
+        controller.setRom(file);
+        keyHandler.init();
         _romName = name;
       });
     } catch (e) {
@@ -97,31 +99,32 @@ class MainPageState extends State<MainPage> {
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
 
-    _reset();
-
-    if (!controller.debugger.debugOption.showDebugView) {
-      setState(() {
-        _run();
-      });
-    }
+    _reset(run: !controller.debugger.debugOption.showDebugView);
   }
 
   void _run() {
     setState(() {
+      _running = true;
       controller.run();
     });
   }
 
   void _stop() {
     setState(() {
+      _running = false;
       controller.stop();
     });
   }
 
-  void _reset() {
+  void _reset({bool run = false}) {
     setState(() {
-      controller.stop();
-      controller.reset();
+      () async {
+        await controller.stop();
+        controller.reset();
+        if (run) {
+          _run();
+        }
+      }();
     });
   }
 
@@ -140,16 +143,24 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        _iconButton(Icons.file_open_outlined, "Load ROM",
-            () => _loadRomFile(name: "akumajou.nes")),
-        _iconButton(Icons.file_open_outlined, "Load ROM",
-            () => _loadRomFile(name: "valkyrie.pce")),
+        ...[
+          for (var name in [
+            "after2.pce",
+            "sf2d.pce",
+            "valkyrie.pce",
+            "smb3.nes",
+            "akumajou.nes",
+            "bomber.nes"
+          ])
+            _iconButton(Icons.file_open_outlined, name.split(".")[0],
+                () => _loadRomFile(name: name))
+        ],
 
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
         // run / pause button
-        controller.isRunning()
+        _running
             ? _iconButton(Icons.pause, "Pause", _stop)
             : _iconButton(Icons.play_arrow, "Run", _run),
 

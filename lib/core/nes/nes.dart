@@ -106,14 +106,14 @@ class Nes implements Core {
       }
 
       for (int i = 0; i < buf.length; i++) {
-        buf[i] = (aux[i >> 1] + apu.buffer[i >> 1]) / maxVolume;
+        buf[i] = (aux[i] + apu.buffer[i]) / maxVolume;
       }
 
-      _pushAudioStream(buf);
+      _audioSink?.add(AudioBuffer(apuClock, 1, buf));
       return;
     }
 
-    _pushAudioStream(apu.buffer);
+    _audioSink?.add(AudioBuffer(apuClock, 1, apu.buffer));
   }
 
   /// returns screen buffer as 250 240 argb
@@ -126,10 +126,6 @@ class Nes implements Core {
   @override
   setAudioStream(StreamSink<AudioBuffer>? sink) {
     _audioSink = sink;
-  }
-
-  _pushAudioStream(Float32List buffer) {
-    _audioSink?.add(AudioBuffer(apuClock, 1, buffer));
   }
 
   /// handles reset button events

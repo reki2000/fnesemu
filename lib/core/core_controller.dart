@@ -53,17 +53,17 @@ class CoreController {
   double _fps = 0.0;
 
   /// runs emulation continuously
-  void run() async {
-    final fpsCounter =
-        FrameCounter(duration: const Duration(seconds: 2)); // shortlife counter
-    final initialCpuClocks = _currentCpuClocks;
-    final runStartedAt = DateTime.now();
-    int nextFrameClocks = 0;
-
+  Future<void> run() async {
     await stop();
 
     _running = true;
     _runningCount++;
+
+    final fpsCounter = FrameCounter(
+        duration: const Duration(milliseconds: 500)); // shortlife counter
+    final initialCpuClocks = _currentCpuClocks;
+    final runStartedAt = DateTime.now();
+    int nextFrameClocks = 0;
 
     while (_running) {
       // wait the event loop to be done
@@ -89,19 +89,20 @@ class CoreController {
   }
 
   /// stops emulation
-  stop() async {
+  Future<void> stop() async {
     _running = false;
 
     while (_runningCount > 0) {
       await Future.delayed(const Duration());
     }
 
-    return true;
+    return;
   }
 
   void reset() {
     _running = false;
     _fps = 0.0;
+    _currentCpuClocks = 0;
 
     _core.reset();
     debugger.debugOption.breakPoint = 0;
