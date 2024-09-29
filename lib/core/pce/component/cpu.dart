@@ -16,6 +16,7 @@ class Regs {
   int p = 0;
   int pc = 0;
   List<int> mpr = List<int>.filled(8, 0);
+  List<int> mprAddress = List<int>.filled(8, 0);
 }
 
 class Flags {
@@ -87,13 +88,13 @@ class Cpu {
   bool tFlagOn = false;
 
   int read(int addr) =>
-      bus.read((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff);
+      bus.read(regs.mprAddress[(addr & 0xe000) >> 13] + (addr & 0x1fff));
 
-  void write(addr, data) {
+  void write(int addr, int data) {
     // if (data >= 256) {
     //   print("cpu.write: data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
     // }
-    bus.write(((regs.mpr[(addr & 0xe000) >> 13] << 13) | addr & 0x1fff), data);
+    bus.write(regs.mprAddress[(addr & 0xe000) >> 13] + (addr & 0x1fff), data);
   }
 
   void handleIrq() {
@@ -219,6 +220,7 @@ class Cpu {
     regs.p = 0x00 | Flags.B;
 
     regs.mpr[7] = 0;
+    regs.mprAddress[7] = 0;
 
     const addr = 0xfffe;
     regs.pc = read(addr) | (read(addr + 1) << 8);

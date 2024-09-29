@@ -84,6 +84,7 @@ extension Cpu6280 on Cpu {
         for (int i = 0; i < 8; i++) {
           if (reg & 0x01 == 1) {
             regs.mpr[i] = regs.a;
+            regs.mprAddress[i] = regs.a << 13;
           }
           reg >>= 1;
         }
