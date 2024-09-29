@@ -10,10 +10,10 @@ class Joypad {
     PadButton.right,
     PadButton.up,
     PadButton.down,
-    PadButton("Sel"),
-    PadButton("Sta"),
-    PadButton("B"),
-    PadButton("A"),
+    const PadButton("Sel"),
+    const PadButton("Sta"),
+    const PadButton("B"),
+    const PadButton("A"),
   ];
 
   final scanOrder = [

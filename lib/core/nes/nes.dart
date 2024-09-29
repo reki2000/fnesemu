@@ -1,5 +1,4 @@
 // Dart imports:
-import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -61,7 +60,7 @@ class Nes implements Core {
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
 
-  StreamSink<AudioBuffer>? _audioSink;
+  void Function(AudioBuffer) _onAudio = (_) {};
 
   /// exec 1 cpu instruction and render PPU / APU is enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -81,9 +80,9 @@ class Nes implements Core {
     }
 
     if (cpu.cycle >= _nextApuCycle) {
-      final apuBuf = apu.exec(cpuCyclesInScanline * 4);
-      final auxBuf = bus.mapper.handleApu(cpuCyclesInScanline * 4);
-      _nextApuCycle += cpuCyclesInScanline * 4;
+      final apuBuf = apu.exec(cpuCyclesInScanline * 8);
+      final auxBuf = bus.mapper.handleApu(cpuCyclesInScanline * 8);
+      _nextApuCycle += cpuCyclesInScanline * 8;
 
       _pushApuBuffer(apuBuf, auxBuf);
     }
@@ -94,7 +93,7 @@ class Nes implements Core {
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
   void _pushApuBuffer(Float32List apuBuf, Float32List auxBuf) {
     if (auxBuf.isEmpty) {
-      _audioSink?.add(AudioBuffer(apuClock, 1, apuBuf));
+      _onAudio(AudioBuffer(apuClock, 1, apuBuf));
       return;
     }
 
@@ -111,7 +110,7 @@ class Nes implements Core {
       buf[i] = (auxBuf[i] + apuBuf[i]) / maxVolume;
     }
 
-    _audioSink?.add(AudioBuffer(apuClock, 1, buf));
+    _onAudio(AudioBuffer(apuClock, 1, buf));
     return;
   }
 
@@ -123,8 +122,8 @@ class Nes implements Core {
   }
 
   @override
-  setAudioStream(StreamSink<AudioBuffer>? sink) {
-    _audioSink = sink;
+  onAudio(void Function(AudioBuffer) onAudio) {
+    _onAudio = onAudio;
   }
 
   /// handles reset button events

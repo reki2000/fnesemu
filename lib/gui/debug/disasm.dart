@@ -33,7 +33,7 @@ class DebugDisasm extends StatelessWidget {
 
   // To show backward lines correctly, we need to start from earlier address and succesding to the current address
   List<Pair<int, String>> _backward(int addr, int lines) {
-    final result = List.filled(lines, Pair(0, ""), growable: true);
+    final result = List.filled(lines, const Pair(0, ""), growable: true);
 
     var current = addr - lines * 6;
     while (current < addr) {

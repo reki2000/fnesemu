@@ -18,7 +18,7 @@ dependencies:
   file_picker: ^8.0.0
   js: ^0.6.5
   package_info_plus: ^8.0.0
-  mp_audio_stream: ^0.1.4
+  mp_audio_stream: ^0.1.5
   test: ^1.21.1
   archive: ^3.1.2
   shared_preferences: ^2.1.2

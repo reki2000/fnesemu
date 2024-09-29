@@ -40,7 +40,7 @@ class CoreController {
 
   _initCore() {
     debugger = Debugger(_core);
-    _core.setAudioStream(_audioStream.sink);
+    _core.onAudio(onAudio);
     debugger.pushStream();
     reset();
   }
@@ -190,6 +190,8 @@ class CoreController {
   Stream<ImageBuffer> get imageStream => _imageStream.stream;
   Stream<AudioBuffer> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
+
+  void Function(AudioBuffer) onAudio = (_) {};
 
   // pad
   final _padUpStream = StreamController<PadButton>.broadcast();

@@ -23,8 +23,12 @@ class SoundPlayer {
 
   void dispose() => _audioStream.uninit();
 
-  // resample input buffer (Float32 0.0-1.0 890kHz, 1 or 2 channels) to 44.1kHz
+  // resample input buffer (Float32 1 or 2 channels) to 44.1kHz
   void push(Float32List input, int inputSampleRate, int inputChannels) {
+    if (input.isEmpty) {
+      return;
+    }
+
     double index = 0.0;
     final skip = inputSampleRate / _outputSampleRate;
 

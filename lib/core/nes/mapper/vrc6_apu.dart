@@ -159,9 +159,13 @@ class Vrc6Apu {
     }
   }
 
+  var buffer = Float32List(0);
+
   /// Generates APU 1Frame output and set it to the apu output buffer
   Float32List exec(int cycles) {
-    final buffer = Float32List(cycles);
+    if (buffer.length != cycles) {
+      buffer = Float32List(cycles);
+    }
 
     final p0 = pulse0.synth(cycles);
     final p1 = pulse1.synth(cycles);

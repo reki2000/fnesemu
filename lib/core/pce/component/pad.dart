@@ -8,10 +8,10 @@ class Pad {
     PadButton.down, // 1
     PadButton.left, // 2
     PadButton.right, // 3
-    PadButton("Sel"), // 4
-    PadButton("Run"), // 5
-    PadButton("II"), // 6
-    PadButton("I"), // 7
+    const PadButton("Sel"), // 4
+    const PadButton("Run"), // 5
+    const PadButton("II"), // 6
+    const PadButton("I"), // 7
   ];
 
   Pad() {

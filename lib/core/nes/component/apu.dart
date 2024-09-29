@@ -189,7 +189,7 @@ class TriangleWave with _LengthCounter {
 
   void prepare() {
     _timer = freq + 1;
-    _index = 0;
+    //_index = 0;
     _needLinearReload = true;
   }
 
@@ -609,9 +609,14 @@ class Apu {
   // counter for APU frame: it has 4 or 5 frames in 1 display frame
   int apuFrameCounter = _frameCycles ~/ 4;
 
+  var buffer = Float32List(0);
+
   /// Generates APU 1Frame output and set it to the apu output buffer
   Float32List exec(int cycles) {
-    final buffer = Float32List(cycles);
+    if (buffer.length != cycles) {
+      buffer = Float32List(cycles);
+    }
+
     var bufferIndex = 0;
 
     int restCycles = cycles;

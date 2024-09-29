@@ -1,10 +1,10 @@
 class PadButton {
-  static final up = PadButton("up");
-  static final down = PadButton("down");
-  static final left = PadButton("left");
-  static final right = PadButton("right");
+  static const up = PadButton("up");
+  static const down = PadButton("down");
+  static const left = PadButton("left");
+  static const right = PadButton("right");
 
-  String name;
+  final String name;
 
-  PadButton(this.name);
+  const PadButton(this.name);
 }

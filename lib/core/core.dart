@@ -1,5 +1,4 @@
 // data class to conver the result of 'exec'
-import 'dart:async';
 import 'dart:typed_data';
 
 import '../util.dart';
@@ -10,7 +9,7 @@ class ExecResult {
   final int elapsedClocks;
   final bool stopped;
   final bool scanlineRendered;
-  ExecResult(this.elapsedClocks, this.stopped, this.scanlineRendered);
+  const ExecResult(this.elapsedClocks, this.stopped, this.scanlineRendered);
 }
 
 // abstract class to be implemented by Pce class
@@ -27,8 +26,8 @@ abstract class Core {
   /// returns screen image buffer
   ImageBuffer imageBuffer();
 
-  // receives audio stream sink to push rendered audio buffer
-  setAudioStream(StreamSink<AudioBuffer>? stream);
+  // receives callback to push rendered audio buffer
+  onAudio(void Function(AudioBuffer) onAudio);
 
   /// handles reset button events
   void reset();

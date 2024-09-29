@@ -51,14 +51,10 @@ class MainPageState extends State<MainPage> {
 
     keyHandler = KeyHandler(controller: controller);
 
-    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
+    controller.onAudio =
+        (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
 
-    // start automatic playback the emulator's audio output
-    (() async {
-      await for (final buf in controller.audioStream) {
-        _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
-      }
-    })();
+    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
   }
 
   @override

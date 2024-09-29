@@ -5,7 +5,7 @@ class ImageBuffer {
   final int height;
   final Uint8List buffer;
 
-  ImageBuffer(this.width, this.height, this.buffer);
+  const ImageBuffer(this.width, this.height, this.buffer);
 }
 
 class AudioBuffer {
@@ -13,5 +13,5 @@ class AudioBuffer {
   final int channels;
   final Float32List buffer; // channel interleaved
 
-  AudioBuffer(this.sampleRate, this.channels, this.buffer);
+  const AudioBuffer(this.sampleRate, this.channels, this.buffer);
 }

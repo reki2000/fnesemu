@@ -7,7 +7,7 @@ class _BG {
   final int char1;
   final int char2;
   final int palette;
-  _BG({required this.char1, required this.char2, required this.palette});
+  const _BG({required this.char1, required this.char2, required this.palette});
 }
 
 class _Obj {
@@ -79,12 +79,25 @@ extension PpuRenderer on Ppu {
     }
   }
 
+  static final objs = [
+    _Obj(),
+    _Obj(),
+    _Obj(),
+    _Obj(),
+    _Obj(),
+    _Obj(),
+    _Obj(),
+    _Obj()
+  ];
+
   List<_Obj> _fetchObj() {
     // sprite
     final objBase = objTable() ? 0x1000 : 0;
     final objVSize = objSize16() ? 16 : 8;
 
-    final objs = List.generate(8, (_) => _Obj(), growable: false);
+    for (final obj in objs) {
+      obj.index = _Obj._unusedIndex;
+    }
 
     if (!showSprite()) {
       return objs;

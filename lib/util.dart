@@ -79,7 +79,7 @@ List<int> range(int start, int end) => [for (var i = start; i < end; i++) i];
 class Pair<S, T> {
   final S i0;
   final T i1;
-  Pair(this.i0, this.i1);
+  const Pair(this.i0, this.i1);
 }
 
 // Uint8

@@ -1,5 +1,4 @@
 // Dart imports:
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/vdc_debug.dart';
@@ -81,8 +80,7 @@ class Pce implements Core {
     while (cpu.clocks >= _prevPsgClocks + clocksInScanline) {
       final elapsed = (cpu.clocks - _prevPsgClocks) ~/ 6 * 6;
       _prevPsgClocks += elapsed;
-      _audioStream
-          ?.add(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
+      _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
     }
 
     return ExecResult(cpu.clocks, true, rendered);
@@ -95,11 +93,11 @@ class Pce implements Core {
         vdc.hSize, vdc.vSize, VdcRenderer.buffer.buffer.asUint8List());
   }
 
-  StreamSink<AudioBuffer>? _audioStream;
+  void Function(AudioBuffer) _onAudio = (_) {};
 
   @override
-  setAudioStream(StreamSink<AudioBuffer>? stream) {
-    _audioStream = stream;
+  onAudio(void Function(AudioBuffer) onAudio) {
+    _onAudio = onAudio;
   }
 
   /// handles reset button events

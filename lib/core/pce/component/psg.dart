@@ -258,6 +258,8 @@ class Psg {
   // generate table which has output volume values, 15 to 0 with each step -1.5dB
   final volumeTable = List.generate(16, (i) => i == 0 ? 0 : (0.3 / (16 - i)));
 
+  var buffer = Float32List(0); // -1.0 .. 1.0 2 channel interleaved
+
   /// Generates the output with the duration against given elapsed clocks
   Float32List exec(int elapsedClocks) {
     final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
@@ -272,7 +274,9 @@ class Psg {
       }
     }
 
-    final buffer = Float32List(cycles * 2); // -1.0 .. 1.0 2 channel interleaved
+    if (buffer.length != cycles * 2) {
+      buffer = Float32List(cycles * 2);
+    }
 
     final ampLrate = volumeTable[ampL] / 6 / 16;
     final ampRrate = volumeTable[ampR] / 6 / 16;
