@@ -406,7 +406,6 @@ class Apu {
     frameCounterMode0 = false;
     frameCountTick = 0;
     write(0x4015, 0);
-    buffer.fillRange(0, buffer.length, 0.0);
   }
 
   int cycle = 0;
@@ -596,7 +595,7 @@ class Apu {
 
   // generates sound outout for 1 frame at one APU emulation
   // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio)
-  static const _execCycles =
+  static const _frameCycles =
       Nes.scanlinesInFrame_ * Nes.cpuCyclesInScanline ~/ 2;
 
   // output volume conversion table for pulse channles
@@ -607,37 +606,50 @@ class Apu {
   static final _tndOutTable = List<double>.generate(
       204, (n) => n == 0 ? 0 : 163.67 / (24329.0 / n + 100));
 
-  /// sound output buffer: -1.0 to 1.0 for 1 screen frame
-  final buffer = Float32List.fromList(List.filled(_execCycles, 0.0));
+  // counter for APU frame: it has 4 or 5 frames in 1 display frame
+  int apuFrameCounter = _frameCycles ~/ 4;
 
   /// Generates APU 1Frame output and set it to the apu output buffer
-  void exec() {
+  Float32List exec(int cycles) {
+    final buffer = Float32List(cycles);
     var bufferIndex = 0;
-    final framesInExec = frameCounterMode0 ? 4 : 5;
-    final cyclesBase = _execCycles ~/ framesInExec;
 
-    for (int frame = 0; frame < framesInExec; frame++) {
-      // the last loop's tickCycles has extra cycles to fill all the rest of the buffer
-      final frameCycles = cyclesBase +
-          ((frame != framesInExec - 1)
-              ? 0
-              : (buffer.length - cyclesBase * framesInExec));
+    int restCycles = cycles;
 
-      cycle += frameCycles;
-      final p0 = pulse0.synth(frameCycles);
-      final p1 = pulse1.synth(frameCycles);
-      final t = triangle.synth(frameCycles);
-      final n = noise.synth(frameCycles);
-      final d = dpcm.synth(frameCycles);
+    while (restCycles > 0) {
+      var consumeCycles = restCycles;
+      var countApuFrame = false;
 
-      for (int i = 0; i < frameCycles; i++) {
+      if (apuFrameCounter < restCycles) {
+        consumeCycles = apuFrameCounter;
+        apuFrameCounter = _frameCycles ~/ (frameCounterMode0 ? 4 : 5);
+
+        countApuFrame = true;
+      } else {
+        apuFrameCounter -= consumeCycles;
+      }
+
+      final p0 = pulse0.synth(consumeCycles);
+      final p1 = pulse1.synth(consumeCycles);
+      final t = triangle.synth(consumeCycles);
+      final n = noise.synth(consumeCycles);
+      final d = dpcm.synth(consumeCycles);
+
+      for (int i = 0; i < consumeCycles; i++) {
         final pulseOut = _pulseOutTable[p0[i] + p1[i]];
         final elseOut = _tndOutTable[t[i] * 3 + n[i] * 2 + d[i]];
         buffer[bufferIndex++] = (pulseOut + elseOut) * 2 - 1.0;
       }
 
-      _countApuFrame();
+      if (countApuFrame) {
+        _countApuFrame();
+      }
+
+      restCycles -= consumeCycles;
+      cycle += consumeCycles;
     }
+
+    return buffer;
   }
 
   void _countEnvelope() {

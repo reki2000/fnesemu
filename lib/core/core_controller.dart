@@ -23,6 +23,7 @@ class CoreController {
 
   void setCore(String core) {
     stop();
+
     switch (core) {
       case 'pce':
         _core = CoreFactory.ofPce();

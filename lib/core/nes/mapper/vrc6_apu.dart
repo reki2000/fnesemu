@@ -3,7 +3,6 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 import '../../../util.dart';
-import '../nes.dart';
 
 // Project imports
 
@@ -103,7 +102,6 @@ class _SawToothWave with _Wave {
 class Vrc6Apu {
   void reset() {
     cycle = 0;
-    buffer.fillRange(0, buffer.length, 0.0);
   }
 
   int cycle = 0;
@@ -161,21 +159,19 @@ class Vrc6Apu {
     }
   }
 
-  static const _execCycles =
-      Nes.scanlinesInFrame_ * Nes.cpuCyclesInScanline ~/ 2;
-
-  /// sound output buffer: -1.0 to 1.0 for 1 screen frame
-  final buffer = Float32List.fromList(List.filled(_execCycles, 0.0));
-
   /// Generates APU 1Frame output and set it to the apu output buffer
-  void exec() {
-    final p0 = pulse0.synth(_execCycles);
-    final p1 = pulse1.synth(_execCycles);
-    final s = saw.synth(_execCycles);
+  Float32List exec(int cycles) {
+    final buffer = Float32List(cycles);
 
-    for (int i = 0; i < _execCycles; i++) {
+    final p0 = pulse0.synth(cycles);
+    final p1 = pulse1.synth(cycles);
+    final s = saw.synth(cycles);
+
+    for (int i = 0; i < cycles; i++) {
       buffer[i] = (p0[i] + p1[i] + s[i]) / 45 * 2 - 1.0;
     }
+
+    return buffer;
   }
 
   String dump() {

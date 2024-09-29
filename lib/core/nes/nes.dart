@@ -81,39 +81,38 @@ class Nes implements Core {
     }
 
     if (cpu.cycle >= _nextApuCycle) {
-      apu.exec();
-      bus.mapper.handleApu();
-      _nextApuCycle += scanlinesInFrame * cpuCyclesInScanline;
+      final apuBuf = apu.exec(cpuCyclesInScanline * 4);
+      final auxBuf = bus.mapper.handleApu(cpuCyclesInScanline * 4);
+      _nextApuCycle += cpuCyclesInScanline * 4;
 
-      _pushApuBuffer();
+      _pushApuBuffer(apuBuf, auxBuf);
     }
 
     return ExecResult(cpu.cycle, true, rendered);
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
-  void _pushApuBuffer() {
-    final aux = bus.mapper.apuBuffer();
-
-    // if mapper has aux buffer, mix with apu buffer
-    if (aux.isNotEmpty) {
-      final buf = Float32List(aux.length);
-
-      // mix apu.buffer + aux with normalization
-      var maxVolume = 1.0;
-      for (int i = 0; i < aux.length; i++) {
-        maxVolume = max(maxVolume, (aux[i] + apu.buffer[i]).abs());
-      }
-
-      for (int i = 0; i < buf.length; i++) {
-        buf[i] = (aux[i] + apu.buffer[i]) / maxVolume;
-      }
-
-      _audioSink?.add(AudioBuffer(apuClock, 1, buf));
+  void _pushApuBuffer(Float32List apuBuf, Float32List auxBuf) {
+    if (auxBuf.isEmpty) {
+      _audioSink?.add(AudioBuffer(apuClock, 1, apuBuf));
       return;
     }
 
-    _audioSink?.add(AudioBuffer(apuClock, 1, apu.buffer));
+    // when mapper has an aux buffer, mix with apu buffer
+    final buf = Float32List(auxBuf.length);
+
+    // mix apu.buffer + aux with normalization
+    var maxVolume = 1.0;
+    for (int i = 0; i < auxBuf.length; i++) {
+      maxVolume = max(maxVolume, (auxBuf[i] + apuBuf[i]).abs());
+    }
+
+    for (int i = 0; i < buf.length; i++) {
+      buf[i] = (auxBuf[i] + apuBuf[i]) / maxVolume;
+    }
+
+    _audioSink?.add(AudioBuffer(apuClock, 1, buf));
+    return;
   }
 
   /// returns screen buffer as 250 240 argb

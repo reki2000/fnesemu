@@ -224,14 +224,7 @@ class MapperVrc6 extends Mapper with Sram {
   }
 
   @override
-  void handleApu() {
-    _apu.exec();
-  }
-
-  @override
-  Float32List apuBuffer() {
-    return _apu.buffer;
-  }
+  Float32List handleApu(int cycles) => _apu.exec(cycles);
 
   @override
   String dump() {
