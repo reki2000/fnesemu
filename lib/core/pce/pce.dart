@@ -56,9 +56,6 @@ class Pce implements Core {
   int _nextVdcClocks = 0;
   int _prevPsgClocks = 0;
 
-  @override
-  int get clocks => cpu.clocks;
-
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
@@ -88,7 +85,7 @@ class Pce implements Core {
           ?.add(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
     }
 
-    return ExecResult(cpu.cycles, true, rendered);
+    return ExecResult(cpu.clocks, true, rendered);
   }
 
   /// returns screen buffer as hSize x vSize argb

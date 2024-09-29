@@ -47,6 +47,7 @@ class CoreController {
   // used in main loop to periodically execute the emulator. if null, the emulator is stopped.
   bool _running = false;
   int _runningCount = 0;
+  int _currentCpuClocks = 0;
 
   // calculated fps
   double _fps = 0.0;
@@ -55,7 +56,7 @@ class CoreController {
   void run() async {
     final fpsCounter =
         FrameCounter(duration: const Duration(seconds: 2)); // shortlife counter
-    final initialCpuClocks = _core.clocks;
+    final initialCpuClocks = _currentCpuClocks;
     final runStartedAt = DateTime.now();
     int nextFrameClocks = 0;
 
@@ -72,7 +73,7 @@ class CoreController {
       _fps = fpsCounter.fps(now);
 
       // run emulation until the next frame timing
-      if (_core.clocks - initialCpuClocks < nextFrameClocks) {
+      if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
         runFrame();
         fpsCounter.count();
         continue;
@@ -111,8 +112,11 @@ class CoreController {
 
   /// executes emulation with 1 cpu instruction
   void runStep() {
-    _core.exec();
+    final result = _core.exec();
+    _currentCpuClocks = result.elapsedClocks;
+
     debugger.addLog(_core.tracingState);
+
     _renderAll();
   }
 
@@ -126,6 +130,7 @@ class CoreController {
 
       // exec 1 cpu instruction
       final result = _core.exec();
+      _currentCpuClocks = result.elapsedClocks;
 
       // need this check for performance
       if (debugger.debugOption.log) {

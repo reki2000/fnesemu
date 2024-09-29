@@ -58,9 +58,6 @@ class Nes implements Core {
   @override
   int get systemClockHz => cpuClock;
 
-  @override
-  int get clocks => cpu.cycle;
-
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
 

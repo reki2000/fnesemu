@@ -7,10 +7,10 @@ import 'pad_button.dart';
 import 'types.dart';
 
 class ExecResult {
-  final int cycles;
+  final int elapsedClocks;
   final bool stopped;
   final bool scanlineRendered;
-  ExecResult(this.cycles, this.stopped, this.scanlineRendered);
+  ExecResult(this.elapsedClocks, this.stopped, this.scanlineRendered);
 }
 
 // abstract class to be implemented by Pce class
@@ -20,11 +20,8 @@ abstract class Core {
   int get scanlinesInFrame;
   int get clocksInScanline;
 
-  // returns elapsed CPU clocks
-  int get clocks;
-
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
-  /// returns current CPU cycle and bool - false when unimplemented instruction is found
+  /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
   ExecResult exec();
 
   /// returns screen image buffer
