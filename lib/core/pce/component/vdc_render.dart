@@ -155,28 +155,18 @@ extension VdcRenderer on Vdc {
   void _render() {
     final spColor =
         enableSprite ? _renderSprite() : const SpriteColor(0, isPrior: false);
+    final bgColor = enableBg ? _renderBg() : 0;
 
-    int color = 0;
-    if (spColor.isDirect) {
-      color = spColor.color;
-    } else {
-      int colorNo = 0;
+    final colorNo = spColor.isPrior
+        ? spColor.color
+        : (bgColor & 0x0f == 0)
+            ? spColor.color
+            : bgColor;
 
-      if (spColor.isPrior) {
-        colorNo = spColor.color;
-      } else {
-        final bgColor = enableBg ? _renderBg() : 0;
+    int color = rgba[colorTable[colorNo]];
 
-        if (bgColor & 0x0f == 0) {
-          colorNo = spColor.color;
-        } else {
-          colorNo = bgColor;
-        }
-      }
-      color = rgba[colorTable[colorNo]];
-    }
-
-    buffer[displayLine * hSize + scanX] = color;
+    buffer[displayLine * hSize + scanX] =
+        spColor.isDirect ? spColor.color : color;
   }
 
   static int paletteNo = 0;
