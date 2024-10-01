@@ -99,9 +99,11 @@ extension Cpu65c02 on Cpu {
         push(regs.x);
         cycle += 3;
         break;
+
       // PLX
       case 0xfa:
         regs.x = pop();
+        flagsNZ(regs.x);
         cycle += 4;
         break;
 
@@ -110,9 +112,11 @@ extension Cpu65c02 on Cpu {
         push(regs.y);
         cycle += 3;
         break;
+
       // PLY
       case 0x7a:
         regs.y = pop();
+        flagsNZ(regs.x);
         cycle += 4;
         break;
 
