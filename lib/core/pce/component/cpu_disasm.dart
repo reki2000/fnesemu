@@ -164,8 +164,14 @@ class Disasm {
       for (var i in ["ASL", "ROL", "LSR", "ROR", "STX", "LDX", "DEC", "INC"]) {
         ops[opcode + 0x06] = [i, _Operand.zero];
         ops[opcode + 0x0e] = [i, _Operand.abs];
-        ops[opcode + 0x16] = [i, _Operand.zerox];
-        ops[opcode + 0x1e] = [i, _Operand.absx];
+        ops[opcode + 0x16] = [
+          i,
+          (opcode + 0x16 == 0xb6) ? _Operand.zeroy : _Operand.zerox
+        ];
+        ops[opcode + 0x1e] = [
+          i,
+          (opcode + 0x1e == 0xbe) ? _Operand.absy : _Operand.absx
+        ];
         opcode += 0x20;
       }
 
