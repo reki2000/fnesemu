@@ -52,19 +52,19 @@ extension VdcDebug on Vdc {
 
     for (int baseY = 0; baseY < 4; baseY++) {
       for (int baseX = 0; baseX < 4; baseX++) {
-        final vramOffset = (baseY * 4 + baseX) * 0x800;
-        final imageOffset = baseX * (tileSize * 16 + tileSize * 1) +
-            baseY * (tileSize * 16 + tileSize * 1) * width;
+        final vramOffset = (baseY * 4 + baseX) * 0x1000;
+        final imageOffset = baseX * (tileSize * (16 + 1)) +
+            baseY * (tileSize * (16 + 1)) * width;
 
         for (int ty = 0; ty < 16; ty++) {
           for (int tx = 0; tx < 16; tx++) {
-            for (int y = 0; y < 8; y++) {
+            for (int y = 0; y < tileSize; y++) {
               final addr = (tx + ty * 16) * 16 + y;
               final pattern01 = vram[vramOffset | addr];
-              final pattern23 = vram[vramOffset | addr + 8];
+              final pattern23 = vram[vramOffset | (addr + 8)];
 
               for (int x = 0; x < tileSize; x++) {
-                final shiftBits = (7 - (x & 7));
+                final shiftBits = 7 - x;
                 final p01 = pattern01 >> shiftBits;
                 final p23 = pattern23 >> shiftBits;
 
@@ -75,7 +75,10 @@ extension VdcDebug on Vdc {
                 final c = (useSecondBgColor && color == 0)
                     ? 0xffffffff
                     : rgba[colorTable[((color == 0) ? 0 : palette) | color]];
-                buf[tx * 8 + x + (ty * 8 + y) * width + imageOffset] = c;
+                buf[tx * tileSize +
+                    x +
+                    (ty * tileSize + y) * width +
+                    imageOffset] = c;
               }
             }
           }
