@@ -1,4 +1,5 @@
 // Dart imports:
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
@@ -28,9 +29,13 @@ class Vdc {
   }
 
   reset() {
-    vram.fillRange(0, vram.length, 0);
-    colorTable.fillRange(0, colorTable.length, 0x1ff);
-    sat.fillRange(0, sat.length, 0);
+    final rand = Random();
+    vram.setRange(0, vram.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    colorTable.setRange(0, colorTable.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
+    sat.setRange(0, sat.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
 
     reg = 0;
 
