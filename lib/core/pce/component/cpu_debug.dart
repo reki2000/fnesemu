@@ -9,11 +9,49 @@ import 'cpu_disasm.dart';
 extension CpuDebugger on Cpu {
   String _disasm(pc) {
     final op = read(pc);
-    final pc1 = read(pc + 1);
-    final pc2 = read(pc + 2);
-    final pc34 = read(pc + 4) << 8 | read(pc + 3);
-    final pc56 = read(pc + 6) << 8 | read(pc + 5);
-    return Disasm.disasm(pc, op, pc1, pc2, c: pc34, d: pc56).padRight(47, " ");
+    final d1 = read(pc + 1);
+    final d2 = read(pc + 2);
+    final d3 = read(pc + 3);
+    final d4 = read(pc + 4);
+    final d34 = d4 << 8 | d3;
+    final d56 = read(pc + 6) << 8 | read(pc + 5);
+
+    final disasm = Disasm.disasm(pc, op, d1, d2, d34: d34, d56: d56);
+
+    final operand = Disasm.operand(op);
+
+    final addr = switch (operand) {
+      Operand.im || Operand.im16 || Operand.none => -1,
+      Operand.rel || Operand.zerorel => -1,
+      Operand.zp => d1 | Cpu.zeroAddr,
+      Operand.zpx => (d1 + regs.x) & 0xff | Cpu.zeroAddr,
+      Operand.zpy => (d1 + regs.y) & 0xff | Cpu.zeroAddr,
+      Operand.abs => d1 | d2 << 8,
+      Operand.absx => ((d1 | d2 << 8) + regs.x) & 0xffff,
+      Operand.absy => ((d1 | d2 << 8) + regs.y) & 0xffff,
+      Operand.ind16 => d1 | d2 << 8,
+      Operand.zpindx => read((d1 + regs.x) & 0xff | Cpu.zeroAddr) |
+          read((d1 + regs.x + 1) & 0xff | Cpu.zeroAddr) << 8,
+      Operand.zpindy =>
+        (read(d1 | Cpu.zeroAddr) | read((d1 + 1) & 0xff | Cpu.zeroAddr) << 8) +
+            regs.y,
+      Operand.zpind =>
+        read(d1 | Cpu.zeroAddr) | read((d1 + 1) & 0xff | Cpu.zeroAddr) << 8,
+      Operand.blk => -1,
+      Operand.imzp => d2 | Cpu.zeroAddr,
+      Operand.imzpx => (d2 + regs.x) & 0xff | Cpu.zeroAddr,
+      Operand.imabs => d2 | d3 << 8,
+      Operand.imabsx => ((d3 | d3 << 8) + regs.x) & 0xffff,
+    };
+
+    final dstValue = addr < 0x2000 ? 0 : read(addr); // avoid I/O accses
+    final dst = addr < 0
+        ? ""
+        : addr < 0x2000
+            ? "[${hex16(addr)}:IO]"
+            : "[${hex16(addr)}:${hex8(dstValue)}]";
+
+    return "$disasm$dst".padRight(47, " ");
   }
 
   String _mprAddr(int addr) {
@@ -26,7 +64,8 @@ extension CpuDebugger on Cpu {
   }
 
   String trace() {
-    return "${_disasm(regs.pc)} ${_reg()} cy:$cycles".toUpperCase();
+    return "${_mprAddr(regs.pc)}:${_disasm(regs.pc)} ${_reg()} cy:$cycles"
+        .toUpperCase();
   }
 
   String dumpDisasm(int addr, {toAddrOffset = 0x200}) {

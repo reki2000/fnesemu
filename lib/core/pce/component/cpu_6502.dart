@@ -136,16 +136,7 @@ extension Cpu6502 on Cpu {
       case 0x72:
         final t = (regs.p & Flags.T) != 0;
 
-        int addr = 0;
-        int a = 0;
-
-        if (t) {
-          addr = Cpu.zeroAddr | regs.x;
-          a = read(addr);
-        } else {
-          a = regs.a;
-        }
-
+        final a = t ? readzp(regs.x) : regs.a;
         final b = readAddressing(op);
         int c = a + (carry() + b);
 
@@ -162,7 +153,7 @@ extension Cpu6502 on Cpu {
         cycle += 2;
 
         if (t) {
-          write(addr, c);
+          write(Cpu.zeroAddr | regs.x, c);
         } else {
           regs.a = c;
         }
@@ -180,16 +171,7 @@ extension Cpu6502 on Cpu {
       case 0xf2:
         final t = (regs.p & Flags.T) != 0;
 
-        int addr = 0;
-        int a = 0;
-
-        if (t) {
-          addr = Cpu.zeroAddr | regs.x;
-          a = read(addr);
-        } else {
-          a = regs.a;
-        }
-
+        final a = t ? readzp(regs.x) : regs.a;
         final b = readAddressing(op);
         int c = a - ((carry() ^ 0x01) + b);
 
@@ -206,7 +188,7 @@ extension Cpu6502 on Cpu {
         cycle += 2;
 
         if (t) {
-          write(addr, c);
+          write(Cpu.zeroAddr | regs.x, c);
         } else {
           regs.a = c;
         }
