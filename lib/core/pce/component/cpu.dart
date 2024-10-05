@@ -88,7 +88,7 @@ class Cpu {
   bool tFlagOn = false;
 
   int read(int addr) =>
-      bus.read(regs.mprAddress[addr & 0xe000 >> 13] | addr & 0x1fff);
+      bus.read(regs.mprAddress[(addr & 0xe000) >> 13] | addr & 0x1fff);
 
   int readzp(int addr, {int cycle = 0}) {
     this.cycle += cycle;
@@ -230,7 +230,7 @@ class Cpu {
     regs.mprAddress[7] = 0;
 
     const addr = 0xfffe;
-    regs.pc = read(addr) | (read(addr + 1) << 8);
+    regs.pc = read(addr) | read(addr + 1) << 8;
   }
 
   // common operations
@@ -291,36 +291,26 @@ class Cpu {
     return regs.p & Flags.D != 0;
   }
 
-  int readAddressing(int op, {bool st = false}) {
-    return switch (op & 0x1c) {
-      0x08 || 0xa0 || 0xa2 || 0xc0 || 0xe0 => immediate(),
-      0x04 => readzp(pc(), cycle: 1),
-      0x14 => readzp(pc() + regs.x, cycle: 2),
-      _ => read(address(op, st: st))
-    };
-  }
+  int readAddressing(int op, {bool st = false}) => switch (op) {
+        0xa0 || 0xa2 || 0xc0 || 0xe0 => immediate(),
+        _ => switch (op & 0x1c) {
+            0x08 => immediate(),
+            0x04 => readzp(pc(), cycle: 1),
+            0x14 => readzp(pc() + regs.x, cycle: 2),
+            _ => read(address(op, st: st))
+          }
+      };
 
-  int address(int op, {bool st = false}) {
-    switch (op & 0x1c) {
-      case 0x04: // 001
-        return zeropage();
-      case 0x14: // 101
-        return zeropageXY(regs.x);
-      case 0x0c: // 011
-        return absolute();
-      case 0x1c: // 111
-        return absoluteXY(regs.x, st: st);
-      case 0x18: // 110
-        return absoluteXY(regs.y, st: st);
-      case 0x00: // 000
-        return indirectX();
-      case 0x10: // 100
-        return op & 0x0f == 0x02 ? indirect() : indirectY(st: st);
-      default:
-        log("umimplemented addressing mode: $op\n");
-        return 0;
-    }
-  }
+  int address(int op, {bool st = false}) => switch (op & 0x1c) {
+        0x04 => zeropage(), // 001
+        0x14 => zeropageXY(regs.x), // 101
+        0x0c => absolute(), // 011
+        0x1c => absoluteXY(regs.x, st: st), // 111
+        0x18 => absoluteXY(regs.y, st: st), // 110
+        0x00 => indirectX(), // 000
+        0x10 => op & 0x0f == 0x02 ? indirect() : indirectY(st: st), // 010
+        _ => 0, // log("unimplemented addressing mode: $op\n");
+      };
 
   int immediate() => pc();
 
@@ -336,7 +326,7 @@ class Cpu {
 
   int absolute() {
     cycle += 2;
-    return (pc() | (pc() << 8));
+    return pc() | pc() << 8;
   }
 
   int absoluteXY(int offset, {bool st = false}) {

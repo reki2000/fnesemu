@@ -22,7 +22,7 @@ extension CpuDebugger on Cpu {
 
     final addr = switch (operand) {
       Operand.im || Operand.im16 || Operand.none => -1,
-      Operand.rel || Operand.zerorel => -1,
+      Operand.rel || Operand.zerorel || Operand.blk => -1,
       Operand.zp => d1 | Cpu.zeroAddr,
       Operand.zpx => (d1 + regs.x) & 0xff | Cpu.zeroAddr,
       Operand.zpy => (d1 + regs.y) & 0xff | Cpu.zeroAddr,
@@ -30,18 +30,13 @@ extension CpuDebugger on Cpu {
       Operand.absx => ((d1 | d2 << 8) + regs.x) & 0xffff,
       Operand.absy => ((d1 | d2 << 8) + regs.y) & 0xffff,
       Operand.ind16 => d1 | d2 << 8,
-      Operand.zpindx => read((d1 + regs.x) & 0xff | Cpu.zeroAddr) |
-          read((d1 + regs.x + 1) & 0xff | Cpu.zeroAddr) << 8,
-      Operand.zpindy =>
-        (read(d1 | Cpu.zeroAddr) | read((d1 + 1) & 0xff | Cpu.zeroAddr) << 8) +
-            regs.y,
-      Operand.zpind =>
-        read(d1 | Cpu.zeroAddr) | read((d1 + 1) & 0xff | Cpu.zeroAddr) << 8,
-      Operand.blk => -1,
+      Operand.zpindx => readzp(d1 + regs.x) | readzp(d1 + regs.x + 1) << 8,
+      Operand.zpindy => (readzp(d1) | readzp(d1 + 1) << 8) + regs.y,
+      Operand.zpind => readzp(d1) | readzp(d1 + 1) << 8,
       Operand.imzp => d2 | Cpu.zeroAddr,
       Operand.imzpx => (d2 + regs.x) & 0xff | Cpu.zeroAddr,
       Operand.imabs => d2 | d3 << 8,
-      Operand.imabsx => ((d3 | d3 << 8) + regs.x) & 0xffff,
+      Operand.imabsx => ((d2 | d3 << 8) + regs.x) & 0xffff,
     };
 
     final dstValue = addr < 0x2000 ? 0 : read(addr); // avoid I/O accses
@@ -49,7 +44,9 @@ extension CpuDebugger on Cpu {
         ? ""
         : addr < 0x2000
             ? "[${hex16(addr)}:IO]"
-            : "[${hex16(addr)}:${hex8(dstValue)}]";
+            : operand != Operand.ind16
+                ? "[${hex16(addr)}:${hex8(dstValue)}]"
+                : "[${hex16(addr)}:${hex8(read(addr + 1))}${hex8(dstValue)}]";
 
     return "$disasm$dst".padRight(47, " ");
   }
