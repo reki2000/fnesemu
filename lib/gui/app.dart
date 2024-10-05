@@ -53,8 +53,6 @@ class MainPageState extends State<MainPage> {
 
     controller.onAudio =
         (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
-
-    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
   }
 
   @override
@@ -95,10 +93,17 @@ class MainPageState extends State<MainPage> {
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
 
-    _reset(run: !controller.debugger.debugOption.showDebugView);
+    // temporary debug options
+    controller.debugger.debugOption.showDebugView = true;
+    controller.debugger.debugOption.showVdc = true;
+    _reset(run: true);
+
+    // _reset(run: !controller.debugger.debugOption.showDebugView);
   }
 
   void _run() {
+    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
+    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
     setState(() {
       _running = true;
       controller.run();
@@ -106,6 +111,7 @@ class MainPageState extends State<MainPage> {
   }
 
   void _stop() {
+    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
     setState(() {
       _running = false;
       controller.stop();
@@ -141,7 +147,7 @@ class MainPageState extends State<MainPage> {
       appBar: AppBar(title: Text(_romName), actions: [
         ...[
           for (var name in [
-            "after2.pce",
+            "momotetsu.pce",
             "sf2d.pce",
             "valkyrie.pce",
             "smb3.nes",
