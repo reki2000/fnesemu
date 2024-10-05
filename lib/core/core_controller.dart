@@ -65,10 +65,15 @@ class CoreController {
     final initialCpuClocks = _currentCpuClocks;
     final runStartedAt = DateTime.now();
     int nextFrameClocks = 0;
+    int awaitCount = 0;
 
     while (_running) {
       // wait the event loop to be done
-      await Future.delayed(const Duration());
+      if (awaitCount == 30) {
+        await Future.delayed(const Duration());
+        awaitCount = 0;
+      }
+      awaitCount++;
 
       final now = DateTime.now();
       _fps = fpsCounter.fps(now);
