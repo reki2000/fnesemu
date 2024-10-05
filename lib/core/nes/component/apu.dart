@@ -400,15 +400,12 @@ class Apu {
   }
 
   void reset() {
-    cycle = 0;
     frameIrqHold = false;
     frameIrqEnabled = false;
     frameCounterMode0 = false;
     frameCountTick = 0;
     write(0x4015, 0);
   }
-
-  int cycle = 0;
 
   final pulse0 = _PulseWave(0);
   final pulse1 = _PulseWave(1);
@@ -612,20 +609,20 @@ class Apu {
   var buffer = Float32List(0);
 
   /// Generates APU 1Frame output and set it to the apu output buffer
-  Float32List exec(int cycles) {
+  Float32List exec(int cpuCycles) {
+    int cycles = cpuCycles ~/ 2;
+
     if (buffer.length != cycles) {
       buffer = Float32List(cycles);
     }
 
-    var bufferIndex = 0;
+    int bufferIndex = 0;
 
-    int restCycles = cycles;
+    while (cycles > 0) {
+      int consumeCycles = cycles;
+      bool countApuFrame = false;
 
-    while (restCycles > 0) {
-      var consumeCycles = restCycles;
-      var countApuFrame = false;
-
-      if (apuFrameCounter < restCycles) {
+      if (apuFrameCounter < cycles) {
         consumeCycles = apuFrameCounter;
         apuFrameCounter = _frameCycles ~/ (frameCounterMode0 ? 4 : 5);
 
@@ -650,8 +647,7 @@ class Apu {
         _countApuFrame();
       }
 
-      restCycles -= consumeCycles;
-      cycle += consumeCycles;
+      cycles -= consumeCycles;
     }
 
     return buffer;
