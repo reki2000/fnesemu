@@ -54,13 +54,16 @@ class Debugger {
     if (debugOption.log && _tracer == null) {
       _tracer = Tracer(_traceStream);
       _traceSubscription = _traceStream.stream.listen((log) {
-        print(log.replaceAll("\n", ""));
+        //print(log.replaceAll("\n", ""));
+        this.log.add(log.replaceAll("\n", ""));
       }, onDone: () => _traceSubscription?.cancel());
     } else {
       _traceSubscription?.cancel();
       _tracer = null;
     }
   }
+
+  final log = List<String>.empty(growable: true);
 
   addLog(String log) {
     if (debugOption.log) _tracer?.addLog(log);
