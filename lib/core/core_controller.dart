@@ -106,6 +106,8 @@ class CoreController {
     _currentCpuClocks = 0;
 
     _core.reset();
+
+    debugger.log.clear();
     debugger.debugOption.breakPoint = 0;
     debugger.pushStream();
 
