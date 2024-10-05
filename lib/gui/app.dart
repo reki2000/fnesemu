@@ -1,15 +1,20 @@
 // Flutter imports:
+
 // Package imports:
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// Project imports:
+import '../core/core_controller.dart';
+import '../core/debugger.dart';
+import '../styles.dart';
+import 'core_view.dart';
 import 'debug/debug_controller.dart';
+// Project imports:
+import 'debug/debug_pane.dart';
 import 'key_handler.dart';
-import 'nes_controller.dart';
-import 'nes_view.dart';
 import 'sound_player.dart';
+import 'ticker_image.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -35,11 +40,13 @@ class MainPage extends StatefulWidget {
 
 class MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
-  final controller = NesController();
+  final _imageContainer = ImageContainer(null);
+  final controller = CoreController();
   late final KeyHandler keyHandler;
 
+  bool _running = false;
+
   String _romName = "";
-  bool _isRunning = false;
 
   @override
   void initState() {
@@ -47,14 +54,10 @@ class MainPageState extends State<MainPage> {
 
     keyHandler = KeyHandler(controller: controller);
 
-    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
-
-    // start automatic playback the emulator's audio output
-    (() async {
-      await for (final buf in controller.audioStream) {
-        _mPlayer.push(buf, controller.apuClock);
-      }
-    })();
+    controller.onAudio =
+        (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
+    controller.onImage =
+        (buf) => _imageContainer.push(buf.buffer, buf.width, buf.height);
   }
 
   @override
@@ -64,51 +67,77 @@ class MainPageState extends State<MainPage> {
     super.dispose();
   }
 
-  void _loadRomFile() async {
+  void _loadRomFile({String name = ""}) async {
     _mPlayer.resume(); // web platform requires this
 
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked == null) {
-      return;
+    Uint8List file;
+    if (name == "") {
+      final picked = await FilePicker.platform.pickFiles(withData: true);
+      if (picked == null) {
+        return;
+      }
+      file = picked.files.first.bytes!;
+      name = picked.files.first.name;
+    } else {
+      file = (await rootBundle.load('assets/roms/$name')).buffer.asUint8List();
     }
 
     try {
-      controller.setRom(picked.files.first.bytes!);
       setState(() {
-        _romName = picked.files.first.name;
+        controller.setCore(name.endsWith(".pce")
+            ? "pce"
+            : name.endsWith(".nes")
+                ? "nes"
+                : "unknown");
+        controller.setRom(file);
+        keyHandler.init();
+        _romName = name;
       });
     } catch (e) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.toString())));
     }
-    _reset();
-    if (!controller.debugOption.showDebugView) {
-      _run();
-    }
+
+    // temporary debug options
+    // controller.debugger.debugOption.showDebugView = true;
+    // controller.debugger.debugOption.showVdc = true;
+    // _reset(run: true);
+
+    _reset(run: !controller.debugger.debugOption.showDebugView);
   }
 
   void _run() {
-    controller.run();
+    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
+    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
     setState(() {
-      _isRunning = true;
+      _running = true;
+      controller.run();
     });
   }
 
   void _stop() {
-    controller.stop();
+    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
     setState(() {
-      _isRunning = false;
+      _running = false;
+      controller.stop();
     });
   }
 
-  void _reset() {
-    controller.reset();
+  void _reset({bool run = false}) {
+    setState(() {
+      () async {
+        await controller.stop();
+        controller.reset();
+        if (run) {
+          _run();
+        }
+      }();
+    });
   }
 
   void _debug(bool on) {
     setState(() {
-      controller.debugOption =
-          controller.debugOption.copyWith(showDebugView: on);
+      controller.debugger.setDebugView(on);
     });
   }
 
@@ -121,11 +150,24 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
+        // ...[
+        //   for (var name in [
+        //     "momotetsu.pce",
+        //     "sf2d.pce",
+        //     "valkyrie.pce",
+        //     "smb3.nes",
+        //     "akumajou.nes",
+        //     "bomber.nes"
+        //   ])
+        //     _iconButton(Icons.file_open_outlined, name.split(".")[0],
+        //         () => _loadRomFile(name: name))
+        // ],
+
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
 
         // run / pause button
-        _isRunning
+        _running
             ? _iconButton(Icons.pause, "Pause", _stop)
             : _iconButton(Icons.play_arrow, "Run", _run),
 
@@ -133,7 +175,7 @@ class MainPageState extends State<MainPage> {
         _iconButton(Icons.restart_alt, "Reset", _reset),
 
         // debug on/off button
-        controller.debugOption.showDebugView
+        controller.debugger.debugOption.showDebugView
             ? _iconButton(
                 Icons.bug_report, "Disable Debug Options", () => _debug(false))
             : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
@@ -147,17 +189,29 @@ class MainPageState extends State<MainPage> {
           onTap: () => showLicensePage(context: context),
         ),
       ])),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          // main view
-          NesView(controller: controller),
+      body: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                // main view
+                CoreView(controller: controller, container: _imageContainer),
 
-          // debug view if enabled
-          if (controller.debugOption.showDebugView)
-            DebugController(controller: controller),
-        ],
-      ),
+                // debug view if enabled
+                StreamBuilder<DebugOption>(
+                    stream: controller.debugger.debugStream,
+                    builder: (ctx, snapshot) =>
+                        Text(snapshot.data?.text ?? "", style: debugStyle)),
+                if (controller.debugger.debugOption.showDebugView)
+                  DebugController(controller: controller),
+              ],
+            ),
+            if (controller.debugger.debugOption.showDebugView)
+              DebugPane(debugger: controller.debugger),
+          ]),
     );
   }
 }

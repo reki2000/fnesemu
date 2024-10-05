@@ -1,7 +1,8 @@
-assets/rom/*
+assets/roms/*
 assets/nestest.log
 docs/*
 .tool-versions
+log.txt
 
 # Miscellaneous
 *.class

@@ -3,12 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 // Project imports:
-import 'core/component/apu.dart';
-import 'core/component/bus.dart';
-import 'core/component/cpu.dart';
-import 'core/component/cpu_debug.dart';
-import 'core/mapper/nrom.dart';
-import 'core/rom/nes_file.dart';
+import 'core/nes/component/apu.dart';
+import 'core/nes/component/bus.dart';
+import 'core/nes/component/cpu.dart';
+import 'core/nes/component/cpu_debug.dart';
+import 'core/nes/mapper/nrom.dart';
+import 'core/nes/rom/nes_file.dart';
 import 'util.dart';
 
 void log(String s) {
