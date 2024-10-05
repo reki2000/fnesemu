@@ -67,7 +67,7 @@ class Bus {
       }
 
       if (offset < 0x1400) {
-        return joypad.port & 0x0f | 0xf0;
+        return joypad.port & 0x0f | 0x30;
       }
 
       // PIC
@@ -88,7 +88,7 @@ class Bus {
     final offset = addr & 0x1fff;
 
     if (0xf8 <= bank && bank <= 0xfb) {
-      // final logAddrs = [0x33cb, 0x3420, 0x1c, 0x1d];
+      // final logAddrs = [0x3cd5];
       // for (final addr in logAddrs) {
       //   if (offset == addr & 0x1fff) {
       //     print(
