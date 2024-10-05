@@ -22,6 +22,7 @@ class Pad {
 
   bool selectLRDU = false; // else RunSelect12
   bool clear = false;
+  int counter = 0;
 
   void keyDown(int controllerId, PadButton d) {
     isPressed[d] = true;
@@ -37,18 +38,31 @@ class Pad {
 
   set port(int data) {
     selectLRDU = bit0(data);
-    clear = bit1(data);
+
+    if (selectLRDU) {
+      if (!clear) {
+        if (bit1(data)) {
+          counter = 0;
+          clear = true;
+        } else {
+          counter++;
+          clear = false;
+        }
+      }
+    }
   }
 
-  int get port => selectLRDU
-      ? (!isPressed[buttons[2]]! ? 0x08 : 0) |
-          (!isPressed[buttons[1]]! ? 0x04 : 0) |
-          (!isPressed[buttons[3]]! ? 0x02 : 0) |
-          (!isPressed[buttons[0]]! ? 0x01 : 0)
-      : (!isPressed[buttons[5]]! ? 0x08 : 0) | // Run
-          (!isPressed[buttons[4]]! ? 0x04 : 0) | // Select
-          (!isPressed[buttons[7]]! ? 0x02 : 0) | // I
-          (!isPressed[buttons[6]]! ? 0x01 : 0); // II
+  int get port => counter != 1
+      ? 0x0f
+      : selectLRDU
+          ? (!isPressed[buttons[2]]! ? 0x08 : 0) |
+              (!isPressed[buttons[1]]! ? 0x04 : 0) |
+              (!isPressed[buttons[3]]! ? 0x02 : 0) |
+              (!isPressed[buttons[0]]! ? 0x01 : 0)
+          : (!isPressed[buttons[5]]! ? 0x08 : 0) | // Run
+              (!isPressed[buttons[4]]! ? 0x04 : 0) | // Select
+              (!isPressed[buttons[7]]! ? 0x02 : 0) | // I
+              (!isPressed[buttons[6]]! ? 0x01 : 0);
 
   String dump() {
     final joys = buttons.map((j) => "${j.name}:${isPressed[j]! ? "*" : "-"}");
