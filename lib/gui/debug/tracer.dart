@@ -49,7 +49,7 @@ class Tracer {
     // change of X or Y is ignored for X,Y are often used as a loop counter
     final state = log;
     if (_ringBuffer
-        .addOnlyNewItem(state.substring(0, 73).replaceRange(48, 62, ""))) {
+        .addOnlyNewItem(state.substring(0, 73).replaceRange(52, 62, ""))) {
       if (_ringBuffer.recovered) {
         traceStreamController.add("...\n");
       }
