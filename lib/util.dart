@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 /// print a 8 bit value as 1 hexadecimal digit
@@ -35,6 +36,40 @@ extension IntExt on int {
 
   int with4Bit(int val, {int lsbPosition = 0}) =>
       (this & ~(0x0f << lsbPosition)) | ((val & 0x0f) << lsbPosition);
+
+  // define a bit pattern which respresents the image of the digit in 3x5 matrix
+  static const digitPattern = [
+    "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",
+    "o.o ..o ..o ..o o.o o.. o.. ..o o.o o.o o.o o.o o.. o.o o.. o.. ",
+    "o.o ..o ooo ooo ooo ooo ooo ..o ooo ooo ooo oo. o.. o.o ooo ooo ",
+    "o.o ..o o.. ..o ..o ..o o.o ..o o.o ..o o.o o.o o.. o.o o.. o.. ",
+    "ooo ..o ooo ooo ..o ooo ooo ..o ooo ooo o.o oo. ooo oo. ooo o.. ",
+  ];
+
+  static const patternWidth = 4;
+
+  bool drawHexValue(int x, int y, int drawChars) {
+    if (0 <= y &&
+        y < digitPattern.length &&
+        0 <= x &&
+        x < patternWidth * drawChars) {
+      final digit = (this >> (4 * (drawChars - x ~/ patternWidth - 1))) & 0x0f;
+      return digitPattern[y][digit * patternWidth + (x % patternWidth)] == 'o';
+    }
+    return false;
+  }
+
+  bool drawValue(int x, int y, int drawChars) {
+    if (0 <= y &&
+        y < digitPattern.length &&
+        0 <= x &&
+        x < patternWidth * drawChars) {
+      final digit =
+          (this ~/ pow(10, (drawChars - (x ~/ patternWidth) - 1))) % 10;
+      return digitPattern[y][digit * patternWidth + (x % patternWidth)] == 'o';
+    }
+    return false;
+  }
 }
 
 /// makes range object
@@ -44,7 +79,7 @@ List<int> range(int start, int end) => [for (var i = start; i < end; i++) i];
 class Pair<S, T> {
   final S i0;
   final T i1;
-  Pair(this.i0, this.i1);
+  const Pair(this.i0, this.i1);
 }
 
 // Uint8
