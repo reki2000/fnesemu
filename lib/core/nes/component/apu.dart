@@ -151,7 +151,7 @@ class _PulseWave with _LengthCounter {
   ];
 
   void noteOn() {
-    _index = 0;
+    //_index = 0;
     _timer = sweep.freq + 1;
     sweep.keyOn();
     envelope.keyOn();

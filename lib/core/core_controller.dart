@@ -65,15 +65,15 @@ class CoreController {
     final initialCpuClocks = _currentCpuClocks;
     final runStartedAt = DateTime.now();
     int nextFrameClocks = 0;
-    int awaitCount = 0;
+    // int awaitCount = 0;
 
     while (_running) {
-      // wait the event loop to be done
-      if (awaitCount == 30) {
-        await Future.delayed(const Duration());
-        awaitCount = 0;
-      }
-      awaitCount++;
+      // // // wait the event loop to be done
+      // if (awaitCount == 30) {
+      //   await Future.delayed(const Duration());
+      //   awaitCount = 0;
+      // }
+      // awaitCount++;
 
       final now = DateTime.now();
       _fps = fpsCounter.fps(now);
@@ -82,6 +82,7 @@ class CoreController {
       if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
         runFrame();
         fpsCounter.count();
+        await Future.delayed(const Duration());
         continue;
       }
 
@@ -173,7 +174,7 @@ class CoreController {
   }
 
   void _renderAll() {
-    _imageStream.add(_core.imageBuffer());
+    onImage(_core.imageBuffer());
     debugger.pushStream();
     _fpsStream.add(_fps);
   }
@@ -190,15 +191,12 @@ class CoreController {
   }
 
   // screen/audio/fps
-  final _imageStream = StreamController<ImageBuffer>();
-  final _audioStream = StreamController<AudioBuffer>();
   final _fpsStream = StreamController<double>();
 
-  Stream<ImageBuffer> get imageStream => _imageStream.stream;
-  Stream<AudioBuffer> get audioStream => _audioStream.stream;
   Stream<double> get fpsStream => _fpsStream.stream;
 
   void Function(AudioBuffer) onAudio = (_) {};
+  void Function(ImageBuffer) onImage = (_) {};
 
   // pad
   final _padUpStream = StreamController<PadButton>.broadcast();

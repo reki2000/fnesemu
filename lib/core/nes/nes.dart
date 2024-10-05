@@ -80,9 +80,9 @@ class Nes implements Core {
     }
 
     if (cpu.cycle >= _nextApuCycle) {
-      final apuBuf = apu.exec(cpuCyclesInScanline * 8);
-      final auxBuf = bus.mapper.handleApu(cpuCyclesInScanline * 8);
-      _nextApuCycle += cpuCyclesInScanline * 8;
+      final apuBuf = apu.exec(cpuCyclesInScanline * 16);
+      final auxBuf = bus.mapper.handleApu(cpuCyclesInScanline * 16);
+      _nextApuCycle += cpuCyclesInScanline * 16;
 
       _pushApuBuffer(apuBuf, auxBuf);
     }

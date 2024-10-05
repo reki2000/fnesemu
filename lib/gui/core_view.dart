@@ -1,10 +1,8 @@
 // Dart imports:
-import 'dart:async';
-import 'dart:ui' as ui;
 
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/gui/stream_image.dart';
+import 'package:fnesemu/gui/ticker_image.dart';
 
 import '../core/core_controller.dart';
 import 'config.dart';
@@ -12,27 +10,21 @@ import 'virtual_pad.dart';
 
 class CoreView extends StatefulWidget {
   final CoreController controller;
+  final ImageContainer container;
 
-  const CoreView({super.key, required this.controller});
+  const CoreView(
+      {super.key, required this.controller, required this.container});
 
   @override
   State<CoreView> createState() => _CoreViewState();
 }
 
 class _CoreViewState extends State<CoreView> {
-  final imageStream = StreamController<ui.Image>();
-
   static final config = Config();
 
   @override
   void initState() {
     super.initState();
-    widget.controller.imageStream.listen((buf) => ui.decodeImageFromPixels(
-        buf.buffer,
-        buf.width,
-        buf.height,
-        ui.PixelFormat.rgba8888,
-        (image) => imageStream.sink.add(image)));
   }
 
   @override
@@ -47,10 +39,10 @@ class _CoreViewState extends State<CoreView> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // main view
-          StreamImageWidget(
-              imageStream: imageStream.stream,
+          TickerImage(
               width: config.imageWidth * 1,
-              height: config.imageHeight * 1),
+              height: config.imageHeight * 1,
+              container: widget.container),
 
           // virtual pad
           VirtualPadWidget(controller: widget.controller),

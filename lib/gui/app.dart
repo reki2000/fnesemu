@@ -1,4 +1,5 @@
 // Flutter imports:
+
 // Package imports:
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
 import 'key_handler.dart';
 import 'sound_player.dart';
+import 'ticker_image.dart';
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -38,6 +40,7 @@ class MainPage extends StatefulWidget {
 
 class MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
+  final _imageContainer = ImageContainer(null);
   final controller = CoreController();
   late final KeyHandler keyHandler;
 
@@ -53,6 +56,8 @@ class MainPageState extends State<MainPage> {
 
     controller.onAudio =
         (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
+    controller.onImage =
+        (buf) => _imageContainer.push(buf.buffer, buf.width, buf.height);
   }
 
   @override
@@ -193,7 +198,7 @@ class MainPageState extends State<MainPage> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
                 // main view
-                CoreView(controller: controller),
+                CoreView(controller: controller, container: _imageContainer),
 
                 // debug view if enabled
                 StreamBuilder<DebugOption>(

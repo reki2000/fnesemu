@@ -1,30 +1,38 @@
-import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-class StreamImageWidget extends StatefulWidget {
-  final Stream<ui.Image> imageStream;
+class ImageContainer {
+  ui.Image? image;
+
+  ImageContainer(this.image);
+
+  void push(Uint8List buffer, int width, int height) =>
+      ui.decodeImageFromPixels(buffer, width, height, ui.PixelFormat.rgba8888,
+          (image) => this.image = image);
+}
+
+class TickerImage extends StatefulWidget {
   final double width;
   final double height;
+  final ImageContainer container;
 
-  const StreamImageWidget({
+  const TickerImage({
     super.key,
-    required this.imageStream,
     required this.width,
     required this.height,
+    required this.container,
   });
 
   @override
-  State<StreamImageWidget> createState() => _StreamImageWidgetState();
+  State<TickerImage> createState() => _TickerImageState();
 }
 
-class _StreamImageWidgetState extends State<StreamImageWidget>
+class _TickerImageState extends State<TickerImage>
     with SingleTickerProviderStateMixin {
   ui.Image? _currentImage;
-  ui.Image? _nextImage;
-  late StreamSubscription<ui.Image> _subscription;
   late Ticker _ticker;
 
   @override
@@ -34,37 +42,28 @@ class _StreamImageWidgetState extends State<StreamImageWidget>
     // vsyncに同期するTickerを作成
     _ticker = createTicker(_onTick);
     _ticker.start();
-
-    // 画像ストリームを購読
-    _subscription = widget.imageStream.listen((ui.Image image) {
-      // 新しい画像を受け取ったら、_nextImageに格納
-      _nextImage = image;
-    });
   }
 
+  // called every frame from Ticker
   void _onTick(Duration elapsed) {
-    // vsyncに同期して呼ばれる
-    if (_nextImage != null) {
+    if (widget.container.image != null) {
       setState(() {
-        // 新しい画像を表示用にセットし、_nextImageをクリア
-        _currentImage = _nextImage;
-        _nextImage = null;
+        _currentImage = widget.container.image;
+        widget.container.image = null;
       });
     }
   }
 
   @override
   void dispose() {
-    // 資源を解放
     _ticker.dispose();
-    _subscription.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_currentImage == null) {
-      // 初期状態や画像がまだない場合のプレースホルダー
+      // placeholder
       return SizedBox(
         width: widget.width,
         height: widget.height,
@@ -86,7 +85,7 @@ class _ImagePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 画像をキャンバスに描画
+    // paint image to canvas
     final paint = Paint();
     final srcRect =
         Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
@@ -96,7 +95,7 @@ class _ImagePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ImagePainter oldDelegate) {
-    // 画像が更新されたときに再描画
+    // repaint only if image is changed
     return oldDelegate.image != image;
   }
 }
