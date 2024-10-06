@@ -14,22 +14,29 @@ class Pad {
     const PadButton("I"), // 7
   ];
 
+  static const controllerNum = 5;
+
   Pad() {
-    isPressed = {for (var e in buttons) e: false};
+    isPressed =
+        List.filled(controllerNum, {for (var e in buttons) e.name: false});
   }
 
-  late Map<PadButton, bool> isPressed;
+  late List<Map<String, bool>> isPressed;
 
   bool selectLRDU = false; // else RunSelect12
   bool clear = false;
   int counter = 0;
 
   void keyDown(int controllerId, PadButton d) {
-    isPressed[d] = true;
+    if (0 <= controllerId && controllerId < controllerNum) {
+      isPressed[controllerId][d.name] = true;
+    }
   }
 
-  void keyUp(int controllerID, PadButton d) {
-    isPressed[d] = false;
+  void keyUp(int controllerId, PadButton d) {
+    if (0 <= controllerId && controllerId < controllerNum) {
+      isPressed[controllerId][d.name] = false;
+    }
   }
 
   reset() {
@@ -52,20 +59,22 @@ class Pad {
     }
   }
 
-  int get port => counter != 1
-      ? 0x0f
-      : selectLRDU
-          ? (!isPressed[buttons[2]]! ? 0x08 : 0) |
-              (!isPressed[buttons[1]]! ? 0x04 : 0) |
-              (!isPressed[buttons[3]]! ? 0x02 : 0) |
-              (!isPressed[buttons[0]]! ? 0x01 : 0)
-          : (!isPressed[buttons[5]]! ? 0x08 : 0) | // Run
-              (!isPressed[buttons[4]]! ? 0x04 : 0) | // Select
-              (!isPressed[buttons[7]]! ? 0x02 : 0) | // I
-              (!isPressed[buttons[6]]! ? 0x01 : 0);
+  int buttonValue(int id, int bit) =>
+      !isPressed[counter][buttons[id].name]! ? bit : 0;
+
+  int get port => selectLRDU
+      ? buttonValue(2, 0x08) |
+          buttonValue(1, 0x04) |
+          buttonValue(3, 0x02) |
+          buttonValue(0, 0x01)
+      : buttonValue(5, 0x08) | // Run
+          buttonValue(4, 0x04) | // Select
+          buttonValue(7, 0x02) | // I
+          buttonValue(6, 0x01); // II
 
   String dump() {
-    final joys = buttons.map((j) => "${j.name}:${isPressed[j]! ? "*" : "-"}");
+    final joys =
+        buttons.map((j) => "${j.name}:${isPressed[0][j.name]! ? "*" : "-"}");
     return "$joys";
   }
 }

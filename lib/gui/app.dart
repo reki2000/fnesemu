@@ -40,7 +40,7 @@ class MainPage extends StatefulWidget {
 
 class MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
-  final _imageContainer = ImageContainer(null);
+  final _imageContainer = ImageContainer();
   final controller = CoreController();
   late final KeyHandler keyHandler;
 

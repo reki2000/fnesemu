@@ -31,10 +31,10 @@ class KeyHandler {
 
     if (button != null) {
       if (e is KeyDownEvent) {
-        controller.padDown(button);
+        controller.padDown(0, button);
         return true;
       } else if (e is KeyUpEvent) {
-        controller.padUp(button);
+        controller.padUp(0, button);
         return true;
       }
     }

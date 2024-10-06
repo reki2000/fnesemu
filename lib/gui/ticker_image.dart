@@ -7,7 +7,7 @@ import 'package:flutter/scheduler.dart';
 class ImageContainer {
   ui.Image? image;
 
-  ImageContainer(this.image);
+  ImageContainer();
 
   void push(Uint8List buffer, int width, int height) =>
       ui.decodeImageFromPixels(buffer, width, height, ui.PixelFormat.rgba8888,
