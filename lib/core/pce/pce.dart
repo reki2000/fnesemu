@@ -1,10 +1,8 @@
 // Dart imports:
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/pce/component/vdc_debug.dart';
-
-import '../../util.dart';
 // Project imports:
+import '../../util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
@@ -18,10 +16,9 @@ import 'component/psg_debug.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_render.dart';
+import 'component/vdc_debug.dart';
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
-
-export '../pad_button.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Pce implements Core {
