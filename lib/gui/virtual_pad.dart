@@ -22,8 +22,8 @@ class VirtualPadWidget extends StatelessWidget {
       return InkResponse(
           canRequestFocus: false,
           containedInkWell: false,
-          onTapDown: (_) => controller.padDown(button),
-          onTapUp: (_) => controller.padUp(button),
+          onTapDown: (_) => controller.padDown(0, button),
+          onTapUp: (_) => controller.padUp(0, button),
           child: Stack(
             alignment: Alignment.center,
             children: [

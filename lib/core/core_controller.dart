@@ -198,12 +198,12 @@ class CoreController {
   void Function(AudioBuffer) onAudio = (_) {};
   void Function(ImageBuffer) onImage = (_) {};
 
-  void padDown(PadButton k) {
-    _core.padDown(0, k);
+  void padDown(int controlerId, PadButton k) {
+    _core.padDown(controlerId, k);
   }
 
-  void padUp(PadButton k) {
-    _core.padUp(0, k);
+  void padUp(int controlerId, PadButton k) {
+    _core.padUp(controlerId, k);
   }
 
   List<PadButton> get buttons => _core.buttons;
