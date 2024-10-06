@@ -98,6 +98,11 @@ class Bus {
     final bank = addr >> 13;
     final offset = addr & 0x1fff;
 
+    if (bank == 0x00) {
+      rom.write(addr, data);
+      return;
+    }
+
     if (0xf8 <= bank && bank <= 0xfb) {
       // final logAddrs = [0x3cd5];
       // for (final addr in logAddrs) {
