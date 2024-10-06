@@ -84,16 +84,20 @@ class _SawToothWave with _Wave {
       if (_timer <= 0) {
         _timer = _freq + 1;
         _count++;
+
         if (_count == 14) {
           _count = 0;
         }
+
         if ((_count & 0x01) == 0) {
           accum = (_accumlator + accum) & 0xff;
         }
       }
+
       buf[i] = _accumlator >> 3;
       _timer--;
     }
+
     return buf;
   }
 }
@@ -162,7 +166,9 @@ class Vrc6Apu {
   var buffer = Float32List(0);
 
   /// Generates APU 1Frame output and set it to the apu output buffer
-  Float32List exec(int cycles) {
+  Float32List exec(int cpuCycles) {
+    final cycles = cpuCycles ~/ 2;
+
     if (buffer.length != cycles) {
       buffer = Float32List(cycles);
     }
@@ -172,7 +178,7 @@ class Vrc6Apu {
     final s = saw.synth(cycles);
 
     for (int i = 0; i < cycles; i++) {
-      buffer[i] = (p0[i] + p1[i] + s[i]) / 45 * 2 - 1.0;
+      buffer[i] = (p0[i] + p1[i] + s[i]) / 45; // * 2 - 1.0;
     }
 
     return buffer;

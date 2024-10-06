@@ -14,6 +14,7 @@ import 'vdc.dart';
 class Bus {
   late final Cpu2 cpu;
   late final Vdc vdc;
+  late final Vdc vdc2;
   late final Psg psg;
   late final Timer timer;
   late final Pic pic;
@@ -22,7 +23,10 @@ class Bus {
 
   final joypad = Pad();
 
-  final List<int> ram = List.filled(0x2000, 0);
+  // 0: original ram 8kb
+  // 1-3: supergfx additional ram banks 24k
+  // 4-12: cdrom buffer 64k
+  final List<List<int>> ram = List.filled(12, List.filled(0x2000, 0));
 
   int read(int addr) {
     final bank = addr >> 13;
@@ -32,17 +36,24 @@ class Bus {
       return rom.read(addr);
     }
 
+    if (0x80 <= bank && bank <= 0x87) {
+      return ram[(bank & 0x07) + 4][offset];
+    }
+
     if (0xf8 <= bank && bank <= 0xfb) {
-      return ram[offset];
+      return ram[bank & 0x03][offset];
     }
 
     if (bank == 0xff) {
       // VDC
       if (offset < 0x0400) {
-        return switch (offset & 0x03) {
-          0 => vdc.readReg(),
-          2 => vdc.readLsb(),
-          3 => vdc.readMsb(),
+        return switch (offset & 0x1f) {
+          0x00 => vdc.readReg(),
+          0x02 => vdc.readLsb(),
+          0x03 => vdc.readMsb(),
+          0x10 => vdc2.readReg(),
+          0x12 => vdc2.readLsb(),
+          0x13 => vdc2.readMsb(),
           int() => 0
         };
       }
@@ -95,7 +106,7 @@ class Bus {
       //         "ram write: ${hex16(addr)} ${hex8(data)}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
       //   }
       // }
-      ram[offset] = data;
+      ram[bank & 0x03][offset] = data;
       return;
     }
 
@@ -174,6 +185,16 @@ class Bus {
         }
         return;
       }
+    }
+
+    if (0x80 <= bank && bank <= 0x87) {
+      ram[(bank & 0x07) + 4][offset] = data;
+      return;
+    }
+
+    if (bank == 0x00) {
+      rom.write(addr, data);
+      return;
     }
   }
 
