@@ -44,17 +44,17 @@ extension VdcDebug on Vdc {
     }
 
     int tileSize = 8;
-    int width = (tileSize * 16 + tileSize * 1) * 4;
-    int height = (tileSize * 16 + tileSize * 1) * 4;
+    int width = (tileSize * 16) * 4;
+    int height = (tileSize * 16) * 2;
 
     final buf = Uint32List(width * height);
     final palette = paletteNo << 4;
 
-    for (int baseY = 0; baseY < 4; baseY++) {
+    for (int baseY = 0; baseY < 2; baseY++) {
       for (int baseX = 0; baseX < 4; baseX++) {
         final vramOffset = (baseY * 4 + baseX) * 0x1000;
-        final imageOffset = baseX * (tileSize * (16 + 1)) +
-            baseY * (tileSize * (16 + 1)) * width;
+        final imageOffset =
+            baseX * (tileSize * 16) + baseY * (tileSize * 16) * width;
 
         for (int ty = 0; ty < 16; ty++) {
           for (int tx = 0; tx < 16; tx++) {

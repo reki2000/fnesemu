@@ -150,18 +150,17 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        // ...[
-        //   for (var name in [
-        //     "momotetsu.pce",
-        //     "sf2d.pce",
-        //     "valkyrie.pce",
-        //     "smb3.nes",
-        //     "akumajou.nes",
-        //     "bomber.nes"
-        //   ])
-        //     _iconButton(Icons.file_open_outlined, name.split(".")[0],
-        //         () => _loadRomFile(name: name))
-        // ],
+        ...[
+          for (var name in [
+            "daimakai.pce",
+            "battleace.nes",
+            "powerdrift.nes",
+            "sf2d.pce",
+            "valkyrie.pce",
+          ])
+            _iconButton(Icons.file_open_outlined, name.split(".")[0],
+                () => _loadRomFile(name: name))
+        ],
 
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
