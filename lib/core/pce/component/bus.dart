@@ -98,11 +98,6 @@ class Bus {
     final bank = addr >> 13;
     final offset = addr & 0x1fff;
 
-    if (bank == 0x00) {
-      rom.write(addr, data);
-      return;
-    }
-
     if (0xf8 <= bank && bank <= 0xfb) {
       // final logAddrs = [0x3cd5];
       // for (final addr in logAddrs) {
@@ -112,11 +107,6 @@ class Bus {
       //   }
       // }
       ram[bank & 0x03][offset] = data;
-      return;
-    }
-
-    if (0x80 <= bank && bank <= 0x87) {
-      ram[(bank & 0x07) + 4][offset] = data;
       return;
     }
 
@@ -195,6 +185,16 @@ class Bus {
         }
         return;
       }
+    }
+
+    if (0x80 <= bank && bank <= 0x87) {
+      ram[(bank & 0x07) + 4][offset] = data;
+      return;
+    }
+
+    if (bank == 0x00) {
+      rom.write(addr, data);
+      return;
     }
   }
 
