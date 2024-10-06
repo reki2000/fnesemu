@@ -10,10 +10,9 @@ import 'cpu.dart';
 
 class Vdc {
   final Bus bus;
+  final int priority;
 
-  Vdc(this.bus) {
-    bus.vdc = this;
-  }
+  Vdc(this.bus, this.priority);
 
   String dump() {
     final regs = "${hex8(reg)} r${hex16(marr)} w${hex16(mawr)}";

@@ -8,7 +8,7 @@ import 'debugger.dart';
 import 'frame_counter.dart';
 // Project imports:
 
-import 'pce/pce.dart';
+import 'pad_button.dart';
 import 'types.dart';
 
 /// A Controller of the emulator core.
@@ -198,20 +198,11 @@ class CoreController {
   void Function(AudioBuffer) onAudio = (_) {};
   void Function(ImageBuffer) onImage = (_) {};
 
-  // pad
-  final _padUpStream = StreamController<PadButton>.broadcast();
-  final _padDownStream = StreamController<PadButton>.broadcast();
-
-  Stream<PadButton> get padUpStream => _padUpStream.stream;
-  Stream<PadButton> get padDownStream => _padDownStream.stream;
-
   void padDown(PadButton k) {
-    _padDownStream.add(k);
     _core.padDown(0, k);
   }
 
   void padUp(PadButton k) {
-    _padUpStream.add(k);
     _core.padUp(0, k);
   }
 

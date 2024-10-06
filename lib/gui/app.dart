@@ -152,12 +152,12 @@ class MainPageState extends State<MainPage> {
       appBar: AppBar(title: Text(_romName), actions: [
         // ...[
         //   for (var name in [
-        //     "momotetsu.pce",
+        //     "bomber.nes",
+        //     "daimakai.pce",
+        //     "battleace.nes",
+        //     "powerdrift.nes",
         //     "sf2d.pce",
         //     "valkyrie.pce",
-        //     "smb3.nes",
-        //     "akumajou.nes",
-        //     "bomber.nes"
         //   ])
         //     _iconButton(Icons.file_open_outlined, name.split(".")[0],
         //         () => _loadRomFile(name: name))

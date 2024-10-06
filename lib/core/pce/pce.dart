@@ -1,10 +1,8 @@
 // Dart imports:
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/pce/component/vdc_debug.dart';
-
-import '../../util.dart';
 // Project imports:
+import '../../util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
@@ -18,14 +16,14 @@ import 'component/psg_debug.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_render.dart';
+import 'component/vdc_debug.dart';
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
-
-export '../pad_button.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Pce implements Core {
   late final Vdc vdc;
+  late final Vdc vdc2;
   late final Psg psg;
   late final Cpu2 cpu;
   late final Bus bus;
@@ -46,7 +44,8 @@ class Pce implements Core {
   Pce() {
     bus = Bus();
     cpu = Cpu2(bus);
-    vdc = Vdc(bus);
+    vdc = bus.vdc = Vdc(bus, 0);
+    vdc2 = bus.vdc2 = Vdc(bus, 1);
     psg = Psg(bus);
     timer = Timer(bus);
     pic = Pic(bus);
@@ -176,8 +175,14 @@ class Pce implements Core {
   @override
   ImageBuffer renderBg() => vdc.renderBg();
   @override
-  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
-      vdc.renderVram(useSecondBgColor, paletteNo);
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) {
+    final buf = vdc.renderVram(useSecondBgColor, paletteNo);
+    return buf;
+    // final buf2 = vdc2.renderVram(useSecondBgColor, paletteNo);
+    // return ImageBuffer(buf.width, buf.height + buf2.height,
+    //     Uint8List.fromList([...buf.buffer, ...buf2.buffer]));
+  }
+
   @override
   ImageBuffer renderColorTable(int paletteNo) =>
       vdc.renderColorTable(paletteNo);

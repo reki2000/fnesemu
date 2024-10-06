@@ -189,7 +189,7 @@ class TriangleWave with _LengthCounter {
 
   void prepare() {
     _timer = freq + 1;
-    //_index = 0;
+    _index = 15;
     _needLinearReload = true;
   }
 
@@ -214,11 +214,13 @@ class TriangleWave with _LengthCounter {
   Int8List synth(int cycles) {
     final buf = Int8List(cycles);
 
-    if (!enabled ||
+    final mute = (!enabled ||
         _linear == 0 ||
         lengthCounter == 0 ||
         // freq == 0x7ff ||
-        freq < 2) {
+        freq < 2);
+
+    if (mute && (table[_index] == 0)) {
       return buf;
     }
 
@@ -226,10 +228,17 @@ class TriangleWave with _LengthCounter {
       if (_timer <= 0) {
         _timer = freq + 1;
         _index = (_index + 1) & 0x1f;
+
+        // to avoid pop noise, delay mute until table value becomes 0
+        if (mute && table[_index] == 0) {
+          break;
+        }
       }
+
       buf[i] = table[_index];
       _timer -= 2;
     }
+
     return buf;
   }
 }
@@ -252,7 +261,6 @@ class NoiseWave with _LengthCounter {
     final buf = Int8List(cycles);
 
     if (!enabled || lengthCounter == 0) {
-      buf.fillRange(0, buf.length, 0);
       return buf;
     }
 
@@ -360,6 +368,7 @@ class DPCMWave {
 
   Int8List synth(int cycles) {
     final buf = Int8List(cycles);
+
     if (!enabled) {
       return buf;
     }
@@ -640,7 +649,7 @@ class Apu {
       for (int i = 0; i < consumeCycles; i++) {
         final pulseOut = _pulseOutTable[p0[i] + p1[i]];
         final elseOut = _tndOutTable[t[i] * 3 + n[i] * 2 + d[i]];
-        buffer[bufferIndex++] = (pulseOut + elseOut) * 2 - 1.0;
+        buffer[bufferIndex++] = (pulseOut + elseOut); // *2 - 1.0;
       }
 
       if (countApuFrame) {
