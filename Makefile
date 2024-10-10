@@ -1,6 +1,9 @@
 cputest: 
 	dart run lib/main_cputest.dart 
 
+mdz80test: 
+	dart run lib/core/md/z80/z80_test.dart 
+
 test:
 	flutter test
 
