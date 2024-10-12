@@ -135,7 +135,7 @@ class Z80 {
 
   int repMode = repNone; // 1:ld 2:cp 3:in 4:out
   int repDirection = 1; // 1:inc -1:dec
-  bool repLoop = false;
+
   static const repNone = 0;
   static const repLd = 1;
   static const repCp = 2;
@@ -148,18 +148,8 @@ class Z80 {
     // interrupt
 
     // halt
-    if (halted) {
-      cycles += 4;
-      return true;
-    }
 
-    // rep
-    if (repMode != repNone) {
-      doRep();
-      return true;
-    }
-
-    final op = pc();
+    final op = next();
 
     if (op < 0x40) {
       return exec003f(op);
@@ -170,10 +160,10 @@ class Z80 {
     }
 
     return switch (op) {
-      0xfd => execDdFd(op, 1),
-      0xdd => execDdFd(pc(), 0),
-      0xed => execEd(op),
-      0xcb => execCb(pc()),
+      0xfd => execDdFd(next(), 1),
+      0xdd => execDdFd(next(), 0),
+      0xed => execEd(next()),
+      0xcb => execCb(next()),
       _ => execC0ff(op)
     };
   }
@@ -184,8 +174,17 @@ class Z80 {
   int input(int port) => bus.input(port);
   void output(int port, int data) => bus.output(port, data);
 
-  int pc() {
+  int next() {
     final d = read(r.pc);
+    cycles += 4;
+    r.pc = (r.pc + 1) & 0xffff;
+    r.r = (r.r + 1) & 0x7f | r.r & 0x80;
+    return d;
+  }
+
+  int pc8() {
+    final d = read(r.pc);
+    cycles += 3;
     r.pc = (r.pc + 1) & 0xffff;
     return d;
   }
@@ -193,25 +192,28 @@ class Z80 {
   int pc16() {
     final d0 = read(r.pc);
     final d1 = read(r.pc + 1);
+    cycles += 6;
     r.pc = (r.pc + 2) & 0xffff;
     return d0 | d1 << 8;
   }
 
   int rel8() {
-    final d = pc();
+    final d = pc8();
     return (d & 0x80) != 0 ? d - 0x100 : d;
   }
 
   int pop() {
     final d = read(r.sp).withHighByte(read((r.sp + 1) & 0xffff));
+    cycles += 6;
     r.sp = (r.sp + 2) & 0xffff;
     return d;
   }
 
   void push(int d) {
     r.sp = (r.sp - 2) & 0xffff;
-    write(r.sp, d >> 8);
-    write((r.sp + 1) & 0xffff, d);
+    write(r.sp, d & 0xff);
+    write((r.sp + 1) & 0xffff, d >> 8);
+    cycles += 7;
   }
 
   int readReg(int reg) {
@@ -225,7 +227,7 @@ class Z80 {
 
   int readRegXY(int reg, int xy, int rel) {
     if (reg == 6) {
-      cycles += 11;
+      cycles += 3;
       return read(r.ixiy[xy] + rel);
     } else if (reg == 4) {
       return r.ixiy[xy] >> 8;
@@ -248,7 +250,7 @@ class Z80 {
   void writeRegXY(int reg, int xy, int rel, int data) {
     if (reg == 6) {
       write(r.ixiy[xy] + rel, data);
-      cycles += 11;
+      cycles += 3;
     } else if (reg == 4) {
       r.ixiy[xy] = r.ixiy[xy].withHighByte(data);
     } else if (reg == 5) {
@@ -259,11 +261,11 @@ class Z80 {
   }
 
   int add16(int org, int val, {int c = 0}) {
-    final result = (org + val);
+    final result = org + val + c;
     r.hf = (org & 0xfff) + (val & 0xfff) > 0xfff;
     r.cf = result > 0xffff;
     r.nf = false;
-    cycles += 11;
+    cycles += 7;
     return result & 0xffff;
   }
 
@@ -272,7 +274,7 @@ class Z80 {
     r.hf = (org & 0xfff) - (val & 0xfff) - (r.cf ? 1 : 0) < 0;
     r.cf = result < 0;
     r.nf = true;
-    cycles += 11;
+    cycles += 7;
     return result & 0xffff;
   }
 
@@ -282,7 +284,6 @@ class Z80 {
     r.pvf = val == 0x7f;
     r.hf = (val & 0x0f) == 0x0f;
     r.nf = false;
-    cycles += 4;
     return result;
   }
 
@@ -292,7 +293,6 @@ class Z80 {
     r.pvf = val == 0x80;
     r.hf = (val & 0x0f) == 0x00;
     r.nf = true;
-    cycles += 4;
     return result & 0xff;
   }
 

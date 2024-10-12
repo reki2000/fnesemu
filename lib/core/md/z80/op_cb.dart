@@ -20,19 +20,21 @@ extension OpCb on Z80 {
           _ => throw ("unreachable"),
         };
         break;
+
       case 0x40: // bit
         final bit = op38 >> 3;
         final v = val & (1 << bit);
-        r.zf = v == 0;
-        r.sf = (v & 0x80) != 0;
+        r.setSZ(v);
         r.hf = true;
         r.nf = false;
         r.pvf = r.zf;
         if (src == 6) cycles -= 3;
         break;
+
       case 0x80: // res
         val &= ~(1 << (op38 >> 3));
         break;
+
       case 0xc0: // set
         val |= 1 << (op38 >> 3);
         break;
@@ -41,9 +43,7 @@ extension OpCb on Z80 {
     writeReg(src, val);
 
     if (src == 6) {
-      cycles += 9;
-    } else {
-      cycles += 8;
+      cycles += 1;
     }
 
     return true;

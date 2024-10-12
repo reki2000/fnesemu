@@ -4,17 +4,16 @@ extension Op003f on Z80 {
   bool exec003f(int op) {
     switch (op) {
       case 0x00: // nop
-        cycles += 4;
         return true;
 
       case 0x10: // djnz
-        final rel = pc();
+        final rel = rel8();
         r.b = (r.b - 1) & 0xff;
         if (r.b != 0) {
-          cycles += 13;
-          r.pc = (r.pc + (rel >= 128 ? rel - 256 : rel)) & 0xffff;
+          cycles += 6;
+          r.pc = (r.pc + rel) & 0xffff;
         } else {
-          cycles += 8;
+          cycles += 1;
         }
         return true;
 
@@ -22,15 +21,14 @@ extension Op003f on Z80 {
         final tmp = r.af2;
         r.af2 = r.af;
         r.af = tmp;
-        cycles += 4;
         return true;
 
       default:
         switch (op & 0x0f) {
           case 0x00: // jr
           case 0x08:
-            final rel = pc();
-            final addr = (r.pc + (rel >= 128 ? rel - 256 : rel)) & 0xffff;
+            final rel = rel8();
+            final addr = (r.pc + rel) & 0xffff;
             final flag = switch (op & 0x38) {
               0x20 => !r.zf,
               0x30 => !r.cf,
@@ -40,15 +38,12 @@ extension Op003f on Z80 {
               _ => false,
             };
             if (flag) {
-              cycles += 12;
+              cycles += 5;
               r.pc = addr;
-            } else {
-              cycles += 7;
             }
             return true;
 
           case 0x01: // ld16
-            cycles += 10;
             switch (op) {
               case 0x01: // ld bc, nn
                 r.bc = pc16();
@@ -86,22 +81,22 @@ extension Op003f on Z80 {
             switch (op) {
               case 0x02: // ld (bc), a
                 write(r.bc, r.a);
-                cycles += 7;
+                cycles += 3;
                 return true;
               case 0x12: // ld (de), a
                 write(r.de, r.a);
-                cycles += 7;
+                cycles += 3;
                 return true;
               case 0x22: // ld (nn), hl
                 final addr = pc16();
                 write(addr, r.l);
                 write(addr + 1, r.h);
-                cycles += 16;
+                cycles += 6;
                 return true;
               case 0x32: // ld (nn), a
                 final addr = pc16();
                 write(addr, r.a);
-                cycles += 13;
+                cycles += 3;
                 return true;
             }
             return true;
@@ -110,29 +105,29 @@ extension Op003f on Z80 {
             switch (op) {
               case 0x0a: // ld a, (bc)
                 r.a = read(r.bc);
-                cycles += 7;
+                cycles += 3;
                 return true;
               case 0x1a: // ld a, (de)
                 r.a = read(r.de);
-                cycles += 7;
+                cycles += 3;
                 return true;
               case 0x2a: // ld hl, (nn)
                 final addr = pc16();
                 r.l = read(addr);
                 r.h = read(addr + 1);
-                cycles += 16;
+                cycles += 6;
                 return true;
               case 0x3a: // ld a, (nn)
                 final addr = pc16();
                 r.a = read(addr);
-                cycles += 13;
+                cycles += 3;
                 return true;
             }
             return true;
 
           case 0x03: // inc16
           case 0x0b: // dec16
-            cycles += 6;
+            cycles += 2;
             switch (op) {
               case 0x03: // inc bc
                 r.bc = (r.bc + 1) & 0xffff;
@@ -181,8 +176,7 @@ extension Op003f on Z80 {
           case 0x06: // ld r,n
           case 0x0e: // ld r,n
             final reg = (op & 0x38) >> 3;
-            writeReg(reg, pc());
-            cycles += 7;
+            writeReg(reg, pc8());
             return true;
 
           case 0x07: // alu
@@ -190,11 +184,9 @@ extension Op003f on Z80 {
             switch (op) {
               case 0x07: // rlca
                 r.a = rlc8(r.a, setSZP: false);
-                cycles += 4;
                 return true;
               case 0x17: // rla
                 r.a = rl8(r.a, setSZP: false);
-                cycles += 4;
                 return true;
               case 0x27: // daa SZ-H-PNC
                 final lowOver = (r.a & 0x0f) > 0x09;
@@ -213,33 +205,27 @@ extension Op003f on Z80 {
                 r.setP(r.a);
                 r.setSZ(r.a);
                 r.cf = r.cf || highOver;
-                cycles += 4;
                 return true;
               case 0x37: // scf
                 r.cf = true;
                 r.hf = false;
                 r.nf = false;
-                cycles += 4;
                 return true;
               case 0x0f: // rrca
                 r.a = rrc8(r.a, setSZP: false);
-                cycles += 4;
                 return true;
               case 0x1f: // rra
                 r.a = rr8(r.a, setSZP: false);
-                cycles += 4;
                 return true;
               case 0x2f: // cpl
                 r.a = ~r.a & 0xff;
                 r.hf = true;
                 r.nf = true;
-                cycles += 4;
                 return true;
               case 0x3f: // ccf
                 r.hf = r.cf;
                 r.cf = !r.cf;
                 r.nf = false;
-                cycles += 4;
                 return true;
             }
             return true;

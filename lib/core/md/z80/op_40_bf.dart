@@ -6,7 +6,6 @@ extension Op40bf on Z80 {
     if (op == 0x76) {
       r.pc = (r.pc - 1) & 0xffff;
       halted = true;
-      cycles += 4;
       return true;
     }
 
@@ -15,13 +14,11 @@ extension Op40bf on Z80 {
       final src = op & 0x07;
       final dst = (op & 0x38) >> 3;
       writeReg(dst, readReg(src));
-      cycles += 4;
       return true;
     }
 
     // alu r
     final val = readReg(op & 0x07);
-    cycles += 4;
     switch (op & 0x38) {
       case 0x00: // add
         add8(val, 0);

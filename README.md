@@ -70,3 +70,10 @@ loading: File: 'assets/rom/nestest.nes'
 cpu test completed successfully.
 ```
 
+## To test z80 emulation
+
+get `tests.in` and `tests.expected` from [Fuse](https://fuse-emulator.sourceforge.net/), store these file to `assets`
+
+```
+$ make mdz80test
+```
