@@ -31,6 +31,9 @@ bool bit0(int a) => a & 0x01 != 0;
 
 // sets partial bits in a int value
 extension IntExt on int {
+  String get h8 => hex8(this);
+  String get h16 => hex16(this);
+
   int withLowByte(int val) => (this & ~0xff) | (val & 0xff);
   int withHighByte(int val) => (this & ~0xff00) | ((val & 0xff) << 8);
 

@@ -4,6 +4,8 @@ import 'pad.dart';
 import 'rom.dart';
 
 class BusZ80 {
+  final ram = Uint8List(0x2000);
+
   BusZ80();
 
   Rom rom = Rom();
@@ -11,8 +13,6 @@ class BusZ80 {
   final pad = Pad();
 
   void onReset() {}
-
-  final ram = Uint8List(0x2000);
 
   int read(int addr) {
     addr &= 0xffff;
