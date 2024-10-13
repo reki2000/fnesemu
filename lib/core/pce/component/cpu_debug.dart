@@ -2,7 +2,7 @@
 import 'dart:core';
 
 // Project imports:
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 

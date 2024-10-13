@@ -1,14 +1,13 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../bus_z80.dart';
 import 'z80.dart';
 
 class BusZ80Test extends BusZ80 {
-  @override
-  final ram = Uint8List(0x10000);
+  final ram_ = Uint8List(0x10000);
 
   late Z80 cpu;
 
@@ -16,7 +15,7 @@ class BusZ80Test extends BusZ80 {
 
   @override
   int read(int addr) {
-    return ram[addr];
+    return ram_[addr];
   }
 
   final wrLog = <List<String>>[];
@@ -43,7 +42,7 @@ class BusZ80Test extends BusZ80 {
       }
     }
 
-    ram[addr] = data;
+    ram_[addr] = data;
   }
 
   final io = [
@@ -142,7 +141,7 @@ void main(List<String> args) {
     final cycles =
         loadRegs(cpu, inputs[inpputLineNo++], inputs[inpputLineNo++]);
 
-    bus.ram.fillRange(0, bus.ram.length, 0);
+    bus.ram_.fillRange(0, bus.ram_.length, 0);
 
     // set up ram
     while (true) {
@@ -160,7 +159,7 @@ void main(List<String> args) {
 
       int addr = mems[0];
       for (int i = 1; i < mems.length - 1; i++) {
-        bus.ram[addr++] = mems[i];
+        bus.ram_[addr++] = mems[i];
       }
     }
 

@@ -1,5 +1,5 @@
 import 'package:fnesemu/core/md/z80/z80.dart';
-import 'package:fnesemu/util.dart';
+import 'package:fnesemu/util/util.dart';
 
 extension Z80Debug on Z80 {
   String _disasm(int addr) {

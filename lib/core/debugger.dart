@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import '../gui/debug/tracer.dart';
-import '../util.dart';
+import '../util/util.dart';
 import 'core.dart';
 import 'types.dart';
 

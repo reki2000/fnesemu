@@ -1,4 +1,4 @@
-import 'package:fnesemu/util.dart';
+import 'package:fnesemu/util/util.dart';
 
 import 'z80.dart';
 
@@ -300,7 +300,6 @@ extension OpEd on Z80 {
         cycles += 4;
         return true;
 
-      case 0x78: // out (c), b
       case 0x41: // out (c), b
       case 0x49: // out (c), c
       case 0x51: // out (c), d

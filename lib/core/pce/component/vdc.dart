@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'bus.dart';
 import 'cpu.dart';
 

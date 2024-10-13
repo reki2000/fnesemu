@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/core_controller.dart';
 // Project imports:
 import '../../styles.dart';
-import '../../util.dart';
+import '../../util/util.dart';
 
 Widget _dump(CoreController controller, int start) {
   final lines = <String>[];

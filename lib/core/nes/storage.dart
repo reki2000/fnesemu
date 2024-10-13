@@ -1,7 +1,7 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu/util.dart';
+import 'package:fnesemu/util/util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Storage {

@@ -1,4 +1,4 @@
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/int.dart';
 
 import 'm68.dart';
 

@@ -1,5 +1,5 @@
 import 'package:fnesemu/core/md/m68/op_0.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
 

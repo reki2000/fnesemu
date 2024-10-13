@@ -1,4 +1,4 @@
-import 'package:fnesemu/util.dart';
+import 'package:fnesemu/util/util.dart';
 
 import 'z80.dart';
 
