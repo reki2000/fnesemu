@@ -3,7 +3,7 @@ import 'package:fnesemu/core/md/z80/op_c0_ff.dart';
 import 'package:fnesemu/core/md/z80/op_cb.dart';
 import 'package:fnesemu/core/md/z80/op_ddfd.dart';
 import 'package:fnesemu/core/md/z80/op_ed.dart';
-import 'package:fnesemu/util.dart';
+import 'package:fnesemu/util/util.dart';
 
 import '../bus_z80.dart';
 import 'op_00_3f.dart';
@@ -132,15 +132,6 @@ class Z80 {
   int im = 0;
 
   bool halted = false;
-
-  int repMode = repNone; // 1:ld 2:cp 3:in 4:out
-  int repDirection = 1; // 1:inc -1:dec
-
-  static const repNone = 0;
-  static const repLd = 1;
-  static const repCp = 2;
-  static const repIn = 3;
-  static const repOut = 4;
 
   Z80(this.bus);
 

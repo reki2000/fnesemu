@@ -1,6 +1,7 @@
 assets/roms/*
 assets/nestest.log
 assets/tests.*
+assets/680x0
 docs/*
 .tool-versions
 log.txt

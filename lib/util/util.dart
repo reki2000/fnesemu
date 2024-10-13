@@ -31,15 +31,30 @@ bool bit0(int a) => a & 0x01 != 0;
 
 // sets partial bits in a int value
 extension IntExt on int {
-  String get h8 => hex8(this);
-  String get h16 => hex16(this);
+  String get hex8 => toRadixString(16).padLeft(2, "0");
+  String get hex16 => toRadixString(16).padLeft(4, "0");
+  String get hex32 => toRadixString(16).padLeft(8, "0");
+
+  int get mask8 => this & 0xff;
+  int get mask16 => this & 0xffff;
+  int get mask32 => this & 0xffffffff;
+
+  int get inc => this + 1;
+  int get dec => this - 1;
+
+  int setL8(int val) => this & ~0xff | val & 0xff;
+  int setH8(int val) => this & ~0xff00 | val << 8 & 0xff00;
+  int setL16(int val) => this & ~0xffff | val & 0xffff;
+  int setH16(int val) => this & ~0xffff0000 | val << 16 & 0xffff0000;
 
   int withLowByte(int val) => (this & ~0xff) | (val & 0xff);
   int withHighByte(int val) => (this & ~0xff00) | ((val & 0xff) << 8);
 
   int with4Bit(int val, {int lsbPosition = 0}) =>
       (this & ~(0x0f << lsbPosition)) | ((val & 0x0f) << lsbPosition);
+}
 
+extension IntImageExt on int {
   // define a bit pattern which respresents the image of the digit in 3x5 matrix
   static const digitPattern = [
     "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",

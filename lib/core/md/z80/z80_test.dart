@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/util.dart';
+import 'package:fnesemu/util/util.dart';
 
 import '../bus_z80.dart';
 import 'z80.dart';
@@ -24,22 +24,22 @@ class BusZ80Test extends BusZ80 {
   @override
   void write(int addr, int data) {
     final element = wrLog.firstWhere(
-      (e) => e[0] == (addr - e[1].length ~/ 3).h16,
+      (e) => e[0] == (addr - e[1].length ~/ 3).hex16,
       orElse: () => [],
     );
 
     if (element.isNotEmpty) {
-      element[1] += "${data.h8} ";
+      element[1] += "${data.hex8} ";
     } else {
       final element = wrLog.firstWhere(
-        (e) => e[0] == (addr + 1).h16,
+        (e) => e[0] == (addr + 1).hex16,
         orElse: () => [],
       );
       if (element.isNotEmpty) {
-        element[0] = addr.h16;
-        element[1] = "${data.h8} ${element[1]}";
+        element[0] = addr.hex16;
+        element[1] = "${data.hex8} ${element[1]}";
       } else {
-        wrLog.add([addr.h16, "${data.h8} "]);
+        wrLog.add([addr.hex16, "${data.hex8} "]);
       }
     }
 
@@ -96,21 +96,24 @@ int loadRegs(Z80 cpu, String line1, String line2) {
   cpu.im = regs2[4];
   cpu.halted = regs2[5] != 0;
 
-  return int.parse(regs2[6].h16); // literally hex to dec
+  return int.parse(regs2[6].hex16); // literally hex to dec
 }
 
 String dump(Z80 cpu) {
   final r = cpu.r;
   final res1 =
-      "af:${(r.af & 0xffd7).h16} bc:${r.bc.h16} de:${r.de.h16} hl:${r.hl.h16}";
+      "af:${(r.af & 0xffd7).hex16} bc:${r.bc.hex16} de:${r.de.hex16} hl:${r.hl.hex16}";
   final res2 =
-      "af':${(r.af2 & 0xffd7).h16} bc':${r.bc2.h16} de':${r.de2.h16} hl':${r.hl2.h16}";
+      "af':${(r.af2 & 0xffd7).hex16} bc':${r.bc2.hex16} de':${r.de2.hex16} hl':${r.hl2.hex16}";
   final res3 =
-      "ix:${r.ixiy[0].h16} iy:${r.ixiy[1].h16} sp:${r.sp.h16} pc:${r.pc.h16}";
+      "ix:${r.ixiy[0].hex16} iy:${r.ixiy[1].hex16} sp:${r.sp.hex16} pc:${r.pc.hex16}";
   final regs4 =
-      ("i:${r.i.h8} r:${r.r.h8} iff1:${cpu.iff1 ? 1 : 0} iff2:${cpu.iff2 ? 1 : 0} im:${cpu.im} ${cpu.halted ? "halted" : "-"} cy:${cpu.cycles}");
+      ("i:${r.i.hex8} r:${r.r.hex8} iff1:${cpu.iff1 ? 1 : 0} iff2:${cpu.iff2 ? 1 : 0} im:${cpu.im} ${cpu.halted ? "halted" : "-"} cy:${cpu.cycles}");
+  const f = "SZ-H-PNC";
   final flags = List.generate(
-      8, (i) => "SZ-H-PNCsz-h-pnc"[(r.f << i) & 0x80 != 0 ? i : 8 + i]).join();
+      f.length,
+      (i) => "$f${f.toLowerCase()}"[
+          (r.f << i & (1 << f.length - 1)) != 0 ? i : f.length + i]).join();
   return "f:$flags $res1 $res2 $res3 $regs4";
 }
 
