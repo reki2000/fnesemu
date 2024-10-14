@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:fnesemu/core/md/m68/m68_debug.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
 import 'm68.dart';
@@ -16,12 +17,12 @@ class BusM68Test extends BusM68 {
 
   @override
   int read(int addr) {
-    return ram[addr];
+    return ram_[addr.mask24];
   }
 
   @override
   void write(int addr, int data) {
-    ram[addr] = data;
+    ram_[addr.mask24] = data;
   }
 }
 
@@ -44,6 +45,12 @@ String showDiff(String a1, String a2) {
       .join();
 }
 
+loadMap() {
+  final mapFile =
+      File('assets/680x0/map/68000.official.json').readAsBytesSync();
+  return json.decode(utf8.decode(mapFile)).cast<String, String>();
+}
+
 int main() {
   final bus = BusM68Test();
   final cpu = M68(bus);
@@ -62,17 +69,37 @@ int main() {
     final uncompressedData = GZipDecoder().decodeBytes(compressedData);
     final tests = json.decode(utf8.decode(uncompressedData));
 
+    //final opMap = loadMap();
+
+    const target = "5ca0";
+
     for (final test in tests) {
       loadTest(test['initial'], cpu);
       loadTest(test['final'], cpu2);
-      cpu2.cycles = test['length'];
+      cpu2.clocks = test['length'];
 
       for (final mem in test['initial']['ram']) {
         bus.ram_[mem[0]] = mem[1];
+        if (test['name'].startsWith(target)) {
+          print("ram[${(mem[0] as int).hex24}] = ${(mem[1] as int).hex8}");
+        }
+      }
+      int i = 0;
+      for (final val in test['initial']['prefetch']) {
+        bus.ram_[cpu.pc + i++] = val >> 8;
+        bus.ram_[cpu.pc + i++] = val & 0xff;
       }
 
-      cpu.cycles = 0;
-      cpu.exec();
+      if (test['name'].startsWith(target)) {
+        print(List.generate(16, (i) => bus.ram_[cpu.pc + i].hex8).join(' '));
+      }
+      // print(cpu.debug());
+
+      cpu.clocks = 0;
+      if (!cpu.exec()) {
+        print('test ${test['name']} failed: not implemented');
+        return 1;
+      }
 
       final expected = cpu2.debug();
       final actual = cpu.debug();
@@ -87,7 +114,8 @@ int main() {
       for (final mem in test['final']['ram']) {
         if (mem[1] != bus.ram_[mem[0]]) {
           print('test ${test['name']} failed');
-          print('ram[${mem[0]}] = ${mem[1]} != ${bus.ram_[mem[0] as int]}');
+          print(
+              '$actual\nram[${(mem[0] as int).hex24}] = ${(mem[1] as int).hex8} != ${bus.ram_[mem[0] as int].hex8}');
           return 1;
         }
       }

@@ -1,3 +1,4 @@
+import 'package:fnesemu/core/md/m68/op_alu.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'm68.dart';
@@ -11,9 +12,20 @@ extension Op0 on M68 {
     }
 
     final mod = op >> 3 & 0x07;
-    final size = op >> 6 & 0x03;
+    final size = size0[op >> 6 & 0x03];
     final reg = op & 0x07;
+
     switch (op >> 9 & 0x07) {
+      case 0x03: // addi
+        final a = immed(size);
+        final b = readAddr(size, mod, reg);
+
+        final r = add(a, b, size);
+
+        writeAddr(size, mod, reg, r);
+
+        return true;
+
       case 0x00: // ORI
         if (op == 0x003c) {
           // ori ccr, imm
@@ -23,7 +35,7 @@ extension Op0 on M68 {
           // ori sr, imm
           return true;
         }
-        final val = readAddr(size, mod, reg, 0, 0, 0);
+        final val = readAddr(size, mod, reg);
         switch (size) {
           case 0x00:
             final newVal = a[reg].mask8 | val.mask8;
@@ -42,7 +54,6 @@ extension Op0 on M68 {
             break;
         }
         d[reg] |= val;
-        cycles += 8;
         return true;
       case 0x01: // ANDI
         return true;
@@ -57,15 +68,14 @@ extension Op0 on M68 {
   bool exec2(int op) => false;
   bool exec3(int op) => false;
   bool exec4(int op) => false;
-  bool exec5(int op) => false;
+
   bool exec6(int op) => false;
   bool exec7(int op) => false;
   bool exec8(int op) => false;
   bool exec9(int op) => false;
   bool execA(int op) => false;
   bool execB(int op) => false;
-  bool execC(int op) => false;
-  bool execD(int op) => false;
+
   bool execE(int op) => false;
   bool execF(int op) => false;
 }
