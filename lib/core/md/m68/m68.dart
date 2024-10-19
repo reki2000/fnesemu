@@ -1,8 +1,13 @@
-import 'package:fnesemu/core/md/m68/op_0.dart';
-import 'package:fnesemu/core/md/m68/op_c.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
+
+class BusError implements Exception {
+  final bool read;
+  final bool inst;
+  final int addr;
+  const BusError(this.addr, this.read, this.inst);
+}
 
 class M68 {
   BusM68 bus;
@@ -18,15 +23,13 @@ class M68 {
   int _ssp = 0;
   int _sr = 0;
 
-  int get ccr => sr & 0xff;
   int get usp => sf ? _usp : a[7];
-  set usp(int v) => sf ? _usp = v : a[7] = _usp = v;
+  set usp(int v) => sf ? (_usp = v) : (a[7] = _usp = v);
 
   int get ssp => sf ? a[7] : _ssp;
-  set ssp(int v) => sf ? a[7] = _ssp = v : _ssp = v;
+  set ssp(int v) => sf ? (a[7] = _ssp = v) : (_ssp = v);
 
   int preDec(int reg, int size) {
-    clocks += 2;
     if (reg == 7 && size == 1 || size == 2) {
       return a[reg] = a[reg].dec2.mask32;
     } else if (size == 4) {
@@ -82,65 +85,33 @@ class M68 {
   set i0f(bool on) => _sr = on ? _sr | bitI0 : _sr & ~bitI0;
   set i1f(bool on) => _sr = on ? _sr | bitI1 : _sr & ~bitI1;
   set i2f(bool on) => _sr = on ? _sr | bitI2 : _sr & ~bitI2;
+
+  // supervisor mode flags switches stack pointer
   set sf(bool on) {
-    _sr = on ? _sr | bitS : _sr & ~bitS;
-    if (on) {
+    //   print(
+    //       "sf:$sf on:$on _ssp:${_ssp.hex32} _usp:${_usp.hex32} a7:${a[7].hex32}");
+    if (!sf && on) {
       _usp = a[7];
       a[7] = _ssp;
-    } else {
+      _sr |= bitS;
+    } else if (sf && !on) {
       _ssp = a[7];
       a[7] = _usp;
+      _sr &= ~bitS;
     }
   }
+
+  int get ccr => _sr & 0xff;
 
   int get sr => _sr;
   set sr(int val) {
     _sr = val.mask32;
-    sf = val & bitS != 0;
+    sf = (val & bitS) != 0;
   }
 
   set tf(bool on) => sr = on ? sr | bitT : sr & ~bitT;
 
   M68(this.bus);
-
-  bool exec() {
-    final op = pc16();
-
-    switch (op >> 12) {
-      case 0x00:
-        return exec0(op);
-      case 0x01:
-      case 0x02:
-      case 0x03:
-        return exec3(op);
-      case 0x04:
-        return exec4(op);
-      case 0x05:
-        return exec5(op);
-      case 0x06:
-        return exec6(op);
-      case 0x07:
-        return exec7(op);
-      case 0x08:
-        return exec8(op);
-      case 0x09:
-        return exec9(op);
-      case 0x0a:
-        return execA(op);
-      case 0x0b:
-        return execB(op);
-      case 0x0c:
-        return execC(op);
-      case 0x0d:
-        return execD(op);
-      case 0x0e:
-        return execE(op);
-      case 0x0f:
-        return execF(op);
-    }
-
-    return false;
-  }
 
   int input(int port) => bus.input(port);
   void output(int port, int data) => bus.output(port, data);
@@ -156,34 +127,44 @@ class M68 {
   }
 
   int read16(int addr) {
+    clocks += 4;
+
+    if (addr.bit0) {
+      throw BusError(addr, true, false);
+    }
+
     final d0 = bus.read(addr.mask24);
     final d1 = bus.read(addr.inc.mask24);
-    clocks += 4;
     return d0 << 8 | d1;
   }
 
   void write16(int addr, int data) {
     clocks += 4;
-    bus.write(addr.mask24, data.mask8);
-    bus.write(addr.inc.mask24, data >> 8 & 0xff);
+
+    if (addr.bit0) {
+      throw BusError(addr, false, false);
+    }
+
+    bus.write(addr.mask24, data >> 8 & 0xff);
+    bus.write(addr.inc.mask24, data.mask8);
   }
 
   int read32(int addr) {
-    final d01 = read16(addr);
-    final d23 = read16(addr + 2);
-    return d01 << 16 | d23;
+    final d32 = read16(addr);
+    final d10 = read16(addr + 2);
+    return d32 << 16 | d10;
   }
 
   void write32(int addr, int data) {
     write16(addr, data >> 16);
-    write16(addr + 2, data);
+    write16(addr.inc2, data);
   }
 
   int read(int addr, int size) {
     return switch (size) {
-      1 => read8(addr0),
-      2 => read16(addr0),
-      4 => read32(addr0),
+      1 => read8(addr),
+      2 => read16(addr),
+      4 => read32(addr),
       _ => throw ("unreachable"),
     };
   }
@@ -205,15 +186,22 @@ class M68 {
   }
 
   int pc16() {
-    final d = read16(pc);
+    clocks += 4;
+
+    if (pc.bit0) {
+      throw BusError(pc, true, true);
+    }
+
+    final d0 = bus.read(pc.mask24);
+    final d1 = bus.read(pc.inc.mask24);
     pc = (pc + 2).mask32;
-    return d;
+    return d0 << 8 | d1;
   }
 
   int pc32() {
-    final d = read32(pc);
-    pc = (pc + 4).mask32;
-    return d;
+    final d01 = pc16();
+    final d23 = pc16();
+    return d01 << 16 | d23;
   }
 
   int immed(int size) => switch (size) {
@@ -236,7 +224,7 @@ class M68 {
     final size = size1[ex >> 11 & 0x01];
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.mask8.rel8;
-    print(
+    debug(
         "Ex:${ex.hex16}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.hex32}, ${ex.mask8.hex8}");
     return disp + ((size == 2) ? x.mask16.rel16 : x);
   }
@@ -268,12 +256,19 @@ class M68 {
       case 1:
         return a[reg].mask(size);
       case 7:
-        if (reg == 4) return immed(size);
+        if (reg == 4) {
+          return immed(size);
+        }
     }
 
     addr0 = addressing(size, mod, reg);
 
-    return read(addr0, size);
+    final val = read(addr0, size);
+    if (mod == 4) {
+      clocks += 2;
+    }
+
+    return val;
   }
 
   void writeAddr(int size, int mod, int reg, int data) {
@@ -288,4 +283,32 @@ class M68 {
 
     write(addr0, size, data);
   }
+
+  void push16(int data) {
+    a[7] = a[7].dec2.mask32;
+    write16(a[7], data);
+  }
+
+  void push32(int data) {
+    a[7] = a[7].dec2.mask32;
+    write16(a[7], data);
+    a[7] = a[7].dec2.mask32;
+    write16(a[7], data >> 16);
+  }
+
+  void busError(int addr, int op, bool read, bool inst) {
+    debug(
+        "bus error: clock:$clocks addr:${addr.hex24} op:${op.hex16} read:$read inst:$inst"); // +44 clocks
+    push32(pc.dec2); // +8
+    push16(sr.mask16); // +4 : +12
+    push16(op); // +4 : +16
+    push32(addr); // +8 : +24
+    push16(
+        (read ? 0x10 : 0) | (inst ? 0x08 : 0) | 0x05 | op & 0xffe0); // +4 : +28
+    pc = read32(0x0c); // +8 : 36
+    clocks += 8; // 2 prefetch : 44
+  }
 }
+
+String debugLog = "";
+void debug(args) => debugLog += "$args\n";

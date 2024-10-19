@@ -7,8 +7,9 @@ extension OpC on M68 {
   bool execC(int op) {
     final ry = op & 0x07;
     final rx = op >> 9 & 0x07;
-    // abcd
+
     if (op & 0x01f0 == 0x0100) {
+      // abcd
       final cl = clocks;
       final mode = op.bit3;
       final src = mode ? read8(preDec(ry, 1)) : d[ry].mask8;
@@ -34,7 +35,36 @@ extension OpC on M68 {
       return true;
     }
 
-    return false;
+    if (op & 0x00c0 == 0x00c0) {
+      // mulu, muls
+      return false;
+    }
+
+    if (op & 0x0130 == 0x0100) {
+      // exg
+      return false;
+    }
+
+    // and
+    final size = size0[op >> 6 & 0x03];
+    final directionEa = op.bit8;
+    final mode = op >> 3 & 0x07;
+
+    int aa = d[rx].mask(size);
+    int b = readAddr(size, mode, ry);
+
+    final r = and(aa, b, size);
+
+    if (directionEa) {
+      write(addr0, size, r);
+    } else {
+      if (size == 4) {
+        clocks += (mode == 0 || mode == 1 || mode == 7 && ry == 4) ? 4 : 2;
+      }
+      d[rx] = d[rx].setL(r, size);
+    }
+
+    return true;
   }
 
   bool exec5(int op) {
@@ -49,44 +79,96 @@ extension OpC on M68 {
     final size = size0[op >> 6 & 0x03];
     final mode = op >> 3 & 0x07;
 
-    final a = readAddr(size, mode, reg);
     final b = data == 0 ? 8 : data;
 
-    final r = op.bit8 ? sub(a, b, size) : add(a, b, size);
+    if (mode == 1) {
+      clocks += size == 4 ? 2 : 4;
+      final r = op.bit8 ? a[reg] - b : a[reg] + b;
+      a[reg] = r.mask32;
+    } else {
+      debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.hex24}");
+      final a = readAddr(size, mode, reg);
+      final r = op.bit8 ? sub(a, b, size) : add(a, b, size);
+      if (size == 4) {
+        clocks += (mode == 0 || mode == 1) ? 4 : 0;
+      } else {
+        clocks += (mode == 1) ? 4 : 0;
+      }
 
-    writeAddr(size, mode, reg, r);
+      writeAddr(size, mode, reg, r);
+    }
     return true;
   }
 
   bool execD(int op) {
-    final ry = op & 0x07;
-    final rx = op >> 9 & 0x07;
+    final xn = op & 0x07;
+    final dn = op >> 9 & 0x07;
     final s0 = op >> 6 & 0x03;
-    final size = size0[s0];
+    final mode = op >> 3 & 0x07;
+
     // adda
     if (s0 == 0x03) {
+      final size = op.bit8 ? 4 : 2;
+
+      final aa = readAddr(size, mode, xn);
+      debug(
+          "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
+
+      final r = a[dn] + aa.smask(size);
+      clocks +=
+          (size == 2 || mode == 0 || mode == 1 || mode == 7 && xn == 4) ? 4 : 2;
+
+      a[dn] = r.mask32;
       return true;
     }
 
     // addx
     if (op & 0x130 == 0x100) {
+      final size = size0[s0];
+
+      if (op.bit3) {
+        int a, b = 0;
+        if (size == 4) {
+          b = read16(preDec(xn, 2));
+          b |= read16(preDec(xn, 2)) << 16;
+          a = read16(preDec(dn, 2));
+          addr0 = preDec(dn, 2);
+          a |= read16(addr0) << 16;
+        } else {
+          b = read(preDec(xn, size), size);
+          addr0 = preDec(dn, size);
+          a = read(addr0, size);
+        }
+
+        final r = addx(a, b, size);
+        write(addr0, size, r);
+      } else {
+        final r = addx(d[xn].mask(size), d[dn].mask(size), size);
+        if (size == 4) {
+          clocks += 4;
+        }
+        d[dn] = d[dn].setL(r, size);
+      }
+
       return true;
     }
 
     // add
-    final mode = op >> 3 & 0x07;
+    final size = size0[s0];
     final directionEa = op.bit8;
 
-    int a = d[rx].mask(size);
-    int b = readAddr(size, mode, ry);
-    print("mod:$mode, reg:$ry addr:${addr0.mask24.hex24}");
+    int aa = d[dn].mask(size);
+    int b = readAddr(size, mode, xn);
 
-    final r = add(a, b, size);
+    final r = add(aa, b, size);
 
     if (directionEa) {
       write(addr0, size, r);
     } else {
-      d[rx] = d[rx].setL(r, size);
+      if (size == 4) {
+        clocks += (mode == 0 || mode == 1 || mode == 7 && xn == 4) ? 4 : 2;
+      }
+      d[dn] = d[dn].setL(r, size);
     }
 
     return true;

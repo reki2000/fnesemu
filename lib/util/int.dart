@@ -17,6 +17,14 @@ extension IntExt on int {
               ? mask32
               : throw ("unreachable");
 
+  int smask(int size) => size == 1
+      ? mask8.rel8.mask32
+      : size == 2
+          ? mask16.rel16.mask32
+          : size == 4
+              ? mask32
+              : throw ("unreachable");
+
   bool msb(int size) => size == 1
       ? bit7
       : size == 2
@@ -41,6 +49,14 @@ extension IntExt on int {
               ? this << 2
               : throw ("unreachable");
 
+  int get bits => this == 1
+      ? 8
+      : this == 2
+          ? 16
+          : this == 4
+              ? 32
+              : throw ("unreachable");
+
   int get inc => this + 1;
   int get inc2 => this + 2;
   int get dec => this - 1;
@@ -50,6 +66,16 @@ extension IntExt on int {
 
   int get rel8 => bit7 ? this - 0x100 : this;
   int get rel16 => bit15 ? this - 0x10000 : this;
+  int get rel24 => bit23 ? this - 0x1000000 : this;
+  int get rel32 => bit31 ? this - 0x100000000 : this;
+
+  int rel(int size) => size == 1
+      ? rel8
+      : size == 2
+          ? rel16
+          : size == 4
+              ? rel32
+              : throw ("unreachable");
 
   int setL8(int val) => this & ~0xff | val & 0xff;
   int setH8(int val) => this & ~0xff00 | val << 8 & 0xff00;

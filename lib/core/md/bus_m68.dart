@@ -12,15 +12,15 @@ class BusM68 {
 
   void onReset() {}
 
-  final ram = Uint8List(0x2000);
+  final ram = Uint8List(0x1000000);
 
   int read(int addr) {
-    addr &= 0xffff;
+    addr &= 0xffffff;
     return ram[addr];
   }
 
   write(int addr, int data) {
-    addr &= 0xffff;
+    addr &= 0xffffff;
     ram[addr] = data;
   }
 

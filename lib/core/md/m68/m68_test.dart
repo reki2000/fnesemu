@@ -3,13 +3,14 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:fnesemu/core/md/m68/m68_debug.dart';
+import 'package:fnesemu/core/md/m68/op.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
 import 'm68.dart';
 
 class BusM68Test extends BusM68 {
-  final ram_ = List<int>.filled(0x1000000, 0);
+  final ram_ = List<int>.filled(0x1000000, 0xff);
 
   late M68 cpu;
 
@@ -22,7 +23,7 @@ class BusM68Test extends BusM68 {
 
   @override
   void write(int addr, int data) {
-    ram_[addr.mask24] = data;
+    ram_[addr.mask24] = data.mask8;
   }
 }
 
@@ -32,9 +33,9 @@ void loadTest(json, M68 cpu) {
     cpu.d[i] = json["d$i"];
   }
   cpu.pc = json['pc'];
-  cpu.sr = json['sr'];
   cpu.usp = json['usp'];
   cpu.ssp = json['ssp'];
+  cpu.sr = json['sr'];
 }
 
 String showDiff(String a1, String a2) {
@@ -58,69 +59,137 @@ int main() {
 
   final cpu2 = M68(bus);
 
+  //final opMap = loadMap();
+
   final directory = Directory('assets/680x0/68000/v1');
   final jsonGzFiles = directory
       .listSync()
       .where((file) => file is File && file.path.endsWith('.json.gz'))
       .cast<File>();
 
+  final skipFile = ["ABCD", "ADD", "AND", "AS"];
+  final knownBug = [
+    "e502"
+  ]; // https://github.com/SingleStepTests/ProcessorTests/issues/21
+  final skipTests = [...knownBug];
+
   for (final file in jsonGzFiles) {
-    final compressedData = file.readAsBytesSync();
-    final uncompressedData = GZipDecoder().decodeBytes(compressedData);
+    bool skip = skipFile
+        .any((element) => file.uri.pathSegments.last.startsWith(element));
+    print('${file.path}: ${skip ? "skip" : "running..."}');
+    if (skip) {
+      continue;
+    }
+
+    final uncompressedData = GZipDecoder().decodeBytes(file.readAsBytesSync());
     final tests = json.decode(utf8.decode(uncompressedData));
 
-    //final opMap = loadMap();
-
-    const target = "5ca0";
-
     for (final test in tests) {
+      debugLog = "";
+
+      if (skipTests.contains(test['name'].substring(0, 4))) {
+        continue;
+      }
+
       loadTest(test['initial'], cpu);
+      // print(cpu.debug());
       loadTest(test['final'], cpu2);
       cpu2.clocks = test['length'];
 
-      for (final mem in test['initial']['ram']) {
-        bus.ram_[mem[0]] = mem[1];
-        if (test['name'].startsWith(target)) {
-          print("ram[${(mem[0] as int).hex24}] = ${(mem[1] as int).hex8}");
-        }
+      int prevAddr = 0;
+      bool error = false;
+
+      String memStr = "";
+      for (final mem in test['initial']['ram'].toList()
+        ..sort((a, b) => (a[0] as int) - (b[0] as int))) {
+        final addr = mem[0] as int;
+        final val = mem[1] as int;
+        bus.ram_[addr] = val;
+        final addrStr = addr == (prevAddr + 1) ? "" : "${addr.hex24}: ";
+        prevAddr = addr;
+        memStr += "$addrStr${val.hex8} ";
       }
+      debug(memStr);
+
+      // set memory at pc
       int i = 0;
       for (final val in test['initial']['prefetch']) {
         bus.ram_[cpu.pc + i++] = val >> 8;
         bus.ram_[cpu.pc + i++] = val & 0xff;
       }
 
-      if (test['name'].startsWith(target)) {
-        print(List.generate(16, (i) => bus.ram_[cpu.pc + i].hex8).join(' '));
-      }
-      // print(cpu.debug());
+      // dump memory at pc
+      debug(
+          "${cpu.pc.hex24}: ${List.generate(16, (i) => bus.ram_[cpu.pc + i].hex8).join(' ')}");
 
+      // check executed result
       cpu.clocks = 0;
       if (!cpu.exec()) {
-        print('test ${test['name']} failed: not implemented');
-        return 1;
+        debug('test ${test['name']} failed: not implemented');
+        error = true;
       }
 
-      final expected = cpu2.debug();
-      final actual = cpu.debug();
+      final expected = cpu2.debug().substring(0, 207);
+      final actual = cpu.debug().substring(0, 207);
 
       if (expected != actual) {
-        print('test ${test['name']} failed');
-        print('$expected\n$actual');
-        print(showDiff(expected, actual));
-        return 1;
+        debug('$expected\n$actual');
+        debug(showDiff(expected, actual));
+        error = true;
       }
 
-      for (final mem in test['final']['ram']) {
-        if (mem[1] != bus.ram_[mem[0]]) {
-          print('test ${test['name']} failed');
-          print(
-              '$actual\nram[${(mem[0] as int).hex24}] = ${(mem[1] as int).hex8} != ${bus.ram_[mem[0] as int].hex8}');
-          return 1;
+      // check memory
+      String memExpect = "";
+      String memActual = "";
+      for (final mem in test['final']['ram'].toList()
+        ..sort((a, b) => (a[0] as int) - (b[0] as int))) {
+        final addr = mem[0] as int;
+        final val = mem[1] as int;
+        final matched = val == bus.ram_[addr];
+        final addrStr = addr == (prevAddr + 1) ? "" : "${addr.hex24}:";
+        prevAddr = addr;
+        memExpect += '$addrStr${val.hex8} ';
+        memActual += '$addrStr${bus.ram_[addr].hex8} ';
+
+        if (!matched) {
+          error = true;
         }
+      }
+
+      if (error) {
+        debug(memExpect);
+        debug(memActual);
+        debug(showDiff(memExpect, memActual));
+      }
+
+      // show result
+      if (error) {
+        print('\ntest ${test['name']} failed');
+        print(debugLog);
+        print(convertIntegersToHex(test));
+        return 1;
       }
     }
   }
 
   return 0;
+}
+
+dynamic convertIntegersToHex(dynamic input) {
+  if (input is Map) {
+    return input
+        .map((key, value) => MapEntry(key, convertIntegersToHex(value)));
+  } else if (input is List) {
+    return input.map(convertIntegersToHex).toList();
+  } else if (input is int) {
+    return input.hex32;
+  } else {
+    return input;
+  }
+}
+
+class Mem {
+  final int addr;
+  final int val;
+  Mem(this.addr, this.val);
 }

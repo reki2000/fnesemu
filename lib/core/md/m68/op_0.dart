@@ -11,18 +11,48 @@ extension Op0 on M68 {
       return true;
     }
 
-    final mod = op >> 3 & 0x07;
+    final mode = op >> 3 & 0x07;
     final size = size0[op >> 6 & 0x03];
-    final reg = op & 0x07;
+    final xn = op & 0x07;
 
     switch (op >> 9 & 0x07) {
       case 0x03: // addi
         final a = immed(size);
-        final b = readAddr(size, mod, reg);
+        final b = readAddr(size, mode, xn);
 
         final r = add(a, b, size);
 
-        writeAddr(size, mod, reg, r);
+        writeAddr(size, mode, xn, r);
+        if (size == 4 && mode == 0) {
+          clocks += 4;
+        }
+
+        return true;
+
+      case 0x01: // andi
+        if (op == 0x023c) {
+          // andi ccr, imm
+          final aa = immed(1);
+          final r = and(sr, aa, 1);
+          sr = sr.setL8(r);
+          return true;
+        } else if (op == 0x027c) {
+          // andi sr, imm
+          final aa = immed(2);
+          final r = and(sr, aa, 2);
+          sr = sr.setL16(r);
+          return true;
+        }
+
+        final a = immed(size);
+        final b = readAddr(size, mode, xn);
+
+        final r = and(a, b, size);
+
+        writeAddr(size, mode, xn, r);
+        if (size == 4 && mode == 0) {
+          clocks += 4;
+        }
 
         return true;
 
@@ -35,25 +65,25 @@ extension Op0 on M68 {
           // ori sr, imm
           return true;
         }
-        final val = readAddr(size, mod, reg);
+        final val = readAddr(size, mode, xn);
         switch (size) {
           case 0x00:
-            final newVal = a[reg].mask8 | val.mask8;
-            a[reg] = a[reg].setL8(newVal);
+            final newVal = a[xn].mask8 | val.mask8;
+            a[xn] = a[xn].setL8(newVal);
             break;
           case 0x01:
-            final newVal = a[reg].mask16 | val.mask16;
-            a[reg] = a[reg].setL16(newVal);
-            d[reg] |= val;
+            final newVal = a[xn].mask16 | val.mask16;
+            a[xn] = a[xn].setL16(newVal);
+            d[xn] |= val;
             break;
           case 0x02:
-            final newVal = a[reg] | val;
-            a[reg] = a[reg].setL8(newVal);
-            a[reg] |= val;
-            d[reg] |= val;
+            final newVal = a[xn] | val;
+            a[xn] = a[xn].setL8(newVal);
+            a[xn] |= val;
+            d[xn] |= val;
             break;
         }
-        d[reg] |= val;
+        d[xn] |= val;
         return true;
       case 0x01: // ANDI
         return true;
@@ -63,19 +93,4 @@ extension Op0 on M68 {
 
     return false;
   }
-
-  bool exec1(int op) => false;
-  bool exec2(int op) => false;
-  bool exec3(int op) => false;
-  bool exec4(int op) => false;
-
-  bool exec6(int op) => false;
-  bool exec7(int op) => false;
-  bool exec8(int op) => false;
-  bool exec9(int op) => false;
-  bool execA(int op) => false;
-  bool execB(int op) => false;
-
-  bool execE(int op) => false;
-  bool execF(int op) => false;
 }
