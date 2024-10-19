@@ -298,13 +298,15 @@ class M68 {
 
   void busError(int addr, int op, bool read, bool inst) {
     debug(
-        "bus error: clock:$clocks addr:${addr.hex24} op:${op.hex16} read:$read inst:$inst"); // +44 clocks
+        "bus error: clock:$clocks addr:${addr.hex24} pc:$pc op:${op.hex16} read:$read inst:$inst"); // +44 clocks
     push32(pc.dec2); // +8
     push16(sr.mask16); // +4 : +12
     push16(op); // +4 : +16
     push32(addr); // +8 : +24
+
+    final fc = (sf ? 0x4 : 0) | (inst ? 0x2 : 0x1);
     push16(
-        (read ? 0x10 : 0) | (inst ? 0x08 : 0) | 0x05 | op & 0xffe0); // +4 : +28
+        (read ? 0x10 : 0) | (inst ? 0x08 : 0) | fc | op & 0xffe0); // +4 : +28
     pc = read32(0x0c); // +8 : 36
     clocks += 8; // 2 prefetch : 44
   }

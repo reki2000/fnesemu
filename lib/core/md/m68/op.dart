@@ -1,4 +1,5 @@
 import 'package:fnesemu/core/md/m68/op_0.dart';
+import 'package:fnesemu/core/md/m68/op_6.dart';
 import 'package:fnesemu/core/md/m68/op_c.dart';
 import 'package:fnesemu/core/md/m68/op_e.dart';
 
@@ -58,7 +59,6 @@ extension Op on M68 {
   bool exec3(int op) => false;
   bool exec4(int op) => false;
 
-  bool exec6(int op) => false;
   bool exec7(int op) => false;
   bool exec8(int op) => false;
   bool exec9(int op) => false;
