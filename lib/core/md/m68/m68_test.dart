@@ -71,10 +71,10 @@ int main() {
       .cast<File>();
 
   final skipFiles = [
-    "A", "B", "C", "D", "E", //
+    "A", "B", "C", "D", "E", "J" //
   ];
-  final selectFiles = [];
-  final skipTests = ["89e9", "8fe7", "8bf5"];
+  final selectFiles = []; //"Bcc", "BSR", "JMP"];
+  final skipTests = [];
 
   // https://github.com/SingleStepTests/ProcessorTests/issues/21
   final knownBugs = ["e502"];
@@ -82,11 +82,11 @@ int main() {
   for (final file in jsonGzFiles) {
     final isSkipFile = skipFiles
         .any((element) => file.uri.pathSegments.last.startsWith(element));
-    final isNotSelected = selectFiles.isNotEmpty &&
+    final isNotSelected = selectFiles.isEmpty ||
         !selectFiles
             .any((element) => file.uri.pathSegments.last.startsWith(element));
 
-    if (isSkipFile || isNotSelected) {
+    if (isSkipFile && isNotSelected) {
       continue;
     }
 

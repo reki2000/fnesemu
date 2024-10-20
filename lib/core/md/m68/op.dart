@@ -8,7 +8,7 @@ import 'm68.dart';
 
 extension Op on M68 {
   bool exec() {
-    final op = pc16();
+    final op = op0 = pc16();
 
     try {
       switch (op >> 12) {
@@ -45,7 +45,7 @@ extension Op on M68 {
       }
     } catch (e) {
       if (e is BusError) {
-        busError(e.addr, op, e.read, e.inst);
+        busError(e.addr, e.pc, op, e.read, e.inst);
         return true;
       }
 

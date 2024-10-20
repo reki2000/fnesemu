@@ -260,13 +260,7 @@ extension OpC on M68 {
         if (!cond(cc)) {
           d[dx] = d[dx].dec;
           if (d[dx] != 0xffffffff) {
-            pc = (pc + disp - 2).mask32;
-
-            if (pc.bit0) {
-              final addr = pc;
-              pc = pc.dec2;
-              busError(addr, op, true, true);
-            }
+            pc = pc + disp - 2;
             clocks += 10;
           }
         }

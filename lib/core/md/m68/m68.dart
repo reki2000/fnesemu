@@ -6,7 +6,8 @@ class BusError implements Exception {
   final bool read;
   final bool inst;
   final int addr;
-  const BusError(this.addr, this.read, this.inst);
+  final int pc;
+  const BusError(this.addr, this.pc, this.read, this.inst);
 }
 
 class M68 {
@@ -18,10 +19,21 @@ class M68 {
   // registers
   final a = [0, 0, 0, 0, 0, 0, 0, 0];
   final d = [0, 0, 0, 0, 0, 0, 0, 0];
-  int pc = 0;
+  int _pc = 0;
   int _usp = 0;
   int _ssp = 0;
   int _sr = 0;
+
+  int op0 = 0;
+
+  int get pc => _pc;
+  set pc(int v) {
+    if (v.bit0) {
+      throw BusError(v, v.dec4, true, true);
+    } else {
+      _pc = v.mask32;
+    }
+  }
 
   int get usp => sf ? _usp : a[7];
   set usp(int v) => sf ? (_usp = v) : (a[7] = _usp = v);
@@ -133,7 +145,7 @@ class M68 {
     clocks += 4;
 
     if (addr.bit0) {
-      throw BusError(addr, true, false);
+      throw BusError(addr, _pc.dec2, true, false);
     }
 
     final d0 = bus.read(addr.mask24);
@@ -145,7 +157,7 @@ class M68 {
     clocks += 4;
 
     if (addr.bit0) {
-      throw BusError(addr, false, false);
+      throw BusError(addr, _pc.dec2, false, false);
     }
 
     bus.write(addr.mask24, data >> 8 & 0xff);
@@ -191,13 +203,9 @@ class M68 {
   int pc16() {
     clocks += 4;
 
-    if (pc.bit0) {
-      throw BusError(pc, true, true);
-    }
-
-    final d0 = bus.read(pc.mask24);
-    final d1 = bus.read(pc.inc.mask24);
-    pc = (pc + 2).mask32;
+    final d0 = bus.read(_pc.mask24);
+    final d1 = bus.read(_pc.inc.mask24);
+    _pc = _pc.inc2;
     return d0 << 8 | d1;
   }
 
@@ -321,19 +329,20 @@ class M68 {
         _ => throw "invalid cond: $cond",
       };
 
-  void busError(int addr, int op, bool read, bool inst) {
+  void busError(int addr, int pc, int op, bool read, bool inst) {
     debug(
-        "bus error: clock:$clocks addr:${addr.hex24} pc:$pc op:${op.hex16} read:$read inst:$inst a7:${a[7].hex24} ssp:${_ssp.hex24} usp:${_usp.hex24}"); // +44 clocks
+        "bus error: clock:$clocks addr:${addr.hex24} pc:${pc.hex24} op:${op.hex16} read:$read inst:$inst a7:${a[7].hex24} ssp:${_ssp.hex24} usp:${_usp.hex24}"); // +44 clocks
     final fc = (sf ? 0x4 : 0) | (inst ? 0x2 : 0x1);
     sf = true;
-    push32(pc.dec2); // +8
+    push32(pc); // +8
     push16(sr.mask16); // +4 : +12
     push16(op); // +4 : +16
     push32(addr); // +8 : +24
 
     push16(
         (read ? 0x10 : 0) | (inst ? 0x08 : 0) | fc | op & 0xffe0); // +4 : +28
-    pc = read32(0x0c); // +8 : 36
+    _pc = read32(0x0c); // +8 : 36
+
     clocks += 8; // 2 prefetch : 44
   }
 
@@ -343,7 +352,7 @@ class M68 {
     sf = true;
     push32(pc); // +8
     push16(sr.mask16); // +4 : +12
-    pc = read32(vector); // +8 : 32
+    _pc = read32(vector); // +8 : 32
     clocks += 8; // 2 prefetch : 40
   }
 }

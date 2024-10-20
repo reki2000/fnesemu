@@ -7,6 +7,11 @@ extension Op4 on M68 {
     final xn = op & 0x07;
     final dn = op >> 9 & 0x07;
 
+    if (op & 0xb80 == 0x88) {
+      // movem
+      return false;
+    }
+
     if (op & 0x01c0 == 0x01c0) {
       // lea
       return false;
@@ -57,6 +62,62 @@ extension Op4 on M68 {
           vf = cf = false;
 
           return true;
+        }
+
+        return false;
+
+      case 0x0e:
+        switch (op & 0xff) {
+          case 0x70: // reset
+            return false;
+          case 0x71: // nop
+            return true;
+          case 0x72: // stop
+            return false;
+          case 0x73: // rte
+            return false;
+          case 0x75: // rts
+            return false;
+          case 0x76: // trapv
+            return false;
+          case 0x77: // rtr
+            return false;
+        }
+
+        if (op & 0xc0 == 0x80) {
+          // jsr
+          final addr = addressing(4, mod, reg);
+          final pc0 = pc;
+          pc = addr;
+          push32(pc0);
+          return true;
+        }
+
+        if (op & 0xc0 == 0xc0) {
+          // jmp
+          final addr = addressing(4, mod, reg);
+          pc = addr;
+          return true;
+        }
+
+        if (op & 0xf0 == 0x40) {
+          // trap
+          return false;
+        }
+
+        if (op & 0xf0 == 0x60) {
+          // move usp
+          return false;
+        }
+
+        if (op & 0xf8 == 0x50) {
+          // link
+          return false;
+        }
+
+        if (op & 0xf8 == 0x58) {
+          // unlk
+          return false;
         }
 
         return false;

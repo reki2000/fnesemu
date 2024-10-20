@@ -15,26 +15,13 @@ extension Op6 on M68 {
     if (cc == 0x01) {
       // bsr
       push32(pc);
-
-      pc = (pc0 + disp).mask32;
-
-      if (pc.bit0) {
-        pc = pc.dec2;
-        busError(pc0 + disp, op, true, true);
-      }
-
+      pc = pc0 + disp;
       return true;
     }
 
     if (cond(cc)) {
-      pc = (pc0 + disp).mask32;
-
-      if (pc.bit0) {
-        pc = pc.dec2;
-        busError(pc0 + disp, op, true, true);
-      }
+      pc = pc0 + disp;
     }
-
     return true;
   }
 }
