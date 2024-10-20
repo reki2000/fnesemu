@@ -105,7 +105,7 @@ class M68 {
 
   int get sr => _sr;
   set sr(int val) {
-    _sr = val.mask32;
+    _sr = val & 0xa71f;
     sf = (val & bitS) != 0;
   }
 

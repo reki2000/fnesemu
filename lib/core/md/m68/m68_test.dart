@@ -67,7 +67,10 @@ int main() {
       .where((file) => file is File && file.path.endsWith('.json.gz'))
       .cast<File>();
 
-  final skipFile = ["ABCD", "ADD", "AND", "AS"];
+  final skipFile = [
+    "ABCD", "SBCD", "ADD", "AND", "OR", "EOR", "AS", //
+  ];
+  final selectFile = ["BCHG", "BCLR", "BSET", "BTST"];
   final knownBug = [
     "e502"
   ]; // https://github.com/SingleStepTests/ProcessorTests/issues/21
@@ -75,11 +78,16 @@ int main() {
 
   for (final file in jsonGzFiles) {
     bool skip = skipFile
-        .any((element) => file.uri.pathSegments.last.startsWith(element));
-    print('${file.path}: ${skip ? "skip" : "running..."}');
+            .any((element) => file.uri.pathSegments.last.startsWith(element)) ||
+        selectFile.isNotEmpty &&
+            !selectFile.any(
+                (element) => file.uri.pathSegments.last.startsWith(element));
+
     if (skip) {
       continue;
     }
+
+    print('${file.path}: running...');
 
     final uncompressedData = GZipDecoder().decodeBytes(file.readAsBytesSync());
     final tests = json.decode(utf8.decode(uncompressedData));

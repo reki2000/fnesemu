@@ -6,9 +6,39 @@ import 'm68.dart';
 extension Op0 on M68 {
   bool exec0(int op) {
     if (op & 0x0100 != 0) {
-      final reg2 = op >> 9 & 0x07;
-      // btst, bchg, bclr, bset, movep
-      return true;
+      if (op & 0x38 == 0x08) {
+        // movep
+        return false;
+      }
+
+      // bit
+      final dn = op >> 9 & 0x07;
+      final xn = op & 0x07;
+      final mode = op >> 3 & 0x07;
+      final size = (mode == 0 || mode == 1) ? 4 : 1;
+      final bit = d[dn] & ((size == 4) ? 0x1f : 0x07);
+      final mask = (1 << bit);
+      final data = readAddr(size, mode, xn);
+      zf = data & mask == 0;
+
+      debug(
+          "bit dn:$dn xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
+
+      switch (op >> 6 & 0x03) {
+        case 0x00: // btst
+          return true;
+        case 0x01: // bchg
+          writeAddr(size, mode, xn, data ^ mask);
+          return true;
+        case 0x02: // bclr
+          writeAddr(size, mode, xn, data & ~mask);
+          return true;
+        case 0x03: // bset
+          writeAddr(size, mode, xn, data | mask);
+          return true;
+      }
+
+      return false;
     }
 
     final mode = op >> 3 & 0x07;
@@ -16,11 +46,20 @@ extension Op0 on M68 {
     final xn = op & 0x07;
 
     switch (op >> 9 & 0x07) {
-      case 0x03: // addi
+      case 0x00: // ori
+        if (op == 0x003c) {
+          sr = sr.setL8(or(sr, immed(1), 1)); // ori ccr, imm
+          return true;
+        }
+        if (op == 0x007c) {
+          sr = sr.setL16(or(sr, immed(2), 2)); // ori sr, imm
+          return true;
+        }
+
         final a = immed(size);
         final b = readAddr(size, mode, xn);
 
-        final r = add(a, b, size);
+        final r = or(a, b, size);
 
         writeAddr(size, mode, xn, r);
         if (size == 4 && mode == 0) {
@@ -31,16 +70,10 @@ extension Op0 on M68 {
 
       case 0x01: // andi
         if (op == 0x023c) {
-          // andi ccr, imm
-          final aa = immed(1);
-          final r = and(sr, aa, 1);
-          sr = sr.setL8(r);
+          sr = sr.setL8(and(sr, immed(1), 1)); // andi ccr, imm
           return true;
         } else if (op == 0x027c) {
-          // andi sr, imm
-          final aa = immed(2);
-          final r = and(sr, aa, 2);
-          sr = sr.setL16(r);
+          sr = sr.setL16(and(sr, immed(2), 2)); // andi sr, imm
           return true;
         }
 
@@ -56,39 +89,72 @@ extension Op0 on M68 {
 
         return true;
 
-      case 0x00: // ORI
-        if (op == 0x003c) {
-          // ori ccr, imm
+      case 0x02: // subi
+        return false;
+
+      case 0x03: // addi
+        final a = immed(size);
+        final b = readAddr(size, mode, xn);
+
+        final r = add(a, b, size);
+
+        writeAddr(size, mode, xn, r);
+        if (size == 4 && mode == 0) {
+          clocks += 4;
+        }
+
+        return true;
+
+      case 0x04: // bits
+        final size = (mode == 0 || mode == 1) ? 4 : 1;
+        final bit = pc16() & ((size == 4) ? 0x1f : 0x07);
+        final mask = (1 << bit);
+        final data = readAddr(size, mode, xn);
+        zf = data & mask == 0;
+
+        debug(
+            "bit xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
+
+        switch (op >> 6 & 0x03) {
+          case 0x00: // btst
+            return true;
+          case 0x01: // bchg
+            writeAddr(size, mode, xn, data ^ mask);
+            return true;
+          case 0x02: // bclr
+            writeAddr(size, mode, xn, data & ~mask);
+            return true;
+          case 0x03: // bset
+            writeAddr(size, mode, xn, data | mask);
+            return true;
+        }
+
+        return false;
+
+      case 0x05: // eori
+        if (op == 0x0a3c) {
+          sr = sr.setL8(eor(sr, immed(1), 1)); // eori ccr, imm
           return true;
         }
-        if (op == 0x007c) {
-          // ori sr, imm
+        if (op == 0x0a7c) {
+          sr = sr.setL16(eor(sr, immed(2), 2)); // eori sr, imm
           return true;
         }
-        final val = readAddr(size, mode, xn);
-        switch (size) {
-          case 0x00:
-            final newVal = a[xn].mask8 | val.mask8;
-            a[xn] = a[xn].setL8(newVal);
-            break;
-          case 0x01:
-            final newVal = a[xn].mask16 | val.mask16;
-            a[xn] = a[xn].setL16(newVal);
-            d[xn] |= val;
-            break;
-          case 0x02:
-            final newVal = a[xn] | val;
-            a[xn] = a[xn].setL8(newVal);
-            a[xn] |= val;
-            d[xn] |= val;
-            break;
+
+        final a = immed(size);
+        final b = readAddr(size, mode, xn);
+
+        final r = eor(a, b, size);
+
+        writeAddr(size, mode, xn, r);
+        if (size == 4 && mode == 0) {
+          clocks += 4;
         }
-        d[xn] |= val;
+
         return true;
-      case 0x01: // ANDI
-        return true;
-      case 0x02: // SUBI
-        return true;
+
+      case 0x06: // cmpi
+        return false;
     }
 
     return false;

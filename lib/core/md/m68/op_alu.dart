@@ -50,6 +50,30 @@ extension OpAlu on M68 {
     return r.mask(size);
   }
 
+  int or(int a, int b, int size) {
+    final r = a | b;
+
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    vf = false;
+    cf = false;
+    debug("or a:${a.hex32} b:${b.hex32} r:${r.hex32}");
+
+    return r.mask(size);
+  }
+
+  int eor(int a, int b, int size) {
+    final r = a ^ b;
+
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    vf = false;
+    cf = false;
+    debug("eor a:${a.hex32} b:${b.hex32} r:${r.hex32}");
+
+    return r.mask(size);
+  }
+
   int asr(int a, int size, int rot) {
     int r = a.mask(size).rel(size);
     if (rot > size.bits) {

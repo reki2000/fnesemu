@@ -60,10 +60,8 @@ extension Op on M68 {
   bool exec4(int op) => false;
 
   bool exec7(int op) => false;
-  bool exec8(int op) => false;
   bool exec9(int op) => false;
   bool execA(int op) => false;
-  bool execB(int op) => false;
 
   bool execF(int op) => false;
 }
