@@ -71,9 +71,66 @@ extension OpC on M68 {
     final ry = op & 0x07;
     final rx = op >> 9 & 0x07;
 
-    if (op & 0x00c0 == 0x00c0) {
-      // divu, divs
-      return false;
+    if (op & 0x01c0 == 0x01c0) {
+      // divs
+      final mode = op >> 3 & 0x07;
+      final src = readAddr(2, mode, ry).rel16;
+      final dst = d[rx].rel32;
+
+      if (src == 0) {
+        cf = vf = nf = zf = false;
+        pc = pc.dec4;
+        trap(0x14);
+        return true;
+      }
+
+      final q = dst ~/ src;
+      final r = dst - src * q;
+
+      debug(
+          "divs src:${src.mask32.hex32} $src dst:${dst.mask32.hex32} $dst q:${q.mask32.hex32} $q r:${r.mask32.hex32} $r ${q * src + r}");
+
+      cf = false;
+      vf = (q < -0x8000 || 0x8000 <= q);
+
+      if (!vf) {
+        zf = q == 0;
+        nf = q.bit15;
+        d[rx] = r.mask16 << 16 | q.mask16;
+      }
+
+      return true;
+    }
+
+    if (op & 0x01c0 == 0x00c0) {
+      // divu
+      final mode = op >> 3 & 0x07;
+      final src = readAddr(2, mode, ry);
+      final dst = d[rx];
+
+      if (src == 0) {
+        cf = vf = nf = zf = false;
+        pc = pc.dec4;
+        trap(0x14);
+        return true;
+      }
+
+      final q = dst ~/ src;
+      final r = dst - src * q;
+
+      debug(
+          "divu src:${src.mask32.hex32} $src dst:${dst.mask32.hex32} $dst q:${q.mask32.hex32} $q r:${r.mask32.hex32} $r ${q * src + r}");
+
+      cf = false;
+      vf = q >= 0x10000;
+
+      if (!vf) {
+        zf = q == 0;
+        nf = q.bit15;
+        d[rx] = r.mask16 << 16 | q.mask16;
+      }
+
+      return true;
     }
 
     if (op & 0x01f0 == 0x0100) {
@@ -173,6 +230,29 @@ extension OpC on M68 {
 
   bool exec5(int op) {
     if (op & 0x00c0 == 0x00c0) {
+      final mode = op >> 3 & 0x07;
+      if (mode == 0x01) {
+        // dbcc
+        final cc = op >> 8 & 0x0f;
+        final disp = pc16().rel16;
+        final dx = op & 0x07;
+
+        if (!cond(cc)) {
+          d[dx] = d[dx].dec;
+          if (d[dx] != 0xffffffff) {
+            pc = (pc + disp - 2).mask32;
+
+            if (pc.bit0) {
+              final addr = pc;
+              pc = pc.dec2;
+              busError(addr, op, true, true);
+            }
+            clocks += 10;
+          }
+        }
+        return true;
+      }
+
       // scc, brcc
       return true;
     }

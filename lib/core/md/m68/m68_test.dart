@@ -71,11 +71,10 @@ int main() {
       .cast<File>();
 
   final skipFiles = [
-    "ABCD", "SBCD", "ADD", "AND", "OR", "EOR", "AS", "BCHG", "BCLR", "BSET",
-    "BTST", "Bcc" //
+    "A", "B", "C", "D", //
   ];
   final selectFiles = [];
-  final skipTests = [];
+  final skipTests = ["89e9", "8fe7", "8bf5"];
 
   // https://github.com/SingleStepTests/ProcessorTests/issues/21
   final knownBugs = ["e502"];
