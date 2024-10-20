@@ -45,6 +45,22 @@ extension Op4 on M68 {
         zf = true;
         return true;
 
+      case 0x08:
+        if (op & 0xb8 == 0x80) {
+          // ext
+          final size0 = op.bit6 ? 2 : 1;
+          final size = op.bit6 ? 4 : 2;
+          final data = readAddr(size0, mod, reg).rel(size0).mask32;
+          writeAddr(size, mod, reg, data);
+          nf = data.msb(size);
+          zf = data.mask(size) == 0;
+          vf = cf = false;
+
+          return true;
+        }
+
+        return false;
+
       default:
         return false;
     }

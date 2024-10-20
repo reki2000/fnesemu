@@ -42,6 +42,26 @@ extension OpC on M68 {
 
     if (op & 0x0130 == 0x0100) {
       // exg
+      final rx = op >> 9 & 0x07;
+      final ry = op & 0x07;
+      switch (op >> 3 & 0x1f) {
+        case 0x08: // dx - dx
+          final r = d[rx];
+          d[rx] = d[ry];
+          d[ry] = r;
+          return true;
+        case 0x09: // ax - ax
+          final r = a[rx];
+          a[rx] = a[ry];
+          a[ry] = r;
+          return true;
+        case 0x11: // ax - dx
+          final r = a[ry];
+          a[ry] = d[rx];
+          d[rx] = r;
+          return true;
+      }
+
       return false;
     }
 

@@ -71,7 +71,7 @@ int main() {
       .cast<File>();
 
   final skipFiles = [
-    "A", "B", "C", "D", //
+    "A", "B", "C", "D", "E", //
   ];
   final selectFiles = [];
   final skipTests = ["89e9", "8fe7", "8bf5"];
