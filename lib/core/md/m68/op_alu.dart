@@ -120,4 +120,38 @@ extension OpAlu on M68 {
     debug("asl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
     return r.mask(size);
   }
+
+  int lsr(int a, int size, int rot) {
+    int r = a.mask(size);
+    if (rot > size.bits) {
+      xf = cf = false;
+      r >>= rot;
+    } else if (rot > 0) {
+      r >>= rot - 1;
+      xf = cf = r.bit0;
+      r >>= 1;
+    } else {
+      cf = false;
+    }
+    vf = false;
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    debug("lsr a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    return r.mask(size);
+  }
+
+  int lsl(int a, int size, int rot) {
+    int r = a.mask(size);
+    if (rot != 0) {
+      r <<= rot;
+      xf = cf = r.over(size);
+    } else {
+      cf = false;
+    }
+    vf = false;
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    debug("lsl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    return r.mask(size);
+  }
 }

@@ -28,10 +28,16 @@ extension OpE on M68 {
 
         case 2:
           // lsr
-          return false;
+          final r = lsr(aa, 2, 1);
+          writeAddr(2, mode, ry, r);
+          return true;
+
         case 3:
           // lsl
-          return false;
+          final r = lsl(aa, 2, 1);
+          writeAddr(2, mode, ry, r);
+          return true;
+
         case 4:
           // roxr
           return false;
@@ -73,10 +79,14 @@ extension OpE on M68 {
 
         case 2:
           // lsr
-          return false;
+          d[ry] = d[ry].setL(lsr(d[ry], size, rot), size);
+          return true;
+
         case 3:
           // lsl
-          return false;
+          d[ry] = d[ry].setL(lsl(d[ry], size, rot), size);
+          return true;
+
         case 4:
           // roxr
           return false;

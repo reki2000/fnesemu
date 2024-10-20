@@ -99,7 +99,7 @@ extension OpC on M68 {
 
       if (src == 0) {
         cf = vf = nf = zf = false;
-        pc = pc.dec4;
+        pc = pc.dec4.mask32;
         trap(0x14);
         return true;
       }
@@ -130,7 +130,7 @@ extension OpC on M68 {
 
       if (src == 0) {
         cf = vf = nf = zf = false;
-        pc = pc.dec4;
+        pc = pc.dec4.mask32;
         trap(0x14);
         return true;
       }

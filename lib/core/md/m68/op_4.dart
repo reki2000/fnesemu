@@ -14,7 +14,9 @@ extension Op4 on M68 {
 
     if (op & 0x01c0 == 0x01c0) {
       // lea
-      return false;
+      final addr = addressing(4, op >> 3 & 0x07, xn);
+      a[dn] = addr.mask32;
+      return true;
     }
 
     if (op & 0x01c0 == 0x0180) {
@@ -112,12 +114,18 @@ extension Op4 on M68 {
 
         if (op & 0xf8 == 0x50) {
           // link
-          return false;
+          final sp = (reg == 7) ? a[7].dec4.mask32 : a[reg];
+          push32(sp);
+          a[reg] = a[7];
+          a[7] = (a[7] + immed(2).rel16).mask32;
+          return true;
         }
 
         if (op & 0xf8 == 0x58) {
           // unlk
-          return false;
+          a[7] = a[reg];
+          a[reg] = pop32();
+          return true;
         }
 
         return false;

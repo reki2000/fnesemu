@@ -29,7 +29,7 @@ class M68 {
   int get pc => _pc;
   set pc(int v) {
     if (v.bit0) {
-      throw BusError(v, v.dec4, true, true);
+      throw BusError(v, v.dec4.mask32, true, true);
     } else {
       _pc = v.mask32;
     }
@@ -145,7 +145,7 @@ class M68 {
     clocks += 4;
 
     if (addr.bit0) {
-      throw BusError(addr, _pc.dec2, true, false);
+      throw BusError(addr, _pc.dec2.mask32, true, false);
     }
 
     final d0 = bus.read(addr.mask24);
@@ -157,7 +157,7 @@ class M68 {
     clocks += 4;
 
     if (addr.bit0) {
-      throw BusError(addr, _pc.dec2, false, false);
+      throw BusError(addr, _pc.dec2.mask32, false, false);
     }
 
     bus.write(addr.mask24, data >> 8 & 0xff);
@@ -302,11 +302,20 @@ class M68 {
   }
 
   void push32(int data) {
-    a[7] = a[7].dec2.mask32;
-    write16(a[7], data);
-    a[7] = a[7].dec2.mask32;
-    write16(a[7], data >> 16);
-    sf ? _ssp = a[7] : _usp = a[7];
+    push16(data);
+    push16(data >> 16);
+  }
+
+  int pop16() {
+    final val = read16(a[7]);
+    a[7] = a[7].inc2.mask32;
+    return val;
+  }
+
+  int pop32() {
+    final d01 = pop16();
+    final d23 = pop16();
+    return d01 << 16 | d23;
   }
 
   bool cond(int cond) => switch (cond) {
