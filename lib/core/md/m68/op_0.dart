@@ -154,7 +154,14 @@ extension Op0 on M68 {
         return true;
 
       case 0x06: // cmpi
-        return false;
+        final a = immed(size);
+        final b = readAddr(size, mode, xn);
+        sub(b, a, size);
+        if (size == 4 && mode == 0) {
+          clocks += 4;
+        }
+
+        return true;
     }
 
     return false;

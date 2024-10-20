@@ -132,26 +132,35 @@ extension OpC on M68 {
   bool execB(int op) {
     final ry = op & 0x07;
     final rx = op >> 9 & 0x07;
+    final size = size0[op >> 6 & 0x03];
+    final mode = op >> 3 & 0x07;
 
     if (op & 0x00c0 == 0x00c0) {
       //cmpa
-      return false;
+      final size = size1[op >> 8 & 0x01];
+      final src = readAddr(size, mode, ry);
+      final dst = a[rx];
+      sub(dst, (size == 2) ? src.rel16.mask32 : src, 4);
+      return true;
     }
 
     if (op & 0x0100 == 0x0000) {
       // cmp
-      return false;
+      final src = readAddr(size, mode, ry);
+      final dst = d[rx].mask(size);
+      sub(dst, src, size);
+      return true;
     }
 
     if (op & 0x0138 == 0x0108) {
       // cmpm
-      return false;
+      final src = read(postInc(ry, size), size);
+      final dst = read(postInc(rx, size), size);
+      sub(dst, src, size);
+      return true;
     }
 
     // eor
-    final size = size0[op >> 6 & 0x03];
-    final mode = op >> 3 & 0x07;
-
     int aa = d[rx].mask(size);
     int b = readAddr(size, mode, ry);
 

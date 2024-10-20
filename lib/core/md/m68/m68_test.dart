@@ -32,9 +32,12 @@ void loadTest(json, M68 cpu) {
     if (i < 7) cpu.a[i] = json["a$i"];
     cpu.d[i] = json["d$i"];
   }
-  cpu.pc = json['pc'];
-  cpu.usp = json['usp'];
   cpu.ssp = json['ssp'];
+  cpu.sf = true; // set a7 as ssp
+  cpu.usp = json['usp'];
+  cpu.sf = false; // set a7 as usp
+
+  cpu.pc = json['pc'];
   cpu.sr = json['sr'];
 }
 
@@ -67,23 +70,24 @@ int main() {
       .where((file) => file is File && file.path.endsWith('.json.gz'))
       .cast<File>();
 
-  final skipFile = [
-    "ABCD", "SBCD", "ADD", "AND", "OR", "EOR", "AS", //
+  final skipFiles = [
+    "ABCD", "SBCD", "ADD", "AND", "OR", "EOR", "AS", "BCHG", "BCLR", "BSET",
+    "BTST", "Bcc" //
   ];
-  final selectFile = ["BCHG", "BCLR", "BSET", "BTST"];
-  final knownBug = [
-    "e502"
-  ]; // https://github.com/SingleStepTests/ProcessorTests/issues/21
-  final skipTests = [...knownBug];
+  final selectFiles = [];
+  final skipTests = [];
+
+  // https://github.com/SingleStepTests/ProcessorTests/issues/21
+  final knownBugs = ["e502"];
 
   for (final file in jsonGzFiles) {
-    bool skip = skipFile
-            .any((element) => file.uri.pathSegments.last.startsWith(element)) ||
-        selectFile.isNotEmpty &&
-            !selectFile.any(
-                (element) => file.uri.pathSegments.last.startsWith(element));
+    final isSkipFile = skipFiles
+        .any((element) => file.uri.pathSegments.last.startsWith(element));
+    final isNotSelected = selectFiles.isNotEmpty &&
+        !selectFiles
+            .any((element) => file.uri.pathSegments.last.startsWith(element));
 
-    if (skip) {
+    if (isSkipFile || isNotSelected) {
       continue;
     }
 
@@ -95,7 +99,7 @@ int main() {
     for (final test in tests) {
       debugLog = "";
 
-      if (skipTests.contains(test['name'].substring(0, 4))) {
+      if ([...knownBugs, ...skipTests].contains(test['name'].substring(0, 4))) {
         continue;
       }
 

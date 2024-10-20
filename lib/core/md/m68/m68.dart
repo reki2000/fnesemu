@@ -88,28 +88,31 @@ class M68 {
 
   // supervisor mode flags switches stack pointer
   set sf(bool on) {
-    //   print(
-    //       "sf:$sf on:$on _ssp:${_ssp.hex32} _usp:${_usp.hex32} a7:${a[7].hex32}");
-    if (!sf && on) {
+    // debug(
+    //     "sf:$sf on:$on _ssp:${_ssp.hex32} _usp:${_usp.hex32} a7:${a[7].hex32}");
+    if (on && !sf) {
       _usp = a[7];
       a[7] = _ssp;
       _sr |= bitS;
-    } else if (sf && !on) {
+    } else if (!on && sf) {
       _ssp = a[7];
       a[7] = _usp;
       _sr &= ~bitS;
     }
+
+    // debug(
+    //     "==> sf:$sf on:$on _ssp:${_ssp.hex32} _usp:${_usp.hex32} a7:${a[7].hex32}");
   }
 
   int get ccr => _sr & 0xff;
 
   int get sr => _sr;
   set sr(int val) {
-    _sr = val & 0xa71f;
     sf = (val & bitS) != 0;
+    _sr = val & 0xa71f;
   }
 
-  set tf(bool on) => sr = on ? sr | bitT : sr & ~bitT;
+  set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
 
   M68(this.bus);
 
@@ -287,6 +290,7 @@ class M68 {
   void push16(int data) {
     a[7] = a[7].dec2.mask32;
     write16(a[7], data);
+    sf ? _ssp = a[7] : _usp = a[7];
   }
 
   void push32(int data) {
@@ -294,21 +298,33 @@ class M68 {
     write16(a[7], data);
     a[7] = a[7].dec2.mask32;
     write16(a[7], data >> 16);
+    sf ? _ssp = a[7] : _usp = a[7];
   }
 
   void busError(int addr, int op, bool read, bool inst) {
     debug(
-        "bus error: clock:$clocks addr:${addr.hex24} pc:$pc op:${op.hex16} read:$read inst:$inst"); // +44 clocks
+        "bus error: clock:$clocks addr:${addr.hex24} pc:$pc op:${op.hex16} read:$read inst:$inst a7:${a[7].hex24} ssp:${_ssp.hex24} usp:${_usp.hex24}"); // +44 clocks
+    final fc = (sf ? 0x4 : 0) | (inst ? 0x2 : 0x1);
+    sf = true;
     push32(pc.dec2); // +8
     push16(sr.mask16); // +4 : +12
     push16(op); // +4 : +16
     push32(addr); // +8 : +24
 
-    final fc = (sf ? 0x4 : 0) | (inst ? 0x2 : 0x1);
     push16(
         (read ? 0x10 : 0) | (inst ? 0x08 : 0) | fc | op & 0xffe0); // +4 : +28
     pc = read32(0x0c); // +8 : 36
     clocks += 8; // 2 prefetch : 44
+  }
+
+  void trap(int vector) {
+    debug(
+        "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
+    sf = true;
+    push32(pc); // +8
+    push16(sr.mask16); // +4 : +12
+    pc = read32(vector); // +8 : 32
+    clocks += 8; // 2 prefetch : 40
   }
 }
 

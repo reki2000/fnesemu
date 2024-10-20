@@ -21,7 +21,7 @@ extension OpAlu on M68 {
 
     xf = cf = r.over(size);
     nf = r.msb(size);
-    vf = (~(a ^ b) & (a ^ r)).msb(size);
+    vf = (~(a ^ b) & (a ^ r)).msb(size); // output changed && input not differed
     zf = r.mask(size) == 0;
 
     return r.mask(size);
@@ -29,12 +29,13 @@ extension OpAlu on M68 {
 
   int sub(int a, int b, int size) {
     final r = a - b;
-    debug("sub r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
+    debug(
+        "sub r: ${r.mask32.hex32} a: ${a.mask32.hex32} b: ${b.mask32.hex32} xf: $xf");
 
-    zf = zf && r.mask(size) == 0;
-    xf = cf = r.over(size);
+    cf = r.over(size);
     nf = r.msb(size);
-    vf = (~(a ^ b) & (a ^ r)).msb(size);
+    vf = ((a ^ b) & (a ^ r)).msb(size); // output changed && input differed
+    zf = r.mask(size) == 0;
 
     return r.mask(size);
   }
