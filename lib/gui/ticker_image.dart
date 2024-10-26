@@ -9,9 +9,10 @@ class ImageContainer {
 
   ImageContainer();
 
-  void push(Uint8List buffer, int width, int height) =>
-      ui.decodeImageFromPixels(buffer, width, height, ui.PixelFormat.rgba8888,
-          (image) => this.image = image);
+  void push(Uint8List buffer, int width, int height) => (buffer.isNotEmpty)
+      ? ui.decodeImageFromPixels(buffer, width, height, ui.PixelFormat.rgba8888,
+          (image) => this.image = image)
+      : null;
 }
 
 class TickerImage extends StatefulWidget {

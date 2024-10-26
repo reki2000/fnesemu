@@ -428,4 +428,22 @@ class Z80 {
     r.nf = false;
     return val;
   }
+
+  void reset() {
+    r.pc = 0;
+    r.sp = 0;
+    r.i = 0;
+    r.r = 0;
+    iff1 = false;
+    iff2 = false;
+    im = 0;
+    r.r8.fillRange(0, 8, 0);
+    r.ixiy.fillRange(0, 2, 0);
+    r.af2 = 0;
+    r.bc2 = 0;
+    r.de2 = 0;
+    r.hl2 = 0;
+    clocks = 0;
+    cycles = 0;
+  }
 }

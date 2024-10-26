@@ -88,7 +88,9 @@ class MainPageState extends State<MainPage> {
             ? "pce"
             : name.endsWith(".nes")
                 ? "nes"
-                : "unknown");
+                : name.endsWith(".gen")
+                    ? "gen"
+                    : "unknown");
         controller.setRom(file);
         keyHandler.init();
         _romName = name;
@@ -99,11 +101,11 @@ class MainPageState extends State<MainPage> {
     }
 
     // temporary debug options
-    // controller.debugger.debugOption.showDebugView = true;
+    controller.debugger.debugOption.showDebugView = true;
     // controller.debugger.debugOption.showVdc = true;
-    // _reset(run: true);
+    _reset(run: false);
 
-    _reset(run: !controller.debugger.debugOption.showDebugView);
+    // _reset(run: !controller.debugger.debugOption.showDebugView);
   }
 
   void _run() {
@@ -150,18 +152,18 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        // ...[
-        //   for (var name in [
-        //     "bomber.nes",
-        //     "daimakai.pce",
-        //     "battleace.nes",
-        //     "powerdrift.nes",
-        //     "sf2d.pce",
-        //     "valkyrie.pce",
-        //   ])
-        //     _iconButton(Icons.file_open_outlined, name.split(".")[0],
-        //         () => _loadRomFile(name: name))
-        // ],
+        ...[
+          for (var name in [
+            "test.gen",
+            // "daimakai.pce",
+            // "battleace.nes",
+            // "powerdrift.nes",
+            // "sf2d.pce",
+            // "valkyrie.pce",
+          ])
+            _iconButton(Icons.file_open_outlined, name.split(".")[0],
+                () => _loadRomFile(name: name))
+        ],
 
         // file load button
         _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),

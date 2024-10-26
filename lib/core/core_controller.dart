@@ -15,7 +15,7 @@ import 'types.dart';
 /// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
 class CoreController {
   CoreController() {
-    setCore("pce");
+    setCore("gen");
   }
 
   late Core _core;
@@ -30,6 +30,9 @@ class CoreController {
         break;
       case 'nes':
         _core = CoreFactory.ofNes();
+        break;
+      case 'gen':
+        _core = CoreFactory.ofMd();
         break;
       default:
         throw Exception('unsupported core: $core');

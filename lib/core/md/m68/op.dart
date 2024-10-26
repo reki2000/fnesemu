@@ -1,12 +1,12 @@
-import 'package:fnesemu/core/md/m68/op_0.dart';
-import 'package:fnesemu/core/md/m68/op_4.dart';
-import 'package:fnesemu/core/md/m68/op_8.dart';
-import 'package:fnesemu/core/md/m68/op_alu.dart';
-import 'package:fnesemu/core/md/m68/op_c.dart';
-import 'package:fnesemu/core/md/m68/op_e.dart';
 import 'package:fnesemu/util/int.dart';
 
+import 'alu.dart';
 import 'm68.dart';
+import 'op_0.dart';
+import 'op_4.dart';
+import 'op_8.dart';
+import 'op_c.dart';
+import 'op_e.dart';
 
 extension Op on M68 {
   bool exec() {
@@ -39,7 +39,7 @@ extension Op on M68 {
 
           if (modeDst != 0 && modeDst != 1) {
             addr0 = addressing(size, modeDst, dst);
-            // debug("addr0:${addr0.mask32.hex32}");
+            // debug("addr0:${addr0.hex32}");
           } else if (modeDst == 1) {
             a[dst] = value.rel(size).mask32;
             return true;
@@ -189,7 +189,7 @@ extension Op on M68 {
 
       final aa = readAddr(size, mode, xn);
       // debug(
-      //     "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.hex24} aa:$aa clock:$clocks");
 
       final r = a[dn] - aa.smask(size);
       clocks +=
@@ -290,7 +290,7 @@ extension Op on M68 {
 
       final aa = readAddr(size, mode, xn);
       // debug(
-      //     "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.hex24} aa:$aa clock:$clocks");
 
       final r = a[dn] + aa.smask(size);
       clocks +=

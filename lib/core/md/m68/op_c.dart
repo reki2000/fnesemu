@@ -1,4 +1,4 @@
-import 'package:fnesemu/core/md/m68/op_alu.dart';
+import 'package:fnesemu/core/md/m68/alu.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'm68.dart';

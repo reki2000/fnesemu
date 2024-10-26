@@ -2,6 +2,8 @@ import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
 
+export 'op.dart';
+
 class BusError implements Exception {
   final bool read;
   final bool inst;
@@ -366,6 +368,29 @@ class M68 {
     push16(sr.mask16); // +4 : +12
     _pc = read32(vector); // +8 : 32
     clocks += 8; // 2 prefetch : 40
+  }
+
+  void reset() {
+    // debug("reset");
+    sf = false;
+    _sr = 0x2700;
+    _ssp = read32(0x00);
+    _pc = read32(0x04);
+    clocks = 0;
+  }
+
+  String dump() {
+    final rega = 'a:${a.map((e) => e.hex32).join(' ')}';
+    final regd = 'd:${d.map((e) => e.hex32).join(' ')}';
+    final regs =
+        'sr:${sr.hex32} usp:${usp.hex32} ssp:${ssp.hex32} pc:${pc.hex32} cl:$clocks';
+
+    const f = "XNZVC";
+    final flags = List.generate(
+        f.length,
+        (i) => "$f${f.toLowerCase()}"[
+            (sr << i & (1 << f.length - 1) != 0) ? i : f.length + i]).join();
+    return '$regd\n$rega\n$flags $regs';
   }
 }
 

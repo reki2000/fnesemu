@@ -1,4 +1,4 @@
-import 'package:fnesemu/core/md/m68/op_alu.dart';
+import 'package:fnesemu/core/md/m68/alu.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'm68.dart';
@@ -25,7 +25,7 @@ extension Op8 on M68 {
       final r = dst - src * q;
 
       debug(
-          "divs src:${src.mask32.hex32} $src dst:${dst.mask32.hex32} $dst q:${q.mask32.hex32} $q r:${r.mask32.hex32} $r ${q * src + r}");
+          "divs src:${src.hex32} $src dst:${dst.hex32} $dst q:${q.hex32} $q r:${r.hex32} $r ${q * src + r}");
 
       cf = false;
       vf = (q < -0x8000 || 0x8000 <= q);
@@ -56,7 +56,7 @@ extension Op8 on M68 {
       final r = dst - src * q;
 
       debug(
-          "divu src:${src.mask32.hex32} $src dst:${dst.mask32.hex32} $dst q:${q.mask32.hex32} $q r:${r.mask32.hex32} $r ${q * src + r}");
+          "divu src:${src.hex32} $src dst:${dst.hex32} $dst q:${q.hex32} $q r:${r.hex32} $r ${q * src + r}");
 
       cf = false;
       vf = q >= 0x10000;

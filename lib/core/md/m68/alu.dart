@@ -2,7 +2,7 @@ import 'package:fnesemu/util/int.dart';
 
 import 'm68.dart';
 
-extension OpAlu on M68 {
+extension Alu on M68 {
   int add(int a, int b, int size, {bool useXf = false}) {
     final r = a + b + (useXf && xf ? 1 : 0);
     // debug("add r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
@@ -18,7 +18,7 @@ extension OpAlu on M68 {
   int sub(int a, int b, int size, {bool useXf = false, bool cmp = false}) {
     final r = a - b - (useXf && xf ? 1 : 0);
     // debug(
-    //     "sub r: ${r.mask32.hex32} a: ${a.mask32.hex32} b: ${b.mask32.hex32} xf: $xf");
+    //     "sub r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
 
     cf = r.over(size);
     if (!cmp) {
@@ -93,7 +93,7 @@ extension OpAlu on M68 {
     vf = false;
     nf = a.msb(size);
     zf = r.mask(size) == 0;
-    // debug("asr a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    // debug("asr a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
     return r.mask(size);
   }
 
@@ -139,7 +139,7 @@ extension OpAlu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("lsr a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    // debug("lsr a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
     return r.mask(size);
   }
 
@@ -170,7 +170,7 @@ extension OpAlu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("ror a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    // debug("ror a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
     return r.mask(size);
   }
 
@@ -203,7 +203,7 @@ extension OpAlu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("roxr a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    // debug("roxr a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
     return r.mask(size);
   }
 
