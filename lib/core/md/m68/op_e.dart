@@ -40,16 +40,27 @@ extension OpE on M68 {
 
         case 4:
           // roxr
-          return false;
+          final r = roxr(aa, 2, 1);
+          writeAddr(2, mode, ry, r);
+          return true;
+
         case 5:
           // roxl
-          return false;
+          final r = roxl(aa, 2, 1);
+          writeAddr(2, mode, ry, r);
+          return true;
+
         case 6:
           // ror
-          return false;
+          final r = ror(aa, 2, 1);
+          writeAddr(2, mode, ry, r);
+          return true;
+
         case 7:
           // rol
-          return false;
+          final r = rol(aa, 2, 1);
+          writeAddr(2, mode, ry, r);
+          return true;
       }
 
       return false;
@@ -89,16 +100,23 @@ extension OpE on M68 {
 
         case 4:
           // roxr
-          return false;
+          d[ry] = d[ry].setL(roxr(d[ry], size, rot), size);
+          return true;
+
         case 5:
           // roxl
-          return false;
+          d[ry] = d[ry].setL(roxl(d[ry], size, rot), size);
+          return true;
+
         case 6:
           // ror
-          return false;
+          d[ry] = d[ry].setL(ror(d[ry], size, rot), size);
+          return true;
+
         case 7:
           // rol
-          return false;
+          d[ry] = d[ry].setL(rol(d[ry], size, rot), size);
+          return true;
       }
     }
 

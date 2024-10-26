@@ -171,24 +171,46 @@ extension Op4 on M68 {
           return true;
         }
 
-        return false;
+        if (op & 0xce == 0x80) {
+          // swap
+          return false;
+        }
+
+        // pea
+        final addr = addressing(4, mod, reg);
+        if (mod == 3) postInc(reg, 4);
+        push32(addr);
+        return true;
 
       case 0x0e:
         switch (op & 0xff) {
           case 0x70: // reset
-            return false;
+            return true;
+
           case 0x71: // nop
             return true;
+
           case 0x72: // stop
             return false;
+
           case 0x73: // rte
-            return false;
+            final newSr = pop16();
+            pc = pop32();
+            sr = sr.setL16(newSr);
+            return true;
+
           case 0x75: // rts
-            return false;
+            pc = pop32();
+            return true;
+
           case 0x76: // trapv
             return false;
+
           case 0x77: // rtr
-            return false;
+            final newSr = pop16();
+            pc = pop32();
+            sr = sr.setL8(newSr);
+            return true;
         }
 
         if (op & 0xc0 == 0x80) {

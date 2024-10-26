@@ -179,4 +179,72 @@ extension OpAlu on M68 {
     debug("lsl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
     return r.mask(size);
   }
+
+  int ror(int a, int size, int rot) {
+    int r = a.mask(size);
+    if (rot == 0) {
+      cf = false;
+    } else {
+      rot &= size.bits - 1;
+      r = (r >> rot) | (r << (size.bits - rot)).mask(size);
+      cf = r.msb(size);
+    }
+    vf = false;
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    debug("ror a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    return r.mask(size);
+  }
+
+  int rol(int a, int size, int rot) {
+    int r = a.mask(size);
+    if (rot == 0) {
+      cf = false;
+    } else {
+      rot &= size.bits - 1;
+      r = (r << rot).mask(size) | (r >> (size.bits - rot));
+      cf = r.bit0;
+    }
+    vf = false;
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    debug("rol a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    return r.mask(size);
+  }
+
+  int roxr(int a, int size, int rot) {
+    int r = a.mask(size);
+    rot %= (size.bits + 1);
+    if (rot == 0) {
+      cf = xf;
+    } else {
+      final xBit = xf ? 1 << (size.bits - rot) : 0;
+      cf = xf = (r << (size.bits - rot)).msb(size);
+      r = (r >> rot) | (r << (size.bits + 1 - rot)).mask(size) | xBit;
+    }
+    vf = false;
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    debug("roxr a:${a.hex32} size:$size rot:$rot r:${r.mask32.hex32}");
+    return r.mask(size);
+  }
+
+  int roxl(int a, int size, int rot) {
+    int r = a.mask(size);
+    rot %= (size.bits + 1);
+    if (rot == 0) {
+      cf = xf;
+    } else {
+      final xBit = xf ? 1 << (rot - 1) : 0;
+      cf = xf = (r >> (size.bits - rot)).bit0;
+      r = (r << rot).mask(size) | (r >> (size.bits + 1 - rot)) | xBit;
+      // debug(
+      //     "rot:$rot ${(r << rot).mask(size).hex32} ${(r >> (size.bits - rot + 1)).hex32} ${xBit.hex32}");
+    }
+    vf = false;
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    debug("roxl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    return r.mask(size);
+  }
 }
