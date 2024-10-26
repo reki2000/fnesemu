@@ -20,6 +20,7 @@ class M68 {
   final a = [0, 0, 0, 0, 0, 0, 0, 0];
   final d = [0, 0, 0, 0, 0, 0, 0, 0];
   int _pc = 0;
+  int pc0 = 0; // pc at every instruction
   int _usp = 0;
   int _ssp = 0;
   int _sr = 0;
@@ -157,7 +158,7 @@ class M68 {
     clocks += 4;
 
     if (addr.bit0) {
-      throw BusError(addr, _pc.dec2.mask32, false, false);
+      throw BusError(addr, _pc, false, false);
     }
 
     bus.write(addr.mask24, data >> 8 & 0xff);
@@ -243,7 +244,7 @@ class M68 {
   int addressing(int size, int mode, int reg) {
     return switch (mode) {
       2 => a[reg],
-      3 => postInc(reg, size),
+      3 => a[reg],
       4 => preDec(reg, size),
       5 => a[reg] + pc16().rel16,
       6 => a[reg] + addressingEx(mode),
@@ -273,6 +274,8 @@ class M68 {
     }
 
     addr0 = addressing(size, mod, reg);
+
+    if (mod == 3) postInc(reg, size);
 
     final val = read(addr0, size);
     if (mod == 4) {

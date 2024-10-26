@@ -8,7 +8,36 @@ extension Op0 on M68 {
     if (op & 0x0100 != 0) {
       if (op & 0x38 == 0x08) {
         // movep
-        return false;
+        final size = op.bit6 ? 4 : 2;
+        final memToReg = !op.bit7;
+        final an = op & 0x07;
+        final dn = op >> 9 & 0x07;
+        addr0 = (a[an] + pc16().rel16).mask32;
+        debug(
+            "movep dn:$dn size:$size memToReg:$memToReg addr0:${addr0.hex32}");
+        if (size == 2) {
+          if (memToReg) {
+            d[dn] =
+                d[dn].setL16(read16(addr0) & 0xff00 | read16(addr0.inc2) >> 8);
+          } else {
+            write16(addr0, d[dn] & 0xff00);
+            write16(addr0.inc2, d[dn] << 8 & 0xff00);
+          }
+        } else {
+          if (memToReg) {
+            d[dn] = read16(addr0) << 16 & 0xff000000 |
+                read16(addr0.inc2) << 8 & 0x00ff0000 |
+                read16(addr0.inc4) & 0xff00 |
+                read16(addr0 + 6) >> 8;
+          } else {
+            write16(addr0, d[dn] >> 16 & 0xff00);
+            write16(addr0.inc2, d[dn] >> 8 & 0xff00);
+            write16(addr0.inc4, d[dn] & 0xff00);
+            write16(addr0 + 6, d[dn] << 8 & 0xff00);
+          }
+        }
+
+        return true;
       }
 
       // bit

@@ -27,12 +27,25 @@ extension OpAlu on M68 {
     return r.mask(size);
   }
 
+  int subx(int a, int b, int size) {
+    final r = a - b - (xf ? 1 : 0);
+    debug(
+        "sub r: ${r.mask32.hex32} a: ${a.mask32.hex32} b: ${b.mask32.hex32} xf: $xf");
+
+    cf = xf = r.over(size);
+    nf = r.msb(size);
+    vf = ((a ^ b) & (a ^ r)).msb(size); // output changed && input differed
+    zf = zf && r.mask(size) == 0;
+
+    return r.mask(size);
+  }
+
   int sub(int a, int b, int size) {
     final r = a - b;
     debug(
         "sub r: ${r.mask32.hex32} a: ${a.mask32.hex32} b: ${b.mask32.hex32} xf: $xf");
 
-    cf = r.over(size);
+    cf = xf = r.over(size);
     nf = r.msb(size);
     vf = ((a ^ b) & (a ^ r)).msb(size); // output changed && input differed
     zf = r.mask(size) == 0;
@@ -71,6 +84,18 @@ extension OpAlu on M68 {
     vf = false;
     cf = false;
     debug("eor a:${a.hex32} b:${b.hex32} r:${r.hex32}");
+
+    return r.mask(size);
+  }
+
+  int not(int a, int size) {
+    final r = ~a;
+
+    nf = r.msb(size);
+    zf = r.mask(size) == 0;
+    vf = false;
+    cf = false;
+    debug("not a:${a.hex32} r:${r.hex32}");
 
     return r.mask(size);
   }

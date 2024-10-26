@@ -1,3 +1,4 @@
+import 'package:fnesemu/core/md/m68/op_alu.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'm68.dart';
@@ -7,9 +8,49 @@ extension Op4 on M68 {
     final xn = op & 0x07;
     final dn = op >> 9 & 0x07;
 
-    if (op & 0xb80 == 0x88) {
+    if (op & 0xb80 == 0x880 && (op >> 3 & 0x07) != 0) {
       // movem
-      return false;
+      final memToReg = op.bit10;
+      final mode = op >> 3 & 0x07;
+      final size = op.bit6 ? 4 : 2;
+      int regMask = pc16();
+      addr0 = addressing(size, mode, xn);
+      if (mode == 4) {
+        a[xn] = (addr0 + size).mask32;
+      }
+
+      for (var i = 0; i < 16; i++, regMask >>= 1) {
+        if (!regMask.bit0) {
+          continue;
+        }
+
+        if (memToReg) {
+          final val = read(addr0, size).rel(size).mask32;
+          if (i < 8) {
+            d[i] = val;
+          } else {
+            a[i - 8] = val;
+          }
+          addr0 = (addr0 + size).mask32;
+          if (mode == 3) {
+            a[xn] = addr0;
+          }
+        } else {
+          if (mode == 4) {
+            write(addr0, size, i < 8 ? a[7 - i] : d[15 - i]);
+            addr0 = (addr0 - size).mask32;
+          } else {
+            write(addr0, size, i < 8 ? d[i] : a[i - 8]);
+            addr0 = (addr0 + size).mask32;
+          }
+        }
+      }
+
+      if (mode == 4) {
+        a[xn] = (addr0 + size).mask32;
+      }
+
+      return true;
     }
 
     if (op & 0x01c0 == 0x01c0) {
@@ -44,12 +85,57 @@ extension Op4 on M68 {
     final reg = op & 0x07;
 
     switch (op >> 8 & 0x0f) {
+      case 0x00:
+        if (op & 0x00c0 == 0x00c0) {
+          // movefromsr
+          if (mod != 0 && mod != 1) {
+            addr0 = addressing(2, mod, reg);
+          }
+          writeAddr(2, mod, reg, sr);
+          if (mod == 3) {
+            postInc(reg, 2);
+          }
+          return true;
+        }
+
+        // negx
+        final src = readAddr(size, mod, reg);
+        final r = subx(0, src, size);
+        writeAddr(size, mod, reg, r);
+        return true;
+
       case 0x02:
         // clr
         readAddr(size, mod, reg); // to set addr0
         writeAddr(size, mod, reg, 0);
         nf = cf = vf = false;
         zf = true;
+        return true;
+
+      case 0x04:
+        if (op & 0x00c0 == 0x00c0) {
+          // movetoccr
+          sr = sr.setL8(readAddr(2, mod, reg));
+          return true;
+        }
+
+        // neg
+        final src = readAddr(size, mod, reg);
+        final r = sub(0, src, size);
+        writeAddr(size, mod, reg, r);
+        return true;
+
+      case 0x06:
+        if (op & 0x00c0 == 0x00c0) {
+          // movetosr
+          sr = sr.setL16(readAddr(2, mod, reg));
+          return true;
+        }
+
+        // not
+        final src = readAddr(size, mod, reg);
+        final r = not(src, size);
+        writeAddr(size, mod, reg, r);
         return true;
 
       case 0x08:
@@ -63,6 +149,25 @@ extension Op4 on M68 {
           zf = data.mask(size) == 0;
           vf = cf = false;
 
+          return true;
+        }
+
+        if (op & 0xc0 == 0x00) {
+          // nbcd
+          final src = readAddr(1, mod, reg);
+
+          final diff = 0 - src - (xf ? 1 : 0);
+          final high = 0 - (src & 0xf0) - (0x60 & (diff >> 4));
+          final low = 0 - (src & 0x0f) - (xf ? 1 : 0);
+          final lowBorrow = 0x06 & (low >> 4); // 0x06 if low < 0x0a else 0x00
+          final r = low + high - lowBorrow;
+
+          xf = cf = (diff - lowBorrow) & 0x300 != 0;
+          zf = zf && r.mask8 == 0;
+          nf = r.bit7;
+          vf = diff & ~r & 0x80 != 0;
+
+          writeAddr(1, mod, reg, r);
           return true;
         }
 
@@ -109,7 +214,12 @@ extension Op4 on M68 {
 
         if (op & 0xf0 == 0x60) {
           // move usp
-          return false;
+          if (op.bit3) {
+            a[reg] = usp;
+          } else {
+            usp = a[reg];
+          }
+          return true;
         }
 
         if (op & 0xf8 == 0x50) {

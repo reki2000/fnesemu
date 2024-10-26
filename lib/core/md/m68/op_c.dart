@@ -35,9 +35,31 @@ extension OpC on M68 {
       return true;
     }
 
-    if (op & 0x00c0 == 0x00c0) {
-      // mulu, muls
-      return false;
+    if (op & 0x01c0 == 0x00c0) {
+      // mulu
+      final mode = op >> 3 & 0x07;
+      final src = readAddr(2, mode, ry);
+      final val = d[rx].mask16 * src;
+      d[rx] = val.mask32;
+      zf = val.mask32 == 0;
+      cf = false;
+      nf = val.bit31;
+      vf = false;
+
+      return true;
+    }
+
+    if (op & 0x01c0 == 0x01c0) {
+      // muls
+      final mode = op >> 3 & 0x07;
+      final src = readAddr(2, mode, ry).rel16;
+      final val = d[rx].mask16.rel16 * src;
+      d[rx] = val.mask32;
+      zf = val.mask32 == 0;
+      cf = false;
+      nf = val.bit31;
+      vf = false;
+      return true;
     }
 
     if (op & 0x0130 == 0x0100) {
