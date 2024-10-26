@@ -70,10 +70,8 @@ int main() {
       .where((file) => file is File && file.path.endsWith('.json.gz'))
       .cast<File>();
 
-  final skipFiles = [
-    "A", "B", "C", "D", "E", "J", "L", "M", "N", "O", "P", "R", "S" //
-  ];
-  final selectFiles = []; //"Bcc", "BSR", "JMP"];
+  final skipFiles = [];
+  final selectFiles = [];
   final skipTests = [];
 
   // https://github.com/SingleStepTests/ProcessorTests/issues/21
@@ -186,6 +184,8 @@ int main() {
       }
     }
   }
+
+  print('all tests passed');
 
   return 0;
 }

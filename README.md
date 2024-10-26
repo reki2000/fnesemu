@@ -64,7 +64,7 @@ To test the 6502 emulation, run the following command:
 ```
 $ curl https://raw.githubusercontent.com/christopherpow/nes-test-roms/master/other/nestest.log > assets/nestest.log
 $ curl https://raw.githubusercontent.com/christopherpow/nes-test-roms/master/other/nestest.nes > assets/rom/nestest.nes
-$ make cputest
+$ make test-6502
 running fnesemu cpu test...
 loading: File: 'assets/rom/nestest.nes'
 cpu test completed successfully.
@@ -75,5 +75,13 @@ cpu test completed successfully.
 get `tests.in` and `tests.expected` from [Fuse](https://fuse-emulator.sourceforge.net/), store these file to `assets`
 
 ```
-$ make mdz80test
+$ make test-z80
+```
+
+## To test M68000 emulation
+
+```
+$ cd assets && git clone https://github.com/SingleStepTests/680x0.git
+$ cd ..
+$ make test-m68
 ```

@@ -236,8 +236,8 @@ class M68 {
     final size = size1[ex >> 11 & 0x01];
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.mask8.rel8;
-    debug(
-        "Ex:${ex.hex16}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.hex32}, ${ex.mask8.hex8}");
+    // debug(
+    //     "Ex:${ex.hex16}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.hex32}, ${ex.mask8.hex8}");
     return disp + ((size == 2) ? x.mask16.rel16 : x);
   }
 
@@ -342,8 +342,8 @@ class M68 {
       };
 
   void busError(int addr, int pc, int op, bool read, bool inst) {
-    debug(
-        "bus error: clock:$clocks addr:${addr.hex24} pc:${pc.hex24} op:${op.hex16} read:$read inst:$inst a7:${a[7].hex24} ssp:${_ssp.hex24} usp:${_usp.hex24}"); // +44 clocks
+    // debug(
+    //     "bus error: clock:$clocks addr:${addr.hex24} pc:${pc.hex24} op:${op.hex16} read:$read inst:$inst a7:${a[7].hex24} ssp:${_ssp.hex24} usp:${_usp.hex24}"); // +44 clocks
     final fc = (sf ? 0x4 : 0) | (inst ? 0x2 : 0x1);
     sf = true;
     push32(pc); // +8
@@ -359,8 +359,8 @@ class M68 {
   }
 
   void trap(int vector) {
-    debug(
-        "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
+    // debug(
+    //     "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
     sf = true;
     push32(pc); // +8
     push16(sr.mask16); // +4 : +12

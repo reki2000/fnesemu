@@ -100,7 +100,7 @@ extension Op4 on M68 {
 
         // negx
         final src = readAddr(size, mod, reg);
-        final r = subx(0, src, size);
+        final r = sub(0, src, size, useXf: true);
         writeAddr(size, mod, reg, r);
         return true;
 
@@ -171,7 +171,7 @@ extension Op4 on M68 {
           return true;
         }
 
-        if (op & 0xc8 == 0x40) {
+        if (op & 0xf8 == 0x40) {
           // swap
           final tmp = d[reg];
           d[reg] = (tmp >> 16).mask16.setH16(tmp);
@@ -186,6 +186,25 @@ extension Op4 on M68 {
         final addr = addressing(4, mod, reg);
         if (mod == 3) postInc(reg, 4);
         push32(addr);
+        return true;
+
+      case 0x0a:
+        if (op & 0xc0 == 0xc0) {
+          // tas
+          final src = readAddr(1, mod, reg);
+          nf = src.msb(1);
+          zf = src.mask(1) == 0;
+          vf = cf = false;
+          writeAddr(1, mod, reg, src | 0x80);
+          return true;
+        }
+
+        // tst
+        final src = readAddr(size, mod, reg);
+        nf = src.msb(size);
+        zf = src.mask(size) == 0;
+        vf = cf = false;
+
         return true;
 
       case 0x0e:
@@ -210,7 +229,10 @@ extension Op4 on M68 {
             return true;
 
           case 0x76: // trapv
-            return false;
+            if (vf) {
+              trap(0x07 << 2);
+            }
+            return true;
 
           case 0x77: // rtr
             final newSr = pop16();
@@ -237,7 +259,8 @@ extension Op4 on M68 {
 
         if (op & 0xf0 == 0x40) {
           // trap
-          return false;
+          trap(op << 2 & 0x03c | 0x80);
+          return true;
         }
 
         if (op & 0xf0 == 0x60) {

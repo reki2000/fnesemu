@@ -180,7 +180,7 @@ extension Op0 on M68 {
       case 0x06: // cmpi
         final im = immed(size);
         final ea = readAddr(size, mode, xn);
-        sub(ea, im, size);
+        sub(ea, im, size, cmp: true);
         if (size == 4 && mode == 0) {
           clocks += 4;
         }

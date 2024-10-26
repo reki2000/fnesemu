@@ -1,6 +1,6 @@
 import 'package:fnesemu/core/md/m68/op_0.dart';
 import 'package:fnesemu/core/md/m68/op_4.dart';
-import 'package:fnesemu/core/md/m68/op_6.dart';
+import 'package:fnesemu/core/md/m68/op_8.dart';
 import 'package:fnesemu/core/md/m68/op_alu.dart';
 import 'package:fnesemu/core/md/m68/op_c.dart';
 import 'package:fnesemu/core/md/m68/op_e.dart';
@@ -34,12 +34,12 @@ extension Op on M68 {
             vf = cf = false;
           }
 
-          debug(
-              "size:$size src:$src modeSrc:$modeSrc dst:$dst modeDst:$modeDst");
+          // debug(
+          //     "size:$size src:$src modeSrc:$modeSrc dst:$dst modeDst:$modeDst");
 
           if (modeDst != 0 && modeDst != 1) {
             addr0 = addressing(size, modeDst, dst);
-            debug("addr0:${addr0.mask32.hex32}");
+            // debug("addr0:${addr0.mask32.hex32}");
           } else if (modeDst == 1) {
             a[dst] = value.rel(size).mask32;
             return true;
@@ -99,6 +99,84 @@ extension Op on M68 {
     return false;
   }
 
+  bool exec5(int op) {
+    if (op & 0x00c0 == 0x00c0) {
+      final mode = op >> 3 & 0x07;
+      final cc = op >> 8 & 0x0f;
+      final dx = op & 0x07;
+
+      if (mode == 0x01) {
+        // dbcc
+        final disp = pc16().rel16;
+
+        if (!cond(cc)) {
+          d[dx] = d[dx].dec;
+          if (d[dx] != 0xffffffff) {
+            pc = pc + disp - 2;
+            clocks += 10;
+          }
+        }
+        return true;
+      }
+
+      // scc
+      if (mode != 0x00) {
+        addr0 = addressing(1, mode, dx);
+      }
+      writeAddr(1, mode, dx, cond(cc) ? 0xffffffff : 0);
+      if (mode == 3) postInc(dx, 1);
+      return true;
+    }
+
+    // addq, subq
+    final reg = op & 0x07;
+    final data = op >> 9 & 0x07;
+    final size = size0[op >> 6 & 0x03];
+    final mode = op >> 3 & 0x07;
+
+    final b = data == 0 ? 8 : data;
+
+    if (mode == 1) {
+      clocks += size == 4 ? 2 : 4;
+      final r = op.bit8 ? a[reg] - b : a[reg] + b;
+      a[reg] = r.mask32;
+    } else {
+      debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.hex24}");
+      final a = readAddr(size, mode, reg);
+      final r = op.bit8 ? sub(a, b, size) : add(a, b, size);
+      if (size == 4) {
+        clocks += (mode == 0 || mode == 1) ? 4 : 0;
+      } else {
+        clocks += (mode == 1) ? 4 : 0;
+      }
+
+      writeAddr(size, mode, reg, r);
+    }
+    return true;
+  }
+
+  bool exec6(int op) {
+    final cc = op >> 8 & 0x0f;
+    final pc0 = pc;
+    final disp = switch (op.mask8) {
+      0x00 => pc16().rel16,
+      // 0xff => pc32().rel32,
+      _ => op.mask8.rel8
+    };
+
+    if (cc == 0x01) {
+      // bsr
+      push32(pc);
+      pc = pc0 + disp;
+      return true;
+    }
+
+    if (cond(cc)) {
+      pc = pc0 + disp;
+    }
+    return true;
+  }
+
   bool exec9(int op) {
     final xn = op & 0x07;
     final dn = op >> 9 & 0x07;
@@ -110,8 +188,8 @@ extension Op on M68 {
       final size = op.bit8 ? 4 : 2;
 
       final aa = readAddr(size, mode, xn);
-      debug(
-          "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
+      // debug(
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
 
       final r = a[dn] - aa.smask(size);
       clocks +=
@@ -131,10 +209,10 @@ extension Op on M68 {
         addr0 = preDec(dn, size);
         a = read(addr0, size);
 
-        final r = subx(a, b, size);
+        final r = sub(a, b, size, useXf: true);
         write(addr0, size, r);
       } else {
-        final r = subx(d[dn].mask(size), d[xn].mask(size), size);
+        final r = sub(d[dn].mask(size), d[xn].mask(size), size, useXf: true);
         if (size == 4) {
           clocks += 4;
         }
@@ -161,6 +239,45 @@ extension Op on M68 {
     return true;
   }
 
+  bool execB(int op) {
+    final ry = op & 0x07;
+    final rx = op >> 9 & 0x07;
+    final size = size0[op >> 6 & 0x03];
+    final mode = op >> 3 & 0x07;
+
+    if (op & 0x00c0 == 0x00c0) {
+      //cmpa
+      final size = size1[op >> 8 & 0x01];
+      final src = readAddr(size, mode, ry);
+      final dst = a[rx];
+      sub(dst, (size == 2) ? src.rel16.mask32 : src, 4, cmp: true);
+      return true;
+    }
+
+    if (op & 0x0100 == 0x0000) {
+      // cmp
+      final src = readAddr(size, mode, ry);
+      final dst = d[rx].mask(size);
+      sub(dst, src, size, cmp: true);
+      return true;
+    }
+
+    if (op & 0x0138 == 0x0108) {
+      // cmpm
+      final src = read(postInc(ry, size), size);
+      final dst = read(postInc(rx, size), size);
+      sub(dst, src, size, cmp: true);
+      return true;
+    }
+
+    // eor
+    final aa = d[rx].mask(size);
+    final ea = readAddr(size, mode, ry);
+    writeAddr(size, mode, ry, eor(aa, ea, size));
+
+    return true;
+  }
+
   bool execD(int op) {
     final xn = op & 0x07;
     final dn = op >> 9 & 0x07;
@@ -172,8 +289,8 @@ extension Op on M68 {
       final size = op.bit8 ? 4 : 2;
 
       final aa = readAddr(size, mode, xn);
-      debug(
-          "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
+      // debug(
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.mask24.hex24} aa:$aa clock:$clocks");
 
       final r = a[dn] + aa.smask(size);
       clocks +=
@@ -188,23 +305,14 @@ extension Op on M68 {
       final size = size0[s0];
 
       if (op.bit3) {
-        int a, b = 0;
-        if (size == 4) {
-          b = read16(preDec(xn, 2));
-          b |= read16(preDec(xn, 2)) << 16;
-          a = read16(preDec(dn, 2));
-          addr0 = preDec(dn, 2);
-          a |= read16(addr0) << 16;
-        } else {
-          b = read(preDec(xn, size), size);
-          addr0 = preDec(dn, size);
-          a = read(addr0, size);
-        }
+        final b = read(preDec(xn, size), size);
+        addr0 = preDec(dn, size);
+        final a = read(addr0, size);
 
-        final r = addx(a, b, size);
+        final r = add(a, b, size, useXf: true);
         write(addr0, size, r);
       } else {
-        final r = addx(d[xn].mask(size), d[dn].mask(size), size);
+        final r = add(d[xn].mask(size), d[dn].mask(size), size, useXf: true);
         if (size == 4) {
           clocks += 4;
         }
