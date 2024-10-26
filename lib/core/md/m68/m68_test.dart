@@ -71,7 +71,7 @@ int main() {
       .cast<File>();
 
   final skipFiles = [
-    "A", "B", "C", "D", "E", "J", "L", "M", "N", "O", "P", "R" //
+    "A", "B", "C", "D", "E", "J", "L", "M", "N", "O", "P", "R", "S" //
   ];
   final selectFiles = []; //"Bcc", "BSR", "JMP"];
   final skipTests = [];

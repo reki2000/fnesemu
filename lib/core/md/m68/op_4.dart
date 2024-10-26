@@ -171,9 +171,15 @@ extension Op4 on M68 {
           return true;
         }
 
-        if (op & 0xce == 0x80) {
+        if (op & 0xc8 == 0x40) {
           // swap
-          return false;
+          final tmp = d[reg];
+          d[reg] = (tmp >> 16).mask16.setH16(tmp);
+          nf = d[reg].msb(4);
+          zf = d[reg].mask(4) == 0;
+          vf = cf = false;
+
+          return true;
         }
 
         // pea

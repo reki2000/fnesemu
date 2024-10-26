@@ -85,12 +85,9 @@ extension Op0 on M68 {
           return true;
         }
 
-        final a = immed(size);
-        final b = readAddr(size, mode, xn);
-
-        final r = or(a, b, size);
-
-        writeAddr(size, mode, xn, r);
+        final im = immed(size);
+        final ea = readAddr(size, mode, xn);
+        writeAddr(size, mode, xn, or(im, ea, size));
         if (size == 4 && mode == 0) {
           clocks += 4;
         }
@@ -106,12 +103,9 @@ extension Op0 on M68 {
           return true;
         }
 
-        final a = immed(size);
-        final b = readAddr(size, mode, xn);
-
-        final r = and(a, b, size);
-
-        writeAddr(size, mode, xn, r);
+        final im = immed(size);
+        final ea = readAddr(size, mode, xn);
+        writeAddr(size, mode, xn, and(im, ea, size));
         if (size == 4 && mode == 0) {
           clocks += 4;
         }
@@ -119,15 +113,19 @@ extension Op0 on M68 {
         return true;
 
       case 0x02: // subi
-        return false;
+        final im = immed(size);
+        final ea = readAddr(size, mode, xn);
+        writeAddr(size, mode, xn, sub(ea, im, size));
+        if (size == 4 && mode == 0) {
+          clocks += 4;
+        }
+
+        return true;
 
       case 0x03: // addi
-        final a = immed(size);
-        final b = readAddr(size, mode, xn);
-
-        final r = add(a, b, size);
-
-        writeAddr(size, mode, xn, r);
+        final im = immed(size);
+        final ea = readAddr(size, mode, xn);
+        writeAddr(size, mode, xn, add(ea, im, size));
         if (size == 4 && mode == 0) {
           clocks += 4;
         }
@@ -170,12 +168,9 @@ extension Op0 on M68 {
           return true;
         }
 
-        final a = immed(size);
-        final b = readAddr(size, mode, xn);
-
-        final r = eor(a, b, size);
-
-        writeAddr(size, mode, xn, r);
+        final im = immed(size);
+        final ea = readAddr(size, mode, xn);
+        writeAddr(size, mode, xn, eor(im, ea, size));
         if (size == 4 && mode == 0) {
           clocks += 4;
         }
@@ -183,9 +178,9 @@ extension Op0 on M68 {
         return true;
 
       case 0x06: // cmpi
-        final a = immed(size);
-        final b = readAddr(size, mode, xn);
-        sub(b, a, size);
+        final im = immed(size);
+        final ea = readAddr(size, mode, xn);
+        sub(ea, im, size);
         if (size == 4 && mode == 0) {
           clocks += 4;
         }
