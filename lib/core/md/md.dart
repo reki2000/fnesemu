@@ -10,6 +10,8 @@ import '../types.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
+import 'm68/m68_disasm.dart';
+import 'vdp.dart';
 import 'z80/z80.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
@@ -19,6 +21,8 @@ class Md implements Core {
 
   late final BusZ80 busZ80;
   late final BusM68 busM68;
+
+  final vdp = Vdp();
 
   static const systemClockHz_ = 21477270; // 21.47727MHz
 
@@ -33,10 +37,17 @@ class Md implements Core {
 
   Md() {
     busM68 = BusM68();
-    cpuM68 = M68(busM68);
-
     busZ80 = BusZ80();
+
+    cpuM68 = M68(busM68);
     cpuZ80 = Z80(busZ80);
+
+    busM68.cpu = cpuM68;
+    busM68.busZ80 = busZ80;
+    busM68.vdp = vdp;
+
+    busZ80.cpu = cpuZ80;
+    busZ80.busM68 = busM68;
   }
 
   int _clocks = 0;
@@ -49,9 +60,9 @@ class Md implements Core {
       cpuM68.exec();
     }
 
-    // while (_clocks < cpuZ80.clocks) {
-    //   cpuZ80.exec();
-    // }
+    while (_clocks < cpuZ80.clocks) {
+      cpuZ80.exec();
+    }
 
     _clocks += 4;
 
@@ -60,9 +71,7 @@ class Md implements Core {
 
   /// returns screen buffer as hSize x vSize argb
   @override
-  ImageBuffer imageBuffer() {
-    return ImageBuffer(0, 0, Uint8List(0));
-  }
+  ImageBuffer imageBuffer() => vdp.imageBuffer;
 
   void Function(AudioBuffer) _onAudio = (_) {};
 
@@ -109,19 +118,27 @@ class Md implements Core {
       bool showSpriteVram = false,
       bool showStack = false,
       bool showApu = false}) {
-    final d = cpuM68.dump();
-    // final dump = "$cpuDump\n"
-    //     "${cpu.dump(showIRQVector: true, showStack: showStack, showZeroPage: showZeroPage)}"
-    //     "${showApu ? psg.dump() : ""}"
-    //     "${bus.vdc.dump()}";
-    return "$d";
-    // return '${fps.toStringAsFixed(2)}fps';
+    final regM68 = cpuM68.dump();
+    final asmM68 = disasm(cpuM68.pc);
+    final regZ80 = cpuZ80.dump();
+
+    return "${asmM68.i0}\n$regM68\n\n$regZ80";
   }
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int addr) =>
-      Pair("${addr.hex24}: ${read(addr).hex8}${read(addr.inc).hex8}", 2);
+  Pair<String, int> disasm(int addr) {
+    final addrHex = addr.hex24;
+    final data = List.generate(6,
+        (i) => busM68.read(addr + i * 2) << 8 | busM68.read(addr + i * 2 + 1),
+        growable: false);
+    try {
+      final (inst, next) = Disasm().disasm(data, addr);
+      return Pair("$addrHex: ${data[0].hex16}   $inst", next * 2);
+    } catch (e) {
+      return Pair("$addrHex: [$e]", 2);
+    }
+  }
 
   // debug: returns PC register
   @override

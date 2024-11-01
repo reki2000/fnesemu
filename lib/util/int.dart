@@ -59,9 +59,10 @@ extension IntExt on int {
 
   int get inc => this + 1;
   int get inc2 => this + 2;
+  int get inc3 => this + 3;
+  int get inc4 => this + 4;
   int get dec => this - 1;
   int get dec2 => this - 2;
-  int get inc4 => this + 4;
   int get dec4 => this - 4;
 
   int get rel8 => bit7 ? this - 0x100 : this;

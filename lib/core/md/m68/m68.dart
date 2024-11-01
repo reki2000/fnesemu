@@ -12,22 +12,37 @@ class BusError implements Exception {
   const BusError(this.addr, this.pc, this.read, this.inst);
 }
 
+class _AddressReg {
+  final a = [0, 0, 0, 0, 0, 0, 0]; // a0 - a6
+  int ssp = 0;
+  int usp = 0;
+  bool sf = false;
+
+  int operator [](int index) => index != 7 ? a[index] : (sf ? ssp : usp);
+
+  void operator []=(int index, int value) =>
+      (index != 7) ? a[index] = value : (sf ? ssp = value : usp = value);
+
+  map(Function(int) func) => List.generate(8, (i) => func(this[i]));
+}
+
 class M68 {
   BusM68 bus;
+
+  M68(this.bus);
 
   int clocks = 0;
   // int cycles = 0;
 
   // registers
-  final a = [0, 0, 0, 0, 0, 0, 0, 0];
+  final a = _AddressReg();
   final d = [0, 0, 0, 0, 0, 0, 0, 0];
   int _pc = 0;
-  int pc0 = 0; // pc at every instruction
-  int _usp = 0;
-  int _ssp = 0;
-  int _sr = 0;
 
+  int pc0 = 0; // pc at every instruction
   int op0 = 0;
+
+  int _sr = 0;
 
   int get pc => _pc;
   set pc(int v) {
@@ -38,32 +53,17 @@ class M68 {
     }
   }
 
-  int get usp => sf ? _usp : a[7];
-  set usp(int v) => sf ? (_usp = v) : (a[7] = _usp = v);
+  int get usp => a.usp;
+  int get ssp => a.ssp;
+  set usp(int v) => a.usp = v;
+  set ssp(int v) => a.ssp = v;
 
-  int get ssp => sf ? a[7] : _ssp;
-  set ssp(int v) => sf ? (a[7] = _ssp = v) : (_ssp = v);
+  int get ccr => _sr & 0xff;
 
-  int preDec(int reg, int size) {
-    if (reg == 7 && size == 1 || size == 2) {
-      return a[reg] = a[reg].dec2.mask32;
-    } else if (size == 4) {
-      return a[reg] = a[reg].dec4.mask32;
-    } else {
-      return a[reg] = a[reg].dec.mask32;
-    }
-  }
-
-  int postInc(int reg, int size) {
-    final r = a[reg];
-    if (reg == 7 && size == 1 || size == 2) {
-      a[reg] = a[reg].inc2.mask32;
-    } else if (size == 4) {
-      a[reg] = a[reg].inc4.mask32;
-    } else {
-      a[reg] = a[reg].inc.mask32;
-    }
-    return r;
+  int get sr => _sr;
+  set sr(int val) {
+    sf = (val & bitS) != 0;
+    _sr = val & 0xa71f;
   }
 
   // flags
@@ -88,6 +88,7 @@ class M68 {
   bool get i0f => _sr & bitI0 != 0;
   bool get i1f => _sr & bitI1 != 0;
   bool get i2f => _sr & bitI2 != 0;
+
   bool get sf => _sr & bitS != 0;
   bool get tf => _sr & bitT != 0;
 
@@ -103,37 +104,17 @@ class M68 {
 
   // supervisor mode flags switches stack pointer
   set sf(bool on) {
-    // debug(
-    //     "sf:$sf on:$on _ssp:${_ssp.hex32} _usp:${_usp.hex32} a7:${a[7].hex32}");
-    if (on && !sf) {
-      _usp = a[7];
-      a[7] = _ssp;
-      _sr |= bitS;
-    } else if (!on && sf) {
-      _ssp = a[7];
-      a[7] = _usp;
-      _sr &= ~bitS;
-    }
-
-    // debug(
-    //     "==> sf:$sf on:$on _ssp:${_ssp.hex32} _usp:${_usp.hex32} a7:${a[7].hex32}");
-  }
-
-  int get ccr => _sr & 0xff;
-
-  int get sr => _sr;
-  set sr(int val) {
-    sf = (val & bitS) != 0;
-    _sr = val & 0xa71f;
+    a.sf = on;
+    on ? _sr |= bitS : _sr &= ~bitS;
   }
 
   set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
 
-  M68(this.bus);
-
+  // I/O
   int input(int port) => bus.input(port);
   void output(int port, int data) => bus.output(port, data);
 
+  // memory access
   int read8(int addr) {
     clocks += 4;
     return bus.read(addr.mask24);
@@ -230,19 +211,7 @@ class M68 {
   final size1 = [2, 4]; // 1 bit
   final size2 = [0, 1, 4, 2]; // chk, movea, move
 
-  int addressingEx(int mod) {
-    clocks += 2;
-    final ex = pc16();
-    final modeAn = ex.bit15;
-    final xn = ex >> 12 & 0x07;
-    final size = size1[ex >> 11 & 0x01];
-    final x = modeAn ? a[xn] : d[xn];
-    final disp = ex.mask8.rel8;
-    // debug(
-    //     "Ex:${ex.hex16}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.hex32}, ${ex.mask8.hex8}");
-    return disp + ((size == 2) ? x.mask16.rel16 : x);
-  }
-
+  // addressing modes
   int addressing(int size, int mode, int reg) {
     return switch (mode) {
       2 => a[reg],
@@ -261,6 +230,42 @@ class M68 {
     };
   }
 
+  int preDec(int reg, int size) => switch (size) {
+        4 => a[reg] = a[reg].dec4.mask32,
+        2 => a[reg] = a[reg].dec2.mask32,
+        1 when reg == 7 => a[reg] = a[reg].dec2.mask32,
+        1 => a[reg] = a[reg].dec.mask32,
+        _ => throw ("invalid size:$size"),
+      };
+
+  int postInc(int reg, int size) {
+    final r = a[reg];
+
+    final _ = switch (size) {
+      4 => a[reg] = a[reg].inc4.mask32,
+      2 => a[reg] = a[reg].inc2.mask32,
+      1 when reg == 7 => a[reg] = a[reg].inc2.mask32,
+      1 => a[reg] = a[reg].inc.mask32,
+      _ => throw ("invalid size:$size"),
+    };
+
+    return r;
+  }
+
+  int addressingEx(int mod) {
+    clocks += 2;
+    final ex = pc16();
+    final modeAn = ex.bit15;
+    final xn = ex >> 12 & 0x07;
+    final size = size1[ex >> 11 & 0x01];
+    final x = modeAn ? a[xn] : d[xn];
+    final disp = ex.mask8.rel8;
+    // debug(
+    //     "Ex:${ex.hex16}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.hex32}, ${ex.mask8.hex8}");
+    return disp + ((size == 2) ? x.mask16.rel16 : x);
+  }
+
+  // preserved the address calulated by readAddr, used by writeAddr
   int addr0 = 0;
 
   int readAddr(int size, int mod, int reg) {
@@ -303,7 +308,6 @@ class M68 {
   void push16(int data) {
     a[7] = a[7].dec2.mask32;
     write16(a[7], data);
-    sf ? _ssp = a[7] : _usp = a[7];
   }
 
   void push32(int data) {
@@ -374,7 +378,7 @@ class M68 {
     // debug("reset");
     sf = false;
     _sr = 0x2700;
-    _ssp = read32(0x00);
+    ssp = read32(0x00);
     _pc = read32(0x04);
     clocks = 0;
   }

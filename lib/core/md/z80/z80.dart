@@ -3,7 +3,7 @@ import 'package:fnesemu/core/md/z80/op_c0_ff.dart';
 import 'package:fnesemu/core/md/z80/op_cb.dart';
 import 'package:fnesemu/core/md/z80/op_ddfd.dart';
 import 'package:fnesemu/core/md/z80/op_ed.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../bus_z80.dart';
 import 'op_00_3f.dart';
@@ -122,7 +122,7 @@ class Regs {
 class Z80 {
   final BusZ80 bus;
 
-  int clocks = 0;
+  int get clocks => cycles;
   int cycles = 0;
 
   final r = Regs();
@@ -139,6 +139,10 @@ class Z80 {
     // interrupt
 
     // halt
+    if (halted) {
+      cycles += 4;
+      return true;
+    }
 
     final op = next();
 
@@ -168,15 +172,15 @@ class Z80 {
   int next() {
     final d = read(r.pc);
     cycles += 4;
-    r.pc = (r.pc + 1) & 0xffff;
-    r.r = (r.r + 1) & 0x7f | r.r & 0x80;
+    r.pc = r.pc.inc.mask16;
+    r.r = r.r.inc & 0x7f | r.r & 0x80;
     return d;
   }
 
   int pc8() {
     final d = read(r.pc);
     cycles += 3;
-    r.pc = (r.pc + 1) & 0xffff;
+    r.pc = r.pc.inc.mask16;
     return d;
   }
 
@@ -184,26 +188,26 @@ class Z80 {
     final d0 = read(r.pc);
     final d1 = read(r.pc + 1);
     cycles += 6;
-    r.pc = (r.pc + 2) & 0xffff;
+    r.pc = r.pc.inc2.mask16;
     return d0 | d1 << 8;
   }
 
   int rel8() {
     final d = pc8();
-    return (d & 0x80) != 0 ? d - 0x100 : d;
+    return d.bit7 ? d - 0x100 : d;
   }
 
   int pop() {
-    final d = read(r.sp).withHighByte(read((r.sp + 1) & 0xffff));
+    final d = read(r.sp).setH8(read(r.sp.inc.mask16));
     cycles += 6;
-    r.sp = (r.sp + 2) & 0xffff;
+    r.sp = r.sp.inc2.mask16;
     return d;
   }
 
   void push(int d) {
-    r.sp = (r.sp - 2) & 0xffff;
+    r.sp = r.sp.dec2.mask16;
     write(r.sp, d & 0xff);
-    write((r.sp + 1) & 0xffff, d >> 8);
+    write(r.sp.inc.mask16, d >> 8);
     cycles += 7;
   }
 
@@ -243,9 +247,9 @@ class Z80 {
       write(r.ixiy[xy] + rel, data);
       cycles += 3;
     } else if (reg == 4) {
-      r.ixiy[xy] = r.ixiy[xy].withHighByte(data);
+      r.ixiy[xy] = r.ixiy[xy].setH8(data);
     } else if (reg == 5) {
-      r.ixiy[xy] = r.ixiy[xy].withLowByte(data);
+      r.ixiy[xy] = r.ixiy[xy].setL8(data);
     } else {
       r.r8[reg] = data;
     }
@@ -266,7 +270,7 @@ class Z80 {
     r.cf = result < 0;
     r.nf = true;
     cycles += 7;
-    return result & 0xffff;
+    return result.mask16;
   }
 
   int inc8(int val) {
@@ -312,26 +316,21 @@ class Z80 {
     r.setSZ(r.a);
     r.setP(r.a);
     r.hf = true;
-    r.nf = false;
-    r.cf = false;
+    r.nf = r.cf = false;
   }
 
   void or8(int val) {
     r.a |= val;
     r.setSZ(r.a);
     r.setP(r.a);
-    r.hf = false;
-    r.nf = false;
-    r.cf = false;
+    r.hf = r.nf = r.cf = false;
   }
 
   void xor8(int val) {
     r.a ^= val;
     r.setSZ(r.a);
     r.setP(r.a);
-    r.hf = false;
-    r.nf = false;
-    r.cf = false;
+    r.hf = r.nf = r.cf = false;
   }
 
   void cp8(int val) {
@@ -347,8 +346,7 @@ class Z80 {
     final c = r.cf ? 1 : 0;
     r.cf = val & 0x80 != 0;
     val = ((val << 1) | c) & 0xff;
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
     r.setP(val);
@@ -358,8 +356,7 @@ class Z80 {
   int rlc8(int val, {bool setSZP = true}) {
     r.cf = val & 0x80 != 0;
     val = ((val << 1) | (val >> 7)) & 0xff;
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
     r.setP(val);
@@ -370,8 +367,7 @@ class Z80 {
     final c = r.cf ? 0x80 : 0;
     r.cf = val & 1 != 0;
     val = (val >> 1) | c;
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
     r.setP(val);
@@ -381,8 +377,7 @@ class Z80 {
   int rrc8(int val, {bool setSZP = true}) {
     r.cf = val & 1 != 0;
     val = (val >> 1) | ((val & 1) << 7);
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
     r.setP(val);
@@ -394,8 +389,7 @@ class Z80 {
     val = (val << 1) & 0xff;
     r.setSZ(val);
     r.setP(val);
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     return val & 0xff;
   }
 
@@ -404,8 +398,7 @@ class Z80 {
     val = (val & 0x80) | (val >> 1);
     r.setSZ(val);
     r.setP(val);
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     return val;
   }
 
@@ -414,8 +407,7 @@ class Z80 {
     val = ((val << 1) | 1) & 0xff;
     r.setSZ(val);
     r.setP(val);
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     return val;
   }
 
@@ -424,8 +416,7 @@ class Z80 {
     val >>= 1;
     r.setSZ(val);
     r.setP(val);
-    r.hf = false;
-    r.nf = false;
+    r.hf = r.nf = false;
     return val;
   }
 
@@ -443,7 +434,25 @@ class Z80 {
     r.bc2 = 0;
     r.de2 = 0;
     r.hl2 = 0;
-    clocks = 0;
     cycles = 0;
+  }
+
+  String dump() {
+    final res1 =
+        "af:${(r.af & 0xffd7).hex16} bc:${r.bc.hex16} de:${r.de.hex16} hl:${r.hl.hex16}";
+    final res2 =
+        "af':${(r.af2 & 0xffd7).hex16} bc':${r.bc2.hex16} de':${r.de2.hex16} hl':${r.hl2.hex16}";
+    final res3 =
+        "ix:${r.ixiy[0].hex16} iy:${r.ixiy[1].hex16} sp:${r.sp.hex16} pc:${r.pc.hex16}";
+    final regs4 =
+        ("i:${r.i.hex8} r:${r.r.hex8} iff1:${iff1 ? 1 : 0} iff2:${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"} cy:$cycles");
+
+    const f = "SZ-H-PNC";
+    final flags = List.generate(
+        f.length,
+        (i) => "$f${f.toLowerCase()}"[
+            (r.f << i & (1 << f.length - 1)) != 0 ? i : f.length + i]).join();
+
+    return "f:$flags $res1 $res2\n$res3 $regs4";
   }
 }

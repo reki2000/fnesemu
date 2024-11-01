@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:fnesemu/core/md/m68/m68_debug.dart';
-import 'package:fnesemu/core/md/m68/op.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
