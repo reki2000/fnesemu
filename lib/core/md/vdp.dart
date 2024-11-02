@@ -8,37 +8,6 @@ import '../types.dart';
 class Vdp {
   Vdp();
 
-  void reset() {
-    final rand = Random();
-    vram.setRange(0, vram.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
-    cram.setRange(
-        0, cram.length, Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
-    vsram.fillRange(0, vsram.length, 0);
-
-    reg.fillRange(0, reg.length, 0);
-  }
-
-  int read16(int addr) {
-    return switch (addr) {
-      0x00 || 0x02 => data, // data
-      0x02 || 0x04 => ctrl, // ctrl
-      0x08 => vCounter << 8 |
-          hCounter >> 1, // hv counter, when interlace, VC0 is replaced by VC8
-      _ => 0x00,
-    };
-  }
-
-  void write16(int addr, int value) {
-    final _ = switch (addr) {
-      0x00 || 0x02 => data = value, // data
-      0x04 || 0x06 => ctrl = value, // ctrl
-      0x08 => 0x00, // hv counter
-      0x09 => 0x00, // hv counter
-      _ => 0x00,
-    };
-  }
-
   final vram = Uint8List(0x10000);
   final cram = List<int>.filled(0x80, 0); // bbbgggrrr
   final vsram = List<int>.filled(0x50, 0);
@@ -50,19 +19,7 @@ class Vdp {
 
   int ramSize = 0;
 
-  bool h32 = true;
-  bool ntsc = true; // false: pal
-  bool pal30 = false;
-  int interlaceMode = 0;
-
-  int width = 256; // h32: 256, h40: 320
-  int height = 224; // ntsc 224, pal: 224, pal30: 240
-  int retrace = 38; // ntsc 38, pal: 98, pal30: 82
-
-  int vCounter = 0;
-  int hCounter = 0;
-
-  List<int> reg = List<int>.filled(24, 0);
+  List<int> reg = List<int>.filled(32, 0);
 
   bool get enabeHInt => reg[0].bit5;
   bool get stopHCounter => reg[0].bit1;
@@ -77,54 +34,75 @@ class Vdp {
 
   int status = 0;
 
-  Uint8List buffer = Uint8List(256 * 240 * 4);
-  ImageBuffer get imageBuffer => ImageBuffer(width, height, buffer);
+  // rendering
 
-  int postInc([int offset = 0]) {
-    final ret = _addr + offset;
-    _addr += reg[0x0f];
-    if (_addr >= ramSize) {
-      _addr -= ramSize;
-    }
-    return ret;
+  Uint32List buffer = Uint32List(320 * 224);
+
+  ImageBuffer get imageBuffer =>
+      ImageBuffer(width, height, buffer.buffer.asUint8List());
+
+  bool h32 = true;
+  bool ntsc = true; // false: pal
+  bool pal30 = false;
+  int interlaceMode = 0;
+
+  int width = 256; // h32: 256, h40: 320
+  int height = 224; // ntsc 224, pal: 224, pal30: 240
+  int retrace = 38; // ntsc 38, pal: 98, pal30: 82
+
+  int vCounter = 0;
+  int hCounter = 0;
+
+  // reset
+  void reset() {
+    final rand = Random();
+    vram.setRange(0, vram.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    cram.setRange(
+        0, cram.length, Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
+    vsram.fillRange(0, vsram.length, 0);
+
+    reg.fillRange(0, reg.length, 0);
+
+    _is1st = true;
   }
 
-  int encodeCram(int val) =>
-      val << 3 & 0xf00 | val << 2 & 0x0f0 | val << 1 & 0x00f;
+  // i/o
+  int read16(int addr) {
+    final port = addr & 0x0c;
+    if (port == 0x00) {
+      return data;
+    } else if (port == 0x04) {
+      return status;
+    } else if (port == 0x08) {
+      return vCounter << 8 | hCounter >> 1;
+    }
+    return 0;
+  }
 
-  int get data => ram == ramVram
-      ? vram[_addr] << 16 | vram[postInc(1)]
-      : ram == ramCram
-          ? encodeCram(cram[postInc()])
-          : vsram[postInc()];
-
-  set data(int value) {
-    if (ram == ramVram) {
-      vram[_addr] = value >> 16;
-      vram[postInc(1)] = value.mask8;
-    } else {
-      final addr = postInc() >> 1;
-      if (ram == ramCram) {
-        cram[addr] = value << 5 & 0x1c0 | value >> 4 & 0x07 | value >> 1 & 0x07;
-      } else {
-        vsram[addr] = value;
-      }
+  void write16(int addr, int value) {
+    final port = addr & 0x0c;
+    if (port == 0x00) {
+      data = value; // data
+    } else if (port == 0x04) {
+      ctrl = value; // ctrl
     }
   }
 
+  // ram access
   int _ctrl = 0;
-  bool _is1st = false;
+  bool _is1st = true;
   int _addr = 0;
 
-  int get ctrl => _ctrl;
-
   set ctrl(int value) {
+    // print(
+    //     "vdp:ctrl=${value.hex16} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
     if (value & 0xe000 == 0x8000) {
       final regNo = value >> 8 & 0x1f;
       reg[regNo] = value.mask8;
 
       if (regNo == 12) {
-        h32 = value & 0x81 != 0x11;
+        h32 = value & 0x81 != 0x81;
         width = h32 ? 256 : 320;
       }
       return;
@@ -135,22 +113,64 @@ class Vdp {
       _is1st = false;
       return;
     }
+    _is1st = true;
 
     _addr = value << 14 & 0xc000 | _ctrl & 0x3fff;
-    final cd = value >> 2 & 0x3c | _ctrl >> 14 & 0x02;
+    final cd = value >> 2 & 0x3c | _ctrl >> 14 & 0x03;
 
-    final _ = switch (cd) {
-      0x01 || 0x00 => (ram, ramSize = ramVram, vram.length),
-      0x03 || 0x80 => (ram, ramSize = ramCram, cram.length),
-      0x05 || 0x40 => (ram, ramSize = ramVsram, vsram.length),
-      _ => 0,
-    };
+    if (cd == 0x00 || cd == 0x01) {
+      ram = ramVram;
+      ramSize = vram.length;
+    } else if (cd == 0x03 || cd == 0x08) {
+      ram = ramCram;
+      ramSize = cram.length;
+    } else if (cd == 0x05 || cd == 0x04) {
+      ram = ramVsram;
+      ramSize = vsram.length;
+    }
   }
+
+  int get data => ram == ramVram
+      ? vram[_addr] << 8 | vram[postInc(1)]
+      : ram == ramCram
+          ? encodeCram(cram[postInc()])
+          : vsram[postInc()];
+
+  set data(int value) {
+    // print(
+    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16}");
+    if (ram == ramVram) {
+      vram[_addr] = value >> 8;
+      vram[postInc(1)] = value.mask8;
+    } else {
+      final addr = postInc() >> 1;
+      if (ram == ramCram) {
+        cram[addr] =
+            value >> 3 & 0x1c0 | value >> 2 & 0x038 | value >> 1 & 0x07;
+      } else {
+        vsram[addr] = value;
+      }
+    }
+  }
+
+  int encodeCram(int val) =>
+      val << 3 & 0xf00 | val << 2 & 0x0f0 | val << 1 & 0x00f;
+
+  int postInc([int offset = 0]) {
+    final ret = _addr + offset;
+    _addr += reg[0x0f];
+    if (_addr >= ramSize) {
+      _addr -= ramSize;
+    }
+    return ret;
+  }
+
+  // debug
 
   String dump() {
     final regStr = [0, 4, 8, 12, 16, 20]
-        .map((i) => reg.sublist(i, i + 4).map((e) => e.hex8).join("-"))
-        .join(" ");
-    return "vdp: $regStr";
+        .map((i) => reg.sublist(i, i + 4).map((e) => e.hex8).join(" "))
+        .join("  ");
+    return "vdp:$regStr";
   }
 }

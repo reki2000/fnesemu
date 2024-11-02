@@ -110,8 +110,9 @@ extension Op on M68 {
         final disp = pc16().rel16;
 
         if (!cond(cc)) {
-          d[dx] = d[dx].dec.mask32;
-          if (d[dx] != 0xffffffff) {
+          final counter = d[dx].dec.mask16;
+          d[dx] = d[dx].setL16(counter);
+          if (counter != 0xffff) {
             pc = pc + disp - 2;
             clocks += 10;
           }

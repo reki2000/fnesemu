@@ -52,42 +52,46 @@ class DebugDisasm extends StatelessWidget {
   Widget build(BuildContext context) {
     node.requestFocus;
     return Container(
+        width: 400,
         margin: margin10,
         alignment: Alignment.topLeft,
         child: Focus(
           focusNode: node,
-          child: Column(children: [
-            Row(children: [
-              SizedBox(
-                  width: 50,
-                  child: TextField(onChanged: (v) {
-                    if (v.length == 4) {
-                      addrNotifier.value = int.parse(v, radix: 16);
-                    }
-                  })),
-              _button("--", () {
-                addrNotifier.value = (addrNotifier.value - 0x400) & 0xffff;
-              }),
-              _button("-", () {
-                addrNotifier.value = (addrNotifier.value - 0x20) & 0xffff;
-              }),
-              _button("+", () {
-                addrNotifier.value += 0x20;
-              }),
-              _button("++", () {
-                addrNotifier.value += 0x400;
-              }),
-            ]),
-            ValueListenableBuilder<int>(
-                valueListenable: addrNotifier,
-                builder: (context, addr, child) => SelectableText(
-                      (_backward(addr, 5)..addAll(_asm(addr, 40)))
-                          .map((s) => (s.i0 == addr ? "=>" : "  ") + s.i1)
-                          .join("\n"),
-                      style: debugStyle,
-                      showCursor: true,
-                    )),
-          ]),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  SizedBox(
+                      width: 50,
+                      child: TextField(onChanged: (v) {
+                        if (v.length == 4) {
+                          addrNotifier.value = int.parse(v, radix: 16);
+                        }
+                      })),
+                  _button("--", () {
+                    addrNotifier.value = (addrNotifier.value - 0x400) & 0xffff;
+                  }),
+                  _button("-", () {
+                    addrNotifier.value = (addrNotifier.value - 0x20) & 0xffff;
+                  }),
+                  _button("+", () {
+                    addrNotifier.value += 0x20;
+                  }),
+                  _button("++", () {
+                    addrNotifier.value += 0x400;
+                  }),
+                ]),
+                ValueListenableBuilder<int>(
+                    valueListenable: addrNotifier,
+                    builder: (context, addr, child) => SelectableText(
+                          (_backward(addr, 5)..addAll(_asm(addr, 40)))
+                              .map((s) => (s.i0 == addr ? "*" : " ") + s.i1)
+                              .join("\n"),
+                          style: debugStyle,
+                          showCursor: true,
+                        )),
+              ]),
         ));
   }
 }

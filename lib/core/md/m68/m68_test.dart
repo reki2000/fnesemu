@@ -79,7 +79,7 @@ int main() {
       .cast<File>();
 
   final skipFiles = [];
-  final selectFiles = [];
+  final selectFiles = ["DB"];
   final skipTests = [];
 
   // https://github.com/SingleStepTests/ProcessorTests/issues/21

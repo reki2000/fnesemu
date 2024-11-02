@@ -1,6 +1,7 @@
 // Dart imports:
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/md/vdp_debug.dart';
 import 'package:fnesemu/core/md/vdp_renderer.dart';
 import 'package:fnesemu/util/int.dart';
 
@@ -73,8 +74,6 @@ class Md implements Core {
       cpuZ80.exec();
     }
 
-    _clocks += 4;
-
     if (_clocks >= _nextScanClock) {
       _nextScanClock += clocksInScanline;
       vdp.renderLine();
@@ -85,6 +84,8 @@ class Md implements Core {
       _nextAudioClock += 1000;
       _onAudio(AudioBuffer(44100, 2, psg.render(1000)));
     }
+
+    _clocks += 4;
 
     return ExecResult(_clocks, true, rendered);
   }
@@ -107,6 +108,9 @@ class Md implements Core {
   void reset() {
     busM68.onReset();
     busZ80.onReset();
+    _clocks = 0;
+    _nextScanClock = 0;
+    _nextAudioClock = 0;
   }
 
   /// handles pad down/up events
@@ -154,7 +158,7 @@ class Md implements Core {
         List.generate(6, (i) => busM68.read16(addr + i * 2), growable: false);
     try {
       final (inst, next) = Disasm().disasm(data, addr);
-      return Pair("$addrHex: ${data[0].hex16}   $inst", next * 2);
+      return Pair("$addrHex: ${data[0].hex16} $inst", next * 2);
     } catch (e) {
       return Pair("$addrHex: [$e]", 2);
     }
@@ -185,7 +189,8 @@ class Md implements Core {
       ImageBuffer.empty();
 
   @override
-  ImageBuffer renderColorTable(int paletteNo) => ImageBuffer.empty();
+  ImageBuffer renderColorTable(int paletteNo) =>
+      vdp.renderColorTable(paletteNo);
 
   @override
   List<String> spriteInfo() => List.empty();
