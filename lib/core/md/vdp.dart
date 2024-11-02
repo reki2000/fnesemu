@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
@@ -6,6 +7,17 @@ import '../types.dart';
 
 class Vdp {
   Vdp();
+
+  void reset() {
+    final rand = Random();
+    vram.setRange(0, vram.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    cram.setRange(
+        0, cram.length, Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
+    vsram.fillRange(0, vsram.length, 0);
+
+    reg.fillRange(0, reg.length, 0);
+  }
 
   int read16(int addr) {
     return switch (addr) {
@@ -68,10 +80,10 @@ class Vdp {
   Uint8List buffer = Uint8List(256 * 240 * 4);
   ImageBuffer get imageBuffer => ImageBuffer(width, height, buffer);
 
-  int postInc() {
-    final ret = _addr;
+  int postInc([int offset = 0]) {
+    final ret = _addr + offset;
     _addr += reg[0x0f];
-    if (_addr > ramSize) {
+    if (_addr >= ramSize) {
       _addr -= ramSize;
     }
     return ret;
@@ -81,15 +93,15 @@ class Vdp {
       val << 3 & 0xf00 | val << 2 & 0x0f0 | val << 1 & 0x00f;
 
   int get data => ram == ramVram
-      ? vram[_addr++] << 16 | vram[postInc()]
+      ? vram[_addr] << 16 | vram[postInc(1)]
       : ram == ramCram
           ? encodeCram(cram[postInc()])
           : vsram[postInc()];
 
   set data(int value) {
     if (ram == ramVram) {
-      vram[_addr++] = value >> 16;
-      vram[postInc()] = value.mask8;
+      vram[_addr] = value >> 16;
+      vram[postInc(1)] = value.mask8;
     } else {
       final addr = postInc() >> 1;
       if (ram == ramCram) {
@@ -133,5 +145,12 @@ class Vdp {
       0x05 || 0x40 => (ram, ramSize = ramVsram, vsram.length),
       _ => 0,
     };
+  }
+
+  String dump() {
+    final regStr = [0, 4, 8, 12, 16, 20]
+        .map((i) => reg.sublist(i, i + 4).map((e) => e.hex8).join("-"))
+        .join(" ");
+    return "vdp: $regStr";
   }
 }

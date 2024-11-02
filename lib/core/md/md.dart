@@ -1,6 +1,7 @@
 // Dart imports:
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/md/vdp_renderer.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../../util/util.dart';
@@ -55,11 +56,15 @@ class Md implements Core {
   }
 
   int _clocks = 0;
+  int _nextScanClock = 0;
+  int _nextAudioClock = 0;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
+    bool rendered = false;
+
     while (_clocks >= cpuM68.clocks) {
       cpuM68.exec();
     }
@@ -70,15 +75,28 @@ class Md implements Core {
 
     _clocks += 4;
 
-    return ExecResult(_clocks, true, false);
+    if (_clocks >= _nextScanClock) {
+      _nextScanClock += clocksInScanline;
+      vdp.renderLine();
+      rendered = true;
+    }
+
+    if (_clocks >= _nextAudioClock) {
+      _nextAudioClock += 1000;
+      _onAudio(AudioBuffer(44100, 2, psg.render(1000)));
+    }
+
+    return ExecResult(_clocks, true, rendered);
   }
 
   /// returns screen buffer as hSize x vSize argb
   @override
   ImageBuffer imageBuffer() => vdp.imageBuffer;
 
-  void Function(AudioBuffer) _onAudio = (_) {};
+  void Function(AudioBuffer) _onAudio =
+      (_) {}; // call this after rendering audio
 
+  // set audio callback. used by CoreController
   @override
   onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
@@ -89,8 +107,6 @@ class Md implements Core {
   void reset() {
     busM68.onReset();
     busZ80.onReset();
-    cpuM68.reset();
-    cpuZ80.reset();
   }
 
   /// handles pad down/up events
@@ -125,8 +141,9 @@ class Md implements Core {
     final regM68 = cpuM68.dump();
     final asmM68 = disasm(cpuM68.pc);
     final regZ80 = cpuZ80.dump();
+    final vdpRegs = vdp.dump();
 
-    return "${asmM68.i0}\n$regM68\n\n$regZ80";
+    return "${asmM68.i0}\n$regM68\n\n$regZ80\n\n$vdpRegs";
   }
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]

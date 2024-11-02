@@ -21,7 +21,11 @@ class BusM68 {
 
   final pad = Pad();
 
-  void onReset() {}
+  void onReset() {
+    cpu.reset();
+    vdp.reset();
+    psg.reset();
+  }
 
   final ram = Uint8List(0x10000);
 
@@ -30,13 +34,12 @@ class BusM68 {
 
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
-      // print(
-      //     "read: ${addr.hex32} ${top.hex8} ${offset.hex32} l:${rom.rom.length} data:${offset < rom.rom.length ? rom.rom[offset].hex8 : "-"}");
+
       if (offset < rom.rom.length) {
         return rom.rom[offset];
-      } else {
-        return 0x00;
       }
+
+      return 0x00;
     }
 
     if (top == 0xff) {
@@ -60,15 +63,15 @@ class BusM68 {
 
   int read16(int addr) {
     final top = addr >> 16 & 0xff;
+
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
-      // print(
-      //     "read: ${addr.hex32} ${top.hex8} ${offset.hex32} l:${rom.rom.length} data:${offset < rom.rom.length ? rom.rom[offset].hex8 : "-"}");
+
       if (offset < rom.rom.length - 1) {
         return rom.rom[offset] << 8 | rom.rom[offset.inc];
-      } else {
-        return 0x00;
       }
+
+      return 0x00;
     }
 
     if (top == 0xff) {
