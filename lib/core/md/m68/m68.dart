@@ -110,19 +110,15 @@ class M68 {
 
   set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
 
-  // I/O
-  int input(int port) => bus.input(port);
-  void output(int port, int data) => bus.output(port, data);
-
   // memory access
   int read8(int addr) {
     clocks += 4;
-    return bus.read(addr.mask24);
+    return bus.read8(addr.mask24);
   }
 
   void write8(int addr, int data) {
     clocks += 4;
-    bus.write(addr.mask24, data.mask8);
+    bus.write8(addr.mask24, data.mask8);
   }
 
   int read16(int addr) {
@@ -132,9 +128,7 @@ class M68 {
       throw BusError(addr, _pc.dec2.mask32, true, false);
     }
 
-    final d0 = bus.read(addr.mask24);
-    final d1 = bus.read(addr.inc.mask24);
-    return d0 << 8 | d1;
+    return bus.read16(addr.mask24);
   }
 
   void write16(int addr, int data) {
@@ -144,8 +138,7 @@ class M68 {
       throw BusError(addr, _pc, false, false);
     }
 
-    bus.write(addr.mask24, data >> 8 & 0xff);
-    bus.write(addr.inc.mask24, data.mask8);
+    bus.write16(addr.mask24, data);
   }
 
   int read32(int addr) {
@@ -187,10 +180,9 @@ class M68 {
   int pc16() {
     clocks += 4;
 
-    final d0 = bus.read(_pc.mask24);
-    final d1 = bus.read(_pc.inc.mask24);
+    final d0 = bus.read16(_pc.mask24);
     _pc = _pc.inc2;
-    return d0 << 8 | d1;
+    return d0;
   }
 
   int pc32() {

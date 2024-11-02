@@ -1,11 +1,13 @@
 import 'dart:typed_data';
 
 import 'bus_m68.dart';
+import 'psg.dart';
 import 'z80/z80.dart';
 
 class BusZ80 {
   late BusM68 busM68;
   late Z80 cpu;
+  late Psg psg;
 
   BusZ80();
 
@@ -28,7 +30,7 @@ class BusZ80 {
   int read(int addr) {
     if (addr < 0x2000) return ram[addr];
 
-    if (addr >= 0x8000) return busM68.read(_bank << 15 | addr & 0x7fff);
+    if (addr >= 0x8000) return busM68.read16(_bank << 15 | addr & 0x7fff) >> 8;
 
     return switch (addr) {
       0x4000 => 0x00, // ym2612 a0

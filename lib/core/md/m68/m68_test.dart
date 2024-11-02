@@ -16,13 +16,24 @@ class BusM68Test extends BusM68 {
   BusM68Test();
 
   @override
-  int read(int addr) {
+  int read8(int addr) {
     return ram_[addr.mask24];
   }
 
   @override
-  void write(int addr, int data) {
+  int read16(int addr) {
+    return read8(addr) << 8 | read8(addr.inc);
+  }
+
+  @override
+  void write8(int addr, int data) {
     ram_[addr.mask24] = data.mask8;
+  }
+
+  @override
+  void write16(int addr, int data) {
+    write8(addr, data >> 8);
+    write8(addr.inc, data);
   }
 }
 

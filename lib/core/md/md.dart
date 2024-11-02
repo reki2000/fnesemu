@@ -11,6 +11,7 @@ import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
 import 'm68/m68_disasm.dart';
+import 'psg.dart';
 import 'vdp.dart';
 import 'z80/z80.dart';
 
@@ -23,6 +24,7 @@ class Md implements Core {
   late final BusM68 busM68;
 
   final vdp = Vdp();
+  final psg = Psg();
 
   static const systemClockHz_ = 21477270; // 21.47727MHz
 
@@ -45,9 +47,11 @@ class Md implements Core {
     busM68.cpu = cpuM68;
     busM68.busZ80 = busZ80;
     busM68.vdp = vdp;
+    busM68.psg = psg;
 
     busZ80.cpu = cpuZ80;
     busZ80.busM68 = busM68;
+    busZ80.psg = psg;
   }
 
   int _clocks = 0;
@@ -129,9 +133,8 @@ class Md implements Core {
   @override
   Pair<String, int> disasm(int addr) {
     final addrHex = addr.hex24;
-    final data = List.generate(6,
-        (i) => busM68.read(addr + i * 2) << 8 | busM68.read(addr + i * 2 + 1),
-        growable: false);
+    final data =
+        List.generate(6, (i) => busM68.read16(addr + i * 2), growable: false);
     try {
       final (inst, next) = Disasm().disasm(data, addr);
       return Pair("$addrHex: ${data[0].hex16}   $inst", next * 2);
@@ -154,7 +157,7 @@ class Md implements Core {
 
   // debug: read mem
   @override
-  int read(int addr) => busM68.read(addr);
+  int read(int addr) => busM68.read8(addr);
 
   // debug: render BG
   @override
