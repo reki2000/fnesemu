@@ -9,8 +9,6 @@ import 'z80.dart';
 class BusZ80Test extends BusZ80 {
   final ram_ = Uint8List(0x10000);
 
-  late Z80 cpu;
-
   BusZ80Test();
 
   @override
@@ -190,7 +188,7 @@ void main(List<String> args) {
       print("Test $testNo failed. expected, actual:\n$dump2\n$dump1");
       print(List.generate(dump1.length, (i) => dump1[i] == dump2[i] ? " " : "^")
           .join());
-      print(bus.wrLog);
+      print(bus.wrLog.toString());
       return;
     }
 
@@ -201,7 +199,7 @@ void main(List<String> args) {
       final log = "${bus.wrLog[i][0]} ${bus.wrLog[i][1]}-1";
       if (wr != log) {
         print("Test $testNo failed. expected, actual:\n$wr, $log");
-        print(bus.wrLog);
+        print(bus.wrLog.toString());
         return;
       }
       i++;
@@ -212,4 +210,8 @@ void main(List<String> args) {
   }
 
   print("All tests passed.");
+}
+
+void print(String msg) {
+  stdout.writeln(msg);
 }

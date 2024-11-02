@@ -11,8 +11,6 @@ import 'm68.dart';
 class BusM68Test extends BusM68 {
   final ram_ = List<int>.filled(0x1000000, 0xff);
 
-  late M68 cpu;
-
   BusM68Test();
 
   @override
@@ -217,4 +215,8 @@ class Mem {
   final int addr;
   final int val;
   Mem(this.addr, this.val);
+}
+
+void print(String msg) {
+  stdout.writeln(msg);
 }

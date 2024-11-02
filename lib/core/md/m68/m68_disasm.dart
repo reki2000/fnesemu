@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fnesemu/util/int.dart';
 
 extension IntBit on int {
@@ -205,7 +207,11 @@ int main(List<String> args) {
   final (inst, size) = disasm.disasm(data, 0);
 
   print(inst);
-  print(size);
+  print(size.toString());
 
   return 0;
+}
+
+void print(String msg) {
+  stdout.writeln(msg);
 }
