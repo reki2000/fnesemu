@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import '../types.dart';
+import 'bus_m68.dart';
 
 class Vdp {
   Vdp();
+
+  late BusM68 bus;
 
   final vram = Uint8List(0x10000);
   final cram = List<int>.filled(0x80, 0); // bbbgggrrr
@@ -21,8 +24,10 @@ class Vdp {
 
   List<int> reg = List<int>.filled(32, 0);
 
-  bool get enabeHInt => reg[0].bit5;
+  bool get fillLeft8 => reg[0].bit5;
+  bool get enableHInt => reg[0].bit4;
   bool get stopHCounter => reg[0].bit1;
+  bool get disableDisplay => reg[0].bit0;
   bool get enableDisplay => reg[1].bit6;
   bool get enableVInt => reg[1].bit5;
   bool get enableDma => reg[1].bit4;
@@ -73,7 +78,9 @@ class Vdp {
     if (port == 0x00) {
       return data;
     } else if (port == 0x04) {
-      return status;
+      final val = status;
+      status &= ~0x80;
+      return val;
     } else if (port == 0x08) {
       return vCounter << 8 | hCounter >> 1;
     }

@@ -39,7 +39,7 @@ class Pad {
         const PadButton("Z"), // 11
       ];
 
-  static const buttonBits = [
+  static const buttonIndice = [
     [8, 7, 3, 2, 1, 0],
     [6, 5, -2, -2, 1, 0],
     [8, 7, 3, 2, 1, 0],
@@ -64,23 +64,29 @@ class Pad {
         counter[id] = 0;
       }
     }
+    // print("pad:$id writeData ${val.hex8} th:${th[id]} counter:${counter[id]}");
   }
 
   int readData(int id) {
-    final val =
-        buttonBits[counter[id]].reduce((prev, idx) => prev << 1 | idx == -2
-            ? 0
-            : idx == -1 || isPressed[id][buttons[idx].name]!
-                ? 1
-                : 0);
-    print("pad:$id counter:${counter[id]} ${val.hex8}");
+    final val = buttonIndice[counter[id]].fold(
+        0,
+        (prev, idx) =>
+            prev << 1 |
+            (idx == -2
+                ? 0
+                : (idx == -1 || !isPressed[id][buttons[idx].name]!)
+                    ? 1
+                    : 0));
+    // print(
+    //     "pad:$id counter:${counter[id]} ${val.hex8} isPressed:${isPressed[id]}");
     return val;
   }
 
   void writeCtrl(int id, int val) {
     if (val.bit6) {
       th[id] = true;
-      counter[id] = 0;
     }
+    counter[id] = 0;
+    // print("pad:$id writeCtrl ${val.hex8} th:${th[id]} counter:${counter[id]}");
   }
 }

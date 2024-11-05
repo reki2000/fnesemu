@@ -93,7 +93,17 @@ extension VdpRenderer on Vdp {
     return ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f;
   }
 
-  void renderLine() {
+  // true: rendered, false: retrace
+  bool renderLine() {
+    vCounter++;
+
+    if (vCounter == height + retrace) {
+      vCounter = 0;
+    }
+
+    status &= ~0x04; // end hsync
+    status &= ~0x80; // off: vsync int occureed
+
     y = vCounter - retrace ~/ 2;
     final ctx0 = _BgPattern(reg[2] << 10 & 0xe000);
     final ctx1 = _BgPattern(reg[3] << 13 & 0xe000);
@@ -109,15 +119,24 @@ extension VdpRenderer on Vdp {
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
-      status |= 0x04;
+      status &= ~0x08;
     } else {
-      status &= ~0x04;
+      status |= 0x08;
     }
 
-    vCounter++;
+    if (y == height && enableVInt) {
+      status |= 0x80;
+      bus.interrupt(6);
+    }
 
-    if (vCounter == height + retrace) {
-      vCounter = 0;
+    return status.bit3;
+  }
+
+  void startHsync() {
+    // print("status:${status.hex8} enableHInt:$enableHInt");
+    if (!status.bit3 && enableHInt) {
+      status |= 0x04; // start hsync
+      bus.interrupt(4);
     }
   }
 }

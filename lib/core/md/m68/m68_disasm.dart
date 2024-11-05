@@ -11,13 +11,13 @@ class Disasm {
 
   String opBit(int op) => ["btst", "bchg", "bclr", "bset"][op];
 
-  String opRot(int op, bool r) =>
-      ["as", "ls", "ro", "rox"][op] + (r ? "r" : "l");
+  String opRot(int op, bool l) =>
+      ["as", "ls", "ro", "rox"][op] + (l ? "l" : "r");
 
   String opLog(int op) =>
       ["or", "and", "sub", "add", "-", "eor", "cmp"][op >> 1];
 
-  String opSubCmpAdd(int op) => ["sub", "cmp", "-", "add"][op >> 1 & 3];
+  String opSubCmpAdd(int op) => ["sub", "cmp", "add", "-"][op >> 1 & 3];
 
   String sz0(int s) => ["b", "w", "l", "-"][s];
   String sz1(bool s) => s ? "l" : "w";

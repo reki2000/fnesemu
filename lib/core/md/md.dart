@@ -34,7 +34,7 @@ class Md implements Core {
   int get systemClockHz => systemClockHz_;
 
   @override
-  int get scanlinesInFrame => 263;
+  int get scanlinesInFrame => vdp.height + vdp.retrace;
 
   @override
   int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
@@ -51,6 +51,8 @@ class Md implements Core {
     busM68.vdp = vdp;
     busM68.psg = psg;
 
+    vdp.bus = busM68;
+
     busZ80.cpu = cpuZ80;
     busZ80.busM68 = busM68;
     busZ80.psg = psg;
@@ -58,6 +60,7 @@ class Md implements Core {
 
   int _clocks = 0;
   int _nextScanClock = 0;
+  int _nextHsyncClock = 0;
   int _nextAudioClock = 0;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
@@ -66,28 +69,30 @@ class Md implements Core {
   ExecResult exec() {
     bool rendered = false;
 
-    while (_clocks >= cpuM68.clocks) {
-      cpuM68.exec();
-    }
+    final m68ExecSuccess = cpuM68.exec();
 
-    while (_clocks < cpuZ80.clocks) {
-      cpuZ80.exec();
+    // while (_clocks < cpuZ80.clocks) {
+    //   cpuZ80.exec();
+    // }
+
+    if (_clocks >= _nextHsyncClock) {
+      _nextHsyncClock += clocksInScanline;
+      vdp.startHsync();
     }
 
     if (_clocks >= _nextScanClock) {
       _nextScanClock += clocksInScanline;
-      vdp.renderLine();
-      rendered = true;
+      rendered = vdp.renderLine();
     }
 
     if (_clocks >= _nextAudioClock) {
-      _nextAudioClock += 1000;
+      _nextAudioClock += clocksInScanline;
       _onAudio(AudioBuffer(44100, 2, psg.render(1000)));
     }
 
-    _clocks += 4;
+    _clocks = cpuM68.clocks;
 
-    return ExecResult(_clocks, true, rendered);
+    return ExecResult(_clocks, m68ExecSuccess, rendered);
   }
 
   /// returns screen buffer as hSize x vSize argb
@@ -109,8 +114,9 @@ class Md implements Core {
     busM68.onReset();
     busZ80.onReset();
     _clocks = 0;
-    _nextScanClock = 0;
-    _nextAudioClock = 0;
+    _nextScanClock = scanlinesInFrame;
+    _nextHsyncClock = _nextScanClock - 36;
+    _nextAudioClock = scanlinesInFrame;
   }
 
   /// handles pad down/up events
@@ -147,7 +153,7 @@ class Md implements Core {
     final regZ80 = cpuZ80.dump();
     final vdpRegs = vdp.dump();
 
-    return "${asmM68.i0}\n$regM68\n\n$regZ80\n\n$vdpRegs";
+    return "${asmM68.i0}\n$regM68 v:${vdp.vCounter}\n\n$regZ80\n\n$vdpRegs";
   }
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
@@ -158,7 +164,7 @@ class Md implements Core {
         List.generate(6, (i) => busM68.read16(addr + i * 2), growable: false);
     try {
       final (inst, next) = Disasm().disasm(data, addr);
-      return Pair("$addrHex: ${data[0].hex16} $inst", next * 2);
+      return Pair("$addrHex: ${data[0].hex16}  $inst", next * 2);
     } catch (e) {
       return Pair("$addrHex: [$e]", 2);
     }
@@ -170,7 +176,8 @@ class Md implements Core {
 
   // debug: set debug logging
   @override
-  String get tracingState => "";
+  String get tracingState =>
+      "${disasm(cpuM68.pc).i0.padRight(44)} ${cpuM68.dump().replaceAll("\n", " " "")}";
 
   // debug: dump vram
   @override

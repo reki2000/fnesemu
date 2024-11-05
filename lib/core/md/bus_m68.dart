@@ -114,7 +114,9 @@ class BusM68 {
       }
     }
 
-    if (top == 0xa1) {}
+    if (top == 0xa1) {
+      addr.bit0 ? writeIo16(addr, data) : writeIo16(addr, data << 8);
+    }
 
     if (top == 0xa0 && busZ80.busreq) {
       busZ80.write(addr.mask16, data);
@@ -134,7 +136,7 @@ class BusM68 {
     }
 
     if (top == 0xa1) {
-      writeIo16(addr, data);
+      writeIo16(addr.mask16, data);
     }
 
     if (top == 0xa0 && busZ80.busreq) {
@@ -146,10 +148,8 @@ class BusM68 {
   int readIo16(int addr) {
     return switch (addr & 0xfffe) {
       0x00 => 0x20, // domestic, ntsc, no fdd, version 0
-      0x02 || 0x04 || 0x06 => pad.readData(addr >> 1 & 0x03), // data
-      0x08 => 0x00, // ctrl 1 (ctrl1)
-      0x0a => 0x00, // ctrl 2 (ctrl2)
-      0x0c => 0x00, // ctrl 3 (exp)
+      0x02 || 0x04 || 0x06 => pad.readData((addr >> 1 & 0x03).dec), // data
+      0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
       0x12 => 0x00, // s-ctrl 1
@@ -167,16 +167,17 @@ class BusM68 {
   }
 
   void writeIo16(int addr, int data) {
-    final _ = switch (addr) {
+    // print("io:${addr.hex32} ${data.hex8}");
+    final _ = switch (addr & 0xfffe) {
       0x00 => 0x20, // domestic, ntsc, no fdd, version 0
       0x02 ||
       0x04 ||
       0x06 =>
-        pad.writeData(addr >> 1 & 0x03, data), // data 1 (ctrl1)
+        pad.writeData((addr >> 1 & 0x03).dec, data), // data 1 (ctrl1)
       0x08 ||
       0x0a ||
       0x0c =>
-        pad.writeCtrl(addr >> 1 & 0x03, data), // ctrl 1 (ctrl1)
+        pad.writeCtrl((addr >> 1 & 0x03), data), // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
       0x12 => 0x00, // s-ctrl 1
@@ -191,5 +192,11 @@ class BusM68 {
       0x1200 => busZ80.reset = data == 0x0100, // z80 reset
       _ => 0x00,
     };
+  }
+
+  void interrupt(int level) {
+    if (cpu.assertedIntLevel < level) {
+      cpu.assertedIntLevel = level;
+    }
   }
 }

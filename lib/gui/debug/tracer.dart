@@ -36,23 +36,32 @@ class RingBuffer {
 
 class Tracer {
   final StreamController<String> traceStreamController;
+
+  final bool skipSimilar;
   final _ringBuffer = RingBuffer(40);
 
-  Tracer(this.traceStreamController);
+  Tracer(this.traceStreamController, {this.skipSimilar = false});
 
   void addLog(String log) {
+    final state = log;
+
+    if (!skipSimilar) {
+      traceStreamController.add("$state\n");
+      return;
+    }
+
     // check redundancy of the first 73 chars which represents the CPU state
     // C78C  10 FB     BPL $C789                       A:00 X:00 Y:00 P:32 SP:FD
     // E084  BD CE E0  LDA $E0CE, X                    A:02 X:12 Y:00 P:94 SP:FF
     // 0123456789012345678901234567890123456789012345678901234567890123456789012
     // 0         1         2         3         4         5         6         7
     // change of X or Y is ignored for X,Y are often used as a loop counter
-    final state = log;
     if (_ringBuffer
         .addOnlyNewItem(state.substring(0, 73).replaceRange(52, 62, ""))) {
       if (_ringBuffer.recovered) {
         traceStreamController.add("...\n");
       }
+
       traceStreamController.add("$state\n");
     }
   }

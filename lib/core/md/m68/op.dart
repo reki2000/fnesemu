@@ -10,6 +10,13 @@ import 'op_e.dart';
 
 extension Op on M68 {
   bool exec() {
+    if (assertedIntLevel >= maskedIntLevel) {
+      trap((assertedIntLevel << 2) + 0x60, level: assertedIntLevel);
+      // print("trap:${((assertedIntLevel << 2) + 0x60).hex32}, pc:${pc.hex32}");
+      assertedIntLevel = 0;
+      return true;
+    }
+
     pc0 = pc;
     final op = op0 = pc16();
 

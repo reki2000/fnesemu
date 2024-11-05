@@ -85,9 +85,7 @@ class M68 {
   bool get nf => _sr & bitN != 0;
   bool get xf => _sr & bitX != 0;
 
-  bool get i0f => _sr & bitI0 != 0;
-  bool get i1f => _sr & bitI1 != 0;
-  bool get i2f => _sr & bitI2 != 0;
+  int get maskedIntLevel => _sr >> 8 & 0x07;
 
   bool get sf => _sr & bitS != 0;
   bool get tf => _sr & bitT != 0;
@@ -98,10 +96,6 @@ class M68 {
   set nf(bool on) => _sr = on ? _sr | bitN : _sr & ~bitN;
   set xf(bool on) => _sr = on ? _sr | bitX : _sr & ~bitX;
 
-  set i0f(bool on) => _sr = on ? _sr | bitI0 : _sr & ~bitI0;
-  set i1f(bool on) => _sr = on ? _sr | bitI1 : _sr & ~bitI1;
-  set i2f(bool on) => _sr = on ? _sr | bitI2 : _sr & ~bitI2;
-
   // supervisor mode flags switches stack pointer
   set sf(bool on) {
     a.sf = on;
@@ -109,6 +103,9 @@ class M68 {
   }
 
   set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
+
+  // interrupt
+  int assertedIntLevel = 0;
 
   // memory access
   int read8(int addr) {
@@ -356,12 +353,14 @@ class M68 {
     clocks += 8; // 2 prefetch : 44
   }
 
-  void trap(int vector) {
+  void trap(int vector, {int level = 0}) {
     // debug(
     //     "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
+    final savedSr = sr.mask16;
     sf = true;
+    // sr = sr & ~70 | level << 8;
     push32(pc); // +8
-    push16(sr.mask16); // +4 : +12
+    push16(savedSr); // +4 : +12
     _pc = read32(vector); // +8 : 32
     clocks += 8; // 2 prefetch : 40
   }
