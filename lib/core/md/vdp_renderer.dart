@@ -97,20 +97,20 @@ extension VdpRenderer on Vdp {
   bool renderLine() {
     vCounter++;
 
-    if (vCounter == height + retrace) {
+    if (vCounter == Vdp.height + Vdp.retrace) {
       vCounter = 0;
     }
 
     status &= ~0x04; // end hsync
     status &= ~0x80; // off: vsync int occureed
 
-    y = vCounter - retrace ~/ 2;
+    y = vCounter - Vdp.retrace ~/ 2;
     final ctx0 = _BgPattern(reg[2] << 10 & 0xe000);
     final ctx1 = _BgPattern(reg[3] << 13 & 0xe000);
 
     _setBgSize();
 
-    if (0 <= y && y < height) {
+    if (0 <= y && y < Vdp.height) {
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color = spriteColor();
         color = (color == 0) ? _bgColor(ctx0) : color;
@@ -124,7 +124,7 @@ extension VdpRenderer on Vdp {
       status |= 0x08;
     }
 
-    if (y == height && enableVInt) {
+    if (y == Vdp.height && enableVInt) {
       status |= 0x80;
       bus.interrupt(6);
     }

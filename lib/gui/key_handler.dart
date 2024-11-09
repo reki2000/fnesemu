@@ -20,6 +20,10 @@ class KeyHandler {
       PhysicalKeyboardKey.keyS: controller.buttons[5],
       PhysicalKeyboardKey.keyZ: controller.buttons[6],
       PhysicalKeyboardKey.keyX: controller.buttons[7],
+      PhysicalKeyboardKey.keyC: controller.buttons[8],
+      PhysicalKeyboardKey.keyQ: controller.buttons[9],
+      PhysicalKeyboardKey.keyW: controller.buttons[10],
+      PhysicalKeyboardKey.keyE: controller.buttons[11],
     };
   }
 

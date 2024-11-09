@@ -12,16 +12,18 @@ class Pad {
         List.filled(controllerNum, {for (var e in buttons) e.name: false});
   }
 
-  void keyDown(int controllerId, PadButton d) {
-    if (0 <= controllerId && controllerId < controllerNum) {
-      isPressed[controllerId][d.name] = true;
+  void keyDown(int id, PadButton d) {
+    if (0 <= id && id < controllerNum) {
+      isPressed[id][d.name] = true;
     }
+    // print("kwydown pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
-  void keyUp(int controllerId, PadButton d) {
-    if (0 <= controllerId && controllerId < controllerNum) {
-      isPressed[controllerId][d.name] = false;
+  void keyUp(int id, PadButton d) {
+    if (0 <= id && id < controllerNum) {
+      isPressed[id][d.name] = false;
     }
+    // print("keyup pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
   List<PadButton> get buttons => [
@@ -41,13 +43,13 @@ class Pad {
 
   static const buttonIndice = [
     [8, 7, 3, 2, 1, 0],
-    [6, 5, -2, -2, 1, 0],
+    [5, 6, -2, -2, 1, 0],
     [8, 7, 3, 2, 1, 0],
-    [6, 5, -2, -2, -2, -2],
+    [5, 6, -2, -2, -2, -2],
     [8, 7, 4, 9, 10, 11],
-    [6, 6, -1, -1, -1, -1],
+    [5, 6, -1, -1, -1, -1],
     [8, 7, 3, 2, 1, 0],
-    [6, 5, -2, -2, 1, 0],
+    [5, 6, -2, -2, 1, 0],
   ];
 
   List<int> counter = [0, 0, 0];
@@ -79,7 +81,7 @@ class Pad {
                     : 0));
     // print(
     //     "pad:$id counter:${counter[id]} ${val.hex8} isPressed:${isPressed[id]}");
-    return val;
+    return val | (th[id] ? 0x40 : 0);
   }
 
   void writeCtrl(int id, int val) {

@@ -52,8 +52,8 @@ class Vdp {
   int interlaceMode = 0;
 
   int width = 256; // h32: 256, h40: 320
-  int height = 224; // ntsc 224, pal: 224, pal30: 240
-  int retrace = 38; // ntsc 38, pal: 98, pal30: 82
+  static const height = 224; // ntsc 224, pal: 224, pal30: 240
+  static const retrace = 38; // ntsc 38, pal: 98, pal30: 82
 
   int vCounter = 0;
   int hCounter = 0;

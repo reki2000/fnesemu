@@ -34,10 +34,10 @@ class Md implements Core {
   int get systemClockHz => systemClockHz_;
 
   @override
-  int get scanlinesInFrame => vdp.height + vdp.retrace;
+  int get scanlinesInFrame => Vdp.height + Vdp.retrace;
 
   @override
-  int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
+  int get clocksInScanline => systemClockHz_ ~/ 59.97 ~/ scanlinesInFrame;
 
   Md() {
     busM68 = BusM68();
@@ -71,9 +71,11 @@ class Md implements Core {
 
     final m68ExecSuccess = cpuM68.exec();
 
-    // while (_clocks < cpuZ80.clocks) {
-    //   cpuZ80.exec();
-    // }
+    _clocks = cpuM68.clocks;
+
+    while (_clocks < cpuZ80.clocks) {
+      cpuZ80.exec();
+    }
 
     if (_clocks >= _nextHsyncClock) {
       _nextHsyncClock += clocksInScanline;
@@ -82,15 +84,14 @@ class Md implements Core {
 
     if (_clocks >= _nextScanClock) {
       _nextScanClock += clocksInScanline;
-      rendered = vdp.renderLine();
+      vdp.renderLine();
+      rendered = true;
     }
 
     if (_clocks >= _nextAudioClock) {
       _nextAudioClock += clocksInScanline;
       _onAudio(AudioBuffer(44100, 2, psg.render(1000)));
     }
-
-    _clocks = cpuM68.clocks;
 
     return ExecResult(_clocks, m68ExecSuccess, rendered);
   }

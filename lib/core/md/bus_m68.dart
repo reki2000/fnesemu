@@ -189,7 +189,7 @@ class BusM68 {
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
       0x1100 => busZ80.busreq = data == 0x0100, // z80 busreq
-      0x1200 => busZ80.reset = data == 0x0100, // z80 reset
+      0x1200 => busZ80.reset = data != 0x0100, // z80 reset
       _ => 0x00,
     };
   }
