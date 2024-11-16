@@ -52,9 +52,9 @@ class Disasm {
     final sz = sz0(size);
 
     String im([int? s]) => switch (s ?? size) {
-          0 => fetch().hex8,
-          1 => fetch().hex16,
-          2 => (fetch() << 16 | fetch()).hex32,
+          0 => fetch().mask8.hex,
+          1 => fetch().mask16.hex,
+          2 => (fetch() << 16 | fetch()).hex,
           _ => ex("im size: $s"),
         };
 
@@ -92,7 +92,7 @@ class Disasm {
     }
 
     String pcRel(int disp) =>
-        (pc + (disp == 0 ? fetch().rel16 : disp.rel8)).hex24;
+        (pc + (disp == 0 ? fetch().rel16 : disp.rel8)).hex;
 
     final asm = switch (op0) {
       0x0 => switch (op1) {

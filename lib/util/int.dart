@@ -3,6 +3,7 @@ extension IntExt on int {
   String get hex16 => mask16.toRadixString(16).padLeft(4, "0");
   String get hex24 => mask24.toRadixString(16).padLeft(6, "0");
   String get hex32 => mask32.toRadixString(16).padLeft(8, "0");
+  String get hex => toRadixString(16);
 
   int get mask8 => this & 0xff;
   int get mask16 => this & 0xffff;
