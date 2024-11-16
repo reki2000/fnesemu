@@ -112,6 +112,8 @@ class Vdp {
         h32 = value & 0x81 != 0x81;
         width = h32 ? 256 : 320;
       }
+
+      _is1st = true;
       return;
     }
 
@@ -120,6 +122,7 @@ class Vdp {
       _is1st = false;
       return;
     }
+
     _is1st = true;
 
     _addr = value << 14 & 0xc000 | _ctrl & 0x3fff;

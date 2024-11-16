@@ -59,7 +59,7 @@ class Disasm {
         };
 
     String eaEx(String base) {
-      final breaf = data[pc++];
+      final breaf = fetch();
       final disp = breaf & 0xff;
       final reg = breaf >> 12 & 7;
       final size = sz1(breaf.bit(11));
@@ -82,7 +82,7 @@ class Disasm {
         7 => switch (r) {
             0 => "(#${im(1)})",
             1 => "(#${im(2)})",
-            2 => "(#${im(s)}, pc)",
+            2 => "(#${im(1)}, pc)",
             3 => eaEx("pc"),
             4 => "#${im(s)}",
             _ => ex("s:$s m:$m r:$r"),

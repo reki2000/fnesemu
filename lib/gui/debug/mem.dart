@@ -7,12 +7,15 @@ import '../../core/core_controller.dart';
 import '../../styles.dart';
 import '../../util/util.dart';
 
+//const _mask = 0xffff;
+const _mask = 0xffffff;
+
 Widget _dump(CoreController controller, int start) {
   final lines = <String>[];
   for (var i = 0; i < 64; i++) {
-    String line = "${hex16((start + i * 16) & 0xffff)}: ";
+    String line = "${hex16((start + i * 16) & _mask)}: ";
     for (var j = 0; j < 16; j++) {
-      final addr = (start + i * 16 + j) & 0xffff;
+      final addr = (start + i * 16 + j) & _mask;
       line += "${hex8(controller.debugger.read(addr))} ";
     }
     lines.add(line);
@@ -40,14 +43,14 @@ void pushMemPage(BuildContext context, CoreController controller) {
                 SizedBox(
                     width: 50,
                     child: TextField(onChanged: (v) {
-                      if (v.length == 4) {
+                      if (v.isNotEmpty) {
                         addrNotifier.value = int.parse(v, radix: 16);
                       }
                     })),
                 ElevatedButton(
                     child: const Text("-"),
                     onPressed: () => addrNotifier.value =
-                        (addrNotifier.value - 0x400) & 0xffff),
+                        (addrNotifier.value - 0x400) & _mask),
                 ElevatedButton(
                     child: const Text("+"),
                     onPressed: () => addrNotifier.value += 0x400),

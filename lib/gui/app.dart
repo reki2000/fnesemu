@@ -155,6 +155,7 @@ class MainPageState extends State<MainPage> {
         ...[
           for (var name in [
             "test.gen",
+            "test2.gen",
             // "daimakai.pce",
             // "battleace.nes",
             // "powerdrift.nes",

@@ -105,6 +105,9 @@ class BusM68 {
     final top = addr >> 16 & 0xff;
 
     if (top == 0xff) {
+      // if (addr.mask16 == 0x1a) {
+      //   print("write8: ${addr.hex32} ${data.hex8}");
+      // }
       ram[addr.mask16] = data;
     }
 

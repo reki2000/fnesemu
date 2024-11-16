@@ -151,10 +151,15 @@ class Md implements Core {
       bool showApu = false}) {
     final regM68 = cpuM68.dump();
     final asmM68 = disasm(cpuM68.pc);
+    final stackM68 =
+        List.generate(16, (i) => busM68.ram[0xfff0 + i].hex8, growable: false)
+            .join(" ");
+
     final regZ80 = cpuZ80.dump();
+
     final vdpRegs = vdp.dump();
 
-    return "${asmM68.i0}\n$regM68 v:${vdp.vCounter}\n\n$regZ80\n\n$vdpRegs";
+    return "${asmM68.i0}\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$regZ80\n\n$vdpRegs";
   }
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]

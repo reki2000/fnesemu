@@ -33,19 +33,15 @@ extension VdpRenderer on Vdp {
   static int vMask = 0;
 
   _setBgSize() {
-    final hsz = reg[10] & 0x03;
+    final hsz = reg[16] & 0x03;
     vShift = hsz == 0
         ? 5
         : hsz == 1
             ? 6
             : 7;
-    hMask = hsz == 0
-        ? 0x1f
-        : hsz == 1
-            ? 0x3f
-            : 0x7f;
+    hMask = (1 << vShift) - 1;
 
-    final vsz = reg[10] >> 4 & 0x03;
+    final vsz = reg[16] >> 4 & 0x03;
     vMask = vsz == 0
         ? 0x1f
         : vsz == 1
@@ -66,7 +62,7 @@ extension VdpRenderer on Vdp {
     if (hCounter == 0 || h & 0x07 == 0) {
       // fetch pattern
       final name =
-          ctx.nameAddrBase | (h >> 3 & hMask) << 1 | (v >> 3) << vShift;
+          ctx.nameAddrBase | (h >> 3 & hMask) << 1 | (v >> 3) << (vShift + 1);
 
       final d0 = vram[name];
       final d1 = vram[name.inc];
