@@ -18,18 +18,20 @@ final Uint32List rgba = Uint32List.fromList(
 
 class _BgPattern {
   int nameAddrBase = 0;
+  int hScroll = 0;
   int pattern = 0; // 32 bit c3c2c1c0 * 8
   bool prior = false;
   bool hFlip = false;
   bool vFlip = false;
   int palette = 0; // pp0000
 
-  _BgPattern(this.nameAddrBase);
+  _BgPattern(this.nameAddrBase, this.hScroll);
 }
 
 extension VdpRenderer on Vdp {
   static int vShift = 0;
   static int hMask = 0;
+  static int hScrMask = 0;
   static int vMask = 0;
 
   _setBgSize() {
@@ -40,6 +42,7 @@ extension VdpRenderer on Vdp {
             ? 6
             : 7;
     hMask = (1 << vShift) - 1;
+    hScrMask = (1 << (vShift + 3)) - 1;
 
     final vsz = reg[16] >> 4 & 0x03;
     vMask = vsz == 0
@@ -56,7 +59,7 @@ extension VdpRenderer on Vdp {
   static int y = 0;
 
   int _bgColor(_BgPattern ctx) {
-    final h = hCounter;
+    final h = (hCounter + ctx.hScroll) & (width - 1);
     final v = y;
 
     if (hCounter == 0 || h & 0x07 == 0) {
@@ -101,8 +104,21 @@ extension VdpRenderer on Vdp {
     status &= ~0x80; // off: vsync int occureed
 
     y = vCounter - Vdp.retrace ~/ 2;
-    final ctx0 = _BgPattern(reg[2] << 10 & 0xe000);
-    final ctx1 = _BgPattern(reg[3] << 13 & 0xe000);
+
+    final scrBase = reg[13] << 10 & 0xfc00;
+    final isHFullScr = !reg[12].bit1;
+    final isHLineScr = reg[12].bit0;
+    final hScrAddr = scrBase +
+        (isHFullScr
+            ? 0
+            : isHLineScr
+                ? (y >> 3 << 1)
+                : (y << 1));
+
+    final ctx0 = _BgPattern(
+        reg[2] << 10 & 0xe000, vram[hScrAddr] << 8 | vram[hScrAddr.inc]);
+    final ctx1 = _BgPattern(
+        reg[3] << 13 & 0xe000, vram[hScrAddr.inc2] << 8 | vram[hScrAddr.inc3]);
 
     _setBgSize();
 

@@ -121,9 +121,14 @@ extension Op on M68 {
           d[dx] = d[dx].setL16(counter);
           if (counter != 0xffff) {
             pc = pc + disp - 2;
-            clocks += 10;
+            clocks += 2;
+          } else {
+            clocks += 6;
           }
+        } else {
+          clocks += 2;
         }
+
         return true;
       }
 
@@ -133,6 +138,7 @@ extension Op on M68 {
       }
       writeAddr(1, mode, dx, cond(cc) ? 0xffffffff : 0);
       if (mode == 3) postInc(dx, 1);
+
       return true;
     }
 
@@ -180,6 +186,7 @@ extension Op on M68 {
     }
 
     if (cond(cc)) {
+      clocks += 2;
       pc = pc0 + disp;
     }
     return true;

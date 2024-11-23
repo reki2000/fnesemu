@@ -52,7 +52,7 @@ class Debugger {
     pushStream();
 
     if (debugOption.log && _tracer == null) {
-      _tracer = Tracer(_traceStream);
+      _tracer = Tracer(_traceStream, start: 0, end: 248, maxDiffChars: 4);
       _traceSubscription = _traceStream.stream.listen((log) {
         //print(log.replaceAll("\n", ""));
         this.log.add(log.replaceAll("\n", ""));

@@ -50,6 +50,12 @@ class BusM68 {
       if (addr & 0x10 == 0x10) {
         return psg.read8(addr.mask16);
       }
+
+      if (addr & 0x01 == 0) {
+        return (addr & 0x01 == 0)
+            ? vdp.read16(addr.mask16) >> 8
+            : vdp.read16(addr & 0xfffe).mask8;
+      }
     }
 
     if (top == 0xa1) {
