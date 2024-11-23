@@ -90,7 +90,11 @@ class Vdp {
   void write16(int addr, int value) {
     final port = addr & 0x0c;
     if (port == 0x00) {
-      data = value; // data
+      if (dmaMode == 2) {
+        dmaVFill(value);
+      } else {
+        data = value; // data
+      }
     } else if (port == 0x04) {
       ctrl = value; // ctrl
     }
@@ -100,6 +104,51 @@ class Vdp {
   int _ctrl = 0;
   bool _is1st = true;
   int _addr = 0;
+
+  // dma
+  int dmaMode = 0; // 0:none, 1:mem2vram, 2:fill, 3:vram2vram
+
+  void dmsM2V() {
+    int src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
+    int length = reg[0x13] | reg[0x14] << 8;
+    print("vdp:dmsM2V:${src.hex24} ${length.hex16}");
+    while (length > 0) {
+      data = bus.read16(src);
+      src = src.inc2;
+      length--;
+    }
+
+    dmaMode = 0;
+  }
+
+  void dmaVFill(int value) {
+    int length = reg[0x13] | reg[0x14] << 8;
+    print("vdp:dmaVFill:${length.hex16}");
+    while (length > 0) {
+      data = value;
+      length--;
+    }
+
+    dmaMode = 0;
+  }
+
+  void dmaV2V() {
+    final src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
+    int length = reg[0x13] | reg[0x14] << 8;
+    print("vdp:dmsV2V:${src.hex24} ${length.hex16}");
+    while (length > 0) {
+      int value = ram == ramVram
+          ? vram[src] << 8 | vram[src.inc2]
+          : ram == ramCram
+              ? encodeCram(cram[src])
+              : vsram[src];
+      data = value;
+      src.inc2;
+      length--;
+    }
+
+    dmaMode = 0;
+  }
 
   set ctrl(int value) {
     // print(
@@ -111,6 +160,16 @@ class Vdp {
       if (regNo == 12) {
         h32 = value & 0x81 != 0x81;
         width = h32 ? 256 : 320;
+      }
+
+      if (regNo == 0x17) {
+        if (!reg[0x17].bit7) {
+          dmaMode = 1;
+        } else if (reg[0x17] & 0xc0 == 0x80) {
+          dmaMode = 2;
+        } else {
+          dmaMode = 3;
+        }
       }
 
       _is1st = true;
@@ -138,6 +197,12 @@ class Vdp {
       ram = ramVsram;
       ramSize = vsram.length;
     }
+
+    if (dmaMode == 1) {
+      dmsM2V();
+    } else if (dmaMode == 3) {
+      dmaV2V();
+    }
   }
 
   int get data => ram == ramVram
@@ -147,8 +212,8 @@ class Vdp {
           : vsram[postInc()];
 
   set data(int value) {
-    // print(
-    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16}");
+    print(
+        "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16}");
     if (ram == ramVram) {
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;

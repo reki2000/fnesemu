@@ -66,6 +66,7 @@ class RingBuffer {
         skippedCount++;
         return true;
       }
+      _nextIndex = _inc(_nextIndex);
     }
 
     skippedCount = 0;
@@ -95,7 +96,7 @@ class Tracer {
   bool isLoop = false;
 
   Tracer(this.traceStreamController,
-      {int size = 10, this.start = 0, this.end, int maxDiffChars = 0})
+      {int size = 20, this.start = 0, this.end, int maxDiffChars = 0})
       : _ringBuffer = RingBuffer(size, maxDiffChars: maxDiffChars);
 
   void addLog(String log) {
