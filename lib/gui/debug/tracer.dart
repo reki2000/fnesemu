@@ -5,49 +5,51 @@ import 'dart:async';
 /// used for supress VBLANK wait loop, filling memory, etc.
 class RingBuffer {
   final List<String> _buf;
-  final int maxDiffChars;
+  final int _maxDiffChars;
 
   int _index = 0;
-  int nextIndex = 0;
+  int _nextIndex = 0;
 
   int skippedCount = 0;
 
-  // skipped count until when currently not skipped
-  int skippedCountUntilRecover = 0;
-
-  RingBuffer(int size, {this.maxDiffChars = 0}) : _buf = List.filled(size, "");
+  RingBuffer(int size, {int maxDiffChars = 0})
+      : _maxDiffChars = maxDiffChars,
+        _buf = List.filled(size, "");
 
   void add(String item) {
     _buf[_index] = item;
-
-    _index = inc(_index);
+    _index = _inc(_index);
   }
 
-  static int _diffChars(String a, String b) {
+  bool _matched(String a, String b) {
     if (b.length < a.length) {
-      return _diffChars(b, a);
+      return _matched(b, a);
     }
 
     int diff = b.length - a.length;
 
+    if (diff > _maxDiffChars) {
+      return false;
+    }
+
     for (int i = 0; i < a.length; i++) {
       if (a[i] != b[i]) {
         diff++;
+        if (diff > _maxDiffChars) {
+          return false;
+        }
       }
     }
 
-    return diff;
+    return true;
   }
 
-  int inc(int i) => i == _buf.length - 1 ? 0 : i + 1;
-  int dec(int i) => i == 0 ? _buf.length - 1 : i - 1;
+  int _inc(int i) => i == _buf.length - 1 ? 0 : i + 1;
 
   // check if the item is matched with the expected line
   bool isExpected(String item) {
-    final isMatched = _diffChars(_buf[nextIndex], item) <= maxDiffChars;
-
-    if (isMatched) {
-      nextIndex = inc(nextIndex);
+    if (_matched(_buf[_nextIndex], item)) {
+      _nextIndex = _inc(_nextIndex);
       skippedCount++;
       return true;
     }
@@ -57,12 +59,10 @@ class RingBuffer {
 
   // prepare when the item is conteined in the buffer
   bool prepare(String item) {
-    bool isMatched = false;
+    _nextIndex = _index;
     for (int i = 0; i < _buf.length; i++) {
-      isMatched = _diffChars(_buf[nextIndex], item) <= maxDiffChars;
-      nextIndex = inc(nextIndex);
-
-      if (isMatched) {
+      if (_matched(_buf[_nextIndex], item)) {
+        _nextIndex = _inc(_nextIndex);
         skippedCount++;
         return true;
       }
