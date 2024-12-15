@@ -20,13 +20,14 @@ class _BgPattern {
   int no = 0;
   int nameAddrBase = 0;
   int hScroll = 0;
+  int vScroll = 0;
   int pattern = 0; // 32 bit c3c2c1c0 * 8
   bool prior = false;
   bool hFlip = false;
   bool vFlip = false;
   int palette = 0; // pp0000
 
-  _BgPattern(this.no, this.nameAddrBase, this.hScroll);
+  _BgPattern(this.no, this.nameAddrBase, this.hScroll, this.vScroll);
 }
 
 extension VdpRenderer on Vdp {
@@ -34,23 +35,15 @@ extension VdpRenderer on Vdp {
   static int hMask = 0;
   static int hScrMask = 0;
   static int vMask = 0;
+  static int vScrMask = 0;
 
   _setBgSize() {
-    final hsz = reg[16] & 0x03;
-    vShift = hsz == 0
-        ? 5
-        : hsz == 1
-            ? 6
-            : 7;
+    vShift = [5, 6, 7, 7][reg[16] & 0x03];
     hMask = (1 << vShift) - 1;
     hScrMask = (1 << (vShift + 3)) - 1;
 
-    final vsz = reg[16] >> 4 & 0x03;
-    vMask = vsz == 0
-        ? 0x1f
-        : vsz == 1
-            ? 0x3f
-            : 0x7f;
+    vMask = [0x1f, 0x3f, 0x7f, 0x7f][reg[16] >> 4 & 0x03];
+    vScrMask = vMask << 3 | 0x07;
   }
 
   int spriteColor() {
@@ -61,7 +54,7 @@ extension VdpRenderer on Vdp {
 
   int _bgColor(_BgPattern ctx) {
     final h = (hCounter + ctx.hScroll) % width;
-    final v = y;
+    final v = (y + ctx.vScroll) & vScrMask;
 
     if (hCounter == 0 || h & 0x07 == 0) {
       // fetch pattern
@@ -106,31 +99,33 @@ extension VdpRenderer on Vdp {
 
     y = vCounter - Vdp.retrace ~/ 2;
 
-    final scrBase = reg[13] << 10 & 0xfc00;
-    final isHFullScr = !reg[12].bit1;
-    final isHLineScr = reg[12].bit0;
-    final hScrAddr = scrBase +
-        (isHFullScr
-            ? 0
-            : isHLineScr
-                ? (y >> 3 << 1)
-                : (y << 1));
-    // final vScrollBase = reg[12].bit2 ? reg[11] << 8 | reg[10] : reg[10];
-    // final vScroll = vram[vScrollBase + (isHLineScr ? (hCounter >> 3) : 0)];
-    // y = (vCounter + vScroll) & vMask;
-
-    final ctx0 = _BgPattern(
-        0, //
-        reg[2] << 10 & 0xe000,
-        vram[hScrAddr] << 8 | vram[hScrAddr.inc]);
-    final ctx1 = _BgPattern(
-        1, //
-        reg[4] << 13 & 0xe000,
-        vram[hScrAddr.inc2] << 8 | vram[hScrAddr.inc3]);
-
     _setBgSize();
 
     if (0 <= y && y < Vdp.height) {
+      final hScrollBase = reg[13] << 10 & 0xfc00;
+      final isHFullScroll = !reg[11].bit1;
+      final isHLineScroll = reg[11].bit0;
+      final hScrollAddr = hScrollBase +
+          (isHFullScroll
+              ? 0
+              : isHLineScroll
+                  ? (y >> 3 << 1)
+                  : (y << 1));
+
+      final isVFullScroll = !reg[11].bit3;
+      final vScrollAddr = isVFullScroll ? 0 : y >> 3;
+
+      final ctx0 = _BgPattern(
+          0, //
+          reg[2] << 10 & 0xe000,
+          vram[hScrollAddr] << 8 | vram[hScrollAddr.inc],
+          vsram[vScrollAddr]);
+      final ctx1 = _BgPattern(
+          1, //
+          reg[4] << 13 & 0xe000,
+          vram[hScrollAddr.inc2] << 8 | vram[hScrollAddr.inc3],
+          vsram[vScrollAddr + 1]);
+
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color = spriteColor();
         int bg0 = _bgColor(ctx0);
