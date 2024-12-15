@@ -122,7 +122,7 @@ class Regs {
 class Z80 {
   final BusZ80 bus;
 
-  int get clocks => cycles;
+  int get clocks => cycles * 2;
   int cycles = 0;
 
   final r = Regs();
