@@ -17,6 +17,7 @@ final Uint32List rgba = Uint32List.fromList(
 );
 
 class _BgPattern {
+  int no = 0;
   int nameAddrBase = 0;
   int hScroll = 0;
   int pattern = 0; // 32 bit c3c2c1c0 * 8
@@ -25,7 +26,7 @@ class _BgPattern {
   bool vFlip = false;
   int palette = 0; // pp0000
 
-  _BgPattern(this.nameAddrBase, this.hScroll);
+  _BgPattern(this.no, this.nameAddrBase, this.hScroll);
 }
 
 extension VdpRenderer on Vdp {
@@ -59,7 +60,7 @@ extension VdpRenderer on Vdp {
   static int y = 0;
 
   int _bgColor(_BgPattern ctx) {
-    final h = (hCounter + ctx.hScroll) & (width - 1);
+    final h = (hCounter + ctx.hScroll) % width;
     final v = y;
 
     if (hCounter == 0 || h & 0x07 == 0) {
@@ -114,20 +115,29 @@ extension VdpRenderer on Vdp {
             : isHLineScr
                 ? (y >> 3 << 1)
                 : (y << 1));
+    // final vScrollBase = reg[12].bit2 ? reg[11] << 8 | reg[10] : reg[10];
+    // final vScroll = vram[vScrollBase + (isHLineScr ? (hCounter >> 3) : 0)];
+    // y = (vCounter + vScroll) & vMask;
 
     final ctx0 = _BgPattern(
-        reg[2] << 10 & 0xe000, vram[hScrAddr] << 8 | vram[hScrAddr.inc]);
+        0, //
+        reg[2] << 10 & 0xe000,
+        vram[hScrAddr] << 8 | vram[hScrAddr.inc]);
     final ctx1 = _BgPattern(
-        reg[3] << 13 & 0xe000, vram[hScrAddr.inc2] << 8 | vram[hScrAddr.inc3]);
+        1, //
+        reg[4] << 13 & 0xe000,
+        vram[hScrAddr.inc2] << 8 | vram[hScrAddr.inc3]);
 
     _setBgSize();
 
     if (0 <= y && y < Vdp.height) {
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color = spriteColor();
-        color = (color == 0) ? _bgColor(ctx0) : color;
-        color = (color == 0) ? _bgColor(ctx1) : color;
-        color = (color == 0) ? reg[7] & 0x3f : color;
+        int bg0 = _bgColor(ctx0);
+        int bg1 = _bgColor(ctx1);
+        color = color != 0
+            ? color
+            : (bg0 != 0 ? bg0 : (bg1 != 0 ? bg1 : reg[7] & 0x3f));
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
