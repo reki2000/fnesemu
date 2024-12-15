@@ -212,8 +212,8 @@ class Vdp {
           : vsram[postInc()];
 
   set data(int value) {
-    print(
-        "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16}");
+    // print(
+    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16}");
     if (ram == ramVram) {
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;

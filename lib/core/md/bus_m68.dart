@@ -141,7 +141,7 @@ class BusM68 {
     }
 
     if (top == 0xc0) {
-      print("write16: ${addr.hex32} ${data.hex16} pc:${cpu.pc.hex24}");
+      // print("write16: ${addr.hex32} ${data.hex16} pc:${cpu.pc.hex24}");
       vdp.write16(addr.mask16, data);
     }
 

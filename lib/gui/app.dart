@@ -157,7 +157,9 @@ class MainPageState extends State<MainPage> {
             "test.gen",
             "test2.gen",
             "test3.gen",
-            "tilescroll.gen"
+            "tilescroll.gen",
+            "test-window.gen",
+            "test-joy.gen",
             // "daimakai.pce",
             // "battleace.pce",
             // "powerdrift.pce",

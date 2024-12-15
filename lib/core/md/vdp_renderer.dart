@@ -86,7 +86,7 @@ extension VdpRenderer on Vdp {
     return ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f;
   }
 
-  // true: rendered, false: retrace
+  // true: require rendering+hsync, false: retrace
   bool renderLine() {
     vCounter++;
 
@@ -101,7 +101,9 @@ extension VdpRenderer on Vdp {
 
     _setBgSize();
 
-    if (0 <= y && y < Vdp.height) {
+    final requireRender = 0 <= y && y < Vdp.height;
+
+    if (requireRender) {
       final hScrollBase = reg[13] << 10 & 0xfc00;
       final isHFullScroll = !reg[11].bit1;
       final isHLineScroll = reg[11].bit0;
@@ -136,9 +138,6 @@ extension VdpRenderer on Vdp {
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
-      status &= ~0x08;
-    } else {
-      status |= 0x08;
     }
 
     if (y == Vdp.height && enableVInt) {
@@ -146,7 +145,13 @@ extension VdpRenderer on Vdp {
       bus.interrupt(6);
     }
 
-    return status.bit3;
+    if (requireRender) {
+      status &= ~0x08;
+      return true;
+    }
+
+    status |= 0x08;
+    return false;
   }
 
   void startHsync() {

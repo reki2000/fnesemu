@@ -60,8 +60,9 @@ class Md implements Core {
 
   int _clocks = 0;
   int _nextScanClock = 0;
-  int _nextHsyncClock = 0;
   int _nextAudioClock = 0;
+
+  bool _hsyncRequired = false;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -77,15 +78,14 @@ class Md implements Core {
       cpuZ80.exec();
     }
 
-    if (_clocks >= _nextHsyncClock) {
-      _nextHsyncClock += clocksInScanline;
+    if (_hsyncRequired && _clocks >= _nextScanClock - 36) {
       vdp.startHsync();
+      _hsyncRequired = false;
     }
 
     if (_clocks >= _nextScanClock) {
       _nextScanClock += clocksInScanline;
-      vdp.renderLine();
-      rendered = true;
+      _hsyncRequired = rendered = vdp.renderLine();
     }
 
     if (_clocks >= _nextAudioClock) {
@@ -116,7 +116,6 @@ class Md implements Core {
     busZ80.onReset();
     _clocks = 0;
     _nextScanClock = scanlinesInFrame;
-    _nextHsyncClock = _nextScanClock - 36;
     _nextAudioClock = scanlinesInFrame;
   }
 
