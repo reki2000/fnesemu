@@ -105,7 +105,7 @@ class M68 {
   set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
 
   // interrupt
-  int assertedIntLevel = 0;
+  int assertedIntLevel = -1;
 
   // memory access
   int read8(int addr) {
@@ -372,6 +372,7 @@ class M68 {
     ssp = read32(0x00);
     _pc = read32(0x04);
     clocks = 0;
+    assertedIntLevel = -1;
   }
 
   String dump() {

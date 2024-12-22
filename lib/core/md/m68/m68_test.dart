@@ -79,7 +79,7 @@ int main() {
       .cast<File>();
 
   final skipFiles = [];
-  final selectFiles = ["DB"];
+  final selectFiles = [];
   final skipTests = [];
 
   // https://github.com/SingleStepTests/ProcessorTests/issues/21
@@ -152,6 +152,9 @@ int main() {
 
       final expected = cpu2.debug().substring(0, 207);
       final actual = cpu.debug().substring(0, 207);
+      // final expected = cpu2.debug();
+      // final actual = cpu.debug();
+      // print(expected);
 
       if (expected != actual) {
         debug('$expected\n$actual');

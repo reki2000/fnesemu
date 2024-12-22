@@ -13,7 +13,7 @@ extension Op on M68 {
     if (assertedIntLevel >= maskedIntLevel) {
       trap((assertedIntLevel << 2) + 0x60, level: assertedIntLevel);
       // print("trap:${((assertedIntLevel << 2) + 0x60).hex32}, pc:${pc.hex32}");
-      assertedIntLevel = 0;
+      assertedIntLevel = -1;
       return true;
     }
 
