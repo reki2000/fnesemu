@@ -105,7 +105,7 @@ class M68 {
   set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
 
   // interrupt
-  int assertedIntLevel = -1;
+  int assertedIntLevel = 0;
 
   // memory access
   int read8(int addr) {
@@ -353,12 +353,11 @@ class M68 {
     clocks += 8; // 2 prefetch : 44
   }
 
-  void trap(int vector, {int level = 0}) {
+  void trap(int vector) {
     // debug(
     //     "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
     final savedSr = sr.mask16;
     sf = true;
-    // sr = sr & ~70 | level << 8;
     push32(pc); // +8
     push16(savedSr); // +4 : +12
     _pc = read32(vector); // +8 : 32
@@ -372,7 +371,7 @@ class M68 {
     ssp = read32(0x00);
     _pc = read32(0x04);
     clocks = 0;
-    assertedIntLevel = -1;
+    assertedIntLevel = 0;
   }
 
   String dump() {
