@@ -107,4 +107,15 @@ extension Uint8ListEx on Uint8List {
   static List<Uint8List> ofEmptyList(int count, int size) {
     return List.generate(count, (_) => Uint8List(size));
   }
+
+  int getUInt16BE(int index) {
+    return this[index] << 8 | this[index + 1];
+  }
+
+  int getUInt32BE(int index) {
+    return this[index] << 24 |
+        this[index + 1] << 16 |
+        this[index + 2] << 8 |
+        this[index + 3];
+  }
 }
