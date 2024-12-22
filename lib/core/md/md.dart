@@ -68,7 +68,7 @@ class Md implements Core {
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
-    bool rendered = false;
+    bool scanlineProceeded = false;
 
     final m68ExecSuccess = cpuM68.exec();
 
@@ -85,7 +85,8 @@ class Md implements Core {
 
     if (_clocks >= _nextScanClock) {
       _nextScanClock += clocksInScanline;
-      _hsyncRequired = rendered = vdp.renderLine();
+      _hsyncRequired = vdp.renderLine();
+      scanlineProceeded = true;
     }
 
     if (_clocks >= _nextAudioClock) {
@@ -93,7 +94,7 @@ class Md implements Core {
       _onAudio(AudioBuffer(44100, 2, psg.render(1000)));
     }
 
-    return ExecResult(_clocks, m68ExecSuccess, rendered);
+    return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded);
   }
 
   /// returns screen buffer as hSize x vSize argb

@@ -94,8 +94,7 @@ extension VdpRenderer on Vdp {
       vCounter = 0;
     }
 
-    status &= ~0x04; // end hsync
-    status &= ~0x80; // off: vsync int occureed
+    status &= ~0x84; // end hsync, off: vsync int occureed
 
     y = vCounter - Vdp.retrace ~/ 2;
 
@@ -138,19 +137,17 @@ extension VdpRenderer on Vdp {
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
-    }
 
-    if (y == Vdp.height && enableVInt) {
-      status |= 0x80;
-      bus.interrupt(6);
-    }
-
-    if (requireRender) {
-      status &= ~0x08;
+      status &= ~0x08; // off: vblank
       return true;
     }
 
-    status |= 0x08;
+    if (y == Vdp.height && enableVInt) {
+      status |= 0x80; // on: vsync int occureed
+      bus.interrupt(6);
+    }
+
+    status |= 0x08; // on: vblank
     return false;
   }
 
