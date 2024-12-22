@@ -157,8 +157,13 @@ extension VdpRenderer on Vdp {
   void startHsync() {
     // print("status:${status.hex8} enableHInt:$enableHInt");
     if (!status.bit3 && enableHInt) {
-      status |= 0x04; // start hsync
-      bus.interrupt(4);
+      hSyncCounter--;
+
+      if (hSyncCounter <= 0) {
+        hSyncCounter = reg[10];
+        status |= 0x04; // start hsync
+        bus.interrupt(4);
+      }
     }
   }
 }

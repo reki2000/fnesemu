@@ -58,6 +58,8 @@ class Vdp {
   int vCounter = 0;
   int hCounter = 0;
 
+  int hSyncCounter = 0;
+
   // reset
   void reset() {
     final rand = Random();
@@ -70,6 +72,9 @@ class Vdp {
     reg.fillRange(0, reg.length, 0);
 
     _is1st = true;
+    vCounter = 0;
+    hCounter = 0;
+    hSyncCounter = 0;
   }
 
   // i/o
