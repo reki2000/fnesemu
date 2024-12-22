@@ -108,50 +108,58 @@ class BusM68 {
   }
 
   write8(int addr, int data) {
-    final top = addr >> 16 & 0xff;
+    final top = addr & 0xff0000;
 
-    if (top == 0xff) {
+    if (top == 0xff0000) {
       // if (addr.mask16 == 0x1a) {
       //   print("write8: ${addr.hex32} ${data.hex8}");
       // }
       ram[addr.mask16] = data;
+      return;
     }
 
-    if (top == 0xc0) {
+    if (top == 0xc00000) {
       if (addr & 0x1e == 0x10) {
         psg.write8(addr, data);
       }
+      return;
     }
 
-    if (top == 0xa1) {
+    if (top == 0xa10000) {
       addr.bit0 ? writeIo16(addr, data) : writeIo16(addr, data << 8);
+      return;
     }
 
-    if (top == 0xa0 && busZ80.busreq) {
+    if (top == 0xa00000 && busZ80.busreq) {
       busZ80.write(addr.mask16, data);
+      return;
     }
   }
 
   write16(int addr, int data) {
-    final top = addr >> 16 & 0xff;
+    final top = addr & 0xff0000;
 
-    if (top == 0xff) {
+    if (top == 0xff0000) {
       ram[addr.mask16] = data >> 8;
       ram[addr.inc.mask16] = data.mask8;
+      return;
     }
 
-    if (top == 0xc0) {
+    if (top == 0xc00000) {
       // print("write16: ${addr.hex32} ${data.hex16} pc:${cpu.pc.hex24}");
       vdp.write16(addr.mask16, data);
+      return;
     }
 
-    if (top == 0xa1) {
+    if (top == 0xa10000) {
       writeIo16(addr.mask16, data);
+      return;
     }
 
-    if (top == 0xa0 && busZ80.busreq) {
+    if (top == 0xa00000 && busZ80.busreq) {
       busZ80.write(addr.mask16, data >> 8);
       busZ80.write(addr.inc.mask16, data.mask8);
+      return;
     }
   }
 
