@@ -71,8 +71,8 @@ extension Op4 on M68 {
           : (data > bound)
               ? false
               : nf;
-      debug(
-          "chk dn:$dn xn:$xn mode:$mode bound:${bound.hex16} data:${data.hex16}");
+      // debug(
+      //     "chk dn:$dn xn:$xn mode:$mode bound:${bound.hex16} data:${data.hex16}");
       if (data < 0 || bound < data) {
         trap(0x18);
       }

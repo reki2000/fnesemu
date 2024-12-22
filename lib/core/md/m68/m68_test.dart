@@ -223,3 +223,6 @@ class Mem {
 void print(String msg) {
   stdout.writeln(msg);
 }
+
+String debugLog = "";
+void debug(args) => debugLog += "$args\n";

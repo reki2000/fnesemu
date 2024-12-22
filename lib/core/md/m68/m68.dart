@@ -388,6 +388,3 @@ class M68 {
     return '$regd\n$rega\n$flags $regs';
   }
 }
-
-String debugLog = "";
-void debug(args) => debugLog += "$args\n";

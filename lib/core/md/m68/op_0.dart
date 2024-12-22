@@ -13,8 +13,8 @@ extension Op0 on M68 {
         final an = op & 0x07;
         final dn = op >> 9 & 0x07;
         addr0 = (a[an] + pc16().rel16).mask32;
-        debug(
-            "movep dn:$dn size:$size memToReg:$memToReg addr0:${addr0.hex32}");
+        // debug(
+        //     "movep dn:$dn size:$size memToReg:$memToReg addr0:${addr0.hex32}");
         if (size == 2) {
           if (memToReg) {
             d[dn] =
@@ -50,8 +50,8 @@ extension Op0 on M68 {
       final data = readAddr(size, mode, xn);
       zf = data & mask == 0;
 
-      debug(
-          "bit dn:$dn xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
+      // debug(
+      //     "bit dn:$dn xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
 
       switch (op >> 6 & 0x03) {
         case 0x00: // btst
@@ -139,8 +139,8 @@ extension Op0 on M68 {
         final data = readAddr(size, mode, xn);
         zf = data & mask == 0;
 
-        debug(
-            "bit xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
+        // debug(
+        //     "bit xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
 
         switch (op >> 6 & 0x03) {
           case 0x00: // btst

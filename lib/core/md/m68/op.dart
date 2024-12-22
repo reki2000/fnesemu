@@ -154,7 +154,7 @@ extension Op on M68 {
       final r = op.bit8 ? a[reg] - b : a[reg] + b;
       a[reg] = r.mask32;
     } else {
-      debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.hex24}");
+      // debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.hex24}");
       final a = readAddr(size, mode, reg);
       final r = op.bit8 ? sub(a, b, size) : add(a, b, size);
       if (size == 4) {
