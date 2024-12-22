@@ -52,6 +52,38 @@ extension VdpRenderer on Vdp {
 
   static int y = 0;
 
+  int _windowColor(_BgPattern ctx) {
+    final h = hCounter;
+    final v = y;
+
+    if (hCounter == 0 || h & 0x07 == 0) {
+      // fetch pattern
+      final name = ctx.nameAddrBase |
+          (width == 256
+              ? (h >> 3 & 0x1f) << 1 | (v >> 3) << 6
+              : (h >> 3 & 0x3f) << 1 | (v >> 3) << 7);
+
+      final d0 = vram[name];
+      final d1 = vram[name.inc];
+
+      ctx.prior = d0.bit7;
+      ctx.palette = d0 >> 1 & 0x30;
+      ctx.vFlip = d0.bit4;
+      ctx.hFlip = d0.bit3;
+
+      final offset = (ctx.vFlip ? 7 - (v & 0x07) : (v & 0x07)) << 2;
+      final addr = (d0 << 8 & 0x07 | d1) << 5 | offset;
+
+      ctx.pattern = vram[addr] << 24 |
+          vram[addr.inc] << 16 |
+          vram[addr.inc2] << 8 |
+          vram[addr.inc3];
+    }
+
+    final shift = ctx.hFlip ? (h & 0x07) : 7 - (h & 0x07);
+    return ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f;
+  }
+
   int _bgColor(_BgPattern ctx) {
     final h = (hCounter + ctx.hScroll) % width;
     final v = (y + ctx.vScroll) & vScrMask;
@@ -127,13 +159,35 @@ extension VdpRenderer on Vdp {
           vram[hScrollAddr.inc2] << 8 | vram[hScrollAddr.inc3],
           vsram[vScrollAddr + 1]);
 
+      final ctxWindow = _BgPattern(
+          2, // window
+          reg[3] << 10 & 0xf800,
+          0,
+          0);
+      final windowH = reg[0x11].bit7
+          ? [0, reg[0x11] << 4 & 0x1f0]
+          : [reg[0x11] << 4 & 0x1f0, width];
+
+      final windowV = reg[0x12].bit7
+          ? [0, reg[0x12] << 3 & 0xf8]
+          : [reg[0x12] << 3 & 0x1f0, Vdp.height];
+
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color = spriteColor();
         int bg0 = _bgColor(ctx0);
         int bg1 = _bgColor(ctx1);
+        int window = _windowColor(ctxWindow);
+
+        if (windowH[0] <= hCounter &&
+            hCounter < windowH[1] &&
+            windowV[0] <= y &&
+            y < windowV[1]) {
+          window = bg0;
+        }
+
         color = color != 0
             ? color
-            : (bg0 != 0 ? bg0 : (bg1 != 0 ? bg1 : reg[7] & 0x3f));
+            : (window != 0 ? window : (bg1 != 0 ? bg1 : reg[7] & 0x3f));
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
