@@ -85,7 +85,7 @@ extension VdpRenderer on Vdp {
   }
 
   int _bgColor(_BgPattern ctx) {
-    final h = (hCounter + ctx.hScroll) % width;
+    final h = (hCounter + ctx.hScroll) & hScrMask;
     final v = (y + ctx.vScroll) & vScrMask;
 
     if (hCounter == 0 || h & 0x07 == 0) {
@@ -151,13 +151,13 @@ extension VdpRenderer on Vdp {
       final ctx0 = _BgPattern(
           0, //
           reg[2] << 10 & 0xe000,
-          vram[hScrollAddr] << 8 | vram[hScrollAddr.inc],
-          vsram[vScrollAddr]);
+          vram[hScrollAddr] << 8 & 0x300 | vram[hScrollAddr.inc],
+          vsram[vScrollAddr] & 0x3ff);
       final ctx1 = _BgPattern(
           1, //
           reg[4] << 13 & 0xe000,
-          vram[hScrollAddr.inc2] << 8 | vram[hScrollAddr.inc3],
-          vsram[vScrollAddr + 1]);
+          vram[hScrollAddr.inc2] << 8 & 0x300 | vram[hScrollAddr.inc3],
+          vsram[vScrollAddr + 1] & 0x3ff);
 
       final ctxWindow = _BgPattern(
           2, // window
