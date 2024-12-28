@@ -17,7 +17,7 @@ final Uint32List rgba = Uint32List.fromList(
   }, growable: false),
 );
 
-class _BgPattern {
+class _Tile {
   int no = 0;
   int nameAddrBase = 0;
   int hScroll = 0;
@@ -28,7 +28,7 @@ class _BgPattern {
   bool vFlip = false;
   int palette = 0; // pp0000
 
-  _BgPattern(this.no, this.nameAddrBase, this.hScroll, this.vScroll);
+  _Tile(this.no, this.nameAddrBase, this.hScroll, this.vScroll);
 }
 
 class Sprite {
@@ -72,6 +72,8 @@ class PriorityColor {
   final bool isDirect;
   final bool isPrior;
 
+  bool get isVisible => color & 0x0f != 0;
+
   const PriorityColor(this.color, {this.isDirect = false, this.isPrior = true});
 }
 
@@ -84,8 +86,6 @@ extension VdpRenderer on Vdp {
 
   static int y = 0;
 
-  static final sprites =
-      List<Sprite>.filled(64, Sprite.of(0, 0, 0, 0), growable: false);
   static final spriteBuf =
       List<Sprite>.filled(20, Sprite.of(0, 0, 0, 0), growable: false);
   static int spriteBufIndex = 0;
@@ -94,57 +94,61 @@ extension VdpRenderer on Vdp {
 
   static int max = 0;
 
-  _fetchSat() {
-    final addr = reg[5] << 9 & 0xfc00;
-    for (int i = 0; i < sprites.length; i++) {
-      final base = addr + i * 8;
-      sprites[i] = Sprite.of(
+  _fillSpriteBuffer() {
+    final baseAddr = reg[5] << 9 & 0xfc00;
+    int spriteNo = 0;
+    spriteBufIndex = 0;
+
+    for (int i = 0; i < 80; i++) {
+      final base = baseAddr + spriteNo * 8;
+      final sp = Sprite.of(
           vram.getUInt16BE(base.mask16),
           vram.getUInt16BE((base + 2).mask16),
           vram.getUInt16BE((base + 4).mask16),
           vram.getUInt16BE((base + 6).mask16));
-    }
-  }
 
-  _fillSpriteBuffer() {
-    spriteBufIndex = 0;
-    final y = vCounter + 128;
+      if (sp.y - 128 <= y && y < sp.y + sp.height - 128) {
+        spriteBuf[spriteBufIndex++] = sp;
+        sp.fetchedX2 = -1;
 
-    for (final sp in sprites) {
-      if (sp.y <= y && y < sp.y + sp.height) {
         if (spriteBufIndex == 20) {
           break;
         }
-        spriteBuf[spriteBufIndex++] = sp;
-        sp.fetchedX2 = -1;
       }
+
+      if (sp.next == 0) {
+        break;
+      }
+
+      spriteNo = sp.next;
     }
   }
 
-  PriorityColor spriteColor() {
+  PriorityColor _spriteColor() {
     for (int i = 0; i < spriteBufIndex; i++) {
       final sp = spriteBuf[i];
       final hh = hCounter + 128 - sp.x;
 
       if (0 <= hh && hh < sp.width) {
         final flippedX = sp.hFlip ? sp.width - hh - 1 : hh;
-        final x = flippedX & 0x07;
+        final x1 = flippedX & 0x07;
         final x2 = flippedX >> 3;
 
-        final vv = vCounter + 128 - sp.y;
+        final vv = y + 128 - sp.y;
         final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
-        final y = flippedY & 0x07;
+        final y1 = flippedY & 0x07;
         final y2 = flippedY >> 3;
 
         // fetch pattern data if x2 is changed
         if (x2 != sp.fetchedX2) {
           sp.fetchedX2 = x2;
 
-          final addr = sp.patternAddr + ((x2 * sp.vCells + y2) << 5) + (y << 2);
+          final addr =
+              sp.patternAddr + ((x2 * sp.vCells + y2) << 5) + (y1 << 2);
           sp.pattern = vram.getUInt32BE(addr);
         }
 
-        final shift = 7 - x;
+        final shift = 7 - x1;
         final colorNo = (sp.pattern >> (shift << 2)) & 0x0f;
 
         if (colorNo > 0) {
@@ -165,7 +169,7 @@ extension VdpRenderer on Vdp {
     vScrMask = vMask << 3 | 0x07;
   }
 
-  int _windowColor(_BgPattern ctx) {
+  PriorityColor _windowColor(_Tile ctx) {
     final h = hCounter;
     final v = y;
 
@@ -185,17 +189,18 @@ extension VdpRenderer on Vdp {
       ctx.hFlip = d0.bit3;
 
       final offset = (ctx.vFlip ? 7 - (v & 0x07) : (v & 0x07)) << 2;
-      final addr = (d0 << 8 & 0x07 | d1) << 5 | offset;
+      final addr = (d0 << 8 & 0x0700 | d1) << 5 | offset;
 
       ctx.pattern = vram.getUInt32BE(addr);
     }
 
     final shift = ctx.hFlip ? (h & 0x07) : 7 - (h & 0x07);
-    return ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f;
+    return PriorityColor(ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f,
+        isPrior: ctx.prior);
   }
 
-  int _bgColor(_BgPattern ctx) {
-    final h = (hCounter + ctx.hScroll) & hScrMask;
+  PriorityColor _planeColor(_Tile ctx) {
+    final h = (hCounter - ctx.hScroll) & hScrMask;
     final v = (y + ctx.vScroll) & vScrMask;
 
     if (hCounter == 0 || h & 0x07 == 0) {
@@ -212,13 +217,14 @@ extension VdpRenderer on Vdp {
       ctx.hFlip = d0.bit3;
 
       final offset = (ctx.vFlip ? 7 - (v & 0x07) : (v & 0x07)) << 2;
-      final addr = (d0 << 8 & 0x07 | d1) << 5 | offset;
+      final addr = (d0 << 8 & 0x0700 | d1) << 5 | offset;
 
       ctx.pattern = vram.getUInt32BE(addr);
     }
 
     final shift = ctx.hFlip ? (h & 0x07) : 7 - (h & 0x07);
-    return ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f;
+    return PriorityColor(ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f,
+        isPrior: ctx.prior);
   }
 
   // true: require rendering+hsync, false: retrace
@@ -227,7 +233,6 @@ extension VdpRenderer on Vdp {
 
     if (vCounter == Vdp.height + Vdp.retrace) {
       vCounter = 0;
-      _fetchSat();
     }
 
     status &= ~0x84; // end hsync, off: vsync int occureed
@@ -241,72 +246,70 @@ extension VdpRenderer on Vdp {
 
     if (requireRender) {
       final hScrollBase = reg[13] << 10 & 0xfc00;
-      final isHFullScroll = !reg[11].bit1;
-      final isHLineScroll = reg[11].bit0;
+      final isHScrollFull = !reg[11].bit1;
+      final isHScrollLine = reg[11].bit0;
       final hScrollAddr = hScrollBase +
-          (isHFullScroll
+          (isHScrollFull
               ? 0
-              : isHLineScroll
-                  ? (y >> 3 << 1)
-                  : (y << 1));
+              : isHScrollLine
+                  ? (y << 2)
+                  : ((y & ~0x07) << 2));
 
       final isVFullScroll = !reg[11].bit3;
       final vScrollAddr = isVFullScroll ? 0 : y >> 3;
 
-      final ctx0 = _BgPattern(
+      final ctxA = _Tile(
           0, //
           reg[2] << 10 & 0xe000,
           vram[hScrollAddr] << 8 & 0x300 | vram[hScrollAddr.inc],
           vsram[vScrollAddr] & 0x3ff);
-      final ctx1 = _BgPattern(
+
+      final ctxB = _Tile(
           1, //
           reg[4] << 13 & 0xe000,
           vram[hScrollAddr.inc2] << 8 & 0x300 | vram[hScrollAddr.inc3],
-          vsram[vScrollAddr + 1] & 0x3ff);
+          vsram[vScrollAddr.inc] & 0x3ff);
 
-      final ctxWindow = _BgPattern(
+      final ctxWindow = _Tile(
           2, // window
           reg[3] << 10 & 0xf800,
           0,
           0);
+
       final windowH = reg[0x11].bit7
           ? [0, reg[0x11] << 4 & 0x1f0]
           : [reg[0x11] << 4 & 0x1f0, width];
 
       final windowV = reg[0x12].bit7
           ? [0, reg[0x12] << 3 & 0xf8]
-          : [reg[0x12] << 3 & 0x1f0, Vdp.height];
+          : [reg[0x12] << 3 & 0xf8, Vdp.height];
 
       for (hCounter = 0; hCounter < width; hCounter++) {
-        final spColor = spriteColor();
-        final bg0 = _bgColor(ctx0);
-        final bg1 = _bgColor(ctx1);
-        int window = _windowColor(ctxWindow);
+        final sprite = _spriteColor();
+        final planeA = _planeColor(ctxA);
+        final planeB = _planeColor(ctxB);
+        final window = _windowColor(ctxWindow);
+        final bg = reg[7] & 0x3f;
 
-        int color = 0;
-        int bg = reg[7] & 0x3f;
+        final inWindow = windowH[0] <= hCounter &&
+            hCounter < windowH[1] &&
+            windowV[0] <= y &&
+            y < windowV[1];
+        final planeAW = inWindow ? planeA : window;
 
-        if (spColor.color != 0) {
-          if (spColor.isPrior) {
-            color = spColor.color;
-          } else {
-            bg = spColor.color;
-          }
-        } else {
-          final inWindow = (windowH[0] <= hCounter &&
-              hCounter < windowH[1] &&
-              windowV[0] <= y &&
-              y < windowV[1]);
-          color = inWindow ? bg0 : window;
-
-          if (color == 0) {
-            color = bg1;
-          }
-        }
-
-        if (color == 0) {
-          color = bg;
-        }
+        final color = sprite.isPrior && sprite.isVisible
+            ? sprite.color
+            : planeAW.isPrior && planeAW.isVisible
+                ? planeAW.color
+                : planeB.isPrior && planeB.isVisible
+                    ? planeB.color
+                    : sprite.isVisible
+                        ? sprite.color
+                        : planeAW.isVisible
+                            ? planeAW.color
+                            : planeB.isVisible
+                                ? planeB.color
+                                : bg;
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }

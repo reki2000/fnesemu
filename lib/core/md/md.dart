@@ -195,11 +195,11 @@ class Md implements Core {
 
   // debug: render BG
   @override
-  ImageBuffer renderBg() => ImageBuffer.empty();
+  ImageBuffer renderBg() => vdp.renderBg();
 
   @override
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
-      ImageBuffer.empty();
+      vdp.renderVram(useSecondBgColor, paletteNo);
 
   @override
   ImageBuffer renderColorTable(int paletteNo) =>

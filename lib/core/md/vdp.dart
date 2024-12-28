@@ -12,8 +12,8 @@ class Vdp {
   late BusM68 bus;
 
   final vram = Uint8List(0x10000);
-  final cram = List<int>.filled(0x80, 0); // bbbgggrrr
-  final vsram = List<int>.filled(0x50, 0);
+  final cram = List<int>.filled(0x40, 0); // bbbgggrrr
+  final vsram = List<int>.filled(0x40, 0);
 
   int ram = 0; // 0:vram, 1:cram, 2:vsram
   static const ramVram = 0;
@@ -72,9 +72,19 @@ class Vdp {
     reg.fillRange(0, reg.length, 0);
 
     _is1st = true;
+    _ctrl = 0;
+    _addr = 0;
+
+    status = 0;
+
+    h32 = true;
+    width = 256;
+
     vCounter = 0;
     hCounter = 0;
     hSyncCounter = 0;
+
+    dmaMode = dmaModeNone;
   }
 
   // i/o
@@ -95,7 +105,7 @@ class Vdp {
   void write16(int addr, int value) {
     final port = addr & 0x0c;
     if (port == 0x00) {
-      if (dmaMode == 2) {
+      if (enableDma && dmaMode == dmaModeFill) {
         dmaVFill(value);
       } else {
         data = value; // data
@@ -112,47 +122,53 @@ class Vdp {
 
   // dma
   int dmaMode = 0; // 0:none, 1:mem2vram, 2:fill, 3:vram2vram
+  static const dmaModeNone = 0;
+  static const dmaModeM2V = 1;
+  static const dmaModeFill = 2;
+  static const dmaModeV2V = 3;
 
-  void dmsM2V() {
-    int src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
-    int length = reg[0x13] | reg[0x14] << 8;
-    print("vdp:dmsM2V:${src.hex24} ${length.hex16}");
+  void dmaM2V() {
+    int src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x7f) << 16) << 1;
+    int length = (reg[0x13] | reg[0x14] << 8) << 1;
+
+    // print(
+    //     "vdp:dmaM2V src:${src.hex24} len:${length.hex16} ${ram == ramVram ? "v" : ram == ramCram ? "c" : "vs"}");
     while (length > 0) {
       data = bus.read16(src);
       src = src.inc2;
-      length--;
+      length -= 2;
     }
 
-    dmaMode = 0;
+    dmaMode = dmaModeNone;
   }
 
   void dmaVFill(int value) {
-    int length = reg[0x13] | reg[0x14] << 8;
-    print("vdp:dmaVFill:${length.hex16}");
+    int length = (reg[0x13] | reg[0x14] << 8) << 1;
+
+    // print(
+    //     "vdp:dmaVFill len:${length.hex16} ${ram == ramVram ? "v" : ram == ramCram ? "c" : "vs"}");
     while (length > 0) {
       data = value;
-      length--;
+      length -= 2;
     }
 
-    dmaMode = 0;
+    dmaMode = dmaModeNone;
   }
 
   void dmaV2V() {
-    final src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
-    int length = reg[0x13] | reg[0x14] << 8;
-    print("vdp:dmsV2V:${src.hex24} ${length.hex16}");
+    int src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
+    int length = (reg[0x13] | reg[0x14] << 8) << 1;
+
+    // print(
+    //     "vdp:dmsV2V src:${src.hex24} len:${length.hex16} ${ram == ramVram ? "v" : ram == ramCram ? "c" : "vs"}");
     while (length > 0) {
-      int value = ram == ramVram
-          ? vram[src] << 8 | vram[src.inc2]
-          : ram == ramCram
-              ? encodeCram(cram[src])
-              : vsram[src];
+      int value = vram[src] << 8 | vram[src.inc];
       data = value;
-      src.inc2;
-      length--;
+      src = src.inc2;
+      length -= 2;
     }
 
-    dmaMode = 0;
+    dmaMode = dmaModeNone;
   }
 
   set ctrl(int value) {
@@ -169,11 +185,11 @@ class Vdp {
 
       if (regNo == 0x17) {
         if (!reg[0x17].bit7) {
-          dmaMode = 1;
-        } else if (reg[0x17] & 0xc0 == 0x80) {
-          dmaMode = 2;
+          dmaMode = dmaModeM2V;
+        } else if (!reg[0x17].bit6) {
+          dmaMode = dmaModeFill;
         } else {
-          dmaMode = 3;
+          dmaMode = dmaModeV2V;
         }
       }
 
@@ -192,20 +208,30 @@ class Vdp {
     _addr = value << 14 & 0xc000 | _ctrl & 0x3fff;
     final cd = value >> 2 & 0x3c | _ctrl >> 14 & 0x03;
 
-    if (cd == 0x00 || cd == 0x01) {
-      ram = ramVram;
-      ramSize = vram.length;
-    } else if (cd == 0x03 || cd == 0x08) {
-      ram = ramCram;
-      ramSize = cram.length;
-    } else if (cd == 0x05 || cd == 0x04) {
-      ram = ramVsram;
-      ramSize = vsram.length;
+    //print("vdp:cd=${cd.hex8} addr=${_addr.hex16}");
+    switch (cd & 0x0f) {
+      case 0x00:
+      case 0x01:
+        ram = ramVram;
+        ramSize = vram.length;
+        break;
+      case 0x03:
+      case 0x08:
+        ram = ramCram;
+        ramSize = 128;
+        _addr &= 0x7f;
+        break;
+      case 0x05:
+      case 0x04:
+        ram = ramVsram;
+        ramSize = 80;
+        _addr &= 0x7f;
+        break;
     }
 
-    if (dmaMode == 1) {
-      dmsM2V();
-    } else if (dmaMode == 3) {
+    if (enableDma && cd.bit5 && dmaMode == dmaModeM2V) {
+      dmaM2V();
+    } else if (enableDma && cd & 0x30 == 0x30 && dmaMode == dmaModeV2V) {
       dmaV2V();
     }
   }
@@ -213,23 +239,20 @@ class Vdp {
   int get data => ram == ramVram
       ? vram[_addr] << 8 | vram[postInc(1)]
       : ram == ramCram
-          ? encodeCram(cram[postInc()])
-          : vsram[postInc()];
+          ? encodeCram(cram[postInc() >> 1])
+          : vsram[postInc() >> 1];
 
   set data(int value) {
     // print(
-    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16}");
+    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16} pc:${bus.cpu.pc.hex24}");
     if (ram == ramVram) {
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;
+    } else if (ram == ramCram) {
+      cram[postInc() >> 1] =
+          value >> 3 & 0x1c0 | value >> 2 & 0x038 | value >> 1 & 0x07;
     } else {
-      final addr = postInc() >> 1;
-      if (ram == ramCram) {
-        cram[addr] =
-            value >> 3 & 0x1c0 | value >> 2 & 0x038 | value >> 1 & 0x07;
-      } else {
-        vsram[addr] = value;
-      }
+      vsram[postInc() >> 1] = value;
     }
   }
 
@@ -251,6 +274,19 @@ class Vdp {
     final regStr = [0, 4, 8, 12, 16, 20]
         .map((i) => reg.sublist(i, i + 4).map((e) => e.hex8).join(" "))
         .join("  ");
-    return "vdp:$regStr";
+
+    final bgSizeH = ["32", "64", "--", "128"][reg[16] & 0x03];
+    final bgSizeV = ["32", "64", "--", "128"][reg[16] >> 4 & 0x03];
+    final nameA = reg[2] << 10 & 0xe000;
+    final nameB = reg[4] << 13 & 0xe000;
+    final win = reg[3] << 10 & 0xf800;
+
+    final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
+    final vScrMode = reg[11].bit2 ? "16" : "f ";
+
+    final status =
+        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} hscr:$hScrMode vscr:$vScrMode";
+
+    return "vdp:$regStr\n    $status";
   }
 }

@@ -239,6 +239,10 @@ extension Op4 on M68 {
             pc = pop32();
             sr = sr.setL8(newSr);
             return true;
+
+          case 0x7a:
+            trap(10 << 2); // movec (m68010)
+            return true;
         }
 
         if (op & 0xc0 == 0x80) {
