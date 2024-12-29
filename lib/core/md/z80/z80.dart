@@ -144,6 +144,7 @@ class Z80 {
       return true;
     }
 
+    // print(dump().replaceAll("\n", " "));
     final op = next();
 
     if (op < 0x40) {
@@ -186,7 +187,7 @@ class Z80 {
 
   int pc16() {
     final d0 = read(r.pc);
-    final d1 = read(r.pc + 1);
+    final d1 = read(r.pc.inc.mask16);
     cycles += 6;
     r.pc = r.pc.inc2.mask16;
     return d0 | d1 << 8;
@@ -420,7 +421,7 @@ class Z80 {
     return val;
   }
 
-  void reset() {
+  void reset({bool keepCycles = false}) {
     r.pc = 0;
     r.sp = 0;
     r.i = 0;
@@ -438,6 +439,9 @@ class Z80 {
   }
 
   String dump() {
+    final pc =
+        "${r.pc.hex16}: ${bus.read(r.pc).hex8} ${bus.read(r.pc.inc).hex8} ${bus.read(r.pc.inc2).hex8}";
+
     final res1 =
         "af:${(r.af & 0xffd7).hex16} bc:${r.bc.hex16} de:${r.de.hex16} hl:${r.hl.hex16}";
     final res2 =
@@ -453,6 +457,6 @@ class Z80 {
         (i) => "$f${f.toLowerCase()}"[
             (r.f << i & (1 << f.length - 1)) != 0 ? i : f.length + i]).join();
 
-    return "f:$flags $res1 $res2\n$res3 $regs4";
+    return "$pc\nf:$flags $res1 $res2\n$res3 $regs4";
   }
 }

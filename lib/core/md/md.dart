@@ -74,8 +74,11 @@ class Md implements Core {
 
     _clocks = cpuM68.clocks;
 
-    while (_clocks < cpuZ80.clocks) {
-      cpuZ80.exec();
+    while (_clocks > cpuZ80.clocks) {
+      final z80Result = cpuZ80.exec();
+      if (!z80Result) {
+        print("z80 unimplemented instruction at ${cpuZ80.r.pc.hex16}");
+      }
     }
 
     if (_hsyncRequired && _clocks >= _nextScanClock - 36) {

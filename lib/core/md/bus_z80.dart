@@ -12,18 +12,26 @@ class BusZ80 {
   BusZ80();
 
   int _bank = 0x00; // shound not be 0x140 = 0xa00000
+  final ram = Uint8List(0x2000);
 
-  bool get busreq => cpu.halted;
-  set busreq(bool value) => cpu.halted = value;
+  bool get busReq => cpu.halted;
+  set busReq(bool value) {
+    // print("z80 busreq:$value m68 pc:${busM68.cpu.pc.hex24}");
+    cpu.halted = value;
+  }
 
   bool _reset = false;
-  set reset(bool value) => (!_reset & value) ? onReset() : 0;
-
-  final ram = Uint8List(0x2000);
+  set resetReq(bool value) {
+    // print("z80 reset:$value m68 pc:${busM68.cpu.pc.hex24}");
+    if (value && !_reset) {
+      cpu.reset(keepCycles: true); // reset when resetReq becomes up
+    }
+    _reset = value;
+  }
 
   void onReset() {
     _bank = 0x00;
-    _reset = true;
+    _reset = false;
     cpu.reset();
   }
 
@@ -44,9 +52,15 @@ class BusZ80 {
   }
 
   write(int addr, int data) {
-    if (addr < 0x2000) return ram[addr] = data;
+    if (addr < 0x2000) {
+      ram[addr] = data;
+      return;
+    }
 
-    if (addr >= 0x8000) return write(_bank << 15 | _bank & 0x7fff, data);
+    if (addr >= 0x8000) {
+      busM68.write8(_bank << 15 | _bank & 0x7fff, data);
+      return;
+    }
 
     switch (addr) {
       case 0x4000: // ym2612 a0

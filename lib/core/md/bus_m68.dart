@@ -62,7 +62,7 @@ class BusM68 {
       return readIo16(addr).mask8;
     }
 
-    if (top == 0xa0 && busZ80.busreq) {
+    if (top == 0xa0 && busZ80.busReq) {
       return addr < 0xa08000 ? busZ80.read(addr.mask16) : 0x00;
     }
 
@@ -98,7 +98,7 @@ class BusM68 {
       return readIo16(addr);
     }
 
-    if (top == 0xa0 && busZ80.busreq) {
+    if (top == 0xa0 && busZ80.busReq) {
       return addr < 0xa08000
           ? busZ80.read(addr.mask16) << 8 | busZ80.read(addr.inc.mask16)
           : 0x00;
@@ -130,7 +130,8 @@ class BusM68 {
       return;
     }
 
-    if (top == 0xa00000 && busZ80.busreq) {
+    if (top == 0xa00000 && busZ80.busReq) {
+      // print("write z80 addr:${addr.mask16.hex16}:${data.hex8}");
       busZ80.write(addr.mask16, data);
       return;
     }
@@ -156,7 +157,7 @@ class BusM68 {
       return;
     }
 
-    if (top == 0xa00000 && busZ80.busreq) {
+    if (top == 0xa00000 && busZ80.busReq) {
       busZ80.write(addr.mask16, data >> 8);
       busZ80.write(addr.inc.mask16, data.mask8);
       return;
@@ -178,7 +179,8 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => busZ80.busreq ? 0 : 1, // z80 busreq
+      0x1100 =>
+        0x00, // z80 busreq: always 0, for z80 accepts busReq immediately in this emu
       0x1200 => 0x00, // z80 reset
       _ => 0x00,
     };
@@ -206,8 +208,8 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => busZ80.busreq = data == 0x0100, // z80 busreq
-      0x1200 => busZ80.reset = data != 0x0100, // z80 reset
+      0x1100 => busZ80.busReq = data == 0x0100, // z80 busreq
+      0x1200 => busZ80.resetReq = data != 0x0100, // z80 reset
       _ => 0x00,
     };
   }

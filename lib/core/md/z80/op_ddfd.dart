@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
 
 import 'z80.dart';
@@ -141,7 +142,7 @@ extension OpDdFd on Z80 {
         push(r.ixiy[xy]);
         return true;
       case 0xe9: // jp (ix)
-        r.pc = r.ixiy[xy];
+        r.pc = read(r.ixiy[xy]).setH8(read(r.ixiy[xy].inc));
         return true;
       case 0xf9: // ld sp, ix
         r.sp = r.ixiy[xy];

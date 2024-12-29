@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 import 'z80.dart';
 
 extension OpC0ff on Z80 {
@@ -49,8 +51,8 @@ extension OpC0ff on Z80 {
             r.hl = r.hl2;
             r.hl2 = tmp3;
             return true;
-          case 0xe9: // jp hl
-            r.pc = r.hl;
+          case 0xe9: // jp (hl)
+            r.pc = read(r.hl).setH8(read(r.hl.inc));
             return true;
           case 0xf9: // ld sp, hl
             r.sp = r.hl;
