@@ -5,16 +5,11 @@ class Psg {
 
   Float32List get audioBuffer => Float32List(1000);
 
-  int read8(int addr) {
+  int read8() {
     return 0;
   }
 
-  write8(int addr, int data) {
-    switch (addr) {
-      case 0x7f11: // psg
-        break;
-    }
-  }
+  write8(int value) {}
 
   void reset() {}
 

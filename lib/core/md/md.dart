@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/md/vdp_debug.dart';
 import 'package:fnesemu/core/md/vdp_renderer.dart';
+import 'package:fnesemu/core/md/ym2612.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../../util/util.dart';
@@ -27,6 +28,7 @@ class Md implements Core {
 
   final vdp = Vdp();
   final psg = Psg();
+  final ym2612 = Ym2612();
 
   static const systemClockHz_ = 21477270; // 21.47727MHz
 
@@ -50,12 +52,14 @@ class Md implements Core {
     busM68.busZ80 = busZ80;
     busM68.vdp = vdp;
     busM68.psg = psg;
+    busM68.ym2612 = ym2612;
 
     vdp.bus = busM68;
 
     busZ80.cpu = cpuZ80;
     busZ80.busM68 = busM68;
     busZ80.psg = psg;
+    busZ80.ym2612 = ym2612;
   }
 
   int _clocks = 0;

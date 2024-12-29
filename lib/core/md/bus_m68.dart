@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/md/ym2612.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'bus_z80.dart';
@@ -16,6 +17,7 @@ class BusM68 {
   late M68 cpu;
   late Vdp vdp;
   late Psg psg;
+  late Ym2612 ym2612;
 
   Rom rom = Rom();
 
@@ -47,8 +49,8 @@ class BusM68 {
     }
 
     if (top == 0xc0) {
-      if (addr & 0x10 == 0x10) {
-        return psg.read8(addr.mask16);
+      if (addr & 0x1e == 0x10) {
+        return psg.read8();
       }
 
       if (addr & 0x01 == 0) {
@@ -87,10 +89,6 @@ class BusM68 {
     }
 
     if (top == 0xc0) {
-      if (addr & 0x1e == 0x10) {
-        return psg.read8(addr.mask16) << 8 | psg.read8(addr.inc.mask16);
-      }
-
       return vdp.read16(addr.mask16);
     }
 
@@ -120,7 +118,7 @@ class BusM68 {
 
     if (top == 0xc00000) {
       if (addr & 0x1e == 0x10) {
-        psg.write8(addr, data);
+        psg.write8(data);
       }
       return;
     }
@@ -179,8 +177,7 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 =>
-        0x00, // z80 busreq: always 0, for z80 accepts busReq immediately in this emu
+      0x1100 => 0, // busZ80.busReq ? 1 : 0, // z80 busreq
       0x1200 => 0x00, // z80 reset
       _ => 0x00,
     };

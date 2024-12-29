@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/md/ym2612.dart';
+
 import 'bus_m68.dart';
 import 'psg.dart';
 import 'z80/z80.dart';
@@ -8,6 +10,7 @@ class BusZ80 {
   late BusM68 busM68;
   late Z80 cpu;
   late Psg psg;
+  late Ym2612 ym2612;
 
   BusZ80();
 
@@ -41,12 +44,12 @@ class BusZ80 {
     if (addr >= 0x8000) return busM68.read16(_bank << 15 | addr & 0x7fff) >> 8;
 
     return switch (addr) {
-      0x4000 => 0x00, // ym2612 a0
-      0x4001 => 0x00, // ym2612 d0
-      0x4002 => 0x00, // ym2612 a1
-      0x4003 => 0x00, // ym2612 d1
+      0x4000 => ym2612.readPort8(0), // ym2612 a0
+      0x4001 => ym2612.readData(0), // ym2612 d0
+      0x4002 => ym2612.readPort8(1), // ym2612 a1
+      0x4003 => ym2612.readData(0), // ym2612 d1
       0x6000 => _bank, // bank register
-      0x7f11 => 0x00, // psg
+      0x7f11 => psg.read8(), // psg
       _ => 0x00,
     };
   }
@@ -72,6 +75,7 @@ class BusZ80 {
         _bank = (_bank << 1 | data & 1) & 0x1ff;
         break;
       case 0x7f11: // psg
+        psg.write8(data);
         break;
     }
   }
