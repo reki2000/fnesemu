@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/md/md.dart';
 import 'package:fnesemu/util/int.dart';
 
 class Op {
@@ -24,6 +25,9 @@ class Op {
 }
 
 class Channel {
+  final int no;
+  Channel(this.no);
+
   final op = List<Op>.filled(4, Op());
 
   int freq = 0;
@@ -37,15 +41,48 @@ class Channel {
   bool outLeft = false;
   bool outRight = false;
 
-  int timer = 0;
+  int counter = 0;
 
   keyOn() {}
 
-  Float32List render(int clocks) => Float32List(1000);
+  var buffer = Float32List(1000);
+
+  var out = 1.0; // pulse wave (temporary)
+
+  // 1 sample = 1/44100 sec
+  Float32List render(int samples) {
+    if (buffer.length != samples) {
+      buffer = Float32List(samples);
+    }
+
+    for (int i = 0; i < samples; i++) {
+      counter = (counter - 1) & 0xfff;
+
+      if (counter == 1) {
+        counter = _clip(freq, 0, 0xfff);
+        out = 1.0 - out;
+      }
+
+      buffer[i] = out;
+    }
+
+    return buffer;
+  }
+
+  int _clip(int val, int min, int max) {
+    return val < min
+        ? min
+        : val > max
+            ? max
+            : val;
+  }
 }
 
 class Synth {
-  final ch = List<Channel>.filled(3, Channel());
+  final int part;
+  Synth(this.part) : ch = List.generate(3, (i) => Channel(part * 3 + i + 1));
+
+  final List<Channel> ch;
 
   final ch3freq = List<int>.filled(4, 0);
 
@@ -53,8 +90,8 @@ class Synth {
 
   bool isCh3Special = false;
 
-  int timerA = 0;
-  int timerB = 0;
+  int timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
+  int timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
 
   bool enableTimerA = false;
   bool enableTimerB = false;
@@ -77,9 +114,11 @@ class Synth {
 class Ym2612 {
   Ym2612();
 
-  Float32List get audioBuffer => Float32List(1000);
+  var _buffer = Float32List(1000);
 
-  final _synth = List<Synth>.filled(2, Synth());
+  Float32List get audioBuffer => _buffer;
+
+  final _synth = List.generate(2, (i) => Synth(i));
   final _regs = [0, 0];
 
   int readPort8(int part) {
@@ -225,26 +264,44 @@ class Ym2612 {
 
   void reset() {}
 
-  Float32List render(int _) {
-    final samples = audioBuffer.length;
+  // input:7.670453 MHz  output:53.267 kHz - ntsc
+  static const fmAudioClockHz = 53267;
+
+  // every passed clocks ~= 1368 per 1 scanline.  called 15.720 kHz
+  Float32List render(int clocks) {
+    final samples = fmAudioClockHz * clocks ~/ Md.systemClockHz_;
+
+    final buffer = Float32List(samples * 2);
 
     for (final synth in _synth) {
-      // mix fm
       for (final ch in synth.ch) {
-        final out = ch.render(samples);
-        for (int i = 0; i < audioBuffer.length; i++) {
-          audioBuffer[i] += out[i];
-        }
-      }
+        if (synth.dacEnabled && ch.no == 6) {
+          // mix dac
+          for (int i = 0; i < audioBuffer.length / 2; i++) {
+            buffer[i * 2] += synth.dacData / 256 / 6;
+            buffer[i * 2 + 1] += synth.dacData / 256 / 6;
+          }
 
-      // mix dac
-      if (synth.dacEnabled) {
-        for (int i = 0; i < audioBuffer.length; i++) {
-          audioBuffer[i] += synth.dacData / 128;
+          continue;
+        }
+
+        // mix fm
+        final out = ch.render(samples);
+
+        if (ch.outLeft) {
+          for (int i = 0; i < out.length; i++) {
+            buffer[i * 2] += out[i] / 6;
+          }
+        }
+
+        if (ch.outRight) {
+          for (int i = 0; i < out.length; i++) {
+            buffer[i * 2 + 1] += out[i] / 6;
+          }
         }
       }
     }
 
-    return audioBuffer;
+    return buffer;
   }
 }

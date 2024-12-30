@@ -1,4 +1,5 @@
 // Dart imports:
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/md/vdp_debug.dart';
@@ -30,7 +31,9 @@ class Md implements Core {
   final psg = Psg();
   final ym2612 = Ym2612();
 
-  static const systemClockHz_ = 21477270; // 21.47727MHz
+  // 7.670454MHz for m68000,  3.579545MHz for Z80
+  static const systemClockHz_ = 7670454;
+  static const z80ClockHz = 3579545;
 
   @override
   int get systemClockHz => systemClockHz_;
@@ -78,7 +81,7 @@ class Md implements Core {
 
     _clocks = cpuM68.clocks;
 
-    while (_clocks > cpuZ80.clocks) {
+    while (_clocks > cpuZ80.clocks * systemClockHz_ ~/ z80ClockHz) {
       final z80Result = cpuZ80.exec();
       if (!z80Result) {
         print("z80 unimplemented instruction at ${cpuZ80.r.pc.hex16}");
@@ -98,7 +101,22 @@ class Md implements Core {
 
     if (_clocks >= _nextAudioClock) {
       _nextAudioClock += clocksInScanline;
-      _onAudio(AudioBuffer(44100, 2, psg.render(1000)));
+
+      final psgOut = psg.render(clocksInScanline);
+      final fmOut = ym2612.render(clocksInScanline);
+
+      // mix psgOut + fmOut with normalization
+      final buf = Float32List(psgOut.length);
+      var maxVolume = 1.0;
+      for (int i = 0; i < psgOut.length; i++) {
+        maxVolume = max(maxVolume, (psgOut[i] + fmOut[i]).abs());
+      }
+
+      for (int i = 0; i < psgOut.length; i++) {
+        buf[i] = (psgOut[i] + fmOut[i]) / maxVolume;
+      }
+
+      _onAudio(AudioBuffer(Ym2612.fmAudioClockHz, 2, buf));
     }
 
     return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded);
