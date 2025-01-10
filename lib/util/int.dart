@@ -125,3 +125,11 @@ extension IntExt on int {
   bool get bit31 => this & 0x80000000 != 0;
   bool get bit32 => this & 0x100000000 != 0;
 }
+
+extension IntClip on int {
+  int clip(int min, int max) => this < min
+      ? min
+      : this > max
+          ? max
+          : this;
+}

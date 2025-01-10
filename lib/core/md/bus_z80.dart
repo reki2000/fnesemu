@@ -44,10 +44,7 @@ class BusZ80 {
     if (addr >= 0x8000) return busM68.read16(_bank << 15 | addr & 0x7fff) >> 8;
 
     return switch (addr) {
-      0x4000 => ym2612.readPort8(0), // ym2612 a0
-      0x4001 => ym2612.readData(0), // ym2612 d0
-      0x4002 => ym2612.readPort8(1), // ym2612 a1
-      0x4003 => ym2612.readData(0), // ym2612 d1
+      0x4000 || 0x4001 || 0x4002 || 0x4003 => ym2612.read8(0), // ym2612 a0
       0x6000 => _bank, // bank register
       0x7f11 => psg.read8(), // psg
       _ => 0x00,
@@ -67,9 +64,16 @@ class BusZ80 {
 
     switch (addr) {
       case 0x4000: // ym2612 a0
+        ym2612.writePort8(0, data);
+        break;
       case 0x4001: // ym2612 d0
+        ym2612.writeData8(0, data);
+        break;
       case 0x4002: // ym2612 a1
+        ym2612.writePort8(1, data);
+        break;
       case 0x4003: // ym2612 d1
+        ym2612.writeData8(1, data);
         break;
       case 0x6000: // bank register
         _bank = (_bank << 1 | data & 1) & 0x1ff;

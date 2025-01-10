@@ -13,7 +13,7 @@ class Psg {
 
   void reset() {}
 
-  Float32List render(int clocks) {
-    return audioBuffer;
+  Float32List render(int samples) {
+    return Float32List(samples * 2);
   }
 }

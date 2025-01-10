@@ -31,18 +31,21 @@ class Md implements Core {
   final psg = Psg();
   final ym2612 = Ym2612();
 
-  // 7.670454MHz for m68000,  3.579545MHz for Z80
-  static const systemClockHz_ = 7670454;
-  static const z80ClockHz = 3579545;
+  static const masterClockNtscHz = 53693175;
+  static const masterClockPalHz = 53203424;
+  static const masterClockHz = masterClockNtscHz;
+
+  static const m68ClockHz = masterClockHz ~/ 7;
+  static const z80ClockHz = masterClockHz ~/ 15;
 
   @override
-  int get systemClockHz => systemClockHz_;
+  int get systemClockHz => m68ClockHz;
 
   @override
   int get scanlinesInFrame => Vdp.height + Vdp.retrace;
 
   @override
-  int get clocksInScanline => systemClockHz_ ~/ 59.97 ~/ scanlinesInFrame;
+  int get clocksInScanline => m68ClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   Md() {
     busM68 = BusM68();
@@ -81,7 +84,7 @@ class Md implements Core {
 
     _clocks = cpuM68.clocks;
 
-    while (_clocks > cpuZ80.clocks * systemClockHz_ ~/ z80ClockHz) {
+    while (_clocks > m68ClockHz * cpuZ80.clocks / z80ClockHz) {
       final z80Result = cpuZ80.exec();
       if (!z80Result) {
         print("z80 unimplemented instruction at ${cpuZ80.r.pc.hex16}");
@@ -99,24 +102,28 @@ class Md implements Core {
       scanlineProceeded = true;
     }
 
-    if (_clocks >= _nextAudioClock) {
-      _nextAudioClock += clocksInScanline;
+    while (_clocks > m68ClockHz * ym2612.elapsedSamples / Ym2612.sampleHz) {
+      final samples = Ym2612.sampleHz * clocksInScanline ~/ m68ClockHz;
 
-      final psgOut = psg.render(clocksInScanline);
-      final fmOut = ym2612.render(clocksInScanline);
+      final psgOut = psg.render(samples);
+      final fmOut = ym2612.render(samples);
 
       // mix psgOut + fmOut with normalization
-      final buf = Float32List(psgOut.length);
-      var maxVolume = 1.0;
-      for (int i = 0; i < psgOut.length; i++) {
-        maxVolume = max(maxVolume, (psgOut[i] + fmOut[i]).abs());
+      final buf = Float32List(samples * 2);
+
+      var maxVolumeL = 1.0;
+      var maxVolumeR = 1.0;
+      for (int i = 0; i < samples; i += 2) {
+        maxVolumeL = max(maxVolumeL, (psgOut[i] + fmOut[i]).abs());
+        maxVolumeR = max(maxVolumeR, (psgOut[i + 1] + fmOut[i + 1]).abs());
       }
 
-      for (int i = 0; i < psgOut.length; i++) {
-        buf[i] = (psgOut[i] + fmOut[i]) / maxVolume;
+      for (int i = 0; i < samples; i += 2) {
+        buf[i] = (psgOut[i] + fmOut[i]) / maxVolumeL;
+        buf[i + 1] = (psgOut[i + 1] + fmOut[i + 1]) / maxVolumeL;
       }
 
-      _onAudio(AudioBuffer(Ym2612.fmAudioClockHz, 2, buf));
+      _onAudio(AudioBuffer(Ym2612.sampleHz, 2, buf));
     }
 
     return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded);

@@ -64,7 +64,7 @@ class BusM68 {
       return readIo16(addr).mask8;
     }
 
-    if (top == 0xa0 && busZ80.busReq) {
+    if (top == 0xa0) {
       return addr < 0xa08000 ? busZ80.read(addr.mask16) : 0x00;
     }
 
@@ -96,7 +96,7 @@ class BusM68 {
       return readIo16(addr);
     }
 
-    if (top == 0xa0 && busZ80.busReq) {
+    if (top == 0xa0) {
       return addr < 0xa08000
           ? busZ80.read(addr.mask16) << 8 | busZ80.read(addr.inc.mask16)
           : 0x00;
@@ -128,7 +128,7 @@ class BusM68 {
       return;
     }
 
-    if (top == 0xa00000 && busZ80.busReq) {
+    if (top == 0xa00000) {
       // print("write z80 addr:${addr.mask16.hex16}:${data.hex8}");
       busZ80.write(addr.mask16, data);
       return;
@@ -155,7 +155,7 @@ class BusM68 {
       return;
     }
 
-    if (top == 0xa00000 && busZ80.busReq) {
+    if (top == 0xa00000) {
       busZ80.write(addr.mask16, data >> 8);
       busZ80.write(addr.inc.mask16, data.mask8);
       return;
