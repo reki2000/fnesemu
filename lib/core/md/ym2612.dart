@@ -245,6 +245,7 @@ class Channel {
   int counter = 0;
 
   var buffer = Float32List(1000);
+  var opBuffer = List<List<int>>.generate(4, (j) => List<int>.filled(1000, 0));
 
   int doFeedback(int input) {
     return input + (feedback == 0 ? 0 : input >> (10 - feedback));
@@ -254,64 +255,88 @@ class Channel {
   Float32List render(int samples) {
     if (buffer.length != samples) {
       buffer = Float32List(samples);
+      opBuffer =
+          List<List<int>>.generate(4, (j) => List<int>.filled(samples, 0));
     }
 
     for (int i = 0; i < buffer.length; i++) {
       double out = 0;
-      // 0: 1->2->3->4->out
-      // 1: 1->3 2->3->4->out
-      // 2: 1->4 2->3->4->out
-      // 3: 1->2->4->out 3->4->out
-      // 4: 1->2->out 3->4->out
-      // 5: 1->2->out 1->3->out 1->4->out
-      // 6: 1->2->out 3->out 4->out
-      // 7: 1->out 2->out 3->out 4->out
+      int op1 = 0;
+      int op2 = 0;
+      int op3 = 0;
+      int op4 = 0;
+
       switch (algo) {
         case 0:
-          final int op1 = doFeedback(op[0].tick(0));
-          final int op2 = op[1].tick(op1);
-          final int op3 = op[2].tick(op2);
-          final int op4 = op[3].tick(op3);
+          // 0: 1->2->3->4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(op1);
+          op3 = op[2].tick(op2);
+          op4 = op[3].tick(op3);
           out = op4 / 0x3ff;
           break;
         case 1:
-          final int op1 = doFeedback(op[0].tick(0));
-          final int op2 = op[1].tick(0);
-          final int op3 = op[2].tick((op1 + op2) ~/ 2);
-          final int op4 = op[3].tick(op3);
+          // 1: 1->3 2->3->4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(0);
+          op3 = op[2].tick((op1 + op2) ~/ 2);
+          op4 = op[3].tick(op3);
           out = op4 / 0x3ff;
           break;
         case 2:
-          final int op1 = doFeedback(op[0].tick(0));
-          final int op2 = op[1].tick(0);
-          final int op3 = op[2].tick(op2);
-          final int op4 = op[3].tick((op1 + op3) ~/ 2);
+          // 2: 1->4 2->3->4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(0);
+          op3 = op[2].tick(op2);
+          op4 = op[3].tick((op1 + op3) ~/ 2);
           out = op4 / 0x3ff;
           break;
         case 3:
-          final int op1 = doFeedback(op[0].tick(0));
-          final int op2 = op[1].tick(op1);
-          final int op3 = op[2].tick(0);
-          final int op4 = op[3].tick((op2 + op3) ~/ 2);
+          // 3: 1->2->4->out 3->4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(op1);
+          op3 = op[2].tick(0);
+          op4 = op[3].tick((op2 + op3) ~/ 2);
           out = op4 / 0x3ff;
           break;
         case 4:
-          final int op1 = doFeedback(op[0].tick(0));
-          final int op2 = op[1].tick(op1);
-          final int op3 = op[2].tick(0);
-          final int op4 = op[3].tick(op3);
+          // 4: 1->2->out 3->4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(op1);
+          op3 = op[2].tick(0);
+          op4 = op[3].tick(op3);
           out = (op2 + op4) / 2 / 0x3ff;
           break;
         case 5:
+          // 5: 1->2->out 1->3->out 1->4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(op1);
+          op3 = op[2].tick(op1);
+          op4 = op[3].tick(op1);
+          out = (op2 + op3 + op4) / 3 / 0x3ff;
+          break;
         case 6:
+          // 6: 1->2->out 3->out 4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(op1);
+          op3 = op[2].tick(0);
+          op4 = op[3].tick(0);
+          out = (op2 + op3 + op4) / 3 / 0x3ff;
+          break;
         case 7:
-          final int op1 = doFeedback(op[0].tick(0));
-          final int op2 = op[1].tick(0);
-          final int op3 = op[2].tick(0);
-          final int op4 = op[3].tick(0);
+          // 7: 1->out 2->out 3->out 4->out
+          op1 = doFeedback(op[0].tick(0));
+          op2 = op[1].tick(0);
+          op3 = op[2].tick(0);
+          op4 = op[3].tick(0);
           out = (op1 + op2 + op3 + op4) / 4 / 0x3ff;
           break;
       }
+
+      opBuffer[0][i] = op1;
+      opBuffer[1][i] = op2;
+      opBuffer[2][i] = op3;
+      opBuffer[3][i] = op4;
 
       buffer[i] = out;
     }
@@ -332,12 +357,6 @@ class Synth {
 
   final List<Channel> ch;
 
-  final ch3freq = List<int>.filled(4, 0);
-
-  int lfoFreq = 0;
-
-  bool isCh3Special = false;
-
   String debug() {
     return ch.map((c) => c.debug()).join('\n');
   }
@@ -349,6 +368,9 @@ class Ym2612 {
   var _buffer = Float32List(1000);
 
   Float32List get audioBuffer => _buffer;
+
+  int lfoFreq = 0;
+  bool isCh3Special = false;
 
   int timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
   int timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
@@ -413,7 +435,7 @@ class Ym2612 {
 
     switch (reg) {
       case 0x20: // LFO
-        synth.lfoFreq = value & 0x07;
+        lfoFreq = value & 0x07;
         synth.ch[0].lfoEnabled = value.bit3;
         synth.ch[1].lfoEnabled = value.bit2;
         synth.ch[2].lfoEnabled = value.bit1;
@@ -432,7 +454,7 @@ class Ym2612 {
         break;
 
       case 0x27: // Timer Control
-        synth.isCh3Special = value.bit7;
+        isCh3Special = value.bit7;
         if (value.bit5) {
           resetTimerB();
         }
@@ -506,7 +528,7 @@ class Ym2612 {
     if (0xa0 <= reg && reg < 0xb8) {
       final ch = synth.ch[reg & 0x03];
 
-      if (synth.isCh3Special) {
+      if (isCh3Special) {
         switch (reg) {
           case 0xa8: // FNUM
           case 0xa9:
@@ -528,7 +550,7 @@ class Ym2612 {
       switch (func) {
         case 0xa0: // FNUM
           ch.freq = ch.freq.setL8(value);
-          ch.setFreq(synth.isCh3Special && ch.no == 3);
+          ch.setFreq(isCh3Special && ch.no == 3);
           break;
         case 0xa4: // FNUM
           ch.freq = ch.freq.setH8(value & 0x07);
@@ -586,6 +608,10 @@ class Ym2612 {
     elapsedSamples += samples;
 
     return buffer;
+  }
+
+  List<int> opBuffer(int ch, int op) {
+    return _synth[ch >> 2 & 1].ch[ch & 0x03].opBuffer[op];
   }
 
   String debug() {
