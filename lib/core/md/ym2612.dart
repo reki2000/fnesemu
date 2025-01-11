@@ -7,7 +7,9 @@ import 'package:fnesemu/util/int.dart';
 final logSin256 = List.generate(
     256, (i) => (-log(sin((i + 0.4) * pi / 2 / 256)) * 370).round().toInt());
 
-final exp256 = List.generate(256, (i) => (exp(i / 256) * 1023).toInt());
+// exp of e^0..e^1, 256 steps, -1 biased 0x3ff-0x000
+final exp256 = List.generate(
+    256, (i) => ((exp(i / 256) - 1.0) / (exp(1) - 1.0) * 1023).toInt());
 
 final incTable = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
@@ -69,7 +71,7 @@ class Op {
 
   int ssgEg = 0;
 
-  int _level = 0; // final output level of operator, 0(loud) - 1023(quiet)
+  int _level = 0x3ff; // final output level of operator, 0(loud) - 1023(quiet)
   int _attenuation = 0; // output of EG, 0(loud) - 1023(quiet)
   int _rate = 0; // internal increment rate for the attenuation
   bool _egInvert = false;
@@ -84,7 +86,6 @@ class Op {
   static const _stateRelease = 4;
 
   keyOn() {
-    print("op@$no keyon");
     _phase = 0;
     _state = _stateAttack;
     _egInvert = true;
@@ -136,16 +137,16 @@ class Op {
     final inc = incTable[_rate << 3 | (_egClockCounter >> shift & 0x07)];
 
     if (_state == _stateAttack) {
-      _attenuation += inc * (((1024 - _attenuation) >> 4) + 1);
+      _attenuation += inc * (((0x400 - _attenuation) >> 4) + 1);
     } else {
       // TBD: inc x 6 in ssg mode
       _attenuation += inc;
     }
 
-    _attenuation = _attenuation.clip(0, 1023);
+    _attenuation = _attenuation.clip(0, 0x3ff);
 
-    final level = ((127 - tl) << 3) +
-        (_egInvert ? (~_attenuation) & 0x3ff : _attenuation);
+    final level =
+        (tl << 3) + (_egInvert ? (~_attenuation) & 0x3ff : _attenuation);
     _level = level.clip(0, 0x3ff);
 
     _egClockCounter++;
@@ -175,7 +176,18 @@ class Op {
     // dac: 0(quite)-0x3ff(loud) : level >> 8 : 0..0x1f
     final output = ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8);
 
-    return phase & 0x200 != 0 ? -output : output;
+    final out = phase & 0x200 != 0 ? -output : output;
+
+    // for debug
+    // if (ar != 0) {
+    //   final ph =
+    //       "ph:${_phase.hex24} ${phase.hex16} ${qPhase.hex16} sin:${logSin256[qPhase].hex16}";
+    //   final st =
+    //       "state:$_state rate:${_rate.hex8} att:${_egInvert ? "*${(~_attenuation & 0x3ff).hex16}" : " ${_attenuation.hex16}"} lv:${_level.hex16}";
+    //   print("op$no $ph $st l:${level.hex16} out:${output.hex16} ${out.hex16}");
+    // }
+
+    return out;
   }
 
   int tick(int modulation) {
@@ -183,30 +195,12 @@ class Op {
 
     updatePhase();
 
-    while (_egClockCounter < _globalClockCounter ~/ 351) {
+    if (_egClockCounter < _globalClockCounter ~/ 351) {
       _egClockCounter++;
       updateEnvelope();
     }
 
-    final phase = (modulation + (_phase) >> 10) & 0x3ff;
-    final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
-
-    final level = (logSin256[qPhase] - (_level << 2)).clip(0, 0x1fff);
-
-    final output =
-        ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8); // 0-0x3ff
-
-    final out = phase & 0x200 != 0 ? -output : output;
-
-    // final out = generateOutput(modulation);
-
-    // for debug
-    if (ar != 0) {
-      final ph = "ph:${_phase.hex24} ${phase.hex16} ${qPhase.hex16}";
-      final st =
-          "state:$_state rate:${_rate.hex8} att:${_egInvert ? "*${(~_attenuation).hex16}" : " ${_attenuation.hex16}"} lv:${_level.hex16}";
-      print("op$no $ph $st l:${level.hex16} out:${output.hex16} ${out.hex16}");
-    }
+    final out = generateOutput(modulation);
 
     return out;
   }
@@ -252,10 +246,8 @@ class Channel {
 
   var buffer = Float32List(1000);
 
-  var out = 1.0; // pulse wave (temporary)
-
-  int doFeedback(int modulation) {
-    return feedback == 0 ? 0 : modulation >> (10 - feedback);
+  int doFeedback(int input) {
+    return input + (feedback == 0 ? 0 : input >> (10 - feedback));
   }
 
   // 1 sample = 1/44100 sec
@@ -264,7 +256,8 @@ class Channel {
       buffer = Float32List(samples);
     }
 
-    for (int i = 0; i < samples; i++) {
+    for (int i = 0; i < buffer.length; i++) {
+      double out = 0;
       // 0: 1->2->3->4->out
       // 1: 1->3 2->3->4->out
       // 2: 1->4 2->3->4->out
@@ -328,7 +321,7 @@ class Channel {
 
   String debug() {
     final status =
-        "ch$no: freq:$freq block:$block algo:$algo feedback:$feedback";
+        "ch$no: ${outLeft ? "L" : "-"}:${outRight ? "R" : "-"} freq:$freq block:$block algo:$algo feedback:$feedback";
     return "$status ${op.map((o) => o.debug()).join(' ')}";
   }
 }
