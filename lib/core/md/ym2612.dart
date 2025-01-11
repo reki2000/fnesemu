@@ -99,14 +99,15 @@ class Op {
     return (result > 63) ? 63 : result;
   }
 
-  // output: -0x10000..0x10000
+  // output: -0x3ff..0x3ff
   int generateOutput(int modulation) {
-    final phase = ((modulation + _phase) >> 10) & 0x3ff;
+    final phase = (modulation + (_phase) >> 10) & 0x3ff;
     final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
 
     final level = (logSin256[qPhase] - (_level << 2)).clip(0, 0x1fff);
 
-    final output = ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8);
+    final output =
+        ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8); // 0-0x3ff
 
     return phase & 0x200 != 0 ? -output : output;
   }
@@ -242,37 +243,37 @@ class Channel {
         case 0:
           final int op1 = doFeedback(op[0].tick(0));
           final int op2 = op[1].tick(op1);
-          final int op3 = op[2].tick(op2 >> 1);
-          final int op4 = op[3].tick(op3 >> 1);
-          out = op4 / 0x10000;
+          final int op3 = op[2].tick(op2);
+          final int op4 = op[3].tick(op3);
+          out = op4 / 0x3ff;
           break;
         case 1:
           final int op1 = doFeedback(op[0].tick(0));
           final int op2 = op[1].tick(0);
-          final int op3 = op[2].tick((op1 + op2) >> 1);
-          final int op4 = op[3].tick(op3 >> 1);
-          out = op4 / 0x10000;
+          final int op3 = op[2].tick((op1 + op2) ~/ 2);
+          final int op4 = op[3].tick(op3);
+          out = op4 / 0x3ff;
           break;
         case 2:
           final int op1 = doFeedback(op[0].tick(0));
           final int op2 = op[1].tick(0);
-          final int op3 = op[2].tick(op2 >> 1);
-          final int op4 = op[3].tick((op1 + op3) >> 1);
-          out = op4 / 0x10000;
+          final int op3 = op[2].tick(op2);
+          final int op4 = op[3].tick((op1 + op3) ~/ 2);
+          out = op4 / 0x3ff;
           break;
         case 3:
           final int op1 = doFeedback(op[0].tick(0));
           final int op2 = op[1].tick(op1);
           final int op3 = op[2].tick(0);
-          final int op4 = op[3].tick((op2 + op3) >> 1);
-          out = op4 / 0x10000;
+          final int op4 = op[3].tick((op2 + op3) ~/ 2);
+          out = op4 / 0x3ff;
           break;
         case 4:
           final int op1 = doFeedback(op[0].tick(0));
           final int op2 = op[1].tick(op1);
           final int op3 = op[2].tick(0);
-          final int op4 = op[3].tick(op3 >> 1);
-          out = (op2 + op4) / 2 / 0x10000;
+          final int op4 = op[3].tick(op3);
+          out = (op2 + op4) / 2 / 0x3ff;
           break;
         case 5:
         case 6:
@@ -281,7 +282,7 @@ class Channel {
           final int op2 = op[1].tick(0);
           final int op3 = op[2].tick(0);
           final int op4 = op[3].tick(0);
-          out = (op1 + op2 + op3 + op4) / 4 / 0x10000;
+          out = (op1 + op2 + op3 + op4) / 4 / 0x3ff;
           break;
       }
 
@@ -289,14 +290,6 @@ class Channel {
     }
 
     return buffer;
-  }
-
-  int _clip(int val, int min, int max) {
-    return val < min
-        ? min
-        : val > max
-            ? max
-            : val;
   }
 }
 
