@@ -45,6 +45,9 @@ final incTable = [
 ];
 
 class Op {
+  final String no;
+  Op(this.no);
+
   bool enabled = false;
 
   int freq = 0;
@@ -66,12 +69,13 @@ class Op {
 
   int ssgEg = 0;
 
-  int _level = 0; // final output level of operator, 0-1023
-  int _attenuation = 0; // output of EG, 0-1023
-  int _rate = 0; // internal increment rate to attenuation
+  int _level = 0; // final output level of operator, 0(loud) - 1023(quiet)
+  int _attenuation = 0; // output of EG, 0(loud) - 1023(quiet)
+  int _rate = 0; // internal increment rate for the attenuation
+  bool _egInvert = false;
+
   int _egClockCounter = 0; // clock counter for EG
   int _globalClockCounter = 0; // global counter of FM module
-  bool _egInvert = false;
 
   int _state = 4; // 1:attack, 2:decay, 3:sustain, 4:release
   static const _stateAttack = 1;
@@ -80,11 +84,16 @@ class Op {
   static const _stateRelease = 4;
 
   keyOn() {
+    print("op@$no keyon");
     _phase = 0;
     _state = _stateAttack;
     _egInvert = true;
     _attenuation = 0;
     _rate = rate(ar);
+    // if (ar != 0) {
+    //   print(
+    //       "op$no ph:${_phase.hex24} state:$_state rate:${_rate.hex8} atten:${_attenuation.hex16} lv:${_level.hex16}");
+    // }
   }
 
   keyOff() {
@@ -97,19 +106,6 @@ class Op {
   int rate(int r) {
     final result = r == 0 ? 0 : (r << 1) + rs;
     return (result > 63) ? 63 : result;
-  }
-
-  // output: -0x3ff..0x3ff
-  int generateOutput(int modulation) {
-    final phase = (modulation + (_phase) >> 10) & 0x3ff;
-    final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
-
-    final level = (logSin256[qPhase] - (_level << 2)).clip(0, 0x1fff);
-
-    final output =
-        ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8); // 0-0x3ff
-
-    return phase & 0x200 != 0 ? -output : output;
   }
 
   updateEnvelope() {
@@ -148,9 +144,9 @@ class Op {
 
     _attenuation = _attenuation.clip(0, 1023);
 
-    final level =
-        (tl << 3) + (_egInvert ? ~_attenuation & 0x3ff : _attenuation);
-    _level = level.clip(0, 1023);
+    final level = ((127 - tl) << 3) +
+        (_egInvert ? (~_attenuation) & 0x3ff : _attenuation);
+    _level = level.clip(0, 0x3ff);
 
     _egClockCounter++;
   }
@@ -168,6 +164,20 @@ class Op {
     _phase = (_phase + (inc & 0xfffff)) & 0xfffff;
   }
 
+  // output: -0x3ff..0x3ff
+  int generateOutput(int modulation) {
+    final phase = (modulation + (_phase) >> 10) & 0x3ff;
+    final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
+
+    // dB: 0(loud)-0x1fff(quite)
+    final level = (logSin256[qPhase] + (_level << 2)).clip(0, 0x1fff);
+
+    // dac: 0(quite)-0x3ff(loud) : level >> 8 : 0..0x1f
+    final output = ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8);
+
+    return phase & 0x200 != 0 ? -output : output;
+  }
+
   int tick(int modulation) {
     _globalClockCounter += 144;
 
@@ -178,15 +188,39 @@ class Op {
       updateEnvelope();
     }
 
-    return generateOutput(modulation);
+    final phase = (modulation + (_phase) >> 10) & 0x3ff;
+    final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
+
+    final level = (logSin256[qPhase] - (_level << 2)).clip(0, 0x1fff);
+
+    final output =
+        ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8); // 0-0x3ff
+
+    final out = phase & 0x200 != 0 ? -output : output;
+
+    // final out = generateOutput(modulation);
+
+    // for debug
+    if (ar != 0) {
+      final ph = "ph:${_phase.hex24} ${phase.hex16} ${qPhase.hex16}";
+      final st =
+          "state:$_state rate:${_rate.hex8} att:${_egInvert ? "*${(~_attenuation).hex16}" : " ${_attenuation.hex16}"} lv:${_level.hex16}";
+      print("op$no $ph $st l:${level.hex16} out:${output.hex16} ${out.hex16}");
+    }
+
+    return out;
+  }
+
+  String debug() {
+    return 'op$no asdr:$ar $dr $sr $sl $rr state:$_state $_attenuation $_level';
   }
 }
 
 class Channel {
   final int no;
-  Channel(this.no);
+  final List<Op> op;
 
-  final op = List<Op>.filled(4, Op());
+  Channel(this.no) : op = [Op("$no-1"), Op("$no-2"), Op("$no-3"), Op("$no-4")];
 
   int freq = 0;
   int block = 0;
@@ -291,6 +325,12 @@ class Channel {
 
     return buffer;
   }
+
+  String debug() {
+    final status =
+        "ch$no: freq:$freq block:$block algo:$algo feedback:$feedback";
+    return "$status ${op.map((o) => o.debug()).join(' ')}";
+  }
 }
 
 class Synth {
@@ -304,6 +344,10 @@ class Synth {
   int lfoFreq = 0;
 
   bool isCh3Special = false;
+
+  String debug() {
+    return ch.map((c) => c.debug()).join('\n');
+  }
 }
 
 class Ym2612 {
@@ -429,7 +473,7 @@ class Ym2612 {
 
     if (0x30 <= reg && reg < 0xa0) {
       final ch = reg & 0x03;
-      final op = synth.ch[ch].op[value >> 2 & 0x03];
+      final op = synth.ch[ch].op[[0, 2, 1, 3][reg >> 2 & 0x03]];
 
       final func = reg & 0xf0;
 
@@ -445,7 +489,7 @@ class Ym2612 {
           op.tl = value & 0x7f;
           break;
         case 0x50: // RS(KS), AR
-          op.ar = value & 0x0f;
+          op.ar = value & 0x1f;
           op.rs = value >> 6 & 0x03;
           break;
         case 0x60: // AM, DR(D1R)
@@ -549,5 +593,9 @@ class Ym2612 {
     elapsedSamples += samples;
 
     return buffer;
+  }
+
+  String debug() {
+    return _synth.map((s) => s.debug()).join('\n');
   }
 }
