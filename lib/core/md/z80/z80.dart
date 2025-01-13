@@ -135,6 +135,16 @@ class Z80 {
 
   Z80(this.bus);
 
+  void interrupt(int mode) {
+    if (iff1) {
+      iff1 = iff2 = false;
+      im = mode;
+      push(r.pc);
+      r.pc = 0x38;
+      cycles += 13;
+    }
+  }
+
   bool exec() {
     // interrupt
 

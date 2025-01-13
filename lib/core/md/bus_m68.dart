@@ -53,11 +53,9 @@ class BusM68 {
         return psg.read8();
       }
 
-      if (addr & 0x01 == 0) {
-        return (addr & 0x01 == 0)
-            ? vdp.read16(addr.mask16) >> 8
-            : vdp.read16(addr & 0xfffe).mask8;
-      }
+      return (addr & 0x01 == 0)
+          ? vdp.read16(addr.mask16) >> 8
+          : vdp.read16(addr & 0xfffe).mask8;
     }
 
     if (top == 0xa1) {

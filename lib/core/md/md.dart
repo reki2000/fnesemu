@@ -62,6 +62,7 @@ class Md implements Core {
     busM68.ym2612 = ym2612;
 
     vdp.bus = busM68;
+    vdp.busZ80 = busZ80;
 
     busZ80.cpu = cpuZ80;
     busZ80.busM68 = busM68;

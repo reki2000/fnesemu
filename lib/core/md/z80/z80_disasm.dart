@@ -9,7 +9,7 @@ class Z80Disasm {
 
     const regs8 = ["b", "c", "d", "e", "h", "l", "(hl)", "a"];
     const regs16 = ["bc", "de", "hl", "sp"];
-    const cond = ["nz", "nc", "po", "p", "z", "c", "pe", "m"];
+    const cond = ["nz", "z", "nc", "c", "po", "pe", "p", "m"];
     const ari = ["add a,", "adc a,", "sub", "sbc a,", "and", "xor", "or", "cp"];
     const rot = ["rlc", "rrc", "rl", "rr", "sla", "sra", "sll", "srl"];
     const op07 = ["rlca", "rrca", "rla", "rra", "daa", "cpl", "scf", "ccf"];
@@ -176,7 +176,7 @@ class Z80Disasm {
               0x30 ||
               0x28 ||
               0x38 =>
-                "jr ${cond[op >> 5 & 3]}, ${rel8()}",
+                "jr ${["nz", "z", "nc", "c"][op >> 3 & 3]}, ${rel8()}",
               _ => throw "never reach",
             },
           0x01 => "ld $regLd16, ${im16()}",

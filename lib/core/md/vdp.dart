@@ -5,11 +5,13 @@ import 'package:fnesemu/util/int.dart';
 
 import '../types.dart';
 import 'bus_m68.dart';
+import 'bus_z80.dart';
 
 class Vdp {
   Vdp();
 
   late BusM68 bus;
+  late BusZ80 busZ80;
 
   final vram = Uint8List(0x10000);
   final cram = List<int>.filled(0x40, 0); // bbbgggrrr

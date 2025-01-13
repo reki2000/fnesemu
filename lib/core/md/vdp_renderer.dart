@@ -321,6 +321,7 @@ extension VdpRenderer on Vdp {
     if (y == Vdp.height && enableVInt) {
       status |= 0x80; // on: vsync int occureed
       bus.interrupt(6);
+      busZ80.interupt(0);
     }
 
     status |= 0x08; // on: vblank
