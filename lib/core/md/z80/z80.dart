@@ -439,9 +439,6 @@ class Z80 {
   }
 
   String dump() {
-    final pc =
-        "${r.pc.hex16}: ${bus.read(r.pc).hex8} ${bus.read(r.pc.inc).hex8} ${bus.read(r.pc.inc2).hex8}";
-
     final res1 =
         "af:${(r.af & 0xffd7).hex16} bc:${r.bc.hex16} de:${r.de.hex16} hl:${r.hl.hex16}";
     final res2 =
@@ -457,6 +454,6 @@ class Z80 {
         (i) => "$f${f.toLowerCase()}"[
             (r.f << i & (1 << f.length - 1)) != 0 ? i : f.length + i]).join();
 
-    return "$pc\nf:$flags $res1 $res2\n$res3 $regs4";
+    return "f:$flags $res1 $res2\n$res3 $regs4";
   }
 }

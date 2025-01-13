@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/md/vdp_debug.dart';
 import 'package:fnesemu/core/md/vdp_renderer.dart';
 import 'package:fnesemu/core/md/ym2612.dart';
+import 'package:fnesemu/core/md/z80/z80_disasm.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../../util/util.dart';
@@ -182,40 +183,67 @@ class Md implements Core {
       bool showStack = false,
       bool showApu = false}) {
     final regM68 = cpuM68.dump();
-    final asmM68 = disasm(cpuM68.pc);
+    final (asmM68, _) = disasmM68(cpuM68.pc);
     final stackM68 =
         List.generate(16, (i) => busM68.ram[0xfff0 + i].hex8, growable: false)
             .join(" ");
 
+    final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
     final regZ80 = cpuZ80.dump();
 
     final vdpRegs = vdp.dump();
 
-    return "${asmM68.i0}\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$regZ80\n\n$vdpRegs";
+    final ym2612Stat = ym2612.dump();
+
+    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$vdpRegs\n$ym2612Stat";
   }
+
+  (String, int) disasmZ80(int addr) {
+    final addrHex = addr.hex16;
+    final data = List.generate(4, (i) => busZ80.read((addr + i).mask16),
+        growable: false);
+    try {
+      final (inst, next) = Z80Disasm.disasm(data, addr);
+
+      final dataHex =
+          List.generate(4, (i) => i < next ? data[i].hex8 : "  ").join(" ");
+      return ("$addrHex: $dataHex  $inst", next);
+    } catch (e) {
+      return ("$addrHex: [$e]", 1);
+    }
+  }
+
+  (String, int) disasmM68(int addr) {
+    final addrHex = addr.hex24;
+    final data = List.generate(6, (i) => busM68.read16((addr + i * 2).mask24),
+        growable: false);
+    try {
+      final (inst, next) = Disasm().disasm(data, addr);
+      return ("$addrHex: ${data[0].hex16}  $inst", next * 2);
+    } catch (e) {
+      return ("$addrHex: [$e]", 2);
+    }
+  }
+
+  // target cpu for debug
+  static const _debugCpuM68 = true;
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
   @override
   Pair<String, int> disasm(int addr) {
-    final addrHex = addr.hex24;
-    final data =
-        List.generate(6, (i) => busM68.read16(addr + i * 2), growable: false);
-    try {
-      final (inst, next) = Disasm().disasm(data, addr);
-      return Pair("$addrHex: ${data[0].hex16}  $inst", next * 2);
-    } catch (e) {
-      return Pair("$addrHex: [$e]", 2);
-    }
+    final (asm, i) = _debugCpuM68 ? disasmM68(addr) : disasmZ80(addr);
+    return Pair(asm, i);
   }
 
   // debug: returns PC register
   @override
-  int get programCounter => cpuM68.pc;
+  int get programCounter => _debugCpuM68 ? cpuM68.pc : cpuZ80.r.pc;
 
   // debug: set debug logging
   @override
-  String get tracingState =>
-      "${disasm(cpuM68.pc).i0.padRight(44)} ${cpuM68.dump().replaceAll("\n", " " "")}";
+  String get tracingState => _debugCpuM68
+      ? "${disasmM68(cpuM68.pc).$1.padRight(44)} ${cpuM68.dump().replaceAll("\n", " " "")}"
+      : "${disasmZ80(cpuZ80.r.pc).$1.padRight(44)} ${cpuZ80.dump().replaceAll("\n", " ")}";
 
   // debug: dump vram
   @override

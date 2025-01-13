@@ -47,7 +47,7 @@ class BusZ80 {
       0x4000 || 0x4001 || 0x4002 || 0x4003 => ym2612.read8(0), // ym2612 a0
       0x6000 => _bank, // bank register
       0x7f11 => psg.read8(), // psg
-      _ => 0x00,
+      _ => 0xff,
     };
   }
 

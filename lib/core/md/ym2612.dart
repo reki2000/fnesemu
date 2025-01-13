@@ -50,15 +50,17 @@ class Op {
   final String no;
   Op(this.no);
 
+  static const outMask = 0xfff;
+
   bool enabled = false;
 
   int freq = 0;
   int block = 0;
 
-  int _phase = 0; // 0 - 0x1ffff
+  int _phase = 0; // 24bit: 0 - 0xfffff
 
   int dt = 0;
-  int mul = 0;
+  int mul = 0; // 1,2,4,..30 (0.5 ,1,2...15 with 1 right shift)
 
   int tl = 0; // 00-0x7f
   int ar = 0;
@@ -165,18 +167,20 @@ class Op {
     _phase = (_phase + (inc & 0xfffff)) & 0xfffff;
   }
 
-  // output: -0x3ff..0x3ff
+  // modulation: -0xfff..0xfff (original: 10bit 0-0x3ff)
+  // output: -0xfff..0xfff (original: 14bit 0x0x3fff, -1fff to 1fff)
+  // _phase: 24bit 0..0xfffff
   int generateOutput(int modulation) {
-    final phase = (modulation + (_phase) >> 10) & 0x3ff;
+    final phase = (modulation + (_phase >> 10)) & 0x3ff;
     final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
 
-    // dB: 0(loud)-0x1fff(quite)
+    // dB: 0(loud)-0x1fff(quiet) 13bit
     final level = (logSin256[qPhase] + (_level << 2)).clip(0, 0x1fff);
 
-    // dac: 0(quite)-0x3ff(loud) : level >> 8 : 0..0x1f
+    // dac: 0(quiet)-0x3ff(loud) 10bit : level >> 8 : 0..0x1f
     final output = ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8);
 
-    final out = phase & 0x200 != 0 ? -output : output;
+    final out = phase & 0x200 != 0 ? -output : output; // 13bit signed
 
     // for debug
     // if (ar != 0) {
@@ -206,7 +210,7 @@ class Op {
   }
 
   String debug() {
-    return 'op$no asdr:$ar $dr $sr $sl $rr state:$_state $_attenuation $_level';
+    return '$no eg:$ar $dr $sr $sl $rr s:$_state $_attenuation $_level';
   }
 }
 
@@ -273,7 +277,7 @@ class Channel {
           op2 = op[1].tick(op1);
           op3 = op[2].tick(op2);
           op4 = op[3].tick(op3);
-          out = op4 / 0x3ff;
+          out = op4 / Op.outMask;
           break;
         case 1:
           // 1: 1->3 2->3->4->out
@@ -281,7 +285,7 @@ class Channel {
           op2 = op[1].tick(0);
           op3 = op[2].tick((op1 + op2) ~/ 2);
           op4 = op[3].tick(op3);
-          out = op4 / 0x3ff;
+          out = op4 / Op.outMask;
           break;
         case 2:
           // 2: 1->4 2->3->4->out
@@ -289,7 +293,7 @@ class Channel {
           op2 = op[1].tick(0);
           op3 = op[2].tick(op2);
           op4 = op[3].tick((op1 + op3) ~/ 2);
-          out = op4 / 0x3ff;
+          out = op4 / Op.outMask;
           break;
         case 3:
           // 3: 1->2->4->out 3->4->out
@@ -297,15 +301,15 @@ class Channel {
           op2 = op[1].tick(op1);
           op3 = op[2].tick(0);
           op4 = op[3].tick((op2 + op3) ~/ 2);
-          out = op4 / 0x3ff;
+          out = op4 / Op.outMask;
           break;
         case 4:
           // 4: 1->2->out 3->4->out
           op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(op1);
-          op3 = op[2].tick(0);
+          op2 = op[1].tick(0);
+          op3 = op[2].tick(op1);
           op4 = op[3].tick(op3);
-          out = (op2 + op4) / 2 / 0x3ff;
+          out = (op2 + op4) / 2 / Op.outMask;
           break;
         case 5:
           // 5: 1->2->out 1->3->out 1->4->out
@@ -313,7 +317,7 @@ class Channel {
           op2 = op[1].tick(op1);
           op3 = op[2].tick(op1);
           op4 = op[3].tick(op1);
-          out = (op2 + op3 + op4) / 3 / 0x3ff;
+          out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 6:
           // 6: 1->2->out 3->out 4->out
@@ -321,7 +325,7 @@ class Channel {
           op2 = op[1].tick(op1);
           op3 = op[2].tick(0);
           op4 = op[3].tick(0);
-          out = (op2 + op3 + op4) / 3 / 0x3ff;
+          out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 7:
           // 7: 1->out 2->out 3->out 4->out
@@ -329,7 +333,7 @@ class Channel {
           op2 = op[1].tick(0);
           op3 = op[2].tick(0);
           op4 = op[3].tick(0);
-          out = (op1 + op2 + op3 + op4) / 4 / 0x3ff;
+          out = (op1 + op2 + op3 + op4) / 4 / Op.outMask;
           break;
       }
 
@@ -344,25 +348,21 @@ class Channel {
     return buffer;
   }
 
+  bool enableDebug = true;
+
   String debug() {
+    if (!enableDebug) {
+      return "";
+    }
+
     final status =
-        "ch$no: ${outLeft ? "L" : "-"}:${outRight ? "R" : "-"} freq:$freq block:$block algo:$algo feedback:$feedback";
+        "$no: ${outLeft ? "L" : "-"}${outRight ? "R" : "-"} f:$freq b:$block al:$algo fb:$feedback";
     return "$status ${op.map((o) => o.debug()).join(' ')}";
   }
 }
 
-class Synth {
-  final int part;
-  Synth(this.part) : ch = List.generate(3, (i) => Channel(part * 3 + i + 1));
-
-  final List<Channel> ch;
-
-  String debug() {
-    return ch.map((c) => c.debug()).join('\n');
-  }
-}
-
 class Ym2612 {
+  final _channels = List.generate(6, (i) => Channel(i + 1));
   Ym2612();
 
   var _buffer = Float32List(1000);
@@ -414,7 +414,6 @@ class Ym2612 {
     }
   }
 
-  final _synth = List.generate(2, (i) => Synth(i));
   final _regs = [0, 0];
 
   int read8(int part) {
@@ -431,14 +430,15 @@ class Ym2612 {
 
   writeData8(int part, int value) {
     final reg = _regs[part];
-    final synth = _synth[part];
+    final chBase = part + part + part;
+    final chNo = chBase + (reg & 0x03);
 
     switch (reg) {
       case 0x20: // LFO
         lfoFreq = value & 0x07;
-        synth.ch[0].lfoEnabled = value.bit3;
-        synth.ch[1].lfoEnabled = value.bit2;
-        synth.ch[2].lfoEnabled = value.bit1;
+        _channels[0 + chBase].lfoEnabled = value.bit3;
+        _channels[1 + chBase].lfoEnabled = value.bit2;
+        _channels[2 + chBase].lfoEnabled = value.bit1;
         break;
 
       case 0x24: // Timer A Low
@@ -468,7 +468,7 @@ class Ym2612 {
         break;
 
       case 0x28: // Operator Control
-        final ch = _synth[value >> 2 & 0x01].ch[value & 0x03];
+        final ch = _channels[chNo];
 
         for (var op = 0; op < 4; op++) {
           value >> (op + 4) & 0x01 == 1
@@ -487,12 +487,9 @@ class Ym2612 {
     }
 
     if (0x30 <= reg && reg < 0xa0) {
-      final ch = reg & 0x03;
-      final op = synth.ch[ch].op[[0, 2, 1, 3][reg >> 2 & 0x03]];
+      final op = _channels[chNo].op[[0, 2, 1, 3][reg >> 2 & 0x03]];
 
-      final func = reg & 0xf0;
-
-      switch (func) {
+      switch (reg & 0xf0) {
         case 0x30: // DT, MUL
           op.dt = value >> 4 & 0x07;
           op.mul = value << 1 & 0x1e;
@@ -526,20 +523,20 @@ class Ym2612 {
     }
 
     if (0xa0 <= reg && reg < 0xb8) {
-      final ch = synth.ch[reg & 0x03];
+      final ch = _channels[chNo];
 
       if (isCh3Special) {
         switch (reg) {
           case 0xa8: // FNUM
           case 0xa9:
           case 0xaa:
-            final op = synth.ch[2].op[reg - 0xa7];
+            final op = _channels[2].op[reg - 0xa7];
             op.freq = op.freq.setL8(value);
             return;
           case 0xac: // FNUM
           case 0xad:
           case 0xae:
-            final op = synth.ch[2].op[reg - 0xac];
+            final op = _channels[2].op[reg - 0xac];
             op.freq = op.freq.setH8(value & 0x07);
             op.block = value >> 3 & 0x07;
             return;
@@ -584,24 +581,22 @@ class Ym2612 {
 
     final buffer = Float32List(samples * 2);
 
-    for (final synth in _synth) {
-      for (final ch in synth.ch) {
-        if (dacEnabled && ch.no == 6) {
-          // mix dac
-          for (int i = 0; i < buffer.length; i += 2) {
-            buffer[i] += ch.outLeft ? dacData / 256 / 6 : 0;
-            buffer[i + 1] += ch.outRight ? dacData / 256 / 6 : 0;
-          }
-
-          continue;
-        }
-
-        // mix fm
-        final out = ch.render(samples);
+    for (final ch in _channels) {
+      if (dacEnabled && ch.no == 6) {
+        // mix dac
         for (int i = 0; i < buffer.length; i += 2) {
-          buffer[i] += ch.outLeft ? out[i >> 1] / 6 : 0;
-          buffer[i + 1] += ch.outRight ? out[i >> 1] / 6 : 0;
+          buffer[i] += ch.outLeft ? dacData / 256 / 6 : 0;
+          buffer[i + 1] += ch.outRight ? dacData / 256 / 6 : 0;
         }
+
+        continue;
+      }
+
+      // mix fm
+      final out = ch.render(samples);
+      for (int i = 0; i < buffer.length; i += 2) {
+        buffer[i] += ch.outLeft ? out[i >> 1] / 6 : 0;
+        buffer[i + 1] += ch.outRight ? out[i >> 1] / 6 : 0;
       }
     }
 
@@ -611,10 +606,10 @@ class Ym2612 {
   }
 
   List<int> opBuffer(int ch, int op) {
-    return _synth[ch >> 2 & 1].ch[ch & 0x03].opBuffer[op];
+    return _channels[ch & 0x03].opBuffer[op];
   }
 
-  String debug() {
-    return _synth.map((s) => s.debug()).join('\n');
+  String dump() {
+    return _channels.map((c) => c.debug()).join('\n');
   }
 }
