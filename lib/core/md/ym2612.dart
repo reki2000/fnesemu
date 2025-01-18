@@ -50,12 +50,19 @@ class Op {
   final String no;
   Op(this.no);
 
-  static const outMask = 0xfff;
+  static const outBits = 13; // not include 1 bit for sign
+  static const outSize = 1 << outBits;
+  static const outMask = outSize - 1;
+
+  static const attenuateBits = 10;
+  static const attenuateSize = 1 << attenuateBits;
+  static const attenuateMask = attenuateSize - 1;
 
   bool enabled = false;
 
   int freq = 0;
   int block = 0;
+  int keyCode = 0;
 
   int _phase = 0; // 24bit: 0 - 0xfffff
 
@@ -78,14 +85,11 @@ class Op {
   int _rate = 0; // internal increment rate for the attenuation
   bool _egInvert = false;
 
-  int _egClockCounter = 0; // clock counter for EG
-  int _globalClockCounter = 0; // global counter of FM module
-
-  int _state = 4; // 1:attack, 2:decay, 3:sustain, 4:release
-  static const _stateAttack = 1;
-  static const _stateDecay = 2;
-  static const _stateSustain = 3;
-  static const _stateRelease = 4;
+  static const _stateAttack = 0;
+  static const _stateDecay = 1;
+  static const _stateSustain = 2;
+  static const _stateRelease = 3;
+  int _state = _stateRelease;
 
   keyOn() {
     _phase = 0;
@@ -107,11 +111,11 @@ class Op {
 
   // ar, dr, sr, rr to rate
   int rate(int r) {
-    final result = r == 0 ? 0 : (r << 1) + rs;
+    final result = r == 0 ? 0 : ((r << 1) + (keyCode >> (3 - rs)));
     return (result > 63) ? 63 : result;
   }
 
-  updateEnvelope() {
+  updateEnvelope(int egClockCounter) {
     switch (_state) {
       case _stateAttack:
         if (_attenuation == 0x3ff) {
@@ -122,7 +126,7 @@ class Op {
         }
         break;
       case _stateDecay:
-        if ((_level >> 4) == (sr << 1)) {
+        if ((_attenuation >> 4) == (sl << 1)) {
           _state = _stateSustain;
           _egInvert = false; // TBD: based on ssg-eg inv flag
           _rate = rate(sr);
@@ -136,22 +140,28 @@ class Op {
     }
 
     final shift = (_rate >= 48) ? 0 : ((47 - _rate) >> 2);
-    final inc = incTable[_rate << 3 | (_egClockCounter >> shift & 0x07)];
 
-    if (_state == _stateAttack) {
-      _attenuation += inc * (((0x400 - _attenuation) >> 4) + 1);
-    } else {
-      // TBD: inc x 6 in ssg mode
-      _attenuation += inc;
+    // if (no == "2-4") {
+    //   print(
+    //       "op$no state:$_state counter:$_egClockCounter rate:$_rate shift:$shift atten:$_attenuation lv:$_level");
+    // }
+
+    if (shift == 0 || egClockCounter & ((1 << shift) - 1) == 0) {
+      final inc = incTable[_rate << 3 | egClockCounter >> shift & 0x07];
+
+      if (_state == _stateAttack) {
+        _attenuation += inc * (((attenuateSize - _attenuation) >> 4) + 1);
+      } else {
+        // TBD: inc x 6 in ssg mode
+        _attenuation += inc;
+      }
+
+      _attenuation = _attenuation.clip(0, attenuateMask);
+
+      final level = (tl << 3) +
+          (_egInvert ? (~_attenuation) & attenuateMask : _attenuation);
+      _level = level.clip(0, attenuateMask);
     }
-
-    _attenuation = _attenuation.clip(0, 0x3ff);
-
-    final level =
-        (tl << 3) + (_egInvert ? (~_attenuation) & 0x3ff : _attenuation);
-    _level = level.clip(0, 0x3ff);
-
-    _egClockCounter++;
   }
 
   updatePhase() {
@@ -168,7 +178,6 @@ class Op {
   }
 
   // modulation: -0xfff..0xfff (original: 10bit 0-0x3ff)
-  // output: -0xfff..0xfff (original: 14bit 0x0x3fff, -1fff to 1fff)
   // _phase: 24bit 0..0xfffff
   int generateOutput(int modulation) {
     final phase = (modulation + (_phase >> 10)) & 0x3ff;
@@ -177,34 +186,12 @@ class Op {
     // dB: 0(loud)-0x1fff(quiet) 13bit
     final level = (logSin256[qPhase] + (_level << 2)).clip(0, 0x1fff);
 
-    // dac: 0(quiet)-0x3ff(loud) 10bit : level >> 8 : 0..0x1f
+    // exp: 0(quiet)-0x3ff(loud) 10bit + 0x400
+    // level >> 8 : 0..0x1f
+    // output: -0x1fff-0x1fff 14bit
     final output = ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8);
 
     final out = phase & 0x200 != 0 ? -output : output; // 13bit signed
-
-    // for debug
-    // if (ar != 0) {
-    //   final ph =
-    //       "ph:${_phase.hex24} ${phase.hex16} ${qPhase.hex16} sin:${logSin256[qPhase].hex16}";
-    //   final st =
-    //       "state:$_state rate:${_rate.hex8} att:${_egInvert ? "*${(~_attenuation & 0x3ff).hex16}" : " ${_attenuation.hex16}"} lv:${_level.hex16}";
-    //   print("op$no $ph $st l:${level.hex16} out:${output.hex16} ${out.hex16}");
-    // }
-
-    return out;
-  }
-
-  int tick(int modulation) {
-    _globalClockCounter += 144;
-
-    updatePhase();
-
-    if (_egClockCounter < _globalClockCounter ~/ 351) {
-      _egClockCounter++;
-      updateEnvelope();
-    }
-
-    final out = generateOutput(modulation);
 
     return out;
   }
@@ -224,15 +211,12 @@ class Channel {
   int block = 0;
 
   setFreq(bool onlyOp1) {
-    if (onlyOp1) {
-      op[0].freq = freq;
-      op[0].block = block;
-      return;
-    }
-
     for (final o in op) {
       o.freq = freq;
       o.block = block;
+      o.keyCode = block << 2 | (freq >> 8);
+
+      if (onlyOp1) break;
     }
   }
 
@@ -248,11 +232,17 @@ class Channel {
 
   int counter = 0;
 
+  int _egClockCounter = 0; // clock counter for EG
+  int _globalClockCounter = 0; // global counter of FM module
+
   var buffer = Float32List(1000);
   var opBuffer = List<List<int>>.generate(4, (j) => List<int>.filled(1000, 0));
 
-  int doFeedback(int input) {
-    return input + (feedback == 0 ? 0 : input >> (10 - feedback));
+  int withFeedback(Op op) {
+    final input = op.generateOutput(0);
+    return feedback == 0
+        ? input
+        : op.generateOutput(feedback == 0 ? 0 : (input >> (10 - feedback)));
   }
 
   // 1 sample = 1/44100 sec
@@ -264,8 +254,20 @@ class Channel {
     }
 
     for (int i = 0; i < buffer.length; i++) {
+      for (final o in op) {
+        o.updatePhase();
+      }
+
+      _globalClockCounter += 144;
+      if (_egClockCounter < _globalClockCounter ~/ 351) {
+        _egClockCounter++;
+        for (final o in op) {
+          o.updateEnvelope(_egClockCounter);
+        }
+      }
+
       double out = 0;
-      int op1 = 0;
+      int op1 = withFeedback(op[0]);
       int op2 = 0;
       int op3 = 0;
       int op4 = 0;
@@ -273,66 +275,58 @@ class Channel {
       switch (algo) {
         case 0:
           // 0: 1->2->3->4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(op1);
-          op3 = op[2].tick(op2);
-          op4 = op[3].tick(op3);
+          op2 = op[1].generateOutput(op1 >> 1);
+          op3 = op[2].generateOutput(op2 >> 1);
+          op4 = op[3].generateOutput(op3 >> 1);
           out = op4 / Op.outMask;
           break;
         case 1:
           // 1: 1->3 2->3->4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(0);
-          op3 = op[2].tick((op1 + op2) ~/ 2);
-          op4 = op[3].tick(op3);
+          op2 = op[1].generateOutput(0);
+          op3 = op[2].generateOutput((op1 + op2) >> 2);
+          op4 = op[3].generateOutput(op3 >> 1);
           out = op4 / Op.outMask;
           break;
         case 2:
           // 2: 1->4 2->3->4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(0);
-          op3 = op[2].tick(op2);
-          op4 = op[3].tick((op1 + op3) ~/ 2);
+          op2 = op[1].generateOutput(0);
+          op3 = op[2].generateOutput(op2 >> 1);
+          op4 = op[3].generateOutput((op1 + op3) >> 2);
           out = op4 / Op.outMask;
           break;
         case 3:
           // 3: 1->2->4->out 3->4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(op1);
-          op3 = op[2].tick(0);
-          op4 = op[3].tick((op2 + op3) ~/ 2);
+          op2 = op[1].generateOutput(op1 >> 1);
+          op3 = op[2].generateOutput(0);
+          op4 = op[3].generateOutput((op2 + op3) >> 2);
           out = op4 / Op.outMask;
           break;
         case 4:
           // 4: 1->2->out 3->4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(0);
-          op3 = op[2].tick(op1);
-          op4 = op[3].tick(op3);
+          op2 = op[1].generateOutput(0);
+          op3 = op[2].generateOutput(op1 >> 1);
+          op4 = op[3].generateOutput(op3 >> 1);
           out = (op2 + op4) / 2 / Op.outMask;
           break;
         case 5:
           // 5: 1->2->out 1->3->out 1->4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(op1);
-          op3 = op[2].tick(op1);
-          op4 = op[3].tick(op1);
+          op2 = op[1].generateOutput(op1 >> 1);
+          op3 = op[2].generateOutput(op1 >> 1);
+          op4 = op[3].generateOutput(op1 >> 1);
           out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 6:
           // 6: 1->2->out 3->out 4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(op1);
-          op3 = op[2].tick(0);
-          op4 = op[3].tick(0);
+          op2 = op[1].generateOutput(op1 >> 1);
+          op3 = op[2].generateOutput(0);
+          op4 = op[3].generateOutput(0);
           out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 7:
           // 7: 1->out 2->out 3->out 4->out
-          op1 = doFeedback(op[0].tick(0));
-          op2 = op[1].tick(0);
-          op3 = op[2].tick(0);
-          op4 = op[3].tick(0);
+          op2 = op[1].generateOutput(0);
+          op3 = op[2].generateOutput(0);
+          op4 = op[3].generateOutput(0);
           out = (op1 + op2 + op3 + op4) / 4 / Op.outMask;
           break;
       }
@@ -356,7 +350,7 @@ class Channel {
     }
 
     final status =
-        "$no: ${outLeft ? "L" : "-"}${outRight ? "R" : "-"} f:$freq b:$block al:$algo fb:$feedback";
+        "$no: ${outLeft ? "L" : "-"}${outRight ? "R" : "-"} f:$block-$freq al:$algo fb:$feedback";
     return "$status ${op.map((o) => o.debug()).join(' ')}";
   }
 }
@@ -468,7 +462,7 @@ class Ym2612 {
         break;
 
       case 0x28: // Operator Control
-        final ch = _channels[chNo];
+        final ch = _channels[(value & 3) + (value.bit2 ? 3 : 0)];
 
         for (var op = 0; op < 4; op++) {
           value >> (op + 4) & 0x01 == 1
@@ -539,6 +533,7 @@ class Ym2612 {
             final op = _channels[2].op[reg - 0xac];
             op.freq = op.freq.setH8(value & 0x07);
             op.block = value >> 3 & 0x07;
+            op.keyCode = op.block << 2 | (op.freq >> 8);
             return;
         }
       }
@@ -606,7 +601,7 @@ class Ym2612 {
   }
 
   List<int> opBuffer(int ch, int op) {
-    return _channels[ch & 0x03].opBuffer[op];
+    return _channels[ch].opBuffer[op];
   }
 
   String dump() {
