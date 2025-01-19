@@ -194,7 +194,7 @@ class Md implements Core {
 
     final vdpRegs = vdp.dump();
 
-    final ym2612Stat = ym2612.dump();
+    const ym2612Stat = ""; // ym2612.dump();
 
     return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$vdpRegs\n$ym2612Stat";
   }

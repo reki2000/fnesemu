@@ -212,10 +212,15 @@ class MainPageState extends State<MainPage> {
                 CoreView(controller: controller, container: _imageContainer),
 
                 // debug view if enabled
-                StreamBuilder<DebugOption>(
-                    stream: controller.debugger.debugStream,
-                    builder: (ctx, snapshot) =>
-                        Text(snapshot.data?.text ?? "", style: debugStyle)),
+                SizedBox(
+                    width: 640,
+                    child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: StreamBuilder<DebugOption>(
+                            stream: controller.debugger.debugStream,
+                            builder: (ctx, snapshot) => Text(
+                                snapshot.data?.text ?? "",
+                                style: debugStyle)))),
                 if (controller.debugger.debugOption.showDebugView)
                   DebugController(controller: controller),
               ],
