@@ -3,11 +3,16 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
-// log sin of 0..PI/4, 256 steps, 0x000-0xfff
+// Lots of helpful hists from this thread:
+//   https://gendev.spritesmind.net/forum/viewtopic.php?t=386&start=105
+// also:
+//   https://github.com/nukeykt/Nuked-OPN2/blob/master/ym3438.c
+
+// log sin of 0..PI/4, 256 steps: 0x000-0xfff
 final logSin256 = List.generate(
     256, (i) => (-log(sin((i + 0.4) * pi / 2 / 256)) * 370).round().toInt());
 
-// exp of e^0..e^1, 256 steps, -1 biased 0x3ff-0x000
+// exp of e^0..e^1, 256 steps, -1 biased: 0x3ff-0x000
 final exp256 = List.generate(
     256, (i) => ((exp(i / 256) - 1.0) / (exp(1) - 1.0) * 1023).toInt());
 
@@ -46,6 +51,15 @@ final incTable = [
   8, 8, 8, 8, 8, 8, // 60-63  (0x3C-0x3F)
 ];
 
+final DetuneTable32 = [
+  0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, //  dt=1, keyCode 0..1f
+  2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 8, 8, 8, 8, //
+  1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, // dt=2
+  5, 6, 6, 7, 8, 8, 9, 10, 11, 12, 13, 14, 16, 16, 16, 16, //
+  2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, // dt=3
+  8, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 22, 22, 22 //
+];
+
 class Op {
   final String no;
   Op(this.no);
@@ -60,9 +74,9 @@ class Op {
 
   bool enabled = false;
 
-  int freq = 0;
-  int block = 0;
-  int keyCode = 0;
+  int freq = 0; // 0-0x7ff
+  int block = 0; // 0-7
+  int keyCode = 0; // block << 2 | freq >> 9 : 0-0x1f
 
   int _phase = 0; // 24bit: 0 - 0xfffff
 
@@ -118,7 +132,7 @@ class Op {
   updateEnvelope(int egClockCounter) {
     switch (_state) {
       case _stateAttack:
-        if (_attenuation == 0x3ff) {
+        if (_attenuation == attenuateMask) {
           _attenuation = 0;
           _state = _stateDecay;
           _egInvert = false; // TBD: based on ssg-eg inv flag
@@ -139,11 +153,11 @@ class Op {
         break;
     }
 
-    final shift = (_rate >= 48) ? 0 : ((47 - _rate) >> 2);
+    final shift = (_rate >= 44) ? 0 : (11 - (_rate >> 2));
 
-    // if (no == "2-4") {
+    // if (no == "1-4") {
     //   print(
-    //       "op$no state:$_state counter:$_egClockCounter rate:$_rate shift:$shift atten:$_attenuation lv:$_level");
+    //       "op$no state:$_state counter:$egClockCounter rate:$_rate shift:$shift inc:${incTable[_rate << 3 | egClockCounter >> shift & 0x07]} atten:$_attenuation lv:$_level");
     // }
 
     if (shift == 0 || egClockCounter & ((1 << shift) - 1) == 0) {
@@ -170,8 +184,8 @@ class Op {
 
     final baseFreq = (lfoFreq << block) >> 2;
 
-    final detune = 0; // TBD
-    final detuneFreq = baseFreq + detune;
+    final detune = dt == 0 ? 0 : DetuneTable32[(dt & 3 - 1) << 5 | keyCode];
+    final detuneFreq = baseFreq + (dt.bit2 ? detune : -detune);
 
     final inc = (detuneFreq * mul) >> 1;
     _phase = (_phase + (inc & 0xfffff)) & 0xfffff;
@@ -533,7 +547,7 @@ class Ym2612 {
             final op = _channels[2].op[reg - 0xac];
             op.freq = op.freq.setH8(value & 0x07);
             op.block = value >> 3 & 0x07;
-            op.keyCode = op.block << 2 | (op.freq >> 8);
+            op.keyCode = op.block << 2 | (op.freq >> 9);
             return;
         }
       }
