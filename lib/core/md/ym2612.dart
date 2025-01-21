@@ -358,14 +358,25 @@ class Channel {
 
   bool enableDebug = true;
 
-  String debug() {
+  String debug({bool verbose = false}) {
     if (!enableDebug) {
       return "";
     }
 
+    final lr = outLeft && outRight
+        ? "C"
+        : outLeft
+            ? "L"
+            : outRight
+                ? "R"
+                : "-";
     final status =
-        "$no: ${outLeft ? "L" : "-"}${outRight ? "R" : "-"} f:$block-$freq al:$algo fb:$feedback";
-    return "$status ${op.map((o) => o.debug()).join(' ')}";
+        "${no.toString().padLeft(1)}:$lr${(block << 2 | (freq >> 8)).hex8} $algo$feedback";
+
+    final ops = op.map((o) => o.ssgEg.bit3 ? "s" : "a").join();
+    final verboseOps = op.map((o) => o.debug()).join(' ');
+
+    return "$status ${verbose ? verboseOps : ops}";
   }
 }
 
@@ -373,12 +384,12 @@ class Ym2612 {
   final _channels = List.generate(6, (i) => Channel(i + 1));
   Ym2612();
 
-  var _buffer = Float32List(1000);
-
-  Float32List get audioBuffer => _buffer;
-
   int lfoFreq = 0;
-  bool isCh3Special = false;
+
+  static const ch3ModeNone = 0;
+  static const ch3ModeMultiFreq = 1;
+  static const ch3ModeCsm = 2;
+  int ch3Mode = ch3ModeNone;
 
   int timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
   int timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
@@ -386,11 +397,13 @@ class Ym2612 {
   bool enableTimerA = false;
   bool enableTimerB = false;
 
-  bool enableTimerAOverflow = false;
-  bool enableTimerBOverflow = false;
+  bool notifyTimerAOverflow = false;
+  bool notifyTimerBOverflow = false;
 
-  int timerAOverflow = 0;
-  int timerBOverflow = 0;
+  bool resetTimerA = false;
+  bool resetTimerB = false;
+
+  int timerOverflow = 0;
 
   int _timerCountA = 0;
   int _timerCountB = 0;
@@ -398,26 +411,37 @@ class Ym2612 {
   int dacData = 0;
   bool dacEnabled = false;
 
-  resetTimerA() => _timerCountA = timerA;
-  resetTimerB() => _timerCountB = timerB << 4;
-
   // TIMERA_period = 18 x (1024 -TIMER) microseconds,
   // TIMERB_period = 18 x 16 x (256 -TIMER) microseconds
   // 18ms ~= 1_000_000ms / (m68clock / 144); where m68clock / 144 = 1 sammple
   countTimer(int samples) {
     if (enableTimerA) {
       _timerCountA += samples;
+
       if (_timerCountA >= 1024) {
         _timerCountA -= 1024 + timerA;
-        timerAOverflow = 0x02;
+
+        if (notifyTimerAOverflow) {
+          timerOverflow |= 0x01;
+        }
+
+        if (ch3Mode == ch3ModeCsm) {
+          for (final op in _channels[2].op) {
+            op.keyOn();
+          }
+        }
       }
     }
 
     if (enableTimerB) {
       _timerCountB += samples;
+
       if (_timerCountB >= 256 * 16) {
         _timerCountB -= 256 * 16 + (timerB << 4);
-        timerBOverflow = 0x01;
+
+        if (notifyTimerBOverflow) {
+          timerOverflow |= 0x02;
+        }
       }
     }
   }
@@ -425,9 +449,13 @@ class Ym2612 {
   final _regs = [0, 0];
 
   int read8(int part) {
-    final status = timerBOverflow | timerAOverflow;
-    timerBOverflow = 0;
-    timerAOverflow = 0;
+    final status = timerOverflow;
+    if (resetTimerA) {
+      timerOverflow &= ~0x01;
+    }
+    if (resetTimerB) {
+      timerOverflow &= ~0x02;
+    }
 
     return status;
   }
@@ -462,15 +490,11 @@ class Ym2612 {
         break;
 
       case 0x27: // Timer Control
-        isCh3Special = value.bit7;
-        if (value.bit5) {
-          resetTimerB();
-        }
-        if (value.bit4) {
-          resetTimerA();
-        }
-        enableTimerBOverflow = value.bit3;
-        enableTimerAOverflow = value.bit2;
+        ch3Mode = value >> 6 & 3;
+        resetTimerB = value.bit5;
+        resetTimerA = value.bit4;
+        notifyTimerBOverflow = value.bit3;
+        notifyTimerAOverflow = value.bit2;
         enableTimerB = value.bit1;
         enableTimerA = value.bit0;
         break;
@@ -486,7 +510,7 @@ class Ym2612 {
         break;
 
       case 0x2a: // dac data
-        dacData = value & 0x7f;
+        dacData = value & 0xff;
         break;
 
       case 0x2b: // dac control
@@ -533,7 +557,7 @@ class Ym2612 {
     if (0xa0 <= reg && reg < 0xb8) {
       final ch = _channels[chNo];
 
-      if (isCh3Special) {
+      if (ch3Mode != ch3ModeNone && chNo == 2) {
         switch (reg) {
           case 0xa8: // FNUM
           case 0xa9:
@@ -556,7 +580,7 @@ class Ym2612 {
       switch (func) {
         case 0xa0: // FNUM
           ch.freq = ch.freq.setL8(value);
-          ch.setFreq(isCh3Special && ch.no == 3);
+          ch.setFreq(ch3Mode != ch3ModeNone && chNo == 2);
           break;
         case 0xa4: // FNUM
           ch.freq = ch.freq.setH8(value & 0x07);
@@ -594,18 +618,19 @@ class Ym2612 {
       if (dacEnabled && ch.no == 6) {
         // mix dac
         for (int i = 0; i < buffer.length; i += 2) {
-          buffer[i] += ch.outLeft ? dacData / 256 / 6 : 0;
-          buffer[i + 1] += ch.outRight ? dacData / 256 / 6 : 0;
+          final dacValue = (dacData - 127) / 128 / 6;
+          buffer[i + 0] += ch.outLeft ? dacValue : 0;
+          buffer[i + 1] += ch.outRight ? dacValue : 0;
         }
-
         continue;
       }
 
       // mix fm
       final out = ch.render(samples);
       for (int i = 0; i < buffer.length; i += 2) {
-        buffer[i] += ch.outLeft ? out[i >> 1] / 6 : 0;
-        buffer[i + 1] += ch.outRight ? out[i >> 1] / 6 : 0;
+        final dacValue = out[i >> 1] / 6;
+        buffer[i + 0] += ch.outLeft ? dacValue : 0;
+        buffer[i + 1] += ch.outRight ? dacValue : 0;
       }
     }
 
@@ -619,6 +644,7 @@ class Ym2612 {
   }
 
   String dump() {
-    return _channels.map((c) => c.debug()).join('\n');
+    final ch = _channels.map((c) => c.debug()).join(' ');
+    return "fm:${ch3Mode.toString().padLeft(1)}${dacEnabled ? "D" : "-"} ${_timerCountA.hex16} ${_timerCountB.hex8} $ch";
   }
 }
