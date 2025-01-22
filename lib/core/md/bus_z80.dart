@@ -25,7 +25,7 @@ class BusZ80 {
 
   bool _reset = false;
   set resetReq(bool value) {
-    // print("z80 reset:$value m68 pc:${busM68.cpu.pc.hex24}");
+    // print("z80 reset:$_reset->$value m68 pc:${busM68.cpu.pc.hex24}");
     if (value && !_reset) {
       cpu.reset(keepCycles: true); // reset when resetReq becomes up
     }
@@ -44,7 +44,7 @@ class BusZ80 {
     if (addr < 0x6000) return ym2612.read8(0); // ym2612 a0
 
     if (addr >= 0x8000) {
-      return busM68.read16(_bank << 15 | addr & 0x7fff) >> 8; // vdp & psg
+      return busM68.read16(_bank | addr & 0x7fff) >> 8; // vdp & psg
     }
 
     if (addr & 0xff00 == 0x7f00) return busM68.read8(0xc00000 | addr & 0x1f);
@@ -79,7 +79,8 @@ class BusZ80 {
 
     // bank: 0x6000-0x60ff
     if (addr < 0x6100) {
-      _bank = (_bank << 1 | data & 1) & 0x1ff;
+      _bank = _bank >> 1 & 0x7f8000 | data << 23 & 0x800000;
+      // print("bank: ${_bank.hex24}");
       return;
     }
 
@@ -91,7 +92,7 @@ class BusZ80 {
 
     // 0x8000-0xffff:  banked m68k address space
     if (addr >= 0x8000) {
-      busM68.write8(_bank << 15 | _bank & 0x7fff, data);
+      busM68.write8(_bank | addr & 0x7fff, data);
       return;
     }
   }

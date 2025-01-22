@@ -445,7 +445,10 @@ class Z80 {
     r.bc2 = 0;
     r.de2 = 0;
     r.hl2 = 0;
-    cycles = 0;
+
+    if (!keepCycles) {
+      cycles = 0;
+    }
   }
 
   String dump() {
