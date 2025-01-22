@@ -74,7 +74,7 @@ class Z80Disasm {
                 0x6f => "rld",
                 0x74 => "tstio ${im8()}",
                 0x76 => "slp",
-                _ => throw "unknown op: ${op.hex8}",
+                _ => throw "unknown op: ed ${op.hex8}",
               }
           },
         _ => switch (op) {
@@ -156,12 +156,21 @@ class Z80Disasm {
         0x75 ||
         0x77 =>
           "ld ${disp()}, $r8",
+        0x86 ||
+        0x8e ||
+        0x96 ||
+        0x9e ||
+        0xa6 ||
+        0xae ||
+        0xb6 ||
+        0xbe =>
+          "${ari[op >> 3 & 7]} ${disp()}",
         0xe1 => "pop $xy",
         0xe3 => "ex (sp), $xy",
         0xe5 => "push $xy",
         0xe9 => "jp ($xy)",
         0xf9 => "ld sp, $xy",
-        _ => throw "unknown op: ${op.hex8}",
+        _ => throw "unknown op: ${xy == "ix" ? "dd" : "fd"} ${op.hex8}",
       };
     }
 
@@ -181,8 +190,18 @@ class Z80Disasm {
             },
           0x01 => "ld $regLd16, ${im16()}",
           0x09 => "add hl, $regLd16",
-          0x02 => "ld ($regLd16), a",
-          0x0a => "ld a, ($regLd16)",
+          0x02 => switch (op & 0xf0) {
+              0x00 || 0x10 => "ld ($regLd16), a",
+              0x20 => "ld (${im16()}), hl",
+              0x30 => "ld (${im16()}), a",
+              _ => throw "never reach",
+            },
+          0x0a => switch (op & 0xf0) {
+              0x00 || 0x10 => "ld a, ($regLd16)",
+              0x20 => "ld hl, (${im16()})",
+              0x30 => "ld a, (${im16()})",
+              _ => throw "never reach",
+            },
           0x03 => "inc $regLd16",
           0x0b => "dec $regLd16",
           0x04 || 0x0c => "inc $regLd8",
@@ -197,7 +216,7 @@ class Z80Disasm {
           0x00 || 0x08 => "ret ${cond[op >> 4 & 7]}",
           0x01 => "pop ${regs16[op >> 4 & 3]}",
           0x09 => ["ret", "exx", "jp (hl)", "ld sp, hl"][op >> 4 & 3],
-          0x02 || 0x0a => "jp ${cond[op >> 4 & 7]}, ${im16()}",
+          0x02 || 0x0a => "jp ${cond[op >> 3 & 7]}, ${im16()}",
           0x03 || 0x0b => switch (op) {
               0xc3 => "jp ${im16()}",
               0xcb => opCb(),
@@ -210,7 +229,7 @@ class Z80Disasm {
                   "ei"
                 ][(op >> 3 & 7) - 2],
             },
-          0x04 || 0x0c => "call ${cond[op >> 4 & 7]}, ${im16()}",
+          0x04 || 0x0c => "call ${cond[op >> 3 & 7]}, ${im16()}",
           0x05 => "push ${regs16[op >> 4 & 3]}",
           0x0d => switch (op) {
               0xcd => "call ${im16()}",
