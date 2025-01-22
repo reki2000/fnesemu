@@ -416,10 +416,10 @@ class Ym2612 {
   // 18ms ~= 1_000_000ms / (m68clock / 144); where m68clock / 144 = 1 sammple
   countTimer(int samples) {
     if (enableTimerA) {
-      _timerCountA += samples;
+      _timerCountA -= samples;
 
-      if (_timerCountA >= 1024) {
-        _timerCountA -= 1024 + timerA;
+      if (_timerCountA <= 0) {
+        _timerCountA += 1024 - timerA;
 
         if (notifyTimerAOverflow) {
           timerOverflow |= 0x01;
@@ -434,10 +434,10 @@ class Ym2612 {
     }
 
     if (enableTimerB) {
-      _timerCountB += samples;
+      _timerCountB -= samples;
 
-      if (_timerCountB >= 256 * 16) {
-        _timerCountB -= 256 * 16 + (timerB << 4);
+      if (_timerCountB <= 0) {
+        _timerCountB += (256 - timerB) << 4;
 
         if (notifyTimerBOverflow) {
           timerOverflow |= 0x02;
