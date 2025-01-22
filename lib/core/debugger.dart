@@ -8,21 +8,28 @@ import 'types.dart';
 /// Parameters for debugging features
 class DebugOption {
   bool showDebugView = false;
-  int breakPoint = 0;
-  bool log = false;
-  bool showDisasm = true;
-  int disasmAddress = 0;
-  String text = "";
+
   bool showVdc = false;
+  bool showDisasm = true;
+
+  String text = "";
+
+  bool log = false;
+  int breakPoint = 0;
+  List<int> disasmAddress = [];
+
+  DebugOption(int maxCpuNo) : disasmAddress = List.filled(maxCpuNo, 0);
 }
 
 class Debugger {
   final Core core;
 
-  Debugger(this.core);
+  Debugger(this.core) : debugOption = DebugOption(core.cpuInfos.length);
 
   // interafaces for debugging features
-  final debugOption = DebugOption();
+  DebugOption debugOption;
+
+  List<String> get cpuInfos => core.cpuInfos;
 
   final _debugStream = StreamController<DebugOption>.broadcast();
   Stream<DebugOption> get debugStream => _debugStream.stream;
@@ -38,7 +45,9 @@ class Debugger {
     } else {
       debugOption.text =
           core.dump(showZeroPage: true, showStack: true, showApu: true);
-      debugOption.disasmAddress = core.programCounter;
+      for (int i = 0; i < cpuInfos.length; i++) {
+        debugOption.disasmAddress[i] = core.programCounter(i);
+      }
     }
     _debugStream.add(debugOption);
   }
@@ -74,18 +83,20 @@ class Debugger {
     pushStream();
   }
 
+  int nextPc(int cpuNo) =>
+      (core.programCounter(cpuNo) +
+          core.disasm(0, core.programCounter(cpuNo)).i1) &
+      0xffff;
+
+  Pair<String, int> disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
+
   void toggleVdc() {
     debugOption.showVdc = !debugOption.showVdc;
     pushStream();
   }
 
-  int get nextPc =>
-      (core.programCounter + core.disasm(core.programCounter).i1) & 0xffff;
-
-  Pair<String, int> disasm(int addr) => core.disasm(addr);
-
   List<int> dumpVram() => core.vram;
-  int read(int addr) => core.read(addr);
+  int read(int addr) => core.read(0, addr);
   ImageBuffer renderBg() => core.renderBg();
   List<String> spriteInfo() => core.spriteInfo();
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>

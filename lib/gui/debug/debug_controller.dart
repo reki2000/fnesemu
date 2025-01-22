@@ -1,6 +1,7 @@
 // Dart imports:
 // Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../../core/core_controller.dart';
 import 'mem.dart';
@@ -21,7 +22,8 @@ class DebugController extends StatelessWidget {
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       _button("Step", controller.runStep),
       _button("Next", () {
-        controller.debugger.debugOption.breakPoint = controller.debugger.nextPc;
+        controller.debugger.debugOption.breakPoint =
+            controller.debugger.nextPc(0);
         controller.run();
       }),
       _button("Line", controller.runScanLine),
@@ -33,6 +35,8 @@ class DebugController extends StatelessWidget {
               try {
                 final breakPoint = int.parse(v, radix: 16);
                 controller.debugger.debugOption.breakPoint = breakPoint;
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("breakpoint: ${breakPoint.hex16}")));
               } catch (e) {
                 ScaffoldMessenger.of(context)
                     .showSnackBar(SnackBar(content: Text(e.toString())));

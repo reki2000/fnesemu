@@ -11,9 +11,10 @@ import '../../util/util.dart';
 class DebugDisasm extends StatelessWidget {
   final Debugger debugger;
   final addrNotifier = ValueNotifier<int>(0);
+  final int cpuNo;
 
-  DebugDisasm({super.key, required this.debugger}) {
-    addrNotifier.value = debugger.debugOption.disasmAddress;
+  DebugDisasm({super.key, required this.debugger, required this.cpuNo}) {
+    addrNotifier.value = debugger.debugOption.disasmAddress[cpuNo];
   }
 
   final margin10 = const EdgeInsets.all(10.0);
@@ -23,7 +24,7 @@ class DebugDisasm extends StatelessWidget {
     final result = List<Pair<int, String>>.empty(growable: true);
 
     for (int i = 0; i < lines; i++) {
-      final asm = debugger.disasm(addr);
+      final asm = debugger.disasm(cpuNo, addr);
       result.add(Pair(addr, asm.i0));
       addr += asm.i1;
     }
@@ -37,7 +38,7 @@ class DebugDisasm extends StatelessWidget {
 
     var current = addr - lines * 6;
     while (current < addr) {
-      final asm = debugger.disasm(current);
+      final asm = debugger.disasm(cpuNo, current);
       result.add(Pair(current, asm.i0));
       current += asm.i1;
     }
@@ -52,46 +53,50 @@ class DebugDisasm extends StatelessWidget {
   Widget build(BuildContext context) {
     node.requestFocus;
     return Container(
-        width: 400,
+        width: 320,
         margin: margin10,
         alignment: Alignment.topLeft,
-        child: Focus(
-          focusNode: node,
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  SizedBox(
-                      width: 50,
-                      child: TextField(onChanged: (v) {
-                        if (v.length == 4) {
-                          addrNotifier.value = int.parse(v, radix: 16);
-                        }
-                      })),
-                  _button("--", () {
-                    addrNotifier.value = (addrNotifier.value - 0x400) & 0xffff;
-                  }),
-                  _button("-", () {
-                    addrNotifier.value = (addrNotifier.value - 0x20) & 0xffff;
-                  }),
-                  _button("+", () {
-                    addrNotifier.value += 0x20;
-                  }),
-                  _button("++", () {
-                    addrNotifier.value += 0x400;
-                  }),
-                ]),
-                ValueListenableBuilder<int>(
-                    valueListenable: addrNotifier,
-                    builder: (context, addr, child) => SelectableText(
-                          (_backward(addr, 5)..addAll(_asm(addr, 40)))
-                              .map((s) => (s.i0 == addr ? "*" : " ") + s.i1)
-                              .join("\n"),
-                          style: debugStyle,
-                          showCursor: true,
-                        )),
-              ]),
-        ));
+        child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Focus(
+              focusNode: node,
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      SizedBox(
+                          width: 50,
+                          child: TextField(onChanged: (v) {
+                            if (v.length == 4) {
+                              addrNotifier.value = int.parse(v, radix: 16);
+                            }
+                          })),
+                      _button("--", () {
+                        addrNotifier.value =
+                            (addrNotifier.value - 0x400) & 0xffff;
+                      }),
+                      _button("-", () {
+                        addrNotifier.value =
+                            (addrNotifier.value - 0x20) & 0xffff;
+                      }),
+                      _button("+", () {
+                        addrNotifier.value += 0x20;
+                      }),
+                      _button("++", () {
+                        addrNotifier.value += 0x400;
+                      }),
+                    ]),
+                    ValueListenableBuilder<int>(
+                        valueListenable: addrNotifier,
+                        builder: (context, addr, child) => SelectableText(
+                              (_backward(addr, 5)..addAll(_asm(addr, 40)))
+                                  .map((s) => (s.i0 == addr ? "*" : " ") + s.i1)
+                                  .join("\n"),
+                              style: debugStyle,
+                              showCursor: true,
+                            )),
+                  ]),
+            )));
   }
 }

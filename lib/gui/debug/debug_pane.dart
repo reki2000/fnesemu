@@ -15,12 +15,14 @@ class DebugPane extends StatelessWidget {
   Widget build(BuildContext context) => StreamBuilder(
       stream: debugger.debugStream,
       builder: (context, snapshot) {
-        if (snapshot.data?.showDebugView ?? false) {
+        final data = snapshot.data;
+        if (data?.showDebugView ?? false) {
           return Row(children: [
-            if (snapshot.data?.showDisasm ?? false)
-              DebugDisasm(debugger: debugger),
-            if (snapshot.data?.showVdc ?? false) DebugVdc(debugger: debugger),
-            if (snapshot.data?.log ?? false) TracePanel(log: debugger.log),
+            if (data?.showDisasm ?? false)
+              for (int cpuNo = 0; cpuNo < debugger.cpuInfos.length; cpuNo++)
+                DebugDisasm(debugger: debugger, cpuNo: cpuNo),
+            if (data?.showVdc ?? false) DebugVdc(debugger: debugger),
+            if (data?.log ?? false) TracePanel(log: debugger.log),
           ]);
         } else {
           return Container();

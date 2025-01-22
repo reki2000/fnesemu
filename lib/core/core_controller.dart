@@ -32,6 +32,7 @@ class CoreController {
         _core = CoreFactory.ofNes();
         break;
       case 'gen':
+      case 'md':
         _core = CoreFactory.ofMd();
         break;
       default:
@@ -128,7 +129,7 @@ class CoreController {
     final result = _core.exec();
     _currentCpuClocks = result.elapsedClocks;
 
-    debugger.addLog(_core.tracingState);
+    debugger.addLog(_core.tracingState(0));
 
     _renderAll();
   }
@@ -136,7 +137,7 @@ class CoreController {
   /// executes emulation during 1 scanline
   bool runScanLine({skipRender = false}) {
     while (true) {
-      if (debugger.debugOption.breakPoint == _core.programCounter) {
+      if (debugger.debugOption.breakPoint == _core.programCounter(0)) {
         stop();
         return false;
       }
@@ -147,7 +148,7 @@ class CoreController {
 
       // need this check for performance
       if (debugger.debugOption.log) {
-        debugger.addLog(_core.tracingState);
+        debugger.addLog(_core.tracingState(0));
       }
 
       if (!result.stopped) {

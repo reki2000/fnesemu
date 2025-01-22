@@ -57,6 +57,9 @@ class Nes implements Core {
   @override
   int get systemClockHz => cpuClock;
 
+  @override
+  List<String> get cpuInfos => ["6502"];
+
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
 
@@ -196,16 +199,16 @@ class Nes implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int addr) =>
+  Pair<String, int> disasm(int _, int addr) =>
       Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
 
   // debug: returns PC register
   @override
-  int get programCounter => cpu.regs.pc;
+  int programCounter(int _) => cpu.regs.pc;
 
   // debug: set debug logging
   @override
-  String get tracingState => cpu.trace();
+  String tracingState(int _) => cpu.trace();
 
   // debug: dump vram
   @override
@@ -213,7 +216,7 @@ class Nes implements Core {
 
   // debug: read mem
   @override
-  int read(int addr) => bus.read(addr);
+  int read(int _, int addr) => bus.read(addr);
 
   // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
   @override

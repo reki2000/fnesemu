@@ -19,6 +19,8 @@ abstract class Core {
   int get scanlinesInFrame;
   int get clocksInScanline;
 
+  List<String> get cpuInfos;
+
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
   /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
   ExecResult exec();
@@ -51,19 +53,19 @@ abstract class Core {
       bool showApu = false});
 
   // debug: returns dis-assembled instruction in Pair<String nmemonic, int nextAddr>
-  Pair<String, int> disasm(int addr);
+  Pair<String, int> disasm(int cpuNo, int addr);
 
   // debug: returns PC register
-  int get programCounter;
+  int programCounter(int cpuNo);
 
   // debug: returns tracing CPU state - disassembed next instruction and current registers
-  String get tracingState;
+  String tracingState(int cpuNo);
 
   // debug: dump vram
   List<int> get vram;
 
   // debug: read mem
-  int read(int addr);
+  int read(int cpuNo, int addr);
 
   // debug: dump vram
   ImageBuffer renderBg();

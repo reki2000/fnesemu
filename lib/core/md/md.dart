@@ -48,6 +48,9 @@ class Md implements Core {
   @override
   int get clocksInScanline => m68ClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
+  @override
+  List<String> get cpuInfos => ["68000", "Z80"];
+
   Md() {
     busM68 = BusM68();
     busZ80 = BusZ80();
@@ -226,23 +229,20 @@ class Md implements Core {
     }
   }
 
-  // target cpu for debug
-  static const _debugCpuM68 = true;
-
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int addr) {
-    final (asm, i) = _debugCpuM68 ? disasmM68(addr) : disasmZ80(addr);
+  Pair<String, int> disasm(int cpuNo, int addr) {
+    final (asm, i) = cpuNo == 0 ? disasmM68(addr) : disasmZ80(addr);
     return Pair(asm, i);
   }
 
   // debug: returns PC register
   @override
-  int get programCounter => _debugCpuM68 ? cpuM68.pc : cpuZ80.r.pc;
+  int programCounter(int cpuNo) => cpuNo == 0 ? cpuM68.pc : cpuZ80.r.pc;
 
   // debug: set debug logging
   @override
-  String get tracingState => _debugCpuM68
+  String tracingState(int cpuNo) => cpuNo == 0
       ? "${disasmM68(cpuM68.pc).$1.padRight(44)} ${cpuM68.dump().replaceAll("\n", " " "")}"
       : "${disasmZ80(cpuZ80.r.pc).$1.padRight(44)} ${cpuZ80.dump().replaceAll("\n", " ")}";
 
@@ -252,7 +252,8 @@ class Md implements Core {
 
   // debug: read mem
   @override
-  int read(int addr) => busM68.read8(addr);
+  int read(int cpuNo, int addr) =>
+      cpuNo == 0 ? busM68.read8(addr) : busZ80.read(addr);
 
   // debug: render BG
   @override
