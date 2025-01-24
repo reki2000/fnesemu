@@ -1,9 +1,9 @@
 name: fnesemu
-description: A multiplatform NES/PCE Emulator written in Flutter.
+description: A multiplatform NES/PCE/MD Emulator written in Flutter.
 
 publish_to: none # Remove this line if you wish to publish to pub.dev
 
-version: 0.5.1+0
+version: 0.6.0+0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"

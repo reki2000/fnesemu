@@ -3,13 +3,13 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/md/ym2612.dart';
 
 import 'bus_m68.dart';
-import 'psg.dart';
+import 'sn76489.dart';
 import 'z80/z80.dart';
 
 class BusZ80 {
   late BusM68 busM68;
   late Z80 cpu;
-  late Psg psg;
+  late Sn76489 psg;
   late Ym2612 ym2612;
 
   BusZ80();

@@ -3,20 +3,20 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
-// Lots of helpful hists from this thread:
+// Lots of helpful hints from this thread:
 //   https://gendev.spritesmind.net/forum/viewtopic.php?t=386&start=105
 // also:
 //   https://github.com/nukeykt/Nuked-OPN2/blob/master/ym3438.c
 
 // log sin of 0..PI/4, 256 steps: 0x000-0xfff
-final logSin256 = List.generate(
+final _logSinTable = List.generate(
     256, (i) => (-log(sin((i + 0.4) * pi / 2 / 256)) * 370).round().toInt());
 
 // exp of e^0..e^1, 256 steps, -1 biased: 0x3ff-0x000
-final exp256 = List.generate(
+final _expTable = List.generate(
     256, (i) => ((exp(i / 256) - 1.0) / (exp(1) - 1.0) * 1023).toInt());
 
-final incTable = [
+final _attenuateIncTable = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
   0, 1, 0, 1, 0, 1, // 0-3    (0x00-0x03)
   0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1,
@@ -51,7 +51,7 @@ final incTable = [
   8, 8, 8, 8, 8, 8, // 60-63  (0x3C-0x3F)
 ];
 
-final DetuneTable32 = [
+final _detuneTable = [
   0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, //  dt=1, keyCode 0..1f
   2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 8, 8, 8, 8, //
   1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, // dt=2
@@ -78,8 +78,6 @@ class Op {
   int block = 0; // 0-7
   int keyCode = 0; // block << 2 | freq >> 9 : 0-0x1f
 
-  int _phase = 0; // 24bit: 0 - 0xfffff
-
   int dt = 0;
   int mul = 0; // 1,2,4,..30 (0.5 ,1,2...15 with 1 right shift)
 
@@ -93,6 +91,8 @@ class Op {
   int rr = 0;
 
   int ssgEg = 0;
+
+  int _phase = 0; // 24bit: 0 - 0xfffff
 
   int _level = 0x3ff; // final output level of operator, 0(loud) - 1023(quiet)
   int _attenuation = 0; // output of EG, 0(loud) - 1023(quiet)
@@ -161,7 +161,8 @@ class Op {
     // }
 
     if (shift == 0 || egClockCounter & ((1 << shift) - 1) == 0) {
-      final inc = incTable[_rate << 3 | egClockCounter >> shift & 0x07];
+      final inc =
+          _attenuateIncTable[_rate << 3 | egClockCounter >> shift & 0x07];
 
       if (_state == _stateAttack) {
         _attenuation += inc * (((attenuateSize - _attenuation) >> 4) + 1);
@@ -184,28 +185,27 @@ class Op {
 
     final baseFreq = (lfoFreq << block) >> 2;
 
-    final detune = dt == 0 ? 0 : DetuneTable32[(dt & 3 - 1) << 5 | keyCode];
+    final detune = dt == 0 ? 0 : _detuneTable[(dt & 3 - 1) << 5 | keyCode];
     final detuneFreq = baseFreq + (dt.bit2 ? detune : -detune);
 
     final inc = (detuneFreq * mul) >> 1;
-    _phase = (_phase + (inc & 0xfffff)) & 0xfffff;
+    _phase = (_phase + inc) & 0xfffff;
   }
 
-  // modulation: -0xfff..0xfff (original: 10bit 0-0x3ff)
-  // _phase: 24bit 0..0xfffff
+  // modulation: -0xfff..0xfff
   int generateOutput(int modulation) {
+    // phase: 24bit 0..0xfffff
     final phase = (modulation + (_phase >> 10)) & 0x3ff;
     final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
 
-    // dB: 0(loud)-0x1fff(quiet) 13bit
-    final level = (logSin256[qPhase] + (_level << 2)).clip(0, 0x1fff);
+    // level: 0(loud)-0x1fff(quiet) 13bit
+    final level = (_logSinTable[qPhase] + (_level << 2)).clip(0, 0x1fff);
 
-    // exp: 0(quiet)-0x3ff(loud) 10bit + 0x400
-    // level >> 8 : 0..0x1f
-    // output: -0x1fff-0x1fff 14bit
-    final output = ((exp256[~level & 0xff] | 0x400) << 2) >> (level >> 8);
+    // output: 0(quiet)-0x1fff(loud) 13bit
+    final output = ((_expTable[~level & 0xff] | 0x400) << 2) >> (level >> 8);
 
-    final out = phase & 0x200 != 0 ? -output : output; // 13bit signed
+    // out: 14bit = 13bit + sign
+    final out = phase & 0x200 != 0 ? -output : output;
 
     return out;
   }

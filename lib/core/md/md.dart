@@ -16,7 +16,7 @@ import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
 import 'm68/m68_disasm.dart';
-import 'psg.dart';
+import 'sn76489.dart';
 import 'vdp.dart';
 import 'z80/z80.dart';
 
@@ -29,8 +29,8 @@ class Md implements Core {
   late final BusM68 busM68;
 
   final vdp = Vdp();
-  final psg = Psg();
-  final ym2612 = Ym2612();
+  final psg = Sn76489();
+  final fm = Ym2612();
 
   static const masterClockNtscHz = 53693175;
   static const masterClockPalHz = 53203424;
@@ -62,7 +62,7 @@ class Md implements Core {
     busM68.busZ80 = busZ80;
     busM68.vdp = vdp;
     busM68.psg = psg;
-    busM68.ym2612 = ym2612;
+    busM68.fm = fm;
 
     vdp.bus = busM68;
     vdp.busZ80 = busZ80;
@@ -70,12 +70,11 @@ class Md implements Core {
     busZ80.cpu = cpuZ80;
     busZ80.busM68 = busM68;
     busZ80.psg = psg;
-    busZ80.ym2612 = ym2612;
+    busZ80.ym2612 = fm;
   }
 
   int _clocks = 0;
   int _nextScanClock = 0;
-  int _nextAudioClock = 0;
 
   bool _hsyncRequired = false;
 
@@ -107,25 +106,21 @@ class Md implements Core {
       scanlineProceeded = true;
     }
 
-    while (_clocks > m68ClockHz * ym2612.elapsedSamples / Ym2612.sampleHz) {
-      final samples = Ym2612.sampleHz * clocksInScanline ~/ m68ClockHz;
+    while (_clocks > m68ClockHz * fm.elapsedSamples / Ym2612.sampleHz) {
+      final fmSamples = Ym2612.sampleHz * clocksInScanline ~/ m68ClockHz;
+      final psgSamples = Sn76489.sampleHz * clocksInScanline ~/ m68ClockHz;
 
-      final psgOut = psg.render(samples);
-      final fmOut = ym2612.render(samples);
+      final psgOut = psg.render(psgSamples);
+      final fmOut = fm.render(fmSamples);
 
       // mix psgOut + fmOut with normalization
-      final buf = Float32List(samples * 2);
+      final buf = Float32List(fmSamples * 2);
 
-      var maxVolumeL = 1.0;
-      var maxVolumeR = 1.0;
-      for (int i = 0; i < samples; i += 2) {
-        maxVolumeL = max(maxVolumeL, (psgOut[i] + fmOut[i]).abs());
-        maxVolumeR = max(maxVolumeR, (psgOut[i + 1] + fmOut[i + 1]).abs());
-      }
+      for (int i = 0; i < fmSamples; i += 2) {
+        final psgIndex = (i >> 1) * Sn76489.sampleHz ~/ Ym2612.sampleHz;
 
-      for (int i = 0; i < samples; i += 2) {
-        buf[i] = (psgOut[i] + fmOut[i]) / maxVolumeL;
-        buf[i + 1] = (psgOut[i + 1] + fmOut[i + 1]) / maxVolumeL;
+        buf[i + 0] = (psgOut[psgIndex] + fmOut[i + 0] * 4) / 5;
+        buf[i + 1] = (psgOut[psgIndex] + fmOut[i + 1] * 4) / 5;
       }
 
       _onAudio(AudioBuffer(Ym2612.sampleHz, 2, buf));
@@ -154,7 +149,6 @@ class Md implements Core {
     busZ80.onReset();
     _clocks = 0;
     _nextScanClock = scanlinesInFrame;
-    _nextAudioClock = scanlinesInFrame;
   }
 
   /// handles pad down/up events
@@ -197,7 +191,7 @@ class Md implements Core {
 
     final vdpRegs = vdp.dump();
 
-    final ym2612Stat = ym2612.dump();
+    final ym2612Stat = fm.dump();
 
     return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$vdpRegs\n$ym2612Stat";
   }

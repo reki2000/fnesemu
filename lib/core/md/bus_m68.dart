@@ -6,7 +6,7 @@ import 'package:fnesemu/util/int.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
 import 'pad.dart';
-import 'psg.dart';
+import 'sn76489.dart';
 import 'rom.dart';
 import 'vdp.dart';
 
@@ -16,8 +16,8 @@ class BusM68 {
   late BusZ80 busZ80;
   late M68 cpu;
   late Vdp vdp;
-  late Psg psg;
-  late Ym2612 ym2612;
+  late Sn76489 psg;
+  late Ym2612 fm;
 
   Rom rom = Rom();
 
