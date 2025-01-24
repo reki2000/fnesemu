@@ -41,8 +41,9 @@ class MainPage extends StatefulWidget {
 class MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final _imageContainer = ImageContainer();
+  late final KeyHandler _keyHandler;
+
   final controller = CoreController();
-  late final KeyHandler keyHandler;
 
   bool _running = false;
 
@@ -52,7 +53,7 @@ class MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
 
-    keyHandler = KeyHandler(controller: controller);
+    _keyHandler = KeyHandler(controller: controller);
 
     controller.onAudio =
         (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
@@ -62,7 +63,7 @@ class MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
-    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
+    ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     _mPlayer.dispose();
     super.dispose();
   }
@@ -92,7 +93,7 @@ class MainPageState extends State<MainPage> {
                     ? "gen"
                     : "unknown");
         controller.setRom(file);
-        keyHandler.init();
+        _keyHandler.init();
         _romName = name;
       });
     } catch (e) {
@@ -109,8 +110,8 @@ class MainPageState extends State<MainPage> {
   }
 
   void _run() {
-    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
-    ServicesBinding.instance.keyboard.addHandler(keyHandler.handle);
+    ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
+    ServicesBinding.instance.keyboard.addHandler(_keyHandler.handle);
     setState(() {
       _running = true;
       controller.run();
@@ -118,7 +119,7 @@ class MainPageState extends State<MainPage> {
   }
 
   void _stop() {
-    ServicesBinding.instance.keyboard.removeHandler(keyHandler.handle);
+    ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     setState(() {
       _running = false;
       controller.stop();
@@ -126,10 +127,13 @@ class MainPageState extends State<MainPage> {
   }
 
   void _reset({bool run = false}) {
+    _stop();
+
     setState(() {
       () async {
         await controller.stop();
         controller.reset();
+
         if (run) {
           _run();
         }

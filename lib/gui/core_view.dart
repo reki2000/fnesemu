@@ -39,10 +39,12 @@ class _CoreViewState extends State<CoreView> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // main view
-          TickerImage(
-              width: config.imageWidth * 1,
-              height: config.imageHeight * 1,
-              container: widget.container),
+          ValueListenableBuilder<int>(
+              valueListenable: widget.container.displayWidthNotifier,
+              builder: (context, width, child) => TickerImage(
+                  width: width * config.zoom,
+                  height: widget.container.displayHeight * config.zoom,
+                  container: widget.container)),
 
           // virtual pad
           VirtualPadWidget(controller: widget.controller),
