@@ -60,19 +60,40 @@ final _detuneTable = [
   8, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 22, 22, 22 //
 ];
 
+final _lfoFms1Table = [
+  [7, 7, 7, 7, 7, 7, 7, 7], //
+  [7, 7, 7, 7, 7, 7, 7, 7], //
+  [7, 7, 7, 7, 7, 7, 1, 1], //
+  [7, 7, 7, 7, 1, 1, 1, 1], //
+  [7, 7, 7, 1, 1, 1, 1, 0], //
+  [7, 7, 1, 1, 0, 0, 0, 0], //
+  [7, 7, 1, 1, 0, 0, 0, 0], //
+  [7, 7, 1, 1, 0, 0, 0, 0], //
+];
+
+final _lfoFms2Table = [
+  [7, 7, 7, 7, 7, 7, 7, 7], //
+  [7, 7, 7, 7, 2, 2, 2, 2], //
+  [7, 7, 7, 2, 2, 2, 7, 7], //
+  [7, 7, 2, 2, 7, 7, 2, 2], //
+  [7, 7, 2, 7, 7, 7, 2, 7], //
+  [7, 7, 7, 2, 7, 7, 2, 1], //
+  [7, 7, 7, 2, 7, 7, 2, 1], //
+  [7, 7, 7, 2, 7, 7, 2, 1], //
+];
+
 class Op {
+  final Channel ch;
   final String no;
-  Op(this.no);
+  Op(this.ch, int no) : no = "${ch.no}-$no";
 
   static const outBits = 13; // not include 1 bit for sign
   static const outSize = 1 << outBits;
   static const outMask = outSize - 1;
 
-  static const attenuateBits = 10;
-  static const attenuateSize = 1 << attenuateBits;
-  static const attenuateMask = attenuateSize - 1;
-
-  bool enabled = false;
+  static const egAttenuationBits = 10;
+  static const egAttenuationSize = 1 << egAttenuationBits;
+  static const egAttenuationMask = egAttenuationSize - 1;
 
   int freq = 0; // 0-0x7ff
   int block = 0; // 0-7
@@ -94,23 +115,23 @@ class Op {
 
   int _phase = 0; // 24bit: 0 - 0xfffff
 
-  int _level = 0x3ff; // final output level of operator, 0(loud) - 1023(quiet)
-  int _attenuation = 0; // output of EG, 0(loud) - 1023(quiet)
-  int _rate = 0; // internal increment rate for the attenuation
+  int _egLevel = 0x3ff; // final output level of operator, 0(loud) - 1023(quiet)
+  int _egAttenuation = 0; // output of EG, 0(loud) - 1023(quiet)
+  int _egRate = 0; // internal increment rate for the attenuation
   bool _egInvert = false;
 
-  static const _stateAttack = 0;
-  static const _stateDecay = 1;
-  static const _stateSustain = 2;
-  static const _stateRelease = 3;
-  int _state = _stateRelease;
+  static const _egStateAttack = 0;
+  static const _egStateDecay = 1;
+  static const _egStateSustain = 2;
+  static const _egStateRelease = 3;
+  int _egState = _egStateRelease;
 
   keyOn() {
     _phase = 0;
-    _state = _stateAttack;
+    _egState = _egStateAttack;
     _egInvert = true;
-    _attenuation = 0;
-    _rate = rate(ar);
+    _egAttenuation = 0;
+    _egRate = rate(ar);
     // if (ar != 0) {
     //   print(
     //       "op$no ph:${_phase.hex24} state:$_state rate:${_rate.hex8} atten:${_attenuation.hex16} lv:${_level.hex16}");
@@ -118,9 +139,9 @@ class Op {
   }
 
   keyOff() {
-    _state = _stateRelease;
+    _egState = _egStateRelease;
     _egInvert = false;
-    _rate = (rr == 0) ? 0 : rate((rr << 1) + 1);
+    _egRate = (rr == 0) ? 0 : rate((rr << 1) + 1);
   }
 
   // ar, dr, sr, rr to rate
@@ -129,62 +150,69 @@ class Op {
     return (result > 63) ? 63 : result;
   }
 
-  updateEnvelope(int egClockCounter) {
-    switch (_state) {
-      case _stateAttack:
-        if (_attenuation == attenuateMask) {
-          _attenuation = 0;
-          _state = _stateDecay;
+  updateEnvelope() {
+    switch (_egState) {
+      case _egStateAttack:
+        if (_egAttenuation == egAttenuationMask) {
+          _egAttenuation = 0;
+          _egState = _egStateDecay;
           _egInvert = false; // TBD: based on ssg-eg inv flag
-          _rate = rate(dr);
+          _egRate = rate(dr);
         }
         break;
-      case _stateDecay:
-        if ((_attenuation >> 4) == (sl << 1)) {
-          _state = _stateSustain;
+      case _egStateDecay:
+        if ((_egAttenuation >> 4) == (sl << 1)) {
+          _egState = _egStateSustain;
           _egInvert = false; // TBD: based on ssg-eg inv flag
-          _rate = rate(sr);
+          _egRate = rate(sr);
         }
         break;
-      case _stateSustain:
+      case _egStateSustain:
         // TBD: ssg-eg mode repetition / alternate
         break;
-      case _stateRelease:
+      case _egStateRelease:
         break;
     }
 
-    final shift = (_rate >= 44) ? 0 : (11 - (_rate >> 2));
+    final shift = (_egRate >= 44) ? 0 : (11 - (_egRate >> 2));
 
     // if (no == "1-4") {
     //   print(
     //       "op$no state:$_state counter:$egClockCounter rate:$_rate shift:$shift inc:${incTable[_rate << 3 | egClockCounter >> shift & 0x07]} atten:$_attenuation lv:$_level");
     // }
 
-    if (shift == 0 || egClockCounter & ((1 << shift) - 1) == 0) {
+    if (shift == 0 || ch.egClockCounter & ((1 << shift) - 1) == 0) {
       final inc =
-          _attenuateIncTable[_rate << 3 | egClockCounter >> shift & 0x07];
+          _attenuateIncTable[_egRate << 3 | ch.egClockCounter >> shift & 0x07];
 
-      if (_state == _stateAttack) {
-        _attenuation += inc * (((attenuateSize - _attenuation) >> 4) + 1);
+      if (_egState == _egStateAttack) {
+        _egAttenuation +=
+            inc * (((egAttenuationSize - _egAttenuation) >> 4) + 1);
       } else {
         // TBD: inc x 6 in ssg mode
-        _attenuation += inc;
+        _egAttenuation += inc;
       }
 
-      _attenuation = _attenuation.clip(0, attenuateMask);
+      _egAttenuation = _egAttenuation.clip(0, egAttenuationMask);
 
       final level = (tl << 3) +
-          (_egInvert ? (~_attenuation) & attenuateMask : _attenuation);
-      _level = level.clip(0, attenuateMask);
+          (_egInvert ? (~_egAttenuation) & egAttenuationMask : _egAttenuation);
+      _egLevel = level.clip(0, egAttenuationMask);
     }
   }
 
   updatePhase() {
-    final lfoFm = 0; // TBD
-    final lfoFreq = (freq << 1) + lfoFm;
+    // apply LFO
+    final freqH = freq >> 4;
+    final lfoPhase = (ch.lfoFmPhase ^ (ch.lfoFmPhase.bit3 ? 0x0f : 0)) & 0x07;
+    final lfoVal = (freqH >> _lfoFms1Table[ch.lfoFms][lfoPhase]) +
+        (freqH >> _lfoFms2Table[ch.lfoFms][lfoPhase]);
+    final lfoVal2 = lfoVal << (ch.lfoFms > 5 ? ch.lfoFms - 5 : 0);
+    final lfoFreq = (freq << 1) + (ch.lfoFmPhase.bit4 ? -lfoVal2 : lfoVal);
 
     final baseFreq = (lfoFreq << block) >> 2;
 
+    // apply detune
     final detune = dt == 0 ? 0 : _detuneTable[(dt & 3 - 1) << 5 | keyCode];
     final detuneFreq = baseFreq + (dt.bit2 ? detune : -detune);
 
@@ -199,7 +227,9 @@ class Op {
     final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
 
     // level: 0(loud)-0x1fff(quiet) 13bit
-    final level = (_logSinTable[qPhase] + (_level << 2)).clip(0, 0x1fff);
+    final level =
+        (_logSinTable[qPhase] + (_egLevel << 2) + (am ? ch.lfoAmVal : 0))
+            .clip(0, 0x1fff);
 
     // output: 0(quiet)-0x1fff(loud) 13bit
     final output = ((_expTable[~level & 0xff] | 0x400) << 2) >> (level >> 8);
@@ -211,15 +241,17 @@ class Op {
   }
 
   String debug() {
-    return '$no eg:$ar $dr $sr $sl $rr s:$_state $_attenuation $_level';
+    return '$no eg:$ar $dr $sr $sl $rr s:$_egState $_egAttenuation $_egLevel';
   }
 }
 
 class Channel {
   final int no;
-  final List<Op> op;
+  late List<Op> op;
 
-  Channel(this.no) : op = [Op("$no-1"), Op("$no-2"), Op("$no-3"), Op("$no-4")];
+  Channel(this.no) {
+    op = [Op(this, 1), Op(this, 2), Op(this, 3), Op(this, 4)];
+  }
 
   int freq = 0;
   int block = 0;
@@ -241,13 +273,25 @@ class Channel {
   int lfoFms = 0;
   bool lfoEnabled = false;
 
+  set lfoFreq(int freq) {
+    _lfoCounterMask = _lfoCycles[freq];
+  }
+
+  static const _lfoCycles = [108, 77, 71, 67, 62, 44, 8, 5];
+
+  int _lfoCounterMask = 0;
+  int _lfoCount = 0;
+  int _lfoPhaseCount = 0; // 0-0x7f
+  int lfoFmPhase = 0; // 0-0x1f
+  int lfoAmVal = 0; // 0-0x7f
+
   bool outLeft = false;
   bool outRight = false;
 
   int counter = 0;
 
-  int _egClockCounter = 0; // clock counter for EG
-  int _globalClockCounter = 0; // global counter of FM module
+  int egClockCounter = 0; // clock counter for EG
+  int globalClockCounter = 0; // global counter of FM module
 
   var buffer = Float32List(1000);
   var opBuffer = List<List<int>>.generate(4, (j) => List<int>.filled(1000, 0));
@@ -268,15 +312,31 @@ class Channel {
     }
 
     for (int i = 0; i < buffer.length; i++) {
+      if (_lfoCount & _lfoCounterMask == _lfoCounterMask) {
+        _lfoCount = 0;
+        _lfoPhaseCount++;
+      } else {
+        _lfoCount++;
+      }
+
+      _lfoPhaseCount &= (lfoEnabled ? 0x7f : 0x00);
+
+      lfoFmPhase = _lfoPhaseCount >> 2;
+      final lfoAmPhase = (_lfoPhaseCount.bit6
+              ? _lfoPhaseCount ^ 0x3f
+              : _lfoPhaseCount & 0x3f) <<
+          1;
+      lfoAmVal = lfoAmPhase >> [7, 3, 1, 0][lfoAms];
+
       for (final o in op) {
         o.updatePhase();
       }
 
-      _globalClockCounter += 144;
-      if (_egClockCounter < _globalClockCounter ~/ 351) {
-        _egClockCounter++;
+      globalClockCounter += 144;
+      if (egClockCounter < globalClockCounter ~/ 351) {
+        egClockCounter++;
         for (final o in op) {
-          o.updateEnvelope(_egClockCounter);
+          o.updateEnvelope();
         }
       }
 
@@ -370,8 +430,10 @@ class Channel {
             : outRight
                 ? "R"
                 : "-";
+    final lfo =
+        "${lfoEnabled ? lfoAms.toString().padLeft(1) : "-"}${lfoEnabled ? lfoFms.toString().padLeft(1) : "-"}";
     final status =
-        "${no.toString().padLeft(1)}:$lr${(block << 2 | (freq >> 8)).hex8} $algo$feedback";
+        "${no.toString().padLeft(1)}:$lr${(block << 2 | (freq >> 8)).hex8} $algo$feedback $lfo";
 
     final ops = op.map((o) => o.ssgEg.bit3 ? "s" : "a").join();
     final verboseOps = op.map((o) => o.debug()).join(' ');
@@ -470,11 +532,12 @@ class Ym2612 {
     final chNo = chBase + (reg & 0x03);
 
     switch (reg) {
-      case 0x20: // LFO
+      case 0x22: // LFO
         lfoFreq = value & 0x07;
-        _channels[0 + chBase].lfoEnabled = value.bit3;
-        _channels[1 + chBase].lfoEnabled = value.bit2;
-        _channels[2 + chBase].lfoEnabled = value.bit1;
+        for (final ch in _channels) {
+          ch.lfoFreq = lfoFreq;
+          ch.lfoEnabled = value.bit3;
+        }
         break;
 
       case 0x24: // Timer A Low
@@ -604,7 +667,6 @@ class Ym2612 {
   void reset() {
     for (final ch in _channels) {
       for (final op in ch.op) {
-        op.enabled = false;
         op.freq = 0;
         op.block = 0;
         op.keyCode = 0;
@@ -631,8 +693,8 @@ class Ym2612 {
       ch.outLeft = false;
       ch.outRight = false;
       ch.counter = 0;
-      ch._egClockCounter = 0;
-      ch._globalClockCounter = 0;
+      ch.egClockCounter = 0;
+      ch.globalClockCounter = 0;
     }
 
     lfoFreq = 0;

@@ -17,7 +17,7 @@ class Tone {
 
   Float32List render(int samples) {
     if (freq == 0 || freq == 1) {
-      return Float32List(samples)..fillRange(0, samples, vol / 15);
+      return Float32List(samples)..fillRange(0, samples, _volumeTable[vol]);
     }
 
     final buf = Float32List(samples);
