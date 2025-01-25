@@ -267,7 +267,7 @@ class Vdp {
     if (_addr >= ramSize) {
       _addr -= ramSize;
     }
-    return ret;
+    return ret.mask16;
   }
 
   // debug

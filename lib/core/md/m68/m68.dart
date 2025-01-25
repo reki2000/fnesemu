@@ -85,24 +85,23 @@ class M68 {
   bool get nf => _sr & bitN != 0;
   bool get xf => _sr & bitX != 0;
 
+  set cf(bool on) => on ? _sr |= bitC : _sr &= ~bitC;
+  set vf(bool on) => on ? _sr |= bitV : _sr &= ~bitV;
+  set zf(bool on) => on ? _sr |= bitZ : _sr &= ~bitZ;
+  set nf(bool on) => on ? _sr |= bitN : _sr &= ~bitN;
+  set xf(bool on) => on ? _sr |= bitX : _sr &= ~bitX;
+
   int get maskedIntLevel => _sr >> 8 & 0x07;
 
   bool get sf => _sr & bitS != 0;
   bool get tf => _sr & bitT != 0;
 
-  set cf(bool on) => _sr = on ? _sr | bitC : _sr & ~bitC;
-  set vf(bool on) => _sr = on ? _sr | bitV : _sr & ~bitV;
-  set zf(bool on) => _sr = on ? _sr | bitZ : _sr & ~bitZ;
-  set nf(bool on) => _sr = on ? _sr | bitN : _sr & ~bitN;
-  set xf(bool on) => _sr = on ? _sr | bitX : _sr & ~bitX;
-
-  // supervisor mode flags switches stack pointer
   set sf(bool on) {
     a.sf = on;
     on ? _sr |= bitS : _sr &= ~bitS;
   }
 
-  set tf(bool on) => sr = (on ? (sr | bitT) : (sr & ~bitT));
+  set tf(bool on) => on ? sr |= bitT : sr &= ~bitT;
 
   // interrupt
   int assertedIntLevel = 0;
@@ -366,8 +365,7 @@ class M68 {
 
   void reset() {
     // debug("reset");
-    sf = false;
-    _sr = 0x2700;
+    sr = 0x2700;
     ssp = read32(0x00);
     _pc = read32(0x04);
     clocks = 0;

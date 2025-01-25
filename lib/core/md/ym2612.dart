@@ -530,6 +530,10 @@ class Ym2612 {
     final reg = _regs[part];
     final chBase = part + part + part;
     final chNo = chBase + (reg & 0x03);
+    if (chNo > 5) {
+      print("Invalid channel $chNo");
+      return;
+    }
 
     switch (reg) {
       case 0x22: // LFO

@@ -216,7 +216,8 @@ extension Op4 on M68 {
             return true;
 
           case 0x72: // stop
-            return false;
+            pc = pc.dec2;
+            return true;
 
           case 0x73: // rte
             final newSr = pop16();
