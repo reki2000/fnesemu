@@ -47,24 +47,14 @@ class TracePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-        alignment: Alignment.topLeft,
-        child: Column(children: [
-          Row(children: [
-            TextButton(
-                child: const Text("Clear"), onPressed: () => log.clear()),
-            TextButton(
-                child: const Text("Copy"),
-                onPressed: () => copyToClipboard(context)),
-          ]),
-          Flexible(
-              child: SizedBox(
-            width: 1200,
-            child: ListView.builder(
-              itemCount: log.length,
-              itemBuilder: (context, index) =>
-                  Text(log[index], style: debugStyle),
-            ),
-          )),
-        ]));
+      alignment: Alignment.topLeft,
+      child: Column(children: [
+        TextButton(
+            child: const Text("Copy"),
+            onPressed: () => copyToClipboard(context)),
+        TextButton(child: const Text("Clear"), onPressed: () => log.clear()),
+        Text("${log.length}", style: debugStyle),
+      ]),
+    );
   }
 }
