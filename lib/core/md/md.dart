@@ -6,6 +6,7 @@ import 'package:fnesemu/core/md/vdp_debug.dart';
 import 'package:fnesemu/core/md/vdp_renderer.dart';
 import 'package:fnesemu/core/md/ym2612.dart';
 import 'package:fnesemu/core/md/z80/z80_disasm.dart';
+import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../../util/util.dart';
@@ -113,14 +114,16 @@ class Md implements Core {
       final psgOut = psg.render(psgSamples);
       final fmOut = fm.render(fmSamples);
 
-      // mix psgOut + fmOut with normalization
+      // mix resampled psgOut + fmOut
       final buf = Float32List(fmSamples * 2);
 
       for (int i = 0; i < fmSamples; i += 2) {
         final psgIndex = (i >> 1) * Sn76489.sampleHz ~/ Ym2612.sampleHz;
 
-        buf[i + 0] = (psgOut[psgIndex] + fmOut[i + 0] * 4) / 5;
-        buf[i + 1] = (psgOut[psgIndex] + fmOut[i + 1] * 4) / 5;
+        final mixL = psgOut[psgIndex] / 4 + fmOut[i + 0] * 4;
+        final mixR = psgOut[psgIndex] / 4 + fmOut[i + 1] * 4;
+        buf[i + 0] = mixL.clip(-1, 1);
+        buf[i + 1] = mixR.clip(-1, 1);
       }
 
       _onAudio(AudioBuffer(Ym2612.sampleHz, 2, buf));
@@ -192,8 +195,9 @@ class Md implements Core {
     final vdpRegs = vdp.dump();
 
     final ym2612Stat = fm.dump();
+    final psgStat = psg.dump();
 
-    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$vdpRegs\n$ym2612Stat";
+    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$vdpRegs\n$ym2612Stat\n$psgStat";
   }
 
   (String, int) disasmZ80(int addr) {

@@ -9,10 +9,11 @@ final _volumeTable = [
 
 class Tone {
   int freq = 0;
-  int vol = 0;
+  int vol = 15;
 
   int _counter = 0;
   bool _high = false;
+  double _vol = 0;
 
   Float32List render(int samples) {
     if (freq == 0 || freq == 1) {
@@ -26,10 +27,11 @@ class Tone {
 
       if (_counter <= 0) {
         _high = !_high;
+        _vol = _high ? _volumeTable[vol] : -_volumeTable[vol];
         _counter = freq;
       }
 
-      buf[i] = _high ? _volumeTable[vol] : -_volumeTable[vol];
+      buf[i] = _vol;
     }
 
     return buf;
@@ -37,7 +39,7 @@ class Tone {
 }
 
 class Noise {
-  int vol = 0;
+  int vol = 15;
   int tone2freq = 0;
   bool periodic = false;
 
@@ -48,8 +50,9 @@ class Noise {
 
   int _counter = 0;
   bool _high = false;
-  int _lfsr = 0;
+  int _lfsr = 0x8000;
   int _freq = 0;
+  double _vol = 0;
 
   Float32List render(int samples) {
     final buf = Float32List(samples);
@@ -57,7 +60,7 @@ class Noise {
     for (int i = 0; i < samples; i++) {
       _counter--;
 
-      if (_counter == 0) {
+      if (_counter <= 0) {
         _high = !_high;
         _counter = _freq;
 
@@ -65,9 +68,11 @@ class Noise {
           final input = periodic ? _lfsr : (_lfsr ^ _lfsr >> 3);
           _lfsr = _lfsr >> 1 | input << 15 & 0x8000;
         }
+
+        _vol = _lfsr.bit0 ? _volumeTable[vol] : -_volumeTable[vol];
       }
 
-      buf[i] = _lfsr.bit0 ? _volumeTable[vol] : -_volumeTable[vol];
+      buf[i] = _vol;
     }
 
     return buf;
@@ -142,19 +147,22 @@ class Sn76489 {
 
     final buf = Float32List(samples);
 
-    for (final tone in tones) {
-      final wave = tone.render(samples);
+    final wave0 = tones[0].render(samples);
+    final wave1 = tones[1].render(samples);
+    final wave2 = tones[2].render(samples);
+    final wave3 = noise.render(samples);
 
-      for (int i = 0; i < samples; i++) {
-        buf[i] += wave[i] / 4;
-      }
-    }
-
-    final wave = noise.render(samples);
     for (int i = 0; i < samples; i++) {
-      buf[i] += wave[i] / 4;
+      buf[i] = (wave0[i] + wave1[i] + wave2[i] + wave3[i]) / 4;
     }
 
     return buf;
+  }
+
+  String dump() {
+    final tone =
+        tones.map((e) => "${e.vol.hex8} ${e.freq.hex16}").toList().join(" ");
+    final n = "${noise.vol.hex8} ${noise.periodic ? 1 : 0}";
+    return "psg: t:$tone n:$n";
   }
 }

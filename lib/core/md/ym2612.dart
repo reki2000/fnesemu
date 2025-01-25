@@ -601,7 +601,56 @@ class Ym2612 {
     }
   }
 
-  void reset() {}
+  void reset() {
+    for (final ch in _channels) {
+      for (final op in ch.op) {
+        op.enabled = false;
+        op.freq = 0;
+        op.block = 0;
+        op.keyCode = 0;
+        op.dt = 0;
+        op.mul = 0;
+        op.tl = 0;
+        op.ar = 0;
+        op.rs = 0;
+        op.am = false;
+        op.dr = 0;
+        op.sr = 0;
+        op.sl = 0;
+        op.rr = 0;
+        op.ssgEg = 0;
+      }
+
+      ch.freq = 0;
+      ch.block = 0;
+      ch.algo = 0;
+      ch.feedback = 0;
+      ch.lfoAms = 0;
+      ch.lfoFms = 0;
+      ch.lfoEnabled = false;
+      ch.outLeft = false;
+      ch.outRight = false;
+      ch.counter = 0;
+      ch._egClockCounter = 0;
+      ch._globalClockCounter = 0;
+    }
+
+    lfoFreq = 0;
+    ch3Mode = ch3ModeNone;
+    timerA = 0;
+    timerB = 0;
+    enableTimerA = false;
+    enableTimerB = false;
+    notifyTimerAOverflow = false;
+    notifyTimerBOverflow = false;
+    resetTimerA = false;
+    resetTimerB = false;
+    timerOverflow = 0;
+    _timerCountA = 0;
+    _timerCountB = 0;
+    dacData = 0;
+    dacEnabled = false;
+  }
 
   // input:7.670453 MHz / 6 prescale / 4 op / 6 channels = output:53.267 kHz @ ntsc
   static const sampleHz = 53267;
