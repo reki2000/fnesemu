@@ -10,6 +10,15 @@ import 'op_e.dart';
 
 extension Op on M68 {
   bool exec() {
+    if (halt) {
+      if (0 < assertedIntLevel) {
+        halt = false;
+      } else {
+        clocks += 4;
+        return true;
+      }
+    }
+
     if (0 < assertedIntLevel && assertedIntLevel >= maskedIntLevel) {
       trap((assertedIntLevel << 2) + 0x60);
       assertedIntLevel = 0;

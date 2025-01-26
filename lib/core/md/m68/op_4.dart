@@ -216,7 +216,7 @@ extension Op4 on M68 {
             return true;
 
           case 0x72: // stop
-            pc = pc.dec2;
+            halt = true;
             return true;
 
           case 0x73: // rte

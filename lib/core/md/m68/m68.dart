@@ -105,6 +105,7 @@ class M68 {
 
   // interrupt
   int assertedIntLevel = 0;
+  bool halt = false;
 
   // memory access
   int read8(int addr) {
@@ -370,6 +371,7 @@ class M68 {
     _pc = read32(0x04);
     clocks = 0;
     assertedIntLevel = 0;
+    halt = false;
   }
 
   String dump() {
