@@ -134,9 +134,9 @@ class Sn76489 {
     elapsedSamples = 0;
     for (final tone in tones) {
       tone.freq = 0;
-      tone.vol = 0;
+      tone.vol = 15;
     }
-    noise.vol = 0;
+    noise.vol = 15;
     noise.tone2freq = 0;
     noise.periodic = false;
   }
