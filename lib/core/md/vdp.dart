@@ -39,7 +39,11 @@ class Vdp {
   bool get vScr2Cell => reg[11].bit2;
   int get vScrMode => reg[11] & 0x03;
 
-  int status = 0;
+  int status = 0x200;
+  static const bitDmaRunning = 0x02;
+  static const bitVBlank = 0x08;
+  static const bitHBlank = 0x04;
+  static const bitVblankInt = 0x80;
 
   // rendering
 
@@ -77,7 +81,7 @@ class Vdp {
     _ctrl = 0;
     _addr = 0;
 
-    status = 0;
+    status = 0x200;
 
     h32 = true;
     width = 256;
@@ -86,7 +90,10 @@ class Vdp {
     hCounter = 0;
     hSyncCounter = 0;
 
-    dmaMode = dmaModeNone;
+    _dmaMode = _dmaModeNone;
+    _dmaSrc = 0;
+    _dmaLength = 0;
+    _dmaFillValue = 0;
   }
 
   // i/o
@@ -96,7 +103,7 @@ class Vdp {
       return data;
     } else if (port == 0x04) {
       final val = status;
-      status &= ~0x80;
+      status &= ~bitVblankInt;
       return val;
     } else if (port == 0x08) {
       return vCounter << 8 | hCounter >> 1;
@@ -107,8 +114,9 @@ class Vdp {
   void write16(int addr, int value) {
     final port = addr & 0x0c;
     if (port == 0x00) {
-      if (enableDma && dmaMode == dmaModeFill) {
-        dmaVFill(value);
+      if (enableDma && _dmaMode == _dmaModeFill) {
+        _dmaFillValue = value;
+        startDma();
       } else {
         data = value; // data
       }
@@ -123,54 +131,47 @@ class Vdp {
   int _addr = 0;
 
   // dma
-  int dmaMode = 0; // 0:none, 1:mem2vram, 2:fill, 3:vram2vram
-  static const dmaModeNone = 0;
-  static const dmaModeM2V = 1;
-  static const dmaModeFill = 2;
-  static const dmaModeV2V = 3;
+  int _dmaMode = _dmaModeNone; // 0:none, 1:mem2vram, 2:fill, 3:vram2vram
+  static const _dmaModeNone = 0;
+  static const _dmaModeM2V = 1;
+  static const _dmaModeFill = 2;
+  static const _dmaModeV2V = 3;
 
-  void dmaM2V() {
-    int src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x7f) << 16) << 1;
-    int length = (reg[0x13] | reg[0x14] << 8) << 1;
+  int _dmaSrc = 0;
+  int _dmaLength = 0;
+  int _dmaFillValue = 0;
 
+  bool get isDmaRunning => _dmaLength > 0;
+
+  void startDma() {
+    _dmaLength = reg[0x13] | reg[0x14] << 8;
     // print(
-    //     "vdp:dmaM2V src:${src.hex24} len:${length.hex16} ${ram == ramVram ? "v" : ram == ramCram ? "c" : "vs"}");
-    while (length > 0) {
-      data = bus.read16(src);
-      src = src.inc2;
-      length -= 2;
-    }
-
-    dmaMode = dmaModeNone;
+    //     "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+    status |= bitDmaRunning;
   }
 
-  void dmaVFill(int value) {
-    int length = (reg[0x13] | reg[0x14] << 8) << 1;
+  void execDma(int count) {
+    while (count > 0 && _dmaLength > 0) {
+      data = _dmaMode == _dmaModeM2V
+          ? bus.read16(_dmaSrc)
+          : _dmaMode == _dmaModeV2V
+              ? vram[_dmaSrc] << 8 | vram[_dmaSrc.inc]
+              : _dmaFillValue;
 
-    // print(
-    //     "vdp:dmaVFill len:${length.hex16} ${ram == ramVram ? "v" : ram == ramCram ? "c" : "vs"}");
-    while (length > 0) {
-      data = value;
-      length -= 2;
+      _dmaSrc += 2;
+      _dmaLength--;
+      count--;
     }
 
-    dmaMode = dmaModeNone;
-  }
-
-  void dmaV2V() {
-    int src = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
-    int length = (reg[0x13] | reg[0x14] << 8) << 1;
-
-    // print(
-    //     "vdp:dmsV2V src:${src.hex24} len:${length.hex16} ${ram == ramVram ? "v" : ram == ramCram ? "c" : "vs"}");
-    while (length > 0) {
-      int value = vram[src] << 8 | vram[src.inc];
-      data = value;
-      src = src.inc2;
-      length -= 2;
+    if (_dmaLength <= 0) {
+      _dmaMode = _dmaModeNone;
+      _dmaSrc = 0;
+      _dmaFillValue = 0;
+      _dmaLength = 0;
+      status &= ~bitDmaRunning;
+      // print(
+      //     "end dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
     }
-
-    dmaMode = dmaModeNone;
   }
 
   set ctrl(int value) {
@@ -187,11 +188,11 @@ class Vdp {
 
       if (regNo == 0x17) {
         if (!reg[0x17].bit7) {
-          dmaMode = dmaModeM2V;
+          _dmaMode = _dmaModeM2V;
         } else if (!reg[0x17].bit6) {
-          dmaMode = dmaModeFill;
+          _dmaMode = _dmaModeFill;
         } else {
-          dmaMode = dmaModeV2V;
+          _dmaMode = _dmaModeV2V;
         }
       }
 
@@ -231,10 +232,14 @@ class Vdp {
         break;
     }
 
-    if (enableDma && cd.bit5 && dmaMode == dmaModeM2V) {
-      dmaM2V();
-    } else if (enableDma && cd & 0x30 == 0x30 && dmaMode == dmaModeV2V) {
-      dmaV2V();
+    if (enableDma && cd.bit5 && _dmaMode == _dmaModeM2V) {
+      _dmaSrc = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x7f) << 16) << 1;
+      startDma();
+      execDma(0x10000);
+    } else if (enableDma && cd & 0x30 == 0x30 && _dmaMode == _dmaModeV2V) {
+      _dmaSrc = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
+      startDma();
+      //execDma(0x10000); // workaround
     }
   }
 
@@ -286,9 +291,11 @@ class Vdp {
     final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
     final vScrMode = reg[11].bit2 ? "16" : "f ";
 
-    final status =
+    final dma = "dma:${enableDma ? "*" : "-"} ${_dmaLength.hex16}";
+
+    final s =
         "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} hscr:$hScrMode vscr:$vScrMode";
 
-    return "vdp:$regStr\n    $status";
+    return "vdp:$regStr\n    s:${status.hex16} $s $dma";
   }
 }

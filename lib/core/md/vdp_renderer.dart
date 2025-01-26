@@ -145,7 +145,7 @@ extension VdpRenderer on Vdp {
 
           final addr =
               sp.patternAddr + ((x2 * sp.vCells + y2) << 5) + (y1 << 2);
-          sp.pattern = vram.getUInt32BE(addr);
+          sp.pattern = vram.getUInt32BE(addr.mask16);
         }
 
         final shift = 7 - x1;
@@ -235,7 +235,7 @@ extension VdpRenderer on Vdp {
       vCounter = 0;
     }
 
-    status &= ~0x84; // end hsync, off: vsync int occureed
+    status &= ~(Vdp.bitHBlank | Vdp.bitVBlank);
 
     y = vCounter - Vdp.retrace ~/ 2;
 
@@ -243,6 +243,10 @@ extension VdpRenderer on Vdp {
     _fillSpriteBuffer();
 
     final requireRender = 0 <= y && y < Vdp.height;
+
+    if (isDmaRunning) {
+      execDma(requireRender ? 9 : 102);
+    }
 
     if (requireRender) {
       final hScrollBase = reg[13] << 10 & 0xfc00;
@@ -335,7 +339,7 @@ extension VdpRenderer on Vdp {
 
       if (hSyncCounter <= 0) {
         hSyncCounter = reg[10];
-        status |= 0x04; // start hsync
+        status |= Vdp.bitHBlank; // start hblank
         bus.interrupt(4);
       }
     }
