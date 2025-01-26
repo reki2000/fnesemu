@@ -1,5 +1,4 @@
 // Dart imports:
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/md/vdp_debug.dart';
@@ -13,6 +12,7 @@ import '../../util/util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
+
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
@@ -21,7 +21,6 @@ import 'sn76489.dart';
 import 'vdp.dart';
 import 'z80/z80.dart';
 
-/// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Md implements Core {
   late final M68 cpuM68;
   late final Z80 cpuZ80;
@@ -107,9 +106,9 @@ class Md implements Core {
       scanlineProceeded = true;
     }
 
-    while (_clocks > m68ClockHz * fm.elapsedSamples / Ym2612.sampleHz) {
-      final fmSamples = Ym2612.sampleHz * clocksInScanline ~/ m68ClockHz;
-      final psgSamples = Sn76489.sampleHz * clocksInScanline ~/ m68ClockHz;
+    while (_clocks > m68ClockHz * fm.elapsedSamples / fm.sampleHz) {
+      final fmSamples = fm.sampleHz * clocksInScanline ~/ m68ClockHz;
+      final psgSamples = psg.sampleHz * clocksInScanline ~/ m68ClockHz;
 
       final psgOut = psg.render(psgSamples);
       final fmOut = fm.render(fmSamples);
@@ -118,7 +117,7 @@ class Md implements Core {
       final buf = Float32List(fmSamples * 2);
 
       for (int i = 0; i < fmSamples; i += 2) {
-        final psgIndex = (i >> 1) * Sn76489.sampleHz ~/ Ym2612.sampleHz;
+        final psgIndex = (i >> 1) * psg.sampleHz ~/ fm.sampleHz;
 
         final mixL = psgOut[psgIndex] / 4 + fmOut[i + 0] * 4;
         final mixR = psgOut[psgIndex] / 4 + fmOut[i + 1] * 4;
@@ -126,7 +125,7 @@ class Md implements Core {
         buf[i + 1] = mixR.clip(-1, 1);
       }
 
-      _onAudio(AudioBuffer(Ym2612.sampleHz, 2, buf));
+      _onAudio(AudioBuffer(fm.sampleHz, 2, buf));
     }
 
     return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded);

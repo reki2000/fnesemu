@@ -80,7 +80,10 @@ class Noise {
 }
 
 class Sn76489 {
-  static const sampleHz = 3579545 ~/ 16; // ntsc: 223kHz
+  int sampleHz = 3579545 ~/ 16; // ntsc: 223kHz
+  void setClockHz(int hz) {
+    sampleHz = hz ~/ 16;
+  }
 
   final tones = [Tone(), Tone(), Tone()];
   final noise = Noise();

@@ -380,28 +380,28 @@ class Channel {
           op2 = op[1].generateOutput(0);
           op3 = op[2].generateOutput(op1 >> 1);
           op4 = op[3].generateOutput(op3 >> 1);
-          out = (op2 + op4) / 2 / Op.outMask;
+          out = (op2 + op4) / 1.5 / Op.outMask;
           break;
         case 5:
           // 5: 1->2->out 1->3->out 1->4->out
           op2 = op[1].generateOutput(op1 >> 1);
           op3 = op[2].generateOutput(op1 >> 1);
           op4 = op[3].generateOutput(op1 >> 1);
-          out = (op2 + op3 + op4) / 3 / Op.outMask;
+          out = (op2 + op3 + op4) / 2 / Op.outMask;
           break;
         case 6:
           // 6: 1->2->out 3->out 4->out
           op2 = op[1].generateOutput(op1 >> 1);
           op3 = op[2].generateOutput(0);
           op4 = op[3].generateOutput(0);
-          out = (op2 + op3 + op4) / 3 / Op.outMask;
+          out = (op2 + op3 + op4) / 2 / Op.outMask;
           break;
         case 7:
           // 7: 1->out 2->out 3->out 4->out
           op2 = op[1].generateOutput(0);
           op3 = op[2].generateOutput(0);
           op4 = op[3].generateOutput(0);
-          out = (op1 + op2 + op3 + op4) / 4 / Op.outMask;
+          out = (op1 + op2 + op3 + op4) / 2 / Op.outMask;
           break;
       }
 
@@ -719,7 +719,11 @@ class Ym2612 {
   }
 
   // input:7.670453 MHz / 6 prescale / 4 op / 6 channels = output:53.267 kHz @ ntsc
-  static const sampleHz = 53267;
+  void setClockHz(int hz) {
+    sampleHz = hz ~/ 6 ~/ 4 ~/ 6;
+  }
+
+  int sampleHz = 53267;
 
   int elapsedSamples = 0;
 
@@ -743,7 +747,7 @@ class Ym2612 {
       // mix fm
       final out = ch.render(samples);
       for (int i = 0; i < buffer.length; i += 2) {
-        final dacValue = out[i >> 1] / 6;
+        final dacValue = out[i >> 1] / 4;
         buffer[i + 0] += ch.outLeft ? dacValue : 0;
         buffer[i + 1] += ch.outRight ? dacValue : 0;
       }

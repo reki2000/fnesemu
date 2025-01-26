@@ -118,4 +118,15 @@ extension Uint8ListEx on Uint8List {
         this[index + 2] << 8 |
         this[index + 3];
   }
+
+  int getUInt16LE(int index) {
+    return this[index + 1] << 8 | this[index];
+  }
+
+  int getUInt32LE(int index) {
+    return this[index + 3] << 24 |
+        this[index + 2] << 16 |
+        this[index + 1] << 8 |
+        this[index + 0];
+  }
 }
