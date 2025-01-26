@@ -28,6 +28,8 @@ class _Tile {
   bool vFlip = false;
   int palette = 0; // pp0000
 
+  int fetchedX = -1;
+
   _Tile(this.no, this.nameAddrBase, this.hScroll, this.vScroll);
 }
 
@@ -170,15 +172,17 @@ extension VdpRenderer on Vdp {
   }
 
   PriorityColor _windowColor(_Tile ctx) {
-    final h = hCounter;
     final v = y;
+    final hLow = hCounter & 0x07;
+    final hHigh = hCounter >> 3;
 
-    if (hCounter == 0 || h & 0x07 == 0) {
+    if (hHigh != ctx.fetchedX) {
+      ctx.fetchedX = hHigh;
       // fetch pattern
       final name = ctx.nameAddrBase |
           (width == 256
-              ? (h >> 3 & 0x1f) << 1 | (v >> 3) << 6
-              : (h >> 3 & 0x3f) << 1 | (v >> 3) << 7);
+              ? (hHigh & 0x1f) << 1 | (v >> 3) << 6
+              : (hHigh & 0x3f) << 1 | (v >> 3) << 7);
 
       final d0 = vram[name];
       final d1 = vram[name.inc];
@@ -194,7 +198,7 @@ extension VdpRenderer on Vdp {
       ctx.pattern = vram.getUInt32BE(addr);
     }
 
-    final shift = ctx.hFlip ? (h & 0x07) : 7 - (h & 0x07);
+    final shift = ctx.hFlip ? hLow : 7 - hLow;
     return PriorityColor(ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f,
         isPrior: ctx.prior);
   }
@@ -202,11 +206,14 @@ extension VdpRenderer on Vdp {
   PriorityColor _planeColor(_Tile ctx) {
     final h = (hCounter - ctx.hScroll) & hScrMask;
     final v = (y + ctx.vScroll) & vScrMask;
+    final hLow = h & 0x07;
+    final hHigh = h >> 3;
 
-    if (hCounter == 0 || h & 0x07 == 0) {
+    if (hHigh != ctx.fetchedX) {
+      ctx.fetchedX = hHigh;
       // fetch pattern
       final name =
-          ctx.nameAddrBase | (h >> 3 & hMask) << 1 | (v >> 3) << (vShift + 1);
+          ctx.nameAddrBase | (hHigh & hMask) << 1 | (v >> 3) << (vShift + 1);
 
       final d0 = vram[name];
       final d1 = vram[name.inc];
@@ -222,7 +229,7 @@ extension VdpRenderer on Vdp {
       ctx.pattern = vram.getUInt32BE(addr);
     }
 
-    final shift = ctx.hFlip ? (h & 0x07) : 7 - (h & 0x07);
+    final shift = ctx.hFlip ? hLow : 7 - hLow;
     return PriorityColor(ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f,
         isPrior: ctx.prior);
   }
@@ -289,31 +296,35 @@ extension VdpRenderer on Vdp {
           : [reg[0x12] << 3 & 0xf8, Vdp.height];
 
       for (hCounter = 0; hCounter < width; hCounter++) {
+        int color;
+
         final sprite = _spriteColor();
-        final planeA = _planeColor(ctxA);
-        final planeB = _planeColor(ctxB);
-        final window = _windowColor(ctxWindow);
-        final bg = reg[7] & 0x3f;
+        if (sprite.isPrior && sprite.isVisible) {
+          color = sprite.color;
+        } else {
+          final inWindow = windowH[0] <= hCounter &&
+              hCounter < windowH[1] &&
+              windowV[0] <= y &&
+              y < windowV[1];
+          final planeAW =
+              inWindow ? _planeColor(ctxA) : _windowColor(ctxWindow);
+          if (planeAW.isPrior && planeAW.isVisible) {
+            color = planeAW.color;
+          } else {
+            final planeB = _planeColor(ctxB);
+            final bg = reg[7] & 0x3f;
 
-        final inWindow = windowH[0] <= hCounter &&
-            hCounter < windowH[1] &&
-            windowV[0] <= y &&
-            y < windowV[1];
-        final planeAW = inWindow ? planeA : window;
-
-        final color = sprite.isPrior && sprite.isVisible
-            ? sprite.color
-            : planeAW.isPrior && planeAW.isVisible
-                ? planeAW.color
-                : planeB.isPrior && planeB.isVisible
-                    ? planeB.color
-                    : sprite.isVisible
-                        ? sprite.color
-                        : planeAW.isVisible
-                            ? planeAW.color
-                            : planeB.isVisible
-                                ? planeB.color
-                                : bg;
+            color = (planeB.isPrior && planeB.isVisible)
+                ? planeB.color
+                : sprite.isVisible
+                    ? sprite.color
+                    : planeAW.isVisible
+                        ? planeAW.color
+                        : planeB.isVisible
+                            ? planeB.color
+                            : bg;
+          }
+        }
 
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
