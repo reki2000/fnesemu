@@ -10,6 +10,9 @@ test-m68:
 test:
 	flutter test
 
+playvgm:
+	dart run lib/tools/vgmplayer.dart $(VGM)
+
 format:
 	flutter pub get
 	flutter pub run import_path_converter:main

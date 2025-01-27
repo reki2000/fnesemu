@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'vdp_renderer.dart';
 import 'vdp.dart';
 import 'dart:core';

@@ -78,7 +78,7 @@ class Md implements Core {
 
   bool _hsyncRequired = false;
 
-  /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
+  /// exec 1 cpu instruction and render VDO / FM-PSG if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
@@ -101,42 +101,61 @@ class Md implements Core {
     }
 
     if (_clocks >= _nextScanClock) {
+      // video rendering
       _nextScanClock += clocksInScanline;
       _hsyncRequired = vdp.renderLine();
       scanlineProceeded = true;
-    }
 
-    while (_clocks > m68ClockHz * fm.elapsedSamples / fm.sampleHz) {
-      final fmSamples = fm.sampleHz * clocksInScanline ~/ m68ClockHz;
-      final psgSamples = psg.sampleHz * clocksInScanline ~/ m68ClockHz;
-
-      final psgOut = psg.render(psgSamples);
-      final fmOut = fm.render(fmSamples);
-
-      // mix resampled psgOut + fmOut
-      final buf = Float32List(fmSamples * 2);
-
-      for (int i = 0; i < fmSamples; i += 2) {
-        final psgIndex = (i >> 1) * psg.sampleHz ~/ fm.sampleHz;
-
-        final mixL = psgOut[psgIndex] / 4 + fmOut[i + 0] * 4;
-        final mixR = psgOut[psgIndex] / 4 + fmOut[i + 1] * 4;
-        buf[i + 0] = mixL.clip(-1, 1);
-        buf[i + 1] = mixR.clip(-1, 1);
-      }
-
-      _onAudio(AudioBuffer(fm.sampleHz, 2, buf));
+      // audio rendering
+      _renderAudio();
     }
 
     return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded);
+  }
+
+  final _fmBuffer = Float32List(250 * 2); // about 5ms: stereo 50kHz * 2ch
+  final _psgBuffer = Float32List(250 * 5); // about 5ms + headroom
+  int _fmBufferIndex = 0;
+  int _psgBufferIndex = 0;
+
+  void _renderAudio() {
+    // calculate how many samples to render
+    final fmSamples = _clocks * fm.sampleHz ~/ m68ClockHz - fm.elapsedSamples;
+    final psgSamples =
+        _clocks * psg.sampleHz ~/ m68ClockHz - psg.elapsedSamples;
+
+    // when buffer is full, push current buffer to audio callback
+    if (_fmBufferIndex + fmSamples * 2 >= _fmBuffer.length) {
+      final out = Float32List(_fmBufferIndex);
+
+      // mix resampled psgBuffer + fmBuffer
+      for (int i = 0; i < _fmBufferIndex; i += 2) {
+        final psgIndex = (i >> 1) * psg.sampleHz ~/ fm.sampleHz;
+        final psgVal = _psgBuffer[psgIndex.clip(0, psgSamples - 1)] / 4;
+
+        final mixL = psgVal / 4 + _fmBuffer[i + 0] * 4;
+        final mixR = psgVal / 4 + _fmBuffer[i + 1] * 4;
+        out[i + 0] = mixL.clip(-1, 1);
+        out[i + 1] = mixR.clip(-1, 1);
+      }
+
+      _onAudio(AudioBuffer(fm.sampleHz, 2, out));
+
+      _fmBufferIndex = 0;
+      _psgBufferIndex = 0;
+    }
+
+    // add rendered audio to buffer
+    psg.render(psgSamples).forEach((d) => _psgBuffer[_psgBufferIndex++] = d);
+    fm.render(fmSamples).forEach((d) => _fmBuffer[_fmBufferIndex++] = d);
   }
 
   /// returns screen buffer as hSize x vSize argb
   @override
   ImageBuffer imageBuffer() => vdp.imageBuffer;
 
-  void Function(AudioBuffer) _onAudio =
-      (_) {}; // call this after rendering audio
+  // call this after rendering audio
+  void Function(AudioBuffer) _onAudio = (_) {};
 
   // set audio callback. used by CoreController
   @override

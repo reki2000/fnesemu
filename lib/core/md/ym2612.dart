@@ -716,6 +716,8 @@ class Ym2612 {
     _timerCountB = 0;
     dacData = 0;
     dacEnabled = false;
+
+    elapsedSamples = 0;
   }
 
   // input:7.670453 MHz / 6 prescale / 4 op / 6 channels = output:53.267 kHz @ ntsc
