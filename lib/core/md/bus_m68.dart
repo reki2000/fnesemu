@@ -26,6 +26,7 @@ class BusM68 {
   void onReset() {
     cpu.reset();
     vdp.reset();
+    fm.reset();
     psg.reset();
   }
 

@@ -114,6 +114,8 @@ class VgmPlayer {
     int elapsedFmSamples = 0;
     int elapsedPsgSamples = 0;
 
+    int prevSeconds = 0;
+
     final starttedAt = DateTime.now();
 
     while (running) {
@@ -154,8 +156,8 @@ class VgmPlayer {
         final fmValR =
             fmSamples > 0 ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 1] : 0.0;
 
-        final mixL = psgVal * 0.6 + fmValL * 4;
-        final mixR = psgVal * 0.6 + fmValR * 4;
+        final mixL = psgVal * 0.3 + fmValL * 2;
+        final mixR = psgVal * 0.3 + fmValR * 2;
         buf[i + 0] = mixL.clip(-1, 1);
         buf[i + 1] = mixR.clip(-1, 1);
       }
@@ -165,6 +167,12 @@ class VgmPlayer {
       if (DateTime.now().difference(starttedAt).inMilliseconds <
           150 + elapsedSamples * 1000 ~/ rateHz) {
         await Future<void>.delayed(Duration(milliseconds: 100));
+      }
+
+      final elapsedSeconds = DateTime.now().difference(starttedAt).inSeconds;
+      if (elapsedSeconds > prevSeconds) {
+        //print(fm.dump());
+        prevSeconds = elapsedSeconds;
       }
     }
   }

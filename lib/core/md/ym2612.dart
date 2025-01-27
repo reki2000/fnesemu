@@ -82,6 +82,8 @@ final _lfoFms2Table = [
   [7, 7, 7, 2, 7, 7, 2, 1], //
 ];
 
+final _keyCodeTable = [0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3]; //
+
 class Op {
   final Channel ch;
   final String no;
@@ -260,7 +262,7 @@ class Channel {
     for (final o in op) {
       o.freq = freq;
       o.block = block;
-      o.keyCode = block << 2 | (freq >> 8);
+      o.keyCode = block << 2 | _keyCodeTable[freq >> 7];
 
       if (onlyOp1) break;
     }
@@ -377,31 +379,31 @@ class Channel {
           break;
         case 4:
           // 4: 1->2->out 3->4->out
-          op2 = op[1].generateOutput(0);
-          op3 = op[2].generateOutput(op1 >> 1);
+          op2 = op[1].generateOutput(op1 >> 1);
+          op3 = op[2].generateOutput(0);
           op4 = op[3].generateOutput(op3 >> 1);
-          out = (op2 + op4) / 1.5 / Op.outMask;
+          out = (op2 + op4) / 2 / Op.outMask;
           break;
         case 5:
           // 5: 1->2->out 1->3->out 1->4->out
           op2 = op[1].generateOutput(op1 >> 1);
           op3 = op[2].generateOutput(op1 >> 1);
           op4 = op[3].generateOutput(op1 >> 1);
-          out = (op2 + op3 + op4) / 2 / Op.outMask;
+          out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 6:
           // 6: 1->2->out 3->out 4->out
           op2 = op[1].generateOutput(op1 >> 1);
           op3 = op[2].generateOutput(0);
           op4 = op[3].generateOutput(0);
-          out = (op2 + op3 + op4) / 2 / Op.outMask;
+          out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 7:
           // 7: 1->out 2->out 3->out 4->out
           op2 = op[1].generateOutput(0);
           op3 = op[2].generateOutput(0);
           op4 = op[3].generateOutput(0);
-          out = (op1 + op2 + op3 + op4) / 2 / Op.outMask;
+          out = (op1 + op2 + op3 + op4) / 4 / Op.outMask;
           break;
       }
 
@@ -444,50 +446,53 @@ class Channel {
 
 class Ym2612 {
   final _channels = List.generate(6, (i) => Channel(i + 1));
+
+  final _regs = [0, 0];
+
+  static const _bitTimerA = 0x01;
+  static const _bitTimerB = 0x02;
+
   Ym2612();
 
-  int lfoFreq = 0;
+  int _lfoFreq = 0;
 
-  static const ch3ModeNone = 0;
-  static const ch3ModeMultiFreq = 1;
-  static const ch3ModeCsm = 2;
-  int ch3Mode = ch3ModeNone;
+  static const _ch3ModeNone = 0;
+  static const _ch3ModeMultiFreq = 1;
+  static const _ch3ModeCsm = 2;
+  int _ch3Mode = _ch3ModeNone;
 
-  int timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
-  int timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
+  bool _enableTimerA = false;
+  bool _enableTimerB = false;
 
-  bool enableTimerA = false;
-  bool enableTimerB = false;
+  bool _notifyTimerAOverflow = false;
+  bool _notifyTimerBOverflow = false;
 
-  bool notifyTimerAOverflow = false;
-  bool notifyTimerBOverflow = false;
+  int _timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
+  int _timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
 
-  bool resetTimerA = false;
-  bool resetTimerB = false;
-
-  int timerOverflow = 0;
+  int _timerOverflow = 0;
 
   int _timerCountA = 0;
   int _timerCountB = 0;
 
-  int dacData = 0;
-  bool dacEnabled = false;
+  int _dacData = 0;
+  bool _dacEnabled = false;
 
   // TIMERA_period = 18 x (1024 -TIMER) microseconds,
   // TIMERB_period = 18 x 16 x (256 -TIMER) microseconds
   // 18ms ~= 1_000_000ms / (m68clock / 144); where m68clock / 144 = 1 sammple
   countTimer(int samples) {
-    if (enableTimerA) {
+    if (_enableTimerA) {
       _timerCountA -= samples;
 
       if (_timerCountA <= 0) {
-        _timerCountA += 1024 - timerA;
+        _timerCountA += 1024 - _timerA;
 
-        if (notifyTimerAOverflow) {
-          timerOverflow |= 0x01;
+        if (_notifyTimerAOverflow) {
+          _timerOverflow |= _bitTimerA;
         }
 
-        if (ch3Mode == ch3ModeCsm) {
+        if (_ch3Mode == _ch3ModeCsm) {
           for (final op in _channels[2].op) {
             op.keyOn();
           }
@@ -495,30 +500,21 @@ class Ym2612 {
       }
     }
 
-    if (enableTimerB) {
+    if (_enableTimerB) {
       _timerCountB -= samples;
 
       if (_timerCountB <= 0) {
-        _timerCountB += (256 - timerB) << 4;
+        _timerCountB += (256 - _timerB) << 4;
 
-        if (notifyTimerBOverflow) {
-          timerOverflow |= 0x02;
+        if (_notifyTimerBOverflow) {
+          _timerOverflow |= _bitTimerB;
         }
       }
     }
   }
 
-  final _regs = [0, 0];
-
   int read8(int part) {
-    final status = timerOverflow;
-    if (resetTimerA) {
-      timerOverflow &= ~0x01;
-    }
-    if (resetTimerB) {
-      timerOverflow &= ~0x02;
-    }
-
+    final status = _timerOverflow;
     return status;
   }
 
@@ -537,33 +533,39 @@ class Ym2612 {
 
     switch (reg) {
       case 0x22: // LFO
-        lfoFreq = value & 0x07;
+        _lfoFreq = value & 0x07;
         for (final ch in _channels) {
-          ch.lfoFreq = lfoFreq;
+          ch.lfoFreq = _lfoFreq;
           ch.lfoEnabled = value.bit3;
         }
         break;
 
       case 0x24: // Timer A Low
-        timerA = timerA & 0x03 | value << 2;
+        _timerA = _timerA & 0x03 | value << 2;
         break;
 
       case 0x25: // Timer A High
-        timerA = timerA & 0x3fc | value & 0x03;
+        _timerA = _timerA & 0x3fc | value & 0x03;
         break;
 
       case 0x26: // Timer B
-        timerB = value;
+        _timerB = value;
         break;
 
       case 0x27: // Timer Control
-        ch3Mode = value >> 6 & 3;
-        resetTimerB = value.bit5;
-        resetTimerA = value.bit4;
-        notifyTimerBOverflow = value.bit3;
-        notifyTimerAOverflow = value.bit2;
-        enableTimerB = value.bit1;
-        enableTimerA = value.bit0;
+        _ch3Mode = value >> 6 & 3;
+
+        if (value.bit4) {
+          _timerOverflow &= ~_bitTimerA;
+        }
+        if (value.bit5) {
+          _timerOverflow &= ~_bitTimerB;
+        }
+
+        _notifyTimerBOverflow = value.bit3;
+        _notifyTimerAOverflow = value.bit2;
+        _enableTimerB = value.bit1;
+        _enableTimerA = value.bit0;
         break;
 
       case 0x28: // Operator Control
@@ -577,11 +579,11 @@ class Ym2612 {
         break;
 
       case 0x2a: // dac data
-        dacData = value & 0xff;
+        _dacData = value & 0xff;
         break;
 
       case 0x2b: // dac control
-        dacEnabled = value.bit7;
+        _dacEnabled = value.bit7;
         return;
     }
 
@@ -624,13 +626,14 @@ class Ym2612 {
     if (0xa0 <= reg && reg < 0xb8) {
       final ch = _channels[chNo];
 
-      if (ch3Mode != ch3ModeNone && chNo == 2) {
+      if (_ch3Mode != _ch3ModeNone && chNo == 2) {
         switch (reg) {
           case 0xa8: // FNUM
           case 0xa9:
           case 0xaa:
             final op = _channels[2].op[reg - 0xa7];
             op.freq = op.freq.setL8(value);
+            op.keyCode = op.block << 2 | _keyCodeTable[op.freq >> 7];
             return;
           case 0xac: // FNUM
           case 0xad:
@@ -638,7 +641,6 @@ class Ym2612 {
             final op = _channels[2].op[reg - 0xac];
             op.freq = op.freq.setH8(value & 0x07);
             op.block = value >> 3 & 0x07;
-            op.keyCode = op.block << 2 | (op.freq >> 9);
             return;
         }
       }
@@ -647,7 +649,7 @@ class Ym2612 {
       switch (func) {
         case 0xa0: // FNUM
           ch.freq = ch.freq.setL8(value);
-          ch.setFreq(ch3Mode != ch3ModeNone && chNo == 2);
+          ch.setFreq(_ch3Mode != _ch3ModeNone && chNo == 2);
           break;
         case 0xa4: // FNUM
           ch.freq = ch.freq.setH8(value & 0x07);
@@ -701,21 +703,19 @@ class Ym2612 {
       ch.globalClockCounter = 0;
     }
 
-    lfoFreq = 0;
-    ch3Mode = ch3ModeNone;
-    timerA = 0;
-    timerB = 0;
-    enableTimerA = false;
-    enableTimerB = false;
-    notifyTimerAOverflow = false;
-    notifyTimerBOverflow = false;
-    resetTimerA = false;
-    resetTimerB = false;
-    timerOverflow = 0;
+    _lfoFreq = 0;
+    _ch3Mode = _ch3ModeNone;
+    _timerA = 0;
+    _timerB = 0;
+    _enableTimerA = false;
+    _enableTimerB = false;
+    _notifyTimerAOverflow = false;
+    _notifyTimerBOverflow = false;
+    _timerOverflow = 0;
     _timerCountA = 0;
     _timerCountB = 0;
-    dacData = 0;
-    dacEnabled = false;
+    _dacData = 0;
+    _dacEnabled = false;
 
     elapsedSamples = 0;
   }
@@ -736,10 +736,10 @@ class Ym2612 {
     final buffer = Float32List(samples * 2);
 
     for (final ch in _channels) {
-      if (dacEnabled && ch.no == 6) {
+      if (_dacEnabled && ch.no == 6) {
         // mix dac
         for (int i = 0; i < buffer.length; i += 2) {
-          final dacValue = (dacData - 127) / 128 / 6;
+          final dacValue = (_dacData - 127) / 128 / 6;
           buffer[i + 0] += ch.outLeft ? dacValue : 0;
           buffer[i + 1] += ch.outRight ? dacValue : 0;
         }
@@ -766,6 +766,6 @@ class Ym2612 {
 
   String dump() {
     final ch = _channels.map((c) => c.debug()).join(' ');
-    return "fm:${ch3Mode.toString().padLeft(1)}${dacEnabled ? "D" : "-"} ${_timerCountA.hex16} ${_timerCountB.hex8} $ch";
+    return "fm:${_ch3Mode.toString().padLeft(1)}${_dacEnabled ? "D" : "-"} ${_timerCountA.hex16} ${_timerCountB.hex8} $ch";
   }
 }
