@@ -13,7 +13,17 @@ class DebugDisasm extends StatelessWidget {
   final addrNotifier = ValueNotifier<int>(0);
   final int cpuNo;
 
-  DebugDisasm({super.key, required this.debugger, required this.cpuNo}) {
+  final int backwardLines;
+  final int forwardLines;
+  final double width;
+
+  DebugDisasm(
+      {super.key,
+      required this.debugger,
+      required this.cpuNo,
+      this.backwardLines = 5,
+      this.forwardLines = 40,
+      this.width = 320}) {
     addrNotifier.value = debugger.debugOption.disasmAddress[cpuNo];
   }
 
@@ -53,7 +63,7 @@ class DebugDisasm extends StatelessWidget {
   Widget build(BuildContext context) {
     node.requestFocus;
     return Container(
-        width: 320,
+        width: width,
         margin: margin10,
         alignment: Alignment.topLeft,
         child: SingleChildScrollView(
@@ -90,7 +100,8 @@ class DebugDisasm extends StatelessWidget {
                     ValueListenableBuilder<int>(
                         valueListenable: addrNotifier,
                         builder: (context, addr, child) => SelectableText(
-                              (_backward(addr, 5)..addAll(_asm(addr, 40)))
+                              (_backward(addr, backwardLines)
+                                    ..addAll(_asm(addr, forwardLines)))
                                   .map((s) => (s.i0 == addr ? "*" : " ") + s.i1)
                                   .join("\n"),
                               style: debugStyle,

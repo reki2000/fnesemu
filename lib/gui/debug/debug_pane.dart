@@ -19,8 +19,16 @@ class DebugPane extends StatelessWidget {
         if (data?.showDebugView ?? false) {
           return Row(children: [
             if (data?.showDisasm ?? false)
-              for (int cpuNo = 0; cpuNo < debugger.cpuInfos.length; cpuNo++)
-                DebugDisasm(debugger: debugger, cpuNo: cpuNo),
+              Column(children: [
+                for (int cpuNo = 0; cpuNo < debugger.cpuInfos.length; cpuNo++)
+                  DebugDisasm(
+                    debugger: debugger,
+                    cpuNo: cpuNo,
+                    forwardLines: 44 ~/ debugger.cpuInfos.length - 4,
+                    backwardLines: 4,
+                    width: 300,
+                  ),
+              ]),
             if (data?.showVdc ?? false) DebugVdc(debugger: debugger),
             if (data?.log ?? false) TracePanel(log: debugger.log),
           ]);
