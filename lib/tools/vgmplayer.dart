@@ -178,8 +178,14 @@ class VgmPlayer {
   }
 }
 
-// $env:Path += ";build\windows\x64\plugins\mp_audio_stream\shared\Debug"
+//
 // dart lib\tools\vgmplayer.dart <vgmfile>
+//
+// before running this script, set the dynamic library path:
+// - windows: $env:Path += ";build\windows\x64\plugins\mp_audio_stream\shared\Debug"
+// - Linux: export LD_LIBRARY_PATH=build/linux/x64/plugins/mp_audio_stream/shared
+// - MacOS: export DYLD_LIBRARY_PATH=build/macos/Debug
+//
 void main(List<String> args) {
   final vgmPlayer = VgmPlayer();
   if (args.isEmpty) {
