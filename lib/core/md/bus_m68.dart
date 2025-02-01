@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/md/ym2612.dart';
-import 'package:fnesemu/util/int.dart';
+import 'm68/m68_debug.dart';
+import 'ym2612.dart';
+import '../../util/int.dart';
 
 import 'bus_z80.dart';
 import 'm68/m68.dart';
@@ -42,6 +43,11 @@ class BusM68 {
         return rom.rom[offset];
       }
 
+      if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
+        final ramOffset = offset - rom.ramStartAddr;
+        return rom.ram[ramOffset.mask16];
+      }
+
       return 0x00;
     }
 
@@ -78,6 +84,11 @@ class BusM68 {
 
       if (offset < rom.rom.length - 1) {
         return rom.rom[offset] << 8 | rom.rom[offset.inc];
+      }
+
+      if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
+        final ramOffset = offset - rom.ramStartAddr;
+        return rom.ram[ramOffset.mask16] << 8 | rom.ram[ramOffset.inc.mask16];
       }
 
       return 0x00;
@@ -132,12 +143,26 @@ class BusM68 {
       busZ80.write(addr.mask16, data);
       return;
     }
+
+    if (top < 0x40) {
+      final offset = addr & 0x3fffff;
+
+      if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
+        final ramOffset = offset - rom.ramStartAddr;
+        rom.ram[ramOffset.mask16] = data;
+      }
+
+      return 0x00;
+    }
   }
 
   write16(int addr, int data) {
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
+      if (addr.mask16 == 0xdcfe && data == 0x80) {
+        print("cpu: ${cpu.debug()}");
+      }
       ram[addr.mask16] = data >> 8;
       ram[addr.inc.mask16] = data.mask8;
       return;
@@ -158,6 +183,18 @@ class BusM68 {
       busZ80.write(addr.mask16, data >> 8);
       busZ80.write(addr.inc.mask16, data.mask8);
       return;
+    }
+
+    if (top < 0x40) {
+      final offset = addr & 0x3fffff;
+
+      if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
+        final ramOffset = offset - rom.ramStartAddr;
+        rom.ram[ramOffset.mask16] = data >> 8;
+        rom.ram[ramOffset.inc.mask16] = data;
+      }
+
+      return 0x00;
     }
   }
 
