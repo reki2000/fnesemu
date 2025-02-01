@@ -80,8 +80,8 @@ class Disasm {
         5 => "(#${im(1)}, a$r)",
         6 => eaEx("a$r"),
         7 => switch (r) {
-            0 => "(#${im(1)}.w)",
-            1 => "(#${im(2)})",
+            0 => "(#${im(1)}).w",
+            1 => "(#${im(2)}).l",
             2 => "(#${im(1)}, pc)",
             3 => eaEx("pc"),
             4 => "#${im(s)}",
@@ -189,7 +189,7 @@ class Disasm {
       0xc when op & 0x130 == 0x100 =>
         "exg.w d$r2, ${ea(2, size << 1 | mod, r1)}",
       0xc => "and.$sz ${op1.bit0 ? "d$r2, ${ea()}" : "${ea()}, d$r2"}",
-      0xe when op3 & 0xc0 == 0xc0 =>
+      0xe when op & 0xc0 == 0xc0 =>
         "${opRot(op1 >> 1, op1.bit0)}.w #1, ${ea()}",
       0xe =>
         "${opRot(op >> 3 & 3, op1.bit0)}.$sz ${op.bit(5) ? "d$r2" : "#$r2"}, d$r1",
