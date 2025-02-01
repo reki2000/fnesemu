@@ -96,6 +96,23 @@ extension VdpRenderer on Vdp {
 
   static int max = 0;
 
+  List<String> debugSpriteInfo() {
+    final baseAddr = reg[5] << 9 & 0xfc00;
+    final result = List.generate(80, (i) {
+      final base = baseAddr + i * 8;
+      final sp = Sprite.of(
+          vram.getUInt16BE(base.mask16),
+          vram.getUInt16BE((base + 2).mask16),
+          vram.getUInt16BE((base + 4).mask16),
+          vram.getUInt16BE((base + 6).mask16));
+      final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
+      final flags =
+          "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
+      return "$no ${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)} ${sp.patternAddr.hex16} $flags ${sp.width}x${sp.height} ";
+    });
+    return result;
+  }
+
   _fillSpriteBuffer() {
     final baseAddr = reg[5] << 9 & 0xfc00;
     int spriteNo = 0;

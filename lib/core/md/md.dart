@@ -284,5 +284,5 @@ class Md implements Core {
       vdp.renderColorTable(paletteNo);
 
   @override
-  List<String> spriteInfo() => List.empty();
+  List<String> spriteInfo() => vdp.debugSpriteInfo();
 }

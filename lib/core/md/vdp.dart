@@ -145,8 +145,10 @@ class Vdp {
 
   void startDma() {
     _dmaLength = reg[0x13] | reg[0x14] << 8;
-    // print(
-    //     "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+    // if (_dmaSrc == 0xffdc98) {
+    //   print(
+    //       "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+    // }
     status |= bitDmaRunning;
   }
 
@@ -211,7 +213,6 @@ class Vdp {
     _addr = value << 14 & 0xc000 | _ctrl & 0x3fff;
     final cd = value >> 2 & 0x3c | _ctrl >> 14 & 0x03;
 
-    //print("vdp:cd=${cd.hex8} addr=${_addr.hex16}");
     switch (cd & 0x0f) {
       case 0x00:
       case 0x01:
@@ -230,6 +231,8 @@ class Vdp {
         ramSize = 80;
         _addr &= 0x7f;
         break;
+      // default:
+      //   print("vdp: ignored access cd=${cd.hex8} addr=${_addr.hex16}");
     }
 
     if (enableDma && cd.bit5 && _dmaMode == _dmaModeM2V) {
@@ -253,6 +256,9 @@ class Vdp {
     // print(
     //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16} pc:${bus.cpu.pc.hex24}");
     if (ram == ramVram) {
+      // if (_addr == 0xb800 + 0x08 * 13 + 6 && value == 279) {
+      //   print("vdp:debug: ${bus.cpu.dump()}"); // debug
+      // }
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;
     } else if (ram == ramCram) {

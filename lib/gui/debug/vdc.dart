@@ -52,6 +52,11 @@ class _DebugVdc extends State<DebugVdc> {
   @override
   Widget build(BuildContext context) {
     final spriteInfo = widget.debugger.spriteInfo();
+    final spriteInfos = List.generate(
+        4,
+        (i) => spriteInfo.sublist(
+            i * spriteInfo.length ~/ 4, (i + 1) * spriteInfo.length ~/ 4 - 1));
+
     return Container(
         width: widget.width,
         alignment: Alignment.center,
@@ -60,10 +65,7 @@ class _DebugVdc extends State<DebugVdc> {
           scrollDirection: Axis.horizontal,
           child: Column(children: [
             Row(children: [
-              Text(spriteInfo.sublist(0, spriteInfo.length ~/ 2).join("\n"),
-                  style: debugStyle),
-              Text(spriteInfo.sublist(spriteInfo.length ~/ 2).join("\n"),
-                  style: debugStyle),
+              ...spriteInfos.map((e) => Text(e.join("\n"), style: debugStyle)),
               Row(children: [
                 Column(children: [
                   Row(children: [
