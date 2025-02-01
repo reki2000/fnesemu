@@ -43,7 +43,7 @@ class DebugController extends StatelessWidget {
               }
             }
           })),
-      _button("Mem", () => pushMemPage(context, controller)),
+      _button("Mem", () => controller.debugger.toggleMem()),
       _button("VRAM", () => pushVramPage(context, controller)),
       _button("VDC", () => controller.debugger.toggleVdc()),
       _button("Log", () => controller.debugger.toggleLog()),

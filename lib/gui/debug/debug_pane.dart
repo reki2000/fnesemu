@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/debugger.dart';
 import '../../styles.dart';
 import 'disasm.dart';
+import 'mem.dart';
 import 'vdc.dart';
 
 class DebugPane extends StatelessWidget {
@@ -29,6 +30,7 @@ class DebugPane extends StatelessWidget {
                     width: 300,
                   ),
               ]),
+            if (data?.showMem ?? false) MemPane(debugger: debugger),
             if (data?.showVdc ?? false) DebugVdc(debugger: debugger),
             if (data?.log ?? false) TracePanel(log: debugger.log),
           ]);

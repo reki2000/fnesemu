@@ -11,6 +11,9 @@ class DebugOption {
 
   bool showVdc = false;
   bool showDisasm = true;
+  bool showMem = false;
+
+  int memAddress = 0;
 
   String text = "";
 
@@ -92,6 +95,11 @@ class Debugger {
 
   void toggleVdc() {
     debugOption.showVdc = !debugOption.showVdc;
+    pushStream();
+  }
+
+  void toggleMem() {
+    debugOption.showMem = !debugOption.showMem;
     pushStream();
   }
 
