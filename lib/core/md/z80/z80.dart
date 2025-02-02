@@ -129,24 +129,30 @@ class Z80 {
 
   bool iff1 = false;
   bool iff2 = false;
-  int im = 0;
+  int im = imRst38;
+  static const im8080 = 0;
+  static const imRst38 = 1;
+  static const imVector = 2;
+
+  bool _intAsserted = false;
 
   bool halted = false;
 
   Z80(this.bus);
 
-  void interrupt(int mode) {
-    if (iff1) {
-      iff1 = iff2 = false;
-      im = mode;
-      push(r.pc);
-      r.pc = 0x38;
-      cycles += 13;
-    }
+  void interrupt() {
+    _intAsserted = true;
   }
 
   bool exec() {
     // interrupt
+    if (_intAsserted && iff1) {
+      _intAsserted = false;
+      push(r.pc);
+      r.pc = 0x38;
+      cycles += 13;
+      return true;
+    }
 
     // halt
     if (halted) {
@@ -459,7 +465,7 @@ class Z80 {
     final res3 =
         "ix:${r.ixiy[0].hex16} iy:${r.ixiy[1].hex16} sp:${r.sp.hex16} pc:${r.pc.hex16}";
     final regs4 =
-        ("i:${r.i.hex8} r:${r.r.hex8} iff1:${iff1 ? 1 : 0} iff2:${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"} cy:$cycles");
+        ("i:${r.i.hex8} r:${r.r.hex8} iff:${iff1 ? 1 : 0}${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"} cy:$cycles");
 
     const f = "SZ-H-PNC";
     final flags = List.generate(

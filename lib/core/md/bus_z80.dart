@@ -14,7 +14,7 @@ class BusZ80 {
 
   BusZ80();
 
-  int _bank = 0x00; // shound not be 0x140 = 0xa00000
+  int bank = 0x00; // shound not be 0x140 = 0xa00000
   final ram = Uint8List(0x2000);
 
   bool get busReq => cpu.halted;
@@ -33,7 +33,7 @@ class BusZ80 {
   }
 
   void onReset() {
-    _bank = 0x00;
+    bank = 0x00;
     _reset = false;
     cpu.reset();
   }
@@ -44,7 +44,7 @@ class BusZ80 {
     if (addr < 0x6000) return ym2612.read8(0); // ym2612 a0
 
     if (addr >= 0x8000) {
-      return busM68.read16(_bank | addr & 0x7fff) >> 8; // vdp & psg
+      return busM68.read16(bank | addr & 0x7fff) >> 8; // vdp & psg
     }
 
     if (addr & 0xff00 == 0x7f00) return busM68.read8(0xc00000 | addr & 0x1f);
@@ -55,6 +55,9 @@ class BusZ80 {
   write(int addr, int data) {
     // ram: 0x2000-0x3fff is a mirror of 0x0000-0x1fff
     if (addr < 0x4000) {
+      // if (addr == 0x1c18) {
+      //   print("z80 write 0x1c18:${data.hex8} ${cpu.r.pc.hex16}");
+      // }
       ram[addr & 0x1fff] = data;
       return;
     }
@@ -79,7 +82,7 @@ class BusZ80 {
 
     // bank: 0x6000-0x60ff
     if (addr < 0x6100) {
-      _bank = _bank >> 1 & 0x7f8000 | data << 23 & 0x800000;
+      bank = bank >> 1 & 0x7f8000 | data << 23 & 0x800000;
       // print("bank: ${_bank.hex24}");
       return;
     }
@@ -92,7 +95,7 @@ class BusZ80 {
 
     // 0x8000-0xffff:  banked m68k address space
     if (addr >= 0x8000) {
-      busM68.write8(_bank | addr & 0x7fff, data);
+      busM68.write8(bank | addr & 0x7fff, data);
       return;
     }
   }
@@ -103,7 +106,7 @@ class BusZ80 {
 
   void output(int port, int data) {}
 
-  void interupt(int mode) {
-    cpu.interrupt(mode);
+  void interupt() {
+    cpu.interrupt();
   }
 }

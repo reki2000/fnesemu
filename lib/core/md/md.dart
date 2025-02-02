@@ -209,13 +209,14 @@ class Md implements Core {
 
     final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
     final regZ80 = cpuZ80.dump();
+    final bus = "bus: z80bank:${busZ80.bank.hex24}";
 
     final vdpRegs = vdp.dump();
 
     final ym2612Stat = fm.dump();
     final psgStat = psg.dump();
 
-    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$vdpRegs\n$ym2612Stat\n$psgStat";
+    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$bus\n$vdpRegs\n$ym2612Stat\n$psgStat";
   }
 
   (String, int) disasmZ80(int addr) {
