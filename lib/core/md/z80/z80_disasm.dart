@@ -125,7 +125,8 @@ class Z80Disasm {
       final op = fetch();
 
       if (op == 0xcb) {
-        return opDdFdCb(fetch(), disp());
+        final d = disp();
+        return opDdFdCb(fetch(), d);
       }
 
       final r8 = regs8[op & 7];
@@ -213,7 +214,7 @@ class Z80Disasm {
       0x40 => "ld ${regs8[op >> 3 & 7]}, $reg8",
       0x80 => "${ari[op >> 3 & 7]} $reg8",
       0xc0 => switch (op & 0x0f) {
-          0x00 || 0x08 => "ret ${cond[op >> 4 & 7]}",
+          0x00 || 0x08 => "ret ${cond[op >> 3 & 7]}",
           0x01 => "pop ${regs16[op >> 4 & 3]}",
           0x09 => ["ret", "exx", "jp (hl)", "ld sp, hl"][op >> 4 & 3],
           0x02 || 0x0a => "jp ${cond[op >> 3 & 7]}, ${im16()}",
@@ -239,7 +240,7 @@ class Z80Disasm {
               _ => throw "never reach",
             },
           0x06 || 0x0e => "${ari[op >> 3 & 7]} ${im8()}",
-          0x07 || 0x0f => "rst ${op & 0x38}h",
+          0x07 || 0x0f => "rst ${(op & 0x38).hex8}h",
           _ => throw "never reach",
         },
       _ => throw "never reach",
