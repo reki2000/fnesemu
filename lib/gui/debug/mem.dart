@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../core/core_controller.dart';
 // Project imports:
 import '../../core/debugger.dart';
 import '../../styles.dart';
@@ -33,13 +32,13 @@ class MemPane extends StatelessWidget {
   final addrNotifier = ValueNotifier<int>(0);
 
   MemPane({super.key, required this.debugger}) {
-    addrNotifier.value = debugger.debugOption.memAddress;
+    addrNotifier.value = debugger.opt.memAddress;
   }
 
   int get _addr => addrNotifier.value;
   set _addr(int addr) {
     final masked = addr & _mask;
-    debugger.debugOption.memAddress = masked;
+    debugger.opt.memAddress = masked;
     addrNotifier.value = masked;
   }
 

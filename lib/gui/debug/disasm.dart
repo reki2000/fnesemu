@@ -24,7 +24,7 @@ class DebugDisasm extends StatelessWidget {
       this.backwardLines = 5,
       this.forwardLines = 40,
       this.width = 320}) {
-    addrNotifier.value = debugger.debugOption.disasmAddress[cpuNo];
+    addrNotifier.value = debugger.opt.disasmAddress[cpuNo];
   }
 
   final margin10 = const EdgeInsets.all(10.0);

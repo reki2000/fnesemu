@@ -39,6 +39,8 @@ class _DebugVdc extends State<DebugVdc> {
   int _paletteNo = 0;
   bool _useSecond = false;
 
+  static const _paletteNoMask = 0x1f;
+
   @override
   void initState() {
     super.initState();
@@ -49,6 +51,10 @@ class _DebugVdc extends State<DebugVdc> {
     super.dispose();
   }
 
+  int get paletteNo => _paletteNo;
+  set paletteNo(int value) =>
+      setState(() => _paletteNo = value & _paletteNoMask);
+
   @override
   Widget build(BuildContext context) {
     final spriteInfo = widget.debugger.spriteInfo();
@@ -57,40 +63,34 @@ class _DebugVdc extends State<DebugVdc> {
         (i) => spriteInfo.sublist(
             i * spriteInfo.length ~/ 4, (i + 1) * spriteInfo.length ~/ 4 - 1));
 
+    final colorTable = Column(children: [
+      Row(children: [
+        Switch(
+            value: _useSecond,
+            onChanged: (onoff) => setState(() => _useSecond = onoff)),
+        IconButton(
+            icon: const Icon(Icons.arrow_upward), onPressed: () => paletteNo--),
+        IconButton(
+            icon: const Icon(Icons.arrow_downward),
+            onPressed: () => paletteNo++),
+        Text("$_paletteNo", style: debugStyle),
+      ]),
+      _imageBufferRenderer(widget.debugger.renderColorTable(_paletteNo)),
+    ]);
+
     return Container(
         width: widget.width,
         alignment: Alignment.center,
         margin: const EdgeInsets.all(10.0),
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: Column(children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
+              colorTable,
+              _imageBufferRenderer(
+                  widget.debugger.renderVram(_useSecond, _paletteNo)),
               ...spriteInfos.map((e) => Text(e.join("\n"), style: debugStyle)),
-              Row(children: [
-                Column(children: [
-                  Row(children: [
-                    Switch(
-                        value: _useSecond,
-                        onChanged: (onoff) =>
-                            setState(() => _useSecond = onoff)),
-                    IconButton(
-                        icon: const Icon(Icons.arrow_upward),
-                        onPressed: () => setState(() {
-                              _paletteNo = (_paletteNo - 1) & 0x1f;
-                            })),
-                    IconButton(
-                        icon: const Icon(Icons.arrow_downward),
-                        onPressed: () => setState(() {
-                              _paletteNo = (_paletteNo + 1) & 0x1f;
-                            })),
-                    Text("$_paletteNo", style: debugStyle),
-                  ]),
-                  _imageBufferRenderer(
-                      widget.debugger.renderColorTable(_paletteNo)),
-                ]),
-                _imageBufferRenderer(
-                    widget.debugger.renderVram(_useSecond, _paletteNo)),
-              ]),
             ]),
             _imageBufferRenderer(widget.debugger.renderBg()),
           ]),

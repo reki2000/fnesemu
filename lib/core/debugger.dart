@@ -18,8 +18,10 @@ class DebugOption {
   String text = "";
 
   bool log = false;
-  int breakPoint = 0;
+  List<int> breakPoint = [-1];
   List<int> disasmAddress = [];
+
+  int targetCpuNo = 1;
 
   DebugOption(int maxCpuNo) : disasmAddress = List.filled(maxCpuNo, 0);
 }
@@ -27,10 +29,10 @@ class DebugOption {
 class Debugger {
   final Core core;
 
-  Debugger(this.core) : debugOption = DebugOption(core.cpuInfos.length);
+  Debugger(this.core) : opt = DebugOption(core.cpuInfos.length);
 
   // interafaces for debugging features
-  DebugOption debugOption;
+  DebugOption opt;
 
   List<String> get cpuInfos => core.cpuInfos;
 
@@ -38,21 +40,20 @@ class Debugger {
   Stream<DebugOption> get debugStream => _debugStream.stream;
 
   void setDebugView(bool show) {
-    debugOption.showDebugView = show;
+    opt.showDebugView = show;
     pushStream();
   }
 
   void pushStream() {
-    if (!debugOption.showDebugView) {
-      debugOption.text = "";
+    if (!opt.showDebugView) {
+      opt.text = "";
     } else {
-      debugOption.text =
-          core.dump(showZeroPage: true, showStack: true, showApu: true);
+      opt.text = core.dump(showZeroPage: true, showStack: true, showApu: true);
       for (int i = 0; i < cpuInfos.length; i++) {
-        debugOption.disasmAddress[i] = core.programCounter(i);
+        opt.disasmAddress[i] = core.programCounter(i);
       }
     }
-    _debugStream.add(debugOption);
+    _debugStream.add(opt);
   }
 
   Tracer? _tracer;
@@ -60,13 +61,19 @@ class Debugger {
   StreamSubscription<String>? _traceSubscription;
 
   void toggleLog() {
-    debugOption.log = !debugOption.log;
+    opt.log = !opt.log;
     pushStream();
 
-    if (debugOption.log && _tracer == null) {
-      _tracer = Tracer(_traceStream, start: 0, end: 248, maxDiffChars: 4);
+    if (opt.log && _tracer == null) {
+      // m68000
+      // _tracer = Tracer(_traceStream, pcWidth: 6, start: 0, end: 248, maxDiffChars: 4);
+      // z80
+      _tracer = Tracer(_traceStream,
+          pcWidth: 4, start: 0, end: 148, maxDiffChars: 12);
+      // 6502
+
       _traceSubscription = _traceStream.stream.listen((log) {
-        //print(log.replaceAll("\n", ""));
+        print(log.replaceAll("\n", ""));
         this.log.add(log.replaceAll("\n", ""));
       }, onDone: () => _traceSubscription?.cancel());
     } else {
@@ -78,11 +85,11 @@ class Debugger {
   final log = List<String>.empty(growable: true);
 
   addLog(String log) {
-    if (debugOption.log) _tracer?.addLog(log);
+    if (opt.log) _tracer?.addLog(log);
   }
 
   void toggleDisasm() {
-    debugOption.showDisasm = !debugOption.showDisasm;
+    opt.showDisasm = !opt.showDisasm;
     pushStream();
   }
 
@@ -94,12 +101,12 @@ class Debugger {
   Pair<String, int> disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
 
   void toggleVdc() {
-    debugOption.showVdc = !debugOption.showVdc;
+    opt.showVdc = !opt.showVdc;
     pushStream();
   }
 
   void toggleMem() {
-    debugOption.showMem = !debugOption.showMem;
+    opt.showMem = !opt.showMem;
     pushStream();
   }
 

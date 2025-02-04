@@ -83,6 +83,7 @@ class Md implements Core {
   @override
   ExecResult exec() {
     bool scanlineProceeded = false;
+    int executed1 = 0;
 
     final m68ExecSuccess = cpuM68.exec();
 
@@ -90,6 +91,8 @@ class Md implements Core {
 
     while (_clocks > m68ClockHz * cpuZ80.clocks / z80ClockHz) {
       final z80Result = cpuZ80.exec();
+      executed1++;
+
       if (!z80Result) {
         print("z80 unimplemented instruction at ${cpuZ80.r.pc.hex16}");
       }
@@ -110,7 +113,8 @@ class Md implements Core {
       _renderAudio();
     }
 
-    return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded);
+    return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded,
+        executed1: executed1);
   }
 
   final _fmBuffer = Float32List(250 * 2); // about 5ms: stereo 50kHz * 2ch

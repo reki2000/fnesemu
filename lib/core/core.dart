@@ -9,7 +9,12 @@ class ExecResult {
   final int elapsedClocks;
   final bool stopped;
   final bool scanlineRendered;
-  const ExecResult(this.elapsedClocks, this.stopped, this.scanlineRendered);
+
+  final int executed0;
+  final int executed1;
+
+  ExecResult(this.elapsedClocks, this.stopped, this.scanlineRendered,
+      {this.executed0 = 0, this.executed1 = 0});
 }
 
 // abstract class to be implemented by Pce class

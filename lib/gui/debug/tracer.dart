@@ -1,10 +1,17 @@
 // Dart imports:
 import 'dart:async';
 
+class Line {
+  final String pc, body;
+  Line(this.pc, this.body);
+  @override
+  String toString() => "$pc: $body";
+}
+
 /// a ring buffer to supress redundant log which is identical to past N lines except for a few chars
 /// used for supress VBLANK wait loop, filling memory, etc.
 class RingBuffer {
-  final List<String> _buf;
+  final List<Line> _buf;
   final int _maxDiffChars;
 
   int _index = 0;
@@ -14,26 +21,31 @@ class RingBuffer {
 
   RingBuffer(int size, {int maxDiffChars = 0})
       : _maxDiffChars = maxDiffChars,
-        _buf = List.filled(size, "");
+        _buf = List.filled(size, Line("", ""));
 
-  void add(String item) {
+  void add(Line item) {
     _buf[_index] = item;
     _index = _inc(_index);
   }
 
-  bool _matched(String a, String b) {
-    if (b.length < a.length) {
+  // check if the different chars between a and b are less than the threshold(_maxDiffChars)
+  bool _matched(Line a, Line b) {
+    // pc should match
+    if (a.pc != b.pc) {
+      return false;
+    }
+    if (b.body.length < a.body.length) {
       return _matched(b, a);
     }
 
-    int diff = b.length - a.length;
+    int diff = b.body.length - a.body.length;
 
     if (diff > _maxDiffChars) {
       return false;
     }
 
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) {
+    for (int i = 0; i < a.body.length; i++) {
+      if (a.body[i] != b.body[i]) {
         diff++;
         if (diff > _maxDiffChars) {
           return false;
@@ -47,25 +59,29 @@ class RingBuffer {
   int _inc(int i) => i == _buf.length - 1 ? 0 : i + 1;
 
   // check if the item is matched with the expected line
-  bool isExpected(String item) {
+  int isExpected(Line item) {
     if (_matched(_buf[_nextIndex], item)) {
       _nextIndex = _inc(_nextIndex);
       skippedCount++;
-      return true;
+      return 0;
     }
 
-    return false;
+    final result = skippedCount;
+    skippedCount = 0;
+    return result;
   }
 
-  // prepare when the item is conteined in the buffer
-  bool prepare(String item) {
+  // if the item has already occured in the ring buffer, set the nextIndex to the matched index
+  bool prepare(Line item) {
     _nextIndex = _index;
+
     for (int i = 0; i < _buf.length; i++) {
       if (_matched(_buf[_nextIndex], item)) {
         _nextIndex = _inc(_nextIndex);
         skippedCount++;
         return true;
       }
+
       _nextIndex = _inc(_nextIndex);
     }
 
@@ -91,37 +107,47 @@ class Tracer {
 
   final int start;
   final int? end;
+  final int pcWidth;
 
   String previousPc = "";
-  bool isLoop = false;
+  bool _isSkipping = false;
 
   Tracer(this.traceStreamController,
-      {int size = 20, this.start = 0, this.end, int maxDiffChars = 0})
+      {int size = 20,
+      required this.pcWidth,
+      this.start = 0,
+      this.end,
+      int maxDiffChars = 0})
       : _ringBuffer = RingBuffer(size, maxDiffChars: maxDiffChars);
 
   void addLog(String log) {
-    final pc = log.substring(0, 6);
-    final line = log.substring(start, end);
+    final pc = log.substring(0, pcWidth);
+    final body = log.substring(pcWidth, end);
+    final line = Line(pc, body);
 
-    // if the PC is back to the previous one, it means the CPU is in the loop
-    final jumpedToPrevious = pc.compareTo(previousPc) < 0;
+    // If the PC is less than or equal to the previous PC,
+    // assume we have looped.
+    final jumpedToPrevious = pc.compareTo(previousPc) <= 0;
     previousPc = pc;
 
+    // Only try to detect a repeating loop pattern if we are not already skipping.
     if (jumpedToPrevious) {
-      isLoop = _ringBuffer.prepare(line);
-      if (isLoop) {
+      if (_ringBuffer.prepare(line)) {
+        _isSkipping = true;
         return;
+      } else {
+        _isSkipping = false;
       }
     }
 
-    if (isLoop) {
-      if (_ringBuffer.isExpected(line)) {
+    if (_isSkipping) {
+      final skippedCount = _ringBuffer.isExpected(line);
+      if (skippedCount == 0) {
         return;
       }
 
-      isLoop = false;
-      traceStreamController
-          .add("...skipped ${_ringBuffer.skippedCount} lines...\n");
+      _isSkipping = false;
+      traceStreamController.add("...skipped $skippedCount lines...\n");
     }
 
     _ringBuffer.add(line);

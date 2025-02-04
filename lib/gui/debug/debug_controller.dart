@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../../core/core_controller.dart';
-import 'mem.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
@@ -19,11 +18,13 @@ class DebugController extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final debugger = controller.debugger;
+    final debugOption = debugger.opt;
+
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       _button("Step", controller.runStep),
       _button("Next", () {
-        controller.debugger.debugOption.breakPoint =
-            controller.debugger.nextPc(0);
+        debugOption.breakPoint[0] = debugger.nextPc(debugOption.targetCpuNo);
         controller.run();
       }),
       _button("Line", controller.runScanLine),
@@ -34,7 +35,7 @@ class DebugController extends StatelessWidget {
             if (v.length == 4) {
               try {
                 final breakPoint = int.parse(v, radix: 16);
-                controller.debugger.debugOption.breakPoint = breakPoint;
+                debugOption.breakPoint[0] = breakPoint;
                 ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text("breakpoint: ${breakPoint.hex16}")));
               } catch (e) {
@@ -43,10 +44,10 @@ class DebugController extends StatelessWidget {
               }
             }
           })),
-      _button("Mem", () => controller.debugger.toggleMem()),
+      _button("Mem", () => debugger.toggleMem()),
       _button("VRAM", () => pushVramPage(context, controller)),
-      _button("VDC", () => controller.debugger.toggleVdc()),
-      _button("Log", () => controller.debugger.toggleLog()),
+      _button("VDC", () => debugger.toggleVdc()),
+      _button("Log", () => debugger.toggleLog()),
     ]);
   }
 }

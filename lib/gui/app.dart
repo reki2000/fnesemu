@@ -102,7 +102,7 @@ class MainPageState extends State<MainPage> {
     }
 
     // temporary debug options
-    controller.debugger.debugOption.showDebugView = true;
+    controller.debugger.opt.showDebugView = true;
     // controller.debugger.debugOption.showVdc = true;
     _reset(run: false);
 
@@ -164,13 +164,13 @@ class MainPageState extends State<MainPage> {
             "darius2.gen",
             "daimakai.gen",
             "sfzone.gen",
-            "dbz.gen",
+            // "dbz.gen",
             "sphouse.gen",
             "sf2.gen",
-            "jurassic.gen",
+            // "jurassic.gen",
             "outrun.gen",
             "sonic.gen",
-            "ys3.gen",
+            // "ys3.gen",
           ])
             _iconButton(Icons.file_open_outlined, name.split(".")[0],
                 () => _loadRomFile(name: name))
@@ -188,7 +188,7 @@ class MainPageState extends State<MainPage> {
         _iconButton(Icons.restart_alt, "Reset", _reset),
 
         // debug on/off button
-        controller.debugger.debugOption.showDebugView
+        controller.debugger.opt.showDebugView
             ? _iconButton(
                 Icons.bug_report, "Disable Debug Options", () => _debug(false))
             : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
@@ -223,11 +223,11 @@ class MainPageState extends State<MainPage> {
                             builder: (ctx, snapshot) => Text(
                                 snapshot.data?.text ?? "",
                                 style: debugStyle)))),
-                if (controller.debugger.debugOption.showDebugView)
+                if (controller.debugger.opt.showDebugView)
                   DebugController(controller: controller),
               ],
             ),
-            if (controller.debugger.debugOption.showDebugView)
+            if (controller.debugger.opt.showDebugView)
               DebugPane(debugger: controller.debugger),
           ]),
     );

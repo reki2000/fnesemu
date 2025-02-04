@@ -118,7 +118,7 @@ class CoreController {
     _core.reset();
 
     debugger.log.clear();
-    debugger.debugOption.breakPoint = 0;
+    debugger.opt.breakPoint = [-1];
     debugger.pushStream();
 
     _renderAll();
@@ -126,29 +126,49 @@ class CoreController {
 
   /// executes emulation with 1 cpu instruction
   void runStep() {
-    final result = _core.exec();
-    _currentCpuClocks = result.elapsedClocks;
+    final opt = debugger.opt;
+    if (opt.log) {
+      debugger.addLog(_core.tracingState(opt.targetCpuNo));
+    }
 
-    debugger.addLog(_core.tracingState(0));
+    while (true) {
+      final result = _core.exec();
+      _currentCpuClocks = result.elapsedClocks;
+
+      if (opt.targetCpuNo == 0) {
+        break;
+      }
+      if (opt.targetCpuNo == 1 && result.executed1 > 0) {
+        break;
+      }
+    }
 
     _renderAll();
   }
 
   /// executes emulation during 1 scanline
   bool runScanLine({skipRender = false}) {
+    final opt = debugger.opt;
+    bool traceNext = true;
+
     while (true) {
-      if (debugger.debugOption.breakPoint == _core.programCounter(0)) {
+      if (opt.breakPoint[0] == _core.programCounter(opt.targetCpuNo)) {
         stop();
         return false;
+      }
+
+      // need this check for performance
+      if (opt.log && traceNext) {
+        debugger.addLog(_core.tracingState(opt.targetCpuNo));
+        traceNext = false;
       }
 
       // exec 1 cpu instruction
       final result = _core.exec();
       _currentCpuClocks = result.elapsedClocks;
 
-      // need this check for performance
-      if (debugger.debugOption.log) {
-        debugger.addLog(_core.tracingState(0));
+      if (opt.targetCpuNo == 1 && result.executed1 > 0) {
+        traceNext = true;
       }
 
       if (!result.stopped) {
@@ -170,10 +190,10 @@ class CoreController {
   void runFrame() {
     for (int i = 0; i < _core.scanlinesInFrame; i++) {
       if (!runScanLine(skipRender: true)) {
-        _renderAll();
-        return;
+        break;
       }
     }
+
     _renderAll();
   }
 
