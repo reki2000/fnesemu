@@ -1,4 +1,4 @@
-import 'dart:ffi';
+import 'dart:developer';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -91,7 +91,7 @@ class VgmPlayer {
         }
 
         final len = vgm.fetch32();
-        print("data block type: ${type.hex8} len: ${len.hex32}");
+        log("data block type: ${type.hex8} len: ${len.hex32}");
 
         dataBlock = List.generate(len, (i) => fetch());
         break;
@@ -166,7 +166,7 @@ class VgmPlayer {
 
       if (DateTime.now().difference(starttedAt).inMilliseconds <
           150 + elapsedSamples * 1000 ~/ rateHz) {
-        await Future<void>.delayed(Duration(milliseconds: 100));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
       }
 
       final elapsedSeconds = DateTime.now().difference(starttedAt).inSeconds;
@@ -189,24 +189,24 @@ class VgmPlayer {
 void main(List<String> args) {
   final vgmPlayer = VgmPlayer();
   if (args.isEmpty) {
-    print('Usage: dart lib\tools\vgmplayer.dart <path_to_vgm_file>');
+    log('Usage: dart lib\tools\vgmplayer.dart <path_to_vgm_file>');
     return;
   }
 
   final filePath = args[0];
   final vgmData = File(filePath).readAsBytesSync();
   if (vgmData.isEmpty) {
-    print('File not found: $filePath');
+    log('File not found: $filePath');
     return;
   }
 
   if (vgmData.getUInt32BE(0) != 0x56676d20) {
-    print('Not a VGM file: $filePath');
+    log('Not a VGM file: $filePath');
     return;
   }
 
   final vgmFile = VgmFile(vgmData);
-  print("start playback: $filePath $vgmFile");
+  log("start playback: $filePath $vgmFile");
 
   vgmPlayer.init(vgmFile);
   vgmPlayer.playback();

@@ -1,13 +1,12 @@
 import 'dart:typed_data';
 
-import 'm68/m68_debug.dart';
-import 'ym2612.dart';
 import '../../util/int.dart';
 
-import 'bus_z80.dart';
 import 'm68/m68.dart';
+import 'bus_z80.dart';
 import 'pad.dart';
 import 'sn76489.dart';
+import 'ym2612.dart';
 import 'rom.dart';
 import 'vdp.dart';
 
@@ -160,9 +159,6 @@ class BusM68 {
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
-      if (addr.mask16 == 0xdcfe && data == 0x80) {
-        print("cpu: ${cpu.debug()}");
-      }
       ram[addr.mask16] = data >> 8;
       ram[addr.inc.mask16] = data.mask8;
       return;

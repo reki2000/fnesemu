@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
@@ -22,7 +23,6 @@ class Rom {
       ram = Uint8List.fromList(List.filled(ramEndAddr - ramStartAddr, 0xff));
     }
 
-    print(
-        "loaded rom: ${rom.length.hex24}, ram:${ramStartAddr.hex24}-${ramEndAddr.hex24}");
+    log("loaded rom: ${rom.length.hex24}, ram:${ramStartAddr.hex24}-${ramEndAddr.hex24}");
   }
 }
