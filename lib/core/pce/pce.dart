@@ -61,13 +61,11 @@ class Pce implements Core {
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
-    final cpuOk = cpu.exec();
+    if (!cpu.exec()) {
+      return ExecResult(cpu.cycles, true, false);
+    }
 
     bus.timer.exec(cpu.clock);
-
-    if (!cpuOk) {
-      return ExecResult(cpu.cycles, false, false);
-    }
 
     bool rendered = false;
 
@@ -85,7 +83,7 @@ class Pce implements Core {
       _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
     }
 
-    return ExecResult(cpu.clocks, true, rendered);
+    return ExecResult(cpu.clocks, false, rendered);
   }
 
   /// returns screen buffer as hSize x vSize argb

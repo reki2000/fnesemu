@@ -81,20 +81,35 @@ class Md implements Core {
   /// exec 1 cpu instruction and render VDO / FM-PSG if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
-  ExecResult exec() {
-    bool scanlineProceeded = false;
-    int executed1 = 0;
+  ExecResult exec({bool step = false}) {
+    final result = ExecResult(0, false, false);
+    result.executed[0] = false;
 
-    final m68ExecSuccess = cpuM68.exec();
+    while (_clocks >= cpuM68.clocks) {
+      if (!cpuM68.exec()) {
+        print("m68000 unimplemented instruction at ${cpuM68.pc.hex24}");
+        result.stopped = true;
+        break;
+      }
 
-    _clocks = cpuM68.clocks;
+      result.executed[0] = true;
 
-    while (_clocks > m68ClockHz * cpuZ80.clocks / z80ClockHz) {
-      final z80Result = cpuZ80.exec();
-      executed1++;
+      if (step) {
+        break;
+      }
+    }
 
-      if (!z80Result) {
+    while (_clocks >= m68ClockHz * cpuZ80.clocks / z80ClockHz) {
+      if (!cpuZ80.exec()) {
         print("z80 unimplemented instruction at ${cpuZ80.r.pc.hex16}");
+        result.stopped = true;
+        break;
+      }
+
+      result.executed[1] = true;
+
+      if (step) {
+        break;
       }
     }
 
@@ -107,14 +122,15 @@ class Md implements Core {
       // video rendering
       _nextScanClock += clocksInScanline;
       _hsyncRequired = vdp.renderLine();
-      scanlineProceeded = true;
+      result.scanlineRendered = true;
 
       // audio rendering
       _renderAudio();
     }
 
-    return ExecResult(_clocks, m68ExecSuccess, scanlineProceeded,
-        executed1: executed1);
+    _clocks += 4;
+
+    return result;
   }
 
   final _fmBuffer = Float32List(250 * 2); // about 5ms: stereo 50kHz * 2ch

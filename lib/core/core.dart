@@ -6,15 +6,17 @@ import 'pad_button.dart';
 import 'types.dart';
 
 class ExecResult {
-  final int elapsedClocks;
-  final bool stopped;
-  final bool scanlineRendered;
+  int elapsedClocks;
+  bool stopped;
+  bool scanlineRendered;
 
-  final int executed0;
-  final int executed1;
+  List<bool> executed = [true, false];
 
-  ExecResult(this.elapsedClocks, this.stopped, this.scanlineRendered,
-      {this.executed0 = 0, this.executed1 = 0});
+  ExecResult(
+    this.elapsedClocks,
+    this.stopped,
+    this.scanlineRendered,
+  );
 }
 
 // abstract class to be implemented by Pce class

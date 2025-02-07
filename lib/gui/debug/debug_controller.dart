@@ -19,12 +19,21 @@ class DebugController extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final debugger = controller.debugger;
-    final debugOption = debugger.opt;
+    final opt = debugger.opt;
+    final targetCpuNotifier = ValueNotifier<int>(opt.targetCpuNo);
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      if (debugger.cpuInfos.length > 1)
+        ValueListenableBuilder(
+            valueListenable: targetCpuNotifier,
+            builder: (ctx, value, _) => _button(debugger.cpuInfos[value], () {
+                  opt.targetCpuNo =
+                      (opt.targetCpuNo + 1) % debugger.cpuInfos.length;
+                  targetCpuNotifier.value = opt.targetCpuNo;
+                })),
       _button("Step", controller.runStep),
       _button("Next", () {
-        debugOption.breakPoint[0] = debugger.nextPc(debugOption.targetCpuNo);
+        opt.breakPoint[0] = debugger.nextPc(opt.targetCpuNo);
         controller.run();
       }),
       _button("Line", controller.runScanLine),
@@ -35,7 +44,7 @@ class DebugController extends StatelessWidget {
             if (v.length == 4) {
               try {
                 final breakPoint = int.parse(v, radix: 16);
-                debugOption.breakPoint[0] = breakPoint;
+                opt.breakPoint[0] = breakPoint;
                 ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text("breakpoint: ${breakPoint.hex16}")));
               } catch (e) {

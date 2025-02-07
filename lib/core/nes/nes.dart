@@ -69,9 +69,8 @@ class Nes implements Core {
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
-    final cpuOk = cpu.exec();
-    if (!cpuOk) {
-      return ExecResult(cpu.cycle, false, false);
+    if (!cpu.exec()) {
+      return ExecResult(cpu.cycle, true, false);
     }
 
     bool rendered = false;
@@ -90,7 +89,7 @@ class Nes implements Core {
       _pushApuBuffer(apuBuf, auxBuf);
     }
 
-    return ExecResult(cpu.cycle, true, rendered);
+    return ExecResult(cpu.cycle, false, rendered);
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
