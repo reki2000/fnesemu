@@ -10,13 +10,16 @@ class ExecResult {
   bool stopped;
   bool scanlineRendered;
 
-  List<bool> executed = [true, false];
+  bool executed0 = true;
+  bool executed1 = false;
 
   ExecResult(
     this.elapsedClocks,
     this.stopped,
     this.scanlineRendered,
   );
+
+  bool executed(int i) => i == 0 ? executed0 : executed1;
 }
 
 // abstract class to be implemented by Pce class

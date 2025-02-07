@@ -83,7 +83,7 @@ class Md implements Core {
   @override
   ExecResult exec({bool step = false}) {
     final result = ExecResult(0, false, false);
-    result.executed[0] = false;
+    result.executed0 = false;
 
     while (_clocks >= cpuM68.clocks) {
       if (!cpuM68.exec()) {
@@ -92,7 +92,7 @@ class Md implements Core {
         break;
       }
 
-      result.executed[0] = true;
+      result.executed0 = true;
 
       if (step) {
         break;
@@ -106,7 +106,7 @@ class Md implements Core {
         break;
       }
 
-      result.executed[1] = true;
+      result.executed1 = true;
 
       if (step) {
         break;

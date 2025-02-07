@@ -135,7 +135,7 @@ class CoreController {
       final result = _core.exec();
       _currentCpuClocks = result.elapsedClocks;
 
-      if (result.executed[opt.targetCpuNo]) {
+      if (result.executed(opt.targetCpuNo)) {
         break;
       }
     }
@@ -164,7 +164,7 @@ class CoreController {
       final result = _core.exec();
       _currentCpuClocks = result.elapsedClocks;
 
-      if (result.executed[opt.targetCpuNo]) {
+      if (result.executed(opt.targetCpuNo)) {
         traceNext = true;
       }
 
