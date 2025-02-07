@@ -346,17 +346,21 @@ extension VdpRenderer on Vdp {
         buffer[y * 320 + hCounter] = rgba[cram[color]];
       }
 
-      status &= ~0x08; // off: vblank
+      status &= ~Vdp.bitVBlank; // off: vblank
       return true;
     }
 
     if (y == Vdp.height && enableVInt) {
-      status |= 0x80; // on: vsync int occureed
+      status |= Vdp.bitVblankInt; // on: vsync int occureed
       bus.interrupt(6);
-      busZ80.interupt();
+      busZ80.assertInt();
     }
 
-    status |= 0x08; // on: vblank
+    if (y == -1) {
+      busZ80.deassertInt();
+    }
+
+    status |= Vdp.bitVBlank; // on: vblank
     return false;
   }
 

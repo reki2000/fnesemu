@@ -467,6 +467,9 @@ class Ym2612 {
   bool _notifyTimerAOverflow = false;
   bool _notifyTimerBOverflow = false;
 
+  bool _resetTimerA = false;
+  bool _resetTimerB = false;
+
   int _timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
   int _timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
 
@@ -507,6 +510,7 @@ class Ym2612 {
         _timerCountB += (256 - _timerB) << 4;
 
         if (_notifyTimerBOverflow) {
+          //print("timerB overflow");
           _timerOverflow |= _bitTimerB;
         }
       }
@@ -515,6 +519,14 @@ class Ym2612 {
 
   int read8(int part) {
     final status = _timerOverflow;
+
+    if (_resetTimerA) {
+      _timerOverflow &= ~_bitTimerA;
+    }
+    if (_resetTimerB) {
+      _timerOverflow &= ~_bitTimerB;
+    }
+
     return status;
   }
 
@@ -555,17 +567,21 @@ class Ym2612 {
       case 0x27: // Timer Control
         _ch3Mode = value >> 6 & 3;
 
-        if (value.bit4) {
-          _timerOverflow &= ~_bitTimerA;
-        }
-        if (value.bit5) {
-          _timerOverflow &= ~_bitTimerB;
-        }
+        _resetTimerB = value.bit5;
+        _resetTimerA = value.bit4;
 
         _notifyTimerBOverflow = value.bit3;
         _notifyTimerAOverflow = value.bit2;
+
         _enableTimerB = value.bit1;
+        if (value.bit1) {
+          _timerCountB = (256 - _timerB) << 4;
+        }
+
         _enableTimerA = value.bit0;
+        if (value.bit0) {
+          _timerCountA = 1024 - _timerA;
+        }
         break;
 
       case 0x28: // Operator Control

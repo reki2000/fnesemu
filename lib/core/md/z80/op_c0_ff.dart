@@ -52,7 +52,7 @@ extension OpC0ff on Z80 {
             r.hl2 = tmp3;
             return true;
           case 0xe9: // jp (hl)
-            r.pc = read(r.hl).setH8(read(r.hl.inc));
+            r.pc = r.hl;
             return true;
           case 0xf9: // ld sp, hl
             r.sp = r.hl;
@@ -89,7 +89,8 @@ extension OpC0ff on Z80 {
             cycles += 15;
             return true;
           case 0xf3: // di
-            iff1 = iff2 = false;
+            iff1 = false;
+            iff2 = false;
             return true;
           case 0xdb: // in a, (n)
             r.a = input(pc8());
@@ -101,7 +102,7 @@ extension OpC0ff on Z80 {
             r.hl = tmp;
             return true;
           case 0xfb: // ei
-            iff1 = iff2 = true;
+            eiDelay = true;
             return true;
         }
 

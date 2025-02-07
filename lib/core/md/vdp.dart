@@ -104,6 +104,7 @@ class Vdp {
     } else if (port == 0x04) {
       final val = status;
       status &= ~bitVblankInt;
+      busZ80.deassertInt();
       return val;
     } else if (port == 0x08) {
       return vCounter << 8 | hCounter >> 1;

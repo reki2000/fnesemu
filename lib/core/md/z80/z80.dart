@@ -135,23 +135,35 @@ class Z80 {
   static const imVector = 2;
 
   bool _intAsserted = false;
+  bool eiDelay = false; // EI instruction delay
 
   bool halted = false;
 
   Z80(this.bus);
 
-  void interrupt() {
+  void assertInt() {
     _intAsserted = true;
+  }
+
+  void deassertInt() {
+    _intAsserted = false;
   }
 
   bool exec() {
     // interrupt
     if (_intAsserted && iff1) {
       _intAsserted = false;
+      iff1 = false;
       push(r.pc);
       r.pc = 0x38;
       cycles += 13;
       return true;
+    }
+
+    if (eiDelay) {
+      iff1 = true;
+      iff2 = true;
+      eiDelay = false;
     }
 
     // halt

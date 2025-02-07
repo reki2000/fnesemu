@@ -73,7 +73,6 @@ class Debugger {
       // 6502
 
       _traceSubscription = _traceStream.stream.listen((log) {
-        print(log.replaceAll("\n", ""));
         this.log.add(log.replaceAll("\n", ""));
       }, onDone: () => _traceSubscription?.cancel());
     } else {

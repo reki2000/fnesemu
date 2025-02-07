@@ -204,6 +204,7 @@ extension OpEd on Z80 {
       case 0x6d:
       case 0x7d:
         r.pc = pop();
+        iff1 = iff2;
         return true;
       case 0x45: // retn
       case 0x55:
