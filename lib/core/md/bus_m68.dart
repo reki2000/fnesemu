@@ -35,6 +35,10 @@ class BusM68 {
   int read8(int addr) {
     final top = addr >> 16 & 0xff;
 
+    if (top == 0xff) {
+      return ram[addr.mask16];
+    }
+
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
 
@@ -48,10 +52,6 @@ class BusM68 {
       }
 
       return 0x00;
-    }
-
-    if (top == 0xff) {
-      return ram[addr.mask16];
     }
 
     if (top == 0xc0) {
@@ -78,6 +78,10 @@ class BusM68 {
   int read16(int addr) {
     final top = addr >> 16 & 0xff;
 
+    if (top == 0xff) {
+      return ram[addr.mask16] << 8 | ram[addr.inc.mask16];
+    }
+
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
 
@@ -91,10 +95,6 @@ class BusM68 {
       }
 
       return 0x00;
-    }
-
-    if (top == 0xff) {
-      return ram[addr.mask16] << 8 | ram[addr.inc.mask16];
     }
 
     if (top == 0xc0) {

@@ -353,13 +353,14 @@ class M68 {
     clocks += 8; // 2 prefetch : 44
   }
 
-  void trap(int vector) {
+  void trap(int vector, int newSr) {
     // debug(
     //     "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
-    final savedSr = sr.mask16;
+    final oldSr = sr.mask16;
+    sr = newSr;
     sf = true;
     push32(pc); // +8
-    push16(savedSr); // +4 : +12
+    push16(oldSr); // +4 : +12
     _pc = read32(vector); // +8 : 32
     clocks += 8; // 2 prefetch : 40
   }

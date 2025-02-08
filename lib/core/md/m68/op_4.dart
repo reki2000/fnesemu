@@ -74,7 +74,7 @@ extension Op4 on M68 {
       // debug(
       //     "chk dn:$dn xn:$xn mode:$mode bound:${bound.hex16} data:${data.hex16}");
       if (data < 0 || bound < data) {
-        trap(0x18);
+        trap(0x18, sr);
       }
 
       return true;
@@ -231,7 +231,7 @@ extension Op4 on M68 {
 
           case 0x76: // trapv
             if (vf) {
-              trap(0x07 << 2);
+              trap(0x07 << 2, sr);
             }
             return true;
 
@@ -242,7 +242,7 @@ extension Op4 on M68 {
             return true;
 
           case 0x7a:
-            trap(10 << 2); // movec (m68010)
+            trap(10 << 2, sr); // movec (m68010)
             return true;
         }
 
@@ -264,7 +264,7 @@ extension Op4 on M68 {
 
         if (op & 0xf0 == 0x40) {
           // trap
-          trap(op << 2 & 0x03c | 0x80);
+          trap(op << 2 & 0x03c | 0x80, sr);
           return true;
         }
 

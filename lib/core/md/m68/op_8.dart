@@ -17,7 +17,7 @@ extension Op8 on M68 {
       if (src == 0) {
         cf = vf = nf = zf = false;
         pc = pc.dec4.mask32;
-        trap(0x14);
+        trap(0x14, sr);
         return true;
       }
 
@@ -48,7 +48,7 @@ extension Op8 on M68 {
       if (src == 0) {
         cf = vf = nf = zf = false;
         pc = pc.dec4.mask32;
-        trap(0x14);
+        trap(0x14, sr);
         return true;
       }
 

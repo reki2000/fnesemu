@@ -19,8 +19,9 @@ extension Op on M68 {
       }
     }
 
-    if (0 < assertedIntLevel && assertedIntLevel >= maskedIntLevel) {
-      trap((assertedIntLevel << 2) + 0x60);
+    if (0 < assertedIntLevel && assertedIntLevel > maskedIntLevel) {
+      trap((assertedIntLevel << 2) + 0x60,
+          sr & ~0x700 | assertedIntLevel << 8 & 0x700);
       assertedIntLevel = 0;
       return true;
     }
