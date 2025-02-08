@@ -46,7 +46,7 @@ class MainPageState extends State<MainPage> {
 
   final controller = CoreController();
 
-  bool _running = false;
+  bool get _running => controller.isRunning();
 
   String _romName = "";
 
@@ -132,7 +132,6 @@ class MainPageState extends State<MainPage> {
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     ServicesBinding.instance.keyboard.addHandler(_keyHandler.handle);
     setState(() {
-      _running = true;
       controller.run();
     });
   }
@@ -140,7 +139,6 @@ class MainPageState extends State<MainPage> {
   void _stop() {
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     setState(() {
-      _running = false;
       controller.stop();
     });
   }
@@ -177,19 +175,14 @@ class MainPageState extends State<MainPage> {
       appBar: AppBar(title: Text(_romName), actions: [
         ...[
           for (var name in [
-            "test.gen",
-            "test2.gen",
-            "test3.gen",
             "darius2.gen",
             "daimakai.gen",
             "sfzone.gen",
-            // "dbz.gen",
             "sphouse.gen",
             "sf2.gen",
-            // "jurassic.gen",
             "outrun.gen",
+            "sangokushi.gen",
             "sonic.gen",
-            // "ys3.gen",
           ])
             _iconButton(Icons.file_open_outlined, name.split(".")[0],
                 () => _loadRomFile(name: name))

@@ -72,13 +72,6 @@ class CoreController {
     // int awaitCount = 0;
 
     while (_running) {
-      // // // wait the event loop to be done
-      // if (awaitCount == 30) {
-      //   await Future.delayed(const Duration());
-      //   awaitCount = 0;
-      // }
-      // awaitCount++;
-
       final now = DateTime.now();
       _fps = fpsCounter.fps(now);
 
@@ -164,9 +157,7 @@ class CoreController {
       final result = _core.exec();
       _currentCpuClocks = result.elapsedClocks;
 
-      if (result.executed(opt.targetCpuNo)) {
-        traceNext = true;
-      }
+      traceNext = result.executed(opt.targetCpuNo);
 
       if (result.stopped) {
         stop();
@@ -177,9 +168,11 @@ class CoreController {
         break;
       }
     }
+
     if (!skipRender) {
       _renderAll();
     }
+
     return true;
   }
 
