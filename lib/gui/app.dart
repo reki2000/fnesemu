@@ -1,6 +1,7 @@
 // Flutter imports:
 
 // Package imports:
+import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -83,15 +84,33 @@ class MainPageState extends State<MainPage> {
       file = (await rootBundle.load('assets/roms/$name')).buffer.asUint8List();
     }
 
+    String extension(String fileName) =>
+        fileName.substring(fileName.lastIndexOf(".") + 1);
+
+    bool found = true;
+
+    // if zip, extract the first file with known extention
+    if (extension(name) == "zip") {
+      found = false;
+      final archive = ZipDecoder().decodeBytes(file);
+
+      for (final entry in archive) {
+        if (["nes", "pce", "md", "gen"].contains(extension(entry.name))) {
+          file = entry.content as Uint8List;
+          name = entry.name;
+          found = true;
+          break;
+        }
+      }
+    }
+
     try {
+      if (!found) {
+        throw Exception("No files in the zip");
+      }
+
       setState(() {
-        controller.setCore(name.endsWith(".pce")
-            ? "pce"
-            : name.endsWith(".nes")
-                ? "nes"
-                : name.endsWith(".gen")
-                    ? "gen"
-                    : "unknown");
+        controller.setCore(extension(name));
         controller.setRom(file);
         _keyHandler.init();
         _romName = name;
