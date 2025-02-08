@@ -315,7 +315,7 @@ extension VdpRenderer on Vdp {
           : [reg[0x12] << 3 & 0xf8, Vdp.height];
 
       final vInWindow = windowV[0] <= y && y < windowV[1];
-      final bufferOffset = y * 320;
+      final bufferOffset = y * width;
       final bg = reg[7] & 0x3f;
 
       for (hCounter = 0; hCounter < width; hCounter++) {

@@ -187,6 +187,7 @@ class Vdp {
       if (regNo == 12) {
         h32 = value & 0x81 != 0x81;
         width = h32 ? 256 : 320;
+        interlaceMode = value >> 1 & 0x03;
       }
 
       if (regNo == 0x17) {
