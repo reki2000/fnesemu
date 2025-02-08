@@ -156,8 +156,8 @@ class VgmPlayer {
         final fmValR =
             fmSamples > 0 ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 1] : 0.0;
 
-        final mixL = psgVal * 0.3 + fmValL * 2;
-        final mixR = psgVal * 0.3 + fmValR * 2;
+        final mixL = psgVal * 0.25 + fmValL * 2;
+        final mixR = psgVal * 0.25 + fmValR * 2;
         buf[i + 0] = mixL.clip(-1, 1);
         buf[i + 1] = mixR.clip(-1, 1);
       }

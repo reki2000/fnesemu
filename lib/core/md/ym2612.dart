@@ -99,9 +99,21 @@ class Op {
 
   int freq = 0; // 0-0x7ff
   int block = 0; // 0-7
-  int keyCode = 0; // block << 2 | freq >> 9 : 0-0x1f
+  int _keyCode = 0;
+  set keyCode(int value) => setDetuneAndKeyCode(_dt, value);
 
-  int dt = 0;
+  int _detuneVal = 0; // pre-calculated detune value
+
+  int _dt = 0;
+  set dt(int value) => setDetuneAndKeyCode(value, _keyCode);
+
+  setDetuneAndKeyCode(int dt, int keyCode) {
+    _dt = dt;
+    _keyCode = keyCode;
+    final detune = dt == 0 ? 0 : _detuneTable[(dt & 3 - 1) << 5 | keyCode];
+    _detuneVal = dt.bit2 ? detune : -detune;
+  }
+
   int mul = 0; // 1,2,4,..30 (0.5 ,1,2...15 with 1 right shift)
 
   int tl = 0; // 00-0x7f
@@ -148,7 +160,7 @@ class Op {
 
   // ar, dr, sr, rr to rate
   int rate(int r) {
-    final result = r == 0 ? 0 : ((r << 1) + (keyCode >> (3 - rs)));
+    final result = r == 0 ? 0 : ((r << 1) + (_keyCode >> (3 - rs)));
     return (result > 63) ? 63 : result;
   }
 
@@ -203,20 +215,9 @@ class Op {
     }
   }
 
-  updatePhase() {
-    // apply LFO
-    final freqH = freq >> 4;
-    final lfoPhase = (ch.lfoFmPhase ^ (ch.lfoFmPhase.bit3 ? 0x0f : 0)) & 0x07;
-    final lfoVal = (freqH >> _lfoFms1Table[ch.lfoFms][lfoPhase]) +
-        (freqH >> _lfoFms2Table[ch.lfoFms][lfoPhase]);
-    final lfoVal2 = lfoVal << (ch.lfoFms > 5 ? ch.lfoFms - 5 : 0);
-    final lfoFreq = (freq << 1) + (ch.lfoFmPhase.bit4 ? -lfoVal2 : lfoVal);
-
-    final baseFreq = (lfoFreq << block) >> 2;
-
+  updatePhase(int baseFreq) {
     // apply detune
-    final detune = dt == 0 ? 0 : _detuneTable[(dt & 3 - 1) << 5 | keyCode];
-    final detuneFreq = baseFreq + (dt.bit2 ? detune : -detune);
+    final detuneFreq = baseFreq + _detuneVal;
 
     final inc = (detuneFreq * mul) >> 1;
     _phase = (_phase + inc) & 0xfffff;
@@ -230,7 +231,7 @@ class Op {
 
     // level: 0(loud)-0x1fff(quiet) 13bit
     final level =
-        (_logSinTable[qPhase] + (_egLevel << 2) + (am ? ch.lfoAmVal : 0))
+        (_logSinTable[qPhase] + (_egLevel << 2) + (am ? ch._lfoAmVal : 0))
             .clip(0, 0x1fff);
 
     // output: 0(quiet)-0x1fff(loud) 13bit
@@ -258,13 +259,15 @@ class Channel {
   int freq = 0;
   int block = 0;
 
-  setFreq(bool onlyOp1) {
+  setFreq() {
     for (final o in op) {
       o.freq = freq;
       o.block = block;
       o.keyCode = block << 2 | _keyCodeTable[freq >> 7];
 
-      if (onlyOp1) break;
+      if (isCh3Special) {
+        break;
+      }
     }
   }
 
@@ -282,13 +285,15 @@ class Channel {
   static const _lfoCycles = [108, 77, 71, 67, 62, 44, 8, 5];
 
   int _lfoCounterMask = 0;
-  int _lfoCount = 0;
-  int _lfoPhaseCount = 0; // 0-0x7f
-  int lfoFmPhase = 0; // 0-0x1f
-  int lfoAmVal = 0; // 0-0x7f
+  int _lfoCounter = 0;
+  int _lfoPhase = 0; // 0-0x7f
+  int _lfoFmPhase = 0; // 0-0x1f
+  int _lfoAmVal = 0; // 0-0x7f
 
   bool outLeft = false;
   bool outRight = false;
+
+  bool isCh3Special = false;
 
   int counter = 0;
 
@@ -297,6 +302,22 @@ class Channel {
 
   var buffer = Float32List(1000);
   var opBuffer = List<List<int>>.generate(4, (j) => List<int>.filled(1000, 0));
+
+  int calcLfoFreq(int freq) {
+    if (!lfoEnabled) {
+      return freq << (block + 1) >> 2;
+    }
+
+    final freqH = freq >> 4;
+    final lfoPhase = (_lfoFmPhase ^ (_lfoFmPhase.bit3 ? 0x0f : 0)) & 0x07;
+    final lfoVal = (freqH >> _lfoFms1Table[lfoFms][lfoPhase]) +
+        (freqH >> _lfoFms2Table[lfoFms][lfoPhase]);
+    final lfoVal2 = lfoVal << (lfoFms > 5 ? lfoFms - 5 : 0);
+    final lfoFreq = (freq << 1) + (_lfoFmPhase.bit4 ? -lfoVal2 : lfoVal);
+
+    final baseFreq = (lfoFreq << block) >> 2;
+    return baseFreq;
+  }
 
   int withFeedback(Op op) {
     final input = op.generateOutput(0);
@@ -314,24 +335,33 @@ class Channel {
     }
 
     for (int i = 0; i < buffer.length; i++) {
-      if (_lfoCount & _lfoCounterMask == _lfoCounterMask) {
-        _lfoCount = 0;
-        _lfoPhaseCount++;
-      } else {
-        _lfoCount++;
+      if (lfoEnabled) {
+        if (_lfoCounter & _lfoCounterMask == _lfoCounterMask) {
+          _lfoCounter = 0;
+          _lfoPhase++;
+        } else {
+          _lfoCounter++;
+        }
+
+        _lfoPhase &= (lfoEnabled ? 0x7f : 0x00);
+
+        _lfoFmPhase = _lfoPhase >> 2;
+        final lfoAmPhase =
+            (_lfoPhase.bit6 ? _lfoPhase ^ 0x3f : _lfoPhase & 0x3f) << 1;
+        _lfoAmVal = lfoAmPhase >> [7, 3, 1, 0][lfoAms];
       }
 
-      _lfoPhaseCount &= (lfoEnabled ? 0x7f : 0x00);
+      final baseFreq = calcLfoFreq(freq);
 
-      lfoFmPhase = _lfoPhaseCount >> 2;
-      final lfoAmPhase = (_lfoPhaseCount.bit6
-              ? _lfoPhaseCount ^ 0x3f
-              : _lfoPhaseCount & 0x3f) <<
-          1;
-      lfoAmVal = lfoAmPhase >> [7, 3, 1, 0][lfoAms];
-
-      for (final o in op) {
-        o.updatePhase();
+      if (isCh3Special) {
+        op[0].updatePhase(baseFreq);
+        for (int i = 1; i < 4; i++) {
+          op[i].updatePhase(calcLfoFreq(op[i].freq));
+        }
+      } else {
+        for (final o in op) {
+          o.updatePhase(baseFreq);
+        }
       }
 
       globalClockCounter += 144;
@@ -566,6 +596,7 @@ class Ym2612 {
 
       case 0x27: // Timer Control
         _ch3Mode = value >> 6 & 3;
+        _channels[2].isCh3Special = _ch3Mode != _ch3ModeNone;
 
         _resetTimerB = value.bit5;
         _resetTimerA = value.bit4;
@@ -642,19 +673,19 @@ class Ym2612 {
     if (0xa0 <= reg && reg < 0xb8) {
       final ch = _channels[chNo];
 
-      if (_ch3Mode != _ch3ModeNone && chNo == 2) {
+      if (ch.isCh3Special) {
         switch (reg) {
-          case 0xa8: // FNUM
+          case 0xa8: // Ch3 FNUM
           case 0xa9:
           case 0xaa:
-            final op = _channels[2].op[reg - 0xa7];
+            final op = ch.op[reg - 0xa7];
             op.freq = op.freq.setL8(value);
             op.keyCode = op.block << 2 | _keyCodeTable[op.freq >> 7];
             return;
-          case 0xac: // FNUM
+          case 0xac: // Ch3 FNUM
           case 0xad:
           case 0xae:
-            final op = _channels[2].op[reg - 0xac];
+            final op = ch.op[reg - 0xac];
             op.freq = op.freq.setH8(value & 0x07);
             op.block = value >> 3 & 0x07;
             return;
@@ -665,7 +696,7 @@ class Ym2612 {
       switch (func) {
         case 0xa0: // FNUM
           ch.freq = ch.freq.setL8(value);
-          ch.setFreq(_ch3Mode != _ch3ModeNone && chNo == 2);
+          ch.setFreq();
           break;
         case 0xa4: // FNUM
           ch.freq = ch.freq.setH8(value & 0x07);
