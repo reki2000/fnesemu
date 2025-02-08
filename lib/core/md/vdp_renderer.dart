@@ -21,16 +21,19 @@ class _Tile {
   int no = 0;
   int nameAddrBase = 0;
   int hScroll = 0;
-  int vScroll = 0;
+  int vLow = 0;
+  int vHigh = 0;
   int pattern = 0; // 32 bit c3c2c1c0 * 8
   bool prior = false;
   bool hFlip = false;
   bool vFlip = false;
   int palette = 0; // pp0000
 
-  int fetchedX = -1;
+  int fetchedHHigh = -1;
 
-  _Tile(this.no, this.nameAddrBase, this.hScroll, this.vScroll);
+  _Tile(this.no, this.nameAddrBase, this.hScroll, int v)
+      : vLow = v & 0x07,
+        vHigh = v >> 3;
 }
 
 class Sprite {
@@ -193,8 +196,8 @@ extension VdpRenderer on Vdp {
     final hLow = hCounter & 0x07;
     final hHigh = hCounter >> 3;
 
-    if (hHigh != ctx.fetchedX) {
-      ctx.fetchedX = hHigh;
+    if (hHigh != ctx.fetchedHHigh) {
+      ctx.fetchedHHigh = hHigh;
       // fetch pattern
       final name = ctx.nameAddrBase |
           (width == 256
@@ -222,15 +225,14 @@ extension VdpRenderer on Vdp {
 
   PriorityColor _planeColor(_Tile ctx) {
     final h = (hCounter - ctx.hScroll) & hScrMask;
-    final v = (y + ctx.vScroll) & vScrMask;
     final hLow = h & 0x07;
     final hHigh = h >> 3;
 
-    if (hHigh != ctx.fetchedX) {
-      ctx.fetchedX = hHigh;
+    if (hHigh != ctx.fetchedHHigh) {
+      ctx.fetchedHHigh = hHigh;
       // fetch pattern
       final name =
-          ctx.nameAddrBase | (hHigh & hMask) << 1 | (v >> 3) << (vShift + 1);
+          ctx.nameAddrBase | (hHigh & hMask) << 1 | ctx.vHigh << (vShift + 1);
 
       final d0 = vram[name];
       final d1 = vram[name.inc];
@@ -240,7 +242,7 @@ extension VdpRenderer on Vdp {
       ctx.vFlip = d0.bit4;
       ctx.hFlip = d0.bit3;
 
-      final offset = (ctx.vFlip ? 7 - (v & 0x07) : (v & 0x07)) << 2;
+      final offset = (ctx.vFlip ? 7 - ctx.vLow : ctx.vLow) << 2;
       final addr = (d0 << 8 & 0x0700 | d1) << 5 | offset;
 
       ctx.pattern = vram.getUInt32BE(addr);
@@ -290,13 +292,13 @@ extension VdpRenderer on Vdp {
           0, //
           reg[2] << 10 & 0xe000,
           vram[hScrollAddr] << 8 & 0x300 | vram[hScrollAddr.inc],
-          vsram[vScrollAddr] & 0x3ff);
+          (y + vsram[vScrollAddr] & 0x3ff) & vScrMask);
 
       final ctxB = _Tile(
           1, //
           reg[4] << 13 & 0xe000,
           vram[hScrollAddr.inc2] << 8 & 0x300 | vram[hScrollAddr.inc3],
-          vsram[vScrollAddr.inc] & 0x3ff);
+          (y + vsram[vScrollAddr.inc] & 0x3ff) & vScrMask);
 
       final ctxWindow = _Tile(
           2, // window
@@ -312,6 +314,10 @@ extension VdpRenderer on Vdp {
           ? [0, reg[0x12] << 3 & 0xf8]
           : [reg[0x12] << 3 & 0xf8, Vdp.height];
 
+      final vInWindow = windowV[0] <= y && y < windowV[1];
+      final bufferOffset = y * 320;
+      final bg = reg[7] & 0x3f;
+
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color;
 
@@ -319,17 +325,14 @@ extension VdpRenderer on Vdp {
         if (sprite.isPrior && sprite.isVisible) {
           color = sprite.color;
         } else {
-          final inWindow = windowH[0] <= hCounter &&
-              hCounter < windowH[1] &&
-              windowV[0] <= y &&
-              y < windowV[1];
+          final inWindow =
+              windowH[0] <= hCounter && hCounter < windowH[1] && vInWindow;
           final planeAW =
               inWindow ? _planeColor(ctxA) : _windowColor(ctxWindow);
           if (planeAW.isPrior && planeAW.isVisible) {
             color = planeAW.color;
           } else {
             final planeB = _planeColor(ctxB);
-            final bg = reg[7] & 0x3f;
 
             color = (planeB.isPrior && planeB.isVisible)
                 ? planeB.color
@@ -343,7 +346,7 @@ extension VdpRenderer on Vdp {
           }
         }
 
-        buffer[y * 320 + hCounter] = rgba[cram[color]];
+        buffer[bufferOffset + hCounter] = rgba[cram[color]];
       }
 
       status &= ~Vdp.bitVBlank; // off: vblank
