@@ -8,18 +8,18 @@ void main() {
     test('should add items and detect redundancy correctly', () {
       final ringBuffer = RingBuffer(3, maxDiffChars: 0);
 
-      expect(ringBuffer.isExpected(Line('', 'log1')), false);
-      ringBuffer.add(Line('', 'log0'));
-      ringBuffer.add(Line('', 'log00'));
-      ringBuffer.add(Line('', 'log1'));
-      ringBuffer.add(Line('', 'log2'));
-      ringBuffer.add(Line('', 'log3'));
+      expect(ringBuffer.isExpected(Line('', 'log1')), 0);
+      ringBuffer.add(Line('', 'log0')); // 0
+      ringBuffer.add(Line('', 'log00')); // 0,00
+      ringBuffer.add(Line('', 'log1')); // 0,00,1
+      ringBuffer.add(Line('', 'log2')); // 00,1,2
+      ringBuffer.add(Line('', 'log3')); // 1,2,3
       expect(ringBuffer.prepare(Line('', 'log1')), true);
-      expect(ringBuffer.isExpected(Line('', 'log2')), true);
-      expect(ringBuffer.isExpected(Line('', 'log3')), true);
-      expect(ringBuffer.isExpected(Line('', 'log2')), false);
+      expect(ringBuffer.isExpected(Line('', 'log2')), 0);
+      expect(ringBuffer.isExpected(Line('', 'log3')), 0);
+      expect(ringBuffer.isExpected(Line('', 'log0')), 3);
 
-      expect(ringBuffer.skippedCount, 3);
+      expect(ringBuffer.skippedCount, 0);
     });
   });
 
