@@ -124,7 +124,7 @@ class MainPageState extends State<MainPage> {
       }
 
       setState(() {
-        _controller.setRom(extension(name), file);
+        _controller.init(extension(name), file);
         _keyHandler.init();
         _romName = name;
       });

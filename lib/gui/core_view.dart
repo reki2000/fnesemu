@@ -46,15 +46,14 @@ class _CoreViewState extends State<CoreView> {
                   height: widget.container.displayHeight * config.zoom,
                   container: widget.container)),
 
-          // virtual pad
-          VirtualPadWidget(controller: widget.controller),
-
-          // debug control
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            // debug control
             StreamBuilder<double>(
                 stream: widget.controller.fpsStream,
-                builder: (ctx, snapshot) =>
-                    Text("${((snapshot.data ?? 0.0)).round()} fps")),
+                builder: (ctx, snapshot) => Text(
+                    ((snapshot.data ?? 0.0)).toStringAsFixed(1).padLeft(4))),
+            // virtual pad
+            VirtualPadWidget(controller: widget.controller),
           ]),
         ],
       ),

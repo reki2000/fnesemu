@@ -61,16 +61,8 @@ class DebugDisasm extends StatelessWidget {
     return result.sublist(result.length - lines);
   }
 
-  _button(String text, void Function() func) => TextButton(
-      onPressed: func,
-      style: TextButton.styleFrom(
-          minimumSize: Size.zero,
-          padding: margin10,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(0)),
-          )),
-      child: Text(text));
+  _button(String text, void Function() func) =>
+      TextButton(onPressed: func, style: textButtonMinimum, child: Text(text));
 
   _addrInc(int offset) {
     addrNotifier.value = (addrNotifier.value + offset) & addrMask;

@@ -24,8 +24,8 @@ class CoreController {
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
 
-  void setRom(String core, Uint8List body) {
-    switch (core) {
+  void init(String coreName, Uint8List body) {
+    switch (coreName) {
       case 'pce':
         _core = CoreFactory.ofPce();
         break;
@@ -37,7 +37,7 @@ class CoreController {
         _core = CoreFactory.ofMd();
         break;
       default:
-        throw Exception('unsupported core: $core');
+        throw Exception('unsupported core: $coreName');
     }
 
     _core.onAudio(_onAudio);
@@ -54,11 +54,23 @@ class CoreController {
   int _runningCount = 0;
   int _currentCpuClocks = 0;
 
+  int _runMode = 0;
+  static const runModeNone = 0;
+  static const runModeStep = 1;
+  static const runModeStepOut = 2;
+  static const runModeLine = 3;
+  static const runModeFrame = 4;
+
+  int _scanline = 0;
+  int _frames = 0;
+
   bool isRunning() => _running;
 
   /// runs emulation continuously
-  Future<void> run() async {
+  Future<void> run({int mode = 0}) async {
     await stop();
+
+    _runMode = mode;
 
     _running = true;
     _runningCount++;
@@ -76,7 +88,7 @@ class CoreController {
 
       // run emulation until the next frame timing
       if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
-        runFrame();
+        _runFrame();
         fpsCounter.count();
         await Future.delayed(const Duration());
         continue;
@@ -119,47 +131,34 @@ class CoreController {
     _renderAll();
   }
 
-  /// for debugger: executes emulation with 1 cpu instruction
-  void runStep() {
-    final opt = debugger.opt;
-    if (opt.log) {
-      debugger.addLog(_core.tracingState(opt.targetCpuNo));
+  /// executes emulation during 1 frame
+  void _runFrame() {
+    while (_scanline++ < _core.scanlinesInFrame) {
+      if (!_runScanLine()) {
+        return;
+      }
     }
 
-    while (true) {
-      final result = _core.exec();
-      _currentCpuClocks = result.elapsedClocks;
+    _scanline = 0;
+    _frames++;
 
-      if (result.executed(opt.targetCpuNo)) {
-        break;
-      }
+    if (_runMode == runModeFrame) {
+      stop();
     }
 
     _renderAll();
   }
 
   /// for debugger: executes emulation during 1 scanline
-  bool runScanLine({skipRender = false}) {
+  /// returns false if the emulation is stopped
+  bool _runScanLine() {
     final opt = debugger.opt;
     bool cpuExecuted = true;
 
     while (true) {
-      // if (_currentCpuClocks == 30173796) {
-      //   stop();
-      //   return false;
-      // }
-
-      if (cpuExecuted) {
-        if (opt.breakPoint[0] == _core.programCounter(opt.targetCpuNo)) {
-          stop();
-          return false;
-        }
-
-        // need this check for performance
-        if (opt.log) {
-          debugger.addLog(_core.tracingState(opt.targetCpuNo));
-          cpuExecuted = false;
-        }
+      if (cpuExecuted && opt.log) {
+        debugger.addLog(_core.tracingState(opt.targetCpuNo));
+        cpuExecuted = false;
       }
 
       // exec 1 cpu instruction
@@ -173,27 +172,29 @@ class CoreController {
         return false;
       }
 
+      if (cpuExecuted &&
+          opt.showDebugView &&
+          (opt.breakPoint[0] == _core.programCounter(opt.targetCpuNo) ||
+              _runMode == runModeStep ||
+              _runMode == runModeStepOut &&
+                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer)) {
+        _renderAll();
+        stop();
+
+        return false;
+      }
+
       if (result.scanlineRendered) {
-        break;
+        if (_runMode == runModeLine) {
+          _renderAll();
+          stop();
+
+          return false;
+        }
+
+        return true;
       }
     }
-
-    if (!skipRender) {
-      _renderAll();
-    }
-
-    return true;
-  }
-
-  /// executes emulation during 1 frame
-  void runFrame() {
-    for (int i = 0; i < _core.scanlinesInFrame; i++) {
-      if (!runScanLine(skipRender: true)) {
-        break;
-      }
-    }
-
-    _renderAll();
   }
 
   void _renderAll() {

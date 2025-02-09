@@ -19,13 +19,6 @@ class DebugOption {
 
   bool log = false;
 
-  int runMode = runModeNone;
-  static const runModeNone = 0;
-  static const runModeStep = 1;
-  static const runModeStepOut = 2;
-  static const runModeLine = 3;
-  static const runModeFrame = 4;
-
   List<int> breakPoint = [-1];
   int stackPointer = -1;
   List<int> disasmAddress = [];
@@ -101,10 +94,11 @@ class Debugger {
     pushStream();
   }
 
-  int nextPc(int cpuNo) =>
-      (core.programCounter(cpuNo) +
-          core.disasm(0, core.programCounter(cpuNo)).i1) &
-      0xffff;
+  int nextPc(int cpuNo) {
+    final pc = core.programCounter(cpuNo);
+    final next = pc + core.disasm(0, pc).i1;
+    return next & ((1 << core.cpuInfos[cpuNo].addrBits) - 1);
+  }
 
   int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
 

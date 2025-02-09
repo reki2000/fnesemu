@@ -12,3 +12,10 @@ const denseTextDecoration = InputDecoration(
 IconButton iconButton(IconData icon, String tooltip, void Function() onPress) {
   return IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onPress);
 }
+
+final textButtonMinimum = TextButton.styleFrom(
+    minimumSize: Size.zero,
+    padding: const EdgeInsets.all(10.0),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(0))));

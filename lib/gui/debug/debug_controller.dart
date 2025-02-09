@@ -12,10 +12,8 @@ class DebugController extends StatelessWidget {
 
   const DebugController({super.key, required this.controller});
 
-  Widget _button(String text, void Function() func) => Container(
-      margin:
-          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
-      child: TextButton(onPressed: func, child: Text(text)));
+  Widget _button(String text, void Function() func) =>
+      TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
 
   @override
   Widget build(BuildContext context) {
@@ -33,17 +31,19 @@ class DebugController extends StatelessWidget {
                       (opt.targetCpuNo + 1) % debugger.cpuInfos.length;
                   targetCpuNotifier.value = opt.targetCpuNo;
                 })),
-      _button("Step", controller.runStep),
+      _button("Step", () {
+        controller.run(mode: CoreController.runModeStep);
+      }),
       _button("Next", () {
         opt.breakPoint[0] = debugger.nextPc(opt.targetCpuNo);
         controller.run();
       }),
-      _button("Next", () {
+      _button("StepOut", () {
         opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
-        controller.run();
+        controller.run(mode: CoreController.runModeStepOut);
       }),
-      _button("Line", controller.runScanLine),
-      _button("Frame", controller.runFrame),
+      _button("Line", () => controller.run(mode: CoreController.runModeLine)),
+      _button("Frame", () => controller.run(mode: CoreController.runModeFrame)),
       SizedBox(
           width: 60,
           child: TextField(
