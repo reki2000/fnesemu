@@ -22,14 +22,22 @@ class ExecResult {
   bool executed(int i) => i == 0 ? executed0 : executed1;
 }
 
-// abstract class to be implemented by Pce class
+class CpuInfo {
+  final int no;
+  final String name;
+  final int addrBits;
+
+  CpuInfo(this.no, this.name, this.addrBits);
+}
+
+// abstract class to be implemented by Emulator classes
 abstract class Core {
   int get systemClockHz;
 
   int get scanlinesInFrame;
   int get clocksInScanline;
 
-  List<String> get cpuInfos;
+  List<CpuInfo> get cpuInfos;
 
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
   /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
@@ -82,4 +90,78 @@ abstract class Core {
   List<String> spriteInfo();
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo);
   ImageBuffer renderColorTable(int paletteNo);
+}
+
+class EmptyCore extends Core {
+  @override
+  List<PadButton> get buttons => [];
+
+  @override
+  int get clocksInScanline => 0;
+
+  @override
+  List<CpuInfo> get cpuInfos => [];
+
+  @override
+  Pair<String, int> disasm(int cpuNo, int addr) => const Pair("", 0);
+
+  @override
+  String dump(
+          {bool showZeroPage = false,
+          bool showSpriteVram = false,
+          bool showStack = false,
+          bool showApu = false}) =>
+      "";
+
+  @override
+  ExecResult exec() => ExecResult(0, true, false);
+
+  @override
+  ImageBuffer imageBuffer() => ImageBuffer.empty();
+
+  @override
+  onAudio(void Function(AudioBuffer p1) onAudio) {}
+
+  @override
+  void padDown(int controllerId, PadButton k) {}
+
+  @override
+  void padUp(int controllerId, PadButton k) {}
+
+  @override
+  int programCounter(int cpuNo) => 0;
+
+  @override
+  int read(int cpuNo, int addr) => 0;
+
+  @override
+  ImageBuffer renderBg() => ImageBuffer.empty();
+
+  @override
+  ImageBuffer renderColorTable(int paletteNo) => ImageBuffer.empty();
+
+  @override
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
+      ImageBuffer.empty();
+
+  @override
+  void reset() {}
+
+  @override
+  int get scanlinesInFrame => 0;
+
+  @override
+  void setRom(Uint8List body) {}
+
+  @override
+  List<String> spriteInfo() => [];
+
+  @override
+  int get systemClockHz => 0;
+
+  @override
+  String tracingState(int cpuNo) => "";
+
+  @override
+  List<int> get vram => [];
 }

@@ -10,20 +10,25 @@ import '../../util/util.dart';
 
 class DebugDisasm extends StatelessWidget {
   final Debugger debugger;
-  final addrNotifier = ValueNotifier<int>(0);
   final int cpuNo;
 
   final int backwardLines;
   final int forwardLines;
   final double width;
+  final int addrBits;
+  final int addrMask;
+
+  final addrNotifier = ValueNotifier<int>(0);
 
   DebugDisasm(
       {super.key,
       required this.debugger,
       required this.cpuNo,
+      this.addrBits = 16,
       this.backwardLines = 5,
       this.forwardLines = 40,
-      this.width = 320}) {
+      this.width = 320})
+      : addrMask = 1 << addrBits - 1 {
     addrNotifier.value = debugger.opt.disasmAddress[cpuNo];
   }
 
@@ -56,8 +61,20 @@ class DebugDisasm extends StatelessWidget {
     return result.sublist(result.length - lines);
   }
 
-  _button(String text, void Function() func) =>
-      TextButton(onPressed: func, child: Text(text));
+  _button(String text, void Function() func) => TextButton(
+      onPressed: func,
+      style: TextButton.styleFrom(
+          minimumSize: Size.zero,
+          padding: margin10,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(0)),
+          )),
+      child: Text(text));
+
+  _addrInc(int offset) {
+    addrNotifier.value = (addrNotifier.value + offset) & addrMask;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,33 +92,27 @@ class DebugDisasm extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
+                      _button("--", () => _addrInc(-0x400)),
+                      _button("-", () => _addrInc(-0x20)),
                       SizedBox(
-                          width: 50,
-                          child: TextField(onChanged: (v) {
-                            if (v.length == 4) {
-                              addrNotifier.value = int.parse(v, radix: 16);
-                            }
-                          })),
-                      _button("--", () {
-                        addrNotifier.value =
-                            (addrNotifier.value - 0x400) & 0xffff;
-                      }),
-                      _button("-", () {
-                        addrNotifier.value =
-                            (addrNotifier.value - 0x20) & 0xffff;
-                      }),
-                      _button("+", () {
-                        addrNotifier.value += 0x20;
-                      }),
-                      _button("++", () {
-                        addrNotifier.value += 0x400;
-                      }),
+                          width: 60,
+                          child: TextField(
+                              decoration: denseTextDecoration,
+                              onChanged: (v) {
+                                if (v.length == addrBits >> 2) {
+                                  addrNotifier.value = int.parse(v, radix: 16);
+                                }
+                              })),
+                      _button("+", () => _addrInc(0x20)),
+                      _button("++", () => _addrInc(0x400)),
                     ]),
                     ValueListenableBuilder<int>(
                         valueListenable: addrNotifier,
-                        builder: (context, addr, child) => SelectableText(
-                              (_backward(addr, backwardLines)
-                                    ..addAll(_asm(addr, forwardLines)))
+                        builder: (_, addr, __) => SelectableText(
+                              [
+                                ..._backward(addr, backwardLines),
+                                ..._asm(addr, forwardLines)
+                              ]
                                   .map((s) => (s.i0 == addr ? "*" : " ") + s.i1)
                                   .join("\n"),
                               style: debugStyle,

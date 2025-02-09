@@ -111,7 +111,8 @@ extension VdpRenderer on Vdp {
       final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
       final flags =
           "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
-      return "$no ${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)} ${sp.patternAddr.hex16} $flags ${sp.width}x${sp.height} ";
+      final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
+      return "#$no $xy ${sp.patternAddr.hex16} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
     });
     return result;
   }

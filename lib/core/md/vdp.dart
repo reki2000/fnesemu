@@ -69,8 +69,9 @@ class Vdp {
   // reset
   void reset() {
     final rand = Random();
-    vram.setRange(0, vram.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    vram.fillRange(0, vram.length, 0);
+    // vram.setRange(0, vram.length,
+    //     Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
     cram.setRange(
         0, cram.length, Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
     vsram.fillRange(0, vsram.length, 0);
@@ -147,8 +148,8 @@ class Vdp {
   void startDma() {
     _dmaLength = reg[0x13] | reg[0x14] << 8;
     // if (_dmaSrc == 0xffdc98) {
-    //   print(
-    //       "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+    // print(
+    //     "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
     // }
     status |= bitDmaRunning;
   }
@@ -295,14 +296,16 @@ class Vdp {
     final nameA = reg[2] << 10 & 0xe000;
     final nameB = reg[4] << 13 & 0xe000;
     final win = reg[3] << 10 & 0xf800;
+    final spr = reg[5] << 9 & 0xfc00;
 
     final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
     final vScrMode = reg[11].bit2 ? "16" : "f ";
 
-    final dma = "dma:${enableDma ? "*" : "-"} ${_dmaLength.hex16}";
+    final dma =
+        "dma:${enableDma ? "*" : "-"}${status & bitDmaRunning != 0 ? "r" : "-"} ${_dmaLength.hex16}";
 
     final s =
-        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} hscr:$hScrMode vscr:$vScrMode";
+        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} s:${spr.hex16} hscr:$hScrMode vscr:$vScrMode";
 
     return "vdp:$regStr\n    s:${status.hex16} $s $dma";
   }

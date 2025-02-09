@@ -58,7 +58,7 @@ class Nes implements Core {
   int get systemClockHz => cpuClock;
 
   @override
-  List<String> get cpuInfos => ["6502"];
+  get cpuInfos => [CpuInfo(1, "6502", 16)];
 
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;

@@ -44,9 +44,9 @@ class MainPageState extends State<MainPage> {
   final _imageContainer = ImageContainer();
   late final KeyHandler _keyHandler;
 
-  final controller = CoreController();
+  late final CoreController _controller;
 
-  bool get _running => controller.isRunning();
+  bool get _running => _controller.isRunning();
 
   String _romName = "";
 
@@ -54,12 +54,13 @@ class MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
 
-    _keyHandler = KeyHandler(controller: controller);
+    _controller = CoreController(
+      _onStop,
+      (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
+      (buf) => _imageContainer.push(buf.buffer, buf.width, buf.height),
+    );
 
-    controller.onAudio =
-        (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels);
-    controller.onImage =
-        (buf) => _imageContainer.push(buf.buffer, buf.width, buf.height);
+    _keyHandler = KeyHandler(controller: _controller);
   }
 
   @override
@@ -67,6 +68,19 @@ class MainPageState extends State<MainPage> {
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     _mPlayer.dispose();
     super.dispose();
+  }
+
+  void _onStop() {
+    setState(() {});
+  }
+
+  void _disableKeyHandler() {
+    ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
+  }
+
+  void _enableKeyHandler() {
+    _disableKeyHandler();
+    ServicesBinding.instance.keyboard.addHandler(_keyHandler.handle);
   }
 
   void _loadRomFile({String name = ""}) async {
@@ -110,8 +124,7 @@ class MainPageState extends State<MainPage> {
       }
 
       setState(() {
-        controller.setCore(extension(name));
-        controller.setRom(file);
+        _controller.setRom(extension(name), file);
         _keyHandler.init();
         _romName = name;
       });
@@ -121,56 +134,58 @@ class MainPageState extends State<MainPage> {
     }
 
     // temporary debug options
-    controller.debugger.opt.showDebugView = true;
+    _controller.debugger.opt.showDebugView = true;
     // controller.debugger.debugOption.showVdc = true;
     _reset(run: false);
 
     // _reset(run: !controller.debugger.debugOption.showDebugView);
   }
 
+  void _do(BuildContext ctx, Function() func) {
+    try {
+      func();
+      setState(() {});
+    } catch (e, st) {
+      ScaffoldMessenger.of(ctx)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+      print(e);
+      print(st);
+    }
+  }
+
   void _run() {
-    ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
-    ServicesBinding.instance.keyboard.addHandler(_keyHandler.handle);
-    setState(() {
-      controller.run();
-    });
+    _enableKeyHandler();
+
+    _controller.run();
   }
 
   void _stop() {
-    ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
-    setState(() {
-      controller.stop();
-    });
+    _disableKeyHandler();
+
+    _controller.stop();
   }
 
   void _reset({bool run = false}) {
-    _stop();
+    _disableKeyHandler();
 
-    setState(() {
-      () async {
-        await controller.stop();
-        controller.reset();
+    () async {
+      await _controller.stop();
+      _controller.reset();
 
-        if (run) {
-          _run();
-        }
-      }();
-    });
+      if (run) {
+        _run();
+      }
+    }();
   }
 
   void _debug(bool on) {
-    setState(() {
-      controller.debugger.setDebugView(on);
-    });
-  }
-
-  IconButton _iconButton(
-      IconData icon, String tooltip, void Function() onPress) {
-    return IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onPress);
+    _controller.debugger.setDebugView(on);
   }
 
   @override
   Widget build(BuildContext context) {
+    bool showDebug = _controller.debugger.opt.showDebugView;
+
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
         ...[
@@ -184,27 +199,28 @@ class MainPageState extends State<MainPage> {
             "sangokushi.gen",
             "sonic.gen",
           ])
-            _iconButton(Icons.file_open_outlined, name.split(".")[0],
+            iconButton(Icons.file_open_outlined, name.split(".")[0],
                 () => _loadRomFile(name: name))
         ],
 
         // file load button
-        _iconButton(Icons.file_open_outlined, "Load ROM", _loadRomFile),
+        iconButton(Icons.file_open_outlined, "Load ROM",
+            () => _do(context, _loadRomFile)),
 
         // run / pause button
         _running
-            ? _iconButton(Icons.pause, "Pause", _stop)
-            : _iconButton(Icons.play_arrow, "Run", _run),
+            ? iconButton(Icons.pause, "Pause", () => _do(context, _stop))
+            : iconButton(Icons.play_arrow, "Run", () => _do(context, _run)),
 
         // reset button
-        _iconButton(Icons.restart_alt, "Reset", _reset),
+        iconButton(Icons.restart_alt, "Reset", () => _do(context, _reset)),
 
         // debug on/off button
-        controller.debugger.opt.showDebugView
-            ? _iconButton(
-                Icons.bug_report, "Disable Debug Options", () => _debug(false))
-            : _iconButton(Icons.bug_report_outlined, "Enable Debug Options",
-                () => _debug(true)),
+        showDebug
+            ? iconButton(Icons.bug_report, "Disable Debug Options",
+                () => _do(context, () => _debug(false)))
+            : iconButton(Icons.bug_report_outlined, "Enable Debug Options",
+                () => _do(context, () => _debug(true))),
       ]),
       drawer: Drawer(
           child: ListView(children: [
@@ -223,24 +239,23 @@ class MainPageState extends State<MainPage> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
                 // main view
-                CoreView(controller: controller, container: _imageContainer),
+                CoreView(controller: _controller, container: _imageContainer),
 
                 // debug view if enabled
-                SizedBox(
-                    width: 640,
-                    child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: StreamBuilder<DebugOption>(
-                            stream: controller.debugger.debugStream,
-                            builder: (ctx, snapshot) => Text(
-                                snapshot.data?.text ?? "",
-                                style: debugStyle)))),
-                if (controller.debugger.opt.showDebugView)
-                  DebugController(controller: controller),
+                if (showDebug)
+                  SizedBox(
+                      width: 640,
+                      child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: StreamBuilder<DebugOption>(
+                              stream: _controller.debugger.debugStream,
+                              builder: (ctx, snapshot) => Text(
+                                  snapshot.data?.text ?? "",
+                                  style: debugStyle)))),
+                if (showDebug) DebugController(controller: _controller),
               ],
             ),
-            if (controller.debugger.opt.showDebugView)
-              DebugPane(debugger: controller.debugger),
+            if (showDebug) DebugPane(debugger: _controller.debugger),
           ]),
     );
   }

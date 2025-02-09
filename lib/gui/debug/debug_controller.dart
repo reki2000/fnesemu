@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../../core/core_controller.dart';
+import '../../styles.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
@@ -26,7 +27,8 @@ class DebugController extends StatelessWidget {
       if (debugger.cpuInfos.length > 1)
         ValueListenableBuilder(
             valueListenable: targetCpuNotifier,
-            builder: (ctx, value, _) => _button(debugger.cpuInfos[value], () {
+            builder: (ctx, value, _) =>
+                _button(debugger.cpuInfos[value].name, () {
                   opt.targetCpuNo =
                       (opt.targetCpuNo + 1) % debugger.cpuInfos.length;
                   targetCpuNotifier.value = opt.targetCpuNo;
@@ -39,20 +41,22 @@ class DebugController extends StatelessWidget {
       _button("Line", controller.runScanLine),
       _button("Frame", controller.runFrame),
       SizedBox(
-          width: 50,
-          child: TextField(onChanged: (v) {
-            if (v.length == 4) {
-              try {
-                final breakPoint = int.parse(v, radix: 16);
-                opt.breakPoint[0] = breakPoint;
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("breakpoint: ${breakPoint.hex16}")));
-              } catch (e) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text(e.toString())));
-              }
-            }
-          })),
+          width: 60,
+          child: TextField(
+              decoration: denseTextDecoration,
+              onChanged: (v) {
+                if (v.length == 4 || v.length == 6) {
+                  try {
+                    final breakPoint = int.parse(v, radix: 16);
+                    opt.breakPoint[0] = breakPoint;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text("breakpoint: ${breakPoint.hex24}")));
+                  } catch (e) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(e.toString())));
+                  }
+                }
+              })),
       _button("Mem", () => debugger.toggleMem()),
       _button("VRAM", () => pushVramPage(context, controller)),
       _button("VDC", () => debugger.toggleVdc()),

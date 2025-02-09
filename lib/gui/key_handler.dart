@@ -11,27 +11,29 @@ class KeyHandler {
   }
 
   init() {
+    maybeButton(int no) =>
+        controller.buttons.length - 1 >= no ? controller.buttons[no] : null;
     _keys = {
       PhysicalKeyboardKey.arrowDown: PadButton.down,
       PhysicalKeyboardKey.arrowUp: PadButton.up,
       PhysicalKeyboardKey.arrowLeft: PadButton.left,
       PhysicalKeyboardKey.arrowRight: PadButton.right,
-      PhysicalKeyboardKey.keyA: controller.buttons[4],
-      PhysicalKeyboardKey.keyS: controller.buttons[5],
-      PhysicalKeyboardKey.keyZ: controller.buttons[6],
-      PhysicalKeyboardKey.keyX: controller.buttons[7],
-      PhysicalKeyboardKey.keyC: controller.buttons[8],
-      PhysicalKeyboardKey.keyQ: controller.buttons[9],
-      PhysicalKeyboardKey.keyW: controller.buttons[10],
-      PhysicalKeyboardKey.keyE: controller.buttons[11],
+      PhysicalKeyboardKey.keyA: maybeButton(4),
+      PhysicalKeyboardKey.keyS: maybeButton(5),
+      PhysicalKeyboardKey.keyZ: maybeButton(6),
+      PhysicalKeyboardKey.keyX: maybeButton(7),
+      PhysicalKeyboardKey.keyC: maybeButton(8),
+      PhysicalKeyboardKey.keyQ: maybeButton(9),
+      PhysicalKeyboardKey.keyW: maybeButton(10),
+      PhysicalKeyboardKey.keyE: maybeButton(11),
     };
   }
 
   final CoreController controller;
-  late Map<PhysicalKeyboardKey, PadButton> _keys;
+  late Map<PhysicalKeyboardKey, PadButton?> _keys;
 
   bool handle(KeyEvent e) {
-    var button = _keys[e.physicalKey];
+    final button = _keys[e.physicalKey];
 
     if (button != null) {
       if (e is KeyDownEvent) {

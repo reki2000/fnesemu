@@ -37,7 +37,7 @@ class DebugVdc extends StatefulWidget {
 
 class _DebugVdc extends State<DebugVdc> {
   int _paletteNo = 0;
-  bool _useSecond = false;
+  bool _useGrayscale = true;
 
   static const _paletteNoMask = 0x1f;
 
@@ -57,17 +57,18 @@ class _DebugVdc extends State<DebugVdc> {
 
   @override
   Widget build(BuildContext context) {
-    final spriteInfo = widget.debugger.spriteInfo();
+    final dbg = widget.debugger;
+    final spriteInfo = dbg.spriteInfo();
     final spriteInfos = List.generate(
         4,
         (i) => spriteInfo.sublist(
-            i * spriteInfo.length ~/ 4, (i + 1) * spriteInfo.length ~/ 4 - 1));
+            i * spriteInfo.length ~/ 4, (i + 1) * spriteInfo.length ~/ 4));
 
     final colorTable = Column(children: [
       Row(children: [
         Switch(
-            value: _useSecond,
-            onChanged: (onoff) => setState(() => _useSecond = onoff)),
+            value: _useGrayscale,
+            onChanged: (v) => setState(() => _useGrayscale = v)),
         IconButton(
             icon: const Icon(Icons.arrow_upward), onPressed: () => paletteNo--),
         IconButton(
@@ -75,7 +76,7 @@ class _DebugVdc extends State<DebugVdc> {
             onPressed: () => paletteNo++),
         Text("$_paletteNo", style: debugStyle),
       ]),
-      _imageBufferRenderer(widget.debugger.renderColorTable(_paletteNo)),
+      _imageBufferRenderer(dbg.renderColorTable(_paletteNo)),
     ]);
 
     return Container(
@@ -88,11 +89,10 @@ class _DebugVdc extends State<DebugVdc> {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               colorTable,
-              _imageBufferRenderer(
-                  widget.debugger.renderVram(_useSecond, _paletteNo)),
+              _imageBufferRenderer(dbg.renderVram(_useGrayscale, _paletteNo)),
               ...spriteInfos.map((e) => Text(e.join("\n"), style: debugStyle)),
             ]),
-            _imageBufferRenderer(widget.debugger.renderBg()),
+            _imageBufferRenderer(dbg.renderBg()),
           ]),
         ));
   }

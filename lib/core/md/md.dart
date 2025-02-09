@@ -49,7 +49,7 @@ class Md implements Core {
   int get clocksInScanline => m68ClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   @override
-  List<String> get cpuInfos => ["68000", "Z80"];
+  get cpuInfos => [CpuInfo(0, "68000", 24), CpuInfo(1, "Z80", 16)];
 
   Md() {
     busM68 = BusM68();
@@ -129,6 +129,7 @@ class Md implements Core {
     }
 
     _clocks += 4;
+    result.elapsedClocks = _clocks;
 
     return result;
   }
@@ -229,7 +230,7 @@ class Md implements Core {
 
     final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
     final regZ80 = cpuZ80.dump();
-    final bus = "bus: z80bank:${busZ80.bank.hex24}";
+    final bus = "bus: z80bank:${busZ80.bank.hex24} clc:$_clocks";
 
     final vdpRegs = vdp.dump();
 

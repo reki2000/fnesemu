@@ -42,7 +42,7 @@ class Pce implements Core {
   int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   @override
-  List<String> get cpuInfos => ["Hu6280"];
+  get cpuInfos => [CpuInfo(1, "Hu6280", 16)];
 
   Pce() {
     bus = Bus();

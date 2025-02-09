@@ -40,7 +40,7 @@ extension VdpDebug on Vdp {
     );
   }
 
-  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) {
+  ImageBuffer renderVram(bool useGlayscale, int paletteNo) {
     if (vram.length < 0x8000) {
       return ImageBuffer(0, 0, Uint8List(0));
     }
@@ -68,8 +68,8 @@ extension VdpDebug on Vdp {
                 final shiftBits = 7 - x;
 
                 final color = (pattern >> (shiftBits << 2)) & 0x0f;
-                final c = (useSecondBgColor && color == 0)
-                    ? 0xffffffff
+                final c = useGlayscale
+                    ? (0xff000000 | color << 20 | color << 12 | color << 4)
                     : rgba[cram[((color == 0) ? 0 : palette) | color]];
                 buf[tx * tileSize +
                     x +

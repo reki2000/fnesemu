@@ -21,7 +21,7 @@ class DebugOption {
   List<int> breakPoint = [-1];
   List<int> disasmAddress = [];
 
-  int targetCpuNo = 1;
+  int targetCpuNo = 0;
 
   DebugOption(int maxCpuNo) : disasmAddress = List.filled(maxCpuNo, 0);
 }
@@ -34,7 +34,7 @@ class Debugger {
   // interafaces for debugging features
   DebugOption opt;
 
-  List<String> get cpuInfos => core.cpuInfos;
+  List<CpuInfo> get cpuInfos => core.cpuInfos;
 
   final _debugStream = StreamController<DebugOption>.broadcast();
   Stream<DebugOption> get debugStream => _debugStream.stream;
