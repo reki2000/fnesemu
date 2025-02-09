@@ -4,14 +4,32 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'config.dart';
+
 class ImageContainer {
+  static final config = Config();
+
   ui.Image? image;
 
   ImageContainer();
 
-  void push(Uint8List buffer, int width, int height) =>
-      ui.decodeImageFromPixels(buffer, width, height, ui.PixelFormat.rgba8888,
-          (image) => this.image = image);
+  final displayWidthNotifier = ValueNotifier<int>(config.imageWidth);
+
+  set displayWidth(int w) {
+    if (displayWidthNotifier.value != w) {
+      displayWidthNotifier.value = w;
+    }
+  }
+
+  int displayHeight = config.imageHeight;
+
+  void push(Uint8List buffer, int width, int height) {
+    displayWidth = width;
+    buffer.isNotEmpty
+        ? ui.decodeImageFromPixels(buffer, width, height,
+            ui.PixelFormat.rgba8888, (image) => this.image = image)
+        : null;
+  }
 }
 
 class TickerImage extends StatefulWidget {

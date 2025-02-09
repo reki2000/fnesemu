@@ -1,5 +1,6 @@
 // Dart imports:
 import 'dart:async';
+import 'dart:core';
 import 'dart:typed_data';
 
 import 'core.dart';
@@ -12,36 +13,39 @@ import 'pad_button.dart';
 import 'types.dart';
 
 /// A Controller of the emulator core.
-/// The external GUI should kick `exec` continuously. then subscribe `controller.*stream`
+/// The external GUI should kick `run`. then subscribe `controller.*stream`
 class CoreController {
-  CoreController() {
-    setCore("pce");
-  }
+  final void Function() _onStop;
+  final void Function(AudioBuffer) _onAudio;
+  final void Function(ImageBuffer) _onImage;
 
-  late Core _core;
-  late Debugger debugger;
+  CoreController(this._onStop, this._onAudio, this._onImage);
 
-  void setCore(String core) {
-    stop();
+  Core _core = EmptyCore();
+  Debugger debugger = Debugger(EmptyCore());
 
-    switch (core) {
+  void init(String coreName, Uint8List body) {
+    switch (coreName) {
       case 'pce':
         _core = CoreFactory.ofPce();
         break;
       case 'nes':
         _core = CoreFactory.ofNes();
         break;
+      case 'gen':
+      case 'md':
+        _core = CoreFactory.ofMd();
+        break;
       default:
-        throw Exception('unsupported core: $core');
+        throw Exception('unsupported core: $coreName');
     }
 
-    _initCore();
-  }
+    _core.onAudio(_onAudio);
+    _core.setRom(body);
 
-  _initCore() {
     debugger = Debugger(_core);
-    _core.onAudio(onAudio);
     debugger.pushStream();
+
     reset();
   }
 
@@ -50,12 +54,23 @@ class CoreController {
   int _runningCount = 0;
   int _currentCpuClocks = 0;
 
-  // calculated fps
-  double _fps = 0.0;
+  int _runMode = 0;
+  static const runModeNone = 0;
+  static const runModeStep = 1;
+  static const runModeStepOut = 2;
+  static const runModeLine = 3;
+  static const runModeFrame = 4;
+
+  int _scanline = 0;
+  int _frames = 0;
+
+  bool isRunning() => _running;
 
   /// runs emulation continuously
-  Future<void> run() async {
+  Future<void> run({int mode = 0}) async {
     await stop();
+
+    _runMode = mode;
 
     _running = true;
     _runningCount++;
@@ -68,19 +83,12 @@ class CoreController {
     // int awaitCount = 0;
 
     while (_running) {
-      // // // wait the event loop to be done
-      // if (awaitCount == 30) {
-      //   await Future.delayed(const Duration());
-      //   awaitCount = 0;
-      // }
-      // awaitCount++;
-
       final now = DateTime.now();
       _fps = fpsCounter.fps(now);
 
       // run emulation until the next frame timing
       if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
-        runFrame();
+        _runFrame();
         fpsCounter.count();
         await Future.delayed(const Duration());
         continue;
@@ -95,7 +103,7 @@ class CoreController {
     _runningCount--;
   }
 
-  /// stops emulation
+  /// stop emulation
   Future<void> stop() async {
     _running = false;
 
@@ -103,9 +111,12 @@ class CoreController {
       await Future.delayed(const Duration());
     }
 
+    _onStop();
+
     return;
   }
 
+  /// reset emulation. keep run/stop state
   void reset() {
     _running = false;
     _fps = 0.0;
@@ -114,97 +125,103 @@ class CoreController {
     _core.reset();
 
     debugger.log.clear();
-    debugger.debugOption.breakPoint = 0;
+    debugger.opt.breakPoint = [-1];
     debugger.pushStream();
 
     _renderAll();
   }
 
-  /// executes emulation with 1 cpu instruction
-  void runStep() {
-    final result = _core.exec();
-    _currentCpuClocks = result.elapsedClocks;
+  /// executes emulation during 1 frame
+  void _runFrame() {
+    while (_scanline++ < _core.scanlinesInFrame) {
+      if (!_runScanLine()) {
+        return;
+      }
+    }
 
-    debugger.addLog(_core.tracingState);
+    _scanline = 0;
+    _frames++;
+
+    if (_runMode == runModeFrame) {
+      stop();
+    }
 
     _renderAll();
   }
 
-  /// executes emulation during 1 scanline
-  bool runScanLine({skipRender = false}) {
+  /// for debugger: executes emulation during 1 scanline
+  /// returns false if the emulation is stopped
+  bool _runScanLine() {
+    final opt = debugger.opt;
+    bool cpuExecuted = true;
+
     while (true) {
-      if (debugger.debugOption.breakPoint == _core.programCounter) {
-        stop();
-        return false;
+      if (cpuExecuted && opt.log) {
+        debugger.addLog(_core.tracingState(opt.targetCpuNo));
+        cpuExecuted = false;
       }
 
       // exec 1 cpu instruction
       final result = _core.exec();
       _currentCpuClocks = result.elapsedClocks;
 
-      // need this check for performance
-      if (debugger.debugOption.log) {
-        debugger.addLog(_core.tracingState);
-      }
+      cpuExecuted = result.executed(opt.targetCpuNo);
 
-      if (!result.stopped) {
+      if (result.stopped) {
         stop();
         return false;
       }
 
-      if (result.scanlineRendered) {
-        break;
-      }
-    }
-    if (!skipRender) {
-      _renderAll();
-    }
-    return true;
-  }
-
-  /// executes emulation during 1 frame
-  void runFrame() {
-    for (int i = 0; i < _core.scanlinesInFrame; i++) {
-      if (!runScanLine(skipRender: true)) {
+      if (cpuExecuted &&
+          opt.showDebugView &&
+          (opt.breakPoint[0] == _core.programCounter(opt.targetCpuNo) ||
+              _runMode == runModeStep ||
+              _runMode == runModeStepOut &&
+                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer)) {
         _renderAll();
-        return;
+        stop();
+
+        return false;
+      }
+
+      if (result.scanlineRendered) {
+        if (_runMode == runModeLine) {
+          _renderAll();
+          stop();
+
+          return false;
+        }
+
+        return true;
       }
     }
-    _renderAll();
   }
 
   void _renderAll() {
-    onImage(_core.imageBuffer());
+    _onImage(_core.imageBuffer());
     debugger.pushStream();
     _fpsStream.add(_fps);
   }
 
-  void setRom(Uint8List body) {
-    stop();
-    _core.setRom(body);
-    reset();
-    debugger.pushStream();
-  }
-
-  bool isRunning() {
-    return _running;
-  }
+  // calculated fps
+  double _fps = 0.0;
 
   // screen/audio/fps
   final _fpsStream = StreamController<double>();
 
+  // provides fps value
   Stream<double> get fpsStream => _fpsStream.stream;
 
-  void Function(AudioBuffer) onAudio = (_) {};
-  void Function(ImageBuffer) onImage = (_) {};
-
+  // UI invokes this when a button of the pad is down
   void padDown(int controlerId, PadButton k) {
     _core.padDown(controlerId, k);
   }
 
+  // UI invokes this when a button of the pad is up
   void padUp(int controlerId, PadButton k) {
     _core.padUp(controlerId, k);
   }
 
+  // returns a list of core's buttons
   List<PadButton> get buttons => _core.buttons;
 }

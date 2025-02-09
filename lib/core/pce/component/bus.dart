@@ -2,7 +2,7 @@
 
 import 'dart:typed_data';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import '../mapper/rom.dart';
 import 'cpu.dart';
 import 'pad.dart';

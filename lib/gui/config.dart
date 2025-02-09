@@ -1,5 +1,6 @@
 class Config {
-  final int imageWidth = 256 * 2;
-  final int imageHeight = 242 * 2;
+  final double zoom = 2;
+  final int imageWidth = 320;
+  final int imageHeight = 242;
   final int audioSampleRate = 44100;
 }

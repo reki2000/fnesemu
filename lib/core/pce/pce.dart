@@ -2,7 +2,7 @@
 import 'dart:typed_data';
 
 // Project imports:
-import '../../util.dart';
+import '../../util/util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
@@ -41,6 +41,9 @@ class Pce implements Core {
   @override
   int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
+  @override
+  get cpuInfos => [CpuInfo(1, "Hu6280", 16)];
+
   Pce() {
     bus = Bus();
     cpu = Cpu2(bus);
@@ -58,13 +61,11 @@ class Pce implements Core {
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
-    final cpuOk = cpu.exec();
+    if (!cpu.exec()) {
+      return ExecResult(cpu.cycles, true, false);
+    }
 
     bus.timer.exec(cpu.clock);
-
-    if (!cpuOk) {
-      return ExecResult(cpu.cycles, false, false);
-    }
 
     bool rendered = false;
 
@@ -82,7 +83,7 @@ class Pce implements Core {
       _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
     }
 
-    return ExecResult(cpu.clocks, true, rendered);
+    return ExecResult(cpu.clocks, false, rendered);
   }
 
   /// returns screen buffer as hSize x vSize argb
@@ -152,16 +153,20 @@ class Pce implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int addr) => Pair(
+  Pair<String, int> disasm(int _, int addr) => Pair(
       cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(cpu.read(addr)));
 
   // debug: returns PC register
   @override
-  int get programCounter => cpu.regs.pc;
+  int programCounter(int _) => cpu.regs.pc;
+
+  // debug: returns SP register
+  @override
+  int stackPointer(int _) => cpu.regs.s;
 
   // debug: set debug logging
   @override
-  String get tracingState => "${cpu.trace()} ${vdc.dump()}";
+  String tracingState(int _) => "${cpu.trace()} ${vdc.dump()}";
 
   // debug: dump vram
   @override
@@ -169,7 +174,7 @@ class Pce implements Core {
 
   // debug: read mem
   @override
-  int read(int addr) => bus.cpu.read(addr);
+  int read(int _, int addr) => bus.cpu.read(addr);
 
   // debug: render BG
   @override

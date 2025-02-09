@@ -1,6 +1,6 @@
 // Dart imports:
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_206
