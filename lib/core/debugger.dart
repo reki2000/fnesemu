@@ -18,7 +18,16 @@ class DebugOption {
   String text = "";
 
   bool log = false;
+
+  int runMode = runModeNone;
+  static const runModeNone = 0;
+  static const runModeStep = 1;
+  static const runModeStepOut = 2;
+  static const runModeLine = 3;
+  static const runModeFrame = 4;
+
   List<int> breakPoint = [-1];
+  int stackPointer = -1;
   List<int> disasmAddress = [];
 
   int targetCpuNo = 0;
@@ -96,6 +105,8 @@ class Debugger {
       (core.programCounter(cpuNo) +
           core.disasm(0, core.programCounter(cpuNo)).i1) &
       0xffff;
+
+  int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
 
   Pair<String, int> disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
 

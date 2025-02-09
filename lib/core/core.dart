@@ -47,7 +47,7 @@ abstract class Core {
   ImageBuffer imageBuffer();
 
   // receives callback to push rendered audio buffer
-  onAudio(void Function(AudioBuffer) onAudio);
+  void onAudio(void Function(AudioBuffer) onAudio);
 
   /// handles reset button events
   void reset();
@@ -75,6 +75,9 @@ abstract class Core {
 
   // debug: returns PC register
   int programCounter(int cpuNo);
+
+  // debug: returns SP register
+  int stackPointer(int cpuNo);
 
   // debug: returns tracing CPU state - disassembed next instruction and current registers
   String tracingState(int cpuNo);
@@ -130,6 +133,9 @@ class EmptyCore extends Core {
 
   @override
   int programCounter(int cpuNo) => 0;
+
+  @override
+  int stackPointer(int cpuNo) => 0;
 
   @override
   int read(int cpuNo, int addr) => 0;

@@ -6,6 +6,9 @@ import '../core/core_controller.dart';
 import '../core/pad_button.dart';
 
 class KeyHandler {
+  final CoreController controller;
+  late Map<PhysicalKeyboardKey, PadButton?> _keys;
+
   KeyHandler({required this.controller}) {
     init();
   }
@@ -28,9 +31,6 @@ class KeyHandler {
       PhysicalKeyboardKey.keyE: maybeButton(11),
     };
   }
-
-  final CoreController controller;
-  late Map<PhysicalKeyboardKey, PadButton?> _keys;
 
   bool handle(KeyEvent e) {
     final button = _keys[e.physicalKey];

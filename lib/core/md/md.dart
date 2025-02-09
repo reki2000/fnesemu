@@ -278,6 +278,10 @@ class Md implements Core {
   @override
   int programCounter(int cpuNo) => cpuNo == 0 ? cpuM68.pc : cpuZ80.r.pc;
 
+  // debug: returns SP register
+  @override
+  int stackPointer(int cpuNo) => cpuNo == 0 ? cpuM68.a[7] : cpuZ80.r.sp;
+
   // debug: set debug logging
   @override
   String tracingState(int cpuNo) => cpuNo == 0

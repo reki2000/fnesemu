@@ -205,6 +205,10 @@ class Nes implements Core {
   @override
   int programCounter(int _) => cpu.regs.pc;
 
+  // debug: returns SP register
+  @override
+  int stackPointer(int _) => cpu.regs.s;
+
   // debug: set debug logging
   @override
   String tracingState(int _) => cpu.trace();

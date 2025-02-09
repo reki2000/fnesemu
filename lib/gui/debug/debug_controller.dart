@@ -38,6 +38,10 @@ class DebugController extends StatelessWidget {
         opt.breakPoint[0] = debugger.nextPc(opt.targetCpuNo);
         controller.run();
       }),
+      _button("Next", () {
+        opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
+        controller.run();
+      }),
       _button("Line", controller.runScanLine),
       _button("Frame", controller.runFrame),
       SizedBox(
