@@ -5,7 +5,7 @@ import 'dart:typed_data';
 // Project imports:
 import 'package:archive/archive_io.dart';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 
 class NesFile {
   final program = <Uint8List>[];

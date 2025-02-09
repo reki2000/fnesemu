@@ -9,7 +9,7 @@ import 'core/nes/component/cpu.dart';
 import 'core/nes/component/cpu_debug.dart';
 import 'core/nes/mapper/nrom.dart';
 import 'core/nes/rom/nes_file.dart';
-import 'util.dart';
+import 'util/util.dart';
 
 void log(String s) {
   stdout.writeln(s);

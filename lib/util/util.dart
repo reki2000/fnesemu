@@ -36,7 +36,9 @@ extension IntExt on int {
 
   int with4Bit(int val, {int lsbPosition = 0}) =>
       (this & ~(0x0f << lsbPosition)) | ((val & 0x0f) << lsbPosition);
+}
 
+extension IntImageExt on int {
   // define a bit pattern which respresents the image of the digit in 3x5 matrix
   static const digitPattern = [
     "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",
@@ -104,5 +106,27 @@ extension Uint8ListEx on Uint8List {
 
   static List<Uint8List> ofEmptyList(int count, int size) {
     return List.generate(count, (_) => Uint8List(size));
+  }
+
+  int getUInt16BE(int index) {
+    return this[index] << 8 | this[index + 1];
+  }
+
+  int getUInt32BE(int index) {
+    return this[index] << 24 |
+        this[index + 1] << 16 |
+        this[index + 2] << 8 |
+        this[index + 3];
+  }
+
+  int getUInt16LE(int index) {
+    return this[index + 1] << 8 | this[index];
+  }
+
+  int getUInt32LE(int index) {
+    return this[index + 3] << 24 |
+        this[index + 2] << 16 |
+        this[index + 1] << 8 |
+        this[index + 0];
   }
 }

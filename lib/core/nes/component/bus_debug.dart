@@ -1,5 +1,5 @@
 // Project imports:
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'bus.dart';
 
 extension BusDebugger on Bus {

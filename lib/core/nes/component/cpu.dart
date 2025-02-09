@@ -3,7 +3,7 @@ import 'dart:core';
 import 'dart:developer';
 
 // Project imports:
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'bus.dart';
 
 class Regs {

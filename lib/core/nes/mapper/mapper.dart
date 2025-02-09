@@ -2,7 +2,7 @@
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'cnrom.dart';
 import 'mapper088.dart';
 import 'mirror.dart';

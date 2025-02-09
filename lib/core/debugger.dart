@@ -1,46 +1,61 @@
 import 'dart:async';
 
 import '../gui/debug/tracer.dart';
-import '../util.dart';
+import '../util/util.dart';
 import 'core.dart';
 import 'types.dart';
 
 /// Parameters for debugging features
 class DebugOption {
   bool showDebugView = false;
-  int breakPoint = 0;
-  bool log = false;
-  bool showDisasm = true;
-  int disasmAddress = 0;
-  String text = "";
+
   bool showVdc = false;
+  bool showDisasm = true;
+  bool showMem = false;
+
+  int memAddress = 0;
+
+  String text = "";
+
+  bool log = false;
+
+  List<int> breakPoint = [-1];
+  int stackPointer = -1;
+  List<int> disasmAddress = [];
+
+  int targetCpuNo = 0;
+
+  DebugOption(int maxCpuNo) : disasmAddress = List.filled(maxCpuNo, 0);
 }
 
 class Debugger {
   final Core core;
 
-  Debugger(this.core);
+  Debugger(this.core) : opt = DebugOption(core.cpuInfos.length);
 
   // interafaces for debugging features
-  final debugOption = DebugOption();
+  DebugOption opt;
+
+  List<CpuInfo> get cpuInfos => core.cpuInfos;
 
   final _debugStream = StreamController<DebugOption>.broadcast();
   Stream<DebugOption> get debugStream => _debugStream.stream;
 
   void setDebugView(bool show) {
-    debugOption.showDebugView = show;
+    opt.showDebugView = show;
     pushStream();
   }
 
   void pushStream() {
-    if (!debugOption.showDebugView) {
-      debugOption.text = "";
+    if (!opt.showDebugView) {
+      opt.text = "";
     } else {
-      debugOption.text =
-          core.dump(showZeroPage: true, showStack: true, showApu: true);
-      debugOption.disasmAddress = core.programCounter;
+      opt.text = core.dump(showZeroPage: true, showStack: true, showApu: true);
+      for (int i = 0; i < cpuInfos.length; i++) {
+        opt.disasmAddress[i] = core.programCounter(i);
+      }
     }
-    _debugStream.add(debugOption);
+    _debugStream.add(opt);
   }
 
   Tracer? _tracer;
@@ -48,13 +63,18 @@ class Debugger {
   StreamSubscription<String>? _traceSubscription;
 
   void toggleLog() {
-    debugOption.log = !debugOption.log;
+    opt.log = !opt.log;
     pushStream();
 
-    if (debugOption.log && _tracer == null) {
-      _tracer = Tracer(_traceStream);
+    if (opt.log && _tracer == null) {
+      // m68000
+      // _tracer = Tracer(_traceStream, pcWidth: 6, start: 0, end: 248, maxDiffChars: 4);
+      // z80
+      _tracer = Tracer(_traceStream,
+          pcWidth: 4, start: 0, end: 148, maxDiffChars: 12);
+      // 6502
+
       _traceSubscription = _traceStream.stream.listen((log) {
-        //print(log.replaceAll("\n", ""));
         this.log.add(log.replaceAll("\n", ""));
       }, onDone: () => _traceSubscription?.cancel());
     } else {
@@ -66,26 +86,36 @@ class Debugger {
   final log = List<String>.empty(growable: true);
 
   addLog(String log) {
-    if (debugOption.log) _tracer?.addLog(log);
+    if (opt.log) _tracer?.addLog(log);
   }
 
   void toggleDisasm() {
-    debugOption.showDisasm = !debugOption.showDisasm;
+    opt.showDisasm = !opt.showDisasm;
     pushStream();
   }
+
+  int nextPc(int cpuNo) {
+    final pc = core.programCounter(cpuNo);
+    final next = pc + core.disasm(0, pc).i1;
+    return next & ((1 << core.cpuInfos[cpuNo].addrBits) - 1);
+  }
+
+  int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
+
+  Pair<String, int> disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
 
   void toggleVdc() {
-    debugOption.showVdc = !debugOption.showVdc;
+    opt.showVdc = !opt.showVdc;
     pushStream();
   }
 
-  int get nextPc =>
-      (core.programCounter + core.disasm(core.programCounter).i1) & 0xffff;
-
-  Pair<String, int> disasm(int addr) => core.disasm(addr);
+  void toggleMem() {
+    opt.showMem = !opt.showMem;
+    pushStream();
+  }
 
   List<int> dumpVram() => core.vram;
-  int read(int addr) => core.read(addr);
+  int read(int addr) => core.read(0, addr);
   ImageBuffer renderBg() => core.renderBg();
   List<String> spriteInfo() => core.spriteInfo();
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>

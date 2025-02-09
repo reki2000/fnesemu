@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import '../../types.dart';
 import 'vdc.dart';
 import 'vdc_render.dart';

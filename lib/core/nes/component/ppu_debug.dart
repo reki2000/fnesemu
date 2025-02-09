@@ -1,5 +1,5 @@
 // Project imports:
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'ppu.dart';
 
 extension PpuDebugger on Ppu {

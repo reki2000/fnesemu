@@ -5,7 +5,7 @@ import 'dart:typed_data';
 // Project imports:
 import 'package:fnesemu/core/nes/mapper/sram.dart';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/VRC3

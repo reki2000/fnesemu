@@ -22,7 +22,7 @@ jobs:
       - name: Flutter Test / Build
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22'
+          flutter-version: '3.27'
           channel: 'stable'
           cache: true
       - run: flutter --version

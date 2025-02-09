@@ -48,9 +48,10 @@ class VirtualPadWidget extends StatelessWidget {
           button(Icons.arrow_upward, PadButton.up),
           button(Icons.arrow_downward, PadButton.down),
           button(Icons.arrow_forward, PadButton.right),
-          ...controller.buttons
-              .sublist(4)
-              .map((b) => button(Icons.circle, b, name: b.name))
+          if (controller.buttons.length > 4)
+            ...controller.buttons
+                .sublist(4)
+                .map((b) => button(Icons.circle, b, name: b.name))
         ]));
   }
 }

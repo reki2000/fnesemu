@@ -2,7 +2,7 @@
 import 'dart:core';
 import 'dart:developer';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'bus.dart';
 import 'cpu_6280.dart';
 import 'cpu_6502.dart';

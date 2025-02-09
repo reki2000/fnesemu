@@ -3,7 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../util.dart';
+import '../../util/util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
@@ -57,6 +57,9 @@ class Nes implements Core {
   @override
   int get systemClockHz => cpuClock;
 
+  @override
+  get cpuInfos => [CpuInfo(1, "6502", 16)];
+
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
 
@@ -66,9 +69,8 @@ class Nes implements Core {
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec() {
-    final cpuOk = cpu.exec();
-    if (!cpuOk) {
-      return ExecResult(cpu.cycle, false, false);
+    if (!cpu.exec()) {
+      return ExecResult(cpu.cycle, true, false);
     }
 
     bool rendered = false;
@@ -87,7 +89,7 @@ class Nes implements Core {
       _pushApuBuffer(apuBuf, auxBuf);
     }
 
-    return ExecResult(cpu.cycle, true, rendered);
+    return ExecResult(cpu.cycle, false, rendered);
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
@@ -196,16 +198,20 @@ class Nes implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int addr) =>
+  Pair<String, int> disasm(int _, int addr) =>
       Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
 
   // debug: returns PC register
   @override
-  int get programCounter => cpu.regs.pc;
+  int programCounter(int _) => cpu.regs.pc;
+
+  // debug: returns SP register
+  @override
+  int stackPointer(int _) => cpu.regs.s;
 
   // debug: set debug logging
   @override
-  String get tracingState => cpu.trace();
+  String tracingState(int _) => cpu.trace();
 
   // debug: dump vram
   @override
@@ -213,7 +219,7 @@ class Nes implements Core {
 
   // debug: read mem
   @override
-  int read(int addr) => bus.read(addr);
+  int read(int _, int addr) => bus.read(addr);
 
   // debug: returns CHR ROM rendered image with 8x8 x 16x16 x 2(=128x256) x 2(chr/obj) ARGB format.
   @override

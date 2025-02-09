@@ -1,7 +1,7 @@
 // Dart imports:
 import 'dart:core';
 
-import '../../../util.dart';
+import '../../../util/util.dart';
 import 'cpu.dart';
 
 extension Cpu65c02 on Cpu {

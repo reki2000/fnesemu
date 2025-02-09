@@ -27,8 +27,9 @@ _imageBufferRenderer(ImageBuffer buf) {
 
 class DebugVdc extends StatefulWidget {
   final Debugger debugger;
+  final double width;
 
-  const DebugVdc({super.key, required this.debugger});
+  const DebugVdc({super.key, required this.debugger, this.width = 640});
 
   @override
   State<DebugVdc> createState() => _DebugVdc();
@@ -36,7 +37,9 @@ class DebugVdc extends StatefulWidget {
 
 class _DebugVdc extends State<DebugVdc> {
   int _paletteNo = 0;
-  bool _useSecond = false;
+  bool _useGrayscale = true;
+
+  static const _paletteNoMask = 0x1f;
 
   @override
   void initState() {
@@ -48,45 +51,49 @@ class _DebugVdc extends State<DebugVdc> {
     super.dispose();
   }
 
+  int get paletteNo => _paletteNo;
+  set paletteNo(int value) =>
+      setState(() => _paletteNo = value & _paletteNoMask);
+
   @override
   Widget build(BuildContext context) {
-    final spriteInfo = widget.debugger.spriteInfo();
-    return Container(
-      alignment: Alignment.center,
-      margin: const EdgeInsets.all(10.0),
-      child: Column(children: [
-        Row(children: [
-          Text(spriteInfo.sublist(0, spriteInfo.length ~/ 2).join("\n"),
-              style: debugStyle),
-          Text(spriteInfo.sublist(spriteInfo.length ~/ 2).join("\n"),
-              style: debugStyle),
-          Row(children: [
-            Column(children: [
-              Row(children: [
-                Switch(
-                    value: _useSecond,
-                    onChanged: (onoff) => setState(() => _useSecond = onoff)),
-                IconButton(
-                    icon: const Icon(Icons.arrow_upward),
-                    onPressed: () => setState(() {
-                          _paletteNo = (_paletteNo - 1) & 0x1f;
-                        })),
-                IconButton(
-                    icon: const Icon(Icons.arrow_downward),
-                    onPressed: () => setState(() {
-                          _paletteNo = (_paletteNo + 1) & 0x1f;
-                        })),
-                Text("$_paletteNo", style: debugStyle),
-              ]),
-              _imageBufferRenderer(
-                  widget.debugger.renderColorTable(_paletteNo)),
-            ]),
-            _imageBufferRenderer(
-                widget.debugger.renderVram(_useSecond, _paletteNo)),
-          ]),
-        ]),
-        _imageBufferRenderer(widget.debugger.renderBg()),
+    final dbg = widget.debugger;
+    final spriteInfo = dbg.spriteInfo();
+    final spriteInfos = List.generate(
+        4,
+        (i) => spriteInfo.sublist(
+            i * spriteInfo.length ~/ 4, (i + 1) * spriteInfo.length ~/ 4));
+
+    final colorTable = Column(children: [
+      Row(children: [
+        Switch(
+            value: _useGrayscale,
+            onChanged: (v) => setState(() => _useGrayscale = v)),
+        IconButton(
+            icon: const Icon(Icons.arrow_upward), onPressed: () => paletteNo--),
+        IconButton(
+            icon: const Icon(Icons.arrow_downward),
+            onPressed: () => paletteNo++),
+        Text("$_paletteNo", style: debugStyle),
       ]),
-    );
+      _imageBufferRenderer(dbg.renderColorTable(_paletteNo)),
+    ]);
+
+    return Container(
+        width: widget.width,
+        alignment: Alignment.center,
+        margin: const EdgeInsets.all(10.0),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              colorTable,
+              _imageBufferRenderer(dbg.renderVram(_useGrayscale, _paletteNo)),
+              ...spriteInfos.map((e) => Text(e.join("\n"), style: debugStyle)),
+            ]),
+            _imageBufferRenderer(dbg.renderBg()),
+          ]),
+        ));
   }
 }

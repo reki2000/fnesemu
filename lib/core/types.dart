@@ -6,6 +6,8 @@ class ImageBuffer {
   final Uint8List buffer;
 
   const ImageBuffer(this.width, this.height, this.buffer);
+
+  factory ImageBuffer.empty() => ImageBuffer(0, 0, Uint8List(0));
 }
 
 class AudioBuffer {
