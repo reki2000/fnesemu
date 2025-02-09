@@ -487,7 +487,7 @@ class Ym2612 {
   int _lfoFreq = 0;
 
   static const _ch3ModeNone = 0;
-  static const _ch3ModeMultiFreq = 1;
+  // static const _ch3ModeMultiFreq = 1;
   static const _ch3ModeCsm = 2;
   int _ch3Mode = _ch3ModeNone;
 
@@ -569,7 +569,7 @@ class Ym2612 {
     final chBase = part + part + part;
     final chNo = chBase + (reg & 0x03);
     if (chNo > 5) {
-      print("Invalid channel $chNo");
+      // print("Invalid channel $chNo");
       return;
     }
 

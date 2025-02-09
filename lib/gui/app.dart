@@ -118,27 +118,22 @@ class MainPageState extends State<MainPage> {
       }
     }
 
-    try {
-      if (!found) {
-        throw Exception("No files in the zip");
-      }
-
-      setState(() {
-        _controller.init(extension(name), file);
-        _keyHandler.init();
-        _romName = name;
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+    if (!found) {
+      throw Exception("No files in the zip");
     }
 
-    // temporary debug options
-    _controller.debugger.opt.showDebugView = true;
-    // controller.debugger.debugOption.showVdc = true;
-    _reset(run: false);
+    setState(() {
+      _controller.init(extension(name), file);
+      _keyHandler.init();
+      _romName = name;
+    });
 
-    // _reset(run: !controller.debugger.debugOption.showDebugView);
+    // temporary debug options
+    // _controller.debugger.opt.showDebugView = true;
+    // _controller.debugger.debugOption.showVdc = true;
+    //_reset(run: false);
+
+    _reset(run: !_controller.debugger.opt.showDebugView);
   }
 
   void _do(BuildContext ctx, Function() func) {
@@ -188,20 +183,20 @@ class MainPageState extends State<MainPage> {
 
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        ...[
-          for (var name in [
-            "darius2.gen",
-            "daimakai.gen",
-            "sfzone.gen",
-            "sphouse.gen",
-            "sf2.gen",
-            "outrun.gen",
-            "sangokushi.gen",
-            "sonic.gen",
-          ])
-            iconButton(Icons.file_open_outlined, name.split(".")[0],
-                () => _loadRomFile(name: name))
-        ],
+        // ...[
+        //   for (var name in [
+        //     "darius2.gen",
+        //     "daimakai.gen",
+        //     "sfzone.gen",
+        //     "sphouse.gen",
+        //     "sf2.gen",
+        //     "outrun.gen",
+        //     "sangokushi.gen",
+        //     "sonic.gen",
+        //   ])
+        //     iconButton(Icons.file_open_outlined, name.split(".")[0],
+        //         () => _loadRomFile(name: name))
+        // ],
 
         // file load button
         iconButton(Icons.file_open_outlined, "Load ROM",

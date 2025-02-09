@@ -1,5 +1,3 @@
-import 'package:fnesemu/util/int.dart';
-
 import 'z80.dart';
 
 extension OpC0ff on Z80 {

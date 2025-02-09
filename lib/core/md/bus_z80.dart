@@ -1,7 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/util/int.dart';
-
 import 'z80/z80.dart';
 import 'bus_m68.dart';
 import 'ym2612.dart';

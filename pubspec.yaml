@@ -15,7 +15,7 @@ dependencies:
 
   cupertino_icons: ^1.0.2
   google_fonts: ^6.2.1
-  file_picker: ^8.0.0
+  file_picker: ^8.3.3
   js: ^0.6.5
   package_info_plus: ^8.0.0
   mp_audio_stream: ^0.2.0
