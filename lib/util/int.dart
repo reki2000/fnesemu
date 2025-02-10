@@ -34,14 +34,6 @@ extension IntExt on int {
               ? bit31
               : throw ("unreachable");
 
-  bool over(int size) => size == 1
-      ? bit8
-      : size == 2
-          ? bit16
-          : size == 4
-              ? bit32
-              : throw ("unreachable");
-
   int scale(int size) => size == 1
       ? this
       : size == 2
@@ -123,7 +115,6 @@ extension IntExt on int {
   bool get bit29 => this & 0x20000000 != 0;
   bool get bit30 => this & 0x40000000 != 0;
   bool get bit31 => this & 0x80000000 != 0;
-  bool get bit32 => this & 0x100000000 != 0;
 }
 
 extension IntClip on int {
