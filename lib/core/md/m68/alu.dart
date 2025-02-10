@@ -7,7 +7,8 @@ extension Alu on M68 {
     final r = a + b + (useXf && xf ? 1 : 0);
     // debug("add r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
 
-    xf = cf = r.over(size);
+    final carryBits = (a & b) | ((a | b) & ~r);
+    xf = cf = carryBits.msb(size);
     nf = r.msb(size);
     vf = (~(a ^ b) & (a ^ r)).msb(size); // output changed && input not differed
     zf = (!useXf || zf) && r.mask(size) == 0;
@@ -20,7 +21,8 @@ extension Alu on M68 {
     // debug(
     //     "sub r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
 
-    cf = r.over(size);
+    final carryBits = (~a & b) | ((~a | b) & r);
+    cf = carryBits.msb(size);
     if (!cmp) {
       xf = cf;
     }
@@ -111,8 +113,9 @@ extension Alu on M68 {
         vf = (r & affectedBits) != 0 && (r & affectedBits) != affectedBits;
       }
 
-      r <<= rot;
-      xf = cf = r.over(size);
+      r <<= rot - 1;
+      xf = cf = r.msb(size);
+      r <<= 1;
       nf = r.msb(size);
     } else {
       nf = r.msb(size);
@@ -146,8 +149,9 @@ extension Alu on M68 {
   int lsl(int a, int size, int rot) {
     int r = a.mask(size);
     if (rot != 0) {
-      r <<= rot;
-      xf = cf = r.over(size);
+      r <<= rot - 1;
+      xf = cf = r.msb(size);
+      r <<= 1;
     } else {
       cf = false;
     }
