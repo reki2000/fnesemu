@@ -112,13 +112,17 @@
       init: init,
   
       resume: async () => {
-        await audioCtx.resume();
+        if (audioCtx == null) {
+          console.log("mp-audio-stream is not initialized.");
+          return;
+        }
+        await audioCtx?.resume();
       },
   
       push: push,
   
       uninit: async () => {
-        await audioCtx.close();
+        await audioCtx?.close();
         audioCtx = null;
       },
 
