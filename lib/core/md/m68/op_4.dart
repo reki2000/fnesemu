@@ -216,6 +216,7 @@ extension Op4 on M68 {
             return true;
 
           case 0x72: // stop
+            sr = sr.setL16(pc16());
             halt = true;
             return true;
 
