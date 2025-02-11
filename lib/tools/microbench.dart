@@ -18,19 +18,23 @@ void measure(int v, s, t, int Function(int, int, int) f) {
 }
 
 int test1(int v, s, count) {
-  int sum = 0;
+  double sum = 0;
   for (int i = 0; i < count; i++) {
-    sum += v.mask(s);
+    sum += v.clamp(0, s);
   }
-  return sum;
+  return sum.toInt();
 }
 
 int test2(int v, s, count) {
-  int sum = 0;
+  double sum = 0;
   for (int i = 0; i < count; i++) {
-    sum += v.mask2(s);
+    sum += v < -s
+        ? -s
+        : v > s
+            ? s
+            : v;
   }
-  return sum;
+  return sum.toInt();
 }
 
 extension IntExt on int {
