@@ -1,9 +1,9 @@
 // Dart imports:
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/util/int.dart';
 
 import '../../core/core_controller.dart';
+import '../../util/int.dart';
 import '../../styles.dart';
 import 'vram.dart';
 
@@ -35,7 +35,7 @@ class DebugController extends StatelessWidget {
         controller.run(mode: CoreController.runModeStep);
       }),
       _button("Next", () {
-        opt.breakPoint[0] = debugger.nextPc(opt.targetCpuNo);
+        opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
         controller.run();
       }),
       _button("StepOut", () {
@@ -52,7 +52,7 @@ class DebugController extends StatelessWidget {
                 if (v.length == 4 || v.length == 6) {
                   try {
                     final breakPoint = int.parse(v, radix: 16);
-                    opt.breakPoint[0] = breakPoint;
+                    opt.breakPoint = breakPoint;
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                         content: Text("breakpoint: ${breakPoint.hex24}")));
                   } catch (e) {

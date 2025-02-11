@@ -125,7 +125,7 @@ class CoreController {
     _core.reset();
 
     debugger.log.clear();
-    debugger.opt.breakPoint = [-1];
+    debugger.opt.breakPoint = -1;
     debugger.pushStream();
 
     _renderAll();
@@ -165,22 +165,21 @@ class CoreController {
       final result = _core.exec();
       _currentCpuClocks = result.elapsedClocks;
 
-      cpuExecuted = result.executed(opt.targetCpuNo);
-
       if (result.stopped) {
         stop();
         return false;
       }
 
+      cpuExecuted = result.executed(opt.targetCpuNo);
+
       if (cpuExecuted &&
           opt.showDebugView &&
-          (opt.breakPoint[0] == _core.programCounter(opt.targetCpuNo) ||
+          (opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
               _runMode == runModeStep ||
               _runMode == runModeStepOut &&
                   _core.stackPointer(opt.targetCpuNo) > opt.stackPointer)) {
         _renderAll();
         stop();
-
         return false;
       }
 
@@ -188,7 +187,6 @@ class CoreController {
         if (_runMode == runModeLine) {
           _renderAll();
           stop();
-
           return false;
         }
 

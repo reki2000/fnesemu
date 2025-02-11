@@ -128,7 +128,7 @@ class Md implements Core {
       _renderAudio();
     }
 
-    _clocks += 4;
+    _clocks += 12;
     result.elapsedClocks = _clocks;
 
     return result;
