@@ -162,7 +162,7 @@ class CoreController {
       }
 
       // exec 1 cpu instruction
-      final result = _core.exec();
+      final result = _core.exec(_runMode == runModeStep);
       _currentCpuClocks = result.elapsedClocks;
 
       if (result.stopped) {

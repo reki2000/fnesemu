@@ -16,7 +16,7 @@ abstract class Core {
 
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
   /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
-  ExecResult exec();
+  ExecResult exec(bool step);
 
   /// returns screen image buffer
   ImageBuffer imageBuffer();
@@ -92,7 +92,7 @@ class EmptyCore extends Core {
       "";
 
   @override
-  ExecResult exec() => ExecResult(0, true, false);
+  ExecResult exec(bool step) => ExecResult(0, true, true);
 
   @override
   ImageBuffer imageBuffer() => ImageBuffer.empty();

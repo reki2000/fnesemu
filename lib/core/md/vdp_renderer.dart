@@ -99,25 +99,9 @@ extension VdpRenderer on Vdp {
 
   static int max = 0;
 
-  List<String> debugSpriteInfo() {
-    final baseAddr = reg[5] << 9 & 0xfc00;
-    final result = List.generate(80, (i) {
-      final base = baseAddr + i * 8;
-      final sp = Sprite.of(
-          vram.getUInt16BE(base.mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
-      final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
-      final flags =
-          "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
-      final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
-      return "#$no $xy ${sp.patternAddr.hex16} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
-    });
-    return result;
-  }
-
   _fillSpriteBuffer() {
+    status &= ~Vdp.bitSpriteOverflow;
+
     final baseAddr = reg[5] << 9 & 0xfc00;
     int spriteNo = 0;
     spriteBufIndex = 0;
@@ -135,6 +119,7 @@ extension VdpRenderer on Vdp {
         sp.fetchedX2 = -1;
 
         if (spriteBufIndex == 20) {
+          status |= Vdp.bitSpriteOverflow;
           break;
         }
       }
@@ -256,18 +241,18 @@ extension VdpRenderer on Vdp {
 
   // true: require rendering+hsync, false: retrace
   bool renderLine() {
-    vCounter++;
+    status &= ~Vdp.bitHBlank;
 
+    vCounter++;
     if (vCounter == Vdp.height + Vdp.retrace) {
       vCounter = 0;
     }
 
-    status &= ~(Vdp.bitHBlank | Vdp.bitVBlank);
-
     y = vCounter - Vdp.retrace ~/ 2;
 
-    _setBgSize();
-    _fillSpriteBuffer();
+    if (y == -1) {
+      busZ80.deassertInt();
+    }
 
     final requireRender = 0 <= y && y < Vdp.height;
 
@@ -276,6 +261,9 @@ extension VdpRenderer on Vdp {
     }
 
     if (requireRender) {
+      _setBgSize();
+      _fillSpriteBuffer();
+
       final hScrollBase = reg[13] << 10 & 0xfc00;
       final isHScrollFull = !reg[11].bit1;
       final isHScrollLine = reg[11].bit0;
@@ -350,33 +338,26 @@ extension VdpRenderer on Vdp {
         buffer[bufferOffset + hCounter] = rgba[cram[color]];
       }
 
-      status &= ~Vdp.bitVBlank; // off: vblank
+      status &= ~Vdp.bitVBlank; // not vblank
       return true;
     }
 
-    if (y == Vdp.height && enableVInt) {
-      status |= Vdp.bitVblankInt; // on: vsync int occureed
-      bus.interrupt(6);
-      busZ80.assertInt();
-    }
-
-    if (y == -1) {
-      busZ80.deassertInt();
-    }
-
-    status |= Vdp.bitVBlank; // on: vblank
+    status |= Vdp.bitVBlank; // during vblank
     return false;
   }
 
-  void startHsync() {
-    // print("status:${status.hex8} enableHInt:$enableHInt");
-    if (!status.bit3 && enableHInt) {
-      hSyncCounter--;
-
-      if (hSyncCounter <= 0) {
+  void finishLine() {
+    if (y == Vdp.height - 1 && enableVInt) {
+      status |= Vdp.bitVblankInt; // on: vsync int occureed
+      bus.interrupt(6);
+      busZ80.assertInt();
+    } else if (status & Vdp.bitVBlank != 0 && enableHInt) {
+      if (hSyncCounter == 0) {
         hSyncCounter = reg[10];
         status |= Vdp.bitHBlank; // start hblank
         bus.interrupt(4);
+      } else {
+        hSyncCounter--;
       }
     }
   }

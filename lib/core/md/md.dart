@@ -76,12 +76,12 @@ class Md implements Core {
   int _clocks = 0;
   int _nextScanClock = 0;
 
-  bool _hsyncRequired = false;
+  bool _waitFinishLine = false;
 
   /// exec 1 cpu instruction and render VDO / FM-PSG if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
-  ExecResult exec({bool step = false}) {
+  ExecResult exec(bool step) {
     final result = ExecResult(0, false, false);
     result.executed0 = false;
 
@@ -113,19 +113,20 @@ class Md implements Core {
       }
     }
 
-    if (_hsyncRequired && _clocks >= _nextScanClock - 36) {
-      vdp.startHsync();
-      _hsyncRequired = false;
-    }
-
     if (_clocks >= _nextScanClock) {
       // video rendering
       _nextScanClock += clocksInScanline;
-      _hsyncRequired = vdp.renderLine();
+      vdp.renderLine();
+      _waitFinishLine = true;
       result.scanlineRendered = true;
 
       // audio rendering
       _renderAudio();
+    }
+
+    if (_waitFinishLine && _clocks >= _nextScanClock - 36) {
+      vdp.finishLine();
+      _waitFinishLine = false;
     }
 
     _clocks += 12;
