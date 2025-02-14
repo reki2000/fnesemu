@@ -17,3 +17,28 @@ class AudioBuffer {
 
   const AudioBuffer(this.sampleRate, this.channels, this.buffer);
 }
+
+class ExecResult {
+  int elapsedClocks;
+  bool stopped;
+  bool scanlineRendered;
+
+  bool executed0 = true;
+  bool executed1 = false;
+
+  ExecResult(
+    this.elapsedClocks,
+    this.stopped,
+    this.scanlineRendered,
+  );
+
+  bool executed(int i) => i == 0 ? executed0 : executed1;
+}
+
+class CpuInfo {
+  final int no;
+  final String name;
+  final int addrBits;
+
+  CpuInfo(this.no, this.name, this.addrBits);
+}

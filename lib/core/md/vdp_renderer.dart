@@ -99,25 +99,9 @@ extension VdpRenderer on Vdp {
 
   static int max = 0;
 
-  List<String> debugSpriteInfo() {
-    final baseAddr = reg[5] << 9 & 0xfc00;
-    final result = List.generate(80, (i) {
-      final base = baseAddr + i * 8;
-      final sp = Sprite.of(
-          vram.getUInt16BE(base.mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
-      final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
-      final flags =
-          "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
-      final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
-      return "#$no $xy ${sp.patternAddr.hex16} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
-    });
-    return result;
-  }
-
   _fillSpriteBuffer() {
+    status &= ~Vdp.bitSpriteOverflow;
+
     final baseAddr = reg[5] << 9 & 0xfc00;
     int spriteNo = 0;
     spriteBufIndex = 0;
@@ -135,6 +119,7 @@ extension VdpRenderer on Vdp {
         sp.fetchedX2 = -1;
 
         if (spriteBufIndex == 20) {
+          status |= Vdp.bitSpriteOverflow;
           break;
         }
       }
@@ -257,17 +242,17 @@ extension VdpRenderer on Vdp {
   // true: require rendering+hsync, false: retrace
   bool renderLine() {
     vCounter++;
-
     if (vCounter == Vdp.height + Vdp.retrace) {
       vCounter = 0;
     }
 
-    status &= ~(Vdp.bitHBlank | Vdp.bitVBlank);
+    y = vCounter - 2;
 
-    y = vCounter - Vdp.retrace ~/ 2;
+    hBlank = false;
 
-    _setBgSize();
-    _fillSpriteBuffer();
+    if (y == -1) {
+      busZ80.deassertInt();
+    }
 
     final requireRender = 0 <= y && y < Vdp.height;
 
@@ -276,6 +261,9 @@ extension VdpRenderer on Vdp {
     }
 
     if (requireRender) {
+      _setBgSize();
+      _fillSpriteBuffer();
+
       final hScrollBase = reg[13] << 10 & 0xfc00;
       final isHScrollFull = !reg[11].bit1;
       final isHScrollLine = reg[11].bit0;
@@ -287,19 +275,19 @@ extension VdpRenderer on Vdp {
                   : ((y & ~0x07) << 2));
 
       final isVFullScroll = !reg[11].bit3;
-      final vScrollAddr = isVFullScroll ? 0 : y >> 3;
+      final vScrollAddr = isVFullScroll ? 0 : y >> 4 << 1;
 
       final ctxA = _Tile(
           0, //
           reg[2] << 10 & 0xe000,
-          vram[hScrollAddr] << 8 & 0x300 | vram[hScrollAddr.inc],
-          (y + vsram[vScrollAddr] & 0x3ff) & vScrMask);
+          vram.getUInt16BE(hScrollAddr) & 0x3ff,
+          (y + (vsram[vScrollAddr] & 0x3ff)) & vScrMask);
 
       final ctxB = _Tile(
           1, //
           reg[4] << 13 & 0xe000,
-          vram[hScrollAddr.inc2] << 8 & 0x300 | vram[hScrollAddr.inc3],
-          (y + vsram[vScrollAddr.inc] & 0x3ff) & vScrMask);
+          vram.getUInt16BE(hScrollAddr.inc2) & 0x3ff,
+          (y + (vsram[vScrollAddr.inc] & 0x3ff)) & vScrMask);
 
       final ctxWindow = _Tile(
           2, // window
@@ -350,34 +338,30 @@ extension VdpRenderer on Vdp {
         buffer[bufferOffset + hCounter] = rgba[cram[color]];
       }
 
-      status &= ~Vdp.bitVBlank; // off: vblank
+      vBlank = false;
       return true;
     }
 
-    if (y == Vdp.height && enableVInt) {
-      status |= Vdp.bitVblankInt; // on: vsync int occureed
-      bus.interrupt(6);
-      busZ80.assertInt();
-    }
-
-    if (y == -1) {
-      busZ80.deassertInt();
-    }
-
-    status |= Vdp.bitVBlank; // on: vblank
+    vBlank = true; // during vblank
     return false;
   }
 
-  void startHsync() {
-    // print("status:${status.hex8} enableHInt:$enableHInt");
-    if (!status.bit3 && enableHInt) {
-      hSyncCounter--;
-
-      if (hSyncCounter <= 0) {
-        hSyncCounter = reg[10];
-        status |= Vdp.bitHBlank; // start hblank
+  void finishLine() {
+    if (y == Vdp.height - 1 && enableVInt) {
+      vBlank = true;
+      status |= Vdp.bitVblankInt; // on: vsync int occureed
+      bus.interrupt(6);
+      busZ80.assertInt();
+    } else if (!vBlank && enableHInt) {
+      if (hIntCounter == 0) {
+        hIntCounter = reg[10];
+        hBlank = true;
         bus.interrupt(4);
+      } else {
+        hIntCounter--;
       }
+    } else if (vCounter == 0 || y >= Vdp.height) {
+      hIntCounter = reg[10];
     }
   }
 }

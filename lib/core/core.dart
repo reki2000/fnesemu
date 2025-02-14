@@ -5,31 +5,6 @@ import '../util/util.dart';
 import 'pad_button.dart';
 import 'types.dart';
 
-class ExecResult {
-  int elapsedClocks;
-  bool stopped;
-  bool scanlineRendered;
-
-  bool executed0 = true;
-  bool executed1 = false;
-
-  ExecResult(
-    this.elapsedClocks,
-    this.stopped,
-    this.scanlineRendered,
-  );
-
-  bool executed(int i) => i == 0 ? executed0 : executed1;
-}
-
-class CpuInfo {
-  final int no;
-  final String name;
-  final int addrBits;
-
-  CpuInfo(this.no, this.name, this.addrBits);
-}
-
 // abstract class to be implemented by Emulator classes
 abstract class Core {
   int get systemClockHz;
@@ -41,7 +16,7 @@ abstract class Core {
 
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
   /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
-  ExecResult exec();
+  ExecResult exec(bool step);
 
   /// returns screen image buffer
   ImageBuffer imageBuffer();
@@ -117,7 +92,7 @@ class EmptyCore extends Core {
       "";
 
   @override
-  ExecResult exec() => ExecResult(0, true, false);
+  ExecResult exec(bool step) => ExecResult(0, true, true);
 
   @override
   ImageBuffer imageBuffer() => ImageBuffer.empty();

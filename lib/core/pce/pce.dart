@@ -60,7 +60,7 @@ class Pce implements Core {
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
-  ExecResult exec() {
+  ExecResult exec(bool _) {
     if (!cpu.exec()) {
       return ExecResult(cpu.cycles, true, false);
     }
