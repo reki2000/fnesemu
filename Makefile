@@ -13,6 +13,10 @@ test:
 playvgm:
 	dart run lib/tools/vgmplayer.dart $(VGM)
 
+platform-upgrade:
+	rm -rf ios android windows linux macos web
+	flutter create --org com.reki2000 .
+
 format:
 	flutter pub get
 	flutter pub run import_path_converter:main
