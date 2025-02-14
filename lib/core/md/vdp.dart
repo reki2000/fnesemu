@@ -48,6 +48,12 @@ class Vdp {
   static const bitHBlank = 0x04;
   static const bitDmaRunning = 0x02;
 
+  set vBlank(bool value) => value ? status |= bitVBlank : status &= ~bitVBlank;
+  bool get vBlank => status & bitVBlank != 0;
+
+  set hBlank(bool value) => value ? status |= bitHBlank : status &= ~bitHBlank;
+  bool get hBlank => status & bitHBlank != 0;
+
   // rendering
 
   Uint32List buffer = Uint32List(320 * 224);
@@ -67,7 +73,7 @@ class Vdp {
   int vCounter = 0;
   int hCounter = 0;
 
-  int hSyncCounter = 0;
+  int hIntCounter = 0;
 
   // reset
   void reset() {
@@ -92,7 +98,7 @@ class Vdp {
 
     vCounter = 0;
     hCounter = 0;
-    hSyncCounter = 0;
+    hIntCounter = 0;
 
     _dmaMode = _dmaModeNone;
     _dmaSrc = 0;
@@ -111,7 +117,8 @@ class Vdp {
       busZ80.deassertInt();
       return val;
     } else if (port == 0x08) {
-      //print("vdp hv couter read: ${vCounter.hex16} ${hCounter.hex16}");
+      // print(
+      //     "vdp hv couter read: ${vCounter.hex16} ${hCounter.hex16} pc:${bus.cpu.pc.hex24}");
       return vCounter << 8 | hCounter >> 1;
     }
     return 0;
@@ -307,13 +314,13 @@ class Vdp {
     final spr = reg[5] << 9 & 0xfc00;
 
     final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
-    final vScrMode = reg[11].bit2 ? "16    " : "f:${vsram[0].hex16}";
+    final vScrMode = reg[11].bit2 ? "16  " : vsram[0].hex16;
 
     final dma =
         "dma:${enableDma ? "*" : "-"}${status & bitDmaRunning != 0 ? "r" : "-"} ${_dmaLength.hex16}";
 
     final s =
-        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} s:${spr.hex16} h:$hScrMode v:$vScrMode ${hSyncCounter.hex8}";
+        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} s:${spr.hex16} h:$hScrMode v:$vScrMode ${hIntCounter.hex8}";
 
     return "vdp:$regStr\n  s:${status.hex16} $s $dma";
   }
