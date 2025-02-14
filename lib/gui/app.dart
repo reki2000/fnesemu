@@ -17,6 +17,9 @@ import 'key_handler.dart';
 import 'sound_player.dart';
 import 'ticker_image.dart';
 
+const _isDebug = bool.fromEnvironment("DEBUG", defaultValue: false);
+const _roms = String.fromEnvironment("ROMS", defaultValue: "");
+
 class MyApp extends StatelessWidget {
   final String title;
   const MyApp({super.key, required this.title});
@@ -122,19 +125,14 @@ class MainPageState extends State<MainPage> {
       throw Exception("No files in the zip");
     }
 
-    setState(() {
-      _controller.init(extension(name), file);
-      _keyHandler.init();
-      _mPlayer.resume();
-      _romName = name;
-    });
-
-    // temporary debug options
-    // _controller.debugger.opt.showDebugView = true;
-    // _controller.debugger.debugOption.showVdc = true;
-    // _reset(run: false);
+    _controller.init(extension(name), file, isDebug: _isDebug);
+    _keyHandler.init();
+    _mPlayer.resume();
+    _romName = name;
 
     _reset(run: !_controller.debugger.opt.showDebugView);
+
+    setState(() {});
   }
 
   void _do(BuildContext ctx, Function() func) {
@@ -174,8 +172,8 @@ class MainPageState extends State<MainPage> {
     }();
   }
 
-  void _debug(bool on) {
-    _controller.debugger.setDebugView(on);
+  void _debug(bool onoff) {
+    _controller.debugger.setDebugView(onoff);
   }
 
   @override
@@ -184,19 +182,10 @@ class MainPageState extends State<MainPage> {
 
     return Scaffold(
       appBar: AppBar(title: Text(_romName), actions: [
-        // ...[
-        //   for (var name in [
-        //     "darius2.gen",
-        //     "daimakai.gen",
-        //     "sfzone.gen",
-        //     "sf2.gen",
-        //     "outrun.gen",
-        //     "sonic2.gen",
-        //     "sonic.gen",
-        //   ])
-        //     iconButton(Icons.file_open_outlined, name.split(".")[0],
-        //         () => _loadRomFile(name: name))
-        // ],
+        // shortcuts from environment variables
+        for (var name in _roms.split(",").where((s) => s.isNotEmpty))
+          iconButton(Icons.file_open_outlined, name.split(".")[0],
+              () => _loadRomFile(name: name)),
 
         // file load button
         iconButton(Icons.file_open_outlined, "Load ROM",
@@ -237,7 +226,7 @@ class MainPageState extends State<MainPage> {
                 CoreView(controller: _controller, container: _imageContainer),
 
                 // debug view if enabled
-                if (showDebug)
+                if (showDebug) ...[
                   SizedBox(
                       width: 640,
                       child: SingleChildScrollView(
@@ -247,7 +236,8 @@ class MainPageState extends State<MainPage> {
                               builder: (ctx, snapshot) => Text(
                                   snapshot.data?.text ?? "",
                                   style: debugStyle)))),
-                if (showDebug) DebugController(controller: _controller),
+                  DebugController(controller: _controller),
+                ],
               ],
             ),
             if (showDebug) DebugPane(debugger: _controller.debugger),
