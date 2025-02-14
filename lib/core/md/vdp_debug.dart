@@ -89,40 +89,54 @@ extension VdpDebug on Vdp {
     );
   }
 
-  // List<String> spriteInfo() {
-  //   final buf = List<String>.filled(64, "");
-
-  //   for (int i = 0; i < 64; i++) {
-  //     final sp = Sprite.of(sat, i * 4);
-  //     final xy = "${sp.x.toString().padLeft(4)},${sp.y.toString().padLeft(4)}";
-  //     final patNo =
-  //         "${sp.patternNo.toString().padLeft(4)} ${hex16(sp.patternNo << 6)}";
-  //     buf[i] =
-  //         "${i.toString().padLeft(2)} $xy  $patNo ${sp.paletteNo.toString().padLeft(2)} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "}";
-  //   }
-
-  //   return buf;
-  // }
+  List<String> debugSpriteInfo() {
+    final baseAddr = reg[5] << 9 & 0xfc00;
+    final result = List.generate(80, (i) {
+      final base = baseAddr + i * 8;
+      final sp = Sprite.of(
+          vram.getUInt16BE(base.mask16),
+          vram.getUInt16BE((base + 2).mask16),
+          vram.getUInt16BE((base + 4).mask16),
+          vram.getUInt16BE((base + 6).mask16));
+      final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
+      final flags =
+          "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
+      final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
+      return "#$no $xy ${sp.patternAddr.hex16} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
+    });
+    return result;
+  }
 
   ImageBuffer renderBg() {
-    final bgHshift = [5, 6, 7, 7][reg[16] & 0x03];
-    const bgVShift = 5;
-    final bgWidth = 1 << bgHshift;
-    const bgHeight = 1 << bgVShift;
-
     const tileSize = 8;
-    const imageWidth = 128 * tileSize;
+    // bgA(w128) + sprite(512) + window(w64)
+    const imageWidth = 128 * tileSize + 64 * tileSize + 512;
     const imageHeight = 64 * tileSize;
 
     final buf = Uint32List(imageWidth * imageHeight);
+    buf.fillRange(0, buf.length, 0xff000000);
 
-    // final nameA = reg[2] << 10 & 0xe000;
-    // final nameB = reg[4] << 13 & 0xe000;
-    for (int plane = 0; plane < 2; plane++) {
-      final nameAddressBase =
-          switch (plane) { 0 => reg[2] << 10, _ => reg[4] << 13 } & 0xe000;
-      final imageOffset = plane * 32 * tileSize * imageWidth;
+    final nameA = reg[2] << 10 & 0xe000;
+    final nameB = reg[4] << 13 & 0xe000;
+    final window = reg[3] << 10 & 0xf800;
 
+    for (int plane = 0; plane < 3; plane++) {
+      final nameAddressBase = [nameA, nameB, window][plane];
+
+      final bgHshift = [5, 6, 7, 7][plane == 2 ? 1 : reg[16] & 0x03];
+      final bgVShift = [5, 6, 7, 7][plane == 2 ? 0 : reg[16] >> 4 & 0x03];
+
+      final bgWidth = 1 << bgHshift;
+      final bgHeight = 1 << bgVShift;
+
+      // if bgHshift == 7, show planeA and planeB vertically stacked.
+      final imageOffset = switch (plane) {
+        0 => 0,
+        1 => bgHshift == 7 ? 32 * tileSize * imageWidth : 64 * tileSize,
+        _ => 128 * tileSize + 512
+      };
+
+      // render BG tiles
       for (int ty = 0; ty < bgHeight; ty++) {
         for (int tx = 0; tx < bgWidth; tx++) {
           final name = nameAddressBase | ty << (bgHshift + 1) | tx << 1;
@@ -130,12 +144,14 @@ extension VdpDebug on Vdp {
           final d1 = vram[name.inc];
           final palette = d0 >> 1 & 0x30;
           final addr = (d0 << 8 & 0x0700 | d1) << 5;
+          final hFlip = d0 & 0x08 != 0;
+          final vFlip = d0 & 0x10 != 0;
 
           for (int y = 0; y < tileSize; y++) {
-            final pattern = vram.getUInt32BE(addr + (y << 2));
+            final pattern = vram.getUInt32BE(addr + ((vFlip ? 7 - y : y) << 2));
 
             for (int x = 0; x < tileSize; x++) {
-              final shift = 7 - x;
+              final shift = hFlip ? x : 7 - x;
               final color = (pattern >> (shift << 2)) & 0x0f;
               final c = cram[((color == 0) ? 0 : palette) | color];
 
@@ -146,6 +162,46 @@ extension VdpDebug on Vdp {
             }
           }
         }
+      }
+
+      // render scrolled areas
+
+      // render window viewport
+    }
+
+    // render sprites box
+    const spriteImageOffset = 128 * tileSize;
+    final spriteBaseAddr = reg[5] << 9 & 0xfc00;
+    void pset(int x, int y, int c) {
+      int index = spriteImageOffset + x + y * imageWidth;
+      buf[index] =
+          ((buf[index] & 0xffffff) + 0x404040).clip(0, 0xffffff) | 0xff000000;
+    }
+
+    int spriteNo = 0;
+    for (int i = 0; i < 80; i++) {
+      final base = spriteBaseAddr + spriteNo * 8;
+      final sp = Sprite.of(
+          vram.getUInt16BE((base + 0).mask16),
+          vram.getUInt16BE((base + 2).mask16),
+          vram.getUInt16BE((base + 4).mask16),
+          vram.getUInt16BE((base + 6).mask16));
+
+      for (final y in [sp.y, sp.y + sp.height - 1]) {
+        for (int x = sp.x; x < sp.x + sp.width; x++) {
+          pset(x, y, 0x404040);
+        }
+      }
+
+      for (final x in [sp.x, sp.x + sp.width - 1]) {
+        for (int y = sp.y; y < sp.y + sp.height; y++) {
+          pset(x, y, 0x404040);
+        }
+      }
+
+      spriteNo = sp.next;
+      if (spriteNo == 0) {
+        break;
       }
     }
 

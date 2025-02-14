@@ -7,7 +7,7 @@ void bench0() {
 
   for (var i = 0; i < 0x10000 * 3; i++) {
     // print(md.dump());
-    md.exec();
+    md.exec(true);
   }
 
   final elapsed = DateTime.now().difference(startAt);

@@ -3,7 +3,7 @@ description: A multiplatform NES/PCE/MD Emulator written in Flutter.
 
 publish_to: none # Remove this line if you wish to publish to pub.dev
 
-version: 0.6.0+0
+version: 0.6.1+0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -21,7 +21,7 @@ dependencies:
   mp_audio_stream: ^0.2.0
   test: ^1.21.1
   archive: ^3.1.2
-  shared_preferences: ^2.1.2
+  shared_preferences: ^2.5.2
 
 dev_dependencies:
   flutter_test:

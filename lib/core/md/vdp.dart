@@ -39,11 +39,20 @@ class Vdp {
   bool get vScr2Cell => reg[11].bit2;
   int get vScrMode => reg[11] & 0x03;
 
-  int status = 0x200;
-  static const bitDmaRunning = 0x02;
+  int status = 0x200; // 0x02xx means fifo is always empty
+  static const bitVblankInt = 0x80;
+  static const bitSpriteOverflow = 0x40;
+  static const bitSpriteCollision = 0x20;
+  static const bitOddFrame = 0x10;
   static const bitVBlank = 0x08;
   static const bitHBlank = 0x04;
-  static const bitVblankInt = 0x80;
+  static const bitDmaRunning = 0x02;
+
+  set vBlank(bool value) => value ? status |= bitVBlank : status &= ~bitVBlank;
+  bool get vBlank => status & bitVBlank != 0;
+
+  set hBlank(bool value) => value ? status |= bitHBlank : status &= ~bitHBlank;
+  bool get hBlank => status & bitHBlank != 0;
 
   // rendering
 
@@ -64,7 +73,7 @@ class Vdp {
   int vCounter = 0;
   int hCounter = 0;
 
-  int hSyncCounter = 0;
+  int hIntCounter = 0;
 
   // reset
   void reset() {
@@ -89,7 +98,7 @@ class Vdp {
 
     vCounter = 0;
     hCounter = 0;
-    hSyncCounter = 0;
+    hIntCounter = 0;
 
     _dmaMode = _dmaModeNone;
     _dmaSrc = 0;
@@ -108,6 +117,8 @@ class Vdp {
       busZ80.deassertInt();
       return val;
     } else if (port == 0x08) {
+      // print(
+      //     "vdp hv couter read: ${vCounter.hex16} ${hCounter.hex16} pc:${bus.cpu.pc.hex24}");
       return vCounter << 8 | hCounter >> 1;
     }
     return 0;
@@ -185,20 +196,24 @@ class Vdp {
       final regNo = value >> 8 & 0x1f;
       reg[regNo] = value.mask8;
 
-      if (regNo == 12) {
-        h32 = value & 0x81 != 0x81;
-        width = h32 ? 256 : 320;
-        interlaceMode = value >> 1 & 0x03;
-      }
-
-      if (regNo == 0x17) {
-        if (!reg[0x17].bit7) {
-          _dmaMode = _dmaModeM2V;
-        } else if (!reg[0x17].bit6) {
-          _dmaMode = _dmaModeFill;
-        } else {
-          _dmaMode = _dmaModeV2V;
-        }
+      switch (regNo) {
+        case 12:
+          h32 = value & 0x81 != 0x81;
+          width = h32 ? 256 : 320;
+          interlaceMode = value >> 1 & 0x03;
+          break;
+        case 0x17:
+          if (!reg[0x17].bit7) {
+            _dmaMode = _dmaModeM2V;
+          } else if (!reg[0x17].bit6) {
+            _dmaMode = _dmaModeFill;
+          } else {
+            _dmaMode = _dmaModeV2V;
+          }
+          break;
+        // case 0x0a:
+        //   print(
+        //       "vdp[0x0a]:${value.hex8} ${bus.cpu.clocks} ${bus.cpu.pc.hex24} vcounter:${vCounter.hex16}"); // debug
       }
 
       _is1st = true;
@@ -299,14 +314,14 @@ class Vdp {
     final spr = reg[5] << 9 & 0xfc00;
 
     final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
-    final vScrMode = reg[11].bit2 ? "16" : "f ";
+    final vScrMode = reg[11].bit2 ? "16  " : vsram[0].hex16;
 
     final dma =
         "dma:${enableDma ? "*" : "-"}${status & bitDmaRunning != 0 ? "r" : "-"} ${_dmaLength.hex16}";
 
     final s =
-        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} s:${spr.hex16} hscr:$hScrMode vscr:$vScrMode";
+        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} s:${spr.hex16} h:$hScrMode v:$vScrMode ${hIntCounter.hex8}";
 
-    return "vdp:$regStr\n    s:${status.hex16} $s $dma";
+    return "vdp:$regStr\n  s:${status.hex16} $s $dma";
   }
 }

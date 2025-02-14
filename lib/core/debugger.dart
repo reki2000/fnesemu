@@ -19,7 +19,7 @@ class DebugOption {
 
   bool log = false;
 
-  List<int> breakPoint = [-1];
+  int breakPoint = -1;
   int stackPointer = -1;
   List<int> disasmAddress = [];
 

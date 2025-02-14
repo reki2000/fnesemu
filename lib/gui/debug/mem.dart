@@ -13,7 +13,7 @@ const _mask = (1 << _addrBitSize) - 1;
 const _addrTextLength = _addrBitSize >> 2;
 
 const _addrIncSize = 0x200;
-const _bytesPerLine = 22;
+const _bytesPerLine = 16; //22; // 22 for exodus view
 
 String _dump(Debugger debugger, int start) {
   final lines = <String>[];
