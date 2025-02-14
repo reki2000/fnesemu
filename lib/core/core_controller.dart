@@ -24,27 +24,13 @@ class CoreController {
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
 
-  void init(String coreName, Uint8List body) {
-    switch (coreName) {
-      case 'pce':
-        _core = CoreFactory.ofPce();
-        break;
-      case 'nes':
-        _core = CoreFactory.ofNes();
-        break;
-      case 'gen':
-      case 'md':
-        _core = CoreFactory.ofMd();
-        break;
-      default:
-        throw Exception('unsupported core: $coreName');
-    }
-
-    _core.onAudio(_onAudio);
-    _core.setRom(body);
+  void init(String coreName, Uint8List body, {isDebug = false}) {
+    _core = CoreFactory.of(coreName)
+      ..onAudio(_onAudio)
+      ..setRom(body);
 
     debugger = Debugger(_core);
-    debugger.pushStream();
+    debugger.opt.showDebugView = isDebug;
 
     reset();
   }
@@ -126,7 +112,6 @@ class CoreController {
 
     debugger.log.clear();
     debugger.opt.breakPoint = -1;
-    debugger.pushStream();
 
     _renderAll();
   }
