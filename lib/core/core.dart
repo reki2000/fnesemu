@@ -126,7 +126,7 @@ class EmptyCore extends Core {
       ImageBuffer.empty();
 
   @override
-  void reset() {}
+  void reset() => throw "ROM not loaded";
 
   @override
   int get scanlinesInFrame => 0;
