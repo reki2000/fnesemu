@@ -16,4 +16,13 @@ class CoreFactory {
   static Core ofMd() {
     return Md();
   }
+
+  static of(String coreName) {
+    return switch (coreName) {
+      'pce' => CoreFactory.ofPce(),
+      'nes' => CoreFactory.ofNes(),
+      'gen' || 'md' => CoreFactory.ofMd(),
+      _ => throw Exception('unsupported core: $coreName'),
+    };
+  }
 }
