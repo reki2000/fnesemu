@@ -1,36 +1,41 @@
 name: fnesemu
-description: A multiplatform NES Emulator written in Flutter.
+description: A multiplatform NES/PCE/MD Emulator written in Flutter.
 
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: none # Remove this line if you wish to publish to pub.dev
 
-version: 0.3.9+0
+version: 0.6.1+0
 
 environment:
-  sdk: ">=2.16.1 <4.0.0"
-  flutter: ^3.10.0
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ^3.27.3
 
 dependencies:
   flutter:
     sdk: flutter
 
   cupertino_icons: ^1.0.2
-  google_fonts: ^4.0.3
-  file_picker: ^5.2.6
+  google_fonts: ^6.2.1
+  file_picker: ^8.3.3
   js: ^0.6.5
-  package_info_plus: ^3.0.3
-  mp_audio_stream: ^0.1.4
+  package_info_plus: ^8.0.0
+  mp_audio_stream: ^0.2.0
   test: ^1.21.1
+  archive: ^3.1.2
+  shared_preferences: ^2.5.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  flutter_lints: ^1.0.0
+  flutter_lints: ^3.0.1
   import_sorter: ^4.6.0
   import_path_converter: ^1.0.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/
+    - assets/roms/
 
 import_path_converter:
   relative: true # true->相対パスに変換, false->パッケージパスに変換(デフォルト: false)

@@ -5,32 +5,49 @@ on:
   push:
     branches:
       - 'develop'
+  pull_request:
+    branches:
+      - 'develop'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Repository
-        id: version
-        run: |
-          REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
-          echo ::set-output name=repository::$REPOSITORY
-
-      - name: Flutter
+      - name: Flutter Test / Build
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.10.0'
+          flutter-version: '3.27'
           channel: 'stable'
           cache: true
       - run: flutter --version
       - run: flutter pub get
       - run: flutter test
-      - run: flutter build web --base-href /${{ steps.version.outputs.repository }}/
+      - run: |
+          REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
+          flutter build web --base-href /$REPOSITORY/
+
+      - name: Upload dist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: ./build/web
+
+  deploy:
+    runs-on: ubuntu-22.04
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: ./build/web
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3

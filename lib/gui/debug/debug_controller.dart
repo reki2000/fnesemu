@@ -1,53 +1,70 @@
 // Dart imports:
-import 'dart:developer';
-
 // Flutter imports:
 import 'package:flutter/material.dart';
 
-// Project imports:
-import '../nes_controller.dart';
-import 'disasm.dart';
+import '../../core/core_controller.dart';
+import '../../util/int.dart';
+import '../../styles.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
-  final NesController controller;
+  final CoreController controller;
 
-  const DebugController({Key? key, required this.controller}) : super(key: key);
+  const DebugController({super.key, required this.controller});
 
-  Widget _button(String text, void Function() func) => Container(
-      margin:
-          const EdgeInsets.only(top: 5.0, bottom: 5.0, left: 2.0, right: 2.0),
-      child: ElevatedButton(child: Text(text), onPressed: func));
+  Widget _button(String text, void Function() func) =>
+      TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
 
   @override
   Widget build(BuildContext context) {
-    controller.traceStream.listen((event) => log(event));
+    final debugger = controller.debugger;
+    final opt = debugger.opt;
+    final targetCpuNotifier = ValueNotifier<int>(opt.targetCpuNo);
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      _button("Step", controller.runStep),
-      _button("Line", controller.runScanLine),
-      _button("Frame", controller.runFrame),
-      SizedBox(
-          width: 50,
-          child: TextField(onChanged: (v) {
-            if (v.length == 4) {
-              try {
-                final breakPoint = int.parse(v, radix: 16);
-                controller.debugOption =
-                    controller.debugOption.copyWith(breakPoint: breakPoint);
-              } catch (e) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text(e.toString())));
-              }
-            }
-          })),
-      _button("Disasm", () => pushDisasmPage(context, controller)),
-      _button("VRAM", () => pushVramPage(context, controller)),
-      _button("Log", () {
-        final currentOn = controller.debugOption.log;
-        controller.debugOption =
-            controller.debugOption.copyWith(log: !currentOn);
+      if (debugger.cpuInfos.length > 1)
+        ValueListenableBuilder(
+            valueListenable: targetCpuNotifier,
+            builder: (ctx, value, _) =>
+                _button(debugger.cpuInfos[value].name, () {
+                  opt.targetCpuNo =
+                      (opt.targetCpuNo + 1) % debugger.cpuInfos.length;
+                  targetCpuNotifier.value = opt.targetCpuNo;
+                })),
+      _button("Step", () {
+        controller.run(mode: CoreController.runModeStep);
       }),
+      _button("Next", () {
+        opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
+        controller.run();
+      }),
+      _button("StepOut", () {
+        opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
+        controller.run(mode: CoreController.runModeStepOut);
+      }),
+      _button("Line", () => controller.run(mode: CoreController.runModeLine)),
+      _button("Frame", () => controller.run(mode: CoreController.runModeFrame)),
+      SizedBox(
+          width: 60,
+          child: TextField(
+              decoration: denseTextDecoration,
+              onChanged: (v) {
+                if (v.length == 4 || v.length == 6) {
+                  try {
+                    final breakPoint = int.parse(v, radix: 16);
+                    opt.breakPoint = breakPoint;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text("breakpoint: ${breakPoint.hex24}")));
+                  } catch (e) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(e.toString())));
+                  }
+                }
+              })),
+      _button("Mem", () => debugger.toggleMem()),
+      _button("VRAM", () => pushVramPage(context, controller)),
+      _button("VDC", () => debugger.toggleVdc()),
+      _button("Log", () => debugger.toggleLog()),
     ]);
   }
 }

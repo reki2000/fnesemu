@@ -1,7 +1,10 @@
-assets/rom/*
+assets/roms/*
 assets/nestest.log
+assets/tests.*
+assets/680x0
 docs/*
 .tool-versions
+log.txt
 
 # Miscellaneous
 *.class
@@ -48,3 +51,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# dev settings
+run.cmd
