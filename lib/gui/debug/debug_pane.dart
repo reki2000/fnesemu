@@ -16,28 +16,28 @@ class DebugPane extends StatelessWidget {
   Widget build(BuildContext context) => StreamBuilder(
       stream: debugger.debugStream,
       builder: (context, snapshot) {
-        final data = snapshot.data;
-        if (data?.showDebugView ?? false) {
-          return Row(children: [
-            if (data?.showDisasm ?? false)
-              Column(children: [
-                for (int cpuNo = 0; cpuNo < debugger.cpuInfos.length; cpuNo++)
-                  DebugDisasm(
-                    debugger: debugger,
-                    cpuNo: cpuNo,
-                    forwardLines: 46 ~/ debugger.cpuInfos.length - 4,
-                    backwardLines: 3,
-                    width: 300,
-                    addrBits: debugger.cpuInfos[cpuNo].addrBits,
-                  ),
-              ]),
-            if (data?.showMem ?? false) MemPane(debugger: debugger),
-            if (data?.showVdc ?? false) DebugVdc(debugger: debugger),
-            if (data?.log ?? false) TracePanel(log: debugger.log),
-          ]);
-        } else {
+        final opt = snapshot.data;
+        if (opt == null || !opt.showDebugView) {
           return Container();
         }
+
+        return Row(children: [
+          if (opt.showDisasm)
+            Column(children: [
+              for (int cpuNo = 0; cpuNo < debugger.cpuInfos.length; cpuNo++)
+                DebugDisasm(
+                  debugger: debugger,
+                  cpuNo: cpuNo,
+                  forwardLines: 46 ~/ debugger.cpuInfos.length - 4,
+                  backwardLines: 3,
+                  width: 300,
+                  addrBits: debugger.cpuInfos[cpuNo].addrBits,
+                ),
+            ]),
+          if (opt.showMem) MemPane(debugger: debugger),
+          if (opt.showVdc) DebugVdc(debugger: debugger),
+          if (opt.log) TracePanel(log: debugger.log),
+        ]);
       });
 }
 

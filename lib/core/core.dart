@@ -92,7 +92,7 @@ class EmptyCore extends Core {
       "";
 
   @override
-  ExecResult exec(bool step) => ExecResult(0, true, true);
+  ExecResult exec(bool step) => ExecResult(1, true, true);
 
   @override
   ImageBuffer imageBuffer() => ImageBuffer.empty();

@@ -17,6 +17,8 @@ import 'key_handler.dart';
 import 'sound_player.dart';
 import 'ticker_image.dart';
 
+part 'loader.dart';
+
 const _isDebug = bool.fromEnvironment("DEBUG", defaultValue: false);
 const _roms = String.fromEnvironment("ROMS", defaultValue: "");
 
@@ -46,10 +48,10 @@ class MainPageState extends State<MainPage> {
   final _mPlayer = SoundPlayer();
   final _imageContainer = ImageContainer();
   late final KeyHandler _keyHandler;
-
   late final CoreController _controller;
 
   bool get _running => _controller.isRunning();
+  bool get _debugging => _controller.debugger.opt.showDebugView;
 
   String _romName = "";
 
@@ -62,6 +64,8 @@ class MainPageState extends State<MainPage> {
       (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
       (buf) => _imageContainer.push(buf.buffer, buf.width, buf.height),
     );
+
+    _controller.debugger.opt.showDebugView = _isDebug;
 
     _keyHandler = KeyHandler(controller: _controller);
   }
@@ -86,58 +90,10 @@ class MainPageState extends State<MainPage> {
     ServicesBinding.instance.keyboard.addHandler(_keyHandler.handle);
   }
 
-  void _loadRomFile({String name = ""}) async {
-    _mPlayer.resume(); // web platform requires this
-
-    Uint8List file;
-    if (name == "") {
-      final picked = await FilePicker.platform.pickFiles(withData: true);
-      if (picked == null) {
-        return;
-      }
-      file = picked.files.first.bytes!;
-      name = picked.files.first.name;
-    } else {
-      file = (await rootBundle.load('assets/roms/$name')).buffer.asUint8List();
-    }
-
-    String extension(String fileName) =>
-        fileName.substring(fileName.lastIndexOf(".") + 1);
-
-    bool found = true;
-
-    // if zip, extract the first file with known extention
-    if (extension(name) == "zip") {
-      found = false;
-      final archive = ZipDecoder().decodeBytes(file);
-
-      for (final entry in archive) {
-        if (["nes", "pce", "md", "gen"].contains(extension(entry.name))) {
-          file = entry.content as Uint8List;
-          name = entry.name;
-          found = true;
-          break;
-        }
-      }
-    }
-
-    if (!found) {
-      throw Exception("No files in the zip");
-    }
-
-    _controller.init(extension(name), file, isDebug: _isDebug);
-    _keyHandler.init();
-    _mPlayer.resume();
-    _romName = name;
-
-    _reset(run: !_controller.debugger.opt.showDebugView);
-
-    setState(() {});
-  }
-
-  void _do(BuildContext ctx, Function() func) {
+  // action wrapper for state refresh
+  void _do(BuildContext ctx, Function() action) {
     try {
-      func();
+      action();
       setState(() {});
     } catch (e, st) {
       ScaffoldMessenger.of(ctx)
@@ -147,101 +103,102 @@ class MainPageState extends State<MainPage> {
     }
   }
 
-  void _run() {
+  _loadRomFile({String fileName = ""}) async {
+    final (file, name) = await _pickFile(name: fileName);
+    final (extractedFile, extractedName) = _extractIfZip(file, name);
+
+    _controller.init(_fileExtension(extractedName), extractedFile);
+    _keyHandler.init();
+    _mPlayer.resume(); // web platform requires this
+    _romName = extractedName;
+
+    await _reset();
+
+    if (!_isDebug) {
+      await _run();
+    }
+  }
+
+  _run() async {
     _enableKeyHandler();
-
-    _controller.run();
+    await _controller.run();
   }
 
-  void _stop() {
+  _stop() async {
     _disableKeyHandler();
-
-    _controller.stop();
+    await _controller.stop();
   }
 
-  void _reset({bool run = false}) {
-    _disableKeyHandler();
-
-    () async {
-      await _controller.stop();
-      _controller.reset();
-
-      if (run) {
-        _run();
-      }
-    }();
+  _reset() async {
+    await _controller.reset();
   }
 
-  void _debug(bool onoff) {
+  _debug(bool onoff) {
     _controller.debugger.setDebugView(onoff);
   }
 
   @override
-  Widget build(BuildContext context) {
-    bool showDebug = _controller.debugger.opt.showDebugView;
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(_romName), actions: [
+          // shortcuts from environment variables
+          for (var name in _roms.split(",").where((s) => s.isNotEmpty))
+            iconButton(Icons.file_open_outlined, name.split(".")[0],
+                () => _loadRomFile(fileName: name)),
 
-    return Scaffold(
-      appBar: AppBar(title: Text(_romName), actions: [
-        // shortcuts from environment variables
-        for (var name in _roms.split(",").where((s) => s.isNotEmpty))
-          iconButton(Icons.file_open_outlined, name.split(".")[0],
-              () => _loadRomFile(name: name)),
+          // file load button
+          iconButton(Icons.file_open_outlined, "Load ROM",
+              () => _do(context, _loadRomFile)),
 
-        // file load button
-        iconButton(Icons.file_open_outlined, "Load ROM",
-            () => _do(context, _loadRomFile)),
+          // run / pause button
+          _running
+              ? iconButton(Icons.pause, "Pause", () => _do(context, _stop))
+              : iconButton(Icons.play_arrow, "Run", () => _do(context, _run)),
 
-        // run / pause button
-        _running
-            ? iconButton(Icons.pause, "Pause", () => _do(context, _stop))
-            : iconButton(Icons.play_arrow, "Run", () => _do(context, _run)),
+          // reset button
+          iconButton(Icons.restart_alt, "Reset", () => _do(context, _reset)),
 
-        // reset button
-        iconButton(Icons.restart_alt, "Reset", () => _do(context, _reset)),
+          // debug on/off button
+          _debugging
+              ? iconButton(Icons.bug_report, "Disable Debug Options",
+                  () => _do(context, () => _debug(false)))
+              : iconButton(Icons.bug_report_outlined, "Enable Debug Options",
+                  () => _do(context, () => _debug(true))),
+        ]),
+        drawer: Drawer(
+            child: ListView(children: [
+          ListTile(
+            title: const Text("License"),
+            trailing: const Icon(Icons.arrow_forward),
+            onTap: () => showLicensePage(context: context),
+          ),
+        ])),
+        body: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  // main view
+                  CoreView(controller: _controller, container: _imageContainer),
 
-        // debug on/off button
-        showDebug
-            ? iconButton(Icons.bug_report, "Disable Debug Options",
-                () => _do(context, () => _debug(false)))
-            : iconButton(Icons.bug_report_outlined, "Enable Debug Options",
-                () => _do(context, () => _debug(true))),
-      ]),
-      drawer: Drawer(
-          child: ListView(children: [
-        ListTile(
-          title: const Text("License"),
-          trailing: const Icon(Icons.arrow_forward),
-          onTap: () => showLicensePage(context: context),
-        ),
-      ])),
-      body: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                // main view
-                CoreView(controller: _controller, container: _imageContainer),
-
-                // debug view if enabled
-                if (showDebug) ...[
-                  SizedBox(
-                      width: 640,
-                      child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: StreamBuilder<DebugOption>(
-                              stream: _controller.debugger.debugStream,
-                              builder: (ctx, snapshot) => Text(
-                                  snapshot.data?.text ?? "",
-                                  style: debugStyle)))),
-                  DebugController(controller: _controller),
+                  // debug view if enabled
+                  if (_debugging) ...[
+                    SizedBox(
+                        width: 640,
+                        child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: StreamBuilder<DebugOption>(
+                                stream: _controller.debugger.debugStream,
+                                builder: (ctx, snapshot) => Text(
+                                    snapshot.data?.text ?? "",
+                                    style: debugStyle)))),
+                    DebugController(controller: _controller),
+                  ],
                 ],
-              ],
-            ),
-            if (showDebug) DebugPane(debugger: _controller.debugger),
-          ]),
-    );
-  }
+              ),
+              if (_debugging) DebugPane(debugger: _controller.debugger),
+            ]),
+      );
 }
