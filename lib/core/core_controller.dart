@@ -24,13 +24,12 @@ class CoreController {
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
 
-  void init(String coreName, Uint8List body, {isDebug = false}) {
+  void init(String coreName, Uint8List body) {
     _core = CoreFactory.of(coreName)
       ..onAudio(_onAudio)
       ..setRom(body);
 
-    debugger = Debugger(_core);
-    debugger.opt.showDebugView = isDebug;
+    debugger.setCore(_core);
 
     reset();
   }
@@ -53,7 +52,7 @@ class CoreController {
   bool isRunning() => _running;
 
   /// runs emulation continuously
-  Future<void> run({int mode = 0}) async {
+  run({int mode = runModeNone}) async {
     await stop();
 
     _runMode = mode;
@@ -66,7 +65,6 @@ class CoreController {
     final initialCpuClocks = _currentCpuClocks;
     final runStartedAt = DateTime.now();
     int nextFrameClocks = 0;
-    // int awaitCount = 0;
 
     while (_running) {
       final now = DateTime.now();
@@ -90,7 +88,7 @@ class CoreController {
   }
 
   /// stop emulation
-  Future<void> stop() async {
+  stop() async {
     _running = false;
 
     while (_runningCount > 0) {
@@ -103,8 +101,7 @@ class CoreController {
   }
 
   /// reset emulation. keep run/stop state
-  void reset() {
-    _running = false;
+  reset() async {
     _fps = 0.0;
     _currentCpuClocks = 0;
 
@@ -114,6 +111,11 @@ class CoreController {
     debugger.opt.breakPoint = -1;
 
     _renderAll();
+
+    if (_running) {
+      await stop();
+      run(mode: _runMode);
+    }
   }
 
   /// executes emulation during 1 frame
