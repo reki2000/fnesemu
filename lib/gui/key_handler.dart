@@ -2,36 +2,49 @@
 import 'package:flutter/services.dart';
 
 // Project imports:
-import 'nes_controller.dart';
+import '../core/core_controller.dart';
+import '../core/pad_button.dart';
 
 class KeyHandler {
-  final NesController controller;
-  KeyHandler({required this.controller});
+  final CoreController controller;
+  late Map<PhysicalKeyboardKey, PadButton?> _keys;
 
-  static final _keys = {
-    PhysicalKeyboardKey.arrowDown: NesPadButton.down,
-    PhysicalKeyboardKey.arrowUp: NesPadButton.up,
-    PhysicalKeyboardKey.arrowLeft: NesPadButton.left,
-    PhysicalKeyboardKey.arrowRight: NesPadButton.right,
-    PhysicalKeyboardKey.keyX: NesPadButton.a,
-    PhysicalKeyboardKey.keyZ: NesPadButton.b,
-    PhysicalKeyboardKey.keyA: NesPadButton.select,
-    PhysicalKeyboardKey.keyS: NesPadButton.start,
-  };
+  KeyHandler({required this.controller}) {
+    init();
+  }
+
+  init() {
+    maybeButton(int no) =>
+        controller.buttons.length - 1 >= no ? controller.buttons[no] : null;
+    _keys = {
+      PhysicalKeyboardKey.arrowDown: PadButton.down,
+      PhysicalKeyboardKey.arrowUp: PadButton.up,
+      PhysicalKeyboardKey.arrowLeft: PadButton.left,
+      PhysicalKeyboardKey.arrowRight: PadButton.right,
+      PhysicalKeyboardKey.keyA: maybeButton(4),
+      PhysicalKeyboardKey.keyS: maybeButton(5),
+      PhysicalKeyboardKey.keyZ: maybeButton(6),
+      PhysicalKeyboardKey.keyX: maybeButton(7),
+      PhysicalKeyboardKey.keyC: maybeButton(8),
+      PhysicalKeyboardKey.keyQ: maybeButton(9),
+      PhysicalKeyboardKey.keyW: maybeButton(10),
+      PhysicalKeyboardKey.keyE: maybeButton(11),
+    };
+  }
 
   bool handle(KeyEvent e) {
-    NesPadButton? button = _keys[e.physicalKey];
+    final button = _keys[e.physicalKey];
+
     if (button != null) {
-      switch (e.runtimeType) {
-        case KeyDownEvent:
-          controller.padDown(button);
-          break;
-        case KeyUpEvent:
-          controller.padUp(button);
-          break;
+      if (e is KeyDownEvent) {
+        controller.padDown(0, button);
+        return true;
+      } else if (e is KeyUpEvent) {
+        controller.padUp(0, button);
+        return true;
       }
-      return true;
     }
+
     return false;
   }
 }
