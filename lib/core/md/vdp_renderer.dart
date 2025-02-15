@@ -102,11 +102,16 @@ extension VdpRenderer on Vdp {
   _fillSpriteBuffer() {
     status &= ~Vdp.bitSpriteOverflow;
 
+    final overflowCount = h32 ? 16 : 20;
+    final displayCount = h32 ? 64 : 80;
+    final pixelCount = h32 ? 256 : 320;
+
     final baseAddr = reg[5] << 9 & 0xfc00;
     int spriteNo = 0;
+    int pixelsPerLine = 0;
     spriteBufIndex = 0;
 
-    for (int i = 0; i < 80; i++) {
+    for (int i = 0; i < displayCount; i++) {
       final base = baseAddr + spriteNo * 8;
       final sp = Sprite.of(
           vram.getUInt16BE(base.mask16),
@@ -116,10 +121,14 @@ extension VdpRenderer on Vdp {
 
       if (sp.y - 128 <= y && y < sp.y + sp.height - 128) {
         spriteBuf[spriteBufIndex++] = sp;
-        sp.fetchedX2 = -1;
 
-        if (spriteBufIndex == 20) {
+        if (spriteBufIndex == overflowCount) {
           status |= Vdp.bitSpriteOverflow;
+          break;
+        }
+
+        pixelsPerLine += sp.width;
+        if (pixelsPerLine >= pixelCount) {
           break;
         }
       }
