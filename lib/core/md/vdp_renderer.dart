@@ -361,15 +361,26 @@ extension VdpRenderer on Vdp {
       status |= Vdp.bitVblankInt; // on: vsync int occureed
       bus.interrupt(6);
       busZ80.assertInt();
-    } else if (!vBlank && enableHInt) {
-      if (hIntCounter == 0) {
-        hIntCounter = reg[10];
-        hBlank = true;
-        bus.interrupt(4);
-      } else {
+      return;
+    }
+
+    if (!vBlank) {
+      hBlank = true;
+
+      if (enableHInt) {
+        if (hIntCounter == 0) {
+          hIntCounter = reg[10];
+          bus.interrupt(4);
+          return;
+        }
+
         hIntCounter--;
       }
-    } else if (vCounter == 0 || y >= Vdp.height) {
+
+      return;
+    }
+
+    if (vCounter == 0 || y >= Vdp.height) {
       hIntCounter = reg[10];
     }
   }
