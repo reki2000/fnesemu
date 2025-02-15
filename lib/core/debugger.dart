@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../gui/debug/tracer.dart';
 import '../util/util.dart';
+import 'buffered_stream.dart';
 import 'core.dart';
 import 'types.dart';
 
@@ -24,21 +25,24 @@ class DebugOption {
   List<int> disasmAddress = [];
 
   int targetCpuNo = 0;
-
-  DebugOption(int maxCpuNo) : disasmAddress = List.filled(maxCpuNo, 0);
 }
 
 class Debugger {
-  final Core core;
+  Core core;
+  DebugOption opt = DebugOption();
 
-  Debugger(this.core) : opt = DebugOption(core.cpuInfos.length);
+  Debugger(this.core) {
+    setCore(core);
+  }
 
-  // interafaces for debugging features
-  DebugOption opt;
+  setCore(Core core) {
+    this.core = core;
+    opt.disasmAddress = List.filled(core.cpuInfos.length, 0);
+  }
 
   List<CpuInfo> get cpuInfos => core.cpuInfos;
 
-  final _debugStream = StreamController<DebugOption>.broadcast();
+  final _debugStream = BufferedStreamController<DebugOption>();
   Stream<DebugOption> get debugStream => _debugStream.stream;
 
   void setDebugView(bool show) {
@@ -55,11 +59,12 @@ class Debugger {
         opt.disasmAddress[i] = core.programCounter(i);
       }
     }
+
     _debugStream.add(opt);
   }
 
   Tracer? _tracer;
-  final _traceStream = StreamController<String>.broadcast();
+  final _traceStream = StreamController<String>();
   StreamSubscription<String>? _traceSubscription;
 
   void toggleLog() {
