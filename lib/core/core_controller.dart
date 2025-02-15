@@ -140,6 +140,7 @@ class CoreController {
   /// returns false if the emulation is stopped
   bool _runScanLine() {
     final opt = debugger.opt;
+    final step = _runMode != runModeNone || opt.breakPoint >= 0 || opt.log;
     bool cpuExecuted = true;
 
     while (true) {
@@ -149,7 +150,7 @@ class CoreController {
       }
 
       // exec 1 cpu instruction
-      final result = _core.exec(_runMode == runModeStep);
+      final result = _core.exec(step);
       _currentCpuClocks = result.elapsedClocks;
 
       if (result.stopped) {
