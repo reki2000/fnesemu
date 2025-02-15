@@ -209,7 +209,7 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => 0, // busZ80.busReq ? 1 : 0, // z80 busreq
+      0x1100 => busZ80.busReq ? 0 : 1, // z80 busreq 0:granted
       0x1200 => 0x00, // z80 reset
       _ => 0x00,
     };
