@@ -46,7 +46,7 @@ abstract class Core {
       bool showApu = false});
 
   // debug: returns dis-assembled instruction in Pair<String nmemonic, int nextAddr>
-  Pair<String, int> disasm(int cpuNo, int addr);
+  (String, int) disasm(int cpuNo, int addr);
 
   // debug: returns PC register
   int programCounter(int cpuNo);

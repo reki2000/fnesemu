@@ -153,8 +153,8 @@ class Pce implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int _, int addr) =>
-      Pair(cpu.dumpDisasm(addr), Disasm.nextPC(cpu.read(addr)));
+  (String, int) disasm(int _, int addr) =>
+      (cpu.dumpDisasm(addr), Disasm.nextPC(cpu.read(addr)));
 
   // debug: returns PC register
   @override

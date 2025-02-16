@@ -270,10 +270,8 @@ class Md implements Core {
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int cpuNo, int addr) {
-    final (asm, i) = cpuNo == 0 ? disasmM68(addr) : disasmZ80(addr);
-    return Pair(asm, i);
-  }
+  (String, int) disasm(int cpuNo, int addr) =>
+      cpuNo == 0 ? disasmM68(addr) : disasmZ80(addr);
 
   // debug: returns PC register
   @override

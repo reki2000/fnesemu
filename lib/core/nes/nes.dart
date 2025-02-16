@@ -198,10 +198,7 @@ class Nes implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int _, int addr) {
-    final (asm, offset) = cpu.dumpDisasm(addr);
-    return Pair(asm, offset);
-  }
+  (String, int) disasm(int _, int addr) => cpu.dumpDisasm(addr);
 
   // debug: returns PC register
   @override

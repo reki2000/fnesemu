@@ -16,7 +16,7 @@ class EmptyCore extends Core {
   List<CpuInfo> get cpuInfos => [const CpuInfo(0, "", 16)];
 
   @override
-  Pair<String, int> disasm(int cpuNo, int addr) => const Pair("", 0);
+  (String, int) disasm(int cpuNo, int addr) => ("", 0);
 
   @override
   String dump(
@@ -76,7 +76,7 @@ class EmptyCore extends Core {
   int get systemClockHz => 0;
 
   @override
-  TraceLog trace(int cpuNo) => TraceLog(0, 0, "", "");
+  TraceLog trace(int cpuNo) => const TraceLog(0, 0, "", "");
 
   @override
   List<int> get vram => [];
