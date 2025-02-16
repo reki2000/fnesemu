@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: const MainPage());
+        home: InteractiveViewer(child: const MainPage()));
   }
 }
 
@@ -191,9 +191,11 @@ class MainPageState extends State<MainPage> {
                             scrollDirection: Axis.horizontal,
                             child: StreamBuilder<DebugOption>(
                                 stream: _controller.debugger.debugStream,
-                                builder: (ctx, snapshot) => Text(
-                                    snapshot.data?.text ?? "",
-                                    style: debugStyle)))),
+                                builder: (ctx, snapshot) => SelectableText(
+                                      snapshot.data?.text ?? "",
+                                      style: debugStyle,
+                                      showCursor: true,
+                                    )))),
                     DebugController(controller: _controller),
                   ],
                 ],
