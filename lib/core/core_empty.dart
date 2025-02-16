@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import '../util/util.dart';
 import 'core.dart';
 import 'pad_button.dart';
 import 'types.dart';
@@ -76,7 +75,7 @@ class EmptyCore extends Core {
   int get systemClockHz => 0;
 
   @override
-  TraceLog trace(int cpuNo) => const TraceLog(0, 0, "", "");
+  TraceLog trace(int cpuNo) => TraceLog(0, 0, "", "", List.empty());
 
   @override
   List<int> get vram => [];

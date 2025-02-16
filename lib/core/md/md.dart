@@ -8,7 +8,6 @@ import 'package:fnesemu/core/md/z80/z80_disasm.dart';
 import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
@@ -284,13 +283,29 @@ class Md implements Core {
   // debug: set debug logging
   @override
   TraceLog trace(int cpuNo) => cpuNo == 0
-      ? TraceLog(cpuM68.pc, cpuM68.clocks, disasmM68(cpuM68.pc).$1.padRight(44),
-          cpuM68.dump().replaceAll("\n", " "))
+      ? TraceLog(
+          cpuM68.pc,
+          cpuM68.clocks,
+          disasmM68(cpuM68.pc).$1.padRight(44),
+          cpuM68.dump().replaceAll("\n", " "),
+          [for (int i = 0; i < 8; i++) cpuM68.a[i], ...cpuM68.d, cpuM68.sr])
       : TraceLog(
           cpuZ80.r.pc,
           cpuZ80.cycles,
           "${cpuZ80.r.pc.hex16}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
-          cpuZ80.dump().replaceAll("\n", " "));
+          cpuZ80.dump().replaceAll("\n", " "), [
+          cpuZ80.r.af,
+          cpuZ80.r.bc,
+          cpuZ80.r.de,
+          cpuZ80.r.hl,
+          cpuZ80.r.af2,
+          cpuZ80.r.bc2,
+          cpuZ80.r.de2,
+          cpuZ80.r.hl2,
+          cpuZ80.r.ix,
+          cpuZ80.r.iy,
+          cpuZ80.r.sp
+        ]);
 
   // debug: dump vram
   @override
