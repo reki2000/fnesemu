@@ -1,4 +1,19 @@
 extension IntExt on int {
+  String get format3 {
+    int column = 0;
+    final r = List<String>.empty(growable: true);
+    for (int val = abs(); column == 0 || val != 0; val ~/= 10) {
+      if (column > 0 && column % 3 == 0) {
+        r.add(',');
+      }
+      column++;
+
+      r.add('0123456789'[val % 10]);
+    }
+
+    return "${this < 0 ? "-" : ""}${r.reversed.join()}";
+  }
+
   String get hex8 => mask8.toRadixString(16).padLeft(2, "0");
   String get hex16 => mask16.toRadixString(16).padLeft(4, "0");
   String get hex24 => mask24.toRadixString(16).padLeft(6, "0");

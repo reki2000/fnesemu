@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/core_controller.dart';
+import '../../core/types.dart';
 import '../../util/int.dart';
 import '../../styles.dart';
 import 'vram.dart';
@@ -15,22 +16,31 @@ class DebugController extends StatelessWidget {
   Widget _button(String text, void Function() func) =>
       TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
 
+  static int _targetCpuIndex(int targetCpuNo, List<CpuInfo> cpuInfos) {
+    for (int i = 0; i < cpuInfos.length; i++) {
+      if (cpuInfos[i].no == targetCpuNo) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final debugger = controller.debugger;
     final opt = debugger.opt;
-    final targetCpuNotifier = ValueNotifier<int>(opt.targetCpuNo);
+    final targetCpuNotifier =
+        ValueNotifier<int>(_targetCpuIndex(opt.targetCpuNo, debugger.cpuInfos));
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      if (debugger.cpuInfos.length > 1)
-        ValueListenableBuilder(
-            valueListenable: targetCpuNotifier,
-            builder: (ctx, value, _) =>
-                _button(debugger.cpuInfos[value].name, () {
-                  opt.targetCpuNo =
-                      (opt.targetCpuNo + 1) % debugger.cpuInfos.length;
-                  targetCpuNotifier.value = opt.targetCpuNo;
-                })),
+      ValueListenableBuilder(
+          valueListenable: targetCpuNotifier,
+          builder: (ctx, value, _) =>
+              _button(debugger.cpuInfos[value].name, () {
+                value = (value + 1) % debugger.cpuInfos.length;
+                opt.targetCpuNo = debugger.cpuInfos[value].no;
+                targetCpuNotifier.value = value;
+              })),
       _button("Step", () {
         controller.run(mode: CoreController.runModeStep);
       }),

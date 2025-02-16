@@ -49,7 +49,7 @@ class Md implements Core {
   int get clocksInScanline => m68ClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   @override
-  get cpuInfos => [CpuInfo(0, "68000", 24), CpuInfo(1, "Z80", 16)];
+  get cpuInfos => [CpuInfo.ofM68(0, "68000"), CpuInfo.ofZ80(1, "Z80")];
 
   Md() {
     busM68 = BusM68();
@@ -223,14 +223,14 @@ class Md implements Core {
       bool showSpriteVram = false,
       bool showStack = false,
       bool showApu = false}) {
-    final regM68 = cpuM68.dump();
+    final regM68 = "${cpuM68.dump()} cl:${cpuM68.clocks.format3}";
     final (asmM68, _) = disasmM68(cpuM68.pc);
     final stackM68 =
         List.generate(16, (i) => busM68.ram[0xfff0 + i].hex8, growable: false)
             .join(" ");
 
     final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
-    final regZ80 = cpuZ80.dump();
+    final regZ80 = "${cpuZ80.dump()} cl:${cpuZ80.cycles.format3}";
     final bus = "bus: z80bank:${busZ80.bank.hex24} clc:$_clocks";
 
     final vdpRegs = vdp.dump();
@@ -285,9 +285,14 @@ class Md implements Core {
 
   // debug: set debug logging
   @override
-  String tracingState(int cpuNo) => cpuNo == 0
-      ? "${disasmM68(cpuM68.pc).$1.padRight(44)} ${cpuM68.dump().replaceAll("\n", " " "")}"
-      : "${disasmZ80(cpuZ80.r.pc).$1.padRight(44)} ${cpuZ80.dump().replaceAll("\n", " ")}";
+  TraceLog trace(int cpuNo) => cpuNo == 0
+      ? TraceLog(cpuM68.pc, cpuM68.clocks, disasmM68(cpuM68.pc).$1.padRight(44),
+          cpuM68.dump().replaceAll("\n", " "))
+      : TraceLog(
+          cpuZ80.r.pc,
+          cpuZ80.cycles,
+          "${cpuZ80.r.pc.hex16}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
+          cpuZ80.dump().replaceAll("\n", " "));
 
   // debug: dump vram
   @override

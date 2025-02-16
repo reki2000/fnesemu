@@ -72,12 +72,8 @@ class Debugger {
     pushStream();
 
     if (opt.log && _tracer == null) {
-      // m68000
-      // _tracer = Tracer(_traceStream, pcWidth: 6, start: 0, end: 248, maxDiffChars: 4);
-      // z80
-      _tracer = Tracer(_traceStream,
-          pcWidth: 4, start: 0, end: 148, maxDiffChars: 12);
-      // 6502
+      final cpuInfo = cpuInfos[opt.targetCpuNo];
+      _tracer = Tracer(_traceStream, maxDiffChars: cpuInfo.traceDiffs);
 
       _traceSubscription = _traceStream.stream.listen((log) {
         this.log.add(log.replaceAll("\n", ""));
@@ -90,8 +86,8 @@ class Debugger {
 
   final log = List<String>.empty(growable: true);
 
-  addLog(String log) {
-    if (opt.log) _tracer?.addLog(log);
+  addLog(TraceLog log) {
+    if (opt.log) _tracer?.addTraceLog(log);
   }
 
   void toggleDisasm() {
