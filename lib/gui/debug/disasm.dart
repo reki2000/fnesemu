@@ -39,9 +39,9 @@ class DebugDisasm extends StatelessWidget {
     final result = List<Pair<int, String>>.empty(growable: true);
 
     for (int i = 0; i < lines; i++) {
-      final asm = debugger.disasm(cpuNo, addr);
-      result.add(Pair(addr, asm.i0));
-      addr += asm.i1;
+      final (asm, inc) = debugger.disasm(cpuNo, addr);
+      result.add(Pair(addr, asm));
+      addr += inc;
     }
 
     return result;
@@ -53,9 +53,9 @@ class DebugDisasm extends StatelessWidget {
 
     var current = addr - lines * 6;
     while (current < addr) {
-      final asm = debugger.disasm(cpuNo, current);
-      result.add(Pair(current, asm.i0));
-      current += asm.i1;
+      final (asm, inc) = debugger.disasm(cpuNo, current);
+      result.add(Pair(current, asm));
+      current += inc;
     }
 
     return result.sublist(result.length - lines);

@@ -97,13 +97,13 @@ class Debugger {
 
   int nextPc(int cpuNo) {
     final pc = core.programCounter(cpuNo);
-    final next = pc + core.disasm(0, pc).i1;
-    return next & ((1 << core.cpuInfos[cpuNo].addrBits) - 1);
+    final (_, inc) = core.disasm(0, pc);
+    return (pc + inc) & ((1 << core.cpuInfos[cpuNo].addrBits) - 1);
   }
 
   int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
 
-  Pair<String, int> disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
+  (String, int) disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
 
   void toggleVdc() {
     opt.showVdc = !opt.showVdc;
