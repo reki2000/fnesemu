@@ -1,7 +1,6 @@
 // data class to conver the result of 'exec'
 import 'dart:typed_data';
 
-import '../util/util.dart';
 import 'pad_button.dart';
 import 'types.dart';
 

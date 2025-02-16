@@ -17,7 +17,8 @@ extension CpuDebugger on Cpu {
     final reg =
         "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
 
-    return TraceLog(op, cycle, asm.toUpperCase(), reg.toUpperCase());
+    return TraceLog(op, cycle, asm.toUpperCase(), reg.toUpperCase(),
+        [regs.a, regs.x, regs.y, regs.p, regs.s]);
   }
 
   (String, int) dumpDisasm(int addr) {

@@ -65,8 +65,12 @@ extension CpuDebugger on Cpu {
   TraceLog trace() {
     final bank = _mprAddr(regs.pc);
     final pc = bank << 16 | regs.pc;
-    return TraceLog(pc, cycles,
-        "${bank.hex8}-${_disasm(regs.pc)}".toUpperCase(), _reg().toUpperCase());
+    return TraceLog(
+        pc,
+        cycles,
+        "${bank.hex8}-${_disasm(regs.pc)}".toUpperCase(),
+        _reg().toUpperCase(),
+        [regs.a, regs.x, regs.y, regs.p, regs.s]);
   }
 
   String dumpDisasm(int addr) {

@@ -2,7 +2,6 @@
 import 'dart:typed_data';
 
 // Project imports:
-import '../../util/util.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';

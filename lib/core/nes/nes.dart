@@ -13,7 +13,6 @@ import 'component/bus.dart';
 import 'component/chr_rom_debug.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
-import 'component/cpu_disasm.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
 import 'mapper/mapper.dart';
