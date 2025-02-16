@@ -379,7 +379,7 @@ class M68 {
     final rega = 'a:${a.map((e) => e.hex32).join(' ')}';
     final regd = 'd:${d.map((e) => e.hex32).join(' ')}';
     final regs =
-        'sr:${sr.hex32} usp:${usp.hex32} ssp:${ssp.hex32} pc:${pc.hex32} cl:$clocks';
+        'sr:${sr.hex32} usp:${usp.hex32} ssp:${ssp.hex32} pc:${pc.hex32}';
 
     const f = "XNZVC";
     final flags = List.generate(

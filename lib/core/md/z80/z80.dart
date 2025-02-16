@@ -477,7 +477,7 @@ class Z80 {
     final res3 =
         "ix:${r.ixiy[0].hex16} iy:${r.ixiy[1].hex16} sp:${r.sp.hex16} pc:${r.pc.hex16}";
     final regs4 =
-        ("i:${r.i.hex8} r:${r.r.hex8} iff:${iff1 ? 1 : 0}${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"} cy:$cycles");
+        ("i:${r.i.hex8} r:${r.r.hex8} iff:${iff1 ? 1 : 0}${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"}");
 
     const f = "SZ-H-PNC";
     final flags = List.generate(
@@ -485,6 +485,6 @@ class Z80 {
         (i) => "$f${f.toLowerCase()}"[
             (r.f << i & (1 << f.length - 1)) != 0 ? i : f.length + i]).join();
 
-    return "f:$flags $res1 $res2\n$res3 $regs4";
+    return "$flags $res1 $res2\n$res3 $regs4";
   }
 }

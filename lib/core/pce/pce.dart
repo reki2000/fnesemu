@@ -42,7 +42,7 @@ class Pce implements Core {
   int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   @override
-  get cpuInfos => [CpuInfo(1, "Hu6280", 16)];
+  get cpuInfos => [CpuInfo.of6502(1, "Hu6280")];
 
   Pce() {
     bus = Bus();
@@ -153,8 +153,8 @@ class Pce implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int _, int addr) => Pair(
-      cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(cpu.read(addr)));
+  Pair<String, int> disasm(int _, int addr) =>
+      Pair(cpu.dumpDisasm(addr), Disasm.nextPC(cpu.read(addr)));
 
   // debug: returns PC register
   @override
@@ -166,7 +166,7 @@ class Pce implements Core {
 
   // debug: set debug logging
   @override
-  String tracingState(int _) => "${cpu.trace()} ${vdc.dump()}";
+  TraceLog trace(int _) => cpu.trace();
 
   // debug: dump vram
   @override

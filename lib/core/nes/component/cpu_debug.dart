@@ -3,11 +3,12 @@ import 'dart:core';
 
 // Project imports:
 import '../../../util/util.dart';
+import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
 extension CpuDebugger on Cpu {
-  String trace() {
+  TraceLog trace() {
     final op = read(regs.pc);
     final a = read(regs.pc + 1);
     final b = read(regs.pc + 2);
@@ -16,19 +17,17 @@ extension CpuDebugger on Cpu {
     final reg =
         "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
 
-    return "$asm $reg".toUpperCase();
+    return TraceLog(op, cycle, asm.toUpperCase(), reg.toUpperCase());
   }
 
-  String dumpDisasm(int addr, {toAddrOffset = 0x200}) {
+  (String, int) dumpDisasm(int addr) {
     var result = "";
-    for (var pc = addr; pc < addr + toAddrOffset;) {
-      final op = read(pc);
-      final a = read(pc + 1);
-      final b = read(pc + 2);
-      result += Disasm.disasm(pc, op, a, b).padRight(47, " ");
-      pc += Disasm.nextPC(op);
-    }
-    return result;
+    final op = read(addr);
+    final a = read(addr + 1);
+    final b = read(addr + 2);
+    result += Disasm.disasm(addr, op, a, b).padRight(34, " ").toUpperCase();
+
+    return (result, Disasm.nextPC(op));
   }
 
   String dumpNesTest() {

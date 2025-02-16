@@ -40,5 +40,18 @@ class CpuInfo {
   final String name;
   final int addrBits;
 
-  CpuInfo(this.no, this.name, this.addrBits);
+  final int traceDiffs;
+
+  const CpuInfo(this.no, this.name, this.addrBits, {this.traceDiffs = 0});
+
+  CpuInfo.ofM68(int no, String name) : this(no, name, 24, traceDiffs: 12);
+  CpuInfo.ofZ80(int no, String name) : this(no, name, 16, traceDiffs: 12);
+  CpuInfo.of6502(int no, String name) : this(no, name, 16, traceDiffs: 4);
+}
+
+class TraceLog {
+  final int pc, cycle;
+  final String disasm, state;
+
+  const TraceLog(this.pc, this.cycle, this.disasm, this.state);
 }

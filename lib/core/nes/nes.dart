@@ -58,7 +58,7 @@ class Nes implements Core {
   int get systemClockHz => cpuClock;
 
   @override
-  get cpuInfos => [CpuInfo(1, "6502", 16)];
+  get cpuInfos => [CpuInfo.of6502(0, "6502")];
 
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
@@ -198,8 +198,10 @@ class Nes implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int _, int addr) =>
-      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
+  Pair<String, int> disasm(int _, int addr) {
+    final (asm, offset) = cpu.dumpDisasm(addr);
+    return Pair(asm, offset);
+  }
 
   // debug: returns PC register
   @override
@@ -211,7 +213,7 @@ class Nes implements Core {
 
   // debug: set debug logging
   @override
-  String tracingState(int _) => cpu.trace();
+  TraceLog trace(int _) => cpu.trace();
 
   // debug: dump vram
   @override

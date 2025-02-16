@@ -2,7 +2,10 @@
 import 'dart:core';
 
 // Project imports:
+import 'package:fnesemu/util/int.dart';
+
 import '../../../util/util.dart';
+import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
@@ -51,27 +54,23 @@ extension CpuDebugger on Cpu {
     return "$disasm$dst".padRight(47, " ");
   }
 
-  String _mprAddr(int addr) {
-    // return "${addr >> 13}:${hex8(regs.mpr[(addr >> 13) & 7])}:${hex16(addr & 0x1fff)}";
-    return hex8(regs.mpr[(addr >> 13) & 7]);
+  int _mprAddr(int addr) {
+    return regs.mpr[addr >> 13 & 7];
   }
 
   String _reg() {
     return "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
   }
 
-  String trace() {
-    return "${_mprAddr(regs.pc)}:${_disasm(regs.pc)} ${_reg()} cy:$cycles"
-        .toUpperCase();
+  TraceLog trace() {
+    final bank = _mprAddr(regs.pc);
+    final pc = bank << 16 | regs.pc;
+    return TraceLog(pc, cycles,
+        "${bank.hex8}-${_disasm(regs.pc)}".toUpperCase(), _reg().toUpperCase());
   }
 
-  String dumpDisasm(int addr, {toAddrOffset = 0x200}) {
-    var result = "";
-    for (var pc = addr; pc < addr + toAddrOffset;) {
-      result += "${_mprAddr(addr)}:${_disasm(pc)} ";
-      pc += Disasm.nextPC(read(pc));
-    }
-    return result;
+  String dumpDisasm(int addr) {
+    return "${_mprAddr(addr).hex8}-${_disasm(addr)} ".toUpperCase();
   }
 
   String dumpNesTest() {
@@ -79,7 +78,7 @@ extension CpuDebugger on Cpu {
     // final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
     // final ppuHorizontalCycle = (ppuCycle % 341).toString().padLeft(3, " ");
 
-    final result = "${_mprAddr(regs.pc)}:${_disasm(regs.pc)} ${_reg()}";
+    final result = "${_mprAddr(regs.pc).hex8}-${_disasm(regs.pc)} ${_reg()}";
     return result.toUpperCase();
   }
 
@@ -88,7 +87,7 @@ extension CpuDebugger on Cpu {
       showRegs = false,
       showZeroPage = false,
       showStack = false}) {
-    const header = "bk:addr: +0 +1 +2 +3 +4 +5 +6 +7 +8 +9 +a +b +c +d +e +f\n";
+    const header = "bk-addr: +0 +1 +2 +3 +4 +5 +6 +7 +8 +9 +a +b +c +d +e +f\n";
 
     String mem = "";
 
@@ -123,7 +122,7 @@ extension CpuDebugger on Cpu {
 
   String dumpMem(int addr, int target) {
     addr &= 0xfff0;
-    var str = "${_mprAddr(addr)} ${hex16(addr)}:";
+    var str = "${_mprAddr(addr).hex8}-${hex16(addr)}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["

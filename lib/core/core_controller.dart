@@ -4,6 +4,7 @@ import 'dart:core';
 import 'dart:typed_data';
 
 import 'core.dart';
+import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
 import 'frame_counter.dart';
@@ -145,7 +146,7 @@ class CoreController {
 
     while (true) {
       if (cpuExecuted && opt.log) {
-        debugger.addLog(_core.tracingState(opt.targetCpuNo));
+        debugger.addLog(_core.trace(opt.targetCpuNo));
         cpuExecuted = false;
       }
 
