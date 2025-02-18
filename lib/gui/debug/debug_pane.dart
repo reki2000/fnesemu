@@ -31,7 +31,7 @@ class DebugPane extends StatelessWidget {
                   forwardLines: 46 ~/ debugger.cpuInfos.length - 4,
                   backwardLines: 3,
                   width: 300,
-                  addrBits: debugger.cpuInfos[cpuNo].addrBits,
+                  addrBits: debugger.cpuInfos[cpuNo].pcBitWidth,
                 ),
             ]),
           if (opt.showMem) MemPane(debugger: debugger),

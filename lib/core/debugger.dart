@@ -97,7 +97,7 @@ class Debugger {
   int nextPc(int cpuNo) {
     final pc = core.programCounter(cpuNo);
     final (_, inc) = core.disasm(0, pc);
-    return (pc + inc) & ((1 << core.cpuInfos[cpuNo].addrBits) - 1);
+    return (pc + inc) & ((1 << core.cpuInfos[cpuNo].pcBitWidth) - 1);
   }
 
   int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
