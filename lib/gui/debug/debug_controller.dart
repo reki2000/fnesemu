@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/core_controller.dart';
+import '../../core/debugger.dart';
 import '../../core/types.dart';
 import '../../util/int.dart';
 import '../../styles.dart';
@@ -10,13 +11,16 @@ import 'vram.dart';
 
 class DebugController extends StatelessWidget {
   final CoreController controller;
+  final Debugger debugger;
 
-  const DebugController({super.key, required this.controller});
+  DebugController({super.key, required this.controller})
+      : debugger = controller.debugger;
 
   Widget _button(String text, void Function() func) =>
       TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
 
-  static int _targetCpuIndex(int targetCpuNo, List<CpuInfo> cpuInfos) {
+  int _targetCpuIndex(int targetCpuNo) {
+    final cpuInfos = debugger.cpuInfos;
     for (int i = 0; i < cpuInfos.length; i++) {
       if (cpuInfos[i].no == targetCpuNo) {
         return i;
@@ -25,56 +29,73 @@ class DebugController extends StatelessWidget {
     return 0;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final debugger = controller.debugger;
-    final opt = debugger.opt;
-    final targetCpuNotifier =
-        ValueNotifier<int>(_targetCpuIndex(opt.targetCpuNo, debugger.cpuInfos));
+  CpuInfo _targetCpu(DebugOption opt) =>
+      debugger.cpuInfos[_targetCpuIndex(opt.targetCpuNo)];
 
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      ValueListenableBuilder(
-          valueListenable: targetCpuNotifier,
-          builder: (ctx, value, _) =>
-              _button(debugger.cpuInfos[value].name, () {
-                value = (value + 1) % debugger.cpuInfos.length;
-                opt.targetCpuNo = debugger.cpuInfos[value].no;
-                targetCpuNotifier.value = value;
-              })),
-      _button("Step", () {
-        controller.run(mode: CoreController.runModeStep);
-      }),
-      _button("Next", () {
-        opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
-        controller.run();
-      }),
-      _button("StepOut", () {
-        opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
-        controller.run(mode: CoreController.runModeStepOut);
-      }),
-      _button("Line", () => controller.run(mode: CoreController.runModeLine)),
-      _button("Frame", () => controller.run(mode: CoreController.runModeFrame)),
-      SizedBox(
-          width: 60,
-          child: TextField(
-              decoration: denseTextDecoration,
-              onChanged: (v) {
-                if (v.length == 4 || v.length == 6) {
-                  try {
-                    final breakPoint = int.parse(v, radix: 16);
-                    opt.breakPoint = breakPoint;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text("breakpoint: ${breakPoint.hex24}")));
-                  } catch (e) {
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text(e.toString())));
-                  }
-                }
-              })),
-      _button("Mem", () => debugger.toggleMem()),
-      _button("VRAM", () => pushVramPage(context, controller)),
-      _button("VDC", () => debugger.toggleVdc()),
-      _button("Log", () => debugger.toggleLog()),
-    ]);
+  _setBreakPoint(BuildContext context, String v, DebugOption opt) {
+    if (v.length != _targetCpu(opt).pcBitWidth >> 2) {
+      return;
+    }
+
+    try {
+      final breakPoint = int.parse(v, radix: 16);
+      debugger.opt.breakPoint = breakPoint;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("breakpoint: ${breakPoint.hex24}"),
+          duration: const Duration(milliseconds: 200)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.toString()),
+          duration: const Duration(milliseconds: 200)));
+    }
   }
+
+  _toggleTargtCpu() {
+    final cpuInfos = controller.debugger.cpuInfos;
+    final value = (targetCpuNotifier.value + 1) % cpuInfos.length;
+    controller.debugger.opt.targetCpuNo = cpuInfos[value].no;
+    targetCpuNotifier.value = value;
+  }
+
+  final targetCpuNotifier = ValueNotifier<int>(0);
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder(
+        stream: debugger.debugStream,
+        builder: (context, snapshot) =>
+            (snapshot.hasData) ? body(context, snapshot.data!) : Container(),
+      );
+
+  String _formatPc(int pc, int bit) => bit == 24 ? pc.hex24 : pc.hex16;
+
+  Widget body(BuildContext context, DebugOption opt) =>
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        _button(_targetCpu(opt).name, _toggleTargtCpu),
+        _button("Step", () {
+          controller.run(mode: CoreController.runModeStep);
+        }),
+        _button("Next", () {
+          opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
+          controller.run();
+        }),
+        _button("StepOut", () {
+          opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
+          controller.run(mode: CoreController.runModeStepOut);
+        }),
+        _button("Line", () => controller.run(mode: CoreController.runModeLine)),
+        _button(
+            "Frame", () => controller.run(mode: CoreController.runModeFrame)),
+        SizedBox(
+            width: 60,
+            child: TextField(
+                controller: TextEditingController(
+                    text:
+                        _formatPc(opt.breakPoint, _targetCpu(opt).pcBitWidth)),
+                decoration: denseTextDecoration,
+                onChanged: (v) => _setBreakPoint(context, v, opt))),
+        _button("Mem", () => debugger.toggleMem()),
+        _button("VRAM", () => pushVramPage(context, controller)),
+        _button("VDC", () => debugger.toggleVdc()),
+        _button("Log", () => debugger.toggleLog()),
+      ]);
 }

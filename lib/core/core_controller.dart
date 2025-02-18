@@ -109,7 +109,6 @@ class CoreController {
     _core.reset();
 
     debugger.log.clear();
-    debugger.opt.breakPoint = -1;
 
     _renderAll();
 

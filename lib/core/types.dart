@@ -38,11 +38,11 @@ class ExecResult {
 class CpuInfo {
   final int no;
   final String name;
-  final int addrBits;
+  final int pcBitWidth;
 
   final int traceDiffs;
 
-  const CpuInfo(this.no, this.name, this.addrBits, {this.traceDiffs = 0});
+  const CpuInfo(this.no, this.name, this.pcBitWidth, {this.traceDiffs = 0});
 
   CpuInfo.ofM68(int no, String name) : this(no, name, 24, traceDiffs: 4);
   CpuInfo.ofZ80(int no, String name) : this(no, name, 16, traceDiffs: 2);
