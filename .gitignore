@@ -2,6 +2,7 @@ assets/roms/*
 assets/nestest.log
 assets/tests.*
 assets/680x0
+assets/MIPS-R3000-CPU-Simulator
 docs/*
 .tool-versions
 log.txt

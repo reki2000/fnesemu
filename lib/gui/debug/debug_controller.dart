@@ -66,7 +66,11 @@ class DebugController extends StatelessWidget {
             (snapshot.hasData) ? body(context, snapshot.data!) : Container(),
       );
 
-  String _formatPc(int pc, int bit) => bit == 24 ? pc.hex24 : pc.hex16;
+  String _formatPc(int pc, int bit) => bit == 32
+      ? pc.hex32
+      : bit == 24
+          ? pc.hex24
+          : pc.hex16;
 
   Widget body(BuildContext context, DebugOption opt) =>
       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -86,7 +90,7 @@ class DebugController extends StatelessWidget {
         _button(
             "Frame", () => controller.run(mode: CoreController.runModeFrame)),
         SizedBox(
-            width: 60,
+            width: 70,
             child: TextField(
                 controller: TextEditingController(
                     text:

@@ -23,6 +23,7 @@ extension IntExt on int {
   int get mask8 => this & 0xff;
   int get mask16 => this & 0xffff;
   int get mask24 => this & 0xffffff;
+  int get mask26 => this & 0x3ffffff;
   int get mask32 => this & 0xffffffff;
 
   int mask(int size) => size == 1
@@ -76,6 +77,7 @@ extension IntExt on int {
   int get rel8 => bit7 ? this - 0x100 : this;
   int get rel16 => bit15 ? this - 0x10000 : this;
   int get rel24 => bit23 ? this - 0x1000000 : this;
+  int get rel26 => bit25 ? this - 0x4000000 : this;
   int get rel32 => bit31 ? this - 0x100000000 : this;
 
   int rel(int size) => size == 1

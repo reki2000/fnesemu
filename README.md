@@ -77,3 +77,11 @@ $ cd assets && git clone https://github.com/SingleStepTests/680x0.git
 $ cd ..
 $ make test-m68
 ```
+
+## Totest R3000 emulation
+
+```
+$ cd assets && git clone https://github.com/mshockwave/MIPS-R3000-CPU-Simulator.git
+$ cd ..
+$ make test-r3000
+```

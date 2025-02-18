@@ -115,8 +115,9 @@ class MainPageState extends State<MainPage> {
   _loadRomFile({String fileName = ""}) async {
     final (file, name) = await _pickFile(name: fileName);
     final (extractedFile, extractedName) = _extractIfZip(file, name);
+    final ext = _fileExtension(extractedName);
 
-    _controller.init(_fileExtension(extractedName), extractedFile);
+    _controller.init(ext, extractedFile);
     _keyHandler.init();
     _mPlayer.resume(); // web platform requires this
     _romName = extractedName;

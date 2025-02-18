@@ -49,6 +49,7 @@ class CpuInfo {
   CpuInfo.ofM68(int no, String name) : this(no, name, 24, traceDiffs: 4);
   CpuInfo.ofZ80(int no, String name) : this(no, name, 16, traceDiffs: 2);
   CpuInfo.of6502(int no, String name) : this(no, name, 16, traceDiffs: 2);
+  CpuInfo.ofR3000(int no, String name) : this(no, name, 32, traceDiffs: 4);
 }
 
 class TraceLog {

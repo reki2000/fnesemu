@@ -7,20 +7,15 @@ import 'package:fnesemu/util/int.dart';
 import '../../core/debugger.dart';
 import '../../styles.dart';
 
-const _addrBitSize = 24;
-const _mask = (1 << _addrBitSize) - 1;
-
-const _addrTextLength = _addrBitSize >> 2;
-
 const _addrIncSize = 0x200;
 const _bytesPerLine = 16; //22; // 22 for exodus view
 
-String _dump(Debugger debugger, int start) {
+String _dump(Debugger debugger, int start, int mask) {
   final lines = <String>[];
 
   for (int base = start; base < start + _addrIncSize; base += _bytesPerLine) {
     final bytes = List.generate(
-        _bytesPerLine, (i) => debugger.read((base + i) & _mask).hex8);
+        _bytesPerLine, (i) => debugger.read((base + i) & mask).hex8);
     lines.add("${base.hex24}: ${bytes.join(" ")}");
   }
 
@@ -34,6 +29,11 @@ class MemPane extends StatelessWidget {
   MemPane({super.key, required this.debugger}) {
     addrNotifier.value = debugger.opt.memAddress;
   }
+
+  int get _addrBitSize =>
+      debugger.cpuInfos[debugger.opt.targetCpuNo].pcBitWidth;
+  int get _addrTextLength => _addrBitSize >> 2;
+  int get _mask => (1 << _addrBitSize) - 1;
 
   int get _addr => addrNotifier.value;
   set _addr(int addr) {
@@ -72,7 +72,7 @@ class MemPane extends StatelessWidget {
           ValueListenableBuilder<int>(
               valueListenable: addrNotifier,
               builder: (context, addr, child) =>
-                  Text(_dump(debugger, addr), style: debugStyle)),
+                  Text(_dump(debugger, addr, _mask), style: debugStyle)),
         ]),
       );
 }

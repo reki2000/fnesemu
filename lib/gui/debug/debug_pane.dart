@@ -47,8 +47,8 @@ class TracePanel extends StatelessWidget {
   const TracePanel({super.key, required this.log});
 
   copyToClipboard(BuildContext context) async {
-    final data =
-        ClipboardData(text: ["# trace", ...log].map((e) => "$e\n").join(""));
+    final data = ClipboardData(
+        text: ["# trace.txt", ...log].map((e) => "$e\n").join(""));
     await Clipboard.setData(data);
 
     if (!context.mounted) return;
