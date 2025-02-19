@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:fnesemu/util/sampler.dart';
 
 void main(List<String> args) {
@@ -12,8 +14,8 @@ void measure(int v, s, t, int Function(int, int, int) f) {
   final sampler = Sampler(10);
   for (int t = 0; t < sampler.size; t++) {
     final start = DateTime.now().microsecondsSinceEpoch;
-    print(f(v, s, 50 * 1000 * 1000));
-    sampler.add(DateTime.now().microsecondsSinceEpoch - start, print);
+    log("${f(v, s, 50 * 1000 * 1000)}");
+    sampler.add(DateTime.now().microsecondsSinceEpoch - start, log);
   }
 }
 
