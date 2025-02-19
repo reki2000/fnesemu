@@ -1,3 +1,4 @@
+import 'dart:developer';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/md/md.dart';
@@ -11,7 +12,7 @@ void bench0() {
   }
 
   final elapsed = DateTime.now().difference(startAt);
-  print('elapsed: ${elapsed.inMilliseconds}ms');
+  log('elapsed: ${elapsed.inMilliseconds}ms');
 }
 
 final md = Md();

@@ -78,6 +78,7 @@ class MainPageState extends State<MainPage> {
   }
 
   void _onStop() {
+    _disableKeyHandler();
     setState(() {});
   }
 
@@ -115,18 +116,18 @@ class MainPageState extends State<MainPage> {
     await _reset();
 
     if (!_isDebug) {
-      await _run();
+      _run();
     }
   }
 
-  _run() async {
+  _run() {
     _enableKeyHandler();
-    await _controller.run();
+    _controller.run();
   }
 
   _stop() async {
-    _disableKeyHandler();
     await _controller.stop();
+    _disableKeyHandler();
   }
 
   _reset() async {

@@ -54,7 +54,9 @@ class CoreController {
 
   /// runs emulation continuously
   run({int mode = runModeNone}) async {
-    await stop();
+    while (_runningCount > 0) {
+      await Future.delayed(const Duration());
+    }
 
     _runMode = mode;
 
