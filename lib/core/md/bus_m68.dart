@@ -20,6 +20,7 @@ class BusM68 {
   late Ym2612 fm;
 
   Rom rom = Rom();
+  int region = 0x00;
 
   final pad = Pad();
 
@@ -196,7 +197,7 @@ class BusM68 {
 
   int readIo16(int addr) {
     return switch (addr & 0xfffe) {
-      0x00 => 0x20, // domestic, ntsc, no fdd, version 0
+      0x00 => region | 0x20, // region, ntsc, no fdd, version 0
       0x02 || 0x04 || 0x06 => pad.readData((addr >> 1 & 0x03).dec), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
