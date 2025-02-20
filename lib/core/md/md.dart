@@ -38,6 +38,9 @@ class Md implements Core {
   static const m68ClockHz = masterClockHz ~/ 7;
   static const z80ClockHz = masterClockHz ~/ 15;
 
+  static const _regionDomestic = 0x00;
+  static const _regionOversea = 0x80;
+
   @override
   int get systemClockHz => m68ClockHz;
 
@@ -212,6 +215,28 @@ class Md implements Core {
   void setRom(Uint8List body) {
     busM68.rom.load(body);
 
+    // check ROM region
+    final r0 = String.fromCharCode(body[0x1f0]);
+    final r1 = String.fromCharCode(body[0x1f1]);
+    final r2 = String.fromCharCode(body[0x1f2]);
+
+    final newStyleIndex = "0123456789ABCD F".indexOf(r0);
+    if (newStyleIndex != -1) {
+      if (newStyleIndex.bit0) {
+        busM68.region = _regionDomestic;
+      } else if (newStyleIndex.bit2) {
+        busM68.region = _regionOversea;
+      } else {
+        throw Exception("unknown ROM region:$r0");
+      }
+    } else if ("$r0$r1$r2".contains("J")) {
+      busM68.region = _regionDomestic;
+    } else if ("$r0$r1".contains("U")) {
+      busM68.region = _regionOversea;
+    } else {
+      throw Exception("unknown ROM region:$r0$r1$r2");
+    }
+
     reset();
   }
 
@@ -230,7 +255,8 @@ class Md implements Core {
 
     final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
     final regZ80 = "${cpuZ80.dump()} cl:${cpuZ80.cycles.format3}";
-    final bus = "bus: z80bank:${busZ80.bank.hex24} clc:$_clocks";
+    final bus =
+        "bus: region:${busM68.region.hex8} z80bank:${busZ80.bank.hex24} clc:$_clocks";
 
     final vdpRegs = vdp.dump();
 
