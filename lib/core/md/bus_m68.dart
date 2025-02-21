@@ -245,8 +245,6 @@ class BusM68 {
   }
 
   void interrupt(int level) {
-    if (cpu.assertedIntLevel < level) {
-      cpu.assertedIntLevel = level;
-    }
+    cpu.interrupt(level);
   }
 }

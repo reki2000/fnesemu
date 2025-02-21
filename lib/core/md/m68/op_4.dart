@@ -1,7 +1,4 @@
-import 'package:fnesemu/core/md/m68/alu.dart';
-import 'package:fnesemu/util/int.dart';
-
-import 'm68.dart';
+part of 'm68.dart';
 
 extension Op4 on M68 {
   bool exec4(int op) {
@@ -217,7 +214,7 @@ extension Op4 on M68 {
 
           case 0x72: // stop
             sr = sr.setL16(pc16());
-            halt = true;
+            _halt = true;
             return true;
 
           case 0x73: // rte
