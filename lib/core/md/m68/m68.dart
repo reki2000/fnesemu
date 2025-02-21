@@ -2,7 +2,13 @@ import 'package:fnesemu/util/int.dart';
 
 import '../bus_m68.dart';
 
-export 'op.dart';
+part 'op.dart';
+part 'alu.dart';
+part 'op_0.dart';
+part 'op_4.dart';
+part 'op_8.dart';
+part 'op_c.dart';
+part 'op_e.dart';
 
 class BusError implements Exception {
   final bool read;
@@ -104,8 +110,8 @@ class M68 {
   set tf(bool on) => on ? sr |= bitT : sr &= ~bitT;
 
   // interrupt
-  int assertedIntLevel = 0;
-  bool halt = false;
+  int _assertedIntLevel = 0;
+  bool _halt = false;
 
   // memory access
   int read8(int addr) {
@@ -365,14 +371,20 @@ class M68 {
     clocks += 8; // 2 prefetch : 40
   }
 
+  void interrupt(int level) {
+    if (_assertedIntLevel < level) {
+      _assertedIntLevel = level;
+    }
+  }
+
   void reset() {
     // debug("reset");
     sr = 0x2700;
     ssp = read32(0x00);
     _pc = read32(0x04);
     clocks = 0;
-    assertedIntLevel = 0;
-    halt = false;
+    _assertedIntLevel = 0;
+    _halt = false;
   }
 
   String dump() {
