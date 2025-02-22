@@ -2,29 +2,20 @@
 
 A Cross-Platform NES/PCE/MD Emulator Built with Flutter
 
-This project is currently experimental.
+This project is experimental.
 
-- Achieves nearly 60 fps on an i5-8250 processor
+- Achieves 60 fps on an i5-8250 processor @web(NES,PCE), @windows(all)
 - Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
 - NES (.nes)
   - SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)
   - Supports the following iNES mapper types:
-    - 0: NROM
-    - 1: MMC1
-    - 2: UxROM
-    - 3: CNROM
-    - 4: MMC3
-    - 9,10: MMC2,4
-    - 73: VRC3
-    - 75: VRC1
-    - 21,23,25: VRC2,4
-    - 24,26: VRC6 (with audio)
-    - 19: Namco163 (waveform sound not supported)
-    - 88,206: Namco118
+    - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
+    - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6 (with audio)
+    - 19: Namco163 (waveform sound not supported), 88/206: Namco118
 - PCE (.pce)
-  - No SRAM / CD-ROM / SG16 support
+  - Does not support SRAM / CD / SG16
 - MD (.gen .md)
-  - No SRAM / CD / PAL / 32bit support
+  - Does not suppor SRAM / CD / PAL / 32X
 
 # How to use 
 
