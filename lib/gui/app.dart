@@ -62,7 +62,8 @@ class MainPageState extends State<MainPage> {
     _controller = CoreController(
       _onStop,
       (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
-      (buf) => _imageContainer.push(buf.buffer, buf.width, buf.height),
+      (buf) => _imageContainer.push(
+          buf.buffer, buf.width, buf.height, buf.displayWidth),
     );
 
     _controller.debugger.opt.showDebugView = _isDebug;

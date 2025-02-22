@@ -47,7 +47,7 @@ class _CoreViewState extends State<CoreView> {
                   container: widget.container)),
 
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            // debug control
+            // frame per second
             StreamBuilder<double>(
                 stream: widget.controller.fpsStream,
                 builder: (ctx, snapshot) => Text(

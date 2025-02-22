@@ -59,7 +59,8 @@ class Vdp {
   Uint32List buffer = Uint32List(320 * 224);
 
   ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, buffer.buffer.asUint8List());
+      ImageBuffer(width, height, buffer.buffer.asUint8List(),
+          displayWidth_: 320);
 
   bool h32 = true;
   bool ntsc = true; // false: pal
@@ -78,9 +79,9 @@ class Vdp {
   // reset
   void reset() {
     final rand = Random();
-    vram.fillRange(0, vram.length, 0);
-    // vram.setRange(0, vram.length,
-    //     Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    // vram.fillRange(0, vram.length, 0);
+    vram.setRange(0, vram.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
     cram.setRange(
         0, cram.length, Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
     vsram.fillRange(0, vsram.length, 0);

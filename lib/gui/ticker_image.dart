@@ -15,16 +15,11 @@ class ImageContainer {
 
   final displayWidthNotifier = ValueNotifier<int>(config.imageWidth);
 
-  set displayWidth(int w) {
-    if (displayWidthNotifier.value != w) {
-      displayWidthNotifier.value = w;
-    }
-  }
-
   int displayHeight = config.imageHeight;
 
-  void push(Uint8List buffer, int width, int height) {
-    displayWidth = width;
+  void push(Uint8List buffer, int width, int height, int displayWidth) {
+    displayWidthNotifier.value = displayWidth;
+
     buffer.isNotEmpty
         ? ui.decodeImageFromPixels(buffer, width, height,
             ui.PixelFormat.rgba8888, (image) => this.image = image)
