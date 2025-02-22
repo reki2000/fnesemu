@@ -192,7 +192,7 @@ class Disasm {
       0xe when op & 0xc0 == 0xc0 =>
         "${opRot(op1 >> 1, op1.bit0)}.w #1, ${ea()}",
       0xe =>
-        "${opRot(op >> 3 & 3, op1.bit0)}.$sz ${op.bit(5) ? "d$r2" : "#$r2"}, d$r1",
+        "${opRot(op >> 3 & 3, op1.bit0)}.$sz ${op.bit(5) ? "d$r2" : "#${r2 == 0 ? 8 : r2}"}, d$r1",
       _ => ex("op0"),
     };
 
