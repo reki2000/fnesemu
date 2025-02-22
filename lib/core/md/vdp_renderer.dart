@@ -106,7 +106,7 @@ extension VdpRenderer on Vdp {
     final displayCount = h32 ? 64 : 80;
     final pixelCount = h32 ? 256 : 320;
 
-    final baseAddr = reg[5] << 9 & 0xfc00;
+    final baseAddr = reg[5] << 9 & (h32 ? 0xfe00 : 0xfc00);
     int spriteNo = 0;
     int pixelsPerLine = 0;
     spriteBufIndex = 0;
