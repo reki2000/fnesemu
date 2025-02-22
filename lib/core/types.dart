@@ -4,8 +4,10 @@ class ImageBuffer {
   final int width;
   final int height;
   final Uint8List buffer;
+  final int displayWidth;
 
-  const ImageBuffer(this.width, this.height, this.buffer);
+  const ImageBuffer(this.width, this.height, this.buffer, {int? displayWidth_})
+      : displayWidth = displayWidth_ ?? width;
 
   factory ImageBuffer.empty() => ImageBuffer(0, 0, Uint8List(0));
 }
