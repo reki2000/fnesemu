@@ -93,15 +93,15 @@ class MainPageState extends State<MainPage> {
 
   // action wrapper for state refresh
   void _do(BuildContext ctx, Function() action) {
-    try {
-      action();
-      setState(() {});
-    } catch (e, st) {
-      ScaffoldMessenger.of(ctx)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
-      print(e);
-      print(st);
-    }
+    final messenger = ScaffoldMessenger.of(ctx);
+
+    // wrap both of async or sync function to catch error
+    (() async => await action())().catchError((e, st) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      throw e;
+    });
+
+    setState(() {});
   }
 
   _loadRomFile({String fileName = ""}) async {
@@ -143,8 +143,11 @@ class MainPageState extends State<MainPage> {
         appBar: AppBar(title: Text(_romName), actions: [
           // shortcuts from environment variables
           for (var name in _roms.split(",").where((s) => s.isNotEmpty))
-            iconButton(Icons.file_open_outlined, name.split(".")[0],
-                () => _loadRomFile(fileName: name)),
+            iconButton(
+                Icons.file_open_outlined,
+                name.split(".")[0],
+                () => _do(
+                    context, () async => await _loadRomFile(fileName: name))),
 
           // file load button
           iconButton(Icons.file_open_outlined, "Load ROM",
