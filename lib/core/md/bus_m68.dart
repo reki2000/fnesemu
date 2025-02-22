@@ -129,7 +129,10 @@ class BusM68 {
     if (top == 0xc00000) {
       if (addr & 0x1e == 0x10) {
         psg.write8(data);
+        return;
       }
+
+      write16(addr, data << 8);
       return;
     }
 

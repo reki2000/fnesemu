@@ -158,9 +158,9 @@ class Vdp {
 
   void startDma() {
     _dmaLength = reg[0x13] | reg[0x14] << 8;
-    // if (_dmaSrc == 0xffdc98) {
+    // if (_dmaSrc.mask16 != 0xeeb0) {
     // print(
-    //     "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+    //     "start dma: len:${_dmaLength.hex24} src:${_dmaSrc.hex24} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
     // }
     status |= bitDmaRunning;
   }
@@ -274,8 +274,9 @@ class Vdp {
     // print(
     //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16} pc:${bus.cpu.pc.hex24}");
     if (ram == ramVram) {
-      // if (_addr == 0xb800 + 0x08 * 13 + 6 && value == 279) {
-      //   print("vdp:debug: ${bus.cpu.dump()}"); // debug
+      // if (_addr == 0xc350) {
+      //   print(
+      //       "vdp:debug: v:${value.hex16} ${dump()} pc:${bus.cpu.pc}"); // debug
       // }
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;
