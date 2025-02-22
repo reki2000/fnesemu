@@ -335,7 +335,7 @@ class Md implements Core {
 
   // debug: dump vram
   @override
-  List<int> get vram => List.empty();
+  List<int> get vram => vdp.vram;
 
   // debug: read mem
   @override
