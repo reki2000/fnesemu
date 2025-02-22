@@ -3,7 +3,7 @@ description: A multiplatform NES/PCE/MD Emulator written in Flutter.
 
 publish_to: none # Remove this line if you wish to publish to pub.dev
 
-version: 0.6.2+0
+version: 0.6.3+0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -15,8 +15,7 @@ dependencies:
 
   cupertino_icons: ^1.0.2
   google_fonts: ^6.2.1
-  file_picker: ^8.3.3
-  js: ^0.6.5
+  file_picker: ^9.0.0
   package_info_plus: ^8.0.0
   mp_audio_stream: ^0.2.2
   test: ^1.21.1
@@ -27,7 +26,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  flutter_lints: ^3.0.1
+  flutter_lints: ^5.0.0
   import_sorter: ^4.6.0
   import_path_converter: ^1.0.1
 
@@ -38,4 +37,4 @@ flutter:
     - assets/roms/
 
 import_path_converter:
-  relative: true # true->相対パスに変換, false->パッケージパスに変換(デフォルト: false)
+  relative: true # true->relative path, false->package path (default: false)

@@ -97,7 +97,7 @@ class MainPageState extends State<MainPage> {
     final messenger = ScaffoldMessenger.of(ctx);
 
     // wrap both of async or sync function to catch error
-    (() async => await action())().catchError((e, st) {
+    Future.microtask(action).catchError((e, st) {
       messenger.showSnackBar(SnackBar(content: Text(e.toString())));
       throw e;
     });
@@ -122,6 +122,10 @@ class MainPageState extends State<MainPage> {
   }
 
   _run() {
+    if (_running) {
+      return;
+    }
+
     _enableKeyHandler();
     _controller.run();
   }
