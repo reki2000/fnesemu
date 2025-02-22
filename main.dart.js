@@ -90493,7 +90493,7 @@ M(a){var s=null
 return new A.yy(new A.y0(B.IS,s),this.c,A.tQ(s,s,B.k7,s),s)}}
 A.ys.prototype={
 ah(){var s=new A.Xu(),r=self,q=r.document.createElement("script")
-q.src="/assets/packages/mp_audio_stream/js/audio_stream.js"
+q.src="assets/packages/mp_audio_stream/js/audio_stream.js"
 r=r.document.head
 if(r!=null)r.append(q)
 s.aoH(200,2,44100)
