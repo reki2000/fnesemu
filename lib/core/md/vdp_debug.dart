@@ -120,6 +120,10 @@ extension VdpDebug on Vdp {
     final nameB = reg[4] << 13 & 0xe000;
     final window = reg[3] << 10 & 0xf800;
 
+    final yMask = isInterlaced ? 0x0f : 0x07;
+    final yShift = isInterlaced ? 6 : 5;
+    final yCellSize = isInterlaced ? 16 : 8;
+
     for (int plane = 0; plane < 3; plane++) {
       final nameAddressBase = [nameA, nameB, window][plane];
 
@@ -139,43 +143,44 @@ extension VdpDebug on Vdp {
       // render BG tiles
       for (int ty = 0; ty < bgHeight; ty++) {
         for (int tx = 0; tx < bgWidth; tx++) {
-          final name = nameAddressBase | ty << (bgHshift + 1) | tx << 1;
+          final name = nameAddressBase | (tx | ty << bgHshift) << 1;
           final d0 = vram[name];
           final d1 = vram[name.inc];
           final palette = d0 >> 1 & 0x30;
-          final addr = (d0 << 8 & 0x0700 | d1) << 5;
-          final hFlip = d0 & 0x08 != 0;
-          final vFlip = d0 & 0x10 != 0;
+          final addr = (d0 << 8 & 0x0700 | d1) << yShift;
+          final hFlipXor = d0.bit3 ? 0 : 7;
+          final vFlipXor = d0.bit4 ? yMask : 0;
 
-          for (int y = 0; y < tileSize; y++) {
-            final pattern = vram.getUInt32BE(addr + ((vFlip ? 7 - y : y) << 2));
+          for (int y = 0; y < yCellSize; y++) {
+            final patternAddr = addr + ((y ^ vFlipXor) << 2);
+            final pattern = vram.getUInt32BE(patternAddr.mask16);
 
             for (int x = 0; x < tileSize; x++) {
-              final shift = hFlip ? x : 7 - x;
+              final shift = x ^ hFlipXor;
               final color = (pattern >> (shift << 2)) & 0x0f;
               final c = cram[((color == 0) ? 0 : palette) | color];
 
               buf[imageOffset +
                   tx * tileSize +
                   x +
-                  (ty * tileSize + y) * imageWidth] = rgba[c];
+                  (ty * yCellSize + y) * imageWidth] = rgba[c];
             }
           }
         }
       }
-
-      // render scrolled areas
-
-      // render window viewport
     }
 
     // render sprites box
     const spriteImageOffset = 128 * tileSize;
     final spriteBaseAddr = reg[5] << 9 & 0xfc00;
     void pset(int x, int y, int c) {
+      if (x < 0 || x > 512 || y < 0 || y > 512) {
+        return;
+      }
+
       int index = spriteImageOffset + x + y * imageWidth;
       buf[index] =
-          ((buf[index] & 0xffffff) + 0x404040).clip(0, 0xffffff) | 0xff000000;
+          ((buf[index].mask24) + 0x404040).clip(0, 0xffffff) | 0xff000000;
     }
 
     int spriteNo = 0;

@@ -9,7 +9,7 @@ import '../../core/debugger.dart';
 import '../../core/types.dart';
 import '../../styles.dart';
 
-_imageBufferRenderer(ImageBuffer buf) {
+_imageBufferRenderer(ImageBuffer buf, {useMouseFollow = false}) {
   if (buf.buffer.isEmpty) {
     return const SizedBox();
   }
@@ -21,6 +21,15 @@ _imageBufferRenderer(ImageBuffer buf) {
 
   final rectStream = StreamController<(int, int, String)>.broadcast();
 
+  final imageWidget = FutureBuilder(
+    future: completer.future,
+    builder: (context, image) => RawImage(image: image.data),
+  );
+
+  if (!useMouseFollow) {
+    return imageWidget;
+  }
+
   return MouseRegion(
       onHover: (event) {
         final x = (event.localPosition.dx).floor();
@@ -28,10 +37,7 @@ _imageBufferRenderer(ImageBuffer buf) {
         rectStream.add((x ~/ 8 * 8, y ~/ 8 * 8, "[${x ~/ 8},${y ~/ 8}]"));
       },
       child: Stack(children: [
-        FutureBuilder(
-          future: completer.future,
-          builder: (context, image) => RawImage(image: image.data),
-        ),
+        imageWidget,
         StreamBuilder(
             stream: rectStream.stream,
             builder: (context, snapshot) => (!snapshot.hasData)

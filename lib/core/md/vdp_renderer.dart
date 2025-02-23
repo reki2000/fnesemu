@@ -21,19 +21,17 @@ class _Tile {
   int no = 0;
   int nameAddrBase = 0;
   int hScroll = 0;
-  int vLow = 0;
-  int vHigh = 0;
+  int yOffsetInTile = 0; // scroll added
+  int tileY = 0;
   int pattern = 0; // 32 bit c3c2c1c0 * 8
   bool prior = false;
-  bool hFlip = false;
-  bool vFlip = false;
+  int hFlipXor = 0;
   int palette = 0; // pp0000
 
   int fetchedHHigh = -1;
 
-  _Tile(this.no, this.nameAddrBase, this.hScroll, int v)
-      : vLow = v & 0x07,
-        vHigh = v >> 3;
+  _Tile(
+      this.no, this.nameAddrBase, this.hScroll, this.yOffsetInTile, this.tileY);
 }
 
 class Sprite {
@@ -83,13 +81,16 @@ class PriorityColor {
 }
 
 extension VdpRenderer on Vdp {
-  static int vShift = 0;
-  static int hMask = 0;
-  static int hScrMask = 0;
-  static int vMask = 0;
-  static int vScrMask = 0;
+  static int bitsBgWidth =
+      0; // shift for scnaline(doubled in interlace mode 2) to tile_y
+  static int maskBgWidth = 0; // mask for tile_x
+  static int maskScrollH = 0; // mask for hscroll+hcounter
+  static int maskScrollV = 0; // mask for vscroll+vcounter
+  static int maskTileYOffset = 0x07;
+  static int bitsTileV = 3; // shift for vscroll+vcounter to tile_y
 
   static int y = 0;
+  static int yy = 0; // doubled when interlace mode
 
   static final spriteBuf =
       List<Sprite>.filled(20, Sprite.of(0, 0, 0, 0), growable: false);
@@ -100,7 +101,7 @@ extension VdpRenderer on Vdp {
   static int max = 0;
 
   _fillSpriteBuffer() {
-    status &= ~Vdp.bitSpriteOverflow;
+    spriteOverflow = false;
 
     final overflowCount = h32 ? 16 : 20;
     final displayCount = h32 ? 64 : 80;
@@ -119,11 +120,13 @@ extension VdpRenderer on Vdp {
           vram.getUInt16BE((base + 4).mask16),
           vram.getUInt16BE((base + 6).mask16));
 
-      if (sp.y - 128 <= y && y < sp.y + sp.height - 128) {
-        spriteBuf[spriteBufIndex++] = sp;
+      final isTarget = isInterlaced
+          ? (sp.y - 256 <= yy && yy < sp.y - 256 + sp.height * 2)
+          : (sp.y - 128 <= y && y < sp.y - 128 + sp.height);
 
+      if (isTarget) {
         if (spriteBufIndex == overflowCount) {
-          status |= Vdp.bitSpriteOverflow;
+          spriteOverflow = true;
           break;
         }
 
@@ -131,6 +134,8 @@ extension VdpRenderer on Vdp {
         if (pixelsPerLine >= pixelCount) {
           break;
         }
+
+        spriteBuf[spriteBufIndex++] = sp;
       }
 
       if (sp.next == 0) {
@@ -151,17 +156,19 @@ extension VdpRenderer on Vdp {
         final x1 = flippedX & 0x07;
         final x2 = flippedX >> 3;
 
-        final vv = y + 128 - sp.y;
-        final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
-        final y1 = flippedY & 0x07;
-        final y2 = flippedY >> 3;
-
         // fetch pattern data if x2 is changed
         if (x2 != sp.fetchedX2) {
           sp.fetchedX2 = x2;
 
-          final addr =
-              sp.patternAddr + ((x2 * sp.vCells + y2) << 5) + (y1 << 2);
+          final yShift1 = isInterlaced ? 1 : 0;
+
+          final vv = isInterlaced ? (yy + 256 - sp.y) : (y + 128 - sp.y);
+          final flippedY = sp.vFlip ? (sp.height << yShift1) - vv - 1 : vv;
+          final y1 = flippedY & maskTileYOffset;
+          final y2 = flippedY >> bitsTileV;
+
+          final addr = (sp.patternAddr << yShift1) +
+              (((x2 * sp.vCells + y2) << bitsTileV | y1) << 2);
           sp.pattern = vram.getUInt32BE(addr.mask16);
         }
 
@@ -178,12 +185,15 @@ extension VdpRenderer on Vdp {
   }
 
   _setBgSize() {
-    vShift = [5, 6, 7, 7][reg[16] & 0x03];
-    hMask = (1 << vShift) - 1;
-    hScrMask = (1 << (vShift + 3)) - 1;
+    bitsBgWidth = [5, 6, 7, 7][reg[16] & 0x03];
+    maskBgWidth = (1 << bitsBgWidth) - 1;
+    maskScrollH = (1 << (bitsBgWidth + 3)) - 1;
 
-    vMask = [0x1f, 0x3f, 0x7f, 0x7f][reg[16] >> 4 & 0x03];
-    vScrMask = vMask << 3 | 0x07;
+    bitsTileV = isInterlaced ? 4 : 3;
+    maskTileYOffset = (1 << bitsTileV) - 1;
+
+    final maskBgHeight = [0x1f, 0x3f, 0x7f, 0x7f][reg[16] >> 4 & 0x03];
+    maskScrollV = maskBgHeight << bitsTileV | maskTileYOffset;
   }
 
   PriorityColor _windowColor(_Tile ctx) {
@@ -204,46 +214,46 @@ extension VdpRenderer on Vdp {
 
       ctx.prior = d0.bit7;
       ctx.palette = d0 >> 1 & 0x30;
-      ctx.vFlip = d0.bit4;
-      ctx.hFlip = d0.bit3;
+      ctx.hFlipXor = d0.bit3 ? 0 : 7;
+      final vFlipXor = d0.bit4 ? maskTileYOffset : 0;
 
-      final offset = (ctx.vFlip ? 7 - (v & 0x07) : (v & 0x07)) << 2;
-      final addr = (d0 << 8 & 0x0700 | d1) << 5 | offset;
+      final offset = ctx.yOffsetInTile ^ vFlipXor;
+      final addr = ((d0 << 8 & 0x0700 | d1) << bitsTileV | offset) << 2;
 
-      ctx.pattern = vram.getUInt32BE(addr);
+      ctx.pattern = vram.getUInt32BE(addr.mask16);
     }
 
-    final shift = ctx.hFlip ? hLow : 7 - hLow;
+    final shift = hLow ^ ctx.hFlipXor;
     return PriorityColor(ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f,
         isPrior: ctx.prior);
   }
 
   PriorityColor _planeColor(_Tile ctx) {
-    final h = (hCounter - ctx.hScroll) & hScrMask;
-    final hLow = h & 0x07;
-    final hHigh = h >> 3;
+    final h = (hCounter - ctx.hScroll) & maskScrollH;
+    final xOffsetInTile = h & 0x07;
+    final tileX = h >> 3;
 
-    if (hHigh != ctx.fetchedHHigh) {
-      ctx.fetchedHHigh = hHigh;
+    if (tileX != ctx.fetchedHHigh) {
+      ctx.fetchedHHigh = tileX;
       // fetch pattern
-      final name =
-          ctx.nameAddrBase | (hHigh & hMask) << 1 | ctx.vHigh << (vShift + 1);
+      final name = ctx.nameAddrBase |
+          (tileX & maskBgWidth | ctx.tileY << bitsBgWidth) << 1;
 
       final d0 = vram[name];
       final d1 = vram[name.inc];
 
       ctx.prior = d0.bit7;
       ctx.palette = d0 >> 1 & 0x30;
-      ctx.vFlip = d0.bit4;
-      ctx.hFlip = d0.bit3;
+      ctx.hFlipXor = d0.bit3 ? 0 : 7;
+      final vFlipXor = d0.bit4 ? maskTileYOffset : 0;
 
-      final offset = (ctx.vFlip ? 7 - ctx.vLow : ctx.vLow) << 2;
-      final addr = (d0 << 8 & 0x0700 | d1) << 5 | offset;
+      final offset = ctx.yOffsetInTile ^ vFlipXor;
+      final addr = ((d0 << 8 & 0x0700 | d1) << bitsTileV | offset) << 2;
 
-      ctx.pattern = vram.getUInt32BE(addr);
+      ctx.pattern = vram.getUInt32BE(addr.mask16);
     }
 
-    final shift = ctx.hFlip ? hLow : 7 - hLow;
+    final shift = xOffsetInTile ^ ctx.hFlipXor;
     return PriorityColor(ctx.palette | (ctx.pattern >> (shift << 2)) & 0x0f,
         isPrior: ctx.prior);
   }
@@ -253,9 +263,13 @@ extension VdpRenderer on Vdp {
     vCounter++;
     if (vCounter == Vdp.height + Vdp.retrace) {
       vCounter = 0;
+      if (interlaceMode != 0) {
+        oddFrame = !oddFrame;
+      }
     }
 
     y = vCounter - 2;
+    yy = interlaceMode != 3 ? y : ((y << 1) + (oddFrame ? 1 : 0));
 
     hBlank = false;
 
@@ -284,25 +298,30 @@ extension VdpRenderer on Vdp {
                   : ((y & ~0x07) << 2));
 
       final isVFullScroll = !reg[11].bit3;
-      final vScrollAddr = isVFullScroll ? 0 : y >> 4 << 1;
+      final vScrollAddr = isVFullScroll ? 0 : (y >> 3 & ~0x01);
 
+      final vScrollA = (yy + vsram[vScrollAddr]) & maskScrollV;
       final ctxA = _Tile(
           0, //
           reg[2] << 10 & 0xe000,
           vram.getUInt16BE(hScrollAddr) & 0x3ff,
-          (y + (vsram[vScrollAddr] & 0x3ff)) & vScrMask);
+          vScrollA & maskTileYOffset,
+          vScrollA >> bitsTileV);
 
+      final vScrollB = (yy + vsram[vScrollAddr.inc]) & maskScrollV;
       final ctxB = _Tile(
           1, //
           reg[4] << 13 & 0xe000,
           vram.getUInt16BE(hScrollAddr.inc2) & 0x3ff,
-          (y + (vsram[vScrollAddr.inc] & 0x3ff)) & vScrMask);
+          vScrollB & maskTileYOffset,
+          vScrollB >> bitsTileV);
 
       final ctxWindow = _Tile(
           2, // window
           reg[3] << 10 & 0xf800,
           0,
-          0);
+          yy & maskTileYOffset,
+          yy >> bitsTileV);
 
       final windowH = reg[0x11].bit7
           ? [0, reg[0x11] << 4 & 0x1f0]
