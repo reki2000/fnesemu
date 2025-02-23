@@ -54,6 +54,14 @@ class Vdp {
   set hBlank(bool value) => value ? status |= bitHBlank : status &= ~bitHBlank;
   bool get hBlank => status & bitHBlank != 0;
 
+  set oddFrame(bool value) =>
+      value ? status |= bitOddFrame : status &= ~bitOddFrame;
+  bool get oddFrame => status & bitOddFrame != 0;
+
+  set spriteOverflow(bool value) =>
+      value ? status |= bitSpriteOverflow : status &= ~bitSpriteOverflow;
+  bool get spriteOverflow => status & bitSpriteOverflow != 0;
+
   // rendering
 
   Uint32List buffer = Uint32List(320 * 224);
@@ -66,6 +74,8 @@ class Vdp {
   bool ntsc = true; // false: pal
   bool pal30 = false;
   int interlaceMode = 0;
+
+  get isInterlaced => interlaceMode == 3;
 
   int width = 256; // h32: 256, h40: 320
   static const height = 224; // ntsc 224, pal: 224, pal30: 240
@@ -159,10 +169,13 @@ class Vdp {
 
   void startDma() {
     _dmaLength = reg[0x13] | reg[0x14] << 8;
-    // if (_dmaSrc.mask16 != 0xeeb0) {
+
+    if (_dmaLength == 0) {
+      _dmaLength = 0x10000;
+    }
+
     // print(
     //     "start dma: len:${_dmaLength.hex24} src:${_dmaSrc.hex24} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
-    // }
     status |= bitDmaRunning;
   }
 
