@@ -50,7 +50,7 @@ class MainPageState extends State<MainPage> {
   late final KeyHandler _keyHandler;
   late final CoreController _controller;
 
-  bool get _running => _controller.isRunning();
+  bool _running = false;
   bool get _debugging => _controller.debugger.opt.showDebugView;
 
   String _romName = "";
@@ -60,7 +60,7 @@ class MainPageState extends State<MainPage> {
     super.initState();
 
     _controller = CoreController(
-      _onStop,
+      _onCoreStateChange,
       (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
       (buf) => _imageContainer.push(
           buf.buffer, buf.width, buf.height, buf.displayWidth),
@@ -78,8 +78,15 @@ class MainPageState extends State<MainPage> {
     super.dispose();
   }
 
-  void _onStop() {
-    _disableKeyHandler();
+  void _onCoreStateChange(CoreControllerState state) {
+    if (state.running) {
+      _running = true;
+      _enableKeyHandler();
+    } else {
+      _running = false;
+      _disableKeyHandler();
+    }
+
     setState(() {});
   }
 
@@ -122,17 +129,11 @@ class MainPageState extends State<MainPage> {
   }
 
   _run() {
-    if (_running) {
-      return;
-    }
-
-    _enableKeyHandler();
     _controller.run();
   }
 
   _stop() async {
     await _controller.stop();
-    _disableKeyHandler();
   }
 
   _reset() async {

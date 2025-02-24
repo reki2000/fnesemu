@@ -13,14 +13,29 @@ import 'frame_counter.dart';
 import 'pad_button.dart';
 import 'types.dart';
 
+class CoreControllerState {
+  bool _running = false;
+  bool get running => _running;
+  set running(bool running) {
+    _running = running;
+    _notifier(this);
+  }
+
+  final void Function(CoreControllerState) _notifier;
+  CoreControllerState(void Function(CoreControllerState) notifier)
+      : _notifier = notifier;
+}
+
 /// A Controller of the emulator core.
 /// The external GUI should kick `run`. then subscribe `controller.*stream`
 class CoreController {
-  final void Function() _onStop;
   final void Function(AudioBuffer) _onAudio;
   final void Function(ImageBuffer) _onImage;
 
-  CoreController(this._onStop, this._onAudio, this._onImage);
+  final CoreControllerState _state;
+
+  CoreController(onStateChange, this._onAudio, this._onImage)
+      : _state = CoreControllerState(onStateChange);
 
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
@@ -35,9 +50,6 @@ class CoreController {
     reset();
   }
 
-  // used in main loop to periodically execute the emulator. if null, the emulator is stopped.
-  bool _running = false;
-  int _runningCount = 0;
   int _currentCpuClocks = 0;
 
   int _runMode = 0;
@@ -50,18 +62,18 @@ class CoreController {
   int _scanline = 0;
   int _frames = 0;
 
-  bool isRunning() => _running;
+  bool _stopRequested = false;
 
   /// runs emulation continuously
   run({int mode = runModeNone}) async {
-    while (_runningCount > 0) {
-      await Future.delayed(const Duration());
+    if (_state.running) {
+      return;
     }
 
-    _runMode = mode;
+    _state.running = true;
+    _stopRequested = false;
 
-    _running = true;
-    _runningCount++;
+    _runMode = mode;
 
     final fpsCounter = FrameCounter(
         duration: const Duration(milliseconds: 500)); // shortlife counter
@@ -69,7 +81,7 @@ class CoreController {
     final runStartedAt = DateTime.now();
     int nextFrameClocks = 0;
 
-    while (_running) {
+    while (!_stopRequested) {
       final now = DateTime.now();
       _fps = fpsCounter.fps(now);
 
@@ -87,18 +99,17 @@ class CoreController {
           1000;
     }
 
-    _runningCount--;
+    _stopRequested = false;
+    _state.running = false;
   }
 
   /// stop emulation
   stop() async {
-    _running = false;
+    _stopRequested = true;
 
-    while (_runningCount > 0) {
+    while (_state.running) {
       await Future.delayed(const Duration());
     }
-
-    _onStop();
 
     return;
   }
@@ -114,9 +125,9 @@ class CoreController {
 
     _renderAll();
 
-    if (_running) {
+    if (_state.running) {
       await stop();
-      run(mode: _runMode);
+      run();
     }
   }
 
