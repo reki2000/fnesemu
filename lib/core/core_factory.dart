@@ -21,7 +21,7 @@ class CoreFactory {
     return switch (coreName) {
       'pce' => CoreFactory.ofPce(),
       'nes' => CoreFactory.ofNes(),
-      'gen' || 'md' => CoreFactory.ofMd(),
+      'gen' || 'md' || "bin" => CoreFactory.ofMd(),
       _ => throw Exception('unsupported core: $coreName'),
     };
   }
