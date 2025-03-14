@@ -5,34 +5,37 @@ import 'pad_button.dart';
 import 'types.dart';
 
 class EmptyCore extends Core {
-  @override
-  List<PadButton> get buttons => [];
+  int _clocks = 0;
 
   @override
-  int get clocksInScanline => 0;
+  int get systemClockHz => 1000000;
+
+  @override
+  int get scanlinesInFrame => 240;
+
+  @override
+  int get clocksInScanline => systemClockHz ~/ 60 ~/ scanlinesInFrame;
 
   @override
   List<CpuInfo> get cpuInfos => [const CpuInfo(0, "", 16)];
 
   @override
-  (String, int) disasm(int cpuNo, int addr) => ("", 0);
+  void reset() => throw "ROM not loaded";
 
   @override
-  String dump(
-          {bool showZeroPage = false,
-          bool showSpriteVram = false,
-          bool showStack = false,
-          bool showApu = false}) =>
-      "";
+  void setRom(Uint8List body) {}
 
   @override
-  ExecResult exec(bool step) => ExecResult(1, true, true);
+  ExecResult exec(bool step) => ExecResult(_clocks++, true, true);
 
   @override
   ImageBuffer imageBuffer() => ImageBuffer.empty();
 
   @override
   onAudio(void Function(AudioBuffer p1) onAudio) {}
+
+  @override
+  List<PadButton> get buttons => [];
 
   @override
   void padDown(int controllerId, PadButton k) {}
@@ -45,6 +48,20 @@ class EmptyCore extends Core {
 
   @override
   int stackPointer(int cpuNo) => 0;
+
+  @override
+  (String, int) disasm(int cpuNo, int addr) => ("", 0);
+
+  @override
+  TraceLog trace(int cpuNo) => TraceLog(0, 0, "", "", List.empty());
+
+  @override
+  String dump(
+          {bool showZeroPage = false,
+          bool showSpriteVram = false,
+          bool showStack = false,
+          bool showApu = false}) =>
+      "";
 
   @override
   int read(int cpuNo, int addr) => 0;
@@ -60,22 +77,7 @@ class EmptyCore extends Core {
       ImageBuffer.empty();
 
   @override
-  void reset() => throw "ROM not loaded";
-
-  @override
-  int get scanlinesInFrame => 0;
-
-  @override
-  void setRom(Uint8List body) {}
-
-  @override
   List<String> spriteInfo() => [];
-
-  @override
-  int get systemClockHz => 0;
-
-  @override
-  TraceLog trace(int cpuNo) => TraceLog(0, 0, "", "", List.empty());
 
   @override
   List<int> get vram => [];
