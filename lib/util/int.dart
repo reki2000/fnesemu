@@ -74,11 +74,11 @@ extension IntExt on int {
   int get dec2 => this - 2;
   int get dec4 => this - 4;
 
-  int get rel8 => bit7 ? this - 0x100 : this;
-  int get rel16 => bit15 ? this - 0x10000 : this;
-  int get rel24 => bit23 ? this - 0x1000000 : this;
-  int get rel26 => bit25 ? this - 0x4000000 : this;
-  int get rel32 => bit31 ? this - 0x100000000 : this;
+  int get rel8 => bit7 ? mask8 - 0x100 : this;
+  int get rel16 => bit15 ? mask16 - 0x10000 : this;
+  int get rel24 => bit23 ? mask24 - 0x1000000 : this;
+  int get rel26 => bit25 ? mask26 - 0x4000000 : this;
+  int get rel32 => bit31 ? mask32 - 0x100000000 : this;
 
   int rel(int size) => size == 1
       ? rel8

@@ -35,8 +35,9 @@ class R3000 {
   final r = List.filled(32, 0);
 
   /// Program counter.
-  int pc = 0;
-  int nextPc = 0;
+  int pc = 0; // the PC of the next instruction during execution
+  int nextPc = 0; // the PC to be executed next, reflects branch delay slot
+  int currentPc = 0; // the PC of the current instruction
 
   /// HI and LO registers (used by multiply/divide instructions).
   int hi = 0, lo = 0;
@@ -48,7 +49,6 @@ class R3000 {
   int clocks = 0;
 
   // delay handling
-  int nextInst32 = 0;
   (RegNo, int) delaySlot = (0, 0), immediateSlot = (0, 0);
   bool branch = false, branch2 = false;
 
@@ -113,6 +113,7 @@ class R3000 {
 
     final inst32 = read32(pc);
 
+    currentPc = pc;
     pc = nextPc;
     nextPc = nextPc.inc4.mask32;
 
@@ -140,8 +141,12 @@ class R3000 {
     if (pc & 0x1fffff == 0xb0 && r[9] == 0x3d ||
         pc & 0x1fffff == 0xa0 && r[9] == 0x3c) {
       if ((r[4] >= 0x20 && r[4] < 0x80) || r[4] == 0x0a || r[4] == 0x09) {
-        console.write(String.fromCharCode(r[4]));
-        if (r[4] == 0x0a) debugLog(console.toString());
+        if (r[4] == 0x0a) {
+          debugLog("tty: ${console.toString()}");
+          console.clear();
+        } else {
+          console.write(String.fromCharCode(r[4]));
+        }
       }
     }
 
@@ -185,13 +190,14 @@ class R3000 {
   static const exceptionReadAlign = 0x04;
   static const exceptionWriteAlign = 0x05;
   static const exceptionIllegalInstruction = 0x0a;
+  static const exceptionInterrupt = 0x00;
 
   void exception(int cause) {
     sr = sr & ~0x3f | (sr << 2 & 0x3f);
 
     this.cause = cause << 2;
 
-    epc = pc;
+    epc = cause == exceptionInterrupt ? pc : currentPc;
     if (branch) {
       epc = epc.dec4.mask32;
       cause |= 0x80000000;
