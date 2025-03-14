@@ -65,7 +65,7 @@ class Bus implements BusR3000 {
   int read8(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xff;
 
   @override
-  int read16(int addr) => read32(addr & ~0x03) >> (16 * (addr & 0x01)) & 0xffff;
+  int read16(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x02)) & 0xffff;
 
   @override
   int read32(int addr) {
