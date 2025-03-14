@@ -70,17 +70,23 @@ extension Alu on R3000 {
   }
 
   void mult(int a, int b) {
+    // dart's `int` is not 64bit, so we need to multiply this way
     int low = a.mask16 * b;
-    int high = (a >>> 16) * b;
-    lo = (low + high << 16 & 0xffff0000).mask32;
-    hi = (high >> 16).mask32;
+    int high = (a >> 16) * b;
+    low += (high << 16 & 0xffff0000);
+    lo = low.mask32;
+    hi = ((low >>> 32) + (high >>> 16)).mask32;
   }
 
   void multu(int a, int b) {
-    int low = a.mask16 * b;
-    int high = (a >>> 16) * b;
-    lo = (low + high << 16 & 0xffff0000).mask32;
-    hi = (high >> 16).mask32;
+    // dart's `int` is not 64bit, so we need to multiply this way
+    a = a.mask32;
+    b = b.mask32;
+    int low = a.mask16 * b; // 48bit
+    int high = (a >>> 16) * b; // 48bit
+    low += (high << 16 & 0xffff0000);
+    lo = low.mask32;
+    hi = ((low >>> 32) + (high >>> 16)).mask32;
   }
 
   void div(int a, int b) {

@@ -1,5 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
+
+import '../../../util/debug.dart';
 
 part 'cop0.dart';
 part 'cop2.dart';
@@ -49,6 +53,7 @@ class R3000 {
   bool branch = false, branch2 = false;
 
   final StringBuffer console = StringBuffer();
+  Uint8List exe = Uint8List(0);
 
   R3000(this.bus);
 
@@ -71,6 +76,8 @@ class R3000 {
     epc = 0;
 
     clocks = 0;
+
+    console.clear();
   }
 
   bool get _cacheIsolated => sr.bit16;
@@ -102,18 +109,9 @@ class R3000 {
 
   /// Executes a single instruction.
   bool step() {
+    hook();
+
     final inst32 = read32(pc);
-    // if (pc == 0xb0 || pc == 0xa0 || pc == 0xc0) {
-    //   if (r[9] == 0x3d) {
-    //     if ((r[4] >= 0x20 && r[4] < 0x80) || r[4] == 0x0a || r[4] == 0x09) {
-    //       console.write(String.fromCharCode(r[4]));
-    //       print(console.toString());
-    //     }
-    //   } else {
-    //     print("bios call ${pc.hex8}-${r[9].hex32} r4:${r[4].hex32}");
-    //     // print(dump());
-    //   }
-    // }
 
     pc = nextPc;
     nextPc = nextPc.inc4.mask32;
@@ -137,13 +135,49 @@ class R3000 {
     return true;
   }
 
+  hook() {
+    // tty
+    if (pc & 0x1fffff == 0xb0 && r[9] == 0x3d ||
+        pc & 0x1fffff == 0xa0 && r[9] == 0x3c) {
+      if ((r[4] >= 0x20 && r[4] < 0x80) || r[4] == 0x0a || r[4] == 0x09) {
+        console.write(String.fromCharCode(r[4]));
+        if (r[4] == 0x0a) debugLog(console.toString());
+      }
+    }
+
+    // exe sideloading
+    if (pc == 0x80030000 && exe.length > 0x400) {
+      pc = exe.getUInt32LE(0x10);
+      nextPc = pc.inc4.mask32;
+
+      r[28] = exe.getUInt32LE(0x14);
+      if (exe.getUInt32LE(0x30) != 0) {
+        r[29] = r[30] = exe.getUInt32LE(0x30);
+      }
+
+      final loadAddr = exe.getUInt32LE(0x18);
+      final size = exe.getUInt32LE(0x1c);
+      const headerSize = 0x800;
+      for (int i = 0; i < size - headerSize; i += 4) {
+        write32(i + loadAddr, exe.getUInt32LE(i + headerSize));
+      }
+
+      debugLog(
+          "exe sideloaded on ${loadAddr.hex32} size:${size.hex32} entry:${pc.hex32}");
+    }
+
+    //   print("bios call ${pc.hex8}-${r[9].hex32} r4:${r[4].hex32}");
+  }
+
   static _unknown(int inst32) => throw UnknownOpcodeException();
 
   void delay(RegNo dst, int val) => delaySlot = (dst, val.mask32);
 
   void immediate(RegNo dst, int val) => immediateSlot = (dst, val.mask32);
 
-  void jump(int addr) => nextPc = addr.mask32;
+  void jump(int addr) {
+    nextPc = addr.mask32;
+  }
 
   static const exceptionOverflow = 0x0c;
   static const exceptionSyscall = 0x08;
@@ -232,14 +266,14 @@ class R3000 {
         0x0e => immediate(rt, r[rs] ^ im16), // xori
         0x0f => immediate(rt, im16 << 16), // lui
         0x10 => switch (rs) {
-            0x00 => delay(rt, readCop0(r[rd])), // mfc0,
+            0x00 => delay(rt, readCop0(rd)), // mfc0,
             0x04 => writeCop0(rd, r[rt]), // mtc0
             >= 0x10 && <= 0x1f => execCop0(inst32),
             _ => _unknown(inst32),
           },
         0x12 => switch (rs) {
-            0x00 => delay(rt, readCop2(r[rd])), // mfc2
-            0x01 => delay(rt, readCop2Ctrl(r[rd])), // cfc2
+            0x00 => delay(rt, readCop2(rd)), // mfc2
+            0x01 => delay(rt, readCop2Ctrl(rd)), // cfc2
             0x04 => writeCop2(rd, r[rt]), // mtc2
             0x05 => writeCop2Ctrl(rd, r[rt]), // ctc2
             >= 0x10 && <= 0x1f => execCop2(inst32),

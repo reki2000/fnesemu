@@ -1,6 +1,44 @@
 import 'package:fnesemu/util/int.dart';
 
+import '../../../util/debug.dart';
+
 class DisasmR3000 {
+  static const cop0 = [
+    "index",
+    "random",
+    "entrylo0",
+    "entrylo1",
+    "context",
+    "pagemask",
+    "wired",
+    "reserved",
+    "badvaddr",
+    "count",
+    "entryhi",
+    "compare",
+    "sr",
+    "cause",
+    "epc",
+    "prid",
+    "config",
+    "lladdr",
+    "watchlo",
+    "watchhi",
+    "xcontext",
+    "", "", "", "", "", "", "", "", "", "", "", //
+  ];
+
+  static const regs = [
+    "zero", "at", //
+    "v0", "v1", //
+    "a0", "a1", "a2", "a3", //
+    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", //
+    "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", //
+    "t8", "t9", //
+    "k0", "k1", //
+    "gp", "sp", "fp", "ra", //
+  ];
+
   static String _unknown(int inst32) {
     final op = inst32 >> 26 & 0x3f;
     final rs = inst32 >> 21 & 0x1f;
@@ -30,41 +68,6 @@ class DisasmR3000 {
 
     // print(
     //     "op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8} shamt:${shamt.hex8} funct:${funct.hex8} im16:$im16_ im26:$im26_");
-
-    const cop0 = [
-      "index",
-      "random",
-      "entrylo0",
-      "entrylo1",
-      "context",
-      "pagemask",
-      "wired",
-      "reserved",
-      "badvaddr",
-      "count",
-      "entryhi",
-      "compare",
-      "status",
-      "cause",
-      "epc",
-      "prid",
-      "config",
-      "lladdr",
-      "watchlo",
-      "watchhi",
-      "xcontext",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-    ];
 
     return switch (op) {
       0x00 => switch (funct) {
@@ -184,6 +187,6 @@ class DisasmR3000 {
 main(List<String> args) {
   for (final arg in args) {
     final inst32 = int.parse(arg, radix: 16);
-    print("${inst32.hex32} ${DisasmR3000.disasm(inst32)}");
+    debugLog("${inst32.hex32} ${DisasmR3000.disasm(inst32)}");
   }
 }

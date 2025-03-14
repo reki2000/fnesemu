@@ -40,10 +40,14 @@ class CoreController {
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
 
-  void init(String coreName, Uint8List body) {
+  void init(String coreName, Uint8List body, {Uint8List? extRom}) {
     _core = CoreFactory.of(coreName)
       ..onAudio(_onAudio)
       ..setRom(body);
+
+    if (extRom != null) {
+      _core.setRom(extRom);
+    }
 
     debugger.setCore(_core);
 

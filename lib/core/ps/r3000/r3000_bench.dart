@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
 
@@ -39,7 +40,7 @@ void main() {
   for (int i = 0; i < idata.length; i++) {
     bus.write32(i * 4 + base, idata[i]);
   }
-  print("idata: ${range(0, 16).map((e) => bus.read8(e).hex8).join(" ")}");
+  debugLog("idata: ${range(0, 16).map((e) => bus.read8(e).hex8).join(" ")}");
 
   final cpu = R3000(bus);
   const count = 4; //50 * 1000 * 1000;
@@ -47,11 +48,11 @@ void main() {
   final startAt = DateTime.now().millisecondsSinceEpoch;
   cpu.pc = base;
   while (cpu.clocks < count) {
-    print(cpu.dump());
+    debugLog(cpu.dump());
     cpu.step();
   }
   final elapsedMs = DateTime.now().millisecondsSinceEpoch - startAt;
 
-  print(
+  debugLog(
       "elapsed time: ${elapsedMs}ms , ${count / elapsedMs / 1000} Mcycles/sec");
 }

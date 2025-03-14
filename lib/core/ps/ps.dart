@@ -1,8 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/uint8list.dart';
+import 'package:fnesemu/util/util.dart';
 
+import '../../util/debug.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
@@ -41,18 +42,18 @@ class Ps extends Core {
 
   @override
   void setRom(Uint8List body) {
-    // if (body.getUInt32BE(0) == 0x50532d58 &&
-    //     body.getUInt32BE(4) == 0x20455845) {
-    //   bus.mem.setAll(0x10000, body.sublist(0x800));
-    //   initAddress = 0x10000;
-    //   print("loaded PS-EXE");
-    //   return;
-    // }
+    if (body.getUInt32BE(0) == 0x50532d58 &&
+        body.getUInt32BE(4) == 0x20455845) {
+      cpu.exe = body;
+      debugLog("loaded PS-EXE");
+      return;
+    }
 
     bus.rom.setAll(0, body);
   }
 
   int nextScanlineClock = 0;
+  int nextDmaClock = 0;
 
   @override
   ExecResult exec(bool step) {
@@ -62,6 +63,11 @@ class Ps extends Core {
       nextScanlineClock += clocksInScanline;
       gpu.renderScanline();
       return ExecResult(cpu.clocks, false, true);
+    }
+
+    if (cpu.clocks > nextDmaClock) {
+      nextDmaClock += 1000;
+      bus.execDma(1000);
     }
 
     return ExecResult(cpu.clocks, false, false);
@@ -112,7 +118,9 @@ class Ps extends Core {
       bool showApu = false}) {
     final asm = disasm(0, cpu.pc).$1;
     final regs = cpu.dump();
-    return "$asm\n$regs cy:${cpu.clocks}";
+    final gpuStat = gpu.dump();
+    final dma = range(0, 7).map((ch) => "$ch:${bus.dma[ch].dump()}").join("\n");
+    return "$asm\n$regs cy:${cpu.clocks}\n\n$dma\n\n$gpuStat";
   }
 
   @override

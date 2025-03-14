@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
+import '../../util/debug.dart';
 import '../types.dart';
 import 'bus.dart';
 
@@ -25,15 +26,70 @@ class Gpu {
   static const scanlinesInFrame = 240;
   int scanline = 0;
 
+  bool cmdReady = true;
+
   Gpu(this.bus);
 
-  int read() {
-    return status | 0x10000000; // dma is available
+  int readReg() {
+    debugLog("GPREAD: ${readValue.hex32}");
+    return readValue;
+  }
+
+  int readStat() {
+    const alwaysOn = 0x18000000; // dma is available
+    final result = status.setBit(26, cmdReady) | alwaysOn;
+    debugLog("GPSTAT: ${result.hex32}");
+    return result;
   }
 
   void writeGp0(int value) {
-    print("GP0: $value.hex32");
+    debugLog("GP0 command: ${value.hex32}");
     gp0 = value;
+
+    final cmd = gp0 >> 24;
+    switch (cmd) {
+      case 0x01: // clear cache
+        break;
+
+      case 0x02: // fill rectangle
+        break;
+
+      case 0x20: // copy rectangle
+        break;
+
+      case 0x28: // copy rectangle to display area
+        break;
+
+      case 0x30: // draw mode setting
+        break;
+
+      case 0x40: // texture window setting
+        break;
+
+      case 0x60: // set drawing area top left
+        break;
+
+      case 0x61: // set drawing area bottom right
+        break;
+
+      case 0x62: // set drawing offset
+        break;
+
+      case 0x64: // set mask bit setting
+        break;
+
+      case 0xa0: // draw polygon
+        break;
+
+      case 0xc0: // draw sprite
+        break;
+
+      case 0xe1: // draw mode setting
+        status = status.setMasked(0x7ff, value).setBit(15, value.bit11);
+
+      default:
+        debugLog("unknown GP0 command: ${value.hex32}");
+    }
   }
 
   int startDisplayX = 0;
@@ -47,14 +103,22 @@ class Gpu {
 
   final frameBuffer = Uint8List(512 * 2048);
 
+  int readValue = 0;
+
   void writeGp1(int value) {
+    debugLog("GP1 command: ${value.hex32}");
     gp1 = value;
 
     final cmd = gp0 >> 24;
-    switch (cmd) {
+    switch (cmd & 0x3f) {
+      case 0x00: // reset
+        status = 0;
+        readValue = 0;
+
       case 0x05: // set drawing area top left
         startDisplayX = gp0 & 0x3ff;
         startDisplayY = gp0 >> 10 & 0x3ff;
+
       case 0x08: // display mode
         displayMode = gp0 & 0x7f;
         status = status & ~0x7f40 |
@@ -62,8 +126,23 @@ class Gpu {
             value << 10 & 0x0100 |
             value << 7 & 0x0040;
         width = [256, 320, 512, 640][displayMode & 0x03];
+
+      case >= 0x10 && < 0x20: // read gpu internal register
+        switch (value & 0x07) {
+          case 0x02: //  Read Texture Window setting
+            readValue = 0;
+          case 0x03: // Read Draw area top left
+            readValue = 0;
+          case 0x04: // Read Draw area bottom right
+            readValue = 0;
+          case 0x05: //  Read Draw offset
+            readValue = 0;
+        }
+
       default:
-        print("unknown GP1 command: ${value.hex32}");
+        debugLog("unknown GP1 command: ${value.hex32}");
     }
   }
+
+  String dump() => "GPU: ${status.hex32} $startDisplayX,$startDisplayY";
 }

@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/int.dart';
 
+import '../../../util/debug.dart';
 import 'r3000_disasm.dart';
 
 /// A dummy BusR3000 implementation for tests.
@@ -82,7 +83,7 @@ void main() {
 
       while (snapshotIndex < snapshot.length) {
         final inst32 = bus.read32(cpu.pc);
-        final debug =
+        final log =
             "cycle ${cpu.clocks} ${cpu.pc.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32)}";
 
         check("cycle ${cpu.clocks}");
@@ -101,7 +102,7 @@ void main() {
         try {
           cpu.step();
         } catch (e) {
-          print(debug);
+          debugLog(log);
           rethrow;
         }
       }

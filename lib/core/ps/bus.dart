@@ -4,6 +4,8 @@ import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
+import '../../util/debug.dart';
+import 'dma.dart';
 import 'gpu.dart';
 
 class Bus implements BusR3000 {
@@ -16,8 +18,43 @@ class Bus implements BusR3000 {
   int interruptStatus = 0;
   int interruptMask = 0;
 
-  final segMask =
-      [32, 32, 32, 32, 31, 29, 32, 32].map((e) => (1 << e) - 1).toList();
+  final dma = [0, 0, 0x1f801810, 0, 0, 0, 0, 1]
+      .asMap()
+      .entries
+      .map((entry) => Dma(entry.key, entry.value))
+      .toList(growable: false);
+
+  int _dmaControl = 0;
+  int get dmaControl => _dmaControl;
+  set dmaControl(int value) {
+    _dmaControl = value;
+    for (var ch = 0; ch < 7; ch++) {
+      dma[ch].enabled = (value >> (3 + ch * 4)).bit0;
+    }
+  }
+
+  int _dmaInterrupt = 0;
+  int get dmaInterrupt => _dmaInterrupt;
+  set dmaInterrupt(int value) {
+    _dmaInterrupt = _dmaInterrupt
+        .setBit(
+            31,
+            _dmaInterrupt.bit15 ||
+                (value.bit23 && (value & value >> 16 & 0x1f) != 0))
+        .setMasked(0x001f001f, value)
+        .setMasked(0x1f000000, ~value & _dmaInterrupt);
+
+    for (var ch = 0; ch < 7; ch++) {
+      final modeMask = 0x00001 << ch;
+      final useMask = 0x10000 << ch;
+      dma[ch].useInterrupt = value & useMask != 0 && value.bit23;
+      dma[ch].intterruptOnChunks = value & modeMask != 0;
+    }
+  }
+
+  final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
+      .map((e) => (1 << e) - 1)
+      .toList(growable: false);
 
   late final Gpu gpu;
   late final R3000 cpu;
@@ -45,8 +82,18 @@ class Bus implements BusR3000 {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1070 => interruptStatus,
           0x1074 => interruptMask,
-          0x1814 => gpu.read(), // gpu status
-          0x1dac => 0, // too many unknowns
+          >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
+              0x00 => dma[offset >> 8 & 0x07].startAddr,
+              0x04 => dma[offset >> 8 & 0x07].blockCtrl,
+              0x08 => dma[offset >> 8 & 0x07].channelCtrl,
+              _ => ex("DMA")
+            },
+          0x10f0 => dmaControl,
+          0x10f4 => dmaInterrupt,
+          0x1810 => gpu.readReg(), // gpu read
+          0x1814 => gpu.readStat(), // gpu status
+          0x1da8 => 0, // sound ram fifo
+          0x1dac => 0x0004, // sound ram ctrl
           >= 0x1c00 && < 0x1c80 => ex("spu voice"),
           >= 0x1d80 && < 0x1dc0 => ex("spu control"),
           >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
@@ -83,7 +130,7 @@ class Bus implements BusR3000 {
           _ => ex("expansion 2")
         },
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom
-      _ => ex("-"),
+      _ => 0, //ex("-"),
     };
   }
 
@@ -107,6 +154,8 @@ class Bus implements BusR3000 {
           0x1124 => ex("Timer 2 Counter Mode"),
           0x1128 => ex("Timer 2 Counter Target Value"),
           >= 0x1c00 && < 0x1d80 => ex("spu voice"),
+          0x1da8 => 0, // sound ram
+          0x1daa => 0, // sound ctrl?
           >= 0x1d80 && < 0x1dc0 => ex("spu control"),
           >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
           _ => ex("expansion 1")
@@ -141,15 +190,14 @@ class Bus implements BusR3000 {
           0x1060 => ex("memory control 2: RAM size"),
           0x1070 => interruptStatus &= v,
           0x1074 => interruptMask = v,
-          >= 0x1080 && < 0x1090 => ex("dma channel 0 - MDEC in"),
-          >= 0x1090 && < 0x10a0 => ex("dma channel 1 - MDEC out"),
-          >= 0x10a0 && < 0x10b0 => ex("dma channel 2 - GPU"),
-          >= 0x10b0 && < 0x10c0 => ex("dma channel 3 - CDROM"),
-          >= 0x10c0 && < 0x10d0 => ex("dma channel 4 - SPU"),
-          >= 0x10d0 && < 0x10e0 => ex("dma channel 5 - PIO"),
-          >= 0x10e0 && < 0x10f0 => ex("dma channel 6 - OTC"),
-          0x10f0 => ex("dma control"),
-          0x10f4 => ex("dma interrupt"),
+          >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
+              0x00 => dma[offset >> 4 & 0x07].startAddr = v,
+              0x04 => dma[offset >> 4 & 0x07].blockCtrl = v,
+              0x08 => dma[offset >> 4 & 0x07].channelCtrl = v,
+              _ => ex("DMA")
+            },
+          0x10f0 => dmaControl = v,
+          0x10f4 => dmaInterrupt = v,
           0x1810 => gpu.writeGp0(v), // gp0
           0x1814 => gpu.writeGp1(v), // gp1
           0x1820 => ex("mdec command"),
@@ -168,8 +216,99 @@ class Bus implements BusR3000 {
     };
   }
 
+  void execDma(int count) {
+    for (int ch = 0; ch < 7; ch++) {
+      final d = dma[ch];
+
+      if (d.ioAddr == 0) {
+        continue;
+      }
+
+      if (!d.enabled || !d.running) {
+        continue;
+      }
+
+      debugLog("DMA$ch start: ${d.dump()}");
+
+      // otc fills memory with 0xff
+      if (ch == 6) {
+        if (d.syncMode != 0 || !d.toRam) {
+          continue;
+        }
+
+        if (d.size == 0) d.size = 0x10000;
+        while (d.size > 1) {
+          write32(d.addr, d.addr & 0x1fffff);
+          d.addr += d.incr;
+          d.size--;
+        }
+        debugLog("dma ch6 done");
+        d.addr += d.incr;
+        write32(d.addr, 0xffffff);
+        completeDma(ch);
+        continue;
+      }
+
+      switch (d.syncMode) {
+        case 0:
+          if (d.size == 0) d.size = 0x10000;
+          while (d.size > 0) {
+            d.toRam
+                ? write32(d.addr, read32(d.ioAddr))
+                : write32(d.ioAddr, read32(d.addr));
+            d.addr += d.incr;
+            d.size--;
+          }
+
+          completeDma(ch);
+
+        case 1:
+          while (d.amount-- > 0) {
+            for (int i = 0; i < d.size; i++) {
+              d.toRam
+                  ? write32(d.addr, read32(d.ioAddr))
+                  : write32(d.ioAddr, read32(d.addr));
+              d.addr += d.incr;
+            }
+
+            completeDma(ch, partial: true);
+          }
+
+          completeDma(ch);
+
+        case 2:
+          while (d.addr != 0xffffff) {
+            final node = read32(d.addr);
+
+            for (int i = 0; i < node >> 24; i++) {
+              d.addr += d.incr;
+              write32(d.ioAddr, read32(d.addr));
+            }
+
+            d.addr = node.mask24;
+
+            completeDma(ch, partial: true);
+          }
+
+          completeDma(ch);
+      }
+    }
+  }
+
+  void completeDma(int ch, {bool partial = false}) {
+    final d = dma[ch];
+
+    if (!partial) {
+      d.running = false;
+    }
+
+    if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {
+      _dmaInterrupt |= (1 << ch) << 24;
+    }
+  }
+
   int _unimplemented(String op, String device, int addr, int value) {
-    print('$op: ${addr.hex32} ${value.hex32} pc:${cpu.pc.hex32} $device');
-    return 0xdeadbeef;
+    debugLog('$op: ${addr.hex32} ${value.hex32} pc:${cpu.pc.hex32} $device');
+    return 0xffffffff;
   }
 }

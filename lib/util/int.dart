@@ -88,6 +88,10 @@ extension IntExt on int {
               ? rel32
               : throw ("unreachable");
 
+  int setMasked(int mask, int value) => this & ~mask | value & mask;
+  int setBit(int bit, bool value) =>
+      value ? this | (1 << bit) : this & ~(1 << bit);
+
   int setL8(int val) => this & ~0xff | val & 0xff;
   int setH8(int val) => this & ~0xff00 | val << 8 & 0xff00;
   int setL16(int val) => this & ~0xffff | val & 0xffff;
