@@ -42,10 +42,9 @@ class R3000 {
   /// 32 general-purpose registers. Note: r0 is always 0.
   final r = List.filled(32, 0);
 
-  /// Program counter.
-  int pc = 0; // the PC of the next instruction during execution
+  int pc = 0; // the PC (actually the next instruction during execution)
   int nextPc = 0; // the PC to be executed next, reflects branch delay slot
-  int currentPc = 0; // the PC of the current instruction
+  int instPc = 0; // the PC of the current instruction
 
   /// HI and LO registers (used by multiply/divide instructions).
   int hi = 0, lo = 0;
@@ -56,11 +55,16 @@ class R3000 {
   /// A simple clock counter.
   int clocks = 0;
 
-  // delay handling
-  (RegNo, int) delaySlot = (0, 0), immediateSlot = (0, 0);
-  bool branch = false, branch2 = false;
+  // (regNo, value) slots to handle delay
+  (RegNo, int) nextDelaySlot = (0, 0),
+      delaySlot = (0, 0),
+      immediateSlot = (0, 0);
+  bool inBranchDelay = false, branched = false;
 
+  // bios putchar() hacking
   final StringBuffer console = StringBuffer();
+
+  // ps-exe bianry to sideload
   Uint8List exe = Uint8List(0);
 
   R3000(this.bus);
@@ -69,11 +73,11 @@ class R3000 {
     pc = 0xbfc00000;
     nextPc = 0xbfc00004;
 
-    delaySlot = (0, 0);
+    nextDelaySlot = (0, 0);
     immediateSlot = (0, 0);
 
-    branch = false;
-    branch2 = false;
+    inBranchDelay = false;
+    branched = false;
 
     r.fillRange(0, 32, 0);
     hi = 0;
@@ -130,15 +134,16 @@ class R3000 {
       }
     }
 
-    currentPc = pc;
+    instPc = pc;
     pc = nextPc;
     nextPc = nextPc.inc4.mask32;
 
-    branch = branch2;
-    branch2 = false;
+    inBranchDelay = branched;
+    branched = false;
 
-    final prevDelaySlot = delaySlot;
-    delaySlot = (0, 0);
+    delaySlot = nextDelaySlot;
+    nextDelaySlot = (0, 0);
+    immediateSlot = (0, 0);
 
     try {
       exec(inst32);
@@ -154,9 +159,8 @@ class R3000 {
       }
     }
 
-    r[prevDelaySlot.$1] = prevDelaySlot.$2;
+    r[delaySlot.$1] = delaySlot.$2;
     r[immediateSlot.$1] = immediateSlot.$2;
-    immediateSlot = (0, 0);
 
     r[0] = 0; // r0 is always hardwired to 0.
 
@@ -166,15 +170,16 @@ class R3000 {
   }
 
   hook() {
-    // tty
+    // tty putchar
     if (pc & 0x1fffff == 0xb0 && r[9] == 0x3d ||
         pc & 0x1fffff == 0xa0 && r[9] == 0x3c) {
-      if ((r[4] >= 0x20 && r[4] < 0x80) || r[4] == 0x0a || r[4] == 0x09) {
-        if (r[4] == 0x0a) {
-          debugLog("tty: ${console.toString()}");
+      final ch = r[4];
+      if ((ch >= 0x20 && ch < 0x80) || ch == 0x0a || ch == 0x09) {
+        if (ch == 0x0a) {
+          debugLog("tty clk[$clocks] : ${console.toString()}");
           console.clear();
         } else {
-          console.write(String.fromCharCode(r[4]));
+          console.write(String.fromCharCode(ch));
         }
       }
     }
@@ -205,13 +210,16 @@ class R3000 {
 
   static _unknown(int inst32) => throw UnknownOpcodeException();
 
-  void delay(RegNo dst, int val) => delaySlot = (dst, val.mask32);
+  void delay(RegNo dst, int val) {
+    if (dst == delaySlot.$1) {
+      delaySlot = (0, 0);
+    }
+    nextDelaySlot = (dst, val.mask32);
+  }
 
   void immediate(RegNo dst, int val) => immediateSlot = (dst, val.mask32);
 
-  void jump(int addr) {
-    nextPc = addr.mask32;
-  }
+  void jump(int addr) => nextPc = addr.mask32;
 
   static const exceptionOverflow = 0x0c;
   static const exceptionSyscall = 0x08;
@@ -230,8 +238,8 @@ class R3000 {
       this.badvaddr = badvaddr;
     }
 
-    epc = cause == exceptionInterrupt ? pc : currentPc;
-    if (branch) {
+    epc = cause == exceptionInterrupt ? pc : instPc;
+    if (inBranchDelay) {
       epc = epc.dec4.mask32;
       cause |= 0x80000000;
     }
@@ -321,11 +329,13 @@ class R3000 {
         },
       0x20 => delay(rt, read8(r[rs] + rel16).rel8), // lb
       0x21 => delay(rt, read16(r[rs] + rel16).rel16), // lh
-      0x22 => delay(rt, lwl(r[rs] + rel16, r[rt])), // lwl
+      0x22 => delay(rt,
+          lwl(r[rs] + rel16, rt == delaySlot.$1 ? delaySlot.$2 : r[rt])), // lwl
       0x23 => delay(rt, read32(r[rs] + rel16)), // lw
       0x24 => delay(rt, read8(r[rs] + rel16)), // lbu
       0x25 => delay(rt, read16(r[rs] + rel16)), // lhu
-      0x26 => delay(rt, lwr(r[rs] + rel16, r[rt])), // lwr
+      0x26 => delay(rt,
+          lwr(r[rs] + rel16, rt == delaySlot.$1 ? delaySlot.$2 : r[rt])), // lwr
       0x28 => write8(r[rs] + rel16, r[rt]), // sb
       0x29 => write16(r[rs] + rel16, r[rt]), // sh
       0x2a => swl(r[rs] + rel16, r[rt]), // swl
@@ -348,7 +358,10 @@ class R3000 {
   String dump() {
     final regs = [
       for (int i = 0; i < 32; i += 8)
-        "r${i.toString().padLeft(2, "0")}:${range(i, i + 8).map((v) => r[v].hex32).join(" ")}"
+        "r${i.toString().padLeft(2, "0")}:"
+            "${range(i, i + 4).map((v) => r[v].hex32).join(" ")}"
+            " r${(i + 4).toString().padLeft(2, "0")}:"
+            "${range(i + 4, i + 8).map((v) => r[v].hex32).join(" ")}"
     ].join("\n");
     return "$regs\npc:${pc.hex32} hi:${hi.hex32} lo:${lo.hex32} sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}";
   }
