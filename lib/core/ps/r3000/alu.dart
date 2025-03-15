@@ -4,46 +4,48 @@ extension Alu on R3000 {
   int lwl(int addr, int org) {
     final value = read32(addr & 0xfffffffc);
     return switch (addr & 3) {
-      0 => value,
-      1 => value.mask24 << 8 | org.mask8,
-      2 => value.mask16 << 16 | org.mask16,
-      _ => value.mask8 << 24 | org.mask24,
+      0 => value.mask8 << 24 | org.mask24,
+      1 => value.mask16 << 16 | org.mask16,
+      2 => value.mask24 << 8 | org.mask8,
+      _ => value,
     };
   }
 
   int lwr(int addr, int org) {
     final value = read32(addr & 0xfffffffc);
     return switch (addr & 3) {
-      0 => value >> 24 | org & 0xffffff00,
-      1 => value >> 16 | org & 0xffff0000,
-      2 => value >> 8 | org & 0xff000000,
-      _ => value,
+      0 => value,
+      1 => value >> 8 | org & 0xff000000,
+      2 => value >> 16 | org & 0xffff0000,
+      _ => value >> 24 | org & 0xffffff00,
     };
   }
 
-  void swl(int value, int addr) {
-    final aligned = addr & ~0x03;
+  void swl(int addr, int value) {
+    final aligned = addr & 0xfffffffc;
     switch (addr & 0x03) {
+      case 0:
+        write32(aligned, value >> 24 | read32(aligned) & 0xffffff00);
       case 1:
-        write32(aligned, value | read32(aligned) & 0xffffff00);
+        write32(aligned, value >> 16 | read32(aligned) & 0xffff0000);
       case 2:
-        write32(aligned, value << 8 | read32(aligned) & 0xffff0000);
+        write32(aligned, value >> 8 | read32(aligned) & 0xff000000);
       case 3:
-        write32(aligned, value << 16 | read32(aligned) & 0xff000000);
+        write32(aligned, value);
     }
   }
 
-  void swr(int value, int addr) {
-    final aligned = addr & ~0x03;
+  void swr(int addr, int value) {
+    final aligned = addr & 0xfffffffc;
     switch (addr & 0x03) {
       case 0:
         write32(aligned, value);
       case 1:
-        write32(aligned, value >>> 24 | read32(aligned));
+        write32(aligned, value.mask24 << 8 | read32(aligned).mask8);
       case 2:
-        write32(aligned, value >>> 16 | read32(aligned) & 0xff);
+        write32(aligned, value.mask16 << 16 | read32(aligned).mask16);
       case 3:
-        write32(aligned, value >>> 8 | read32(aligned) & 0xffff);
+        write32(aligned, value.mask8 << 24 | read32(aligned).mask24);
     }
   }
 
