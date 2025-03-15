@@ -122,6 +122,8 @@ class Bus implements BusR3000 {
 
     return switch (offset) {
       >= 0x00000000 && < 0x00200000 => writeMem8(offset, v),
+      >= 0x1f800000 && < 0x1f800400 =>
+        useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           _ => ex("expansion 1")
         },
@@ -141,6 +143,8 @@ class Bus implements BusR3000 {
 
     return switch (offset) {
       >= 0x00000000 && < 0x00200000 => mem.setUInt16LE(offset, v),
+      >= 0x1f800000 && < 0x1f800400 =>
+        useScratchPad ? scratchPad.setUInt16LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1070 => interruptStatus &= v.mask16,
           0x1074 => interruptMask = v.mask16,

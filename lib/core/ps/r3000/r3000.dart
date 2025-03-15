@@ -96,23 +96,12 @@ class R3000 {
       ? throw ReadMisalignException(addr)
       : bus.read16(addr & 0xfffffffe);
 
-  int read32(int addr) {
-    // if (bus.read32(addr & 0xfffffffc) == 0x01234567) {
-    //   debugLog("read32 ${addr.hex32} ${dump()}");
-    // }
-    return (addr & 0x03 != 0)
-        ? throw ReadMisalignException(addr)
-        : bus.read32(addr & 0xfffffffc);
-  }
+  int read32(int addr) => (addr & 0x03 != 0)
+      ? throw ReadMisalignException(addr)
+      : bus.read32(addr & 0xfffffffc);
 
-  void write8(int addr, int value) {
-    // if (value.mask8 == 0x0c &&
-    //     currentPc >= 0x80010000 &&
-    //     currentPc < 0x80100000) {
-    //   debugLog("write8 ${addr.hex32} ${value.hex32} ${dump()}");
-    // }
-    _cacheIsolated ? 0 : bus.write8(addr.mask32, value.mask8);
-  }
+  void write8(int addr, int value) =>
+      _cacheIsolated ? 0 : bus.write8(addr.mask32, value.mask8);
 
   void write16(int addr, int value) => (addr & 0x01 != 0)
       ? throw WriteMisalignException(addr)
@@ -171,7 +160,7 @@ class R3000 {
 
     r[0] = 0; // r0 is always hardwired to 0.
 
-    clocks++;
+    clocks += 2; // not accurate, but enough for now.
 
     return true;
   }
@@ -233,7 +222,7 @@ class R3000 {
   static const exceptionInterrupt = 0x00;
 
   void exception(int cause, {int? badvaddr}) {
-    sr = sr & ~0x3f | (sr << 2 & 0x3f);
+    sr = sr.setMasked(0x3f, sr << 2);
 
     this.cause = cause << 2;
 
