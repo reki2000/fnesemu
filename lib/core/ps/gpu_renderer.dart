@@ -31,7 +31,8 @@ extension GpuRenderer on Gpu {
       } else {
         fbIndex += startDisplayX * 2;
         for (int x = 0; x < width; x++) {
-          buffer[bufIndex++] = _rgb15ToRgb32[frameBuffer.getUInt16BE(fbIndex)];
+          buffer[bufIndex++] =
+              _rgb15ToRgb32[frameBuffer.getUInt16BE(fbIndex) & 0x7fff];
           fbIndex += 2;
         }
       }

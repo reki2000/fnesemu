@@ -26,6 +26,8 @@ extension IntExt on int {
   int get mask26 => this & 0x3ffffff;
   int get mask32 => this & 0xffffffff;
 
+  int maskZeroMax(int mask) => (dec & mask).inc;
+
   int mask(int size) => size == 1
       ? mask8
       : size == 2
