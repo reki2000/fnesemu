@@ -1,7 +1,5 @@
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/debug.dart';
-
 class Dma {
   final int ioAddr;
   final int ch;
@@ -25,9 +23,8 @@ class Dma {
     _channelCtrl = value;
     syncMode = value >> 9 & 0x03;
     toRam = !value.bit0;
-    incr = value.bit1 ? 4 : -4;
+    incr = value.bit1 ? -4 : 4;
     running = value.bit24;
-    debugLog("DMA:$ch ${value.hex32} ${running ? "running" : "stopped"}");
   }
 
   int syncMode = 0;
@@ -47,8 +44,10 @@ class Dma {
 
   Dma(this.ch, this.ioAddr);
 
-  String dump() =>
-      "${enabled ? "E" : "-"} ${useInterrupt ? "I" : "-"}${intterruptOnChunks ? "C" : "-"}  ${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "
+  String dump() => "${running ? "R" : "-"} "
+      "${enabled ? "E" : "-"} "
+      "${useInterrupt ? "I" : "-"}${intterruptOnChunks ? "C" : "-"}  "
+      "${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "
       "mode:$syncMode sz:${size.hex24} am:${amount.hex16} incr:$incr "
       "c:${channelCtrl.hex32} bl:${blockCtrl.hex32} sa:${startAddr.hex32}";
 }

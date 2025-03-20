@@ -6,10 +6,12 @@ import 'package:fnesemu/util/uint8list.dart';
 import '../../util/debug.dart';
 import '../types.dart';
 import 'bus.dart';
+import 'point_color.dart';
 
 part 'gpu_renderer.dart';
 part 'gpu0.dart';
 part 'gpu1.dart';
+part 'gpu0_renderer.dart';
 
 class Gpu {
   int status = 0;
@@ -18,6 +20,9 @@ class Gpu {
   final Bus bus;
 
   Gpu(this.bus);
+
+  static const xMask = 0x3ff;
+  static const yMask = 0x1ff;
 
   // rendering status
   int width = 320; //  256, 320, 368, 512, 640
@@ -31,6 +36,7 @@ class Gpu {
   static const scanlinesInFrame = 240;
 
   int scanline = 0;
+  bool isOddFrame = false;
 
   // GP1 status register
   final cmd = List<int>.filled(16, 0);
@@ -67,7 +73,8 @@ class Gpu {
 
   int readStat() {
     const alwaysOn = 0x18000000; // dma is available
-    final result = status.setBit(26, cmdReady) | alwaysOn;
+    final result =
+        status.setBit(26, cmdReady).setBit(13, isOddFrame) | alwaysOn;
     // debugLog("GPSTAT: ${result.hex32}");
     return result;
   }
@@ -87,10 +94,6 @@ class Gpu {
   int readValue = 0;
 
   writeFrameBuffer32(int x, int y, int u32) {
-    debugLog("writeFrameBuffer($x, $y, ${u32.hex32})");
-    if (x < drawingX1 || x >= drawingX2 || y < drawingY1 || y >= drawingY2) {
-      return;
-    }
     final offset = y * 2048 + x * 2;
     frameBuffer.setUInt32LE(offset, u32);
   }
@@ -100,45 +103,43 @@ class Gpu {
     return frameBuffer.getUInt32LE(offset);
   }
 
-  int getTexureColor(int u, int v, int clut) {
-    final textureBaseX = status << 6 & 0x3c0;
-    final textureBaseY = status << 8 & 0x100;
-    final base = textureBaseX + (textureBaseY + v.mask8) * 2048;
+  int getTextureColor(int u, int v, int clut, int page, {bool debug = false}) {
+    final baseX = page << 6 & 0x3c0;
+    final baseY = page << 4 & 0x100;
+    final base = baseX * 2 + (baseY + v.mask8) * 2048;
 
-    final clutMode = status >> 7 & 3;
+    final clutMode = page >> 7 & 3;
     if (clutMode == 2) {
-      return frameBuffer.getUInt16LE(base + u.mask8).mask24;
+      return frameBuffer.getUInt16LE(base + u.mask8 * 2);
     }
 
-    final clutBase = (clut >> 6 & Gpu0.yMask) * 2048 + clut << 4 & 0x1f0;
-    final clutIndex = switch (clutMode) {
-      1 => (u.bit0
-          ? frameBuffer[base + u.mask8 ~/ 2]
-          : frameBuffer[base + u.mask8 ~/ 2 + 1]),
-      0 => switch (u & 3) {
-          0 => frameBuffer.getUInt16LE(base + u.mask8 ~/ 4) >> 4,
-          1 => frameBuffer.getUInt16LE(base + u.mask8 ~/ 4) & 0x0f,
-          2 => frameBuffer.getUInt16LE(base + u.mask8 ~/ 4 + 1) >> 4,
-          3 => frameBuffer.getUInt16LE(base + u.mask8 ~/ 4 + 1) & 0x0f,
-          _ => throw "unreachable",
-        },
-      _ => 0,
-    };
+    final clutBase = (clut >> 6 & yMask) * 2048 + (clut << 5 & 0x3e0);
+    try {
+      final clutIndex = (clutMode == 1)
+          ? frameBuffer[base + u.mask8]
+          : (u.bit0)
+              ? frameBuffer[base + u.mask8 ~/ 2] >> 4
+              : frameBuffer[base + u.mask8 ~/ 2] & 0x0f;
 
-    return frameBuffer.getUInt16LE(clutBase + clutIndex * 2).mask24;
+      final result = frameBuffer.getUInt16LE(clutBase + clutIndex * 2);
+
+      if (debug) {
+        debugLog(
+            "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
+            "baseX:$baseX baseY:$baseY base:${base.hex32} "
+            "clutX:${clut << 5 & 0x3e0} clutY:${clut >> 6 & yMask} clutBase:${clutBase.hex32} "
+            "index:$clutIndex result:${result.hex24}");
+      }
+
+      return result;
+    } catch (e) {
+      debugLog(
+          "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) $baseX $baseY ${clutBase.hex32} ${base.hex32} $e");
+      rethrow;
+    }
   }
 
-  clut256(int index) {
-    final offset = status << 9 & 0x7e00;
-    return frameBuffer.getUInt16LE(offset + index * 2);
-  }
-
-  clut16(int index) {
-    final offset = status << 9 & 0x7e00;
-    return frameBuffer.getUInt16LE(offset + index * 2);
-  }
-
-  pset24(int x, int y, int c24) {
+  pset24(int x, int y, int c24, {bool ignoreWindow = false}) {
     if (status.bit9) {
       // dithering
       const dither = [
@@ -148,24 +149,20 @@ class Gpu {
         [15, 7, 13, 5]
       ];
       final d = dither[y & 3][x & 3];
-      final r = c24 >> 16 & 0xff;
-      final g = c24 >> 8 & 0xff;
-      final b = c24 & 0xff;
-      final r2 = r + d;
-      final g2 = g + d;
-      final b2 = b + d;
-      c24 = r2 << 16 | g2 << 8 | b2;
+      final c = Color.ofC24(c24);
+      final c2 = Color(c.r + d, c.g + d, c.b + d);
+      pset16(x, y, c2.c15, ignoreWindow: ignoreWindow);
+      return;
     }
-    // argb24 -> 0 bbbbb ggggg rrrrr
-    final c16 = c24 >> 3 & 0x1f | c24 >> 6 & 0x3e0 | c24 >> 9 & 0x7c00;
-    pset16(x, y, c16);
+    pset16(x, y, Color.ofC24(c24).c15, ignoreWindow: ignoreWindow);
   }
 
-  pset16(int x, int y, int c16) {
+  pset16(int x, int y, int c16, {bool ignoreWindow = false}) {
     x += drawingOffsetX;
     y += drawingOffsetY;
 
-    if (x < drawingX1 || x >= drawingX2 || y < drawingY1 || y >= drawingY2) {
+    if (!ignoreWindow &&
+        (x < drawingX1 || x >= drawingX2 || y < drawingY1 || y >= drawingY2)) {
       return;
     }
     final old = frameBuffer.getUInt16LE(y * 2048 + x * 2);

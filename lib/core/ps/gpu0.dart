@@ -1,34 +1,95 @@
 part of 'gpu.dart';
 
 extension Gpu0 on Gpu {
+  static const xMask = 0x3ff;
+  static const yMask = 0x1ff;
+
   void writeGp0(int value) {
+    // if (cmdSize == 0) {
+    //   debugLog("GP0: command: ${value.hex32}");
+    // }
+
     if (!cmdReady || !handleSingleCommand(value)) {
       if (!handleCommand(value)) {
         debugLog(
-            "invalid GP0 command cmd0:${value.hex24} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+            "invalid GP0 command cmd0:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
         cmdSize = 0;
       }
     }
   }
-
-  static const xMask = 0x3ff;
-  static const yMask = 0x1ff;
 
   bool handleCommand(int value) {
     final cmd0 = cmdSize == 0 ? value : cmd[0];
     switch (cmd0 >> 29) {
       case 0x00: // misc
         switch (cmd0 >> 24) {
+          case 0x01: // clear cache
+            return false;
+
           case 0x02: // quick rectangle fill
-            break;
+            cmd[cmdSize++] = value;
+
+            if (cmdSize == 3) {
+              final p0 = Point.of(cmd[1], 0, 0);
+              final p1 = Point.of(cmd[2], 0, 0);
+              final c16 = Color.ofC24(cmd[0]).c15;
+              for (int y = p0.y; y <= p1.y; y++) {
+                for (int x = p0.x; x <= p1.x; x++) {
+                  pset16(x, y, c16, ignoreWindow: true);
+                }
+              }
+
+              debugLog(
+                  "GP0 quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+              cmdSize = 0;
+            }
 
           default:
             return false;
         }
-        break;
 
       case 0x01: // polygon primitive
-        return false;
+        cmd[cmdSize++] = value;
+
+        final gouraud = cmd[0].bit28;
+        final textured = cmd[0].bit26;
+        final rectangle = cmd[0].bit27;
+
+        final indiceNum = rectangle ? 4 : 3;
+        final size = ((gouraud ? 1 : 0) + (textured ? 1 : 0) + 1) * indiceNum +
+            (gouraud ? 0 : 1);
+
+        if (cmdSize == size) {
+          final c = cmd;
+          final c0 = c[0];
+
+          if (textured) {
+            final clut = c[2] >> 16;
+            final page = c[4] >> 16;
+            renderTexturedPolygon(
+                c0, clut, page, c[1], c[2], c[3], c[4], c[5], c[6]);
+            if (rectangle) {
+              renderTexturedPolygon(
+                  c0, clut, page, c[3], c[4], c[5], c[6], c[7], c[8]);
+            }
+          } else {
+            if (gouraud) {
+              renderGouraudPolygon(c0, c[0], c[1], c[2], c[3], c[4], c[5]);
+              if (rectangle) {
+                renderGouraudPolygon(c0, c[2], c[3], c[4], c[5], c[6], c[7]);
+              }
+            } else {
+              renderFlatPolygon(c0, c[1], c[2], c[3]);
+              if (rectangle) {
+                renderFlatPolygon(c0, c[2], c[3], c[4]);
+              }
+            }
+          }
+
+          debugLog(
+              "GPU0: polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+          cmdSize = 0;
+        }
 
       case 0x02: // line primitive
         return false;
@@ -67,7 +128,9 @@ extension Gpu0 on Gpu {
           for (int y = 0; y < h; y++) {
             int u = u0;
             for (int x = 0; x < w; x++) {
-              final c24 = textured ? getTexureColor(u, v, clut) : cmd[0].mask24;
+              final c24 = textured
+                  ? getTextureColor(u, v, clut, status)
+                  : cmd[0].mask24;
               pset24(x0 + x, y0 + y, c24);
               u++;
             }
@@ -135,7 +198,7 @@ extension Gpu0 on Gpu {
             bltSizeY--;
 
             if (bltSizeY == 0) {
-              debugLog("GP0 cpu to vram blit completed");
+              debugLog("GPU0: blit cpu to vram: completed");
               cmdSize = 0;
             }
           }
@@ -146,14 +209,14 @@ extension Gpu0 on Gpu {
         cmd[cmdSize++] = value;
 
         if (cmdSize == 3) {
-          bltPosX = cmd[1] & xMask;
+          bltPosX = cmd[1] & 0x3f0;
           bltSizeX = cmd[2].maskZeroMax(xMask);
 
           bltPosY = cmd[1] >> 16 & yMask;
           bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
           debugLog(
-              "GP0 cpu to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+              "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
         }
 
       case 0x06: // vram to cpu blit

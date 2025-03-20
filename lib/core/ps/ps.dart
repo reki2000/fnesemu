@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/ps/gpu_debug.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
 
@@ -7,6 +8,7 @@ import '../../util/debug.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
+import 'pad.dart';
 import 'r3000/r3000.dart';
 import 'r3000/r3000_disasm.dart';
 import 'bus.dart';
@@ -16,14 +18,17 @@ class Ps extends Core {
   final Bus bus;
   late final R3000 cpu;
   late final Gpu gpu;
+  late final Pad pad;
 
   int initAddress = 0xbfc00000;
 
   Ps() : bus = Bus() {
     cpu = R3000(bus);
     gpu = Gpu(bus);
+    pad = Pad();
     bus.gpu = gpu;
     bus.cpu = cpu;
+    bus.pad = pad;
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -66,8 +71,8 @@ class Ps extends Core {
     }
 
     if (cpu.clocks > nextDmaClock) {
-      nextDmaClock += 1000;
-      bus.execDma(1000);
+      nextDmaClock += 100;
+      bus.execDma(100);
     }
 
     return ExecResult(cpu.clocks, false, false);
@@ -89,13 +94,13 @@ class Ps extends Core {
   onAudio(void Function(AudioBuffer p1) onAudio) {}
 
   @override
-  List<PadButton> get buttons => [];
+  List<PadButton> get buttons => pad.buttons;
 
   @override
-  void padDown(int controllerId, PadButton k) {}
+  void padDown(int id, PadButton k) => pad.keyDown(id, k);
 
   @override
-  void padUp(int controllerId, PadButton k) {}
+  void padUp(int id, PadButton k) => pad.keyUp(id, k);
 
   @override
   int programCounter(int _) => cpu.pc;
@@ -135,7 +140,7 @@ class Ps extends Core {
   int read(int _, int addr) => bus.read8(addr);
 
   @override
-  ImageBuffer renderBg() => ImageBuffer.empty();
+  ImageBuffer renderBg() => gpu.renderBg();
 
   @override
   ImageBuffer renderColorTable(int paletteNo) => ImageBuffer.empty();

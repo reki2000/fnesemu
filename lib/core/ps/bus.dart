@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/ps/pad.dart';
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
@@ -9,6 +10,12 @@ import 'dma.dart';
 import 'gpu.dart';
 
 class Bus implements BusR3000 {
+  late final Gpu gpu;
+  late final R3000 cpu;
+  late final Pad pad;
+
+  Bus();
+
   final mem = Uint8List(2 * 1024 * 1024);
   final rom = Uint8List(1024 * 512);
 
@@ -18,7 +25,7 @@ class Bus implements BusR3000 {
   int interruptStatus = 0;
   int interruptMask = 0;
 
-  final dma = [0, 0, 0x1f801810, 0, 0, 0, 0, 1]
+  final dma = [0, 0, 0x1f801810, 0, 0, 0, 1, 0]
       .asMap()
       .entries
       .map((entry) => Dma(entry.key, entry.value))
@@ -56,11 +63,6 @@ class Bus implements BusR3000 {
       .map((e) => (1 << e) - 1)
       .toList(growable: false);
 
-  late final Gpu gpu;
-  late final R3000 cpu;
-
-  Bus();
-
   @override
   int read8(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xff;
 
@@ -80,6 +82,10 @@ class Bus implements BusR3000 {
           ? scratchPad.getUInt32LE(offset - 0x1f800000)
           : 0xffffffff,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x1040 => pad.readData(),
+          0x1044 => pad.readStatus(),
+          0x1048 => pad.readModeControl(),
+          0x104c => pad.readBaudrate(),
           0x1070 => interruptStatus,
           0x1074 => interruptMask,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
@@ -125,6 +131,7 @@ class Bus implements BusR3000 {
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x1048 => pad.writeData(v),
           _ => ex("expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
@@ -148,6 +155,9 @@ class Bus implements BusR3000 {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1070 => interruptStatus &= v.mask16,
           0x1074 => interruptMask = v.mask16,
+          0x1048 => pad.writeMode(v),
+          0x104a => pad.writeControl(v),
+          0x104c => pad.writeBaudrate(v),
           0x1100 => ex("Timer 0 Current Counter Value"),
           0x1104 => ex("Timer 0 Counter Mode"),
           0x1108 => ex("Timer 0 Counter Target Value"),
@@ -189,7 +199,7 @@ class Bus implements BusR3000 {
           0x1018 => ex("memory control 1: CDROM Delay/Size"),
           0x101c => ex("memory control 1: Expansion 2 Delay/Size"),
           0x1020 => ex("memory control 1: COMMON_DELAY"),
-          0x1040 => ex("joy_data Data"),
+          0x1040 => pad.writeData(v),
           0x1050 => ex("memory control 2: RAM base address"),
           0x1060 => ex("memory control 2: RAM size"),
           0x1070 => interruptStatus &= v,
@@ -202,6 +212,15 @@ class Bus implements BusR3000 {
             },
           0x10f0 => dmaControl = v,
           0x10f4 => dmaInterrupt = v,
+          0x1100 => ex("Timer 0 Current Counter Value"),
+          0x1104 => ex("Timer 0 Counter Mode"),
+          0x1108 => ex("Timer 0 Counter Target Value"),
+          0x1110 => ex("Timer 1 Current Counter Value"),
+          0x1114 => ex("Timer 1 Counter Mode"),
+          0x1118 => ex("Timer 1 Counter Target Value"),
+          0x1120 => ex("Timer 2 Current Counter Value"),
+          0x1124 => ex("Timer 2 Counter Mode"),
+          0x1128 => ex("Timer 2 Counter Target Value"),
           0x1810 => gpu.writeGp0(v), // gp0
           0x1814 => gpu.writeGp1(v), // gp1
           0x1820 => ex("mdec command"),
@@ -232,7 +251,7 @@ class Bus implements BusR3000 {
         continue;
       }
 
-      debugLog("DMA$ch start: ${d.dump()}");
+      debugLog("DMA$ch: started   ${d.dump()}");
 
       // otc fills memory with 0xff
       if (ch == 6) {
@@ -242,12 +261,12 @@ class Bus implements BusR3000 {
 
         if (d.size == 0) d.size = 0x10000;
         while (d.size > 1) {
-          write32(d.addr, d.addr & 0x1fffff);
-          d.addr += d.incr;
+          final writeAddr = d.addr;
+          d.addr = (d.addr + d.incr) & 0x1ffffc;
+          write32(writeAddr, d.addr);
           d.size--;
         }
-        debugLog("dma ch6 done");
-        d.addr += d.incr;
+
         write32(d.addr, 0xffffff);
         completeDma(ch);
         continue;
@@ -281,11 +300,11 @@ class Bus implements BusR3000 {
           completeDma(ch);
 
         case 2:
-          while (d.addr != 0xffffff) {
+          while (d.addr.mask24 != 0xffffff) {
             final node = read32(d.addr);
 
             for (int i = 0; i < node >> 24; i++) {
-              d.addr += d.incr;
+              d.addr = (d.addr + d.incr) & 0x1ffffc;
               write32(d.ioAddr, read32(d.addr));
             }
 
@@ -304,10 +323,11 @@ class Bus implements BusR3000 {
 
     if (!partial) {
       d.running = false;
+      debugLog("DMA$ch: completed ${d.dump()}");
     }
 
     if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {
-      _dmaInterrupt |= (1 << ch) << 24;
+      _dmaInterrupt.setBit(24 + ch, true);
     }
   }
 
