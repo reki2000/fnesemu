@@ -230,7 +230,7 @@ class R3000 {
   static const exceptionInterrupt = 0x00;
 
   void exception(int cause, {int? badvaddr}) {
-    sr = sr.setMasked(0x3f, sr << 2);
+    sr = sr.masked(0x3f, sr << 2);
 
     this.cause = cause << 2;
 

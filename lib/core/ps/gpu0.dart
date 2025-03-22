@@ -269,7 +269,7 @@ extension Gpu0 on Gpu {
         break;
 
       case 0xe1: // draw mode setting
-        status = status.setMasked(0x7ff, value).setBit(15, value.bit11);
+        status = status.masked(0x7ff, value).setBit(15, value.bit11);
 
       case 0xe2: // texture window setting
         textureMaskX = value & 0x1f;

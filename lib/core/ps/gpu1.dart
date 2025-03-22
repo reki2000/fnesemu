@@ -21,7 +21,7 @@ extension Gpu1 on Gpu {
         status = status.setBit(28, value.bit0);
 
       case 0x04: // dma direction / start address
-        status = status.setMasked(0x60000000, value << 29);
+        status = status.masked(0x60000000, value << 29);
 
       case 0x05: // set drawing area top left
         startDisplayX = value & xMask;
@@ -36,7 +36,7 @@ extension Gpu1 on Gpu {
       case 0x08: // display mode
         displayMode = value & 0x7f;
         status = status
-            .setMasked(0x7e00, value << 17)
+            .masked(0x7e00, value << 17)
             .setBit(16, value.bit6)
             .setBit(14, value.bit7);
         width = [256, 320, 512, 640][displayMode & 0x03];
