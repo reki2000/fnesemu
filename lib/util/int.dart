@@ -1,4 +1,4 @@
-extension IntExt on int {
+extension IntFormat on int {
   /// formats a number with commas per 3 digits
   String get format3 {
     int column = 0;
@@ -22,6 +22,11 @@ extension IntExt on int {
   String get hex32 => mask32.toRadixString(16).padLeft(8, "0");
   String get hex => toRadixString(16);
 
+  String get decimal2 => toString().padLeft(2, " ");
+  String get decimal2z => toString().padLeft(2, "0");
+}
+
+extension IntBit on int {
   // mask a number with specified bit wide mask
   int get mask4 => this & 0xf;
   int get mask8 => this & 0xff;
@@ -164,8 +169,8 @@ extension IntExt on int {
 }
 
 extension IntClip on int {
-  int min(int val) => this < val ? val : this;
-  int max(int val) => this > val ? val : this;
+  int min(int val) => this < val ? this : val;
+  int max(int val) => this > val ? this : val;
   int clip(int min, int max) => this < min
       ? min
       : this > max

@@ -8,11 +8,14 @@ import 'package:fnesemu/util/uint8list.dart';
 import '../../util/debug.dart';
 import 'dma.dart';
 import 'gpu.dart';
+import 'spu.dart';
+import 'timer.dart';
 
 class Bus implements BusR3000 {
   late final Gpu gpu;
   late final R3000 cpu;
   late final Pad pad;
+  late final Spu spu;
 
   Bus();
 
@@ -25,7 +28,9 @@ class Bus implements BusR3000 {
   int interruptStatus = 0;
   int interruptMask = 0;
 
-  final dma = [0, 0, 0x1f801810, 0, 0, 0, 1, 0]
+  final timer = [0, 0, 0].map((e) => Timer()).toList(growable: false);
+
+  final dma = [0, 0, 0x1f801810, 0, 0x1f801da8, 0, 1, 0]
       .asMap()
       .entries
       .map((entry) => Dma(entry.key, entry.value))
@@ -48,8 +53,8 @@ class Bus implements BusR3000 {
             31,
             _dmaInterrupt.bit15 ||
                 (value.bit23 && (value & value >> 16 & 0x1f) != 0))
-        .setMasked(0x001f001f, value)
-        .setMasked(0x1f000000, ~value & _dmaInterrupt);
+        .masked(0x001f001f, value)
+        .masked(0x1f000000, ~value & _dmaInterrupt);
 
     for (var ch = 0; ch < 7; ch++) {
       final modeMask = 0x00001 << ch;
@@ -67,7 +72,22 @@ class Bus implements BusR3000 {
   int read8(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xff;
 
   @override
-  int read16(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x02)) & 0xffff;
+  int read16(int addr) {
+    final offset = addr & segMask[addr >> 29];
+
+    return switch (offset) {
+      >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x1da4 => spu.irqAddr, // spu irq address
+          0x1da6 => spu.fifoAddr, // spu dma start address
+          0x1dac => spu.fifoType, // spu ram ctrl
+          0x1dae => spu.status, // spu status
+          >= 0x1c00 && < 0x1d80 =>
+            spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f),
+          _ => read32(addr & ~0x03) >> (8 * (addr & 0x02)) & 0xffff,
+        },
+      _ => read32(addr & ~0x03) >> (8 * (addr & 0x02)) & 0xffff,
+    };
+  }
 
   @override
   int read32(int addr) {
@@ -82,6 +102,11 @@ class Bus implements BusR3000 {
           ? scratchPad.getUInt32LE(offset - 0x1f800000)
           : 0xffffffff,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x100c => 0x00003022, // expansion 3 delay/size
+          0x1010 => 0x0013243F, // bios rom delay/size
+          0x1014 => 0x200931E1, // spu delay/size (0x220931E1 for read)
+          0x1018 => 0x00020843, // cdrom delay/size (00020843h or 00020943h)
+          0x101c => 0x00070777, // expansion 2 delay/size
           0x1040 => pad.readData(),
           0x1044 => pad.readStatus(),
           0x1048 => pad.readModeControl(),
@@ -96,11 +121,22 @@ class Bus implements BusR3000 {
             },
           0x10f0 => dmaControl,
           0x10f4 => dmaInterrupt,
+          >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
+              0x00 => timer[offset >> 4 & 3].counter,
+              0x04 => timer[offset >> 4 & 3].mode,
+              0x08 => timer[offset >> 4 & 3].target,
+              _ => ex("Timer")
+            },
           0x1810 => gpu.readReg(), // gpu read
           0x1814 => gpu.readStat(), // gpu status
-          0x1da8 => 0, // sound ram fifo
-          0x1dac => 0x0004, // sound ram ctrl
-          >= 0x1c00 && < 0x1c80 => ex("spu voice"),
+          0x1d9c => spu.endx, // spu endx
+          0x1da4 => spu.irqAddr, // spu irq address
+          0x1da6 => spu.fifoAddr, // spu dma start address
+          0x1da8 => 0, // spu ram, ignored
+          0x1dac => spu.fifoType, // spu ram ctrl
+          0x1dae => spu.status, // spu status
+          >= 0x1c00 && < 0x1d80 =>
+            spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f),
           >= 0x1d80 && < 0x1dc0 => ex("spu control"),
           >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
           _ => ex("I/O Ports")
@@ -158,18 +194,23 @@ class Bus implements BusR3000 {
           0x1048 => pad.writeMode(v),
           0x104a => pad.writeControl(v),
           0x104c => pad.writeBaudrate(v),
-          0x1100 => ex("Timer 0 Current Counter Value"),
-          0x1104 => ex("Timer 0 Counter Mode"),
-          0x1108 => ex("Timer 0 Counter Target Value"),
-          0x1110 => ex("Timer 1 Current Counter Value"),
-          0x1114 => ex("Timer 1 Counter Mode"),
-          0x1118 => ex("Timer 1 Counter Target Value"),
-          0x1120 => ex("Timer 2 Current Counter Value"),
-          0x1124 => ex("Timer 2 Counter Mode"),
-          0x1128 => ex("Timer 2 Counter Target Value"),
-          >= 0x1c00 && < 0x1d80 => ex("spu voice"),
-          0x1da8 => 0, // sound ram
-          0x1daa => 0, // sound ctrl?
+          >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
+              0x00 => timer[offset >> 4 & 3].counter = v,
+              0x04 => timer[offset >> 4 & 3].mode = v,
+              0x08 => timer[offset >> 4 & 3].target = v,
+              _ => ex("Timer")
+            },
+          >= 0x1c00 && < 0x1d80 =>
+            spu.writeVoice(offset & 0x0e, offset >> 4 & 0x1f, v),
+          0x1d88 => spu.keyOn(v),
+          0x1d8a => spu.keyOn(v << 16),
+          0x1d8c => spu.keyOff(v),
+          0x1d8e => spu.keyOff(v << 16),
+          0x1da4 => spu.setIrqAddr(v), // irq address
+          0x1da6 => spu.setFifoAddr(v), // dma start address
+          0x1da8 => spu.writeFifo16(v), // sound ram
+          0x1daa => spu.writeCtrl(v), // spu ctrl
+          0x1dac => spu.fifoType = v, // spu ram ctrl
           >= 0x1d80 && < 0x1dc0 => ex("spu control"),
           >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
           _ => ex("expansion 1")
@@ -212,15 +253,12 @@ class Bus implements BusR3000 {
             },
           0x10f0 => dmaControl = v,
           0x10f4 => dmaInterrupt = v,
-          0x1100 => ex("Timer 0 Current Counter Value"),
-          0x1104 => ex("Timer 0 Counter Mode"),
-          0x1108 => ex("Timer 0 Counter Target Value"),
-          0x1110 => ex("Timer 1 Current Counter Value"),
-          0x1114 => ex("Timer 1 Counter Mode"),
-          0x1118 => ex("Timer 1 Counter Target Value"),
-          0x1120 => ex("Timer 2 Current Counter Value"),
-          0x1124 => ex("Timer 2 Counter Mode"),
-          0x1128 => ex("Timer 2 Counter Target Value"),
+          >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
+              0x00 => timer[offset >> 4 & 3].counter = v,
+              0x04 => timer[offset >> 4 & 3].mode = v,
+              0x08 => timer[offset >> 4 & 3].target = v,
+              _ => ex("Timer")
+            },
           0x1810 => gpu.writeGp0(v), // gp0
           0x1814 => gpu.writeGp1(v), // gp1
           0x1820 => ex("mdec command"),
@@ -251,7 +289,7 @@ class Bus implements BusR3000 {
         continue;
       }
 
-      debugLog("DMA$ch: started   ${d.dump()}");
+      // debugLog("DMA$ch: started   ${d.dump()}");
 
       // otc fills memory with 0xff
       if (ch == 6) {
@@ -276,9 +314,20 @@ class Bus implements BusR3000 {
         case 0:
           if (d.size == 0) d.size = 0x10000;
           while (d.size > 0) {
-            d.toRam
-                ? write32(d.addr, read32(d.ioAddr))
-                : write32(d.ioAddr, read32(d.addr));
+            if (ch == 4) {
+              // SPU
+              if (d.toRam) {
+                write16(d.addr, spu.readRam16());
+                write16(d.addr.inc2, spu.readRam16());
+              } else {
+                spu.writeFifo16(read16(d.addr));
+                spu.writeFifo16(read16(d.addr.inc2));
+              }
+            } else {
+              d.toRam
+                  ? write32(d.addr, read32(d.ioAddr))
+                  : write32(d.ioAddr, read32(d.addr));
+            }
             d.addr += d.incr;
             d.size--;
           }
@@ -323,7 +372,7 @@ class Bus implements BusR3000 {
 
     if (!partial) {
       d.running = false;
-      debugLog("DMA$ch: completed ${d.dump()}");
+      // debugLog("DMA$ch: completed ${d.dump()}");
     }
 
     if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {

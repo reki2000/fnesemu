@@ -27,8 +27,8 @@ extension Gp0Renderer on Gpu {
     final c15 = Color.ofC24(cmd).c15;
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, 0, 0, 0);
 
-    debugLog(
-        'GPU0: renderGouraud (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
+    // debugLog(
+    //     'GPU0: renderFlat (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
 
     for (int y = p0.y; y <= p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);
@@ -47,8 +47,8 @@ extension Gp0Renderer on Gpu {
       int cmd, int c0, int v0, int c1, int v1, int c2, int v2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, 0, 0, 0);
 
-    debugLog(
-        'GPU0: renderGouraud (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
+    // debugLog(
+    //     'GPU0: renderGouraud (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
 
     for (int y = p0.y; y <= p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);
@@ -68,8 +68,8 @@ extension Gp0Renderer on Gpu {
       int v1, int t1, int v2, int t2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, t0, t1, t2);
 
-    debugLog(
-        'GPU0: renderTextured (${p0.x},${p0.y},${p0.u},${p0.v}), (${p1.x},${p1.y},${p1.u},${p1.v}), (${p2.x},${p2.y},${p2.u},${p2.v})');
+    // debugLog(
+    //     'GPU0: renderTextured (${p0.x},${p0.y},${p0.u},${p0.v}), (${p1.x},${p1.y},${p1.u},${p1.v}), (${p2.x},${p2.y},${p2.u},${p2.v})');
 
     for (int y = p0.y; y <= p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);

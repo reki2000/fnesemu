@@ -13,12 +13,14 @@ import 'r3000/r3000.dart';
 import 'r3000/r3000_disasm.dart';
 import 'bus.dart';
 import 'gpu.dart';
+import 'spu.dart';
 
 class Ps extends Core {
   final Bus bus;
   late final R3000 cpu;
   late final Gpu gpu;
   late final Pad pad;
+  late final Spu spu;
 
   int initAddress = 0xbfc00000;
 
@@ -26,9 +28,11 @@ class Ps extends Core {
     cpu = R3000(bus);
     gpu = Gpu(bus);
     pad = Pad();
+    spu = Spu(bus);
     bus.gpu = gpu;
     bus.cpu = cpu;
     bus.pad = pad;
+    bus.spu = spu;
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -59,6 +63,11 @@ class Ps extends Core {
 
   int nextScanlineClock = 0;
   int nextDmaClock = 0;
+  int nextSpuClock = 0;
+
+  void Function(AudioBuffer) _onAudio = (_) {};
+  final audioBuffer = Float32List(1000 * 2);
+  int audioBufferIndex = 0;
 
   @override
   ExecResult exec(bool step) {
@@ -73,6 +82,18 @@ class Ps extends Core {
     if (cpu.clocks > nextDmaClock) {
       nextDmaClock += 100;
       bus.execDma(100);
+    }
+
+    if (cpu.clocks > nextSpuClock) {
+      nextSpuClock += 768; // master clock 33.8688MHz / 44100Hz
+      final (l, r) = spu.render();
+      audioBuffer[audioBufferIndex + 0] = l;
+      audioBuffer[audioBufferIndex + 1] = r;
+      audioBufferIndex += 2;
+      if (audioBufferIndex >= audioBuffer.length) {
+        _onAudio(AudioBuffer(44100, 2, audioBuffer));
+        audioBufferIndex = 0;
+      }
     }
 
     return ExecResult(cpu.clocks, false, false);
@@ -91,7 +112,7 @@ class Ps extends Core {
   ImageBuffer imageBuffer() => gpu.imageBuffer;
 
   @override
-  onAudio(void Function(AudioBuffer p1) onAudio) {}
+  onAudio(void Function(AudioBuffer p1) f) => _onAudio = f;
 
   @override
   List<PadButton> get buttons => pad.buttons;
@@ -125,7 +146,8 @@ class Ps extends Core {
     final regs = cpu.dump();
     final gpuStat = gpu.dump();
     final dma = range(0, 7).map((ch) => "$ch:${bus.dma[ch].dump()}").join("\n");
-    return "$asm\n$regs cy:${cpu.clocks}\n\n$dma\n\n$gpuStat";
+    final spuStat = spu.dump();
+    return "$asm\n$regs cy:${cpu.clocks}\n\n$dma\n\n$gpuStat\n\n$spuStat";
   }
 
   @override
@@ -137,7 +159,7 @@ class Ps extends Core {
       [for (int i = 0; i < 32; i++) cpu.r[i]]);
 
   @override
-  int read(int _, int addr) => bus.read8(addr);
+  int read(int _, int addr) => bus.spu.ram[addr & 0x7ffff];
 
   @override
   ImageBuffer renderBg() => gpu.renderBg();
