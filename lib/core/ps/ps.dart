@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/gpu_debug.dart';
+import 'package:fnesemu/core/ps/timer.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
 
@@ -21,6 +22,7 @@ class Ps extends Core {
   late final Gpu gpu;
   late final Pad pad;
   late final Spu spu;
+  late final TimerController timer;
 
   int initAddress = 0xbfc00000;
 
@@ -29,10 +31,13 @@ class Ps extends Core {
     gpu = Gpu(bus);
     pad = Pad();
     spu = Spu(bus);
+    timer = TimerController(bus);
+
     bus.gpu = gpu;
     bus.cpu = cpu;
     bus.pad = pad;
     bus.spu = spu;
+    bus.timer = timer;
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -62,6 +67,7 @@ class Ps extends Core {
   }
 
   int nextScanlineClock = 0;
+  bool _waitFinishLine = false;
   int nextDmaClock = 0;
   int nextSpuClock = 0;
 
@@ -72,11 +78,19 @@ class Ps extends Core {
   @override
   ExecResult exec(bool step) {
     cpu.step();
+    timer.clock();
 
     if (cpu.clocks > nextScanlineClock) {
       nextScanlineClock += clocksInScanline;
       gpu.renderScanline();
+      bus.timer.startHBlank();
+      _waitFinishLine = true;
       return ExecResult(cpu.clocks, false, true);
+    }
+
+    if (_waitFinishLine && cpu.clocks >= nextScanlineClock - 100) {
+      bus.timer.endHBlank();
+      _waitFinishLine = false;
     }
 
     if (cpu.clocks > nextDmaClock) {
@@ -142,12 +156,12 @@ class Ps extends Core {
       bool showSpriteVram = false,
       bool showStack = false,
       bool showApu = false}) {
-    final asm = disasm(0, cpu.pc).$1;
-    final regs = cpu.dump();
-    final gpuStat = gpu.dump();
-    final dma = range(0, 7).map((ch) => "$ch:${bus.dma[ch].dump()}").join("\n");
-    final spuStat = spu.dump();
-    return "$asm\n$regs cy:${cpu.clocks}\n\n$dma\n\n$gpuStat\n\n$spuStat";
+    return "${disasm(0, cpu.pc).$1}\n${cpu.dump()} cy:${cpu.clocks}\n"
+        "${range(0, 7).map((ch) => bus.dma[ch].dump()).join("\n")}\n"
+        "${timer.timers.map((t) => t.dump()).join(" ")}\n"
+        "istat:${bus.interruptStatus.hex32} imask:${bus.interruptMask.hex32}\n"
+        "${gpu.dump()}\n"
+        "${spu.dump()}";
   }
 
   @override

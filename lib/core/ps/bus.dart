@@ -11,11 +11,14 @@ import 'gpu.dart';
 import 'spu.dart';
 import 'timer.dart';
 
+part 'bus_dma.dart';
+
 class Bus implements BusR3000 {
   late final Gpu gpu;
   late final R3000 cpu;
   late final Pad pad;
   late final Spu spu;
+  late final TimerController timer;
 
   Bus();
 
@@ -27,8 +30,6 @@ class Bus implements BusR3000 {
 
   int interruptStatus = 0;
   int interruptMask = 0;
-
-  final timer = [0, 0, 0].map((e) => Timer()).toList(growable: false);
 
   final dma = [0, 0, 0x1f801810, 0, 0x1f801da8, 0, 1, 0]
       .asMap()
@@ -122,9 +123,9 @@ class Bus implements BusR3000 {
           0x10f0 => dmaControl,
           0x10f4 => dmaInterrupt,
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
-              0x00 => timer[offset >> 4 & 3].counter,
-              0x04 => timer[offset >> 4 & 3].mode,
-              0x08 => timer[offset >> 4 & 3].target,
+              0x00 => timer.counter(offset >> 4 & 3),
+              0x04 => timer.mode(offset >> 4 & 3),
+              0x08 => timer.target(offset >> 4 & 3),
               _ => ex("Timer")
             },
           0x1810 => gpu.readReg(), // gpu read
@@ -195,9 +196,9 @@ class Bus implements BusR3000 {
           0x104a => pad.writeControl(v),
           0x104c => pad.writeBaudrate(v),
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
-              0x00 => timer[offset >> 4 & 3].counter = v,
-              0x04 => timer[offset >> 4 & 3].mode = v,
-              0x08 => timer[offset >> 4 & 3].target = v,
+              0x00 => timer.setCounter(offset >> 4 & 3, v),
+              0x04 => timer.setMode(offset >> 4 & 3, v),
+              0x08 => timer.setTarget(offset >> 4 & 3, v),
               _ => ex("Timer")
             },
           >= 0x1c00 && < 0x1d80 =>
@@ -254,9 +255,9 @@ class Bus implements BusR3000 {
           0x10f0 => dmaControl = v,
           0x10f4 => dmaInterrupt = v,
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
-              0x00 => timer[offset >> 4 & 3].counter = v,
-              0x04 => timer[offset >> 4 & 3].mode = v,
-              0x08 => timer[offset >> 4 & 3].target = v,
+              0x00 => timer.setCounter(offset >> 4 & 3, v),
+              0x04 => timer.setMode(offset >> 4 & 3, v),
+              0x08 => timer.setTarget(offset >> 4 & 3, v),
               _ => ex("Timer")
             },
           0x1810 => gpu.writeGp0(v), // gp0
@@ -277,106 +278,10 @@ class Bus implements BusR3000 {
     };
   }
 
-  void execDma(int count) {
-    for (int ch = 0; ch < 7; ch++) {
-      final d = dma[ch];
-
-      if (d.ioAddr == 0) {
-        continue;
-      }
-
-      if (!d.enabled || !d.running) {
-        continue;
-      }
-
-      // debugLog("DMA$ch: started   ${d.dump()}");
-
-      // otc fills memory with 0xff
-      if (ch == 6) {
-        if (d.syncMode != 0 || !d.toRam) {
-          continue;
-        }
-
-        if (d.size == 0) d.size = 0x10000;
-        while (d.size > 1) {
-          final writeAddr = d.addr;
-          d.addr = (d.addr + d.incr) & 0x1ffffc;
-          write32(writeAddr, d.addr);
-          d.size--;
-        }
-
-        write32(d.addr, 0xffffff);
-        completeDma(ch);
-        continue;
-      }
-
-      switch (d.syncMode) {
-        case 0:
-          if (d.size == 0) d.size = 0x10000;
-          while (d.size > 0) {
-            if (ch == 4) {
-              // SPU
-              if (d.toRam) {
-                write16(d.addr, spu.readRam16());
-                write16(d.addr.inc2, spu.readRam16());
-              } else {
-                spu.writeFifo16(read16(d.addr));
-                spu.writeFifo16(read16(d.addr.inc2));
-              }
-            } else {
-              d.toRam
-                  ? write32(d.addr, read32(d.ioAddr))
-                  : write32(d.ioAddr, read32(d.addr));
-            }
-            d.addr += d.incr;
-            d.size--;
-          }
-
-          completeDma(ch);
-
-        case 1:
-          while (d.amount-- > 0) {
-            for (int i = 0; i < d.size; i++) {
-              d.toRam
-                  ? write32(d.addr, read32(d.ioAddr))
-                  : write32(d.ioAddr, read32(d.addr));
-              d.addr += d.incr;
-            }
-
-            completeDma(ch, partial: true);
-          }
-
-          completeDma(ch);
-
-        case 2:
-          while (d.addr.mask24 != 0xffffff) {
-            final node = read32(d.addr);
-
-            for (int i = 0; i < node >> 24; i++) {
-              d.addr = (d.addr + d.incr) & 0x1ffffc;
-              write32(d.ioAddr, read32(d.addr));
-            }
-
-            d.addr = node.mask24;
-
-            completeDma(ch, partial: true);
-          }
-
-          completeDma(ch);
-      }
-    }
-  }
-
-  void completeDma(int ch, {bool partial = false}) {
-    final d = dma[ch];
-
-    if (!partial) {
-      d.running = false;
-      // debugLog("DMA$ch: completed ${d.dump()}");
-    }
-
-    if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {
-      _dmaInterrupt.setBit(24 + ch, true);
+  void interrupt(int no) {
+    interruptStatus = interruptStatus.setBit(no, true);
+    if (interruptMask & interruptStatus != 0) {
+      cpu.exception(R3000.exceptionInterrupt);
     }
   }
 

@@ -44,7 +44,7 @@ class Dma {
 
   Dma(this.ch, this.ioAddr);
 
-  String dump() => "${running ? "R" : "-"} "
+  String dump() => "DMA$ch: ${running ? "R" : "-"} "
       "${enabled ? "E" : "-"} "
       "${useInterrupt ? "I" : "-"}${intterruptOnChunks ? "C" : "-"}  "
       "${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "

@@ -39,8 +39,12 @@ extension Gpu1 on Gpu {
             .masked(0x7e00, value << 17)
             .setBit(16, value.bit6)
             .setBit(14, value.bit7);
-        width = [256, 320, 512, 640][displayMode & 0x03];
-        width = value.bit6 ? 368 : width;
+
+        width = value.bit6 ? 368 : [256, 320, 512, 640][displayMode & 0x03];
+
+        dotClockDivider =
+            7 * (value.bit6 ? 7 : [10, 8, 5, 4][displayMode & 0x03]);
+
         height = (value & 0x24 == 0x24) ? 480 : 240;
         if (buffer.length != width * height) {
           buffer = Uint32List(width * height);

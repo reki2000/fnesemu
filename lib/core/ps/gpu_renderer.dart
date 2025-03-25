@@ -18,7 +18,7 @@ extension GpuRenderer on Gpu {
     final y = startDisplayY + scanline;
 
     // Choose appropriate rendering method based on color depth
-    if (y < 512) {
+    if (y < 512 && scanline < 240) {
       int fbIndex =
           2048 * (y + (height == 240 ? 0 : (y + (isOddFrame ? 1 : 0))));
 
@@ -39,8 +39,15 @@ extension GpuRenderer on Gpu {
     }
 
     scanline++;
+
+    if (scanline == 240) {
+      bus.timer.startVBlank();
+      // bus.interrupt(Interrupt.vBlank);
+    }
+
     // Reset scanline at the end of frame
     if (scanline == Gpu.scanlinesInFrame) {
+      bus.timer.endVBlank();
       scanline = 0;
       isOddFrame = (height == 480) ? !isOddFrame : false;
     }

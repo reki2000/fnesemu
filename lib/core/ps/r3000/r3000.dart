@@ -227,7 +227,7 @@ class R3000 {
   static const exceptionReadAlign = 0x04;
   static const exceptionWriteAlign = 0x05;
   static const exceptionIllegalInstruction = 0x0a;
-  static const exceptionInterrupt = 0x00;
+  static const exceptionInterrupt = 0x80;
 
   void exception(int cause, {int? badvaddr}) {
     sr = sr.masked(0x3f, sr << 2);

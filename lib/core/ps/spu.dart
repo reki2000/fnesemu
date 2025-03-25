@@ -148,11 +148,12 @@ class Spu {
         result |= 1 << i;
       }
     }
-    debugLog("SPU: endx ${result.hex32}");
+    // debugLog("SPU: endx ${result.hex32}");
     return result;
   }
 
-  String dump() => "$fifoWriteCount ${enabled ? "*" : " "}${muted ? "M" : " "} "
+  String dump() =>
+      "SPU: $fifoWriteCount ${enabled ? "*" : " "}${muted ? "M" : " "} "
       "$fifoMode ${fifoAddr.hex24} ${irqAddr.hex24}\n"
       "${voices.sublist(0, 8).map((v) => v.dump()).join(" ")}\n"
       "${voices.sublist(8, 16).map((v) => v.dump()).join(" ")}\n"

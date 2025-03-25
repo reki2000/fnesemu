@@ -6,6 +6,7 @@ import 'package:fnesemu/util/uint8list.dart';
 import '../../util/debug.dart';
 import '../types.dart';
 import 'bus.dart';
+import 'interrupt.dart';
 import 'point_color.dart';
 
 part 'gpu_renderer.dart';
@@ -26,6 +27,8 @@ class Gpu {
 
   // rendering status
   int width = 320; //  256, 320, 368, 512, 640
+  int dotClockDivider =
+      7 * 8; // 7* 10:256pix 8:320pix 7:368pix 5:512pix 4:640pix
   int height = 240; // 240p or 480i
   Uint32List buffer = Uint32List(320 * 240);
 
@@ -33,7 +36,7 @@ class Gpu {
       ImageBuffer(width, height, buffer.buffer.asUint8List(),
           displayWidth_: 320);
 
-  static const scanlinesInFrame = 240;
+  static const scanlinesInFrame = 262; // ntsc
 
   int scanline = 0;
   bool isOddFrame = false;
