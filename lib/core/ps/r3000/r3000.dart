@@ -8,6 +8,7 @@ import '../../../util/debug.dart';
 part 'cop0.dart';
 part 'cop2.dart';
 part 'alu.dart';
+part 'hook.dart';
 
 /// A simple bus interface for MIPS memory accesses.
 abstract class BusR3000 {
@@ -119,20 +120,16 @@ class R3000 {
           ? 0
           : bus.write32(addr & 0xfffffffc, value.mask32);
 
+  bool intAsserted = false;
+
+  void interrupt(bool onoff) {
+    intAsserted = onoff;
+    cause = cause.setBit(10, onoff);
+  }
+
   /// Executes a single instruction.
   bool step() {
     hook();
-
-    int inst32 = 0;
-    try {
-      inst32 = read32(pc);
-    } catch (e) {
-      if (e is ReadMisalignException) {
-        exception(exceptionReadAlign, badvaddr: e.addr);
-      } else {
-        rethrow;
-      }
-    }
 
     instPc = pc;
     pc = nextPc;
@@ -145,8 +142,14 @@ class R3000 {
     nextDelaySlot = (0, 0);
     immediateSlot = (0, 0);
 
+    if (intAsserted && sr & 0x401 == 0x401) {
+      intAsserted = false;
+      exception(exceptionInterrupt);
+      return true;
+    }
+
     try {
-      exec(inst32);
+      exec(read32(instPc));
     } catch (e) {
       if (e is ReadMisalignException) {
         exception(exceptionReadAlign, badvaddr: e.addr);
@@ -169,45 +172,6 @@ class R3000 {
     return true;
   }
 
-  hook() {
-    // tty putchar
-    if (pc & 0x1fffff == 0xb0 && r[9] == 0x3d ||
-        pc & 0x1fffff == 0xa0 && r[9] == 0x3c) {
-      final ch = r[4];
-      if ((ch >= 0x20 && ch < 0x80) || ch == 0x0a || ch == 0x09) {
-        if (ch == 0x0a) {
-          debugLog("tty clk[$clocks] : ${console.toString()}");
-          console.clear();
-        } else {
-          console.write(String.fromCharCode(ch));
-        }
-      }
-    }
-
-    // exe sideloading
-    if (pc == 0x80030000 && exe.length > 0x400) {
-      pc = exe.getUInt32LE(0x10);
-      nextPc = pc.inc4.mask32;
-
-      r[28] = exe.getUInt32LE(0x14);
-      if (exe.getUInt32LE(0x30) != 0) {
-        r[29] = r[30] = exe.getUInt32LE(0x30);
-      }
-
-      final loadAddr = exe.getUInt32LE(0x18);
-      final size = exe.getUInt32LE(0x1c);
-      const headerSize = 0x800;
-      for (int i = 0; i < size - headerSize; i += 4) {
-        write32(i + loadAddr, exe.getUInt32LE(i + headerSize));
-      }
-
-      debugLog(
-          "exe sideloaded on ${loadAddr.hex32} size:${size.hex32} entry:${pc.hex32}");
-    }
-
-    //   print("bios call ${pc.hex8}-${r[9].hex32} r4:${r[4].hex32}");
-  }
-
   static _unknown(int inst32) => throw UnknownOpcodeException();
 
   void delay(RegNo dst, int val) {
@@ -227,21 +191,24 @@ class R3000 {
   static const exceptionReadAlign = 0x04;
   static const exceptionWriteAlign = 0x05;
   static const exceptionIllegalInstruction = 0x0a;
-  static const exceptionInterrupt = 0x80;
+  static const exceptionInterrupt = 0x00;
 
-  void exception(int cause, {int? badvaddr}) {
+  void exception(int excode, {int? badvaddr}) {
+    debugLog("exception ${excode.hex8} ${dump()}");
+
     sr = sr.masked(0x3f, sr << 2);
 
-    this.cause = cause << 2;
+    cause = excode << 2;
 
     if (badvaddr != null) {
       this.badvaddr = badvaddr;
     }
 
-    epc = cause == exceptionInterrupt ? pc : instPc;
     if (inBranchDelay) {
-      epc = epc.dec4.mask32;
+      epc = instPc.dec4.mask32;
       cause |= 0x80000000;
+    } else {
+      epc = instPc;
     }
 
     pc = sr.bit22 ? 0xbfc00180 : 0x80000080; // bit22: BEV

@@ -244,7 +244,7 @@ class Bus implements BusR3000 {
           0x1040 => pad.writeData(v),
           0x1050 => ex("memory control 2: RAM base address"),
           0x1060 => ex("memory control 2: RAM size"),
-          0x1070 => interruptStatus &= v,
+          0x1070 => acknowledgeInterrupt(v),
           0x1074 => interruptMask = v,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
               0x00 => dma[offset >> 4 & 0x07].startAddr = v,
@@ -281,7 +281,14 @@ class Bus implements BusR3000 {
   void interrupt(int no) {
     interruptStatus = interruptStatus.setBit(no, true);
     if (interruptMask & interruptStatus != 0) {
-      cpu.exception(R3000.exceptionInterrupt);
+      cpu.interrupt(true);
+    }
+  }
+
+  void acknowledgeInterrupt(int value) {
+    interruptStatus &= value;
+    if (interruptMask & interruptStatus == 0) {
+      cpu.interrupt(false);
     }
   }
 

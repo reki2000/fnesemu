@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'bus.dart';
@@ -11,7 +12,7 @@ class Timer {
 
   int counter = 0;
   int target = 0;
-  int mode = 0;
+  int mode_ = 0;
 
   bool reachTarget = false;
   bool reachFfff = false;
@@ -29,7 +30,7 @@ class Timer {
   bool triggered = false;
   int ttl = 0;
 
-  int get value => mode
+  int get mode => mode_
       .setBit(10, !intRequested)
       .setBit(11, reachTarget)
       .setBit(12, reachFfff);
@@ -43,6 +44,7 @@ class Timer {
         intRequested = true;
         ttl = 3;
       }
+
       intRequested = toggleMode ? !intRequested : true;
       triggered = true;
       if (!prev && intRequested) {
@@ -71,8 +73,6 @@ class Timer {
       if (irqWhenFfff) {
         trigger();
       }
-
-      return;
     }
 
     if (counter == target) {
@@ -119,7 +119,7 @@ class Timer {
     }
   }
 
-  String dump() => "Timer$no: ${value.hex16} ${counter.hex16}/${target.hex16}";
+  String dump() => "Timer$no: ${mode.hex16} ${counter.hex16}/${target.hex16}";
 }
 
 class TimerController {
@@ -172,10 +172,18 @@ class TimerController {
     }
   }
 
-  int mode(int no) => timers[no].value;
-  void setMode(int no, int mode) {
+  int mode(int no) {
     final t = timers[no];
-    t.mode = mode;
+    final result = t.mode;
+    t.reachTarget = false;
+    t.reachFfff = false;
+    return result;
+  }
+
+  void setMode(int no, int mode) {
+    debugLog("Timer$no: set mode ${mode.hex32}");
+    final t = timers[no];
+    t.mode_ = mode;
     t.intRequested = false;
     t.sync = mode.bit0;
     t.syncMode = mode >> 1 & 0x03;
@@ -186,9 +194,7 @@ class TimerController {
     t.toggleMode = mode.bit7;
     t.sourceSystemClock = no == 2 ? !mode.bit9 : !mode.bit8;
     t.triggered = false;
-    if (no != 2 && t.sync && (t.mode >> 1 & 0x03) == 3) {
-      t.pause = true;
-    }
+    t.pause = no != 2 && t.sync && t.syncMode == 3;
     t.counter = 0;
     t.reachTarget = false;
     t.reachFfff = false;
@@ -197,7 +203,7 @@ class TimerController {
   int target(int no) => timers[no].target;
   void setTarget(int no, int target) {
     final t = timers[no];
-    t.target = target;
+    t.target = target.mask16;
     t.reachTarget = false;
     t.reachFfff = false;
   }
@@ -205,7 +211,7 @@ class TimerController {
   int counter(int no) => timers[no].counter;
   void setCounter(int no, int value) {
     final t = timers[no];
-    t.counter = value;
+    t.counter = value.mask16;
     t.reachTarget = false;
     t.reachFfff = false;
   }

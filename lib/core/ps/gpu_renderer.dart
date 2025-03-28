@@ -42,7 +42,7 @@ extension GpuRenderer on Gpu {
 
     if (scanline == 240) {
       bus.timer.startVBlank();
-      // bus.interrupt(Interrupt.vBlank);
+      bus.interrupt(Interrupt.vBlank);
     }
 
     // Reset scanline at the end of frame

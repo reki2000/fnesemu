@@ -18,7 +18,7 @@ extension Cop0 on R3000 {
       case 12:
         sr = value;
       case 13:
-        cause = value;
+        cause = cause.masked(0x30, value);
       case 14:
         epc = value;
     }
@@ -27,6 +27,7 @@ extension Cop0 on R3000 {
   void execCop0(int inst32) {
     switch (inst32 & 0x3f) {
       case 0x10: // rfe
+        debugLog("rfe ${dump()}");
         sr = sr.masked(0x0f, sr >> 2);
       default:
         R3000._unknown(inst32);

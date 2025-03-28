@@ -117,7 +117,7 @@ class MainPageState extends State<MainPage> {
     final (extractedFile, extractedName) = _extractIfZip(file, name);
     final ext = _fileExtension(extractedName);
 
-    if (ext == "psexe") {
+    if (ext == "exe") {
       final (bios, _) = await _pickFile(name: "scph1001.ps");
       _controller.init("ps", bios.buffer.asUint8List(), extRom: extractedFile);
     } else {

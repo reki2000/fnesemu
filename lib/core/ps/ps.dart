@@ -81,15 +81,15 @@ class Ps extends Core {
     timer.clock();
 
     if (cpu.clocks > nextScanlineClock) {
+      bus.timer.endHBlank();
       nextScanlineClock += clocksInScanline;
       gpu.renderScanline();
-      bus.timer.startHBlank();
       _waitFinishLine = true;
       return ExecResult(cpu.clocks, false, true);
     }
 
     if (_waitFinishLine && cpu.clocks >= nextScanlineClock - 100) {
-      bus.timer.endHBlank();
+      bus.timer.startHBlank();
       _waitFinishLine = false;
     }
 
