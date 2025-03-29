@@ -1,4 +1,3 @@
-import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
 import 'bus.dart';
@@ -48,7 +47,7 @@ class Timer {
       intRequested = toggleMode ? !intRequested : true;
       triggered = true;
       if (!prev && intRequested) {
-        bus.interrupt(Interrupt.timer0 + no);
+        bus.setIrq(Interrupt.timer0 + no);
       }
     }
   }
@@ -181,7 +180,7 @@ class TimerController {
   }
 
   void setMode(int no, int mode) {
-    debugLog("Timer$no: set mode ${mode.hex32}");
+    // debugLog("Timer$no: set mode ${mode.hex32}");
     final t = timers[no];
     t.mode_ = mode;
     t.intRequested = false;

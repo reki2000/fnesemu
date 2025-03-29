@@ -15,7 +15,8 @@ extension Gpu1 on Gpu {
         cmdSize = 0;
 
       case 0x02: // acknowledge interrupt
-        status = status.setBit(24, false);
+        irq1 = false;
+        bus.resetIrq(Interrupt.gpu);
 
       case 0x03: // display enable
         status = status.setBit(28, value.bit0);

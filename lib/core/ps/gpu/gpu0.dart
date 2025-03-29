@@ -268,6 +268,12 @@ extension Gpu0 on Gpu {
       case 0x01: // clear cache
         break;
 
+      case 0x1f: // irq1
+        if (!irq1) {
+          bus.setIrq(Interrupt.gpu);
+        }
+        irq1 = true;
+
       case 0xe1: // draw mode setting
         status = status.masked(0x7ff, value).setBit(15, value.bit11);
 

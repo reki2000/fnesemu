@@ -49,7 +49,7 @@ class DisasmR3000 {
 
   static _reg(int no) => no == 0 ? "0" : "r$no";
 
-  static String disasm(int inst32) {
+  static String disasm(int inst32, {int pc = 0}) {
     final op = inst32 >> 26 & 0x3f;
     final rs = inst32 >> 21 & 0x1f;
     final rt = inst32 >> 16 & 0x1f;
@@ -62,9 +62,9 @@ class DisasmR3000 {
     final shamt = inst32 >> 6 & 0x1f;
     final funct = inst32 & 0x3f;
 
-    final im16_ = (inst32 & 0xffff).hex16;
-    final rel16_ = ((inst32 & 0xffff) << 2).hex16;
-    final rel26_ = ((inst32 & 0x3ffffff) << 2).hex32;
+    final im16_ = inst32.rel16.toRadixString(16);
+    final rel16_ = (pc + (inst32.rel16 << 2)).mask32.hex32;
+    final rel26_ = (pc + (inst32.rel26 << 2)).mask32.hex32;
 
     // print(
     //     "op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8} shamt:${shamt.hex8} funct:${funct.hex8} im16:$im16_ im26:$im26_");

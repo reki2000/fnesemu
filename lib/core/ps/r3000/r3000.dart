@@ -110,8 +110,15 @@ class R3000 {
   bool intAsserted = false;
 
   void interrupt(bool onoff) {
-    intAsserted = onoff;
-    cause = cause.setBit(10, onoff);
+    if (onoff) {
+      if (cause.bit(10)) {
+        return;
+      }
+      intAsserted = true;
+      cause = cause.setBit(10, true);
+    } else {
+      cause = cause.setBit(10, false);
+    }
   }
 
   /// Executes a single instruction.
@@ -132,20 +139,19 @@ class R3000 {
     if (intAsserted && sr & 0x401 == 0x401) {
       intAsserted = false;
       exception(Exception.interrupt);
-      return true;
-    }
-
-    try {
-      exec(read32(instPc));
-    } catch (e) {
-      if (e is ReadMisalignException) {
-        exception(Exception.readalign, badvaddr: e.addr);
-      } else if (e is WriteMisalignException) {
-        exception(Exception.writeAlign, badvaddr: e.addr);
-      } else if (e is UnknownOpcodeException) {
-        exception(Exception.illegalInstruction);
-      } else {
-        rethrow;
+    } else {
+      try {
+        exec(read32(instPc));
+      } catch (e) {
+        if (e is ReadMisalignException) {
+          exception(Exception.readalign, badvaddr: e.addr);
+        } else if (e is WriteMisalignException) {
+          exception(Exception.writeAlign, badvaddr: e.addr);
+        } else if (e is UnknownOpcodeException) {
+          exception(Exception.illegalInstruction);
+        } else {
+          rethrow;
+        }
       }
     }
 
@@ -173,11 +179,11 @@ class R3000 {
   void jump(int addr) => nextPc = addr.mask32;
 
   void exception(int excode, {int? badvaddr}) {
-    // debugLog("exception ${excode.hex8} ${dump()}");
+    // debugLog("exception ${excode.hex8}");
 
-    sr = sr.masked(0x3f, sr << 2) | 0x01;
+    sr = sr.masked(0x3f, sr << 2);
 
-    cause = excode << 2;
+    cause = cause.masked(0x7c, excode << 2);
 
     if (badvaddr != null) {
       this.badvaddr = badvaddr;
@@ -191,7 +197,7 @@ class R3000 {
     }
 
     pc = sr.bit22 ? 0xbfc00180 : 0x80000080; // bit22: BEV
-    nextPc = pc.inc4.mask32;
+    nextPc = pc.inc4;
   }
 
   /// Main instruction dispatch.

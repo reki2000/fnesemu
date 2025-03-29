@@ -1,4 +1,4 @@
-import 'bus.dart';
+import '../bus.dart';
 import 'gpu.dart';
 
 main() {

@@ -7,7 +7,7 @@ import 'package:fnesemu/util/uint8list.dart';
 
 import '../../util/debug.dart';
 import 'dma.dart';
-import 'gpu.dart';
+import 'gpu/gpu.dart';
 import 'spu.dart';
 import 'timer.dart';
 
@@ -168,7 +168,7 @@ class Bus implements BusR3000 {
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
-          0x1048 => pad.writeData(v),
+          0x1040 => pad.writeData(v),
           _ => ex("expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
@@ -190,11 +190,11 @@ class Bus implements BusR3000 {
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad.setUInt16LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
-          0x1070 => interruptStatus &= v.mask16,
+          0x1070 => ackIrq(v),
           0x1074 => interruptMask = v.mask16,
           0x1048 => pad.writeMode(v),
           0x104a => pad.writeControl(v),
-          0x104c => pad.writeBaudrate(v),
+          0x104e => pad.writeBaudrate(v),
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
@@ -244,7 +244,7 @@ class Bus implements BusR3000 {
           0x1040 => pad.writeData(v),
           0x1050 => ex("memory control 2: RAM base address"),
           0x1060 => ex("memory control 2: RAM size"),
-          0x1070 => acknowledgeInterrupt(v),
+          0x1070 => ackIrq(v),
           0x1074 => interruptMask = v,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
               0x00 => dma[offset >> 4 & 0x07].startAddr = v,
@@ -278,15 +278,28 @@ class Bus implements BusR3000 {
     };
   }
 
-  void interrupt(int no) {
-    interruptStatus = interruptStatus.setBit(no, true);
+  void setIrq(int irqNo) {
+    if (interruptStatus.bit(irqNo)) {
+      return;
+    }
+
+    interruptStatus = interruptStatus.setBit(irqNo, true);
+
     if (interruptMask & interruptStatus != 0) {
       cpu.interrupt(true);
     }
   }
 
-  void acknowledgeInterrupt(int value) {
-    interruptStatus &= value;
+  void resetIrq(int irqNo) {
+    ackIrq(~(1 << irqNo));
+  }
+
+  void ackIrq(int ackValue) {
+    // debugLog(
+    //     'interrupt ack:${ackValue.hex32}  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
+
+    interruptStatus &= ackValue;
+
     if (interruptMask & interruptStatus == 0) {
       cpu.interrupt(false);
     }

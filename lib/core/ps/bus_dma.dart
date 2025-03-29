@@ -101,6 +101,7 @@ extension DmaController on Bus {
 
     if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {
       _dmaInterrupt.setBit(24 + ch, true);
+      //setIrq(Interrupt.dma);
     }
   }
 }

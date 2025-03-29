@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
@@ -35,7 +36,7 @@ class _TestBus implements BusR3000 {
 void main() {
   final bus = _TestBus(1024 * 1024);
 
-  final idata = [0x2409001c, 0x00094880, 0x00, 0x00];
+  final idata = [0x3c030001, 0x00002021, 0x24638610, 0];
   final base = 0x0;
   for (int i = 0; i < idata.length; i++) {
     bus.write32(i * 4 + base, idata[i]);
@@ -47,7 +48,8 @@ void main() {
 
   final startAt = DateTime.now().millisecondsSinceEpoch;
   cpu.pc = base;
-  while (cpu.clocks < count) {
+  cpu.nextPc = base + 4;
+  for (int i = 0; i < count; i++) {
     debugLog(cpu.dump());
     cpu.step();
   }

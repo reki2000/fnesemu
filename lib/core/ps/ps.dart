@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/ps/gpu_debug.dart';
+import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
 import 'package:fnesemu/core/ps/timer.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
@@ -9,11 +9,11 @@ import '../../util/debug.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
-import 'pad.dart';
-import 'r3000/r3000.dart';
-import 'r3000/r3000_disasm.dart';
 import 'bus.dart';
-import 'gpu.dart';
+import 'gpu/gpu.dart';
+import 'pad.dart';
+import 'r3000/disasm.dart';
+import 'r3000/r3000.dart';
 import 'spu.dart';
 
 class Ps extends Core {
@@ -147,7 +147,10 @@ class Ps extends Core {
   (String, int) disasm(int _, int addr) {
     addr = addr.mask32 & ~0x03;
     final inst32 = bus.read32(addr);
-    return ("${addr.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32)}", 4);
+    return (
+      "${addr.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32, pc: addr)}",
+      4
+    );
   }
 
   @override
@@ -173,7 +176,9 @@ class Ps extends Core {
       [for (int i = 0; i < 32; i++) cpu.r[i]]);
 
   @override
-  int read(int _, int addr) => bus.spu.ram[addr & 0x7ffff];
+  int read(int _, int addr) => (addr >> 28 == 0x07)
+      ? bus.spu.ram[addr & 0x7ffff]
+      : bus.read32(addr & 0x1fffff);
 
   @override
   ImageBuffer renderBg() => gpu.renderBg();

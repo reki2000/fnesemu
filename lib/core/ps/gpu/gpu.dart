@@ -3,16 +3,16 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
-import '../../util/debug.dart';
-import '../types.dart';
-import 'bus.dart';
-import 'interrupt.dart';
-import 'point_color.dart';
+import '../../../util/debug.dart';
+import '../../types.dart';
+import '../bus.dart';
+import '../interrupt.dart';
+import '../point_color.dart';
 
-part 'gpu_renderer.dart';
 part 'gpu0.dart';
-part 'gpu1.dart';
 part 'gpu0_renderer.dart';
+part 'gpu1.dart';
+part 'renderer.dart';
 
 class Gpu {
   int status = 0;
@@ -46,6 +46,8 @@ class Gpu {
   int cmdSize = 0;
   bool get cmdReady => cmdSize == 0;
 
+  bool irq1 = false;
+
   int textureMaskX = 0;
   int textureMaskY = 0;
   int textureOffsetX = 0;
@@ -77,7 +79,8 @@ class Gpu {
   int readStat() {
     const alwaysOn = 0x18000000; // dma is available
     final result =
-        status.setBit(26, cmdReady).setBit(13, isOddFrame) | alwaysOn;
+        status.setBit(26, cmdReady).setBit(13, isOddFrame).setBit(24, irq1) |
+            alwaysOn;
     // debugLog("GPSTAT: ${result.hex32}");
     return result;
   }

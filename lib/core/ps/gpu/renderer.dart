@@ -13,6 +13,11 @@ extension GpuRenderer on Gpu {
   });
 
   void renderScanline() {
+    if (status.bit23) {
+      // Skip rendering if the status bit is set
+      return;
+    }
+
     int bufIndex = width *
         (height == 480 ? (scanline * 2 + (isOddFrame ? 1 : 0)) : scanline);
     final y = startDisplayY + scanline;
@@ -42,12 +47,13 @@ extension GpuRenderer on Gpu {
 
     if (scanline == 240) {
       bus.timer.startVBlank();
-      bus.interrupt(Interrupt.vBlank);
+      bus.setIrq(Interrupt.vBlank);
     }
 
     // Reset scanline at the end of frame
     if (scanline == Gpu.scanlinesInFrame) {
       bus.timer.endVBlank();
+      bus.resetIrq(Interrupt.vBlank);
       scanline = 0;
       isOddFrame = (height == 480) ? !isOddFrame : false;
     }

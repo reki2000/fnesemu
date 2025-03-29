@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/uint8list.dart';
 
-import '../types.dart';
+import '../../types.dart';
 import 'gpu.dart';
 
 extension GpuDebugger on Gpu {

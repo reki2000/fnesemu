@@ -28,7 +28,7 @@ extension Cop0 on R3000 {
   void execCop0(int inst32) {
     switch (inst32 & 0x3f) {
       case 0x10: // rfe
-        debugLog("rfe ${dump()}");
+        // debugLog("rfe ${dump()}");
         sr = sr.masked(0x0f, sr >> 2);
       default:
         R3000._unknown(inst32);
