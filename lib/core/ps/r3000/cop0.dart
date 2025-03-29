@@ -7,6 +7,7 @@ extension Cop0 on R3000 {
       12 => sr,
       13 => cause,
       14 => epc,
+      15 => 0x00000002,
       _ => 0,
     };
   }

@@ -57,7 +57,7 @@ extension Alu on R3000 {
     final result = (a + b).mask32;
     // overflow occurs when the same sign results the opposite sign.
     if ((~(a ^ b) & (result ^ a)).bit31) {
-      exception(R3000.exceptionOverflow);
+      exception(Exception.overflow);
       return;
     }
 
@@ -68,7 +68,7 @@ extension Alu on R3000 {
     final result = (a - b).mask32;
     // overflow occurs when the opposite sign results the opposite sign.
     if (((a ^ b) & (result ^ a)).bit31) {
-      exception(R3000.exceptionOverflow);
+      exception(Exception.overflow);
       return;
     }
 

@@ -4,10 +4,11 @@ import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
 
 import '../../../util/debug.dart';
+import 'exception.dart';
 
+part 'alu.dart';
 part 'cop0.dart';
 part 'cop2.dart';
-part 'alu.dart';
 part 'hook.dart';
 
 /// A simple bus interface for MIPS memory accesses.
@@ -21,20 +22,6 @@ abstract class BusR3000 {
 }
 
 typedef RegNo = int;
-
-class ReadMisalignException implements Exception {
-  final int addr;
-
-  ReadMisalignException(this.addr);
-}
-
-class WriteMisalignException implements Exception {
-  final int addr;
-
-  WriteMisalignException(this.addr);
-}
-
-class UnknownOpcodeException implements Exception {}
 
 /// A minimal MIPS R3000 emulator in Dart.
 class R3000 {
@@ -72,7 +59,7 @@ class R3000 {
 
   void reset() {
     pc = 0xbfc00000;
-    nextPc = 0xbfc00004;
+    nextPc = pc.inc4;
 
     nextDelaySlot = (0, 0);
     immediateSlot = (0, 0);
@@ -144,7 +131,7 @@ class R3000 {
 
     if (intAsserted && sr & 0x401 == 0x401) {
       intAsserted = false;
-      exception(exceptionInterrupt);
+      exception(Exception.interrupt);
       return true;
     }
 
@@ -152,11 +139,11 @@ class R3000 {
       exec(read32(instPc));
     } catch (e) {
       if (e is ReadMisalignException) {
-        exception(exceptionReadAlign, badvaddr: e.addr);
+        exception(Exception.readalign, badvaddr: e.addr);
       } else if (e is WriteMisalignException) {
-        exception(exceptionWriteAlign, badvaddr: e.addr);
+        exception(Exception.writeAlign, badvaddr: e.addr);
       } else if (e is UnknownOpcodeException) {
-        exception(exceptionIllegalInstruction);
+        exception(Exception.illegalInstruction);
       } else {
         rethrow;
       }
@@ -185,18 +172,10 @@ class R3000 {
 
   void jump(int addr) => nextPc = addr.mask32;
 
-  static const exceptionOverflow = 0x0c;
-  static const exceptionSyscall = 0x08;
-  static const exceptionBreak = 0x09;
-  static const exceptionReadAlign = 0x04;
-  static const exceptionWriteAlign = 0x05;
-  static const exceptionIllegalInstruction = 0x0a;
-  static const exceptionInterrupt = 0x00;
-
   void exception(int excode, {int? badvaddr}) {
-    debugLog("exception ${excode.hex8} ${dump()}");
+    // debugLog("exception ${excode.hex8} ${dump()}");
 
-    sr = sr.masked(0x3f, sr << 2);
+    sr = sr.masked(0x3f, sr << 2) | 0x01;
 
     cause = excode << 2;
 
@@ -235,8 +214,8 @@ class R3000 {
           0x07 => immediate(rd, sra(r[rt], r[rs])), // srav
           0x08 => jump(r[rs]),
           0x09 => jal(true, rd, r[rs]), // jalr
-          0x0c => exception(exceptionSyscall),
-          0x0d => exception(exceptionBreak),
+          0x0c => exception(Exception.syscall),
+          0x0d => exception(Exception.break_),
           0x10 => immediate(rd, hi), // mfhi
           0x11 => hi = r[rs], // mthi
           0x12 => immediate(rd, lo), // mflo
