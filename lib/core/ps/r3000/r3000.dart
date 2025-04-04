@@ -7,6 +7,7 @@ import '../../../util/debug.dart';
 import 'exception.dart';
 
 part 'alu.dart';
+part 'bios.dart';
 part 'cop0.dart';
 part 'cop2.dart';
 part 'hook.dart';
@@ -22,6 +23,7 @@ abstract class BusR3000 {
 }
 
 typedef RegNo = int;
+typedef Slot = (RegNo, int);
 
 /// A minimal MIPS R3000 emulator in Dart.
 class R3000 {
@@ -43,11 +45,9 @@ class R3000 {
   /// A simple clock counter.
   int clocks = 0;
 
-  // (regNo, value) slots to handle delay
-  (RegNo, int) nextDelaySlot = (0, 0),
-      delaySlot = (0, 0),
-      immediateSlot = (0, 0);
-  bool inBranchDelay = false, branched = false;
+  //  slots to handle delay
+  Slot nextDelaySlot = (0, 0), delaySlot = (0, 0), immediateSlot = (0, 0);
+  bool inBranchDelay = false;
 
   // bios putchar() hacking
   final StringBuffer console = StringBuffer();
@@ -65,7 +65,6 @@ class R3000 {
     immediateSlot = (0, 0);
 
     inBranchDelay = false;
-    branched = false;
 
     r.fillRange(0, 32, 0);
     hi = 0;
@@ -78,6 +77,8 @@ class R3000 {
     clocks = 0;
 
     console.clear();
+
+    intAsserted = false;
   }
 
   bool get _cacheIsolated => sr.bit16;
@@ -125,12 +126,9 @@ class R3000 {
   bool step() {
     hook();
 
-    instPc = pc;
-    pc = nextPc;
+    instPc = pc; // points the current instruction.
+    pc = nextPc; // points the next instruction. "PC" refers this.
     nextPc = nextPc.inc4.mask32;
-
-    inBranchDelay = branched;
-    branched = false;
 
     delaySlot = nextDelaySlot;
     nextDelaySlot = (0, 0);
@@ -141,6 +139,7 @@ class R3000 {
       exception(Exception.interrupt);
     } else {
       try {
+        inBranchDelay = false;
         exec(read32(instPc));
       } catch (e) {
         if (e is ReadMisalignException) {
@@ -176,11 +175,12 @@ class R3000 {
 
   void immediate(RegNo dst, int val) => immediateSlot = (dst, val.mask32);
 
-  void jump(int addr) => nextPc = addr.mask32;
+  void jump(int addr) {
+    inBranchDelay = true;
+    nextPc = addr.mask32;
+  }
 
   void exception(int excode, {int? badvaddr}) {
-    // debugLog("exception ${excode.hex8}");
-
     sr = sr.masked(0x3f, sr << 2);
 
     cause = cause.masked(0x7c, excode << 2);
@@ -198,6 +198,10 @@ class R3000 {
 
     pc = sr.bit22 ? 0xbfc00180 : 0x80000080; // bit22: BEV
     nextPc = pc.inc4;
+
+    // debugLog(
+    //     "exception [$clocks]: excode:${excode.hex8} istat:${bus.read32(0x1f801070).hex16} "
+    //     "sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32} inBranchDelay:$inBranchDelay instPC:${instPc.hex32} ");
   }
 
   /// Main instruction dispatch.
