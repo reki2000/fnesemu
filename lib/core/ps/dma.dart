@@ -44,6 +44,20 @@ class Dma {
 
   Dma(this.ch, this.ioAddr);
 
+  void reset() {
+    _startAddr = 0;
+    _channelCtrl = 0;
+    size = 0;
+    amount = 0;
+    addr = 0;
+    enabled = false;
+    running = false;
+    useInterrupt = false;
+    intterruptOnChunks = false;
+    toRam = false;
+    incr = 0;
+  }
+
   String dump() => "DMA$ch: ${running ? "R" : "-"} "
       "${enabled ? "E" : "-"} "
       "${useInterrupt ? "I" : "-"}${intterruptOnChunks ? "C" : "-"}  "

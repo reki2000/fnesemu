@@ -8,6 +8,7 @@ import 'package:fnesemu/util/uint8list.dart';
 import '../../util/debug.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
+import 'interrupt.dart';
 import 'spu.dart';
 import 'timer.dart';
 
@@ -68,6 +69,16 @@ class Bus implements BusR3000 {
   final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
       .map((e) => (1 << e) - 1)
       .toList(growable: false);
+
+  void reset() {
+    interruptStatus = 0;
+    interruptMask = 0;
+    dmaControl = 0;
+    dmaInterrupt = 0;
+    for (var ch = 0; ch < 7; ch++) {
+      dma[ch].reset();
+    }
+  }
 
   @override
   int read8(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xff;
@@ -295,8 +306,10 @@ class Bus implements BusR3000 {
   }
 
   void ackIrq(int ackValue) {
-    // debugLog(
-    //     'interrupt ack:${ackValue.hex32}  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
+    // if (ackValue.mask16 != 0xffff) {
+    //   debugLog(
+    //       'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
+    // }
 
     interruptStatus &= ackValue;
 

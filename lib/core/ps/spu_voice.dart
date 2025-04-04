@@ -125,6 +125,19 @@ class Voice {
 
   int logCounter = 0;
 
+  void reset() {
+    _block.fillRange(0, _block.length, 0);
+    _blockIndex = 0;
+    _counter = 0;
+    ended = true;
+    envelope = Envelope.none();
+    adsrVolume = 0;
+    _adsrPhase = 0;
+    repeatAddr = 0;
+    _volSweep[0] = Envelope.none();
+    _volSweep[1] = Envelope.none();
+  }
+
   /// proceed to next sample
   (double, double) clock() {
     final step = pitch; // todo pitch modulation

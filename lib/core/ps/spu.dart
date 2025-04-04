@@ -1,7 +1,5 @@
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
@@ -21,6 +19,24 @@ class Spu {
   }
 
   int counter = 0;
+
+  void reset() {
+    counter = 0;
+    for (int i = 0; i < voices.length; i++) {
+      voices[i].reset();
+    }
+    mainVolumeLeft = 0;
+    mainVolumeRight = 0;
+    enabled = false;
+    muted = false;
+    fifoMode = 0;
+    fifoType = 0;
+    fifoAddr = 0;
+    _fifoAddr = 0;
+    irqAddr = 0;
+    _irqAddr = 0;
+    fifoWriteCount = 0;
+  }
 
   (double, double) render() {
     double sumL = 0;

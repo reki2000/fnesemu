@@ -15,15 +15,18 @@ part 'gpu1.dart';
 part 'renderer.dart';
 
 class Gpu {
-  int status = 0;
-  int gp0 = 0;
-  int gp1 = 0;
   final Bus bus;
 
-  Gpu(this.bus);
+  Gpu(this.bus) {
+    reset();
+  }
 
   static const xMask = 0x3ff;
   static const yMask = 0x1ff;
+
+  int status = 0;
+  int gp0 = 0;
+  int gp1 = 0;
 
   // rendering status
   int width = 320; //  256, 320, 368, 512, 640
@@ -67,6 +70,54 @@ class Gpu {
   int bltPosY = 0;
   int bltFromX = 0;
   int bltFromY = 0;
+
+  void reset() {
+    status = 0.setBit(23, true);
+    gp0 = 0;
+    gp1 = 0;
+    cmd.fillRange(0, cmd.length, 0);
+    cmdSize = 0;
+    irq1 = false;
+
+    width = 320;
+    height = 240;
+    dotClockDivider = 7 * 8;
+    buffer = Uint32List(320 * 240);
+
+    textureMaskX = 0;
+    textureMaskY = 0;
+    textureOffsetX = 0;
+    textureOffsetY = 0;
+
+    drawingX1 = 0;
+    drawingY1 = 0;
+    drawingX2 = 0;
+    drawingY2 = 0;
+
+    drawingOffsetX = 0;
+    drawingOffsetY = 0;
+
+    bltSizeX = 0;
+    bltSizeY = 0;
+    bltPosX = 0;
+    bltPosY = 0;
+    bltFromX = 0;
+    bltFromY = 0;
+
+    scanline = 0;
+    isOddFrame = false;
+
+    cmd.fillRange(0, cmd.length, 0);
+    cmdSize = 0;
+    readValue = 0;
+
+    irq1 = false;
+
+    startDisplayX = 0;
+    startDisplayY = 0;
+    displayMode = 0;
+    frameBuffer.fillRange(0, frameBuffer.length, 0);
+  }
 
   int readReg() {
     // debugLog("GPREAD: ${readValue.hex32}");

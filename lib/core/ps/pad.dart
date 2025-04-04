@@ -10,6 +10,13 @@ class Pad {
 
   Pad();
 
+  void reset() {
+    buttonValue = 0;
+    txFifo.clear();
+    rxFifo.clear();
+    irq = false;
+  }
+
   void keyDown(int id, PadButton d) {
     if (0 <= id && id < controllerNum) {
       buttonValue |= 1 << _buttons.where((b) => b.$1.name == d.name).first.$2;

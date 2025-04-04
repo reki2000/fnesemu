@@ -24,8 +24,6 @@ class Ps extends Core {
   late final Spu spu;
   late final TimerController timer;
 
-  int initAddress = 0xbfc00000;
-
   Ps() : bus = Bus() {
     cpu = R3000(bus);
     gpu = Gpu(bus);
@@ -116,10 +114,18 @@ class Ps extends Core {
   @override
   void reset() {
     cpu.reset();
-    cpu.pc = initAddress;
-    cpu.nextPc = initAddress.inc4.mask32;
 
     nextScanlineClock = 0;
+    nextDmaClock = 0;
+    nextSpuClock = 0;
+    _waitFinishLine = false;
+    audioBuffer.fillRange(0, audioBuffer.length, 0);
+
+    gpu.reset();
+    spu.reset();
+    pad.reset();
+
+    bus.reset();
   }
 
   @override
