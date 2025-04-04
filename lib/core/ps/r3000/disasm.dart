@@ -62,9 +62,10 @@ class DisasmR3000 {
     final shamt = inst32 >> 6 & 0x1f;
     final funct = inst32 & 0x3f;
 
-    final im16_ = inst32.rel16.toRadixString(16);
-    final rel16_ = (pc + (inst32.rel16 << 2)).mask32.hex32;
-    final rel26_ = (pc + (inst32.rel26 << 2)).mask32.hex32;
+    final im16_ = inst32.mask16.hex16;
+    final rel16_ = inst32.rel16.toRadixString(16);
+    final pcRel16_ = (pc + (inst32.rel16 << 2)).mask32.hex32;
+    final pc26_ = (pc & 0xf0000000 | inst32.mask26 << 2).hex32;
 
     // print(
     //     "op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8} shamt:${shamt.hex8} funct:${funct.hex8} im16:$im16_ im26:$im26_");
@@ -102,18 +103,18 @@ class DisasmR3000 {
           _ => _unknown(inst32),
         },
       0x01 => switch (rt & 0xf1) {
-          0x00 => "bltz $rs_, $rel16_",
-          0x01 => "bgez $rs_, $rel16_",
-          0x10 => "bltzal $rs_, $rel16_",
-          0x11 => "bgezal $rs_, $rel16_",
+          0x00 => "bltz $rs_, $pcRel16_",
+          0x01 => "bgez $rs_, $pcRel16_",
+          0x10 => "bltzal $rs_, $pcRel16_",
+          0x11 => "bgezal $rs_, $pcRel16_",
           _ => _unknown(inst32),
         },
-      0x02 => "j $rel26_",
-      0x03 => "jal $rel26_",
-      0x04 => "beq $rs_, $rt_, $rel16_",
-      0x05 => "bne $rs_, $rt_, $rel16_",
-      0x06 => "blez $rs_, $rel16_",
-      0x07 => "bgtz $rs_, $rel16_",
+      0x02 => "j $pc26_",
+      0x03 => "jal $pc26_",
+      0x04 => "beq $rs_, $rt_, $pcRel16_",
+      0x05 => "bne $rs_, $rt_, $pcRel16_",
+      0x06 => "blez $rs_, $pcRel16_",
+      0x07 => "bgtz $rs_, $pcRel16_",
       0x08 => "addi $rt_, $rs_, $im16_",
       0x09 => "addiu $rt_, $rs_, $im16_",
       0x0a => "slti $rt_, $rs_, $im16_",
@@ -163,20 +164,20 @@ class DisasmR3000 {
             },
           _ => _unknown(inst32),
         },
-      0x20 => "lb $rt_, $im16_($rs_)",
-      0x21 => "lh $rt_, $im16_($rs_)",
-      0x22 => "lwl $rt_, $im16_($rs_)",
-      0x23 => "lw $rt_, $im16_($rs_)",
-      0x24 => "lbu $rt_, $im16_($rs_)",
-      0x25 => "lhu $rt_, $im16_($rs_)",
-      0x26 => "lwr $rt_, $im16_($rs_)",
-      0x28 => "sb $rt_, $im16_($rs_)",
-      0x29 => "sh $rt_, $im16_($rs_)",
-      0x2a => "swl $rt_, $im16_($rs_)",
-      0x2b => "sw $rt_, $im16_($rs_)",
-      0x2e => "swr $rt_, $im16_($rs_)",
-      0x32 => "lwc2 $rt_, $im16_($rs_)",
-      0x3a => "swc2 $rt_, $im16_($rs_)",
+      0x20 => "lb $rt_, $rel16_($rs_)",
+      0x21 => "lh $rt_, $rel16_($rs_)",
+      0x22 => "lwl $rt_, $rel16_($rs_)",
+      0x23 => "lw $rt_, $rel16_($rs_)",
+      0x24 => "lbu $rt_, $rel16_($rs_)",
+      0x25 => "lhu $rt_, $rel16_($rs_)",
+      0x26 => "lwr $rt_, $rel16_($rs_)",
+      0x28 => "sb $rt_, $rel16_($rs_)",
+      0x29 => "sh $rt_, $rel16_($rs_)",
+      0x2a => "swl $rt_, $rel16_($rs_)",
+      0x2b => "sw $rt_, $rel16_($rs_)",
+      0x2e => "swr $rt_, $rel16_($rs_)",
+      0x32 => "lwc2 $rt_, $rel16_($rs_)",
+      0x3a => "swc2 $rt_, $rel16_($rs_)",
       // => "syscall",
       // => "break",
       _ => _unknown(inst32),
