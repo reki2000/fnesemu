@@ -2,17 +2,28 @@ part of 'r3000.dart';
 
 extension Hook on R3000 {
   hook() {
-    // tty putchar
-    if (pc & 0x1fffff == 0xb0 && r[9] == 0x3d ||
-        pc & 0x1fffff == 0xa0 && r[9] == 0x3c) {
-      final ch = r[4];
-      if ((ch >= 0x20 && ch < 0x80) || ch == 0x0a || ch == 0x09) {
-        if (ch == 0x0a) {
-          debugLog("tty clk[$clocks] : ${console.toString()}");
-          console.clear();
-        } else {
-          console.write(String.fromCharCode(ch));
-        }
+    final vector = pc & 0x1fffff;
+    if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
+      final name = _bios[vector]?[r[9]] ?? "-";
+      switch ((vector, r[9])) {
+        case (0xb0, 0x3d):
+        case (0xa0, 0x3c):
+        case (0xa0, 0x09):
+          // tty putchar
+          final ch = r[4];
+          if ((ch >= 0x20 && ch < 0x80) || ch == 0x0a || ch == 0x09) {
+            if (ch == 0x0a) {
+              debugLog("tty clk[$clocks] : ${console.toString()}");
+              console.clear();
+            } else {
+              console.write(String.fromCharCode(ch));
+            }
+          }
+
+        default:
+          if (!name.startsWith("*")) {
+            debugLog("unhandled BIOS ${vector.hex8}(${r[9].hex32}): $name ");
+          }
       }
     }
 
@@ -36,7 +47,5 @@ extension Hook on R3000 {
       debugLog(
           "exe sideloaded on ${loadAddr.hex32} size:${size.hex32} entry:${pc.hex32}");
     }
-
-    //   print("bios call ${pc.hex8}-${r[9].hex32} r4:${r[4].hex32}");
   }
 }
