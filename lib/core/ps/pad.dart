@@ -59,7 +59,7 @@ class Pad {
 
   int readData() {
     debugLog(
-        "readData: ${txFifo.isNotEmpty ? txFifo.first.hex32 : "empty"} ${rxFifo.isNotEmpty ? rxFifo.first.hex32 : "empty"}");
+        "pad: readData: ${txFifo.isNotEmpty ? txFifo.first.hex32 : "empty"} ${rxFifo.isNotEmpty ? rxFifo.first.hex32 : "empty"}");
     if (txFifo.isEmpty) {
       return 0xffff;
     }
@@ -74,7 +74,8 @@ class Pad {
   int readStatus() => 0x01.setBit(1, txFifo.isNotEmpty).setBit(9, irq);
 
   void writeData(int val) {
-    debugLog("writeData: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
+    debugLog(
+        "pad: writeData: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
     if (txFifo.isEmpty) {
       if (val == 0x01) {
         txFifo.clear();
@@ -89,15 +90,19 @@ class Pad {
 
   void writeControl(int val) {
     debugLog(
-        "writeControl: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
+        "pad: writeControl: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
   }
 
   void writeMode(int val) {
-    debugLog("writeMode: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
+    debugLog(
+        "pad: writeMode: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
     if (val.bit4) {
       irq = false;
     }
   }
 
   void writeBaudrate(int val) {}
+
+  String dump() => "pad: buttonValue:${buttonValue.hex32} irq:$irq "
+      "tx:[${txFifo.map((e) => e.hex32).toList()}] rx:[${rxFifo.map((e) => e.hex32).toList()}]";
 }

@@ -55,6 +55,7 @@ extension GpuRenderer on Gpu {
       bus.timer.endVBlank();
       bus.resetIrq(Interrupt.vBlank);
       scanline = 0;
+      frame++;
       isOddFrame = (height == 480) ? !isOddFrame : false;
     }
   }

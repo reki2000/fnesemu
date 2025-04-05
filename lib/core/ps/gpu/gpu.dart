@@ -42,6 +42,7 @@ class Gpu {
   static const scanlinesInFrame = 262; // ntsc
 
   int scanline = 0;
+  int frame = 0;
   bool isOddFrame = false;
 
   // GP1 status register
@@ -233,5 +234,5 @@ class Gpu {
   }
 
   String dump() =>
-      "GPU: ${status.hex32} ${width}x$height $startDisplayX,$startDisplayY";
+      "GPU: ${status.hex32} ${width}x$height $startDisplayX,$startDisplayY $frame:$scanline";
 }

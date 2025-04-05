@@ -10,6 +10,7 @@ import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
 import 'bus.dart';
+import 'cdrom.dart';
 import 'gpu/gpu.dart';
 import 'pad.dart';
 import 'r3000/disasm.dart';
@@ -23,6 +24,7 @@ class Ps extends Core {
   late final Pad pad;
   late final Spu spu;
   late final TimerController timer;
+  late final Cdrom cdrom;
 
   Ps() : bus = Bus() {
     cpu = R3000(bus);
@@ -30,12 +32,14 @@ class Ps extends Core {
     pad = Pad();
     spu = Spu(bus);
     timer = TimerController(bus);
+    cdrom = Cdrom(bus);
 
     bus.gpu = gpu;
     bus.cpu = cpu;
     bus.pad = pad;
     bus.spu = spu;
     bus.timer = timer;
+    bus.cdrom = cdrom;
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -124,6 +128,8 @@ class Ps extends Core {
     gpu.reset();
     spu.reset();
     pad.reset();
+    cdrom.reset();
+    timer.reset();
 
     bus.reset();
   }

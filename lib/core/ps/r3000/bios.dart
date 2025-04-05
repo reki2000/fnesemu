@@ -27,7 +27,7 @@ const _bios = {
     0x14: "StopPAD2",
     0x15: "PAD_init2",
     0x16: "PAD_dr",
-    0x17: "ReturnFromException",
+    0x17: "*ReturnFromException",
     0x18: "ResetEntryInt",
     0x19: "HookEntryInt",
     0x1A: "SystemError",

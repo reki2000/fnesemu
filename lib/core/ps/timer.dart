@@ -29,6 +29,28 @@ class Timer {
   bool triggered = false;
   int ttl = 0;
 
+  void reset() {
+    counter = 0;
+    target = 0;
+    mode_ = 0;
+
+    reachTarget = false;
+    reachFfff = false;
+    intRequested = false;
+    irqWhenTarget = false;
+    irqWhenFfff = false;
+    repeatMode = false;
+    toggleMode = false;
+    resetAfterTarget = false;
+    sync = false;
+    syncMode = 0;
+    sourceSystemClock = false;
+
+    pause = false;
+    triggered = false;
+    ttl = 0;
+  }
+
   int get mode => mode_
       .setBit(10, !intRequested)
       .setBit(11, reachTarget)
@@ -127,6 +149,12 @@ class TimerController {
 
   TimerController(this.bus) {
     timers = [Timer(0, bus), Timer(1, bus), Timer(2, bus)];
+  }
+
+  void reset() {
+    for (final t in timers) {
+      t.reset();
+    }
   }
 
   void startHBlank() {

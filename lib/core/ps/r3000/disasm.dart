@@ -64,8 +64,8 @@ class DisasmR3000 {
 
     final im16_ = inst32.mask16.hex16;
     final rel16_ = inst32.rel16.toRadixString(16);
-    final pcRel16_ = (pc + (inst32.rel16 << 2)).mask32.hex32;
-    final pc26_ = (pc & 0xf0000000 | inst32.mask26 << 2).hex32;
+    final pcRel16_ = (pc.inc4 + (inst32.rel16 << 2)).mask32.hex32;
+    final pc26_ = (pc.inc4 & 0xf0000000 | inst32.mask26 << 2).hex32;
 
     // print(
     //     "op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8} shamt:${shamt.hex8} funct:${funct.hex8} im16:$im16_ im26:$im26_");

@@ -1,6 +1,8 @@
 part of 'r3000.dart';
 
 extension Hook on R3000 {
+  static int biosCallAddr = 0;
+
   hook() {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
@@ -22,9 +24,20 @@ extension Hook on R3000 {
 
         default:
           if (!name.startsWith("*")) {
-            debugLog("unhandled BIOS ${vector.hex8}(${r[9].hex32}): $name ");
+            biosCallAddr = r[31];
+            debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name ${[
+              4,
+              5,
+              6,
+              7
+            ].map((i) => r[i].hex32).join(",")}");
           }
       }
+    }
+
+    if (pc == biosCallAddr) {
+      debugLog("bios: returns ${r[2].hex32}");
+      biosCallAddr = 0;
     }
 
     // exe sideloading

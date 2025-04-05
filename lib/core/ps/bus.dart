@@ -6,6 +6,7 @@ import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
 import '../../util/debug.dart';
+import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
 import 'interrupt.dart';
@@ -20,6 +21,7 @@ class Bus implements BusR3000 {
   late final Pad pad;
   late final Spu spu;
   late final TimerController timer;
+  late final Cdrom cdrom;
 
   Bus();
 
@@ -81,7 +83,14 @@ class Bus implements BusR3000 {
   }
 
   @override
-  int read8(int addr) => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xff;
+  int read8(int addr) {
+    final offset = addr & segMask[addr >> 29];
+
+    return switch (offset) {
+      >= 0x1f801800 && < 0x1f801804 => cdrom.readPort8(offset & 0x03),
+      _ => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xffff,
+    };
+  }
 
   @override
   int read16(int addr) {
@@ -89,6 +98,7 @@ class Bus implements BusR3000 {
 
     return switch (offset) {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x1802 => cdrom.readPort16(2),
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
           0x1dac => spu.fifoType, // spu ram ctrl
@@ -139,6 +149,10 @@ class Bus implements BusR3000 {
               0x08 => timer.target(offset >> 4 & 3),
               _ => ex("Timer")
             },
+          0x1800 => cdrom.readPort8(0) |
+              cdrom.readPort8(1) << 8 |
+              cdrom.readPort8(2) << 16 |
+              cdrom.readPort8(3) << 24,
           0x1810 => gpu.readReg(), // gpu read
           0x1814 => gpu.readStat(), // gpu status
           0x1d9c => spu.endx, // spu endx
@@ -180,6 +194,10 @@ class Bus implements BusR3000 {
         useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1040 => pad.writeData(v),
+          0x1800 => cdrom.writePort8(0, v),
+          0x1801 => cdrom.writePort8(1, v),
+          0x1802 => cdrom.writePort8(2, v),
+          0x1803 => cdrom.writePort8(3, v),
           _ => ex("expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
