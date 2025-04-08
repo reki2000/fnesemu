@@ -277,9 +277,9 @@ class R3000 {
         },
       0x12 => switch (rs) {
           0x00 => delay(rt, readCop2(rd)), // mfc2
-          0x01 => delay(rt, readCop2Ctrl(rd)), // cfc2
+          0x02 => delay(rt, readCop2Ctrl(rd)), // cfc2
           0x04 => writeCop2(rd, r[rt]), // mtc2
-          0x05 => writeCop2Ctrl(rd, r[rt]), // ctc2
+          0x06 => writeCop2Ctrl(rd, r[rt]), // ctc2
           >= 0x10 && <= 0x1f => execCop2(inst32),
           _ => _unknown(inst32),
         },

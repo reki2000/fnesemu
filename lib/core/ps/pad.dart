@@ -1,6 +1,5 @@
 import 'dart:collection';
 
-import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../pad_button.dart';
@@ -58,8 +57,8 @@ class Pad {
   bool irq = false; // interrupt request
 
   int readData() {
-    debugLog(
-        "pad: readData: ${txFifo.isNotEmpty ? txFifo.first.hex32 : "empty"} ${rxFifo.isNotEmpty ? rxFifo.first.hex32 : "empty"}");
+    // debugLog(
+    //     "pad: readData: ${txFifo.isNotEmpty ? txFifo.first.hex32 : "empty"} ${rxFifo.isNotEmpty ? rxFifo.first.hex32 : "empty"}");
     if (txFifo.isEmpty) {
       return 0xffff;
     }
@@ -74,8 +73,8 @@ class Pad {
   int readStatus() => 0x01.setBit(1, txFifo.isNotEmpty).setBit(9, irq);
 
   void writeData(int val) {
-    debugLog(
-        "pad: writeData: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
+    // debugLog(
+    //     "pad: writeData: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
     if (txFifo.isEmpty) {
       if (val == 0x01) {
         txFifo.clear();
@@ -89,13 +88,13 @@ class Pad {
   }
 
   void writeControl(int val) {
-    debugLog(
-        "pad: writeControl: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
+    // debugLog(
+    //     "pad: writeControl: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
   }
 
   void writeMode(int val) {
-    debugLog(
-        "pad: writeMode: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
+    // debugLog(
+    //     "pad: writeMode: $val txFifo:${txFifo.length} rxFifo:${rxFifo.length}");
     if (val.bit4) {
       irq = false;
     }

@@ -7,7 +7,7 @@ import '../../../util/debug.dart';
 import '../../types.dart';
 import '../bus.dart';
 import '../interrupt.dart';
-import '../point_color.dart';
+import 'point_color.dart';
 
 part 'gpu0.dart';
 part 'gpu0_renderer.dart';

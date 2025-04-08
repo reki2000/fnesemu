@@ -1,16 +1,15 @@
 part of 'r3000.dart';
 
 extension Cop2 on R3000 {
-  static final regs = List.filled(32, 0);
-  static final regsCtrl = List.filled(32, 0);
+  static final regs = List.filled(64, 0);
 
   int readCop2Ctrl(int reg) {
-    return regsCtrl[reg & 0x1f];
+    return regs[reg & 0x1f | 0x20];
   }
 
   void writeCop2Ctrl(int reg, int value) {
-    debugLog("write cop2ctrl: $reg, ${value.hex32}");
-    regsCtrl[reg & 0x1f] = value;
+    debugLog("cpu: cop2 [${reg | 0x20}] <= ${value.hex32}");
+    regs[reg & 0x1f | 0x20] = value;
   }
 
   int readCop2(int reg) {
@@ -18,7 +17,7 @@ extension Cop2 on R3000 {
   }
 
   void writeCop2(int reg, int value) {
-    debugLog("write cop2: $reg, ${value.hex32}");
+    debugLog("cpu: cop2 [$reg] <= ${value.hex32}");
     regs[reg & 0x1f] = value;
   }
 

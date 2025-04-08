@@ -23,8 +23,9 @@ extension Gpu0 on Gpu {
     switch (cmd0 >> 29) {
       case 0x00: // misc
         switch (cmd0 >> 24) {
+          case 0x00: // nop?
           case 0x01: // clear cache
-            return false;
+            return true;
 
           case 0x02: // quick rectangle fill
             cmd[cmdSize++] = value;
@@ -154,8 +155,8 @@ extension Gpu0 on Gpu {
           bltPosX = cmd[2] & xMask;
           bltSizeX = value.maskZeroMax(xMask);
 
-          // debugLog(
-          //     "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+          debugLog(
+              "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
 
           while (cmdSize == 4) {
             writeFrameBuffer32(
@@ -215,8 +216,8 @@ extension Gpu0 on Gpu {
           bltPosY = cmd[1] >> 16 & yMask;
           bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
-          // debugLog(
-          //     "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
+          debugLog(
+              "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
         }
 
       case 0x06: // vram to cpu blit

@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 class Color {
   final int r;
   final int g;
@@ -36,9 +38,9 @@ class Point {
 
   Point(this.x, this.y, this.c, this.u, this.v);
 
-  Point.of(int v, int c, int t)
-      : this(v & xMask, v >> 16 & yMask, Color.ofC24(c), t & 0xff,
-            t >> 8 & 0xff);
+  Point.of(int v, int c, int t, {int offsetX = 0, int offsetY = 0})
+      : this((v + offsetX).rel11, ((v >> 16) + offsetY).rel11, Color.ofC24(c),
+            t & 0xff, t >> 8 & 0xff);
 
   Point mix(Point p, int part, int total) {
     if (total == 0) {

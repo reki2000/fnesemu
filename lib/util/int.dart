@@ -30,6 +30,7 @@ extension IntBit on int {
   // mask a number with specified bit wide mask
   int get mask4 => this & 0xf;
   int get mask8 => this & 0xff;
+  int get mask11 => this & 0x7ff;
   int get mask16 => this & 0xffff;
   int get mask24 => this & 0xffffff;
   int get mask26 => this & 0x3ffffff;
@@ -95,6 +96,7 @@ extension IntBit on int {
   // sign extend a number with specified bit width
   int get rel4 => bit3 ? mask4 - 0x10 : mask4;
   int get rel8 => bit7 ? mask8 - 0x100 : mask8;
+  int get rel11 => bit10 ? mask11 - 0x800 : mask11;
   int get rel16 => bit15 ? mask16 - 0x10000 : mask16;
   int get rel24 => bit23 ? mask24 - 0x1000000 : mask24;
   int get rel26 => bit25 ? mask26 - 0x4000000 : mask26;

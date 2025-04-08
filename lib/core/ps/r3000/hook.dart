@@ -36,7 +36,7 @@ extension Hook on R3000 {
     }
 
     if (pc == biosCallAddr) {
-      debugLog("bios: returns ${r[2].hex32}");
+      debugLog("bios: returns ${r[2].hex32} pc:${pc.hex32}");
       biosCallAddr = 0;
     }
 

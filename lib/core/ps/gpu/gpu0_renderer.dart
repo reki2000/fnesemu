@@ -6,9 +6,12 @@ extension Gp0Renderer on Gpu {
 
   (Point p0, Point p1, Point p2) sortVertice(
       int v0, int v1, int v2, int c0, int c1, int c2, int t0, int t1, int t2) {
-    var p0 = Point.of(v0, c0, t0);
-    var p1 = Point.of(v1, c1, t1);
-    var p2 = Point.of(v2, c2, t2);
+    var p0 =
+        Point.of(v0, c0, t0, offsetX: drawingOffsetX, offsetY: drawingOffsetY);
+    var p1 =
+        Point.of(v1, c1, t1, offsetX: drawingOffsetX, offsetY: drawingOffsetY);
+    var p2 =
+        Point.of(v2, c2, t2, offsetX: drawingOffsetX, offsetY: drawingOffsetY);
 
     if (p1.y < p0.y) {
       (p0, p1) = (p1, p0);
@@ -47,8 +50,9 @@ extension Gp0Renderer on Gpu {
       int cmd, int c0, int v0, int c1, int v1, int c2, int v2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, 0, 0, 0);
 
-    // debugLog(
-    //     'GPU0: renderGouraud (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
+    debugLog(
+        'GPU0:renderGouraud (${p0.x},${p0.y}:${p0.c.c24.hex32}), (${p1.x},${p1.y}:${p1.c.c24.hex32}), (${p2.x},${p2.y}:${p2.c.c24.hex32}) '
+        'offset:$drawingOffsetX,$drawingOffsetY area:$drawingX1,$drawingY1-$drawingX2,$drawingY2  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ');
 
     for (int y = p0.y; y <= p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);
