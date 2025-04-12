@@ -71,8 +71,11 @@ class MemPane extends StatelessWidget {
           ]),
           ValueListenableBuilder<int>(
               valueListenable: addrNotifier,
-              builder: (context, addr, child) =>
-                  Text(_dump(debugger, addr, _mask), style: debugStyle)),
+              builder: (context, addr, child) => SelectableText(
+                    _dump(debugger, addr, _mask),
+                    style: debugStyle,
+                    showCursor: true,
+                  )),
         ]),
       );
 }

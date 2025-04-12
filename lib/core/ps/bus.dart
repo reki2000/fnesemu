@@ -46,6 +46,9 @@ class Bus implements BusR3000 {
     _dmaControl = value;
     for (var ch = 0; ch < 7; ch++) {
       dma[ch].enabled = (value >> (3 + ch * 4)).bit0;
+
+      // debugLog(
+      //     "DMA$ch: controlled   ${dma[ch].dump()} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
     }
   }
 
@@ -254,6 +257,11 @@ class Bus implements BusR3000 {
   void write32(int addr, int v) {
     final offset = addr & segMask[addr >> 29];
     ex(s) => _unimplemented("write32", s, addr, v);
+
+    if (addr.mask24 == 0x1ffce0 && v == 0x00000000) {
+      debugLog(
+          "write32: ${addr.hex32} ${v.hex32} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
+    }
 
     return switch (offset) {
       >= 0x00000000 && < 0x00200000 => mem.setUInt32LE(offset, v),

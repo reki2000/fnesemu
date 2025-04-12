@@ -96,8 +96,8 @@ class Ps extends Core {
     }
 
     if (cpu.clocks > nextDmaClock) {
-      nextDmaClock += 100;
-      bus.execDma(100);
+      nextDmaClock += 24;
+      bus.execDma(24);
     }
 
     if (cpu.clocks > nextSpuClock) {
@@ -112,6 +112,9 @@ class Ps extends Core {
       }
     }
 
+    debugStatus.clock = cpu.clocks;
+    debugStatus.frame = gpu.frame;
+    debugStatus.scanline = gpu.scanline;
     return ExecResult(cpu.clocks, false, false);
   }
 

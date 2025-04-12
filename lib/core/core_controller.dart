@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:core';
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/debug.dart';
+
 import 'core.dart';
 import 'core_empty.dart';
 import 'core_factory.dart';
@@ -179,7 +181,8 @@ class CoreController {
 
       if (cpuExecuted &&
           opt.showDebugView &&
-          (opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
+          (debugStatus.breakClock == debugStatus.clock ||
+              opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
               _runMode == runModeStep ||
               _runMode == runModeStepOut &&
                   _core.stackPointer(opt.targetCpuNo) > opt.stackPointer)) {

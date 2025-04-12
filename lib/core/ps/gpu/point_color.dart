@@ -38,9 +38,8 @@ class Point {
 
   Point(this.x, this.y, this.c, this.u, this.v);
 
-  Point.of(int v, int c, int t, {int offsetX = 0, int offsetY = 0})
-      : this((v + offsetX).rel11, ((v >> 16) + offsetY).rel11, Color.ofC24(c),
-            t & 0xff, t >> 8 & 0xff);
+  Point.of(int v, int c, int t)
+      : this(v.rel11, (v >> 16).rel11, Color.ofC24(c), t & 0xff, t >> 8 & 0xff);
 
   Point mix(Point p, int part, int total) {
     if (total == 0) {

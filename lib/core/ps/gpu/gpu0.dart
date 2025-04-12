@@ -9,8 +9,8 @@ extension Gpu0 on Gpu {
     //   debugLog("GP0: command: ${value.hex32}");
     // }
 
-    if (!cmdReady || !handleSingleCommand(value)) {
-      if (!handleCommand(value)) {
+    if (!cmdReady || !handleSingleWordCommand(value)) {
+      if (!handleMultiwordCommand(value)) {
         debugLog(
             "invalid GP0 command cmd0:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
         cmdSize = 0;
@@ -18,30 +18,27 @@ extension Gpu0 on Gpu {
     }
   }
 
-  bool handleCommand(int value) {
+  bool handleMultiwordCommand(int value) {
     final cmd0 = cmdSize == 0 ? value : cmd[0];
     switch (cmd0 >> 29) {
       case 0x00: // misc
         switch (cmd0 >> 24) {
-          case 0x00: // nop?
-          case 0x01: // clear cache
-            return true;
-
           case 0x02: // quick rectangle fill
             cmd[cmdSize++] = value;
 
             if (cmdSize == 3) {
-              final p0 = Point.of(cmd[1], 0, 0);
-              final p1 = Point.of(cmd[2], 0, 0);
+              final p0 = Point.of(cmd[1] & 0x1ff3f0, 0, 0);
+              final w = cmd[1] & 0x3f0;
+              final h = cmd[2] >> 16 & 0x1ff;
               final c16 = Color.ofC24(cmd[0]).c15;
-              for (int y = p0.y; y <= p1.y; y++) {
-                for (int x = p0.x; x <= p1.x; x++) {
+              for (int y = p0.y; y <= p0.y + h; y++) {
+                for (int x = p0.x; x <= p0.x + w; x++) {
                   pset16(x, y, c16, ignoreWindow: true);
                 }
               }
 
-              // debugLog(
-              //     "GP0 quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+              debugLog(
+                  "GPU0: quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
               cmdSize = 0;
             }
 
@@ -93,7 +90,29 @@ extension Gpu0 on Gpu {
         }
 
       case 0x02: // line primitive
-        return false;
+        cmd[cmdSize++] = value;
+
+        final gouraud = cmd[0].bit28;
+        final polyline = cmd[0].bit27;
+
+        if (gouraud) {
+          if (cmdSize > 3 && !cmdSize.bit0) {
+            renderGouraudLine(cmd[0], cmd[cmdSize - 3], cmd[cmdSize - 1],
+                cmd[cmdSize - 4], cmd[cmdSize - 2]);
+            if ((polyline && value & 0xf000f000 == 0x50005000) ||
+                (!polyline && cmdSize == 4)) {
+              cmdSize = 0;
+            }
+          }
+        } else {
+          if (cmdSize > 2) {
+            renderLine(cmd[0], cmd[cmdSize - 2], cmd[cmdSize - 1]);
+            if ((polyline && value & 0xf000f000 == 0x50005000) ||
+                (!polyline && cmdSize == 3)) {
+              cmdSize = 0;
+            }
+          }
+        }
 
       case 0x03: // rectangle primitive
         cmd[cmdSize++] = value;
@@ -165,7 +184,7 @@ extension Gpu0 on Gpu {
             bltFromX += 2;
             bltSizeX -= 2;
 
-            if (bltSizeX == 0) {
+            if (bltSizeX <= 0) {
               bltPosX = cmd[2] & xMask;
               bltFromX = cmd[1] & xMask;
               bltSizeX = cmd[3].maskZeroMax(xMask);
@@ -187,20 +206,24 @@ extension Gpu0 on Gpu {
 
       case 0x05: // cpu to vram blit
         if (cmdSize == 3) {
-          writeFrameBuffer32(bltPosX, bltPosY, value);
-          bltPosX += 2;
-          bltSizeX -= 2;
+          for (final v in [value.mask16, value >> 16]) {
+            writeFrameBuffer16(bltPosX, bltPosY, v);
+            bltPosX++;
+            bltSizeX--;
 
-          if (bltSizeX == 0) {
-            bltPosX = cmd[1] & xMask;
-            bltSizeX = cmd[2].maskZeroMax(xMask);
+            if (bltSizeX == 0) {
+              bltPosX = cmd[1] & xMask;
+              bltSizeX = cmd[2].maskZeroMax(xMask);
 
-            bltPosY++;
-            bltSizeY--;
+              bltPosY++;
+              bltSizeY--;
 
-            if (bltSizeY == 0) {
-              // debugLog("GPU0: blit cpu to vram: completed");
-              cmdSize = 0;
+              if (bltSizeY == 0) {
+                debugLog(
+                    "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ");
+                cmdSize = 0;
+                break;
+              }
             }
           }
 
@@ -210,7 +233,7 @@ extension Gpu0 on Gpu {
         cmd[cmdSize++] = value;
 
         if (cmdSize == 3) {
-          bltPosX = cmd[1] & 0x3f0;
+          bltPosX = cmd[1] & xMask;
           bltSizeX = cmd[2].maskZeroMax(xMask);
 
           bltPosY = cmd[1] >> 16 & yMask;
@@ -225,12 +248,13 @@ extension Gpu0 on Gpu {
 
         if (cmdSize == 3) {
           bltFromX = cmd[1] & xMask;
-          bltFromY = cmd[1] >> 16 & yMask;
           bltSizeX = cmd[2].maskZeroMax(xMask);
+
+          bltFromY = cmd[1] >> 16 & yMask;
           bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
-          // debugLog(
-          //     "GP0 vram to cpu blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+          debugLog(
+              "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
           cmdSize++;
         }
@@ -247,25 +271,30 @@ extension Gpu0 on Gpu {
       return;
     }
 
-    readValue = readFrameBuffer32(bltFromX, bltFromY);
-    bltFromX += 2;
-    bltSizeX -= 2;
+    readValue = 0;
+    for (int i = 0; i < 2; i++) {
+      readValue |= readFrameBuffer16(bltFromX, bltFromY) << (i * 16);
+      bltFromX++;
+      bltSizeX--;
 
-    if (bltSizeX == 0) {
-      bltFromX = cmd[1] & xMask;
-      bltSizeX = (cmd[2].dec & xMask).inc;
-      bltSizeY--;
-      bltFromY++;
+      if (bltSizeX == 0) {
+        bltFromX = cmd[1] & xMask;
+        bltSizeX = (cmd[2].dec & xMask).inc;
+        bltSizeY--;
+        bltFromY++;
 
-      if (bltSizeY == 0) {
-        // debugLog("GP0 vram to cpu blit completed");
-        cmdSize = 0;
+        if (bltSizeY == 0) {
+          debugLog("GPU0: blit vram to cpu completed");
+          cmdSize = 0;
+          break;
+        }
       }
     }
   }
 
-  bool handleSingleCommand(int value) {
+  bool handleSingleWordCommand(int value) {
     switch (value >> 24) {
+      case 0x00: // nop
       case 0x01: // clear cache
         break;
 
@@ -274,6 +303,12 @@ extension Gpu0 on Gpu {
           bus.setIrq(Interrupt.gpu);
         }
         irq1 = true;
+
+      case 0x02: // quick rectangler fill
+        return false;
+
+      case >= 0x00 && < 0x20:
+        debugLog("GPU0: unknown misc command: ${value.hex32}");
 
       case 0xe1: // draw mode setting
         status = status.masked(0x7ff, value).setBit(15, value.bit11);
@@ -299,6 +334,9 @@ extension Gpu0 on Gpu {
       case 0xe6: // mask bit setting
         status = status.setBit(11, value.bit0);
         status = status.setBit(12, value.bit1);
+
+      case >= 0xe0 && < 0x100:
+        debugLog("GPU0: unknown environment command: ${value.hex32}");
 
       default:
         return false;

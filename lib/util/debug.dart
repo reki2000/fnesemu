@@ -1,6 +1,19 @@
 String _previousLog = "";
 int _supressCount = 0;
 
+class DebugStatus {
+  int clock = 0;
+  int frame = 0;
+  int scanline = 0;
+
+  int breakClock = -1;
+
+  @override
+  String toString() => "$frame:$scanline:$clock";
+}
+
+final debugStatus = DebugStatus();
+
 void debugLog(String s) {
   if (s == _previousLog) {
     _supressCount++;
@@ -12,6 +25,6 @@ void debugLog(String s) {
     _supressCount = 0;
   }
 
-  print(s);
+  print("$debugStatus $s");
   _previousLog = s;
 }

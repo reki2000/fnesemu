@@ -13,7 +13,8 @@ extension DmaController on Bus {
         continue;
       }
 
-      // debugLog("DMA$ch: started   ${d.dump()}");
+      // debugLog(
+      //     "DMA$ch: started   ${d.dump()} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
 
       // otc fills memory with 0xff
       if (ch == 6) {
@@ -76,9 +77,16 @@ extension DmaController on Bus {
           while (d.addr.mask24 != 0xffffff) {
             final node = read32(d.addr);
 
+            if (node == 0) {
+              debugLog(
+                  "DMA$ch: node is zero. aborted. ${d.dump()} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
+              break;
+            }
+
             for (int i = 0; i < node >> 24; i++) {
               d.addr = (d.addr + d.incr) & 0x1ffffc;
-              write32(d.ioAddr, read32(d.addr));
+              final val = read32(d.addr);
+              write32(d.ioAddr, val);
             }
 
             d.addr = node.mask24;

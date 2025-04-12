@@ -129,10 +129,19 @@ class Gpu {
   }
 
   int readStat() {
-    const alwaysOn = 0x18000000; // dma is available
-    final result =
-        status.setBit(26, cmdReady).setBit(13, isOddFrame).setBit(24, irq1) |
-            alwaysOn;
+    const alwaysOn = 0x18000000; // dma / vram to cpu is always available
+    final b25 = switch (status >> 29 & 0x03) {
+      0 => false,
+      1 => cmdSize > 0, // fifo not empty
+      2 => true, // dma is always available
+      _ => true, // vram to cpu transfer is always available
+    };
+    final result = status
+            .setBit(26, cmdReady)
+            .setBit(13, isOddFrame)
+            .setBit(24, irq1)
+            .setBit(25, b25) |
+        alwaysOn;
     // debugLog("GPSTAT: ${result.hex32}");
     return result;
   }
@@ -151,9 +160,19 @@ class Gpu {
 
   int readValue = 0;
 
+  writeFrameBuffer16(int x, int y, int u16) {
+    final offset = y * 2048 + x * 2;
+    frameBuffer.setUInt16LE(offset, u16);
+  }
+
   writeFrameBuffer32(int x, int y, int u32) {
     final offset = y * 2048 + x * 2;
     frameBuffer.setUInt32LE(offset, u32);
+  }
+
+  int readFrameBuffer16(int x, int y) {
+    final offset = y * 2048 + x * 2;
+    return frameBuffer.getUInt16LE(offset);
   }
 
   int readFrameBuffer32(int x, int y) {
@@ -234,5 +253,7 @@ class Gpu {
   }
 
   String dump() =>
-      "GPU: ${status.hex32} ${width}x$height $startDisplayX,$startDisplayY $frame:$scanline";
+      "GPU: stat:${status.hex32} ${width}x$height start:($startDisplayX,$startDisplayY) "
+      "($drawingX1,$drawingY1)-($drawingX2,$drawingY2) "
+      "offset:($drawingOffsetX,$drawingOffsetY) frame:$frame scanline:$scanline";
 }

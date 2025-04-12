@@ -25,6 +25,10 @@ class Dma {
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     running = value.bit24;
+
+    if (running) {
+      // debugLog("DMA$ch: started   ${dump()}");
+    }
   }
 
   int syncMode = 0;

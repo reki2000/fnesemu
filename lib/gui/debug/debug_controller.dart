@@ -1,12 +1,13 @@
 // Dart imports:
 // Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/util/debug.dart';
 
 import '../../core/core_controller.dart';
 import '../../core/debugger.dart';
 import '../../core/types.dart';
-import '../../util/int.dart';
 import '../../styles.dart';
+import '../../util/int.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
@@ -18,6 +19,11 @@ class DebugController extends StatelessWidget {
 
   Widget _button(String text, void Function() func) =>
       TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
+
+  void _showSnackBar(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message), duration: const Duration(milliseconds: 200)));
+  }
 
   int _targetCpuIndex(int targetCpuNo) {
     final cpuInfos = debugger.cpuInfos;
@@ -40,13 +46,23 @@ class DebugController extends StatelessWidget {
     try {
       final breakPoint = int.parse(v, radix: 16);
       debugger.opt.breakPoint = breakPoint;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("breakpoint: ${breakPoint.hex24}"),
-          duration: const Duration(milliseconds: 200)));
+      _showSnackBar(context, "breakpoint: ${breakPoint.hex24}");
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString()),
-          duration: const Duration(milliseconds: 200)));
+      _showSnackBar(context, e.toString());
+    }
+  }
+
+  _setBreakClock(BuildContext context, String v) {
+    if (v.isEmpty) {
+      v = "0";
+    }
+
+    try {
+      final clock = int.parse(v);
+      debugStatus.breakClock = clock;
+      _showSnackBar(context, "breakClock: $clock");
+    } catch (e) {
+      _showSnackBar(context, e.toString());
     }
   }
 
@@ -89,6 +105,13 @@ class DebugController extends StatelessWidget {
         _button("Line", () => controller.run(mode: CoreController.runModeLine)),
         _button(
             "Frame", () => controller.run(mode: CoreController.runModeFrame)),
+        SizedBox(
+            width: 90,
+            child: TextField(
+                controller: TextEditingController(
+                    text: debugStatus.breakClock.toString()),
+                decoration: denseTextDecoration,
+                onChanged: (v) => _setBreakClock(context, v))),
         SizedBox(
             width: 70,
             child: TextField(
