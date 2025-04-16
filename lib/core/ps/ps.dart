@@ -29,7 +29,7 @@ class Ps extends Core {
   Ps() : bus = Bus() {
     cpu = R3000(bus);
     gpu = Gpu(bus);
-    pad = Pad();
+    pad = Pad(bus);
     spu = Spu(bus);
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
@@ -66,12 +66,15 @@ class Ps extends Core {
     }
 
     bus.rom.setAll(0, body);
+
+    cdrom.closeShell();
   }
 
   int nextScanlineClock = 0;
   bool _waitFinishLine = false;
   int nextDmaClock = 0;
   int nextSpuClock = 0;
+  int nextPadClock = 0;
 
   void Function(AudioBuffer) _onAudio = (_) {};
   final audioBuffer = Float32List(1000 * 2);
@@ -112,9 +115,15 @@ class Ps extends Core {
       }
     }
 
+    if (cpu.clocks > nextPadClock) {
+      nextPadClock += 200;
+      bus.pad.exec();
+    }
+
     debugStatus.clock = cpu.clocks;
     debugStatus.frame = gpu.frame;
     debugStatus.scanline = gpu.scanline;
+    debugStatus.pc = cpu.pc;
     return ExecResult(cpu.clocks, false, false);
   }
 
@@ -125,6 +134,7 @@ class Ps extends Core {
     nextScanlineClock = 0;
     nextDmaClock = 0;
     nextSpuClock = 0;
+    nextPadClock = 0;
     _waitFinishLine = false;
     audioBuffer.fillRange(0, audioBuffer.length, 0);
 
@@ -179,7 +189,8 @@ class Ps extends Core {
         "${timer.timers.map((t) => t.dump()).join(" ")}\n"
         "istat:${bus.interruptStatus.hex32} imask:${bus.interruptMask.hex32}\n"
         "${gpu.dump()}\n"
-        "${spu.dump()}";
+        "${spu.dump()}\n"
+        "${pad.dump()}\n";
   }
 
   @override

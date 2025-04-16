@@ -21,7 +21,7 @@ class Cdrom {
   final sectorBuffer = List.filled(2352, 0);
   int sectorBufferIndex = 0;
 
-  bool isAdpcmBudy = false;
+  bool isAdpcmBusy = false;
   bool isDataReq = false;
   bool isSectorBufferReadReq = false;
   bool isSectorBufferWriteReq = false;
@@ -33,7 +33,7 @@ class Cdrom {
   final resultFifo = Queue<int>();
 
   void reset() {
-    isAdpcmBudy = false;
+    isAdpcmBusy = false;
     isDataReq = false;
   }
 
@@ -67,7 +67,7 @@ class Cdrom {
   int readPort8(int reg) {
     final result = switch (reg) {
       0 => bank
-          .setBit(2, isAdpcmBudy)
+          .setBit(2, isAdpcmBusy)
           .setBit(3, paramFifo.isEmpty)
           .setBit(4, paramFifo.length < 16)
           .setBit(5, resultFifo.isNotEmpty)
@@ -168,6 +168,7 @@ class Cdrom {
     switch (cmd) {
       case 0x01: // nop
         irq(3, [status()]);
+
       case 0x19: // test
         if (paramFifo.isEmpty) {
           debugLog("cdrom: test no params");
@@ -188,8 +189,20 @@ class Cdrom {
     paramFifo.clear();
   }
 
+  void openShell() {
+    isSpindleMotorOn = false;
+    isShellOpen = true;
+  }
+
+  void closeShell() {
+    isSpindleMotorOn = true;
+    isShellOpen = false;
+  }
+
+  void readSector(int sector) {}
+
   String dump() =>
       "bank:$bank params:[${paramFifo.map((e) => e.hex8).join(" ")}] results:[${resultFifo.map((e) => e.hex8).join(" ")}] "
-      "${isAdpcmBudy ? "Adpcm" : "Data"} ${isDataReq ? "Req" : "NoReq"} "
+      "${isAdpcmBusy ? "Adpcm" : "Data"} ${isDataReq ? "Req" : "NoReq"} "
       "mask:${intMask.hex8} int:${intStatus.hex8}";
 }

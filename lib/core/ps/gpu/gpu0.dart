@@ -37,8 +37,8 @@ extension Gpu0 on Gpu {
                 }
               }
 
-              debugLog(
-                  "GPU0: quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
+              // debugLog(
+              //     "GPU0: quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
               cmdSize = 0;
             }
 
@@ -174,19 +174,19 @@ extension Gpu0 on Gpu {
           bltPosX = cmd[2] & xMask;
           bltSizeX = value.maskZeroMax(xMask);
 
-          debugLog(
-              "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+          // debugLog(
+          //     "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
 
           while (cmdSize == 4) {
-            writeFrameBuffer32(
-                bltPosX, bltPosY, readFrameBuffer32(bltFromX, bltFromY));
-            bltPosX += 2;
-            bltFromX += 2;
-            bltSizeX -= 2;
+            writeFrameBuffer16(
+                bltPosX, bltPosY, readFrameBuffer16(bltFromX, bltFromY));
+            bltFromX++;
+            bltPosX++;
+            bltSizeX--;
 
-            if (bltSizeX <= 0) {
-              bltPosX = cmd[2] & xMask;
+            if (bltSizeX == 0) {
               bltFromX = cmd[1] & xMask;
+              bltPosX = cmd[2] & xMask;
               bltSizeX = cmd[3].maskZeroMax(xMask);
 
               bltFromY++;
@@ -195,6 +195,7 @@ extension Gpu0 on Gpu {
 
               if (bltSizeY == 0) {
                 cmdSize = 0;
+                return true;
               }
             }
           }
@@ -219,8 +220,8 @@ extension Gpu0 on Gpu {
               bltSizeY--;
 
               if (bltSizeY == 0) {
-                debugLog(
-                    "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ");
+                // debugLog(
+                //     "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ");
                 cmdSize = 0;
                 break;
               }
@@ -239,8 +240,8 @@ extension Gpu0 on Gpu {
           bltPosY = cmd[1] >> 16 & yMask;
           bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
-          debugLog(
-              "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
+          // debugLog(
+          //     "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
         }
 
       case 0x06: // vram to cpu blit
@@ -253,8 +254,8 @@ extension Gpu0 on Gpu {
           bltFromY = cmd[1] >> 16 & yMask;
           bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
-          debugLog(
-              "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
+          // debugLog(
+          //     "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
           cmdSize++;
         }
@@ -284,7 +285,7 @@ extension Gpu0 on Gpu {
         bltFromY++;
 
         if (bltSizeY == 0) {
-          debugLog("GPU0: blit vram to cpu completed");
+          // debugLog("GPU0: blit vram to cpu completed");
           cmdSize = 0;
           break;
         }

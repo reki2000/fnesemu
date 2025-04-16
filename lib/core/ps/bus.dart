@@ -101,6 +101,8 @@ class Bus implements BusR3000 {
 
     return switch (offset) {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x1048 => pad.readMode(),
+          0x104a => pad.readControl(),
           0x1802 => cdrom.readPort16(2),
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
@@ -134,7 +136,7 @@ class Bus implements BusR3000 {
           0x101c => 0x00070777, // expansion 2 delay/size
           0x1040 => pad.readData(),
           0x1044 => pad.readStatus(),
-          0x1048 => pad.readModeControl(),
+          0x1048 => pad.readMode() | pad.readControl() << 16,
           0x104c => pad.readBaudrate(),
           0x1070 => interruptStatus,
           0x1074 => interruptMask,
@@ -257,11 +259,6 @@ class Bus implements BusR3000 {
   void write32(int addr, int v) {
     final offset = addr & segMask[addr >> 29];
     ex(s) => _unimplemented("write32", s, addr, v);
-
-    if (addr.mask24 == 0x1ffce0 && v == 0x00000000) {
-      debugLog(
-          "write32: ${addr.hex32} ${v.hex32} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
-    }
 
     return switch (offset) {
       >= 0x00000000 && < 0x00200000 => mem.setUInt32LE(offset, v),
