@@ -7,31 +7,26 @@ extension Hook on R3000 {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
       final name = _bios[vector]?[r[9]] ?? "-";
-      switch ((vector, r[9])) {
-        case (0xb0, 0x3d):
-        case (0xa0, 0x3c):
-        case (0xa0, 0x09):
-          // tty putchar
-          final ch = r[4];
-          if ((ch >= 0x20 && ch < 0x80) || ch == 0x0a || ch == 0x09) {
-            if (ch == 0x0a) {
-              debugLog("tty clk[$clocks] : ${console.toString()}");
-              console.clear();
-            } else {
-              console.write(String.fromCharCode(ch));
-            }
-          }
-
-        default:
-          if (!name.startsWith("*")) {
-            biosCallAddr = r[31];
-            debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name ${[
-              4,
-              5,
-              6,
-              7
-            ].map((i) => r[i].hex32).join(",")}");
-          }
+      if (vector == 0xb0 && r[9] == 0x3d || vector == 0xa0 && r[9] == 0x3c) {
+        // tty putchar
+        final ch = r[4].mask8;
+        switch (ch) {
+          case >= 0x20 && < 0x80 || 0x09:
+            console.write(String.fromCharCode(ch));
+          case 0x0a:
+            debugLog("bios: tty: ${console.toString()}");
+            console.clear();
+        }
+      } else {
+        if (!name.startsWith("*")) {
+          biosCallAddr = r[31];
+          debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name ${[
+            4,
+            5,
+            6,
+            7
+          ].map((i) => r[i].hex32).join(",")}");
+        }
       }
     }
 
