@@ -187,7 +187,13 @@ class Gpu {
 
     final clutMode = page >> 7 & 3;
     if (clutMode == 2) {
-      return frameBuffer.getUInt16LE(base + u.mask8 * 2);
+      final result = frameBuffer.getUInt16LE(base + u.mask8 * 2);
+      if (debug) {
+        debugLog(
+            "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
+            "baseX:$baseX baseY:$baseY base:${base.hex32} c:${result.hex16}");
+      }
+      return result;
     }
 
     final clutBase = (clut >> 6 & yMask) * 2048 + (clut << 5 & 0x3e0);
@@ -217,20 +223,20 @@ class Gpu {
   }
 
   pset24(int x, int y, int c24, {bool ignoreWindow = false}) {
-    if (status.bit9) {
-      // dithering
-      const dither = [
-        [0, 8, 2, 10],
-        [12, 4, 14, 6],
-        [3, 11, 1, 9],
-        [15, 7, 13, 5]
-      ];
-      final d = dither[y & 3][x & 3];
-      final c = Color.ofC24(c24);
-      final c2 = Color(c.r + d, c.g + d, c.b + d);
-      pset16(x, y, c2.c15, ignoreWindow: ignoreWindow);
-      return;
-    }
+    // if (status.bit9) {
+    //   // dithering
+    //   const dither = [
+    //     [0, 8, 2, 10],
+    //     [12, 4, 14, 6],
+    //     [3, 11, 1, 9],
+    //     [15, 7, 13, 5]
+    //   ];
+    //   final d = dither[y & 3][x & 3];
+    //   final c = Color.ofC24(c24);
+    //   final c2 = Color(c.r + d, c.g + d, c.b + d);
+    //   pset16(x, y, c2.c15, ignoreWindow: ignoreWindow);
+    //   return;
+    // }
     pset16(x, y, Color.ofC24(c24).c15, ignoreWindow: ignoreWindow);
   }
 

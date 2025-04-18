@@ -27,12 +27,12 @@ extension Gpu0 on Gpu {
             cmd[cmdSize++] = value;
 
             if (cmdSize == 3) {
-              final p0 = Point.of(cmd[1] & 0x1ff3f0, 0, 0);
-              final w = cmd[1] & 0x3f0;
+              final p0 = Point.of(cmd[1] & 0x01ff03f0, 0, 0);
+              final w = cmd[2] & 0x3f0;
               final h = cmd[2] >> 16 & 0x1ff;
               final c16 = Color.ofC24(cmd[0]).c15;
-              for (int y = p0.y; y <= p0.y + h; y++) {
-                for (int x = p0.x; x <= p0.x + w; x++) {
+              for (int y = p0.y; y < (p0.y + h).min(512); y++) {
+                for (int x = p0.x; x < (p0.x + w).min(1024); x++) {
                   pset16(x, y, c16, ignoreWindow: true);
                 }
               }
@@ -121,7 +121,7 @@ extension Gpu0 on Gpu {
         final size = cmd[0] >> 27 & 3;
 
         int beginIndex = 2;
-        int sizeIndex = 3;
+        int sizeIndex = 2;
 
         if (textured) {
           beginIndex++;
@@ -133,7 +133,7 @@ extension Gpu0 on Gpu {
         }
 
         if (cmdSize == beginIndex) {
-          final (clut, u0, v0) = textured
+          final (clut, v0, u0) = !textured
               ? (0, 0, 0)
               : (cmd[2] >> 16, cmd[2] >> 8 & 0xff, cmd[2] & 0xff);
           final (w, h) = switch (size) {
@@ -144,21 +144,21 @@ extension Gpu0 on Gpu {
             _ => throw "unreachable",
           };
           final (x0, y0) = (cmd[1] & xMask, cmd[1] >> 16 & yMask);
-          int v = v0;
           for (int y = 0; y < h; y++) {
-            int u = u0;
             for (int x = 0; x < w; x++) {
-              final c24 = textured
-                  ? getTextureColor(u, v, clut, status)
-                  : cmd[0].mask24;
-              pset24(x0 + x, y0 + y, c24);
-              u++;
+              if (textured) {
+                pset16(x0 + x, y0 + y,
+                    getTextureColor(u0 + x, v0 + y, clut, status));
+              } else {
+                pset24(x0 + x, y0 + y, cmd[0].mask24);
+              }
             }
-            v++;
           }
 
           // debugLog(
-          //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+          //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+          //     "($x0, $y0) $w x $h ($u0, $v0) "
+          //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${status.hex16} ${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} ");
           cmdSize = 0;
         }
 
@@ -313,6 +313,7 @@ extension Gpu0 on Gpu {
 
       case 0xe1: // draw mode setting
         status = status.masked(0x7ff, value).setBit(15, value.bit11);
+      // debugLog("GPU0: draw mode setting: ${status.hex32}");
 
       case 0xe2: // texture window setting
         textureMaskX = value & 0x1f;

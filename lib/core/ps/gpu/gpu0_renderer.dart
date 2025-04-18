@@ -49,7 +49,7 @@ extension Gp0Renderer on Gpu {
   }
 
   bool renderFlatPolygon(int cmd, int v0, int v1, int v2) {
-    final c15 = Color.ofC24(cmd).c15;
+    final c24 = Color.ofC24(cmd).c24;
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, 0, 0, 0);
 
     // debugLog(
@@ -61,7 +61,7 @@ extension Gp0Renderer on Gpu {
 
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
-        pset16(x, y, c15);
+        pset24(x, y, c24);
       }
     }
 
@@ -83,7 +83,7 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final c = left.c.mix(right.c, x - left.x, right.x - left.x);
-        pset16(x, y, c.c15);
+        pset24(x, y, c.c24);
       }
     }
 
