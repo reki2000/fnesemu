@@ -28,7 +28,7 @@ extension Gpu0 on Gpu {
 
             if (cmdSize == 3) {
               final p0 = Point.of(cmd[1] & 0x01ff03f0, 0, 0);
-              final w = cmd[2] & 0x3f0;
+              final w = ((cmd[2] & 0x3ff) + 0x0f) & 0x7f0;
               final h = cmd[2] >> 16 & 0x1ff;
               final c16 = Color.ofC24(cmd[0]).c15;
               for (int y = p0.y; y < (p0.y + h).min(512); y++) {
@@ -175,7 +175,7 @@ extension Gpu0 on Gpu {
           bltSizeX = value.maskZeroMax(xMask);
 
           // debugLog(
-          //     "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+          //     "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} $bltFromX,$bltFromY $bltPosX, $bltPosY $bltSizeX x $bltSizeY");
 
           while (cmdSize == 4) {
             writeFrameBuffer16(
