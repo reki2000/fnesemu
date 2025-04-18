@@ -320,6 +320,8 @@ class Bus implements BusR3000 {
     interruptStatus = interruptStatus.setBit(irqNo, true);
 
     if (interruptMask & interruptStatus != 0) {
+      // debugLog(
+      //     "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32}");
       cpu.interrupt(true);
     }
   }

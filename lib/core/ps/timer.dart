@@ -192,8 +192,8 @@ class TimerController {
     if (timers[2].sourceSystemClock) {
       timers[2].clock();
     } else {
-      systemClockCounter = systemClockCounter.inc & 0x07;
-      if (systemClockCounter == 0) {
+      systemClockCounter++;
+      if (systemClockCounter & 0x07 == 0) {
         timers[2].clock();
       }
     }
