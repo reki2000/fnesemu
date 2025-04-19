@@ -7,6 +7,10 @@ docs/*
 .tool-versions
 log.txt
 
+# dev settings
+run*.cmd
+
+
 # Miscellaneous
 *.class
 *.log
@@ -53,5 +57,3 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# dev settings
-run.cmd

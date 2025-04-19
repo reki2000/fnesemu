@@ -83,11 +83,11 @@ class R3000 {
 
   bool get _cacheIsolated => sr.bit16;
 
-  int read8(int addr) => bus.read8(addr.mask32);
+  int read8(int addr) => bus.read8(addr.mask32).mask8;
 
   int read16(int addr) => (addr & 0x01 != 0)
       ? throw ReadMisalignException(addr)
-      : bus.read16(addr & 0xfffffffe);
+      : bus.read16(addr & 0xfffffffe).mask16;
 
   int read32(int addr) => (addr & 0x03 != 0)
       ? throw ReadMisalignException(addr)
@@ -118,6 +118,7 @@ class R3000 {
       intAsserted = true;
       cause = cause.setBit(10, true);
     } else {
+      intAsserted = false;
       cause = cause.setBit(10, false);
     }
   }
