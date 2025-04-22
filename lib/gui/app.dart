@@ -1,6 +1,5 @@
 // Flutter imports:
 
-// Package imports:
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +7,8 @@ import 'package:flutter/services.dart';
 
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
+import '../disc/disc.dart';
+import '../disc/loader.dart';
 import '../styles.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
@@ -21,6 +22,7 @@ part 'loader.dart';
 
 const _isDebug = bool.fromEnvironment("DEBUG", defaultValue: false);
 const _roms = String.fromEnvironment("ROMS", defaultValue: "");
+const _discFile = String.fromEnvironment("DISC", defaultValue: "");
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -55,6 +57,8 @@ class MainPageState extends State<MainPage> {
 
   String _romName = "";
 
+  final Disc _disc = DiscLoader.load(_discFile);
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +68,7 @@ class MainPageState extends State<MainPage> {
       (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
       (buf) => _imageContainer.push(
           buf.buffer, buf.width, buf.height, buf.displayWidth),
+      _disc.read,
     );
 
     _controller.debugger.opt.showDebugView = _isDebug;

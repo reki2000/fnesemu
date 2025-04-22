@@ -13,8 +13,7 @@ extension DmaController on Bus {
         continue;
       }
 
-      // debugLog(
-      //     "DMA$ch: started   ${d.dump()} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
+      // debugLog("DMA$ch: started   ${d.dump()} ra:${cpu.r[31].hex32}");
 
       // otc fills memory with 0xff
       if (ch == 6) {
@@ -48,6 +47,12 @@ extension DmaController on Bus {
                 spu.writeFifo16(read16(d.addr));
                 spu.writeFifo16(read16(d.addr.inc2));
               }
+            } else if (ch == 3) {
+              // CDROM
+              if (d.toRam) {
+                write16(d.addr, cdrom.readBuffer16());
+                write16(d.addr.inc2, cdrom.readBuffer16());
+              }
             } else {
               d.toRam
                   ? write32(d.addr, read32(d.ioAddr))
@@ -79,7 +84,7 @@ extension DmaController on Bus {
 
             if (node == 0) {
               debugLog(
-                  "DMA$ch: node is zero. aborted. ${d.dump()} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
+                  "DMA$ch: node is zero. aborted. ${d.dump()} ra:${cpu.r[31].hex32}");
               break;
             }
 

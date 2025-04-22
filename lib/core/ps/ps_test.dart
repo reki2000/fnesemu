@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../../disc/loader.dart';
 import 'ps.dart';
 
 main(List<String> args) {
@@ -8,8 +9,11 @@ main(List<String> args) {
   core.setRom(bios);
   core.reset();
 
-  if (args.length > 1) {
-    final exe = File(args[1]).readAsBytesSync();
+  final disc = DiscLoader.load(args[1]);
+  core.onReadDisc(disc.read);
+
+  if (args.length > 2) {
+    final exe = File(args[2]).readAsBytesSync();
     core.setRom(exe);
   }
 

@@ -23,6 +23,9 @@ abstract class Core {
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio);
 
+  // returns cd-rom disc data
+  void onReadDisc(Uint8List Function(int sector) readDisc);
+
   /// handles reset button events
   void reset();
 

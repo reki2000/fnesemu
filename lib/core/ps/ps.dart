@@ -75,6 +75,7 @@ class Ps extends Core {
   int nextDmaClock = 0;
   int nextSpuClock = 0;
   int nextPadClock = 0;
+  int nextCdromClock = 0;
 
   void Function(AudioBuffer) _onAudio = (_) {};
   final audioBuffer = Float32List(1000 * 2);
@@ -120,6 +121,11 @@ class Ps extends Core {
       bus.pad.exec();
     }
 
+    if (cpu.clocks > nextCdromClock) {
+      nextCdromClock += 200;
+      bus.cdrom.exec(200);
+    }
+
     debugStatus.clock = cpu.clocks;
     debugStatus.frame = gpu.frame;
     debugStatus.scanline = gpu.scanline;
@@ -135,6 +141,7 @@ class Ps extends Core {
     nextDmaClock = 0;
     nextSpuClock = 0;
     nextPadClock = 0;
+    nextCdromClock = 0;
     _waitFinishLine = false;
     audioBuffer.fillRange(0, audioBuffer.length, 0);
 
@@ -152,6 +159,9 @@ class Ps extends Core {
 
   @override
   onAudio(void Function(AudioBuffer p1) f) => _onAudio = f;
+
+  @override
+  onReadDisc(Uint8List Function(int sector) f) => bus.readDisc = f;
 
   @override
   List<PadButton> get buttons => pad.buttons;
@@ -190,7 +200,8 @@ class Ps extends Core {
         "istat:${bus.interruptStatus.hex32} imask:${bus.interruptMask.hex32}\n"
         "${gpu.dump()}\n"
         "${spu.dump()}\n"
-        "${pad.dump()}\n";
+        "${pad.dump()}\n"
+        "${cdrom.dump()}\n";
   }
 
   @override

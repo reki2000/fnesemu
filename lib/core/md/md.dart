@@ -11,7 +11,6 @@ import 'package:fnesemu/util/int.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../types.dart';
-
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
@@ -186,6 +185,9 @@ class Md implements Core {
   onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
+
+  @override
+  void onReadDisc(Uint8List Function(int sector) readDisc) {}
 
   /// handles reset button events
   @override

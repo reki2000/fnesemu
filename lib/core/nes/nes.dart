@@ -127,6 +127,9 @@ class Nes implements Core {
     _onAudio = onAudio;
   }
 
+  @override
+  void onReadDisc(Uint8List Function(int sector) readDisc) {}
+
   /// handles reset button events
   @override
   void reset() {

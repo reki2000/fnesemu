@@ -14,8 +14,8 @@ import 'component/psg.dart';
 import 'component/psg_debug.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
-import 'component/vdc_render.dart';
 import 'component/vdc_debug.dart';
+import 'component/vdc_render.dart';
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
@@ -98,6 +98,9 @@ class Pce implements Core {
   onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
+
+  @override
+  void onReadDisc(Uint8List Function(int sector) readDisc) {}
 
   /// handles reset button events
   @override

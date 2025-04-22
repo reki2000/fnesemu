@@ -2,7 +2,6 @@ import 'dart:collection';
 
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/debug.dart';
 import '../pad_button.dart';
 import 'bus.dart';
 import 'interrupt.dart';
@@ -46,14 +45,14 @@ class Pad {
       buttonValue &=
           ~(1 << _buttons.where((b) => b.$1.name == d.name).first.$2);
     }
-    debugLog("pad: keyDown $id buttonValue:${buttonValue.hex16}");
+    // debugLog("pad: keyDown $id buttonValue:${buttonValue.hex16}");
   }
 
   void keyUp(int id, PadButton d) {
     if (0 <= id && id < controllerNum) {
       buttonValue |= 1 << _buttons.where((b) => b.$1.name == d.name).first.$2;
     }
-    debugLog("pad: keyUp $id buttonValue:${buttonValue.hex16}");
+    // debugLog("pad: keyUp $id buttonValue:${buttonValue.hex16}");
   }
 
   List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();

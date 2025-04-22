@@ -28,13 +28,20 @@ class Bus implements BusR3000 {
   final mem = Uint8List(2 * 1024 * 1024);
   final rom = Uint8List(1024 * 512);
 
+  final disc = Uint8List(0);
+  void setDisc(Uint8List disc) {
+    disc.setAll(0, disc);
+  }
+
+  Uint8List Function(int) readDisc = (int _) => Uint8List(2352);
+
   final scratchPad = Uint8List(1024);
   bool useScratchPad = false;
 
   int interruptStatus = 0;
   int interruptMask = 0;
 
-  final dma = [0, 0, 0x1f801810, 0, 0x1f801da8, 0, 1, 0]
+  final dma = [0, 0, 0x1f801810, 1, 0x1f801da8, 0, 1, 0]
       .asMap()
       .entries
       .map((entry) => Dma(entry.key, entry.value))
@@ -344,7 +351,7 @@ class Bus implements BusR3000 {
   }
 
   int _unimplemented(String op, String device, int addr, int value) {
-    debugLog('$op: ${addr.hex32} ${value.hex32} pc:${cpu.pc.hex32} $device');
+    debugLog('$op: ${addr.hex32} ${value.hex32} $device');
     return 0xffffffff;
   }
 }

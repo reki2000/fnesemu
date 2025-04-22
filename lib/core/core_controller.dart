@@ -33,10 +33,11 @@ class CoreControllerState {
 class CoreController {
   final void Function(AudioBuffer) _onAudio;
   final void Function(ImageBuffer) _onImage;
+  final Uint8List Function(int) _onReadDisc;
 
   final CoreControllerState _state;
 
-  CoreController(onStateChange, this._onAudio, this._onImage)
+  CoreController(onStateChange, this._onAudio, this._onImage, this._onReadDisc)
       : _state = CoreControllerState(onStateChange);
 
   Core _core = EmptyCore();
@@ -45,6 +46,7 @@ class CoreController {
   void init(String coreName, Uint8List body, {Uint8List? extRom}) {
     _core = CoreFactory.of(coreName)
       ..onAudio(_onAudio)
+      ..onReadDisc(_onReadDisc)
       ..setRom(body);
 
     if (extRom != null) {

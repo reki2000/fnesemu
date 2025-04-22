@@ -35,6 +35,9 @@ class EmptyCore extends Core {
   onAudio(void Function(AudioBuffer p1) onAudio) {}
 
   @override
+  void onReadDisc(Uint8List Function(int sector) readDisc) {}
+
+  @override
   List<PadButton> get buttons => [];
 
   @override
