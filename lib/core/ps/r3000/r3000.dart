@@ -10,6 +10,8 @@ part 'alu.dart';
 part 'bios.dart';
 part 'cop0.dart';
 part 'cop2.dart';
+part 'cop2_command.dart';
+part 'cop2_math.dart';
 part 'hook.dart';
 
 /// A simple bus interface for MIPS memory accesses.
@@ -28,6 +30,11 @@ typedef Slot = (RegNo, int);
 /// A minimal MIPS R3000 emulator in Dart.
 class R3000 {
   final BusR3000 bus;
+  late final Cop2 cop2;
+
+  R3000(this.bus) {
+    cop2 = Cop2(this);
+  }
 
   /// 32 general-purpose registers. Note: r0 is always 0.
   final r = List.filled(32, 0);
@@ -55,8 +62,6 @@ class R3000 {
   // ps-exe bianry to sideload
   Uint8List exe = Uint8List(0);
 
-  R3000(this.bus);
-
   void reset() {
     pc = 0xbfc00000;
     nextPc = pc.inc4;
@@ -79,6 +84,8 @@ class R3000 {
     console.clear();
 
     intAsserted = false;
+
+    cop2.reset();
   }
 
   bool get _cacheIsolated => sr.bit16;
@@ -277,11 +284,11 @@ class R3000 {
           _ => _unknown(inst32),
         },
       0x12 => switch (rs) {
-          0x00 => delay(rt, readCop2(rd)), // mfc2
-          0x02 => delay(rt, readCop2Ctrl(rd)), // cfc2
-          0x04 => writeCop2(rd, r[rt]), // mtc2
-          0x06 => writeCop2Ctrl(rd, r[rt]), // ctc2
-          >= 0x10 && <= 0x1f => execCop2(inst32),
+          0x00 => delay(rt, cop2.readReg(rd)), // mfc2
+          0x02 => delay(rt, cop2.readCtrl(rd)), // cfc2
+          0x04 => cop2.writeReg(rd, r[rt]), // mtc2
+          0x06 => cop2.writeCtrl(rd, r[rt]), // ctc2
+          >= 0x10 && <= 0x1f => cop2.execCmd(inst32),
           _ => _unknown(inst32),
         },
       0x20 => delay(rt, read8(r[rs] + rel16).rel8), // lb
@@ -298,8 +305,8 @@ class R3000 {
       0x2a => swl(r[rs] + rel16, r[rt]), // swl
       0x2b => write32(r[rs] + rel16, r[rt]), // sw
       0x2e => swr(r[rs] + rel16, r[rt]), // swr
-      0x32 => writeCop2(r[rt], read32(r[rs] + rel16)), // lwc2
-      0x3a => write32(r[rs] + rel16, readCop2(r[rt])), // swc2
+      0x32 => cop2.writeReg(r[rt], read32(r[rs] + rel16)), // lwc2
+      0x3a => write32(r[rs] + rel16, cop2.readReg(r[rt])), // swc2
       _ => _unknown(inst32),
     };
   }

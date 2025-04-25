@@ -35,6 +35,7 @@ extension IntBit on int {
   int get mask24 => this & 0xffffff;
   int get mask26 => this & 0x3ffffff;
   int get mask32 => this & 0xffffffff;
+  int get mask44 => this & 0xfffffffffff;
 
   /// mask a number but zero means the max value (mask + 1)
   int maskZeroMax(int mask) => (dec & mask).inc;
@@ -101,6 +102,7 @@ extension IntBit on int {
   int get rel24 => bit23 ? mask24 - 0x1000000 : mask24;
   int get rel26 => bit25 ? mask26 - 0x4000000 : mask26;
   int get rel32 => bit31 ? mask32 - 0x100000000 : mask32;
+  int get rel44 => bit43 ? mask44 - 0x100000000000 : mask44;
 
   /// sign extend a number with specified byte size
   int rel(int size) => size == 1
@@ -168,6 +170,7 @@ extension IntBit on int {
   bool get bit29 => bit(29);
   bool get bit30 => bit(30);
   bool get bit31 => bit(31);
+  bool get bit43 => this & 0x80000000000 != 0; // '<<' doesnt work over 32 bits
 }
 
 extension IntClip on int {

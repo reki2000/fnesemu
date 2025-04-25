@@ -78,10 +78,18 @@ $ cd ..
 $ make test-m68
 ```
 
-## Totest R3000 emulation
+## To Test R3000 emulation
 
 ```
 $ cd assets && git clone https://github.com/mshockwave/MIPS-R3000-CPU-Simulator.git
 $ cd ..
 $ make test-r3000
+```
+
+## To Test PS1 GTE emulation
+
+```
+$ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
+$ cd ..
+$ make test-gte 
 ```
