@@ -33,6 +33,8 @@ class Cdrom {
   bool isSectorBufferReadReq = false;
   bool isSectorBufferWriteReq = false;
 
+  int cmdDelay = 0;
+
   int intMask = 0;
   int intStatus = 0;
 
@@ -170,6 +172,13 @@ class Cdrom {
       }
     }
 
+    if (cmdDelay >= 0) {
+      cmdDelay -= clocks;
+      if (cmdDelay < 0) {
+        isCmdBusy = false;
+      }
+    }
+
     // sector read
     if (isReading) {
       sectorReadDelay -= clocks;
@@ -178,8 +187,9 @@ class Cdrom {
         sectorReadDelay += 33868800 ~/ 150;
 
         // read sector
-        debugLog("cdrom: read sector $sector ${dump()}");
         sectorBuffer.setAll(0, bus.readDisc(sector));
+        debugLog(
+            "cdrom: read sector $sector ${dump()} [${sectorBuffer.sublist(0, 10).map((e) => e.hex8).join(" ")}]");
 
         irq(1, [status()]);
         isDataReq = true;
@@ -190,13 +200,12 @@ class Cdrom {
     }
   }
 
-  void irq(int no, List<int> data, {int delay = 200}) {
+  void irq(int no, List<int> data, {int delay = 50000}) {
     final result = CmdResult()
       ..delay = delay
       ..intNo = no
       ..fifo.addAll(data);
     cmdResults.add(result);
-    isCmdBusy = true;
   }
 
   bool isPlayCDDA = false;
@@ -236,40 +245,40 @@ class Cdrom {
         sector = paramFifo.elementAt(0) * 60 * 75 +
             paramFifo.elementAt(1) * 75 +
             paramFifo.elementAt(2);
-        irq(3, [status()]);
+        irq(3, [status()], delay: 5000);
 
       case 0x06: // ReadN
         isReading = true;
         sectorReadDelay = 33868800 ~/ 150;
-        irq(3, [status()]);
+        irq(3, [status()], delay: 1000);
 
       case 0x09: // Pause
         isReading = false;
-        irq(3, [status()], delay: 50000);
-        irq(2, [status()], delay: 50000);
+        irq(3, [status()]);
+        irq(2, [status()]);
 
       case 0x0a: // Init
         isReading = false;
         paramFifo.clear();
         cmdResults.clear();
-        irq(3, [status()], delay: 50000);
-        irq(2, [status()], delay: 50000);
+        irq(3, [status()]);
+        irq(2, [status()]);
 
       case 0x0e: // SetMode
         irq(3, [status()]);
 
       case 0x15: // SeekL
-        irq(3, [status()], delay: 50000);
-        irq(2, [status()], delay: 50000);
+        irq(3, [status()], delay: 5000);
+        irq(2, [status()], delay: 500000);
 
       case 0x1a: // GetId
         irq(3, [status()]);
-        irq(2, [0x02, 0x00, 0x20, 0x00, 0x53, 0x43, 0x45, 0x49],
-            delay: 50000); // Liscensed, SECI
+        irq(2, [0x02, 0x00, 0x20, 0x00, 0x53, 0x43, 0x45, 0x41],
+            delay: 50000); // Liscensed, SECA
 
       case 0x1e: // ReadTOC
-        irq(3, [status()], delay: 50000);
-        irq(2, [status()], delay: 50000);
+        irq(3, [status()]);
+        irq(2, [status()]);
 
       case 0x19: // test
         if (paramFifo.isEmpty) {
@@ -277,7 +286,7 @@ class Cdrom {
         } else {
           switch (paramFifo.elementAt(0)) {
             case 0x20:
-              irq(3, [0x99, 0x02, 0x01, 0xc3]);
+              irq(3, [0x94, 0x09, 0x19, 0xc0]);
             default:
               debugLog(
                   "cdrom: unknown test command ${paramFifo.map((e) => e.hex8).join(" ")}");
@@ -289,6 +298,8 @@ class Cdrom {
     }
 
     paramFifo.clear();
+    isCmdBusy = true;
+    cmdDelay = 1000;
   }
 
   void openShell() {

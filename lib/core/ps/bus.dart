@@ -320,6 +320,11 @@ class Bus implements BusR3000 {
   }
 
   void setIrq(int irqNo) {
+    if (cpu.clocks >= 205329788) {
+      debugLog(
+          "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32}");
+    }
+
     if (interruptStatus.bit(irqNo)) {
       return;
     }
@@ -338,10 +343,12 @@ class Bus implements BusR3000 {
   }
 
   void ackIrq(int ackValue) {
-    // if (ackValue.mask16 != 0xffff) {
-    //   debugLog(
-    //       'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
-    // }
+    if (cpu.clocks >= 205329788) {
+      if (ackValue.mask16 != 0xffff) {
+        debugLog(
+            'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
+      }
+    }
 
     interruptStatus &= ackValue;
 

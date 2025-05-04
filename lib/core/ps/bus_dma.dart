@@ -15,18 +15,19 @@ extension DmaController on Bus {
 
       // debugLog("DMA$ch: started   ${d.dump()} ra:${cpu.r[31].hex32}");
 
-      // otc fills memory with 0xff
       if (ch == 6) {
         if (d.syncMode != 0 || !d.toRam) {
           continue;
         }
 
-        if (d.size == 0) d.size = 0x10000;
-        while (d.size > 1) {
+        if (d.size == 0) {
+          d.size = 0x10000;
+        }
+
+        for (d.size--; d.size > 0; d.size--) {
           final writeAddr = d.addr;
-          d.addr = (d.addr + d.incr) & 0x1ffffc;
+          d.addr = d.addr.dec4 & 0x1ffffc;
           write32(writeAddr, d.addr);
-          d.size--;
         }
 
         write32(d.addr, 0xffffff);

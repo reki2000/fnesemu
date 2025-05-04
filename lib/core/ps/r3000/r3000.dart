@@ -119,7 +119,7 @@ class R3000 {
 
   void interrupt(bool onoff) {
     if (onoff) {
-      if (cause.bit(10)) {
+      if (cause.bit10) {
         return;
       }
       intAsserted = true;
