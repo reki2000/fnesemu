@@ -106,7 +106,7 @@ extension Cop2Command on Cop2 {
     otz = clipOverflow(z >> 12, 0, 0xffff, 18);
   }
 
-  void ncds(vx, vy, vz) {
+  void ncds(int vx, int vy, int vz) {
     setMacAndIrV(multiplyMatrix(l, (vx, vy, vz)));
     setMacAndIrV(multiplyMatrixT(lc, ir, bk));
 
@@ -116,6 +116,8 @@ extension Cop2Command on Cop2 {
     setMacAndIrV(rgb.dot(ir_) + ir * ir0);
 
     pushColor();
+    // debugLog(
+    //     "gte: ncds ${vx.hex16} ${vy.hex16} ${vz.hex16} ir:${ir0.hex16} rgbc:${rgbc.hex32} rgb2:${rgb2.hex32}");
   }
 
   void ncdt() {

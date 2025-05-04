@@ -305,8 +305,8 @@ class R3000 {
       0x2a => swl(r[rs] + rel16, r[rt]), // swl
       0x2b => write32(r[rs] + rel16, r[rt]), // sw
       0x2e => swr(r[rs] + rel16, r[rt]), // swr
-      0x32 => cop2.writeReg(r[rt], read32(r[rs] + rel16)), // lwc2
-      0x3a => write32(r[rs] + rel16, cop2.readReg(r[rt])), // swc2
+      0x32 => cop2.writeReg(rt, read32(r[rs] + rel16)), // lwc2
+      0x3a => write32(r[rs] + rel16, cop2.readReg(rt)), // swc2
       _ => _unknown(inst32),
     };
   }

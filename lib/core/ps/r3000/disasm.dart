@@ -28,6 +28,19 @@ class DisasmR3000 {
     "", "", "", "", "", "", "", "", "", "", "", //
   ];
 
+  static const cop2 = [
+    "vx0vy0", "vz0", "vx1vy1", "vz1", "vx2vy2", "vz2", //
+    "rgbc", "otz", "ir0", "ir1", "ir2", "ir3", //
+    "sx0xy0", "sx1xy1", "sx2xy2", "sxpsyp", "sz0", "sz1", "sz2", "sz3", //
+    "rgb0", "rgb1", "rgb2", "-", "mac0", "mac1", "mac2", "mac3", "irgb", "orgb",
+    "data32", "lzc", //
+    "r11r12", "r13r21", "r22r23", "r31r32", "r33", "trx", "try", "trz", //
+    "l11l12", "l13l21", "l22l23", "l31l32", "l33", "rbk", "gbk", "bbk", //
+    "lc11lc12", "lc13lc21", "lc22lc23", "lc31lc32", "lc33", "rfc", "gfc",
+    "bfc", //
+    "ofx", "ofy", "h", "dqa", "dqb", "zsf3", "zsf4", "flag" //
+  ];
+
   static const regs = [
     "zero", "at", //
     "v0", "v1", //
@@ -124,8 +137,8 @@ class DisasmR3000 {
       0x0e => "xori $rt_, $rs_, $im16_",
       0x0f => "lui $rt_, $im16_",
       0x10 => switch (rs) {
-          0x00 => "mfc0 $rt_, cop0_r$rd:${cop0[rd]}",
-          0x04 => "mtc0 $rt_, cop0_r$rd:${cop0[rd]}",
+          0x00 => "mfc0 $rt_, cop0.$rd:${cop0[rd]}",
+          0x04 => "mtc0 $rt_, cop0.$rd:${cop0[rd]}",
           >= 0x10 && <= 0x1f => switch (funct) {
               0x10 => "rfe",
               _ => _unknown(inst32),
@@ -133,10 +146,10 @@ class DisasmR3000 {
           _ => _unknown(inst32),
         },
       0x12 => switch (rs) {
-          0x00 => "mfc2 $rt_, cop2_r$rd",
-          0x01 => "cfc2 $rt_, cop2_r$rd",
-          0x04 => "mtc2 $rt_, cop2_r$rd",
-          0x05 => "ctc2 $rt_, cop2_r$rd",
+          0x00 => "mfc2 $rt_, cop2.$rd:${cop2[rd]}",
+          0x02 => "cfc2 $rt_, cop2.$rd:${cop2[rd]}",
+          0x04 => "mtc2 $rt_, cop2.$rd:${cop2[rd]}",
+          0x06 => "ctc2 $rt_, cop2.$rd:${cop2[rd]}",
           >= 0x10 && <= 0x1f => switch (funct) {
               0x01 => "rtps",
               0x06 => "nclip",
@@ -176,8 +189,8 @@ class DisasmR3000 {
       0x2a => "swl $rt_, $rel16_($rs_)",
       0x2b => "sw $rt_, $rel16_($rs_)",
       0x2e => "swr $rt_, $rel16_($rs_)",
-      0x32 => "lwc2 $rt_, $rel16_($rs_)",
-      0x3a => "swc2 $rt_, $rel16_($rs_)",
+      0x32 => "lwc2 cop2.$rt:${cop2[rt]}, $rel16_($rs_)",
+      0x3a => "swc2 cop2.$rt:${cop2[rt]}, $rel16_($rs_)",
       // => "syscall",
       // => "break",
       _ => _unknown(inst32),

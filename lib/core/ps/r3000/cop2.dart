@@ -207,11 +207,7 @@ class Cop2 {
   }
 
   int rgb0 = 0;
-  setRgb0(int r, int g, int b, int code) => rgb0 = setRgb(r, g, b, code);
-
   int rgb1 = 0;
-  setRgb1(int r, int g, int b, int code) => rgb1 = setRgb(r, g, b, code);
-
   int rgb2 = 0;
   setRgb2(int r, int g, int b, int code) => rgb2 = setRgb(r, g, b, code);
 
@@ -566,16 +562,16 @@ class Cop2 {
     shift = sf ? 12 : 0;
     flag = 0;
 
-    debugLog("cop2: ${[
-      "EX_00", "RTPS", "EX_02", "EX_03", "EX_04", "EX_05", "NCLIP", "EX_07", //
-      "EX_08", "EX_09", "EX_0A", "EX_0B", "OP", "EX_0D", "EX_0E", "EX_0F", //
-      "DPCS", "INTPL", "MVMVA", "NCDS", "CDP", "EX_15", "NCDT", "EX_17", //
-      "EX_18", "EX_19", "EX_1A", "NCCS", "CC", "EX_1D", "NCS", "EX_1F", //
-      "NCT", "EX_21", "EX_22", "EX_23", "EX_24", "EX_25", "EX_26", "EX_27", //
-      "SQR", "DCPL", "DPCT", "EX_2B", "EX_2C", "AVSZ3", "AVSZ4", "EX_2F", //
-      "RTPT", "EX_31", "EX_32", "EX_33", "EX_34", "EX_35", "EX_36", "EX_37", //
-      "EX_38", "EX_39", "EX_3A", "EX_3B", "EX_3C", "GPF", "GPL", "NCCT" //
-    ][inst32 & 0x3f]} ${(inst32 & 0x3f).hex8}");
+    // debugLog("cop2: ${[
+    //   "EX_00", "RTPS", "EX_02", "EX_03", "EX_04", "EX_05", "NCLIP", "EX_07", //
+    //   "EX_08", "EX_09", "EX_0A", "EX_0B", "OP", "EX_0D", "EX_0E", "EX_0F", //
+    //   "DPCS", "INTPL", "MVMVA", "NCDS", "CDP", "EX_15", "NCDT", "EX_17", //
+    //   "EX_18", "EX_19", "EX_1A", "NCCS", "CC", "EX_1D", "NCS", "EX_1F", //
+    //   "NCT", "EX_21", "EX_22", "EX_23", "EX_24", "EX_25", "EX_26", "EX_27", //
+    //   "SQR", "DCPL", "DPCT", "EX_2B", "EX_2C", "AVSZ3", "AVSZ4", "EX_2F", //
+    //   "RTPT", "EX_31", "EX_32", "EX_33", "EX_34", "EX_35", "EX_36", "EX_37", //
+    //   "EX_38", "EX_39", "EX_3A", "EX_3B", "EX_3C", "GPF", "GPL", "NCCT" //
+    // ][inst32 & 0x3f]} ${(inst32 & 0x3f).hex8}");
 
     return switch (inst32 & 0x3f) {
       0x01 => rtps(vx0, vy0, vz0),

@@ -5,9 +5,8 @@ extension Gpu0 on Gpu {
   static const yMask = 0x1ff;
 
   void writeGp0(int value) {
-    // if (cmdSize == 0) {
-    //   debugLog("GP0: command: ${value.hex32}");
-    // }
+    // debugLog(
+    //     "gpu0: cmd0:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
 
     if (!cmdReady || !handleSingleWordCommand(value)) {
       if (!handleMultiwordCommand(value)) {
