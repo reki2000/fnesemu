@@ -166,7 +166,7 @@ class Cdrom {
 
           if (intMask & result.intNo != 0) {
             bus.setIrq(Interrupt.cdrom);
-            debugLog("cdrom: irq ${result.intNo} ${dump()}");
+            // debugLog("cdrom: irq ${result.intNo} ${dump()}");
           }
         }
       }
@@ -188,8 +188,8 @@ class Cdrom {
 
         // read sector
         sectorBuffer.setAll(0, bus.readDisc(sector));
-        debugLog(
-            "cdrom: read sector $sector ${dump()} [${sectorBuffer.sublist(0, 10).map((e) => e.hex8).join(" ")}]");
+        // debugLog(
+        //     "cdrom: read sector $sector ${dump()} [${sectorBuffer.sublist(0, 10).map((e) => e.hex8).join(" ")}]");
 
         irq(1, [status()]);
         isDataReq = true;

@@ -83,8 +83,6 @@ class R3000 {
 
     console.clear();
 
-    intAsserted = false;
-
     cop2.reset();
   }
 
@@ -115,20 +113,7 @@ class R3000 {
           ? 0
           : bus.write32(addr & 0xfffffffc, value.mask32);
 
-  bool intAsserted = false;
-
-  void interrupt(bool onoff) {
-    if (onoff) {
-      if (cause.bit10) {
-        return;
-      }
-      intAsserted = true;
-      cause = cause.setBit(10, true);
-    } else {
-      intAsserted = false;
-      cause = cause.setBit(10, false);
-    }
-  }
+  void interrupt(bool onoff) => cause = cause.setBit(10, onoff);
 
   /// Executes a single instruction.
   bool step() {
@@ -142,8 +127,7 @@ class R3000 {
     nextDelaySlot = (0, 0);
     immediateSlot = (0, 0);
 
-    if (intAsserted && sr & 0x401 == 0x401) {
-      intAsserted = false;
+    if ((cause & 0xff00 == sr & 0xff00) && sr.bit0) {
       exception(Exception.interrupt);
     } else {
       try {
@@ -191,7 +175,7 @@ class R3000 {
   void exception(int excode, {int? badvaddr}) {
     sr = sr.masked(0x3f, sr << 2);
 
-    cause = cause.masked(0x7c, excode << 2);
+    cause = cause & 0xff00 | excode << 2;
 
     if (badvaddr != null) {
       this.badvaddr = badvaddr;

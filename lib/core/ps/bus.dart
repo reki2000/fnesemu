@@ -273,18 +273,18 @@ class Bus implements BusR3000 {
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad.setUInt32LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
-          0x1000 => ex("memory control 1: Expansion 1 Base Address"),
-          0x1004 => ex("memory control 1: Expansion 2 Base Address"),
-          0x1008 => ex("memory control 1: Expansion 1 Delay/Size"),
-          0x100c => ex("memory control 1: Expansion 3 Delay/Size"),
-          0x1010 => ex("memory control 1: BIOS ROM"),
-          0x1014 => ex("memory control 1: SPU Delay/Size"),
-          0x1018 => ex("memory control 1: CDROM Delay/Size"),
-          0x101c => ex("memory control 1: Expansion 2 Delay/Size"),
-          0x1020 => ex("memory control 1: COMMON_DELAY"),
+          0x1000 => 0, //ex("memory control 1: Expansion 1 Base Address"),
+          0x1004 => 0, //ex("memory control 1: Expansion 2 Base Address"),
+          0x1008 => 0, //ex("memory control 1: Expansion 1 Delay/Size"),
+          0x100c => 0, //ex("memory control 1: Expansion 3 Delay/Size"),
+          0x1010 => 0, //ex("memory control 1: BIOS ROM"),
+          0x1014 => 0, //ex("memory control 1: SPU Delay/Size"),
+          0x1018 => 0, //ex("memory control 1: CDROM Delay/Size"),
+          0x101c => 0, //ex("memory control 1: Expansion 2 Delay/Size"),
+          0x1020 => 0, //ex("memory control 1: COMMON_DELAY"),
           0x1040 => pad.writeData(v),
-          0x1050 => ex("memory control 2: RAM base address"),
-          0x1060 => ex("memory control 2: RAM size"),
+          0x1050 => 0, //ex("memory control 2: RAM base address"),
+          0x1060 => 0, //ex("memory control 2: RAM size"),
           0x1070 => ackIrq(v),
           0x1074 => interruptMask = v,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
@@ -320,10 +320,8 @@ class Bus implements BusR3000 {
   }
 
   void setIrq(int irqNo) {
-    if (cpu.clocks >= 205329788) {
-      debugLog(
-          "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32}");
-    }
+    // debugLog(
+    //     "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32}");
 
     if (interruptStatus.bit(irqNo)) {
       return;
@@ -343,12 +341,10 @@ class Bus implements BusR3000 {
   }
 
   void ackIrq(int ackValue) {
-    if (cpu.clocks >= 205329788) {
-      if (ackValue.mask16 != 0xffff) {
-        debugLog(
-            'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
-      }
-    }
+    // if (ackValue.mask16 != 0xffff) {
+    //   debugLog(
+    //       'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
+    // }
 
     interruptStatus &= ackValue;
 

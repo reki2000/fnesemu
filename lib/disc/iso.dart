@@ -26,9 +26,10 @@ class IsoDisc extends Disc {
   bool load() {
     try {
       data = File(path).readAsBytesSync();
-      debugLog("Loading disc image from $path. ${data.length.format3} bytes.");
+      debugLog(
+          "disc: iso: Loading disc image from $path. ${data.length.format3} bytes.");
     } catch (e) {
-      debugLog("Error on loading disc image from $path. $e");
+      debugLog("disc: iso: Error on loading disc image from $path. $e");
       return false;
     }
     return true;
@@ -51,13 +52,13 @@ class IsoDisc extends Disc {
     final sectorOffset = sector * Disc.sectorSize;
     final dataOffset = sectorOffset + 0x18;
 
-    final minutes = data[sectorOffset + 0x0c];
-    final seconds = data[sectorOffset + 0x0d];
-    final sectorNumber = data[sectorOffset + 0x0e];
-    final mode = data[sectorOffset + 0x0f];
+    // final minutes = data[sectorOffset + 0x0c];
+    // final seconds = data[sectorOffset + 0x0d];
+    // final sectorNumber = data[sectorOffset + 0x0e];
+    // final mode = data[sectorOffset + 0x0f];
 
-    debugLog(
-        "iso: read sector $sector (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode offset:${sectorOffset.hex32}");
+    // debugLog(
+    //     "iso: read sector $sector (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode offset:${sectorOffset.hex32}");
     return data.sublist(dataOffset, dataOffset + Disc.sectorDataSize);
   }
 }
