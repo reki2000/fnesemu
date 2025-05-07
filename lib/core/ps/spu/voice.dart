@@ -3,7 +3,7 @@ import 'package:fnesemu/util/int.dart';
 
 import 'spu.dart';
 
-part 'spu_adpcm.dart';
+part 'adpcm.dart';
 
 class Envelope {
   static const counterMax = 0x400000;

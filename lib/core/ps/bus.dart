@@ -10,7 +10,7 @@ import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
 import 'interrupt.dart';
-import 'spu.dart';
+import 'spu/spu.dart';
 import 'timer.dart';
 
 part 'bus_dma.dart';
@@ -244,17 +244,22 @@ class Bus implements BusR3000 {
             },
           >= 0x1c00 && < 0x1d80 =>
             spu.writeVoice(offset & 0x0e, offset >> 4 & 0x1f, v),
+          0x1d84 => spu.reverb.setOutputVolume(0, v),
+          0x1d86 => spu.reverb.setOutputVolume(1, v),
           0x1d88 => spu.keyOn(v),
           0x1d8a => spu.keyOn(v << 16),
           0x1d8c => spu.keyOff(v),
           0x1d8e => spu.keyOff(v << 16),
+          0x1d98 => spu.reverb.setReverbEnabled(v),
+          0x1d9a => spu.reverb.setReverbEnabled(v << 16),
           0x1da4 => spu.setIrqAddr(v), // irq address
+          0x1da2 => spu.reverb.workAddr = v, // work address
           0x1da6 => spu.setFifoAddr(v), // dma start address
           0x1da8 => spu.writeFifo16(v), // sound ram
           0x1daa => spu.writeCtrl(v), // spu ctrl
           0x1dac => spu.fifoType = v, // spu ram ctrl
           >= 0x1d80 && < 0x1dc0 => ex("spu control"),
-          >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
+          >= 0x1dc0 && < 0x1e00 => spu.reverb.write16(offset, v.mask16),
           _ => ex("expansion 1")
         },
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom

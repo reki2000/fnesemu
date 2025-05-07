@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/ps/spu/reverb.dart';
 import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
-import 'bus.dart';
-import 'spu_voice.dart';
+import '../bus.dart';
+import 'voice.dart';
 
 class Spu {
   static const clockHz = 44100;
@@ -13,9 +14,11 @@ class Spu {
   final Bus bus;
   final ram = Uint8List(512 * 1024);
   late final List<Voice> voices;
+  late final Reverb reverb;
 
   Spu(this.bus) {
     voices = List.generate(24, (i) => Voice(this, i));
+    reverb = Reverb(this);
   }
 
   int counter = 0;
@@ -25,6 +28,8 @@ class Spu {
     for (int i = 0; i < voices.length; i++) {
       voices[i].reset();
     }
+    reverb.reset();
+
     mainVolumeLeft = 0;
     mainVolumeRight = 0;
     enabled = false;
@@ -41,11 +46,22 @@ class Spu {
   (double, double) render() {
     double sumL = 0;
     double sumR = 0;
+
+    double reverbInputL = 0;
+    double reverbInputR = 0;
     for (int i = 0; i < voices.length; i++) {
       final (l, r) = voices[i].clock();
       sumL += l / 4;
       sumR += r / 4;
+
+      if (reverb.writeEnabled && reverb.reverbEnabled[i]) {
+        reverbInputL += l;
+        reverbInputR += r;
+      }
     }
+    final (reverbL, reverbR) = reverb.render(reverbInputL, reverbInputR);
+    sumL += reverbL;
+    sumR += reverbR;
 
     return (sumL.clip(-1.0, 1.0), sumR.clip(-1.0, 1.0));
   }
@@ -100,6 +116,7 @@ class Spu {
     muted = value.bit1;
     fifoMode =
         value >> 4 & 0x03; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
+    reverb.writeEnabled = value.bit7;
     _status = _status.masked(0x1f, value);
   }
 

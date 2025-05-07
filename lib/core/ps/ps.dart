@@ -15,7 +15,7 @@ import 'gpu/gpu.dart';
 import 'pad.dart';
 import 'r3000/disasm.dart';
 import 'r3000/r3000.dart';
-import 'spu.dart';
+import 'spu/spu.dart';
 
 class Ps extends Core {
   final Bus bus;

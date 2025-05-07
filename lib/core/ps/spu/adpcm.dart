@@ -1,4 +1,4 @@
-part of 'spu_voice.dart';
+part of 'voice.dart';
 
 extension VoiceAdpcmDecoder on Voice {
   void decodeBlock() {

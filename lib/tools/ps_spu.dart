@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/bus.dart';
-import 'package:fnesemu/core/ps/spu.dart';
+import 'package:fnesemu/core/ps/spu/spu.dart';
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 // flutter: SPU: keyOn 0 006140 000400

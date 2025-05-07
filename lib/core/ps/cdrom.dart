@@ -236,7 +236,7 @@ class Cdrom {
     cmdResults.clear();
 
     debugLog(
-        "cdrom: command cmd:${cmd.hex8} params:[${paramFifo.map((e) => e.hex8).join(" ")}] ${dump()}");
+        "cdrom: ${cmd.hex8}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.hex8}").join(",")}) ${dump()}");
     switch (cmd) {
       case 0x01: // GetStat
         irq(3, [status()]);
@@ -319,4 +319,11 @@ class Cdrom {
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} ${r.fifo.map((e) => e.hex8).join(" ")}]")} "
       "${isAdpcmBusy ? "Adpcm" : "Data"} ${isDataReq ? "Req" : "NoReq"} "
       "mask:${intMask.hex8} int:${intStatus.hex8}";
+
+  static List<String> commandNames = [
+    "", "GetStat", "SetLoc", "", "", "", "ReadN", "", // 0x00-0x07
+    "", "Pause", "Init", "", "", "", "SetMode", "", // 0x08-0x0f
+    "", "", "", "", "", "SeekL", "", "", "", // 0x10-0x17
+    "Test", "GetId", "", "", "", "ReadTOC", "", // 0x18-0x1f
+  ];
 }
