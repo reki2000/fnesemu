@@ -44,26 +44,29 @@ class Spu {
   }
 
   (double, double) render() {
-    double sumL = 0;
-    double sumR = 0;
+    int outL = 0;
+    int outR = 0;
 
-    double reverbInputL = 0;
-    double reverbInputR = 0;
+    int reverbInputL = 0;
+    int reverbInputR = 0;
+
     for (int i = 0; i < voices.length; i++) {
       final (l, r) = voices[i].clock();
-      sumL += l / 4;
-      sumR += r / 4;
+      outL += l;
+      outR += r;
 
-      if (reverb.writeEnabled && reverb.reverbEnabled[i]) {
+      if (reverb.reverbEnabled[i]) {
         reverbInputL += l;
         reverbInputR += r;
       }
     }
-    final (reverbL, reverbR) = reverb.render(reverbInputL, reverbInputR);
-    sumL += reverbL;
-    sumR += reverbR;
 
-    return (sumL.clip(-1.0, 1.0), sumR.clip(-1.0, 1.0));
+    final (reverbL, reverbR) = reverb.render(
+        reverbInputL.clip(-0x8000, 0x7fff), reverbInputR.clip(-0x8000, 0x7fff));
+    outL += reverbL;
+    outR += reverbR;
+
+    return ((outL / 0x8000).clip(-1.0, 1.0), (outR / 0x8000).clip(-1.0, 1.0));
   }
 
   int _status = 0;

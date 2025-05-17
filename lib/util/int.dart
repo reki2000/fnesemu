@@ -174,8 +174,13 @@ extension IntBit on int {
 }
 
 extension IntClip on int {
+  // lesser of two numbers
   int min(int val) => this < val ? this : val;
+
+  // greater of two numbers
   int max(int val) => this > val ? this : val;
+
+  // clip a number between min and max
   int clip(int min, int max) => this < min
       ? min
       : this > max

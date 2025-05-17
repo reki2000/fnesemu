@@ -139,7 +139,7 @@ class Voice {
   }
 
   /// proceed to next sample
-  (double, double) clock() {
+  (int, int) clock() {
     final step = pitch; // todo pitch modulation
     _counter += step.min(0x4000);
 
@@ -171,13 +171,13 @@ class Voice {
         }
     }
 
-    final adsrVal = val / 0x8000 * adsrVolume / 0x8000;
+    final adsrVal = val * adsrVolume ~/ 0x8000;
 
     for (int i = 0; i < 2; i++) {
       _vol[i] = _volSweep[i].apply(_vol[i]);
     }
 
-    return (adsrVal * _vol[0] / 0x8000, adsrVal * _vol[1] / 0x8000);
+    return (adsrVal * _vol[0] ~/ 0x8000, adsrVal * _vol[1] ~/ 0x8000);
   }
 
   void keyOn() {
