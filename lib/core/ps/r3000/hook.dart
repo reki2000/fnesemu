@@ -3,12 +3,25 @@ part of 'r3000.dart';
 extension Hook on R3000 {
   static int biosCallAddr = 0;
 
+  String dumpCString(int addr, {maxLength = 32}) {
+    final sb = StringBuffer();
+    for (int i = 0; i < maxLength; i++) {
+      final ch = bus.read8(addr + i).mask8;
+      if (ch == 0) break;
+      sb.writeCharCode(ch);
+    }
+    return sb.toString();
+  }
+
+  String dump8(int addr, int len) =>
+      range(0, len).map((i) => "0x${bus.read8(addr + i).hex8}").join(":");
+
   hook() {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
       final name = _bios[vector]?[r[9]] ?? "-";
+      // tty putchar
       if (vector == 0xb0 && r[9] == 0x3d || vector == 0xa0 && r[9] == 0x3c) {
-        // tty putchar
         final ch = r[4].mask8;
         switch (ch) {
           case >= 0x20 && < 0x80 || 0x09:
@@ -20,12 +33,15 @@ extension Hook on R3000 {
       } else {
         if (!name.startsWith("*")) {
           biosCallAddr = r[31];
-          debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name ${[
-            4,
-            5,
-            6,
-            7
-          ].map((i) => r[i].hex32).join(",")}");
+          String args = [4, 5, 6, 7].map((i) => r[i].hex32).join(",");
+          if (name == "CdAsyncSeekL") {
+            args = dump8(r[4], 3);
+          } else if (name == "open") {
+            args = "${r[4].hex32}[${dumpCString(r[4])}], 0x${r[5].hex32}";
+          } else if (name == "TestEvent") {
+            biosCallAddr = 0;
+          }
+          debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name($args)");
         }
       }
     }

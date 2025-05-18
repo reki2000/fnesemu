@@ -12,6 +12,10 @@ class CmdResult {
   Queue<int> fifo = Queue<int>();
 }
 
+extension IntBcd on int {
+  int get asBcd => (this & 0x0f) + ((this & 0xf0) >> 4) * 10;
+}
+
 class Cdrom {
   Bus bus;
 
@@ -148,6 +152,15 @@ class Cdrom {
           // reset decoder
         }
 
+      case (2, 2): // atv0
+      case (2, 3): // atv1
+      case (3, 1): // atv2
+      case (3, 2): // atv3
+        debugLog("cdrom: ATV ${value.hex8} ${dump()}");
+
+      case (3, 3): // ADPCTL
+        debugLog("cdrom: ADPCTL ${value.hex8} ${dump()}");
+
       default:
         debugLog(
             "cdrom: unknown write8: $bank-$reg <= ${value.hex8}, ${dump()}");
@@ -242,9 +255,9 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x02: // SetLoc
-        sector = paramFifo.elementAt(0) * 60 * 75 +
-            paramFifo.elementAt(1) * 75 +
-            paramFifo.elementAt(2);
+        sector = paramFifo.elementAt(0).asBcd * 60 * 75 +
+            paramFifo.elementAt(1).asBcd * 75 +
+            paramFifo.elementAt(2).asBcd;
         irq(3, [status()], delay: 5000);
 
       case 0x06: // ReadN
@@ -263,6 +276,9 @@ class Cdrom {
         cmdResults.clear();
         irq(3, [status()]);
         irq(2, [status()]);
+
+      case 0x0c: // Demute
+        irq(3, [status()]);
 
       case 0x0e: // SetMode
         irq(3, [status()]);

@@ -52,13 +52,18 @@ class IsoDisc extends Disc {
     final sectorOffset = sector * Disc.sectorSize;
     final dataOffset = sectorOffset + 0x18;
 
-    // final minutes = data[sectorOffset + 0x0c];
-    // final seconds = data[sectorOffset + 0x0d];
-    // final sectorNumber = data[sectorOffset + 0x0e];
-    // final mode = data[sectorOffset + 0x0f];
+    logReadSector(sector, sectorOffset);
 
-    // debugLog(
-    //     "iso: read sector $sector (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode offset:${sectorOffset.hex32}");
     return data.sublist(dataOffset, dataOffset + Disc.sectorDataSize);
+  }
+
+  void logReadSector(int sector, int sectorOffset) {
+    final minutes = data[sectorOffset + 0x0c];
+    final seconds = data[sectorOffset + 0x0d];
+    final sectorNumber = data[sectorOffset + 0x0e];
+    final mode = data[sectorOffset + 0x0f];
+
+    debugLog(
+        "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode");
   }
 }

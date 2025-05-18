@@ -1,5 +1,15 @@
 part of 'r3000.dart';
 
+class BiosFunc {
+  static String defaultParser(BusR3000 bus, int r4, int r5, int r6, int r7) =>
+      "${r4.hex32} ${r5.hex32} ${r6.hex32} ${r7.hex32}";
+
+  final String Function(BusR3000 bus, int r4, int r5, int r6, int r7) parser;
+  final String name;
+
+  const BiosFunc(this.name, {this.parser = defaultParser});
+}
+
 /// Bios function names for the PS1.
 /// starts with '*' will not be logged
 const _bios = {
@@ -240,6 +250,39 @@ const _bios = {
     0x9D: "GetConf",
     0x9E: "SetCdromIrqAutoAbort",
     0x9F: "SetMem",
+    0xA0: "_boot",
+    0xA1: "SystemError",
+    0xA2: "EnqueueCdIntr",
+    0xA3: "DequeueCdIntr",
+    0xA4: "CdGetLbn",
+    0xA5: "CdReadSector",
+    0xA6: "CdGetStatus",
+    0xA7: "bufs_cb_0",
+    0xA8: "bufs_cb_1",
+    0xA9: "bufs_cb_2",
+    0xAA: "bufs_cb_3",
+    0xAB: "_card_info",
+    0xAC: "_card_load",
+    0xAD: "_card_auto",
+    0xAE: "bufs_cb_4",
+    0xAF: "card_write_test",
+    0xB0: "return 0",
+    0xB1: "return 0",
+    0xB2: "ioabort_raw",
+    0xB3: "return 0",
+    0xB4: "GetSystemInfo",
+    // 0xB5..0xBF: jump_to_00000000h (N/A)
+    0xB5: "jump_to_00000000h",
+    0xB6: "jump_to_00000000h",
+    0xB7: "jump_to_00000000h",
+    0xB8: "jump_to_00000000h",
+    0xB9: "jump_to_00000000h",
+    0xBA: "jump_to_00000000h",
+    0xBB: "jump_to_00000000h",
+    0xBC: "jump_to_00000000h",
+    0xBD: "jump_to_00000000h",
+    0xBE: "jump_to_00000000h",
+    0xBF: "jump_to_00000000h",
   },
   0xc0: {
     0x00: "*EnqueueTimerAndVblankIrqs",
