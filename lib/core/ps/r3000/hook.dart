@@ -16,6 +16,22 @@ extension Hook on R3000 {
   String dump8(int addr, int len) =>
       range(0, len).map((i) => "0x${bus.read8(addr + i).hex8}").join(":");
 
+  String dump8x(int addr, int len) =>
+      range(0, len).map((i) => bus.read8(addr + i).hex8).join(":");
+
+  String dumpc(int addr, int len) {
+    final sb = StringBuffer();
+    for (int i = 0; i < len; i++) {
+      final ch = bus.read8(addr + i).mask8;
+      if (ch >= 0x20 && ch < 0x7f) {
+        sb.writeCharCode(ch);
+      } else {
+        sb.write(".");
+      }
+    }
+    return sb.toString();
+  }
+
   hook() {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
@@ -33,14 +49,22 @@ extension Hook on R3000 {
       } else {
         if (!name.startsWith("*")) {
           biosCallAddr = r[31];
+
           String args = [4, 5, 6, 7].map((i) => r[i].hex32).join(",");
           if (name == "CdAsyncSeekL") {
             args = dump8(r[4], 3);
           } else if (name == "open") {
-            args = "${r[4].hex32}[${dumpCString(r[4])}], 0x${r[5].hex32}";
+            args = "${r[4]},[${dumpCString(r[4])}], 0x${r[5].hex32}";
+          } else if (name == "write") {
+            if (r[4] == 1) {
+              args = "stdout,[${dumpc(r[5], r[6])}]";
+            } else {
+              args = "${r[4]},[${dump8x(r[5], r[6])}]";
+            }
           } else if (name == "TestEvent") {
             biosCallAddr = 0;
           }
+
           debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name($args)");
         }
       }
