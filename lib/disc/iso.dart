@@ -20,6 +20,9 @@ import 'disc.dart';
 class IsoDisc extends Disc {
   final String path;
   Uint8List data = Uint8List(0);
+  static const sync = [
+    0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0 // 12 bytes
+  ];
 
   IsoDisc(this.path);
 
@@ -35,6 +38,7 @@ class IsoDisc extends Disc {
     return true;
   }
 
+  // returns whole sector date without sync
   @override
   Uint8List read(int sector) {
     if (data.isEmpty) {
@@ -50,19 +54,19 @@ class IsoDisc extends Disc {
     }
 
     final sectorOffset = sector * Disc.sectorSize;
-    final dataOffset = sectorOffset + 0x18;
+    final dataOffset = sectorOffset + sync.length;
 
     logReadSector(sector, sectorOffset);
 
-    return data.sublist(dataOffset, dataOffset + Disc.sectorDataSize);
+    return data.sublist(dataOffset, dataOffset + Disc.sectorSize - sync.length);
   }
 
   void logReadSector(int sector, int sectorOffset) {
-    final minutes = data[sectorOffset + 0x0c];
-    final seconds = data[sectorOffset + 0x0d];
-    final sectorNumber = data[sectorOffset + 0x0e];
-    final mode = data[sectorOffset + 0x0f];
-
+    final headerOffset = sectorOffset + sync.length;
+    final minutes = data[headerOffset];
+    final seconds = data[headerOffset + 1];
+    final sectorNumber = data[headerOffset + 2];
+    final mode = data[headerOffset + 3];
     debugLog(
         "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode");
   }

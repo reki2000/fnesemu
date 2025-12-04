@@ -85,7 +85,7 @@ class DisasmR3000 {
 
     return switch (op) {
       0x00 => switch (funct) {
-          0x00 => "sll $rd_, $rt_, $shamt",
+          0x00 => inst32 == 0 ? "nop" : "sll $rd_, $rt_, $shamt",
           0x02 => "srl $rd_, $rt_, $shamt",
           0x03 => "sra $rd_, $rt_, $shamt",
           0x04 => "sllv $rd_, $rt_, $rs_",

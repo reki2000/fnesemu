@@ -50,6 +50,7 @@ extension DmaController on Bus {
               }
             } else if (ch == 3) {
               // CDROM
+              // debugLog("DMA3: CDROM DMA ${d.dump()}");
               if (d.toRam) {
                 write16(d.addr, cdrom.readBuffer16());
                 write16(d.addr.inc2, cdrom.readBuffer16());
@@ -110,7 +111,10 @@ extension DmaController on Bus {
 
     if (!partial) {
       d.running = false;
-      // debugLog("DMA$ch: completed ${d.dump()}");
+
+      // if (ch == 3) {
+      //   debugLog("DMA$ch: completed ${d.dump()}");
+      // }
     }
 
     if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {

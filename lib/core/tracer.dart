@@ -69,6 +69,7 @@ class RepeatDetector {
 
   int _nextIndex = 0;
   int _repeatCount = 0;
+  final List<(TraceLogState, TraceLog)> _pendingLogs = [];
 
   RepeatDetector(int size, {int allowDiffStates = 0})
       : _allowDiffStates = allowDiffStates,
@@ -76,6 +77,7 @@ class RepeatDetector {
 
   void add(TraceLogState item) {
     _repeatCount = 0;
+    _pendingLogs.clear();
     _buf.add(item);
   }
 
@@ -95,23 +97,58 @@ class RepeatDetector {
   }
 
   // check if the item is matched with the expected line
-  (bool, int) isRepeating(TraceLogState item) {
+  // returns (shouldSkip, skippedCount, pendingLogs)
+  (bool, int, List<(TraceLogState, TraceLog)>) isRepeating(
+      TraceLogState item, TraceLog log,
+      {int minSkipThreshold = 0}) {
     if (_nextIndex < _buf.size && _matched(_buf[_nextIndex], item)) {
       _repeatCount++;
       _nextIndex++;
-      return (true, 0);
+
+      // Threshold check: clear pendingLogs when threshold is exceeded
+      if (_repeatCount <= minSkipThreshold) {
+        _pendingLogs.add((item, log));
+      } else if (_repeatCount == minSkipThreshold + 1) {
+        // Clear pendingLogs immediately when threshold is exceeded to free memory
+        _pendingLogs.clear();
+      }
+      return (true, 0, []); // Skip but pending
     }
 
     _nextIndex = _detect(item);
     if (_nextIndex < _buf.size) {
       _nextIndex++;
       _repeatCount++;
-      return (true, 0);
+
+      // Threshold check: clear pendingLogs when threshold is exceeded
+      if (_repeatCount <= minSkipThreshold) {
+        _pendingLogs.add((item, log));
+      } else if (_repeatCount == minSkipThreshold + 1) {
+        // Clear pendingLogs immediately when threshold is exceeded to free memory
+        _pendingLogs.clear();
+      }
+      return (true, 0, []); // Skip but pending
     }
 
+    // End of repeat pattern
     final result = _repeatCount;
+    final pendingLogs = List<(TraceLogState, TraceLog)>.from(_pendingLogs);
+
     _repeatCount = 0;
-    return (false, result);
+    _pendingLogs.clear();
+
+    if (result > 0) {
+      // Threshold check
+      if (result <= minSkipThreshold) {
+        // If below threshold, output all pending logs
+        return (false, 0, pendingLogs);
+      } else {
+        // If above threshold, only output skip message
+        return (false, result, []);
+      }
+    }
+
+    return (false, 0, []);
   }
 }
 
@@ -119,16 +156,27 @@ class RepeatDetector {
 class Tracer {
   final StreamSink<String> _stream;
   final RepeatDetector _detector;
+  final int _minSkipThreshold;
 
-  Tracer(this._stream, {int size = 20, int maxDiffChars = 0})
-      : _detector = RepeatDetector(size, allowDiffStates: maxDiffChars);
+  Tracer(this._stream,
+      {int size = 20, int maxDiffChars = 0, int minSkipThreshold = 3})
+      : _detector = RepeatDetector(size, allowDiffStates: maxDiffChars),
+        _minSkipThreshold = minSkipThreshold;
 
   void addTraceLog(TraceLog log) {
     final line = TraceLogState(log.pc, log.state);
 
-    final (repeating, skippedCount) = _detector.isRepeating(line);
+    final (repeating, skippedCount, pendingLogs) =
+        _detector.isRepeating(line, log, minSkipThreshold: _minSkipThreshold);
+
     if (repeating) {
-      return;
+      return; // Skip during repeat pattern (pending)
+    }
+
+    // Output pending logs first if any
+    for (final (_, pendingLog) in pendingLogs) {
+      _stream.add(
+          "${pendingLog.disasm} ${pendingLog.regs} cl:${pendingLog.cycle.format3}\n");
     }
 
     if (skippedCount > 0) {

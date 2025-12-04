@@ -26,7 +26,7 @@ class Dma {
     incr = value.bit1 ? -4 : 4;
     running = value.bit24;
 
-    // if (running) {
+    // if (running && ch == 3) {
     //   debugLog("DMA$ch: started   ${dump()}");
     // }
   }

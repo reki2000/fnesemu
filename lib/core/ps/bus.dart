@@ -197,6 +197,10 @@ class Bus implements BusR3000 {
 
   @override
   void write8(int addr, int v) {
+    // if (addr == 0x8009bd78) {
+    //   debugLog("bus: write8 to 0x8009bd78: ${v.hex8} pc:${cpu.pc.hex32}");
+    // }
+
     final offset = addr & segMask[addr >> 29];
     ex(s) => _unimplemented("write8", s, addr, v);
 
@@ -223,6 +227,10 @@ class Bus implements BusR3000 {
 
   @override
   void write16(int addr, int v) {
+    // if (addr == 0x8009bd78) {
+    //   debugLog("bus: write16 to 0x8009bd78: ${v.hex16} pc:${cpu.pc.hex32}");
+    // }
+
     final offset = addr & segMask[addr >> 29];
     ex(s) => _unimplemented("write16", s, addr, v);
 
@@ -271,6 +279,10 @@ class Bus implements BusR3000 {
 
   @override
   void write32(int addr, int v) {
+    // if (addr == 0x8009bd78) {
+    //   debugLog("bus: write32 to 0x8009bd78: ${v.hex32} pc:${cpu.pc.hex32}");
+    // }
+
     final offset = addr & segMask[addr >> 29];
     ex(s) => _unimplemented("write32", s, addr, v);
 

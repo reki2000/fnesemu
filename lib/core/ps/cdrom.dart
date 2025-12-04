@@ -9,6 +9,7 @@ import 'interrupt.dart';
 class CmdResult {
   int delay = 0;
   int intNo = 0;
+  bool ack = false;
   Queue<int> fifo = Queue<int>();
 }
 
@@ -28,50 +29,52 @@ class Cdrom {
   int data = 0;
   int result = 0;
 
-  final sectorBuffer = List.filled(2352, 0);
+  final sectorBuffer = List.filled(2352, 0); // 0x930 bytes
   int sectorBufferIndex = 0;
+  bool sectorBufferEmpty = true;
 
   bool isAdpcmBusy = false;
-  bool isDataReq = false;
   bool isCmdBusy = false;
-  bool isSectorBufferReadReq = false;
-  bool isSectorBufferWriteReq = false;
+  bool isHighSpeed = false;
+  bool isSectorSize924 = false;
+  get sectorSize => isSectorSize924 ? 0x924 : 0x800;
 
   int cmdDelay = 0;
 
   int intMask = 0;
-  int intStatus = 0;
 
   final paramFifo = ListQueue<int>();
   final cmdResults = Queue<CmdResult>();
 
   void reset() {
     isAdpcmBusy = false;
-    isDataReq = false;
     isCmdBusy = false;
-    isSectorBufferReadReq = false;
+    sectorBufferEmpty = true;
 
     cmdResults.clear();
     paramFifo.clear();
   }
 
+  bool isBufferEmpty() => sectorBufferEmpty || sectorBufferIndex >= sectorSize;
+
   int readBuffer8() {
+    if (sectorBufferEmpty) {
+      return 0;
+    }
+    if (sectorBufferIndex >= sectorSize) {
+      sectorBufferIndex++;
+      return 0;
+    }
+
     final data = sectorBuffer[sectorBufferIndex++];
-    if (sectorBufferIndex >= sectorBuffer.length) {
-      sectorBufferIndex -= 4;
-      isDataReq = false;
+    if (isBufferEmpty()) {
+      sectorBufferEmpty = true;
     }
     return data;
   }
 
   int readBuffer16() {
-    final data = sectorBuffer[sectorBufferIndex] |
-        sectorBuffer[sectorBufferIndex + 1] << 8;
-    sectorBufferIndex += 2;
-    if (sectorBufferIndex >= sectorBuffer.length) {
-      sectorBufferIndex -= 4;
-      isDataReq = false;
-    }
+    final data = readBuffer8() | (readBuffer8() << 8);
 
     // debugLog(
     //     "cdrom: readBuffer16 ${sectorBufferIndex.hex16} ${data.hex16} ${dump()}");
@@ -84,8 +87,12 @@ class Cdrom {
       return 0;
     }
 
-    final result = cmdResults.first.fifo.removeFirst();
     if (cmdResults.first.fifo.isEmpty) {
+      return 0;
+    }
+
+    final result = cmdResults.first.fifo.removeFirst();
+    if (cmdResults.first.ack && cmdResults.first.fifo.isEmpty) {
       cmdResults.removeFirst();
     }
 
@@ -98,15 +105,21 @@ class Cdrom {
           .setBit(2, isAdpcmBusy)
           .setBit(3, paramFifo.isEmpty)
           .setBit(4, paramFifo.length < 16)
-          .setBit(5, cmdResults.isNotEmpty)
-          .setBit(6, isDataReq)
+          .setBit(5, cmdResults.isNotEmpty && cmdResults.first.fifo.isNotEmpty)
+          .setBit(6, !sectorBufferEmpty)
           .setBit(7, isCmdBusy),
       1 => readCmdResult(),
       2 => readBuffer8(),
-      3 => (bank.bit0 ? intStatus : intMask) & 0x1f | 0xe0,
+      3 => 0xe0 |
+          (bank.bit0
+                  ? (cmdResults.isEmpty ? 0 : cmdResults.first.intNo)
+                  : intMask) &
+              0x1f,
       _ => 0,
     };
-    // debugLog("cdrom: read8 $bank-$reg => ${result.hex8} ${dump()}");
+    // if (reg != 2) {
+    //   debugLog("cdrom: read8 $bank-$reg => ${result.hex8} ${dump()}");
+    // }
     return result;
   }
 
@@ -132,10 +145,15 @@ class Cdrom {
         }
 
       case (0, 3): // hchpctl
-        isSectorBufferReadReq = value.bit7;
-        isSectorBufferWriteReq = value.bit6;
-        sectorBufferIndex = 0;
-        isDataReq = true;
+        if (value.bit7) {
+          if (isBufferEmpty()) {
+            sectorBufferEmpty = false;
+            sectorBufferIndex = 0;
+          }
+        } else {
+          sectorBufferEmpty = true;
+          sectorBufferIndex = 0;
+        }
 
       case (1, 1): // wrdata
         break;
@@ -144,12 +162,17 @@ class Cdrom {
         intMask = value & 0x1f;
 
       case (1, 3): // hclrctl
-        intStatus &= ~(value & 0x1f);
         if (value.bit6) {
           paramFifo.clear();
         }
         if (value.bit7) {
           // reset decoder
+        }
+        if (cmdResults.isNotEmpty) {
+          cmdResults.first.ack = true;
+          if (cmdResults.first.fifo.isEmpty) {
+            cmdResults.removeFirst();
+          }
         }
 
       case (2, 2): // atv0
@@ -170,26 +193,21 @@ class Cdrom {
   void exec(int clocks) {
     if (cmdResults.isNotEmpty) {
       final result = cmdResults.first;
-      if (result.delay > 0) {
-        result.delay -= clocks;
+      result.delay -= clocks;
 
-        if (result.delay <= 0) {
-          isCmdBusy = false;
-          intStatus = intStatus.masked(0x07, result.intNo);
+      if (result.delay <= 0) {
+        isCmdBusy = false;
 
-          if (intMask & result.intNo != 0) {
-            bus.setIrq(Interrupt.cdrom);
-            // debugLog("cdrom: irq ${result.intNo} ${dump()}");
-          }
+        if ((intMask & 0x07) & (result.intNo & 0x07) != 0) {
+          bus.setIrq(Interrupt.cdrom);
+          // debugLog("cdrom: irq ${result.intNo} ${dump()}");
         }
       }
     }
 
-    if (cmdDelay >= 0) {
-      cmdDelay -= clocks;
-      if (cmdDelay < 0) {
-        isCmdBusy = false;
-      }
+    cmdDelay -= clocks;
+    if (cmdDelay < 0) {
+      isCmdBusy = false;
     }
 
     // sector read
@@ -197,15 +215,19 @@ class Cdrom {
       sectorReadDelay -= clocks;
 
       if (sectorReadDelay <= 0) {
-        sectorReadDelay += 33868800 ~/ 150;
+        sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
 
         // read sector
-        sectorBuffer.setAll(0, bus.readDisc(sector));
+        if (isSectorSize924) {
+          sectorBuffer.setAll(0, bus.readDisc(sector));
+        } else {
+          sectorBuffer.setAll(0, bus.readDisc(sector).sublist(12, 12 + 0x800));
+        }
         // debugLog(
         //     "cdrom: read sector $sector ${dump()} [${sectorBuffer.sublist(0, 10).map((e) => e.hex8).join(" ")}]");
 
-        irq(1, [status()]);
-        isDataReq = true;
+        irq(1, [status()], delay: 0);
+        sectorBufferEmpty = false;
         sectorBufferIndex = 0;
 
         sector++;
@@ -247,9 +269,9 @@ class Cdrom {
 
   void execCommand(int cmd) {
     cmdResults.clear();
-
     debugLog(
         "cdrom: ${cmd.hex8}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.hex8}").join(",")}) ${dump()}");
+
     switch (cmd) {
       case 0x01: // GetStat
         irq(3, [status()]);
@@ -260,9 +282,12 @@ class Cdrom {
             paramFifo.elementAt(2).asBcd;
         irq(3, [status()], delay: 5000);
 
+      case 0x03: // Play
+        irq(3, [status()]);
+
       case 0x06: // ReadN
         isReading = true;
-        sectorReadDelay = 33868800 ~/ 150;
+        sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
       case 0x09: // Pause
@@ -272,15 +297,21 @@ class Cdrom {
 
       case 0x0a: // Init
         isReading = false;
-        paramFifo.clear();
-        cmdResults.clear();
-        irq(3, [status()]);
+        // paramFifo.clear();
+        // cmdResults.clear();
+        irq(3, [status()], delay: 5000);
         irq(2, [status()]);
+
+      case 0x0b: // Mute
+        irq(3, [status()]);
 
       case 0x0c: // Demute
         irq(3, [status()]);
 
       case 0x0e: // SetMode
+        final mode = paramFifo.elementAt(0);
+        isHighSpeed = mode.bit7;
+        isSectorSize924 = mode.bit5;
         irq(3, [status()]);
 
       case 0x15: // SeekL
@@ -290,8 +321,7 @@ class Cdrom {
       case 0x1a: // GetId
         irq(3, [status()]);
         irq(2, [0x02, 0x00, 0x20, 0x00, 0x53, 0x43, 0x45, 0x41],
-            delay: 50000); // Liscensed, SECA
-
+            delay: 50000); // Liscensed, SCEA
       case 0x1e: // ReadTOC
         irq(3, [status()]);
         irq(2, [status()]);
@@ -332,13 +362,13 @@ class Cdrom {
 
   String dump() => "bank:$bank "
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
-      "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} ${r.fifo.map((e) => e.hex8).join(" ")}]")} "
-      "${isAdpcmBusy ? "Adpcm" : "Data"} ${isDataReq ? "Req" : "NoReq"} "
-      "mask:${intMask.hex8} int:${intStatus.hex8}";
+      "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
+      "${isAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
+      "mask:${intMask.hex8}";
 
   static List<String> commandNames = [
-    "", "GetStat", "SetLoc", "", "", "", "ReadN", "", // 0x00-0x07
-    "", "Pause", "Init", "", "", "", "SetMode", "", // 0x08-0x0f
+    "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
+    "", "Pause", "Init", "Mute", "Demute", "", "SetMode", "", // 0x08-0x0f
     "", "", "", "", "", "SeekL", "", "", "", // 0x10-0x17
     "Test", "GetId", "", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
