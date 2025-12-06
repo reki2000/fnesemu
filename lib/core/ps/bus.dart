@@ -260,6 +260,10 @@ class Bus implements BusR3000 {
           0x1d8a => spu.keyOn(v << 16),
           0x1d8c => spu.keyOff(v),
           0x1d8e => spu.keyOff(v << 16),
+          0x1d90 => spu.setPitchModulation(v),
+          0x1d92 => spu.setPitchModulation(v << 16),
+          0x1d94 => spu.setNoiseFlags(v),
+          0x1d96 => spu.setNoiseFlags(v << 16),
           0x1d98 => spu.reverb.setReverbEnabled(v),
           0x1d9a => spu.reverb.setReverbEnabled(v << 16),
           0x1da4 => spu.setIrqAddr(v), // irq address
@@ -268,6 +272,10 @@ class Bus implements BusR3000 {
           0x1da8 => spu.writeFifo16(v), // sound ram
           0x1daa => spu.writeCtrl(v), // spu ctrl
           0x1dac => spu.fifoType = v, // spu ram ctrl
+          0x1db0 => spu.cdAudioInputLeft = v,
+          0x1db2 => spu.cdAudioInputRight = v,
+          0x1db4 => spu.externalInputLeft = v,
+          0x1db6 => spu.externalInputRight = v,
           >= 0x1d80 && < 0x1dc0 => ex("spu control"),
           >= 0x1dc0 && < 0x1e00 => spu.reverb.write16(offset, v),
           _ => ex("expansion 1")

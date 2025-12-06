@@ -1,5 +1,4 @@
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/uint8list.dart';
 
 import 'spu.dart';
 
@@ -116,11 +115,11 @@ class Reverb {
     return _baseAddr + addr;
   }
 
-  int _readRam(int offset) => spu.ram.getUInt16LE(_wrapAddr(offset)).rel16;
+  int _readRam(int offset) => spu.readRam16(_wrapAddr(offset)).rel16;
 
   void _writeRam(int offset, int value) {
     if (writeEnabled) {
-      spu.ram.setUInt16LE(_wrapAddr(offset), value.volClip());
+      spu.writeRam16(_wrapAddr(offset), value.volClip());
     }
   }
 

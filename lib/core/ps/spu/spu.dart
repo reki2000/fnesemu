@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/spu/reverb.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
@@ -22,6 +23,7 @@ class Spu {
   }
 
   int counter = 0;
+  int captureIndex = 0;
 
   void reset() {
     counter = 0;
@@ -51,7 +53,7 @@ class Spu {
     int reverbInputR = 0;
 
     for (int i = 0; i < voices.length; i++) {
-      final (l, r) = voices[i].clock();
+      final (l, r, sample) = voices[i].clock();
       outL += l;
       outR += r;
 
@@ -59,7 +61,19 @@ class Spu {
         reverbInputL += l;
         reverbInputR += r;
       }
+
+      if (i == 1) {
+        writeRam16(0x800 + captureIndex, sample);
+      } else if (i == 3) {
+        writeRam16(0xc00 + captureIndex, sample);
+      }
     }
+
+    final (cdL, cdR) = (0, 0);
+    writeRam16(0x000 + captureIndex, cdL);
+    writeRam16(0x400 + captureIndex, cdR);
+
+    captureIndex = (captureIndex + 2) & 0x3fe;
 
     final (reverbL, reverbR) = reverb.render(
         reverbInputL.clip(-0x8000, 0x7fff), reverbInputR.clip(-0x8000, 0x7fff));
@@ -75,14 +89,23 @@ class Spu {
   int mainVolumeLeft = 0;
   int mainVolumeRight = 0;
 
+  int cdAudioInputLeft = 0;
+  int cdAudioInputRight = 0;
+  int externalInputLeft = 0;
+  int externalInputRight = 0;
+
   bool enabled = false;
   bool muted = false;
+
+  int noiseFreqShift = 0; // 0-15, low = high freq
+  int noiseFreqStep = 0; // 0-3, step = [4,5,6,7]
 
   int fifoMode = 0;
   int fifoType = 0;
   int fifoAddr = 0;
   int _fifoAddr = 0;
 
+  bool irqEnabled = false;
   int irqAddr = 0;
   int _irqAddr = 0;
 
@@ -96,10 +119,43 @@ class Spu {
     _fifoAddr = value << 3;
   }
 
-  int readRam16() {
+  setNoiseFlags(int v) {
+    for (int i = 0; i < voices.length; i++) {
+      voices[i].noise = v.bit(i);
+    }
+  }
+
+  setPitchModulation(int v) {
+    for (int i = 0; i < voices.length; i++) {
+      voices[i].pitchModulation = v.bit(i);
+    }
+  }
+
+  int readRam16(int addr) {
+    if (irqEnabled && _fifoAddr == _irqAddr) {
+      _status = _status.setBit(6, true); // set irq flag
+      bus.setIrq(9);
+      debugLog("spu: IRQ triggered at ${_fifoAddr.hex24}");
+    }
+
+    return ram.getUInt16LE(addr);
+  }
+
+  int readFifo16() {
     final result = ram.getUInt16LE(_fifoAddr);
     _fifoAddr = _fifoAddr.inc2 & 0x7ffff;
     return result;
+  }
+
+  void writeRam16(int addr, int value) {
+    if (irqEnabled && addr == _irqAddr) {
+      _status = _status.setBit(6, true); // set irq flag
+      bus.setIrq(9);
+      debugLog("spu: IRQ triggered at ${addr.hex24}");
+    }
+
+    ram[addr] = value.mask8;
+    ram[addr + 1] = value >> 8 & 0xff;
   }
 
   int fifoWriteCount = 0;
@@ -115,11 +171,22 @@ class Spu {
   }
 
   void writeCtrl(int value) {
-    enabled = value.bit0;
-    muted = value.bit1;
+    debugLog("spu: writeCtrl ${value.hex32}");
+    enabled = value.bit15;
+    muted = !value.bit14;
     fifoMode =
         value >> 4 & 0x03; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
     reverb.writeEnabled = value.bit7;
+    noiseFreqShift = (value >> 10) & 0x0f;
+    noiseFreqStep = (value >> 8) & 0x03;
+
+    if (value.bit6) {
+      if (enabled) irqEnabled = true;
+    } else {
+      irqEnabled = false;
+      _status = _status.setBit(6, false); // clear irq flag
+    }
+
     _status = _status.masked(0x1f, value);
   }
 
@@ -190,7 +257,7 @@ class Spu {
 
   String dump() =>
       "SPU: $fifoWriteCount ${enabled ? "*" : " "}${muted ? "M" : " "} "
-      "$fifoMode ${fifoAddr.hex24} ${irqAddr.hex24}\n"
+      "$fifoMode ${fifoAddr.hex24} ${irqEnabled ? "I" : "i"}${_irqAddr.hex24}\n"
       "${voices.sublist(0, 8).map((v) => v.dump()).join(" ")}\n"
       "${voices.sublist(8, 16).map((v) => v.dump()).join(" ")}\n"
       "${voices.sublist(16, 24).map((v) => v.dump()).join(" ")}";

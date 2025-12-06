@@ -74,6 +74,9 @@ class Voice {
   final Spu spu;
   Voice(this.spu, this.no);
 
+  bool noise = false;
+  bool pitchModulation = false;
+
   // Volume control
 
   final _volReg = [0, 0];
@@ -139,7 +142,7 @@ class Voice {
   }
 
   /// proceed to next sample
-  (int, int) clock() {
+  (int, int, int) clock() {
     final step = pitch; // todo pitch modulation
     _counter += step.min(0x4000);
 
@@ -177,7 +180,7 @@ class Voice {
       _vol[i] = _volSweep[i].apply(_vol[i]);
     }
 
-    return (adsrVal * _vol[0] ~/ 0x8000, adsrVal * _vol[1] ~/ 0x8000);
+    return (adsrVal * _vol[0] ~/ 0x8000, adsrVal * _vol[1] ~/ 0x8000, adsrVal);
   }
 
   void keyOn() {

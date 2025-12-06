@@ -42,8 +42,8 @@ extension DmaController on Bus {
             if (ch == 4) {
               // SPU
               if (d.toRam) {
-                write16(d.addr, spu.readRam16());
-                write16(d.addr.inc2, spu.readRam16());
+                write16(d.addr, spu.readFifo16());
+                write16(d.addr.inc2, spu.readFifo16());
               } else {
                 spu.writeFifo16(read16(d.addr));
                 spu.writeFifo16(read16(d.addr.inc2));
