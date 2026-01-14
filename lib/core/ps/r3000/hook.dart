@@ -32,46 +32,78 @@ extension Hook on R3000 {
     return sb.toString();
   }
 
+  handleTty(int ch) {
+    switch (ch) {
+      case >= 0x20 && < 0x80 || 0x09:
+        console.write(String.fromCharCode(ch));
+      case 0x0a:
+        debugLog("bios: tty: ${console.toString()}");
+        console.clear();
+    }
+  }
+
+  String buildArgs(String funcSpec, List<int> regs) {
+    final regex = RegExp(r'%[0-9]*[dxcb]');
+    final matches = regex.allMatches(funcSpec).toList();
+    int i = 0;
+    String result = funcSpec;
+    int offset = 0;
+
+    for (final match in matches) {
+      final format = match.group(0)!;
+      final arg = switch (format) {
+        "%d" => regs[i++].toString(),
+        "%08x" => "0x${regs[i++].hex32}",
+        "%04x" => "0x${regs[i++].hex16}",
+        "%02x" => "0x${regs[i++].hex8}",
+        "%s" => '"${dumpCString(regs[i++])}"',
+        "%b" => dump8x(regs[i++], regs[i]),
+        "%B" => dump8(regs[i++], 3),
+        "%c" => '"${dumpc(regs[i++], regs[i])}"',
+        _ => "---",
+      };
+      result = result.substring(0, match.start + offset) +
+          arg +
+          result.substring(match.end + offset);
+      offset += arg.length - format.length;
+    }
+
+    return result;
+  }
+
   hook() {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
-      final name = _bios[vector]?[r[9]] ?? "-";
+      String name = _bios[vector]?[r[9]] ?? "-";
       // tty putchar
       if (vector == 0xb0 && r[9] == 0x3d || vector == 0xa0 && r[9] == 0x3c) {
-        final ch = r[4].mask8;
-        switch (ch) {
-          case >= 0x20 && < 0x80 || 0x09:
-            console.write(String.fromCharCode(ch));
-          case 0x0a:
-            debugLog("bios: tty: ${console.toString()}");
-            console.clear();
-        }
+        handleTty(r[4].mask8);
       } else {
-        if (!name.startsWith("*")) {
+        if (!name.startsWith("**")) {
           biosCallAddr = r[31];
 
-          String args = [4, 5, 6, 7].map((i) => r[i].hex32).join(",");
-          if (name == "CdAsyncSeekL") {
-            args = dump8(r[4], 3);
-          } else if (name == "open") {
-            args = "${r[4]},[${dumpCString(r[4])}], 0x${r[5].hex32}";
-          } else if (name == "write") {
-            if (r[4] == 1) {
-              args = "stdout,[${dumpc(r[5], r[6])}]";
-            } else {
-              args = "${r[4]},[${dump8x(r[5], r[6])}]";
-            }
-          } else if (name == "TestEvent") {
+          if (name.startsWith("TestEvent")) {
             biosCallAddr = 0;
           }
 
-          debugLog("bios: called ${vector.hex8}(${r[9].hex32}): $name($args)");
+          if (!name.endsWith(")")) {
+            name += "(%08x, %08x, %08x, %08x)";
+          }
+
+          // for stroud, dump buffer as a string instead of hex dump
+          if (name.startsWith("write") && r[4] == 1) {
+            name = name.replaceFirst("%b", "%c");
+          }
+
+          name = buildArgs(name, r.sublist(4, 8));
+
+          debugLog("bios: ${vector.hex8}(${r[9].hex8}): $name");
         }
       }
     }
 
     if (pc == biosCallAddr) {
-      debugLog("bios: returns ${r[2].hex32} pc:${pc.hex32}");
+      debugLog("bios: returns ${r[2].hex32}");
       biosCallAddr = 0;
     }
 
