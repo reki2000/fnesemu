@@ -47,7 +47,7 @@ class R3000 {
   int hi = 0, lo = 0;
 
   /// COP0 registers.
-  int sr = 0, cause = 0, epc = 0, badvaddr = 0;
+  int sr = 0, cause = 0, epc = 0, badvaddr = 0, tar = 0;
 
   /// A simple clock counter.
   int clocks = 0;
@@ -78,6 +78,7 @@ class R3000 {
     sr = 0;
     cause = 0;
     epc = 0;
+    tar = 0;
 
     clocks = 0;
 
@@ -173,9 +174,9 @@ class R3000 {
   }
 
   void exception(int excode, {int? badvaddr}) {
-    sr = sr.masked(0x3f, sr << 2);
+    sr = sr.masked(0x3f, sr << 2) | 0x02;
 
-    cause = cause & 0xff00 | excode << 2;
+    cause = cause & ~0x7c | excode << 2;
 
     if (badvaddr != null) {
       this.badvaddr = badvaddr;
@@ -183,7 +184,8 @@ class R3000 {
 
     if (inBranchDelay) {
       epc = instPc.dec4.mask32;
-      cause |= 0x80000000;
+      cause |= 0xc0000000;
+      tar = pc;
     } else {
       epc = instPc;
     }

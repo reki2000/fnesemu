@@ -3,6 +3,7 @@ part of 'r3000.dart';
 extension Cop0 on R3000 {
   int readCop0(int reg) {
     return switch (reg) {
+      6 => tar,
       8 => badvaddr,
       12 => sr,
       13 => cause,
@@ -14,6 +15,8 @@ extension Cop0 on R3000 {
 
   void writeCop0(int reg, int value) {
     switch (reg) {
+      case 6:
+        tar = value;
       case 8:
         badvaddr = value;
       case 12:
@@ -30,6 +33,7 @@ extension Cop0 on R3000 {
       case 0x10: // rfe
         // debugLog("rfe ${dump()}");
         sr = sr.masked(0x0f, sr >> 2);
+        sr &= ~0x30;
       default:
         R3000._unknown(inst32);
     }
