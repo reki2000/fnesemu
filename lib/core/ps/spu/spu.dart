@@ -40,7 +40,6 @@ class Spu {
     fifoType = 0;
     fifoAddr = 0;
     _fifoAddr = 0;
-    irqAddr = 0;
     _irqAddr = 0;
     fifoWriteCount = 0;
   }
@@ -85,6 +84,11 @@ class Spu {
 
   int _status = 0;
   int get status => _status;
+  int _control = 0;
+  int get control {
+    // debugLog("spu: readControl ${_control.hex32}");
+    return _control;
+  }
 
   int mainVolumeLeft = 0;
   int mainVolumeRight = 0;
@@ -132,7 +136,7 @@ class Spu {
   }
 
   int readRam16(int addr) {
-    if (irqEnabled && _fifoAddr == _irqAddr) {
+    if (irqEnabled && addr == _irqAddr) {
       _status = _status.setBit(6, true); // set irq flag
       bus.setIrq(9);
       debugLog("spu: IRQ triggered at ${_fifoAddr.hex24}");
@@ -171,7 +175,9 @@ class Spu {
   }
 
   void writeCtrl(int value) {
-    debugLog("spu: writeCtrl ${value.hex32}");
+    // debugLog(
+    //     "spu: writeCtrl ${value.hex32} irq:${irqEnabled ? "E" : "e"}:${_irqAddr.hex24}");
+    _control = value;
     enabled = value.bit15;
     muted = !value.bit14;
     fifoMode =

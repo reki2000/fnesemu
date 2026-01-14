@@ -41,11 +41,15 @@ class Bus implements BusR3000 {
   int interruptStatus = 0;
   int interruptMask = 0;
 
-  final dma = [0, 0, 0x1f801810, 1, 0x1f801da8, 0, 1, 0]
-      .asMap()
-      .entries
-      .map((entry) => Dma(entry.key, entry.value))
-      .toList(growable: false);
+  final dma = [
+    Dma(0, 0, 1),
+    Dma(1, 0, 1),
+    Dma(2, 0x1f801810, 1),
+    Dma(3, 1, 24),
+    Dma(4, 1, 48),
+    Dma(5, 1, 20),
+    Dma(6, 1, 1)
+  ];
 
   int _dmaControl = 0;
   int get dmaControl => _dmaControl;
@@ -113,6 +117,7 @@ class Bus implements BusR3000 {
           0x1802 => cdrom.readPort16(2),
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
+          0x1daa => spu.control, // spu control
           0x1dac => spu.fifoType, // spu ram ctrl
           0x1dae => spu.status, // spu status
           >= 0x1c00 && < 0x1d80 =>
@@ -167,6 +172,8 @@ class Bus implements BusR3000 {
               cdrom.readPort8(3) << 24,
           0x1810 => gpu.readReg(), // gpu read
           0x1814 => gpu.readStat(), // gpu status
+          0x1d88 => 0, // spu voice key on/off ignored
+          0x1d8c => 0, // spu voice key on/off ignored
           0x1d9c => spu.endx, // spu endx
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
@@ -266,8 +273,8 @@ class Bus implements BusR3000 {
           0x1d96 => spu.setNoiseFlags(v << 16),
           0x1d98 => spu.reverb.setReverbEnabled(v),
           0x1d9a => spu.reverb.setReverbEnabled(v << 16),
-          0x1da4 => spu.setIrqAddr(v), // irq address
           0x1da2 => spu.reverb.setBaseAddr(v << 3), // work address
+          0x1da4 => spu.setIrqAddr(v), // irq address
           0x1da6 => spu.setFifoAddr(v), // dma start address
           0x1da8 => spu.writeFifo16(v), // sound ram
           0x1daa => spu.writeCtrl(v), // spu ctrl
@@ -287,8 +294,8 @@ class Bus implements BusR3000 {
 
   @override
   void write32(int addr, int v) {
-    // if (addr == 0x8009bd78) {
-    //   debugLog("bus: write32 to 0x8009bd78: ${v.hex32} pc:${cpu.pc.hex32}");
+    // if (addr == 0xa000e02c) {
+    //   debugLog("bus: write32 to ${addr.hex32}: ${v.hex32} pc:${cpu.pc.hex32}");
     // }
 
     final offset = addr & segMask[addr >> 29];
@@ -333,7 +340,10 @@ class Bus implements BusR3000 {
           0x1820 => ex("mdec command"),
           0x1824 => ex("mdec control"),
           >= 0x1c00 && < 0x1c80 => ex("spu voice"),
-          >= 0x1d80 && < 0x1dc0 => ex("spu control"),
+          >= 0x1d80 && < 0x1dc0 => () {
+              write16(addr, v & 0xffff);
+              write16(addr + 2, v >> 16 & 0xffff);
+            }(),
           >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
           _ => ex("I/O Ports")
         }, // I/O ports
@@ -381,7 +391,7 @@ class Bus implements BusR3000 {
   }
 
   int _unimplemented(String op, String device, int addr, int value) {
-    debugLog('$op: ${addr.hex32} ${value.hex32} $device');
+    debugLog('$op: unknown ${addr.hex32} <= ${value.hex32} $device');
     return 0xffffffff;
   }
 }

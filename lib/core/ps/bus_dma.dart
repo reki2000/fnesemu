@@ -1,6 +1,30 @@
 part of 'bus.dart';
 
 extension DmaController on Bus {
+  void transfer32(int ch, Dma d) {
+    if (ch == 4) {
+      // SPU
+      if (d.toRam) {
+        write16(d.addr, spu.readFifo16());
+        write16(d.addr.inc2, spu.readFifo16());
+      } else {
+        spu.writeFifo16(read16(d.addr));
+        spu.writeFifo16(read16(d.addr.inc2));
+      }
+    } else if (ch == 3) {
+      // CDROM
+      // debugLog("DMA3: CDROM DMA ${d.dump()}");
+      if (d.toRam) {
+        write16(d.addr, cdrom.readBuffer16());
+        write16(d.addr.inc2, cdrom.readBuffer16());
+      }
+    } else {
+      d.toRam
+          ? write32(d.addr, read32(d.ioAddr))
+          : write32(d.ioAddr, read32(d.addr));
+    }
+  }
+
   void execDma(int count) {
     for (int ch = 0; ch < 7; ch++) {
       final d = dma[ch];
@@ -13,15 +37,12 @@ extension DmaController on Bus {
         continue;
       }
 
-      // debugLog("DMA$ch: started   ${d.dump()} ra:${cpu.r[31].hex32}");
+      //debugLog("DMA$ch: started   ${d.dump()} ra:${cpu.r[31].hex32}");
 
       if (ch == 6) {
+        // OTC
         if (d.syncMode != 0 || !d.toRam) {
           continue;
-        }
-
-        if (d.size == 0) {
-          d.size = 0x10000;
         }
 
         for (d.size--; d.size > 0; d.size--) {
@@ -36,51 +57,43 @@ extension DmaController on Bus {
       }
 
       switch (d.syncMode) {
-        case 0:
-          if (d.size == 0) d.size = 0x10000;
-          while (d.size > 0) {
-            if (ch == 4) {
-              // SPU
-              if (d.toRam) {
-                write16(d.addr, spu.readFifo16());
-                write16(d.addr.inc2, spu.readFifo16());
-              } else {
-                spu.writeFifo16(read16(d.addr));
-                spu.writeFifo16(read16(d.addr.inc2));
-              }
-            } else if (ch == 3) {
-              // CDROM
-              // debugLog("DMA3: CDROM DMA ${d.dump()}");
-              if (d.toRam) {
-                write16(d.addr, cdrom.readBuffer16());
-                write16(d.addr.inc2, cdrom.readBuffer16());
-              }
-            } else {
-              d.toRam
-                  ? write32(d.addr, read32(d.ioAddr))
-                  : write32(d.ioAddr, read32(d.addr));
-            }
+        case 0: // Burst
+          while (count > 0) {
+            transfer32(ch, d);
             d.addr += d.incr;
+
             d.size--;
-          }
-
-          completeDma(ch);
-
-        case 1:
-          while (d.amount-- > 0) {
-            for (int i = 0; i < d.size; i++) {
-              d.toRam
-                  ? write32(d.addr, read32(d.ioAddr))
-                  : write32(d.ioAddr, read32(d.addr));
-              d.addr += d.incr;
+            if (d.size <= 0) {
+              completeDma(ch);
+              break;
             }
 
-            completeDma(ch, partial: true);
+            count -= d.clocks;
           }
 
-          completeDma(ch);
+        case 1: // Slice
+          while (count > 0) {
+            transfer32(ch, d);
+            d.addr += d.incr;
 
-        case 2:
+            d.size--;
+            if (d.size <= 0) {
+              d.amount--;
+
+              if (d.amount <= 0) {
+                completeDma(ch);
+                break;
+              }
+
+              completeDma(ch, partial: true);
+
+              d.size = d.initialSize;
+            }
+
+            count -= d.clocks;
+          }
+
+        case 2: // Linked List
           while (d.addr.mask24 != 0xffffff) {
             final node = read32(d.addr);
 
@@ -113,7 +126,7 @@ extension DmaController on Bus {
       d.running = false;
 
       // if (ch == 3) {
-      //   debugLog("DMA$ch: completed ${d.dump()}");
+      // debugLog("DMA$ch: completed ${d.dump()}");
       // }
     }
 

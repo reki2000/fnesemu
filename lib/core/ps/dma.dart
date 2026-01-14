@@ -4,6 +4,8 @@ class Dma {
   final int ioAddr;
   final int ch;
 
+  final int clocks;
+
   int _startAddr = 0;
   int get startAddr => _startAddr;
   set startAddr(int value) {
@@ -14,6 +16,10 @@ class Dma {
   int get blockCtrl => size | amount << 16;
   set blockCtrl(int value) {
     size = value & 0xffff;
+    if (size == 0) {
+      size = 0x10000;
+    }
+    initialSize = size;
     amount = value >> 16;
   }
 
@@ -33,6 +39,7 @@ class Dma {
 
   int syncMode = 0;
   int size = 0;
+  int initialSize = 0;
   int amount = 0;
   int addr = 0;
 
@@ -46,12 +53,13 @@ class Dma {
   bool toRam = false;
   int incr = 0;
 
-  Dma(this.ch, this.ioAddr);
+  Dma(this.ch, this.ioAddr, this.clocks);
 
   void reset() {
     _startAddr = 0;
     _channelCtrl = 0;
     size = 0;
+    initialSize = 0;
     amount = 0;
     addr = 0;
     enabled = false;
