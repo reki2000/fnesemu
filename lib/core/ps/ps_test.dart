@@ -24,8 +24,8 @@ class TraceLogger {
   Tracer? _tracer;
   File? _logFile;
 
-  int _indent = 0;
-  int _nextIndent = 0;
+  List<int> callStack = List.of(<int>[]);
+  String _indent = "";
 
   void init(String fileName, CpuInfo cpuInfo, int addr) {
     _logFile = File(fileName);
@@ -58,26 +58,52 @@ class TraceLogger {
 
     if (_started) {
       final t = getTrace();
-      final t2 = TraceLog(
-          t.pc, t.cycle, "${"|" * _indent}${t.disasm}", t.regs, t.state);
-      _indent = _nextIndent; // delay indent change to next log line
+      final t2 =
+          TraceLog(t.pc, t.cycle, "$_indent${t.disasm}", t.regs, t.state);
+      _indent = "|" * callStack.length; // delay indent change to next log line
 
       // Adjust indent for function calls/returns
-      if (t.disasm.substring(19, 22) == "jal" && _nextIndent < 20) {
-        _nextIndent++;
-      } else if (t.disasm.substring(19, 25) == "jr r31" && _nextIndent > 0) {
-        _nextIndent--;
+      final op = t.disasm.substring(19, 25);
+      if (op.startsWith("jal ") || op.startsWith("jalr ")) {
+        // function call
+        callStack.add(t.pc + 8);
+      } else if (op.startsWith("jr ") &&
+          callStack.isNotEmpty &&
+          extractToReg(op, t.regs) == callStack.last) {
+        // return from function
+        callStack.removeLast();
+      } else if (t.pc == 0x00000080 || t.pc == 0x80000080) {
+        // enter exception
+        callStack.add(extractEpc(t.regs));
+      } else if (op.startsWith("rfe") && callStack.isNotEmpty) {
+        // return from exception
+        callStack.removeLast();
       }
 
       _tracer?.addTraceLog(t2);
     }
+  }
+
+  static int extractToReg(String op, String regs) {
+    // op   jr r31
+    // regs r00:00000000 800a0000 00000000 94639271 r04:00000000 00000000 00000010 800f1638 r08:0007ffe0 00000000 800a2100 00000000 r12:00000001 00000000 00000000 00000000 r16:00000010 00000010 8009d3c8 00000000 r20:00000000 00000000 00000000 00000000 r24:00000001 00000000 800ddc74 00000f1c r28:8009dca8 801ffef0 801fffe8 8002d324 pc:8002d324 hi:0007ffe0 lo:0006ffe4 sr:40000401 cause:00000000 epc:800ddc74
+    final toRegNo = int.parse(op.substring(4).trim());
+    final toRegPos = 9 * (toRegNo % 4) + 40 * (toRegNo ~/ 4) + 4;
+    final toAddr = int.parse(regs.substring(toRegPos, toRegPos + 8), radix: 16);
+    return toAddr;
+  }
+
+  static int extractEpc(String regs) {
+    final epcPos = regs.indexOf("epc:") + 4;
+    final epc = int.parse(regs.substring(epcPos, epcPos + 8), radix: 16);
+    return epc;
   }
 }
 
 List<String> handleOptions(List<String> args) {
   if (args.length < 2) {
     print(
-      "Usage: dart ps_test.dart [-n runSeconds] <bios file> <disc file> [<exe file>]",
+      "Usage: dart ps_test.dart [-n runSeconds] [-ta traceStartAddress] <bios file> <disc file> [<exe file>]",
     );
     return [];
   }
@@ -86,11 +112,13 @@ List<String> handleOptions(List<String> args) {
     if (args[0] == "-n") {
       runSeconds = int.parse(args[1]);
       args = args.sublist(2);
+      continue;
     }
 
-    if (args[0] == "-t") {
+    if (args[0] == "-ta") {
       logger.init("trace.log", core.cpuInfos[0], int.parse(args[1], radix: 16));
       args = args.sublist(2);
+      continue;
     }
 
     break;
@@ -126,4 +154,7 @@ main(List<String> args) async {
       await Future.delayed(Duration.zero);
     }
   }
+
+  print(core.cpu.dump());
+  print(core.spu.dump());
 }

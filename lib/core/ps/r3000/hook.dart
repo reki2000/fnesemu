@@ -79,7 +79,7 @@ extension Hook on R3000 {
       if (vector == 0xb0 && r[9] == 0x3d || vector == 0xa0 && r[9] == 0x3c) {
         handleTty(r[4].mask8);
       } else {
-        if (!name.startsWith("**")) {
+        if (!name.startsWith("*")) {
           biosCallAddr = r[31];
 
           if (name.startsWith("TestEvent")) {
