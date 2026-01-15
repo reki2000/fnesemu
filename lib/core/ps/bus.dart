@@ -66,13 +66,12 @@ class Bus implements BusR3000 {
   int _dmaInterrupt = 0;
   int get dmaInterrupt => _dmaInterrupt;
   set dmaInterrupt(int value) {
-    _dmaInterrupt = _dmaInterrupt
-        .setBit(
-            31,
-            _dmaInterrupt.bit15 ||
-                (value.bit23 && (value & value >> 16 & 0x1f) != 0))
-        .masked(0x001f001f, value)
-        .masked(0x1f000000, ~value & _dmaInterrupt);
+    final irqFlags = _dmaInterrupt &
+        0x7f000000 &
+        ~(value & 0x7f000000); // reset flags at value = 1
+    final bit31 = value.bit15 ||
+        (value.bit23 && (irqFlags >> 24 & value >> 16 & 0x7f) != 0);
+    _dmaInterrupt = irqFlags | (value & 0x00ff807f).setBit(31, bit31);
 
     for (var ch = 0; ch < 7; ch++) {
       final modeMask = 0x00001 << ch;

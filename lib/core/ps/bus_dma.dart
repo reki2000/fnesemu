@@ -126,12 +126,15 @@ extension DmaController on Bus {
       d.running = false;
 
       // if (ch == 3) {
-      // debugLog("DMA$ch: completed ${d.dump()}");
+      // debugLog(
+      //     "DMA$ch: completed ${_dmaControl.hex32} ${_dmaInterrupt.hex32} ${d.dump()}");
       // }
     }
 
     if (d.useInterrupt && (!partial || d.intterruptOnChunks)) {
-      _dmaInterrupt.setBit(24 + ch, true);
+      _dmaInterrupt = _dmaInterrupt.setBit(24 + ch, true);
+      // debugLog(
+      //     "DMA$ch: irq cnt:${_dmaControl.hex32} int:${_dmaInterrupt.hex32} ${d.dump()}");
       setIrq(Interrupt.dma);
     }
   }
