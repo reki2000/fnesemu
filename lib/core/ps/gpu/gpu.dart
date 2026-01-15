@@ -244,6 +244,10 @@ class Gpu {
     x += drawingOffsetX;
     y += drawingOffsetY;
 
+    if (x < 0 || x >= 1024 || y < 0 || y >= 512) {
+      return;
+    }
+
     if (!ignoreWindow &&
         (x < drawingX1 || x >= drawingX2 || y < drawingY1 || y >= drawingY2)) {
       return;
