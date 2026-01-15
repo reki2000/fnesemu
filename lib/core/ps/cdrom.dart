@@ -17,8 +17,15 @@ extension IntBcd on int {
   int get asBcd => (this & 0x0f) + ((this & 0xf0) >> 4) * 10;
 }
 
+class Toc {
+  int firstTrackBcd = 1;
+  int lastTrackBcd = 1;
+  int diskType = 0x20; // (00h=CD-DA or CD-ROM, 10h=CD-I, 20h=CD-ROM-XA
+}
+
 class Cdrom {
   Bus bus;
+  Toc toc = Toc();
 
   Cdrom(this.bus) {
     reset();
@@ -314,6 +321,9 @@ class Cdrom {
         isSectorSize924 = mode.bit5;
         irq(3, [status()]);
 
+      case 0x13: // GetTN
+        irq(3, [status(), toc.lastTrackBcd, toc.firstTrackBcd]);
+
       case 0x15: // SeekL
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
@@ -322,6 +332,7 @@ class Cdrom {
         irq(3, [status()]);
         irq(2, [0x02, 0x00, 0x20, 0x00, 0x53, 0x43, 0x45, 0x41],
             delay: 50000); // Liscensed, SCEA
+
       case 0x1e: // ReadTOC
         irq(3, [status()]);
         irq(2, [status()]);
