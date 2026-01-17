@@ -129,19 +129,22 @@ class Gpu {
   }
 
   int readStat() {
-    const alwaysOn = 0x18000000; // dma / vram to cpu is always available
     final b25 = switch (status >> 29 & 0x03) {
       0 => false,
       1 => cmdSize > 0, // fifo not empty
       2 => true, // dma is always available
       _ => true, // vram to cpu transfer is always available
     };
+
+    final vramToCpuReady = cmdSize == 4 && cmd[0] >> 29 == 0x06;
+
     final result = status
-            .setBit(26, cmdReady)
-            .setBit(13, isOddFrame)
-            .setBit(24, irq1)
-            .setBit(25, b25) |
-        alwaysOn;
+        .setBit(13, isOddFrame)
+        .setBit(24, irq1)
+        .setBit(25, b25)
+        .setBit(26, cmdReady)
+        .setBit(27, vramToCpuReady)
+        .setBit(28, cmdReady);
     // debugLog("GPSTAT: ${result.hex32}");
     return result;
   }

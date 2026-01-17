@@ -6,7 +6,7 @@ extension Gpu0 on Gpu {
 
   void writeGp0(int value) {
     // debugLog(
-    //     "gpu0: cmd0:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+    //     "gpu0: value:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
 
     if (!cmdReady || !handleSingleWordCommand(value)) {
       if (!handleMultiwordCommand(value)) {
@@ -282,6 +282,9 @@ extension Gpu0 on Gpu {
         bltSizeX = (cmd[2].dec & xMask).inc;
         bltSizeY--;
         bltFromY++;
+
+        // debugLog(
+        //     "GPU0: blit vram to cpu:  ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
         if (bltSizeY == 0) {
           // debugLog("GPU0: blit vram to cpu completed");
