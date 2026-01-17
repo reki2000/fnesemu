@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
+import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/core/ps/timer.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/util.dart';
@@ -13,6 +14,7 @@ import '../types.dart';
 import 'bus.dart';
 import 'cdrom.dart';
 import 'gpu/gpu.dart';
+import 'memory_card.dart';
 import 'pad.dart';
 import 'r3000/disasm.dart';
 import 'r3000/r3000.dart';
@@ -23,6 +25,8 @@ class Ps extends Core {
   late final R3000 cpu;
   late final Gpu gpu;
   late final Pad pad;
+  late final MemoryCard memoryCard;
+  late final Serial serial;
   late final Spu spu;
   late final TimerController timer;
   late final Cdrom cdrom;
@@ -30,14 +34,16 @@ class Ps extends Core {
   Ps() : bus = Bus() {
     cpu = R3000(bus);
     gpu = Gpu(bus);
-    pad = Pad(bus);
+    pad = Pad();
+    memoryCard = MemoryCard();
+    serial = Serial(bus, pad, memoryCard);
     spu = Spu(bus);
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
 
     bus.gpu = gpu;
     bus.cpu = cpu;
-    bus.pad = pad;
+    bus.serial = serial;
     bus.spu = spu;
     bus.timer = timer;
     bus.cdrom = cdrom;
@@ -75,7 +81,7 @@ class Ps extends Core {
   bool _waitFinishLine = false;
   int nextDmaClock = 0;
   int nextSpuClock = 0;
-  int nextPadClock = 0;
+  int nextSerialClock = 0;
   int nextCdromClock = 0;
 
   void Function(AudioBuffer) _onAudio = (_) {};
@@ -117,9 +123,9 @@ class Ps extends Core {
       }
     }
 
-    if (cpu.clocks > nextPadClock) {
-      nextPadClock += 200;
-      bus.pad.exec();
+    if (cpu.clocks > nextSerialClock) {
+      nextSerialClock += 300;
+      bus.serial.exec();
     }
 
     if (cpu.clocks > nextCdromClock) {
@@ -141,7 +147,7 @@ class Ps extends Core {
     nextScanlineClock = 0;
     nextDmaClock = 0;
     nextSpuClock = 0;
-    nextPadClock = 0;
+    nextSerialClock = 0;
     nextCdromClock = 0;
     _waitFinishLine = false;
     audioBuffer.fillRange(0, audioBuffer.length, 0);
@@ -149,9 +155,10 @@ class Ps extends Core {
     gpu.reset();
     spu.reset();
     pad.reset();
+    memoryCard.reset();
+    serial.reset();
     cdrom.reset();
     timer.reset();
-
     bus.reset();
   }
 
@@ -205,7 +212,7 @@ class Ps extends Core {
         "istat:${bus.interruptStatus.hex32} imask:${bus.interruptMask.hex32}\n"
         "${gpu.dump()}\n"
         "${spu.dump()}\n"
-        "${pad.dump()}\n"
+        "${serial.dump()}\n"
         "${cdrom.dump()}\n";
   }
 

@@ -6,7 +6,7 @@ class Interrupt {
   static const timer0 = 4;
   static const timer1 = 5;
   static const timer2 = 6;
-  static const pad = 7;
+  static const serial = 7;
   static const sio = 8;
   static const spu = 9;
 }

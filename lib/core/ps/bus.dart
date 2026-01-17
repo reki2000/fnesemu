@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/ps/pad.dart';
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
+import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
@@ -18,7 +18,7 @@ part 'bus_dma.dart';
 class Bus implements BusR3000 {
   late final Gpu gpu;
   late final R3000 cpu;
-  late final Pad pad;
+  late final Serial serial;
   late final Spu spu;
   late final TimerController timer;
   late final Cdrom cdrom;
@@ -104,8 +104,8 @@ class Bus implements BusR3000 {
 
     return switch (offset) {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
-          0x1048 => pad.readMode(),
-          0x104a => pad.readControl(),
+          0x1048 => serial.readMode(),
+          0x104a => serial.readControl(),
           0x1802 => cdrom.readPort16(2),
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
@@ -138,10 +138,10 @@ class Bus implements BusR3000 {
           0x1014 => 0x200931E1, // spu delay/size (0x220931E1 for read)
           0x1018 => 0x00020843, // cdrom delay/size (00020843h or 00020943h)
           0x101c => 0x00070777, // expansion 2 delay/size
-          0x1040 => pad.readData(),
-          0x1044 => pad.readStatus(),
-          0x1048 => pad.readMode() | pad.readControl() << 16,
-          0x104c => pad.readBaudrate(),
+          0x1040 => serial.readData(),
+          0x1044 => serial.readStatus(),
+          0x1048 => serial.readMode() | serial.readControl() << 16,
+          0x104c => serial.readBaudrate(),
           0x1070 => interruptStatus,
           0x1074 => interruptMask,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
@@ -210,7 +210,7 @@ class Bus implements BusR3000 {
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
-          0x1040 => pad.writeData(v),
+          0x1040 => serial.writeData(v),
           0x1800 => cdrom.writePort8(0, v),
           0x1801 => cdrom.writePort8(1, v),
           0x1802 => cdrom.writePort8(2, v),
@@ -242,9 +242,9 @@ class Bus implements BusR3000 {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1070 => ackIrq(v),
           0x1074 => interruptMask = v.mask16,
-          0x1048 => pad.writeMode(v),
-          0x104a => pad.writeControl(v),
-          0x104e => pad.writeBaudrate(v),
+          0x1048 => serial.writeMode(v),
+          0x104a => serial.writeControl(v),
+          0x104e => serial.writeBaudrate(v),
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
@@ -310,7 +310,7 @@ class Bus implements BusR3000 {
           0x1018 => 0, //ex("memory control 1: CDROM Delay/Size"),
           0x101c => 0, //ex("memory control 1: Expansion 2 Delay/Size"),
           0x1020 => 0, //ex("memory control 1: COMMON_DELAY"),
-          0x1040 => pad.writeData(v),
+          0x1040 => serial.writeData(v),
           0x1050 => 0, //ex("memory control 2: RAM base address"),
           0x1060 => 0, //ex("memory control 2: RAM size"),
           0x1070 => ackIrq(v),
