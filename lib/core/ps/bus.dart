@@ -173,6 +173,8 @@ class Bus implements BusR3000 {
           0x1814 => gpu.readStat(), // gpu status
           0x1d88 => 0, // spu voice key on/off ignored
           0x1d8c => 0, // spu voice key on/off ignored
+          0x1d94 => 0, // ignored
+          0x1d98 => 0, // ignored
           0x1d9c => spu.endx, // spu endx
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
@@ -223,7 +225,7 @@ class Bus implements BusR3000 {
           _ => ex("expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
-          0x2041 => ex("PSX POST"),
+          0x2041 => debugLog("post: $v"),
           _ => ex("expansion 2")
         },
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom
