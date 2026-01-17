@@ -7,6 +7,7 @@ import 'package:fnesemu/util/util.dart';
 
 import '../../util/debug.dart';
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
 import '../types.dart';
 import 'bus.dart';
@@ -161,7 +162,11 @@ class Ps extends Core {
   onAudio(void Function(AudioBuffer p1) f) => _onAudio = f;
 
   @override
-  onReadDisc(Uint8List Function(int sector) f) => bus.readDisc = f;
+  void setDisc(Disc disc) {
+    debugLog("set disc ${disc.isEmpty ? "empty" : "with data"}");
+    disc.isEmpty ? bus.cdrom.openShell() : bus.cdrom.closeShell();
+    bus.cdrom.readDisc = disc.read;
+  }
 
   @override
   List<PadButton> get buttons => pad.buttons;

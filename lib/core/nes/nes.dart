@@ -5,6 +5,7 @@ import 'dart:typed_data';
 // Project imports:
 import '../../util/util.dart';
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
 import '../types.dart';
 import 'component/apu.dart';
@@ -127,9 +128,6 @@ class Nes implements Core {
     _onAudio = onAudio;
   }
 
-  @override
-  void onReadDisc(Uint8List Function(int sector) readDisc) {}
-
   /// handles reset button events
   @override
   void reset() {
@@ -143,6 +141,9 @@ class Nes implements Core {
   void padDown(int id, PadButton k) => bus.joypad.keyDown(id, k);
   @override
   void padUp(int id, PadButton k) => bus.joypad.keyUp(id, k);
+
+  @override
+  void setDisc(Disc disc) {}
 
   @override
   List<PadButton> get buttons => bus.joypad.buttons;

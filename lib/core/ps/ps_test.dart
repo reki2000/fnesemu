@@ -136,10 +136,11 @@ main(List<String> args) async {
 
   final bios = File(args[0]).readAsBytesSync();
   core.setRom(bios);
-  core.reset();
 
   final disc = DiscLoader.load(args[1]);
-  core.onReadDisc(disc.read);
+  core.setDisc(disc);
+
+  core.reset();
 
   if (args.length > 2) {
     final exe = File(args[2]).readAsBytesSync();
@@ -156,5 +157,5 @@ main(List<String> args) async {
   }
 
   print(core.cpu.dump());
-  print(core.spu.dump());
+  print(core.cdrom.dump());
 }

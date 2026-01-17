@@ -28,13 +28,6 @@ class Bus implements BusR3000 {
   final mem = Uint8List(2 * 1024 * 1024);
   final rom = Uint8List(1024 * 512);
 
-  final disc = Uint8List(0);
-  void setDisc(Uint8List disc) {
-    disc.setAll(0, disc);
-  }
-
-  Uint8List Function(int) readDisc = (int _) => Uint8List(2352);
-
   final scratchPad = Uint8List(1024);
   bool useScratchPad = false;
 

@@ -9,6 +9,7 @@ import 'core.dart';
 import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
+import 'disc.dart';
 import 'frame_counter.dart';
 // Project imports:
 
@@ -33,11 +34,10 @@ class CoreControllerState {
 class CoreController {
   final void Function(AudioBuffer) _onAudio;
   final void Function(ImageBuffer) _onImage;
-  final Uint8List Function(int) _onReadDisc;
 
   final CoreControllerState _state;
 
-  CoreController(onStateChange, this._onAudio, this._onImage, this._onReadDisc)
+  CoreController(onStateChange, this._onAudio, this._onImage)
       : _state = CoreControllerState(onStateChange);
 
   Core _core = EmptyCore();
@@ -46,7 +46,6 @@ class CoreController {
   void init(String coreName, Uint8List body, {Uint8List? extRom}) {
     _core = CoreFactory.of(coreName)
       ..onAudio(_onAudio)
-      ..onReadDisc(_onReadDisc)
       ..setRom(body);
 
     if (extRom != null) {
@@ -97,7 +96,7 @@ class CoreController {
       if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
         _runFrame();
         fpsCounter.count();
-        await Future.delayed(const Duration());
+        await Future.delayed(const Duration(milliseconds: 1));
         continue;
       }
 
@@ -105,6 +104,7 @@ class CoreController {
       nextFrameClocks = _core.systemClockHz *
           (now.difference(runStartedAt).inMilliseconds) ~/
           1000;
+      // nextFrameClocks ~/= 2; // slow down for performance issue
     }
 
     _stopRequested = false;
@@ -228,6 +228,10 @@ class CoreController {
   // UI invokes this when a button of the pad is up
   void padUp(int controlerId, PadButton k) {
     _core.padUp(controlerId, k);
+  }
+
+  void setDisc(Disc disc) {
+    _core.setDisc(disc);
   }
 
   // returns a list of core's buttons

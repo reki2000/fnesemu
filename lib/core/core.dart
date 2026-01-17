@@ -1,6 +1,7 @@
 // data class to conver the result of 'exec'
 import 'dart:typed_data';
 
+import 'disc.dart';
 import 'pad_button.dart';
 import 'types.dart';
 
@@ -23,8 +24,8 @@ abstract class Core {
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio);
 
-  // returns cd-rom disc data
-  void onReadDisc(Uint8List Function(int sector) readDisc);
+  /// set cd-rom disc reader
+  void setDisc(Disc disc);
 
   /// handles reset button events
   void reset();

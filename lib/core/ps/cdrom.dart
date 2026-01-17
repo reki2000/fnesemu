@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
@@ -35,6 +36,8 @@ class Cdrom {
 
   int data = 0;
   int result = 0;
+
+  Uint8List Function(int) readDisc = (int _) => Uint8List(2352);
 
   final sectorBuffer = List.filled(2352, 0); // 0x930 bytes
   int sectorBufferIndex = 0;
@@ -226,9 +229,9 @@ class Cdrom {
 
         // read sector
         if (isSectorSize924) {
-          sectorBuffer.setAll(0, bus.readDisc(sector));
+          sectorBuffer.setAll(0, readDisc(sector));
         } else {
-          sectorBuffer.setAll(0, bus.readDisc(sector).sublist(12, 12 + 0x800));
+          sectorBuffer.setAll(0, readDisc(sector).sublist(12, 12 + 0x800));
         }
         // debugLog(
         //     "cdrom: read sector $sector ${dump()} [${sectorBuffer.sublist(0, 10).map((e) => e.hex8).join(" ")}]");
@@ -253,7 +256,7 @@ class Cdrom {
   bool isPlayCDDA = false;
   bool isSeeking = false;
   bool isReading = false;
-  bool isShellOpen = false;
+  bool isShellOpen = true;
   bool isIdError = false;
   bool isSeekError = false;
   bool isSpindleMotorOn = false;
@@ -371,7 +374,7 @@ class Cdrom {
 
   void readSector(int sector) {}
 
-  String dump() => "bank:$bank "
+  String dump() => "status:${status().hex8} bank:$bank "
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
       "${isAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
@@ -380,7 +383,7 @@ class Cdrom {
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
     "", "Pause", "Init", "Mute", "Demute", "", "SetMode", "", // 0x08-0x0f
-    "", "", "", "", "", "SeekL", "", "", "", // 0x10-0x17
+    "", "", "", "GetTN", "", "SeekL", "", "", "", // 0x10-0x17
     "Test", "GetId", "", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
 }

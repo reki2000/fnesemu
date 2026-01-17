@@ -9,6 +9,7 @@ import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
 import '../types.dart';
 import 'bus_m68.dart';
@@ -187,7 +188,7 @@ class Md implements Core {
   }
 
   @override
-  void onReadDisc(Uint8List Function(int sector) readDisc) {}
+  void setDisc(Disc disc) {}
 
   /// handles reset button events
   @override

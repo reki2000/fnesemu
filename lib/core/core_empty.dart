@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'core.dart';
+import 'disc.dart';
 import 'pad_button.dart';
 import 'types.dart';
 
@@ -35,9 +36,6 @@ class EmptyCore extends Core {
   onAudio(void Function(AudioBuffer p1) onAudio) {}
 
   @override
-  void onReadDisc(Uint8List Function(int sector) readDisc) {}
-
-  @override
   List<PadButton> get buttons => [];
 
   @override
@@ -45,6 +43,9 @@ class EmptyCore extends Core {
 
   @override
   void padUp(int controllerId, PadButton k) {}
+
+  @override
+  void setDisc(Disc disc) {}
 
   @override
   int programCounter(int cpuNo) => 0;

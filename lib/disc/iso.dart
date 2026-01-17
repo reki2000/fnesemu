@@ -43,14 +43,14 @@ class IsoDisc extends Disc {
   Uint8List read(int sector) {
     if (data.isEmpty) {
       if (!load()) {
-        return Disc.empty; // empty buffer
+        return Disc.emptySector; // empty buffer
       }
     }
 
     sector -= 2 * 75; // skip lead-in
 
     if (sector < 0 || (sector + 1) * Disc.sectorSize >= data.length) {
-      return Disc.empty; // empty buffer
+      return Disc.emptySector; // empty buffer
     }
 
     final sectorOffset = sector * Disc.sectorSize;
@@ -61,13 +61,16 @@ class IsoDisc extends Disc {
     return data.sublist(dataOffset, dataOffset + Disc.sectorSize - sync.length);
   }
 
+  @override
+  bool get isEmpty => false;
+
   void logReadSector(int sector, int sectorOffset) {
     final headerOffset = sectorOffset + sync.length;
     final minutes = data[headerOffset];
     final seconds = data[headerOffset + 1];
     final sectorNumber = data[headerOffset + 2];
     final mode = data[headerOffset + 3];
-    debugLog(
-        "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode");
+    // debugLog(
+    //     "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode");
   }
 }

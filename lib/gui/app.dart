@@ -64,12 +64,10 @@ class MainPageState extends State<MainPage> {
     super.initState();
 
     _controller = CoreController(
-      _onCoreStateChange,
-      (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
-      (buf) => _imageContainer.push(
-          buf.buffer, buf.width, buf.height, buf.displayWidth),
-      _disc.read,
-    );
+        _onCoreStateChange,
+        (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
+        (buf) => _imageContainer.push(
+            buf.buffer, buf.width, buf.height, buf.displayWidth));
 
     _controller.debugger.opt.showDebugView = _isDebug;
 
@@ -128,6 +126,7 @@ class MainPageState extends State<MainPage> {
     } else {
       _controller.init(ext, extractedFile);
     }
+    _controller.setDisc(_disc);
 
     _keyHandler.init();
     _mPlayer.resume(); // web platform requires this
