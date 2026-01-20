@@ -32,7 +32,7 @@ class MemoryCard extends SioDevice {
   int checkSum = 0;
   int _pre = 0;
 
-  get flag => firstReadDone ? 0x08 : 0;
+  get flag => firstReadDone ? 0 : 0x08;
 
   @override
   void reset() {
@@ -98,13 +98,13 @@ class MemoryCard extends SioDevice {
         return ack(0x5d);
 
       case waitRwAddrMsb:
-        addr = txData & 0x03 << 8;
+        addr = txData & 0x03 << 15;
         checkSum = txData & 0x03;
         step = waitRwAddrLsb;
         return ack(0);
 
       case waitRwAddrLsb:
-        addr = txData | addr;
+        addr = txData << 7 | addr;
         step = writeMode ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
