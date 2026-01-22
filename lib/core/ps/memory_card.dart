@@ -61,10 +61,10 @@ class MemoryCard extends SioDevice {
       return SioResponse(0, ignored: true, ack: false);
     }
 
-    if (step != waitAddr) {
-      debugLog(
-          "memcard: notify txData:${txData.hex8} pre:${_pre.hex8} dump:${dump()}");
-    }
+    // if (step != waitAddr) {
+    //   debugLog(
+    //       "memcard: notify txData:${txData.hex8} pre:${_pre.hex8} dump:${dump()}");
+    // }
 
     switch (step) {
       case waitAddr:
@@ -120,11 +120,11 @@ class MemoryCard extends SioDevice {
 
       case waitAddrAck0:
         step = waitAddrAck1;
-        return ack(addr >> 8);
+        return ack(addr >> 15);
 
       case waitAddrAck1:
         step = waitRead;
-        return ack(addr & 0xff);
+        return ack(addr >> 7 & 0xff);
 
       case waitRead:
         final readData = mem[addr];

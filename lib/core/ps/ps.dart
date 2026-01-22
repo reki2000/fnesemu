@@ -47,6 +47,12 @@ class Ps extends Core {
     bus.spu = spu;
     bus.timer = timer;
     bus.cdrom = cdrom;
+
+    // for debug
+    // memoryCard.mem.setAll(
+    //     0,
+    //     File(const String.fromEnvironment("MEMORY_CARD", defaultValue: ""))
+    //         .readAsBytesSync());
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -124,8 +130,8 @@ class Ps extends Core {
     }
 
     if (cpu.clocks > nextSerialClock) {
-      nextSerialClock += 300;
-      bus.serial.exec();
+      nextSerialClock += 1500;
+      bus.serial.exec(1500);
     }
 
     if (cpu.clocks > nextCdromClock) {

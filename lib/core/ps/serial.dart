@@ -40,16 +40,20 @@ class Serial {
 
   int mode = 0; // mode register
 
-  int get status => 0
+  int get status => (timer << 11)
       .setBit(0, txFifo.isEmpty)
       .setBit(1, rxFifo.isNotEmpty)
       .setBit(2, txFifo.isEmpty)
-      .setBit(7, dsr)
+      .setBit(7, !dsr)
       .setBit(9, irq); // status register (0x7fff: mask)
 
   bool dsr = false;
   bool irq = false;
   bool irqRequired = false;
+
+  int timer = 0;
+  int timerReload = 0;
+  int timerFactor = 0;
 
   void reset() {
     pad.reset();
@@ -62,12 +66,16 @@ class Serial {
     rxFifo.clear();
   }
 
-  void exec() {
+  void exec(int clocks) {
+    timer -= clocks;
+    if (timer <= 0) {
+      timer += timerReload * timerFactor;
+    }
+
     if (irqRequired) {
       if (dsrIntEnabled) {
         // debugLog("sio0: irq ${dump().replaceAll("\n", " ")}");
         bus.setIrq(Interrupt.serial);
-        dsr = false;
       }
 
       irqRequired = false;
@@ -90,7 +98,7 @@ class Serial {
         if (!response.ignored) {
           rxFifo.add(response.rxData);
 
-          if (!dsr && response.ack) {
+          if (response.ack) {
             irqRequired = true;
             irq = true;
           }
@@ -120,7 +128,7 @@ class Serial {
   int readMode() => mode;
   int readControl() => ctrl;
 
-  int readBaudrate() => 0;
+  int readBaudrate() => timerReload;
 
   int readStatus() {
     final result = status;
@@ -165,12 +173,16 @@ class Serial {
   void writeMode(int val) {
     // debugLog("sio0: writeMode: ${val.hex16} ${dump()}");
     mode = val;
+    timerFactor = [1, 1, 16, 64][val & 0x03];
   }
 
-  void writeBaudrate(int val) {}
+  void writeBaudrate(int val) {
+    // debugLog("sio0: writeBaudrate: ${val.hex16} ${dump()}");
+    timerReload = val & 0xffff;
+  }
 
   String dump() =>
-      "serial: p:${port1Selected ? "1" : "2"} dsr:${dsr ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} "
+      "serial: p:${port1Selected ? "1" : "2"} dsr:${dsr ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} timer:${timer.hex24} "
       "tx:${txFifo.map((e) => e.hex8).toList()} rx:${rxFifo.map((e) => e.hex8).toList()}\n"
       "pad: ${pad.dump()} "
       "memcard: ${memCard.dump()}";
