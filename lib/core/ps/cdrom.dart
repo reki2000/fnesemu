@@ -277,6 +277,10 @@ class Cdrom {
   int sector = 0; // current sector
   int sectorReadDelay = 0; // next read clock
 
+  int mode = 0;
+  int file = 0;
+  int channel = 0;
+
   void execCommand(int cmd) {
     cmdResults.clear();
     debugLog(
@@ -318,11 +322,19 @@ class Cdrom {
       case 0x0c: // Demute
         irq(3, [status()]);
 
+      case 0x0d: // SetFilter
+        file = paramFifo.elementAt(0);
+        channel = paramFifo.elementAt(1);
+        irq(3, [status()]);
+
       case 0x0e: // SetMode
-        final mode = paramFifo.elementAt(0);
+        mode = paramFifo.elementAt(0);
         isHighSpeed = mode.bit7;
         isSectorSize924 = mode.bit5;
         irq(3, [status()]);
+
+      case 0x0f: // GetParam
+        irq(3, [status(), mode, 0x00, file, channel]);
 
       case 0x13: // GetTN
         irq(3, [status(), toc.lastTrackBcd, toc.firstTrackBcd]);
@@ -382,7 +394,8 @@ class Cdrom {
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
-    "", "Pause", "Init", "Mute", "Demute", "", "SetMode", "", // 0x08-0x0f
+    "", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
+    "GetParam", // 0x08-0x0f
     "", "", "", "GetTN", "", "SeekL", "", "", "", // 0x10-0x17
     "Test", "GetId", "", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
