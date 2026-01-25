@@ -120,7 +120,7 @@ extension Hook on R3000 {
       final loadAddr = exe.getUInt32LE(0x18);
       final size = exe.getUInt32LE(0x1c);
       const headerSize = 0x800;
-      for (int i = 0; i < size - headerSize; i += 4) {
+      for (int i = 0; i < exe.length - headerSize; i += 4) {
         write32(i + loadAddr, exe.getUInt32LE(i + headerSize));
       }
 
