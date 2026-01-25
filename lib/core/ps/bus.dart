@@ -10,6 +10,7 @@ import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
 import 'interrupt.dart';
+import 'mdec.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
 
@@ -22,6 +23,7 @@ class Bus implements BusR3000 {
   late final Spu spu;
   late final TimerController timer;
   late final Cdrom cdrom;
+  late final Mdec mdec;
 
   Bus();
 
@@ -35,12 +37,12 @@ class Bus implements BusR3000 {
   int interruptMask = 0;
 
   final dma = [
-    Dma(0, 0, 1),
-    Dma(1, 0, 1),
+    Dma(0, 0x1f801820, 1),
+    Dma(1, 0x1f801820, 1),
     Dma(2, 0x1f801810, 1),
     Dma(3, 1, 24),
-    Dma(4, 1, 48),
-    Dma(5, 1, 20),
+    Dma(4, 1, 4),
+    Dma(5, 0, 20),
     Dma(6, 1, 1)
   ];
 
@@ -164,6 +166,8 @@ class Bus implements BusR3000 {
               cdrom.readPort8(3) << 24,
           0x1810 => gpu.readReg(), // gpu read
           0x1814 => gpu.readStat(), // gpu status
+          0x1820 => mdec.readData(), // mdec data
+          0x1824 => mdec.readStatus(), // mdec status
           0x1d88 => 0, // spu voice key on/off ignored
           0x1d8c => 0, // spu voice key on/off ignored
           0x1d94 => 0, // ignored
@@ -331,8 +335,8 @@ class Bus implements BusR3000 {
             },
           0x1810 => gpu.writeGp0(v), // gp0
           0x1814 => gpu.writeGp1(v), // gp1
-          0x1820 => ex("mdec command"),
-          0x1824 => ex("mdec control"),
+          0x1820 => mdec.writeCommand(v), // mdec command
+          0x1824 => mdec.writeControl(v), // mdec control
           >= 0x1c00 && < 0x1c80 => ex("spu voice"),
           >= 0x1d80 && < 0x1dc0 => () {
               write16(addr, v & 0xffff);

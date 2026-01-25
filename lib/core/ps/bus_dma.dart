@@ -2,26 +2,41 @@ part of 'bus.dart';
 
 extension DmaController on Bus {
   void transfer32(int ch, Dma d) {
-    if (ch == 4) {
-      // SPU
-      if (d.toRam) {
-        write16(d.addr, spu.readFifo16());
-        write16(d.addr.inc2, spu.readFifo16());
-      } else {
-        spu.writeFifo16(read16(d.addr));
-        spu.writeFifo16(read16(d.addr.inc2));
-      }
-    } else if (ch == 3) {
-      // CDROM
-      // debugLog("DMA3: CDROM DMA ${d.dump()}");
-      if (d.toRam) {
-        write16(d.addr, cdrom.readBuffer16());
-        write16(d.addr.inc2, cdrom.readBuffer16());
-      }
-    } else {
-      d.toRam
-          ? write32(d.addr, read32(d.ioAddr))
-          : write32(d.ioAddr, read32(d.addr));
+    switch (ch) {
+      case 0:
+        if (!d.toRam && mdec.dataInAck) {
+          final data = read32(d.addr);
+          // debugLog(
+          //     "DMA0: MDEC DMA [${d.addr.hex32}]=0x${data.hex32} ${d.dump()}");
+          mdec.writeCommand(data);
+        }
+
+      case 1:
+        if (d.toRam && mdec.dataOutAck) {
+          write32(d.addr, mdec.readData());
+        }
+
+      case 3:
+        // CDROM
+        // debugLog("DMA3: CDROM DMA ${d.dump()}");
+        if (d.toRam) {
+          write16(d.addr, cdrom.readBuffer16());
+          write16(d.addr.inc2, cdrom.readBuffer16());
+        }
+
+      case 4:
+        if (d.toRam) {
+          write16(d.addr, spu.readFifo16());
+          write16(d.addr.inc2, spu.readFifo16());
+        } else {
+          spu.writeFifo16(read16(d.addr));
+          spu.writeFifo16(read16(d.addr.inc2));
+        }
+
+      default:
+        d.toRam
+            ? write32(d.addr, read32(d.ioAddr))
+            : write32(d.ioAddr, read32(d.addr));
     }
   }
 
@@ -29,15 +44,11 @@ extension DmaController on Bus {
     for (int ch = 0; ch < 7; ch++) {
       final d = dma[ch];
 
-      if (d.ioAddr == 0) {
-        continue;
-      }
-
       if (!d.enabled || !d.running) {
         continue;
       }
 
-      //debugLog("DMA$ch: started   ${d.dump()} ra:${cpu.r[31].hex32}");
+      // debugLog("DMA$ch: started   ${d.dump()} ra:${cpu.r[31].hex32}");
 
       if (ch == 6) {
         // OTC

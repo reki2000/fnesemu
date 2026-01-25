@@ -348,6 +348,11 @@ class Cdrom {
         irq(2, [0x02, 0x00, 0x20, 0x00, 0x53, 0x43, 0x45, 0x41],
             delay: 50000); // Liscensed, SCEA
 
+      case 0x1b: // ReadS (no retry)
+        isReading = true;
+        sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
+        irq(3, [status()], delay: 1000);
+
       case 0x1e: // ReadTOC
         irq(3, [status()]);
         irq(2, [status()]);
@@ -397,6 +402,6 @@ class Cdrom {
     "", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
     "GetParam", // 0x08-0x0f
     "", "", "", "GetTN", "", "SeekL", "", "", "", // 0x10-0x17
-    "Test", "GetId", "", "", "", "ReadTOC", "", // 0x18-0x1f
+    "Test", "GetId", "ReadS", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
 }

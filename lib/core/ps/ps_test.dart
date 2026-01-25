@@ -147,7 +147,7 @@ main(List<String> args) async {
     core.setRom(exe);
   }
 
-  for (int i = 0; i < core.systemClockHz * 10; i++) {
+  for (int i = 0; i < core.systemClockHz * runSeconds; i++) {
     core.exec(false);
     logger.log(core.programCounter(0), () => core.trace(0));
     // Yield to event loop every N iterations

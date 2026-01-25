@@ -14,6 +14,7 @@ import '../types.dart';
 import 'bus.dart';
 import 'cdrom.dart';
 import 'gpu/gpu.dart';
+import 'mdec.dart';
 import 'memory_card.dart';
 import 'pad.dart';
 import 'r3000/disasm.dart';
@@ -30,6 +31,7 @@ class Ps extends Core {
   late final Spu spu;
   late final TimerController timer;
   late final Cdrom cdrom;
+  late final Mdec mdec;
 
   Ps() : bus = Bus() {
     cpu = R3000(bus);
@@ -40,6 +42,7 @@ class Ps extends Core {
     spu = Spu(bus);
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
+    mdec = Mdec();
 
     bus.gpu = gpu;
     bus.cpu = cpu;
@@ -47,6 +50,7 @@ class Ps extends Core {
     bus.spu = spu;
     bus.timer = timer;
     bus.cdrom = cdrom;
+    bus.mdec = mdec;
 
     // for debug
     // memoryCard.mem.setAll(
@@ -219,7 +223,8 @@ class Ps extends Core {
         "${gpu.dump()}\n"
         "${spu.dump()}\n"
         "${serial.dump()}\n"
-        "${cdrom.dump()}\n";
+        "cdrom: ${cdrom.dump()}\n"
+        "mdec: ${mdec.dump()}";
   }
 
   @override
