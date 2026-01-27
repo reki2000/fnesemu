@@ -137,6 +137,7 @@ class Gpu {
     };
 
     final vramToCpuReady = cmdSize == 4 && cmd[0] >> 29 == 0x06;
+    final dmaReceiveReady = true;
 
     final result = status
         .setBit(13, isOddFrame)
@@ -144,7 +145,7 @@ class Gpu {
         .setBit(25, b25)
         .setBit(26, cmdReady)
         .setBit(27, vramToCpuReady)
-        .setBit(28, cmdReady);
+        .setBit(28, dmaReceiveReady);
     // debugLog("GPSTAT: ${result.hex32}");
     return result;
   }

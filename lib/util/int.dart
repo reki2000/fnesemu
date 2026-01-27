@@ -29,7 +29,9 @@ extension IntFormat on int {
 extension IntBit on int {
   // mask a number with specified bit wide mask
   int get mask4 => this & 0xf;
+  int get mask5 => this & 0x1f;
   int get mask8 => this & 0xff;
+  int get mask9 => this & 0x1ff;
   int get mask10 => this & 0x3ff;
   int get mask11 => this & 0x7ff;
   int get mask16 => this & 0xffff;
@@ -97,7 +99,9 @@ extension IntBit on int {
 
   // sign extend a number with specified bit width
   int get rel4 => bit3 ? mask4 - 0x10 : mask4;
+  int get rel5 => bit4 ? mask5 - 0x20 : mask5;
   int get rel8 => bit7 ? mask8 - 0x100 : mask8;
+  int get rel9 => bit8 ? mask9 - 0x200 : mask9;
   int get rel10 => bit9 ? mask10 - 0x400 : mask10;
   int get rel11 => bit10 ? mask11 - 0x800 : mask11;
   int get rel16 => bit15 ? mask16 - 0x10000 : mask16;

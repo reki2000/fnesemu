@@ -15,16 +15,15 @@ class Mdec {
   static const commandSetScale = 3;
 
   int blockType = blockTypeY1;
-  static const blockTypeY1 = 0;
-  static const blockTypeY2 = 1;
-  static const blockTypeY3 = 2;
-  static const blockTypeY4 = 3;
-  static const blockTypeCr = 4;
-  static const blockTypeCb = 5;
-  static const blockTypeMono = 4;
+  static const blockTypeCr = 0;
+  static const blockTypeCb = 1;
+  static const blockTypeY1 = 2;
+  static const blockTypeY2 = 3;
+  static const blockTypeY3 = 4;
+  static const blockTypeY4 = 5;
 
-  final buf = List<List<int>>.filled(
-      6, List<int>.filled(64, 0)); // 0:Cr  1:Cb 2:Y1 3:Y2 4:Y3 5:Y4
+  final buf = List<List<int>>.generate(
+      6, (_) => List<int>.filled(64, 0)); // 0:Cr  1:Cb 2:Y1 3:Y2 4:Y3 5:Y4
 
   final output = Queue<int>();
   bool dataInRequest = false;
@@ -53,6 +52,8 @@ class Mdec {
     bit15Set = false;
     blockType = blockTypeY1;
     output.clear();
+
+    decoder.outputIndex = -1;
   }
 
   void writeCommand(int value) {
@@ -67,12 +68,13 @@ class Mdec {
         decodeStep(params.removeFirst());
       }
 
-      paramCount--;
-      if (paramCount == 0) {
+      paramCount -= 1;
+      if (paramCount <= 0) {
         switch (command) {
           case Mdec.commandDecode:
             decodeStep(0xfe00); // EOB
-            debugLog("mdec: decode command completes ${dump()}");
+            debugLog(
+                "mdec: decode command completes oIdx:${decoder.outputIndex} ${dump()}");
           case Mdec.commandSetQuant:
             setQuant();
           case Mdec.commandSetScale:
@@ -91,8 +93,8 @@ class Mdec {
         if (paramCount == 0) {
           paramCount = 0x10000;
         }
-        blockType = (value >> 16) & 0x7;
-        depth = (value >> 25) & 0x3;
+        depth = (value >> 27) & 0x3;
+        blockType = blockTypeCr;
         signed = value.bit24;
         bit15Set = value.bit23;
         command = Mdec.commandDecode;
@@ -100,7 +102,7 @@ class Mdec {
         break;
 
       case 0x02: // SetQuant
-        paramCount = 32;
+        paramCount = value.bit0 ? 32 : 16;
         command = Mdec.commandSetQuant;
         break;
 
@@ -154,49 +156,79 @@ class Mdec {
   int readData() => output.isEmpty ? 0 : output.removeFirst();
 
   void decodeStep(int input) {
-    if (!decoder.extractRle(input, buf[blockType])) {
+    if (!decoder.extractRle(input, buf[blockType],
+        blockType == blockTypeCr || blockType == blockTypeCb)) {
       return;
     }
 
-    debugLog(
-        "mdec: RLE extract completes a block [${buf[blockType].map((i) => i.hex16).join(",")}]");
+    // debugLog("mdec: RLE extract completes a block $blockType\n"
+    //     " [${buf[blockType].map((i) => i.hex16).join(" ")}]");
+
     decoder.fastIdct(buf[blockType]);
 
+    // debugLog("mdec: IDCT completes a block $blockType\n"
+    //     " [${buf[blockType].map((i) => i.hex16).join(" ")}]");
+
     if (depth == depth4bit) {
+      final xor = signed ? 0 : 0x08;
       for (int i = 0; i < 64; i += 8) {
         int value = 0;
-        for (int j = 0; j < 8; j++) {
-          final v = buf[blockType][i + j].clip(-8, 7);
-          value = (signed && v < 0 ? v + 8 : v) | value << 4;
+        for (int j = 7; j >= 0; j--) {
+          final v = buf[blockType][i + j].rel9.clip(-128, 127) >> 4;
+          value = (v.mask4 ^ xor) | (value << 4);
         }
         output.add(value);
       }
+      // debugLog("mdec: output a 4bpp block\n"
+      //     " [${output.map((i) => i.hex32).join(" ")}]");
+
       return;
     }
 
     if (depth == depth8bit) {
+      final xor = signed ? 0 : 0x80;
       for (int i = 0; i < 64; i += 4) {
         int value = 0;
-        for (int j = 0; j < 4; j++) {
-          final v = buf[blockType][i + j].clip(-128, 127);
-          value = (signed && v < 0 ? v + 128 : v) | value << 8;
+        for (int j = 3; j >= 0; j--) {
+          final v = buf[blockType][i + j].rel9.clip(-128, 127);
+          value = (v.mask8 ^ xor) | (value << 8);
         }
         output.add(value);
       }
+
+      // debugLog("mdec: output a 8bpp block\n"
+      //     " [${output.map((i) => i.hex32).join(" ")}]");
+
       return;
     }
 
     if (blockType == blockTypeY4) {
-      final rgb = decoder.composeYCrCbToRgb(buf);
+      final rgb = decoder.yuvToRgb(buf);
+
       if (depth == depth15bit) {
+        final xor = signed ? 0 : 0x42104210;
         final bit15 = bit15Set ? 0x80008000 : 0;
         for (int i = 0; i < 16 * 16; i += 2) {
-          output.add(rgb[i].c15 | rgb[i + 1].c15 << 16 | bit15);
+          output.add((rgb[i].c15 | (rgb[i + 1].c15 << 16) | bit15) ^ xor);
         }
+        // debugLog("mdec: output a 15bpp block\n"
+        //     " [${output.toList().sublist(0, 128).map((i) => i.hex32).join(" ")}]");
       } else {
-        for (final v in rgb) {
-          output.add(v.c24);
+        final xor = signed ? 0 : 0x80808080;
+        for (int i = 0; i < 16 * 16 - 1; i++) {
+          if (i % 4 == 3) {
+            continue;
+          }
+          final value = switch (i % 4) {
+            0 => rgb[i].c24 | rgb[i + 1].c24.mask8 << 24,
+            1 => (rgb[i].c24 >> 8).mask16 | rgb[i + 1].c24.mask16 << 16,
+            2 => (rgb[i].c24 >> 16).mask8 | rgb[i + 1].c24 << 8,
+            _ => 0
+          };
+          output.add(value ^ xor);
         }
+        // debugLog("mdec: output a 24bpp block\n"
+        //     " [${output.map((i) => i.hex32).join(" ")}]");
       }
     }
 
@@ -206,20 +238,33 @@ class Mdec {
       blockTypeY1 => blockTypeY2,
       blockTypeY2 => blockTypeY3,
       blockTypeY3 => blockTypeY4,
-      _ => blockTypeY1,
+      _ => blockTypeCr,
     };
   }
 
   void setQuant() {
-    decoder.qt.setAll(0, params);
-    debugLog(
-        "mdec: SetQuant ${dump()} [${decoder.qt.map((i) => i.hex16).join(",")}]");
+    for (var qt in [decoder.qtY, decoder.qtC]) {
+      for (int i = 0; i < 32; i++) {
+        int value = params.removeFirst();
+        for (int j = 0; j < 2; j++) {
+          qt[i * 2 + j] = value.rel8;
+          value >>= 8;
+        }
+      }
+      if (params.length < 16) {
+        break;
+      }
+    }
+
+    debugLog("mdec: SetQuant ${dump()}\n"
+        " [${decoder.qtY.map((i) => i.hex8).join(" ")}]\n"
+        " [${decoder.qtC.map((i) => i.hex8).join(" ")}]");
   }
 
   void setScale() {
     decoder.scale.setAll(0, params);
-    debugLog(
-        "mdec: SetScale ${dump()} [${decoder.scale.map((i) => i.hex16).join(",")}]");
+    debugLog("mdec: SetScale ${dump()}\n"
+        " [${decoder.scale.map((i) => i.hex16).join(" ")}]");
   }
 
   String dump() => "command:$command paramCount:$paramCount "
@@ -230,7 +275,8 @@ class Mdec {
 
 class Decoder {
   final scale = List<int>.filled(64, 0);
-  final qt = List<int>.filled(64, 0);
+  final qtY = List<int>.filled(64, 0);
+  final qtC = List<int>.filled(64, 0);
 
   static List<double> scaleFactors = [
     1.000000000, 1.387039845, 1.306562965, 1.175875602, //
@@ -260,39 +306,28 @@ class Decoder {
   // RLE decoding state
   int outputIndex = -1;
   int q = 0;
-  int ac = 0;
 
   // Extract one RLE encoded data, return true if block is completed
-  bool extractRle(int input, List<int> output) {
+  bool extractRle(int input, List<int> output, bool isChrominance) {
+    final qt = isChrominance ? qtC : qtY;
     // debugLog(
     //     "mdec: RLE ${input.hex16} idx:$outputIndex q:${q.hex8} ac:${ac.hex16} [${output.map((i) => i.hex16).join(",")}]");
-    if (input == 0xfe00) {
-      outputIndex = -1;
-      return true;
-    }
-
     if (outputIndex == -1) {
+      if (input == 0xfe00) {
+        return false;
+      }
+
       output.fillRange(0, 64, 0);
       q = input >> 10;
-      ac = input.rel10 * qt[0];
       outputIndex = 0;
+
+      int value = input.rel10 * qt[0];
+      if (q == 0) {
+        value *= 2;
+      }
+      output[0] = (value.clip(-1024, 1023) * scaleZag[0]).round();
+
       return false;
-    }
-
-    if (q == 0) {
-      // special case: no quantization
-      output[outputIndex] =
-          (ac.clip(-1024, 1023) * scaleZag[outputIndex]).round();
-
-      ac = input.rel10 * 2;
-    } else {
-      // normal case: with quantization
-      // debugLog("mdec: zagZig[$outputIndex]=${zagZig[outputIndex]} "
-      //     "scaleZag=${scaleZag[outputIndex]} ac=$ac");
-      output[zagZig[outputIndex]] =
-          (ac.clip(-1024, 1023) * scaleZag[outputIndex]).round();
-
-      ac = (input.rel10 * qt[outputIndex] * q + 4) ~/ 8;
     }
 
     final runLength = (input >> 10) & 0x3f;
@@ -303,25 +338,33 @@ class Decoder {
       return true;
     }
 
+    final (value, idx) = (q == 0)
+        ? (input.rel10 * 2, outputIndex)
+        : ((input.rel10 * qt[outputIndex] * q + 4) ~/ 8, zagZig[outputIndex]);
+    output[idx] = (value.clip(-1024, 1023) * scaleZag[outputIndex]).round();
+
+    if (outputIndex == 63) {
+      outputIndex = -1;
+      return true;
+    }
+
     return false;
   }
 
-  void decode(List<int> buf) {}
-
-  // Compose RGB from YCrCb}
-  List<Color> composeYCrCbToRgb(List<List<int>> buf) {
+  // 8x8: Cr+Cb+(Y1, Y3, Y2, Y4) -->to RGB 8x8x4
+  List<Color> yuvToRgb(List<List<int>> buf) {
     final out = List<Color>.filled(16 * 16, Color(0, 0, 0));
 
-    for (final (yBlock, xOffset, yOffset) in [
-      (Mdec.blockTypeY1, 0, 0),
-      (Mdec.blockTypeY2, 0, 8),
-      (Mdec.blockTypeY3, 8, 0),
-      (Mdec.blockTypeY4, 8, 8)
+    for (final (yBlock, xOffset, yOffset, i) in [
+      (Mdec.blockTypeY1, 0, 0, 0),
+      (Mdec.blockTypeY2, 0, 8, 1),
+      (Mdec.blockTypeY3, 8, 0, 2),
+      (Mdec.blockTypeY4, 8, 8, 3)
     ]) {
       for (int y = 0; y < 8; y++) {
         final y1 = y * 8;
-        final y2 = (y >> 1) * 8;
-        final y3 = (yOffset + y) * 8;
+        final y2 = ((yOffset + y) >> 1) * 8 + (xOffset >> 1);
+        final y3 = (i * 8 + y) * 8;
 
         for (int x = 0; x < 8; x++) {
           final yy = buf[yBlock].elementAt(x + y1);
@@ -332,8 +375,11 @@ class Decoder {
           final g = yy - 0.344136 * cb - 0.714136 * cr;
           final b = yy + 1.772 * cb;
 
-          out[y3 + xOffset + x] = Color(r.round().clip(-128, 127),
+          out[y3 + x] = Color(r.round().clip(-128, 127),
               g.round().clip(-128, 127), b.round().clip(-128, 127));
+          // if (yBlock == Mdec.blockTypeY2) {
+          //   out[y3 + x] = Color(-128, -128, -128);
+          // }
         }
       }
     }
@@ -379,7 +425,7 @@ class Decoder {
             src[6 * 8 + i] == 0 &&
             src[7 * 8 + i] == 0) {
           for (int j = 0; j < 8; j++) {
-            dst[j * 8 + i] = src[0 * 8 + i];
+            dst[i * 8 + j] = src[0 * 8 + i];
           }
         } else {
           final z10 = src[0 * 8 + i] + src[4 * 8 + i];
@@ -430,6 +476,6 @@ class Color {
 
   Color(this.r, this.g, this.b);
 
-  int get c24 => b << 16 | g << 8 | r;
-  int get c15 => b << 7 | g << 2 | r >> 3;
+  int get c24 => b.mask8 << 16 | g.mask8 << 8 | r.mask8;
+  int get c15 => (b << 7) & 0x7c00 | (g << 2) & 0x3e0 | (r >> 3) & 0x1f;
 }
