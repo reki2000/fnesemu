@@ -73,8 +73,8 @@ class Mdec {
         switch (command) {
           case Mdec.commandDecode:
             decodeStep(0xfe00); // EOB
-            debugLog(
-                "mdec: decode command completes oIdx:${decoder.outputIndex} ${dump()}");
+          // debugLog(
+          //     "mdec: decode command completes oIdx:${decoder.outputIndex} ${dump()}");
           case Mdec.commandSetQuant:
             setQuant();
           case Mdec.commandSetScale:
@@ -98,7 +98,7 @@ class Mdec {
         signed = value.bit24;
         bit15Set = value.bit23;
         command = Mdec.commandDecode;
-        debugLog("mdec: decode command ${value.hex32} ${dump()}");
+        // debugLog("mdec: decode command ${value.hex32} ${dump()}");
         break;
 
       case 0x02: // SetQuant
@@ -117,7 +117,7 @@ class Mdec {
   }
 
   void writeControl(int value) {
-    debugLog("mdec: writeControl ${value.hex32} ${dump()}");
+    // debugLog("mdec: writeControl ${value.hex32} ${dump()}");
     if (value.bit31) {
       reset();
     }
@@ -126,17 +126,6 @@ class Mdec {
     dataOutRequest = value.bit29;
   }
 
-  // 31    Data-Out Fifo Empty (0=No, 1=Empty)
-  // 30    Data-In Fifo Full   (0=No, 1=Full, or Last word received)
-  // 29    Command Busy  (0=Ready, 1=Busy receiving or processing parameters)
-  // 28    Data-In Request  (set when DMA0 enabled and ready to receive data)
-  // 27    Data-Out Request (set when DMA1 enabled and ready to send data)
-  // 26-25 Data Output Depth  (0=4bit, 1=8bit, 2=24bit, 3=15bit)      ;CMD.28-27
-  // 24    Data Output Signed (0=Unsigned, 1=Signed)                  ;CMD.26
-  // 23    Data Output Bit15  (0=Clear, 1=Set) (for 15bit depth only) ;CMD.25
-  // 22-19 Not used (seems to be always zero)
-  // 18-16 Current Block (0..3=Y1..Y4, 4=Cr, 5=Cb) (or for mono: always 4=Y)
-  // 15-0  Number of Parameter Words remaining minus 1  (FFFFh=None)  ;CMD.Bit0-15
   int readStatus() {
     // debugLog("mdec: readStatus ${dump()}");
     return 0
@@ -203,7 +192,13 @@ class Mdec {
     }
 
     if (blockType == blockTypeY4) {
-      final rgb = decoder.yuvToRgb(buf);
+      final rgb = List<Color>.filled(16 * 16, Color(0, 0, 0));
+      final cbBuf = buf[Mdec.blockTypeCb];
+      final crBuf = buf[Mdec.blockTypeCr];
+      decoder.yuvToRgb(rgb, cbBuf, crBuf, buf[Mdec.blockTypeY1], 0, 0);
+      decoder.yuvToRgb(rgb, cbBuf, crBuf, buf[Mdec.blockTypeY2], 8, 0);
+      decoder.yuvToRgb(rgb, cbBuf, crBuf, buf[Mdec.blockTypeY3], 0, 8);
+      decoder.yuvToRgb(rgb, cbBuf, crBuf, buf[Mdec.blockTypeY4], 8, 8);
 
       if (depth == depth15bit) {
         final xor = signed ? 0 : 0x42104210;
@@ -352,66 +347,31 @@ class Decoder {
   }
 
   // 8x8: Cr+Cb+(Y1, Y3, Y2, Y4) -->to RGB 8x8x4
-  List<Color> yuvToRgb(List<List<int>> buf) {
-    final out = List<Color>.filled(16 * 16, Color(0, 0, 0));
+  void yuvToRgb(List<Color> out, List<int> cbBuf, List<int> crBuf,
+      List<int> yBuf, int xOffset, int yOffset) {
+    for (int y = 0; y < 8; y++) {
+      final y1 = y * 8;
+      final y2 = ((yOffset + y) >> 1) * 8 + (xOffset >> 1);
+      final y3 = (yOffset + y) * 16 + xOffset;
 
-    for (final (yBlock, xOffset, yOffset, i) in [
-      (Mdec.blockTypeY1, 0, 0, 0),
-      (Mdec.blockTypeY2, 0, 8, 1),
-      (Mdec.blockTypeY3, 8, 0, 2),
-      (Mdec.blockTypeY4, 8, 8, 3)
-    ]) {
-      for (int y = 0; y < 8; y++) {
-        final y1 = y * 8;
-        final y2 = ((yOffset + y) >> 1) * 8 + (xOffset >> 1);
-        final y3 = (i * 8 + y) * 8;
+      for (int x = 0; x < 8; x++) {
+        final yy = yBuf.elementAt(x + y1);
+        final cr = crBuf.elementAt((x >> 1) + y2);
+        final cb = cbBuf.elementAt((x >> 1) + y2);
 
-        for (int x = 0; x < 8; x++) {
-          final yy = buf[yBlock].elementAt(x + y1);
-          final cr = buf[Mdec.blockTypeCr].elementAt((x >> 1) + y2);
-          final cb = buf[Mdec.blockTypeCb].elementAt((x >> 1) + y2);
+        final r = yy + 1.402 * cr;
+        final g = yy - 0.344136 * cb - 0.714136 * cr;
+        final b = yy + 1.772 * cb;
 
-          final r = yy + 1.402 * cr;
-          final g = yy - 0.344136 * cb - 0.714136 * cr;
-          final b = yy + 1.772 * cb;
-
-          out[y3 + x] = Color(r.round().clip(-128, 127),
-              g.round().clip(-128, 127), b.round().clip(-128, 127));
-          // if (yBlock == Mdec.blockTypeY2) {
-          //   out[y3 + x] = Color(-128, -128, -128);
-          // }
-        }
+        out[y3 + x] = Color(r.round().clip(-128, 127),
+            g.round().clip(-128, 127), b.round().clip(-128, 127));
+        // if (yBlock == Mdec.blockTypeY2) {
+        //   out[y3 + x] = Color(-128, -128, -128);
+        // }
       }
     }
-
-    return out;
   }
 
-  // src=blk, dst=temp_buffer
-  // for pass=0 to 1
-  //   for i=0 to 7
-  //     if src[(1..7)*8+i]=0 then      ;when src[(1..7)*8+i] are all zero:
-  //       dst[i*8+(0..7)]=src[0*8+i]   ;quick fill by src[0*8+i]
-  //     else
-  //       z10=src[0*8+i]+src[4*8+i], z11=src[0*8+i]-src[4*8+i]
-  //       z13=src[2*8+i]+src[6*8+i], z12=src[2*8+i]-src[6*8+i]
-  //       z12=(1.414213562*z12)-z13          ;=sqrt(2)
-  //       tmp0=z10+z13, tmp3=z10-z13, tmp1=z11+z12, tmp2=z11-z12
-  //       z13=src[3*8+i]+src[5*8+i], z10=src[3*8+i]-src[5*8+i]
-  //       z11=src[1*8+i]+src[7*8+i], z12=src[1*8+i]-src[7*8+i]
-  //       z5  =(1.847759065*(z12-z10))       ;=sqrt(2)*scalefactor[2]
-  //       tmp7=z11+z13
-  //       tmp6=(2.613125930*(z10))+z5-tmp7   ;=scalefactor[2]*2
-  //       tmp5=(1.414213562*(z11-z13))-tmp6  ;=sqrt(2)
-  //       tmp4=(1.082392200*(z12))-z5+tmp5   ;=sqrt(2)/scalefactor[2]
-  //       dst[i*8+0]=tmp0+tmp7, dst[i*8+7]=tmp0-tmp7
-  //       dst[i*8+1]=tmp1+tmp6, dst[i*8+6]=tmp1-tmp6
-  //       dst[i*8+2]=tmp2+tmp5, dst[i*8+5]=tmp2-tmp5
-  //       dst[i*8+4]=tmp3+tmp4, dst[i*8+3]=tmp3-tmp4
-  //     endif
-  //   next i
-  //   swap(src,dst)
-  // next pass
   void fastIdct(List<int> block) {
     List<int> src = block;
     List<int> dst = List<int>.filled(64, 0);
