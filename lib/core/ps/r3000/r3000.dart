@@ -57,7 +57,7 @@ class R3000 {
   bool inBranchDelay = false;
 
   // bios putchar() hacking
-  final StringBuffer console = StringBuffer();
+  final console = StringBuffer();
 
   // ps-exe bianry to sideload
   Uint8List exe = Uint8List(0);

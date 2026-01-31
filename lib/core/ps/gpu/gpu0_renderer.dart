@@ -23,14 +23,27 @@ extension Gp0Renderer on Gpu {
     return (p0, p1, p2);
   }
 
+  int abs(int v) => v < 0 ? -v : v;
+
   bool renderLine(int cmd, int v0, int v1) {
     final c15 = Color.ofC24(cmd).c15;
     final p0 = Point.of(v0, 0, 0);
     final p1 = Point.of(v1, 0, 0);
 
-    for (int y = p0.y; y <= p1.y; y++) {
-      final p01 = p0.mixY(p1, y);
-      pset16(p01.x, y, c15);
+    if (abs(p1.y - p0.y) < abs(p1.x - p0.x)) {
+      // x loop
+      final dx = (p1.x < p0.x) ? -1 : 1;
+      for (int x = p0.x; x != p1.x; x += dx) {
+        final p01 = p0.mixX(p1, x);
+        pset16(x, p01.y, c15);
+      }
+    } else {
+      // y loop
+      final dy = (p1.y < p0.y) ? -1 : 1;
+      for (int y = p0.y; y != p1.y; y += dy) {
+        final p01 = p0.mixY(p1, y);
+        pset16(p01.x, y, c15);
+      }
     }
 
     return true;
@@ -40,11 +53,21 @@ extension Gp0Renderer on Gpu {
     final p0 = Point.of(v0, c0, 0);
     final p1 = Point.of(v1, c1, 0);
 
-    for (int y = p0.y; y <= p1.y; y++) {
-      final p01 = p0.mixY(p1, y);
-      pset16(p01.x, y, p01.c.c15);
+    if (abs(p1.y - p0.y) < abs(p1.x - p0.x)) {
+      // x loop
+      final dx = (p1.x < p0.x) ? -1 : 1;
+      for (int x = p0.x; x != p1.x; x += dx) {
+        final p01 = p0.mixX(p1, x);
+        pset16(x, p01.y, p01.c.c15);
+      }
+    } else {
+      // y loop
+      final dy = (p1.y < p0.y) ? -1 : 1;
+      for (int y = p0.y; y != p1.y; y += dy) {
+        final p01 = p0.mixY(p1, y);
+        pset16(p01.x, y, p01.c.c15);
+      }
     }
-
     return true;
   }
 

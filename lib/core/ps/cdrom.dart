@@ -47,6 +47,7 @@ class Cdrom {
   bool isCmdBusy = false;
   bool isHighSpeed = false;
   bool isSectorSize924 = false;
+  bool isXaAdpcm = false;
   get sectorSize => isSectorSize924 ? 0x924 : 0x800;
 
   int cmdDelay = 0;
@@ -65,7 +66,8 @@ class Cdrom {
     paramFifo.clear();
   }
 
-  bool isBufferEmpty() => sectorBufferEmpty || sectorBufferIndex >= sectorSize;
+  bool isBufferNotReadable() =>
+      sectorBufferEmpty || sectorBufferIndex >= sectorSize;
 
   int readBuffer8() {
     if (sectorBufferEmpty) {
@@ -76,8 +78,10 @@ class Cdrom {
       return 0;
     }
 
-    final data = sectorBuffer[sectorBufferIndex++];
-    if (isBufferEmpty()) {
+    final startIndex = isSectorSize924 ? 12 : 24;
+
+    final data = sectorBuffer[startIndex + sectorBufferIndex++];
+    if (isBufferNotReadable()) {
       sectorBufferEmpty = true;
     }
     return data;
@@ -156,7 +160,7 @@ class Cdrom {
 
       case (0, 3): // hchpctl
         if (value.bit7) {
-          if (isBufferEmpty()) {
+          if (isBufferNotReadable()) {
             sectorBufferEmpty = false;
             sectorBufferIndex = 0;
           }
@@ -228,17 +232,11 @@ class Cdrom {
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
 
         // read sector
-        if (isSectorSize924) {
-          sectorBuffer.setAll(0, readDisc(sector));
-        } else {
-          sectorBuffer.setAll(0, readDisc(sector).sublist(12, 12 + 0x800));
-        }
+        sectorBuffer.setAll(0, readDisc(sector));
         // debugLog(
-        //     "cdrom: read sector $sector ${dump()} [${sectorBuffer.sublist(0, 10).map((e) => e.hex8).join(" ")}]");
+        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${sectorBuffer.sublist(isSectorSize924 ? 24 : 12).sublist(0, 8).map((e) => e.hex8).join(" ")} ..]");
 
         irq(1, [status()], delay: 0);
-        sectorBufferEmpty = false;
-        sectorBufferIndex = 0;
 
         sector++;
       }
@@ -330,6 +328,7 @@ class Cdrom {
       case 0x0e: // SetMode
         mode = paramFifo.elementAt(0);
         isHighSpeed = mode.bit7;
+        isXaAdpcm = mode.bit6;
         isSectorSize924 = mode.bit5;
         irq(3, [status()]);
 

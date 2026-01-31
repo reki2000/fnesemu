@@ -136,9 +136,10 @@ extension DmaController on Bus {
     if (!partial) {
       d.running = false;
 
-      // if (ch == 3) {
-      // debugLog(
-      //     "DMA$ch: completed ${_dmaControl.hex32} ${_dmaInterrupt.hex32} ${d.dump()}");
+      // if (ch == 0 || ch == 1 || ch == 3) {
+      //   // MDEC
+      //   debugLog(
+      //       "DMA$ch: completed ${_dmaControl.hex32} ${_dmaInterrupt.hex32} ${d.dump()}");
       // }
     }
 

@@ -23,7 +23,7 @@ extension Hook on R3000 {
     final sb = StringBuffer();
     for (int i = 0; i < len; i++) {
       final ch = bus.read8(addr + i).mask8;
-      if (ch >= 0x20 && ch < 0x7f) {
+      if (ch == 0x0a || (ch >= 0x20 && ch < 0x7f)) {
         sb.writeCharCode(ch);
       } else {
         sb.write(".");
@@ -37,7 +37,7 @@ extension Hook on R3000 {
       case >= 0x20 && < 0x80 || 0x09:
         console.write(String.fromCharCode(ch));
       case 0x0a:
-        debugLog("bios: tty: ${console.toString()}");
+        debugLog("tty: ${console.toString()}");
         console.clear();
     }
   }
@@ -75,30 +75,32 @@ extension Hook on R3000 {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
       String name = _bios[vector]?[r[9]] ?? "-";
-      // tty putchar
-      if (vector == 0xb0 && r[9] == 0x3d || vector == 0xa0 && r[9] == 0x3c) {
+      if (name.startsWith("*putchar")) {
+        // tty putchar
         handleTty(r[4].mask8);
-      } else {
-        if (!name.startsWith("*")) {
-          biosCallAddr = r[31];
+      } else if (name.startsWith("*write(") && (r[4] == 1 || r[4] == 2)) {
+        // write to stdout/stderr
+        final str = dumpc(r[5], r[6]);
+        str.runes.forEach(handleTty);
+      } else if (!name.startsWith("*")) {
+        biosCallAddr = r[31];
 
-          if (name.startsWith("TestEvent")) {
-            biosCallAddr = 0;
-          }
-
-          if (!name.endsWith(")")) {
-            name += "(%08x, %08x, %08x, %08x)";
-          }
-
-          // for stroud, dump buffer as a string instead of hex dump
-          if (name.startsWith("write") && r[4] == 1) {
-            name = name.replaceFirst("%b", "%c");
-          }
-
-          name = buildArgs(name, r.sublist(4, 8));
-
-          debugLog("bios: ${vector.hex8}(${r[9].hex8}): $name");
+        if (name.startsWith("TestEvent")) {
+          biosCallAddr = 0;
         }
+
+        if (!name.endsWith(")")) {
+          name += "(%08x, %08x, %08x, %08x)";
+        }
+
+        // for strout, dump buffer as a string instead of hex dump
+        if (name.startsWith("write") && (r[4] == 1 || r[4] == 2)) {
+          name = name.replaceFirst("%b", "%c");
+        }
+
+        name = buildArgs(name, r.sublist(4, 8));
+
+        debugLog("bios: ${vector.hex8}(${r[9].hex8}): $name");
       }
     }
 

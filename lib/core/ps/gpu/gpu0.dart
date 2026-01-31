@@ -94,20 +94,23 @@ extension Gpu0 on Gpu {
         final gouraud = cmd[0].bit28;
         final polyline = cmd[0].bit27;
 
+        if (polyline && value & 0xf000f000 == 0x50005000) {
+          cmdSize = 0;
+          break;
+        }
+
         if (gouraud) {
           if (cmdSize > 3 && !cmdSize.bit0) {
             renderGouraudLine(cmd[0], cmd[cmdSize - 3], cmd[cmdSize - 1],
                 cmd[cmdSize - 4], cmd[cmdSize - 2]);
-            if ((polyline && value & 0xf000f000 == 0x50005000) ||
-                (!polyline && cmdSize == 4)) {
+            if (!polyline && cmdSize == 4) {
               cmdSize = 0;
             }
           }
         } else {
           if (cmdSize > 2) {
             renderLine(cmd[0], cmd[cmdSize - 2], cmd[cmdSize - 1]);
-            if ((polyline && value & 0xf000f000 == 0x50005000) ||
-                (!polyline && cmdSize == 3)) {
+            if (!polyline && cmdSize == 3) {
               cmdSize = 0;
             }
           }
@@ -162,19 +165,18 @@ extension Gpu0 on Gpu {
         }
 
       case 0x04: // vram to vram blit
-        if (cmdSize == 3) {
-          cmd[cmdSize++] = value;
+        cmd[cmdSize++] = value;
 
-          bltFromY = cmd[1] >> 16 & yMask;
-          bltPosY = cmd[2] >> 16 & yMask;
-          bltSizeY = (value >> 16).maskZeroMax(yMask);
+        if (cmdSize == 4) {
+          bltFromY = (cmd[1] >> 16) & yMask;
+          bltPosY = (cmd[2] >> 16) & yMask;
+          bltSizeY = (cmd[3] >> 16).maskZeroMax(yMask);
 
           bltFromX = cmd[1] & xMask;
           bltPosX = cmd[2] & xMask;
-          bltSizeX = value.maskZeroMax(xMask);
-
-          // debugLog(
-          //     "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} $bltFromX,$bltFromY $bltPosX, $bltPosY $bltSizeX x $bltSizeY");
+          bltSizeX = cmd[3].maskZeroMax(xMask);
+          debugLog(
+              "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
 
           while (cmdSize == 4) {
             writeFrameBuffer16(
@@ -183,7 +185,7 @@ extension Gpu0 on Gpu {
             bltPosX++;
             bltSizeX--;
 
-            if (bltSizeX == 0) {
+            if (bltSizeX <= 0) {
               bltFromX = cmd[1] & xMask;
               bltPosX = cmd[2] & xMask;
               bltSizeX = cmd[3].maskZeroMax(xMask);
@@ -192,17 +194,14 @@ extension Gpu0 on Gpu {
               bltPosY++;
               bltSizeY--;
 
-              if (bltSizeY == 0) {
+              if (bltSizeY <= 0) {
                 cmdSize = 0;
                 return true;
               }
             }
           }
-
-          cmd[cmdSize++] = value;
-
-          return true;
         }
+        return true;
 
       case 0x05: // cpu to vram blit
         if (cmdSize == 3) {

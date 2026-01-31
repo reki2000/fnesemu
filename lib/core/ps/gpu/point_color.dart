@@ -8,8 +8,8 @@ class Color {
   Color(this.r, this.g, this.b);
 
   Color.ofC24(int c24)
-      : b = c24 >> 16 & 0xff,
-        g = c24 >> 8 & 0xff,
+      : b = (c24 >> 16) & 0xff,
+        g = (c24 >> 8) & 0xff,
         r = c24 & 0xff;
 
   int get c24 => b << 16 | g << 8 | r;
@@ -39,23 +39,31 @@ class Point {
   Point(this.x, this.y, this.c, this.u, this.v);
 
   Point.of(int v, int c, int t)
-      : this(v.rel11, (v >> 16).rel11, Color.ofC24(c), t & 0xff, t >> 8 & 0xff);
+      : this(v.rel16, (v >> 16).rel16, Color.ofC24(c), t & 0xff, t >> 8 & 0xff);
 
   Point mix(Point p, int part, int total) {
     if (total == 0) {
       return this;
     }
-    final x = (this.x * (total - part) + p.x * part) ~/ total;
-    final y = (this.y * (total - part) + p.y * part) ~/ total;
-    final u = (this.u * (total - part) + p.u * part) ~/ total;
-    final v = (this.v * (total - part) + p.v * part) ~/ total;
+    final x = (this.x * (total - part) + p.x * part) / total;
+    final y = (this.y * (total - part) + p.y * part) / total;
+    final u = (this.u * (total - part) + p.u * part) / total;
+    final v = (this.v * (total - part) + p.v * part) / total;
     final c = this.c.mix(p.c, part, total);
-    return Point(x, y, c, u, v);
+    return Point(x.round(), y.round(), c, u.round(), v.round());
   }
 
+  int abs(int v) => v < 0 ? -v : v;
+
   Point mixY(Point p, int y) {
-    final part = y - this.y;
-    final total = p.y - this.y;
+    final part = abs(y - this.y);
+    final total = abs(p.y - this.y);
+    return mix(p, part, total);
+  }
+
+  Point mixX(Point p, int x) {
+    final part = abs(x - this.x);
+    final total = abs(p.x - this.x);
     return mix(p, part, total);
   }
 }

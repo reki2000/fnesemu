@@ -49,6 +49,11 @@ class Gpu {
   final cmd = List<int>.filled(16, 0);
   int cmdSize = 0;
   bool get cmdReady => cmdSize == 0;
+  bool get dmaReceiveReady =>
+      cmdReady ||
+      cmdSize == 3 && cmd[0] >> 29 == 0x05; // GP0 DMA receive command
+  bool get vramToCpuReady =>
+      cmdSize == 4 && cmd[0] >> 29 == 0x06; // GP0 VRAM to CPU command
 
   bool irq1 = false;
 
@@ -135,9 +140,6 @@ class Gpu {
       2 => true, // dma is always available
       _ => true, // vram to cpu transfer is always available
     };
-
-    final vramToCpuReady = cmdSize == 4 && cmd[0] >> 29 == 0x06;
-    final dmaReceiveReady = true;
 
     final result = status
         .setBit(13, isOddFrame)

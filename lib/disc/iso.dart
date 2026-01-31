@@ -54,11 +54,11 @@ class IsoDisc extends Disc {
     }
 
     final sectorOffset = sector * Disc.sectorSize;
-    final dataOffset = sectorOffset + sync.length;
+    final dataOffset = sectorOffset;
 
     logReadSector(sector, sectorOffset);
 
-    return data.sublist(dataOffset, dataOffset + Disc.sectorSize - sync.length);
+    return data.sublist(dataOffset, dataOffset + Disc.sectorSize);
   }
 
   @override
