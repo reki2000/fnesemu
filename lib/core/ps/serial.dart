@@ -166,7 +166,7 @@ class Serial {
 
     // irq acknowledge
     if (ctrl.bit4) {
-      bus.ackIrq(Interrupt.serial);
+      bus.resetIrq(Interrupt.serial);
     }
   }
 

@@ -9,6 +9,7 @@ import '../../util/debug.dart';
 import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
+import 'interrupt.dart';
 import 'mdec.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
@@ -22,6 +23,7 @@ class Bus implements BusR3000 {
   late final Cdrom cdrom;
   late final Mdec mdec;
   late final Dma dma;
+  late final InterruptController interrupt;
 
   final mem = Uint8List(2 * 1024 * 1024);
   final rom = Uint8List(1024 * 512);
@@ -29,16 +31,12 @@ class Bus implements BusR3000 {
   final scratchPad = Uint8List(1024);
   bool useScratchPad = false;
 
-  int interruptStatus = 0;
-  int interruptMask = 0;
-
   final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
       .map((e) => (1 << e) - 1)
       .toList(growable: false);
 
   void reset() {
-    interruptStatus = 0;
-    interruptMask = 0;
+    interrupt.reset();
     dma.reset();
   }
 
@@ -96,8 +94,8 @@ class Bus implements BusR3000 {
           0x1044 => serial.readStatus(),
           0x1048 => serial.readMode() | serial.readControl() << 16,
           0x104c => serial.readBaudrate(),
-          0x1070 => interruptStatus,
-          0x1074 => interruptMask,
+          0x1070 => interrupt.status,
+          0x1074 => interrupt.mask,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
               0x00 => dma.channels[offset >> 4 & 0x07].startAddr,
               0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl,
@@ -197,8 +195,8 @@ class Bus implements BusR3000 {
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad.setUInt16LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
-          0x1070 => ackIrq(v),
-          0x1074 => interruptMask = v.mask16,
+          0x1070 => interrupt.ackIrq(v),
+          0x1074 => interrupt.mask = v.mask16,
           0x1048 => serial.writeMode(v),
           0x104a => serial.writeControl(v),
           0x104e => serial.writeBaudrate(v),
@@ -271,8 +269,8 @@ class Bus implements BusR3000 {
           0x1040 => serial.writeData(v),
           0x1050 => 0, //ex("memory control 2: RAM base address"),
           0x1060 => 0, //ex("memory control 2: RAM size"),
-          0x1070 => ackIrq(v),
-          0x1074 => interruptMask = v,
+          0x1070 => interrupt.ackIrq(v),
+          0x1074 => interrupt.mask = v,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
               0x00 => dma.channels[offset >> 4 & 0x07].startAddr = v,
               0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl = v,
@@ -309,36 +307,11 @@ class Bus implements BusR3000 {
   }
 
   void setIrq(int irqNo) {
-    if (interruptStatus.bit(irqNo)) {
-      return;
-    }
-
-    interruptStatus = interruptStatus.setBit(irqNo, true);
-    // debugLog(
-    //     "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32} triggered:${interruptMask & interruptStatus != 0}");
-
-    if (interruptMask & interruptStatus != 0) {
-      // debugLog(
-      //     "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32}");
-      cpu.interrupt(true);
-    }
+    interrupt.setIrq(irqNo);
   }
 
   void resetIrq(int irqNo) {
-    ackIrq(~(1 << irqNo));
-  }
-
-  void ackIrq(int ackValue) {
-    // if (ackValue.mask16 != 0xffff) {
-    //   debugLog(
-    //       'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${interruptStatus.hex32} mstat:${interruptMask.hex32}');
-    // }
-
-    interruptStatus &= ackValue;
-
-    if (interruptMask & interruptStatus == 0) {
-      cpu.interrupt(false);
-    }
+    interrupt.resetIrq(irqNo);
   }
 
   int _unimplemented(String op, String device, int addr, int value) {

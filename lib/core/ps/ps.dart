@@ -15,6 +15,7 @@ import 'bus.dart';
 import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
+import 'interrupt.dart';
 import 'mdec.dart';
 import 'memory_card.dart';
 import 'pad.dart';
@@ -47,6 +48,7 @@ class Ps extends Core {
     mdec = Mdec();
     dma = Dma(bus);
 
+    bus.interrupt = InterruptController()..cpu = cpu;
     bus.dma = dma;
     bus.gpu = gpu;
     bus.cpu = cpu;
@@ -223,7 +225,7 @@ class Ps extends Core {
     return "${disasm(0, cpu.pc).$1}\n${cpu.dump()} cy:${cpu.clocks}\n"
         "${range(0, 7).map((ch) => bus.dma.channels[ch].dump()).join("\n")}\n"
         "${timer.timers.map((t) => t.dump()).join(" ")}\n"
-        "istat:${bus.interruptStatus.hex32} imask:${bus.interruptMask.hex32}\n"
+        "istat:${bus.interrupt.status.hex32} imask:${bus.interrupt.mask.hex32}\n"
         "${gpu.dump()}\n"
         "${spu.dump()}\n"
         "${serial.dump()}\n"
