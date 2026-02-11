@@ -13,6 +13,7 @@ import '../pad_button.dart';
 import '../types.dart';
 import 'bus.dart';
 import 'cdrom.dart';
+import 'dma.dart';
 import 'gpu/gpu.dart';
 import 'mdec.dart';
 import 'memory_card.dart';
@@ -32,6 +33,7 @@ class Ps extends Core {
   late final TimerController timer;
   late final Cdrom cdrom;
   late final Mdec mdec;
+  late final Dma dma;
 
   Ps() : bus = Bus() {
     cpu = R3000(bus);
@@ -43,7 +45,9 @@ class Ps extends Core {
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
     mdec = Mdec();
+    dma = Dma(bus);
 
+    bus.dma = dma;
     bus.gpu = gpu;
     bus.cpu = cpu;
     bus.serial = serial;
@@ -118,7 +122,7 @@ class Ps extends Core {
 
     if (cpu.clocks > nextDmaClock) {
       nextDmaClock += 24;
-      bus.execDma(24);
+      bus.dma.exec(24);
     }
 
     if (cpu.clocks > nextSpuClock) {
@@ -217,7 +221,7 @@ class Ps extends Core {
       bool showStack = false,
       bool showApu = false}) {
     return "${disasm(0, cpu.pc).$1}\n${cpu.dump()} cy:${cpu.clocks}\n"
-        "${range(0, 7).map((ch) => bus.dma[ch].dump()).join("\n")}\n"
+        "${range(0, 7).map((ch) => bus.dma.channels[ch].dump()).join("\n")}\n"
         "${timer.timers.map((t) => t.dump()).join(" ")}\n"
         "istat:${bus.interruptStatus.hex32} imask:${bus.interruptMask.hex32}\n"
         "${gpu.dump()}\n"

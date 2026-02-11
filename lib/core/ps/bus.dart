@@ -9,12 +9,9 @@ import '../../util/debug.dart';
 import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
-import 'interrupt.dart';
 import 'mdec.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
-
-part 'bus_dma.dart';
 
 class Bus implements BusR3000 {
   late final Gpu gpu;
@@ -24,8 +21,7 @@ class Bus implements BusR3000 {
   late final TimerController timer;
   late final Cdrom cdrom;
   late final Mdec mdec;
-
-  Bus();
+  late final Dma dma;
 
   final mem = Uint8List(2 * 1024 * 1024);
   final rom = Uint8List(1024 * 512);
@@ -36,46 +32,6 @@ class Bus implements BusR3000 {
   int interruptStatus = 0;
   int interruptMask = 0;
 
-  final dma = [
-    Dma(0, 0x1f801820, 1),
-    Dma(1, 0x1f801820, 1),
-    Dma(2, 0x1f801810, 1),
-    Dma(3, 1, 24),
-    Dma(4, 1, 4),
-    Dma(5, 0, 20),
-    Dma(6, 1, 1)
-  ];
-
-  int _dmaControl = 0;
-  int get dmaControl => _dmaControl;
-  set dmaControl(int value) {
-    _dmaControl = value;
-    for (var ch = 0; ch < 7; ch++) {
-      dma[ch].enabled = (value >> (3 + ch * 4)).bit0;
-
-      // debugLog(
-      //     "DMA$ch: controlled   ${dma[ch].dump()} pc:${cpu.pc.hex32} ra:${cpu.r[31].hex32} clk:${gpu.frame}:${gpu.scanline}:${cpu.clocks}");
-    }
-  }
-
-  int _dmaInterrupt = 0;
-  int get dmaInterrupt => _dmaInterrupt;
-  set dmaInterrupt(int value) {
-    final irqFlags = _dmaInterrupt &
-        0x7f000000 &
-        ~(value & 0x7f000000); // reset flags at value = 1
-    final bit31 = value.bit15 ||
-        (value.bit23 && (irqFlags >> 24 & value >> 16 & 0x7f) != 0);
-    _dmaInterrupt = irqFlags | (value & 0x00ff807f).setBit(31, bit31);
-
-    for (var ch = 0; ch < 7; ch++) {
-      final modeMask = 0x00001 << ch;
-      final useMask = 0x10000 << ch;
-      dma[ch].useInterrupt = value & useMask != 0 && value.bit23;
-      dma[ch].intterruptOnChunks = value & modeMask != 0;
-    }
-  }
-
   final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
       .map((e) => (1 << e) - 1)
       .toList(growable: false);
@@ -83,11 +39,7 @@ class Bus implements BusR3000 {
   void reset() {
     interruptStatus = 0;
     interruptMask = 0;
-    dmaControl = 0;
-    dmaInterrupt = 0;
-    for (var ch = 0; ch < 7; ch++) {
-      dma[ch].reset();
-    }
+    dma.reset();
   }
 
   @override
@@ -147,13 +99,13 @@ class Bus implements BusR3000 {
           0x1070 => interruptStatus,
           0x1074 => interruptMask,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
-              0x00 => dma[offset >> 4 & 0x07].startAddr,
-              0x04 => dma[offset >> 4 & 0x07].blockCtrl,
-              0x08 => dma[offset >> 4 & 0x07].channelCtrl,
+              0x00 => dma.channels[offset >> 4 & 0x07].startAddr,
+              0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl,
+              0x08 => dma.channels[offset >> 4 & 0x07].channelCtrl,
               _ => ex("DMA")
             },
-          0x10f0 => dmaControl,
-          0x10f4 => dmaInterrupt,
+          0x10f0 => dma.control,
+          0x10f4 => dma.interrupt,
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
               0x00 => timer.counter(offset >> 4 & 3),
               0x04 => timer.mode(offset >> 4 & 3),
@@ -219,7 +171,7 @@ class Bus implements BusR3000 {
           0x1801 => cdrom.writePort8(1, v),
           0x1802 => cdrom.writePort8(2, v),
           0x1803 => cdrom.writePort8(3, v),
-          0x10f6 => dmaInterrupt = dmaInterrupt.masked(0x00ff0000, v << 16),
+          0x10f6 => dma.interrupt = dma.interrupt.masked(0x00ff0000, v << 16),
           _ => ex("** unknwown ** expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
@@ -250,7 +202,7 @@ class Bus implements BusR3000 {
           0x1048 => serial.writeMode(v),
           0x104a => serial.writeControl(v),
           0x104e => serial.writeBaudrate(v),
-          0x10f6 => dmaInterrupt = dmaInterrupt.setH16(v),
+          0x10f6 => dma.interrupt = dma.interrupt.setH16(v),
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
@@ -322,13 +274,13 @@ class Bus implements BusR3000 {
           0x1070 => ackIrq(v),
           0x1074 => interruptMask = v,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
-              0x00 => dma[offset >> 4 & 0x07].startAddr = v,
-              0x04 => dma[offset >> 4 & 0x07].blockCtrl = v,
-              0x08 => dma[offset >> 4 & 0x07].channelCtrl = v,
+              0x00 => dma.channels[offset >> 4 & 0x07].startAddr = v,
+              0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl = v,
+              0x08 => dma.channels[offset >> 4 & 0x07].channelCtrl = v,
               _ => ex("DMA")
             },
-          0x10f0 => dmaControl = v,
-          0x10f4 => dmaInterrupt = v,
+          0x10f0 => dma.control = v,
+          0x10f4 => dma.interrupt = v,
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
