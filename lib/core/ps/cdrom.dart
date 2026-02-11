@@ -11,6 +11,7 @@ class CmdResult {
   int delay = 0;
   int intNo = 0;
   bool ack = false;
+  bool triggered = false;
   Queue<int> fifo = Queue<int>();
 }
 
@@ -39,6 +40,7 @@ class Cdrom {
 
   Uint8List Function(int) readDisc = (int _) => Uint8List(2352);
 
+  Uint8List rawSector = Uint8List(2352);
   final sectorBuffer = List.filled(2352, 0); // 0x930 bytes
   int sectorBufferIndex = 0;
   bool sectorBufferEmpty = true;
@@ -161,6 +163,7 @@ class Cdrom {
       case (0, 3): // hchpctl
         if (value.bit7) {
           if (isBufferNotReadable()) {
+            sectorBuffer.setAll(0, rawSector);
             sectorBufferEmpty = false;
             sectorBufferIndex = 0;
           }
@@ -212,9 +215,11 @@ class Cdrom {
       if (result.delay <= 0) {
         isCmdBusy = false;
 
-        if ((intMask & 0x07) & (result.intNo & 0x07) != 0) {
+        if (!result.triggered &&
+            (intMask & 0x07) & (result.intNo & 0x07) != 0) {
           bus.setIrq(Interrupt.cdrom);
           // debugLog("cdrom: irq ${result.intNo} ${dump()}");
+          result.triggered = true;
         }
       }
     }
@@ -232,9 +237,9 @@ class Cdrom {
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
 
         // read sector
-        sectorBuffer.setAll(0, readDisc(sector));
-        // debugLog(
-        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${sectorBuffer.sublist(isSectorSize924 ? 24 : 12).sublist(0, 8).map((e) => e.hex8).join(" ")} ..]");
+        rawSector = readDisc(sector);
+        debugLog(
+            "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
 
         irq(1, [status()], delay: 0);
 

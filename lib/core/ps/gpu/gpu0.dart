@@ -175,8 +175,8 @@ extension Gpu0 on Gpu {
           bltFromX = cmd[1] & xMask;
           bltPosX = cmd[2] & xMask;
           bltSizeX = cmd[3].maskZeroMax(xMask);
-          debugLog(
-              "GP0 vram to vram blit : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
+          // debugLog(
+          //     "GP0 vram to vram blit: [${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
 
           while (cmdSize == 4) {
             writeFrameBuffer16(

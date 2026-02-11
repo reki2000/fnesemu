@@ -25,16 +25,13 @@ class Dma {
 
   int _channelCtrl = 0;
   int get channelCtrl => _channelCtrl.setBit(24, running);
+
   set channelCtrl(int value) {
     _channelCtrl = value;
     syncMode = value >> 9 & 0x03;
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     running = value.bit24;
-
-    // if (running && (ch == 0 || ch == 1 || ch == 3)) {
-    //   debugLog("DMA$ch: started   ${dump()}");
-    // }
   }
 
   int syncMode = 0;
@@ -75,5 +72,5 @@ class Dma {
       "${useInterrupt ? "I" : "-"}${intterruptOnChunks ? "C" : "-"}  "
       "${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "
       "mode:$syncMode sz:${size.hex24} am:${amount.hex16} incr:$incr "
-      "c:${channelCtrl.hex32} bl:${blockCtrl.hex32} sa:${startAddr.hex32}";
+      "c:${_channelCtrl.hex32} bl:${blockCtrl.hex32} sa:${startAddr.hex32}";
 }

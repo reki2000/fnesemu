@@ -147,9 +147,9 @@ class Bus implements BusR3000 {
           0x1070 => interruptStatus,
           0x1074 => interruptMask,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
-              0x00 => dma[offset >> 8 & 0x07].startAddr,
-              0x04 => dma[offset >> 8 & 0x07].blockCtrl,
-              0x08 => dma[offset >> 8 & 0x07].channelCtrl,
+              0x00 => dma[offset >> 4 & 0x07].startAddr,
+              0x04 => dma[offset >> 4 & 0x07].blockCtrl,
+              0x08 => dma[offset >> 4 & 0x07].channelCtrl,
               _ => ex("DMA")
             },
           0x10f0 => dmaControl,
@@ -219,7 +219,8 @@ class Bus implements BusR3000 {
           0x1801 => cdrom.writePort8(1, v),
           0x1802 => cdrom.writePort8(2, v),
           0x1803 => cdrom.writePort8(3, v),
-          _ => ex("expansion 1")
+          0x10f6 => dmaInterrupt = dmaInterrupt.masked(0x00ff0000, v << 16),
+          _ => ex("** unknwown ** expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
           0x2041 => debugLog("post: $v"),
@@ -249,6 +250,7 @@ class Bus implements BusR3000 {
           0x1048 => serial.writeMode(v),
           0x104a => serial.writeControl(v),
           0x104e => serial.writeBaudrate(v),
+          0x10f6 => dmaInterrupt = dmaInterrupt.setH16(v),
           >= 0x1100 && < 0x1130 => switch (offset & 0x0e) {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
@@ -355,14 +357,13 @@ class Bus implements BusR3000 {
   }
 
   void setIrq(int irqNo) {
-    // debugLog(
-    //     "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32}");
-
     if (interruptStatus.bit(irqNo)) {
       return;
     }
 
     interruptStatus = interruptStatus.setBit(irqNo, true);
+    // debugLog(
+    //     "bus: setIrq: ${irqNo.hex8} istat:${interruptStatus.hex32} imask:${interruptMask.hex32} triggered:${interruptMask & interruptStatus != 0}");
 
     if (interruptMask & interruptStatus != 0) {
       // debugLog(
