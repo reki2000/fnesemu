@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'tracer.dart';
 import 'buffered_stream.dart';
 import 'core.dart';
+import 'tracer.dart';
 import 'types.dart';
 
 /// Parameters for debugging features
@@ -20,6 +20,8 @@ class DebugOption {
   bool log = false;
 
   int breakPoint = -1;
+  int breakClock = 0;
+  bool breackClockEnabled = false;
   int stackPointer = -1;
   List<int> disasmAddress = [];
 
@@ -34,6 +36,13 @@ class Debugger {
     setCore(core);
   }
 
+  reset() {
+    opt.breackClockEnabled = (opt.breakClock > 0);
+    opt.stackPointer = -1;
+    log.clear();
+    pushStream();
+  }
+
   setCore(Core core) {
     this.core = core;
     opt.disasmAddress = List.filled(core.cpuInfos.length, 0);
@@ -46,6 +55,19 @@ class Debugger {
 
   void setDebugView(bool show) {
     opt.showDebugView = show;
+    pushStream();
+  }
+
+  /// ブレークポイントを設定（リセット時の初期化にも使用）
+  void setBreakPoint(int breakPoint) {
+    opt.breakPoint = breakPoint;
+    pushStream();
+  }
+
+  /// ブレーククロックを設定（リセット時の初期化にも使用）
+  void setBreakClock(int breakClock) {
+    opt.breakClock = breakClock;
+    opt.breackClockEnabled = (breakClock > 0);
     pushStream();
   }
 

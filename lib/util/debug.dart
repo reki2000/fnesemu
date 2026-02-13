@@ -9,8 +9,6 @@ class DebugStatus {
   int scanline = 0;
   int pc = 0;
 
-  int breakClock = -1;
-
   @override
   String toString() =>
       "${pc.hex32} $frame ${scanline.toString().padLeft(3, "0")} $clock";

@@ -129,7 +129,7 @@ class CoreController {
 
     _core.reset();
 
-    debugger.log.clear();
+    debugger.reset();
 
     _renderAll();
 
@@ -181,13 +181,16 @@ class CoreController {
 
       cpuExecuted = result.executed(opt.targetCpuNo);
 
-      if (cpuExecuted &&
+      final needBreak = cpuExecuted &&
           opt.showDebugView &&
-          (debugStatus.breakClock == debugStatus.clock ||
+          ((opt.breakClock <= debugStatus.clock && opt.breackClockEnabled) ||
               opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
               _runMode == runModeStep ||
               _runMode == runModeStepOut &&
-                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer)) {
+                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer);
+
+      if (needBreak) {
+        opt.breackClockEnabled = opt.breakClock > debugStatus.clock;
         _renderAll();
         stop();
         return false;

@@ -153,6 +153,7 @@ class Ps extends Core {
     debugStatus.frame = gpu.frame;
     debugStatus.scanline = gpu.scanline;
     debugStatus.pc = cpu.pc;
+
     return ExecResult(cpu.clocks, false, false);
   }
 
@@ -176,6 +177,11 @@ class Ps extends Core {
     cdrom.reset();
     timer.reset();
     bus.reset();
+
+    debugStatus.clock = 0;
+    debugStatus.frame = 0;
+    debugStatus.scanline = 0;
+    debugStatus.pc = cpu.pc;
   }
 
   @override

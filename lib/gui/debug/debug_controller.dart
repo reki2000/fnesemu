@@ -1,7 +1,6 @@
 // Dart imports:
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/util/debug.dart';
 
 import '../../core/core_controller.dart';
 import '../../core/debugger.dart';
@@ -45,7 +44,7 @@ class DebugController extends StatelessWidget {
 
     try {
       final breakPoint = int.parse(v, radix: 16);
-      debugger.opt.breakPoint = breakPoint;
+      debugger.setBreakPoint(breakPoint);
       _showSnackBar(context, "breakpoint: ${breakPoint.hex24}");
     } catch (e) {
       _showSnackBar(context, e.toString());
@@ -59,7 +58,7 @@ class DebugController extends StatelessWidget {
 
     try {
       final clock = int.parse(v);
-      debugStatus.breakClock = clock;
+      debugger.setBreakClock(clock);
       _showSnackBar(context, "breakClock: $clock");
     } catch (e) {
       _showSnackBar(context, e.toString());
@@ -108,18 +107,19 @@ class DebugController extends StatelessWidget {
         SizedBox(
             width: 90,
             child: TextField(
-                controller: TextEditingController(
-                    text: debugStatus.breakClock.toString()),
-                decoration: denseTextDecoration,
-                onChanged: (v) => _setBreakClock(context, v))),
+              controller:
+                  TextEditingController(text: opt.breakClock.toString()),
+              decoration: denseTextDecoration,
+              onSubmitted: (v) => _setBreakClock(context, v),
+            )),
         SizedBox(
             width: 70,
             child: TextField(
-                controller: TextEditingController(
-                    text:
-                        _formatPc(opt.breakPoint, _targetCpu(opt).pcBitWidth)),
-                decoration: denseTextDecoration,
-                onChanged: (v) => _setBreakPoint(context, v, opt))),
+              controller: TextEditingController(
+                  text: _formatPc(opt.breakPoint, _targetCpu(opt).pcBitWidth)),
+              decoration: denseTextDecoration,
+              onSubmitted: (v) => _setBreakPoint(context, v, opt),
+            )),
         _button("Mem", () => debugger.toggleMem()),
         _button("VRAM", () => pushVramPage(context, controller)),
         _button("VDC", () => debugger.toggleVdc()),

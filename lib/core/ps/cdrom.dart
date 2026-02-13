@@ -62,6 +62,19 @@ class Cdrom {
   void reset() {
     isAdpcmBusy = false;
     isCmdBusy = false;
+    isHighSpeed = false;
+    isSectorSize924 = false;
+    isXaAdpcm = false;
+
+    cmdDelay = 0;
+    intMask = 0;
+    bank = 0;
+    data = 0;
+    result = 0;
+
+    isReading = false;
+    sector = 0;
+    sectorBufferIndex = 0;
     sectorBufferEmpty = true;
 
     cmdResults.clear();
