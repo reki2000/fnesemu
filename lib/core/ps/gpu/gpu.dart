@@ -202,7 +202,7 @@ class Gpu {
       return result;
     }
 
-    final clutBase = (clut >> 6 & yMask) * 2048 + (clut << 5 & 0x3e0);
+    final clutBase = (clut >> 6 & yMask) * 2048 + (clut << 5 & 0x7e0);
     try {
       final clutIndex = (clutMode == 1)
           ? frameBuffer[base + u.mask8]
