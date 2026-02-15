@@ -245,7 +245,9 @@ class Ps extends Core {
       cpu.clocks,
       disasm(0, cpu.pc).$1.padRight(44),
       cpu.dump().replaceAll("\n", " "),
-      [for (int i = 0; i < 32; i++) cpu.r[i]]);
+      [for (int i = 0; i < 32; i++) cpu.r[i]],
+      frame: gpu.frame,
+      scanline: gpu.scanline);
 
   @override
   int read(int _, int addr) => (addr >> 28 == 0x07)

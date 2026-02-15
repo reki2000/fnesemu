@@ -53,9 +53,10 @@ class CpuInfo {
 }
 
 class TraceLog {
-  final int pc, cycle;
+  final int pc, cycle, frame, scanline;
   final String disasm, regs;
   final List<int> state;
 
-  const TraceLog(this.pc, this.cycle, this.disasm, this.regs, this.state);
+  const TraceLog(this.pc, this.cycle, this.disasm, this.regs, this.state,
+      {this.frame = 0, this.scanline = 0});
 }

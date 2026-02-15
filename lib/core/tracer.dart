@@ -184,6 +184,7 @@ class Tracer {
     }
 
     _detector.add(line);
-    _stream.add("${log.disasm} ${log.regs} cl:${log.cycle.format3}\n");
+    _stream.add(
+        "${log.disasm} ${log.regs} cl:${log.cycle.format3} f:${log.frame} s:${log.scanline}\n");
   }
 }
