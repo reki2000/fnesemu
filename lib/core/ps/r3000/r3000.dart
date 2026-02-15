@@ -114,7 +114,8 @@ class R3000 {
           ? 0
           : bus.write32(addr & 0xfffffffc, value.mask32);
 
-  void interrupt(bool onoff) => cause = cause.setBit(10, onoff);
+  void setInterruptPending(bool onoff) =>
+      cause = cause.setBit(10, onoff); // set cop0.cuase.ip2 on
 
   /// Executes a single instruction.
   bool step() {
@@ -128,7 +129,7 @@ class R3000 {
     nextDelaySlot = (0, 0);
     immediateSlot = (0, 0);
 
-    if ((cause & 0xff00 == sr & 0xff00) && sr.bit0) {
+    if ((cause & 0xff00 & sr & 0xff00 != 0) && sr.bit0) {
       exception(Exception.interrupt);
     } else {
       try {
@@ -174,9 +175,11 @@ class R3000 {
   }
 
   void exception(int excode, {int? badvaddr}) {
-    sr = sr.masked(0x3f, sr << 2) | 0x02;
+    sr = sr.masked(0x3f, sr << 2) |
+        0x02; // save old mode, ie bit0-1, and set new mode to kernel (0x02)
 
-    cause = cause & ~0x7c | excode << 2;
+    cause &= 0xff00; // clear, keep bit8-15 (IM)
+    cause |= excode << 2;
 
     if (badvaddr != null) {
       this.badvaddr = badvaddr;

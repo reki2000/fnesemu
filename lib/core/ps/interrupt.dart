@@ -37,7 +37,7 @@ class InterruptController {
     if (mask & status != 0) {
       // debugLog(
       //     "bus: setIrq: ${irqNo.hex8} istat:${status.hex32} imask:${mask.hex32}");
-      cpu.interrupt(true);
+      cpu.setInterruptPending(true);
     }
   }
 
@@ -54,7 +54,7 @@ class InterruptController {
     status &= ackValue;
 
     if (mask & status == 0) {
-      cpu.interrupt(false);
+      cpu.setInterruptPending(false);
     }
   }
 }

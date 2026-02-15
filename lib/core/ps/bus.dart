@@ -270,7 +270,7 @@ class Bus implements BusR3000 {
           0x1050 => 0, //ex("memory control 2: RAM base address"),
           0x1060 => 0, //ex("memory control 2: RAM size"),
           0x1070 => interrupt.ackIrq(v),
-          0x1074 => interrupt.mask = v,
+          0x1074 => interrupt.mask = v.mask16,
           >= 0x1080 && < 0x10f0 => switch (offset & 0x0c) {
               0x00 => dma.channels[offset >> 4 & 0x07].startAddr = v,
               0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl = v,
