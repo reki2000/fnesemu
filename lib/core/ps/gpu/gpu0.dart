@@ -17,283 +17,6 @@ extension Gpu0 on Gpu {
     }
   }
 
-  bool handleMultiwordCommand(int value) {
-    final cmd0 = cmdSize == 0 ? value : cmd[0];
-    switch (cmd0 >> 29) {
-      case 0x00: // misc
-        switch (cmd0 >> 24) {
-          case 0x02: // quick rectangle fill
-            cmd[cmdSize++] = value;
-
-            if (cmdSize == 3) {
-              final p0 = Point.of(cmd[1] & 0x01ff03f0, 0, 0);
-              final w = ((cmd[2] & 0x3ff) + 0x0f) & 0x7f0;
-              final h = cmd[2] >> 16 & 0x1ff;
-              final c16 = Color.ofC24(cmd[0]).c15;
-              for (int y = p0.y; y < (p0.y + h).min(512); y++) {
-                for (int x = p0.x; x < (p0.x + w).min(1024); x++) {
-                  pset16(x, y, c16, ignoreWindow: true);
-                }
-              }
-
-              // debugLog(
-              //     "GPU0: quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
-              cmdSize = 0;
-            }
-
-          default:
-            return false;
-        }
-
-      case 0x01: // polygon primitive
-        cmd[cmdSize++] = value;
-
-        final gouraud = cmd[0].bit28;
-        final textured = cmd[0].bit26;
-        final rectangle = cmd[0].bit27;
-
-        final indiceNum = rectangle ? 4 : 3;
-        final size = ((gouraud ? 1 : 0) + (textured ? 1 : 0) + 1) * indiceNum +
-            (gouraud ? 0 : 1);
-
-        if (cmdSize == size) {
-          final c = cmd;
-          final c0 = c[0];
-
-          if (textured) {
-            final clut = c[2] >> 16;
-            final page = c[4] >> 16;
-            renderTexturedPolygon(
-                c0, clut, page, c[1], c[2], c[3], c[4], c[5], c[6]);
-            if (rectangle) {
-              renderTexturedPolygon(
-                  c0, clut, page, c[3], c[4], c[5], c[6], c[7], c[8]);
-            }
-          } else {
-            if (gouraud) {
-              renderGouraudPolygon(c0, c[0], c[1], c[2], c[3], c[4], c[5]);
-              if (rectangle) {
-                renderGouraudPolygon(c0, c[2], c[3], c[4], c[5], c[6], c[7]);
-              }
-            } else {
-              renderFlatPolygon(c0, c[1], c[2], c[3]);
-              if (rectangle) {
-                renderFlatPolygon(c0, c[2], c[3], c[4]);
-              }
-            }
-          }
-
-          // debugLog(
-          //     "GPU0: polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
-          cmdSize = 0;
-        }
-
-      case 0x02: // line primitive
-        cmd[cmdSize++] = value;
-
-        final gouraud = cmd[0].bit28;
-        final polyline = cmd[0].bit27;
-
-        if (polyline && value & 0xf000f000 == 0x50005000) {
-          cmdSize = 0;
-          break;
-        }
-
-        if (gouraud) {
-          if (cmdSize > 3 && !cmdSize.bit0) {
-            renderGouraudLine(cmd[0], cmd[cmdSize - 3], cmd[cmdSize - 1],
-                cmd[cmdSize - 4], cmd[cmdSize - 2]);
-            if (!polyline && cmdSize == 4) {
-              cmdSize = 0;
-            }
-          }
-        } else {
-          if (cmdSize > 2) {
-            renderLine(cmd[0], cmd[cmdSize - 2], cmd[cmdSize - 1]);
-            if (!polyline && cmdSize == 3) {
-              cmdSize = 0;
-            }
-          }
-        }
-
-      case 0x03: // rectangle primitive
-        cmd[cmdSize++] = value;
-
-        final textured = cmd[0].bit26;
-        final size = cmd[0] >> 27 & 3;
-
-        int beginIndex = 2;
-        int sizeIndex = 2;
-
-        if (textured) {
-          beginIndex++;
-          sizeIndex++;
-        }
-
-        if (size == 0) {
-          beginIndex++;
-        }
-
-        if (cmdSize == beginIndex) {
-          final (clut, v0, u0) = !textured
-              ? (0, 0, 0)
-              : (cmd[2] >> 16, cmd[2] >> 8 & 0xff, cmd[2] & 0xff);
-          final (w, h) = switch (size) {
-            0 => (cmd[sizeIndex] & xMask, cmd[sizeIndex] >> 16 & yMask),
-            1 => (1, 1),
-            2 => (8, 8),
-            3 => (16, 16),
-            _ => throw "unreachable",
-          };
-          final (x0, y0) = (cmd[1] & xMask, cmd[1] >> 16 & yMask);
-          for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-              if (textured) {
-                pset16(x0 + x, y0 + y,
-                    getTextureColor(u0 + x, v0 + y, clut, status));
-              } else {
-                pset24(x0 + x, y0 + y, cmd[0].mask24);
-              }
-            }
-          }
-
-          // debugLog(
-          //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
-          //     "($x0, $y0) $w x $h ($u0, $v0) "
-          //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${status.hex16} ${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} ");
-          cmdSize = 0;
-        }
-
-      case 0x04: // vram to vram blit
-        cmd[cmdSize++] = value;
-
-        if (cmdSize == 4) {
-          bltFromY = (cmd[1] >> 16) & yMask;
-          bltPosY = (cmd[2] >> 16) & yMask;
-          bltSizeY = (cmd[3] >> 16).maskZeroMax(yMask);
-
-          bltFromX = cmd[1] & xMask;
-          bltPosX = cmd[2] & xMask;
-          bltSizeX = cmd[3].maskZeroMax(xMask);
-          // debugLog(
-          //     "GP0 vram to vram blit: [${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
-
-          while (cmdSize == 4) {
-            writeFrameBuffer16(
-                bltPosX, bltPosY, readFrameBuffer16(bltFromX, bltFromY));
-            bltFromX++;
-            bltPosX++;
-            bltSizeX--;
-
-            if (bltSizeX <= 0) {
-              bltFromX = cmd[1] & xMask;
-              bltPosX = cmd[2] & xMask;
-              bltSizeX = cmd[3].maskZeroMax(xMask);
-
-              bltFromY++;
-              bltPosY++;
-              bltSizeY--;
-
-              if (bltSizeY <= 0) {
-                cmdSize = 0;
-                return true;
-              }
-            }
-          }
-        }
-        return true;
-
-      case 0x05: // cpu to vram blit
-        if (cmdSize == 3) {
-          for (final v in [value.mask16, value >> 16]) {
-            writeFrameBuffer16(bltPosX, bltPosY, v);
-            bltPosX++;
-            bltSizeX--;
-
-            if (bltSizeX == 0) {
-              bltPosX = cmd[1] & xMask;
-              bltSizeX = cmd[2].maskZeroMax(xMask);
-
-              bltPosY++;
-              bltSizeY--;
-
-              if (bltSizeY == 0) {
-                // debugLog(
-                //     "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ");
-                cmdSize = 0;
-                break;
-              }
-            }
-          }
-
-          return true;
-        }
-
-        cmd[cmdSize++] = value;
-
-        if (cmdSize == 3) {
-          bltPosX = cmd[1] & xMask;
-          bltSizeX = cmd[2].maskZeroMax(xMask);
-
-          bltPosY = cmd[1] >> 16 & yMask;
-          bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
-
-          // debugLog(
-          //     "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
-        }
-
-      case 0x06: // vram to cpu blit
-        cmd[cmdSize++] = value;
-
-        if (cmdSize == 3) {
-          bltFromX = cmd[1] & xMask;
-          bltSizeX = cmd[2].maskZeroMax(xMask);
-
-          bltFromY = cmd[1] >> 16 & yMask;
-          bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
-
-          // debugLog(
-          //     "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
-
-          cmdSize++;
-        }
-
-      default:
-        return false;
-    }
-
-    return true;
-  }
-
-  postRead() {
-    if (cmdSize == 0) {
-      return;
-    }
-
-    readValue = 0;
-    for (int i = 0; i < 2; i++) {
-      readValue |= readFrameBuffer16(bltFromX, bltFromY) << (i * 16);
-      bltFromX++;
-      bltSizeX--;
-
-      if (bltSizeX == 0) {
-        bltFromX = cmd[1] & xMask;
-        bltSizeX = (cmd[2].dec & xMask).inc;
-        bltSizeY--;
-        bltFromY++;
-
-        // debugLog(
-        //     "GPU0: blit vram to cpu:  ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
-
-        if (bltSizeY == 0) {
-          // debugLog("GPU0: blit vram to cpu completed");
-          cmdSize = 0;
-          break;
-        }
-      }
-    }
-  }
-
   bool handleSingleWordCommand(int value) {
     switch (value >> 24) {
       case 0x00: // nop
@@ -346,5 +69,350 @@ extension Gpu0 on Gpu {
     }
 
     return true;
+  }
+
+  bool handleMultiwordCommand(int value) {
+    final cmd0 = cmdSize == 0 ? value : cmd[0];
+
+    // debugLog(
+    //     "gpu0: multiword value:${value.hex32} [${cmd0 >> 29}] cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+
+    switch (cmd0 >> 29) {
+      case 0x00: // misc
+        switch (cmd0 >> 24) {
+          case 0x02: // quick rectangle fill
+            cmdFillRectangle(value);
+
+          default:
+            return false;
+        }
+
+      case 0x01: // polygon primitive
+        cmdDrawPolygon(value);
+
+      case 0x02: // line primitive
+        cmdDrawLine(value);
+
+      case 0x03: // rectangle primitive
+        cmdDrawRectangle(value);
+
+      case 0x04: // vram to vram blit
+        cmdBlitVramToVram(value);
+
+      case 0x05: // cpu to vram blit
+        cmdBlitCpuToVram(value);
+
+      case 0x06: // vram to cpu blit
+        cmdBlitVramToCpu(value);
+
+      default:
+        return false;
+    }
+
+    return true;
+  }
+
+  postRead() {
+    if (cmdSize == 0) {
+      return;
+    }
+
+    readValue = 0;
+    for (int i = 0; i < 2; i++) {
+      readValue |= readFrameBuffer16(bltFromX, bltFromY) << (i * 16);
+      bltFromX++;
+      bltSizeX--;
+
+      if (bltSizeX == 0) {
+        bltFromX = cmd[1] & xMask;
+        bltSizeX = (cmd[2].dec & xMask).inc;
+        bltSizeY--;
+        bltFromY++;
+
+        // debugLog(
+        //     "GPU0: blit vram to cpu:  ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
+
+        if (bltSizeY == 0) {
+          // debugLog("GPU0: blit vram to cpu completed");
+          cmdSize = 0;
+          break;
+        }
+      }
+    }
+  }
+
+  cmdFillRectangle(int value) {
+    cmd[cmdSize++] = value;
+
+    if (cmdSize == 3) {
+      final p0 = Point.of(cmd[1] & 0x01ff03f0, 0, 0);
+      final w = ((cmd[2] & 0x3ff) + 0x0f) & 0x7f0;
+      final h = cmd[2] >> 16 & 0x1ff;
+      final c16 = Color.ofC24(cmd[0]).c15;
+      for (int y = p0.y; y < (p0.y + h).min(512); y++) {
+        for (int x = p0.x; x < (p0.x + w).min(1024); x++) {
+          pset16(x, y, c16, ignoreWindow: true);
+        }
+      }
+
+      // debugLog(
+      //     "GPU0: quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
+      cmdSize = 0;
+    }
+  }
+
+  cmdDrawPolygon(int value) {
+    cmd[cmdSize++] = value;
+
+    final gouraud = cmd[0].bit28;
+    final rectangle = cmd[0].bit27;
+    final textured = cmd[0].bit26;
+
+    final indiceNum = rectangle ? 4 : 3;
+    final size = ((gouraud ? 1 : 0) + (textured ? 1 : 0) + 1) * indiceNum +
+        (gouraud ? 0 : 1);
+
+    if (cmdSize == size) {
+      final c = cmd;
+      final c0 = c[0];
+
+      if (textured) {
+        final clut = c[2] >> 16;
+        final page = c[4] >> 16;
+        renderTexturedPolygon(
+            c0, clut, page, c[1], c[2], c[3], c[4], c[5], c[6]);
+        if (rectangle) {
+          renderTexturedPolygon(
+              c0, clut, page, c[3], c[4], c[5], c[6], c[7], c[8]);
+
+          // if (cmd[1] == 0x01600156 || cmd[1] == 0x0160009a) {
+          //   final (x0, y0) = (c[1] & xMask, c[1] >> 16 & yMask);
+          //   final (u0, v0) = (c[2] & 0xff, c[2] >> 8 & 0xff);
+          //   final (x1, y1) = (c[3] & xMask, c[3] >> 16 & yMask);
+          //   final (u1, v1) = (c[4] & 0xff, c[4] >> 8 & 0xff);
+          //   final (x2, y2) = (c[5] & xMask, c[5] >> 16 & yMask);
+          //   final (u2, v2) = (c[6] & 0xff, c[6] >> 8 & 0xff);
+          //   final (x3, y3) = (c[7] & xMask, c[7] >> 16 & yMask);
+          //   final (u3, v3) = (c[8] & 0xff, c[8] >> 8 & 0xff);
+          //   final (clutX, clutY, clutMode) =
+          //       (clut << 4 & 0x3f0, clut >> 6 & 0x1ff, page >> 7 & 3);
+          //   final (pageX, pageY) = (page << 6 & 0x3c0, page << 4 & 0x100);
+          //   final clutDump = switch (clutMode) {
+          //     0 => List.generate(16, (i) => i)
+          //         .map((i) => frameBuffer
+          //             .getUInt16LE(clutY * 2048 + clutX + i * 2)
+          //             .hex16)
+          //         .join(" "),
+          //     1 => "8bit",
+          //     2 => "16bit",
+          //     _ => "unknown",
+          //   };
+          //   debugLog(
+          //       "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+          //       "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
+          //       "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
+          // }
+        }
+      } else {
+        if (gouraud) {
+          renderGouraudPolygon(c0, c[0], c[1], c[2], c[3], c[4], c[5]);
+          if (rectangle) {
+            renderGouraudPolygon(c0, c[2], c[3], c[4], c[5], c[6], c[7]);
+          }
+        } else {
+          renderFlatPolygon(c0, c[1], c[2], c[3]);
+          if (rectangle) {
+            renderFlatPolygon(c0, c[2], c[3], c[4]);
+            final (x0, y0) = (c[1] & xMask, c[1] >> 16 & yMask);
+            final (x1, y1) = (c[2] & xMask, c[2] >> 16 & yMask);
+            final (x2, y2) = (c[3] & xMask, c[3] >> 16 & yMask);
+            final (x3, y3) = (c[4] & xMask, c[4] >> 16 & yMask);
+            debugLog(
+                "GPU0: flat rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+                "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0}");
+          }
+        }
+      }
+
+      // debugLog(
+      //     "GPU0: polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+      //     "($x0, $y0) $w x $h ($u0, $v0) "
+      //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${page.hex16} ${page << 6 & 0x3c0},${page << 4 & 0x100} c${page >> 7 & 3} ");
+      cmdSize = 0;
+    }
+  }
+
+  cmdDrawLine(int value) {
+    cmd[cmdSize++] = value;
+
+    final gouraud = cmd[0].bit28;
+    final polyline = cmd[0].bit27;
+
+    if (polyline && value & 0xf000f000 == 0x50005000) {
+      cmdSize = 0;
+      return;
+    }
+
+    if (gouraud) {
+      if (cmdSize > 3 && !cmdSize.bit0) {
+        renderGouraudLine(cmd[0], cmd[cmdSize - 3], cmd[cmdSize - 1],
+            cmd[cmdSize - 4], cmd[cmdSize - 2]);
+        if (!polyline && cmdSize == 4) {
+          cmdSize = 0;
+        }
+      }
+    } else {
+      if (cmdSize > 2) {
+        renderLine(cmd[0], cmd[cmdSize - 2], cmd[cmdSize - 1]);
+        if (!polyline && cmdSize == 3) {
+          cmdSize = 0;
+        }
+      }
+    }
+  }
+
+  cmdDrawRectangle(int value) {
+    cmd[cmdSize++] = value;
+
+    final textured = cmd[0].bit26;
+    final size = cmd[0] >> 27 & 3;
+
+    int beginIndex = 2;
+    int sizeIndex = 2;
+
+    if (textured) {
+      beginIndex++;
+      sizeIndex++;
+    }
+
+    if (size == 0) {
+      beginIndex++;
+    }
+
+    if (cmdSize == beginIndex) {
+      final (clut, v0, u0) = !textured
+          ? (0, 0, 0)
+          : (cmd[2] >> 16, cmd[2] >> 8 & 0xff, cmd[2] & 0xff);
+      final (w, h) = switch (size) {
+        0 => (cmd[sizeIndex] & xMask, cmd[sizeIndex] >> 16 & yMask),
+        1 => (1, 1),
+        2 => (8, 8),
+        3 => (16, 16),
+        _ => throw "unreachable",
+      };
+      final (x0, y0) = (cmd[1] & xMask, cmd[1] >> 16 & yMask);
+      for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+          if (textured) {
+            pset16(
+                x0 + x, y0 + y, getTextureColor(u0 + x, v0 + y, clut, status));
+          } else {
+            pset24(x0 + x, y0 + y, cmd[0].mask24);
+          }
+        }
+      }
+
+      // debugLog(
+      //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+      //     "($x0, $y0) $w x $h ($u0, $v0) "
+      //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${status.hex16} ${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} ");
+      cmdSize = 0;
+    }
+  }
+
+  cmdBlitVramToVram(int value) {
+    cmd[cmdSize++] = value;
+
+    if (cmdSize == 4) {
+      bltFromY = (cmd[1] >> 16) & yMask;
+      bltPosY = (cmd[2] >> 16) & yMask;
+      bltSizeY = (cmd[3] >> 16).maskZeroMax(yMask);
+
+      bltFromX = cmd[1] & xMask;
+      bltPosX = cmd[2] & xMask;
+      bltSizeX = cmd[3].maskZeroMax(xMask);
+      // debugLog(
+      //     "GP0 vram to vram blit: [${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
+
+      while (cmdSize == 4) {
+        writeFrameBuffer16(
+            bltPosX, bltPosY, readFrameBuffer16(bltFromX, bltFromY));
+        bltFromX++;
+        bltPosX++;
+        bltSizeX--;
+
+        if (bltSizeX <= 0) {
+          bltFromX = cmd[1] & xMask;
+          bltPosX = cmd[2] & xMask;
+          bltSizeX = cmd[3].maskZeroMax(xMask);
+
+          bltFromY++;
+          bltPosY++;
+          bltSizeY--;
+
+          if (bltSizeY <= 0) {
+            cmdSize = 0;
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  cmdBlitCpuToVram(int value) {
+    if (cmdSize == 3) {
+      for (final v in [value.mask16, value >> 16]) {
+        writeFrameBuffer16(bltPosX, bltPosY, v);
+        bltPosX++;
+        bltSizeX--;
+
+        if (bltSizeX == 0) {
+          bltPosX = cmd[1] & xMask;
+          bltSizeX = cmd[2].maskZeroMax(xMask);
+
+          bltPosY++;
+          bltSizeY--;
+
+          if (bltSizeY == 0) {
+            // debugLog(
+            //     "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ");
+            cmdSize = 0;
+            break;
+          }
+        }
+      }
+
+      return;
+    }
+
+    cmd[cmdSize++] = value;
+
+    if (cmdSize == 3) {
+      bltPosX = cmd[1] & xMask;
+      bltSizeX = cmd[2].maskZeroMax(xMask);
+
+      bltPosY = cmd[1] >> 16 & yMask;
+      bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
+
+      // debugLog(
+      //     "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX, $bltPosY) $bltSizeX x $bltSizeY");
+    }
+  }
+
+  cmdBlitVramToCpu(int value) {
+    cmd[cmdSize++] = value;
+
+    if (cmdSize == 3) {
+      bltFromX = cmd[1] & xMask;
+      bltSizeX = cmd[2].maskZeroMax(xMask);
+
+      bltFromY = cmd[1] >> 16 & yMask;
+      bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
+
+      // debugLog(
+      //     "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
+
+      cmdSize++;
+    }
   }
 }
