@@ -36,7 +36,7 @@ class Serial {
   bool get txen => ctrl.bit0; // tx enable (0: disable, 1: enable)
   bool get rxen => ctrl.bit2; // rx enable (0: disable, 1: enable)
   bool get dsrIntEnabled => ctrl.bit12; // dsr interrupt enable
-  bool get port1Selected => ctrl.bit13; // port 1 or 2
+  bool get port1Selected => !ctrl.bit13; // port 1 or 2
 
   int mode = 0; // mode register
 
@@ -166,7 +166,9 @@ class Serial {
 
     // irq acknowledge
     if (ctrl.bit4) {
-      bus.resetIrq(Interrupt.serial);
+      irq = false;
+      irqRequired = false;
+      // bus.resetIrq(Interrupt.serial);
     }
   }
 
