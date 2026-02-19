@@ -111,6 +111,7 @@ class Gpu {
     bltFromY = 0;
 
     scanline = 0;
+    frame = 0;
     isOddFrame = false;
 
     cmd.fillRange(0, cmd.length, 0);
@@ -247,17 +248,21 @@ class Gpu {
   }
 
   pset16(int x, int y, int c16, {bool ignoreWindow = false}) {
-    x += drawingOffsetX;
-    y += drawingOffsetY;
-
-    if (x < 0 || x >= 1024 || y < 0 || y >= 512) {
-      return;
+    if (!ignoreWindow) {
+      x += drawingOffsetX;
+      y += drawingOffsetY;
+      if ((x < drawingX1 ||
+          x >= drawingX2 ||
+          y < drawingY1 ||
+          y >= drawingY2)) {
+        return;
+      }
+    } else {
+      if (x < 0 || x >= 1024 || y < 0 || y >= 512) {
+        return;
+      }
     }
 
-    if (!ignoreWindow &&
-        (x < drawingX1 || x >= drawingX2 || y < drawingY1 || y >= drawingY2)) {
-      return;
-    }
     final old = frameBuffer.getUInt16LE(y * 2048 + x * 2);
 
     if (status.bit12 && old.bit15) {
