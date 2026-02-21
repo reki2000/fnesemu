@@ -73,8 +73,8 @@ class Mdec {
         switch (command) {
           case Mdec.commandDecode:
             decodeStep(0xfe00); // EOB
-            debugLog(
-                "mdec: decode command completes oIdx:${decoder.outputIndex} ${dump()}");
+          // debugLog(
+          //     "mdec: decode command completes oIdx:${decoder.outputIndex} lenOutput:${output.length} ${dump()}");
           case Mdec.commandSetQuant:
             setQuant();
           case Mdec.commandSetScale:
@@ -98,7 +98,7 @@ class Mdec {
         signed = value.bit24;
         bit15Set = value.bit23;
         command = Mdec.commandDecode;
-        debugLog("mdec: decode command ${value.hex32} ${dump()}");
+        // debugLog("mdec: decode command ${value.hex32} ${dump()}");
         break;
 
       case 0x02: // SetQuant
