@@ -10,6 +10,8 @@ class DmaChannel {
 
   final int clocks;
 
+  int priority = 0;
+
   int _startAddr = 0;
   int get startAddr => _startAddr;
   set startAddr(int value) {
@@ -36,7 +38,7 @@ class DmaChannel {
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     running = value.bit24;
-    // if (running && ch == 2) {
+    // if (running && (ch == 1 || ch == 2)) {
     //   debugLog("DMA$ch: started   ${dump()} ");
     // }
   }
@@ -72,9 +74,10 @@ class DmaChannel {
     interruptOnChunks = false;
     toRam = false;
     incr = 0;
+    priority = 0;
   }
 
-  String dump() => "DMA$ch: ${running ? "R" : "-"} "
+  String dump() => "DMA$ch: pr:$priority ${running ? "R" : "-"} "
       "${enabled ? "E" : "-"} "
       "${useInterrupt ? "I" : "-"}${interruptOnChunks ? "C" : "-"}  "
       "${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "
@@ -102,7 +105,9 @@ class Dma {
   set control(int value) {
     _control = value;
     for (var ch = 0; ch < 7; ch++) {
-      channels[ch].enabled = (value >> (3 + ch * 4)).bit0;
+      channels[ch].enabled = value.bit3;
+      channels[ch].priority = value & 0x07;
+      value >>= 4;
       // debugLog(
       //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.hex32} ra:${bus.cpu.r[31].hex32}");
     }
@@ -174,98 +179,98 @@ class Dma {
   }
 
   void exec(int count) {
+    // find highest priority channel
+    DmaChannel? target;
     for (int ch = 0; ch < 7; ch++) {
       final d = channels[ch];
+      if (d.enabled && d.running) {
+        if (target == null || target.priority > d.priority) {
+          target = d;
+        }
+      }
+    }
 
-      if (!d.enabled || !d.running) {
-        continue;
+    if (target == null) {
+      return;
+    }
+
+    final DmaChannel d = target;
+
+    if (d.ch == 6) {
+      // OTC
+      if (d.syncMode != 0 || !d.toRam) {
+        return;
       }
 
-      // debugLog("DMA$ch: started   ${d.dump()} ra:${bus.cpu.r[31].hex32}");
-
-      if (ch == 6) {
-        // OTC
-        if (d.syncMode != 0 || !d.toRam) {
-          continue;
-        }
-
-        for (d.size--; d.size > 0; d.size--) {
-          final writeAddr = d.addr;
-          d.addr = d.addr.dec4 & 0x1ffffc;
-          bus.write32(writeAddr, d.addr);
-        }
-
-        bus.write32(d.addr, 0xffffff);
-        completeDma(ch);
-        continue;
+      for (d.size--; d.size > 0; d.size--) {
+        final writeAddr = d.addr;
+        d.addr = d.addr.dec4 & 0x1ffffc;
+        bus.write32(writeAddr, d.addr);
       }
 
-      switch (d.syncMode) {
-        case 0: // Burst
-          while (count > 0) {
-            transfer32(ch, d);
-            d.addr += d.incr;
+      bus.write32(d.addr, 0xffffff);
+      completeDma(d.ch);
+      return;
+    }
 
-            d.size--;
-            if (d.size <= 0) {
-              completeDma(ch);
+    switch (d.syncMode) {
+      case 0: // Burst. TODO: chopping mode
+        while (count > 0) {
+          transfer32(d.ch, d);
+          d.addr += d.incr;
+
+          d.size--;
+          if (d.size <= 0) {
+            completeDma(d.ch);
+            break;
+          }
+          // count -= d.clocks; // dma should lock the bus
+        }
+
+      case 1: // Slice
+        while (count > 0) {
+          transfer32(d.ch, d);
+          d.addr += d.incr;
+
+          d.size--;
+          if (d.size <= 0) {
+            d.amount--;
+
+            if (d.amount <= 0) {
+              completeDma(d.ch);
               break;
             }
 
-            count -= d.clocks;
+            completeDma(d.ch, partial: true);
+            d.size = d.initialSize;
+          }
+          // count -= d.clocks; // dma should lock the bus
+        }
+
+      case 2: // Linked List
+        while (d.addr.mask24 != 0xffffff) {
+          final node = bus.read32(d.addr);
+
+          if (node == 0) {
+            debugLog(
+                "DMA${d.ch}: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
+            break;
           }
 
-        case 1: // Slice
-          while (count > 0) {
-            transfer32(ch, d);
-            d.addr += d.incr;
-
-            d.size--;
-            if (d.size <= 0) {
-              d.amount--;
-
-              if (d.amount <= 0) {
-                completeDma(ch);
-                break;
-              }
-
-              completeDma(ch, partial: true);
-
-              d.size = d.initialSize;
-            }
-
-            count -= d.clocks;
+          for (int i = 0; i < node >> 24; i++) {
+            d.addr = (d.addr + d.incr) & 0x1ffffc;
+            final val = bus.read32(d.addr);
+            bus.write32(d.ioAddr, val);
           }
 
-        case 2: // Linked List
-          int count = 0;
-          int chunks = 0;
-          while (d.addr.mask24 != 0xffffff) {
-            final node = bus.read32(d.addr);
+          d.addr = node.mask24;
 
-            if (node == 0) {
-              debugLog(
-                  "DMA$ch: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
-              break;
-            }
+          completeDma(d.ch, partial: true);
+        }
+        // debugLog(
+        //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
 
-            for (int i = 0; i < node >> 24; i++) {
-              d.addr = (d.addr + d.incr) & 0x1ffffc;
-              final val = bus.read32(d.addr);
-              bus.write32(d.ioAddr, val);
-              count++;
-            }
-
-            d.addr = node.mask24;
-
-            completeDma(ch, partial: true);
-            chunks++;
-          }
-          // debugLog(
-          //     "DMA$ch: completed linked list. count:$count chunks:$chunks ${d.dump()} ra:${bus.cpu.r[31].hex32}");
-
-          completeDma(ch);
-      }
+        completeDma(d.ch);
     }
   }
 
@@ -275,10 +280,10 @@ class Dma {
     if (!partial) {
       d.running = false;
 
-      // if (ch == 0 || ch == 1 || ch == 3) {
+      // if (ch == 1 || ch == 2) {
       //   // MDEC
-      // debugLog(
-      //     "DMA$ch: completed ${_control.hex32} ${_interrupt.hex32} ${d.dump()}");
+      //   debugLog(
+      //       "DMA$ch: completed ${d.dump()} ctl:${_control.hex32} int:${_interrupt.hex32} ");
       // }
     }
 
