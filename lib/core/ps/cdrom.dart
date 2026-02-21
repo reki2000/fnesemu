@@ -354,6 +354,12 @@ class Cdrom {
         irq(3, [status(), toc.lastTrackBcd, toc.firstTrackBcd]);
 
       case 0x15: // SeekL
+        isReading = false;
+        irq(3, [status()], delay: 5000);
+        irq(2, [status()], delay: 500000);
+
+      case 0x16: // SeekP
+        isReading = false;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
@@ -376,8 +382,16 @@ class Cdrom {
           debugLog("cdrom: test no params");
         } else {
           switch (paramFifo.elementAt(0)) {
+            case 0x04:
+              irq(3, [status()]);
+            case 0x05:
+              irq(3, [0x01, 0x01]); // SCEx data cd
             case 0x20:
               irq(3, [0x94, 0x09, 0x19, 0xc0]);
+            case 0x21:
+              irq(3, [0x00]);
+            case 0x22:
+              irq(3, [0x11, 0x10]); //"for NETNA".codeUnits);
             default:
               debugLog(
                   "cdrom: unknown test command ${paramFifo.map((e) => e.hex8).join(" ")}");
@@ -415,7 +429,7 @@ class Cdrom {
     "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
     "", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
     "GetParam", // 0x08-0x0f
-    "", "GetLocp", "", "GetTN", "", "SeekL", "", "", "", // 0x10-0x17
+    "", "GetLocp", "", "GetTN", "", "SeekL", "SeekP", "", "", // 0x10-0x17
     "Test", "GetId", "ReadS", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
 }
