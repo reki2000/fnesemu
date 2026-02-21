@@ -36,6 +36,9 @@ class DmaChannel {
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     running = value.bit24;
+    // if (running && ch == 2) {
+    //   debugLog("DMA$ch: started   ${dump()} ");
+    // }
   }
 
   int syncMode = 0;
@@ -100,9 +103,8 @@ class Dma {
     _control = value;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].enabled = (value >> (3 + ch * 4)).bit0;
-
       // debugLog(
-      //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.hex32} ra:${bus.cpu.r[31].hex32} clk:${bus.gpu.frame}:${bus.gpu.scanline}:${bus.cpu.clocks}");
+      //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.hex32} ra:${bus.cpu.r[31].hex32}");
     }
   }
 
@@ -236,6 +238,8 @@ class Dma {
           }
 
         case 2: // Linked List
+          int count = 0;
+          int chunks = 0;
           while (d.addr.mask24 != 0xffffff) {
             final node = bus.read32(d.addr);
 
@@ -249,12 +253,16 @@ class Dma {
               d.addr = (d.addr + d.incr) & 0x1ffffc;
               final val = bus.read32(d.addr);
               bus.write32(d.ioAddr, val);
+              count++;
             }
 
             d.addr = node.mask24;
 
             completeDma(ch, partial: true);
+            chunks++;
           }
+          // debugLog(
+          //     "DMA$ch: completed linked list. count:$count chunks:$chunks ${d.dump()} ra:${bus.cpu.r[31].hex32}");
 
           completeDma(ch);
       }
@@ -269,8 +277,8 @@ class Dma {
 
       // if (ch == 0 || ch == 1 || ch == 3) {
       //   // MDEC
-      //   debugLog(
-      //       "DMA$ch: completed ${_control.hex32} ${_interrupt.hex32} ${d.dump()}");
+      // debugLog(
+      //     "DMA$ch: completed ${_control.hex32} ${_interrupt.hex32} ${d.dump()}");
       // }
     }
 

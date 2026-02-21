@@ -30,13 +30,11 @@ class InterruptController {
       return;
     }
 
-    status = status.setBit(irqNo, true);
     // debugLog(
-    //     "bus: setIrq: ${irqNo.hex8} istat:${status.hex32} imask:${mask.hex32} triggered:${mask & status != 0}");
+    //     "interrupt: setIrq: ${irqNo.hex8} (${_names[irqNo]}) istat:${status.hex16}(${_statToName(status)}) imask:${mask.hex16}(${_statToName(mask)}) triggered:${mask & status.setBit(irqNo, true) != 0}");
+    status = status.setBit(irqNo, true);
 
     if (mask & status != 0) {
-      // debugLog(
-      //     "bus: setIrq: ${irqNo.hex8} istat:${status.hex32} imask:${mask.hex32}");
       cpu.setInterruptPending(true);
     }
   }
@@ -48,7 +46,7 @@ class InterruptController {
   void ackIrq(int ackValue) {
     // if (ackValue.mask16 != 0xffff) {
     //   debugLog(
-    //       'interrupt ack:${ackValue.hex16}(${(~ackValue).hex16})  sr:${cpu.sr.hex32} pc:${cpu.instPc.hex32} istat:${status.hex32} mstat:${mask.hex32}');
+    //       'interrupt: ack:${ackValue.hex16} (${_statToName(~ackValue)})  istat:${status.hex16}(${_statToName(status)}) imask:${mask.hex16}(${_statToName(mask)})  sr:${cpu.sr.hex32} cause:${cpu.cause.hex32}');
     // }
 
     status &= ackValue;
@@ -56,5 +54,31 @@ class InterruptController {
     if (mask & status == 0) {
       cpu.setInterruptPending(false);
     }
+  }
+
+  static const _names = [
+    "vBlank",
+    "gpu",
+    "cdrom",
+    "dma",
+    "timer0",
+    "timer1",
+    "timer2",
+    "serial",
+    "sio",
+    "spu"
+  ];
+
+  String _statToName(int stat) {
+    return _names
+        .asMap()
+        .entries
+        .where((e) => stat.bit(e.key))
+        .map((e) => e.value)
+        .join(" ");
+  }
+
+  String dump() {
+    return "istat:${status.hex16}(${_statToName(status)}) imask:${mask.hex16}(${_statToName(mask)})";
   }
 }

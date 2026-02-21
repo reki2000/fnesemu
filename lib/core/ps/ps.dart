@@ -231,7 +231,7 @@ class Ps extends Core {
     return "${disasm(0, cpu.pc).$1}\n${cpu.dump()} cy:${cpu.clocks}\n"
         "${range(0, 7).map((ch) => bus.dma.channels[ch].dump()).join("\n")}\n"
         "${timer.timers.map((t) => t.dump()).join(" ")}\n"
-        "istat:${bus.interrupt.status.hex32} imask:${bus.interrupt.mask.hex32}\n"
+        "${bus.interrupt.dump()}\n"
         "${gpu.dump()}\n"
         "${spu.dump()}\n"
         "${serial.dump()}\n"

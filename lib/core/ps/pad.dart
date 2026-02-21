@@ -64,9 +64,9 @@ class Pad extends SioDevice {
 
   @override
   SioResponse notify(int txData, bool dsr) {
-    if (padStep != waitAddr) {
-      // debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
-    }
+    // if (padStep != waitAddr) {
+    //   debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
+    // }
 
     switch (padStep) {
       case waitAddr:

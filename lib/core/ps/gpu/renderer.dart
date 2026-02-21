@@ -19,13 +19,12 @@ extension GpuRenderer on Gpu {
     // }
 
     int bufIndex = width *
-        (height == 480 ? (scanline * 2 + (isOddFrame ? 1 : 0)) : scanline);
+        (height == 240 ? scanline : (scanline * 2 + (isOddFrame ? 1 : 0)));
     final y = startDisplayY + scanline;
 
     // Choose appropriate rendering method based on color depth
     if (y < 512 && scanline < 240) {
-      int fbIndex =
-          2048 * (y + (height == 240 ? 0 : (y + (isOddFrame ? 1 : 0))));
+      int fbIndex = 2048 * (height == 240 ? y : (y * 2 + (isOddFrame ? 1 : 0)));
 
       if (isRgb24) {
         for (int x = 0; x < width; x++) {
@@ -36,6 +35,8 @@ extension GpuRenderer on Gpu {
           fbIndex += 3;
         }
       } else {
+        // debugLog(
+        //     "GPU: renderScanline y:$y scanline:$scanline startDisplayX:$startDisplayX fbIndex:$fbIndex");
         for (int x = startDisplayX; x < width; x++) {
           buffer[bufIndex++] =
               c15ToAbgr32[frameBuffer.getUInt16LE(fbIndex + x * 2) & 0x7fff];
