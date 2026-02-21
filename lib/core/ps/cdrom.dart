@@ -58,6 +58,8 @@ class Cdrom {
 
   final paramFifo = ListQueue<int>();
   final cmdResults = Queue<CmdResult>();
+  final resultFifo = Queue<int>();
+  int currentIntNo = 0;
 
   void reset() {
     isAdpcmBusy = false;
@@ -71,6 +73,7 @@ class Cdrom {
     bank = 0;
     data = 0;
     result = 0;
+    currentIntNo = 0;
 
     isReading = false;
     sector = 0;
@@ -79,6 +82,7 @@ class Cdrom {
 
     cmdResults.clear();
     paramFifo.clear();
+    resultFifo.clear();
   }
 
   bool isBufferNotReadable() =>
@@ -112,20 +116,11 @@ class Cdrom {
 
   int readCmdResult() {
     // debugLog("cdrom: readFifo ${dump()}");
-    if (cmdResults.isEmpty) {
+    if (resultFifo.isEmpty) {
       return 0;
     }
 
-    if (cmdResults.first.fifo.isEmpty) {
-      return 0;
-    }
-
-    final result = cmdResults.first.fifo.removeFirst();
-    if (cmdResults.first.ack && cmdResults.first.fifo.isEmpty) {
-      cmdResults.removeFirst();
-    }
-
-    return result;
+    return resultFifo.removeFirst();
   }
 
   int readPort8(int reg) {
@@ -134,16 +129,12 @@ class Cdrom {
           .setBit(2, isAdpcmBusy)
           .setBit(3, paramFifo.isEmpty)
           .setBit(4, paramFifo.length < 16)
-          .setBit(5, cmdResults.isNotEmpty && cmdResults.first.fifo.isNotEmpty)
+          .setBit(5, resultFifo.isNotEmpty)
           .setBit(6, !sectorBufferEmpty)
           .setBit(7, isCmdBusy),
       1 => readCmdResult(),
       2 => readBuffer8(),
-      3 => 0xe0 |
-          (bank.bit0
-                  ? (cmdResults.isEmpty ? 0 : cmdResults.first.intNo)
-                  : intMask) &
-              0x1f,
+      3 => 0xe0 | (bank.bit0 ? currentIntNo : intMask) & 0x1f,
       _ => 0,
     };
     // if (reg != 2) {
@@ -198,11 +189,9 @@ class Cdrom {
         if (value.bit7) {
           // reset decoder
         }
-        if (cmdResults.isNotEmpty) {
-          cmdResults.first.ack = true;
-          if (cmdResults.first.fifo.isEmpty) {
-            cmdResults.removeFirst();
-          }
+        if (value & 0x7 != 0) {
+          // irq ack
+          currentIntNo = 0;
         }
 
       case (2, 2): // atv0
@@ -225,14 +214,15 @@ class Cdrom {
       final result = cmdResults.first;
       result.delay -= clocks;
 
-      if (result.delay <= 0) {
+      if (result.delay <= 0 && currentIntNo == 0) {
         isCmdBusy = false;
+        currentIntNo = result.intNo;
+        resultFifo.addAll(result.fifo);
+        cmdResults.removeFirst();
 
-        if (!result.triggered &&
-            (intMask & 0x07) & (result.intNo & 0x07) != 0) {
+        if ((intMask & result.intNo & 0x07) != 0) {
           bus.setIrq(Interrupt.cdrom);
           // debugLog("cdrom: irq ${result.intNo} ${dump()}");
-          result.triggered = true;
         }
       }
     }
@@ -251,8 +241,8 @@ class Cdrom {
 
         // read sector
         rawSector = readDisc(sector);
-        debugLog(
-            "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
+        // debugLog(
+        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
 
         irq(1, [status()], delay: 0);
 
@@ -353,6 +343,13 @@ class Cdrom {
       case 0x0f: // GetParam
         irq(3, [status(), mode, 0x00, file, channel]);
 
+      case 0x11: // GetLocp
+        final currentSector = isReading ? sector : 0;
+        final mm = (currentSector ~/ (60 * 75)).asBcd;
+        final ss = ((currentSector ~/ 75) % 60).asBcd;
+        final ff = (currentSector % 75).asBcd;
+        irq(3, [01, 01, mm, ss, ff, mm, ss, ff]);
+
       case 0x13: // GetTN
         irq(3, [status(), toc.lastTrackBcd, toc.firstTrackBcd]);
 
@@ -418,7 +415,7 @@ class Cdrom {
     "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
     "", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
     "GetParam", // 0x08-0x0f
-    "", "", "", "GetTN", "", "SeekL", "", "", "", // 0x10-0x17
+    "", "GetLocp", "", "GetTN", "", "SeekL", "", "", "", // 0x10-0x17
     "Test", "GetId", "ReadS", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
 }
