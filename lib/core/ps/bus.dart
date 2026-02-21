@@ -78,7 +78,7 @@ class Bus implements BusR3000 {
     ex(s) => _unimplemented("read32", s, addr, 0);
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00200000 => mem.getUInt32LE(offset),
+      >= 0x00000000 && < 0x00800000 => mem.getUInt32LE(offset & 0x1fffff),
       >= 0x1f000000 && < 0x1f000100 => ex("expansion rom header"),
       >= 0x1f000000 && < 0x1f008000 => ex("expansion 1"),
       >= 0x1f800000 && < 0x1f800400 => useScratchPad
@@ -160,7 +160,7 @@ class Bus implements BusR3000 {
     ex(s) => _unimplemented("write8", s, addr, v);
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00200000 => writeMem8(offset, v),
+      >= 0x00000000 && < 0x00800000 => writeMem8(offset & 0x1fffff, v),
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
@@ -191,7 +191,7 @@ class Bus implements BusR3000 {
     ex(s) => _unimplemented("write16", s, addr, v);
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00200000 => mem.setUInt16LE(offset, v),
+      >= 0x00000000 && < 0x00800000 => mem.setUInt16LE(offset & 0x1fffff, v),
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad.setUInt16LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
@@ -252,7 +252,7 @@ class Bus implements BusR3000 {
     ex(s) => _unimplemented("write32", s, addr, v);
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00200000 => mem.setUInt32LE(offset, v),
+      >= 0x00000000 && < 0x00800000 => mem.setUInt32LE(offset & 0x1fffff, v),
       >= 0x1f000000 && < 0x1f008000 => ex("expansion 1"),
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad.setUInt32LE(offset - 0x1f800000, v) : 0,
