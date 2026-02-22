@@ -91,6 +91,8 @@ class Ps extends Core {
     bus.rom.setAll(0, body);
 
     cdrom.closeShell();
+
+    memoryCard.load(MemoryCard.blankImage); // formatted blank memory card
   }
 
   int nextScanlineClock = 0;

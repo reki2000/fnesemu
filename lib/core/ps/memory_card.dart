@@ -34,6 +34,25 @@ class MemoryCard extends SioDevice {
 
   get flag => firstReadDone ? 0 : 0x08;
 
+  static final Uint8List blankImage = _initBlankImage();
+
+  static Uint8List _initBlankImage() {
+    final image = Uint8List(128 * 1024);
+    image[0] = "M".codeUnitAt(0); // ID0
+    image[1] = "C".codeUnitAt(0); // ID1
+    for (int i = 1 * 128; i < 15 * 128; i += 128) {
+      image[i] = 0xa0; // free block
+    }
+    for (int i = 0; i < 64 * 128; i += 128) {
+      int checkSum = 0;
+      for (int j = 0; j < 127; j++) {
+        checkSum ^= image[i + j];
+      }
+      image[i + 127] = checkSum;
+    }
+    return image;
+  }
+
   @override
   void reset() {
     step = waitAddr;
@@ -46,6 +65,10 @@ class MemoryCard extends SioDevice {
     step = waitAddr;
     count = 0;
     addr = 0;
+  }
+
+  void load(Uint8List data) {
+    mem.setAll(0, data);
   }
 
   SioResponse ack(int data) {
