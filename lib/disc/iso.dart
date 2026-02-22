@@ -30,7 +30,7 @@ class IsoDisc extends Disc {
     try {
       data = File(path).readAsBytesSync();
       debugLog(
-          "disc: iso: Loading disc image from $path. ${data.length.format3} bytes.");
+          "disc: iso: Loaded disc image from $path. ${data.length.format3} bytes.");
     } catch (e) {
       debugLog("disc: iso: Error on loading disc image from $path. $e");
       return false;

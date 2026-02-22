@@ -138,9 +138,32 @@ main(List<String> args) async {
   core.setRom(bios);
 
   final disc = DiscLoader.load(args[1]);
+
   core.setDisc(disc);
 
   core.reset();
+
+  if (false) {
+    // fast boot
+    final systemCnf =
+        String.fromCharCodes(disc.loadIso9660File("SYSTEM.CNF;1"));
+    print("debug: SYSTEM.CNF content:\n$systemCnf");
+    final bootFileName = systemCnf
+        .split("\n")
+        .firstWhere(
+          (line) => line.startsWith("BOOT = cdrom:\\"),
+          orElse: () => "BOOT = cdrom:\\",
+        )
+        .substring(14)
+        .trim();
+    if (bootFileName.isEmpty) {
+      print("debug: BOOT file not found in SYSTEM.CNF");
+    } else {
+      print("debug: boot file $bootFileName");
+      final boot = disc.loadIso9660File(bootFileName);
+      core.setRom(boot);
+    }
+  }
 
   if (args.length > 2) {
     final exe = File(args[2]).readAsBytesSync();
