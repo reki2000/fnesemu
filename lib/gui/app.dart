@@ -206,6 +206,7 @@ class MainPageState extends State<MainPage> {
 
                   // debug view if enabled
                   if (_debugging) ...[
+                    DebugController(controller: _controller),
                     SizedBox(
                         width: 640,
                         child: SingleChildScrollView(
@@ -217,7 +218,6 @@ class MainPageState extends State<MainPage> {
                                       style: debugStyle,
                                       showCursor: true,
                                     )))),
-                    DebugController(controller: _controller),
                   ],
                 ],
               ),
