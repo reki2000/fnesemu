@@ -229,22 +229,26 @@ class Gpu {
     }
   }
 
-  pset24(int x, int y, int c24, {bool ignoreWindow = false}) {
-    // if (status.bit9) {
-    //   // dithering
-    //   const dither = [
-    //     [0, 8, 2, 10],
-    //     [12, 4, 14, 6],
-    //     [3, 11, 1, 9],
-    //     [15, 7, 13, 5]
-    //   ];
-    //   final d = dither[y & 3][x & 3];
-    //   final c = Color.ofC24(c24);
-    //   final c2 = Color(c.r + d, c.g + d, c.b + d);
-    //   pset16(x, y, c2.c15, ignoreWindow: ignoreWindow);
-    //   return;
-    // }
-    pset16(x, y, Color.ofC24(c24).c15, ignoreWindow: ignoreWindow);
+  pset24(int x, int y, int c24,
+      {bool ignoreWindow = false,
+      bool transparent = false,
+      bool dither = false}) {
+    var c = Color.ofC24(c24);
+
+    if (status.bit9 && dither) {
+      // dithering
+      const dither = [
+        [0, 8, 2, 10],
+        [12, 4, 14, 6],
+        [3, 11, 1, 9],
+        [15, 7, 13, 5]
+      ];
+      final d = dither[y & 3][x & 3];
+      c = Color(c.r + d, c.g + d, c.b + d);
+    }
+
+    pset16(x, y, c.c15 | (transparent ? 0x8000 : 0),
+        ignoreWindow: ignoreWindow);
   }
 
   pset16(int x, int y, int c16, {bool ignoreWindow = false}) {
@@ -265,12 +269,43 @@ class Gpu {
 
     final old = frameBuffer.getUInt16LE(y * 2048 + x * 2);
 
+    // write protected
     if (status.bit12 && old.bit15) {
+      // if (x == 11 && y == 136) {
+      //   debugLog(
+      //       "gpu: write protected old:${old.hex16} status:${status.hex16} ");
+      // }
       return;
     }
 
-    frameBuffer.setUInt16LE(
-        y * 2048 + x * 2, c16 | (status.bit13 ? (1 << 15) : 0));
+    // semi-transparency
+    if (c16.bit15) {
+      final (r0, g0, b0) = (old & 0x1f, old >> 5 & 0x1f, old >> 10 & 0x1f);
+      final (r1, g1, b1) = (c16 & 0x1f, c16 >> 5 & 0x1f, c16 >> 10 & 0x1f);
+      // if (x == 11 && y == 136) {
+      //   debugLog("gpu: semi transparency old:${old.hex16} new:${c16.hex16} "
+      //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
+      //       "mode:${status >> 5 & 0x03}");
+      // }
+      c16 = switch (status >> 5 & 0x03) {
+        0 => ((b0 + b1) >> 1) << 10 |
+            ((g0 + g1) >> 1) << 5 |
+            ((r0 + r1) >> 1), // B/2+F/2
+        1 => (b0 + b1).min(31) << 10 |
+            (g0 + g1).min(31) << 5 |
+            (r0 + r1).min(31), // B+F
+        2 => (b0 - b1).max(0) << 10 |
+            (g0 - g1).max(0) << 5 |
+            (r0 - r1).max(0), // B-F
+        _ => (b0 + (b1 >> 2)).min(31) << 10 |
+            (g0 + (g1 >> 2)).min(31) << 5 |
+            (r0 + (r1 >> 2)).min(31) // B+F/4
+      };
+    }
+
+    final forceBit15 = status.bit11 ? 0x8000 : 0;
+
+    frameBuffer.setUInt16LE(y * 2048 + x * 2, c16 | forceBit15);
   }
 
   String dump() =>

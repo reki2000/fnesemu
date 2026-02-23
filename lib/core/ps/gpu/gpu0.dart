@@ -153,7 +153,7 @@ extension Gpu0 on Gpu {
       final c16 = Color.ofC24(cmd[0]).c15;
       for (int y = p0.y; y < (p0.y + h).min(512); y++) {
         for (int x = p0.x; x < (p0.x + w).min(1024); x++) {
-          pset16(x, y, c16, ignoreWindow: true);
+          writeFrameBuffer16(x, y, c16);
         }
       }
 
@@ -293,6 +293,7 @@ extension Gpu0 on Gpu {
     }
 
     if (cmdSize == beginIndex) {
+      final transparent = cmd[0].bit25;
       final (clut, v0, u0) = !textured
           ? (0, 0, 0)
           : (cmd[2] >> 16, cmd[2] >> 8 & 0xff, cmd[2] & 0xff);
@@ -307,17 +308,19 @@ extension Gpu0 on Gpu {
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
           if (textured) {
-            pset16(
-                x0 + x, y0 + y, getTextureColor(u0 + x, v0 + y, clut, status));
+            final c16 = getTextureColor(u0 + x, v0 + y, clut, status);
+            if (c16 != 0) {
+              pset16(x0 + x, y0 + y, c16);
+            }
           } else {
-            pset24(x0 + x, y0 + y, cmd[0].mask24);
+            pset24(x0 + x, y0 + y, cmd[0].mask24, transparent: transparent);
           }
         }
       }
 
       // debugLog(
       //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
-      //     "($x0, $y0) $w x $h ($u0, $v0) "
+      //     "($x0, $y0) $w x $h ($u0, $v0) tr:${transparent ? "semitr" : "opaque"} ${textured ? "tex" : "---"} "
       //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${status.hex16} ${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} ");
       cmdSize = 0;
     }
@@ -337,9 +340,12 @@ extension Gpu0 on Gpu {
       // debugLog(
       //     "GP0 vram to vram blit: [${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
 
+      final forceMask = status.bit11 ? 0x8000 : 0;
       while (cmdSize == 4) {
-        writeFrameBuffer16(
-            bltPosX, bltPosY, readFrameBuffer16(bltFromX, bltFromY));
+        if (!status.bit12 || !readFrameBuffer16(bltPosX, bltPosY).bit15) {
+          writeFrameBuffer16(bltPosX, bltPosY,
+              readFrameBuffer16(bltFromX, bltFromY) | forceMask);
+        }
         bltFromX++;
         bltPosX++;
         bltSizeX--;
@@ -364,8 +370,11 @@ extension Gpu0 on Gpu {
 
   cmdBlitCpuToVram(int value) {
     if (cmdSize == 3) {
+      final forceMask = status.bit11 ? 0x8000 : 0;
       for (final v in [value.mask16, value >> 16]) {
-        writeFrameBuffer16(bltPosX, bltPosY, v);
+        if (!status.bit12 || !readFrameBuffer16(bltPosX, bltPosY).bit15) {
+          writeFrameBuffer16(bltPosX, bltPosY, v | forceMask);
+        }
         bltPosX++;
         bltSizeX--;
 
