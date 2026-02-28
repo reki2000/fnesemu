@@ -88,7 +88,7 @@ class TraceLogger {
 List<String> handleOptions(List<String> args) {
   if (args.length < 2) {
     print(
-      "Usage: dart ps_test.dart [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
+      "Usage: dart ps_test.dart [-f] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
     );
     return [];
   }
@@ -113,6 +113,12 @@ List<String> handleOptions(List<String> args) {
         traceCycleEnd = int.parse(parts[1]);
       }
       args = args.sublist(2);
+      continue;
+    }
+
+    if (args[0] == "-f") {
+      core.fastBoot = true;
+      args = args.sublist(1);
       continue;
     }
 
@@ -142,28 +148,6 @@ main(List<String> args) async {
   core.setDisc(disc);
 
   core.reset();
-
-  if (false) {
-    // fast boot
-    final systemCnf =
-        String.fromCharCodes(disc.loadIso9660File("SYSTEM.CNF;1"));
-    print("debug: SYSTEM.CNF content:\n$systemCnf");
-    final bootFileName = systemCnf
-        .split("\n")
-        .firstWhere(
-          (line) => line.startsWith("BOOT = cdrom:\\"),
-          orElse: () => "BOOT = cdrom:\\",
-        )
-        .substring(14)
-        .trim();
-    if (bootFileName.isEmpty) {
-      print("debug: BOOT file not found in SYSTEM.CNF");
-    } else {
-      print("debug: boot file $bootFileName");
-      final boot = disc.loadIso9660File(bootFileName);
-      core.setRom(boot);
-    }
-  }
 
   if (args.length > 2) {
     final exe = File(args[2]).readAsBytesSync();

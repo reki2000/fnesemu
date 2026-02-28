@@ -110,24 +110,30 @@ extension Hook on R3000 {
     }
 
     // exe sideloading
-    if (pc == 0x80030000 && exe.length > 0x400) {
-      pc = exe.getUInt32LE(0x10);
-      nextPc = pc.inc4.mask32;
-
-      r[28] = exe.getUInt32LE(0x14);
-      if (exe.getUInt32LE(0x30) != 0) {
-        r[29] = r[30] = exe.getUInt32LE(0x30);
+    if (pc == 0x80030000) {
+      if (exe.length > 0x400) {
+        runExe();
       }
-
-      final loadAddr = exe.getUInt32LE(0x18);
-      final size = exe.getUInt32LE(0x1c);
-      const headerSize = 0x800;
-      for (int i = 0; i < exe.length - headerSize; i += 4) {
-        write32(i + loadAddr, exe.getUInt32LE(i + headerSize));
-      }
-
-      debugLog(
-          "exe sideloaded on ${loadAddr.hex32} size:${size.hex32} entry:${pc.hex32}");
     }
+  }
+
+  void runExe() {
+    pc = exe.getUInt32LE(0x10);
+    nextPc = pc.inc4.mask32;
+
+    r[28] = exe.getUInt32LE(0x14);
+    if (exe.getUInt32LE(0x30) != 0) {
+      r[29] = r[30] = exe.getUInt32LE(0x30);
+    }
+
+    final loadAddr = exe.getUInt32LE(0x18);
+    final size = exe.getUInt32LE(0x1c);
+    const headerSize = 0x800;
+    for (int i = 0; i < exe.length - headerSize; i += 4) {
+      write32(i + loadAddr, exe.getUInt32LE(i + headerSize));
+    }
+
+    debugLog(
+        "exe sideloaded on ${loadAddr.hex32} size:${size.hex32} entry:${pc.hex32}");
   }
 }

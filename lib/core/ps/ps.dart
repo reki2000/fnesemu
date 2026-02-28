@@ -4,7 +4,8 @@ import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
 import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/core/ps/timer.dart';
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/uint8list.dart';
+import 'package:fnesemu/util/util.dart' show range;
 
 import '../../util/debug.dart';
 import '../core.dart';
@@ -35,6 +36,8 @@ class Ps extends Core {
   late final Cdrom cdrom;
   late final Mdec mdec;
   late final Dma dma;
+
+  bool fastBoot = true;
 
   Ps() : bus = Bus() {
     cpu = R3000(bus);
@@ -89,6 +92,23 @@ class Ps extends Core {
     }
 
     bus.rom.setAll(0, body);
+
+    if (fastBoot) {
+      const fastBootSequence = [
+        // turn display on by writing 0x0300 to GPU I/O: 1f801814 with using only register t2
+        0x3c0a1f80, // lui  t2, 0x1f80
+        0x354a1814, // ori  t2, t2, 0x1814
+        0x340b0300, // ori  t3, zero, 0x0300
+        0xad4b0000, // sw   t3, 0(t2)
+        0x03e00008, // jr   ra
+        0x00000000, // nop
+      ];
+      int patchAddr = 0x18000;
+      for (int b32 in fastBootSequence) {
+        bus.rom.setUInt32LE(patchAddr, b32);
+        patchAddr += 4;
+      }
+    }
 
     cdrom.closeShell();
 

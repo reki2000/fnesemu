@@ -59,7 +59,7 @@ class R3000 {
   // bios putchar() hacking
   final console = StringBuffer();
 
-  // ps-exe bianry to sideload
+  // ps-exe bianry to be sideloaded
   Uint8List exe = Uint8List(0);
 
   void reset() {
