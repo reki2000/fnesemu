@@ -4,10 +4,11 @@ import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fnesemu/core/disc.dart';
+import 'package:fnesemu/disc/empty.dart';
 
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
-import '../disc/disc.dart';
 import '../disc/loader.dart';
 import '../styles.dart';
 import 'core_view.dart';
@@ -22,7 +23,9 @@ part 'loader.dart';
 
 const _isDebug = bool.fromEnvironment("DEBUG", defaultValue: false);
 const _roms = String.fromEnvironment("ROMS", defaultValue: "");
+const _discs = String.fromEnvironment("DISCS", defaultValue: "");
 const _discFile = String.fromEnvironment("DISC", defaultValue: "");
+const _romFile = String.fromEnvironment("ROM", defaultValue: "");
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -57,7 +60,7 @@ class MainPageState extends State<MainPage> {
 
   String _romName = "";
 
-  final Disc _disc = DiscLoader.load(_discFile);
+  Disc _disc = EmptyDisc();
 
   @override
   void initState() {
@@ -72,6 +75,14 @@ class MainPageState extends State<MainPage> {
     _controller.debugger.opt.showDebugView = _isDebug;
 
     _keyHandler = KeyHandler(controller: _controller);
+
+    if (_discFile.isNotEmpty) {
+      _setDiscFile(_discFile);
+    }
+
+    if (_romFile.isNotEmpty) {
+      _loadRomFile(fileName: _romFile);
+    }
   }
 
   @override
@@ -113,6 +124,17 @@ class MainPageState extends State<MainPage> {
     });
 
     setState(() {});
+  }
+
+  _setDiscFile(String fileName) async {
+    _disc = DiscLoader.load(fileName);
+    _controller.setDisc(_disc);
+
+    await _reset();
+
+    if (!_isDebug) {
+      _run();
+    }
   }
 
   _loadRomFile({String fileName = ""}) async {
@@ -158,6 +180,11 @@ class MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(_romName), actions: [
+          // shortcuts from environment variables
+          for (var name in _discs.split(",").where((s) => s.isNotEmpty))
+            iconButton(Icons.album_outlined, name.split(".")[0],
+                () => _do(context, () async => await _setDiscFile(name))),
+
           // shortcuts from environment variables
           for (var name in _roms.split(",").where((s) => s.isNotEmpty))
             iconButton(
