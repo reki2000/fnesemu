@@ -14,6 +14,8 @@ import 'mdec.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
 
+final debugLogAddr = 0x80135b20;
+
 class Bus implements BusR3000 {
   late final Gpu gpu;
   late final R3000 cpu;
@@ -152,8 +154,8 @@ class Bus implements BusR3000 {
 
   @override
   void write8(int addr, int v) {
-    // if (addr == 0x8009bd78) {
-    //   debugLog("bus: write8 to 0x8009bd78: ${v.hex8} pc:${cpu.pc.hex32}");
+    // if (addr == debugLogAddr) {
+    //   debugLog("bus: write8 to ${debugLogAddr.hex32}: ${v.hex8}");
     // }
 
     final offset = addr & segMask[addr >> 29];
@@ -183,8 +185,8 @@ class Bus implements BusR3000 {
 
   @override
   void write16(int addr, int v) {
-    // if (addr == 0x8009bd78) {
-    //   debugLog("bus: write16 to 0x8009bd78: ${v.hex16} pc:${cpu.pc.hex32}");
+    // if (addr == debugLogAddr) {
+    //   debugLog("bus: write16 to ${debugLogAddr.hex32}: ${v.hex16}");
     // }
 
     final offset = addr & segMask[addr >> 29];
@@ -244,8 +246,8 @@ class Bus implements BusR3000 {
 
   @override
   void write32(int addr, int v) {
-    // if (addr == 0xa000e02c) {
-    //   debugLog("bus: write32 to ${addr.hex32}: ${v.hex32} pc:${cpu.pc.hex32}");
+    // if (addr == debugLogAddr) {
+    //   debugLog("bus: write32 to ${debugLogAddr.hex32}: ${v.hex32}");
     // }
 
     final offset = addr & segMask[addr >> 29];

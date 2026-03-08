@@ -32,9 +32,10 @@ extension Cop0 on R3000 {
   void execCop0(int inst32) {
     switch (inst32 & 0x3f) {
       case 0x10: // rfe
-        // debugLog("rfe ${dump()}");
         sr = sr.masked(0x0f, sr >> 2);
         sr &= ~0x30;
+      // debugLog(
+      //     "cpu: rfe sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}");
       default:
         R3000._unknown(inst32);
     }

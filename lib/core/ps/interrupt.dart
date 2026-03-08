@@ -31,7 +31,7 @@ class InterruptController {
     }
 
     // debugLog(
-    //     "interrupt: setIrq: ${irqNo.hex8} (${_names[irqNo]}) istat:${status.hex16}(${_statToName(status)}) imask:${mask.hex16}(${_statToName(mask)}) triggered:${mask & status.setBit(irqNo, true) != 0}");
+    //     "interrupt: set:${irqNo.hex16}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} triggered:${mask & status.setBit(irqNo, true) != 0}");
     status = status.setBit(irqNo, true);
 
     if (mask & status != 0) {
@@ -46,7 +46,7 @@ class InterruptController {
   void ackIrq(int ackValue) {
     // if (ackValue.mask16 != 0xffff) {
     //   debugLog(
-    //       'interrupt: ack:${ackValue.hex16} (${_statToName(~ackValue)})  istat:${status.hex16}(${_statToName(status)}) imask:${mask.hex16}(${_statToName(mask)})  sr:${cpu.sr.hex32} cause:${cpu.cause.hex32}');
+    //       'interrupt: ack:${ackValue.hex16}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32}');
     // }
 
     status &= ackValue;
@@ -57,14 +57,14 @@ class InterruptController {
   }
 
   static const _names = [
-    "vBlank",
+    "vBl",
     "gpu",
-    "cdrom",
+    "cdr",
     "dma",
-    "timer0",
-    "timer1",
-    "timer2",
-    "serial",
+    "ti0",
+    "ti1",
+    "ti2",
+    "ser",
     "sio",
     "spu"
   ];
@@ -73,8 +73,7 @@ class InterruptController {
     return _names
         .asMap()
         .entries
-        .where((e) => stat.bit(e.key))
-        .map((e) => e.value)
+        .map((e) => stat.bit(e.key) ? e.value : "   ")
         .join(" ");
   }
 

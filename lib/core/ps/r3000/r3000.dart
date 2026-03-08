@@ -197,8 +197,7 @@ class R3000 {
     nextPc = pc.inc4;
 
     // debugLog(
-    //     "cpu: [$clocks] exception  excode:${excode.hex8} istat:${bus.read32(0x1f801070).hex16} "
-    //     "sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32} pc:${instPc.hex32} ");
+    //     "cpu: exception  excode:${excode.hex8} sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}");
   }
 
   /// Main instruction dispatch.
