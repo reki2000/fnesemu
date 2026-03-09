@@ -57,20 +57,11 @@ class Timer {
       .setBit(12, reachFfff);
 
   void trigger() {
-    if (repeatMode || !triggered) {
-      final prev = intRequested;
-      if (toggleMode) {
-        intRequested = !intRequested;
-      } else {
-        intRequested = true;
-        ttl = 3;
-      }
-
-      intRequested = toggleMode ? !intRequested : true;
-      triggered = true;
-      if (!prev && intRequested) {
-        bus.setIrq(Interrupt.timer0 + no);
-      }
+    if (toggleMode) {
+      intRequested = !intRequested;
+    } else {
+      intRequested = true;
+      ttl = 3;
     }
   }
 
@@ -89,7 +80,7 @@ class Timer {
     counter++;
     counter &= 0xffff;
 
-    if (counter == 0) {
+    if (counter == 0xffff) {
       reachFfff = true;
       if (irqWhenFfff) {
         trigger();
@@ -99,13 +90,18 @@ class Timer {
     if (counter == target) {
       reachTarget = true;
 
-      if (resetAfterTarget && sync) {
+      if (resetAfterTarget) {
         counter = 0;
       }
 
       if (irqWhenTarget) {
         trigger();
       }
+    }
+
+    if (intRequested && (repeatMode || !triggered)) {
+      bus.setIrq(Interrupt.timer0 + no);
+      triggered = true;
     }
   }
 
@@ -140,7 +136,11 @@ class Timer {
     }
   }
 
-  String dump() => "Timer$no: ${mode.hex16} ${counter.hex16}/${target.hex16}";
+  String dump() => "Timer$no: ${mode.hex16} ${counter.hex16}/${target.hex16} "
+      "sync:${!sync ? '-' : syncMode} src:${sourceSystemClock ? 'S' : 'E'} "
+      "${repeatMode ? "R" : "1"} ${toggleMode ? "toggl" : "pulse"} "
+      "${resetAfterTarget ? "0" : "-"} "
+      "irq:${irqWhenTarget ? "T" : "-"}${irqWhenFfff ? "F" : "-"}";
 }
 
 class TimerController {
@@ -188,12 +188,13 @@ class TimerController {
       timers[1].clock();
     }
 
-    // clock source = systemClockHz/8
     if (timers[2].sourceSystemClock) {
       timers[2].clock();
     } else {
+      // clock source = systemClockHz/8
       systemClockCounter++;
-      if (systemClockCounter & 0x07 == 0) {
+      systemClockCounter &= 0x07;
+      if (systemClockCounter == 0) {
         timers[2].clock();
       }
     }
@@ -221,7 +222,7 @@ class TimerController {
     t.toggleMode = mode.bit7;
     t.sourceSystemClock = no == 2 ? !mode.bit9 : !mode.bit8;
     t.triggered = false;
-    t.pause = no != 2 && t.sync && t.syncMode == 3;
+    t.pause = no == 2 && t.sync && (t.syncMode == 3 || t.syncMode == 0);
     t.counter = 0;
     t.reachTarget = false;
     t.reachFfff = false;

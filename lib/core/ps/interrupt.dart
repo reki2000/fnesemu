@@ -32,15 +32,12 @@ class InterruptController {
 
     // debugLog(
     //     "interrupt: set:${irqNo.hex16}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} triggered:${mask & status.setBit(irqNo, true) != 0}");
+
     status = status.setBit(irqNo, true);
 
     if (mask & status != 0) {
       cpu.setInterruptPending(true);
     }
-  }
-
-  void resetIrq(int irqNo) {
-    ackIrq(~(1 << irqNo));
   }
 
   void ackIrq(int ackValue) {

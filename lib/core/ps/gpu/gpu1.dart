@@ -16,7 +16,7 @@ extension Gpu1 on Gpu {
 
       case 0x02: // acknowledge interrupt
         irq1 = false;
-        bus.resetIrq(Interrupt.gpu);
+      //bus.resetIrq(Interrupt.gpu);
 
       case 0x03: // display enable
         status = status.setBit(28, value.bit0);

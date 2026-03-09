@@ -312,10 +312,6 @@ class Bus implements BusR3000 {
     interrupt.setIrq(irqNo);
   }
 
-  void resetIrq(int irqNo) {
-    interrupt.resetIrq(irqNo);
-  }
-
   int _unimplemented(String op, String device, int addr, int value) {
     debugLog('$op: unknown ${addr.hex32} <= ${value.hex32} $device');
     return 0xffffffff;

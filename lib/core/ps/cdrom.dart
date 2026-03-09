@@ -58,8 +58,6 @@ class Cdrom {
 
   final paramFifo = ListQueue<int>();
   final cmdResults = Queue<CmdResult>();
-  final resultFifo = Queue<int>();
-  int currentIntNo = 0;
 
   void reset() {
     isAdpcmBusy = false;
@@ -73,7 +71,6 @@ class Cdrom {
     bank = 0;
     data = 0;
     result = 0;
-    currentIntNo = 0;
 
     isReading = false;
     sector = 0;
@@ -82,7 +79,6 @@ class Cdrom {
 
     cmdResults.clear();
     paramFifo.clear();
-    resultFifo.clear();
   }
 
   bool isBufferNotReadable() =>
@@ -114,32 +110,27 @@ class Cdrom {
     return data;
   }
 
-  int readCmdResult() {
-    // debugLog("cdrom: readFifo ${dump()}");
-    if (resultFifo.isEmpty) {
-      return 0;
-    }
-
-    return resultFifo.removeFirst();
-  }
-
   int readPort8(int reg) {
     final result = switch (reg) {
       0 => bank
           .setBit(2, isAdpcmBusy)
           .setBit(3, paramFifo.isEmpty)
           .setBit(4, paramFifo.length < 16)
-          .setBit(5, resultFifo.isNotEmpty)
+          .setBit(5, cmdResults.isNotEmpty && cmdResults.first.fifo.isNotEmpty)
           .setBit(6, !sectorBufferEmpty)
           .setBit(7, isCmdBusy),
       1 => readCmdResult(),
       2 => readBuffer8(),
-      3 => 0xe0 | (bank.bit0 ? currentIntNo : intMask) & 0x1f,
+      3 => 0xe0 |
+          (bank.bit0
+                  ? (cmdResults.isNotEmpty ? cmdResults.first.intNo : 0)
+                  : intMask) &
+              0x1f,
       _ => 0,
     };
     // if (reg != 2) {
     //   debugLog("cdrom: read8 $bank-$reg => ${result.hex8} ${dump()}");
-    // }
+    //
     return result;
   }
 
@@ -191,7 +182,12 @@ class Cdrom {
         }
         if (value & 0x7 != 0) {
           // irq ack
-          currentIntNo = 0;
+          if (cmdResults.isNotEmpty) {
+            cmdResults.first.ack = true;
+            if (cmdResults.first.fifo.isEmpty) {
+              cmdResults.removeFirst();
+            }
+          }
         }
 
       case (2, 2): // atv0
@@ -214,11 +210,8 @@ class Cdrom {
       final result = cmdResults.first;
       result.delay -= clocks;
 
-      if (result.delay <= 0 && currentIntNo == 0) {
+      if (result.delay <= 0) {
         isCmdBusy = false;
-        currentIntNo = result.intNo;
-        resultFifo.addAll(result.fifo);
-        cmdResults.removeFirst();
 
         if ((intMask & result.intNo & 0x07) != 0) {
           bus.setIrq(Interrupt.cdrom);
@@ -249,6 +242,23 @@ class Cdrom {
         sector++;
       }
     }
+  }
+
+  int readCmdResult() {
+    // debugLog("cdrom: readFifo ${dump()}");
+    if (cmdResults.isNotEmpty) {
+      final result = cmdResults.first;
+      final fifo = result.fifo;
+      if (fifo.isNotEmpty) {
+        final ret = fifo.removeFirst();
+        if (fifo.isEmpty && result.ack) {
+          cmdResults.removeFirst();
+        }
+        return ret;
+      }
+    }
+
+    return 0;
   }
 
   void irq(int no, List<int> data, {int delay = 50000}) {

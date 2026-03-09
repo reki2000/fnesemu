@@ -4,6 +4,8 @@ import '../../util/debug.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
+final debugLogChannel = [];
+
 class DmaChannel {
   final int ioAddr;
   final int ch;
@@ -38,9 +40,9 @@ class DmaChannel {
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     running = value.bit24;
-    // if (running && (ch == 1 || ch == 2)) {
-    //   debugLog("DMA$ch: started   ${dump()} ");
-    // }
+    if (running && (debugLogChannel.contains(ch))) {
+      debugLog("DMA$ch: started   ${dump()} ");
+    }
   }
 
   int syncMode = 0;
@@ -53,8 +55,8 @@ class DmaChannel {
 
   bool running = false;
 
-  bool useInterrupt = false;
-  bool interruptOnChunks = false;
+  bool irqOnComplete = false;
+  bool irqOnChunks = false;
 
   bool toRam = false;
   int incr = 0;
@@ -70,8 +72,8 @@ class DmaChannel {
     addr = 0;
     enabled = false;
     running = false;
-    useInterrupt = false;
-    interruptOnChunks = false;
+    irqOnComplete = false;
+    irqOnChunks = false;
     toRam = false;
     incr = 0;
     priority = 0;
@@ -79,7 +81,7 @@ class DmaChannel {
 
   String dump() => "DMA$ch: pr:$priority ${running ? "R" : "-"} "
       "${enabled ? "E" : "-"} "
-      "${useInterrupt ? "I" : "-"}${interruptOnChunks ? "C" : "-"}  "
+      "${irqOnComplete ? "I" : "-"}${irqOnChunks ? "C" : "-"}  "
       "${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "
       "mode:$syncMode sz:${size.hex24} am:${amount.hex16} incr:$incr "
       "c:${_channelCtrl.hex32} bl:${blockCtrl.hex32} sa:${startAddr.hex32}";
@@ -114,26 +116,28 @@ class Dma {
   }
 
   int _interrupt = 0;
-  int get interrupt => _interrupt;
+  int get interrupt => _interrupt.setBit(31, _bit31());
   set interrupt(int value) {
     final irqFlags = _interrupt &
         0x7f000000 &
-        ~(value & 0x7f000000); // reset flags at value = 1
-    final bit31 = value.bit15 ||
-        (value.bit23 && (irqFlags >> 24 & value >> 16 & 0x7f) != 0);
-    _interrupt = irqFlags | (value & 0x00ff807f).setBit(31, bit31);
+        ~(value & 0x7f000000); // reset irq flags at value = 1
+    _interrupt = irqFlags | (value & 0x00ff807f);
 
     for (var ch = 0; ch < 7; ch++) {
-      final modeMask = 0x00001 << ch;
-      final useMask = 0x10000 << ch;
-      channels[ch].useInterrupt = value & useMask != 0 && value.bit23;
-      channels[ch].interruptOnChunks = value & modeMask != 0;
+      channels[ch].irqOnComplete = value.bit(ch + 16);
+      channels[ch].irqOnChunks = value.bit(ch);
     }
   }
+
+  bool _irqPending = false;
+
+  bool _bit31() =>
+      _interrupt.bit15 || (_interrupt.bit23 && (_interrupt & 0x7f000000) != 0);
 
   void reset() {
     control = 0;
     interrupt = 0;
+    _irqPending = false;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].reset();
     }
@@ -214,7 +218,7 @@ class Dma {
     }
 
     switch (d.syncMode) {
-      case 0: // Burst. TODO: chopping mode
+      case 0: // Burst.
         while (count > 0) {
           transfer32(d.ch, d);
           d.addr += d.incr;
@@ -241,8 +245,10 @@ class Dma {
               break;
             }
 
-            completeDma(d.ch, partial: true);
             d.size = d.initialSize;
+            // if (d.ch == 1) {
+            //   break; // hack for chopping
+            // }
           }
           // count -= d.clocks; // dma should lock the bus
         }
@@ -264,34 +270,38 @@ class Dma {
           }
 
           d.addr = node.mask24;
-
-          completeDma(d.ch, partial: true);
         }
         // debugLog(
         //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
 
         completeDma(d.ch);
     }
-  }
 
-  void completeDma(int ch, {bool partial = false}) {
-    final d = channels[ch];
-
-    if (!partial) {
-      d.running = false;
-
-      // if (ch == 1 || ch == 2) {
-      //   // MDEC
-      //   debugLog(
-      //       "DMA$ch: completed ${d.dump()} ctl:${_control.hex32} int:${_interrupt.hex32} ");
-      // }
-    }
-
-    if (d.useInterrupt && (!partial || d.interruptOnChunks)) {
-      _interrupt = _interrupt.setBit(24 + ch, true);
-      // debugLog(
-      //     "DMA$ch: irq cnt:${_control.hex32} int:${_interrupt.hex32} ${d.dump()}");
+    if (_irqPending) {
+      _irqPending = false;
       bus.setIrq(Interrupt.dma);
     }
+  }
+
+  void completeDma(int ch) {
+    final d = channels[ch];
+
+    d.running = false;
+
+    if (debugLogChannel.contains(ch)) {
+      debugLog(
+          "DMA$ch: completed ${d.dump()} ctl:${_control.hex32} int:${_interrupt.hex32} ");
+    }
+
+    if (d.irqOnComplete) {
+      _interrupt = _interrupt.setBit(24 + ch, true);
+      _irqPending = _bit31();
+    }
+    // bus.setIrq(Interrupt.dma);
+    // if (!oldBit31 && _bit31()) {
+    //   // debugLog(
+    //   //     "DMA$ch: irq cnt:${_control.hex32} int:${_interrupt.hex32} ${d.dump()}");
+    //   irqPending = true;
+    // }
   }
 }
