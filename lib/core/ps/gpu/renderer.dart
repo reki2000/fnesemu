@@ -46,19 +46,18 @@ extension GpuRenderer on Gpu {
 
     scanline++;
 
-    if (scanline == 240) {
+    if (scanline == Gpu.scanlinesInFrame - 20) {
       bus.timer.startVBlank();
-      // isOddFrame = false;
-      bus.setIrq(Interrupt.vBlank);
+      isOddFrame = (height == 480) ? !isOddFrame : false;
     }
 
     // Reset scanline at the end of frame
     if (scanline == Gpu.scanlinesInFrame) {
+      bus.setIrq(Interrupt.vBlank);
       bus.timer.endVBlank();
       // bus.resetIrq(Interrupt.vBlank);
       scanline = 0;
       frame++;
-      isOddFrame = (height == 480) ? !isOddFrame : false;
     }
   }
 }
