@@ -118,10 +118,12 @@ class Dma {
   int _interrupt = 0;
   int get interrupt => _interrupt.setBit(31, _bit31());
   set interrupt(int value) {
+    // debugLog("DMA: interrupt set ${value.hex32} -> ${interrupt.hex32}");
     final irqFlags = _interrupt &
         0x7f000000 &
         ~(value & 0x7f000000); // reset irq flags at value = 1
     _interrupt = irqFlags | (value & 0x00ff807f);
+    // debugLog("DMA: interrupt set -> ${interrupt.hex32}");
 
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].irqOnComplete = value.bit(ch + 16);
