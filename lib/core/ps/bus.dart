@@ -171,7 +171,8 @@ class Bus implements BusR3000 {
           0x1801 => cdrom.writePort8(1, v),
           0x1802 => cdrom.writePort8(2, v),
           0x1803 => cdrom.writePort8(3, v),
-          0x10f6 => dma.interrupt = dma.interrupt.masked(0x00ff0000, v << 16),
+          0x10f6 => dma.interrupt =
+              dma.interrupt.masked(0xffff0000, (v << 16) | 0xff00),
           _ => ex("** unknwown ** expansion 1")
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
