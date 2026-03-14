@@ -169,22 +169,21 @@ class Gpu {
 
   writeFrameBuffer16(int x, int y, int u16) {
     final offset = y * 2048 + x * 2;
+    // if ((offset >= 0xf0000 && offset < 0xf0020)) {
+    //   debugLog(
+    //       "writeFrameBuffer16: ${u16.hex16} at ($x, $y) offset:${offset.hex32} cmd:${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}");
+    // }
     frameBuffer.setUInt16LE(offset, u16);
-  }
-
-  writeFrameBuffer32(int x, int y, int u32) {
-    final offset = y * 2048 + x * 2;
-    frameBuffer.setUInt32LE(offset, u32);
   }
 
   int readFrameBuffer16(int x, int y) {
     final offset = y * 2048 + x * 2;
+    // if ((offset >= 0xf0000 && offset < 0xf0020)) {
+    //   final result = frameBuffer.getUInt16LE(offset);
+    //   debugLog(
+    //       "readFrameBuffer16: value ${result.hex16} at ($x, $y) offset:${offset.hex32} cmd:${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}");
+    // }
     return frameBuffer.getUInt16LE(offset);
-  }
-
-  int readFrameBuffer32(int x, int y) {
-    final offset = y * 2048 + x * 2;
-    return frameBuffer.getUInt32LE(offset);
   }
 
   int getTextureColor(int u, int v, int clut, int page, {bool debug = false}) {
@@ -203,7 +202,7 @@ class Gpu {
       return result;
     }
 
-    final clutBase = (clut >> 6 & yMask) * 2048 + (clut << 5 & 0x7e0);
+    final clutBase = (clut >> 6 & yMask) * 2048 + ((clut & 0x3f) << 5);
     try {
       final clutIndex = (clutMode == 1)
           ? frameBuffer[base + u.mask8]
@@ -305,7 +304,7 @@ class Gpu {
 
     final forceBit15 = status.bit11 ? 0x8000 : 0;
 
-    frameBuffer.setUInt16LE(y * 2048 + x * 2, c16 | forceBit15);
+    writeFrameBuffer16(x, y, c16 | forceBit15);
   }
 
   String dump() =>

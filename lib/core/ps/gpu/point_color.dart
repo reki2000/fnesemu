@@ -5,12 +5,19 @@ class Color {
   final int g;
   final int b;
 
+  static int c5ToC8(int v) => (v << 3) | (v >> 2);
+
   Color(this.r, this.g, this.b);
 
-  Color.ofC24(int c24)
-      : b = (c24 >> 16) & 0xff,
-        g = (c24 >> 8) & 0xff,
-        r = c24 & 0xff;
+  Color.ofC24(int c)
+      : b = (c >> 16) & 0xff,
+        g = (c >> 8) & 0xff,
+        r = c & 0xff;
+
+  Color.ofC15(int c)
+      : b = c5ToC8((c >> 10) & 0x1f),
+        g = c5ToC8((c >> 5) & 0x1f),
+        r = c5ToC8(c & 0x1f);
 
   int get c24 => b << 16 | g << 8 | r;
   int get c15 => b << 7 & 0x7c00 | g << 2 & 0x3e0 | r >> 3 & 0x1f;

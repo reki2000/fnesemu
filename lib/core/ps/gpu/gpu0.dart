@@ -186,35 +186,7 @@ extension Gpu0 on Gpu {
         if (rectangle) {
           renderTexturedPolygon(
               c0, clut, page, c[3], c[4], c[5], c[6], c[7], c[8]);
-
-          // final (x0, y0) = (c[1] & xMask, c[1] >> 16 & yMask);
-          // final (u0, v0) = (c[2] & 0xff, c[2] >> 8 & 0xff);
-          // final (x1, y1) = (c[3] & xMask, c[3] >> 16 & yMask);
-          // final (u1, v1) = (c[4] & 0xff, c[4] >> 8 & 0xff);
-          // final (x2, y2) = (c[5] & xMask, c[5] >> 16 & yMask);
-          // final (u2, v2) = (c[6] & 0xff, c[6] >> 8 & 0xff);
-          // final (x3, y3) = (c[7] & xMask, c[7] >> 16 & yMask);
-          // final (u3, v3) = (c[8] & 0xff, c[8] >> 8 & 0xff);
-          // final (clutX, clutY, clutMode) =
-          //     (clut << 4 & 0x3f0, clut >> 6 & 0x1ff, page >> 7 & 3);
-          // final (pageX, pageY) = (page << 6 & 0x3c0, page << 4 & 0x100);
-          // final clutDump = switch (clutMode) {
-          //   0 => List.generate(16, (i) => i)
-          //       .map((i) =>
-          //           frameBuffer.getUInt16LE(clutY * 2048 + clutX + i * 2).hex16)
-          //       .join(" "),
-          //   1 => "8bit",
-          //   2 => "16bit",
-          //   _ => "unknown",
-          // };
-          // // debugLog(
-          // //     "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
-          // //     "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
-          // //     "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
-          // debugLog(
-          //     "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
-          //     "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
-          //     "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
+          // debugLogTexturedPolygon(cmd);
         }
       } else {
         if (gouraud) {
@@ -294,9 +266,12 @@ extension Gpu0 on Gpu {
 
     if (cmdSize == beginIndex) {
       final transparent = cmd[0].bit25;
+      final modulated = !cmd[0].bit24;
+
       final (clut, v0, u0) = !textured
           ? (0, 0, 0)
           : (cmd[2] >> 16, cmd[2] >> 8 & 0xff, cmd[2] & 0xff);
+
       final (w, h) = switch (size) {
         0 => (cmd[sizeIndex] & xMask, cmd[sizeIndex] >> 16 & yMask),
         1 => (1, 1),
@@ -304,14 +279,21 @@ extension Gpu0 on Gpu {
         3 => (16, 16),
         _ => throw "unreachable",
       };
+
       final (x0, y0) = (cmd[1] & xMask, cmd[1] >> 16 & yMask);
+
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
           if (textured) {
-            final c16 = getTextureColor(u0 + x, v0 + y, clut, status);
+            final texColor = getTextureColor(u0 + x, v0 + y, clut, status);
+            final c16 = modulated ? modulateC16(texColor, cmd[0]) : texColor;
             if (c16 != 0) {
               pset16(x0 + x, y0 + y, c16);
             }
+            // if (x0 == 222 && y0 == 110) {
+            //   debugLog(
+            //       "GPU0: textured rectangle pixel ($x, $y) color:${c16.hex16}");
+            // }
           } else {
             pset24(x0 + x, y0 + y, cmd[0].mask24, transparent: transparent);
           }
@@ -321,7 +303,9 @@ extension Gpu0 on Gpu {
       // debugLog(
       //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
       //     "($x0, $y0) $w x $h ($u0, $v0) tr:${transparent ? "semitr" : "opaque"} ${textured ? "tex" : "---"} "
-      //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${status.hex16} ${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} ");
+      //     "clut:${clut.hex16} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} page:${status.hex16} "
+      //     "${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} "
+      //     "${textured ? dumpClut(clut, status) : ""}");
       cmdSize = 0;
     }
   }
@@ -424,7 +408,68 @@ extension Gpu0 on Gpu {
       // debugLog(
       //     "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
+      postRead(); // pre-read first 2 pixels
+
       cmdSize++;
+    }
+  }
+
+  int modulateC16(int c16, int mod) {
+    final m24 = Color.ofC24(mod);
+    final c24 = Color.ofC15(c16);
+    final r = 255.min(c24.r * m24.r ~/ 128);
+    final g = 255.min(c24.g * m24.g ~/ 128);
+    final b = 255.min(c24.b * m24.b ~/ 128);
+    return Color(r, g, b).c15 | (c16 & 0x8000);
+  }
+
+  String dumpClut(int clut, int page) {
+    final (clutX, clutY, clutMode) =
+        (clut << 4 & 0x3f0, clut >> 6 & 0x1ff, page >> 7 & 3);
+    final clutBase = clutY * 2048 + clutX * 2;
+
+    final dump = switch (clutMode) {
+      0 => List.generate(16, (i) => i)
+          .map((i) => frameBuffer.getUInt16LE(clutBase + i * 2).hex16)
+          .join(" "),
+      1 => List.generate(256, (i) => i)
+          .map((i) => frameBuffer.getUInt16LE(clutBase + i * 2).hex16)
+          .join(" "),
+      2 => "16bit",
+      _ => "unknown",
+    };
+
+    return "0x${clutBase.hex32} [$dump]";
+  }
+
+  debugLogTexturedPolygon(List<int> c) {
+    final clut = c[2] >> 16;
+    final page = c[4] >> 16;
+
+    final (x0, y0) = (c[1] & xMask, c[1] >> 16 & yMask);
+    final (u0, v0) = (c[2] & 0xff, c[2] >> 8 & 0xff);
+    final (x1, y1) = (c[3] & xMask, c[3] >> 16 & yMask);
+    final (u1, v1) = (c[4] & 0xff, c[4] >> 8 & 0xff);
+    final (x2, y2) = (c[5] & xMask, c[5] >> 16 & yMask);
+    final (u2, v2) = (c[6] & 0xff, c[6] >> 8 & 0xff);
+    final (x3, y3) = (c[7] & xMask, c[7] >> 16 & yMask);
+    final (u3, v3) = (c[8] & 0xff, c[8] >> 8 & 0xff);
+    final (clutX, clutY, clutMode) =
+        (clut << 4 & 0x3f0, clut >> 6 & 0x1ff, page >> 7 & 3);
+    final (pageX, pageY) = (page << 6 & 0x3c0, page << 4 & 0x100);
+    final clutDump = dumpClut(clut, page);
+    // debugLog(
+    //     "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+    //     "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
+    //     "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
+    if (x0 == 0 && y0 == 144) {
+      debugLog(
+          "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+          "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
+          "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
+      debugLog(
+          "GPU0: texture color at (0,144): ${getTextureColor(0, 144, clut, status).hex16}");
+      // renderFlatPolygon(0, c[3], c[5], c[7]);
     }
   }
 }

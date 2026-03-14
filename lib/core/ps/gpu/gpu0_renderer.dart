@@ -116,6 +116,7 @@ extension Gp0Renderer on Gpu {
   bool renderTexturedPolygon(int cmd, int clut, int page, int v0, int t0,
       int v1, int t1, int v2, int t2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, t0, t1, t2);
+    final modulated = !cmd.bit24;
 
     // debugLog(
     //     'GPU0: renderTextured (${p0.x},${p0.y},${p0.u},${p0.v}), (${p1.x},${p1.y},${p1.u},${p1.v}), (${p2.x},${p2.y},${p2.u},${p2.v})');
@@ -127,9 +128,10 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final uv = left.mix(right, x - left.x, right.x - left.x);
-        final c = getTextureColor(uv.u, uv.v, clut, page);
-        if (c != 0) {
-          pset16(x, y, c);
+        final texColor = getTextureColor(uv.u, uv.v, clut, page);
+        final c16 = modulated ? modulateC16(texColor, cmd) : texColor;
+        if (texColor != 0) {
+          pset16(x, y, c16);
         }
       }
     }
