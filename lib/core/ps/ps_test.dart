@@ -8,6 +8,7 @@ import '../../disc/loader.dart';
 import 'ps.dart';
 
 int runSeconds = 10; // run for this many seconds
+int runCycles = -1; // run for this many cycles (overrides runSeconds if >= 0)
 int traceAddress = -1; // start logging from this address
 int traceCycleStart = -1; // start logging from this cycle
 int traceCycleEnd = -1; // end logging at this cycle
@@ -88,7 +89,7 @@ class TraceLogger {
 List<String> handleOptions(List<String> args) {
   if (args.length < 2) {
     print(
-      "Usage: dart ps_test.dart [-f] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
+      "Usage: dart ps_test.dart [-f] [-c runCycles] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
     );
     return [];
   }
@@ -116,15 +117,21 @@ List<String> handleOptions(List<String> args) {
       continue;
     }
 
+    // Initialize logger only if tracing is enabled
+    if (traceAddress >= 0 || traceCycleStart >= 0) {
+      logger.init("trace.log", core.cpuInfos[0], traceAddress);
+    }
+
     if (args[0] == "-f") {
       core.fastBoot = true;
       args = args.sublist(1);
       continue;
     }
 
-    // Initialize logger only if tracing is enabled
-    if (traceAddress >= 0 || traceCycleStart >= 0) {
-      logger.init("trace.log", core.cpuInfos[0], traceAddress);
+    if (args[0] == "-c") {
+      runCycles = int.parse(args[1]);
+      args = args.sublist(2);
+      continue;
     }
 
     break;
@@ -156,7 +163,10 @@ main(List<String> args) async {
 
   bool afterTraceAddress = false;
 
-  for (int i = 0; i < core.systemClockHz * runSeconds; i++) {
+  for (int i = 0;
+      (runCycles < 0 || core.cpu.clocks < runCycles) &&
+          (runSeconds < 0 || core.cpu.clocks < core.systemClockHz * runSeconds);
+      i++) {
     if (!afterTraceAddress &&
         traceAddress >= 0 &&
         core.programCounter(0) == traceAddress) {

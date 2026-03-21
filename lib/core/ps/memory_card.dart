@@ -6,6 +6,7 @@ import '../../util/debug.dart';
 import 'serial.dart' show SioResponse, SioDevice;
 
 class MemoryCard extends SioDevice {
+  static const int waitIgnore = -1;
   static const int waitAddr = 0; //
   static const int waitCommand = 1; //
   static const int waitRwAddrMsb = 2; //
@@ -27,6 +28,7 @@ class MemoryCard extends SioDevice {
   Uint8List mem = Uint8List(128 * 1024); // 128KB
   int addr = 0;
   int count = 0;
+
   bool writeMode = false;
   bool firstReadDone = false;
   int checkSum = 0;
@@ -38,8 +40,7 @@ class MemoryCard extends SioDevice {
 
   static Uint8List _initBlankImage() {
     final image = Uint8List(128 * 1024);
-    image[0] = "M".codeUnitAt(0); // ID0
-    image[1] = "C".codeUnitAt(0); // ID1
+    image.setRange(0, 2, "MC".codeUnits); // ID0, ID1
     for (int i = 1 * 128; i < 15 * 128; i += 128) {
       image[i] = 0xa0; // free block
     }
@@ -71,19 +72,13 @@ class MemoryCard extends SioDevice {
     mem.setAll(0, data);
   }
 
-  SioResponse ack(int data) {
+  SioResponse ack(int data, {int delayCycles = 600}) {
     _pre = data;
-    return SioResponse(data, ack: step != waitAddr);
+    return SioResponse(data, ack: step != waitAddr, delayCycles: delayCycles);
   }
 
-  SioResponse pre() => SioResponse(_pre);
-
   @override
-  SioResponse notify(int txData, bool dsr) {
-    if (step == waitAddr && dsr) {
-      return SioResponse(0, ignored: true, ack: false);
-    }
-
+  SioResponse notify(int txData) {
     // if (step != waitAddr) {
     //   debugLog(
     //       "memcard: notify txData:${txData.hex8} pre:${_pre.hex8} dump:${dump()}");
@@ -131,11 +126,11 @@ class MemoryCard extends SioDevice {
         step = writeMode ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
-        return pre();
+        return ack(_pre, delayCycles: 1200);
 
       case waitCmdAck0:
         step = waitCmdAck1;
-        return ack(0x5c);
+        return ack(0x5c, delayCycles: 1200);
 
       case waitCmdAck1:
         step = waitAddrAck0;
@@ -157,6 +152,8 @@ class MemoryCard extends SioDevice {
         if (count == 0) {
           step = waitReadCheckSum;
         }
+        // debugLog("memcard: read from ${addr.hex16} data:${readData.hex8} "
+        //     "checkSum:${checkSum.hex8} count:$count");
         return ack(readData);
 
       case waitReadCheckSum:
@@ -173,7 +170,7 @@ class MemoryCard extends SioDevice {
         if (count == 0) {
           step = waitWriteCheckSum;
         }
-        return pre();
+        return ack(_pre);
 
       case waitWriteCheckSum:
         if (txData != checkSum) {
@@ -181,14 +178,15 @@ class MemoryCard extends SioDevice {
               "memcard: write checksum error: got:${txData.hex8} expected:${checkSum.hex8}");
         }
         step = waitEnd;
-        return pre(); // 'G' for Good
+        return ack(_pre); // 'G' for Good
 
       case waitEnd:
         step = waitAddr;
         return ack(0x47); // 'G' for Good
     }
 
-    return SioResponse(0, ignored: true, ack: false);
+    step = waitIgnore;
+    return SioResponse(0xff, ignored: true, ack: false);
   }
 
   @override

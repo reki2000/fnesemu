@@ -4,6 +4,7 @@ import '../pad_button.dart';
 import 'serial.dart' show SioResponse, SioDevice;
 
 class Pad extends SioDevice {
+  static const int waitIgnore = -1;
   static const int waitAddr = 0; //
   static const int waitCommand = 1; //
   static const int waitPadNo = 2; //
@@ -12,7 +13,7 @@ class Pad extends SioDevice {
 
   static const controllerNum = 1;
 
-  int buttonValue = 0;
+  int buttonValue = 0xffff;
 
   // (pad button, bit number for status value)
   static const _buttons = [
@@ -63,14 +64,14 @@ class Pad extends SioDevice {
   }
 
   @override
-  SioResponse notify(int txData, bool dsr) {
-    // if (padStep != waitAddr) {
-    //   debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
-    // }
+  SioResponse notify(int txData) {
+    if (padStep != waitAddr) {
+      // debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
+    }
 
     switch (padStep) {
       case waitAddr:
-        if (txData == 0x01 && !dsr) {
+        if (txData == 0x01) {
           // debugLog("pad: 0x01 -> -- <- ${dump()}");
           padStep = waitCommand;
           return SioResponse(0xff);
@@ -97,9 +98,10 @@ class Pad extends SioDevice {
             ack: false);
     }
 
-    return SioResponse(0, ignored: true, ack: false);
+    padStep = waitIgnore;
+    return SioResponse(0xff, ignored: true, ack: false);
   }
 
   @override
-  String dump() => "step:$padStep button:${buttonValue.hex16}";
+  String dump() => "padNo:$padNo step:$padStep button:${buttonValue.hex16}";
 }

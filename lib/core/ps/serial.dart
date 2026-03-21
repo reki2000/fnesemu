@@ -8,7 +8,7 @@ import 'interrupt.dart';
 abstract class SioDevice {
   void reset();
   void resetStep();
-  SioResponse notify(int txData, bool port1);
+  SioResponse notify(int txData);
   String dump();
 }
 
@@ -17,9 +17,21 @@ class SioResponse {
   final int rxData;
   final bool ack;
   final bool clearRxFIfo;
+  final int delayCycles;
 
   const SioResponse(this.rxData,
-      {this.clearRxFIfo = false, this.ack = true, this.ignored = false});
+      {this.clearRxFIfo = false,
+      this.ack = true,
+      this.ignored = false,
+      this.delayCycles = 600});
+}
+
+class RxData {
+  int delay;
+  int data;
+  bool ack;
+
+  RxData(this.data, {this.ack = true, this.delay = 600});
 }
 
 class Serial {
@@ -30,26 +42,29 @@ class Serial {
   Serial(this.bus, this.pad, this.memCard);
 
   final txFifo = Queue<int>(); // send queue from pad to cpu
-  final rxFifo = Queue<int>(); // receive queue from cpu to pad
+  final rxFifo = Queue<RxData>(); // receive queue from cpu to pad
+
+  bool isRxFifoEmpty() {
+    return rxFifo.isEmpty || rxFifo.first.delay > 0;
+  }
 
   int ctrl = 0; // control register
   bool get txen => ctrl.bit0; // tx enable (0: disable, 1: enable)
   bool get rxen => ctrl.bit2; // rx enable (0: disable, 1: enable)
-  bool get dsrIntEnabled => ctrl.bit12; // dsr interrupt enable
+  bool get irqEnabled => ctrl.bit12; // dsr interrupt enable
   bool get port1Selected => !ctrl.bit13; // port 1 or 2
 
   int mode = 0; // mode register
 
   int get status => (timer << 11)
       .setBit(0, txFifo.isEmpty)
-      .setBit(1, rxFifo.isNotEmpty)
+      .setBit(1, !isRxFifoEmpty())
       .setBit(2, txFifo.isEmpty)
-      .setBit(7, !dsr)
+      .setBit(7, dsr)
       .setBit(9, irq); // status register (0x7fff: mask)
 
-  bool dsr = false;
   bool irq = false;
-  bool irqRequired = false;
+  bool dsr = false;
 
   int timer = 0;
   int timerReload = 0;
@@ -58,7 +73,9 @@ class Serial {
   void reset() {
     pad.reset();
     memCard.reset();
-    irqRequired = false;
+
+    irq = false;
+    dsr = false; // /ACK (dsr true = asserted = /ack low)
 
     ctrl = 0;
     mode = 0;
@@ -72,14 +89,21 @@ class Serial {
       timer += timerReload * timerFactor;
     }
 
-    if (irqRequired) {
-      if (dsrIntEnabled) {
-        // debugLog("sio0: irq ${dump().replaceAll("\n", " ")}");
-        bus.setIrq(Interrupt.serial);
+    if (rxFifo.isNotEmpty && rxFifo.first.delay > 0) {
+      final data = rxFifo.first;
+      data.delay -= clocks;
+      if (data.delay <= 0) {
+        // debugLog("sio0: data received ${dump().replaceAll("\n", " ")}");
+        if (data.ack) {
+          if (irqEnabled) {
+            // debugLog("sio0: irq ${dump().replaceAll("\n", " ")}");
+            bus.setIrq(Interrupt.serial);
+          }
+          irq = true;
+        } else {
+          irq = false;
+        }
       }
-
-      irqRequired = false;
-      return;
     }
 
     if (txFifo.isEmpty) {
@@ -88,41 +112,39 @@ class Serial {
 
     final txData = txFifo.removeFirst();
 
-    if (port1Selected) {
-      for (final device in [pad, memCard]) {
-        final response = device.notify(txData, dsr);
-        // debugLog("sio0: notify port1 device: ${device.runtimeType} "
-        //     "txData:${txData.hex8} rxData:${response.rxData.hex8} "
-        //     "ack:${response.ack} ignored:${response.ignored} "
-        //     "${dump().replaceAll("\n", " ")}");
-        if (!response.ignored) {
-          rxFifo.add(response.rxData);
-
-          if (response.ack) {
-            irqRequired = true;
-            irq = true;
-          }
-
-          dsr = response.ack;
-
-          break;
-        }
+    for (final device in [pad, memCard]) {
+      if (!port1Selected) {
+        continue;
       }
+
+      final response = device.notify(txData);
+      // debugLog("sio0: notify port1 device: ${device.runtimeType} "
+      //     "txData:${txData.hex8} rxData:${response.rxData.hex8} "
+      //     "ack:${response.ack} ignored:${response.ignored} "
+      //     "${dump().replaceAll("\n", " ")}");
+      if (response.ignored) {
+        continue;
+      }
+
+      rxFifo.add(RxData(response.rxData,
+          ack: response.ack, delay: response.delayCycles));
+
+      return;
     }
 
-    if (rxFifo.isEmpty) {
-      rxFifo.add(0xff);
-    }
+    rxFifo.add(RxData(0xff, ack: false));
   }
 
   int readData() {
-    if (rxFifo.isEmpty) {
-      return 0xff;
+    if (isRxFifoEmpty()) {
+      // debugLog("sio0: readData: empty 0 ${dump().replaceAll("\n", " ")}");
+      return 0;
     }
 
     final result = rxFifo.removeFirst();
-    // debugLog("sio0: readData: ${result.hex8} ${dump().replaceAll("\n", " ")}");
-    return result;
+    // debugLog(
+    //     "sio0:  read<--: ${result.data.hex8} ${dump().replaceAll("\n", " ")}");
+    return result.data;
   }
 
   int readMode() => mode;
@@ -132,16 +154,17 @@ class Serial {
 
   int readStatus() {
     final result = status;
+    dsr = false; // dsr (=/ack) reset
     // debugLog(
     //     "sio0: readStatus: ${result.hex16} ${dump().replaceAll("\n", " ")}");
     return result;
   }
 
   void writeData(int val) {
-    // debugLog("sio0: writeData: ${val.hex8} ${dump().replaceAll("\n", " ")}");
     if (txFifo.isNotEmpty) {
       return;
     }
+    // debugLog("sio0: write-->: ${val.hex8} ${dump().replaceAll("\n", " ")}");
 
     txFifo.add(val);
   }
@@ -156,7 +179,6 @@ class Serial {
     if (!ctrl.bit1) {
       dsr = false;
       irq = false;
-      irqRequired = false;
       txFifo.clear();
       rxFifo.clear();
       for (final device in [pad, memCard]) {
@@ -167,7 +189,6 @@ class Serial {
     // irq acknowledge
     if (ctrl.bit4) {
       irq = false;
-      irqRequired = false;
       // bus.resetIrq(Interrupt.serial);
     }
   }
@@ -184,8 +205,8 @@ class Serial {
   }
 
   String dump() =>
-      "serial: p:${port1Selected ? "1" : "2"} dsr:${dsr ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} timer:${timer.hex24} "
-      "tx:${txFifo.map((e) => e.hex8).toList()} rx:${rxFifo.map((e) => e.hex8).toList()}\n"
+      "serial: p:${port1Selected ? "1" : "2"} irq:${irq ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} timer:${timer.hex24} "
+      "tx:${txFifo.map((e) => e.hex8).toList()} rx:${rxFifo.map((e) => e.data.hex8).toList()}\n"
       "pad: ${pad.dump()} "
       "memcard: ${memCard.dump()}";
 }
