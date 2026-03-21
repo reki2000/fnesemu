@@ -133,7 +133,7 @@ class MemoryCard extends SioDevice {
         return ack(0x5c, delayCycles: 1200);
 
       case waitCmdAck1:
-        step = waitAddrAck0;
+        step = writeMode ? waitEnd : waitAddrAck0;
         return ack(0x5d);
 
       case waitAddrAck0:
@@ -177,8 +177,8 @@ class MemoryCard extends SioDevice {
           debugLog(
               "memcard: write checksum error: got:${txData.hex8} expected:${checkSum.hex8}");
         }
-        step = waitEnd;
-        return ack(_pre); // 'G' for Good
+        step = waitCmdAck0;
+        return ack(_pre);
 
       case waitEnd:
         step = waitAddr;

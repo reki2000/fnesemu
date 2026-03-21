@@ -37,9 +37,10 @@ class RxData {
 class Serial {
   final Bus bus;
   final SioDevice pad;
-  final SioDevice memCard;
+  final SioDevice memCard1;
+  final SioDevice memCard2;
 
-  Serial(this.bus, this.pad, this.memCard);
+  Serial(this.bus, this.pad, this.memCard1, this.memCard2);
 
   final txFifo = Queue<int>(); // send queue from pad to cpu
   final rxFifo = Queue<RxData>(); // receive queue from cpu to pad
@@ -72,7 +73,7 @@ class Serial {
 
   void reset() {
     pad.reset();
-    memCard.reset();
+    memCard1.reset();
 
     irq = false;
     dsr = false; // /ACK (dsr true = asserted = /ack low)
@@ -112,16 +113,16 @@ class Serial {
 
     final txData = txFifo.removeFirst();
 
-    for (final device in [pad, memCard]) {
-      if (!port1Selected) {
-        continue;
-      }
-
+    for (final device in port1Selected ? [pad, memCard1] : [memCard2]) {
       final response = device.notify(txData);
-      // debugLog("sio0: notify port1 device: ${device.runtimeType} "
-      //     "txData:${txData.hex8} rxData:${response.rxData.hex8} "
-      //     "ack:${response.ack} ignored:${response.ignored} "
-      //     "${dump().replaceAll("\n", " ")}");
+
+      // if (device.runtimeType != Pad) {
+      //   debugLog(
+      //       "sio0: notify port${port1Selected ? "1" : "2"} ${device.runtimeType} "
+      //       "txData:${txData.hex8} rxData:${response.rxData.hex8} "
+      //       "ack:${response.ack} ignored:${response.ignored} "
+      //       "${dump().replaceAll("\n", " ")}");
+      // }
       if (response.ignored) {
         continue;
       }
@@ -181,7 +182,7 @@ class Serial {
       irq = false;
       txFifo.clear();
       rxFifo.clear();
-      for (final device in [pad, memCard]) {
+      for (final device in [pad, memCard1, memCard2]) {
         device.resetStep();
       }
     }
@@ -208,5 +209,6 @@ class Serial {
       "serial: p:${port1Selected ? "1" : "2"} irq:${irq ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} timer:${timer.hex24} "
       "tx:${txFifo.map((e) => e.hex8).toList()} rx:${rxFifo.map((e) => e.data.hex8).toList()}\n"
       "pad: ${pad.dump()} "
-      "memcard: ${memCard.dump()}";
+      "mcd1: ${memCard1.dump()} "
+      "mcd2: ${memCard2.dump()}";
 }

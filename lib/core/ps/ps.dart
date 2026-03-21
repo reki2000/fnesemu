@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
@@ -30,6 +31,7 @@ class Ps extends Core {
   late final Gpu gpu;
   late final Pad pad;
   late final MemoryCard memoryCard;
+  late final MemoryCard memoryCard2;
   late final Serial serial;
   late final Spu spu;
   late final TimerController timer;
@@ -44,7 +46,8 @@ class Ps extends Core {
     gpu = Gpu(bus);
     pad = Pad();
     memoryCard = MemoryCard();
-    serial = Serial(bus, pad, memoryCard);
+    memoryCard2 = MemoryCard();
+    serial = Serial(bus, pad, memoryCard, memoryCard2);
     spu = Spu(bus);
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
@@ -112,7 +115,15 @@ class Ps extends Core {
 
     cdrom.closeShell();
 
-    memoryCard.load(MemoryCard.blankImage); // formatted blank memory card
+    const memCardFile = String.fromEnvironment("MEMCARD", defaultValue: "");
+    if (memCardFile.isNotEmpty) {
+      memoryCard.load(Uint8List.fromList(File(memCardFile).readAsBytesSync()));
+      debugLog("memcard: loaded from $memCardFile");
+    } else {
+      memoryCard.load(MemoryCard.blankImage); // formatted blank memory card
+      debugLog("memcard: created blank image");
+    }
+    memoryCard2.load(MemoryCard.blankImage); // formatted blank memory card
   }
 
   int nextScanlineClock = 0;
