@@ -22,12 +22,12 @@ class Pad extends SioDevice {
     (PadButton.left, 7),
     (PadButton.right, 5),
     (PadButton("Select"), 0), // 4
-    (PadButton("Start"), 3), // 5
     (PadButton("^"), 12), // 6
-    (PadButton("o"), 13), // 7
-    (PadButton("x"), 14), // 8
     (PadButton("#"), 15), // 9
+    (PadButton("x"), 14), // 8
+    (PadButton("o"), 13), // 7
     (PadButton("L1"), 10), // 10
+    (PadButton("Start"), 3), // 5
     (PadButton("R1"), 11), // 11
   ];
 
