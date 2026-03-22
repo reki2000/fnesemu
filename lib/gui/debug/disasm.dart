@@ -83,7 +83,7 @@ class DebugDisasm extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
+                    Row(spacing: 3, children: [
                       _button("--", () => _addrInc(-0x400)),
                       _button("-", () => _addrInc(-0x20)),
                       SizedBox(

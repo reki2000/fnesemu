@@ -16,8 +16,14 @@ class DebugController extends StatelessWidget {
   DebugController({super.key, required this.controller})
       : debugger = controller.debugger;
 
-  Widget _button(String text, void Function() func) =>
-      TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
+  Widget _button(BuildContext context, String text, void Function() func) =>
+      TextButton(
+          style: textButtonMinimum.copyWith(
+              foregroundColor: WidgetStateProperty.all(Colors.white),
+              backgroundColor:
+                  WidgetStateProperty.all(Theme.of(context).primaryColor)),
+          onPressed: func,
+          child: Text(text));
 
   void _showSnackBar(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -88,22 +94,23 @@ class DebugController extends StatelessWidget {
           : pc.hex16;
 
   Widget body(BuildContext context, DebugOption opt) =>
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        _button(_targetCpu(opt).name, _toggleTargtCpu),
-        _button("Step", () {
+      Row(spacing: 3, mainAxisAlignment: MainAxisAlignment.center, children: [
+        _button(context, _targetCpu(opt).name, _toggleTargtCpu),
+        _button(context, "Step", () {
           controller.run(mode: CoreController.runModeStep);
         }),
-        _button("Next", () {
+        _button(context, "Next", () {
           opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
           controller.run();
         }),
-        _button("StepOut", () {
+        _button(context, "StepOut", () {
           opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
           controller.run(mode: CoreController.runModeStepOut);
         }),
-        _button("Line", () => controller.run(mode: CoreController.runModeLine)),
-        _button(
-            "Frame", () => controller.run(mode: CoreController.runModeFrame)),
+        _button(context, "Line",
+            () => controller.run(mode: CoreController.runModeLine)),
+        _button(context, "Frame",
+            () => controller.run(mode: CoreController.runModeFrame)),
         SizedBox(
             width: 90,
             child: TextField(
@@ -120,9 +127,9 @@ class DebugController extends StatelessWidget {
               decoration: denseTextDecoration,
               onSubmitted: (v) => _setBreakPoint(context, v, opt),
             )),
-        _button("Mem", () => debugger.toggleMem()),
-        _button("VRAM", () => pushVramPage(context, controller)),
-        _button("VDC", () => debugger.toggleVdc()),
-        _button("Log", () => debugger.toggleLog()),
+        _button(context, "Mem", () => debugger.toggleMem()),
+        _button(context, "VRAM", () => pushVramPage(context, controller)),
+        _button(context, "VDC", () => debugger.toggleVdc()),
+        _button(context, "Log", () => debugger.toggleLog()),
       ]);
 }

@@ -4,7 +4,7 @@ import '../../util/debug.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
-final debugLogChannel = [];
+final List<int> debugLogChannel = [];
 
 class DmaChannel {
   final int ioAddr;
