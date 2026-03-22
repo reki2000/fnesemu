@@ -74,6 +74,7 @@ extension Gp0Renderer on Gpu {
   bool renderFlatPolygon(int cmd, int v0, int v1, int v2) {
     final c24 = Color.ofC24(cmd).c24;
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, 0, 0, 0);
+    final transparent = cmd.bit25;
 
     // debugLog(
     //     'GPU0: renderFlat (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
@@ -84,7 +85,7 @@ extension Gp0Renderer on Gpu {
 
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
-        pset24(x, y, c24);
+        pset24(x, y, c24, transparent: transparent);
       }
     }
 
@@ -94,6 +95,7 @@ extension Gp0Renderer on Gpu {
   bool renderGouraudPolygon(
       int cmd, int c0, int v0, int c1, int v1, int c2, int v2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, 0, 0, 0);
+    final transparent = cmd.bit25;
 
     // debugLog(
     //     'GPU0:renderGouraud (${p0.x},${p0.y}:${p0.c.c24.hex32}), (${p1.x},${p1.y}:${p1.c.c24.hex32}), (${p2.x},${p2.y}:${p2.c.c24.hex32}) '
@@ -106,17 +108,20 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final c = left.c.mix(right.c, x - left.x, right.x - left.x);
-        pset24(x, y, c.c24);
+        pset24(x, y, c.c24, transparent: transparent);
       }
     }
 
     return true;
   }
 
-  bool renderTexturedPolygon(int cmd, int clut, int page, int v0, int t0,
-      int v1, int t1, int v2, int t2) {
-    final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, t0, t1, t2);
+  bool renderTexturedGouraudPolygon(int cmd, int clut, int page, int c0, int v0,
+      int t0, int c1, int v1, int t1, int c2, int v2, int t2) {
+    final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, t0, t1, t2);
     final modulated = !cmd.bit24;
+    final modulateColor = Color.ofC24(cmd);
+    final transparentMask = cmd.bit25 ? 0xffff : 0x7fff;
+    final gouraud = cmd.bit28;
 
     // debugLog(
     //     'GPU0: renderTextured (${p0.x},${p0.y},${p0.u},${p0.v}), (${p1.x},${p1.y},${p1.u},${p1.v}), (${p2.x},${p2.y},${p2.u},${p2.v})');
@@ -128,20 +133,17 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final uv = left.mix(right, x - left.x, right.x - left.x);
-        final texColor = getTextureColor(uv.u, uv.v, clut, page);
-        final c16 = modulated ? modulateC16(texColor, cmd) : texColor;
+        final texColor =
+            getTextureColor(uv.u, uv.v, clut, page) & transparentMask;
+        final c16 = modulated
+            ? modulate(texColor, gouraud ? uv.c : modulateColor)
+            : texColor;
         if (texColor != 0) {
           pset16(x, y, c16);
         }
       }
     }
 
-    return true;
-  }
-
-  bool renderTexturedGouraudPolygon(
-      int cmd, c0, p0, t0, c1, p1, t1, c2, p2, t2) {
-    debugLog('GP0: renderTexturedGouraudPolygon umimplemented');
     return true;
   }
 }

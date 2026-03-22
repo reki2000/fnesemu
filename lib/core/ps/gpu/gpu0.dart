@@ -179,14 +179,28 @@ extension Gpu0 on Gpu {
       final c0 = c[0];
 
       if (textured) {
-        final clut = c[2] >> 16;
-        final page = c[4] >> 16;
-        renderTexturedPolygon(
-            c0, clut, page, c[1], c[2], c[3], c[4], c[5], c[6]);
-        if (rectangle) {
-          renderTexturedPolygon(
-              c0, clut, page, c[3], c[4], c[5], c[6], c[7], c[8]);
+        if (gouraud) {
+          final clut = c[2] >> 16;
+          final page = c[5] >> 16;
+          // 0c,1xy,2uv   3c,4xy,5uv  6c,7xy,8uv   9c,10xy,11uv
+          renderTexturedGouraudPolygon(c0, clut, page, c0, c[1], c[2], c[3],
+              c[4], c[5], c[6], c[7], c[8]);
+          if (rectangle) {
+            renderTexturedGouraudPolygon(c0, clut, page, c[3], c[4], c[5], c[6],
+                c[7], c[8], c[9], c[10], c[11]);
+          }
           // debugLogTexturedPolygon(cmd);
+        } else {
+          // 0c,1xy,2uv   3xy,4uv  5xy,6uv  7xy,8uv
+          final clut = c[2] >> 16;
+          final page = c[4] >> 16;
+          renderTexturedGouraudPolygon(
+              c0, clut, page, 0, c[1], c[2], 0, c[3], c[4], 0, c[5], c[6]);
+          if (rectangle) {
+            renderTexturedGouraudPolygon(
+                c0, clut, page, 0, c[3], c[4], 0, c[5], c[6], 0, c[7], c[8]);
+            // debugLogTexturedPolygon(cmd);
+          }
         }
       } else {
         if (gouraud) {
@@ -266,7 +280,9 @@ extension Gpu0 on Gpu {
 
     if (cmdSize == beginIndex) {
       final transparent = cmd[0].bit25;
+      final transparentMask = transparent ? 0xffff : 0x7fff;
       final modulated = !cmd[0].bit24;
+      final modulateColor = Color.ofC24(cmd[0]);
 
       final (clut, v0, u0) = !textured
           ? (0, 0, 0)
@@ -285,8 +301,10 @@ extension Gpu0 on Gpu {
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
           if (textured) {
-            final texColor = getTextureColor(u0 + x, v0 + y, clut, status);
-            final c16 = modulated ? modulateC16(texColor, cmd[0]) : texColor;
+            final texColor =
+                getTextureColor(u0 + x, v0 + y, clut, status) & transparentMask;
+            final c16 =
+                modulated ? modulate(texColor, modulateColor) : texColor;
             if (c16 != 0) {
               pset16(x0 + x, y0 + y, c16);
             }
@@ -414,8 +432,7 @@ extension Gpu0 on Gpu {
     }
   }
 
-  int modulateC16(int c16, int mod) {
-    final m24 = Color.ofC24(mod);
+  int modulate(int c16, Color m24) {
     final c24 = Color.ofC15(c16);
     final r = 255.min(c24.r * m24.r ~/ 128);
     final g = 255.min(c24.g * m24.g ~/ 128);
