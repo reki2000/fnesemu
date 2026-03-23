@@ -5,6 +5,7 @@ import 'package:fnesemu/core/tracer.dart';
 import 'package:fnesemu/core/types.dart';
 
 import '../../disc/loader.dart';
+import '../sram.dart';
 import 'ps.dart';
 
 int runSeconds = 10; // run for this many seconds
@@ -153,6 +154,8 @@ main(List<String> args) async {
   final disc = DiscLoader.load(args[1]);
 
   core.setDisc(disc);
+
+  core.setSram(Sram());
 
   core.reset();
 

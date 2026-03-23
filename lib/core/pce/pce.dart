@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
@@ -118,6 +119,9 @@ class Pce implements Core {
 
   @override
   void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
 
   @override
   List<PadButton> get buttons => bus.joypad.buttons;

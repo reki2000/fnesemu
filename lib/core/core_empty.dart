@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'core.dart';
 import 'disc.dart';
 import 'pad_button.dart';
+import 'sram.dart';
 import 'types.dart';
 
 class EmptyCore extends Core {
@@ -46,6 +47,9 @@ class EmptyCore extends Core {
 
   @override
   void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
 
   @override
   int programCounter(int cpuNo) => 0;

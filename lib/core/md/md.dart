@@ -11,6 +11,7 @@ import 'package:fnesemu/util/int.dart';
 import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
@@ -189,6 +190,9 @@ class Md implements Core {
 
   @override
   void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
 
   /// handles reset button events
   @override

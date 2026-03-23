@@ -34,6 +34,9 @@ class MemoryCard extends SioDevice {
   int checkSum = 0;
   int _pre = 0;
 
+  int Function(int)? _readEx;
+  void Function(int, int)? _writeEx;
+
   get flag => firstReadDone ? 0 : 0x08;
 
   static final Uint8List blankImage = _initBlankImage();
@@ -68,8 +71,9 @@ class MemoryCard extends SioDevice {
     addr = 0;
   }
 
-  void load(Uint8List data) {
-    mem.setAll(0, data);
+  void setRw(int Function(int) read, void Function(int, int) write) {
+    this._readEx = read;
+    this._writeEx = write;
   }
 
   SioResponse ack(int data, {int delayCycles = 600}) {
@@ -145,7 +149,7 @@ class MemoryCard extends SioDevice {
         return ack(addr >> 7 & 0xff);
 
       case waitRead:
-        final readData = mem[addr];
+        final readData = _readEx?.call(addr) ?? 0;
         checkSum ^= readData;
         addr = addr.inc & 0x1ffff;
         count--;
@@ -163,7 +167,7 @@ class MemoryCard extends SioDevice {
       case waitWrite:
         firstReadDone =
             true; // in some reason, this flag is set on write instead of read
-        mem[addr] = txData;
+        _writeEx?.call(addr, txData);
         checkSum ^= txData;
         addr = addr.inc & 0x1ffff;
         count--;

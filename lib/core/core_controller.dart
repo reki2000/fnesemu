@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:core';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/util/debug.dart';
 
 import 'core.dart';
@@ -36,8 +37,9 @@ class CoreController {
   final void Function(ImageBuffer) _onImage;
 
   final CoreControllerState _state;
+  final Sram _sram;
 
-  CoreController(onStateChange, this._onAudio, this._onImage)
+  CoreController(onStateChange, this._onAudio, this._onImage, this._sram)
       : _state = CoreControllerState(onStateChange);
 
   Core _core = EmptyCore();
@@ -45,6 +47,7 @@ class CoreController {
 
   void init(String coreName, Uint8List body, {Uint8List? extRom}) {
     _core = CoreFactory.of(coreName)
+      ..setSram(_sram)
       ..onAudio(_onAudio)
       ..setRom(body);
 

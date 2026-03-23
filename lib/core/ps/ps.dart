@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
@@ -12,6 +11,7 @@ import '../../util/debug.dart';
 import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'bus.dart';
 import 'cdrom.dart';
@@ -31,7 +31,7 @@ class Ps extends Core {
   late final Gpu gpu;
   late final Pad pad;
   late final MemoryCard memoryCard;
-  late final MemoryCard memoryCard2;
+  // late final MemoryCard memoryCard2;
   late final Serial serial;
   late final Spu spu;
   late final TimerController timer;
@@ -46,8 +46,12 @@ class Ps extends Core {
     gpu = Gpu(bus);
     pad = Pad();
     memoryCard = MemoryCard();
-    memoryCard2 = MemoryCard();
-    serial = Serial(bus, pad, memoryCard, memoryCard2);
+    // memoryCard2 = MemoryCard();
+    serial = Serial(
+      bus,
+      pad,
+      memoryCard, /*memoryCard2*/
+    );
     spu = Spu(bus);
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
@@ -115,15 +119,8 @@ class Ps extends Core {
 
     cdrom.closeShell();
 
-    const memCardFile = String.fromEnvironment("MEMCARD", defaultValue: "");
-    if (memCardFile.isNotEmpty) {
-      memoryCard.load(Uint8List.fromList(File(memCardFile).readAsBytesSync()));
-      debugLog("memcard: loaded from $memCardFile");
-    } else {
-      memoryCard.load(MemoryCard.blankImage); // formatted blank memory card
-      debugLog("memcard: created blank image");
-    }
-    memoryCard2.load(MemoryCard.blankImage); // formatted blank memory card
+    _sram.init("psx_mem1", MemoryCard.blankImage);
+    memoryCard.setRw(_sram.read8, _sram.write8);
   }
 
   int nextScanlineClock = 0;
@@ -132,6 +129,8 @@ class Ps extends Core {
   int nextSpuClock = 0;
   int nextSerialClock = 0;
   int nextCdromClock = 0;
+
+  late Sram _sram;
 
   void Function(AudioBuffer) _onAudio = (_) {};
   final audioBuffer = Float32List(1000 * 2);
@@ -229,6 +228,9 @@ class Ps extends Core {
     disc.isEmpty ? bus.cdrom.openShell() : bus.cdrom.closeShell();
     bus.cdrom.readDisc = disc.read;
   }
+
+  @override
+  void setSram(Sram sram) => _sram = sram;
 
   @override
   List<PadButton> get buttons => pad.buttons;

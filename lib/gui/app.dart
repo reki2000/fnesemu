@@ -7,16 +7,17 @@ import 'package:flutter/services.dart';
 import 'package:fnesemu/core/disc.dart';
 import 'package:fnesemu/disc/empty.dart';
 
+// Project imports:
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
 import '../disc/loader.dart';
 import '../styles.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
-// Project imports:
 import 'debug/debug_pane.dart';
 import 'key_handler.dart';
 import 'sound_player.dart';
+import 'storage.dart';
 import 'ticker_image.dart';
 
 part 'loader.dart';
@@ -54,6 +55,7 @@ class MainPageState extends State<MainPage> {
   final _imageContainer = ImageContainer();
   late final KeyHandler _keyHandler;
   late final CoreController _controller;
+  late final Storage _storage;
 
   bool _running = false;
   bool get _debugging => _controller.debugger.opt.showDebugView;
@@ -66,11 +68,14 @@ class MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
 
+    _storage = Storage.of(onEvent: (s) => debugPrint("Storage event: $s"));
+
     _controller = CoreController(
         _onCoreStateChange,
         (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
         (buf) => _imageContainer.push(
-            buf.buffer, buf.width, buf.height, buf.displayWidth));
+            buf.buffer, buf.width, buf.height, buf.displayWidth),
+        _storage);
 
     _controller.debugger.opt.showDebugView = _isDebug;
 

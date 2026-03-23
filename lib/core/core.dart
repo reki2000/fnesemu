@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'disc.dart';
 import 'pad_button.dart';
+import 'sram.dart';
 import 'types.dart';
 
 // abstract class to be implemented by Emulator classes
@@ -26,6 +27,9 @@ abstract class Core {
 
   /// set cd-rom disc reader
   void setDisc(Disc disc);
+
+  /// set sram storage interface
+  void setSram(Sram sram);
 
   /// handles reset button events
   void reset();
