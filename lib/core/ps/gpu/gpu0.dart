@@ -6,14 +6,12 @@ extension Gpu0 on Gpu {
 
   void writeGp0(int value) {
     // if (bus.gpu.frame >= 1072 && bus.gpu.frame <= 1072) {
-    //   debugLog(
-    //       "GPU0: writeGp0: value:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} frame:${bus.gpu.frame} scanline:$scanline");
+    // debugLog("GPU0: writeGp0: value:${value.hex32} ${dumpCmd()}");
     // }
 
     if (!cmdReady || !handleSingleWordCommand(value)) {
       if (!handleMultiwordCommand(value)) {
-        debugLog(
-            "invalid GP0 command cmd0:${value.hex32} cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+        debugLog("invalid GP0 command cmd0:${value.hex32} ${dumpCmd()}");
         cmdSize = 0;
       }
     }
@@ -77,7 +75,7 @@ extension Gpu0 on Gpu {
     final cmd0 = cmdSize == 0 ? value : cmd[0];
 
     // debugLog(
-    //     "gpu0: multiword value:${value.hex32} [${cmd0 >> 29}] cmd:${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+    //     "gpu0: multiword value:${value.hex32} [${cmd0 >> 29}] cmd:${dumpCmd()}");
 
     switch (cmd0 >> 29) {
       case 0x00: // misc
@@ -116,9 +114,11 @@ extension Gpu0 on Gpu {
 
   postRead() {
     if (cmdSize == 0) {
+      vramToCpuReady = false;
       return;
     }
 
+    vramToCpuReady = true;
     readValue = 0;
     for (int i = 0; i < 2; i++) {
       readValue |= readFrameBuffer16(bltFromX, bltFromY) << (i * 16);
@@ -158,7 +158,7 @@ extension Gpu0 on Gpu {
       }
 
       // debugLog(
-      //     "GPU0: quick rectangle fill completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
+      //     "GPU0: quick rectangle fill completed : ${dumpCmd()} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
       cmdSize = 0;
     }
   }
@@ -217,14 +217,14 @@ extension Gpu0 on Gpu {
             // final (x2, y2) = (c[3] & xMask, c[3] >> 16 & yMask);
             // final (x3, y3) = (c[4] & xMask, c[4] >> 16 & yMask);
             // debugLog(
-            //     "GPU0: flat rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+            //     "GPU0: flat rectangle polygon completed ${dumpCmd()} "
             //     "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0}");
           }
         }
       }
 
       // debugLog(
-      //     "GPU0: polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}");
+      //     "GPU0: polygon completed ${dumpCmd()}");
       //     "($x0, $y0) $w x $h ($u0, $v0) "
       //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${page.hex16} ${page << 6 & 0x3c0},${page << 4 & 0x100} c${page >> 7 & 3} ");
       cmdSize = 0;
@@ -319,7 +319,7 @@ extension Gpu0 on Gpu {
       }
 
       // debugLog(
-      //     "GP0 rectangle primitive completed : ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
+      //     "GP0 rectangle primitive completed : ${dumpCmd()} "
       //     "($x0, $y0) $w x $h ($u0, $v0) tr:${transparent ? "semitr" : "opaque"} ${textured ? "tex" : "---"} "
       //     "clut:${clut.hex16} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} page:${status.hex16} "
       //     "${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} "
@@ -340,7 +340,7 @@ extension Gpu0 on Gpu {
       bltPosX = cmd[2] & xMask;
       bltSizeX = cmd[3].maskZeroMax(xMask);
       // debugLog(
-      //     "GP0 vram to vram blit: [${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
+      //     "GP0 vram to vram blit: [${dumpCmd()}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
 
       final forceMask = status.bit11 ? 0x8000 : 0;
       while (cmdSize == 4) {
@@ -389,7 +389,7 @@ extension Gpu0 on Gpu {
 
           if (bltSizeY == 0) {
             // debugLog(
-            //     "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32} clk:$frame:$scanline:${bus.cpu.clocks} ");
+            //     "GPU0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32}");
             cmdSize = 0;
             break;
           }
@@ -409,7 +409,7 @@ extension Gpu0 on Gpu {
       bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
       // debugLog(
-      //     "GPU0: blit cpu to vram: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltPosX,$bltPosY) $bltSizeX x $bltSizeY");
+      //     "GPU0: blit cpu to vram: ${dumpCmd()} ($bltPosX,$bltPosY) $bltSizeX x $bltSizeY");
     }
   }
 
@@ -424,11 +424,11 @@ extension Gpu0 on Gpu {
       bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
 
       // debugLog(
-      //     "GPU0: blit vram to cpu: ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
-
-      postRead(); // pre-read first 2 pixels
+      //     "GPU0: blit vram to cpu: ${dumpCmd()} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
       cmdSize++;
+
+      postRead(); // pre-read first 2 pixels
     }
   }
 
@@ -479,14 +479,13 @@ extension Gpu0 on Gpu {
     //     "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
     //     "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
     //     "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
-    if (x0 == 0 && y0 == 144) {
-      debugLog(
-          "GPU0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
-          "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
-          "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
-      debugLog(
-          "GPU0: texture color at (0,144): ${getTextureColor(0, 144, clut, status).hex16}");
-      // renderFlatPolygon(0, c[3], c[5], c[7]);
-    }
+    // if (x0 == 0 && y0 == 144) {
+    debugLog("GPU0: textured rectangle polygon completed ${dumpCmd()} "
+        "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
+        "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
+    // debugLog(
+    //     "GPU0: texture color at (0,144): ${getTextureColor(0, 144, clut, status).hex16}");
+    // renderFlatPolygon(0, c[3], c[5], c[7]);
+    // }
   }
 }

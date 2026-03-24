@@ -148,14 +148,14 @@ main(List<String> args) async {
     return;
   }
 
+  core.setSram(Sram());
+
   final bios = File(args[0]).readAsBytesSync();
   core.setRom(bios);
 
   final disc = DiscLoader.load(args[1]);
 
   core.setDisc(disc);
-
-  core.setSram(Sram());
 
   core.reset();
 

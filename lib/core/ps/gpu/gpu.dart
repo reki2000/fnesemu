@@ -52,8 +52,7 @@ class Gpu {
   bool get dmaReceiveReady =>
       cmdReady ||
       cmdSize == 3 && cmd[0] >> 29 == 0x05; // GP0 DMA receive command
-  bool get vramToCpuReady =>
-      cmdSize == 4 && cmd[0] >> 29 == 0x06; // GP0 VRAM to CPU command
+  bool vramToCpuReady = false; // GP0 VRAM to CPU command
 
   bool irq1 = false;
 
@@ -84,6 +83,7 @@ class Gpu {
     cmd.fillRange(0, cmd.length, 0);
     cmdSize = 0;
     irq1 = false;
+    vramToCpuReady = false;
 
     width = 320;
     height = 240;
@@ -127,7 +127,7 @@ class Gpu {
   }
 
   int readReg() {
-    // debugLog("GPREAD: ${readValue.hex32}");
+    // debugLog("GPREAD: ${readValue.hex32} ${dumpCmd()}");
     final result = readValue;
     postRead();
 
@@ -149,7 +149,7 @@ class Gpu {
         .setBit(26, cmdReady)
         .setBit(27, vramToCpuReady)
         .setBit(28, dmaReceiveReady);
-    // debugLog("GPSTAT: ${result.hex32}");
+    // debugLog("GPSTAT: ${result.hex32}  ${dumpCmd()}");
     return result;
   }
 
@@ -169,19 +169,19 @@ class Gpu {
 
   writeFrameBuffer16(int x, int y, int u16) {
     final offset = y * 2048 + x * 2;
-    // if ((offset >= 0xf0000 && offset < 0xf0020)) {
+    // if ((offset >= 32 * 2048 && offset < 33 * 2048)) {
     //   debugLog(
-    //       "writeFrameBuffer16: ${u16.hex16} at ($x, $y) offset:${offset.hex32} cmd:${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}");
+    //       "writeFrameBuffer16: ${u16.hex16} at ($x, $y) offset:${offset.hex32} ${dumpCmd()}");
     // }
     frameBuffer.setUInt16LE(offset, u16);
   }
 
   int readFrameBuffer16(int x, int y) {
     final offset = y * 2048 + x * 2;
-    // if ((offset >= 0xf0000 && offset < 0xf0020)) {
+    // if ((offset >= 32 * 2048 && offset < 33 * 2048)) {
     //   final result = frameBuffer.getUInt16LE(offset);
     //   debugLog(
-    //       "readFrameBuffer16: value ${result.hex16} at ($x, $y) offset:${offset.hex32} cmd:${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}");
+    //       "readFrameBuffer16: value ${result.hex16} at ($x, $y) offset:${offset.hex32} ${dumpCmd()}");
     // }
     return frameBuffer.getUInt16LE(offset);
   }
@@ -308,4 +308,7 @@ class Gpu {
       "GPU: stat:${status.hex32} ${width}x$height start:($startDisplayX,$startDisplayY) "
       "($drawingX1,$drawingY1)-($drawingX2,$drawingY2) "
       "offset:($drawingOffsetX,$drawingOffsetY) frame:$frame scanline:$scanline";
+
+  String dumpCmd() =>
+      "cmd: ${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}";
 }
