@@ -46,7 +46,7 @@ class Point {
   Point(this.x, this.y, this.c, this.u, this.v);
 
   Point.of(int v, int c, int t)
-      : this(v.rel16, (v >> 16).rel16, Color.ofC24(c), t & 0xff, t >> 8 & 0xff);
+      : this(v.rel10, (v >> 16).rel10, Color.ofC24(c), t & 0xff, t >> 8 & 0xff);
 
   Point mix(Point p, int part, int total) {
     if (total == 0) {

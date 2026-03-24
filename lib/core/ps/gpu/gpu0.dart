@@ -286,17 +286,17 @@ extension Gpu0 on Gpu {
 
       final (clut, v0, u0) = !textured
           ? (0, 0, 0)
-          : (cmd[2] >> 16, cmd[2] >> 8 & 0xff, cmd[2] & 0xff);
+          : (cmd[2] >> 16, (cmd[2] >> 8) & 0xff, cmd[2] & 0xff);
 
       final (w, h) = switch (size) {
-        0 => (cmd[sizeIndex] & xMask, cmd[sizeIndex] >> 16 & yMask),
+        0 => (cmd[sizeIndex] & xMask, (cmd[sizeIndex] >> 16) & yMask),
         1 => (1, 1),
         2 => (8, 8),
         3 => (16, 16),
         _ => throw "unreachable",
       };
 
-      final (x0, y0) = (cmd[1] & xMask, cmd[1] >> 16 & yMask);
+      final (x0, y0) = (cmd[1].rel10, (cmd[1] >> 16).rel10);
 
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
@@ -318,9 +318,8 @@ extension Gpu0 on Gpu {
         }
       }
 
-      // debugLog(
-      //     "GP0 rectangle primitive completed : ${dumpCmd()} "
-      //     "($x0, $y0) $w x $h ($u0, $v0) tr:${transparent ? "semitr" : "opaque"} ${textured ? "tex" : "---"} "
+      // debugLog("GP0 rectangle primitive completed : ${dumpCmd()} "
+      //     "($x0, $y0) $w x $h ($u0, $v0) ${transparent ? "semi" : "opaq"} ${textured ? "tex" : "---"} "
       //     "clut:${clut.hex16} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} page:${status.hex16} "
       //     "${status << 6 & 0x3c0},${status << 4 & 0x100} c${status >> 7 & 3} "
       //     "${textured ? dumpClut(clut, status) : ""}");
