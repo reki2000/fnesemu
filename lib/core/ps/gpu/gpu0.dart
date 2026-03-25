@@ -41,21 +41,29 @@ extension Gpu0 on Gpu {
 
       case 0xe2: // texture window setting
         textureMaskX = value & 0x1f;
-        textureMaskY = value >> 5 & 0x1f;
-        textureOffsetX = value >> 10 & 0x1f;
-        textureOffsetY = value >> 15 & 0x1f;
+        textureMaskY = (value >> 5) & 0x1f;
+        textureOffsetX = (value >> 10) & 0x1f;
+        textureOffsetY = (value >> 15) & 0x1f;
+
+        textureMaskX2 = ~(textureMaskX << 3) & 0xff;
+        textureMaskY2 = ~(textureMaskY << 3) & 0xff;
+        textureOffsetX2 = (textureOffsetX & textureMaskX) << 3;
+        textureOffsetY2 = (textureOffsetY & textureMaskY) << 3;
+
+      // debugLog(
+      //     "GPU0: texture window setting: ${value.hex32} mask:($textureMaskX, $textureMaskY) offset:($textureOffsetX, $textureOffsetY)");
 
       case 0xe3: // set drawing area top left
         drawingX1 = value & xMask;
-        drawingY1 = value >> 10 & yMask;
+        drawingY1 = (value >> 10) & yMask;
 
       case 0xe4: // set drawing area bottom right
         drawingX2 = value & xMask;
-        drawingY2 = value >> 10 & yMask;
+        drawingY2 = (value >> 10) & yMask;
 
       case 0xe5: // set drawing offset
         drawingOffsetX = value & 0x7ff;
-        drawingOffsetY = value >> 11 & 0x7ff;
+        drawingOffsetY = (value >> 11) & 0x7ff;
 
       case 0xe6: // mask bit setting
         status = status.setBit(11, value.bit0);
@@ -296,7 +304,7 @@ extension Gpu0 on Gpu {
         _ => throw "unreachable",
       };
 
-      final (x0, y0) = (cmd[1].rel10, (cmd[1] >> 16).rel10);
+      final (x0, y0) = (cmd[1].rel11, (cmd[1] >> 16).rel11);
 
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {

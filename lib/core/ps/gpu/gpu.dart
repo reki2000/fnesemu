@@ -60,6 +60,10 @@ class Gpu {
   int textureMaskY = 0;
   int textureOffsetX = 0;
   int textureOffsetY = 0;
+  int textureMaskX2 = 0xff;
+  int textureMaskY2 = 0xff;
+  int textureOffsetX2 = 0;
+  int textureOffsetY2 = 0;
 
   int drawingX1 = 0;
   int drawingY1 = 0;
@@ -94,6 +98,10 @@ class Gpu {
     textureMaskY = 0;
     textureOffsetX = 0;
     textureOffsetY = 0;
+    textureMaskX2 = 0xff;
+    textureMaskY2 = 0xff;
+    textureOffsetX2 = 0;
+    textureOffsetY2 = 0;
 
     drawingX1 = 0;
     drawingY1 = 0;
@@ -187,13 +195,16 @@ class Gpu {
   }
 
   int getTextureColor(int u, int v, int clut, int page, {bool debug = false}) {
+    final uu = u & textureMaskX2 | textureOffsetX2;
+    final vv = v & textureMaskY2 | textureOffsetY2;
+
     final baseX = page << 6 & 0x3c0;
     final baseY = page << 4 & 0x100;
-    final base = baseX * 2 + (baseY + v.mask8) * 2048;
+    final base = baseX * 2 + (baseY + vv.mask8) * 2048;
 
     final clutMode = page >> 7 & 3;
     if (clutMode == 2) {
-      final result = frameBuffer.getUInt16LE(base + u.mask8 * 2);
+      final result = frameBuffer.getUInt16LE(base + uu.mask8 * 2);
       if (debug) {
         debugLog(
             "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
@@ -205,10 +216,10 @@ class Gpu {
     final clutBase = (clut >> 6 & yMask) * 2048 + ((clut & 0x3f) << 5);
     try {
       final clutIndex = (clutMode == 1)
-          ? frameBuffer[base + u.mask8]
+          ? frameBuffer[base + uu.mask8]
           : (u.bit0)
-              ? frameBuffer[base + u.mask8 ~/ 2] >> 4
-              : frameBuffer[base + u.mask8 ~/ 2] & 0x0f;
+              ? frameBuffer[base + uu.mask8 ~/ 2] >> 4
+              : frameBuffer[base + uu.mask8 ~/ 2] & 0x0f;
 
       final result = frameBuffer.getUInt16LE(clutBase + clutIndex * 2);
 

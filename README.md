@@ -1,10 +1,10 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1 Emulator Built with Flutter
 
 This project is experimental.
 
-- Achieves 60 fps on an i5-8250 processor @web(NES,PCE), @windows(all)
+- Achieves 60 fps on an i5-8250 processor @web(NES,PCE), @windows(all except PS1)
 - Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
 - NES (.nes)
   - SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)
@@ -16,6 +16,9 @@ This project is experimental.
   - Does not support SRAM / CD / SG16
 - MD (.gen .md)
   - Does not suppor SRAM / CD / PAL / 32X
+- PS1 (.ps) * experimental *
+  - requires BIOS with `.ps` extension 
+  - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
 
 # How to use 
 
@@ -30,6 +33,7 @@ This project is experimental.
 | NES | B | A | | select | start | | | | UP | DOWN | LEFT | RIGHT |
 | PCE | II | I | | select | run | | |  | UP | DOWN | LEFT | RIGHT |
 | MD  | A | B | C | | start | X | Y | Z | UP | DOWN | LEFT | RIGHT |
+| PS1 | # | x | o | select | ^ | L | start | R | UP | DOWN | LEFT | RIGHT |
 
 ## How to build and run on local machine
 
