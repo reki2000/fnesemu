@@ -200,11 +200,12 @@ class Gpu {
 
     final baseX = page << 6 & 0x3c0;
     final baseY = page << 4 & 0x100;
-    final base = baseX * 2 + (baseY + vv.mask8) * 2048;
+    final base = (baseY + vv.mask8) * 2048;
 
     final clutMode = page >> 7 & 3;
     if (clutMode == 2) {
-      final result = frameBuffer.getUInt16LE(base + uu.mask8 * 2);
+      final result =
+          frameBuffer.getUInt16LE(base + ((baseX + uu.mask8) & 0x3ff) * 2);
       if (debug) {
         debugLog(
             "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
@@ -216,10 +217,10 @@ class Gpu {
     final clutBase = (clut >> 6 & yMask) * 2048 + ((clut & 0x3f) << 5);
     try {
       final clutIndex = (clutMode == 1)
-          ? frameBuffer[base + uu.mask8]
+          ? frameBuffer[base + baseX * 2 + uu.mask8]
           : (u.bit0)
-              ? frameBuffer[base + uu.mask8 ~/ 2] >> 4
-              : frameBuffer[base + uu.mask8 ~/ 2] & 0x0f;
+              ? frameBuffer[base + baseX * 2 + uu.mask8 ~/ 2] >> 4
+              : frameBuffer[base + baseX * 2 + uu.mask8 ~/ 2] & 0x0f;
 
       final result = frameBuffer.getUInt16LE(clutBase + clutIndex * 2);
 
