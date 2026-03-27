@@ -36,15 +36,16 @@ class Pad extends SioDevice {
 
   void keyDown(int id, PadButton d) {
     if (0 <= id && id < controllerNum) {
-      buttonValue &=
-          ~(1 << _buttons.where((b) => b.$1.name == d.name).first.$2);
+      final buttonBit = _buttons.where((b) => b.$1 == d).first.$2;
+      buttonValue = buttonValue.setBit(buttonBit, false);
     }
     // debugLog("pad: keyDown $id buttonValue:${buttonValue.hex16}");
   }
 
   void keyUp(int id, PadButton d) {
     if (0 <= id && id < controllerNum) {
-      buttonValue |= 1 << _buttons.where((b) => b.$1.name == d.name).first.$2;
+      final buttonBit = _buttons.where((b) => b.$1 == d).first.$2;
+      buttonValue = buttonValue.setBit(buttonBit, true);
     }
     // debugLog("pad: keyUp $id buttonValue:${buttonValue.hex16}");
   }
@@ -65,9 +66,9 @@ class Pad extends SioDevice {
 
   @override
   SioResponse notify(int txData) {
-    if (padStep != waitAddr) {
-      // debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
-    }
+    // if (padStep == waitMotor2) {
+    //   debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
+    // }
 
     switch (padStep) {
       case waitAddr:

@@ -76,9 +76,9 @@ class MemoryCard extends SioDevice {
     this._writeEx = write;
   }
 
-  SioResponse ack(int data, {int delayCycles = 600}) {
+  SioResponse ack(int data, {int delay = 600}) {
     _pre = data;
-    return SioResponse(data, ack: step != waitAddr, delayCycles: delayCycles);
+    return SioResponse(data, ack: step != waitAddr, delay: delay);
   }
 
   @override
@@ -130,11 +130,11 @@ class MemoryCard extends SioDevice {
         step = writeMode ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
-        return ack(_pre, delayCycles: 1200);
+        return ack(_pre, delay: 1200);
 
       case waitCmdAck0:
         step = waitCmdAck1;
-        return ack(0x5c, delayCycles: 1200);
+        return ack(0x5c, delay: 1200);
 
       case waitCmdAck1:
         step = writeMode ? waitEnd : waitAddrAck0;

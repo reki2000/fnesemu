@@ -172,8 +172,8 @@ class Ps extends Core {
     }
 
     if (cpu.clocks > nextSerialClock) {
-      nextSerialClock += 200;
-      bus.serial.exec(200);
+      nextSerialClock += 100;
+      bus.serial.exec(100);
     }
 
     if (cpu.clocks > nextCdromClock) {

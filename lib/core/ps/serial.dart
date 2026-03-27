@@ -16,22 +16,18 @@ class SioResponse {
   final bool ignored;
   final int rxData;
   final bool ack;
-  final bool clearRxFIfo;
-  final int delayCycles;
+  final int delay;
 
   const SioResponse(this.rxData,
-      {this.clearRxFIfo = false,
-      this.ack = true,
-      this.ignored = false,
-      this.delayCycles = 600});
+      {this.ack = true, this.ignored = false, this.delay = 600});
 }
 
 class RxData {
   int delay;
-  int data;
+  int value;
   bool ack;
 
-  RxData(this.data, {this.ack = true, this.delay = 600});
+  RxData(this.value, {this.ack = true, this.delay = 600});
 }
 
 class Serial {
@@ -122,21 +118,26 @@ class Serial {
       final response = device.notify(txData);
 
       // if (device.runtimeType != Pad) {
-      //   debugLog(
-      //       "sio0: notify port${port1Selected ? "1" : "2"} ${device.runtimeType} "
-      //       "txData:${txData.hex8} rxData:${response.rxData.hex8} "
-      //       "ack:${response.ack} ignored:${response.ignored} "
-      //       "${dump().replaceAll("\n", " ")}");
+      // debugLog(
+      //     "sio0: notify port${port1Selected ? "1" : "2"} ${device.runtimeType} "
+      //     "txData:${txData.hex8} rxData:${response.rxData.hex8} "
+      //     "ack:${response.ack} ignored:${response.ignored} "
+      //     "${dump().replaceAll("\n", " ")}");
       // }
       if (response.ignored) {
         continue;
       }
 
-      rxFifo.add(RxData(response.rxData,
-          ack: response.ack, delay: response.delayCycles));
+      rxFifo.add(
+          RxData(response.rxData, ack: response.ack, delay: response.delay));
 
       return;
     }
+
+    // if (port1Selected) {
+    //   debugLog(
+    //       "sio0: no device responded to txData:${txData.hex8} ${dump().replaceAll("\n", " ")}");
+    // }
 
     rxFifo.add(RxData(0xff, ack: false));
   }
@@ -150,7 +151,7 @@ class Serial {
     final result = rxFifo.removeFirst();
     // debugLog(
     //     "sio0:  read<--: ${result.data.hex8} ${dump().replaceAll("\n", " ")}");
-    return result.data;
+    return result.value;
   }
 
   int readMode() => mode;
@@ -212,7 +213,7 @@ class Serial {
 
   String dump() =>
       "serial: p:${port1Selected ? "1" : "2"} irq:${irq ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} timer:${timer.hex24} "
-      "tx:${txFifo.map((e) => e.hex8).toList()} rx:${rxFifo.map((e) => e.data.hex8).toList()}\n"
+      "tx:${txFifo.map((e) => e.hex8).toList()} rx:${rxFifo.map((e) => e.value.hex8).toList()}\n"
       "pad: ${pad.dump()} "
       "mcd1: ${memCard1.dump()} ";
   // "mcd2: ${memCard2.dump()}";

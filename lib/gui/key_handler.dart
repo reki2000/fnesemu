@@ -38,11 +38,10 @@ class KeyHandler {
     if (button != null) {
       if (e is KeyDownEvent) {
         controller.padDown(0, button);
-        return true;
       } else if (e is KeyUpEvent) {
         controller.padUp(0, button);
-        return true;
       }
+      return true;
     }
 
     return false;
