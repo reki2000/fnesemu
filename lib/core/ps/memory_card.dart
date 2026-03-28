@@ -22,6 +22,10 @@ class MemoryCard extends SioDevice {
   static const int waitReadCheckSum = 11; //
   static const int waitEnd = 12; //
   static const int waitWriteCheckSum = 14; //
+  static const int waitIdEnd0 = 15; //
+  static const int waitIdEnd1 = 16; //
+  static const int waitIdEnd2 = 17; //
+  static const int waitIdEnd3 = 18; //
 
   int step = waitAddr;
 
@@ -29,7 +33,12 @@ class MemoryCard extends SioDevice {
   int addr = 0;
   int count = 0;
 
-  bool writeMode = false;
+  int command = commandRead;
+  static const int commandNone = 0;
+  static const int commandRead = 0x52; // 'R'
+  static const int commandWrite = 0x57; // 'W'
+  static const int commandId = 0x53; // 'S'
+
   bool firstReadDone = false;
   int checkSum = 0;
   int _pre = 0;
@@ -62,18 +71,18 @@ class MemoryCard extends SioDevice {
     step = waitAddr;
     count = 0;
     addr = 0;
+
+    command = commandNone;
   }
 
   @override
   void resetStep() {
-    step = waitAddr;
-    count = 0;
-    addr = 0;
+    reset();
   }
 
   void setRw(int Function(int) read, void Function(int, int) write) {
-    this._readEx = read;
-    this._writeEx = write;
+    _readEx = read;
+    _writeEx = write;
   }
 
   SioResponse ack(int data, {int delay = 600}) {
@@ -96,16 +105,19 @@ class MemoryCard extends SioDevice {
         }
 
       case waitCommand:
-        if (txData == 0x52) {
+        if (txData == commandRead) {
           // 'R'
-          writeMode = false;
-        } else if (txData == 0x57) {
+          command = commandRead;
+        } else if (txData == commandWrite) {
           // 'W'
-          writeMode = true;
+          command = commandWrite;
+        } else if (txData == commandId) {
+          command = commandId;
         } else {
           // unknown command
+          debugLog("memcard: unknown command ${txData.hex8}");
           step = waitAddr;
-          return ack(0xff);
+          return ack(flag);
         }
 
         step = waitId0;
@@ -116,7 +128,7 @@ class MemoryCard extends SioDevice {
         return ack(0x5a);
 
       case waitId1:
-        step = waitRwAddrMsb;
+        step = command == commandId ? waitCmdAck0 : waitRwAddrMsb;
         return ack(0x5d);
 
       case waitRwAddrMsb:
@@ -127,7 +139,7 @@ class MemoryCard extends SioDevice {
 
       case waitRwAddrLsb:
         addr = txData << 7 | addr;
-        step = writeMode ? waitWrite : waitCmdAck0;
+        step = command == commandWrite ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
         return ack(_pre, delay: 1200);
@@ -137,7 +149,11 @@ class MemoryCard extends SioDevice {
         return ack(0x5c, delay: 1200);
 
       case waitCmdAck1:
-        step = writeMode ? waitEnd : waitAddrAck0;
+        step = command == commandId
+            ? waitIdEnd0
+            : command == commandWrite
+                ? waitEnd
+                : waitAddrAck0;
         return ack(0x5d);
 
       case waitAddrAck0:
@@ -187,6 +203,22 @@ class MemoryCard extends SioDevice {
       case waitEnd:
         step = waitAddr;
         return ack(0x47); // 'G' for Good
+
+      case waitIdEnd0:
+        step = waitIdEnd1;
+        return ack(0x04);
+
+      case waitIdEnd1:
+        step = waitIdEnd2;
+        return ack(0x00);
+
+      case waitIdEnd2:
+        step = waitIdEnd3;
+        return ack(0x00);
+
+      case waitIdEnd3:
+        step = waitAddr;
+        return ack(0x80);
     }
 
     step = waitIgnore;
