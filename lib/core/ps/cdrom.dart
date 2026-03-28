@@ -343,15 +343,29 @@ class Cdrom {
       case 0x0f: // GetParam
         irq(3, [status(), mode, 0x00, file, channel]);
 
+      case 0x10: // GetLocl
+        final currentSector = isReading ? sector : 0;
+        final (mm, ss, ff) = lbaToMsf(currentSector);
+        irq(3, [mm, ss, ff, mode, file, channel, 0, 0]);
+
       case 0x11: // GetLocp
         final currentSector = isReading ? sector : 0;
-        final mm = (currentSector ~/ (60 * 75)).asBcd;
-        final ss = ((currentSector ~/ 75) % 60).asBcd;
-        final ff = (currentSector % 75).asBcd;
+        final (mm, ss, ff) = lbaToMsf(currentSector);
         irq(3, [01, 01, mm, ss, ff, mm, ss, ff]);
 
       case 0x13: // GetTN
         irq(3, [status(), toc.lastTrackBcd, toc.firstTrackBcd]);
+
+      case 0x14: // GetTD
+        final track = paramFifo.elementAt(0).asBcd;
+        if (track == 0) {
+          irq(3, [status(), 0, 0]);
+        } else {
+          final sector =
+              (track - toc.firstTrackBcd) * 60 * 75; // TODO: read from TOC
+          final (mm, ss, _) = lbaToMsf(sector);
+          irq(3, [status(), mm, ss]);
+        }
 
       case 0x15: // SeekL
         isReading = false;
@@ -419,6 +433,14 @@ class Cdrom {
 
   void readSector(int sector) {}
 
+  (int, int, int) lbaToMsf(int lba) {
+    final msf = lba + 150;
+    final m = msf ~/ (60 * 75);
+    final s = (msf ~/ 75) % 60;
+    final f = msf % 75;
+    return (m, s, f);
+  }
+
   String dump() => "status:${status().hex8} bank:$bank "
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
@@ -429,7 +451,8 @@ class Cdrom {
     "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
     "", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
     "GetParam", // 0x08-0x0f
-    "", "GetLocp", "", "GetTN", "", "SeekL", "SeekP", "", "", // 0x10-0x17
+    "GetLocl", "GetLocp", "", "GetTN", "GetTD", "SeekL", "SeekP", "",
+    "", // 0x10-0x17
     "Test", "GetId", "ReadS", "", "", "ReadTOC", "", // 0x18-0x1f
   ];
 }
