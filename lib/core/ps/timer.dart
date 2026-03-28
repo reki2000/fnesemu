@@ -137,10 +137,10 @@ class Timer {
   }
 
   String dump() => "Timer$no: ${mode.hex16} ${counter.hex16}/${target.hex16} "
-      "sync:${!sync ? '-' : syncMode} src:${sourceSystemClock ? 'S' : 'E'} "
-      "${repeatMode ? "R" : "1"} ${toggleMode ? "toggl" : "pulse"} "
+      "sy:${!sync ? '-' : syncMode} ${sourceSystemClock ? 'S' : 'E'} "
+      "${repeatMode ? "R" : "1"} ${toggleMode ? "tgl" : "pls"} "
       "${resetAfterTarget ? "0" : "-"} "
-      "irq:${irqWhenTarget ? "T" : "-"}${irqWhenFfff ? "F" : "-"}";
+      "i:${irqWhenTarget ? "T" : "-"}${irqWhenFfff ? "F" : "-"}";
 }
 
 class TimerController {
