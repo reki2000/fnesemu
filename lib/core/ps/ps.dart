@@ -149,7 +149,7 @@ class Ps extends Core {
       return ExecResult(cpu.clocks, false, true);
     }
 
-    if (_waitFinishLine && cpu.clocks >= nextScanlineClock - 100) {
+    if (_waitFinishLine && cpu.clocks >= nextScanlineClock - 200) {
       bus.timer.startHBlank();
       _waitFinishLine = false;
     }
