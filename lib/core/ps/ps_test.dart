@@ -13,6 +13,8 @@ int runCycles = -1; // run for this many cycles (overrides runSeconds if >= 0)
 int traceAddress = -1; // start logging from this address
 int traceCycleStart = -1; // start logging from this cycle
 int traceCycleEnd = -1; // end logging at this cycle
+int measureLoopCount =
+    0; // number of times to run the main loop for measuring performance
 
 Ps core = Ps();
 
@@ -135,6 +137,12 @@ List<String> handleOptions(List<String> args) {
       continue;
     }
 
+    if (args[0] == "-m") {
+      measureLoopCount = int.parse(args[1]);
+      args = args.sublist(2);
+      continue;
+    }
+
     break;
   }
 
@@ -157,42 +165,56 @@ main(List<String> args) async {
 
   core.setDisc(disc);
 
-  core.reset();
+  final elapsedResults = List<int>.filled(measureLoopCount, 0);
 
-  if (args.length > 2) {
-    final exe = File(args[2]).readAsBytesSync();
-    core.setRom(exe);
+  while (measureLoopCount-- > 0) {
+    core.reset();
+
+    if (args.length > 2) {
+      final exe = File(args[2]).readAsBytesSync();
+      core.setRom(exe);
+    }
+
+    bool afterTraceAddress = false;
+    final startTime = DateTime.now();
+
+    for (int i = 0;
+        (runCycles < 0 || core.cpu.clocks < runCycles) &&
+            (runSeconds < 0 ||
+                core.cpu.clocks < core.systemClockHz * runSeconds);
+        i++) {
+      if (!afterTraceAddress &&
+          traceAddress >= 0 &&
+          core.programCounter(0) == traceAddress) {
+        afterTraceAddress = true;
+        print(
+            "debug: start logging at pc: 0x${traceAddress.toRadixString(16)}");
+      }
+
+      core.exec(false);
+
+      final inTraceCycleRange = traceCycleStart >= 0 &&
+          core.cpu.clocks >= traceCycleStart &&
+          (traceCycleEnd < 0 || core.cpu.clocks <= traceCycleEnd);
+
+      if (afterTraceAddress || inTraceCycleRange) {
+        logger.log(core.programCounter(0), () => core.trace(0));
+      }
+
+      // Yield to event loop every N iterations
+      if (i % 1000 == 0) {
+        await Future.delayed(Duration.zero);
+      }
+    }
+
+    final elapsed = DateTime.now().difference(startTime);
+    elapsedResults[measureLoopCount] = elapsed.inMilliseconds;
   }
 
-  bool afterTraceAddress = false;
-
-  for (int i = 0;
-      (runCycles < 0 || core.cpu.clocks < runCycles) &&
-          (runSeconds < 0 || core.cpu.clocks < core.systemClockHz * runSeconds);
-      i++) {
-    if (!afterTraceAddress &&
-        traceAddress >= 0 &&
-        core.programCounter(0) == traceAddress) {
-      afterTraceAddress = true;
-      print("debug: start logging at pc: 0x${traceAddress.toRadixString(16)}");
-    }
-
-    core.exec(false);
-
-    final inTraceCycleRange = traceCycleStart >= 0 &&
-        core.cpu.clocks >= traceCycleStart &&
-        (traceCycleEnd < 0 || core.cpu.clocks <= traceCycleEnd);
-
-    if (afterTraceAddress || inTraceCycleRange) {
-      logger.log(core.programCounter(0), () => core.trace(0));
-    }
-
-    // Yield to event loop every N iterations
-    if (i % 1000 == 0) {
-      await Future.delayed(Duration.zero);
-    }
-  }
-
+  final meanElapsed =
+      elapsedResults.reduce((a, b) => a + b) ~/ elapsedResults.length;
+  print(
+      "Elapsed time: $meanElapsed ms (${elapsedResults.map((e) => "$e").join(', ')} ms)");
   print(core.cpu.dump());
   print(core.cdrom.dump());
 }
