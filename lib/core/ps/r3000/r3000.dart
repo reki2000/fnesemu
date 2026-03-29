@@ -91,28 +91,34 @@ class R3000 {
 
   int read8(int addr) => bus.read8(addr.mask32).mask8;
 
-  int read16(int addr) => (addr & 0x01 != 0)
-      ? throw ReadMisalignException(addr)
-      : bus.read16(addr & 0xfffffffe).mask16;
+  // int read16(int addr) => (addr & 0x01 != 0)
+  //     ? throw ReadMisalignException(addr)
+  //     : bus.read16(addr & 0xfffffffe).mask16;
+  int read16(int addr) => bus.read16(addr & 0xfffffffe).mask16;
 
-  int read32(int addr) => (addr & 0x03 != 0)
-      ? throw ReadMisalignException(addr)
-      : bus.read32(addr & 0xfffffffc);
+  // int read32(int addr) => (addr & 0x03 != 0)
+  //     ? throw ReadMisalignException(addr)
+  //     : bus.read32(addr & 0xfffffffc);
+  int read32(int addr) => bus.read32(addr & 0xfffffffc);
 
   void write8(int addr, int value) =>
       _cacheIsolated ? 0 : bus.write8(addr.mask32, value.mask8);
 
-  void write16(int addr, int value) => (addr & 0x01 != 0)
-      ? throw WriteMisalignException(addr)
-      : _cacheIsolated
-          ? 0
-          : bus.write16(addr & 0xfffffffe, value.mask16);
+  // void write16(int addr, int value) => (addr & 0x01 != 0)
+  //     ? throw WriteMisalignException(addr)
+  //     : _cacheIsolated
+  //         ? 0
+  //         : bus.write16(addr & 0xfffffffe, value.mask16);
+  void write16(int addr, int value) =>
+      _cacheIsolated ? 0 : bus.write16(addr & 0xfffffffe, value.mask16);
 
-  void write32(int addr, int value) => (addr & 0x03 != 0)
-      ? throw WriteMisalignException(addr)
-      : _cacheIsolated
-          ? 0
-          : bus.write32(addr & 0xfffffffc, value.mask32);
+  // void write32(int addr, int value) => (addr & 0x03 != 0)
+  //     ? throw WriteMisalignException(addr)
+  //     : _cacheIsolated
+  //         ? 0
+  //         : bus.write32(addr & 0xfffffffc, value.mask32);
+  void write32(int addr, int value) =>
+      _cacheIsolated ? 0 : bus.write32(addr & 0xfffffffc, value.mask32);
 
   void setInterruptPending(bool onoff) =>
       cause = cause.setBit(10, onoff); // set cop0.cuase.ip2 on
@@ -129,23 +135,23 @@ class R3000 {
     nextDelaySlot = (0, 0);
     immediateSlot = (0, 0);
 
-    if ((cause & 0xff00 & sr & 0xff00 != 0) && sr.bit0) {
+    if ((cause & sr & 0xff00 != 0) && sr.bit0) {
       exception(Exception.interrupt);
     } else {
-      try {
-        inBranchDelay = false;
-        exec(read32(instPc));
-      } catch (e) {
-        if (e is ReadMisalignException) {
-          exception(Exception.readalign, badvaddr: e.addr);
-        } else if (e is WriteMisalignException) {
-          exception(Exception.writeAlign, badvaddr: e.addr);
-        } else if (e is UnknownOpcodeException) {
-          exception(Exception.illegalInstruction);
-        } else {
-          rethrow;
-        }
-      }
+      // try {
+      inBranchDelay = false;
+      exec(read32(instPc));
+      // } catch (e) {
+      //   if (e is ReadMisalignException) {
+      //     exception(Exception.readalign, badvaddr: e.addr);
+      //   } else if (e is WriteMisalignException) {
+      //     exception(Exception.writeAlign, badvaddr: e.addr);
+      //   } else if (e is UnknownOpcodeException) {
+      //     exception(Exception.illegalInstruction);
+      //   } else {
+      //     rethrow;
+      //   }
+      // }
     }
 
     r[delaySlot.$1] = delaySlot.$2;

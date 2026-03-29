@@ -28,10 +28,16 @@ class Bus implements BusR3000 {
   late final InterruptController interrupt;
 
   final mem = Uint8List(2 * 1024 * 1024);
+  late final Uint32List mem32;
+
   final rom = Uint8List(1024 * 512);
 
   final scratchPad = Uint8List(1024);
   bool useScratchPad = false;
+
+  Bus() {
+    mem32 = mem.buffer.asUint32List();
+  }
 
   final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
       .map((e) => (1 << e) - 1)
@@ -77,12 +83,13 @@ class Bus implements BusR3000 {
   @override
   int read32(int addr) {
     final offset = addr & segMask[addr >> 29];
-    ex(s) => _unimplemented("read32", s, addr, 0);
+    const sig = "read32";
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00800000 => mem.getUInt32LE(offset & 0x1fffff),
-      >= 0x1f000000 && < 0x1f000100 => ex("expansion rom header"),
-      >= 0x1f000000 && < 0x1f008000 => ex("expansion 1"),
+      < 0x00800000 => mem32[(offset & 0x1fffff) >> 2],
+      >= 0x1f000000 && < 0x1f000100 =>
+        _unimpl(sig, "expansion rom header", addr),
+      >= 0x1f000000 && < 0x1f008000 => _unimpl(sig, "expansion 1", addr),
       >= 0x1f800000 && < 0x1f800400 => useScratchPad
           ? scratchPad.getUInt32LE(offset - 0x1f800000)
           : 0xffffffff,
@@ -102,7 +109,7 @@ class Bus implements BusR3000 {
               0x00 => dma.channels[offset >> 4 & 0x07].startAddr,
               0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl,
               0x08 => dma.channels[offset >> 4 & 0x07].channelCtrl,
-              _ => ex("DMA")
+              _ => _unimpl(sig, "DMA", addr)
             },
           0x10f0 => dma.control,
           0x10f4 => dma.interrupt,
@@ -110,7 +117,7 @@ class Bus implements BusR3000 {
               0x00 => timer.counter(offset >> 4 & 3),
               0x04 => timer.mode(offset >> 4 & 3),
               0x08 => timer.target(offset >> 4 & 3),
-              _ => ex("Timer")
+              _ => _unimpl(sig, "Timer", addr)
             },
           0x1800 => cdrom.readPort8(0) |
               cdrom.readPort8(1) << 8 |
@@ -132,17 +139,17 @@ class Bus implements BusR3000 {
           0x1dae => spu.status, // spu status
           >= 0x1c00 && < 0x1d80 =>
             spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f),
-          >= 0x1d80 && < 0x1dc0 => ex("spu control"),
-          >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
-          _ => ex("I/O Ports")
+          >= 0x1d80 && < 0x1dc0 => _unimpl(sig, "spu control", addr),
+          >= 0x1dc0 && < 0x1e00 => _unimpl(sig, "spu reverb", addr),
+          _ => _unimpl(sig, "I/O Ports", addr)
         }, // I/O ports
-      >= 0x1f802000 && < 0x1f802100 => ex("expansion 2"),
+      >= 0x1f802000 && < 0x1f802100 => _unimpl(sig, "expansion 2", addr),
       >= 0x1fbfff00 && < 0x1fc00000 =>
         0, // before bios rom, to avoid disassembler access error
-      >= 0x1fa00000 && < 0x1fc00000 => ex("expansion 3"),
+      >= 0x1fa00000 && < 0x1fc00000 => _unimpl(sig, "expansion 3", addr),
       >= 0x1fc00000 && < 0x1fe00000 => rom.getUInt32LE(offset - 0x1fc00000),
       _ => addr == 0xfffe0130 // cache control
-          ? ex("cache control")
+          ? _unimpl(sig, "cache control", addr)
           : 0xffffffff,
     };
   }
@@ -159,7 +166,7 @@ class Bus implements BusR3000 {
     // }
 
     final offset = addr & segMask[addr >> 29];
-    ex(s) => _unimplemented("write8", s, addr, v);
+    const sig = "write16";
 
     return switch (offset) {
       >= 0x00000000 && < 0x00800000 => writeMem8(offset & 0x1fffff, v),
@@ -173,11 +180,11 @@ class Bus implements BusR3000 {
           0x1803 => cdrom.writePort8(3, v),
           0x10f6 => dma.interrupt =
               dma.interrupt.masked(0xffff0000, (v << 16) | 0xff00),
-          _ => ex("** unknwown ** expansion 1")
+          _ => _unimpl(sig, "** unknwown ** expansion 1", addr, value: v)
         },
       >= 0x1f802000 && < 0x1f802100 => switch (offset & 0xffff) {
           0x2041 => debugLog("post: $v"),
-          _ => ex("expansion 2")
+          _ => _unimpl(sig, "expansion 2", addr, value: v)
         },
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom
       _ => 0, //ex("-"),
@@ -191,7 +198,7 @@ class Bus implements BusR3000 {
     // }
 
     final offset = addr & segMask[addr >> 29];
-    ex(s) => _unimplemented("write16", s, addr, v);
+    const sig = "write16";
 
     return switch (offset) {
       >= 0x00000000 && < 0x00800000 => mem.setUInt16LE(offset & 0x1fffff, v),
@@ -208,7 +215,7 @@ class Bus implements BusR3000 {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
               0x08 => timer.setTarget(offset >> 4 & 3, v),
-              _ => ex("Timer")
+              _ => _unimpl(sig, "Timer", addr, value: v)
             },
           >= 0x1c00 && < 0x1d80 =>
             spu.writeVoice(offset & 0x0e, offset >> 4 & 0x1f, v),
@@ -236,12 +243,12 @@ class Bus implements BusR3000 {
           0x1db2 => spu.cdAudioInputRight = v,
           0x1db4 => spu.externalInputLeft = v,
           0x1db6 => spu.externalInputRight = v,
-          >= 0x1d80 && < 0x1dc0 => ex("spu control"),
+          >= 0x1d80 && < 0x1dc0 => _unimpl(sig, "spu control", addr, value: v),
           >= 0x1dc0 && < 0x1e00 => spu.reverb.write16(offset, v),
-          _ => ex("expansion 1")
+          _ => _unimpl(sig, "expansion 1", addr, value: v)
         },
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom
-      _ => ex("-"),
+      _ => _unimpl(sig, "-", addr, value: v),
     };
   }
 
@@ -252,11 +259,12 @@ class Bus implements BusR3000 {
     // }
 
     final offset = addr & segMask[addr >> 29];
-    ex(s) => _unimplemented("write32", s, addr, v);
+    const sig = "write32";
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00800000 => mem.setUInt32LE(offset & 0x1fffff, v),
-      >= 0x1f000000 && < 0x1f008000 => ex("expansion 1"),
+      >= 0x00000000 && < 0x00800000 => mem32[(offset & 0x1fffff) >> 2] = v,
+      >= 0x1f000000 && < 0x1f008000 =>
+        _unimpl(sig, "expansion 1", addr, value: v),
       >= 0x1f800000 && < 0x1f800400 =>
         useScratchPad ? scratchPad.setUInt32LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
@@ -278,7 +286,7 @@ class Bus implements BusR3000 {
               0x00 => dma.channels[offset >> 4 & 0x07].startAddr = v,
               0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl = v,
               0x08 => dma.channels[offset >> 4 & 0x07].channelCtrl = v,
-              _ => ex("DMA")
+              _ => _unimpl(sig, "DMA", addr, value: v)
             },
           0x10f0 => dma.control = v,
           0x10f4 => dma.interrupt = v,
@@ -286,21 +294,22 @@ class Bus implements BusR3000 {
               0x00 => timer.setCounter(offset >> 4 & 3, v),
               0x04 => timer.setMode(offset >> 4 & 3, v),
               0x08 => timer.setTarget(offset >> 4 & 3, v),
-              _ => ex("Timer")
+              _ => _unimpl(sig, "Timer", addr, value: v)
             },
           0x1810 => gpu.writeGp0(v), // gp0
           0x1814 => gpu.writeGp1(v), // gp1
           0x1820 => mdec.writeCommand(v), // mdec command
           0x1824 => mdec.writeControl(v), // mdec control
-          >= 0x1c00 && < 0x1c80 => ex("spu voice"),
+          >= 0x1c00 && < 0x1c80 => _unimpl(sig, "spu voice", addr, value: v),
           >= 0x1d80 && < 0x1dc0 => () {
               write16(addr, v & 0xffff);
               write16(addr + 2, v >> 16 & 0xffff);
             }(),
-          >= 0x1dc0 && < 0x1e00 => ex("spu reverb"),
-          _ => ex("I/O Ports")
+          >= 0x1dc0 && < 0x1e00 => _unimpl(sig, "spu reverb", addr, value: v),
+          _ => _unimpl(sig, "I/O Ports", addr, value: v)
         }, // I/O ports
-      >= 0x1f802000 && < 0x1f802100 => ex("expansion 2"), // expansion 2
+      >= 0x1f802000 && < 0x1f802100 =>
+        _unimpl(sig, "expansion 2", addr, value: v), // expansion 2
       >= 0x1fa00000 && < 0x1fc00000 => 0, // expansion 3
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom
       _ => addr == 0xfffe0130 // cache control
@@ -313,7 +322,7 @@ class Bus implements BusR3000 {
     interrupt.setIrq(irqNo);
   }
 
-  int _unimplemented(String op, String device, int addr, int value) {
+  int _unimpl(String op, String device, int addr, {int value = 0}) {
     debugLog('$op: unknown ${addr.hex32} <= ${value.hex32} $device');
     return 0xffffffff;
   }
