@@ -172,26 +172,27 @@ class Gpu {
   bool get isInterlaced => displayMode.bit5;
 
   final frameBuffer = Uint8List(512 * 2048);
+  late final frameBuffer16 = frameBuffer.buffer.asUint16List();
 
   int readValue = 0;
 
   writeFrameBuffer16(int x, int y, int u16) {
-    final offset = y * 2048 + x * 2;
-    // if ((offset >= 32 * 2048 && offset < 33 * 2048)) {
+    final offset = y * 1024 + x;
+    // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   debugLog(
     //       "writeFrameBuffer16: ${u16.hex16} at ($x, $y) offset:${offset.hex32} ${dumpCmd()}");
     // }
-    frameBuffer.setUInt16LE(offset, u16);
+    frameBuffer16[offset] = u16;
   }
 
   int readFrameBuffer16(int x, int y) {
-    final offset = y * 2048 + x * 2;
-    // if ((offset >= 32 * 2048 && offset < 33 * 2048)) {
+    final offset = y * 1024 + x;
+    // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   final result = frameBuffer.getUInt16LE(offset);
     //   debugLog(
     //       "readFrameBuffer16: value ${result.hex16} at ($x, $y) offset:${offset.hex32} ${dumpCmd()}");
     // }
-    return frameBuffer.getUInt16LE(offset);
+    return frameBuffer16[offset];
   }
 
   int getTextureColor(int u, int v, int clut, int page, {bool debug = false}) {
@@ -200,12 +201,11 @@ class Gpu {
 
     final baseX = page << 6 & 0x3c0;
     final baseY = page << 4 & 0x100;
-    final base = (baseY + vv.mask8) * 2048;
+    final base = (baseY + vv.mask8) * 1024;
 
     final clutMode = page >> 7 & 3;
     if (clutMode == 2) {
-      final result =
-          frameBuffer.getUInt16LE(base + ((baseX + uu.mask8) & 0x3ff) * 2);
+      final result = frameBuffer16[base + ((baseX + uu.mask8) & 0x3ff)];
       if (debug) {
         debugLog(
             "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
@@ -214,15 +214,15 @@ class Gpu {
       return result;
     }
 
-    final clutBase = (clut >> 6 & yMask) * 2048 + ((clut & 0x3f) << 5);
+    final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
     try {
       final clutIndex = (clutMode == 1)
-          ? frameBuffer[base + baseX * 2 + uu.mask8]
+          ? frameBuffer[(base + baseX) * 2 + uu.mask8]
           : (u.bit0)
-              ? frameBuffer[base + baseX * 2 + uu.mask8 ~/ 2] >> 4
-              : frameBuffer[base + baseX * 2 + uu.mask8 ~/ 2] & 0x0f;
+              ? frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] >> 4
+              : frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] & 0x0f;
 
-      final result = frameBuffer.getUInt16LE(clutBase + clutIndex * 2);
+      final result = frameBuffer16[clutBase + clutIndex];
 
       if (debug) {
         debugLog(
