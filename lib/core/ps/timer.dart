@@ -27,7 +27,6 @@ class Timer {
 
   bool pause = false;
   bool triggered = false;
-  int ttl = 0;
 
   void reset() {
     counter = 0;
@@ -48,7 +47,6 @@ class Timer {
 
     pause = false;
     triggered = false;
-    ttl = 0;
   }
 
   int get mode => mode_
@@ -61,41 +59,35 @@ class Timer {
       intRequested = !intRequested;
     } else {
       intRequested = true;
-      ttl = 3;
     }
   }
 
-  void clock() {
-    if (ttl > 0) {
-      ttl--;
-      if (ttl == 0) {
-        intRequested = false;
-      }
+  void clock(int cycles) {
+    if (!toggleMode && intRequested) {
+      intRequested = false;
     }
 
     if (pause) {
       return;
     }
 
-    counter++;
-    counter &= 0xffff;
+    counter += cycles;
 
-    if (counter == 0xffff) {
-      reachFfff = true;
+    if (counter > 0xffff) {
       if (irqWhenFfff) {
         trigger();
       }
-    }
 
-    if (counter == target) {
-      reachTarget = true;
-
-      if (resetAfterTarget) {
-        counter = 0;
+      reachFfff = true;
+      counter = 0;
+    } else if (counter >= target) {
+      if (!reachTarget && irqWhenTarget) {
+        trigger();
       }
 
-      if (irqWhenTarget) {
-        trigger();
+      reachTarget = true;
+      if (resetAfterTarget) {
+        counter = 0;
       }
     }
 
@@ -120,6 +112,7 @@ class Timer {
         counter = 0;
       case 3:
         pause = false;
+        sync = false;
     }
   }
 
@@ -161,7 +154,7 @@ class TimerController {
     timers[0].start();
 
     if (!timers[1].sourceSystemClock) {
-      timers[1].clock();
+      timers[1].clock(1);
     }
   }
 
@@ -172,30 +165,30 @@ class TimerController {
   int systemClockCounter = 0;
   int dotClockCounter = 0;
 
-  void clock() {
+  void clock(int cycles) {
     if (timers[0].sourceSystemClock) {
-      timers[0].clock();
+      timers[0].clock(cycles);
     } else {
       // clock source = dotClockHz = [system clock] * 11 / gpu.dotClockDivider
-      dotClockCounter += 11;
+      dotClockCounter += 11 * cycles;
       if (dotClockCounter >= bus.gpu.dotClockDivider) {
-        dotClockCounter -= bus.gpu.dotClockDivider;
-        timers[0].clock();
+        timers[0].clock(dotClockCounter ~/ bus.gpu.dotClockDivider);
+        dotClockCounter %= bus.gpu.dotClockDivider;
       }
     }
 
     if (timers[1].sourceSystemClock) {
-      timers[1].clock();
+      timers[1].clock(cycles);
     }
 
     if (timers[2].sourceSystemClock) {
-      timers[2].clock();
+      timers[2].clock(cycles);
     } else {
       // clock source = systemClockHz/8
-      systemClockCounter++;
-      systemClockCounter &= 0x07;
-      if (systemClockCounter == 0) {
-        timers[2].clock();
+      systemClockCounter += cycles;
+      if (systemClockCounter >= 8) {
+        timers[2].clock(systemClockCounter ~/ 8);
+        systemClockCounter &= 0x07;
       }
     }
   }

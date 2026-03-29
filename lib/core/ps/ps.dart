@@ -124,6 +124,7 @@ class Ps extends Core {
   }
 
   int nextScanlineClock = 0;
+  int nextTimerClock = 0;
   bool _waitFinishLine = false;
   int nextDmaClock = 0;
   int nextSpuClock = 0;
@@ -139,7 +140,11 @@ class Ps extends Core {
   @override
   ExecResult exec(bool step) {
     cpu.step();
-    timer.clock();
+
+    if (cpu.clocks > nextTimerClock) {
+      nextTimerClock += 100;
+      bus.timer.clock(100);
+    }
 
     if (cpu.clocks > nextScanlineClock) {
       bus.timer.endHBlank();
@@ -194,6 +199,7 @@ class Ps extends Core {
     cpu.reset();
 
     nextScanlineClock = 0;
+    nextTimerClock = 0;
     nextDmaClock = 0;
     nextSpuClock = 0;
     nextSerialClock = 0;
