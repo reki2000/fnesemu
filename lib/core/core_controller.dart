@@ -99,7 +99,7 @@ class CoreController {
       if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
         _runFrame();
         fpsCounter.count();
-        await Future.delayed(const Duration(milliseconds: 1));
+        await Future.delayed(const Duration(milliseconds: 5));
         continue;
       }
 
