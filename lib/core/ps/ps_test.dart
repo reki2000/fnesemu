@@ -14,7 +14,7 @@ int traceAddress = -1; // start logging from this address
 int traceCycleStart = -1; // start logging from this cycle
 int traceCycleEnd = -1; // end logging at this cycle
 int measureLoopCount =
-    0; // number of times to run the main loop for measuring performance
+    1; // number of times to run the main loop for measuring performance
 
 Ps core = Ps();
 
@@ -211,8 +211,9 @@ main(List<String> args) async {
     elapsedResults[measureLoopCount] = elapsed.inMilliseconds;
   }
 
-  final meanElapsed =
-      elapsedResults.reduce((a, b) => a + b) ~/ elapsedResults.length;
+  final meanElapsed = elapsedResults.isNotEmpty
+      ? elapsedResults.reduce((a, b) => a + b) ~/ elapsedResults.length
+      : 0;
   print(
       "Elapsed time: $meanElapsed ms (${elapsedResults.map((e) => "$e").join(', ')} ms)");
   print(core.cpu.dump());
