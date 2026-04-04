@@ -29,7 +29,6 @@ class MemoryCard extends SioDevice {
 
   int step = waitAddr;
 
-  Uint8List mem = Uint8List(128 * 1024); // 128KB
   int addr = 0;
   int count = 0;
 
@@ -48,9 +47,9 @@ class MemoryCard extends SioDevice {
 
   get flag => firstReadDone ? 0 : 0x08;
 
-  static final Uint8List blankImage = _initBlankImage();
+  static final Uint8List blankImage = _buildBlankImage();
 
-  static Uint8List _initBlankImage() {
+  static Uint8List _buildBlankImage() {
     final image = Uint8List(128 * 1024);
     image.setRange(0, 2, "MC".codeUnits); // ID0, ID1
     for (int i = 1 * 128; i < 15 * 128; i += 128) {
@@ -142,11 +141,11 @@ class MemoryCard extends SioDevice {
         step = command == commandWrite ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
-        return ack(_pre, delay: 2000);
+        return ack(_pre, delay: 1200);
 
       case waitCmdAck0:
         step = waitCmdAck1;
-        return ack(0x5c, delay: 2000);
+        return ack(0x5c, delay: 1200);
 
       case waitCmdAck1:
         step = command == commandId

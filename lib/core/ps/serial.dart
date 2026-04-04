@@ -34,13 +34,13 @@ class Serial {
   final Bus bus;
   final SioDevice pad;
   final SioDevice memCard1;
-  // final SioDevice memCard2;
+  final SioDevice memCard2;
 
   Serial(
     this.bus,
     this.pad,
     this.memCard1,
-    /*this.memCard2*/
+    this.memCard2,
   );
 
   final txFifo = Queue<int>(); // send queue from pad to cpu
@@ -75,6 +75,7 @@ class Serial {
   void reset() {
     pad.reset();
     memCard1.reset();
+    memCard2.reset();
 
     irq = false;
     dsr = false; // /ACK (dsr true = asserted = /ack low)
@@ -136,7 +137,7 @@ class Serial {
 
     final txData = val;
 
-    for (final device in port1Selected ? [pad, memCard1] : [/*memCard2*/]) {
+    for (final device in port1Selected ? [pad, memCard1] : [memCard2]) {
       final response = device.notify(txData);
 
       // if (device.runtimeType != Pad) {
@@ -178,7 +179,7 @@ class Serial {
       irq = false;
       txFifo.clear();
       rxFifo.clear();
-      for (final device in [pad, memCard1 /*, memCard2*/]) {
+      for (final device in [pad, memCard1, memCard2]) {
         device.resetStep();
       }
     }
@@ -206,6 +207,6 @@ class Serial {
       "tx:${txFifo.map((e) => e.hex8).toList()} "
       "rx:${rxFifo.map((e) => e.hex8).toList()}\n"
       "pad: ${pad.dump()} "
-      "mcd1: ${memCard1.dump()} ";
-  // "mcd2: ${memCard2.dump()}";
+      "mcd1: ${memCard1.dump()} "
+      "mcd2: ${memCard2.dump()}";
 }
