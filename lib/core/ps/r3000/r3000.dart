@@ -159,7 +159,7 @@ class R3000 {
 
     r[0] = 0; // r0 is always hardwired to 0.
 
-    clocks += 1; // not accurate, but enough for now.
+    clocks += 2; // not accurate, but enough for now.
 
     return true;
   }
