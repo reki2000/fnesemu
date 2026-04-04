@@ -1,6 +1,15 @@
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/int.dart';
 
+import '../../util/debug.dart' show debugLog;
+
+const _debugLog = false;
+void _debug(String log) {
+  if (_debugLog) {
+    debugLog(log);
+  }
+}
+
 class Interrupt {
   static const vBlank = 0;
   static const gpu = 1;
@@ -30,9 +39,8 @@ class InterruptController {
       return;
     }
 
-    // debugLog(
-    //     "interrupt: set:${irqNo.hex16}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} triggered:${mask & status.setBit(irqNo, true) != 0}");
-
+    _debug(
+        "interrupt: set:${irqNo.hex16}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} triggered:${mask & status.setBit(irqNo, true) != 0}");
     status = status.setBit(irqNo, true);
 
     if (mask & status != 0) {
@@ -41,10 +49,10 @@ class InterruptController {
   }
 
   void ackIrq(int ackValue) {
-    // if (ackValue.mask16 != 0xffff) {
-    //   debugLog(
-    //       'interrupt: ack:${ackValue.hex16}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32}');
-    // }
+    if (ackValue.mask16 != 0xffff) {
+      _debug(
+          'interrupt: ack:${ackValue.hex16}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32}');
+    }
 
     status &= ackValue;
 
@@ -54,16 +62,16 @@ class InterruptController {
   }
 
   static const _names = [
-    "vBl",
-    "gpu",
-    "cdr",
-    "dma",
-    "ti0",
-    "ti1",
-    "ti2",
-    "ser",
-    "sio",
-    "spu"
+    "vb",
+    "gp",
+    "cd",
+    "dm",
+    "t0",
+    "t1",
+    "t2",
+    "sr",
+    "si",
+    "sp"
   ];
 
   String _statToName(int stat) {
