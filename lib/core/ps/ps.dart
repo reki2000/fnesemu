@@ -25,6 +25,8 @@ import 'r3000/disasm.dart';
 import 'r3000/r3000.dart';
 import 'spu/spu.dart';
 
+const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
+
 class Ps extends Core {
   final Bus bus;
   late final R3000 cpu;
@@ -39,7 +41,7 @@ class Ps extends Core {
   late final Mdec mdec;
   late final Dma dma;
 
-  bool fastBoot = true;
+  bool fastBoot = _fastboot;
 
   Ps() : bus = Bus() {
     cpu = R3000(bus);
