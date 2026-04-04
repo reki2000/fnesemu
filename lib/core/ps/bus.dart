@@ -53,6 +53,7 @@ class Bus implements BusR3000 {
     final offset = addr & segMask[addr >> 29];
 
     return switch (offset) {
+      0x1f801040 => serial.readData(),
       >= 0x1f801800 && < 0x1f801804 => cdrom.readPort8(offset & 0x03),
       _ => read32(addr & ~0x03) >> (8 * (addr & 0x03)) & 0xffff,
     };
@@ -64,6 +65,7 @@ class Bus implements BusR3000 {
 
     return switch (offset) {
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
+          0x1040 => serial.readData(),
           0x1048 => serial.readMode(),
           0x104a => serial.readControl(),
           0x1802 => cdrom.readPort16(2),
@@ -99,7 +101,10 @@ class Bus implements BusR3000 {
           0x1014 => 0x200931E1, // spu delay/size (0x220931E1 for read)
           0x1018 => 0x00020843, // cdrom delay/size (00020843h or 00020943h)
           0x101c => 0x00070777, // expansion 2 delay/size
-          0x1040 => serial.readData(),
+          0x1040 => serial.readData() |
+              serial.readData() << 8 |
+              serial.readData() << 16 |
+              serial.readData() << 24,
           0x1044 => serial.readStatus(),
           0x1048 => serial.readMode() | serial.readControl() << 16,
           0x104c => serial.readBaudrate(),

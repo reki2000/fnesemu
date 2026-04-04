@@ -85,7 +85,7 @@ class MemoryCard extends SioDevice {
     _writeEx = write;
   }
 
-  SioResponse ack(int data, {int delay = 600}) {
+  SioResponse ack(int data, {int delay = 300}) {
     _pre = data;
     return SioResponse(data, ack: step != waitAddr, delay: delay);
   }
@@ -142,11 +142,11 @@ class MemoryCard extends SioDevice {
         step = command == commandWrite ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
-        return ack(_pre, delay: 1200);
+        return ack(_pre, delay: 2000);
 
       case waitCmdAck0:
         step = waitCmdAck1;
-        return ack(0x5c, delay: 1200);
+        return ack(0x5c, delay: 2000);
 
       case waitCmdAck1:
         step = command == commandId

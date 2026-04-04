@@ -64,6 +64,10 @@ class Pad extends SioDevice {
     padStep = waitAddr;
   }
 
+  SioResponse ack(int data, {int delay = 500}) {
+    return SioResponse(data, ack: padStep != waitAddr, delay: delay);
+  }
+
   @override
   SioResponse notify(int txData) {
     // if (padStep == waitMotor2) {
@@ -75,28 +79,27 @@ class Pad extends SioDevice {
         if (txData == 0x01) {
           // debugLog("pad: 0x01 -> -- <- ${dump()}");
           padStep = waitCommand;
-          return SioResponse(0xff);
+          return ack(0xff);
         }
 
       case waitCommand:
         // debugLog("pad: 0x42 -> 0x41 <- $padStep ${dump()}");
         padStep = waitPadNo;
-        return SioResponse(0x41);
+        return ack(0x41);
 
       case waitPadNo:
         padNo = txData & 0x0f;
         // debugLog("pad: ${padNo.hex8} -> 0x5a <- ${dump()}");
         padStep = waitMotor1;
-        return SioResponse(0x5a);
+        return ack(0x5a);
 
       case waitMotor1:
         padStep = waitMotor2;
-        return SioResponse(padNo == 0 ? buttonValue.mask8 : 0);
+        return ack(padNo == 0 ? buttonValue.mask8 : 0xff);
 
       case waitMotor2:
         padStep = waitAddr;
-        return SioResponse(padNo == 0 ? buttonValue >> 8 & 0xff : 0,
-            ack: false);
+        return ack(padNo == 0 ? buttonValue >> 8 & 0xff : 0xff);
     }
 
     padStep = waitIgnore;
