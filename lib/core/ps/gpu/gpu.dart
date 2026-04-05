@@ -317,9 +317,9 @@ class Gpu {
   }
 
   String dump() =>
-      "GPU: stat:${status.hex32} ${width}x$height start:($startDisplayX,$startDisplayY) "
-      "($drawingX1,$drawingY1)-($drawingX2,$drawingY2) "
-      "offset:($drawingOffsetX,$drawingOffsetY) frame:$frame scanline:$scanline";
+      "GPU: stat:${status.hex32} ${width}x$height (${startDisplayX.decimal3},${startDisplayY.decimal3}) "
+      "(${drawingX1.decimal3},${drawingY1.decimal3})-(${drawingX2.decimal3},${drawingY2.decimal3}) "
+      "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
 
   String dumpCmd() =>
       "cmd: ${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}";

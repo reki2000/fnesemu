@@ -52,9 +52,11 @@ class MemoryCard extends SioDevice {
   static Uint8List _buildBlankImage() {
     final image = Uint8List(128 * 1024);
     image.setRange(0, 2, "MC".codeUnits); // ID0, ID1
+
     for (int i = 1 * 128; i < 15 * 128; i += 128) {
       image[i] = 0xa0; // free block
     }
+
     for (int i = 0; i < 64 * 128; i += 128) {
       int checkSum = 0;
       for (int j = 0; j < 127; j++) {
@@ -62,6 +64,7 @@ class MemoryCard extends SioDevice {
       }
       image[i + 127] = checkSum;
     }
+
     return image;
   }
 
@@ -111,6 +114,7 @@ class MemoryCard extends SioDevice {
           // 'W'
           command = commandWrite;
         } else if (txData == commandId) {
+          // 'S'
           command = commandId;
         } else {
           // unknown command
