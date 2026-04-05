@@ -265,7 +265,7 @@ class Ps extends Core {
     addr = addr.mask32 & ~0x03;
     final inst32 = bus.read32(addr);
     return (
-      "${addr.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32, pc: addr)}",
+      "${addr.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32, pc: addr, regs: cpu.r)}",
       4
     );
   }
@@ -291,7 +291,7 @@ class Ps extends Core {
   TraceLog trace(int cpuNo) => TraceLog(
       cpu.pc,
       cpu.clocks,
-      disasm(0, cpu.pc).$1.padRight(44),
+      disasm(0, cpu.pc).$1.padRight(46),
       cpu.dump().replaceAll("\n", " "),
       [for (int i = 0; i < 32; i++) cpu.r[i]],
       frame: gpu.frame,

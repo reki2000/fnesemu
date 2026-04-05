@@ -2,6 +2,8 @@ import 'package:fnesemu/util/int.dart';
 
 import '../../../util/debug.dart';
 
+const showAddress = true;
+
 class DisasmR3000 {
   static const cop0 = [
     "index",
@@ -52,6 +54,58 @@ class DisasmR3000 {
     "gp", "sp", "fp", "ra", //
   ];
 
+  static const ioAddr = {
+    0x1f801040: "JOY_DATA",
+    0x1f801044: "JOY_STAT",
+    0x1f801048: "JOY_MODE",
+    0x1f80104a: "JOY_CTRL",
+    0x1f80104e: "JOY_BAUD",
+    0x1f801070: "I_STAT",
+    0x1f801074: "I_MASK",
+    0x1f801080: "D0_MADR",
+    0x1f801084: "D0_BCR",
+    0x1f801088: "D0_CHCR",
+    0x1f801090: "D1_MADR",
+    0x1f801094: "D1_BCR",
+    0x1f801098: "D1_CHCR",
+    0x1f8010a0: "D2_MADR",
+    0x1f8010a4: "D2_BCR",
+    0x1f8010a8: "D2_CHCR",
+    0x1f8010b0: "D3_MADR",
+    0x1f8010b4: "D3_BCR",
+    0x1f8010b8: "D3_CHCR",
+    0x1f8010c0: "D4_MADR",
+    0x1f8010c4: "D4_BCR",
+    0x1f8010c8: "D4_CHCR",
+    0x1f8010d0: "D5_MADR",
+    0x1f8010d4: "D5_BCR",
+    0x1f8010d8: "D5_CHCR",
+    0x1f8010e0: "D6_MADR",
+    0x1f8010e4: "D6_BCR",
+    0x1f8010e8: "D6_CHCR",
+    0x1f8010f0: "DPCR",
+    0x1f8010f4: "DICR",
+    0x1f801810: "GPU_DATA",
+    0x1f801814: "GPU_STAT",
+    0x1f801820: "MDEC_DATA",
+    0x1f801824: "MDEC_STAT",
+    0x1f801100: "T0_CNT",
+    0x1f801104: "T0_MODE",
+    0x1f801108: "T0_TGT",
+    0x1f801110: "T1_CNT",
+    0x1f801114: "T1_MODE",
+    0x1f801118: "T1_TGT",
+    0x1f801120: "T2_CNT",
+    0x1f801124: "T2_MODE",
+    0x1f801128: "T2_TGT",
+    0x1f801800: "CD_ADR",
+    0x1f801801: "CD_RSLT",
+    0x1f801802: "CD_DAT",
+    0x1f801803: "CD_HINT",
+  };
+
+  static String _ioAddrName(int addr) => ioAddr[addr] ?? addr.hex32;
+
   static String _unknown(int inst32) {
     final op = inst32 >> 26 & 0x3f;
     final rs = inst32 >> 21 & 0x1f;
@@ -62,7 +116,7 @@ class DisasmR3000 {
 
   static _reg(int no) => no == 0 ? "0" : "r$no";
 
-  static String disasm(int inst32, {int pc = 0}) {
+  static String disasm(int inst32, {int pc = 0, List<int> regs = const []}) {
     final op = inst32 >> 26 & 0x3f;
     final rs = inst32 >> 21 & 0x1f;
     final rt = inst32 >> 16 & 0x1f;
@@ -79,6 +133,10 @@ class DisasmR3000 {
     final rel16_ = inst32.rel16.toRadixString(16);
     final pcRel16_ = (pc.inc4 + (inst32.rel16 << 2)).mask32.hex32;
     final pc26_ = (pc.inc4 & 0xf0000000 | inst32.mask26 << 2).hex32;
+
+    final addr_ = regs.isNotEmpty && showAddress
+        ? ";${_ioAddrName(regs[rs] + inst32.rel16)}"
+        : "";
 
     // print(
     //     "op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8} shamt:${shamt.hex8} funct:${funct.hex8} im16:$im16_ im26:$im26_");
@@ -177,20 +235,20 @@ class DisasmR3000 {
             },
           _ => _unknown(inst32),
         },
-      0x20 => "lb $rt_, $rel16_($rs_)",
-      0x21 => "lh $rt_, $rel16_($rs_)",
-      0x22 => "lwl $rt_, $rel16_($rs_)",
-      0x23 => "lw $rt_, $rel16_($rs_)",
-      0x24 => "lbu $rt_, $rel16_($rs_)",
-      0x25 => "lhu $rt_, $rel16_($rs_)",
-      0x26 => "lwr $rt_, $rel16_($rs_)",
-      0x28 => "sb $rt_, $rel16_($rs_)",
-      0x29 => "sh $rt_, $rel16_($rs_)",
-      0x2a => "swl $rt_, $rel16_($rs_)",
-      0x2b => "sw $rt_, $rel16_($rs_)",
-      0x2e => "swr $rt_, $rel16_($rs_)",
-      0x32 => "lwc2 cop2.$rt:${cop2[rt]}, $rel16_($rs_)",
-      0x3a => "swc2 cop2.$rt:${cop2[rt]}, $rel16_($rs_)",
+      0x20 => "lb $rt_, $rel16_($rs_)$addr_",
+      0x21 => "lh $rt_, $rel16_($rs_)$addr_",
+      0x22 => "lwl $rt_, $rel16_($rs_)$addr_",
+      0x23 => "lw $rt_, $rel16_($rs_)$addr_",
+      0x24 => "lbu $rt_, $rel16_($rs_)$addr_",
+      0x25 => "lhu $rt_, $rel16_($rs_)$addr_",
+      0x26 => "lwr $rt_, $rel16_($rs_)$addr_",
+      0x28 => "sb $rt_, $rel16_($rs_)$addr_",
+      0x29 => "sh $rt_, $rel16_($rs_)$addr_",
+      0x2a => "swl $rt_, $rel16_($rs_)$addr_",
+      0x2b => "sw $rt_, $rel16_($rs_)$addr_",
+      0x2e => "swr $rt_, $rel16_($rs_)$addr_",
+      0x32 => "lwc2 cop2.$rt:${cop2[rt]}, $rel16_($rs_)$addr_",
+      0x3a => "swc2 cop2.$rt:${cop2[rt]}, $rel16_($rs_)$addr_",
       // => "syscall",
       // => "break",
       _ => _unknown(inst32),
