@@ -1,7 +1,8 @@
 part of 'r3000.dart';
 
 extension Hook on R3000 {
-  static int biosCallAddr = 0;
+  static int biosCallReturnAddr = 0;
+  static String biosCallFuncLog = "";
 
   String dumpCString(int addr, {maxLength = 32}) {
     final sb = StringBuffer();
@@ -83,10 +84,11 @@ extension Hook on R3000 {
         final str = dumpc(r[5], r[6]);
         str.runes.forEach(handleTty);
       } else if (!name.startsWith("*")) {
-        biosCallAddr = r[31];
+        biosCallReturnAddr = r[31];
 
         if (name.startsWith("TestEvent")) {
-          biosCallAddr = 0;
+          biosCallReturnAddr = 0;
+          biosCallFuncLog = "";
         }
 
         if (!name.endsWith(")")) {
@@ -100,13 +102,19 @@ extension Hook on R3000 {
 
         name = buildArgs(name, r.sublist(4, 8));
 
-        debugLog("bios: ${vector.hex8}(${r[9].hex8}): $name");
+        final func = "${vector.hex8}(${r[9].hex8}): $name";
+
+        if (biosCallFuncLog.isNotEmpty) {
+          debugLog("bios: $biosCallFuncLog");
+        }
+        biosCallFuncLog = func;
       }
     }
 
-    if (pc == biosCallAddr) {
-      debugLog("bios: returns ${r[2].hex32}");
-      biosCallAddr = 0;
+    if (pc == biosCallReturnAddr) {
+      debugLog("bios: $biosCallFuncLog --> ${r[2].hex32}");
+      biosCallReturnAddr = 0;
+      biosCallFuncLog = "";
     }
 
     // exe sideloading
