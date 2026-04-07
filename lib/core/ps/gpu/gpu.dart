@@ -275,7 +275,7 @@ class Gpu {
       }
     }
 
-    final old = frameBuffer.getUInt16LE(y * 2048 + x * 2);
+    final old = frameBuffer16[y * 1024 + x];
 
     // write protected
     if (status.bit12 && old.bit15) {

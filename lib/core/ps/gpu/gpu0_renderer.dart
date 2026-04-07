@@ -138,7 +138,7 @@ extension Gp0Renderer on Gpu {
         final c16 = modulated
             ? modulate(texColor, gouraud ? uv.c : modulateColor)
             : texColor;
-        if (texColor != 0) {
+        if (c16 != 0) {
           pset16(x, y, c16);
         }
       }

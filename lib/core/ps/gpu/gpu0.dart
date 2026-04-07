@@ -62,8 +62,8 @@ extension Gpu0 on Gpu {
         drawingY2 = (value >> 10) & yMask;
 
       case 0xe5: // set drawing offset
-        drawingOffsetX = value & 0x7ff;
-        drawingOffsetY = (value >> 11) & 0x7ff;
+        drawingOffsetX = value.rel11;
+        drawingOffsetY = (value >> 11).rel11;
 
       case 0xe6: // mask bit setting
         status = status.setBit(11, value.bit0);
