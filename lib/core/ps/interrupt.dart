@@ -27,11 +27,21 @@ class InterruptController {
   late final R3000 cpu;
 
   int status = 0;
-  int mask = 0;
+  int _mask = 0;
+  int get mask => _mask;
+  set mask(int value) {
+    _debug(
+        "interrupt: set mask:${value.hex16}(${_statToName(value)}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} pending:${mask & status != 0}");
+    _mask = value;
+
+    if (mask & status != 0) {
+      cpu.setInterruptPending(true);
+    }
+  }
 
   void reset() {
     status = 0;
-    mask = 0;
+    _mask = 0;
   }
 
   void setIrq(int irqNo) {
@@ -78,7 +88,7 @@ class InterruptController {
     return _names
         .asMap()
         .entries
-        .map((e) => stat.bit(e.key) ? e.value : "   ")
+        .map((e) => stat.bit(e.key) ? e.value : "  ")
         .join(" ");
   }
 
