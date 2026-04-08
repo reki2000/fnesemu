@@ -309,17 +309,14 @@ extension Gpu0 on Gpu {
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
           if (textured) {
-            final texColor =
-                getTextureColor(u0 + x, v0 + y, clut, status) & transparentMask;
+            final texColor = getTextureColor(u0 + x, v0 + y, clut, status);
             final c16 =
                 modulated ? modulate(texColor, modulateColor) : texColor;
             if (c16 != 0) {
-              pset16(x0 + x, y0 + y, c16);
+              pset16(x0 + x, y0 + y, c16 & transparentMask);
             }
-            // if (x0 == 222 && y0 == 110) {
             //   debugLog(
             //       "GPU0: textured rectangle pixel ($x, $y) color:${c16.hex16}");
-            // }
           } else {
             pset24(x0 + x, y0 + y, cmd[0].mask24, transparent: transparent);
           }

@@ -262,7 +262,8 @@ class Gpu {
         ignoreWindow: ignoreWindow);
   }
 
-  pset16(int x, int y, int c16, {bool ignoreWindow = false}) {
+  pset16(int x, int y, int c16,
+      {bool ignoreWindow = false, int? semiTransparent}) {
     if (!ignoreWindow) {
       x += drawingOffsetX;
       y += drawingOffsetY;
@@ -295,7 +296,7 @@ class Gpu {
       //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
       //       "mode:${status >> 5 & 0x03}");
       // }
-      c16 = switch (status >> 5 & 0x03) {
+      c16 = switch (semiTransparent ?? status >> 5 & 0x03) {
         0 => ((b0 + b1) >> 1) << 10 |
             ((g0 + g1) >> 1) << 5 |
             ((r0 + r1) >> 1), // B/2+F/2

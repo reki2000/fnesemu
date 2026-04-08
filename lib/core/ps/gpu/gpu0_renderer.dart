@@ -120,6 +120,7 @@ extension Gp0Renderer on Gpu {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, t0, t1, t2);
     final modulated = !cmd.bit24;
     final modulateColor = Color.ofC24(cmd);
+    final semiTransparent = page.shr5 & 0x03;
     final transparentMask = cmd.bit25 ? 0xffff : 0x7fff;
     final gouraud = cmd.bit28;
 
@@ -133,13 +134,12 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final uv = left.mix(right, x - left.x, right.x - left.x);
-        final texColor =
-            getTextureColor(uv.u, uv.v, clut, page) & transparentMask;
+        final texColor = getTextureColor(uv.u, uv.v, clut, page);
         final c16 = modulated
             ? modulate(texColor, gouraud ? uv.c : modulateColor)
             : texColor;
         if (c16 != 0) {
-          pset16(x, y, c16);
+          pset16(x, y, c16 & transparentMask, semiTransparent: semiTransparent);
         }
       }
     }
