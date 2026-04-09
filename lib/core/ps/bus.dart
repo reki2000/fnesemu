@@ -248,6 +248,8 @@ class Bus implements BusR3000 {
           0x1db2 => spu.cdAudioInputRight = v,
           0x1db4 => spu.externalInputLeft = v,
           0x1db6 => spu.externalInputRight = v,
+          0x1db8 => spu.mainVolumeLeft = v, // read only by design
+          0x1dba => spu.mainVolumeRight = v, // read only by design
           >= 0x1d80 && < 0x1dc0 => _unimpl(sig, "spu control", addr, value: v),
           >= 0x1dc0 && < 0x1e00 => spu.reverb.write16(offset, v),
           _ => _unimpl(sig, "expansion 1", addr, value: v)
