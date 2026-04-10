@@ -81,7 +81,7 @@ class Timer {
       reachFfff = true;
       counter = 0;
     } else if (counter >= target) {
-      if (!reachTarget && irqWhenTarget) {
+      if (irqWhenTarget) {
         trigger();
       }
 
