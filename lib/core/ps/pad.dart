@@ -31,7 +31,6 @@ class Pad extends SioDevice {
     (PadButton("R1"), 11), // 11
   ];
 
-  int padNo = 0;
   int padStep = waitAddr;
 
   void keyDown(int id, PadButton d) {
@@ -55,7 +54,6 @@ class Pad extends SioDevice {
   @override
   void reset() {
     buttonValue = 0xffff;
-    padNo = 0;
     padStep = waitAddr;
   }
 
@@ -88,18 +86,19 @@ class Pad extends SioDevice {
         return ack(0x41);
 
       case waitPadNo:
-        padNo = txData & 0x0f;
         // debugLog("pad: ${padNo.hex8} -> 0x5a <- ${dump()}");
         padStep = waitMotor1;
         return ack(0x5a);
 
       case waitMotor1:
         padStep = waitMotor2;
-        return ack(padNo == 0 ? buttonValue.mask8 : 0xff);
+        // debugLog("pad: ${padNo.hex8} -> 0x00 <- ${dump()}");
+        return ack(buttonValue.mask8);
 
       case waitMotor2:
         padStep = waitAddr;
-        return ack(padNo == 0 ? buttonValue >> 8 & 0xff : 0xff);
+        // debugLog("pad: ${padNo.hex8} -> 0x00 <- ${dump()}");
+        return ack(buttonValue.shr8.mask8);
     }
 
     padStep = waitIgnore;
@@ -107,5 +106,5 @@ class Pad extends SioDevice {
   }
 
   @override
-  String dump() => "padNo:$padNo step:$padStep button:${buttonValue.hex16}";
+  String dump() => "step:$padStep button:${buttonValue.hex16}";
 }
