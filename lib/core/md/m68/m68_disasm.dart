@@ -2,10 +2,6 @@ import 'dart:io';
 
 import 'package:fnesemu/util/int.dart';
 
-extension IntBit on int {
-  bool bit(int n) => (this & (1 << n)) != 0;
-}
-
 class Disasm {
   int op = 0;
 
@@ -62,8 +58,8 @@ class Disasm {
       final breaf = fetch();
       final disp = breaf & 0xff;
       final reg = breaf >> 12 & 7;
-      final size = sz1(breaf.bit(11));
-      final regType = breaf.bit(15) ? "a" : "d";
+      final size = sz1(breaf.bit11);
+      final regType = breaf.bit15 ? "a" : "d";
       return "(#${disp.hex16}, $base, $regType$reg.$size)";
     }
 
@@ -109,7 +105,7 @@ class Disasm {
             "${opLog(op1)}i.$sz #${im()}, ${ea()}",
           0x8 => "${opBit(size)} #${im(0)}, ${ea()}",
           _ => mod == 1
-              ? "movep.${sz1(op.bit(6))} ${op.bit(7) ? "d$r2, a$r1" : "a$r1, d$r2"}"
+              ? "movep.${sz1(op.bit6)} ${op.bit7 ? "d$r2, a$r1" : "a$r1, d$r2"}"
               : "${opBit(size)} d$r2, ${ea()}",
         },
       0x1 ||
@@ -192,7 +188,7 @@ class Disasm {
       0xe when op & 0xc0 == 0xc0 =>
         "${opRot(op1 >> 1, op1.bit0)}.w #1, ${ea()}",
       0xe =>
-        "${opRot(op >> 3 & 3, op1.bit0)}.$sz ${op.bit(5) ? "d$r2" : "#${r2 == 0 ? 8 : r2}"}, d$r1",
+        "${opRot(op >> 3 & 3, op1.bit0)}.$sz ${op.bit5 ? "d$r2" : "#${r2 == 0 ? 8 : r2}"}, d$r1",
       _ => ex("op0"),
     };
 

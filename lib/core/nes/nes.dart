@@ -5,7 +5,9 @@ import 'dart:typed_data';
 // Project imports:
 import '../../util/util.dart';
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
@@ -140,6 +142,12 @@ class Nes implements Core {
   void padDown(int id, PadButton k) => bus.joypad.keyDown(id, k);
   @override
   void padUp(int id, PadButton k) => bus.joypad.keyUp(id, k);
+
+  @override
+  void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
 
   @override
   List<PadButton> get buttons => bus.joypad.buttons;

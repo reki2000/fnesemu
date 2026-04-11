@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import '../../core/core_controller.dart';
 import '../../core/debugger.dart';
 import '../../core/types.dart';
-import '../../util/int.dart';
 import '../../styles.dart';
+import '../../util/int.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
@@ -16,8 +16,19 @@ class DebugController extends StatelessWidget {
   DebugController({super.key, required this.controller})
       : debugger = controller.debugger;
 
-  Widget _button(String text, void Function() func) =>
-      TextButton(style: textButtonMinimum, onPressed: func, child: Text(text));
+  Widget _button(BuildContext context, String text, void Function() func) =>
+      TextButton(
+          style: textButtonMinimum.copyWith(
+              foregroundColor: WidgetStateProperty.all(Colors.white),
+              backgroundColor:
+                  WidgetStateProperty.all(Theme.of(context).primaryColor)),
+          onPressed: func,
+          child: Text(text));
+
+  void _showSnackBar(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message), duration: const Duration(milliseconds: 200)));
+  }
 
   int _targetCpuIndex(int targetCpuNo) {
     final cpuInfos = debugger.cpuInfos;
@@ -39,14 +50,24 @@ class DebugController extends StatelessWidget {
 
     try {
       final breakPoint = int.parse(v, radix: 16);
-      debugger.opt.breakPoint = breakPoint;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("breakpoint: ${breakPoint.hex24}"),
-          duration: const Duration(milliseconds: 200)));
+      debugger.setBreakPoint(breakPoint);
+      _showSnackBar(context, "breakpoint: ${breakPoint.hex24}");
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString()),
-          duration: const Duration(milliseconds: 200)));
+      _showSnackBar(context, e.toString());
+    }
+  }
+
+  _setBreakClock(BuildContext context, String v) {
+    if (v.isEmpty) {
+      v = "0";
+    }
+
+    try {
+      final clock = int.parse(v);
+      debugger.setBreakClock(clock);
+      _showSnackBar(context, "breakClock: $clock");
+    } catch (e) {
+      _showSnackBar(context, e.toString());
     }
   }
 
@@ -66,36 +87,49 @@ class DebugController extends StatelessWidget {
             (snapshot.hasData) ? body(context, snapshot.data!) : Container(),
       );
 
-  String _formatPc(int pc, int bit) => bit == 24 ? pc.hex24 : pc.hex16;
+  String _formatPc(int pc, int bit) => bit == 32
+      ? pc.hex32
+      : bit == 24
+          ? pc.hex24
+          : pc.hex16;
 
   Widget body(BuildContext context, DebugOption opt) =>
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        _button(_targetCpu(opt).name, _toggleTargtCpu),
-        _button("Step", () {
+      Row(spacing: 3, mainAxisAlignment: MainAxisAlignment.center, children: [
+        _button(context, _targetCpu(opt).name, _toggleTargtCpu),
+        _button(context, "Step", () {
           controller.run(mode: CoreController.runModeStep);
         }),
-        _button("Next", () {
+        _button(context, "Next", () {
           opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
           controller.run();
         }),
-        _button("StepOut", () {
+        _button(context, "StepOut", () {
           opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
           controller.run(mode: CoreController.runModeStepOut);
         }),
-        _button("Line", () => controller.run(mode: CoreController.runModeLine)),
-        _button(
-            "Frame", () => controller.run(mode: CoreController.runModeFrame)),
+        _button(context, "Line",
+            () => controller.run(mode: CoreController.runModeLine)),
+        _button(context, "Frame",
+            () => controller.run(mode: CoreController.runModeFrame)),
         SizedBox(
-            width: 60,
+            width: 90,
             child: TextField(
-                controller: TextEditingController(
-                    text:
-                        _formatPc(opt.breakPoint, _targetCpu(opt).pcBitWidth)),
-                decoration: denseTextDecoration,
-                onChanged: (v) => _setBreakPoint(context, v, opt))),
-        _button("Mem", () => debugger.toggleMem()),
-        _button("VRAM", () => pushVramPage(context, controller)),
-        _button("VDC", () => debugger.toggleVdc()),
-        _button("Log", () => debugger.toggleLog()),
+              controller:
+                  TextEditingController(text: opt.breakClock.toString()),
+              decoration: denseTextDecoration,
+              onSubmitted: (v) => _setBreakClock(context, v),
+            )),
+        SizedBox(
+            width: 70,
+            child: TextField(
+              controller: TextEditingController(
+                  text: _formatPc(opt.breakPoint, _targetCpu(opt).pcBitWidth)),
+              decoration: denseTextDecoration,
+              onSubmitted: (v) => _setBreakPoint(context, v, opt),
+            )),
+        _button(context, "Mem", () => debugger.toggleMem()),
+        _button(context, "VRAM", () => pushVramPage(context, controller)),
+        _button(context, "VDC", () => debugger.toggleVdc()),
+        _button(context, "Log", () => debugger.toggleLog()),
       ]);
 }

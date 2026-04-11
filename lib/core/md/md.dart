@@ -9,9 +9,10 @@ import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
-
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
@@ -186,6 +187,12 @@ class Md implements Core {
   onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
+
+  @override
+  void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
 
   /// handles reset button events
   @override

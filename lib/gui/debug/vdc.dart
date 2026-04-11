@@ -95,7 +95,7 @@ class DebugVdc extends StatefulWidget {
   final Debugger debugger;
   final double width;
 
-  const DebugVdc({super.key, required this.debugger, this.width = 640});
+  const DebugVdc({super.key, required this.debugger, this.width = 1024});
 
   @override
   State<DebugVdc> createState() => _DebugVdc();
