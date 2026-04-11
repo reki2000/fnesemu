@@ -1,7 +1,9 @@
 // data class to conver the result of 'exec'
 import 'dart:typed_data';
 
+import 'disc.dart';
 import 'pad_button.dart';
+import 'sram.dart';
 import 'types.dart';
 
 // abstract class to be implemented by Emulator classes
@@ -22,6 +24,12 @@ abstract class Core {
 
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio);
+
+  /// set cd-rom disc reader
+  void setDisc(Disc disc);
+
+  /// set sram storage interface
+  void setSram(Sram sram);
 
   /// handles reset button events
   void reset();

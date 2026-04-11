@@ -49,12 +49,14 @@ class CpuInfo {
   CpuInfo.ofM68(int no, String name) : this(no, name, 24, traceDiffs: 4);
   CpuInfo.ofZ80(int no, String name) : this(no, name, 16, traceDiffs: 2);
   CpuInfo.of6502(int no, String name) : this(no, name, 16, traceDiffs: 2);
+  CpuInfo.ofR3000(int no, String name) : this(no, name, 32, traceDiffs: 4);
 }
 
 class TraceLog {
-  final int pc, cycle;
+  final int pc, cycle, frame, scanline;
   final String disasm, regs;
   final List<int> state;
 
-  const TraceLog(this.pc, this.cycle, this.disasm, this.regs, this.state);
+  const TraceLog(this.pc, this.cycle, this.disasm, this.regs, this.state,
+      {this.frame = 0, this.scanline = 0});
 }

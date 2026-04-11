@@ -1,26 +1,32 @@
 // Flutter imports:
 
-// Package imports:
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fnesemu/core/disc.dart';
+import 'package:fnesemu/disc/empty.dart';
 
+// Project imports:
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
+import '../disc/loader.dart';
 import '../styles.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
-// Project imports:
 import 'debug/debug_pane.dart';
 import 'key_handler.dart';
 import 'sound_player.dart';
+import 'storage.dart';
 import 'ticker_image.dart';
 
 part 'loader.dart';
 
 const _isDebug = bool.fromEnvironment("DEBUG", defaultValue: false);
 const _roms = String.fromEnvironment("ROMS", defaultValue: "");
+const _discs = String.fromEnvironment("DISCS", defaultValue: "");
+const _discFile = String.fromEnvironment("DISC", defaultValue: "");
+const _romFile = String.fromEnvironment("ROM", defaultValue: "");
 
 class MyApp extends StatelessWidget {
   final String title;
@@ -49,26 +55,39 @@ class MainPageState extends State<MainPage> {
   final _imageContainer = ImageContainer();
   late final KeyHandler _keyHandler;
   late final CoreController _controller;
+  late final Storage _storage;
 
   bool _running = false;
   bool get _debugging => _controller.debugger.opt.showDebugView;
 
   String _romName = "";
 
+  Disc _disc = EmptyDisc();
+
   @override
   void initState() {
     super.initState();
 
+    _storage = Storage.of(onEvent: (s) => debugPrint("Storage event: $s"));
+
     _controller = CoreController(
-      _onCoreStateChange,
-      (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
-      (buf) => _imageContainer.push(
-          buf.buffer, buf.width, buf.height, buf.displayWidth),
-    );
+        _onCoreStateChange,
+        (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
+        (buf) => _imageContainer.push(
+            buf.buffer, buf.width, buf.height, buf.displayWidth),
+        _storage);
 
     _controller.debugger.opt.showDebugView = _isDebug;
 
     _keyHandler = KeyHandler(controller: _controller);
+
+    if (_discFile.isNotEmpty) {
+      _setDiscFile(_discFile);
+    }
+
+    if (_romFile.isNotEmpty) {
+      _loadRomFile(fileName: _romFile);
+    }
   }
 
   @override
@@ -112,11 +131,30 @@ class MainPageState extends State<MainPage> {
     setState(() {});
   }
 
+  _setDiscFile(String fileName) async {
+    _disc = DiscLoader.load(fileName);
+    _controller.setDisc(_disc);
+
+    await _reset();
+
+    if (!_isDebug) {
+      _run();
+    }
+  }
+
   _loadRomFile({String fileName = ""}) async {
     final (file, name) = await _pickFile(name: fileName);
     final (extractedFile, extractedName) = _extractIfZip(file, name);
+    final ext = _fileExtension(extractedName);
 
-    _controller.init(_fileExtension(extractedName), extractedFile);
+    if (ext == "exe") {
+      final (bios, _) = await _pickFile(name: "scph1001.ps");
+      _controller.init("ps", bios.buffer.asUint8List(), extRom: extractedFile);
+    } else {
+      _controller.init(ext, extractedFile);
+    }
+    _controller.setDisc(_disc);
+
     _keyHandler.init();
     _mPlayer.resume(); // web platform requires this
     _romName = extractedName;
@@ -147,6 +185,11 @@ class MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(_romName), actions: [
+          // shortcuts from environment variables
+          for (var name in _discs.split(",").where((s) => s.isNotEmpty))
+            iconButton(Icons.album_outlined, name.split(".")[0],
+                () => _do(context, () async => await _setDiscFile(name))),
+
           // shortcuts from environment variables
           for (var name in _roms.split(",").where((s) => s.isNotEmpty))
             iconButton(
@@ -195,6 +238,7 @@ class MainPageState extends State<MainPage> {
 
                   // debug view if enabled
                   if (_debugging) ...[
+                    DebugController(controller: _controller),
                     SizedBox(
                         width: 640,
                         child: SingleChildScrollView(
@@ -206,7 +250,6 @@ class MainPageState extends State<MainPage> {
                                       style: debugStyle,
                                       showCursor: true,
                                     )))),
-                    DebugController(controller: _controller),
                   ],
                 ],
               ),

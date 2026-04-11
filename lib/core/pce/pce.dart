@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
@@ -14,8 +16,8 @@ import 'component/psg.dart';
 import 'component/psg_debug.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
-import 'component/vdc_render.dart';
 import 'component/vdc_debug.dart';
+import 'component/vdc_render.dart';
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
@@ -114,6 +116,12 @@ class Pce implements Core {
   @override
   void padUp(int controllerId, PadButton k) =>
       bus.joypad.keyUp(controllerId, k);
+
+  @override
+  void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
 
   @override
   List<PadButton> get buttons => bus.joypad.buttons;
