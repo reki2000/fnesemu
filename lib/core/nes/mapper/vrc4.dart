@@ -5,10 +5,9 @@ import 'dart:developer';
 import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
-import 'sram.dart';
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
-class MapperVrc4 extends Mapper with Sram {
+class MapperVrc4 extends Mapper {
   // IRQ related counters, flags etc.
   int _irqLatch = 0;
   int _irqCounter = 0;
@@ -62,7 +61,7 @@ class MapperVrc4 extends Mapper with Sram {
   @override
   void write(addr, data) {
     if ((addr & 0xe000 == 0x6000) && _ramEnabled) {
-      ram[addr & 0x1fff] = data;
+      writeSram(addr & 0x1fff, data);
       return;
     }
 
@@ -127,7 +126,7 @@ class MapperVrc4 extends Mapper with Sram {
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? ram[offset] : 0xff;
+      return _ramEnabled ? readSram(offset) : 0xff;
     }
     if (addr & 0x8000 == 0x8000) {
       return prgRoms[_prgBank[bank][0]][offset];

@@ -6,11 +6,10 @@ import 'dart:typed_data';
 import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
-import 'sram.dart';
 import 'vrc6_apu.dart';
 
 // https://www.nesdev.org/wiki/VRC6
-class MapperVrc6 extends Mapper with Sram {
+class MapperVrc6 extends Mapper {
   final Vrc6Apu _apu = Vrc6Apu();
 
   // IRQ related counters, flags etc.
@@ -102,7 +101,7 @@ class MapperVrc6 extends Mapper with Sram {
       case 0x6000:
       case 0x7000:
         if (_ramEnabled) {
-          ram[addr & 0x1fff] = data;
+          writeSram(addr & 0x1fff, data);
         }
         return;
 
@@ -153,7 +152,7 @@ class MapperVrc6 extends Mapper with Sram {
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? ram[offset] : 0xff;
+      return _ramEnabled ? readSram(offset) : 0xff;
     }
     if (addr & 0x8000 == 0x8000) {
       return prgRoms[_prgBank[bank]][offset];

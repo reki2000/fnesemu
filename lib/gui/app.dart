@@ -180,7 +180,7 @@ class MainPageState extends State<MainPage> {
 
     await _reset();
 
-    AppSnackBar.show("loaded: $fileName");
+    AppSnackBar.show("loaded: $name");
 
     if (!_isDebug) {
       _run();
