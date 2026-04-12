@@ -93,7 +93,7 @@ class Bus implements BusR3000 {
         _unimpl(sig, "expansion rom header", addr),
       >= 0x1f000000 && < 0x1f008000 => _unimpl(sig, "expansion 1", addr),
       >= 0x1f800000 && < 0x1f800400 => useScratchPad
-          ? scratchPad.getUInt32LE(offset - 0x1f800000)
+          ? scratchPad.getUint32LE(offset - 0x1f800000)
           : 0xffffffff,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x100c => 0x00003022, // expansion 3 delay/size
@@ -152,7 +152,7 @@ class Bus implements BusR3000 {
       >= 0x1fbfff00 && < 0x1fc00000 =>
         0, // before bios rom, to avoid disassembler access error
       >= 0x1fa00000 && < 0x1fc00000 => _unimpl(sig, "expansion 3", addr),
-      >= 0x1fc00000 && < 0x1fe00000 => rom.getUInt32LE(offset - 0x1fc00000),
+      >= 0x1fc00000 && < 0x1fe00000 => rom.getUint32LE(offset - 0x1fc00000),
       _ => addr == 0xfffe0130 // cache control
           ? _unimpl(sig, "cache control", addr)
           : 0xffffffff,
@@ -206,9 +206,9 @@ class Bus implements BusR3000 {
     const sig = "write16";
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00800000 => mem.setUInt16LE(offset & 0x1fffff, v),
+      >= 0x00000000 && < 0x00800000 => mem.setUint16LE(offset & 0x1fffff, v),
       >= 0x1f800000 && < 0x1f800400 =>
-        useScratchPad ? scratchPad.setUInt16LE(offset - 0x1f800000, v) : 0,
+        useScratchPad ? scratchPad.setUint16LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1070 => interrupt.ackIrq(v),
           0x1074 => interrupt.mask = v.mask16,
@@ -273,7 +273,7 @@ class Bus implements BusR3000 {
       >= 0x1f000000 && < 0x1f008000 =>
         _unimpl(sig, "expansion 1", addr, value: v),
       >= 0x1f800000 && < 0x1f800400 =>
-        useScratchPad ? scratchPad.setUInt32LE(offset - 0x1f800000, v) : 0,
+        useScratchPad ? scratchPad.setUint32LE(offset - 0x1f800000, v) : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1fff) {
           0x1000 => 0, //ex("memory control 1: Expansion 1 Base Address"),
           0x1004 => 0, //ex("memory control 1: Expansion 2 Base Address"),

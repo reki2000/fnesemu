@@ -20,12 +20,12 @@ class _TestBus implements BusR3000 {
 
   @override
   int read16(int addr) {
-    return addr < ram.length ? ram.getUInt16BE(addr) : 0xffff;
+    return addr < ram.length ? ram.getUint16BE(addr) : 0xffff;
   }
 
   @override
   int read32(int addr) =>
-      addr < ram.length ? ram.getUInt32BE(addr) : 0xffffffff;
+      addr < ram.length ? ram.getUint32BE(addr) : 0xffffffff;
 
   @override
   void write8(int addr, int value) {
@@ -37,14 +37,14 @@ class _TestBus implements BusR3000 {
   @override
   void write16(int addr, int value) {
     if (addr < ram.length) {
-      ram.setUInt16BE(addr, value.mask16);
+      ram.setUint16BE(addr, value.mask16);
     }
   }
 
   @override
   void write32(int addr, int value) {
     if (addr < ram.length) {
-      ram.setUInt32BE(addr, value.mask32);
+      ram.setUint32BE(addr, value.mask32);
     }
   }
 }
@@ -63,20 +63,20 @@ void main() {
     final bus = _TestBus(1024 * 1024);
 
     final iimage = File("${testgroup.path}/iimage.bin").readAsBytesSync();
-    final base = iimage.getUInt32BE(0);
+    final base = iimage.getUint32BE(0);
     final idata = iimage.sublist(8);
     for (int i = 0; i < idata.length; i += 4) {
-      bus.write32(i + base, idata.getUInt32BE(i));
+      bus.write32(i + base, idata.getUint32BE(i));
     }
 
     final dimage = File("${testgroup.path}/dimage.bin").readAsBytesSync();
     final ddata = dimage.sublist(8);
     for (int i = 0; i < ddata.length; i += 4) {
-      bus.write32(i, ddata.getUInt32BE(i));
+      bus.write32(i, ddata.getUint32BE(i));
     }
 
     final cpu = R3000(bus);
-    cpu.r[29] = dimage.getUInt32BE(0);
+    cpu.r[29] = dimage.getUint32BE(0);
     cpu.pc = base;
 
     test("test ${testgroup.path}", () {

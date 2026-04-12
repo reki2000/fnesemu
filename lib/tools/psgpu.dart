@@ -14,7 +14,7 @@ Uint8List getARGBImageData(Uint8List frameBuffer) {
   for (int y = 0; y < 512; y++) {
     for (int x = 0; x < 1024; x++) {
       final offset = y * 2048 + x * 2;
-      final c16 = frameBuffer.getUInt16LE(offset);
+      final c16 = frameBuffer.getUint16LE(offset);
 
       // Convert 15-bit color to RGB
       final r = (c16 & 0x1F) << 3;
