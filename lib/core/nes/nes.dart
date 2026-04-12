@@ -178,6 +178,11 @@ class Nes implements Core {
     if (hasBatteryBackup) {
       _sram.init(crc, bus.mapper.defaultSram());
       bus.mapper.setSramRw(_sram.read8, _sram.write8);
+    } else {
+      final sram = Uint8List(32 * 1024);
+      bus.mapper.setSramRw((addr) => sram[addr & 0x1fff], (addr, value) {
+        sram[addr & 0x1fff] = value;
+      });
     }
 
     reset();
