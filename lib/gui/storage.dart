@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/sram.dart';
 
 class Storage extends Sram {
+  static const int saveIntervalSec = 5;
+
   bool _dirty = false;
 
   Function(String) _onEvent = (String s) {};
@@ -25,8 +27,8 @@ class Storage extends Sram {
     SharedPreferences.getInstance().then((prefs) => s._prefs = prefs);
 
     s._worker?.cancel();
-    s._worker =
-        Timer.periodic(const Duration(seconds: 2), (timer) => s.saveIfDirty());
+    s._worker = Timer.periodic(const Duration(seconds: Storage.saveIntervalSec),
+        (timer) => s.saveIfDirty());
 
     return s;
   }

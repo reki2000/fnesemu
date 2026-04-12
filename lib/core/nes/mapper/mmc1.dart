@@ -3,6 +3,8 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
+import 'package:fnesemu/util/int.dart';
+
 import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
@@ -14,7 +16,6 @@ class MapperMMC1 extends Mapper {
   late int _counter;
 
   // ram on 6000-7fff, 8k x 4 banks
-  late List<Uint8List> _ram8kx4;
   late bool _ramEnabled = true;
   late int _ramBank;
 
@@ -41,12 +42,8 @@ class MapperMMC1 extends Mapper {
   ];
 
   @override
-  void setRom(Uint8List chrRom, prgRom, Uint8List sram) {
+  void setRom(Uint8List chrRom, Uint8List prgRom) {
     loadRom(chrRom, 8, prgRom, 16);
-
-    _ram8kx4 = sram.isEmpty
-        ? Uint8ListEx.ofEmptyList(4, 8 * 1024)
-        : sram.split(8 * 1024);
   }
 
   @override
@@ -68,8 +65,8 @@ class MapperMMC1 extends Mapper {
   }
 
   @override
-  Uint8List exportSram() {
-    return Uint8ListEx.join(_ram8kx4);
+  Uint8List defaultSram() {
+    return Uint8List(4 * 8 * 1024);
   }
 
   @override
@@ -79,7 +76,7 @@ class MapperMMC1 extends Mapper {
     // ram
     if (bank == 0x6000) {
       if (_ramEnabled) {
-        _ram8kx4[_ramBank][addr & 0x1fff] = data;
+        writeSram(addr & 0x1fff | _ramBank.shl13, data);
       } else {
         log("mmc1: write to disabled ram: ${hex16(addr)} ${hex8(data)}");
       }
@@ -192,7 +189,7 @@ class MapperMMC1 extends Mapper {
 
     switch (bank) {
       case 0x6000:
-        return _ramEnabled ? _ram8kx4[_ramBank][addr & 0x1fff] : 0xff;
+        return _ramEnabled ? readSram(addr & 0x1fff | _ramBank.shl13) : 0xff;
 
       case 0x8000:
       case 0xa000:

@@ -3,13 +3,11 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import 'package:fnesemu/core/nes/mapper/sram.dart';
-
 import '../../../util/util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/VRC3
-class MapperVrc3 extends Mapper with Sram {
+class MapperVrc3 extends Mapper {
   // IRQ related counters, flags etc.
   int _irqLatch = 0;
   int _irqCounter = 0;
@@ -44,7 +42,7 @@ class MapperVrc3 extends Mapper with Sram {
     switch (reg) {
       case 0x6000:
       case 0x7000:
-        ram[addr & 0x1fff] = data;
+        writeSram(addr & 0x1fff, data);
         return;
 
       case 0xf000:
@@ -80,7 +78,7 @@ class MapperVrc3 extends Mapper with Sram {
   @override
   int read(int addr) {
     if (addr & 0xe000 == 0x6000) {
-      return ram[addr & 0x1fff];
+      return readSram(addr & 0x1fff);
     }
 
     final bank = addr & 0xc000;

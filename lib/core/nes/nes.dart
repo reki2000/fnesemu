@@ -147,14 +147,16 @@ class Nes implements Core {
   void setDisc(Disc disc) {}
 
   @override
-  void setSram(Sram sram) {}
+  void setSram(Sram sram) {
+    _sram = sram;
+  }
 
   @override
   List<PadButton> get buttons => bus.joypad.buttons;
 
   // ROM CRC
   String crc = "";
-  bool hasBatteryBackup = false;
+  Sram _sram = Sram();
 
   // loads an iNES format rom file.
   // throws exception if the mapper type of the rom file is not supported.
@@ -163,26 +165,27 @@ class Nes implements Core {
     final nesFile = NesFile();
     nesFile.load(body);
     crc = nesFile.crc;
-    hasBatteryBackup = nesFile.hasBatteryBackup;
+    final hasBatteryBackup = nesFile.hasBatteryBackup;
 
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
     bus.mapper = Mapper.of(nesFile.mapper)
-      ..setRom(
-          Uint8ListEx.join(nesFile.character),
-          Uint8ListEx.join(nesFile.program),
-          hasBatteryBackup ? storage.load(crc) : Uint8List(0))
+      ..setRom(Uint8ListEx.join(nesFile.character),
+          Uint8ListEx.join(nesFile.program))
       ..mirror = bus.mirror
       ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
 
-    reset();
-  }
-
-  /// save SRAM
-  void saveSram() {
     if (hasBatteryBackup) {
-      storage.save(crc, bus.mapper.exportSram());
+      _sram.init(crc, bus.mapper.defaultSram());
+      bus.mapper.setSramRw(_sram.read8, _sram.write8);
+    } else {
+      final sram = Uint8List(32 * 1024);
+      bus.mapper.setSramRw((addr) => sram[addr & 0x1fff], (addr, value) {
+        sram[addr & 0x1fff] = value;
+      });
     }
+
+    reset();
   }
 
   /// debug: returns the emulator's internal status report
