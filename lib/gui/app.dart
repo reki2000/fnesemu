@@ -1,5 +1,4 @@
 // Flutter imports:
-
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -28,6 +27,23 @@ const _discs = String.fromEnvironment("DISCS", defaultValue: "");
 const _discFile = String.fromEnvironment("DISC", defaultValue: "");
 const _romFile = String.fromEnvironment("ROM", defaultValue: "");
 
+class AppSnackBar {
+  static final messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+  static void show(String message) {
+    if (message.isEmpty) {
+      return;
+    }
+    final messenger = messengerKey.currentState;
+    if (messenger == null) {
+      return;
+    }
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+  }
+}
+
 class MyApp extends StatelessWidget {
   final String title;
   const MyApp({super.key, required this.title});
@@ -36,10 +52,11 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
         title: title,
+        scaffoldMessengerKey: AppSnackBar.messengerKey,
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: InteractiveViewer(child: const MainPage()));
+        home: const MainPage());
   }
 }
 
@@ -68,7 +85,9 @@ class MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
 
-    _storage = Storage.of(onEvent: (s) => debugPrint("Storage event: $s"));
+    _storage = Storage.of(onEvent: (s) {
+      AppSnackBar.show(s);
+    });
 
     _controller = CoreController(
         _onCoreStateChange,
@@ -119,12 +138,10 @@ class MainPageState extends State<MainPage> {
   }
 
   // action wrapper for state refresh
-  void _do(BuildContext ctx, Function() action) {
-    final messenger = ScaffoldMessenger.of(ctx);
-
+  void _do(Function() action) {
     // wrap both of async or sync function to catch error
     Future.microtask(action).catchError((e, st) {
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      AppSnackBar.show(e.toString());
       throw e;
     });
 
@@ -136,6 +153,8 @@ class MainPageState extends State<MainPage> {
     _controller.setDisc(_disc);
 
     await _reset();
+
+    AppSnackBar.show("loaded: $fileName");
 
     if (!_isDebug) {
       _run();
@@ -160,6 +179,8 @@ class MainPageState extends State<MainPage> {
     _romName = extractedName;
 
     await _reset();
+
+    AppSnackBar.show("loaded: $name");
 
     if (!_isDebug) {
       _run();
@@ -188,34 +209,31 @@ class MainPageState extends State<MainPage> {
           // shortcuts from environment variables
           for (var name in _discs.split(",").where((s) => s.isNotEmpty))
             iconButton(Icons.album_outlined, name.split(".")[0],
-                () => _do(context, () async => await _setDiscFile(name))),
+                () => _do(() async => await _setDiscFile(name))),
 
           // shortcuts from environment variables
           for (var name in _roms.split(",").where((s) => s.isNotEmpty))
-            iconButton(
-                Icons.file_open_outlined,
-                name.split(".")[0],
-                () => _do(
-                    context, () async => await _loadRomFile(fileName: name))),
+            iconButton(Icons.file_open_outlined, name.split(".")[0],
+                () => _do(() async => await _loadRomFile(fileName: name))),
 
           // file load button
-          iconButton(Icons.file_open_outlined, "Load ROM",
-              () => _do(context, _loadRomFile)),
+          iconButton(
+              Icons.file_open_outlined, "Load ROM", () => _do(_loadRomFile)),
 
           // run / pause button
           _running
-              ? iconButton(Icons.pause, "Pause", () => _do(context, _stop))
-              : iconButton(Icons.play_arrow, "Run", () => _do(context, _run)),
+              ? iconButton(Icons.pause, "Pause", () => _do(_stop))
+              : iconButton(Icons.play_arrow, "Run", () => _do(_run)),
 
           // reset button
-          iconButton(Icons.restart_alt, "Reset", () => _do(context, _reset)),
+          iconButton(Icons.restart_alt, "Reset", () => _do(_reset)),
 
           // debug on/off button
           _debugging
               ? iconButton(Icons.bug_report, "Disable Debug Options",
-                  () => _do(context, () => _debug(false)))
+                  () => _do(() => _debug(false)))
               : iconButton(Icons.bug_report_outlined, "Enable Debug Options",
-                  () => _do(context, () => _debug(true))),
+                  () => _do(() => _debug(true))),
         ]),
         drawer: Drawer(
             child: ListView(children: [

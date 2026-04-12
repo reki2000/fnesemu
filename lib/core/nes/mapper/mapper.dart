@@ -21,49 +21,32 @@ import 'vrc6.dart';
 
 abstract class Mapper {
   static Mapper of(int iNesMapper) {
-    switch (iNesMapper) {
-      case 0:
-        return MapperNROM();
-      case 1:
-        return MapperMMC1();
-      case 2:
-        return MapperUxROM();
-      case 3:
-        return MapperCNROM();
-      case 4:
-        return MapperMMC3();
-      case 9:
-        return MapperMMC2();
-      case 10:
-        return MapperMMC4();
-      case 75:
-        return MapperVrc1();
-      case 21:
-        return MapperVrc4a4c();
-      case 23:
-        return MapperVrc4f4e();
-      case 25:
-        return MapperVrc4b4d();
-      case 24:
-        return MapperVrc6a();
-      case 26:
-        return MapperVrc6b();
-      case 19:
-        return MapperNamco163();
-      case 73:
-        return MapperVrc3();
-      case 88:
-        return Mapper088();
-      case 206:
-        return MapperNamco118();
-      default:
-        throw Exception("unimplemented mapper:$iNesMapper!");
-    }
+    return switch (iNesMapper) {
+      0 => MapperNROM(),
+      1 => MapperMMC1(),
+      2 => MapperUxROM(),
+      3 => MapperCNROM(),
+      4 => MapperMMC3(),
+      9 => MapperMMC2(),
+      10 => MapperMMC4(),
+      75 => MapperVrc1(),
+      21 => MapperVrc4a4c(),
+      23 => MapperVrc4f4e(),
+      25 => MapperVrc4b4d(),
+      24 => MapperVrc6a(),
+      26 => MapperVrc6b(),
+      19 => MapperNamco163(),
+      73 => MapperVrc3(),
+      88 => Mapper088(),
+      206 => MapperNamco118(),
+      _ => throw Exception("unimplemented mapper:$iNesMapper!")
+    };
   }
 
-  // set rom data from fix-sized chunks of rom data (chr: 8k, prg: 16k)
-  // sramLoaded: SRAM data, if empty, mapper should prepare a new one with proper size
-  void setRom(Uint8List chrRom, Uint8List prgRom, Uint8List sram) {
+  // Set ROM data from fixed-size ROM chunks (CHR: 8 KiB, PRG: 16 KiB by
+  // default). SRAM is managed separately via `defaultSram()` and
+  // `setSramRw(...)`.
+  void setRom(Uint8List chrRom, Uint8List prgRom) {
     loadRom(chrRom, chrRomSizeK, prgRom, prgRomSizeK);
   }
 
@@ -78,7 +61,15 @@ abstract class Mapper {
   int readVram(int addr) => 0xff;
   void writeVram(int addr, int data) {}
 
-  Uint8List exportSram() => Uint8List(0);
+  Uint8List defaultSram() => Uint8List(8 * 1024);
+
+  void setSramRw(int Function(int) read, void Function(int, int) write) {
+    readSram = read;
+    writeSram = write;
+  }
+
+  int Function(int) readSram = (_) => 0xff;
+  void Function(int, int) writeSram = (_, __) {};
 
   void handleClock(int cycles) {}
 
@@ -86,11 +77,9 @@ abstract class Mapper {
 
   String dump() => "rom: ";
 
-  void Function(List<Uint8List>) saveSram = ((_) {});
+  void Function(bool) holdIrq = (_) {};
 
-  void Function(bool) holdIrq = ((_) {});
-
-  void Function(Mirror) mirror = ((_) {});
+  void Function(Mirror) mirror = (_) {};
 
   // banked rom data
   final List<Uint8List> chrRoms = [];
