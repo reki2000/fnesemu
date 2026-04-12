@@ -6,10 +6,9 @@ import 'dart:typed_data';
 import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
-import 'sram.dart';
 
 // https://www.nesdev.org/wiki/MMC3
-class MapperMMC3 extends Mapper with Sram {
+class MapperMMC3 extends Mapper {
   // bank register
   int _r = 0;
 
@@ -88,7 +87,7 @@ class MapperMMC3 extends Mapper with Sram {
     switch (reg) {
       case 0x6000:
         if (_ramEnabled && _ramWriteEnabled) {
-          ram[addr & 0x1fff] = data;
+          writeSram(addr & 0x1fff, data);
         }
         break;
 
@@ -171,7 +170,7 @@ class MapperMMC3 extends Mapper with Sram {
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
-      return _ramEnabled ? ram[offset] : 0xff;
+      return _ramEnabled ? readSram(offset) : 0xff;
     }
 
     return prgRoms[_prgBank[bank][0]][offset];

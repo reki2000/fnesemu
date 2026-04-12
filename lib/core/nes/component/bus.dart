@@ -18,8 +18,7 @@ class Bus {
   late final Ppu ppu;
   late final Apu apu;
 
-  Mapper mapper = Mapper.of(0)
-    ..setRom(Uint8List(0x4000), Uint8List(0x4000), Uint8List(0));
+  Mapper mapper = Mapper.of(0)..setRom(Uint8List(0x4000), Uint8List(0x4000));
 
   final joypad = Joypad();
 

@@ -15,7 +15,7 @@ IconButton iconButton(IconData icon, String tooltip, void Function() onPress) {
 
 final textButtonMinimum = TextButton.styleFrom(
     minimumSize: Size.zero,
-    padding: const EdgeInsets.all(10.0),
+    padding: const EdgeInsets.all(3.0),
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(0))));

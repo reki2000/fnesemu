@@ -3,40 +3,63 @@ import 'dart:async';
 import 'dart:core';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/sram.dart';
+import 'package:fnesemu/util/debug.dart';
+
 import 'core.dart';
+import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
+import 'disc.dart';
 import 'frame_counter.dart';
 // Project imports:
 
 import 'pad_button.dart';
 import 'types.dart';
 
+class CoreControllerState {
+  bool _running = false;
+  bool get running => _running;
+  set running(bool running) {
+    _running = running;
+    _notifier(this);
+  }
+
+  final void Function(CoreControllerState) _notifier;
+  CoreControllerState(void Function(CoreControllerState) notifier)
+      : _notifier = notifier;
+}
+
 /// A Controller of the emulator core.
 /// The external GUI should kick `run`. then subscribe `controller.*stream`
 class CoreController {
-  final void Function() _onStop;
   final void Function(AudioBuffer) _onAudio;
   final void Function(ImageBuffer) _onImage;
 
-  CoreController(this._onStop, this._onAudio, this._onImage);
+  final CoreControllerState _state;
+  final Sram _sram;
+
+  CoreController(onStateChange, this._onAudio, this._onImage, this._sram)
+      : _state = CoreControllerState(onStateChange);
 
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
 
-  void init(String coreName, Uint8List body) {
+  void init(String coreName, Uint8List body, {Uint8List? extRom}) {
     _core = CoreFactory.of(coreName)
+      ..setSram(_sram)
       ..onAudio(_onAudio)
       ..setRom(body);
+
+    if (extRom != null) {
+      _core.setRom(extRom);
+    }
 
     debugger.setCore(_core);
 
     reset();
   }
 
-  // used in main loop to periodically execute the emulator. if null, the emulator is stopped.
-  bool _running = false;
-  int _runningCount = 0;
   int _currentCpuClocks = 0;
 
   int _runMode = 0;
@@ -49,16 +72,18 @@ class CoreController {
   int _scanline = 0;
   int _frames = 0;
 
-  bool isRunning() => _running;
+  bool _stopRequested = false;
 
   /// runs emulation continuously
   run({int mode = runModeNone}) async {
-    await stop();
+    if (_state.running) {
+      return;
+    }
+
+    _state.running = true;
+    _stopRequested = false;
 
     _runMode = mode;
-
-    _running = true;
-    _runningCount++;
 
     final fpsCounter = FrameCounter(
         duration: const Duration(milliseconds: 500)); // shortlife counter
@@ -66,7 +91,7 @@ class CoreController {
     final runStartedAt = DateTime.now();
     int nextFrameClocks = 0;
 
-    while (_running) {
+    while (!_stopRequested) {
       final now = DateTime.now();
       _fps = fpsCounter.fps(now);
 
@@ -74,7 +99,7 @@ class CoreController {
       if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
         _runFrame();
         fpsCounter.count();
-        await Future.delayed(const Duration());
+        await Future.delayed(const Duration(milliseconds: 4));
         continue;
       }
 
@@ -82,20 +107,20 @@ class CoreController {
       nextFrameClocks = _core.systemClockHz *
           (now.difference(runStartedAt).inMilliseconds) ~/
           1000;
+      // nextFrameClocks ~/= 2; // slow down for performance issue
     }
 
-    _runningCount--;
+    _stopRequested = false;
+    _state.running = false;
   }
 
   /// stop emulation
   stop() async {
-    _running = false;
+    _stopRequested = true;
 
-    while (_runningCount > 0) {
+    while (_state.running) {
       await Future.delayed(const Duration());
     }
-
-    _onStop();
 
     return;
   }
@@ -107,14 +132,13 @@ class CoreController {
 
     _core.reset();
 
-    debugger.log.clear();
-    debugger.opt.breakPoint = -1;
+    debugger.reset();
 
     _renderAll();
 
-    if (_running) {
+    if (_state.running) {
       await stop();
-      run(mode: _runMode);
+      run();
     }
   }
 
@@ -140,16 +164,17 @@ class CoreController {
   /// returns false if the emulation is stopped
   bool _runScanLine() {
     final opt = debugger.opt;
+    final step = _runMode != runModeNone || opt.breakPoint >= 0 || opt.log;
     bool cpuExecuted = true;
 
     while (true) {
       if (cpuExecuted && opt.log) {
-        debugger.addLog(_core.tracingState(opt.targetCpuNo));
+        debugger.addLog(_core.trace(opt.targetCpuNo));
         cpuExecuted = false;
       }
 
       // exec 1 cpu instruction
-      final result = _core.exec(_runMode == runModeStep);
+      final result = _core.exec(step);
       _currentCpuClocks = result.elapsedClocks;
 
       if (result.stopped) {
@@ -159,12 +184,16 @@ class CoreController {
 
       cpuExecuted = result.executed(opt.targetCpuNo);
 
-      if (cpuExecuted &&
+      final needBreak = cpuExecuted &&
           opt.showDebugView &&
-          (opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
+          ((opt.breakClock <= debugStatus.clock && opt.breackClockEnabled) ||
+              opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
               _runMode == runModeStep ||
               _runMode == runModeStepOut &&
-                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer)) {
+                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer);
+
+      if (needBreak) {
+        opt.breackClockEnabled = opt.breakClock > debugStatus.clock;
         _renderAll();
         stop();
         return false;
@@ -205,6 +234,10 @@ class CoreController {
   // UI invokes this when a button of the pad is up
   void padUp(int controlerId, PadButton k) {
     _core.padUp(controlerId, k);
+  }
+
+  void setDisc(Disc disc) {
+    _core.setDisc(disc);
   }
 
   // returns a list of core's buttons

@@ -9,7 +9,7 @@ import '../../core/debugger.dart';
 import '../../core/types.dart';
 import '../../styles.dart';
 
-_imageBufferRenderer(ImageBuffer buf) {
+_imageBufferRenderer(ImageBuffer buf, {useMouseFollow = false}) {
   if (buf.buffer.isEmpty) {
     return const SizedBox();
   }
@@ -19,17 +19,83 @@ _imageBufferRenderer(ImageBuffer buf) {
   ui.decodeImageFromPixels(buf.buffer, buf.width, buf.height,
       ui.PixelFormat.rgba8888, (image) => completer.complete(image));
 
-  return FutureBuilder(
+  final rectStream = StreamController<(int, int, String)>.broadcast();
+
+  final imageWidget = FutureBuilder(
     future: completer.future,
     builder: (context, image) => RawImage(image: image.data),
   );
+
+  if (!useMouseFollow) {
+    return imageWidget;
+  }
+
+  return MouseRegion(
+      onHover: (event) {
+        final x = (event.localPosition.dx).floor();
+        final y = (event.localPosition.dy).floor();
+        rectStream.add((x ~/ 8 * 8, y ~/ 8 * 8, "[${x ~/ 8},${y ~/ 8}]"));
+      },
+      child: Stack(children: [
+        imageWidget,
+        StreamBuilder(
+            stream: rectStream.stream,
+            builder: (context, snapshot) => (!snapshot.hasData)
+                ? Container()
+                : CustomPaint(
+                    size: Size(buf.width.toDouble(), buf.height.toDouble()),
+                    painter: RectanglePainter(snapshot.data!.$1.toDouble(),
+                        snapshot.data!.$2.toDouble(), 8, 8, snapshot.data!.$3),
+                  )),
+      ]));
+}
+
+class RectanglePainter extends CustomPainter {
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+  final String text;
+
+  RectanglePainter(this.x, this.y, this.width, this.height, this.text);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    final rect = Rect.fromLTWH(x, y, width, height);
+    canvas.drawRect(rect, paint);
+
+    final textSpan = TextSpan(
+      text: text,
+      style: const TextStyle(
+          color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold),
+    );
+
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+    )..layout(
+        minWidth: 0,
+        maxWidth: size.width,
+      );
+
+    textPainter.paint(canvas, Offset(x + 10, y));
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) =>
+      oldDelegate is RectanglePainter && oldDelegate.text != text;
 }
 
 class DebugVdc extends StatefulWidget {
   final Debugger debugger;
   final double width;
 
-  const DebugVdc({super.key, required this.debugger, this.width = 640});
+  const DebugVdc({super.key, required this.debugger, this.width = 1024});
 
   @override
   State<DebugVdc> createState() => _DebugVdc();

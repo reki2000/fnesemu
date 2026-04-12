@@ -54,17 +54,28 @@ class Vdp {
   set hBlank(bool value) => value ? status |= bitHBlank : status &= ~bitHBlank;
   bool get hBlank => status & bitHBlank != 0;
 
+  set oddFrame(bool value) =>
+      value ? status |= bitOddFrame : status &= ~bitOddFrame;
+  bool get oddFrame => status & bitOddFrame != 0;
+
+  set spriteOverflow(bool value) =>
+      value ? status |= bitSpriteOverflow : status &= ~bitSpriteOverflow;
+  bool get spriteOverflow => status & bitSpriteOverflow != 0;
+
   // rendering
 
   Uint32List buffer = Uint32List(320 * 224);
 
   ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, buffer.buffer.asUint8List());
+      ImageBuffer(width, height, buffer.buffer.asUint8List(),
+          displayWidth_: 320);
 
   bool h32 = true;
   bool ntsc = true; // false: pal
   bool pal30 = false;
   int interlaceMode = 0;
+
+  get isInterlaced => interlaceMode == 3;
 
   int width = 256; // h32: 256, h40: 320
   static const height = 224; // ntsc 224, pal: 224, pal30: 240
@@ -78,9 +89,9 @@ class Vdp {
   // reset
   void reset() {
     final rand = Random();
-    vram.fillRange(0, vram.length, 0);
-    // vram.setRange(0, vram.length,
-    //     Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    // vram.fillRange(0, vram.length, 0);
+    vram.setRange(0, vram.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
     cram.setRange(
         0, cram.length, Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
     vsram.fillRange(0, vsram.length, 0);
@@ -158,10 +169,13 @@ class Vdp {
 
   void startDma() {
     _dmaLength = reg[0x13] | reg[0x14] << 8;
-    // if (_dmaSrc == 0xffdc98) {
+
+    if (_dmaLength == 0) {
+      _dmaLength = 0x10000;
+    }
+
     // print(
-    //     "start dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
-    // }
+    //     "start dma: len:${_dmaLength.hex24} src:${_dmaSrc.hex24} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
     status |= bitDmaRunning;
   }
 
@@ -274,8 +288,9 @@ class Vdp {
     // print(
     //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16} pc:${bus.cpu.pc.hex24}");
     if (ram == ramVram) {
-      // if (_addr == 0xb800 + 0x08 * 13 + 6 && value == 279) {
-      //   print("vdp:debug: ${bus.cpu.dump()}"); // debug
+      // if (_addr == 0xc350) {
+      //   print(
+      //       "vdp:debug: v:${value.hex16} ${dump()} pc:${bus.cpu.pc}"); // debug
       // }
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;

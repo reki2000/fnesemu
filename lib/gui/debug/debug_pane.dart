@@ -31,7 +31,7 @@ class DebugPane extends StatelessWidget {
                   forwardLines: 46 ~/ debugger.cpuInfos.length - 4,
                   backwardLines: 3,
                   width: 300,
-                  addrBits: debugger.cpuInfos[cpuNo].addrBits,
+                  addrBits: debugger.cpuInfos[cpuNo].pcBitWidth,
                 ),
             ]),
           if (opt.showMem) MemPane(debugger: debugger),
@@ -47,7 +47,8 @@ class TracePanel extends StatelessWidget {
   const TracePanel({super.key, required this.log});
 
   copyToClipboard(BuildContext context) async {
-    final data = ClipboardData(text: (["# trace"] + log).join("\n"));
+    final data = ClipboardData(
+        text: ["# trace.txt", ...log].map((e) => "$e\n").join(""));
     await Clipboard.setData(data);
 
     if (!context.mounted) return;

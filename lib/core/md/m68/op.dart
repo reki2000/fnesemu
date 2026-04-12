@@ -1,28 +1,20 @@
-import 'package:fnesemu/util/int.dart';
-
-import 'alu.dart';
-import 'm68.dart';
-import 'op_0.dart';
-import 'op_4.dart';
-import 'op_8.dart';
-import 'op_c.dart';
-import 'op_e.dart';
+part of 'm68.dart';
 
 extension Op on M68 {
   bool exec() {
-    if (halt) {
-      if (0 < assertedIntLevel) {
-        halt = false;
+    if (_halt) {
+      if (0 < _assertedIntLevel) {
+        _halt = false;
       } else {
         clocks += 4;
         return true;
       }
     }
 
-    if (0 < assertedIntLevel && assertedIntLevel > maskedIntLevel) {
-      trap((assertedIntLevel << 2) + 0x60,
-          sr & ~0x700 | assertedIntLevel << 8 & 0x700);
-      assertedIntLevel = 0;
+    if (0 < _assertedIntLevel && _assertedIntLevel > maskedIntLevel) {
+      trap((_assertedIntLevel << 2) + 0x60,
+          sr & ~0x700 | _assertedIntLevel << 8 & 0x700);
+      _assertedIntLevel = 0;
       return true;
     }
 

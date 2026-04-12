@@ -1,7 +1,4 @@
-import 'package:fnesemu/core/md/m68/alu.dart';
-import 'package:fnesemu/util/int.dart';
-
-import 'm68.dart';
+part of 'm68.dart';
 
 extension Op0 on M68 {
   bool exec0(int op) {
@@ -17,23 +14,22 @@ extension Op0 on M68 {
         //     "movep dn:$dn size:$size memToReg:$memToReg addr0:${addr0.hex32}");
         if (size == 2) {
           if (memToReg) {
-            d[dn] =
-                d[dn].setL16(read16(addr0) & 0xff00 | read16(addr0.inc2) >> 8);
+            d[dn] = d[dn].setL16(read8(addr0) << 8 | read8(addr0.inc2));
           } else {
-            write16(addr0, d[dn] & 0xff00);
-            write16(addr0.inc2, d[dn] << 8 & 0xff00);
+            write8(addr0, d[dn] >> 8 & 0xff);
+            write8(addr0.inc2, d[dn] & 0xff);
           }
         } else {
           if (memToReg) {
-            d[dn] = read16(addr0) << 16 & 0xff000000 |
-                read16(addr0.inc2) << 8 & 0x00ff0000 |
-                read16(addr0.inc4) & 0xff00 |
-                read16(addr0 + 6) >> 8;
+            d[dn] = read8(addr0) << 24 |
+                read8(addr0.inc2) << 16 |
+                read8(addr0.inc4) << 8 |
+                read8(addr0 + 6) >> 8;
           } else {
-            write16(addr0, d[dn] >> 16 & 0xff00);
-            write16(addr0.inc2, d[dn] >> 8 & 0xff00);
-            write16(addr0.inc4, d[dn] & 0xff00);
-            write16(addr0 + 6, d[dn] << 8 & 0xff00);
+            write8(addr0, d[dn] >> 24 & 0xff);
+            write8(addr0.inc2, d[dn] >> 16 & 0xff);
+            write8(addr0.inc4, d[dn] >> 8 & 0xff);
+            write8(addr0 + 6, d[dn] & 0xff);
           }
         }
 

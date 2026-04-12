@@ -1,9 +1,8 @@
 import 'dart:async';
 
-import '../gui/debug/tracer.dart';
-import '../util/util.dart';
 import 'buffered_stream.dart';
 import 'core.dart';
+import 'tracer.dart';
 import 'types.dart';
 
 /// Parameters for debugging features
@@ -21,6 +20,8 @@ class DebugOption {
   bool log = false;
 
   int breakPoint = -1;
+  int breakClock = 0;
+  bool breackClockEnabled = false;
   int stackPointer = -1;
   List<int> disasmAddress = [];
 
@@ -35,6 +36,13 @@ class Debugger {
     setCore(core);
   }
 
+  reset() {
+    opt.breackClockEnabled = (opt.breakClock > 0);
+    opt.stackPointer = -1;
+    log.clear();
+    pushStream();
+  }
+
   setCore(Core core) {
     this.core = core;
     opt.disasmAddress = List.filled(core.cpuInfos.length, 0);
@@ -47,6 +55,19 @@ class Debugger {
 
   void setDebugView(bool show) {
     opt.showDebugView = show;
+    pushStream();
+  }
+
+  /// ブレークポイントを設定（リセット時の初期化にも使用）
+  void setBreakPoint(int breakPoint) {
+    opt.breakPoint = breakPoint;
+    pushStream();
+  }
+
+  /// ブレーククロックを設定（リセット時の初期化にも使用）
+  void setBreakClock(int breakClock) {
+    opt.breakClock = breakClock;
+    opt.breackClockEnabled = (breakClock > 0);
     pushStream();
   }
 
@@ -72,12 +93,8 @@ class Debugger {
     pushStream();
 
     if (opt.log && _tracer == null) {
-      // m68000
-      // _tracer = Tracer(_traceStream, pcWidth: 6, start: 0, end: 248, maxDiffChars: 4);
-      // z80
-      _tracer = Tracer(_traceStream,
-          pcWidth: 4, start: 0, end: 148, maxDiffChars: 12);
-      // 6502
+      final cpuInfo = cpuInfos[opt.targetCpuNo];
+      _tracer = Tracer(_traceStream, maxDiffChars: cpuInfo.traceDiffs);
 
       _traceSubscription = _traceStream.stream.listen((log) {
         this.log.add(log.replaceAll("\n", ""));
@@ -90,8 +107,8 @@ class Debugger {
 
   final log = List<String>.empty(growable: true);
 
-  addLog(String log) {
-    if (opt.log) _tracer?.addLog(log);
+  addLog(TraceLog log) {
+    if (opt.log) _tracer?.addTraceLog(log);
   }
 
   void toggleDisasm() {
@@ -101,13 +118,13 @@ class Debugger {
 
   int nextPc(int cpuNo) {
     final pc = core.programCounter(cpuNo);
-    final next = pc + core.disasm(0, pc).i1;
-    return next & ((1 << core.cpuInfos[cpuNo].addrBits) - 1);
+    final (_, inc) = core.disasm(0, pc);
+    return (pc + inc) & ((1 << core.cpuInfos[cpuNo].pcBitWidth) - 1);
   }
 
   int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
 
-  Pair<String, int> disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
+  (String, int) disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
 
   void toggleVdc() {
     opt.showVdc = !opt.showVdc;
