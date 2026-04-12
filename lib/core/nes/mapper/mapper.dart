@@ -43,8 +43,9 @@ abstract class Mapper {
     };
   }
 
-  // set rom data from fix-sized chunks of rom data (chr: 8k, prg: 16k)
-  // sramLoaded: SRAM data, if empty, mapper should prepare a new one with proper size
+  // Set ROM data from fixed-size ROM chunks (CHR: 8 KiB, PRG: 16 KiB by
+  // default). SRAM is managed separately via `defaultSram()` and
+  // `setSramRw(...)`.
   void setRom(Uint8List chrRom, Uint8List prgRom) {
     loadRom(chrRom, chrRomSizeK, prgRom, prgRomSizeK);
   }
