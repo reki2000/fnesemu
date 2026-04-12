@@ -42,7 +42,7 @@ class MapperMMC1 extends Mapper {
   ];
 
   @override
-  void setRom(Uint8List chrRom, prgRom) {
+  void setRom(Uint8List chrRom, Uint8List prgRom) {
     loadRom(chrRom, 8, prgRom, 16);
   }
 
