@@ -2,9 +2,15 @@ assets/roms/*
 assets/nestest.log
 assets/tests.*
 assets/680x0
+assets/MIPS-R3000-CPU-Simulator
+assets/ps1-tests
 docs/*
 .tool-versions
 log.txt
+
+# dev settings
+run*.cmd
+
 
 # Miscellaneous
 *.class
@@ -53,4 +59,4 @@ app.*.map.json
 /android/app/release
 
 # dev settings
-run.cmd
+run*.cmd

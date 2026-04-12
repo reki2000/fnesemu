@@ -8,11 +8,11 @@ import 'package:fnesemu/core/md/z80/z80_disasm.dart';
 import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/util.dart';
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
-
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
@@ -39,6 +39,9 @@ class Md implements Core {
   static const m68ClockHz = masterClockHz ~/ 7;
   static const z80ClockHz = masterClockHz ~/ 15;
 
+  static const _regionDomestic = 0x00;
+  static const _regionOversea = 0x80;
+
   @override
   int get systemClockHz => m68ClockHz;
 
@@ -49,7 +52,7 @@ class Md implements Core {
   int get clocksInScanline => m68ClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   @override
-  get cpuInfos => [CpuInfo(0, "68000", 24), CpuInfo(1, "Z80", 16)];
+  get cpuInfos => [CpuInfo.ofM68(0, "68000"), CpuInfo.ofZ80(1, "Z80")];
 
   Md() {
     busM68 = BusM68();
@@ -185,6 +188,12 @@ class Md implements Core {
     _onAudio = onAudio;
   }
 
+  @override
+  void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
+
   /// handles reset button events
   @override
   void reset() {
@@ -213,6 +222,28 @@ class Md implements Core {
   void setRom(Uint8List body) {
     busM68.rom.load(body);
 
+    // check ROM region
+    final r0 = String.fromCharCode(body[0x1f0]);
+    final r1 = String.fromCharCode(body[0x1f1]);
+    final r2 = String.fromCharCode(body[0x1f2]);
+
+    final newStyleIndex = "0123456789ABCD F".indexOf(r0);
+    if (newStyleIndex != -1) {
+      if (newStyleIndex.bit0) {
+        busM68.region = _regionDomestic;
+      } else if (newStyleIndex.bit2) {
+        busM68.region = _regionOversea;
+      } else {
+        throw Exception("unknown ROM region:$r0");
+      }
+    } else if ("$r0$r1$r2".contains("J")) {
+      busM68.region = _regionDomestic;
+    } else if ("$r0$r1".contains("U")) {
+      busM68.region = _regionOversea;
+    } else {
+      throw Exception("unknown ROM region:$r0$r1$r2");
+    }
+
     reset();
   }
 
@@ -223,15 +254,16 @@ class Md implements Core {
       bool showSpriteVram = false,
       bool showStack = false,
       bool showApu = false}) {
-    final regM68 = cpuM68.dump();
+    final regM68 = "${cpuM68.dump()} cl:${cpuM68.clocks.format3}";
     final (asmM68, _) = disasmM68(cpuM68.pc);
     final stackM68 =
         List.generate(16, (i) => busM68.ram[0xfff0 + i].hex8, growable: false)
             .join(" ");
 
     final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
-    final regZ80 = cpuZ80.dump();
-    final bus = "bus: z80bank:${busZ80.bank.hex24} clc:$_clocks";
+    final regZ80 = "${cpuZ80.dump()} cl:${cpuZ80.cycles.format3}";
+    final bus =
+        "bus: region:${busM68.region.hex8} z80bank:${busZ80.bank.hex24} clc:$_clocks";
 
     final vdpRegs = vdp.dump();
 
@@ -270,10 +302,8 @@ class Md implements Core {
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int cpuNo, int addr) {
-    final (asm, i) = cpuNo == 0 ? disasmM68(addr) : disasmZ80(addr);
-    return Pair(asm, i);
-  }
+  (String, int) disasm(int cpuNo, int addr) =>
+      cpuNo == 0 ? disasmM68(addr) : disasmZ80(addr);
 
   // debug: returns PC register
   @override
@@ -285,13 +315,34 @@ class Md implements Core {
 
   // debug: set debug logging
   @override
-  String tracingState(int cpuNo) => cpuNo == 0
-      ? "${disasmM68(cpuM68.pc).$1.padRight(44)} ${cpuM68.dump().replaceAll("\n", " " "")}"
-      : "${disasmZ80(cpuZ80.r.pc).$1.padRight(44)} ${cpuZ80.dump().replaceAll("\n", " ")}";
+  TraceLog trace(int cpuNo) => cpuNo == 0
+      ? TraceLog(
+          cpuM68.pc,
+          cpuM68.clocks,
+          disasmM68(cpuM68.pc).$1.padRight(44),
+          cpuM68.dump().replaceAll("\n", " "),
+          [for (int i = 0; i < 8; i++) cpuM68.a[i], ...cpuM68.d, cpuM68.sr])
+      : TraceLog(
+          cpuZ80.r.pc,
+          cpuZ80.cycles,
+          "${cpuZ80.r.pc.hex16}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
+          cpuZ80.dump().replaceAll("\n", " "), [
+          cpuZ80.r.af,
+          cpuZ80.r.bc,
+          cpuZ80.r.de,
+          cpuZ80.r.hl,
+          cpuZ80.r.af2,
+          cpuZ80.r.bc2,
+          cpuZ80.r.de2,
+          cpuZ80.r.hl2,
+          cpuZ80.r.ix,
+          cpuZ80.r.iy,
+          cpuZ80.r.sp
+        ]);
 
   // debug: dump vram
   @override
-  List<int> get vram => List.empty();
+  List<int> get vram => vdp.vram;
 
   // debug: read mem
   @override

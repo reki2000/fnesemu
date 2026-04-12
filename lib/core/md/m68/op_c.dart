@@ -1,7 +1,4 @@
-import 'package:fnesemu/core/md/m68/alu.dart';
-import 'package:fnesemu/util/int.dart';
-
-import 'm68.dart';
+part of 'm68.dart';
 
 extension OpC on M68 {
   bool execC(int op) {

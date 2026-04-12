@@ -20,6 +20,7 @@ class BusM68 {
   late Ym2612 fm;
 
   Rom rom = Rom();
+  int region = 0x00;
 
   final pad = Pad();
 
@@ -128,7 +129,10 @@ class BusM68 {
     if (top == 0xc00000) {
       if (addr & 0x1e == 0x10) {
         psg.write8(data);
+        return;
       }
+
+      write16(addr, data << 8);
       return;
     }
 
@@ -196,7 +200,7 @@ class BusM68 {
 
   int readIo16(int addr) {
     return switch (addr & 0xfffe) {
-      0x00 => 0x20, // domestic, ntsc, no fdd, version 0
+      0x00 => region | 0x20, // region, ntsc, no fdd, version 0
       0x02 || 0x04 || 0x06 => pad.readData((addr >> 1 & 0x03).dec), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
@@ -209,7 +213,7 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => 0, // busZ80.busReq ? 1 : 0, // z80 busreq
+      0x1100 => busZ80.busReq ? 0 : 1, // z80 busreq 0:granted
       0x1200 => 0x00, // z80 reset
       _ => 0x00,
     };
@@ -244,8 +248,6 @@ class BusM68 {
   }
 
   void interrupt(int level) {
-    if (cpu.assertedIntLevel < level) {
-      cpu.assertedIntLevel = level;
-    }
+    cpu.interrupt(level);
   }
 }

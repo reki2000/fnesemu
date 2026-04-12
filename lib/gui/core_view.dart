@@ -41,13 +41,13 @@ class _CoreViewState extends State<CoreView> {
           // main view
           ValueListenableBuilder<int>(
               valueListenable: widget.container.displayWidthNotifier,
-              builder: (context, width, child) => TickerImage(
+              builder: (context, width, child) => imageListener(
                   width: width * config.zoom,
                   height: widget.container.displayHeight * config.zoom,
-                  container: widget.container)),
+                  notifier: widget.container.imageNotifier)),
 
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            // debug control
+            // frame per second
             StreamBuilder<double>(
                 stream: widget.controller.fpsStream,
                 builder: (ctx, snapshot) => Text(

@@ -5,7 +5,9 @@ import 'dart:typed_data';
 // Project imports:
 import '../../util/util.dart';
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
@@ -13,7 +15,6 @@ import 'component/bus.dart';
 import 'component/chr_rom_debug.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
-import 'component/cpu_disasm.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
 import 'mapper/mapper.dart';
@@ -58,7 +59,7 @@ class Nes implements Core {
   int get systemClockHz => cpuClock;
 
   @override
-  get cpuInfos => [CpuInfo(1, "6502", 16)];
+  get cpuInfos => [CpuInfo.of6502(0, "6502")];
 
   int _nextPpuCycle = 0;
   int _nextApuCycle = 0;
@@ -143,11 +144,19 @@ class Nes implements Core {
   void padUp(int id, PadButton k) => bus.joypad.keyUp(id, k);
 
   @override
+  void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {
+    _sram = sram;
+  }
+
+  @override
   List<PadButton> get buttons => bus.joypad.buttons;
 
   // ROM CRC
   String crc = "";
-  bool hasBatteryBackup = false;
+  Sram _sram = Sram();
 
   // loads an iNES format rom file.
   // throws exception if the mapper type of the rom file is not supported.
@@ -156,26 +165,27 @@ class Nes implements Core {
     final nesFile = NesFile();
     nesFile.load(body);
     crc = nesFile.crc;
-    hasBatteryBackup = nesFile.hasBatteryBackup;
+    final hasBatteryBackup = nesFile.hasBatteryBackup;
 
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
     bus.mapper = Mapper.of(nesFile.mapper)
-      ..setRom(
-          Uint8ListEx.join(nesFile.character),
-          Uint8ListEx.join(nesFile.program),
-          hasBatteryBackup ? storage.load(crc) : Uint8List(0))
+      ..setRom(Uint8ListEx.join(nesFile.character),
+          Uint8ListEx.join(nesFile.program))
       ..mirror = bus.mirror
       ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
 
-    reset();
-  }
-
-  /// save SRAM
-  void saveSram() {
     if (hasBatteryBackup) {
-      storage.save(crc, bus.mapper.exportSram());
+      _sram.init(crc, bus.mapper.defaultSram());
+      bus.mapper.setSramRw(_sram.read8, _sram.write8);
+    } else {
+      final sram = Uint8List(32 * 1024);
+      bus.mapper.setSramRw((addr) => sram[addr & 0x1fff], (addr, value) {
+        sram[addr & 0x1fff] = value;
+      });
     }
+
+    reset();
   }
 
   /// debug: returns the emulator's internal status report
@@ -198,8 +208,7 @@ class Nes implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int _, int addr) =>
-      Pair(cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(addr));
+  (String, int) disasm(int _, int addr) => cpu.dumpDisasm(addr);
 
   // debug: returns PC register
   @override
@@ -211,7 +220,7 @@ class Nes implements Core {
 
   // debug: set debug logging
   @override
-  String tracingState(int _) => cpu.trace();
+  TraceLog trace(int _) => cpu.trace();
 
   // debug: dump vram
   @override

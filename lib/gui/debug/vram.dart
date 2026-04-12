@@ -9,7 +9,7 @@ import '../../util/util.dart';
 
 Widget _dump(List<int> buf, int start) {
   final lines = <String>[];
-  for (var i = 0; i < 64; i++) {
+  for (var i = 0; i < 32; i++) {
     final addr = (start + i * 16) & 0xffff;
     final lineData = buf.sublist(addr, addr + 16);
     final line = "${hex16(addr)}: ${lineData.map((e) => hex16(e)).join(' ')}";

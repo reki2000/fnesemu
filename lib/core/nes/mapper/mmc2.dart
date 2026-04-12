@@ -3,10 +3,9 @@
 import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
-import 'sram.dart';
 
 // https://www.nesdev.org/wiki/MMC2
-class MapperMMC2 extends Mapper with Sram {
+class MapperMMC2 extends Mapper {
   final _prgBanks = [0, 0, 0, 0];
   final _chrBanks = [0, 0, 0, 0]; // 0,1: 0xFD  2,3: 0xFE
   final _latch = [0, 0]; // latch = fd: 0,   fe: 2
@@ -29,7 +28,7 @@ class MapperMMC2 extends Mapper with Sram {
     switch (bank) {
       case 0x6000:
       case 0x7000:
-        ram[addr - 0x6000] = data;
+        writeSram(addr - 0x6000, data);
         break;
 
       case 0xa000:
@@ -61,7 +60,7 @@ class MapperMMC2 extends Mapper with Sram {
     final offset = addr & 0x1fff;
 
     if (addr & 0xe000 == 0x6000) {
-      return ram[offset];
+      return readSram(offset);
     }
 
     final bank = (addr - 0x8000) >> 13; // 0-3

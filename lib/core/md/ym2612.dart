@@ -511,15 +511,17 @@ class Ym2612 {
   int _dacData = 0;
   bool _dacEnabled = false;
 
-  // TIMERA_period = 18 x (1024 -TIMER) microseconds,
-  // TIMERB_period = 18 x 16 x (256 -TIMER) microseconds
-  // 18ms ~= 1_000_000ms / (m68clock / 144); where m68clock / 144 = 1 sammple
+  // TIMERA_period = 9us x (1024 -TIMER)
+  // TIMERB_period = 9us x 16 x (256 -TIMER)
+  // 18.773us ~= 1_000_000ms / (m68clock / 144); where m68clock / 144 = 1 sample
   countTimer(int samples) {
     if (_enableTimerA) {
-      _timerCountA -= samples;
+      _timerCountA -= samples * 2;
 
       if (_timerCountA <= 0) {
-        _timerCountA += 1024 - _timerA;
+        while (_timerCountA <= 0) {
+          _timerCountA += 1024 - _timerA;
+        }
 
         if (_notifyTimerAOverflow) {
           _timerOverflow |= _bitTimerA;
@@ -534,10 +536,12 @@ class Ym2612 {
     }
 
     if (_enableTimerB) {
-      _timerCountB -= samples;
+      _timerCountB -= samples * 2;
 
       if (_timerCountB <= 0) {
-        _timerCountB += (256 - _timerB) << 4;
+        while (_timerCountB <= 0) {
+          _timerCountB += (256 - _timerB) << 4;
+        }
 
         if (_notifyTimerBOverflow) {
           //print("timerB overflow");

@@ -2,9 +2,10 @@
 import 'dart:typed_data';
 
 // Project imports:
-import '../../util/util.dart';
 import '../core.dart';
+import '../disc.dart';
 import '../pad_button.dart';
+import '../sram.dart';
 import '../types.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
@@ -15,8 +16,8 @@ import 'component/psg.dart';
 import 'component/psg_debug.dart';
 import 'component/timer.dart';
 import 'component/vdc.dart';
-import 'component/vdc_render.dart';
 import 'component/vdc_debug.dart';
+import 'component/vdc_render.dart';
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
@@ -42,7 +43,7 @@ class Pce implements Core {
   int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
 
   @override
-  get cpuInfos => [CpuInfo(1, "Hu6280", 16)];
+  get cpuInfos => [CpuInfo.of6502(1, "Hu6280")];
 
   Pce() {
     bus = Bus();
@@ -117,6 +118,12 @@ class Pce implements Core {
       bus.joypad.keyUp(controllerId, k);
 
   @override
+  void setDisc(Disc disc) {}
+
+  @override
+  void setSram(Sram sram) {}
+
+  @override
   List<PadButton> get buttons => bus.joypad.buttons;
 
   // ROM CRC
@@ -153,8 +160,8 @@ class Pce implements Core {
 
   // debug: returns dis-assembled 6502 instruction in [String nmemonic, int nextAddr]
   @override
-  Pair<String, int> disasm(int _, int addr) => Pair(
-      cpu.dumpDisasm(addr, toAddrOffset: 1), Disasm.nextPC(cpu.read(addr)));
+  (String, int) disasm(int _, int addr) =>
+      (cpu.dumpDisasm(addr), Disasm.nextPC(cpu.read(addr)));
 
   // debug: returns PC register
   @override
@@ -166,7 +173,7 @@ class Pce implements Core {
 
   // debug: set debug logging
   @override
-  String tracingState(int _) => "${cpu.trace()} ${vdc.dump()}";
+  TraceLog trace(int _) => cpu.trace();
 
   // debug: dump vram
   @override

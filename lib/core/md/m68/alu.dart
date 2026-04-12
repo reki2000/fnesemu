@@ -1,6 +1,4 @@
-import 'package:fnesemu/util/int.dart';
-
-import 'm68.dart';
+part of 'm68.dart';
 
 extension Alu on M68 {
   int add(int a, int b, int size, {bool useXf = false}) {

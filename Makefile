@@ -7,6 +7,12 @@ test-z80:
 test-m68:
 	dart run lib/core/md/m68/m68_test.dart
 
+test-r3000:
+	dart run lib/core/ps1/r3000/r3000_test.dart
+
+test-gte:
+	dart run lib/core/ps/r3000/cop2_test.dart assets/ps1-tests/gte/test-all/tests.c
+
 test:
 	flutter test
 
