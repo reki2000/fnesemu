@@ -11,16 +11,16 @@ abstract class Disc {
 
     final volumeDescription = readSector(16);
     final rootEntry = volumeDescription.sublist(0x9c, 0x9c + 34);
-    final rootLba = rootEntry.getUInt32LE(0x02);
-    final rootSize = rootEntry.getUInt32LE(0x0a);
+    final rootLba = rootEntry.getUint32LE(0x02);
+    final rootSize = rootEntry.getUint32LE(0x0a);
     final directory = readSector(rootLba);
 
     for (int i = 0; i < rootSize && i < 0x800;) {
       final entry = directory.sublist(i);
       final nameLen = entry[0x20];
       final name = String.fromCharCodes(entry.sublist(0x21, 0x21 + nameLen));
-      final lba = entry.getUInt32LE(0x02);
-      final size = entry.getUInt32LE(0x0a);
+      final lba = entry.getUint32LE(0x02);
+      final size = entry.getUint32LE(0x0a);
       // debugLog("iso9660: found $name lba:$lba size:$size");
 
       if (name == path) {
