@@ -451,10 +451,10 @@ extension Gpu0 on Gpu {
 
     final dump = switch (clutMode) {
       0 => List.generate(16, (i) => i)
-          .map((i) => frameBuffer.getUInt16LE(clutBase + i * 2).hex16)
+          .map((i) => frameBuffer.getUint16LE(clutBase + i * 2).hex16)
           .join(" "),
       1 => List.generate(256, (i) => i)
-          .map((i) => frameBuffer.getUInt16LE(clutBase + i * 2).hex16)
+          .map((i) => frameBuffer.getUint16LE(clutBase + i * 2).hex16)
           .join(" "),
       2 => "16bit",
       _ => "unknown",

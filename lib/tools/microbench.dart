@@ -48,7 +48,7 @@ Uint32List data32 = data.buffer.asUint32List();
 int testGetUint32Le(int v, int s, int count) {
   int sum = 0;
   for (int i = 0; i < count; i++) {
-    sum += data.getUInt32LE(v & 0xfffff);
+    sum += data.getUint32LE(v & 0xfffff);
   }
   return sum;
 }

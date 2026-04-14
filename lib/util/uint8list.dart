@@ -24,46 +24,46 @@ extension Uint8ListEx on Uint8List {
     return List.generate(count, (_) => Uint8List(size));
   }
 
-  int getUInt16BE(int index) {
+  int getUint16BE(int index) {
     return this[index] << 8 | this[index + 1];
   }
 
-  int getUInt32BE(int index) {
+  int getUint32BE(int index) {
     return this[index] << 24 |
         this[index + 1] << 16 |
         this[index + 2] << 8 |
         this[index + 3];
   }
 
-  int getUInt16LE(int index) {
+  int getUint16LE(int index) {
     return this[index + 1] << 8 | this[index];
   }
 
-  int getUInt32LE(int index) {
+  int getUint32LE(int index) {
     return this[index + 3] << 24 |
         this[index + 2] << 16 |
         this[index + 1] << 8 |
         this[index + 0];
   }
 
-  void setUInt16BE(int index, int value) {
+  void setUint16BE(int index, int value) {
     this[index] = (value >> 8) & 0xff;
     this[index + 1] = value & 0xff;
   }
 
-  void setUInt16LE(int index, int value) {
+  void setUint16LE(int index, int value) {
     this[index] = value & 0xff;
     this[index + 1] = (value >> 8) & 0xff;
   }
 
-  void setUInt32BE(int index, int value) {
+  void setUint32BE(int index, int value) {
     this[index] = (value >> 24) & 0xff;
     this[index + 1] = (value >> 16) & 0xff;
     this[index + 2] = (value >> 8) & 0xff;
     this[index + 3] = value & 0xff;
   }
 
-  void setUInt32LE(int index, int value) {
+  void setUint32LE(int index, int value) {
     this[index] = value & 0xff;
     this[index + 1] = (value >> 8) & 0xff;
     this[index + 2] = (value >> 16) & 0xff;

@@ -79,7 +79,7 @@ extension Gp0Renderer on Gpu {
     // debugLog(
     //     'GPU0: renderFlat (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
 
-    for (int y = p0.y; y <= p2.y; y++) {
+    for (int y = p0.y; y < p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);
       final p02 = p0.mixY(p2, y);
 
@@ -101,7 +101,7 @@ extension Gp0Renderer on Gpu {
     //     'GPU0:renderGouraud (${p0.x},${p0.y}:${p0.c.c24.hex32}), (${p1.x},${p1.y}:${p1.c.c24.hex32}), (${p2.x},${p2.y}:${p2.c.c24.hex32}) '
     //     'offset:$drawingOffsetX,$drawingOffsetY area:$drawingX1,$drawingY1-$drawingX2,$drawingY2 ');
 
-    for (int y = p0.y; y <= p2.y; y++) {
+    for (int y = p0.y; y < p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);
       final p02 = p0.mixY(p2, y);
 
@@ -127,7 +127,7 @@ extension Gp0Renderer on Gpu {
     // debugLog(
     //     'GPU0: renderTextured (${p0.x},${p0.y},${p0.u},${p0.v}), (${p1.x},${p1.y},${p1.u},${p1.v}), (${p2.x},${p2.y},${p2.u},${p2.v})');
 
-    for (int y = p0.y; y <= p2.y; y++) {
+    for (int y = p0.y; y < p2.y; y++) {
       final p012 = y >= p1.y ? p1.mixY(p2, y) : p0.mixY(p1, y);
       final p02 = p0.mixY(p2, y);
 
