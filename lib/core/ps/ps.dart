@@ -98,8 +98,8 @@ class Ps extends Core {
 
   @override
   void setRom(Uint8List body) {
-    if (body.getUInt32BE(0) == 0x50532d58 &&
-        body.getUInt32BE(4) == 0x20455845) {
+    if (body.getUint32BE(0) == 0x50532d58 &&
+        body.getUint32BE(4) == 0x20455845) {
       cpu.exe = body;
       debugLog("loaded PS-EXE");
       return;
@@ -119,7 +119,7 @@ class Ps extends Core {
       ];
       int patchAddr = 0x18000;
       for (int b32 in fastBootSequence) {
-        bus.rom.setUInt32LE(patchAddr, b32);
+        bus.rom.setUint32LE(patchAddr, b32);
         patchAddr += 4;
       }
     }

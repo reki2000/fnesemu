@@ -142,11 +142,11 @@ class Spu {
       debugLog("spu: IRQ triggered at ${_fifoAddr.hex24}");
     }
 
-    return ram.getUInt16LE(addr);
+    return ram.getUint16LE(addr);
   }
 
   int readFifo16() {
-    final result = ram.getUInt16LE(_fifoAddr);
+    final result = ram.getUint16LE(_fifoAddr);
     _fifoAddr = _fifoAddr.inc2 & 0x7ffff;
     return result;
   }
@@ -170,7 +170,7 @@ class Spu {
     //       "SPU: writeFifo ${_fifoAddr.hex32} ${value.hex32} ${bus.cpu.dump()}");
     // }
     if (value != 0) fifoWriteCount++;
-    ram.setUInt16LE(_fifoAddr, value);
+    ram.setUint16LE(_fifoAddr, value);
     _fifoAddr = _fifoAddr.inc2 & 0x7ffff;
   }
 
