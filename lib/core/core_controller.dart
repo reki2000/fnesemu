@@ -164,51 +164,71 @@ class CoreController {
   /// returns false if the emulation is stopped
   bool _runScanLine() {
     final opt = debugger.opt;
-    final step = _runMode != runModeNone || opt.breakPoint >= 0 || opt.log;
-    bool cpuExecuted = true;
 
-    while (true) {
-      if (cpuExecuted && opt.log) {
-        debugger.addLog(_core.trace(opt.targetCpuNo));
-        cpuExecuted = false;
+    if (!opt.showDebugView) {
+      while (true) {
+        // exec 1 cpu instruction
+        final result = _core.exec(false);
+        _currentCpuClocks = result.elapsedClocks;
+
+        if (result.stopped) {
+          stop();
+          return false;
+        }
+
+        if (result.scanlineRendered) {
+          break;
+        }
       }
+    } else {
+      final step = _runMode != runModeNone || opt.breakPoint >= 0 || opt.log;
+      bool cpuExecuted = true;
 
-      // exec 1 cpu instruction
-      final result = _core.exec(step);
-      _currentCpuClocks = result.elapsedClocks;
+      while (true) {
+        if (cpuExecuted && opt.log) {
+          debugger.addLog(_core.trace(opt.targetCpuNo));
+          cpuExecuted = false;
+        }
 
-      if (result.stopped) {
-        stop();
-        return false;
-      }
+        // exec 1 cpu instruction
+        final result = _core.exec(step);
+        _currentCpuClocks = result.elapsedClocks;
 
-      cpuExecuted = result.executed(opt.targetCpuNo);
+        if (result.stopped) {
+          stop();
+          return false;
+        }
 
-      final needBreak = cpuExecuted &&
-          opt.showDebugView &&
-          ((opt.breakClock <= debugStatus.clock && opt.breackClockEnabled) ||
-              opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
-              _runMode == runModeStep ||
-              _runMode == runModeStepOut &&
-                  _core.stackPointer(opt.targetCpuNo) > opt.stackPointer);
+        cpuExecuted = result.executed(opt.targetCpuNo);
 
-      if (needBreak) {
-        opt.breackClockEnabled = opt.breakClock > debugStatus.clock;
-        _renderAll();
-        stop();
-        return false;
-      }
+        final needBreak = cpuExecuted &&
+            opt.showDebugView &&
+            ((opt.breakClock <= debugStatus.clock && opt.breackClockEnabled) ||
+                opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
+                _runMode == runModeStep ||
+                _runMode == runModeStepOut &&
+                    _core.stackPointer(opt.targetCpuNo) > opt.stackPointer);
 
-      if (result.scanlineRendered) {
-        if (_runMode == runModeLine) {
+        if (needBreak) {
+          opt.breackClockEnabled = opt.breakClock > debugStatus.clock;
           _renderAll();
           stop();
           return false;
         }
 
-        return true;
+        if (result.scanlineRendered) {
+          break;
+        }
       }
     }
+
+    if (_runMode == runModeLine) {
+      _renderAll();
+      stop();
+      return false;
+    }
+
+    return true;
   }
 
   void _renderAll() {
