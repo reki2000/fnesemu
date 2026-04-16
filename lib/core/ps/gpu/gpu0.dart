@@ -305,11 +305,16 @@ extension Gpu0 on Gpu {
       };
 
       final (x0, y0) = (cmd[1].rel11, (cmd[1] >> 16).rel11);
+      final baseX = status << 6 & 0x3c0;
+      final baseY = status << 4 & 0x100;
+      final clutMode = status >> 7 & 3;
+      final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
 
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
           if (textured) {
-            final texColor = getTextureColor(u0 + x, v0 + y, clut, status);
+            final texColor = getTextureColor2(
+                u0 + x, v0 + y, baseX, baseY, clutBase, clutMode);
             final c16 =
                 modulated ? modulate(texColor, modulateColor) : texColor;
             if (c16 != 0) {

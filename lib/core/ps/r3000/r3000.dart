@@ -25,7 +25,6 @@ abstract class BusR3000 {
 }
 
 typedef RegNo = int;
-typedef Slot = (RegNo, int);
 
 /// A minimal MIPS R3000 emulator in Dart.
 class R3000 {
@@ -37,7 +36,7 @@ class R3000 {
   }
 
   /// 32 general-purpose registers. Note: r0 is always 0.
-  final r = List.filled(32, 0);
+  final r = Uint32List(32);
 
   int pc = 0; // the PC (actually the next instruction during execution)
   int nextPc = 0; // the PC to be executed next, reflects branch delay slot
@@ -53,7 +52,9 @@ class R3000 {
   int clocks = 0;
 
   //  slots to handle delay
-  Slot nextDelaySlot = (0, 0), delaySlot = (0, 0), immediateSlot = (0, 0);
+  int nextDelayReg = 0, nextDelayVal = 0;
+  int delayReg = 0, delayVal = 0;
+  int immediateReg = 0, immediateVal = 0;
   bool inBranchDelay = false;
 
   // bios putchar() hacking
@@ -66,8 +67,10 @@ class R3000 {
     pc = 0xbfc00000;
     nextPc = pc.inc4;
 
-    nextDelaySlot = (0, 0);
-    immediateSlot = (0, 0);
+    nextDelayReg = 0;
+    nextDelayVal = 0;
+    immediateReg = 0;
+    immediateVal = 0;
 
     inBranchDelay = false;
 
@@ -131,9 +134,12 @@ class R3000 {
     pc = nextPc; // points the next instruction. "PC" refers this.
     nextPc = nextPc.inc4.mask32;
 
-    delaySlot = nextDelaySlot;
-    nextDelaySlot = (0, 0);
-    immediateSlot = (0, 0);
+    delayReg = nextDelayReg;
+    delayVal = nextDelayVal;
+    nextDelayReg = 0;
+    nextDelayVal = 0;
+    immediateReg = 0;
+    immediateVal = 0;
 
     if ((cause & sr & 0xff00 != 0) && sr.bit0) {
       exception(Exception.interrupt);
@@ -154,8 +160,8 @@ class R3000 {
       // }
     }
 
-    r[delaySlot.$1] = delaySlot.$2;
-    r[immediateSlot.$1] = immediateSlot.$2;
+    r[delayReg] = delayVal;
+    r[immediateReg] = immediateVal;
 
     r[0] = 0; // r0 is always hardwired to 0.
 
@@ -167,13 +173,18 @@ class R3000 {
   static _unknown(int inst32) => throw UnknownOpcodeException();
 
   void delay(RegNo dst, int val) {
-    if (dst == delaySlot.$1) {
-      delaySlot = (0, 0);
+    if (dst == delayReg) {
+      delayReg = 0;
+      delayVal = 0;
     }
-    nextDelaySlot = (dst, val.mask32);
+    nextDelayReg = dst;
+    nextDelayVal = val;
   }
 
-  void immediate(RegNo dst, int val) => immediateSlot = (dst, val.mask32);
+  void immediate(RegNo dst, int val) {
+    immediateReg = dst;
+    immediateVal = val;
+  }
 
   void jump(int addr) {
     inBranchDelay = true;
@@ -287,13 +298,13 @@ class R3000 {
         },
       0x20 => delay(rt, read8(r[rs] + rel16).rel8), // lb
       0x21 => delay(rt, read16(r[rs] + rel16).rel16), // lh
-      0x22 => delay(rt,
-          lwl(r[rs] + rel16, rt == delaySlot.$1 ? delaySlot.$2 : r[rt])), // lwl
+      0x22 =>
+        delay(rt, lwl(r[rs] + rel16, rt == delayReg ? delayVal : r[rt])), // lwl
       0x23 => delay(rt, read32(r[rs] + rel16)), // lw
       0x24 => delay(rt, read8(r[rs] + rel16)), // lbu
       0x25 => delay(rt, read16(r[rs] + rel16)), // lhu
-      0x26 => delay(rt,
-          lwr(r[rs] + rel16, rt == delaySlot.$1 ? delaySlot.$2 : r[rt])), // lwr
+      0x26 =>
+        delay(rt, lwr(r[rs] + rel16, rt == delayReg ? delayVal : r[rt])), // lwr
       0x28 => write8(r[rs] + rel16, r[rt]), // sb
       0x29 => write16(r[rs] + rel16, r[rt]), // sh
       0x2a => swl(r[rs] + rel16, r[rt]), // swl
