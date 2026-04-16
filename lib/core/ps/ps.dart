@@ -144,6 +144,8 @@ class Ps extends Core {
   final audioBuffer = Float32List(1000 * 2);
   int audioBufferIndex = 0;
 
+  ExecResult result = ExecResult(0, false, false);
+
   @override
   ExecResult exec(bool step) {
     cpu.step();
@@ -153,12 +155,13 @@ class Ps extends Core {
       bus.timer.clock(100);
     }
 
+    result.scanlineRendered = false;
     if (cpu.clocks > nextScanlineClock) {
       bus.timer.endHBlank();
       nextScanlineClock += clocksInScanline;
       gpu.renderScanline();
       _waitFinishLine = true;
-      return ExecResult(cpu.clocks, false, true);
+      result.scanlineRendered = true;
     }
 
     if (_waitFinishLine && cpu.clocks >= nextScanlineClock - 200) {
@@ -198,7 +201,9 @@ class Ps extends Core {
     debugStatus.scanline = gpu.scanline;
     debugStatus.pc = cpu.pc;
 
-    return ExecResult(cpu.clocks, false, false);
+    result.elapsedClocks = cpu.clocks;
+
+    return result;
   }
 
   @override

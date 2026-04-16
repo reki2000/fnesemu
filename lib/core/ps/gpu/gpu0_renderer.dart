@@ -124,6 +124,11 @@ extension Gp0Renderer on Gpu {
     final transparentMask = cmd.bit25 ? 0xffff : 0x7fff;
     final gouraud = cmd.bit28;
 
+    final baseX = page << 6 & 0x3c0;
+    final baseY = page << 4 & 0x100;
+    final clutMode = page >> 7 & 3;
+    final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
+
     // debugLog(
     //     'GPU0: renderTextured (${p0.x},${p0.y},${p0.u},${p0.v}), (${p1.x},${p1.y},${p1.u},${p1.v}), (${p2.x},${p2.y},${p2.u},${p2.v})');
 
@@ -132,11 +137,17 @@ extension Gp0Renderer on Gpu {
       final p02 = p0.mixY(p2, y);
 
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
+      final width = right.x - left.x;
+
       for (int x = left.x; x < right.x; x++) {
-        final uv = left.mix(right, x - left.x, right.x - left.x);
-        final texColor = getTextureColor(uv.u, uv.v, clut, page);
+        final part = x - left.x;
+        final u = (left.u * (width - part) + right.u * part) ~/ width;
+        final v = (left.v * (width - part) + right.v * part) ~/ width;
+        final texColor =
+            getTextureColor2(u, v, baseX, baseY, clutBase, clutMode);
         final c16 = modulated
-            ? modulate(texColor, gouraud ? uv.c : modulateColor)
+            ? modulate(texColor,
+                gouraud ? left.c.mix(right.c, part, width) : modulateColor)
             : texColor;
         if (c16 != 0) {
           pset16(x, y, c16 & transparentMask, semiTransparent: semiTransparent);

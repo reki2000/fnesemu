@@ -52,8 +52,10 @@ class Storage extends Sram {
 
   @override
   void write8(int addr, int value) {
-    super.write8(addr, value);
-    _dirty = true;
+    if (read8(addr) != value) {
+      super.write8(addr, value);
+      _dirty = true;
+    }
   }
 
   void saveIfDirty() {

@@ -4,7 +4,7 @@ A Cross-Platform NES/PCE/MD/PS1 Emulator Built with Flutter
 
 This project is experimental.
 
-- Achieves 60 fps on an i5-8250 processor @web(NES,PCE), @windows(all except PS1)
+- Achieves 60 fps: NES and PCE on i5-8250 (web), MD on i5-8250 (Windows), PS1 on i7-13700HX (Windows)
 - Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
 - NES (.nes)
   - SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)

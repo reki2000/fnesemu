@@ -195,26 +195,24 @@ class Gpu {
     return frameBuffer16[offset];
   }
 
-  int getTextureColor(int u, int v, int clut, int page, {bool debug = false}) {
+  int getTextureColor2(
+      int u, int v, int baseX, int baseY, int clutBase, int clutMode,
+      {bool debug = false}) {
     final uu = u & textureMaskX2 | textureOffsetX2;
     final vv = v & textureMaskY2 | textureOffsetY2;
 
-    final baseX = page << 6 & 0x3c0;
-    final baseY = page << 4 & 0x100;
     final base = (baseY + vv.mask8) * 1024;
 
-    final clutMode = page >> 7 & 3;
     if (clutMode == 2) {
       final result = frameBuffer16[base + ((baseX + uu.mask8) & 0x3ff)];
       if (debug) {
         debugLog(
-            "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
+            "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
             "baseX:$baseX baseY:$baseY base:${base.hex32} c:${result.hex16}");
       }
       return result;
     }
 
-    final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
     try {
       final clutIndex = (clutMode == 1)
           ? frameBuffer[(base + baseX) * 2 + uu.mask8]
@@ -225,17 +223,17 @@ class Gpu {
       final result = frameBuffer16[clutBase + clutIndex];
 
       if (debug) {
-        debugLog(
-            "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) mode:$clutMode "
+        debugLog("getTexureColor($u, $v, mode:$clutMode "
             "baseX:$baseX baseY:$baseY base:${base.hex32} "
-            "clutX:${clut << 5 & 0x3e0} clutY:${clut >> 6 & yMask} clutBase:${clutBase.hex32} "
+            "clutX:${clutBase % 1024} clutY:${clutBase ~/ 1024} clutBase:${clutBase.hex32} "
             "index:$clutIndex result:${result.hex24}");
       }
 
       return result;
     } catch (e) {
       debugLog(
-          "getTexureColor($u, $v, ${clut.hex32}, ${page.hex32}) $baseX $baseY ${clutBase.hex32} ${base.hex32} $e");
+          "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
+          "baseX:$baseX baseY:$baseY base:${base.hex32} $e");
       rethrow;
     }
   }
