@@ -82,6 +82,9 @@ class Pad extends SioDevice {
 
       case waitCommand:
         // debugLog("pad: 0x42 -> 0x41 <- $padStep ${dump()}");
+        if (txData != 0x42) {
+          break;
+        }
         padStep = waitPadNo;
         return ack(0x41);
 
