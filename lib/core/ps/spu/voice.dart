@@ -143,6 +143,10 @@ class Voice {
 
   /// proceed to next sample
   (int, int, int) clock() {
+    if (ended) {
+      return (0, 0, 0);
+    }
+
     final step = pitch; // todo pitch modulation
     _counter += step.min(0x4000);
 
