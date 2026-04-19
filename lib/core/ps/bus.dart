@@ -69,13 +69,15 @@ class Bus implements BusR3000 {
           0x1048 => serial.readMode(),
           0x104a => serial.readControl(),
           0x1802 => cdrom.readPort16(2),
+          >= 0x1c00 && < 0x1d80 =>
+            spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f),
           0x1da4 => spu.irqAddr, // spu irq address
           0x1da6 => spu.fifoAddr, // spu dma start address
           0x1daa => spu.control, // spu control
           0x1dac => spu.fifoType, // spu ram ctrl
           0x1dae => spu.status, // spu status
-          >= 0x1c00 && < 0x1d80 =>
-            spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f),
+          >= 0x1e00 && < 0x1ec0 =>
+            spu.readVoice(offset & 0x03, offset >> 2 & 0x1f),
           _ => read32(addr & ~0x03) >> (8 * (addr & 0x02)) & 0xffff,
         },
       _ => read32(addr & ~0x03) >> (8 * (addr & 0x02)) & 0xffff,
@@ -146,6 +148,8 @@ class Bus implements BusR3000 {
             spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f),
           >= 0x1d80 && < 0x1dc0 => _unimpl(sig, "spu control", addr),
           >= 0x1dc0 && < 0x1e00 => _unimpl(sig, "spu reverb", addr),
+          >= 0x1e00 && < 0x1ec0 =>
+            read16(addr) | read16(addr.inc2) << 16, // spu voice current volume
           _ => _unimpl(sig, "I/O Ports", addr)
         }, // I/O ports
       >= 0x1f802000 && < 0x1f802100 => _unimpl(sig, "expansion 2", addr),
@@ -238,6 +242,8 @@ class Bus implements BusR3000 {
           0x1d96 => spu.setNoiseFlags(v << 16),
           0x1d98 => spu.reverb.setReverbEnabled(v),
           0x1d9a => spu.reverb.setReverbEnabled(v << 16),
+          0x1d9c => 0,
+          0x1d9e => 0,
           0x1da2 => spu.reverb.setBaseAddr(v << 3), // work address
           0x1da4 => spu.setIrqAddr(v), // irq address
           0x1da6 => spu.setFifoAddr(v), // dma start address
@@ -307,12 +313,10 @@ class Bus implements BusR3000 {
           0x1814 => gpu.writeGp1(v), // gp1
           0x1820 => mdec.writeCommand(v), // mdec command
           0x1824 => mdec.writeControl(v), // mdec control
-          >= 0x1c00 && < 0x1c80 => _unimpl(sig, "spu voice", addr, value: v),
-          >= 0x1d80 && < 0x1dc0 => () {
+          >= 0x1c00 && < 0x1ec0 => () {
               write16(addr, v & 0xffff);
               write16(addr + 2, v >> 16 & 0xffff);
             }(),
-          >= 0x1dc0 && < 0x1e00 => _unimpl(sig, "spu reverb", addr, value: v),
           _ => _unimpl(sig, "I/O Ports", addr, value: v)
         }, // I/O ports
       >= 0x1f802000 && < 0x1f802100 =>
