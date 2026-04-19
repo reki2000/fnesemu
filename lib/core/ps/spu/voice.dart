@@ -117,7 +117,7 @@ class Voice {
   int pitch = 0;
 
   int _addr = 0;
-  bool ended = true;
+  bool endx = true;
 
   static const blockSize = 28;
   static const blockOldSize = 4;
@@ -132,7 +132,7 @@ class Voice {
     _block.fillRange(0, _block.length, 0);
     _blockIndex = 0;
     _counter = 0;
-    ended = true;
+    endx = true;
     envelope = Envelope.none();
     adsrVolume = 0;
     _adsrPhase = 0;
@@ -143,10 +143,6 @@ class Voice {
 
   /// proceed to next sample
   (int, int, int) clock() {
-    if (ended) {
-      return (0, 0, 0);
-    }
-
     final step = pitch; // todo pitch modulation
     _counter += step.min(0x4000);
 
@@ -191,7 +187,7 @@ class Voice {
     // debugLog(
     //     "SPU: keyOn  ch:$no addr:${startAddr.hex24} pitch:${pitch.hex24} vol:${_volReg[0].hex16},${_volReg[1].hex16} e:${adsr.hex32}");
     _addr = startAddr;
-    repeatAddr = startAddr;
+    //repeatAddr = startAddr;
 
     decodeBlock();
 
@@ -204,7 +200,7 @@ class Voice {
     adsrVolume = 0;
     _adsrPhase = 1;
 
-    ended = false;
+    endx = false;
   }
 
   void keyOff() {
@@ -215,7 +211,7 @@ class Voice {
     //     "SPU: keyOff ch:$no addr:${startAddr.hex24} pitch:${pitch.hex24} vol:${_volReg[0].hex16},${_volReg[1].hex16} e:${adsr.hex32}");
   }
 
-  String dump() => "${no.decimal2}${ended ? "E" : "R"}:"
+  String dump() => "${no.decimal2}${endx ? "E" : "R"}:"
       "${_volReg[1].hex16}${_volReg[0].hex16}-"
       "${(startAddr >> 3).hex16}${pitch.hex16}-"
       "${adsr.hex32}-"
