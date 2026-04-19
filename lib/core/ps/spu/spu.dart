@@ -79,6 +79,7 @@ class Spu {
     outL += reverbL;
     outR += reverbR;
 
+    // todo: apply master volume
     return ((outL / 0x8000).clip(-1.0, 1.0), (outR / 0x8000).clip(-1.0, 1.0));
   }
 
@@ -146,7 +147,7 @@ class Spu {
   }
 
   int readFifo16() {
-    final result = ram.getUint16LE(_fifoAddr);
+    final result = readRam16(_fifoAddr);
     _fifoAddr = _fifoAddr.inc2 & 0x7ffff;
     return result;
   }
@@ -170,7 +171,7 @@ class Spu {
     //       "SPU: writeFifo ${_fifoAddr.hex32} ${value.hex32} ${bus.cpu.dump()}");
     // }
     if (value != 0) fifoWriteCount++;
-    ram.setUint16LE(_fifoAddr, value);
+    writeRam16(_fifoAddr, value);
     _fifoAddr = _fifoAddr.inc2 & 0x7ffff;
   }
 
@@ -193,7 +194,7 @@ class Spu {
       _status = _status.setBit(6, false); // clear irq flag
     }
 
-    _status = _status.masked(0x1f, value);
+    _status = _status.masked(0x3f, value);
   }
 
   int readVoice(int port, int ch) => switch (port) {
@@ -253,7 +254,7 @@ class Spu {
   int get endx {
     int result = 0;
     for (int i = 0; i < voices.length; i++) {
-      if (voices[i].ended) {
+      if (voices[i].endx) {
         result |= 1 << i;
       }
     }
