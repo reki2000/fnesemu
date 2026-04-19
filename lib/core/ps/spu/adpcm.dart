@@ -49,9 +49,9 @@ extension VoiceAdpcmDecoder on Voice {
     }
 
     if (loop.bit0) {
-      ended = true;
       _addr = repeatAddr;
       if (!loop.bit1) {
+        ended = true;
         adsrVolume = 0;
       }
     }
