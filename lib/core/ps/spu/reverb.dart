@@ -180,7 +180,7 @@ class Reverb {
       output = output.vol16(apf.volume) + mApf;
     }
 
-    return input;
+    return output;
   }
 
   void setOutputVolume(int ch, int value) {

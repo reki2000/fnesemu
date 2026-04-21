@@ -49,10 +49,12 @@ extension VoiceAdpcmDecoder on Voice {
     }
 
     if (loop.bit0) {
+      endx = true;
       _addr = repeatAddr;
       if (!loop.bit1) {
-        ended = true;
         adsrVolume = 0;
+        _adsrPhase = 4;
+        envelope = Envelope.of(0, 0, true, true);
       }
     }
 
