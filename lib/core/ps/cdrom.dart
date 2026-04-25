@@ -7,6 +7,8 @@ import '../../util/debug.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
+part 'cdrom_xa.dart';
+
 class CmdResult {
   int delay = 0;
   int intNo = 0;
@@ -45,12 +47,24 @@ class Cdrom {
   int sectorBufferIndex = 0;
   bool sectorBufferEmpty = true;
 
-  bool isAdpcmBusy = false;
   bool isCmdBusy = false;
   bool isHighSpeed = false;
   bool isSectorSize924 = false;
-  bool isXaAdpcm = false;
   get sectorSize => isSectorSize924 ? 0x924 : 0x800;
+
+  bool isXaAdpcmBusy = false;
+  bool isXaAdpcmEnabled = false;
+  bool isXaFilterEnabled = false;
+
+  int xaSampleRate = 37800;
+  final xaBufferL = ListQueue<int>();
+  final xaBufferR = ListQueue<int>();
+  final xaLastSample = [0, 0];
+  final List<int> xaOld = [0, 0, 0]; // mono, left, right
+  final List<int> xaOldest = [0, 0, 0]; // mono, left, right
+  final xaRingBuffer = [List.filled(32, 0), List.filled(32, 0)];
+  final xaRingBufferIndex = [0, 0];
+  final xaInterpolateStep = [6, 6];
 
   int cmdDelay = 0;
 
@@ -62,11 +76,24 @@ class Cdrom {
   int currentIntNo = 0;
 
   void reset() {
-    isAdpcmBusy = false;
     isCmdBusy = false;
     isHighSpeed = false;
     isSectorSize924 = false;
-    isXaAdpcm = false;
+
+    isXaAdpcmBusy = false;
+    isXaAdpcmEnabled = false;
+    isXaFilterEnabled = false;
+
+    xaSampleRate = 37800;
+    xaBufferL.clear();
+    xaBufferR.clear();
+    xaLastSample.setAll(0, [0, 0]);
+    xaOld.setAll(0, [0, 0, 0]);
+    xaOldest.setAll(0, [0, 0, 0]);
+    xaRingBuffer[0].fillRange(0, 32, 0);
+    xaRingBuffer[1].fillRange(0, 32, 0);
+    xaRingBufferIndex.setAll(0, [0, 0]);
+    xaInterpolateStep.setAll(0, [6, 6]);
 
     cmdDelay = 0;
     intMask = 0;
@@ -126,7 +153,7 @@ class Cdrom {
   int readPort8(int reg) {
     final result = switch (reg) {
       0 => bank
-          .setBit(2, isAdpcmBusy)
+          .setBit(2, isXaAdpcmBusy)
           .setBit(3, paramFifo.isEmpty)
           .setBit(4, paramFifo.length < 16)
           .setBit(5, resultFifo.isNotEmpty)
@@ -188,6 +215,7 @@ class Cdrom {
         }
         if (value.bit7) {
           // reset decoder
+          isXaAdpcmBusy = false;
         }
         if (value & 0x7 != 0) {
           // irq ack
@@ -239,16 +267,22 @@ class Cdrom {
       if (sectorReadDelay <= 0) {
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
 
-        // read sector
-        rawSector = readDisc(sector);
-        // debugLog(
-        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
-
-        irq(1, [status()], delay: 0);
+        handleSectorRead();
 
         sector++;
       }
     }
+  }
+
+  void handleSectorRead() {
+    rawSector = readDisc(sector);
+
+    decodeXa();
+
+    // debugLog(
+    //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
+
+    irq(1, [status()], delay: 0);
   }
 
   void irq(int no, List<int> data, {int delay = 50000}) {
@@ -336,8 +370,9 @@ class Cdrom {
       case 0x0e: // SetMode
         mode = paramFifo.elementAt(0);
         isHighSpeed = mode.bit7;
-        isXaAdpcm = mode.bit6;
+        isXaAdpcmEnabled = mode.bit6;
         isSectorSize924 = mode.bit5;
+        isXaFilterEnabled = mode.bit3;
         irq(3, [status()]);
 
       case 0x0f: // GetParam
@@ -441,10 +476,18 @@ class Cdrom {
     return (m, s, f);
   }
 
+  String dumpSector(int sector) {
+    final (m, s, f) = lbaToMsf(sector);
+    final mm = m.toString().padLeft(2, '0');
+    final ss = s.toString().padLeft(2, '0');
+    final ff = f.toString().padLeft(2, '0');
+    return "sector $sector ($mm:$ss:$ff)";
+  }
+
   String dump() => "status:${status().hex8} bank:$bank "
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
-      "${isAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
+      "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
       "mask:${intMask.hex8}";
 
   static List<String> commandNames = [

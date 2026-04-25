@@ -1,12 +1,12 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/ps/spu/reverb.dart';
-import 'package:fnesemu/util/debug.dart';
-import 'package:fnesemu/util/double.dart';
-import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/uint8list.dart';
-
+import '../../../util/debug.dart';
+import '../../../util/double.dart';
+import '../../../util/int.dart';
+import '../../../util/uint8list.dart';
 import '../bus.dart';
+import '../cdrom.dart';
+import 'reverb.dart';
 import 'voice.dart';
 
 class Spu {
@@ -68,9 +68,13 @@ class Spu {
       }
     }
 
-    final (cdL, cdR) = (0, 0);
-    writeRam16(0x000 + captureIndex, cdL);
-    writeRam16(0x400 + captureIndex, cdR);
+    final [xaL, xaR] = bus.cdrom.popXaSample();
+    final cdL = xaL * cdAudioInputLeft;
+    final cdR = xaR * cdAudioInputRight;
+    writeRam16(0x000 + captureIndex, xaL);
+    writeRam16(0x400 + captureIndex, xaR);
+    outL += cdL;
+    outR += cdR;
 
     captureIndex = (captureIndex + 2) & 0x3fe;
 
