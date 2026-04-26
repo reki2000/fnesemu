@@ -60,3 +60,6 @@ app.*.map.json
 
 # dev settings
 run*.cmd
+
+# agent related
+.claude/settings.local.json
