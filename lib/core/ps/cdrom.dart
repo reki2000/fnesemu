@@ -62,9 +62,7 @@ class Cdrom {
   final xaLastSample = [0, 0];
   final List<int> xaOld = [0, 0, 0]; // mono, left, right
   final List<int> xaOldest = [0, 0, 0]; // mono, left, right
-  final xaRingBuffer = [List.filled(32, 0), List.filled(32, 0)];
-  final xaRingBufferIndex = [0, 0];
-  final xaInterpolateStep = [6, 6];
+  final resampler = XaResampler();
 
   int cmdDelay = 0;
 
@@ -90,10 +88,7 @@ class Cdrom {
     xaLastSample.setAll(0, [0, 0]);
     xaOld.setAll(0, [0, 0, 0]);
     xaOldest.setAll(0, [0, 0, 0]);
-    xaRingBuffer[0].fillRange(0, 32, 0);
-    xaRingBuffer[1].fillRange(0, 32, 0);
-    xaRingBufferIndex.setAll(0, [0, 0]);
-    xaInterpolateStep.setAll(0, [6, 6]);
+    resampler.reset();
 
     cmdDelay = 0;
     intMask = 0;
@@ -339,10 +334,28 @@ class Cdrom {
       case 0x03: // Play
         irq(3, [status()]);
 
+      case 0x04: // Forward
+        // todo
+        irq(3, [status()]);
+
+      case 0x05: // Backward
+        // todo
+        irq(3, [status()]);
+
       case 0x06: // ReadN
         isReading = true;
         sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
+
+      case 0x07: // Standby
+        isReading = false;
+        irq(3, [status()]);
+        irq(2, [status()]);
+
+      case 0x08: // Stop
+        isReading = false;
+        irq(3, [status()]);
+        irq(2, [status()]);
 
       case 0x09: // Pause
         isReading = false;
@@ -422,6 +435,11 @@ class Cdrom {
         sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
+      case 0x1c: // Reset
+        isReading = false;
+        irq(3, [status()]);
+        irq(2, [status()]);
+
       case 0x1e: // ReadTOC
         irq(3, [status()]);
         irq(2, [status()]);
@@ -491,11 +509,12 @@ class Cdrom {
       "mask:${intMask.hex8}";
 
   static List<String> commandNames = [
-    "", "GetStat", "SetLoc", "SetMode", "", "", "ReadN", "", // 0x00-0x07
-    "", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
+    "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",
+    "Standby", // 0x00-0x07
+    "Stop", "Pause", "Init", "Mute", "Demute", "SetFilter", "SetMode",
     "GetParam", // 0x08-0x0f
     "GetLocl", "GetLocp", "", "GetTN", "GetTD", "SeekL", "SeekP", "",
     "", // 0x10-0x17
-    "Test", "GetId", "ReadS", "", "", "ReadTOC", "", // 0x18-0x1f
+    "Test", "GetId", "ReadS", "Reset", "", "ReadTOC", "", // 0x18-0x1f
   ];
 }
