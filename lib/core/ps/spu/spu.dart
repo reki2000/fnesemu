@@ -69,8 +69,8 @@ class Spu {
     }
 
     final [xaL, xaR] = bus.cdrom.popXaSample();
-    final cdL = xaL * cdAudioInputLeft;
-    final cdR = xaR * cdAudioInputRight;
+    final cdL = xaL * cdAudioInputLeft ~/ 0x8000;
+    final cdR = xaR * cdAudioInputRight ~/ 0x8000;
     writeRam16(0x000 + captureIndex, xaL);
     writeRam16(0x400 + captureIndex, xaR);
     outL += cdL;
