@@ -1,3 +1,6 @@
+// Dart imports:
+import 'dart:io';
+
 // Flutter imports:
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +14,7 @@ import '../core/core_controller.dart';
 import '../core/debugger.dart';
 import '../disc/loader.dart';
 import '../styles.dart';
+import '../util/debug.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
@@ -21,11 +25,24 @@ import 'ticker_image.dart';
 
 part 'loader.dart';
 
-const _isDebug = bool.fromEnvironment("DEBUG", defaultValue: false);
-const _roms = String.fromEnvironment("ROMS", defaultValue: "");
-const _discs = String.fromEnvironment("DISCS", defaultValue: "");
-const _discFile = String.fromEnvironment("DISC", defaultValue: "");
-const _romFile = String.fromEnvironment("ROM", defaultValue: "");
+class Config {
+  final bool debug;
+  final List<String> roms;
+  final String disc;
+  final String rom;
+  final String discDir;
+  const Config({
+    this.debug = false,
+    this.roms = const [],
+    this.disc = "",
+    this.rom = "",
+    this.discDir = "",
+  });
+
+  String dump() {
+    return "debug: $debug, roms: $roms, disc: $disc, rom: $rom, discDir: $discDir";
+  }
+}
 
 class AppSnackBar {
   static final messengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -46,7 +63,8 @@ class AppSnackBar {
 
 class MyApp extends StatelessWidget {
   final String title;
-  const MyApp({super.key, required this.title});
+  final Config config;
+  const MyApp({super.key, required this.title, this.config = const Config()});
 
   @override
   Widget build(BuildContext context) {
@@ -56,12 +74,13 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: const MainPage());
+        home: MainPage(config: config));
   }
 }
 
 class MainPage extends StatefulWidget {
-  const MainPage({super.key});
+  final Config config;
+  const MainPage({super.key, this.config = const Config()});
 
   @override
   MainPageState createState() => MainPageState();
@@ -78,6 +97,7 @@ class MainPageState extends State<MainPage> {
   bool get _debugging => _controller.debugger.opt.showDebugView;
 
   String _romName = "";
+  List<String> _discs = [];
 
   Disc _disc = EmptyDisc();
 
@@ -96,17 +116,33 @@ class MainPageState extends State<MainPage> {
             buf.buffer, buf.width, buf.height, buf.displayWidth),
         _storage);
 
-    _controller.debugger.opt.showDebugView = _isDebug;
+    _controller.debugger.opt.showDebugView = widget.config.debug;
 
     _keyHandler = KeyHandler(controller: _controller);
 
-    if (_discFile.isNotEmpty) {
-      _setDiscFile(_discFile);
+    // scan disc dir if set in environment variables
+    final dir = widget.config.discDir;
+    if (dir.isNotEmpty && Directory(dir).existsSync()) {
+      _discs = Directory(dir)
+          .listSync()
+          .whereType<File>()
+          .where((f) {
+            final lower = f.path.toLowerCase();
+            return lower.endsWith('.iso') || lower.endsWith('.bin');
+          })
+          .map((f) => f.path)
+          .toList();
     }
 
-    if (_romFile.isNotEmpty) {
-      _loadRomFile(fileName: _romFile);
+    if (widget.config.disc.isNotEmpty) {
+      _setDiscFile(widget.config.disc);
     }
+
+    if (widget.config.rom.isNotEmpty) {
+      _loadRomFile(fileName: widget.config.rom);
+    }
+
+    debugLog("initialized: ${widget.config.dump()}");
   }
 
   @override
@@ -156,7 +192,7 @@ class MainPageState extends State<MainPage> {
 
     AppSnackBar.show("loaded: $fileName");
 
-    if (!_isDebug) {
+    if (!widget.config.debug) {
       _run();
     }
   }
@@ -182,7 +218,7 @@ class MainPageState extends State<MainPage> {
 
     AppSnackBar.show("loaded: $name");
 
-    if (!_isDebug) {
+    if (!widget.config.debug) {
       _run();
     }
   }
@@ -207,12 +243,12 @@ class MainPageState extends State<MainPage> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(_romName), actions: [
           // shortcuts from environment variables
-          for (var name in _discs.split(",").where((s) => s.isNotEmpty))
+          for (var name in _discs)
             iconButton(Icons.album_outlined, name.split(".")[0],
                 () => _do(() async => await _setDiscFile(name))),
 
           // shortcuts from environment variables
-          for (var name in _roms.split(",").where((s) => s.isNotEmpty))
+          for (var name in widget.config.roms)
             iconButton(Icons.file_open_outlined, name.split(".")[0],
                 () => _do(() async => await _loadRomFile(fileName: name))),
 
