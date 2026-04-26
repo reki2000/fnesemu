@@ -242,15 +242,31 @@ class MainPageState extends State<MainPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(_romName), actions: [
-          // shortcuts from environment variables
-          for (var name in _discs)
-            iconButton(Icons.album_outlined, name.split(".")[0],
-                () => _do(() async => await _setDiscFile(name))),
+          if (_discs.isNotEmpty)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.album_outlined),
+              tooltip: "Select Disc",
+              onSelected: (name) => _do(() async => await _setDiscFile(name)),
+              itemBuilder: (_) => _discs.map((name) {
+                final filename = name.split(RegExp(r'[\\/]')).last;
+                final label = filename.contains('.')
+                    ? filename.substring(0, filename.lastIndexOf('.'))
+                    : filename;
+                return PopupMenuItem(value: name, child: Text(label));
+              }).toList(),
+            ),
 
-          // shortcuts from environment variables
-          for (var name in widget.config.roms)
-            iconButton(Icons.file_open_outlined, name.split(".")[0],
-                () => _do(() async => await _loadRomFile(fileName: name))),
+          if (widget.config.roms.isNotEmpty)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.file_open_outlined),
+              tooltip: "Select ROM",
+              onSelected: (name) =>
+                  _do(() async => await _loadRomFile(fileName: name)),
+              itemBuilder: (_) => widget.config.roms
+                  .map((name) => PopupMenuItem(
+                      value: name, child: Text(name.split(".")[0])))
+                  .toList(),
+            ),
 
           // file load button
           iconButton(
