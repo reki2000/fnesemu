@@ -213,29 +213,29 @@ class Gpu {
       return result;
     }
 
-    try {
-      final clutIndex = (clutMode == 1)
-          ? frameBuffer[(base + baseX) * 2 + uu.mask8]
-          : (u.bit0)
-              ? frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] >> 4
-              : frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] & 0x0f;
+    // try {
+    final clutIndex = (clutMode == 1)
+        ? frameBuffer[(base + baseX) * 2 + uu.mask8]
+        : (u.bit0)
+            ? frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] >> 4
+            : frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] & 0x0f;
 
-      final result = frameBuffer16[clutBase + clutIndex];
+    final result = frameBuffer16[clutBase + clutIndex];
 
-      if (debug) {
-        debugLog("getTexureColor($u, $v, mode:$clutMode "
-            "baseX:$baseX baseY:$baseY base:${base.hex32} "
-            "clutX:${clutBase % 1024} clutY:${clutBase ~/ 1024} clutBase:${clutBase.hex32} "
-            "index:$clutIndex result:${result.hex24}");
-      }
-
-      return result;
-    } catch (e) {
-      debugLog(
-          "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
-          "baseX:$baseX baseY:$baseY base:${base.hex32} $e");
-      rethrow;
+    if (debug) {
+      debugLog("getTexureColor($u, $v, mode:$clutMode "
+          "baseX:$baseX baseY:$baseY base:${base.hex32} "
+          "clutX:${clutBase % 1024} clutY:${clutBase ~/ 1024} clutBase:${clutBase.hex32} "
+          "index:$clutIndex result:${result.hex24}");
     }
+
+    return result;
+    // } catch (e) {
+    //   debugLog(
+    //       "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
+    //       "baseX:$baseX baseY:$baseY base:${base.hex32} $e");
+    //   rethrow;
+    // }
   }
 
   pset24(int x, int y, int c24,
