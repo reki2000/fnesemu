@@ -160,8 +160,8 @@ class R3000 {
       // }
     }
 
-    r[delayReg] = delayVal;
-    r[immediateReg] = immediateVal;
+    r[delayReg & 0x1f] = delayVal;
+    r[immediateReg & 0x1f] = immediateVal;
 
     r[0] = 0; // r0 is always hardwired to 0.
 
