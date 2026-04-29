@@ -52,12 +52,12 @@ class Point {
     if (total == 0) {
       return this;
     }
-    final x = (this.x * (total - part) + p.x * part) / total;
-    final y = (this.y * (total - part) + p.y * part) / total;
-    final u = (this.u * (total - part) + p.u * part) / total;
-    final v = (this.v * (total - part) + p.v * part) / total;
+    final x = (this.x * (total - part) + p.x * part) ~/ total;
+    final y = (this.y * (total - part) + p.y * part) ~/ total;
+    final u = (this.u * (total - part) + p.u * part) ~/ total;
+    final v = (this.v * (total - part) + p.v * part) ~/ total;
     final c = this.c.mix(p.c, part, total);
-    return Point(x.round(), y.round(), c, u.round(), v.round());
+    return Point(x, y, c, u, v);
   }
 
   int abs(int v) => v < 0 ? -v : v;
