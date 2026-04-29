@@ -28,15 +28,19 @@ class Bus implements BusR3000 {
   late final InterruptController interrupt;
 
   final mem = Uint8List(2 * 1024 * 1024);
+  static const mem32Mask = 0x1fffff;
   late final Uint32List mem32;
 
   final rom = Uint8List(1024 * 512);
+  late final Uint32List rom32;
+  static const rom32Mask = 0x3ffff;
 
   final scratchPad = Uint8List(1024);
   bool useScratchPad = false;
 
   Bus() {
     mem32 = mem.buffer.asUint32List();
+    rom32 = rom.buffer.asUint32List();
   }
 
   final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
@@ -85,12 +89,22 @@ class Bus implements BusR3000 {
   }
 
   @override
+  @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
   int read32(int addr) {
+    final offset = addr & 0x1fffffff;
+    return (offset < 0x8000000)
+        ? mem32[offset >> 2 & mem32Mask]
+        : (offset >= 0x1fc00000 && offset < 0x1fe00000)
+            ? rom32[(offset - 0x1fc00000) >> 2 & rom32Mask]
+            : _read32Full(addr);
+  }
+
+  int _read32Full(int addr) {
     final offset = addr & segMask[addr >> 29];
     const sig = "read32";
 
     return switch (offset) {
-      < 0x00800000 => mem32[(offset & 0x1fffff) >> 2],
       >= 0x1f000000 && < 0x1f000100 =>
         _unimpl(sig, "expansion rom header", addr),
       >= 0x1f000000 && < 0x1f008000 => _unimpl(sig, "expansion 1", addr),
@@ -156,7 +170,6 @@ class Bus implements BusR3000 {
       >= 0x1fbfff00 && < 0x1fc00000 =>
         0, // before bios rom, to avoid disassembler access error
       >= 0x1fa00000 && < 0x1fc00000 => _unimpl(sig, "expansion 3", addr),
-      >= 0x1fc00000 && < 0x1fe00000 => rom.getUint32LE(offset - 0x1fc00000),
       _ => addr == 0xfffe0130 // cache control
           ? _unimpl(sig, "cache control", addr)
           : 0xffffffff,
@@ -267,6 +280,15 @@ class Bus implements BusR3000 {
 
   @override
   void write32(int addr, int v) {
+    final offset = addr & 0x1fffffff;
+    if (offset < 0x8000000) {
+      mem32[offset >> 2 & mem32Mask] = v;
+      return;
+    }
+    _write32Full(addr, v);
+  }
+
+  void _write32Full(int addr, int v) {
     // if (addr == debugLogAddr) {
     //   debugLog("bus: write32 to ${debugLogAddr.hex32}: ${v.hex32}");
     // }
@@ -275,7 +297,6 @@ class Bus implements BusR3000 {
     const sig = "write32";
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00800000 => mem32[(offset & 0x1fffff) >> 2] = v,
       >= 0x1f000000 && < 0x1f008000 =>
         _unimpl(sig, "expansion 1", addr, value: v),
       >= 0x1f800000 && < 0x1f800400 =>
