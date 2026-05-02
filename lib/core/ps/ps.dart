@@ -117,11 +117,9 @@ class Ps extends Core {
         0x03e00008, // jr   ra
         0x00000000, // nop
       ];
-      int patchAddr = 0x18000;
-      for (int b32 in fastBootSequence) {
-        bus.rom.setUint32LE(patchAddr, b32);
-        patchAddr += 4;
-      }
+      const patchAddr = 0x18000 >> 2;
+      bus.rom32.setRange(
+          patchAddr, patchAddr + fastBootSequence.length, fastBootSequence);
     }
 
     cdrom.closeShell();
