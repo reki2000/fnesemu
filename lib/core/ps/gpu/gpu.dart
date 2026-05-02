@@ -131,6 +131,11 @@ class Gpu {
 
     startDisplayX = 0;
     startDisplayY = 0;
+    displayX1 = 0;
+    displayY1 = 0;
+    displayX2 = 0;
+    displayY2 = 0;
+
     displayMode = 0;
     frameBuffer.fillRange(0, frameBuffer.length, 0);
   }
@@ -166,6 +171,10 @@ class Gpu {
   // GP1 status register
   int startDisplayX = 0;
   int startDisplayY = 0;
+  int displayX1 = 0;
+  int displayY1 = 0;
+  int displayX2 = 0;
+  int displayY2 = 0;
 
   int displayMode = 0;
   bool get isH480 => displayMode.bit2;
@@ -322,8 +331,10 @@ class Gpu {
     writeFrameBuffer16(x, y, c16 | forceBit15);
   }
 
-  String dump() =>
-      "GPU: stat:${status.hex32} ${width}x$height (${startDisplayX.decimal3},${startDisplayY.decimal3}) "
+  String dump() => "GPU: stat:${status.hex32} "
+      "${width}x$height "
+      "(${displayX1.decimal3},${displayY1.decimal3}) ${(displayX2 - displayX1).decimal4}x${(displayY2 - displayY1).decimal3} "
+      "(${startDisplayX.decimal3},${startDisplayY.decimal3}) "
       "(${drawingX1.decimal3},${drawingY1.decimal3})-(${drawingX2.decimal3},${drawingY2.decimal3}) "
       "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
 
