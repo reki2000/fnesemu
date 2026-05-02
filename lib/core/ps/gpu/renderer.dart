@@ -49,6 +49,7 @@ extension GpuRenderer on Gpu {
     if (scanline == Gpu.scanlinesInFrame - 20) {
       bus.timer.startVBlank();
       isOddFrame = (height == 480) ? !isOddFrame : false;
+      isVblank = true;
     }
 
     // Reset scanline at the end of frame
@@ -57,6 +58,7 @@ extension GpuRenderer on Gpu {
       bus.timer.endVBlank();
       // bus.resetIrq(Interrupt.vBlank);
       scanline = 0;
+      isVblank = false;
       frame++;
     }
   }
