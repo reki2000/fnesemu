@@ -25,7 +25,9 @@ extension GpuRenderer on Gpu {
 
     // Choose appropriate rendering method based on color depth
     if (y < 512 && scanline < 240) {
-      if (isRgb24) {
+      if (scanline >= displayY2 - displayY1) {
+        buffer.fillRange(bufIndex, bufIndex + width, alphaChannel);
+      } else if (isRgb24) {
         int fbIndex = 2048 * fbIndexY;
         for (int x = 0; x < width; x++) {
           buffer[bufIndex++] = alphaChannel |
