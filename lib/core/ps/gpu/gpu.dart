@@ -44,6 +44,7 @@ class Gpu {
   int scanline = 0;
   int frame = 0;
   bool isOddFrame = false;
+  bool isVblank = false;
 
   // GP1 status register
   final cmd = List<int>.filled(16, 0);
@@ -156,7 +157,8 @@ class Gpu {
         .setBit(25, b25)
         .setBit(26, cmdReady)
         .setBit(27, vramToCpuReady)
-        .setBit(28, dmaReceiveReady);
+        .setBit(28, dmaReceiveReady)
+        .setBit(31, isOddFrame & !isVblank);
     // debugLog("GPSTAT: ${result.hex32}  ${dumpCmd()}");
     return result;
   }

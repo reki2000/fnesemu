@@ -28,12 +28,12 @@ class Bus implements BusR3000 {
   late final InterruptController interrupt;
 
   final mem = Uint8List(2 * 1024 * 1024);
-  static const mem32Mask = 0x1fffff;
+  static const mem32Mask = 0x7ffff;
   late final Uint32List mem32;
 
   final rom = Uint8List(1024 * 512);
   late final Uint32List rom32;
-  static const rom32Mask = 0x3ffff;
+  static const rom32Mask = 0x1ffff;
 
   final scratchPad = Uint8List(1024);
   bool useScratchPad = false;

@@ -8,6 +8,7 @@ docs/*
 .tool-versions
 log.txt
 xa.wav
+devtools_options.yaml
 
 # dev settings
 run*.cmd
