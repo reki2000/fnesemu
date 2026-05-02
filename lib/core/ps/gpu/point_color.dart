@@ -38,9 +38,9 @@ class Color {
 
   @pragma('vm:prefer-inline')
   static int modulate(int c16, Color m24) {
-    final r5 = c16 >> 10 & 0x1f;
+    final r5 = c16 & 0x1f;
     final g5 = c16 >> 5 & 0x1f;
-    final b5 = c16 & 0x1f;
+    final b5 = c16 >> 10 & 0x1f;
     final r = ((r5 << 5) + r5) * m24.r >> 12;
     final g = ((g5 << 5) + g5) * m24.g >> 12;
     final b = ((b5 << 5) + b5) * m24.b >> 12;
