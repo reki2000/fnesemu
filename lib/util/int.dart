@@ -48,16 +48,21 @@ extension IntBit on int {
   int get mask13 => this & 0x1fff;
   int get mask14 => this & 0x3fff;
   int get mask15 => this & 0x7fff;
+  @pragma('vm:prefer-inline')
   int get mask16 => this & 0xffff;
+  @pragma('vm:prefer-inline')
   int get mask24 => this & 0xffffff;
   int get mask26 => this & 0x3ffffff;
+  @pragma('vm:prefer-inline')
   int get mask32 => this & 0xffffffff;
   int get mask44 => this & 0xfffffffffff;
 
   /// mask a number but zero means the max value (mask + 1)
+  @pragma('vm:prefer-inline')
   int maskZeroMax(int mask) => (dec & mask).inc;
 
   /// mask a number with specified byte size
+  @pragma('vm:prefer-inline')
   int mask(int size) => size == 1
       ? mask8
       : size == 2
@@ -67,6 +72,7 @@ extension IntBit on int {
               : throw ("unreachable");
 
   /// mask a number with specified byte size, keep the sign bit
+  @pragma('vm:prefer-inline')
   int smask(int size) => size == 1
       ? mask8.rel8.mask32
       : size == 2
@@ -113,23 +119,27 @@ extension IntBit on int {
   int get dec4 => this - 4;
 
   // sign extend a number with specified bit width
-  int get rel4 => bit3 ? mask4 - 0x10 : mask4;
-  int get rel5 => bit4 ? mask5 - 0x20 : mask5;
-  int get rel6 => bit5 ? mask6 - 0x40 : mask6;
-  int get rel7 => bit6 ? mask7 - 0x80 : mask7;
-  int get rel8 => bit7 ? mask8 - 0x100 : mask8;
-  int get rel9 => bit8 ? mask9 - 0x200 : mask9;
-  int get rel10 => bit9 ? mask10 - 0x400 : mask10;
-  int get rel11 => bit10 ? mask11 - 0x800 : mask11;
-  int get rel12 => bit11 ? mask12 - 0x1000 : mask12;
-  int get rel13 => bit12 ? mask13 - 0x2000 : mask13;
-  int get rel14 => bit13 ? mask14 - 0x4000 : mask14;
-  int get rel15 => bit14 ? mask15 - 0x8000 : mask15;
-  int get rel16 => bit15 ? mask16 - 0x10000 : mask16;
-  int get rel24 => bit23 ? mask24 - 0x1000000 : mask24;
-  int get rel26 => bit25 ? mask26 - 0x4000000 : mask26;
-  int get rel32 => bit31 ? mask32 - 0x100000000 : mask32;
-  int get rel44 => bit43 ? mask44 - 0x100000000000 : mask44;
+  int get rel4 => (this & 0xf) - ((this & 0x8) << 1);
+  int get rel5 => (this & 0x1f) - ((this & 0x10) << 1);
+  int get rel6 => (this & 0x3f) - ((this & 0x20) << 1);
+  int get rel7 => (this & 0x7f) - ((this & 0x40) << 1);
+  @pragma('vm:prefer-inline')
+  int get rel8 => (this & 0xff) - ((this & 0x80) << 1);
+  int get rel9 => (this & 0x1ff) - ((this & 0x100) << 1);
+  int get rel10 => (this & 0x3ff) - ((this & 0x200) << 1);
+  int get rel11 => (this & 0x7ff) - ((this & 0x400) << 1);
+  int get rel12 => (this & 0xfff) - ((this & 0x800) << 1);
+  int get rel13 => (this & 0x1fff) - ((this & 0x1000) << 1);
+  int get rel14 => (this & 0x3fff) - ((this & 0x2000) << 1);
+  int get rel15 => (this & 0x7fff) - ((this & 0x4000) << 1);
+  @pragma('vm:prefer-inline')
+  int get rel16 => (this & 0xffff) - ((this & 0x8000) << 1);
+  @pragma('vm:prefer-inline')
+  int get rel24 => (this & 0xffffff) - ((this & 0x800000) << 1);
+  int get rel26 => (this & 0x3ffffff) - ((this & 0x2000000) << 1);
+  @pragma('vm:prefer-inline')
+  int get rel32 => (this & 0xffffffff) - ((this & 0x80000000) << 1);
+  int get rel44 => (this & 0xfffffffffff) - ((this & 0x80000000000) << 1);
 
   /// sign extend a number with specified byte size
   int rel(int size) => size == 1
@@ -162,41 +172,43 @@ extension IntBit on int {
               : throw ("unreachable");
 
   /// check if specific bit is set
+  @pragma('vm:prefer-inline')
   bool bit(int b) => this & (1 << b) != 0;
 
   // shortcut for bit check to reduce blackets
-  bool get bit0 => bit(0);
-  bool get bit1 => bit(1);
-  bool get bit2 => bit(2);
-  bool get bit3 => bit(3);
-  bool get bit4 => bit(4);
-  bool get bit5 => bit(5);
-  bool get bit6 => bit(6);
-  bool get bit7 => bit(7);
-  bool get bit8 => bit(8);
-  bool get bit9 => bit(9);
-  bool get bit10 => bit(10);
-  bool get bit11 => bit(11);
-  bool get bit12 => bit(12);
-  bool get bit13 => bit(13);
-  bool get bit14 => bit(14);
-  bool get bit15 => bit(15);
-  bool get bit16 => bit(16);
-  bool get bit17 => bit(17);
-  bool get bit18 => bit(18);
-  bool get bit19 => bit(19);
-  bool get bit20 => bit(20);
-  bool get bit21 => bit(21);
-  bool get bit22 => bit(22);
-  bool get bit23 => bit(23);
-  bool get bit24 => bit(24);
-  bool get bit25 => bit(25);
-  bool get bit26 => bit(26);
-  bool get bit27 => bit(27);
-  bool get bit28 => bit(28);
-  bool get bit29 => bit(29);
-  bool get bit30 => bit(30);
-  bool get bit31 => bit(31);
+  @pragma('vm:prefer-inline')
+  bool get bit0 => this & 0x1 != 0;
+  bool get bit1 => this & 0x2 != 0;
+  bool get bit2 => this & 0x4 != 0;
+  bool get bit3 => this & 0x8 != 0;
+  bool get bit4 => this & 0x10 != 0;
+  bool get bit5 => this & 0x20 != 0;
+  bool get bit6 => this & 0x40 != 0;
+  bool get bit7 => this & 0x80 != 0;
+  bool get bit8 => this & 0x100 != 0;
+  bool get bit9 => this & 0x200 != 0;
+  bool get bit10 => this & 0x400 != 0;
+  bool get bit11 => this & 0x800 != 0;
+  bool get bit12 => this & 0x1000 != 0;
+  bool get bit13 => this & 0x2000 != 0;
+  bool get bit14 => this & 0x4000 != 0;
+  bool get bit15 => this & 0x8000 != 0;
+  bool get bit16 => this & 0x10000 != 0;
+  bool get bit17 => this & 0x20000 != 0;
+  bool get bit18 => this & 0x40000 != 0;
+  bool get bit19 => this & 0x80000 != 0;
+  bool get bit20 => this & 0x100000 != 0;
+  bool get bit21 => this & 0x200000 != 0;
+  bool get bit22 => this & 0x400000 != 0;
+  bool get bit23 => this & 0x800000 != 0;
+  bool get bit24 => this & 0x1000000 != 0;
+  bool get bit25 => this & 0x2000000 != 0;
+  bool get bit26 => this & 0x4000000 != 0;
+  bool get bit27 => this & 0x8000000 != 0;
+  bool get bit28 => this & 0x10000000 != 0;
+  bool get bit29 => this & 0x20000000 != 0;
+  bool get bit30 => this & 0x40000000 != 0;
+  bool get bit31 => this & 0x80000000 != 0;
   bool get bit43 => this & 0x80000000000 != 0; // '<<' doesnt work over 32 bits
 
   int get shl1 => this << 1;
@@ -268,12 +280,15 @@ extension IntBit on int {
 
 extension IntClip on int {
   // lesser of two numbers
+  @pragma('vm:prefer-inline')
   int min(int val) => this < val ? this : val;
 
   // greater of two numbers
+  @pragma('vm:prefer-inline')
   int max(int val) => this > val ? this : val;
 
   // clip a number between min and max
+  @pragma('vm:prefer-inline')
   int clip(int min, int max) => this < min
       ? min
       : this > max

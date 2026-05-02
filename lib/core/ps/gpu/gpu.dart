@@ -176,6 +176,7 @@ class Gpu {
 
   int readValue = 0;
 
+  @pragma('vm:prefer-inline')
   writeFrameBuffer16(int x, int y, int u16) {
     final offset = y * 1024 + x;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
@@ -185,6 +186,7 @@ class Gpu {
     frameBuffer16[offset] = u16;
   }
 
+  @pragma('vm:prefer-inline')
   int readFrameBuffer16(int x, int y) {
     final offset = y * 1024 + x;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
@@ -195,6 +197,7 @@ class Gpu {
     return frameBuffer16[offset];
   }
 
+  @pragma('vm:prefer-inline')
   int getTextureColor2(
       int u, int v, int baseX, int baseY, int clutBase, int clutMode,
       {bool debug = false}) {
@@ -238,6 +241,7 @@ class Gpu {
     // }
   }
 
+  @pragma('vm:prefer-inline')
   pset24(int x, int y, int c24,
       {bool ignoreWindow = false,
       bool transparent = false,
@@ -260,6 +264,7 @@ class Gpu {
         ignoreWindow: ignoreWindow);
   }
 
+  @pragma('vm:prefer-inline')
   pset16(int x, int y, int c16,
       {bool ignoreWindow = false, int? semiTransparent}) {
     if (!ignoreWindow) {
