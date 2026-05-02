@@ -16,14 +16,14 @@ class Timer {
   bool reachTarget = false;
   bool reachFfff = false;
   bool intRequested = false;
-  bool irqWhenTarget = false;
-  bool irqWhenFfff = false;
-  bool repeatMode = false;
-  bool toggleMode = false;
-  bool resetAfterTarget = false;
   bool sync = false;
-  int syncMode = 0;
-  bool sourceSystemClock = false;
+
+  int get _syncMode => mode_ >> 1 & 0x03;
+  bool get _resetAfterTarget => mode_.bit3;
+  bool get _irqWhenTarget => mode_.bit4;
+  bool get _irqWhenFfff => mode_.bit5;
+  bool get _repeatMode => mode_.bit6;
+  bool get _toggleMode => mode_.bit7;
 
   bool pause = false;
   bool triggered = false;
@@ -36,14 +36,7 @@ class Timer {
     reachTarget = false;
     reachFfff = false;
     intRequested = false;
-    irqWhenTarget = false;
-    irqWhenFfff = false;
-    repeatMode = false;
-    toggleMode = false;
-    resetAfterTarget = false;
     sync = false;
-    syncMode = 0;
-    sourceSystemClock = false;
 
     pause = false;
     triggered = false;
@@ -55,7 +48,7 @@ class Timer {
       .setBit(12, reachFfff);
 
   void trigger() {
-    if (toggleMode) {
+    if (_toggleMode) {
       intRequested = !intRequested;
     } else {
       intRequested = true;
@@ -63,7 +56,7 @@ class Timer {
   }
 
   void clock(int cycles) {
-    if (!toggleMode && intRequested) {
+    if (!_toggleMode && intRequested) {
       intRequested = false;
     }
 
@@ -74,24 +67,24 @@ class Timer {
     counter += cycles;
 
     if (counter > 0xffff) {
-      if (irqWhenFfff) {
+      if (_irqWhenFfff) {
         trigger();
       }
 
       reachFfff = true;
-      counter = 0;
-    } else if (counter >= target) {
-      if (irqWhenTarget) {
+      counter &= 0xffff;
+    } else if (counter >= target && (counter - cycles) < target) {
+      if (_irqWhenTarget) {
         trigger();
       }
 
       reachTarget = true;
-      if (resetAfterTarget) {
-        counter = 0;
+      if (_resetAfterTarget) {
+        counter -= target;
       }
     }
 
-    if (intRequested && (repeatMode || !triggered)) {
+    if (intRequested && (_repeatMode || !triggered)) {
       bus.setIrq(Interrupt.timer0 + no);
       triggered = true;
     }
@@ -102,7 +95,7 @@ class Timer {
       return;
     }
 
-    switch (syncMode) {
+    switch (_syncMode) {
       case 0:
         pause = true;
       case 1:
@@ -121,7 +114,7 @@ class Timer {
       return;
     }
 
-    switch (syncMode) {
+    switch (_syncMode) {
       case 0:
         pause = false;
       case 2:
@@ -130,10 +123,10 @@ class Timer {
   }
 
   String dump() => "Timer$no: ${mode.hex16} ${counter.hex16}/${target.hex16} "
-      "sy:${!sync ? '-' : syncMode} ${sourceSystemClock ? 'S' : 'E'} "
-      "${repeatMode ? "R" : "1"} ${toggleMode ? "tgl" : "pls"} "
-      "${resetAfterTarget ? "0" : "-"} "
-      "i:${irqWhenTarget ? "T" : "-"}${irqWhenFfff ? "F" : "-"}";
+      "sy:${!sync ? '-' : _syncMode} ${(no == 2 ? !mode_.bit9 : !mode_.bit8) ? 'S' : 'E'} "
+      "${_repeatMode ? "rep" : "one"} ${_toggleMode ? "tgl" : "pls"} "
+      "${_resetAfterTarget ? "0" : "-"} "
+      "i:${_irqWhenTarget ? "T" : "-"}${_irqWhenFfff ? "F" : "-"}";
 }
 
 class TimerController {
@@ -153,7 +146,7 @@ class TimerController {
   void startHBlank() {
     timers[0].start();
 
-    if (!timers[1].sourceSystemClock) {
+    if (timers[1].mode_.bit8) {
       timers[1].clock(1);
     }
   }
@@ -166,7 +159,7 @@ class TimerController {
   int dotClockCounter = 0;
 
   void clock(int cycles) {
-    if (timers[0].sourceSystemClock) {
+    if (!timers[0].mode_.bit8) {
       timers[0].clock(cycles);
     } else {
       // clock source = dotClockHz = [system clock] * 11 / gpu.dotClockDivider
@@ -177,11 +170,11 @@ class TimerController {
       }
     }
 
-    if (timers[1].sourceSystemClock) {
+    if (!timers[1].mode_.bit8) {
       timers[1].clock(cycles);
     }
 
-    if (timers[2].sourceSystemClock) {
+    if (!timers[2].mode_.bit9) {
       timers[2].clock(cycles);
     } else {
       // clock source = systemClockHz/8
@@ -201,21 +194,15 @@ class TimerController {
     return result;
   }
 
-  void setMode(int no, int mode) {
+  void setMode(int no, int newMode) {
     // debugLog("Timer$no: set mode ${mode.hex32}");
     final t = timers[no];
-    t.mode_ = mode;
-    t.intRequested = false;
-    t.sync = mode.bit0;
-    t.syncMode = mode >> 1 & 0x03;
-    t.resetAfterTarget = mode.bit3;
-    t.irqWhenTarget = mode.bit4;
-    t.irqWhenFfff = mode.bit5;
-    t.repeatMode = mode.bit6;
-    t.toggleMode = mode.bit7;
-    t.sourceSystemClock = no == 2 ? !mode.bit9 : !mode.bit8;
+    t.mode_ = newMode;
+    t.sync = newMode.bit0;
+    t.pause = no == 2 && t.sync && (t._syncMode == 3 || t._syncMode == 0);
+
     t.triggered = false;
-    t.pause = no == 2 && t.sync && (t.syncMode == 3 || t.syncMode == 0);
+    t.intRequested = false;
     t.counter = 0;
     t.reachTarget = false;
     t.reachFfff = false;
