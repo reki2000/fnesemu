@@ -316,7 +316,7 @@ extension Gpu0 on Gpu {
             final texColor = getTextureColor2(
                 u0 + x, v0 + y, baseX, baseY, clutBase, clutMode);
             final c16 =
-                modulated ? modulate(texColor, modulateColor) : texColor;
+                modulated ? Color.modulate(texColor, modulateColor) : texColor;
             if (c16 != 0) {
               pset16(x0 + x, y0 + y, c16 & transparentMask);
             }
@@ -439,14 +439,6 @@ extension Gpu0 on Gpu {
 
       postRead(); // pre-read first 2 pixels
     }
-  }
-
-  int modulate(int c16, Color m24) {
-    final c24 = Color.ofC15(c16);
-    final r = 255.min(c24.r * m24.r ~/ 128);
-    final g = 255.min(c24.g * m24.g ~/ 128);
-    final b = 255.min(c24.b * m24.b ~/ 128);
-    return Color(r, g, b).c15 | (c16 & 0x8000);
   }
 
   String dumpClut(int clut, int page) {

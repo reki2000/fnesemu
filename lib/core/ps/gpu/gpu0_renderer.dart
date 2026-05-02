@@ -146,7 +146,7 @@ extension Gp0Renderer on Gpu {
         final texColor =
             getTextureColor2(u, v, baseX, baseY, clutBase, clutMode);
         final c16 = modulated
-            ? modulate(texColor,
+            ? Color.modulate(texColor,
                 gouraud ? left.c.mix(right.c, part, width) : modulateColor)
             : texColor;
         if (c16 != 0) {

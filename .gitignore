@@ -7,6 +7,7 @@ assets/ps1-tests
 docs/*
 .tool-versions
 log.txt
+xa.wav
 
 # dev settings
 run*.cmd
