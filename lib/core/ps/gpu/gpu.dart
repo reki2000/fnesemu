@@ -157,7 +157,7 @@ class Gpu {
     };
 
     final result = status
-        .setBit(13, isOddFrame)
+        .setBit(13, true)
         .setBit(24, irq1)
         .setBit(25, b25)
         .setBit(26, cmdReady)

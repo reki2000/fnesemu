@@ -1,10 +1,9 @@
-import 'package:fnesemu/util/int.dart';
-
 import '../../util/debug.dart';
+import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
-final List<int> debugLogChannel = [];
+const List<int> debugLogChannel = [];
 
 class DmaChannel {
   final int ioAddr;
@@ -122,7 +121,7 @@ class Dma {
     final irqFlags = _interrupt &
         0x7f000000 &
         ~(value & 0x7f000000); // reset irq flags at value = 1
-    _interrupt = irqFlags | (value & 0x00ff807f);
+    _interrupt = irqFlags | (value & 0x00ff007f);
     // debugLog("DMA: interrupt set -> ${interrupt.hex32}");
 
     for (var ch = 0; ch < 7; ch++) {

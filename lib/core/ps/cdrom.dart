@@ -326,6 +326,7 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x02: // SetLoc
+        isReading = false;
         sector = paramFifo.elementAt(0).asBcd * 60 * 75 +
             paramFifo.elementAt(1).asBcd * 75 +
             paramFifo.elementAt(2).asBcd;
@@ -506,7 +507,7 @@ class Cdrom {
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.hex8}";
+      "mask:${intMask.hex8} sector:${dumpSector(sector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",
