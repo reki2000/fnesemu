@@ -167,7 +167,7 @@ class Cdrom {
 
   int readPort16(int reg) => switch (reg) {
         2 => readBuffer16(),
-        _ => readPort8(reg),
+        _ => readPort8(reg) | readPort8(reg.inc).shl8,
       };
 
   void writePort8(int reg, int value) {

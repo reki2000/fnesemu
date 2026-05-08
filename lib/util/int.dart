@@ -36,6 +36,9 @@ extension IntFormat on int {
 
 extension IntBit on int {
   // mask a number with specified bit wide mask
+  int get mask1 => this & 0x1;
+  int get mask2 => this & 0x3;
+  int get mask3 => this & 0x7;
   int get mask4 => this & 0xf;
   int get mask5 => this & 0x1f;
   int get mask6 => this & 0x3f;
