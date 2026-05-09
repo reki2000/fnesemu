@@ -47,14 +47,6 @@ class Timer {
       .setBit(11, reachTarget)
       .setBit(12, reachFfff);
 
-  void trigger() {
-    if (_toggleMode) {
-      intRequested = !intRequested;
-    } else {
-      intRequested = true;
-    }
-  }
-
   void clock(int cycles) {
     if (!_toggleMode && intRequested) {
       intRequested = false;
@@ -66,28 +58,43 @@ class Timer {
 
     counter += cycles;
 
-    if (counter > 0xffff) {
-      if (_irqWhenFfff) {
-        trigger();
-      }
+    bool reqTrigger = false;
+    int nextCounter = counter;
 
-      reachFfff = true;
-      counter &= 0xffff;
-    } else if (counter >= target && (counter - cycles) < target) {
+    if (counter >= target) {
       if (_irqWhenTarget) {
-        trigger();
+        reqTrigger = true;
       }
 
       reachTarget = true;
       if (_resetAfterTarget) {
-        counter -= target;
+        nextCounter = counter - target;
       }
     }
 
-    if (intRequested && (_repeatMode || !triggered)) {
-      bus.setIrq(Interrupt.timer0 + no);
-      triggered = true;
+    if (counter >= 0xffff) {
+      if (_irqWhenFfff) {
+        reqTrigger = true;
+      }
+
+      reachFfff = true;
+      nextCounter = counter & 0xffff;
     }
+
+    if (reqTrigger) {
+      if (_toggleMode) {
+        intRequested = !intRequested;
+      } else {
+        intRequested = true;
+      }
+
+      if (intRequested && (_repeatMode || !triggered)) {
+        bus.setIrq(Interrupt.timer0 + no);
+        triggered = true;
+      }
+    }
+
+    counter = nextCounter;
   }
 
   void start() {
