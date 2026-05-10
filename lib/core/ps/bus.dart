@@ -186,7 +186,7 @@ class Bus implements BusR3000 {
           0x1040 => serial.writeData(v),
           >= 0x1050 && < 0x1070 => 0, // memory control
           0x10f0 => dma.control = dma.control.replaceByteAt(offset, v),
-          0x10f4 => dma.interrupt = dma.interrupt.replaceByteAt(offset, v),
+          0x10f4 => dma.setInterrupt(offset & 0x03, v),
           0x1800 => cdrom.writePort8(offset & 0x03, v),
           _ => _unimpl(sig, "I/O", addr, value: v)
         },
