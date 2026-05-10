@@ -40,6 +40,15 @@ class Cdrom {
   int data = 0;
   int result = 0;
 
+  bool isPlayCDDA = false;
+  bool isSeeking = false;
+  bool isReading = false;
+  bool isShellOpen = true;
+  bool isIdError = false;
+  bool isSeekError = false;
+  bool isSpindleMotorOn = false;
+  bool isError = false;
+
   static const sectorBufferSize = 2352; // 0x930 bytes
 
   Uint8List Function(int) readDisc = (int _) => Uint8List(sectorBufferSize);
@@ -49,14 +58,24 @@ class Cdrom {
   int sectorBufferIndex = 0;
   bool sectorBufferEmpty = true;
 
+  int seekSector = 0; // target sector for seek
+  int readingSector = 0; // current sector
+  int sectorReadDelay = 0; // next read clock
+
+  int mode = 0;
+  int file = 0;
+  int channel = 0;
+
+  bool get isHighSpeed => mode.bit7;
+  bool get isXaAdpcmEnabled => mode.bit6;
+  bool get isSectorSize924 => mode.bit5;
+  bool get isXaFilterEnabled => mode.bit3;
+
   bool isCmdBusy = false;
-  bool isHighSpeed = false;
-  bool isSectorSize924 = false;
   get sectorSize => isSectorSize924 ? 0x924 : 0x800;
 
   bool isXaAdpcmBusy = false;
-  bool isXaAdpcmEnabled = false;
-  bool isXaFilterEnabled = false;
+  bool isMuted = false;
 
   int xaSampleRate = 37800;
   final xaBufferL = ListQueue<int>();
@@ -76,13 +95,11 @@ class Cdrom {
   int currentIntNo = 0;
 
   void reset() {
+    mode = 0;
+
     isCmdBusy = false;
-    isHighSpeed = false;
-    isSectorSize924 = false;
 
     isXaAdpcmBusy = false;
-    isXaAdpcmEnabled = false;
-    isXaFilterEnabled = false;
 
     xaSampleRate = 37800;
     xaBufferL.clear();
@@ -286,15 +303,6 @@ class Cdrom {
     cmdResults.add(result);
   }
 
-  bool isPlayCDDA = false;
-  bool isSeeking = false;
-  bool isReading = false;
-  bool isShellOpen = true;
-  bool isIdError = false;
-  bool isSeekError = false;
-  bool isSpindleMotorOn = false;
-  bool isError = false;
-
   int status() {
     return 0
         .setBit(7, isPlayCDDA)
@@ -306,14 +314,6 @@ class Cdrom {
         .setBit(1, isSpindleMotorOn)
         .setBit(0, isError);
   }
-
-  int seekSector = 0; // target sector for seek
-  int readingSector = 0; // current sector
-  int sectorReadDelay = 0; // next read clock
-
-  int mode = 0;
-  int file = 0;
-  int channel = 0;
 
   void execCommand(int cmd) {
     cmdResults.clear();
@@ -365,16 +365,20 @@ class Cdrom {
         irq(2, [status()]);
 
       case 0x0a: // Init
+        isMuted = false;
         isReading = false;
+        mode = 0;
         // paramFifo.clear();
         // cmdResults.clear();
         irq(3, [status()], delay: 5000);
         irq(2, [status()]);
 
       case 0x0b: // Mute
+        isMuted = true;
         irq(3, [status()]);
 
       case 0x0c: // Demute
+        isMuted = false;
         irq(3, [status()]);
 
       case 0x0d: // SetFilter
@@ -384,10 +388,6 @@ class Cdrom {
 
       case 0x0e: // SetMode
         mode = paramFifo.elementAt(0);
-        isHighSpeed = mode.bit7;
-        isXaAdpcmEnabled = mode.bit6;
-        isSectorSize924 = mode.bit5;
-        isXaFilterEnabled = mode.bit3;
         irq(3, [status()]);
 
       case 0x0f: // GetParam
