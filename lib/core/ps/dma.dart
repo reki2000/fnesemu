@@ -116,17 +116,22 @@ class Dma {
 
   int _interrupt = 0;
   int get interrupt => _interrupt.setBit(31, _bit31());
-  set interrupt(int value) {
-    // debugLog("DMA: interrupt set ${value.hex32} -> ${interrupt.hex32}");
-    final irqFlags = _interrupt &
-        0x7f000000 &
-        ~(value & 0x7f000000); // reset irq flags at value = 1
-    _interrupt = irqFlags | (value & 0x00ff007f);
-    // debugLog("DMA: interrupt set -> ${interrupt.hex32}");
+  void setInterrupt(int addr, int value) {
+    _interrupt = switch (addr) {
+      0 ||
+      1 ||
+      2 =>
+        _interrupt.masked(0xff.shl(addr.shl3), value.shl(addr.shl3)),
+      3 => _interrupt & (~(value.shl24) | 0xffffff),
+      _ =>
+        throw "illegal DMA interrupt addr:${addr.hex32} value:${value.hex32}",
+    };
+    // debugLog(
+    //     "DMA: interrupt set addr:$addr value:${value.hex8} -> ${_interrupt.hex32} ");
 
     for (var ch = 0; ch < 7; ch++) {
-      channels[ch].irqOnComplete = value.bit(ch + 16);
-      channels[ch].irqOnChunks = value.bit(ch);
+      channels[ch].irqOnComplete = _interrupt.bit(ch + 16);
+      channels[ch].irqOnChunks = _interrupt.bit(ch);
     }
   }
 
@@ -136,8 +141,8 @@ class Dma {
       _interrupt.bit15 || (_interrupt.bit23 && (_interrupt & 0x7f000000) != 0);
 
   void reset() {
-    control = 0;
-    interrupt = 0;
+    _control = 0;
+    _interrupt = 0;
     _irqPending = false;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].reset();
