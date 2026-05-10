@@ -113,7 +113,15 @@ class Voice {
   // ADPCM decode control
 
   int startAddr = 0;
-  int repeatAddr = 0;
+  int _repeatAddr = 0;
+
+  bool _repeatAddrSet = false;
+  int get repeatAddr => _repeatAddr;
+  set repeatAddr(int value) {
+    _repeatAddrSet = true;
+    _repeatAddr = value;
+  }
+
   int pitch = 0;
 
   int _addr = 0;
@@ -132,11 +140,12 @@ class Voice {
     _block.fillRange(0, _block.length, 0);
     _blockIndex = 0;
     _counter = 0;
-    endx = true;
+    endx = false;
     envelope = Envelope.none();
     adsrVolume = 0;
     _adsrPhase = 0;
     repeatAddr = 0;
+    _repeatAddrSet = false;
     _volSweep[0] = Envelope.none();
     _volSweep[1] = Envelope.none();
   }
@@ -187,7 +196,9 @@ class Voice {
     // debugLog(
     //     "SPU: keyOn  ch:$no addr:${startAddr.hex24} pitch:${pitch.hex24} vol:${_volReg[0].hex16},${_volReg[1].hex16} e:${adsr.hex32}");
     _addr = startAddr;
-    //repeatAddr = startAddr;
+    if (!_repeatAddrSet) {
+      repeatAddr = startAddr;
+    }
 
     decodeBlock();
 
