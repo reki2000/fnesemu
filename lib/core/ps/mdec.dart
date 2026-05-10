@@ -98,7 +98,7 @@ class Mdec {
         signed = value.bit24;
         bit15Set = value.bit23;
         command = Mdec.commandDecode;
-        // debugLog("mdec: decode command ${value.hex32} ${dump()}");
+        //debugLog("mdec: decode command ${value.hex32} ${dump()}");
         break;
 
       case 0x02: // SetQuant
@@ -323,6 +323,11 @@ class Decoder {
       output[0] = (value.clip(-1024, 1023) * scaleZag[0]).round();
 
       return false;
+    }
+
+    if (input == 0xfe00) {
+      outputIndex = -1;
+      return true;
     }
 
     final runLength = (input >> 10) & 0x3f;

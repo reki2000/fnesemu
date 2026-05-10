@@ -29,9 +29,12 @@ extension Gpu1 on Gpu {
         startDisplayY = value >> 10 & yMask;
 
       case 0x06: // set drawing range x
-        break;
+        displayX1 = value.mask12;
+        displayX2 = value.shr12.mask12;
 
       case 0x07: // set drawing range y
+        displayY1 = value.mask10;
+        displayY2 = value.shr10.mask10;
         break;
 
       case 0x08: // display mode

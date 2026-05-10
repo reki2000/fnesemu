@@ -40,21 +40,42 @@ class Cdrom {
   int data = 0;
   int result = 0;
 
-  Uint8List Function(int) readDisc = (int _) => Uint8List(2352);
+  bool isPlayCDDA = false;
+  bool isSeeking = false;
+  bool isReading = false;
+  bool isShellOpen = true;
+  bool isIdError = false;
+  bool isSeekError = false;
+  bool isSpindleMotorOn = false;
+  bool isError = false;
 
-  Uint8List rawSector = Uint8List(2352);
-  final sectorBuffer = List.filled(2352, 0); // 0x930 bytes
+  static const sectorBufferSize = 2352; // 0x930 bytes
+
+  Uint8List Function(int) readDisc = (int _) => Uint8List(sectorBufferSize);
+
+  Uint8List rawSector = Uint8List(sectorBufferSize);
+  final sectorBuffer = List.filled(sectorBufferSize, 0); // 0x930 bytes
   int sectorBufferIndex = 0;
   bool sectorBufferEmpty = true;
 
+  int seekSector = 0; // target sector for seek
+  int readingSector = 0; // current sector
+  int sectorReadDelay = 0; // next read clock
+
+  int mode = 0;
+  int file = 0;
+  int channel = 0;
+
+  bool get isHighSpeed => mode.bit7;
+  bool get isXaAdpcmEnabled => mode.bit6;
+  bool get isSectorSize924 => mode.bit5;
+  bool get isXaFilterEnabled => mode.bit3;
+
   bool isCmdBusy = false;
-  bool isHighSpeed = false;
-  bool isSectorSize924 = false;
   get sectorSize => isSectorSize924 ? 0x924 : 0x800;
 
   bool isXaAdpcmBusy = false;
-  bool isXaAdpcmEnabled = false;
-  bool isXaFilterEnabled = false;
+  bool isMuted = false;
 
   int xaSampleRate = 37800;
   final xaBufferL = ListQueue<int>();
@@ -74,13 +95,11 @@ class Cdrom {
   int currentIntNo = 0;
 
   void reset() {
+    mode = 0;
+
     isCmdBusy = false;
-    isHighSpeed = false;
-    isSectorSize924 = false;
 
     isXaAdpcmBusy = false;
-    isXaAdpcmEnabled = false;
-    isXaFilterEnabled = false;
 
     xaSampleRate = 37800;
     xaBufferL.clear();
@@ -98,7 +117,8 @@ class Cdrom {
     currentIntNo = 0;
 
     isReading = false;
-    sector = 0;
+    readingSector = 0;
+    seekSector = 0;
     sectorBufferIndex = 0;
     sectorBufferEmpty = true;
 
@@ -164,11 +184,6 @@ class Cdrom {
     // }
     return result;
   }
-
-  int readPort16(int reg) => switch (reg) {
-        2 => readBuffer16(),
-        _ => readPort8(reg),
-      };
 
   void writePort8(int reg, int value) {
     // debugLog("cdrom: write8 $bank-$reg <= ${value.hex8} ${dump()}");
@@ -264,13 +279,13 @@ class Cdrom {
 
         handleSectorRead();
 
-        sector++;
+        readingSector++;
       }
     }
   }
 
   void handleSectorRead() {
-    rawSector = readDisc(sector);
+    rawSector = readDisc(readingSector);
 
     decodeXa();
 
@@ -288,15 +303,6 @@ class Cdrom {
     cmdResults.add(result);
   }
 
-  bool isPlayCDDA = false;
-  bool isSeeking = false;
-  bool isReading = false;
-  bool isShellOpen = true;
-  bool isIdError = false;
-  bool isSeekError = false;
-  bool isSpindleMotorOn = false;
-  bool isError = false;
-
   int status() {
     return 0
         .setBit(7, isPlayCDDA)
@@ -309,13 +315,6 @@ class Cdrom {
         .setBit(0, isError);
   }
 
-  int sector = 0; // current sector
-  int sectorReadDelay = 0; // next read clock
-
-  int mode = 0;
-  int file = 0;
-  int channel = 0;
-
   void execCommand(int cmd) {
     cmdResults.clear();
     debugLog(
@@ -326,12 +325,14 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x02: // SetLoc
-        sector = paramFifo.elementAt(0).asBcd * 60 * 75 +
+        isReading = false;
+        seekSector = paramFifo.elementAt(0).asBcd * 60 * 75 +
             paramFifo.elementAt(1).asBcd * 75 +
             paramFifo.elementAt(2).asBcd;
         irq(3, [status()], delay: 5000);
 
       case 0x03: // Play
+        readingSector = seekSector;
         irq(3, [status()]);
 
       case 0x04: // Forward
@@ -344,6 +345,7 @@ class Cdrom {
 
       case 0x06: // ReadN
         isReading = true;
+        readingSector = seekSector;
         sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
@@ -363,16 +365,20 @@ class Cdrom {
         irq(2, [status()]);
 
       case 0x0a: // Init
+        isMuted = false;
         isReading = false;
+        mode = 0;
         // paramFifo.clear();
         // cmdResults.clear();
         irq(3, [status()], delay: 5000);
         irq(2, [status()]);
 
       case 0x0b: // Mute
+        isMuted = true;
         irq(3, [status()]);
 
       case 0x0c: // Demute
+        isMuted = false;
         irq(3, [status()]);
 
       case 0x0d: // SetFilter
@@ -382,22 +388,16 @@ class Cdrom {
 
       case 0x0e: // SetMode
         mode = paramFifo.elementAt(0);
-        isHighSpeed = mode.bit7;
-        isXaAdpcmEnabled = mode.bit6;
-        isSectorSize924 = mode.bit5;
-        isXaFilterEnabled = mode.bit3;
         irq(3, [status()]);
 
       case 0x0f: // GetParam
         irq(3, [status(), mode, 0x00, file, channel]);
 
       case 0x10: // GetLocl
-        final currentSector = isReading ? sector : 0;
-        final (mm, ss, ff) = lbaToMsf(currentSector);
-        irq(3, [mm, ss, ff, mode, file, channel, 0, 0]);
+        irq(3, rawSector.sublist(12, 20));
 
       case 0x11: // GetLocp
-        final currentSector = isReading ? sector : 0;
+        final currentSector = isReading ? readingSector : 0;
         final (mm, ss, ff) = lbaToMsf(currentSector);
         irq(3, [01, 01, mm, ss, ff, mm, ss, ff]);
 
@@ -416,12 +416,12 @@ class Cdrom {
         }
 
       case 0x15: // SeekL
-        isReading = false;
+        readingSector = seekSector;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
       case 0x16: // SeekP
-        isReading = false;
+        readingSector = seekSector;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
@@ -432,6 +432,7 @@ class Cdrom {
 
       case 0x1b: // ReadS (no retry)
         isReading = true;
+        readingSector = seekSector;
         sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
@@ -458,7 +459,7 @@ class Cdrom {
             case 0x21:
               irq(3, [0x00]);
             case 0x22:
-              irq(3, [0x11, 0x10]); //"for NETNA".codeUnits);
+              irq(3, Uint8List.fromList("for U/C".codeUnits));
             default:
               debugLog(
                   "cdrom: unknown test command ${paramFifo.map((e) => e.hex8).join(" ")}");
@@ -506,7 +507,7 @@ class Cdrom {
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.hex8}";
+      "mask:${intMask.hex8} sector:${dumpSector(readingSector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",
