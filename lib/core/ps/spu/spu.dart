@@ -45,6 +45,10 @@ class Spu {
   }
 
   (double, double) render() {
+    if (!enabled) {
+      return (0.0, 0.0);
+    }
+
     int outL = 0;
     int outR = 0;
 
