@@ -30,9 +30,11 @@ class Color {
     if (total == 0) {
       return this;
     }
-    final r = (this.r * (total - part) + c.r * part) ~/ total;
-    final g = (this.g * (total - part) + c.g * part) ~/ total;
-    final b = (this.b * (total - part) + c.b * part) ~/ total;
+    final totalHalf = total ~/ 2;
+    final totalMinusPart = total - part;
+    final r = (this.r * totalMinusPart + c.r * part + totalHalf) ~/ total;
+    final g = (this.g * totalMinusPart + c.g * part + totalHalf) ~/ total;
+    final b = (this.b * totalMinusPart + c.b * part + totalHalf) ~/ total;
     return Color(r, g, b);
   }
 
@@ -71,10 +73,12 @@ class Point {
     if (total == 0) {
       return this;
     }
-    final x = (this.x * (total - part) + p.x * part) ~/ total;
-    final y = (this.y * (total - part) + p.y * part) ~/ total;
-    final u = (this.u * (total - part) + p.u * part) ~/ total;
-    final v = (this.v * (total - part) + p.v * part) ~/ total;
+    final totalHalf = total ~/ 2;
+    final totalMinusPart = total - part;
+    final x = (this.x * totalMinusPart + p.x * part + totalHalf) ~/ total;
+    final y = (this.y * totalMinusPart + p.y * part + totalHalf) ~/ total;
+    final u = (this.u * totalMinusPart + p.u * part + totalHalf) ~/ total;
+    final v = (this.v * totalMinusPart + p.v * part + totalHalf) ~/ total;
     final c = this.c.mix(p.c, part, total);
     return Point(x, y, c, u, v);
   }
