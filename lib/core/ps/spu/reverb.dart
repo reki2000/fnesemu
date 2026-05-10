@@ -187,6 +187,11 @@ class Reverb {
     outputVolume[ch & 1] = value.rel16;
   }
 
+  int getReverbEnabled() => reverbEnabled.asMap().entries.fold(
+        0,
+        (acc, entry) => (acc << 1) | (entry.value ? 1 : 0),
+      );
+
   void setReverbEnabled(int value) {
     for (int i = 0; i < reverbEnabled.length; i++, value >>= 1) {
       reverbEnabled[i] = value.bit0;

@@ -165,11 +165,6 @@ class Cdrom {
     return result;
   }
 
-  int readPort16(int reg) => switch (reg) {
-        2 => readBuffer16(),
-        _ => readPort8(reg) | readPort8(reg.inc).shl8,
-      };
-
   void writePort8(int reg, int value) {
     // debugLog("cdrom: write8 $bank-$reg <= ${value.hex8} ${dump()}");
     if (reg == 0) {
