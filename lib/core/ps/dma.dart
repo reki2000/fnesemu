@@ -34,11 +34,18 @@ class DmaChannel {
   int get channelCtrl => _channelCtrl.setBit(24, running);
 
   set channelCtrl(int value) {
-    _channelCtrl = value;
+    _channelCtrl = value & 0x71770703;
+
     syncMode = value >> 9 & 0x03;
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
-    running = value.bit24;
+    if (ch == 6) {
+      syncMode = 0;
+      toRam = true;
+      incr = -4;
+    }
+
+    running = value.bit24 && (syncMode == 0 ? value.bit28 : true);
     if (running && (debugLogChannel.contains(ch))) {
       debugLog("DMA$ch: started   ${dump()} ");
     }
@@ -141,12 +148,12 @@ class Dma {
       _interrupt.bit15 || (_interrupt.bit23 && (_interrupt & 0x7f000000) != 0);
 
   void reset() {
-    _control = 0;
-    _interrupt = 0;
-    _irqPending = false;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].reset();
     }
+    control = 0x07654321;
+    _interrupt = 0;
+    _irqPending = false;
   }
 
   void transfer32(int ch, DmaChannel d) {
@@ -208,10 +215,6 @@ class Dma {
 
     if (d.ch == 6) {
       // OTC
-      if (d.syncMode != 0 || !d.toRam) {
-        return;
-      }
-
       for (d.size--; d.size > 0; d.size--) {
         final writeAddr = d.addr;
         d.addr = d.addr.dec4 & 0x1ffffc;
