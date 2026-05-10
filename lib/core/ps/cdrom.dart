@@ -40,10 +40,12 @@ class Cdrom {
   int data = 0;
   int result = 0;
 
-  Uint8List Function(int) readDisc = (int _) => Uint8List(2352);
+  static const sectorBufferSize = 2352; // 0x930 bytes
 
-  Uint8List rawSector = Uint8List(2352);
-  final sectorBuffer = List.filled(2352, 0); // 0x930 bytes
+  Uint8List Function(int) readDisc = (int _) => Uint8List(sectorBufferSize);
+
+  Uint8List rawSector = Uint8List(sectorBufferSize);
+  final sectorBuffer = List.filled(sectorBufferSize, 0); // 0x930 bytes
   int sectorBufferIndex = 0;
   bool sectorBufferEmpty = true;
 
@@ -98,7 +100,8 @@ class Cdrom {
     currentIntNo = 0;
 
     isReading = false;
-    sector = 0;
+    readingSector = 0;
+    seekSector = 0;
     sectorBufferIndex = 0;
     sectorBufferEmpty = true;
 
@@ -259,13 +262,13 @@ class Cdrom {
 
         handleSectorRead();
 
-        sector++;
+        readingSector++;
       }
     }
   }
 
   void handleSectorRead() {
-    rawSector = readDisc(sector);
+    rawSector = readDisc(readingSector);
 
     decodeXa();
 
@@ -304,7 +307,8 @@ class Cdrom {
         .setBit(0, isError);
   }
 
-  int sector = 0; // current sector
+  int seekSector = 0; // target sector for seek
+  int readingSector = 0; // current sector
   int sectorReadDelay = 0; // next read clock
 
   int mode = 0;
@@ -322,12 +326,13 @@ class Cdrom {
 
       case 0x02: // SetLoc
         isReading = false;
-        sector = paramFifo.elementAt(0).asBcd * 60 * 75 +
+        seekSector = paramFifo.elementAt(0).asBcd * 60 * 75 +
             paramFifo.elementAt(1).asBcd * 75 +
             paramFifo.elementAt(2).asBcd;
         irq(3, [status()], delay: 5000);
 
       case 0x03: // Play
+        readingSector = seekSector;
         irq(3, [status()]);
 
       case 0x04: // Forward
@@ -340,6 +345,7 @@ class Cdrom {
 
       case 0x06: // ReadN
         isReading = true;
+        readingSector = seekSector;
         sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
@@ -388,12 +394,12 @@ class Cdrom {
         irq(3, [status(), mode, 0x00, file, channel]);
 
       case 0x10: // GetLocl
-        final currentSector = isReading ? sector : 0;
+        final currentSector = isReading ? readingSector : 0;
         final (mm, ss, ff) = lbaToMsf(currentSector);
         irq(3, [mm, ss, ff, mode, file, channel, 0, 0]);
 
       case 0x11: // GetLocp
-        final currentSector = isReading ? sector : 0;
+        final currentSector = isReading ? readingSector : 0;
         final (mm, ss, ff) = lbaToMsf(currentSector);
         irq(3, [01, 01, mm, ss, ff, mm, ss, ff]);
 
@@ -428,6 +434,7 @@ class Cdrom {
 
       case 0x1b: // ReadS (no retry)
         isReading = true;
+        readingSector = seekSector;
         sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
@@ -502,7 +509,7 @@ class Cdrom {
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.hex8} sector:${dumpSector(sector)}";
+      "mask:${intMask.hex8} sector:${dumpSector(readingSector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",
