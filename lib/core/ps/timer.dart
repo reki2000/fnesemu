@@ -206,7 +206,11 @@ class TimerController {
     final t = timers[no];
     t.mode_ = newMode;
     t.sync = newMode.bit0;
-    t.pause = no == 2 && t.sync && (t._syncMode == 3 || t._syncMode == 0);
+    t.pause = switch (no) {
+      0 || 1 => t.sync && t._syncMode == 3,
+      2 => t.sync && (t._syncMode == 3 || t._syncMode == 0),
+      _ => false
+    };
 
     t.triggered = false;
     t.intRequested = false;
