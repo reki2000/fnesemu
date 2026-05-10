@@ -394,9 +394,7 @@ class Cdrom {
         irq(3, [status(), mode, 0x00, file, channel]);
 
       case 0x10: // GetLocl
-        final currentSector = isReading ? readingSector : 0;
-        final (mm, ss, ff) = lbaToMsf(currentSector);
-        irq(3, [mm, ss, ff, mode, file, channel, 0, 0]);
+        irq(3, rawSector.sublist(12, 20));
 
       case 0x11: // GetLocp
         final currentSector = isReading ? readingSector : 0;
@@ -418,12 +416,12 @@ class Cdrom {
         }
 
       case 0x15: // SeekL
-        isReading = false;
+        readingSector = seekSector;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
       case 0x16: // SeekP
-        isReading = false;
+        readingSector = seekSector;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
@@ -461,7 +459,7 @@ class Cdrom {
             case 0x21:
               irq(3, [0x00]);
             case 0x22:
-              irq(3, [0x11, 0x10]); //"for NETNA".codeUnits);
+              irq(3, Uint8List.fromList("for U/C".codeUnits));
             default:
               debugLog(
                   "cdrom: unknown test command ${paramFifo.map((e) => e.hex8).join(" ")}");
