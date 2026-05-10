@@ -45,6 +45,10 @@ class Spu {
   }
 
   (double, double) render() {
+    if (!enabled) {
+      return (0.0, 0.0);
+    }
+
     int outL = 0;
     int outR = 0;
 
@@ -128,12 +132,20 @@ class Spu {
     _fifoAddr = value << 3;
   }
 
+  int get noiseFlags => voices.asMap().entries.fold(
+        0,
+        (acc, entry) => (acc << 1) | (entry.value.noise ? 1 : 0),
+      );
   setNoiseFlags(int v) {
     for (int i = 0; i < voices.length; i++) {
       voices[i].noise = v.bit(i);
     }
   }
 
+  int get pitchModulation => voices.asMap().entries.fold(
+        0,
+        (acc, entry) => (acc << 1) | (entry.value.pitchModulation ? 1 : 0),
+      );
   setPitchModulation(int v) {
     for (int i = 0; i < voices.length; i++) {
       voices[i].pitchModulation = v.bit(i);
@@ -210,7 +222,7 @@ class Spu {
         0x0a => voices[ch].adsr >> 16,
         0x0c => voices[ch].adsrVolume,
         0x0e => voices[ch].repeatAddr >> 3,
-        _ => throw "readVoice unreachable",
+        _ => throw "illegal readVoice port:${port.hex8} ch:$ch",
       };
 
   void writeVoice(int port, int ch, int v) => switch (port) {
@@ -222,7 +234,8 @@ class Spu {
         0x0a => voices[ch].setSustainRelease(v),
         0x0c => voices[ch].adsrVolume = v,
         0x0e => voices[ch].repeatAddr = v << 3,
-        _ => throw "writeVoice unreachable",
+        _ =>
+          throw "illegal writeVoice port:${port.hex8} ch:$ch value:${v.hex32}",
       };
 
   void keyOn(int value) {

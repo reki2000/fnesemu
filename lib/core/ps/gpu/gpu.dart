@@ -44,6 +44,7 @@ class Gpu {
   int scanline = 0;
   int frame = 0;
   bool isOddFrame = false;
+  bool isVblank = false;
 
   // GP1 status register
   final cmd = List<int>.filled(16, 0);
@@ -130,6 +131,11 @@ class Gpu {
 
     startDisplayX = 0;
     startDisplayY = 0;
+    displayX1 = 0;
+    displayY1 = 0;
+    displayX2 = 0;
+    displayY2 = 0;
+
     displayMode = 0;
     frameBuffer.fillRange(0, frameBuffer.length, 0);
   }
@@ -151,12 +157,13 @@ class Gpu {
     };
 
     final result = status
-        .setBit(13, isOddFrame)
+        .setBit(13, true)
         .setBit(24, irq1)
         .setBit(25, b25)
         .setBit(26, cmdReady)
         .setBit(27, vramToCpuReady)
-        .setBit(28, dmaReceiveReady);
+        .setBit(28, dmaReceiveReady)
+        .setBit(31, isOddFrame & !isVblank);
     // debugLog("GPSTAT: ${result.hex32}  ${dumpCmd()}");
     return result;
   }
@@ -164,6 +171,10 @@ class Gpu {
   // GP1 status register
   int startDisplayX = 0;
   int startDisplayY = 0;
+  int displayX1 = 0;
+  int displayY1 = 0;
+  int displayX2 = 0;
+  int displayY2 = 0;
 
   int displayMode = 0;
   bool get isH480 => displayMode.bit2;
@@ -320,8 +331,10 @@ class Gpu {
     writeFrameBuffer16(x, y, c16 | forceBit15);
   }
 
-  String dump() =>
-      "GPU: stat:${status.hex32} ${width}x$height (${startDisplayX.decimal3},${startDisplayY.decimal3}) "
+  String dump() => "GPU: stat:${status.hex32} "
+      "${width}x$height "
+      "(${displayX1.decimal3},${displayY1.decimal3}) ${(displayX2 - displayX1).decimal4}x${(displayY2 - displayY1).decimal3} "
+      "(${startDisplayX.decimal3},${startDisplayY.decimal3}) "
       "(${drawingX1.decimal3},${drawingY1.decimal3})-(${drawingX2.decimal3},${drawingY2.decimal3}) "
       "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
 

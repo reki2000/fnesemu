@@ -1,10 +1,9 @@
-import 'package:fnesemu/util/int.dart';
-
 import '../../util/debug.dart';
+import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
-final List<int> debugLogChannel = [];
+const List<int> debugLogChannel = [];
 
 class DmaChannel {
   final int ioAddr;
@@ -35,11 +34,18 @@ class DmaChannel {
   int get channelCtrl => _channelCtrl.setBit(24, running);
 
   set channelCtrl(int value) {
-    _channelCtrl = value;
+    _channelCtrl = value & 0x71770703;
+
     syncMode = value >> 9 & 0x03;
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
-    running = value.bit24;
+    if (ch == 6) {
+      syncMode = 0;
+      toRam = true;
+      incr = -4;
+    }
+
+    running = value.bit24 && (syncMode == 0 ? value.bit28 : true);
     if (running && (debugLogChannel.contains(ch))) {
       debugLog("DMA$ch: started   ${dump()} ");
     }
@@ -117,17 +123,22 @@ class Dma {
 
   int _interrupt = 0;
   int get interrupt => _interrupt.setBit(31, _bit31());
-  set interrupt(int value) {
-    // debugLog("DMA: interrupt set ${value.hex32} -> ${interrupt.hex32}");
-    final irqFlags = _interrupt &
-        0x7f000000 &
-        ~(value & 0x7f000000); // reset irq flags at value = 1
-    _interrupt = irqFlags | (value & 0x00ff807f);
-    // debugLog("DMA: interrupt set -> ${interrupt.hex32}");
+  void setInterrupt(int addr, int value) {
+    _interrupt = switch (addr) {
+      0 ||
+      1 ||
+      2 =>
+        _interrupt.masked(0xff.shl(addr.shl3), value.shl(addr.shl3)),
+      3 => _interrupt & (~(value.shl24) | 0xffffff),
+      _ =>
+        throw "illegal DMA interrupt addr:${addr.hex32} value:${value.hex32}",
+    };
+    // debugLog(
+    //     "DMA: interrupt set addr:$addr value:${value.hex8} -> ${_interrupt.hex32} ");
 
     for (var ch = 0; ch < 7; ch++) {
-      channels[ch].irqOnComplete = value.bit(ch + 16);
-      channels[ch].irqOnChunks = value.bit(ch);
+      channels[ch].irqOnComplete = _interrupt.bit(ch + 16);
+      channels[ch].irqOnChunks = _interrupt.bit(ch);
     }
   }
 
@@ -137,12 +148,12 @@ class Dma {
       _interrupt.bit15 || (_interrupt.bit23 && (_interrupt & 0x7f000000) != 0);
 
   void reset() {
-    control = 0;
-    interrupt = 0;
-    _irqPending = false;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].reset();
     }
+    control = 0x07654321;
+    _interrupt = 0;
+    _irqPending = false;
   }
 
   void transfer32(int ch, DmaChannel d) {
@@ -204,10 +215,6 @@ class Dma {
 
     if (d.ch == 6) {
       // OTC
-      if (d.syncMode != 0 || !d.toRam) {
-        return;
-      }
-
       for (d.size--; d.size > 0; d.size--) {
         final writeAddr = d.addr;
         d.addr = d.addr.dec4 & 0x1ffffc;
