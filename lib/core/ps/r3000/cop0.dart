@@ -23,7 +23,7 @@ extension Cop0 on R3000 {
         // debugLog("sr <- ${value.hex32}");
         sr = value;
       case 13:
-        cause = cause.masked(0x30, value);
+        cause = cause.masked(0x300, value);
       case 14:
         epc = value;
     }
