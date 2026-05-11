@@ -55,6 +55,7 @@ class R3000 {
   int nextDelayReg = 0, nextDelayVal = 0;
   int delayReg = 0, delayVal = 0;
   int immediateReg = 0, immediateVal = 0;
+  bool inBranchTaken = false;
   bool inBranchDelay = false;
 
   // bios putchar() hacking
@@ -72,6 +73,7 @@ class R3000 {
     immediateReg = 0;
     immediateVal = 0;
 
+    inBranchTaken = false;
     inBranchDelay = false;
 
     r.fillRange(0, 32, 0);
@@ -145,6 +147,7 @@ class R3000 {
       exception(Exception.interrupt);
     } else {
       // try {
+      inBranchTaken = false;
       inBranchDelay = false;
       exec(read32(instPc));
       // } catch (e) {
@@ -187,13 +190,14 @@ class R3000 {
   }
 
   void jump(int addr) {
+    inBranchTaken = true;
     inBranchDelay = true;
     nextPc = addr.mask32;
   }
 
   void exception(int excode, {int? badvaddr}) {
-    sr = sr.masked(0x3f, sr << 2) |
-        0x02; // save old mode, ie bit0-1, and set new mode to kernel (0x02)
+    sr = sr.masked(0x3f,
+        sr << 2); // save old mode, ie bit0-1, and set new mode to kernel (0x00)
 
     cause &= 0xff00; // clear, keep bit8-15 (IM)
     cause |= excode << 2;
@@ -204,7 +208,7 @@ class R3000 {
 
     if (inBranchDelay) {
       epc = instPc.dec4.mask32;
-      cause |= 0xc0000000;
+      cause |= 0x80000000.setBit(30, inBranchTaken);
       tar = pc;
     } else {
       epc = instPc;
@@ -215,6 +219,13 @@ class R3000 {
 
     // debugLog(
     //     "cpu: exception  excode:${excode.hex8} sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}");
+  }
+
+  void branch(bool cond, int rel16) {
+    inBranchDelay = true;
+    if (cond) {
+      jump(pc + (rel16 << 2));
+    }
   }
 
   /// Main instruction dispatch.
@@ -263,17 +274,17 @@ class R3000 {
           0x10 => jal(r[rs].rel32 < 0, 31, pc + (rel16 << 2)), // bltzal
           0x11 => jal(r[rs].rel32 >= 0, 31, pc + (rel16 << 2)), // bgezal
           _ => switch (rt & 1) {
-              0x00 => r[rs].rel32 < 0 ? jump(pc + (rel16 << 2)) : 0, // bltz
-              0x01 => r[rs].rel32 >= 0 ? jump(pc + (rel16 << 2)) : 0, // bgez
+              0x00 => branch(r[rs].rel32 < 0, rel16), // bltz
+              0x01 => branch(r[rs].rel32 >= 0, rel16), // bgez
               _ => _unknown(inst32),
             }
         },
       0x02 => jump(pc & 0xf0000000 | inst32.mask26 << 2),
       0x03 => jal(true, 31, pc & 0xf0000000 | inst32.mask26 << 2), // jal
-      0x04 => r[rs] == r[rt] ? jump(pc + (rel16 << 2)) : 0, // beq
-      0x05 => r[rs] != r[rt] ? jump(pc + (rel16 << 2)) : 0, // bne
-      0x06 => r[rs].rel32 <= 0 ? jump(pc + (rel16 << 2)) : 0, // blez
-      0x07 => r[rs].rel32 > 0 ? jump(pc + (rel16 << 2)) : 0, // bgtz
+      0x04 => branch(r[rs] == r[rt], rel16), // beq
+      0x05 => branch(r[rs] != r[rt], rel16), // bne
+      0x06 => branch(r[rs].rel32 <= 0, rel16), // blez
+      0x07 => branch(r[rs].rel32 > 0, rel16), // bgtz
       0x08 => add(rt, r[rs], rel16),
       0x09 => immediate(rt, r[rs] + rel16.mask32), // addiu
       0x0a => immediate(rt, r[rs].rel32 < rel16 ? 1 : 0), // slti
