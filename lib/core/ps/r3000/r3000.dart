@@ -143,7 +143,8 @@ class R3000 {
     immediateReg = 0;
     immediateVal = 0;
 
-    if ((cause & sr & 0xff00 != 0) && sr.bit0) {
+    if ((cause & sr & 0xff00 != 0) && sr.bit0 && read32(instPc).shr26 != 0x12) {
+      // delay excaption if the current instruction is cop2
       exception(Exception.interrupt);
     } else {
       // try {
