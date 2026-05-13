@@ -23,7 +23,7 @@ extension Cop0 on R3000 {
         // debugLog("sr <- ${value.hex32}");
         sr = value;
       case 13:
-        cause = cause.masked(0x30, value);
+        cause = cause.masked(0x300, value);
       case 14:
         epc = value;
     }
@@ -33,7 +33,7 @@ extension Cop0 on R3000 {
     switch (inst32 & 0x3f) {
       case 0x10: // rfe
         sr = sr.masked(0x0f, sr >> 2);
-        sr &= ~0x30;
+      // sr &= ~0x30;
       // debugLog(
       //     "cpu: rfe sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}");
       default:

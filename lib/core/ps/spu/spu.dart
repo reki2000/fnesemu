@@ -156,7 +156,7 @@ class Spu {
     if (irqEnabled && addr == _irqAddr) {
       _status = _status.setBit(6, true); // set irq flag
       bus.setIrq(9);
-      debugLog("spu: IRQ triggered at ${_fifoAddr.hex24}");
+      // debugLog("spu: IRQ triggered at ${_fifoAddr.hex24}");
     }
 
     return ram.getUint16LE(addr);
