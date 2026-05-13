@@ -8,16 +8,17 @@ extension VoiceAdpcmDecoder on Voice {
           "SPU${no.decimal2z}: addr:${_addr.hex24} ram:${spu.ram.sublist(_addr, _addr + 16).map((e) => e.hex8).join(" ")}");
     }
 
-    final loop = spu.ram[_addr.inc];
+    final header = spu.readRam16(_addr);
+    final loop = header >> 8;
 
     if (loop.bit2) {
       repeatAddr = _addr;
     }
 
-    int shift = spu.ram[_addr] & 0x0f;
+    int shift = header & 0x0f;
     shift = (shift > 12) ? 9 : shift;
 
-    final filter = spu.ram[_addr] >> 4 & 0x07;
+    final filter = header >> 4 & 0x07;
 
     final (c1, c2) =
         [(0, 0), (60, 0), (115, -52), (98, -55), (122, -60)][filter.min(4)];
