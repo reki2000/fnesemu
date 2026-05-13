@@ -8,7 +8,7 @@ import '../../disc/loader.dart';
 import '../sram.dart';
 import 'ps.dart';
 
-int runSeconds = 10; // run for this many seconds
+int runSeconds = -1; // run for this many seconds
 int runCycles = -1; // run for this many cycles (overrides runSeconds if >= 0)
 int traceAddress = -1; // start logging from this address
 int traceCycleStart = -1; // start logging from this cycle

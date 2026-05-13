@@ -43,10 +43,10 @@ class Cdrom {
   bool isPlayCDDA = false;
   bool isSeeking = false;
   bool isReading = false;
-  bool isShellOpen = true;
+  bool isShellOpen = false;
   bool isIdError = false;
   bool isSeekError = false;
-  bool isSpindleMotorOn = false;
+  bool isSpindleMotorOn = true;
   bool isError = false;
 
   static const sectorBufferSize = 2352; // 0x930 bytes
@@ -117,6 +117,14 @@ class Cdrom {
     currentIntNo = 0;
 
     isReading = false;
+    isSeeking = false;
+    isPlayCDDA = false;
+    isShellOpen = false;
+    isIdError = false;
+    isSeekError = false;
+    isSpindleMotorOn = true;
+    isError = false;
+
     readingSector = 0;
     seekSector = 0;
     sectorBufferIndex = 0;
@@ -255,6 +263,7 @@ class Cdrom {
       if (result.delay <= 0 && currentIntNo == 0) {
         isCmdBusy = false;
         currentIntNo = result.intNo;
+        resultFifo.clear();
         resultFifo.addAll(result.fifo);
         cmdResults.removeFirst();
 
@@ -360,8 +369,8 @@ class Cdrom {
         irq(2, [status()]);
 
       case 0x09: // Pause
-        isReading = false;
         irq(3, [status()]);
+        isReading = false;
         irq(2, [status()]);
 
       case 0x0a: // Init
@@ -505,7 +514,8 @@ class Cdrom {
 
   String dump() => "status:${status().hex8} bank:$bank "
       "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
-      "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]")} "
+      "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]").join(" ")} "
+      "fifo:[${resultFifo.map((e) => e.hex8).join(" ")}] "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
       "mask:${intMask.hex8} sector:${dumpSector(readingSector)}";
 
