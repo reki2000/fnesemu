@@ -209,50 +209,43 @@ class Gpu {
   }
 
   @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
   int getTextureColor2(
       int u, int v, int baseX, int baseY, int clutBase, int clutMode,
       {bool debug = false}) {
     final uu = u & textureMaskX2 | textureOffsetX2;
     final vv = v & textureMaskY2 | textureOffsetY2;
 
-    final base = (baseY + vv.mask8) * 1024;
+    final base = (baseY + vv) << 10;
 
-    if (clutMode == 2) {
-      final result = frameBuffer16[base + ((baseX + uu.mask8) & 0x3ff)];
-      if (debug) {
-        debugLog(
-            "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
-            "baseX:$baseX baseY:$baseY base:${base.hex32} c:${result.hex16}");
-      }
-      return result;
+    int result = 0;
+
+    switch (clutMode) {
+      case 3:
+      case 2:
+        result = frameBuffer16[base + (baseX + uu).mask10];
+
+      case 1:
+        final clutIndex = frameBuffer[(base + baseX) * 2 + uu];
+        result = frameBuffer16[clutBase + clutIndex];
+
+      case 0:
+        final clutByte = frameBuffer[(base + baseX) * 2 + uu ~/ 2];
+        final clutIndex = (u.bit0) ? clutByte >> 4 : clutByte & 0x0f;
+        result = frameBuffer16[clutBase + clutIndex];
     }
 
-    // try {
-    final clutIndex = (clutMode == 1)
-        ? frameBuffer[(base + baseX) * 2 + uu.mask8]
-        : (u.bit0)
-            ? frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] >> 4
-            : frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] & 0x0f;
-
-    final result = frameBuffer16[clutBase + clutIndex];
-
     if (debug) {
-      debugLog("getTexureColor($u, $v, mode:$clutMode "
-          "baseX:$baseX baseY:$baseY base:${base.hex32} "
-          "clutX:${clutBase % 1024} clutY:${clutBase ~/ 1024} clutBase:${clutBase.hex32} "
-          "index:$clutIndex result:${result.hex24}");
+      debugLog(
+          "getTexureColor($u+$textureOffsetX2/${textureMaskX2.hex8}, $v+$textureOffsetY2/${textureMaskY2.hex8}, "
+          "$baseX, $baseY, ${clutBase.hex24}, $clutMode) -> ${result.hex16}");
     }
 
     return result;
-    // } catch (e) {
-    //   debugLog(
-    //       "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
-    //       "baseX:$baseX baseY:$baseY base:${base.hex32} $e");
-    //   rethrow;
-    // }
   }
 
   @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
   pset24(int x, int y, int c24,
       {bool ignoreWindow = false,
       bool transparent = false,
@@ -276,6 +269,7 @@ class Gpu {
   }
 
   @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
   pset16(int x, int y, int c16,
       {bool ignoreWindow = false, int? semiTransparent}) {
     if (!ignoreWindow) {
@@ -303,8 +297,12 @@ class Gpu {
 
     // semi-transparency
     if (c16.bit15) {
-      final (r0, g0, b0) = (old & 0x1f, old >> 5 & 0x1f, old >> 10 & 0x1f);
-      final (r1, g1, b1) = (c16 & 0x1f, c16 >> 5 & 0x1f, c16 >> 10 & 0x1f);
+      final r0 = old & 0x1f;
+      final g0 = old >> 5 & 0x1f;
+      final b0 = old >> 10 & 0x1f;
+      final r1 = c16 & 0x1f;
+      final g1 = c16 >> 5 & 0x1f;
+      final b1 = c16 >> 10 & 0x1f;
       // if (x == 11 && y == 136) {
       //   debugLog("gpu: semi transparency old:${old.hex16} new:${c16.hex16} "
       //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
@@ -339,5 +337,5 @@ class Gpu {
       "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
 
   String dumpCmd() =>
-      "cmd: ${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}";
+      "cmd[${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}]";
 }
