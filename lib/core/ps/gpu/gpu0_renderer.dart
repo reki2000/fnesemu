@@ -86,7 +86,7 @@ extension Gp0Renderer on Gpu {
   }
 
   bool renderFlatPolygon(int cmd, int v0, int v1, int v2) {
-    final c24 = Color.ofC24(cmd).c24;
+    final c24 = Color.ofC24(cmd);
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, 0, 0, 0);
     final transparent = cmd.bit25;
 
@@ -99,7 +99,8 @@ extension Gp0Renderer on Gpu {
 
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
-        pset24(x, y, c24, transparent: transparent);
+        final c15 = dither(x, y, c24);
+        pset16(x, y, c15 | (transparent ? 0x8000 : 0));
       }
     }
 
@@ -122,7 +123,8 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final c = left.c.mix(right.c, x - left.x, right.x - left.x);
-        pset24(x, y, c.c24, transparent: transparent);
+        final c15 = dither(x, y, c);
+        pset16(x, y, c15 | (transparent ? 0x8000 : 0));
       }
     }
 
@@ -208,11 +210,11 @@ extension Gp0Renderer on Gpu {
           final v = (left.v * (width - part) + right.v * part) ~/ width;
           final texColor =
               getTextureColor2(u, v, baseX, baseY, clutBase, clutMode);
-          final c16 = modulated
-              ? Color.modulate(texColor,
-                  gouraud ? left.c.mix(right.c, part, width) : modulateColor)
-              : texColor;
-          if (c16 != 0) {
+          if (texColor != 0) {
+            final c16 = !modulated
+                ? texColor
+                : ditherAndModulate(0, 0, texColor,
+                    gouraud ? left.c.mix(right.c, part, width) : modulateColor);
             pset16(x, y, c16 & transparentMask,
                 semiTransparent: semiTransparent);
           }

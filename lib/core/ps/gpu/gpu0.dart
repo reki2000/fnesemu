@@ -312,17 +312,15 @@ extension Gpu0 on Gpu {
           if (textured) {
             final texColor = getTextureColor2(
                 u0 + x, v0 + y, baseX, baseY, clutBase, clutMode);
-            final c16 =
-                modulated ? Color.modulate(texColor, modulateColor) : texColor;
-            if (c16 != 0) {
+            if (texColor != 0) {
+              final c16 = !modulated
+                  ? texColor
+                  : ditherAndModulate(x, y, texColor, modulateColor);
               pset16(x0 + x, y0 + y, c16 & transparentMask);
             }
-            //   debugLog(
-            //       "gp0: textured rectangle pixel ($x, $y) color:${c16.hex16}");
           } else {
-            pset16(
-                x0 + x, y0 + y, modulateColor.c15 | (transparent ? 0x8000 : 0));
-            // pset24(x0 + x, y0 + y, cmd[0].mask24, transparent: transparent);
+            final c15 = dither(x, y, modulateColor);
+            pset16(x0 + x, y0 + y, c15 | (transparent ? 0x8000 : 0));
           }
         }
       }
