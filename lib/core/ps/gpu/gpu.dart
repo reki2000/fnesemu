@@ -81,6 +81,9 @@ class Gpu {
   int bltFromX = 0;
   int bltFromY = 0;
 
+  int debugCmdIndexInFrame = 0;
+  String debugCmdLog = "";
+
   void reset() {
     status = 0.setBit(23, true);
     gp0 = 0;

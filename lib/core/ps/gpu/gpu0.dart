@@ -218,6 +218,8 @@ extension Gpu0 on Gpu {
         }
       }
 
+      // debugCmdLog = "gp0: polygon completed ${dumpCmd()}";
+      // saveFrame();
       // debugLog(
       //     "gp0: polygon completed ${dumpCmd()}");
       //     "($x0, $y0) $w x $h ($u0, $v0) "
@@ -324,6 +326,9 @@ extension Gpu0 on Gpu {
           }
         }
       }
+
+      // debugCmdLog = "gp0: rectangle completed ${dumpCmd()}";
+      // saveFrame();
 
       cmdSize = 0;
     }

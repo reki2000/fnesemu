@@ -122,7 +122,7 @@ List<String> handleOptions(List<String> args) {
 
     // Initialize logger only if tracing is enabled
     if (traceAddress >= 0 || traceCycleStart >= 0) {
-      logger.init("trace.log", core.cpuInfos[0], traceAddress);
+      logger.init("trace/trace.log", core.cpuInfos[0], traceAddress);
     }
 
     if (args[0] == "-f") {

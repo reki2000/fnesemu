@@ -159,7 +159,9 @@ extension Gp0Renderer on Gpu {
       final p3_ =
           gouraud ? Point.of(c[10], c[9], c[11]) : Point.of(c[7], 0, c[8]);
       polygons.add(sortVertice2(p1_, p2_, p3_));
-      // debugLog("gp0: drawPolygonTex4: ${dumpCmd()} "
+      // debugLog(
+      //     "gp0: vram(0,0): ${readFrameBuffer16(0, 100).hex16} ${readFrameBuffer16(320, 100).hex16} forceBit15:${status.bit11} writeMask:${status.bit12}");
+      // debugLog("gp0: drawPolygonTex4: $debugCmdIndexInFrame ${dumpCmd()} "
       //     "${cmd.bit25 ? "semi:$semiTransparent" : "opaq"} mod:${modulated ? cmd.hex24 : "-"} "
       //     "xy(${p0_.x},${p0_.y})-(${p1_.x},${p1_.y})-(${p2_.x},${p2_.y})-(${p3_.x},${p3_.y}) "
       //     "->(${p0_.x + drawingOffsetX},${p0_.y + drawingOffsetY})-(${p1_.x + drawingOffsetX},${p1_.y + drawingOffsetY})-(${p2_.x + drawingOffsetX},${p2_.y + drawingOffsetY})-(${p3_.x + drawingOffsetX},${p3_.y + drawingOffsetY}) "
