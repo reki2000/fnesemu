@@ -221,22 +221,22 @@ class Gpu {
 
     final base = (baseY + vv) << 10;
 
-    int result = 0;
-
+    final int addr;
     switch (clutMode) {
-      case 3:
-      case 2:
-        result = frameBuffer16[base + (baseX + uu).mask10];
+      case 0:
+        final clutByteIndex = base + baseX + uu.shr2;
+        final clutByte = frameBuffer16[clutByteIndex & 0x7ffff];
+        final clutIndex = clutByte >> (uu & 3).shl2;
+        addr = clutBase + (clutIndex & 0x0f);
 
       case 1:
-        final clutIndex = frameBuffer[(base + baseX) * 2 + uu];
-        result = frameBuffer16[clutBase + clutIndex];
+        final clutIndex = frameBuffer[(base + baseX).shl1 + uu];
+        addr = clutBase + clutIndex;
 
-      case 0:
-        final clutByte = frameBuffer[(base + baseX) * 2 + uu ~/ 2];
-        final clutIndex = (u.bit0) ? clutByte >> 4 : clutByte & 0x0f;
-        result = frameBuffer16[clutBase + clutIndex];
+      default:
+        addr = base + (baseX + uu).mask10;
     }
+    final result = frameBuffer16[addr & 0x7ffff];
 
     if (debug) {
       debugLog(

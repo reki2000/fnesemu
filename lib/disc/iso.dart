@@ -75,6 +75,8 @@ class IsoDisc extends Disc {
     final submode = data[headerOffset + 6];
     final codinginfo = data[headerOffset + 7];
     debugLog(
-        "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) mode:$mode file:$file channel:$channel submode:${submode.hex8} codinginfo:${codinginfo.hex8}");
+        "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) "
+        "mode:$mode file:$file channel:$channel submode:${submode.hex8} codinginfo:${codinginfo.hex8}"
+        "[${data.sublist(sectorOffset + sync.length, sectorOffset + sync.length + 16).map((e) => e.hex8).join(" ")}...]");
   }
 }

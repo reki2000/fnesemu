@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:fnesemu/core/tracer.dart';
 import 'package:fnesemu/core/types.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../../disc/loader.dart';
 import '../sram.dart';
@@ -15,6 +16,7 @@ int traceCycleStart = -1; // start logging from this cycle
 int traceCycleEnd = -1; // end logging at this cycle
 int measureLoopCount =
     1; // number of times to run the main loop for measuring performance
+bool skipTraceIntHandler = false;
 
 Ps core = Ps();
 
@@ -143,6 +145,12 @@ List<String> handleOptions(List<String> args) {
       continue;
     }
 
+    if (args[0] == "-s") {
+      skipTraceIntHandler = true;
+      args = args.sublist(1);
+      continue;
+    }
+
     break;
   }
 
@@ -198,7 +206,9 @@ main(List<String> args) async {
           (traceCycleEnd < 0 || core.cpu.clocks <= traceCycleEnd);
 
       if (afterTraceAddress || inTraceCycleRange) {
-        logger.log(core.programCounter(0), () => core.trace(0));
+        if (!skipTraceIntHandler || core.cpu.sr.bit0) {
+          logger.log(core.programCounter(0), () => core.trace(0));
+        }
       }
 
       // Yield to event loop every N iterations
