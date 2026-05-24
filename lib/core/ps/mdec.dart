@@ -25,7 +25,7 @@ class Mdec {
   final buf = List<List<int>>.generate(
       6, (_) => List<int>.filled(64, 0)); // 0:Cr  1:Cb 2:Y1 3:Y2 4:Y3 5:Y4
 
-  final output = Queue<int>();
+  final output = ListQueue<int>();
   bool dataInRequest = false;
   bool dataOutRequest = false;
 
@@ -75,6 +75,10 @@ class Mdec {
             decodeStep(0xfe00); // EOB
           // debugLog(
           //     "mdec: decode command completes oIdx:${decoder.outputIndex} lenOutput:${output.length} ${dump()}");
+          // for (int i = 0; i < output.length; i += 64) {
+          //   debugLog(
+          //       " ${range(0, 64).map((v) => output.elementAt(i + v).hex16).join(" ")}");
+          // }
           case Mdec.commandSetQuant:
             setQuant();
           case Mdec.commandSetScale:
@@ -131,7 +135,7 @@ class Mdec {
     return 0
             .setBit(31, output.isEmpty) // Data-Out Fifo Empty
             .setBit(30, params.length >= 64) // Data-In Fifo Full
-            .setBit(29, command != commandNone) // Command Busy
+            .setBit(29, output.isNotEmpty) // Command Busy
             .setBit(28, dataInRequest) // Data-In Request
             .setBit(27, dataOutRequest) // Data-Out Request
             .setBit(24, signed) // Data Output Signed
@@ -265,7 +269,8 @@ class Mdec {
   String dump() => "command:$command paramCount:$paramCount "
       "depth:$depth signed:$signed bit15Set:$bit15Set "
       "blockType:$blockType "
-      "params:${params.length} ";
+      "params:${params.length} "
+      "output:${output.length} ";
 }
 
 class Decoder {
@@ -325,15 +330,10 @@ class Decoder {
       return false;
     }
 
-    if (input == 0xfe00) {
-      outputIndex = -1;
-      return true;
-    }
-
     final runLength = (input >> 10) & 0x3f;
     outputIndex += runLength + 1;
 
-    if (outputIndex >= 64) {
+    if (outputIndex > 63) {
       outputIndex = -1;
       return true;
     }

@@ -156,10 +156,13 @@ class Dma {
     _irqPending = false;
   }
 
-  void transfer32(int ch, DmaChannel d) {
+  bool transfer32(int ch, DmaChannel d) {
     switch (ch) {
       case 0:
-        if (!d.toRam && bus.mdec.dataInAck) {
+        if (!d.toRam) {
+          if (!bus.mdec.dataInAck) {
+            return false;
+          }
           final data = bus.read32(d.addr);
           // debugLog(
           //     "DMA0: MDEC DMA [${d.addr.hex32}]=0x${data.hex32} ${d.dump()}");
@@ -167,7 +170,10 @@ class Dma {
         }
 
       case 1:
-        if (d.toRam && bus.mdec.dataOutAck) {
+        if (d.toRam) {
+          if (!bus.mdec.dataOutAck) {
+            return false;
+          }
           bus.write32(d.addr, bus.mdec.readData());
         }
 
@@ -193,97 +199,91 @@ class Dma {
             ? bus.write32(d.addr, bus.read32(d.ioAddr))
             : bus.write32(d.ioAddr, bus.read32(d.addr));
     }
+
+    return true;
   }
 
   void exec(int count) {
     // find highest priority channel
-    DmaChannel? target;
-    for (int ch = 0; ch < 7; ch++) {
-      final d = channels[ch];
-      if (d.enabled && d.running) {
-        if (target == null || target.priority > d.priority) {
-          target = d;
-        }
-      }
-    }
-
-    if (target == null) {
-      return;
-    }
-
-    final DmaChannel d = target;
-
-    if (d.ch == 6) {
-      // OTC
-      for (d.size--; d.size > 0; d.size--) {
-        final writeAddr = d.addr;
-        d.addr = d.addr.dec4 & 0x1ffffc;
-        bus.write32(writeAddr, d.addr);
+    for (final d in channels) {
+      if (!d.enabled || !d.running) {
+        continue;
       }
 
-      bus.write32(d.addr, 0xffffff);
-      completeDma(d.ch);
-      return;
-    }
-
-    switch (d.syncMode) {
-      case 0: // Burst.
-        while (count > 0) {
-          transfer32(d.ch, d);
-          d.addr += d.incr;
-
-          d.size--;
-          if (d.size <= 0) {
-            completeDma(d.ch);
-            break;
-          }
-          // count -= d.clocks; // dma should lock the bus
+      if (d.ch == 6) {
+        // OTC
+        for (d.size--; d.size > 0; d.size--) {
+          final writeAddr = d.addr;
+          d.addr = d.addr.dec4 & 0x1ffffc;
+          bus.write32(writeAddr, d.addr);
         }
 
-      case 1: // Slice
-        while (count > 0) {
-          transfer32(d.ch, d);
-          d.addr += d.incr;
+        bus.write32(d.addr, 0xffffff);
+        completeDma(d.ch);
+        continue;
+      }
 
-          d.size--;
-          if (d.size <= 0) {
-            d.amount--;
+      switch (d.syncMode) {
+        case 0: // Burst.
+          while (count > 0) {
+            transfer32(d.ch, d);
+            d.addr += d.incr;
 
-            if (d.amount <= 0) {
+            d.size--;
+            if (d.size <= 0) {
               completeDma(d.ch);
               break;
             }
-
-            d.size = d.initialSize;
-            // if (d.ch == 1) {
-            //   break; // hack for chopping
-            // }
-          }
-          // count -= d.clocks; // dma should lock the bus
-        }
-
-      case 2: // Linked List
-        while (d.addr.mask24 != 0xffffff) {
-          final node = bus.read32(d.addr);
-
-          if (node == 0) {
-            debugLog(
-                "DMA${d.ch}: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
-            break;
+            // count -= d.clocks; // dma should lock the bus
           }
 
-          for (int i = 0; i < node >> 24; i++) {
-            d.addr = (d.addr + d.incr) & 0x1ffffc;
-            final val = bus.read32(d.addr);
-            bus.write32(d.ioAddr, val);
+        case 1: // Slice
+          while (count > 0) {
+            if (!transfer32(d.ch, d)) {
+              break;
+            }
+            d.addr += d.incr;
+
+            d.size--;
+            if (d.size <= 0) {
+              d.amount--;
+
+              if (d.amount <= 0) {
+                completeDma(d.ch);
+                break;
+              }
+
+              d.size = d.initialSize;
+              if (d.ch == 1) {
+                break; // hack for chopping
+              }
+            }
+            // count -= d.clocks; // dma should lock the bus
           }
 
-          d.addr = node.mask24;
-        }
-        // debugLog(
-        //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
+        case 2: // Linked List
+          while (d.addr.mask24 != 0xffffff) {
+            final node = bus.read32(d.addr);
 
-        completeDma(d.ch);
+            if (node == 0) {
+              debugLog(
+                  "DMA${d.ch}: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
+              break;
+            }
+
+            for (int i = 0; i < node >> 24; i++) {
+              d.addr = (d.addr + d.incr) & 0x1ffffc;
+              final val = bus.read32(d.addr);
+              bus.write32(d.ioAddr, val);
+            }
+
+            d.addr = node.mask24;
+          }
+          // debugLog(
+          //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
+
+          completeDma(d.ch);
+      }
     }
 
     if (_irqPending) {
@@ -297,6 +297,9 @@ class Dma {
 
     d.running = false;
 
+    // if (ch == 1) {
+    //   debugLog("dma: complete ch1, mdec:${bus.mdec.dump()} ");
+    // }
     if (debugLogChannel.contains(ch)) {
       debugLog(
           "DMA$ch: completed ${d.dump()} ctl:${_control.hex32} int:${_interrupt.hex32} ");
