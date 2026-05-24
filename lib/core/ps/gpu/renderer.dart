@@ -62,6 +62,7 @@ extension GpuRenderer on Gpu {
       scanline = 0;
       isVblank = false;
       frame++;
+      debugCmdIndexInFrame = 0;
     }
   }
 }

@@ -68,10 +68,8 @@ void main() {
               (random.nextBool() ? (1 << 25) : 0) |
               (random.nextBool() ? (1 << 28) : 0);
 
-          gpu.renderTexturedGouraudPolygon(
+          gpu.renderTexturedGouraudPolygon4([
             cmd,
-            makeClut(page),
-            page,
             makeColor(),
             makeVertex(),
             makeTexcoord(),
@@ -81,7 +79,7 @@ void main() {
             makeColor(),
             makeVertex(),
             makeTexcoord(),
-          );
+          ]);
         }
       },
       returnsNormally,

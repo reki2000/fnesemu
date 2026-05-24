@@ -102,7 +102,7 @@ extension CdromXA on Cdrom {
     }
 
     // // write to xa.wav file : ffplay.exe -f s16le -ar 37800 -ac 2 xa.wav
-    // File("xa.wav").writeAsBytes(
+    // File("trace/xa.wav").writeAsBytes(
     //   Uint16List.fromList(List.generate(debugBuffer[0].length,
     //               (i) => [debugBuffer[0][i], debugBuffer[1][i]])
     //           .expand((l) => [l[0], l[1]])

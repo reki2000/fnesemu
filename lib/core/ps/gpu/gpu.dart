@@ -81,6 +81,9 @@ class Gpu {
   int bltFromX = 0;
   int bltFromY = 0;
 
+  int debugCmdIndexInFrame = 0;
+  String debugCmdLog = "";
+
   void reset() {
     status = 0.setBit(23, true);
     gp0 = 0;
@@ -209,73 +212,89 @@ class Gpu {
   }
 
   @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
   int getTextureColor2(
       int u, int v, int baseX, int baseY, int clutBase, int clutMode,
       {bool debug = false}) {
     final uu = u & textureMaskX2 | textureOffsetX2;
     final vv = v & textureMaskY2 | textureOffsetY2;
 
-    final base = (baseY + vv.mask8) * 1024;
+    final base = (baseY + vv) << 10;
 
-    if (clutMode == 2) {
-      final result = frameBuffer16[base + ((baseX + uu.mask8) & 0x3ff)];
-      if (debug) {
-        debugLog(
-            "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
-            "baseX:$baseX baseY:$baseY base:${base.hex32} c:${result.hex16}");
-      }
-      return result;
+    final int addr;
+    switch (clutMode) {
+      case 0:
+        final clutByteIndex = base + baseX + uu.shr2;
+        final clutByte = frameBuffer16[clutByteIndex & 0x7ffff];
+        final clutIndex = clutByte >> (uu & 3).shl2;
+        addr = clutBase + (clutIndex & 0x0f);
+
+      case 1:
+        final clutIndex = frameBuffer[(base + baseX).shl1 + uu];
+        addr = clutBase + clutIndex;
+
+      default:
+        addr = base + (baseX + uu).mask10;
     }
-
-    // try {
-    final clutIndex = (clutMode == 1)
-        ? frameBuffer[(base + baseX) * 2 + uu.mask8]
-        : (u.bit0)
-            ? frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] >> 4
-            : frameBuffer[(base + baseX) * 2 + uu.mask8 ~/ 2] & 0x0f;
-
-    final result = frameBuffer16[clutBase + clutIndex];
+    final result = frameBuffer16[addr & 0x7ffff];
 
     if (debug) {
-      debugLog("getTexureColor($u, $v, mode:$clutMode "
-          "baseX:$baseX baseY:$baseY base:${base.hex32} "
-          "clutX:${clutBase % 1024} clutY:${clutBase ~/ 1024} clutBase:${clutBase.hex32} "
-          "index:$clutIndex result:${result.hex24}");
+      debugLog(
+          "getTexureColor($u+$textureOffsetX2/${textureMaskX2.hex8}, $v+$textureOffsetY2/${textureMaskY2.hex8}, "
+          "$baseX, $baseY, ${clutBase.hex24}, $clutMode) -> ${result.hex16}");
     }
 
     return result;
-    // } catch (e) {
-    //   debugLog(
-    //       "getTexureColor($u, $v, $clutMode, ${clutBase.hex24} ${baseX.hex24}, ${baseY.hex24}) mode:$clutMode "
-    //       "baseX:$baseX baseY:$baseY base:${base.hex32} $e");
-    //   rethrow;
-    // }
   }
 
-  @pragma('vm:prefer-inline')
-  pset24(int x, int y, int c24,
-      {bool ignoreWindow = false,
-      bool transparent = false,
-      bool dither = false}) {
-    var c = Color.ofC24(c24);
+  static const _ditherV = [
+    //
+    0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
+  ];
+  static final _ditherV10 = _ditherV.map((i) => i << 10).toList();
 
-    if (status.bit9 && dither) {
-      // dithering
-      const dither = [
-        [0, 8, 2, 10],
-        [12, 4, 14, 6],
-        [3, 11, 1, 9],
-        [15, 7, 13, 5]
-      ];
-      final d = dither[y & 3][x & 3];
-      c = Color(c.r + d, c.g + d, c.b + d);
+  @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
+  int ditherAndModulate(int x, int y, int c16, Color m24) {
+    int d = 0;
+    if (status.bit9) {
+      final xy = x & 3 | (y & 3).shl2;
+      d = _ditherV10[xy & 15];
     }
 
-    pset16(x, y, c.c15 | (transparent ? 0x8000 : 0),
-        ignoreWindow: ignoreWindow);
+    final r5 = c16 & 0x1f;
+    final g5 = c16 >> 5 & 0x1f;
+    final b5 = c16 >> 10 & 0x1f;
+    final r = (((r5 << 5) + r5) * m24.r + d) >> 12;
+    final g = (((g5 << 5) + g5) * m24.g + d) >> 12;
+    final b = (((b5 << 5) + b5) * m24.b + d) >> 12;
+    final r2 = r > 31 ? 31 : r;
+    final g2 = g > 31 ? 31 : g;
+    final b2 = b > 31 ? 31 : b;
+
+    return b2.shl10 | g2.shl5 | r2 | c16 & 0x8000;
   }
 
   @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
+  int dither(int x, int y, Color c) {
+    int c15 = 0;
+    if (status.bit9) {
+      // dithering
+      final xy = x & 3 | (y & 3).shl2;
+      final d = _ditherV[xy & 15];
+      c15 = (c.r + d).shr3.min(31) |
+          (c.g + d).shr3.min(31).shl5 |
+          (c.b + d).shr3.min(31).shl10;
+    } else {
+      c15 = c.c15;
+    }
+
+    return c15;
+  }
+
+  @pragma('vm:prefer-inline')
+  @pragma('vm:no-bounds-check')
   pset16(int x, int y, int c16,
       {bool ignoreWindow = false, int? semiTransparent}) {
     if (!ignoreWindow) {
@@ -303,27 +322,32 @@ class Gpu {
 
     // semi-transparency
     if (c16.bit15) {
-      final (r0, g0, b0) = (old & 0x1f, old >> 5 & 0x1f, old >> 10 & 0x1f);
-      final (r1, g1, b1) = (c16 & 0x1f, c16 >> 5 & 0x1f, c16 >> 10 & 0x1f);
+      final r0 = old & 0x1f;
+      final g0 = old >> 5 & 0x1f;
+      final b0 = old >> 10 & 0x1f;
+      final r1 = c16 & 0x1f;
+      final g1 = c16 >> 5 & 0x1f;
+      final b1 = c16 >> 10 & 0x1f;
       // if (x == 11 && y == 136) {
       //   debugLog("gpu: semi transparency old:${old.hex16} new:${c16.hex16} "
       //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
       //       "mode:${status >> 5 & 0x03}");
       // }
-      c16 = switch (semiTransparent ?? status >> 5 & 0x03) {
-        0 => ((b0 + b1) >> 1) << 10 |
-            ((g0 + g1) >> 1) << 5 |
-            ((r0 + r1) >> 1), // B/2+F/2
-        1 => (b0 + b1).min(31) << 10 |
-            (g0 + g1).min(31) << 5 |
-            (r0 + r1).min(31), // B+F
-        2 => (b0 - b1).max(0) << 10 |
-            (g0 - g1).max(0) << 5 |
-            (r0 - r1).max(0), // B-F
-        _ => (b0 + (b1 >> 2)).min(31) << 10 |
-            (g0 + (g1 >> 2)).min(31) << 5 |
-            (r0 + (r1 >> 2)).min(31) // B+F/4
-      };
+      c16 = 0x8000 |
+          switch (semiTransparent ?? status >> 5 & 0x03) {
+            0 => ((b0 + b1) >> 1) << 10 |
+                ((g0 + g1) >> 1) << 5 |
+                ((r0 + r1) >> 1), // B/2+F/2
+            1 => 31.min(b0 + b1) << 10 |
+                31.min(g0 + g1) << 5 |
+                31.min(r0 + r1), // B+F
+            2 => 0.max(b0 - b1) << 10 |
+                0.max(g0 - g1) << 5 |
+                0.max(r0 - r1), // B-F
+            _ => 31.min(b0 + (b1 >> 2)) << 10 |
+                31.min(g0 + (g1 >> 2)) << 5 |
+                31.min(r0 + (r1 >> 2)), // B+F/4
+          };
     }
 
     final forceBit15 = status.bit11 ? 0x8000 : 0;
@@ -339,5 +363,5 @@ class Gpu {
       "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
 
   String dumpCmd() =>
-      "cmd: ${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}";
+      "cmd[${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}]";
 }

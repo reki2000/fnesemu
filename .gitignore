@@ -9,6 +9,7 @@ docs/*
 log.txt
 xa.wav
 devtools_options.yaml
+trace
 
 # dev settings
 run*.cmd

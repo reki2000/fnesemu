@@ -13,7 +13,7 @@ import 'mdec.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
 
-final debugLogAddr = 0x80135b20;
+final debugLogAddr = 0x80067840;
 
 class Bus implements BusR3000 {
   late final Gpu gpu;
@@ -275,6 +275,9 @@ class Bus implements BusR3000 {
   @pragma('vm:prefer-inline')
   @pragma('vm:no-bounds-check')
   void write32(int addr, int v) {
+    // if (addr == debugLogAddr) {
+    //   debugLog("bus: write32 to ${debugLogAddr.hex32}: ${v.hex32}");
+    // }
     final offset = addr & 0x1fffffff;
     if (offset < 0x8000000) {
       mem32[offset >> 2 & mem32Mask] = v;
@@ -284,10 +287,6 @@ class Bus implements BusR3000 {
   }
 
   void _write32Full(int addr, int v) {
-    // if (addr == debugLogAddr) {
-    //   debugLog("bus: write32 to ${debugLogAddr.hex32}: ${v.hex32}");
-    // }
-
     final offset = addr & segMask[addr >> 29];
     const sig = "write32";
 

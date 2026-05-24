@@ -37,20 +37,6 @@ class Color {
     final b = (this.b * totalMinusPart + c.b * part + totalHalf) ~/ total;
     return Color(r, g, b);
   }
-
-  @pragma('vm:prefer-inline')
-  static int modulate(int c16, Color m24) {
-    final r5 = c16 & 0x1f;
-    final g5 = c16 >> 5 & 0x1f;
-    final b5 = c16 >> 10 & 0x1f;
-    final r = ((r5 << 5) + r5) * m24.r >> 12;
-    final g = ((g5 << 5) + g5) * m24.g >> 12;
-    final b = ((b5 << 5) + b5) * m24.b >> 12;
-    final r2 = r > 31 ? 31 : r;
-    final g2 = g > 31 ? 31 : g;
-    final b2 = b > 31 ? 31 : b;
-    return b2.shl10 | g2.shl5 | r2 | c16 & 0x8000;
-  }
 }
 
 class Point {

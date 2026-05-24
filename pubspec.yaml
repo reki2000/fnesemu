@@ -21,6 +21,7 @@ dependencies:
   test: ^1.21.1
   archive: ^3.1.2
   shared_preferences: ^2.5.2
+  image: ^4.3.0
 
 dev_dependencies:
   flutter_test:

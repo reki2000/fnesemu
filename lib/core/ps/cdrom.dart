@@ -71,7 +71,6 @@ class Cdrom {
   bool get isSectorSize924 => mode.bit5;
   bool get isXaFilterEnabled => mode.bit3;
 
-  bool isCmdBusy = false;
   get sectorSize => isSectorSize924 ? 0x924 : 0x800;
 
   bool isXaAdpcmBusy = false;
@@ -85,10 +84,10 @@ class Cdrom {
   final List<int> xaOldest = [0, 0, 0]; // mono, left, right
   final resampler = XaResampler();
 
-  int cmdDelay = 0;
-
   int intMask = 0;
 
+  int cmdDelay = 0;
+  bool isCmdBusy = false;
   final paramFifo = ListQueue<int>();
   final cmdResults = Queue<CmdResult>();
   final resultFifo = Queue<int>();
@@ -226,6 +225,8 @@ class Cdrom {
 
       case (1, 2): // hintmsk
         intMask = value & 0x1f;
+        // Re-evaluate pending interrupt when mask is updated.
+        _raisePendingIrqIfEnabled();
 
       case (1, 3): // hclrctl
         if (value.bit6) {
@@ -266,11 +267,8 @@ class Cdrom {
         resultFifo.clear();
         resultFifo.addAll(result.fifo);
         cmdResults.removeFirst();
-
-        if ((intMask & result.intNo & 0x07) != 0) {
-          bus.setIrq(Interrupt.cdrom);
-          // debugLog("cdrom: irq ${result.intNo} ${dump()}");
-        }
+        _raisePendingIrqIfEnabled();
+        // debugLog("cdrom: irq ${result.intNo} ${dump()}");
       }
     }
 
@@ -304,7 +302,19 @@ class Cdrom {
     irq(1, [status()], delay: 0);
   }
 
+  void _raisePendingIrqIfEnabled() {
+    if (currentIntNo != 0 && (intMask & currentIntNo & 0x07) != 0) {
+      bus.setIrq(Interrupt.cdrom);
+    }
+  }
+
   void irq(int no, List<int> data, {int delay = 50000}) {
+    // INT1 is level-like in practice for sector delivery; do not enqueue
+    // duplicates while one is already pending/active and waiting for ACK.
+    if (no == 1 && (currentIntNo == 1 || cmdResults.any((r) => r.intNo == 1))) {
+      return;
+    }
+
     final result = CmdResult()
       ..delay = delay
       ..intNo = no
@@ -325,7 +335,7 @@ class Cdrom {
   }
 
   void execCommand(int cmd) {
-    cmdResults.clear();
+    resultFifo.clear();
     debugLog(
         "cdrom: ${cmd.hex8}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.hex8}").join(",")}) ${dump()}");
 
@@ -509,15 +519,15 @@ class Cdrom {
     final mm = m.toString().padLeft(2, '0');
     final ss = s.toString().padLeft(2, '0');
     final ff = f.toString().padLeft(2, '0');
-    return "sector $sector ($mm:$ss:$ff)";
+    return "$sector ($mm:$ss:$ff)";
   }
 
   String dump() => "status:${status().hex8} bank:$bank "
-      "params:[${paramFifo.map((e) => e.hex8).join(" ")}] "
-      "results:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]").join(" ")} "
-      "fifo:[${resultFifo.map((e) => e.hex8).join(" ")}] "
+      "cmd:[${paramFifo.map((e) => e.hex8).join(" ")}] "
+      "result:[${resultFifo.map((e) => e.hex8).join(" ")}] "
+      "pend:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]").join(" ")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.hex8} sector:${dumpSector(readingSector)}";
+      "mask:${intMask.hex8} mode:${mode.hex8} seek:${dumpSector(seekSector)} read:${dumpSector(readingSector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",
