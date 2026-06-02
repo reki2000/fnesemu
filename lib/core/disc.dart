@@ -4,6 +4,9 @@ import 'package:fnesemu/util/uint8list.dart';
 
 abstract class Disc {
   Uint8List read(int sector);
+  int get trackCount;
+  int get totalSectors;
+  int startLba(int trackNo);
   bool get isEmpty;
 
   Uint8List loadIso9660File(String path) {

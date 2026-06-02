@@ -7,4 +7,15 @@ class EmptyDisc extends Disc {
   Uint8List read(int sector) => Disc.emptySector;
   @override
   bool get isEmpty => true;
+
+  @override
+  int get trackCount => 0;
+
+  @override
+  int get totalSectors => 0;
+
+  @override
+  int startLba(int trackNo) {
+    throw RangeError("disc: empty: no tracks available");
+  }
 }
