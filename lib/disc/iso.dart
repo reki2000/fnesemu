@@ -20,37 +20,40 @@ import 'disc.dart';
 class IsoDisc extends Disc {
   final String path;
   Uint8List data = Uint8List(0);
-  static const sync = [
-    0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0 // 12 bytes
-  ];
 
-  IsoDisc(this.path);
-
-  bool load() {
+  IsoDisc(this.path) {
     try {
       data = File(path).readAsBytesSync();
       debugLog(
           "disc: iso: Loaded disc image from $path. ${data.length.format3} bytes.");
     } catch (e) {
       debugLog("disc: iso: Error on loading disc image from $path. $e");
-      return false;
     }
-    return true;
   }
 
-  // returns whole sector date without sync
+  @override
+  int get trackCount => 1;
+
+  @override
+  int get totalSectors => data.length ~/ Disc.sectorSize;
+
+  @override
+  int startLba(int trackNo) {
+    if (trackNo != 1) {
+      throw RangeError("disc: iso: invalid track number $trackNo");
+    }
+    return 0;
+  }
+
+  @override
+  bool get isEmpty => data.isEmpty;
+
   @override
   Uint8List read(int sector) {
-    if (data.isEmpty) {
-      if (!load()) {
-        return Disc.emptySector; // empty buffer
-      }
-    }
-
     sector -= 2 * 75; // skip lead-in
 
     if (sector < 0 || (sector + 1) * Disc.sectorSize >= data.length) {
-      return Disc.emptySector; // empty buffer
+      return Uint8List(0); // error out of range
     }
 
     final sectorOffset = sector * Disc.sectorSize;
@@ -61,11 +64,8 @@ class IsoDisc extends Disc {
     return data.sublist(dataOffset, dataOffset + Disc.sectorSize);
   }
 
-  @override
-  bool get isEmpty => false;
-
   void logReadSector(int sector, int sectorOffset) {
-    final headerOffset = sectorOffset + sync.length;
+    final headerOffset = sectorOffset + Disc.sync.length;
     final minutes = data[headerOffset];
     final seconds = data[headerOffset + 1];
     final sectorNumber = data[headerOffset + 2];
@@ -77,6 +77,6 @@ class IsoDisc extends Disc {
     debugLog(
         "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) "
         "mode:$mode file:$file channel:$channel submode:${submode.hex8} codinginfo:${codinginfo.hex8}"
-        "[${data.sublist(sectorOffset + sync.length, sectorOffset + sync.length + 16).map((e) => e.hex8).join(" ")}...]");
+        "[${data.sublist(sectorOffset + Disc.sync.length, sectorOffset + Disc.sync.length + 16).map((e) => e.hex8).join(" ")}...]");
   }
 }

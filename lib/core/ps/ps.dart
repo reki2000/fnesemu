@@ -242,7 +242,7 @@ class Ps extends Core {
   void setDisc(Disc disc) {
     debugLog("set disc ${disc.isEmpty ? "empty" : "with data"}");
     disc.isEmpty ? bus.cdrom.openShell() : bus.cdrom.closeShell();
-    bus.cdrom.readDisc = disc.read;
+    bus.cdrom.disc = disc;
   }
 
   @override

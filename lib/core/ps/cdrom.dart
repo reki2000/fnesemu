@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import '../../util/debug.dart';
+import '../disc.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
@@ -19,6 +20,7 @@ class CmdResult {
 
 extension IntBcd on int {
   int get asBcd => (this & 0x0f) + ((this & 0xf0) >> 4) * 10;
+  int get toBcd => ((this ~/ 10) << 4) | (this % 10);
 }
 
 class Toc {
@@ -35,6 +37,8 @@ class Cdrom {
     reset();
   }
 
+  late Disc disc;
+
   int bank = 0;
 
   int data = 0;
@@ -50,8 +54,6 @@ class Cdrom {
   bool isError = false;
 
   static const sectorBufferSize = 2352; // 0x930 bytes
-
-  Uint8List Function(int) readDisc = (int _) => Uint8List(sectorBufferSize);
 
   Uint8List rawSector = Uint8List(sectorBufferSize);
   final sectorBuffer = List.filled(sectorBufferSize, 0); // 0x930 bytes
@@ -292,7 +294,7 @@ class Cdrom {
   }
 
   void handleSectorRead() {
-    rawSector = readDisc(readingSector);
+    rawSector = disc.read(readingSector);
 
     decodeXa();
 
@@ -416,22 +418,41 @@ class Cdrom {
         irq(3, rawSector.sublist(12, 20));
 
       case 0x11: // GetLocp
-        final currentSector = isReading ? readingSector : 0;
-        final (mm, ss, ff) = lbaToMsf(currentSector);
-        irq(3, [01, 01, mm, ss, ff, mm, ss, ff]);
+        final currentSector = isReading ? readingSector : seekSector;
+        int trackNo = 0;
+        while (trackNo < disc.trackCount) {
+          if (currentSector < disc.startLba(trackNo + 1)) {
+            break;
+          }
+          trackNo++;
+        }
+        final (rm, rs, rf) =
+            lbaToMsfRelative(currentSector - disc.startLba(trackNo));
+        final (am, as_, af) = lbaToMsf(currentSector);
+        irq(3, [
+          trackNo,
+          1,
+          rm.toBcd,
+          rs.toBcd,
+          rf.toBcd,
+          am.toBcd,
+          as_.toBcd,
+          af.toBcd,
+        ]);
 
       case 0x13: // GetTN
-        irq(3, [status(), toc.lastTrackBcd, toc.firstTrackBcd]);
+        final first = toc.firstTrackBcd;
+        final last = toc.lastTrackBcd;
+        irq(3, [status(), first, last]);
 
       case 0x14: // GetTD
         final track = paramFifo.elementAt(0).asBcd;
         if (track == 0) {
-          irq(3, [status(), 0, 0]);
+          final (mm, ss, _) = lbaToMsf(disc.totalSectors);
+          irq(3, [status(), mm.toBcd, ss.toBcd]);
         } else {
-          final sector =
-              (track - toc.firstTrackBcd) * 60 * 75; // TODO: read from TOC
-          final (mm, ss, _) = lbaToMsf(sector);
-          irq(3, [status(), mm, ss]);
+          final (mm, ss, _) = lbaToMsf(disc.startLba(track));
+          irq(3, [status(), mm.toBcd, ss.toBcd]);
         }
 
       case 0x15: // SeekL
@@ -461,6 +482,8 @@ class Cdrom {
         irq(2, [status()]);
 
       case 0x1e: // ReadTOC
+        toc.firstTrackBcd = disc.isEmpty ? 0 : 1.toBcd;
+        toc.lastTrackBcd = disc.isEmpty ? 0 : disc.trackCount.toBcd;
         irq(3, [status()]);
         irq(2, [status()]);
 
@@ -511,6 +534,14 @@ class Cdrom {
     final m = msf ~/ (60 * 75);
     final s = (msf ~/ 75) % 60;
     final f = msf % 75;
+    return (m, s, f);
+  }
+
+  /// Convert a relative sector count (no lead-in offset) to MSF.
+  (int, int, int) lbaToMsfRelative(int sectors) {
+    final m = sectors ~/ (60 * 75);
+    final s = (sectors ~/ 75) % 60;
+    final f = sectors % 75;
     return (m, s, f);
   }
 

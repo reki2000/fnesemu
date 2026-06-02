@@ -1,6 +1,4 @@
 // Dart imports:
-import 'dart:io';
-
 // Flutter imports:
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
@@ -121,18 +119,7 @@ class MainPageState extends State<MainPage> {
     _keyHandler = KeyHandler(controller: _controller);
 
     // scan disc dir if set in environment variables
-    final dir = widget.config.discDir;
-    if (dir.isNotEmpty && Directory(dir).existsSync()) {
-      _discs = Directory(dir)
-          .listSync()
-          .whereType<File>()
-          .where((f) {
-            final lower = f.path.toLowerCase();
-            return lower.endsWith('.iso') || lower.endsWith('.bin');
-          })
-          .map((f) => f.path)
-          .toList();
-    }
+    _discs = DiscLoader.discoverDiscs(widget.config.discDir);
 
     if (widget.config.disc.isNotEmpty) {
       _setDiscFile(widget.config.disc);
@@ -249,10 +236,7 @@ class MainPageState extends State<MainPage> {
               onSelected: (name) => _do(() async => await _setDiscFile(name)),
               itemBuilder: (_) => _discs.map((name) {
                 final filename = name.split(RegExp(r'[\\/]')).last;
-                final label = filename.contains('.')
-                    ? filename.substring(0, filename.lastIndexOf('.'))
-                    : filename;
-                return PopupMenuItem(value: name, child: Text(label));
+                return PopupMenuItem(value: name, child: Text(filename));
               }).toList(),
             ),
 
