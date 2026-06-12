@@ -3,8 +3,8 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
+import '../core/disc.dart';
 import '../util/debug.dart';
-import 'disc.dart';
 
 /*
   1 sector = 930h bytes (2352 bytes)
@@ -47,6 +47,9 @@ class IsoDisc extends Disc {
 
   @override
   bool get isEmpty => data.isEmpty;
+
+  @override
+  bool isAudio(int trackNo) => false;
 
   @override
   Uint8List read(int sector) {
