@@ -1,9 +1,8 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
-import 'package:fnesemu/util/int.dart';
-
 import '../../util/debug.dart';
+import '../../util/int.dart';
 import '../disc.dart';
 import 'bus.dart';
 import 'interrupt.dart';
@@ -26,7 +25,7 @@ extension IntBcd on int {
 class Toc {
   int firstTrackBcd = 1;
   int lastTrackBcd = 1;
-  int diskType = 0x20; // (00h=CD-DA or CD-ROM, 10h=CD-I, 20h=CD-ROM-XA
+  int diskType = 0x20; // 00h=CD-DA or CD-ROM, 10h=CD-I, 20h=CD-ROM-XA
 }
 
 class Cdrom {
@@ -44,7 +43,7 @@ class Cdrom {
   int data = 0;
   int result = 0;
 
-  bool isPlayCDDA = false;
+  bool isPlaying = false;
   bool isSeeking = false;
   bool isReading = false;
   bool isShellOpen = false;
@@ -72,6 +71,7 @@ class Cdrom {
   bool get isXaAdpcmEnabled => mode.bit6;
   bool get isSectorSize924 => mode.bit5;
   bool get isXaFilterEnabled => mode.bit3;
+  bool get isCddaEnabled => mode.bit0;
 
   get sectorSize => isSectorSize924 ? 0x924 : 0x800;
 
@@ -79,12 +79,15 @@ class Cdrom {
   bool isMuted = false;
 
   int xaSampleRate = 37800;
-  final xaBufferL = ListQueue<int>();
-  final xaBufferR = ListQueue<int>();
-  final xaLastSample = [0, 0];
+  final audioBufferL = ListQueue<int>();
+  final audioBufferR = ListQueue<int>();
+  final audioLastSample = [0, 0];
   final List<int> xaOld = [0, 0, 0]; // mono, left, right
   final List<int> xaOldest = [0, 0, 0]; // mono, left, right
   final resampler = XaResampler();
+
+  final List<int> atv = [0, 0, 0, 0];
+  int adpCtrl = 0;
 
   int intMask = 0;
 
@@ -103,12 +106,15 @@ class Cdrom {
     isXaAdpcmBusy = false;
 
     xaSampleRate = 37800;
-    xaBufferL.clear();
-    xaBufferR.clear();
-    xaLastSample.setAll(0, [0, 0]);
+    audioBufferL.clear();
+    audioBufferR.clear();
+    audioLastSample.setAll(0, [0, 0]);
     xaOld.setAll(0, [0, 0, 0]);
     xaOldest.setAll(0, [0, 0, 0]);
     resampler.reset();
+
+    atv.setAll(0, [0, 0, 0, 0]);
+    adpCtrl = 0;
 
     cmdDelay = 0;
     intMask = 0;
@@ -117,9 +123,9 @@ class Cdrom {
     result = 0;
     currentIntNo = 0;
 
+    isPlaying = false;
     isReading = false;
     isSeeking = false;
-    isPlayCDDA = false;
     isShellOpen = false;
     isIdError = false;
     isSeekError = false;
@@ -247,10 +253,10 @@ class Cdrom {
       case (2, 3): // atv1
       case (3, 1): // atv2
       case (3, 2): // atv3
-        debugLog("cdrom: ATV ${value.hex8} ${dump()}");
+        atv[reg - 2] = value;
 
       case (3, 3): // ADPCTL
-        debugLog("cdrom: ADPCTL ${value.hex8} ${dump()}");
+        adpCtrl = value;
 
       default:
         debugLog(
@@ -280,28 +286,54 @@ class Cdrom {
     }
 
     // sector read
-    if (isReading) {
+    if (isReading || isCddaEnabled) {
       sectorReadDelay -= clocks;
 
       if (sectorReadDelay <= 0) {
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
 
-        handleSectorRead();
+        rawSector = disc.read(readingSector);
+
+        final isAudioSector = disc.isAudioSector(readingSector);
+
+        if (isPlaying || (isCddaEnabled && isAudioSector)) {
+          debugLog(
+              "cdrom: read audio sector ${Disc.dumpSector(readingSector)}");
+          for (int i = 0; i < rawSector.length; i += 4) {
+            final l = rawSector[i + 0] | rawSector[i + 1].shl8;
+            final r = rawSector[i + 2] | rawSector[i + 3].shl8;
+            audioBufferL.add(l.rel16);
+            audioBufferR.add(r.rel16);
+          }
+        } else if (isXaAdpcmEnabled && !isAudioSector && !adpCtrl.bit0) {
+          decodeXa();
+        }
+
+        // debugLog(
+        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
+
+        irq(1, [status()], delay: 0);
 
         readingSector++;
       }
     }
   }
 
-  void handleSectorRead() {
-    rawSector = disc.read(readingSector);
-
-    decodeXa();
-
-    // debugLog(
-    //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
-
-    irq(1, [status()], delay: 0);
+  List<int> popAudioSample() {
+    if (audioBufferL.isNotEmpty && audioBufferR.isNotEmpty) {
+      final l = audioBufferL.removeFirst();
+      final r = audioBufferR.removeFirst();
+      if (adpCtrl.bit5) {
+        audioLastSample[0] = l;
+        audioLastSample[1] = r;
+      } else {
+        audioLastSample[0] =
+            (l * atv[0] ~/ 0x80 + r * atv[3] ~/ 0x80).clip(-0x8000, 0x7fff);
+        audioLastSample[1] =
+            (r * atv[2] ~/ 0x80 + l * atv[1] ~/ 0x80).clip(-0x8000, 0x7fff);
+      }
+    }
+    return audioLastSample;
   }
 
   void _raisePendingIrqIfEnabled() {
@@ -326,7 +358,7 @@ class Cdrom {
 
   int status() {
     return 0
-        .setBit(7, isPlayCDDA)
+        .setBit(7, isCddaEnabled)
         .setBit(6, isSeeking)
         .setBit(5, isReading)
         .setBit(4, isShellOpen)
@@ -353,6 +385,7 @@ class Cdrom {
         irq(3, [status()], delay: 5000);
 
       case 0x03: // Play
+        isPlaying = true;
         readingSector = seekSector;
         irq(3, [status()]);
 
@@ -426,9 +459,10 @@ class Cdrom {
           }
           trackNo++;
         }
-        final (rm, rs, rf) =
-            lbaToMsfRelative(currentSector - disc.startLba(trackNo));
-        final (am, as_, af) = lbaToMsf(currentSector);
+        final (rm, rs, rf) = Disc.lbaToMsf(
+            currentSector - disc.startLba(trackNo),
+            addLeadIn: false);
+        final (am, as_, af) = Disc.lbaToMsf(currentSector);
         irq(3, [
           trackNo,
           1,
@@ -448,10 +482,10 @@ class Cdrom {
       case 0x14: // GetTD
         final track = paramFifo.elementAt(0).asBcd;
         if (track == 0) {
-          final (mm, ss, _) = lbaToMsf(disc.totalSectors);
+          final (mm, ss, _) = Disc.lbaToMsf(disc.totalSectors);
           irq(3, [status(), mm.toBcd, ss.toBcd]);
         } else {
-          final (mm, ss, _) = lbaToMsf(disc.startLba(track));
+          final (mm, ss, _) = Disc.lbaToMsf(disc.startLba(track));
           irq(3, [status(), mm.toBcd, ss.toBcd]);
         }
 
@@ -529,36 +563,12 @@ class Cdrom {
 
   void readSector(int sector) {}
 
-  (int, int, int) lbaToMsf(int lba) {
-    final msf = lba + 150;
-    final m = msf ~/ (60 * 75);
-    final s = (msf ~/ 75) % 60;
-    final f = msf % 75;
-    return (m, s, f);
-  }
-
-  /// Convert a relative sector count (no lead-in offset) to MSF.
-  (int, int, int) lbaToMsfRelative(int sectors) {
-    final m = sectors ~/ (60 * 75);
-    final s = (sectors ~/ 75) % 60;
-    final f = sectors % 75;
-    return (m, s, f);
-  }
-
-  String dumpSector(int sector) {
-    final (m, s, f) = lbaToMsf(sector);
-    final mm = m.toString().padLeft(2, '0');
-    final ss = s.toString().padLeft(2, '0');
-    final ff = f.toString().padLeft(2, '0');
-    return "$sector ($mm:$ss:$ff)";
-  }
-
   String dump() => "status:${status().hex8} bank:$bank "
       "cmd:[${paramFifo.map((e) => e.hex8).join(" ")}] "
       "result:[${resultFifo.map((e) => e.hex8).join(" ")}] "
       "pend:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]").join(" ")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.hex8} mode:${mode.hex8} seek:${dumpSector(seekSector)} read:${dumpSector(readingSector)}";
+      "mask:${intMask.hex8} mode:${mode.hex8} seek:${Disc.dumpSector(seekSector)} read:${Disc.dumpSector(readingSector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",
