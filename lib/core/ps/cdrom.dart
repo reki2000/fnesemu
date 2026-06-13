@@ -250,10 +250,16 @@ class Cdrom {
         }
 
       case (2, 2): // atv0
+        atv[0] = value;
+
       case (2, 3): // atv1
+        atv[1] = value;
+
       case (3, 1): // atv2
+        atv[2] = value;
+
       case (3, 2): // atv3
-        atv[reg - 2] = value;
+        atv[3] = value;
 
       case (3, 3): // ADPCTL
         adpCtrl = value;
@@ -297,8 +303,8 @@ class Cdrom {
         final isAudioSector = disc.isAudioSector(readingSector);
 
         if (isPlaying || (isCddaEnabled && isAudioSector)) {
-          debugLog(
-              "cdrom: read audio sector ${Disc.dumpSector(readingSector)}");
+          // debugLog(
+          //     "cdrom: read audio sector ${Disc.dumpSector(readingSector)}");
           for (int i = 0; i < rawSector.length; i += 4) {
             final l = rawSector[i + 0] | rawSector[i + 1].shl8;
             final r = rawSector[i + 2] | rawSector[i + 3].shl8;

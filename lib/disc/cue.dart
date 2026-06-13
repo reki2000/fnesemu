@@ -94,12 +94,12 @@ class CueDisc extends Disc {
             (sector - t.startLBA) * Disc.sectorSize + t.offsetInImage;
         final sectorData =
             _images[t.imageIndex].sublist(offset, offset + Disc.sectorSize);
-        _logReadSector(sector, sectorData);
+        // _logReadSector(sector, sectorData);
         return sectorData;
       }
     }
 
-    debugLog("cue: gap or out of range: ${Disc.dumpSector(sector)}");
+    // debugLog("cue: gap or out of range: ${Disc.dumpSector(sector)}");
     return Uint8List(0); // out of range
   }
 
