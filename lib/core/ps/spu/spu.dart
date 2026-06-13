@@ -5,7 +5,6 @@ import '../../../util/double.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
 import '../bus.dart';
-import '../cdrom.dart';
 import 'reverb.dart';
 import 'voice.dart';
 
@@ -72,13 +71,11 @@ class Spu {
       }
     }
 
-    final [xaL, xaR] = bus.cdrom.popXaSample();
-    final cdL = xaL * cdAudioInputLeft ~/ 0x8000;
-    final cdR = xaR * cdAudioInputRight ~/ 0x8000;
-    writeRam16(0x000 + captureIndex, xaL);
-    writeRam16(0x400 + captureIndex, xaR);
-    outL += cdL;
-    outR += cdR;
+    final [cdL, cdR] = bus.cdrom.popAudioSample();
+    writeRam16(0x000 + captureIndex, cdL);
+    writeRam16(0x400 + captureIndex, cdR);
+    outL += cdL * cdAudioInputLeft ~/ 0x8000;
+    outR += cdR * cdAudioInputRight ~/ 0x8000;
 
     captureIndex = (captureIndex + 2) & 0x3fe;
 

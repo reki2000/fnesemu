@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'disc.dart';
+import '../core/disc.dart';
 
 class EmptyDisc extends Disc {
   @override
@@ -18,4 +18,7 @@ class EmptyDisc extends Disc {
   int startLba(int trackNo) {
     throw RangeError("disc: empty: no tracks available");
   }
+
+  @override
+  bool isAudio(int trackNo) => false;
 }

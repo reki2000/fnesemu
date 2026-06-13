@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/disc.dart';
 import 'package:fnesemu/disc/cue.dart';
-import 'package:fnesemu/disc/disc.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -156,7 +156,7 @@ FILE "disc.bin" BINARY
 FILE "data.bin" BINARY
   TRACK 01 MODE2/2352
     PREGAP 00:02:00
-    INDEX 01 00:00:00
+    INDEX 01 00:02:00
 ''', {'data.bin': makeBin(10)});
       // 150 silent sectors before INDEX 01 00:00:00
       expect(disc.startLba(1), 150);

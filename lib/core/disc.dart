@@ -8,6 +8,41 @@ abstract class Disc {
   int get totalSectors;
   int startLba(int trackNo);
   bool get isEmpty;
+  bool isAudio(int trackNo);
+
+  bool isAudioSector(int sector) {
+    if (isEmpty) return false;
+    for (int trackNo = 1; trackNo <= trackCount; trackNo++) {
+      if (sector < startLba(trackNo)) {
+        return isAudio(trackNo);
+      }
+    }
+    return false; // out of range
+  }
+
+  static const int sectorSize = 2352; // 0x930 = 24bytes x 98frames
+  // static const int sectorDataSize = 2324; // bytes per sector data
+  static Uint8List emptySector = Uint8List(sectorSize);
+
+  static const sync = [
+    0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0 // 12 bytes
+  ];
+
+  static String dumpSector(int sector) {
+    final (m, s, f) = lbaToMsf(sector);
+    final mm = m.toString().padLeft(2, '0');
+    final ss = s.toString().padLeft(2, '0');
+    final ff = f.toString().padLeft(2, '0');
+    return "$sector ($mm:$ss:$ff)";
+  }
+
+  static (int, int, int) lbaToMsf(int lba, {bool addLeadIn = false}) {
+    final msf = lba + (addLeadIn ? 150 : 0);
+    final m = msf ~/ (60 * 75);
+    final s = (msf ~/ 75) % 60;
+    final f = msf % 75;
+    return (m, s, f);
+  }
 
   Uint8List loadIso9660File(String path) {
     readSector(i) => read(i + 2 * 75).sublist(0x18); // skip lead-in and sync
