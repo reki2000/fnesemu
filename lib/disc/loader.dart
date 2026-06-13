@@ -1,7 +1,7 @@
 import 'dart:io';
 
+import '../core/disc.dart';
 import 'cue.dart';
-import 'disc.dart';
 import 'empty.dart';
 import 'iso.dart';
 
@@ -34,6 +34,7 @@ class DiscLoader {
               if (cueFile.isNotEmpty) {
                 foundNames.add(cueFile.replaceAll(".cue", ""));
               }
+              return cueFile;
             } else if (f is File) {
               final lower = f.path.toLowerCase();
               final suffix = lower.split('.').last;

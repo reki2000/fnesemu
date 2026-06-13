@@ -89,14 +89,14 @@ extension CdromXA on Cdrom {
         // merge into xaBuffer, stereo: u0=L, u1=R ..., mono: all L=R
         if (isStereo) {
           if (unit.isEven) {
-            resampler.pushInterpolated(xaBufferL, 0, buf, isSampleRate18900);
+            resampler.pushInterpolated(audioBufferL, 0, buf, isSampleRate18900);
           } else {
-            resampler.pushInterpolated(xaBufferR, 1, buf, isSampleRate18900);
+            resampler.pushInterpolated(audioBufferR, 1, buf, isSampleRate18900);
           }
           // debugBuffer[unit.isEven ? 0 : 1].addAll(buf);
         } else {
-          resampler.pushInterpolated(xaBufferL, 0, buf, isSampleRate18900);
-          resampler.pushInterpolated(xaBufferR, 1, buf, isSampleRate18900);
+          resampler.pushInterpolated(audioBufferL, 0, buf, isSampleRate18900);
+          resampler.pushInterpolated(audioBufferR, 1, buf, isSampleRate18900);
         }
       }
     }
@@ -114,15 +114,6 @@ extension CdromXA on Cdrom {
   }
 
   //
-
-  List<int> popXaSample() {
-    if (xaBufferL.isEmpty || xaBufferR.isEmpty) {
-      return xaLastSample;
-    }
-    xaLastSample[0] = xaBufferL.removeFirst();
-    xaLastSample[1] = xaBufferR.removeFirst();
-    return xaLastSample;
-  }
 }
 
 class XaResampler {
