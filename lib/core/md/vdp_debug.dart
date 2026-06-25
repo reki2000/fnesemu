@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/uint8list.dart';
 
 import '../types.dart';
 import 'vdp.dart';
@@ -62,7 +62,7 @@ extension VdpDebug on Vdp {
           for (int tx = 0; tx < 16; tx++) {
             for (int y = 0; y < tileSize; y++) {
               final addr = (tx + ty * 16) * 32 + y * 4;
-              final pattern = vram.getUInt32BE(addr + vramOffset);
+              final pattern = vram.getUint32BE(addr + vramOffset);
 
               for (int x = 0; x < tileSize; x++) {
                 final shiftBits = 7 - x;
@@ -94,15 +94,15 @@ extension VdpDebug on Vdp {
     final result = List.generate(80, (i) {
       final base = baseAddr + i * 8;
       final sp = Sprite.of(
-          vram.getUInt16BE(base.mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
+          vram.getUint16BE(base.mask16),
+          vram.getUint16BE((base + 2).mask16),
+          vram.getUint16BE((base + 4).mask16),
+          vram.getUint16BE((base + 6).mask16));
       final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
       final flags =
           "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
       final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
-      return "#$no $xy ${sp.patternAddr.hex16} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
+      return "#$no $xy ${sp.patternAddr.x4} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
     });
     return result;
   }
@@ -153,7 +153,7 @@ extension VdpDebug on Vdp {
 
           for (int y = 0; y < yCellSize; y++) {
             final patternAddr = addr + ((y ^ vFlipXor) << 2);
-            final pattern = vram.getUInt32BE(patternAddr.mask16);
+            final pattern = vram.getUint32BE(patternAddr.mask16);
 
             for (int x = 0; x < tileSize; x++) {
               final shift = x ^ hFlipXor;
@@ -187,10 +187,10 @@ extension VdpDebug on Vdp {
     for (int i = 0; i < 80; i++) {
       final base = spriteBaseAddr + spriteNo * 8;
       final sp = Sprite.of(
-          vram.getUInt16BE((base + 0).mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
+          vram.getUint16BE((base + 0).mask16),
+          vram.getUint16BE((base + 2).mask16),
+          vram.getUint16BE((base + 4).mask16),
+          vram.getUint16BE((base + 6).mask16));
 
       for (final y in [sp.y, sp.y + sp.height - 1]) {
         for (int x = sp.x; x < sp.x + sp.width; x++) {

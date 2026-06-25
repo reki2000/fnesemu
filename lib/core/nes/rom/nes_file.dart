@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
@@ -5,7 +6,6 @@ import 'dart:typed_data';
 // Project imports:
 import 'package:archive/archive_io.dart';
 
-import '../../../util/util.dart';
 
 class NesFile {
   final program = <Uint8List>[];
@@ -34,16 +34,16 @@ class NesFile {
     // final isNes20 = body[7] & 0x0c == 0x08;
 
     // caclurate CRC32 of entire file
-    crc = (Crc32()..add(body.toList())).close().map((val) => hex8(val)).join();
+    crc = (Crc32()..add(body.toList())).close().map((val) => val.x2).join();
 
     final programRomLength = body[4];
     final characterRomLength = body[5];
     final flags1 = body[6];
 
-    mirrorVertical = bit0(flags1);
-    hasBatteryBackup = bit1(flags1);
+    mirrorVertical = flags1.bit0;
+    hasBatteryBackup = flags1.bit1;
 
-    final has512trainer = bit2(flags1);
+    final has512trainer = flags1.bit2;
 
     mapper = ((body[8] & 0x0f) << 16) | body[7] & 0xf0 | (flags1 >> 4);
     subMapper = body[8] >> 4;

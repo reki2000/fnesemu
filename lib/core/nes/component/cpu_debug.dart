@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:core';
 
 // Project imports:
-import '../../../util/util.dart';
 import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
@@ -15,7 +15,7 @@ extension CpuDebugger on Cpu {
 
     final asm = Disasm.disasm(regs.pc, op, a, b).padRight(47, " ");
     final reg =
-        "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
+        "A:${regs.a.x2} X:${regs.x.x2} Y:${regs.y.x2} P:${regs.p.x2} SP:${regs.s.x2}";
 
     return TraceLog(op, cycle, asm.toUpperCase(), reg.toUpperCase(),
         [regs.a, regs.x, regs.y, regs.p, regs.s]);
@@ -38,7 +38,7 @@ extension CpuDebugger on Cpu {
 
     final asm = Disasm.disasm(regs.pc, op, a, b).padRight(47, " ");
     final reg =
-        "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
+        "A:${regs.a.x2} X:${regs.x.x2} Y:${regs.y.x2} P:${regs.p.x2} SP:${regs.s.x2}";
 
     final ppuCycle = cycle * 3;
     final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
@@ -82,14 +82,14 @@ extension CpuDebugger on Cpu {
 
   String dumpMem(int addr, int target) {
     addr &= 0xfff0;
-    var str = "${hex16(addr)}:";
+    var str = "${addr.x4}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
               : (addr + i) == target + 1 && i != 0
                   ? "]"
                   : " ") +
-          hex8(read(addr + i));
+          read(addr + i).x2;
     }
     return "$str\n";
   }

@@ -115,7 +115,7 @@ extension Alu on R3000 {
 
     lo = a.rel32 ~/ b.rel32;
     hi = (a - (lo * b).mask32).mask32;
-    // debugLog("div a=${a.hex32} b=${b.hex32} hi=${hi.hex32} lo=${lo.hex32}");
+    // debugLog("div a=${a.x8} b=${b.x8} hi=${hi.x8} lo=${lo.x8}");
   }
 
   void divu(int a, int b) {

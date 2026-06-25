@@ -129,7 +129,7 @@ class Vdp {
       return val;
     } else if (port == 0x08) {
       // print(
-      //     "vdp hv couter read: ${vCounter.hex16} ${hCounter.hex16} pc:${bus.cpu.pc.hex24}");
+      //     "vdp hv couter read: ${vCounter.x4} ${hCounter.x4} pc:${bus.cpu.pc.x6}");
       return vCounter << 8 | hCounter >> 1;
     }
     return 0;
@@ -175,7 +175,7 @@ class Vdp {
     }
 
     // print(
-    //     "start dma: len:${_dmaLength.hex24} src:${_dmaSrc.hex24} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+    //     "start dma: len:${_dmaLength.x6} src:${_dmaSrc.x6} mode:$_dmaMode pc:${bus.cpu.pc.x6}");
     status |= bitDmaRunning;
   }
 
@@ -199,13 +199,13 @@ class Vdp {
       _dmaLength = 0;
       status &= ~bitDmaRunning;
       // print(
-      //     "end dma: len:${_dmaLength.hex16} src:${_dmaSrc.hex16} mode:$_dmaMode pc:${bus.cpu.pc.hex24}");
+      //     "end dma: len:${_dmaLength.x4} src:${_dmaSrc.x4} mode:$_dmaMode pc:${bus.cpu.pc.x6}");
     }
   }
 
   set ctrl(int value) {
     // print(
-    //     "vdp:ctrl=${value.hex16} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
+    //     "vdp:ctrl=${value.x4} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
     if (value & 0xe000 == 0x8000) {
       final regNo = value >> 8 & 0x1f;
       reg[regNo] = value.mask8;
@@ -227,7 +227,7 @@ class Vdp {
           break;
         // case 0x0a:
         //   print(
-        //       "vdp[0x0a]:${value.hex8} ${bus.cpu.clocks} ${bus.cpu.pc.hex24} vcounter:${vCounter.hex16}"); // debug
+        //       "vdp[0x0a]:${value.x2} ${bus.cpu.clocks} ${bus.cpu.pc.x6} vcounter:${vCounter.x4}"); // debug
       }
 
       _is1st = true;
@@ -264,7 +264,7 @@ class Vdp {
         _addr &= 0x7f;
         break;
       // default:
-      //   print("vdp: ignored access cd=${cd.hex8} addr=${_addr.hex16}");
+      //   print("vdp: ignored access cd=${cd.x2} addr=${_addr.x4}");
     }
 
     if (enableDma && cd.bit5 && _dmaMode == _dmaModeM2V) {
@@ -286,11 +286,11 @@ class Vdp {
 
   set data(int value) {
     // print(
-    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.hex16}] = ${value.hex16} pc:${bus.cpu.pc.hex24}");
+    //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.x4}] = ${value.x4} pc:${bus.cpu.pc.x6}");
     if (ram == ramVram) {
       // if (_addr == 0xc350) {
       //   print(
-      //       "vdp:debug: v:${value.hex16} ${dump()} pc:${bus.cpu.pc}"); // debug
+      //       "vdp:debug: v:${value.x4} ${dump()} pc:${bus.cpu.pc}"); // debug
       // }
       vram[_addr] = value >> 8;
       vram[postInc(1)] = value.mask8;
@@ -318,7 +318,7 @@ class Vdp {
 
   String dump() {
     final regStr = [0, 4, 8, 12, 16, 20]
-        .map((i) => reg.sublist(i, i + 4).map((e) => e.hex8).join(" "))
+        .map((i) => reg.sublist(i, i + 4).map((e) => e.x2).join(" "))
         .join("  ");
 
     final bgSizeH = ["32", "64", "--", "128"][reg[16] & 0x03];
@@ -329,14 +329,14 @@ class Vdp {
     final spr = reg[5] << 9 & 0xfc00;
 
     final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
-    final vScrMode = reg[11].bit2 ? "16  " : vsram[0].hex16;
+    final vScrMode = reg[11].bit2 ? "16  " : vsram[0].x4;
 
     final dma =
-        "dma:${enableDma ? "*" : "-"}${status & bitDmaRunning != 0 ? "r" : "-"} ${_dmaLength.hex16}";
+        "dma:${enableDma ? "*" : "-"}${status & bitDmaRunning != 0 ? "r" : "-"} ${_dmaLength.x4}";
 
     final s =
-        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.hex16} b:${nameB.hex16} w:${win.hex16} s:${spr.hex16} h:$hScrMode v:$vScrMode ${hIntCounter.hex8}";
+        "${h32 ? "h32" : "h40"} ${bgSizeH}x$bgSizeV im:$interlaceMode a:${nameA.x4} b:${nameB.x4} w:${win.x4} s:${spr.x4} h:$hScrMode v:$vScrMode ${hIntCounter.x2}";
 
-    return "vdp:$regStr\n  s:${status.hex16} $s $dma";
+    return "vdp:$regStr\n  s:${status.x4} $s $dma";
   }
 }

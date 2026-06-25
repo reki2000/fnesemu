@@ -1,9 +1,9 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import '../../../util/util.dart';
 import '../pce.dart';
 import 'bus.dart';
 
@@ -193,17 +193,17 @@ class Psg {
         return;
 
       case 0x02:
-        waves[ch].freq = waves[ch].freq.withLowByte(val);
+        waves[ch].freq = waves[ch].freq.setL8(val);
         return;
 
       case 0x03:
-        waves[ch].freq = waves[ch].freq.withHighByte(val & 0x0f);
+        waves[ch].freq = waves[ch].freq.setH8(val & 0x0f);
         return;
 
       case 0x04:
         waves[ch].volume = val & 0x1f;
-        waves[ch].enabled = bit7(val);
-        waves[ch].dda = bit6(val);
+        waves[ch].enabled = val.bit7;
+        waves[ch].dda = val.bit6;
         // DDA
         return;
 
@@ -228,7 +228,7 @@ class Psg {
 
       case 0x07: // noise ch4 or 5 only
         if (ch == 4 || ch == 5) {
-          waves[ch].noise = bit7(val);
+          waves[ch].noise = val.bit7;
           waves[ch].noiseFreq = (val & 0x1f) ^ 0x1f;
         }
         return;
@@ -238,7 +238,7 @@ class Psg {
         return;
 
       case 0x09: // LFO control ch0 or 1 only
-        lfoEnabled = bit7(val);
+        lfoEnabled = val.bit7;
         if (!lfoEnabled) {
           waves[1].tableIndex = 0;
         }
@@ -246,7 +246,7 @@ class Psg {
         return;
 
       default:
-        log("Unsupported apu write at 0x${hex16(reg)}");
+        log("Unsupported apu write at 0x${reg.x4}");
         return;
     }
   }

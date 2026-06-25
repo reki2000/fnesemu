@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -52,12 +52,12 @@ class MapperNamco163 extends Mapper {
 
       // IRQ related
       case 0x5000:
-        _irqCounter = _irqCounter.withLowByte(data);
+        _irqCounter = _irqCounter.setL8(data);
         holdIrq(false);
         return;
       case 0x5800:
-        _irqCounter = _irqCounter.withHighByte(data & 0x7f);
-        _irqEnabled = bit7(data);
+        _irqCounter = _irqCounter.setH8(data & 0x7f);
+        _irqEnabled = data.bit7;
         holdIrq(false);
         return;
 
@@ -107,30 +107,30 @@ class MapperNamco163 extends Mapper {
       // prg rom bank 0x8000 select
       case 0xe000:
         _prgBank[0] = data & _prgBankMask;
-        // _enableSound = bit6(data);
-        // _pin22 = !bit7(data);
+        // _enableSound = data.bit6;
+        // _pin22 = !data.bit7;
         break;
 
       // prg rom bank 0xa000 select
       case 0xe800:
         _prgBank[1] = data & _prgBankMask;
-        _chrRamEnabled[0] = !bit6(data);
-        _chrRamEnabled[1] = !bit7(data);
+        _chrRamEnabled[0] = !data.bit6;
+        _chrRamEnabled[1] = !data.bit7;
         break;
 
       // prg rom bank 0xc000 select
       case 0xf000:
         _prgBank[2] = data & _prgBankMask;
-        // _pin44 = bit7(data);
+        // _pin44 = data.bit7;
         break;
 
       // prg ram write protect
       case 0xf800:
         if (data & 0x40 == 0x40) {
-          _ramProtect[0] = bit0(data);
-          _ramProtect[1] = bit1(data);
-          _ramProtect[2] = bit2(data);
-          _ramProtect[3] = bit3(data);
+          _ramProtect[0] = data.bit0;
+          _ramProtect[1] = data.bit1;
+          _ramProtect[2] = data.bit2;
+          _ramProtect[3] = data.bit3;
         } else {
           for (int i = 0; i < 4; i++) {
             _ramProtect[i] = true;
@@ -224,7 +224,7 @@ class MapperNamco163 extends Mapper {
   String dump() {
     final chrBanks = range(0, 12)
         .map((i) => (_chrBank[i] < chrRoms.length)
-            ? hex8(_chrBank[i])
+            ? _chrBank[i].x2
             : _chrBank[i] == chrRoms.length
                 ? " A"
                 : " B")
@@ -232,7 +232,7 @@ class MapperNamco163 extends Mapper {
         .join(" ");
 
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBank[i])).toList().join(" ");
+        range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

@@ -2,7 +2,7 @@ part of 'r3000.dart';
 
 class BiosFunc {
   static String defaultParser(BusR3000 bus, int r4, int r5, int r6, int r7) =>
-      "${r4.hex32} ${r5.hex32} ${r6.hex32} ${r7.hex32}";
+      "${r4.x8} ${r5.x8} ${r6.x8} ${r7.x8}";
 
   final String Function(BusR3000 bus, int r4, int r5, int r6, int r7) parser;
   final String name;

@@ -1,9 +1,9 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -82,7 +82,7 @@ class MapperMMC3 extends Mapper {
   @override
   void write(int addr, int data) {
     final reg = addr & 0xe000;
-    final isOdd = bit0(addr);
+    final isOdd = addr.bit0;
 
     switch (reg) {
       case 0x6000:
@@ -120,7 +120,7 @@ class MapperMMC3 extends Mapper {
           }
         } else {
           // chr A12 Inversion
-          if (bit7(data)) {
+          if (data.bit7) {
             _chrBank[0] = _chrBankR2_5;
             _chrBank[1] = _chrBankR0_1;
           } else {
@@ -129,7 +129,7 @@ class MapperMMC3 extends Mapper {
           }
 
           // progRom BankMode 0
-          if (!bit6(data)) {
+          if (!data.bit6) {
             _prgBank[0] = _prgBank0;
             _prgBank[2] = _prgBank2ndLast;
           } else {
@@ -143,10 +143,10 @@ class MapperMMC3 extends Mapper {
 
       case 0xa000:
         if (isOdd) {
-          _ramEnabled = bit7(data);
-          _ramWriteEnabled = !bit6(data);
+          _ramEnabled = data.bit7;
+          _ramWriteEnabled = !data.bit6;
         } else {
-          mirror(bit0(data) ? Mirror.horizontal : Mirror.vertical);
+          mirror(data.bit0 ? Mirror.horizontal : Mirror.vertical);
         }
         break;
 
@@ -217,12 +217,12 @@ class MapperMMC3 extends Mapper {
     final range0_3 = range(0, 4);
 
     final chrBanks0 =
-        range0_3.map((i) => hex8(_chrBank[0][i])).toList().join(" ");
+        range0_3.map((i) => _chrBank[0][i]).x2.toList().join(" ");
     final chrBanks1 =
-        range0_3.map((i) => hex8(_chrBank[1][i])).toList().join(" ");
+        range0_3.map((i) => _chrBank[1][i]).x2.toList().join(" ");
 
     final prgBanks =
-        range0_3.map((i) => hex8(_prgBank[i][0])).toList().join(" ");
+        range0_3.map((i) => _prgBank[i][0]).x2.toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'} "
         "@${_irqCounter.toRadixString(10).padLeft(3, "0")}"

@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
 
-import '../../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'exception.dart';
 
 part 'alu.dart';
@@ -219,7 +218,7 @@ class R3000 {
     nextPc = pc.inc4;
 
     // debugLog(
-    //     "cpu: exception  excode:${excode.hex8} sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}");
+    //     "cpu: exception  excode:${excode.x2} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
   }
 
   void branch(bool cond, int rel16) {
@@ -340,10 +339,10 @@ class R3000 {
     final regs = [
       for (int i = 0; i < 32; i += 8)
         "r${i.toString().padLeft(2, "0")}:"
-            "${range(i, i + 4).map((v) => r[v].hex32).join(" ")}"
+            "${range(i, i + 4).map((v) => r[v].x8).join(" ")}"
             " r${(i + 4).toString().padLeft(2, "0")}:"
-            "${range(i + 4, i + 8).map((v) => r[v].hex32).join(" ")}"
+            "${range(i + 4, i + 8).map((v) => r[v].x8).join(" ")}"
     ].join("\n");
-    return "$regs\npc:${pc.hex32} hi:${hi.hex32} lo:${lo.hex32} sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}";
+    return "$regs\npc:${pc.x8} hi:${hi.x8} lo:${lo.x8} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}";
   }
 }

@@ -376,7 +376,7 @@ class Cop2 {
       };
 
   void _write(int reg, int value) {
-    // debugLog("cpu: cop2 [$reg] <= ${value.hex32}");
+    // debugLog("cpu: cop2 [$reg] <= ${value.x8}");
 
     switch (reg) {
       case 0:
@@ -551,7 +551,7 @@ class Cop2 {
       case 63:
         flag = value.mask32;
       default:
-        throw ("cpu: unimplimited cop2 write $reg  ${value.hex32}");
+        throw ("cpu: unimplimited cop2 write $reg  ${value.x8}");
     }
   }
 
@@ -571,7 +571,7 @@ class Cop2 {
     //   "SQR", "DCPL", "DPCT", "EX_2B", "EX_2C", "AVSZ3", "AVSZ4", "EX_2F", //
     //   "RTPT", "EX_31", "EX_32", "EX_33", "EX_34", "EX_35", "EX_36", "EX_37", //
     //   "EX_38", "EX_39", "EX_3A", "EX_3B", "EX_3C", "GPF", "GPL", "NCCT" //
-    // ][inst32 & 0x3f]} ${(inst32 & 0x3f).hex8}");
+    // ][inst32 & 0x3f]} ${(inst32 & 0x3f).x2}");
 
     return switch (inst32 & 0x3f) {
       0x01 => rtps(vx0, vy0, vz0),
@@ -605,21 +605,21 @@ class Cop2 {
   }
 
   String dump() => """
-    cop2: ${cmd.hex32} lm:$lm sf:$sf shift:$shift
+    cop2: ${cmd.x8} lm:$lm sf:$sf shift:$shift
     v0: $vx0, $vy0, $vz0 v1: $vx1, $vy1, $vz1 v2: $vx2, $vy2, $vz2
     rt: {$rt11, $rt12, $rt13}, {$rt21, $rt22, $rt23}, {$rt31, $rt32, $rt33}
     tr: $trx, $try_, $trz
     l: {$l11, $l12, $l13}, {$l21, $l22, $l23}, {$l31, $l32, $l33}
     lc: {$lc11, $lc12, $lc13}, {$lc21, $lc22, $lc23}, {$lc31, $lc32, $lc33}
     rbk:$rbk gbk:$gbk bbk:$bbk rfc:$rfc gfc:$gfc bfc:$bfc
-    rgbc:${rgbc.hex32} rgb0:${rgb0.hex32} rgb1:${rgb1.hex32} rgb2:${rgb2.hex32}
+    rgbc:${rgbc.x8} rgb0:${rgb0.x8} rgb1:${rgb1.x8} rgb2:${rgb2.x8}
     otz:$otz h:$h ofx:$ofx ofy:$ofy  dqa:$dqa dqb:$dqb
     s0: $sx0, $sy0 s1: $sx1, $sy1 s2: $sx2, $sy2 sz: $sz0, $sz1, $sz2, $sz3
     ${dumpMac()}
   """;
 
   String dumpMac() =>
-      "mac0:${mac0.hex32} mac1:${mac1.hex32} mac2:${mac2.hex32} mac3:${mac3.hex32} "
-      "ir0:${ir0.hex32} ir1:${ir1.hex32} ir2:${ir2.hex32} ir3:${ir3.hex32} "
-      "flag:${readCtrl(31).hex32}";
+      "mac0:${mac0.x8} mac1:${mac1.x8} mac2:${mac2.x8} mac3:${mac3.x8} "
+      "ir0:${ir0.x8} ir1:${ir1.x8} ir2:${ir2.x8} ir3:${ir3.x8} "
+      "flag:${readCtrl(31).x8}";
 }

@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
-import '../../../util/util.dart';
 
 // Project imports
 
@@ -13,12 +13,12 @@ mixin _Wave {
   void reset() {} // to be overridden
 
   void setLowFreq(int val) {
-    _freq = _freq.withLowByte(val);
+    _freq = _freq.setL8(val);
   }
 
   void setHighFreq(int val) {
-    _freq = _freq.withHighByte(val & 0x07);
-    _enabled = bit7(val);
+    _freq = _freq.setH8(val & 0x07);
+    _enabled = val.bit7;
 
     if (!_enabled) {
       reset();
@@ -118,7 +118,7 @@ class Vrc6Apu {
     switch (reg) {
       // pulse wave 0
       case 0x9000:
-        pulse0.duty = bit7(val) ? 15 : ((val >> 4) & 0x07);
+        pulse0.duty = val.bit7 ? 15 : ((val >> 4) & 0x07);
         pulse0.volume = val & 0x0f;
         return;
 
@@ -132,7 +132,7 @@ class Vrc6Apu {
 
       // pulse wave 1
       case 0xa000:
-        pulse1.duty = bit7(val) ? 15 : ((val >> 4) & 0x07);
+        pulse1.duty = val.bit7 ? 15 : ((val >> 4) & 0x07);
         pulse1.volume = val & 0x0f;
         return;
 
@@ -158,7 +158,7 @@ class Vrc6Apu {
         return;
 
       default:
-        log("Unsupported apu write at 0x${hex16(reg)}");
+        log("Unsupported apu write at 0x${reg.x4}");
         return;
     }
   }

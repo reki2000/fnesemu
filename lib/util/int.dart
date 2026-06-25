@@ -1,3 +1,5 @@
+import 'dart:math';
+
 extension IntFormat on int {
   /// formats a number with commas per 3 digits
   String get format3 {
@@ -15,16 +17,12 @@ extension IntFormat on int {
     return "${this < 0 ? "-" : ""}${r.reversed.join()}";
   }
 
-  // format a number with specified bit wide hexadecimals
-  String get hex8 => mask8.toRadixString(16).padLeft(2, "0");
-  String get hex16 => mask16.toRadixString(16).padLeft(4, "0");
-  String get hex24 => mask24.toRadixString(16).padLeft(6, "0");
-  String get hex32 => mask32.toRadixString(16).padLeft(8, "0");
+  // format a number with specified bit wide hexadecimals (printf-compatible names)
+  String get x2 => mask8.toRadixString(16).padLeft(2, "0");
+  String get x4 => mask16.toRadixString(16).padLeft(4, "0");
+  String get x6 => mask24.toRadixString(16).padLeft(6, "0");
+  String get x8 => mask32.toRadixString(16).padLeft(8, "0");
   String get hex => toRadixString(16);
-  String get x2 => hex8;
-  String get x4 => hex16;
-  String get x6 => hex24;
-  String get x8 => hex32;
 
   String get decimal2 => toString().padLeft(2, " ");
   String get decimal3 => toString().padLeft(3, " ");
@@ -164,6 +162,8 @@ extension IntBit on int {
   int setH8(int val) => masked(0xff00, val << 8);
   int setL16(int val) => masked(0xffff, val);
   int setH16(int val) => masked(0xffff0000, val << 16);
+  int set4Bit(int val, {int lsbPosition = 0}) =>
+      (this & ~(0x0f << lsbPosition)) | ((val & 0x0f) << lsbPosition);
 
   /// replace part of the number with specified byte size and new value
   int setL(int val, int size) => size == 1
@@ -279,6 +279,13 @@ extension IntBit on int {
   int get shr30 => this >> 30;
   int get shr31 => this >> 31;
   int shr(int n) => this >> n;
+
+  /// flip 8 bit from b7..b0 to b0..b7
+  int get flip8 {
+    final p = ((this & 0x55) << 1) | ((this & 0xaa) >> 1);
+    final pp = ((p & 0x33) << 2) | ((p & 0xcc) >> 2);
+    return ((pp & 0x0f) << 4) | ((pp & 0xf0) >> 4);
+  }
 }
 
 extension IntClip on int {
@@ -298,3 +305,42 @@ extension IntClip on int {
           ? max
           : this;
 }
+
+extension IntImageExt on int {
+  // define a bit pattern which respresents the image of the digit in 3x5 matrix
+  static const digitPattern = [
+    "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",
+    "o.o ..o ..o ..o o.o o.. o.. ..o o.o o.o o.o o.o o.. o.o o.. o.. ",
+    "o.o ..o ooo ooo ooo ooo ooo ..o ooo ooo ooo oo. o.. o.o ooo ooo ",
+    "o.o ..o o.. ..o ..o ..o o.o ..o o.o ..o o.o o.o o.. o.o o.. o.. ",
+    "ooo ..o ooo ooo ..o ooo ooo ..o ooo ooo o.o oo. ooo oo. ooo o.. ",
+  ];
+
+  static const patternWidth = 4;
+
+  bool drawHexValue(int x, int y, int drawChars) {
+    if (0 <= y &&
+        y < digitPattern.length &&
+        0 <= x &&
+        x < patternWidth * drawChars) {
+      final digit = (this >> (4 * (drawChars - x ~/ patternWidth - 1))) & 0x0f;
+      return digitPattern[y][digit * patternWidth + (x % patternWidth)] == 'o';
+    }
+    return false;
+  }
+
+  bool drawValue(int x, int y, int drawChars) {
+    if (0 <= y &&
+        y < digitPattern.length &&
+        0 <= x &&
+        x < patternWidth * drawChars) {
+      final digit =
+          (this ~/ pow(10, (drawChars - (x ~/ patternWidth) - 1))) % 10;
+      return digitPattern[y][digit * patternWidth + (x % patternWidth)] == 'o';
+    }
+    return false;
+  }
+}
+
+/// makes range object
+List<int> range(int start, int end) => [for (var i = start; i < end; i++) i];

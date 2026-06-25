@@ -6,7 +6,7 @@ import 'package:fnesemu/core/md/sn76489.dart';
 import 'package:fnesemu/core/md/ym2612.dart';
 import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/uint8list.dart';
 
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
@@ -47,7 +47,7 @@ class VgmPlayer {
 
   int execCommands() {
     final cmd = fetch();
-    // print("cmd: ${cmd.hex8}");
+    // print("cmd: ${cmd.x2}");
 
     switch (cmd & 0xf0) {
       case 0x70: // wait n samples
@@ -87,11 +87,11 @@ class VgmPlayer {
         fetch(); // skip 66h
         final type = fetch();
         if (type > 0x3f) {
-          throw 'Unknown data block type: ${type.hex8}';
+          throw 'Unknown data block type: ${type.x2}';
         }
 
         final len = vgm.fetch32();
-        log("data block type: ${type.hex8} len: ${len.hex32}");
+        log("data block type: ${type.x2} len: ${len.x8}");
 
         dataBlock = List.generate(len, (i) => fetch());
         break;
@@ -101,7 +101,7 @@ class VgmPlayer {
         break;
 
       default:
-        throw 'Unknown command: ${cmd.hex8}';
+        throw 'Unknown command: ${cmd.x2}';
     }
 
     return 0;
@@ -200,7 +200,7 @@ void main(List<String> args) {
     return;
   }
 
-  if (vgmData.getUInt32BE(0) != 0x56676d20) {
+  if (vgmData.getUint32BE(0) != 0x56676d20) {
     log('Not a VGM file: $filePath');
     return;
   }
@@ -223,22 +223,22 @@ class VgmFile {
   Uint8List data = Uint8List(0);
 
   VgmFile(this.data) {
-    index = data.getUInt32LE(0x34);
+    index = data.getUint32LE(0x34);
     if (index == 0) {
       index = 0x40;
     } else {
       index += 0x34;
     }
 
-    fmClock = data.getUInt32LE(0x2c);
-    psgClock = data.getUInt32LE(0x0c);
-    version = data.getUInt32LE(0x08);
-    rate = data.getUInt32LE(0x24);
+    fmClock = data.getUint32LE(0x2c);
+    psgClock = data.getUint32LE(0x0c);
+    version = data.getUint32LE(0x08);
+    rate = data.getUint32LE(0x24);
   }
 
   @override
   String toString() {
-    return "VgmFile: version:${version.hex32} rate:$rate fmClock:$fmClock psgClock:$psgClock";
+    return "VgmFile: version:${version.x8} rate:$rate fmClock:$fmClock psgClock:$psgClock";
   }
 
   int fetch8() {
@@ -246,13 +246,13 @@ class VgmFile {
   }
 
   int fetch32() {
-    final val = data.getUInt32LE(index);
+    final val = data.getUint32LE(index);
     index += 4;
     return val;
   }
 
   int fetch16() {
-    final val = data.getUInt16LE(index);
+    final val = data.getUint16LE(index);
     index += 2;
     return val;
   }

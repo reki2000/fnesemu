@@ -1,6 +1,6 @@
+import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
-import '../../../util/util.dart';
 import '../../types.dart';
 import 'vdc.dart';
 import 'vdc_render.dart';
@@ -100,7 +100,7 @@ extension VdcDebug on Vdc {
       final sp = Sprite.of(sat, i * 4);
       final xy = "${sp.x.toString().padLeft(4)},${sp.y.toString().padLeft(4)}";
       final patNo =
-          "${sp.patternNo.toString().padLeft(4)} ${hex16(sp.patternNo << 6)}";
+          "${sp.patternNo.toString().padLeft(4)} ${(sp.patternNo << 6).x4}";
       buf[i] =
           "${i.toString().padLeft(2)} $xy  $patNo ${sp.paletteNo.toString().padLeft(2)} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "}";
     }

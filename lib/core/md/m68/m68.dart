@@ -256,7 +256,7 @@ class M68 {
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.mask8.rel8;
     // debug(
-    //     "Ex:${ex.hex16}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.hex32}, ${ex.mask8.hex8}");
+    //     "Ex:${ex.x4}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.x8}, ${ex.mask8.x2}");
     return disp + ((size == 2) ? x.mask16.rel16 : x);
   }
 
@@ -344,7 +344,7 @@ class M68 {
 
   void busError(int addr, int pc, int op, bool read, bool inst) {
     // debug(
-    //     "bus error: clock:$clocks addr:${addr.hex24} pc:${pc.hex24} op:${op.hex16} read:$read inst:$inst a7:${a[7].hex24} ssp:${_ssp.hex24} usp:${_usp.hex24}"); // +44 clocks
+    //     "bus error: clock:$clocks addr:${addr.x6} pc:${pc.x6} op:${op.x4} read:$read inst:$inst a7:${a[7].x6} ssp:${_ssp.x6} usp:${_usp.x6}"); // +44 clocks
     final fc = (sf ? 0x4 : 0) | (inst ? 0x2 : 0x1);
     sf = true;
     push32(pc); // +8
@@ -361,7 +361,7 @@ class M68 {
 
   void trap(int vector, int newSr) {
     // debug(
-    //     "trap vector:${vector.hex32} pc:${pc.hex32} sr:${sr.hex16} a7:${a[7].hex32} ssp:${_ssp.hex32} usp:${_usp.hex32}");
+    //     "trap vector:${vector.x8} pc:${pc.x8} sr:${sr.x4} a7:${a[7].x8} ssp:${_ssp.x8} usp:${_usp.x8}");
     final oldSr = sr.mask16;
     sr = newSr;
     sf = true;
@@ -388,10 +388,10 @@ class M68 {
   }
 
   String dump() {
-    final rega = 'a:${a.map((e) => e.hex32).join(' ')}';
-    final regd = 'd:${d.map((e) => e.hex32).join(' ')}';
+    final rega = 'a:${a.map((e) => e.x8).join(' ')}';
+    final regd = 'd:${d.map((e) => e.x8).join(' ')}';
     final regs =
-        'sr:${sr.hex32} usp:${usp.hex32} ssp:${ssp.hex32} pc:${pc.hex32}';
+        'sr:${sr.x8} usp:${usp.x8} ssp:${ssp.x8} pc:${pc.x8}';
 
     const f = "XNZVC";
     final flags = List.generate(

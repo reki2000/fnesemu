@@ -1,6 +1,6 @@
 import 'package:fnesemu/util/int.dart';
 
-import '../../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 
 const showAddress = true;
 
@@ -104,14 +104,14 @@ class DisasmR3000 {
     0x1f801803: "CD_HINT",
   };
 
-  static String _ioAddrName(int addr) => ioAddr[addr] ?? addr.hex32;
+  static String _ioAddrName(int addr) => ioAddr[addr] ?? addr.x8;
 
   static String _unknown(int inst32) {
     final op = inst32 >> 26 & 0x3f;
     final rs = inst32 >> 21 & 0x1f;
     final rt = inst32 >> 16 & 0x1f;
     final rd = inst32 >> 11 & 0x1f;
-    return "unknown opcode:${inst32.hex32} op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8}";
+    return "unknown opcode:${inst32.x8} op:${op.x2} rs:${rs.x2} rt:${rt.x2} rd:${rd.x2}";
   }
 
   static _reg(int no) => no == 0 ? "0" : "r$no";
@@ -129,17 +129,17 @@ class DisasmR3000 {
     final shamt = inst32 >> 6 & 0x1f;
     final funct = inst32 & 0x3f;
 
-    final im16_ = inst32.mask16.hex16;
+    final im16_ = inst32.mask16.x4;
     final rel16_ = inst32.rel16.toRadixString(16);
-    final pcRel16_ = (pc.inc4 + (inst32.rel16 << 2)).mask32.hex32;
-    final pc26_ = (pc.inc4 & 0xf0000000 | inst32.mask26 << 2).hex32;
+    final pcRel16_ = (pc.inc4 + (inst32.rel16 << 2)).mask32.x8;
+    final pc26_ = (pc.inc4 & 0xf0000000 | inst32.mask26 << 2).x8;
 
     final addr_ = regs.isNotEmpty && showAddress
         ? ";${_ioAddrName(regs[rs] + inst32.rel16)}"
         : "";
 
     // print(
-    //     "op:${op.hex8} rs:${rs.hex8} rt:${rt.hex8} rd:${rd.hex8} shamt:${shamt.hex8} funct:${funct.hex8} im16:$im16_ im26:$im26_");
+    //     "op:${op.x2} rs:${rs.x2} rt:${rt.x2} rd:${rd.x2} shamt:${shamt.x2} funct:${funct.x2} im16:$im16_ im26:$im26_");
 
     return switch (op) {
       0x00 => switch (funct) {
@@ -259,6 +259,6 @@ class DisasmR3000 {
 main(List<String> args) {
   for (final arg in args) {
     final inst32 = int.parse(arg, radix: 16);
-    debugLog("${inst32.hex32} ${DisasmR3000.disasm(inst32)}");
+    debugLog("${inst32.x8} ${DisasmR3000.disasm(inst32)}");
   }
 }

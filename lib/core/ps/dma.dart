@@ -1,5 +1,5 @@
-import '../../util/debug.dart';
-import '../../util/int.dart';
+import 'package:fnesemu/util/debug.dart';
+import 'package:fnesemu/util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
@@ -88,9 +88,9 @@ class DmaChannel {
   String dump() => "DMA$ch: pr:$priority ${running ? "R" : "-"} "
       "${enabled ? "E" : "-"} "
       "${irqOnComplete ? "I" : "-"}${irqOnChunks ? "C" : "-"}  "
-      "${toRam ? "->${addr.hex32}" : "${addr.hex32}->"} "
-      "mode:$syncMode sz:${size.hex24} am:${amount.hex16} incr:$incr "
-      "c:${_channelCtrl.hex32} bl:${blockCtrl.hex32} sa:${startAddr.hex32}";
+      "${toRam ? "->${addr.x8}" : "${addr.x8}->"} "
+      "mode:$syncMode sz:${size.x6} am:${amount.x4} incr:$incr "
+      "c:${_channelCtrl.x8} bl:${blockCtrl.x8} sa:${startAddr.x8}";
 }
 
 class Dma {
@@ -117,7 +117,7 @@ class Dma {
       channels[ch].priority = value & 0x07;
       value >>= 4;
       // debugLog(
-      //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.hex32} ra:${bus.cpu.r[31].hex32}");
+      //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.x8} ra:${bus.cpu.r[31].x8}");
     }
   }
 
@@ -131,10 +131,10 @@ class Dma {
         _interrupt.masked(0xff.shl(addr.shl3), value.shl(addr.shl3)),
       3 => _interrupt & (~(value.shl24) | 0xffffff),
       _ =>
-        throw "illegal DMA interrupt addr:${addr.hex32} value:${value.hex32}",
+        throw "illegal DMA interrupt addr:${addr.x8} value:${value.x8}",
     };
     // debugLog(
-    //     "DMA: interrupt set addr:$addr value:${value.hex8} -> ${_interrupt.hex32} ");
+    //     "DMA: interrupt set addr:$addr value:${value.x2} -> ${_interrupt.x8} ");
 
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].irqOnComplete = _interrupt.bit(ch + 16);
@@ -165,7 +165,7 @@ class Dma {
           }
           final data = bus.read32(d.addr);
           // debugLog(
-          //     "DMA0: MDEC DMA [${d.addr.hex32}]=0x${data.hex32} ${d.dump()}");
+          //     "DMA0: MDEC DMA [${d.addr.x8}]=0x${data.x8} ${d.dump()}");
           bus.mdec.writeCommand(data);
         }
 
@@ -267,7 +267,7 @@ class Dma {
 
             if (node == 0) {
               debugLog(
-                  "DMA${d.ch}: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
+                  "DMA${d.ch}: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].x8}");
               break;
             }
 
@@ -280,7 +280,7 @@ class Dma {
             d.addr = node.mask24;
           }
           // debugLog(
-          //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].hex32}");
+          //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].x8}");
 
           completeDma(d.ch);
       }
@@ -302,7 +302,7 @@ class Dma {
     // }
     if (debugLogChannel.contains(ch)) {
       debugLog(
-          "DMA$ch: completed ${d.dump()} ctl:${_control.hex32} int:${_interrupt.hex32} ");
+          "DMA$ch: completed ${d.dump()} ctl:${_control.x8} int:${_interrupt.x8} ");
     }
 
     if (d.irqOnComplete) {
@@ -312,7 +312,7 @@ class Dma {
     // bus.setIrq(Interrupt.dma);
     // if (!oldBit31 && _bit31()) {
     //   // debugLog(
-    //   //     "DMA$ch: irq cnt:${_control.hex32} int:${_interrupt.hex32} ${d.dump()}");
+    //   //     "DMA$ch: irq cnt:${_control.x8} int:${_interrupt.x8} ${d.dump()}");
     //   irqPending = true;
     // }
   }

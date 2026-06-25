@@ -2,7 +2,7 @@ import 'dart:collection';
 
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/debug.dart' show debugLog;
+import 'package:fnesemu/util/debug.dart' show debugLog;
 import 'bus.dart';
 import 'interrupt.dart';
 
@@ -107,12 +107,12 @@ class Serial {
 
   int readData() {
     if (isRxFifoEmpty()) {
-      _debug("sio0: readEmpt: ${_prev.hex8} ${dump().replaceAll("\n", " ")}");
+      _debug("sio0: readEmpt: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
       return _prev;
     }
 
     _prev = rxFifo.removeFirst();
-    _debug("sio0:  read<--: ${_prev.hex8} ${dump().replaceAll("\n", " ")}");
+    _debug("sio0:  read<--: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
     return _prev;
   }
 
@@ -125,7 +125,7 @@ class Serial {
     final result = status;
     dsr = false; // dsr (=/ack) reset
     // debugLog(
-    //     "sio0: readStatus: ${result.hex16} ${dump().replaceAll("\n", " ")}");
+    //     "sio0: readStatus: ${result.x4} ${dump().replaceAll("\n", " ")}");
     return result;
   }
 
@@ -133,7 +133,7 @@ class Serial {
     if (txFifo.isNotEmpty) {
       return;
     }
-    _debug("sio0: write-->: ${val.hex8} ${dump().replaceAll("\n", " ")}");
+    _debug("sio0: write-->: ${val.x2} ${dump().replaceAll("\n", " ")}");
 
     final txData = val;
 
@@ -143,7 +143,7 @@ class Serial {
       // if (device.runtimeType != Pad) {
       // debugLog(
       //     "sio0: notify port${port1Selected ? "1" : "2"} ${device.runtimeType} "
-      //     "txData:${txData.hex8} rxData:${response.rxData.hex8} "
+      //     "txData:${txData.x2} rxData:${response.rxData.x2} "
       //     "ack:${response.ack} ignored:${response.ignored} "
       //     "${dump().replaceAll("\n", " ")}");
       // }
@@ -161,7 +161,7 @@ class Serial {
 
     // if (port1Selected) {
     //   debugLog(
-    //       "sio0: no device responded to txData:${txData.hex8} ${dump().replaceAll("\n", " ")}");
+    //       "sio0: no device responded to txData:${txData.x2} ${dump().replaceAll("\n", " ")}");
     // }
 
     rxFifo.add(0xff);
@@ -169,7 +169,7 @@ class Serial {
 
   void writeControl(int val) {
     // debugLog(
-    //     "sio0: writeControl: ${val.hex16} ${dump().replaceAll("\n", " ")}");
+    //     "sio0: writeControl: ${val.x4} ${dump().replaceAll("\n", " ")}");
 
     ctrl = val;
 
@@ -192,20 +192,20 @@ class Serial {
   }
 
   void writeMode(int val) {
-    // debugLog("sio0: writeMode: ${val.hex16} ${dump()}");
+    // debugLog("sio0: writeMode: ${val.x4} ${dump()}");
     mode = val;
     timerFactor = [1, 1, 16, 64][val & 0x03];
   }
 
   void writeBaudrate(int val) {
-    // debugLog("sio0: writeBaudrate: ${val.hex16} ${dump()}");
+    // debugLog("sio0: writeBaudrate: ${val.x4} ${dump()}");
     timerReload = val & 0xffff;
   }
 
   String dump() =>
-      "sio0: p:${port1Selected ? "1" : "2"} irq:${irq ? "1" : "0"} ctrl:${ctrl.hex16} status:${status.hex16} timer:${timer.hex24} "
-      "tx:${txFifo.map((e) => e.hex8).toList()} "
-      "rx:${rxFifo.map((e) => e.hex8).toList()}\n"
+      "sio0: p:${port1Selected ? "1" : "2"} irq:${irq ? "1" : "0"} ctrl:${ctrl.x4} status:${status.x4} timer:${timer.x6} "
+      "tx:${txFifo.map((e) => e.x2).toList()} "
+      "rx:${rxFifo.map((e) => e.x2).toList()}\n"
       "pad: ${pad.dump()} "
       "mcd1: ${memCard1.dump()} "
       "mcd2: ${memCard2.dump()}";

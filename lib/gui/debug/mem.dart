@@ -15,8 +15,8 @@ String _dump(Debugger debugger, int start, int mask) {
 
   for (int base = start; base < start + _addrIncSize; base += _bytesPerLine) {
     final bytes = List.generate(
-        _bytesPerLine, (i) => debugger.read((base + i) & mask).hex8);
-    lines.add("${base.hex24}: ${bytes.join(" ")}");
+        _bytesPerLine, (i) => debugger.read((base + i) & mask).x2);
+    lines.add("${base.x6}: ${bytes.join(" ")}");
   }
 
   return lines.join("\n");

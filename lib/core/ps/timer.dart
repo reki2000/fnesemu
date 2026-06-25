@@ -129,7 +129,7 @@ class Timer {
     }
   }
 
-  String dump() => "Timer$no: ${mode.hex16} ${counter.hex16}/${target.hex16} "
+  String dump() => "Timer$no: ${mode.x4} ${counter.x4}/${target.x4} "
       "sy:${!sync ? '-' : _syncMode} ${(no == 2 ? !mode_.bit9 : !mode_.bit8) ? 'S' : 'E'} "
       "${_repeatMode ? "rep" : "one"} ${_toggleMode ? "tgl" : "pls"} "
       "${_resetAfterTarget ? "0" : "-"} "
@@ -202,7 +202,7 @@ class TimerController {
   }
 
   void setMode(int no, int newMode) {
-    // debugLog("Timer$no: set mode ${mode.hex32}");
+    // debugLog("Timer$no: set mode ${mode.x8}");
     final t = timers[no];
     t.mode_ = newMode;
     t.sync = newMode.bit0;

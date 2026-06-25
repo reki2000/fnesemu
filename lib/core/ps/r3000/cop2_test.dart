@@ -223,7 +223,7 @@ main(List<String> args) {
 
       pass = false;
       print(
-          "Reg $i ${regNames[i]} Expected: ${test.result[i].hex32} Got: ${result.hex32}");
+          "Reg $i ${regNames[i]} Expected: ${test.result[i].x8} Got: ${result.x8}");
 
       if (i != 63) {
         continue;

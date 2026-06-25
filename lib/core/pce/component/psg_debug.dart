@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import 'psg.dart';
 
 extension PsgDebugger on Psg {
@@ -16,8 +16,8 @@ extension PsgDebugger on Psg {
                   : "W";
 
       ch +=
-          "$i${w.enabled ? "*" : " "}$mode${hex16(w.freq).substring(1)},${hex8(w.volume)}-${hex8(w.volumeL)[1]}${hex8(w.volumeR)[1]} ";
+          "$i${w.enabled ? "*" : " "}$mode${w.freq.x4.substring(1)},${w.volume.x2}-${w.volumeL.x2[1]}${w.volumeR.x2[1]} ";
     }
-    return "psg: ${hex8(ampL)[1]}${hex8(ampL)[1]} $ch\n";
+    return "psg: ${ampL.x2[1]}${ampL.x2[1]} $ch\n";
   }
 }

@@ -22,7 +22,7 @@ extension Op8 on M68 {
       final r = dst - src * q;
 
       // debug(
-      //     "divs src:${src.hex32} $src dst:${dst.hex32} $dst q:${q.hex32} $q r:${r.hex32} $r ${q * src + r}");
+      //     "divs src:${src.x8} $src dst:${dst.x8} $dst q:${q.x8} $q r:${r.x8} $r ${q * src + r}");
 
       cf = false;
       vf = (q < -0x8000 || 0x8000 <= q);
@@ -53,7 +53,7 @@ extension Op8 on M68 {
       final r = dst - src * q;
 
       // debug(
-      //     "divu src:${src.hex32} $src dst:${dst.hex32} $dst q:${q.hex32} $q r:${r.hex32} $r ${q * src + r}");
+      //     "divu src:${src.x8} $src dst:${dst.x8} $dst q:${q.x8} $q r:${r.x8} $r ${q * src + r}");
 
       cf = false;
       vf = q >= 0x10000;
@@ -85,7 +85,7 @@ extension Op8 on M68 {
       nf = r.bit7;
       vf = diff & ~r & 0x80 != 0;
       // debug(
-      //     "sbcd r:${r.mask16.hex16} r1:${high.mask16..hex16} rx:$rx ry:$ry src:${src.hex8} dst:${dst.hex8} xf:$xf");
+      //     "sbcd r:${r.mask16.x4} r1:${high.mask16..x4} rx:$rx ry:$ry src:${src.x2} dst:${dst.x2} xf:$xf");
 
       if (mode) {
         write8(a[rx], r);

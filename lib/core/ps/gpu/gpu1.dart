@@ -67,7 +67,7 @@ extension Gpu1 on Gpu {
         }
 
       default:
-        debugLog("unknown GP1 command: ${value.hex32}");
+        debugLog("unknown GP1 command: ${value.x8}");
     }
   }
 }

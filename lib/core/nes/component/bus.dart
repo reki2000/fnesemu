@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 
 // Dart imports:
@@ -5,7 +6,6 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import '../mapper/mapper.dart';
 import '../mapper/mirror.dart';
 import 'apu.dart';
@@ -39,7 +39,7 @@ class Bus {
       return vram[_mirror.mask(addr & 0x0fff)];
     }
 
-    log("invalid vram addr ${hex16(addr)}");
+    log("invalid vram addr ${addr.x4}");
     return 0xff;
   }
 
@@ -53,7 +53,7 @@ class Bus {
       return;
     }
 
-    log("invalid vram addr ${hex16(addr)}");
+    log("invalid vram addr ${addr.x4}");
   }
 
   final List<int> ram = List.filled(0x800, 0);

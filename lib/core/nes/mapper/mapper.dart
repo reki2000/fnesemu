@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'cnrom.dart';
 import 'mapper088.dart';
 import 'mirror.dart';

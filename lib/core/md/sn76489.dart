@@ -164,8 +164,8 @@ class Sn76489 {
 
   String dump() {
     final tone =
-        tones.map((e) => "${e.vol.hex8} ${e.freq.hex16}").toList().join(" ");
-    final n = "${noise.vol.hex8} ${noise.periodic ? 1 : 0}";
+        tones.map((e) => "${e.vol.x2} ${e.freq.x4}").toList().join(" ");
+    final n = "${noise.vol.x2} ${noise.periodic ? 1 : 0}";
     return "psg: t:$tone n:$n";
   }
 }

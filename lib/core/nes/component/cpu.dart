@@ -1,9 +1,9 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:core';
 import 'dart:developer';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'bus.dart';
 
 class Regs {
@@ -802,7 +802,7 @@ class Cpu {
         {
           int value = readAddressing(op);
           regs.a = (regs.a & value) & 0xFF;
-          regs.p = (regs.p & ~Flags.C) | (bit7(regs.a) ? Flags.C : 0);
+          regs.p = (regs.p & ~Flags.C) | (regs.a.bit7 ? Flags.C : 0);
           flagsNZ(regs.a);
           cycle += 2;
         }
@@ -825,8 +825,8 @@ class Cpu {
         {
           int value = readAddressing(op);
           regs.a = ((regs.a & value) >> 1) | (carry() << 7);
-          int flagC = bit6(regs.a) ? Flags.C : 0;
-          int flagV = bit6(regs.a) ^ bit5(regs.a) ? Flags.V : 0;
+          int flagC = regs.a.bit6 ? Flags.C : 0;
+          int flagV = regs.a.bit6 ^ regs.a.bit5 ? Flags.V : 0;
           regs.p = (regs.p & ~(Flags.V | Flags.C)) | flagC | flagV;
           flagsNZ(regs.a);
           cycle += 2;
@@ -864,7 +864,7 @@ class Cpu {
         break;
 
       default:
-        log("unimplemented opcode: ${hex8(op)} at ${hex16(regs.pc)}\n");
+        log("unimplemented opcode: ${op.x2} at ${regs.pc.x4}\n");
         return false;
     }
 
@@ -959,7 +959,7 @@ class Cpu {
   }
 
   void flagsNZ(int acm) {
-    final negative = bit7(acm) ? Flags.N : 0;
+    final negative = acm.bit7 ? Flags.N : 0;
     final zero = (acm & 0xff == 0) ? Flags.Z : 0;
 
     regs.p = (regs.p & 0x7d) | Flags.R | negative | zero;

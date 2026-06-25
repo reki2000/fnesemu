@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import '../../pad_button.dart';
 
 class Joypad {
@@ -46,7 +46,7 @@ class Joypad {
   }
 
   void write(int addr, int data) {
-    if (bit0(data)) {
+    if (data.bit0) {
       return;
     }
 

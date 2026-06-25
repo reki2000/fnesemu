@@ -1,9 +1,9 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 import 'vrc6_apu.dart';
@@ -66,7 +66,7 @@ class MapperVrc6 extends Mapper {
   @override
   void write(addr, data) {
     if (addr == 0xb003) {
-      _ramEnabled = bit7(data);
+      _ramEnabled = data.bit7;
 
       _setMirror((data & 0x0f) >> 2);
 
@@ -185,13 +185,13 @@ class MapperVrc6 extends Mapper {
   }
 
   void _setIrqControl(data) {
-    _irqEnabledAfterAcknoledge = bit0(data);
-    _irqEnabled = bit1(data);
+    _irqEnabledAfterAcknoledge = data.bit0;
+    _irqEnabled = data.bit1;
     if (_irqEnabled) {
       _irqCounter = _irqLatch;
     }
     _prescaledClock = 0;
-    _irqModeCycle = bit2(data);
+    _irqModeCycle = data.bit2;
     holdIrq(false);
   }
 
@@ -228,10 +228,10 @@ class MapperVrc6 extends Mapper {
   @override
   String dump() {
     final chrBanks =
-        range(0, 8).map((i) => hex8(_chrBank[i])).toList().join(" ");
+        range(0, 8).map((i) => _chrBank[i].x2).toList().join(" ");
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBank[i])).toList().join(" ");
-    final reg = _ppuReg.map((i) => hex8(i)).toList().join(" ");
+        range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
+    final reg = _ppuReg.map((i) => i.x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'}${_irqModeCycle ? 'c' : 's'} "
         "@${_irqCounter.toRadixString(10).padLeft(3, "0")}"

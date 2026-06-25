@@ -6,7 +6,7 @@ import '../../core/core_controller.dart';
 import '../../core/debugger.dart';
 import '../../core/types.dart';
 import '../../styles.dart';
-import '../../util/int.dart';
+import 'package:fnesemu/util/int.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {
@@ -51,7 +51,7 @@ class DebugController extends StatelessWidget {
     try {
       final breakPoint = int.parse(v, radix: 16);
       debugger.setBreakPoint(breakPoint);
-      _showSnackBar(context, "breakpoint: ${breakPoint.hex24}");
+      _showSnackBar(context, "breakpoint: ${breakPoint.x6}");
     } catch (e) {
       _showSnackBar(context, e.toString());
     }
@@ -88,10 +88,10 @@ class DebugController extends StatelessWidget {
       );
 
   String _formatPc(int pc, int bit) => bit == 32
-      ? pc.hex32
+      ? pc.x8
       : bit == 24
-          ? pc.hex24
-          : pc.hex16;
+          ? pc.x6
+          : pc.x4;
 
   Widget body(BuildContext context, DebugOption opt) =>
       Row(spacing: 3, mainAxisAlignment: MainAxisAlignment.center, children: [

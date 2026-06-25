@@ -1,7 +1,7 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:core';
 
-import '../../../util/util.dart';
 import 'cpu.dart';
 
 extension Cpu65c02 on Cpu {
@@ -130,7 +130,7 @@ extension Cpu65c02 on Cpu {
       case 0x6f:
       case 0x7f:
         int value = read(zeropage());
-        branch(!bit0(value >> (op >> 4)));
+        branch(!(value >> (op >> 4).bit0));
         cycle += 5;
         break;
 
@@ -144,7 +144,7 @@ extension Cpu65c02 on Cpu {
       case 0xef:
       case 0xff:
         int value = read(zeropage());
-        branch(bit0(value >> ((op & 0x70) >> 4)));
+        branch((value >> ((op & 0x70).bit0 >> 4)));
         cycle += 5;
         break;
 

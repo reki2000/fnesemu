@@ -471,13 +471,13 @@ class Z80 {
 
   String dump() {
     final res1 =
-        "af:${(r.af & 0xffd7).hex16} bc:${r.bc.hex16} de:${r.de.hex16} hl:${r.hl.hex16}";
+        "af:${(r.af & 0xffd7).x4} bc:${r.bc.x4} de:${r.de.x4} hl:${r.hl.x4}";
     final res2 =
-        "af':${(r.af2 & 0xffd7).hex16} bc':${r.bc2.hex16} de':${r.de2.hex16} hl':${r.hl2.hex16}";
+        "af':${(r.af2 & 0xffd7).x4} bc':${r.bc2.x4} de':${r.de2.x4} hl':${r.hl2.x4}";
     final res3 =
-        "ix:${r.ixiy[0].hex16} iy:${r.ixiy[1].hex16} sp:${r.sp.hex16} pc:${r.pc.hex16}";
+        "ix:${r.ixiy[0].x4} iy:${r.ixiy[1].x4} sp:${r.sp.x4} pc:${r.pc.x4}";
     final regs4 =
-        ("i:${r.i.hex8} r:${r.r.hex8} iff:${iff1 ? 1 : 0}${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"}");
+        ("i:${r.i.x2} r:${r.r.x2} iff:${iff1 ? 1 : 0}${iff2 ? 1 : 0} im:$im ${halted ? "H" : "-"}");
 
     const f = "SZ-H-PNC";
     final flags = List.generate(

@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 
 import 'dart:typed_data';
 
-import '../../../util/util.dart';
 import '../mapper/rom.dart';
 import 'cpu.dart';
 import 'pad.dart';
@@ -103,7 +103,7 @@ class Bus {
       // for (final addr in logAddrs) {
       //   if (offset == addr & 0x1fff) {
       //     print(
-      //         "ram write: ${hex16(addr)} ${hex8(data)}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+      //         "ram write: ${addr.x4} ${data.x2}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
       //   }
       // }
       ram[bank & 0x03][offset] = data;
@@ -161,7 +161,7 @@ class Bus {
             timer.size = data & 0x7f;
             return;
           case 0x01:
-            timer.trigger(bit0(data));
+            timer.trigger(data.bit0);
             return;
         }
         return;

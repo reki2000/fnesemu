@@ -1,4 +1,4 @@
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/int.dart';
 
 import 'z80.dart';
 
@@ -178,7 +178,7 @@ extension OpEd on Z80 {
         return true;
       case 0x7b: // ld sp, (nn)
         final addr = pc16();
-        r.sp = read(addr).withHighByte(read(addr + 1));
+        r.sp = read(addr).setH8(read(addr + 1));
         cycles += 6;
         return true;
 

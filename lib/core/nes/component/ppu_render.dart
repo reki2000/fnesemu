@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import '../nes.dart';
 import 'ppu.dart';
 
@@ -139,7 +139,7 @@ extension PpuRenderer on Ppu {
 
       final objScanY = scanLine - objY - 1;
       final objFineY = objScanY & 0x07;
-      final flipV = bit7(attribute);
+      final flipV = attribute.bit7;
 
       // pattern address
       // size8x8:
@@ -161,12 +161,12 @@ extension PpuRenderer on Ppu {
       final p0 = readVram(objAddr + offset);
       final p1 = readVram(objAddr + offset + 8);
 
-      final flipH = bit6(attribute);
-      obj.pattern0 = flipH ? flip8(p0) : p0;
-      obj.pattern1 = flipH ? flip8(p1) : p1;
+      final flipH = attribute.bit6;
+      obj.pattern0 = flipH ? p0.flip8 : p0;
+      obj.pattern1 = flipH ? p1.flip8 : p1;
       obj.pattern1 <<= 1;
 
-      obj.isPrior = !bit5(attribute);
+      obj.isPrior = !attribute.bit5;
       obj.palette = attribute & 0x03;
       obj.x = objRam[objNo * 4 + 3];
     }

@@ -20,7 +20,7 @@ extension Cop0 on R3000 {
       case 8:
         badvaddr = value;
       case 12:
-        // debugLog("sr <- ${value.hex32}");
+        // debugLog("sr <- ${value.x8}");
         sr = value;
       case 13:
         cause = cause.masked(0x300, value);
@@ -35,7 +35,7 @@ extension Cop0 on R3000 {
         sr = sr.masked(0x0f, sr >> 2);
       // sr &= ~0x30;
       // debugLog(
-      //     "cpu: rfe sr:${sr.hex32} cause:${cause.hex32} epc:${epc.hex32}");
+      //     "cpu: rfe sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
       default:
         R3000._unknown(inst32);
     }

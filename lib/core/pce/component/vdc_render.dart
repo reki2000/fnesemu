@@ -1,7 +1,7 @@
+import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/cpu.dart';
-import 'package:fnesemu/util/util.dart';
 
 import 'vdc.dart';
 
@@ -181,7 +181,7 @@ extension VdcRenderer on Vdc {
           (((bgRenderLine >> 3) & bgHeightMask) << bgWidthBits) |
               ((x >> 3) & bgWidthMask);
       // print(
-      //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${hex16(addr)}");
+      //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${addr.x4}");
       final tile = vram[nameTableAddress];
       paletteNo = tile >> 12 << 4;
 

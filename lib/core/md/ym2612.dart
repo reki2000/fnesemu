@@ -148,7 +148,7 @@ class Op {
     _egRate = rate(ar);
     // if (ar != 0) {
     //   print(
-    //       "op$no ph:${_phase.hex24} state:$_state rate:${_rate.hex8} atten:${_attenuation.hex16} lv:${_level.hex16}");
+    //       "op$no ph:${_phase.x6} state:$_state rate:${_rate.x2} atten:${_attenuation.x4} lv:${_level.x4}");
     // }
   }
 
@@ -465,7 +465,7 @@ class Channel {
     final lfo =
         "${lfoEnabled ? lfoAms.toString().padLeft(1) : "-"}${lfoEnabled ? lfoFms.toString().padLeft(1) : "-"}";
     final status =
-        "${no.toString().padLeft(1)}:$lr${(block << 2 | (freq >> 8)).hex8} $algo$feedback $lfo";
+        "${no.toString().padLeft(1)}:$lr${(block << 2 | (freq >> 8)).x2} $algo$feedback $lfo";
 
     final ops = op.map((o) => o.ssgEg.bit3 ? "s" : "a").join();
     final verboseOps = op.map((o) => o.debug()).join(' ');
@@ -817,6 +817,6 @@ class Ym2612 {
 
   String dump() {
     final ch = _channels.map((c) => c.debug()).join(' ');
-    return "fm:${_ch3Mode.toString().padLeft(1)}${_dacEnabled ? "D" : "-"} ${_timerCountA.hex16} ${_timerCountB.hex8} $ch";
+    return "fm:${_ch3Mode.toString().padLeft(1)}${_dacEnabled ? "D" : "-"} ${_timerCountA.x4} ${_timerCountB.x2} $ch";
   }
 }

@@ -69,7 +69,7 @@ extension Op4 on M68 {
               ? false
               : nf;
       // debug(
-      //     "chk dn:$dn xn:$xn mode:$mode bound:${bound.hex16} data:${data.hex16}");
+      //     "chk dn:$dn xn:$xn mode:$mode bound:${bound.x4} data:${data.x4}");
       if (data < 0 || bound < data) {
         trap(0x18, sr);
       }

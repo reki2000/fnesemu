@@ -64,7 +64,7 @@ extension Cop2Command on Cop2 {
 
     final hsz1 = divUnr(h.mask16, sz3.mask16);
     // debugLog(
-    //     "gte: h:${h.hex32} sz3:${sz3.toRadixString(16)} hdz1: ${hsz1.toRadixString(16)} ir1: ${ir1.hex32} ofx:${ofx.hex32} flag:${flag.hex32}");
+    //     "gte: h:${h.x8} sz3:${sz3.toRadixString(16)} hdz1: ${hsz1.toRadixString(16)} ir1: ${ir1.x8} ofx:${ofx.x8} flag:${flag.x8}");
 
     final sx = hsz1 * ir1 + ofx;
     mac0 = sx;
@@ -117,7 +117,7 @@ extension Cop2Command on Cop2 {
 
     pushColor();
     // debugLog(
-    //     "gte: ncds ${vx.hex16} ${vy.hex16} ${vz.hex16} ir:${ir0.hex16} rgbc:${rgbc.hex32} rgb2:${rgb2.hex32}");
+    //     "gte: ncds ${vx.x4} ${vy.x4} ${vz.x4} ir:${ir0.x4} rgbc:${rgbc.x8} rgb2:${rgb2.x8}");
   }
 
   void ncdt() {

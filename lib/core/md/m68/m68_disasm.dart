@@ -18,7 +18,7 @@ class Disasm {
   String sz0(int s) => ["b", "w", "l", "-"][s];
   String sz1(bool s) => s ? "l" : "w";
 
-  String ex([msg = ""]) => throw ("Unknown opcode: ${op.hex16} $msg");
+  String ex([msg = ""]) => throw ("Unknown opcode: ${op.x4} $msg");
 
   (String, int) disasm(List<int> data, int pc) {
     int addr = 0;
@@ -60,7 +60,7 @@ class Disasm {
       final reg = breaf >> 12 & 7;
       final size = sz1(breaf.bit11);
       final regType = breaf.bit15 ? "a" : "d";
-      return "(#${disp.hex16}, $base, $regType$reg.$size)";
+      return "(#${disp.x4}, $base, $regType$reg.$size)";
     }
 
     String ea([int? s, int? m, int? r]) {
@@ -132,7 +132,7 @@ class Disasm {
           0xa when size == 3 => "tas.b ${ea()}",
           0xa => "tst.$sz ${ea()}",
           0xe => switch (op2) {
-              0x4 => "trap #${(op3 & 0xf).hex8}",
+              0x4 => "trap #${(op3 & 0xf).x2}",
               0x5 when !mod.bit0 => "link.w a$r1, #${im(1)}",
               0x5 => "unlk a$r1",
               0x6 => "move.l ${mod.bit0 ? "usp, a$r1" : "a$r1, usp"}",
@@ -159,7 +159,7 @@ class Disasm {
       0x6 when op1 == 0x00 => "bra #${pcRel(op23)}",
       0x6 when op1 == 0x01 => "bsr #${pcRel(op23)}",
       0x6 => "b$cond #${pcRel(op23)}",
-      0x7 => "moveq.l #${op23.hex8}, d$r2",
+      0x7 => "moveq.l #${op23.x2}, d$r2",
       0x8 when op & 0x1c0 == 0xc0 => "divu.w d$r2, ${ea(1)}",
       0x8 when op & 0x1c0 == 0x1c0 => "divs.w d$r2, ${ea(1)}",
       0x8 when op & 0x1f0 == 0x100 =>

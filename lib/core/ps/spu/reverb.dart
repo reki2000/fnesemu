@@ -15,7 +15,7 @@ class ReverbUint {
   }
 
   String dump() =>
-      "${addr[0].hex24},${addr[1].hex24} ${offset > 0 ? "o${offset.hex24} " : ""}v:${volume.hex16}";
+      "${addr[0].x6},${addr[1].x6} ${offset > 0 ? "o${offset.x6} " : ""}v:${volume.x4}";
 }
 
 extension IntVolume on int {
@@ -235,7 +235,7 @@ class Reverb {
       0x1d => _apf[1].addr[1] = value.mask16 << 3,
       0x1e => _inputVolume[0] = volume,
       0x1f => _inputVolume[1] = volume,
-      _ => throw "spu: reverb: unreachable offset:${offset.hex32}",
+      _ => throw "spu: reverb: unreachable offset:${offset.x8}",
     };
   }
 
@@ -244,6 +244,6 @@ class Reverb {
       "ssr:${_ssr.map((e) => e.dump()).join(" ")} "
       "dsr:${_dsr.map((e) => e.dump()).join(" ")} "
       "comb:${_comb.map((e) => e.dump()).join(" ")} "
-      "in:${_inputVolume.map((e) => e.hex16).join(",")} "
-      "out:${outputVolume.map((e) => e.hex16).join(",")}";
+      "in:${_inputVolume.map((e) => e.x4).join(",")} "
+      "out:${outputVolume.map((e) => e.x4).join(",")}";
 }

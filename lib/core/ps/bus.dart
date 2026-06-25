@@ -4,7 +4,7 @@ import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
@@ -169,7 +169,7 @@ class Bus implements BusR3000 {
   @override
   void write8(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write8 to ${debugLogAddr.hex32}: ${v.hex8}");
+    //   debugLog("bus: write8 to ${debugLogAddr.x8}: ${v.x2}");
     // }
 
     final offset = addr & segMask[addr >> 29];
@@ -201,7 +201,7 @@ class Bus implements BusR3000 {
   @override
   void write16(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write16 to ${debugLogAddr.hex32}: ${v.hex16}");
+    //   debugLog("bus: write16 to ${debugLogAddr.x8}: ${v.x4}");
     // }
 
     final offset = addr & segMask[addr >> 29];
@@ -276,7 +276,7 @@ class Bus implements BusR3000 {
   @pragma('vm:no-bounds-check')
   void write32(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write32 to ${debugLogAddr.hex32}: ${v.hex32}");
+    //   debugLog("bus: write32 to ${debugLogAddr.x8}: ${v.x8}");
     // }
     final offset = addr & 0x1fffffff;
     if (offset < 0x8000000) {
@@ -316,7 +316,7 @@ class Bus implements BusR3000 {
 
   int _unimpl(String op, String device, int addr, {int value = 0}) {
     debugLog('====================================================');
-    debugLog('$op: unknown ${addr.hex32} <= ${value.hex32} $device');
+    debugLog('$op: unknown ${addr.x8} <= ${value.x8} $device');
     debugLog('====================================================');
     return 0;
   }

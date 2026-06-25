@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
-import '../../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import '../../types.dart';
 import '../bus.dart';
 import '../interrupt.dart';
@@ -144,7 +144,7 @@ class Gpu {
   }
 
   int readReg() {
-    // debugLog("GPREAD: ${readValue.hex32} ${dumpCmd()}");
+    // debugLog("GPREAD: ${readValue.x8} ${dumpCmd()}");
     final result = readValue;
     postRead();
 
@@ -167,7 +167,7 @@ class Gpu {
         .setBit(27, vramToCpuReady)
         .setBit(28, dmaReceiveReady)
         .setBit(31, isOddFrame & !isVblank);
-    // debugLog("GPSTAT: ${result.hex32}  ${dumpCmd()}");
+    // debugLog("GPSTAT: ${result.x8}  ${dumpCmd()}");
     return result;
   }
 
@@ -195,7 +195,7 @@ class Gpu {
     final offset = y * 1024 + x;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   debugLog(
-    //       "writeFrameBuffer16: ${u16.hex16} at ($x, $y) offset:${offset.hex32} ${dumpCmd()}");
+    //       "writeFrameBuffer16: ${u16.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
     // }
     frameBuffer16[offset] = u16;
   }
@@ -204,9 +204,9 @@ class Gpu {
   int readFrameBuffer16(int x, int y) {
     final offset = y * 1024 + x;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
-    //   final result = frameBuffer.getUInt16LE(offset);
+    //   final result = frameBuffer.getUint16LE(offset);
     //   debugLog(
-    //       "readFrameBuffer16: value ${result.hex16} at ($x, $y) offset:${offset.hex32} ${dumpCmd()}");
+    //       "readFrameBuffer16: value ${result.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
     // }
     return frameBuffer16[offset];
   }
@@ -240,8 +240,8 @@ class Gpu {
 
     if (debug) {
       debugLog(
-          "getTexureColor($u+$textureOffsetX2/${textureMaskX2.hex8}, $v+$textureOffsetY2/${textureMaskY2.hex8}, "
-          "$baseX, $baseY, ${clutBase.hex24}, $clutMode) -> ${result.hex16}");
+          "getTexureColor($u+$textureOffsetX2/${textureMaskX2.x2}, $v+$textureOffsetY2/${textureMaskY2.x2}, "
+          "$baseX, $baseY, ${clutBase.x6}, $clutMode) -> ${result.x4}");
     }
 
     return result;
@@ -315,7 +315,7 @@ class Gpu {
     if (status.bit12 && old.bit15) {
       // if (x == 11 && y == 136) {
       //   debugLog(
-      //       "gpu: write protected old:${old.hex16} status:${status.hex16} ");
+      //       "gpu: write protected old:${old.x4} status:${status.x4} ");
       // }
       return;
     }
@@ -329,7 +329,7 @@ class Gpu {
       final g1 = c16 >> 5 & 0x1f;
       final b1 = c16 >> 10 & 0x1f;
       // if (x == 11 && y == 136) {
-      //   debugLog("gpu: semi transparency old:${old.hex16} new:${c16.hex16} "
+      //   debugLog("gpu: semi transparency old:${old.x4} new:${c16.x4} "
       //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
       //       "mode:${status >> 5 & 0x03}");
       // }
@@ -355,7 +355,7 @@ class Gpu {
     writeFrameBuffer16(x, y, c16 | forceBit15);
   }
 
-  String dump() => "GPU: stat:${status.hex32} "
+  String dump() => "GPU: stat:${status.x8} "
       "${width}x$height "
       "(${displayX1.decimal3},${displayY1.decimal3}) ${(displayX2 - displayX1).decimal4}x${(displayY2 - displayY1).decimal3} "
       "(${startDisplayX.decimal3},${startDisplayY.decimal3}) "
@@ -363,5 +363,5 @@ class Gpu {
       "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
 
   String dumpCmd() =>
-      "cmd[${cmd.sublist(0, cmdSize).map((d) => d.hex32).join(" ")}]";
+      "cmd[${cmd.sublist(0, cmdSize).map((d) => d.x8).join(" ")}]";
 }

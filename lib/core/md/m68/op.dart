@@ -47,7 +47,7 @@ extension Op on M68 {
 
           if (modeDst != 0 && modeDst != 1) {
             addr0 = addressing(size, modeDst, dst);
-            // debug("addr0:${addr0.hex32}");
+            // debug("addr0:${addr0.x8}");
           } else if (modeDst == 1) {
             a[dst] = value.rel(size).mask32;
             return true;
@@ -156,7 +156,7 @@ extension Op on M68 {
       final r = op.bit8 ? a[reg] - b : a[reg] + b;
       a[reg] = r.mask32;
     } else {
-      // debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.hex24}");
+      // debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.x6}");
       final a = readAddr(size, mode, reg);
       final r = op.bit8 ? sub(a, b, size) : add(a, b, size);
       if (size == 4) {
@@ -205,7 +205,7 @@ extension Op on M68 {
 
       final aa = readAddr(size, mode, xn);
       // debug(
-      //     "size:$size mod:$mode reg:$xn addr:${addr0.hex24} aa:$aa clock:$clocks");
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.x6} aa:$aa clock:$clocks");
 
       final r = a[dn] - aa.smask(size);
       clocks +=
@@ -306,7 +306,7 @@ extension Op on M68 {
 
       final aa = readAddr(size, mode, xn);
       // debug(
-      //     "size:$size mod:$mode reg:$xn addr:${addr0.hex24} aa:$aa clock:$clocks");
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.x6} aa:$aa clock:$clocks");
 
       final r = a[dn] + aa.smask(size);
       clocks +=

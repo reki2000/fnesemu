@@ -4,7 +4,6 @@ import 'dart:core';
 // Project imports:
 import 'package:fnesemu/util/int.dart';
 
-import '../../../util/util.dart';
 import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
@@ -46,10 +45,10 @@ extension CpuDebugger on Cpu {
     final dst = addr < 0
         ? ""
         : addr < 0x2000
-            ? "[${hex16(addr)}:IO]"
+            ? "[${addr.x4}:IO]"
             : operand != Operand.ind16
-                ? "[${hex16(addr)}:${hex8(dstValue)}]"
-                : "[${hex16(addr)}:${hex8(read(addr + 1))}${hex8(dstValue)}]";
+                ? "[${addr.x4}:${dstValue.x2}]"
+                : "[${addr.x4}:${read(addr + 1).x2}${dstValue.x2}]";
 
     return "$disasm$dst".padRight(47, " ");
   }
@@ -59,7 +58,7 @@ extension CpuDebugger on Cpu {
   }
 
   String _reg() {
-    return "A:${hex8(regs.a)} X:${hex8(regs.x)} Y:${hex8(regs.y)} P:${hex8(regs.p)} SP:${hex8(regs.s)}";
+    return "A:${regs.a.x2} X:${regs.x.x2} Y:${regs.y.x2} P:${regs.p.x2} SP:${regs.s.x2}";
   }
 
   TraceLog trace() {
@@ -68,13 +67,13 @@ extension CpuDebugger on Cpu {
     return TraceLog(
         pc,
         cycles,
-        "${bank.hex8}-${_disasm(regs.pc)}".toUpperCase(),
+        "${bank.x2}-${_disasm(regs.pc)}".toUpperCase(),
         _reg().toUpperCase(),
         [regs.a, regs.x, regs.y, regs.p, regs.s]);
   }
 
   String dumpDisasm(int addr) {
-    return "${_mprAddr(addr).hex8}-${_disasm(addr)} ".toUpperCase();
+    return "${_mprAddr(addr).x2}-${_disasm(addr)} ".toUpperCase();
   }
 
   String dumpNesTest() {
@@ -82,7 +81,7 @@ extension CpuDebugger on Cpu {
     // final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
     // final ppuHorizontalCycle = (ppuCycle % 341).toString().padLeft(3, " ");
 
-    final result = "${_mprAddr(regs.pc).hex8}-${_disasm(regs.pc)} ${_reg()}";
+    final result = "${_mprAddr(regs.pc).x2}-${_disasm(regs.pc)} ${_reg()}";
     return result.toUpperCase();
   }
 
@@ -117,7 +116,7 @@ extension CpuDebugger on Cpu {
 
     final code = "${dumpNesTest()} cy:$cycles\n";
 
-    String mpr = "mpr: ${regs.mpr.map((e) => hex8(e)).join(" ")} ";
+    String mpr = "mpr: ${regs.mpr.map((e) => e.x2).join(" ")} ";
     String irq =
         "irq: ${holdIrq1 ? "1" : "-"} ${holdIrq2 ? "2" : "-"} ${holdTirq ? "T" : "-"} ";
 
@@ -126,14 +125,14 @@ extension CpuDebugger on Cpu {
 
   String dumpMem(int addr, int target) {
     addr &= 0xfff0;
-    var str = "${_mprAddr(addr).hex8}-${hex16(addr)}:";
+    var str = "${_mprAddr(addr).x2}-${addr.x4}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
               : (addr + i) == target + 1 && i != 0
                   ? "]"
                   : " ") +
-          hex8(read(addr + i));
+          read(addr + i).x2;
     }
     return "$str\n";
   }

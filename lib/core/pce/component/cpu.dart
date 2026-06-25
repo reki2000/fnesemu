@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:core';
 import 'dart:developer';
 
-import '../../../util/util.dart';
 import 'bus.dart';
 import 'cpu_6280.dart';
 import 'cpu_6502.dart';
@@ -42,7 +42,7 @@ class Cpu2 extends Cpu {
     final result = exec6502(op) || exec65c02(op) || exec6280(op);
 
     if (!result) {
-      log("unimplemented opcode: ${hex8(op)} at ${hex16(regs.pc)}\n");
+      log("unimplemented opcode: ${op.x2} at ${regs.pc.x4}\n");
       cycle += 2;
     }
 
@@ -99,7 +99,7 @@ class Cpu {
 
   void write(int addr, int data) {
     // if (data >= 256) {
-    //   print("cpu.write: data over 8bit: $data, regs: ${hex16(regs.pc)}\n");
+    //   print("cpu.write: data over 8bit: $data, regs: ${regs.pc.x4}\n");
     // }
     bus.write(regs.mprAddress[(addr & 0xe000) >> 13] | addr & 0x1fff, data);
   }
@@ -139,7 +139,7 @@ class Cpu {
 
   // interrupt handling
   void holdInterrupt(Interrupt int) {
-    // print("interrupted: $int ${hex16(regs.pc)}");
+    // print("interrupted: $int ${regs.pc.x4}");
     switch (int) {
       case Interrupt.irq1:
         holdIrq1 = true;
@@ -277,7 +277,7 @@ class Cpu {
   }
 
   void flagsNZ(int acm) {
-    final negative = bit7(acm) ? Flags.N : 0;
+    final negative = acm.bit7 ? Flags.N : 0;
     final zero = (acm & 0xff == 0) ? Flags.Z : 0;
 
     regs.p = (regs.p & 0x7d) | Flags.T | negative | zero;

@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import '../../pad_button.dart';
 
 class Pad {
@@ -44,11 +44,11 @@ class Pad {
   }
 
   set port(int data) {
-    selectLRDU = bit0(data);
+    selectLRDU = data.bit0;
 
     if (selectLRDU) {
       if (!clear) {
-        if (bit1(data)) {
+        if (data.bit1) {
           counter = 0;
           clear = true;
         } else {

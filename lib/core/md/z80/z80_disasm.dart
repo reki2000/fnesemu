@@ -18,11 +18,11 @@ class Z80Disasm {
 
     String rel8() {
       final d = fetch();
-      return "${(d - (d >= 128 ? 256 : 0) + pc + addr).hex16}h";
+      return "${(d - (d >= 128 ? 256 : 0) + pc + addr).x4}h";
     }
 
-    String im8() => "${fetch().hex8}h";
-    String im16() => "${(fetch() | fetch() << 8).hex16}h";
+    String im8() => "${fetch().x2}h";
+    String im16() => "${(fetch() | fetch() << 8).x4}h";
 
     final regLd8 = regs8[op >> 3 & 7];
     final regLd16 = regs16[op >> 4 & 3];
@@ -50,7 +50,7 @@ class Z80Disasm {
             0x00 || 0x08 => "in0 $r8, (c)",
             0x01 || 0x09 => "out0 (c), $r8",
             0x04 || 0x0c => "tst $r8",
-            _ => throw "unknown op: ${op.hex8}",
+            _ => throw "unknown op: ${op.x2}",
           },
         0x40 => switch (op & 0x0f) {
             0x00 || 0x08 => "in $r8, (c)",
@@ -74,7 +74,7 @@ class Z80Disasm {
                 0x6f => "rld",
                 0x74 => "tstio ${im8()}",
                 0x76 => "slp",
-                _ => throw "unknown op: ed ${op.hex8}",
+                _ => throw "unknown op: ed ${op.x2}",
               }
           },
         _ => switch (op) {
@@ -98,7 +98,7 @@ class Z80Disasm {
             0xb9 => "cpdr",
             0xba => "indr",
             0xbb => "otdr",
-            _ => throw "unknown op: ${op.hex8}",
+            _ => throw "unknown op: ${op.x2}",
           },
       };
     }
@@ -118,7 +118,7 @@ class Z80Disasm {
     String opDdFd(String xy) {
       String disp() {
         final d = fetch();
-        final disp = "($xy${d > 128 ? "-${(256 - d).hex8}h" : "+${d.hex8}h"})";
+        final disp = "($xy${d > 128 ? "-${(256 - d).x2}h" : "+${d.x2}h"})";
         return disp;
       }
 
@@ -171,7 +171,7 @@ class Z80Disasm {
         0xe5 => "push $xy",
         0xe9 => "jp ($xy)",
         0xf9 => "ld sp, $xy",
-        _ => throw "unknown op: ${xy == "ix" ? "dd" : "fd"} ${op.hex8}",
+        _ => throw "unknown op: ${xy == "ix" ? "dd" : "fd"} ${op.x2}",
       };
     }
 
@@ -240,7 +240,7 @@ class Z80Disasm {
               _ => throw "never reach",
             },
           0x06 || 0x0e => "${ari[op >> 3 & 7]} ${im8()}",
-          0x07 || 0x0f => "rst ${(op & 0x38).hex8}h",
+          0x07 || 0x0f => "rst ${(op & 0x38).x2}h",
           _ => throw "never reach",
         },
       _ => throw "never reach",

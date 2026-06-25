@@ -1,5 +1,4 @@
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
 
 import 'z80.dart';
 
@@ -30,7 +29,7 @@ extension OpDdFd on Z80 {
           return true;
         case 0x2a: // ld ix, (nn)
           final addr = pc16();
-          r.ixiy[xy] = read(addr).withHighByte(read((addr + 1)));
+          r.ixiy[xy] = read(addr).setH8(read((addr + 1)));
           cycles += 6;
           return true;
         case 0x23: // inc ix

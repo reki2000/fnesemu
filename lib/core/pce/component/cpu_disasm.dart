@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 
 enum Operand {
   im,
@@ -27,7 +27,7 @@ enum Operand {
 class Disasm {
   static final _ops = _initOps();
 
-  static Map<int, Pair<String, Operand>> _initOps() {
+  static Map<int, (String, Operand)> _initOps() {
     final ops = <int, List<Object>>{};
 
     if (ops.isEmpty) {
@@ -185,7 +185,7 @@ class Disasm {
     }
 
     return ops
-        .map((op, e) => MapEntry(op, Pair(e[0] as String, e[1] as Operand)));
+        .map((op, e) => MapEntry(op, (e[0] as String, e[1] as Operand)));
   }
 
   static Operand operand(int op) {
@@ -194,37 +194,37 @@ class Disasm {
       return Operand.none;
     }
 
-    return val.i1;
+    return val.$2;
   }
 
   static String disasm(final int pc, int d0, int d1, int d2,
       {int d34 = 0, int d56 = 0}) {
     final d3 = d34 & 0xff;
 
-    final addr = hex16(pc);
-    final op = hex8(d0);
-    final a1 = hex8(d1);
-    final a2 = hex8(d2);
-    final a3 = hex8(d3);
+    final addr = pc.x4;
+    final op = d0.x2;
+    final a1 = d1.x2;
+    final a2 = d2.x2;
+    final a3 = d3.x2;
 
-    final a12 = hex16((d2 << 8) | d1);
-    final a34 = hex16(d34);
-    final a56 = hex16(d56);
+    final a12 = ((d2 << 8).x4 | d1);
+    final a34 = d34.x4;
+    final a56 = d56.x4;
 
-    final a23 = hex16(d3 << 8 | d2);
+    final a23 = (d3 << 8 | d2).x4;
 
     final val = _ops[d0];
     if (val == null) {
       return "$addr  $op        ---";
     }
 
-    final inst = val.i0;
+    final inst = val.$1;
     var set = "";
 
     final rel = pc + 2 + ((d1 + 128) & 0xff) - 128;
     final rel2 = pc + 3 + ((d2 + 128) & 0xff) - 128;
 
-    final args = switch (val.i1) {
+    final args = switch (val.$2) {
       Operand.im => "$a1     $inst #\$$a1 $set",
       Operand.im16 => "$a1 $a2  $inst \$$a2$a1 $set",
       Operand.zp => "$a1     $inst \$$a1 $set",
@@ -236,8 +236,8 @@ class Disasm {
       Operand.ind16 => "$a1 $a2  $inst \$($a2$a1) $set",
       Operand.zpindx => "$a1     $inst \$($a1, X) $set",
       Operand.zpindy => "$a1     $inst \$($a1), Y $set",
-      Operand.rel => "$a1     $inst \$${hex16(rel)}",
-      Operand.zerorel => "$a1 $a2  $inst \$$a1, \$${hex16(rel2)}",
+      Operand.rel => "$a1     $inst \$${rel.x4}",
+      Operand.zerorel => "$a1 $a2  $inst \$$a1, \$${rel2.x4}",
       Operand.zpind => "$a1     $inst \$($a1) $set",
       Operand.blk => "$a12 $a34 $a56  $inst $a12,$a34,$a56 $set",
       Operand.imzp => "$a1 $a2  $inst #\$$a1, \$$a2 $set",
@@ -255,7 +255,7 @@ class Disasm {
     if (val == null) {
       return 1;
     }
-    switch (val.i1) {
+    switch (val.$2) {
       case Operand.im:
       case Operand.zp:
       case Operand.zpx:

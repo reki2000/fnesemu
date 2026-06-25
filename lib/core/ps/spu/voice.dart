@@ -194,7 +194,7 @@ class Voice {
 
   void keyOn() {
     // debugLog(
-    //     "SPU: keyOn  ch:$no addr:${startAddr.hex24} pitch:${pitch.hex24} vol:${_volReg[0].hex16},${_volReg[1].hex16} e:${adsr.hex32}");
+    //     "SPU: keyOn  ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
     _addr = startAddr;
     if (!_repeatAddrSet) {
       repeatAddr = startAddr;
@@ -219,12 +219,12 @@ class Voice {
     envelope = Envelope.of(0, adsr >> 16 & 0x1f, adsr.bit21, true); // release
 
     // debugLog(
-    //     "SPU: keyOff ch:$no addr:${startAddr.hex24} pitch:${pitch.hex24} vol:${_volReg[0].hex16},${_volReg[1].hex16} e:${adsr.hex32}");
+    //     "SPU: keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
   }
 
   String dump() => "${no.decimal2}${endx ? "E" : "R"}:"
-      "${_volReg[1].hex16}${_volReg[0].hex16}-"
-      "${(startAddr >> 3).hex16}${pitch.hex16}-"
-      "${adsr.hex32}-"
-      "${(_addr >> 3).hex16}${adsrVolume.hex16}";
+      "${_volReg[1].x4}${_volReg[0].x4}-"
+      "${(startAddr >> 3).x4}${pitch.x4}-"
+      "${adsr.x8}-"
+      "${(_addr >> 3).x4}${adsrVolume.x4}";
 }

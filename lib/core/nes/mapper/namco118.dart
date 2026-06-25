@@ -1,6 +1,6 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 
-import '../../../util/util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_206
@@ -31,7 +31,7 @@ class MapperNamco118 extends Mapper {
   @override
   void write(int addr, int data) {
     final reg = addr & 0xe000;
-    final isOdd = bit0(addr);
+    final isOdd = addr.bit0;
 
     switch (reg) {
       case 0x8000:
@@ -95,10 +95,10 @@ class MapperNamco118 extends Mapper {
   @override
   String dump() {
     final chrBanks =
-        range(0, 8).map((i) => hex8(_chrBanks[i])).toList().join(" ");
+        range(0, 8).map((i) => _chrBanks[i].x2).toList().join(" ");
 
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBanks[i])).toList().join(" ");
+        range(0, 4).map((i) => _prgBanks[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

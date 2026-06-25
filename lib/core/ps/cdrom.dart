@@ -1,8 +1,8 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
-import '../../util/debug.dart';
-import '../../util/int.dart';
+import 'package:fnesemu/util/debug.dart';
+import 'package:fnesemu/util/int.dart';
 import '../disc.dart';
 import 'bus.dart';
 import 'interrupt.dart';
@@ -167,7 +167,7 @@ class Cdrom {
     final data = readBuffer8() | (readBuffer8() << 8);
 
     // debugLog(
-    //     "cdrom: readBuffer16 ${sectorBufferIndex.hex16} ${data.hex16} ${dump()}");
+    //     "cdrom: readBuffer16 ${sectorBufferIndex.x4} ${data.x4} ${dump()}");
     return data;
   }
 
@@ -195,13 +195,13 @@ class Cdrom {
       _ => 0,
     };
     // if (reg != 2) {
-    //   debugLog("cdrom: read8 $bank-$reg => ${result.hex8} ${dump()}");
+    //   debugLog("cdrom: read8 $bank-$reg => ${result.x2} ${dump()}");
     // }
     return result;
   }
 
   void writePort8(int reg, int value) {
-    // debugLog("cdrom: write8 $bank-$reg <= ${value.hex8} ${dump()}");
+    // debugLog("cdrom: write8 $bank-$reg <= ${value.x2} ${dump()}");
     if (reg == 0) {
       bank = value & 0x03;
       return;
@@ -266,7 +266,7 @@ class Cdrom {
 
       default:
         debugLog(
-            "cdrom: unknown write8: $bank-$reg <= ${value.hex8}, ${dump()}");
+            "cdrom: unknown write8: $bank-$reg <= ${value.x2}, ${dump()}");
     }
   }
 
@@ -316,7 +316,7 @@ class Cdrom {
         }
 
         // debugLog(
-        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.hex8).join(" ")} ..]");
+        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.x2).join(" ")} ..]");
 
         irq(1, [status()], delay: 0);
 
@@ -377,7 +377,7 @@ class Cdrom {
   void execCommand(int cmd) {
     resultFifo.clear();
     debugLog(
-        "cdrom: ${cmd.hex8}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.hex8}").join(",")}) ${dump()}");
+        "cdrom: ${cmd.x2}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}");
 
     switch (cmd) {
       case 0x01: // GetStat
@@ -544,12 +544,12 @@ class Cdrom {
               irq(3, Uint8List.fromList("for U/C".codeUnits));
             default:
               debugLog(
-                  "cdrom: unknown test command ${paramFifo.map((e) => e.hex8).join(" ")}");
+                  "cdrom: unknown test command ${paramFifo.map((e) => e.x2).join(" ")}");
           }
         }
       default:
         debugLog(
-            "cdrom: unknown command ${cmd.hex8} params:${paramFifo.map((e) => e.hex8).join(" ")}");
+            "cdrom: unknown command ${cmd.x2} params:${paramFifo.map((e) => e.x2).join(" ")}");
     }
 
     paramFifo.clear();
@@ -569,12 +569,12 @@ class Cdrom {
 
   void readSector(int sector) {}
 
-  String dump() => "status:${status().hex8} bank:$bank "
-      "cmd:[${paramFifo.map((e) => e.hex8).join(" ")}] "
-      "result:[${resultFifo.map((e) => e.hex8).join(" ")}] "
-      "pend:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.hex8).join(" ")}]]").join(" ")} "
+  String dump() => "status:${status().x2} bank:$bank "
+      "cmd:[${paramFifo.map((e) => e.x2).join(" ")}] "
+      "result:[${resultFifo.map((e) => e.x2).join(" ")}] "
+      "pend:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.x2).join(" ")}]]").join(" ")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.hex8} mode:${mode.hex8} seek:${Disc.dumpSector(seekSector)} read:${Disc.dumpSector(readingSector)}";
+      "mask:${intMask.x2} mode:${mode.x2} seek:${Disc.dumpSector(seekSector)} read:${Disc.dumpSector(readingSector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",

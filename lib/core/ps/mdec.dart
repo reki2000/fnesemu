@@ -57,7 +57,7 @@ class Mdec {
   }
 
   void writeCommand(int value) {
-    // debugLog("mdec: got ${value.hex32} state:${dump()}");
+    // debugLog("mdec: got ${value.x8} state:${dump()}");
 
     if (paramCount > 0) {
       params.add(value.mask16);
@@ -77,7 +77,7 @@ class Mdec {
           //     "mdec: decode command completes oIdx:${decoder.outputIndex} lenOutput:${output.length} ${dump()}");
           // for (int i = 0; i < output.length; i += 64) {
           //   debugLog(
-          //       " ${range(0, 64).map((v) => output.elementAt(i + v).hex16).join(" ")}");
+          //       " ${range(0, 64).map((v) => output.elementAt(i + v).x4).join(" ")}");
           // }
           case Mdec.commandSetQuant:
             setQuant();
@@ -102,7 +102,7 @@ class Mdec {
         signed = value.bit24;
         bit15Set = value.bit23;
         command = Mdec.commandDecode;
-        //debugLog("mdec: decode command ${value.hex32} ${dump()}");
+        //debugLog("mdec: decode command ${value.x8} ${dump()}");
         break;
 
       case 0x02: // SetQuant
@@ -116,12 +116,12 @@ class Mdec {
         break;
 
       default:
-        debugLog("mdec: got unknown command ${value.hex32}");
+        debugLog("mdec: got unknown command ${value.x8}");
     }
   }
 
   void writeControl(int value) {
-    // debugLog("mdec: writeControl ${value.hex32} ${dump()}");
+    // debugLog("mdec: writeControl ${value.x8} ${dump()}");
     if (value.bit31) {
       reset();
     }
@@ -155,12 +155,12 @@ class Mdec {
     }
 
     // debugLog("mdec: RLE extract completes a block $blockType\n"
-    //     " [${buf[blockType].map((i) => i.hex16).join(" ")}]");
+    //     " [${buf[blockType].map((i) => i.x4).join(" ")}]");
 
     decoder.fastIdct(buf[blockType]);
 
     // debugLog("mdec: IDCT completes a block $blockType\n"
-    //     " [${buf[blockType].map((i) => i.hex16).join(" ")}]");
+    //     " [${buf[blockType].map((i) => i.x4).join(" ")}]");
 
     if (depth == depth4bit) {
       final xor = signed ? 0 : 0x08;
@@ -173,7 +173,7 @@ class Mdec {
         output.add(value);
       }
       // debugLog("mdec: output a 4bpp block\n"
-      //     " [${output.map((i) => i.hex32).join(" ")}]");
+      //     " [${output.map((i) => i.x8).join(" ")}]");
 
       return;
     }
@@ -190,7 +190,7 @@ class Mdec {
       }
 
       // debugLog("mdec: output a 8bpp block\n"
-      //     " [${output.map((i) => i.hex32).join(" ")}]");
+      //     " [${output.map((i) => i.x8).join(" ")}]");
 
       return;
     }
@@ -211,7 +211,7 @@ class Mdec {
           output.add((rgb[i].c15 | (rgb[i + 1].c15 << 16) | bit15) ^ xor);
         }
         // debugLog("mdec: output a 15bpp block\n"
-        //     " [${output.toList().sublist(0, 128).map((i) => i.hex32).join(" ")}]");
+        //     " [${output.toList().sublist(0, 128).map((i) => i.x8).join(" ")}]");
       } else {
         final xor = signed ? 0 : 0x80808080;
         for (int i = 0; i < 16 * 16 - 1; i++) {
@@ -227,7 +227,7 @@ class Mdec {
           output.add(value ^ xor);
         }
         // debugLog("mdec: output a 24bpp block\n"
-        //     " [${output.map((i) => i.hex32).join(" ")}]");
+        //     " [${output.map((i) => i.x8).join(" ")}]");
       }
     }
 
@@ -256,14 +256,14 @@ class Mdec {
     }
 
     debugLog("mdec: SetQuant ${dump()}\n"
-        " [${decoder.qtY.map((i) => i.hex8).join(" ")}]\n"
-        " [${decoder.qtC.map((i) => i.hex8).join(" ")}]");
+        " [${decoder.qtY.map((i) => i.x2).join(" ")}]\n"
+        " [${decoder.qtC.map((i) => i.x2).join(" ")}]");
   }
 
   void setScale() {
     decoder.scale.setAll(0, params);
     debugLog("mdec: SetScale ${dump()}\n"
-        " [${decoder.scale.map((i) => i.hex16).join(" ")}]");
+        " [${decoder.scale.map((i) => i.x4).join(" ")}]");
   }
 
   String dump() => "command:$command paramCount:$paramCount "
@@ -311,7 +311,7 @@ class Decoder {
   bool extractRle(int input, List<int> output, bool isChrominance) {
     final qt = isChrominance ? qtC : qtY;
     // debugLog(
-    //     "mdec: RLE ${input.hex16} idx:$outputIndex q:${q.hex8} ac:${ac.hex16} [${output.map((i) => i.hex16).join(",")}]");
+    //     "mdec: RLE ${input.x4} idx:$outputIndex q:${q.x2} ac:${ac.x4} [${output.map((i) => i.x4).join(",")}]");
     if (outputIndex == -1) {
       if (input == 0xfe00) {
         return false;

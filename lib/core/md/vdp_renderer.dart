@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/uint8list.dart';
 
 import 'vdp.dart';
 
@@ -115,10 +115,10 @@ extension VdpRenderer on Vdp {
     for (int i = 0; i < displayCount; i++) {
       final base = baseAddr + spriteNo * 8;
       final sp = Sprite.of(
-          vram.getUInt16BE(base.mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
+          vram.getUint16BE(base.mask16),
+          vram.getUint16BE((base + 2).mask16),
+          vram.getUint16BE((base + 4).mask16),
+          vram.getUint16BE((base + 6).mask16));
 
       final isTarget = isInterlaced
           ? (sp.y - 256 <= yy && yy < sp.y - 256 + sp.height * 2)
@@ -169,7 +169,7 @@ extension VdpRenderer on Vdp {
 
           final addr = (sp.patternAddr << yShift1) +
               (((x2 * sp.vCells + y2) << bitsTileV | y1) << 2);
-          sp.pattern = vram.getUInt32BE(addr.mask16);
+          sp.pattern = vram.getUint32BE(addr.mask16);
         }
 
         final shift = 7 - x1;
@@ -220,7 +220,7 @@ extension VdpRenderer on Vdp {
       final offset = ctx.yOffsetInTile ^ vFlipXor;
       final addr = ((d0 << 8 & 0x0700 | d1) << bitsTileV | offset) << 2;
 
-      ctx.pattern = vram.getUInt32BE(addr.mask16);
+      ctx.pattern = vram.getUint32BE(addr.mask16);
     }
 
     final shift = hLow ^ ctx.hFlipXor;
@@ -250,7 +250,7 @@ extension VdpRenderer on Vdp {
       final offset = ctx.yOffsetInTile ^ vFlipXor;
       final addr = ((d0 << 8 & 0x0700 | d1) << bitsTileV | offset) << 2;
 
-      ctx.pattern = vram.getUInt32BE(addr.mask16);
+      ctx.pattern = vram.getUint32BE(addr.mask16);
     }
 
     final shift = xOffsetInTile ^ ctx.hFlipXor;
@@ -304,7 +304,7 @@ extension VdpRenderer on Vdp {
       final ctxA = _Tile(
           0, //
           reg[2] << 10 & 0xe000,
-          vram.getUInt16BE(hScrollAddr) & 0x3ff,
+          vram.getUint16BE(hScrollAddr) & 0x3ff,
           vScrollA & maskTileYOffset,
           vScrollA >> bitsTileV);
 
@@ -312,7 +312,7 @@ extension VdpRenderer on Vdp {
       final ctxB = _Tile(
           1, //
           reg[4] << 13 & 0xe000,
-          vram.getUInt16BE(hScrollAddr.inc2) & 0x3ff,
+          vram.getUint16BE(hScrollAddr.inc2) & 0x3ff,
           vScrollB & maskTileYOffset,
           vScrollB >> bitsTileV);
 

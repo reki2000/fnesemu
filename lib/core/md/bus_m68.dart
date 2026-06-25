@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import '../../util/int.dart';
+import 'package:fnesemu/util/int.dart';
 
 import 'm68/m68.dart';
 import 'bus_z80.dart';
@@ -120,7 +120,7 @@ class BusM68 {
 
     if (top == 0xff0000) {
       // if (addr.mask16 == 0x1a) {
-      //   print("write8: ${addr.hex32} ${data.hex8}");
+      //   print("write8: ${addr.x8} ${data.x2}");
       // }
       ram[addr.mask16] = data;
       return;
@@ -142,7 +142,7 @@ class BusM68 {
     }
 
     if (top == 0xa00000) {
-      // print("write z80 addr:${addr.mask16.hex16}:${data.hex8}");
+      // print("write z80 addr:${addr.mask16.x4}:${data.x2}");
       busZ80.write(addr.mask16, data);
       return;
     }
@@ -169,7 +169,7 @@ class BusM68 {
     }
 
     if (top == 0xc00000) {
-      // print("write16: ${addr.hex32} ${data.hex16} pc:${cpu.pc.hex24}");
+      // print("write16: ${addr.x8} ${data.x4} pc:${cpu.pc.x6}");
       vdp.write16(addr.mask16, data);
       return;
     }
@@ -220,7 +220,7 @@ class BusM68 {
   }
 
   void writeIo16(int addr, int data) {
-    // print("io:${addr.hex32} ${data.hex8}");
+    // print("io:${addr.x8} ${data.x2}");
     final _ = switch (addr & 0xfffe) {
       0x00 => 0x20, // domestic, ntsc, no fdd, version 0
       0x02 ||
