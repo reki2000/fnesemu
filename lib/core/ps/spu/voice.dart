@@ -222,7 +222,7 @@ class Voice {
     //     "SPU: keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
   }
 
-  String dump() => "${no.decimal2}${endx ? "E" : "R"}:"
+  String dump() => "${no.d2}${endx ? "E" : "R"}:"
       "${_volReg[1].x4}${_volReg[0].x4}-"
       "${(startAddr >> 3).x4}${pitch.x4}-"
       "${adsr.x8}-"

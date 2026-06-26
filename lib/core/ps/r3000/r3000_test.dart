@@ -90,7 +90,7 @@ void main() {
         check("cycle ${cpu.clocks}");
         for (int i = 0; i < 32; i++) {
           check(
-              "\$${i.toString().padLeft(2, "0")}: 0x${cpu.r[i].x8.toUpperCase()}");
+              "\$${i.d2z}: 0x${cpu.r[i].x8.toUpperCase()}");
         }
         check("PC: 0x${cpu.pc.x8.toUpperCase()}");
         check("");

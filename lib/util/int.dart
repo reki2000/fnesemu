@@ -24,12 +24,12 @@ extension IntFormat on int {
   String get x8 => mask32.toRadixString(16).padLeft(8, "0");
   String get hex => toRadixString(16);
 
-  String get decimal2 => toString().padLeft(2, " ");
-  String get decimal3 => toString().padLeft(3, " ");
-  String get decimal4 => toString().padLeft(4, " ");
-  String get decimal2z => toString().padLeft(2, "0");
-  String get decimal3z => toString().padLeft(3, "0");
-  String get decimal4z => toString().padLeft(4, "0");
+  String get d2 => toString().padLeft(2, " ");
+  String get d3 => toString().padLeft(3, " ");
+  String get d4 => toString().padLeft(4, " ");
+  String get d2z => toString().padLeft(2, "0");
+  String get d3z => toString().padLeft(3, "0");
+  String get d4z => toString().padLeft(4, "0");
 }
 
 extension IntBit on int {

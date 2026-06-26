@@ -234,8 +234,8 @@ class MapperVrc6 extends Mapper {
     final reg = _ppuReg.map((i) => i.x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'}${_irqModeCycle ? 'c' : 's'} "
-        "@${_irqCounter.toRadixString(10).padLeft(3, "0")}"
-        "/${_irqLatch.toRadixString(10).padLeft(3, "0")} "
+        "@${_irqCounter.d3z}"
+        "/${_irqLatch.d3z} "
         "chr: $chrBanks prg: $prgBanks r:$reg "
         "ram:${_ramEnabled ? '*' : ' '}"
         "\n"

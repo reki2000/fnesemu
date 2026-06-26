@@ -98,11 +98,11 @@ extension VdcDebug on Vdc {
 
     for (int i = 0; i < 64; i++) {
       final sp = Sprite.of(sat, i * 4);
-      final xy = "${sp.x.toString().padLeft(4)},${sp.y.toString().padLeft(4)}";
+      final xy = "${sp.x.d4},${sp.y.d4}";
       final patNo =
-          "${sp.patternNo.toString().padLeft(4)} ${(sp.patternNo << 6).x4}";
+          "${sp.patternNo.d4} ${(sp.patternNo << 6).x4}";
       buf[i] =
-          "${i.toString().padLeft(2)} $xy  $patNo ${sp.paletteNo.toString().padLeft(2)} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "}";
+          "${i.d2} $xy  $patNo ${sp.paletteNo.d2} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "}";
     }
 
     return buf;

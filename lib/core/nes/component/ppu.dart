@@ -170,7 +170,7 @@ class Ppu {
         break;
 
       default:
-        log("Unsupported ppu write at 0x${reg.toRadixString(16).padLeft(4, '0')}");
+        log("Unsupported ppu write at 0x${reg.x4}");
         return;
     }
   }
@@ -194,7 +194,7 @@ class Ppu {
         return data;
 
       default:
-        log("Unsupported ppu read at 0x${reg.toRadixString(16).padLeft(4, '0')}");
+        log("Unsupported ppu read at 0x${reg.x4}");
         return 0;
     }
   }

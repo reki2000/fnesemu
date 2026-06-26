@@ -357,10 +357,10 @@ class Gpu {
 
   String dump() => "GPU: stat:${status.x8} "
       "${width}x$height "
-      "(${displayX1.decimal3},${displayY1.decimal3}) ${(displayX2 - displayX1).decimal4}x${(displayY2 - displayY1).decimal3} "
-      "(${startDisplayX.decimal3},${startDisplayY.decimal3}) "
-      "(${drawingX1.decimal3},${drawingY1.decimal3})-(${drawingX2.decimal3},${drawingY2.decimal3}) "
-      "offset:(${drawingOffsetX.decimal4},${drawingOffsetY.decimal3}) frame:$frame ${scanline.decimal3}";
+      "(${displayX1.d3},${displayY1.d3}) ${(displayX2 - displayX1).d4}x${(displayY2 - displayY1).d3} "
+      "(${startDisplayX.d3},${startDisplayY.d3}) "
+      "(${drawingX1.d3},${drawingY1.d3})-(${drawingX2.d3},${drawingY2.d3}) "
+      "offset:(${drawingOffsetX.d4},${drawingOffsetY.d3}) frame:$frame ${scanline.d3}";
 
   String dumpCmd() =>
       "cmd[${cmd.sublist(0, cmdSize).map((d) => d.x8).join(" ")}]";

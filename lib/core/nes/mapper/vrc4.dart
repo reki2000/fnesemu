@@ -229,8 +229,8 @@ class MapperVrc4 extends Mapper {
         range(0, 4).map((i) => _prgBank[i][0]).x2.toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'}${_irqModeCycle ? 'c' : 's'} "
-        "@${_irqCounter.toRadixString(10).padLeft(3, "0")}"
-        "/${_irqLatch.toRadixString(10).padLeft(3, "0")} "
+        "@${_irqCounter.d3z}"
+        "/${_irqLatch.d3z} "
         "chr: $chrBanks prg: $prgBanks "
         "ram:${_ramEnabled ? '*' : ' '}"
         "\n";

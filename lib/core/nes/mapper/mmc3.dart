@@ -225,8 +225,8 @@ class MapperMMC3 extends Mapper {
         range0_3.map((i) => _prgBank[i][0]).x2.toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'} "
-        "@${_irqCounter.toRadixString(10).padLeft(3, "0")}"
-        "/${_irqLatch.toRadixString(10).padLeft(3, "0")} "
+        "@${_irqCounter.d3z}"
+        "/${_irqLatch.d3z} "
         "chr: $chrBanks0 $chrBanks1 prg: $prgBanks "
         "\n";
   }

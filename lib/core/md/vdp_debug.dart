@@ -98,11 +98,11 @@ extension VdpDebug on Vdp {
           vram.getUint16BE((base + 2).mask16),
           vram.getUint16BE((base + 4).mask16),
           vram.getUint16BE((base + 6).mask16));
-      final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
+      final no = "${i.d2}->${sp.next.d2}";
       final flags =
           "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
-      final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
-      return "#$no $xy ${sp.patternAddr.x4} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
+      final xy = "${sp.x.d3},${sp.y.d3}";
+      return "#$no $xy ${sp.patternAddr.x4} $flags ${sp.width.d2}x${sp.height.d2} ";
     });
     return result;
   }

@@ -11,7 +11,7 @@ class DebugStatus {
 
   @override
   String toString() =>
-      "${pc.x8} $frame ${scanline.toString().padLeft(3, "0")} $clock";
+      "${pc.x8} $frame ${scanline.d3z} $clock";
 }
 
 final debugStatus = DebugStatus();

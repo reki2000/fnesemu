@@ -41,8 +41,8 @@ extension CpuDebugger on Cpu {
         "A:${regs.a.x2} X:${regs.x.x2} Y:${regs.y.x2} P:${regs.p.x2} SP:${regs.s.x2}";
 
     final ppuCycle = cycle * 3;
-    final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
-    final ppuHorizontalCycle = (ppuCycle % 341).toString().padLeft(3, " ");
+    final ppuScanline = (ppuCycle ~/ 341).d3;
+    final ppuHorizontalCycle = (ppuCycle % 341).d3;
 
     final result = "$asm $reg PPU:$ppuScanline,$ppuHorizontalCycle CYC:$cycle";
     return result.toUpperCase();

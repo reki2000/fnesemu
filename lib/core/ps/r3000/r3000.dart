@@ -338,9 +338,9 @@ class R3000 {
   String dump() {
     final regs = [
       for (int i = 0; i < 32; i += 8)
-        "r${i.toString().padLeft(2, "0")}:"
+        "r${i.d2z}:"
             "${range(i, i + 4).map((v) => r[v].x8).join(" ")}"
-            " r${(i + 4).toString().padLeft(2, "0")}:"
+            " r${(i + 4).d2z}:"
             "${range(i + 4, i + 8).map((v) => r[v].x8).join(" ")}"
     ].join("\n");
     return "$regs\npc:${pc.x8} hi:${hi.x8} lo:${lo.x8} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}";
