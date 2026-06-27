@@ -9,7 +9,7 @@ extension VoiceAdpcmDecoder on Voice {
     }
 
     final header = spu.readRam16(_addr);
-    final loop = header >> 8;
+    final loop = header.shr8;
 
     if (loop.bit2) {
       repeatAddr = _addr;
@@ -18,7 +18,7 @@ extension VoiceAdpcmDecoder on Voice {
     int shift = header & 0x0f;
     shift = (shift > 12) ? 9 : shift;
 
-    final filter = header >> 4 & 0x07;
+    final filter = header.shr4 & 0x07;
 
     final (c1, c2) =
         [(0, 0), (60, 0), (115, -52), (98, -55), (122, -60)][filter.min(4)];
@@ -138,6 +138,6 @@ extension VoiceAdpcmDecoder on Voice {
         (gaussianTable[0x1ff - index] * v2) +
         (gaussianTable[0x100 + index] * v1) +
         (gaussianTable[index] * v0);
-    return v >> 15;
+    return v.shr15;
   }
 }

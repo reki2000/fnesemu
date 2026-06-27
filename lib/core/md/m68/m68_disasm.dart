@@ -11,9 +11,9 @@ class Disasm {
       ["as", "ls", "ro", "rox"][op] + (l ? "l" : "r");
 
   String opLog(int op) =>
-      ["or", "and", "sub", "add", "-", "eor", "cmp"][op >> 1];
+      ["or", "and", "sub", "add", "-", "eor", "cmp"][op.shr1];
 
-  String opSubCmpAdd(int op) => ["sub", "cmp", "add", "-"][op >> 1 & 3];
+  String opSubCmpAdd(int op) => ["sub", "cmp", "add", "-"][op.shr1 & 3];
 
   String sz0(int s) => ["b", "w", "l", "-"][s];
   String sz1(bool s) => s ? "l" : "w";
@@ -27,18 +27,18 @@ class Disasm {
 
     op = fetch();
 
-    final op0 = op >> 12 & 0x0f;
-    final op1 = op >> 8 & 0x0f;
-    final op2 = op >> 4 & 0x0f;
+    final op0 = op.shr12 & 0x0f;
+    final op1 = op.shr8 & 0x0f;
+    final op2 = op.shr4 & 0x0f;
     final op3 = op & 0x0f;
     final op23 = op & 0xff;
 
     final modreg = op & 0x3f;
-    final mod = modreg >> 3 & 7;
+    final mod = modreg.shr3 & 7;
     final r1 = modreg >> 0 & 7;
-    final r2 = op >> 9 & 7;
-    final size = op >> 6 & 3;
-    final size2 = switch (op >> 12 & 3) { 1 => 0, 3 => 1, 2 => 2, _ => 3 };
+    final r2 = op.shr9 & 7;
+    final size = op.shr6 & 3;
+    final size2 = switch (op.shr12 & 3) { 1 => 0, 3 => 1, 2 => 2, _ => 3 };
 
     final cond = [
       "t", "f", "hi", "ls", "cc", "cs", "ne", "eq", //
@@ -50,14 +50,14 @@ class Disasm {
     String im([int? s]) => switch (s ?? size) {
           0 => fetch().mask8.hex,
           1 => fetch().mask16.hex,
-          2 => (fetch() << 16 | fetch()).hex,
+          2 => (fetch().shl16 | fetch()).hex,
           _ => ex("im size: $s"),
         };
 
     String eaEx(String base) {
       final breaf = fetch();
       final disp = breaf & 0xff;
-      final reg = breaf >> 12 & 7;
+      final reg = breaf.shr12 & 7;
       final size = sz1(breaf.bit11);
       final regType = breaf.bit15 ? "a" : "d";
       return "(#${disp.x4}, $base, $regType$reg.$size)";
@@ -111,7 +111,7 @@ class Disasm {
       0x1 ||
       0x2 ||
       0x3 =>
-        "move.${sz0(size2)} ${ea(size2)}, ${ea(size2, op >> 6 & 7, r2)}",
+        "move.${sz0(size2)} ${ea(size2)}, ${ea(size2, op.shr6 & 7, r2)}",
       0x4 => switch (op1) {
           _ when op & 0x1c0 == 0x180 => "chk.w d$r2, ${ea(1)}",
           _ when op & 0x1c0 == 0x1c0 => "lea.l ${ea(2)}, a$r2",
@@ -183,12 +183,12 @@ class Disasm {
       0xc when op & 0x1f0 == 0x100 =>
         "abcd.b d$r2, ${mod.bit0 ? "-(a$r1)" : "d$r1"}",
       0xc when op & 0x130 == 0x100 =>
-        "exg.w d$r2, ${ea(2, size << 1 | mod, r1)}",
+        "exg.w d$r2, ${ea(2, size.shl1 | mod, r1)}",
       0xc => "and.$sz ${op1.bit0 ? "d$r2, ${ea()}" : "${ea()}, d$r2"}",
       0xe when op & 0xc0 == 0xc0 =>
-        "${opRot(op1 >> 1, op1.bit0)}.w #1, ${ea()}",
+        "${opRot(op1.shr1, op1.bit0)}.w #1, ${ea()}",
       0xe =>
-        "${opRot(op >> 3 & 3, op1.bit0)}.$sz ${op.bit5 ? "d$r2" : "#${r2 == 0 ? 8 : r2}"}, d$r1",
+        "${opRot(op.shr3 & 3, op1.bit0)}.$sz ${op.bit5 ? "d$r2" : "#${r2 == 0 ? 8 : r2}"}, d$r1",
       _ => ex("op0"),
     };
 

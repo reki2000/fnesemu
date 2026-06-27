@@ -194,16 +194,16 @@ class Cop2 {
 
   int rgbc = 0;
   int get r => rgbc & 0xff;
-  int get g => rgbc >> 8 & 0xff;
-  int get b => rgbc >> 16 & 0xff;
-  int get code => rgbc >> 24 & 0xff;
-  Vector get rgb => (r << 4, g << 4, b << 4);
+  int get g => rgbc.shr8 & 0xff;
+  int get b => rgbc.shr16 & 0xff;
+  int get code => rgbc.shr24 & 0xff;
+  Vector get rgb => (r.shl4, g.shl4, b.shl4);
 
   setRgb(int r, int g, int b, int code) {
     r = clipOverflow(r, 0, 0xff, 21);
     g = clipOverflow(g, 0, 0xff, 20);
     b = clipOverflow(b, 0, 0xff, 19);
-    return code.mask8 << 24 | b << 16 | g << 8 | r;
+    return code.mask8.shl24 | b.shl16 | g.shl8 | r;
   }
 
   int rgb0 = 0;
@@ -213,15 +213,15 @@ class Cop2 {
 
   // color conversion registers, unsigned 5 bit x 3
   set irgb(int value) {
-    _ir1 = value << 7 & 0xf80;
-    _ir2 = value << 2 & 0xf80;
-    _ir3 = value >> 3 & 0xf80;
+    _ir1 = value.shl7 & 0xf80;
+    _ir2 = value.shl2 & 0xf80;
+    _ir3 = value.shr3 & 0xf80;
   }
 
   int get orgb =>
-      (ir1 >> 7).clip(0, 0x1f) |
-      (ir2 >> 7).clip(0, 0x1f) << 5 |
-      (ir3 >> 7).clip(0, 0x1f) << 10;
+      ir1.shr7.clip(0, 0x1f) |
+      ir2.shr7.clip(0, 0x1f).shl5 |
+      ir3.shr7.clip(0, 0x1f).shl10;
 
   int lzcs = 0; // signed 32 bit
   int lzcr = 0; // unsigned 6 bit
@@ -290,7 +290,7 @@ class Cop2 {
     final u = unrTable[(d - 0x7fc0) >>> 7] + 0x101;
     d = (0x2000080 - (d * u)) >>> 8;
     d = (0x0000080 + (d * u)) >>> 8;
-    return (((n * d) + 0x8000) >> 16).min(0x1ffff);
+    return (((n * d) + 0x8000).shr16).min(0x1ffff);
   }
 
   int cmd = 0;
@@ -300,7 +300,7 @@ class Cop2 {
 
   reset() {}
 
-  _s16x2toU32(int l, int h) => l.mask16 | h.mask16 << 16;
+  _s16x2toU32(int l, int h) => l.mask16 | h.mask16.shl16;
 
   int readCtrl(int reg) => _read(reg & 0x1f | 0x20);
   void writeCtrl(int reg, int value) => _write(reg & 0x1f | 0x20, value);
@@ -381,17 +381,17 @@ class Cop2 {
     switch (reg) {
       case 0:
         vx0 = value.rel16;
-        vy0 = value.rel32 >> 16;
+        vy0 = value.rel32.shr16;
       case 1:
         vz0 = value.rel16;
       case 2:
         vx1 = value.rel16;
-        vy1 = value.rel32 >> 16;
+        vy1 = value.rel32.shr16;
       case 3:
         vz1 = value.rel16;
       case 4:
         vx2 = value.rel16;
-        vy2 = value.rel32 >> 16;
+        vy2 = value.rel32.shr16;
       case 5:
         vz2 = value.rel16;
       case 6:
@@ -410,20 +410,20 @@ class Cop2 {
 
       case 12:
         sx0 = value.rel16;
-        sy0 = value.rel32 >> 16;
+        sy0 = value.rel32.shr16;
       case 13:
         sx1 = value.rel16;
-        sy1 = value.rel32 >> 16;
+        sy1 = value.rel32.shr16;
       case 14:
         _sx2 = value.rel16;
-        _sy2 = value.rel32 >> 16;
+        _sy2 = value.rel32.shr16;
       case 15:
         sx0 = sx1;
         sy0 = sy1;
         sx1 = sx2;
         sy1 = sy2;
         _sx2 = value.rel16;
-        _sy2 = value.rel32 >> 16;
+        _sy2 = value.rel32.shr16;
       case 16:
         sz0 = value.mask16;
       case 17:
@@ -469,16 +469,16 @@ class Cop2 {
 
       case 32:
         rt11 = value.rel16;
-        rt12 = value.rel32 >> 16;
+        rt12 = value.rel32.shr16;
       case 33:
         rt13 = value.rel16;
-        rt21 = value.rel32 >> 16;
+        rt21 = value.rel32.shr16;
       case 34:
         rt22 = value.rel16;
-        rt23 = value.rel32 >> 16;
+        rt23 = value.rel32.shr16;
       case 35:
         rt31 = value.rel16;
-        rt32 = value.rel32 >> 16;
+        rt32 = value.rel32.shr16;
       case 36:
         rt33 = value.rel16;
 
@@ -491,16 +491,16 @@ class Cop2 {
 
       case 40:
         l11 = value.rel16;
-        l12 = value.rel32 >> 16;
+        l12 = value.rel32.shr16;
       case 41:
         l13 = value.rel16;
-        l21 = value.rel32 >> 16;
+        l21 = value.rel32.shr16;
       case 42:
         l22 = value.rel16;
-        l23 = value.rel32 >> 16;
+        l23 = value.rel32.shr16;
       case 43:
         l31 = value.rel16;
-        l32 = value.rel32 >> 16;
+        l32 = value.rel32.shr16;
       case 44:
         l33 = value.rel16;
 
@@ -513,16 +513,16 @@ class Cop2 {
 
       case 48:
         lc11 = value.rel16;
-        lc12 = value.rel32 >> 16;
+        lc12 = value.rel32.shr16;
       case 49:
         lc13 = value.rel16;
-        lc21 = value.rel32 >> 16;
+        lc21 = value.rel32.shr16;
       case 50:
         lc22 = value.rel16;
-        lc23 = value.rel32 >> 16;
+        lc23 = value.rel32.shr16;
       case 51:
         lc31 = value.rel16;
-        lc32 = value.rel32 >> 16;
+        lc32 = value.rel32.shr16;
       case 52:
         lc33 = value.rel16;
 
@@ -598,10 +598,6 @@ class Cop2 {
       0x3f => ncct(),
       _ => R3000._unknown(inst32),
     };
-  }
-
-  void _unimplemented(String s) {
-    debugLog("unimplemented: $s");
   }
 
   String dump() => """

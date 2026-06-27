@@ -18,7 +18,7 @@ class Timer {
   bool intRequested = false;
   bool sync = false;
 
-  int get _syncMode => mode_ >> 1 & 0x03;
+  int get _syncMode => mode_.shr1 & 0x03;
   bool get _resetAfterTarget => mode_.bit3;
   bool get _irqWhenTarget => mode_.bit4;
   bool get _irqWhenFfff => mode_.bit5;

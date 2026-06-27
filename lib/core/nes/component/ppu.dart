@@ -110,7 +110,7 @@ class Ppu {
         }
         // t: ...GH.. ........ <- d: ......GH
         //    <used elsewhere> <- d: ABCDEF..
-        tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03) << 10;
+        tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03).shl10;
         break;
 
       case 0x2001: // ppu control 2
@@ -135,15 +135,15 @@ class Ppu {
           scrollX = val;
           // t: ....... ...ABCDE <- d: ABCDE...
           // x:              FGH <- d: .....FGH
-          tmpVramAddr = (tmpVramAddr & ~0x1f) | (val >> 3);
+          tmpVramAddr = (tmpVramAddr & ~0x1f) | val.shr3;
           fineX = val & 0x07;
           first = false;
         } else {
           scrollY = val;
           // t: FGH..AB CDE..... <- d: ABCDEFGH
           tmpVramAddr = (tmpVramAddr & ~0x73e0) |
-              ((val >> 3) << 5) |
-              ((val & 0x07) << 12);
+              val.shr3.shl5 |
+              (val & 0x07).shl12;
           first = true;
         }
         break;
@@ -153,7 +153,7 @@ class Ppu {
           // t: .CDEFGH ........ <- d: ..CDEFGH
           //        <unused>     <- d: AB......
           // t: Z...... ........ <- 0 (bit Z is cleared)
-          tmpVramAddr = (val & 0x3f) << 8 | tmpVramAddr & 0xff;
+          tmpVramAddr = (val & 0x3f).shl8 | tmpVramAddr & 0xff;
           first = false;
         } else {
           // t: ....... ABCDEFGH <- d: ABCDEFGH

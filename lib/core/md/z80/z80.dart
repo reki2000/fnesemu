@@ -46,27 +46,27 @@ class Regs {
   int get a => r8[7];
   set a(int val) => r8[7] = val;
 
-  int get af => (r8[7] << 8) | f;
+  int get af => r8[7].shl8 | f;
   set af(int val) {
-    r8[7] = val >> 8;
+    r8[7] = val.shr8;
     f = val & 0xff;
   }
 
-  int get bc => (r8[0] << 8) | r8[1];
+  int get bc => r8[0].shl8 | r8[1];
   set bc(int val) {
-    r8[0] = val >> 8;
+    r8[0] = val.shr8;
     r8[1] = val & 0xff;
   }
 
-  int get de => (r8[2] << 8) | r8[3];
+  int get de => r8[2].shl8 | r8[3];
   set de(int val) {
-    r8[2] = val >> 8;
+    r8[2] = val.shr8;
     r8[3] = val & 0xff;
   }
 
-  int get hl => (r8[4] << 8) | r8[5];
+  int get hl => r8[4].shl8 | r8[5];
   set hl(int val) {
-    r8[4] = val >> 8;
+    r8[4] = val.shr8;
     r8[5] = val & 0xff;
   }
 
@@ -112,9 +112,9 @@ class Regs {
   }
 
   void setP(int result) {
-    int count = result ^ (result >> 1);
-    count = count ^ (count >> 2);
-    count = count ^ (count >> 4);
+    int count = result ^ result.shr1;
+    count = count ^ count.shr2;
+    count = count ^ count.shr4;
     pvf = (count & 1) == 0;
   }
 }
@@ -218,7 +218,7 @@ class Z80 {
     final d1 = read(r.pc.inc.mask16);
     cycles += 6;
     r.pc = r.pc.inc2.mask16;
-    return d0 | d1 << 8;
+    return d0 | d1.shl8;
   }
 
   int rel8() {
@@ -236,7 +236,7 @@ class Z80 {
   void push(int d) {
     r.sp = r.sp.dec2.mask16;
     write(r.sp, d & 0xff);
-    write(r.sp.inc.mask16, d >> 8);
+    write(r.sp.inc.mask16, d.shr8);
     cycles += 7;
   }
 
@@ -254,7 +254,7 @@ class Z80 {
       cycles += 3;
       return read(r.ixiy[xy] + rel);
     } else if (reg == 4) {
-      return r.ixiy[xy] >> 8;
+      return r.ixiy[xy].shr8;
     } else if (reg == 5) {
       return r.ixiy[xy] & 0xff;
     } else {
@@ -374,7 +374,7 @@ class Z80 {
   int rl8(int val, {bool setSZP = true}) {
     final c = r.cf ? 1 : 0;
     r.cf = val & 0x80 != 0;
-    val = ((val << 1) | c) & 0xff;
+    val = (val.shl1 | c) & 0xff;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -384,7 +384,7 @@ class Z80 {
 
   int rlc8(int val, {bool setSZP = true}) {
     r.cf = val & 0x80 != 0;
-    val = ((val << 1) | (val >> 7)) & 0xff;
+    val = (val.shl1 | val.shr7) & 0xff;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -395,7 +395,7 @@ class Z80 {
   int rr8(int val, {bool setSZP = true}) {
     final c = r.cf ? 0x80 : 0;
     r.cf = val & 1 != 0;
-    val = (val >> 1) | c;
+    val = val.shr1 | c;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -405,7 +405,7 @@ class Z80 {
 
   int rrc8(int val, {bool setSZP = true}) {
     r.cf = val & 1 != 0;
-    val = (val >> 1) | ((val & 1) << 7);
+    val = val.shr1 | (val & 1).shl7;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -415,7 +415,7 @@ class Z80 {
 
   int sla8(int val) {
     r.cf = val & 0x80 != 0;
-    val = (val << 1) & 0xff;
+    val = val.shl1 & 0xff;
     r.setSZ(val);
     r.setP(val);
     r.hf = r.nf = false;
@@ -424,7 +424,7 @@ class Z80 {
 
   int sra8(int val) {
     r.cf = val & 1 != 0;
-    val = (val & 0x80) | (val >> 1);
+    val = (val & 0x80) | val.shr1;
     r.setSZ(val);
     r.setP(val);
     r.hf = r.nf = false;
@@ -433,7 +433,7 @@ class Z80 {
 
   int sll8(int val) {
     r.cf = val & 0x80 != 0;
-    val = ((val << 1) | 1) & 0xff;
+    val = (val.shl1 | 1) & 0xff;
     r.setSZ(val);
     r.setP(val);
     r.hf = r.nf = false;

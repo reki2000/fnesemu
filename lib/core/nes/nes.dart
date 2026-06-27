@@ -1,10 +1,10 @@
-import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:math';
 import 'dart:typed_data';
 
 // Project imports:
 import 'package:fnesemu/util/uint8list.dart';
+
 import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';

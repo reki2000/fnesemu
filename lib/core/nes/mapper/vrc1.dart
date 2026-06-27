@@ -65,7 +65,7 @@ class MapperVrc1 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
+    final bank = addr.shr13 & 0x03;
     final offset = addr & 0x1fff;
 
     return prgRoms[_prgBank[bank]][offset];
@@ -73,7 +73,7 @@ class MapperVrc1 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr >> 12;
+    final bank = addr.shr12;
     final offset = addr & 0x0fff;
 
     return chrRoms[_chrBank[bank]][offset];

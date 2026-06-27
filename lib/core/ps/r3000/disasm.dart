@@ -107,32 +107,32 @@ class DisasmR3000 {
   static String _ioAddrName(int addr) => ioAddr[addr] ?? addr.x8;
 
   static String _unknown(int inst32) {
-    final op = inst32 >> 26 & 0x3f;
-    final rs = inst32 >> 21 & 0x1f;
-    final rt = inst32 >> 16 & 0x1f;
-    final rd = inst32 >> 11 & 0x1f;
+    final op = inst32.shr26 & 0x3f;
+    final rs = inst32.shr21 & 0x1f;
+    final rt = inst32.shr16 & 0x1f;
+    final rd = inst32.shr11 & 0x1f;
     return "unknown opcode:${inst32.x8} op:${op.x2} rs:${rs.x2} rt:${rt.x2} rd:${rd.x2}";
   }
 
   static _reg(int no) => no == 0 ? "0" : "r$no";
 
   static String disasm(int inst32, {int pc = 0, List<int> regs = const []}) {
-    final op = inst32 >> 26 & 0x3f;
-    final rs = inst32 >> 21 & 0x1f;
-    final rt = inst32 >> 16 & 0x1f;
-    final rd = inst32 >> 11 & 0x1f;
+    final op = inst32.shr26 & 0x3f;
+    final rs = inst32.shr21 & 0x1f;
+    final rt = inst32.shr16 & 0x1f;
+    final rd = inst32.shr11 & 0x1f;
 
     final rs_ = _reg(rs);
     final rt_ = _reg(rt);
     final rd_ = _reg(rd);
 
-    final shamt = inst32 >> 6 & 0x1f;
+    final shamt = inst32.shr6 & 0x1f;
     final funct = inst32 & 0x3f;
 
     final im16_ = inst32.mask16.x4;
     final rel16_ = inst32.rel16.toRadixString(16);
-    final pcRel16_ = (pc.inc4 + (inst32.rel16 << 2)).mask32.x8;
-    final pc26_ = (pc.inc4 & 0xf0000000 | inst32.mask26 << 2).x8;
+    final pcRel16_ = (pc.inc4 + inst32.rel16.shl2).mask32.x8;
+    final pc26_ = (pc.inc4 & 0xf0000000 | inst32.mask26.shl2).x8;
 
     final addr_ = regs.isNotEmpty && showAddress
         ? ";${_ioAddrName(regs[rs] + inst32.rel16)}"

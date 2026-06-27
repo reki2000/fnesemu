@@ -146,11 +146,11 @@ class VgmPlayer {
 
       // mix resampled psgOut + fmOut
       for (int i = 0; i < buf.length; i += 2) {
-        final psgIndex = (i >> 1) * psg.sampleHz ~/ rateHz;
+        final psgIndex = i.shr1 * psg.sampleHz ~/ rateHz;
         final psgVal =
             psgSamples > 0 ? psgOut[psgIndex.clip(0, psgOut.length - 1)] : 0.0;
 
-        final fmIndex = ((i >> 1) * fm.sampleHz ~/ rateHz) << 1;
+        final fmIndex = (i.shr1 * fm.sampleHz ~/ rateHz).shl1;
         final fmValL =
             fmSamples > 0 ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 0] : 0.0;
         final fmValR =

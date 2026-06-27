@@ -73,7 +73,7 @@ class Pad {
     final val = buttonIndice[counter[id]].fold(
         0,
         (prev, idx) =>
-            prev << 1 |
+            prev.shl1 |
             (idx == -2
                 ? 0
                 : (idx == -1 || !isPressed[id][buttons[idx].name]!)

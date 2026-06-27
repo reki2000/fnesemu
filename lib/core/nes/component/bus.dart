@@ -80,7 +80,7 @@ class Bus {
     } else if (0x2000 <= addr && addr <= 0x200f) {
       ppu.write(addr, data);
     } else if (0x4014 == addr) {
-      final src = data << 8;
+      final src = data.shl8;
       ppu.onDMA(ram.sublist(src, src + 256));
       cpu.cycle += 514;
     } else if (addr == 0x4016) {

@@ -1,5 +1,6 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../../core/debugger.dart';
 // Project imports:
@@ -90,7 +91,7 @@ class DebugDisasm extends StatelessWidget {
                           child: TextField(
                               decoration: denseTextDecoration,
                               onChanged: (v) {
-                                if (v.length == addrBits >> 2) {
+                                if (v.length == addrBits.shr2) {
                                   addrNotifier.value = int.parse(v, radix: 16);
                                 }
                               })),

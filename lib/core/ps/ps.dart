@@ -300,7 +300,7 @@ class Ps extends Core {
       scanline: gpu.scanline);
 
   @override
-  int read(int _, int addr) => (addr >> 28 == 0x07)
+  int read(int _, int addr) => (addr.shr28 == 0x07)
       ? bus.spu.ram[addr & 0x7ffff]
       : bus.read32(addr & 0x1fffff);
 

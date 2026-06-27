@@ -59,7 +59,7 @@ class MapperMMC4 extends Mapper {
       return readSram(addr & 0x1fff);
     }
 
-    final bank = (addr - 0x8000) >> 14; // 0-1
+    final bank = (addr - 0x8000).shr14; // 0-1
     final offset = addr & 0x3fff;
     return prgRoms[_prgBanks[bank]][offset];
   }
@@ -77,7 +77,7 @@ class MapperMMC4 extends Mapper {
       _latch[1] = 2;
     }
 
-    final bank = (addr >> 12) & 1;
+    final bank = addr.shr12 & 1;
 
     return chrRoms[_chrBanks[bank + _latch[bank]]][addr & 0x0fff];
   }

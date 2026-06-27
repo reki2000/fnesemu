@@ -189,7 +189,7 @@ class Psg {
 
       case 0x01:
         ampR = val & 0x0f;
-        ampL = val >> 4;
+        ampL = val.shr4;
         return;
 
       case 0x02:
@@ -209,7 +209,7 @@ class Psg {
 
       case 0x05:
         waves[ch].volumeR = val & 0x0f;
-        waves[ch].volumeL = val >> 4;
+        waves[ch].volumeL = val.shr4;
         return;
 
       case 0x06: // waveform
@@ -301,8 +301,8 @@ class Psg {
     final lfoVal = waves[1].table[waves[1].tableIndex];
     waves[0].freqOffset = switch (lfoControl) {
       1 => lfoVal - 16,
-      2 => (lfoVal << 4) - 256,
-      3 => (lfoVal << 8) - 4096,
+      2 => lfoVal.shl4 - 256,
+      3 => lfoVal.shl8 - 4096,
       _ => 0
     };
   }

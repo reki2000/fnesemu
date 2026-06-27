@@ -32,7 +32,7 @@ class MemPane extends StatelessWidget {
 
   int get _addrBitSize =>
       debugger.cpuInfos[debugger.opt.targetCpuNo].pcBitWidth;
-  int get _addrTextLength => _addrBitSize >> 2;
+  int get _addrTextLength => _addrBitSize.shr2;
   int get _mask => (1 << _addrBitSize) - 1;
 
   int get _addr => addrNotifier.value;

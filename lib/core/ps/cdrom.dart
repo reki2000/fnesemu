@@ -18,8 +18,8 @@ class CmdResult {
 }
 
 extension IntBcd on int {
-  int get asBcd => (this & 0x0f) + ((this & 0xf0) >> 4) * 10;
-  int get toBcd => ((this ~/ 10) << 4) | (this % 10);
+  int get asBcd => (this & 0x0f) + (this & 0xf0).shr4 * 10;
+  int get toBcd => (this ~/ 10).shl4 | (this % 10);
 }
 
 class Toc {
@@ -164,7 +164,7 @@ class Cdrom {
   }
 
   int readBuffer16() {
-    final data = readBuffer8() | (readBuffer8() << 8);
+    final data = readBuffer8() | readBuffer8().shl8;
 
     // debugLog(
     //     "cdrom: readBuffer16 ${sectorBufferIndex.x4} ${data.x4} ${dump()}");

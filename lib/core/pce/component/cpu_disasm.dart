@@ -207,11 +207,11 @@ class Disasm {
     final a2 = d2.x2;
     final a3 = d3.x2;
 
-    final a12 = ((d2 << 8).x4 | d1);
+    final a12 = (d2.shl8 | d1).x4;
     final a34 = d34.x4;
     final a56 = d56.x4;
 
-    final a23 = (d3 << 8 | d2).x4;
+    final a23 = (d3.shl8 | d2).x4;
 
     final val = _ops[d0];
     if (val == null) {

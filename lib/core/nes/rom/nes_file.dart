@@ -45,14 +45,14 @@ class NesFile {
 
     final has512trainer = flags1.bit2;
 
-    mapper = ((body[8] & 0x0f) << 16) | body[7] & 0xf0 | (flags1 >> 4);
-    subMapper = body[8] >> 4;
+    mapper = (body[8] & 0x0f).shl16 | body[7] & 0xf0 | flags1.shr4;
+    subMapper = body[8].shr4;
 
     final ramSize = (body[10] & 0x0f) == 0 ? 0 : (64 << (body[10] & 0x0f));
-    final nvramSize = (body[10] >> 4) == 0 ? 0 : (64 << (body[10] >> 4));
+    final nvramSize = body[10].shr4 == 0 ? 0 : (64 << body[10].shr4);
 
     final chrRamSize = body[11] == 0 ? 0 : (64 << (body[11] & 0x0f));
-    final chrNvramSize = body[11] == 0 ? 0 : (64 << (body[11] >> 4));
+    final chrNvramSize = body[11] == 0 ? 0 : (64 << body[11].shr4);
 
     log("loaded len:${body.length} "
         "mapper:$mapper-$subMapper "

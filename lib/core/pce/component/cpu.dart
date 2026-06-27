@@ -88,7 +88,7 @@ class Cpu {
   bool tFlagOn = false;
 
   int read(int addr) =>
-      bus.read(regs.mprAddress[(addr & 0xe000) >> 13] | addr & 0x1fff);
+      bus.read(regs.mprAddress[(addr & 0xe000).shr13] | addr & 0x1fff);
 
   int readzp(int addr, {int cycle = 0}) {
     this.cycle += cycle;
@@ -101,7 +101,7 @@ class Cpu {
     // if (data >= 256) {
     //   print("cpu.write: data over 8bit: $data, regs: ${regs.pc.x4}\n");
     // }
-    bus.write(regs.mprAddress[(addr & 0xe000) >> 13] | addr & 0x1fff, data);
+    bus.write(regs.mprAddress[(addr & 0xe000).shr13] | addr & 0x1fff, data);
   }
 
   void handleIrq() {
@@ -185,7 +185,7 @@ class Cpu {
       bool irq2 = false,
       bool tirq = false}) {
     final pushAddr = brk ? regs.pc + 1 : regs.pc;
-    push(pushAddr >> 8);
+    push(pushAddr.shr8);
     push(pushAddr & 0xff);
     push(regs.p);
     regs.p = (regs.p & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
@@ -199,7 +199,7 @@ class Cpu {
                 : nmi
                     ? 0xfffc
                     : 0xfffe;
-    regs.pc = read(addr) | (read(addr + 1) << 8);
+    regs.pc = read(addr) | read(addr + 1).shl8;
   }
 
   void reset() {
@@ -230,7 +230,7 @@ class Cpu {
     regs.mprAddress[7] = 0;
 
     const addr = 0xfffe;
-    regs.pc = read(addr) | read(addr + 1) << 8;
+    regs.pc = read(addr) | read(addr + 1).shl8;
   }
 
   // common operations
@@ -263,7 +263,7 @@ class Cpu {
 
   void flagsV(int a, int b, int acm, {bool sub = false}) {
     flags(acm, sub: sub);
-    final overflow = (((a ^ acm) & ((sub ? ~b : b) ^ acm)) & 0x80) >> 1;
+    final overflow = (((a ^ acm) & ((sub ? ~b : b) ^ acm)) & 0x80).shr1;
     regs.p = (regs.p & ~Flags.V) | overflow;
   }
 
@@ -326,31 +326,31 @@ class Cpu {
 
   int absolute() {
     cycle += 2;
-    return pc() | pc() << 8;
+    return pc() | pc().shl8;
   }
 
   int absoluteXY(int offset, {bool st = false}) {
     cycle += 2;
-    final base = pc() | pc() << 8;
+    final base = pc() | pc().shl8;
     return (base + offset) & 0xffff;
   }
 
   int indirect() {
     cycle += 4;
     final addr = pc();
-    return readzp(addr) | readzp(addr + 1) << 8;
+    return readzp(addr) | readzp(addr + 1).shl8;
   }
 
   int indirectX() {
     cycle += 4;
     final addr = pc() + regs.x;
-    return readzp(addr) | readzp(addr + 1) << 8;
+    return readzp(addr) | readzp(addr + 1).shl8;
   }
 
   int indirectY({bool st = false}) {
     cycle += 3;
     final addr = pc();
-    final base = readzp(addr) | readzp(addr + 1) << 8;
+    final base = readzp(addr) | readzp(addr + 1).shl8;
     return (base + regs.y) & 0xffff;
   }
 }

@@ -143,8 +143,8 @@ class Reverb {
     _firFilterOutput[1].push(r);
 
     return (
-      (_firFilterOutput[0].apply() << 1).vol16(outputVolume[0]),
-      (_firFilterOutput[1].apply() << 1).vol16(outputVolume[1]),
+      _firFilterOutput[0].apply().shl1.vol16(outputVolume[0]),
+      _firFilterOutput[1].apply().shl1.vol16(outputVolume[1]),
     );
   }
 
@@ -189,7 +189,7 @@ class Reverb {
 
   int getReverbEnabled() => reverbEnabled.asMap().entries.fold(
         0,
-        (acc, entry) => (acc << 1) | (entry.value ? 1 : 0),
+        (acc, entry) => acc.shl1 | (entry.value ? 1 : 0),
       );
 
   void setReverbEnabled(int value) {
@@ -200,9 +200,9 @@ class Reverb {
   }
 
   void write16(int offset, int value) {
-    final addr = value.mask16 << 3;
+    final addr = value.mask16.shl3;
     final volume = value.rel16;
-    final _ = switch (offset >> 1 & 0x1f) {
+    final _ = switch (offset.shr1 & 0x1f) {
       0x00 => _apf[0].offset = addr,
       0x01 => _apf[1].offset = addr,
       0x02 => _ssr[0].volume = _dsr[0].volume = volume,
@@ -232,7 +232,7 @@ class Reverb {
       0x1a => _apf[0].addr[0] = addr,
       0x1b => _apf[0].addr[1] = addr,
       0x1c => _apf[1].addr[0] = addr,
-      0x1d => _apf[1].addr[1] = value.mask16 << 3,
+      0x1d => _apf[1].addr[1] = value.mask16.shl3,
       0x1e => _inputVolume[0] = volume,
       0x1f => _inputVolume[1] = volume,
       _ => throw "spu: reverb: unreachable offset:${offset.x8}",

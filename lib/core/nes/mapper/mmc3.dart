@@ -166,7 +166,7 @@ class MapperMMC3 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
+    final bank = addr.shr13 & 0x03;
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
@@ -185,18 +185,18 @@ class MapperMMC3 extends Mapper {
     }
     _a12 = a12;
 
-    final bank = addr >> 10;
+    final bank = addr.shr10;
     final offset = addr & 0x03ff;
 
-    return chrRoms[_chrBank[bank >> 2][bank & 0x03]][offset];
+    return chrRoms[_chrBank[bank.shr2][bank & 0x03]][offset];
   }
 
   @override
   void writeVram(int addr, int data) {
-    final bank = addr >> 10;
+    final bank = addr.shr10;
     final offset = addr & 0x03ff;
 
-    chrRoms[_chrBank[bank >> 2][bank & 0x03]][offset] = data;
+    chrRoms[_chrBank[bank.shr2][bank & 0x03]][offset] = data;
   }
 
   void _tickIrq() {
@@ -217,12 +217,12 @@ class MapperMMC3 extends Mapper {
     final range0_3 = range(0, 4);
 
     final chrBanks0 =
-        range0_3.map((i) => _chrBank[0][i]).x2.toList().join(" ");
+        range0_3.map((i) => _chrBank[0][i].x2).toList().join(" ");
     final chrBanks1 =
-        range0_3.map((i) => _chrBank[1][i]).x2.toList().join(" ");
+        range0_3.map((i) => _chrBank[1][i].x2).toList().join(" ");
 
     final prgBanks =
-        range0_3.map((i) => _prgBank[i][0]).x2.toList().join(" ");
+        range0_3.map((i) => _prgBank[i][0].x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'} "
         "@${_irqCounter.d3z}"

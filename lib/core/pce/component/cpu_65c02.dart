@@ -1,11 +1,12 @@
-import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:core';
+
+import 'package:fnesemu/util/int.dart';
 
 import 'cpu.dart';
 
 extension Cpu65c02 on Cpu {
-  bool exec65c02(op) {
+  bool exec65c02(int op) {
     switch (op) {
       // BRA
       case 0x80:
@@ -60,7 +61,7 @@ extension Cpu65c02 on Cpu {
       case 0x67:
       case 0x77:
         final addr = zeropage();
-        write(addr, read(addr) & ~(1 << (op >> 4)));
+        write(addr, read(addr) & ~(1 << op.shr4));
         cycle += 7;
         break;
 
@@ -74,7 +75,7 @@ extension Cpu65c02 on Cpu {
       case 0xe7:
       case 0xf7:
         final addr = zeropage();
-        write(addr, read(addr) | (1 << ((op & 0x70) >> 4)));
+        write(addr, read(addr) | (1 << (op & 0x70).shr4));
         cycle += 7;
         break;
 
@@ -130,7 +131,7 @@ extension Cpu65c02 on Cpu {
       case 0x6f:
       case 0x7f:
         int value = read(zeropage());
-        branch(!(value >> (op >> 4).bit0));
+        branch(!(value >> op.shr4).bit0);
         cycle += 5;
         break;
 
@@ -144,7 +145,7 @@ extension Cpu65c02 on Cpu {
       case 0xef:
       case 0xff:
         int value = read(zeropage());
-        branch((value >> ((op & 0x70).bit0 >> 4)));
+        branch((value >> (op & 0x70).shr4).bit0);
         cycle += 5;
         break;
 

@@ -96,7 +96,7 @@ class _SweepUnit {
 
   void reload(int val) {
     _enabled = val.bit7;
-    _period = (val & 0x70) >> 4;
+    _period = (val & 0x70).shr4;
     _negate = val.bit3;
     _shift = val & 0x07;
   }
@@ -266,9 +266,9 @@ class NoiseWave with _LengthCounter {
 
     for (int i = 0; i < buf.length; i++) {
       if (counter == 0) {
-        final nextBit = reg & 0x01 ^ (short ? (reg >> 1) : (reg >> 5)) & 0x01;
+        final nextBit = reg & 0x01 ^ (short ? reg.shr1 : reg.shr5) & 0x01;
         reg >>= 1;
-        reg |= nextBit << 15;
+        reg |= nextBit.shl15;
         counter = _table[timer];
       }
       buf[i] = !reg.bit0 ? 0 : (reg & 0xf) * envelope.volume ~/ 15;
@@ -315,12 +315,12 @@ class DPCMWave {
   }
 
   set address(int addr) {
-    _initAddress = (addr << 6) + 0xc000;
+    _initAddress = addr.shl6 + 0xc000;
     _address = _initAddress;
   }
 
   set length(int length) {
-    _initLength = (length << 4) + 1;
+    _initLength = length.shl4 + 1;
     _length = _initLength;
   }
 
@@ -431,7 +431,7 @@ class Apu {
     switch (reg) {
       // pulse wave 0
       case 0x4000:
-        pulse0.dutyType = val >> 6;
+        pulse0.dutyType = val.shr6;
         pulse0.halt = val.bit5;
         pulse0.envelope
             .prepare(disabled: val.bit4, loop: pulse0.halt, n: val & 0x0f);
@@ -446,14 +446,14 @@ class Apu {
         return;
 
       case 0x4003:
-        pulse0.sweep.freq = (pulse0.sweep.freq & 0xff) | ((val & 0x07) << 8);
-        pulse0.setLength(val >> 3);
+        pulse0.sweep.freq = (pulse0.sweep.freq & 0xff) | (val & 0x07).shl8;
+        pulse0.setLength(val.shr3);
         pulse0.noteOn();
         return;
 
       // pulse wave 1
       case 0x4004:
-        pulse1.dutyType = val >> 6;
+        pulse1.dutyType = val.shr6;
         pulse1.halt = val.bit5;
         pulse1.envelope
             .prepare(disabled: val.bit4, loop: pulse1.halt, n: val & 0x0f);
@@ -468,8 +468,8 @@ class Apu {
         return;
 
       case 0x4007:
-        pulse1.sweep.freq = (pulse1.sweep.freq & 0xff) | ((val & 0x07) << 8);
-        pulse1.setLength(val >> 3);
+        pulse1.sweep.freq = (pulse1.sweep.freq & 0xff) | (val & 0x07).shl8;
+        pulse1.setLength(val.shr3);
         pulse1.noteOn();
         return;
 
@@ -488,8 +488,8 @@ class Apu {
         return;
 
       case 0x400b:
-        triangle.freq = triangle.freq & 0xff | ((val & 0x07) << 8);
-        triangle.setLength(val >> 3);
+        triangle.freq = triangle.freq & 0xff | (val & 0x07).shl8;
+        triangle.setLength(val.shr3);
         triangle.prepare();
         return;
 
@@ -509,7 +509,7 @@ class Apu {
         return;
 
       case 0x400f:
-        noise.setLength(val >> 3);
+        noise.setLength(val.shr3);
         noise.envelope.keyOn();
         return;
 

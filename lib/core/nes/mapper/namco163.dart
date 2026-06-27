@@ -66,7 +66,7 @@ class MapperNamco163 extends Mapper {
       case 0x6800:
       case 0x7000:
       case 0x7800:
-        if (!_ramProtect[(addr - 0x6000) >> 11]) {
+        if (!_ramProtect[(addr - 0x6000).shr11]) {
           writeSram(addr - 0x6000, data);
         }
         return;
@@ -80,7 +80,7 @@ class MapperNamco163 extends Mapper {
       case 0xa800:
       case 0xb000:
       case 0xb800:
-        final bank = (reg - 0x8000) >> 11; // 00-07
+        final bank = (reg - 0x8000).shr11; // 00-07
 
         if (data < 0xe0) {
           _chrBank[bank] = data;
@@ -88,7 +88,7 @@ class MapperNamco163 extends Mapper {
         }
 
         // if not chrRam, use last 32 bank
-        if (!_chrRamEnabled[bank >> 2]) {
+        if (!_chrRamEnabled[bank.shr2]) {
           _chrBank[bank] = chrRoms.length - 0x20 + (data - 0xe0);
         } else {
           _chrBank[bank] = chrRoms.length + (data & 1);
@@ -100,7 +100,7 @@ class MapperNamco163 extends Mapper {
       case 0xc800:
       case 0xd000:
       case 0xd800:
-        final bank = (reg - 0x8000) >> 11;
+        final bank = (reg - 0x8000).shr11;
         _chrBank[bank] = chrRoms.length + (data & 1);
         break;
 
@@ -148,7 +148,7 @@ class MapperNamco163 extends Mapper {
       case 0x5000:
         return _irqCounter & 0xff;
       case 0x5800:
-        return _irqCounter >> 8;
+        return _irqCounter.shr8;
 
       // ram
       case 0x6000:
@@ -159,7 +159,7 @@ class MapperNamco163 extends Mapper {
     }
 
     if (addr >= 0x8000) {
-      final bank = ((addr - 0x8000) >> 13);
+      final bank = (addr - 0x8000).shr13;
       final offset = addr & 0x1fff;
 
       return prgRoms[_prgBank[bank]][offset];
@@ -170,12 +170,12 @@ class MapperNamco163 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr >> 10;
+    final bank = addr.shr10;
     final offset = addr & 0x03ff;
 
     final ramBank = _chrBank[bank] - chrRoms.length;
     if (ramBank >= 0) {
-      return _chrRam[offset + (ramBank << 10)];
+      return _chrRam[offset + ramBank.shl10];
     } else {
       return chrRoms[_chrBank[bank]][offset];
     }
@@ -183,12 +183,12 @@ class MapperNamco163 extends Mapper {
 
   @override
   void writeVram(int addr, int data) {
-    final bank = addr >> 10;
+    final bank = addr.shr10;
     final offset = addr & 0x03ff;
 
     final ramBank = _chrBank[bank] - chrRoms.length;
     if (ramBank >= 0) {
-      _chrRam[offset + (ramBank << 10)] = data;
+      _chrRam[offset + ramBank.shl10] = data;
     }
   }
 

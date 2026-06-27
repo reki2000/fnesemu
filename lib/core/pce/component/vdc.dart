@@ -159,7 +159,7 @@ class Vdc {
   }
 
   int readMsb() {
-    final val = readLatch >> 8;
+    final val = readLatch.shr8;
     marr = (marr + addrInc) & 0xffff;
     readLatch = vram[marr];
     return val;
@@ -235,7 +235,7 @@ class Vdc {
       // Horizontal Display Register
       case 0x0b:
         final oldHSize = hSize;
-        hSize = ((val & 0x3f) + 1) << 3;
+        hSize = ((val & 0x3f) + 1).shl3;
         if (oldHSize != hSize) VdcRenderer.buffer = Uint32List(hSize * vSize);
         break;
       // Vertical Sync Register
@@ -360,7 +360,7 @@ class Vdc {
   }
 
   int readColorTableMsb() {
-    final value = (colorTable[colorTableAddress] >> 8) | 0xfe;
+    final value = colorTable[colorTableAddress].shr8 | 0xfe;
     colorTableAddress = (colorTableAddress + 1) & 0x1ff;
     return value;
   }

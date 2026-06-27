@@ -61,7 +61,7 @@ class Mdec {
 
     if (paramCount > 0) {
       params.add(value.mask16);
-      params.add(value >> 16);
+      params.add(value.shr16);
 
       if (command == Mdec.commandDecode) {
         decodeStep(params.removeFirst());
@@ -91,13 +91,13 @@ class Mdec {
       return;
     }
 
-    switch (value >> 29) {
+    switch (value.shr29) {
       case 0x01: // Decode
         paramCount = value.mask16;
         if (paramCount == 0) {
           paramCount = 0x10000;
         }
-        depth = (value >> 27) & 0x3;
+        depth = value.shr27 & 0x3;
         blockType = blockTypeCr;
         signed = value.bit24;
         bit15Set = value.bit23;
@@ -141,8 +141,8 @@ class Mdec {
             .setBit(24, signed) // Data Output Signed
             .setBit(23, bit15Set) // Data Output Bit15
         |
-        depth << 25 |
-        blockType << 16 |
+        depth.shl25 |
+        blockType.shl16 |
         paramCount.dec.mask16; // Number of Parameter Words remaining minus 1
   }
 
@@ -167,8 +167,8 @@ class Mdec {
       for (int i = 0; i < 64; i += 8) {
         int value = 0;
         for (int j = 7; j >= 0; j--) {
-          final v = buf[blockType][i + j].rel9.clip(-128, 127) >> 4;
-          value = (v.mask4 ^ xor) | (value << 4);
+          final v = buf[blockType][i + j].rel9.clip(-128, 127).shr4;
+          value = (v.mask4 ^ xor) | value.shl4;
         }
         output.add(value);
       }
@@ -184,7 +184,7 @@ class Mdec {
         int value = 0;
         for (int j = 3; j >= 0; j--) {
           final v = buf[blockType][i + j].rel9.clip(-128, 127);
-          value = (v.mask8 ^ xor) | (value << 8);
+          value = (v.mask8 ^ xor) | value.shl8;
         }
         output.add(value);
       }
@@ -208,7 +208,7 @@ class Mdec {
         final xor = signed ? 0 : 0x42104210;
         final bit15 = bit15Set ? 0x80008000 : 0;
         for (int i = 0; i < 16 * 16; i += 2) {
-          output.add((rgb[i].c15 | (rgb[i + 1].c15 << 16) | bit15) ^ xor);
+          output.add((rgb[i].c15 | rgb[i + 1].c15.shl16 | bit15) ^ xor);
         }
         // debugLog("mdec: output a 15bpp block\n"
         //     " [${output.toList().sublist(0, 128).map((i) => i.x8).join(" ")}]");
@@ -219,9 +219,9 @@ class Mdec {
             continue;
           }
           final value = switch (i % 4) {
-            0 => rgb[i].c24 | rgb[i + 1].c24.mask8 << 24,
-            1 => (rgb[i].c24 >> 8).mask16 | rgb[i + 1].c24.mask16 << 16,
-            2 => (rgb[i].c24 >> 16).mask8 | rgb[i + 1].c24 << 8,
+            0 => rgb[i].c24 | rgb[i + 1].c24.mask8.shl24,
+            1 => rgb[i].c24.shr8.mask16 | rgb[i + 1].c24.mask16.shl16,
+            2 => rgb[i].c24.shr16.mask8 | rgb[i + 1].c24.shl8,
             _ => 0
           };
           output.add(value ^ xor);
@@ -318,7 +318,7 @@ class Decoder {
       }
 
       output.fillRange(0, 64, 0);
-      q = input >> 10;
+      q = input.shr10;
       outputIndex = 0;
 
       int value = input.rel10 * qt[0];
@@ -330,7 +330,7 @@ class Decoder {
       return false;
     }
 
-    final runLength = (input >> 10) & 0x3f;
+    final runLength = input.shr10 & 0x3f;
     outputIndex += runLength + 1;
 
     if (outputIndex > 63) {
@@ -356,13 +356,13 @@ class Decoder {
       List<int> yBuf, int xOffset, int yOffset) {
     for (int y = 0; y < 8; y++) {
       final y1 = y * 8;
-      final y2 = ((yOffset + y) >> 1) * 8 + (xOffset >> 1);
+      final y2 = (yOffset + y).shr1 * 8 + xOffset.shr1;
       final y3 = (yOffset + y) * 16 + xOffset;
 
       for (int x = 0; x < 8; x++) {
         final yy = yBuf.elementAt(x + y1);
-        final cr = crBuf.elementAt((x >> 1) + y2);
-        final cb = cbBuf.elementAt((x >> 1) + y2);
+        final cr = crBuf.elementAt(x.shr1 + y2);
+        final cb = cbBuf.elementAt(x.shr1 + y2);
 
         final r = yy + 1.402 * cr;
         final g = yy - 0.344136 * cb - 0.714136 * cr;
@@ -441,6 +441,6 @@ class Color {
 
   Color(this.r, this.g, this.b);
 
-  int get c24 => b.mask8 << 16 | g.mask8 << 8 | r.mask8;
-  int get c15 => (b << 7) & 0x7c00 | (g << 2) & 0x3e0 | (r >> 3) & 0x1f;
+  int get c24 => b.mask8.shl16 | g.mask8.shl8 | r.mask8;
+  int get c15 => b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3 & 0x1f;
 }

@@ -20,7 +20,7 @@ class BusM68Test extends BusM68 {
 
   @override
   int read16(int addr) {
-    return read8(addr) << 8 | read8(addr.inc);
+    return read8(addr).shl8 | read8(addr.inc);
   }
 
   @override
@@ -30,7 +30,7 @@ class BusM68Test extends BusM68 {
 
   @override
   void write16(int addr, int data) {
-    write8(addr, data >> 8);
+    write8(addr, data.shr8);
     write8(addr.inc, data);
   }
 }
@@ -131,7 +131,7 @@ int main() {
       // set memory at pc
       int i = 0;
       for (final val in test['initial']['prefetch']) {
-        bus.ram_[cpu.pc + i++] = val >> 8;
+        bus.ram_[cpu.pc + i++] = val.shr8;
         bus.ram_[cpu.pc + i++] = val & 0xff;
       }
 

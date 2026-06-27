@@ -47,7 +47,7 @@ class BusZ80 {
       final value = busM68.read16(bank | addr & 0x7fff); // m68 bus
       // print(
       //     "z80 read 0x8000-0xffff: ${(bank | addr & 0x7fff).x6} -> ${value.x4}");
-      return value >> 8;
+      return value.shr8;
     }
 
     if (addr & 0xff00 == 0x7f00) return busM68.read8(0xc00000 | addr & 0x1f);
@@ -82,7 +82,7 @@ class BusZ80 {
 
     // bank: 0x6000-0x60ff
     if (addr < 0x6100) {
-      bank = bank >> 1 & 0x7f8000 | data << 23 & 0x800000;
+      bank = bank.shr1 & 0x7f8000 | data.shl23 & 0x800000;
       // print("bank: ${_bank.x6}");
       return;
     }

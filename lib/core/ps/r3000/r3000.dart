@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
+import 'package:fnesemu/util/uint8list.dart';
 
 import 'package:fnesemu/util/debug.dart';
 import 'exception.dart';
@@ -197,10 +198,10 @@ class R3000 {
 
   void exception(int excode, {int? badvaddr}) {
     sr = sr.masked(0x3f,
-        sr << 2); // save old mode, ie bit0-1, and set new mode to kernel (0x00)
+        sr.shl2); // save old mode, ie bit0-1, and set new mode to kernel (0x00)
 
     cause &= 0xff00; // clear, keep bit8-15 (IM)
-    cause |= excode << 2;
+    cause |= excode.shl2;
 
     if (badvaddr != null) {
       this.badvaddr = badvaddr;
@@ -224,25 +225,25 @@ class R3000 {
   void branch(bool cond, int rel16) {
     inBranchDelay = true;
     if (cond) {
-      jump(pc + (rel16 << 2));
+      jump(pc + rel16.shl2);
     }
   }
 
   /// Main instruction dispatch.
   void exec(int inst32) {
-    final op = inst32 >> 26 & 0x3f;
-    final rs = inst32 >> 21 & 0x1f;
-    final rd = inst32 >> 11 & 0x1f;
-    final rt = inst32 >> 16 & 0x1f;
+    final op = inst32.shr26 & 0x3f;
+    final rs = inst32.shr21 & 0x1f;
+    final rd = inst32.shr11 & 0x1f;
+    final rt = inst32.shr16 & 0x1f;
 
     final im16 = inst32.mask16;
     final rel16 = im16.rel16;
 
     return switch (op) {
       0x00 => switch (inst32 & 0x3f) {
-          0x00 => immediate(rd, sll(r[rt], inst32 >> 6)),
-          0x02 => immediate(rd, srl(r[rt], inst32 >> 6)),
-          0x03 => immediate(rd, sra(r[rt], inst32 >> 6)),
+          0x00 => immediate(rd, sll(r[rt], inst32.shr6)),
+          0x02 => immediate(rd, srl(r[rt], inst32.shr6)),
+          0x03 => immediate(rd, sra(r[rt], inst32.shr6)),
           0x04 => immediate(rd, sll(r[rt], r[rs])), // sllv
           0x06 => immediate(rd, srl(r[rt], r[rs])), // srlv
           0x07 => immediate(rd, sra(r[rt], r[rs])), // srav
@@ -271,16 +272,16 @@ class R3000 {
           _ => _unknown(inst32),
         },
       0x01 => switch (rt) {
-          0x10 => jal(r[rs].rel32 < 0, 31, pc + (rel16 << 2)), // bltzal
-          0x11 => jal(r[rs].rel32 >= 0, 31, pc + (rel16 << 2)), // bgezal
+          0x10 => jal(r[rs].rel32 < 0, 31, pc + rel16.shl2), // bltzal
+          0x11 => jal(r[rs].rel32 >= 0, 31, pc + rel16.shl2), // bgezal
           _ => switch (rt & 1) {
               0x00 => branch(r[rs].rel32 < 0, rel16), // bltz
               0x01 => branch(r[rs].rel32 >= 0, rel16), // bgez
               _ => _unknown(inst32),
             }
         },
-      0x02 => jump(pc & 0xf0000000 | inst32.mask26 << 2),
-      0x03 => jal(true, 31, pc & 0xf0000000 | inst32.mask26 << 2), // jal
+      0x02 => jump(pc & 0xf0000000 | inst32.mask26.shl2),
+      0x03 => jal(true, 31, pc & 0xf0000000 | inst32.mask26.shl2), // jal
       0x04 => branch(r[rs] == r[rt], rel16), // beq
       0x05 => branch(r[rs] != r[rt], rel16), // bne
       0x06 => branch(r[rs].rel32 <= 0, rel16), // blez
@@ -292,7 +293,7 @@ class R3000 {
       0x0c => immediate(rt, r[rs] & im16), // andi
       0x0d => immediate(rt, r[rs] | im16), // ori
       0x0e => immediate(rt, r[rs] ^ im16), // xori
-      0x0f => immediate(rt, im16 << 16), // lui
+      0x0f => immediate(rt, im16.shl16), // lui
       0x10 => switch (rs) {
           0x00 => delay(rt, readCop0(rd)), // mfc0,
           0x04 => writeCop0(rd, r[rt]), // mtc0

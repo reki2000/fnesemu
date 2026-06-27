@@ -121,17 +121,17 @@ class Spu {
 
   void setIrqAddr(int value) {
     irqAddr = value;
-    _irqAddr = value << 3;
+    _irqAddr = value.shl3;
   }
 
   setFifoAddr(int value) {
     fifoAddr = value;
-    _fifoAddr = value << 3;
+    _fifoAddr = value.shl3;
   }
 
   int get noiseFlags => voices.asMap().entries.fold(
         0,
-        (acc, entry) => (acc << 1) | (entry.value.noise ? 1 : 0),
+        (acc, entry) => acc.shl1 | (entry.value.noise ? 1 : 0),
       );
   setNoiseFlags(int v) {
     for (int i = 0; i < voices.length; i++) {
@@ -141,7 +141,7 @@ class Spu {
 
   int get pitchModulation => voices.asMap().entries.fold(
         0,
-        (acc, entry) => (acc << 1) | (entry.value.pitchModulation ? 1 : 0),
+        (acc, entry) => acc.shl1 | (entry.value.pitchModulation ? 1 : 0),
       );
   setPitchModulation(int v) {
     for (int i = 0; i < voices.length; i++) {
@@ -173,7 +173,7 @@ class Spu {
     }
 
     ram[addr] = value.mask8;
-    ram[addr + 1] = value >> 8 & 0xff;
+    ram[addr + 1] = value.shr8 & 0xff;
   }
 
   int fifoWriteCount = 0;
@@ -195,10 +195,10 @@ class Spu {
     enabled = value.bit15;
     muted = !value.bit14;
     fifoMode =
-        value >> 4 & 0x03; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
+        value.shr4 & 0x03; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
     reverb.writeEnabled = value.bit7;
-    noiseFreqShift = (value >> 10) & 0x0f;
-    noiseFreqStep = (value >> 8) & 0x03;
+    noiseFreqShift = value.shr10 & 0x0f;
+    noiseFreqStep = value.shr8 & 0x03;
 
     if (value.bit6) {
       if (enabled) irqEnabled = true;
@@ -214,11 +214,11 @@ class Spu {
         0x00 => voices[ch].volume(0),
         0x02 => voices[ch].volume(1),
         0x04 => voices[ch].pitch,
-        0x06 => voices[ch].startAddr >> 3,
+        0x06 => voices[ch].startAddr.shr3,
         0x08 => voices[ch].adsr.mask16,
-        0x0a => voices[ch].adsr >> 16,
+        0x0a => voices[ch].adsr.shr16,
         0x0c => voices[ch].adsrVolume,
-        0x0e => voices[ch].repeatAddr >> 3,
+        0x0e => voices[ch].repeatAddr.shr3,
         _ => throw "illegal readVoice port:${port.x2} ch:$ch",
       };
 
@@ -226,11 +226,11 @@ class Spu {
         0x00 => voices[ch].setVolume(0, v),
         0x02 => voices[ch].setVolume(1, v),
         0x04 => voices[ch].pitch = v,
-        0x06 => voices[ch].startAddr = v << 3,
+        0x06 => voices[ch].startAddr = v.shl3,
         0x08 => voices[ch].setAttackDecay(v),
         0x0a => voices[ch].setSustainRelease(v),
         0x0c => voices[ch].adsrVolume = v,
-        0x0e => voices[ch].repeatAddr = v << 3,
+        0x0e => voices[ch].repeatAddr = v.shl3,
         _ =>
           throw "illegal writeVoice port:${port.x2} ch:$ch value:${v.x8}",
       };

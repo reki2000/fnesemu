@@ -58,7 +58,7 @@ class Envelope {
 
     counter = counterMax;
     final applyStep =
-        (decreasing && exponential) ? (step * current) >> 15 : step;
+        (decreasing && exponential) ? (step * current).shr15 : step;
     final vol = (current + applyStep);
 
     return !decreasing
@@ -89,11 +89,11 @@ class Voice {
     _volReg[lr] = val;
 
     if (!val.bit15) {
-      _vol[lr] = (val << 1).rel16;
+      _vol[lr] = val.shl1.rel16;
       _volSweep[lr] = Envelope.none();
     } else {
       _volSweep[lr] = Envelope.of(
-          val >> 8 & 0x3, val >> 2 & 0x1f, val.bit14, val.bit13,
+          val.shr8 & 0x3, val.shr2 & 0x1f, val.bit14, val.bit13,
           negativePhase_: val.bit6);
     }
   }
@@ -155,7 +155,7 @@ class Voice {
     final step = pitch; // todo pitch modulation
     _counter += step.min(0x4000);
 
-    _blockIndex += _counter >> 12;
+    _blockIndex += _counter.shr12;
     _counter &= 0xfff;
 
     if (_blockIndex >= blockSize) {
@@ -165,19 +165,19 @@ class Voice {
 
     final i = _blockIndex + blockOldSize;
     final val = gaussian(_block[i], _block[i - 1], _block[i - 2], _block[i - 3],
-        _counter >> 4 & 0xff);
+        _counter.shr4 & 0xff);
 
     adsrVolume = envelope.apply(adsrVolume);
 
     switch (_adsrPhase) {
       case 1:
         if (adsrVolume == 0x7fff) {
-          envelope = Envelope.of(0, adsr >> 4 & 0x0f, true, true); // decay
+          envelope = Envelope.of(0, adsr.shr4 & 0x0f, true, true); // decay
           _adsrPhase = 2;
         }
       case 2:
         if (adsrVolume <= sustainLevel) {
-          envelope = Envelope.of(adsr >> 22 & 0x03, adsr >> 24 & 0x1f,
+          envelope = Envelope.of(adsr.shr22 & 0x03, adsr.shr24 & 0x1f,
               adsr.bit31, adsr.bit30); // sustain
           _adsrPhase = 3;
         }
@@ -206,8 +206,8 @@ class Voice {
     _counter = 0;
 
     envelope = Envelope.of(
-        adsr >> 8 & 0x03, adsr >> 10 & 0x1f, adsr.bit15, false); // attack
-    sustainLevel = ((adsr & 0xf) + 1) << 11;
+        adsr.shr8 & 0x03, adsr.shr10 & 0x1f, adsr.bit15, false); // attack
+    sustainLevel = ((adsr & 0xf) + 1).shl11;
     adsrVolume = 0;
     _adsrPhase = 1;
 
@@ -216,7 +216,7 @@ class Voice {
 
   void keyOff() {
     _adsrPhase = 4;
-    envelope = Envelope.of(0, adsr >> 16 & 0x1f, adsr.bit21, true); // release
+    envelope = Envelope.of(0, adsr.shr16 & 0x1f, adsr.bit21, true); // release
 
     // debugLog(
     //     "SPU: keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
@@ -224,7 +224,7 @@ class Voice {
 
   String dump() => "${no.d2}${endx ? "E" : "R"}:"
       "${_volReg[1].x4}${_volReg[0].x4}-"
-      "${(startAddr >> 3).x4}${pitch.x4}-"
+      "${startAddr.shr3.x4}${pitch.x4}-"
       "${adsr.x8}-"
-      "${(_addr >> 3).x4}${adsrVolume.x4}";
+      "${_addr.shr3.x4}${adsrVolume.x4}";
 }

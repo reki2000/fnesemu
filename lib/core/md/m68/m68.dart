@@ -97,7 +97,7 @@ class M68 {
   set nf(bool on) => on ? _sr |= bitN : _sr &= ~bitN;
   set xf(bool on) => on ? _sr |= bitX : _sr &= ~bitX;
 
-  int get maskedIntLevel => _sr >> 8 & 0x07;
+  int get maskedIntLevel => _sr.shr8 & 0x07;
 
   bool get sf => _sr & bitS != 0;
   bool get tf => _sr & bitT != 0;
@@ -147,11 +147,11 @@ class M68 {
   int read32(int addr) {
     final d32 = read16(addr);
     final d10 = read16(addr + 2);
-    return d32 << 16 | d10;
+    return d32.shl16 | d10;
   }
 
   void write32(int addr, int data) {
-    write16(addr, data >> 16);
+    write16(addr, data.shr16);
     write16(addr.inc2, data);
   }
 
@@ -191,7 +191,7 @@ class M68 {
   int pc32() {
     final d01 = pc16();
     final d23 = pc16();
-    return d01 << 16 | d23;
+    return d01.shl16 | d23;
   }
 
   int immed(int size) => switch (size) {
@@ -251,8 +251,8 @@ class M68 {
     clocks += 2;
     final ex = pc16();
     final modeAn = ex.bit15;
-    final xn = ex >> 12 & 0x07;
-    final size = size1[ex >> 11 & 0x01];
+    final xn = ex.shr12 & 0x07;
+    final size = size1[ex.shr11 & 0x01];
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.mask8.rel8;
     // debug(
@@ -307,7 +307,7 @@ class M68 {
 
   void push32(int data) {
     push16(data);
-    push16(data >> 16);
+    push16(data.shr16);
   }
 
   int pop16() {
@@ -319,7 +319,7 @@ class M68 {
   int pop32() {
     final d01 = pop16();
     final d23 = pop16();
-    return d01 << 16 | d23;
+    return d01.shl16 | d23;
   }
 
   bool cond(int cond) => switch (cond) {

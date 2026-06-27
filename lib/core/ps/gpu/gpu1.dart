@@ -5,7 +5,7 @@ extension Gpu1 on Gpu {
   static const yMask = 0x1ff;
 
   void writeGp1(int value) {
-    final cmd = value >> 24;
+    final cmd = value.shr24;
     switch (cmd & 0x3f) {
       case 0x00: // reset
         status = 0;
@@ -22,11 +22,11 @@ extension Gpu1 on Gpu {
         status = status.setBit(28, value.bit0);
 
       case 0x04: // dma direction / start address
-        status = status.masked(0x60000000, value << 29);
+        status = status.masked(0x60000000, value.shl29);
 
       case 0x05: // set drawing area top left
         startDisplayX = value & xMask;
-        startDisplayY = value >> 10 & yMask;
+        startDisplayY = value.shr10 & yMask;
 
       case 0x06: // set drawing range x
         displayX1 = value.mask12;
@@ -40,7 +40,7 @@ extension Gpu1 on Gpu {
       case 0x08: // display mode
         displayMode = value & 0x7f;
         status = status
-            .masked(0x7e00, value << 17)
+            .masked(0x7e00, value.shl17)
             .setBit(16, value.bit6)
             .setBit(14, value.bit7);
 
@@ -57,13 +57,13 @@ extension Gpu1 on Gpu {
       case >= 0x10 && < 0x20: // read gpu internal register
         switch (value & 0x07) {
           case 0x02: //  Read Texture Window setting
-            readValue = textureMaskX | textureMaskY << 10;
+            readValue = textureMaskX | textureMaskY.shl10;
           case 0x03: // Read Draw area top left
-            readValue = drawingX1 | drawingY1 << 10;
+            readValue = drawingX1 | drawingY1.shl10;
           case 0x04: // Read Draw area bottom right
-            readValue = drawingX2 | drawingY2 << 10;
+            readValue = drawingX2 | drawingY2.shl10;
           case 0x05: //  Read Draw offset
-            readValue = drawingOffsetX | drawingOffsetY << 10;
+            readValue = drawingOffsetX | drawingOffsetY.shl10;
         }
 
       default:

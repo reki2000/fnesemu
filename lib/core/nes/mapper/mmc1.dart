@@ -93,7 +93,7 @@ class MapperMMC1 extends Mapper {
 
     // shift register write
     _shiftReg >>= 1;
-    _shiftReg |= ((data & 0x01) << 4);
+    _shiftReg |= (data & 0x01).shl4;
     _counter++;
 
     // the fifth write to control
@@ -106,7 +106,7 @@ class MapperMMC1 extends Mapper {
             _chrBank[1] = 1;
           }
 
-          _prgBankMode = (_shiftReg >> 2) & 0x03;
+          _prgBankMode = _shiftReg.shr2 & 0x03;
           _setPrgBank();
 
           mirror(_mirrors[_shiftReg & 0x03]);
@@ -118,7 +118,7 @@ class MapperMMC1 extends Mapper {
           }
 
           // S[OUX]ROM supports RAM
-          _ramBank = (_shiftReg >> 2) & 0x03;
+          _ramBank = _shiftReg.shr2 & 0x03;
 
           // 512k ROM A18 select
           _prgBank512 = _shiftReg.bit4 && prgRoms.length == 32;
@@ -130,7 +130,7 @@ class MapperMMC1 extends Mapper {
             _chrBank[1] = _shiftReg & 0x01;
 
             // S[OUX]ROM supports RAM
-            _ramBank = (_shiftReg >> 2) & 0x03;
+            _ramBank = _shiftReg.shr2 & 0x03;
 
             // 512k ROM A18 select
             _prgBank512 = _shiftReg.bit4 && prgRoms.length == 32;
@@ -206,14 +206,14 @@ class MapperMMC1 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = (addr >> 12) & 0x1;
+    final bank = addr.shr12 & 0x1;
     final offset = addr & 0x0fff;
     return _vram4k[_chrBank[bank]][offset];
   }
 
   @override
   void writeVram(int addr, int data) {
-    final bank = (addr >> 12) & 0x1;
+    final bank = addr.shr12 & 0x1;
     final offset = addr & 0x0fff;
     _vram4k[_chrBank[bank]][offset] = data & 0xff;
   }

@@ -155,7 +155,7 @@ class Md implements Core {
 
       // mix resampled psgBuffer + fmBuffer
       for (int i = 0; i < _fmBufferIndex; i += 2) {
-        final psgIndex = (i >> 1) * psg.sampleHz ~/ fm.sampleHz;
+        final psgIndex = i.shr1 * psg.sampleHz ~/ fm.sampleHz;
         final psgVal = _psgBuffer[psgIndex.clip(0, _psgBufferIndex - 1)] / 4;
 
         final mixL = psgVal + _fmBuffer[i + 0] * 2;

@@ -15,8 +15,8 @@ extension CpuDebugger on Cpu {
     final d2 = read(pc + 2);
     final d3 = read(pc + 3);
     final d4 = read(pc + 4);
-    final d34 = d4 << 8 | d3;
-    final d56 = read(pc + 6) << 8 | read(pc + 5);
+    final d34 = d4.shl8 | d3;
+    final d56 = read(pc + 6).shl8 | read(pc + 5);
 
     final disasm = Disasm.disasm(pc, op, d1, d2, d34: d34, d56: d56);
 
@@ -28,17 +28,17 @@ extension CpuDebugger on Cpu {
       Operand.zp => d1 | Cpu.zeroAddr,
       Operand.zpx => (d1 + regs.x) & 0xff | Cpu.zeroAddr,
       Operand.zpy => (d1 + regs.y) & 0xff | Cpu.zeroAddr,
-      Operand.abs => d1 | d2 << 8,
-      Operand.absx => ((d1 | d2 << 8) + regs.x) & 0xffff,
-      Operand.absy => ((d1 | d2 << 8) + regs.y) & 0xffff,
-      Operand.ind16 => d1 | d2 << 8,
-      Operand.zpindx => readzp(d1 + regs.x) | readzp(d1 + regs.x + 1) << 8,
-      Operand.zpindy => (readzp(d1) | readzp(d1 + 1) << 8) + regs.y,
-      Operand.zpind => readzp(d1) | readzp(d1 + 1) << 8,
+      Operand.abs => d1 | d2.shl8,
+      Operand.absx => ((d1 | d2.shl8) + regs.x) & 0xffff,
+      Operand.absy => ((d1 | d2.shl8) + regs.y) & 0xffff,
+      Operand.ind16 => d1 | d2.shl8,
+      Operand.zpindx => readzp(d1 + regs.x) | readzp(d1 + regs.x + 1).shl8,
+      Operand.zpindy => (readzp(d1) | readzp(d1 + 1).shl8) + regs.y,
+      Operand.zpind => readzp(d1) | readzp(d1 + 1).shl8,
       Operand.imzp => d2 | Cpu.zeroAddr,
       Operand.imzpx => (d2 + regs.x) & 0xff | Cpu.zeroAddr,
-      Operand.imabs => d2 | d3 << 8,
-      Operand.imabsx => ((d2 | d3 << 8) + regs.x) & 0xffff,
+      Operand.imabs => d2 | d3.shl8,
+      Operand.imabsx => ((d2 | d3.shl8) + regs.x) & 0xffff,
     };
 
     final dstValue = addr < 0x2000 ? 0 : read(addr); // avoid I/O accses
@@ -54,7 +54,7 @@ extension CpuDebugger on Cpu {
   }
 
   int _mprAddr(int addr) {
-    return regs.mpr[addr >> 13 & 7];
+    return regs.mpr[addr.shr13 & 7];
   }
 
   String _reg() {
@@ -63,7 +63,7 @@ extension CpuDebugger on Cpu {
 
   TraceLog trace() {
     final bank = _mprAddr(regs.pc);
-    final pc = bank << 16 | regs.pc;
+    final pc = bank.shl16 | regs.pc;
     return TraceLog(
         pc,
         cycles,

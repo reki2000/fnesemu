@@ -94,7 +94,7 @@ class _SawToothWave with _Wave {
         }
       }
 
-      buf[i] = _accumlator >> 3;
+      buf[i] = _accumlator.shr3;
       _timer--;
     }
 
@@ -118,7 +118,7 @@ class Vrc6Apu {
     switch (reg) {
       // pulse wave 0
       case 0x9000:
-        pulse0.duty = val.bit7 ? 15 : ((val >> 4) & 0x07);
+        pulse0.duty = val.bit7 ? 15 : (val.shr4 & 0x07);
         pulse0.volume = val & 0x0f;
         return;
 
@@ -132,7 +132,7 @@ class Vrc6Apu {
 
       // pulse wave 1
       case 0xa000:
-        pulse1.duty = val.bit7 ? 15 : ((val >> 4) & 0x07);
+        pulse1.duty = val.bit7 ? 15 : (val.shr4 & 0x07);
         pulse1.volume = val & 0x0f;
         return;
 

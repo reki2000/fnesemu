@@ -20,14 +20,14 @@ class DmaChannel {
     addr = value & 0x7ffffc;
   }
 
-  int get blockCtrl => size | amount << 16;
+  int get blockCtrl => size | amount.shl16;
   set blockCtrl(int value) {
     size = value & 0xffff;
     if (size == 0) {
       size = 0x10000;
     }
     initialSize = size;
-    amount = value >> 16;
+    amount = value.shr16;
   }
 
   int _channelCtrl = 0;
@@ -36,7 +36,7 @@ class DmaChannel {
   set channelCtrl(int value) {
     _channelCtrl = value & 0x71770703;
 
-    syncMode = value >> 9 & 0x03;
+    syncMode = value.shr9 & 0x03;
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     if (ch == 6) {
@@ -129,7 +129,7 @@ class Dma {
       1 ||
       2 =>
         _interrupt.masked(0xff.shl(addr.shl3), value.shl(addr.shl3)),
-      3 => _interrupt & (~(value.shl24) | 0xffffff),
+      3 => _interrupt & (~value.shl24 | 0xffffff),
       _ =>
         throw "illegal DMA interrupt addr:${addr.x8} value:${value.x8}",
     };
@@ -271,7 +271,7 @@ class Dma {
               break;
             }
 
-            for (int i = 0; i < node >> 24; i++) {
+            for (int i = 0; i < node.shr24; i++) {
               d.addr = (d.addr + d.incr) & 0x1ffffc;
               final val = bus.read32(d.addr);
               bus.write32(d.ioAddr, val);

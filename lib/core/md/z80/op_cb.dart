@@ -1,4 +1,5 @@
 import 'package:fnesemu/core/md/z80/z80.dart';
+import 'package:fnesemu/util/int.dart';
 
 extension OpCb on Z80 {
   bool execCb(int op) {
@@ -22,7 +23,7 @@ extension OpCb on Z80 {
         break;
 
       case 0x40: // bit
-        final bit = op38 >> 3;
+        final bit = op38.shr3;
         final v = val & (1 << bit);
         r.setSZ(v);
         r.hf = true;
@@ -32,11 +33,11 @@ extension OpCb on Z80 {
         break;
 
       case 0x80: // res
-        val &= ~(1 << (op38 >> 3));
+        val &= ~(1 << op38.shr3);
         break;
 
       case 0xc0: // set
-        val |= 1 << (op38 >> 3);
+        val |= 1 << op38.shr3;
         break;
     }
 

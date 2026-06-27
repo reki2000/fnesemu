@@ -130,7 +130,7 @@ class Vdp {
     } else if (port == 0x08) {
       // print(
       //     "vdp hv couter read: ${vCounter.x4} ${hCounter.x4} pc:${bus.cpu.pc.x6}");
-      return vCounter << 8 | hCounter >> 1;
+      return vCounter.shl8 | hCounter.shr1;
     }
     return 0;
   }
@@ -168,7 +168,7 @@ class Vdp {
   bool get isDmaRunning => _dmaLength > 0;
 
   void startDma() {
-    _dmaLength = reg[0x13] | reg[0x14] << 8;
+    _dmaLength = reg[0x13] | reg[0x14].shl8;
 
     if (_dmaLength == 0) {
       _dmaLength = 0x10000;
@@ -184,7 +184,7 @@ class Vdp {
       data = _dmaMode == _dmaModeM2V
           ? bus.read16(_dmaSrc)
           : _dmaMode == _dmaModeV2V
-              ? vram[_dmaSrc] << 8 | vram[_dmaSrc.inc]
+              ? vram[_dmaSrc].shl8 | vram[_dmaSrc.inc]
               : _dmaFillValue;
 
       _dmaSrc += 2;
@@ -207,14 +207,14 @@ class Vdp {
     // print(
     //     "vdp:ctrl=${value.x4} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
     if (value & 0xe000 == 0x8000) {
-      final regNo = value >> 8 & 0x1f;
+      final regNo = value.shr8 & 0x1f;
       reg[regNo] = value.mask8;
 
       switch (regNo) {
         case 12:
           h32 = value & 0x81 != 0x81;
           width = h32 ? 256 : 320;
-          interlaceMode = value >> 1 & 0x03;
+          interlaceMode = value.shr1 & 0x03;
           break;
         case 0x17:
           if (!reg[0x17].bit7) {
@@ -242,8 +242,8 @@ class Vdp {
 
     _is1st = true;
 
-    _addr = value << 14 & 0xc000 | _ctrl & 0x3fff;
-    final cd = value >> 2 & 0x3c | _ctrl >> 14 & 0x03;
+    _addr = value.shl14 & 0xc000 | _ctrl & 0x3fff;
+    final cd = value.shr2 & 0x3c | _ctrl.shr14 & 0x03;
 
     switch (cd & 0x0f) {
       case 0x00:
@@ -268,21 +268,21 @@ class Vdp {
     }
 
     if (enableDma && cd.bit5 && _dmaMode == _dmaModeM2V) {
-      _dmaSrc = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x7f) << 16) << 1;
+      _dmaSrc = (reg[0x15] | reg[0x16].shl8 | (reg[0x17] & 0x7f).shl16).shl1;
       startDma();
       execDma(0x10000);
     } else if (enableDma && cd & 0x30 == 0x30 && _dmaMode == _dmaModeV2V) {
-      _dmaSrc = (reg[0x15] | reg[0x16] << 8 | (reg[0x17] & 0x3f) << 16) << 1;
+      _dmaSrc = (reg[0x15] | reg[0x16].shl8 | (reg[0x17] & 0x3f).shl16).shl1;
       startDma();
       //execDma(0x10000); // workaround
     }
   }
 
   int get data => ram == ramVram
-      ? vram[_addr] << 8 | vram[postInc(1)]
+      ? vram[_addr].shl8 | vram[postInc(1)]
       : ram == ramCram
-          ? encodeCram(cram[postInc() >> 1])
-          : vsram[postInc() >> 1];
+          ? encodeCram(cram[postInc().shr1])
+          : vsram[postInc().shr1];
 
   set data(int value) {
     // print(
@@ -292,18 +292,18 @@ class Vdp {
       //   print(
       //       "vdp:debug: v:${value.x4} ${dump()} pc:${bus.cpu.pc}"); // debug
       // }
-      vram[_addr] = value >> 8;
+      vram[_addr] = value.shr8;
       vram[postInc(1)] = value.mask8;
     } else if (ram == ramCram) {
-      cram[postInc() >> 1] =
-          value >> 3 & 0x1c0 | value >> 2 & 0x038 | value >> 1 & 0x07;
+      cram[postInc().shr1] =
+          value.shr3 & 0x1c0 | value.shr2 & 0x038 | value.shr1 & 0x07;
     } else {
-      vsram[postInc() >> 1] = value;
+      vsram[postInc().shr1] = value;
     }
   }
 
   int encodeCram(int val) =>
-      val << 3 & 0xf00 | val << 2 & 0x0f0 | val << 1 & 0x00f;
+      val.shl3 & 0xf00 | val.shl2 & 0x0f0 | val.shl1 & 0x00f;
 
   int postInc([int offset = 0]) {
     final ret = _addr + offset;
@@ -322,11 +322,11 @@ class Vdp {
         .join("  ");
 
     final bgSizeH = ["32", "64", "--", "128"][reg[16] & 0x03];
-    final bgSizeV = ["32", "64", "--", "128"][reg[16] >> 4 & 0x03];
-    final nameA = reg[2] << 10 & 0xe000;
-    final nameB = reg[4] << 13 & 0xe000;
-    final win = reg[3] << 10 & 0xf800;
-    final spr = reg[5] << 9 & 0xfc00;
+    final bgSizeV = ["32", "64", "--", "128"][reg[16].shr4 & 0x03];
+    final nameA = reg[2].shl10 & 0xe000;
+    final nameB = reg[4].shl13 & 0xe000;
+    final win = reg[3].shl10 & 0xf800;
+    final spr = reg[5].shl9 & 0xfc00;
 
     final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
     final vScrMode = reg[11].bit2 ? "16  " : vsram[0].x4;

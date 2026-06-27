@@ -32,7 +32,7 @@ extension Cop0 on R3000 {
   void execCop0(int inst32) {
     switch (inst32 & 0x3f) {
       case 0x10: // rfe
-        sr = sr.masked(0x0f, sr >> 2);
+        sr = sr.masked(0x0f, sr.shr2);
       // sr &= ~0x30;
       // debugLog(
       //     "cpu: rfe sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");

@@ -21,7 +21,7 @@ extension VdcDebug on Vdc {
       }
 
       for (int c = 0; c < 16; c++) {
-        int color = rgba[colorTable[p << 4 | c]];
+        int color = rgba[colorTable[p.shl4 | c]];
 
         for (int y = 0; y < size - 1; y++) {
           for (int x = 0; x < size - 1; x++) {
@@ -48,7 +48,7 @@ extension VdcDebug on Vdc {
     int height = (tileSize * 16) * 2;
 
     final buf = Uint32List(width * height);
-    final palette = paletteNo << 4;
+    final palette = paletteNo.shl4;
 
     for (int baseY = 0; baseY < 2; baseY++) {
       for (int baseX = 0; baseX < 4; baseX++) {
@@ -69,9 +69,9 @@ extension VdcDebug on Vdc {
                 final p23 = pattern23 >> shiftBits;
 
                 final color = (p01 & 0x01) |
-                    (p01 >> 7) & 0x02 |
-                    (p23 << 2) & 0x04 |
-                    (p23 >> 5) & 0x08;
+                    p01.shr7 & 0x02 |
+                    p23.shl2 & 0x04 |
+                    p23.shr5 & 0x08;
                 final c = (useSecondBgColor && color == 0)
                     ? 0xffffffff
                     : rgba[colorTable[((color == 0) ? 0 : palette) | color]];
@@ -100,7 +100,7 @@ extension VdcDebug on Vdc {
       final sp = Sprite.of(sat, i * 4);
       final xy = "${sp.x.d4},${sp.y.d4}";
       final patNo =
-          "${sp.patternNo.d4} ${(sp.patternNo << 6).x4}";
+          "${sp.patternNo.d4} ${sp.patternNo.shl6.x4}";
       buf[i] =
           "${i.d2} $xy  $patNo ${sp.paletteNo.d2} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "}";
     }
@@ -131,7 +131,7 @@ extension VdcDebug on Vdc {
     for (int ty = 0; ty < bgHeight; ty++) {
       for (int tx = 0; tx < bgWidth; tx++) {
         final pattern = vram[tx + ty * bgWidth + vramOffset];
-        final palette = pattern >> 12 << 4;
+        final palette = pattern.shr12.shl4;
 
         for (int y = 0; y < tileSize; y++) {
           final addr = (pattern & 0xfff) * 16 + y;
@@ -144,9 +144,9 @@ extension VdcDebug on Vdc {
             final p23 = pattern23 >> shiftBits;
 
             final color = (p01 & 0x01) |
-                (p01 >> 7) & 0x02 |
-                (p23 << 2) & 0x04 |
-                (p23 >> 5) & 0x08;
+                p01.shr7 & 0x02 |
+                p23.shl2 & 0x04 |
+                p23.shr5 & 0x08;
 
             final c = colorTable[((color == 0) ? 0 : palette) | color];
             buf[imageOffset +

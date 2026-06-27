@@ -106,7 +106,7 @@ extension OpEd on Z80 {
       case 0x72: // sbc hl, sp
         final oldH = r.h;
         r.hl = sbc16(r.hl, r.sp);
-        r.setV(oldH, r.sp >> 8, r.h, sub: true);
+        r.setV(oldH, r.sp.shr8, r.h, sub: true);
         r.setSZ(r.h);
         return true;
       case 0x4a: // adc hl, bc
@@ -130,7 +130,7 @@ extension OpEd on Z80 {
       case 0x7a: // adc hl, sp
         final oldH = r.h;
         r.hl = add16(r.hl, r.sp, c: r.cf ? 1 : 0);
-        r.setV(oldH, r.sp >> 8, r.h);
+        r.setV(oldH, r.sp.shr8, r.h);
         r.setSZ(r.h);
         return true;
 
@@ -155,7 +155,7 @@ extension OpEd on Z80 {
       case 0x73: // ld (nn), sp
         final addr = pc16();
         write(addr, r.sp & 0xff);
-        write(addr + 1, r.sp >> 8);
+        write(addr + 1, r.sp.shr8);
         cycles += 6;
         return true;
       case 0x4b: // ld bc, (nn)
@@ -255,7 +255,7 @@ extension OpEd on Z80 {
       case 0x67: // rrd
         final addr = r.hl;
         final val = read(addr);
-        write(addr, (val >> 4) | (r.a << 4) & 0xf0);
+        write(addr, val.shr4 | r.a.shl4 & 0xf0);
         r.a = (r.a & 0xf0) | (val & 0x0f);
         r.setSZ(r.a);
         r.setP(r.a);
@@ -266,8 +266,8 @@ extension OpEd on Z80 {
       case 0x6f: // rld
         final addr = r.hl;
         final val = read(addr);
-        write(addr, r.a & 0x0f | (val << 4) & 0xf0);
-        r.a = (r.a & 0xf0) | (val >> 4);
+        write(addr, r.a & 0x0f | val.shl4 & 0xf0);
+        r.a = (r.a & 0xf0) | val.shr4;
         r.setSZ(r.a);
         r.setP(r.a);
         r.hf = false;
@@ -282,7 +282,7 @@ extension OpEd on Z80 {
       case 0x60: // in h, (c)
       case 0x68: // in l, (c)
       case 0x78: // in a, (c)
-        final reg = (op & 0x38) >> 3;
+        final reg = (op & 0x38).shr3;
         final result = input(r.c);
         r.r8[reg] = result;
         r.setSZ(result);
@@ -307,7 +307,7 @@ extension OpEd on Z80 {
       case 0x61: // out (c), h
       case 0x69: // out (c), l
       case 0x79: // out (c), a
-        final reg = (op & 0x38 >> 3);
+        final reg = (op & 0x38.shr3);
         output(r.c, r.r8[reg]);
         cycles += 4;
         return true;

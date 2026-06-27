@@ -135,13 +135,13 @@ class MemoryCard extends SioDevice {
         return ack(0x5d);
 
       case waitRwAddrMsb:
-        addr = txData & 0x03 << 15;
+        addr = txData & 0x03.shl15;
         checkSum = txData & 0x03;
         step = waitRwAddrLsb;
         return ack(0);
 
       case waitRwAddrLsb:
-        addr = txData << 7 | addr;
+        addr = txData.shl7 | addr;
         step = command == commandWrite ? waitWrite : waitCmdAck0;
         checkSum ^= txData;
         count = 128;
@@ -161,11 +161,11 @@ class MemoryCard extends SioDevice {
 
       case waitAddrAck0:
         step = waitAddrAck1;
-        return ack(addr >> 15);
+        return ack(addr.shr15);
 
       case waitAddrAck1:
         step = waitRead;
-        return ack(addr >> 7 & 0xff);
+        return ack(addr.shr7 & 0xff);
 
       case waitRead:
         final readData = _readEx?.call(addr) ?? 0;

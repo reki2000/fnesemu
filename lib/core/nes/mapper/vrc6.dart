@@ -68,7 +68,7 @@ class MapperVrc6 extends Mapper {
     if (addr == 0xb003) {
       _ramEnabled = data.bit7;
 
-      _setMirror((data & 0x0f) >> 2);
+      _setMirror((data & 0x0f).shr2);
 
       switch (data & 0x03) {
         case 0:
@@ -79,7 +79,7 @@ class MapperVrc6 extends Mapper {
 
         case 1:
           for (var i = 0; i < 8; i++) {
-            _chrBank[i] = i >> 1;
+            _chrBank[i] = i.shr1;
           }
           break;
 
@@ -89,7 +89,7 @@ class MapperVrc6 extends Mapper {
             _chrBank[i] = i;
           }
           for (var i = 4; i < 8; i++) {
-            _chrBank[i] = i >> 1;
+            _chrBank[i] = i.shr1;
           }
           break;
       }
@@ -107,8 +107,8 @@ class MapperVrc6 extends Mapper {
 
       case 0x8000:
         _prgBank8000 = data & _prgBankMask;
-        _prgBank[0] = _prgBank8000 << 1;
-        _prgBank[1] = (_prgBank8000 << 1) + 1;
+        _prgBank[0] = _prgBank8000.shl1;
+        _prgBank[1] = _prgBank8000.shl1 + 1;
         return;
 
       case 0xc000:
@@ -148,7 +148,7 @@ class MapperVrc6 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
+    final bank = addr.shr13 & 0x03;
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
@@ -162,7 +162,7 @@ class MapperVrc6 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr >> 10; // 1 1100 0000 0000
+    final bank = addr.shr10; // 1 1100 0000 0000
     final offset = addr & 0x03ff;
 
     return chrRoms[_ppuReg[_chrBank[bank]]][offset];
@@ -252,6 +252,6 @@ class MapperVrc6b extends MapperVrc6 {
   // VRC6b +0x00, +0x02, +0x01, +0x03
   @override
   int addrToReg(int addr) {
-    return ((addr & 1) << 1) | ((addr & 2) >> 1);
+    return (addr & 1).shl1 | (addr & 2).shr1;
   }
 }

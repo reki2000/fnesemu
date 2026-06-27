@@ -44,7 +44,7 @@ class DebugController extends StatelessWidget {
       debugger.cpuInfos[_targetCpuIndex(opt.targetCpuNo)];
 
   _setBreakPoint(BuildContext context, String v, DebugOption opt) {
-    if (v.length != _targetCpu(opt).pcBitWidth >> 2) {
+    if (v.length != _targetCpu(opt).pcBitWidth.shr2) {
       return;
     }
 

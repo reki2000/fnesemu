@@ -52,7 +52,7 @@ class Gpu {
   bool get cmdReady => cmdSize == 0;
   bool get dmaReceiveReady =>
       cmdReady ||
-      cmdSize == 3 && cmd[0] >> 29 == 0x05; // GP0 DMA receive command
+      cmdSize == 3 && cmd[0].shr29 == 0x05; // GP0 DMA receive command
   bool vramToCpuReady = false; // GP0 VRAM to CPU command
 
   bool irq1 = false;
@@ -152,7 +152,7 @@ class Gpu {
   }
 
   int readStat() {
-    final b25 = switch (status >> 29 & 0x03) {
+    final b25 = switch (status.shr29 & 0x03) {
       0 => false,
       1 => cmdSize > 0, // fifo not empty
       2 => true, // dma is always available
@@ -219,7 +219,7 @@ class Gpu {
     final uu = u & textureMaskX2 | textureOffsetX2;
     final vv = v & textureMaskY2 | textureOffsetY2;
 
-    final base = (baseY + vv) << 10;
+    final base = (baseY + vv).shl10;
 
     final int addr;
     switch (clutMode) {
@@ -251,7 +251,7 @@ class Gpu {
     //
     0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
   ];
-  static final _ditherV10 = _ditherV.map((i) => i << 10).toList();
+  static final _ditherV10 = _ditherV.map((i) => i.shl10).toList();
 
   @pragma('vm:prefer-inline')
   @pragma('vm:no-bounds-check')
@@ -263,11 +263,11 @@ class Gpu {
     }
 
     final r5 = c16 & 0x1f;
-    final g5 = c16 >> 5 & 0x1f;
-    final b5 = c16 >> 10 & 0x1f;
-    final r = (((r5 << 5) + r5) * m24.r + d) >> 12;
-    final g = (((g5 << 5) + g5) * m24.g + d) >> 12;
-    final b = (((b5 << 5) + b5) * m24.b + d) >> 12;
+    final g5 = c16.shr5 & 0x1f;
+    final b5 = c16.shr10 & 0x1f;
+    final r = ((r5.shl5 + r5) * m24.r + d).shr12;
+    final g = ((g5.shl5 + g5) * m24.g + d).shr12;
+    final b = ((b5.shl5 + b5) * m24.b + d).shr12;
     final r2 = r > 31 ? 31 : r;
     final g2 = g > 31 ? 31 : g;
     final b2 = b > 31 ? 31 : b;
@@ -323,30 +323,30 @@ class Gpu {
     // semi-transparency
     if (c16.bit15) {
       final r0 = old & 0x1f;
-      final g0 = old >> 5 & 0x1f;
-      final b0 = old >> 10 & 0x1f;
+      final g0 = old.shr5 & 0x1f;
+      final b0 = old.shr10 & 0x1f;
       final r1 = c16 & 0x1f;
-      final g1 = c16 >> 5 & 0x1f;
-      final b1 = c16 >> 10 & 0x1f;
+      final g1 = c16.shr5 & 0x1f;
+      final b1 = c16.shr10 & 0x1f;
       // if (x == 11 && y == 136) {
       //   debugLog("gpu: semi transparency old:${old.x4} new:${c16.x4} "
       //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
       //       "mode:${status >> 5 & 0x03}");
       // }
       c16 = 0x8000 |
-          switch (semiTransparent ?? status >> 5 & 0x03) {
-            0 => ((b0 + b1) >> 1) << 10 |
-                ((g0 + g1) >> 1) << 5 |
-                ((r0 + r1) >> 1), // B/2+F/2
-            1 => 31.min(b0 + b1) << 10 |
-                31.min(g0 + g1) << 5 |
+          switch (semiTransparent ?? status.shr5 & 0x03) {
+            0 => (b0 + b1).shr1.shl10 |
+                (g0 + g1).shr1.shl5 |
+                (r0 + r1).shr1, // B/2+F/2
+            1 => 31.min(b0 + b1).shl10 |
+                31.min(g0 + g1).shl5 |
                 31.min(r0 + r1), // B+F
-            2 => 0.max(b0 - b1) << 10 |
-                0.max(g0 - g1) << 5 |
+            2 => 0.max(b0 - b1).shl10 |
+                0.max(g0 - g1).shl5 |
                 0.max(r0 - r1), // B-F
-            _ => 31.min(b0 + (b1 >> 2)) << 10 |
-                31.min(g0 + (g1 >> 2)) << 5 |
-                31.min(r0 + (r1 >> 2)), // B+F/4
+            _ => 31.min(b0 + b1.shr2).shl10 |
+                31.min(g0 + g1.shr2).shl5 |
+                31.min(r0 + r1.shr2), // B+F/4
           };
     }
 

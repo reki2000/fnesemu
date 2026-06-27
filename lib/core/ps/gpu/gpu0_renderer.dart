@@ -139,15 +139,15 @@ extension Gp0Renderer on Gpu {
     final rectangle = cmd.bit27;
     final modulateColor = Color.ofC24(cmd);
 
-    final clut = c[2] >> 16;
-    final page = c[gouraud ? 5 : 4] >> 16;
+    final clut = c[2].shr16;
+    final page = c[gouraud ? 5 : 4].shr16;
 
     final semiTransparent = page.shr5 & 0x03;
 
-    final baseX = page << 6 & 0x3c0;
-    final baseY = page << 4 & 0x100;
-    final clutMode = page >> 7 & 3;
-    final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
+    final baseX = page.shl6 & 0x3c0;
+    final baseY = page.shl4 & 0x100;
+    final clutMode = page.shr7 & 3;
+    final clutBase = (clut.shr6 & yMask) * 1024 + (clut & 0x3f).shl4;
 
     // 0c,1xy,2uv   3c,4xy,5uv  6c,7xy,8uv   9c,10xy,11uv
     // 0c,1xy,2uv   3xy,4uv  5xy,6uv  7xy,8uv

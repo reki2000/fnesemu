@@ -57,7 +57,7 @@ class Serial {
 
   int mode = 0; // mode register
 
-  int get status => (timer << 11)
+  int get status => timer.shl11
       .setBit(0, txFifo.isEmpty)
       .setBit(1, !isRxFifoEmpty())
       .setBit(2, txFifo.isEmpty)

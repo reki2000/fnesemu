@@ -274,7 +274,7 @@ class Cpu {
       case 0x0e:
       case 0x1e:
         final addr = address(op, st: true);
-        final acm = read(addr) << 1;
+        final acm = read(addr).shl1;
         flags(acm);
         write(addr, acm);
         cycle += 4;
@@ -306,7 +306,7 @@ class Cpu {
       case 0x2a:
         regs.a <<= 1;
         regs.a |= carry();
-        final msb = (regs.a >> 8) & 0x01;
+        final msb = regs.a.shr8 & 0x01;
         cycle += 2;
         flags(regs.a);
         regs.p |= msb;
@@ -317,9 +317,9 @@ class Cpu {
       case 0x2e:
       case 0x3e:
         final addr = address(op, st: true);
-        var acm = read(addr) << 1;
+        var acm = read(addr).shl1;
         acm |= carry();
-        final msb = (acm >> 8) & 0x01;
+        final msb = acm.shr8 & 0x01;
         flags(acm);
         regs.p |= msb;
         write(addr, acm);
@@ -329,7 +329,7 @@ class Cpu {
       // ROR
       case 0x6a:
         final bit0 = regs.a & 0x01;
-        regs.a = (regs.a >> 1) | (carry() << 7);
+        regs.a = regs.a.shr1 | carry().shl7;
         flags(regs.a);
         regs.a &= 0xff;
         regs.p = (regs.p & ~Flags.C) | bit0;
@@ -342,7 +342,7 @@ class Cpu {
         final addr = address(op, st: true);
         var acm = read(addr);
         final bit0 = acm & 0x01;
-        acm = (acm >> 1) | (carry() << 7);
+        acm = acm.shr1 | carry().shl7;
         flags(acm);
         regs.p = (regs.p & ~Flags.C) | bit0;
         write(addr, acm);
@@ -480,7 +480,7 @@ class Cpu {
         break;
       case 0x6c:
         final addr = absolute();
-        regs.pc = read(addr) | (read(addr & 0xff00 | ((addr + 1) & 0xff)) << 8);
+        regs.pc = read(addr) | (read(addr & 0xff00 | ((addr + 1) & 0xff)).shl8);
         cycle += 3;
         break;
 
@@ -489,7 +489,7 @@ class Cpu {
         final addr = absolute();
         regs.pc--;
         regs.pc &= 0xffff;
-        push(regs.pc >> 8);
+        push(regs.pc.shr8);
         push(regs.pc & 0xff);
         regs.pc = addr;
         cycle += 4;
@@ -497,7 +497,7 @@ class Cpu {
 
       // RTS
       case 0x60:
-        final addr = pop() | (pop() << 8);
+        final addr = pop() | pop().shl8;
         regs.pc = addr + 1;
         regs.pc &= 0xffff;
         cycle += 6;
@@ -506,7 +506,7 @@ class Cpu {
       // RTI
       case 0x40:
         regs.p = pop() | Flags.R;
-        final addr = pop() | (pop() << 8);
+        final addr = pop() | pop().shl8;
         regs.pc = addr;
         cycle += 6;
         _assertIrq = false;
@@ -724,8 +724,8 @@ class Cpu {
         {
           int addr = address(op, st: true);
           int value = read(addr);
-          regs.p = (regs.p & ~Flags.C) | (value >> 7);
-          value = (value << 1) & 0xFF;
+          regs.p = (regs.p & ~Flags.C) | value.shr7;
+          value = value.shl1 & 0xFF;
           write(addr, value);
           regs.a = (regs.a | value) & 0xFF;
           flagsNZ(regs.a);
@@ -744,8 +744,8 @@ class Cpu {
         {
           int addr = address(op, st: true);
           int value = read(addr);
-          int flagC = value >> 7;
-          value = ((value << 1) & 0xFF) | carry();
+          int flagC = value.shr7;
+          value = (value.shl1 & 0xFF) | carry();
           write(addr, value);
           regs.p = (regs.p & ~Flags.C) | flagC;
           regs.a = (regs.a & value) & 0xFF;
@@ -766,7 +766,7 @@ class Cpu {
           int addr = address(op, st: true);
           int value = read(addr);
           regs.p = (regs.p & ~Flags.C) | (value & 1);
-          value = value >> 1;
+          value = value.shr1;
           write(addr, value);
           regs.a = (regs.a ^ value) & 0xFF;
           flagsNZ(regs.a);
@@ -786,7 +786,7 @@ class Cpu {
           int addr = address(op, st: true);
           int value = read(addr);
           int flagC = value & 1;
-          value = (value >> 1) | (carry() << 7);
+          value = value.shr1 | carry().shl7;
           write(addr, value);
           regs.p = (regs.p & ~Flags.C) | flagC;
           int acm = regs.a + value + carry();
@@ -814,7 +814,7 @@ class Cpu {
           int value = readAddressing(op);
           regs.a = (regs.a & value) & 0xFF;
           regs.p = (regs.p & ~Flags.C) | (regs.a & 1);
-          regs.a = (regs.a >> 1) & 0xFF;
+          regs.a = regs.a.shr1 & 0xFF;
           flagsNZ(regs.a);
           cycle += 2;
         }
@@ -824,7 +824,7 @@ class Cpu {
       case 0x6B:
         {
           int value = readAddressing(op);
-          regs.a = ((regs.a & value) >> 1) | (carry() << 7);
+          regs.a = (regs.a & value).shr1 | carry().shl7;
           int flagC = regs.a.bit6 ? Flags.C : 0;
           int flagV = regs.a.bit6 ^ regs.a.bit5 ? Flags.V : 0;
           regs.p = (regs.p & ~(Flags.V | Flags.C)) | flagC | flagV;
@@ -891,13 +891,13 @@ class Cpu {
 
   void interrupt({bool brk = false, bool nmi = false}) {
     final pushAddr = brk ? regs.pc + 1 : regs.pc;
-    push(pushAddr >> 8);
+    push(pushAddr.shr8);
     push(pushAddr & 0xff);
     push(regs.p);
     regs.p = (regs.p & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
 
     final addr = nmi ? 0xfffa : 0xfffe;
-    regs.pc = read(addr) | (read(addr + 1) << 8);
+    regs.pc = read(addr) | read(addr + 1).shl8;
   }
 
   void reset() {
@@ -911,7 +911,7 @@ class Cpu {
     regs.p = 0x00 | Flags.B | Flags.R;
 
     const addr = 0xfffc;
-    regs.pc = read(addr) | (read(addr + 1) << 8);
+    regs.pc = read(addr) | read(addr + 1).shl8;
   }
 
   void push(int val) {
@@ -945,7 +945,7 @@ class Cpu {
 
   void flagsV(int a, int b, int acm, {bool sub = false}) {
     flags(acm, sub: sub);
-    final overflow = (((a ^ acm) & ((sub ? ~b : b) ^ acm)) & 0x80) >> 1;
+    final overflow = (((a ^ acm) & ((sub ? ~b : b) ^ acm)) & 0x80).shr1;
     regs.p = (regs.p & ~Flags.V) | overflow;
   }
 
@@ -1015,11 +1015,11 @@ class Cpu {
 
   int absolute() {
     cycle += 2;
-    return (pc() | (pc() << 8));
+    return (pc() | pc().shl8);
   }
 
   int absoluteXY(int offset, {bool st = false}) {
-    final base = (pc() | (pc() << 8));
+    final base = (pc() | pc().shl8);
     if (st || (base & 0xff00 != (base + offset) & 0xff00)) {
       cycle += 3;
     } else {
@@ -1031,12 +1031,12 @@ class Cpu {
   int indirectX() {
     cycle += 4;
     final addr = (pc() + regs.x) & 0xff;
-    return read(addr) | (read((addr + 1) & 0xff) << 8);
+    return read(addr) | (read((addr + 1) & 0xff).shl8);
   }
 
   int indirectY({bool st = false}) {
     final addr = pc();
-    final base = (read(addr) | (read((addr + 1) & 0xff) << 8));
+    final base = (read(addr) | (read((addr + 1) & 0xff).shl8));
     if (st || (base & 0xff00 != (base + regs.y) & 0xff00)) {
       cycle += 4;
     } else {

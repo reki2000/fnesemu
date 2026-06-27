@@ -92,7 +92,7 @@ class MapperVrc4 extends Mapper {
       case 0xc000:
       case 0xd000:
       case 0xe000:
-        final bank = (((addr >> 12) - 0x0b) << 1);
+        final bank = (addr.shr12 - 0x0b).shl1;
         switch (reg) {
           case 0:
             return _setChrLow(bank, data);
@@ -122,7 +122,7 @@ class MapperVrc4 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
+    final bank = addr.shr13 & 0x03;
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
@@ -136,7 +136,7 @@ class MapperVrc4 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr >> 10; // 1 1100 0000 0000
+    final bank = addr.shr10; // 1 1100 0000 0000
     final offset = addr & 0x03ff;
 
     return chrRoms[_chrBank[bank]][offset];
@@ -170,7 +170,7 @@ class MapperVrc4 extends Mapper {
   }
 
   void _setChrHigh(int bank, int data) {
-    _chrBank[bank] = (_chrBank[bank] & 0x0f) | ((data & 0x1f) << 4);
+    _chrBank[bank] = (_chrBank[bank] & 0x0f) | (data & 0x1f).shl4;
   }
 
   void _setIrqLatchLow(data) {
@@ -226,7 +226,7 @@ class MapperVrc4 extends Mapper {
     final chrBanks =
         range(0, 8).map((i) => _chrBank[i].x2).toList().join(" ");
     final prgBanks =
-        range(0, 4).map((i) => _prgBank[i][0]).x2.toList().join(" ");
+        range(0, 4).map((i) => _prgBank[i][0].x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'}${_irqModeCycle ? 'c' : 's'} "
         "@${_irqCounter.d3z}"
