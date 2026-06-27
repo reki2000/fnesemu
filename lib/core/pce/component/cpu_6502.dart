@@ -1,6 +1,8 @@
 // Dart imports:
 import 'dart:core';
 
+import 'package:fnesemu/util/int.dart';
+
 import 'cpu.dart';
 
 extension Cpu6502 on Cpu {
@@ -143,7 +145,7 @@ extension Cpu6502 on Cpu {
         if (isDecimal()) {
           final carry = (c >= 100) ? Flags.C : 0;
           c %= 100;
-          c = (c % 10) | ((c ~/ 10) << 4);
+          c = (c % 10) | (c ~/ 10).shl4;
           flagsNZ(c);
           regs.p = (regs.p & ~Flags.C) | carry;
         } else {
@@ -178,7 +180,7 @@ extension Cpu6502 on Cpu {
         if (isDecimal()) {
           final carry = (0 <= c && c < 100) ? Flags.C : 0;
           c %= 100;
-          c = (c % 10) | ((c ~/ 10) << 4);
+          c = (c % 10) | (c ~/ 10).shl4;
           flagsNZ(c);
           regs.p = (regs.p & ~Flags.C) | carry;
         } else {
@@ -275,7 +277,7 @@ extension Cpu6502 on Cpu {
       case 0x0e:
       case 0x1e:
         final addr = address(op, st: true);
-        int acm = read(addr) << 1;
+        int acm = read(addr).shl1;
         flags(acm);
         acm &= 0xff;
         write(addr, acm);
@@ -309,7 +311,7 @@ extension Cpu6502 on Cpu {
       case 0x2a:
         regs.a <<= 1;
         regs.a |= carry();
-        final msb = (regs.a >> 8) & 0x01;
+        final msb = regs.a.shr8 & 0x01;
         cycle += 2;
         flags(regs.a);
         regs.p |= msb;
@@ -320,9 +322,9 @@ extension Cpu6502 on Cpu {
       case 0x2e:
       case 0x3e:
         final addr = address(op, st: true);
-        var acm = read(addr) << 1;
+        var acm = read(addr).shl1;
         acm |= carry();
-        final msb = (acm >> 8) & 0x01;
+        final msb = acm.shr8 & 0x01;
         flags(acm);
         acm &= 0xff;
         regs.p |= msb;
@@ -333,7 +335,7 @@ extension Cpu6502 on Cpu {
       // ROR
       case 0x6a:
         final bit0 = regs.a & 0x01;
-        regs.a = (regs.a >> 1) | (carry() << 7);
+        regs.a = regs.a.shr1 | carry().shl7;
         flags(regs.a);
         regs.a &= 0xff;
         regs.p = (regs.p & ~Flags.C) | bit0;
@@ -346,7 +348,7 @@ extension Cpu6502 on Cpu {
         final addr = address(op, st: true);
         var acm = read(addr);
         final bit0 = acm & 0x01;
-        acm = (acm >> 1) | (carry() << 7);
+        acm = acm.shr1 | carry().shl7;
         flags(acm);
         acm &= 0xff;
         regs.p = (regs.p & ~Flags.C) | bit0;
@@ -494,7 +496,7 @@ extension Cpu6502 on Cpu {
       case 0x6c:
       case 0x7c:
         final addr = absolute() + (op == 0x7c ? regs.x : 0);
-        regs.pc = read(addr) | (read((addr + 1) & 0xffff) << 8);
+        regs.pc = read(addr) | (read((addr + 1) & 0xffff).shl8);
         cycle += 3;
         break;
 
@@ -503,7 +505,7 @@ extension Cpu6502 on Cpu {
         final addr = absolute();
         regs.pc--;
         regs.pc &= 0xffff;
-        push(regs.pc >> 8);
+        push(regs.pc.shr8);
         push(regs.pc & 0xff);
         regs.pc = addr;
         cycle += 4;
@@ -511,7 +513,7 @@ extension Cpu6502 on Cpu {
 
       // RTS
       case 0x60:
-        final addr = pop() | (pop() << 8);
+        final addr = pop() | pop().shl8;
         regs.pc = addr + 1;
         regs.pc &= 0xffff;
         cycle += 6;
@@ -520,7 +522,7 @@ extension Cpu6502 on Cpu {
       // RTI
       case 0x40:
         regs.p = pop();
-        final addr = pop() | (pop() << 8);
+        final addr = pop() | pop().shl8;
         regs.pc = addr;
         cycle += 6;
         break;

@@ -3,14 +3,14 @@ part of 'm68.dart';
 extension OpE on M68 {
   bool execE(int op) {
     final ry = op & 0x07;
-    final rx = op >> 9 & 0x07;
+    final rx = op.shr9 & 0x07;
 
     if (op & 0xc0 == 0xc0) {
       // 1 bit shift ops on the effective address, size = WORD
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final aa = readAddr(2, mode, ry);
 
-      switch (op >> 8 & 0x07) {
+      switch (op.shr8 & 0x07) {
         case 0:
           // asr
           final r = asr(aa, 2, 1);
@@ -63,7 +63,7 @@ extension OpE on M68 {
       return false;
     } else {
       //
-      final size = size0[op >> 6 & 0x03];
+      final size = size0[op.shr6 & 0x03];
 
       int rot = 0;
       if (op.bit5) {
@@ -74,7 +74,7 @@ extension OpE on M68 {
         rot = rx == 0 ? 8 : rx;
       }
 
-      switch ((op >> 2 & 0x06) | (op >> 8 & 0x01)) {
+      switch ((op.shr2 & 0x06) | (op.shr8 & 0x01)) {
         case 0:
           // asr
           d[ry] = d[ry].setL(asr(d[ry], size, rot), size);

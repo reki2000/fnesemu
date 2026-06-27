@@ -1,9 +1,9 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import '../nes.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
@@ -63,23 +63,23 @@ class Ppu {
   }
 
   // ppu control 1
-  bool nmiOnVBlank() => bit7(ctl1);
-  bool ppuMasterSlave() => bit6(ctl1);
-  bool objSize16() => bit5(ctl1);
-  bool bgTable() => bit4(ctl1);
-  bool objTable() => bit3(ctl1);
-  bool vramIncrement() => bit2(ctl1);
+  bool nmiOnVBlank() => ctl1.bit7;
+  bool ppuMasterSlave() => ctl1.bit6;
+  bool objSize16() => ctl1.bit5;
+  bool bgTable() => ctl1.bit4;
+  bool objTable() => ctl1.bit3;
+  bool vramIncrement() => ctl1.bit2;
   int baseNameAddr() => ctl1 & 0x03;
 
   // ppu control 2
-  bool strongRed() => bit7(ctl2);
-  bool strongGreen() => bit6(ctl2);
-  bool strongBlue() => bit5(ctl2);
-  bool showSprite() => bit4(ctl2);
-  bool showBg() => bit3(ctl2);
-  bool clipLeftEdgeSprite() => !bit2(ctl2);
-  bool clipLeftEdgeBg() => !bit1(ctl2);
-  bool colorMode() => bit0(ctl2);
+  bool strongRed() => ctl2.bit7;
+  bool strongGreen() => ctl2.bit6;
+  bool strongBlue() => ctl2.bit5;
+  bool showSprite() => ctl2.bit4;
+  bool showBg() => ctl2.bit3;
+  bool clipLeftEdgeSprite() => !ctl2.bit2;
+  bool clipLeftEdgeBg() => !ctl2.bit1;
+  bool colorMode() => ctl2.bit0;
 
   // status register
   set isVBlank(bool on) {
@@ -90,7 +90,7 @@ class Ppu {
     }
   }
 
-  bool get isVBlank => bit7(status);
+  bool get isVBlank => status.bit7;
 
   set detectObj0(bool on) {
     if (on) {
@@ -110,7 +110,7 @@ class Ppu {
         }
         // t: ...GH.. ........ <- d: ......GH
         //    <used elsewhere> <- d: ABCDEF..
-        tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03) << 10;
+        tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03).shl10;
         break;
 
       case 0x2001: // ppu control 2
@@ -135,15 +135,15 @@ class Ppu {
           scrollX = val;
           // t: ....... ...ABCDE <- d: ABCDE...
           // x:              FGH <- d: .....FGH
-          tmpVramAddr = (tmpVramAddr & ~0x1f) | (val >> 3);
+          tmpVramAddr = (tmpVramAddr & ~0x1f) | val.shr3;
           fineX = val & 0x07;
           first = false;
         } else {
           scrollY = val;
           // t: FGH..AB CDE..... <- d: ABCDEFGH
           tmpVramAddr = (tmpVramAddr & ~0x73e0) |
-              ((val >> 3) << 5) |
-              ((val & 0x07) << 12);
+              val.shr3.shl5 |
+              (val & 0x07).shl12;
           first = true;
         }
         break;
@@ -153,7 +153,7 @@ class Ppu {
           // t: .CDEFGH ........ <- d: ..CDEFGH
           //        <unused>     <- d: AB......
           // t: Z...... ........ <- 0 (bit Z is cleared)
-          tmpVramAddr = (val & 0x3f) << 8 | tmpVramAddr & 0xff;
+          tmpVramAddr = (val & 0x3f).shl8 | tmpVramAddr & 0xff;
           first = false;
         } else {
           // t: ....... ABCDEFGH <- d: ABCDEFGH
@@ -170,7 +170,7 @@ class Ppu {
         break;
 
       default:
-        log("Unsupported ppu write at 0x${reg.toRadixString(16).padLeft(4, '0')}");
+        log("Unsupported ppu write at 0x${reg.x4}");
         return;
     }
   }
@@ -194,7 +194,7 @@ class Ppu {
         return data;
 
       default:
-        log("Unsupported ppu read at 0x${reg.toRadixString(16).padLeft(4, '0')}");
+        log("Unsupported ppu read at 0x${reg.x4}");
         return 0;
     }
   }

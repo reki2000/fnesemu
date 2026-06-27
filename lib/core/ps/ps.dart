@@ -6,9 +6,8 @@ import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/core/ps/timer.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
-import 'package:fnesemu/util/util.dart' show range;
 
-import '../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
@@ -268,7 +267,7 @@ class Ps extends Core {
     addr = addr.mask32 & ~0x03;
     final inst32 = bus.read32(addr);
     return (
-      "${addr.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32, pc: addr, regs: cpu.r)}",
+      "${addr.x8}: ${inst32.x8} ${DisasmR3000.disasm(inst32, pc: addr, regs: cpu.r)}",
       4
     );
   }
@@ -301,7 +300,7 @@ class Ps extends Core {
       scanline: gpu.scanline);
 
   @override
-  int read(int _, int addr) => (addr >> 28 == 0x07)
+  int read(int _, int addr) => (addr.shr28 == 0x07)
       ? bus.spu.ram[addr & 0x7ffff]
       : bus.read32(addr & 0x1fffff);
 

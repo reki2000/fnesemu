@@ -3,11 +3,11 @@ part of 'm68.dart';
 extension Op8 on M68 {
   bool exec8(int op) {
     final ry = op & 0x07;
-    final rx = op >> 9 & 0x07;
+    final rx = op.shr9 & 0x07;
 
     if (op & 0x01c0 == 0x01c0) {
       // divs
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final src = readAddr(2, mode, ry).rel16;
       final dst = d[rx].rel32;
 
@@ -22,7 +22,7 @@ extension Op8 on M68 {
       final r = dst - src * q;
 
       // debug(
-      //     "divs src:${src.hex32} $src dst:${dst.hex32} $dst q:${q.hex32} $q r:${r.hex32} $r ${q * src + r}");
+      //     "divs src:${src.x8} $src dst:${dst.x8} $dst q:${q.x8} $q r:${r.x8} $r ${q * src + r}");
 
       cf = false;
       vf = (q < -0x8000 || 0x8000 <= q);
@@ -30,7 +30,7 @@ extension Op8 on M68 {
       if (!vf) {
         zf = q == 0;
         nf = q.bit15;
-        d[rx] = r.mask16 << 16 | q.mask16;
+        d[rx] = r.mask16.shl16 | q.mask16;
       }
 
       return true;
@@ -38,7 +38,7 @@ extension Op8 on M68 {
 
     if (op & 0x01c0 == 0x00c0) {
       // divu
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final src = readAddr(2, mode, ry);
       final dst = d[rx];
 
@@ -53,7 +53,7 @@ extension Op8 on M68 {
       final r = dst - src * q;
 
       // debug(
-      //     "divu src:${src.hex32} $src dst:${dst.hex32} $dst q:${q.hex32} $q r:${r.hex32} $r ${q * src + r}");
+      //     "divu src:${src.x8} $src dst:${dst.x8} $dst q:${q.x8} $q r:${r.x8} $r ${q * src + r}");
 
       cf = false;
       vf = q >= 0x10000;
@@ -61,7 +61,7 @@ extension Op8 on M68 {
       if (!vf) {
         zf = q == 0;
         nf = q.bit15;
-        d[rx] = r.mask16 << 16 | q.mask16;
+        d[rx] = r.mask16.shl16 | q.mask16;
       }
 
       return true;
@@ -75,9 +75,9 @@ extension Op8 on M68 {
       final dst = mode ? read8(preDec(rx, 1)) : d[rx].mask8;
 
       final diff = dst - src - (xf ? 1 : 0);
-      final high = (dst & 0xf0) - (src & 0xf0) - (0x60 & (diff >> 4));
+      final high = (dst & 0xf0) - (src & 0xf0) - (0x60 & diff.shr4);
       final low = (dst & 0x0f) - (src & 0x0f) - (xf ? 1 : 0);
-      final lowBorrow = 0x06 & (low >> 4); // 0x06 if low < 0x0a else 0x00
+      final lowBorrow = 0x06 & low.shr4; // 0x06 if low < 0x0a else 0x00
       final r = low + high - lowBorrow;
 
       xf = cf = (diff - lowBorrow) & 0x300 != 0;
@@ -85,7 +85,7 @@ extension Op8 on M68 {
       nf = r.bit7;
       vf = diff & ~r & 0x80 != 0;
       // debug(
-      //     "sbcd r:${r.mask16.hex16} r1:${high.mask16..hex16} rx:$rx ry:$ry src:${src.hex8} dst:${dst.hex8} xf:$xf");
+      //     "sbcd r:${r.mask16.x4} r1:${high.mask16..x4} rx:$rx ry:$ry src:${src.x2} dst:${dst.x2} xf:$xf");
 
       if (mode) {
         write8(a[rx], r);
@@ -99,8 +99,8 @@ extension Op8 on M68 {
     }
 
     // or
-    final size = size0[op >> 6 & 0x03];
-    final mode = op >> 3 & 0x07;
+    final size = size0[op.shr6 & 0x03];
+    final mode = op.shr3 & 0x07;
     final directionEa = op.bit8;
 
     int aa = d[rx].mask(size);

@@ -18,22 +18,22 @@ class Z80Disasm {
 
     String rel8() {
       final d = fetch();
-      return "${(d - (d >= 128 ? 256 : 0) + pc + addr).hex16}h";
+      return "${(d - (d >= 128 ? 256 : 0) + pc + addr).x4}h";
     }
 
-    String im8() => "${fetch().hex8}h";
-    String im16() => "${(fetch() | fetch() << 8).hex16}h";
+    String im8() => "${fetch().x2}h";
+    String im16() => "${(fetch() | fetch().shl8).x4}h";
 
-    final regLd8 = regs8[op >> 3 & 7];
-    final regLd16 = regs16[op >> 4 & 3];
+    final regLd8 = regs8[op.shr3 & 7];
+    final regLd16 = regs16[op.shr4 & 3];
     final reg8 = regs8[op & 7];
 
     String opCb() {
       final op = fetch();
       final r8 = regs8[op & 7];
-      final bit = op >> 3 & 7;
+      final bit = op.shr3 & 7;
       return switch (op & 0xc0) {
-        0x00 => "${rot[op >> 3 & 7]} $r8",
+        0x00 => "${rot[op.shr3 & 7]} $r8",
         0x40 => "bit $bit, $r8",
         0x80 => "res $bit, $r8",
         0xc0 => "set $bit, $r8",
@@ -43,14 +43,14 @@ class Z80Disasm {
 
     String opEd() {
       final op = fetch();
-      final r8 = regs8[op >> 4 & 7];
-      final r16 = regs16[op >> 4 & 3];
+      final r8 = regs8[op.shr4 & 7];
+      final r16 = regs16[op.shr4 & 3];
       return switch (op & 0xc0) {
         0x00 => switch (op & 0x0f) {
             0x00 || 0x08 => "in0 $r8, (c)",
             0x01 || 0x09 => "out0 (c), $r8",
             0x04 || 0x0c => "tst $r8",
-            _ => throw "unknown op: ${op.hex8}",
+            _ => throw "unknown op: ${op.x2}",
           },
         0x40 => switch (op & 0x0f) {
             0x00 || 0x08 => "in $r8, (c)",
@@ -74,7 +74,7 @@ class Z80Disasm {
                 0x6f => "rld",
                 0x74 => "tstio ${im8()}",
                 0x76 => "slp",
-                _ => throw "unknown op: ed ${op.hex8}",
+                _ => throw "unknown op: ed ${op.x2}",
               }
           },
         _ => switch (op) {
@@ -98,27 +98,27 @@ class Z80Disasm {
             0xb9 => "cpdr",
             0xba => "indr",
             0xbb => "otdr",
-            _ => throw "unknown op: ${op.hex8}",
+            _ => throw "unknown op: ${op.x2}",
           },
       };
     }
 
     String opDdFdCb(int op, String disp) {
-      final bit = op >> 3 & 7;
+      final bit = op.shr3 & 7;
       final r8 = regs8[op & 7];
 
       return switch (op & 0xc0) {
         0x40 => "bit $bit, $disp",
         0x80 => "res $bit, $disp",
         0xc0 => "set $bit, $disp",
-        _ => "${rot[op >> 3 & 7]} $disp, $r8",
+        _ => "${rot[op.shr3 & 7]} $disp, $r8",
       };
     }
 
     String opDdFd(String xy) {
       String disp() {
         final d = fetch();
-        final disp = "($xy${d > 128 ? "-${(256 - d).hex8}h" : "+${d.hex8}h"})";
+        final disp = "($xy${d > 128 ? "-${(256 - d).x2}h" : "+${d.x2}h"})";
         return disp;
       }
 
@@ -165,13 +165,13 @@ class Z80Disasm {
         0xae ||
         0xb6 ||
         0xbe =>
-          "${ari[op >> 3 & 7]} ${disp()}",
+          "${ari[op.shr3 & 7]} ${disp()}",
         0xe1 => "pop $xy",
         0xe3 => "ex (sp), $xy",
         0xe5 => "push $xy",
         0xe9 => "jp ($xy)",
         0xf9 => "ld sp, $xy",
-        _ => throw "unknown op: ${xy == "ix" ? "dd" : "fd"} ${op.hex8}",
+        _ => throw "unknown op: ${xy == "ix" ? "dd" : "fd"} ${op.x2}",
       };
     }
 
@@ -186,7 +186,7 @@ class Z80Disasm {
               0x30 ||
               0x28 ||
               0x38 =>
-                "jr ${["nz", "z", "nc", "c"][op >> 3 & 3]}, ${rel8()}",
+                "jr ${["nz", "z", "nc", "c"][op.shr3 & 3]}, ${rel8()}",
               _ => throw "never reach",
             },
           0x01 => "ld $regLd16, ${im16()}",
@@ -208,16 +208,16 @@ class Z80Disasm {
           0x04 || 0x0c => "inc $regLd8",
           0x05 || 0x0d => "dec $regLd8",
           0x06 || 0x0e => "ld $regLd8, ${im8()}",
-          0x07 || 0x0f => op07[op >> 3 & 7],
+          0x07 || 0x0f => op07[op.shr3 & 7],
           _ => throw "never reach",
         },
-      0x40 => "ld ${regs8[op >> 3 & 7]}, $reg8",
-      0x80 => "${ari[op >> 3 & 7]} $reg8",
+      0x40 => "ld ${regs8[op.shr3 & 7]}, $reg8",
+      0x80 => "${ari[op.shr3 & 7]} $reg8",
       0xc0 => switch (op & 0x0f) {
-          0x00 || 0x08 => "ret ${cond[op >> 3 & 7]}",
-          0x01 => "pop ${regs16[op >> 4 & 3]}",
-          0x09 => ["ret", "exx", "jp (hl)", "ld sp, hl"][op >> 4 & 3],
-          0x02 || 0x0a => "jp ${cond[op >> 3 & 7]}, ${im16()}",
+          0x00 || 0x08 => "ret ${cond[op.shr3 & 7]}",
+          0x01 => "pop ${regs16[op.shr4 & 3]}",
+          0x09 => ["ret", "exx", "jp (hl)", "ld sp, hl"][op.shr4 & 3],
+          0x02 || 0x0a => "jp ${cond[op.shr3 & 7]}, ${im16()}",
           0x03 || 0x0b => switch (op) {
               0xc3 => "jp ${im16()}",
               0xcb => opCb(),
@@ -228,10 +228,10 @@ class Z80Disasm {
                   "ex de, hl",
                   "di",
                   "ei"
-                ][(op >> 3 & 7) - 2],
+                ][(op.shr3 & 7) - 2],
             },
-          0x04 || 0x0c => "call ${cond[op >> 3 & 7]}, ${im16()}",
-          0x05 => "push ${regs16[op >> 4 & 3]}",
+          0x04 || 0x0c => "call ${cond[op.shr3 & 7]}, ${im16()}",
+          0x05 => "push ${regs16[op.shr4 & 3]}",
           0x0d => switch (op) {
               0xcd => "call ${im16()}",
               0xdd => opDdFd("ix"),
@@ -239,8 +239,8 @@ class Z80Disasm {
               0xfd => opDdFd("iy"),
               _ => throw "never reach",
             },
-          0x06 || 0x0e => "${ari[op >> 3 & 7]} ${im8()}",
-          0x07 || 0x0f => "rst ${(op & 0x38).hex8}h",
+          0x06 || 0x0e => "${ari[op.shr3 & 7]} ${im8()}",
+          0x07 || 0x0f => "rst ${(op & 0x38).x2}h",
           _ => throw "never reach",
         },
       _ => throw "never reach",

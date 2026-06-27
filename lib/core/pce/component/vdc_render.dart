@@ -1,7 +1,7 @@
+import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/cpu.dart';
-import 'package:fnesemu/util/util.dart';
 
 import 'vdc.dart';
 
@@ -24,7 +24,7 @@ class Sprite {
   int fetchedX2 = -1;
 
   Sprite.of(List<int> sat, int i) {
-    no = i >> 2;
+    no = i.shr2;
     y = sat[i] & 0x3ff;
     x = sat[i + 1] & 0x3ff;
 
@@ -32,10 +32,10 @@ class Sprite {
     vFlip = (sat[i + 3] & 0x8000) != 0;
     hFlip = (sat[i + 3] & 0x0800) != 0;
     priority = (sat[i + 3] & 0x80) != 0;
-    paletteNo = ((sat[i + 3] & 0x0f) << 4) | 0x100;
+    paletteNo = (sat[i + 3] & 0x0f).shl4 | 0x100;
 
-    height = switch ((sat[i + 3] >> 12) & 0x03) { 0 => 16, 1 => 32, _ => 64 };
-    width = switch ((sat[i + 3] >> 8) & 0x01) { 0 => 16, _ => 32 };
+    height = switch (sat[i + 3].shr12 & 0x03) { 0 => 16, 1 => 32, _ => 64 };
+    width = switch (sat[i + 3].shr8 & 0x01) { 0 => 16, _ => 32 };
 
     int patternMask = 0;
     if (height == 64) {
@@ -46,7 +46,7 @@ class Sprite {
     if (width == 32) {
       patternMask |= 0x01;
     }
-    patternNo = (sat[i + 2] >> 1) & 0x3ff & ~patternMask;
+    patternNo = sat[i + 2].shr1 & 0x3ff & ~patternMask;
   }
 }
 
@@ -65,9 +65,9 @@ const _map3to8 = [
 final Uint32List rgba = Uint32List.fromList(
   List.generate(512, (i) {
     final b = _map3to8[i & 0x07];
-    final r = _map3to8[(i >> 3) & 0x07];
-    final g = _map3to8[(i >> 6) & 0x07];
-    return 0xff000000 | (b << 16) | (g << 8) | r;
+    final r = _map3to8[i.shr3 & 0x07];
+    final g = _map3to8[i.shr6 & 0x07];
+    return 0xff000000 | b.shl16 | g.shl8 | r;
   }, growable: false),
 );
 
@@ -178,15 +178,15 @@ extension VdcRenderer on Vdc {
 
     if (scanX == 0 || (x & 0x07) == 0) {
       final nameTableAddress =
-          (((bgRenderLine >> 3) & bgHeightMask) << bgWidthBits) |
-              ((x >> 3) & bgWidthMask);
+          ((bgRenderLine.shr3 & bgHeightMask) << bgWidthBits) |
+              (x.shr3 & bgWidthMask);
       // print(
-      //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${hex16(addr)}");
+      //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${addr.x4}");
       final tile = vram[nameTableAddress];
-      paletteNo = tile >> 12 << 4;
+      paletteNo = tile.shr12.shl4;
 
       if (vramDotWidth == 3) {
-        final addr = ((tile & 0xfff) << 4) | bgRenderLine & 0x07;
+        final addr = (tile & 0xfff).shl4 | bgRenderLine & 0x07;
         if (bgTreatPlane23Zero) {
           pattern01 = (vram[addr]);
           pattern23 = 0;
@@ -195,7 +195,7 @@ extension VdcRenderer on Vdc {
           pattern23 = (vram[addr]);
         }
       } else {
-        final addr = ((tile & 0xfff) << 4) | bgRenderLine & 0x07;
+        final addr = (tile & 0xfff).shl4 | bgRenderLine & 0x07;
         pattern01 = vram[addr];
         pattern23 = vram[addr + 8];
       }
@@ -206,9 +206,9 @@ extension VdcRenderer on Vdc {
     final p23 = pattern23 >> shiftBits;
 
     final colorNo = (p01 & 0x01) |
-        (p01 >> 7) & 0x02 |
-        (p23 << 2) & 0x04 |
-        (p23 >> 5) & 0x08;
+        p01.shr7 & 0x02 |
+        p23.shl2 & 0x04 |
+        p23.shr5 & 0x08;
 
     return paletteNo | colorNo;
   }
@@ -263,12 +263,12 @@ extension VdcRenderer on Vdc {
       if (0 <= hh && hh < sp.width) {
         final flippedX = sp.hFlip ? sp.width - hh - 1 : hh;
         final x = flippedX & 0x0f;
-        final x2 = flippedX >> 4;
+        final x2 = flippedX.shr4;
 
         final vv = displayLine + 64 - sp.y;
         final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
         final y = flippedY & 0x0f;
-        final y2 = flippedY >> 4;
+        final y2 = flippedY.shr4;
 
         if (debug) {
           // if (0 == hh && 0 == vv && sp.no == 0) {
@@ -290,7 +290,7 @@ extension VdcRenderer on Vdc {
           sp.fetchedX2 = x2;
 
           if (vramDotWidth == 3) {
-            final addr = ((sp.patternNo + x2 + y2 * (sp.width >> 4)) << 5) + y;
+            final addr = (sp.patternNo + x2 + y2 * sp.width.shr4).shl5 + y;
 
             if (sp.cgModeTreal01Zero) {
               sp.p0 = sp.p1 = 0;
@@ -302,7 +302,7 @@ extension VdcRenderer on Vdc {
               sp.p2 = sp.p3 = 0;
             }
           } else {
-            final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
+            final addr = (sp.patternNo + x2 + y2.shl1).shl6 + y;
             sp.p0 = vram[addr + 00];
             sp.p1 = vram[addr + 16];
             sp.p2 = vram[addr + 32];
@@ -312,9 +312,9 @@ extension VdcRenderer on Vdc {
 
         final shiftBits = 15 - x;
         final colorNo = ((sp.p0 >> shiftBits) & 0x01) |
-            (((sp.p1 >> shiftBits) << 1) & 0x02) |
-            (((sp.p2 >> shiftBits) << 2) & 0x04) |
-            (((sp.p3 >> shiftBits) << 3) & 0x08);
+            ((sp.p1 >> shiftBits).shl1 & 0x02) |
+            ((sp.p2 >> shiftBits).shl2 & 0x04) |
+            ((sp.p3 >> shiftBits).shl3 & 0x08);
 
         if (enalbeSpriteCollision) {
           if (sp.no == 0) {

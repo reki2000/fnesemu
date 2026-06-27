@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -92,7 +92,7 @@ class MapperVrc4 extends Mapper {
       case 0xc000:
       case 0xd000:
       case 0xe000:
-        final bank = (((addr >> 12) - 0x0b) << 1);
+        final bank = (addr.shr12 - 0x0b).shl1;
         switch (reg) {
           case 0:
             return _setChrLow(bank, data);
@@ -122,7 +122,7 @@ class MapperVrc4 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
+    final bank = addr.shr13 & 0x03;
     final offset = addr & 0x1fff;
 
     if ((addr & 0xe000) == 0x6000) {
@@ -136,7 +136,7 @@ class MapperVrc4 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr >> 10; // 1 1100 0000 0000
+    final bank = addr.shr10; // 1 1100 0000 0000
     final offset = addr & 0x03ff;
 
     return chrRoms[_chrBank[bank]][offset];
@@ -154,9 +154,9 @@ class MapperVrc4 extends Mapper {
   }
 
   void _setControl(int data) {
-    _ramEnabled = bit0(data);
+    _ramEnabled = data.bit0;
 
-    if (bit1(data)) {
+    if (data.bit1) {
       _prgBank[0] = _prgBank2ndLast;
       _prgBank[2] = _prgBank0;
     } else {
@@ -170,27 +170,27 @@ class MapperVrc4 extends Mapper {
   }
 
   void _setChrHigh(int bank, int data) {
-    _chrBank[bank] = (_chrBank[bank] & 0x0f) | ((data & 0x1f) << 4);
+    _chrBank[bank] = (_chrBank[bank] & 0x0f) | (data & 0x1f).shl4;
   }
 
   void _setIrqLatchLow(data) {
-    _irqLatch = _irqLatch.with4Bit(data);
+    _irqLatch = _irqLatch.set4Bit(data);
     holdIrq(false);
   }
 
   void _setIrqLatchHigh(data) {
-    _irqLatch = _irqLatch.with4Bit(data, lsbPosition: 4);
+    _irqLatch = _irqLatch.set4Bit(data, lsbPosition: 4);
     holdIrq(false);
   }
 
   void _setIrqControl(data) {
-    _irqEnabledAfterAcknoledge = bit0(data);
-    _irqEnabled = bit1(data);
+    _irqEnabledAfterAcknoledge = data.bit0;
+    _irqEnabled = data.bit1;
     if (_irqEnabled) {
       _irqCounter = _irqLatch;
     }
     _prescaledClock = 0;
-    _irqModeCycle = bit2(data);
+    _irqModeCycle = data.bit2;
     holdIrq(false);
   }
 
@@ -224,13 +224,13 @@ class MapperVrc4 extends Mapper {
   @override
   String dump() {
     final chrBanks =
-        range(0, 8).map((i) => hex8(_chrBank[i])).toList().join(" ");
+        range(0, 8).map((i) => _chrBank[i].x2).toList().join(" ");
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBank[i][0])).toList().join(" ");
+        range(0, 4).map((i) => _prgBank[i][0].x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'}${_irqModeCycle ? 'c' : 's'} "
-        "@${_irqCounter.toRadixString(10).padLeft(3, "0")}"
-        "/${_irqLatch.toRadixString(10).padLeft(3, "0")} "
+        "@${_irqCounter.d3z}"
+        "/${_irqLatch.d3z} "
         "chr: $chrBanks prg: $prgBanks "
         "ram:${_ramEnabled ? '*' : ' '}"
         "\n";

@@ -1,6 +1,6 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 
-import '../../../util/util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_206
@@ -31,7 +31,7 @@ class MapperNamco118 extends Mapper {
   @override
   void write(int addr, int data) {
     final reg = addr & 0xe000;
-    final isOdd = bit0(addr);
+    final isOdd = addr.bit0;
 
     switch (reg) {
       case 0x8000:
@@ -70,7 +70,7 @@ class MapperNamco118 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03; // 0-3
+    final bank = addr.shr13 & 0x03; // 0-3
     final offset = addr & 0x1fff;
 
     return prgRoms[_prgBanks[bank]][offset];
@@ -78,7 +78,7 @@ class MapperNamco118 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = (addr >> 10) & 0x07;
+    final bank = addr.shr10 & 0x07;
     final offset = addr & 0x03ff;
 
     return chrRoms[_chrBanks[bank]][offset];
@@ -86,7 +86,7 @@ class MapperNamco118 extends Mapper {
 
   @override
   void writeVram(int addr, int data) {
-    final bank = (addr >> 10) & 0x07;
+    final bank = addr.shr10 & 0x07;
     final offset = addr & 0x03ff;
 
     chrRoms[_chrBanks[bank]][offset] = data;
@@ -95,10 +95,10 @@ class MapperNamco118 extends Mapper {
   @override
   String dump() {
     final chrBanks =
-        range(0, 8).map((i) => hex8(_chrBanks[i])).toList().join(" ");
+        range(0, 8).map((i) => _chrBanks[i].x2).toList().join(" ");
 
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBanks[i])).toList().join(" ");
+        range(0, 4).map((i) => _prgBanks[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

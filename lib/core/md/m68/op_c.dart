@@ -3,7 +3,7 @@ part of 'm68.dart';
 extension OpC on M68 {
   bool execC(int op) {
     final ry = op & 0x07;
-    final rx = op >> 9 & 0x07;
+    final rx = op.shr9 & 0x07;
 
     if (op & 0x01f0 == 0x0100) {
       // abcd
@@ -34,7 +34,7 @@ extension OpC on M68 {
 
     if (op & 0x01c0 == 0x00c0) {
       // mulu
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final src = readAddr(2, mode, ry);
       final val = d[rx].mask16 * src;
       d[rx] = val.mask32;
@@ -48,7 +48,7 @@ extension OpC on M68 {
 
     if (op & 0x01c0 == 0x01c0) {
       // muls
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final src = readAddr(2, mode, ry).rel16;
       final val = d[rx].mask16.rel16 * src;
       d[rx] = val.mask32;
@@ -61,9 +61,9 @@ extension OpC on M68 {
 
     if (op & 0x0130 == 0x0100) {
       // exg
-      final rx = op >> 9 & 0x07;
+      final rx = op.shr9 & 0x07;
       final ry = op & 0x07;
-      switch (op >> 3 & 0x1f) {
+      switch (op.shr3 & 0x1f) {
         case 0x08: // dx - dx
           final r = d[rx];
           d[rx] = d[ry];
@@ -85,9 +85,9 @@ extension OpC on M68 {
     }
 
     // and
-    final size = size0[op >> 6 & 0x03];
+    final size = size0[op.shr6 & 0x03];
     final directionEa = op.bit8;
-    final mode = op >> 3 & 0x07;
+    final mode = op.shr3 & 0x07;
 
     int aa = d[rx].mask(size);
     int b = readAddr(size, mode, ry);

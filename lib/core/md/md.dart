@@ -90,7 +90,7 @@ class Md implements Core {
 
     while (_clocks >= cpuM68.clocks) {
       if (!cpuM68.exec()) {
-        print("m68000 unimplemented instruction at ${cpuM68.pc.hex24}");
+        print("m68000 unimplemented instruction at ${cpuM68.pc.x6}");
         result.stopped = true;
         break;
       }
@@ -104,7 +104,7 @@ class Md implements Core {
 
     while (_clocks >= m68ClockHz * cpuZ80.clocks / z80ClockHz) {
       if (!cpuZ80.exec()) {
-        print("z80 unimplemented instruction at ${cpuZ80.r.pc.hex16}");
+        print("z80 unimplemented instruction at ${cpuZ80.r.pc.x4}");
         result.stopped = true;
         break;
       }
@@ -155,7 +155,7 @@ class Md implements Core {
 
       // mix resampled psgBuffer + fmBuffer
       for (int i = 0; i < _fmBufferIndex; i += 2) {
-        final psgIndex = (i >> 1) * psg.sampleHz ~/ fm.sampleHz;
+        final psgIndex = i.shr1 * psg.sampleHz ~/ fm.sampleHz;
         final psgVal = _psgBuffer[psgIndex.clip(0, _psgBufferIndex - 1)] / 4;
 
         final mixL = psgVal + _fmBuffer[i + 0] * 2;
@@ -257,13 +257,13 @@ class Md implements Core {
     final regM68 = "${cpuM68.dump()} cl:${cpuM68.clocks.format3}";
     final (asmM68, _) = disasmM68(cpuM68.pc);
     final stackM68 =
-        List.generate(16, (i) => busM68.ram[0xfff0 + i].hex8, growable: false)
+        List.generate(16, (i) => busM68.ram[0xfff0 + i].x2, growable: false)
             .join(" ");
 
     final (asmZ80, _) = disasmZ80(cpuZ80.r.pc);
     final regZ80 = "${cpuZ80.dump()} cl:${cpuZ80.cycles.format3}";
     final bus =
-        "bus: region:${busM68.region.hex8} z80bank:${busZ80.bank.hex24} clc:$_clocks";
+        "bus: region:${busM68.region.x2} z80bank:${busZ80.bank.x6} clc:$_clocks";
 
     final vdpRegs = vdp.dump();
 
@@ -274,14 +274,14 @@ class Md implements Core {
   }
 
   (String, int) disasmZ80(int addr) {
-    final addrHex = addr.hex16;
+    final addrHex = addr.x4;
     final data = List.generate(4, (i) => busZ80.read((addr + i).mask16),
         growable: false);
     try {
       final (inst, next) = Z80Disasm.disasm(data, addr);
 
       final dataHex =
-          List.generate(4, (i) => i < next ? data[i].hex8 : "  ").join(" ");
+          List.generate(4, (i) => i < next ? data[i].x2 : "  ").join(" ");
       return ("$addrHex: $dataHex  $inst", next);
     } catch (e) {
       return ("$addrHex: [$e]", 1);
@@ -289,12 +289,12 @@ class Md implements Core {
   }
 
   (String, int) disasmM68(int addr) {
-    final addrHex = addr.hex24;
+    final addrHex = addr.x6;
     final data = List.generate(6, (i) => busM68.read16((addr + i * 2).mask24),
         growable: false);
     try {
       final (inst, next) = Disasm().disasm(data, addr);
-      return ("$addrHex: ${data[0].hex16}  $inst", next * 2);
+      return ("$addrHex: ${data[0].x4}  $inst", next * 2);
     } catch (e) {
       return ("$addrHex: [$e]", 2);
     }
@@ -325,7 +325,7 @@ class Md implements Core {
       : TraceLog(
           cpuZ80.r.pc,
           cpuZ80.cycles,
-          "${cpuZ80.r.pc.hex16}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
+          "${cpuZ80.r.pc.x4}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
           cpuZ80.dump().replaceAll("\n", " "), [
           cpuZ80.r.af,
           cpuZ80.r.bc,

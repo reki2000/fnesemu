@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
 import 'z80/z80.dart';
@@ -18,13 +19,13 @@ class BusZ80 {
 
   bool get busReq => cpu.halted;
   set busReq(bool value) {
-    // print("z80 busreq:$value m68 pc:${busM68.cpu.pc.hex24}");
+    // print("z80 busreq:$value m68 pc:${busM68.cpu.pc.x6}");
     cpu.halted = value;
   }
 
   bool _reset = false;
   set resetReq(bool value) {
-    // print("z80 reset:$_reset->$value m68 pc:${busM68.cpu.pc.hex24}");
+    // print("z80 reset:$_reset->$value m68 pc:${busM68.cpu.pc.x6}");
     if (value && !_reset) {
       cpu.reset(keepCycles: true); // reset when resetReq becomes up
     }
@@ -45,8 +46,8 @@ class BusZ80 {
     if (addr >= 0x8000) {
       final value = busM68.read16(bank | addr & 0x7fff); // m68 bus
       // print(
-      //     "z80 read 0x8000-0xffff: ${(bank | addr & 0x7fff).hex24} -> ${value.hex16}");
-      return value >> 8;
+      //     "z80 read 0x8000-0xffff: ${(bank | addr & 0x7fff).x6} -> ${value.x4}");
+      return value.shr8;
     }
 
     if (addr & 0xff00 == 0x7f00) return busM68.read8(0xc00000 | addr & 0x1f);
@@ -81,8 +82,8 @@ class BusZ80 {
 
     // bank: 0x6000-0x60ff
     if (addr < 0x6100) {
-      bank = bank >> 1 & 0x7f8000 | data << 23 & 0x800000;
-      // print("bank: ${_bank.hex24}");
+      bank = bank.shr1 & 0x7f8000 | data.shl23 & 0x800000;
+      // print("bank: ${_bank.x6}");
       return;
     }
 

@@ -4,7 +4,7 @@ import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
@@ -65,7 +65,7 @@ class Bus implements BusR3000 {
   }
 
   int _read8Full(int addr) {
-    final offset = addr & segMask[addr >> 29];
+    final offset = addr & segMask[addr.shr29];
     const sig = "read8";
 
     return switch (offset & ~0x03) {
@@ -94,22 +94,22 @@ class Bus implements BusR3000 {
       0x1f801070 => interrupt.status.byteAt(offset),
       0x1f801074 => interrupt.mask.byteAt(offset),
       >= 0x1f801080 && < 0x1f8010f0 => switch (offset & 0x0c) {
-          0x00 => dma.channels[offset >> 4 & 0x07].startAddr.byteAt(offset),
-          0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl.byteAt(offset),
-          0x08 => dma.channels[offset >> 4 & 0x07].channelCtrl.byteAt(offset),
+          0x00 => dma.channels[offset.shr4 & 0x07].startAddr.byteAt(offset),
+          0x04 => dma.channels[offset.shr4 & 0x07].blockCtrl.byteAt(offset),
+          0x08 => dma.channels[offset.shr4 & 0x07].channelCtrl.byteAt(offset),
           _ => _unimpl(sig, "dma", addr)
         },
       0x1f8010f0 => dma.control.byteAt(offset),
       0x1f8010f4 => dma.interrupt.byteAt(offset),
       >= 0x1f801100 && < 0x1f801130 => switch (offset & 0x0e) {
-          0x00 => timer.counter(offset >> 4 & 3).byteAt(offset),
-          0x04 => timer.mode(offset >> 4 & 3).byteAt(offset),
-          0x08 => timer.target(offset >> 4 & 3).byteAt(offset),
+          0x00 => timer.counter(offset.shr4 & 3).byteAt(offset),
+          0x04 => timer.mode(offset.shr4 & 3).byteAt(offset),
+          0x08 => timer.target(offset.shr4 & 3).byteAt(offset),
           _ => 0,
         },
       >= 0x1f801c00 && < 0x1f801ec0 => switch (offset & 0x1ffe) {
           >= 0x1c00 && < 0x1d80 =>
-            spu.readVoice(offset & 0x0e, offset >> 4 & 0x1f).byteAt(offset & 1),
+            spu.readVoice(offset & 0x0e, offset.shr4 & 0x1f).byteAt(offset & 1),
           >= 0x1d88 && < 0x1d90 => 0, // key on/off write only
           0x1d98 || 0x1d9a => spu.reverb.getReverbEnabled().byteAt(offset),
           0x1d94 || 0x1d96 => spu.noiseFlags.byteAt(offset),
@@ -123,7 +123,7 @@ class Bus implements BusR3000 {
           0x1db8 => spu.mainVolumeLeft.byteAt(offset & 1),
           0x1dba => spu.mainVolumeRight.byteAt(offset & 1),
           >= 0x1e00 && < 0x1ec0 =>
-            spu.readVoice(offset & 0x02, offset >> 2 & 0x1f).byteAt(offset & 1),
+            spu.readVoice(offset & 0x02, offset.shr2 & 0x1f).byteAt(offset & 1),
           _ => _unimpl(sig, "spu", addr),
         },
       0x1f801800 => cdrom.readPort8(offset & 0x03),
@@ -142,15 +142,15 @@ class Bus implements BusR3000 {
   int read32(int addr) {
     final offset = addr & 0x1fffffff;
     return switch (offset) {
-      < 0x8000000 => mem32[offset >> 2 & mem32Mask],
+      < 0x8000000 => mem32[offset.shr2 & mem32Mask],
       >= 0x1fc00000 && < 0x1fe00000 =>
-        rom32[(offset - 0x1fc00000) >> 2 & rom32Mask],
+        rom32[(offset - 0x1fc00000).shr2 & rom32Mask],
       _ => _read32Full(addr),
     };
   }
 
   int _read32Full(int addr) {
-    final offset = addr & segMask[addr >> 29];
+    final offset = addr & segMask[addr.shr29];
     const sig = "read32";
 
     return switch (offset) {
@@ -169,10 +169,10 @@ class Bus implements BusR3000 {
   @override
   void write8(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write8 to ${debugLogAddr.hex32}: ${v.hex8}");
+    //   debugLog("bus: write8 to ${debugLogAddr.x8}: ${v.x2}");
     // }
 
-    final offset = addr & segMask[addr >> 29];
+    final offset = addr & segMask[addr.shr29];
     const sig = "write8";
 
     return switch (offset) {
@@ -201,10 +201,10 @@ class Bus implements BusR3000 {
   @override
   void write16(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write16 to ${debugLogAddr.hex32}: ${v.hex16}");
+    //   debugLog("bus: write16 to ${debugLogAddr.x8}: ${v.x4}");
     // }
 
-    final offset = addr & segMask[addr >> 29];
+    final offset = addr & segMask[addr.shr29];
     const sig = "write16";
 
     return switch (offset) {
@@ -235,9 +235,9 @@ class Bus implements BusR3000 {
           0x1d84 => spu.reverb.setOutputVolume(0, v),
           0x1d86 => spu.reverb.setOutputVolume(1, v),
           0x1d88 => spu.keyOn(v),
-          0x1d8a => spu.keyOn(v << 16),
+          0x1d8a => spu.keyOn(v.shl16),
           0x1d8c => spu.keyOff(v),
-          0x1d8e => spu.keyOff(v << 16),
+          0x1d8e => spu.keyOff(v.shl16),
           0x1d90 => spu.setPitchModulation(spu.pitchModulation.setL16(v)),
           0x1d92 => spu.setPitchModulation(spu.pitchModulation.setH16(v)),
           0x1d94 => spu.setNoiseFlags(spu.noiseFlags.setL16(v)),
@@ -248,7 +248,7 @@ class Bus implements BusR3000 {
               .setReverbEnabled(spu.reverb.getReverbEnabled().setH16(v)),
           0x1d9c => 0,
           0x1d9e => 0,
-          0x1da2 => spu.reverb.setBaseAddr(v << 3), // work address
+          0x1da2 => spu.reverb.setBaseAddr(v.shl3), // work address
           0x1da4 => spu.setIrqAddr(v), // irq address
           0x1da6 => spu.setFifoAddr(v), // dma start address
           0x1da8 => spu.writeFifo16(v), // sound ram
@@ -276,25 +276,25 @@ class Bus implements BusR3000 {
   @pragma('vm:no-bounds-check')
   void write32(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write32 to ${debugLogAddr.hex32}: ${v.hex32}");
+    //   debugLog("bus: write32 to ${debugLogAddr.x8}: ${v.x8}");
     // }
     final offset = addr & 0x1fffffff;
     if (offset < 0x8000000) {
-      mem32[offset >> 2 & mem32Mask] = v;
+      mem32[offset.shr2 & mem32Mask] = v;
       return;
     }
     _write32Full(addr, v);
   }
 
   void _write32Full(int addr, int v) {
-    final offset = addr & segMask[addr >> 29];
+    final offset = addr & segMask[addr.shr29];
     const sig = "write32";
 
     return switch (offset) {
       >= 0x1f801080 && < 0x1f8010f0 => switch (offset & 0x0c) {
-          0x00 => dma.channels[offset >> 4 & 0x07].startAddr = v,
-          0x04 => dma.channels[offset >> 4 & 0x07].blockCtrl = v,
-          0x08 => dma.channels[offset >> 4 & 0x07].channelCtrl = v,
+          0x00 => dma.channels[offset.shr4 & 0x07].startAddr = v,
+          0x04 => dma.channels[offset.shr4 & 0x07].blockCtrl = v,
+          0x08 => dma.channels[offset.shr4 & 0x07].channelCtrl = v,
           _ => _unimpl(sig, "dma", addr, value: v)
         },
       0x1f801810 => gpu.writeGp0(v), // gp0
@@ -316,7 +316,7 @@ class Bus implements BusR3000 {
 
   int _unimpl(String op, String device, int addr, {int value = 0}) {
     debugLog('====================================================');
-    debugLog('$op: unknown ${addr.hex32} <= ${value.hex32} $device');
+    debugLog('$op: unknown ${addr.x8} <= ${value.x8} $device');
     debugLog('====================================================');
     return 0;
   }
@@ -325,5 +325,5 @@ class Bus implements BusR3000 {
 extension _IntExt on int {
   int byteAt(int n) => shr(n.mask2.shl3).mask8;
   int replaceByteAt(int n, int v) =>
-      this & ~(0xff.shl(n.mask2.shl3)) | v.mask8.shl(n.mask2.shl3);
+      this & ~0xff.shl(n.mask2.shl3) | v.mask8.shl(n.mask2.shl3);
 }

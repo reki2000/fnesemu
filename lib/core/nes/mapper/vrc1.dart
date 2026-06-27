@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -44,9 +44,9 @@ class MapperVrc1 extends Mapper {
         break;
 
       case 0x9000:
-        mirror(bit0(data) ? Mirror.horizontal : Mirror.vertical);
-        _chrBit0 = bit1(data) ? 0x10 : 0;
-        _chrBit1 = bit2(data) ? 0x10 : 0;
+        mirror(data.bit0 ? Mirror.horizontal : Mirror.vertical);
+        _chrBit0 = data.bit1 ? 0x10 : 0;
+        _chrBit1 = data.bit2 ? 0x10 : 0;
         _chrBank[0] = (_chrBank[0] & 0x0f) | _chrBit0;
         _chrBank[1] = (_chrBank[1] & 0x0f) | _chrBit1;
         break;
@@ -65,7 +65,7 @@ class MapperVrc1 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = (addr >> 13) & 0x03;
+    final bank = addr.shr13 & 0x03;
     final offset = addr & 0x1fff;
 
     return prgRoms[_prgBank[bank]][offset];
@@ -73,7 +73,7 @@ class MapperVrc1 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr >> 12;
+    final bank = addr.shr12;
     final offset = addr & 0x0fff;
 
     return chrRoms[_chrBank[bank]][offset];
@@ -82,10 +82,10 @@ class MapperVrc1 extends Mapper {
   @override
   String dump() {
     final chrBanks =
-        range(0, 2).map((i) => hex8(_chrBank[i])).toList().join(" ");
+        range(0, 2).map((i) => _chrBank[i].x2).toList().join(" ");
 
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBank[i])).toList().join(" ");
+        range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

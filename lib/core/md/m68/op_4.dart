@@ -3,12 +3,12 @@ part of 'm68.dart';
 extension Op4 on M68 {
   bool exec4(int op) {
     final xn = op & 0x07;
-    final dn = op >> 9 & 0x07;
+    final dn = op.shr9 & 0x07;
 
-    if (op & 0xb80 == 0x880 && (op >> 3 & 0x07) != 0) {
+    if (op & 0xb80 == 0x880 && (op.shr3 & 0x07) != 0) {
       // movem
       final memToReg = op.bit10;
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final size = op.bit6 ? 4 : 2;
       int regMask = pc16();
       addr0 = addressing(size, mode, xn);
@@ -52,14 +52,14 @@ extension Op4 on M68 {
 
     if (op & 0x01c0 == 0x01c0) {
       // lea
-      final addr = addressing(4, op >> 3 & 0x07, xn);
+      final addr = addressing(4, op.shr3 & 0x07, xn);
       a[dn] = addr.mask32;
       return true;
     }
 
     if (op & 0x01c0 == 0x0180) {
       // chk
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final bound = readAddr(2, mode, xn).rel16;
       final data = d[dn].mask16.rel16;
       zf = vf = cf = false;
@@ -69,7 +69,7 @@ extension Op4 on M68 {
               ? false
               : nf;
       // debug(
-      //     "chk dn:$dn xn:$xn mode:$mode bound:${bound.hex16} data:${data.hex16}");
+      //     "chk dn:$dn xn:$xn mode:$mode bound:${bound.x4} data:${data.x4}");
       if (data < 0 || bound < data) {
         trap(0x18, sr);
       }
@@ -77,11 +77,11 @@ extension Op4 on M68 {
       return true;
     }
 
-    final size = size0[op >> 6 & 0x03];
-    final mod = op >> 3 & 0x07;
+    final size = size0[op.shr6 & 0x03];
+    final mod = op.shr3 & 0x07;
     final reg = op & 0x07;
 
-    switch (op >> 8 & 0x0f) {
+    switch (op.shr8 & 0x0f) {
       case 0x00:
         if (op & 0x00c0 == 0x00c0) {
           // movefromsr
@@ -154,9 +154,9 @@ extension Op4 on M68 {
           final src = readAddr(1, mod, reg);
 
           final diff = 0 - src - (xf ? 1 : 0);
-          final high = 0 - (src & 0xf0) - (0x60 & (diff >> 4));
+          final high = 0 - (src & 0xf0) - (0x60 & diff.shr4);
           final low = 0 - (src & 0x0f) - (xf ? 1 : 0);
-          final lowBorrow = 0x06 & (low >> 4); // 0x06 if low < 0x0a else 0x00
+          final lowBorrow = 0x06 & low.shr4; // 0x06 if low < 0x0a else 0x00
           final r = low + high - lowBorrow;
 
           xf = cf = (diff - lowBorrow) & 0x300 != 0;
@@ -171,7 +171,7 @@ extension Op4 on M68 {
         if (op & 0xf8 == 0x40) {
           // swap
           final tmp = d[reg];
-          d[reg] = (tmp >> 16).mask16.setH16(tmp);
+          d[reg] = tmp.shr16.mask16.setH16(tmp);
           nf = d[reg].msb(4);
           zf = d[reg].mask(4) == 0;
           vf = cf = false;
@@ -229,7 +229,7 @@ extension Op4 on M68 {
 
           case 0x76: // trapv
             if (vf) {
-              trap(0x07 << 2, sr);
+              trap(0x07.shl2, sr);
             }
             return true;
 
@@ -240,7 +240,7 @@ extension Op4 on M68 {
             return true;
 
           case 0x7a:
-            trap(10 << 2, sr); // movec (m68010)
+            trap(10.shl2, sr); // movec (m68010)
             return true;
         }
 
@@ -262,7 +262,7 @@ extension Op4 on M68 {
 
         if (op & 0xf0 == 0x40) {
           // trap
-          trap(op << 2 & 0x03c | 0x80, sr);
+          trap(op.shl2 & 0x03c | 0x80, sr);
           return true;
         }
 

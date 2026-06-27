@@ -1,9 +1,9 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/VRC3
@@ -50,19 +50,19 @@ class MapperVrc3 extends Mapper {
         return;
 
       case 0x8000:
-        _irqLatch = _irqLatch.with4Bit(data);
+        _irqLatch = _irqLatch.set4Bit(data);
         holdIrq(false);
         return;
       case 0x9000:
-        _irqLatch = _irqLatch.with4Bit(data, lsbPosition: 4);
+        _irqLatch = _irqLatch.set4Bit(data, lsbPosition: 4);
         holdIrq(false);
         return;
       case 0xa000:
-        _irqLatch = _irqLatch.with4Bit(data, lsbPosition: 8);
+        _irqLatch = _irqLatch.set4Bit(data, lsbPosition: 8);
         holdIrq(false);
         return;
       case 0xb000:
-        _irqLatch = _irqLatch.with4Bit(data, lsbPosition: 12);
+        _irqLatch = _irqLatch.set4Bit(data, lsbPosition: 12);
         holdIrq(false);
         return;
 
@@ -107,12 +107,12 @@ class MapperVrc3 extends Mapper {
   }
 
   void _setIrqControl(data) {
-    _irqEnabledAfterAcknoledge = bit0(data);
-    _irqEnabled = bit1(data);
+    _irqEnabledAfterAcknoledge = data.bit0;
+    _irqEnabled = data.bit1;
     if (_irqEnabled) {
       _irqCounter = _irqLatch;
     }
-    _irqMode16bit = !bit2(data);
+    _irqMode16bit = !data.bit2;
     holdIrq(false);
   }
 
@@ -137,7 +137,7 @@ class MapperVrc3 extends Mapper {
           }
         } else {
           if (_irqCounter & 0xff == 0xff) {
-            _irqCounter = _irqCounter.withLowByte(_irqLatch & 0xff);
+            _irqCounter = _irqCounter.setL8(_irqLatch & 0xff);
             holdIrq(true);
           }
         }
@@ -149,11 +149,11 @@ class MapperVrc3 extends Mapper {
 
   @override
   String dump() {
-    final prgBanks = range(0, 2).map((i) => hex8(_prgBank)).toList().join(" ");
+    final prgBanks = range(0, 2).map((i) => _prgBank.x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'}${_irqMode16bit ? '16' : ' 8'} "
-        "@${hex16(_irqCounter)}"
-        "/${hex16(_irqLatch)} "
+        "@${_irqCounter.x4}"
+        "/${_irqLatch.x4} "
         "prg: $prgBanks "
         "\n";
   }

@@ -52,7 +52,7 @@ abstract class Core {
       bool showStack = false,
       bool showApu = false});
 
-  // debug: returns dis-assembled instruction in Pair<String nmemonic, int nextAddr>
+  // debug: returns dis-assembled instruction in (String nmemonic, int nextAddr)
   (String, int) disasm(int cpuNo, int addr);
 
   // debug: returns PC register

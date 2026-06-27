@@ -12,7 +12,7 @@ import '../core/core_controller.dart';
 import '../core/debugger.dart';
 import '../disc/loader.dart';
 import '../styles.dart';
-import '../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';

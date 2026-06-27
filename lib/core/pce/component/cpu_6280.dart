@@ -1,6 +1,8 @@
 // Dart imports:
 import 'dart:core';
 
+import 'package:fnesemu/util/int.dart';
+
 import 'cpu.dart';
 
 extension Cpu6280 on Cpu {
@@ -84,7 +86,7 @@ extension Cpu6280 on Cpu {
         for (int i = 0; i < 8; i++) {
           if (reg & 0x01 == 1) {
             regs.mpr[i] = regs.a;
-            regs.mprAddress[i] = regs.a << 13;
+            regs.mprAddress[i] = regs.a.shl13;
           }
           reg >>= 1;
         }
@@ -197,7 +199,7 @@ extension Cpu6280 on Cpu {
 
       // BSR
       case 0x44:
-        push(regs.pc >> 8);
+        push(regs.pc.shr8);
         push(regs.pc & 0xff);
         branch(true);
         cycle += 5;

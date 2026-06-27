@@ -20,7 +20,7 @@ class BusM68Test extends BusM68 {
 
   @override
   int read16(int addr) {
-    return read8(addr) << 8 | read8(addr.inc);
+    return read8(addr).shl8 | read8(addr.inc);
   }
 
   @override
@@ -30,7 +30,7 @@ class BusM68Test extends BusM68 {
 
   @override
   void write16(int addr, int data) {
-    write8(addr, data >> 8);
+    write8(addr, data.shr8);
     write8(addr.inc, data);
   }
 }
@@ -122,22 +122,22 @@ int main() {
         final addr = mem[0] as int;
         final val = mem[1] as int;
         bus.ram_[addr] = val;
-        final addrStr = addr == (prevAddr + 1) ? "" : "${addr.hex24}: ";
+        final addrStr = addr == (prevAddr + 1) ? "" : "${addr.x6}: ";
         prevAddr = addr;
-        memStr += "$addrStr${val.hex8} ";
+        memStr += "$addrStr${val.x2} ";
       }
       debug(memStr);
 
       // set memory at pc
       int i = 0;
       for (final val in test['initial']['prefetch']) {
-        bus.ram_[cpu.pc + i++] = val >> 8;
+        bus.ram_[cpu.pc + i++] = val.shr8;
         bus.ram_[cpu.pc + i++] = val & 0xff;
       }
 
       // dump memory at pc
       debug(
-          "${cpu.pc.hex24}: ${List.generate(16, (i) => bus.ram_[cpu.pc + i].hex8).join(' ')}");
+          "${cpu.pc.x6}: ${List.generate(16, (i) => bus.ram_[cpu.pc + i].x2).join(' ')}");
 
       // check executed result
       cpu.clocks = 0;
@@ -170,10 +170,10 @@ int main() {
         final addr = mem[0] as int;
         final val = mem[1] as int;
         final matched = val == bus.ram_[addr];
-        final addrStr = addr == (prevAddr + 1) ? "" : "${addr.hex24}:";
+        final addrStr = addr == (prevAddr + 1) ? "" : "${addr.x6}:";
         prevAddr = addr;
-        memExpect += '$addrStr${val.hex8} ';
-        memActual += '$addrStr${bus.ram_[addr].hex8} ';
+        memExpect += '$addrStr${val.x2} ';
+        memActual += '$addrStr${bus.ram_[addr].x2} ';
 
         if (!matched) {
           error = true;
@@ -208,7 +208,7 @@ dynamic convertIntegersToHex(dynamic input) {
   } else if (input is List) {
     return input.map(convertIntegersToHex).toList();
   } else if (input is int) {
-    return input.hex32;
+    return input.x8;
   } else {
     return input;
   }

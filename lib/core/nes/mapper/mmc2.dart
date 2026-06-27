@@ -1,6 +1,6 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 // Project imports:
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -50,7 +50,7 @@ class MapperMMC2 extends Mapper {
         break;
 
       case 0xf000:
-        mirror(bit0(data) ? Mirror.horizontal : Mirror.vertical);
+        mirror(data.bit0 ? Mirror.horizontal : Mirror.vertical);
         break;
     }
   }
@@ -63,7 +63,7 @@ class MapperMMC2 extends Mapper {
       return readSram(offset);
     }
 
-    final bank = (addr - 0x8000) >> 13; // 0-3
+    final bank = (addr - 0x8000).shr13; // 0-3
     return prgRoms[_prgBanks[bank]][offset];
   }
 
@@ -79,7 +79,7 @@ class MapperMMC2 extends Mapper {
       _latch[1] = 2;
     }
 
-    final bank = (addr >> 12) & 1;
+    final bank = addr.shr12 & 1;
 
     return chrRoms[_chrBanks[bank + _latch[bank]]][addr & 0x0fff];
   }
@@ -87,9 +87,9 @@ class MapperMMC2 extends Mapper {
   @override
   String dump() {
     final chrBanks =
-        range(0, 4).map((i) => hex8(_chrBanks[i])).toList().join(" ");
+        range(0, 4).map((i) => _chrBanks[i].x2).toList().join(" ");
     final prgBanks =
-        range(0, 4).map((i) => hex8(_prgBanks[i])).toList().join(" ");
+        range(0, 4).map((i) => _prgBanks[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

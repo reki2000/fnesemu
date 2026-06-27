@@ -1,4 +1,5 @@
 import 'package:fnesemu/core/md/z80/z80.dart';
+import 'package:fnesemu/util/int.dart';
 
 extension Op40bf on Z80 {
   bool exec40bf(int op) {
@@ -12,7 +13,7 @@ extension Op40bf on Z80 {
     // ld r, r'
     if (op < 0x80) {
       final src = op & 0x07;
-      final dst = (op & 0x38) >> 3;
+      final dst = (op & 0x38).shr3;
       writeReg(dst, readReg(src));
       return true;
     }

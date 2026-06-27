@@ -6,9 +6,9 @@ extension GpuRenderer on Gpu {
 
   // Lookup table for faster color conversion
   static final c15ToAbgr32 = List<int>.generate(32768, (i) {
-    final int b = ((i >> 10) & 0x1f) << 3 << 16;
-    final int g = ((i >> 5) & 0x1f) << 3 << 8;
-    final int r = ((i >> 0) & 0x1f) << 3 << 0;
+    final int b = (i.shr10 & 0x1f).shl3.shl16;
+    final int g = (i.shr5 & 0x1f).shl3.shl8;
+    final int r = ((i >> 0) & 0x1f).shl3 << 0;
     return alphaChannel | r | g | b;
   });
 
@@ -32,8 +32,8 @@ extension GpuRenderer on Gpu {
         for (int x = 0; x < width; x++) {
           buffer[bufIndex++] = alphaChannel |
               frameBuffer[fbIndex] | // B
-              frameBuffer[fbIndex + 1] << 8 | // G
-              frameBuffer[fbIndex + 2] << 16; // R
+              frameBuffer[fbIndex + 1].shl8 | // G
+              frameBuffer[fbIndex + 2].shl16; // R
           fbIndex += 3;
         }
       } else {

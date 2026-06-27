@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 import 'z80.dart';
 
 extension Op003f on Z80 {
@@ -158,7 +160,7 @@ extension Op003f on Z80 {
 
           case 0x04: // inc8
           case 0x0c: // inc8
-            final reg = (op & 0x38) >> 3;
+            final reg = (op & 0x38).shr3;
             writeReg(reg, inc8(readReg(reg)));
             if (reg == 6) {
               cycles++;
@@ -166,7 +168,7 @@ extension Op003f on Z80 {
             return true;
           case 0x05: // dec8
           case 0x0d: // dec8
-            final reg = (op & 0x38) >> 3;
+            final reg = (op & 0x38).shr3;
             writeReg(reg, dec8(readReg(reg)));
             if (reg == 6) {
               cycles++;
@@ -175,7 +177,7 @@ extension Op003f on Z80 {
 
           case 0x06: // ld r,n
           case 0x0e: // ld r,n
-            final reg = (op & 0x38) >> 3;
+            final reg = (op & 0x38).shr3;
             writeReg(reg, pc8());
             return true;
 

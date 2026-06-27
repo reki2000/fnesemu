@@ -15,10 +15,10 @@ extension Hook on R3000 {
   }
 
   String dump8(int addr, int len) =>
-      range(0, len).map((i) => "0x${bus.read8(addr + i).hex8}").join(":");
+      range(0, len).map((i) => "0x${bus.read8(addr + i).x2}").join(":");
 
   String dump8x(int addr, int len) =>
-      range(0, len).map((i) => bus.read8(addr + i).hex8).join(":");
+      range(0, len).map((i) => bus.read8(addr + i).x2).join(":");
 
   String dumpc(int addr, int len) {
     final sb = StringBuffer();
@@ -54,9 +54,9 @@ extension Hook on R3000 {
       final format = match.group(0)!;
       final arg = switch (format) {
         "%d" => regs[i++].toString(),
-        "%08x" => "0x${regs[i++].hex32}",
-        "%04x" => "0x${regs[i++].hex16}",
-        "%02x" => "0x${regs[i++].hex8}",
+        "%08x" => "0x${regs[i++].x8}",
+        "%04x" => "0x${regs[i++].x4}",
+        "%02x" => "0x${regs[i++].x2}",
         "%s" => '"${dumpCString(regs[i++])}"',
         "%b" => dump8x(regs[i++], regs[i]),
         "%B" => dump8(regs[i++], 3),
@@ -102,7 +102,7 @@ extension Hook on R3000 {
 
         name = buildArgs(name, r.sublist(4, 8));
 
-        final func = "${vector.hex8}(${r[9].hex8}): $name";
+        final func = "${vector.x2}(${r[9].x2}): $name";
 
         if (biosCallFuncLog.isNotEmpty) {
           debugLog("bios: $biosCallFuncLog");
@@ -112,7 +112,7 @@ extension Hook on R3000 {
     }
 
     if (pc == biosCallReturnAddr) {
-      debugLog("bios: $biosCallFuncLog --> ${r[2].hex32}");
+      debugLog("bios: $biosCallFuncLog --> ${r[2].x8}");
       biosCallReturnAddr = 0;
       biosCallFuncLog = "";
     }
@@ -126,22 +126,22 @@ extension Hook on R3000 {
   }
 
   void runExe() {
-    pc = exe.getUInt32LE(0x10);
+    pc = exe.getUint32LE(0x10);
     nextPc = pc.inc4.mask32;
 
-    r[28] = exe.getUInt32LE(0x14);
-    if (exe.getUInt32LE(0x30) != 0) {
-      r[29] = r[30] = exe.getUInt32LE(0x30);
+    r[28] = exe.getUint32LE(0x14);
+    if (exe.getUint32LE(0x30) != 0) {
+      r[29] = r[30] = exe.getUint32LE(0x30);
     }
 
-    final loadAddr = exe.getUInt32LE(0x18);
-    final size = exe.getUInt32LE(0x1c);
+    final loadAddr = exe.getUint32LE(0x18);
+    final size = exe.getUint32LE(0x1c);
     const headerSize = 0x800;
     for (int i = 0; i < exe.length - headerSize; i += 4) {
-      write32(i + loadAddr, exe.getUInt32LE(i + headerSize));
+      write32(i + loadAddr, exe.getUint32LE(i + headerSize));
     }
 
     debugLog(
-        "exe sideloaded on ${loadAddr.hex32} size:${size.hex32} entry:${pc.hex32}");
+        "exe sideloaded on ${loadAddr.x8} size:${size.x8} entry:${pc.x8}");
   }
 }

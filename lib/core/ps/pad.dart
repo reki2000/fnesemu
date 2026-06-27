@@ -38,7 +38,7 @@ class Pad extends SioDevice {
       final buttonBit = _buttons.where((b) => b.$1 == d).first.$2;
       buttonValue = buttonValue.setBit(buttonBit, false);
     }
-    // debugLog("pad: keyDown $id buttonValue:${buttonValue.hex16}");
+    // debugLog("pad: keyDown $id buttonValue:${buttonValue.x4}");
   }
 
   void keyUp(int id, PadButton d) {
@@ -46,7 +46,7 @@ class Pad extends SioDevice {
       final buttonBit = _buttons.where((b) => b.$1 == d).first.$2;
       buttonValue = buttonValue.setBit(buttonBit, true);
     }
-    // debugLog("pad: keyUp $id buttonValue:${buttonValue.hex16}");
+    // debugLog("pad: keyUp $id buttonValue:${buttonValue.x4}");
   }
 
   List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
@@ -69,7 +69,7 @@ class Pad extends SioDevice {
   @override
   SioResponse notify(int txData) {
     // if (padStep == waitMotor2) {
-    //   debugLog("pad: notify txData:${txData.hex8} dump:${dump()}");
+    //   debugLog("pad: notify txData:${txData.x2} dump:${dump()}");
     // }
 
     switch (padStep) {
@@ -89,18 +89,18 @@ class Pad extends SioDevice {
         return ack(0x41);
 
       case waitPadNo:
-        // debugLog("pad: ${padNo.hex8} -> 0x5a <- ${dump()}");
+        // debugLog("pad: ${padNo.x2} -> 0x5a <- ${dump()}");
         padStep = waitMotor1;
         return ack(0x5a);
 
       case waitMotor1:
         padStep = waitMotor2;
-        // debugLog("pad: ${padNo.hex8} -> 0x00 <- ${dump()}");
+        // debugLog("pad: ${padNo.x2} -> 0x00 <- ${dump()}");
         return ack(buttonValue.mask8);
 
       case waitMotor2:
         padStep = waitAddr;
-        // debugLog("pad: ${padNo.hex8} -> 0x00 <- ${dump()}");
+        // debugLog("pad: ${padNo.x2} -> 0x00 <- ${dump()}");
         return ack(buttonValue.shr8.mask8);
     }
 
@@ -109,5 +109,5 @@ class Pad extends SioDevice {
   }
 
   @override
-  String dump() => "step:$padStep button:${buttonValue.hex16}";
+  String dump() => "step:$padStep button:${buttonValue.x4}";
 }

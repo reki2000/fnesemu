@@ -1,7 +1,7 @@
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../util/debug.dart' show debugLog;
+import 'package:fnesemu/util/debug.dart' show debugLog;
 
 const _debugLog = false;
 void _debug(String log) {
@@ -31,7 +31,7 @@ class InterruptController {
   int get mask => _mask;
   set mask(int value) {
     _debug(
-        "interrupt: set mask:${value.hex16}(${_statToName(value)}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} pending:${mask & status != 0}");
+        "interrupt: set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
     _mask = value;
 
     if (mask & status != 0) {
@@ -50,7 +50,7 @@ class InterruptController {
     }
 
     _debug(
-        "interrupt: set:${irqNo.hex16}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32} triggered:${mask & status.setBit(irqNo, true) != 0}");
+        "interrupt: set:${irqNo.x4}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} triggered:${mask & status.setBit(irqNo, true) != 0}");
     status = status.setBit(irqNo, true);
 
     if (mask & status != 0) {
@@ -61,7 +61,7 @@ class InterruptController {
   void ackIrq(int ackValue) {
     if (ackValue.mask16 != 0xffff) {
       _debug(
-          'interrupt: ack:${ackValue.hex16}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.hex32} cause:${cpu.cause.hex32}');
+          'interrupt: ack:${ackValue.x4}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8}');
     }
 
     status &= ackValue;
@@ -93,6 +93,6 @@ class InterruptController {
   }
 
   String dump() {
-    return "istat:${status.hex16}(${_statToName(status)}) imask:${mask.hex16}(${_statToName(mask)})";
+    return "istat:${status.x4}(${_statToName(status)}) imask:${mask.x4}(${_statToName(mask)})";
   }
 }

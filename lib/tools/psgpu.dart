@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu/core/ps/bus.dart';
 import 'package:fnesemu/core/ps/gpu/gpu.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
 import '../core/ps/r3000/r3000.dart';
@@ -17,9 +18,9 @@ Uint8List getARGBImageData(Uint8List frameBuffer) {
       final c16 = frameBuffer.getUint16LE(offset);
 
       // Convert 15-bit color to RGB
-      final r = (c16 & 0x1F) << 3;
-      final g = ((c16 >> 5) & 0x1F) << 3;
-      final b = ((c16 >> 10) & 0x1F) << 3;
+      final r = (c16 & 0x1F).shl3;
+      final g = (c16.shr5 & 0x1F).shl3;
+      final b = (c16.shr10 & 0x1F).shl3;
 
       // Set ARGB bytes
       final destOffset = (y * 1024 + x) * 4;
@@ -50,9 +51,9 @@ class _PSGpuAppState extends State<PSGpuApp> {
   int cmd = 0x30; // Gouraud polygon command
 
   // Triangle vertices (x,y coordinates, packed as y<<16|x)
-  int v0 = 100 | (100 << 16); // Top left
-  int v1 = 500 | (100 << 16); // Top right
-  int v2 = 300 | (400 << 16); // Bottom center
+  int v0 = 100 | 100.shl16; // Top left
+  int v1 = 500 | 100.shl16; // Top right
+  int v2 = 300 | 400.shl16; // Bottom center
 
   // Colors for each vertex (RGB format)
   int c0 = 0xFF0000; // Red
@@ -118,11 +119,11 @@ flutter: GPU0:renderGouraud (672,32:00ff2599), (727,44:002d0517), (726,52:002d05
       final match = RegExp(regex).firstMatch(line);
 
       if (match != null) {
-        v0 = int.parse(match.group(1)!) | (int.parse(match.group(2)!) << 16);
+        v0 = int.parse(match.group(1)!) | (int.parse(match.group(2)!).shl16);
         c0 = int.parse(match.group(3)!, radix: 16);
-        v1 = int.parse(match.group(4)!) | (int.parse(match.group(5)!) << 16);
+        v1 = int.parse(match.group(4)!) | (int.parse(match.group(5)!).shl16);
         c1 = int.parse(match.group(6)!, radix: 16);
-        v2 = int.parse(match.group(7)!) | (int.parse(match.group(8)!) << 16);
+        v2 = int.parse(match.group(7)!) | (int.parse(match.group(8)!).shl16);
         c2 = int.parse(match.group(9)!, radix: 16);
         renderPolygon();
       }
@@ -175,9 +176,9 @@ flutter: GPU0:renderGouraud (672,32:00ff2599), (727,44:002d0517), (726,52:002d05
           Padding(
               padding: const EdgeInsets.all(8.0),
               child: Text(
-                  'V0: (${v0 & 0x3ff}, ${v0 >> 16 & 0x1ff}) - Color: 0x${c0.toRadixString(16)}\n'
-                  'V1: (${v1 & 0x3ff}, ${v1 >> 16 & 0x1ff}) - Color: 0x${c1.toRadixString(16)}\n'
-                  'V2: (${v2 & 0x3ff}, ${v2 >> 16 & 0x1ff}) - Color: 0x${c2.toRadixString(16)}')),
+                  'V0: (${v0 & 0x3ff}, ${v0.shr16 & 0x1ff}) - Color: 0x${c0.toRadixString(16)}\n'
+                  'V1: (${v1 & 0x3ff}, ${v1.shr16 & 0x1ff}) - Color: 0x${c1.toRadixString(16)}\n'
+                  'V2: (${v2 & 0x3ff}, ${v2.shr16 & 0x1ff}) - Color: 0x${c2.toRadixString(16)}')),
           InteractiveViewer(
             boundaryMargin: EdgeInsets.all(20.0),
             minScale: 0.1,

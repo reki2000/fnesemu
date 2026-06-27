@@ -21,22 +21,22 @@ class BusZ80Test extends BusZ80 {
   @override
   void write(int addr, int data) {
     final element = wrLog.firstWhere(
-      (e) => e[0] == (addr - e[1].length ~/ 3).hex16,
+      (e) => e[0] == (addr - e[1].length ~/ 3).x4,
       orElse: () => [],
     );
 
     if (element.isNotEmpty) {
-      element[1] += "${data.hex8} ";
+      element[1] += "${data.x2} ";
     } else {
       final element = wrLog.firstWhere(
-        (e) => e[0] == (addr + 1).hex16,
+        (e) => e[0] == (addr + 1).x4,
         orElse: () => [],
       );
       if (element.isNotEmpty) {
-        element[0] = addr.hex16;
-        element[1] = "${data.hex8} ${element[1]}";
+        element[0] = addr.x4;
+        element[1] = "${data.x2} ${element[1]}";
       } else {
-        wrLog.add([addr.hex16, "${data.hex8} "]);
+        wrLog.add([addr.x4, "${data.x2} "]);
       }
     }
 
@@ -93,19 +93,19 @@ int loadRegs(Z80 cpu, String line1, String line2) {
   cpu.im = regs2[4];
   cpu.halted = regs2[5] != 0;
 
-  return int.parse(regs2[6].hex16); // literally hex to dec
+  return int.parse(regs2[6].x4); // literally hex to dec
 }
 
 String dump(Z80 cpu) {
   final r = cpu.r;
   final res1 =
-      "af:${(r.af & 0xffd7).hex16} bc:${r.bc.hex16} de:${r.de.hex16} hl:${r.hl.hex16}";
+      "af:${(r.af & 0xffd7).x4} bc:${r.bc.x4} de:${r.de.x4} hl:${r.hl.x4}";
   final res2 =
-      "af':${(r.af2 & 0xffd7).hex16} bc':${r.bc2.hex16} de':${r.de2.hex16} hl':${r.hl2.hex16}";
+      "af':${(r.af2 & 0xffd7).x4} bc':${r.bc2.x4} de':${r.de2.x4} hl':${r.hl2.x4}";
   final res3 =
-      "ix:${r.ixiy[0].hex16} iy:${r.ixiy[1].hex16} sp:${r.sp.hex16} pc:${r.pc.hex16}";
+      "ix:${r.ixiy[0].x4} iy:${r.ixiy[1].x4} sp:${r.sp.x4} pc:${r.pc.x4}";
   final regs4 =
-      ("i:${r.i.hex8} r:${r.r.hex8} iff1:${cpu.iff1 ? 1 : 0} iff2:${cpu.iff2 ? 1 : 0} im:${cpu.im} ${cpu.halted ? "halted" : "-"} cy:${cpu.cycles}");
+      ("i:${r.i.x2} r:${r.r.x2} iff1:${cpu.iff1 ? 1 : 0} iff2:${cpu.iff2 ? 1 : 0} im:${cpu.im} ${cpu.halted ? "halted" : "-"} cy:${cpu.cycles}");
   const f = "SZ-H-PNC";
   final flags = List.generate(
       f.length,

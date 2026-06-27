@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import 'bus.dart';
 
 extension BusDebugger on Bus {
@@ -20,28 +20,28 @@ extension BusDebugger on Bus {
 
   String dumpChar(int addr, int target) {
     addr &= 0x1ff0;
-    var str = "${hex16(addr)}:";
+    var str = "${addr.x4}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
               : (addr + i) == target + 1
                   ? "]"
                   : " ") +
-          hex8(mapper.readVram(addr + i));
+          mapper.readVram(addr + i).x2;
     }
     return "$str\n";
   }
 
   String dumpVram(int addr, int target) {
     addr &= 0x1ff0;
-    var str = "${hex16(0x2000 + addr)}:";
+    var str = "${(0x2000 + addr).x4}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
               : (addr + i) == target + 1
                   ? "]"
                   : " ") +
-          hex8(vram[addr + i]);
+          vram[addr + i].x2;
     }
     return "$str\n";
   }

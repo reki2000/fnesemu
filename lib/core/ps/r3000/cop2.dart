@@ -194,16 +194,16 @@ class Cop2 {
 
   int rgbc = 0;
   int get r => rgbc & 0xff;
-  int get g => rgbc >> 8 & 0xff;
-  int get b => rgbc >> 16 & 0xff;
-  int get code => rgbc >> 24 & 0xff;
-  Vector get rgb => (r << 4, g << 4, b << 4);
+  int get g => rgbc.shr8 & 0xff;
+  int get b => rgbc.shr16 & 0xff;
+  int get code => rgbc.shr24 & 0xff;
+  Vector get rgb => (r.shl4, g.shl4, b.shl4);
 
   setRgb(int r, int g, int b, int code) {
     r = clipOverflow(r, 0, 0xff, 21);
     g = clipOverflow(g, 0, 0xff, 20);
     b = clipOverflow(b, 0, 0xff, 19);
-    return code.mask8 << 24 | b << 16 | g << 8 | r;
+    return code.mask8.shl24 | b.shl16 | g.shl8 | r;
   }
 
   int rgb0 = 0;
@@ -213,15 +213,15 @@ class Cop2 {
 
   // color conversion registers, unsigned 5 bit x 3
   set irgb(int value) {
-    _ir1 = value << 7 & 0xf80;
-    _ir2 = value << 2 & 0xf80;
-    _ir3 = value >> 3 & 0xf80;
+    _ir1 = value.shl7 & 0xf80;
+    _ir2 = value.shl2 & 0xf80;
+    _ir3 = value.shr3 & 0xf80;
   }
 
   int get orgb =>
-      (ir1 >> 7).clip(0, 0x1f) |
-      (ir2 >> 7).clip(0, 0x1f) << 5 |
-      (ir3 >> 7).clip(0, 0x1f) << 10;
+      ir1.shr7.clip(0, 0x1f) |
+      ir2.shr7.clip(0, 0x1f).shl5 |
+      ir3.shr7.clip(0, 0x1f).shl10;
 
   int lzcs = 0; // signed 32 bit
   int lzcr = 0; // unsigned 6 bit
@@ -290,7 +290,7 @@ class Cop2 {
     final u = unrTable[(d - 0x7fc0) >>> 7] + 0x101;
     d = (0x2000080 - (d * u)) >>> 8;
     d = (0x0000080 + (d * u)) >>> 8;
-    return (((n * d) + 0x8000) >> 16).min(0x1ffff);
+    return (((n * d) + 0x8000).shr16).min(0x1ffff);
   }
 
   int cmd = 0;
@@ -300,7 +300,7 @@ class Cop2 {
 
   reset() {}
 
-  _s16x2toU32(int l, int h) => l.mask16 | h.mask16 << 16;
+  _s16x2toU32(int l, int h) => l.mask16 | h.mask16.shl16;
 
   int readCtrl(int reg) => _read(reg & 0x1f | 0x20);
   void writeCtrl(int reg, int value) => _write(reg & 0x1f | 0x20, value);
@@ -376,22 +376,22 @@ class Cop2 {
       };
 
   void _write(int reg, int value) {
-    // debugLog("cpu: cop2 [$reg] <= ${value.hex32}");
+    // debugLog("cpu: cop2 [$reg] <= ${value.x8}");
 
     switch (reg) {
       case 0:
         vx0 = value.rel16;
-        vy0 = value.rel32 >> 16;
+        vy0 = value.rel32.shr16;
       case 1:
         vz0 = value.rel16;
       case 2:
         vx1 = value.rel16;
-        vy1 = value.rel32 >> 16;
+        vy1 = value.rel32.shr16;
       case 3:
         vz1 = value.rel16;
       case 4:
         vx2 = value.rel16;
-        vy2 = value.rel32 >> 16;
+        vy2 = value.rel32.shr16;
       case 5:
         vz2 = value.rel16;
       case 6:
@@ -410,20 +410,20 @@ class Cop2 {
 
       case 12:
         sx0 = value.rel16;
-        sy0 = value.rel32 >> 16;
+        sy0 = value.rel32.shr16;
       case 13:
         sx1 = value.rel16;
-        sy1 = value.rel32 >> 16;
+        sy1 = value.rel32.shr16;
       case 14:
         _sx2 = value.rel16;
-        _sy2 = value.rel32 >> 16;
+        _sy2 = value.rel32.shr16;
       case 15:
         sx0 = sx1;
         sy0 = sy1;
         sx1 = sx2;
         sy1 = sy2;
         _sx2 = value.rel16;
-        _sy2 = value.rel32 >> 16;
+        _sy2 = value.rel32.shr16;
       case 16:
         sz0 = value.mask16;
       case 17:
@@ -469,16 +469,16 @@ class Cop2 {
 
       case 32:
         rt11 = value.rel16;
-        rt12 = value.rel32 >> 16;
+        rt12 = value.rel32.shr16;
       case 33:
         rt13 = value.rel16;
-        rt21 = value.rel32 >> 16;
+        rt21 = value.rel32.shr16;
       case 34:
         rt22 = value.rel16;
-        rt23 = value.rel32 >> 16;
+        rt23 = value.rel32.shr16;
       case 35:
         rt31 = value.rel16;
-        rt32 = value.rel32 >> 16;
+        rt32 = value.rel32.shr16;
       case 36:
         rt33 = value.rel16;
 
@@ -491,16 +491,16 @@ class Cop2 {
 
       case 40:
         l11 = value.rel16;
-        l12 = value.rel32 >> 16;
+        l12 = value.rel32.shr16;
       case 41:
         l13 = value.rel16;
-        l21 = value.rel32 >> 16;
+        l21 = value.rel32.shr16;
       case 42:
         l22 = value.rel16;
-        l23 = value.rel32 >> 16;
+        l23 = value.rel32.shr16;
       case 43:
         l31 = value.rel16;
-        l32 = value.rel32 >> 16;
+        l32 = value.rel32.shr16;
       case 44:
         l33 = value.rel16;
 
@@ -513,16 +513,16 @@ class Cop2 {
 
       case 48:
         lc11 = value.rel16;
-        lc12 = value.rel32 >> 16;
+        lc12 = value.rel32.shr16;
       case 49:
         lc13 = value.rel16;
-        lc21 = value.rel32 >> 16;
+        lc21 = value.rel32.shr16;
       case 50:
         lc22 = value.rel16;
-        lc23 = value.rel32 >> 16;
+        lc23 = value.rel32.shr16;
       case 51:
         lc31 = value.rel16;
-        lc32 = value.rel32 >> 16;
+        lc32 = value.rel32.shr16;
       case 52:
         lc33 = value.rel16;
 
@@ -551,7 +551,7 @@ class Cop2 {
       case 63:
         flag = value.mask32;
       default:
-        throw ("cpu: unimplimited cop2 write $reg  ${value.hex32}");
+        throw ("cpu: unimplimited cop2 write $reg  ${value.x8}");
     }
   }
 
@@ -571,7 +571,7 @@ class Cop2 {
     //   "SQR", "DCPL", "DPCT", "EX_2B", "EX_2C", "AVSZ3", "AVSZ4", "EX_2F", //
     //   "RTPT", "EX_31", "EX_32", "EX_33", "EX_34", "EX_35", "EX_36", "EX_37", //
     //   "EX_38", "EX_39", "EX_3A", "EX_3B", "EX_3C", "GPF", "GPL", "NCCT" //
-    // ][inst32 & 0x3f]} ${(inst32 & 0x3f).hex8}");
+    // ][inst32 & 0x3f]} ${(inst32 & 0x3f).x2}");
 
     return switch (inst32 & 0x3f) {
       0x01 => rtps(vx0, vy0, vz0),
@@ -600,26 +600,22 @@ class Cop2 {
     };
   }
 
-  void _unimplemented(String s) {
-    debugLog("unimplemented: $s");
-  }
-
   String dump() => """
-    cop2: ${cmd.hex32} lm:$lm sf:$sf shift:$shift
+    cop2: ${cmd.x8} lm:$lm sf:$sf shift:$shift
     v0: $vx0, $vy0, $vz0 v1: $vx1, $vy1, $vz1 v2: $vx2, $vy2, $vz2
     rt: {$rt11, $rt12, $rt13}, {$rt21, $rt22, $rt23}, {$rt31, $rt32, $rt33}
     tr: $trx, $try_, $trz
     l: {$l11, $l12, $l13}, {$l21, $l22, $l23}, {$l31, $l32, $l33}
     lc: {$lc11, $lc12, $lc13}, {$lc21, $lc22, $lc23}, {$lc31, $lc32, $lc33}
     rbk:$rbk gbk:$gbk bbk:$bbk rfc:$rfc gfc:$gfc bfc:$bfc
-    rgbc:${rgbc.hex32} rgb0:${rgb0.hex32} rgb1:${rgb1.hex32} rgb2:${rgb2.hex32}
+    rgbc:${rgbc.x8} rgb0:${rgb0.x8} rgb1:${rgb1.x8} rgb2:${rgb2.x8}
     otz:$otz h:$h ofx:$ofx ofy:$ofy  dqa:$dqa dqb:$dqb
     s0: $sx0, $sy0 s1: $sx1, $sy1 s2: $sx2, $sy2 sz: $sz0, $sz1, $sz2, $sz3
     ${dumpMac()}
   """;
 
   String dumpMac() =>
-      "mac0:${mac0.hex32} mac1:${mac1.hex32} mac2:${mac2.hex32} mac3:${mac3.hex32} "
-      "ir0:${ir0.hex32} ir1:${ir1.hex32} ir2:${ir2.hex32} ir3:${ir3.hex32} "
-      "flag:${readCtrl(31).hex32}";
+      "mac0:${mac0.x8} mac1:${mac1.x8} mac2:${mac2.x8} mac3:${mac3.x8} "
+      "ir0:${ir0.x8} ir1:${ir1.x8} ir2:${ir2.x8} ir3:${ir3.x8} "
+      "flag:${readCtrl(31).x8}";
 }

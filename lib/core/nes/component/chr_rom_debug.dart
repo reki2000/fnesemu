@@ -1,6 +1,8 @@
 // Dart imports:
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 import '../../types.dart';
 
 class ChrRomDebugger {
@@ -11,7 +13,7 @@ class ChrRomDebugger {
   static void _renderChr(List<int> data, Uint8List buf, int x, int y) {
     for (int i = 0; i < 8; i++) {
       final ch0 = data[i];
-      final ch1 = (data[i + 8]) << 1;
+      final ch1 = (data[i + 8]).shl1;
       for (int j = 0; j < 8; j++) {
         final c = ((ch1 >> (7 - j)) & 2) | ((ch0 >> (7 - j)) & 1);
         final bufIndex = ((y + i) * _width + (x + j)) * 4;

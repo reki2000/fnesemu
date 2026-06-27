@@ -1,10 +1,10 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
 
-import '../../../util/util.dart';
 import 'bus.dart';
 import 'cpu.dart';
 
@@ -15,9 +15,9 @@ class Vdc {
   Vdc(this.bus, this.priority);
 
   String dump() {
-    final regs = "${hex8(reg)} r${hex16(marr)} w${hex16(mawr)}";
+    final regs = "${reg.x2} r${marr.x4} w${mawr.x4}";
     final scr =
-        "scr:${hex16(scrollX).substring(1)},${hex16(scrollY).substring(1)},${hex16(rasterCompareRegister).substring(1)}+${hex8(addrInc)}";
+        "scr:${scrollX.x4.substring(1)},${scrollY.x4.substring(1)},${rasterCompareRegister.x4.substring(1)}+${addrInc.x2}";
     final flags =
         "i:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
     final bg =
@@ -159,28 +159,28 @@ class Vdc {
   }
 
   int readMsb() {
-    final val = readLatch >> 8;
+    final val = readLatch.shr8;
     marr = (marr + addrInc) & 0xffff;
     readLatch = vram[marr];
     return val;
   }
 
   writeReg(int val) {
-    // print("writeReg: ${hex8(reg)}");
+    // print("writeReg: ${reg.x2}");
     reg = val & 0x1f;
   }
 
   writeLsb(int val) {
-    // print("writeLsb: ${hex8(val)}");
+    // print("writeLsb: ${val.x2}");
     switch (reg) {
       case 0x00:
-        mawr = mawr.withLowByte(val);
+        mawr = mawr.setL8(val);
         break;
       case 0x01:
-        marr = marr.withLowByte(val);
+        marr = marr.setL8(val);
         break;
       case 0x02:
-        writeLatch = writeLatch.withLowByte(val);
+        writeLatch = writeLatch.setL8(val);
         break;
 
       case 0x05:
@@ -194,13 +194,13 @@ class Vdc {
         break;
 
       case 0x06:
-        rasterCompareRegister = rasterCompareRegister.withLowByte(val);
+        rasterCompareRegister = rasterCompareRegister.setL8(val);
         break;
       case 0x07:
-        scrollX = scrollX.withLowByte(val);
+        scrollX = scrollX.setL8(val);
         break;
       case 0x08:
-        scrollY = scrollY.withLowByte(val);
+        scrollY = scrollY.setL8(val);
         VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
@@ -235,7 +235,7 @@ class Vdc {
       // Horizontal Display Register
       case 0x0b:
         final oldHSize = hSize;
-        hSize = ((val & 0x3f) + 1) << 3;
+        hSize = ((val & 0x3f) + 1).shl3;
         if (oldHSize != hSize) VdcRenderer.buffer = Uint32List(hSize * vSize);
         break;
       // Vertical Sync Register
@@ -249,45 +249,45 @@ class Vdc {
         break;
 
       case 0x0f:
-        enableDmaSatIrq = bit0(val);
-        enableDmaVramIrq = bit1(val);
-        dmaSrcDir = bit2(val) ? -1 : 1;
-        dmaDstDir = bit3(val) ? -1 : 1;
-        dmaSatbAlways = bit4(val);
+        enableDmaSatIrq = val.bit0;
+        enableDmaVramIrq = val.bit1;
+        dmaSrcDir = val.bit2 ? -1 : 1;
+        dmaDstDir = val.bit3 ? -1 : 1;
+        dmaSatbAlways = val.bit4;
         break;
 
       case 0x10:
-        dmaSrc = dmaSrc.withLowByte(val);
+        dmaSrc = dmaSrc.setL8(val);
         break;
       case 0x11:
-        dmaDst = dmaDst.withLowByte(val);
+        dmaDst = dmaDst.setL8(val);
         break;
       case 0x12:
-        dmaLen = dmaLen.withLowByte(val);
+        dmaLen = dmaLen.setL8(val);
         break;
       case 0x13:
-        dmaSrcSatb = dmaSrcSatb.withLowByte(val);
+        dmaSrcSatb = dmaSrcSatb.setL8(val);
         break;
     }
   }
 
   writeMsb(int val) {
-    // print("writeMsb: ${hex8(val)}");
+    // print("writeMsb: ${val.x2}");
     switch (reg) {
       case 0x00:
-        mawr = mawr.withHighByte(val);
+        mawr = mawr.setH8(val);
         break;
       case 0x01:
-        marr = marr.withHighByte(val);
+        marr = marr.setH8(val);
         readLatch = vram[marr];
         break;
       case 0x02:
-        writeLatch = writeLatch.withHighByte(val);
+        writeLatch = writeLatch.setH8(val);
         vram[mawr] = writeLatch;
         mawr = (mawr + addrInc) & 0xffff;
         // if (mawr == 0x7f00 && writeLatch == 0x0060) {
         //   print(
-        //       "frame:${VdcRenderer.frames} write vram: ${hex16(mawr)}\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+        //       "frame:${VdcRenderer.frames} write vram: ${mawr.x4}\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
         // }
         break;
 
@@ -302,13 +302,13 @@ class Vdc {
         break;
 
       case 0x06:
-        rasterCompareRegister = rasterCompareRegister.withHighByte(val & 0x03);
+        rasterCompareRegister = rasterCompareRegister.setH8(val & 0x03);
         break;
       case 0x07:
-        scrollX = scrollX.withHighByte(val & 0x03);
+        scrollX = scrollX.setH8(val & 0x03);
         break;
       case 0x08:
-        scrollY = scrollY.withHighByte(val & 0x01);
+        scrollY = scrollY.setH8(val & 0x01);
         VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
@@ -334,17 +334,17 @@ class Vdc {
       case 0x0f:
         break;
       case 0x10:
-        dmaSrc = dmaSrc.withHighByte(val);
+        dmaSrc = dmaSrc.setH8(val);
         break;
       case 0x11:
-        dmaDst = dmaDst.withHighByte(val);
+        dmaDst = dmaDst.setH8(val);
         break;
       case 0x12:
-        dmaLen = dmaLen.withHighByte(val);
+        dmaLen = dmaLen.setH8(val);
         dma = true;
         break;
       case 0x13:
-        dmaSrcSatb = dmaSrcSatb.withHighByte(val);
+        dmaSrcSatb = dmaSrcSatb.setH8(val);
         dmaSatb = true;
         break;
     }
@@ -360,28 +360,28 @@ class Vdc {
   }
 
   int readColorTableMsb() {
-    final value = (colorTable[colorTableAddress] >> 8) | 0xfe;
+    final value = colorTable[colorTableAddress].shr8 | 0xfe;
     colorTableAddress = (colorTableAddress + 1) & 0x1ff;
     return value;
   }
 
   writeColorTableLsb(int val) {
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress].withLowByte(val);
+        colorTable[colorTableAddress].setL8(val);
   }
 
   writeColorTableMsb(int val) {
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress].withHighByte(val & 1);
+        colorTable[colorTableAddress].setH8(val & 1);
     colorTableAddress = (colorTableAddress + 1) & 0x1ff;
   }
 
   writeColorTableAddressLsb(int val) {
-    colorTableAddress = colorTableAddress.withLowByte(val);
+    colorTableAddress = colorTableAddress.setL8(val);
   }
 
   writeColorTableAddressMsb(int val) {
-    colorTableAddress = colorTableAddress.withHighByte(val & 1);
+    colorTableAddress = colorTableAddress.setH8(val & 1);
   }
 
   // DMA
@@ -400,7 +400,7 @@ class Vdc {
   bool dmaSatbAlways = false;
 
   execDmaSatb() {
-    // print("execDmaSatb : $dmaSatb ${hex16(dmaSrcSatb)}");
+    // print("execDmaSatb : $dmaSatb ${dmaSrcSatb.x4}");
     if (dmaSatb || dmaSatbAlways) {
       for (int i = 0; i < sat.length; i++) {
         sat[i] = vram[(dmaSrcSatb + i) & 0xffff];

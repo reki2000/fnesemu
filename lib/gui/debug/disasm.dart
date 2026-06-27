@@ -1,10 +1,10 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../../core/debugger.dart';
 // Project imports:
 import '../../styles.dart';
-import '../../util/util.dart';
 
 // get 40 lines of disassemble string
 
@@ -35,12 +35,12 @@ class DebugDisasm extends StatelessWidget {
   final margin10 = const EdgeInsets.all(10.0);
   final node = FocusNode();
 
-  List<Pair<int, String>> _asm(int addr, int lines) {
-    final result = List<Pair<int, String>>.empty(growable: true);
+  List<(int, String)> _asm(int addr, int lines) {
+    final result = List<(int, String)>.empty(growable: true);
 
     for (int i = 0; i < lines; i++) {
       final (asm, inc) = debugger.disasm(cpuNo, addr);
-      result.add(Pair(addr, asm));
+      result.add((addr, asm));
       addr += inc;
     }
 
@@ -48,13 +48,13 @@ class DebugDisasm extends StatelessWidget {
   }
 
   // To show backward lines correctly, we need to start from earlier address and succeeding to the current address
-  List<Pair<int, String>> _backward(int addr, int lines) {
-    final result = List.filled(lines, const Pair(0, ""), growable: true);
+  List<(int, String)> _backward(int addr, int lines) {
+    final result = List.filled(lines, (0, ""), growable: true);
 
     var current = addr - lines * 6;
     while (current < addr) {
       final (asm, inc) = debugger.disasm(cpuNo, current);
-      result.add(Pair(current, asm));
+      result.add((current, asm));
       current += inc;
     }
 
@@ -91,7 +91,7 @@ class DebugDisasm extends StatelessWidget {
                           child: TextField(
                               decoration: denseTextDecoration,
                               onChanged: (v) {
-                                if (v.length == addrBits >> 2) {
+                                if (v.length == addrBits.shr2) {
                                   addrNotifier.value = int.parse(v, radix: 16);
                                 }
                               })),
@@ -105,7 +105,7 @@ class DebugDisasm extends StatelessWidget {
                                 ..._backward(addr, backwardLines),
                                 ..._asm(addr, forwardLines)
                               ]
-                                  .map((s) => (s.i0 == addr ? "*" : " ") + s.i1)
+                                  .map((s) => (s.$1 == addr ? "*" : " ") + s.$2)
                                   .join("\n"),
                               style: debugStyle,
                               showCursor: true,

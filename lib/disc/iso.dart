@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import '../core/disc.dart';
-import '../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 
 /*
   1 sector = 930h bytes (2352 bytes)
@@ -78,8 +78,8 @@ class IsoDisc extends Disc {
     final submode = data[headerOffset + 6];
     final codinginfo = data[headerOffset + 7];
     debugLog(
-        "iso: read sector $sector iso:${sectorOffset.hex32} (${minutes.hex8}:${seconds.hex8}:${sectorNumber.hex8}) "
-        "mode:$mode file:$file channel:$channel submode:${submode.hex8} codinginfo:${codinginfo.hex8}"
-        "[${data.sublist(sectorOffset + Disc.sync.length, sectorOffset + Disc.sync.length + 16).map((e) => e.hex8).join(" ")}...]");
+        "iso: read sector $sector iso:${sectorOffset.x8} (${minutes.x2}:${seconds.x2}:${sectorNumber.x2}) "
+        "mode:$mode file:$file channel:$channel submode:${submode.x2} codinginfo:${codinginfo.x2}"
+        "[${data.sublist(sectorOffset + Disc.sync.length, sectorOffset + Disc.sync.length + 16).map((e) => e.x2).join(" ")}...]");
   }
 }

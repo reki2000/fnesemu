@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 // Flutter imports:
 import 'package:flutter/material.dart';
@@ -5,14 +6,13 @@ import 'package:flutter/material.dart';
 import '../../core/core_controller.dart';
 // Project imports:
 import '../../styles.dart';
-import '../../util/util.dart';
 
 Widget _dump(List<int> buf, int start) {
   final lines = <String>[];
   for (var i = 0; i < 32; i++) {
     final addr = (start + i * 16) & 0xffff;
     final lineData = buf.sublist(addr, addr + 16);
-    final line = "${hex16(addr)}: ${lineData.map((e) => hex16(e)).join(' ')}";
+    final line = "${addr.x4}: ${lineData.map((e) => e.x4).join(' ')}";
     lines.add(line);
   }
 
