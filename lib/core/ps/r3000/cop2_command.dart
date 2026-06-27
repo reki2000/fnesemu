@@ -5,15 +5,15 @@ extension Cop2Command on Cop2 {
   Vector multiplyMatrixT(Matrix m, Vector v, Vector t) => (
         co44(
             1,
-            co44(1, co44(1, (t.$1 << 12) + m.$1 * v.$1) + m.$2 * v.$2) +
+            co44(1, co44(1, (t.$1.shl12) + m.$1 * v.$1) + m.$2 * v.$2) +
                 m.$3 * v.$3),
         co44(
             2,
-            co44(2, co44(2, (t.$2 << 12) + m.$4 * v.$1) + m.$5 * v.$2) +
+            co44(2, co44(2, (t.$2.shl12) + m.$4 * v.$1) + m.$5 * v.$2) +
                 m.$6 * v.$3),
         co44(
             3,
-            co44(3, co44(3, (t.$3 << 12) + m.$7 * v.$1) + m.$8 * v.$2) +
+            co44(3, co44(3, (t.$3.shl12) + m.$7 * v.$1) + m.$8 * v.$2) +
                 m.$9 * v.$3)
       );
 
@@ -40,7 +40,7 @@ extension Cop2Command on Cop2 {
   void pushColor() {
     rgb0 = rgb1;
     rgb1 = rgb2;
-    setRgb2(mac1 >> 4, mac2 >> 4, mac3 >> 4, code); // Preserve original code
+    setRgb2(mac1.shr4, mac2.shr4, mac3.shr4, code); // Preserve original code
   }
 
   void rtps(int vx, int vy, int vz, {bool setMac0 = true}) {
@@ -57,27 +57,27 @@ extension Cop2Command on Cop2 {
     mac3 = ssz;
 
     // ir3 saturation ignores lm (as false) but clip depends on lm
-    checkOverflow(ssz >> 12, -0x8000, 0x7fff, 22, 22);
+    checkOverflow(ssz.shr12, -0x8000, 0x7fff, 22, 22);
     _ir3 = mac3.clip(lm ? 0 : -0x8000, 0x7fff);
 
-    sz3 = (ssz >> 12).rel32;
+    sz3 = ssz.shr12.rel32;
 
     final hsz1 = divUnr(h.mask16, sz3.mask16);
     // debugLog(
-    //     "gte: h:${h.hex32} sz3:${sz3.toRadixString(16)} hdz1: ${hsz1.toRadixString(16)} ir1: ${ir1.hex32} ofx:${ofx.hex32} flag:${flag.hex32}");
+    //     "gte: h:${h.x8} sz3:${sz3.toRadixString(16)} hdz1: ${hsz1.toRadixString(16)} ir1: ${ir1.x8} ofx:${ofx.x8} flag:${flag.x8}");
 
     final sx = hsz1 * ir1 + ofx;
     mac0 = sx;
-    sxp = sx >> 16;
+    sxp = sx.shr16;
 
     final sy = hsz1 * ir2 + ofy;
     mac0 = sy;
-    syp = sy >> 16;
+    syp = sy.shr16;
 
     if (setMac0) {
       final p = hsz1 * dqa + dqb;
       mac0 = p;
-      ir0 = p >> 12;
+      ir0 = p.shr12;
     }
 
     // debugLog("gte: rtps ${dump()}");
@@ -97,13 +97,13 @@ extension Cop2Command on Cop2 {
   void avsz3() {
     final z = zsf3 * (sz1 + sz2 + sz3);
     mac0 = z;
-    otz = clipOverflow(z >> 12, 0, 0xffff, 18);
+    otz = clipOverflow(z.shr12, 0, 0xffff, 18);
   }
 
   void avsz4() {
     final z = zsf4 * (sz0 + sz1 + sz2 + sz3);
     mac0 = z;
-    otz = clipOverflow(z >> 12, 0, 0xffff, 18);
+    otz = clipOverflow(z.shr12, 0, 0xffff, 18);
   }
 
   void ncds(int vx, int vy, int vz) {
@@ -117,7 +117,7 @@ extension Cop2Command on Cop2 {
 
     pushColor();
     // debugLog(
-    //     "gte: ncds ${vx.hex16} ${vy.hex16} ${vz.hex16} ir:${ir0.hex16} rgbc:${rgbc.hex32} rgb2:${rgb2.hex32}");
+    //     "gte: ncds ${vx.x4} ${vy.x4} ${vz.x4} ir:${ir0.x4} rgbc:${rgbc.x8} rgb2:${rgb2.x8}");
   }
 
   void ncdt() {
@@ -132,9 +132,9 @@ extension Cop2Command on Cop2 {
   // V: Vector (0=V0, 1=V1, 2=V2, 3=IR/RGB)
   // T: Translation Vector (0=TR, 1=BK, 2=FC/Bugged, 3=None)
   void mvmva() {
-    final matrixSel = (cmd >> 17) & 3;
-    final vectorSel = (cmd >> 15) & 3;
-    final transSel = (cmd >> 13) & 3;
+    final matrixSel = cmd.shr17 & 3;
+    final vectorSel = cmd.shr15 & 3;
+    final transSel = cmd.shr13 & 3;
 
     final v = switch (vectorSel) {
       0 => v0,
@@ -147,7 +147,7 @@ extension Cop2Command on Cop2 {
       0 => rt, // RT
       1 => l, // LLM
       2 => lc, // LCM
-      _ => (-(r << 4), r << 4, ir0, rt13, rt13, rt13, rt22, rt22, rt22) // bug
+      _ => (-r.shl4, r.shl4, ir0, rt13, rt13, rt13, rt22, rt22, rt22) // bug
     };
 
     final t = switch (transSel) {
@@ -159,9 +159,9 @@ extension Cop2Command on Cop2 {
 
     if (transSel == 2) {
       // GTE Bug: flags are set by the 1st component but result is from the 2nd and 3rd
-      ir1 = co44(1, (rfc << 12) + m.$1 * v.$1) >> shift;
-      ir2 = co44(2, (gfc << 12) + m.$4 * v.$1) >> shift;
-      ir3 = co44(3, (bfc << 12) + m.$7 * v.$1) >> shift;
+      ir1 = co44(1, rfc.shl12 + m.$1 * v.$1) >> shift;
+      ir2 = co44(2, gfc.shl12 + m.$4 * v.$1) >> shift;
+      ir3 = co44(3, bfc.shl12 + m.$7 * v.$1) >> shift;
 
       final x = m.$2 * v.$2 + m.$3 * v.$3;
       final y = m.$5 * v.$2 + m.$6 * v.$3;
@@ -233,7 +233,7 @@ extension Cop2Command on Cop2 {
   void dpcs({bool useRgbc = true}) {
     final rgb1 = useRgbc
         ? rgb << 12
-        : (rgb0 << 16 & 0xff0000, rgb0 << 8 & 0xff0000, rgb0 & 0xff0000);
+        : (rgb0.shl16 & 0xff0000, rgb0.shl8 & 0xff0000, rgb0 & 0xff0000);
 
     setMacAndIrVlm0((fc << 12) - rgb1);
     setMacAndIrV(rgb1 + ir * ir0);

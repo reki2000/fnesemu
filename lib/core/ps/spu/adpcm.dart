@@ -5,11 +5,11 @@ extension VoiceAdpcmDecoder on Voice {
     final log = logCounter > 0 && _addr >= 0x1000;
     if (log) {
       debugLog(
-          "SPU${no.decimal2z}: addr:${_addr.hex24} ram:${spu.ram.sublist(_addr, _addr + 16).map((e) => e.hex8).join(" ")}");
+          "SPU${no.d2z}: addr:${_addr.x6} ram:${spu.ram.sublist(_addr, _addr + 16).map((e) => e.x2).join(" ")}");
     }
 
     final header = spu.readRam16(_addr);
-    final loop = header >> 8;
+    final loop = header.shr8;
 
     if (loop.bit2) {
       repeatAddr = _addr;
@@ -18,7 +18,7 @@ extension VoiceAdpcmDecoder on Voice {
     int shift = header & 0x0f;
     shift = (shift > 12) ? 9 : shift;
 
-    final filter = header >> 4 & 0x07;
+    final filter = header.shr4 & 0x07;
 
     final (c1, c2) =
         [(0, 0), (60, 0), (115, -52), (98, -55), (122, -60)][filter.min(4)];
@@ -39,7 +39,7 @@ extension VoiceAdpcmDecoder on Voice {
       final val = filtered.clip(-0x8000, 0x7fff);
       if (log) {
         debugLog(
-            "SPU${no.decimal2z}: decode:$i raw:${raw.hex8} shifted:$shifted filtered:$filtered val:$val");
+            "SPU${no.d2z}: decode:$i raw:${raw.x2} shifted:$shifted filtered:$filtered val:$val");
       }
 
       _block[i] = val;
@@ -60,7 +60,7 @@ extension VoiceAdpcmDecoder on Voice {
 
     if (log) {
       debugLog(
-          "SPU${no.decimal2z}: addr:${_addr.hex24} block:${_block.map((e) => e.hex16).join(" ")}");
+          "SPU${no.d2z}: addr:${_addr.x6} block:${_block.map((e) => e.x4).join(" ")}");
       logCounter--;
     }
   }
@@ -138,6 +138,6 @@ extension VoiceAdpcmDecoder on Voice {
         (gaussianTable[0x1ff - index] * v2) +
         (gaussianTable[0x100 + index] * v1) +
         (gaussianTable[index] * v0);
-    return v >> 15;
+    return v.shr15;
   }
 }

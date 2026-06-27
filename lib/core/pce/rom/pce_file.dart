@@ -1,10 +1,10 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:typed_data';
 
 // Project imports:
 import 'package:archive/archive_io.dart';
 
-import '../../../util/util.dart';
 
 class PceFile {
   final banks = List<Uint8List>.filled(0, Uint8List(0), growable: true);
@@ -13,7 +13,7 @@ class PceFile {
   /// throws exception when load failed
   void load(Uint8List body) {
     // caclurate CRC32 of entire file
-    crc = (Crc32()..add(body.toList())).close().map((val) => hex8(val)).join();
+    crc = (Crc32()..add(body.toList())).close().map((val) => val.x2).join();
     // load rom data
     const bankSize = 8 * 1024;
 

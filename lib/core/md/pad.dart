@@ -66,21 +66,21 @@ class Pad {
         counter[id] = 0;
       }
     }
-    // print("pad:$id writeData ${val.hex8} th:${th[id]} counter:${counter[id]}");
+    // print("pad:$id writeData ${val.x2} th:${th[id]} counter:${counter[id]}");
   }
 
   int readData(int id) {
     final val = buttonIndice[counter[id]].fold(
         0,
         (prev, idx) =>
-            prev << 1 |
+            prev.shl1 |
             (idx == -2
                 ? 0
                 : (idx == -1 || !isPressed[id][buttons[idx].name]!)
                     ? 1
                     : 0));
     // print(
-    //     "pad:$id counter:${counter[id]} ${val.hex8} isPressed:${isPressed[id]}");
+    //     "pad:$id counter:${counter[id]} ${val.x2} isPressed:${isPressed[id]}");
     return val | (th[id] ? 0x40 : 0);
   }
 
@@ -89,6 +89,6 @@ class Pad {
       th[id] = true;
     }
     counter[id] = 0;
-    // print("pad:$id writeCtrl ${val.hex8} th:${th[id]} counter:${counter[id]}");
+    // print("pad:$id writeCtrl ${val.x2} th:${th[id]} counter:${counter[id]}");
   }
 }

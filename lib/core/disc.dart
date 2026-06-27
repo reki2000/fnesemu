@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
 abstract class Disc {
@@ -30,9 +31,9 @@ abstract class Disc {
 
   static String dumpSector(int sector) {
     final (m, s, f) = lbaToMsf(sector);
-    final mm = m.toString().padLeft(2, '0');
-    final ss = s.toString().padLeft(2, '0');
-    final ff = f.toString().padLeft(2, '0');
+    final mm = m.d2z;
+    final ss = s.d2z;
+    final ff = f.d2z;
     return "$sector ($mm:$ss:$ff)";
   }
 

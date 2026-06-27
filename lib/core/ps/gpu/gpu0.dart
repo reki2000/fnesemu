@@ -6,19 +6,19 @@ extension Gpu0 on Gpu {
 
   void writeGp0(int value) {
     // if (bus.gpu.frame >= 1072 && bus.gpu.frame <= 1072) {
-    // debugLog("gp0: writeGp0: value:${value.hex32} ${dumpCmd()}");
+    // debugLog("gp0: writeGp0: value:${value.x8} ${dumpCmd()}");
     // }
 
     if (!cmdReady || !handleSingleWordCommand(value)) {
       if (!handleMultiwordCommand(value)) {
-        debugLog("invalid GP0 command cmd0:${value.hex32} ${dumpCmd()}");
+        debugLog("invalid GP0 command cmd0:${value.x8} ${dumpCmd()}");
         cmdSize = 0;
       }
     }
   }
 
   bool handleSingleWordCommand(int value) {
-    switch (value >> 24) {
+    switch (value.shr24) {
       case 0x00: // nop
       case 0x01: // clear cache
         break;
@@ -33,42 +33,42 @@ extension Gpu0 on Gpu {
         return false;
 
       case >= 0x00 && < 0x20:
-        debugLog("gp0: unknown misc command: ${value.hex32}");
+        debugLog("gp0: unknown misc command: ${value.x8}");
 
       case 0xe1: // draw mode setting
         status = status.masked(0x7ff, value).setBit(15, value.bit11);
-      // debugLog("gp0: e1: draw mode setting: ${status.hex32}");
+      // debugLog("gp0: e1: draw mode setting: ${status.x8}");
 
       case 0xe2: // texture window setting
         textureMaskX = value & 0x1f;
-        textureMaskY = (value >> 5) & 0x1f;
-        textureOffsetX = (value >> 10) & 0x1f;
-        textureOffsetY = (value >> 15) & 0x1f;
+        textureMaskY = value.shr5 & 0x1f;
+        textureOffsetX = value.shr10 & 0x1f;
+        textureOffsetY = value.shr15 & 0x1f;
 
-        textureMaskX2 = ~(textureMaskX << 3) & 0xff;
-        textureMaskY2 = ~(textureMaskY << 3) & 0xff;
-        textureOffsetX2 = (textureOffsetX & textureMaskX) << 3;
-        textureOffsetY2 = (textureOffsetY & textureMaskY) << 3;
+        textureMaskX2 = ~textureMaskX.shl3 & 0xff;
+        textureMaskY2 = ~textureMaskY.shl3 & 0xff;
+        textureOffsetX2 = (textureOffsetX & textureMaskX).shl3;
+        textureOffsetY2 = (textureOffsetY & textureMaskY).shl3;
       // debugLog(
-      //     "gp0: e2: texture window setting: ${value.hex32} mask:($textureMaskX, $textureMaskY) offset:($textureOffsetX, $textureOffsetY)");
+      //     "gp0: e2: texture window setting: ${value.x8} mask:($textureMaskX, $textureMaskY) offset:($textureOffsetX, $textureOffsetY)");
 
       case 0xe3: // set drawing area top left
         drawingX1 = value & xMask;
-        drawingY1 = (value >> 10) & yMask;
+        drawingY1 = value.shr10 & yMask;
       // debugLog(
-      //     "gp0: e3: set drawing area top left: ${value.hex32} area:($drawingX1, $drawingY1)");
+      //     "gp0: e3: set drawing area top left: ${value.x8} area:($drawingX1, $drawingY1)");
 
       case 0xe4: // set drawing area bottom right
         drawingX2 = value & xMask;
-        drawingY2 = (value >> 10) & yMask;
+        drawingY2 = value.shr10 & yMask;
       // debugLog(
-      //     "gp0: e4: set drawing area bottom right: ${value.hex32} area:($drawingX2, $drawingY2)");
+      //     "gp0: e4: set drawing area bottom right: ${value.x8} area:($drawingX2, $drawingY2)");
 
       case 0xe5: // set drawing offset
         drawingOffsetX = value.rel11;
-        drawingOffsetY = (value >> 11).rel11;
+        drawingOffsetY = value.shr11.rel11;
       // debugLog(
-      //     "gp0: e5: set drawing offset: ${value.hex32} offset:($drawingOffsetX, $drawingOffsetY)");
+      //     "gp0: e5: set drawing offset: ${value.x8} offset:($drawingOffsetX, $drawingOffsetY)");
 
       case 0xe6: // mask bit setting
         status = status.setBit(11, value.bit0);
@@ -77,7 +77,7 @@ extension Gpu0 on Gpu {
       //     "gp0: e6: mask:${value.bit0 ? "on " : "off"} check:${value.bit1 ? "on " : "off"}");
 
       case >= 0xe0 && < 0x100:
-        debugLog("gp0: unknown environment command: ${value.hex32}");
+        debugLog("gp0: unknown environment command: ${value.x8}");
 
       default:
         return false;
@@ -90,11 +90,11 @@ extension Gpu0 on Gpu {
     final cmd0 = cmdSize == 0 ? value : cmd[0];
 
     // debugLog(
-    //     "gp0: multiword value:${value.hex32} [${cmd0 >> 29}] cmd:${dumpCmd()}");
+    //     "gp0: multiword value:${value.x8} [${cmd0 >> 29}] cmd:${dumpCmd()}");
 
-    switch (cmd0 >> 29) {
+    switch (cmd0.shr29) {
       case 0x00: // misc
-        switch (cmd0 >> 24) {
+        switch (cmd0.shr24) {
           case 0x02: // quick rectangle fill
             cmdFillRectangle(value);
 
@@ -164,7 +164,7 @@ extension Gpu0 on Gpu {
     if (cmdSize == 3) {
       final p0 = Point.of(cmd[1] & 0x01ff03f0, 0, 0);
       final w = ((cmd[2] & 0x3ff) + 0x0f) & 0x7f0;
-      final h = cmd[2] >> 16 & 0x1ff;
+      final h = cmd[2].shr16 & 0x1ff;
       final c16 = Color.ofC24(cmd[0]).c15;
       for (int y = p0.y; y < (p0.y + h).min(512); y++) {
         for (int x = p0.x; x < (p0.x + w).min(1024); x++) {
@@ -173,7 +173,7 @@ extension Gpu0 on Gpu {
       }
 
       // debugLog(
-      //     "gp0: quick rectangle fill completed : ${dumpCmd()} (${p0.x},${p0.y}) ${w}x$h ${c16.hex16}");
+      //     "gp0: quick rectangle fill completed : ${dumpCmd()} (${p0.x},${p0.y}) ${w}x$h ${c16.x4}");
       cmdSize = 0;
     }
   }
@@ -223,7 +223,7 @@ extension Gpu0 on Gpu {
       // debugLog(
       //     "gp0: polygon completed ${dumpCmd()}");
       //     "($x0, $y0) $w x $h ($u0, $v0) "
-      //     "clut:${clut.hex16} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${page.hex16} ${page << 6 & 0x3c0},${page << 4 & 0x100} c${page >> 7 & 3} ");
+      //     "clut:${clut.x4} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${page.x4} ${page << 6 & 0x3c0},${page << 4 & 0x100} c${page >> 7 & 3} ");
       cmdSize = 0;
     }
   }
@@ -261,7 +261,7 @@ extension Gpu0 on Gpu {
     cmd[cmdSize++] = value;
 
     final textured = cmd[0].bit26;
-    final size = cmd[0] >> 27 & 3;
+    final size = cmd[0].shr27 & 3;
 
     int beginIndex = 2;
     int sizeIndex = 2;
@@ -283,29 +283,29 @@ extension Gpu0 on Gpu {
 
       final (clut, v0, u0) = !textured
           ? (0, 0, 0)
-          : (cmd[2] >> 16, (cmd[2] >> 8) & 0xff, cmd[2] & 0xff);
+          : (cmd[2].shr16, cmd[2].shr8 & 0xff, cmd[2] & 0xff);
 
       final (w, h) = switch (size) {
-        0 => (cmd[sizeIndex] & xMask, (cmd[sizeIndex] >> 16) & yMask),
+        0 => (cmd[sizeIndex] & xMask, cmd[sizeIndex].shr16 & yMask),
         1 => (1, 1),
         2 => (8, 8),
         3 => (16, 16),
         _ => throw "unreachable",
       };
 
-      final (x0, y0) = (cmd[1].rel11, (cmd[1] >> 16).rel11);
-      final baseX = status << 6 & 0x3c0;
-      final baseY = status << 4 & 0x100;
-      final clutMode = status >> 7 & 3;
-      final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
+      final (x0, y0) = (cmd[1].rel11, cmd[1].shr16.rel11);
+      final baseX = status.shl6 & 0x3c0;
+      final baseY = status.shl4 & 0x100;
+      final clutMode = status.shr7 & 3;
+      final clutBase = (clut.shr6 & yMask) * 1024 + (clut & 0x3f).shl4;
 
       // debugLog("gp0: drawRectangle: ${dumpCmd()} "
-      //     "${transparent ? "semi" : "opaq"} mod:${modulated ? cmd[0].hex24 : "-"} "
+      //     "${transparent ? "semi" : "opaq"} mod:${modulated ? cmd[0].x6 : "-"} "
       //     "xy($x0, $y0) $w x $h ->(${drawingOffsetX + x0},${drawingOffsetY + y0}) "
       //     "${!textured ? "flat" //
       //         : "c${[4, 8, 15, 16][clutMode]} "
-      //             "uv($u0, $v0) page:${status.hex16} ->(${u0 + baseX}+$textureOffsetX/${textureMaskX.hex8},${v0 + baseY}+$textureOffsetY/${textureMaskY.hex8}) "
-      //             "${!clutMode.bit1 ? "clut:${clut.hex16} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}"}");
+      //             "uv($u0, $v0) page:${status.x4} ->(${u0 + baseX}+$textureOffsetX/${textureMaskX.x2},${v0 + baseY}+$textureOffsetY/${textureMaskY.x2}) "
+      //             "${!clutMode.bit1 ? "clut:${clut.x4} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}"}");
 
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
@@ -336,9 +336,9 @@ extension Gpu0 on Gpu {
     cmd[cmdSize++] = value;
 
     if (cmdSize == 4) {
-      bltFromY = (cmd[1] >> 16) & yMask;
-      bltPosY = (cmd[2] >> 16) & yMask;
-      bltSizeY = (cmd[3] >> 16).maskZeroMax(yMask);
+      bltFromY = cmd[1].shr16 & yMask;
+      bltPosY = cmd[2].shr16 & yMask;
+      bltSizeY = cmd[3].shr16.maskZeroMax(yMask);
 
       bltFromX = cmd[1] & xMask;
       bltPosX = cmd[2] & xMask;
@@ -377,7 +377,7 @@ extension Gpu0 on Gpu {
   cmdBlitCpuToVram(int value) {
     if (cmdSize == 3) {
       final forceMask = status.bit11 ? 0x8000 : 0;
-      for (final v in [value.mask16, value >> 16]) {
+      for (final v in [value.mask16, value.shr16]) {
         if (!status.bit12 || !readFrameBuffer16(bltPosX, bltPosY).bit15) {
           writeFrameBuffer16(bltPosX, bltPosY, v | forceMask);
         }
@@ -393,7 +393,7 @@ extension Gpu0 on Gpu {
 
           if (bltSizeY == 0) {
             // debugLog(
-            //     "gp0: blit cpu to vram: completed  pc:${bus.cpu.pc.hex32}");
+            //     "gp0: blit cpu to vram: completed  pc:${bus.cpu.pc.x8}");
             cmdSize = 0;
             break;
           }
@@ -409,8 +409,8 @@ extension Gpu0 on Gpu {
       bltPosX = cmd[1] & xMask;
       bltSizeX = cmd[2].maskZeroMax(xMask);
 
-      bltPosY = cmd[1] >> 16 & yMask;
-      bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
+      bltPosY = cmd[1].shr16 & yMask;
+      bltSizeY = cmd[2].shr16.maskZeroMax(yMask);
 
       // debugLog(
       //     "gp0: blit cpu to vram: ${dumpCmd()} ($bltPosX,$bltPosY) $bltSizeX x $bltSizeY");
@@ -424,8 +424,8 @@ extension Gpu0 on Gpu {
       bltFromX = cmd[1] & xMask;
       bltSizeX = cmd[2].maskZeroMax(xMask);
 
-      bltFromY = cmd[1] >> 16 & yMask;
-      bltSizeY = (cmd[2] >> 16).maskZeroMax(yMask);
+      bltFromY = cmd[1].shr16 & yMask;
+      bltSizeY = cmd[2].shr16.maskZeroMax(yMask);
 
       // debugLog(
       //     "gp0: blit vram to cpu: ${dumpCmd()} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
@@ -438,49 +438,53 @@ extension Gpu0 on Gpu {
 
   String dumpClut(int clut, int page) {
     final (clutX, clutY, clutMode) =
-        (clut << 4 & 0x3f0, clut >> 6 & 0x1ff, page >> 7 & 3);
+        (clut.shl4 & 0x3f0, clut.shr6 & 0x1ff, page.shr7 & 3);
     final clutBase = clutY * 2048 + clutX * 2;
 
     final dump = switch (clutMode) {
       0 => List.generate(16, (i) => i)
-          .map((i) => frameBuffer.getUint16LE(clutBase + i * 2).hex16)
+          .map((i) => frameBuffer.getUint16LE(clutBase + i * 2).x4)
           .join(" "),
       1 => List.generate(256, (i) => i)
-          .map((i) => frameBuffer.getUint16LE(clutBase + i * 2).hex16)
+          .map((i) => frameBuffer.getUint16LE(clutBase + i * 2).x4)
           .join(" "),
       2 => "16bit",
       _ => "unknown",
     };
 
-    return "0x${clutBase.hex32} [$dump]";
+    return "0x${clutBase.x8} [$dump]";
   }
 
   debugLogTexturedPolygon(List<int> c) {
-    final clut = c[2] >> 16;
-    final page = c[4] >> 16;
+    const logAllVertice = false;
 
-    final (x0, y0) = (c[1] & xMask, c[1] >> 16 & yMask);
-    final (u0, v0) = (c[2] & 0xff, c[2] >> 8 & 0xff);
-    final (x1, y1) = (c[3] & xMask, c[3] >> 16 & yMask);
-    final (u1, v1) = (c[4] & 0xff, c[4] >> 8 & 0xff);
-    final (x2, y2) = (c[5] & xMask, c[5] >> 16 & yMask);
-    final (u2, v2) = (c[6] & 0xff, c[6] >> 8 & 0xff);
-    final (x3, y3) = (c[7] & xMask, c[7] >> 16 & yMask);
-    final (u3, v3) = (c[8] & 0xff, c[8] >> 8 & 0xff);
+    final clut = c[2].shr16;
+    final page = c[4].shr16;
+
+    final (x0, y0) = (c[1] & xMask, c[1].shr16 & yMask);
+    final (u0, v0) = (c[2] & 0xff, c[2].shr8 & 0xff);
+    final (x1, y1) = (c[3] & xMask, c[3].shr16 & yMask);
+    final (u1, v1) = (c[4] & 0xff, c[4].shr8 & 0xff);
+    final (x2, y2) = (c[5] & xMask, c[5].shr16 & yMask);
+    final (u2, v2) = (c[6] & 0xff, c[6].shr8 & 0xff);
+    final (x3, y3) = (c[7] & xMask, c[7].shr16 & yMask);
+    final (u3, v3) = (c[8] & 0xff, c[8].shr8 & 0xff);
     final (clutX, clutY, clutMode) =
-        (clut << 4 & 0x3f0, clut >> 6 & 0x1ff, page >> 7 & 3);
-    final (pageX, pageY) = (page << 6 & 0x3c0, page << 4 & 0x100);
+        (clut.shl4 & 0x3f0, clut.shr6 & 0x1ff, page.shr7 & 3);
+    final (pageX, pageY) = (page.shl6 & 0x3c0, page.shl4 & 0x100);
     final clutDump = dumpClut(clut, page);
+    if (logAllVertice) {
+      debugLog(
+          "gp0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.x8).join(" ")} "
+          "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
+          "clut:${clut.x4} $clutX,$clutY page:${page.x4} $pageX,$pageY c$clutMode [$clutDump]");
+    } else {
+      debugLog("gp0: textured rectangle polygon completed ${dumpCmd()} "
+          "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
+          "clut:${clut.x4} $clutX,$clutY page:${page.x4} $pageX,$pageY c$clutMode [$clutDump]");
+    }
     // debugLog(
-    //     "gp0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.hex32).join(" ")} "
-    //     "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
-    //     "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
-    // if (x0 == 0 && y0 == 144) {
-    debugLog("gp0: textured rectangle polygon completed ${dumpCmd()} "
-        "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
-        "clut:${clut.hex16} $clutX,$clutY page:${page.hex16} $pageX,$pageY c$clutMode [$clutDump]");
-    // debugLog(
-    //     "gp0: texture color at (0,144): ${getTextureColor(0, 144, clut, status).hex16}");
+    //     "gp0: texture color at (0,144): ${getTextureColor(0, 144, clut, status).x4}");
     // renderFlatPolygon(0, c[3], c[5], c[7]);
     // }
   }

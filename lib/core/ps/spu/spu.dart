@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import '../../../util/debug.dart';
-import '../../../util/double.dart';
-import '../../../util/int.dart';
-import '../../../util/uint8list.dart';
+import 'package:fnesemu/util/debug.dart';
+import 'package:fnesemu/util/double.dart';
+import 'package:fnesemu/util/int.dart';
+import 'package:fnesemu/util/uint8list.dart';
 import '../bus.dart';
 import 'reverb.dart';
 import 'voice.dart';
@@ -92,7 +92,7 @@ class Spu {
   int get status => _status;
   int _control = 0;
   int get control {
-    // debugLog("spu: readControl ${_control.hex32}");
+    // debugLog("spu: readControl ${_control.x8}");
     return _control;
   }
 
@@ -121,17 +121,17 @@ class Spu {
 
   void setIrqAddr(int value) {
     irqAddr = value;
-    _irqAddr = value << 3;
+    _irqAddr = value.shl3;
   }
 
   setFifoAddr(int value) {
     fifoAddr = value;
-    _fifoAddr = value << 3;
+    _fifoAddr = value.shl3;
   }
 
   int get noiseFlags => voices.asMap().entries.fold(
         0,
-        (acc, entry) => (acc << 1) | (entry.value.noise ? 1 : 0),
+        (acc, entry) => acc.shl1 | (entry.value.noise ? 1 : 0),
       );
   setNoiseFlags(int v) {
     for (int i = 0; i < voices.length; i++) {
@@ -141,7 +141,7 @@ class Spu {
 
   int get pitchModulation => voices.asMap().entries.fold(
         0,
-        (acc, entry) => (acc << 1) | (entry.value.pitchModulation ? 1 : 0),
+        (acc, entry) => acc.shl1 | (entry.value.pitchModulation ? 1 : 0),
       );
   setPitchModulation(int v) {
     for (int i = 0; i < voices.length; i++) {
@@ -153,7 +153,7 @@ class Spu {
     if (irqEnabled && addr == _irqAddr) {
       _status = _status.setBit(6, true); // set irq flag
       bus.setIrq(9);
-      // debugLog("spu: IRQ triggered at ${_fifoAddr.hex24}");
+      // debugLog("spu: IRQ triggered at ${_fifoAddr.x6}");
     }
 
     return ram.getUint16LE(addr);
@@ -169,11 +169,11 @@ class Spu {
     if (irqEnabled && addr == _irqAddr) {
       _status = _status.setBit(6, true); // set irq flag
       bus.setIrq(9);
-      debugLog("spu: IRQ triggered at ${addr.hex24}");
+      debugLog("spu: IRQ triggered at ${addr.x6}");
     }
 
     ram[addr] = value.mask8;
-    ram[addr + 1] = value >> 8 & 0xff;
+    ram[addr + 1] = value.shr8 & 0xff;
   }
 
   int fifoWriteCount = 0;
@@ -181,7 +181,7 @@ class Spu {
   void writeFifo16(int value) {
     // if (0x1030 <= _fifoAddr && _fifoAddr < 0x1050) {
     //   debugLog(
-    //       "SPU: writeFifo ${_fifoAddr.hex32} ${value.hex32} ${bus.cpu.dump()}");
+    //       "SPU: writeFifo ${_fifoAddr.x8} ${value.x8} ${bus.cpu.dump()}");
     // }
     if (value != 0) fifoWriteCount++;
     writeRam16(_fifoAddr, value);
@@ -190,15 +190,15 @@ class Spu {
 
   void writeCtrl(int value) {
     // debugLog(
-    //     "spu: writeCtrl ${value.hex32} irq:${irqEnabled ? "E" : "e"}:${_irqAddr.hex24}");
+    //     "spu: writeCtrl ${value.x8} irq:${irqEnabled ? "E" : "e"}:${_irqAddr.x6}");
     _control = value;
     enabled = value.bit15;
     muted = !value.bit14;
     fifoMode =
-        value >> 4 & 0x03; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
+        value.shr4 & 0x03; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
     reverb.writeEnabled = value.bit7;
-    noiseFreqShift = (value >> 10) & 0x0f;
-    noiseFreqStep = (value >> 8) & 0x03;
+    noiseFreqShift = value.shr10 & 0x0f;
+    noiseFreqStep = value.shr8 & 0x03;
 
     if (value.bit6) {
       if (enabled) irqEnabled = true;
@@ -214,25 +214,25 @@ class Spu {
         0x00 => voices[ch].volume(0),
         0x02 => voices[ch].volume(1),
         0x04 => voices[ch].pitch,
-        0x06 => voices[ch].startAddr >> 3,
+        0x06 => voices[ch].startAddr.shr3,
         0x08 => voices[ch].adsr.mask16,
-        0x0a => voices[ch].adsr >> 16,
+        0x0a => voices[ch].adsr.shr16,
         0x0c => voices[ch].adsrVolume,
-        0x0e => voices[ch].repeatAddr >> 3,
-        _ => throw "illegal readVoice port:${port.hex8} ch:$ch",
+        0x0e => voices[ch].repeatAddr.shr3,
+        _ => throw "illegal readVoice port:${port.x2} ch:$ch",
       };
 
   void writeVoice(int port, int ch, int v) => switch (port) {
         0x00 => voices[ch].setVolume(0, v),
         0x02 => voices[ch].setVolume(1, v),
         0x04 => voices[ch].pitch = v,
-        0x06 => voices[ch].startAddr = v << 3,
+        0x06 => voices[ch].startAddr = v.shl3,
         0x08 => voices[ch].setAttackDecay(v),
         0x0a => voices[ch].setSustainRelease(v),
         0x0c => voices[ch].adsrVolume = v,
-        0x0e => voices[ch].repeatAddr = v << 3,
+        0x0e => voices[ch].repeatAddr = v.shl3,
         _ =>
-          throw "illegal writeVoice port:${port.hex8} ch:$ch value:${v.hex32}",
+          throw "illegal writeVoice port:${port.x2} ch:$ch value:${v.x8}",
       };
 
   void keyOn(int value) {
@@ -250,9 +250,9 @@ class Spu {
 
   void logEvents(String name, int ch) {
     // File("spu_events.txt").writeAsStringSync(
-    //     "${bus.cpu.clocks},$name,$ch,0x${voices[ch].startAddr.hex24},"
-    //     "0x${voices[ch].pitch.hex24},0x${voices[ch].volume(0).hex16},0x${voices[ch].volume(1).hex16},"
-    //     "0x${voices[ch].adsr.hex32}\n",
+    //     "${bus.cpu.clocks},$name,$ch,0x${voices[ch].startAddr.x6},"
+    //     "0x${voices[ch].pitch.x6},0x${voices[ch].volume(0).x4},0x${voices[ch].volume(1).x4},"
+    //     "0x${voices[ch].adsr.x8}\n",
     //     mode: FileMode.append);
   }
 
@@ -272,13 +272,13 @@ class Spu {
         result |= 1 << i;
       }
     }
-    // debugLog("SPU: endx ${result.hex32}");
+    // debugLog("SPU: endx ${result.x8}");
     return result;
   }
 
   String dump() =>
       "SPU: $fifoWriteCount ${enabled ? "*" : " "}${muted ? "M" : " "} "
-      "$fifoMode ${fifoAddr.hex24} ${irqEnabled ? "I" : "i"}${_irqAddr.hex24}\n"
+      "$fifoMode ${fifoAddr.x6} ${irqEnabled ? "I" : "i"}${_irqAddr.x6}\n"
       "${voices.sublist(0, 8).map((v) => v.dump()).join(" ")}\n"
       "${voices.sublist(8, 16).map((v) => v.dump()).join(" ")}\n"
       "${voices.sublist(16, 24).map((v) => v.dump()).join(" ")}";

@@ -1,6 +1,7 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/sampler.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
@@ -56,15 +57,15 @@ int testGetUint32Le(int v, int s, int count) {
 int testGetUint32List(int v, int s, int count) {
   int sum = 0;
   for (int i = 0; i < count; i++) {
-    sum += data32[v & 0xfffff >> 2];
+    sum += data32[v & 0xfffff.shr2];
   }
   return sum;
 }
 
 extension IntExt on int {
-  int get mask8 => this & ((1 << 8) - 1);
-  int get mask16 => this & ((1 << 16) - 1);
-  int get mask24 => this & ((1 << 24) - 1);
+  int get mask8 => this & (1.shl8 - 1);
+  int get mask16 => this & (1.shl16 - 1);
+  int get mask24 => this & (1.shl24 - 1);
   int get mask32 => this & ((1 << 32) - 1);
 
   int mask(int size) => size == 1
@@ -75,5 +76,5 @@ extension IntExt on int {
               ? mask32
               : throw ("unreachable");
 
-  int mask2(int size) => this & ((1 << (size << 3)) - 1);
+  int mask2(int size) => this & ((1 << size.shl3) - 1);
 }

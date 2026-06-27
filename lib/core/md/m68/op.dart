@@ -12,8 +12,8 @@ extension Op on M68 {
     }
 
     if (0 < _assertedIntLevel && _assertedIntLevel > maskedIntLevel) {
-      trap((_assertedIntLevel << 2) + 0x60,
-          sr & ~0x700 | _assertedIntLevel << 8 & 0x700);
+      trap(_assertedIntLevel.shl2 + 0x60,
+          sr & ~0x700 | _assertedIntLevel.shl8 & 0x700);
       _assertedIntLevel = 0;
       return true;
     }
@@ -22,17 +22,17 @@ extension Op on M68 {
     final op = op0 = pc16();
 
     try {
-      switch (op >> 12) {
+      switch (op.shr12) {
         case 0x00:
           return exec0(op);
         case 0x01:
         case 0x02:
         case 0x03:
-          final size = size2[op >> 12 & 0x03];
+          final size = size2[op.shr12 & 0x03];
           final src = op & 0x07;
-          final modeSrc = op >> 3 & 0x07;
-          final dst = op >> 9 & 0x07;
-          final modeDst = op >> 6 & 0x07;
+          final modeSrc = op.shr3 & 0x07;
+          final dst = op.shr9 & 0x07;
+          final modeDst = op.shr6 & 0x07;
 
           final value = readAddr(size, modeSrc, src);
 
@@ -47,7 +47,7 @@ extension Op on M68 {
 
           if (modeDst != 0 && modeDst != 1) {
             addr0 = addressing(size, modeDst, dst);
-            // debug("addr0:${addr0.hex32}");
+            // debug("addr0:${addr0.x8}");
           } else if (modeDst == 1) {
             a[dst] = value.rel(size).mask32;
             return true;
@@ -70,7 +70,7 @@ extension Op on M68 {
         case 0x07:
           // moveq
           final val = op.mask8.rel8.mask32;
-          d[op >> 9 & 0x07] = val;
+          d[op.shr9 & 0x07] = val;
           nf = val.msb(4);
           zf = val == 0;
           vf = cf = false;
@@ -109,8 +109,8 @@ extension Op on M68 {
 
   bool exec5(int op) {
     if (op & 0x00c0 == 0x00c0) {
-      final mode = op >> 3 & 0x07;
-      final cc = op >> 8 & 0x0f;
+      final mode = op.shr3 & 0x07;
+      final cc = op.shr8 & 0x0f;
       final dx = op & 0x07;
 
       if (mode == 0x01) {
@@ -145,9 +145,9 @@ extension Op on M68 {
 
     // addq, subq
     final reg = op & 0x07;
-    final data = op >> 9 & 0x07;
-    final size = size0[op >> 6 & 0x03];
-    final mode = op >> 3 & 0x07;
+    final data = op.shr9 & 0x07;
+    final size = size0[op.shr6 & 0x03];
+    final mode = op.shr3 & 0x07;
 
     final b = data == 0 ? 8 : data;
 
@@ -156,7 +156,7 @@ extension Op on M68 {
       final r = op.bit8 ? a[reg] - b : a[reg] + b;
       a[reg] = r.mask32;
     } else {
-      // debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.hex24}");
+      // debug("clock:$clocks size:$size mod:$mode reg:$reg addr:${addr0.x6}");
       final a = readAddr(size, mode, reg);
       final r = op.bit8 ? sub(a, b, size) : add(a, b, size);
       if (size == 4) {
@@ -171,7 +171,7 @@ extension Op on M68 {
   }
 
   bool exec6(int op) {
-    final cc = op >> 8 & 0x0f;
+    final cc = op.shr8 & 0x0f;
     final pc0 = pc;
     final disp = switch (op.mask8) {
       0x00 => pc16().rel16,
@@ -195,9 +195,9 @@ extension Op on M68 {
 
   bool exec9(int op) {
     final xn = op & 0x07;
-    final dn = op >> 9 & 0x07;
-    final s0 = op >> 6 & 0x03;
-    final mode = op >> 3 & 0x07;
+    final dn = op.shr9 & 0x07;
+    final s0 = op.shr6 & 0x03;
+    final mode = op.shr3 & 0x07;
 
     if (s0 == 0x03) {
       // suba
@@ -205,7 +205,7 @@ extension Op on M68 {
 
       final aa = readAddr(size, mode, xn);
       // debug(
-      //     "size:$size mod:$mode reg:$xn addr:${addr0.hex24} aa:$aa clock:$clocks");
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.x6} aa:$aa clock:$clocks");
 
       final r = a[dn] - aa.smask(size);
       clocks +=
@@ -257,13 +257,13 @@ extension Op on M68 {
 
   bool execB(int op) {
     final ry = op & 0x07;
-    final rx = op >> 9 & 0x07;
-    final size = size0[op >> 6 & 0x03];
-    final mode = op >> 3 & 0x07;
+    final rx = op.shr9 & 0x07;
+    final size = size0[op.shr6 & 0x03];
+    final mode = op.shr3 & 0x07;
 
     if (op & 0x00c0 == 0x00c0) {
       //cmpa
-      final size = size1[op >> 8 & 0x01];
+      final size = size1[op.shr8 & 0x01];
       final src = readAddr(size, mode, ry);
       final dst = a[rx];
       sub(dst, (size == 2) ? src.rel16.mask32 : src, 4, cmp: true);
@@ -296,9 +296,9 @@ extension Op on M68 {
 
   bool execD(int op) {
     final xn = op & 0x07;
-    final dn = op >> 9 & 0x07;
-    final s0 = op >> 6 & 0x03;
-    final mode = op >> 3 & 0x07;
+    final dn = op.shr9 & 0x07;
+    final s0 = op.shr6 & 0x03;
+    final mode = op.shr3 & 0x07;
 
     // adda
     if (s0 == 0x03) {
@@ -306,7 +306,7 @@ extension Op on M68 {
 
       final aa = readAddr(size, mode, xn);
       // debug(
-      //     "size:$size mod:$mode reg:$xn addr:${addr0.hex24} aa:$aa clock:$clocks");
+      //     "size:$size mod:$mode reg:$xn addr:${addr0.x6} aa:$aa clock:$clocks");
 
       final r = a[dn] + aa.smask(size);
       clocks +=

@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 /// mirroring setting for PPU name table
 class Mirror {
   //                0x2000-0x2400/0x2800-0x2c00
@@ -17,7 +19,7 @@ class Mirror {
 
   static final vertical = Mirror((v) => v & ~0x800, name: "v ");
   static final horizontal =
-      Mirror((v) => v & ~0xc00 | ((v & 0x800) >> 1), name: "h ");
+      Mirror((v) => v & ~0xc00 | (v & 0x800).shr1, name: "h ");
   static final oneScreenLow = Mirror((v) => v & ~0xc00, name: "1l");
   static final oneScreenHigh = Mirror((v) => v & ~0xc00 | 0x400, name: "1h");
 

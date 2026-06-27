@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 
 enum _Operand {
   immed,
@@ -124,10 +124,10 @@ class Disasm {
   }
 
   static String disasm(final int pc, int op, int a, int b) {
-    final addr = hex16(pc);
-    final x = hex8(op);
-    final y = hex8(a);
-    final z = hex8(b);
+    final addr = pc.x4;
+    final x = op.x2;
+    final y = a.x2;
+    final z = b.x2;
 
     final val = _ops[op];
     if (val == null) {
@@ -161,7 +161,7 @@ class Disasm {
       case _Operand.indy:
         return "$addr  $x $y     $inst \$($y), Y $set";
       case _Operand.rel:
-        return "$addr  $x $y     $inst \$${hex16(rel)}";
+        return "$addr  $x $y     $inst \$${rel.x4}";
       default:
         return "$addr  $x        $inst";
     }

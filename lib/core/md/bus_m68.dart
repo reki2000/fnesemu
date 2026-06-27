@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import '../../util/int.dart';
+import 'package:fnesemu/util/int.dart';
 
 import 'm68/m68.dart';
 import 'bus_z80.dart';
@@ -34,7 +34,7 @@ class BusM68 {
   final ram = Uint8List(0x10000);
 
   int read8(int addr) {
-    final top = addr >> 16 & 0xff;
+    final top = addr.shr16 & 0xff;
 
     if (top == 0xff) {
       return ram[addr.mask16];
@@ -61,7 +61,7 @@ class BusM68 {
       }
 
       return (addr & 0x01 == 0)
-          ? vdp.read16(addr.mask16) >> 8
+          ? vdp.read16(addr.mask16).shr8
           : vdp.read16(addr & 0xfffe).mask8;
     }
 
@@ -77,22 +77,22 @@ class BusM68 {
   }
 
   int read16(int addr) {
-    final top = addr >> 16 & 0xff;
+    final top = addr.shr16 & 0xff;
 
     if (top == 0xff) {
-      return ram[addr.mask16] << 8 | ram[addr.inc.mask16];
+      return ram[addr.mask16].shl8 | ram[addr.inc.mask16];
     }
 
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
 
       if (offset < rom.rom.length - 1) {
-        return rom.rom[offset] << 8 | rom.rom[offset.inc];
+        return rom.rom[offset].shl8 | rom.rom[offset.inc];
       }
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
         final ramOffset = offset - rom.ramStartAddr;
-        return rom.ram[ramOffset.mask16] << 8 | rom.ram[ramOffset.inc.mask16];
+        return rom.ram[ramOffset.mask16].shl8 | rom.ram[ramOffset.inc.mask16];
       }
 
       return 0x00;
@@ -108,7 +108,7 @@ class BusM68 {
 
     if (top == 0xa0) {
       return addr < 0xa08000
-          ? busZ80.read(addr.mask16) << 8 | busZ80.read(addr.inc.mask16)
+          ? busZ80.read(addr.mask16).shl8 | busZ80.read(addr.inc.mask16)
           : 0x00;
     }
 
@@ -120,7 +120,7 @@ class BusM68 {
 
     if (top == 0xff0000) {
       // if (addr.mask16 == 0x1a) {
-      //   print("write8: ${addr.hex32} ${data.hex8}");
+      //   print("write8: ${addr.x8} ${data.x2}");
       // }
       ram[addr.mask16] = data;
       return;
@@ -132,17 +132,17 @@ class BusM68 {
         return;
       }
 
-      write16(addr, data << 8);
+      write16(addr, data.shl8);
       return;
     }
 
     if (top == 0xa10000) {
-      addr.bit0 ? writeIo16(addr, data) : writeIo16(addr, data << 8);
+      addr.bit0 ? writeIo16(addr, data) : writeIo16(addr, data.shl8);
       return;
     }
 
     if (top == 0xa00000) {
-      // print("write z80 addr:${addr.mask16.hex16}:${data.hex8}");
+      // print("write z80 addr:${addr.mask16.x4}:${data.x2}");
       busZ80.write(addr.mask16, data);
       return;
     }
@@ -163,13 +163,13 @@ class BusM68 {
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
-      ram[addr.mask16] = data >> 8;
+      ram[addr.mask16] = data.shr8;
       ram[addr.inc.mask16] = data.mask8;
       return;
     }
 
     if (top == 0xc00000) {
-      // print("write16: ${addr.hex32} ${data.hex16} pc:${cpu.pc.hex24}");
+      // print("write16: ${addr.x8} ${data.x4} pc:${cpu.pc.x6}");
       vdp.write16(addr.mask16, data);
       return;
     }
@@ -180,7 +180,7 @@ class BusM68 {
     }
 
     if (top == 0xa00000) {
-      busZ80.write(addr.mask16, data >> 8);
+      busZ80.write(addr.mask16, data.shr8);
       busZ80.write(addr.inc.mask16, data.mask8);
       return;
     }
@@ -190,7 +190,7 @@ class BusM68 {
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
         final ramOffset = offset - rom.ramStartAddr;
-        rom.ram[ramOffset.mask16] = data >> 8;
+        rom.ram[ramOffset.mask16] = data.shr8;
         rom.ram[ramOffset.inc.mask16] = data;
       }
 
@@ -201,7 +201,7 @@ class BusM68 {
   int readIo16(int addr) {
     return switch (addr & 0xfffe) {
       0x00 => region | 0x20, // region, ntsc, no fdd, version 0
-      0x02 || 0x04 || 0x06 => pad.readData((addr >> 1 & 0x03).dec), // data
+      0x02 || 0x04 || 0x06 => pad.readData((addr.shr1 & 0x03).dec), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
@@ -220,17 +220,17 @@ class BusM68 {
   }
 
   void writeIo16(int addr, int data) {
-    // print("io:${addr.hex32} ${data.hex8}");
+    // print("io:${addr.x8} ${data.x2}");
     final _ = switch (addr & 0xfffe) {
       0x00 => 0x20, // domestic, ntsc, no fdd, version 0
       0x02 ||
       0x04 ||
       0x06 =>
-        pad.writeData((addr >> 1 & 0x03).dec, data), // data 1 (ctrl1)
+        pad.writeData((addr.shr1 & 0x03).dec, data), // data 1 (ctrl1)
       0x08 ||
       0x0a ||
       0x0c =>
-        pad.writeCtrl((addr >> 1 & 0x03), data), // ctrl 1 (ctrl1)
+        pad.writeCtrl((addr.shr1 & 0x03), data), // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
       0x12 => 0x00, // s-ctrl 1

@@ -1,5 +1,4 @@
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
 
 import 'z80.dart';
 
@@ -25,12 +24,12 @@ extension OpDdFd on Z80 {
         case 0x22: // ld (nn), ix
           final addr = pc16();
           write(addr, r.ixiy[xy] & 0xff);
-          write(addr + 1, r.ixiy[xy] >> 8);
+          write(addr + 1, r.ixiy[xy].shr8);
           cycles += 6;
           return true;
         case 0x2a: // ld ix, (nn)
           final addr = pc16();
-          r.ixiy[xy] = read(addr).withHighByte(read((addr + 1)));
+          r.ixiy[xy] = read(addr).setH8(read((addr + 1)));
           cycles += 6;
           return true;
         case 0x23: // inc ix
@@ -42,7 +41,7 @@ extension OpDdFd on Z80 {
           cycles += 2;
           return true;
         default:
-          final reg = (op & 0x38) >> 3;
+          final reg = (op & 0x38).shr3;
           final rel = reg == 0x06 ? rel8() : 0;
           switch (op & 0x07) {
             case 0x04: // inc r
@@ -70,7 +69,7 @@ extension OpDdFd on Z80 {
       }
 
       final src = op & 0x07;
-      final dst = (op & 0x38) >> 3;
+      final dst = (op & 0x38).shr3;
       int rel = 0;
       if (src == 0x06 || dst == 0x06) {
         cycles += 5;
@@ -134,8 +133,8 @@ extension OpDdFd on Z80 {
         r.ixiy[xy] = (r.ixiy[xy] & 0xff00) | tmp;
         final sp2 = r.sp + 1;
         final tmp2 = read(sp2);
-        write(sp2, r.ixiy[xy] >> 8);
-        r.ixiy[xy] = (r.ixiy[xy] & 0x00ff) | (tmp2 << 8);
+        write(sp2, r.ixiy[xy].shr8);
+        r.ixiy[xy] = (r.ixiy[xy] & 0x00ff) | tmp2.shl8;
         cycles += 15;
         return true;
       case 0xe5: // push ix
@@ -175,7 +174,7 @@ extension OpDdFd on Z80 {
             return true;
 
           case 0x40:
-            final bit = (op2 >> 3) & 0x07;
+            final bit = op2.shr3 & 0x07;
             final val = org & (1 << bit);
             r.setSZ(val);
             r.hf = true;
@@ -185,14 +184,14 @@ extension OpDdFd on Z80 {
             return true;
 
           case 0x80:
-            final val = org & ~(1 << ((op2 >> 3) & 0x07));
+            final val = org & ~(1 << (op2.shr3 & 0x07));
             write(addr, val);
             if (dst != 0x06) writeReg(dst, val);
             cycles += 8;
             return true;
 
           case 0xc0:
-            final val = org | (1 << ((op2 >> 3) & 0x07));
+            final val = org | (1 << (op2.shr3 & 0x07));
             write(addr, val);
             if (dst != 0x06) writeReg(dst, val);
             cycles += 8;

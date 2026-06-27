@@ -113,7 +113,7 @@ extension Gp0Renderer on Gpu {
     final transparent = cmd.bit25;
 
     // debugLog(
-    //     'gp0: drawPolygon: ${dumpCmd()} (${p0.x},${p0.y}:${p0.c.c24.hex32}), (${p1.x},${p1.y}:${p1.c.c24.hex32}), (${p2.x},${p2.y}:${p2.c.c24.hex32}) '
+    //     'gp0: drawPolygon: ${dumpCmd()} (${p0.x},${p0.y}:${p0.c.c24.x8}), (${p1.x},${p1.y}:${p1.c.c24.x8}), (${p2.x},${p2.y}:${p2.c.c24.x8}) '
     //     'offset:$drawingOffsetX,$drawingOffsetY area:$drawingX1,$drawingY1-$drawingX2,$drawingY2 ');
 
     for (int y = p0.y; y < p2.y; y++) {
@@ -139,15 +139,15 @@ extension Gp0Renderer on Gpu {
     final rectangle = cmd.bit27;
     final modulateColor = Color.ofC24(cmd);
 
-    final clut = c[2] >> 16;
-    final page = c[gouraud ? 5 : 4] >> 16;
+    final clut = c[2].shr16;
+    final page = c[gouraud ? 5 : 4].shr16;
 
     final semiTransparent = page.shr5 & 0x03;
 
-    final baseX = page << 6 & 0x3c0;
-    final baseY = page << 4 & 0x100;
-    final clutMode = page >> 7 & 3;
-    final clutBase = (clut >> 6 & yMask) * 1024 + ((clut & 0x3f) << 4);
+    final baseX = page.shl6 & 0x3c0;
+    final baseY = page.shl4 & 0x100;
+    final clutMode = page.shr7 & 3;
+    final clutBase = (clut.shr6 & yMask) * 1024 + (clut & 0x3f).shl4;
 
     // 0c,1xy,2uv   3c,4xy,5uv  6c,7xy,8uv   9c,10xy,11uv
     // 0c,1xy,2uv   3xy,4uv  5xy,6uv  7xy,8uv
@@ -162,26 +162,26 @@ extension Gp0Renderer on Gpu {
           gouraud ? Point.of(c[10], c[9], c[11]) : Point.of(c[7], 0, c[8]);
       polygons.add(sortVertice2(p1_, p2_, p3_));
       // debugLog(
-      //     "gp0: vram(0,0): ${readFrameBuffer16(0, 100).hex16} ${readFrameBuffer16(320, 100).hex16} forceBit15:${status.bit11} writeMask:${status.bit12}");
+      //     "gp0: vram(0,0): ${readFrameBuffer16(0, 100).x4} ${readFrameBuffer16(320, 100).x4} forceBit15:${status.bit11} writeMask:${status.bit12}");
       // debugLog("gp0: drawPolygonTex4: $debugCmdIndexInFrame ${dumpCmd()} "
-      //     "${cmd.bit25 ? "semi:$semiTransparent" : "opaq"} mod:${modulated ? cmd.hex24 : "-"} "
+      //     "${cmd.bit25 ? "semi:$semiTransparent" : "opaq"} mod:${modulated ? cmd.x6 : "-"} "
       //     "xy(${p0_.x},${p0_.y})-(${p1_.x},${p1_.y})-(${p2_.x},${p2_.y})-(${p3_.x},${p3_.y}) "
       //     "->(${p0_.x + drawingOffsetX},${p0_.y + drawingOffsetY})-(${p1_.x + drawingOffsetX},${p1_.y + drawingOffsetY})-(${p2_.x + drawingOffsetX},${p2_.y + drawingOffsetY})-(${p3_.x + drawingOffsetX},${p3_.y + drawingOffsetY}) "
-      //     "c${[4, 8, 15, 16][clutMode]} page:${status.hex16} "
+      //     "c${[4, 8, 15, 16][clutMode]} page:${status.x4} "
       //     "uv(${p0_.u}, ${p0_.v})-(${p1_.u},${p1_.v})-(${p2_.u},${p2_.v})-(${p3_.u},${p3_.v}) "
       //     "->(${p0_.u + baseX},${p0_.v + baseY})-(${p1_.u + baseX},${p1_.v + baseY})-(${p2_.u + baseX},${p2_.v + baseY})-(${p3_.u + baseX},${p3_.v + baseY}) "
-      //     "(+$textureOffsetX/${textureMaskX.hex8},+$textureOffsetY/${textureMaskY.hex8}) "
-      //     "${!clutMode.bit1 ? "clut:${clut.hex16} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}");
+      //     "(+$textureOffsetX/${textureMaskX.x2},+$textureOffsetY/${textureMaskY.x2}) "
+      //     "${!clutMode.bit1 ? "clut:${clut.x4} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}");
     } else {
       // debugLog("gp0: drawPolygonTex: ${dumpCmd()} "
-      //     "${cmd.bit25 ? "semi:$semiTransparent" : "opaq"} mod:${modulated ? cmd.hex24 : "-"} "
+      //     "${cmd.bit25 ? "semi:$semiTransparent" : "opaq"} mod:${modulated ? cmd.x6 : "-"} "
       //     "xy(${p0_.x},${p0_.y})-(${p1_.x},${p1_.y})-(${p2_.x},${p2_.y}}) "
       //     "->(${p0_.x + drawingOffsetX},${p0_.y + drawingOffsetY})-(${p1_.x + drawingOffsetX},${p1_.y + drawingOffsetY})-(${p2_.x + drawingOffsetX},${p2_.y + drawingOffsetY}) "
-      //     "c${[4, 8, 15, 16][clutMode]} page:${status.hex16} "
+      //     "c${[4, 8, 15, 16][clutMode]} page:${status.x4} "
       //     "uv(${p0_.u}, ${p0_.v})-(${p1_.u},${p1_.v})-(${p2_.u},${p2_.v})) "
       //     "->(${p0_.u + baseX},${p0_.v + baseY})-(${p1_.u + baseX},${p1_.v + baseY})-(${p2_.u + baseX},${p2_.v + baseY})) "
-      //     "(+$textureOffsetX/${textureMaskX.hex8},+$textureOffsetY/${textureMaskY.hex8}) "
-      //     "${!clutMode.bit1 ? "clut:${clut.hex16} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}");
+      //     "(+$textureOffsetX/${textureMaskX.x2},+$textureOffsetY/${textureMaskY.x2}) "
+      //     "${!clutMode.bit1 ? "clut:${clut.x4} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}");
     }
 
     final x1 = drawingX1 - drawingOffsetX;

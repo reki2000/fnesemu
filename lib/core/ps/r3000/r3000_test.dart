@@ -6,7 +6,7 @@ import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 import 'package:test/test.dart';
 
-import '../../../util/debug.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'disasm.dart';
 
 /// A dummy BusR3000 implementation for tests.
@@ -85,14 +85,14 @@ void main() {
       while (snapshotIndex < snapshot.length) {
         final inst32 = bus.read32(cpu.pc);
         final log =
-            "cycle ${cpu.clocks} ${cpu.pc.hex32}: ${inst32.hex32} ${DisasmR3000.disasm(inst32)}";
+            "cycle ${cpu.clocks} ${cpu.pc.x8}: ${inst32.x8} ${DisasmR3000.disasm(inst32)}";
 
         check("cycle ${cpu.clocks}");
         for (int i = 0; i < 32; i++) {
           check(
-              "\$${i.toString().padLeft(2, "0")}: 0x${cpu.r[i].hex32.toUpperCase()}");
+              "\$${i.d2z}: 0x${cpu.r[i].x8.toUpperCase()}");
         }
-        check("PC: 0x${cpu.pc.hex32.toUpperCase()}");
+        check("PC: 0x${cpu.pc.x8.toUpperCase()}");
         check("");
         check("");
 

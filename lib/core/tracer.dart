@@ -12,7 +12,7 @@ class TraceLogState {
   static const empty = TraceLogState(-1, []);
 
   @override
-  String toString() => "${_pc.hex24}:${_state.map((e) => e.hex32).join(",")}}";
+  String toString() => "${_pc.x6}:${_state.map((e) => e.x8).join(",")}}";
 
   bool matched(TraceLogState b, int allowDiffCounts) {
     // pc should match

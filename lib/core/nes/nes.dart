@@ -3,7 +3,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../util/util.dart';
+import 'package:fnesemu/util/uint8list.dart';
+
 import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';

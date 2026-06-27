@@ -65,8 +65,8 @@ class Noise {
         _counter = _freq;
 
         if (_high) {
-          final input = periodic ? _lfsr : (_lfsr ^ _lfsr >> 3);
-          _lfsr = _lfsr >> 1 | input << 15 & 0x8000;
+          final input = periodic ? _lfsr : (_lfsr ^ _lfsr.shr3);
+          _lfsr = _lfsr.shr1 | input.shl15 & 0x8000;
         }
 
         _vol = _lfsr.bit0 ? _volumeTable[vol] : -_volumeTable[vol];
@@ -101,7 +101,7 @@ class Sn76489 {
   }
 
   write8(int value) {
-    final ch = (value.bit7 ? value : _latch) >> 5 & 0x03;
+    final ch = (value.bit7 ? value : _latch).shr5 & 0x03;
 
     if (value.bit7) {
       if (value.bit4) {
@@ -125,7 +125,7 @@ class Sn76489 {
 
     // tone
     if (!value.bit7) {
-      tones[ch].freq = (value << 4 & 0x3f0) | _latch & 0x0f;
+      tones[ch].freq = (value.shl4 & 0x3f0) | _latch & 0x0f;
 
       if (ch == 2) {
         noise.tone2freq = tones[2].freq;
@@ -164,8 +164,8 @@ class Sn76489 {
 
   String dump() {
     final tone =
-        tones.map((e) => "${e.vol.hex8} ${e.freq.hex16}").toList().join(" ");
-    final n = "${noise.vol.hex8} ${noise.periodic ? 1 : 0}";
+        tones.map((e) => "${e.vol.x2} ${e.freq.x4}").toList().join(" ");
+    final n = "${noise.vol.x2} ${noise.periodic ? 1 : 0}";
     return "psg: t:$tone n:$n";
   }
 }

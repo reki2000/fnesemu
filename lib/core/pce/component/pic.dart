@@ -1,6 +1,6 @@
+import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/core/pce/component/bus.dart';
 
-import '../../../util/util.dart';
 import 'cpu.dart';
 
 class Pic {
@@ -28,9 +28,9 @@ class Pic {
   }
 
   set mask(int data) {
-    maskIrq2 = bit0(data);
-    maskIrq1 = bit1(data);
-    maskTIrq = bit2(data);
+    maskIrq2 = data.bit0;
+    maskIrq1 = data.bit1;
+    maskTIrq = data.bit2;
   }
 
   int get mask =>

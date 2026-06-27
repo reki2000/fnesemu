@@ -1,8 +1,8 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 
 import 'dart:typed_data';
 
-import '../../../util/util.dart';
 import '../mapper/rom.dart';
 import 'cpu.dart';
 import 'pad.dart';
@@ -29,7 +29,7 @@ class Bus {
   final List<List<int>> ram = List.filled(12, List.filled(0x2000, 0));
 
   int read(int addr) {
-    final bank = addr >> 13;
+    final bank = addr.shr13;
     final offset = addr & 0x1fff;
 
     if (bank <= 0x7f) {
@@ -95,7 +95,7 @@ class Bus {
   }
 
   void write(int addr, int data) {
-    final bank = addr >> 13;
+    final bank = addr.shr13;
     final offset = addr & 0x1fff;
 
     if (0xf8 <= bank && bank <= 0xfb) {
@@ -103,7 +103,7 @@ class Bus {
       // for (final addr in logAddrs) {
       //   if (offset == addr & 0x1fff) {
       //     print(
-      //         "ram write: ${hex16(addr)} ${hex8(data)}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+      //         "ram write: ${addr.x4} ${data.x2}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
       //   }
       // }
       ram[bank & 0x03][offset] = data;
@@ -161,7 +161,7 @@ class Bus {
             timer.size = data & 0x7f;
             return;
           case 0x01:
-            timer.trigger(bit0(data));
+            timer.trigger(data.bit0);
             return;
         }
         return;

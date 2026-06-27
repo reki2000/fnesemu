@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
 import 'package:image/image.dart' as img;
 
 import '../../types.dart';
@@ -43,9 +44,9 @@ Future<Uint8List?> _createFrameBufferPng(
     for (int x = 0; x < width; x++) {
       final c16 = frameBuffer16[y * 1024 + x];
       // 15bit BGR (PS1) → 8bit/channel RGBA
-      final r = (c16 & 0x1f) << 3 | ((c16 >> 2) & 0x07);
-      final g = ((c16 >> 5) & 0x1f) << 3 | ((c16 >> 7) & 0x07);
-      final b = ((c16 >> 10) & 0x1f) << 3 | ((c16 >> 12) & 0x07);
+      final r = (c16 & 0x1f).shl3 | (c16.shr2 & 0x07);
+      final g = (c16.shr5 & 0x1f).shl3 | (c16.shr7 & 0x07);
+      final b = (c16.shr10 & 0x1f).shl3 | (c16.shr12 & 0x07);
       final a = 0xff;
       image.setPixelRgba(x, y, r, g, b, a);
     }

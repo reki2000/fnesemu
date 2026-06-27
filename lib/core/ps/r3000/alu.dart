@@ -4,9 +4,9 @@ extension Alu on R3000 {
   int lwl(int addr, int org) {
     final value = read32(addr & 0xfffffffc);
     return switch (addr & 3) {
-      0 => value.mask8 << 24 | org.mask24,
-      1 => value.mask16 << 16 | org.mask16,
-      2 => value.mask24 << 8 | org.mask8,
+      0 => value.mask8.shl24 | org.mask24,
+      1 => value.mask16.shl16 | org.mask16,
+      2 => value.mask24.shl8 | org.mask8,
       _ => value,
     };
   }
@@ -15,9 +15,9 @@ extension Alu on R3000 {
     final value = read32(addr & 0xfffffffc);
     return switch (addr & 3) {
       0 => value,
-      1 => value >> 8 | org & 0xff000000,
-      2 => value >> 16 | org & 0xffff0000,
-      _ => value >> 24 | org & 0xffffff00,
+      1 => value.shr8 | org & 0xff000000,
+      2 => value.shr16 | org & 0xffff0000,
+      _ => value.shr24 | org & 0xffffff00,
     };
   }
 
@@ -25,11 +25,11 @@ extension Alu on R3000 {
     final aligned = addr & 0xfffffffc;
     switch (addr & 0x03) {
       case 0:
-        write32(aligned, value >> 24 | read32(aligned) & 0xffffff00);
+        write32(aligned, value.shr24 | read32(aligned) & 0xffffff00);
       case 1:
-        write32(aligned, value >> 16 | read32(aligned) & 0xffff0000);
+        write32(aligned, value.shr16 | read32(aligned) & 0xffff0000);
       case 2:
-        write32(aligned, value >> 8 | read32(aligned) & 0xff000000);
+        write32(aligned, value.shr8 | read32(aligned) & 0xff000000);
       case 3:
         write32(aligned, value);
     }
@@ -41,11 +41,11 @@ extension Alu on R3000 {
       case 0:
         write32(aligned, value);
       case 1:
-        write32(aligned, value.mask24 << 8 | read32(aligned).mask8);
+        write32(aligned, value.mask24.shl8 | read32(aligned).mask8);
       case 2:
-        write32(aligned, value.mask16 << 16 | read32(aligned).mask16);
+        write32(aligned, value.mask16.shl16 | read32(aligned).mask16);
       case 3:
-        write32(aligned, value.mask8 << 24 | read32(aligned).mask24);
+        write32(aligned, value.mask8.shl24 | read32(aligned).mask24);
     }
   }
 
@@ -80,10 +80,10 @@ extension Alu on R3000 {
     // (a32 * b32) = (a_low16 * b32) + ((a_high16 * b32) << 16)
     b = b.rel32;
     int low = a.mask16 * b;
-    int high = (a.rel32 >> 16) * b;
-    low += high.mask16 << 16;
+    int high = a.rel32.shr16 * b;
+    low += high.mask16.shl16;
     lo = low.mask32;
-    hi = ((low >> 32) + (high >> 16)).mask32;
+    hi = ((low >> 32) + high.shr16).mask32;
   }
 
   void multu(int a, int b) {
@@ -92,7 +92,7 @@ extension Alu on R3000 {
     b = b.mask32;
     int low = a.mask16 * b; // 48bit
     int high = (a.mask32 >>> 16) * b; // 48bit
-    low += high.mask16 << 16;
+    low += high.mask16.shl16;
     lo = low.mask32;
     hi = ((low >>> 32) + (high >>> 16)).mask32;
   }
@@ -115,7 +115,7 @@ extension Alu on R3000 {
 
     lo = a.rel32 ~/ b.rel32;
     hi = (a - (lo * b).mask32).mask32;
-    // debugLog("div a=${a.hex32} b=${b.hex32} hi=${hi.hex32} lo=${lo.hex32}");
+    // debugLog("div a=${a.x8} b=${b.x8} hi=${hi.x8} lo=${lo.x8}");
   }
 
   void divu(int a, int b) {

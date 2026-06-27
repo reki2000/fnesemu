@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 // Project imports:
 import 'package:fnesemu/util/int.dart';
+import 'package:fnesemu/util/uint8list.dart';
 
-import '../../../util/util.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -78,13 +78,13 @@ class MapperMMC1 extends Mapper {
       if (_ramEnabled) {
         writeSram(addr & 0x1fff | _ramBank.shl13, data);
       } else {
-        log("mmc1: write to disabled ram: ${hex16(addr)} ${hex8(data)}");
+        log("mmc1: write to disabled ram: ${addr.x4} ${data.x2}");
       }
       return;
     }
 
     // shift register reset
-    if (bit7(data)) {
+    if (data.bit7) {
       _counter = 0;
       _shiftReg = 0;
       _prgBank[1] = prgRoms.length - 1;
@@ -93,20 +93,20 @@ class MapperMMC1 extends Mapper {
 
     // shift register write
     _shiftReg >>= 1;
-    _shiftReg |= ((data & 0x01) << 4);
+    _shiftReg |= (data & 0x01).shl4;
     _counter++;
 
     // the fifth write to control
     if (_counter == 5) {
       switch (bank) {
         case 0x8000:
-          _chrBank4k = bit4(_shiftReg);
+          _chrBank4k = _shiftReg.bit4;
           if (!_chrBank4k) {
             _chrBank[0] = 0;
             _chrBank[1] = 1;
           }
 
-          _prgBankMode = (_shiftReg >> 2) & 0x03;
+          _prgBankMode = _shiftReg.shr2 & 0x03;
           _setPrgBank();
 
           mirror(_mirrors[_shiftReg & 0x03]);
@@ -118,10 +118,10 @@ class MapperMMC1 extends Mapper {
           }
 
           // S[OUX]ROM supports RAM
-          _ramBank = (_shiftReg >> 2) & 0x03;
+          _ramBank = _shiftReg.shr2 & 0x03;
 
           // 512k ROM A18 select
-          _prgBank512 = bit4(_shiftReg) && prgRoms.length == 32;
+          _prgBank512 = _shiftReg.bit4 && prgRoms.length == 32;
           _setPrgBank();
           break;
 
@@ -130,16 +130,16 @@ class MapperMMC1 extends Mapper {
             _chrBank[1] = _shiftReg & 0x01;
 
             // S[OUX]ROM supports RAM
-            _ramBank = (_shiftReg >> 2) & 0x03;
+            _ramBank = _shiftReg.shr2 & 0x03;
 
             // 512k ROM A18 select
-            _prgBank512 = bit4(_shiftReg) && prgRoms.length == 32;
+            _prgBank512 = _shiftReg.bit4 && prgRoms.length == 32;
             _setPrgBank();
           }
           break;
 
         case 0xe000:
-          _ramEnabled = !bit4(_shiftReg);
+          _ramEnabled = !_shiftReg.bit4;
 
           switch (_prgBankMode) {
             case 0:
@@ -156,7 +156,7 @@ class MapperMMC1 extends Mapper {
 
           break;
       }
-      //log("mmc1: ${hex16(addr)} <= ${hex8(_shiftReg)} ${dump()}");
+      //log("mmc1: ${addr.x4} <= ${_shiftReg.x2} ${dump()}");
 
       _shiftReg = 0;
       _counter = 0;
@@ -200,20 +200,20 @@ class MapperMMC1 extends Mapper {
         return prgRoms[_prgBank[1]][offset];
     }
 
-    log("mmc1: invalid addr: ${hex16(addr)}");
+    log("mmc1: invalid addr: ${addr.x4}");
     return 0xff;
   }
 
   @override
   int readVram(int addr) {
-    final bank = (addr >> 12) & 0x1;
+    final bank = addr.shr12 & 0x1;
     final offset = addr & 0x0fff;
     return _vram4k[_chrBank[bank]][offset];
   }
 
   @override
   void writeVram(int addr, int data) {
-    final bank = (addr >> 12) & 0x1;
+    final bank = addr.shr12 & 0x1;
     final offset = addr & 0x0fff;
     _vram4k[_chrBank[bank]][offset] = data & 0xff;
   }
@@ -222,9 +222,9 @@ class MapperMMC1 extends Mapper {
   String dump() {
     final range0_1 = range(0, 2);
 
-    final chrBanks = range0_1.map((i) => hex8(_chrBank[i])).toList().join(" ");
-    final prgBanks = range0_1.map((i) => hex8(_prgBank[i])).toList().join(" ");
-    final ramBank = hex8(_ramBank);
+    final chrBanks = range0_1.map((i) => _chrBank[i].x2).toList().join(" ");
+    final prgBanks = range0_1.map((i) => _prgBank[i].x2).toList().join(" ");
+    final ramBank = _ramBank.x2;
 
     return "rom: "
         "chr:${_chrBank4k ? '4k' : '8k'} $chrBanks prg:mode$_prgBankMode $prgBanks ram:${_ramEnabled ? '*' : '-'}$ramBank"

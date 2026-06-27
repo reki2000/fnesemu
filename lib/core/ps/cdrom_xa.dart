@@ -25,7 +25,7 @@ extension CdromXA on Cdrom {
     if (!isXaAdpcmEnabled) return;
 
     // debugLog("cdrom: decode XA ${dumpSector(sector)} "
-    //     "submode=${submode.hex8} coding=${codingInfo.hex8} "
+    //     "submode=${submode.x2} coding=${codingInfo.x2} "
     //     "xaAdpcm=$isXaAdpcmEnabled filter=${isXaFilterEnabled ? "$file:$channel" : "no"}:${rawSector[16]}:${rawSector[17]}");
 
     // filter by channel/file
@@ -37,9 +37,9 @@ extension CdromXA on Cdrom {
     isXaAdpcmBusy = true;
 
     final isStereo = codingInfo & 0x03 == 1;
-    xaSampleRate = (codingInfo >> 2 & 0x03) == 0 ? 37800 : 18900;
+    xaSampleRate = (codingInfo.shr2 & 0x03) == 0 ? 37800 : 18900;
     final isSampleRate18900 = xaSampleRate == 18900;
-    final is8bit = (codingInfo >> 4 & 0x03) == 1;
+    final is8bit = (codingInfo.shr4 & 0x03) == 1;
 
     final buf = List<int>.filled(28, 0);
     // final debugBuffer = [
@@ -56,7 +56,7 @@ extension CdromXA on Cdrom {
       for (int unit = 0; unit < (is8bit ? 4 : 8); unit++) {
         final param = packetData[4 + unit];
         final shift = 12 - (param.mask4 > 12 ? 9 : param.mask4);
-        final filter = (param >> 4) & 0x03;
+        final filter = param.shr4 & 0x03;
         final (k0, k1) = _xaFilters[filter];
 
         final oldIndex = !isStereo
@@ -67,7 +67,7 @@ extension CdromXA on Cdrom {
 
         // if (packet == 0 && unit == 0) {
         //   debugLog(
-        //       "cdrom: xa: coding:${codingInfo.hex8} ${xaSampleRate}Hz ${is8bit ? "8" : "4"}bit "
+        //       "cdrom: xa: coding:${codingInfo.x2} ${xaSampleRate}Hz ${is8bit ? "8" : "4"}bit "
         //       "${isStereo ? "stereo" : "mono  "} shift:$shift filter:$filter");
         // }
 

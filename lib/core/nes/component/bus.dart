@@ -1,3 +1,4 @@
+import 'package:fnesemu/util/int.dart';
 // Dart imports:
 
 // Dart imports:
@@ -5,7 +6,6 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../../../util/util.dart';
 import '../mapper/mapper.dart';
 import '../mapper/mirror.dart';
 import 'apu.dart';
@@ -39,7 +39,7 @@ class Bus {
       return vram[_mirror.mask(addr & 0x0fff)];
     }
 
-    log("invalid vram addr ${hex16(addr)}");
+    log("invalid vram addr ${addr.x4}");
     return 0xff;
   }
 
@@ -53,7 +53,7 @@ class Bus {
       return;
     }
 
-    log("invalid vram addr ${hex16(addr)}");
+    log("invalid vram addr ${addr.x4}");
   }
 
   final List<int> ram = List.filled(0x800, 0);
@@ -80,7 +80,7 @@ class Bus {
     } else if (0x2000 <= addr && addr <= 0x200f) {
       ppu.write(addr, data);
     } else if (0x4014 == addr) {
-      final src = data << 8;
+      final src = data.shl8;
       ppu.onDMA(ram.sublist(src, src + 256));
       cpu.cycle += 514;
     } else if (addr == 0x4016) {

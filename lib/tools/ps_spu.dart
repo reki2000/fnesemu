@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/bus.dart';
 import 'package:fnesemu/core/ps/spu/spu.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 // flutter: SPU: keyOn 0 006140 000400
@@ -184,9 +185,9 @@ main(List<String> args) {
       spu.writeVoice(0x00, e.ch, e.volL); // vol l
       spu.writeVoice(0x02, e.ch, e.volR); // vol r
       spu.writeVoice(0x04, e.ch, e.pitch); // pitch
-      spu.writeVoice(0x06, e.ch, e.address >> 3); // startAddress
+      spu.writeVoice(0x06, e.ch, e.address.shr3); // startAddress
       spu.writeVoice(0x08, e.ch, e.adsr & 0xffff); // adsr
-      spu.writeVoice(0x0a, e.ch, e.adsr >> 16); // adsr
+      spu.writeVoice(0x0a, e.ch, e.adsr.shr16); // adsr
       spu.keyOn(1 << e.ch);
     } else {
       spu.keyOff(1 << e.ch);

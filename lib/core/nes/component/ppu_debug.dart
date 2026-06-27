@@ -1,18 +1,18 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import 'ppu.dart';
 
 extension PpuDebugger on Ppu {
   String dump({showSpriteVram = false}) {
-    return "c1:${hex8(ctl1)} "
-        "c2:${hex8(ctl2)} "
-        "s:${hex8(status)} "
-        "x:${scrollX.toString().padLeft(3)} "
-        "y:${scrollY.toString().padLeft(3)} "
-        "tmp:${hex16(tmpVramAddr)} "
-        "fineX:${hex8(fineX)} "
-        "addr:${hex16(vramAddr)} "
-        "obj:${hex8(objAddr)} "
+    return "c1:${ctl1.x2} "
+        "c2:${ctl2.x2} "
+        "s:${status.x2} "
+        "x:${scrollX.d3} "
+        "y:${scrollY.d3} "
+        "tmp:${tmpVramAddr.x4} "
+        "fineX:${fineX.x2} "
+        "addr:${vramAddr.x4} "
+        "obj:${objAddr.x2} "
         "line:$scanLine "
         "\n"
         "${showSpriteVram ? dumpObjVram(objAddr, objAddr) : ''}";
@@ -20,14 +20,14 @@ extension PpuDebugger on Ppu {
 
   String dumpObjVram(int addr, int target) {
     addr &= 0xf0;
-    var str = "obj: ${hex16(addr)}:";
+    var str = "obj: ${addr.x4}:";
     for (int i = 0; i < 16; i++) {
       str += ((addr + i) == target
               ? "["
               : (addr + i) == target + 1
                   ? "]"
                   : " ") +
-          hex8(objRam[(addr + i) & 0xff]);
+          objRam[(addr + i) & 0xff].x2;
     }
     return "$str\n";
   }

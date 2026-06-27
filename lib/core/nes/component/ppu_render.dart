@@ -1,5 +1,5 @@
+import 'package:fnesemu/util/int.dart';
 // Project imports:
-import '../../../util/util.dart';
 import '../nes.dart';
 import 'ppu.dart';
 
@@ -47,7 +47,7 @@ extension PpuRenderer on Ppu {
 
   // pre-calculate ARGB value
   static final _colorRGBA = _colorRGB
-      .take3((r, g, b) => 0xff000000 | (b << 16) | (g << 8) | r)
+      .take3((r, g, b) => 0xff000000 | b.shl16 | g.shl8 | r)
       .toList(growable: false);
 
   void _wrapAroundX() {
@@ -60,11 +60,11 @@ extension PpuRenderer on Ppu {
   }
 
   void _wrapAroundY() {
-    if (((vramAddr >> 12) & 0x07) < 7) {
+    if ((vramAddr.shr12 & 0x07) < 7) {
       vramAddr += 0x1000;
     } else {
       vramAddr &= 0xfff;
-      var y = (vramAddr >> 5) & 0x1f;
+      var y = vramAddr.shr5 & 0x1f;
       if (y == 29) {
         // line 240
         y = 0;
@@ -75,7 +75,7 @@ extension PpuRenderer on Ppu {
       } else {
         y++;
       }
-      vramAddr = (vramAddr & ~0x03E0) | (y << 5);
+      vramAddr = (vramAddr & ~0x03E0) | y.shl5;
     }
   }
 
@@ -139,7 +139,7 @@ extension PpuRenderer on Ppu {
 
       final objScanY = scanLine - objY - 1;
       final objFineY = objScanY & 0x07;
-      final flipV = bit7(attribute);
+      final flipV = attribute.bit7;
 
       // pattern address
       // size8x8:
@@ -151,9 +151,9 @@ extension PpuRenderer on Ppu {
       if (objSize16()) {
         final lowerOffset = ((objScanY >= 8) ? 1 : 0) ^ (flipV ? 1 : 0);
         objAddr =
-            (((pattern & 0xfe) + lowerOffset) << 4) | ((pattern & 0x01) << 12);
+            (((pattern & 0xfe) + lowerOffset).shl4) | (pattern & 0x01).shl12;
       } else {
-        objAddr = objBase | (pattern << 4);
+        objAddr = objBase | pattern.shl4;
       }
 
       final offset = flipV ? (7 - objFineY) : objFineY;
@@ -161,12 +161,12 @@ extension PpuRenderer on Ppu {
       final p0 = readVram(objAddr + offset);
       final p1 = readVram(objAddr + offset + 8);
 
-      final flipH = bit6(attribute);
-      obj.pattern0 = flipH ? flip8(p0) : p0;
-      obj.pattern1 = flipH ? flip8(p1) : p1;
+      final flipH = attribute.bit6;
+      obj.pattern0 = flipH ? p0.flip8 : p0;
+      obj.pattern1 = flipH ? p1.flip8 : p1;
       obj.pattern1 <<= 1;
 
-      obj.isPrior = !bit5(attribute);
+      obj.isPrior = !attribute.bit5;
       obj.palette = attribute & 0x03;
       obj.x = objRam[objNo * 4 + 3];
     }
@@ -179,8 +179,8 @@ extension PpuRenderer on Ppu {
     // colorBase: 0010 PP11 11YY YXXX
     final colorBase = 0x23c0 |
         (vramAddr & 0x0c00) |
-        ((vramAddr >> 4) & 0x38) |
-        ((vramAddr >> 2) & 0x07);
+        (vramAddr.shr4 & 0x38) |
+        (vramAddr.shr2 & 0x07);
     return readVram(colorBase);
   }
 
@@ -191,7 +191,7 @@ extension PpuRenderer on Ppu {
     final bgChar1 = readVram(patternAddr);
     final bgChar2 = readVram(patternAddr + 8);
     final palette =
-        _fetchBGPalette() >> ((vramAddr & 0x02) | ((vramAddr >> 4) & 0x04));
+        _fetchBGPalette() >> ((vramAddr & 0x02) | (vramAddr.shr4 & 0x04));
     final bgPalette = palette & 0x03;
     _wrapAroundX();
     return _BG(char1: bgChar1, char2: bgChar2, palette: bgPalette);
@@ -200,7 +200,7 @@ extension PpuRenderer on Ppu {
   int _renderObjs(List<_Obj> objs, int x, int bgColorNum, int color) {
     for (final o in objs) {
       if (!o.unused() && o.x <= x && x < o.x + 8) {
-        final objColorNum = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)) >> 7;
+        final objColorNum = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)).shr7;
         o.pattern0 <<= 1;
         o.pattern1 <<= 1;
 
@@ -237,7 +237,7 @@ extension PpuRenderer on Ppu {
       }
     }
 
-    final fineY = (vramAddr >> 12) & 0x07;
+    final fineY = vramAddr.shr12 & 0x07;
 
     // dot 257-320 of prev line: obj read
     final objs = _fetchObj();
@@ -253,8 +253,8 @@ extension PpuRenderer on Ppu {
     // dot 321-336 of previ line: read the first pattern
     if (showBg()) {
       final bg = _fetchBG(bgBase, fineY);
-      bgChar1 = bg.char1 << 8;
-      bgChar2 = bg.char2 << 8;
+      bgChar1 = bg.char1.shl8;
+      bgChar2 = bg.char2.shl8;
       bgPalette = bg.palette;
     }
 
@@ -283,7 +283,7 @@ extension PpuRenderer on Ppu {
           if (bgColorNum != 0) {
             final bgPaletteNum =
                 (xand7 + fineX) >= 8 ? bgPaletteNext : bgPalette;
-            color = readVram(paletteBase + (bgPaletteNum << 2) + bgColorNum);
+            color = readVram(paletteBase + bgPaletteNum.shl2 + bgColorNum);
           }
         }
 

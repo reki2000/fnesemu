@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/util.dart';
+import 'package:fnesemu/util/uint8list.dart';
 
 import '../types.dart';
 import 'vdp.dart';
@@ -23,7 +23,7 @@ extension VdpDebug on Vdp {
       }
 
       for (int c = 0; c < 16; c++) {
-        int color = rgba[cram[p << 4 | c]];
+        int color = rgba[cram[p.shl4 | c]];
 
         for (int y = 0; y < size - 1; y++) {
           for (int x = 0; x < size - 1; x++) {
@@ -50,7 +50,7 @@ extension VdpDebug on Vdp {
     int height = (tileSize * 16) * 2;
 
     final buf = Uint32List(width * height);
-    final palette = paletteNo << 4;
+    final palette = paletteNo.shl4;
 
     for (int baseY = 0; baseY < 2; baseY++) {
       for (int baseX = 0; baseX < 4; baseX++) {
@@ -62,14 +62,14 @@ extension VdpDebug on Vdp {
           for (int tx = 0; tx < 16; tx++) {
             for (int y = 0; y < tileSize; y++) {
               final addr = (tx + ty * 16) * 32 + y * 4;
-              final pattern = vram.getUInt32BE(addr + vramOffset);
+              final pattern = vram.getUint32BE(addr + vramOffset);
 
               for (int x = 0; x < tileSize; x++) {
                 final shiftBits = 7 - x;
 
-                final color = (pattern >> (shiftBits << 2)) & 0x0f;
+                final color = (pattern >> shiftBits.shl2) & 0x0f;
                 final c = useGlayscale
-                    ? (0xff000000 | color << 20 | color << 12 | color << 4)
+                    ? (0xff000000 | color.shl20 | color.shl12 | color.shl4)
                     : rgba[cram[((color == 0) ? 0 : palette) | color]];
                 buf[tx * tileSize +
                     x +
@@ -90,19 +90,19 @@ extension VdpDebug on Vdp {
   }
 
   List<String> debugSpriteInfo() {
-    final baseAddr = reg[5] << 9 & 0xfc00;
+    final baseAddr = reg[5].shl9 & 0xfc00;
     final result = List.generate(80, (i) {
       final base = baseAddr + i * 8;
       final sp = Sprite.of(
-          vram.getUInt16BE(base.mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
-      final no = "${i.toString().padLeft(2)}->${sp.next.toString().padLeft(2)}";
+          vram.getUint16BE(base.mask16),
+          vram.getUint16BE((base + 2).mask16),
+          vram.getUint16BE((base + 4).mask16),
+          vram.getUint16BE((base + 6).mask16));
+      final no = "${i.d2}->${sp.next.d2}";
       final flags =
           "${sp.vFlip ? "v" : "-"}${sp.hFlip ? "h" : "-"}${sp.priority ? "p" : "-"}";
-      final xy = "${sp.x.toString().padLeft(3)},${sp.y.toString().padLeft(3)}";
-      return "#$no $xy ${sp.patternAddr.hex16} $flags ${sp.width.toString().padLeft(2)}x${sp.height.toString().padLeft(2)} ";
+      final xy = "${sp.x.d3},${sp.y.d3}";
+      return "#$no $xy ${sp.patternAddr.x4} $flags ${sp.width.d2}x${sp.height.d2} ";
     });
     return result;
   }
@@ -116,9 +116,9 @@ extension VdpDebug on Vdp {
     final buf = Uint32List(imageWidth * imageHeight);
     buf.fillRange(0, buf.length, 0xff000000);
 
-    final nameA = reg[2] << 10 & 0xe000;
-    final nameB = reg[4] << 13 & 0xe000;
-    final window = reg[3] << 10 & 0xf800;
+    final nameA = reg[2].shl10 & 0xe000;
+    final nameB = reg[4].shl13 & 0xe000;
+    final window = reg[3].shl10 & 0xf800;
 
     final yMask = isInterlaced ? 0x0f : 0x07;
     final yShift = isInterlaced ? 6 : 5;
@@ -128,7 +128,7 @@ extension VdpDebug on Vdp {
       final nameAddressBase = [nameA, nameB, window][plane];
 
       final bgHshift = [5, 6, 7, 7][plane == 2 ? 1 : reg[16] & 0x03];
-      final bgVShift = [5, 6, 7, 7][plane == 2 ? 0 : reg[16] >> 4 & 0x03];
+      final bgVShift = [5, 6, 7, 7][plane == 2 ? 0 : reg[16].shr4 & 0x03];
 
       final bgWidth = 1 << bgHshift;
       final bgHeight = 1 << bgVShift;
@@ -143,21 +143,21 @@ extension VdpDebug on Vdp {
       // render BG tiles
       for (int ty = 0; ty < bgHeight; ty++) {
         for (int tx = 0; tx < bgWidth; tx++) {
-          final name = nameAddressBase | (tx | ty << bgHshift) << 1;
+          final name = nameAddressBase | (tx | ty << bgHshift).shl1;
           final d0 = vram[name];
           final d1 = vram[name.inc];
-          final palette = d0 >> 1 & 0x30;
-          final addr = (d0 << 8 & 0x0700 | d1) << yShift;
+          final palette = d0.shr1 & 0x30;
+          final addr = (d0.shl8 & 0x0700 | d1) << yShift;
           final hFlipXor = d0.bit3 ? 0 : 7;
           final vFlipXor = d0.bit4 ? yMask : 0;
 
           for (int y = 0; y < yCellSize; y++) {
-            final patternAddr = addr + ((y ^ vFlipXor) << 2);
-            final pattern = vram.getUInt32BE(patternAddr.mask16);
+            final patternAddr = addr + (y ^ vFlipXor).shl2;
+            final pattern = vram.getUint32BE(patternAddr.mask16);
 
             for (int x = 0; x < tileSize; x++) {
               final shift = x ^ hFlipXor;
-              final color = (pattern >> (shift << 2)) & 0x0f;
+              final color = (pattern >> shift.shl2) & 0x0f;
               final c = cram[((color == 0) ? 0 : palette) | color];
 
               buf[imageOffset +
@@ -172,7 +172,7 @@ extension VdpDebug on Vdp {
 
     // render sprites box
     const spriteImageOffset = 128 * tileSize;
-    final spriteBaseAddr = reg[5] << 9 & 0xfc00;
+    final spriteBaseAddr = reg[5].shl9 & 0xfc00;
     void pset(int x, int y, int c) {
       if (x < 0 || x > 512 || y < 0 || y > 512) {
         return;
@@ -187,10 +187,10 @@ extension VdpDebug on Vdp {
     for (int i = 0; i < 80; i++) {
       final base = spriteBaseAddr + spriteNo * 8;
       final sp = Sprite.of(
-          vram.getUInt16BE((base + 0).mask16),
-          vram.getUInt16BE((base + 2).mask16),
-          vram.getUInt16BE((base + 4).mask16),
-          vram.getUInt16BE((base + 6).mask16));
+          vram.getUint16BE((base + 0).mask16),
+          vram.getUint16BE((base + 2).mask16),
+          vram.getUint16BE((base + 4).mask16),
+          vram.getUint16BE((base + 6).mask16));
 
       for (final y in [sp.y, sp.y + sp.height - 1]) {
         for (int x = sp.x; x < sp.x + sp.width; x++) {

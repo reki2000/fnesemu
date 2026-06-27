@@ -3,7 +3,7 @@ part of 'm68.dart';
 extension Alu on M68 {
   int add(int a, int b, int size, {bool useXf = false}) {
     final r = a + b + (useXf && xf ? 1 : 0);
-    // debug("add r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
+    // debug("add r: ${r.x8} a: ${a.x8} b: ${b.x8} xf: $xf");
 
     final carryBits = (a & b) | ((a | b) & ~r);
     xf = cf = carryBits.msb(size);
@@ -17,7 +17,7 @@ extension Alu on M68 {
   int sub(int a, int b, int size, {bool useXf = false, bool cmp = false}) {
     final r = a - b - (useXf && xf ? 1 : 0);
     // debug(
-    //     "sub r: ${r.hex32} a: ${a.hex32} b: ${b.hex32} xf: $xf");
+    //     "sub r: ${r.x8} a: ${a.x8} b: ${b.x8} xf: $xf");
 
     final carryBits = (~a & b) | ((~a | b) & r);
     cf = carryBits.msb(size);
@@ -49,7 +49,7 @@ extension Alu on M68 {
     zf = r.mask(size) == 0;
     vf = false;
     cf = false;
-    // debug("or a:${a.hex32} b:${b.hex32} r:${r.hex32}");
+    // debug("or a:${a.x8} b:${b.x8} r:${r.x8}");
 
     return r.mask(size);
   }
@@ -61,7 +61,7 @@ extension Alu on M68 {
     zf = r.mask(size) == 0;
     vf = false;
     cf = false;
-    // debug("eor a:${a.hex32} b:${b.hex32} r:${r.hex32}");
+    // debug("eor a:${a.x8} b:${b.x8} r:${r.x8}");
 
     return r.mask(size);
   }
@@ -73,7 +73,7 @@ extension Alu on M68 {
     zf = r.mask(size) == 0;
     vf = false;
     cf = false;
-    // debug("not a:${a.hex32} r:${r.hex32}");
+    // debug("not a:${a.x8} r:${r.x8}");
 
     return r.mask(size);
   }
@@ -93,7 +93,7 @@ extension Alu on M68 {
     vf = false;
     nf = a.msb(size);
     zf = r.mask(size) == 0;
-    // debug("asr a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("asr a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -107,7 +107,7 @@ extension Alu on M68 {
         // mask to check if all of top "rot+1" bits are same; ex. rot=1, 0b1100.., rot=2, 0b1110..
         final affectedBits = (~((1 << (size.bits - rot - 1)) - 1)).mask(size);
         // debug(
-        //     "asl a:${a.hex32} size:$size rot:$rot r:${r.hex32} affectedBits:${affectedBits.hex32}");
+        //     "asl a:${a.x8} size:$size rot:$rot r:${r.x8} affectedBits:${affectedBits.x8}");
         vf = (r & affectedBits) != 0 && (r & affectedBits) != affectedBits;
       }
 
@@ -121,7 +121,7 @@ extension Alu on M68 {
       vf = false;
     }
     zf = r.mask(size) == 0;
-    // debug("asl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("asl a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -140,7 +140,7 @@ extension Alu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("lsr a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("lsr a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -156,7 +156,7 @@ extension Alu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("lsl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("lsl a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -172,7 +172,7 @@ extension Alu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("ror a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("ror a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -188,7 +188,7 @@ extension Alu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("rol a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("rol a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -205,7 +205,7 @@ extension Alu on M68 {
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("roxr a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("roxr a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 
@@ -219,12 +219,12 @@ extension Alu on M68 {
       cf = xf = (r >> (size.bits - rot)).bit0;
       r = (r << rot).mask(size) | (r >> (size.bits + 1 - rot)) | xBit;
       // debug(
-      //     "rot:$rot ${(r << rot).mask(size).hex32} ${(r >> (size.bits - rot + 1)).hex32} ${xBit.hex32}");
+      //     "rot:$rot ${(r << rot).mask(size).x8} ${(r >> (size.bits - rot + 1)).x8} ${xBit.x8}");
     }
     vf = false;
     nf = r.msb(size);
     zf = r.mask(size) == 0;
-    // debug("roxl a:${a.hex32} size:$size rot:$rot r:${r.hex32}");
+    // debug("roxl a:${a.x8} size:$size rot:$rot r:${r.x8}");
     return r.mask(size);
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 extension Uint8ListEx on Uint8List {
   List<Uint8List> split(int size) {
     return List.generate(
@@ -25,48 +27,48 @@ extension Uint8ListEx on Uint8List {
   }
 
   int getUint16BE(int index) {
-    return this[index] << 8 | this[index + 1];
+    return this[index].shl8 | this[index + 1];
   }
 
   int getUint32BE(int index) {
-    return this[index] << 24 |
-        this[index + 1] << 16 |
-        this[index + 2] << 8 |
+    return this[index].shl24 |
+        this[index + 1].shl16 |
+        this[index + 2].shl8 |
         this[index + 3];
   }
 
   int getUint16LE(int index) {
-    return this[index + 1] << 8 | this[index];
+    return this[index + 1].shl8 | this[index];
   }
 
   int getUint32LE(int index) {
-    return this[index + 3] << 24 |
-        this[index + 2] << 16 |
-        this[index + 1] << 8 |
+    return this[index + 3].shl24 |
+        this[index + 2].shl16 |
+        this[index + 1].shl8 |
         this[index + 0];
   }
 
   void setUint16BE(int index, int value) {
-    this[index] = (value >> 8) & 0xff;
+    this[index] = value.shr8 & 0xff;
     this[index + 1] = value & 0xff;
   }
 
   void setUint16LE(int index, int value) {
     this[index] = value & 0xff;
-    this[index + 1] = (value >> 8) & 0xff;
+    this[index + 1] = value.shr8 & 0xff;
   }
 
   void setUint32BE(int index, int value) {
-    this[index] = (value >> 24) & 0xff;
-    this[index + 1] = (value >> 16) & 0xff;
-    this[index + 2] = (value >> 8) & 0xff;
+    this[index] = value.shr24 & 0xff;
+    this[index + 1] = value.shr16 & 0xff;
+    this[index + 2] = value.shr8 & 0xff;
     this[index + 3] = value & 0xff;
   }
 
   void setUint32LE(int index, int value) {
     this[index] = value & 0xff;
-    this[index + 1] = (value >> 8) & 0xff;
-    this[index + 2] = (value >> 16) & 0xff;
-    this[index + 3] = (value >> 24) & 0xff;
+    this[index + 1] = value.shr8 & 0xff;
+    this[index + 2] = value.shr16 & 0xff;
+    this[index + 3] = value.shr24 & 0xff;
   }
 }

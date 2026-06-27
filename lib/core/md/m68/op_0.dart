@@ -8,27 +8,27 @@ extension Op0 on M68 {
         final size = op.bit6 ? 4 : 2;
         final memToReg = !op.bit7;
         final an = op & 0x07;
-        final dn = op >> 9 & 0x07;
+        final dn = op.shr9 & 0x07;
         addr0 = (a[an] + pc16().rel16).mask32;
         // debug(
-        //     "movep dn:$dn size:$size memToReg:$memToReg addr0:${addr0.hex32}");
+        //     "movep dn:$dn size:$size memToReg:$memToReg addr0:${addr0.x8}");
         if (size == 2) {
           if (memToReg) {
-            d[dn] = d[dn].setL16(read8(addr0) << 8 | read8(addr0.inc2));
+            d[dn] = d[dn].setL16(read8(addr0).shl8 | read8(addr0.inc2));
           } else {
-            write8(addr0, d[dn] >> 8 & 0xff);
+            write8(addr0, d[dn].shr8 & 0xff);
             write8(addr0.inc2, d[dn] & 0xff);
           }
         } else {
           if (memToReg) {
-            d[dn] = read8(addr0) << 24 |
-                read8(addr0.inc2) << 16 |
-                read8(addr0.inc4) << 8 |
-                read8(addr0 + 6) >> 8;
+            d[dn] = read8(addr0).shl24 |
+                read8(addr0.inc2).shl16 |
+                read8(addr0.inc4).shl8 |
+                read8(addr0 + 6).shr8;
           } else {
-            write8(addr0, d[dn] >> 24 & 0xff);
-            write8(addr0.inc2, d[dn] >> 16 & 0xff);
-            write8(addr0.inc4, d[dn] >> 8 & 0xff);
+            write8(addr0, d[dn].shr24 & 0xff);
+            write8(addr0.inc2, d[dn].shr16 & 0xff);
+            write8(addr0.inc4, d[dn].shr8 & 0xff);
             write8(addr0 + 6, d[dn] & 0xff);
           }
         }
@@ -37,9 +37,9 @@ extension Op0 on M68 {
       }
 
       // bit
-      final dn = op >> 9 & 0x07;
+      final dn = op.shr9 & 0x07;
       final xn = op & 0x07;
-      final mode = op >> 3 & 0x07;
+      final mode = op.shr3 & 0x07;
       final size = (mode == 0 || mode == 1) ? 4 : 1;
       final bit = d[dn] & ((size == 4) ? 0x1f : 0x07);
       final mask = (1 << bit);
@@ -47,9 +47,9 @@ extension Op0 on M68 {
       zf = data & mask == 0;
 
       // debug(
-      //     "bit dn:$dn xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
+      //     "bit dn:$dn xn:$xn mode:$mode size:$size bit:$bit mask:${mask.x2} data:${data.x2}");
 
-      switch (op >> 6 & 0x03) {
+      switch (op.shr6 & 0x03) {
         case 0x00: // btst
           return true;
         case 0x01: // bchg
@@ -66,11 +66,11 @@ extension Op0 on M68 {
       return false;
     }
 
-    final mode = op >> 3 & 0x07;
-    final size = size0[op >> 6 & 0x03];
+    final mode = op.shr3 & 0x07;
+    final size = size0[op.shr6 & 0x03];
     final xn = op & 0x07;
 
-    switch (op >> 9 & 0x07) {
+    switch (op.shr9 & 0x07) {
       case 0x00: // ori
         if (op == 0x003c) {
           sr = sr.setL8(or(sr, immed(1), 1)); // ori ccr, imm
@@ -136,9 +136,9 @@ extension Op0 on M68 {
         zf = data & mask == 0;
 
         // debug(
-        //     "bit xn:$xn mode:$mode size:$size bit:$bit mask:${mask.hex8} data:${data.hex8}");
+        //     "bit xn:$xn mode:$mode size:$size bit:$bit mask:${mask.x2} data:${data.x2}");
 
-        switch (op >> 6 & 0x03) {
+        switch (op.shr6 & 0x03) {
           case 0x00: // btst
             return true;
           case 0x01: // bchg
