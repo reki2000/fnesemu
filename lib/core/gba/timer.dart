@@ -12,6 +12,10 @@ class Timers {
   final Irq irq;
   Timers(this.irq);
 
+  /// invoked on each overflow with (timerId, overflowCount); used by the APU
+  /// to advance the Direct Sound FIFOs.
+  void Function(int timerId, int count)? onOverflow;
+
   final _counter = List<int>.filled(4, 0); // current 16-bit value
   final _reload = List<int>.filled(4, 0); // reload value (TMxCNT_L writes)
   final _control = List<int>.filled(4, 0); // TMxCNT_H
@@ -54,6 +58,7 @@ class Timers {
 
   void _onOverflow(int ch, int count) {
     if (_irqEnable(ch)) irq.raise(IrqBit.timer0 + ch);
+    onOverflow?.call(ch, count);
     // cascade into the next channel if it is in count-up mode
     if (ch < 3 && _enabled(ch + 1) && _countUp(ch + 1)) {
       _increment(ch + 1, count);

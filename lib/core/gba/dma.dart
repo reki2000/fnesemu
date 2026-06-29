@@ -27,6 +27,7 @@ class Dma {
   static const _timingImmediate = 0;
   static const _timingVBlank = 1;
   static const _timingHBlank = 2;
+  static const _timingSpecial = 3;
 
   int _timing(int ch) => (_control[ch] >> 12) & 3;
 
@@ -137,6 +138,26 @@ class Dma {
 
   void onVBlank() => _triggerTiming(_timingVBlank);
   void onHBlank() => _triggerTiming(_timingHBlank);
+
+  /// the APU asks for a FIFO refill: any enabled channel 1/2 in special timing
+  /// whose destination is [fifoAddr] transfers four 32-bit words (dest fixed).
+  void requestSoundFifo(int fifoAddr) {
+    final dest = fifoAddr & 0x0fffffff;
+    for (int ch = 1; ch <= 2; ch++) {
+      final ctrl = _control[ch];
+      if (!ctrl.bit15 || _timing(ch) != _timingSpecial) continue;
+      if ((_dst[ch] & 0x0fffffff) != dest) continue;
+
+      final srcCtrl = (ctrl >> 7) & 3;
+      int src = _srcLatch[ch];
+      for (int i = 0; i < 4; i++) {
+        bus.write32(fifoAddr, bus.read32(src));
+        src = (src + _delta(srcCtrl, 4)).mask32;
+      }
+      _srcLatch[ch] = src;
+      if (ctrl.bit14) irq.raise(IrqBit.dma0 + ch);
+    }
+  }
 
   void reset() {
     for (int ch = 0; ch < 4; ch++) {
