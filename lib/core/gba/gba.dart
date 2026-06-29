@@ -151,8 +151,10 @@ class Gba implements Core {
   @override
   void setDisc(Disc disc) {}
 
+  Sram _sram = Sram();
+
   @override
-  void setSram(Sram sram) {}
+  void setSram(Sram sram) => _sram = sram;
 
   @override
   void reset() {
@@ -181,6 +183,7 @@ class Gba implements Core {
   @override
   void setRom(Uint8List body) {
     bus.cart.load(body);
+    bus.cart.initBackup(_sram);
     reset();
   }
 
@@ -190,7 +193,8 @@ class Gba implements Core {
       bool showSpriteVram = false,
       bool showStack = false,
       bool showApu = false}) {
-    return "${cpu.dump()}\ntitle:${bus.cart.title} code:${bus.cart.gameCode}\n"
+    return "${cpu.dump()}\ntitle:${bus.cart.title} code:${bus.cart.gameCode} "
+        "save:${bus.cart.backup.type.name}\n"
         "clk:$_clocks line:$_scanline vcnt:${bus.vcount} "
         "ie:${bus.irq.ie.x4} if:${bus.irq.if_.x4} ime:${bus.irq.ime} "
         "halt:${bus.halted}";
@@ -236,8 +240,8 @@ class Gba implements Core {
 
   @override
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
-      ImageBuffer.empty();
+      ppu.renderVram(useSecondBgColor, paletteNo);
 
   @override
-  List<String> spriteInfo() => [];
+  List<String> spriteInfo() => ppu.spriteInfo();
 }
