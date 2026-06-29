@@ -91,12 +91,14 @@ class Bus {
         return vram[_vramOffset(addr)];
       case 0x7:
         return oam[addr & 0x3ff];
+      case 0xd:
+        if (cart.hasEeprom) return cart.backup.eepromRead();
+        return cart.readRom8(addr & 0x01ffffff);
       case 0x8:
       case 0x9:
       case 0xa:
       case 0xb:
       case 0xc:
-      case 0xd:
         return cart.readRom8(addr & 0x01ffffff);
       case 0xe:
       case 0xf:
@@ -134,6 +136,9 @@ class Bus {
       case 0x7:
         // 8-bit writes to OAM are ignored on real HW
         return;
+      case 0xd:
+        if (cart.hasEeprom) cart.backup.eepromWrite(data & 1);
+        return;
       case 0xe:
       case 0xf:
         cart.writeSram(addr & 0xffff, data);
@@ -146,7 +151,10 @@ class Bus {
   // --- 16/32-bit access (little-endian) -------------------------------------
 
   int read16(int addr) {
-    if ((addr >> 24) & 0xf == 0x4) return _readIo16(addr & 0x3fe);
+    final region = (addr >> 24) & 0xf;
+    if (region == 0x4) return _readIo16(addr & 0x3fe);
+    // EEPROM is bit-serial: a 16-bit read consumes exactly one bit.
+    if (region == 0xd && cart.hasEeprom) return cart.backup.eepromRead();
     return read8(addr) | (read8(addr + 1) << 8);
   }
 
@@ -185,6 +193,9 @@ class Bus {
         return;
       case 0x7:
         _w16(oam, addr & 0x3fe, data);
+        return;
+      case 0xd:
+        if (cart.hasEeprom) cart.backup.eepromWrite(data & 1);
         return;
       case 0xe:
       case 0xf:

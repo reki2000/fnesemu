@@ -94,6 +94,11 @@ class Dma {
     int dst = _dstLatch[ch];
     final count = _countLatch[ch];
 
+    // an EEPROM-targeted stream needs its length to infer the address width.
+    if (bus.cart.hasEeprom && ((dst >> 24) & 0xf) == 0xd) {
+      bus.cart.backup.eepromBeginCommand(count);
+    }
+
     for (int i = 0; i < count; i++) {
       if (word) {
         bus.write32(dst, bus.read32(src));

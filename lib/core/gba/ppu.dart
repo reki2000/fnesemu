@@ -591,4 +591,56 @@ class Ppu {
     }
     return ImageBuffer(cols * cell, rows * cell, buf.buffer.asUint8List());
   }
+
+  /// 4bpp tile sheet from the start of VRAM (32x32 tiles = 256x256 px), using
+  /// background palette bank [paletteNo].
+  ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) {
+    const tilesPerRow = 32;
+    const tileRows = 32;
+    const w = tilesPerRow * 8;
+    const h = tileRows * 8;
+    final buf = Uint32List(w * h);
+    final palBase = (paletteNo & 0xf) * 16;
+
+    for (int t = 0; t < tilesPerRow * tileRows; t++) {
+      final tileX = (t % tilesPerRow) * 8;
+      final tileY = (t ~/ tilesPerRow) * 8;
+      final tileAddr = t * 32;
+      for (int y = 0; y < 8; y++) {
+        final row = (tileY + y) * w + tileX;
+        for (int x = 0; x < 8; x++) {
+          final byte = bus.vram[tileAddr + y * 4 + (x >> 1)];
+          final nibble = (x & 1) != 0 ? byte >> 4 : byte & 0xf;
+          buf[row + x] = nibble == 0
+              ? 0xff000000
+              : _rgba[_pal(palBase + nibble) & 0x7fff];
+        }
+      }
+    }
+    return ImageBuffer(w, h, buf.buffer.asUint8List());
+  }
+
+  /// one line per OAM sprite describing its position, size and attributes.
+  List<String> spriteInfo() {
+    final out = <String>[];
+    for (int n = 0; n < 128; n++) {
+      final a0 = _oam16(n * 8);
+      final a1 = _oam16(n * 8 + 2);
+      final a2 = _oam16(n * 8 + 4);
+      final objMode = (a0 >> 8) & 3;
+      if (objMode == 2) continue; // hidden
+      final shape = (a0 >> 14) & 3;
+      final size = (a1 >> 14) & 3;
+      if (shape == 3) continue;
+      final w = _objSize[shape][size][0];
+      final h = _objSize[shape][size][1];
+      final x = a1 & 0x1ff;
+      final y = a0 & 0xff;
+      final tile = a2 & 0x3ff;
+      final prio = (a2 >> 10) & 3;
+      out.add("$n: ($x,$y) ${w}x$h tile:$tile pr:$prio "
+          "${objMode == 1 || objMode == 3 ? 'aff' : ''}");
+    }
+    return out;
+  }
 }

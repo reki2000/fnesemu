@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
-/// Game Pak: ROM + save memory.
-/// Stage 1 supports plain ROM reads and a 64KB SRAM region.
-/// Flash / EEPROM auto-detection comes in Stage 6.
+import '../sram.dart';
+import 'backup.dart';
+
+/// Game Pak: ROM + backup memory (SRAM / Flash / EEPROM, auto-detected).
 class Cart {
   Uint8List rom = Uint8List(0);
-  final sram = Uint8List(0x10000); // 64KB max (covers SRAM/Flash 64K)
+  final backup = Backup();
 
   String title = "";
   String gameCode = "";
@@ -18,12 +19,20 @@ class Cart {
     }
   }
 
+  /// detect the backup type from the ROM and bind it to persistent storage.
+  void initBackup(Sram storage) {
+    final id = gameCode.isNotEmpty ? gameCode : "gba";
+    backup.init(Backup.detect(rom), storage, id);
+  }
+
+  bool get hasEeprom => backup.isEeprom;
+
   int readRom8(int offset) {
     if (offset < rom.length) return rom[offset];
     // open-bus on GBA returns a value derived from the address; 0 is fine here.
     return 0;
   }
 
-  int readSram(int offset) => sram[offset & 0xffff];
-  void writeSram(int offset, int data) => sram[offset & 0xffff] = data & 0xff;
+  int readSram(int offset) => backup.read8(offset);
+  void writeSram(int offset, int data) => backup.write8(offset, data);
 }
