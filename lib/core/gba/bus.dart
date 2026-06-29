@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
+import 'apu.dart';
 import 'cart.dart';
 import 'dma.dart';
 import 'irq.dart';
@@ -18,11 +19,14 @@ class Bus {
   late final Irq irq;
   late final Timers timers;
   late final Dma dma;
+  late final Apu apu;
 
   Bus() {
     irq = Irq();
     timers = Timers(irq);
     dma = Dma(this, irq);
+    apu = Apu(this);
+    timers.onOverflow = apu.onTimerOverflow;
   }
 
   // on-chip memory
@@ -60,6 +64,7 @@ class Bus {
     irq.reset();
     timers.reset();
     dma.reset();
+    apu.reset();
     vcount = 0;
     hblank = false;
     vblank = false;
@@ -246,7 +251,11 @@ class Bus {
     _writeIo16(r, (reg & 1) == 0 ? cur.setL8(data) : cur.setH8(data));
   }
 
+  static bool _isApuReg(int reg) =>
+      (reg >= 0x60 && reg <= 0x84) || (reg >= 0xa0 && reg <= 0xa6);
+
   int _readIo16(int reg) {
+    if (_isApuReg(reg)) return apu.read16(reg);
     if (reg >= 0x0b0 && reg <= 0x0df) return dma.read16(reg);
     if (reg >= 0x100 && reg <= 0x10f) return timers.read16(reg);
     switch (reg) {
@@ -269,6 +278,10 @@ class Bus {
 
   void _writeIo16(int reg, int data) {
     data &= 0xffff;
+    if (_isApuReg(reg)) {
+      apu.write16(reg, data);
+      return;
+    }
     if (reg >= 0x0b0 && reg <= 0x0df) {
       dma.write16(reg, data);
       return;

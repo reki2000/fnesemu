@@ -115,6 +115,27 @@ class Gba implements Core {
     if (_scanline == bus.vcountSetting && bus.vcountIrqEnabled) {
       bus.irq.raise(IrqBit.vcount);
     }
+
+    _renderAudio();
+  }
+
+  // accumulate APU samples and push a stereo buffer once it fills up.
+  final _audio = Float32List(2048 * 2); // interleaved L,R
+  int _audioIndex = 0;
+
+  void _renderAudio() {
+    final samples = _clocks * bus.apu.sampleHz ~/ _clockHz - bus.apu.elapsedSamples;
+    if (samples <= 0) return;
+
+    if (_audioIndex + samples * 2 >= _audio.length) {
+      _onAudio(AudioBuffer(bus.apu.sampleHz, 2, _audio.sublist(0, _audioIndex)));
+      _audioIndex = 0;
+    }
+
+    final rendered = bus.apu.render(samples);
+    for (int i = 0; i < rendered.length; i++) {
+      _audio[_audioIndex++] = rendered[i];
+    }
   }
 
   void _renderScanline(int line) => ppu.renderLine(line);
