@@ -156,26 +156,54 @@ class Bus {
         (read8(addr + 3) << 24);
   }
 
+  // 16/32-bit writes go straight to the backing arrays. They must NOT be
+  // decomposed into byte writes: 8-bit writes to palette/VRAM have a mirroring
+  // side effect that would corrupt halfword/word stores.
   void write16(int addr, int data) {
-    if ((addr >> 24) & 0xf == 0x4) {
-      _writeIo16(addr & 0x3fe, data & 0xffff);
-      return;
+    addr &= 0x0fffffff;
+    data &= 0xffff;
+    switch (addr >> 24) {
+      case 0x2:
+        _w16(ewram, addr & 0x3fffe, data);
+        return;
+      case 0x3:
+        _w16(iwram, addr & 0x7ffe, data);
+        return;
+      case 0x4:
+        _writeIo16(addr & 0x3fe, data);
+        return;
+      case 0x5:
+        _w16(paletteRam, addr & 0x3fe, data);
+        return;
+      case 0x6:
+        _w16(vram, _vramOffset(addr) & ~1, data);
+        return;
+      case 0x7:
+        _w16(oam, addr & 0x3fe, data);
+        return;
+      case 0xe:
+      case 0xf:
+        cart.writeSram(addr & 0xffff, data & 0xff);
+        return;
+      default:
+        return; // BIOS / ROM are not writable
     }
-    write8(addr, data & 0xff);
-    write8(addr + 1, (data >> 8) & 0xff);
   }
 
   void write32(int addr, int data) {
     if ((addr >> 24) & 0xf == 0x4) {
-      final r = addr & 0x3fc;
+      final r = (addr & 0x3fc);
       _writeIo16(r, data & 0xffff);
       _writeIo16(r + 2, (data >> 16) & 0xffff);
       return;
     }
-    write8(addr, data & 0xff);
-    write8(addr + 1, (data >> 8) & 0xff);
-    write8(addr + 2, (data >> 16) & 0xff);
-    write8(addr + 3, (data >> 24) & 0xff);
+    write16(addr & ~3, data & 0xffff);
+    write16((addr & ~3) + 2, (data >> 16) & 0xffff);
+  }
+
+  void _w16(Uint8List m, int a, int data) {
+    m[a] = data & 0xff;
+    m[a + 1] = (data >> 8) & 0xff;
   }
 
   // VRAM is 96KB but mirrored in a 128KB window as 64KB + 32KB + 32KB(mirror).

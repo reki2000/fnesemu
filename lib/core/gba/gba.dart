@@ -12,6 +12,7 @@ import 'arm7tdmi/arm7.dart';
 import 'arm7tdmi/arm_disasm.dart';
 import 'bus.dart';
 import 'irq.dart';
+import 'ppu.dart';
 
 /// Game Boy Advance core.
 ///
@@ -21,6 +22,7 @@ import 'irq.dart';
 class Gba implements Core {
   late final Bus bus;
   late final Arm7 cpu;
+  late final Ppu ppu;
 
   static const screenWidth = 240;
   static const screenHeight = 160;
@@ -33,6 +35,7 @@ class Gba implements Core {
   Gba() {
     bus = Bus();
     cpu = Arm7(bus);
+    ppu = Ppu(bus);
   }
 
   @override
@@ -50,8 +53,6 @@ class Gba implements Core {
   int _clocks = 0;
   int _nextScanClock = 0;
   int _scanline = 0;
-
-  final _frame = Uint8List(screenWidth * screenHeight * 4);
 
   static const _visibleLines = 160;
 
@@ -116,12 +117,10 @@ class Gba implements Core {
     }
   }
 
-  // Stage 4 replaces this with the real PPU.
-  void _renderScanline(int line) {}
+  void _renderScanline(int line) => ppu.renderLine(line);
 
   @override
-  ImageBuffer imageBuffer() =>
-      ImageBuffer(screenWidth, screenHeight, _frame);
+  ImageBuffer imageBuffer() => ppu.imageBuffer;
 
   void Function(AudioBuffer) _onAudio = (_) {};
 
@@ -137,6 +136,7 @@ class Gba implements Core {
   @override
   void reset() {
     bus.onReset();
+    ppu.reset();
     // With a real BIOS, boot from the reset vector; otherwise HLE the boot so
     // the cartridge entry runs directly.
     if (bus.biosLoaded) {
@@ -211,7 +211,7 @@ class Gba implements Core {
   ImageBuffer renderBg() => ImageBuffer.empty();
 
   @override
-  ImageBuffer renderColorTable(int paletteNo) => ImageBuffer.empty();
+  ImageBuffer renderColorTable(int paletteNo) => ppu.renderColorTable();
 
   @override
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
