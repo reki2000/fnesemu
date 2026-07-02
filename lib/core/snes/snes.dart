@@ -9,6 +9,7 @@ import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
+import 'component/apu.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
@@ -20,24 +21,26 @@ import 'rom/snes_file.dart';
 
 /// main class for SNES emulation.
 ///
-/// 65816 CPU + bus (WRAM/ROM/SRAM) + DMA/HDMA + PPU (BG modes 0/1/3 and OBJ)
-/// render. Modes 2/4/5/6/7 (offset-per-tile, hi-res, rotation), windowing,
-/// color math, and SPC700/DSP audio are not wired up yet - see ppu.dart's
-/// class doc for the rendering gaps.
+/// 65816 CPU + bus (WRAM/ROM/SRAM) + DMA/HDMA + PPU (BG modes 0/1/2/3/4/7
+/// and OBJ) + SPC700/DSP audio. modes 5/6 (hi-res), windowing, color math,
+/// echo/noise (DSP) are not wired up - see ppu.dart/dsp.dart class docs.
 class Snes implements Core {
   Snes() {
     bus = Bus();
     cpu = Cpu(bus);
     ppu = Ppu();
     dma = Dma(bus);
+    apu = Apu();
     bus.ppu = ppu;
     bus.dma = dma;
+    bus.apu = apu;
   }
 
   late final Bus bus;
   late final Cpu cpu;
   late final Ppu ppu;
   late final Dma dma;
+  late final Apu apu;
 
   // approximate NTSC SNES master clock / cpu clock (fast-rom not modeled yet)
   static const masterClock = 21477270;
@@ -60,6 +63,8 @@ class Snes implements Core {
 
   int _scanline = 0;
   int _nextScanlineCycle = 0;
+  int _lastApuCycle = 0;
+  int _nextAudioFlushCycle = 0;
 
   void Function(AudioBuffer) _onAudio = (_) {};
 
@@ -69,6 +74,16 @@ class Snes implements Core {
   ExecResult exec(bool _) {
     if (!cpu.exec()) {
       return ExecResult(cpu.cycle, true, false);
+    }
+
+    apu.exec(cpu.cycle - _lastApuCycle, cpuClock);
+    _lastApuCycle = cpu.cycle;
+    if (cpu.cycle >= _nextAudioFlushCycle) {
+      _nextAudioFlushCycle += cpuCyclesInScanline * 16;
+      final buf = apu.flush();
+      if (buf.isNotEmpty) {
+        _onAudio(AudioBuffer(Apu.dspSampleHz, 2, buf));
+      }
     }
 
     bool rendered = false;
@@ -106,8 +121,11 @@ class Snes implements Core {
   void reset() {
     _scanline = 0;
     _nextScanlineCycle = cpuCyclesInScanline;
+    _lastApuCycle = 0;
+    _nextAudioFlushCycle = 0;
     ppu.reset();
     dma.reset();
+    apu.reset();
     bus.onReset();
   }
 

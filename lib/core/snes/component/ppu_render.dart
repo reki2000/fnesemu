@@ -22,12 +22,14 @@ extension PpuRenderer on Ppu {
   ];
 
   // BG bit depth per implemented mode; index 0-3 = BG1-4, 0 = BG not present.
-  // modes 2/4/5/6/7 (offset-per-tile, hi-res, rotation) are not in this map
-  // and fall back to a backdrop-only scanline - see class doc in ppu.dart.
+  // modes 5/6 (hi-res, 512px wide) are not in this map and fall back to a
+  // backdrop-only scanline - see class doc in ppu.dart.
   static const _bgBpp = <int, List<int>>{
     0: [2, 2, 2, 2],
     1: [4, 4, 2, 0],
+    2: [4, 4, 0, 0], // BG3 repurposed as offset-per-tile table
     3: [8, 4, 0, 0],
+    4: [8, 2, 0, 0], // BG3 repurposed as offset-per-tile table
   };
 
   static List<_Layer> _priorityOrder(int mode, bool bg3prio) {
@@ -52,7 +54,9 @@ extension PpuRenderer on Ppu {
           (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1), (bgL, 2, 1),
           (obj, 0, 0), (bgL, 2, 0), //
         ];
+      case 2:
       case 3:
+      case 4:
         return [
           (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), (bgL, 1, 1),
           (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), (bgL, 1, 0), //
@@ -84,16 +88,18 @@ extension PpuRenderer on Ppu {
 
   /// fetches one BG pixel at screen column/row; returns (colorIndex 1-255,
   /// paletteNum, tilePriorityBit) or null if transparent (colorIndex 0).
-  (int, int, int)? _bgPixel(int bgIdx, int bpp, int x, int y) {
+  /// raw 16-bit tilemap entry for BG [bgIdx] at map pixel position (px,py),
+  /// respecting that BG's own tilemap address/size. used both for normal
+  /// tile lookup and, for BG3, as the offset-per-tile source table.
+  int _tilemapEntryRaw(int bgIdx, int px, int py) {
     final bg = bgs[bgIdx];
     final tileSizePx = bg.bigChar ? 16 : 8;
     final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
     final mapPxH = (bg.wideY ? 64 : 32) * tileSizePx;
 
-    final sx = (x + bg.hofs) & (mapPxW - 1);
-    final sy = (y + bg.vofs) & (mapPxH - 1);
-
-    final cellCol = sx ~/ tileSizePx; // 0..63
+    final sx = px & (mapPxW - 1);
+    final sy = py & (mapPxH - 1);
+    final cellCol = sx ~/ tileSizePx;
     final cellRow = sy ~/ tileSizePx;
     final quadX = (bg.wideX && cellCol >= 32) ? 1 : 0;
     final quadY = (bg.wideY && cellRow >= 32) ? 1 : 0;
@@ -112,8 +118,52 @@ extension PpuRenderer on Ppu {
     }
 
     final entryAddr = (bg.tilemapAddr + extra + localRow * 32 + localCol) & 0x7fff;
-    final entry = vram[entryAddr * 2] | vram[entryAddr * 2 + 1].shl8;
+    return vram[entryAddr * 2] | vram[entryAddr * 2 + 1].shl8;
+  }
 
+  /// offset-per-tile (modes 2/4/6): BG3's tilemap is repurposed as a table
+  /// of per-column scroll overrides for BG1/BG2. Based on community-derived
+  /// (srg320, nesdev BBS) and bsnes-style pseudocode - not a primary
+  /// hardware source, so double-check against real ROMs if visuals look off.
+  (int, int) _optScroll(int bgIdx, int x, int y, int hofs, int vofs) {
+    if (bgMode != 2 && bgMode != 4 && bgMode != 6) return (hofs, vofs);
+    if (x - 8 < 0) return (hofs, vofs); // leftmost visible tile: unaffected
+
+    final bg3 = bgs[2];
+    final validMask = bgIdx == 0 ? 0x2000 : 0x4000;
+    final lookupX = (hofs & 7) | (((x - 8) & ~7) + (bg3.hofs & ~7));
+    final hval = _tilemapEntryRaw(2, lookupX, bg3.vofs);
+
+    if (bgMode == 4) {
+      // single OPT row: bit15 of the same word picks horizontal or vertical
+      if (hval.bit15) {
+        if (hval & validMask != 0) vofs = y + hval;
+      } else {
+        if (hval & validMask != 0) hofs = (hofs & 7) + ((x & ~7) + (hval & ~7));
+      }
+    } else {
+      final vval = _tilemapEntryRaw(2, lookupX, bg3.vofs + 8);
+      if (hval & validMask != 0) hofs = (hofs & 7) + ((x & ~7) + (hval & ~7));
+      if (vval & validMask != 0) vofs = y + vval;
+    }
+    return (hofs, vofs);
+  }
+
+  (int, int, int)? _bgPixel(int bgIdx, int bpp, int x, int y) {
+    final bg = bgs[bgIdx];
+    final tileSizePx = bg.bigChar ? 16 : 8;
+    final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
+    final mapPxH = (bg.wideY ? 64 : 32) * tileSizePx;
+
+    var hofs = bg.hofs, vofs = bg.vofs;
+    if (bgIdx == 0 || bgIdx == 1) {
+      (hofs, vofs) = _optScroll(bgIdx, x, y, hofs, vofs);
+    }
+
+    final sx = (x + hofs) & (mapPxW - 1);
+    final sy = (y + vofs) & (mapPxH - 1);
+
+    final entry = _tilemapEntryRaw(bgIdx, sx, sy);
     final tileNum = entry & 0x3ff;
     final paletteNum = entry.shr10 & 0x07;
     final priority = entry.shr13 & 1;
