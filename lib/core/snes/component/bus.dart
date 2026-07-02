@@ -10,9 +10,9 @@ import 'ppu.dart';
 
 /// 24-bit address bus for the SNES.
 ///
-/// milestone 2: WRAM + ROM(LoROM/HiROM) + SRAM are functional. the PPU/APU/DMA
-/// register space is stubbed (stored to a scratch array, a few status reads
-/// hardcoded) so CPU test ROMs that only touch RAM/ROM run end-to-end.
+/// WRAM + ROM (LoROM/HiROM) + SRAM are functional. $2100-$213F routes to the
+/// PPU's register file (see ppu.dart). DMA/HDMA, the SPC700 audio link
+/// ($2140-2143), and most of $4200-$43FF are still a scratch stub.
 class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
@@ -134,13 +134,16 @@ class Bus {
     sramWrite(off, data);
   }
 
-  // ------------------------------------------------------------ MMIO (stub)
+  // ------------------------------------------------------------ MMIO
   int _readMmio(int page) {
+    if (page >= 0x2100 && page < 0x2140) return ppu.read(page);
     switch (page) {
       case 0x4210: // RDNMI: bit7 = vblank nmi flag (read-clears)
-        final v = _nmiFlag ? 0x82 : 0x02;
-        _nmiFlag = false;
-        return v;
+        {
+          final v = _nmiFlag ? 0x82 : 0x02;
+          _nmiFlag = false;
+          return v;
+        }
       case 0x4211: // TIMEUP irq flag
         return 0;
       case 0x4212: // HVBJOY: vblank/hblank/auto-joy status
@@ -155,6 +158,10 @@ class Bus {
   }
 
   void _writeMmio(int page, int data) {
+    if (page >= 0x2100 && page < 0x2140) {
+      ppu.write(page, data);
+      return;
+    }
     if (page == 0x4200) _nmiEnabled = data.bit7; // NMITIMEN
     _mmio[page & 0x3ff] = data;
   }
