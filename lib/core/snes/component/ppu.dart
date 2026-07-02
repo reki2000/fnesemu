@@ -19,14 +19,21 @@ class BgRegs {
 /// for 2/4, mode7 rotation/scaling for BG1 only - no EXTBG) plus OBJ
 /// (sprites), fed via DMA/HDMA (see dma.dart) at practical speed. Windows,
 /// color math, and horizontal mosaic apply to modes 0-4 (not mode7's
-/// dedicated renderer yet). Modes 5/6 (hi-res, 512px wide) are not rendered
-/// yet - those scanlines fall back to backdrop color. Vertical mosaic and
-/// direct-color mode are not implemented.
+/// dedicated renderer yet). Modes 5/6 (hi-res, 512px wide) render BG1/BG2
+/// only, at 512px width (see [width]/[widthNormal]); OBJ and mode7 stay
+/// at normal 256px width for all modes, matching real hardware. Vertical
+/// mosaic and direct-color mode are not implemented.
 class Ppu {
-  static const width = 256;
+  static const widthNormal = 256;
+  static const widthHires = 512;
   static const height = 224;
 
-  final buffer = Uint32List(width * height);
+  /// current scanline-buffer width: 256 normally, 512 in BG modes 5/6.
+  /// `buffer` is always allocated at the max size; only the first
+  /// `width * height` entries are meaningful after a frame renders.
+  int width = widthNormal;
+
+  final buffer = Uint32List(widthHires * height);
 
   // ------------------------------------------------------------- memory
   final vram = Uint8List(0x10000); // 64KB, byte-addressed (word reg * 2)
@@ -38,6 +45,7 @@ class Ppu {
   }
 
   void reset() {
+    width = widthNormal;
     buffer.fillRange(0, buffer.length, 0xff000000);
     brightness = 0;
     forcedBlank = true;
