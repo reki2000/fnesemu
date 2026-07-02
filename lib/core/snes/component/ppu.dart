@@ -15,11 +15,12 @@ class BgRegs {
 
 /// SNES PPU: VRAM/CGRAM/OAM plus the $2100-$213F register file.
 ///
-/// BG modes 0, 1 and 3 render (the common 2bpp/4bpp/8bpp tile cases) plus
-/// OBJ (sprites), fed via DMA/HDMA (see dma.dart) at practical speed. Modes
-/// 2/4/5/6/7 (offset-per-tile, hi-res, rotation) are not rendered yet -
-/// those scanlines fall back to backdrop color. Windowing and color math
-/// registers are stored but not yet applied.
+/// BG modes 0, 1, 2, 3, 4 and 7 render (2bpp/4bpp/8bpp tiles, offset-per-tile
+/// for 2/4, mode7 rotation/scaling for BG1 only - no EXTBG) plus OBJ
+/// (sprites), fed via DMA/HDMA (see dma.dart) at practical speed. Modes 5/6
+/// (hi-res, 512px wide) are not rendered yet - those scanlines fall back to
+/// backdrop color. Windowing and color math registers are stored but not
+/// yet applied.
 class Ppu {
   static const width = 256;
   static const height = 224;
