@@ -68,6 +68,18 @@ class Ppu {
     objSizeSel = 0;
     rangeOver = false;
     timeOver = false;
+    m7sel = 0;
+    m7a = 0x0100;
+    m7b = 0;
+    m7c = 0;
+    m7d = 0x0100;
+    m7x = 0;
+    m7y = 0;
+    m7hofs = 0;
+    m7vofs = 0;
+    _m7Latch = 0;
+    _m7bByte = 0;
+    mpyResult = 0;
   }
 
   // ------------------------------------------------------ $2100 INIDISP
@@ -187,6 +199,28 @@ class Ppu {
   int mainScreenEnable = 0; // bit0-3 BG1-4, bit4 OBJ
   int subScreenEnable = 0;
 
+  // --------------------------------------------------- Mode 7 ($211A-2120)
+  // M7HOFS/M7VOFS share $210D/$210E with BG1's HOFS/VOFS: each write there
+  // updates BOTH the BG1 shadow regs (via _bgOfsLatch above) and these mode7
+  // shadow regs (via their own shared latch _m7Latch), per real hardware.
+  int m7sel = 0; // screen-over (bits7-6) + flip (bits1-0)
+  int m7a = 0x0100, m7b = 0, m7c = 0, m7d = 0x0100; // 8.8 fixed, signed 16-bit
+  int m7x = 0, m7y = 0; // signed 13-bit pivot point
+  int m7hofs = 0, m7vofs = 0; // signed 13-bit scroll (mode7-private copies)
+  int _m7Latch = 0; // shared write-twice latch across $210D/E and $211B-2120
+  int _m7bByte = 0; // last byte written to $211C, used by the MPY multiply
+  int mpyResult = 0; // $2134-2136: signed 24-bit result of m7a * _m7bByte
+
+  int _writeM7(int val) {
+    final r = ((val << 8) | _m7Latch) & 0xffff;
+    _m7Latch = val;
+    return r;
+  }
+
+  void _updateMpy() {
+    mpyResult = (m7a.rel16 * _m7bByte.rel8) & 0xffffff;
+  }
+
   // -------------------------------------------------------- $213E/213F
   bool rangeOver = false; // >32 sprites on a scanline
   bool timeOver = false; // >34 tiles on a scanline
@@ -250,9 +284,11 @@ class Ppu {
         break;
       case 0x210d:
         _writeHofs(bgs[0], val);
+        m7hofs = _writeM7(val);
         break;
       case 0x210e:
         _writeVofs(bgs[0], val);
+        m7vofs = _writeM7(val);
         break;
       case 0x210f:
         _writeHofs(bgs[1], val);
@@ -297,6 +333,30 @@ class Ppu {
       case 0x2122: // CGDATA
         _cgramWrite(val);
         break;
+      case 0x211a: // M7SEL
+        m7sel = val;
+        break;
+      case 0x211b: // M7A (also the 16-bit MPY operand)
+        m7a = _writeM7(val);
+        _updateMpy();
+        break;
+      case 0x211c: // M7B (also the 8-bit MPY operand)
+        m7b = _writeM7(val);
+        _m7bByte = val;
+        _updateMpy();
+        break;
+      case 0x211d: // M7C
+        m7c = _writeM7(val);
+        break;
+      case 0x211e: // M7D
+        m7d = _writeM7(val);
+        break;
+      case 0x211f: // M7X
+        m7x = _writeM7(val);
+        break;
+      case 0x2120: // M7Y
+        m7y = _writeM7(val);
+        break;
       case 0x212c: // TM
         mainScreenEnable = val & 0x1f;
         break;
@@ -314,6 +374,12 @@ class Ppu {
   /// handles a CPU read from a PPU register in $2100-$213F.
   int read(int addr) {
     switch (addr) {
+      case 0x2134: // MPYL
+        return mpyResult.mask8;
+      case 0x2135: // MPYM
+        return mpyResult.shr8 & 0xff;
+      case 0x2136: // MPYH
+        return mpyResult.shr16 & 0xff;
       case 0x2138: // OAMDATAREAD
         return _oamRead();
       case 0x2139: // VMDATALREAD
