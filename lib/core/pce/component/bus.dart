@@ -10,14 +10,26 @@ import 'pic.dart';
 import 'psg.dart';
 import 'timer.dart';
 import 'vdc.dart';
+import 'vpc.dart';
 
 class Bus {
   late final Cpu2 cpu;
   late final Vdc vdc;
   late final Vdc vdc2;
+  late final Vpc vpc;
   late final Psg psg;
   late final Timer timer;
   late final Pic pic;
+
+  // ST0/1/2 and CPU access to $0000-$0007 are routed to the VDC selected by
+  // the VPC ($000E bit0). On a plain PC Engine this is always VDC1.
+  Vdc get stVdc => vpc.enabled && vpc.vdcSelect == 1 ? vdc2 : vdc;
+
+  // touching any VDC2 register also latches SuperGrafx mode.
+  Vdc get _vdc2Sgx {
+    vpc.enabled = true;
+    return vdc2;
+  }
 
   Rom rom = Rom(List.filled(4, Uint8List(0x2000)));
 
@@ -47,13 +59,15 @@ class Bus {
     if (bank == 0xff) {
       // VDC
       if (offset < 0x0400) {
-        return switch (offset & 0x1f) {
-          0x00 => vdc.readReg(),
-          0x02 => vdc.readLsb(),
-          0x03 => vdc.readMsb(),
-          0x10 => vdc2.readReg(),
-          0x12 => vdc2.readLsb(),
-          0x13 => vdc2.readMsb(),
+        final r = offset & 0x1f;
+        return switch (r) {
+          0x00 => stVdc.readReg(),
+          0x02 => stVdc.readLsb(),
+          0x03 => stVdc.readMsb(),
+          0x08 || 0x09 || 0x0a || 0x0b || 0x0c || 0x0d || 0x0e => vpc.read(r),
+          0x10 => _vdc2Sgx.readReg(),
+          0x12 => _vdc2Sgx.readLsb(),
+          0x13 => _vdc2Sgx.readMsb(),
           int() => 0
         };
       }
@@ -113,15 +127,33 @@ class Bus {
     if (bank == 0xff) {
       // VDC
       if (offset < 0x0400) {
-        switch (offset & 0x03) {
-          case 0:
-            vdc.writeReg(data);
+        switch (offset & 0x1f) {
+          case 0x00:
+            stVdc.writeReg(data);
             return;
-          case 2:
-            vdc.writeLsb(data);
+          case 0x02:
+            stVdc.writeLsb(data);
             return;
-          case 3:
-            vdc.writeMsb(data);
+          case 0x03:
+            stVdc.writeMsb(data);
+            return;
+          case 0x08:
+          case 0x09:
+          case 0x0a:
+          case 0x0b:
+          case 0x0c:
+          case 0x0d:
+          case 0x0e:
+            vpc.write(offset & 0x1f, data);
+            return;
+          case 0x10:
+            _vdc2Sgx.writeReg(data);
+            return;
+          case 0x12:
+            _vdc2Sgx.writeLsb(data);
+            return;
+          case 0x13:
+            _vdc2Sgx.writeMsb(data);
             return;
         }
         return;
@@ -202,6 +234,8 @@ class Bus {
 
   void onReset() {
     vdc.reset();
+    vdc2.reset();
+    vpc.reset();
     psg.reset();
     cpu.reset();
     timer.reset();

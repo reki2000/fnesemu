@@ -18,6 +18,7 @@ import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_debug.dart';
 import 'component/vdc_render.dart';
+import 'component/vpc.dart';
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
@@ -25,6 +26,7 @@ import 'rom/pce_file.dart';
 class Pce implements Core {
   late final Vdc vdc;
   late final Vdc vdc2;
+  late final Vpc vpc;
   late final Psg psg;
   late final Cpu2 cpu;
   late final Bus bus;
@@ -50,6 +52,7 @@ class Pce implements Core {
     cpu = Cpu2(bus);
     vdc = bus.vdc = Vdc(bus, 0);
     vdc2 = bus.vdc2 = Vdc(bus, 1);
+    vpc = bus.vpc = Vpc();
     psg = Psg(bus);
     timer = Timer(bus);
     pic = Pic(bus);
@@ -57,6 +60,7 @@ class Pce implements Core {
 
   int _nextVdcClocks = 0;
   int _prevPsgClocks = 0;
+  bool _vdc2Synced = false;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -72,6 +76,15 @@ class Pce implements Core {
 
     while (cpu.clocks >= _nextVdcClocks) {
       vdc.exec();
+      if (vpc.enabled) {
+        // align VDC2's vertical counter to VDC1 the first time SGX activates,
+        // so both VDCs render the same scanline in lock-step thereafter.
+        if (!_vdc2Synced) {
+          vdc2.scanLine = vdc.scanLine;
+          _vdc2Synced = true;
+        }
+        vdc2.exec();
+      }
       _nextVdcClocks += clocksInScanline;
       // print(
       //     "cpu.clocks:${cpu.clocks} cpu.cycles:${cpu.cycles} nextVdcClocks: $nextVdcClocks");
@@ -90,8 +103,9 @@ class Pce implements Core {
   /// returns screen buffer as hSize x vSize argb
   @override
   ImageBuffer imageBuffer() {
+    vpc.render(vdc, vdc2);
     return ImageBuffer(
-        vdc.hSize, vdc.vSize, VdcRenderer.buffer.buffer.asUint8List());
+        vdc.hSize, vdc.vSize, vpc.frameBuffer.buffer.asUint8List());
   }
 
   void Function(AudioBuffer) _onAudio = (_) {};
@@ -106,6 +120,7 @@ class Pce implements Core {
   void reset() {
     _nextVdcClocks = clocksInScanline;
     _prevPsgClocks = clocksInScanline;
+    _vdc2Synced = false;
     bus.onReset();
   }
 
