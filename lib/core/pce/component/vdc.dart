@@ -23,7 +23,7 @@ class Vdc {
     final bg =
         "bg:${hSize}x$vSize ${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
     final line =
-        "l:$scanLine,${VdcRenderer.bgRenderLine} f:${VdcRenderer.frames}";
+        "l:$scanLine,${bgRenderLine} f:${VdcRenderer.frames}";
     return "vdc: $regs $bg $scr $flags $line";
   }
 
@@ -146,6 +146,26 @@ class Vdc {
 
   final sat = List<int>.filled(0x100, 0);
 
+  // --- renderer state (per-VDC, for SuperGrafx dual-VDC support) ---
+  // full-frame palette-index buffer (hSize*vSize). value 0..0x1ff = VCE index,
+  // 0xffff = direct white (used by debug overlay). VCE->RGBA is done by Vpc.
+  Uint16List indexBuffer = Uint16List(0);
+  int bgRenderLine = 0;
+  int displayLine = 0;
+
+  // bg fetch latches (kept across the 8 pixels of a tile)
+  int paletteNo = 0;
+  int pattern01 = 0;
+  int pattern23 = 0;
+
+  // sprite evaluation state (independent SAT per VDC)
+  final sprites =
+      List<Sprite>.filled(64, Sprite.of(List.filled(4, 0), 0), growable: false);
+  final spriteBuf =
+      List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
+  int spriteBufIndex = 0;
+  final sprite0 = List<bool>.filled(32, false); // x of sprite 0
+
   int readReg() {
     bus.pic.acknoledgeIrq1();
 
@@ -201,7 +221,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.setL8(val);
-        VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
+        bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
       case 0x09:
@@ -236,7 +256,7 @@ class Vdc {
       case 0x0b:
         final oldHSize = hSize;
         hSize = ((val & 0x3f) + 1).shl3;
-        if (oldHSize != hSize) VdcRenderer.buffer = Uint32List(hSize * vSize);
+        if (oldHSize != hSize) indexBuffer = Uint16List(hSize * vSize);
         break;
       // Vertical Sync Register
       case 0x0c:
@@ -309,7 +329,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.setH8(val & 0x01);
-        VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
+        bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
       case 0x09:

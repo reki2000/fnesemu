@@ -74,20 +74,14 @@ final Uint32List rgba = Uint32List.fromList(
 extension VdcRenderer on Vdc {
   static bool debug = false;
 
-  static Uint32List buffer = Uint32List(0);
-
-  static int bgRenderLine = 0;
-
   static int displayStartLine = 14;
-  static int displayLine = 0;
-  static int displayX = 0;
 
   static int frames = 0;
 
   resetRenderer() {
     bgRenderLine = 0;
     frames = 0;
-    buffer = Uint32List(hSize * vSize);
+    indexBuffer = Uint16List(hSize * vSize);
   }
 
   // render a line;
@@ -117,7 +111,7 @@ extension VdcRenderer on Vdc {
           displayLine & 0x0f < 5) {
         for (int x = 0; x < 4 * 2; x++) {
           if ((displayLine & 0xf0).drawHexValue(x, displayLine & 0x0f, 2)) {
-            buffer[(displayLine - 5) * hSize + 1 + x] = 0xffffffff;
+            indexBuffer[(displayLine - 5) * hSize + 1 + x] = 0xffff;
           }
         }
       }
@@ -163,15 +157,12 @@ extension VdcRenderer on Vdc {
             ? spColor.color
             : bgColor;
 
-    int color = rgba[colorTable[colorNo]];
-
-    buffer[displayLine * hSize + scanX] =
-        spColor.isDirect ? spColor.color : color;
+    // output the 9-bit VCE palette index; Vpc does the VCE->RGBA conversion
+    // (and, in SuperGrafx mode, priority composition with the other VDC).
+    // 0xffff is a sentinel for the debug direct-white pixel.
+    indexBuffer[displayLine * hSize + scanX] =
+        spColor.isDirect ? 0xffff : colorNo;
   }
-
-  static int paletteNo = 0;
-  static int pattern01 = 0;
-  static int pattern23 = 0;
 
   int _renderBg() {
     final x = (scanX + scrollX) & bgScrollMaskX;
@@ -212,16 +203,6 @@ extension VdcRenderer on Vdc {
 
     return paletteNo | colorNo;
   }
-
-  static final sprites =
-      List<Sprite>.filled(64, Sprite.of(List.filled(4, 0), 0), growable: false);
-  static final spriteBuf =
-      List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
-  static int spriteBufIndex = 0;
-
-  static final sprite0 = List<bool>.filled(32, false); // x of sprite 0
-
-  static int max = 0;
 
   fetchSatb() {
     for (int i = 0; i < sprites.length; i++) {
