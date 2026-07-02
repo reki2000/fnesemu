@@ -233,8 +233,10 @@ class Disasm {
         return "[\$${w.x4}]";
       case _Am.lng:
       case _Am.lngX:
-        final l = w | c.shl16;
-        return "\$${l.x6}${am == _Am.lngX ? ',X' : ''}";
+        {
+          final l = w | c.shl16;
+          return "\$${l.x6}${am == _Am.lngX ? ',X' : ''}";
+        }
       case _Am.rel:
         return "\$${(pc + 2 + a.rel8).mask16.x4}";
       case _Am.rell:

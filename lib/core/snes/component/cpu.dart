@@ -977,9 +977,11 @@ class Cpu {
         _branch(true);
         break;
       case 0x82: // BRL
-        final offset = _fetch16().rel16;
-        regs.pc = (regs.pc + offset).mask16;
-        cycle += 3;
+        {
+          final offset = _fetch16().rel16;
+          regs.pc = (regs.pc + offset).mask16;
+          cycle += 3;
+        }
         break;
 
       // ---------------------------------------------------------- jumps
@@ -993,35 +995,45 @@ class Cpu {
         regs.pc = _ptr16Pbr((_fetch16() + regs.x).mask16);
         break;
       case 0x5c: // JML long
-        final a = _fetch24();
-        regs.pc = a.mask16;
-        regs.pbr = a.shr16;
+        {
+          final a = _fetch24();
+          regs.pc = a.mask16;
+          regs.pbr = a.shr16;
+        }
         break;
       case 0xdc: // JML [abs]
-        final a = _ptr24(_fetch16());
-        regs.pc = a.mask16;
-        regs.pbr = a.shr16;
+        {
+          final a = _ptr24(_fetch16());
+          regs.pc = a.mask16;
+          regs.pbr = a.shr16;
+        }
         break;
 
       case 0x20: // JSR abs
-        final a = _fetch16();
-        _push16(regs.pc.dec.mask16);
-        regs.pc = a;
-        cycle += 4;
+        {
+          final a = _fetch16();
+          _push16(regs.pc.dec.mask16);
+          regs.pc = a;
+          cycle += 4;
+        }
         break;
       case 0xfc: // JSR (abs,X)
-        final ptr = (_fetch16() + regs.x).mask16;
-        _push16(regs.pc.dec.mask16);
-        regs.pc = _ptr16Pbr(ptr);
-        cycle += 5;
+        {
+          final ptr = (_fetch16() + regs.x).mask16;
+          _push16(regs.pc.dec.mask16);
+          regs.pc = _ptr16Pbr(ptr);
+          cycle += 5;
+        }
         break;
       case 0x22: // JSL long
-        final a = _fetch24();
-        _push8(regs.pbr);
-        _push16(regs.pc.dec.mask16);
-        regs.pbr = a.shr16;
-        regs.pc = a.mask16;
-        cycle += 6;
+        {
+          final a = _fetch24();
+          _push8(regs.pbr);
+          _push16(regs.pc.dec.mask16);
+          regs.pbr = a.shr16;
+          regs.pc = a.mask16;
+          cycle += 6;
+        }
         break;
       case 0x60: // RTS
         regs.pc = _pull16().inc.mask16;
@@ -1068,8 +1080,10 @@ class Cpu {
         _push16(_ptr16(_dp()));
         break;
       case 0x62: // PER
-        final disp = _fetch16().rel16;
-        _push16((regs.pc + disp).mask16);
+        {
+          final disp = _fetch16().rel16;
+          _push16((regs.pc + disp).mask16);
+        }
         break;
       case 0x68: // PLA
         _setA(_pullReg(mSize));
@@ -1175,14 +1189,16 @@ class Cpu {
         _normalizeWidths();
         break;
       case 0xfb: // XCE
-        final c = regs.p.bit0;
-        _setFlag(Flags.C, regs.e);
-        regs.e = c;
-        if (regs.e) {
-          regs.p |= Flags.M | Flags.X;
-          regs.s = 0x0100 | regs.s.mask8;
+        {
+          final c = regs.p.bit0;
+          _setFlag(Flags.C, regs.e);
+          regs.e = c;
+          if (regs.e) {
+            regs.p |= Flags.M | Flags.X;
+            regs.s = 0x0100 | regs.s.mask8;
+          }
+          _normalizeWidths();
         }
-        _normalizeWidths();
         break;
 
       // ---------------------------------------------------------- misc

@@ -14,14 +14,14 @@ import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/pad.dart';
 import 'component/ppu.dart';
+import 'component/ppu_render.dart';
 import 'rom/snes_file.dart';
 
 /// main class for SNES emulation.
 ///
-/// milestone 2 scope: 65816 CPU + bus (WRAM/ROM/SRAM) + a minimal MMIO/NMI
-/// stub run end-to-end so CPU test ROMs can be traced. the PPU only produces
-/// a fixed blank frame (no BG/sprite/Mode7 rendering yet) and SPC700/DSP
-/// audio is not wired up.
+/// 65816 CPU + bus (WRAM/ROM/SRAM) + PPU (BG modes 0/1/3 and OBJ) render.
+/// DMA/HDMA, modes 2/4/5/6/7, windowing, color math, and SPC700/DSP audio
+/// are not wired up yet - see ppu.dart's class doc for the rendering gaps.
 class Snes implements Core {
   Snes() {
     bus = Bus();
@@ -68,7 +68,7 @@ class Snes implements Core {
 
     bool rendered = false;
     if (cpu.cycle >= _nextScanlineCycle) {
-      ppu.execScanline(_scanline);
+      ppu.renderScanline(_scanline);
       _scanline++;
       _nextScanlineCycle += cpuCyclesInScanline;
       rendered = true;
@@ -84,7 +84,8 @@ class Snes implements Core {
     return ExecResult(cpu.cycle, false, rendered);
   }
 
-  /// returns screen buffer as 256x224 argb (currently a fixed placeholder)
+  /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
+  /// other modes show backdrop only - see Ppu's class doc)
   @override
   ImageBuffer imageBuffer() =>
       ImageBuffer(Ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List());
