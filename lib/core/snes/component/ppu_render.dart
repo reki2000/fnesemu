@@ -283,6 +283,166 @@ extension PpuRenderer on Ppu {
     }
   }
 
+  /// true if column x falls inside window1 / window2's raw range.
+  bool _inWindow1(int x) => x >= w1Left && x <= w1Right;
+  bool _inWindow2(int x) => x >= w2Left && x <= w2Right;
+
+  /// combines window1/window2 for one layer's 4-bit select field
+  /// [invert2,enable2,invert1,enable1] and 2-bit OR/AND/XOR/XNOR logic.
+  bool _layerInsideWindow(int wsel4, int logic2, int x) {
+    final en1 = wsel4.bit0, inv1 = wsel4.bit1;
+    final en2 = wsel4.bit2, inv2 = wsel4.bit3;
+    if (!en1 && !en2) return false;
+    final a = en1 ? (_inWindow1(x) != inv1) : false;
+    final b = en2 ? (_inWindow2(x) != inv2) : false;
+    if (en1 && !en2) return a;
+    if (!en1 && en2) return b;
+    switch (logic2) {
+      case 0:
+        return a || b;
+      case 1:
+        return a && b;
+      case 2:
+        return a != b;
+      default:
+        return a == b;
+    }
+  }
+
+  /// layer: 0-3=BG1-4, 4=OBJ, 5=color window (the ccmm bits of CGWSEL).
+  bool _insideWindow(int layer, int x) {
+    switch (layer) {
+      case 0:
+        return _layerInsideWindow(w12sel & 0xf, wbglog & 0x3, x);
+      case 1:
+        return _layerInsideWindow(w12sel.shr4 & 0xf, wbglog.shr2 & 0x3, x);
+      case 2:
+        return _layerInsideWindow(w34sel & 0xf, wbglog.shr4 & 0x3, x);
+      case 3:
+        return _layerInsideWindow(w34sel.shr4 & 0xf, wbglog.shr6 & 0x3, x);
+      case 4:
+        return _layerInsideWindow(wobjsel & 0xf, wobjlog & 0x3, x);
+      default:
+        return _layerInsideWindow(wobjsel.shr4 & 0xf, wobjlog.shr2 & 0x3, x);
+    }
+  }
+
+  /// whether a layer's pixel is masked (hidden) at column x for the given
+  /// screen (TMW for main / TSW for sub): masked when that screen's window
+  /// bit is set for the layer AND the column is inside its window.
+  bool _layerMasked(int layer, int x, int windowApplyMask) =>
+      windowApplyMask.bit(layer) && _insideWindow(layer, x);
+
+  /// composites one screen (main or sub) at column x: returns
+  /// (cgramIndex, sourceKind, objPalette). sourceKind: 0-3=BG1-4, 4=OBJ,
+  /// 5=backdrop. objPalette is only meaningful when sourceKind==4.
+  (int, int, int) _compositePixel(
+    int x,
+    int y,
+    int screenEnable,
+    int windowApplyMask,
+    List<_Layer> order,
+    List<int> bpp,
+    List<int> objColor,
+    List<int> objPalette,
+    List<int> objPriority,
+  ) {
+    for (final layer in order) {
+      if (layer.$1) {
+        if (!screenEnable.bit4) continue;
+        if (objColor[x] != -1 &&
+            objPriority[x] == layer.$3 &&
+            !_layerMasked(4, x, windowApplyMask)) {
+          return (128 + objPalette[x] * 16 + objColor[x], 4, objPalette[x]);
+        }
+      } else {
+        final bgIdx = layer.$2;
+        if (bpp[bgIdx] == 0 || !screenEnable.bit(bgIdx)) continue;
+        if (_layerMasked(bgIdx, x, windowApplyMask)) continue;
+        final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
+            ? (x ~/ (mosaicSize + 1)) * (mosaicSize + 1)
+            : x;
+        final px = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
+        if (px != null && px.$3 == layer.$3) {
+          return (
+            _bgPaletteIndex(bgMode, bgIdx, bpp[bgIdx], px.$2, px.$1),
+            bgIdx,
+            0
+          );
+        }
+      }
+    }
+    return (0, 5, 0); // backdrop
+  }
+
+  /// clamped RGB channel add/subtract for color math, 5-bit channels.
+  int _mathChannel(int a, int b, bool subtract, bool half) {
+    int r = subtract ? a - b : a + b;
+    if (half) r = subtract ? r : r >> 1;
+    return r.clamp(0, 31);
+  }
+
+  int _colorMath(
+    int mainIdx,
+    int sourceKind,
+    int objPalette,
+    int x,
+    int subR,
+    int subG,
+    int subB,
+  ) {
+    final subtract = cgadsub.bit7;
+    final half = cgadsub.bit6;
+
+    // does this main-screen source permit color math? (CGADSUB bits5-0)
+    bool allowed;
+    switch (sourceKind) {
+      case 5:
+        allowed = cgadsub.bit5; // backdrop
+        break;
+      case 4:
+        allowed = cgadsub.bit4 && objPalette >= 4; // OBJ, palette 4-7 only
+        break;
+      default:
+        allowed = cgadsub.bit(sourceKind); // BG1-4
+    }
+
+    final ccBits = cgwsel.shr6 & 0x3;
+    final mmBits = cgwsel.shr4 & 0x3;
+    final insideColorWindow = _insideWindow(5, x);
+    final clipToBlack = switch (ccBits) {
+      1 => !insideColorWindow,
+      2 => insideColorWindow,
+      3 => true,
+      _ => false,
+    };
+    final mathEnabled = switch (mmBits) {
+      1 => !insideColorWindow,
+      2 => insideColorWindow,
+      3 => true,
+      _ => false,
+    };
+
+    final base = clipToBlack
+        ? 0
+        : (cgram[(mainIdx & 0xff) * 2] | cgram[(mainIdx & 0xff) * 2 + 1].shl8);
+    var r = base & 0x1f, g = base.shr5 & 0x1f, b = base.shr10 & 0x1f;
+
+    if (!allowed || !mathEnabled) return _rgb555(r, g, b);
+
+    r = _mathChannel(r, subR, subtract, half);
+    g = _mathChannel(g, subG, subtract, half);
+    b = _mathChannel(b, subB, subtract, half);
+    return _rgb555(r, g, b);
+  }
+
+  int _rgb555(int r5, int g5, int b5) {
+    final r = (r5.shl3) | (r5.shr2);
+    final g = (g5.shl3) | (g5.shr2);
+    final b = (b5.shl3) | (b5.shr2);
+    return 0xff000000 | b.shl16 | g.shl8 | r;
+  }
+
   /// renders one scanline (1-based, matching the SNES's hidden-first-line
   /// convention) into `buffer`. lines outside 1..Ppu.height are ignored.
   void renderScanline(int line) {
@@ -312,31 +472,28 @@ extension PpuRenderer on Ppu {
     final objColor = List<int>.filled(Ppu.width, -1);
     final objPalette = List<int>.filled(Ppu.width, 0);
     final objPriority = List<int>.filled(Ppu.width, 0);
-    if (mainScreenEnable.bit4) {
+    if (mainScreenEnable.bit4 || subScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }
 
     final order = _priorityOrder(bgMode, bg3Priority);
+    final subscreenMode = cgwsel.bit1;
 
     for (int x = 0; x < Ppu.width; x++) {
-      int color = backdrop;
-      for (final layer in order) {
-        if (layer.$1) {
-          if (objColor[x] != -1 && objPriority[x] == layer.$3) {
-            color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
-            break;
-          }
-        } else {
-          final bgIdx = layer.$2;
-          if (bpp[bgIdx] == 0 || !mainScreenEnable.bit(bgIdx)) continue;
-          final px = _bgPixel(bgIdx, bpp[bgIdx], x, y);
-          if (px != null && px.$3 == layer.$3) {
-            color = _rgba(_bgPaletteIndex(bgMode, bgIdx, bpp[bgIdx], px.$2, px.$1));
-            break;
-          }
-        }
+      final (mainIdx, mainKind, mainObjPal) = _compositePixel(
+          x, y, mainScreenEnable, tmw, order, bpp, objColor, objPalette, objPriority);
+
+      int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
+      if (subscreenMode) {
+        final (subIdx, _, _) = _compositePixel(
+            x, y, subScreenEnable, tsw, order, bpp, objColor, objPalette, objPriority);
+        final c = cgram[(subIdx & 0xff) * 2] | cgram[(subIdx & 0xff) * 2 + 1].shl8;
+        subR = c & 0x1f;
+        subG = c.shr5 & 0x1f;
+        subB = c.shr10 & 0x1f;
       }
-      buffer[row + x] = color;
+
+      buffer[row + x] = _colorMath(mainIdx, mainKind, mainObjPal, x, subR, subG, subB);
     }
   }
 

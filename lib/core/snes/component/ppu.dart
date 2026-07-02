@@ -17,10 +17,11 @@ class BgRegs {
 ///
 /// BG modes 0, 1, 2, 3, 4 and 7 render (2bpp/4bpp/8bpp tiles, offset-per-tile
 /// for 2/4, mode7 rotation/scaling for BG1 only - no EXTBG) plus OBJ
-/// (sprites), fed via DMA/HDMA (see dma.dart) at practical speed. Modes 5/6
-/// (hi-res, 512px wide) are not rendered yet - those scanlines fall back to
-/// backdrop color. Windowing and color math registers are stored but not
-/// yet applied.
+/// (sprites), fed via DMA/HDMA (see dma.dart) at practical speed. Windows,
+/// color math, and horizontal mosaic apply to modes 0-4 (not mode7's
+/// dedicated renderer yet). Modes 5/6 (hi-res, 512px wide) are not rendered
+/// yet - those scanlines fall back to backdrop color. Vertical mosaic and
+/// direct-color mode are not implemented.
 class Ppu {
   static const width = 256;
   static const height = 224;
@@ -81,6 +82,24 @@ class Ppu {
     _m7Latch = 0;
     _m7bByte = 0;
     mpyResult = 0;
+    w12sel = 0;
+    w34sel = 0;
+    wobjsel = 0;
+    w1Left = 0;
+    w1Right = 0;
+    w2Left = 0;
+    w2Right = 0;
+    wbglog = 0;
+    wobjlog = 0;
+    tmw = 0;
+    tsw = 0;
+    cgwsel = 0;
+    cgadsub = 0;
+    fixedColorR = 0;
+    fixedColorG = 0;
+    fixedColorB = 0;
+    mosaicSize = 0;
+    mosaicEnable = 0;
   }
 
   // ------------------------------------------------------ $2100 INIDISP
@@ -199,6 +218,22 @@ class Ppu {
   // ----------------------------------------------- $212C/212D TM/TS
   int mainScreenEnable = 0; // bit0-3 BG1-4, bit4 OBJ
   int subScreenEnable = 0;
+
+  // --------------------------------------------- $2123-212B windows
+  // W12SEL/W34SEL/WOBJSEL: 4 bits/layer = [invert2,enable2,invert1,enable1]
+  int w12sel = 0, w34sel = 0, wobjsel = 0;
+  int w1Left = 0, w1Right = 0, w2Left = 0, w2Right = 0;
+  int wbglog = 0, wobjlog = 0; // window1/2 combine logic, 2 bits/layer
+  int tmw = 0, tsw = 0; // apply windows to main/sub screen, bit0-3=BG1-4,bit4=OBJ
+
+  // --------------------------------------------- $2130-2132 color math
+  int cgwsel = 0; // ccmm--sd
+  int cgadsub = 0; // shbo4321
+  int fixedColorR = 0, fixedColorG = 0, fixedColorB = 0; // $2132, 5-bit each
+
+  // --------------------------------------------------------- $2115.. mosaic
+  int mosaicSize = 0; // 0-15 (0/1 = off)
+  int mosaicEnable = 0; // bit0-3 = BG1-4
 
   // --------------------------------------------------- Mode 7 ($211A-2120)
   // M7HOFS/M7VOFS share $210D/$210E with BG1's HOFS/VOFS: each write there
@@ -364,8 +399,60 @@ class Ppu {
       case 0x212d: // TS
         subScreenEnable = val & 0x1f;
         break;
+      case 0x2106: // MOSAIC
+        mosaicSize = val.shr4 & 0x0f;
+        mosaicEnable = val & 0x0f;
+        break;
+      case 0x2123: // W12SEL
+        w12sel = val;
+        break;
+      case 0x2124: // W34SEL
+        w34sel = val;
+        break;
+      case 0x2125: // WOBJSEL
+        wobjsel = val;
+        break;
+      case 0x2126: // WH0 (window1 left)
+        w1Left = val;
+        break;
+      case 0x2127: // WH1 (window1 right)
+        w1Right = val;
+        break;
+      case 0x2128: // WH2 (window2 left)
+        w2Left = val;
+        break;
+      case 0x2129: // WH3 (window2 right)
+        w2Right = val;
+        break;
+      case 0x212a: // WBGLOG
+        wbglog = val;
+        break;
+      case 0x212b: // WOBJLOG
+        wobjlog = val;
+        break;
+      case 0x212e: // TMW
+        tmw = val & 0x1f;
+        break;
+      case 0x212f: // TSW
+        tsw = val & 0x1f;
+        break;
+      case 0x2130: // CGWSEL
+        cgwsel = val;
+        break;
+      case 0x2131: // CGADSUB
+        cgadsub = val;
+        break;
+      case 0x2132: // COLDATA
+        {
+          final c = val & 0x1f;
+          if (val.bit5) fixedColorR = c;
+          if (val.bit6) fixedColorG = c;
+          if (val.bit7) fixedColorB = c;
+        }
+        break;
       default:
-        // windows, color math, mosaic, mode7 matrix: stored, not applied yet
+        // mode7 matrix scratch already handled above; anything else in the
+        // PPU register range is stored so reads return the last value.
         if (addr >= 0x2100 && addr < 0x2140) {
           _scratch[(addr - 0x2100) & 0x3f] = val;
         }

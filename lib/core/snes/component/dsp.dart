@@ -32,13 +32,13 @@ class Voice {
 /// S-DSP: 8 BRR-sample voices with ADSR/GAIN envelopes, mixed to stereo.
 ///
 /// implemented: BRR decode, ADSR envelope (attack/decay/sustain/release)
-/// and direct GAIN, pitch (advances through decoded samples at the given
-/// rate with no interpolation between them - real hardware uses a Gaussian
-/// filter; this is a cruder documented simplification), per-voice L/R
-/// volume, main volume, KON/KOFF, ENDX.
-/// NOT implemented: echo, noise generator, pitch modulation, the FIR
-/// echo filter. Registers for these are stored (readback works) but
-/// ignored by the mixer.
+/// and direct GAIN, pitch with linear interpolation between samples (real
+/// hardware uses a 4-tap Gaussian filter - documented simplification),
+/// per-voice L/R volume, main volume, KON/KOFF, ENDX, noise generator
+/// (NON), and a simplified echo (delay + feedback, no FIR filter - real
+/// hardware applies an 8-tap FIR to the echo input before writing it to
+/// the buffer; here the raw mix is written directly).
+/// NOT implemented: pitch modulation (PMON), the FIR filter coefficients.
 class Dsp {
   late final Spc700 spc; // set by Spc700's constructor
 
@@ -48,8 +48,21 @@ class Dsp {
   int dir = 0; // source directory page (DIR << 8)
   int flg = 0xe0; // FLG: bit7=reset,bit6=mute,bit5=echo-write-disable
   int endx = 0; // per-voice "reached loop/end" flags (read, write clears)
+  int nonMask = 0; // $3D: per-voice noise-instead-of-BRR enable
+  int eonMask = 0; // $4D: per-voice echo-send enable
+  int efb = 0; // $0D: echo feedback (signed 8-bit)
+  int evolL = 0, evolR = 0; // $2C/$3D: echo volume L/R (signed 8-bit)
+  int esa = 0; // $6D: echo buffer start page
+  int edl = 0; // $7D: echo delay, 0-15 (each unit = 2KB = ~32ms buffer)
 
-  // raw scratch for echo/noise/PMON registers we don't implement, so reads
+  int _noiseLfsr = 0x4000; // 15-bit, must stay non-zero
+  int _noiseTick = 0;
+  int _noiseSampleValue = 0;
+
+  int _echoPos = 0; // byte offset within the echo buffer
+  int _echoFeedL = 0, _echoFeedR = 0; // held output, fed back next sample
+
+  // raw scratch for PMON/FIR registers we don't implement, so reads
   // return the last-written value.
   final _scratch = List<int>.filled(0x80, 0);
 
@@ -86,6 +99,19 @@ class Dsp {
     dir = 0;
     flg = 0xe0;
     endx = 0;
+    nonMask = 0;
+    eonMask = 0;
+    efb = 0;
+    evolL = 0;
+    evolR = 0;
+    esa = 0;
+    edl = 0;
+    _noiseLfsr = 0x4000;
+    _noiseTick = 0;
+    _noiseSampleValue = 0;
+    _echoPos = 0;
+    _echoFeedL = 0;
+    _echoFeedR = 0;
     _scratch.fillRange(0, _scratch.length, 0);
   }
 
@@ -124,8 +150,22 @@ class Dsp {
         return mainVolL & 0xff;
       case 0x1c:
         return mainVolR & 0xff;
+      case 0x2c:
+        return evolL & 0xff;
+      case 0x3c:
+        return evolR & 0xff;
+      case 0x0d:
+        return efb & 0xff;
+      case 0x3d:
+        return nonMask;
+      case 0x4d:
+        return eonMask;
       case 0x5d:
         return dir.shr8 & 0xff;
+      case 0x6d:
+        return esa;
+      case 0x7d:
+        return edl;
       case 0x6c:
         return flg;
       case 0x7c:
@@ -179,6 +219,21 @@ class Dsp {
       case 0x1c:
         mainVolR = val;
         break;
+      case 0x2c:
+        evolL = val;
+        break;
+      case 0x3c:
+        evolR = val;
+        break;
+      case 0x0d:
+        efb = val;
+        break;
+      case 0x3d:
+        nonMask = val;
+        break;
+      case 0x4d:
+        eonMask = val;
+        break;
       case 0x4c: // KON
         for (int i = 0; i < 8; i++) {
           if (val.bit(i)) _keyOn(voices[i]);
@@ -191,6 +246,13 @@ class Dsp {
         break;
       case 0x5d:
         dir = (val).shl8;
+        break;
+      case 0x6d:
+        esa = val;
+        break;
+      case 0x7d:
+        edl = val & 0x0f;
+        _echoPos = 0;
         break;
       case 0x6c:
         flg = val;
@@ -347,10 +409,30 @@ class Dsp {
     v.brrAddr = (v.brrAddr + 9) & 0xffff;
   }
 
+  /// advances the noise LFSR by one step (15-bit, feedback = bit0 XOR bit1
+  /// fed back into bit14 - the commonly documented SNES noise polynomial).
+  void _updateNoise() {
+    final feedback = (_noiseLfsr & 1) ^ ((_noiseLfsr.shr1) & 1);
+    _noiseLfsr = (_noiseLfsr.shr1) | (feedback << 14);
+    _noiseSampleValue = _noiseLfsr.bit14 ? (_noiseLfsr - 0x8000) : _noiseLfsr;
+  }
+
   /// advances all voices by one output sample (called at the DSP's native
   /// 32000Hz rate) and returns (left, right) as floats in roughly [-1, 1].
   (double, double) mixSample() {
+    // noise LFSR ticks at a rate selected by FLG bits0-4 (same period table
+    // used by the envelope rates).
+    final noisePeriod = _rateToSamples[flg & 0x1f];
+    if (noisePeriod != 0xffffffff) {
+      _noiseTick++;
+      if (_noiseTick >= noisePeriod) {
+        _noiseTick = 0;
+        _updateNoise();
+      }
+    }
+
     double left = 0, right = 0;
+    double echoInL = 0, echoInR = 0;
 
     for (int i = 0; i < 8; i++) {
       final v = voices[i];
@@ -366,18 +448,37 @@ class Dsp {
         }
       }
 
-      final sample = v.decoded[v.nibbleIndex];
+      int sample;
+      if (nonMask.bit(i)) {
+        sample = _noiseSampleValue;
+      } else {
+        // linear interpolation toward the next decoded sample (real
+        // hardware uses a 4-tap Gaussian filter - documented
+        // simplification). at a block boundary we skip interpolation
+        // rather than look ahead into the next (not yet decoded) block.
+        final s0 = v.decoded[v.nibbleIndex];
+        final next = v.nibbleIndex + 1;
+        final s1 = next < 16 ? v.decoded[next] : s0;
+        final frac = v.pitchCounter / 0x1000;
+        sample = (s0 + (s1 - s0) * frac).round();
+      }
       _stepEnvelope(v);
 
       final amp = sample * v.env ~/ 0x800;
       v.outx = amp;
       v.envx = v.env;
 
-      left += amp * (v.volL.rel8) / 128.0 / 32768.0;
-      right += amp * (v.volR.rel8) / 128.0 / 32768.0;
+      final ampL = amp * (v.volL.rel8) / 128.0;
+      final ampR = amp * (v.volR.rel8) / 128.0;
+      left += ampL / 32768.0;
+      right += ampR / 32768.0;
+      if (eonMask.bit(i)) {
+        echoInL += ampL;
+        echoInR += ampR;
+      }
 
       // advance pitch counter; step to the next nibble once we've
-      // consumed a full sample period (linear rate, no interpolation)
+      // consumed a full sample period
       v.pitchCounter += v.pitch == 0 ? 0x1000 : v.pitch;
       while (v.pitchCounter >= 0x1000) {
         v.pitchCounter -= 0x1000;
@@ -394,6 +495,33 @@ class Dsp {
           }
         }
       }
+    }
+
+    // echo: simplified delay+feedback line in APU RAM (no FIR filter - see
+    // class doc). buffer holds 4 bytes/sample (L16,R16) starting at ESA.
+    {
+      final bufBytes = (edl == 0 ? 1 : edl) * 0x800;
+      final addr = (esa.shl8 + _echoPos) & 0xffff;
+      final echoOutL =
+          (spc.read(addr) | spc.read((addr + 1) & 0xffff).shl8).rel16;
+      final echoOutR = (spc.read((addr + 2) & 0xffff) |
+              spc.read((addr + 3) & 0xffff).shl8)
+          .rel16;
+
+      left += echoOutL / 32768.0 * (evolL.rel8) / 128.0;
+      right += echoOutR / 32768.0 * (evolR.rel8) / 128.0;
+
+      if (!flg.bit5) {
+        final newL =
+            _clamp16(echoInL.round() + (echoOutL * (efb.rel8)) ~/ 128);
+        final newR =
+            _clamp16(echoInR.round() + (echoOutR * (efb.rel8)) ~/ 128);
+        spc.write(addr, newL & 0xff);
+        spc.write((addr + 1) & 0xffff, newL.shr8 & 0xff);
+        spc.write((addr + 2) & 0xffff, newR & 0xff);
+        spc.write((addr + 3) & 0xffff, newR.shr8 & 0xff);
+      }
+      _echoPos = (_echoPos + 4) % bufBytes;
     }
 
     left *= (mainVolL.rel8) / 128.0;
