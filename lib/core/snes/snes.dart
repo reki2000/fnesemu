@@ -21,9 +21,11 @@ import 'rom/snes_file.dart';
 
 /// main class for SNES emulation.
 ///
-/// 65816 CPU + bus (WRAM/ROM/SRAM) + DMA/HDMA + PPU (BG modes 0/1/2/3/4/7
-/// and OBJ) + SPC700/DSP audio. modes 5/6 (hi-res), windowing, color math,
-/// echo/noise (DSP) are not wired up - see ppu.dart/dsp.dart class docs.
+/// 65816 CPU + bus (WRAM/ROM/SRAM) + DMA/HDMA + PPU (BG modes 0-4/7, OBJ,
+/// windows, color math, mosaic) + SPC700/DSP audio (BRR, ADSR, noise,
+/// simplified echo). Mode 5/6 hi-res is a documented approximation - see
+/// ppu.dart/dsp.dart class docs for exact gaps (Gaussian interpolation,
+/// FIR filter, EXTBG, direct color, vertical mosaic).
 class Snes implements Core {
   Snes() {
     bus = Bus();
@@ -109,8 +111,9 @@ class Snes implements Core {
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
   /// other modes show backdrop only - see Ppu's class doc)
   @override
-  ImageBuffer imageBuffer() =>
-      ImageBuffer(Ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List());
+  ImageBuffer imageBuffer() => ImageBuffer(
+      ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List(),
+      displayWidth_: Ppu.widthNormal);
 
   @override
   onAudio(void Function(AudioBuffer) onAudio) {

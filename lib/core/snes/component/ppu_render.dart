@@ -30,6 +30,8 @@ extension PpuRenderer on Ppu {
     2: [4, 4, 0, 0], // BG3 repurposed as offset-per-tile table
     3: [8, 4, 0, 0],
     4: [8, 2, 0, 0], // BG3 repurposed as offset-per-tile table
+    5: [4, 2, 0, 0], // hi-res (512px); see class doc for the approximation
+    6: [4, 0, 0, 0], // hi-res; BG3 repurposed as offset-per-tile table
   };
 
   static List<_Layer> _priorityOrder(int mode, bool bg3prio) {
@@ -57,9 +59,15 @@ extension PpuRenderer on Ppu {
       case 2:
       case 3:
       case 4:
+      case 5:
         return [
           (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), (bgL, 1, 1),
           (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), (bgL, 1, 0), //
+        ];
+      case 6:
+        return [
+          (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), //
+          (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), //
         ];
       default:
         return const [];
@@ -223,7 +231,7 @@ extension PpuRenderer on Ppu {
 
       final dy = (y - oy) & 0xff;
       if (dy >= h) continue;
-      if (x <= -w || x >= Ppu.width) continue; // fully off-screen
+      if (x <= -w || x >= Ppu.widthNormal) continue; // fully off-screen (OBJ is always 256px)
 
       if (found >= 32) {
         rangeOver = true;
@@ -251,7 +259,7 @@ extension PpuRenderer on Ppu {
 
       for (int sx = 0; sx < w; sx++) {
         final screenX = x + sx;
-        if (screenX < 0 || screenX >= Ppu.width) continue;
+        if (screenX < 0 || screenX >= Ppu.widthNormal) continue;
         if (outColor[screenX] != -1) continue;
 
         final srcX = hFlip ? (w - 1 - sx) : sx;
@@ -284,6 +292,10 @@ extension PpuRenderer on Ppu {
   }
 
   /// true if column x falls inside window1 / window2's raw range.
+  /// window bounds ($2126-2129) are always 8-bit (0-255); in hi-res mode
+  /// (width==512) this means windows only ever cover the left half of the
+  /// screen - not modeled precisely, documented simplification alongside
+  /// the rest of modes 5/6's approximation (see renderScanline's doc).
   bool _inWindow1(int x) => x >= w1Left && x <= w1Right;
   bool _inWindow2(int x) => x >= w2Left && x <= w2Right;
 
@@ -336,8 +348,12 @@ extension PpuRenderer on Ppu {
   /// composites one screen (main or sub) at column x: returns
   /// (cgramIndex, sourceKind, objPalette). sourceKind: 0-3=BG1-4, 4=OBJ,
   /// 5=backdrop. objPalette is only meaningful when sourceKind==4.
+  /// bgX is the BG-side column (0..width-1, hires-aware); objX is the
+  /// OBJ-side column (always 0..255 - sprites stay 256px-wide and are
+  /// stretched 2x when width==512, matching real hardware).
   (int, int, int) _compositePixel(
-    int x,
+    int bgX,
+    int objX,
     int y,
     int screenEnable,
     int windowApplyMask,
@@ -350,18 +366,22 @@ extension PpuRenderer on Ppu {
     for (final layer in order) {
       if (layer.$1) {
         if (!screenEnable.bit4) continue;
-        if (objColor[x] != -1 &&
-            objPriority[x] == layer.$3 &&
-            !_layerMasked(4, x, windowApplyMask)) {
-          return (128 + objPalette[x] * 16 + objColor[x], 4, objPalette[x]);
+        if (objColor[objX] != -1 &&
+            objPriority[objX] == layer.$3 &&
+            !_layerMasked(4, bgX, windowApplyMask)) {
+          return (
+            128 + objPalette[objX] * 16 + objColor[objX],
+            4,
+            objPalette[objX]
+          );
         }
       } else {
         final bgIdx = layer.$2;
         if (bpp[bgIdx] == 0 || !screenEnable.bit(bgIdx)) continue;
-        if (_layerMasked(bgIdx, x, windowApplyMask)) continue;
+        if (_layerMasked(bgIdx, bgX, windowApplyMask)) continue;
         final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
-            ? (x ~/ (mosaicSize + 1)) * (mosaicSize + 1)
-            : x;
+            ? (bgX ~/ (mosaicSize + 1)) * (mosaicSize + 1)
+            : bgX;
         final px = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
         if (px != null && px.$3 == layer.$3) {
           return (
@@ -445,13 +465,26 @@ extension PpuRenderer on Ppu {
 
   /// renders one scanline (1-based, matching the SNES's hidden-first-line
   /// convention) into `buffer`. lines outside 1..Ppu.height are ignored.
+  ///
+  /// modes 5/6 render at [Ppu.widthHires] (512px): BG1/BG2 pixels are
+  /// sampled directly at the 512-wide column (so a full 512-pixel tilemap's
+  /// worth of content shows), while OBJ stays 256px-wide and is stretched
+  /// 2x. This is a simplification - real hardware interleaves separate
+  /// main/sub-screen content on even/odd columns for a pseudo-hires
+  /// transparency effect, which isn't reproduced here.
   void renderScanline(int line) {
     if (line < 1 || line > Ppu.height) return;
-    final row = (line - 1) * Ppu.width;
     final y = line - 1;
 
+    if (bgMode == 5 || bgMode == 6) {
+      width = Ppu.widthHires;
+    } else {
+      width = Ppu.widthNormal;
+    }
+    final row = y * width;
+
     if (forcedBlank) {
-      buffer.fillRange(row, row + Ppu.width, 0xff000000);
+      buffer.fillRange(row, row + width, 0xff000000);
       return;
     }
 
@@ -465,28 +498,30 @@ extension PpuRenderer on Ppu {
 
     if (bpp == null) {
       // unimplemented mode: backdrop only (see class doc)
-      buffer.fillRange(row, row + Ppu.width, backdrop);
+      buffer.fillRange(row, row + width, backdrop);
       return;
     }
 
-    final objColor = List<int>.filled(Ppu.width, -1);
-    final objPalette = List<int>.filled(Ppu.width, 0);
-    final objPriority = List<int>.filled(Ppu.width, 0);
+    final objColor = List<int>.filled(Ppu.widthNormal, -1);
+    final objPalette = List<int>.filled(Ppu.widthNormal, 0);
+    final objPriority = List<int>.filled(Ppu.widthNormal, 0);
     if (mainScreenEnable.bit4 || subScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }
 
     final order = _priorityOrder(bgMode, bg3Priority);
     final subscreenMode = cgwsel.bit1;
+    final hires = width == Ppu.widthHires;
 
-    for (int x = 0; x < Ppu.width; x++) {
-      final (mainIdx, mainKind, mainObjPal) = _compositePixel(
-          x, y, mainScreenEnable, tmw, order, bpp, objColor, objPalette, objPriority);
+    for (int x = 0; x < width; x++) {
+      final objX = hires ? x ~/ 2 : x;
+      final (mainIdx, mainKind, mainObjPal) = _compositePixel(x, objX, y,
+          mainScreenEnable, tmw, order, bpp, objColor, objPalette, objPriority);
 
       int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
       if (subscreenMode) {
-        final (subIdx, _, _) = _compositePixel(
-            x, y, subScreenEnable, tsw, order, bpp, objColor, objPalette, objPriority);
+        final (subIdx, _, _) = _compositePixel(x, objX, y, subScreenEnable,
+            tsw, order, bpp, objColor, objPalette, objPriority);
         final c = cgram[(subIdx & 0xff) * 2] | cgram[(subIdx & 0xff) * 2 + 1].shl8;
         subR = c & 0x1f;
         subG = c.shr5 & 0x1f;
@@ -518,9 +553,9 @@ extension PpuRenderer on Ppu {
   void _renderMode7Scanline(int row, int y) {
     final backdrop = _rgba(0);
 
-    final objColor = List<int>.filled(Ppu.width, -1);
-    final objPalette = List<int>.filled(Ppu.width, 0);
-    final objPriority = List<int>.filled(Ppu.width, 0);
+    final objColor = List<int>.filled(Ppu.widthNormal, -1);
+    final objPalette = List<int>.filled(Ppu.widthNormal, 0);
+    final objPriority = List<int>.filled(Ppu.widthNormal, 0);
     if (mainScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }
@@ -537,7 +572,7 @@ extension PpuRenderer on Ppu {
     final sy = vFlipScreen ? (Ppu.height - 1 - y) : y;
     final dy = sy + vofs - y0;
 
-    for (int x = 0; x < Ppu.width; x++) {
+    for (int x = 0; x < Ppu.widthNormal; x++) {
       int color = backdrop;
 
       // priority order (front->back): OBJ3, BG1 (single layer, no EXTBG),
@@ -547,7 +582,7 @@ extension PpuRenderer on Ppu {
       if (hasObj && objPriority[x] == 3) {
         color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
       } else if (bg1Enabled) {
-        final sx = hFlipScreen ? (Ppu.width - 1 - x) : x;
+        final sx = hFlipScreen ? (Ppu.widthNormal - 1 - x) : x;
         final dx = sx + hofs - x0;
         final u = ((a * dx + b * dy) >> 8) + x0;
         final v = ((c * dx + d * dy) >> 8) + y0;
