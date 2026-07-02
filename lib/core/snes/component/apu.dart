@@ -47,7 +47,12 @@ class Apu {
     _spcCycleBudget += mainCycles * spcClockHz;
     while (_spcCycleBudget >= mainCpuClockHz) {
       final before = spc.cycle;
-      if (!spc.exec()) break; // unimplemented opcode: stop advancing
+      if (!spc.exec()) {
+        // unimplemented opcode: drop the remaining budget so it doesn't
+        // grow without bound across subsequent calls
+        _spcCycleBudget = 0;
+        break;
+      }
       final spent = spc.cycle - before;
       _spcCycleBudget -= spent * mainCpuClockHz;
       _tickDsp(spent);
