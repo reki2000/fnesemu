@@ -52,19 +52,19 @@ extension Cpu6280 on Cpu {
 
       // ST0
       case 0x03:
-        bus.vdc.writeReg(immediate());
+        bus.stVdc.writeReg(immediate());
         cycle += 5;
         break;
 
       // ST1
       case 0x13:
-        bus.vdc.writeLsb(immediate());
+        bus.stVdc.writeLsb(immediate());
         cycle += 5;
         break;
 
       // ST2
       case 0x23:
-        bus.vdc.writeMsb(immediate());
+        bus.stVdc.writeMsb(immediate());
         cycle += 5;
         break;
 
