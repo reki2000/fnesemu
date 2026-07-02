@@ -5,17 +5,21 @@ import 'dart:typed_data';
 // Project imports:
 import '../rom/snes_file.dart';
 import 'cpu.dart';
+import 'dma.dart';
 import 'pad.dart';
 import 'ppu.dart';
 
 /// 24-bit address bus for the SNES.
 ///
 /// WRAM + ROM (LoROM/HiROM) + SRAM are functional. $2100-$213F routes to the
-/// PPU's register file (see ppu.dart). DMA/HDMA, the SPC700 audio link
-/// ($2140-2143), and most of $4200-$43FF are still a scratch stub.
+/// PPU's register file (see ppu.dart) and $4300-$437F + $420B/$420C route to
+/// the DMA/HDMA controller (see dma.dart). The SPC700 audio link
+/// ($2140-2143) and most of $4200-$42FF besides NMI/DMA triggers are still
+/// a scratch stub.
 class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
+  late final Dma dma;
 
   final pad = SnesPad();
 
@@ -137,6 +141,7 @@ class Bus {
   // ------------------------------------------------------------ MMIO
   int _readMmio(int page) {
     if (page >= 0x2100 && page < 0x2140) return ppu.read(page);
+    if (page >= 0x4300 && page < 0x4380) return dma.read(page);
     switch (page) {
       case 0x4210: // RDNMI: bit7 = vblank nmi flag (read-clears)
         {
@@ -162,7 +167,13 @@ class Bus {
       ppu.write(page, data);
       return;
     }
+    if (page >= 0x4300 && page < 0x4380) {
+      dma.write(page, data);
+      return;
+    }
     if (page == 0x4200) _nmiEnabled = data.bit7; // NMITIMEN
+    if (page == 0x420b) dma.runDma(data); // MDMAEN: trigger general DMA now
+    if (page == 0x420c) dma.hdmaEnableMask = data; // HDMAEN
     _mmio[page & 0x3ff] = data;
   }
 

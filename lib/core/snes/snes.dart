@@ -12,6 +12,7 @@ import '../types.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
+import 'component/dma.dart';
 import 'component/pad.dart';
 import 'component/ppu.dart';
 import 'component/ppu_render.dart';
@@ -19,20 +20,24 @@ import 'rom/snes_file.dart';
 
 /// main class for SNES emulation.
 ///
-/// 65816 CPU + bus (WRAM/ROM/SRAM) + PPU (BG modes 0/1/3 and OBJ) render.
-/// DMA/HDMA, modes 2/4/5/6/7, windowing, color math, and SPC700/DSP audio
-/// are not wired up yet - see ppu.dart's class doc for the rendering gaps.
+/// 65816 CPU + bus (WRAM/ROM/SRAM) + DMA/HDMA + PPU (BG modes 0/1/3 and OBJ)
+/// render. Modes 2/4/5/6/7 (offset-per-tile, hi-res, rotation), windowing,
+/// color math, and SPC700/DSP audio are not wired up yet - see ppu.dart's
+/// class doc for the rendering gaps.
 class Snes implements Core {
   Snes() {
     bus = Bus();
     cpu = Cpu(bus);
     ppu = Ppu();
+    dma = Dma(bus);
     bus.ppu = ppu;
+    bus.dma = dma;
   }
 
   late final Bus bus;
   late final Cpu cpu;
   late final Ppu ppu;
+  late final Dma dma;
 
   // approximate NTSC SNES master clock / cpu clock (fast-rom not modeled yet)
   static const masterClock = 21477270;
@@ -68,6 +73,8 @@ class Snes implements Core {
 
     bool rendered = false;
     if (cpu.cycle >= _nextScanlineCycle) {
+      if (_scanline == 0) dma.hdmaInit();
+      if (_scanline <= Ppu.height) dma.hdmaScanline();
       ppu.renderScanline(_scanline);
       _scanline++;
       _nextScanlineCycle += cpuCyclesInScanline;
@@ -100,6 +107,7 @@ class Snes implements Core {
     _scanline = 0;
     _nextScanlineCycle = cpuCyclesInScanline;
     ppu.reset();
+    dma.reset();
     bus.onReset();
   }
 
