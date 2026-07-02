@@ -115,10 +115,21 @@ class Cpu {
   void _setY(int v) => regs.y = xSize == 1 ? v.mask8 : v.mask16;
 
   // ---------------------------------------------------- addressing modes
-  // each returns the 24-bit effective address
+  // each returns the 24-bit effective address.
+  // emulation-mode quirk: when e=1 and DL==0, d+offset+index wraps within
+  // the direct page (8-bit); otherwise the sum wraps at 16 bits.
   int _dp() => (regs.d + _fetch8()).mask16;
-  int _dpX() => (regs.d + _fetch8() + regs.x).mask16;
-  int _dpY() => (regs.d + _fetch8() + regs.y).mask16;
+
+  int _dpIndexed(int index) {
+    final offset = _fetch8();
+    if (regs.e && (regs.d & 0xff) == 0) {
+      return (regs.d + ((offset + index) & 0xff)).mask16;
+    }
+    return (regs.d + offset + index).mask16;
+  }
+
+  int _dpX() => _dpIndexed(regs.x);
+  int _dpY() => _dpIndexed(regs.y);
   int _idp() => regs.dbr.shl16 | _ptr16(_dp());
   int _idpX() => regs.dbr.shl16 | _ptr16(_dpX());
   int _idpY() => (regs.dbr.shl16 | _ptr16(_dp())).inc24(regs.y);
@@ -329,8 +340,14 @@ class Cpu {
     }
 
     if (waiting) {
-      cycle += 1;
-      return true;
+      // WAI wakes on any interrupt signal, even with I set (in which case
+      // no service routine runs and execution continues after the WAI)
+      if (_holdIrq) {
+        waiting = false;
+      } else {
+        cycle += 1;
+        return true;
+      }
     }
 
     final op = _fetch8();
@@ -1046,6 +1063,7 @@ class Cpu {
         break;
       case 0x40: // RTI
         regs.p = _pull8();
+        _normalizeWidths();
         regs.pc = _pull16();
         if (!regs.e) regs.pbr = _pull8();
         cycle += 5;

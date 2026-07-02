@@ -246,7 +246,8 @@ class Ppu {
   // --------------------------------------------------- Mode 7 ($211A-2120)
   // M7HOFS/M7VOFS share $210D/$210E with BG1's HOFS/VOFS: each write there
   // updates BOTH the BG1 shadow regs (via _bgOfsLatch above) and these mode7
-  // shadow regs (via their own shared latch _m7Latch), per real hardware.
+  // shadow regs. the two "Prev" latches really are separate pieces of state
+  // on hardware (cf. bsnes latch.bgofs vs latch.mode7), not one shared MDR.
   int m7sel = 0; // screen-over (bits7-6) + flip (bits1-0)
   int m7a = 0x0100, m7b = 0, m7c = 0, m7d = 0x0100; // 8.8 fixed, signed 16-bit
   int m7x = 0, m7y = 0; // signed 13-bit pivot point
@@ -268,11 +269,6 @@ class Ppu {
   // -------------------------------------------------------- $213E/213F
   bool rangeOver = false; // >32 sprites on a scanline
   bool timeOver = false; // >34 tiles on a scanline
-
-  // raw scratch for registers not yet modeled (windows, color math, mode7,
-  // mosaic): stored so reads return the last-written value, but ignored by
-  // the renderer for now.
-  final _scratch = Uint8List(0x40);
 
   // -------------------------------------------------------------- ports
   /// handles a CPU write to a PPU register in $2100-$213F.
@@ -459,11 +455,8 @@ class Ppu {
         }
         break;
       default:
-        // mode7 matrix scratch already handled above; anything else in the
-        // PPU register range is stored so reads return the last value.
-        if (addr >= 0x2100 && addr < 0x2140) {
-          _scratch[(addr - 0x2100) & 0x3f] = val;
-        }
+        break; // unmodeled write-only registers: ignored (reads are open
+      // bus on real hardware; read() returns 0 as an approximation)
     }
   }
 

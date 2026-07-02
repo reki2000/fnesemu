@@ -61,7 +61,7 @@ class Snes implements Core {
   int get clocksInScanline => cpuCyclesInScanline;
 
   @override
-  List<CpuInfo> get cpuInfos => [CpuInfo.ofR3000(0, "65816")];
+  List<CpuInfo> get cpuInfos => [CpuInfo.ofM68(0, "65816")];
 
   int _scanline = 0;
   int _nextScanlineCycle = 0;

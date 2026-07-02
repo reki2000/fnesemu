@@ -16,7 +16,6 @@ class Voice {
   // playback state
   bool keyOn = false;
   int brrAddr = 0; // current BRR block address
-  int brrHeader = 0;
   int nibbleIndex = 16; // 0-15; 16 means "need to decode next block"
   int pitchCounter = 0; // 15-bit fractional sample position
   int hist1 = 0, hist2 = 0; // BRR decode history (t-1, t-2)
@@ -86,7 +85,6 @@ class Dsp {
       v.outx = 0;
       v.keyOn = false;
       v.brrAddr = 0;
-      v.brrHeader = 0;
       v.nibbleIndex = 16;
       v.pitchCounter = 0;
       v.hist1 = 0;
@@ -256,7 +254,16 @@ class Dsp {
         break;
       case 0x6c:
         flg = val;
-        if (val.bit7) reset(); // soft reset
+        if (val.bit7) {
+          // soft reset: silence all voices and clear ENDX. does NOT wipe
+          // the register file (volumes, DIR, etc. survive on real hardware)
+          for (final v in voices) {
+            v.envMode = EnvMode.off;
+            v.env = 0;
+            v.keyOn = false;
+          }
+          endx = 0;
+        }
         break;
       case 0x7c:
         endx = 0; // any write clears ENDX
@@ -355,7 +362,6 @@ class Dsp {
 
   void _decodeNextBlock(Voice v) {
     final header = spc.read(v.brrAddr);
-    v.brrHeader = header;
     final shift = header.shr4 & 0x0f;
     final filter = header.shr2 & 0x03;
     final loop = header.bit1;
