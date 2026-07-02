@@ -245,6 +245,11 @@ extension PpuRenderer on Ppu {
       return;
     }
 
+    if (bgMode == 7) {
+      _renderMode7Scanline(row, y);
+      return;
+    }
+
     final bpp = _bgBpp[bgMode];
     final backdrop = _rgba(0);
 
@@ -281,6 +286,87 @@ extension PpuRenderer on Ppu {
           }
         }
       }
+      buffer[row + x] = color;
+    }
+  }
+
+  /// fetches the mode7 tilemap byte (tile number 0-255) for tile cell
+  /// (tileX,tileY), each 0-127. tilemap occupies the LOW byte of VRAM words
+  /// $0000-$3FFF, one word per cell in row-major order.
+  int _m7TilemapByte(int tileX, int tileY) {
+    final word = (tileY & 0x7f) * 128 + (tileX & 0x7f);
+    return vram[word * 2];
+  }
+
+  /// fetches one pixel (0-255, direct CGRAM index) from mode7 character
+  /// (tile graphics) data: 8bpp, occupies the HIGH byte of 64 consecutive
+  /// VRAM words per tile (8x8 pixels, row-major).
+  int _m7CharByte(int tileNum, int px, int py) {
+    final word = tileNum * 64 + py * 8 + px;
+    return vram[word * 2 + 1];
+  }
+
+  /// renders one scanline in BG mode 7 (rotation/scaling). BG1 only -
+  /// EXTBG (mode7 BG2) is not implemented; see Ppu's class doc.
+  void _renderMode7Scanline(int row, int y) {
+    final backdrop = _rgba(0);
+
+    final objColor = List<int>.filled(Ppu.width, -1);
+    final objPalette = List<int>.filled(Ppu.width, 0);
+    final objPriority = List<int>.filled(Ppu.width, 0);
+    if (mainScreenEnable.bit4) {
+      _evalSprites(y, objColor, objPalette, objPriority);
+    }
+
+    final bg1Enabled = mainScreenEnable.bit0;
+    final hFlipScreen = m7sel.bit0;
+    final vFlipScreen = m7sel.bit1;
+    final overMode = m7sel.shr6 & 0x03;
+
+    final a = m7a.rel16, b = m7b.rel16, c = m7c.rel16, d = m7d.rel16;
+    final x0 = m7x.rel13, y0 = m7y.rel13;
+    final hofs = m7hofs.rel13, vofs = m7vofs.rel13;
+
+    final sy = vFlipScreen ? (Ppu.height - 1 - y) : y;
+    final dy = sy + vofs - y0;
+
+    for (int x = 0; x < Ppu.width; x++) {
+      int color = backdrop;
+
+      // priority order (front->back): OBJ3, BG1 (single layer, no EXTBG),
+      // OBJ2/1/0, backdrop - see the mode7 row of the priority table
+      // referenced in ppu_render.dart's _priorityOrder doc.
+      final hasObj = objColor[x] != -1;
+      if (hasObj && objPriority[x] == 3) {
+        color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
+      } else if (bg1Enabled) {
+        final sx = hFlipScreen ? (Ppu.width - 1 - x) : x;
+        final dx = sx + hofs - x0;
+        final u = ((a * dx + b * dy) >> 8) + x0;
+        final v = ((c * dx + d * dy) >> 8) + y0;
+        final outOfRange = u < 0 || u >= 1024 || v < 0 || v >= 1024;
+
+        int tileNum = -1;
+        if (outOfRange && overMode == 2) {
+          tileNum = -1; // transparent
+        } else if (outOfRange && overMode == 3) {
+          tileNum = 0; // fill with character 0
+        } else {
+          tileNum = _m7TilemapByte((u >> 3) & 0x7f, (v >> 3) & 0x7f);
+        }
+
+        int bg1Pixel = 0;
+        if (tileNum >= 0) bg1Pixel = _m7CharByte(tileNum, u & 0x7, v & 0x7);
+
+        if (bg1Pixel != 0) {
+          color = _rgba(bg1Pixel);
+        } else if (hasObj) {
+          color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
+        }
+      } else if (hasObj) {
+        color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
+      }
+
       buffer[row + x] = color;
     }
   }
