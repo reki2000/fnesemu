@@ -52,6 +52,7 @@ class Pce implements Core {
     cpu = Cpu2(bus);
     vdc = bus.vdc = Vdc(bus, 0);
     vdc2 = bus.vdc2 = Vdc(bus, 1);
+    vdc2.colorTable = vdc.colorTable; // VCE is shared between both VDCs
     vpc = bus.vpc = Vpc();
     psg = Psg(bus);
     timer = Timer(bus);
@@ -204,10 +205,13 @@ class Pce implements Core {
   @override
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) {
     final buf = vdc.renderVram(useSecondBgColor, paletteNo);
-    return buf;
-    // final buf2 = vdc2.renderVram(useSecondBgColor, paletteNo);
-    // return ImageBuffer(buf.width, buf.height + buf2.height,
-    //     Uint8List.fromList([...buf.buffer, ...buf2.buffer]));
+    if (!vpc.enabled) {
+      return buf;
+    }
+    // SuperGrafx: VDC1's vram on top, VDC2's below
+    final buf2 = vdc2.renderVram(useSecondBgColor, paletteNo);
+    return ImageBuffer(buf.width, buf.height + buf2.height,
+        Uint8List.fromList([...buf.buffer, ...buf2.buffer]));
   }
 
   @override

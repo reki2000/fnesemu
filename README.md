@@ -12,8 +12,8 @@ This project is experimental.
     - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
     - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6 (with audio)
     - 19: Namco163 (waveform sound not supported), 88/206: Namco118
-- PCE (.pce)
-  - Does not support SRAM / CD / SG16
+- PCE (.pce) + SGX16
+  - Does not support SRAM / CD
 - MD (.gen .md)
   - Does not suppor SRAM / CD / PAL / 32X
 - PS1 (.ps) * experimental *
