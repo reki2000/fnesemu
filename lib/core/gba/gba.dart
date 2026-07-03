@@ -32,10 +32,17 @@ class Gba implements Core {
   static const _cyclesPerScanline = 1232;
   static const _scanlines = 228; // 160 visible + 68 vblank
 
+  /// GBA BIOS image, kept across core re-creations. When set, reset() boots
+  /// from the BIOS reset vector instead of the HLE boot.
+  static Uint8List? biosImage;
+
   Gba() {
     bus = Bus();
     cpu = Arm7(bus);
     ppu = Ppu(bus);
+    if (biosImage != null) {
+      bus.loadBios(biosImage!);
+    }
   }
 
   @override
@@ -205,10 +212,10 @@ class Gba implements Core {
     final thumb = cpu.regs.thumb;
     if (thumb) {
       final op = bus.read16(addr & ~1);
-      return ("${addr.x8}: ${op.x4}      ${Arm7Disasm.thumb(op, addr)}", addr + 2);
+      return ("${addr.x8}: ${op.x4}      ${Arm7Disasm.thumb(op, addr)}", 2);
     }
     final op = bus.read32(addr & ~3);
-    return ("${addr.x8}: ${op.x8}  ${Arm7Disasm.arm(op, addr)}", addr + 4);
+    return ("${addr.x8}: ${op.x8}  ${Arm7Disasm.arm(op, addr)}", 4);
   }
 
   @override

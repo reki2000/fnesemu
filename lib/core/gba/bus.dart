@@ -257,6 +257,18 @@ class Bus {
   }
 
   void _writeIo8(int reg, int data) {
+    // POSTFLG (0x300) and HALTCNT (0x301) must be distinguished per byte:
+    // the BIOS writes POSTFLG=1 during boot with all interrupts disabled, and
+    // that write must NOT enter HALT (only a HALTCNT write does).
+    if (reg == _haltcnt) {
+      io[reg] = data & 0xff;
+      return;
+    }
+    if (reg == _haltcnt + 1) {
+      io[reg] = data & 0xff;
+      halted = true;
+      return;
+    }
     final r = reg & ~1;
     final cur = _readIo16(r);
     _writeIo16(r, (reg & 1) == 0 ? cur.setL8(data) : cur.setH8(data));
