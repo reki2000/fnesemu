@@ -13,20 +13,20 @@ import 'vdc_render.dart'; // rgba (512-entry VCE->RGBA table)
 ///
 /// SuperGrafx mode is latched on first access to any VPC ($08-$0E) or VDC2
 /// ($10-$17) register (see [Bus]); games that never touch those run unchanged.
-///
-/// NOTE: window support ($0A-$0D) is not yet modelled — the region-0 priority
-/// nibble (low nibble of $08) is applied to the whole screen. Likewise priority
-/// modes 2/3 (sprite-vs-bg cross-VDC mixing) are approximated as "VDC1 front".
 class Vpc {
   bool enabled = false;
 
   // priority registers: two 4-bit nibbles each, one per window region.
-  //   region index = (inWindow1 ? 1 : 0) | (inWindow2 ? 2 : 0)
-  //   nibble bit0   : VDC1 (front) enable
-  //   nibble bit1   : VDC2 (back)  enable
-  //   nibble bit2-3 : priority mode (0: VDC1 front, 1: VDC2 front, 2/3: mixed)
-  int priority0 = 0x11; // $08 : region0(low) / region1(high)
-  int priority1 = 0x11; // $09 : region2(low) / region3(high)
+  //   region index = (inWindow1 ? 0 : 1) | (inWindow2 ? 0 : 2)
+  //     0: inside both windows          -> $08 low nibble
+  //     1: inside window2 only          -> $08 high nibble
+  //     2: inside window1 only          -> $09 low nibble
+  //     3: outside both windows(default)-> $09 high nibble
+  //   nibble bit0   : VDC1 enable
+  //   nibble bit1   : VDC2 enable
+  //   nibble bit2-3 : priority mode (see _mix)
+  int priority0 = 0x11; // $08
+  int priority1 = 0x11; // $09
 
   int window1 = 0; // $0A-$0B (10bit)
   int window2 = 0; // $0C-$0D (10bit)
@@ -103,38 +103,66 @@ class Vpc {
   }
 
   void _renderSgx(Vdc vdc1, Vdc vdc2) {
+    final width = vdc1.hSize;
     final n = vdc1.indexBuffer.length;
     if (frameBuffer.length != n) frameBuffer = Uint32List(n);
 
     final b1 = vdc1.indexBuffer;
     final b2 = vdc2.indexBuffer;
+    final width2 = vdc2.hSize;
     final ct = vdc1.colorTable; // VCE is shared; VDC1 owns the palette
 
-    final nibble = priority0 & 0x0f; // region 0 (whole screen for now)
-    final vdc1en = nibble & 0x01 != 0;
-    final vdc2en = nibble & 0x02 != 0;
-    final vdc2Front = ((nibble >> 2) & 0x03) == 1;
-
-    final m = b2.length < n ? b2.length : n; // guard size mismatch
-
-    for (int i = 0; i < n; i++) {
-      final c1 = b1[i];
-      if (c1 == 0xffff) {
-        frameBuffer[i] = 0xffffffff; // debug overlay
-        continue;
-      }
-      final c2 = i < m ? b2[i] : 0;
-
-      final op1 = vdc1en && (c1 & 0x0f) != 0;
-      final op2 = vdc2en && (c2 & 0x0f) != 0;
-
-      final int idx;
-      if (vdc2Front) {
-        idx = op2 ? c2 : (op1 ? c1 : 0);
-      } else {
-        idx = op1 ? c1 : (op2 ? c2 : 0);
-      }
-      frameBuffer[i] = rgba[ct[idx]];
+    // per-x priority nibble. window value $40 = leftmost pixel; values
+    // below $40 disable the window (no pixel is inside it).
+    final regions = [
+      priority0 & 0x0f,
+      priority0.shr4 & 0x0f,
+      priority1 & 0x0f,
+      priority1.shr4 & 0x0f,
+    ];
+    final nibbles = Uint8List(width);
+    for (int x = 0; x < width; x++) {
+      final inW1 = window1 >= 0x40 && x <= window1 - 0x40;
+      final inW2 = window2 >= 0x40 && x <= window2 - 0x40;
+      nibbles[x] = regions[(inW1 ? 0 : 1) | (inW2 ? 0 : 2)];
     }
+
+    for (int y = 0, i = 0; i < n; y++) {
+      final row2 = y * width2;
+      for (int x = 0; x < width; x++, i++) {
+        final c1 = b1[i];
+        if (c1 == 0xffff) {
+          frameBuffer[i] = 0xffffffff; // debug overlay
+          continue;
+        }
+        final i2 = row2 + x;
+        final c2 = x < width2 && i2 < b2.length ? b2[i2] : 0;
+        frameBuffer[i] = rgba[ct[_mix(nibbles[x], c1, c2)]];
+      }
+    }
+  }
+
+  // one pixel of priority mixing (HuC6202). c1/c2 are the 9-bit VCE indices
+  // from VDC1/VDC2: bit8 set = sprite pixel, low nibble 0 = transparent.
+  int _mix(int nibble, int c1, int c2) {
+    final en1 = nibble & 0x01 != 0;
+    final en2 = nibble & 0x02 != 0;
+
+    if (!en1) return en2 ? c2 : 0;
+    if (!en2) return c1;
+
+    final op1 = c1 & 0x0f != 0; // vdc1 pixel is opaque
+    final sp1 = c1 > 0x100; // vdc1 pixel is an opaque sprite
+    final sp2 = c2 > 0x100; // vdc2 pixel is an opaque sprite
+
+    return switch ((nibble >> 2) & 0x03) {
+      // mode 1: SP1 > SP2 > BG1 > BG2 (sprites of both VDCs in front)
+      1 => sp1 ? c1 : (sp2 ? c2 : (op1 ? c1 : c2)),
+      // mode 2: SP1+SP2->SP1, BG1+SP2->BG1, SP1+BG2->BG2, BG1+BG2->BG1
+      // (VDC1 sprites hide behind VDC2 BG, VDC2 sprites behind VDC1 BG)
+      2 => sp2 ? (sp1 ? c1 : (op1 ? c1 : c2)) : (sp1 ? c2 : (op1 ? c1 : c2)),
+      // modes 0/3: everything of VDC1 in front of VDC2
+      _ => op1 ? c1 : c2,
+    };
   }
 }

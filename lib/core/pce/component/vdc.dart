@@ -371,8 +371,9 @@ class Vdc {
   }
 
   // VCE
-
-  final colorTable = List<int>.filled(512, 0x1ff, growable: false);
+  // the colour table is a single shared chip (VCE); Pce() points vdc2 at
+  // vdc1's table so both VDCs and the debug views see the same palette.
+  List<int> colorTable = List<int>.filled(512, 0x1ff, growable: false);
   int colorTableAddress = 0;
 
   int readColorTableLsb() {
