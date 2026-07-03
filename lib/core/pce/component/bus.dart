@@ -40,6 +40,10 @@ class Bus {
   // 4-11: cdrom buffer 64k
   final List<List<int>> ram = List.generate(12, (_) => List.filled(0x2000, 0));
 
+  // on a plain PC Engine, banks f9-fb mirror the 8kb work ram at f8.
+  // on SuperGrafx they are independent 8kb banks (32kb total).
+  int _workRamIndex(int bank) => vpc.enabled ? bank & 0x03 : 0;
+
   int read(int addr) {
     final bank = addr.shr13;
     final offset = addr & 0x1fff;
@@ -53,7 +57,7 @@ class Bus {
     }
 
     if (0xf8 <= bank && bank <= 0xfb) {
-      return ram[bank & 0x03][offset];
+      return ram[_workRamIndex(bank)][offset];
     }
 
     if (bank == 0xff) {
@@ -120,7 +124,7 @@ class Bus {
       //         "ram write: ${addr.x4} ${data.x2}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
       //   }
       // }
-      ram[bank & 0x03][offset] = data;
+      ram[_workRamIndex(bank)][offset] = data;
       return;
     }
 
