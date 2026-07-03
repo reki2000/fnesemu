@@ -10,6 +10,7 @@ import 'package:fnesemu/disc/empty.dart';
 // Project imports:
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
+import '../core/gba/gba.dart';
 import '../disc/loader.dart';
 import '../styles.dart';
 import 'package:fnesemu/util/debug.dart';
@@ -187,6 +188,14 @@ class MainPageState extends State<MainPage> {
   _loadRomFile({String fileName = ""}) async {
     final (file, name) = await _pickFile(name: fileName);
     final (extractedFile, extractedName) = _extractIfZip(file, name);
+
+    // a file named gba_bios.bin is the GBA BIOS image, not a cartridge ROM
+    if (extractedName.toLowerCase().endsWith("gba_bios.bin")) {
+      Gba.biosImage = extractedFile;
+      AppSnackBar.show("gba bios loaded: $name");
+      return;
+    }
+
     final ext = _fileExtension(extractedName);
 
     if (ext == "exe") {
