@@ -22,7 +22,7 @@ class SnesFile {
 
   void load(Uint8List body) {
     // strip 512-byte copier header if present
-    final hasCopier = (body.length & 0x3ff) == 0x200;
+    final hasCopier = body.length.mask10 == 0x200;
     rom = hasCopier ? Uint8List.sublistView(body, 0x200) : body;
 
     crc = (Crc32()..add(rom.toList())).close().map((v) => v.x2).join();

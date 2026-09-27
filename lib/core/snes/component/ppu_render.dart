@@ -76,11 +76,11 @@ extension PpuRenderer on Ppu {
 
   /// converts a CGRAM color index (0-255) into a 0xAABBGGRR pixel.
   int _rgba(int cgramIndex) {
-    final base = (cgramIndex & 0xff) * 2;
+    final base = cgramIndex.mask8 * 2;
     final c = cgram[base] | cgram[base + 1].shl8;
-    final r5 = c & 0x1f;
-    final g5 = c.shr5 & 0x1f;
-    final b5 = c.shr10 & 0x1f;
+    final r5 = c.mask5;
+    final g5 = c.shr5.mask5;
+    final b5 = c.shr10.mask5;
     final r = (r5.shl3) | (r5.shr2);
     final g = (g5.shl3) | (g5.shr2);
     final b = (b5.shl3) | (b5.shr2);
@@ -112,8 +112,8 @@ extension PpuRenderer on Ppu {
     final cellRow = sy ~/ tileSizePx;
     final quadX = (bg.wideX && cellCol >= 32) ? 1 : 0;
     final quadY = (bg.wideY && cellRow >= 32) ? 1 : 0;
-    final localCol = cellCol & 0x1f;
-    final localRow = cellRow & 0x1f;
+    final localCol = cellCol.mask5;
+    final localRow = cellRow.mask5;
 
     int extra;
     if (bg.wideX && bg.wideY) {
@@ -127,7 +127,7 @@ extension PpuRenderer on Ppu {
     }
 
     final entryAddr =
-        (bg.tilemapAddr + extra + localRow * 32 + localCol) & 0x7fff;
+        (bg.tilemapAddr + extra + localRow * 32 + localCol).mask15;
     return vram[entryAddr * 2] | vram[entryAddr * 2 + 1].shl8;
   }
 
@@ -145,7 +145,7 @@ extension PpuRenderer on Ppu {
       return (mapX, mapY);
     }
 
-    final offsetX = x + (bg.hofs & 7);
+    final offsetX = x + bg.hofs.mask3;
     if (offsetX < 8) return (mapX, mapY); // leftmost tile column: unaffected
 
     final bg3 = bgs[2];
@@ -157,7 +157,7 @@ extension PpuRenderer on Ppu {
       // single OPT row: bit15 of the same word picks horizontal or vertical
       if (hval & validMask != 0) {
         if (hval.bit15) {
-          mapY = y + (hval & 0x3ff);
+          mapY = y + hval.mask10;
         } else {
           mapX = offsetX + (hval & 0x3f8);
         }
@@ -165,7 +165,7 @@ extension PpuRenderer on Ppu {
     } else {
       final vval = _tilemapEntryRaw(2, lookupX, bg3.vofs + 8);
       if (hval & validMask != 0) mapX = offsetX + (hval & 0x3f8);
-      if (vval & validMask != 0) mapY = y + (vval & 0x3ff);
+      if (vval & validMask != 0) mapY = y + vval.mask10;
     }
     return (mapX, mapY);
   }
@@ -181,9 +181,9 @@ extension PpuRenderer on Ppu {
     final sy = mapY & (mapPxH - 1);
 
     final entry = _tilemapEntryRaw(bgIdx, sx, sy);
-    final tileNum = entry & 0x3ff;
-    final paletteNum = entry.shr10 & 0x07;
-    final priority = entry.shr13 & 1;
+    final tileNum = entry.mask10;
+    final paletteNum = entry.shr10.mask3;
+    final priority = entry.shr13.mask1;
     final hFlip = entry.bit14;
     final vFlip = entry.bit15;
 
@@ -196,15 +196,15 @@ extension PpuRenderer on Ppu {
     final row8 = srcY % 8;
 
     final wordsPerTile = bpp * 4;
-    final byteBase = ((bg.charBase + subTile * wordsPerTile) * 2) & 0xffff;
+    final byteBase = ((bg.charBase + subTile * wordsPerTile) * 2).mask16;
 
     int colorIndex = 0;
     for (int p = 0; p < bpp ~/ 2; p++) {
-      final byte0 = vram[(byteBase + p * 16 + row8 * 2) & 0xffff];
-      final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1) & 0xffff];
-      final bit0 = byte0.shr(7 - col8) & 1;
-      final bit1 = byte1.shr(7 - col8) & 1;
-      colorIndex |= (bit0 << (p * 2)) | (bit1 << (p * 2 + 1));
+      final byte0 = vram[(byteBase + p * 16 + row8 * 2).mask16];
+      final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1).mask16];
+      final bit0 = byte0.shr(7 - col8).mask1;
+      final bit1 = byte1.shr(7 - col8).mask1;
+      colorIndex |= bit0.shl(p * 2) | bit1.shl(p * 2 + 1);
     }
 
     if (colorIndex == 0) return null;
@@ -217,17 +217,17 @@ extension PpuRenderer on Ppu {
       int y, List<int> outColor, List<int> outPalette, List<int> outPriority) {
     rangeOver = false;
     timeOver = false;
-    final sizes = _objSizeTable[objSizeSel & 0x07];
+    final sizes = _objSizeTable[objSizeSel.mask3];
 
     int found = 0;
     int tileBudget = 34;
 
     for (int i = 0; i < 128; i++) {
       final base = i * 4;
-      final hiByte = oam[512 + (i >> 2)];
-      final hiShift = (i & 3) * 2;
-      final xMsb = hiByte.shr(hiShift) & 1;
-      final large = hiByte.shr(hiShift + 1) & 1 != 0;
+      final hiByte = oam[512 + i.shr2];
+      final hiShift = i.mask2 * 2;
+      final xMsb = hiByte.shr(hiShift).mask1;
+      final large = hiByte.bit(hiShift + 1);
 
       final rawX = oam[base] | xMsb.shl8;
       final x = rawX >= 256 ? rawX - 512 : rawX; // sign-extend 9-bit
@@ -238,7 +238,7 @@ extension PpuRenderer on Ppu {
       final w = large ? sizes[2] : sizes[0];
       final h = large ? sizes[3] : sizes[1];
 
-      final dy = (y - oy) & 0xff;
+      final dy = (y - oy).mask8;
       if (dy >= h) continue;
       // fully off-screen (OBJ is always 256px)
       if (x <= -w || x >= Ppu.widthNormal) continue;
@@ -258,12 +258,12 @@ extension PpuRenderer on Ppu {
 
       final vFlip = attr.bit7;
       final hFlip = attr.bit6;
-      final priority = attr.shr4 & 0x03;
-      final palette = attr.shr1 & 0x07;
-      final nameBit = attr & 1;
+      final priority = attr.shr4.mask2;
+      final palette = attr.shr1.mask3;
+      final nameBit = attr.mask1;
 
       final tileBase24 =
-          (objBase.shl13 + (nameBit != 0 ? (objGap + 1).shl12 : 0)) & 0x7fff;
+          (objBase.shl13 + (nameBit != 0 ? (objGap + 1).shl12 : 0)).mask15;
 
       final srcY = vFlip ? (h - 1 - dy) : dy;
 
@@ -280,17 +280,17 @@ extension PpuRenderer on Ppu {
 
         // OBJ name table wraps independently in each nibble (16-wide grid)
         final subTile =
-            ((tileLow + cellRow.shl4) & 0xf0) | ((tileLow + cellCol) & 0x0f);
+            (tileLow + cellRow.shl4) & 0xf0 | (tileLow + cellCol).mask4;
 
-        final byteBase = ((tileBase24 + subTile.shl4) * 2) & 0xffff;
+        final byteBase = ((tileBase24 + subTile.shl4) * 2).mask16;
 
         int colorIndex = 0;
         for (int p = 0; p < 2; p++) {
-          final byte0 = vram[(byteBase + p * 16 + row8 * 2) & 0xffff];
-          final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1) & 0xffff];
-          final bit0 = byte0.shr(7 - col8) & 1;
-          final bit1 = byte1.shr(7 - col8) & 1;
-          colorIndex |= (bit0 << (p * 2)) | (bit1 << (p * 2 + 1));
+          final byte0 = vram[(byteBase + p * 16 + row8 * 2).mask16];
+          final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1).mask16];
+          final bit0 = byte0.shr(7 - col8).mask1;
+          final bit1 = byte1.shr(7 - col8).mask1;
+          colorIndex |= bit0.shl(p * 2) | bit1.shl(p * 2 + 1);
         }
 
         if (colorIndex == 0) continue;
@@ -335,17 +335,17 @@ extension PpuRenderer on Ppu {
   bool _insideWindow(int layer, int x) {
     switch (layer) {
       case 0:
-        return _layerInsideWindow(w12sel & 0xf, wbglog & 0x3, x);
+        return _layerInsideWindow(w12sel.mask4, wbglog.mask2, x);
       case 1:
-        return _layerInsideWindow(w12sel.shr4 & 0xf, wbglog.shr2 & 0x3, x);
+        return _layerInsideWindow(w12sel.shr4.mask4, wbglog.shr2.mask2, x);
       case 2:
-        return _layerInsideWindow(w34sel & 0xf, wbglog.shr4 & 0x3, x);
+        return _layerInsideWindow(w34sel.mask4, wbglog.shr4.mask2, x);
       case 3:
-        return _layerInsideWindow(w34sel.shr4 & 0xf, wbglog.shr6 & 0x3, x);
+        return _layerInsideWindow(w34sel.shr4.mask4, wbglog.shr6.mask2, x);
       case 4:
-        return _layerInsideWindow(wobjsel & 0xf, wobjlog & 0x3, x);
+        return _layerInsideWindow(wobjsel.mask4, wobjlog.mask2, x);
       default:
-        return _layerInsideWindow(wobjsel.shr4 & 0xf, wobjlog.shr2 & 0x3, x);
+        return _layerInsideWindow(wobjsel.shr4.mask4, wobjlog.shr2.mask2, x);
     }
   }
 
@@ -438,8 +438,8 @@ extension PpuRenderer on Ppu {
         allowed = cgadsub.bit(sourceKind); // BG1-4
     }
 
-    final ccBits = cgwsel.shr6 & 0x3;
-    final mmBits = cgwsel.shr4 & 0x3;
+    final ccBits = cgwsel.shr6.mask2;
+    final mmBits = cgwsel.shr4.mask2;
     final insideColorWindow = _insideWindow(5, x);
     final clipToBlack = switch (ccBits) {
       1 => !insideColorWindow,
@@ -461,8 +461,8 @@ extension PpuRenderer on Ppu {
 
     final base = clipToBlack
         ? 0
-        : (cgram[(mainIdx & 0xff) * 2] | cgram[(mainIdx & 0xff) * 2 + 1].shl8);
-    var r = base & 0x1f, g = base.shr5 & 0x1f, b = base.shr10 & 0x1f;
+        : cgram[mainIdx.mask8 * 2] | cgram[mainIdx.mask8 * 2 + 1].shl8;
+    var r = base.mask5, g = base.shr5.mask5, b = base.shr10.mask5;
 
     if (!allowed || !mathEnabled) return _rgb555(r, g, b);
 
@@ -558,11 +558,10 @@ extension PpuRenderer on Ppu {
         // the sub screen's backdrop is the fixed color, not CGRAM[0]
         subIsBackdrop = subKind == 5;
         if (!subIsBackdrop) {
-          final c =
-              cgram[(subIdx & 0xff) * 2] | cgram[(subIdx & 0xff) * 2 + 1].shl8;
-          subR = c & 0x1f;
-          subG = c.shr5 & 0x1f;
-          subB = c.shr10 & 0x1f;
+          final c = cgram[subIdx.mask8 * 2] | cgram[subIdx.mask8 * 2 + 1].shl8;
+          subR = c.mask5;
+          subG = c.shr5.mask5;
+          subB = c.shr10.mask5;
         }
       }
 
@@ -577,9 +576,9 @@ extension PpuRenderer on Ppu {
     if (brightness == 15) return;
     for (int i = row; i < row + w; i++) {
       final c = buffer[i];
-      final r = (c & 0xff) * brightness ~/ 15;
-      final g = (c.shr8 & 0xff) * brightness ~/ 15;
-      final b = (c.shr16 & 0xff) * brightness ~/ 15;
+      final r = c.mask8 * brightness ~/ 15;
+      final g = c.shr8.mask8 * brightness ~/ 15;
+      final b = c.shr16.mask8 * brightness ~/ 15;
       buffer[i] = 0xff000000 | b.shl16 | g.shl8 | r;
     }
   }
@@ -588,7 +587,7 @@ extension PpuRenderer on Ppu {
   /// (tileX,tileY), each 0-127. tilemap occupies the LOW byte of VRAM words
   /// $0000-$3FFF, one word per cell in row-major order.
   int _m7TilemapByte(int tileX, int tileY) {
-    final word = (tileY & 0x7f) * 128 + (tileX & 0x7f);
+    final word = tileY.mask7 * 128 + tileX.mask7;
     return vram[word * 2];
   }
 
@@ -615,7 +614,7 @@ extension PpuRenderer on Ppu {
     final bg1Enabled = mainScreenEnable.bit0;
     final hFlipScreen = m7sel.bit0;
     final vFlipScreen = m7sel.bit1;
-    final overMode = m7sel.shr6 & 0x03;
+    final overMode = m7sel.shr6.mask2;
 
     final a = m7a.rel16, b = m7b.rel16, c = m7c.rel16, d = m7d.rel16;
     final x0 = m7x.rel13, y0 = m7y.rel13;
@@ -635,8 +634,8 @@ extension PpuRenderer on Ppu {
       } else if (bg1Enabled) {
         final sx = hFlipScreen ? (Ppu.widthNormal - 1 - x) : x;
         final dx = sx + hofs - x0;
-        final u = ((a * dx + b * dy) >> 8) + x0;
-        final v = ((c * dx + d * dy) >> 8) + y0;
+        final u = (a * dx + b * dy).shr8 + x0;
+        final v = (c * dx + d * dy).shr8 + y0;
         final outOfRange = u < 0 || u >= 1024 || v < 0 || v >= 1024;
 
         int tileNum = -1;
@@ -645,11 +644,11 @@ extension PpuRenderer on Ppu {
         } else if (outOfRange && overMode == 3) {
           tileNum = 0; // fill with character 0
         } else {
-          tileNum = _m7TilemapByte((u >> 3) & 0x7f, (v >> 3) & 0x7f);
+          tileNum = _m7TilemapByte(u.shr3.mask7, v.shr3.mask7);
         }
 
         int bg1Pixel = 0;
-        if (tileNum >= 0) bg1Pixel = _m7CharByte(tileNum, u & 0x7, v & 0x7);
+        if (tileNum >= 0) bg1Pixel = _m7CharByte(tileNum, u.mask3, v.mask3);
 
         if (bg1Pixel != 0) {
           color = _rgba(bg1Pixel);

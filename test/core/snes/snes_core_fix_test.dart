@@ -8,6 +8,7 @@ import 'package:fnesemu/core/snes/component/ppu.dart';
 import 'package:fnesemu/core/snes/component/ppu_render.dart';
 import 'package:fnesemu/core/snes/component/spc700.dart';
 import 'package:fnesemu/core/snes/rom/snes_file.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 // LoROM image with the reset vector at $8000 and [sramSizeByte] as the
@@ -108,17 +109,17 @@ void main() {
       final bus = _busWith(_loRom());
       bus.write(0x4202, 12);
       bus.write(0x4203, 10);
-      expect(bus.read(0x4216) | bus.read(0x4217) << 8, 120);
+      expect(bus.read(0x4216) | bus.read(0x4217).shl8, 120);
 
       bus.write(0x4204, 0x34);
       bus.write(0x4205, 0x12);
       bus.write(0x4206, 0x10);
-      expect(bus.read(0x4214) | bus.read(0x4215) << 8, 0x123);
-      expect(bus.read(0x4216) | bus.read(0x4217) << 8, 0x4);
+      expect(bus.read(0x4214) | bus.read(0x4215).shl8, 0x123);
+      expect(bus.read(0x4216) | bus.read(0x4217).shl8, 0x4);
 
       bus.write(0x4206, 0); // divide by zero
-      expect(bus.read(0x4214) | bus.read(0x4215) << 8, 0xffff);
-      expect(bus.read(0x4216) | bus.read(0x4217) << 8, 0x1234);
+      expect(bus.read(0x4214) | bus.read(0x4215).shl8, 0xffff);
+      expect(bus.read(0x4216) | bus.read(0x4217).shl8, 0x1234);
     });
   });
 
@@ -272,7 +273,7 @@ void main() {
 
       dsp.mixSample();
       expect(dsp.voices[0].brrAddr, 0x400);
-      expect(dsp.endx & 1, 1);
+      expect(dsp.endx.mask1, 1);
       expect(dsp.voices[0].envMode, isNot(EnvMode.off));
     });
 

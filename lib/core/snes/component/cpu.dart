@@ -122,8 +122,8 @@ class Cpu {
 
   int _dpIndexed(int index) {
     final offset = _fetch8();
-    if (regs.e && (regs.d & 0xff) == 0) {
-      return (regs.d + ((offset + index) & 0xff)).mask16;
+    if (regs.e && regs.d.mask8 == 0) {
+      return (regs.d + (offset + index).mask8).mask16;
     }
     return (regs.d + offset + index).mask16;
   }
@@ -165,15 +165,15 @@ class Cpu {
     final a = _a;
     if (regs.p.bit3) {
       // decimal
-      int lo = (a & 0x0f) + (v & 0x0f) + _carry;
+      int lo = a.mask4 + v.mask4 + _carry;
       if (lo > 0x09) lo += 0x06;
-      int hi = (a.shr4 & 0x0f) + (v.shr4 & 0x0f) + (lo > 0x0f ? 1 : 0);
+      int hi = a.shr4.mask4 + v.shr4.mask4 + (lo > 0x0f ? 1 : 0);
       if (hi > 0x09) hi += 0x06;
-      int r = (hi.shl4 & 0xf0) | (lo & 0x0f);
+      int r = hi.shl4 & 0xf0 | lo.mask4;
       if (size == 2) {
-        int hi2 = (a.shr8 & 0x0f) + (v.shr8 & 0x0f) + (hi > 0x0f ? 1 : 0);
+        int hi2 = a.shr8.mask4 + v.shr8.mask4 + (hi > 0x0f ? 1 : 0);
         if (hi2 > 0x09) hi2 += 0x06;
-        int hi3 = (a.shr12 & 0x0f) + (v.shr12 & 0x0f) + (hi2 > 0x0f ? 1 : 0);
+        int hi3 = a.shr12.mask4 + v.shr12.mask4 + (hi2 > 0x0f ? 1 : 0);
         if (hi3 > 0x09) hi3 += 0x06;
         r |= (hi2.shl8 & 0x0f00) | (hi3.shl12 & 0xf000);
         _setFlag(Flags.C, hi3 > 0x0f);
@@ -198,17 +198,17 @@ class Cpu {
     if (regs.p.bit3) {
       final a = _a;
       final c = _carry;
-      int lo = (a & 0x0f) - (v & 0x0f) + c - 1;
-      int hi = (a.shr4 & 0x0f) - (v.shr4 & 0x0f) - (lo < 0 ? 1 : 0);
+      int lo = a.mask4 - v.mask4 + c - 1;
+      int hi = a.shr4.mask4 - v.shr4.mask4 - (lo < 0 ? 1 : 0);
       if (lo < 0) lo += 0x0a;
       int borrowHi = hi < 0 ? 1 : 0;
       if (hi < 0) hi += 0x0a;
-      int r = (hi.shl4 & 0xf0) | (lo & 0x0f);
+      int r = hi.shl4 & 0xf0 | lo.mask4;
       if (size == 2) {
-        int hi2 = (a.shr8 & 0x0f) - (v.shr8 & 0x0f) - borrowHi;
+        int hi2 = a.shr8.mask4 - v.shr8.mask4 - borrowHi;
         int borrow2 = hi2 < 0 ? 1 : 0;
         if (hi2 < 0) hi2 += 0x0a;
-        int hi3 = (a.shr12 & 0x0f) - (v.shr12 & 0x0f) - borrow2;
+        int hi3 = a.shr12.mask4 - v.shr12.mask4 - borrow2;
         int borrow3 = hi3 < 0 ? 1 : 0;
         if (hi3 < 0) hi3 += 0x0a;
         r |= (hi2.shl8 & 0x0f00) | (hi3.shl12 & 0xf000);

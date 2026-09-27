@@ -106,7 +106,7 @@ class Spc700 {
       case 0x2: // DSPADDR
         return dspAddr;
       case 0x3: // DSPDATA
-        return dsp.read(dspAddr & 0x7f);
+        return dsp.read(dspAddr.mask7);
       case 0x4:
       case 0x5:
       case 0x6:
@@ -116,7 +116,7 @@ class Spc700 {
       case 0xe:
       case 0xf:
         {
-          final v = timerOut[r - 0xd] & 0x0f;
+          final v = timerOut[r - 0xd].mask4;
           timerOut[r - 0xd] = 0;
           return v;
         }
@@ -159,7 +159,7 @@ class Spc700 {
         dspAddr = val;
         break;
       case 0x3:
-        if (!dspAddr.bit7) dsp.write(dspAddr & 0x7f, val);
+        if (!dspAddr.bit7) dsp.write(dspAddr.mask7, val);
         break;
       case 0x4:
       case 0x5:
@@ -193,7 +193,7 @@ class Spc700 {
         _stage2[t]++;
         if (_stage2[t] >= target) {
           _stage2[t] = 0;
-          timerOut[t] = (timerOut[t] + 1) & 0x0f;
+          timerOut[t] = (timerOut[t] + 1).mask4;
         }
       }
     }
@@ -203,10 +203,10 @@ class Spc700 {
 
   // --------------------------------------------------------------- ports
   /// called by the main bus when the 65816 writes $2140-2143.
-  void mainCpuWrite(int port, int val) => portIn[port & 3] = val.mask8;
+  void mainCpuWrite(int port, int val) => portIn[port.mask2] = val.mask8;
 
   /// called by the main bus when the 65816 reads $2140-2143.
-  int mainCpuRead(int port) => portOut[port & 3];
+  int mainCpuRead(int port) => portOut[port.mask2];
 
   // ----------------------------------------------------------- addressing
   int _dpBase() => psw.bit5 ? 0x100 : 0;
@@ -220,22 +220,22 @@ class Spc700 {
   int _fetch16() => _fetch8() | _fetch8().shl8;
 
   int _dp() => _dpBase() + _fetch8();
-  int _dpX() => _dpBase() + ((_fetch8() + x) & 0xff);
-  int _dpY() => _dpBase() + ((_fetch8() + y) & 0xff);
+  int _dpX() => _dpBase() + (_fetch8() + x).mask8;
+  int _dpY() => _dpBase() + (_fetch8() + y).mask8;
   int _abs() => _fetch16();
-  int _absX() => (_fetch16() + x) & 0xffff;
-  int _absY() => (_fetch16() + y) & 0xffff;
+  int _absX() => (_fetch16() + x).mask16;
+  int _absY() => (_fetch16() + y).mask16;
   int _indX() => _dpBase() + x;
   int _indY() => _dpBase() + y;
   int _indDpX() {
     final p = _dpX();
-    return read(p) | read(_dpBase() + ((p - _dpBase() + 1) & 0xff)).shl8;
+    return read(p) | read(_dpBase() + (p - _dpBase() + 1).mask8).shl8;
   }
 
   int _indDpY() {
     final p = _dp();
-    final ptr = read(p) | read(_dpBase() + ((p - _dpBase() + 1) & 0xff)).shl8;
-    return (ptr + y) & 0xffff;
+    final ptr = read(p) | read(_dpBase() + (p - _dpBase() + 1).mask8).shl8;
+    return (ptr + y).mask16;
   }
 
   void _push8(int v) {
@@ -268,10 +268,10 @@ class Spc700 {
   // -------------------------------------------------------------- ALU ops
   void _adc(int v) {
     final r = a + v + _carry;
-    _setFlag(Flags.h, (a & 0xf) + (v & 0xf) + _carry > 0xf);
+    _setFlag(Flags.h, a.mask4 + v.mask4 + _carry > 0xf);
     _setFlag(Flags.v, (~(a ^ v) & (a ^ r) & 0x80) != 0);
     _setFlag(Flags.c, r > 0xff);
-    a = r & 0xff;
+    a = r.mask8;
     _setNZ(a);
   }
 
@@ -280,7 +280,7 @@ class Spc700 {
   void _cmp(int reg, int v) {
     final r = reg - v;
     _setFlag(Flags.c, reg >= v);
-    _setNZ(r & 0xff);
+    _setNZ(r.mask8);
   }
 
   void _and(int v) {
@@ -300,7 +300,7 @@ class Spc700 {
 
   int _asl(int v) {
     _setFlag(Flags.c, v.bit7);
-    final r = v.shl1 & 0xff;
+    final r = v.shl1.mask8;
     _setNZ(r);
     return r;
   }
@@ -313,7 +313,7 @@ class Spc700 {
   }
 
   int _rol(int v) {
-    final r = (v.shl1 | _carry) & 0xff;
+    final r = (v.shl1 | _carry).mask8;
     _setFlag(Flags.c, v.bit7);
     _setNZ(r);
     return r;
@@ -339,7 +339,7 @@ class Spc700 {
   // ------------------------------------------------------------- bit ops
   (int, int) _memBit() {
     final w = _fetch16();
-    return (w & 0x1fff, w.shr13 & 0x07);
+    return (w.mask13, w.shr13.mask3);
   }
 
   // ----------------------------------------------------------------- exec
@@ -389,7 +389,7 @@ class Spc700 {
         {
           final p = _indX();
           a = read(p);
-          x = (x + 1) & 0xff;
+          x = (x + 1).mask8;
           _setNZ(a);
         }
         break;
@@ -457,7 +457,7 @@ class Spc700 {
         break;
       case 0xaf:
         write(_indX(), a);
-        x = (x + 1) & 0xff;
+        x = (x + 1).mask8;
         break;
       case 0xc7:
         write(_indDpX(), a);
@@ -530,7 +530,7 @@ class Spc700 {
         {
           final p = _dp();
           final lo = read(p);
-          final hi = read(_dpBase() + ((p - _dpBase() + 1) & 0xff));
+          final hi = read(_dpBase() + (p - _dpBase() + 1).mask8);
           a = lo;
           y = hi;
           _setNZ16(hi.shl8 | lo);
@@ -540,7 +540,7 @@ class Spc700 {
         {
           final p = _dp();
           write(p, a);
-          write(_dpBase() + ((p - _dpBase() + 1) & 0xff), y);
+          write(_dpBase() + (p - _dpBase() + 1).mask8, y);
         }
         break;
 
@@ -1012,33 +1012,33 @@ class Spc700 {
 
       // ---------------------------------------------------------- INC/DEC
       case 0xbc:
-        a = (a + 1) & 0xff;
+        a = (a + 1).mask8;
         _setNZ(a);
         break;
       case 0x9c:
-        a = (a - 1) & 0xff;
+        a = (a - 1).mask8;
         _setNZ(a);
         break;
       case 0x3d:
-        x = (x + 1) & 0xff;
+        x = (x + 1).mask8;
         _setNZ(x);
         break;
       case 0x1d:
-        x = (x - 1) & 0xff;
+        x = (x - 1).mask8;
         _setNZ(x);
         break;
       case 0xfc:
-        y = (y + 1) & 0xff;
+        y = (y + 1).mask8;
         _setNZ(y);
         break;
       case 0xdc:
-        y = (y - 1) & 0xff;
+        y = (y - 1).mask8;
         _setNZ(y);
         break;
       case 0xab:
         {
           final p = _dp();
-          final v = (read(p) + 1) & 0xff;
+          final v = (read(p) + 1).mask8;
           write(p, v);
           _setNZ(v);
         }
@@ -1046,7 +1046,7 @@ class Spc700 {
       case 0xbb:
         {
           final p = _dpX();
-          final v = (read(p) + 1) & 0xff;
+          final v = (read(p) + 1).mask8;
           write(p, v);
           _setNZ(v);
         }
@@ -1054,7 +1054,7 @@ class Spc700 {
       case 0xac:
         {
           final p = _abs();
-          final v = (read(p) + 1) & 0xff;
+          final v = (read(p) + 1).mask8;
           write(p, v);
           _setNZ(v);
         }
@@ -1062,7 +1062,7 @@ class Spc700 {
       case 0x8b:
         {
           final p = _dp();
-          final v = (read(p) - 1) & 0xff;
+          final v = (read(p) - 1).mask8;
           write(p, v);
           _setNZ(v);
         }
@@ -1070,7 +1070,7 @@ class Spc700 {
       case 0x9b:
         {
           final p = _dpX();
-          final v = (read(p) - 1) & 0xff;
+          final v = (read(p) - 1).mask8;
           write(p, v);
           _setNZ(v);
         }
@@ -1078,7 +1078,7 @@ class Spc700 {
       case 0x8c:
         {
           final p = _abs();
-          final v = (read(p) - 1) & 0xff;
+          final v = (read(p) - 1).mask8;
           write(p, v);
           _setNZ(v);
         }
@@ -1088,9 +1088,9 @@ class Spc700 {
       case 0x3a:
         {
           final p = _dp();
-          final hiAddr = _dpBase() + ((p - _dpBase() + 1) & 0xff);
-          final v = ((read(p) | read(hiAddr).shl8) + 1) & 0xffff;
-          write(p, v & 0xff);
+          final hiAddr = _dpBase() + (p - _dpBase() + 1).mask8;
+          final v = ((read(p) | read(hiAddr).shl8) + 1).mask16;
+          write(p, v.mask8);
           write(hiAddr, v.shr8);
           _setNZ16(v);
         }
@@ -1098,9 +1098,9 @@ class Spc700 {
       case 0x1a:
         {
           final p = _dp();
-          final hiAddr = _dpBase() + ((p - _dpBase() + 1) & 0xff);
-          final v = ((read(p) | read(hiAddr).shl8) - 1) & 0xffff;
-          write(p, v & 0xff);
+          final hiAddr = _dpBase() + (p - _dpBase() + 1).mask8;
+          final v = ((read(p) | read(hiAddr).shl8) - 1).mask16;
+          write(p, v.mask8);
           write(hiAddr, v.shr8);
           _setNZ16(v);
         }
@@ -1108,40 +1108,40 @@ class Spc700 {
       case 0x7a:
         {
           final p = _dp();
-          final hiAddr = _dpBase() + ((p - _dpBase() + 1) & 0xff);
+          final hiAddr = _dpBase() + (p - _dpBase() + 1).mask8;
           final ya = a | y.shl8;
           final operand = read(p) | read(hiAddr).shl8;
           final r = ya + operand;
-          _setFlag(Flags.h, (ya & 0xfff) + (operand & 0xfff) > 0xfff);
+          _setFlag(Flags.h, ya.mask12 + operand.mask12 > 0xfff);
           _setFlag(Flags.v, (~(ya ^ operand) & (ya ^ r) & 0x8000) != 0);
           _setFlag(Flags.c, r > 0xffff);
-          a = r & 0xff;
-          y = r.shr8 & 0xff;
-          _setNZ16(r & 0xffff);
+          a = r.mask8;
+          y = r.shr8.mask8;
+          _setNZ16(r.mask16);
         }
         break;
       case 0x9a:
         {
           final p = _dp();
-          final hiAddr = _dpBase() + ((p - _dpBase() + 1) & 0xff);
+          final hiAddr = _dpBase() + (p - _dpBase() + 1).mask8;
           final ya = a | y.shl8;
           final operand = read(p) | read(hiAddr).shl8;
           final r = ya - operand;
-          _setFlag(Flags.h, (ya & 0xfff) - (operand & 0xfff) < 0);
+          _setFlag(Flags.h, ya.mask12 - operand.mask12 < 0);
           _setFlag(Flags.v, ((ya ^ operand) & (ya ^ r) & 0x8000) != 0);
           _setFlag(Flags.c, r >= 0);
-          a = r & 0xff;
-          y = r.shr8 & 0xff;
-          _setNZ16(r & 0xffff);
+          a = r.mask8;
+          y = r.shr8.mask8;
+          _setNZ16(r.mask16);
         }
         break;
       case 0x5a:
         {
           final p = _dp();
-          final hiAddr = _dpBase() + ((p - _dpBase() + 1) & 0xff);
+          final hiAddr = _dpBase() + (p - _dpBase() + 1).mask8;
           final ya = a | y.shl8;
           final operand = read(p) | read(hiAddr).shl8;
-          final r = (ya - operand) & 0xffff;
+          final r = (ya - operand).mask16;
           _setFlag(Flags.c, ya >= operand);
           _setNZ16(r);
         }
@@ -1151,8 +1151,8 @@ class Spc700 {
       case 0xcf:
         {
           final r = y * a;
-          y = r.shr8 & 0xff;
-          a = r & 0xff;
+          y = r.shr8.mask8;
+          a = r.mask8;
           _setNZ(y);
         }
         break;
@@ -1161,16 +1161,16 @@ class Spc700 {
           final ya = a | y.shl8;
           if (x == 0) {
             a = 0xff;
-            y = ya & 0xff; // documented edge case: div by zero
+            y = ya.mask8; // documented edge case: div by zero
             _setFlag(Flags.v, true);
             _setFlag(Flags.h, true);
           } else {
-            _setFlag(Flags.h, (y & 0x0f) <= (x & 0x0f));
+            _setFlag(Flags.h, y.mask4 <= x.mask4);
             final q = ya ~/ x;
             final rem = ya % x;
             _setFlag(Flags.v, q > 0xff);
-            a = q & 0xff;
-            y = rem & 0xff;
+            a = q.mask8;
+            y = rem.mask8;
           }
           _setNZ(a);
         }
@@ -1180,11 +1180,11 @@ class Spc700 {
       case 0xdf:
         {
           if (psw.bit0 || a > 0x99) {
-            a = (a + 0x60) & 0xff;
+            a = (a + 0x60).mask8;
             _setFlag(Flags.c, true);
           }
-          if (psw.bit3 || (a & 0x0f) > 0x09) {
-            a = (a + 0x06) & 0xff;
+          if (psw.bit3 || a.mask4 > 0x09) {
+            a = (a + 0x06).mask8;
           }
           _setNZ(a);
         }
@@ -1192,11 +1192,11 @@ class Spc700 {
       case 0xbe:
         {
           if (!psw.bit0 || a > 0x99) {
-            a = (a - 0x60) & 0xff;
+            a = (a - 0x60).mask8;
             _setFlag(Flags.c, false);
           }
-          if (!psw.bit3 || (a & 0x0f) > 0x09) {
-            a = (a - 0x06) & 0xff;
+          if (!psw.bit3 || a.mask4 > 0x09) {
+            a = (a - 0x06).mask8;
           }
           _setNZ(a);
         }
@@ -1204,7 +1204,7 @@ class Spc700 {
 
       // ---------------------------------------------------------- XCN
       case 0x9f:
-        a = ((a.shr4) | (a.shl4)) & 0xff;
+        a = (a.shr4 | a.shl4).mask8;
         _setNZ(a);
         break;
 
@@ -1296,7 +1296,7 @@ class Spc700 {
         {
           final p = _abs();
           final v = read(p);
-          _setNZ((a - v) & 0xff);
+          _setNZ((a - v).mask8);
           write(p, v | a);
         }
         break;
@@ -1304,7 +1304,7 @@ class Spc700 {
         {
           final p = _abs();
           final v = read(p);
-          _setNZ((a - v) & 0xff);
+          _setNZ((a - v).mask8);
           write(p, v & ~a);
         }
         break;
@@ -1403,13 +1403,13 @@ class Spc700 {
       case 0x6e: // DBNZ d,r
         {
           final p = _dp();
-          final v = (read(p) - 1) & 0xff;
+          final v = (read(p) - 1).mask8;
           write(p, v);
           _branch(v != 0);
         }
         break;
       case 0xfe: // DBNZ Y,r
-        y = (y - 1) & 0xff;
+        y = (y - 1).mask8;
         _branch(y != 0);
         break;
 
@@ -1419,8 +1419,8 @@ class Spc700 {
         break;
       case 0x1f:
         {
-          final p = (_abs() + x) & 0xffff;
-          pc = read(p) | read((p + 1) & 0xffff).shl8;
+          final p = (_abs() + x).mask16;
+          pc = read(p) | read((p + 1).mask16).shl8;
         }
         break;
       case 0x3f:
@@ -1471,7 +1471,7 @@ class Spc700 {
         break;
 
       default:
-        if (op & 0x0f == 0x01) {
+        if (op.mask4 == 0x01) {
           // TCALL n: n = op>>4, vector at $FFDE - n*2
           final n = op.shr4;
           final vecAddr = 0xffde - n * 2;

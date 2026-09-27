@@ -138,7 +138,7 @@ class Disasm {
 
     // ALU family
     final hi = op & 0xe0;
-    final lo = op & 0x1f;
+    final lo = op.mask5;
     final name = _alu[hi];
     final mode = _aluModes[lo];
     if (name != null && mode != null) {

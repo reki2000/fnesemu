@@ -114,18 +114,18 @@ class Dsp {
   int read(int addr) {
     addr &= 0x7f;
     final voiceIdx = addr.shr4;
-    final reg = addr & 0x0f;
+    final reg = addr.mask4;
     if (voiceIdx < 8) {
       final v = voices[voiceIdx];
       switch (reg) {
         case 0x0:
-          return v.volL & 0xff;
+          return v.volL.mask8;
         case 0x1:
-          return v.volR & 0xff;
+          return v.volR.mask8;
         case 0x2:
-          return v.pitch & 0xff;
+          return v.pitch.mask8;
         case 0x3:
-          return v.pitch.shr8 & 0xff;
+          return v.pitch.shr8.mask8;
         case 0x4:
           return v.srcn;
         case 0x5:
@@ -135,28 +135,28 @@ class Dsp {
         case 0x7:
           return v.gain;
         case 0x8:
-          return v.envx.shr4 & 0x7f;
+          return v.envx.shr4.mask7;
         case 0x9:
-          return v.outx.shr8 & 0xff;
+          return v.outx.shr8.mask8;
       }
     }
     switch (addr) {
       case 0x0c:
-        return mainVolL & 0xff;
+        return mainVolL.mask8;
       case 0x1c:
-        return mainVolR & 0xff;
+        return mainVolR.mask8;
       case 0x2c:
-        return evolL & 0xff;
+        return evolL.mask8;
       case 0x3c:
-        return evolR & 0xff;
+        return evolR.mask8;
       case 0x0d:
-        return efb & 0xff;
+        return efb.mask8;
       case 0x3d:
         return nonMask;
       case 0x4d:
         return eonMask;
       case 0x5d:
-        return dir.shr8 & 0xff;
+        return dir.shr8.mask8;
       case 0x6d:
         return esa;
       case 0x7d:
@@ -175,7 +175,7 @@ class Dsp {
     val &= 0xff;
     _scratch[addr] = val;
     final voiceIdx = addr.shr4;
-    final reg = addr & 0x0f;
+    final reg = addr.mask4;
     if (voiceIdx < 8) {
       final v = voices[voiceIdx];
       switch (reg) {
@@ -189,7 +189,7 @@ class Dsp {
           v.pitch = v.pitch.setL8(val);
           return;
         case 0x3:
-          v.pitch = (v.pitch & 0x00ff) | ((val & 0x3f).shl8);
+          v.pitch = v.pitch.mask8 | val.mask6.shl8;
           return;
         case 0x4:
           v.srcn = val;
@@ -250,7 +250,7 @@ class Dsp {
         esa = val;
         break;
       case 0x7d:
-        edl = val & 0x0f;
+        edl = val.mask4;
         _echoPos = 0;
         break;
       case 0x6c:
@@ -290,11 +290,11 @@ class Dsp {
   /// reads the source directory entry for [v]: 4 bytes per source at
   /// dir + srcn*4 = [startL,startH, loopL,loopH]. [offset] 0=start, 2=loop.
   int _dirEntry(Voice v, int offset) {
-    final entry = (dir + v.srcn * 4 + offset) & 0xffff;
+    final entry = (dir + v.srcn * 4 + offset).mask16;
     return _ram(entry) | _ram(entry + 1).shl8;
   }
 
-  int _ram(int addr) => spc.ram[addr & 0xffff];
+  int _ram(int addr) => spc.ram[addr.mask16];
 
   // ------------------------------------------------------------- envelope
   void _stepEnvelope(Voice v) {
@@ -314,20 +314,20 @@ class Dsp {
       // direct GAIN mode - only the simple "fixed value" form (bit7=0 of
       // GAIN) is implemented; the increase/decrease/bent-line curve modes
       // (bit7=1) are treated the same as fixed, a documented approximation.
-      v.env = (v.gain & 0x7f) << 4;
+      v.env = v.gain.mask7.shl4;
       return;
     }
 
     int rate;
     switch (v.envMode) {
       case EnvMode.attack:
-        rate = (v.adsr1 & 0x0f) * 2 + 1;
+        rate = v.adsr1.mask4 * 2 + 1;
         break;
       case EnvMode.decay:
-        rate = ((v.adsr1.shr4) & 0x07) * 2 + 16;
+        rate = v.adsr1.shr4.mask3 * 2 + 16;
         break;
       case EnvMode.sustain:
-        rate = v.adsr2 & 0x1f;
+        rate = v.adsr2.mask5;
         break;
       case EnvMode.release:
       case EnvMode.off:
@@ -350,14 +350,14 @@ class Dsp {
         break;
       case EnvMode.decay:
         {
-          final sustainLevel = (((v.adsr2.shr5) & 0x07) + 1) * 0x100;
-          v.env -= ((v.env - 1) >> 8) + 1;
+          final sustainLevel = (v.adsr2.shr5.mask3 + 1) * 0x100;
+          v.env -= (v.env - 1).shr8 + 1;
           if (v.env < 0) v.env = 0;
           if (v.env <= sustainLevel) v.envMode = EnvMode.sustain;
         }
         break;
       case EnvMode.sustain:
-        v.env -= ((v.env - 1) >> 8) + 1;
+        v.env -= (v.env - 1).shr8 + 1;
         if (v.env < 0) v.env = 0;
         break;
       case EnvMode.release:
@@ -375,19 +375,19 @@ class Dsp {
 
   void _decodeNextBlock(Voice v) {
     final header = _ram(v.brrAddr);
-    final shift = header.shr4 & 0x0f;
-    final filter = header.shr2 & 0x03;
+    final shift = header.shr4.mask4;
+    final filter = header.shr2.mask2;
     final loop = header.bit1;
     final end = header.bit0;
 
     final samples = List<int>.filled(16, 0);
     for (int i = 0; i < 8; i++) {
       final byte = _ram(v.brrAddr + 1 + i);
-      final nibbles = [byte.shr4 & 0x0f, byte & 0x0f];
+      final nibbles = [byte.shr4.mask4, byte.mask4];
       for (int j = 0; j < 2; j++) {
         var n = nibbles[j];
         if (n >= 8) n -= 16; // sign-extend 4-bit
-        int raw = shift <= 12 ? (n << shift) >> 1 : (n < 0 ? -2048 : 0);
+        int raw = shift <= 12 ? n.shl(shift).shr1 : (n < 0 ? -2048 : 0);
 
         int pred;
         switch (filter) {
@@ -395,19 +395,19 @@ class Dsp {
             pred = 0;
             break;
           case 1:
-            pred = v.hist1 + ((-v.hist1) >> 4);
+            pred = v.hist1 + (-v.hist1).shr4;
             break;
           case 2:
             pred = v.hist1 * 2 +
-                ((-(v.hist1 * 3)) >> 5) -
+                (-(v.hist1 * 3)).shr5 -
                 v.hist2 +
-                (v.hist2 >> 4);
+                v.hist2.shr4;
             break;
           default:
             pred = v.hist1 * 2 +
-                ((-(v.hist1 * 13)) >> 6) -
+                (-(v.hist1 * 13)).shr6 -
                 v.hist2 +
-                ((v.hist2 * 3) >> 4);
+                (v.hist2 * 3).shr4;
         }
 
         final s = _clamp16(raw + pred);
@@ -423,7 +423,7 @@ class Dsp {
     v.blockLoop = end && loop;
     // an end block continues from the source's loop address (read from the
     // directory at this point, like hardware does)
-    v.brrAddr = end ? _dirEntry(v, 2) : (v.brrAddr + 9) & 0xffff;
+    v.brrAddr = end ? _dirEntry(v, 2) : (v.brrAddr + 9).mask16;
   }
 
   /// a non-looping end block keys the voice off with its envelope at zero.
@@ -436,8 +436,8 @@ class Dsp {
   /// advances the noise LFSR by one step (15-bit, feedback = bit0 XOR bit1
   /// fed back into bit14 - the commonly documented SNES noise polynomial).
   void _updateNoise() {
-    final feedback = (_noiseLfsr & 1) ^ ((_noiseLfsr.shr1) & 1);
-    _noiseLfsr = (_noiseLfsr.shr1) | (feedback << 14);
+    final feedback = _noiseLfsr.mask1 ^ _noiseLfsr.shr1.mask1;
+    _noiseLfsr = _noiseLfsr.shr1 | feedback.shl14;
     _noiseSampleValue = _noiseLfsr.bit14 ? (_noiseLfsr - 0x8000) : _noiseLfsr;
   }
 
@@ -446,7 +446,7 @@ class Dsp {
   (double, double) mixSample() {
     // noise LFSR ticks at a rate selected by FLG bits0-4 (same period table
     // used by the envelope rates).
-    final noisePeriod = _rateToSamples[flg & 0x1f];
+    final noisePeriod = _rateToSamples[flg.mask5];
     if (noisePeriod != 0xffffffff) {
       _noiseTick++;
       if (_noiseTick >= noisePeriod) {
@@ -523,7 +523,7 @@ class Dsp {
     // class doc). buffer holds 4 bytes/sample (L16,R16) starting at ESA.
     {
       final bufBytes = edl == 0 ? 4 : edl * 0x800;
-      final addr = (esa.shl8 + _echoPos) & 0xffff;
+      final addr = (esa.shl8 + _echoPos).mask16;
       final echoOutL = (_ram(addr) | _ram(addr + 1).shl8).rel16;
       final echoOutR = (_ram(addr + 2) | _ram(addr + 3).shl8).rel16;
 
@@ -535,10 +535,10 @@ class Dsp {
             _clamp16(echoInL.round() + (echoOutL * (efb.rel8)) ~/ 128);
         final newR =
             _clamp16(echoInR.round() + (echoOutR * (efb.rel8)) ~/ 128);
-        spc.ram[addr] = newL & 0xff;
-        spc.ram[(addr + 1) & 0xffff] = newL.shr8 & 0xff;
-        spc.ram[(addr + 2) & 0xffff] = newR & 0xff;
-        spc.ram[(addr + 3) & 0xffff] = newR.shr8 & 0xff;
+        spc.ram[addr] = newL.mask8;
+        spc.ram[(addr + 1).mask16] = newL.shr8.mask8;
+        spc.ram[(addr + 2).mask16] = newR.mask8;
+        spc.ram[(addr + 3).mask16] = newR.shr8.mask8;
       }
       _echoPos = (_echoPos + 4) % bufBytes;
     }
