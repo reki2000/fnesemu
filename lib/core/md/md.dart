@@ -238,7 +238,7 @@ class Md implements Core {
     busZ80.onReset();
     _clocks = 0;
     _nextScanClock = scanlinesInFrame;
-    _waitFinishLine = false;
+    _waitHBlank = false;
     _fmBufferIndex = _psgBufferIndex = 0;
   }
 
