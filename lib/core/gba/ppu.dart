@@ -75,7 +75,14 @@ class Ppu {
   void renderLine(int line) {
     final dispcnt = _io16(0x00);
 
-    if (line == 0) _latchAffine();
+    if (line == 0) {
+      _latchAffine(0);
+      _latchAffine(1);
+    } else {
+      // a mid-frame write to BGxX/Y reloads the internal reference point
+      if (bus.affineRefDirty[0]) _latchAffine(0);
+      if (bus.affineRefDirty[1]) _latchAffine(1);
+    }
 
     final base = line * width;
 
@@ -96,11 +103,10 @@ class Ppu {
     _advanceAffine();
   }
 
-  void _latchAffine() {
-    _refX[0] = _io32(0x028).toSigned(28);
-    _refY[0] = _io32(0x02c).toSigned(28);
-    _refX[1] = _io32(0x038).toSigned(28);
-    _refY[1] = _io32(0x03c).toSigned(28);
+  void _latchAffine(int i) {
+    _refX[i] = _io32(0x028 + i * 0x10).toSigned(28);
+    _refY[i] = _io32(0x02c + i * 0x10).toSigned(28);
+    bus.affineRefDirty[i] = false;
   }
 
   void _advanceAffine() {
@@ -194,13 +200,16 @@ class Ppu {
       if (hflip) inX = 7 - inX;
       if (vflip) inY = 7 - inY;
 
+      // BG tiles cannot reach OBJ VRAM (0x10000-); such pixels are blank.
       int color = -1;
       if (is8bpp) {
-        final idx = bus.vram[charBase + tileNum * 64 + inY * 8 + inX];
+        final a = charBase + tileNum * 64 + inY * 8 + inX;
+        final idx = a < 0x10000 ? bus.vram[a] : 0;
         if (idx != 0) color = _pal(idx);
       } else {
         final palBank = (entry >> 12) & 0xf;
-        final byte = bus.vram[charBase + tileNum * 32 + inY * 4 + (inX >> 1)];
+        final a = charBase + tileNum * 32 + inY * 4 + (inX >> 1);
+        final byte = a < 0x10000 ? bus.vram[a] : 0;
         final nibble = (inX & 1) != 0 ? byte >> 4 : byte & 0xf;
         if (nibble != 0) color = _pal(palBank * 16 + nibble);
       }
@@ -325,7 +334,9 @@ class Ppu {
     _objSemi.fillRange(0, width, 0);
     _objWindow.fillRange(0, width, 0);
 
-    if (!dispcnt.bit12 && !dispcnt.bit15) return; // no OBJ, no OBJ window
+    final objEnabled = dispcnt.bit12;
+    final objWinEnabled = dispcnt.bit15;
+    if (!objEnabled && !objWinEnabled) return; // no OBJ, no OBJ window
 
     final oneDim = dispcnt.bit6;
     final bitmapMode = (dispcnt & 7) >= 3;
@@ -357,6 +368,7 @@ class Ppu {
       if (dy >= boxH) continue;
 
       final gfx = (a0 >> 10) & 3; // 0 normal,1 semi-transparent,2 obj window
+      if (gfx == 2 ? !objWinEnabled : !objEnabled) continue;
       final mosaic = a0.bit12;
       final color256 = a0.bit13;
       final priority = (a2 >> 10) & 3;
@@ -405,9 +417,11 @@ class Ppu {
         }
 
         final tileX = texX >> 3, tileY = texY >> 3;
-        int tileNo = oneDim
-            ? tileBase + (tileY * tilesWide + tileX) * (color256 ? 2 : 1)
-            : tileBase + tileY * 32 + tileX * (color256 ? 2 : 1);
+        // tile numbers wrap within the 32KB OBJ VRAM
+        final tileNo = (oneDim
+                ? tileBase + (tileY * tilesWide + tileX) * (color256 ? 2 : 1)
+                : tileBase + tileY * 32 + tileX * (color256 ? 2 : 1)) &
+            0x3ff;
 
         // in bitmap modes only the upper half of OBJ VRAM is usable.
         if (bitmapMode && tileNo < 512) continue;
@@ -429,8 +443,8 @@ class Ppu {
           continue;
         }
 
-        // lower OAM index wins; only fill empty pixels.
-        if (_objColor[sx] < 0) {
+        // the higher priority wins; on a tie the lower OAM index (drawn first).
+        if (_objColor[sx] < 0 || priority < _objPrio[sx]) {
           _objColor[sx] = color;
           _objPrio[sx] = priority;
           _objSemi[sx] = gfx == 1 ? 1 : 0;
@@ -460,11 +474,15 @@ class Ppu {
   bool _inWindow(int x, int line, int hReg, int vReg) {
     final h = _io16(hReg);
     final v = _io16(vReg);
-    int x1 = h >> 8, x2 = h & 0xff;
-    int y1 = v >> 8, y2 = v & 0xff;
-    if (x2 > width || x1 > x2) x2 = width;
-    if (y2 > height || y1 > y2) y2 = height;
-    return x >= x1 && x < x2 && line >= y1 && line < y2;
+    return _inRange(x, h >> 8, h & 0xff, width) &&
+        _inRange(line, v >> 8, v & 0xff, height);
+  }
+
+  // [a1, a2) window span; a2 beyond the screen clamps to its edge, and a1 > a2
+  // wraps around (inside = before a2 or from a1 on).
+  static bool _inRange(int p, int a1, int a2, int limit) {
+    if (a2 > limit) a2 = limit;
+    return a1 <= a2 ? p >= a1 && p < a2 : p >= a1 || p < a2;
   }
 
   // --- compositing & colour effects ----------------------------------------
