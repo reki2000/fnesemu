@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:fnesemu/core/n64/bus.dart';
 import 'package:fnesemu/core/n64/cpu.dart';
 import 'package:fnesemu/core/n64/graphics.dart';
+import 'package:fnesemu/util/int.dart';
 
 void main() {
   for (final wide in [false, true]) {
@@ -66,7 +67,7 @@ void main() {
   timer.stop();
   var hash = 0;
   for (final byte in g.bus.ram.sublist(0x100000, 0x100000 + 320 * 240 * 2)) {
-    hash = (hash * 31 + byte) & 0xffffffff;
+    hash = (hash * 31 + byte).mask32;
   }
   stdout.writeln('graphics ${timer.elapsedMicroseconds}us checksum=$hash');
 }

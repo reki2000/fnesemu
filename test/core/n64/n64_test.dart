@@ -4,6 +4,7 @@ import 'package:fnesemu/core/n64/bus.dart';
 import 'package:fnesemu/core/n64/cpu.dart';
 import 'package:fnesemu/core/n64/n64.dart';
 import 'package:fnesemu/core/n64/rom.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 Uint8List cartridge(List<int> instructions, {int entry = 0x80000400}) {
@@ -79,7 +80,7 @@ void main() {
     expect(cpu.r[2], BigInt.zero);
     cpu.step();
     expect(cpu.stopReason, isNull);
-    expect((cpu.cop0[13] >> 2) & 31, 12);
+    expect(cpu.cop0[13].shr2.mask5, 12);
     expect(cpu.cop0[14], 0x80000008);
     expect(cpu.pc, 0x80000180);
   });

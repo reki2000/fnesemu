@@ -1,12 +1,13 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:fnesemu/util/int.dart';
 
 /// COP1 register file and scalar IEEE-754 operations. No host-native code.
 class N64Fpu {
   final data = ByteData(32 * 8);
   bool wide = false;
   int control = 0;
-  bool get condition => (control & 0x800000) != 0;
+  bool get condition => control.bit23;
   int offset(int r) => wide ? r * 8 : r * 4;
   int word(int r) => data.getUint32(offset(r), Endian.little);
   void setWord(int r, int v) => data.setUint32(offset(r), v, Endian.little);
@@ -63,9 +64,8 @@ class N64Fpu {
     final b = fmt < 20 ? value(ft, fmt) : 0.0;
     if (fn >= 48) {
       final unordered = a.isNaN || b.isNaN;
-      final test = ((fn & 1) != 0 && unordered) ||
-          ((fn & 2) != 0 && a == b) ||
-          ((fn & 4) != 0 && a < b);
+      final test =
+          (fn.bit0 && unordered) || (fn.bit1 && a == b) || (fn.bit2 && a < b);
       control = (control & ~0x800000) | (test ? 0x800000 : 0);
       return;
     }
@@ -111,7 +111,7 @@ class N64Fpu {
       case 33:
         setValue(fd, 17, a);
       case 36:
-        setWord(fd, rounded(a, control & 3));
+        setWord(fd, rounded(a, control.mask2));
       case 37:
         setLong(fd, BigInt.from(rounded(a, control & 3)));
       default:

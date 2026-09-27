@@ -1,4 +1,7 @@
 import 'dart:typed_data';
+
+import 'package:fnesemu/util/int.dart';
+
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -47,7 +50,7 @@ class N64Bus {
     for (var i = 0; i < 32; i++) {
       final e = tlb[i], mask = e[3] | 0x1fff;
       if ((addr & ~mask) == (e[0] & ~mask) &&
-          ((e[1] & e[2] & 1) != 0 || (addr & 255) == (e[0] & 255))) {
+          ((e[1] & e[2].mask1) != 0 || addr.mask8 == e[0].mask8)) {
         return i;
       }
     }
@@ -55,7 +58,7 @@ class N64Bus {
   }
 
   int physical(int address, {bool write = false}) {
-    final a = address & 0xffffffff;
+    final a = address.mask32;
     if (a >= 0x80000000 && a < 0xc0000000) return a & 0x1fffffff;
     // User KUSEG is mapped; physical debugger access uses ram directly.
     for (final e in tlb) {
@@ -63,8 +66,8 @@ class N64Bus {
       if ((a & ~mask) != (e[0] & ~mask)) continue;
       final page = (mask + 1) ~/ 2;
       final lo = (a & page) != 0 ? e[2] : e[1];
-      if ((lo & 2) == 0 || (write && (lo & 4) == 0)) break;
-      return (((lo >> 6) << 12) & ~(page - 1)) | (a & (page - 1));
+      if (!lo.bit1 || (write && !lo.bit2)) break;
+      return lo.shr6.shl12 & ~(page - 1) | a & (page - 1);
     }
     // Existing small test ROMs address low physical RAM directly.
     if (a < ram.length) return a;
@@ -84,7 +87,7 @@ class N64Bus {
         0x04800000 => si,
         _ => null,
       };
-  int registerIndex(int a) => (a & 0xffff) ~/ 4;
+  int registerIndex(int a) => a.mask16 ~/ 4;
   int read8(int address) {
     final a = physical(address);
     if (a < ram.length) return ram[a];
@@ -93,7 +96,7 @@ class N64Bus {
     if (a >= 0x10000000 && a - 0x10000000 < rom.length) {
       return rom[a - 0x10000000];
     }
-    if ((a & ~3) == 0x04080000) return (spPc >> ((3 - (a & 3)) * 8)) & 255;
+    if (a & ~3 == 0x04080000) return spPc.shr((3 - a.mask2) * 8).mask8;
     final regs = registers(a), index = registerIndex(a);
     if (regs != null && index < regs.length) {
       var value = regs[index];
@@ -102,9 +105,9 @@ class N64Bus {
         value = spRegs[7];
         spRegs[7] = 1;
       }
-      return (value >> ((3 - (a & 3)) * 8)) & 255;
+      return value.shr((3 - a.mask2) * 8).mask8;
     }
-    throw UnsupportedError('N64 bus read 0x${a.toRadixString(16)}');
+    throw UnsupportedError('N64 bus read 0x${a.hex}');
   }
 
   int read(int address, int size) {
@@ -115,7 +118,7 @@ class N64Bus {
       if (size == 1) return ram[a];
     }
     if (size == 4 && a == 0x04080000) return spPc;
-    if (size == 4 && (a & 3) == 0 && a >= 0x04040000) {
+    if (size == 4 && a.mask2 == 0 && a >= 0x04040000) {
       final regs = registers(a), index = registerIndex(a);
       if (regs != null && index < regs.length) {
         if (regs == vi && index == 4) return scanline * 2;
@@ -129,7 +132,7 @@ class N64Bus {
     }
     var v = 0;
     for (var i = 0; i < size; i++) {
-      v = (v << 8) | read8(address + i);
+      v = v.shl8 | read8(address + i);
     }
     return v;
   }
@@ -175,12 +178,11 @@ class N64Bus {
     }
     final regs = registers(a);
     if (regs != null) {
-      final base = address & ~3, shift = (3 - (a & 3)) * 8;
-      write(base, (read(base, 4) & ~(255 << shift)) | ((value & 255) << shift),
-          4);
+      final base = address & ~3, shift = (3 - a.mask2) * 8;
+      write(base, read(base, 4) & ~(255 << shift) | value.mask8.shl(shift), 4);
       return;
     }
-    throw UnsupportedError('N64 bus byte write 0x${a.toRadixString(16)}');
+    throw UnsupportedError('N64 bus byte write 0x${a.hex}');
   }
 
   void write(int address, int value, int size) {
@@ -191,7 +193,7 @@ class N64Bus {
     }
     if (a >= 0x04000000 && a + size <= 0x04002000) {
       for (var i = 0; i < size; i++) {
-        sp[a - 0x04000000 + i] = value >> ((size - i - 1) * 8);
+        sp[a - 0x04000000 + i] = value.shr((size - i - 1) * 8);
       }
       return;
     }
@@ -204,8 +206,8 @@ class N64Bus {
       if (regs != null && index < regs.length) {
         if (regs == mi) {
           if (index == 0) {
-            mi[0] = value & 0x7f;
-            if ((value & 0x800) != 0) mi[2] &= ~32;
+            mi[0] = value.mask7;
+            if (value.bit11) mi[2] &= ~32;
           }
           if (index == 3) {
             for (var i = 0; i < 6; i++) {
@@ -220,7 +222,7 @@ class N64Bus {
           return;
         }
         if (regs == pi && index == 4) {
-          if ((value & 2) != 0) mi[2] &= ~16;
+          if (value.bit1) mi[2] &= ~16;
           pi[4] = 0;
           return;
         }
@@ -239,21 +241,21 @@ class N64Bus {
         }
         if (regs == spRegs && index == 4) {
           var status = spRegs[4];
-          if ((value & 1) != 0) status &= ~1;
-          if ((value & 2) != 0) status |= 1;
-          if ((value & 4) != 0) status &= ~2;
-          if ((value & 8) != 0) mi[2] &= ~1;
-          if ((value & 16) != 0) mi[2] |= 1;
+          if (value.bit0) status &= ~1;
+          if (value.bit1) status |= 1;
+          if (value.bit2) status &= ~2;
+          if (value.bit3) mi[2] &= ~1;
+          if (value.bit4) mi[2] |= 1;
           for (var i = 0; i < 10; i++) {
             final bit = i < 2 ? 5 + i : 7 + i - 2;
             if ((value & (1 << (5 + i * 2))) != 0) status &= ~(1 << bit);
             if ((value & (2 << (5 + i * 2))) != 0) status |= 1 << bit;
           }
           spRegs[4] = status;
-          if ((status & 1) == 0 && onTask != null) {
+          if (!status.bit0 && onTask != null) {
             onTask!();
             spRegs[4] |= 0x203; // HALT, BROKE, SIG2: task complete.
-            if ((spRegs[4] & 0x40) != 0) interrupt(1);
+            if (spRegs[4].bit6) interrupt(1);
           }
           return;
         }
@@ -292,18 +294,18 @@ class N64Bus {
       }
     }
     for (var i = 0; i < size; i++) {
-      write8(address + i, value >> ((size - i - 1) * 8));
+      write8(address + i, value.shr((size - i - 1) * 8));
     }
   }
 
   void _spDma(int value, bool intoSp) {
-    final length = ((value & 0xfff) | 7) + 1, count = ((value >> 12) & 255) + 1;
-    final skip = (value >> 20) & 0xfff;
+    final length = (value.mask12 | 7) + 1, count = value.shr12.mask8 + 1;
+    final skip = value.shr20.mask12;
     var mem = spRegs[0] & 0x1ff8, dram = spRegs[1] & 0x7ffff8;
     final bank = mem & 0x1000;
     for (var row = 0; row < count; row++) {
       for (var i = 0; i < length; i++) {
-        final target = bank | ((mem + i) & 0xfff);
+        final target = bank | (mem + i).mask12;
         if (dram + i >= ram.length) throw StateError('SP DMA outside RDRAM');
         if (intoSp) {
           sp[target] = ram[dram + i];
@@ -311,7 +313,7 @@ class N64Bus {
           ram[dram + i] = sp[target];
         }
       }
-      mem = bank | ((mem + length) & 0xfff);
+      mem = bank | (mem + length).mask12;
       dram += length + skip;
     }
     spRegs[0] = mem;
@@ -319,7 +321,7 @@ class N64Bus {
   }
 
   void _piDma(int value, bool intoRam) {
-    final length = (value & 0xffffff) + 1, dram = pi[0] & 0x7ffffe;
+    final length = value.mask24 + 1, dram = pi[0] & 0x7ffffe;
     final cart = pi[1] & 0x1ffffffe;
     if (dram + length > ram.length) throw StateError('PI DMA outside RDRAM');
     if (cart >= 0x10000000 &&
@@ -327,8 +329,7 @@ class N64Bus {
         cart - 0x10000000 + length <= rom.length) {
       ram.setRange(dram, dram + length, rom, cart - 0x10000000);
     } else {
-      throw UnsupportedError(
-          'PI DMA cartridge address 0x${cart.toRadixString(16)}');
+      throw UnsupportedError('PI DMA cartridge address 0x${cart.hex}');
     }
     pi[0] = dram + length;
     pi[1] = cart + length;
@@ -379,7 +380,7 @@ class N64Bus {
         continue;
       }
       if (pos + 2 >= 63) break;
-      final rx = pif[pos + 1] & 63, send = tx & 63;
+      final rx = pif[pos + 1].mask6, send = tx.mask6;
       final response = pos + 2 + send;
       if (send == 0 || response + rx > 63) break;
       final command = pif[pos + 2];
@@ -408,7 +409,7 @@ class N64Bus {
           for (final e in buttons.entries) {
             if (keys.contains(e.key)) bits |= e.value;
           }
-          pif[response] = bits >> 8;
+          pif[response] = bits.shr8;
           pif[response + 1] = bits;
           pif[response + 2] = (keys.contains('right') ? 80 : 0) -
               (keys.contains('left') ? 80 : 0);
@@ -472,14 +473,14 @@ class N64Bus {
 
   /// VI raw framebuffer scanout, without filtering or interlacing.
   ImageBuffer image() {
-    final mode = vi[0] & 3;
-    final stride = vi[2] & 0xfff;
-    final hStart = (vi[9] >> 16) & 0x3ff;
-    final hEnd = vi[9] & 0x3ff;
-    final vStart = (vi[10] >> 16) & 0x3ff;
-    final vEnd = vi[10] & 0x3ff;
-    final width = ((hEnd - hStart) * (vi[12] & 0xfff)) ~/ 1024;
-    final height = ((vEnd - vStart) * (vi[13] & 0xfff)) ~/ 2048;
+    final mode = vi[0].mask2;
+    final stride = vi[2].mask12;
+    final hStart = vi[9].shr16.mask10;
+    final hEnd = vi[9].mask10;
+    final vStart = vi[10].shr16.mask10;
+    final vEnd = vi[10].mask10;
+    final width = (hEnd - hStart) * vi[12].mask12 ~/ 1024;
+    final height = (vEnd - vStart) * vi[13].mask12 ~/ 2048;
     if (mode < 2 ||
         stride == 0 ||
         width <= 0 ||
@@ -489,7 +490,7 @@ class N64Bus {
       return ImageBuffer(320, 240, Uint8List(320 * 240 * 4));
     }
     final output = Uint8List(width * height * 4);
-    final origin = vi[1] & 0xffffff;
+    final origin = vi[1].mask24;
     final size = mode == 2 ? 2 : 4;
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
@@ -497,10 +498,10 @@ class N64Bus {
         final target = (y * width + x) * 4;
         if (x >= stride || source + size > ram.length) continue;
         if (size == 2) {
-          final color = (ram[source] << 8) | ram[source + 1];
+          final color = ram[source].shl8 | ram[source + 1];
           for (var c = 0; c < 3; c++) {
-            final v = (color >> (11 - c * 5)) & 31;
-            output[target + c] = (v << 3) | (v >> 2);
+            final v = color.shr(11 - c * 5).mask5;
+            output[target + c] = v.shl3 | v.shr2;
           }
         } else {
           output.setRange(target, target + 3, ram, source);

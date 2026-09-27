@@ -1,5 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+
+import 'package:fnesemu/util/int.dart';
+
 import 'bus.dart';
 
 class N64Tile {
@@ -42,10 +45,10 @@ class N64Graphics {
   }
 
   List<double> _texture16(int value) => _textureRgba(
-      _fiveBit[(value >> 11) & 31],
-      _fiveBit[(value >> 6) & 31],
-      _fiveBit[(value >> 1) & 31],
-      (value & 1) * 255.0);
+      _fiveBit[value.shr11.mask5],
+      _fiveBit[value.shr6.mask5],
+      _fiveBit[value.shr1.mask5],
+      value.mask1 * 255.0);
 
   final lights = List.generate(8, (_) => List<double>.filled(6, 0));
   List<double> model = identity(), projection = identity();
@@ -107,7 +110,7 @@ class N64Graphics {
   }
 
   int resolve(int addr) =>
-      ((addr & 0xffffff) + segments[(addr >> 24) & 15]) & 0x7fffff;
+      (addr.mask24 + segments[addr.shr24.mask4]) & 0x7fffff;
   int u(int addr, int size) => bus.ramRead(addr, size);
   double signed(int addr, int size) =>
       u(addr, size).toSigned(size * 8).toDouble();
@@ -135,26 +138,26 @@ class N64Graphics {
     var pc = address & 0x7fffff;
     final returns = <int>[];
     for (var commands = 0; commands < 100000; commands++) {
-      final w0 = u(pc, 4), w1 = u(pc + 4, 4), op = w0 >> 24;
+      final w0 = u(pc, 4), w1 = u(pc + 4, 4), op = w0.shr24;
       pc += 8;
       switch (op) {
         case 0:
           break;
         case 1:
-          final flags = (w0 >> 16) & 255, m = matrix(resolve(w1));
-          if ((flags & 1) != 0) {
-            projection = (flags & 2) != 0 ? m : multiply(m, projection);
+          final flags = w0.shr16.mask8, m = matrix(resolve(w1));
+          if (flags.bit0) {
+            projection = flags.bit1 ? m : multiply(m, projection);
           } else {
-            if ((flags & 4) != 0) {
+            if (flags.bit2) {
               if (stack.length >= 32) {
                 throw StateError('RSP matrix stack overflow');
               }
               stack.add(List.of(model));
             }
-            model = (flags & 2) != 0 ? m : multiply(m, model);
+            model = flags.bit1 ? m : multiply(m, model);
           }
         case 3:
-          final index = (w0 >> 16) & 255, addr = resolve(w1);
+          final index = w0.shr16.mask8, addr = resolve(w1);
           if (index == 0x80) {
             scale = List.generate(3, (i) => signed(addr + i * 2, 2) / 4);
             translate =
@@ -169,8 +172,8 @@ class N64Graphics {
             throw UnsupportedError('RSP MOVEMEM $index');
           }
         case 4:
-          final count = extended ? ((w0 >> 10) & 63) : (((w0 >> 20) & 15) + 1);
-          final first = extended ? ((w0 >> 17) & 127) : ((w0 >> 16) & 15);
+          final count = extended ? w0.shr10.mask6 : w0.shr20.mask4 + 1;
+          final first = extended ? w0.shr17.mask7 : w0.shr16.mask4;
           final addr = resolve(w1), combined = multiply(model, projection);
           if (first + count > vertices.length) {
             throw StateError('RSP vertex buffer overflow');
@@ -181,7 +184,7 @@ class N64Graphics {
                 [signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1],
                 combined);
             final color = List.generate(4, (c) => u(p + 12 + c, 1).toDouble());
-            if ((geometry & 0x20000) != 0) {
+            if (geometry.bit17) {
               final normal = [
                 signed(p + 12, 1) / 127,
                 signed(p + 13, 1) / 127,
@@ -219,7 +222,7 @@ class N64Graphics {
                 signed(p + 10, 2) / 32 * textureT);
           }
         case 6:
-          if (((w0 >> 16) & 255) == 0) {
+          if (w0.shr16.mask8 == 0) {
             if (returns.length >= 64) {
               throw StateError('RSP display list stack overflow');
             }
@@ -232,35 +235,35 @@ class N64Graphics {
         case 0xbd:
           if (stack.isNotEmpty) model = stack.removeLast();
         case 0xbc:
-          final index = w0 & 255, offset = (w0 >> 8) & 0xffff;
+          final index = w0.mask8, offset = w0.shr8.mask16;
           if (index == 6) {
-            segments[(offset ~/ 4) & 15] = w1 & 0xffffff;
+            segments[(offset ~/ 4).mask4] = w1.mask24;
           } else if (index == 2) {
             numLights = extended ? w1 ~/ 24 : ((w1 & 0x7fffffff) ~/ 32 - 1);
           } else if (index == 10) {
             final l = lights[(offset ~/ 32).clamp(0, 7)];
             for (var i = 0; i < 3; i++) {
-              l[i] = ((w1 >> ((3 - i) * 8)) & 255).toDouble();
+              l[i] = w1.shr((3 - i) * 8).mask8.toDouble();
             }
           } else if (![0, 4, 8, 14].contains(index)) {
             throw UnsupportedError('RSP MOVEWORD $index');
           }
         case 0xbb:
-          activeTile = (w0 >> 8) & 7;
-          textureOn = (w0 & 255) != 0;
-          textureS = ((w1 >> 16) & 0xffff) / 65536;
-          textureT = (w1 & 0xffff) / 65536;
+          activeTile = w0.shr8.mask3;
+          textureOn = w0.mask8 != 0;
+          textureS = w1.shr16.mask16 / 65536;
+          textureT = w1.mask16 / 65536;
         case 0xb7:
           geometry |= w1;
         case 0xb6:
           geometry &= ~w1;
         case 0xba:
-          final shift = (w0 >> 8) & 255, length = w0 & 255;
-          final mask = ((1 << length) - 1) << shift;
+          final shift = w0.shr8.mask8, length = w0.mask8;
+          final mask = ((1 << length) - 1).shl(shift);
           otherHigh = (otherHigh & ~mask) | (w1 & mask);
         case 0xb9:
-          final shift = (w0 >> 8) & 255, length = w0 & 255;
-          final mask = ((1 << length) - 1) << shift;
+          final shift = w0.shr8.mask8, length = w0.mask8;
+          final mask = ((1 << length) - 1).shl(shift);
           otherLow = (otherLow & ~mask) | (w1 & mask);
         case 0xbf:
           drawIndices(w1, extended ? 2 : 10);
@@ -274,8 +277,8 @@ class N64Graphics {
         case 0xb3:
           break;
         case 0xb2:
-          final index = ((w0 & 0xffff) ~/ 2).clamp(0, 79), v = vertices[index];
-          if (v != null && ((w0 >> 16) & 255) == 0x10) {
+          final index = (w0.mask16 ~/ 2).clamp(0, 79), v = vertices[index];
+          if (v != null && w0.shr16.mask8 == 0x10) {
             vertices[index] = N64Vertex(v.clip, rgba(w1), v.s, v.t);
           }
         case 0xe4:
@@ -287,7 +290,7 @@ class N64Graphics {
           if (op >= 0xe6) {
             rdp(w0, w1);
           } else {
-            throw UnsupportedError('RSP GBI opcode 0x${op.toRadixString(16)}');
+            throw UnsupportedError('RSP GBI opcode 0x${op.hex}');
           }
       }
     }
@@ -296,7 +299,7 @@ class N64Graphics {
 
   void drawIndices(int word, int divisor) {
     if (!rasterize) return;
-    final indices = [(word >> 16) & 255, (word >> 8) & 255, word & 255]
+    final indices = [word.shr16.mask8, word.shr8.mask8, word.mask8]
         .map((v) => v ~/ divisor)
         .toList();
     if (indices.any((i) => i >= vertices.length || vertices[i] == null)) {
@@ -339,8 +342,7 @@ class N64Graphics {
         (px - ax) * (by - ay) - (py - ay) * (bx - ax);
     final area = edge(x[0], y[0], x[1], y[1], x[2], y[2]);
     if (area.abs() < 1e-8) return;
-    if (((geometry & 0x2000) != 0 && area < 0) ||
-        ((geometry & 0x1000) != 0 && area > 0)) {
+    if ((geometry.bit13 && area < 0) || (geometry.bit12 && area > 0)) {
       return;
     }
     triangles++;
@@ -408,12 +410,10 @@ class N64Graphics {
         }
         if (!inside) continue;
         final at = py * width + px;
-        if ((geometry & 1) != 0 &&
-            (otherLow & 0x10) != 0 &&
-            dz > depthBuffer[at]) {
+        if (geometry.bit0 && otherLow.bit4 && dz > depthBuffer[at]) {
           continue;
         }
-        if ((geometry & 1) != 0 && (otherLow & 0x20) != 0) depthBuffer[at] = dz;
+        if (geometry.bit0 && otherLow.bit5) depthBuffer[at] = dz;
         _shade[0] = red;
         _shade[1] = green;
         _shade[2] = blue;
@@ -431,12 +431,12 @@ class N64Graphics {
   }
 
   List<double> rgba(int v) =>
-      List.generate(4, (i) => ((v >> ((3 - i) * 8)) & 255).toDouble());
+      List.generate(4, (i) => v.shr((3 - i) * 8).mask8.toDouble());
   List<double> rgba16(int v) => [
-        ((v >> 11) & 31) * 255 / 31,
-        ((v >> 6) & 31) * 255 / 31,
-        ((v >> 1) & 31) * 255 / 31,
-        (v & 1) * 255.0
+        v.shr11.mask5 * 255 / 31,
+        v.shr6.mask5 * 255 / 31,
+        v.shr1.mask5 * 255 / 31,
+        v.mask1 * 255.0
       ];
 
   /// Public inspection returns a snapshot; the rasterizer uses private scratch.
@@ -451,10 +451,10 @@ class N64Graphics {
         double value, double low, double high, int shift, int mode, int mask) {
       value = shift <= 10 ? value / (1 << shift) : value * (1 << (16 - shift));
       var coord = (value - low).floor(), extent = (high - low).floor();
-      if ((mode & 2) != 0) coord = coord.clamp(0, math.max(0, extent));
+      if (mode.bit1) coord = coord.clamp(0, math.max(0, extent));
       if (mask != 0) {
         final period = 1 << mask;
-        if ((mode & 1) != 0 && (coord & period) != 0) {
+        if (mode.bit0 && coord & period != 0) {
           coord = period - 1 - (coord & (period - 1));
         } else {
           coord &= period - 1;
@@ -468,39 +468,32 @@ class N64Graphics {
         y = coordinate(
             t, tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
     final row = tile.line * 8;
-    final offset =
-        (tile.tmem * 8 + y * row + ((x * (4 << tile.size)) ~/ 8)) & 4095;
+    final offset = (tile.tmem * 8 + y * row + x * (4 << tile.size) ~/ 8).mask12;
     var v = tmem[offset];
-    if (tile.size == 0) v = (x.isEven ? v >> 4 : v) & 15;
-    if (tile.size >= 2) v = (v << 8) | tmem[(offset + 1) & 4095];
+    if (tile.size == 0) v = (x.isEven ? v.shr4 : v).mask4;
+    if (tile.size >= 2) v = v.shl8 | tmem[(offset + 1).mask12];
     if (tile.size == 3) {
-      v = (v << 16) |
-          (tmem[(offset + 2) & 4095] << 8) |
-          tmem[(offset + 3) & 4095];
+      v = v.shl16 | tmem[(offset + 2).mask12].shl8 | tmem[(offset + 3).mask12];
     }
     if (tile.format == 0) {
       return tile.size == 3
-          ? _textureRgba(
-              ((v >> 24) & 255).toDouble(),
-              ((v >> 16) & 255).toDouble(),
-              ((v >> 8) & 255).toDouble(),
-              (v & 255).toDouble())
+          ? _textureRgba(v.shr24.mask8.toDouble(), v.shr16.mask8.toDouble(),
+              v.shr8.mask8.toDouble(), v.mask8.toDouble())
           : _texture16(v);
     }
     if (tile.format == 2) {
       final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
-      final p = (2048 + paletteIndex * 8) & 4095;
-      return _texture16((tmem[p] << 8) | tmem[p + 1]);
+      final p = (2048 + paletteIndex * 8).mask12;
+      return _texture16(tmem[p].shl8 | tmem[p + 1]);
     }
     if (tile.format == 3) {
       if (tile.size == 2) {
-        final intensity = (v >> 8).toDouble();
+        final intensity = v.shr8.toDouble();
         return _textureRgba(
-            intensity, intensity, intensity, (v & 255).toDouble());
+            intensity, intensity, intensity, v.mask8.toDouble());
       }
-      final intensity =
-              tile.size == 1 ? (v >> 4) * 17 : ((v >> 1) & 7) * 255 / 7,
-          alpha = tile.size == 1 ? (v & 15) * 17 : (v & 1) * 255;
+      final intensity = tile.size == 1 ? v.shr4 * 17 : v.shr1.mask3 * 255 / 7,
+          alpha = tile.size == 1 ? v.mask4 * 17 : v.mask1 * 255;
       return _textureRgba(intensity.toDouble(), intensity.toDouble(),
           intensity.toDouble(), alpha.toDouble());
     }
@@ -510,19 +503,17 @@ class N64Graphics {
   }
 
   List<double> _combine(List<double> shade, List<double> texture) {
-    if (((otherHigh >> 20) & 3) == 2) return texture;
+    if (otherHigh.shr20.mask2 == 2) return texture;
     final combined = _combined..fillRange(0, 4, 0);
-    for (var cycle = 0;
-        cycle < (((otherHigh >> 20) & 3) == 1 ? 2 : 1);
-        cycle++) {
-      final a = cycle == 0 ? (combine0 >> 20) & 15 : (combine0 >> 5) & 15;
-      final b = cycle == 0 ? (combine1 >> 28) & 15 : (combine1 >> 24) & 15;
-      final cc = cycle == 0 ? (combine0 >> 15) & 31 : combine0 & 31;
-      final d = cycle == 0 ? (combine1 >> 15) & 7 : (combine1 >> 6) & 7;
-      final aa = cycle == 0 ? (combine0 >> 12) & 7 : (combine1 >> 21) & 7;
-      final ab = cycle == 0 ? (combine1 >> 12) & 7 : (combine1 >> 3) & 7;
-      final ac = cycle == 0 ? (combine0 >> 9) & 7 : (combine1 >> 18) & 7;
-      final ad = cycle == 0 ? (combine1 >> 9) & 7 : combine1 & 7;
+    for (var cycle = 0; cycle < (otherHigh.shr20.mask2 == 1 ? 2 : 1); cycle++) {
+      final a = cycle == 0 ? combine0.shr20.mask4 : combine0.shr5.mask4;
+      final b = cycle == 0 ? combine1.shr28.mask4 : combine1.shr24.mask4;
+      final cc = cycle == 0 ? combine0.shr15.mask5 : combine0.mask5;
+      final d = cycle == 0 ? combine1.shr15.mask3 : combine1.shr6.mask3;
+      final aa = cycle == 0 ? combine0.shr12.mask3 : combine1.shr21.mask3;
+      final ab = cycle == 0 ? combine1.shr12.mask3 : combine1.shr3.mask3;
+      final ac = cycle == 0 ? combine0.shr9.mask3 : combine1.shr18.mask3;
+      final ad = cycle == 0 ? combine1.shr9.mask3 : combine1.mask3;
       double rgb(int selector, int channel, int slot) {
         if (slot == 2 && selector >= 7) {
           if (selector == 7) return combined[3];
@@ -579,17 +570,15 @@ class N64Graphics {
         at = colorImage + (y * width + x) * size;
     if (at + size > bus.ram.length) return;
     var redValue = color[0], greenValue = color[1], blueValue = color[2];
-    if ((otherLow & 0x4000) != 0 && color[3] < 255) {
+    if (otherLow.bit14 && color[3] < 255) {
       final old = u(at, size), alpha = color[3] / 255, inverse = 1 - alpha;
       final oldRed = size == 4
-              ? ((old >> 24) & 255).toDouble()
-              : _fiveBit[(old >> 11) & 31],
-          oldGreen = size == 4
-              ? ((old >> 16) & 255).toDouble()
-              : _fiveBit[(old >> 6) & 31],
-          oldBlue = size == 4
-              ? ((old >> 8) & 255).toDouble()
-              : _fiveBit[(old >> 1) & 31];
+              ? old.shr24.mask8.toDouble()
+              : _fiveBit[old.shr11.mask5],
+          oldGreen =
+              size == 4 ? old.shr16.mask8.toDouble() : _fiveBit[old.shr6.mask5],
+          oldBlue =
+              size == 4 ? old.shr8.mask8.toDouble() : _fiveBit[old.shr1.mask5];
       redValue = redValue * alpha + oldRed * inverse;
       greenValue = greenValue * alpha + oldGreen * inverse;
       blueValue = blueValue * alpha + oldBlue * inverse;
@@ -600,23 +589,23 @@ class N64Graphics {
     bus.ramWrite(
         at,
         size == 4
-            ? (red << 24) | (green << 16) | (blue << 8) | 255
-            : ((red >> 3) << 11) | ((green >> 3) << 6) | ((blue >> 3) << 1) | 1,
+            ? red.shl24 | green.shl16 | blue.shl8 | 255
+            : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1,
         size);
   }
 
   void textureRect(int w0, int w1, int st, int delta, bool flip) {
     if (!rasterize) return;
-    final left = ((w1 >> 12) & 4095) / 4, top = (w1 & 4095) / 4;
-    var right = ((w0 >> 12) & 4095) / 4, bottom = (w0 & 4095) / 4;
-    final tile = (w1 >> 24) & 7, cycle = (otherHigh >> 20) & 3;
+    final left = w1.shr12.mask12 / 4, top = w1.mask12 / 4;
+    var right = w0.shr12.mask12 / 4, bottom = w0.mask12 / 4;
+    final tile = w1.shr24.mask3, cycle = otherHigh.shr20.mask2;
     if (cycle >= 2) {
       right++;
       bottom++;
     }
-    final s = (st >> 16).toSigned(16) / 32, t = (st & 65535).toSigned(16) / 32;
-    final ds = (delta >> 16).toSigned(16) / 1024 / (cycle == 2 ? 4 : 1),
-        dt = (delta & 65535).toSigned(16) / 1024;
+    final s = st.shr16.toSigned(16) / 32, t = st.mask16.toSigned(16) / 32;
+    final ds = delta.shr16.toSigned(16) / 1024 / (cycle == 2 ? 4 : 1),
+        dt = delta.mask16.toSigned(16) / 1024;
     for (var y = math.max(scTop, top.ceil());
         y < math.min(scBottom, bottom.ceil());
         y++) {
@@ -631,21 +620,21 @@ class N64Graphics {
   }
 
   void rdp(int w0, int w1) {
-    final op = w0 >> 24;
+    final op = w0.shr24;
     switch (op) {
       case 0xff:
         colorImage = resolve(w1);
-        colorSize = (w0 >> 19) & 3;
-        width = (w0 & 4095) + 1;
+        colorSize = w0.shr19.mask2;
+        width = w0.mask12 + 1;
       case 0xfe:
         zImage = resolve(w1);
       case 0xfd:
         textureImage = resolve(w1);
-        textureSize = (w0 >> 19) & 3;
-        textureWidth = (w0 & 4095) + 1;
-        textureFormat = (w0 >> 21) & 7;
+        textureSize = w0.shr19.mask2;
+        textureWidth = w0.mask12 + 1;
+        textureFormat = w0.shr21.mask3;
       case 0xfc:
-        combine0 = w0 & 0xffffff;
+        combine0 = w0.mask24;
         combine1 = w1;
       case 0xfa:
         primitive = rgba(w1);
@@ -657,10 +646,10 @@ class N64Graphics {
         fillColor = w1;
       case 0xf6:
         if (!rasterize) break;
-        final x0 = (w1 >> 12) & 4095,
-            y0 = w1 & 4095,
-            x1 = (w0 >> 12) & 4095,
-            y1 = w0 & 4095;
+        final x0 = w1.shr12.mask12,
+            y0 = w1.mask12,
+            x1 = w0.shr12.mask12,
+            y1 = w0.mask12;
         if (colorImage == zImage) {
           depth.fillRange(0, depth.length, double.infinity);
           break;
@@ -671,7 +660,7 @@ class N64Graphics {
           for (var x = math.max(scLeft, x0 ~/ 4);
               x <= math.min(math.min(scRight, width) - 1, x1 ~/ 4);
               x++) {
-            if (((otherHigh >> 20) & 3) == 3) {
+            if (otherHigh.shr20.mask2 == 3) {
               final size = colorSize == 3 ? 4 : 2,
                   at = colorImage + (y * width + x) * size;
               if (at + size <= bus.ram.length) {
@@ -679,7 +668,7 @@ class N64Graphics {
                     at,
                     size == 4
                         ? fillColor
-                        : (x.isEven ? fillColor >> 16 : fillColor & 65535),
+                        : (x.isEven ? fillColor.shr16 : fillColor.mask16),
                     size);
               }
             } else {
@@ -688,44 +677,44 @@ class N64Graphics {
           }
         }
       case 0xf5:
-        final tile = tiles[(w1 >> 24) & 7];
-        tile.format = (w0 >> 21) & 7;
-        tile.size = (w0 >> 19) & 3;
-        tile.line = (w0 >> 9) & 511;
-        tile.tmem = w0 & 511;
-        tile.palette = (w1 >> 20) & 15;
-        tile.tMode = (w1 >> 18) & 3;
-        tile.tMask = (w1 >> 14) & 15;
-        tile.tShift = (w1 >> 10) & 15;
-        tile.sMode = (w1 >> 8) & 3;
-        tile.sMask = (w1 >> 4) & 15;
-        tile.sShift = w1 & 15;
+        final tile = tiles[w1.shr24.mask3];
+        tile.format = w0.shr21.mask3;
+        tile.size = w0.shr19.mask2;
+        tile.line = w0.shr9.mask9;
+        tile.tmem = w0.mask9;
+        tile.palette = w1.shr20.mask4;
+        tile.tMode = w1.shr18.mask2;
+        tile.tMask = w1.shr14.mask4;
+        tile.tShift = w1.shr10.mask4;
+        tile.sMode = w1.shr8.mask2;
+        tile.sMask = w1.shr4.mask4;
+        tile.sShift = w1.mask4;
       case 0xf2:
-        final tile = tiles[(w1 >> 24) & 7];
-        tile.left = ((w0 >> 12) & 4095) / 4;
-        tile.top = (w0 & 4095) / 4;
-        tile.right = ((w1 >> 12) & 4095) / 4;
-        tile.bottom = (w1 & 4095) / 4;
+        final tile = tiles[w1.shr24.mask3];
+        tile.left = w0.shr12.mask12 / 4;
+        tile.top = w0.mask12 / 4;
+        tile.right = w1.shr12.mask12 / 4;
+        tile.bottom = w1.mask12 / 4;
       case 0xf3:
-        final tile = tiles[(w1 >> 24) & 7], count = ((w1 >> 12) & 4095) + 1;
+        final tile = tiles[w1.shr24.mask3], count = w1.shr12.mask12 + 1;
         final bytes = (count * (4 << textureSize) + 7) ~/ 8;
         final start = textureImage +
-            ((((w0 & 4095) ~/ 4) * textureWidth + (((w0 >> 12) & 4095) ~/ 4)) *
+            ((w0.mask12 ~/ 4 * textureWidth + w0.shr12.mask12 ~/ 4) *
                     (4 << textureSize)) ~/
                 8;
         for (var i = 0; i < bytes; i++) {
-          tmem[(tile.tmem * 8 + i) & 4095] = u(start + i, 1);
+          tmem[(tile.tmem * 8 + i).mask12] = u(start + i, 1);
         }
       case 0xf4:
-        final tile = tiles[(w1 >> 24) & 7],
-            x0 = ((w0 >> 12) & 4095) ~/ 4,
-            y0 = (w0 & 4095) ~/ 4,
-            x1 = ((w1 >> 12) & 4095) ~/ 4,
-            y1 = (w1 & 4095) ~/ 4;
+        final tile = tiles[w1.shr24.mask3],
+            x0 = w0.shr12.mask12 ~/ 4,
+            y0 = w0.mask12 ~/ 4,
+            x1 = w1.shr12.mask12 ~/ 4,
+            y1 = w1.mask12 ~/ 4;
         final bytes = ((x1 - x0 + 1) * (4 << textureSize) + 7) ~/ 8;
         for (var y = y0; y <= y1; y++) {
           for (var i = 0; i < bytes; i++) {
-            tmem[(tile.tmem * 8 + (y - y0) * tile.line * 8 + i) & 4095] = u(
+            tmem[(tile.tmem * 8 + (y - y0) * tile.line * 8 + i).mask12] = u(
                 textureImage +
                     ((y * textureWidth + x0) * (4 << textureSize)) ~/ 8 +
                     i,
@@ -733,20 +722,20 @@ class N64Graphics {
           }
         }
       case 0xf0:
-        final tile = tiles[(w1 >> 24) & 7], count = ((w1 >> 14) & 1023) + 1;
+        final tile = tiles[w1.shr24.mask3], count = w1.shr14.mask10 + 1;
         for (var i = 0; i < count; i++) {
           for (var j = 0; j < 8; j++) {
-            tmem[(tile.tmem * 8 + i * 8 + j) & 4095] =
-                u(textureImage + i * 2 + (j & 1), 1);
+            tmem[(tile.tmem * 8 + i * 8 + j).mask12] =
+                u(textureImage + i * 2 + j.mask1, 1);
           }
         }
       case 0xed:
-        scLeft = ((w0 >> 12) & 4095) ~/ 4;
-        scTop = (w0 & 4095) ~/ 4;
-        scRight = ((w1 >> 12) & 4095) ~/ 4;
-        scBottom = (w1 & 4095) ~/ 4;
+        scLeft = w0.shr12.mask12 ~/ 4;
+        scTop = w0.mask12 ~/ 4;
+        scRight = w1.shr12.mask12 ~/ 4;
+        scBottom = w1.mask12 ~/ 4;
       case 0xef:
-        otherHigh = w0 & 0xffffff;
+        otherHigh = w0.mask24;
         otherLow = w1;
       case 0xe9:
         bus.interrupt(32);
@@ -760,12 +749,12 @@ class N64Graphics {
       case 0xf9:
         break;
       default:
-        throw UnsupportedError('RDP opcode 0x${op.toRadixString(16)}');
+        throw UnsupportedError('RDP opcode 0x${op.hex}');
     }
   }
 
   void commands(int start, int end) {
-    if ((bus.dp[3] & 1) != 0) throw UnsupportedError('RDP XBUS command source');
+    if (bus.dp[3].bit0) throw UnsupportedError('RDP XBUS command source');
     for (var at = start; at < end; at += 8) {
       rdp(u(at, 4) | 0xc0000000, u(at + 4, 4));
     }
