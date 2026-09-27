@@ -4,6 +4,8 @@ import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
 import '../mapper/rom.dart';
+import '../../sram.dart';
+import 'cdrom.dart';
 import 'cpu.dart';
 import 'pad.dart';
 import 'pic.dart';
@@ -20,6 +22,9 @@ class Bus {
   late final Psg psg;
   late final Timer timer;
   late final Pic pic;
+  late final PceCdrom cdrom;
+  Sram sram = Sram();
+  final superCdRam = Uint8List(192 * 1024);
 
   // ST0/1/2 and CPU access to $0000-$0007 are routed to the VDC selected by
   // the VPC ($000E bit0). On a plain PC Engine this is always VDC1.
@@ -48,6 +53,12 @@ class Bus {
     final bank = addr.shr13;
     final offset = addr & 0x1fff;
 
+    if (cdrom.enabled && bank >= 0x68 && bank <= 0x7f) {
+      return superCdRam[(bank - 0x68) * 0x2000 + offset];
+    }
+    if (bank == 0xf7 && cdrom.enabled) {
+      return cdrom.backupEnabled && offset < 0x800 ? sram.read8(offset) : 0xff;
+    }
     if (bank <= 0x7f) {
       return rom.read(addr);
     }
@@ -96,7 +107,7 @@ class Bus {
       }
 
       if (offset < 0x1400) {
-        return joypad.port & 0x0f | 0x30;
+        return joypad.port & 0x0f | 0x30 | (cdrom.enabled ? 0 : 0x80);
       }
 
       // PIC
@@ -109,6 +120,9 @@ class Bus {
       }
     }
 
+    if (bank == 0xff && offset >= 0x1800 && cdrom.enabled) {
+      return cdrom.read(offset);
+    }
     return 0xff;
   }
 
@@ -116,6 +130,19 @@ class Bus {
     final bank = addr.shr13;
     final offset = addr & 0x1fff;
 
+    data &= 0xff;
+    if (cdrom.enabled && bank >= 0x68 && bank <= 0x7f) {
+      superCdRam[(bank - 0x68) * 0x2000 + offset] = data;
+      return;
+    }
+    if (bank == 0xf7 && cdrom.enabled) {
+      if (cdrom.backupEnabled && offset < 0x800) sram.write8(offset, data);
+      return;
+    }
+    if (bank == 0xff && offset >= 0x1800 && cdrom.enabled) {
+      cdrom.write(offset, data);
+      return;
+    }
     if (0xf8 <= bank && bank <= 0xfb) {
       // final logAddrs = [0x3cd5];
       // for (final addr in logAddrs) {
@@ -244,6 +271,7 @@ class Bus {
     cpu.reset();
     timer.reset();
     pic.reset();
+    cdrom.reset();
   }
 
   void holdIrq() => {};

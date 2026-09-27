@@ -8,6 +8,7 @@ import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
 import 'component/bus.dart';
+import 'component/cdrom.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/cpu_disasm.dart';
@@ -57,6 +58,7 @@ class Pce implements Core {
     psg = Psg(bus);
     timer = Timer(bus);
     pic = Pic(bus);
+    bus.cdrom = PceCdrom(bus);
   }
 
   int _nextVdcClocks = 0;
@@ -72,6 +74,7 @@ class Pce implements Core {
     }
 
     bus.timer.exec(cpu.clock);
+    bus.cdrom.exec(cpu.clock);
 
     bool rendered = false;
 
@@ -95,7 +98,9 @@ class Pce implements Core {
     while (cpu.clocks >= _prevPsgClocks + clocksInScanline) {
       final elapsed = (cpu.clocks - _prevPsgClocks) ~/ 6 * 6;
       _prevPsgClocks += elapsed;
-      _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, psg.exec(elapsed)));
+      final audio = psg.exec(elapsed);
+      bus.cdrom.mixAudio(audio, Psg.audioSamplingRate);
+      _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, audio));
     }
 
     return ExecResult(cpu.clocks, false, rendered);
@@ -134,10 +139,15 @@ class Pce implements Core {
       bus.joypad.keyUp(controllerId, k);
 
   @override
-  void setDisc(Disc disc) {}
+  void setDisc(Disc disc) {
+    bus.cdrom.setDisc(disc);
+    if (!disc.isEmpty && bus.sram.data.length != 0x800) {
+      bus.sram.init('pce-cd-bram', Uint8List(0x800));
+    }
+  }
 
   @override
-  void setSram(Sram sram) {}
+  void setSram(Sram sram) => bus.sram = sram;
 
   @override
   List<PadButton> get buttons => bus.joypad.buttons;
