@@ -42,7 +42,7 @@ abstract class Mapper {
       73 => MapperVrc3(),
       88 => Mapper088(),
       206 => MapperNamco118(),
-      _ => throw Exception("unimplemented mapper:$iNesMapper!"),
+      _ => throw Exception("unimplemented mapper:$iNesMapper!")
     };
   }
 
@@ -90,11 +90,7 @@ abstract class Mapper {
 
   // utility to load bank data to chrRoms and prgRoms from original sized rom data
   void loadRom(
-    Uint8List chrRom,
-    int chrBankSizeK,
-    Uint8List prgRom,
-    int prgBankSizeK,
-  ) {
+      Uint8List chrRom, int chrBankSizeK, Uint8List prgRom, int prgBankSizeK) {
     chrRoms
       ..clear()
       ..addAll(chrRom.split(chrBankSizeK * 1024));
