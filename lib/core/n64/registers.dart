@@ -1,13 +1,11 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
-/// Sign-extended words stay as ints. Full 64-bit values use BigInt on VM/Web.
+/// 64-bit general purpose registers. Native and wasm ints are 64-bit and
+/// wrap modulo 2^64, so values are stored directly. Writes to r0 are ignored.
 /// The List interface keeps debugger, boot and test access synchronized.
-class N64Registers extends ListBase<BigInt> {
-  final _words = Int32List(32);
-  final _values = List<BigInt?>.filled(32, null);
-  final _wide = List<bool>.filled(32, false);
-  final _wordValid = List<bool>.filled(32, true);
+class N64Registers extends ListBase<int> {
+  final _values = Int64List(32);
 
   @override
   int get length => 32;
@@ -15,36 +13,18 @@ class N64Registers extends ListBase<BigInt> {
   set length(int value) => throw UnsupportedError('Fixed N64 register file');
 
   @override
-  BigInt operator [](int index) =>
-      _values[index] ??= BigInt.from(_words[index]);
+  int operator [](int index) => _values[index];
 
   @override
-  void operator []=(int index, BigInt value) {
-    if (index == 0) return;
-    final full = value.bitLength < 64 ? value : value.toSigned(64);
-    final narrow = full.bitLength <= 31;
-    if (narrow) {
-      _words[index] = full.toInt();
-    }
-    _values[index] = full;
-    _wide[index] = !narrow;
-    _wordValid[index] = narrow;
+  void operator []=(int index, int value) {
+    if (index != 0) _values[index] = value;
   }
 
-  bool isWord(int index) => !_wide[index];
-  int word(int index) {
-    if (!_wordValid[index]) {
-      _words[index] = _values[index]!.toSigned(32).toInt();
-      _wordValid[index] = true;
-    }
-    return _words[index];
-  }
+  /// low 32 bits, sign extended
+  int word(int index) => _values[index].toSigned(32);
 
+  /// stores a 32-bit result sign extended to 64 bits
   void setWord(int index, int value) {
-    if (index == 0) return;
-    _words[index] = value;
-    _values[index] = null;
-    _wide[index] = false;
-    _wordValid[index] = true;
+    if (index != 0) _values[index] = value.toSigned(32);
   }
 }

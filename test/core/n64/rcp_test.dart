@@ -151,7 +151,7 @@ void main() {
     final c = Vr4300(b)..reset(0x80000000);
     c.step();
     c.step();
-    expect(c.r[1], BigInt.from(0x12345678));
+    expect(c.r[1], 0x12345678);
   });
   test(
       'COP1 disabled raises a coprocessor-unusable exception for OS lazy FPU context switching',
