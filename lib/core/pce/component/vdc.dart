@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
 
 import 'bus.dart';
-import 'cpu.dart';
 
 class Vdc {
   final Bus bus;
@@ -22,8 +21,7 @@ class Vdc {
         "i:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
     final bg =
         "bg:${hSize}x$vSize ${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
-    final line =
-        "l:$scanLine,${bgRenderLine} f:${VdcRenderer.frames}";
+    final line = "l:$scanLine,${bgRenderLine} f:${VdcRenderer.frames}";
     return "vdc: $regs $bg $scr $flags $line";
   }
 
@@ -39,6 +37,7 @@ class Vdc {
     reg = 0;
 
     status = 0;
+    irqPending = false;
 
     controlRegister = 0;
 
@@ -117,6 +116,13 @@ class Vdc {
   int writeLatch = 0;
 
   int status = 0;
+  bool irqPending = false;
+
+  void raiseIrq(int flag) {
+    status |= flag;
+    irqPending = true;
+    bus.updateVdcIrq();
+  }
 
   static const statusBusy = 0x40;
   static const statusVBlank = 0x20; // vblank irq
@@ -167,10 +173,10 @@ class Vdc {
   final sprite0 = List<bool>.filled(32, false); // x of sprite 0
 
   int readReg() {
-    bus.pic.acknoledgeIrq1();
-
     final value = status;
     status = 0;
+    irqPending = false;
+    bus.updateVdcIrq();
     return value;
   }
 
@@ -387,8 +393,7 @@ class Vdc {
   }
 
   writeColorTableLsb(int val) {
-    colorTable[colorTableAddress] =
-        colorTable[colorTableAddress].setL8(val);
+    colorTable[colorTableAddress] = colorTable[colorTableAddress].setL8(val);
   }
 
   writeColorTableMsb(int val) {
@@ -432,8 +437,7 @@ class Vdc {
       dmaSatb = false;
 
       if (enableDmaSatIrq) {
-        status |= statusDmaSat;
-        bus.cpu.holdInterrupt(Interrupt.irq1);
+        raiseIrq(statusDmaSat);
       }
     }
   }
@@ -453,8 +457,7 @@ class Vdc {
 
       if (dmaLen == 0) {
         if (enableDmaVramIrq) {
-          status |= statusDmaVram;
-          bus.cpu.holdInterrupt(Interrupt.irq1);
+          raiseIrq(statusDmaVram);
         }
         break;
       }

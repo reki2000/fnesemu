@@ -53,7 +53,7 @@ class Pce implements Core {
     vdc = bus.vdc = Vdc(bus, 0);
     vdc2 = bus.vdc2 = Vdc(bus, 1);
     vdc2.colorTable = vdc.colorTable; // VCE is shared between both VDCs
-    vpc = bus.vpc = Vpc();
+    vpc = bus.vpc;
     psg = Psg(bus);
     timer = Timer(bus);
     pic = Pic(bus);
@@ -76,7 +76,6 @@ class Pce implements Core {
     bool rendered = false;
 
     while (cpu.clocks >= _nextVdcClocks) {
-      vdc.exec();
       if (vpc.enabled) {
         // align VDC2's vertical counter to VDC1 the first time SGX activates,
         // so both VDCs render the same scanline in lock-step thereafter.
@@ -84,6 +83,9 @@ class Pce implements Core {
           vdc2.scanLine = vdc.scanLine;
           _vdc2Synced = true;
         }
+      }
+      vdc.exec();
+      if (vpc.enabled) {
         vdc2.exec();
       }
       _nextVdcClocks += clocksInScanline;
