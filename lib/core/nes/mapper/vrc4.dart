@@ -139,7 +139,7 @@ class MapperVrc4 extends Mapper {
     final bank = addr.shr10; // 1 1100 0000 0000
     final offset = addr & 0x03ff;
 
-    return chrRoms[_chrBank[bank]][offset];
+    return chrRoms[_chrBank[bank] & _chrBankMask][offset];
   }
 
   static final _mirrors = [
