@@ -45,15 +45,16 @@ class _PulseWave with _Wave {
       return buf;
     }
 
+    // timers are clocked by cpu cycles: 1 sample = 2 cpu cycles
     for (int i = 0; i < buf.length; i++) {
       buf[i] = _dutyCycle <= duty ? volume : 0;
 
       if (_timer <= 0) {
-        _timer = _freq + 1;
+        _timer += _freq + 1;
         _dutyCycle = (_dutyCycle - 1) & 0x0f;
       }
 
-      _timer--;
+      _timer -= 2;
     }
 
     return buf;
@@ -80,22 +81,23 @@ class _SawToothWave with _Wave {
       return buf;
     }
 
+    // the accumulator is added the rate at every 2nd step,
+    // and is reset at the 14th step
     for (int i = 0; i < buf.length; i++) {
       if (_timer <= 0) {
-        _timer = _freq + 1;
+        _timer += _freq + 1;
         _count++;
 
         if (_count == 14) {
           _count = 0;
-        }
-
-        if ((_count & 0x01) == 0) {
-          accum = (_accumlator + accum) & 0xff;
+          _accumlator = 0;
+        } else if ((_count & 0x01) == 0) {
+          _accumlator = (_accumlator + accum) & 0xff;
         }
       }
 
       buf[i] = _accumlator.shr3;
-      _timer--;
+      _timer -= 2;
     }
 
     return buf;

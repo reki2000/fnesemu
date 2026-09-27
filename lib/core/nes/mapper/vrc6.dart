@@ -30,10 +30,16 @@ class MapperVrc6 extends Mapper {
   int _chrBankMask = 0;
   int _prgBankMask = 0;
 
-  // ppu 8 x 1k banks
-  final List<int> _chrBank = [0, 1, 2, 3, 4, 5, 6, 7];
+  // ppu 8 x 1k banks, calculated from _ppuReg and the banking mode
+  final List<int> _chrBank = [0, 0, 0, 0, 0, 0, 0, 0];
 
   final List<int> _ppuReg = [0, 0, 0, 0, 0, 0, 0, 0];
+
+  // b003 bit0-1: ppu banking mode
+  int _chrMode = 0;
+
+  // b003 bit5: 2k banks take A10 from the ppu address
+  bool _chrA10 = false;
 
   // cpu 16k + 8k + 8k banks (8000-bfff, c000-dfff, e000-ffff)
   // each item points one of _progBank0, _progBank2ndLast, _progBankA0
@@ -70,29 +76,9 @@ class MapperVrc6 extends Mapper {
 
       _setMirror((data & 0x0f).shr2);
 
-      switch (data & 0x03) {
-        case 0:
-          for (int i = 0; i < 8; i++) {
-            _chrBank[i] = i;
-          }
-          break;
-
-        case 1:
-          for (var i = 0; i < 8; i++) {
-            _chrBank[i] = i.shr1;
-          }
-          break;
-
-        case 2:
-        case 3:
-          for (var i = 0; i < 4; i++) {
-            _chrBank[i] = i;
-          }
-          for (var i = 4; i < 8; i++) {
-            _chrBank[i] = i.shr1;
-          }
-          break;
-      }
+      _chrMode = data & 0x03;
+      _chrA10 = data.bit5;
+      _updateChrBank();
 
       return;
     }
@@ -106,7 +92,7 @@ class MapperVrc6 extends Mapper {
         return;
 
       case 0x8000:
-        _prgBank8000 = data & _prgBankMask;
+        _prgBank8000 = data & _prgBankMask.shr1;
         _prgBank[0] = _prgBank8000.shl1;
         _prgBank[1] = _prgBank8000.shl1 + 1;
         return;
@@ -123,10 +109,12 @@ class MapperVrc6 extends Mapper {
 
       case 0xd000:
         _ppuReg[addrToReg(addr)] = data;
+        _updateChrBank();
         return;
 
       case 0xe000:
         _ppuReg[0x04 | addrToReg(addr)] = data;
+        _updateChrBank();
         return;
 
       case 0xf000:
@@ -138,6 +126,22 @@ class MapperVrc6 extends Mapper {
           case 2:
             return _setIrqAcknoledge();
         }
+    }
+  }
+
+  // 1k bank for the half `lo` (0 or 1) of a 2k bank register
+  int _chr2k(int reg, int lo) => _chrA10 ? (reg & 0xfe) | lo : reg;
+
+  void _updateChrBank() {
+    for (int i = 0; i < 8; i++) {
+      final bank = switch (_chrMode) {
+        0 => _ppuReg[i], // 1k x 8
+        1 => _chr2k(_ppuReg[i.shr1], i & 1), // 2k x 4
+        _ => i < 4 // 1k x 4 + 2k x 2
+            ? _ppuReg[i]
+            : _chr2k(_ppuReg[4 + (i - 4).shr1], i & 1),
+      };
+      _chrBank[i] = bank & _chrBankMask;
     }
   }
 
@@ -165,7 +169,7 @@ class MapperVrc6 extends Mapper {
     final bank = addr.shr10; // 1 1100 0000 0000
     final offset = addr & 0x03ff;
 
-    return chrRoms[_ppuReg[_chrBank[bank]]][offset];
+    return chrRoms[_chrBank[bank]][offset];
   }
 
   static final _mirrors = [

@@ -59,15 +59,17 @@ class Bus {
   final List<int> ram = List.filled(0x800, 0);
 
   int read(int addr) {
-    if (addr < 0x800) {
-      return ram[addr];
-    } else if (0x2000 <= addr && addr <= 0x2007 || addr == 0x4014) {
+    if (addr < 0x2000) {
+      return ram[addr & 0x7ff];
+    } else if (addr < 0x4000) {
+      return ppu.read(0x2000 | (addr & 0x07));
+    } else if (addr == 0x4014) {
       return ppu.read(addr);
     } else if (addr == 0x4016 || addr == 0x4017) {
       return joypad.read(addr);
-    } else if (0x4000 <= addr && addr <= 0x401f) {
+    } else if (addr <= 0x401f) {
       return apu.read(addr);
-    } else if (addr >= 0x6000) {
+    } else if (addr >= 0x6000 || mapper.hasExpansionArea) {
       return mapper.read(addr);
     } else {
       return 0xff;
@@ -75,13 +77,13 @@ class Bus {
   }
 
   void write(int addr, int data) {
-    if (addr < 0x800) {
-      ram[addr] = data & 0xff;
-    } else if (0x2000 <= addr && addr <= 0x200f) {
-      ppu.write(addr, data);
+    if (addr < 0x2000) {
+      ram[addr & 0x7ff] = data & 0xff;
+    } else if (addr < 0x4000) {
+      ppu.write(0x2000 | (addr & 0x07), data);
     } else if (0x4014 == addr) {
       final src = data.shl8;
-      ppu.onDMA(ram.sublist(src, src + 256));
+      ppu.onDMA(List.generate(256, (i) => read(src + i)));
       cpu.cycle += 514;
     } else if (addr == 0x4016) {
       joypad.write(addr, data);
@@ -89,7 +91,7 @@ class Bus {
         addr == 0x4015 ||
         addr == 0x4017) {
       apu.write(addr, data);
-    } else if (addr >= 0x6000) {
+    } else if (addr >= 0x6000 || (addr >= 0x4020 && mapper.hasExpansionArea)) {
       mapper.write(addr, data);
     }
   }
@@ -100,10 +102,10 @@ class Bus {
     mapper.init();
     ppu.reset();
     apu.reset();
-    cpu.releaseIrq();
+    cpu.releaseIrq(IrqSource.all);
     cpu.reset();
   }
 
-  void holdIrq() => cpu.holdIrq();
-  void releaseIrq() => cpu.releaseIrq();
+  void holdIrq([int source = IrqSource.mapper]) => cpu.holdIrq(source);
+  void releaseIrq([int source = IrqSource.mapper]) => cpu.releaseIrq(source);
 }

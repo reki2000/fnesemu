@@ -99,13 +99,15 @@ extension PpuRenderer on Ppu {
       obj.index = _Obj._unusedIndex;
     }
 
-    if (!showSprite()) {
+    // the ppu fetches sprite patterns whenever rendering is enabled, even if
+    // sprites are hidden. mappers like MMC3 rely on it.
+    if (!showSprite() && !showBg()) {
       return objs;
     }
 
     // detect objects on this scanline
     int objCount = 0;
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < (showSprite() ? 64 : 0); i++) {
       final objy = objRam[i * 4];
       if (objy < scanLine && scanLine <= objy + objVSize) {
         objs[objCount++].index = i;
@@ -197,35 +199,44 @@ extension PpuRenderer on Ppu {
     return _BG(char1: bgChar1, char2: bgChar2, palette: bgPalette);
   }
 
-  int _renderObjs(List<_Obj> objs, int x, int bgColorNum, int color) {
+  // every object covering x must be shifted even when an upper object is
+  // drawn or the pixel is clipped, so that its pattern stays aligned.
+  int _renderObjs(
+      List<_Obj> objs, int x, int bgColorNum, int color, bool clipped) {
+    var result = color;
+    var found = false;
+
     for (final o in objs) {
       if (!o.unused() && o.x <= x && x < o.x + 8) {
         final objColorNum = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)).shr7;
         o.pattern0 <<= 1;
         o.pattern1 <<= 1;
 
-        if (objColorNum == 0) {
+        if (found || clipped || objColorNum == 0) {
           continue;
         }
+        found = true;
 
         if (bgColorNum != 0) {
-          if (o.index == 0 && objColorNum != 0) {
+          if (o.index == 0 && x != 255) {
             detectObj0 = true;
           }
 
           if (!o.isPrior) {
-            return color;
+            continue; // background has priority
           }
         }
 
-        return readVram(paletteBase + 0x10 + o.palette * 4 + objColorNum);
+        result = readVram(paletteBase + 0x10 + o.palette * 4 + objColorNum);
       }
     }
-    return color;
+    return result;
   }
 
   void renderLine() {
-    if (showBg()) {
+    final rendering = showBg() || showSprite();
+
+    if (rendering) {
       // dot 257 of prev line: reset horizontal position
       // v: ....A.. ...BCDEF <- t: ....A.. ...BCDEF
       vramAddr = vramAddr & ~0x41f | tmpVramAddr & 0x41f;
@@ -251,7 +262,7 @@ extension PpuRenderer on Ppu {
     int bgPaletteNext = 0;
 
     // dot 321-336 of previ line: read the first pattern
-    if (showBg()) {
+    if (rendering) {
       final bg = _fetchBG(bgBase, fineY);
       bgChar1 = bg.char1.shl8;
       bgChar2 = bg.char2.shl8;
@@ -269,7 +280,7 @@ extension PpuRenderer on Ppu {
       var color = color0;
       final xand7 = x & 0x07;
 
-      if (showBg()) {
+      if (rendering) {
         if (xand7 == 0) {
           final bg = _fetchBG(bgBase, fineY);
           bgChar1 |= bg.char1;
@@ -277,7 +288,7 @@ extension PpuRenderer on Ppu {
           bgPaletteNext = bg.palette;
         }
 
-        if (!(clipLeftEdgeBg() && 0 <= x && x < 8)) {
+        if (showBg() && !(clipLeftEdgeBg() && x < 8)) {
           bgColorNum = ((bgChar1 >> (15 - fineX)) & 0x01) |
               ((bgChar2 >> (14 - fineX)) & 0x02);
           if (bgColorNum != 0) {
@@ -296,15 +307,16 @@ extension PpuRenderer on Ppu {
       }
 
       // overwrite dot color by obj
-      if (!(clipLeftEdgeSprite() && 1 <= x && x <= 8) && showSprite()) {
-        color = _renderObjs(objs, x, bgColorNum, color);
+      if (showSprite()) {
+        final clipped = clipLeftEdgeSprite() && x < 8;
+        color = _renderObjs(objs, x, bgColorNum, color, clipped);
       }
 
       buffer[scanLine * Nes.imageWidth + x] = _colorRGBA[color & 0x3f];
     }
 
     // wrap around Y
-    if (showBg()) {
+    if (rendering) {
       _wrapAroundY();
     }
   }

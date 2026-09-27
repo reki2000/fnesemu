@@ -25,19 +25,35 @@ class Pic {
     maskIrq1 = false;
     maskIrq2 = false;
     maskTIrq = false;
+    _syncInterrupts();
   }
 
   set mask(int data) {
     maskIrq2 = data.bit0;
     maskIrq1 = data.bit1;
     maskTIrq = data.bit2;
+    _syncInterrupts();
+  }
+
+  void _syncInterrupts() {
+    void sync(Interrupt interrupt, bool pending, bool masked) {
+      if (pending && !masked) {
+        bus.cpu.holdInterrupt(interrupt);
+      } else {
+        bus.cpu.releaseInterrupt(interrupt);
+      }
+    }
+
+    sync(Interrupt.irq1, _holdIrq1, maskIrq1);
+    sync(Interrupt.irq2, _holdIrq2, maskIrq2);
+    sync(Interrupt.tirq, _holdTirq, maskTIrq);
   }
 
   int get mask =>
       (maskIrq1 ? 0x02 : 0) | (maskIrq2 ? 0x01 : 0) | (maskTIrq ? 0x04 : 0);
 
   int get hold =>
-      (_holdIrq1 ? 0 : 0x02) | (_holdIrq2 ? 0x01 : 0) | (_holdTirq ? 0x04 : 0);
+      (_holdIrq1 ? 0x02 : 0) | (_holdIrq2 ? 0x01 : 0) | (_holdTirq ? 0x04 : 0);
 
   holdIrq1() {
     _holdIrq1 = true;
