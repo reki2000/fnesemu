@@ -5,6 +5,7 @@ import 'package:fnesemu/core/pce/component/cdrom.dart';
 import 'package:fnesemu/core/pce/pce.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/disc/empty.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 class TestDisc extends Disc {
@@ -27,7 +28,7 @@ class TestDisc extends Disc {
     if (sector < 154) {
       result[15] = 1;
       for (var i = 0; i < 2048; i++) {
-        result[16 + i] = (i + sector) & 255;
+        result[16 + i] = (i + sector).mask8;
       }
     } else {
       for (var i = 0; i < 2352; i += 4) {
@@ -131,17 +132,17 @@ void main() {
     expect(disc.reads, [151]);
     expect(cd.read(0x1800), 0xc8);
     cd.write(0x1802, 0x40);
-    expect(pce.bus.pic.hold & 1, 1);
+    expect(pce.bus.pic.hold.mask1, 1);
     expect(cd.read(0x1801), 151);
     expect(cd.read(0x1801), 151); // no implicit ACK on $1801
     for (var i = 0; i < 2048; i++) {
-      expect(cd.read(0x1808), (i + 151) & 255);
+      expect(cd.read(0x1808), (i + 151).mask8);
     }
     expect(cd.read(0x1800), 0x88);
-    expect(pce.bus.pic.hold & 1, 0);
+    expect(pce.bus.pic.hold.mask1, 0);
     cd.exec(21477270 ~/ 75);
     for (var i = 0; i < 2048; i++) {
-      expect(cd.read(0x1808), (i + 152) & 255);
+      expect(cd.read(0x1808), (i + 152).mask8);
     }
     expect(disc.reads, [151, 152]);
     finish();
@@ -174,7 +175,7 @@ void main() {
     expect(pce.cpu.holdIrq2, isTrue);
     pce.bus.pic.mask = 1;
     expect(pce.cpu.holdIrq2, isFalse);
-    expect(pce.bus.pic.hold & 1, 1);
+    expect(pce.bus.pic.hold.mask1, 1);
     pce.bus.pic.mask = 0;
     expect(pce.cpu.holdIrq2, isTrue);
     finish();
@@ -228,9 +229,9 @@ void main() {
     cd.exec(21477270 ~/ 75);
     cd.exec(33 * 2048);
     for (var i = 0; i < 2048; i++) {
-      expect(cd.adpcmRam[(0xfffe + i) & 65535], (150 + i) & 255);
+      expect(cd.adpcmRam[(0xfffe + i).mask16], (150 + i).mask8);
     }
-    expect(cd.read(0x180b) & 3, 0);
+    expect(cd.read(0x180b).mask2, 0);
     finish();
   });
 
@@ -265,6 +266,6 @@ void main() {
     cd.mixAudio(output, 32087);
     expect(output[0], greaterThan(0));
     expect(cd.read(0x180c) & 9, 1);
-    expect(pce.bus.pic.hold & 1, 1);
+    expect(pce.bus.pic.hold.mask1, 1);
   });
 }
