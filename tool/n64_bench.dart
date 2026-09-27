@@ -34,10 +34,10 @@ void main() {
       memory.ramWrite(0x1000 + i * 4, ops[i], 4);
     }
     cpu.reset(0x80001000);
-    cpu.r[4] = BigInt.from(0x80002000).toSigned(32);
-    cpu.r[10] = BigInt.from(0x12345678);
-    cpu.r[13] = BigInt.parse('123456789abcdef0', radix: 16);
-    cpu.r[14] = BigInt.parse('fedcba9876543210', radix: 16).toSigned(64);
+    cpu.r[4] = 0x80002000.toSigned(32);
+    cpu.r[10] = 0x12345678;
+    cpu.r[13] = 0x123456789abcdef0;
+    cpu.r[14] = 0xfedcba9876543210;
     for (var i = 0; i < 200000; i++) {
       cpu.step();
     }

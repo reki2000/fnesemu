@@ -11,14 +11,8 @@ class N64Fpu {
   int offset(int r) => wide ? r * 8 : r * 4;
   int word(int r) => data.getUint32(offset(r), Endian.little);
   void setWord(int r, int v) => data.setUint32(offset(r), v, Endian.little);
-  BigInt long(int r) =>
-      BigInt.from(data.getUint32(offset(r), Endian.little)) |
-      (BigInt.from(data.getUint32(offset(r) + 4, Endian.little)) << 32);
-  void setLong(int r, BigInt v) {
-    data.setUint32(offset(r), v.toUnsigned(32).toInt(), Endian.little);
-    data.setUint32(
-        offset(r) + 4, (v.toUnsigned(64) >> 32).toInt(), Endian.little);
-  }
+  int long(int r) => data.getInt64(offset(r), Endian.little);
+  void setLong(int r, int v) => data.setInt64(offset(r), v, Endian.little);
 
   double value(int r, int fmt) => fmt == 16
       ? data.getFloat32(offset(r), Endian.little)
@@ -59,7 +53,7 @@ class N64Fpu {
     final a = fmt == 20
         ? word(fs).toSigned(32).toDouble()
         : fmt == 21
-            ? long(fs).toSigned(64).toDouble()
+            ? long(fs).toDouble()
             : value(fs, fmt);
     final b = fmt < 20 ? value(ft, fmt) : 0.0;
     if (fn >= 48) {
@@ -91,13 +85,13 @@ class N64Fpu {
       case 7:
         setValue(fd, fmt, -a);
       case 8:
-        setLong(fd, BigInt.from(rounded(a, 0)));
+        setLong(fd, rounded(a, 0));
       case 9:
-        setLong(fd, BigInt.from(rounded(a, 1)));
+        setLong(fd, rounded(a, 1));
       case 10:
-        setLong(fd, BigInt.from(rounded(a, 2)));
+        setLong(fd, rounded(a, 2));
       case 11:
-        setLong(fd, BigInt.from(rounded(a, 3)));
+        setLong(fd, rounded(a, 3));
       case 12:
         setWord(fd, rounded(a, 0));
       case 13:
@@ -113,7 +107,7 @@ class N64Fpu {
       case 36:
         setWord(fd, rounded(a, control.mask2));
       case 37:
-        setLong(fd, BigInt.from(rounded(a, control & 3)));
+        setLong(fd, rounded(a, control.mask2));
       default:
         throw UnsupportedError('COP1 function $fn');
     }

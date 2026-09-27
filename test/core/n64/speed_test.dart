@@ -7,38 +7,33 @@ import 'package:fnesemu/core/n64/graphics.dart';
 import 'package:fnesemu/core/n64/registers.dart';
 
 void main() {
-  test('word cache remains synchronized with external 64-bit register writes',
-      () {
+  test('register file stores 64-bit values and sign-extends word writes', () {
     final r = N64Registers();
-    for (final text in [
-      '0',
-      '7fffffff',
-      '80000000',
-      'ffffffff80000000',
-      '123456789abcdef0',
-      'ffffffffffffffff',
-      '8000000000000000'
+    for (final value in [
+      0,
+      0x7fffffff,
+      0x80000000,
+      -0x80000000,
+      0x123456789abcdef0,
+      -1,
+      1 << 63,
     ]) {
-      final value = BigInt.parse(text, radix: 16).toSigned(64);
       r[8] = value;
       expect(r[8], value);
-      expect(r.word(8), value.toSigned(32).toInt());
-      expect(r.isWord(8), value == value.toSigned(32));
+      expect(r.word(8), value.toSigned(32));
       r.setWord(8, 0x80000001);
-      expect(r[8], BigInt.from(-2147483647));
-      expect(r.isWord(8), isTrue);
+      expect(r[8], -2147483647);
       r.setWord(8, 7);
-      expect(r[8], BigInt.from(7));
+      expect(r[8], 7);
     }
-    r[0] = BigInt.from(99);
+    r[0] = 99;
     r.setWord(0, 42);
-    expect(r[0], BigInt.zero);
-    r.fillRange(0, 32, BigInt.zero);
-    expect(r.every((v) => v == BigInt.zero), isTrue);
+    expect(r[0], 0);
+    r.fillRange(0, 32, 0);
+    expect(r.every((v) => v == 0), isTrue);
   });
 
-  test('word fast paths preserve mixed-width comparisons and logical high bits',
-      () {
+  test('mixed-width comparisons and logical ops keep high bits', () {
     final cpu = Vr4300(N64Bus());
     final memory = cpu.bus;
     final ops = [
@@ -55,25 +50,27 @@ void main() {
       memory.ramWrite(0x1000 + i * 4, ops[i], 4);
     }
     cpu.reset(0x80001000);
-    cpu.r[8] = BigInt.from(0x80000000);
+    cpu.r[8] = 0x80000000;
     cpu.putWord(9, -1);
     for (var i = 0; i < ops.length; i++) {
       cpu.step();
     }
     expect(cpu.stopReason, isNull);
-    expect(cpu.r[10], BigInt.one);
-    expect(cpu.r[11], BigInt.zero);
-    expect(cpu.r[12], BigInt.from(0x80000001));
-    expect(cpu.r[13], BigInt.from(0x8000ffff));
-    expect(cpu.r[14], BigInt.zero);
-    expect(cpu.r[15], BigInt.from(255));
-    expect(cpu.r[2], BigInt.zero);
-    expect(cpu.r[3], BigInt.zero);
+    expect(cpu.r[10], 1);
+    expect(cpu.r[11], 0);
+    expect(cpu.r[12], 0x80000001);
+    expect(cpu.r[13], 0x8000ffff);
+    expect(cpu.r[14], 0);
+    expect(cpu.r[15], 255);
+    expect(cpu.r[2], 0);
+    expect(cpu.r[3], 0);
   });
 
-  test(
-      'fast integer paths agree with 64-bit reference arithmetic across widths',
-      () {
+  int random64(math.Random random) =>
+      random.nextInt(1 << 32) << 32 | random.nextInt(1 << 32);
+  BigInt unsigned(int v) => BigInt.from(v).toUnsigned(64);
+
+  test('integer ops agree with BigInt reference arithmetic across widths', () {
     final random = math.Random(4300);
     final cpu = Vr4300(N64Bus());
     final ops = [
@@ -89,28 +86,29 @@ void main() {
     for (var i = 0; i < ops.length; i++) {
       cpu.bus.ramWrite(0x1000 + i * 4, ops[i], 4);
     }
-    BigInt value() => ((BigInt.from(random.nextInt(0x100000000)) << 32) |
-            BigInt.from(random.nextInt(0x100000000)))
-        .toSigned(64);
     for (var iteration = 0; iteration < 80; iteration++) {
       cpu.reset(0x80001000);
-      final x = iteration % 2 == 0 ? value().toSigned(32) : value(),
-          y = iteration % 3 == 0 ? value().toSigned(32) : value();
+      final x = iteration % 2 == 0
+              ? random64(random).toSigned(32)
+              : random64(random),
+          y = iteration % 3 == 0
+              ? random64(random).toSigned(32)
+              : random64(random);
       cpu.r[8] = x;
       cpu.r[9] = y;
       for (var i = 0; i < ops.length; i++) {
         cpu.step();
       }
-      final mask = BigInt.from(0x9234), negative = BigInt.from(-27);
+      const mask = 0x9234, negative = -27;
       final expected = [
         (x.toSigned(32) + y.toSigned(32)).toSigned(32),
-        (x | mask).toSigned(64),
-        (x ^ mask).toSigned(64),
+        x | mask,
+        x ^ mask,
         x & mask,
-        x < y ? BigInt.one : BigInt.zero,
-        x.toUnsigned(64) < y.toUnsigned(64) ? BigInt.one : BigInt.zero,
-        x.toUnsigned(64) < negative.toUnsigned(64) ? BigInt.one : BigInt.zero,
-        x < negative ? BigInt.one : BigInt.zero
+        x < y ? 1 : 0,
+        unsigned(x) < unsigned(y) ? 1 : 0,
+        unsigned(x) < unsigned(negative) ? 1 : 0,
+        x < negative ? 1 : 0
       ];
       final registers = [10, 11, 12, 13, 14, 15, 2, 3];
       for (var i = 0; i < registers.length; i++) {
@@ -118,10 +116,53 @@ void main() {
             reason: 'iteration $iteration op $i');
       }
     }
-    cpu.r[8] = (BigInt.one << 64) + BigInt.from(5);
-    expect(cpu.r[8], BigInt.from(5));
-    expect(cpu.r.word(8), 5);
-    expect(cpu.r.isWord(8), isTrue);
+  });
+
+  test('64-bit multiply and divide agree with BigInt reference arithmetic', () {
+    final random = math.Random(64);
+    final cpu = Vr4300(N64Bus());
+    final ops = [
+      0x0109001c, // dmult t0,t1
+      0x00005010, // mfhi t2
+      0x00005812, // mflo t3
+      0x0109001d, // dmultu t0,t1
+      0x00006010, // mfhi t4
+      0x00006812, // mflo t5
+      0x0109001e, // ddiv t0,t1
+      0x00007010, // mfhi t6
+      0x00007812, // mflo t7
+      0x0109001f, // ddivu t0,t1
+      0x00008010, // mfhi s0
+      0x00008812, // mflo s1
+    ];
+    for (var i = 0; i < ops.length; i++) {
+      cpu.bus.ramWrite(0x1000 + i * 4, ops[i], 4);
+    }
+    final edges = [0, 1, -1, 2, 1 << 63, (1 << 63) - 1, 0xffffffff, 1 << 32];
+    for (var iteration = 0; iteration < 200; iteration++) {
+      final x = iteration < 64 ? edges[iteration % 8] : random64(random);
+      var y = iteration < 64 ? edges[iteration ~/ 8] : random64(random);
+      if (iteration % 5 == 0 && iteration >= 64) y = y.toSigned(32);
+      if (y == 0) y = 3;
+      cpu.reset(0x80001000);
+      cpu.r[8] = x;
+      cpu.r[9] = y;
+      for (var i = 0; i < ops.length; i++) {
+        cpu.step();
+      }
+      final bx = BigInt.from(x), by = BigInt.from(y);
+      final ux = unsigned(x), uy = unsigned(y);
+      int s64(BigInt v) => v.toSigned(64).toInt();
+      final reason = 'x=$x y=$y';
+      expect(cpu.r[10], s64((bx * by) >> 64), reason: reason);
+      expect(cpu.r[11], s64(bx * by), reason: reason);
+      expect(cpu.r[12], s64((ux * uy) >> 64), reason: reason);
+      expect(cpu.r[13], s64(ux * uy), reason: reason);
+      expect(cpu.r[14], s64(bx.remainder(by)), reason: reason);
+      expect(cpu.r[15], s64(bx ~/ by), reason: reason);
+      expect(cpu.r[16], s64(ux.remainder(uy)), reason: reason);
+      expect(cpu.r[17], s64(ux ~/ uy), reason: reason);
+    }
   });
 
   test('LWU retains a positive 64-bit value; LW sign-extends the same bits',
@@ -137,10 +178,8 @@ void main() {
     for (var i = 0; i < 4; i++) {
       cpu.step();
     }
-    expect(cpu.r[8], BigInt.from(0x80000001));
-    expect(cpu.r[9], BigInt.from(-2147483647));
-    expect(cpu.r.isWord(8), isFalse);
-    expect(cpu.r.isWord(9), isTrue);
+    expect(cpu.r[8], 0x80000001);
+    expect(cpu.r[9], -2147483647);
     expect(cpu.pc, 0x80001010);
   });
 

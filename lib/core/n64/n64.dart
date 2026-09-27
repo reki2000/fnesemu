@@ -81,8 +81,8 @@ class N64 extends Core {
     bus.ramWrite(0x308, 0xb0000000, 4); // osRomBase
     bus.ramWrite(0x30c, 0, 4); // osResetType
     bus.ramWrite(0x310, 0x3f, 4); // CIC seed
-    cpu.r[20] = BigInt.one;
-    cpu.r[22] = BigInt.from(0x3f);
+    cpu.r[20] = 1;
+    cpu.r[22] = 0x3f;
 
     _nextLine = clocksInScanline;
     _frame = 0;
@@ -184,7 +184,7 @@ class N64 extends Core {
   }) =>
       'N64 ${_rom?.title ?? ''} (Dart / task HLE)\n'
       'PC:${cpu.pc.hex} cycles:${cpu.clocks}\n'
-      '${List.generate(32, (i) => 'r$i:${cpu.r[i].toUnsigned(64).toRadixString(16).padLeft(16, '0')}').join(' ')}\n'
+      '${List.generate(32, (i) => 'r$i:${(cpu.r[i] >>> 32).x8}${cpu.r[i].x8}').join(' ')}\n'
       'RSP graphics:${graphics.tasks} triangles:${graphics.triangles} audio:${audio.tasks}\n'
       '${cpu.stopReason ?? ''}';
   @override
