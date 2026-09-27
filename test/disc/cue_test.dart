@@ -148,6 +148,25 @@ FILE "disc.bin" BINARY
   });
 
   // ---------------------------------------------------------------------------
+  test('MODE1 track after stored audio pregap reads INDEX 01 payload', () {
+    final image = Uint8List(8 * Disc.sectorSize);
+    for (var i = 0; i < 8; i++) {
+      image.fillRange(i * Disc.sectorSize, (i + 1) * Disc.sectorSize, i);
+    }
+    final disc = makeDisc('''
+FILE "disc.bin" BINARY
+  TRACK 01 AUDIO
+    INDEX 01 00:00:00
+  TRACK 02 MODE1/2352
+    INDEX 00 00:00:02
+    INDEX 01 00:00:04
+''', {'disc.bin': image});
+    expect(disc.startLba(2), 4);
+    expect(disc.read(154)[0], 4);
+    expect(disc.read(157)[0], 7);
+    expect(disc.read(158), isEmpty);
+  });
+
   // PREGAP (implicit silence, not stored in file)
   // ---------------------------------------------------------------------------
   group('PREGAP', () {
