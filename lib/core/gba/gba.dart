@@ -30,6 +30,7 @@ class Gba implements Core {
   // GBA system clock 16.78MHz
   static const _clockHz = 16 * 1024 * 1024; // 16777216
   static const _cyclesPerScanline = 1232;
+  static const _hblankStart = 960; // cycles into the line where HBlank begins
   static const _scanlines = 228; // 160 visible + 68 vblank
 
   /// GBA BIOS image, kept across core re-creations. When set, reset() boots
@@ -58,7 +59,8 @@ class Gba implements Core {
   List<CpuInfo> get cpuInfos => [const CpuInfo(0, "ARM7TDMI", 32, traceDiffs: 17)];
 
   int _clocks = 0;
-  int _nextScanClock = 0;
+  int _nextEventClock = 0; // next HBlank start or line end
+  bool _inHblank = false;
   int _scanline = 0;
 
   static const _visibleLines = 160;
@@ -69,9 +71,9 @@ class Gba implements Core {
 
     final int consumed;
     if (bus.halted && !bus.irq.anyPending) {
-      // CPU is halted: fast-forward to the next scanline so the timing IRQs
-      // (VBlank/HBlank/VCount/Timer) have a chance to fire and wake it.
-      consumed = (_nextScanClock - _clocks).clamp(1, _cyclesPerScanline);
+      // CPU is halted: fast-forward to the next display event so the timing
+      // IRQs (VBlank/HBlank/VCount/Timer) have a chance to fire and wake it.
+      consumed = (_nextEventClock - _clocks).clamp(1, _cyclesPerScanline);
     } else {
       bus.halted = false;
       consumed = cpu.step();
@@ -80,10 +82,17 @@ class Gba implements Core {
     _clocks += consumed;
     bus.timers.tick(consumed);
 
-    while (_clocks >= _nextScanClock) {
-      _nextScanClock += _cyclesPerScanline;
-      _endScanline();
-      result.scanlineRendered = true;
+    while (_clocks >= _nextEventClock) {
+      if (!_inHblank) {
+        _inHblank = true;
+        _nextEventClock += _cyclesPerScanline - _hblankStart;
+        _startHblank();
+      } else {
+        _inHblank = false;
+        _nextEventClock += _hblankStart;
+        _endScanline();
+        result.scanlineRendered = true;
+      }
     }
 
     if (bus.irq.pending) cpu.irq();
@@ -92,20 +101,21 @@ class Gba implements Core {
     return result;
   }
 
-  // advance the display by one scanline, updating DISPSTAT flags and firing the
-  // HBlank/VBlank/VCount interrupts and DMA triggers.
-  void _endScanline() {
+  // HBlank of the current line: DISPSTAT flag, interrupt, render and DMA.
+  // The flag stays set until the line ends so that it can be polled.
+  void _startHblank() {
     final line = _scanline;
-
-    // HBlank for the line that just finished.
     bus.hblank = true;
     if (bus.hblankIrqEnabled) bus.irq.raise(IrqBit.hblank);
     if (line < _visibleLines) {
       _renderScanline(line);
       bus.dma.onHBlank();
     }
+  }
 
-    // advance to the next line.
+  // advance the display to the next scanline, updating DISPSTAT flags and
+  // firing the VBlank/VCount interrupts and DMA triggers.
+  void _endScanline() {
     _scanline++;
     if (_scanline >= _scanlines) _scanline = 0;
     bus.vcount = _scanline;
@@ -175,7 +185,8 @@ class Gba implements Core {
       cpu.resetHle();
     }
     _clocks = 0;
-    _nextScanClock = _cyclesPerScanline;
+    _nextEventClock = _hblankStart;
+    _inHblank = false;
     _scanline = 0;
   }
 
