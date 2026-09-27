@@ -165,8 +165,8 @@ class Ppu {
         break;
 
       case 0x2007: // vram access
-        writeVram(vramAddr, val);
-        vramAddr += vramIncrement() ? 32 : 1;
+        writeVram(vramAddr & 0x3fff, val);
+        vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)) & 0x7fff;
         break;
 
       default:
@@ -183,14 +183,21 @@ class Ppu {
         isVBlank = false; // isVBlanks is a setter, changing status
         return status2;
 
+      case 0x2004:
+        return objRam[objAddr];
+
       case 0x2007:
-        var data = readVram(vramAddr);
-        if (vramAddr < 0x3f00) {
+        final addr = vramAddr & 0x3fff;
+        var data = readVram(addr);
+        if (addr < 0x3f00) {
           final swap = vramBuffer;
           vramBuffer = data;
           data = swap;
+        } else {
+          // palette is returned directly, the buffer gets the nametable below
+          vramBuffer = readVram(addr - 0x1000);
         }
-        vramAddr += vramIncrement() ? 32 : 1;
+        vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)) & 0x7fff;
         return data;
 
       default:
@@ -204,8 +211,9 @@ class Ppu {
       return bus.readVram(addr);
     }
 
-    if (addr == 0x3f10 || addr == 0x3f14 || addr == 0x3f18 || addr == 0x3f1c) {
-      addr &= 0x3f0f;
+    // 0x3f10/14/18/1c (and their mirrors) are mirrors of 0x3f00/04/08/0c
+    if (addr & 0x13 == 0x10) {
+      addr &= ~0x10;
     }
     return palette[addr & 0x1f];
   }
@@ -216,8 +224,8 @@ class Ppu {
       return;
     }
 
-    if (addr == 0x3f10 || addr == 0x3f14 || addr == 0x3f18 || addr == 0x3f1c) {
-      addr &= 0x3f0f;
+    if (addr & 0x13 == 0x10) {
+      addr &= ~0x10;
     }
     palette[addr & 0x1f] = val;
   }

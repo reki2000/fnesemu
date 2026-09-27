@@ -30,8 +30,16 @@ class MapperNamco163 extends Mapper {
   @override
   int get prgRomSizeK => 8;
 
+  // irq registers are at 0x5000-0x5fff
+  @override
+  bool get hasExpansionArea => true;
+
   @override
   void init() {
+    _irqCounter = 0;
+    _irqEnabled = false;
+    _prevCycle = 0;
+
     _prgBank[3] = prgRoms.length - 1;
     _prgBankMask = prgRoms.length - 1;
 
@@ -126,7 +134,7 @@ class MapperNamco163 extends Mapper {
 
       // prg ram write protect
       case 0xf800:
-        if (data & 0x40 == 0x40) {
+        if (data & 0xf0 == 0x40) {
           _ramProtect[0] = data.bit0;
           _ramProtect[1] = data.bit1;
           _ramProtect[2] = data.bit2;
@@ -148,7 +156,7 @@ class MapperNamco163 extends Mapper {
       case 0x5000:
         return _irqCounter & 0xff;
       case 0x5800:
-        return _irqCounter.shr8;
+        return _irqCounter.shr8 | (_irqEnabled ? 0x80 : 0);
 
       // ram
       case 0x6000:
@@ -195,28 +203,22 @@ class MapperNamco163 extends Mapper {
   // IRQ
   int _irqCounter = 0;
 
-  static const _clocksPerTickIrqCounter = 15;
-  int _clockDiff = 0;
   int _prevCycle = 0;
   bool _irqEnabled = false;
 
+  // the counter counts up every cpu cycle and stops at 0x7fff
   @override
   void handleClock(int cycles) {
-    _clockDiff += (cycles - _prevCycle);
+    final elapsed = cycles - _prevCycle;
     _prevCycle = cycles;
 
-    while (_clockDiff >= _clocksPerTickIrqCounter) {
-      _clockDiff -= _clocksPerTickIrqCounter;
+    if (elapsed <= 0 || _irqCounter == 0x7fff) {
+      return;
+    }
 
-      if (_irqCounter != 0x7fff) {
-        _irqCounter += 1;
-
-        if (_irqCounter == 0x7fff) {
-          if (_irqEnabled) {
-            holdIrq(true);
-          }
-        }
-      }
+    _irqCounter = (_irqCounter + elapsed).clamp(0, 0x7fff);
+    if (_irqCounter == 0x7fff && _irqEnabled) {
+      holdIrq(true);
     }
   }
 

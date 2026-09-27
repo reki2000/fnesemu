@@ -26,6 +26,15 @@ class Flags {
   static const N = 0x80;
 }
 
+/// IRQ sources sharing the CPU's IRQ line. The line is asserted while any
+/// source holds it.
+class IrqSource {
+  static const mapper = 0x01;
+  static const frameCounter = 0x02;
+  static const dmc = 0x04;
+  static const all = 0xff;
+}
+
 class Cpu {
   final regs = Regs();
 
@@ -45,13 +54,16 @@ class Cpu {
   bool exec() {
     if (_assertIrq) {
       _assertIrq = false;
-      _holdIrq = false;
-      interrupt();
-      return true;
+      // the line may have been acknowledged during the last instruction
+      if (_irqLines != 0) {
+        interrupt();
+        cycle += 7;
+        return true;
+      }
     }
 
     // exec irq on the next execution
-    if (_holdIrq && (regs.p & Flags.I) == 0) {
+    if (_irqLines != 0 && (regs.p & Flags.I) == 0) {
       _assertIrq = true;
     }
 
@@ -59,6 +71,7 @@ class Cpu {
       _assertNmi = false;
       _holdNmi = false;
       interrupt(nmi: true);
+      cycle += 7;
       return true;
     }
 
@@ -276,7 +289,7 @@ class Cpu {
         final addr = address(op, st: true);
         final acm = read(addr).shl1;
         flags(acm);
-        write(addr, acm);
+        write(addr, acm & 0xff);
         cycle += 4;
         break;
 
@@ -322,7 +335,7 @@ class Cpu {
         final msb = acm.shr8 & 0x01;
         flags(acm);
         regs.p |= msb;
-        write(addr, acm);
+        write(addr, acm & 0xff);
         cycle += 4;
         break;
 
@@ -398,7 +411,7 @@ class Cpu {
       case 0xee:
       case 0xfe:
         final addr = address(op, st: true);
-        final acm = read(addr) + 1;
+        final acm = (read(addr) + 1) & 0xff;
         flagsNZ(acm);
         write(addr, acm);
         cycle += 4;
@@ -426,7 +439,7 @@ class Cpu {
       case 0xce:
       case 0xde:
         final addr = address(op, st: true);
-        final acm = read(addr) - 1;
+        final acm = (read(addr) - 1) & 0xff;
         flagsNZ(acm);
         write(addr, acm);
         cycle += 4;
@@ -456,7 +469,7 @@ class Cpu {
 
       // PHP
       case 0x08:
-        push(regs.p | Flags.B);
+        push(regs.p | Flags.B | Flags.R);
         cycle += 3;
         break;
 
@@ -469,7 +482,7 @@ class Cpu {
 
       // PLP
       case 0x28:
-        regs.p = (pop() & ~Flags.B) | (regs.p & Flags.B) | Flags.R;
+        regs.p = (pop() & ~Flags.B) | Flags.R;
         cycle += 4;
         break;
 
@@ -505,7 +518,7 @@ class Cpu {
 
       // RTI
       case 0x40:
-        regs.p = pop() | Flags.R;
+        regs.p = (pop() & ~Flags.B) | Flags.R;
         final addr = pop() | pop().shl8;
         regs.pc = addr;
         cycle += 6;
@@ -878,23 +891,24 @@ class Cpu {
     _holdNmi = true;
   }
 
-  bool _holdIrq = false;
+  int _irqLines = 0;
   bool _assertIrq = false;
 
-  void holdIrq() {
-    _holdIrq = true;
+  void holdIrq([int source = IrqSource.mapper]) {
+    _irqLines |= source;
   }
 
-  void releaseIrq() {
-    _holdIrq = false;
+  void releaseIrq([int source = IrqSource.mapper]) {
+    _irqLines &= ~source;
   }
 
   void interrupt({bool brk = false, bool nmi = false}) {
     final pushAddr = brk ? regs.pc + 1 : regs.pc;
     push(pushAddr.shr8);
     push(pushAddr & 0xff);
-    push(regs.p);
-    regs.p = (regs.p & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
+    // B flag exists only on the pushed value: set by BRK, clear by IRQ/NMI
+    push((regs.p & ~Flags.B) | Flags.R | (brk ? Flags.B : 0));
+    regs.p = (regs.p & ~Flags.B) | Flags.I;
 
     final addr = nmi ? 0xfffa : 0xfffe;
     regs.pc = read(addr) | read(addr + 1).shl8;
@@ -908,7 +922,10 @@ class Cpu {
     regs.y = 0;
 
     regs.s = 0xfd;
-    regs.p = 0x00 | Flags.B | Flags.R;
+    regs.p = Flags.I | Flags.R;
+    _assertIrq = false;
+    _assertNmi = false;
+    _holdNmi = false;
 
     const addr = 0xfffc;
     regs.pc = read(addr) | read(addr + 1).shl8;
