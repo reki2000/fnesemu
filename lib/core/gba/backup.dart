@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 import '../sram.dart';
 
 /// Cartridge backup memory kind, auto-detected from identifier strings the
@@ -78,10 +80,10 @@ class Backup {
   int read8(int offset) {
     switch (type) {
       case BackupType.sram:
-        return storage.read8(offset & 0x7fff);
+        return storage.read8(offset.mask15);
       case BackupType.flash512:
       case BackupType.flash1m:
-        return _flash!.read8(offset & 0xffff);
+        return _flash!.read8(offset.mask16);
       default:
         return 0xff;
     }
@@ -90,11 +92,11 @@ class Backup {
   void write8(int offset, int data) {
     switch (type) {
       case BackupType.sram:
-        storage.write8(offset & 0x7fff, data & 0xff);
+        storage.write8(offset.mask15, data.mask8);
         return;
       case BackupType.flash512:
       case BackupType.flash1m:
-        _flash!.write8(offset & 0xffff, data & 0xff);
+        _flash!.write8(offset.mask16, data.mask8);
         return;
       default:
         return;
@@ -127,12 +129,12 @@ class _Flash {
   int get _manufacturer => banks == 2 ? 0x62 : 0x32; // Sanyo 128K / Panasonic 64K
   int get _device => banks == 2 ? 0x13 : 0x1b;
 
-  int _index(int addr) => _bank * 0x10000 + (addr & 0xffff);
+  int _index(int addr) => _bank * 0x10000 + addr.mask16;
 
   int read8(int addr) {
     if (_idMode) {
-      if ((addr & 0xffff) == 0) return _manufacturer;
-      if ((addr & 0xffff) == 1) return _device;
+      if (addr.mask16 == 0) return _manufacturer;
+      if (addr.mask16 == 1) return _device;
     }
     return storage.read8(_index(addr));
   }
@@ -146,7 +148,7 @@ class _Flash {
       return;
     }
     if (_bankArmed) {
-      _bank = (banks == 2) ? (data & 1) : 0;
+      _bank = (banks == 2) ? data.mask1 : 0;
       _bankArmed = false;
       return;
     }
@@ -232,17 +234,17 @@ class _Eeprom {
 
   void writeBit(int bit) {
     if (_expected == 0) return;
-    _rx.add(bit & 1);
+    _rx.add(bit.mask1);
     if (_rx.length < _expected) return;
     _process();
     _expected = 0;
   }
 
   void _process() {
-    final cmd = (_rx[0] << 1) | _rx[1];
+    final cmd = _rx[0].shl1 | _rx[1];
     int addr = 0;
     for (int i = 0; i < _addrBits; i++) {
-      addr = (addr << 1) | _rx[2 + i];
+      addr = addr.shl1 | _rx[2 + i];
     }
     addr &= _entries - 1;
 
@@ -256,7 +258,7 @@ class _Eeprom {
       for (int byte = 0; byte < 8; byte++) {
         int v = 0;
         for (int b = 0; b < 8; b++) {
-          v = (v << 1) | _rx[2 + _addrBits + byte * 8 + b];
+          v = v.shl1 | _rx[2 + _addrBits + byte * 8 + b];
         }
         storage.write8(addr * 8 + byte, v);
       }
@@ -270,8 +272,8 @@ class _Eeprom {
       bit = 0; // 4 leading dummy bits
     } else {
       final idx = _readCount - 4;
-      final v = storage.read8(_readAddr * 8 + (idx >> 3));
-      bit = (v >> (7 - (idx & 7))) & 1;
+      final v = storage.read8(_readAddr * 8 + idx.shr3);
+      bit = v.shr(7 - idx.mask3).mask1;
     }
     _readCount++;
     if (_readCount >= 68) _reading = false;

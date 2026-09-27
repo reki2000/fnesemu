@@ -80,22 +80,22 @@ class Bus {
 
   int read8(int addr) {
     addr &= 0x0fffffff;
-    final region = addr >> 24;
+    final region = addr.shr24;
     switch (region) {
       case 0x0:
         return addr < 0x4000 ? bios[addr] : 0;
       case 0x2:
         return ewram[addr & 0x3ffff];
       case 0x3:
-        return iwram[addr & 0x7fff];
+        return iwram[addr.mask15];
       case 0x4:
-        return _readIo8(addr & 0x3ff);
+        return _readIo8(addr.mask10);
       case 0x5:
-        return paletteRam[addr & 0x3ff];
+        return paletteRam[addr.mask10];
       case 0x6:
         return vram[_vramOffset(addr)];
       case 0x7:
-        return oam[addr & 0x3ff];
+        return oam[addr.mask10];
       case 0xd:
         if (cart.hasEeprom) return cart.backup.eepromRead();
         return cart.readRom8(addr & 0x01ffffff);
@@ -107,7 +107,7 @@ class Bus {
         return cart.readRom8(addr & 0x01ffffff);
       case 0xe:
       case 0xf:
-        return cart.readSram(addr & 0xffff);
+        return cart.readSram(addr.mask16);
       default:
         return 0;
     }
@@ -116,16 +116,16 @@ class Bus {
   void write8(int addr, int data) {
     addr &= 0x0fffffff;
     data &= 0xff;
-    final region = addr >> 24;
+    final region = addr.shr24;
     switch (region) {
       case 0x2:
         ewram[addr & 0x3ffff] = data;
         return;
       case 0x3:
-        iwram[addr & 0x7fff] = data;
+        iwram[addr.mask15] = data;
         return;
       case 0x4:
-        _writeIo8(addr & 0x3ff, data);
+        _writeIo8(addr.mask10, data);
         return;
       case 0x5:
         // 8-bit writes to palette are mirrored to 16-bit on real HW
@@ -142,11 +142,11 @@ class Bus {
         // 8-bit writes to OAM are ignored on real HW
         return;
       case 0xd:
-        if (cart.hasEeprom) cart.backup.eepromWrite(data & 1);
+        if (cart.hasEeprom) cart.backup.eepromWrite(data.mask1);
         return;
       case 0xe:
       case 0xf:
-        cart.writeSram(addr & 0xffff, data);
+        cart.writeSram(addr.mask16, data);
         return;
       default:
         return;
@@ -156,22 +156,22 @@ class Bus {
   // --- 16/32-bit access (little-endian) -------------------------------------
 
   int read16(int addr) {
-    final region = (addr >> 24) & 0xf;
+    final region = addr.shr24.mask4;
     if (region == 0x4) return _readIo16(addr & 0x3fe);
     // EEPROM is bit-serial: a 16-bit read consumes exactly one bit.
     if (region == 0xd && cart.hasEeprom) return cart.backup.eepromRead();
-    return read8(addr) | (read8(addr + 1) << 8);
+    return read8(addr) | read8(addr + 1).shl8;
   }
 
   int read32(int addr) {
-    if ((addr >> 24) & 0xf == 0x4) {
+    if (addr.shr24.mask4 == 0x4) {
       final r = addr & 0x3fc;
-      return _readIo16(r) | (_readIo16(r + 2) << 16);
+      return _readIo16(r) | _readIo16(r + 2).shl16;
     }
     return read8(addr) |
-        (read8(addr + 1) << 8) |
-        (read8(addr + 2) << 16) |
-        (read8(addr + 3) << 24);
+        read8(addr + 1).shl8 |
+        read8(addr + 2).shl16 |
+        read8(addr + 3).shl24;
   }
 
   // 16/32-bit writes go straight to the backing arrays. They must NOT be
@@ -180,7 +180,7 @@ class Bus {
   void write16(int addr, int data) {
     addr &= 0x0fffffff;
     data &= 0xffff;
-    switch (addr >> 24) {
+    switch (addr.shr24) {
       case 0x2:
         _w16(ewram, addr & 0x3fffe, data);
         return;
@@ -200,11 +200,11 @@ class Bus {
         _w16(oam, addr & 0x3fe, data);
         return;
       case 0xd:
-        if (cart.hasEeprom) cart.backup.eepromWrite(data & 1);
+        if (cart.hasEeprom) cart.backup.eepromWrite(data.mask1);
         return;
       case 0xe:
       case 0xf:
-        cart.writeSram(addr & 0xffff, data & 0xff);
+        cart.writeSram(addr.mask16, data.mask8);
         return;
       default:
         return; // BIOS / ROM are not writable
@@ -212,19 +212,19 @@ class Bus {
   }
 
   void write32(int addr, int data) {
-    if ((addr >> 24) & 0xf == 0x4) {
+    if (addr.shr24.mask4 == 0x4) {
       final r = (addr & 0x3fc);
-      _writeIo16(r, data & 0xffff);
-      _writeIo16(r + 2, (data >> 16) & 0xffff);
+      _writeIo16(r, data.mask16);
+      _writeIo16(r + 2, data.shr16.mask16);
       return;
     }
-    write16(addr & ~3, data & 0xffff);
-    write16((addr & ~3) + 2, (data >> 16) & 0xffff);
+    write16(addr & ~3, data.mask16);
+    write16((addr & ~3) + 2, data.shr16.mask16);
   }
 
   void _w16(Uint8List m, int a, int data) {
-    m[a] = data & 0xff;
-    m[a + 1] = (data >> 8) & 0xff;
+    m[a] = data.mask8;
+    m[a + 1] = data.shr8.mask8;
   }
 
   // VRAM is 96KB but mirrored in a 128KB window as 64KB + 32KB + 32KB(mirror).
@@ -245,20 +245,20 @@ class Bus {
   static const _haltcnt = 0x300; // POSTFLG(0x300) / HALTCNT(0x301)
 
   // DISPSTAT enable bits / VCount setting, read from the backing store.
-  int get _dispstatRaw => io[_dispstat] | (io[_dispstat + 1] << 8);
+  int get _dispstatRaw => io[_dispstat] | io[_dispstat + 1].shl8;
   bool get vblankIrqEnabled => _dispstatRaw.bit3;
   bool get hblankIrqEnabled => _dispstatRaw.bit4;
   bool get vcountIrqEnabled => _dispstatRaw.bit5;
-  int get vcountSetting => _dispstatRaw >> 8;
+  int get vcountSetting => _dispstatRaw.shr8;
 
   void _storeIo(int reg, int data) {
-    io[reg] = data & 0xff;
-    io[reg + 1] = (data >> 8) & 0xff;
+    io[reg] = data.mask8;
+    io[reg + 1] = data.shr8.mask8;
   }
 
   int _readIo8(int reg) {
     final v = _readIo16(reg & ~1);
-    return (reg & 1) == 0 ? v & 0xff : (v >> 8) & 0xff;
+    return !reg.bit0 ? v.mask8 : v.shr8.mask8;
   }
 
   void _writeIo8(int reg, int data) {
@@ -266,24 +266,24 @@ class Bus {
     // the BIOS writes POSTFLG=1 during boot with all interrupts disabled, and
     // that write must NOT enter HALT (only a HALTCNT write does).
     if (reg == _haltcnt) {
-      io[reg] = data & 0xff;
+      io[reg] = data.mask8;
       return;
     }
     if (reg == _haltcnt + 1) {
-      io[reg] = data & 0xff;
+      io[reg] = data.mask8;
       halted = true;
       return;
     }
     final r = reg & ~1;
     if (r == _if) {
       // write-1-to-clear: only the written byte may acknowledge
-      irq.ack(data << ((reg & 1) * 8));
+      irq.ack(data.shl(reg.mask1 * 8));
       return;
     }
     // write-only registers do not read back what was written, so merge the
     // untouched byte from the last written value instead.
-    final cur = _isWriteOnly(r) ? io[r] | (io[r + 1] << 8) : _readIo16(r);
-    _writeIo16(r, (reg & 1) == 0 ? cur.setL8(data) : cur.setH8(data));
+    final cur = _isWriteOnly(r) ? io[r] | io[r + 1].shl8 : _readIo16(r);
+    _writeIo16(r, !reg.bit0 ? cur.setL8(data) : cur.setH8(data));
   }
 
   static bool _isApuReg(int reg) =>
@@ -296,7 +296,7 @@ class Bus {
   // DMA SAD/DAD/CNT_L, timer reload and PSG frequency are write-only.
   static bool _isWriteOnly(int reg) =>
       (reg >= 0x0b0 && reg <= 0x0df && (reg - 0xb0) % 12 != 10) ||
-      (reg >= 0x100 && reg <= 0x10f && (reg & 2) == 0) ||
+      (reg >= 0x100 && reg <= 0x10f && !reg.bit1) ||
       _isApuFreqReg(reg);
 
   int _readIo16(int reg) {
@@ -307,7 +307,7 @@ class Bus {
       case _dispstat:
         return _readDispstat();
       case _vcount:
-        return vcount & 0xff;
+        return vcount.mask8;
       case _keyInput:
         return pad.keyInput;
       case _ie:
@@ -317,7 +317,7 @@ class Bus {
       case _ime:
         return irq.ime;
       default:
-        return io[reg] | (io[reg + 1] << 8);
+        return io[reg] | io[reg + 1].shl8;
     }
   }
 
@@ -326,7 +326,7 @@ class Bus {
     if (_isWriteOnly(reg)) {
       // remember the value for byte-write merging; the PSG trigger bit (15)
       // must not be replayed by a later write to the low byte.
-      _storeIo(reg, _isApuFreqReg(reg) ? data & 0x7fff : data);
+      _storeIo(reg, _isApuFreqReg(reg) ? data.mask15 : data);
     }
     if (_isApuReg(reg)) {
       apu.write16(reg, data);
@@ -354,7 +354,7 @@ class Bus {
         irq.ack(data); // write 1 to acknowledge/clear
         return;
       case _ime:
-        irq.ime = data & 1;
+        irq.ime = data.mask1;
         return;
       case _haltcnt:
         // high byte (0x301) is HALTCNT: any write enters HALT/STOP low-power.
@@ -374,7 +374,7 @@ class Bus {
     int v = raw & 0xff38; // enable bits + VCount setting
     if (vblank) v |= 1;
     if (hblank) v |= 2;
-    if (vcount == (raw >> 8)) v |= 4;
+    if (vcount == raw.shr8) v |= 4;
     return v;
   }
 }

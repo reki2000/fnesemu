@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 /// GBA interrupt controller (IE/IF/IME).
 ///
 /// Hardware sources set their bit in [if_] via [raise] regardless of [ie];
@@ -15,7 +17,7 @@ class Irq {
   void ack(int bits) => if_ &= ~bits;
 
   /// an enabled interrupt is requested and the master switch is on.
-  bool get pending => (ime & 1) != 0 && (ie & if_) != 0;
+  bool get pending => ime.bit0 && ie & if_ != 0;
 
   /// any enabled interrupt is requested, ignoring IME. used to wake from HALT.
   bool get anyPending => (ie & if_) != 0;
