@@ -399,6 +399,12 @@ extension VdpRenderer on Vdp {
     return false;
   }
 
+  void startHBlank() {
+    if (!vBlank) {
+      hBlank = true;
+    }
+  }
+
   void finishLine() {
     if (y == Vdp.height - 1) {
       vBlank = true;
@@ -411,8 +417,6 @@ extension VdpRenderer on Vdp {
     }
 
     if (!vBlank) {
-      hBlank = true;
-
       if (enableHInt) {
         if (hIntCounter == 0) {
           hIntCounter = reg[10];
