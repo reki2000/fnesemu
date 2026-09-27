@@ -8,13 +8,13 @@ class Timer {
   }
 
   static const prescalerSize = 1024;
-  int prescaler = 0;
+  int prescaler = prescalerSize;
   int size = 0;
   int counter = 0;
   bool enabled = false;
 
   reset() {
-    prescaler = 0;
+    prescaler = prescalerSize;
     size = 0;
     counter = 0;
     enabled = false;
@@ -23,7 +23,7 @@ class Timer {
   exec(int elapsedClocks) {
     prescaler -= (elapsedClocks ~/ 3);
 
-    if (prescaler < 0) {
+    while (prescaler <= 0) {
       prescaler += prescalerSize;
 
       if (enabled) {
@@ -38,9 +38,10 @@ class Timer {
   }
 
   trigger(bool onoff) {
-    enabled = onoff;
-    if (onoff) {
+    if (onoff && !enabled) {
       counter = size;
+      prescaler = prescalerSize;
     }
+    enabled = onoff;
   }
 }
