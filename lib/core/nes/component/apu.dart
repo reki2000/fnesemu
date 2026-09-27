@@ -6,48 +6,47 @@ import 'dart:typed_data';
 // Project imports:
 import '../nes.dart';
 import 'bus.dart';
+import 'cpu.dart';
 
 class _EnvelopeUnit {
-  int volume = 0;
-
-  int _period = 0;
-  int _counter = 0;
+  int _n = 0; // constant volume or envelope period
+  int _decay = 0;
+  int _divider = 0;
   bool _loop = false;
   bool _disabled = false;
+  bool _start = false;
+
+  int get volume => _disabled ? _n : _decay;
 
   void prepare({required bool disabled, required bool loop, required int n}) {
     _disabled = disabled;
-    if (_disabled) {
-      volume = n;
-    } else {
-      _period = n + 1;
-      _loop = loop;
-      keyOn();
-    }
+    _loop = loop;
+    _n = n;
   }
 
+  // the envelope restarts at the next quarter frame clock
   void keyOn() {
-    if (!_disabled) {
-      volume = 15;
-      _counter = _period;
-    }
+    _start = true;
   }
 
   void count() {
-    if (_disabled) {
+    if (_start) {
+      _start = false;
+      _decay = 15;
+      _divider = _n;
       return;
     }
 
-    if (_counter > 0) {
-      _counter--;
-    } else {
-      _counter = _period;
+    if (_divider > 0) {
+      _divider--;
+      return;
+    }
 
-      if (volume == 0 && _loop) {
-        volume = 15;
-      } else if (volume > 0) {
-        volume--;
-      }
+    _divider = _n;
+    if (_decay > 0) {
+      _decay--;
+    } else if (_loop) {
+      _decay = 15;
     }
   }
 }
@@ -69,8 +68,17 @@ mixin _LengthCounter {
   }
 
   void setLength(int l) {
-    length = lengthTable[l];
-    lengthCounter = length;
+    length = lengthTable[l & 0x1f];
+    if (enabled) {
+      lengthCounter = length;
+    }
+  }
+
+  void setEnabled(bool on) {
+    enabled = on;
+    if (!on) {
+      lengthCounter = 0;
+    }
   }
 }
 
@@ -246,12 +254,12 @@ class TriangleWave with _LengthCounter {
 class NoiseWave with _LengthCounter {
   final envelope = _EnvelopeUnit();
 
-  int freq = 0;
-  int volume = 0;
   int counter = 0;
   int timer = 0;
   int reg = 1;
   bool short = false;
+
+  // periods in cpu cycles
   static const _table = [
     4, 8, 16, 32, 64, 96, 128, 160, //
     202, 254, 380, 508, 762, 1016, 2034, 4068
@@ -264,15 +272,16 @@ class NoiseWave with _LengthCounter {
       return buf;
     }
 
+    final volume = envelope.volume;
+
     for (int i = 0; i < buf.length; i++) {
-      if (counter == 0) {
-        final nextBit = reg & 0x01 ^ (short ? reg.shr1 : reg.shr5) & 0x01;
-        reg >>= 1;
-        reg |= nextBit.shl15;
-        counter = _table[timer];
+      if (counter <= 0) {
+        final feedback = (reg ^ (short ? reg.shr6 : reg.shr1)) & 0x01;
+        reg = reg.shr1 | feedback.shl14;
+        counter += _table[timer];
       }
-      buf[i] = !reg.bit0 ? 0 : (reg & 0xf) * envelope.volume ~/ 15;
-      counter--;
+      buf[i] = reg.bit0 ? 0 : volume;
+      counter -= 2; // 1 apu cycle = 2 cpu cycles
     }
 
     return buf;
@@ -281,10 +290,11 @@ class NoiseWave with _LengthCounter {
 
 class DPCMWave {
   final int Function(int) fetch;
-  final void Function() interrupt;
-  bool enabled = false;
+  final void Function(bool) holdIrq;
 
-  DPCMWave(this.fetch, this.interrupt);
+  DPCMWave(this.fetch, this.holdIrq);
+
+  bool irqFlag = false;
 
   int _initAddress = 0;
   int _initLength = 0;
@@ -309,6 +319,9 @@ class DPCMWave {
 
   set mode(int val) {
     _irqEnabled = val.bit7;
+    if (!_irqEnabled) {
+      clearIrq();
+    }
     _loop = val.bit6;
     _initTimer = _timerTable[val & 0x0f] ~/ 2;
     _timer = _initTimer;
@@ -321,34 +334,50 @@ class DPCMWave {
 
   set length(int length) {
     _initLength = length.shl4 + 1;
-    _length = _initLength;
   }
 
   int get length => _length;
 
   set deltaCounter(int counter) {
-    _deltaCounter = counter;
+    _deltaCounter = counter & 0x7f;
   }
 
-  bool _fillSampleBuffer() {
-    if (_length == 0) {
-      if (!_loop) {
-        return true; // true means no sample data
-      }
-
+  // $4015 bit4: restarts the sample if finished, or stops it
+  void setEnabled(bool on) {
+    clearIrq();
+    if (!on) {
+      _length = 0;
+    } else if (_length == 0) {
       _address = _initAddress;
       _length = _initLength;
-      if (_irqEnabled) {
-        interrupt();
-      }
+    }
+  }
+
+  void clearIrq() {
+    irqFlag = false;
+    holdIrq(false);
+  }
+
+  // returns false when there are no sample data
+  bool _fillSampleBuffer() {
+    if (_length == 0) {
+      return false;
     }
 
     _sample = fetch(_address);
-
-    _address++;
-    _address &= 0xffff;
+    _address = (_address + 1) & 0xffff | 0x8000;
     _length--;
-    return false;
+
+    if (_length == 0) {
+      if (_loop) {
+        _address = _initAddress;
+        _length = _initLength;
+      } else if (_irqEnabled) {
+        irqFlag = true;
+        holdIrq(true);
+      }
+    }
+    return true;
   }
 
   void _updateDeltaCounter() {
@@ -369,10 +398,6 @@ class DPCMWave {
   Int8List synth(int cycles) {
     final buf = Int8List(cycles);
 
-    if (!enabled) {
-      return buf;
-    }
-
     for (int i = 0; i < buf.length; i++) {
       if (_timer == 0) {
         if (!_silence) {
@@ -380,7 +405,7 @@ class DPCMWave {
         }
 
         if (_counter == 0) {
-          _silence = _fillSampleBuffer();
+          _silence = !_fillSampleBuffer();
           _counter = 7;
         } else {
           _counter--;
@@ -391,7 +416,9 @@ class DPCMWave {
         _timer--;
       }
 
-      buf[i] = _silence ? 0 : _deltaCounter;
+      // the output level is kept even when no sample is played,
+      // so that direct writes to $4011 are audible
+      buf[i] = _deltaCounter;
     }
 
     return buf;
@@ -405,7 +432,11 @@ class Apu {
   Apu(bus) {
     _bus = bus;
     _bus.apu = this;
-    dpcm = DPCMWave(_bus.read, _bus.holdIrq);
+    dpcm = DPCMWave(
+        _bus.read,
+        (hold) => hold
+            ? _bus.holdIrq(IrqSource.dmc)
+            : _bus.releaseIrq(IrqSource.dmc));
   }
 
   void reset() {
@@ -535,11 +566,11 @@ class Apu {
 
       // control
       case 0x4015:
-        pulse0.enabled = val.bit0;
-        pulse1.enabled = val.bit1;
-        triangle.enabled = val.bit2;
-        noise.enabled = val.bit3;
-        dpcm.enabled = val.bit4;
+        pulse0.setEnabled(val.bit0);
+        pulse1.setEnabled(val.bit1);
+        triangle.setEnabled(val.bit2);
+        noise.setEnabled(val.bit3);
+        dpcm.setEnabled(val.bit4);
         return;
 
       case 0x4017:
@@ -562,7 +593,7 @@ class Apu {
   int read(int reg) {
     switch (reg) {
       case 0x4015:
-        final result = (frameIrqHold ? 0x80 : 0) | // shold be DMC.IRQHold
+        final result = (dpcm.irqFlag ? 0x80 : 0) |
             (frameIrqHold ? 0x40 : 0) |
             (pulse0.lengthCounter > 0 ? 0x01 : 0) |
             (pulse1.lengthCounter > 0 ? 0x02 : 0) |
@@ -583,13 +614,13 @@ class Apu {
 
   void releaseFrameIRQ() {
     frameIrqHold = false;
-    _bus.releaseIrq();
+    _bus.releaseIrq(IrqSource.frameCounter);
   }
 
   void setFrameIRQ() {
     if (frameIrqEnabled) {
       frameIrqHold = true;
-      _bus.holdIrq();
+      _bus.holdIrq(IrqSource.frameCounter);
     }
   }
 

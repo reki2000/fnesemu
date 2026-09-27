@@ -58,6 +58,9 @@ abstract class Mapper {
 
   void init();
 
+  // true when the mapper has registers in the expansion area (0x4020-0x5fff)
+  bool get hasExpansionArea => false;
+
   int read(int addr) => 0xff;
   void write(int addr, int data) {}
 
