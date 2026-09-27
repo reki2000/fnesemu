@@ -16,12 +16,12 @@ class Bus {
   late final Cpu2 cpu;
   late final Vdc vdc;
   late final Vdc vdc2;
-  late final Vpc vpc;
+  final Vpc vpc = Vpc();
   late final Psg psg;
   late final Timer timer;
   late final Pic pic;
 
-  // ST0/1/2 and CPU access to $0000-$0007 are routed to the VDC selected by
+  // ST0/1/2 are routed to the VDC selected by
   // the VPC ($000E bit0). On a plain PC Engine this is always VDC1.
   Vdc get stVdc => vpc.enabled && vpc.vdcSelect == 1 ? vdc2 : vdc;
 
@@ -63,11 +63,11 @@ class Bus {
     if (bank == 0xff) {
       // VDC
       if (offset < 0x0400) {
-        final r = offset & 0x1f;
+        final r = _vdcPort(offset);
         return switch (r) {
-          0x00 => stVdc.readReg(),
-          0x02 => stVdc.readLsb(),
-          0x03 => stVdc.readMsb(),
+          0x00 => vdc.readReg(),
+          0x02 => vdc.readLsb(),
+          0x03 => vdc.readMsb(),
           0x08 || 0x09 || 0x0a || 0x0b || 0x0c || 0x0d || 0x0e => vpc.read(r),
           0x10 => _vdc2Sgx.readReg(),
           0x12 => _vdc2Sgx.readLsb(),
@@ -131,15 +131,15 @@ class Bus {
     if (bank == 0xff) {
       // VDC
       if (offset < 0x0400) {
-        switch (offset & 0x1f) {
+        switch (_vdcPort(offset)) {
           case 0x00:
-            stVdc.writeReg(data);
+            vdc.writeReg(data);
             return;
           case 0x02:
-            stVdc.writeLsb(data);
+            vdc.writeLsb(data);
             return;
           case 0x03:
-            stVdc.writeMsb(data);
+            vdc.writeMsb(data);
             return;
           case 0x08:
           case 0x09:
@@ -231,6 +231,20 @@ class Bus {
     if (bank == 0x00) {
       rom.write(addr, data);
       return;
+    }
+  }
+
+  // Each VDC has four ports mirrored across its eight-byte block.
+  int _vdcPort(int offset) {
+    final port = offset & 0x1f;
+    return port & 0x08 == 0 ? port & ~0x04 : port;
+  }
+
+  void updateVdcIrq() {
+    if (vdc.irqPending || vdc2.irqPending) {
+      pic.holdIrq1();
+    } else {
+      pic.acknoledgeIrq1();
     }
   }
 
