@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fnesemu/core/n64/n64.dart';
 import 'package:fnesemu/core/pad_button.dart';
 import 'package:fnesemu/core/sram.dart';
+import 'package:fnesemu/util/int.dart';
 
 /// Private ROMs stay outside the repository. Writes raw RGBA evidence to /tmp.
 void main(List<String> args) {
@@ -66,7 +67,7 @@ void main(List<String> args) {
     if (watched.contains(core.cpu.pc)) {
       stdout.writeln(
           'watch ${(core.cpu.clocks / core.systemClockHz).toStringAsFixed(4)} '
-          '${core.cpu.pc.toRadixString(16)} v0=${core.cpu.r[2]} '
+          '${core.cpu.pc.hex} v0=${core.cpu.r[2]} '
           'a0=${core.cpu.r[4]} ra=${core.cpu.r[31]}');
     }
     if (input &&
@@ -105,7 +106,7 @@ void main(List<String> args) {
             .writeAsBytesSync(gzip.encode(core.bus.ram));
       }
       stdout.writeln(
-          'second $second graphics ${core.graphics.tasks}/${core.graphics.triangles} audio ${core.audio.tasks} nonzero $audioNonzero pc ${core.cpu.pc.toRadixString(16)} extended ${core.graphics.extended}');
+          'second $second graphics ${core.graphics.tasks}/${core.graphics.triangles} audio ${core.audio.tasks} nonzero $audioNonzero pc ${core.cpu.pc.hex} extended ${core.graphics.extended}');
       nextReport += core.systemClockHz;
     }
     if (args.contains('--sample-frames')) {
@@ -116,8 +117,7 @@ void main(List<String> args) {
     if (core.exec(false).stopped) break;
   }
   stdout.writeln(core.dump());
-  stdout.writeln(
-      'CP0 ${core.cpu.cop0.map((v) => v.toRadixString(16)).join(' ')}');
+  stdout.writeln('CP0 ${core.cpu.cop0.map((v) => v.hex).join(' ')}');
   stdout.writeln(
       'graphics ${core.graphics.tasks}/${core.graphics.triangles}; audio ${core.audio.tasks} samples $audioSamples nonzero $audioNonzero peak $audioPeak; ${timer.elapsedMilliseconds}ms');
   if (core.cpu.stopReason != null) exitCode = 1;

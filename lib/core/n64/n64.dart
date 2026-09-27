@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 import '../../util/debug.dart';
 import '../core.dart';
 import '../disc.dart';
@@ -54,7 +56,7 @@ class N64 extends Core {
     _rom = rom;
     bus.rom = rom.bytes;
     bus.sram?.init(
-        'n64_${rom.bytes.sublist(0x10, 0x18).map((v) => v.toRadixString(16).padLeft(2, '0')).join()}',
+        'n64_${rom.bytes.sublist(0x10, 0x18).map((v) => v.x2).join()}',
         Uint8List(512)..fillRange(0, 512, 255));
   }
 
@@ -105,7 +107,7 @@ class N64 extends Core {
         bus.scanline = 0;
         _frame++;
       }
-      if (bus.scanline * 2 == (bus.vi[3] & 0x3ff)) bus.interrupt(8);
+      if (bus.scanline * 2 == bus.vi[3].mask10) bus.interrupt(8);
       line = true;
     }
     debugStatus.clock = cpu.clocks;
@@ -160,7 +162,7 @@ class N64 extends Core {
   int stackPointer(int cpuNo) => cpu.address(cpu.r[29]);
   @override
   (String, int) disasm(int cpuNo, int addr) => (
-        '${addr.toRadixString(16).padLeft(8, '0')}: .word 0x${bus.read(addr, 4).toRadixString(16).padLeft(8, '0')}',
+        '${addr.x8}: .word 0x${bus.read(addr, 4).x8}',
         4,
       );
   @override
@@ -181,7 +183,7 @@ class N64 extends Core {
     bool showApu = false,
   }) =>
       'N64 ${_rom?.title ?? ''} (Dart / task HLE)\n'
-      'PC:${cpu.pc.toRadixString(16)} cycles:${cpu.clocks}\n'
+      'PC:${cpu.pc.hex} cycles:${cpu.clocks}\n'
       '${List.generate(32, (i) => 'r$i:${cpu.r[i].toUnsigned(64).toRadixString(16).padLeft(16, '0')}').join(' ')}\n'
       'RSP graphics:${graphics.tasks} triangles:${graphics.triangles} audio:${audio.tasks}\n'
       '${cpu.stopReason ?? ''}';

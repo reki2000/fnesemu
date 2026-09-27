@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 import 'package:fnesemu/core/n64/bus.dart';
 import 'package:fnesemu/core/n64/cpu.dart';
@@ -214,7 +215,7 @@ void main() {
         for (var y = 0; y < 8; y++) {
           for (var x = 0; x < 8; x++) {
             final v = (x + y).isEven ? 0xf801 : 0x07c1;
-            g.tmem[y * 16 + x * 2] = v >> 8;
+            g.tmem[y * 16 + x * 2] = v.shr8;
             g.tmem[y * 16 + x * 2 + 1] = v;
           }
         }
@@ -251,12 +252,12 @@ void main() {
               t += weight * vertices[i].t;
             }
             final expected =
-                (((s / divisor).floor() + (t / divisor).floor()) & 1) == 0
+                !((s / divisor).floor() + (t / divisor).floor()).bit0
                     ? 0xf801
                     : 0x07c1;
             expect(actual, expected, reason: 'texture $x,$y');
           } else {
-            expect(actual & 1, 1);
+            expect(actual.mask1, 1);
             for (var ch = 0; ch < 3; ch++) {
               final expected = (a * vertices[0].color[ch] +
                           b * vertices[1].color[ch] +
@@ -265,7 +266,7 @@ void main() {
                   3;
               // At exact quantization thresholds, floating-point reassociation
               // can differ by one RGBA16 level; coverage must remain identical.
-              expect(((actual >> (11 - ch * 5)) & 31) - expected,
+              expect(actual.shr(11 - ch * 5).mask5 - expected,
                   inInclusiveRange(-1, 1),
                   reason: 'shade $x,$y channel $ch');
             }

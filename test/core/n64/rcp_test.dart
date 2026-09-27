@@ -6,6 +6,7 @@ import 'package:fnesemu/core/n64/graphics.dart';
 import 'package:fnesemu/core/n64/audio.dart';
 import 'package:fnesemu/core/pad_button.dart';
 import 'package:fnesemu/core/sram.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -140,7 +141,7 @@ void main() {
     c.step();
     expect(c.cop0[14], 0x80000000);
     expect(c.cop0[13] & 0x80000000, 0x80000000);
-    expect((c.cop0[13] >> 2) & 31, 8);
+    expect(c.cop0[13].shr2.mask5, 8);
   });
   test('unaligned big endian LWL/LWR merge the addressed bytes', () {
     final b = N64Bus()..reset();
@@ -161,8 +162,8 @@ void main() {
     c.cop0[12] = 0xff01;
     c.step();
     expect(c.pc, 0x80000180);
-    expect((c.cop0[13] >> 2) & 31, 11);
-    expect((c.cop0[13] >> 28) & 3, 1);
+    expect(c.cop0[13].shr2.mask5, 11);
+    expect(c.cop0[13].shr28.mask2, 1);
   });
   test('GBI viewport flips clip Y into screen coordinates', () {
     final b = N64Bus()..reset(), g = N64Graphics(b);
