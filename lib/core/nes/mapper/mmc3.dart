@@ -21,9 +21,9 @@ class MapperMMC3 extends Mapper {
   bool _irqReload = false;
   bool _irqEnabled = false;
 
-  // ram
-  bool _ramEnabled = false;
-  bool _ramWriteEnabled = false;
+  // ram: enabled by default, as many games use it without setting a001
+  bool _ramEnabled = true;
+  bool _ramWriteEnabled = true;
 
   int _chrBankMask = 0;
   int _prgBankMask = 0;
@@ -58,6 +58,13 @@ class MapperMMC3 extends Mapper {
     }
     _chrBank[0] = _chrBankR2_5;
     _chrBank[1] = _chrBankR0_1;
+
+    _irqLatch = 0;
+    _irqCounter = 0;
+    _irqReload = false;
+    _irqEnabled = false;
+    _ramEnabled = true;
+    _ramWriteEnabled = true;
 
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
@@ -160,6 +167,9 @@ class MapperMMC3 extends Mapper {
 
       case 0xe000:
         _irqEnabled = isOdd;
+        if (!_irqEnabled) {
+          holdIrq(false); // acknowledge
+        }
         break;
     }
   }
@@ -200,15 +210,15 @@ class MapperMMC3 extends Mapper {
   }
 
   void _tickIrq() {
-    if (_irqCounter == 0 && _irqEnabled && _irqLatch != 0) {
-      holdIrq(true);
-    }
-
     if (_irqReload || _irqCounter == 0) {
       _irqCounter = _irqLatch;
       _irqReload = false;
     } else {
       _irqCounter--;
+    }
+
+    if (_irqCounter == 0 && _irqEnabled) {
+      holdIrq(true);
     }
   }
 

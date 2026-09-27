@@ -31,7 +31,11 @@ class NesFile {
         body[3] == 0x1a)) {
       throw Exception("not iNES header");
     }
-    // final isNes20 = body[7] & 0x0c == 0x08;
+    final isNes20 = body[7] & 0x0c == 0x08;
+
+    // old iNES dumps may have garbage (e.g. a ripper's signature) in 7-15
+    final isDirtyHeader = !isNes20 &&
+        (body[12] != 0 || body[13] != 0 || body[14] != 0 || body[15] != 0);
 
     // caclurate CRC32 of entire file
     crc = (Crc32()..add(body.toList())).close().map((val) => val.x2).join();
@@ -45,8 +49,11 @@ class NesFile {
 
     final has512trainer = flags1.bit2;
 
-    mapper = (body[8] & 0x0f).shl16 | body[7] & 0xf0 | flags1.shr4;
-    subMapper = body[8].shr4;
+    final mapperLow = flags1.shr4;
+    final mapperMid = isDirtyHeader ? 0 : body[7] & 0xf0;
+    final mapperHigh = isNes20 ? (body[8] & 0x0f).shl8 : 0;
+    mapper = mapperHigh | mapperMid | mapperLow;
+    subMapper = isNes20 ? body[8].shr4 : 0;
 
     final ramSize = (body[10] & 0x0f) == 0 ? 0 : (64 << (body[10] & 0x0f));
     final nvramSize = body[10].shr4 == 0 ? 0 : (64 << body[10].shr4);

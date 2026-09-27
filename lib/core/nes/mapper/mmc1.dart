@@ -21,10 +21,16 @@ class MapperMMC1 extends Mapper {
 
   late bool _chrBank4k;
 
+  // chr bank registers written to a000 and c000
+  final _chrReg = [0, 0];
+
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
   final _chrBank = [0, 0];
 
+  // used when the cartridge has no chr rom
   final _vram4k = Uint8ListEx.ofEmptyList(2, 4 * 1024);
+
+  bool get _hasChrRam => chrRoms.isEmpty;
 
   // program rom bank mode: 0-3
   late int _prgBankMode;
@@ -43,7 +49,7 @@ class MapperMMC1 extends Mapper {
 
   @override
   void setRom(Uint8List chrRom, Uint8List prgRom) {
-    loadRom(chrRom, 8, prgRom, 16);
+    loadRom(chrRom, 4, prgRom, 16);
   }
 
   @override
@@ -55,8 +61,9 @@ class MapperMMC1 extends Mapper {
     _ramEnabled = true;
 
     _chrBank4k = false;
-    _chrBank[0] = 0;
-    _chrBank[1] = 1;
+    _chrReg[0] = 0;
+    _chrReg[1] = 0;
+    _setChrBank();
 
     _prgBankMode = 3;
     _prgBank0 = 0;
@@ -83,11 +90,12 @@ class MapperMMC1 extends Mapper {
       return;
     }
 
-    // shift register reset
+    // shift register reset, also sets prg bank mode 3
     if (data.bit7) {
       _counter = 0;
       _shiftReg = 0;
-      _prgBank[1] = prgRoms.length - 1;
+      _prgBankMode = 3;
+      _setPrgBank();
       return;
     }
 
@@ -101,10 +109,7 @@ class MapperMMC1 extends Mapper {
       switch (bank) {
         case 0x8000:
           _chrBank4k = _shiftReg.bit4;
-          if (!_chrBank4k) {
-            _chrBank[0] = 0;
-            _chrBank[1] = 1;
-          }
+          _setChrBank();
 
           _prgBankMode = _shiftReg.shr2 & 0x03;
           _setPrgBank();
@@ -113,28 +118,16 @@ class MapperMMC1 extends Mapper {
           break;
 
         case 0xa000:
-          if (_chrBank4k) {
-            _chrBank[0] = _shiftReg & 0x01;
-          }
-
-          // S[OUX]ROM supports RAM
-          _ramBank = _shiftReg.shr2 & 0x03;
-
-          // 512k ROM A18 select
-          _prgBank512 = _shiftReg.bit4 && prgRoms.length == 32;
-          _setPrgBank();
+          _chrReg[0] = _shiftReg;
+          _setChrBank();
+          _setOuterBank(_shiftReg);
           break;
 
         case 0xc000:
+          _chrReg[1] = _shiftReg;
+          _setChrBank();
           if (_chrBank4k) {
-            _chrBank[1] = _shiftReg & 0x01;
-
-            // S[OUX]ROM supports RAM
-            _ramBank = _shiftReg.shr2 & 0x03;
-
-            // 512k ROM A18 select
-            _prgBank512 = _shiftReg.bit4 && prgRoms.length == 32;
-            _setPrgBank();
+            _setOuterBank(_shiftReg);
           }
           break;
 
@@ -163,6 +156,37 @@ class MapperMMC1 extends Mapper {
     }
   }
 
+  // S[OUX]ROM (chr ram boards) use the upper chr bank bits for prg/ram banks
+  void _setOuterBank(int val) {
+    if (!_hasChrRam) {
+      return;
+    }
+
+    _ramBank = val.shr2 & 0x03;
+
+    // 512k ROM A18 select
+    _prgBank512 = val.bit4 && prgRoms.length == 32;
+    _setPrgBank();
+  }
+
+  void _setChrBank() {
+    if (_hasChrRam) {
+      // 8k chr ram
+      _chrBank[0] = _chrBank4k ? _chrReg[0] & 0x01 : 0;
+      _chrBank[1] = _chrBank4k ? _chrReg[1] & 0x01 : 1;
+      return;
+    }
+
+    final mask = chrRoms.length - 1;
+    if (_chrBank4k) {
+      _chrBank[0] = _chrReg[0] & mask;
+      _chrBank[1] = _chrReg[1] & mask;
+    } else {
+      _chrBank[0] = (_chrReg[0] & 0x1e) & mask;
+      _chrBank[1] = (_chrReg[0] | 0x01) & mask;
+    }
+  }
+
   void _setPrgBank() {
     final a18 = _prgBank512 ? 0x10 : 0;
     switch (_prgBankMode) {
@@ -180,6 +204,9 @@ class MapperMMC1 extends Mapper {
         _prgBank[1] = (prgRoms.length - 1) & 0x0f | a18;
         break;
     }
+
+    _prgBank[0] %= prgRoms.length;
+    _prgBank[1] %= prgRoms.length;
   }
 
   @override
@@ -208,11 +235,17 @@ class MapperMMC1 extends Mapper {
   int readVram(int addr) {
     final bank = addr.shr12 & 0x1;
     final offset = addr & 0x0fff;
-    return _vram4k[_chrBank[bank]][offset];
+    return _hasChrRam
+        ? _vram4k[_chrBank[bank]][offset]
+        : chrRoms[_chrBank[bank]][offset];
   }
 
   @override
   void writeVram(int addr, int data) {
+    if (!_hasChrRam) {
+      return;
+    }
+
     final bank = addr.shr12 & 0x1;
     final offset = addr & 0x0fff;
     _vram4k[_chrBank[bank]][offset] = data & 0xff;
