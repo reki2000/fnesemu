@@ -1,5 +1,6 @@
 import 'bus.dart';
 import 'fpu.dart';
+import 'registers.dart';
 
 /// Experimental VR4300 integer interpreter. BigInt preserves 64 bits on Web.
 /// Unsupported operations stop explicitly instead of behaving as NOPs.
@@ -22,7 +23,7 @@ class Vr4300 {
   bool _ll = false;
   int _countOffset = 0;
   bool _timerIrq = false;
-  final r = List<BigInt>.filled(32, BigInt.zero);
+  final r = N64Registers();
   final cop0 = List<int>.filled(32, 0);
   int pc = 0, nextPc = 4, clocks = 0;
   BigInt hi = BigInt.zero, lo = BigInt.zero;
@@ -50,13 +51,43 @@ class Vr4300 {
   }
 
   void put(int index, BigInt value) {
-    if (index != 0) r[index] = value.toSigned(64);
+    if (index != 0) r[index] = value;
   }
 
   void word(int index, BigInt value) => put(index, value.toSigned(32));
-  int lowWord(int index) => r[index].toSigned(32).toInt();
+  int lowWord(int index) => r.word(index);
   void putWord(int index, int value) {
-    if (index != 0) r[index] = BigInt.from(value.toSigned(32));
+    r.setWord(index, value);
+  }
+
+  bool equal(int s, int t) =>
+      r.isWord(s) && r.isWord(t) ? lowWord(s) == lowWord(t) : r[s] == r[t];
+  bool negative(int s) => r.isWord(s) ? lowWord(s) < 0 : r[s].isNegative;
+  bool nonpositive(int s) =>
+      r.isWord(s) ? lowWord(s) <= 0 : r[s] <= BigInt.zero;
+  bool lessSigned(int s, int t) =>
+      r.isWord(s) && r.isWord(t) ? lowWord(s) < lowWord(t) : r[s] < r[t];
+  bool lessUnsigned(int s, int t) => r.isWord(s) && r.isWord(t)
+      ? (lowWord(s) & 0xffffffff) < (lowWord(t) & 0xffffffff)
+      : r[s].toUnsigned(64) < r[t].toUnsigned(64);
+  int addWord(int s, int value, {bool subtract = false}) {
+    final result = subtract ? lowWord(s) - value : lowWord(s) + value;
+    if (result < -2147483648 || result > 2147483647) {
+      throw const CpuFault(12);
+    }
+    return result;
+  }
+
+  void logic(int d, int s, int t, int fn) {
+    if (r.isWord(s) && r.isWord(t)) {
+      final a = lowWord(s), b = lowWord(t);
+      putWord(d,
+          switch (fn) { 36 => a & b, 37 => a | b, 38 => a ^ b, _ => ~(a | b) });
+    } else {
+      final a = r[s], b = r[t];
+      put(d,
+          switch (fn) { 36 => a & b, 37 => a | b, 38 => a ^ b, _ => ~(a | b) });
+    }
   }
 
   int address(BigInt value) => value.toUnsigned(32).toInt();
@@ -140,18 +171,19 @@ class Vr4300 {
         return signed ? value.toSigned(64) : value;
       }
 
+      void loadWord(int size, bool signed) {
+        aligned(a, size);
+        final value = bus.read(a, size);
+        putWord(t, signed ? value.toSigned(size * 8) : value);
+      }
+
       void store(int size) {
         aligned(a, size);
         if (size <= 4) {
           bus.write(a, lowWord(t), size);
         } else {
-          for (var i = 0; i < size; i++) {
-            bus.write8(
-              a + i,
-              ((r[t].toUnsigned(64) >> ((size - 1 - i) * 8)) & BigInt.from(255))
-                  .toInt(),
-            );
-          }
+          bus.write(a, (r[t].toUnsigned(64) >> 32).toInt(), 4);
+          bus.write(a + 4, lowWord(t), 4);
         }
       }
 
@@ -191,11 +223,11 @@ class Vr4300 {
               putWord(d, lowWord(t) >> (lowWord(s) & 31));
             case 8:
               _delay = true;
-              nextPc = address(r[s]);
+              nextPc = lowWord(s) & 0xffffffff;
             case 9:
               _delay = true;
-              final target = address(r[s]);
-              put(d, BigInt.from((at + 8) & 0xffffffff).toSigned(32));
+              final target = lowWord(s) & 0xffffffff;
+              putWord(d, (at + 8) & 0xffffffff);
               nextPc = target;
             case 12:
               throw const CpuFault(8);
@@ -259,30 +291,25 @@ class Vr4300 {
                   .toSigned(64);
               hi = (y == BigInt.zero ? x : x.remainder(y)).toSigned(64);
             case 32:
-              word(d, add(r[s], r[t], 32, true));
+              putWord(d, addWord(s, lowWord(t)));
             case 33:
               putWord(d, lowWord(s) + lowWord(t));
             case 34:
-              word(d, add(r[s], r[t], 32, true, subtract: true));
+              putWord(d, addWord(s, lowWord(t), subtract: true));
             case 35:
               putWord(d, lowWord(s) - lowWord(t));
             case 36:
-              put(d, r[s] & r[t]);
+              logic(d, s, t, 36);
             case 37:
-              put(d, r[s] | r[t]);
+              logic(d, s, t, 37);
             case 38:
-              put(d, r[s] ^ r[t]);
+              logic(d, s, t, 38);
             case 39:
-              put(d, ~(r[s] | r[t]));
+              logic(d, s, t, 39);
             case 42:
-              put(d, r[s] < r[t] ? BigInt.one : BigInt.zero);
+              putWord(d, lessSigned(s, t) ? 1 : 0);
             case 43:
-              put(
-                d,
-                r[s].toUnsigned(64) < r[t].toUnsigned(64)
-                    ? BigInt.one
-                    : BigInt.zero,
-              );
+              putWord(d, lessUnsigned(s, t) ? 1 : 0);
             case 44:
               put(d, add(r[s], r[t], 64, true));
             case 45:
@@ -311,52 +338,68 @@ class Vr4300 {
             unsupported();
             break;
           }
-          if (t >= 16) put(31, BigInt.from((at + 8) & 0xffffffff).toSigned(32));
+          if (t >= 16) putWord(31, (at + 8) & 0xffffffff);
           branch(
-            (t & 1) == 0 ? r[s] < BigInt.zero : r[s] >= BigInt.zero,
+            (t & 1) == 0 ? negative(s) : !negative(s),
             likely: (t & 2) != 0,
           );
         case 2:
         case 3:
           _delay = true;
           if (code == 3) {
-            put(31, BigInt.from((at + 8) & 0xffffffff).toSigned(32));
+            putWord(31, (at + 8) & 0xffffffff);
           }
           nextPc = ((at + 4) & 0xf0000000) | ((op & 0x3ffffff) << 2);
         case 4:
-          branch(r[s] == r[t]);
+          branch(equal(s, t));
         case 5:
-          branch(r[s] != r[t]);
+          branch(!equal(s, t));
         case 6:
-          branch(r[s] <= BigInt.zero);
+          branch(nonpositive(s));
         case 7:
-          branch(r[s] > BigInt.zero);
+          branch(!nonpositive(s));
         case 8:
-          word(t, add(r[s], BigInt.from(immediate), 32, true));
+          putWord(t, addWord(s, immediate));
         case 9:
           putWord(t, lowWord(s) + immediate);
         case 10:
-          put(t, r[s] < BigInt.from(immediate) ? BigInt.one : BigInt.zero);
+          putWord(
+              t,
+              (r.isWord(s)
+                      ? lowWord(s) < immediate
+                      : r[s] < BigInt.from(immediate))
+                  ? 1
+                  : 0);
         case 11:
-          put(
-            t,
-            r[s].toUnsigned(64) < BigInt.from(immediate).toUnsigned(64)
-                ? BigInt.one
-                : BigInt.zero,
-          );
+          putWord(
+              t,
+              (r.isWord(s)
+                      ? (lowWord(s) & 0xffffffff) < (immediate & 0xffffffff)
+                      : r[s].toUnsigned(64) <
+                          BigInt.from(immediate).toUnsigned(64))
+                  ? 1
+                  : 0);
         case 12:
-          put(t, r[s] & BigInt.from(op & 0xffff));
+          putWord(t, lowWord(s) & (op & 0xffff));
         case 13:
-          put(t, r[s] | BigInt.from(op & 0xffff));
+          if (r.isWord(s)) {
+            putWord(t, lowWord(s) | (op & 0xffff));
+          } else {
+            put(t, r[s] | BigInt.from(op & 0xffff));
+          }
         case 14:
-          put(t, r[s] ^ BigInt.from(op & 0xffff));
+          if (r.isWord(s)) {
+            putWord(t, lowWord(s) ^ (op & 0xffff));
+          } else {
+            put(t, r[s] ^ BigInt.from(op & 0xffff));
+          }
         case 15:
           putWord(t, (op & 0xffff) << 16);
         case 16:
           if (s == 0 || s == 1) {
-            word(t, BigInt.from(d == 9 ? count : cop0[d]));
+            putWord(t, d == 9 ? count : cop0[d]);
           } else if (s == 4 || s == 5) {
-            final v = address(r[t]);
+            final v = lowWord(t) & 0xffffffff;
             if (d == 9) _countOffset = v - clocks ~/ 2;
             if (d == 11) _timerIrq = false;
             if (d == 13) {
@@ -392,17 +435,17 @@ class Vr4300 {
           final fs = d, fd = shift;
           switch (s) {
             case 0:
-              word(t, BigInt.from(fpu.word(fs)));
+              putWord(t, fpu.word(fs));
             case 1:
               put(t, fpu.long(fs));
             case 2:
-              word(t, BigInt.from(fs == 31 ? fpu.control : 0x511));
+              putWord(t, fs == 31 ? fpu.control : 0x511);
             case 4:
-              fpu.setWord(fs, address(r[t]));
+              fpu.setWord(fs, lowWord(t));
             case 5:
               fpu.setLong(fs, r[t]);
             case 6:
-              if (fs == 31) fpu.control = address(r[t]);
+              if (fs == 31) fpu.control = lowWord(t) & 0xffffffff;
             case 8:
               branch((t & 1) != 0 ? fpu.condition : !fpu.condition,
                   likely: (t & 2) != 0);
@@ -441,29 +484,35 @@ class Vr4300 {
             put(t, value);
           }
         case 20:
-          branch(r[s] == r[t], likely: true);
+          branch(equal(s, t), likely: true);
         case 21:
-          branch(r[s] != r[t], likely: true);
+          branch(!equal(s, t), likely: true);
         case 22:
-          branch(r[s] <= BigInt.zero, likely: true);
+          branch(nonpositive(s), likely: true);
         case 23:
-          branch(r[s] > BigInt.zero, likely: true);
+          branch(!nonpositive(s), likely: true);
         case 24:
           put(t, add(r[s], BigInt.from(immediate), 64, true));
         case 25:
           put(t, r[s] + BigInt.from(immediate));
         case 32:
-          put(t, load(1, true));
+          loadWord(1, true);
         case 33:
-          put(t, load(2, true));
+          loadWord(2, true);
         case 35:
-          put(t, load(4, true));
+          loadWord(4, true);
         case 36:
-          put(t, load(1, false));
+          loadWord(1, false);
         case 37:
-          put(t, load(2, false));
+          loadWord(2, false);
         case 39:
-          put(t, load(4, false));
+          aligned(a, 4);
+          final value = bus.read(a, 4);
+          if (value < 0x80000000) {
+            putWord(t, value);
+          } else {
+            put(t, BigInt.from(value));
+          }
         case 42:
         case 46:
         case 44:
@@ -481,7 +530,7 @@ class Vr4300 {
                     .toInt());
           }
         case 48:
-          put(t, load(4, true));
+          loadWord(4, true);
           _ll = true;
         case 52:
           put(t, load(8, true));
@@ -489,10 +538,11 @@ class Vr4300 {
         case 56:
         case 60:
           if (_ll) store(code == 56 ? 4 : 8);
-          put(t, _ll ? BigInt.one : BigInt.zero);
+          putWord(t, _ll ? 1 : 0);
           _ll = false;
         case 49:
-          fpu.setWord(t, load(4, false).toInt());
+          aligned(a, 4);
+          fpu.setWord(t, bus.read(a, 4));
         case 53:
           fpu.setLong(t, load(8, false));
         case 57:

@@ -128,11 +128,12 @@ A local cartridge dump was verified
 through boot, menu navigation and in-game movement.
 Graphics and nonzero stereo PCM continued without an unsupported-operation
 stop over 90 emulated seconds (2,559 graphics tasks and 5,370 audio tasks).
-The sampled headless AOT run took about 731 seconds on the development machine;
-real-time performance has not been reached. This is an initial gameplay check,
+After CPU/register and rasterizer optimization, the sampled headless AOT run
+took about 456 seconds, down from 731 seconds (about 1.6x faster).
+Real-time performance has not been reached. This is an initial gameplay check,
 not a full-game compatibility claim.
 
-Run the 25 synthetic CPU/FPU, DMA, interrupt, PIF/EEPROM, graphics and audio
+Run the 31 synthetic CPU/FPU, DMA, interrupt, PIF/EEPROM, graphics and audio
 tests (also verified with Dart VM and Dart2JS/Node):
 
 ```
@@ -155,6 +156,33 @@ Normal app execution renders every frame. `--out=DIR` selects the evidence
 folder; `--input-events=FILE` reads a JSON array of `[seconds, button, down]`
 events (for example `[12, "start", true]`). `--dump-ram` adds compressed RDRAM
 snapshots, and `--watch=HEX_PC,...` logs CPU registers at selected addresses.
+
+The register file stores sign-extended 32-bit values in `Int32List` and converts
+wide values with `BigInt` only when needed, preserving 64-bit behavior on Web.
+The rasterizer reuses color buffers and increments interpolation values across
+pixels. In the 90-second comparison, all 89 sampled task/audio metadata records
+matched; 75 frame images matched byte-for-byte. The other 14 had small texture
+boundary differences from floating-point interpolation order (at most 0.4% of
+RGBA bytes per frame). Sampled RDRAM at seconds 60, 73 and 89 matched exactly.
+
+AOT microbenchmark medians from three runs on the development machine:
+
+| Workload | Before | After | Speedup |
+| --- | ---: | ---: | ---: |
+| CPU, 32-bit loop | 4.619 s | 1.216 s | 3.8x |
+| CPU, mixed 64-bit loop | 8.497 s | 3.309 s | 2.6x |
+| Rasterizer, 300 triangles | 7.609 s | 4.950 s | 1.5x |
+
+Checksums matched for all workloads. These are native AOT measurements, not Web
+FPS guarantees. Run the reproducible workloads with:
+
+```
+dart --packages=.dart_tool/package_config.json tool/n64_bench.dart
+```
+
+For native AOT timing, compile this script with `dart compile exe` in a standalone
+Dart package containing this core (the Flutter application cannot be compiled as
+a standalone executable). The command above runs with the Dart VM instead.
 
 Protocol references used for this independent implementation:
 [libdragon system registers](https://github.com/DragonMinded/libdragon/blob/trunk/include/n64sys.h),
