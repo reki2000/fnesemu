@@ -51,7 +51,7 @@ class Bus {
 
   // on a plain PC Engine, banks f9-fb mirror the 8kb work ram at f8.
   // on SuperGrafx they are independent 8kb banks (32kb total).
-  int _workRamIndex(int bank) => vpc.enabled ? bank & 0x03 : 0;
+  int _workRamIndex(int bank) => vpc.enabled ? bank.mask2 : 0;
 
   int read(int addr) {
     final bank = addr.shr13;
@@ -111,7 +111,7 @@ class Bus {
       }
 
       if (offset < 0x1400) {
-        return joypad.port & 0x0f | 0x30 | (cdrom.enabled ? 0 : 0x80);
+        return joypad.port.mask4 | 0x30 | (cdrom.enabled ? 0 : 0x80);
       }
 
       // PIC
@@ -179,7 +179,7 @@ class Bus {
           case 0x0c:
           case 0x0d:
           case 0x0e:
-            vpc.write(offset & 0x1f, data);
+            vpc.write(offset.mask5, data);
             return;
           case 0x10:
             _vdc2Sgx.writeReg(data);
@@ -267,8 +267,8 @@ class Bus {
 
   // Each VDC has four ports mirrored across its eight-byte block.
   int _vdcPort(int offset) {
-    final port = offset & 0x1f;
-    return port & 0x08 == 0 ? port & ~0x04 : port;
+    final port = offset.mask5;
+    return !port.bit3 ? port & ~0x04 : port;
   }
 
   void updateVdcIrq() {

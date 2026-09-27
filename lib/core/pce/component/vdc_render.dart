@@ -199,7 +199,7 @@ extension VdcRenderer on Vdc {
     final p23 = pattern23 >> shiftBits;
 
     final colorNo =
-        (p01 & 0x01) | p01.shr7 & 0x02 | p23.shl2 & 0x04 | p23.shr5 & 0x08;
+        p01.mask1 | p01.shr7 & 0x02 | p23.shl2 & 0x04 | p23.shr5 & 0x08;
 
     return paletteNo | colorNo;
   }

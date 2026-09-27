@@ -47,13 +47,13 @@ class Vpc {
 
   int read(int reg) {
     enabled = true;
-    return switch (reg & 0x0f) {
+    return switch (reg.mask4) {
       0x08 => priority0,
       0x09 => priority1,
-      0x0a => window1 & 0xff,
-      0x0b => window1.shr8 & 0x03,
-      0x0c => window2 & 0xff,
-      0x0d => window2.shr8 & 0x03,
+      0x0a => window1.mask8,
+      0x0b => window1.shr8.mask2,
+      0x0c => window2.mask8,
+      0x0d => window2.shr8.mask2,
       0x0e => vdcSelect,
       _ => 0,
     };
@@ -61,7 +61,7 @@ class Vpc {
 
   void write(int reg, int data) {
     enabled = true;
-    switch (reg & 0x0f) {
+    switch (reg.mask4) {
       case 0x08:
         priority0 = data;
         break;
@@ -72,16 +72,16 @@ class Vpc {
         window1 = window1.setL8(data);
         break;
       case 0x0b:
-        window1 = window1.setH8(data & 0x03);
+        window1 = window1.setH8(data.mask2);
         break;
       case 0x0c:
         window2 = window2.setL8(data);
         break;
       case 0x0d:
-        window2 = window2.setH8(data & 0x03);
+        window2 = window2.setH8(data.mask2);
         break;
       case 0x0e:
-        vdcSelect = data & 0x01;
+        vdcSelect = data.mask1;
         break;
     }
   }
@@ -115,10 +115,10 @@ class Vpc {
     // per-x priority nibble. window value $40 = leftmost pixel; values
     // below $40 disable the window (no pixel is inside it).
     final regions = [
-      priority0 & 0x0f,
-      priority0.shr4 & 0x0f,
-      priority1 & 0x0f,
-      priority1.shr4 & 0x0f,
+      priority0.mask4,
+      priority0.shr4.mask4,
+      priority1.mask4,
+      priority1.shr4.mask4,
     ];
     final nibbles = Uint8List(width);
     for (int x = 0; x < width; x++) {
@@ -146,20 +146,20 @@ class Vpc {
   // one pixel of priority mixing (HuC6202). c1/c2 are the 9-bit VCE indices
   // from VDC1/VDC2: bit8 set = sprite pixel, low nibble 0 = transparent.
   int _mix(int nibble, int c1, int c2) {
-    final en1 = nibble & 0x01 != 0;
-    final en2 = nibble & 0x02 != 0;
+    final en1 = nibble.bit0;
+    final en2 = nibble.bit1;
 
     if (!en1) return en2 ? c2 : 0;
     if (!en2) return c1;
 
-    final op1 = c1 & 0x0f != 0;
-    final op2 = c2 & 0x0f != 0;
+    final op1 = c1.mask4 != 0;
+    final op2 = c2.mask4 != 0;
     if (!op1) return op2 ? c2 : 0;
     if (!op2) return c1;
-    final sp1 = c1 & 0x100 != 0;
-    final sp2 = c2 & 0x100 != 0;
+    final sp1 = c1.bit8;
+    final sp2 = c2.bit8;
 
-    return switch ((nibble >> 2) & 0x03) {
+    return switch (nibble.shr2.mask2) {
       // mode 1: SP1 > SP2 > BG1 > BG2 (sprites of both VDCs in front)
       1 => sp2 && !sp1 ? c2 : c1,
       // mode 2: SP1+SP2->SP1, BG1+SP2->BG1, SP1+BG2->BG2, BG1+BG2->BG1
