@@ -69,7 +69,7 @@ class BusM68 {
       // i/o registers (0xa10000-0xa1001f) return the same value on both bytes,
       // other control registers have their status on the even (upper) byte
       final value = readIo16(addr);
-      return (addr.bit0 || addr & 0xffff < 0x20) ? value.mask8 : value.shr8;
+      return (addr.bit0 || addr.mask16 < 0x20) ? value.mask8 : value.shr8;
     }
 
     if (top == 0xa0) {

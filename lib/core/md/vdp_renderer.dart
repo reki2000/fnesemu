@@ -200,7 +200,7 @@ extension VdpRenderer on Vdp {
   void _setVScroll(_Tile ctx, int vScroll) {
     final v = (yy + vScroll) & maskScrollV;
     final yOffsetInTile = v & maskTileYOffset;
-    final tileY = v >> bitsTileV;
+    final tileY = v.shr(bitsTileV);
 
     if (yOffsetInTile != ctx.yOffsetInTile || tileY != ctx.tileY) {
       ctx.yOffsetInTile = yOffsetInTile;
@@ -357,7 +357,7 @@ extension VdpRenderer on Vdp {
         int color;
 
         // 2-cell vertical scroll: each 16 pixel column has its own vscroll
-        if (vScr2Cell && hCounter & 0x0f == 0) {
+        if (vScr2Cell && hCounter.mask4 == 0) {
           final column = hCounter.shr4.shl1;
           _setVScroll(ctxA, vsram[column]);
           _setVScroll(ctxB, vsram[column.inc]);

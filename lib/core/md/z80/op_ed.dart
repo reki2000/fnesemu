@@ -199,7 +199,7 @@ extension OpEd on Z80 {
       case 0x74:
       case 0x7c:
         final result = 0 - r.a;
-        r.setSZ(result & 0xff);
+        r.setSZ(result.mask8);
         r.setV(0, r.a, result, sub: true);
         r.hf = 0 < (r.a & 0xf);
         r.nf = true;
@@ -315,7 +315,7 @@ extension OpEd on Z80 {
       case 0x61: // out (c), h
       case 0x69: // out (c), l
       case 0x79: // out (c), a
-        final reg = (op & 0x38).shr3;
+        final reg = op.shr3.mask3;
         output(r.c, r.r8[reg]);
         cycles += 4;
         return true;

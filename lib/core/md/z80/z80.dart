@@ -335,7 +335,7 @@ class Z80 {
 
   void add8(int val, int c) {
     final result = r.a + val + c;
-    r.setSZ(result & 0xff);
+    r.setSZ(result.mask8);
     r.setV(r.a, val, result);
     r.hf = (r.a & 0xf) + (val & 0xf) > 0xf;
     r.nf = false;
@@ -345,9 +345,9 @@ class Z80 {
 
   void sub8(int val, int c) {
     final result = r.a - val - c;
-    r.setSZ(result & 0xff);
+    r.setSZ(result.mask8);
     r.setV(r.a, val, result, sub: true);
-    r.hf = (r.a & 0xf) - (val & 0xf) - c < 0;
+    r.hf = r.a.mask4 - val.mask4 - c < 0;
     r.nf = true;
     r.cf = result < 0;
     r.a = result & 0xff;
@@ -377,7 +377,7 @@ class Z80 {
 
   void cp8(int val) {
     final result = r.a - val;
-    r.setSZ(result & 0xff);
+    r.setSZ(result.mask8);
     r.setV(r.a, val, result, sub: true);
     r.hf = (r.a & 0xf) - (val & 0xf) < 0;
     r.nf = true;

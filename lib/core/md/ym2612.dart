@@ -111,7 +111,7 @@ class Op {
     _dt = dt;
     _keyCode = keyCode;
     final detune =
-        dt & 3 == 0 ? 0 : _detuneTable[((dt & 3) - 1).shl5 | keyCode];
+        dt.mask2 == 0 ? 0 : _detuneTable[(dt.mask2 - 1).shl5 | keyCode];
     _detuneVal = dt.bit2 ? detune : -detune;
   }
 
@@ -315,7 +315,7 @@ class Channel {
 
   int calcLfoFreq(int freq, int block) {
     if (!lfoEnabled) {
-      return (freq << (block + 1)).shr2;
+      return freq.shl(block + 1).shr2;
     }
 
     final freqH = freq.shr4;
@@ -624,7 +624,7 @@ class Ym2612 {
         break;
 
       case 0x28: // Operator Control
-        if (value & 0x03 == 0x03) {
+        if (value.mask2 == 0x03) {
           return; // invalid channel
         }
         final ch = _channels[(value & 3) + (value.bit2 ? 3 : 0)];
@@ -645,7 +645,7 @@ class Ym2612 {
         return;
     }
 
-    if (0x30 <= reg && reg < 0xb8 && reg & 0x03 == 0x03) {
+    if (0x30 <= reg && reg < 0xb8 && reg.mask2 == 0x03) {
       return; // invalid channel
     }
 
@@ -689,7 +689,7 @@ class Ym2612 {
       if (0xa8 <= reg && reg < 0xb0) {
         // ch3 special mode fnum/block: a9/ad -> op1, aa/ae -> op2, a8/ac -> op3
         if (part == 0) {
-          final op = _channels[2].op[[2, 0, 1][reg & 0x03]];
+          final op = _channels[2].op[[2, 0, 1][reg.mask2]];
           if (reg < 0xac) {
             op.freq = op.freq.setL8(value);
             op.keyCode = op.block.shl2 | _keyCodeTable[op.freq.shr7];
