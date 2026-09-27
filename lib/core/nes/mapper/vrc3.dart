@@ -33,6 +33,7 @@ class MapperVrc3 extends Mapper {
       return;
     }
     _prgBank = 0;
+    _prevCycle = 0;
   }
 
   @override
@@ -129,19 +130,23 @@ class MapperVrc3 extends Mapper {
     _prevCycle = cycles;
 
     if (_irqEnabled) {
+      // on overflow, the counter is reloaded with the latch (without +1)
       while (diff > 0) {
         if (_irqMode16bit) {
           if (_irqCounter == 0xffff) {
             _irqCounter = _irqLatch;
             holdIrq(true);
+          } else {
+            _irqCounter += 1;
           }
         } else {
           if (_irqCounter & 0xff == 0xff) {
             _irqCounter = _irqCounter.setL8(_irqLatch & 0xff);
             holdIrq(true);
+          } else {
+            _irqCounter += 1;
           }
         }
-        _irqCounter += 1;
         diff -= 1;
       }
     }

@@ -10,7 +10,7 @@ This project is experimental.
   - SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)
   - Supports the following iNES mapper types:
     - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
-    - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6 (with audio)
+    - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6 (with audio), 85: VRC7 (with audio)
     - 19: Namco163 (waveform sound not supported), 88/206: Namco118
 - PCE (.pce) + SGX16
   - Does not support SRAM / CD

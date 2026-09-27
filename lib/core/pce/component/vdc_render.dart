@@ -1,8 +1,6 @@
 import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/pce/component/cpu.dart';
-
 import 'vdc.dart';
 
 class Sprite {
@@ -80,6 +78,12 @@ extension VdcRenderer on Vdc {
 
   resetRenderer() {
     bgRenderLine = 0;
+    displayLine = 0;
+    spriteBufIndex = 0;
+    sprite0.fillRange(0, sprite0.length, false);
+    paletteNo = 0;
+    pattern01 = 0;
+    pattern23 = 0;
     frames = 0;
     indexBuffer = Uint16List(hSize * vSize);
   }
@@ -118,16 +122,14 @@ extension VdcRenderer on Vdc {
 
       if (displayLine + 0x40 == rasterCompareRegister) {
         if (enableRasterCompareIrq) {
-          status |= Vdc.statusRasterCompare;
-          bus.cpu.holdInterrupt(Interrupt.irq1);
+          raiseIrq(Vdc.statusRasterCompare);
         }
       }
     }
 
     if (scanLine == 260) {
       if (enableVBlank) {
-        status |= Vdc.statusVBlank;
-        bus.cpu.holdInterrupt(Interrupt.irq1);
+        raiseIrq(Vdc.statusVBlank);
       }
     }
 
@@ -142,7 +144,7 @@ extension VdcRenderer on Vdc {
 
     if (scanLine == 263) {
       scanLine = 0;
-      frames++;
+      if (priority == 0) frames++;
     }
   }
 
@@ -196,10 +198,8 @@ extension VdcRenderer on Vdc {
     final p01 = pattern01 >> shiftBits;
     final p23 = pattern23 >> shiftBits;
 
-    final colorNo = (p01 & 0x01) |
-        p01.shr7 & 0x02 |
-        p23.shl2 & 0x04 |
-        p23.shr5 & 0x08;
+    final colorNo =
+        (p01 & 0x01) | p01.shr7 & 0x02 | p23.shl2 & 0x04 | p23.shr5 & 0x08;
 
     return paletteNo | colorNo;
   }
@@ -219,8 +219,7 @@ extension VdcRenderer on Vdc {
         if (spriteBufIndex == 16) {
           if (enableSpriteOverflow &&
               (status & Vdc.statusSpriteOverflow) == 0) {
-            status |= Vdc.statusSpriteOverflow;
-            bus.cpu.holdInterrupt(Interrupt.irq1);
+            raiseIrq(Vdc.statusSpriteOverflow);
           }
           break;
         }
@@ -304,8 +303,7 @@ extension VdcRenderer on Vdc {
             if (colorNo != 0 &&
                 sprite0[hh] &&
                 status & Vdc.statusSpriteCollision == 0) {
-              status |= Vdc.statusSpriteCollision;
-              bus.cpu.holdInterrupt(Interrupt.irq1);
+              raiseIrq(Vdc.statusSpriteCollision);
             }
           }
         }

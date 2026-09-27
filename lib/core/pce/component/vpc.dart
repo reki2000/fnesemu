@@ -31,7 +31,7 @@ class Vpc {
   int window1 = 0; // $0A-$0B (10bit)
   int window2 = 0; // $0C-$0D (10bit)
 
-  int vdcSelect = 0; // $0E bit0 : target VDC for ST0/1/2 and CPU $00-$07
+  int vdcSelect = 0; // $0E bit0 : target VDC for ST0/1/2
 
   Uint32List frameBuffer = Uint32List(0);
 
@@ -137,7 +137,8 @@ class Vpc {
         }
         final i2 = row2 + x;
         final c2 = x < width2 && i2 < b2.length ? b2[i2] : 0;
-        frameBuffer[i] = rgba[ct[_mix(nibbles[x], c1, c2)]];
+        final index = _mix(nibbles[x], c1, c2);
+        frameBuffer[i] = index == 0xffff ? 0xffffffff : rgba[ct[index]];
       }
     }
   }
@@ -151,18 +152,21 @@ class Vpc {
     if (!en1) return en2 ? c2 : 0;
     if (!en2) return c1;
 
-    final op1 = c1 & 0x0f != 0; // vdc1 pixel is opaque
-    final sp1 = c1 > 0x100; // vdc1 pixel is an opaque sprite
-    final sp2 = c2 > 0x100; // vdc2 pixel is an opaque sprite
+    final op1 = c1 & 0x0f != 0;
+    final op2 = c2 & 0x0f != 0;
+    if (!op1) return op2 ? c2 : 0;
+    if (!op2) return c1;
+    final sp1 = c1 & 0x100 != 0;
+    final sp2 = c2 & 0x100 != 0;
 
     return switch ((nibble >> 2) & 0x03) {
       // mode 1: SP1 > SP2 > BG1 > BG2 (sprites of both VDCs in front)
-      1 => sp1 ? c1 : (sp2 ? c2 : (op1 ? c1 : c2)),
+      1 => sp2 && !sp1 ? c2 : c1,
       // mode 2: SP1+SP2->SP1, BG1+SP2->BG1, SP1+BG2->BG2, BG1+BG2->BG1
       // (VDC1 sprites hide behind VDC2 BG, VDC2 sprites behind VDC1 BG)
-      2 => sp2 ? (sp1 ? c1 : (op1 ? c1 : c2)) : (sp1 ? c2 : (op1 ? c1 : c2)),
+      2 => sp1 && !sp2 ? c2 : c1,
       // modes 0/3: everything of VDC1 in front of VDC2
-      _ => op1 ? c1 : c2,
+      _ => c1,
     };
   }
 }
