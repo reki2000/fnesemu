@@ -19,6 +19,7 @@ import 'vrc1.dart';
 import 'vrc3.dart';
 import 'vrc4.dart';
 import 'vrc6.dart';
+import 'vrc7.dart';
 
 abstract class Mapper {
   static Mapper of(int iNesMapper) {
@@ -36,6 +37,7 @@ abstract class Mapper {
       25 => MapperVrc4b4d(),
       24 => MapperVrc6a(),
       26 => MapperVrc6b(),
+      85 => MapperVrc7(),
       19 => MapperNamco163(),
       73 => MapperVrc3(),
       88 => Mapper088(),
