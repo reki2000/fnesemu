@@ -51,6 +51,10 @@ class Bus {
   // CPU low-power state set via HALTCNT; cleared when an interrupt is pending.
   bool halted = false;
 
+  // set when BG2X/Y (index 0) or BG3X/Y (index 1) is written; the PPU reloads
+  // its internal affine reference point from the register before the next line.
+  final affineRefDirty = [false, false];
+
   void loadBios(Uint8List data) {
     final n = data.length < bios.length ? data.length : bios.length;
     bios.setRange(0, n, data);
@@ -69,6 +73,7 @@ class Bus {
     hblank = false;
     vblank = false;
     halted = false;
+    affineRefDirty[0] = affineRefDirty[1] = false;
   }
 
   // --- byte access ----------------------------------------------------------
@@ -270,12 +275,29 @@ class Bus {
       return;
     }
     final r = reg & ~1;
-    final cur = _readIo16(r);
+    if (r == _if) {
+      // write-1-to-clear: only the written byte may acknowledge
+      irq.ack(data << ((reg & 1) * 8));
+      return;
+    }
+    // write-only registers do not read back what was written, so merge the
+    // untouched byte from the last written value instead.
+    final cur = _isWriteOnly(r) ? io[r] | (io[r + 1] << 8) : _readIo16(r);
     _writeIo16(r, (reg & 1) == 0 ? cur.setL8(data) : cur.setH8(data));
   }
 
   static bool _isApuReg(int reg) =>
       (reg >= 0x60 && reg <= 0x84) || (reg >= 0xa0 && reg <= 0xa6);
+
+  // PSG frequency/control registers (SOUNDxCNT_X): the frequency is write-only.
+  static bool _isApuFreqReg(int reg) =>
+      reg == 0x64 || reg == 0x6c || reg == 0x74 || reg == 0x7c;
+
+  // DMA SAD/DAD/CNT_L, timer reload and PSG frequency are write-only.
+  static bool _isWriteOnly(int reg) =>
+      (reg >= 0x0b0 && reg <= 0x0df && (reg - 0xb0) % 12 != 10) ||
+      (reg >= 0x100 && reg <= 0x10f && (reg & 2) == 0) ||
+      _isApuFreqReg(reg);
 
   int _readIo16(int reg) {
     if (_isApuReg(reg)) return apu.read16(reg);
@@ -301,6 +323,11 @@ class Bus {
 
   void _writeIo16(int reg, int data) {
     data &= 0xffff;
+    if (_isWriteOnly(reg)) {
+      // remember the value for byte-write merging; the PSG trigger bit (15)
+      // must not be replayed by a later write to the low byte.
+      _storeIo(reg, _isApuFreqReg(reg) ? data & 0x7fff : data);
+    }
     if (_isApuReg(reg)) {
       apu.write16(reg, data);
       return;
@@ -336,6 +363,8 @@ class Bus {
         return;
       default:
         _storeIo(reg, data);
+        if (reg >= 0x028 && reg <= 0x02e) affineRefDirty[0] = true;
+        if (reg >= 0x038 && reg <= 0x03e) affineRefDirty[1] = true;
         return;
     }
   }

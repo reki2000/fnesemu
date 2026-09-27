@@ -414,6 +414,10 @@ extension ArmIsa on Arm7 {
         _setPC(v);
         return 4;
       }
+      // writeback unless base is loaded. done before the loads so that a
+      // `ldm rn!, {..,pc}^` updates rn in the current mode's bank, not in the
+      // bank of the mode restored from SPSR.
+      if (wb && (list & (1 << rn)) == 0) regs.r[rn] = writeback;
       for (final r in regsInList) {
         final v = bus.read32(addr & ~3);
         addr += 4;
@@ -427,8 +431,6 @@ extension ArmIsa on Arm7 {
           regs.r[r] = v;
         }
       }
-      // writeback unless base was loaded
-      if (wb && (list & (1 << rn)) == 0) regs.r[rn] = writeback;
       return count + 2;
     } else {
       if (regsInList.isEmpty) {

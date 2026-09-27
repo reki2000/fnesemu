@@ -181,9 +181,10 @@ class Apu {
     const psgRatio = [0.25, 0.5, 1.0, 1.0];
     final psgVol = psgRatio[_cntH & 3];
 
-    // PSG per-side enables (SOUNDCNT_L): bits 8-11 right, 12-15 left.
-    final psgVolR = ((_cntL >> 4) & 7) / 7;
-    final psgVolL = (_cntL & 7) / 7;
+    // PSG master volume (SOUNDCNT_L): bits 0-2 right, bits 4-6 left.
+    // per-side enables: bits 8-11 right, 12-15 left.
+    final psgVolR = (_cntL & 7) / 7;
+    final psgVolL = ((_cntL >> 4) & 7) / 7;
     final enRight = (_cntL >> 8) & 0xf;
     final enLeft = (_cntL >> 12) & 0xf;
 
@@ -487,7 +488,9 @@ class _Noise {
     _width7 = v.bit3;
     final shift = (v >> 4) & 0xf;
     final r = v & 7;
-    _hz = 524288 / _divisor[r] / (1 << (shift + 1)) * 8;
+    // LFSR clock = 4194304 / (divisor << shift), i.e. 524288 / r / 2^(s+1)
+    // with r=0 counted as 0.5.
+    _hz = 4194304 / (_divisor[r] << shift);
     _len.enabled = v.bit14;
     if (v.bit15) {
       active = true;

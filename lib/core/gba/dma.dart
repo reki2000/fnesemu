@@ -90,8 +90,9 @@ class Dma {
     final srcCtrl = (ctrl >> 7) & 3;
     final step = word ? 4 : 2;
 
-    int src = _srcLatch[ch];
-    int dst = _dstLatch[ch];
+    // addresses are forced to the unit size
+    int src = _srcLatch[ch] & ~(step - 1);
+    int dst = _dstLatch[ch] & ~(step - 1);
     final count = _countLatch[ch];
 
     // an EEPROM-targeted stream needs its length to infer the address width.
@@ -154,7 +155,7 @@ class Dma {
       if ((_dst[ch] & 0x0fffffff) != dest) continue;
 
       final srcCtrl = (ctrl >> 7) & 3;
-      int src = _srcLatch[ch];
+      int src = _srcLatch[ch] & ~3;
       for (int i = 0; i < 4; i++) {
         bus.write32(fifoAddr, bus.read32(src));
         src = (src + _delta(srcCtrl, 4)).mask32;
