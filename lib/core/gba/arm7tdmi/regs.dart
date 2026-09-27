@@ -61,7 +61,7 @@ class Regs {
   bool get thumb => cpsr & _tBit != 0;
   set thumb(bool b) => cpsr = cpsr.setBit(5, b).mask32;
 
-  int get mode => cpsr & 0x1f;
+  int get mode => cpsr.mask5;
 
   /// set N/Z together, leaving C/V untouched.
   void setNZ(bool n, bool z) {
@@ -92,7 +92,7 @@ class Regs {
     final oldMode = mode;
     if (oldMode == newMode) return;
     _switchBank(oldMode, newMode);
-    cpsr = (cpsr & ~0x1f) | (newMode & 0x1f);
+    cpsr = cpsr & ~0x1f | newMode.mask5;
   }
 
   void _switchBank(int oldMode, int newMode) {
@@ -160,7 +160,7 @@ class Regs {
   /// copy current SPSR back into CPSR (used on exception return).
   void restoreCpsr() {
     final target = spsr;
-    switchMode(target & 0x1f);
+    switchMode(target.mask5);
     cpsr = target;
   }
 

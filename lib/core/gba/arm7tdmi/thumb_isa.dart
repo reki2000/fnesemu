@@ -3,73 +3,73 @@ part of 'arm7.dart';
 /// THUMB (16-bit) instruction set.
 extension ThumbIsa on Arm7 {
   int _executeThumb(int op) {
-    final hi = op >> 13;
+    final hi = op.shr13;
     switch (hi) {
       case 0:
         return (op & 0x1800) == 0x1800 ? _thAddSub(op) : _thShift(op);
       case 1:
         return _thMovCmpImm(op);
       case 2:
-        if ((op & 0x1000) != 0) {
+        if (op.bit12) {
           // bit12=1 -> load/store with register offset / sign-extended
-          return (op & 0x0200) == 0 ? _thLdStReg(op) : _thLdStSign(op);
+          return !op.bit9 ? _thLdStReg(op) : _thLdStSign(op);
         }
-        if ((op & 0x0800) != 0) return _thLdrPc(op); // bit11=1 -> PC load
+        if (op.bit11) return _thLdrPc(op); // bit11=1 -> PC load
         // bit12=0,bit11=0 -> ALU (bit10=0) or hi-register (bit10=1)
-        return (op & 0x0400) == 0 ? _thAlu(op) : _thHiReg(op);
+        return !op.bit10 ? _thAlu(op) : _thHiReg(op);
       case 3:
         return _thLdStImm(op);
       case 4:
-        return (op & 0x1000) == 0 ? _thLdStHalf(op) : _thLdStSp(op);
+        return !op.bit12 ? _thLdStHalf(op) : _thLdStSp(op);
       case 5:
-        if ((op & 0x1000) == 0) return _thLoadAddr(op);
+        if (!op.bit12) return _thLoadAddr(op);
         if ((op & 0x0f00) == 0x0000) return _thAddSp(op);
         return _thPushPop(op);
       case 6:
-        if ((op & 0x1000) == 0) return _thBlock(op);
+        if (!op.bit12) return _thBlock(op);
         if ((op & 0x0f00) == 0x0f00) {
           raiseSwi();
           return 3;
         }
         return _thCondBranch(op);
       default: // 7
-        return (op & 0x1000) == 0 ? _thBranch(op) : _thLongBranch(op);
+        return !op.bit12 ? _thBranch(op) : _thLongBranch(op);
     }
   }
 
   // format 1: move shifted register
   int _thShift(int op) {
-    final type = (op >> 11) & 3; // 0 LSL 1 LSR 2 ASR
-    final offset = (op >> 6) & 0x1f;
-    final rs = (op >> 3) & 7;
-    final rd = op & 7;
+    final type = op.shr11.mask2; // 0 LSL 1 LSR 2 ASR
+    final offset = op.shr6.mask5;
+    final rs = op.shr3.mask3;
+    final rd = op.mask3;
     final res = _barrel(type, regs.r[rs], offset, imm: true);
     regs.r[rd] = res;
-    regs.setNZ(res & 0x80000000 != 0, res == 0);
+    regs.setNZ(res.bit31, res == 0);
     regs.cf = _shiftC;
     return 1;
   }
 
   // format 2: add/subtract
   int _thAddSub(int op) {
-    final imm = (op >> 10) & 1 != 0;
-    final sub = (op >> 9) & 1 != 0;
-    final rnOff = (op >> 6) & 7;
-    final rs = (op >> 3) & 7;
-    final rd = op & 7;
+    final imm = op.bit10;
+    final sub = op.bit9;
+    final rnOff = op.shr6.mask3;
+    final rs = op.shr3.mask3;
+    final rd = op.mask3;
     final b = imm ? rnOff : regs.r[rnOff];
     final a = regs.r[rs];
     final res = sub ? _sbc(a, b, 1) : _adc(a, b, 0);
     regs.r[rd] = res;
-    regs.setNZCV(res & 0x80000000 != 0, res == 0, _aluC, _aluV);
+    regs.setNZCV(res.bit31, res == 0, _aluC, _aluV);
     return 1;
   }
 
   // format 3: move/compare/add/subtract immediate
   int _thMovCmpImm(int op) {
-    final sub = (op >> 11) & 3;
-    final rd = (op >> 8) & 7;
-    final imm = op & 0xff;
+    final sub = op.shr11.mask2;
+    final rd = op.shr8.mask3;
+    final imm = op.mask8;
     final a = regs.r[rd];
     switch (sub) {
       case 0: // MOV
@@ -78,17 +78,17 @@ extension ThumbIsa on Arm7 {
         break;
       case 1: // CMP
         final res = _sbc(a, imm, 1);
-        regs.setNZCV(res & 0x80000000 != 0, res == 0, _aluC, _aluV);
+        regs.setNZCV(res.bit31, res == 0, _aluC, _aluV);
         break;
       case 2: // ADD
         final res = _adc(a, imm, 0);
         regs.r[rd] = res;
-        regs.setNZCV(res & 0x80000000 != 0, res == 0, _aluC, _aluV);
+        regs.setNZCV(res.bit31, res == 0, _aluC, _aluV);
         break;
       default: // SUB
         final res = _sbc(a, imm, 1);
         regs.r[rd] = res;
-        regs.setNZCV(res & 0x80000000 != 0, res == 0, _aluC, _aluV);
+        regs.setNZCV(res.bit31, res == 0, _aluC, _aluV);
         break;
     }
     return 1;
@@ -96,9 +96,9 @@ extension ThumbIsa on Arm7 {
 
   // format 4: ALU operations
   int _thAlu(int op) {
-    final code = (op >> 6) & 0xf;
-    final rs = (op >> 3) & 7;
-    final rd = op & 7;
+    final code = op.shr6.mask4;
+    final rs = op.shr3.mask3;
+    final rd = op.mask3;
     final a = regs.r[rd];
     final b = regs.r[rs];
     int res;
@@ -108,28 +108,28 @@ extension ThumbIsa on Arm7 {
     switch (code) {
       case 0x0: res = a & b; break; // AND
       case 0x1: res = a ^ b; break; // EOR
-      case 0x2: res = _barrel(0, a, b & 0xff, imm: false); break; // LSL
-      case 0x3: res = _barrel(1, a, b & 0xff, imm: false); break; // LSR
-      case 0x4: res = _barrel(2, a, b & 0xff, imm: false); break; // ASR
+      case 0x2: res = _barrel(0, a, b.mask8, imm: false); break; // LSL
+      case 0x3: res = _barrel(1, a, b.mask8, imm: false); break; // LSR
+      case 0x4: res = _barrel(2, a, b.mask8, imm: false); break; // ASR
       case 0x5: res = _adc(a, b, regs.cf ? 1 : 0); arith = true; break; // ADC
       case 0x6: res = _sbc(a, b, regs.cf ? 1 : 0); arith = true; break; // SBC
-      case 0x7: res = _barrel(3, a, b & 0xff, imm: false); break; // ROR
+      case 0x7: res = _barrel(3, a, b.mask8, imm: false); break; // ROR
       case 0x8: res = a & b; write = false; break; // TST
       case 0x9: res = _sbc(0, b, 1); arith = true; break; // NEG
       case 0xa: res = _sbc(a, b, 1); arith = true; write = false; break; // CMP
       case 0xb: res = _adc(a, b, 0); arith = true; write = false; break; // CMN
       case 0xc: res = a | b; break; // ORR
-      case 0xd: res = (a * b) & 0xffffffff; break; // MUL
-      case 0xe: res = a & (~b & 0xffffffff); break; // BIC
-      default: res = (~b) & 0xffffffff; break; // MVN
+      case 0xd: res = (a * b).mask32; break; // MUL
+      case 0xe: res = a & (~b).mask32; break; // BIC
+      default: res = (~b).mask32; break; // MVN
     }
 
     if (write) regs.r[rd] = res;
 
     if (arith) {
-      regs.setNZCV(res & 0x80000000 != 0, res == 0, _aluC, _aluV);
+      regs.setNZCV(res.bit31, res == 0, _aluC, _aluV);
     } else {
-      regs.setNZ(res & 0x80000000 != 0, res == 0);
+      regs.setNZ(res.bit31, res == 0);
       // shift ops update C; logical ops leave C as-is
       if (code == 0x2 || code == 0x3 || code == 0x4 || code == 0x7) {
         regs.cf = _shiftC;
@@ -140,14 +140,14 @@ extension ThumbIsa on Arm7 {
 
   // format 5: hi register operations / BX
   int _thHiReg(int op) {
-    final code = (op >> 8) & 3;
-    final rd = (op & 7) | ((op >> 4) & 8);
-    final rs = ((op >> 3) & 7) | ((op >> 3) & 8);
+    final code = op.shr8.mask2;
+    final rd = op.mask3 | op.shr4 & 8;
+    final rs = op.shr3.mask3 | op.shr3 & 8;
     final a = regs.r[rd];
     final b = regs.r[rs];
     switch (code) {
       case 0: // ADD (no flags)
-        final res = (a + b) & 0xffffffff;
+        final res = (a + b).mask32;
         if (rd == 15) {
           _setPC(res);
         } else {
@@ -156,7 +156,7 @@ extension ThumbIsa on Arm7 {
         break;
       case 1: // CMP (flags only)
         final res = _sbc(a, b, 1);
-        regs.setNZCV(res & 0x80000000 != 0, res == 0, _aluC, _aluV);
+        regs.setNZCV(res.bit31, res == 0, _aluC, _aluV);
         break;
       case 2: // MOV (no flags)
         if (rd == 15) {
@@ -174,21 +174,21 @@ extension ThumbIsa on Arm7 {
 
   // format 6: PC-relative load
   int _thLdrPc(int op) {
-    final rd = (op >> 8) & 7;
-    final imm = (op & 0xff) << 2;
-    final addr = ((regs.r[15] & ~2) + imm) & 0xffffffff;
+    final rd = op.shr8.mask3;
+    final imm = op.mask8.shl2;
+    final addr = ((regs.r[15] & ~2) + imm).mask32;
     regs.r[rd] = bus.read32(addr & ~3);
     return 3;
   }
 
   // format 7: load/store with register offset
   int _thLdStReg(int op) {
-    final load = (op >> 11) & 1 != 0;
-    final byte = (op >> 10) & 1 != 0;
-    final ro = (op >> 6) & 7;
-    final rb = (op >> 3) & 7;
-    final rd = op & 7;
-    final addr = (regs.r[rb] + regs.r[ro]) & 0xffffffff;
+    final load = op.bit11;
+    final byte = op.bit10;
+    final ro = op.shr6.mask3;
+    final rb = op.shr3.mask3;
+    final rd = op.mask3;
+    final addr = (regs.r[rb] + regs.r[ro]).mask32;
     if (load) {
       regs.r[rd] = byte ? bus.read8(addr) : _ldrWord(addr);
       return 3;
@@ -204,32 +204,32 @@ extension ThumbIsa on Arm7 {
 
   // format 8: load/store sign-extended byte/halfword
   int _thLdStSign(int op) {
-    final h = (op >> 11) & 1 != 0;
-    final s = (op >> 10) & 1 != 0;
-    final ro = (op >> 6) & 7;
-    final rb = (op >> 3) & 7;
-    final rd = op & 7;
-    final addr = (regs.r[rb] + regs.r[ro]) & 0xffffffff;
+    final h = op.bit11;
+    final s = op.bit10;
+    final ro = op.shr6.mask3;
+    final rb = op.shr3.mask3;
+    final rd = op.mask3;
+    final addr = (regs.r[rb] + regs.r[ro]).mask32;
     if (!s && !h) {
       // STRH
-      bus.write16(addr & ~1, regs.r[rd] & 0xffff);
+      bus.write16(addr & ~1, regs.r[rd].mask16);
       return 2;
     } else if (!s && h) {
       // LDRH
       final raw = bus.read16(addr & ~1);
       regs.r[rd] =
-          (addr & 1 != 0) ? ((raw >>> 8) | (raw << 24)) & 0xffffffff : raw;
+          addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
       return 3;
     } else if (s && !h) {
       // LDRSB
-      regs.r[rd] = bus.read8(addr).toSigned(8) & 0xffffffff;
+      regs.r[rd] = bus.read8(addr).toSigned(8).mask32;
       return 3;
     } else {
       // LDRSH
-      if (addr & 1 != 0) {
-        regs.r[rd] = bus.read8(addr).toSigned(8) & 0xffffffff;
+      if (addr.bit0) {
+        regs.r[rd] = bus.read8(addr).toSigned(8).mask32;
       } else {
-        regs.r[rd] = bus.read16(addr).toSigned(16) & 0xffffffff;
+        regs.r[rd] = bus.read16(addr).toSigned(16).mask32;
       }
       return 3;
     }
@@ -237,13 +237,13 @@ extension ThumbIsa on Arm7 {
 
   // format 9: load/store with immediate offset
   int _thLdStImm(int op) {
-    final byte = (op >> 12) & 1 != 0;
-    final load = (op >> 11) & 1 != 0;
-    final offset = (op >> 6) & 0x1f;
-    final rb = (op >> 3) & 7;
-    final rd = op & 7;
+    final byte = op.bit12;
+    final load = op.bit11;
+    final offset = op.shr6.mask5;
+    final rb = op.shr3.mask3;
+    final rd = op.mask3;
     final addr =
-        (regs.r[rb] + (byte ? offset : offset << 2)) & 0xffffffff;
+        (regs.r[rb] + (byte ? offset : offset.shl2)).mask32;
     if (load) {
       regs.r[rd] = byte ? bus.read8(addr) : _ldrWord(addr);
       return 3;
@@ -259,28 +259,28 @@ extension ThumbIsa on Arm7 {
 
   // format 10: load/store halfword
   int _thLdStHalf(int op) {
-    final load = (op >> 11) & 1 != 0;
-    final offset = ((op >> 6) & 0x1f) << 1;
-    final rb = (op >> 3) & 7;
-    final rd = op & 7;
-    final addr = (regs.r[rb] + offset) & 0xffffffff;
+    final load = op.bit11;
+    final offset = op.shr6.mask5.shl1;
+    final rb = op.shr3.mask3;
+    final rd = op.mask3;
+    final addr = (regs.r[rb] + offset).mask32;
     if (load) {
       final raw = bus.read16(addr & ~1);
       regs.r[rd] =
-          (addr & 1 != 0) ? ((raw >>> 8) | (raw << 24)) & 0xffffffff : raw;
+          addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
       return 3;
     } else {
-      bus.write16(addr & ~1, regs.r[rd] & 0xffff);
+      bus.write16(addr & ~1, regs.r[rd].mask16);
       return 2;
     }
   }
 
   // format 11: SP-relative load/store
   int _thLdStSp(int op) {
-    final load = (op >> 11) & 1 != 0;
-    final rd = (op >> 8) & 7;
-    final imm = (op & 0xff) << 2;
-    final addr = (regs.r[13] + imm) & 0xffffffff;
+    final load = op.bit11;
+    final rd = op.shr8.mask3;
+    final imm = op.mask8.shl2;
+    final addr = (regs.r[13] + imm).mask32;
     if (load) {
       regs.r[rd] = _ldrWord(addr);
       return 3;
@@ -292,28 +292,28 @@ extension ThumbIsa on Arm7 {
 
   // format 12: load address (PC/SP + imm)
   int _thLoadAddr(int op) {
-    final useSp = (op >> 11) & 1 != 0;
-    final rd = (op >> 8) & 7;
-    final imm = (op & 0xff) << 2;
+    final useSp = op.bit11;
+    final rd = op.shr8.mask3;
+    final imm = op.mask8.shl2;
     final base = useSp ? regs.r[13] : (regs.r[15] & ~2);
-    regs.r[rd] = (base + imm) & 0xffffffff;
+    regs.r[rd] = (base + imm).mask32;
     return 1;
   }
 
   // format 13: add offset to stack pointer
   int _thAddSp(int op) {
-    final imm = (op & 0x7f) << 2;
-    final sub = (op >> 7) & 1 != 0;
+    final imm = op.mask7.shl2;
+    final sub = op.bit7;
     regs.r[13] =
-        (regs.r[13] + (sub ? -imm : imm)) & 0xffffffff;
+        (regs.r[13] + (sub ? -imm : imm)).mask32;
     return 1;
   }
 
   // format 14: push/pop registers
   int _thPushPop(int op) {
-    final load = (op >> 11) & 1 != 0; // pop
-    final pclr = (op >> 8) & 1 != 0;
-    final list = op & 0xff;
+    final load = op.bit11; // pop
+    final pclr = op.bit8;
+    final list = op.mask8;
 
     final regsInList = <int>[];
     for (int i = 0; i < 8; i++) {
@@ -330,16 +330,16 @@ extension ThumbIsa on Arm7 {
       if (pclr) {
         final v = bus.read32(addr & ~3);
         addr += 4;
-        regs.r[13] = addr & 0xffffffff;
+        regs.r[13] = addr.mask32;
         _setPC(v & ~1); // ARMv4: stays THUMB
         return regsInList.length + 3;
       }
-      regs.r[13] = addr & 0xffffffff;
+      regs.r[13] = addr.mask32;
       return regsInList.length + 2;
     } else {
       // PUSH: descending, lowest reg at lowest address
       final count = regsInList.length + (pclr ? 1 : 0);
-      var addr = (regs.r[13] - count * 4) & 0xffffffff;
+      var addr = (regs.r[13] - count * 4).mask32;
       regs.r[13] = addr;
       for (final r in regsInList) {
         bus.write32(addr & ~3, regs.r[r]);
@@ -352,9 +352,9 @@ extension ThumbIsa on Arm7 {
 
   // format 15: multiple load/store
   int _thBlock(int op) {
-    final load = (op >> 11) & 1 != 0;
-    final rb = (op >> 8) & 7;
-    final list = op & 0xff;
+    final load = op.bit11;
+    final rb = op.shr8.mask3;
+    final list = op.mask8;
 
     final regsInList = <int>[];
     for (int i = 0; i < 8; i++) {
@@ -368,9 +368,9 @@ extension ThumbIsa on Arm7 {
       if (load) {
         _setPC(bus.read32(addr & ~3));
       } else {
-        bus.write32(addr & ~3, (regs.r[15] + 2) & 0xffffffff);
+        bus.write32(addr & ~3, (regs.r[15] + 2).mask32);
       }
-      regs.r[rb] = (addr + 0x40) & 0xffffffff;
+      regs.r[rb] = (addr + 0x40).mask32;
       return 3;
     }
 
@@ -380,10 +380,10 @@ extension ThumbIsa on Arm7 {
         addr += 4;
       }
       // writeback unless base was in list
-      if (list & (1 << rb) == 0) regs.r[rb] = addr & 0xffffffff;
+      if (!list.bit(rb)) regs.r[rb] = addr.mask32;
       return regsInList.length + 2;
     } else {
-      final writeback = (addr + regsInList.length * 4) & 0xffffffff;
+      final writeback = (addr + regsInList.length * 4).mask32;
       var first = true;
       for (final r in regsInList) {
         var v = regs.r[r];
@@ -399,33 +399,33 @@ extension ThumbIsa on Arm7 {
 
   // format 16: conditional branch
   int _thCondBranch(int op) {
-    final cond = (op >> 8) & 0xf;
+    final cond = op.shr8.mask4;
     if (!checkCond(cond)) return 1;
-    final off = (op & 0xff).toSigned(8) << 1;
-    _setPC((regs.r[15] + off) & 0xffffffff);
+    final off = op.mask8.toSigned(8).shl1;
+    _setPC((regs.r[15] + off).mask32);
     return 3;
   }
 
   // format 18: unconditional branch
   int _thBranch(int op) {
-    final off = (op & 0x7ff).toSigned(11) << 1;
-    _setPC((regs.r[15] + off) & 0xffffffff);
+    final off = op.mask11.toSigned(11).shl1;
+    _setPC((regs.r[15] + off).mask32);
     return 3;
   }
 
   // format 19: long branch with link (two half-instructions)
   int _thLongBranch(int op) {
-    final low = (op >> 11) & 1 != 0; // second half
+    final low = op.bit11; // second half
     if (!low) {
       // first half: LR = PC + (offset<<12)
-      final off = (op & 0x7ff).toSigned(11) << 12;
-      regs.r[14] = (regs.r[15] + off) & 0xffffffff;
+      final off = op.mask11.toSigned(11).shl12;
+      regs.r[14] = (regs.r[15] + off).mask32;
       return 1;
     } else {
       // second half: PC = LR + (offset<<1); LR = next | 1
-      final off = (op & 0x7ff) << 1;
-      final target = (regs.r[14] + off) & 0xffffffff;
-      final retLr = ((regs.r[15] - 2) | 1) & 0xffffffff;
+      final off = op.mask11.shl1;
+      final target = (regs.r[14] + off).mask32;
+      final retLr = ((regs.r[15] - 2) | 1).mask32;
       regs.r[14] = retLr;
       _setPC(target & ~1);
       return 3;

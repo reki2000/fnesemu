@@ -120,7 +120,7 @@ class Arm7 {
     if (n == 15) {
       _setPC(v);
     } else {
-      regs.r[n] = v & 0xffffffff;
+      regs.r[n] = v.mask32;
     }
   }
 
@@ -132,7 +132,7 @@ class Arm7 {
 
   /// branch-and-exchange: bit0 of [addr] selects THUMB.
   void _bx(int addr) {
-    regs.thumb = addr & 1 != 0;
+    regs.thumb = addr.bit0;
     regs.pc = addr & (regs.thumb ? ~1 : ~3);
     _flushPipeline();
   }

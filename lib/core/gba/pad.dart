@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 import '../pad_button.dart';
 
 /// GBA keypad. Produces the KEYINPUT register value where a 0 bit = pressed.
@@ -41,7 +43,7 @@ class Pad {
   int _pressed = 0; // 1 bit = currently pressed
 
   /// KEYINPUT: bits 0..9, 0=pressed. unused high bits read as 0.
-  int get keyInput => (~_pressed) & 0x03ff;
+  int get keyInput => (~_pressed).mask10;
 
   void keyDown(int id, PadButton b) {
     final n = _bit[b.name];

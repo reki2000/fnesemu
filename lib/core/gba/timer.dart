@@ -32,11 +32,11 @@ class Timers {
   void tick(int cycles) {
     for (int ch = 0; ch < 4; ch++) {
       if (!_enabled(ch) || _countUp(ch)) continue;
-      final shift = _prescalerShift[_control[ch] & 3];
+      final shift = _prescalerShift[_control[ch].mask2];
       _sub[ch] += cycles;
-      final ticks = _sub[ch] >> shift;
+      final ticks = _sub[ch].shr(shift);
       if (ticks > 0) {
-        _sub[ch] -= ticks << shift;
+        _sub[ch] -= ticks.shl(shift);
         _increment(ch, ticks);
       }
     }
@@ -68,18 +68,18 @@ class Timers {
   // --- register access (offset is reg & 0xf within 0x100..0x10f) ------------
 
   int read16(int reg) {
-    final ch = (reg & 0xf) >> 2;
-    return (reg & 2) != 0 ? _control[ch] : _counter[ch];
+    final ch = reg.mask4.shr2;
+    return reg.bit1 ? _control[ch] : _counter[ch];
   }
 
   void write16(int reg, int data) {
-    final ch = (reg & 0xf) >> 2;
-    if ((reg & 2) == 0) {
-      _reload[ch] = data & 0xffff;
+    final ch = reg.mask4.shr2;
+    if (!reg.bit1) {
+      _reload[ch] = data.mask16;
       return;
     }
     final wasEnabled = _enabled(ch);
-    _control[ch] = data & 0xffff;
+    _control[ch] = data.mask16;
     if (!wasEnabled && _enabled(ch)) {
       _counter[ch] = _reload[ch];
       _sub[ch] = 0;
