@@ -41,6 +41,7 @@ class Md implements Core {
 
   static const _regionDomestic = 0x00;
   static const _regionOversea = 0x80;
+  static const _regionOverseaPal = 0xc0;
 
   @override
   int get systemClockHz => m68ClockHz;
@@ -233,13 +234,17 @@ class Md implements Core {
         busM68.region = _regionDomestic;
       } else if (newStyleIndex.bit2) {
         busM68.region = _regionOversea;
+      } else if (newStyleIndex.bit3) {
+        busM68.region = _regionOverseaPal;
       } else {
         throw Exception("unknown ROM region:$r0");
       }
     } else if ("$r0$r1$r2".contains("J")) {
       busM68.region = _regionDomestic;
-    } else if ("$r0$r1".contains("U")) {
+    } else if ("$r0$r1$r2".contains("U")) {
       busM68.region = _regionOversea;
+    } else if ("$r0$r1$r2".contains("E")) {
+      busM68.region = _regionOverseaPal;
     } else {
       throw Exception("unknown ROM region:$r0$r1$r2");
     }

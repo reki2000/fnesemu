@@ -66,7 +66,10 @@ class BusM68 {
     }
 
     if (top == 0xa1) {
-      return readIo16(addr).mask8;
+      // i/o registers (0xa10000-0xa1001f) return the same value on both bytes,
+      // other control registers have their status on the even (upper) byte
+      final value = readIo16(addr);
+      return (addr.bit0 || addr & 0xffff < 0x20) ? value.mask8 : value.shr8;
     }
 
     if (top == 0xa0) {
@@ -132,7 +135,8 @@ class BusM68 {
         return;
       }
 
-      write16(addr, data.shl8);
+      // byte writes to the vdp are duplicated to both bytes of the bus
+      write16(addr, data.shl8 | data);
       return;
     }
 
@@ -147,7 +151,7 @@ class BusM68 {
       return;
     }
 
-    if (top < 0x40) {
+    if (top < 0x400000) {
       final offset = addr & 0x3fffff;
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
@@ -185,7 +189,7 @@ class BusM68 {
       return;
     }
 
-    if (top < 0x40) {
+    if (top < 0x400000) {
       final offset = addr & 0x3fffff;
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
@@ -213,7 +217,7 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => busZ80.busReq ? 0 : 1, // z80 busreq 0:granted
+      0x1100 => busZ80.busReq ? 0 : 0x100, // z80 busreq bit8 0:granted
       0x1200 => 0x00, // z80 reset
       _ => 0x00,
     };
@@ -241,8 +245,8 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => busZ80.busReq = data == 0x0100, // z80 busreq
-      0x1200 => busZ80.resetReq = data != 0x0100, // z80 reset
+      0x1100 => busZ80.busReq = data.bit8, // z80 busreq
+      0x1200 => busZ80.resetReq = !data.bit8, // z80 reset
       _ => 0x00,
     };
   }

@@ -137,7 +137,8 @@ class Z80 {
   bool _intAsserted = false;
   bool eiDelay = false; // EI instruction delay
 
-  bool halted = false;
+  bool halted = false; // HALT instruction
+  bool busReq = false; // bus is requested by m68
 
   Z80(this.bus);
 
@@ -150,10 +151,22 @@ class Z80 {
   }
 
   bool exec() {
+    // stopped while m68 owns the bus
+    if (busReq) {
+      cycles += 4;
+      return true;
+    }
+
     // interrupt
     if (_intAsserted && iff1) {
       _intAsserted = false;
       iff1 = false;
+      iff2 = false;
+      if (halted) {
+        // resume from the instruction next to HALT
+        halted = false;
+        r.pc = r.pc.inc.mask16;
+      }
       push(r.pc);
       r.pc = 0x38;
       cycles += 13;
@@ -322,7 +335,7 @@ class Z80 {
 
   void add8(int val, int c) {
     final result = r.a + val + c;
-    r.setSZ(result);
+    r.setSZ(result & 0xff);
     r.setV(r.a, val, result);
     r.hf = (r.a & 0xf) + (val & 0xf) > 0xf;
     r.nf = false;
@@ -332,9 +345,9 @@ class Z80 {
 
   void sub8(int val, int c) {
     final result = r.a - val - c;
-    r.setSZ(result);
-    r.setV(r.a, val + c, result, sub: true);
-    r.hf = (r.a & 0xf) < (val & 0xf);
+    r.setSZ(result & 0xff);
+    r.setV(r.a, val, result, sub: true);
+    r.hf = (r.a & 0xf) - (val & 0xf) - c < 0;
     r.nf = true;
     r.cf = result < 0;
     r.a = result & 0xff;
@@ -364,7 +377,7 @@ class Z80 {
 
   void cp8(int val) {
     final result = r.a - val;
-    r.setSZ(result);
+    r.setSZ(result & 0xff);
     r.setV(r.a, val, result, sub: true);
     r.hf = (r.a & 0xf) - (val & 0xf) < 0;
     r.nf = true;
@@ -457,6 +470,7 @@ class Z80 {
     iff1 = false;
     iff2 = false;
     im = 0;
+    halted = false;
     r.r8.fillRange(0, 8, 0);
     r.ixiy.fillRange(0, 2, 0);
     r.af2 = 0;
