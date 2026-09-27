@@ -72,14 +72,16 @@ void main() {
     expect(cpu.r[0], BigInt.zero);
   });
 
-  test('SUB handles the minimum signed operand and stops on overflow', () {
+  test('SUB handles the minimum signed operand and delivers overflow', () {
     final cpu = processor([0x3c018000, 0x00211022, 0x00011822]);
     cpu.step();
     cpu.step();
     expect(cpu.r[2], BigInt.zero);
     cpu.step();
-    expect(cpu.stopReason, contains('overflow'));
-    expect(cpu.pc, 0x80000008);
+    expect(cpu.stopReason, isNull);
+    expect((cpu.cop0[13] >> 2) & 31, 12);
+    expect(cpu.cop0[14], 0x80000008);
+    expect(cpu.pc, 0x80000180);
   });
 
   test('64-bit shifts, stores and loads preserve both halves', () {
@@ -118,7 +120,7 @@ void main() {
   });
 
   test('unsupported instructions and unaligned memory stop at fault PC', () {
-    for (final opcode in [0x44000000, 0x8c010001]) {
+    for (final opcode in [0x4c000000, 0x8c010001]) {
       final cpu = processor([opcode]);
       cpu.step();
       expect(cpu.stopReason, isNotNull);
@@ -173,7 +175,7 @@ void main() {
     core.reset();
     var lines = 0;
     for (var i = 0; i < core.clocksInScanline * 2; i++) {
-      final result = core.exec(false);
+      final result = core.exec(true);
       expect(result.stopped, isFalse);
       if (result.scanlineRendered) lines++;
     }

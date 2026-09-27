@@ -10,13 +10,34 @@ import '../types.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'rom.dart';
+import 'graphics.dart';
+import 'audio.dart';
 
-/// Direct-boot experimental N64 core for small integer-only homebrew.
+/// Independent N64 core with a VR4300 interpreter and GBI/audio task HLE.
 class N64 extends Core {
   final bus = N64Bus();
   late final cpu = Vr4300(bus);
+  late final graphics = N64Graphics(bus);
+  late final audio = N64Audio(bus);
+  N64() {
+    bus.onDp = (start, end) => graphics.commands(start, end);
+    bus.onTask = () {
+      final task = ByteData.sublistView(bus.sp, 0xfc0);
+      final type = task.getUint32(0);
+      if (type == 1) {
+        graphics.task(task.getUint32(48) & 0x7fffff, task.getUint32(52),
+            task.getUint32(24) & 0x7fffff, task.getUint32(28));
+      } else if (type == 2) {
+        audio.task(task.getUint32(48) & 0x7fffff, task.getUint32(52),
+            newer: _rom?.bytes[0x3f] == 3);
+      } else {
+        throw UnsupportedError('RSP task type $type');
+      }
+    };
+  }
   N64Rom? _rom;
   int _nextLine = 0, _frame = 0;
+  final _result = ExecResult(0, false, false);
 
   @override
   int get systemClockHz => 93750000;
@@ -32,6 +53,9 @@ class N64 extends Core {
     final rom = N64Rom(body);
     _rom = rom;
     bus.rom = rom.bytes;
+    bus.sram?.init(
+        'n64_${rom.bytes.sublist(0x10, 0x18).map((v) => v.toRadixString(16).padLeft(2, '0')).join()}',
+        Uint8List(512)..fillRange(0, 512, 255));
   }
 
   @override
@@ -39,6 +63,8 @@ class N64 extends Core {
     final rom = _rom;
     if (rom == null) throw StateError('N64 ROM not loaded');
     bus.reset();
+    graphics.reset();
+    audio.reset();
     // Deliberately bypass IPL/CIC. Only the first MiB of the payload is copied.
     final destination = rom.entryPoint & 0x1fffffff;
     final length = math.min(
@@ -47,6 +73,15 @@ class N64 extends Core {
     );
     bus.ram.setRange(destination, destination + length, rom.bytes, 0x1000);
     cpu.reset(rom.entryPoint);
+    bus.ramWrite(0x318, 0x800000, 4);
+    bus.ramWrite(0x300, 1, 4); // osTvType: NTSC
+    bus.ramWrite(0x304, 0, 4); // osRomType: cartridge
+    bus.ramWrite(0x308, 0xb0000000, 4); // osRomBase
+    bus.ramWrite(0x30c, 0, 4); // osResetType
+    bus.ramWrite(0x310, 0x3f, 4); // CIC seed
+    cpu.r[20] = BigInt.one;
+    cpu.r[22] = BigInt.from(0x3f);
+
     _nextLine = clocksInScanline;
     _frame = 0;
     debugStatus.clock = debugStatus.frame = debugStatus.scanline = 0;
@@ -55,7 +90,13 @@ class N64 extends Core {
 
   @override
   ExecResult exec(bool step) {
-    cpu.step();
+    final before = cpu.clocks;
+    if (!step && cpu.idleLoop) {
+      cpu.idle(_nextLine - cpu.clocks);
+    } else {
+      cpu.step();
+    }
+    bus.tick(cpu.clocks - before);
     var line = false;
     if (cpu.clocks >= _nextLine) {
       _nextLine += clocksInScanline;
@@ -64,49 +105,74 @@ class N64 extends Core {
         bus.scanline = 0;
         _frame++;
       }
+      if (bus.scanline * 2 == (bus.vi[3] & 0x3ff)) bus.interrupt(8);
       line = true;
     }
     debugStatus.clock = cpu.clocks;
     debugStatus.frame = _frame;
     debugStatus.scanline = bus.scanline;
     debugStatus.pc = cpu.pc;
-    return ExecResult(cpu.clocks, cpu.stopReason != null, line);
+    _result.elapsedClocks = cpu.clocks;
+    _result.stopped = cpu.stopReason != null;
+    _result.scanlineRendered = line;
+    return _result;
   }
 
   @override
   ImageBuffer imageBuffer() => bus.image();
   @override
-  void onAudio(void Function(AudioBuffer) onAudio) {}
+  void onAudio(void Function(AudioBuffer) onAudio) {
+    bus.onAudio = onAudio;
+  }
+
   @override
   void setDisc(Disc disc) {}
   @override
-  void setSram(Sram sram) {}
-  // Controller SI/PIF protocol is not implemented yet.
+  void setSram(Sram sram) {
+    bus.sram = sram;
+  }
+
+  // Arrow buttons drive the analog stick; the remaining buttons use PIF bits.
   @override
-  List<PadButton> get buttons => [];
+  List<PadButton> get buttons => [
+        PadButton.up,
+        PadButton.down,
+        PadButton.left,
+        PadButton.right,
+        const PadButton('Z'),
+        const PadButton('start'),
+        const PadButton('B'),
+        const PadButton('A'),
+        const PadButton('C-down'),
+        const PadButton('L'),
+        const PadButton('C-left'),
+        const PadButton('R'),
+        const PadButton('C-up'),
+        const PadButton('C-right')
+      ];
   @override
-  void padDown(int controllerId, PadButton k) {}
+  void padDown(int controllerId, PadButton k) => bus.pad(controllerId, k, true);
   @override
-  void padUp(int controllerId, PadButton k) {}
+  void padUp(int controllerId, PadButton k) => bus.pad(controllerId, k, false);
   @override
   int programCounter(int cpuNo) => cpu.pc;
   @override
   int stackPointer(int cpuNo) => cpu.address(cpu.r[29]);
   @override
   (String, int) disasm(int cpuNo, int addr) => (
-    '${addr.toRadixString(16).padLeft(8, '0')}: .word 0x${bus.read(addr, 4).toRadixString(16).padLeft(8, '0')}',
-    4,
-  );
+        '${addr.toRadixString(16).padLeft(8, '0')}: .word 0x${bus.read(addr, 4).toRadixString(16).padLeft(8, '0')}',
+        4,
+      );
   @override
   TraceLog trace(int cpuNo) => TraceLog(
-    cpu.pc,
-    cpu.clocks,
-    disasm(cpuNo, cpu.pc).$1,
-    dump(),
-    [cpu.pc, ...cpu.r.map(cpu.address)],
-    frame: _frame,
-    scanline: bus.scanline,
-  );
+        cpu.pc,
+        cpu.clocks,
+        disasm(cpuNo, cpu.pc).$1,
+        dump(),
+        [cpu.pc, ...cpu.r.map(cpu.address)],
+        frame: _frame,
+        scanline: bus.scanline,
+      );
   @override
   String dump({
     bool showZeroPage = false,
@@ -114,9 +180,10 @@ class N64 extends Core {
     bool showStack = false,
     bool showApu = false,
   }) =>
-      'N64 ${_rom?.title ?? ''} (experimental direct boot)\n'
+      'N64 ${_rom?.title ?? ''} (Dart / task HLE)\n'
       'PC:${cpu.pc.toRadixString(16)} cycles:${cpu.clocks}\n'
       '${List.generate(32, (i) => 'r$i:${cpu.r[i].toUnsigned(64).toRadixString(16).padLeft(16, '0')}').join(' ')}\n'
+      'RSP graphics:${graphics.tasks} triangles:${graphics.triangles} audio:${audio.tasks}\n'
       '${cpu.stopReason ?? ''}';
   @override
   int read(int cpuNo, int addr) => bus.read8(addr);
