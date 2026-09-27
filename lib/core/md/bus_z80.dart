@@ -17,10 +17,10 @@ class BusZ80 {
   int bank = 0x00; // shound not be 0x140 = 0xa00000
   final ram = Uint8List(0x2000);
 
-  bool get busReq => cpu.halted;
+  bool get busReq => cpu.busReq;
   set busReq(bool value) {
     // print("z80 busreq:$value m68 pc:${busM68.cpu.pc.x6}");
-    cpu.halted = value;
+    cpu.busReq = value;
   }
 
   bool _reset = false;
@@ -35,6 +35,7 @@ class BusZ80 {
   void onReset() {
     bank = 0x00;
     _reset = false;
+    cpu.busReq = false;
     cpu.reset();
   }
 
