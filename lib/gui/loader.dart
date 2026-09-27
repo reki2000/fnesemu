@@ -1,7 +1,7 @@
 part of 'app.dart';
 
 String _fileExtension(String fileName) =>
-    fileName.substring(fileName.lastIndexOf(".") + 1);
+    fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
 
 Future<(Uint8List, String)> _pickFile({String name = ""}) async {
   if (name == "") {
@@ -12,7 +12,7 @@ Future<(Uint8List, String)> _pickFile({String name = ""}) async {
   } else {
     return (
       (await rootBundle.load('assets/roms/$name')).buffer.asUint8List(),
-      name
+      name,
     );
   }
 
@@ -28,7 +28,15 @@ Future<(Uint8List, String)> _pickFile({String name = ""}) async {
   final archive = ZipDecoder().decodeBytes(file);
 
   for (final entry in archive) {
-    if (["nes", "pce", "md", "gen"].contains(_fileExtension(entry.name))) {
+    if ([
+      "nes",
+      "pce",
+      "md",
+      "gen",
+      "n64",
+      "z64",
+      "v64",
+    ].contains(_fileExtension(entry.name))) {
       return (entry.content as Uint8List, entry.name);
     }
   }
