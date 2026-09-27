@@ -348,6 +348,9 @@ extension VdpRenderer on Vdp {
 
       if (!enableDisplay) {
         buffer.fillRange(bufferOffset, bufferOffset + width, rgba[cram[bg]]);
+        if (trackOpacity) {
+          opaque.fillRange(bufferOffset, bufferOffset + width, 0);
+        }
         hCounter = width;
         vBlank = false;
         return true;
@@ -355,6 +358,7 @@ extension VdpRenderer on Vdp {
 
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color;
+        bool visible = true;
 
         // 2-cell vertical scroll: each 16 pixel column has its own vscroll
         if (vScr2Cell && hCounter & 0x0f == 0) {
@@ -375,6 +379,10 @@ extension VdpRenderer on Vdp {
             color = planeAW.color;
           } else {
             final planeB = _planeColor(ctxB);
+            if (trackOpacity) {
+              visible =
+                  sprite.isVisible || planeAW.isVisible || planeB.isVisible;
+            }
 
             color = (planeB.isPrior && planeB.isVisible)
                 ? planeB.color
@@ -389,6 +397,7 @@ extension VdpRenderer on Vdp {
         }
 
         buffer[bufferOffset + hCounter] = rgba[cram[color]];
+        if (trackOpacity) opaque[bufferOffset + hCounter] = visible ? 1 : 0;
       }
 
       vBlank = false;

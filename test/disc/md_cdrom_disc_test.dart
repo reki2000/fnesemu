@@ -40,6 +40,51 @@ void main() {
     expect(IsoDisc(file.path).read(150), raw);
   });
 
+  test('implicit PREGAP adds silence without skipping file data', () {
+    final data = Uint8List(2352)..[0] = 42;
+    File('${dir.path}/disc.img').writeAsBytesSync(data);
+    final cue = File('${dir.path}/game.cue')..writeAsStringSync('''
+FILE "disc.img" BINARY
+ TRACK 01 MODE1/2352
+  PREGAP 00:02:00
+  INDEX 01 00:00:00
+''');
+    final disc = CueDisc(cue.path);
+    expect(disc.startLba(1), 150);
+    expect(disc.totalSectors, 151);
+    expect(disc.read(299), isEmpty);
+    expect(disc.read(300), data);
+  });
+
+  test('shared image INDEX 00 gaps do not shift audio data or inflate length',
+      () {
+    final data = Uint8List(10 * 2352);
+    for (int sector = 0; sector < 10; sector++) {
+      data[sector * 2352] = sector;
+    }
+    File('${dir.path}/disc.img').writeAsBytesSync(data);
+    final cue = File('${dir.path}/game.cue')..writeAsStringSync('''
+FILE "disc.img" BINARY
+ TRACK 01 MODE1/2352
+  INDEX 01 00:00:00
+ TRACK 02 AUDIO
+  INDEX 00 00:00:03
+  INDEX 01 00:00:05
+ TRACK 03 AUDIO
+  INDEX 00 00:00:07
+  INDEX 01 00:00:08
+''');
+    final disc = CueDisc(cue.path);
+    expect(disc.totalSectors, 10);
+    expect(disc.startLba(2), 5);
+    expect(disc.startLba(3), 8);
+    expect(disc.read(153), isEmpty);
+    expect(disc.read(155)[0], 5);
+    expect(disc.read(158)[0], 8);
+    expect(disc.read(159)[0], 9);
+    expect(disc.read(160), isEmpty);
+  });
+
   test('CUE supports separate cooked data and raw audio files', () {
     File('${dir.path}/data.iso')
         .writeAsBytesSync(Uint8List(4096)..[2048] = 0x42);

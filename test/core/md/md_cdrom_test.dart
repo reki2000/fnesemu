@@ -264,6 +264,38 @@ void main() {
   });
 
   group('CDD / CDC', () {
+    test('reset and stop response packets remain latched across drive ticks',
+        () {
+      final drive = CdDrive((_) {}, () {})
+        ..mount(MemoryDisc([Uint8List(2352)]))
+        ..hostClock = true;
+      expect(drive.response, [0, 0, 0, 0, 0, 0, 0, 0, 0, 15]);
+      drive.tick();
+      expect(drive.response[0], 0);
+      command(drive, [1]);
+      expect(drive.response[0], 0);
+      drive.tick();
+      expect(drive.response[0], 0);
+      command(drive, [0]);
+      expect(drive.response[0], 9);
+    });
+
+    test('playing in the lead-in reaches sector zero without skipping data',
+        () {
+      final disc = MemoryDisc([Disc.mode1Sector(Uint8List(2048), 0)]);
+      final drive = CdDrive((_) {}, () {})
+        ..mount(disc)
+        ..hostClock = true;
+      command(drive, [3, 0, 0, 0, 0, 1, 7, 3]); // absolute MSF 00:01:73
+      expect(drive.lba, -2);
+      drive.tick(); // seek
+      drive.tick();
+      drive.tick();
+      expect(disc.reads, isEmpty);
+      drive.tick();
+      expect(disc.reads, [150]);
+    });
+
     test('TOC checksums, track queries and lead-in-aware data reads', () {
       final disc = MemoryDisc(
           List.generate(

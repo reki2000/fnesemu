@@ -28,6 +28,20 @@ class ExecResult {
   bool executed0 = true;
   bool executed1 = false;
   bool executed2 = false;
+  Map<int, bool>? _additionalExecuted;
+
+  void setExecuted(int cpuNo, bool value) {
+    switch (cpuNo) {
+      case 0:
+        executed0 = value;
+      case 1:
+        executed1 = value;
+      case 2:
+        executed2 = value;
+      default:
+        (_additionalExecuted ??= <int, bool>{})[cpuNo] = value;
+    }
+  }
 
   ExecResult(
     this.elapsedClocks,
@@ -39,7 +53,7 @@ class ExecResult {
         0 => executed0,
         1 => executed1,
         2 => executed2,
-        _ => false,
+        _ => _additionalExecuted?[i] ?? false,
       };
 }
 

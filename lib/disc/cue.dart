@@ -174,31 +174,38 @@ class CueDisc extends Disc {
       }
     }
 
-    int imageLba = 0;
-    int offsetInImage = 0;
-    _tracks[0].startLBA = _tracks[0].index[1];
-
-    for (int i = 1; i < _tracks.length; i++) {
-      final prev = _tracks[i - 1];
+    if (_tracks.isEmpty) return;
+    int imageLba = 0, implicitGaps = 0;
+    for (int i = 0; i < _tracks.length; i++) {
       final t = _tracks[i];
-
-      if (prev.imageIndex != t.imageIndex) {
-        prev.dataSectors =
-            (_images[prev.imageIndex].length - prev.offsetInImage) ~/
-                prev.sectorSize;
-        imageLba = prev.startLBA + prev.dataSectors + prev.postgap;
-        offsetInImage = 0;
-      } else {
-        prev.dataSectors =
-            (t.index[0] - t.pregap - prev.postgap - prev.startLBA);
-        offsetInImage += prev.dataSectors * prev.sectorSize;
+      if (t.index.length < 2) {
+        throw FormatException('disc: cue: track ${t.number} has no INDEX 01');
       }
-      t.startLBA = t.index[1] + imageLba;
-      t.offsetInImage = offsetInImage;
+      if (i == 0 || _tracks[i - 1].imageIndex != t.imageIndex) {
+        if (i > 0) {
+          final prev = _tracks[i - 1];
+          imageLba = prev.startLBA + prev.dataSectors + prev.postgap;
+        }
+        // A first INDEX without INDEX 00 anchors the image's first sector.
+        // Some sheets include the synthetic pregap in that timestamp.
+        implicitGaps = (t.pregap - t.index[0]).clamp(0, 0x7fffffff);
+        t.offsetInImage = (t.index[1] - t.index[0]) * t.sectorSize;
+      } else {
+        final prev = _tracks[i - 1];
+        implicitGaps += prev.postgap + t.pregap;
+        // INDEX 00 sectors are stored in the image. Skip them when finding
+        // INDEX 01, without adding them again to the disc length.
+        t.offsetInImage =
+            prev.offsetInImage + (t.index[1] - prev.index[1]) * prev.sectorSize;
+      }
+      t.startLBA = imageLba + t.index[1] + implicitGaps;
+      if (i + 1 < _tracks.length && _tracks[i + 1].imageIndex == t.imageIndex) {
+        t.dataSectors = _tracks[i + 1].index[0] - t.index[1];
+      } else {
+        t.dataSectors =
+            (_images[t.imageIndex].length - t.offsetInImage) ~/ t.sectorSize;
+      }
     }
-    _tracks.last.dataSectors = (_images[_tracks.last.imageIndex].length -
-            _tracks.last.offsetInImage) ~/
-        _tracks.last.sectorSize;
   }
 
   void _logSummary() {

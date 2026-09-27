@@ -36,7 +36,9 @@ class CdDrive {
     _sectorAudioLba = _currentLba = -1;
     _audio = Uint8List(0);
     command.fillRange(0, 10, 0);
-    _updateResponse();
+    // The host sees a reset packet until it submits its first command.
+    response.fillRange(0, 10, 0);
+    response[9] = 15;
   }
 
   int trackAt(int position) {
@@ -80,7 +82,7 @@ class CdDrive {
               command[6] * 10 +
               command[7] -
               150;
-          lba = position.clamp(0, disc.totalSectors);
+          lba = position.clamp(-150, disc.totalSectors);
           track = trackAt(lba);
           _audioPhase = 0;
           _seekStatus = op == 3 ? 1 : 4;
@@ -122,13 +124,16 @@ class CdDrive {
       } else {
         _currentLba = lba;
         track = trackAt(lba);
-        if (!disc.isAudio(track)) onSector(disc.read(lba + 150));
+        if (lba >= 0 && !disc.isAudio(track)) {
+          onSector(disc.read(lba + 150));
+        }
         lba++;
       }
     } else if (status == 3) {
       lba = (lba + 10 * _scanDirection).clamp(0, disc.totalSectors);
     }
-    _updateResponse();
+    // Responses are latched on command submission. A transport tick must
+    // not overwrite a Stop/Close acknowledgement before the host reads it.
     interrupt();
   }
 

@@ -12,7 +12,10 @@ import 'rom.dart';
 import 'vdp.dart';
 
 class BusM68 {
-  BusM68();
+  BusM68({Uint8List? ram, Pad? pad, Rom? rom})
+      : ram = ram ?? Uint8List(0x10000),
+        pad = pad ?? Pad(),
+        rom = rom ?? Rom();
 
   late BusZ80 busZ80;
   late M68 cpu;
@@ -20,11 +23,11 @@ class BusM68 {
   late Sn76489 psg;
   late Ym2612 fm;
 
-  Rom rom = Rom();
+  Rom rom;
   MdCdrom? cdrom;
   int region = 0x00;
 
-  final pad = Pad();
+  final Pad pad;
 
   void onReset() {
     cpu.reset();
@@ -33,7 +36,7 @@ class BusM68 {
     psg.reset();
   }
 
-  final ram = Uint8List(0x10000);
+  final Uint8List ram;
 
   int read8(int addr) {
     if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain8(addr);

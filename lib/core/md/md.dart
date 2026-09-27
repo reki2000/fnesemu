@@ -15,6 +15,9 @@ import '../sram.dart';
 import '../types.dart';
 import 'bus_m68.dart';
 import 'cd/md_cdrom.dart';
+import '32x/md_32x.dart';
+import '32x/bus_m68.dart';
+import '32x/sh2/sh2.dart';
 import 'bus_z80.dart';
 import 'm68/m68.dart';
 import 'm68/m68_disasm.dart';
@@ -25,6 +28,22 @@ import 'z80/z80.dart';
 class Md implements Core {
   MdCdrom? get cdrom => busM68.cdrom;
   final bool cdBoot;
+  final bool expansionBoot;
+  Md32x? get expansion =>
+      busM68 is Md32xBus ? (busM68 as Md32xBus).adapter : null;
+  int get _shCpuBase => cdrom == null ? 2 : 3;
+  bool _isShCpu(int no) =>
+      expansion != null && no >= _shCpuBase && no < _shCpuBase + 2;
+  Sh2 _shCpu(int no) => expansion!.cpus[no - _shCpuBase];
+
+  void setExpansionBootRoms(
+      {required Uint8List main,
+      required Uint8List master,
+      required Uint8List slave}) {
+    _attach32x();
+    expansion!.setBootRoms(main: main, master: master, slave: slave);
+  }
+
   Disc? _disc;
   Sram? _sram;
 
@@ -32,7 +51,7 @@ class Md implements Core {
   late final Z80 cpuZ80;
 
   late final BusZ80 busZ80;
-  late final BusM68 busM68;
+  late BusM68 busM68;
 
   final vdp = Vdp();
   final psg = Sn76489();
@@ -63,10 +82,13 @@ class Md implements Core {
         CpuInfo.ofM68(0, "68000"),
         CpuInfo.ofZ80(1, "Z80"),
         if (cdrom != null) CpuInfo.ofM68(2, "MD CD-ROM 68000"),
+        if (expansion != null) CpuInfo(_shCpuBase, "SH-2 master", 32),
+        if (expansion != null) CpuInfo(_shCpuBase + 1, "SH-2 slave", 32),
       ];
 
-  Md({this.cdBoot = false}) {
+  Md({this.cdBoot = false, this.expansionBoot = false}) {
     busM68 = BusM68();
+    if (expansionBoot) busM68 = Md32xBus(Md32x(), busM68);
     busZ80 = BusZ80();
 
     cpuM68 = M68(busM68);
@@ -85,6 +107,26 @@ class Md implements Core {
     busZ80.busM68 = busM68;
     busZ80.psg = psg;
     busZ80.ym2612 = fm;
+  }
+
+  void _attach32x() {
+    if (expansion != null) return;
+    final adapter = Md32x()..setRom(busM68.rom.rom);
+    _replaceMainBus(Md32xBus(adapter, busM68));
+  }
+
+  void _replaceMainBus(BusM68 next) {
+    next.region = busM68.region;
+    next.cdrom = busM68.cdrom;
+    next.cpu = cpuM68;
+    next.busZ80 = busZ80;
+    next.vdp = vdp;
+    next.psg = psg;
+    next.fm = fm;
+    busM68 = next;
+    cpuM68.bus = next;
+    vdp.bus = next;
+    busZ80.busM68 = next;
   }
 
   int _clocks = 0;
@@ -136,10 +178,27 @@ class Md implements Core {
       result.executed2 = cd.running && cd.cpu.clocks != before;
     }
 
+    final adapter = expansion;
+    if (adapter != null) {
+      final (ok, master, slave) =
+          adapter.advance(_clocks, m68ClockHz, step: step);
+      result.setExecuted(_shCpuBase, master);
+      result.setExecuted(_shCpuBase + 1, slave);
+      if (!ok) {
+        result.stopped = true;
+      }
+    }
+
     if (_clocks >= _nextScanClock) {
       // video rendering
       _nextScanClock += clocksInScanline;
+      vdp.trackOpacity = adapter?.enabled == true && adapter?.released == true;
       vdp.renderLine();
+      adapter?.beginLine((vdp.vCounter - 2));
+      if (vdp.trackOpacity) {
+        adapter!.video
+            .renderLine((vdp.vCounter - 2), vdp.buffer, vdp.opaque, vdp.width);
+      }
 
       // raise h/v interrupts right after the line is rendered, so that the
       // handler has a whole line to update the vdp before the next line is
@@ -154,6 +213,7 @@ class Md implements Core {
 
     if (_waitHBlank && _clocks >= _nextScanClock - 36) {
       vdp.startHBlank();
+      if (vdp.trackOpacity) adapter!.video.hblank = true;
       _waitHBlank = false;
     }
 
@@ -198,16 +258,29 @@ class Md implements Core {
     // add rendered audio to buffer
     psg.render(psgSamples).forEach((d) => _psgBuffer[_psgBufferIndex++] = d);
     final rendered = fm.render(fmSamples);
+    final adapter = expansion;
+    if (adapter == null || !adapter.enabled || !adapter.released) {
+      for (int i = 0; i < rendered.length; i += 2) {
+        final (left, right) = cdrom?.sample(fm.sampleHz) ?? (0.0, 0.0);
+        _fmBuffer[_fmBufferIndex++] = rendered[i] + left / 2;
+        _fmBuffer[_fmBufferIndex++] = rendered[i + 1] + right / 2;
+      }
+      return;
+    }
     for (int i = 0; i < rendered.length; i += 2) {
       final (left, right) = cdrom?.sample(fm.sampleHz) ?? (0.0, 0.0);
-      _fmBuffer[_fmBufferIndex++] = rendered[i] + left / 2;
-      _fmBuffer[_fmBufferIndex++] = rendered[i + 1] + right / 2;
+      final (pwmLeft, pwmRight) = adapter.pwm.sample();
+      _fmBuffer[_fmBufferIndex++] = rendered[i] + (left + pwmLeft) / 2;
+      _fmBuffer[_fmBufferIndex++] = rendered[i + 1] + (right + pwmRight) / 2;
     }
   }
 
   /// returns screen buffer as hSize x vSize argb
   @override
-  ImageBuffer imageBuffer() => vdp.imageBuffer;
+  ImageBuffer imageBuffer() =>
+      (expansion?.enabled == true && expansion?.released == true)
+          ? ImageBuffer(320, 224, expansion!.video.output.buffer.asUint8List())
+          : vdp.imageBuffer;
 
   // call this after rendering audio
   void Function(AudioBuffer) _onAudio = (_) {};
@@ -234,6 +307,7 @@ class Md implements Core {
   @override
   void reset() {
     cdrom?.reset();
+    expansion?.reset();
     busM68.onReset();
     busZ80.onReset();
     _clocks = 0;
@@ -270,6 +344,17 @@ class Md implements Core {
     } else {
       busM68.cdrom = null;
       busM68.rom.load(body);
+      final isExpansion = body.length >= 0x110 &&
+          String.fromCharCodes(body.sublist(0x100, 0x110)).contains('32X');
+      if (expansionBoot || isExpansion) {
+        _attach32x();
+        expansion!.setRom(body);
+      } else {
+        if (expansion != null) {
+          _replaceMainBus(
+              BusM68(ram: busM68.ram, pad: busM68.pad, rom: busM68.rom));
+        }
+      }
     }
 
     // check ROM region
@@ -328,7 +413,7 @@ class Md implements Core {
         ? ""
         : "\n\nMD CD-ROM: ${cdrom!.cpu.dump()}\nCDD status:${cdrom!.drive.status.x2} lba:${cdrom!.drive.lba} running:${cdrom!.running}";
 
-    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$bus\n$vdpRegs\n$ym2612Stat\n$psgStat$cdStat";
+    return "$asmM68\n$regM68 v:${vdp.vCounter}\n$stackM68\n\n$asmZ80\n$regZ80\n\n$bus\n$vdpRegs\n$ym2612Stat\n$psgStat$cdStat${expansion == null ? "" : "\nMD 32x: ${expansion!.stoppedReason ?? 'running'}\n${expansion!.cpus[0].dump()}\n${expansion!.cpus[1].dump()}"}";
   }
 
   (String, int) disasmZ80(int addr) {
@@ -361,64 +446,87 @@ class Md implements Core {
 
   // debug: returns dis-assembled instruction in [String nmemonic, int nextAddr]
   @override
-  (String, int) disasm(int cpuNo, int addr) => cpuNo == 0
-      ? disasmM68(addr)
-      : cpuNo == 2
-          ? disasmM68(addr, subCpu: true)
-          : disasmZ80(addr);
+  (String, int) disasm(int cpuNo, int addr) {
+    if (_isShCpu(cpuNo)) {
+      final op = _shCpu(cpuNo).bus.read16(addr);
+      return (
+        '${addr.toRadixString(16).padLeft(8, '0')}: ${op.toRadixString(16).padLeft(4, '0')}  ${Sh2.disasm(op, addr)}',
+        2
+      );
+    }
+    return cpuNo == 0
+        ? disasmM68(addr)
+        : cpuNo == 2
+            ? disasmM68(addr, subCpu: true)
+            : disasmZ80(addr);
+  }
 
   // debug: returns PC register
   @override
-  int programCounter(int cpuNo) => cpuNo == 0
-      ? cpuM68.pc
-      : cpuNo == 2
-          ? cdrom!.cpu.pc
-          : cpuZ80.r.pc;
+  int programCounter(int cpuNo) => _isShCpu(cpuNo)
+      ? _shCpu(cpuNo).pc
+      : cpuNo == 0
+          ? cpuM68.pc
+          : cpuNo == 2
+              ? cdrom!.cpu.pc
+              : cpuZ80.r.pc;
 
   // debug: returns SP register
   @override
-  int stackPointer(int cpuNo) => cpuNo == 0
-      ? cpuM68.a[7]
-      : cpuNo == 2
-          ? cdrom!.cpu.a[7]
-          : cpuZ80.r.sp;
+  int stackPointer(int cpuNo) => _isShCpu(cpuNo)
+      ? _shCpu(cpuNo).r[15]
+      : cpuNo == 0
+          ? cpuM68.a[7]
+          : cpuNo == 2
+              ? cdrom!.cpu.a[7]
+              : cpuZ80.r.sp;
 
   // debug: set debug logging
   @override
-  TraceLog trace(int cpuNo) => cpuNo == 2
-      ? TraceLog(
-          cdrom!.cpu.pc,
-          cdrom!.cpu.clocks,
-          disasmM68(cdrom!.cpu.pc, subCpu: true).$1.padRight(44),
-          cdrom!.cpu.dump().replaceAll("\n", " "), [
-          for (int i = 0; i < 8; i++) cdrom!.cpu.a[i],
-          ...cdrom!.cpu.d,
-          cdrom!.cpu.sr
-        ])
-      : cpuNo == 0
-          ? TraceLog(
-              cpuM68.pc,
-              cpuM68.clocks,
-              disasmM68(cpuM68.pc).$1.padRight(44),
-              cpuM68.dump().replaceAll("\n", " "),
-              [for (int i = 0; i < 8; i++) cpuM68.a[i], ...cpuM68.d, cpuM68.sr])
-          : TraceLog(
-              cpuZ80.r.pc,
-              cpuZ80.cycles,
-              "${cpuZ80.r.pc.x4}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
-              cpuZ80.dump().replaceAll("\n", " "), [
-              cpuZ80.r.af,
-              cpuZ80.r.bc,
-              cpuZ80.r.de,
-              cpuZ80.r.hl,
-              cpuZ80.r.af2,
-              cpuZ80.r.bc2,
-              cpuZ80.r.de2,
-              cpuZ80.r.hl2,
-              cpuZ80.r.ix,
-              cpuZ80.r.iy,
-              cpuZ80.r.sp
-            ]);
+  TraceLog trace(int cpuNo) {
+    if (_isShCpu(cpuNo)) {
+      final cpu = _shCpu(cpuNo);
+      return TraceLog(cpu.pc, cpu.clocks, disasm(cpuNo, cpu.pc).$1, cpu.dump(),
+          [...cpu.r, cpu.sr, cpu.gbr, cpu.vbr, cpu.pr, cpu.mach, cpu.macl]);
+    }
+    return cpuNo == 2
+        ? TraceLog(
+            cdrom!.cpu.pc,
+            cdrom!.cpu.clocks,
+            disasmM68(cdrom!.cpu.pc, subCpu: true).$1.padRight(44),
+            cdrom!.cpu.dump().replaceAll("\n", " "), [
+            for (int i = 0; i < 8; i++) cdrom!.cpu.a[i],
+            ...cdrom!.cpu.d,
+            cdrom!.cpu.sr
+          ])
+        : cpuNo == 0
+            ? TraceLog(
+                cpuM68.pc,
+                cpuM68.clocks,
+                disasmM68(cpuM68.pc).$1.padRight(44),
+                cpuM68.dump().replaceAll("\n", " "), [
+                for (int i = 0; i < 8; i++) cpuM68.a[i],
+                ...cpuM68.d,
+                cpuM68.sr
+              ])
+            : TraceLog(
+                cpuZ80.r.pc,
+                cpuZ80.cycles,
+                "${cpuZ80.r.pc.x4}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
+                cpuZ80.dump().replaceAll("\n", " "), [
+                cpuZ80.r.af,
+                cpuZ80.r.bc,
+                cpuZ80.r.de,
+                cpuZ80.r.hl,
+                cpuZ80.r.af2,
+                cpuZ80.r.bc2,
+                cpuZ80.r.de2,
+                cpuZ80.r.hl2,
+                cpuZ80.r.ix,
+                cpuZ80.r.iy,
+                cpuZ80.r.sp
+              ]);
+  }
 
   // debug: dump vram
   @override
@@ -426,11 +534,13 @@ class Md implements Core {
 
   // debug: read mem
   @override
-  int read(int cpuNo, int addr) => cpuNo == 0
-      ? busM68.read8(addr)
-      : cpuNo == 2
-          ? cdrom!.bus.read8(addr)
-          : busZ80.read(addr);
+  int read(int cpuNo, int addr) => _isShCpu(cpuNo)
+      ? _shCpu(cpuNo).bus.read8(addr)
+      : cpuNo == 0
+          ? busM68.read8(addr)
+          : cpuNo == 2
+              ? cdrom!.bus.read8(addr)
+              : busZ80.read(addr);
 
   // debug: render BG
   @override

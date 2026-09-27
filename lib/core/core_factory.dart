@@ -16,6 +16,7 @@ class CoreFactory {
       'pce' => CoreFactory.ofPce(),
       'nes' => CoreFactory.ofNes(),
       'gen' || 'md' || "bin" => CoreFactory.ofMd(),
+      '32x' => Md(expansionBoot: true),
       'mdcd' => Md(cdBoot: true),
       'ps' => CoreFactory.ofPs(),
       _ => throw Exception('unsupported core: $coreName'),

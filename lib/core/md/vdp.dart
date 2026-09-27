@@ -64,6 +64,10 @@ class Vdp {
 
   // rendering
 
+  bool trackOpacity = false;
+  Uint8List? _opaque;
+  Uint8List get opaque => _opaque ??= Uint8List(320 * 224);
+
   Uint32List buffer = Uint32List(320 * 224);
 
   ImageBuffer get imageBuffer =>
@@ -108,6 +112,8 @@ class Vdp {
     width = 256;
 
     vCounter = 0;
+    trackOpacity = false;
+    _opaque?.fillRange(0, _opaque!.length, 0);
     hCounter = 0;
     hIntCounter = 0;
 
