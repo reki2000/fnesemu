@@ -5,6 +5,7 @@ import 'package:fnesemu/core/gb/cpu.dart';
 import 'package:fnesemu/core/gb/gb.dart';
 import 'package:fnesemu/core/gb/pad.dart';
 import 'package:fnesemu/core/pad_button.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 // builds a rom image with the program placed at the entry point 0x0100
@@ -92,9 +93,9 @@ void main() {
     pad.keyDown(0, PadButton.left);
 
     bus.write(0xff00, 0x20); // directions
-    expect(bus.read(0xff00) & 0x0f, 0x0d);
+    expect(bus.read(0xff00).mask4, 0x0d);
     bus.write(0xff00, 0x10); // actions
-    expect(bus.read(0xff00) & 0x0f, 0x07);
+    expect(bus.read(0xff00).mask4, 0x07);
     expect(bus.intFlag & Bus.intJoypad, Bus.intJoypad);
   });
 

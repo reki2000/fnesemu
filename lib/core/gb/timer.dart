@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 import 'bus.dart';
 
 /// DIV / TIMA / TMA / TAC. TIMA counts falling edges of a bit of the
@@ -24,10 +26,10 @@ class Timer {
     _reloading = false;
   }
 
-  bool _signal(int cnt) => tac & 4 != 0 && cnt & _bits[tac & 3] != 0;
+  bool _signal(int cnt) => tac.bit2 && cnt & _bits[tac.mask2] != 0;
 
   void _incTima() {
-    tima = (tima + 1) & 0xff;
+    tima = (tima + 1).mask8;
     if (tima == 0) {
       _reloading = true;
     }
@@ -35,14 +37,14 @@ class Timer {
 
   void _setCounter(int value) {
     final old = counter;
-    counter = value & 0xffff;
+    counter = value.mask16;
 
     if (_signal(old) && !_signal(counter)) {
       _incTima();
     }
 
     // frame sequencer of the sound unit is clocked by bit 12 falling edge
-    if (old & 0x1000 != 0 && counter & 0x1000 == 0) {
+    if (old.bit12 && !counter.bit12) {
       _bus.apu.clockFrameSequencer();
     }
   }
@@ -61,7 +63,7 @@ class Timer {
   void writeDiv() => _setCounter(0);
 
   int read(int addr) => switch (addr) {
-        0xff04 => counter >> 8,
+        0xff04 => counter.shr8,
         0xff05 => tima,
         0xff06 => tma,
         _ => tac | 0xf8,
@@ -78,7 +80,7 @@ class Timer {
         tma = data;
       case 0xff07:
         final oldSignal = _signal(counter);
-        tac = data & 7;
+        tac = data.mask3;
         if (oldSignal && !_signal(counter)) {
           _incTima();
         }

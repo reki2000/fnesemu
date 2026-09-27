@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 import '../pad_button.dart';
 import 'bus.dart';
 
@@ -54,10 +56,10 @@ class Pad {
     if (controllerId != 0) {
       return;
     }
-    final before = _directions << 4 | _actions;
+    final before = _directions.shl4 | _actions;
     _directions &= ~_dirBit(k);
     _actions &= ~_actBit(k);
-    if (before != (_directions << 4 | _actions)) {
+    if (before != _directions.shl4 | _actions) {
       _bus.requestInterrupt(Bus.intJoypad);
     }
   }
@@ -72,10 +74,10 @@ class Pad {
 
   int read() {
     var v = 0x0f;
-    if (_select & 0x10 == 0) {
+    if (!_select.bit4) {
       v &= _directions;
     }
-    if (_select & 0x20 == 0) {
+    if (!_select.bit5) {
       v &= _actions;
     }
     return 0xc0 | _select | v;

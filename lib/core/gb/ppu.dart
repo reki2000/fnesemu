@@ -48,7 +48,7 @@ class Ppu {
 
   Ppu(this._bus);
 
-  bool get lcdOn => lcdc & 0x80 != 0;
+  bool get lcdOn => lcdc.bit7;
 
   void reset() {
     lcdc = 0x91;
@@ -76,10 +76,10 @@ class Ppu {
 
   void _updateStat() {
     final coincidence = ly == lyc;
-    final line = (coincidence && stat & 0x40 != 0) ||
-        (mode == 0 && stat & 0x08 != 0) ||
-        (mode == 1 && stat & 0x10 != 0) ||
-        (mode == 2 && stat & 0x20 != 0);
+    final line = (coincidence && stat.bit6) ||
+        (mode == 0 && stat.bit3) ||
+        (mode == 1 && stat.bit4) ||
+        (mode == 2 && stat.bit5);
 
     if (line && !_statLine) {
       _bus.requestInterrupt(Bus.intStat);
@@ -202,13 +202,13 @@ class Ppu {
     final lo = vram[tileAddr + row * 2];
     final hi = vram[tileAddr + row * 2 + 1];
     final bit = 7 - col;
-    return (lo >> bit & 1) | (hi >> bit & 1) << 1;
+    return lo.shr(bit).mask1 | hi.shr(bit).mask1.shl1;
   }
 
   // vram offset of the bg/window tile data
   @pragma('vm:prefer-inline')
   int _bgTileAddr(int tileNo) =>
-      lcdc & 0x10 != 0 ? tileNo * 16 : 0x1000 + tileNo.rel8 * 16;
+      lcdc.bit4 ? tileNo * 16 : 0x1000 + tileNo.rel8 * 16;
 
   void _renderLine() {
     final base = ly * width;
@@ -217,36 +217,36 @@ class Ppu {
       _windowTriggered = true;
     }
 
-    if (lcdc & 0x01 != 0) {
+    if (lcdc.bit0) {
       // background
-      final mapBase = lcdc & 0x08 != 0 ? 0x1c00 : 0x1800;
-      final y = (scy + ly) & 0xff;
-      final rowBase = mapBase + (y >> 3) * 32;
-      final fineY = y & 7;
+      final mapBase = lcdc.bit3 ? 0x1c00 : 0x1800;
+      final y = (scy + ly).mask8;
+      final rowBase = mapBase + y.shr3 * 32;
+      final fineY = y.mask3;
 
       for (int x = 0; x < width; x++) {
-        final sx = (scx + x) & 0xff;
-        final tileAddr = _bgTileAddr(vram[rowBase + (sx >> 3)]);
-        _bgIndex[x] = _tilePixel(tileAddr, fineY, sx & 7);
+        final sx = (scx + x).mask8;
+        final tileAddr = _bgTileAddr(vram[rowBase + sx.shr3]);
+        _bgIndex[x] = _tilePixel(tileAddr, fineY, sx.mask3);
       }
 
       // window
-      if (lcdc & 0x20 != 0 && _windowTriggered && wx <= 166) {
-        final winMap = lcdc & 0x40 != 0 ? 0x1c00 : 0x1800;
-        final winRow = winMap + (_windowLine >> 3) * 32;
-        final winFineY = _windowLine & 7;
+      if (lcdc.bit5 && _windowTriggered && wx <= 166) {
+        final winMap = lcdc.bit6 ? 0x1c00 : 0x1800;
+        final winRow = winMap + _windowLine.shr3 * 32;
+        final winFineY = _windowLine.mask3;
         final startX = wx - 7;
 
         for (int x = startX < 0 ? 0 : startX; x < width; x++) {
           final wxp = x - startX;
-          final tileAddr = _bgTileAddr(vram[winRow + (wxp >> 3)]);
-          _bgIndex[x] = _tilePixel(tileAddr, winFineY, wxp & 7);
+          final tileAddr = _bgTileAddr(vram[winRow + wxp.shr3]);
+          _bgIndex[x] = _tilePixel(tileAddr, winFineY, wxp.mask3);
         }
         _windowLine++;
       }
 
       for (int x = 0; x < width; x++) {
-        _back[base + x] = colors[bgp >> (_bgIndex[x] * 2) & 3];
+        _back[base + x] = colors[bgp.shr(_bgIndex[x] * 2).mask2];
       }
     } else {
       for (int x = 0; x < width; x++) {
@@ -255,7 +255,7 @@ class Ppu {
       }
     }
 
-    if (lcdc & 0x02 != 0) {
+    if (lcdc.bit1) {
       _renderSprites(base);
     }
   }
@@ -263,7 +263,7 @@ class Ppu {
   final _lineSprites = List<int>.filled(10, 0);
 
   void _renderSprites(int base) {
-    final spriteHeight = lcdc & 0x04 != 0 ? 16 : 8;
+    final spriteHeight = lcdc.bit2 ? 16 : 8;
 
     // OAM scan: up to 10 sprites in OAM order
     var count = 0;
@@ -300,17 +300,17 @@ class Ppu {
       final attr = oam[s + 3];
 
       var row = ly - y;
-      if (attr & 0x40 != 0) {
+      if (attr.bit6) {
         row = spriteHeight - 1 - row;
       }
       if (spriteHeight == 16) {
-        tile = (tile & 0xfe) + (row >> 3);
+        tile = (tile & 0xfe) + row.shr3;
         row &= 7;
       }
 
-      final palette = attr & 0x10 != 0 ? obp1 : obp0;
-      final behindBg = attr & 0x80 != 0;
-      final xFlip = attr & 0x20 != 0;
+      final palette = attr.bit4 ? obp1 : obp0;
+      final behindBg = attr.bit7;
+      final xFlip = attr.bit5;
 
       for (int col = 0; col < 8; col++) {
         final px = x + col;
@@ -329,7 +329,7 @@ class Ppu {
           continue;
         }
 
-        _back[base + px] = colors[palette >> (color * 2) & 3];
+        _back[base + px] = colors[palette.shr(color * 2).mask2];
       }
     }
   }
@@ -344,13 +344,13 @@ class Ppu {
   ImageBuffer renderBg() {
     const size = 256;
     final buf = Uint32List(size * size);
-    final mapBase = lcdc & 0x08 != 0 ? 0x1c00 : 0x1800;
+    final mapBase = lcdc.bit3 ? 0x1c00 : 0x1800;
 
     for (int y = 0; y < size; y++) {
       for (int x = 0; x < size; x++) {
-        final tileAddr = _bgTileAddr(vram[mapBase + (y >> 3) * 32 + (x >> 3)]);
+        final tileAddr = _bgTileAddr(vram[mapBase + y.shr3 * 32 + x.shr3]);
         buf[y * size + x] =
-            colors[bgp >> (_tilePixel(tileAddr, y & 7, x & 7) * 2) & 3];
+            colors[bgp.shr(_tilePixel(tileAddr, y.mask3, x.mask3) * 2).mask2];
       }
     }
 
@@ -376,7 +376,7 @@ class Ppu {
       for (int row = 0; row < 8; row++) {
         for (int col = 0; col < 8; col++) {
           buf[(ty + row) * w + tx + col] =
-              colors[palette >> (_tilePixel(t * 16, row, col) * 2) & 3];
+              colors[palette.shr(_tilePixel(t * 16, row, col) * 2).mask2];
         }
       }
     }
@@ -392,7 +392,7 @@ class Ppu {
 
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
-        buf[y * w + x] = colors[palettes[y ~/ block] >> (x ~/ block * 2) & 3];
+        buf[y * w + x] = colors[palettes[y ~/ block].shr(x ~/ block * 2).mask2];
       }
     }
 

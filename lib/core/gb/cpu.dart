@@ -26,29 +26,29 @@ class Cpu {
 
   Cpu(this.bus);
 
-  int get af => a << 8 | f;
-  int get bc => b << 8 | c;
-  int get de => d << 8 | e;
-  int get hl => h << 8 | l;
+  int get af => a.shl8 | f;
+  int get bc => b.shl8 | c;
+  int get de => d.shl8 | e;
+  int get hl => h.shl8 | l;
 
   set af(int v) {
-    a = v >> 8 & 0xff;
+    a = v.shr8.mask8;
     f = v & 0xf0;
   }
 
   set bc(int v) {
-    b = v >> 8 & 0xff;
-    c = v & 0xff;
+    b = v.shr8.mask8;
+    c = v.mask8;
   }
 
   set de(int v) {
-    d = v >> 8 & 0xff;
-    e = v & 0xff;
+    d = v.shr8.mask8;
+    e = v.mask8;
   }
 
   set hl(int v) {
-    h = v >> 8 & 0xff;
-    l = v & 0xff;
+    h = v.shr8.mask8;
+    l = v.mask8;
   }
 
   /// sets the register state which the boot program leaves
@@ -77,34 +77,34 @@ class Cpu {
   @pragma('vm:prefer-inline')
   int _fetch() {
     final v = bus.readTick(pc);
-    pc = (pc + 1) & 0xffff;
+    pc = (pc + 1).mask16;
     return v;
   }
 
   int _fetch16() {
     final lo = _fetch();
-    return _fetch() << 8 | lo;
+    return _fetch().shl8 | lo;
   }
 
   void _push(int v) {
-    sp = (sp - 1) & 0xffff;
-    _write(sp, v >> 8 & 0xff);
-    sp = (sp - 1) & 0xffff;
-    _write(sp, v & 0xff);
+    sp = (sp - 1).mask16;
+    _write(sp, v.shr8.mask8);
+    sp = (sp - 1).mask16;
+    _write(sp, v.mask8);
   }
 
   int _pop() {
     final lo = _read(sp);
-    sp = (sp + 1) & 0xffff;
+    sp = (sp + 1).mask16;
     final hi = _read(sp);
-    sp = (sp + 1) & 0xffff;
-    return hi << 8 | lo;
+    sp = (sp + 1).mask16;
+    return hi.shl8 | lo;
   }
 
   /// executes one instruction, one halted cycle, or an interrupt dispatch.
   /// returns false when the cpu is locked up by an illegal opcode.
   bool exec() {
-    final pending = bus.ie & bus.intFlag & 0x1f;
+    final pending = bus.ie & bus.intFlag.mask5;
 
     if (halted) {
       if (pending == 0) {
@@ -122,7 +122,7 @@ class Cpu {
 
     final op = _fetch();
     if (_haltBug) {
-      pc = (pc - 1) & 0xffff;
+      pc = (pc - 1).mask16;
       _haltBug = false;
     }
 
@@ -143,14 +143,14 @@ class Cpu {
     _idle();
     _idle();
 
-    sp = (sp - 1) & 0xffff;
-    _write(sp, pc >> 8);
+    sp = (sp - 1).mask16;
+    _write(sp, pc.shr8);
 
     // the vector is determined after the upper byte push (it may overwrite IE)
-    final pending = bus.ie & bus.intFlag & 0x1f;
+    final pending = bus.ie & bus.intFlag.mask5;
 
-    sp = (sp - 1) & 0xffff;
-    _write(sp, pc & 0xff);
+    sp = (sp - 1).mask16;
+    _write(sp, pc.mask8);
 
     if (pending == 0) {
       pc = 0;
@@ -212,7 +212,7 @@ class Cpu {
       case 2:
         hl = v;
       default:
-        sp = v & 0xffff;
+        sp = v.mask16;
     }
   }
 
@@ -229,32 +229,32 @@ class Cpu {
     switch (op) {
       case 0: // ADD
         final r = a + v;
-        f = (r & 0xff == 0 ? flagZ : 0) |
-            ((a & 0xf) + (v & 0xf) > 0xf ? flagH : 0) |
+        f = (r.mask8 == 0 ? flagZ : 0) |
+            (a.mask4 + v.mask4 > 0xf ? flagH : 0) |
             (r > 0xff ? flagC : 0);
-        a = r & 0xff;
+        a = r.mask8;
       case 1: // ADC
-        final cy = f >> 4 & 1;
+        final cy = f.shr4.mask1;
         final r = a + v + cy;
-        f = (r & 0xff == 0 ? flagZ : 0) |
-            ((a & 0xf) + (v & 0xf) + cy > 0xf ? flagH : 0) |
+        f = (r.mask8 == 0 ? flagZ : 0) |
+            (a.mask4 + v.mask4 + cy > 0xf ? flagH : 0) |
             (r > 0xff ? flagC : 0);
-        a = r & 0xff;
+        a = r.mask8;
       case 2: // SUB
         final r = a - v;
         f = flagN |
-            (r & 0xff == 0 ? flagZ : 0) |
-            ((a & 0xf) - (v & 0xf) < 0 ? flagH : 0) |
+            (r.mask8 == 0 ? flagZ : 0) |
+            (a.mask4 - v.mask4 < 0 ? flagH : 0) |
             (r < 0 ? flagC : 0);
-        a = r & 0xff;
+        a = r.mask8;
       case 3: // SBC
-        final cy = f >> 4 & 1;
+        final cy = f.shr4.mask1;
         final r = a - v - cy;
         f = flagN |
-            (r & 0xff == 0 ? flagZ : 0) |
-            ((a & 0xf) - (v & 0xf) - cy < 0 ? flagH : 0) |
+            (r.mask8 == 0 ? flagZ : 0) |
+            (a.mask4 - v.mask4 - cy < 0 ? flagH : 0) |
             (r < 0 ? flagC : 0);
-        a = r & 0xff;
+        a = r.mask8;
       case 4: // AND
         a &= v;
         f = (a == 0 ? flagZ : 0) | flagH;
@@ -267,40 +267,40 @@ class Cpu {
       default: // CP
         final r = a - v;
         f = flagN |
-            (r & 0xff == 0 ? flagZ : 0) |
-            ((a & 0xf) - (v & 0xf) < 0 ? flagH : 0) |
+            (r.mask8 == 0 ? flagZ : 0) |
+            (a.mask4 - v.mask4 < 0 ? flagH : 0) |
             (r < 0 ? flagC : 0);
     }
   }
 
   int _inc8(int v) {
-    final r = (v + 1) & 0xff;
-    f = (f & flagC) | (r == 0 ? flagZ : 0) | (r & 0xf == 0 ? flagH : 0);
+    final r = (v + 1).mask8;
+    f = f & flagC | (r == 0 ? flagZ : 0) | (r.mask4 == 0 ? flagH : 0);
     return r;
   }
 
   int _dec8(int v) {
-    final r = (v - 1) & 0xff;
+    final r = (v - 1).mask8;
     f = (f & flagC) |
         flagN |
         (r == 0 ? flagZ : 0) |
-        (r & 0xf == 0xf ? flagH : 0);
+        (r.mask4 == 0xf ? flagH : 0);
     return r;
   }
 
   void _addHl(int v) {
     final r = hl + v;
     f = (f & flagZ) |
-        ((hl & 0xfff) + (v & 0xfff) > 0xfff ? flagH : 0) |
+        (hl.mask12 + v.mask12 > 0xfff ? flagH : 0) |
         (r > 0xffff ? flagC : 0);
-    hl = r & 0xffff;
+    hl = r.mask16;
   }
 
   // SP + signed 8bit, flags are computed from the unsigned lower byte
   int _addSp(int e8) {
-    f = ((sp & 0xf) + (e8 & 0xf) > 0xf ? flagH : 0) |
-        ((sp & 0xff) + e8 > 0xff ? flagC : 0);
-    return (sp + e8.rel8) & 0xffff;
+    f = (sp.mask4 + e8.mask4 > 0xf ? flagH : 0) |
+        (sp.mask8 + e8 > 0xff ? flagC : 0);
+    return (sp + e8.rel8).mask16;
   }
 
   void _daa() {
@@ -311,7 +311,7 @@ class Cpu {
         r += 0x60;
         carry = true;
       }
-      if (f & flagH != 0 || (r & 0xf) > 9) {
+      if (f & flagH != 0 || r.mask4 > 9) {
         r += 0x06;
       }
     } else {
@@ -322,7 +322,7 @@ class Cpu {
         r -= 0x06;
       }
     }
-    a = r & 0xff;
+    a = r.mask8;
     f = (f & flagN) | (a == 0 ? flagZ : 0) | (carry ? flagC : 0);
   }
 
@@ -332,29 +332,29 @@ class Cpu {
     int cy;
     switch (op) {
       case 0: // RLC
-        cy = v >> 7;
-        r = (v << 1 | cy) & 0xff;
+        cy = v.shr7;
+        r = (v.shl1 | cy).mask8;
       case 1: // RRC
-        cy = v & 1;
-        r = v >> 1 | cy << 7;
+        cy = v.mask1;
+        r = v.shr1 | cy.shl7;
       case 2: // RL
-        cy = v >> 7;
-        r = (v << 1 | (f >> 4 & 1)) & 0xff;
+        cy = v.shr7;
+        r = (v.shl1 | f.shr4.mask1).mask8;
       case 3: // RR
-        cy = v & 1;
-        r = v >> 1 | (f >> 4 & 1) << 7;
+        cy = v.mask1;
+        r = v.shr1 | f.shr4.mask1.shl7;
       case 4: // SLA
-        cy = v >> 7;
-        r = (v << 1) & 0xff;
+        cy = v.shr7;
+        r = v.shl1.mask8;
       case 5: // SRA
-        cy = v & 1;
-        r = v >> 1 | (v & 0x80);
+        cy = v.mask1;
+        r = v.shr1 | v & 0x80;
       case 6: // SWAP
         cy = 0;
-        r = (v << 4 | v >> 4) & 0xff;
+        r = (v.shl4 | v.shr4).mask8;
       default: // SRL
-        cy = v & 1;
-        r = v >> 1;
+        cy = v.mask1;
+        r = v.shr1;
     }
     f = (r == 0 ? flagZ : 0) | (cy != 0 ? flagC : 0);
     return r;
@@ -362,10 +362,10 @@ class Cpu {
 
   void _execCb() {
     final op = _fetch();
-    final reg = op & 7;
-    final bit = op >> 3 & 7;
+    final reg = op.mask3;
+    final bit = op.shr3.mask3;
 
-    switch (op >> 6) {
+    switch (op.shr6) {
       case 0:
         _setR(reg, _rot(bit, _getR(reg)));
       case 1: // BIT
@@ -384,14 +384,14 @@ class Cpu {
       if (op == 0x76) {
         _halt();
       } else {
-        _setR(op >> 3 & 7, _getR(op & 7));
+        _setR(op.shr3.mask3, _getR(op.mask3));
       }
       return true;
     }
 
     // ALU A, r
     if (op >= 0x80 && op < 0xc0) {
-      _alu(op >> 3 & 7, _getR(op & 7));
+      _alu(op.shr3.mask3, _getR(op.mask3));
       return true;
     }
 
@@ -400,7 +400,7 @@ class Cpu {
         break;
 
       case 0x01 || 0x11 || 0x21 || 0x31: // LD rr, d16
-        _setRR(op >> 4, _fetch16());
+        _setRR(op.shr4, _fetch16());
 
       case 0x02: // LD (BC), A
         _write(bc, a);
@@ -408,10 +408,10 @@ class Cpu {
         _write(de, a);
       case 0x22: // LD (HL+), A
         _write(hl, a);
-        hl = (hl + 1) & 0xffff;
+        hl = (hl + 1).mask16;
       case 0x32: // LD (HL-), A
         _write(hl, a);
-        hl = (hl - 1) & 0xffff;
+        hl = (hl - 1).mask16;
 
       case 0x0a: // LD A, (BC)
         a = _read(bc);
@@ -419,27 +419,27 @@ class Cpu {
         a = _read(de);
       case 0x2a: // LD A, (HL+)
         a = _read(hl);
-        hl = (hl + 1) & 0xffff;
+        hl = (hl + 1).mask16;
       case 0x3a: // LD A, (HL-)
         a = _read(hl);
-        hl = (hl - 1) & 0xffff;
+        hl = (hl - 1).mask16;
 
       case 0x03 || 0x13 || 0x23 || 0x33: // INC rr
-        _setRR(op >> 4, (_getRR(op >> 4) + 1) & 0xffff);
+        _setRR(op.shr4, (_getRR(op.shr4) + 1).mask16);
         _idle();
       case 0x0b || 0x1b || 0x2b || 0x3b: // DEC rr
-        _setRR(op >> 4, (_getRR(op >> 4) - 1) & 0xffff);
+        _setRR(op.shr4, (_getRR(op.shr4) - 1).mask16);
         _idle();
 
       case 0x04 || 0x0c || 0x14 || 0x1c || 0x24 || 0x2c || 0x34 || 0x3c:
-        final r = op >> 3 & 7; // INC r
+        final r = op.shr3.mask3; // INC r
         _setR(r, _inc8(_getR(r)));
       case 0x05 || 0x0d || 0x15 || 0x1d || 0x25 || 0x2d || 0x35 || 0x3d:
-        final r = op >> 3 & 7; // DEC r
+        final r = op.shr3.mask3; // DEC r
         _setR(r, _dec8(_getR(r)));
       case 0x06 || 0x0e || 0x16 || 0x1e || 0x26 || 0x2e || 0x36 || 0x3e:
         final v = _fetch(); // LD r, d8
-        _setR(op >> 3 & 7, v);
+        _setR(op.shr3.mask3, v);
 
       case 0x07: // RLCA
         a = _rot(0, a);
@@ -456,11 +456,11 @@ class Cpu {
 
       case 0x08: // LD (a16), SP
         final addr = _fetch16();
-        _write(addr, sp & 0xff);
-        _write((addr + 1) & 0xffff, sp >> 8);
+        _write(addr, sp.mask8);
+        _write((addr + 1).mask16, sp.shr8);
 
       case 0x09 || 0x19 || 0x29 || 0x39: // ADD HL, rr
-        _addHl(_getRR(op >> 4));
+        _addHl(_getRR(op.shr4));
         _idle();
 
       case 0x10: // STOP
@@ -469,12 +469,12 @@ class Cpu {
 
       case 0x18: // JR r8
         final e8 = _fetch();
-        pc = (pc + e8.rel8) & 0xffff;
+        pc = (pc + e8.rel8).mask16;
         _idle();
       case 0x20 || 0x28 || 0x30 || 0x38: // JR cc, r8
         final e8 = _fetch();
-        if (_cond(op >> 3 & 3)) {
-          pc = (pc + e8.rel8) & 0xffff;
+        if (_cond(op.shr3.mask2)) {
+          pc = (pc + e8.rel8).mask16;
           _idle();
         }
 
@@ -490,7 +490,7 @@ class Cpu {
 
       case 0xc0 || 0xc8 || 0xd0 || 0xd8: // RET cc
         _idle();
-        if (_cond(op >> 3 & 3)) {
+        if (_cond(op.shr3.mask2)) {
           pc = _pop();
           _idle();
         }
@@ -504,19 +504,19 @@ class Cpu {
         _eiDelay = 0;
 
       case 0xc1 || 0xd1 || 0xe1: // POP rr
-        _setRR(op >> 4 & 3, _pop());
+        _setRR(op.shr4.mask2, _pop());
       case 0xf1: // POP AF
         af = _pop();
       case 0xc5 || 0xd5 || 0xe5: // PUSH rr
         _idle();
-        _push(_getRR(op >> 4 & 3));
+        _push(_getRR(op.shr4.mask2));
       case 0xf5: // PUSH AF
         _idle();
         _push(af);
 
       case 0xc2 || 0xca || 0xd2 || 0xda: // JP cc, a16
         final addr = _fetch16();
-        if (_cond(op >> 3 & 3)) {
+        if (_cond(op.shr3.mask2)) {
           pc = addr;
           _idle();
         }
@@ -528,7 +528,7 @@ class Cpu {
 
       case 0xc4 || 0xcc || 0xd4 || 0xdc: // CALL cc, a16
         final addr = _fetch16();
-        if (_cond(op >> 3 & 3)) {
+        if (_cond(op.shr3.mask2)) {
           _idle();
           _push(pc);
           pc = addr;
@@ -545,7 +545,7 @@ class Cpu {
         pc = op & 0x38;
 
       case 0xc6 || 0xce || 0xd6 || 0xde || 0xe6 || 0xee || 0xf6 || 0xfe:
-        _alu(op >> 3 & 7, _fetch()); // ALU A, d8
+        _alu(op.shr3.mask3, _fetch()); // ALU A, d8
 
       case 0xcb:
         _execCb();
@@ -583,7 +583,7 @@ class Cpu {
         }
 
       default: // illegal opcodes lock up the cpu
-        pc = (pc - 1) & 0xffff;
+        pc = (pc - 1).mask16;
         return false;
     }
 
@@ -591,7 +591,7 @@ class Cpu {
   }
 
   void _halt() {
-    if (!ime && (bus.ie & bus.intFlag & 0x1f) != 0) {
+    if (!ime && bus.ie & bus.intFlag.mask5 != 0) {
       _haltBug = true;
     } else {
       halted = true;

@@ -122,7 +122,7 @@ class Gb implements Core {
       bool showApu = false}) {
     final (asm, _) = disasm(0, cpu.pc);
     final stack = showStack
-        ? "\n${List.generate(16, (i) => bus.read((cpu.sp + i) & 0xffff).x2).join(" ")}"
+        ? "\n${List.generate(16, (i) => bus.read((cpu.sp + i).mask16).x2).join(" ")}"
         : "";
     final hram = showZeroPage
         ? "\n${List.generate(8, (row) => List.generate(16, (i) => bus.read(0xff80 + row * 16 + i).x2).join(" ")).join("\n")}"
@@ -130,7 +130,7 @@ class Gb implements Core {
 
     return "$asm\n${cpu.dump()}$stack$hram\n"
         "ie:${bus.ie.x2} if:${bus.intFlag.x2} "
-        "div:${(bus.timer.counter >> 8).x2} tima:${bus.timer.tima.x2} "
+        "div:${bus.timer.counter.shr8.x2} tima:${bus.timer.tima.x2} "
         "tma:${bus.timer.tma.x2} tac:${bus.timer.tac.x2} "
         "clk:${bus.clocks.format3}\n"
         "${ppu.dump()}\n"
@@ -143,8 +143,8 @@ class Gb implements Core {
   (String, int) disasm(int cpuNo, int addr) {
     final (inst, len) = Disasm.disasm(bus.read, addr);
     final bytes = List.generate(
-        3, (i) => i < len ? bus.read((addr + i) & 0xffff).x2 : "  ").join(" ");
-    return ("${addr.x4}: $bytes  $inst", (addr + len) & 0xffff);
+        3, (i) => i < len ? bus.read((addr + i).mask16).x2 : "  ").join(" ");
+    return ("${addr.x4}: $bytes  $inst", (addr + len).mask16);
   }
 
   @override
@@ -163,7 +163,7 @@ class Gb implements Core {
   List<int> get vram => ppu.vram;
 
   @override
-  int read(int cpuNo, int addr) => bus.read(addr & 0xffff);
+  int read(int cpuNo, int addr) => bus.read(addr.mask16);
 
   @override
   ImageBuffer renderBg() => ppu.renderBg();

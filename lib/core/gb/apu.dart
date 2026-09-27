@@ -36,17 +36,17 @@ abstract class _Channel {
   /// does not clock the length counter
   void writeControl(int data, bool firstHalf) {
     final wasEnabled = lengthEnabled;
-    lengthEnabled = data & 0x40 != 0;
+    lengthEnabled = data.bit6;
 
     // enabling the length counter clocks it once in the first half
     if (!wasEnabled && lengthEnabled && firstHalf && length > 0) {
       length--;
-      if (length == 0 && data & 0x80 == 0) {
+      if (length == 0 && !data.bit7) {
         enabled = false;
       }
     }
 
-    if (data & 0x80 != 0) {
+    if (data.bit7) {
       final reload = length == 0;
       trigger();
       if (reload && lengthEnabled && firstHalf) {
@@ -70,9 +70,9 @@ abstract class _Channel {
   }
 
   void writeEnvelope(int data) {
-    initialVolume = data >> 4;
-    envelopeUp = data & 0x08 != 0;
-    envelopePeriod = data & 7;
+    initialVolume = data.shr4;
+    envelopeUp = data.bit3;
+    envelopePeriod = data.mask3;
     dacEnabled = data & 0xf8 != 0;
     if (!dacEnabled) {
       enabled = false;
@@ -135,12 +135,12 @@ class _Square extends _Channel {
     _timer -= clocks;
     while (_timer <= 0) {
       _timer += (2048 - frequency) * 4;
-      _dutyPos = (_dutyPos + 1) & 7;
+      _dutyPos = (_dutyPos + 1).mask3;
     }
   }
 
   int _calcSweep() {
-    final delta = _shadow >> sweepShift;
+    final delta = _shadow.shr(sweepShift);
     final f = sweepNegate ? _shadow - delta : _shadow + delta;
     if (sweepNegate) {
       _negateUsed = true;
@@ -168,13 +168,13 @@ class _Square extends _Channel {
   }
 
   void writeSweep(int data) {
-    sweepPeriod = data >> 4 & 7;
-    final negate = data & 0x08 != 0;
+    sweepPeriod = data.shr4.mask3;
+    final negate = data.bit3;
     if (_negateUsed && sweepNegate && !negate) {
       enabled = false;
     }
     sweepNegate = negate;
-    sweepShift = data & 7;
+    sweepShift = data.mask3;
   }
 
   @override
@@ -225,16 +225,16 @@ class _Wave extends _Channel {
   int get maxLength => 256;
 
   @override
-  int get output => enabled ? _sample >> _shifts[level] : 0;
+  int get output => enabled ? _sample.shr(_shifts[level]) : 0;
 
   @override
   void step(int clocks) {
     _timer -= clocks;
     while (_timer <= 0) {
       _timer += (2048 - frequency) * 2;
-      _position = (_position + 1) & 31;
-      final byte = ram[_position >> 1];
-      _sample = _position & 1 == 0 ? byte >> 4 : byte & 0xf;
+      _position = (_position + 1).mask5;
+      final byte = ram[_position.shr1];
+      _sample = !_position.bit0 ? byte.shr4 : byte.mask4;
     }
   }
 
@@ -268,28 +268,28 @@ class _Noise extends _Channel {
   int _lfsr = 0x7fff;
   int _timer = 0;
 
-  int get _period => _divisors[divisorCode] << clockShift;
+  int get _period => _divisors[divisorCode].shl(clockShift);
 
   @override
-  int get output => enabled && _lfsr & 1 == 0 ? volume : 0;
+  int get output => enabled && !_lfsr.bit0 ? volume : 0;
 
   @override
   void step(int clocks) {
     _timer -= clocks;
     while (_timer <= 0) {
       _timer += _period;
-      final x = (_lfsr ^ (_lfsr >> 1)) & 1;
-      _lfsr = (_lfsr >> 1) | (x << 14);
+      final x = (_lfsr ^ _lfsr.shr1).mask1;
+      _lfsr = _lfsr.shr1 | x.shl14;
       if (shortMode) {
-        _lfsr = (_lfsr & ~0x40) | (x << 6);
+        _lfsr = _lfsr & ~0x40 | x.shl6;
       }
     }
   }
 
   void writePolynomial(int data) {
-    clockShift = data >> 4;
-    shortMode = data & 0x08 != 0;
-    divisorCode = data & 7;
+    clockShift = data.shr4;
+    shortMode = data.bit3;
+    divisorCode = data.mask3;
   }
 
   @override
@@ -391,7 +391,7 @@ class Apu {
       _ch4.clockEnvelope();
     }
 
-    _frameStep = (_frameStep + 1) & 7;
+    _frameStep = (_frameStep + 1).mask3;
   }
 
   /// one machine cycle
@@ -434,8 +434,8 @@ class Apu {
     }
 
     final nr50 = _regs[0x14];
-    _accL += l * ((nr50 >> 4 & 7) + 1);
-    _accR += r * ((nr50 & 7) + 1);
+    _accL += l * (nr50.shr4.mask3 + 1);
+    _accR += r * (nr50.mask3 + 1);
     _accCount++;
   }
 
@@ -500,7 +500,7 @@ class Apu {
     }
 
     if (addr == 0xff26) {
-      final on = data & 0x80 != 0;
+      final on = data.bit7;
       if (_power && !on) {
         // length counters are not affected by power off
         final lengths = _channels.map((ch) => ch.length).toList();
@@ -522,13 +522,13 @@ class Apu {
       // only length counters are writable while powered off
       switch (addr) {
         case 0xff11:
-          _ch1.length = 64 - (data & 0x3f);
+          _ch1.length = 64 - data.mask6;
         case 0xff16:
-          _ch2.length = 64 - (data & 0x3f);
+          _ch2.length = 64 - data.mask6;
         case 0xff1b:
           _ch3.length = 256 - data;
         case 0xff20:
-          _ch4.length = 64 - (data & 0x3f);
+          _ch4.length = 64 - data.mask6;
       }
       return;
     }
@@ -540,47 +540,47 @@ class Apu {
       case 0xff10:
         _ch1.writeSweep(data);
       case 0xff11:
-        _ch1.duty = data >> 6;
-        _ch1.length = 64 - (data & 0x3f);
+        _ch1.duty = data.shr6;
+        _ch1.length = 64 - data.mask6;
       case 0xff12:
         _ch1.writeEnvelope(data);
       case 0xff13:
         _ch1.frequency = (_ch1.frequency & 0x700) | data;
       case 0xff14:
-        _ch1.frequency = (_ch1.frequency & 0xff) | (data & 7) << 8;
+        _ch1.frequency = _ch1.frequency.mask8 | data.mask3.shl8;
         _ch1.writeControl(data, _frameStep.isOdd);
 
       // channel 2
       case 0xff16:
-        _ch2.duty = data >> 6;
-        _ch2.length = 64 - (data & 0x3f);
+        _ch2.duty = data.shr6;
+        _ch2.length = 64 - data.mask6;
       case 0xff17:
         _ch2.writeEnvelope(data);
       case 0xff18:
         _ch2.frequency = (_ch2.frequency & 0x700) | data;
       case 0xff19:
-        _ch2.frequency = (_ch2.frequency & 0xff) | (data & 7) << 8;
+        _ch2.frequency = _ch2.frequency.mask8 | data.mask3.shl8;
         _ch2.writeControl(data, _frameStep.isOdd);
 
       // channel 3
       case 0xff1a:
-        _ch3.dacEnabled = data & 0x80 != 0;
+        _ch3.dacEnabled = data.bit7;
         if (!_ch3.dacEnabled) {
           _ch3.enabled = false;
         }
       case 0xff1b:
         _ch3.length = 256 - data;
       case 0xff1c:
-        _ch3.level = data >> 5 & 3;
+        _ch3.level = data.shr5.mask2;
       case 0xff1d:
         _ch3.frequency = (_ch3.frequency & 0x700) | data;
       case 0xff1e:
-        _ch3.frequency = (_ch3.frequency & 0xff) | (data & 7) << 8;
+        _ch3.frequency = _ch3.frequency.mask8 | data.mask3.shl8;
         _ch3.writeControl(data, _frameStep.isOdd);
 
       // channel 4
       case 0xff20:
-        _ch4.length = 64 - (data & 0x3f);
+        _ch4.length = 64 - data.mask6;
       case 0xff21:
         _ch4.writeEnvelope(data);
       case 0xff22:

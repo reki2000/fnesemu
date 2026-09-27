@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 import 'apu.dart';
 import 'cartridge.dart';
 import 'cpu.dart';
@@ -29,7 +31,7 @@ class Bus {
   int _if = 0;
 
   int get intFlag => _if;
-  set intFlag(int v) => _if = v & 0x1f;
+  set intFlag(int v) => _if = v.mask5;
 
   /// elapsed clocks (4 clocks per machine cycle)
   int clocks = 0;
@@ -122,20 +124,20 @@ class Bus {
   }
 
   int read(int addr) {
-    switch (addr >> 12) {
+    switch (addr.shr12) {
       case 0x0 || 0x1 || 0x2 || 0x3 || 0x4 || 0x5 || 0x6 || 0x7:
         return cart.read(addr);
       case 0x8 || 0x9:
-        return ppu.vram[addr & 0x1fff];
+        return ppu.vram[addr.mask13];
       case 0xa || 0xb:
         return cart.readRam(addr);
       case 0xc || 0xd:
-        return wram[addr & 0x1fff];
+        return wram[addr.mask13];
       case 0xe:
-        return wram[addr & 0x1fff];
+        return wram[addr.mask13];
       default:
         if (addr < 0xfe00) {
-          return wram[addr & 0x1fff];
+          return wram[addr.mask13];
         }
         if (addr < 0xfea0) {
           return ppu.oam[addr - 0xfe00];
@@ -154,18 +156,18 @@ class Bus {
   }
 
   void write(int addr, int data) {
-    switch (addr >> 12) {
+    switch (addr.shr12) {
       case 0x0 || 0x1 || 0x2 || 0x3 || 0x4 || 0x5 || 0x6 || 0x7:
         cart.write(addr, data);
       case 0x8 || 0x9:
-        ppu.vram[addr & 0x1fff] = data;
+        ppu.vram[addr.mask13] = data;
       case 0xa || 0xb:
         cart.writeRam(addr, data);
       case 0xc || 0xd || 0xe:
-        wram[addr & 0x1fff] = data;
+        wram[addr.mask13] = data;
       default:
         if (addr < 0xfe00) {
-          wram[addr & 0x1fff] = data;
+          wram[addr.mask13] = data;
         } else if (addr < 0xfea0) {
           ppu.oam[addr - 0xfe00] = data;
         } else if (addr < 0xff00) {
@@ -223,7 +225,7 @@ class Bus {
         intFlag = data;
       case 0xff46:
         _dmaReg = data;
-        _dmaSource = data << 8;
+        _dmaSource = data.shl8;
         _dmaIndex = 0;
         _dmaDelay = 1;
       default:

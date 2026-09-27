@@ -53,18 +53,18 @@ class Disasm {
       return _ops[op];
     }
     if (op < 0x80) {
-      return op == 0x76 ? "HALT" : "LD ${_r[op >> 3 & 7]},${_r[op & 7]}";
+      return op == 0x76 ? "HALT" : "LD ${_r[op.shr3.mask3]},${_r[op.mask3]}";
     }
     if (op < 0xc0) {
-      return "${_alu[op >> 3 & 7]}${_r[op & 7]}";
+      return "${_alu[op.shr3.mask3]}${_r[op.mask3]}";
     }
     return _opsC0[op - 0xc0];
   }
 
   static String _cb(int op) {
-    final r = _r[op & 7];
-    final bit = op >> 3 & 7;
-    return switch (op >> 6) {
+    final r = _r[op.mask3];
+    final bit = op.shr3.mask3;
+    return switch (op.shr6) {
       0 => "${_rot[bit]} $r",
       1 => "BIT $bit,$r",
       2 => "RES $bit,$r",
@@ -77,18 +77,18 @@ class Disasm {
     final op = read(pc);
 
     if (op == 0xcb) {
-      return (_cb(read((pc + 1) & 0xffff)), 2);
+      return (_cb(read((pc + 1).mask16)), 2);
     }
 
     final t = _template(op);
-    final d1 = read((pc + 1) & 0xffff);
-    final d2 = read((pc + 2) & 0xffff);
+    final d1 = read((pc + 1).mask16);
+    final d2 = read((pc + 2).mask16);
 
     if (t.contains("d16")) {
-      return (t.replaceFirst("d16", "\$${(d2 << 8 | d1).x4}"), 3);
+      return (t.replaceFirst("d16", "\$${(d2.shl8 | d1).x4}"), 3);
     }
     if (t.contains("a16")) {
-      return (t.replaceFirst("a16", "\$${(d2 << 8 | d1).x4}"), 3);
+      return (t.replaceFirst("a16", "\$${(d2.shl8 | d1).x4}"), 3);
     }
     if (t.contains("a8")) {
       return (t.replaceFirst("a8", "\$ff${d1.x2}"), 2);
