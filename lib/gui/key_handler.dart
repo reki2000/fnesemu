@@ -29,6 +29,8 @@ class KeyHandler {
       PhysicalKeyboardKey.keyQ: maybeButton(9),
       PhysicalKeyboardKey.keyW: maybeButton(10),
       PhysicalKeyboardKey.keyE: maybeButton(11),
+      PhysicalKeyboardKey.keyR: maybeButton(12),
+      PhysicalKeyboardKey.keyT: maybeButton(13),
     };
   }
 

@@ -7,10 +7,10 @@ class N64Rom {
   final String title;
 
   N64Rom._(this.bytes)
-    : entryPoint = ByteData.sublistView(bytes).getUint32(8),
-      title = String.fromCharCodes(bytes.sublist(0x20, 0x34))
-          .replaceAll('\x00', '')
-          .trim();
+      : entryPoint = ByteData.sublistView(bytes).getUint32(8),
+        title = String.fromCharCodes(bytes.sublist(0x20, 0x34))
+            .replaceAll('\x00', '')
+            .trim();
 
   factory N64Rom(Uint8List input) {
     if (input.length < 0x1004 || input.length % 4 != 0) {
