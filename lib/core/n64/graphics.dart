@@ -27,6 +27,26 @@ class N64Graphics {
   final vertices = List<N64Vertex?>.filled(80, null);
   final tiles = List.generate(8, (_) => N64Tile());
   final tmem = Uint8List(4096);
+  final _textureColor = Float64List(4), _combined = Float64List(4);
+  final _shade = Float64List(4);
+  static const _white = <double>[255, 255, 255, 255];
+  static final _fiveBit = List<double>.generate(32, (v) => v * 255 / 31);
+  // Pixel scratch buffers are consumed synchronously, never retained by vertices.
+  List<double> _textureRgba(
+      double red, double green, double blue, double alpha) {
+    _textureColor[0] = red;
+    _textureColor[1] = green;
+    _textureColor[2] = blue;
+    _textureColor[3] = alpha;
+    return _textureColor;
+  }
+
+  List<double> _texture16(int value) => _textureRgba(
+      _fiveBit[(value >> 11) & 31],
+      _fiveBit[(value >> 6) & 31],
+      _fiveBit[(value >> 1) & 31],
+      (value & 1) * 255.0);
+
   final lights = List.generate(8, (_) => List<double>.filled(6, 0));
   List<double> model = identity(), projection = identity();
   final stack = <List<double>>[];
@@ -331,36 +351,81 @@ class N64Graphics {
         maxY = math.min(math.min(scBottom, 576) - 1, y.reduce(math.max).ceil());
     final inverse = vs.map((v) => 1 / v.clip[3]).toList();
     final depthBuffer = depth;
+    final waStep = (y[2] - y[1]) / area,
+        wbStep = (y[0] - y[2]) / area,
+        wcStep = -waStep - wbStep;
+    double delta(double va, double vb, double vc) =>
+        waStep * va + wbStep * vb + wcStep * vc;
+    final zStep = delta(z[0], z[1], z[2]);
+    final redStep = delta(a.color[0], b.color[0], c.color[0]),
+        greenStep = delta(a.color[1], b.color[1], c.color[1]),
+        blueStep = delta(a.color[2], b.color[2], c.color[2]),
+        alphaStep = delta(a.color[3], b.color[3], c.color[3]);
+    final sa = a.s * inverse[0],
+        sb = b.s * inverse[1],
+        sc = c.s * inverse[2],
+        ta = a.t * inverse[0],
+        tb = b.t * inverse[1],
+        tc = c.t * inverse[2];
+    final sStep = delta(sa, sb, sc),
+        tStep = delta(ta, tb, tc),
+        inverseStep = delta(inverse[0], inverse[1], inverse[2]);
     for (var py = minY; py <= maxY; py++) {
-      for (var px = minX; px <= maxX; px++) {
-        final wa = edge(x[1], y[1], x[2], y[2], px + 0.5, py + 0.5) / area;
-        final wb = edge(x[2], y[2], x[0], y[0], px + 0.5, py + 0.5) / area;
-        final wc = 1 - wa - wb;
-        if (wa < 0 || wb < 0 || wc < 0) continue;
+      var wa = edge(x[1], y[1], x[2], y[2], minX + 0.5, py + 0.5) / area,
+          wb = edge(x[2], y[2], x[0], y[0], minX + 0.5, py + 0.5) / area;
+      final wc = 1 - wa - wb;
+      var dz = wa * z[0] + wb * z[1] + wc * z[2],
+          red = wa * a.color[0] + wb * b.color[0] + wc * c.color[0],
+          green = wa * a.color[1] + wb * b.color[1] + wc * c.color[1],
+          blue = wa * a.color[2] + wb * b.color[2] + wc * c.color[2],
+          alpha = wa * a.color[3] + wb * b.color[3] + wc * c.color[3],
+          ss = wa * sa + wb * sb + wc * sc,
+          tt = wa * ta + wb * tb + wc * tc,
+          divisor = wa * inverse[0] + wb * inverse[1] + wc * inverse[2];
+      for (var px = minX;
+          px <= maxX;
+          px++,
+          wa += waStep,
+          wb += wbStep,
+          dz += zStep,
+          red += redStep,
+          green += greenStep,
+          blue += blueStep,
+          alpha += alphaStep,
+          ss += sStep,
+          tt += tStep,
+          divisor += inverseStep) {
+        // Re-evaluate coverage near an edge: accumulated roundoff must not
+        // introduce cracks in adjacent triangles sharing that edge.
+        var inside = wa >= 0 && wb >= 0 && 1 - wa - wb >= 0;
+        if (wa.abs() < 1e-10 ||
+            wb.abs() < 1e-10 ||
+            (1 - wa - wb).abs() < 1e-10) {
+          final exactA =
+                  edge(x[1], y[1], x[2], y[2], px + 0.5, py + 0.5) / area,
+              exactB = edge(x[2], y[2], x[0], y[0], px + 0.5, py + 0.5) / area;
+          inside = exactA >= 0 && exactB >= 0 && 1 - exactA - exactB >= 0;
+        }
+        if (!inside) continue;
         final at = py * width + px;
-        final dz = wa * z[0] + wb * z[1] + wc * z[2];
         if ((geometry & 1) != 0 &&
             (otherLow & 0x10) != 0 &&
             dz > depthBuffer[at]) {
           continue;
         }
         if ((geometry & 1) != 0 && (otherLow & 0x20) != 0) depthBuffer[at] = dz;
-        final shade = List.generate(
-            4, (i) => wa * a.color[i] + wb * b.color[i] + wc * c.color[i]);
-        final divisor = wa * inverse[0] + wb * inverse[1] + wc * inverse[2];
-        final ts = (wa * a.s * inverse[0] +
-                wb * b.s * inverse[1] +
-                wc * c.s * inverse[2]) /
-            divisor;
-        final tt = (wa * a.t * inverse[0] +
-                wb * b.t * inverse[1] +
-                wc * c.t * inverse[2]) /
-            divisor;
+        _shade[0] = red;
+        _shade[1] = green;
+        _shade[2] = blue;
+        _shade[3] = alpha;
         pixel(
             px,
             py,
-            combine(shade,
-                textureOn ? texel(activeTile, ts, tt) : [255, 255, 255, 255]));
+            _combine(
+                _shade,
+                textureOn
+                    ? _texel(activeTile, ss / divisor, tt / divisor)
+                    : _white));
       }
     }
   }
@@ -373,7 +438,14 @@ class N64Graphics {
         ((v >> 1) & 31) * 255 / 31,
         (v & 1) * 255.0
       ];
-  List<double> texel(int index, double s, double t) {
+
+  /// Public inspection returns a snapshot; the rasterizer uses private scratch.
+  List<double> texel(int index, double s, double t) =>
+      List<double>.of(_texel(index, s, t));
+  List<double> combine(List<double> shade, List<double> texture) =>
+      List<double>.of(_combine(shade, texture));
+
+  List<double> _texel(int index, double s, double t) {
     final tile = tiles[index];
     int coordinate(
         double value, double low, double high, int shift, int mode, int mask) {
@@ -406,38 +478,40 @@ class N64Graphics {
           (tmem[(offset + 2) & 4095] << 8) |
           tmem[(offset + 3) & 4095];
     }
-    if (tile.format == 0) return tile.size == 3 ? rgba(v) : rgba16(v);
+    if (tile.format == 0) {
+      return tile.size == 3
+          ? _textureRgba(
+              ((v >> 24) & 255).toDouble(),
+              ((v >> 16) & 255).toDouble(),
+              ((v >> 8) & 255).toDouble(),
+              (v & 255).toDouble())
+          : _texture16(v);
+    }
     if (tile.format == 2) {
       final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
       final p = (2048 + paletteIndex * 8) & 4095;
-      return rgba16((tmem[p] << 8) | tmem[p + 1]);
+      return _texture16((tmem[p] << 8) | tmem[p + 1]);
     }
     if (tile.format == 3) {
       if (tile.size == 2) {
-        return [
-          (v >> 8).toDouble(),
-          (v >> 8).toDouble(),
-          (v >> 8).toDouble(),
-          (v & 255).toDouble()
-        ];
+        final intensity = (v >> 8).toDouble();
+        return _textureRgba(
+            intensity, intensity, intensity, (v & 255).toDouble());
       }
       final intensity =
               tile.size == 1 ? (v >> 4) * 17 : ((v >> 1) & 7) * 255 / 7,
           alpha = tile.size == 1 ? (v & 15) * 17 : (v & 1) * 255;
-      return [
-        intensity.toDouble(),
-        intensity.toDouble(),
-        intensity.toDouble(),
-        alpha.toDouble()
-      ];
+      return _textureRgba(intensity.toDouble(), intensity.toDouble(),
+          intensity.toDouble(), alpha.toDouble());
     }
     final intensity = tile.size == 0 ? v * 17 : v;
-    return List<double>.filled(4, intensity.toDouble());
+    return _textureRgba(intensity.toDouble(), intensity.toDouble(),
+        intensity.toDouble(), intensity.toDouble());
   }
 
-  List<double> combine(List<double> shade, List<double> texture) {
+  List<double> _combine(List<double> shade, List<double> texture) {
     if (((otherHigh >> 20) & 3) == 2) return texture;
-    var combined = [0.0, 0.0, 0.0, 0.0];
+    final combined = _combined..fillRange(0, 4, 0);
     for (var cycle = 0;
         cycle < (((otherHigh >> 20) & 3) == 1 ? 2 : 1);
         cycle++) {
@@ -476,15 +550,15 @@ class N64Graphics {
             6 => 255,
             _ => 0
           };
-      combined = [
-        for (var i = 0; i < 3; i++)
-          ((rgb(a, i, 0) - rgb(b, i, 1)) * rgb(cc, i, 2) / 255 + rgb(d, i, 3))
-              .clamp(0, 255)
-              .toDouble(),
-        ((alpha(aa) - alpha(ab)) * alpha(ac) / 255 + alpha(ad))
-            .clamp(0, 255)
-            .toDouble()
-      ];
+      for (var i = 0; i < 3; i++) {
+        combined[i] =
+            ((rgb(a, i, 0) - rgb(b, i, 1)) * rgb(cc, i, 2) / 255 + rgb(d, i, 3))
+                .clamp(0, 255)
+                .toDouble();
+      }
+      combined[3] = ((alpha(aa) - alpha(ab)) * alpha(ac) / 255 + alpha(ad))
+          .clamp(0, 255)
+          .toDouble();
     }
     return combined;
   }
@@ -504,15 +578,25 @@ class N64Graphics {
     final size = colorSize == 3 ? 4 : 2,
         at = colorImage + (y * width + x) * size;
     if (at + size > bus.ram.length) return;
-    var c = color;
+    var redValue = color[0], greenValue = color[1], blueValue = color[2];
     if ((otherLow & 0x4000) != 0 && color[3] < 255) {
-      final old = size == 4 ? rgba(u(at, 4)) : rgba16(u(at, 2)),
-          a = color[3] / 255;
-      c = [for (var i = 0; i < 3; i++) color[i] * a + old[i] * (1 - a), 255];
+      final old = u(at, size), alpha = color[3] / 255, inverse = 1 - alpha;
+      final oldRed = size == 4
+              ? ((old >> 24) & 255).toDouble()
+              : _fiveBit[(old >> 11) & 31],
+          oldGreen = size == 4
+              ? ((old >> 16) & 255).toDouble()
+              : _fiveBit[(old >> 6) & 31],
+          oldBlue = size == 4
+              ? ((old >> 8) & 255).toDouble()
+              : _fiveBit[(old >> 1) & 31];
+      redValue = redValue * alpha + oldRed * inverse;
+      greenValue = greenValue * alpha + oldGreen * inverse;
+      blueValue = blueValue * alpha + oldBlue * inverse;
     }
-    final red = c[0].round().clamp(0, 255),
-        green = c[1].round().clamp(0, 255),
-        blue = c[2].round().clamp(0, 255);
+    final red = redValue.round().clamp(0, 255),
+        green = greenValue.round().clamp(0, 255),
+        blue = blueValue.round().clamp(0, 255);
     bus.ramWrite(
         at,
         size == 4
@@ -539,9 +623,9 @@ class N64Graphics {
       for (var x = math.max(scLeft, left.ceil());
           x < math.min(scRight, right.ceil());
           x++) {
-        final tex = texel(tile, s + (flip ? y - top : x - left) * ds,
+        final tex = _texel(tile, s + (flip ? y - top : x - left) * ds,
             t + (flip ? x - left : y - top) * dt);
-        pixel(x, y, combine([255, 255, 255, 255], tex));
+        pixel(x, y, _combine(_white, tex));
       }
     }
   }
@@ -599,7 +683,7 @@ class N64Graphics {
                     size);
               }
             } else {
-              pixel(x, y, combine([255, 255, 255, 255], [255, 255, 255, 255]));
+              pixel(x, y, _combine(_white, _white));
             }
           }
         }
