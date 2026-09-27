@@ -4,7 +4,8 @@ import 'bus.dart';
 import 'fpu.dart';
 import 'registers.dart';
 
-/// Experimental VR4300 integer interpreter. BigInt preserves 64 bits on Web.
+/// Experimental VR4300 integer interpreter. 64-bit registers are plain ints
+/// (native and wasm ints are 64-bit and wrap modulo 2^64).
 /// Unsupported operations stop explicitly instead of behaving as NOPs.
 class Vr4300 {
   final N64Bus bus;
@@ -28,15 +29,15 @@ class Vr4300 {
   final r = N64Registers();
   final cop0 = List<int>.filled(32, 0);
   int pc = 0, nextPc = 4, clocks = 0;
-  BigInt hi = BigInt.zero, lo = BigInt.zero;
+  int hi = 0, lo = 0;
   String? stopReason;
 
   Vr4300(this.bus);
 
   void reset(int entry) {
-    r.fillRange(0, 32, BigInt.zero);
+    r.fillRange(0, 32, 0);
     cop0.fillRange(0, 32, 0);
-    hi = lo = BigInt.zero;
+    hi = lo = 0;
     pc = entry;
     nextPc = (entry + 4).mask32;
     clocks = 0;
@@ -49,29 +50,18 @@ class Vr4300 {
     cop0[12] = 0x34000000;
     cop0[16] = 0x7006e463;
     cop0[15] = 0x00000b22;
-    r[29] = BigInt.from(0x807ffff0).toSigned(32);
+    r[29] = 0x807ffff0.toSigned(32);
   }
 
-  void put(int index, BigInt value) {
-    if (index != 0) r[index] = value;
-  }
-
-  void word(int index, BigInt value) => put(index, value.toSigned(32));
+  void put(int index, int value) => r[index] = value;
   int lowWord(int index) => r.word(index);
-  void putWord(int index, int value) {
-    r.setWord(index, value);
-  }
+  void putWord(int index, int value) => r.setWord(index, value);
 
-  bool equal(int s, int t) =>
-      r.isWord(s) && r.isWord(t) ? lowWord(s) == lowWord(t) : r[s] == r[t];
-  bool negative(int s) => r.isWord(s) ? lowWord(s) < 0 : r[s].isNegative;
-  bool nonpositive(int s) =>
-      r.isWord(s) ? lowWord(s) <= 0 : r[s] <= BigInt.zero;
-  bool lessSigned(int s, int t) =>
-      r.isWord(s) && r.isWord(t) ? lowWord(s) < lowWord(t) : r[s] < r[t];
-  bool lessUnsigned(int s, int t) => r.isWord(s) && r.isWord(t)
-      ? lowWord(s).mask32 < lowWord(t).mask32
-      : r[s].toUnsigned(64) < r[t].toUnsigned(64);
+  bool equal(int s, int t) => r[s] == r[t];
+  bool negative(int s) => r[s] < 0;
+  bool nonpositive(int s) => r[s] <= 0;
+  bool lessSigned(int s, int t) => r[s] < r[t];
+  bool lessUnsigned(int s, int t) => ltu(r[s], r[t]);
   int addWord(int s, int value, {bool subtract = false}) {
     final result = subtract ? lowWord(s) - value : lowWord(s) + value;
     if (result < -2147483648 || result > 2147483647) {
@@ -81,18 +71,12 @@ class Vr4300 {
   }
 
   void logic(int d, int s, int t, int fn) {
-    if (r.isWord(s) && r.isWord(t)) {
-      final a = lowWord(s), b = lowWord(t);
-      putWord(d,
-          switch (fn) { 36 => a & b, 37 => a | b, 38 => a ^ b, _ => ~(a | b) });
-    } else {
-      final a = r[s], b = r[t];
-      put(d,
-          switch (fn) { 36 => a & b, 37 => a | b, 38 => a ^ b, _ => ~(a | b) });
-    }
+    final a = r[s], b = r[t];
+    put(d,
+        switch (fn) { 36 => a & b, 37 => a | b, 38 => a ^ b, _ => ~(a | b) });
   }
 
-  int address(BigInt value) => value.toUnsigned(32).toInt();
+  int address(int value) => value.mask32;
   int signed16(int value) => value.mask16.toSigned(16);
 
   void aligned(int address, int size) {
@@ -162,15 +146,9 @@ class Vr4300 {
       void unsupported() => throw UnsupportedError(
             'VR4300 instruction 0x${op.x8}',
           );
-      BigInt load(int size, bool signed) {
-        aligned(a, size);
-        if (size <= 4) {
-          final value = bus.read(a, size);
-          return BigInt.from(signed ? value.toSigned(size * 8) : value);
-        }
-        final value = (BigInt.from(bus.read(a, 4)) << 32) |
-            BigInt.from(bus.read(a + 4, 4));
-        return signed ? value.toSigned(64) : value;
+      int load64() {
+        aligned(a, 8);
+        return bus.read(a, 4) << 32 | bus.read(a + 4, 4);
       }
 
       void loadWord(int size, bool signed) {
@@ -184,20 +162,18 @@ class Vr4300 {
         if (size <= 4) {
           bus.write(a, lowWord(t), size);
         } else {
-          bus.write(a, (r[t].toUnsigned(64) >> 32).toInt(), 4);
+          bus.write(a, r[t] >>> 32, 4);
           bus.write(a + 4, lowWord(t), 4);
         }
       }
 
-      BigInt add(BigInt x, BigInt y, int bits, bool trap,
-          {bool subtract = false}) {
-        final result = subtract
-            ? x.toSigned(bits) - y.toSigned(bits)
-            : x.toSigned(bits) + y.toSigned(bits);
-        if (trap && result != result.toSigned(bits)) {
-          throw const CpuFault(12);
-        }
-        return result.toSigned(bits);
+      /// 64-bit add/sub trapping on signed overflow (DADD/DADDI/DSUB)
+      int add(int x, int y, {bool subtract = false}) {
+        final result = subtract ? x - y : x + y;
+        final overflow =
+            subtract ? (x ^ y) & (x ^ result) : (x ^ result) & (y ^ result);
+        if (overflow < 0) throw const CpuFault(12);
+        return result;
       }
 
       if ((code == 17 ||
@@ -246,27 +222,26 @@ class Vr4300 {
             case 19:
               lo = r[s];
             case 20:
-              put(d, r[t] << r[s].toInt().mask6);
+              put(d, r[t] << r[s].mask6);
             case 22:
-              put(d, r[t].toUnsigned(64) >> r[s].toInt().mask6);
+              put(d, r[t] >>> r[s].mask6);
             case 23:
-              put(d, r[t] >> r[s].toInt().mask6);
+              put(d, r[t] >> r[s].mask6);
             case 24:
             case 25:
               final unsigned = op.mask6 == 25;
-              final x = unsigned ? r[s].toUnsigned(32) : r[s].toSigned(32);
-              final y = unsigned ? r[t].toUnsigned(32) : r[t].toSigned(32);
-              final product = x * y;
+              final x = unsigned ? r[s].mask32 : lowWord(s);
+              final y = unsigned ? r[t].mask32 : lowWord(t);
+              final product = x * y; // wraps modulo 2^64: low 64 bits exact
               lo = product.toSigned(32);
               hi = (product >> 32).toSigned(32);
             case 26:
             case 27:
               final unsigned = op.mask6 == 27;
-              final x = unsigned ? r[s].toUnsigned(32) : r[s].toSigned(32);
-              final y = unsigned ? r[t].toUnsigned(32) : r[t].toSigned(32);
-              if (y == BigInt.zero) {
-                lo =
-                    unsigned || x >= BigInt.zero ? BigInt.from(-1) : BigInt.one;
+              final x = unsigned ? r[s].mask32 : lowWord(s);
+              final y = unsigned ? r[t].mask32 : lowWord(t);
+              if (y == 0) {
+                lo = unsigned || x >= 0 ? -1 : 1;
                 hi = x.toSigned(32);
               } else {
                 lo = (x ~/ y).toSigned(32);
@@ -274,24 +249,31 @@ class Vr4300 {
               }
             case 28:
             case 29:
-              final unsigned = op.mask6 == 29;
-              final x = unsigned ? r[s].toUnsigned(64) : r[s];
-              final y = unsigned ? r[t].toUnsigned(64) : r[t];
-              final product = x * y;
-              lo = product.toSigned(64);
-              hi = (product >> 64).toSigned(64);
+              final x = r[s], y = r[t];
+              lo = x * y;
+              hi = op.mask6 == 29 ? mulHiUnsigned(x, y) : mulHiSigned(x, y);
             case 30:
+              final x = r[s], y = r[t];
+              if (y == 0) {
+                lo = x >= 0 ? -1 : 1;
+                hi = x;
+              } else if (y == -1) {
+                lo = -x; // wraps for the minimum value like the hardware
+                hi = 0;
+              } else {
+                lo = x ~/ y;
+                hi = x.remainder(y);
+              }
             case 31:
-              final unsigned = op.mask6 == 31;
-              final x = unsigned ? r[s].toUnsigned(64) : r[s];
-              final y = unsigned ? r[t].toUnsigned(64) : r[t];
-              lo = (y == BigInt.zero
-                      ? (unsigned || x >= BigInt.zero
-                          ? BigInt.from(-1)
-                          : BigInt.one)
-                      : x ~/ y)
-                  .toSigned(64);
-              hi = (y == BigInt.zero ? x : x.remainder(y)).toSigned(64);
+              final x = r[s], y = r[t];
+              if (y == 0) {
+                lo = -1;
+                hi = x;
+              } else {
+                final (q, rem) = divUnsigned(x, y);
+                lo = q;
+                hi = rem;
+              }
             case 32:
               putWord(d, addWord(s, lowWord(t)));
             case 33:
@@ -313,23 +295,23 @@ class Vr4300 {
             case 43:
               putWord(d, lessUnsigned(s, t) ? 1 : 0);
             case 44:
-              put(d, add(r[s], r[t], 64, true));
+              put(d, add(r[s], r[t]));
             case 45:
               put(d, r[s] + r[t]);
             case 46:
-              put(d, add(r[s], r[t], 64, true, subtract: true));
+              put(d, add(r[s], r[t], subtract: true));
             case 47:
               put(d, r[s] - r[t]);
             case 56:
               put(d, r[t] << shift);
             case 58:
-              put(d, r[t].toUnsigned(64) >> shift);
+              put(d, r[t] >>> shift);
             case 59:
               put(d, r[t] >> shift);
             case 60:
               put(d, r[t] << (shift + 32));
             case 62:
-              put(d, r[t].toUnsigned(64) >> (shift + 32));
+              put(d, r[t] >>> (shift + 32));
             case 63:
               put(d, r[t] >> (shift + 32));
             default:
@@ -365,36 +347,15 @@ class Vr4300 {
         case 9:
           putWord(t, lowWord(s) + immediate);
         case 10:
-          putWord(
-              t,
-              (r.isWord(s)
-                      ? lowWord(s) < immediate
-                      : r[s] < BigInt.from(immediate))
-                  ? 1
-                  : 0);
+          putWord(t, r[s] < immediate ? 1 : 0);
         case 11:
-          putWord(
-              t,
-              (r.isWord(s)
-                      ? lowWord(s).mask32 < immediate.mask32
-                      : r[s].toUnsigned(64) <
-                          BigInt.from(immediate).toUnsigned(64))
-                  ? 1
-                  : 0);
+          putWord(t, ltu(r[s], immediate) ? 1 : 0);
         case 12:
-          putWord(t, lowWord(s) & op.mask16);
+          put(t, r[s] & op.mask16);
         case 13:
-          if (r.isWord(s)) {
-            putWord(t, lowWord(s) | op.mask16);
-          } else {
-            put(t, r[s] | BigInt.from(op & 0xffff));
-          }
+          put(t, r[s] | op.mask16);
         case 14:
-          if (r.isWord(s)) {
-            putWord(t, lowWord(s) ^ op.mask16);
-          } else {
-            put(t, r[s] ^ BigInt.from(op & 0xffff));
-          }
+          put(t, r[s] ^ op.mask16);
         case 15:
           putWord(t, op.mask16.shl16);
         case 16:
@@ -462,10 +423,7 @@ class Vr4300 {
           final left = code == 26 || code == 34;
           final base = a - offset;
           final bytes = List<int>.generate(
-              size,
-              (i) => ((r[t].toUnsigned(size * 8) >> ((size - 1 - i) * 8)) &
-                      BigInt.from(255))
-                  .toInt());
+              size, (i) => (r[t] >>> (size - 1 - i) * 8).mask8);
           if (left) {
             for (var i = offset; i < size; i++) {
               bytes[i - offset] = bus.read8(base + i);
@@ -475,12 +433,12 @@ class Vr4300 {
               bytes[size - 1 - offset + i] = bus.read8(base + i);
             }
           }
-          var value = BigInt.zero;
+          var value = 0;
           for (final b in bytes) {
-            value = (value << 8) | BigInt.from(b);
+            value = value.shl8 | b;
           }
           if (size == 4) {
-            word(t, value);
+            putWord(t, value);
           } else {
             put(t, value);
           }
@@ -493,9 +451,9 @@ class Vr4300 {
         case 23:
           branch(!nonpositive(s), likely: true);
         case 24:
-          put(t, add(r[s], BigInt.from(immediate), 64, true));
+          put(t, add(r[s], immediate));
         case 25:
-          put(t, r[s] + BigInt.from(immediate));
+          put(t, r[s] + immediate);
         case 32:
           loadWord(1, true);
         case 33:
@@ -508,12 +466,7 @@ class Vr4300 {
           loadWord(2, false);
         case 39:
           aligned(a, 4);
-          final value = bus.read(a, 4);
-          if (value < 0x80000000) {
-            putWord(t, value);
-          } else {
-            put(t, BigInt.from(value));
-          }
+          put(t, bus.read(a, 4).mask32);
         case 42:
         case 46:
         case 44:
@@ -524,17 +477,13 @@ class Vr4300 {
           final base = a - offset;
           for (var i = left ? offset : 0; i < (left ? size : offset + 1); i++) {
             final index = left ? i - offset : size - 1 - offset + i;
-            bus.write8(
-                base + i,
-                ((r[t].toUnsigned(size * 8) >> ((size - 1 - index) * 8)) &
-                        BigInt.from(255))
-                    .toInt());
+            bus.write8(base + i, (r[t] >>> (size - 1 - index) * 8).mask8);
           }
         case 48:
           loadWord(4, true);
           _ll = true;
         case 52:
-          put(t, load(8, true));
+          put(t, load64());
           _ll = true;
         case 56:
         case 60:
@@ -545,15 +494,14 @@ class Vr4300 {
           aligned(a, 4);
           fpu.setWord(t, bus.read(a, 4));
         case 53:
-          fpu.setLong(t, load(8, false));
+          fpu.setLong(t, load64());
         case 57:
           aligned(a, 4);
           bus.write(a, fpu.word(t), 4);
         case 61:
           aligned(a, 8);
           for (var i = 0; i < 8; i++) {
-            bus.write8(a + i,
-                ((fpu.long(t) >> ((7 - i) * 8)) & BigInt.from(255)).toInt());
+            bus.write8(a + i, (fpu.long(t) >>> (7 - i) * 8).mask8);
           }
         case 40:
           store(1);
@@ -564,7 +512,7 @@ class Vr4300 {
         case 47:
           break; // CACHE: bus has no caches.
         case 55:
-          put(t, load(8, true));
+          put(t, load64());
         case 63:
           store(8);
         default:
@@ -586,6 +534,35 @@ class Vr4300 {
       stopReason = error.toString();
     }
   }
+}
+
+/// unsigned 64-bit less-than
+bool ltu(int a, int b) => (a ^ _signBit) < (b ^ _signBit);
+const _signBit = 1 << 63;
+
+/// high 64 bits of the unsigned 128-bit product of [x] and [y]
+int mulHiUnsigned(int x, int y) {
+  final xl = x.mask32, xh = x >>> 32, yl = y.mask32, yh = y >>> 32;
+  final t = xh * yl + (xl * yl >>> 32);
+  final u = xl * yh + t.mask32;
+  return xh * yh + (t >>> 32) + (u >>> 32);
+}
+
+/// high 64 bits of the signed 128-bit product of [x] and [y]
+int mulHiSigned(int x, int y) =>
+    mulHiUnsigned(x, y) - (x < 0 ? y : 0) - (y < 0 ? x : 0);
+
+/// unsigned 64-bit division; [y] must not be zero. Returns (quotient, remainder).
+(int, int) divUnsigned(int x, int y) {
+  if (x >= 0 && y > 0) return (x ~/ y, x.remainder(y));
+  if (y < 0) return ltu(x, y) ? (0, x) : (1, x - y);
+  var q = (x >>> 1) ~/ y << 1;
+  var rem = x - q * y;
+  if (!ltu(rem, y)) {
+    q++;
+    rem -= y;
+  }
+  return (q, rem);
 }
 
 class CpuFault implements Exception {

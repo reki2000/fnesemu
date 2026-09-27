@@ -67,17 +67,17 @@ void main() {
       cpu.step();
     }
     expect(cpu.stopReason, isNull);
-    expect(cpu.r[1], BigInt.from(-2147483648));
-    expect(cpu.r[2], BigInt.from(2147483647));
-    expect(cpu.r[3], BigInt.from(-2147483648));
-    expect(cpu.r[0], BigInt.zero);
+    expect(cpu.r[1], -2147483648);
+    expect(cpu.r[2], 2147483647);
+    expect(cpu.r[3], -2147483648);
+    expect(cpu.r[0], 0);
   });
 
   test('SUB handles the minimum signed operand and delivers overflow', () {
     final cpu = processor([0x3c018000, 0x00211022, 0x00011822]);
     cpu.step();
     cpu.step();
-    expect(cpu.r[2], BigInt.zero);
+    expect(cpu.r[2], 0);
     cpu.step();
     expect(cpu.stopReason, isNull);
     expect(cpu.cop0[13].shr2.mask5, 12);
@@ -97,7 +97,7 @@ void main() {
       cpu.step();
     }
     expect(cpu.stopReason, isNull);
-    expect(cpu.r[2], BigInt.parse('123400005678', radix: 16));
+    expect(cpu.r[2], 0x123400005678);
     expect(cpu.bus.read(0x100, 4), 0x1234);
     expect(cpu.bus.read(0x104, 4), 0x5678);
   });
@@ -107,8 +107,8 @@ void main() {
     cpu.step();
     cpu.step();
     cpu.step();
-    expect(cpu.r[1], BigInt.from(7));
-    expect(cpu.r[2], BigInt.from(9));
+    expect(cpu.r[1], 7);
+    expect(cpu.r[2], 9);
     expect(cpu.pc, 0x80000010);
   });
 
@@ -116,8 +116,8 @@ void main() {
     final cpu = processor([0x54000001, 0x24010007, 0x24020009]);
     cpu.step();
     cpu.step();
-    expect(cpu.r[1], BigInt.zero);
-    expect(cpu.r[2], BigInt.from(9));
+    expect(cpu.r[1], 0);
+    expect(cpu.r[2], 9);
   });
 
   test('unsupported instructions and unaligned memory stop at fault PC', () {
