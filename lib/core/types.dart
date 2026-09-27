@@ -27,6 +27,7 @@ class ExecResult {
 
   bool executed0 = true;
   bool executed1 = false;
+  bool executed2 = false;
 
   ExecResult(
     this.elapsedClocks,
@@ -34,7 +35,12 @@ class ExecResult {
     this.scanlineRendered,
   );
 
-  bool executed(int i) => i == 0 ? executed0 : executed1;
+  bool executed(int i) => switch (i) {
+        0 => executed0,
+        1 => executed1,
+        2 => executed2,
+        _ => false,
+      };
 }
 
 class CpuInfo {

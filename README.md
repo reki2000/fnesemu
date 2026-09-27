@@ -15,7 +15,9 @@ This project is experimental.
 - PCE (.pce)
   - Does not support SRAM / CD / SG16
 - MD (.gen .md)
-  - Does not suppor SRAM / CD / PAL / 32X
+  - Experimental md cdrom support: BIOS boot, sub 68000, PRG/Word RAM,
+    CDD/CDC, PCM/CD-DA audio, backup RAM and stamp conversion
+  - Does not support cartridge SRAM / PAL / 32X
 - PS1 (.ps) * experimental *
   - requires BIOS with `.ps` extension 
   - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
@@ -25,6 +27,46 @@ This project is experimental.
 1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
 1. Select the file by clicking on the 'Load ROM' icon (a square and small arrow) on the leftmost of the App bar icons
 1. Click on the 'Run' icon (a right-directed triangle) to start emulation
+
+## md cdrom support (experimental)
+
+Load a legally obtained **128 KiB MD CD-ROM BIOS** using the Load ROM button.
+Use the `.mdcd` extension to select CD boot mode explicitly; `.bin`
+BIOS files containing the `manufacturer BOOT` header are detected automatically.
+Select the game from the disc menu. As with PS1, disc paths are supplied through
+`--dart-define=DISC=/path/to/game.cue` for a single image, or through the
+`DISC_DIR` environment variable for the disc menu.
+BIOS files and games are not included.
+
+Supported images are raw Mode 1 BIN/CUE, cooked 2048-byte ISO, and CUE with
+separate `MODE1/2048` data and raw AUDIO files. CD-DA requires raw little-endian
+stereo PCM tracks; WAV/MP3/CHD images are not supported. Backup RAM uses the
+existing save storage under `md_cdrom_bram`. The debugger exposes the sub CPU as
+CPU 2. CD hardware is enabled by loading its BIOS, not by attaching a disc to a
+cartridge game.
+
+This implementation has synthetic hardware regression coverage; commercial
+BIOS/game boot and gameplay have **not been verified**. Bus contention and
+seek/DMA/graphics timing are approximations. Stamp output is computed when the
+operation starts, followed by an estimated busy interval and IRQ1. CD subcode,
+error correction, audio de-emphasis, gradual fader ramps, cartridge boot mode,
+PAL timing and 32X are not implemented. Compatibility with individual games is
+not guaranteed.
+
+For a local BIOS/disc smoke run (prints CPU/CD state and stops on unsupported
+instructions):
+
+```sh
+dart run lib/tools/md_cdrom.dart /path/to/bios.bin /path/to/game.cue 600
+```
+
+Regression tests:
+
+```sh
+flutter test test/core/md/md_cdrom_test.dart test/disc/md_cdrom_disc_test.dart
+```
+
+Register layouts and mapping follow the hardware development manual.
 
 ## Joypad-Keyboard assignment
 

@@ -12,6 +12,7 @@ class _Track {
   int startLBA = 0; // relative to file start, set later from INDEX
   int dataSectors = 0; // set later from file size and INDEX
 
+  final int sectorSize;
   final int number;
   final TrackMode mode;
   final int imageIndex; // index into _images, -1 for untracked files
@@ -19,7 +20,8 @@ class _Track {
   List<int> index = [];
   int pregap = 0; // implicit silence sectors before this track (not in file)
   int postgap = 0; // implicit silence sectors after this track (not in file)
-  _Track(this.number, this.mode, this.imageIndex);
+  _Track(this.number, this.mode, this.imageIndex,
+      {this.sectorSize = Disc.sectorSize});
 }
 
 List<String> _splitLine(String line) {
@@ -90,12 +92,12 @@ class CueDisc extends Disc {
 
     for (final t in _tracks) {
       if (t.startLBA <= sector && sector < t.startLBA + t.dataSectors) {
-        final offset =
-            (sector - t.startLBA) * Disc.sectorSize + t.offsetInImage;
+        final offset = (sector - t.startLBA) * t.sectorSize + t.offsetInImage;
         final sectorData =
-            _images[t.imageIndex].sublist(offset, offset + Disc.sectorSize);
-        // _logReadSector(sector, sectorData);
-        return sectorData;
+            _images[t.imageIndex].sublist(offset, offset + t.sectorSize);
+        return t.sectorSize == 2048
+            ? Disc.mode1Sector(sectorData, sector)
+            : sectorData;
       }
     }
 
@@ -129,12 +131,6 @@ class CueDisc extends Disc {
           final fullPath = "${File(_cuePath).parent.absolute.path}/$filePath";
           try {
             final bytes = File(fullPath).readAsBytesSync();
-            if (bytes.length % Disc.sectorSize != 0) {
-              debugLog(
-                  "cue: file size is not the multiple of sector size, applied padding: ${bytes.length}");
-              bytes.addAll(
-                  Uint8List(Disc.sectorSize - bytes.length % Disc.sectorSize));
-            }
             _images.add(bytes);
             imageIndex = _images.length - 1;
             debugLog(
@@ -156,7 +152,10 @@ class CueDisc extends Disc {
             return;
           }
           final mode = _parseMode(parts[2]);
-          currentTrack = _Track(number, mode, imageIndex);
+          currentTrack = _Track(number, mode, imageIndex,
+              sectorSize: parts[2].toUpperCase() == "MODE1/2048"
+                  ? 2048
+                  : Disc.sectorSize);
           _tracks.add(currentTrack);
 
         case "INDEX":
@@ -186,20 +185,20 @@ class CueDisc extends Disc {
       if (prev.imageIndex != t.imageIndex) {
         prev.dataSectors =
             (_images[prev.imageIndex].length - prev.offsetInImage) ~/
-                Disc.sectorSize;
+                prev.sectorSize;
         imageLba = prev.startLBA + prev.dataSectors + prev.postgap;
         offsetInImage = 0;
       } else {
         prev.dataSectors =
             (t.index[0] - t.pregap - prev.postgap - prev.startLBA);
-        offsetInImage += prev.dataSectors * Disc.sectorSize;
+        offsetInImage += prev.dataSectors * prev.sectorSize;
       }
       t.startLBA = t.index[1] + imageLba;
       t.offsetInImage = offsetInImage;
     }
     _tracks.last.dataSectors = (_images[_tracks.last.imageIndex].length -
             _tracks.last.offsetInImage) ~/
-        Disc.sectorSize;
+        _tracks.last.sectorSize;
   }
 
   void _logSummary() {
@@ -209,21 +208,5 @@ class CueDisc extends Disc {
       debugLog(
           "disc: cue: track ${t.number} mode:${t.mode.name} startLBA:${Disc.dumpSector(t.startLBA)} size:${t.dataSectors} pregap:${t.pregap} postgap:${t.postgap}");
     }
-  }
-
-  void _logReadSector(int sector, List<int> data) {
-    final headerOffset = Disc.sync.length;
-    final minutes = data[headerOffset];
-    final seconds = data[headerOffset + 1];
-    final sectorNumber = data[headerOffset + 2];
-    final mode = data[headerOffset + 3];
-    final file = data[headerOffset + 4];
-    final channel = data[headerOffset + 5];
-    final submode = data[headerOffset + 6];
-    final codinginfo = data[headerOffset + 7];
-    debugLog(
-        "iso: read sector $sector cue: (${minutes.x2}:${seconds.x2}:${sectorNumber.x2}) "
-        "mode:$mode file:$file channel:$channel submode:${submode.x2} codinginfo:${codinginfo.x2}"
-        "[${data.sublist(Disc.sync.length, Disc.sync.length + 16).map((e) => e.x2).join(" ")}...]");
   }
 }

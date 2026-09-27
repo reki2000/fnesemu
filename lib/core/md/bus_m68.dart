@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import 'm68/m68.dart';
+import 'cd/md_cdrom.dart';
 import 'bus_z80.dart';
 import 'pad.dart';
 import 'sn76489.dart';
@@ -20,6 +21,7 @@ class BusM68 {
   late Ym2612 fm;
 
   Rom rom = Rom();
+  MdCdrom? cdrom;
   int region = 0x00;
 
   final pad = Pad();
@@ -34,6 +36,7 @@ class BusM68 {
   final ram = Uint8List(0x10000);
 
   int read8(int addr) {
+    if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain8(addr);
     final top = addr.shr16 & 0xff;
 
     if (top == 0xff) {
@@ -77,6 +80,7 @@ class BusM68 {
   }
 
   int read16(int addr) {
+    if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain16(addr);
     final top = addr.shr16 & 0xff;
 
     if (top == 0xff) {
@@ -116,6 +120,10 @@ class BusM68 {
   }
 
   write8(int addr, int data) {
+    if (cdrom?.mapsMain(addr) ?? false) {
+      cdrom!.writeMain8(addr, data);
+      return;
+    }
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
@@ -160,6 +168,11 @@ class BusM68 {
   }
 
   write16(int addr, int data) {
+    if (cdrom?.mapsMain(addr) ?? false) {
+      cdrom!.writeMain8(addr, data >> 8);
+      cdrom!.writeMain8(addr + 1, data & 0xff);
+      return;
+    }
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
@@ -200,7 +213,8 @@ class BusM68 {
 
   int readIo16(int addr) {
     return switch (addr & 0xfffe) {
-      0x00 => region | 0x20, // region, ntsc, no fdd, version 0
+      0x00 =>
+        region | (cdrom == null ? 0x20 : 0), // region, ntsc, no fdd, version 0
       0x02 || 0x04 || 0x06 => pad.readData((addr.shr1 & 0x03).dec), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1

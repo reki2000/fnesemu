@@ -20,10 +20,18 @@ import 'package:fnesemu/util/debug.dart';
 class IsoDisc extends Disc {
   final String path;
   Uint8List data = Uint8List(0);
+  int _sectorSize = Disc.sectorSize;
 
   IsoDisc(this.path) {
     try {
       data = File(path).readAsBytesSync();
+      final hasSync = data.length >= 12 &&
+          List.generate(12, (i) => data[i] == Disc.sync[i]).every((v) => v);
+      if (path.toLowerCase().endsWith('.iso') &&
+          !hasSync &&
+          data.length % 2048 == 0) {
+        _sectorSize = 2048;
+      }
       debugLog(
           "disc: iso: Loaded disc image from $path. ${data.length.format3} bytes.");
     } catch (e) {
@@ -35,7 +43,7 @@ class IsoDisc extends Disc {
   int get trackCount => 1;
 
   @override
-  int get totalSectors => data.length ~/ Disc.sectorSize;
+  int get totalSectors => data.length ~/ _sectorSize;
 
   @override
   int startLba(int trackNo) {
@@ -55,15 +63,19 @@ class IsoDisc extends Disc {
   Uint8List read(int sector) {
     sector -= 2 * 75; // skip lead-in
 
-    if (sector < 0 || (sector + 1) * Disc.sectorSize >= data.length) {
+    if (sector < 0 || (sector + 1) * _sectorSize > data.length) {
       return Uint8List(0); // error out of range
     }
 
-    final sectorOffset = sector * Disc.sectorSize;
+    final sectorOffset = sector * _sectorSize;
     final dataOffset = sectorOffset;
 
     // logReadSector(sector, sectorOffset);
 
+    if (_sectorSize == 2048) {
+      return Disc.mode1Sector(
+          data.sublist(dataOffset, dataOffset + 2048), sector);
+    }
     return data.sublist(dataOffset, dataOffset + Disc.sectorSize);
   }
 
