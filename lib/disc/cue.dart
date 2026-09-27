@@ -176,8 +176,8 @@ class CueDisc extends Disc {
     }
 
     int imageLba = 0;
-    int offsetInImage = 0;
     _tracks[0].startLBA = _tracks[0].index[1];
+    _tracks[0].offsetInImage = _tracks[0].index[1] * Disc.sectorSize;
 
     for (int i = 1; i < _tracks.length; i++) {
       final prev = _tracks[i - 1];
@@ -188,14 +188,13 @@ class CueDisc extends Disc {
             (_images[prev.imageIndex].length - prev.offsetInImage) ~/
                 Disc.sectorSize;
         imageLba = prev.startLBA + prev.dataSectors + prev.postgap;
-        offsetInImage = 0;
       } else {
-        prev.dataSectors =
-            (t.index[0] - t.pregap - prev.postgap - prev.startLBA);
-        offsetInImage += prev.dataSectors * Disc.sectorSize;
+        prev.dataSectors = t.index[0] - prev.index[1];
       }
       t.startLBA = t.index[1] + imageLba;
-      t.offsetInImage = offsetInImage;
+      // INDEX values are offsets within the current FILE. INDEX 00 is a
+      // stored pregap; reads of INDEX 01 must start after it, not at its start.
+      t.offsetInImage = t.index[1] * Disc.sectorSize;
     }
     _tracks.last.dataSectors = (_images[_tracks.last.imageIndex].length -
             _tracks.last.offsetInImage) ~/

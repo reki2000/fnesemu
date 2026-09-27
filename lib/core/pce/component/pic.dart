@@ -31,6 +31,11 @@ class Pic {
     maskIrq2 = data.bit0;
     maskIrq1 = data.bit1;
     maskTIrq = data.bit2;
+    if (_holdIrq2 && !maskIrq2) {
+      bus.cpu.holdInterrupt(Interrupt.irq2);
+    } else {
+      bus.cpu.releaseInterrupt(Interrupt.irq2);
+    }
   }
 
   int get mask =>
