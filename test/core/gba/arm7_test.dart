@@ -269,6 +269,24 @@ void main() {
       expect(t.r[5], 1); // hi
     });
 
+    test('umull full 64-bit product', () {
+      final t = armRun([aMvnI(1, 0), aMvnI(2, 0), aUmull(4, 5, 1, 2)]);
+      expect(t.r[4], 1); // 0xffffffff * 0xffffffff = 0xfffffffe_00000001
+      expect(t.r[5], 0xfffffffe);
+    });
+
+    test('umlal wraps modulo 2^64', () {
+      final t = armRun([
+        aMvnI(4, 0),
+        aMvnI(5, 0),
+        aMovI(1, 1),
+        aMovI(2, 1),
+        aUmull(4, 5, 1, 2) | 1 << 21, // A bit: UMLAL
+      ]);
+      expect(t.r[4], 0);
+      expect(t.r[5], 0);
+    });
+
     test('smull', () {
       final t = armRun([aMvnI(1, 0), aMovI(2, 2), aSmull(4, 5, 1, 2)]);
       expect(t.r[4], 0xfffffffe); // -2 lo

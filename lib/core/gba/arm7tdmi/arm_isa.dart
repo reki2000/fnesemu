@@ -211,20 +211,14 @@ extension ArmIsa on Arm7 {
     final signed = op.bit22;
     final acc = op.bit21;
 
-    final m = signed
-        ? BigInt.from(regs.r[rm].toSigned(32))
-        : BigInt.from(regs.r[rm]);
-    final sN = signed
-        ? BigInt.from(regs.r[rs].toSigned(32))
-        : BigInt.from(regs.r[rs]);
+    // 64-bit int arithmetic wraps modulo 2^64, so the low 64 bits of the
+    // product (and accumulate) are exact even for UMULL/UMLAL.
+    final m = signed ? regs.r[rm].toSigned(32) : regs.r[rm];
+    final sN = signed ? regs.r[rs].toSigned(32) : regs.r[rs];
     var prod = m * sN;
-    if (acc) {
-      final lo = BigInt.from(regs.r[rdLo]);
-      final hi = BigInt.from(regs.r[rdHi]) << 32;
-      prod += (hi | lo);
-    }
-    final lo = (prod & BigInt.from(0xffffffff)).toInt();
-    final hi = ((prod >> 32) & BigInt.from(0xffffffff)).toInt();
+    if (acc) prod += regs.r[rdHi] << 32 | regs.r[rdLo];
+    final lo = prod.mask32;
+    final hi = (prod >> 32).mask32;
     regs.r[rdLo] = lo;
     regs.r[rdHi] = hi;
     if (s) regs.setNZ(hi.bit31, hi == 0 && lo == 0);
