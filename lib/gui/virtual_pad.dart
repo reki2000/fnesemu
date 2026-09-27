@@ -15,7 +15,7 @@ class VirtualPadWidget extends StatelessWidget {
     required this.controller,
   });
 
-  static const keys = "ASZXCQWE";
+  static const keys = "ASZXCQWERT";
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +27,7 @@ class VirtualPadWidget extends StatelessWidget {
           containedInkWell: false,
           onTapDown: (_) => controller.padDown(0, button),
           onTapUp: (_) => controller.padUp(0, button),
+          onTapCancel: () => controller.padUp(0, button),
           child: Row(children: [
             Stack(
               alignment: Alignment.center,
@@ -58,16 +59,22 @@ class VirtualPadWidget extends StatelessWidget {
     return Container(
         width: 512,
         margin: const EdgeInsets.all(5.0),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          button(PadButton.left, icon: Icons.arrow_back),
-          button(PadButton.up, icon: Icons.arrow_upward),
-          button(PadButton.down, icon: Icons.arrow_downward),
-          button(PadButton.right, icon: Icons.arrow_forward),
-          if (controller.buttons.length > 4)
-            ...controller.buttons.sublist(4).asMap().entries.map((e) => button(
-                e.value,
-                name: e.value.name,
-                key: VirtualPadWidget.keys[e.key]))
-        ]));
+        child: Wrap(
+            alignment: WrapAlignment.spaceEvenly,
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              button(PadButton.left, icon: Icons.arrow_back),
+              button(PadButton.up, icon: Icons.arrow_upward),
+              button(PadButton.down, icon: Icons.arrow_downward),
+              button(PadButton.right, icon: Icons.arrow_forward),
+              if (controller.buttons.length > 4)
+                ...controller.buttons.sublist(4).asMap().entries.map((e) =>
+                    button(e.value,
+                        name: e.value.name,
+                        key: e.key < VirtualPadWidget.keys.length
+                            ? VirtualPadWidget.keys[e.key]
+                            : ""))
+            ]));
   }
 }
