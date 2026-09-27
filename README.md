@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1 Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/N64 Emulator Built with Flutter
 
 This project is experimental.
 
@@ -19,6 +19,20 @@ This project is experimental.
 - PS1 (.ps) * experimental *
   - requires BIOS with `.ps` extension 
   - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
+
+- N64 (.z64 .v64 .n64) * experimental *
+  - Pure Dart VR4300 integer interpreter with 64-bit registers, branch delay slots,
+    8 MiB RDRAM, cartridge PI DMA, and raw VI RGBA5551/RGBA8888 scanout.
+  - Direct boot: skips IPL/CIC and copies up to 1 MiB from ROM offset 0x1000
+    to the header entry point in RDRAM. Intended for small integer-only test ROMs.
+  - Commercial games and general libdragon programs are not supported yet.
+    RSP/RDP, FPU, TLB, exceptions/interrupts, SI/PIF controllers, audio, saves,
+    and PAL timing remain unimplemented. Unsupported instructions/bus accesses
+    stop execution; the debugger dump shows the reason. Timing is approximate.
+  - Byte order is detected from the header, independently of the file extension.
+  - Register references: [libdragon system interface](https://github.com/DragonMinded/libdragon/blob/trunk/include/n64sys.h),
+    [PI DMA](https://github.com/DragonMinded/libdragon/blob/trunk/src/dma.c),
+    [VI display](https://github.com/DragonMinded/libdragon/blob/trunk/src/display.c).
 
 # How to use 
 
