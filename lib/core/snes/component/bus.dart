@@ -15,8 +15,9 @@ import 'ppu.dart';
 /// WRAM + ROM (LoROM/HiROM) + SRAM are functional. $2100-$213F routes to the
 /// PPU's register file (see ppu.dart), $4300-$437F + $420B/$420C route to
 /// the DMA/HDMA controller (see dma.dart), and $2140-2143 route to the
-/// SPC700/DSP audio unit (see apu.dart). Most of $4200-$42FF besides
-/// NMI/DMA triggers is still a scratch stub.
+/// audio unit (see apu.dart). $4200-$42FF models NMI, the DMA triggers,
+/// auto-joypad 1, and the multiply/divide unit; the rest (H/V timer IRQ,
+/// programmable I/O, manual joypad) is still a scratch stub.
 class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
@@ -41,6 +42,10 @@ class Bus {
   int Function(int) sramRead = (_) => 0;
   void Function(int, int) sramWrite = (_, __) {};
 
+  /// true while the current scanline is in its horizontal blanking period
+  /// (set up by the owning core, which knows the scanline timing).
+  bool Function() inHBlank = () => false;
+
   void setRom(SnesFile file) {
     rom = file.rom;
     mapping = file.mapping;
@@ -52,9 +57,8 @@ class Bus {
     }
     _romMask = size - 1;
 
-    final s = file.sramSize == 0 ? 0x8000 : file.sramSize;
-    sram = Uint8List(s);
-    _sramMask = s - 1;
+    sram = Uint8List(file.sramSize);
+    _sramMask = file.sramSize == 0 ? 0 : file.sramSize - 1;
 
     // default volatile backing (battery-backed games overwrite these via
     // sramRead/sramWrite once the Sram wrapper is initialized)
@@ -77,11 +81,16 @@ class Bus {
     if ((bank & 0x7f) < 0x40) {
       if (page < 0x2000) return wram[page]; // low 8KB wram mirror
       if (page < 0x6000) return _readMmio(page);
-      if (page < 0x8000) return _readSram(bank, page);
+      if (page < 0x8000) {
+        final off = _sramOffset(bank, page);
+        return off < 0 ? 0 : sramRead(off);
+      }
       return _readRom(bank, page); // $8000-$FFFF
     }
 
-    // banks $40-$7D / $C0-$FF: rom (and sram for hi banks)
+    // banks $40-$7D / $C0-$FF: rom (LoROM sram in $70-$7D/$F0-$FF low half)
+    final off = _sramOffset(bank, page);
+    if (off >= 0) return sramRead(off);
     return _readRom(bank, page);
   }
 
@@ -95,13 +104,18 @@ class Bus {
     return rom[a & _romMask];
   }
 
-  int _readSram(int bank, int page) {
-    if (sram.isEmpty) return 0;
-    // LoROM sram in banks $70-$7D / $F0-$FF, $0000-$7FFF.
-    // TODO(milestone 3): HiROM sram is a flat region in banks $20-$3F /
-    // $A0-$BF and needs its own mapping; not modeled yet.
-    final off = (((bank & 0x7f) - 0x70).max(0).shl15) | (page & 0x7fff);
-    return sramRead(off);
+  /// sram offset for (bank,page), or -1 if that address isn't sram.
+  /// LoROM: banks $70-$7D / $F0-$FF, $0000-$7FFF (32KB per bank).
+  /// HiROM: banks $20-$3F / $A0-$BF, $6000-$7FFF (8KB per bank).
+  int _sramOffset(int bank, int page) {
+    if (sram.isEmpty) return -1;
+    final b = bank & 0x7f;
+    if (mapping == SnesMapping.hiRom) {
+      if (b < 0x20 || b >= 0x40 || page < 0x6000 || page >= 0x8000) return -1;
+      return (((b - 0x20).shl13) | (page & 0x1fff)) & _sramMask;
+    }
+    if (b < 0x70 || page >= 0x8000) return -1; // $7E/$7F (wram) never get here
+    return (((b - 0x70).shl15) | page) & _sramMask;
   }
 
   // ----------------------------------------------------------------- write
@@ -126,18 +140,16 @@ class Bus {
         return;
       }
       if (page < 0x8000) {
-        _writeSram(bank, page, data);
+        final off = _sramOffset(bank, page);
+        if (off >= 0) sramWrite(off, data);
         return;
       }
       return; // rom is read-only
     }
-    // $40-$7D / $C0-$FF rom: read-only
-  }
 
-  void _writeSram(int bank, int page, int data) {
-    if (sram.isEmpty) return;
-    final off = (((bank & 0x7f) - 0x70).max(0).shl15) | (page & 0x7fff);
-    sramWrite(off, data);
+    // $40-$7D / $C0-$FF: rom is read-only, except LoROM sram
+    final off = _sramOffset(bank, page);
+    if (off >= 0) sramWrite(off, data);
   }
 
   // ------------------------------------------------------------ MMIO
@@ -155,7 +167,15 @@ class Bus {
       case 0x4211: // TIMEUP irq flag
         return 0;
       case 0x4212: // HVBJOY: vblank/hblank/auto-joy status
-        return _hvbjoy;
+        return _hvbjoy | (inHBlank() ? 0x40 : 0);
+      case 0x4214: // RDDIVL
+        return _divResult.mask8;
+      case 0x4215: // RDDIVH
+        return _divResult.shr8;
+      case 0x4216: // RDMPYL (product or remainder)
+        return _mulResult.mask8;
+      case 0x4217: // RDMPYH
+        return _mulResult.shr8;
       case 0x4218: // JOY1L
         return pad.state1.mask8;
       case 0x4219: // JOY1H
@@ -179,6 +199,21 @@ class Bus {
       return;
     }
     if (page == 0x4200) _nmiEnabled = data.bit7; // NMITIMEN
+    if (page == 0x4203) {
+      // WRMPYB: unsigned 8x8 multiply of WRMPYA * WRMPYB
+      _mulResult = _mmio[0x4202 & 0x3ff] * data;
+    }
+    if (page == 0x4206) {
+      // WRDIVB: unsigned 16/8 divide of WRDIVH:WRDIVL by WRDIVB
+      final dividend = _mmio[0x4204 & 0x3ff] | _mmio[0x4205 & 0x3ff].shl8;
+      if (data == 0) {
+        _divResult = 0xffff;
+        _mulResult = dividend;
+      } else {
+        _divResult = dividend ~/ data;
+        _mulResult = dividend % data;
+      }
+    }
     if (page == 0x420b) dma.runDma(data); // MDMAEN: trigger general DMA now
     if (page == 0x420c) dma.hdmaEnableMask = data; // HDMAEN
     _mmio[page & 0x3ff] = data;
@@ -189,6 +224,9 @@ class Bus {
   bool _nmiEnabled = false;
   int _hvbjoy = 0;
 
+  int _mulResult = 0; // $4216/4217: product, or division remainder
+  int _divResult = 0; // $4214/4215: division quotient
+
   void enterVBlank() {
     _hvbjoy |= 0x80;
     _nmiFlag = true;
@@ -197,6 +235,7 @@ class Bus {
 
   void leaveVBlank() {
     _hvbjoy &= ~0x80;
+    _nmiFlag = false; // RDNMI is also cleared when vblank ends
   }
 
   void onReset() {

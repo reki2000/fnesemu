@@ -15,6 +15,7 @@ class DmaChannel {
   int ntrl = 0; // $43na: HDMA line-counter byte (bit7=repeat, bits0-6=count)
 
   bool hdmaActive = false;
+  bool hdmaDoTransfer = false; // transfer on the next line (first or repeat)
   int linesRemaining = 0;
   final lineBuf = List<int>.filled(4, 0);
 }
@@ -26,8 +27,9 @@ class DmaChannel {
 /// frame timing stays roughly plausible.
 ///
 /// HDMA ($420C): processed once per scanline via [hdmaScanline], called from
-/// Snes.exec() right before that line renders, so PPU registers it writes
-/// (scroll, color math, mode7 matrix, etc.) take effect for that line.
+/// Snes.exec() at the end of each line (in its hblank), so PPU registers it
+/// writes (scroll, color math, mode7 matrix, etc.) take effect from the next
+/// line on.
 class Dma {
   final Bus bus;
   Dma(this.bus);
@@ -59,6 +61,7 @@ class Dma {
       c.a2aAddr = 0;
       c.ntrl = 0;
       c.hdmaActive = false;
+      c.hdmaDoTransfer = false;
       c.linesRemaining = 0;
     }
     hdmaEnableMask = 0;
@@ -196,6 +199,7 @@ class Dma {
     }
     c.ntrl = raw;
     c.linesRemaining = (raw & 0x7f) == 0 ? 128 : (raw & 0x7f);
+    c.hdmaDoTransfer = true;
 
     if (c.dmap.bit6) {
       // indirect: the next 2 bytes are a pointer (combined with dasbBank)
@@ -204,11 +208,6 @@ class Dma {
       final hi = bus.read((c.a1bBank.shl16) | c.a2aAddr);
       c.a2aAddr = c.a2aAddr.inc.mask16;
       c.dasLen = lo | hi.shl8;
-    }
-
-    if (!raw.bit7) {
-      // non-repeat: fetch this entry's data once now; held for every line
-      _fetchLineData(c);
     }
   }
 
@@ -227,19 +226,23 @@ class Dma {
     }
   }
 
-  /// called once per scanline (0..224), right before that line renders.
+  /// called once per scanline (0..224), after that line renders.
+  /// a non-repeat entry transfers only on its first line; a repeat entry
+  /// (ntrl bit7) transfers fresh data on every line.
   void hdmaScanline() {
     for (int ch = 0; ch < 8; ch++) {
       final c = channels[ch];
       if (!c.hdmaActive) continue;
 
-      final pattern = _pattern[c.dmap & 0x07];
-      if (c.ntrl.bit7) _fetchLineData(c); // repeat: fresh data every line
-
-      for (int k = 0; k < pattern.length; k++) {
-        final bAddr = 0x2100 | ((c.bbad + pattern[k]) & 0xff);
-        bus.write(bAddr, c.lineBuf[k]);
+      if (c.hdmaDoTransfer) {
+        final pattern = _pattern[c.dmap & 0x07];
+        _fetchLineData(c);
+        for (int k = 0; k < pattern.length; k++) {
+          final bAddr = 0x2100 | ((c.bbad + pattern[k]) & 0xff);
+          bus.write(bAddr, c.lineBuf[k]);
+        }
       }
+      c.hdmaDoTransfer = c.ntrl.bit7;
 
       c.linesRemaining--;
       if (c.linesRemaining <= 0) _readEntry(c);
