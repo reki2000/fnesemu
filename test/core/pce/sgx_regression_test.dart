@@ -4,6 +4,7 @@ import 'package:fnesemu/core/pce/component/cpu_6280.dart';
 import 'package:fnesemu/core/pce/component/vdc.dart';
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
 import 'package:fnesemu/core/pce/pce.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 const hardware = 0xff << 13;
@@ -38,7 +39,7 @@ void main() {
     pce.bus.write(0xf9 << 13, 0x12);
     pce.bus.write(0x80 << 13, 0x34);
     for (final bank in [0xf8, 0xf9, 0xfa, 0xfb]) {
-      expect(pce.bus.read(bank << 13), 0x12);
+      expect(pce.bus.read(bank.shl13), 0x12);
     }
     expect(pce.bus.read(0x80 << 13), 0x34);
   });

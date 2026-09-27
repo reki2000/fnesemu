@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 import '../../disc.dart';
 import '../../../disc/empty.dart';
 import 'bus.dart';
@@ -103,7 +105,7 @@ class PceCdrom {
     if ((address & 0x18c0) == 0x18c0) {
       return (address & 12) == 0 ? const [0, 0xaa, 0x55, 3][address & 3] : 0xff;
     }
-    switch (address & 15) {
+    switch (address.mask4) {
       case 0:
         return (phase == CdPhase.idle ? 0 : 0x80) |
             (_request && !_ack ? 0x40 : 0) |
@@ -126,9 +128,9 @@ class PceCdrom {
         _ports[3] ^= 2;
         return result;
       case 5:
-        return _latchedPcm[(_ports[3] >> 1) & 1] & 0xff;
+        return _latchedPcm[_ports[3].shr1.mask1].mask8;
       case 6:
-        return _latchedPcm[(_ports[3] >> 1) & 1] >> 8;
+        return _latchedPcm[_ports[3].shr1.mask1].shr8;
       case 7:
         return 0;
       case 8:
@@ -137,7 +139,7 @@ class PceCdrom {
         return result;
       case 10:
         final result = adpcmRam[_readAddress];
-        _readAddress = (_readAddress + 1) & 0xffff;
+        _readAddress = (_readAddress + 1).mask16;
         _decrementLength();
         return result;
       case 12:
@@ -145,20 +147,20 @@ class PceCdrom {
       case 13:
         return _adpcmControl;
       default:
-        return _ports[address & 15];
+        return _ports[address.mask4];
     }
   }
 
   void write(int address, int value) {
     value &= 0xff;
-    final register = address & 15;
+    final register = address.mask4;
     switch (register) {
       case 0:
-        if (phase == CdPhase.idle && (_ports[4] & 2) == 0) {
+        if (phase == CdPhase.idle && !_ports[4].bit1) {
           _command.clear();
           phase = CdPhase.command;
           _request = true;
-          _ack = (_ports[2] & 0x80) != 0;
+          _ack = _ports[2].bit7;
           _ports[3] &= ~0x60;
         }
         break;
@@ -166,7 +168,7 @@ class PceCdrom {
         _ports[1] = value;
         break;
       case 2:
-        final nextAck = (value & 0x80) != 0;
+        final nextAck = value.bit7;
         if (nextAck && !_ack && _request) {
           _consume();
         }
@@ -178,7 +180,7 @@ class PceCdrom {
         break;
       case 4:
         _ports[4] = value;
-        if ((value & 2) != 0) _resetDrive();
+        if (value.bit1) _resetDrive();
         break;
       case 5:
       case 6:
@@ -187,15 +189,15 @@ class PceCdrom {
         }
         break;
       case 7:
-        if ((value & 0x80) != 0) backupEnabled = true;
+        if (value.bit7) backupEnabled = true;
         break;
       case 8:
       case 9:
-        if ((_adpcmControl & 0x80) == 0) {
+        if (!_adpcmControl.bit7) {
           _address = register == 8
               ? (_address & 0xff00) | value
-              : (_address & 0xff) | (value << 8);
-          if ((_adpcmControl & 0x10) != 0) _length = _address;
+              : _address.mask8 | value.shl8;
+          if (_adpcmControl.bit4) _length = _address;
         }
         break;
       case 10:
@@ -205,35 +207,35 @@ class PceCdrom {
         _ports[11] = value;
         break;
       case 13:
-        if ((value & 0x80) != 0) {
+        if (value.bit7) {
           _resetAdpcm();
         } else {
-          if ((value & 8) != 0 && (_adpcmControl & 8) == 0) {
-            _readAddress = (_address - ((value & 4) == 0 ? 1 : 0)) & 0xffff;
+          if (value.bit3 && !_adpcmControl.bit3) {
+            _readAddress = (_address - (!value.bit2 ? 1 : 0)).mask16;
           }
-          if ((value & 2) != 0 && (_adpcmControl & 2) == 0) {
-            _writeAddress = (_address - ((value & 1) == 0 ? 1 : 0)) & 0xffff;
+          if (value.bit1 && !_adpcmControl.bit1) {
+            _writeAddress = (_address - (!value.bit0 ? 1 : 0)).mask16;
           }
-          if ((value & 0x10) != 0) {
+          if (value.bit4) {
             _length = _address;
             _adpcmEnd = false;
             _ports[3] &= ~8;
           }
-          if (!_adpcmPlaying && (value & 0x20) != 0) {
+          if (!_adpcmPlaying && value.bit5) {
             _nibble = _sample = _stepIndex = 0;
             _adpcmFraction = 0;
             _ports[3] &= ~4;
           }
-          _adpcmPlaying = (value & 0x20) != 0;
+          _adpcmPlaying = value.bit5;
           _adpcmControl = value;
         }
         break;
       case 14:
-        _frequency = value & 15;
+        _frequency = value.mask4;
         break;
       case 15:
         _fade = value;
-        if ((value & 8) == 0) _cdVolume = _adpcmVolume = 1;
+        if (!value.bit3) _cdVolume = _adpcmVolume = 1;
         break;
     }
     _irq();
@@ -295,7 +297,7 @@ class PceCdrom {
   }
 
   static int _bcd(int value) => (value ~/ 10 << 4) | value % 10;
-  static int _unbcd(int value) => (value >> 4) * 10 + (value & 15);
+  static int _unbcd(int value) => value.shr4 * 10 + value.mask4;
   List<int> _msf(int lba) {
     final (m, s, f) = Disc.lbaToMsf(lba);
     return [_bcd(m), _bcd(s), _bcd(f)];
@@ -313,7 +315,7 @@ class PceCdrom {
             ? disc.totalSectors
             : disc.startLba(math.max(1, track));
       default:
-        return (_command[3] << 16) | (_command[4] << 8) | _command[5];
+        return _command[3].shl16 | _command[4].shl8 | _command[5];
     }
   }
 
@@ -342,8 +344,7 @@ class PceCdrom {
         break;
       case 8: // READ(6)
         _audioPlaying = _audioPaused = false;
-        _readLba =
-            ((_command[1] & 0x1f) << 16) | (_command[2] << 8) | _command[3];
+        _readLba = _command[1].mask5.shl16 | _command[2].shl8 | _command[3];
         _remaining = _command[4] == 0 ? 256 : _command[4];
         if (_readLba + _remaining > disc.totalSectors) {
           _error(5, 0x21);
@@ -374,7 +375,7 @@ class PceCdrom {
           _error(5, 0x21);
           break;
         }
-        _audioMode = _command[1] & 3;
+        _audioMode = _command[1].mask2;
         _audioPlaying = _audioMode != 0;
         _audioPaused = false;
         _finish();
@@ -453,7 +454,7 @@ class PceCdrom {
     }
     // DMA follows the same data handshake as CPU reads. Pace it to the
     // ADPCM RAM write interval instead of copying an entire transfer at once.
-    if ((_ports[11] & 3) != 0 && phase == CdPhase.data && _request && !_ack) {
+    if (_ports[11].mask2 != 0 && phase == CdPhase.data && _request && !_ack) {
       _dmaClocks += transferClocks;
       while (_dmaClocks >= 33 && phase == CdPhase.data && _request) {
         _dmaClocks -= 33;
@@ -470,18 +471,18 @@ class PceCdrom {
 
   void _writeAdpcm(int value) {
     adpcmRam[_writeAddress] = value;
-    _writeAddress = (_writeAddress + 1) & 0xffff;
-    if ((_adpcmControl & 0x10) == 0 && _length < 0xffff) _length++;
+    _writeAddress = (_writeAddress + 1).mask16;
+    if (!_adpcmControl.bit4 && _length < 0xffff) _length++;
     if (_length >= 0x8000) _ports[3] &= ~4;
   }
 
   void _decrementLength() {
-    if ((_adpcmControl & 0x10) == 0 && _length > 0) _length--;
+    if (!_adpcmControl.bit4 && _length > 0) _length--;
     if (_length < 0x8000) _ports[3] |= 4;
-    if (_length == 0 && (_adpcmControl & 0x10) == 0) {
+    if (_length == 0 && !_adpcmControl.bit4) {
       _adpcmEnd = true;
       _ports[3] |= 8;
-      if ((_adpcmControl & 0x40) != 0) _adpcmPlaying = false;
+      if (_adpcmControl.bit6) _adpcmPlaying = false;
     }
     _irq();
   }
@@ -495,20 +496,19 @@ class PceCdrom {
       if (!_adpcmPlaying) return;
     }
     final packed = adpcmRam[_readAddress];
-    final nibble = _nibble == 0 ? packed >> 4 : packed & 15;
+    final nibble = _nibble == 0 ? packed.shr4 : packed.mask4;
     // MSM5205 uses a 49-entry geometric step table and a 12-bit accumulator.
     final step = _steps[_stepIndex];
     final delta = step ~/ 8 +
-        ((nibble & 1) != 0 ? step ~/ 4 : 0) +
-        ((nibble & 2) != 0 ? step ~/ 2 : 0) +
-        ((nibble & 4) != 0 ? step : 0);
-    _sample =
-        (_sample + ((nibble & 8) != 0 ? -delta : delta)).clamp(-2048, 2047);
+        (nibble.bit0 ? step ~/ 4 : 0) +
+        (nibble.bit1 ? step ~/ 2 : 0) +
+        (nibble.bit2 ? step : 0);
+    _sample = (_sample + (nibble.bit3 ? -delta : delta)).clamp(-2048, 2047);
     _stepIndex = (_stepIndex + const [-1, -1, -1, -1, 2, 4, 6, 8][nibble & 7])
         .clamp(0, 48);
     _nibble ^= 1;
     if (_nibble == 0) {
-      _readAddress = (_readAddress + 1) & 0xffff;
+      _readAddress = (_readAddress + 1).mask16;
       _decrementLength();
     }
   }
@@ -534,7 +534,7 @@ class PceCdrom {
     for (var channel = 0; channel < 2; channel++) {
       final offset = _audioOffset + channel * 2;
       final unsigned = offset + 1 < _audioSector.length
-          ? _audioSector[offset] | (_audioSector[offset + 1] << 8)
+          ? _audioSector[offset] | _audioSector[offset + 1].shl8
           : 0;
       _pcm[channel] = unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
     }
@@ -562,9 +562,9 @@ class PceCdrom {
           _decodeAdpcm();
         }
       }
-      if ((_fade & 8) != 0) {
-        final decrement = 1 / (sampleRate * ((_fade & 4) != 0 ? 2.5 : 6));
-        if ((_fade & 2) != 0) {
+      if (_fade.bit3) {
+        final decrement = 1 / (sampleRate * (_fade.bit2 ? 2.5 : 6));
+        if (_fade.bit1) {
           _adpcmVolume = math.max(0, _adpcmVolume - decrement);
         } else {
           _cdVolume = math.max(0, _cdVolume - decrement);
