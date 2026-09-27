@@ -59,7 +59,6 @@ class Dsp {
   int _noiseSampleValue = 0;
 
   int _echoPos = 0; // byte offset within the echo buffer
-  int _echoFeedL = 0, _echoFeedR = 0; // held output, fed back next sample
 
   // raw scratch for PMON/FIR registers we don't implement, so reads
   // return the last-written value.
@@ -108,8 +107,6 @@ class Dsp {
     _noiseTick = 0;
     _noiseSampleValue = 0;
     _echoPos = 0;
-    _echoFeedL = 0;
-    _echoFeedR = 0;
     _scratch.fillRange(0, _scratch.length, 0);
   }
 
@@ -206,7 +203,8 @@ class Dsp {
         case 0x7:
           v.gain = val;
           return;
-        default:
+        case 0x8:
+        case 0x9:
           return; // ENVX/OUTX are read-only
       }
     }
@@ -234,7 +232,10 @@ class Dsp {
         break;
       case 0x4c: // KON
         for (int i = 0; i < 8; i++) {
-          if (val.bit(i)) _keyOn(voices[i]);
+          if (val.bit(i)) {
+            _keyOn(voices[i]);
+            endx &= ~(1 << i);
+          }
         }
         break;
       case 0x5c: // KOFF
@@ -283,13 +284,31 @@ class Dsp {
     v.envMode = EnvMode.attack;
     // source directory entry: 4 bytes per source at dir + srcn*4:
     // [startL,startH, loopL,loopH]
-    final entry = dir + v.srcn * 4;
-    v.brrAddr = spc.read(entry) | spc.read(entry.inc).shl8;
+    v.brrAddr = _dirEntry(v, 0);
   }
+
+  /// reads the source directory entry for [v]: 4 bytes per source at
+  /// dir + srcn*4 = [startL,startH, loopL,loopH]. [offset] 0=start, 2=loop.
+  int _dirEntry(Voice v, int offset) {
+    final entry = (dir + v.srcn * 4 + offset) & 0xffff;
+    return _ram(entry) | _ram(entry + 1).shl8;
+  }
+
+  int _ram(int addr) => spc.ram[addr & 0xffff];
 
   // ------------------------------------------------------------- envelope
   void _stepEnvelope(Voice v) {
     if (v.envMode == EnvMode.off) return;
+
+    if (v.envMode == EnvMode.release) {
+      // release (KOFF) ignores ADSR/GAIN and decreases by 8 every sample
+      v.env -= 8;
+      if (v.env <= 0) {
+        v.env = 0;
+        v.envMode = EnvMode.off;
+      }
+      return;
+    }
 
     if (!v.adsr1.bit7) {
       // direct GAIN mode - only the simple "fixed value" form (bit7=0 of
@@ -308,9 +327,9 @@ class Dsp {
         rate = ((v.adsr1.shr4) & 0x07) * 2 + 16;
         break;
       case EnvMode.sustain:
-      case EnvMode.release:
         rate = v.adsr2 & 0x1f;
         break;
+      case EnvMode.release:
       case EnvMode.off:
         return;
     }
@@ -331,7 +350,7 @@ class Dsp {
         break;
       case EnvMode.decay:
         {
-          final sustainLevel = (((v.adsr2.shr5) & 0x07) + 1) * 0x100 ~/ 8;
+          final sustainLevel = (((v.adsr2.shr5) & 0x07) + 1) * 0x100;
           v.env -= ((v.env - 1) >> 8) + 1;
           if (v.env < 0) v.env = 0;
           if (v.env <= sustainLevel) v.envMode = EnvMode.sustain;
@@ -342,12 +361,6 @@ class Dsp {
         if (v.env < 0) v.env = 0;
         break;
       case EnvMode.release:
-        v.env -= 8;
-        if (v.env <= 0) {
-          v.env = 0;
-          v.envMode = EnvMode.off;
-        }
-        break;
       case EnvMode.off:
         break;
     }
@@ -361,7 +374,7 @@ class Dsp {
   }
 
   void _decodeNextBlock(Voice v) {
-    final header = spc.read(v.brrAddr);
+    final header = _ram(v.brrAddr);
     final shift = header.shr4 & 0x0f;
     final filter = header.shr2 & 0x03;
     final loop = header.bit1;
@@ -369,7 +382,7 @@ class Dsp {
 
     final samples = List<int>.filled(16, 0);
     for (int i = 0; i < 8; i++) {
-      final byte = spc.read((v.brrAddr + 1 + i) & 0xffff);
+      final byte = _ram(v.brrAddr + 1 + i);
       final nibbles = [byte.shr4 & 0x0f, byte & 0x0f];
       for (int j = 0; j < 2; j++) {
         var n = nibbles[j];
@@ -406,13 +419,18 @@ class Dsp {
     v.decoded = samples;
     v.nibbleIndex = 0;
 
-    if (end) {
-      v.blockEnd = true;
-      v.blockLoop = loop;
-    } else {
-      v.blockEnd = false;
-    }
-    v.brrAddr = (v.brrAddr + 9) & 0xffff;
+    v.blockEnd = end;
+    v.blockLoop = end && loop;
+    // an end block continues from the source's loop address (read from the
+    // directory at this point, like hardware does)
+    v.brrAddr = end ? _dirEntry(v, 2) : (v.brrAddr + 9) & 0xffff;
+  }
+
+  /// a non-looping end block keys the voice off with its envelope at zero.
+  void _silence(Voice v) {
+    v.envMode = EnvMode.off;
+    v.env = 0;
+    v.keyOn = false;
   }
 
   /// advances the noise LFSR by one step (15-bit, feedback = bit0 XOR bit1
@@ -442,15 +460,13 @@ class Dsp {
 
     for (int i = 0; i < 8; i++) {
       final v = voices[i];
-      if (v.envMode == EnvMode.off && !v.keyOn) continue;
+      if (v.envMode == EnvMode.off) continue;
 
       if (v.nibbleIndex >= 16) {
         _decodeNextBlock(v);
         if (v.blockEnd) {
           endx |= 1 << i;
-          if (!v.blockLoop) {
-            v.envMode = EnvMode.off;
-          }
+          if (!v.blockLoop) _silence(v);
         }
       }
 
@@ -495,7 +511,7 @@ class Dsp {
           if (v.blockEnd) {
             endx |= 1 << i;
             if (!v.blockLoop) {
-              v.envMode = EnvMode.off;
+              _silence(v);
               break;
             }
           }
@@ -506,13 +522,10 @@ class Dsp {
     // echo: simplified delay+feedback line in APU RAM (no FIR filter - see
     // class doc). buffer holds 4 bytes/sample (L16,R16) starting at ESA.
     {
-      final bufBytes = (edl == 0 ? 1 : edl) * 0x800;
+      final bufBytes = edl == 0 ? 4 : edl * 0x800;
       final addr = (esa.shl8 + _echoPos) & 0xffff;
-      final echoOutL =
-          (spc.read(addr) | spc.read((addr + 1) & 0xffff).shl8).rel16;
-      final echoOutR = (spc.read((addr + 2) & 0xffff) |
-              spc.read((addr + 3) & 0xffff).shl8)
-          .rel16;
+      final echoOutL = (_ram(addr) | _ram(addr + 1).shl8).rel16;
+      final echoOutR = (_ram(addr + 2) | _ram(addr + 3).shl8).rel16;
 
       left += echoOutL / 32768.0 * (evolL.rel8) / 128.0;
       right += echoOutR / 32768.0 * (evolR.rel8) / 128.0;
@@ -522,13 +535,15 @@ class Dsp {
             _clamp16(echoInL.round() + (echoOutL * (efb.rel8)) ~/ 128);
         final newR =
             _clamp16(echoInR.round() + (echoOutR * (efb.rel8)) ~/ 128);
-        spc.write(addr, newL & 0xff);
-        spc.write((addr + 1) & 0xffff, newL.shr8 & 0xff);
-        spc.write((addr + 2) & 0xffff, newR & 0xff);
-        spc.write((addr + 3) & 0xffff, newR.shr8 & 0xff);
+        spc.ram[addr] = newL & 0xff;
+        spc.ram[(addr + 1) & 0xffff] = newL.shr8 & 0xff;
+        spc.ram[(addr + 2) & 0xffff] = newR & 0xff;
+        spc.ram[(addr + 3) & 0xffff] = newR.shr8 & 0xff;
       }
       _echoPos = (_echoPos + 4) % bufBytes;
     }
+
+    if (flg.bit6) return (0.0, 0.0); // FLG mute
 
     left *= (mainVolL.rel8) / 128.0;
     right *= (mainVolR.rel8) / 128.0;

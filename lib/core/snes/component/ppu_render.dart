@@ -87,7 +87,8 @@ extension PpuRenderer on Ppu {
     return 0xff000000 | b.shl16 | g.shl8 | r;
   }
 
-  int _bgPaletteIndex(int mode, int bgIdx, int bpp, int paletteNum, int colorIndex) {
+  int _bgPaletteIndex(
+      int mode, int bgIdx, int bpp, int paletteNum, int colorIndex) {
     if (bpp == 8) return colorIndex; // mode3 BG1: direct 256-color index
     if (mode == 0) return bgIdx * 32 + paletteNum * 4 + colorIndex;
     if (bpp == 2) return paletteNum * 4 + colorIndex;
@@ -125,7 +126,8 @@ extension PpuRenderer on Ppu {
       extra = 0;
     }
 
-    final entryAddr = (bg.tilemapAddr + extra + localRow * 32 + localCol) & 0x7fff;
+    final entryAddr =
+        (bg.tilemapAddr + extra + localRow * 32 + localCol) & 0x7fff;
     return vram[entryAddr * 2] | vram[entryAddr * 2 + 1].shl8;
   }
 
@@ -133,28 +135,39 @@ extension PpuRenderer on Ppu {
   /// of per-column scroll overrides for BG1/BG2. Based on community-derived
   /// (srg320, nesdev BBS) and bsnes-style pseudocode - not a primary
   /// hardware source, so double-check against real ROMs if visuals look off.
-  (int, int) _optScroll(int bgIdx, int x, int y, int hofs, int vofs) {
-    if (bgMode != 2 && bgMode != 4 && bgMode != 6) return (hofs, vofs);
-    if (x - 8 < 0) return (hofs, vofs); // leftmost visible tile: unaffected
+  ///
+  /// returns the (x,y) position in BG [bgIdx]'s map for screen pixel (x,y):
+  /// normally (x+hofs, y+vofs), with the OPT overrides applied in 2/4/6.
+  (int, int) _bgMapPos(int bgIdx, int x, int y) {
+    final bg = bgs[bgIdx];
+    var mapX = x + bg.hofs, mapY = y + bg.vofs;
+    if (bgIdx > 1 || (bgMode != 2 && bgMode != 4 && bgMode != 6)) {
+      return (mapX, mapY);
+    }
+
+    final offsetX = x + (bg.hofs & 7);
+    if (offsetX < 8) return (mapX, mapY); // leftmost tile column: unaffected
 
     final bg3 = bgs[2];
     final validMask = bgIdx == 0 ? 0x2000 : 0x4000;
-    final lookupX = (hofs & 7) | (((x - 8) & ~7) + (bg3.hofs & ~7));
+    final lookupX = (offsetX - 8) + (bg3.hofs & ~7);
     final hval = _tilemapEntryRaw(2, lookupX, bg3.vofs);
 
     if (bgMode == 4) {
       // single OPT row: bit15 of the same word picks horizontal or vertical
-      if (hval.bit15) {
-        if (hval & validMask != 0) vofs = y + hval;
-      } else {
-        if (hval & validMask != 0) hofs = (hofs & 7) + ((x & ~7) + (hval & ~7));
+      if (hval & validMask != 0) {
+        if (hval.bit15) {
+          mapY = y + (hval & 0x3ff);
+        } else {
+          mapX = offsetX + (hval & 0x3f8);
+        }
       }
     } else {
       final vval = _tilemapEntryRaw(2, lookupX, bg3.vofs + 8);
-      if (hval & validMask != 0) hofs = (hofs & 7) + ((x & ~7) + (hval & ~7));
-      if (vval & validMask != 0) vofs = y + vval;
+      if (hval & validMask != 0) mapX = offsetX + (hval & 0x3f8);
+      if (vval & validMask != 0) mapY = y + (vval & 0x3ff);
     }
-    return (hofs, vofs);
+    return (mapX, mapY);
   }
 
   (int, int, int)? _bgPixel(int bgIdx, int bpp, int x, int y) {
@@ -163,13 +176,9 @@ extension PpuRenderer on Ppu {
     final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
     final mapPxH = (bg.wideY ? 64 : 32) * tileSizePx;
 
-    var hofs = bg.hofs, vofs = bg.vofs;
-    if (bgIdx == 0 || bgIdx == 1) {
-      (hofs, vofs) = _optScroll(bgIdx, x, y, hofs, vofs);
-    }
-
-    final sx = (x + hofs) & (mapPxW - 1);
-    final sy = (y + vofs) & (mapPxH - 1);
+    final (mapX, mapY) = _bgMapPos(bgIdx, x, y);
+    final sx = mapX & (mapPxW - 1);
+    final sy = mapY & (mapPxH - 1);
 
     final entry = _tilemapEntryRaw(bgIdx, sx, sy);
     final tileNum = entry & 0x3ff;
@@ -231,7 +240,8 @@ extension PpuRenderer on Ppu {
 
       final dy = (y - oy) & 0xff;
       if (dy >= h) continue;
-      if (x <= -w || x >= Ppu.widthNormal) continue; // fully off-screen (OBJ is always 256px)
+      // fully off-screen (OBJ is always 256px)
+      if (x <= -w || x >= Ppu.widthNormal) continue;
 
       if (found >= 32) {
         rangeOver = true;
@@ -396,9 +406,10 @@ extension PpuRenderer on Ppu {
   }
 
   /// clamped RGB channel add/subtract for color math, 5-bit channels.
+  /// halving applies to both addition and subtraction.
   int _mathChannel(int a, int b, bool subtract, bool half) {
-    int r = subtract ? a - b : a + b;
-    if (half) r = subtract ? r : r >> 1;
+    int r = subtract ? (a - b).max(0) : a + b;
+    if (half) r >>= 1;
     return r.clamp(0, 31);
   }
 
@@ -410,9 +421,9 @@ extension PpuRenderer on Ppu {
     int subR,
     int subG,
     int subB,
+    bool subIsBackdrop,
   ) {
     final subtract = cgadsub.bit7;
-    final half = cgadsub.bit6;
 
     // does this main-screen source permit color math? (CGADSUB bits5-0)
     bool allowed;
@@ -436,12 +447,17 @@ extension PpuRenderer on Ppu {
       3 => true,
       _ => false,
     };
+    // CGWSEL bits5-4 select where math is *allowed*: 0=always,
+    // 1=inside the color window, 2=outside, 3=never
     final mathEnabled = switch (mmBits) {
-      1 => !insideColorWindow,
-      2 => insideColorWindow,
-      3 => true,
+      0 => true,
+      1 => insideColorWindow,
+      2 => !insideColorWindow,
       _ => false,
     };
+    // no halving when the main pixel is clipped to black or when the sub
+    // screen shows its backdrop (the fixed color)
+    final half = cgadsub.bit6 && !clipToBlack && !subIsBackdrop;
 
     final base = clipToBlack
         ? 0
@@ -472,9 +488,14 @@ extension PpuRenderer on Ppu {
   /// 2x. This is a simplification - real hardware interleaves separate
   /// main/sub-screen content on even/odd columns for a pseudo-hires
   /// transparency effect, which isn't reproduced here.
+  ///
+  /// BG layers show map row `line + vofs` (so the first visible line shows
+  /// row vofs+1), while OBJ are evaluated against `line - 1`: a sprite at
+  /// OAM y=0 starts on the first visible line, one row below the BG.
   void renderScanline(int line) {
     if (line < 1 || line > Ppu.height) return;
-    final y = line - 1;
+    final y = line - 1; // output row and OBJ line
+    final bgY = line;
 
     if (bgMode == 5 || bgMode == 6) {
       width = Ppu.widthHires;
@@ -489,7 +510,8 @@ extension PpuRenderer on Ppu {
     }
 
     if (bgMode == 7) {
-      _renderMode7Scanline(row, y);
+      _renderMode7Scanline(row, y, bgY);
+      _applyBrightness(row, width);
       return;
     }
 
@@ -499,6 +521,7 @@ extension PpuRenderer on Ppu {
     if (bpp == null) {
       // unimplemented mode: backdrop only (see class doc)
       buffer.fillRange(row, row + width, backdrop);
+      _applyBrightness(row, width);
       return;
     }
 
@@ -515,20 +538,49 @@ extension PpuRenderer on Ppu {
 
     for (int x = 0; x < width; x++) {
       final objX = hires ? x ~/ 2 : x;
-      final (mainIdx, mainKind, mainObjPal) = _compositePixel(x, objX, y,
+      final (mainIdx, mainKind, mainObjPal) = _compositePixel(x, objX, bgY,
           mainScreenEnable, tmw, order, bpp, objColor, objPalette, objPriority);
 
       int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
+      bool subIsBackdrop = false;
       if (subscreenMode) {
-        final (subIdx, _, _) = _compositePixel(x, objX, y, subScreenEnable,
-            tsw, order, bpp, objColor, objPalette, objPriority);
-        final c = cgram[(subIdx & 0xff) * 2] | cgram[(subIdx & 0xff) * 2 + 1].shl8;
-        subR = c & 0x1f;
-        subG = c.shr5 & 0x1f;
-        subB = c.shr10 & 0x1f;
+        final (subIdx, subKind, _) = _compositePixel(
+            x,
+            objX,
+            bgY,
+            subScreenEnable,
+            tsw,
+            order,
+            bpp,
+            objColor,
+            objPalette,
+            objPriority);
+        // the sub screen's backdrop is the fixed color, not CGRAM[0]
+        subIsBackdrop = subKind == 5;
+        if (!subIsBackdrop) {
+          final c =
+              cgram[(subIdx & 0xff) * 2] | cgram[(subIdx & 0xff) * 2 + 1].shl8;
+          subR = c & 0x1f;
+          subG = c.shr5 & 0x1f;
+          subB = c.shr10 & 0x1f;
+        }
       }
 
-      buffer[row + x] = _colorMath(mainIdx, mainKind, mainObjPal, x, subR, subG, subB);
+      buffer[row + x] = _colorMath(
+          mainIdx, mainKind, mainObjPal, x, subR, subG, subB, subIsBackdrop);
+    }
+    _applyBrightness(row, width);
+  }
+
+  /// scales one rendered row by the INIDISP master brightness (0-15).
+  void _applyBrightness(int row, int w) {
+    if (brightness == 15) return;
+    for (int i = row; i < row + w; i++) {
+      final c = buffer[i];
+      final r = (c & 0xff) * brightness ~/ 15;
+      final g = (c.shr8 & 0xff) * brightness ~/ 15;
+      final b = (c.shr16 & 0xff) * brightness ~/ 15;
+      buffer[i] = 0xff000000 | b.shl16 | g.shl8 | r;
     }
   }
 
@@ -550,7 +602,7 @@ extension PpuRenderer on Ppu {
 
   /// renders one scanline in BG mode 7 (rotation/scaling). BG1 only -
   /// EXTBG (mode7 BG2) is not implemented; see Ppu's class doc.
-  void _renderMode7Scanline(int row, int y) {
+  void _renderMode7Scanline(int row, int y, int bgY) {
     final backdrop = _rgba(0);
 
     final objColor = List<int>.filled(Ppu.widthNormal, -1);
@@ -569,17 +621,16 @@ extension PpuRenderer on Ppu {
     final x0 = m7x.rel13, y0 = m7y.rel13;
     final hofs = m7hofs.rel13, vofs = m7vofs.rel13;
 
-    final sy = vFlipScreen ? (Ppu.height - 1 - y) : y;
+    final sy = vFlipScreen ? (255 - bgY) : bgY;
     final dy = sy + vofs - y0;
 
     for (int x = 0; x < Ppu.widthNormal; x++) {
       int color = backdrop;
 
-      // priority order (front->back): OBJ3, BG1 (single layer, no EXTBG),
-      // OBJ2/1/0, backdrop - see the mode7 row of the priority table
-      // referenced in ppu_render.dart's _priorityOrder doc.
+      // priority order (front->back): OBJ3, OBJ2, OBJ1, BG1 (single layer,
+      // no EXTBG), OBJ0, backdrop
       final hasObj = objColor[x] != -1;
-      if (hasObj && objPriority[x] == 3) {
+      if (hasObj && objPriority[x] >= 1) {
         color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
       } else if (bg1Enabled) {
         final sx = hFlipScreen ? (Ppu.widthNormal - 1 - x) : x;

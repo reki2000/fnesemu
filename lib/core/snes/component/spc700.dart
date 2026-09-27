@@ -79,6 +79,7 @@ class Spc700 {
       timerOut[i] = 0;
       _timerEnabled[i] = false;
       _timerDiv[i] = 0;
+      _stage2[i] = 0;
     }
   }
 
@@ -119,6 +120,9 @@ class Spc700 {
           timerOut[r - 0xd] = 0;
           return v;
         }
+      case 0x8:
+      case 0x9: // AUXIO: plain read/write registers
+        return ram[0xf0 + r];
       default:
         return 0; // TEST/CONTROL/timer targets: write-only, read as 0
     }
@@ -136,6 +140,7 @@ class Spc700 {
             _timerEnabled[t] = val.bit(t);
             if (_timerEnabled[t] && !wasEnabled[t]) {
               _timerDiv[t] = 0;
+              _stage2[t] = 0;
               timerOut[t] = 0;
             }
           }
@@ -763,13 +768,12 @@ class Spc700 {
       case 0x97:
         _adc(read(_indDpY()));
         break;
-      case 0x99:
+      case 0x99: // ADC (X),(Y): result goes to (X)
         {
-          final s = read(_indX());
-          final d = _indY();
+          final d = _indX();
           final vs = a;
-          a = s;
-          _adc(read(d));
+          a = read(d);
+          _adc(read(_indY()));
           write(d, a);
           a = vs;
         }
@@ -825,12 +829,12 @@ class Spc700 {
       case 0xb7:
         _sbc(read(_indDpY()));
         break;
-      case 0xb9:
+      case 0xb9: // SBC (X),(Y): result goes to (X)
         {
-          final d = _indY();
+          final d = _indX();
           final vs = a;
-          a = read(_indX());
-          _sbc(read(d));
+          a = read(d);
+          _sbc(read(_indY()));
           write(d, a);
           a = vs;
         }
@@ -1365,10 +1369,10 @@ class Spc700 {
         _branch(!psw.bit1);
         break;
       case 0xb0:
-        _branch(psw.bit0 != 0);
+        _branch(psw.bit0);
         break;
       case 0x90:
-        _branch(psw.bit0 == 0);
+        _branch(!psw.bit0);
         break;
       case 0x70:
         _branch(psw.bit6);

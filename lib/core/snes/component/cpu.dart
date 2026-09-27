@@ -294,7 +294,12 @@ class Cpu {
   void _interrupt(int vectorNative, int vectorEmu, {bool brk = false}) {
     if (!regs.e) _push8(regs.pbr);
     _push16(regs.pc);
-    _push8(brk && regs.e ? regs.p | Flags.X : regs.p); // B flag in emu
+    // emulation mode: bit4 is the B flag - set for BRK, clear for IRQ/NMI
+    _push8(!regs.e
+        ? regs.p
+        : brk
+            ? regs.p | Flags.X
+            : regs.p & ~Flags.X);
     _setFlag(Flags.I, true);
     _setFlag(Flags.D, false);
     regs.pbr = 0;
@@ -1339,14 +1344,11 @@ class Cpu {
     while (regs.a.mask16 != 0xffff) {
       final v = _read8(srcBank.shl16 | regs.x.mask16);
       _write8(destBank.shl16 | regs.y.mask16, v);
-      regs.x = (regs.x + step).mask16;
-      regs.y = (regs.y + step).mask16;
+      // with 8-bit index registers X/Y wrap within the low byte
+      _setX(regs.x + step);
+      _setY(regs.y + step);
       regs.a = regs.a.dec.mask16;
       cycle += 7;
-    }
-    if (xSize == 1) {
-      regs.x = regs.x.mask8;
-      regs.y = regs.y.mask8;
     }
   }
 }

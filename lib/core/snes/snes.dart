@@ -36,6 +36,8 @@ class Snes implements Core {
     bus.ppu = ppu;
     bus.dma = dma;
     bus.apu = apu;
+    bus.inHBlank = () =>
+        _nextScanlineCycle - cpu.cycle <= _cpuCyclesInHBlank;
   }
 
   late final Bus bus;
@@ -50,6 +52,9 @@ class Snes implements Core {
 
   static const scanlinesInFrame_ = 262;
   static const cpuCyclesInScanline = cpuClock ~/ 60 ~/ scanlinesInFrame_;
+
+  // hblank covers roughly the last 67 of the 341 dots of a scanline
+  static const _cpuCyclesInHBlank = cpuCyclesInScanline * 67 ~/ 341;
 
   @override
   int get systemClockHz => cpuClock;
@@ -91,8 +96,9 @@ class Snes implements Core {
     bool rendered = false;
     if (cpu.cycle >= _nextScanlineCycle) {
       if (_scanline == 0) dma.hdmaInit();
-      if (_scanline <= Ppu.height) dma.hdmaScanline();
       ppu.renderScanline(_scanline);
+      // HDMA runs in this line's hblank, so it affects the following line
+      if (_scanline <= Ppu.height) dma.hdmaScanline();
       _scanline++;
       _nextScanlineCycle += cpuCyclesInScanline;
       rendered = true;
