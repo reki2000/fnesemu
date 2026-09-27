@@ -1,3 +1,5 @@
+import 'package:fnesemu/util/int.dart';
+
 import 'bus.dart';
 import 'fpu.dart';
 import 'registers.dart';
@@ -16,7 +18,7 @@ class Vr4300 {
       !_timerIrq &&
       count != cop0[11];
   void idle(int cycles) {
-    final untilCompare = ((cop0[11] - count) & 0xffffffff) * 2;
+    final untilCompare = (cop0[11] - count).mask32 * 2;
     clocks += untilCompare > 0 && untilCompare < cycles ? untilCompare : cycles;
   }
 
@@ -36,7 +38,7 @@ class Vr4300 {
     cop0.fillRange(0, 32, 0);
     hi = lo = BigInt.zero;
     pc = entry;
-    nextPc = (entry + 4) & 0xffffffff;
+    nextPc = (entry + 4).mask32;
     clocks = 0;
     stopReason = null;
     _idleAddress = null;
@@ -68,7 +70,7 @@ class Vr4300 {
   bool lessSigned(int s, int t) =>
       r.isWord(s) && r.isWord(t) ? lowWord(s) < lowWord(t) : r[s] < r[t];
   bool lessUnsigned(int s, int t) => r.isWord(s) && r.isWord(t)
-      ? (lowWord(s) & 0xffffffff) < (lowWord(t) & 0xffffffff)
+      ? lowWord(s).mask32 < lowWord(t).mask32
       : r[s].toUnsigned(64) < r[t].toUnsigned(64);
   int addWord(int s, int value, {bool subtract = false}) {
     final result = subtract ? lowWord(s) - value : lowWord(s) + value;
@@ -91,34 +93,34 @@ class Vr4300 {
   }
 
   int address(BigInt value) => value.toUnsigned(32).toInt();
-  int signed16(int value) => (value & 0xffff).toSigned(16);
+  int signed16(int value) => value.mask16.toSigned(16);
 
   void aligned(int address, int size) {
     if (address % size != 0) throw UnsupportedError('Unaligned N64 access');
   }
 
   void exception(int code, int at, bool delay, {int? badAddress}) {
-    cop0[13] = (cop0[13] & 0xff00) | (code << 2);
-    if ((cop0[12] & 2) == 0) {
-      cop0[14] = delay ? (at - 4) & 0xffffffff : at;
+    cop0[13] = cop0[13] & 0xff00 | code.shl2;
+    if (!cop0[12].bit1) {
+      cop0[14] = delay ? (at - 4).mask32 : at;
       if (delay) cop0[13] |= 0x80000000;
     }
     if (badAddress != null) cop0[8] = badAddress;
     cop0[12] |= 2;
-    pc = (cop0[12] & 0x400000) != 0 ? 0xbfc00380 : 0x80000180;
-    nextPc = (pc + 4) & 0xffffffff;
+    pc = cop0[12].bit22 ? 0xbfc00380 : 0x80000180;
+    nextPc = (pc + 4).mask32;
     _delay = false;
     _ll = false;
   }
 
-  int get count => (clocks ~/ 2 + _countOffset) & 0xffffffff;
+  int get count => (clocks ~/ 2 + _countOffset).mask32;
   void step() {
     if (stopReason != null) return;
     if (count == cop0[11] && clocks > 0) _timerIrq = true;
     cop0[13] = (cop0[13] & ~0x8400) |
         (bus.interruptPending ? 0x400 : 0) |
         (_timerIrq ? 0x8000 : 0);
-    if ((cop0[12] & 7) == 1 && (cop0[12] & cop0[13] & 0xff00) != 0 && !_delay) {
+    if (cop0[12].mask3 == 1 && cop0[12] & cop0[13] & 0xff00 != 0 && !_delay) {
       exception(0, pc, false);
       clocks++;
       return;
@@ -130,35 +132,35 @@ class Vr4300 {
       aligned(pc, 4);
       final op = bus.read(pc, 4);
       pc = nextPc;
-      nextPc = (nextPc + 4) & 0xffffffff;
+      nextPc = (nextPc + 4).mask32;
       if (op == 0) {
         clocks++;
         return;
       }
-      final code = op >> 26;
+      final code = op.shr26;
       if ((op == 0x1000ffff ||
               (code == 2 &&
-                  (((at + 4) & 0xf0000000) | ((op & 0x3ffffff) << 2)) == at)) &&
-          bus.read((at + 4) & 0xffffffff, 4) == 0) {
+                  (((at + 4) & 0xf0000000) | op.mask26.shl2) == at)) &&
+          bus.read((at + 4).mask32, 4) == 0) {
         _idleAddress = at;
       }
-      final s = (op >> 21) & 31, t = (op >> 16) & 31;
-      final d = (op >> 11) & 31, shift = (op >> 6) & 31;
+      final s = op.shr21.mask5, t = op.shr16.mask5;
+      final d = op.shr11.mask5, shift = op.shr6.mask5;
       final immediate = signed16(op);
-      late final a = (lowWord(s) + immediate) & 0xffffffff;
+      late final a = (lowWord(s) + immediate).mask32;
       void branch(bool condition, {bool likely = false}) {
         _delay = true;
         if (condition) {
-          nextPc = (at + 4 + immediate * 4) & 0xffffffff;
+          nextPc = (at + 4 + immediate * 4).mask32;
         } else if (likely) {
           _delay = false;
           pc = nextPc;
-          nextPc = (nextPc + 4) & 0xffffffff;
+          nextPc = (nextPc + 4).mask32;
         }
       }
 
       void unsupported() => throw UnsupportedError(
-            'VR4300 instruction 0x${op.toRadixString(16).padLeft(8, '0')}',
+            'VR4300 instruction 0x${op.x8}',
           );
       BigInt load(int size, bool signed) {
         aligned(a, size);
@@ -203,31 +205,31 @@ class Vr4300 {
               code == 53 ||
               code == 57 ||
               code == 61) &&
-          (cop0[12] & 0x20000000) == 0) {
+          !cop0[12].bit29) {
         throw const CpuFault(11);
       }
       switch (code) {
         case 0:
-          switch (op & 63) {
+          switch (op.mask6) {
             case 0:
-              putWord(d, lowWord(t) << shift);
+              putWord(d, lowWord(t).shl(shift));
             case 2:
-              putWord(d, (lowWord(t) & 0xffffffff) >> shift);
+              putWord(d, lowWord(t).mask32.shr(shift));
             case 3:
-              putWord(d, lowWord(t) >> shift);
+              putWord(d, lowWord(t).shr(shift));
             case 4:
-              putWord(d, lowWord(t) << (lowWord(s) & 31));
+              putWord(d, lowWord(t).shl(lowWord(s).mask5));
             case 6:
-              putWord(d, (lowWord(t) & 0xffffffff) >> (lowWord(s) & 31));
+              putWord(d, lowWord(t).mask32.shr(lowWord(s).mask5));
             case 7:
-              putWord(d, lowWord(t) >> (lowWord(s) & 31));
+              putWord(d, lowWord(t).shr(lowWord(s).mask5));
             case 8:
               _delay = true;
-              nextPc = lowWord(s) & 0xffffffff;
+              nextPc = lowWord(s).mask32;
             case 9:
               _delay = true;
-              final target = lowWord(s) & 0xffffffff;
-              putWord(d, (at + 8) & 0xffffffff);
+              final target = lowWord(s).mask32;
+              putWord(d, (at + 8).mask32);
               nextPc = target;
             case 12:
               throw const CpuFault(8);
@@ -244,14 +246,14 @@ class Vr4300 {
             case 19:
               lo = r[s];
             case 20:
-              put(d, r[t] << (r[s].toInt() & 63));
+              put(d, r[t] << r[s].toInt().mask6);
             case 22:
-              put(d, r[t].toUnsigned(64) >> (r[s].toInt() & 63));
+              put(d, r[t].toUnsigned(64) >> r[s].toInt().mask6);
             case 23:
-              put(d, r[t] >> (r[s].toInt() & 63));
+              put(d, r[t] >> r[s].toInt().mask6);
             case 24:
             case 25:
-              final unsigned = (op & 63) == 25;
+              final unsigned = op.mask6 == 25;
               final x = unsigned ? r[s].toUnsigned(32) : r[s].toSigned(32);
               final y = unsigned ? r[t].toUnsigned(32) : r[t].toSigned(32);
               final product = x * y;
@@ -259,7 +261,7 @@ class Vr4300 {
               hi = (product >> 32).toSigned(32);
             case 26:
             case 27:
-              final unsigned = (op & 63) == 27;
+              final unsigned = op.mask6 == 27;
               final x = unsigned ? r[s].toUnsigned(32) : r[s].toSigned(32);
               final y = unsigned ? r[t].toUnsigned(32) : r[t].toSigned(32);
               if (y == BigInt.zero) {
@@ -272,7 +274,7 @@ class Vr4300 {
               }
             case 28:
             case 29:
-              final unsigned = (op & 63) == 29;
+              final unsigned = op.mask6 == 29;
               final x = unsigned ? r[s].toUnsigned(64) : r[s];
               final y = unsigned ? r[t].toUnsigned(64) : r[t];
               final product = x * y;
@@ -280,7 +282,7 @@ class Vr4300 {
               hi = (product >> 64).toSigned(64);
             case 30:
             case 31:
-              final unsigned = (op & 63) == 31;
+              final unsigned = op.mask6 == 31;
               final x = unsigned ? r[s].toUnsigned(64) : r[s];
               final y = unsigned ? r[t].toUnsigned(64) : r[t];
               lo = (y == BigInt.zero
@@ -338,18 +340,18 @@ class Vr4300 {
             unsupported();
             break;
           }
-          if (t >= 16) putWord(31, (at + 8) & 0xffffffff);
+          if (t >= 16) putWord(31, (at + 8).mask32);
           branch(
-            (t & 1) == 0 ? negative(s) : !negative(s),
-            likely: (t & 2) != 0,
+            !t.bit0 ? negative(s) : !negative(s),
+            likely: t.bit1,
           );
         case 2:
         case 3:
           _delay = true;
           if (code == 3) {
-            putWord(31, (at + 8) & 0xffffffff);
+            putWord(31, (at + 8).mask32);
           }
-          nextPc = ((at + 4) & 0xf0000000) | ((op & 0x3ffffff) << 2);
+          nextPc = (at + 4) & 0xf0000000 | op.mask26.shl2;
         case 4:
           branch(equal(s, t));
         case 5:
@@ -374,32 +376,32 @@ class Vr4300 {
           putWord(
               t,
               (r.isWord(s)
-                      ? (lowWord(s) & 0xffffffff) < (immediate & 0xffffffff)
+                      ? lowWord(s).mask32 < immediate.mask32
                       : r[s].toUnsigned(64) <
                           BigInt.from(immediate).toUnsigned(64))
                   ? 1
                   : 0);
         case 12:
-          putWord(t, lowWord(s) & (op & 0xffff));
+          putWord(t, lowWord(s) & op.mask16);
         case 13:
           if (r.isWord(s)) {
-            putWord(t, lowWord(s) | (op & 0xffff));
+            putWord(t, lowWord(s) | op.mask16);
           } else {
             put(t, r[s] | BigInt.from(op & 0xffff));
           }
         case 14:
           if (r.isWord(s)) {
-            putWord(t, lowWord(s) ^ (op & 0xffff));
+            putWord(t, lowWord(s) ^ op.mask16);
           } else {
             put(t, r[s] ^ BigInt.from(op & 0xffff));
           }
         case 15:
-          putWord(t, (op & 0xffff) << 16);
+          putWord(t, op.mask16.shl16);
         case 16:
           if (s == 0 || s == 1) {
             putWord(t, d == 9 ? count : cop0[d]);
           } else if (s == 4 || s == 5) {
-            final v = lowWord(t) & 0xffffffff;
+            final v = lowWord(t).mask32;
             if (d == 9) _countOffset = v - clocks ~/ 2;
             if (d == 11) _timerIrq = false;
             if (d == 13) {
@@ -407,24 +409,24 @@ class Vr4300 {
             } else {
               cop0[d] = v;
             }
-            fpu.wide = (cop0[12] & 0x4000000) != 0;
+            fpu.wide = cop0[12].bit26;
           } else if (s == 16) {
-            switch (op & 63) {
+            switch (op.mask6) {
               case 24:
-                pc = (cop0[12] & 4) != 0 ? cop0[30] : cop0[14];
-                cop0[12] &= (cop0[12] & 4) != 0 ? ~4 : ~2;
-                nextPc = (pc + 4) & 0xffffffff;
+                pc = cop0[12].bit2 ? cop0[30] : cop0[14];
+                cop0[12] &= cop0[12].bit2 ? ~4 : ~2;
+                nextPc = (pc + 4).mask32;
                 _delay = false;
                 _ll = false;
               case 2:
-                bus.writeTlb(cop0[0] & 31, cop0);
+                bus.writeTlb(cop0[0].mask5, cop0);
               case 6:
                 bus.writeTlb(
-                    (clocks % (32 - (cop0[6] & 31))) + (cop0[6] & 31), cop0);
+                    (clocks % (32 - cop0[6].mask5)) + cop0[6].mask5, cop0);
               case 8:
                 cop0[0] = bus.probeTlb(cop0[10]);
               case 1:
-                bus.readTlb(cop0[0] & 31, cop0);
+                bus.readTlb(cop0[0].mask5, cop0);
               default:
                 unsupported();
             }
@@ -445,12 +447,11 @@ class Vr4300 {
             case 5:
               fpu.setLong(fs, r[t]);
             case 6:
-              if (fs == 31) fpu.control = lowWord(t) & 0xffffffff;
+              if (fs == 31) fpu.control = lowWord(t).mask32;
             case 8:
-              branch((t & 1) != 0 ? fpu.condition : !fpu.condition,
-                  likely: (t & 2) != 0);
+              branch(t.bit0 ? fpu.condition : !fpu.condition, likely: t.bit1);
             default:
-              fpu.execute(s, t, fs, fd, op & 63);
+              fpu.execute(s, t, fs, fd, op.mask6);
           }
         case 26:
         case 27:
