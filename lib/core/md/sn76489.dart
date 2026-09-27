@@ -40,11 +40,21 @@ class Tone {
 
 class Noise {
   int vol = 15;
-  int tone2freq = 0;
   bool periodic = false;
 
+  int _tone2freq = 0;
+  int _shift = 0;
+
+  set tone2freq(int freq) {
+    _tone2freq = freq;
+    if (_shift == 3) {
+      _freq = freq; // follows the tone 2 frequency
+    }
+  }
+
   set shift(int s) {
-    _freq = [0x10, 0x20, 0x40, tone2freq][s];
+    _shift = s;
+    _freq = [0x10, 0x20, 0x40, _tone2freq][s];
     _lfsr = 0x8000;
   }
 
@@ -101,19 +111,20 @@ class Sn76489 {
   }
 
   write8(int value) {
-    final ch = (value.bit7 ? value : _latch).shr5 & 0x03;
-
     if (value.bit7) {
-      if (value.bit4) {
-        if (ch == 3) {
-          noise.vol = value & 0x0f;
-        } else {
-          tones[ch].vol = value & 0x0f;
-        }
-        return;
-      }
-
       _latch = value;
+    }
+
+    final ch = _latch.shr5 & 0x03;
+
+    // volume: both latch and data bytes update the latched channel
+    if (_latch.bit4) {
+      if (ch == 3) {
+        noise.vol = value & 0x0f;
+      } else {
+        tones[ch].vol = value & 0x0f;
+      }
+      return;
     }
 
     // noise
@@ -123,13 +134,13 @@ class Sn76489 {
       return;
     }
 
-    // tone
-    if (!value.bit7) {
-      tones[ch].freq = (value.shl4 & 0x3f0) | _latch & 0x0f;
+    // tone: latch byte updates low 4 bits, data byte updates high 6 bits
+    tones[ch].freq = value.bit7
+        ? tones[ch].freq & 0x3f0 | value & 0x0f
+        : (value.shl4 & 0x3f0) | tones[ch].freq & 0x0f;
 
-      if (ch == 2) {
-        noise.tone2freq = tones[2].freq;
-      }
+    if (ch == 2) {
+      noise.tone2freq = tones[2].freq;
     }
   }
 

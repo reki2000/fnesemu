@@ -29,8 +29,9 @@ extension OpCb on Z80 {
         r.hf = true;
         r.nf = false;
         r.pvf = r.zf;
-        if (src == 6) cycles -= 3;
-        break;
+        // BIT only reads the operand: never write it back
+        if (src == 6) cycles += 1;
+        return true;
 
       case 0x80: // res
         val &= ~(1 << op38.shr3);

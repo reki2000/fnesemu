@@ -24,7 +24,7 @@ extension Op0 on M68 {
             d[dn] = read8(addr0).shl24 |
                 read8(addr0.inc2).shl16 |
                 read8(addr0.inc4).shl8 |
-                read8(addr0 + 6).shr8;
+                read8(addr0 + 6);
           } else {
             write8(addr0, d[dn].shr24 & 0xff);
             write8(addr0.inc2, d[dn].shr16 & 0xff);

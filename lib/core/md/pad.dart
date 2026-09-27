@@ -8,8 +8,8 @@ class Pad {
   static const controllerNum = 3;
 
   Pad() {
-    isPressed =
-        List.filled(controllerNum, {for (var e in buttons) e.name: false});
+    isPressed = List.generate(
+        controllerNum, (_) => {for (var e in buttons) e.name: false});
   }
 
   void keyDown(int id, PadButton d) {
