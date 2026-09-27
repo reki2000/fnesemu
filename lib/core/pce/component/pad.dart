@@ -1,4 +1,5 @@
 import 'package:fnesemu/util/int.dart';
+
 // Project imports:
 import '../../pad_button.dart';
 
@@ -17,8 +18,10 @@ class Pad {
   static const controllerNum = 5;
 
   Pad() {
-    isPressed =
-        List.filled(controllerNum, {for (var e in buttons) e.name: false});
+    isPressed = List.generate(
+      controllerNum,
+      (_) => {for (var e in buttons) e.name: false},
+    );
   }
 
   late List<Map<String, bool>> isPressed;
@@ -41,40 +44,43 @@ class Pad {
 
   reset() {
     selectLRDU = false;
+    clear = false;
+    counter = 0;
   }
 
   set port(int data) {
-    selectLRDU = data.bit0;
-
-    if (selectLRDU) {
-      if (!clear) {
-        if (data.bit1) {
-          counter = 0;
-          clear = true;
-        } else {
-          counter++;
-          clear = false;
-        }
+    final newSelect = data.bit0;
+    final newClear = data.bit1;
+    if (newSelect && !clear && newClear) {
+      counter = 0;
+    } else if (!clear && !newClear && !selectLRDU && newSelect) {
+      if (counter < 0xff) {
+        counter++;
       }
     }
+    selectLRDU = newSelect;
+    clear = newClear;
   }
 
   int buttonValue(int id, int bit) =>
       !isPressed[counter][buttons[id].name]! ? bit : 0;
 
-  int get port => selectLRDU
+  int get port => counter >= controllerNum
+      ? 0
+      : selectLRDU
       ? buttonValue(2, 0x08) |
-          buttonValue(1, 0x04) |
-          buttonValue(3, 0x02) |
-          buttonValue(0, 0x01)
+            buttonValue(1, 0x04) |
+            buttonValue(3, 0x02) |
+            buttonValue(0, 0x01)
       : buttonValue(5, 0x08) | // Run
-          buttonValue(4, 0x04) | // Select
-          buttonValue(7, 0x02) | // I
-          buttonValue(6, 0x01); // II
+            buttonValue(4, 0x04) | // Select
+            buttonValue(7, 0x02) | // I
+            buttonValue(6, 0x01); // II
 
   String dump() {
-    final joys =
-        buttons.map((j) => "${j.name}:${isPressed[0][j.name]! ? "*" : "-"}");
+    final joys = buttons.map(
+      (j) => "${j.name}:${isPressed[0][j.name]! ? "*" : "-"}",
+    );
     return "$joys";
   }
 }

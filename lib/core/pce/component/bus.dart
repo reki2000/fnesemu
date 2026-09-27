@@ -25,8 +25,8 @@ class Bus {
 
   // 0: original ram 8kb
   // 1-3: supergfx additional ram banks 24k
-  // 4-12: cdrom buffer 64k
-  final List<List<int>> ram = List.filled(12, List.filled(0x2000, 0));
+  // 4-11: cdrom buffer 64k
+  final List<List<int>> ram = List.generate(12, (_) => List.filled(0x2000, 0));
 
   int read(int addr) {
     final bank = addr.shr13;
@@ -54,7 +54,7 @@ class Bus {
           0x10 => vdc2.readReg(),
           0x12 => vdc2.readLsb(),
           0x13 => vdc2.readMsb(),
-          int() => 0
+          int() => 0,
         };
       }
 
@@ -63,7 +63,7 @@ class Bus {
         return switch (offset & 0x07) {
           0x04 => vdc.readColorTableLsb(),
           0x05 => vdc.readColorTableMsb(),
-          int() => 0xff
+          int() => 0xff,
         };
       }
 
@@ -86,7 +86,7 @@ class Bus {
         return switch (offset & 0x03) {
           0x02 => pic.mask,
           0x03 => pic.hold,
-          int() => 0
+          int() => 0,
         };
       }
     }
@@ -206,6 +206,7 @@ class Bus {
     cpu.reset();
     timer.reset();
     pic.reset();
+    joypad.reset();
   }
 
   void holdIrq() => {};
