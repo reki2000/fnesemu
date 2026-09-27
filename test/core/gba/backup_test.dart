@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/gba/backup.dart';
 import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/core/sram.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 Uint8List romWith(String tag) {
@@ -85,11 +86,11 @@ void main() {
       // write command: '10' + 6 addr bits + 64 data bits + stop = 73 bits.
       final wr = <int>[1, 0];
       for (int i = 5; i >= 0; i--) {
-        wr.add((addr >> i) & 1);
+        wr.add(addr.shr(i).mask1);
       }
       for (final b in data) {
         for (int i = 7; i >= 0; i--) {
-          wr.add((b >> i) & 1);
+          wr.add(b.shr(i).mask1);
         }
       }
       wr.add(0);
@@ -103,7 +104,7 @@ void main() {
       // read request: '11' + 6 addr bits + stop = 9 bits.
       final rd = <int>[1, 1];
       for (int i = 5; i >= 0; i--) {
-        rd.add((addr >> i) & 1);
+        rd.add(addr.shr(i).mask1);
       }
       rd.add(0);
       expect(rd.length, 9);
@@ -116,13 +117,13 @@ void main() {
       // read 68 bits: 4 dummy + 64 data.
       final outBits = <int>[];
       for (int i = 0; i < 68; i++) {
-        outBits.add(bus.read16(0x0d000000) & 1);
+        outBits.add(bus.read16(0x0d000000).mask1);
       }
       final readBack = <int>[];
       for (int byte = 0; byte < 8; byte++) {
         int v = 0;
         for (int b = 0; b < 8; b++) {
-          v = (v << 1) | outBits[4 + byte * 8 + b];
+          v = v.shl1 | outBits[4 + byte * 8 + b];
         }
         readBack.add(v);
       }

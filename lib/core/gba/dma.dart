@@ -29,7 +29,7 @@ class Dma {
   static const _timingHBlank = 2;
   static const _timingSpecial = 3;
 
-  int _timing(int ch) => (_control[ch] >> 12) & 3;
+  int _timing(int ch) => _control[ch].shr12.mask2;
 
   // --- register access (offset relative to 0xb0) ----------------------------
 
@@ -86,8 +86,8 @@ class Dma {
   void _transfer(int ch) {
     final ctrl = _control[ch];
     final word = ctrl.bit10; // 0=16bit, 1=32bit
-    final dstCtrl = (ctrl >> 5) & 3;
-    final srcCtrl = (ctrl >> 7) & 3;
+    final dstCtrl = ctrl.shr5.mask2;
+    final srcCtrl = ctrl.shr7.mask2;
     final step = word ? 4 : 2;
 
     // addresses are forced to the unit size
@@ -96,7 +96,7 @@ class Dma {
     final count = _countLatch[ch];
 
     // an EEPROM-targeted stream needs its length to infer the address width.
-    if (bus.cart.hasEeprom && ((dst >> 24) & 0xf) == 0xd) {
+    if (bus.cart.hasEeprom && dst.shr24.mask4 == 0xd) {
       bus.cart.backup.eepromBeginCommand(count);
     }
 
@@ -154,7 +154,7 @@ class Dma {
       if (!ctrl.bit15 || _timing(ch) != _timingSpecial) continue;
       if ((_dst[ch] & 0x0fffffff) != dest) continue;
 
-      final srcCtrl = (ctrl >> 7) & 3;
+      final srcCtrl = ctrl.shr7.mask2;
       int src = _srcLatch[ch] & ~3;
       for (int i = 0; i < 4; i++) {
         bus.write32(fifoAddr, bus.read32(src));

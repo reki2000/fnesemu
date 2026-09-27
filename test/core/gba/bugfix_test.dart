@@ -6,6 +6,7 @@ import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/core/gba/gba.dart';
 import 'package:fnesemu/core/gba/irq.dart';
 import 'package:fnesemu/core/gba/ppu.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 import 'arm7_asm.dart';
@@ -14,10 +15,10 @@ Uint8List _words(List<int> words) {
   final b = Uint8List(words.length * 4);
   for (var i = 0; i < words.length; i++) {
     final w = words[i];
-    b[i * 4] = w & 0xff;
-    b[i * 4 + 1] = (w >> 8) & 0xff;
-    b[i * 4 + 2] = (w >> 16) & 0xff;
-    b[i * 4 + 3] = (w >> 24) & 0xff;
+    b[i * 4] = w.mask8;
+    b[i * 4 + 1] = w.shr8.mask8;
+    b[i * 4 + 2] = w.shr16.mask8;
+    b[i * 4 + 3] = w.shr24.mask8;
   }
   return b;
 }
@@ -65,7 +66,7 @@ void main() {
     bus.write32(0x02000004, 0x11111111);
     void w32(int addr, int v) {
       for (int i = 0; i < 4; i++) {
-        bus.write8(addr + i, (v >> (i * 8)) & 0xff);
+        bus.write8(addr + i, v.shr(i * 8).mask8);
       }
     }
 
@@ -86,10 +87,10 @@ void main() {
     bus.write16(0x04000062, 0xf080); // duty 50%, volume 15
     bus.write8(0x04000064, 0x34);
     bus.write8(0x04000065, 0x87); // trigger, freq 0x734
-    expect(bus.read16(0x04000084) & 1, 1);
+    expect(bus.read16(0x04000084).mask1, 1);
     // re-writing the low byte must not lose the high bits
     bus.write8(0x04000064, 0x35);
-    expect(bus.io[0x64] | (bus.io[0x65] << 8), 0x0735);
+    expect(bus.io[0x64] | bus.io[0x65].shl8, 0x0735);
   });
 
   test('DISPSTAT HBlank flag can be polled during the line', () {
@@ -97,7 +98,7 @@ void main() {
     var sawHblank = false;
     while (gba.bus.vcount == 0) {
       gba.exec(false);
-      if (gba.bus.read16(0x04000004) & 2 != 0) {
+      if (gba.bus.read16(0x04000004).bit1) {
         sawHblank = true;
         expect(gba.bus.vcount, 0);
       }

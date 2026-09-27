@@ -94,17 +94,17 @@ class Apu {
         if (data.bit15) _fifoB.clear();
         return;
       case 0x84:
-        _cntX = (_cntX & 0xf) | (data & 0xf0);
+        _cntX = _cntX.mask4 | data & 0xf0;
         return;
       case 0xa0:
       case 0xa2:
-        _fifoA.push(data & 0xff);
-        _fifoA.push((data >> 8) & 0xff);
+        _fifoA.push(data.mask8);
+        _fifoA.push(data.shr8.mask8);
         return;
       case 0xa4:
       case 0xa6:
-        _fifoB.push(data & 0xff);
-        _fifoB.push((data >> 8) & 0xff);
+        _fifoB.push(data.mask8);
+        _fifoB.push(data.shr8.mask8);
         return;
       default:
         return; // wave RAM (0x90) and others live in bus.io[]
@@ -179,14 +179,14 @@ class Apu {
 
     // PSG master volume ratio (SOUNDCNT_H bits0-1): 25/50/100%.
     const psgRatio = [0.25, 0.5, 1.0, 1.0];
-    final psgVol = psgRatio[_cntH & 3];
+    final psgVol = psgRatio[_cntH.mask2];
 
     // PSG master volume (SOUNDCNT_L): bits 0-2 right, bits 4-6 left.
     // per-side enables: bits 8-11 right, 12-15 left.
-    final psgVolR = (_cntL & 7) / 7;
-    final psgVolL = ((_cntL >> 4) & 7) / 7;
-    final enRight = (_cntL >> 8) & 0xf;
-    final enLeft = (_cntL >> 12) & 0xf;
+    final psgVolR = _cntL.mask3 / 7;
+    final psgVolL = _cntL.shr4.mask3 / 7;
+    final enRight = _cntL.shr8.mask4;
+    final enLeft = _cntL.shr12.mask4;
 
     // Direct Sound volume (bit2/bit3) and L/R enables.
     final dsaVol = _cntH.bit2 ? 1.0 : 0.5;
@@ -201,14 +201,14 @@ class Apu {
       final c4 = _noise.render();
 
       double psgL = 0, psgR = 0;
-      if (enLeft & 1 != 0) psgL += c1;
-      if (enLeft & 2 != 0) psgL += c2;
-      if (enLeft & 4 != 0) psgL += c3;
-      if (enLeft & 8 != 0) psgL += c4;
-      if (enRight & 1 != 0) psgR += c1;
-      if (enRight & 2 != 0) psgR += c2;
-      if (enRight & 4 != 0) psgR += c3;
-      if (enRight & 8 != 0) psgR += c4;
+      if (enLeft.bit0) psgL += c1;
+      if (enLeft.bit1) psgL += c2;
+      if (enLeft.bit2) psgL += c3;
+      if (enLeft.bit3) psgL += c4;
+      if (enRight.bit0) psgR += c1;
+      if (enRight.bit1) psgR += c2;
+      if (enRight.bit2) psgR += c3;
+      if (enRight.bit3) psgR += c4;
 
       psgL *= psgVol * psgVolL / 4;
       psgR *= psgVol * psgVolR / 4;
@@ -241,14 +241,14 @@ class _Fifo {
 
   void push(int b) {
     if (_len >= 32) return;
-    _buf[(_head + _len) & 31] = b & 0xff;
+    _buf[(_head + _len).mask5] = b.mask8;
     _len++;
   }
 
   int pop() {
     if (_len == 0) return 0;
     final b = _buf[_head];
-    _head = (_head + 1) & 31;
+    _head = (_head + 1).mask5;
     _len--;
     return b;
   }
@@ -268,9 +268,9 @@ class _Envelope {
 
   void configure(int reg, int sampleHz) {
     // bits 8-10 step time (n/64s), bit11 direction, bits12-15 initial volume
-    final step = (reg >> 8) & 7;
+    final step = reg.shr8.mask3;
     _increase = reg.bit11;
-    volume = (reg >> 12) & 0xf;
+    volume = reg.shr12.mask4;
     _periodSamples = step * sampleHz ~/ 64;
     _counter = _periodSamples;
   }
@@ -331,13 +331,13 @@ class _Square {
   void writeDutyEnv(int v, int sampleHz) {
     dutyEnv = v;
     _env.configure(v, sampleHz);
-    _len.set(v & 0x3f, sampleHz, 64);
+    _len.set(v.mask6, sampleHz, 64);
   }
 
   void writeFreqCtrl(int v, int sampleHz) {
     freqCtrl = v;
     _sampleHz = sampleHz;
-    _freq = freqCtrl & 0x7ff;
+    _freq = freqCtrl.mask11;
     _len.enabled = v.bit14;
     if (v.bit15) _trigger(sampleHz);
   }
@@ -345,9 +345,9 @@ class _Square {
   void _trigger(int sampleHz) {
     active = true;
     _env.configure(dutyEnv, sampleHz);
-    _len.set(dutyEnv & 0x3f, sampleHz, 64);
+    _len.set(dutyEnv.mask6, sampleHz, 64);
     if (hasSweep) {
-      final period = (sweep >> 4) & 7;
+      final period = sweep.shr4.mask3;
       _sweepPeriodSamples = period * sampleHz ~/ 128;
       _sweepCounter = _sweepPeriodSamples;
     }
@@ -364,7 +364,7 @@ class _Square {
     _phase += hz / _sampleHz;
     if (_phase >= 1) _phase -= _phase.floorToDouble();
 
-    final duty = _duty[(dutyEnv >> 6) & 3];
+    final duty = _duty[dutyEnv.shr6.mask2];
     final level = _phase < duty ? 1.0 : -1.0;
     return level * _env.volume / 15;
   }
@@ -373,9 +373,9 @@ class _Square {
     if (!hasSweep || _sweepPeriodSamples == 0) return;
     if (--_sweepCounter > 0) return;
     _sweepCounter = _sweepPeriodSamples;
-    final shift = sweep & 7;
+    final shift = sweep.mask3;
     if (shift == 0) return;
-    final delta = _freq >> shift;
+    final delta = _freq.shr(shift);
     _freq = sweep.bit3 ? _freq - delta : _freq + delta;
     if (_freq >= 2048) active = false;
     if (_freq < 0) _freq = 0;
@@ -410,17 +410,17 @@ class _Wave {
 
   void writeLenVol(int v, int sampleHz) {
     lenVol = v;
-    _len.set(v & 0xff, sampleHz, 256);
+    _len.set(v.mask8, sampleHz, 256);
   }
 
   void writeFreqCtrl(int v, int sampleHz) {
     freqCtrl = v;
     _sampleHz = sampleHz;
-    _freq = v & 0x7ff;
+    _freq = v.mask11;
     _len.enabled = v.bit14;
     if (v.bit15) {
       active = enableReg.bit7;
-      _len.set(lenVol & 0xff, sampleHz, 256);
+      _len.set(lenVol.mask8, sampleHz, 256);
       _phase = 0;
     }
   }
@@ -429,8 +429,8 @@ class _Wave {
   void loadRam(List<int> io) {
     for (int i = 0; i < 16; i++) {
       final b = io[0x90 + i];
-      samples[i * 2] = b >> 4;
-      samples[i * 2 + 1] = b & 0xf;
+      samples[i * 2] = b.shr4;
+      samples[i * 2 + 1] = b.mask4;
     }
   }
 
@@ -445,9 +445,9 @@ class _Wave {
       _phase -= 32;
     }
 
-    final s = samples[_phase.toInt() & 31];
+    final s = samples[_phase.toInt().mask5];
     // volume: bits13-15 of lenVol (0 mute,1 100%,2 50%,3 25%, bit15 force 75%)
-    final volSel = (lenVol >> 13) & 7;
+    final volSel = lenVol.shr13.mask3;
     const volTable = [0.0, 1.0, 0.5, 0.25, 0.75, 0.75, 0.75, 0.75];
     return ((s / 7.5) - 1.0) * volTable[volSel];
   }
@@ -479,23 +479,23 @@ class _Noise {
   void writeLenEnv(int v, int sampleHz) {
     lenEnv = v;
     _env.configure(v, sampleHz);
-    _len.set(v & 0x3f, sampleHz, 64);
+    _len.set(v.mask6, sampleHz, 64);
   }
 
   void writeFreqCtrl(int v, int sampleHz) {
     freqCtrl = v;
     _sampleHz = sampleHz;
     _width7 = v.bit3;
-    final shift = (v >> 4) & 0xf;
-    final r = v & 7;
+    final shift = v.shr4.mask4;
+    final r = v.mask3;
     // LFSR clock = 4194304 / (divisor << shift), i.e. 524288 / r / 2^(s+1)
     // with r=0 counted as 0.5.
-    _hz = 4194304 / (_divisor[r] << shift);
+    _hz = 4194304 / _divisor[r].shl(shift);
     _len.enabled = v.bit14;
     if (v.bit15) {
       active = true;
       _env.configure(lenEnv, sampleHz);
-      _len.set(lenEnv & 0x3f, sampleHz, 64);
+      _len.set(lenEnv.mask6, sampleHz, 64);
       _lfsr = _width7 ? 0x7f : 0x7fff;
     }
   }
@@ -508,12 +508,12 @@ class _Noise {
     _phase += _hz / _sampleHz;
     while (_phase >= 1) {
       _phase -= 1;
-      final bit = (_lfsr ^ (_lfsr >> 1)) & 1;
+      final bit = (_lfsr ^ _lfsr.shr1).mask1;
       _lfsr >>= 1;
-      _lfsr |= bit << (_width7 ? 6 : 14);
+      _lfsr |= bit.shl(_width7 ? 6 : 14);
     }
 
-    final level = (_lfsr & 1) == 0 ? 1.0 : -1.0;
+    final level = !_lfsr.bit0 ? 1.0 : -1.0;
     return level * _env.volume / 15;
   }
 

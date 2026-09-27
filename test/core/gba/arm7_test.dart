@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/gba/arm7tdmi/arm7.dart';
 import 'package:fnesemu/core/gba/arm7tdmi/regs.dart';
 import 'package:fnesemu/core/gba/bus.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 import 'arm7_asm.dart';
@@ -17,10 +18,10 @@ class ArmBed {
     final rom = Uint8List(words.length * 4);
     for (var i = 0; i < words.length; i++) {
       final w = words[i];
-      rom[i * 4] = w & 0xff;
-      rom[i * 4 + 1] = (w >> 8) & 0xff;
-      rom[i * 4 + 2] = (w >> 16) & 0xff;
-      rom[i * 4 + 3] = (w >> 24) & 0xff;
+      rom[i * 4] = w.mask8;
+      rom[i * 4 + 1] = w.shr8.mask8;
+      rom[i * 4 + 2] = w.shr16.mask8;
+      rom[i * 4 + 3] = w.shr24.mask8;
     }
     bus.cart.load(rom);
     cpu = Arm7(bus);
@@ -62,7 +63,7 @@ ArmBed thumbRun(List<int> halfwords) {
   final hws = [...halfwords, tBSelf];
   if (hws.length.isOdd) hws.add(tNop);
   for (var i = 0; i < hws.length; i += 2) {
-    words.add(hws[i] | (hws[i + 1] << 16));
+    words.add(hws[i] | hws[i + 1].shl16);
   }
   return ArmBed(words)..run();
 }
@@ -398,8 +399,8 @@ void main() {
         aMovR(14, 15), // lr = addr of word 4
         aBx(1),
         aB(1), // return lands here; jump over the thumb words
-        0x2007 | (tLslsI(0, 0, 2) << 16), // movs r0,#7; lsls r0,r0,#2
-        tBxLr | (tNop << 16),
+        0x2007 | tLslsI(0, 0, 2).shl16, // movs r0,#7; lsls r0,r0,#2
+        tBxLr | tNop.shl16,
         aMovI(2, 1),
       ]);
       expect(t.r[0], 28);
@@ -416,8 +417,8 @@ void main() {
       expect(t.regs.zf, true);
       expect(t.regs.cf, true);
       expect(t.regs.vf, true);
-      expect(t.r[0] >> 28, 0xf);
-      expect(t.r[0] & 0x1f, CpuMode.sys);
+      expect(t.r[0].shr28, 0xf);
+      expect(t.r[0].mask5, CpuMode.sys);
     });
 
     test('swi enters supervisor mode', () {

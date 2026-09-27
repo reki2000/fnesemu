@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/core/gba/gba.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 import 'arm7_asm.dart';
@@ -19,10 +20,10 @@ Uint8List _words(List<int> words) {
   final b = Uint8List(words.length * 4);
   for (var i = 0; i < words.length; i++) {
     final w = words[i];
-    b[i * 4] = w & 0xff;
-    b[i * 4 + 1] = (w >> 8) & 0xff;
-    b[i * 4 + 2] = (w >> 16) & 0xff;
-    b[i * 4 + 3] = (w >> 24) & 0xff;
+    b[i * 4] = w.mask8;
+    b[i * 4 + 1] = w.shr8.mask8;
+    b[i * 4 + 2] = w.shr16.mask8;
+    b[i * 4 + 3] = w.shr24.mask8;
   }
   return b;
 }
@@ -162,7 +163,7 @@ void main() {
     ]);
 
     final v = _runUntilResult(_boot(rom));
-    expect(v & 1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
+    expect(v.mask1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
   });
 
   test('IRQ interrupts a thumb wait loop (IntrWait-style polling)', () {
@@ -187,7 +188,7 @@ void main() {
       words.add(aNop);
     }
     for (var i = 0; i < thumb.length; i += 2) {
-      words.add(thumb[i] | (thumb[i + 1] << 16));
+      words.add(thumb[i] | thumb[i + 1].shl16);
     }
     while (words.length < _handlerIdx) {
       words.add(aNop);
@@ -195,6 +196,6 @@ void main() {
     words.addAll(_handler);
 
     final v = _runUntilResult(_boot(_words(words)));
-    expect(v & 1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
+    expect(v.mask1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
   });
 }

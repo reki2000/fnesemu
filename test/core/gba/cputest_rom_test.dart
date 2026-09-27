@@ -1,5 +1,6 @@
 import 'package:fnesemu/core/gba/arm7tdmi/arm7.dart';
 import 'package:fnesemu/core/gba/bus.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 import 'cputest_rom.dart';
@@ -23,7 +24,7 @@ void main() {
     }
 
     expect(done, true, reason: 'ROM did not reach the end loop');
-    expect(bus.read32(0x02000008).toRadixString(16), '600dc0de',
+    expect(bus.read32(0x02000008).hex, '600dc0de',
         reason: 'completion magic missing');
     expect(bus.read32(0x02000000), 0,
         reason:

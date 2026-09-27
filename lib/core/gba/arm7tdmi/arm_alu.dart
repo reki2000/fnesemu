@@ -14,30 +14,30 @@ extension ArmAlu on Arm7 {
       switch (type) {
         case 0: // LSL
           if (amount == 0) return v; // C unchanged
-          _shiftC = (v >> (32 - amount)) & 1 != 0;
-          return (v << amount) & 0xffffffff;
+          _shiftC = v.shr(32 - amount).bit0;
+          return v.shl(amount).mask32;
         case 1: // LSR (#0 means #32)
           if (amount == 0) {
-            _shiftC = v & 0x80000000 != 0;
+            _shiftC = v.bit31;
             return 0;
           }
-          _shiftC = (v >> (amount - 1)) & 1 != 0;
+          _shiftC = v.shr(amount - 1).bit0;
           return v >>> amount;
         case 2: // ASR (#0 means #32)
           if (amount == 0) {
-            _shiftC = v & 0x80000000 != 0;
+            _shiftC = v.bit31;
             return _shiftC ? 0xffffffff : 0;
           }
-          _shiftC = (v >> (amount - 1)) & 1 != 0;
-          return (v.toSigned(32) >> amount) & 0xffffffff;
+          _shiftC = v.shr(amount - 1).bit0;
+          return v.toSigned(32).shr(amount).mask32;
         default: // 3: ROR (#0 means RRX)
           if (amount == 0) {
             final cin = regs.cf ? 1 : 0;
-            _shiftC = v & 1 != 0;
-            return ((v >>> 1) | (cin << 31)) & 0xffffffff;
+            _shiftC = v.bit0;
+            return (v >>> 1 | cin.shl31).mask32;
           }
-          _shiftC = (v >> (amount - 1)) & 1 != 0;
-          return ((v >>> amount) | (v << (32 - amount))) & 0xffffffff;
+          _shiftC = v.shr(amount - 1).bit0;
+          return (v >>> amount | v.shl(32 - amount)).mask32;
       }
     } else {
       // register form
@@ -45,41 +45,41 @@ extension ArmAlu on Arm7 {
       switch (type) {
         case 0: // LSL
           if (amount < 32) {
-            _shiftC = (v >> (32 - amount)) & 1 != 0;
-            return (v << amount) & 0xffffffff;
+            _shiftC = v.shr(32 - amount).bit0;
+            return v.shl(amount).mask32;
           }
           if (amount == 32) {
-            _shiftC = v & 1 != 0;
+            _shiftC = v.bit0;
             return 0;
           }
           _shiftC = false;
           return 0;
         case 1: // LSR
           if (amount < 32) {
-            _shiftC = (v >> (amount - 1)) & 1 != 0;
+            _shiftC = v.shr(amount - 1).bit0;
             return v >>> amount;
           }
           if (amount == 32) {
-            _shiftC = v & 0x80000000 != 0;
+            _shiftC = v.bit31;
             return 0;
           }
           _shiftC = false;
           return 0;
         case 2: // ASR
           if (amount < 32) {
-            _shiftC = (v >> (amount - 1)) & 1 != 0;
-            return (v.toSigned(32) >> amount) & 0xffffffff;
+            _shiftC = v.shr(amount - 1).bit0;
+            return v.toSigned(32).shr(amount).mask32;
           }
-          _shiftC = v & 0x80000000 != 0;
+          _shiftC = v.bit31;
           return _shiftC ? 0xffffffff : 0;
         default: // 3: ROR
-          final a = amount & 31;
+          final a = amount.mask5;
           if (a == 0) {
-            _shiftC = v & 0x80000000 != 0;
+            _shiftC = v.bit31;
             return v;
           }
-          _shiftC = (v >> (a - 1)) & 1 != 0;
-          return ((v >>> a) | (v << (32 - a))) & 0xffffffff;
+          _shiftC = v.shr(a - 1).bit0;
+          return (v >>> a | v.shl(32 - a)).mask32;
       }
     }
   }
@@ -88,11 +88,11 @@ extension ArmAlu on Arm7 {
   int _adc(int a, int b, int cin) {
     final sum = a + b + cin; // dart ints are 64-bit, no overflow up to 2^33
     _aluC = sum > 0xffffffff;
-    final res = sum & 0xffffffff;
+    final res = sum.mask32;
     _aluV = ((a ^ res) & (b ^ res) & 0x80000000) != 0;
     return res;
   }
 
   /// a - b (borrow = !carry). overflow/carry recorded in [_aluV]/[_aluC].
-  int _sbc(int a, int b, int cin) => _adc(a, (~b) & 0xffffffff, cin);
+  int _sbc(int a, int b, int cin) => _adc(a, (~b).mask32, cin);
 }

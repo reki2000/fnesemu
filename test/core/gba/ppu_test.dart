@@ -1,14 +1,15 @@
 import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/core/gba/ppu.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 // expected ABGR8888 value for a BGR555 colour (mirrors Ppu's internal table).
 int abgr(int bgr555) {
-  final r5 = bgr555 & 0x1f, g5 = (bgr555 >> 5) & 0x1f, b5 = (bgr555 >> 10) & 0x1f;
-  final r = (r5 << 3) | (r5 >> 2);
-  final g = (g5 << 3) | (g5 >> 2);
-  final b = (b5 << 3) | (b5 >> 2);
-  return 0xff000000 | (b << 16) | (g << 8) | r;
+  final r5 = bgr555.mask5, g5 = bgr555.shr5.mask5, b5 = bgr555.shr10.mask5;
+  final r = r5.shl3 | r5.shr2;
+  final g = g5.shl3 | g5.shr2;
+  final b = b5.shl3 | b5.shr2;
+  return 0xff000000 | b.shl16 | g.shl8 | r;
 }
 
 void main() {

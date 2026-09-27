@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/int.dart';
+
 import 'arm7_asm.dart';
 
 /// Builds a self-checking ARM7TDMI test ROM (.gba image).
@@ -194,8 +196,8 @@ final _cases = <(List<int>, int)>[
       aMovR(14, 15), // lr = the `b` below (return target)
       aBx(1),
       aB(1), // jump over the thumb words to the check
-      0x2007 | (tLslsI(0, 0, 2) << 16), // movs r0,#7; lsls r0,r0,#2
-      tBxLr | (tNop << 16),
+      0x2007 | tLslsI(0, 0, 2).shl16, // movs r0,#7; lsls r0,r0,#2
+      tBxLr | tNop.shl16,
     ],
     28
   ),
@@ -207,10 +209,10 @@ Uint8List _withHeader(List<int> code) {
 
   // entry point: b 0xc0
   const entry = 0xea000000 | ((0xc0 - 8) >> 2);
-  rom[0] = entry & 0xff;
-  rom[1] = (entry >> 8) & 0xff;
-  rom[2] = (entry >> 16) & 0xff;
-  rom[3] = (entry >> 24) & 0xff;
+  rom[0] = entry.mask8;
+  rom[1] = entry.shr8.mask8;
+  rom[2] = entry.shr16.mask8;
+  rom[3] = entry.shr24.mask8;
 
   rom.setRange(0xa0, 0xa8, 'ARM7TEST'.codeUnits); // title
   rom.setRange(0xac, 0xb0, 'ATST'.codeUnits); // game code
@@ -222,14 +224,14 @@ Uint8List _withHeader(List<int> code) {
   for (var a = 0xa0; a <= 0xbc; a++) {
     chk -= rom[a];
   }
-  rom[0xbd] = (chk - 0x19) & 0xff;
+  rom[0xbd] = (chk - 0x19).mask8;
 
   for (var i = 0; i < code.length; i++) {
     final w = code[i];
-    rom[0xc0 + i * 4] = w & 0xff;
-    rom[0xc0 + i * 4 + 1] = (w >> 8) & 0xff;
-    rom[0xc0 + i * 4 + 2] = (w >> 16) & 0xff;
-    rom[0xc0 + i * 4 + 3] = (w >> 24) & 0xff;
+    rom[0xc0 + i * 4] = w.mask8;
+    rom[0xc0 + i * 4 + 1] = w.shr8.mask8;
+    rom[0xc0 + i * 4 + 2] = w.shr16.mask8;
+    rom[0xc0 + i * 4 + 3] = w.shr24.mask8;
   }
   return rom;
 }

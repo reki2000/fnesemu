@@ -22,28 +22,28 @@ class Arm7Disasm {
   static String arm(int op, int pc) {
     final c = _cond[op >>> 28];
 
-    if ((op & 0x0ffffff0) == 0x012fff10) return "bx$c ${_reg[op & 0xf]}";
+    if (op & 0x0ffffff0 == 0x012fff10) return "bx$c ${_reg[op.mask4]}";
 
-    final kind = (op >> 25) & 7;
+    final kind = op.shr25.mask3;
     if (kind == 0x5) {
       // 0b101: branch
-      final l = (op >> 24) & 1 != 0 ? "l" : "";
-      final off = (op & 0xffffff).toSigned(24) << 2;
-      return "b$l$c ${((pc + 8 + off) & 0xffffffff).x8}";
+      final l = op.bit24 ? "l" : "";
+      final off = op.mask24.toSigned(24).shl2;
+      return "b$l$c ${(pc + 8 + off).x8}";
     }
     if (kind == 0x4) return _armBlock(op, c); // 0b100
     if (kind == 0x2 || kind == 0x3) return _armSingle(op, c); // 0b010/0b011
     if (kind == 0x7) {
       // 0b111
-      return (op >> 24) & 1 != 0 ? "swi$c ${(op & 0xffffff).x6}" : "und";
+      return op.bit24 ? "swi$c ${op.mask24.x6}" : "und";
     }
 
     // 0b000 / 0b001
     if (kind == 0x0 && (op & 0x90) == 0x90) {
       if ((op & 0x60) == 0) {
-        if ((op >> 24) & 1 == 0) return _armMul(op, c);
-        final b = (op >> 22) & 1 != 0 ? "b" : "";
-        return "swp$b$c ${_reg[(op >> 12) & 0xf]}, ${_reg[op & 0xf]}, [${_reg[(op >> 16) & 0xf]}]";
+        if (!op.bit24) return _armMul(op, c);
+        final b = op.bit22 ? "b" : "";
+        return "swp$b$c ${_reg[op.shr12.mask4]}, ${_reg[op.mask4]}, [${_reg[op.shr16.mask4]}]";
       }
       return _armHalf(op, c);
     }
@@ -51,15 +51,15 @@ class Arm7Disasm {
   }
 
   static String _armDataProc(int op, String c) {
-    final opcode = (op >> 21) & 0xf;
-    final s = (op >> 20) & 1 != 0;
-    final rn = (op >> 16) & 0xf;
-    final rd = (op >> 12) & 0xf;
+    final opcode = op.shr21.mask4;
+    final s = op.bit20;
+    final rn = op.shr16.mask4;
+    final rd = op.shr12.mask4;
 
     if (!s && (opcode & 0xc) == 0x8) {
       // PSR transfer
-      final spsr = (op >> 22) & 1 != 0 ? "spsr" : "cpsr";
-      if ((op >> 21) & 1 == 0) return "mrs$c ${_reg[rd]}, $spsr";
+      final spsr = op.bit22 ? "spsr" : "cpsr";
+      if (!op.bit21) return "mrs$c ${_reg[rd]}, $spsr";
       return "msr$c $spsr, ${_op2(op)}";
     }
 
@@ -75,79 +75,79 @@ class Arm7Disasm {
   }
 
   static String _op2(int op) {
-    if ((op >> 25) & 1 != 0) {
-      final imm = op & 0xff;
-      final rot = ((op >> 8) & 0xf) * 2;
-      final v = rot == 0 ? imm : ((imm >>> rot) | (imm << (32 - rot))) & 0xffffffff;
+    if (op.bit25) {
+      final imm = op.mask8;
+      final rot = op.shr8.mask4 * 2;
+      final v = rot == 0 ? imm : (imm >>> rot | imm.shl(32 - rot)).mask32;
       return "#0x${v.x8}";
     }
-    final rm = _reg[op & 0xf];
-    final type = _shift[(op >> 5) & 3];
-    if ((op >> 4) & 1 != 0) {
-      return "$rm, $type ${_reg[(op >> 8) & 0xf]}";
+    final rm = _reg[op.mask4];
+    final type = _shift[op.shr5.mask2];
+    if (op.bit4) {
+      return "$rm, $type ${_reg[op.shr8.mask4]}";
     }
-    final amount = (op >> 7) & 0x1f;
-    if (amount == 0 && (op >> 5) & 3 == 0) return rm; // lsl #0
+    final amount = op.shr7.mask5;
+    if (amount == 0 && op.shr5.mask2 == 0) return rm; // lsl #0
     return "$rm, $type #$amount";
   }
 
   static String _armMul(int op, String c) {
-    final s = (op >> 20) & 1 != 0 ? "s" : "";
-    if ((op >> 23) & 1 != 0) {
-      final sign = (op >> 22) & 1 != 0 ? "s" : "u";
-      final acc = (op >> 21) & 1 != 0 ? "mlal" : "mull";
-      return "$sign$acc$s$c ${_reg[(op >> 12) & 0xf]}, ${_reg[(op >> 16) & 0xf]}, ${_reg[op & 0xf]}, ${_reg[(op >> 8) & 0xf]}";
+    final s = op.bit20 ? "s" : "";
+    if (op.bit23) {
+      final sign = op.bit22 ? "s" : "u";
+      final acc = op.bit21 ? "mlal" : "mull";
+      return "$sign$acc$s$c ${_reg[op.shr12.mask4]}, ${_reg[op.shr16.mask4]}, ${_reg[op.mask4]}, ${_reg[op.shr8.mask4]}";
     }
-    if ((op >> 21) & 1 != 0) {
-      return "mla$s$c ${_reg[(op >> 16) & 0xf]}, ${_reg[op & 0xf]}, ${_reg[(op >> 8) & 0xf]}, ${_reg[(op >> 12) & 0xf]}";
+    if (op.bit21) {
+      return "mla$s$c ${_reg[op.shr16.mask4]}, ${_reg[op.mask4]}, ${_reg[op.shr8.mask4]}, ${_reg[op.shr12.mask4]}";
     }
-    return "mul$s$c ${_reg[(op >> 16) & 0xf]}, ${_reg[op & 0xf]}, ${_reg[(op >> 8) & 0xf]}";
+    return "mul$s$c ${_reg[op.shr16.mask4]}, ${_reg[op.mask4]}, ${_reg[op.shr8.mask4]}";
   }
 
   static String _armSingle(int op, String c) {
-    final l = (op >> 20) & 1 != 0 ? "ldr" : "str";
-    final b = (op >> 22) & 1 != 0 ? "b" : "";
-    final rd = _reg[(op >> 12) & 0xf];
-    final rn = _reg[(op >> 16) & 0xf];
-    final up = (op >> 23) & 1 != 0 ? "" : "-";
+    final l = op.bit20 ? "ldr" : "str";
+    final b = op.bit22 ? "b" : "";
+    final rd = _reg[op.shr12.mask4];
+    final rn = _reg[op.shr16.mask4];
+    final up = op.bit23 ? "" : "-";
     String off;
-    if ((op >> 25) & 1 == 0) {
-      off = "#$up${op & 0xfff}";
+    if (!op.bit25) {
+      off = "#$up${op.mask12}";
     } else {
-      off = "$up${_reg[op & 0xf]}";
+      off = "$up${_reg[op.mask4]}";
     }
-    final pre = (op >> 24) & 1 != 0;
-    final wb = (op >> 21) & 1 != 0 ? "!" : "";
+    final pre = op.bit24;
+    final wb = op.bit21 ? "!" : "";
     return pre
         ? "$l$b$c $rd, [$rn, $off]$wb"
         : "$l$b$c $rd, [$rn], $off";
   }
 
   static String _armHalf(int op, String c) {
-    final l = (op >> 20) & 1 != 0;
-    final sh = (op >> 5) & 3;
+    final l = op.bit20;
+    final sh = op.shr5.mask2;
     final ty = l
         ? (sh == 1 ? "ldrh" : sh == 2 ? "ldrsb" : "ldrsh")
         : "strh";
-    final rd = _reg[(op >> 12) & 0xf];
-    final rn = _reg[(op >> 16) & 0xf];
-    final up = (op >> 23) & 1 != 0 ? "" : "-";
-    final off = (op >> 22) & 1 != 0
-        ? "#$up${(((op >> 8) & 0xf) << 4) | (op & 0xf)}"
-        : "$up${_reg[op & 0xf]}";
-    final pre = (op >> 24) & 1 != 0;
-    final wb = (op >> 21) & 1 != 0 ? "!" : "";
+    final rd = _reg[op.shr12.mask4];
+    final rn = _reg[op.shr16.mask4];
+    final up = op.bit23 ? "" : "-";
+    final off = op.bit22
+        ? "#$up${op.shr8.mask4.shl4 | op.mask4}"
+        : "$up${_reg[op.mask4]}";
+    final pre = op.bit24;
+    final wb = op.bit21 ? "!" : "";
     return pre ? "$ty$c $rd, [$rn, $off]$wb" : "$ty$c $rd, [$rn], $off";
   }
 
   static String _armBlock(int op, String c) {
-    final l = (op >> 20) & 1 != 0 ? "ldm" : "stm";
-    final u = (op >> 23) & 1 != 0 ? "i" : "d";
-    final p = (op >> 24) & 1 != 0 ? "b" : "a";
-    final rn = _reg[(op >> 16) & 0xf];
-    final wb = (op >> 21) & 1 != 0 ? "!" : "";
-    final s = (op >> 22) & 1 != 0 ? "^" : "";
-    final list = _regList(op & 0xffff);
+    final l = op.bit20 ? "ldm" : "stm";
+    final u = op.bit23 ? "i" : "d";
+    final p = op.bit24 ? "b" : "a";
+    final rn = _reg[op.shr16.mask4];
+    final wb = op.bit21 ? "!" : "";
+    final s = op.bit22 ? "^" : "";
+    final list = _regList(op.mask16);
     return "$l$u$p$c $rn$wb, {$list}$s";
   }
 
@@ -161,92 +161,92 @@ class Arm7Disasm {
 
   /// disassemble one THUMB instruction at [pc].
   static String thumb(int op, int pc) {
-    final hi = op >> 13;
+    final hi = op.shr13;
     switch (hi) {
       case 0:
         if ((op & 0x1800) == 0x1800) {
-          final sub = (op >> 9) & 1 != 0 ? "sub" : "add";
-          final imm = (op >> 10) & 1 != 0;
-          final v = imm ? "#${(op >> 6) & 7}" : _reg[(op >> 6) & 7];
-          return "$sub ${_reg[op & 7]}, ${_reg[(op >> 3) & 7]}, $v";
+          final sub = op.bit9 ? "sub" : "add";
+          final imm = op.bit10;
+          final v = imm ? "#${op.shr6.mask3}" : _reg[op.shr6.mask3];
+          return "$sub ${_reg[op.mask3]}, ${_reg[op.shr3.mask3]}, $v";
         }
-        final ty = _shift[(op >> 11) & 3];
-        return "$ty ${_reg[op & 7]}, ${_reg[(op >> 3) & 7]}, #${(op >> 6) & 0x1f}";
+        final ty = _shift[op.shr11.mask2];
+        return "$ty ${_reg[op.mask3]}, ${_reg[op.shr3.mask3]}, #${op.shr6.mask5}";
       case 1:
         final ops = ["mov", "cmp", "add", "sub"];
-        return "${ops[(op >> 11) & 3]} ${_reg[(op >> 8) & 7]}, #${op & 0xff}";
+        return "${ops[op.shr11.mask2]} ${_reg[op.shr8.mask3]}, #${op.mask8}";
       case 2:
         return _thumbCase2(op, pc);
       case 3:
-        final l = (op >> 11) & 1 != 0 ? "ldr" : "str";
-        final b = (op >> 12) & 1 != 0 ? "b" : "";
-        final off = (op >> 6) & 0x1f;
-        return "$l$b ${_reg[op & 7]}, [${_reg[(op >> 3) & 7]}, #${b == "" ? off << 2 : off}]";
+        final l = op.bit11 ? "ldr" : "str";
+        final b = op.bit12 ? "b" : "";
+        final off = op.shr6.mask5;
+        return "$l$b ${_reg[op.mask3]}, [${_reg[op.shr3.mask3]}, #${b == "" ? off.shl2 : off}]";
       case 4:
-        if ((op & 0x1000) == 0) {
-          final l = (op >> 11) & 1 != 0 ? "ldrh" : "strh";
-          return "$l ${_reg[op & 7]}, [${_reg[(op >> 3) & 7]}, #${((op >> 6) & 0x1f) << 1}]";
+        if (!op.bit12) {
+          final l = op.bit11 ? "ldrh" : "strh";
+          return "$l ${_reg[op.mask3]}, [${_reg[op.shr3.mask3]}, #${op.shr6.mask5.shl1}]";
         }
-        final l = (op >> 11) & 1 != 0 ? "ldr" : "str";
-        return "$l ${_reg[(op >> 8) & 7]}, [sp, #${(op & 0xff) << 2}]";
+        final l = op.bit11 ? "ldr" : "str";
+        return "$l ${_reg[op.shr8.mask3]}, [sp, #${op.mask8.shl2}]";
       case 5:
-        if ((op & 0x1000) == 0) {
-          final base = (op >> 11) & 1 != 0 ? "sp" : "pc";
-          return "add ${_reg[(op >> 8) & 7]}, $base, #${(op & 0xff) << 2}";
+        if (!op.bit12) {
+          final base = op.bit11 ? "sp" : "pc";
+          return "add ${_reg[op.shr8.mask3]}, $base, #${op.mask8.shl2}";
         }
         if ((op & 0x0f00) == 0) {
-          final sub = (op >> 7) & 1 != 0 ? "-" : "";
-          return "add sp, #$sub${(op & 0x7f) << 2}";
+          final sub = op.bit7 ? "-" : "";
+          return "add sp, #$sub${op.mask7.shl2}";
         }
-        final pop = (op >> 11) & 1 != 0;
-        final extra = (op >> 8) & 1 != 0 ? (pop ? ", pc" : ", lr") : "";
-        return "${pop ? "pop" : "push"} {${_regList(op & 0xff)}$extra}";
+        final pop = op.bit11;
+        final extra = op.bit8 ? (pop ? ", pc" : ", lr") : "";
+        return "${pop ? "pop" : "push"} {${_regList(op.mask8)}$extra}";
       case 6:
-        if ((op & 0x1000) == 0) {
-          final l = (op >> 11) & 1 != 0 ? "ldmia" : "stmia";
-          return "$l ${_reg[(op >> 8) & 7]}!, {${_regList(op & 0xff)}}";
+        if (!op.bit12) {
+          final l = op.bit11 ? "ldmia" : "stmia";
+          return "$l ${_reg[op.shr8.mask3]}!, {${_regList(op.mask8)}}";
         }
-        if ((op & 0x0f00) == 0x0f00) return "swi #${op & 0xff}";
-        final off = (op & 0xff).toSigned(8) << 1;
-        return "b${_cond[(op >> 8) & 0xf]} ${((pc + 4 + off) & 0xffffffff).x8}";
+        if (op & 0x0f00 == 0x0f00) return "swi #${op.mask8}";
+        final off = op.mask8.toSigned(8).shl1;
+        return "b${_cond[op.shr8.mask4]} ${(pc + 4 + off).x8}";
       default: // 7
-        if ((op & 0x1000) == 0) {
-          final off = (op & 0x7ff).toSigned(11) << 1;
-          return "b ${((pc + 4 + off) & 0xffffffff).x8}";
+        if (!op.bit12) {
+          final off = op.mask11.toSigned(11).shl1;
+          return "b ${(pc + 4 + off).x8}";
         }
-        return (op >> 11) & 1 != 0 ? "bl (lo)" : "bl (hi)";
+        return op.bit11 ? "bl (lo)" : "bl (hi)";
     }
   }
 
   static String _thumbCase2(int op, int pc) {
-    if ((op & 0x1000) != 0) {
+    if (op.bit12) {
       // load/store register offset / sign-extended
-      final rd = _reg[op & 7];
-      final rb = _reg[(op >> 3) & 7];
-      final ro = _reg[(op >> 6) & 7];
-      if ((op & 0x0200) == 0) {
-        final l = (op >> 11) & 1 != 0 ? "ldr" : "str";
-        final b = (op >> 10) & 1 != 0 ? "b" : "";
+      final rd = _reg[op.mask3];
+      final rb = _reg[op.shr3.mask3];
+      final ro = _reg[op.shr6.mask3];
+      if (!op.bit9) {
+        final l = op.bit11 ? "ldr" : "str";
+        final b = op.bit10 ? "b" : "";
         return "$l$b $rd, [$rb, $ro]";
       }
       const sh = ["strh", "ldrh", "ldrsb", "ldrsh"];
-      return "${sh[(op >> 10) & 3]} $rd, [$rb, $ro]";
+      return "${sh[op.shr10.mask2]} $rd, [$rb, $ro]";
     }
-    if ((op & 0x0800) != 0) {
-      return "ldr ${_reg[(op >> 8) & 7]}, [pc, #${(op & 0xff) << 2}]";
+    if (op.bit11) {
+      return "ldr ${_reg[op.shr8.mask3]}, [pc, #${op.mask8.shl2}]";
     }
-    if ((op & 0x0400) == 0) {
+    if (!op.bit10) {
       const alu = [
         "and", "eor", "lsl", "lsr", "asr", "adc", "sbc", "ror", //
         "tst", "neg", "cmp", "cmn", "orr", "mul", "bic", "mvn"
       ];
-      return "${alu[(op >> 6) & 0xf]} ${_reg[op & 7]}, ${_reg[(op >> 3) & 7]}";
+      return "${alu[op.shr6.mask4]} ${_reg[op.mask3]}, ${_reg[op.shr3.mask3]}";
     }
     // hi register / bx
     const ops = ["add", "cmp", "mov", "bx"];
-    final code = (op >> 8) & 3;
-    final rd = (op & 7) | ((op >> 4) & 8);
-    final rs = ((op >> 3) & 7) | ((op >> 3) & 8);
+    final code = op.shr8.mask2;
+    final rd = op.mask3 | op.shr4 & 8;
+    final rs = op.shr3.mask3 | op.shr3 & 8;
     if (code == 3) return "bx ${_reg[rs]}";
     return "${ops[code]} ${_reg[rd]}, ${_reg[rs]}";
   }
