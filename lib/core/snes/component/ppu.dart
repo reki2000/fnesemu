@@ -136,7 +136,7 @@ class Ppu {
       final byteAddr = (oamAddr * 2).mask16;
       if (byteAddr < oam.length) oam[byteAddr] = _oamLowByte;
       if (byteAddr + 1 < oam.length) oam[byteAddr + 1] = val;
-      oamAddr = (oamAddr + 1) & 0x1ff;
+      oamAddr = (oamAddr + 1).mask9;
       oamLatchHigh = false;
     }
   }
@@ -146,7 +146,7 @@ class Ppu {
     final v = byteAddr < oam.length ? oam[byteAddr] : 0;
     final hi = byteAddr + 1 < oam.length ? oam[byteAddr + 1] : 0;
     final result = oamLatchHigh ? hi : v;
-    if (oamLatchHigh) oamAddr = (oamAddr + 1) & 0x1ff;
+    if (oamLatchHigh) oamAddr = (oamAddr + 1).mask9;
     oamLatchHigh = !oamLatchHigh;
     return result;
   }
@@ -163,13 +163,13 @@ class Ppu {
   int _bgOfsLatch = 0; // shared "Prev" latch across all 8 scroll regs
 
   void _writeHofs(BgRegs bg, int val) {
-    bg.hofs = (val << 8) | (_bgOfsLatch & ~7) | ((bg.hofs >> 8) & 7);
+    bg.hofs = val.shl8 | _bgOfsLatch & ~7 | bg.hofs.shr8.mask3;
     bg.hofs &= 0x3ff;
     _bgOfsLatch = val;
   }
 
   void _writeVofs(BgRegs bg, int val) {
-    bg.vofs = ((val << 8) | _bgOfsLatch) & 0x3ff;
+    bg.vofs = (val.shl8 | _bgOfsLatch).mask10;
     _bgOfsLatch = val;
   }
 
@@ -180,20 +180,20 @@ class Ppu {
   int _vramReadBuf = 0;
 
   void _refreshVramReadBuf() {
-    final a = (vramAddr & 0x7fff) * 2;
+    final a = vramAddr.mask15 * 2;
     _vramReadBuf = vram[a] | vram[a + 1].shl8;
   }
 
   // ----------------------------------------------------- $2118/2119 VMDATA
   void _vramWrite(int hi, int val) {
-    final a = (vramAddr & 0x7fff) * 2;
+    final a = vramAddr.mask15 * 2;
     if (hi == 0) {
       vram[a] = val;
     } else {
       vram[a + 1] = val;
     }
     if (hi == (vramIncHigh ? 1 : 0)) {
-      vramAddr = (vramAddr + vramIncAmount) & 0x7fff;
+      vramAddr = (vramAddr + vramIncAmount).mask15;
     }
   }
 
@@ -209,8 +209,8 @@ class Ppu {
       cgramLatchHigh = true;
     } else {
       cgram[base] = _cgramLowByte;
-      cgram[base + 1] = val & 0x7f;
-      cgramAddr = (cgramAddr + 1) & 0xff;
+      cgram[base + 1] = val.mask7;
+      cgramAddr = (cgramAddr + 1).mask8;
       cgramLatchHigh = false;
     }
   }
@@ -218,7 +218,7 @@ class Ppu {
   int _cgramRead() {
     final base = cgramAddr * 2;
     final result = !cgramLatchHigh ? cgram[base] : cgram[base + 1];
-    if (cgramLatchHigh) cgramAddr = (cgramAddr + 1) & 0xff;
+    if (cgramLatchHigh) cgramAddr = (cgramAddr + 1).mask8;
     cgramLatchHigh = !cgramLatchHigh;
     return result;
   }
@@ -257,13 +257,13 @@ class Ppu {
   int mpyResult = 0; // $2134-2136: signed 24-bit result of m7a * _m7bByte
 
   int _writeM7(int val) {
-    final r = ((val << 8) | _m7Latch) & 0xffff;
+    final r = (val.shl8 | _m7Latch).mask16;
     _m7Latch = val;
     return r;
   }
 
   void _updateMpy() {
-    mpyResult = (m7a.rel16 * _m7bByte.rel8) & 0xffffff;
+    mpyResult = (m7a.rel16 * _m7bByte.rel8).mask24;
   }
 
   // -------------------------------------------------------- $213E/213F
@@ -276,27 +276,27 @@ class Ppu {
     val &= 0xff;
     switch (addr) {
       case 0x2100: // INIDISP
-        brightness = val & 0x0f;
+        brightness = val.mask4;
         forcedBlank = val.bit7;
         break;
       case 0x2101: // OBSEL
-        objSizeSel = val.shr5 & 0x07;
-        objGap = val.shr3 & 0x03;
-        objBase = val & 0x07;
+        objSizeSel = val.shr5.mask3;
+        objGap = val.shr3.mask2;
+        objBase = val.mask3;
         break;
       case 0x2102:
         oamAddr = (oamAddr & 0x100) | val;
         oamLatchHigh = false;
         break;
       case 0x2103:
-        oamAddr = (oamAddr & 0xff) | ((val & 1).shl8);
+        oamAddr = oamAddr.mask8 | val.mask1.shl8;
         oamLatchHigh = false;
         break;
       case 0x2104:
         _oamWrite(val);
         break;
       case 0x2105: // BGMODE
-        bgMode = val & 0x07;
+        bgMode = val.mask3;
         bg3Priority = val.bit3;
         bgs[0].bigChar = val.bit4;
         bgs[1].bigChar = val.bit5;
@@ -309,18 +309,18 @@ class Ppu {
       case 0x210a:
         {
           final bg = bgs[addr - 0x2107];
-          bg.tilemapAddr = (val.shr2 & 0x3f).shl10;
+          bg.tilemapAddr = val.shr2.mask6.shl10;
           bg.wideX = val.bit0;
           bg.wideY = val.bit1;
         }
         break;
       case 0x210b: // BG12NBA
-        bgs[0].charBase = (val & 0x0f).shl12;
-        bgs[1].charBase = (val.shr4 & 0x0f).shl12;
+        bgs[0].charBase = val.mask4.shl12;
+        bgs[1].charBase = val.shr4.mask4.shl12;
         break;
       case 0x210c: // BG34NBA
-        bgs[2].charBase = (val & 0x0f).shl12;
-        bgs[3].charBase = (val.shr4 & 0x0f).shl12;
+        bgs[2].charBase = val.mask4.shl12;
+        bgs[3].charBase = val.shr4.mask4.shl12;
         break;
       case 0x210d:
         _writeHofs(bgs[0], val);
@@ -357,7 +357,7 @@ class Ppu {
         _refreshVramReadBuf();
         break;
       case 0x2117: // VMADDH
-        vramAddr = (vramAddr & 0x00ff) | ((val & 0x7f).shl8);
+        vramAddr = vramAddr.mask8 | val.mask7.shl8;
         _refreshVramReadBuf();
         break;
       case 0x2118: // VMDATAL
@@ -398,14 +398,14 @@ class Ppu {
         m7y = _writeM7(val);
         break;
       case 0x212c: // TM
-        mainScreenEnable = val & 0x1f;
+        mainScreenEnable = val.mask5;
         break;
       case 0x212d: // TS
-        subScreenEnable = val & 0x1f;
+        subScreenEnable = val.mask5;
         break;
       case 0x2106: // MOSAIC
-        mosaicSize = val.shr4 & 0x0f;
-        mosaicEnable = val & 0x0f;
+        mosaicSize = val.shr4.mask4;
+        mosaicEnable = val.mask4;
         break;
       case 0x2123: // W12SEL
         w12sel = val;
@@ -435,10 +435,10 @@ class Ppu {
         wobjlog = val;
         break;
       case 0x212e: // TMW
-        tmw = val & 0x1f;
+        tmw = val.mask5;
         break;
       case 0x212f: // TSW
-        tsw = val & 0x1f;
+        tsw = val.mask5;
         break;
       case 0x2130: // CGWSEL
         cgwsel = val;
@@ -448,7 +448,7 @@ class Ppu {
         break;
       case 0x2132: // COLDATA
         {
-          final c = val & 0x1f;
+          final c = val.mask5;
           if (val.bit5) fixedColorR = c;
           if (val.bit6) fixedColorG = c;
           if (val.bit7) fixedColorB = c;
@@ -466,25 +466,25 @@ class Ppu {
       case 0x2134: // MPYL
         return mpyResult.mask8;
       case 0x2135: // MPYM
-        return mpyResult.shr8 & 0xff;
+        return mpyResult.shr8.mask8;
       case 0x2136: // MPYH
-        return mpyResult.shr16 & 0xff;
+        return mpyResult.shr16.mask8;
       case 0x2138: // OAMDATAREAD
         return _oamRead();
       case 0x2139: // VMDATALREAD
         {
-          final v = _vramReadBuf & 0xff;
+          final v = _vramReadBuf.mask8;
           if (!vramIncHigh) {
-            vramAddr = (vramAddr + vramIncAmount) & 0x7fff;
+            vramAddr = (vramAddr + vramIncAmount).mask15;
             _refreshVramReadBuf();
           }
           return v;
         }
       case 0x213a: // VMDATAHREAD
         {
-          final v = _vramReadBuf.shr8 & 0xff;
+          final v = _vramReadBuf.shr8.mask8;
           if (vramIncHigh) {
-            vramAddr = (vramAddr + vramIncAmount) & 0x7fff;
+            vramAddr = (vramAddr + vramIncAmount).mask15;
             _refreshVramReadBuf();
           }
           return v;

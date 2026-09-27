@@ -74,11 +74,11 @@ class Bus {
 
     // $7E-$7F: full WRAM
     if (bank == 0x7e || bank == 0x7f) {
-      return wram[(bank & 1).shl16 | page];
+      return wram[bank.mask1.shl16 | page];
     }
 
     // system banks $00-$3F / $80-$BF
-    if ((bank & 0x7f) < 0x40) {
+    if (bank.mask7 < 0x40) {
       if (page < 0x2000) return wram[page]; // low 8KB wram mirror
       if (page < 0x6000) return _readMmio(page);
       if (page < 0x8000) {
@@ -96,11 +96,11 @@ class Bus {
 
   int _readRom(int bank, int page) {
     if (mapping == SnesMapping.hiRom) {
-      final a = ((bank & 0x3f).shl16) | page;
+      final a = bank.mask6.shl16 | page;
       return rom[a & _romMask];
     }
     // LoROM: 32KB per bank at $8000-$FFFF
-    final a = ((bank & 0x7f).shl15) | (page & 0x7fff);
+    final a = bank.mask7.shl15 | page.mask15;
     return rom[a & _romMask];
   }
 
@@ -109,10 +109,10 @@ class Bus {
   /// HiROM: banks $20-$3F / $A0-$BF, $6000-$7FFF (8KB per bank).
   int _sramOffset(int bank, int page) {
     if (sram.isEmpty) return -1;
-    final b = bank & 0x7f;
+    final b = bank.mask7;
     if (mapping == SnesMapping.hiRom) {
       if (b < 0x20 || b >= 0x40 || page < 0x6000 || page >= 0x8000) return -1;
-      return (((b - 0x20).shl13) | (page & 0x1fff)) & _sramMask;
+      return ((b - 0x20).shl13 | page.mask13) & _sramMask;
     }
     if (b < 0x70 || page >= 0x8000) return -1; // $7E/$7F (wram) never get here
     return (((b - 0x70).shl15) | page) & _sramMask;
@@ -126,11 +126,11 @@ class Bus {
     final page = addr.mask16;
 
     if (bank == 0x7e || bank == 0x7f) {
-      wram[(bank & 1).shl16 | page] = data;
+      wram[bank.mask1.shl16 | page] = data;
       return;
     }
 
-    if ((bank & 0x7f) < 0x40) {
+    if (bank.mask7 < 0x40) {
       if (page < 0x2000) {
         wram[page] = data;
         return;
@@ -181,7 +181,7 @@ class Bus {
       case 0x4219: // JOY1H
         return pad.state1.shr8;
       default:
-        return _mmio[page & 0x3ff];
+        return _mmio[page.mask10];
     }
   }
 
@@ -216,7 +216,7 @@ class Bus {
     }
     if (page == 0x420b) dma.runDma(data); // MDMAEN: trigger general DMA now
     if (page == 0x420c) dma.hdmaEnableMask = data; // HDMAEN
-    _mmio[page & 0x3ff] = data;
+    _mmio[page.mask10] = data;
   }
 
   // ------------------------------------------------------------- interrupts

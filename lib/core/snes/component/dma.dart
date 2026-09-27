@@ -70,8 +70,8 @@ class Dma {
   // -------------------------------------------------------- $4300-$437F
   void write(int addr, int val) {
     val &= 0xff;
-    final c = channels[(addr.shr4) & 0x07];
-    switch (addr & 0x0f) {
+    final c = channels[addr.shr4.mask3];
+    switch (addr.mask4) {
       case 0x0:
         c.dmap = val;
         break;
@@ -111,8 +111,8 @@ class Dma {
   }
 
   int read(int addr) {
-    final c = channels[(addr.shr4) & 0x07];
-    switch (addr & 0x0f) {
+    final c = channels[addr.shr4.mask3];
+    switch (addr.mask4) {
       case 0x0:
         return c.dmap;
       case 0x1:
@@ -146,7 +146,7 @@ class Dma {
     for (int ch = 0; ch < 8; ch++) {
       if (!enableMask.bit(ch)) continue;
       final c = channels[ch];
-      final pattern = _pattern[c.dmap & 0x07];
+      final pattern = _pattern[c.dmap.mask3];
       final fromPpu = c.dmap.bit7; // 1 = B-bus -> A-bus (read PPU)
       final fixed = c.dmap.bit3;
       final decrement = c.dmap.bit4;
@@ -156,7 +156,7 @@ class Dma {
       totalBytes += count;
 
       for (int i = 0; i < count; i++) {
-        final bAddr = 0x2100 | ((c.bbad + pattern[i % pattern.length]) & 0xff);
+        final bAddr = 0x2100 | (c.bbad + pattern[i % pattern.length]).mask8;
         final aFull = (c.a1bBank.shl16) | aAddr;
         if (fromPpu) {
           bus.write(aFull, bus.read(bAddr));
@@ -164,7 +164,7 @@ class Dma {
           bus.write(bAddr, bus.read(aFull));
         }
         if (!fixed) {
-          aAddr = (decrement ? aAddr.dec : aAddr.inc) & 0xffff;
+          aAddr = (decrement ? aAddr.dec : aAddr.inc).mask16;
         }
       }
       c.a1tAddr = aAddr;
@@ -198,7 +198,7 @@ class Dma {
       return;
     }
     c.ntrl = raw;
-    c.linesRemaining = (raw & 0x7f) == 0 ? 128 : (raw & 0x7f);
+    c.linesRemaining = raw.mask7 == 0 ? 128 : raw.mask7;
     c.hdmaDoTransfer = true;
 
     if (c.dmap.bit6) {
@@ -212,17 +212,17 @@ class Dma {
   }
 
   void _fetchLineData(DmaChannel c) {
-    final pattern = _pattern[c.dmap & 0x07];
+    final pattern = _pattern[c.dmap.mask3];
     final indirect = c.dmap.bit6;
     final srcBank = indirect ? c.dasbBank : c.a1bBank;
     final srcAddr = indirect ? c.dasLen : c.a2aAddr;
     for (int k = 0; k < pattern.length; k++) {
-      c.lineBuf[k] = bus.read((srcBank.shl16) | ((srcAddr + k) & 0xffff));
+      c.lineBuf[k] = bus.read(srcBank.shl16 | (srcAddr + k).mask16);
     }
     if (indirect) {
-      c.dasLen = (c.dasLen + pattern.length) & 0xffff;
+      c.dasLen = (c.dasLen + pattern.length).mask16;
     } else {
-      c.a2aAddr = (c.a2aAddr + pattern.length) & 0xffff;
+      c.a2aAddr = (c.a2aAddr + pattern.length).mask16;
     }
   }
 
@@ -235,10 +235,10 @@ class Dma {
       if (!c.hdmaActive) continue;
 
       if (c.hdmaDoTransfer) {
-        final pattern = _pattern[c.dmap & 0x07];
+        final pattern = _pattern[c.dmap.mask3];
         _fetchLineData(c);
         for (int k = 0; k < pattern.length; k++) {
-          final bAddr = 0x2100 | ((c.bbad + pattern[k]) & 0xff);
+          final bAddr = 0x2100 | (c.bbad + pattern[k]).mask8;
           bus.write(bAddr, c.lineBuf[k]);
         }
       }
