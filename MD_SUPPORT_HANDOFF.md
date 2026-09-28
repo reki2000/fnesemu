@@ -72,7 +72,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 2. CDC の最後のサンプルは header=[0,21,33,1], destination=0, dataReady=false, transferEnd=false。これは単一時点であり、DMA 未実行と断定しない。
 3. main は 0x10ec/0x10f0 の sub flag bit 1 待ち。sub は 0x6156/0x615a の local flag 待ち。sub の flag 0x8c35 は IRQ2 handler 0x60a4 で実際にクリアされる。IRQMASK=62、main reset read=0x8001。
 4. 再起動やゲーム固有の待ちを直す場合は、BIOS PC を強制変更するなどの回避ではなくハードウェア原因を確認する。
-5. 32x は commercial boot 未検証。DIV1/MAC、on-chip peripherals/DMAC/cache、正確な timing、PAL/240 line と GUI BIOS selector が未実装。未実装 opcode は停止して表示する。
+5. 32x は commercial boot 未検証。DIV1 はメーカーの命令仕様に沿って追加し、16-bit 非符号除算シーケンスで確認した。MAC、on-chip peripherals/DMAC/cache、正確な timing、PAL/240 line と GUI BIOS selector が未実装。未実装 opcode は停止して表示する。
 
 通常 MD の AOT 比較は `/tmp/md_perf.dart` と `/tmp/md_perf_{base,current}` で試行。
 サンプルは大きくばらつき、定量的に「速度低下なし」とはまだ言えない。
@@ -80,7 +80,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 
 ## 区切り時点の検証
 
-- CDC 状態修正後、全 124 テスト成功。
+- CDC と DIV1 の追加後、全 126 テスト成功。
 - 変更対象の Dart static analysis: No issues found。
 - `git diff --check` 成功。
-- 実 BIOS の 1800-frame 確認は専用 32x バスへの整理前に実行。CD 専用モードで 32x は生成されないため処理経路は同じだが、再開時は上記コマンドで再実行すること。
+- 専用 32x バスへの整理後に実 BIOS の 1800-frame 確認を再実行。CDC 状態修正後も起動待ちのまま。上記ログを参照する。

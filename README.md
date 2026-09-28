@@ -96,7 +96,7 @@ interval. MD opacity tracking is enabled only during adapter rendering.
 
 This is an initial implementation with synthetic CPU/peripheral tests.
 Commercial boot ROM/game startup and gameplay have **not been verified**.
-SH-2 DIV1/MAC instructions, cache, on-chip peripherals/DMAC, bus wait states,
+SH-2 MAC instructions, cache, on-chip peripherals/DMAC, bus wait states,
 accurate instruction timing and PAL/240-line video remain unimplemented.
 The DREQ FIFO is CPU-readable; automatic DMA transfer is not implemented.
 PWM resampling and fill timing are approximate.

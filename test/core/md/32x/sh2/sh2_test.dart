@@ -75,6 +75,39 @@ void main() {
     expect(cpu.r[1], 0x7fffffff);
     expect(cpu.t, isTrue);
   });
+  test('DIV0U and repeated DIV1 produce an unsigned 16-bit quotient', () {
+    bus.code([0x0019, ...List.filled(16, 0x3104), 0x4124, 0x611d]);
+    for (final (dividend, divisor) in [
+      (100, 7),
+      (65535, 255),
+      (12345, 37),
+      (0, 1),
+    ]) {
+      cpu.reset();
+      cpu.r[0] = divisor << 16;
+      cpu.r[1] = dividend;
+      run(19);
+      expect(cpu.r[1], dividend ~/ divisor,
+          reason: '$dividend divided by $divisor');
+    }
+  });
+  test('DIV1 uses Q and M for both add and subtract steps', () {
+    bus.code([0x3104]);
+    for (final (status, dividend, divisor, remainder, flags) in [
+      (0x000, 8, 20, 0xfffffffc, 0x100),
+      (0x201, 0x80000000, 5, 6, 0x200),
+      (0x100, 0x80000000, 5, 5, 0x100),
+      (0x300, 8, 4, 12, 0x301),
+    ]) {
+      cpu.reset();
+      cpu.sr = status;
+      cpu.r[0] = divisor;
+      cpu.r[1] = dividend;
+      run(1);
+      expect(cpu.r[1], remainder);
+      expect(cpu.sr & 0x301, flags);
+    }
+  });
   test('loads sign extend and postincrement does not clobber same register',
       () {
     cpu.r[2] = 0x200;

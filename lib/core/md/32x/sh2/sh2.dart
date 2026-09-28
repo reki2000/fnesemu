@@ -221,6 +221,23 @@ class Sh2 {
             t = a >= b;
           case 3:
             t = a.toSigned(32) >= b.toSigned(32);
+          case 4:
+            final oldQ = (sr & 0x100) != 0;
+            final divisorSign = (sr & 0x200) != 0;
+            final dividendSign = (a & 0x80000000) != 0;
+            final shifted = ((a << 1) | (t ? 1 : 0)) & 0xffffffff;
+            final subtract = oldQ == divisorSign;
+            final result = subtract
+                ? (shifted - b) & 0xffffffff
+                : (shifted + b) & 0xffffffff;
+            final carry = subtract ? result > shifted : result < shifted;
+            final newQ = oldQ == divisorSign
+                ? (oldQ ? dividendSign == carry : dividendSign != carry)
+                : (oldQ ? dividendSign != carry : dividendSign == carry);
+            r[n] = result;
+            sr = (sr & ~0x101) |
+                (newQ ? 0x100 : 0) |
+                (newQ == divisorSign ? 1 : 0);
           case 5 || 13:
             final product = low == 5 ? a * b : a.toSigned(32) * b.toSigned(32);
             macl = product & 0xffffffff;
