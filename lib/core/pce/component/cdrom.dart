@@ -35,6 +35,10 @@ class PceCdrom {
   int _adpcmControl = 0, _frequency = 0, _nibble = 0, _stepIndex = 0;
   int _sample = 0;
   bool _adpcmPlaying = false, _adpcmEnd = false;
+  // CPU reads of ADPCM RAM go through a one-byte buffer that is refilled
+  // a short while after each read of $180A, so data lags one read behind.
+  int _readBuffer = 0, _readPending = 0;
+  static const _readDelayClocks = 19 * 3;
   double _adpcmFraction = 0;
   int _audioStart = 0, _audioEnd = 0, _audioLba = 0, _audioOffset = 0;
   int _audioMode = 0; // 1: repeat, 2: interrupt, 3: stop
@@ -59,6 +63,7 @@ class PceCdrom {
     _resetDrive();
     _resetAdpcm();
     _frequency = _fade = 0;
+    _readBuffer = _readPending = 0;
     _cdVolume = _adpcmVolume = 1;
     _pcm.fillRange(0, 2, 0);
     _latchedPcm.fillRange(0, 2, 0);
@@ -138,12 +143,12 @@ class PceCdrom {
         if (phase == CdPhase.data && _request && !_ack) _consume();
         return result;
       case 10:
-        final result = adpcmRam[_readAddress];
-        _readAddress = (_readAddress + 1).mask16;
-        _decrementLength();
-        return result;
+        _readPending = _readDelayClocks;
+        return _readBuffer;
       case 12:
-        return (_adpcmPlaying ? 8 : 0) | (_adpcmEnd ? 1 : 0);
+        return (_readPending > 0 ? 0x80 : 0) |
+            (_adpcmPlaying ? 8 : 0) |
+            (_adpcmEnd ? 1 : 0);
       case 13:
         return _adpcmControl;
       default:
@@ -437,6 +442,15 @@ class PceCdrom {
 
   void exec(int clocks) {
     if (!enabled) return;
+    if (_readPending > 0) {
+      _readPending -= clocks;
+      if (_readPending <= 0) {
+        _readPending = 0;
+        _readBuffer = adpcmRam[_readAddress];
+        _readAddress = (_readAddress + 1).mask16;
+        _decrementLength();
+      }
+    }
     var transferClocks = clocks;
     if (_remaining > 0 && !_request && phase == CdPhase.data) {
       _readClocks -= clocks;

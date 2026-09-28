@@ -235,6 +235,26 @@ void main() {
     finish();
   });
 
+  test('ADPCM RAM reads lag one byte behind through the read buffer', () {
+    for (var i = 0; i < 4; i++) {
+      cd.adpcmRam[0x100 + i] = 0x10 + i;
+    }
+    cd.write(0x1808, 0x01);
+    cd.write(0x1809, 0x01);
+    cd.write(0x180d, 8); // latch read pointer at address - 1
+    cd.write(0x180d, 0);
+    int read() {
+      final value = cd.read(0x180a);
+      expect(cd.read(0x180c) & 0x80, 0x80); // busy until the buffer refills
+      cd.exec(19 * 3);
+      expect(cd.read(0x180c) & 0x80, 0);
+      return value;
+    }
+
+    read(); // dummy read primes the buffer with ram[$100]
+    expect([read(), read(), read()], [0x10, 0x11, 0x12]);
+  });
+
   test('CD-DA plays stereo PCM and pause silences the output', () {
     command([0xd8, 1, 2, 0, 0, 0, 0, 0, 0, 0x80]);
     finish();
