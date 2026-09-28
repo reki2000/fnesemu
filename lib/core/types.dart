@@ -6,7 +6,11 @@ class ImageBuffer {
   final Uint8List buffer;
   final int displayWidth;
 
-  const ImageBuffer(this.width, this.height, this.buffer, {int? displayWidth_})
+  // null: use the GUI's default height (TV-like aspect for 240-line systems)
+  final int? displayHeight;
+
+  const ImageBuffer(this.width, this.height, this.buffer,
+      {int? displayWidth_, this.displayHeight})
       : displayWidth = displayWidth_ ?? width;
 
   factory ImageBuffer.empty() => ImageBuffer(0, 0, Uint8List(0));

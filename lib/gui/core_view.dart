@@ -39,11 +39,16 @@ class _CoreViewState extends State<CoreView> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // main view
-          ValueListenableBuilder<int>(
-              valueListenable: widget.container.displayWidthNotifier,
-              builder: (context, width, child) => imageListener(
-                  width: width * config.zoom,
-                  height: widget.container.displayHeight * config.zoom,
+          ListenableBuilder(
+              listenable: Listenable.merge([
+                widget.container.displayWidthNotifier,
+                widget.container.displayHeightNotifier,
+              ]),
+              builder: (context, child) => imageListener(
+                  width: widget.container.displayWidthNotifier.value *
+                      config.zoom,
+                  height: widget.container.displayHeightNotifier.value *
+                      config.zoom,
                   notifier: widget.container.imageNotifier)),
 
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [

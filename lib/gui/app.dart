@@ -112,7 +112,8 @@ class MainPageState extends State<MainPage> {
         _onCoreStateChange,
         (buf) => _mPlayer.push(buf.buffer, buf.sampleRate, buf.channels),
         (buf) => _imageContainer.push(
-            buf.buffer, buf.width, buf.height, buf.displayWidth),
+            buf.buffer, buf.width, buf.height, buf.displayWidth,
+            displayHeight: buf.displayHeight),
         _storage);
 
     _controller.debugger.opt.showDebugView = widget.config.debug;
