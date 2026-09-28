@@ -182,6 +182,10 @@ class Smpc {
 
   static int _bcd(int v) => (v ~/ 10) << 4 | (v % 10);
 
+  // SR bits 3-0: port modes requested by IREG1 (P2MD, P1MD).
+  // software skips ports whose mode is 3 (0 byte mode)
+  int get _portModes => (ireg[1] >> 4) & 0x0f;
+
   void _intback() {
     final getStatus = ireg[0].bit0;
     final getPeripheral = ireg[1].bit3;
@@ -206,7 +210,7 @@ class Smpc {
       }
 
       _intbackPeripheralPending = getPeripheral;
-      sr = 0x40 | 0x0f | (getPeripheral ? 0x20 : 0);
+      sr = 0x40 | _portModes | (getPeripheral ? 0x20 : 0);
       onInterrupt();
       return;
     }
@@ -251,7 +255,7 @@ class Smpc {
       oreg[i] = 0x00;
     }
 
-    sr = 0xc0 | 0x0f; // PDL (first data), no remaining data
+    sr = 0xc0 | _portModes; // PDL (first data), no remaining data
     _intbackPeripheralPending = false;
   }
 
