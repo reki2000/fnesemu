@@ -11,22 +11,24 @@ class CdCdc {
   int register = 0, destination = 0, dmaAddress = 0;
   int _ifstat = 0xff, _ifctrl = 0, _ctrl0 = 0, _ctrl1 = 0;
   int _count = 0, _source = 0, _write = 0, _pointer = 0;
-  bool _transfer = false, _decoded = false;
+  bool _transfer = false, _ended = false;
+  int _stat3 = 0x80;
   bool get dataReady => _transfer && (destination == 2 || destination == 3);
-  bool get transferEnd => !_transfer && (_ifstat & 8) == 0;
+  bool get transferEnd => _ended;
 
   void reset() {
     register = destination = dmaAddress = 0;
     _ifstat = 0xff;
     _ifctrl = _ctrl0 = _ctrl1 = _count = _source = _write = _pointer = 0;
-    _transfer = _decoded = false;
+    _transfer = _ended = false;
+    _stat3 = 0x80;
     _dmaBytes = _dmaCycles = 0;
     header.fillRange(0, 4, 0);
   }
 
   int readRegister() {
     final index = register;
-    register = (register + 1) & 15;
+    if (index != 0) register = (register + 1) & 15;
     switch (index) {
       case 0:
         return 0xff;
@@ -47,14 +49,16 @@ class CdCdc {
       case 11:
         return _write >> 8;
       case 12:
-        return _decoded ? 0x80 : 0;
+        return _ctrl0 & 0x80;
       case 13:
         return 0;
       case 14:
-        return (_ctrl1 & 8) != 0 ? 0x10 : 0;
+        return _ctrl1 & 0x0c;
       case 15:
         _ifstat |= 0x20;
-        return _decoded ? 0 : 0x80;
+        final value = _stat3;
+        _stat3 = 0x80;
+        return value;
       default:
         return 0;
     }
@@ -63,11 +67,14 @@ class CdCdc {
   void writeRegister(int data) {
     data &= 0xff;
     final index = register;
-    register = (register + 1) & 15;
+    if (index != 0) register = (register + 1) & 15;
     switch (index) {
       case 1:
         _ifctrl = data;
-        if ((data & 2) == 0) _transfer = false;
+        if ((data & 2) == 0) {
+          _transfer = false;
+          _ifstat |= 0x0a;
+        }
       case 2:
         _count = (_count & 0xf00) | data;
       case 3:
@@ -79,17 +86,19 @@ class CdCdc {
       case 6:
         if ((_ifctrl & 2) != 0) {
           _transfer = true;
+          _ended = false;
           _dmaBytes = _dmaCycles = 0;
-          _ifstat = (_ifstat | 8) & ~0x40;
+          _ifstat &= ~0x0a;
         }
       case 7:
-        _ifstat |= 8;
+        _ifstat |= 0x40;
       case 8:
         _write = (_write & 0xff00) | data;
       case 9:
         _write = (_write & 0xff) | (data << 8);
       case 10:
         _ctrl0 = data;
+        if ((data & 0x80) == 0) _ifstat |= 0x20;
       case 11:
         _ctrl1 = data;
       case 12:
@@ -104,7 +113,7 @@ class CdCdc {
   void decode(Uint8List sector) {
     if ((_ctrl0 & 0x80) == 0 || sector.length < 2352) return;
     header.setRange(0, 4, sector, 12);
-    _decoded = true;
+    _stat3 = 0;
     if ((_ctrl0 & 4) != 0) {
       _pointer = (_pointer + 2352) & 0x3fff;
       _write = (_write + 2352) & 0x3fff;
@@ -124,7 +133,8 @@ class CdCdc {
     if (_count < 0) {
       _count = 0xffff;
       _transfer = false;
-      _ifstat = (_ifstat | 0x40) & ~8;
+      _ended = true;
+      _ifstat = (_ifstat | 0x0a) & ~0x40;
       if ((_ifctrl & 0x40) != 0) interrupt();
     }
     return value;

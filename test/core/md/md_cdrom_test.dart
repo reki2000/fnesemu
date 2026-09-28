@@ -382,6 +382,45 @@ void main() {
       expect(interrupts, 2);
     });
 
+    test('CDC status and transfer flags follow decoder and host reads', () {
+      final cdc = CdCdc(() {}, (_, __, ___) {});
+      int read(int reg) {
+        cdc.register = reg;
+        return cdc.readRegister();
+      }
+      void write(int reg, int value) {
+        cdc.register = reg;
+        cdc.writeRegister(value);
+      }
+
+      expect(read(0), 0xff);
+      expect(cdc.register, 0);
+      expect(read(15), 0x80);
+      write(1, 0x42);
+      write(10, 0x84);
+      write(11, 0x08);
+      expect(read(12), 0x80);
+      expect(read(14), 0x08);
+      cdc.decode(Disc.mode1Sector(Uint8List(2048), 0));
+      expect(read(15), 0);
+      expect(read(15), 0x80);
+      expect(read(1) & 0x20, 0x20);
+
+      write(2, 1);
+      write(3, 0);
+      write(4, 2352 & 255);
+      write(5, 2352 >> 8);
+      cdc.destination = 3;
+      write(6, 0);
+      expect(read(1) & 0x0a, 0);
+      expect(cdc.dataReady, isTrue);
+      cdc.readHost(3);
+      expect(read(1) & 0x4a, 0x0a);
+      expect(cdc.transferEnd, isTrue);
+      write(7, 0);
+      expect(read(1) & 0x40, 0x40);
+    });
+
     test('DMA advances across an eight-byte PRG RAM address unit', () {
       final cd = MdCdrom(bios());
       final cdc = cd.cdc;

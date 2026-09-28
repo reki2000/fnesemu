@@ -38,6 +38,13 @@ BIOS は 128 KiB、IMG は 562892400 bytes = 239325 raw sectors、8 tracks。
 最終 CDD=1 / LBA=2120、main PC=0x10ec、sub PC=0x615a。
 主・サブの通信は継続しているので、この PC の一回のサンプルだけでデッドロックと判断しない。
 
+再開後に専用 32x バスへの整理を含む現行版で 1800 frames を再実行し、同じ待機状態を確認した。
+CDC のレジスタを追うと、デコーダ割り込み処理は毎セクタ実行される一方、データ転送開始レジスタへの書き込み、host 読み出し、DMA は 900 frames まで一度も発生しない。
+CRC 状態・MODE/FORM 状態・STAT3 読み出し・IFSTAT の転送ビットと DTACK を修正し、単体テストを追加した。この修正のみの 1800-frame 実ディスク再実行ではゲーム画面には進まない。
+実行ログは `/tmp/md-cdrom-recheck.log`、`/tmp/md-cdrom-cdcfix.log`、CDC アクセスのトレースは `/tmp/md-cdc-watch-fix.log`。
+
+主 CPU が IRQ2 を送るタイミングとサブ CPU の待機が重なる点も調査した。複数 IRQ の全レベル保留、および CD 側だけの IRQ2 保留をそれぞれ試したが、実ディスクではゲーム起動につながらず表示・ドライブ動作が変わったため採用していない。一般の MD の IRQ 経路は元のまま。再調査時は `/tmp/md-comm-watch3.log` と `/tmp/md-cdrom-{irqfix,latch-long}.log` を参照できる。
+
 成果物:
 
 - `/tmp/md-cdrom-check.log`
@@ -61,7 +68,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 
 ## 次の調査
 
-1. 実ディスク 起動待ち: CDC の初期セクタ受け取り、ヘッダ/STAT/IFSTAT、host transfer/DMA と BIOS の読み込み終了判定を追う。
+1. 実ディスク 起動待ち: BIOS が CDC の転送開始を書かない理由を、セクタ 0 前後のデコーダ割り込みから追う。CDC レジスタ値だけを修正しても起動待ちは解消しなかった。
 2. CDC の最後のサンプルは header=[0,21,33,1], destination=0, dataReady=false, transferEnd=false。これは単一時点であり、DMA 未実行と断定しない。
 3. main は 0x10ec/0x10f0 の sub flag bit 1 待ち。sub は 0x6156/0x615a の local flag 待ち。sub の flag 0x8c35 は IRQ2 handler 0x60a4 で実際にクリアされる。IRQMASK=62、main reset read=0x8001。
 4. 再起動やゲーム固有の待ちを直す場合は、BIOS PC を強制変更するなどの回避ではなくハードウェア原因を確認する。
@@ -73,7 +80,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 
 ## 区切り時点の検証
 
-- 専用バスへの切り替えと通常 ROM 復帰の変更後、全 123 テスト成功。
+- CDC 状態修正後、全 124 テスト成功。
 - 変更対象の Dart static analysis: No issues found。
 - `git diff --check` 成功。
 - 実 BIOS の 1800-frame 確認は専用 32x バスへの整理前に実行。CD 専用モードで 32x は生成されないため処理経路は同じだが、再開時は上記コマンドで再実行すること。
