@@ -8,6 +8,7 @@ import 'package:fnesemu/core/snes/component/ppu.dart';
 import 'package:fnesemu/core/snes/component/ppu_render.dart';
 import 'package:fnesemu/core/snes/component/spc700.dart';
 import 'package:fnesemu/core/snes/rom/snes_file.dart';
+import 'package:fnesemu/core/snes/snes.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
@@ -120,6 +121,60 @@ void main() {
       bus.write(0x4206, 0); // divide by zero
       expect(bus.read(0x4214) | bus.read(0x4215).shl8, 0xffff);
       expect(bus.read(0x4216) | bus.read(0x4217).shl8, 0x1234);
+    });
+  });
+
+  group('timer irq', () {
+    test('H/V match sets TIMEUP and reading it acknowledges the IRQ', () {
+      final bus = _busWith(_loRom());
+      Cpu(bus).reset();
+      bus.write(0x4207, 100); // H target dot
+      bus.write(0x4208, 0);
+      bus.write(0x4209, 4); // V target line
+      bus.write(0x420a, 0);
+      bus.write(0x4200, 0x30); // H + V IRQ
+
+      expect(bus.timerReached(3, 300, 400, 227), isFalse);
+      expect(bus.timerReached(4, 400, 465, 227), isFalse);
+      expect(bus.timerReached(4, 400, 466, 227), isTrue);
+      expect(bus.read(0x4211), 0x80);
+      expect(bus.read(0x4211), 0);
+
+      bus.write(0x4200, 0x10); // H-only: trigger on any scanline
+      expect(bus.timerReached(5, 500, 565, 227), isFalse);
+      expect(bus.timerReached(5, 500, 566, 227), isTrue);
+      bus.write(0x4200, 0); // disabling clears the pending IRQ
+      expect(bus.read(0x4211), 0);
+    });
+
+    test('vertical timer runs an IRQ handler during the frame', () {
+      final rom = _loRom();
+      rom.setAll(0, [
+        0x58, // CLI
+        0xa9, 0x05, // LDA #5
+        0x8d, 0x09, 0x42, // STA VTIME
+        0x9c, 0x0a, 0x42, // STZ VTIMEH
+        0xa9, 0x20, // LDA #V-IRQ enable
+        0x8d, 0x00, 0x42, // STA NMITIMEN
+        0xcb, // WAI
+        0x80, 0xfd, // BRA back to WAI
+      ]);
+      rom.setAll(0x100, [
+        0xa9, 0x07, // LDA #7
+        0x8d, 0x05, 0x21, // STA BGMODE
+        0xad, 0x11, 0x42, // LDA TIMEUP (acknowledge IRQ)
+        0x40, // RTI
+      ]);
+      rom[0x7ffe] = 0x00;
+      rom[0x7fff] = 0x81; // emulation-mode IRQ vector -> $8100
+      final core = Snes()..setRom(rom);
+
+      for (var i = 0; i < 10000 && core.ppu.bgMode != 7; i++) {
+        expect(core.exec(false).stopped, isFalse);
+      }
+      expect(core.ppu.bgMode, 7);
+      expect(core.cpu.cycle, lessThan(Snes.cpuCyclesInScanline * 6));
+      expect(core.bus.read(0x4211), 0x80);
     });
   });
 
@@ -264,8 +319,7 @@ void main() {
       expect(dsp.dir, 0x200);
     });
 
-    test('KON starts a voice and an end block continues at the loop point',
-        () {
+    test('KON starts a voice and an end block continues at the loop point', () {
       final dsp = setup();
       dsp.write(0x05, 0x8f); // ADSR, fastest attack
       dsp.write(0x4c, 0x01); // KON
