@@ -36,8 +36,7 @@ class Snes implements Core {
     bus.ppu = ppu;
     bus.dma = dma;
     bus.apu = apu;
-    bus.inHBlank = () =>
-        _nextScanlineCycle - cpu.cycle <= _cpuCyclesInHBlank;
+    bus.inHBlank = () => _nextScanlineCycle - cpu.cycle <= _cpuCyclesInHBlank;
   }
 
   late final Bus bus;
@@ -72,6 +71,7 @@ class Snes implements Core {
   int _nextScanlineCycle = 0;
   int _lastApuCycle = 0;
   int _nextAudioFlushCycle = 0;
+  bool _timerFiredThisLine = false;
 
   void Function(AudioBuffer) _onAudio = (_) {};
 
@@ -85,6 +85,11 @@ class Snes implements Core {
 
     apu.exec(cpu.cycle - _lastApuCycle, cpuClock);
     _lastApuCycle = cpu.cycle;
+    if (!_timerFiredThisLine &&
+        bus.timerReached(_scanline, _nextScanlineCycle - cpuCyclesInScanline,
+            cpu.cycle, cpuCyclesInScanline)) {
+      _timerFiredThisLine = true;
+    }
     if (cpu.cycle >= _nextAudioFlushCycle) {
       _nextAudioFlushCycle += cpuCyclesInScanline * 16;
       final buf = apu.flush();
@@ -100,6 +105,7 @@ class Snes implements Core {
       // HDMA runs in this line's hblank, so it affects the following line
       if (_scanline <= Ppu.height) dma.hdmaScanline();
       _scanline++;
+      _timerFiredThisLine = false;
       _nextScanlineCycle += cpuCyclesInScanline;
       rendered = true;
 
@@ -117,9 +123,9 @@ class Snes implements Core {
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
   /// other modes show backdrop only - see Ppu's class doc)
   @override
-  ImageBuffer imageBuffer() => ImageBuffer(
-      ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List(),
-      displayWidth_: Ppu.widthNormal);
+  ImageBuffer imageBuffer() =>
+      ImageBuffer(ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List(),
+          displayWidth_: Ppu.widthNormal);
 
   @override
   onAudio(void Function(AudioBuffer) onAudio) {
@@ -132,6 +138,7 @@ class Snes implements Core {
     _nextScanlineCycle = cpuCyclesInScanline;
     _lastApuCycle = 0;
     _nextAudioFlushCycle = 0;
+    _timerFiredThisLine = false;
     ppu.reset();
     dma.reset();
     apu.reset();

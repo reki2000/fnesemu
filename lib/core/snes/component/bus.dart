@@ -16,8 +16,8 @@ import 'ppu.dart';
 /// PPU's register file (see ppu.dart), $4300-$437F + $420B/$420C route to
 /// the DMA/HDMA controller (see dma.dart), and $2140-2143 route to the
 /// audio unit (see apu.dart). $4200-$42FF models NMI, the DMA triggers,
-/// auto-joypad 1, and the multiply/divide unit; the rest (H/V timer IRQ,
-/// programmable I/O, manual joypad) is still a scratch stub.
+/// auto-joypad 1, H/V timer IRQ, and the multiply/divide unit; programmable
+/// I/O and manual joypad are still scratch stubs.
 class Bus {
   late final Cpu cpu;
   late final Ppu ppu;
@@ -164,8 +164,11 @@ class Bus {
           _nmiFlag = false;
           return v;
         }
-      case 0x4211: // TIMEUP irq flag
-        return 0;
+      case 0x4211: // TIMEUP: reading acknowledges the timer IRQ
+        final v = _irqFlag ? 0x80 : 0;
+        _irqFlag = false;
+        cpu.releaseIrq();
+        return v;
       case 0x4212: // HVBJOY: vblank/hblank/auto-joy status
         return _hvbjoy | (inHBlank() ? 0x40 : 0);
       case 0x4214: // RDDIVL
@@ -198,7 +201,18 @@ class Bus {
       dma.write(page, data);
       return;
     }
-    if (page == 0x4200) _nmiEnabled = data.bit7; // NMITIMEN
+    if (page == 0x4200) {
+      _nmiEnabled = data.bit7;
+      _irqMode = (data >> 4) & 3;
+      if (_irqMode == 0) {
+        _irqFlag = false;
+        cpu.releaseIrq();
+      }
+    }
+    if (page == 0x4207) _hTime = (_hTime & 0x100) | data;
+    if (page == 0x4208) _hTime = (_hTime & 0xff) | ((data & 1) << 8);
+    if (page == 0x4209) _vTime = (_vTime & 0x100) | data;
+    if (page == 0x420a) _vTime = (_vTime & 0xff) | ((data & 1) << 8);
     if (page == 0x4203) {
       // WRMPYB: unsigned 8x8 multiply of WRMPYA * WRMPYB
       _mulResult = _mmio[0x4202 & 0x3ff] * data;
@@ -222,10 +236,30 @@ class Bus {
   // ------------------------------------------------------------- interrupts
   bool _nmiFlag = false;
   bool _nmiEnabled = false;
+  bool _irqFlag = false;
+  int _irqMode = 0;
+  int _hTime = 0x1ff;
+  int _vTime = 0x1ff;
   int _hvbjoy = 0;
 
   int _mulResult = 0; // $4216/4217: product, or division remainder
   int _divResult = 0; // $4214/4215: division quotient
+
+  /// Check the timer for the current scanline. The dot is scaled to the
+  /// core's approximate CPU-cycle clock. The caller keeps a per-line guard.
+  bool timerReached(
+      int scanline, int lineStartCycle, int cpuCycle, int cyclesInScanline) {
+    if (_irqMode == 0 || (_irqMode & 2 != 0 && scanline != _vTime)) {
+      return false;
+    }
+    final h = _irqMode & 1 != 0 ? _hTime : 0;
+    if (h >= 340) return false;
+    final target = lineStartCycle + h * cyclesInScanline ~/ 341;
+    if (cpuCycle < target) return false;
+    _irqFlag = true;
+    cpu.holdIrq();
+    return true;
+  }
 
   void enterVBlank() {
     _hvbjoy |= 0x80;
@@ -239,6 +273,13 @@ class Bus {
   }
 
   void onReset() {
+    _nmiEnabled = false;
+    _nmiFlag = false;
+    _irqFlag = false;
+    _irqMode = 0;
+    _hTime = 0x1ff;
+    _vTime = 0x1ff;
+    cpu.releaseIrq();
     cpu.reset();
   }
 }
