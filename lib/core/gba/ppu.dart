@@ -20,7 +20,9 @@ class Ppu {
   final buffer = Uint32List(width * height);
 
   ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, buffer.buffer.asUint8List());
+      // LCD with square pixels: display at the native 3:2 size
+      ImageBuffer(width, height, buffer.buffer.asUint8List(),
+          displayHeight: height);
 
   // BGR555 -> ABGR8888 lookup (32768 entries).
   static final Uint32List _rgba = _buildRgba();
