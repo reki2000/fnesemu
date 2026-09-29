@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 // Project imports:
 import 'gui/app.dart';
+import 'gui/storage.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,5 +30,10 @@ void main() async {
     discDir: env['DISC_DIR'] ?? '',
   );
 
-  runApp(MyApp(title: "fnesemu ${packageInfo.version}", config: config));
+  final storage = await Storage.open();
+
+  runApp(MyApp(
+      title: "fnesemu ${packageInfo.version}",
+      storage: storage,
+      config: config));
 }
