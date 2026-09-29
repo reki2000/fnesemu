@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/core_factory.dart';
 import 'package:fnesemu/core/md/32x/md_32x.dart';
 import 'package:fnesemu/core/md/32x/video.dart';
 import 'package:fnesemu/core/md/md.dart';
@@ -34,6 +35,14 @@ Uint8List cartridge() {
 }
 
 void main() {
+  test('.32x selection enables the adapter without a 32X cartridge header', () {
+    final rom = cartridge()
+      ..setAll(0x100, 'SEGA GENESIS    '.codeUnits);
+    final md = (CoreFactory.of('32x') as Md)..setRom(rom);
+    expect(md.expansion, isNotNull);
+    expect(md.expansion!.rom.length, rom.length);
+  });
+
   test('normal cartridges do not create a 32x adapter or track opacity', () {
     final rom = cartridge();
     rom.setAll(0x100, 'SEGA GENESIS    '.codeUnits);

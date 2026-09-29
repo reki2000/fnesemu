@@ -17,6 +17,9 @@ CD: BIOS/sub 68000、PRG/Word RAM、BRAM、CDD/CDC、PCM/CD-DA、stamp graphics�
 32x: SH-2 整数命令・遅延分岐・外部 IRQ・sleep、dual CPU scheduler、共有 SDRAM、ROM 窓、通信ポート、DREQ FIFO、bitmap VDP、PWM、デバッガ。
 32x の通常 MD バスへのフックは除去し、利用時だけ `32x/bus_m68.dart` の専用バスを装着する。切り替え時は RAM/Pad/ROM と CPU/Z80/VDP の参照を維持する。
 ADEN clear/reset held では CPU と周辺機器を止め、再開時に停止期間の計算を行わない。opacity buffer と追加 CPU 実行フラグ map は必要時に割り当てる。
+`.32x` は GUI の ROM/ZIP ローダーと CoreFactory から MD 32x コアに渡る。ROM ヘッダに 32X 表記がなくても拡張子でアダプタを選べることを統合テストで確認した。
+
+手元の実 32X ROM は 4 MiB の `.32x` を含み、manufacturer 32X ヘッダを持つ。ZIP 内の ROM を `/tmp/md32x-cart.32x` に展開して確認。`Md(expansionBoot:true)` はアダプタを生成し、主 CPU は 13 frames 進んで 32x を有効にした時点で `MD 32x boot ROMs are required` により停止した。実ブート ROM 3 個はまだ見つかっておらず、SH-2/gameplay の実 ROM 動作は未確認。ログは `/tmp/md32x-cart-probe.log`。
 
 実ディスク確認で修正した点:
 
@@ -80,7 +83,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 
 ## 区切り時点の検証
 
-- CDC と DIV1 の追加後、全 126 テスト成功。
+- `.32x` 選択テスト追加後、全 127 テスト成功。
 - 変更対象の Dart static analysis: No issues found。
 - `git diff --check` 成功。
 - 専用 32x バスへの整理後に実 BIOS の 1800-frame 確認を再実行。CDC 状態修正後も起動待ちのまま。上記ログを参照する。
