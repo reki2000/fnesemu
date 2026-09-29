@@ -56,32 +56,43 @@ class Timer {
       return;
     }
 
-    counter += cycles;
+    final prev = counter;
+    int next = prev + cycles;
+    bool hitTarget = false;
+    bool hitFfff = false;
 
-    bool reqTrigger = false;
-    int nextCounter = counter;
-
-    if (counter >= target) {
-      if (_irqWhenTarget) {
-        reqTrigger = true;
+    if (_resetAfterTarget && prev <= target) {
+      // counts 0..target, then wraps to 0
+      if (next >= target && (prev < target || cycles > target)) {
+        hitTarget = true;
       }
-
-      reachTarget = true;
-      if (_resetAfterTarget) {
-        nextCounter = counter - target;
+      if (next > target) {
+        next %= target + 1;
+      }
+    } else {
+      // counts up to 0xffff, then wraps to 0
+      if (prev < target && next >= target) {
+        hitTarget = true;
+      }
+      if (prev < 0xffff && next >= 0xffff) {
+        hitFfff = true;
+      }
+      if (next > 0xffff) {
+        next -= 0x10000;
+        if (next >= target) {
+          hitTarget = true;
+          if (_resetAfterTarget) {
+            next %= target + 1;
+          }
+        }
       }
     }
 
-    if (counter >= 0xffff) {
-      if (_irqWhenFfff) {
-        reqTrigger = true;
-      }
+    counter = next;
+    reachTarget |= hitTarget;
+    reachFfff |= hitFfff;
 
-      reachFfff = true;
-      nextCounter = counter & 0xffff;
-    }
-
-    if (reqTrigger) {
+    if ((hitTarget && _irqWhenTarget) || (hitFfff && _irqWhenFfff)) {
       if (_toggleMode) {
         intRequested = !intRequested;
       } else {
@@ -93,8 +104,6 @@ class Timer {
         triggered = true;
       }
     }
-
-    counter = nextCounter;
   }
 
   void start() {
@@ -148,9 +157,24 @@ class TimerController {
     for (final t in timers) {
       t.reset();
     }
+    _lastClocks = 0;
+    systemClockCounter = 0;
+    dotClockCounter = 0;
+  }
+
+  int _lastClocks = 0;
+
+  /// advances all timers up to the current cpu clock
+  void catchUp() {
+    final now = bus.cpu.clocks;
+    if (now > _lastClocks) {
+      clock(now - _lastClocks);
+    }
+    _lastClocks = now;
   }
 
   void startHBlank() {
+    catchUp();
     timers[0].start();
 
     if (timers[1].mode_.bit8) {
@@ -158,9 +182,20 @@ class TimerController {
     }
   }
 
-  void endHBlank() => timers[0].end();
-  void startVBlank() => timers[1].start();
-  void endVBlank() => timers[1].end();
+  void endHBlank() {
+    catchUp();
+    timers[0].end();
+  }
+
+  void startVBlank() {
+    catchUp();
+    timers[1].start();
+  }
+
+  void endVBlank() {
+    catchUp();
+    timers[1].end();
+  }
 
   int systemClockCounter = 0;
   int dotClockCounter = 0;
@@ -193,16 +228,20 @@ class TimerController {
     }
   }
 
-  int mode(int no) {
+  int mode(int no, {bool clearFlags = true}) {
+    catchUp();
     final t = timers[no];
     final result = t.mode;
-    t.reachTarget = false;
-    t.reachFfff = false;
+    if (clearFlags) {
+      t.reachTarget = false;
+      t.reachFfff = false;
+    }
     return result;
   }
 
   void setMode(int no, int newMode) {
     // debugLog("Timer$no: set mode ${mode.x8}");
+    catchUp();
     final t = timers[no];
     t.mode_ = newMode;
     t.sync = newMode.bit0;
@@ -221,14 +260,20 @@ class TimerController {
 
   int target(int no) => timers[no].target;
   void setTarget(int no, int target) {
+    catchUp();
     final t = timers[no];
     t.target = target.mask16;
     t.reachTarget = false;
     t.reachFfff = false;
   }
 
-  int counter(int no) => timers[no].counter;
+  int counter(int no) {
+    catchUp();
+    return timers[no].counter;
+  }
+
   void setCounter(int no, int value) {
+    catchUp();
     final t = timers[no];
     t.counter = value.mask16;
     t.reachTarget = false;

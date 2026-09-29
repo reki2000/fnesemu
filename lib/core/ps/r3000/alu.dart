@@ -102,7 +102,7 @@ extension Alu on R3000 {
     b = b.mask32;
 
     if (b == 0) {
-      lo = a.bit31 ? 1 : -1.mask32;
+      lo = a.bit31 ? 1 : 0xffffffff;
       hi = a;
       return;
     }
@@ -113,8 +113,9 @@ extension Alu on R3000 {
       return;
     }
 
-    lo = a.rel32 ~/ b.rel32;
-    hi = (a - (lo * b).mask32).mask32;
+    final q = a.rel32 ~/ b.rel32;
+    lo = q.mask32;
+    hi = (a.rel32 - q * b.rel32).mask32;
     // debugLog("div a=${a.x8} b=${b.x8} hi=${hi.x8} lo=${lo.x8}");
   }
 

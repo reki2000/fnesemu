@@ -41,6 +41,11 @@ class Spu {
     _fifoAddr = 0;
     _irqAddr = 0;
     fifoWriteCount = 0;
+    noiseLevel = 1;
+    _noiseTimer = 0;
+    _control = 0;
+    _status = 0;
+    irqEnabled = false;
   }
 
   (double, double) render() {
@@ -54,8 +59,12 @@ class Spu {
     int reverbInputL = 0;
     int reverbInputR = 0;
 
+    _clockNoise();
+
+    int prevSample = 0; // output of the previous voice for pitch modulation
     for (int i = 0; i < voices.length; i++) {
-      final (l, r, sample) = voices[i].clock();
+      final (l, r, sample) = voices[i].clock(prevSample);
+      prevSample = sample;
       outL += l;
       outR += r;
 
@@ -71,21 +80,57 @@ class Spu {
       }
     }
 
+    if (muted) {
+      outL = 0;
+      outR = 0;
+    } else {
+      outL = outL * _mainVolume(mainVolumeLeft) ~/ 0x8000;
+      outR = outR * _mainVolume(mainVolumeRight) ~/ 0x8000;
+    }
+
     final [cdL, cdR] = bus.cdrom.popAudioSample();
     writeRam16(0x000 + captureIndex, cdL);
     writeRam16(0x400 + captureIndex, cdR);
-    outL += cdL * cdAudioInputLeft ~/ 0x8000;
-    outR += cdR * cdAudioInputRight ~/ 0x8000;
+    if (_control.bit0) {
+      // cd audio enabled
+      outL += cdL * cdAudioInputLeft.rel16 ~/ 0x8000;
+      outR += cdR * cdAudioInputRight.rel16 ~/ 0x8000;
+    }
 
     captureIndex = (captureIndex + 2) & 0x3fe;
 
     final (reverbL, reverbR) = reverb.render(
         reverbInputL.clip(-0x8000, 0x7fff), reverbInputR.clip(-0x8000, 0x7fff));
-    outL += reverbL;
-    outR += reverbR;
+    if (!muted) {
+      outL += reverbL;
+      outR += reverbR;
+    }
 
-    // todo: apply master volume
     return ((outL / 0x8000).clip(-1.0, 1.0), (outR / 0x8000).clip(-1.0, 1.0));
+  }
+
+  /// fixed volume: 15bit signed value x2, sweep volume is not supported
+  static int _mainVolume(int reg) => reg.bit15 ? 0x7fff : reg.shl1.rel16;
+
+  // noise generator
+  int noiseLevel = 1;
+  int _noiseTimer = 0;
+
+  void _clockNoise() {
+    _noiseTimer -= noiseFreqStep + 4;
+    if (_noiseTimer < 0) {
+      final parity = (noiseLevel.shr15 ^
+              noiseLevel.shr12 ^
+              noiseLevel.shr11 ^
+              noiseLevel.shr10 ^
+              1) &
+          1;
+      noiseLevel = (noiseLevel.shl1 | parity).mask16;
+      _noiseTimer += 0x20000 >> noiseFreqShift;
+      if (_noiseTimer < 0) {
+        _noiseTimer += 0x20000 >> noiseFreqShift;
+      }
+    }
   }
 
   int _status = 0;
@@ -131,7 +176,7 @@ class Spu {
 
   int get noiseFlags => voices.asMap().entries.fold(
         0,
-        (acc, entry) => acc.shl1 | (entry.value.noise ? 1 : 0),
+        (acc, entry) => acc | (entry.value.noise ? 1 << entry.key : 0),
       );
   setNoiseFlags(int v) {
     for (int i = 0; i < voices.length; i++) {
@@ -141,11 +186,20 @@ class Spu {
 
   int get pitchModulation => voices.asMap().entries.fold(
         0,
-        (acc, entry) => acc.shl1 | (entry.value.pitchModulation ? 1 : 0),
+        (acc, entry) =>
+            acc | (entry.value.pitchModulation ? 1 << entry.key : 0),
       );
   setPitchModulation(int v) {
     for (int i = 0; i < voices.length; i++) {
       voices[i].pitchModulation = v.bit(i);
+    }
+  }
+
+  /// checks irq address for a read of [length] bytes from [addr]
+  void checkIrqRange(int addr, int length) {
+    if (irqEnabled && _irqAddr >= addr && _irqAddr < addr + length) {
+      _status = _status.setBit(6, true); // set irq flag
+      bus.setIrq(9);
     }
   }
 
@@ -231,8 +285,7 @@ class Spu {
         0x0a => voices[ch].setSustainRelease(v),
         0x0c => voices[ch].adsrVolume = v,
         0x0e => voices[ch].repeatAddr = v.shl3,
-        _ =>
-          throw "illegal writeVoice port:${port.x2} ch:$ch value:${v.x8}",
+        _ => throw "illegal writeVoice port:${port.x2} ch:$ch value:${v.x8}",
       };
 
   void keyOn(int value) {

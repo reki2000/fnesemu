@@ -11,10 +11,12 @@ abstract class Disc {
   bool get isEmpty;
   bool isAudio(int trackNo);
 
+  /// [sector] includes 2 seconds of lead-in as [read] does
   bool isAudioSector(int sector) {
     if (isEmpty) return false;
-    for (int trackNo = 1; trackNo <= trackCount; trackNo++) {
-      if (sector < startLba(trackNo)) {
+    final lba = sector - 2 * 75;
+    for (int trackNo = trackCount; trackNo >= 1; trackNo--) {
+      if (lba >= startLba(trackNo)) {
         return isAudio(trackNo);
       }
     }

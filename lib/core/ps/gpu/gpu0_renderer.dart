@@ -39,49 +39,41 @@ extension Gp0Renderer on Gpu {
 
   int abs(int v) => v < 0 ? -v : v;
 
-  bool renderLine(int cmd, int v0, int v1) {
-    final c15 = Color.ofC24(cmd).c15;
-    final p0 = Point.of(v0, 0, 0);
-    final p1 = Point.of(v1, 0, 0);
+  // floor division rounding to the nearest
+  static int _divRound(int a, int b) =>
+      a >= 0 ? (a * 2 + b) ~/ (b * 2) : -((-a * 2 + b - 1) ~/ (b * 2));
 
-    if (abs(p1.y - p0.y) < abs(p1.x - p0.x)) {
-      // x loop
-      final dx = (p1.x < p0.x) ? -1 : 1;
-      for (int x = p0.x; x != p1.x; x += dx) {
-        final p01 = p0.mixX(p1, x);
-        pset16(x, p01.y, c15);
-      }
-    } else {
-      // y loop
-      final dy = (p1.y < p0.y) ? -1 : 1;
-      for (int y = p0.y; y != p1.y; y += dy) {
-        final p01 = p0.mixY(p1, y);
-        pset16(p01.x, y, c15);
-      }
+  /// primitives larger than 1023x511 are not rendered
+  static bool _tooLarge(Point p0, Point p1) =>
+      abs_(p1.x - p0.x) >= 1024 || abs_(p1.y - p0.y) >= 512;
+
+  static int abs_(int v) => v < 0 ? -v : v;
+
+  bool renderLine(int cmd, int v0, int v1) =>
+      _drawLine(cmd, Point.of(v0, cmd, 0), Point.of(v1, cmd, 0), false);
+
+  bool renderGouraudLine(int cmd, int v0, int v1, int c0, int c1) =>
+      _drawLine(cmd, Point.of(v0, c0, 0), Point.of(v1, c1, 0), true);
+
+  bool _drawLine(int cmd, Point p0, Point p1, bool gouraud) {
+    if (_tooLarge(p0, p1)) {
+      return false;
     }
 
-    return true;
-  }
+    final transparent = cmd.bit25;
+    final flatC15 = p0.c.c15;
+    final dx = p1.x - p0.x;
+    final dy = p1.y - p0.y;
+    final steps = abs_(dx).max(abs_(dy));
 
-  bool renderGouraudLine(int cmd, int v0, int v1, int c0, int c1) {
-    final p0 = Point.of(v0, c0, 0);
-    final p1 = Point.of(v1, c1, 0);
-
-    if (abs(p1.y - p0.y) < abs(p1.x - p0.x)) {
-      // x loop
-      final dx = (p1.x < p0.x) ? -1 : 1;
-      for (int x = p0.x; x != p1.x; x += dx) {
-        final p01 = p0.mixX(p1, x);
-        pset16(x, p01.y, p01.c.c15);
-      }
-    } else {
-      // y loop
-      final dy = (p1.y < p0.y) ? -1 : 1;
-      for (int y = p0.y; y != p1.y; y += dy) {
-        final p01 = p0.mixY(p1, y);
-        pset16(p01.x, y, p01.c.c15);
-      }
+    // both end points are drawn
+    for (int i = 0; i <= steps; i++) {
+      final x = steps == 0 ? p0.x : p0.x + _divRound(dx * i, steps);
+      final y = steps == 0 ? p0.y : p0.y + _divRound(dy * i, steps);
+      final c15 = gouraud ? dither(x, y, p0.c.mix(p1.c, i, steps)) : flatC15;
+      pset16(x, y, c15, blend: transparent);
     }
+
     return true;
   }
 
@@ -89,6 +81,10 @@ extension Gp0Renderer on Gpu {
     final c24 = Color.ofC24(cmd);
     final (p0, p1, p2) = sortVertice(v0, v1, v2, 0, 0, 0, 0, 0, 0);
     final transparent = cmd.bit25;
+    if (_tooLarge(p0, p1) || _tooLarge(p1, p2) || _tooLarge(p0, p2)) {
+      return false;
+    }
+    final c15 = c24.c15; // flat polygons are not dithered
 
     // debugLog(
     //     'GPU0: renderFlat (${p0.x},${p0.y}), (${p1.x},${p1.y}), (${p2.x},${p2.y})');
@@ -99,8 +95,7 @@ extension Gp0Renderer on Gpu {
 
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
-        final c15 = dither(x, y, c24);
-        pset16(x, y, c15 | (transparent ? 0x8000 : 0));
+        pset16(x, y, c15, blend: transparent);
       }
     }
 
@@ -111,6 +106,9 @@ extension Gp0Renderer on Gpu {
       int cmd, int c0, int v0, int c1, int v1, int c2, int v2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, 0, 0, 0);
     final transparent = cmd.bit25;
+    if (_tooLarge(p0, p1) || _tooLarge(p1, p2) || _tooLarge(p0, p2)) {
+      return false;
+    }
 
     // debugLog(
     //     'gp0: drawPolygon: ${dumpCmd()} (${p0.x},${p0.y}:${p0.c.c24.x8}), (${p1.x},${p1.y}:${p1.c.c24.x8}), (${p2.x},${p2.y}:${p2.c.c24.x8}) '
@@ -123,8 +121,7 @@ extension Gp0Renderer on Gpu {
       final (left, right) = p012.x > p02.x ? (p02, p012) : (p012, p02);
       for (int x = left.x; x < right.x; x++) {
         final c = left.c.mix(right.c, x - left.x, right.x - left.x);
-        final c15 = dither(x, y, c);
-        pset16(x, y, c15 | (transparent ? 0x8000 : 0));
+        pset16(x, y, dither(x, y, c), blend: transparent);
       }
     }
 
@@ -134,7 +131,7 @@ extension Gp0Renderer on Gpu {
   bool renderTexturedGouraudPolygon4(List<int> c) {
     final cmd = c[0];
     final modulated = !cmd.bit24;
-    final transparentMask = cmd.bit25 ? 0xffff : 0x7fff;
+    final transparent = cmd.bit25;
     final gouraud = cmd.bit28;
     final rectangle = cmd.bit27;
     final modulateColor = Color.ofC24(cmd);
@@ -193,8 +190,11 @@ extension Gp0Renderer on Gpu {
       if (p0.y > y2 ||
           p2.y < y1 ||
           (p0.x < x1 && p1.x < x1 && p2.x < x1) ||
-          (p0.x > x2 && p1.x > x2 && p2.x > x2)) {
-        return true;
+          (p0.x > x2 && p1.x > x2 && p2.x > x2) ||
+          _tooLarge(p0, p1) ||
+          _tooLarge(p1, p2) ||
+          _tooLarge(p0, p2)) {
+        continue;
       }
 
       for (int y = p0.y; y < p2.y; y++) {
@@ -213,9 +213,10 @@ extension Gp0Renderer on Gpu {
           if (texColor != 0) {
             final c16 = !modulated
                 ? texColor
-                : ditherAndModulate(0, 0, texColor,
+                : ditherAndModulate(x, y, texColor,
                     gouraud ? left.c.mix(right.c, part, width) : modulateColor);
-            pset16(x, y, c16 & transparentMask,
+            pset16(x, y, c16,
+                blend: transparent && texColor.bit15,
                 semiTransparent: semiTransparent);
           }
         }
