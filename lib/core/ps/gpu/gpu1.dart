@@ -8,18 +8,35 @@ extension Gpu1 on Gpu {
     final cmd = value.shr24;
     switch (cmd & 0x3f) {
       case 0x00: // reset
-        status = 0;
+        status = 0x00802000; // display disabled, interlace field
         readValue = 0;
+        cmdSize = 0;
+        irq1 = false;
+        vramToCpuReady = false;
+
+        textureMaskX = textureMaskY = textureOffsetX = textureOffsetY = 0;
+        textureMaskX2 = textureMaskY2 = 0xff;
+        textureOffsetX2 = textureOffsetY2 = 0;
+        drawingX1 = drawingY1 = drawingX2 = drawingY2 = 0;
+        drawingOffsetX = drawingOffsetY = 0;
+
+        startDisplayX = startDisplayY = 0;
+        displayX1 = 0x200;
+        displayX2 = 0x200 + 256 * 10;
+        displayY1 = 0x10;
+        displayY2 = 0x10 + 240;
+        writeGp1(0x08000000);
 
       case 0x01: // reset command buffer
         cmdSize = 0;
+        vramToCpuReady = false;
 
       case 0x02: // acknowledge interrupt
         irq1 = false;
       //bus.resetIrq(Interrupt.gpu);
 
-      case 0x03: // display enable
-        status = status.setBit(28, value.bit0);
+      case 0x03: // display enable (0: on, 1: off)
+        status = status.setBit(23, value.bit0);
 
       case 0x04: // dma direction / start address
         status = status.masked(0x60000000, value.shl29);
@@ -40,7 +57,7 @@ extension Gpu1 on Gpu {
       case 0x08: // display mode
         displayMode = value & 0x7f;
         status = status
-            .masked(0x7e00, value.shl17)
+            .masked(0x7e0000, value.shl17)
             .setBit(16, value.bit6)
             .setBit(14, value.bit7);
 
@@ -54,16 +71,24 @@ extension Gpu1 on Gpu {
           buffer = Uint32List(width * height);
         }
 
+      case 0x09: // allow texture disable
+        textureDisableAllowed = value.bit0;
+
       case >= 0x10 && < 0x20: // read gpu internal register
         switch (value & 0x07) {
           case 0x02: //  Read Texture Window setting
-            readValue = textureMaskX | textureMaskY.shl10;
+            readValue = textureMaskX |
+                textureMaskY.shl5 |
+                textureOffsetX.shl10 |
+                textureOffsetY.shl15;
           case 0x03: // Read Draw area top left
             readValue = drawingX1 | drawingY1.shl10;
           case 0x04: // Read Draw area bottom right
             readValue = drawingX2 | drawingY2.shl10;
           case 0x05: //  Read Draw offset
-            readValue = drawingOffsetX | drawingOffsetY.shl10;
+            readValue = drawingOffsetX.mask11 | drawingOffsetY.mask11.shl11;
+          case 0x07: // Read GPU type
+            readValue = 2;
         }
 
       default:

@@ -34,9 +34,7 @@ class InterruptController {
         "interrupt: set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
     _mask = value;
 
-    if (mask & status != 0) {
-      cpu.setInterruptPending(true);
-    }
+    cpu.setInterruptPending(mask & status != 0);
   }
 
   void reset() {

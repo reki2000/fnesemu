@@ -135,7 +135,7 @@ class MemoryCard extends SioDevice {
         return ack(0x5d);
 
       case waitRwAddrMsb:
-        addr = txData & 0x03.shl15;
+        addr = (txData & 0x03).shl15;
         checkSum = txData & 0x03;
         step = waitRwAddrLsb;
         return ack(0);

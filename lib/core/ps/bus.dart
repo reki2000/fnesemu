@@ -82,7 +82,8 @@ class Bus implements BusR3000 {
       0x1f801014 => 0x200931e1.byteAt(offset),
       0x1f801018 => 0x00020843.byteAt(offset),
       0x1f80101c => 0x00070777.byteAt(offset),
-      0x1f801040 => serial.readData(),
+      // pop rx fifo only once for 16/32bit access
+      0x1f801040 => offset & 0x03 == 0 ? serial.readData() : 0,
       0x1f801044 => serial.readStatus().byteAt(offset),
       >= 0x1f801048 && < 0x1f801050 => switch (offset & 0x1ffe) {
           0x1048 => serial.readMode().byteAt(offset & 1),
@@ -103,7 +104,10 @@ class Bus implements BusR3000 {
       0x1f8010f4 => dma.interrupt.byteAt(offset),
       >= 0x1f801100 && < 0x1f801130 => switch (offset & 0x0e) {
           0x00 => timer.counter(offset.shr4 & 3).byteAt(offset),
-          0x04 => timer.mode(offset.shr4 & 3).byteAt(offset),
+          // reached flags (bit11-12) are cleared after reading the upper byte
+          0x04 => timer
+              .mode(offset.shr4 & 3, clearFlags: offset & 0x03 == 1)
+              .byteAt(offset),
           0x08 => timer.target(offset.shr4 & 3).byteAt(offset),
           _ => 0,
         },

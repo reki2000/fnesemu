@@ -596,7 +596,7 @@ class Cop2 {
       0x3d => gpf(),
       0x3e => gpl(),
       0x3f => ncct(),
-      _ => R3000._unknown(inst32),
+      _ => null, // undefined gte commands: ignored
     };
   }
 
