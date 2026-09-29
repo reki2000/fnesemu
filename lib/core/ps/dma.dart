@@ -34,7 +34,8 @@ class DmaChannel {
   int get channelCtrl => _channelCtrl.setBit(24, running);
 
   set channelCtrl(int value) {
-    _channelCtrl = value & 0x71770703;
+    // OTC: only bit24, 28, 30 are writable, bit1 is always set
+    _channelCtrl = ch == 6 ? value & 0x51000000 | 0x02 : value & 0x71770703;
 
     syncMode = value.shr9 & 0x03;
     toRam = !value.bit0;
@@ -46,6 +47,9 @@ class DmaChannel {
     }
 
     running = value.bit24 && (syncMode == 0 ? value.bit28 : true);
+    if (running) {
+      _channelCtrl &= ~0x10000000; // start trigger is cleared when started
+    }
     if (running && (debugLogChannel.contains(ch))) {
       debugLog("DMA$ch: started   ${dump()} ");
     }
@@ -130,8 +134,7 @@ class Dma {
       2 =>
         _interrupt.masked(0xff.shl(addr.shl3), value.shl(addr.shl3)),
       3 => _interrupt & (~value.shl24 | 0xffffff),
-      _ =>
-        throw "illegal DMA interrupt addr:${addr.x8} value:${value.x8}",
+      _ => throw "illegal DMA interrupt addr:${addr.x8} value:${value.x8}",
     };
     // debugLog(
     //     "DMA: interrupt set addr:$addr value:${value.x2} -> ${_interrupt.x8} ");
@@ -145,7 +148,8 @@ class Dma {
   bool _irqPending = false;
 
   bool _bit31() =>
-      _interrupt.bit15 || (_interrupt.bit23 && (_interrupt & 0x7f000000) != 0);
+      _interrupt.bit15 ||
+      (_interrupt.bit23 && (_interrupt.shr8 & _interrupt & 0x7f0000) != 0);
 
   void reset() {
     for (var ch = 0; ch < 7; ch++) {
@@ -227,7 +231,7 @@ class Dma {
         case 0: // Burst.
           while (count > 0) {
             transfer32(d.ch, d);
-            d.addr += d.incr;
+            d.addr = (d.addr + d.incr) & 0x1ffffc;
 
             d.size--;
             if (d.size <= 0) {
@@ -242,7 +246,7 @@ class Dma {
             if (!transfer32(d.ch, d)) {
               break;
             }
-            d.addr += d.incr;
+            d.addr = (d.addr + d.incr) & 0x1ffffc;
 
             d.size--;
             if (d.size <= 0) {
@@ -262,7 +266,7 @@ class Dma {
           }
 
         case 2: // Linked List
-          while (d.addr.mask24 != 0xffffff) {
+          while (!d.addr.bit23) {
             final node = bus.read32(d.addr);
 
             if (node == 0) {
@@ -306,8 +310,12 @@ class Dma {
     }
 
     if (d.irqOnComplete) {
+      final prev = _bit31();
       _interrupt = _interrupt.setBit(24 + ch, true);
-      _irqPending = _bit31();
+      // irq is raised on the rising edge of the master flag
+      if (!prev && _bit31()) {
+        _irqPending = true;
+      }
     }
     // bus.setIrq(Interrupt.dma);
     // if (!oldBit31 && _bit31()) {

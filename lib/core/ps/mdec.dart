@@ -246,7 +246,7 @@ class Mdec {
       for (int i = 0; i < 32; i++) {
         int value = params.removeFirst();
         for (int j = 0; j < 2; j++) {
-          qt[i * 2 + j] = value.rel8;
+          qt[i * 2 + j] = value.mask8;
           value >>= 8;
         }
       }
@@ -321,10 +321,7 @@ class Decoder {
       q = input.shr10;
       outputIndex = 0;
 
-      int value = input.rel10 * qt[0];
-      if (q == 0) {
-        value *= 2;
-      }
+      final value = q == 0 ? input.rel10 * 2 : input.rel10 * qt[0];
       output[0] = (value.clip(-1024, 1023) * scaleZag[0]).round();
 
       return false;

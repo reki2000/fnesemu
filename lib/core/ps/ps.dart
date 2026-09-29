@@ -108,10 +108,10 @@ class Ps extends Core {
 
     if (fastBoot) {
       const fastBootSequence = [
-        // turn display on by writing 0x0300 to GPU I/O: 1f801814 with using only register t2
+        // turn display on by writing GP1(03h) = 0 to GPU I/O: 1f801814
         0x3c0a1f80, // lui  t2, 0x1f80
         0x354a1814, // ori  t2, t2, 0x1814
-        0x340b0300, // ori  t3, zero, 0x0300
+        0x3c0b0300, // lui  t3, 0x0300
         0xad4b0000, // sw   t3, 0(t2)
         0x03e00008, // jr   ra
         0x00000000, // nop
@@ -149,7 +149,7 @@ class Ps extends Core {
 
     if (cpu.clocks > nextTimerClock) {
       nextTimerClock += 100;
-      bus.timer.clock(100);
+      bus.timer.catchUp();
     }
 
     result.scanlineRendered = false;

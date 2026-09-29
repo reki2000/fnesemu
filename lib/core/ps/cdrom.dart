@@ -60,6 +60,8 @@ class Cdrom {
   bool sectorBufferEmpty = true;
 
   int seekSector = 0; // target sector for seek
+  bool isSeekPending = false; // SetLoc is issued but not used by Read/Play/Seek
+  int playTrack = 0; // track being played, for auto pause
   int readingSector = 0; // current sector
   int sectorReadDelay = 0; // next read clock
 
@@ -86,7 +88,8 @@ class Cdrom {
   final List<int> xaOldest = [0, 0, 0]; // mono, left, right
   final resampler = XaResampler();
 
-  final List<int> atv = [0, 0, 0, 0];
+  final List<int> atv = [0, 0, 0, 0]; // written values
+  final List<int> atvApplied = [0x80, 0, 0x80, 0]; // L->L, L->R, R->R, R->L
   int adpCtrl = 0;
 
   int intMask = 0;
@@ -114,7 +117,9 @@ class Cdrom {
     resampler.reset();
 
     atv.setAll(0, [0, 0, 0, 0]);
+    atvApplied.setAll(0, [0x80, 0, 0x80, 0]);
     adpCtrl = 0;
+    isMuted = false;
 
     cmdDelay = 0;
     intMask = 0;
@@ -134,6 +139,7 @@ class Cdrom {
 
     readingSector = 0;
     seekSector = 0;
+    isSeekPending = false;
     sectorBufferIndex = 0;
     sectorBufferEmpty = true;
 
@@ -263,10 +269,13 @@ class Cdrom {
 
       case (3, 3): // ADPCTL
         adpCtrl = value;
+        if (value.bit5) {
+          // apply audio volume changes
+          atvApplied.setAll(0, atv);
+        }
 
       default:
-        debugLog(
-            "cdrom: unknown write8: $bank-$reg <= ${value.x2}, ${dump()}");
+        debugLog("cdrom: unknown write8: $bank-$reg <= ${value.x2}, ${dump()}");
     }
   }
 
@@ -292,51 +301,120 @@ class Cdrom {
     }
 
     // sector read
-    if (isReading || isCddaEnabled) {
+    if (isReading || isPlaying) {
       sectorReadDelay -= clocks;
 
       if (sectorReadDelay <= 0) {
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
+        isSeeking = false;
 
-        rawSector = disc.read(readingSector);
-
-        final isAudioSector = disc.isAudioSector(readingSector);
-
-        if (isPlaying || (isCddaEnabled && isAudioSector)) {
-          // debugLog(
-          //     "cdrom: read audio sector ${Disc.dumpSector(readingSector)}");
-          for (int i = 0; i < rawSector.length; i += 4) {
-            final l = rawSector[i + 0] | rawSector[i + 1].shl8;
-            final r = rawSector[i + 2] | rawSector[i + 3].shl8;
-            audioBufferL.add(l.rel16);
-            audioBufferR.add(r.rel16);
-          }
-        } else if (isXaAdpcmEnabled && !isAudioSector && !adpCtrl.bit0) {
-          decodeXa();
+        if (isPlaying) {
+          _playSector();
+        } else {
+          _readSector();
         }
-
-        // debugLog(
-        //     "cdrom: read sector $sector(${sector ~/ (60 * 75)}:${(sector ~/ 75) % 60}:${sector % 75}) ${dump()} [${rawSector.sublist(12, 28).map((e) => e.x2).join(" ")} ..]");
-
-        irq(1, [status()], delay: 0);
 
         readingSector++;
       }
     }
   }
 
+  void _readSector() {
+    rawSector = disc.read(readingSector);
+
+    if (disc.isAudioSector(readingSector)) {
+      if (isCddaEnabled) {
+        _pushCdda();
+      }
+    } else if (isXaAdpcmEnabled && rawSector[18] & 0x44 == 0x44) {
+      // XA-ADPCM sectors are sent to the decoder, not to the data buffer
+      if (!adpCtrl.bit0) {
+        decodeXa();
+      }
+      return;
+    }
+
+    irq(1, [status()], delay: 0);
+  }
+
+  void _playSector() {
+    // auto pause at the end of the track or the disc
+    final track = _trackOf(readingSector);
+    if (playTrack == 0) {
+      playTrack = track;
+    }
+    if ((mode.bit1 && track != playTrack) ||
+        readingSector >= disc.totalSectors + 2 * 75) {
+      isPlaying = false;
+      irq(4, [status()], delay: 0);
+      return;
+    }
+
+    rawSector = disc.read(readingSector);
+    if (disc.isAudioSector(readingSector)) {
+      _pushCdda();
+    }
+
+    // report mode: position report every 10 sectors
+    if (mode.bit2 && readingSector % 10 == 0) {
+      final (am, as_, af) = Disc.lbaToMsf(readingSector);
+      final isRelative = (af ~/ 10).isOdd;
+      final (rm, rs, rf) = Disc.lbaToMsf(
+          (readingSector - _trackStart(track)).max(0),
+          addLeadIn: false);
+      irq(
+          1,
+          [
+            status(),
+            track.toBcd,
+            1,
+            isRelative ? rm.toBcd : am.toBcd,
+            isRelative ? rs.toBcd | 0x80 : as_.toBcd,
+            isRelative ? rf.toBcd : af.toBcd,
+            0,
+            0,
+          ],
+          delay: 0);
+    }
+  }
+
+  void _pushCdda() {
+    for (int i = 0; i < rawSector.length; i += 4) {
+      final l = rawSector[i + 0] | rawSector[i + 1].shl8;
+      final r = rawSector[i + 2] | rawSector[i + 3].shl8;
+      audioBufferL.add(l.rel16);
+      audioBufferR.add(r.rel16);
+    }
+  }
+
+  /// start sector of the track, including 2 seconds of lead-in
+  int _trackStart(int trackNo) => disc.startLba(trackNo) + 2 * 75;
+
+  /// returns the track number (1..) which contains the sector, 0 if none
+  int _trackOf(int sector) {
+    if (disc.isEmpty) {
+      return 0;
+    }
+    int trackNo = 1;
+    while (trackNo < disc.trackCount && sector >= _trackStart(trackNo + 1)) {
+      trackNo++;
+    }
+    return trackNo; // sectors before track 1 are in the pregap of track 1
+  }
+
   List<int> popAudioSample() {
     if (audioBufferL.isNotEmpty && audioBufferR.isNotEmpty) {
       final l = audioBufferL.removeFirst();
       final r = audioBufferR.removeFirst();
-      if (adpCtrl.bit5) {
-        audioLastSample[0] = l;
-        audioLastSample[1] = r;
+      if (isMuted) {
+        audioLastSample[0] = 0;
+        audioLastSample[1] = 0;
       } else {
+        final v = atvApplied;
         audioLastSample[0] =
-            (l * atv[0] ~/ 0x80 + r * atv[3] ~/ 0x80).clip(-0x8000, 0x7fff);
+            (l * v[0] ~/ 0x80 + r * v[3] ~/ 0x80).clip(-0x8000, 0x7fff);
         audioLastSample[1] =
-            (r * atv[2] ~/ 0x80 + l * atv[1] ~/ 0x80).clip(-0x8000, 0x7fff);
+            (r * v[2] ~/ 0x80 + l * v[1] ~/ 0x80).clip(-0x8000, 0x7fff);
       }
     }
     return audioLastSample;
@@ -364,7 +442,7 @@ class Cdrom {
 
   int status() {
     return 0
-        .setBit(7, isCddaEnabled)
+        .setBit(7, isPlaying)
         .setBit(6, isSeeking)
         .setBit(5, isReading)
         .setBit(4, isShellOpen)
@@ -372,6 +450,42 @@ class Cdrom {
         .setBit(2, isSeekError)
         .setBit(1, isSpindleMotorOn)
         .setBit(0, isError);
+  }
+
+  int _param(int i) => i < paramFifo.length ? paramFifo.elementAt(i) : 0;
+
+  /// starts reading/playing from SetLoc position, or continues from the
+  /// current position if SetLoc is not issued after the last read
+  void _startFromSeekPosition() {
+    sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
+
+    // the first sector arrives after spinning up and seeking
+    sectorReadDelay += _spinUp();
+    if (isSeekPending) {
+      final distance = (seekSector - readingSector).abs();
+      if (distance >= 32) {
+        // 30ms to 180ms depending on the distance
+        sectorReadDelay +=
+            33868800 * (30 + 150 * distance.min(300000) ~/ 300000) ~/ 1000;
+        isSeeking = true;
+      }
+      readingSector = seekSector;
+      isSeekPending = false;
+    }
+  }
+
+  /// turns the spindle motor on, returns the clocks for spinning up
+  int _spinUp() {
+    if (isSpindleMotorOn) {
+      return 0;
+    }
+    isSpindleMotorOn = true;
+    return 33868800; // about 1 second
+  }
+
+  void _stop() {
+    isReading = false;
+    isPlaying = false;
   }
 
   void execCommand(int cmd) {
@@ -384,15 +498,21 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x02: // SetLoc
-        isReading = false;
-        seekSector = paramFifo.elementAt(0).asBcd * 60 * 75 +
-            paramFifo.elementAt(1).asBcd * 75 +
-            paramFifo.elementAt(2).asBcd;
+        seekSector =
+            _param(0).asBcd * 60 * 75 + _param(1).asBcd * 75 + _param(2).asBcd;
+        isSeekPending = true;
         irq(3, [status()], delay: 5000);
 
       case 0x03: // Play
+        final track = _param(0).asBcd;
+        if (track > 0 && !disc.isEmpty && track <= disc.trackCount) {
+          seekSector = _trackStart(track);
+          isSeekPending = true;
+        }
+        isReading = false;
+        _startFromSeekPosition();
         isPlaying = true;
-        readingSector = seekSector;
+        playTrack = 0;
         irq(3, [status()]);
 
       case 0x04: // Forward
@@ -404,29 +524,32 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x06: // ReadN
+        isPlaying = false;
+        _startFromSeekPosition();
         isReading = true;
-        readingSector = seekSector;
-        sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
       case 0x07: // Standby
-        isReading = false;
+        _stop();
+        _spinUp();
         irq(3, [status()]);
         irq(2, [status()]);
 
       case 0x08: // Stop
-        isReading = false;
+        _stop();
         irq(3, [status()]);
+        isSpindleMotorOn = false;
         irq(2, [status()]);
 
       case 0x09: // Pause
         irq(3, [status()]);
-        isReading = false;
+        _stop();
         irq(2, [status()]);
 
       case 0x0a: // Init
         isMuted = false;
-        isReading = false;
+        _stop();
+        _spinUp();
         mode = 0;
         // paramFifo.clear();
         // cmdResults.clear();
@@ -442,12 +565,12 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x0d: // SetFilter
-        file = paramFifo.elementAt(0);
-        channel = paramFifo.elementAt(1);
+        file = _param(0);
+        channel = _param(1);
         irq(3, [status()]);
 
       case 0x0e: // SetMode
-        mode = paramFifo.elementAt(0);
+        mode = _param(0);
         irq(3, [status()]);
 
       case 0x0f: // GetParam
@@ -457,21 +580,19 @@ class Cdrom {
         irq(3, rawSector.sublist(12, 20));
 
       case 0x11: // GetLocp
-        final currentSector = isReading ? readingSector : seekSector;
-        int trackNo = 0;
-        while (trackNo < disc.trackCount) {
-          if (currentSector < disc.startLba(trackNo + 1)) {
-            break;
-          }
-          trackNo++;
-        }
-        final (rm, rs, rf) = Disc.lbaToMsf(
-            currentSector - disc.startLba(trackNo),
-            addLeadIn: false);
+        final currentSector = isReading || isPlaying
+            ? readingSector
+            : isSeekPending
+                ? seekSector
+                : readingSector;
+        final trackNo = _trackOf(currentSector);
+        final relative =
+            trackNo == 0 ? 0 : currentSector - _trackStart(trackNo);
+        final (rm, rs, rf) = Disc.lbaToMsf(relative.abs());
         final (am, as_, af) = Disc.lbaToMsf(currentSector);
         irq(3, [
-          trackNo,
-          1,
+          trackNo.toBcd,
+          relative < 0 ? 0 : 1, // index 0 for pregap
           rm.toBcd,
           rs.toBcd,
           rf.toBcd,
@@ -481,27 +602,36 @@ class Cdrom {
         ]);
 
       case 0x13: // GetTN
-        final first = toc.firstTrackBcd;
-        final last = toc.lastTrackBcd;
-        irq(3, [status(), first, last]);
+        if (disc.isEmpty) {
+          irq(3, [status(), 0, 0]);
+        } else {
+          irq(3, [status(), 1.toBcd, disc.trackCount.toBcd]);
+        }
 
       case 0x14: // GetTD
-        final track = paramFifo.elementAt(0).asBcd;
-        if (track == 0) {
-          final (mm, ss, _) = Disc.lbaToMsf(disc.totalSectors);
-          irq(3, [status(), mm.toBcd, ss.toBcd]);
+        final track = _param(0).asBcd;
+        if (disc.isEmpty || track > disc.trackCount) {
+          irq(5, [status() | 0x01, 0x10]); // error: invalid parameter
         } else {
-          final (mm, ss, _) = Disc.lbaToMsf(disc.startLba(track));
+          final sector =
+              track == 0 ? disc.totalSectors + 2 * 75 : _trackStart(track);
+          final (mm, ss, _) = Disc.lbaToMsf(sector);
           irq(3, [status(), mm.toBcd, ss.toBcd]);
         }
 
       case 0x15: // SeekL
+        _stop();
+        _spinUp();
         readingSector = seekSector;
+        isSeekPending = false;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
       case 0x16: // SeekP
+        _stop();
+        _spinUp();
         readingSector = seekSector;
+        isSeekPending = false;
         irq(3, [status()], delay: 5000);
         irq(2, [status()], delay: 500000);
 
@@ -511,13 +641,13 @@ class Cdrom {
             delay: 50000); // Liscensed, SCEA
 
       case 0x1b: // ReadS (no retry)
+        isPlaying = false;
+        _startFromSeekPosition();
         isReading = true;
-        readingSector = seekSector;
-        sectorReadDelay = 33868800 ~/ (isHighSpeed ? 150 : 75);
         irq(3, [status()], delay: 1000);
 
       case 0x1c: // Reset
-        isReading = false;
+        _stop();
         irq(3, [status()]);
         irq(2, [status()]);
 
@@ -531,7 +661,7 @@ class Cdrom {
         if (paramFifo.isEmpty) {
           debugLog("cdrom: test no params");
         } else {
-          switch (paramFifo.elementAt(0)) {
+          switch (_param(0)) {
             case 0x04:
               irq(3, [status()]);
             case 0x05:

@@ -96,6 +96,7 @@ class Serial {
       irqDelay -= clocks;
       if (irqDelay <= 0) {
         irqDelay = 0;
+        dsr = true; // /ACK asserted by the device
         if (irqEnabled) {
           _debug("sio0: irq delay expired ${dump().replaceAll("\n", " ")}");
           bus.setIrq(Interrupt.serial);

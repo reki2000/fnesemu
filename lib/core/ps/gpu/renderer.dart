@@ -13,35 +13,29 @@ extension GpuRenderer on Gpu {
   });
 
   void renderScanline() {
-    // if (status.bit23) {
-    //   // Skip rendering if the status bit is set
-    //   return;
-    // }
+    final line = height == 240 ? scanline : scanline * 2 + (isOddFrame ? 1 : 0);
+    int bufIndex = width * line;
+    final fbY = (startDisplayY + line) & 0x1ff;
 
-    int bufIndex = width *
-        (height == 240 ? scanline : (scanline * 2 + (isOddFrame ? 1 : 0)));
-    final y = startDisplayY + scanline;
-    final fbIndexY = height == 240 ? y : (y * 2 + (isOddFrame ? 1 : 0));
-
-    // Choose appropriate rendering method based on color depth
-    if (y < 512 && scanline < 240) {
-      if (scanline >= displayY2 - displayY1) {
+    if (scanline < 240) {
+      if (status.bit23 || scanline >= displayY2 - displayY1) {
+        // display disabled or out of display range
         buffer.fillRange(bufIndex, bufIndex + width, alphaChannel);
       } else if (isRgb24) {
-        int fbIndex = 2048 * fbIndexY;
+        final fbIndex = 2048 * fbY;
+        int x8 = startDisplayX.shl1;
         for (int x = 0; x < width; x++) {
           buffer[bufIndex++] = alphaChannel |
-              frameBuffer[fbIndex] | // B
-              frameBuffer[fbIndex + 1].shl8 | // G
-              frameBuffer[fbIndex + 2].shl16; // R
-          fbIndex += 3;
+              frameBuffer[fbIndex + (x8 & 0x7ff)] | // R
+              frameBuffer[fbIndex + ((x8 + 1) & 0x7ff)].shl8 | // G
+              frameBuffer[fbIndex + ((x8 + 2) & 0x7ff)].shl16; // B
+          x8 += 3;
         }
       } else {
-        final fbIndex = 1024 * fbIndexY;
-        // debugLog(
-        //     "GPU: renderScanline y:$y scanline:$scanline startDisplayX:$startDisplayX fbIndex:$fbIndex");
-        for (int x = startDisplayX; x < width; x++) {
-          buffer[bufIndex++] = c15ToAbgr32[frameBuffer16[fbIndex + x] & 0x7fff];
+        final fbIndex = 1024 * fbY;
+        for (int x = 0; x < width; x++) {
+          buffer[bufIndex++] = c15ToAbgr32[
+              frameBuffer16[fbIndex + ((startDisplayX + x) & 0x3ff)] & 0x7fff];
         }
       }
     }
@@ -52,11 +46,11 @@ extension GpuRenderer on Gpu {
       bus.timer.startVBlank();
       isOddFrame = (height == 480) ? !isOddFrame : false;
       isVblank = true;
+      bus.setIrq(Interrupt.vBlank); // vblank irq at the beginning of vblank
     }
 
     // Reset scanline at the end of frame
     if (scanline == Gpu.scanlinesInFrame) {
-      bus.setIrq(Interrupt.vBlank);
       bus.timer.endVBlank();
       // bus.resetIrq(Interrupt.vBlank);
       scanline = 0;

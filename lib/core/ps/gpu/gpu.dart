@@ -56,6 +56,7 @@ class Gpu {
   bool vramToCpuReady = false; // GP0 VRAM to CPU command
 
   bool irq1 = false;
+  bool textureDisableAllowed = false; // GP1(09h)
 
   int textureMaskX = 0;
   int textureMaskY = 0;
@@ -92,6 +93,7 @@ class Gpu {
     cmdSize = 0;
     irq1 = false;
     vramToCpuReady = false;
+    textureDisableAllowed = false;
 
     width = 320;
     height = 240;
@@ -154,9 +156,9 @@ class Gpu {
   int readStat() {
     final b25 = switch (status.shr29 & 0x03) {
       0 => false,
-      1 => cmdSize > 0, // fifo not empty
-      2 => true, // dma is always available
-      _ => true, // vram to cpu transfer is always available
+      1 => true, // fifo is never full
+      2 => dmaReceiveReady, // same as bit28
+      _ => vramToCpuReady, // same as bit27
     };
 
     final result = status
@@ -192,7 +194,7 @@ class Gpu {
 
   @pragma('vm:prefer-inline')
   writeFrameBuffer16(int x, int y, int u16) {
-    final offset = y * 1024 + x;
+    final offset = (y & 0x1ff) * 1024 + (x & 0x3ff);
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   debugLog(
     //       "writeFrameBuffer16: ${u16.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
@@ -202,7 +204,7 @@ class Gpu {
 
   @pragma('vm:prefer-inline')
   int readFrameBuffer16(int x, int y) {
-    final offset = y * 1024 + x;
+    final offset = (y & 0x1ff) * 1024 + (x & 0x3ff);
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   final result = frameBuffer.getUint16LE(offset);
     //   debugLog(
@@ -224,13 +226,14 @@ class Gpu {
     final int addr;
     switch (clutMode) {
       case 0:
-        final clutByteIndex = base + baseX + uu.shr2;
+        final clutByteIndex = base + (baseX + uu.shr2).mask10;
         final clutByte = frameBuffer16[clutByteIndex & 0x7ffff];
         final clutIndex = clutByte >> (uu & 3).shl2;
         addr = clutBase + (clutIndex & 0x0f);
 
       case 1:
-        final clutIndex = frameBuffer[(base + baseX).shl1 + uu];
+        final clutIndex = frameBuffer[
+            ((base + (baseX + uu.shr1).mask10).shl1 | uu & 1) & 0xfffff];
         addr = clutBase + clutIndex;
 
       default:
@@ -247,56 +250,53 @@ class Gpu {
     return result;
   }
 
+  // 4x4 dither matrix added to 8bit color components
   static const _ditherV = [
-    //
-    0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5
+    -4, 0, -3, 1, //
+    2, -2, 3, -1, //
+    -3, 1, -4, 0, //
+    3, -1, 2, -2, //
   ];
-  static final _ditherV10 = _ditherV.map((i) => i.shl10).toList();
 
   @pragma('vm:prefer-inline')
+  static int _c8toC5(int c8) => c8 < 0
+      ? 0
+      : c8 > 0xff
+          ? 0x1f
+          : c8.shr3;
+
+  /// modulate a texel by a 24bit color (0x80 = x1.0), then dither if enabled
+  @pragma('vm:prefer-inline')
   @pragma('vm:no-bounds-check')
-  int ditherAndModulate(int x, int y, int c16, Color m24) {
-    int d = 0;
-    if (status.bit9) {
-      final xy = x & 3 | (y & 3).shl2;
-      d = _ditherV10[xy & 15];
-    }
+  int ditherAndModulate(int x, int y, int c16, Color m24,
+      {bool dithering = true}) {
+    final d = dithering && status.bit9 ? _ditherV[x & 3 | (y & 3).shl2] : 0;
 
-    final r5 = c16 & 0x1f;
-    final g5 = c16.shr5 & 0x1f;
-    final b5 = c16.shr10 & 0x1f;
-    final r = ((r5.shl5 + r5) * m24.r + d).shr12;
-    final g = ((g5.shl5 + g5) * m24.g + d).shr12;
-    final b = ((b5.shl5 + b5) * m24.b + d).shr12;
-    final r2 = r > 31 ? 31 : r;
-    final g2 = g > 31 ? 31 : g;
-    final b2 = b > 31 ? 31 : b;
+    final r = _c8toC5(((c16 & 0x1f) * m24.r).shr4 + d);
+    final g = _c8toC5(((c16.shr5 & 0x1f) * m24.g).shr4 + d);
+    final b = _c8toC5(((c16.shr10 & 0x1f) * m24.b).shr4 + d);
 
-    return b2.shl10 | g2.shl5 | r2 | c16 & 0x8000;
+    return b.shl10 | g.shl5 | r | c16 & 0x8000;
   }
 
+  /// convert a 24bit color into 15bit with dithering if enabled
   @pragma('vm:prefer-inline')
   @pragma('vm:no-bounds-check')
   int dither(int x, int y, Color c) {
-    int c15 = 0;
-    if (status.bit9) {
-      // dithering
-      final xy = x & 3 | (y & 3).shl2;
-      final d = _ditherV[xy & 15];
-      c15 = (c.r + d).shr3.min(31) |
-          (c.g + d).shr3.min(31).shl5 |
-          (c.b + d).shr3.min(31).shl10;
-    } else {
-      c15 = c.c15;
+    if (!status.bit9) {
+      return c.c15;
     }
 
-    return c15;
+    final d = _ditherV[x & 3 | (y & 3).shl2];
+    return _c8toC5(c.r + d) | _c8toC5(c.g + d).shl5 | _c8toC5(c.b + d).shl10;
   }
 
   @pragma('vm:prefer-inline')
   @pragma('vm:no-bounds-check')
+
+  /// c16.bit15 is written as the mask bit, [blend] enables semi-transparency
   pset16(int x, int y, int c16,
-      {bool ignoreWindow = false, int? semiTransparent}) {
+      {bool ignoreWindow = false, bool blend = false, int? semiTransparent}) {
     if (!ignoreWindow) {
       x += drawingOffsetX;
       y += drawingOffsetY;
@@ -321,7 +321,7 @@ class Gpu {
     }
 
     // semi-transparency
-    if (c16.bit15) {
+    if (blend) {
       final r0 = old & 0x1f;
       final g0 = old.shr5 & 0x1f;
       final b0 = old.shr10 & 0x1f;
@@ -333,7 +333,7 @@ class Gpu {
       //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
       //       "mode:${status >> 5 & 0x03}");
       // }
-      c16 = 0x8000 |
+      c16 = c16 & 0x8000 |
           switch (semiTransparent ?? status.shr5 & 0x03) {
             0 => (b0 + b1).shr1.shl10 |
                 (g0 + g1).shr1.shl5 |

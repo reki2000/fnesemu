@@ -5,10 +5,10 @@ extension CdromXA on Cdrom {
 
   // convert 4bit/8bit unsigned value to signed sample, then apply ADPCM decoding
   int decodeXaAdpcm(int value, int shift, int k0, int k1, int old, int older) {
-    final s = (value << shift).rel16;
+    final s = (shift >= 0 ? value << shift : value >> -shift).rel16;
 
     // apply filter
-    final sample = s + (old * k0 + older * k1 + 32) ~/ 64;
+    final sample = s + ((old * k0 + older * k1 + 32) >> 6);
 
     // clip to 16bit signed
     return sample.max(-32768).min(32767);
@@ -55,7 +55,7 @@ extension CdromXA on Cdrom {
 
       for (int unit = 0; unit < (is8bit ? 4 : 8); unit++) {
         final param = packetData[4 + unit];
-        final shift = 12 - (param.mask4 > 12 ? 9 : param.mask4);
+        final shift = (is8bit ? 8 : 12) - (param.mask4 > 12 ? 9 : param.mask4);
         final filter = param.shr4 & 0x03;
         final (k0, k1) = _xaFilters[filter];
 

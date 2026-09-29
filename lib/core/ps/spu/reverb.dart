@@ -189,7 +189,7 @@ class Reverb {
 
   int getReverbEnabled() => reverbEnabled.asMap().entries.fold(
         0,
-        (acc, entry) => acc.shl1 | (entry.value ? 1 : 0),
+        (acc, entry) => acc | (entry.value ? 1 << entry.key : 0),
       );
 
   void setReverbEnabled(int value) {
