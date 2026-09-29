@@ -5,32 +5,69 @@ import 'package:fnesemu/util/uint8list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/sram.dart';
+import '../core/storage_key.dart';
+import 'blob_store/blob_store.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;
 
   bool _dirty = false;
 
-  Function(String) _onEvent = (String s) {};
+  Function(String) onEvent = (String s) {};
 
   Timer? _worker;
 
-  SharedPreferences? _prefs;
+  final BlobStore? _store;
 
-  static of({Function(String)? onEvent}) {
-    final s = Storage();
+  // sram entries are preloaded so that cores can call init() synchronously
+  final Map<String, Uint8List> _cache;
 
-    if (onEvent != null) {
-      s._onEvent = onEvent;
+  Storage._(this._store, this._cache) {
+    _worker = Timer.periodic(const Duration(seconds: Storage.saveIntervalSec),
+        (timer) => saveIfDirty());
+  }
+
+  static Future<Storage> open({BlobStore? store}) async {
+    try {
+      store ??= await BlobStore.open();
+      await _migrateSharedPreferences(store);
+
+      final cache = <String, Uint8List>{};
+      for (final key in await store.keys()) {
+        if (StorageKey.kindOf(key) == StorageKey.sram) {
+          final data = await store.get(key);
+          if (data != null) cache[key] = data;
+        }
+      }
+      return Storage._(store, cache);
+    } catch (e) {
+      // run without persistence (e.g. storage is unavailable in the browser)
+      return Storage._(null, {});
     }
+  }
 
-    SharedPreferences.getInstance().then((prefs) => s._prefs = prefs);
+  // moves sram saved in shared preferences by older versions
+  static Future<void> _migrateSharedPreferences(BlobStore store) async {
+    final prefs = await SharedPreferences.getInstance();
 
-    s._worker?.cancel();
-    s._worker = Timer.periodic(const Duration(seconds: Storage.saveIntervalSec),
-        (timer) => s.saveIfDirty());
+    for (final oldKey in prefs.getKeys()) {
+      final value = prefs.get(oldKey);
+      if (value is! String) continue;
 
-    return s;
+      final newKey = switch (oldKey) {
+        "psx_mem1" => StorageKey.of("ps", StorageKey.sram, "memcard1"),
+        "ss_bram" => StorageKey.of("ss", StorageKey.sram, "bram"),
+        _ => StorageKey.of("nes", StorageKey.sram, oldKey),
+      };
+
+      await store.put(newKey, Uint8ListEx.fromBase64(value));
+      await prefs.remove(oldKey);
+    }
+  }
+
+  void dispose() {
+    saveIfDirty();
+    _worker?.cancel();
   }
 
   reset() {
@@ -40,13 +77,16 @@ class Storage extends Sram {
 
   @override
   void init(String id, Uint8List initialData) {
-    final saved = _prefs?.getString(id);
+    // flush the previous sram before switching
+    saveIfDirty();
+
+    final saved = _cache[id];
     if (saved == null) {
       super.init(id, initialData);
-      _onEvent("loading $id: not found. use initial data");
+      onEvent("loading $id: not found. use initial data");
     } else {
-      super.init(id, Uint8ListEx.fromBase64(saved));
-      _onEvent("successfully loaded $id");
+      super.init(id, saved);
+      onEvent("successfully loaded $id");
     }
   }
 
@@ -66,7 +106,18 @@ class Storage extends Sram {
   }
 
   void save() {
-    _prefs?.setString(id, Uint8List.fromList(data).toBase64());
-    _onEvent("saved $id size:${data.length}");
+    final key = id;
+    final bytes = Uint8List.fromList(data);
+    _cache[key] = bytes;
+
+    final store = _store;
+    if (store == null) {
+      return;
+    }
+
+    store
+        .put(key, bytes)
+        .then((_) => onEvent("saved $key size:${bytes.length}"))
+        .catchError((e) => onEvent("failed to save $key: $e"));
   }
 }
