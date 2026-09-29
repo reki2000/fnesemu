@@ -7,7 +7,7 @@ abstract class Sh2Bus {
   void write32(int address, int value);
 }
 
-/// Integer SH-2 interpreter. Cache and on-chip peripherals are not emulated yet.
+/// Integer SH-2 interpreter. Cache control and on-chip peripherals are not emulated yet.
 /// Unsupported instructions stop execution instead of acting as NOPs.
 class Sh2 {
   final Sh2Bus bus;
@@ -355,6 +355,32 @@ class Sh2 {
         case 14:
           r[n] = bus.read32(r[m] + r[0]);
           return true;
+        case 15:
+          // MAC.L reads each operand before incrementing its address register.
+          // When m == n, the two reads therefore use consecutive longwords.
+          final left = bus.read32(r[n]).toSigned(32);
+          r[n] = (r[n] + 4) & 0xffffffff;
+          final right = bus.read32(r[m]).toSigned(32);
+          r[m] = (r[m] + 4) & 0xffffffff;
+          final product = left * right;
+          final low = macl + (product & 0xffffffff);
+          final high = ((sr & 2) != 0
+                  ? (mach & 0xffff).toSigned(16)
+                  : mach.toSigned(32)) +
+              (product >> 32) +
+              (low >> 32);
+          if ((sr & 2) != 0 && high > 0x7fff) {
+            mach = 0x7fff;
+            macl = 0xffffffff;
+          } else if ((sr & 2) != 0 && high < -0x8000) {
+            mach = 0xffff8000;
+            macl = 0;
+          } else {
+            mach = high & 0xffffffff;
+            macl = low & 0xffffffff;
+          }
+          clocks += 2;
+          return true;
       }
       switch (op & 0xf0ff) {
         case 0x0002:
@@ -416,6 +442,28 @@ class Sh2 {
       }
     }
     if ((op >> 12) == 4) {
+      if (low == 15) {
+        final left = bus.read16(r[n]).toSigned(16);
+        r[n] = (r[n] + 2) & 0xffffffff;
+        final right = bus.read16(r[m]).toSigned(16);
+        r[m] = (r[m] + 2) & 0xffffffff;
+        final product = left * right;
+        if ((sr & 2) != 0) {
+          final sum = macl.toSigned(32) + product;
+          macl = (sum > 0x7fffffff
+                  ? 0x7fffffff
+                  : sum < -0x80000000
+                      ? -0x80000000
+                      : sum) &
+              0xffffffff;
+        } else {
+          final low = macl + (product & 0xffffffff);
+          mach = (mach + (product >> 32) + (low >> 32)) & 0xffffffff;
+          macl = low & 0xffffffff;
+        }
+        clocks += 2;
+        return true;
+      }
       switch (op & 255) {
         case 0x00 || 0x20:
           t = (r[n] & 0x80000000) != 0;

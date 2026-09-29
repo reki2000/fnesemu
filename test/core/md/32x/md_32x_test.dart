@@ -106,6 +106,17 @@ void main() {
     expect(a.readMain16(0xa15122), 0x5678);
     expect(a.readMain16(0xa130ec), 0x4d41);
   });
+  test('SH-2 cache data arrays are writable, private, and reset with the CPUs',
+      () {
+    final a = adapter();
+    a.buses[1].write32(0xc00005f0, 0x12345678);
+    expect(a.buses[1].read32(0xc00005f0), 0x12345678);
+    expect(a.buses[0].read32(0xc00005f0), 0);
+    a.buses[0].write8(0xc00005f1, 0xab);
+    expect(a.buses[0].read16(0xc00005f0), 0x00ab);
+    a.reset();
+    expect(a.buses[1].read32(0xc00005f0), 0);
+  });
   test('video ownership and word-only palettes are enforced', () {
     final a = adapter();
     a.writeMain16(0xa15202, 0x1234);

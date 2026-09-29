@@ -108,6 +108,69 @@ void main() {
       expect(cpu.sr & 0x301, flags);
     }
   });
+  test('MAC.L accumulates signed products and advances both source registers',
+      () {
+    bus.code([0x012f, 0x012f]);
+    cpu.r[1] = 0x200;
+    cpu.r[2] = 0x300;
+    bus.write32(0x200, 0xffffffff);
+    bus.write32(0x204, 0x80000000);
+    bus.write32(0x300, 3);
+    bus.write32(0x304, 2);
+    run(2);
+    expect(cpu.r[1], 0x208);
+    expect(cpu.r[2], 0x308);
+    expect(cpu.mach, 0xfffffffe);
+    expect(cpu.macl, 0xfffffffd);
+  });
+  test('MAC.L reads consecutive longwords when both operands use one register',
+      () {
+    bus.code([0x011f]);
+    cpu.r[1] = 0x200;
+    bus.write32(0x200, 6);
+    bus.write32(0x204, 7);
+    run(1);
+    expect(cpu.r[1], 0x208);
+    expect(cpu.macl, 42);
+  });
+  test('MAC.L saturates at signed 48-bit bounds when S is set', () {
+    bus.code([0x012f]);
+    cpu.sr = 2;
+    cpu.r[1] = 0x200;
+    cpu.r[2] = 0x300;
+    cpu.mach = 0x7fff;
+    cpu.macl = 0xffffffff;
+    bus.write32(0x200, 2);
+    bus.write32(0x300, 2);
+    run(1);
+    expect(cpu.mach, 0x7fff);
+    expect(cpu.macl, 0xffffffff);
+  });
+  test('MAC.W accumulates signed words and advances both source registers', () {
+    bus.code([0x412f, 0x412f]);
+    cpu.r[1] = 0x200;
+    cpu.r[2] = 0x300;
+    bus.write16(0x200, 0xffff);
+    bus.write16(0x202, 0x8000);
+    bus.write16(0x300, 3);
+    bus.write16(0x302, 2);
+    run(2);
+    expect(cpu.r[1], 0x204);
+    expect(cpu.r[2], 0x304);
+    expect(cpu.mach, 0xffffffff);
+    expect(cpu.macl, 0xfffefffd);
+  });
+  test('MAC.W reads consecutive words for one register and saturates MACL', () {
+    bus.code([0x411f]);
+    cpu.r[1] = 0x200;
+    cpu.sr = 2;
+    cpu.macl = 0x7fffffff;
+    bus.write16(0x200, 6);
+    bus.write16(0x202, 7);
+    run(1);
+    expect(cpu.r[1], 0x204);
+    expect(cpu.macl, 0x7fffffff);
+  });
   test('loads sign extend and postincrement does not clobber same register',
       () {
     cpu.r[2] = 0x200;

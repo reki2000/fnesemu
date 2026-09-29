@@ -13,6 +13,8 @@ class Md32x {
   final mainBoot = Uint8List(0x100);
   final masterBoot = Uint8List(0x800);
   final slaveBoot = Uint8List(0x400);
+  // Each SH-2 exposes its own 4 KiB cache data array in the P4 area.
+  final cacheData = [Uint8List(0x1000), Uint8List(0x1000)];
   final registers = Uint8List(0x40);
   final video = ExpansionVideo();
   late final ExpansionPwm pwm;
@@ -56,6 +58,9 @@ class Md32x {
   void reset() {
     control = _bank = _cycles = _hcount = 0;
     registers.fillRange(0, registers.length, 0);
+    for (final data in cacheData) {
+      data.fillRange(0, data.length, 0);
+    }
     _masks.fillRange(0, 2, 0);
     _pending.fillRange(0, 2, 0);
     _fifo.clear();
@@ -316,6 +321,9 @@ class Md32x {
   }
 
   int readSh8(int address, int cpu) {
+    if ((address & 0xfffff000) == 0xc0000000) {
+      return cacheData[cpu][address & 0xfff];
+    }
     address &= 0x1fffffff; // uncached alias
     final boot = cpu == 0 ? masterBoot : slaveBoot;
     if (address < boot.length) return biosLoaded ? boot[address] : 0xff;
@@ -336,6 +344,9 @@ class Md32x {
   }
 
   int readSh16(int address, int cpu) {
+    if ((address & 0xfffff000) == 0xc0000000) {
+      return (readSh8(address, cpu) << 8) | readSh8(address + 1, cpu);
+    }
     address &= 0x1fffffff;
     if (address >= 0x4000 && address < 0x4040) {
       return _readSystem(address - 0x4000, cpu);
@@ -351,6 +362,10 @@ class Md32x {
   }
 
   void writeSh8(int address, int value, int cpu) {
+    if ((address & 0xfffff000) == 0xc0000000) {
+      cacheData[cpu][address & 0xfff] = value & 255;
+      return;
+    }
     address &= 0x1fffffff;
     value &= 255;
     if (address >= 0x06000000 && address < 0x06040000) {
@@ -376,6 +391,11 @@ class Md32x {
   }
 
   void writeSh16(int address, int value, int cpu) {
+    if ((address & 0xfffff000) == 0xc0000000) {
+      writeSh8(address, value >> 8, cpu);
+      writeSh8(address + 1, value, cpu);
+      return;
+    }
     address &= 0x1fffffff;
     value &= 0xffff;
     if (address >= 0x4000 && address < 0x4040) {

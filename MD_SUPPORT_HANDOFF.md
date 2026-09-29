@@ -19,7 +19,9 @@ CD: BIOS/sub 68000、PRG/Word RAM、BRAM、CDD/CDC、PCM/CD-DA、stamp graphics�
 ADEN clear/reset held では CPU と周辺機器を止め、再開時に停止期間の計算を行わない。opacity buffer と追加 CPU 実行フラグ map は必要時に割り当てる。
 `.32x` は GUI の ROM/ZIP ローダーと CoreFactory から MD 32x コアに渡る。ROM ヘッダに 32X 表記がなくても拡張子でアダプタを選べることを統合テストで確認した。
 
-手元の実 32X ROM は 4 MiB の `.32x` を含み、manufacturer 32X ヘッダを持つ。ZIP 内の ROM を `/tmp/md32x-cart.32x` に展開して確認。`Md(expansionBoot:true)` はアダプタを生成し、主 CPU は 13 frames 進んで 32x を有効にした時点で `MD 32x boot ROMs are required` により停止した。実ブート ROM 3 個はまだ見つかっておらず、SH-2/gameplay の実 ROM 動作は未確認。ログは `/tmp/md32x-cart-probe.log`。
+手元の実 32X ROM は 4 MiB の `.32x` を含み、manufacturer 32X ヘッダを持つ。ZIP 内の ROM を `/tmp/md32x-cart.32x` に展開して確認。実ブート ROM (main / master / slave) は順に 256 / 2048 / 1024 bytes。作業用に `/tmp/md32x-main-boot.bin`、`/tmp/md32x-master-boot.bin`、`/tmp/md32x-slave-boot.bin` に展開した。ROM と BIOS はリポジトリに入れていない。
+
+最初の実 ROM 起動は slave SH-2 が `0xc00005f0` の `ffff` で停止した。これは SH-2 のキャッシュデータ領域を通常の uncached alias として写像していたため。CPU ごとに独立した 4 KiB のデータ領域を追加し、32-bit 読み書き・CPU 間分離・リセットを単体テストで検証した。修正後は 600 frames で停止せず、120 frames で起動ロゴ、600 frames でタイトル画面を画像で確認。700 frames で Start を押すとモード選択画面へ、930 frames でもう一度押すとキャラクター選択画面へ進んだ。さらに 1250 frames で Start を押すと、1380 frames に master SH-2 が `0x060054ac` の `0x0fff` 命令で停止した。周辺は `CLRMAC` と `MAC.L` 2 回を含む正常な命令列であり、未実装だった `MAC.L` を追加した。次に 1383 frames で master SH-2 が `0xc00000bc` の `0x4edf` 命令で停止。周辺は `MAC.W` 3 回を含む正常な命令列であり、`MAC.W` も追加した。両命令の符号付き積和、ポストインクリメント、S ビットによる飽和を単体テストで検証した。その後 1800 frames まで停止せず、対戦の HUD と背景を確認した。ただしキャラクターは表示されず、描画は未完成。1500 frames の表示レジスタは mode=1、control=0x8003、両バンクとも非ゼロ byte は先頭のライン表 240 個のみで、pixel 本体が書かれていない。画面合成より前のデータ生成・転送経路を調べる必要がある。ログ `/tmp/md32x-cart-boot2.log`、`/tmp/md32x-cart-stop{,2}.log`、`/tmp/md32x-cart-mac2.log`、`/tmp/md32x-video.log`、画像 `/tmp/md32x-cart-{120,300,600}.png` と `/tmp/md32x-cart-play-{750,900,1000,1200,1500,1800}.png`。
 
 実ディスク確認で修正した点:
 
@@ -62,6 +64,10 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
   lib/tools/md_cdrom.dart /tmp/md-cdrom-bios.bin \
   <disc.cue> 1800 \
   --start-frame=600 --out=/tmp/md-cdrom-check --every=300
+"$SDK/cache/dart-sdk/bin/dart" --packages=.dart_tool/package_config.json \
+  lib/tools/md_32x.dart /tmp/md32x-cart.32x \
+  /tmp/md32x-main-boot.bin /tmp/md32x-master-boot.bin \
+  /tmp/md32x-slave-boot.bin 600
 "$SDK/flutter" test --no-pub --reporter expanded
 "$SDK/cache/dart-sdk/bin/dart" analyze lib/core/md lib/core/types.dart \
   lib/core/core_factory.dart lib/disc/cue.dart lib/tools/md_32x.dart \
@@ -75,7 +81,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 2. CDC の最後のサンプルは header=[0,21,33,1], destination=0, dataReady=false, transferEnd=false。これは単一時点であり、DMA 未実行と断定しない。
 3. main は 0x10ec/0x10f0 の sub flag bit 1 待ち。sub は 0x6156/0x615a の local flag 待ち。sub の flag 0x8c35 は IRQ2 handler 0x60a4 で実際にクリアされる。IRQMASK=62、main reset read=0x8001。
 4. 再起動やゲーム固有の待ちを直す場合は、BIOS PC を強制変更するなどの回避ではなくハードウェア原因を確認する。
-5. 32x は commercial boot 未検証。DIV1 はメーカーの命令仕様に沿って追加し、16-bit 非符号除算シーケンスで確認した。MAC、on-chip peripherals/DMAC/cache、正確な timing、PAL/240 line と GUI BIOS selector が未実装。未実装 opcode は停止して表示する。
+5. 32x は実 ROM の対戦 HUD と背景まで確認済み。ただしキャラクターは表示されない。DIV1 はメーカーの命令仕様に沿って追加し、16-bit 非符号除算シーケンスで確認した。MAC.L と MAC.W も追加済み。キャッシュデータ領域以外のキャッシュ制御、on-chip peripherals/DMAC、正確な timing、PAL/240 line と GUI BIOS selector は未実装。未実装 opcode は停止して表示する。
 
 通常 MD の AOT 比較は `/tmp/md_perf.dart` と `/tmp/md_perf_{base,current}` で試行。
 サンプルは大きくばらつき、定量的に「速度低下なし」とはまだ言えない。
@@ -83,7 +89,7 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
 
 ## 区切り時点の検証
 
-- `.32x` 選択テスト追加後、全 127 テスト成功。
+- MAC.W テスト追加後、全 133 テスト成功。
 - 変更対象の Dart static analysis: No issues found。
 - `git diff --check` 成功。
 - 専用 32x バスへの整理後に実 BIOS の 1800-frame 確認を再実行。CDC 状態修正後も起動待ちのまま。上記ログを参照する。
