@@ -26,7 +26,7 @@ class Envelope {
       {bool negativePhase_ = false}) {
     final rawStep = 7 - step_;
     final baseStep = decreasing_ ^ negativePhase_
-        ? -rawStep
+        ? ~rawStep
         : rawStep; // +7,+6,+5,+4 => -8,-7,-6,-5
     final step = baseStep << (11 - shift_).max(0);
     final counterDecrement = 0x400000 >> (shift_ - 11).max(0);
@@ -151,8 +151,12 @@ class Voice {
   }
 
   /// proceed to next sample
-  (int, int, int) clock() {
-    final step = pitch; // todo pitch modulation
+  (int, int, int) clock(int prevSample) {
+    int step = pitch;
+    if (pitchModulation && no > 0) {
+      // modulated by the output of the previous voice
+      step = ((step.rel16 * (prevSample + 0x8000)) >> 15).mask16;
+    }
     _counter += step.min(0x4000);
 
     _blockIndex += _counter.shr12;
@@ -164,8 +168,10 @@ class Voice {
     }
 
     final i = _blockIndex + blockOldSize;
-    final val = gaussian(_block[i], _block[i - 1], _block[i - 2], _block[i - 3],
-        _counter.shr4 & 0xff);
+    final val = noise
+        ? spu.noiseLevel.rel16
+        : gaussian(_block[i], _block[i - 1], _block[i - 2], _block[i - 3],
+            _counter.shr4 & 0xff);
 
     adsrVolume = envelope.apply(adsrVolume);
 

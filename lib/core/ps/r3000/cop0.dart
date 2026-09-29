@@ -37,7 +37,7 @@ extension Cop0 on R3000 {
       // debugLog(
       //     "cpu: rfe sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
       default:
-        R3000._unknown(inst32);
+        _unknown(inst32);
     }
   }
 }

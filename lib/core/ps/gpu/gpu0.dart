@@ -36,7 +36,9 @@ extension Gpu0 on Gpu {
         debugLog("gp0: unknown misc command: ${value.x8}");
 
       case 0xe1: // draw mode setting
-        status = status.masked(0x7ff, value).setBit(15, value.bit11);
+        status = status
+            .masked(0x7ff, value)
+            .setBit(15, textureDisableAllowed && value.bit11);
       // debugLog("gp0: e1: draw mode setting: ${status.x8}");
 
       case 0xe2: // texture window setting
@@ -128,7 +130,7 @@ extension Gpu0 on Gpu {
   }
 
   postRead() {
-    if (cmdSize == 0) {
+    if (cmdSize != 4 || cmd[0].shr29 != 0x06) {
       vramToCpuReady = false;
       return;
     }
@@ -162,12 +164,14 @@ extension Gpu0 on Gpu {
     cmd[cmdSize++] = value;
 
     if (cmdSize == 3) {
-      final p0 = Point.of(cmd[1] & 0x01ff03f0, 0, 0);
+      final x0 = cmd[1] & 0x3f0;
+      final y0 = cmd[1].shr16 & 0x1ff;
       final w = ((cmd[2] & 0x3ff) + 0x0f) & 0x7f0;
       final h = cmd[2].shr16 & 0x1ff;
       final c16 = Color.ofC24(cmd[0]).c15;
-      for (int y = p0.y; y < (p0.y + h).min(512); y++) {
-        for (int x = p0.x; x < (p0.x + w).min(1024); x++) {
+      // wraps around vram, ignores drawing area and mask settings
+      for (int y = y0; y < y0 + h; y++) {
+        for (int x = x0; x < x0 + w; x++) {
           writeFrameBuffer16(x, y, c16);
         }
       }
@@ -194,6 +198,11 @@ extension Gpu0 on Gpu {
       final c0 = c[0];
 
       if (textured) {
+        // texpage attribute of the polygon updates the gpu status
+        final page = c[gouraud ? 5 : 4].shr16;
+        status = status
+            .masked(0x1ff, page)
+            .setBit(15, textureDisableAllowed && page.bit11);
         // 0c,1xy,2uv   3c,4xy,5uv  6c,7xy,8uv   9c,10xy,11uv
         // 0c,1xy,2uv   3xy,4uv  5xy,6uv  7xy,8uv
         renderTexturedGouraudPolygon4(c);
@@ -234,23 +243,32 @@ extension Gpu0 on Gpu {
     final gouraud = cmd[0].bit28;
     final polyline = cmd[0].bit27;
 
-    if (polyline && value & 0xf000f000 == 0x50005000) {
+    if (polyline && cmdSize > 2 && value & 0xf000f000 == 0x50005000) {
       cmdSize = 0;
       return;
     }
 
     if (gouraud) {
-      if (cmdSize > 3 && !cmdSize.bit0) {
-        renderGouraudLine(cmd[0], cmd[cmdSize - 3], cmd[cmdSize - 1],
-            cmd[cmdSize - 4], cmd[cmdSize - 2]);
-        if (!polyline && cmdSize == 4) {
+      // cmd: c0+cmd, v0, c1, v1
+      if (cmdSize == 4) {
+        renderGouraudLine(cmd[0], cmd[1], cmd[3], cmd[0], cmd[2]);
+        if (polyline) {
+          // the end point becomes the start point of the next segment
+          cmd[0] = cmd[0] & 0xff000000 | cmd[2] & 0xffffff;
+          cmd[1] = cmd[3];
+          cmdSize = 2;
+        } else {
           cmdSize = 0;
         }
       }
     } else {
-      if (cmdSize > 2) {
-        renderLine(cmd[0], cmd[cmdSize - 2], cmd[cmdSize - 1]);
-        if (!polyline && cmdSize == 3) {
+      // cmd: c0+cmd, v0, v1
+      if (cmdSize == 3) {
+        renderLine(cmd[0], cmd[1], cmd[2]);
+        if (polyline) {
+          cmd[1] = cmd[2];
+          cmdSize = 2;
+        } else {
           cmdSize = 0;
         }
       }
@@ -277,7 +295,6 @@ extension Gpu0 on Gpu {
 
     if (cmdSize == beginIndex) {
       final transparent = cmd[0].bit25;
-      final transparentMask = transparent ? 0xffff : 0x7fff;
       final modulated = !cmd[0].bit24;
       final modulateColor = Color.ofC24(cmd[0]);
 
@@ -313,14 +330,15 @@ extension Gpu0 on Gpu {
             final texColor = getTextureColor2(
                 u0 + x, v0 + y, baseX, baseY, clutBase, clutMode);
             if (texColor != 0) {
+              // rectangles are never dithered
               final c16 = !modulated
                   ? texColor
-                  : ditherAndModulate(x, y, texColor, modulateColor);
-              pset16(x0 + x, y0 + y, c16 & transparentMask);
+                  : ditherAndModulate(x, y, texColor, modulateColor,
+                      dithering: false);
+              pset16(x0 + x, y0 + y, c16, blend: transparent && texColor.bit15);
             }
           } else {
-            final c15 = dither(x, y, modulateColor);
-            pset16(x0 + x, y0 + y, c15 | (transparent ? 0x8000 : 0));
+            pset16(x0 + x, y0 + y, modulateColor.c15, blend: transparent);
           }
         }
       }

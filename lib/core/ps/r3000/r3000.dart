@@ -174,7 +174,8 @@ class R3000 {
     return true;
   }
 
-  static _unknown(int inst32) => throw UnknownOpcodeException();
+  /// raises Reserved Instruction exception instead of stopping the emulator
+  void _unknown(int inst32) => exception(Exception.illegalInstruction);
 
   void delay(RegNo dst, int val) {
     if (dst == delayReg) {

@@ -8,7 +8,8 @@ extension VoiceAdpcmDecoder on Voice {
           "SPU${no.d2z}: addr:${_addr.x6} ram:${spu.ram.sublist(_addr, _addr + 16).map((e) => e.x2).join(" ")}");
     }
 
-    final header = spu.readRam16(_addr);
+    spu.checkIrqRange(_addr, 16);
+    final header = spu.ram[_addr] | spu.ram[_addr + 1] << 8;
     final loop = header.shr8;
 
     if (loop.bit2) {
@@ -35,7 +36,7 @@ extension VoiceAdpcmDecoder on Voice {
       final raw = spu.ram[_addr] >> (i.bit0 ? 4 : 0);
       final shifted = raw.rel4 << (12 - shift);
       final filtered =
-          shifted + (c1 * _block[i - 1] + c2 * _block[i - 2] + 32) ~/ 64;
+          shifted + ((c1 * _block[i - 1] + c2 * _block[i - 2] + 32) >> 6);
       final val = filtered.clip(-0x8000, 0x7fff);
       if (log) {
         debugLog(
