@@ -19,6 +19,9 @@ This project is experimental.
 - PS1 (.ps) * experimental *
   - requires BIOS with `.ps` extension 
   - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
+- SS (.ss) * work in progress *
+  - requires BIOS with `.ss` extension, disc is selected from the disc menu
+  - not verified with real BIOS / games yet
 
 # How to use 
 
@@ -34,6 +37,7 @@ This project is experimental.
 | PCE | II | I | | select | run | | |  | UP | DOWN | LEFT | RIGHT |
 | MD  | A | B | C | | start | X | Y | Z | UP | DOWN | LEFT | RIGHT |
 | PS1 | # | x | o | select | ^ | L | start | R | UP | DOWN | LEFT | RIGHT |
+| SS  | A | B | C | L | start | X | Y | Z | UP | DOWN | LEFT | RIGHT |
 
 ## How to build and run on local machine
 

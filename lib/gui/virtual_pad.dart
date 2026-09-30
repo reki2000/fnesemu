@@ -67,7 +67,10 @@ class VirtualPadWidget extends StatelessWidget {
             ...controller.buttons.sublist(4).asMap().entries.map((e) => button(
                 e.value,
                 name: e.value.name,
-                key: VirtualPadWidget.keys[e.key]))
+                // buttons beyond the keyboard assignment have no key label
+                key: e.key < VirtualPadWidget.keys.length
+                    ? VirtualPadWidget.keys[e.key]
+                    : ""))
         ]));
   }
 }
