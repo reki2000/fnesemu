@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1 Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/GB Emulator Built with Flutter
 
 This project is experimental.
 
@@ -16,6 +16,10 @@ This project is experimental.
   - Does not support SRAM / CD / SG16
 - MD (.gen .md)
   - Does not suppor SRAM / CD / PAL / 32X
+- GB (.gb)
+  - SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)
+  - Supports ROM only / MBC1 / MBC2 / MBC3 (with clock) / MBC5 cartridges
+  - Starts without a boot program. Does not support GBC-only cartridges / serial link
 - PS1 (.ps) * experimental *
   - requires BIOS with `.ps` extension 
   - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
@@ -34,6 +38,7 @@ This project is experimental.
 | PCE | II | I | | select | run | | |  | UP | DOWN | LEFT | RIGHT |
 | MD  | A | B | C | | start | X | Y | Z | UP | DOWN | LEFT | RIGHT |
 | PS1 | # | x | o | select | ^ | L | start | R | UP | DOWN | LEFT | RIGHT |
+| GB  | B | A | | select | start | | | | UP | DOWN | LEFT | RIGHT |
 
 ## How to build and run on local machine
 
