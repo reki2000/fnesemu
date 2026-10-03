@@ -66,6 +66,23 @@ loading: File: 'assets/rom/nestest.nes'
 cpu test completed successfully.
 ```
 
+## To check SNES cartridges without the UI
+
+Run the frame capture harness with a `.sfc`/`.smc` file or a directory of
+cartridges. ROMs are read from their original location and are not added to
+the repository.
+
+```
+dart run lib/tools/snes_harness.dart /path/to/snes-roms 120 /tmp/snes-harness
+```
+
+It prints each cartridge's detected title and mapping, CPU address, PPU mode,
+blanking state, and image color count at frame 1, every 30 frames, and the
+final frame. It saves PNG captures at those points. The final frame also
+produces individual BG/OBJ layer captures and a VRAM dump for investigating
+graphics defects. The frame count and output directory are optional; they
+default to 180 and `/tmp/snes-harness`.
+
 ## To test z80 emulation
 
 get `tests.in` and `tests.expected` from [Fuse](https://fuse-emulator.sourceforge.net/), store these file to `assets`

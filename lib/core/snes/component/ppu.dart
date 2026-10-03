@@ -1,0 +1,502 @@
+import 'package:fnesemu/util/int.dart';
+// Dart imports:
+import 'dart:typed_data';
+
+/// per-BG register group (BG1-4 share the same register shapes).
+class BgRegs {
+  int tilemapAddr = 0; // word address of the 32x32-tile tilemap base
+  bool wideX = false; // tilemap horizontally doubled (64 tiles wide)
+  bool wideY = false; // tilemap vertically doubled (64 tiles tall)
+  int charBase = 0; // word address of the character (tile graphics) data
+  bool bigChar = false; // 16x16 tiles instead of 8x8 (BGMODE bit)
+  int hofs = 0; // 10-bit horizontal scroll
+  int vofs = 0; // 10-bit vertical scroll
+}
+
+/// SNES PPU: VRAM/CGRAM/OAM plus the $2100-$213F register file.
+///
+/// BG modes 0, 1, 2, 3, 4 and 7 render (2bpp/4bpp/8bpp tiles, offset-per-tile
+/// for 2/4, mode7 rotation/scaling for BG1 only - no EXTBG) plus OBJ
+/// (sprites), fed via DMA/HDMA (see dma.dart) at practical speed. Windows,
+/// color math, and horizontal mosaic apply to modes 0-4 (not mode7's
+/// dedicated renderer yet). Modes 5/6 (hi-res, 512px wide) render BG1/BG2
+/// only, at 512px width (see [width]/[widthNormal]); OBJ and mode7 stay
+/// at normal 256px width for all modes, matching real hardware. Vertical
+/// mosaic and direct-color mode are not implemented.
+class Ppu {
+  static const widthNormal = 256;
+  static const widthHires = 512;
+  static const height = 224;
+
+  /// current scanline-buffer width: 256 normally, 512 in BG modes 5/6.
+  /// `buffer` is always allocated at the max size; only the first
+  /// `width * height` entries are meaningful after a frame renders.
+  int width = widthNormal;
+
+  final buffer = Uint32List(widthHires * height);
+
+  // ------------------------------------------------------------- memory
+  final vram = Uint8List(0x10000); // 64KB, byte-addressed (word reg * 2)
+  final cgram = Uint8List(512); // 256 entries x 2 bytes, BGR555 in low 15 bits
+  final oam = Uint8List(544); // 512-byte sprite table + 32-byte high table
+
+  Ppu() {
+    reset();
+  }
+
+  void reset() {
+    width = widthNormal;
+    buffer.fillRange(0, buffer.length, 0xff000000);
+    brightness = 0;
+    forcedBlank = true;
+    bgMode = 0;
+    bg3Priority = false;
+    for (final bg in bgs) {
+      bg.tilemapAddr = 0;
+      bg.wideX = false;
+      bg.wideY = false;
+      bg.charBase = 0;
+      bg.bigChar = false;
+      bg.hofs = 0;
+      bg.vofs = 0;
+    }
+    _bgOfsLatch = 0;
+    vramAddr = 0;
+    vramIncHigh = false;
+    vramIncAmount = 1;
+    _vramReadBuf = 0;
+    cgramAddr = 0;
+    cgramLatchHigh = false;
+    _cgramLowByte = 0;
+    oamAddr = 0;
+    oamLatchHigh = false;
+    _oamLowByte = 0;
+    mainScreenEnable = 0;
+    subScreenEnable = 0;
+    objBase = 0;
+    objGap = 0;
+    objSizeSel = 0;
+    rangeOver = false;
+    timeOver = false;
+    m7sel = 0;
+    m7a = 0x0100;
+    m7b = 0;
+    m7c = 0;
+    m7d = 0x0100;
+    m7x = 0;
+    m7y = 0;
+    m7hofs = 0;
+    m7vofs = 0;
+    _m7Latch = 0;
+    _m7bByte = 0;
+    mpyResult = 0;
+    w12sel = 0;
+    w34sel = 0;
+    wobjsel = 0;
+    w1Left = 0;
+    w1Right = 0;
+    w2Left = 0;
+    w2Right = 0;
+    wbglog = 0;
+    wobjlog = 0;
+    tmw = 0;
+    tsw = 0;
+    cgwsel = 0;
+    cgadsub = 0;
+    fixedColorR = 0;
+    fixedColorG = 0;
+    fixedColorB = 0;
+    mosaicSize = 0;
+    mosaicEnable = 0;
+  }
+
+  // ------------------------------------------------------ $2100 INIDISP
+  int brightness = 0; // 0-15
+  bool forcedBlank = true;
+
+  // ------------------------------------------------------ $2101 OBSEL
+  int objSizeSel = 0; // 0-7, see _objSizeTable in ppu_render.dart
+  int objGap = 0; // "name select", 0-3
+  int objBase = 0; // "name base", 0-7 (word addr = base << 13)
+
+  // ------------------------------------------------- $2102/2103 OAMADD
+  int oamAddr = 0; // 9-bit word address into the 272-word OAM table
+  bool oamLatchHigh = false;
+  int _oamLowByte = 0;
+
+  // ----------------------------------------------------------- $2104 OAMDATA
+  // simplification: treats the whole 272-word table (low + high) uniformly
+  // as low-byte-then-high-byte buffered writes. real hardware has a subtler
+  // per-byte-parity rule specifically for the high table; not modeled here.
+  void _oamWrite(int val) {
+    if (!oamLatchHigh) {
+      _oamLowByte = val;
+      oamLatchHigh = true;
+    } else {
+      final byteAddr = (oamAddr * 2).mask16;
+      if (byteAddr < oam.length) oam[byteAddr] = _oamLowByte;
+      if (byteAddr + 1 < oam.length) oam[byteAddr + 1] = val;
+      oamAddr = (oamAddr + 1).mask9;
+      oamLatchHigh = false;
+    }
+  }
+
+  int _oamRead() {
+    final byteAddr = (oamAddr * 2).mask16;
+    final v = byteAddr < oam.length ? oam[byteAddr] : 0;
+    final hi = byteAddr + 1 < oam.length ? oam[byteAddr + 1] : 0;
+    final result = oamLatchHigh ? hi : v;
+    if (oamLatchHigh) oamAddr = (oamAddr + 1).mask9;
+    oamLatchHigh = !oamLatchHigh;
+    return result;
+  }
+
+  // ------------------------------------------------------- $2105 BGMODE
+  int bgMode = 0;
+  bool bg3Priority = false;
+
+  // ------------------------------------------------- $2107-210A BGxSC
+  // ------------------------------------------------- $210B/210C BGxNBA
+  final bgs = List.generate(4, (_) => BgRegs());
+
+  // --------------------------------------------- $210D-2114 BGxH/VOFS
+  int _bgOfsLatch = 0; // shared "Prev" latch across all 8 scroll regs
+
+  void _writeHofs(BgRegs bg, int val) {
+    bg.hofs = val.shl8 | _bgOfsLatch & ~7 | bg.hofs.shr8.mask3;
+    bg.hofs &= 0x3ff;
+    _bgOfsLatch = val;
+  }
+
+  void _writeVofs(BgRegs bg, int val) {
+    bg.vofs = (val.shl8 | _bgOfsLatch).mask10;
+    _bgOfsLatch = val;
+  }
+
+  // --------------------------------------------------- $2115-2117 VMAIN/ADD
+  int vramAddr = 0; // word address, 0-0x7fff
+  bool vramIncHigh = false; // increment after high-byte access
+  int vramIncAmount = 1;
+  int _vramReadBuf = 0;
+
+  void _refreshVramReadBuf() {
+    final a = vramAddr.mask15 * 2;
+    _vramReadBuf = vram[a] | vram[a + 1].shl8;
+  }
+
+  // ----------------------------------------------------- $2118/2119 VMDATA
+  void _vramWrite(int hi, int val) {
+    final a = vramAddr.mask15 * 2;
+    if (hi == 0) {
+      vram[a] = val;
+    } else {
+      vram[a + 1] = val;
+    }
+    if (hi == (vramIncHigh ? 1 : 0)) {
+      vramAddr = (vramAddr + vramIncAmount).mask15;
+    }
+  }
+
+  // --------------------------------------------------- $2121/2122 CGRAM
+  int cgramAddr = 0; // 0-255 (color index)
+  bool cgramLatchHigh = false;
+  int _cgramLowByte = 0;
+
+  void _cgramWrite(int val) {
+    final base = cgramAddr * 2;
+    if (!cgramLatchHigh) {
+      _cgramLowByte = val;
+      cgramLatchHigh = true;
+    } else {
+      cgram[base] = _cgramLowByte;
+      cgram[base + 1] = val.mask7;
+      cgramAddr = (cgramAddr + 1).mask8;
+      cgramLatchHigh = false;
+    }
+  }
+
+  int _cgramRead() {
+    final base = cgramAddr * 2;
+    final result = !cgramLatchHigh ? cgram[base] : cgram[base + 1];
+    if (cgramLatchHigh) cgramAddr = (cgramAddr + 1).mask8;
+    cgramLatchHigh = !cgramLatchHigh;
+    return result;
+  }
+
+  // ----------------------------------------------- $212C/212D TM/TS
+  int mainScreenEnable = 0; // bit0-3 BG1-4, bit4 OBJ
+  int subScreenEnable = 0;
+
+  // --------------------------------------------- $2123-212B windows
+  // W12SEL/W34SEL/WOBJSEL: 4 bits/layer = [invert2,enable2,invert1,enable1]
+  int w12sel = 0, w34sel = 0, wobjsel = 0;
+  int w1Left = 0, w1Right = 0, w2Left = 0, w2Right = 0;
+  int wbglog = 0, wobjlog = 0; // window1/2 combine logic, 2 bits/layer
+  int tmw = 0, tsw = 0; // apply windows to main/sub screen, bit0-3=BG1-4,bit4=OBJ
+
+  // --------------------------------------------- $2130-2132 color math
+  int cgwsel = 0; // ccmm--sd
+  int cgadsub = 0; // shbo4321
+  int fixedColorR = 0, fixedColorG = 0, fixedColorB = 0; // $2132, 5-bit each
+
+  // --------------------------------------------------------- $2115.. mosaic
+  int mosaicSize = 0; // 0-15 (0/1 = off)
+  int mosaicEnable = 0; // bit0-3 = BG1-4
+
+  // --------------------------------------------------- Mode 7 ($211A-2120)
+  // M7HOFS/M7VOFS share $210D/$210E with BG1's HOFS/VOFS: each write there
+  // updates BOTH the BG1 shadow regs (via _bgOfsLatch above) and these mode7
+  // shadow regs. the two "Prev" latches really are separate pieces of state
+  // on hardware (cf. bsnes latch.bgofs vs latch.mode7), not one shared MDR.
+  int m7sel = 0; // screen-over (bits7-6) + flip (bits1-0)
+  int m7a = 0x0100, m7b = 0, m7c = 0, m7d = 0x0100; // 8.8 fixed, signed 16-bit
+  int m7x = 0, m7y = 0; // signed 13-bit pivot point
+  int m7hofs = 0, m7vofs = 0; // signed 13-bit scroll (mode7-private copies)
+  int _m7Latch = 0; // shared write-twice latch across $210D/E and $211B-2120
+  int _m7bByte = 0; // last byte written to $211C, used by the MPY multiply
+  int mpyResult = 0; // $2134-2136: signed 24-bit result of m7a * _m7bByte
+
+  int _writeM7(int val) {
+    final r = (val.shl8 | _m7Latch).mask16;
+    _m7Latch = val;
+    return r;
+  }
+
+  void _updateMpy() {
+    mpyResult = (m7a.rel16 * _m7bByte.rel8).mask24;
+  }
+
+  // -------------------------------------------------------- $213E/213F
+  bool rangeOver = false; // >32 sprites on a scanline
+  bool timeOver = false; // >34 tiles on a scanline
+
+  // -------------------------------------------------------------- ports
+  /// handles a CPU write to a PPU register in $2100-$213F.
+  void write(int addr, int val) {
+    val &= 0xff;
+    switch (addr) {
+      case 0x2100: // INIDISP
+        brightness = val.mask4;
+        forcedBlank = val.bit7;
+        break;
+      case 0x2101: // OBSEL
+        objSizeSel = val.shr5.mask3;
+        objGap = val.shr3.mask2;
+        objBase = val.mask3;
+        break;
+      case 0x2102:
+        oamAddr = (oamAddr & 0x100) | val;
+        oamLatchHigh = false;
+        break;
+      case 0x2103:
+        oamAddr = oamAddr.mask8 | val.mask1.shl8;
+        oamLatchHigh = false;
+        break;
+      case 0x2104:
+        _oamWrite(val);
+        break;
+      case 0x2105: // BGMODE
+        bgMode = val.mask3;
+        bg3Priority = val.bit3;
+        bgs[0].bigChar = val.bit4;
+        bgs[1].bigChar = val.bit5;
+        bgs[2].bigChar = val.bit6;
+        bgs[3].bigChar = val.bit7;
+        break;
+      case 0x2107:
+      case 0x2108:
+      case 0x2109:
+      case 0x210a:
+        {
+          final bg = bgs[addr - 0x2107];
+          bg.tilemapAddr = val.shr2.mask6.shl10;
+          bg.wideX = val.bit0;
+          bg.wideY = val.bit1;
+        }
+        break;
+      case 0x210b: // BG12NBA
+        bgs[0].charBase = val.mask4.shl12;
+        bgs[1].charBase = val.shr4.mask4.shl12;
+        break;
+      case 0x210c: // BG34NBA
+        bgs[2].charBase = val.mask4.shl12;
+        bgs[3].charBase = val.shr4.mask4.shl12;
+        break;
+      case 0x210d:
+        _writeHofs(bgs[0], val);
+        m7hofs = _writeM7(val);
+        break;
+      case 0x210e:
+        _writeVofs(bgs[0], val);
+        m7vofs = _writeM7(val);
+        break;
+      case 0x210f:
+        _writeHofs(bgs[1], val);
+        break;
+      case 0x2110:
+        _writeVofs(bgs[1], val);
+        break;
+      case 0x2111:
+        _writeHofs(bgs[2], val);
+        break;
+      case 0x2112:
+        _writeVofs(bgs[2], val);
+        break;
+      case 0x2113:
+        _writeHofs(bgs[3], val);
+        break;
+      case 0x2114:
+        _writeVofs(bgs[3], val);
+        break;
+      case 0x2115: // VMAIN
+        vramIncHigh = val.bit7;
+        vramIncAmount = const [1, 32, 128, 128][val & 0x03];
+        break;
+      case 0x2116: // VMADDL
+        vramAddr = (vramAddr & 0x7f00) | val;
+        _refreshVramReadBuf();
+        break;
+      case 0x2117: // VMADDH
+        vramAddr = vramAddr.mask8 | val.mask7.shl8;
+        _refreshVramReadBuf();
+        break;
+      case 0x2118: // VMDATAL
+        _vramWrite(0, val);
+        break;
+      case 0x2119: // VMDATAH
+        _vramWrite(1, val);
+        break;
+      case 0x2121: // CGADD
+        cgramAddr = val;
+        cgramLatchHigh = false;
+        break;
+      case 0x2122: // CGDATA
+        _cgramWrite(val);
+        break;
+      case 0x211a: // M7SEL
+        m7sel = val;
+        break;
+      case 0x211b: // M7A (also the 16-bit MPY operand)
+        m7a = _writeM7(val);
+        _updateMpy();
+        break;
+      case 0x211c: // M7B (also the 8-bit MPY operand)
+        m7b = _writeM7(val);
+        _m7bByte = val;
+        _updateMpy();
+        break;
+      case 0x211d: // M7C
+        m7c = _writeM7(val);
+        break;
+      case 0x211e: // M7D
+        m7d = _writeM7(val);
+        break;
+      case 0x211f: // M7X
+        m7x = _writeM7(val);
+        break;
+      case 0x2120: // M7Y
+        m7y = _writeM7(val);
+        break;
+      case 0x212c: // TM
+        mainScreenEnable = val.mask5;
+        break;
+      case 0x212d: // TS
+        subScreenEnable = val.mask5;
+        break;
+      case 0x2106: // MOSAIC
+        mosaicSize = val.shr4.mask4;
+        mosaicEnable = val.mask4;
+        break;
+      case 0x2123: // W12SEL
+        w12sel = val;
+        break;
+      case 0x2124: // W34SEL
+        w34sel = val;
+        break;
+      case 0x2125: // WOBJSEL
+        wobjsel = val;
+        break;
+      case 0x2126: // WH0 (window1 left)
+        w1Left = val;
+        break;
+      case 0x2127: // WH1 (window1 right)
+        w1Right = val;
+        break;
+      case 0x2128: // WH2 (window2 left)
+        w2Left = val;
+        break;
+      case 0x2129: // WH3 (window2 right)
+        w2Right = val;
+        break;
+      case 0x212a: // WBGLOG
+        wbglog = val;
+        break;
+      case 0x212b: // WOBJLOG
+        wobjlog = val;
+        break;
+      case 0x212e: // TMW
+        tmw = val.mask5;
+        break;
+      case 0x212f: // TSW
+        tsw = val.mask5;
+        break;
+      case 0x2130: // CGWSEL
+        cgwsel = val;
+        break;
+      case 0x2131: // CGADSUB
+        cgadsub = val;
+        break;
+      case 0x2132: // COLDATA
+        {
+          final c = val.mask5;
+          if (val.bit5) fixedColorR = c;
+          if (val.bit6) fixedColorG = c;
+          if (val.bit7) fixedColorB = c;
+        }
+        break;
+      default:
+        break; // unmodeled write-only registers: ignored (reads are open
+      // bus on real hardware; read() returns 0 as an approximation)
+    }
+  }
+
+  /// handles a CPU read from a PPU register in $2100-$213F.
+  int read(int addr) {
+    switch (addr) {
+      case 0x2134: // MPYL
+        return mpyResult.mask8;
+      case 0x2135: // MPYM
+        return mpyResult.shr8.mask8;
+      case 0x2136: // MPYH
+        return mpyResult.shr16.mask8;
+      case 0x2138: // OAMDATAREAD
+        return _oamRead();
+      case 0x2139: // VMDATALREAD
+        {
+          final v = _vramReadBuf.mask8;
+          if (!vramIncHigh) {
+            vramAddr = (vramAddr + vramIncAmount).mask15;
+            _refreshVramReadBuf();
+          }
+          return v;
+        }
+      case 0x213a: // VMDATAHREAD
+        {
+          final v = _vramReadBuf.shr8.mask8;
+          if (vramIncHigh) {
+            vramAddr = (vramAddr + vramIncAmount).mask15;
+            _refreshVramReadBuf();
+          }
+          return v;
+        }
+      case 0x213b: // CGDATAREAD
+        return _cgramRead();
+      case 0x213e: // STAT77
+        return (rangeOver ? 0x40 : 0) | (timeOver ? 0x80 : 0) | 0x01;
+      case 0x213f: // STAT78: version=1, NTSC
+        return 0x01;
+      default:
+        return 0; // open bus / write-only registers
+    }
+  }
+}

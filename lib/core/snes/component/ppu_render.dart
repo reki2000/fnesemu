@@ -1,0 +1,665 @@
+import 'package:fnesemu/util/int.dart';
+
+import 'ppu.dart';
+
+/// a single layer slot in a mode's front-to-back priority order.
+/// isObj=true: `hi` is the OBJ priority level (0-3), `bg` unused.
+/// isObj=false: `bg` is the BG index (0-3 = BG1-4), `hi` is the tile's own
+/// priority bit (0 or 1) that this slot matches.
+typedef _Layer = (bool isObj, int bg, int hi);
+
+extension PpuRenderer on Ppu {
+  // OBJ size table indexed by OBSEL's size-select field: [smallW,smallH,largeW,largeH]
+  static const _objSizeTable = [
+    [8, 8, 16, 16],
+    [8, 8, 32, 32],
+    [8, 8, 64, 64],
+    [16, 16, 32, 32],
+    [16, 16, 64, 64],
+    [32, 32, 64, 64],
+    [16, 32, 32, 64], // undocumented
+    [16, 32, 32, 32], // undocumented
+  ];
+
+  // BG bit depth per implemented mode; index 0-3 = BG1-4, 0 = BG not present.
+  // modes 5/6 (hi-res, 512px wide) are not in this map and fall back to a
+  // backdrop-only scanline - see class doc in ppu.dart.
+  static const _bgBpp = <int, List<int>>{
+    0: [2, 2, 2, 2],
+    1: [4, 4, 2, 0],
+    2: [4, 4, 0, 0], // BG3 repurposed as offset-per-tile table
+    3: [8, 4, 0, 0],
+    4: [8, 2, 0, 0], // BG3 repurposed as offset-per-tile table
+    5: [4, 2, 0, 0], // hi-res (512px); see class doc for the approximation
+    6: [4, 0, 0, 0], // hi-res; BG3 repurposed as offset-per-tile table
+  };
+
+  static List<_Layer> _priorityOrder(int mode, bool bg3prio) {
+    const obj = true, bgL = false;
+    switch (mode) {
+      case 0:
+        return [
+          (obj, 0, 3), (bgL, 0, 1), (bgL, 1, 1), (obj, 0, 2),
+          (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1), (bgL, 2, 1),
+          (bgL, 3, 1), (obj, 0, 0), (bgL, 2, 0), (bgL, 3, 0), //
+        ];
+      case 1:
+        if (bg3prio) {
+          return [
+            (bgL, 2, 1), (obj, 0, 3), (bgL, 0, 1), (bgL, 1, 1),
+            (obj, 0, 2), (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1),
+            (obj, 0, 0), (bgL, 2, 0), //
+          ];
+        }
+        return [
+          (obj, 0, 3), (bgL, 0, 1), (bgL, 1, 1), (obj, 0, 2),
+          (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1), (bgL, 2, 1),
+          (obj, 0, 0), (bgL, 2, 0), //
+        ];
+      case 2:
+      case 3:
+      case 4:
+      case 5:
+        return [
+          (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), (bgL, 1, 1),
+          (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), (bgL, 1, 0), //
+        ];
+      case 6:
+        return [
+          (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), //
+          (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), //
+        ];
+      default:
+        return const [];
+    }
+  }
+
+  /// converts a CGRAM color index (0-255) into a 0xAABBGGRR pixel.
+  int _rgba(int cgramIndex) {
+    final base = cgramIndex.mask8 * 2;
+    final c = cgram[base] | cgram[base + 1].shl8;
+    final r5 = c.mask5;
+    final g5 = c.shr5.mask5;
+    final b5 = c.shr10.mask5;
+    final r = (r5.shl3) | (r5.shr2);
+    final g = (g5.shl3) | (g5.shr2);
+    final b = (b5.shl3) | (b5.shr2);
+    return 0xff000000 | b.shl16 | g.shl8 | r;
+  }
+
+  int _bgPaletteIndex(
+      int mode, int bgIdx, int bpp, int paletteNum, int colorIndex) {
+    if (bpp == 8) return colorIndex; // mode3 BG1: direct 256-color index
+    if (mode == 0) return bgIdx * 32 + paletteNum * 4 + colorIndex;
+    if (bpp == 2) return paletteNum * 4 + colorIndex;
+    return paletteNum * 16 + colorIndex; // 4bpp
+  }
+
+  /// fetches one BG pixel at screen column/row; returns (colorIndex 1-255,
+  /// paletteNum, tilePriorityBit) or null if transparent (colorIndex 0).
+  /// raw 16-bit tilemap entry for BG [bgIdx] at map pixel position (px,py),
+  /// respecting that BG's own tilemap address/size. used both for normal
+  /// tile lookup and, for BG3, as the offset-per-tile source table.
+  int _tilemapEntryRaw(int bgIdx, int px, int py) {
+    final bg = bgs[bgIdx];
+    final tileSizePx = bg.bigChar ? 16 : 8;
+    final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
+    final mapPxH = (bg.wideY ? 64 : 32) * tileSizePx;
+
+    final sx = px & (mapPxW - 1);
+    final sy = py & (mapPxH - 1);
+    final cellCol = sx ~/ tileSizePx;
+    final cellRow = sy ~/ tileSizePx;
+    final quadX = (bg.wideX && cellCol >= 32) ? 1 : 0;
+    final quadY = (bg.wideY && cellRow >= 32) ? 1 : 0;
+    final localCol = cellCol.mask5;
+    final localRow = cellRow.mask5;
+
+    int extra;
+    if (bg.wideX && bg.wideY) {
+      extra = quadY * 0x800 + quadX * 0x400;
+    } else if (bg.wideX) {
+      extra = quadX * 0x400;
+    } else if (bg.wideY) {
+      extra = quadY * 0x400;
+    } else {
+      extra = 0;
+    }
+
+    final entryAddr =
+        (bg.tilemapAddr + extra + localRow * 32 + localCol).mask15;
+    return vram[entryAddr * 2] | vram[entryAddr * 2 + 1].shl8;
+  }
+
+  /// offset-per-tile (modes 2/4/6): BG3's tilemap is repurposed as a table
+  /// of per-column scroll overrides for BG1/BG2. Based on community-derived
+  /// (srg320, nesdev BBS) and bsnes-style pseudocode - not a primary
+  /// hardware source, so double-check against real ROMs if visuals look off.
+  ///
+  /// returns the (x,y) position in BG [bgIdx]'s map for screen pixel (x,y):
+  /// normally (x+hofs, y+vofs), with the OPT overrides applied in 2/4/6.
+  (int, int) _bgMapPos(int bgIdx, int x, int y) {
+    final bg = bgs[bgIdx];
+    var mapX = x + bg.hofs, mapY = y + bg.vofs;
+    if (bgIdx > 1 || (bgMode != 2 && bgMode != 4 && bgMode != 6)) {
+      return (mapX, mapY);
+    }
+
+    final offsetX = x + bg.hofs.mask3;
+    if (offsetX < 8) return (mapX, mapY); // leftmost tile column: unaffected
+
+    final bg3 = bgs[2];
+    final validMask = bgIdx == 0 ? 0x2000 : 0x4000;
+    final lookupX = (offsetX - 8) + (bg3.hofs & ~7);
+    final hval = _tilemapEntryRaw(2, lookupX, bg3.vofs);
+
+    if (bgMode == 4) {
+      // single OPT row: bit15 of the same word picks horizontal or vertical
+      if (hval & validMask != 0) {
+        if (hval.bit15) {
+          mapY = y + hval.mask10;
+        } else {
+          mapX = offsetX + (hval & 0x3f8);
+        }
+      }
+    } else {
+      final vval = _tilemapEntryRaw(2, lookupX, bg3.vofs + 8);
+      if (hval & validMask != 0) mapX = offsetX + (hval & 0x3f8);
+      if (vval & validMask != 0) mapY = y + vval.mask10;
+    }
+    return (mapX, mapY);
+  }
+
+  (int, int, int)? _bgPixel(int bgIdx, int bpp, int x, int y) {
+    final bg = bgs[bgIdx];
+    final tileSizePx = bg.bigChar ? 16 : 8;
+    final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
+    final mapPxH = (bg.wideY ? 64 : 32) * tileSizePx;
+
+    final (mapX, mapY) = _bgMapPos(bgIdx, x, y);
+    final sx = mapX & (mapPxW - 1);
+    final sy = mapY & (mapPxH - 1);
+
+    final entry = _tilemapEntryRaw(bgIdx, sx, sy);
+    final tileNum = entry.mask10;
+    final paletteNum = entry.shr10.mask3;
+    final priority = entry.shr13.mask1;
+    final hFlip = entry.bit14;
+    final vFlip = entry.bit15;
+
+    final xInCell = sx % tileSizePx;
+    final yInCell = sy % tileSizePx;
+    final srcX = hFlip ? (tileSizePx - 1 - xInCell) : xInCell;
+    final srcY = vFlip ? (tileSizePx - 1 - yInCell) : yInCell;
+    final subTile = tileNum + (srcX ~/ 8) + (srcY ~/ 8) * 16;
+    final col8 = srcX % 8;
+    final row8 = srcY % 8;
+
+    final wordsPerTile = bpp * 4;
+    final byteBase = ((bg.charBase + subTile * wordsPerTile) * 2).mask16;
+
+    int colorIndex = 0;
+    for (int p = 0; p < bpp ~/ 2; p++) {
+      final byte0 = vram[(byteBase + p * 16 + row8 * 2).mask16];
+      final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1).mask16];
+      final bit0 = byte0.shr(7 - col8).mask1;
+      final bit1 = byte1.shr(7 - col8).mask1;
+      colorIndex |= bit0.shl(p * 2) | bit1.shl(p * 2 + 1);
+    }
+
+    if (colorIndex == 0) return null;
+    return (colorIndex, paletteNum, priority);
+  }
+
+  /// evaluates OAM for one scanline, filling per-column output arrays.
+  /// outColor[x] stays -1 (transparent) where no sprite drew a pixel.
+  void _evalSprites(
+      int y, List<int> outColor, List<int> outPalette, List<int> outPriority) {
+    rangeOver = false;
+    timeOver = false;
+    final sizes = _objSizeTable[objSizeSel.mask3];
+
+    int found = 0;
+    int tileBudget = 34;
+
+    for (int i = 0; i < 128; i++) {
+      final base = i * 4;
+      final hiByte = oam[512 + i.shr2];
+      final hiShift = i.mask2 * 2;
+      final xMsb = hiByte.shr(hiShift).mask1;
+      final large = hiByte.bit(hiShift + 1);
+
+      final rawX = oam[base] | xMsb.shl8;
+      final x = rawX >= 256 ? rawX - 512 : rawX; // sign-extend 9-bit
+      final oy = oam[base + 1];
+      final tileLow = oam[base + 2];
+      final attr = oam[base + 3];
+
+      final w = large ? sizes[2] : sizes[0];
+      final h = large ? sizes[3] : sizes[1];
+
+      final dy = (y - oy).mask8;
+      if (dy >= h) continue;
+      // fully off-screen (OBJ is always 256px)
+      if (x <= -w || x >= Ppu.widthNormal) continue;
+
+      if (found >= 32) {
+        rangeOver = true;
+        break;
+      }
+      found++;
+
+      final tilesWide = w ~/ 8;
+      if (tileBudget <= 0) {
+        timeOver = true;
+        continue; // still counts for Range, but draws nothing more
+      }
+      tileBudget -= tilesWide;
+
+      final vFlip = attr.bit7;
+      final hFlip = attr.bit6;
+      final priority = attr.shr4.mask2;
+      final palette = attr.shr1.mask3;
+      final nameBit = attr.mask1;
+
+      final tileBase24 =
+          (objBase.shl13 + (nameBit != 0 ? (objGap + 1).shl12 : 0)).mask15;
+
+      final srcY = vFlip ? (h - 1 - dy) : dy;
+
+      for (int sx = 0; sx < w; sx++) {
+        final screenX = x + sx;
+        if (screenX < 0 || screenX >= Ppu.widthNormal) continue;
+        if (outColor[screenX] != -1) continue;
+
+        final srcX = hFlip ? (w - 1 - sx) : sx;
+        final cellCol = srcX ~/ 8;
+        final cellRow = srcY ~/ 8;
+        final col8 = srcX % 8;
+        final row8 = srcY % 8;
+
+        // OBJ name table wraps independently in each nibble (16-wide grid)
+        final subTile =
+            (tileLow + cellRow.shl4) & 0xf0 | (tileLow + cellCol).mask4;
+
+        final byteBase = ((tileBase24 + subTile.shl4) * 2).mask16;
+
+        int colorIndex = 0;
+        for (int p = 0; p < 2; p++) {
+          final byte0 = vram[(byteBase + p * 16 + row8 * 2).mask16];
+          final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1).mask16];
+          final bit0 = byte0.shr(7 - col8).mask1;
+          final bit1 = byte1.shr(7 - col8).mask1;
+          colorIndex |= bit0.shl(p * 2) | bit1.shl(p * 2 + 1);
+        }
+
+        if (colorIndex == 0) continue;
+        outColor[screenX] = colorIndex;
+        outPalette[screenX] = palette;
+        outPriority[screenX] = priority;
+      }
+    }
+  }
+
+  /// true if column x falls inside window1 / window2's raw range.
+  /// window bounds ($2126-2129) are always 8-bit (0-255); in hi-res mode
+  /// (width==512) this means windows only ever cover the left half of the
+  /// screen - not modeled precisely, documented simplification alongside
+  /// the rest of modes 5/6's approximation (see renderScanline's doc).
+  bool _inWindow1(int x) => x >= w1Left && x <= w1Right;
+  bool _inWindow2(int x) => x >= w2Left && x <= w2Right;
+
+  /// combines window1/window2 for one layer's 4-bit select field
+  /// [invert2,enable2,invert1,enable1] and 2-bit OR/AND/XOR/XNOR logic.
+  bool _layerInsideWindow(int wsel4, int logic2, int x) {
+    final en1 = wsel4.bit0, inv1 = wsel4.bit1;
+    final en2 = wsel4.bit2, inv2 = wsel4.bit3;
+    if (!en1 && !en2) return false;
+    final a = en1 ? (_inWindow1(x) != inv1) : false;
+    final b = en2 ? (_inWindow2(x) != inv2) : false;
+    if (en1 && !en2) return a;
+    if (!en1 && en2) return b;
+    switch (logic2) {
+      case 0:
+        return a || b;
+      case 1:
+        return a && b;
+      case 2:
+        return a != b;
+      default:
+        return a == b;
+    }
+  }
+
+  /// layer: 0-3=BG1-4, 4=OBJ, 5=color window (the ccmm bits of CGWSEL).
+  bool _insideWindow(int layer, int x) {
+    switch (layer) {
+      case 0:
+        return _layerInsideWindow(w12sel.mask4, wbglog.mask2, x);
+      case 1:
+        return _layerInsideWindow(w12sel.shr4.mask4, wbglog.shr2.mask2, x);
+      case 2:
+        return _layerInsideWindow(w34sel.mask4, wbglog.shr4.mask2, x);
+      case 3:
+        return _layerInsideWindow(w34sel.shr4.mask4, wbglog.shr6.mask2, x);
+      case 4:
+        return _layerInsideWindow(wobjsel.mask4, wobjlog.mask2, x);
+      default:
+        return _layerInsideWindow(wobjsel.shr4.mask4, wobjlog.shr2.mask2, x);
+    }
+  }
+
+  /// whether a layer's pixel is masked (hidden) at column x for the given
+  /// screen (TMW for main / TSW for sub): masked when that screen's window
+  /// bit is set for the layer AND the column is inside its window.
+  bool _layerMasked(int layer, int x, int windowApplyMask) =>
+      windowApplyMask.bit(layer) && _insideWindow(layer, x);
+
+  /// composites one screen (main or sub) at column x: returns
+  /// (cgramIndex, sourceKind, objPalette). sourceKind: 0-3=BG1-4, 4=OBJ,
+  /// 5=backdrop. objPalette is only meaningful when sourceKind==4.
+  /// bgX is the BG-side column (0..width-1, hires-aware); objX is the
+  /// OBJ-side column (always 0..255 - sprites stay 256px-wide and are
+  /// stretched 2x when width==512, matching real hardware).
+  (int, int, int) _compositePixel(
+    int bgX,
+    int objX,
+    int y,
+    int screenEnable,
+    int windowApplyMask,
+    List<_Layer> order,
+    List<int> bpp,
+    List<int> objColor,
+    List<int> objPalette,
+    List<int> objPriority,
+  ) {
+    for (final layer in order) {
+      if (layer.$1) {
+        if (!screenEnable.bit4) continue;
+        if (objColor[objX] != -1 &&
+            objPriority[objX] == layer.$3 &&
+            !_layerMasked(4, bgX, windowApplyMask)) {
+          return (
+            128 + objPalette[objX] * 16 + objColor[objX],
+            4,
+            objPalette[objX]
+          );
+        }
+      } else {
+        final bgIdx = layer.$2;
+        if (bpp[bgIdx] == 0 || !screenEnable.bit(bgIdx)) continue;
+        if (_layerMasked(bgIdx, bgX, windowApplyMask)) continue;
+        final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
+            ? (bgX ~/ (mosaicSize + 1)) * (mosaicSize + 1)
+            : bgX;
+        final px = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
+        if (px != null && px.$3 == layer.$3) {
+          return (
+            _bgPaletteIndex(bgMode, bgIdx, bpp[bgIdx], px.$2, px.$1),
+            bgIdx,
+            0
+          );
+        }
+      }
+    }
+    return (0, 5, 0); // backdrop
+  }
+
+  /// clamped RGB channel add/subtract for color math, 5-bit channels.
+  /// halving applies to both addition and subtraction.
+  int _mathChannel(int a, int b, bool subtract, bool half) {
+    int r = subtract ? (a - b).max(0) : a + b;
+    if (half) r >>= 1;
+    return r.clamp(0, 31);
+  }
+
+  int _colorMath(
+    int mainIdx,
+    int sourceKind,
+    int objPalette,
+    int x,
+    int subR,
+    int subG,
+    int subB,
+    bool subIsBackdrop,
+  ) {
+    final subtract = cgadsub.bit7;
+
+    // does this main-screen source permit color math? (CGADSUB bits5-0)
+    bool allowed;
+    switch (sourceKind) {
+      case 5:
+        allowed = cgadsub.bit5; // backdrop
+        break;
+      case 4:
+        allowed = cgadsub.bit4 && objPalette >= 4; // OBJ, palette 4-7 only
+        break;
+      default:
+        allowed = cgadsub.bit(sourceKind); // BG1-4
+    }
+
+    final ccBits = cgwsel.shr6.mask2;
+    final mmBits = cgwsel.shr4.mask2;
+    final insideColorWindow = _insideWindow(5, x);
+    final clipToBlack = switch (ccBits) {
+      1 => !insideColorWindow,
+      2 => insideColorWindow,
+      3 => true,
+      _ => false,
+    };
+    // CGWSEL bits5-4 select where math is *allowed*: 0=always,
+    // 1=inside the color window, 2=outside, 3=never
+    final mathEnabled = switch (mmBits) {
+      0 => true,
+      1 => insideColorWindow,
+      2 => !insideColorWindow,
+      _ => false,
+    };
+    // no halving when the main pixel is clipped to black or when the sub
+    // screen shows its backdrop (the fixed color)
+    final half = cgadsub.bit6 && !clipToBlack && !subIsBackdrop;
+
+    final base = clipToBlack
+        ? 0
+        : cgram[mainIdx.mask8 * 2] | cgram[mainIdx.mask8 * 2 + 1].shl8;
+    var r = base.mask5, g = base.shr5.mask5, b = base.shr10.mask5;
+
+    if (!allowed || !mathEnabled) return _rgb555(r, g, b);
+
+    r = _mathChannel(r, subR, subtract, half);
+    g = _mathChannel(g, subG, subtract, half);
+    b = _mathChannel(b, subB, subtract, half);
+    return _rgb555(r, g, b);
+  }
+
+  int _rgb555(int r5, int g5, int b5) {
+    final r = (r5.shl3) | (r5.shr2);
+    final g = (g5.shl3) | (g5.shr2);
+    final b = (b5.shl3) | (b5.shr2);
+    return 0xff000000 | b.shl16 | g.shl8 | r;
+  }
+
+  /// renders one scanline (1-based, matching the SNES's hidden-first-line
+  /// convention) into `buffer`. lines outside 1..Ppu.height are ignored.
+  ///
+  /// modes 5/6 render at [Ppu.widthHires] (512px): BG1/BG2 pixels are
+  /// sampled directly at the 512-wide column (so a full 512-pixel tilemap's
+  /// worth of content shows), while OBJ stays 256px-wide and is stretched
+  /// 2x. This is a simplification - real hardware interleaves separate
+  /// main/sub-screen content on even/odd columns for a pseudo-hires
+  /// transparency effect, which isn't reproduced here.
+  ///
+  /// BG layers show map row `line + vofs` (so the first visible line shows
+  /// row vofs+1), while OBJ are evaluated against `line - 1`: a sprite at
+  /// OAM y=0 starts on the first visible line, one row below the BG.
+  void renderScanline(int line) {
+    if (line < 1 || line > Ppu.height) return;
+    final y = line - 1; // output row and OBJ line
+    final bgY = line;
+
+    if (bgMode == 5 || bgMode == 6) {
+      width = Ppu.widthHires;
+    } else {
+      width = Ppu.widthNormal;
+    }
+    final row = y * width;
+
+    if (forcedBlank) {
+      buffer.fillRange(row, row + width, 0xff000000);
+      return;
+    }
+
+    if (bgMode == 7) {
+      _renderMode7Scanline(row, y, bgY);
+      _applyBrightness(row, width);
+      return;
+    }
+
+    final bpp = _bgBpp[bgMode];
+    final backdrop = _rgba(0);
+
+    if (bpp == null) {
+      // unimplemented mode: backdrop only (see class doc)
+      buffer.fillRange(row, row + width, backdrop);
+      _applyBrightness(row, width);
+      return;
+    }
+
+    final objColor = List<int>.filled(Ppu.widthNormal, -1);
+    final objPalette = List<int>.filled(Ppu.widthNormal, 0);
+    final objPriority = List<int>.filled(Ppu.widthNormal, 0);
+    if (mainScreenEnable.bit4 || subScreenEnable.bit4) {
+      _evalSprites(y, objColor, objPalette, objPriority);
+    }
+
+    final order = _priorityOrder(bgMode, bg3Priority);
+    final subscreenMode = cgwsel.bit1;
+    final hires = width == Ppu.widthHires;
+
+    for (int x = 0; x < width; x++) {
+      final objX = hires ? x ~/ 2 : x;
+      final (mainIdx, mainKind, mainObjPal) = _compositePixel(x, objX, bgY,
+          mainScreenEnable, tmw, order, bpp, objColor, objPalette, objPriority);
+
+      int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
+      bool subIsBackdrop = false;
+      if (subscreenMode) {
+        final (subIdx, subKind, _) = _compositePixel(
+            x,
+            objX,
+            bgY,
+            subScreenEnable,
+            tsw,
+            order,
+            bpp,
+            objColor,
+            objPalette,
+            objPriority);
+        // the sub screen's backdrop is the fixed color, not CGRAM[0]
+        subIsBackdrop = subKind == 5;
+        if (!subIsBackdrop) {
+          final c = cgram[subIdx.mask8 * 2] | cgram[subIdx.mask8 * 2 + 1].shl8;
+          subR = c.mask5;
+          subG = c.shr5.mask5;
+          subB = c.shr10.mask5;
+        }
+      }
+
+      buffer[row + x] = _colorMath(
+          mainIdx, mainKind, mainObjPal, x, subR, subG, subB, subIsBackdrop);
+    }
+    _applyBrightness(row, width);
+  }
+
+  /// scales one rendered row by the INIDISP master brightness (0-15).
+  void _applyBrightness(int row, int w) {
+    if (brightness == 15) return;
+    for (int i = row; i < row + w; i++) {
+      final c = buffer[i];
+      final r = c.mask8 * brightness ~/ 15;
+      final g = c.shr8.mask8 * brightness ~/ 15;
+      final b = c.shr16.mask8 * brightness ~/ 15;
+      buffer[i] = 0xff000000 | b.shl16 | g.shl8 | r;
+    }
+  }
+
+  /// fetches the mode7 tilemap byte (tile number 0-255) for tile cell
+  /// (tileX,tileY), each 0-127. tilemap occupies the LOW byte of VRAM words
+  /// $0000-$3FFF, one word per cell in row-major order.
+  int _m7TilemapByte(int tileX, int tileY) {
+    final word = tileY.mask7 * 128 + tileX.mask7;
+    return vram[word * 2];
+  }
+
+  /// fetches one pixel (0-255, direct CGRAM index) from mode7 character
+  /// (tile graphics) data: 8bpp, occupies the HIGH byte of 64 consecutive
+  /// VRAM words per tile (8x8 pixels, row-major).
+  int _m7CharByte(int tileNum, int px, int py) {
+    final word = tileNum * 64 + py * 8 + px;
+    return vram[word * 2 + 1];
+  }
+
+  /// renders one scanline in BG mode 7 (rotation/scaling). BG1 only -
+  /// EXTBG (mode7 BG2) is not implemented; see Ppu's class doc.
+  void _renderMode7Scanline(int row, int y, int bgY) {
+    final backdrop = _rgba(0);
+
+    final objColor = List<int>.filled(Ppu.widthNormal, -1);
+    final objPalette = List<int>.filled(Ppu.widthNormal, 0);
+    final objPriority = List<int>.filled(Ppu.widthNormal, 0);
+    if (mainScreenEnable.bit4) {
+      _evalSprites(y, objColor, objPalette, objPriority);
+    }
+
+    final bg1Enabled = mainScreenEnable.bit0;
+    final hFlipScreen = m7sel.bit0;
+    final vFlipScreen = m7sel.bit1;
+    final overMode = m7sel.shr6.mask2;
+
+    final a = m7a.rel16, b = m7b.rel16, c = m7c.rel16, d = m7d.rel16;
+    final x0 = m7x.rel13, y0 = m7y.rel13;
+    final hofs = m7hofs.rel13, vofs = m7vofs.rel13;
+
+    final sy = vFlipScreen ? (255 - bgY) : bgY;
+    final dy = sy + vofs - y0;
+
+    for (int x = 0; x < Ppu.widthNormal; x++) {
+      int color = backdrop;
+
+      // priority order (front->back): OBJ3, OBJ2, OBJ1, BG1 (single layer,
+      // no EXTBG), OBJ0, backdrop
+      final hasObj = objColor[x] != -1;
+      if (hasObj && objPriority[x] >= 1) {
+        color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
+      } else if (bg1Enabled) {
+        final sx = hFlipScreen ? (Ppu.widthNormal - 1 - x) : x;
+        final dx = sx + hofs - x0;
+        final u = (a * dx + b * dy).shr8 + x0;
+        final v = (c * dx + d * dy).shr8 + y0;
+        final outOfRange = u < 0 || u >= 1024 || v < 0 || v >= 1024;
+
+        int tileNum = -1;
+        if (outOfRange && overMode == 2) {
+          tileNum = -1; // transparent
+        } else if (outOfRange && overMode == 3) {
+          tileNum = 0; // fill with character 0
+        } else {
+          tileNum = _m7TilemapByte(u.shr3.mask7, v.shr3.mask7);
+        }
+
+        int bg1Pixel = 0;
+        if (tileNum >= 0) bg1Pixel = _m7CharByte(tileNum, u.mask3, v.mask3);
+
+        if (bg1Pixel != 0) {
+          color = _rgba(bg1Pixel);
+        } else if (hasObj) {
+          color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
+        }
+      } else if (hasObj) {
+        color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
+      }
+
+      buffer[row + x] = color;
+    }
+  }
+}
