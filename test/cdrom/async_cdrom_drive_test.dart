@@ -19,21 +19,6 @@ Uint8List makeBin(int sectors, {int id = 0}) {
   return data;
 }
 
-class Listener implements CdromDriveListener {
-  final changes = <CdromDriveState>[];
-  final seeks = <(int, bool)>[];
-  final sectors = <int, Uint8List>{};
-
-  @override
-  void onDiscChanged(CdromDriveStatus status) => changes.add(status.state);
-
-  @override
-  void onSeekComplete(int lba, bool ok) => seeks.add((lba, ok));
-
-  @override
-  void onSectorRead(int lba, Uint8List data) => sectors[lba] = data;
-}
-
 Future<void> pump() async {
   for (int i = 0; i < 10; i++) {
     await Future.delayed(Duration.zero);
@@ -114,7 +99,6 @@ FILE "t2.bin" BINARY
   group('AsyncCdromDrive', () {
     late MemoryImageFile bin;
     late List<(int, int)> fileReads;
-    late Listener listener;
     late AsyncCdromDrive drive;
     late DateTime now;
 
@@ -123,54 +107,59 @@ FILE "t2.bin" BINARY
       bin = MemoryImageFile("a.bin", makeBin(1000))
         ..onRead =
             (offset, length) => fileReads.add((offset ~/ size, length ~/ size));
-      listener = Listener();
       now = DateTime(2026);
-      drive = AsyncCdromDrive(now: () => now)..listener = listener;
+      drive = AsyncCdromDrive(now: () => now);
       await drive.eject(MemoryDiscSource("a.bin", {"a.bin": bin}));
     });
 
-    test('reads TOC on insert and notifies the core', () {
-      expect(listener.changes, [
-        CdromDriveState.trayOpen,
-        CdromDriveState.loading,
-        CdromDriveState.ready
-      ]);
+    test('reads TOC on insert', () async {
       expect(drive.status.isReady, true);
       expect(drive.status.toc.totalSectors, 1000);
       expect(fileReads, isEmpty); // no sector is read for an iso
+
+      // disc id changes on each state change: trayOpen, loading, ready
+      final id = drive.status.discId;
+      final states = <CdromDriveState>[];
+      final ejected = drive.eject(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      states.add(drive.status.state);
+      await ejected;
+      states.add(drive.status.state);
+      expect(states, [CdromDriveState.trayOpen, CdromDriveState.ready]);
+      expect(drive.status.discId, id + 3);
     });
 
-    test('read is notified asynchronously with read-ahead', () async {
-      drive.read(10);
-      expect(listener.sectors, isEmpty); // not synchronously
+    test('read returns null until the sector is read, with read-ahead',
+        () async {
+      expect(drive.read(10), isNull);
       await pump();
 
-      expect(listener.sectors[10]![0], 10);
-      expect(listener.sectors[10]!.length, size);
+      expect(drive.read(10)![0], 10);
+      expect(drive.read(10)!.length, size);
       expect(fileReads, [(10, AsyncCdromDrive.readAheadSectors + 1)]);
       expect(drive.cachedSectors, 76);
 
       // following sectors are read from the cache
       for (int s = 11; s < 40; s++) {
-        drive.read(s);
+        expect(drive.read(s)![0], s);
       }
-      await pump();
-      expect(listener.sectors[39]![0], 39);
       expect(fileReads.length, 1);
 
       // read ahead when the half of the window is consumed
-      drive.read(50);
-      await pump();
+      expect(drive.read(50)![0], 50);
       expect(fileReads.length, 2);
       expect(fileReads[1], (86, 75));
+      expect(drive.read(86), isNull);
+      await pump();
+      expect(drive.read(86)![0], 86);
     });
 
-    test('concurrent reads share the same file access', () async {
-      drive.read(0);
-      drive.read(1);
-      drive.read(2);
+    test('repeated reads share the same file access', () async {
+      expect(drive.read(0), isNull);
+      expect(drive.read(1), isNull);
+      expect(drive.read(0), isNull);
       await pump();
-      expect(listener.sectors.keys, containsAll([0, 1, 2]));
+      expect(drive.read(0), isNotNull);
+      expect(drive.read(1), isNotNull);
       expect(fileReads.length, 1);
     });
 
@@ -180,52 +169,56 @@ FILE "t2.bin" BINARY
       expect(fileReads.length, 1);
 
       now = now.add(const Duration(seconds: 59));
-      drive.read(1);
-      await pump();
+      expect(drive.read(1), isNotNull);
       expect(fileReads.length, 1);
 
       now = now.add(const Duration(seconds: 2));
-      drive.read(2);
+      expect(drive.read(2), isNull);
       await pump();
       expect(fileReads.length, 2);
       expect(fileReads[1].$1, 2);
+      expect(drive.read(2)![0], 2);
     });
 
-    test('out of range read returns empty data', () async {
-      drive.read(1000);
-      drive.read(-1);
-      await pump();
-      expect(listener.sectors[1000], isEmpty);
-      expect(listener.sectors[-1], isEmpty);
+    test('out of range read returns empty data', () {
+      expect(drive.read(1000), isEmpty);
+      expect(drive.read(-1), isEmpty);
     });
 
-    test('seek completes after the sector is loaded', () async {
+    test('seek status', () async {
       drive.seek(500);
       expect(drive.status.isSeeking, true);
-      expect(listener.seeks, isEmpty);
+      expect(drive.status.seekError, false);
       await pump();
-      expect(listener.seeks, [(500, true)]);
       expect(drive.status.isSeeking, false);
-      expect(drive.status.headLba, 500);
+      expect(drive.status.seekError, false);
+      expect(drive.status.seekLba, 500);
+      expect(drive.read(500)![0], 500 & 0xff);
 
       drive.seek(2000);
-      await pump();
-      expect(listener.seeks.last, (2000, false));
+      expect(drive.status.isSeeking, false);
+      expect(drive.status.seekError, true);
     });
 
-    test('eject discards pending reads and notifies the core', () async {
-      drive.read(0);
-      final ejected = drive.eject();
-      await ejected;
+    test('read error is reported', () async {
+      bin.onRead = (_, __) => throw Exception("broken");
+      drive.seek(0);
+      expect(drive.read(0), isNull);
       await pump();
-      expect(listener.sectors, isEmpty);
-      expect(listener.changes.last, CdromDriveState.empty);
-      expect(drive.status.toc.isEmpty, true);
-      expect(drive.cachedSectors, 0);
+      expect(drive.status.seekError, true);
+      expect(drive.read(0), isEmpty);
+    });
 
+    test('eject discards pending reads', () async {
       drive.read(0);
+      drive.seek(0);
+      await drive.eject();
       await pump();
-      expect(listener.sectors[0], isEmpty);
+      expect(drive.status.state, CdromDriveState.empty);
+      expect(drive.status.toc.isEmpty, true);
+      expect(drive.status.isSeeking, false);
+      expect(drive.cachedSectors, 0);
+      expect(drive.read(0), isEmpty);
     });
 
     test('broken cue is reported as error', () async {
@@ -233,7 +226,7 @@ FILE "t2.bin" BINARY
         "a.cue": MemoryImageFile(
             "a.cue", Uint8List.fromList('FILE "x.bin" BINARY\n'.codeUnits)),
       }));
-      expect(listener.changes.last, CdromDriveState.error);
+      expect(drive.status.state, CdromDriveState.error);
       expect(drive.status.isReady, false);
     });
 
@@ -251,12 +244,12 @@ FILE "a.bin" BINARY
         "a.bin": MemoryImageFile("a.bin", makeBin(20, id: 1)),
       }));
       drive.read(9);
-      drive.read(10);
+      await pump();
+      expect(drive.read(9)![0], 10);
+      expect(drive.read(10)!.every((b) => b == 0), true);
       drive.read(160);
       await pump();
-      expect(listener.sectors[9]![0], 10);
-      expect(listener.sectors[10]!.every((b) => b == 0), true);
-      expect(listener.sectors[160]![0], 11);
+      expect(drive.read(160)![0], 11);
     });
   });
 }

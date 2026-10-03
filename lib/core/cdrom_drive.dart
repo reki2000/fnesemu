@@ -74,49 +74,47 @@ class CdromToc {
 /// synchronous snapshot of the drive
 class CdromDriveStatus {
   final CdromDriveState state;
+
+  /// incremented on each disc change (eject, insert, TOC read)
+  final int discId;
+
   final CdromToc toc;
 
-  /// LBA of the last seek or read request
-  final int headLba;
+  /// LBA of the last [CdromDrive.seek]
+  final int seekLba;
 
-  /// true while a seek is in progress
+  /// true while the sector at [seekLba] is being read
   final bool isSeeking;
 
-  const CdromDriveStatus(this.state, this.toc, this.headLba, this.isSeeking);
+  /// true if [seekLba] is not readable
+  final bool seekError;
+
+  const CdromDriveStatus(this.state, this.discId, this.toc,
+      {this.seekLba = 0, this.isSeeking = false, this.seekError = false});
+
+  static const empty =
+      CdromDriveStatus(CdromDriveState.empty, 0, CdromToc.empty);
 
   bool get isReady => state == CdromDriveState.ready;
 }
 
-/// receives asynchronous results from [CdromDrive]
-abstract class CdromDriveListener {
-  /// called when a disc is ejected/inserted or the TOC has been read
-  void onDiscChanged(CdromDriveStatus status);
-
-  /// called when the seek requested by [CdromDrive.seek] is completed.
-  /// [ok] is false if [lba] is not readable
-  void onSeekComplete(int lba, bool ok);
-
-  /// called when the sector requested by [CdromDrive.read] is available.
-  /// [data] is a raw sector (2352 bytes), or empty if it is not readable.
-  void onSectorRead(int lba, Uint8List data);
-}
-
 /// A CD-ROM drive seen from the emulator core.
 ///
-/// All LBAs are without 2 seconds of lead-in. Requests return immediately and
-/// the results are notified to [listener] later.
+/// All accesses are synchronous: the drive reads the image files in the
+/// background, and the core polls [status] and [read] until the result is
+/// available. All LBAs are without 2 seconds of lead-in.
 abstract class CdromDrive {
-  set listener(CdromDriveListener? listener);
-
-  /// returns the current status synchronously
+  /// returns the current status. cheap enough to be polled on each exec.
   CdromDriveStatus get status;
 
-  /// moves the head to [lba], then calls [CdromDriveListener.onSeekComplete]
+  /// moves the head to [lba]. the core polls [CdromDriveStatus.isSeeking]
+  /// and [CdromDriveStatus.seekError] for the result.
   void seek(int lba);
 
-  /// requests the sector at [lba], then calls
-  /// [CdromDriveListener.onSectorRead]
-  void read(int lba);
+  /// returns the raw sector (2352 bytes) at [lba], or null if it has not been
+  /// read yet (the drive starts reading it). returns empty data if [lba] is
+  /// not readable.
+  Uint8List? read(int lba);
 }
 
 /// implemented by cores which have a CD-ROM drive

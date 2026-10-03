@@ -3,22 +3,8 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
 import 'package:fnesemu/cdrom/disc_source_io.dart';
-import 'package:fnesemu/core/cdrom_drive.dart';
 import 'package:fnesemu/core/disc.dart';
 import 'package:test/test.dart';
-
-class _Listener implements CdromDriveListener {
-  final sectors = <int, Uint8List>{};
-
-  @override
-  void onDiscChanged(CdromDriveStatus status) {}
-
-  @override
-  void onSeekComplete(int lba, bool ok) {}
-
-  @override
-  void onSectorRead(int lba, Uint8List data) => sectors[lba] = data;
-}
 
 void main() {
   late Directory dir;
@@ -48,21 +34,24 @@ FILE "t2.bin" BINARY
     INDEX 01 00:02:00
 ''');
 
-    final listener = _Listener();
-    final drive = AsyncCdromDrive()..listener = listener;
+    final drive = AsyncCdromDrive();
     await drive.eject(discSourceFromPath("${dir.path}/a.cue"));
     expect(drive.status.isReady, true);
     expect(drive.status.toc.startLba(2), 450);
 
     // concurrent reads over the files
-    for (final lba in [0, 299, 300, 450, 499, 100]) {
-      drive.read(lba);
-    }
-    while (listener.sectors.length < 6) {
+    const lbas = [0, 299, 300, 450, 499, 100];
+    final read = <int, int>{};
+    while (read.length < lbas.length) {
+      for (final lba in lbas) {
+        final data = drive.read(lba);
+        if (data != null) {
+          read[lba] = data[100];
+        }
+      }
       await Future.delayed(const Duration(milliseconds: 1));
     }
-    expect({for (final e in listener.sectors.entries) e.key: e.value[100]},
-        {0: 0, 299: 43, 300: 100, 450: 250, 499: 43, 100: 100});
+    expect(read, {0: 0, 299: 43, 300: 100, 450: 250, 499: 43, 100: 100});
 
     await drive.eject();
   });
