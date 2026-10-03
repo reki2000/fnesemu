@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
 
 import 'bus.dart';
-import 'cpu.dart';
 
 class Vdc {
   final Bus bus;
@@ -22,8 +21,7 @@ class Vdc {
         "i:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
     final bg =
         "bg:${hSize}x$vSize ${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
-    final line =
-        "l:$scanLine,${VdcRenderer.bgRenderLine} f:${VdcRenderer.frames}";
+    final line = "l:$scanLine,${bgRenderLine} f:${VdcRenderer.frames}";
     return "vdc: $regs $bg $scr $flags $line";
   }
 
@@ -39,6 +37,7 @@ class Vdc {
     reg = 0;
 
     status = 0;
+    irqPending = false;
 
     controlRegister = 0;
 
@@ -117,6 +116,13 @@ class Vdc {
   int writeLatch = 0;
 
   int status = 0;
+  bool irqPending = false;
+
+  void raiseIrq(int flag) {
+    status |= flag;
+    irqPending = true;
+    bus.updateVdcIrq();
+  }
 
   static const statusBusy = 0x40;
   static const statusVBlank = 0x20; // vblank irq
@@ -146,11 +152,31 @@ class Vdc {
 
   final sat = List<int>.filled(0x100, 0);
 
-  int readReg() {
-    bus.pic.acknoledgeIrq1();
+  // --- renderer state (per-VDC, for SuperGrafx dual-VDC support) ---
+  // full-frame palette-index buffer (hSize*vSize). value 0..0x1ff = VCE index,
+  // 0xffff = direct white (used by debug overlay). VCE->RGBA is done by Vpc.
+  Uint16List indexBuffer = Uint16List(0);
+  int bgRenderLine = 0;
+  int displayLine = 0;
 
+  // bg fetch latches (kept across the 8 pixels of a tile)
+  int paletteNo = 0;
+  int pattern01 = 0;
+  int pattern23 = 0;
+
+  // sprite evaluation state (independent SAT per VDC)
+  final sprites =
+      List<Sprite>.filled(64, Sprite.of(List.filled(4, 0), 0), growable: false);
+  final spriteBuf =
+      List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
+  int spriteBufIndex = 0;
+  final sprite0 = List<bool>.filled(32, false); // x of sprite 0
+
+  int readReg() {
     final value = status;
     status = 0;
+    irqPending = false;
+    bus.updateVdcIrq();
     return value;
   }
 
@@ -201,7 +227,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.setL8(val);
-        VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
+        bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
       case 0x09:
@@ -236,7 +262,7 @@ class Vdc {
       case 0x0b:
         final oldHSize = hSize;
         hSize = ((val & 0x3f) + 1).shl3;
-        if (oldHSize != hSize) VdcRenderer.buffer = Uint32List(hSize * vSize);
+        if (oldHSize != hSize) indexBuffer = Uint16List(hSize * vSize);
         break;
       // Vertical Sync Register
       case 0x0c:
@@ -309,7 +335,7 @@ class Vdc {
         break;
       case 0x08:
         scrollY = scrollY.setH8(val & 0x01);
-        VdcRenderer.bgRenderLine = scrollY & bgScrollMaskY;
+        bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
       case 0x09:
@@ -351,8 +377,9 @@ class Vdc {
   }
 
   // VCE
-
-  final colorTable = List<int>.filled(512, 0x1ff, growable: false);
+  // the colour table is a single shared chip (VCE); Pce() points vdc2 at
+  // vdc1's table so both VDCs and the debug views see the same palette.
+  List<int> colorTable = List<int>.filled(512, 0x1ff, growable: false);
   int colorTableAddress = 0;
 
   int readColorTableLsb() {
@@ -366,8 +393,7 @@ class Vdc {
   }
 
   writeColorTableLsb(int val) {
-    colorTable[colorTableAddress] =
-        colorTable[colorTableAddress].setL8(val);
+    colorTable[colorTableAddress] = colorTable[colorTableAddress].setL8(val);
   }
 
   writeColorTableMsb(int val) {
@@ -411,8 +437,7 @@ class Vdc {
       dmaSatb = false;
 
       if (enableDmaSatIrq) {
-        status |= statusDmaSat;
-        bus.cpu.holdInterrupt(Interrupt.irq1);
+        raiseIrq(statusDmaSat);
       }
     }
   }
@@ -432,8 +457,7 @@ class Vdc {
 
       if (dmaLen == 0) {
         if (enableDmaVramIrq) {
-          status |= statusDmaVram;
-          bus.cpu.holdInterrupt(Interrupt.irq1);
+          raiseIrq(statusDmaVram);
         }
         break;
       }

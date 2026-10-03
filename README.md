@@ -12,8 +12,8 @@ This project is experimental.
     - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
     - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6 (with audio), 85: VRC7 (with audio)
     - 19: Namco163 (waveform sound not supported), 88/206: Namco118
-- PCE (.pce)
-  - Does not support SRAM / CD / SG16
+- PCE (.pce) + SGX16
+  - Does not support SRAM / CD
 - MD (.gen .md)
   - Does not suppor SRAM / CD / PAL / 32X
 - PS1 (.ps) * experimental *
@@ -96,4 +96,38 @@ $ make test-r3000
 $ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
 $ cd ..
 $ make test-gte 
+```
+## cdrom support (experimental)
+
+Load your own version 3.0 system-card BIOS ROM as a `.pce` file, then select a CD
+image from the existing disc menu (`DISC_DIR` / `DISC` launch settings can
+also select the image). Reset after changing the disc. The BIOS and games
+are not included. Use a binary CUE image with MODE1/2352 data tracks and
+AUDIO tracks; the existing raw BIN reader is also supported. Cooked
+MODE1/2048 images, CHD and compressed audio tracks are not supported.
+
+The console core enables the CD interface when a nonempty disc is attached.
+It maps the 192 KiB system-card RAM at banks `$68–$7F`, retains the
+64 KiB CD RAM at `$80–$87`, and keeps both separate from dual-controller work RAM.
+The implementation includes SCSI command/data/status/message handshakes,
+READ(6), TOC and subchannel-Q queries, IRQ2, stereo CD-DA playback,
+64 KiB ADPCM RAM with DMA and MSM5205 decoding, and basic fade control.
+The 2 KiB backup RAM at bank `$F7` uses the existing SRAM storage under
+`pce-cd-bram` and follows the CD interface's lock/unlock registers.
+
+This is an initial register-level implementation, not a claim of game
+compatibility. Seek delays, subchannel streaming, ADPCM read/write busy
+timing and audio filtering are not yet reproduced accurately. Additional expansion-card RAM
+support is not included. BIOS startup and commercial game playback still
+need validation with user-provided images.
+
+Hardware behavior was checked against the register and memory mappings in
+[reference CD interface](https://github.com/libretro/beetle-pce-libretro/blob/master/mednafen/pce/pcecd.cpp),
+[memory mapper](https://github.com/libretro/beetle-pce-libretro/blob/master/mednafen/pce/huc.cpp),
+and [NEC CD command definitions](https://github.com/libretro/beetle-pce-libretro/blob/master/mednafen/cdrom/scsicd-pce-commands.inc).
+
+Run the synthetic CD tests with:
+
+```sh
+flutter test test/core/pce/cdrom_test.dart
 ```

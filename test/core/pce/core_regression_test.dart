@@ -15,8 +15,8 @@ void main() {
     expect(bus.read(0x80 << 13), 0x34);
   });
 
-  test('all RAM banks retain distinct values at the same offset', () {
-    final bus = Bus();
+  test('all SGX RAM banks retain distinct values at the same offset', () {
+    final bus = Bus()..vpc.enabled = true;
     final banks = [
       0xf8,
       0xf9,
@@ -124,10 +124,10 @@ void main() {
         _ => 4,
       };
       bool requested() => switch (interrupt) {
-        Interrupt.irq1 => cpu.holdIrq1,
-        Interrupt.irq2 => cpu.holdIrq2,
-        _ => cpu.holdTirq,
-      };
+            Interrupt.irq1 => cpu.holdIrq1,
+            Interrupt.irq2 => cpu.holdIrq2,
+            _ => cpu.holdTirq,
+          };
       pic.mask = mask;
       switch (interrupt) {
         case Interrupt.irq1:
