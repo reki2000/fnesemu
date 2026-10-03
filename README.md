@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1 Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/N64 Emulator Built with Flutter
 
 This project is experimental.
 
@@ -20,6 +20,27 @@ This project is experimental.
   - requires BIOS with `.ps` extension 
   - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
 
+- N64 (.z64 .v64 .n64), independent Dart implementation
+  - VR4300 integer/COP1 interpreter, CP0 exceptions and interrupt delivery,
+    basic TLB mappings, 8 MiB RDRAM, SP/PI/SI DMA, VI scanout and AI stereo PCM.
+  - RSP graphics tasks are decoded as Fast3D/F3DEX GBI commands. Matrices,
+    lighting, clip-space clipping, depth tests, texture formats/TLUT, texture
+    rectangles and color combining are rasterized in Dart. Audio tasks use
+    independent command interpreters for the original and Shindou SM64 ABIs.
+  - Controller/PIF and 4 Kbit EEPROM use the existing keyboard/virtual pad and
+    shared-preferences save storage. Arrows drive the analog stick.
+  - IPL/CIC is bypassed: up to 1 MiB of the payload at ROM offset 0x1000 is
+    copied to the header entry point, and cartridge boot variables are set.
+    ROM byte order is detected from its signature, including files inside ZIPs.
+  - This is still experimental and can run slower than real time. Instruction
+    timing, audio resampling, blending
+    and VI filtering are approximate. Arbitrary RSP microcode, raw RDP triangle
+    streams, F3DEX2, controller paks, SRAM/FlashRAM and 64DD are not implemented.
+    Other commercial games are not claimed compatible. Unsupported commands
+    stop with a diagnostic in the debugger.
+  - No external emulator core or native emulator library is used.
+
+
 # How to use 
 
 1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
@@ -33,7 +54,10 @@ This project is experimental.
 | NES | B | A | | select | start | | | | UP | DOWN | LEFT | RIGHT |
 | PCE | II | I | | select | run | | |  | UP | DOWN | LEFT | RIGHT |
 | MD  | A | B | C | | start | X | Y | Z | UP | DOWN | LEFT | RIGHT |
+| N64 | B | A | C-down | Z | start | L | C-left | R | stick up | stick down | stick left | stick right |
 | PS1 | # | x | o | select | ^ | L | start | R | UP | DOWN | LEFT | RIGHT |
+
+N64 also assigns `R` to C-up and `T` to C-right.
 
 ## How to build and run on local machine
 
@@ -97,3 +121,71 @@ $ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
 $ cd ..
 $ make test-gte 
 ```
+
+## N64 validation
+
+The supplied Super Mario 64 Shindou Edition (J), revision 3 dump was verified
+through boot, file selection, the opening and castle courtyard movement/jumps.
+Graphics and nonzero stereo PCM continued without an unsupported-operation
+stop over 90 emulated seconds (2,559 graphics tasks and 5,370 audio tasks).
+After CPU/register and rasterizer optimization, the sampled headless AOT run
+took about 456 seconds, down from 731 seconds (about 1.6x faster).
+Real-time performance has not been reached. This is an initial gameplay check,
+not a full-game compatibility claim.
+
+Run the 31 synthetic CPU/FPU, DMA, interrupt, PIF/EEPROM, graphics and audio
+tests (also verified with Dart VM and Dart2JS/Node):
+
+```
+flutter test test/core/n64
+```
+
+For a local cartridge dump, the standalone smoke runner executes the same Dart
+core, reports graphics/audio activity and writes RGBA frames plus dimensions to
+`/tmp/fnesemu-n64-N.{rgba,json}`. The ROM is never copied into the repository.
+
+```
+flutter pub get
+dart --packages=.dart_tool/package_config.json tool/n64_smoke.dart /path/to/owned-rom.v64 8437500000 --input --sample-frames
+```
+
+The cycle limit is optional. `--input` supplies a reproducible sequence of Start,
+A and stick events; `--sample-frames` rasterizes only the last six frames of each
+second for faster headless testing, covering the three rotating framebuffers.
+Normal app execution renders every frame. `--out=DIR` selects the evidence
+folder; `--input-events=FILE` reads a JSON array of `[seconds, button, down]`
+events (for example `[12, "start", true]`). `--dump-ram` adds compressed RDRAM
+snapshots, and `--watch=HEX_PC,...` logs CPU registers at selected addresses.
+
+The register file stores sign-extended 32-bit values in `Int32List` and converts
+wide values with `BigInt` only when needed, preserving 64-bit behavior on Web.
+The rasterizer reuses color buffers and increments interpolation values across
+pixels. In the 90-second comparison, all 89 sampled task/audio metadata records
+matched; 75 frame images matched byte-for-byte. The other 14 had small texture
+boundary differences from floating-point interpolation order (at most 0.4% of
+RGBA bytes per frame). Sampled RDRAM at seconds 60, 73 and 89 matched exactly.
+
+AOT microbenchmark medians from three runs on the development machine:
+
+| Workload | Before | After | Speedup |
+| --- | ---: | ---: | ---: |
+| CPU, 32-bit loop | 4.619 s | 1.216 s | 3.8x |
+| CPU, mixed 64-bit loop | 8.497 s | 3.309 s | 2.6x |
+| Rasterizer, 300 triangles | 7.609 s | 4.950 s | 1.5x |
+
+Checksums matched for all workloads. These are native AOT measurements, not Web
+FPS guarantees. Run the reproducible workloads with:
+
+```
+dart --packages=.dart_tool/package_config.json tool/n64_bench.dart
+```
+
+For native AOT timing, compile this script with `dart compile exe` in a standalone
+Dart package containing this core (the Flutter application cannot be compiled as
+a standalone executable). The command above runs with the Dart VM instead.
+
+Protocol references used for this independent implementation:
+[libdragon system registers](https://github.com/DragonMinded/libdragon/blob/trunk/include/n64sys.h),
+[N64 RCP registers](https://github.com/n64decomp/sm64/blob/master/include/PR/rcp.h),
+[GBI command formats](https://github.com/n64decomp/sm64/blob/master/include/PR/gbi.h),
+[audio command formats](https://github.com/n64decomp/sm64/blob/master/include/PR/abi.h).
