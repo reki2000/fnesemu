@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/util/debug.dart';
 
+import 'cdrom_drive.dart';
 import 'core.dart';
 import 'core_empty.dart';
 import 'core_factory.dart';
@@ -258,6 +259,14 @@ class CoreController {
 
   void setDisc(Disc disc) {
     _core.setDisc(disc);
+  }
+
+  /// async-cdrom: connects the drive to the core if it has a CD-ROM drive
+  void setCdromDrive(CdromDrive drive) {
+    final core = _core;
+    if (core is CdromHost) {
+      (core as CdromHost).setCdromDrive(drive);
+    }
   }
 
   // returns a list of core's buttons

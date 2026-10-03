@@ -8,8 +8,10 @@ import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
 import 'package:fnesemu/util/debug.dart';
+import '../cdrom_drive.dart';
 import '../core.dart';
 import '../disc.dart';
+import '../memory_cdrom_drive.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -28,7 +30,7 @@ import 'spu/spu.dart';
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
 const _memcardFile = String.fromEnvironment("MEMCARD", defaultValue: "");
 
-class Ps extends Core {
+class Ps extends Core implements CdromHost {
   final Bus bus;
   late final R3000 cpu;
   late final Gpu gpu;
@@ -240,8 +242,18 @@ class Ps extends Core {
   @override
   void setDisc(Disc disc) {
     debugLog("set disc ${disc.isEmpty ? "empty" : "with data"}");
+    if (asyncCdrom) {
+      setCdromDrive(MemoryCdromDrive(disc));
+      return;
+    }
     disc.isEmpty ? bus.cdrom.openShell() : bus.cdrom.closeShell();
     bus.cdrom.disc = disc;
+  }
+
+  @override
+  void setCdromDrive(CdromDrive drive) {
+    debugLog("set cdrom drive: ${drive.status.state.name}");
+    bus.cdrom.attachDrive(drive);
   }
 
   @override
