@@ -81,7 +81,8 @@ extension Alu on M68 {
   int asr(int a, int size, int rot) {
     int r = a.mask(size).rel(size);
     if (rot > size.bits) {
-      xf = cf = false;
+      // all bits are filled with the sign bit, which is also the last shifted out
+      xf = cf = a.msb(size);
       r >>= rot;
     } else if (rot > 0) {
       r >>= rot - 1;

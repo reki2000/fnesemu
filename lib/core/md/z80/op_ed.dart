@@ -89,18 +89,21 @@ extension OpEd on Z80 {
         final oldH = r.h;
         r.hl = sbc16(r.hl, r.bc);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         r.setV(oldH, r.b, r.h, sub: true);
         return true;
       case 0x52: // sbc hl, de
         final oldH = r.h;
         r.hl = sbc16(r.hl, r.de);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         r.setV(oldH, r.d, r.h, sub: true);
         return true;
       case 0x62: // sbc hl, hl
         final oldH = r.h;
         r.hl = sbc16(r.hl, r.hl);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         r.setV(oldH, oldH, r.h, sub: true);
         return true;
       case 0x72: // sbc hl, sp
@@ -108,30 +111,35 @@ extension OpEd on Z80 {
         r.hl = sbc16(r.hl, r.sp);
         r.setV(oldH, r.sp.shr8, r.h, sub: true);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         return true;
       case 0x4a: // adc hl, bc
         final oldH = r.h;
         r.hl = add16(r.hl, r.bc, c: r.cf ? 1 : 0);
         r.setV(oldH, r.b, r.h);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         return true;
       case 0x5a: // adc hl, de
         final oldH = r.h;
         r.hl = add16(r.hl, r.de, c: r.cf ? 1 : 0);
         r.setV(oldH, r.d, r.h);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         return true;
       case 0x6a: // adc hl, hl
         final oldH = r.h;
         r.hl = add16(r.hl, r.hl, c: r.cf ? 1 : 0);
         r.setV(oldH, oldH, r.h);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         return true;
       case 0x7a: // adc hl, sp
         final oldH = r.h;
         r.hl = add16(r.hl, r.sp, c: r.cf ? 1 : 0);
         r.setV(oldH, r.sp.shr8, r.h);
         r.setSZ(r.h);
+        r.zf = r.hl == 0;
         return true;
 
       case 0x43: // ld (nn), bc
@@ -191,8 +199,8 @@ extension OpEd on Z80 {
       case 0x74:
       case 0x7c:
         final result = 0 - r.a;
-        r.setSZ(result);
-        r.setV(r.a, r.a, result, sub: true);
+        r.setSZ(result.mask8);
+        r.setV(0, r.a, result, sub: true);
         r.hf = 0 < (r.a & 0xf);
         r.nf = true;
         r.cf = result < 0;
@@ -307,7 +315,7 @@ extension OpEd on Z80 {
       case 0x61: // out (c), h
       case 0x69: // out (c), l
       case 0x79: // out (c), a
-        final reg = (op & 0x38.shr3);
+        final reg = op.shr3.mask3;
         output(r.c, r.r8[reg]);
         cycles += 4;
         return true;

@@ -110,7 +110,8 @@ class Op {
   setDetuneAndKeyCode(int dt, int keyCode) {
     _dt = dt;
     _keyCode = keyCode;
-    final detune = dt == 0 ? 0 : _detuneTable[(dt & 3 - 1).shl5 | keyCode];
+    final detune =
+        dt.mask2 == 0 ? 0 : _detuneTable[(dt.mask2 - 1).shl5 | keyCode];
     _detuneVal = dt.bit2 ? detune : -detune;
   }
 
@@ -140,7 +141,14 @@ class Op {
   static const _egStateRelease = 3;
   int _egState = _egStateRelease;
 
-  keyOn() {
+  bool _keyed = false;
+
+  keyOn({bool retrigger = false}) {
+    if (_keyed && !retrigger) {
+      return;
+    }
+    _keyed = true;
+
     _phase = 0;
     _egState = _egStateAttack;
     _egInvert = true;
@@ -153,6 +161,11 @@ class Op {
   }
 
   keyOff() {
+    if (!_keyed) {
+      return;
+    }
+    _keyed = false;
+
     _egState = _egStateRelease;
     _egInvert = false;
     _egRate = (rr == 0) ? 0 : rate(rr.shl1 + 1);
@@ -260,14 +273,11 @@ class Channel {
   int block = 0;
 
   setFreq() {
-    for (final o in op) {
+    // in ch3 special mode, only op4 follows the channel frequency
+    for (final o in isCh3Special ? [op[3]] : op) {
       o.freq = freq;
       o.block = block;
       o.keyCode = block.shl2 | _keyCodeTable[freq.shr7];
-
-      if (isCh3Special) {
-        break;
-      }
     }
   }
 
@@ -303,9 +313,9 @@ class Channel {
   var buffer = Float32List(1000);
   var opBuffer = List<List<int>>.generate(4, (j) => List<int>.filled(1000, 0));
 
-  int calcLfoFreq(int freq) {
+  int calcLfoFreq(int freq, int block) {
     if (!lfoEnabled) {
-      return freq << (block + 1).shr2;
+      return freq.shl(block + 1).shr2;
     }
 
     final freqH = freq.shr4;
@@ -351,13 +361,13 @@ class Channel {
         _lfoAmVal = lfoAmPhase >> [7, 3, 1, 0][lfoAms];
       }
 
-      final baseFreq = calcLfoFreq(freq);
+      final baseFreq = calcLfoFreq(freq, block);
 
       if (isCh3Special) {
-        op[0].updatePhase(baseFreq);
-        for (int i = 1; i < 4; i++) {
-          op[i].updatePhase(calcLfoFreq(op[i].freq));
+        for (int i = 0; i < 3; i++) {
+          op[i].updatePhase(calcLfoFreq(op[i].freq, op[i].block));
         }
+        op[3].updatePhase(baseFreq);
       } else {
         for (final o in op) {
           o.updatePhase(baseFreq);
@@ -497,9 +507,6 @@ class Ym2612 {
   bool _notifyTimerAOverflow = false;
   bool _notifyTimerBOverflow = false;
 
-  bool _resetTimerA = false;
-  bool _resetTimerB = false;
-
   int _timerA = 0; // 18 * (1024 - TIMER A) microseconds, all 0 is the longest
   int _timerB = 0; // 288 * (256 - TIMER B ) microseconds, all 0 is the longest
 
@@ -529,7 +536,7 @@ class Ym2612 {
 
         if (_ch3Mode == _ch3ModeCsm) {
           for (final op in _channels[2].op) {
-            op.keyOn();
+            op.keyOn(retrigger: true);
           }
         }
       }
@@ -552,16 +559,7 @@ class Ym2612 {
   }
 
   int read8(int part) {
-    final status = _timerOverflow;
-
-    if (_resetTimerA) {
-      _timerOverflow &= ~_bitTimerA;
-    }
-    if (_resetTimerB) {
-      _timerOverflow &= ~_bitTimerB;
-    }
-
-    return status;
+    return _timerOverflow;
   }
 
   writePort8(int part, int value) {
@@ -602,24 +600,33 @@ class Ym2612 {
         _ch3Mode = value.shr6 & 3;
         _channels[2].isCh3Special = _ch3Mode != _ch3ModeNone;
 
-        _resetTimerB = value.bit5;
-        _resetTimerA = value.bit4;
+        // reset flags take effect immediately on write
+        if (value.bit5) {
+          _timerOverflow &= ~_bitTimerB;
+        }
+        if (value.bit4) {
+          _timerOverflow &= ~_bitTimerA;
+        }
 
         _notifyTimerBOverflow = value.bit3;
         _notifyTimerAOverflow = value.bit2;
 
-        _enableTimerB = value.bit1;
-        if (value.bit1) {
+        // counters are reloaded only when the load bit goes 0 -> 1
+        if (value.bit1 && !_enableTimerB) {
           _timerCountB = (256 - _timerB).shl4;
         }
+        _enableTimerB = value.bit1;
 
-        _enableTimerA = value.bit0;
-        if (value.bit0) {
+        if (value.bit0 && !_enableTimerA) {
           _timerCountA = 1024 - _timerA;
         }
+        _enableTimerA = value.bit0;
         break;
 
       case 0x28: // Operator Control
+        if (value.mask2 == 0x03) {
+          return; // invalid channel
+        }
         final ch = _channels[(value & 3) + (value.bit2 ? 3 : 0)];
 
         for (var op = 0; op < 4; op++) {
@@ -636,6 +643,10 @@ class Ym2612 {
       case 0x2b: // dac control
         _dacEnabled = value.bit7;
         return;
+    }
+
+    if (0x30 <= reg && reg < 0xb8 && reg.mask2 == 0x03) {
+      return; // invalid channel
     }
 
     if (0x30 <= reg && reg < 0xa0) {
@@ -675,26 +686,22 @@ class Ym2612 {
     }
 
     if (0xa0 <= reg && reg < 0xb8) {
-      final ch = _channels[chNo];
-
-      if (ch.isCh3Special) {
-        switch (reg) {
-          case 0xa8: // Ch3 FNUM
-          case 0xa9:
-          case 0xaa:
-            final op = ch.op[reg - 0xa7];
+      if (0xa8 <= reg && reg < 0xb0) {
+        // ch3 special mode fnum/block: a9/ad -> op1, aa/ae -> op2, a8/ac -> op3
+        if (part == 0) {
+          final op = _channels[2].op[[2, 0, 1][reg.mask2]];
+          if (reg < 0xac) {
             op.freq = op.freq.setL8(value);
             op.keyCode = op.block.shl2 | _keyCodeTable[op.freq.shr7];
-            return;
-          case 0xac: // Ch3 FNUM
-          case 0xad:
-          case 0xae:
-            final op = ch.op[reg - 0xac];
+          } else {
             op.freq = op.freq.setH8(value & 0x07);
             op.block = value.shr3 & 0x07;
-            return;
+          }
         }
+        return;
       }
+
+      final ch = _channels[chNo];
 
       final func = reg & 0xfc;
       switch (func) {
@@ -738,6 +745,7 @@ class Ym2612 {
         op.sl = 0;
         op.rr = 0;
         op.ssgEg = 0;
+        op.keyOff();
       }
 
       ch.freq = 0;

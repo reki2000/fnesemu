@@ -50,8 +50,8 @@ class Sprite {
   int pattern = 0;
   int fetchedX2 = -1;
 
-  Sprite.of(int d0, int d1, int d2, int d3) {
-    y = d0 & 0x3ff;
+  Sprite.of(int d0, int d1, int d2, int d3, {bool interlaced = false}) {
+    y = d0 & (interlaced ? 0x3ff : 0x1ff);
     x = d3 & 0x1ff;
 
     vFlip = d2 & 0x1000 != 0;
@@ -118,7 +118,8 @@ extension VdpRenderer on Vdp {
           vram.getUint16BE(base.mask16),
           vram.getUint16BE((base + 2).mask16),
           vram.getUint16BE((base + 4).mask16),
-          vram.getUint16BE((base + 6).mask16));
+          vram.getUint16BE((base + 6).mask16),
+          interlaced: isInterlaced);
 
       final isTarget = isInterlaced
           ? (sp.y - 256 <= yy && yy < sp.y - 256 + sp.height * 2)
@@ -194,6 +195,18 @@ extension VdpRenderer on Vdp {
 
     final maskBgHeight = [0x1f, 0x3f, 0x7f, 0x7f][reg[16].shr4 & 0x03];
     maskScrollV = maskBgHeight << bitsTileV | maskTileYOffset;
+  }
+
+  void _setVScroll(_Tile ctx, int vScroll) {
+    final v = (yy + vScroll) & maskScrollV;
+    final yOffsetInTile = v & maskTileYOffset;
+    final tileY = v.shr(bitsTileV);
+
+    if (yOffsetInTile != ctx.yOffsetInTile || tileY != ctx.tileY) {
+      ctx.yOffsetInTile = yOffsetInTile;
+      ctx.tileY = tileY;
+      ctx.fetchedHHigh = -1; // force to fetch the pattern again
+    }
   }
 
   PriorityColor _windowColor(_Tile ctx) {
@@ -273,7 +286,8 @@ extension VdpRenderer on Vdp {
 
     hBlank = false;
 
-    if (y == -1) {
+    // z80 interrupt line is asserted only for about one line
+    if (y == Vdp.height + 1) {
       busZ80.deassertInt();
     }
 
@@ -297,24 +311,21 @@ extension VdpRenderer on Vdp {
                   ? y.shl2
                   : (y & ~0x07).shl2);
 
-      final isVFullScroll = !reg[11].bit3;
-      final vScrollAddr = isVFullScroll ? 0 : (y.shr3 & ~0x01);
-
-      final vScrollA = (yy + vsram[vScrollAddr]) & maskScrollV;
       final ctxA = _Tile(
           0, //
           reg[2].shl10 & 0xe000,
           vram.getUint16BE(hScrollAddr) & 0x3ff,
-          vScrollA & maskTileYOffset,
-          vScrollA >> bitsTileV);
+          0,
+          0);
+      _setVScroll(ctxA, vsram[0]);
 
-      final vScrollB = (yy + vsram[vScrollAddr.inc]) & maskScrollV;
       final ctxB = _Tile(
           1, //
           reg[4].shl13 & 0xe000,
           vram.getUint16BE(hScrollAddr.inc2) & 0x3ff,
-          vScrollB & maskTileYOffset,
-          vScrollB >> bitsTileV);
+          0,
+          0);
+      _setVScroll(ctxB, vsram[1]);
 
       final ctxWindow = _Tile(
           2, // window
@@ -335,8 +346,22 @@ extension VdpRenderer on Vdp {
       final bufferOffset = y * width;
       final bg = reg[7] & 0x3f;
 
+      if (!enableDisplay) {
+        buffer.fillRange(bufferOffset, bufferOffset + width, rgba[cram[bg]]);
+        hCounter = width;
+        vBlank = false;
+        return true;
+      }
+
       for (hCounter = 0; hCounter < width; hCounter++) {
         int color;
+
+        // 2-cell vertical scroll: each 16 pixel column has its own vscroll
+        if (vScr2Cell && hCounter.mask4 == 0) {
+          final column = hCounter.shr4.shl1;
+          _setVScroll(ctxA, vsram[column]);
+          _setVScroll(ctxB, vsram[column.inc]);
+        }
 
         final sprite = _spriteColor();
         if (sprite.isPrior && sprite.isVisible) {
@@ -374,18 +399,24 @@ extension VdpRenderer on Vdp {
     return false;
   }
 
+  void startHBlank() {
+    if (!vBlank) {
+      hBlank = true;
+    }
+  }
+
   void finishLine() {
-    if (y == Vdp.height - 1 && enableVInt) {
+    if (y == Vdp.height - 1) {
       vBlank = true;
       status |= Vdp.bitVblankInt; // on: vsync int occureed
-      bus.interrupt(6);
-      busZ80.assertInt();
+      busZ80.assertInt(); // z80 int is not affected by the m68 vint enable
+      if (enableVInt) {
+        bus.interrupt(6);
+      }
       return;
     }
 
     if (!vBlank) {
-      hBlank = true;
-
       if (enableHInt) {
         if (hIntCounter == 0) {
           hIntCounter = reg[10];

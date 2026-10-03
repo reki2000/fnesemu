@@ -41,6 +41,7 @@ class Md implements Core {
 
   static const _regionDomestic = 0x00;
   static const _regionOversea = 0x80;
+  static const _regionOverseaPal = 0xc0;
 
   @override
   int get systemClockHz => m68ClockHz;
@@ -79,7 +80,7 @@ class Md implements Core {
   int _clocks = 0;
   int _nextScanClock = 0;
 
-  bool _waitFinishLine = false;
+  bool _waitHBlank = false;
 
   /// exec 1 cpu instruction and render VDO / FM-PSG if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
@@ -120,16 +121,21 @@ class Md implements Core {
       // video rendering
       _nextScanClock += clocksInScanline;
       vdp.renderLine();
-      _waitFinishLine = true;
+
+      // raise h/v interrupts right after the line is rendered, so that the
+      // handler has a whole line to update the vdp before the next line is
+      // drawn (e.g. per-line vscroll changes by h-int)
+      vdp.finishLine();
+      _waitHBlank = true;
       result.scanlineRendered = true;
 
       // audio rendering
       _renderAudio();
     }
 
-    if (_waitFinishLine && _clocks >= _nextScanClock - 36) {
-      vdp.finishLine();
-      _waitFinishLine = false;
+    if (_waitHBlank && _clocks >= _nextScanClock - 36) {
+      vdp.startHBlank();
+      _waitHBlank = false;
     }
 
     _clocks += 12;
@@ -233,13 +239,17 @@ class Md implements Core {
         busM68.region = _regionDomestic;
       } else if (newStyleIndex.bit2) {
         busM68.region = _regionOversea;
+      } else if (newStyleIndex.bit3) {
+        busM68.region = _regionOverseaPal;
       } else {
         throw Exception("unknown ROM region:$r0");
       }
     } else if ("$r0$r1$r2".contains("J")) {
       busM68.region = _regionDomestic;
-    } else if ("$r0$r1".contains("U")) {
+    } else if ("$r0$r1$r2".contains("U")) {
       busM68.region = _regionOversea;
+    } else if ("$r0$r1$r2".contains("E")) {
+      busM68.region = _regionOverseaPal;
     } else {
       throw Exception("unknown ROM region:$r0$r1$r2");
     }
