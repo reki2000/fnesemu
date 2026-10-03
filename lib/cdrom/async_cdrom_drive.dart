@@ -8,13 +8,13 @@ import 'disc_layout.dart';
 import 'image_file.dart';
 
 class _CacheEntry {
-  final Uint8List data;
+  final Uint8List data; // empty if failed to read
   final DateTime loadedAt;
   _CacheEntry(this.data, this.loadedAt);
 }
 
 /// [CdromDrive] which reads only the required sectors from the image files
-/// asynchronously.
+/// in the background.
 ///
 /// - the TOC is read when a disc is inserted by [eject], and kept on memory
 /// - each read also reads ahead [readAheadSectors] sectors
@@ -27,19 +27,14 @@ class AsyncCdromDrive implements CdromDrive {
 
   AsyncCdromDrive({DateTime Function()? now}) : _now = now ?? DateTime.now;
 
-  CdromDriveListener? _listener;
-
-  @override
-  set listener(CdromDriveListener? listener) => _listener = listener;
-
   CdromDriveState _state = CdromDriveState.empty;
   DiscSource? _source;
   DiscLayout? _layout;
-  int _headLba = 0;
-  int _seekingLba = -1;
+  int _seekLba = 0;
+  bool _seekRequested = false;
 
   /// incremented on each disc change to discard the results of the old disc
-  int _generation = 0;
+  int _discId = 0;
 
   final _cache = <int, _CacheEntry>{};
   final _inflight = <int, Future<void>>{};
@@ -48,41 +43,54 @@ class AsyncCdromDrive implements CdromDrive {
   /// for tests and debugging
   int get cachedSectors => _cache.length;
 
-  @override
-  CdromDriveStatus get status => CdromDriveStatus(
-      _state, _layout?.toc ?? CdromToc.empty, _headLba, _seekingLba >= 0);
+  /// rebuilt on each change, as the core polls it on each exec
+  CdromDriveStatus _status = CdromDriveStatus.empty;
 
-  /// ejects the current disc and inserts [next] if specified. The listener is
-  /// notified when the tray is opened, and when the TOC of [next] is read.
+  @override
+  CdromDriveStatus get status => _status;
+
+  void _updateStatus() {
+    final layout = _layout;
+    final readable = layout != null && layout.isReadable(_seekLba);
+    final entry = _cache[_seekLba];
+
+    _status = CdromDriveStatus(
+      _state,
+      _discId,
+      layout?.toc ?? CdromToc.empty,
+      seekLba: _seekLba,
+      isSeeking: _seekRequested && readable && entry == null,
+      seekError: _seekRequested &&
+          (!readable || (entry != null && entry.data.isEmpty)),
+    );
+  }
+
+  /// ejects the current disc and inserts [next] if specified. The status
+  /// changes to trayOpen, then to loading and ready (or error) when the TOC
+  /// of [next] is read.
   Future<void> eject([DiscSource? next]) async {
-    final generation = ++_generation;
+    final discId = _changeDisc(CdromDriveState.trayOpen);
 
     final old = _source;
     _source = null;
-    _layout = null;
-    _cache.clear();
-    _inflight.clear();
-    _seekingLba = -1;
-    _headLba = 0;
-    _setState(CdromDriveState.trayOpen);
     await old?.close();
 
     if (next == null) {
-      if (generation == _generation) {
-        _setState(CdromDriveState.empty);
+      if (discId == _discId) {
+        _changeDisc(CdromDriveState.empty);
       }
       return;
     }
 
-    if (generation != _generation) {
+    if (discId != _discId) {
       await next.close();
       return;
     }
-    _setState(CdromDriveState.loading);
+    final loadingId = _changeDisc(CdromDriveState.loading);
 
     try {
       final layout = await DiscLayout.build(next);
-      if (generation != _generation) {
+      if (loadingId != _discId) {
         await next.close();
         return;
       }
@@ -93,62 +101,51 @@ class AsyncCdromDrive implements CdromDrive {
       for (final t in layout.toc.tracks) {
         debugLog("cdrom: $t");
       }
-      _setState(CdromDriveState.ready);
+      _changeDisc(CdromDriveState.ready);
     } catch (e) {
       debugLog("cdrom: failed to read TOC of ${next.name}: $e");
       await next.close();
-      if (generation == _generation) {
-        _setState(CdromDriveState.error);
+      if (loadingId == _discId) {
+        _changeDisc(CdromDriveState.error);
       }
     }
   }
 
-  void _setState(CdromDriveState state) {
+  /// discards the state of the current disc, returns the new disc id
+  int _changeDisc(CdromDriveState state) {
+    _discId++;
     _state = state;
-    _listener?.onDiscChanged(status);
+    if (state != CdromDriveState.ready) {
+      _layout = null;
+    }
+    _cache.clear();
+    _inflight.clear();
+    _seekLba = 0;
+    _seekRequested = false;
+    _updateStatus();
+    return _discId;
   }
 
   @override
   void seek(int lba) {
-    _headLba = lba;
+    _seekLba = lba;
+    _seekRequested = true;
     final layout = _layout;
-    if (layout == null || !layout.isReadable(lba)) {
-      _deliverLater(() => _listener?.onSeekComplete(lba, false));
-      return;
+    if (layout != null && layout.isReadable(lba)) {
+      _ensureLoaded(lba);
     }
-
-    _seekingLba = lba;
-    final generation = _generation;
-    _ensureLoaded(lba).then((_) {
-      if (generation != _generation) return;
-      if (_seekingLba == lba) {
-        _seekingLba = -1;
-      }
-      _listener?.onSeekComplete(lba, true);
-    });
+    _updateStatus();
   }
 
   @override
-  void read(int lba) {
-    _headLba = lba;
+  Uint8List? read(int lba) {
     final layout = _layout;
     if (layout == null || !layout.isReadable(lba)) {
-      _deliverLater(() => _listener?.onSectorRead(lba, Uint8List(0)));
-      return;
+      return Uint8List(0);
     }
 
-    final generation = _generation;
-    _ensureLoaded(lba).then((_) {
-      if (generation != _generation) return;
-      _listener?.onSectorRead(lba, _cache[lba]?.data ?? Uint8List(0));
-    });
-  }
-
-  void _deliverLater(void Function() f) {
-    final generation = _generation;
-    scheduleMicrotask(() {
-      if (generation == _generation) f();
-    });
+    _ensureLoaded(lba);
+    return _cache[lba]?.data;
   }
 
   bool _isCached(int lba) {
@@ -156,19 +153,18 @@ class AsyncCdromDrive implements CdromDrive {
     return e != null && _now().difference(e.loadedAt) < cacheLifetime;
   }
 
-  /// makes [lba] available in the cache, and reads ahead the following sectors
-  Future<void> _ensureLoaded(int lba) {
+  /// starts reading [lba] if not cached, and reads ahead the following sectors
+  void _ensureLoaded(int lba) {
     _sweep();
 
-    final Future<void> result;
-    if (_isCached(lba)) {
-      result = Future.value();
-    } else {
-      result = _inflight[lba] ?? _load(lba, readAheadSectors + 1);
+    if (!_isCached(lba)) {
+      _cache.remove(lba);
+      if (!_inflight.containsKey(lba)) {
+        _load(lba, readAheadSectors + 1);
+      }
     }
 
     _readAhead(lba);
-    return result;
   }
 
   /// starts reading ahead when less than half of the read-ahead window is
@@ -186,11 +182,11 @@ class AsyncCdromDrive implements CdromDrive {
     }
   }
 
-  /// reads [count] sectors from [lba], skipping the sectors already cached or
-  /// being read
-  Future<void> _load(int lba, int count) {
+  /// reads [count] sectors from [lba] in the background, skipping the sectors
+  /// already cached or being read
+  void _load(int lba, int count) {
     final layout = _layout!;
-    final generation = _generation;
+    final discId = _discId;
 
     var end = (lba + count).clamp(0, layout.totalSectors);
     for (int s = lba + 1; s < end; s++) {
@@ -202,27 +198,32 @@ class AsyncCdromDrive implements CdromDrive {
 
     late final Future<void> future;
     future = _readRange(layout, lba, end - lba).then((sectors) {
-      if (generation != _generation) return;
+      if (discId != _discId) return;
       final now = _now();
       for (int i = 0; i < sectors.length; i++) {
         _cache[lba + i] = _CacheEntry(sectors[i], now);
       }
     }).catchError((e) {
       debugLog("cdrom: read error at $lba-${end - 1}: $e");
+      if (discId != _discId) return;
+      // cached as unreadable, retried after the lifetime
+      final now = _now();
+      for (int s = lba; s < end; s++) {
+        _cache[s] = _CacheEntry(Uint8List(0), now);
+      }
     }).whenComplete(() {
-      if (generation != _generation) return;
+      if (discId != _discId) return;
       for (int s = lba; s < end; s++) {
         if (identical(_inflight[s], future)) {
           _inflight.remove(s);
         }
       }
+      _updateStatus();
     });
 
     for (int s = lba; s < end; s++) {
       _inflight[s] = future;
     }
-
-    return future;
   }
 
   Future<List<Uint8List>> _readRange(

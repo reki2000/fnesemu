@@ -42,7 +42,7 @@ class Cdrom {
   late Disc disc;
 
   /// connection to [CdromDrive], used if [asyncCdrom]
-  late final _port = _AsyncPort(this);
+  late final _port = _DrivePort(this);
 
   void attachDrive(CdromDrive drive) => _port.attach(drive);
 
@@ -162,6 +162,9 @@ class Cdrom {
       _onDiscChanged(_port.isReady);
     }
   }
+
+  /// async-cdrom: the sector fetched by the drive, waiting to be processed
+  Uint8List? _fetched;
 
   bool isBufferNotReadable() =>
       sectorBufferEmpty || sectorBufferIndex >= sectorSize;
@@ -315,17 +318,23 @@ class Cdrom {
       isCmdBusy = false;
     }
 
-    _clock += clocks;
+    if (asyncCdrom) {
+      _clock += clocks;
+      _port.poll(_clock);
+    }
 
     // sector read
     if (isReading || isPlaying) {
       sectorReadDelay -= clocks;
 
       if (sectorReadDelay <= 0) {
-        if (asyncCdrom && !_port.has(readingSector)) {
-          // the sector has not arrived yet: wait for the drive
-          sectorReadDelay += 33868800 ~/ 150 ~/ 8;
-          return;
+        if (asyncCdrom) {
+          _fetched = _port.read(readingSector);
+          if (_fetched == null) {
+            // the drive has not read the sector yet: wait for it
+            sectorReadDelay += 33868800 ~/ 150 ~/ 8;
+            return;
+          }
         }
 
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
@@ -344,7 +353,7 @@ class Cdrom {
 
   /// reads [sector] (includes 2 seconds of lead-in) from the disc
   Uint8List _fetchSector(int sector) =>
-      asyncCdrom ? _port.take(sector) : disc.read(sector);
+      asyncCdrom ? _fetched! : disc.read(sector);
 
   // disc information, from the TOC of the drive if [asyncCdrom]
   bool get _isDiscEmpty => asyncCdrom ? !_port.isReady : disc.isEmpty;
@@ -385,9 +394,6 @@ class Cdrom {
     }
     if ((mode.bit1 && track != playTrack) ||
         readingSector >= _totalSectors + 2 * 75) {
-      if (asyncCdrom) {
-        _port.take(readingSector); // drop the fetched sector
-      }
       isPlaying = false;
       irq(4, [status()], delay: 0);
       return;

@@ -3,16 +3,12 @@ import 'dart:typed_data';
 import 'cdrom_drive.dart';
 import 'disc.dart';
 
-/// [CdromDrive] backed by an on-memory [Disc].
-///
-/// Results are notified synchronously within [seek] and [read], so that it
-/// works without an event loop (e.g. command line tests).
+/// [CdromDrive] backed by an on-memory [Disc]. all sectors are always
+/// available.
 class MemoryCdromDrive implements CdromDrive {
   final Disc disc;
   final CdromToc _toc;
-  int _headLba = 0;
-
-  CdromDriveListener? _listener;
+  late CdromDriveStatus _status = _statusOf(0, false);
 
   MemoryCdromDrive(this.disc) : _toc = _tocOf(disc);
 
@@ -30,27 +26,20 @@ class MemoryCdromDrive implements CdromDrive {
     return CdromToc(tracks, disc.totalSectors);
   }
 
-  @override
-  set listener(CdromDriveListener? listener) => _listener = listener;
+  bool _isReadable(int lba) =>
+      !disc.isEmpty && lba >= 0 && lba < _toc.totalSectors;
+
+  CdromDriveStatus _statusOf(int seekLba, bool seekError) => CdromDriveStatus(
+      disc.isEmpty ? CdromDriveState.empty : CdromDriveState.ready, 1, _toc,
+      seekLba: seekLba, seekError: seekError);
 
   @override
-  CdromDriveStatus get status => CdromDriveStatus(
-      disc.isEmpty ? CdromDriveState.empty : CdromDriveState.ready,
-      _toc,
-      _headLba,
-      false);
+  CdromDriveStatus get status => _status;
 
   @override
-  void seek(int lba) {
-    _headLba = lba;
-    _listener?.onSeekComplete(
-        lba, !disc.isEmpty && lba >= 0 && lba < _toc.totalSectors);
-  }
+  void seek(int lba) => _status = _statusOf(lba, !_isReadable(lba));
 
   @override
-  void read(int lba) {
-    _headLba = lba;
-    final data = disc.isEmpty ? Uint8List(0) : disc.read(lba + 2 * 75);
-    _listener?.onSectorRead(lba, data);
-  }
+  Uint8List? read(int lba) =>
+      _isReadable(lba) ? disc.read(lba + 2 * 75) : Uint8List(0);
 }
