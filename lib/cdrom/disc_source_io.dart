@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 
+import 'disc_folder.dart';
 import 'disc_source_local.dart';
 import 'image_file.dart';
 
@@ -13,4 +14,11 @@ Future<DiscSource?> pickDiscSource() async {
       allowedExtensions: ["cue", "iso", "bin", "img"]);
   final path = picked?.files.firstOrNull?.path;
   return path == null ? null : IoDiscSource(path);
+}
+
+/// lets the user select a directory of disc images. returns null if canceled.
+Future<DiscFolder?> pickDiscFolder() async {
+  final path = await FilePicker.platform
+      .getDirectoryPath(dialogTitle: "Select a directory of disc images");
+  return path == null ? null : LocalDiscFolder(path);
 }

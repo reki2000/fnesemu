@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
+import 'disc_folder.dart';
 import 'image_file.dart';
 
 /// reads a part of a browser File by Blob.slice, without loading the whole
@@ -89,6 +90,71 @@ Future<DiscSource?> pickDiscSource() {
         final main = files.where((f) => hasExt(f, [".cue"])).firstOrNull ??
             files.where((f) => hasExt(f, [".iso", ".bin", ".img"])).firstOrNull;
         complete(main == null ? null : WebDiscSource(files, main));
+      }.toJS);
+  input.addEventListener("cancel", ((web.Event _) => complete(null)).toJS);
+
+  input.click();
+  return completer.future;
+}
+
+/// the files of a directory selected by the browser. the files are only
+/// references: the contents are read when needed.
+class WebDiscFolder extends DiscFolder {
+  @override
+  final String name;
+  final _files = <String, web.File>{};
+
+  WebDiscFolder(this.name, Iterable<(String, web.File)> files) {
+    for (final (path, file) in files) {
+      _files[path] = file;
+    }
+  }
+
+  @override
+  Stream<FolderFile> list() async* {
+    for (final path in _files.keys) {
+      yield FolderFile(path);
+    }
+  }
+
+  @override
+  ImageFile file(String path) => WebImageFile(_files[path]!);
+}
+
+/// lets the user select a directory of disc images. returns null if canceled.
+/// uses a directory input, which all the major browsers support.
+Future<DiscFolder?> pickDiscFolder() {
+  final completer = Completer<DiscFolder?>();
+
+  final input = web.HTMLInputElement()
+    ..type = "file"
+    ..multiple = true;
+  input.setAttribute("webkitdirectory", "");
+
+  void complete(DiscFolder? folder) {
+    if (!completer.isCompleted) {
+      completer.complete(folder);
+    }
+  }
+
+  input.addEventListener(
+      "change",
+      (web.Event _) {
+        final list = input.files;
+        if (list == null || list.length == 0) {
+          complete(null);
+          return;
+        }
+        // webkitRelativePath is 'selected-folder/sub/file'
+        String root = "";
+        final files = <(String, web.File)>[];
+        for (int i = 0; i < list.length; i++) {
+          final f = list.item(i)!;
+          final parts = f.webkitRelativePath.split("/");
+          root = parts.first;
+          files.add((parts.skip(1).join("/"), f));
+        }
+        complete(WebDiscFolder(root, files));
       }.toJS);
   input.addEventListener("cancel", ((web.Event _) => complete(null)).toJS);
 

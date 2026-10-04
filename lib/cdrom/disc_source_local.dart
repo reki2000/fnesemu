@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'disc_folder.dart';
 import 'image_file.dart';
 
 class IoImageFile extends ImageFile {
@@ -72,3 +73,36 @@ class IoDiscSource extends DiscSource {
 
 /// returns a disc image of the local file at [path]
 DiscSource discSourceFromPath(String path) => IoDiscSource(path);
+
+/// a local directory
+class LocalDiscFolder extends DiscFolder {
+  final String root;
+
+  LocalDiscFolder(this.root);
+
+  @override
+  String get name => root.split(RegExp(r'[\\/]')).where((s) => s.isNotEmpty).last;
+
+  @override
+  Stream<FolderFile> list() async* {
+    final dirs = <(Directory, String)>[(Directory(root), '')];
+    while (dirs.isNotEmpty) {
+      final (dir, prefix) = dirs.removeLast();
+      try {
+        await for (final e in dir.list(followLinks: false)) {
+          final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
+          if (e is Directory) {
+            dirs.add((e, '$prefix$name/'));
+          } else if (e is File) {
+            yield FolderFile('$prefix$name');
+          }
+        }
+      } on FileSystemException {
+        // an unreadable directory is skipped
+      }
+    }
+  }
+
+  @override
+  ImageFile file(String path) => IoImageFile('$root/$path');
+}
