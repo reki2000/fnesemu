@@ -17,7 +17,9 @@ class PceFile {
     // load rom data
     const bankSize = 8 * 1024;
 
-    final hasHeader = body.sublist(16, 200).every((e) => e == 0);
+    // a 512 byte copier header precedes the banks. its contents vary (some
+    // dumps have non zero bytes in it), so detect it by the file size
+    final hasHeader = body.length % bankSize == 0x200;
     body = body.sublist(hasHeader ? 0x200 : 0); // skip header
 
     int offset = 0;

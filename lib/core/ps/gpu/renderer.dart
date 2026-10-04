@@ -15,10 +15,18 @@ extension GpuRenderer on Gpu {
   void renderScanline() {
     final line = height == 240 ? scanline : scanline * 2 + (isOddFrame ? 1 : 0);
     int bufIndex = width * line;
-    final fbY = (startDisplayY + line) & 0x1ff;
+
+    // the output starts at the first visible tv line (16 on NTSC); the display
+    // range (GP1(07h)) decides where in it the picture is placed. a 224 line
+    // picture (y1 = 24) is centered with 8 black lines above and below
+    final top = isPal ? 0 : displayY1 - 16;
+    final rel = scanline - top; // line inside the display range
+    final fbY = (startDisplayY +
+            (height == 240 ? rel : rel * 2 + (isOddFrame ? 1 : 0))) &
+        0x1ff;
 
     if (scanline < 240) {
-      if (status.bit23 || scanline >= displayY2 - displayY1) {
+      if (status.bit23 || rel < 0 || rel >= displayY2 - displayY1) {
         // display disabled or out of display range
         buffer.fillRange(bufIndex, bufIndex + width, alphaChannel);
       } else if (isRgb24) {

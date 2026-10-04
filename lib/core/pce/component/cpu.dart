@@ -104,21 +104,31 @@ class Cpu {
     bus.write(regs.mprAddress[(addr & 0xe000).shr13] | addr & 0x1fff, data);
   }
 
+  // the interrupt mask register is written in the last cycle of the store
+  // instruction, so an interrupt unmasked by it is entered only after the next
+  // instruction (handlers unmask and acknowledge the timer irq back to back)
+  bool _irqInhibitOnce = false;
+
+  void inhibitIrqOnce() => _irqInhibitOnce = true;
+
   void handleIrq() {
+    final inhibit = _irqInhibitOnce;
+    _irqInhibitOnce = false;
+
     // exec irq on the next execution
-    if (holdIrq1 && (regs.p & Flags.I) == 0) {
+    if (!inhibit && holdIrq1 && (regs.p & Flags.I) == 0) {
       holdIrq1 = false;
       interrupt(irq1: true);
     }
 
     // exec irq on the next execution
-    if (holdIrq2 && (regs.p & Flags.I) == 0) {
+    if (!inhibit && holdIrq2 && (regs.p & Flags.I) == 0) {
       holdIrq2 = false;
       interrupt(irq2: true);
     }
 
     // exec irq on the next execution
-    if (holdTirq && (regs.p & Flags.I) == 0) {
+    if (!inhibit && holdTirq && (regs.p & Flags.I) == 0) {
       holdTirq = false;
       interrupt(tirq: true);
     }

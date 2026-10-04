@@ -80,9 +80,9 @@ class N64 extends Core {
     bus.ramWrite(0x304, 0, 4); // osRomType: cartridge
     bus.ramWrite(0x308, 0xb0000000, 4); // osRomBase
     bus.ramWrite(0x30c, 0, 4); // osResetType
-    bus.ramWrite(0x310, 0x3f, 4); // CIC seed
+    bus.ramWrite(0x310, rom.cicSeed, 4); // CIC seed
     cpu.r[20] = 1;
-    cpu.r[22] = 0x3f;
+    cpu.r[22] = rom.cicSeed;
 
     _nextLine = clocksInScanline;
     _frame = 0;

@@ -154,7 +154,11 @@ class N64Audio {
             write(dest + i * 2 + 2, read(low + i));
           }
         case 14:
-          throw UnsupportedError('Audio pole filter opcode');
+          // pole (low pass) filter: not modelled, the signal is passed through
+          if (input != output && output + count <= memory.length) {
+            memory.setRange(output, output + count,
+                Uint8List.fromList(memory.sublist(input, input + count)));
+          }
         case 15:
           loop = addr(w1);
         case 16:

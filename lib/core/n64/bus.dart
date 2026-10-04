@@ -26,6 +26,8 @@ class N64Bus {
   final tlb = List.generate(32, (_) => List<int>.filled(4, 0));
   final held = List.generate(4, (_) => <String>{});
   Sram? sram;
+  // cartridge backup ram (SRAM games); not persisted yet
+  final cartSram = Uint8List(0x8000);
   int scanline = 0, spPc = 0;
   int audioCycles = 0;
   void Function()? onTask;
@@ -96,6 +98,13 @@ class N64Bus {
     if (a >= 0x10000000 && a - 0x10000000 < rom.length) {
       return rom[a - 0x10000000];
     }
+    if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
+      return cartSram[a - 0x08000000];
+    }
+    // 64DD registers / IPL rom: not connected (games probe for the drive)
+    if (a >= 0x05000000 && a < 0x08000000) return 0;
+    // RDRAM address space beyond the installed memory (games probe its size)
+    if (a >= ram.length && a < 0x03f00000) return 0;
     if (a & ~3 == 0x04080000) return spPc.shr((3 - a.mask2) * 8).mask8;
     final regs = registers(a), index = registerIndex(a);
     if (regs != null && index < regs.length) {
@@ -176,6 +185,12 @@ class N64Bus {
       pif[a - 0x1fc007c0] = value;
       return;
     }
+    if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
+      cartSram[a - 0x08000000] = value;
+      return;
+    }
+    if (a >= 0x05000000 && a < 0x08000000) return; // 64DD: not connected
+    if (a >= ram.length && a < 0x03f00000) return; // beyond installed RDRAM
     final regs = registers(a);
     if (regs != null) {
       final base = address & ~3, shift = (3 - a.mask2) * 8;
@@ -328,6 +343,18 @@ class N64Bus {
         intoRam &&
         cart - 0x10000000 + length <= rom.length) {
       ram.setRange(dram, dram + length, rom, cart - 0x10000000);
+    } else if (cart >= 0x08000000 &&
+        cart - 0x08000000 + length <= cartSram.length) {
+      // cartridge SRAM (32KiB, domain 2)
+      final offset = cart - 0x08000000;
+      if (intoRam) {
+        ram.setRange(dram, dram + length, cartSram, offset);
+      } else {
+        cartSram.setRange(offset, offset + length, ram, dram);
+      }
+    } else if (cart >= 0x05000000 && cart < 0x10000000) {
+      // 64DD / unconnected cartridge domains read as zero
+      if (intoRam) ram.fillRange(dram, dram + length, 0);
     } else {
       throw UnsupportedError('PI DMA cartridge address 0x${cart.hex}');
     }

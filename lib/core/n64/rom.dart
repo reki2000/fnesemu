@@ -6,8 +6,38 @@ class N64Rom {
   final int entryPoint;
   final String title;
 
-  N64Rom._(this.bytes)
-      : entryPoint = ByteData.sublistView(bytes).getUint32(8),
+  /// CRC32 of the IPL3 boot code (0x40-0xfff) identifies the CIC chip
+  final int ipl3Crc;
+
+  /// seed that the IPL3 leaves in the registers / osCicId area
+  int get cicSeed => switch (ipl3Crc) {
+        0x0b050ee0 => 0x78, // CIC-6103
+        0x98bc2c86 => 0x91, // CIC-6105
+        0xacc8580a => 0x85, // CIC-6106
+        _ => 0x3f, // CIC-6101 / 6102
+      };
+
+  static int _crc32(Uint8List data, int start, int end) {
+    var crc = 0xffffffff;
+    for (var i = start; i < end; i++) {
+      crc ^= data[i];
+      for (var k = 0; k < 8; k++) {
+        crc = (crc & 1) != 0 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+      }
+    }
+    return (~crc) & 0xffffffff;
+  }
+
+  N64Rom._(this.bytes, int crc)
+      : ipl3Crc = crc,
+        // the entry point in the header is scrambled for CIC-6103 / 6106
+        entryPoint = (ByteData.sublistView(bytes).getUint32(8) -
+                switch (crc) {
+                  0x0b050ee0 => 0x100000,
+                  0xacc8580a => 0x200000,
+                  _ => 0,
+                }) &
+            0xffffffff,
         title = String.fromCharCodes(bytes.sublist(0x20, 0x34))
             .replaceAll('\x00', '')
             .trim();
@@ -39,7 +69,7 @@ class N64Rom {
           'Invalid N64 cartridge byte order signature',
         );
     }
-    final rom = N64Rom._(bytes);
+    final rom = N64Rom._(bytes, _crc32(bytes, 0x40, 0x1000));
     final physical = rom.entryPoint & 0x1fffffff;
     if (rom.entryPoint < 0x80000000 ||
         rom.entryPoint >= 0xc0000000 ||

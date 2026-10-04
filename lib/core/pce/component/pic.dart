@@ -33,6 +33,7 @@ class Pic {
     maskIrq1 = data.bit1;
     maskTIrq = data.bit2;
     _syncInterrupts();
+    bus.cpu.inhibitIrqOnce();
   }
 
   void _syncInterrupts() {

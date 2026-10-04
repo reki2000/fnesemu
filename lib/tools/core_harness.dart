@@ -1,14 +1,16 @@
 // headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run lib/tools/core_harness.dart <nes|pce|md|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
+// usage: dart run lib/tools/core_harness.dart <nes|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
 //   -p, --press F:B  press button B (name or index) at frame F (repeatable)
 //   -H, --hold N     frames to hold a pressed button (default: 10)
+//   -s, --start N    save pngs only from frame N on (default: 0)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
 //   -b, --bios FILE  gba: boot from this BIOS image (default: HLE boot)
+//   -3, --boot A,B,C 32x: boot roms (main 256B, master 2048B, slave 1024B)
 //   -x, --exe FILE   ps: run this PS-EXE after the BIOS boot (test programs)
 //   -v, --vram       ps: also write vram.png (the whole 1024x512 VRAM)
 //
@@ -38,7 +40,9 @@ void main(List<String> args) {
   final presses = <(int, String)>[];
   int holdFrames = 10;
   bool wav = false;
+  int saveFrom = 0;
   String? bios;
+  String? boot32x;
   String? exe;
   bool vram = false;
   final files = <String>[];
@@ -53,10 +57,14 @@ void main(List<String> args) {
         outDir = args[++i];
       case "-H" || "--hold":
         holdFrames = int.parse(args[++i]);
+      case "-s" || "--start":
+        saveFrom = int.parse(args[++i]);
       case "-w" || "--wav":
         wav = true;
       case "-b" || "--bios":
         bios = args[++i];
+      case "-3" || "--boot":
+        boot32x = args[++i];
       case "-x" || "--exe":
         exe = args[++i];
       case "-v" || "--vram":
@@ -70,7 +78,7 @@ void main(List<String> args) {
   }
 
   if (files.length < 2) {
-    print("usage: core_harness <nes|pce|md|ps|snes|gb|gba|n64> <rom|bios> [disc] "
+    print("usage: core_harness <nes|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
@@ -84,6 +92,8 @@ void main(List<String> args) {
     "nes" => Nes(),
     "pce" => Pce(),
     "md" => Md(),
+    "mdcd" => Md(cdBoot: true), // rom: mega cd bios, disc: cue/iso
+    "32x" => Md(expansionBoot: true), // rom: .32x cartridge, -3 boot roms
     "ps" => Ps(),
     "snes" => Snes(),
     "gb" => Gb(),
@@ -92,10 +102,21 @@ void main(List<String> args) {
     _ => throw "unknown core: ${files[0]}",
   };
   core.setSram(Sram());
+  if (files[0] == "32x") {
+    final roms = boot32x!.split(",").map((f) => File(f).readAsBytesSync()).toList();
+    (core as Md).setExpansionBootRoms(
+        main: roms[0], master: roms[1], slave: roms[2]);
+  }
+  // the mega cd core needs the disc before the bios
+  if (files[0] == "mdcd" && files.length > 2) {
+    core.setDisc(DiscLoader.load(files[2]));
+  }
   core.setRom(_loadRom(files[1]));
-  if (files.length > 2) core.setDisc(DiscLoader.load(files[2]));
+  if (files[0] != "mdcd" && files.length > 2) {
+    core.setDisc(DiscLoader.load(files[2]));
+  }
   // gba boots from setRom; a reset afterwards drops the boot state
-  if (files[0] != "gba") core.reset();
+  if (files[0] != "gba" && files[0] != "mdcd" && files[0] != "32x") core.reset();
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
@@ -143,7 +164,7 @@ void main(List<String> args) {
       if (frame == f + holdFrames) core.padUp(0, buttons[b]);
     }
 
-    if (frame % every == 0) {
+    if (frame % every == 0 && frame >= saveFrom) {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(core.imageBuffer(), path);
       print("frame $frame "

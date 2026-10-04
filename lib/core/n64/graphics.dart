@@ -68,6 +68,9 @@ class N64Graphics {
   int tasks = 0, triangles = 0;
   final depths = <int, Float64List>{};
   bool extended = false;
+  // F3DEX2 / F3DZEX use a different opcode layout and geometry mode bits
+  bool f3dex2 = false;
+  int geometry2 = 0;
   bool rasterize =
       true; // Optional headless fast-forward; normal execution renders every task.
   N64Graphics(this.bus);
@@ -107,6 +110,8 @@ class N64Graphics {
     scRight = 320;
     scBottom = 240;
     extended = false;
+    f3dex2 = false;
+    geometry2 = 0;
   }
 
   int resolve(int addr) =>
@@ -129,7 +134,13 @@ class N64Graphics {
   void task(int address, int size, int ucodeData, int ucodeSize) {
     final end = math.min(bus.ram.length, ucodeData + math.min(ucodeSize, 2048));
     final name = String.fromCharCodes(bus.ram.sublist(ucodeData, end.toInt()));
-    extended = name.contains('F3DEX') || name.contains('F3DLP');
+    // F3DEX2 microcodes are named F3DEX2 / F3DZEX, or "F3DEX ... 2.xx"
+    final version = RegExp(r'F3D(?:EX|LX|LP)[^0-9]*(\d)\.\d').firstMatch(name);
+    f3dex2 = name.contains('F3DEX2') ||
+        name.contains('F3DZEX') ||
+        name.contains('F3DLX2') ||
+        version?.group(1) == '2';
+    extended = f3dex2 || name.contains('F3DEX') || name.contains('F3DLP');
     tasks++;
     displayList(address);
   }
@@ -140,6 +151,96 @@ class N64Graphics {
     for (var commands = 0; commands < 100000; commands++) {
       final w0 = u(pc, 4), w1 = u(pc + 4, 4), op = w0.shr24;
       pc += 8;
+      if (f3dex2) {
+        var handled = true;
+        switch (op) {
+          case 0x00 || 0x02 || 0x03 || 0x04 || 0x08:
+            break; // NOOP, MODIFYVTX, CULLDL, BRANCH_Z, LINE3D are not needed
+          case 0x01:
+            final n = (w0 >> 12) & 0xff, end = (w0 >> 1) & 0x7f;
+            _loadVertices(resolve(w1), end - n, n);
+          case 0x05:
+            drawIndices(w0, 2);
+          case 0x06 || 0x07:
+            drawIndices(w0, 2);
+            drawIndices(w1, 2);
+          case 0xd7:
+            activeTile = (w0 >> 8) & 7;
+            textureOn = ((w0 >> 1) & 0x7f) != 0;
+            textureS = w1.shr16.mask16 / 65536;
+            textureT = w1.mask16 / 65536;
+          case 0xd8:
+            for (var i = 0; i < w1 ~/ 64; i++) {
+              if (stack.isNotEmpty) model = stack.removeLast();
+            }
+          case 0xd9:
+            // w0 holds the inverted clear mask, w1 the bits to set
+            geometry2 = (geometry2 & w0.mask24) | w1;
+            geometry = (geometry2.bit0 ? 1 : 0) |
+                (geometry2 & 0x200 != 0 ? 0x1000 : 0) |
+                (geometry2 & 0x400 != 0 ? 0x2000 : 0) |
+                (geometry2 & 0x20000 != 0 ? 0x20000 : 0);
+          case 0xda:
+            final flags = w0.mask8 ^ 1, m = matrix(resolve(w1));
+            if (flags.bit2) {
+              projection = flags.bit1 ? m : multiply(m, projection);
+            } else {
+              if (flags.bit0) {
+                if (stack.length >= 32) {
+                  throw StateError('RSP matrix stack overflow');
+                }
+                stack.add(List.of(model));
+              }
+              model = flags.bit1 ? m : multiply(m, model);
+            }
+          case 0xdb:
+            final index = (w0 >> 16) & 0xff, offset = w0.mask16;
+            if (index == 0x06) {
+              segments[(offset ~/ 4).mask4] = w1.mask24;
+            } else if (index == 0x02) {
+              numLights = w1 ~/ 24;
+            }
+          case 0xdc:
+            final index = w0.mask8, offset = ((w0 >> 8) & 0xff) * 8;
+            final addr = resolve(w1);
+            if (index == 8) {
+              scale = List.generate(3, (i) => signed(addr + i * 2, 2) / 4);
+              translate =
+                  List.generate(3, (i) => signed(addr + 8 + i * 2, 2) / 4);
+            } else if (index == 10) {
+              final l = lights[(offset ~/ 24 - 2).clamp(0, 7)];
+              for (var i = 0; i < 3; i++) {
+                l[i] = u(addr + i, 1).toDouble();
+                l[i + 3] = signed(addr + 8 + i, 1) / 127;
+              }
+            }
+          case 0xde:
+            if (w0.shr16.mask8 == 0) {
+              if (returns.length >= 64) {
+                throw StateError('RSP display list stack overflow');
+              }
+              returns.add(pc);
+            }
+            pc = resolve(w1);
+          case 0xdf:
+            if (returns.isEmpty) return;
+            pc = returns.removeLast();
+          case 0xdd || 0xe0 || 0xe1:
+            break; // LOAD_UCODE, SPNOOP, RDPHALF_1
+          case 0xe2 || 0xe3:
+            // the field is addressed from the top bit: shift = 32 - ofs - len
+            final length = w0.mask8 + 1, shift = 32 - ((w0 >> 8) & 0xff) - length;
+            final mask = (((1 << length) - 1) << shift) & 0xffffffff;
+            if (op == 0xe2) {
+              otherLow = (otherLow & ~mask) | (w1 & mask);
+            } else {
+              otherHigh = (otherHigh & ~mask) | (w1 & mask);
+            }
+          default:
+            handled = false;
+        }
+        if (handled) continue;
+      }
       switch (op) {
         case 0:
           break;
@@ -174,53 +275,7 @@ class N64Graphics {
         case 4:
           final count = extended ? w0.shr10.mask6 : w0.shr20.mask4 + 1;
           final first = extended ? w0.shr17.mask7 : w0.shr16.mask4;
-          final addr = resolve(w1), combined = multiply(model, projection);
-          if (first + count > vertices.length) {
-            throw StateError('RSP vertex buffer overflow');
-          }
-          for (var i = 0; i < count; i++) {
-            final p = addr + i * 16;
-            final clip = transform(
-                [signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1],
-                combined);
-            final color = List.generate(4, (c) => u(p + 12 + c, 1).toDouble());
-            if (geometry.bit17) {
-              final normal = [
-                signed(p + 12, 1) / 127,
-                signed(p + 13, 1) / 127,
-                signed(p + 14, 1) / 127
-              ];
-              final n = List.generate(
-                  3,
-                  (c) =>
-                      normal[0] * model[c] +
-                      normal[1] * model[4 + c] +
-                      normal[2] * model[8 + c]);
-              final length = math.sqrt(n.fold(0.0, (v, x) => v + x * x));
-              if (length > 0) {
-                for (var c = 0; c < 3; c++) {
-                  n[c] /= length;
-                }
-              }
-              final ambient = lights[numLights.clamp(0, 7)];
-              for (var c = 0; c < 3; c++) {
-                color[c] = ambient[c];
-              }
-              for (var l = 0; l < numLights.clamp(0, 7); l++) {
-                final light = lights[l];
-                final dot = math.max(
-                    0.0, n[0] * light[3] + n[1] * light[4] + n[2] * light[5]);
-                for (var c = 0; c < 3; c++) {
-                  color[c] += light[c] * dot;
-                }
-              }
-            }
-            vertices[first + i] = N64Vertex(
-                clip,
-                color,
-                signed(p + 8, 2) / 32 * textureS,
-                signed(p + 10, 2) / 32 * textureT);
-          }
+          _loadVertices(resolve(w1), first, count);
         case 6:
           if (w0.shr16.mask8 == 0) {
             if (returns.length >= 64) {
@@ -295,6 +350,56 @@ class N64Graphics {
       }
     }
     throw StateError('RSP display list exceeded command budget');
+  }
+
+  void _loadVertices(int addr, int first, int count) {
+    final combined = multiply(model, projection);
+    if (first + count > vertices.length) {
+      throw StateError('RSP vertex buffer overflow');
+    }
+    for (var i = 0; i < count; i++) {
+      final p = addr + i * 16;
+      final clip = transform(
+          [signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1],
+          combined);
+      final color = List.generate(4, (c) => u(p + 12 + c, 1).toDouble());
+      if (geometry.bit17) {
+        final normal = [
+          signed(p + 12, 1) / 127,
+          signed(p + 13, 1) / 127,
+          signed(p + 14, 1) / 127
+        ];
+        final n = List.generate(
+            3,
+            (c) =>
+                normal[0] * model[c] +
+                normal[1] * model[4 + c] +
+                normal[2] * model[8 + c]);
+        final length = math.sqrt(n.fold(0.0, (v, x) => v + x * x));
+        if (length > 0) {
+          for (var c = 0; c < 3; c++) {
+            n[c] /= length;
+          }
+        }
+        final ambient = lights[numLights.clamp(0, 7)];
+        for (var c = 0; c < 3; c++) {
+          color[c] = ambient[c];
+        }
+        for (var l = 0; l < numLights.clamp(0, 7); l++) {
+          final light = lights[l];
+          final dot = math.max(
+              0.0, n[0] * light[3] + n[1] * light[4] + n[2] * light[5]);
+          for (var c = 0; c < 3; c++) {
+            color[c] += light[c] * dot;
+          }
+        }
+      }
+      vertices[first + i] = N64Vertex(
+          clip,
+          color,
+          signed(p + 8, 2) / 32 * textureS,
+          signed(p + 10, 2) / 32 * textureT);
+    }
   }
 
   void drawIndices(int word, int divisor) {
