@@ -38,7 +38,7 @@ class DiscLoader {
             } else if (f is File) {
               final lower = f.path.toLowerCase();
               final suffix = lower.split('.').last;
-              if (!['iso', 'bin'].contains(suffix)) {
+              if (!['iso', 'bin', 'cue'].contains(suffix)) {
                 return ""; // skip unsupported file types
               }
               if (foundNames.contains(lower.replaceAll(".$suffix", ""))) {

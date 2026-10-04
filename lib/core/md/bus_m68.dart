@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import 'm68/m68.dart';
+import 'cd/md_cdrom.dart';
 import 'bus_z80.dart';
 import 'pad.dart';
 import 'sn76489.dart';
@@ -11,7 +12,10 @@ import 'rom.dart';
 import 'vdp.dart';
 
 class BusM68 {
-  BusM68();
+  BusM68({Uint8List? ram, Pad? pad, Rom? rom})
+      : ram = ram ?? Uint8List(0x10000),
+        pad = pad ?? Pad(),
+        rom = rom ?? Rom();
 
   late BusZ80 busZ80;
   late M68 cpu;
@@ -19,10 +23,11 @@ class BusM68 {
   late Sn76489 psg;
   late Ym2612 fm;
 
-  Rom rom = Rom();
+  Rom rom;
+  MdCdrom? cdrom;
   int region = 0x00;
 
-  final pad = Pad();
+  final Pad pad;
 
   void onReset() {
     cpu.reset();
@@ -31,9 +36,10 @@ class BusM68 {
     psg.reset();
   }
 
-  final ram = Uint8List(0x10000);
+  final Uint8List ram;
 
   int read8(int addr) {
+    if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain8(addr);
     final top = addr.shr16 & 0xff;
 
     if (top == 0xff) {
@@ -66,7 +72,10 @@ class BusM68 {
     }
 
     if (top == 0xa1) {
-      return readIo16(addr).mask8;
+      // i/o registers (0xa10000-0xa1001f) return the same value on both bytes,
+      // other control registers have their status on the even (upper) byte
+      final value = readIo16(addr);
+      return (addr.bit0 || addr & 0xffff < 0x20) ? value.mask8 : value.shr8;
     }
 
     if (top == 0xa0) {
@@ -77,6 +86,7 @@ class BusM68 {
   }
 
   int read16(int addr) {
+    if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain16(addr);
     final top = addr.shr16 & 0xff;
 
     if (top == 0xff) {
@@ -116,6 +126,10 @@ class BusM68 {
   }
 
   write8(int addr, int data) {
+    if (cdrom?.mapsMain(addr) ?? false) {
+      cdrom!.writeMain8(addr, data);
+      return;
+    }
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
@@ -132,7 +146,8 @@ class BusM68 {
         return;
       }
 
-      write16(addr, data.shl8);
+      // byte writes to the vdp are duplicated to both bytes of the bus
+      write16(addr, data.shl8 | data);
       return;
     }
 
@@ -147,7 +162,7 @@ class BusM68 {
       return;
     }
 
-    if (top < 0x40) {
+    if (top < 0x400000) {
       final offset = addr & 0x3fffff;
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
@@ -160,6 +175,11 @@ class BusM68 {
   }
 
   write16(int addr, int data) {
+    if (cdrom?.mapsMain(addr) ?? false) {
+      cdrom!.writeMain8(addr, data >> 8);
+      cdrom!.writeMain8(addr + 1, data & 0xff);
+      return;
+    }
     final top = addr & 0xff0000;
 
     if (top == 0xff0000) {
@@ -185,7 +205,7 @@ class BusM68 {
       return;
     }
 
-    if (top < 0x40) {
+    if (top < 0x400000) {
       final offset = addr & 0x3fffff;
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
@@ -200,7 +220,8 @@ class BusM68 {
 
   int readIo16(int addr) {
     return switch (addr & 0xfffe) {
-      0x00 => region | 0x20, // region, ntsc, no fdd, version 0
+      0x00 =>
+        region | (cdrom == null ? 0x20 : 0), // region, ntsc, no fdd, version 0
       0x02 || 0x04 || 0x06 => pad.readData((addr.shr1 & 0x03).dec), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
@@ -213,7 +234,7 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => busZ80.busReq ? 0 : 1, // z80 busreq 0:granted
+      0x1100 => busZ80.busReq ? 0 : 0x100, // z80 busreq bit8 0:granted
       0x1200 => 0x00, // z80 reset
       _ => 0x00,
     };
@@ -241,8 +262,8 @@ class BusM68 {
       0x1c => 0x00, // rxdata 3
       0x1e => 0x00, // s-ctrl 3
       0x1000 => 0x00, // memory mode
-      0x1100 => busZ80.busReq = data == 0x0100, // z80 busreq
-      0x1200 => busZ80.resetReq = data != 0x0100, // z80 reset
+      0x1100 => busZ80.busReq = data.bit8, // z80 busreq
+      0x1200 => busZ80.resetReq = !data.bit8, // z80 reset
       _ => 0x00,
     };
   }

@@ -64,6 +64,10 @@ class Vdp {
 
   // rendering
 
+  bool trackOpacity = false;
+  Uint8List? _opaque;
+  Uint8List get opaque => _opaque ??= Uint8List(320 * 224);
+
   Uint32List buffer = Uint32List(320 * 224);
 
   ImageBuffer get imageBuffer =>
@@ -108,6 +112,8 @@ class Vdp {
     width = 256;
 
     vCounter = 0;
+    trackOpacity = false;
+    _opaque?.fillRange(0, _opaque!.length, 0);
     hCounter = 0;
     hIntCounter = 0;
 
@@ -125,7 +131,7 @@ class Vdp {
     } else if (port == 0x04) {
       final val = status;
       status &= ~bitVblankInt;
-      busZ80.deassertInt();
+      _is1st = true; // reading status cancels the pending 2nd control word
       return val;
     } else if (port == 0x08) {
       // print(
@@ -181,13 +187,15 @@ class Vdp {
 
   void execDma(int count) {
     while (count > 0 && _dmaLength > 0) {
-      data = _dmaMode == _dmaModeM2V
-          ? bus.read16(_dmaSrc)
-          : _dmaMode == _dmaModeV2V
-              ? vram[_dmaSrc].shl8 | vram[_dmaSrc.inc]
-              : _dmaFillValue;
+      if (_dmaMode == _dmaModeV2V) {
+        // vram copy is done byte by byte
+        vram[postInc()] = vram[_dmaSrc];
+        _dmaSrc = _dmaSrc.inc.mask16;
+      } else {
+        data = _dmaMode == _dmaModeM2V ? bus.read16(_dmaSrc) : _dmaFillValue;
+        _dmaSrc += 2;
+      }
 
-      _dmaSrc += 2;
       _dmaLength--;
       count--;
     }
@@ -272,7 +280,7 @@ class Vdp {
       startDma();
       execDma(0x10000);
     } else if (enableDma && cd & 0x30 == 0x30 && _dmaMode == _dmaModeV2V) {
-      _dmaSrc = (reg[0x15] | reg[0x16].shl8 | (reg[0x17] & 0x3f).shl16).shl1;
+      _dmaSrc = reg[0x15] | reg[0x16].shl8; // byte address in vram
       startDma();
       //execDma(0x10000); // workaround
     }
@@ -303,7 +311,7 @@ class Vdp {
   }
 
   int encodeCram(int val) =>
-      val.shl3 & 0xf00 | val.shl2 & 0x0f0 | val.shl1 & 0x00f;
+      val.shl3 & 0xe00 | val.shl2 & 0x0e0 | val.shl1 & 0x00e;
 
   int postInc([int offset = 0]) {
     final ret = _addr + offset;

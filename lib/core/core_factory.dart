@@ -27,6 +27,8 @@ class CoreFactory {
       'nes' => CoreFactory.ofNes(),
       'gen' || 'md' || "bin" => CoreFactory.ofMd(),
       'n64' || 'z64' || 'v64' => CoreFactory.ofN64(),
+      '32x' => Md(expansionBoot: true),
+      'mdcd' => Md(cdBoot: true),
       'ps' => CoreFactory.ofPs(),
       'gb' => CoreFactory.ofGb(),
       'ss' => CoreFactory.ofSs(),
