@@ -9,6 +9,7 @@ import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
+import '../storage_key.dart';
 import '../types.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
@@ -21,7 +22,6 @@ import 'component/ppu_debug.dart';
 import 'mapper/mapper.dart';
 import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
-import 'storage.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes implements Core {
@@ -36,8 +36,6 @@ class Nes implements Core {
   late final Apu apu;
   late final Cpu cpu;
   late final Bus bus;
-
-  final storage = Storage.of();
 
   static const cpuClock = 1789773;
 
@@ -177,7 +175,8 @@ class Nes implements Core {
       ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
 
     if (hasBatteryBackup) {
-      _sram.init(crc, bus.mapper.defaultSram());
+      _sram.init(
+          StorageKey.of("nes", StorageKey.sram, crc), bus.mapper.defaultSram());
       bus.mapper.setSramRw(_sram.read8, _sram.write8);
     } else {
       final sram = Uint8List(32 * 1024);
