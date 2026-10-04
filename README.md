@@ -27,6 +27,9 @@ This project is experimental.
 - PS1 (.ps) * experimental *
   - requires BIOS with `.ps` extension 
   - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
+  - async-cdrom mode by build-time parameter, `--dart-define=ASYNC_CDROM=true`
+    - reads only the required sectors asynchronously (75 sectors read-ahead, 60 seconds cache) instead of loading the whole disc image into memory
+    - adds 'Insert Disc' / 'Eject Disc' buttons. on the web, select a `.cue` file together with its `.bin` files, or a single `.iso`/`.bin` file
 - SS (.ss) * work in progress *
   - requires BIOS with `.ss` extension, disc is selected from the disc menu
   - not verified with real BIOS / games yet
