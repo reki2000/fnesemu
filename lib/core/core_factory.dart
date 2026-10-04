@@ -7,6 +7,7 @@ import 'nes/nes.dart';
 import 'pce/pce.dart';
 import 'ps/ps.dart';
 import 'ss/ss.dart';
+import 'snes/snes.dart';
 
 class CoreFactory {
   static Core ofPce() => Pce();
@@ -16,6 +17,7 @@ class CoreFactory {
   static Core ofGb() => Gb();
   static Core ofSs() => Ss();
   static Core ofGba() => Gba();
+  static Core ofSnes() => Snes();
 
   static of(String coreName) {
     return switch (coreName) {
@@ -26,6 +28,7 @@ class CoreFactory {
       'gb' => CoreFactory.ofGb(),
       'ss' => CoreFactory.ofSs(),
       'gba' => CoreFactory.ofGba(),
+      'sfc' || 'smc' => CoreFactory.ofSnes(),
       _ => throw Exception('unsupported core: $coreName'),
     };
   }
