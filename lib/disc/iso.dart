@@ -29,7 +29,7 @@ class IsoDisc extends Disc {
   IsoDisc(this.path) {
     try {
       data = File(path).readAsBytesSync();
-      cooked = _isCooked(data);
+      cooked = _isCooked(data, path);
       debugLog(
           "disc: iso: Loaded disc image from $path. ${data.length.format3} bytes${cooked ? " (2048 bytes/sector)" : ""}.");
     } catch (e) {
@@ -37,13 +37,18 @@ class IsoDisc extends Disc {
     }
   }
 
-  // raw images start with the sync pattern, cooked ones have "CD001" at sector 16
-  static bool _isCooked(Uint8List data) {
+  // raw images start with the sync pattern. cooked ones have "CD001" at
+  // sector 16, or are an .iso whose size is a multiple of 2048 without sync
+  static bool _isCooked(Uint8List data, String path) {
     for (int i = 0; i < Disc.sync.length; i++) {
       if (i >= data.length || data[i] != Disc.sync[i]) {
         const pvd = 16 * cookedSectorSize + 1;
-        return data.length > pvd + 5 &&
-            String.fromCharCodes(data.sublist(pvd, pvd + 5)) == "CD001";
+        if (data.length > pvd + 5 &&
+            String.fromCharCodes(data.sublist(pvd, pvd + 5)) == "CD001") {
+          return true;
+        }
+        return path.toLowerCase().endsWith('.iso') &&
+            data.length % cookedSectorSize == 0;
       }
     }
     return false;
@@ -97,7 +102,7 @@ class IsoDisc extends Disc {
       return _cookedToRaw(sector);
     }
 
-    if (sector < 0 || (sector + 1) * Disc.sectorSize >= data.length) {
+    if (sector < 0 || (sector + 1) * Disc.sectorSize > data.length) {
       return Uint8List(0); // error out of range
     }
 
