@@ -4,6 +4,7 @@ import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../disc.dart';
+import '../disc_swap.dart';
 
 class _Block {
   final Uint8List raw;
@@ -174,13 +175,32 @@ class CdBlock {
       _filters[i].init(i);
     }
     cddaRead = cddaWrite = 0;
+    _swap.sync();
     _loadRootDir();
   }
 
   void setDisc(Disc d) {
     disc = d;
     reset();
+    _swap.attach(d.drive);
   }
+
+  // a disc change is seen as the tray opened then closed
+  late final _swap = DiscSwapWatcher(_clockHz ~/ 2, onRemoved: () {
+    _status = _stOpen;
+    _playing = false;
+    _readingFile = false;
+    _rootPending = false;
+    _retryCommand = false;
+    _dirEntries.clear();
+    _setIrq(_dchg);
+  }, onInserted: () {
+    _status = _stPause;
+    _fad = 150;
+    _playing = false;
+    _loadRootDir();
+    _setIrq(_dchg | _efls);
+  });
 
   // ---- register access ----
 
@@ -306,6 +326,7 @@ class CdBlock {
   }
 
   void exec(int clocks) {
+    _swap.poll(clocks);
     if (_rootPending) _loadRootDir();
     if (_retryCommand) _runCommand();
 

@@ -23,14 +23,23 @@ class _DrivePort {
   bool _isSeeking = false; // waiting for the drive to complete a seek
   int _seekIssuedAt = 0; // clock when the seek is issued
 
+  // a disc change is seen by the core as the shell opened then closed
+  late final _swap = DiscSwapWatcher(33868800 ~/ 2,
+      onRemoved: () => _cdrom._onDiscChanged(false),
+      onInserted: () => _cdrom._onDiscChanged(true));
+
   void attach(CdromDrive drive) {
     _drive = drive;
-    _discId = -1;
+    _discId = drive.status.discId;
     _isSeeking = false;
-    poll(0);
+    _swap.attach(drive);
+    _cdrom._onDiscChanged(drive.status.isReady);
   }
 
-  void clear() => _isSeeking = false;
+  void clear() {
+    _isSeeking = false;
+    _swap.sync();
+  }
 
   /// returns [sector], or null if the drive has not read it yet
   Uint8List? read(int sector) {
@@ -45,8 +54,9 @@ class _DrivePort {
     _drive?.seek(sector - _leadIn);
   }
 
-  /// checks the drive, called on each exec
-  void poll(int clock) {
+  /// checks the drive, called on each exec. [clock] is the elapsed clocks,
+  /// [delta] the clocks of this exec
+  void poll(int clock, int delta) {
     final s = status;
 
     if (s.discId != _discId) {
@@ -55,13 +65,11 @@ class _DrivePort {
         _isSeeking = false;
         _cdrom._onSeekComplete(false, _seekIssuedAt);
       }
-      _cdrom._onDiscChanged(s.isReady);
-      return;
-    }
-
-    if (_isSeeking && (s.seekError || !s.isSeeking)) {
+    } else if (_isSeeking && (s.seekError || !s.isSeeking)) {
       _isSeeking = false;
       _cdrom._onSeekComplete(!s.seekError, _seekIssuedAt);
     }
+
+    _swap.poll(delta);
   }
 }

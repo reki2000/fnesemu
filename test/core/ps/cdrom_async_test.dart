@@ -59,7 +59,7 @@ void main() {
     cdrom.attachDrive(drive);
     await drive.eject(MemoryDiscSource(
         "a.bin", {"a.bin": MemoryImageFile("a.bin", makeBin(2000))}));
-    cdrom.exec(1); // polls the drive
+    cdrom.exec(33868800); // polls the drive, the tray closes after 0.5 sec
   });
 
   test('shell follows the drive', () async {
@@ -67,6 +67,17 @@ void main() {
     await drive.eject();
     cdrom.exec(1);
     expect(cdrom.isShellOpen, true);
+  });
+
+  test('a swap finished before the next exec is seen as shell open, close',
+      () async {
+    await drive.eject(MemoryDiscSource(
+        "b.bin", {"b.bin": MemoryImageFile("b.bin", makeBin(50))}));
+    expect(drive.status.isReady, true);
+    cdrom.exec(1);
+    expect(cdrom.isShellOpen, true);
+    cdrom.exec(33868800);
+    expect(cdrom.isShellOpen, false);
   });
 
   test('eject during seek raises INT5', () async {

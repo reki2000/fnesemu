@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../disc.dart';
+import '../../disc_swap.dart';
 
 /// Ten-nibble CDD command/status protocol and 75 Hz disc transport.
 class CdDrive {
@@ -24,9 +25,24 @@ class CdDrive {
   void mount(Disc value) {
     disc = value;
     reset();
+    _swap.attach(value.drive);
   }
 
+  // a disc change is seen as the tray opened then closed. the unit is a tick
+  // (75Hz), the tray stays open for half a second.
+  late final _swap = DiscSwapWatcher(75 ~/ 2, onRemoved: () {
+    status = 0xb;
+    lba = _seekTicks = 0;
+    track = 1;
+    _sectorAudioLba = _currentLba = -1;
+    _audio = Uint8List(0);
+  }, onInserted: () {
+    status = 9;
+    lba = 0;
+  });
+
   void reset() {
+    _swap.sync();
     status = disc.isEmpty ? 0xb : 9;
     lba = _query = _seekTicks = _audioPhase = 0;
     track = 1;
@@ -113,6 +129,7 @@ class CdDrive {
   int _scanDirection = 1;
 
   void tick() {
+    _swap.poll(1);
     if (!hostClock) return;
     if (_seekTicks > 0) {
       _seekTicks--;

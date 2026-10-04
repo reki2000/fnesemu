@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import '../../disc.dart';
+import '../../disc_swap.dart';
 import 'bus.dart';
 
 // Register-level CD interface. Disc.read uses absolute MSF sectors (LBA + 150).
@@ -54,9 +55,19 @@ class PceCdrom {
     disc = value;
     enabled = !value.isEmpty;
     reset();
+    _swap.attach(value.drive);
   }
 
+  // a disc change is seen as the tray opened then closed
+  late final _swap = DiscSwapWatcher(21477270 ~/ 2,
+      onRemoved: _resetDrive,
+      onInserted: () {
+        _resetDrive();
+        enabled = true;
+      });
+
   void reset() {
+    _swap.sync();
     backupEnabled = false;
     _ports.fillRange(0, 16, 0);
     _resetDrive();
@@ -440,6 +451,7 @@ class PceCdrom {
   }
 
   void exec(int clocks) {
+    _swap.poll(clocks);
     if (!enabled) return;
     if (_readPending > 0) {
       _readPending -= clocks;

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 import '../cdrom_drive.dart';
+import '../disc_swap.dart';
 import '../disc.dart';
 import 'bus.dart';
 import 'interrupt.dart';
@@ -314,7 +315,7 @@ class Cdrom {
     }
 
     _clock += clocks;
-    _port.poll(_clock);
+    _port.poll(_clock, clocks);
 
     // sector read
     if (isReading || isPlaying) {
