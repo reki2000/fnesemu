@@ -109,7 +109,7 @@ FILE "t2.bin" BINARY
             (offset, length) => fileReads.add((offset ~/ size, length ~/ size));
       now = DateTime(2026);
       drive = AsyncCdromDrive(now: () => now);
-      await drive.eject(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      await drive.insert(MemoryDiscSource("a.bin", {"a.bin": bin}));
     });
 
     test('reads TOC on insert', () async {
@@ -120,7 +120,7 @@ FILE "t2.bin" BINARY
       // disc id changes on each state change: trayOpen, loading, ready
       final id = drive.status.discId;
       final states = <CdromDriveState>[];
-      final ejected = drive.eject(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      final ejected = drive.insert(MemoryDiscSource("a.bin", {"a.bin": bin}));
       states.add(drive.status.state);
       await ejected;
       states.add(drive.status.state);
@@ -214,15 +214,31 @@ FILE "t2.bin" BINARY
       drive.seek(0);
       await drive.eject();
       await pump();
-      expect(drive.status.state, CdromDriveState.empty);
+      expect(drive.status.state, CdromDriveState.trayOpen);
       expect(drive.status.toc.isEmpty, true);
       expect(drive.status.isSeeking, false);
       expect(drive.cachedSectors, 0);
       expect(drive.read(0), isEmpty);
     });
 
+    test('tray stays open until insert, which can close it without a disc',
+        () async {
+      await drive.eject();
+      await pump();
+      expect(drive.status.isTrayOpen, true);
+
+      await drive.insert(); // closed, no disc
+      expect(drive.status.state, CdromDriveState.empty);
+
+      await drive.insert(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      expect(drive.status.isReady, true);
+
+      await drive.insert(); // a disc in the drive: the tray opens and closes
+      expect(drive.status.state, CdromDriveState.empty);
+    });
+
     test('broken cue is reported as error', () async {
-      await drive.eject(MemoryDiscSource("a.cue", {
+      await drive.insert(MemoryDiscSource("a.cue", {
         "a.cue": MemoryImageFile(
             "a.cue", Uint8List.fromList('FILE "x.bin" BINARY\n'.codeUnits)),
       }));
@@ -239,7 +255,7 @@ FILE "a.bin" BINARY
     PREGAP 00:02:00
     INDEX 01 00:00:10
 ''';
-      await drive.eject(MemoryDiscSource("a.cue", {
+      await drive.insert(MemoryDiscSource("a.cue", {
         "a.cue": MemoryImageFile("a.cue", Uint8List.fromList(cue.codeUnits)),
         "a.bin": MemoryImageFile("a.bin", makeBin(20, id: 1)),
       }));

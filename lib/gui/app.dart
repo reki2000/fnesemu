@@ -182,7 +182,7 @@ class MainPageState extends State<MainPage> {
   }
 
   _setDiscFile(String fileName) async {
-    await _drive.eject(discSourceFromPath(fileName));
+    await _drive.insert(discSourceFromPath(fileName));
 
     await _reset();
 
@@ -235,7 +235,11 @@ class MainPageState extends State<MainPage> {
       return; // canceled
     }
 
-    await _drive.eject(source);
+    if (insert) {
+      await _drive.insert(source);
+    } else {
+      await _drive.eject(); // the tray stays open
+    }
 
     final state = _drive.status.state;
     AppSnackBar.show(switch (state) {

@@ -74,16 +74,31 @@ class AsyncCdromDrive implements CdromDrive {
     }
   }
 
-  /// ejects the current disc and inserts [next] if specified. The status
-  /// changes to trayOpen, then to loading and ready (or error) when the TOC
-  /// of [next] is read.
-  Future<void> eject([DiscSource? next]) async {
-    final discId = _changeDisc(CdromDriveState.trayOpen);
+  /// opens the tray, and removes the disc. The tray stays open until
+  /// [insert] is called.
+  Future<void> eject() async {
+    await _openTray();
+  }
 
+  /// closes the tray with the disc [source], or without a disc if null.
+  /// The status changes to trayOpen first if the tray is not open, then to
+  /// loading and ready (or error) when the TOC of [source] is read.
+  Future<void> insert([DiscSource? source]) async {
+    final discId =
+        _state == CdromDriveState.trayOpen ? _discId : await _openTray();
+    await _close(source, discId);
+  }
+
+  /// opens the tray, returns the disc id of the status
+  Future<int> _openTray() async {
+    final discId = _changeDisc(CdromDriveState.trayOpen);
     final old = _source;
     _source = null;
     await old?.close();
+    return discId;
+  }
 
+  Future<void> _close(DiscSource? next, int discId) async {
     if (next == null) {
       if (discId == _discId) {
         _changeDisc(CdromDriveState.empty);

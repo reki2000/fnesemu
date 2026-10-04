@@ -35,7 +35,7 @@ FILE "t2.bin" BINARY
 ''');
 
     final drive = AsyncCdromDrive();
-    await drive.eject(discSourceFromPath("${dir.path}/a.cue"));
+    await drive.insert(discSourceFromPath("${dir.path}/a.cue"));
     expect(drive.status.isReady, true);
     expect(drive.status.toc.startLba(2), 450);
 

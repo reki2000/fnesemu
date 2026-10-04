@@ -25,20 +25,28 @@ class _DrivePort {
 
   // a disc change is seen by the core as the shell opened then closed
   late final _swap = DiscSwapWatcher(33868800 ~/ 2,
-      onRemoved: () => _cdrom._onDiscChanged(false),
-      onInserted: () => _cdrom._onDiscChanged(true));
+      onTrayOpen: () => _cdrom._onTray(open: true, hasDisc: false),
+      onInserted: () => _cdrom._onTray(open: false, hasDisc: true),
+      onClosedEmpty: () => _cdrom._onTray(open: false, hasDisc: false));
 
   void attach(CdromDrive drive) {
     _drive = drive;
     _discId = drive.status.discId;
     _isSeeking = false;
     _swap.attach(drive);
-    _cdrom._onDiscChanged(drive.status.isReady);
+    _applyState();
   }
 
   void clear() {
     _isSeeking = false;
     _swap.sync();
+    _applyState();
+  }
+
+  /// sets the shell of the core from the state of the drive
+  void _applyState() {
+    final s = status;
+    _cdrom._onTray(open: s.isTrayOpen, hasDisc: s.isReady);
   }
 
   /// returns [sector], or null if the drive has not read it yet

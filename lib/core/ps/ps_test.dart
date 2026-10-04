@@ -171,7 +171,7 @@ main(List<String> args) async {
   core.setRom(bios);
 
   final drive = AsyncCdromDrive();
-  await drive.eject(discSourceFromPath(args[1]));
+  await drive.insert(discSourceFromPath(args[1]));
   core.setCdromDrive(drive);
 
   final elapsedResults = List<int>.filled(measureLoopCount, 0);

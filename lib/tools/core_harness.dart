@@ -111,7 +111,7 @@ Future<void> main(List<String> args) async {
   AsyncCdromDrive? drive;
   if (files.length > 2) {
     drive = AsyncCdromDrive();
-    await drive.eject(discSourceFromPath(files[2]));
+    await drive.insert(discSourceFromPath(files[2]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[2]}";
   }
   // the mega cd core needs the disc before the bios

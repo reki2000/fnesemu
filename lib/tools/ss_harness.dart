@@ -57,7 +57,7 @@ Future<void> main(List<String> args) async {
   AsyncCdromDrive? drive;
   if (files.length > 1) {
     drive = AsyncCdromDrive();
-    await drive.eject(discSourceFromPath(files[1]));
+    await drive.insert(discSourceFromPath(files[1]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
     ss.setCdromDrive(drive);
   }

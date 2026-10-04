@@ -57,7 +57,7 @@ void main() {
     irqs = [];
     results = [];
     cdrom.attachDrive(drive);
-    await drive.eject(MemoryDiscSource(
+    await drive.insert(MemoryDiscSource(
         "a.bin", {"a.bin": MemoryImageFile("a.bin", makeBin(2000))}));
     cdrom.exec(33868800); // polls the drive, the tray closes after 0.5 sec
   });
@@ -69,9 +69,19 @@ void main() {
     expect(cdrom.isShellOpen, true);
   });
 
+  test('closing the tray without a disc closes the shell', () async {
+    await drive.eject();
+    cdrom.exec(1);
+    expect(cdrom.isShellOpen, true);
+    await drive.insert();
+    cdrom.exec(33868800);
+    expect(cdrom.isShellOpen, false);
+    expect(cdrom.isSpindleMotorOn, false);
+  });
+
   test('a swap finished before the next exec is seen as shell open, close',
       () async {
-    await drive.eject(MemoryDiscSource(
+    await drive.insert(MemoryDiscSource(
         "b.bin", {"b.bin": MemoryImageFile("b.bin", makeBin(50))}));
     expect(drive.status.isReady, true);
     cdrom.exec(1);

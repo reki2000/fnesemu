@@ -156,7 +156,6 @@ class Cdrom {
     resultFifo.clear();
 
     _port.clear();
-    _onDiscChanged(_port.isReady);
   }
 
   /// the sector fetched by the drive, waiting to be processed
@@ -744,14 +743,19 @@ class Cdrom {
     }
   }
 
-  /// called when a disc is ejected or inserted
-  void _onDiscChanged(bool isReady) {
-    if (isReady) {
-      closeShell();
-    } else {
+  /// called when the tray is opened or closed, with or without a disc
+  void _onTray({required bool open, required bool hasDisc}) {
+    if (open || !hasDisc) {
       _stop();
       isSeeking = false;
+    }
+    if (open) {
       openShell();
+    } else if (hasDisc) {
+      closeShell();
+    } else {
+      isSpindleMotorOn = false; // closed without a disc
+      isShellOpen = false;
     }
   }
 

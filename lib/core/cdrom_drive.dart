@@ -88,6 +88,7 @@ class CdromDriveStatus {
       CdromDriveStatus(CdromDriveState.empty, 0, CdromToc.empty);
 
   bool get isReady => state == CdromDriveState.ready;
+  bool get isTrayOpen => state == CdromDriveState.trayOpen;
 }
 
 /// A CD-ROM drive seen from the emulator core.

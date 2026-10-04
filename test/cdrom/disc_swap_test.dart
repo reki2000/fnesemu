@@ -15,56 +15,76 @@ void main() {
 
   setUp(() async {
     drive = AsyncCdromDrive();
-    await drive.eject(source("a.bin"));
+    await drive.insert(source("a.bin"));
     events = [];
     watcher = DiscSwapWatcher(100,
-        onRemoved: () => events.add("removed"),
-        onInserted: () => events.add("inserted"))
+        onTrayOpen: () => events.add("open"),
+        onInserted: () => events.add("inserted"),
+        onClosedEmpty: () => events.add("empty"))
       ..attach(drive);
   });
 
-  test('the disc at attach is not reported', () {
+  test('the state at attach is not reported', () {
     watcher.poll(1000);
     expect(events, isEmpty);
   });
 
-  test('a swap finished before the next poll is seen as removed then inserted',
+  test('a swap finished before the next poll is seen as open then inserted',
       () async {
-    await drive.eject(source("b.bin")); // trayOpen..ready within one frame
+    await drive.insert(source("b.bin")); // trayOpen..ready within one frame
     expect(drive.status.isReady, true);
 
     watcher.poll(10);
-    expect(events, ["removed"]); // kept open for the hold time
+    expect(events, ["open"]); // kept open for the hold time
     watcher.poll(50);
-    expect(events, ["removed"]);
+    expect(events, ["open"]);
     watcher.poll(50);
-    expect(events, ["removed", "inserted"]);
+    expect(events, ["open", "inserted"]);
     watcher.poll(1000);
-    expect(events, ["removed", "inserted"]);
+    expect(events, ["open", "inserted"]);
   });
 
-  test('eject without a disc stays removed; the next insert is reported',
-      () async {
+  test('eject keeps the tray open; insert closes it', () async {
     await drive.eject();
     watcher.poll(1000);
-    expect(events, ["removed"]);
-
-    await drive.eject(source("c.bin"));
+    expect(events, ["open"]);
     watcher.poll(1000);
-    expect(events, ["removed", "inserted"]);
+    expect(events, ["open"]);
+
+    await drive.insert(source("c.bin"));
+    watcher.poll(1000);
+    expect(events, ["open", "inserted"]);
+  });
+
+  test('closing the tray without a disc is reported', () async {
+    await drive.eject();
+    watcher.poll(1000);
+    await drive.insert();
+    watcher.poll(1000);
+    expect(events, ["open", "empty"]);
+  });
+
+  test('a swap to no disc is open then empty', () async {
+    await drive.insert();
+    watcher.poll(10);
+    expect(events, ["open"]);
+    watcher.poll(1000);
+    expect(events, ["open", "empty"]);
   });
 
   test('inserted waits for the drive to be ready', () async {
-    final ejecting = drive.eject(source("b.bin"));
+    final inserting = drive.insert(source("b.bin"));
     watcher.poll(1000);
-    expect(events, ["removed"]); // tray open / loading
-    await ejecting;
-    watcher.poll(1);
-    expect(events, ["removed", "inserted"]);
+    expect(events, ["open"]); // tray open / loading
+    await inserting;
+    watcher.poll(1); // closing the tray takes the hold time again
+    expect(events, ["open"]);
+    watcher.poll(100);
+    expect(events, ["open", "inserted"]);
   });
 
-  test('sync takes the current disc as the initial one', () async {
-    await drive.eject(source("b.bin"));
+  test('sync takes the current state as the initial one', () async {
+    await drive.insert(source("b.bin"));
     watcher.sync();
     watcher.poll(1000);
     expect(events, isEmpty);

@@ -60,7 +60,8 @@ class PceCdrom {
 
   // a disc change is seen as the tray opened then closed
   late final _swap = DiscSwapWatcher(21477270 ~/ 2,
-      onRemoved: _resetDrive,
+      onTrayOpen: _resetDrive,
+      onClosedEmpty: _resetDrive,
       onInserted: () {
         _resetDrive();
         enabled = true;

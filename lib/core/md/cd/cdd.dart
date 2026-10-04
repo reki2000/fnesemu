@@ -30,16 +30,22 @@ class CdDrive {
 
   // a disc change is seen as the tray opened then closed. the unit is a tick
   // (75Hz), the tray stays open for half a second.
-  late final _swap = DiscSwapWatcher(75 ~/ 2, onRemoved: () {
+  late final _swap = DiscSwapWatcher(75 ~/ 2, onTrayOpen: () {
+    _noDisc();
+  }, onClosedEmpty: () {
+    _noDisc();
+  }, onInserted: () {
+    status = 9;
+    lba = 0;
+  });
+
+  void _noDisc() {
     status = 0xb;
     lba = _seekTicks = 0;
     track = 1;
     _sectorAudioLba = _currentLba = -1;
     _audio = Uint8List(0);
-  }, onInserted: () {
-    status = 9;
-    lba = 0;
-  });
+  }
 
   void reset() {
     _swap.sync();

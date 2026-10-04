@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 
 Future<AsyncCdromDrive> insert(String main, Map<String, Uint8List> files) async {
   final drive = AsyncCdromDrive();
-  await drive.eject(MemoryDiscSource(main, {
+  await drive.insert(MemoryDiscSource(main, {
     for (final e in files.entries) e.key: MemoryImageFile(e.key, e.value)
   }));
   return drive;

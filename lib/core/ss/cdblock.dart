@@ -162,7 +162,11 @@ class CdBlock {
     cr[3] = 0x434b;
     _started = false;
     _responseRead = true;
-    _status = disc.isEmpty ? _stNoDisc : _stPause;
+    _status = disc.drive.status.isTrayOpen
+        ? _stOpen
+        : disc.isEmpty
+            ? _stNoDisc
+            : _stPause;
     _fad = 150;
     _playing = false;
     _readingFile = false;
@@ -186,13 +190,16 @@ class CdBlock {
   }
 
   // a disc change is seen as the tray opened then closed
-  late final _swap = DiscSwapWatcher(_clockHz ~/ 2, onRemoved: () {
+  late final _swap = DiscSwapWatcher(_clockHz ~/ 2, onTrayOpen: () {
     _status = _stOpen;
     _playing = false;
     _readingFile = false;
     _rootPending = false;
     _retryCommand = false;
     _dirEntries.clear();
+    _setIrq(_dchg);
+  }, onClosedEmpty: () {
+    _status = _stNoDisc;
     _setIrq(_dchg);
   }, onInserted: () {
     _status = _stPause;

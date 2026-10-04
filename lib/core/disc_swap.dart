@@ -4,39 +4,47 @@ import 'cdrom_drive.dart';
 ///
 /// A real console shows a disc change as "the tray is opened, then closed".
 /// Whatever the speed of the drive, the core must see this: when the disc id
-/// of the drive changes, [onRemoved] is always called (if a disc was present),
-/// the removed state is kept for [holdClocks], then [onInserted] is called
-/// once the drive has a disc ready.
+/// of the drive changes, [onTrayOpen] is always called (if the tray was
+/// closed) and the tray is kept open for [holdClocks]. Then, according to the
+/// drive, [onInserted] is called when a disc is ready, or [onClosedEmpty] when
+/// the tray is closed without a disc. The tray stays open while the drive is
+/// ejected.
 class DiscSwapWatcher {
   final int holdClocks;
-  final void Function() onRemoved;
+
+  /// the tray is opened (the disc is removed)
+  final void Function() onTrayOpen;
+
+  /// the tray is closed with a disc
   final void Function() onInserted;
 
+  /// the tray is closed without a disc (or the disc is not readable)
+  final void Function() onClosedEmpty;
+
   DiscSwapWatcher(this.holdClocks,
-      {required this.onRemoved, required this.onInserted});
+      {required this.onTrayOpen,
+      required this.onInserted,
+      required this.onClosedEmpty});
 
   CdromDrive? _drive;
   int _id = -1;
-  bool _present = false;
+  bool _trayOpen = false; // as seen by the core
   bool _pending = false;
   int _wait = 0;
 
-  /// starts watching [drive]. the current disc is taken as the initial one:
+  /// starts watching [drive]. the current state is taken as the initial one:
   /// no callback is made for it.
   void attach(CdromDrive drive) {
     _drive = drive;
-    final s = drive.status;
-    _id = s.discId;
-    _present = s.isReady;
-    _pending = false;
+    sync();
   }
 
-  /// the core is reset with the disc in the drive
+  /// the core is reset with the drive as it is
   void sync() {
     final s = _drive?.status;
     if (s == null) return;
     _id = s.discId;
-    _present = s.isReady;
+    _trayOpen = s.isTrayOpen;
     _pending = false;
   }
 
@@ -47,21 +55,31 @@ class DiscSwapWatcher {
 
     if (s.discId != _id) {
       _id = s.discId;
-      if (!_pending) _wait = holdClocks; // counted from the first removal
+      if (!_pending) _wait = holdClocks; // counted from the first change
       _pending = true;
-      if (_present) {
-        _present = false;
-        onRemoved();
+      if (!_trayOpen) {
+        _trayOpen = true;
+        onTrayOpen();
       }
     }
 
-    if (_pending) {
-      _wait -= clocks;
-      if (_wait <= 0 && s.isReady) {
+    if (!_pending) return;
+    _wait -= clocks;
+    if (_wait > 0) return;
+
+    switch (s.state) {
+      case CdromDriveState.ready:
         _pending = false;
-        _present = true;
+        _trayOpen = false;
         onInserted();
-      }
+      case CdromDriveState.empty || CdromDriveState.error:
+        _pending = false;
+        _trayOpen = false;
+        onClosedEmpty();
+      case CdromDriveState.trayOpen:
+        _pending = false; // stays open until the drive changes again
+      case CdromDriveState.loading:
+        break; // wait for the TOC
     }
   }
 }
