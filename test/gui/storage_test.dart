@@ -49,6 +49,24 @@ void main() {
     s2.dispose();
   });
 
+  test('settings are saved without a core and loaded at open', () async {
+    expect(StorageKey.setting("disc_dir"), "settings/disc_dir");
+    expect(StorageKey.kindOf("settings/disc_dir"), StorageKey.settings);
+
+    final factory = newIdbFactoryMemory();
+    final s1 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s1.setting("disc_dir"), isNull);
+    await s1.setSetting("disc_dir", "/home/user/ディスク");
+    expect(s1.setting("disc_dir"), "/home/user/ディスク");
+    s1.dispose();
+
+    final s2 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s2.setting("disc_dir"), "/home/user/ディスク");
+    s2.dispose();
+  });
+
   test('migrates shared preferences', () async {
     final mem = Uint8List.fromList([1, 2, 3]);
     SharedPreferences.setMockInitialValues(

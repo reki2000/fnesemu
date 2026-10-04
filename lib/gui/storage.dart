@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/uint8list.dart';
@@ -22,7 +23,10 @@ class Storage extends Sram {
   // sram entries are preloaded so that cores can call init() synchronously
   final Map<String, Uint8List> _cache;
 
-  Storage._(this._store, this._cache) {
+  // application settings, preloaded as well
+  final Map<String, String> _settings;
+
+  Storage._(this._store, this._cache, this._settings) {
     _worker = Timer.periodic(const Duration(seconds: Storage.saveIntervalSec),
         (timer) => saveIfDirty());
   }
@@ -33,16 +37,21 @@ class Storage extends Sram {
       await _migrateSharedPreferences(store);
 
       final cache = <String, Uint8List>{};
+      final settings = <String, String>{};
       for (final key in await store.keys()) {
-        if (StorageKey.kindOf(key) == StorageKey.sram) {
+        final kind = StorageKey.kindOf(key);
+        if (kind == StorageKey.sram) {
           final data = await store.get(key);
           if (data != null) cache[key] = data;
+        } else if (kind == StorageKey.settings) {
+          final data = await store.get(key);
+          if (data != null) settings[key] = utf8.decode(data);
         }
       }
-      return Storage._(store, cache);
+      return Storage._(store, cache, settings);
     } catch (e) {
       // run without persistence (e.g. storage is unavailable in the browser)
-      return Storage._(null, {});
+      return Storage._(null, {}, {});
     }
   }
 
@@ -62,6 +71,21 @@ class Storage extends Sram {
 
       await store.put(newKey, Uint8ListEx.fromBase64(value));
       await prefs.remove(oldKey);
+    }
+  }
+
+  /// returns the setting [name] saved before, or null
+  String? setting(String name) => _settings[StorageKey.setting(name)];
+
+  /// saves the setting [name]. the value can be read at once, and is kept
+  /// across restarts if the persistent store is available.
+  Future<void> setSetting(String name, String value) async {
+    final key = StorageKey.setting(name);
+    _settings[key] = value;
+    try {
+      await _store?.put(key, Uint8List.fromList(utf8.encode(value)));
+    } catch (e) {
+      onEvent("failed to save $name: $e");
     }
   }
 

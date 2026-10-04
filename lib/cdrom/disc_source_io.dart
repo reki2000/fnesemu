@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 
 import 'disc_folder.dart';
@@ -22,3 +24,8 @@ Future<DiscFolder?> pickDiscFolder() async {
       .getDirectoryPath(dialogTitle: "Select a directory of disc images");
   return path == null ? null : LocalDiscFolder(path);
 }
+
+/// opens the directory saved by [DiscFolder.persistentPath], or null if it is
+/// not available any more
+Future<DiscFolder?> openDiscFolderAt(String path) async =>
+    await Directory(path).exists() ? LocalDiscFolder(path) : null;

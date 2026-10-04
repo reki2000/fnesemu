@@ -26,9 +26,11 @@ This project is experimental.
   - Does not support cartridge SRAM / PAL
 - PS1 (.ps) * experimental *
   - requires BIOS with `.ps` extension 
-  - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
 - CD-ROM (PS1 / SS / PCE CD / Mega CD) is read asynchronously: only the required sectors are read (75 sectors read-ahead, 60 seconds cache) instead of loading the whole disc image into memory
-  - 'Insert Disc' / 'Eject Disc' buttons. on the web, select a `.cue` file together with its `.bin` files, or a single `.iso`/`.bin` file
+  - the disc menu: Eject (the tray stays open), Empty (the tray is closed without a disc), and Select image file directory
+  - selecting a directory scans it recursively, with the progress. a `.cue` file is listed if all the files it refers to exist (these files are not listed), and a single `.iso` / `.bin` file is listed as it is. select an item to insert it and start
+  - on native platforms the directory is remembered and scanned again at startup. on the web, select it again after reloading
+  - `--dart-define=DISC=/path/to/game.cue` inserts a disc at startup
 - SS (.ss) * work in progress *
   - requires BIOS with `.ss` extension, disc is selected from the disc menu
   - not verified with real BIOS / games yet
@@ -65,9 +67,7 @@ This project is experimental.
 Load a legally obtained **128 KiB MD CD-ROM BIOS** using the Load ROM button.
 Use the `.mdcd` extension to select CD boot mode explicitly; `.bin`
 BIOS files containing the `manufacturer BOOT` header are detected automatically.
-Select the game from the disc menu. As with PS1, disc paths are supplied through
-`--dart-define=DISC=/path/to/game.cue` for a single image, or through the
-`DISC_DIR` environment variable for the disc menu.
+Select the game from the disc menu (see PS1).
 BIOS files and games are not included.
 
 Supported images are raw Mode 1 BIN/CUE, cooked 2048-byte ISO, and CUE with
@@ -303,11 +303,11 @@ Protocol references used for this independent implementation:
 ## cdrom support (experimental)
 
 Load your own version 3.0 system-card BIOS ROM as a `.pce` file, then select a CD
-image from the existing disc menu (`DISC_DIR` / `DISC` launch settings can
-also select the image). Reset after changing the disc. The BIOS and games
+image from the disc menu (the `DISC` launch setting can also select the
+image). The BIOS and games
 are not included. Use a binary CUE image with MODE1/2352 data tracks and
-AUDIO tracks; the existing raw BIN reader is also supported. Cooked
-MODE1/2048 images, CHD and compressed audio tracks are not supported.
+AUDIO tracks, a raw BIN, or a cooked MODE1/2048 image. CHD and compressed
+audio tracks are not supported.
 
 The console core enables the CD interface when a nonempty disc is attached.
 It maps the 192 KiB system-card RAM at banks `$68–$7F`, retains the

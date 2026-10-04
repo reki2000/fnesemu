@@ -84,6 +84,9 @@ class LocalDiscFolder extends DiscFolder {
   String get name => root.split(RegExp(r'[\\/]')).where((s) => s.isNotEmpty).last;
 
   @override
+  String? get persistentPath => root;
+
+  @override
   Stream<FolderFile> list() async* {
     final dirs = <(Directory, String)>[(Directory(root), '')];
     while (dirs.isNotEmpty) {

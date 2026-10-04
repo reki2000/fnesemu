@@ -161,3 +161,6 @@ Future<DiscFolder?> pickDiscFolder() {
   input.click();
   return completer.future;
 }
+
+/// directories of the browser cannot be opened again after a restart
+Future<DiscFolder?> openDiscFolderAt(String path) async => null;

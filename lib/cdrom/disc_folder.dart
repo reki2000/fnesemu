@@ -14,6 +14,10 @@ class FolderFile {
 abstract class DiscFolder {
   String get name;
 
+  /// where the folder can be opened again after a restart, or null if it
+  /// cannot (the browser does not allow it)
+  String? get persistentPath => null;
+
   /// lists the files below the folder recursively
   Stream<FolderFile> list();
 

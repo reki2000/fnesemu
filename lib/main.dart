@@ -1,8 +1,6 @@
 // Dart imports:
-import 'dart:io';
 
 // Flutter imports:
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 // Package imports:
 import 'package:package_info_plus/package_info_plus.dart';
@@ -15,9 +13,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final packageInfo = await PackageInfo.fromPlatform();
 
-  // environment variables are not available on web
-  final env = kIsWeb ? const <String, String>{} : Platform.environment;
-
   const debugEnv = bool.fromEnvironment("DEBUG", defaultValue: false);
   const romsEnv = String.fromEnvironment("ROMS", defaultValue: "");
   const discEnv = String.fromEnvironment("DISC", defaultValue: "");
@@ -27,7 +22,6 @@ void main() async {
     roms: romsEnv.split(",").where((s) => s.isNotEmpty).toList(),
     disc: discEnv,
     rom: romEnv,
-    discDir: env['DISC_DIR'] ?? '',
   );
 
   final storage = await Storage.open();
