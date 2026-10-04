@@ -14,6 +14,7 @@ import '../disc.dart';
 import '../memory_cdrom_drive.dart';
 import '../pad_button.dart';
 import '../sram.dart';
+import '../storage_key.dart';
 import '../types.dart';
 import 'bus.dart';
 import 'cdrom.dart';
@@ -125,7 +126,8 @@ class Ps extends Core implements CdromHost {
 
     cdrom.closeShell();
 
-    _sram.init("psx_mem1", MemoryCard.blankImage);
+    _sram.init(StorageKey.of("ps", StorageKey.sram, "memcard1"),
+        MemoryCard.blankImage);
     memoryCard.setRw(_sram.read8, _sram.write8);
   }
 
