@@ -28,7 +28,8 @@ Future<(Uint8List, String)> _pickFile({String name = ""}) async {
   final archive = ZipDecoder().decodeBytes(file);
 
   for (final entry in archive) {
-    if (["nes", "pce", "md", "gen", "gb"].contains(_fileExtension(entry.name))) {
+    if (["nes", "pce", "md", "gen", "gb", "ss"]
+        .contains(_fileExtension(entry.name))) {
       return (entry.content as Uint8List, entry.name);
     }
   }

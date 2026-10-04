@@ -5,6 +5,7 @@ import 'gb/gb.dart';
 import 'nes/nes.dart';
 import 'pce/pce.dart';
 import 'ps/ps.dart';
+import 'ss/ss.dart';
 
 class CoreFactory {
   static Core ofPce() => Pce();
@@ -12,6 +13,7 @@ class CoreFactory {
   static Core ofMd() => Md();
   static Core ofPs() => Ps();
   static Core ofGb() => Gb();
+  static Core ofSs() => Ss();
 
   static of(String coreName) {
     return switch (coreName) {
@@ -20,6 +22,7 @@ class CoreFactory {
       'gen' || 'md' || "bin" => CoreFactory.ofMd(),
       'ps' => CoreFactory.ofPs(),
       'gb' => CoreFactory.ofGb(),
+      'ss' => CoreFactory.ofSs(),
       _ => throw Exception('unsupported core: $coreName'),
     };
   }
