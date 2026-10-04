@@ -183,12 +183,12 @@ class MapperVrc6 extends Mapper {
     mirror(_mirrors[data & 0x03]);
   }
 
-  void _setIrqLatchLow(data) {
+  void _setIrqLatchLow(int data) {
     _irqLatch = data;
     holdIrq(false);
   }
 
-  void _setIrqControl(data) {
+  void _setIrqControl(int data) {
     _irqEnabledAfterAcknoledge = data.bit0;
     _irqEnabled = data.bit1;
     if (_irqEnabled) {

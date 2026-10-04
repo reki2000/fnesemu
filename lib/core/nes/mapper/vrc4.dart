@@ -173,17 +173,17 @@ class MapperVrc4 extends Mapper {
     _chrBank[bank] = (_chrBank[bank] & 0x0f) | (data & 0x1f).shl4;
   }
 
-  void _setIrqLatchLow(data) {
+  void _setIrqLatchLow(int data) {
     _irqLatch = _irqLatch.set4Bit(data);
     holdIrq(false);
   }
 
-  void _setIrqLatchHigh(data) {
+  void _setIrqLatchHigh(int data) {
     _irqLatch = _irqLatch.set4Bit(data, lsbPosition: 4);
     holdIrq(false);
   }
 
-  void _setIrqControl(data) {
+  void _setIrqControl(int data) {
     _irqEnabledAfterAcknoledge = data.bit0;
     _irqEnabled = data.bit1;
     if (_irqEnabled) {

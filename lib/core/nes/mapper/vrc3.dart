@@ -107,7 +107,7 @@ class MapperVrc3 extends Mapper {
     chrRam[offset] = data & 0xff;
   }
 
-  void _setIrqControl(data) {
+  void _setIrqControl(int data) {
     _irqEnabledAfterAcknoledge = data.bit0;
     _irqEnabled = data.bit1;
     if (_irqEnabled) {
