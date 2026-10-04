@@ -3,10 +3,12 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
+import '../cdrom_drive.dart';
 import '../disc.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
+part 'cdrom_async.dart';
 part 'cdrom_xa.dart';
 
 class CmdResult {
@@ -36,7 +38,15 @@ class Cdrom {
     reset();
   }
 
+  /// on-memory disc, used unless [asyncCdrom]
   late Disc disc;
+
+  /// connection to [CdromDrive], used if [asyncCdrom]
+  late final _port = _DrivePort(this);
+
+  void attachDrive(CdromDrive drive) => _port.attach(drive);
+
+  int _clock = 0; // elapsed clocks, for async-cdrom seek timing
 
   int bank = 0;
 
@@ -146,7 +156,15 @@ class Cdrom {
     cmdResults.clear();
     paramFifo.clear();
     resultFifo.clear();
+
+    if (asyncCdrom) {
+      _port.clear();
+      _onDiscChanged(_port.isReady);
+    }
   }
+
+  /// async-cdrom: the sector fetched by the drive, waiting to be processed
+  Uint8List? _fetched;
 
   bool isBufferNotReadable() =>
       sectorBufferEmpty || sectorBufferIndex >= sectorSize;
@@ -300,11 +318,25 @@ class Cdrom {
       isCmdBusy = false;
     }
 
+    if (asyncCdrom) {
+      _clock += clocks;
+      _port.poll(_clock);
+    }
+
     // sector read
     if (isReading || isPlaying) {
       sectorReadDelay -= clocks;
 
       if (sectorReadDelay <= 0) {
+        if (asyncCdrom) {
+          _fetched = _port.read(readingSector);
+          if (_fetched == null) {
+            // the drive has not read the sector yet: wait for it
+            sectorReadDelay += 33868800 ~/ 150 ~/ 8;
+            return;
+          }
+        }
+
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
         isSeeking = false;
 
@@ -319,14 +351,31 @@ class Cdrom {
     }
   }
 
-  void _readSector() {
-    rawSector = disc.read(readingSector);
+  /// reads [sector] (includes 2 seconds of lead-in) from the disc
+  Uint8List _fetchSector(int sector) =>
+      asyncCdrom ? _fetched! : disc.read(sector);
 
-    if (disc.isAudioSector(readingSector)) {
+  // disc information, from the TOC of the drive if [asyncCdrom]
+  bool get _isDiscEmpty => asyncCdrom ? !_port.isReady : disc.isEmpty;
+  int get _trackCount => asyncCdrom ? _port.toc.trackCount : disc.trackCount;
+  int get _totalSectors =>
+      asyncCdrom ? _port.toc.totalSectors : disc.totalSectors;
+  int _startLba(int trackNo) =>
+      asyncCdrom ? _port.toc.startLba(trackNo) : disc.startLba(trackNo);
+  bool _isAudioSector(int sector) => asyncCdrom
+      ? _port.isReady && _port.toc.isAudioLba(sector - 2 * 75)
+      : disc.isAudioSector(sector);
+
+  void _readSector() {
+    rawSector = _fetchSector(readingSector);
+
+    if (_isAudioSector(readingSector)) {
       if (isCddaEnabled) {
         _pushCdda();
       }
-    } else if (isXaAdpcmEnabled && rawSector[18] & 0x44 == 0x44) {
+    } else if (isXaAdpcmEnabled &&
+        rawSector.length > 18 &&
+        rawSector[18] & 0x44 == 0x44) {
       // XA-ADPCM sectors are sent to the decoder, not to the data buffer
       if (!adpCtrl.bit0) {
         decodeXa();
@@ -344,14 +393,14 @@ class Cdrom {
       playTrack = track;
     }
     if ((mode.bit1 && track != playTrack) ||
-        readingSector >= disc.totalSectors + 2 * 75) {
+        readingSector >= _totalSectors + 2 * 75) {
       isPlaying = false;
       irq(4, [status()], delay: 0);
       return;
     }
 
-    rawSector = disc.read(readingSector);
-    if (disc.isAudioSector(readingSector)) {
+    rawSector = _fetchSector(readingSector);
+    if (_isAudioSector(readingSector)) {
       _pushCdda();
     }
 
@@ -388,15 +437,15 @@ class Cdrom {
   }
 
   /// start sector of the track, including 2 seconds of lead-in
-  int _trackStart(int trackNo) => disc.startLba(trackNo) + 2 * 75;
+  int _trackStart(int trackNo) => _startLba(trackNo) + 2 * 75;
 
   /// returns the track number (1..) which contains the sector, 0 if none
   int _trackOf(int sector) {
-    if (disc.isEmpty) {
+    if (_isDiscEmpty) {
       return 0;
     }
     int trackNo = 1;
-    while (trackNo < disc.trackCount && sector >= _trackStart(trackNo + 1)) {
+    while (trackNo < _trackCount && sector >= _trackStart(trackNo + 1)) {
       trackNo++;
     }
     return trackNo; // sectors before track 1 are in the pregap of track 1
@@ -505,7 +554,7 @@ class Cdrom {
 
       case 0x03: // Play
         final track = _param(0).asBcd;
-        if (track > 0 && !disc.isEmpty && track <= disc.trackCount) {
+        if (track > 0 && !_isDiscEmpty && track <= _trackCount) {
           seekSector = _trackStart(track);
           isSeekPending = true;
         }
@@ -602,38 +651,28 @@ class Cdrom {
         ]);
 
       case 0x13: // GetTN
-        if (disc.isEmpty) {
+        if (_isDiscEmpty) {
           irq(3, [status(), 0, 0]);
         } else {
-          irq(3, [status(), 1.toBcd, disc.trackCount.toBcd]);
+          irq(3, [status(), 1.toBcd, _trackCount.toBcd]);
         }
 
       case 0x14: // GetTD
         final track = _param(0).asBcd;
-        if (disc.isEmpty || track > disc.trackCount) {
+        if (_isDiscEmpty || track > _trackCount) {
           irq(5, [status() | 0x01, 0x10]); // error: invalid parameter
         } else {
           final sector =
-              track == 0 ? disc.totalSectors + 2 * 75 : _trackStart(track);
+              track == 0 ? _totalSectors + 2 * 75 : _trackStart(track);
           final (mm, ss, _) = Disc.lbaToMsf(sector);
           irq(3, [status(), mm.toBcd, ss.toBcd]);
         }
 
       case 0x15: // SeekL
-        _stop();
-        _spinUp();
-        readingSector = seekSector;
-        isSeekPending = false;
-        irq(3, [status()], delay: 5000);
-        irq(2, [status()], delay: 500000);
+        _seek();
 
       case 0x16: // SeekP
-        _stop();
-        _spinUp();
-        readingSector = seekSector;
-        isSeekPending = false;
-        irq(3, [status()], delay: 5000);
-        irq(2, [status()], delay: 500000);
+        _seek();
 
       case 0x1a: // GetId
         irq(3, [status()]);
@@ -652,8 +691,8 @@ class Cdrom {
         irq(2, [status()]);
 
       case 0x1e: // ReadTOC
-        toc.firstTrackBcd = disc.isEmpty ? 0 : 1.toBcd;
-        toc.lastTrackBcd = disc.isEmpty ? 0 : disc.trackCount.toBcd;
+        toc.firstTrackBcd = _isDiscEmpty ? 0 : 1.toBcd;
+        toc.lastTrackBcd = _isDiscEmpty ? 0 : _trackCount.toBcd;
         irq(3, [status()]);
         irq(2, [status()]);
 
@@ -685,6 +724,48 @@ class Cdrom {
     paramFifo.clear();
     isCmdBusy = true;
     cmdDelay = 1000;
+  }
+
+  static const _seekClocks = 500000;
+
+  void _seek() {
+    _stop();
+    _spinUp();
+    readingSector = seekSector;
+    isSeekPending = false;
+    irq(3, [status()], delay: 5000);
+
+    if (asyncCdrom) {
+      // INT2 is raised when the drive completes the seek
+      isSeeking = true;
+      _port.seek(seekSector, _clock);
+    } else {
+      irq(2, [status()], delay: _seekClocks);
+    }
+  }
+
+  /// async-cdrom: called when the seek is completed by the drive
+  void _onSeekComplete(bool ok, int issuedAt) {
+    isSeeking = false;
+    final delay = (_seekClocks - (_clock - issuedAt)).clamp(0, _seekClocks);
+    if (ok) {
+      irq(2, [status()], delay: delay);
+    } else {
+      isSeekError = true;
+      irq(5, [status() | 0x01, 0x04], delay: delay); // seek failed
+      isSeekError = false;
+    }
+  }
+
+  /// async-cdrom: called when a disc is ejected or inserted
+  void _onDiscChanged(bool isReady) {
+    if (isReady) {
+      closeShell();
+    } else {
+      _stop();
+      isSeeking = false;
+      openShell();
+    }
   }
 
   void openShell() {

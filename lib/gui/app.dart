@@ -8,6 +8,9 @@ import 'package:fnesemu/core/disc.dart';
 import 'package:fnesemu/disc/empty.dart';
 
 // Project imports:
+import '../cdrom/async_cdrom_drive.dart';
+import '../cdrom/disc_source.dart';
+import '../core/cdrom_drive.dart';
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
 import '../disc/loader.dart';
@@ -106,6 +109,9 @@ class MainPageState extends State<MainPage> {
 
   Disc _disc = EmptyDisc();
 
+  // async-cdrom: shared by cores, the disc is kept across ROM loading
+  final _drive = AsyncCdromDrive();
+
   @override
   void initState() {
     super.initState();
@@ -178,8 +184,12 @@ class MainPageState extends State<MainPage> {
   }
 
   _setDiscFile(String fileName) async {
-    _disc = DiscLoader.load(fileName);
-    _controller.setDisc(_disc);
+    if (asyncCdrom) {
+      await _drive.eject(discSourceFromPath(fileName));
+    } else {
+      _disc = DiscLoader.load(fileName);
+      _controller.setDisc(_disc);
+    }
 
     await _reset();
 
@@ -201,7 +211,11 @@ class MainPageState extends State<MainPage> {
     } else {
       _controller.init(ext, extractedFile);
     }
-    _controller.setDisc(_disc);
+    if (asyncCdrom) {
+      _controller.setCdromDrive(_drive);
+    } else {
+      _controller.setDisc(_disc);
+    }
 
     _keyHandler.init();
     _mPlayer.resume(); // web platform requires this
@@ -214,6 +228,25 @@ class MainPageState extends State<MainPage> {
     if (!widget.config.debug) {
       _run();
     }
+  }
+
+  /// async-cdrom: ejects the disc, then inserts the selected one if any.
+  /// the core keeps running, as swapping discs on the real machine.
+  _ejectDisc({bool insert = false}) async {
+    final source = insert ? await pickDiscSource() : null;
+    if (insert && source == null) {
+      return; // canceled
+    }
+
+    await _drive.eject(source);
+
+    final state = _drive.status.state;
+    AppSnackBar.show(switch (state) {
+      CdromDriveState.ready => "inserted: ${source?.name}",
+      CdromDriveState.error => "failed to read: ${source?.name}",
+      _ => "ejected",
+    });
+    setState(() {});
   }
 
   _run() {
@@ -245,6 +278,12 @@ class MainPageState extends State<MainPage> {
                 return PopupMenuItem(value: name, child: Text(filename));
               }).toList(),
             ),
+
+          if (asyncCdrom) ...[
+            iconButton(Icons.album, "Insert Disc",
+                () => _do(() => _ejectDisc(insert: true))),
+            iconButton(Icons.eject, "Eject Disc", () => _do(_ejectDisc)),
+          ],
 
           if (widget.config.roms.isNotEmpty)
             PopupMenuButton<String>(
