@@ -1,11 +1,10 @@
 import 'dart:typed_data';
 
 import '../../disc.dart';
-import '../../../disc/empty.dart';
 
 /// Ten-nibble CDD command/status protocol and 75 Hz disc transport.
 class CdDrive {
-  Disc disc = EmptyDisc();
+  Disc disc = Disc.empty();
   final command = Uint8List(10);
   final response = Uint8List(10);
   final void Function(Uint8List) onSector;
@@ -122,12 +121,16 @@ class CdDrive {
       if (lba >= disc.totalSectors) {
         status = 0xc;
       } else {
-        _currentLba = lba;
-        track = trackAt(lba);
-        if (lba >= 0 && !disc.isAudio(track)) {
-          onSector(disc.read(lba + 150));
+        final next = trackAt(lba);
+        final sector = lba >= 0 && !disc.isAudio(next) ? disc.read(lba + 150) : null;
+        if (lba >= 0 && !disc.isAudio(next) && sector == null) {
+          // the drive has not read the sector yet: retry on the next tick
+        } else {
+          _currentLba = lba;
+          track = next;
+          if (sector != null) onSector(sector);
+          lba++;
         }
-        lba++;
       }
     } else if (status == 3) {
       lba = (lba + 10 * _scanDirection).clamp(0, disc.totalSectors);
@@ -185,8 +188,10 @@ class CdDrive {
     if (!playingAudio) return (0, 0);
     final sector = _currentLba;
     if (_sectorAudioLba != sector) {
+      final data = disc.read(sector + 150);
+      if (data == null) return (0, 0); // not read yet: silence, retry
       _sectorAudioLba = sector;
-      _audio = disc.read(sector + 150);
+      _audio = data;
       _audioPhase = (_audioPhase - 588 * outputHz).clamp(0, outputHz);
     }
     final frame = _audioPhase ~/ outputHz;

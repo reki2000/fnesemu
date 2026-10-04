@@ -5,10 +5,11 @@ import 'package:image/image.dart' as img;
 
 import '../core/md/md.dart';
 import '../core/pad_button.dart';
-import '../disc/loader.dart';
+import '../cdrom/async_cdrom_drive.dart';
+import '../cdrom/disc_source_local.dart';
 
 /// Headless BIOS/disc smoke runner with optional input and frame captures.
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   final paths = args.where((arg) => !arg.startsWith('--')).toList();
   if (paths.length < 2 || paths.length > 3) {
     stderr.writeln(
@@ -35,14 +36,15 @@ void main(List<String> args) {
     exitCode = 64;
     return;
   }
-  final disc = DiscLoader.load(paths[1]);
-  if (disc.isEmpty) {
+  final drive = AsyncCdromDrive();
+  await drive.eject(discSourceFromPath(paths[1]));
+  if (!drive.status.isReady) {
     stderr.writeln('Could not load disc: ${paths[1]}');
     exitCode = 66;
     return;
   }
   final md = Md(cdBoot: true)
-    ..setDisc(disc)
+    ..setCdromDrive(drive)
     ..setRom(File(paths[0]).readAsBytesSync());
   final output = option('out');
   if (output != null) Directory(output).createSync(recursive: true);
@@ -85,6 +87,7 @@ void main(List<String> args) {
     }
     if (result.scanlineRendered && md.vdp.vCounter == 0) {
       frame++;
+      await drive.settle(); // result must not depend on the speed of the disc
       if (frame % every == 0 || frame == frames) {
         stdout.writeln(
             'frame:$frame main:${md.cpuM68.pc.toRadixString(16)} sub:${md.cdrom!.cpu.pc.toRadixString(16)} CDD:${md.cdrom!.drive.status.toRadixString(16)} LBA:${md.cdrom!.drive.lba}');

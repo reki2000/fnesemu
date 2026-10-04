@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../core.dart';
+import '../cdrom_drive.dart';
 import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
@@ -139,7 +140,8 @@ class Pce implements Core {
       bus.joypad.keyUp(controllerId, k);
 
   @override
-  void setDisc(Disc disc) {
+  void setCdromDrive(CdromDrive drive) {
+    final disc = Disc(drive);
     bus.cdrom.setDisc(disc);
     if (!disc.isEmpty && bus.sram.data.length != 0x800) {
       bus.sram.init('pce-cd-bram', Uint8List(0x800));

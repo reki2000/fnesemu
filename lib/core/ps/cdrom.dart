@@ -38,15 +38,12 @@ class Cdrom {
     reset();
   }
 
-  /// on-memory disc, used unless [asyncCdrom]
-  late Disc disc;
-
-  /// connection to [CdromDrive], used if [asyncCdrom]
+  /// connection to [CdromDrive]
   late final _port = _DrivePort(this);
 
   void attachDrive(CdromDrive drive) => _port.attach(drive);
 
-  int _clock = 0; // elapsed clocks, for async-cdrom seek timing
+  int _clock = 0; // elapsed clocks, for seek timing
 
   int bank = 0;
 
@@ -157,13 +154,11 @@ class Cdrom {
     paramFifo.clear();
     resultFifo.clear();
 
-    if (asyncCdrom) {
-      _port.clear();
-      _onDiscChanged(_port.isReady);
-    }
+    _port.clear();
+    _onDiscChanged(_port.isReady);
   }
 
-  /// async-cdrom: the sector fetched by the drive, waiting to be processed
+  /// the sector fetched by the drive, waiting to be processed
   Uint8List? _fetched;
 
   bool isBufferNotReadable() =>
@@ -318,23 +313,19 @@ class Cdrom {
       isCmdBusy = false;
     }
 
-    if (asyncCdrom) {
-      _clock += clocks;
-      _port.poll(_clock);
-    }
+    _clock += clocks;
+    _port.poll(_clock);
 
     // sector read
     if (isReading || isPlaying) {
       sectorReadDelay -= clocks;
 
       if (sectorReadDelay <= 0) {
-        if (asyncCdrom) {
-          _fetched = _port.read(readingSector);
-          if (_fetched == null) {
-            // the drive has not read the sector yet: wait for it
-            sectorReadDelay += 33868800 ~/ 150 ~/ 8;
-            return;
-          }
+        _fetched = _port.read(readingSector);
+        if (_fetched == null) {
+          // the drive has not read the sector yet: wait for it
+          sectorReadDelay += 33868800 ~/ 150 ~/ 8;
+          return;
         }
 
         sectorReadDelay += 33868800 ~/ (isHighSpeed ? 150 : 75);
@@ -352,19 +343,15 @@ class Cdrom {
   }
 
   /// reads [sector] (includes 2 seconds of lead-in) from the disc
-  Uint8List _fetchSector(int sector) =>
-      asyncCdrom ? _fetched! : disc.read(sector);
+  Uint8List _fetchSector(int sector) => _fetched!;
 
-  // disc information, from the TOC of the drive if [asyncCdrom]
-  bool get _isDiscEmpty => asyncCdrom ? !_port.isReady : disc.isEmpty;
-  int get _trackCount => asyncCdrom ? _port.toc.trackCount : disc.trackCount;
-  int get _totalSectors =>
-      asyncCdrom ? _port.toc.totalSectors : disc.totalSectors;
-  int _startLba(int trackNo) =>
-      asyncCdrom ? _port.toc.startLba(trackNo) : disc.startLba(trackNo);
-  bool _isAudioSector(int sector) => asyncCdrom
-      ? _port.isReady && _port.toc.isAudioLba(sector - 2 * 75)
-      : disc.isAudioSector(sector);
+  // disc information, from the TOC of the drive
+  bool get _isDiscEmpty => !_port.isReady;
+  int get _trackCount => _port.toc.trackCount;
+  int get _totalSectors => _port.toc.totalSectors;
+  int _startLba(int trackNo) => _port.toc.startLba(trackNo);
+  bool _isAudioSector(int sector) =>
+      _port.isReady && _port.toc.isAudioLba(sector - 2 * 75);
 
   void _readSector() {
     rawSector = _fetchSector(readingSector);
@@ -738,16 +725,12 @@ class Cdrom {
     isSeekPending = false;
     irq(3, [status()], delay: 5000);
 
-    if (asyncCdrom) {
-      // INT2 is raised when the drive completes the seek
-      isSeeking = true;
-      _port.seek(seekSector, _clock);
-    } else {
-      irq(2, [status()], delay: _seekClocks);
-    }
+    // INT2 is raised when the drive completes the seek
+    isSeeking = true;
+    _port.seek(seekSector, _clock);
   }
 
-  /// async-cdrom: called when the seek is completed by the drive
+  /// called when the seek is completed by the drive
   void _onSeekComplete(bool ok, int issuedAt) {
     isSeeking = false;
     final delay = (_seekClocks - (_clock - issuedAt)).clamp(0, _seekClocks);
@@ -760,7 +743,7 @@ class Cdrom {
     }
   }
 
-  /// async-cdrom: called when a disc is ejected or inserted
+  /// called when a disc is ejected or inserted
   void _onDiscChanged(bool isReady) {
     if (isReady) {
       closeShell();

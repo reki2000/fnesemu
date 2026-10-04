@@ -1,29 +1,19 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/disc.dart';
 import 'package:fnesemu/core/pce/component/cdrom.dart';
 import 'package:fnesemu/core/pce/pce.dart';
 import 'package:fnesemu/core/sram.dart';
-import 'package:fnesemu/disc/empty.dart';
+import 'package:fnesemu/core/cdrom_drive.dart';
+import '../../support/fake_cdrom_drive.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
-class TestDisc extends Disc {
-  final reads = <int>[];
-  @override
-  bool get isEmpty => false;
-  @override
-  int get trackCount => 2;
-  @override
-  int get totalSectors => 6;
-  @override
-  int startLba(int trackNo) => trackNo == 1 ? 0 : 4;
-  @override
-  bool isAudio(int trackNo) => trackNo == 2;
-  @override
-  Uint8List read(int sector) {
-    reads.add(sector);
-    if (sector < 150 || sector >= 156) return Uint8List(0);
+class TestDisc extends FakeDisc {
+  TestDisc() : super(_sectors(), starts: [0, 4], audioTracks: {2});
+
+  static List<Uint8List> _sectors() => [for (var lba = 0; lba < 6; lba++) _sector(lba + 150)];
+
+  static Uint8List _sector(int sector) {
     final result = Uint8List(2352);
     if (sector < 154) {
       result[15] = 1;
@@ -72,7 +62,7 @@ void main() {
   setUp(() {
     pce = Pce();
     disc = TestDisc();
-    pce.setDisc(disc);
+    pce.setCdromDrive(disc.fake);
     cd = pce.bus.cdrom;
   });
 
@@ -96,7 +86,7 @@ void main() {
         [0, 0xaa, 0x55, 3]);
     expect(pce.bus.read(io + 0x18c4), 255);
     expect(pce.bus.read(io + 0x1000) & 0x80, 0);
-    pce.setDisc(EmptyDisc());
+    pce.setCdromDrive(EmptyCdromDrive());
     expect(pce.bus.read(io + 0x18c1), 255);
     expect(pce.bus.read(io + 0x1000) & 0x80, 0x80);
     expect(pce.bus.read(0x68 * 8192), 255);
@@ -106,7 +96,7 @@ void main() {
       () {
     final sram = Sram()..init('saved', Uint8List(2048)..[0] = 42);
     pce.setSram(sram);
-    pce.setDisc(disc);
+    pce.setCdromDrive(disc.fake);
     const address = 0xf7 * 8192;
     expect(pce.bus.read(address), 255);
     pce.bus.write(io + 0x1807, 0x80);

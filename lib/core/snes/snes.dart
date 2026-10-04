@@ -4,8 +4,8 @@ import 'dart:typed_data';
 // Project imports:
 import 'package:fnesemu/util/int.dart';
 
+import '../cdrom_drive.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -153,8 +153,9 @@ class Snes implements Core {
   @override
   List<PadButton> get buttons => SnesPad.buttons;
 
+
   @override
-  void setDisc(Disc disc) {} // cartridge-only; no disc support
+  void setCdromDrive(CdromDrive drive) {}
 
   @override
   void setSram(Sram sram) {

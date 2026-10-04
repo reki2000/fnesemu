@@ -9,7 +9,11 @@ class Extent {
   final ImageFile file;
   final int fileSector; // sector offset in the file
 
-  const Extent(this.startLba, this.sectors, this.file, this.fileSector);
+  /// true if the file holds 2048 bytes of user data per sector (cooked mode 1)
+  final bool cooked;
+
+  const Extent(this.startLba, this.sectors, this.file, this.fileSector,
+      {this.cooked = false});
 
   int get endLba => startLba + sectors;
 }
@@ -21,8 +25,10 @@ class Segment {
   final int count;
   final ImageFile? file;
   final int fileSector;
+  final bool cooked;
 
-  const Segment(this.lba, this.count, this.file, this.fileSector);
+  const Segment(this.lba, this.count, this.file, this.fileSector,
+      {this.cooked = false});
 }
 
 /// maps LBAs to the image files, built from a .cue or a .iso/.bin file
@@ -55,8 +61,9 @@ class DiscLayout {
       }
 
       final segEnd = e.endLba < end ? e.endLba : end;
-      result.add(
-          Segment(pos, segEnd - pos, e.file, e.fileSector + pos - e.startLba));
+      result.add(Segment(pos, segEnd - pos, e.file,
+          e.fileSector + pos - e.startLba,
+          cooked: e.cooked));
       pos = segEnd;
     }
 
@@ -70,19 +77,48 @@ class DiscLayout {
   static Future<DiscLayout> build(DiscSource source) =>
       source.isCue ? _buildCue(source) : _buildImage(source);
 
-  /// a single raw (2352 bytes/sector) data track
+  static const _cookedSectorSize = 2048;
+
+  /// a single data track, raw (2352 bytes/sector) or cooked (2048 bytes)
   static Future<DiscLayout> _buildImage(DiscSource source) async {
     final file = source.main;
-    final sectors = _sectorsOf(await file.length());
+    final length = await file.length();
+    final cooked = await _isCooked(file, length, source.name);
+    final sectors = _sectorsOf(length, cooked);
     if (sectors == 0) {
       throw const FormatException("cdrom: empty image");
     }
     return DiscLayout(CdromToc([CdromTrack(1, false, 0, sectors)], sectors),
-        [Extent(0, sectors, file, 0)]);
+        [Extent(0, sectors, file, 0, cooked: cooked)]);
   }
 
-  static int _sectorsOf(int bytes) =>
-      (bytes + Disc.sectorSize - 1) ~/ Disc.sectorSize;
+  // raw images start with the sync pattern. cooked ones have "CD001" at
+  // sector 16, or are an .iso whose size is a multiple of 2048 without sync
+  static Future<bool> _isCooked(ImageFile file, int length, String name) async {
+    // a size which is a multiple of 2352 but not of 2048 is a raw image
+    if (length % Disc.sectorSize == 0 && length % _cookedSectorSize != 0) {
+      return false;
+    }
+    final head = await file.read(0, Disc.sync.length);
+    var hasSync = head.length == Disc.sync.length;
+    for (int i = 0; hasSync && i < Disc.sync.length; i++) {
+      hasSync = head[i] == Disc.sync[i];
+    }
+    if (hasSync) return false;
+
+    const pvd = 16 * _cookedSectorSize + 1;
+    if (length > pvd + 5 &&
+        String.fromCharCodes(await file.read(pvd, 5)) == "CD001") {
+      return true;
+    }
+    return name.toLowerCase().endsWith(".iso") &&
+        length % _cookedSectorSize == 0;
+  }
+
+  static int _sectorsOf(int bytes, bool cooked) {
+    final size = cooked ? _cookedSectorSize : Disc.sectorSize;
+    return (bytes + size - 1) ~/ size;
+  }
 
   static Future<DiscLayout> _buildCue(DiscSource source) async {
     final files = _parseCue(await source.main.readText());
@@ -96,7 +132,8 @@ class DiscLayout {
     int lba = 0;
     for (final f in files) {
       final file = await source.open(f.name);
-      final fileSectors = _sectorsOf(await file.length());
+      final cooked = f.tracks.any((t) => t.isCooked);
+      final fileSectors = _sectorsOf(await file.length(), cooked);
 
       // silence not stored in the file, inserted at the file position
       final gaps = <(int, int)>[]; // (fileSector, sectors)
@@ -119,7 +156,7 @@ class DiscLayout {
       for (final (pos, len) in gaps) {
         final p = pos.clamp(fileSector, fileSectors);
         if (p > fileSector) {
-          fileExtents.add(Extent(lba, p - fileSector, file, fileSector));
+          fileExtents.add(Extent(lba, p - fileSector, file, fileSector, cooked: cooked));
           lba += p - fileSector;
           fileSector = p;
         }
@@ -127,7 +164,8 @@ class DiscLayout {
       }
       if (fileSector < fileSectors) {
         fileExtents
-            .add(Extent(lba, fileSectors - fileSector, file, fileSector));
+            .add(Extent(lba, fileSectors - fileSector, file, fileSector,
+                cooked: cooked));
         lba += fileSectors - fileSector;
       }
       extents.addAll(fileExtents);
@@ -183,8 +221,8 @@ class DiscLayout {
           if (files.isEmpty || parts.length < 3) {
             throw const FormatException("cdrom: cue: invalid TRACK");
           }
-          track = _CueTrack(
-              int.tryParse(parts[1]) ?? 0, parts[2].toUpperCase() == "AUDIO");
+          track = _CueTrack(int.tryParse(parts[1]) ?? 0,
+              parts[2].toUpperCase() == "AUDIO", parts[2].toUpperCase() == "MODE1/2048");
           files.last.tracks.add(track);
 
         case "INDEX":
@@ -233,12 +271,13 @@ class _CueFile {
 class _CueTrack {
   final int number;
   final bool isAudio;
+  final bool isCooked; // MODE1/2048
   int index0 = -1;
   int index1 = 0;
   int pregap = 0;
   int postgap = 0;
 
-  _CueTrack(this.number, this.isAudio);
+  _CueTrack(this.number, this.isAudio, this.isCooked);
 
   int get firstIndex => index0 >= 0 ? index0 : index1;
 }

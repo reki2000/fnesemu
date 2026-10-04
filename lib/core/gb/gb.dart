@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:fnesemu/util/int.dart';
 
+import '../cdrom_drive.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -74,8 +74,9 @@ class Gb implements Core {
     _onAudio = onAudio;
   }
 
+
   @override
-  void setDisc(Disc disc) {}
+  void setCdromDrive(CdromDrive drive) {}
 
   @override
   void setSram(Sram sram) {

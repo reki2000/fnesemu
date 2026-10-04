@@ -4,6 +4,7 @@ import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../core.dart';
+import '../cdrom_drive.dart';
 import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
@@ -266,7 +267,7 @@ class Ss extends Core {
   }
 
   @override
-  void setDisc(Disc disc) => cdblock.setDisc(disc);
+  void setCdromDrive(CdromDrive drive) => cdblock.setDisc(Disc(drive));
 
   @override
   void setSram(Sram sram) => _sram = sram;

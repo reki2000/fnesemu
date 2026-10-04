@@ -4,7 +4,6 @@ import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../disc.dart';
-import 'package:fnesemu/disc/empty.dart';
 
 class _Block {
   final Uint8List raw;
@@ -74,7 +73,7 @@ class _FileEntry {
 
 /// CD block (high level emulation of the SH-1 firmware)
 class CdBlock {
-  Disc disc = EmptyDisc();
+  Disc disc = Disc.empty();
 
   void Function() onInterrupt = () {};
 
@@ -230,7 +229,7 @@ class CdBlock {
       case 0x24:
         _cmd[3] = data;
         _started = true;
-        _execCommand();
+        _runCommand();
         break;
     }
   }
@@ -292,7 +291,24 @@ class CdBlock {
 
   // ---- periodic processing ----
 
+  // the drive has not read a sector of the file system yet: the command is
+  // retried on the following exec
+  bool _retryCommand = false;
+  bool _rootPending = false;
+
+  void _runCommand() {
+    try {
+      _retryCommand = false;
+      _execCommand();
+    } on _SectorPending {
+      _retryCommand = true;
+    }
+  }
+
   void exec(int clocks) {
+    if (_rootPending) _loadRootDir();
+    if (_retryCommand) _runCommand();
+
     if (_playing) {
       _sectorWait -= clocks;
       while (_sectorWait <= 0 && _playing) {
@@ -326,6 +342,10 @@ class CdBlock {
 
     if (_isAudioFad(_fad)) {
       final raw = disc.read(_fad);
+      if (raw == null) {
+        _sectorWait += _clockHz ~/ 600; // not read yet: retry soon
+        return;
+      }
       _pushCdda(raw);
       _fad++;
       return;
@@ -342,6 +362,10 @@ class CdBlock {
     }
 
     final raw = disc.read(_fad);
+    if (raw == null) {
+      _sectorWait += _clockHz ~/ 600; // not read yet: retry soon
+      return;
+    }
     if (raw.length < Disc.sectorSize) {
       _fad++;
       return;
@@ -792,6 +816,7 @@ class CdBlock {
 
   Uint8List _userData(int fad) {
     final raw = disc.read(fad);
+    if (raw == null) throw const _SectorPending();
     if (raw.length < Disc.sectorSize) return Uint8List(2048);
     final start = raw[15] == 2 ? 24 : 16;
     return Uint8List.sublistView(raw, start, start + 2048);
@@ -799,6 +824,7 @@ class CdBlock {
 
   void _loadRootDir() {
     _dirEntries.clear();
+    _rootPending = false;
     if (disc.isEmpty) {
       return;
     }
@@ -811,13 +837,15 @@ class CdBlock {
       _rootFad = root.getUint32(6) + 150; // big-endian copy
       _rootSize = root.getUint32(14);
       _loadDir(_rootFad, _rootSize);
+    } on _SectorPending {
+      _rootPending = true; // retried by exec() when the drive has read it
     } catch (e) {
       debugLog("cdblock: failed to read file system: $e");
     }
   }
 
   void _loadDir(int fad, int size) {
-    _dirEntries.clear();
+    final entries = <_FileEntry>[];
     final sectors = (size + 2047) ~/ 2048;
     for (int s = 0; s < sectors; s++) {
       final data = _userData(fad + s);
@@ -828,7 +856,7 @@ class CdBlock {
         final r = ByteData.sublistView(data, i, i + len);
         final nameLen = data[i + 32];
         final name = String.fromCharCodes(data.sublist(i + 33, i + 33 + nameLen));
-        _dirEntries.add(_FileEntry(
+        entries.add(_FileEntry(
           r.getUint32(6) + 150,
           r.getUint32(14),
           data[i + 26],
@@ -840,6 +868,9 @@ class CdBlock {
         i += len;
       }
     }
+    _dirEntries
+      ..clear()
+      ..addAll(entries);
   }
 
   _FileEntry? _entry(int id) =>
@@ -911,4 +942,8 @@ class CdBlock {
 
   String dump() =>
       "cd: st:${_status.x2} hirq:${hirq.x4} mask:${hirqMask.x4} cr:${cr.map((e) => e.x4).join(" ")} fad:$_fad play:$_playing blocks:$_usedBlocks";
+}
+
+class _SectorPending implements Exception {
+  const _SectorPending();
 }

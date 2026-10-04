@@ -5,7 +5,8 @@ import 'package:fnesemu/core/tracer.dart';
 import 'package:fnesemu/core/types.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../disc/loader.dart';
+import '../../cdrom/async_cdrom_drive.dart';
+import '../../cdrom/disc_source_local.dart';
 import '../sram.dart';
 import 'ps.dart';
 
@@ -169,9 +170,9 @@ main(List<String> args) async {
   final bios = File(args[0]).readAsBytesSync();
   core.setRom(bios);
 
-  final disc = DiscLoader.load(args[1]);
-
-  core.setDisc(disc);
+  final drive = AsyncCdromDrive();
+  await drive.eject(discSourceFromPath(args[1]));
+  core.setCdromDrive(drive);
 
   final elapsedResults = List<int>.filled(measureLoopCount, 0);
 

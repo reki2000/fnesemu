@@ -12,10 +12,11 @@ import 'dart:io';
 import 'package:fnesemu/core/ss/ss.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/types.dart';
-import 'package:fnesemu/disc/loader.dart';
+import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
+import 'package:fnesemu/cdrom/disc_source_local.dart';
 import 'package:image/image.dart' as img;
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/ss_harness";
@@ -53,8 +54,12 @@ void main(List<String> args) {
 
   final ss = Ss()..setSram(Sram());
   ss.setRom(File(files[0]).readAsBytesSync());
+  AsyncCdromDrive? drive;
   if (files.length > 1) {
-    ss.setDisc(DiscLoader.load(files[1]));
+    drive = AsyncCdromDrive();
+    await drive.eject(discSourceFromPath(files[1]));
+    if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
+    ss.setCdromDrive(drive);
   }
   ss.reset();
   ss.cdblock.log = logCd;
@@ -75,6 +80,7 @@ void main(List<String> args) {
     if (++lines < ss.scanlinesInFrame) continue;
     lines = 0;
     frame++;
+    await drive?.settle(); // result must not depend on the speed of the disc
 
     for (final (f, b) in presses) {
       if (frame == f) ss.padDown(0, ss.buttons[b]);

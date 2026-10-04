@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/disc.dart';
+import '../../support/fake_cdrom_drive.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/ss/cpu.dart';
 import 'package:fnesemu/core/ss/ss.dart';
@@ -28,7 +29,7 @@ Ss _newSs() {
 }
 
 // in-memory mode 1 disc with an ISO9660 file system
-class _TestDisc extends Disc {
+class _TestDisc {
   final sectors = <Uint8List>[];
 
   static const fileLba = 20;
@@ -92,26 +93,6 @@ class _TestDisc extends Disc {
     return raw;
   }
 
-  @override
-  Uint8List read(int sector) {
-    final lba = sector - 150;
-    return lba >= 0 && lba < sectors.length ? sectors[lba] : Uint8List(0);
-  }
-
-  @override
-  int get trackCount => 1;
-
-  @override
-  int get totalSectors => sectors.length;
-
-  @override
-  int startLba(int trackNo) => 0;
-
-  @override
-  bool get isEmpty => false;
-
-  @override
-  bool isAudio(int trackNo) => false;
 }
 
 void main() {
@@ -416,7 +397,7 @@ void main() {
   group('cdblock', () {
     Ss withDisc() {
       final ss = _newSs();
-      ss.setDisc(_TestDisc());
+      ss.setCdromDrive(FakeCdromDrive(_TestDisc().sectors));
       return ss;
     }
 

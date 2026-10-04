@@ -65,6 +65,15 @@ class AsyncCdromDrive implements CdromDrive {
     );
   }
 
+  /// completes when all the reads in progress are done. for headless tools
+  /// and tests which need the same result regardless of the speed of the
+  /// files.
+  Future<void> settle() async {
+    while (_inflight.isNotEmpty) {
+      await Future.wait(_inflight.values.toSet());
+    }
+  }
+
   /// ejects the current disc and inserts [next] if specified. The status
   /// changes to trayOpen, then to loading and ready (or error) when the TOC
   /// of [next] is read.
@@ -237,16 +246,18 @@ class AsyncCdromDrive implements CdromDrive {
         continue;
       }
 
-      final bytes = await file.read(
-          seg.fileSector * Disc.sectorSize, seg.count * Disc.sectorSize);
+      final size = seg.cooked ? 2048 : Disc.sectorSize;
+      final bytes =
+          await file.read(seg.fileSector * size, seg.count * size);
       for (int i = 0; i < seg.count; i++) {
-        final sector = Uint8List(Disc.sectorSize); // zero padded at EOF
-        final start = i * Disc.sectorSize;
+        final data = Uint8List(size); // zero padded at EOF
+        final start = i * size;
         if (start < bytes.length) {
-          final end = (start + Disc.sectorSize).clamp(0, bytes.length);
-          sector.setRange(0, end - start, bytes, start);
+          final end = (start + size).clamp(0, bytes.length);
+          data.setRange(0, end - start, bytes, start);
         }
-        result.add(sector);
+        // cooked sectors are expanded to raw mode 1 ones
+        result.add(seg.cooked ? Disc.mode1Sector(data, seg.lba + i) : data);
       }
     }
     return result;

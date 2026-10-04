@@ -9,6 +9,7 @@ import 'package:fnesemu/util/double.dart';
 import 'package:fnesemu/util/int.dart';
 
 import '../core.dart';
+import '../cdrom_drive.dart';
 import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
@@ -292,7 +293,8 @@ class Md implements Core {
   }
 
   @override
-  void setDisc(Disc disc) {
+  void setCdromDrive(CdromDrive drive) {
+    final disc = Disc(drive);
     _disc = disc;
     cdrom?.setDisc(disc);
   }

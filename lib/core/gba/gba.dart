@@ -3,8 +3,8 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
+import '../cdrom_drive.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -165,10 +165,11 @@ class Gba implements Core {
   @override
   void onAudio(void Function(AudioBuffer) onAudio) => _onAudio = onAudio;
 
-  @override
-  void setDisc(Disc disc) {}
 
   Sram _sram = Sram();
+
+  @override
+  void setCdromDrive(CdromDrive drive) {}
 
   @override
   void setSram(Sram sram) => _sram = sram;

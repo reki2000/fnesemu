@@ -1,25 +1,38 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/uint8list.dart';
 
-abstract class Disc {
-  Uint8List read(int sector);
-  int get trackCount;
-  int get totalSectors;
-  int startLba(int trackNo);
-  bool get isEmpty;
-  bool isAudio(int trackNo);
+import 'cdrom_drive.dart';
+
+/// The disc in a [CdromDrive], as seen by the CD cores.
+///
+/// [read] returns null while the drive is still reading the sector in the
+/// background: the core retries it later.
+class Disc {
+  final CdromDrive drive;
+
+  Disc(this.drive);
+
+  Disc.empty() : drive = EmptyCdromDrive();
+
+  CdromToc get toc => drive.status.toc;
+
+  bool get isEmpty => !drive.status.isReady;
+  int get trackCount => toc.trackCount;
+  int get totalSectors => toc.totalSectors;
+  int startLba(int trackNo) => toc.startLba(trackNo);
+  bool isAudio(int trackNo) => toc.isAudio(trackNo);
+
+  /// [sector] is an absolute MSF sector, including the lead-in. returns an
+  /// empty list if it is not readable, null if it is not read yet.
+  Uint8List? read(int sector) => drive.read(sector - 150);
 
   // Like read(), sector is an absolute MSF sector, including the lead-in.
   bool isAudioSector(int sector) {
     sector -= 150;
     if (isEmpty) return false;
     if (sector < 0 || sector >= totalSectors) return false;
-    for (int trackNo = trackCount; trackNo >= 1; trackNo--) {
-      if (sector >= startLba(trackNo)) return isAudio(trackNo);
-    }
-    return false; // out of range
+    return toc.isAudioLba(sector);
   }
 
   static const int sectorSize = 2352; // 0x930 = 24bytes x 98frames
@@ -58,41 +71,5 @@ abstract class Disc {
     final s = (msf ~/ 75) % 60;
     final f = msf % 75;
     return (m, s, f);
-  }
-
-  Uint8List loadIso9660File(String path) {
-    readSector(i) => read(i + 2 * 75).sublist(0x18); // skip lead-in and sync
-
-    final volumeDescription = readSector(16);
-    final rootEntry = volumeDescription.sublist(0x9c, 0x9c + 34);
-    final rootLba = rootEntry.getUint32LE(0x02);
-    final rootSize = rootEntry.getUint32LE(0x0a);
-    final directory = readSector(rootLba);
-
-    for (int i = 0; i < rootSize && i < 0x800;) {
-      final entry = directory.sublist(i);
-      final nameLen = entry[0x20];
-      final name = String.fromCharCodes(entry.sublist(0x21, 0x21 + nameLen));
-      final lba = entry.getUint32LE(0x02);
-      final size = entry.getUint32LE(0x0a);
-      // debugLog("iso9660: found $name lba:$lba size:$size");
-
-      if (name == path) {
-        final fileBody = <int>[];
-        int currentSector = lba;
-        while (fileBody.length < size) {
-          final data = readSector(currentSector++);
-          if (data.isEmpty) {
-            break;
-          }
-          fileBody.addAll(data);
-        }
-        return Uint8List.fromList(fileBody.sublist(0, size));
-      }
-
-      i += entry[0];
-    }
-
-    return Uint8List(0);
   }
 }

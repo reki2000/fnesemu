@@ -1,7 +1,7 @@
 // data class to conver the result of 'exec'
 import 'dart:typed_data';
 
-import 'disc.dart';
+import 'cdrom_drive.dart';
 import 'pad_button.dart';
 import 'sram.dart';
 import 'types.dart';
@@ -25,8 +25,8 @@ abstract class Core {
   // receives callback to push rendered audio buffer
   void onAudio(void Function(AudioBuffer) onAudio);
 
-  /// set cd-rom disc reader
-  void setDisc(Disc disc);
+  /// connects the CD-ROM drive. cores without a CD-ROM ignore it
+  void setCdromDrive(CdromDrive drive) {}
 
   /// set sram storage interface
   void setSram(Sram sram);

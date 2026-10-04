@@ -4,8 +4,6 @@ import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fnesemu/core/disc.dart';
-import 'package:fnesemu/disc/empty.dart';
 
 // Project imports:
 import '../cdrom/async_cdrom_drive.dart';
@@ -108,9 +106,7 @@ class MainPageState extends State<MainPage> {
   String _romName = "";
   List<String> _discs = [];
 
-  Disc _disc = EmptyDisc();
-
-  // async-cdrom: shared by cores, the disc is kept across ROM loading
+  // shared by cores, the disc is kept across ROM loading
   final _drive = AsyncCdromDrive();
 
   @override
@@ -186,12 +182,7 @@ class MainPageState extends State<MainPage> {
   }
 
   _setDiscFile(String fileName) async {
-    if (asyncCdrom) {
-      await _drive.eject(discSourceFromPath(fileName));
-    } else {
-      _disc = DiscLoader.load(fileName);
-      _controller.setDisc(_disc);
-    }
+    await _drive.eject(discSourceFromPath(fileName));
 
     await _reset();
 
@@ -221,11 +212,7 @@ class MainPageState extends State<MainPage> {
     } else {
       _controller.init(ext, extractedFile);
     }
-    if (asyncCdrom) {
-      _controller.setCdromDrive(_drive);
-    } else {
-      _controller.setDisc(_disc);
-    }
+    _controller.setCdromDrive(_drive);
 
     _keyHandler.init();
     _mPlayer.resume(); // web platform requires this
@@ -240,7 +227,7 @@ class MainPageState extends State<MainPage> {
     }
   }
 
-  /// async-cdrom: ejects the disc, then inserts the selected one if any.
+  /// ejects the disc, then inserts the selected one if any.
   /// the core keeps running, as swapping discs on the real machine.
   _ejectDisc({bool insert = false}) async {
     final source = insert ? await pickDiscSource() : null;
@@ -289,11 +276,9 @@ class MainPageState extends State<MainPage> {
               }).toList(),
             ),
 
-          if (asyncCdrom) ...[
-            iconButton(Icons.album, "Insert Disc",
-                () => _do(() => _ejectDisc(insert: true))),
-            iconButton(Icons.eject, "Eject Disc", () => _do(_ejectDisc)),
-          ],
+          iconButton(Icons.album, "Insert Disc",
+              () => _do(() => _ejectDisc(insert: true))),
+          iconButton(Icons.eject, "Eject Disc", () => _do(_ejectDisc)),
 
           if (widget.config.roms.isNotEmpty)
             PopupMenuButton<String>(

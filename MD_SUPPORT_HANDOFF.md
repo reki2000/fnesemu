@@ -70,9 +70,8 @@ SDK=/home/reki/.local/share/mise/installs/flutter/3.47.5-stable/bin
   /tmp/md32x-slave-boot.bin 600
 "$SDK/flutter" test --no-pub --reporter expanded
 "$SDK/cache/dart-sdk/bin/dart" analyze lib/core/md lib/core/types.dart \
-  lib/core/core_factory.dart lib/disc/cue.dart lib/tools/md_32x.dart \
-  lib/tools/md_cdrom.dart test/core/md/32x test/core/md/md_cdrom_test.dart \
-  test/disc/md_cdrom_disc_test.dart
+  lib/core/core_factory.dart lib/tools/md_32x.dart \
+  lib/tools/md_cdrom.dart test/core/md/32x test/core/md/md_cdrom_test.dart
 ```
 
 ## 次の調査

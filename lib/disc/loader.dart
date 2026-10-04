@@ -1,22 +1,7 @@
 import 'dart:io';
 
-import '../core/disc.dart';
-import 'cue.dart';
-import 'empty.dart';
-import 'iso.dart';
 
 class DiscLoader {
-  static Disc load(String path) {
-    if (path.toLowerCase().endsWith(".iso") ||
-        path.toLowerCase().endsWith(".bin")) {
-      return IsoDisc(path);
-    } else if (path.toLowerCase().endsWith(".cue")) {
-      return CueDisc(path);
-    } else {
-      return EmptyDisc();
-    }
-  }
-
   static List<String> discoverDiscs(String dir) {
     final foundNames = <String>{};
 

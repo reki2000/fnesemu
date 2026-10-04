@@ -30,10 +30,11 @@ import 'package:fnesemu/core/ps/ps.dart';
 import 'package:fnesemu/core/snes/snes.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/types.dart';
-import 'package:fnesemu/disc/loader.dart';
+import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
+import 'package:fnesemu/cdrom/disc_source_local.dart';
 import 'package:image/image.dart' as img;
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/core_harness";
@@ -107,13 +108,19 @@ void main(List<String> args) {
     (core as Md).setExpansionBootRoms(
         main: roms[0], master: roms[1], slave: roms[2]);
   }
+  AsyncCdromDrive? drive;
+  if (files.length > 2) {
+    drive = AsyncCdromDrive();
+    await drive.eject(discSourceFromPath(files[2]));
+    if (!drive.status.isReady) throw "cannot read disc: ${files[2]}";
+  }
   // the mega cd core needs the disc before the bios
-  if (files[0] == "mdcd" && files.length > 2) {
-    core.setDisc(DiscLoader.load(files[2]));
+  if (files[0] == "mdcd" && drive != null) {
+    core.setCdromDrive(drive);
   }
   core.setRom(_loadRom(files[1]));
-  if (files[0] != "mdcd" && files.length > 2) {
-    core.setDisc(DiscLoader.load(files[2]));
+  if (files[0] != "mdcd" && drive != null) {
+    core.setCdromDrive(drive);
   }
   // gba boots from setRom; a reset afterwards drops the boot state
   if (files[0] != "gba" && files[0] != "mdcd" && files[0] != "32x") core.reset();
@@ -158,6 +165,9 @@ void main(List<String> args) {
     if (++lines < core.scanlinesInFrame) continue;
     lines = 0;
     frame++;
+    // sectors are read in the background: wait for them at each frame so
+    // that the result does not depend on the speed of the disc
+    await drive?.settle();
 
     for (final (f, b) in pressList) {
       if (frame == f) core.padDown(0, buttons[b]);

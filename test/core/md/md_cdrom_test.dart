@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/core_factory.dart';
 import 'package:fnesemu/core/disc.dart';
+import '../../support/fake_cdrom_drive.dart';
 import 'package:fnesemu/core/md/cd/cdc.dart';
 import 'package:fnesemu/core/md/cd/cdd.dart';
 import 'package:fnesemu/core/md/cd/md_cdrom.dart';
@@ -27,31 +28,6 @@ void subProgram(MdCdrom cd) {
   view.setUint32(4, 0x100);
   // MOVEQ #42,D0; BRA.S forever
   cd.programRam.setAll(0x100, [0x70, 0x2a, 0x60, 0xfe]);
-}
-
-class MemoryDisc extends Disc {
-  final List<Uint8List> sectors;
-  final List<int> starts;
-  final Set<int> audioTracks;
-  final reads = <int>[];
-  MemoryDisc(this.sectors,
-      {this.starts = const [0], this.audioTracks = const {}});
-  @override
-  int get trackCount => starts.length;
-  @override
-  int get totalSectors => sectors.length;
-  @override
-  int startLba(int trackNo) => starts[trackNo - 1];
-  @override
-  bool get isEmpty => sectors.isEmpty;
-  @override
-  bool isAudio(int trackNo) => audioTracks.contains(trackNo);
-  @override
-  Uint8List read(int sector) {
-    reads.add(sector);
-    final lba = sector - 150;
-    return lba < 0 || lba >= sectors.length ? Uint8List(0) : sectors[lba];
-  }
 }
 
 void command(CdDrive drive, List<int> packet) {
@@ -267,7 +243,7 @@ void main() {
     test('reset and stop response packets remain latched across drive ticks',
         () {
       final drive = CdDrive((_) {}, () {})
-        ..mount(MemoryDisc([Uint8List(2352)]))
+        ..mount(FakeDisc([Uint8List(2352)]))
         ..hostClock = true;
       expect(drive.response, [0, 0, 0, 0, 0, 0, 0, 0, 0, 15]);
       drive.tick();
@@ -282,7 +258,7 @@ void main() {
 
     test('playing in the lead-in reaches sector zero without skipping data',
         () {
-      final disc = MemoryDisc([Disc.mode1Sector(Uint8List(2048), 0)]);
+      final disc = FakeDisc([Disc.mode1Sector(Uint8List(2048), 0)]);
       final drive = CdDrive((_) {}, () {})
         ..mount(disc)
         ..hostClock = true;
@@ -297,7 +273,7 @@ void main() {
     });
 
     test('TOC checksums, track queries and lead-in-aware data reads', () {
-      final disc = MemoryDisc(
+      final disc = FakeDisc(
           List.generate(
               4, (i) => Disc.mode1Sector(Uint8List(2048)..[0] = i + 1, i)),
           starts: [0, 2],
@@ -327,7 +303,7 @@ void main() {
 
     test('tray commands expose open and closed states', () {
       final drive = CdDrive((_) {}, () {})
-        ..mount(MemoryDisc([Uint8List(2352)]))
+        ..mount(FakeDisc([Uint8List(2352)]))
         ..hostClock = true;
       command(drive, [0xd]);
       expect(drive.status, 5);
@@ -449,7 +425,7 @@ void main() {
       ByteData.sublistView(sector).setInt16(0, 16384, Endian.little);
       ByteData.sublistView(sector).setInt16(2, -16384, Endian.little);
       final drive = CdDrive((_) {}, () {})
-        ..mount(MemoryDisc([sector], audioTracks: {1}))
+        ..mount(FakeDisc([sector], audioTracks: {1}))
         ..hostClock = true;
       command(drive, [3, 0, 0, 0, 0, 2, 0, 0]);
       drive.tick();

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/int.dart';
 
 import '../../disc.dart';
-import '../../../disc/empty.dart';
 import 'bus.dart';
 
 // Register-level CD interface. Disc.read uses absolute MSF sectors (LBA + 150).
@@ -13,7 +12,7 @@ enum CdPhase { idle, command, data, status, message }
 
 class PceCdrom {
   final Bus bus;
-  Disc disc = EmptyDisc();
+  Disc disc = Disc.empty();
   bool enabled = false;
   bool backupEnabled = false;
   CdPhase phase = CdPhase.idle;
@@ -457,7 +456,10 @@ class PceCdrom {
       if (_readClocks <= 0) {
         transferClocks = -_readClocks;
         final sector = disc.read(_readLba + 150);
-        if (sector.length != Disc.sectorSize || sector[15] != 1) {
+        if (sector == null) {
+          // the drive has not read the sector yet: retry on the next exec
+          transferClocks = clocks;
+        } else if (sector.length != Disc.sectorSize || sector[15] != 1) {
           _error(3, 0x11);
         } else {
           _readLba++;
@@ -542,7 +544,12 @@ class PceCdrom {
       }
     }
     if (_audioSector.isEmpty) {
-      _audioSector = disc.read(_audioLba + 150);
+      final sector = disc.read(_audioLba + 150);
+      if (sector == null) {
+        _pcm.fillRange(0, 2, 0); // not read yet: silence, retry on the next sample
+        return;
+      }
+      _audioSector = sector;
       _audioOffset = 0;
     }
     for (var channel = 0; channel < 2; channel++) {

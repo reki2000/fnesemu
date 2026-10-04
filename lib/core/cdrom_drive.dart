@@ -1,13 +1,5 @@
 import 'dart:typed_data';
 
-/// build-time switch: `--dart-define=ASYNC_CDROM=true` enables async-cdrom.
-///
-/// - false (default): the whole disc image is loaded into memory as [Disc]
-///   and the core reads sectors synchronously.
-/// - true: the core accesses the disc through [CdromDrive], which reads only
-///   the required sectors asynchronously.
-const asyncCdrom = bool.fromEnvironment("ASYNC_CDROM", defaultValue: false);
-
 enum CdromDriveState {
   /// no disc in the drive
   empty,
@@ -117,7 +109,14 @@ abstract class CdromDrive {
   Uint8List? read(int lba);
 }
 
-/// implemented by cores which have a CD-ROM drive
-abstract class CdromHost {
-  void setCdromDrive(CdromDrive drive);
+/// a drive without a disc
+class EmptyCdromDrive implements CdromDrive {
+  @override
+  CdromDriveStatus get status => CdromDriveStatus.empty;
+
+  @override
+  void seek(int lba) {}
+
+  @override
+  Uint8List? read(int lba) => Uint8List(0);
 }

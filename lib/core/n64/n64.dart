@@ -5,7 +5,6 @@ import 'package:fnesemu/util/int.dart';
 
 import '../../util/debug.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -127,8 +126,6 @@ class N64 extends Core {
     bus.onAudio = onAudio;
   }
 
-  @override
-  void setDisc(Disc disc) {}
   @override
   void setSram(Sram sram) {
     bus.sram = sram;

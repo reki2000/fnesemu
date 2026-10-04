@@ -5,8 +5,8 @@ import 'dart:typed_data';
 // Project imports:
 import 'package:fnesemu/util/uint8list.dart';
 
+import '../cdrom_drive.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../storage_key.dart';
@@ -142,8 +142,9 @@ class Nes implements Core {
   @override
   void padUp(int id, PadButton k) => bus.joypad.keyUp(id, k);
 
+
   @override
-  void setDisc(Disc disc) {}
+  void setCdromDrive(CdromDrive drive) {}
 
   @override
   void setSram(Sram sram) {

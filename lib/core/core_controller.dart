@@ -11,7 +11,6 @@ import 'core.dart';
 import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
-import 'disc.dart';
 import 'frame_counter.dart';
 // Project imports:
 
@@ -257,16 +256,9 @@ class CoreController {
     _core.padUp(controlerId, k);
   }
 
-  void setDisc(Disc disc) {
-    _core.setDisc(disc);
-  }
-
-  /// async-cdrom: connects the drive to the core if it has a CD-ROM drive
+  /// connects the CD-ROM drive to the core
   void setCdromDrive(CdromDrive drive) {
-    final core = _core;
-    if (core is CdromHost) {
-      (core as CdromHost).setCdromDrive(drive);
-    }
+    _core.setCdromDrive(drive);
   }
 
   // returns a list of core's buttons
