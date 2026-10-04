@@ -65,7 +65,12 @@ class AppSnackBar {
 class MyApp extends StatelessWidget {
   final String title;
   final Config config;
-  const MyApp({super.key, required this.title, this.config = const Config()});
+  final Storage storage;
+  const MyApp(
+      {super.key,
+      required this.title,
+      required this.storage,
+      this.config = const Config()});
 
   @override
   Widget build(BuildContext context) {
@@ -75,13 +80,15 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: MainPage(config: config));
+        home: MainPage(storage: storage, config: config));
   }
 }
 
 class MainPage extends StatefulWidget {
   final Config config;
-  const MainPage({super.key, this.config = const Config()});
+  final Storage storage;
+  const MainPage(
+      {super.key, required this.storage, this.config = const Config()});
 
   @override
   MainPageState createState() => MainPageState();
@@ -109,9 +116,7 @@ class MainPageState extends State<MainPage> {
   void initState() {
     super.initState();
 
-    _storage = Storage.of(onEvent: (s) {
-      AppSnackBar.show(s);
-    });
+    _storage = widget.storage..onEvent = AppSnackBar.show;
 
     _controller = CoreController(
         _onCoreStateChange,
@@ -142,6 +147,7 @@ class MainPageState extends State<MainPage> {
   void dispose() {
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     _mPlayer.dispose();
+    _storage.dispose();
     super.dispose();
   }
 
