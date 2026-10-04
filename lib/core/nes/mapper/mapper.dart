@@ -11,6 +11,7 @@ import 'mmc1.dart';
 import 'mmc2.dart';
 import 'mmc3.dart';
 import 'mmc4.dart';
+import 'mmc5.dart';
 import 'namco118.dart';
 import 'namco163.dart';
 import 'nrom.dart';
@@ -31,6 +32,7 @@ abstract class Mapper {
       4 => MapperMMC3(),
       9 => MapperMMC2(),
       10 => MapperMMC4(),
+      5 => MapperMmc5(),
       75 => MapperVrc1(),
       21 => MapperVrc4a4c(),
       23 => MapperVrc4f4e(),
@@ -57,6 +59,16 @@ abstract class Mapper {
   int get prgRomSizeK => 16;
 
   void init();
+
+  // what the ppu is fetching, for mappers which map chr differently (MMC5)
+  static const fetchBg = 0;
+  static const fetchSprite = 1;
+  static const fetchCpu = 2; // $2007 access
+  int fetchPhase = fetchBg;
+
+  // ppu registers $2000/$2001 written last
+  int ppuCtl = 0;
+  int ppuMask = 0;
 
   // true when the mapper has registers in the expansion area (0x4020-0x5fff)
   bool get hasExpansionArea => false;

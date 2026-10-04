@@ -1,5 +1,6 @@
 import 'package:fnesemu/util/int.dart';
 // Project imports:
+import '../mapper/mapper.dart';
 import '../nes.dart';
 import 'ppu.dart';
 
@@ -251,7 +252,9 @@ extension PpuRenderer on Ppu {
     final fineY = vramAddr.shr12 & 0x07;
 
     // dot 257-320 of prev line: obj read
+    bus.mapper.fetchPhase = Mapper.fetchSprite;
     final objs = _fetchObj();
+    bus.mapper.fetchPhase = Mapper.fetchBg;
 
     final bgBase = bgTable() ? 0x1000 : 0x0000;
     final color0 = readVram(paletteBase);
@@ -269,8 +272,13 @@ extension PpuRenderer on Ppu {
       bgPalette = bg.palette;
     }
 
-    // dot 337-340
-    // todo: dummy vram fetch for mmc5
+    // dot 337-340: 2 dummy nametable fetches, mmc5 detects the start of a
+    // scanline by 3 reads of the same nametable address
+    if (rendering) {
+      final nameAddr = 0x2000 | (vramAddr & 0x0fff);
+      readVram(nameAddr);
+      readVram(nameAddr);
+    }
 
     // dot 0:
 

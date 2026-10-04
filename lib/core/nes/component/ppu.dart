@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 // Project imports:
 import '../nes.dart';
+import '../mapper/mapper.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
 
@@ -105,6 +106,7 @@ class Ppu {
       case 0x2000: // ppu control 1
         final nmiDisabled = !nmiOnVBlank();
         ctl1 = val;
+        bus.mapper.ppuCtl = val;
         if (isVBlank && nmiDisabled && nmiOnVBlank()) {
           bus.onNmi();
         }
@@ -115,6 +117,7 @@ class Ppu {
 
       case 0x2001: // ppu control 2
         ctl2 = val;
+        bus.mapper.ppuMask = val;
         break;
 
       case 0x2002: // status
@@ -165,7 +168,9 @@ class Ppu {
         break;
 
       case 0x2007: // vram access
+        bus.mapper.fetchPhase = Mapper.fetchCpu;
         writeVram(vramAddr & 0x3fff, val);
+        bus.mapper.fetchPhase = Mapper.fetchBg;
         vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)) & 0x7fff;
         break;
 
@@ -188,6 +193,7 @@ class Ppu {
 
       case 0x2007:
         final addr = vramAddr & 0x3fff;
+        bus.mapper.fetchPhase = Mapper.fetchCpu;
         var data = readVram(addr);
         if (addr < 0x3f00) {
           final swap = vramBuffer;
@@ -197,6 +203,7 @@ class Ppu {
           // palette is returned directly, the buffer gets the nametable below
           vramBuffer = readVram(addr - 0x1000);
         }
+        bus.mapper.fetchPhase = Mapper.fetchBg;
         vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)) & 0x7fff;
         return data;
 

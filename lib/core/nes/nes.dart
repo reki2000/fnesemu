@@ -180,8 +180,8 @@ class Nes implements Core {
       bus.mapper.setSramRw(_sram.read8, _sram.write8);
     } else {
       final sram = Uint8List(32 * 1024);
-      bus.mapper.setSramRw((addr) => sram[addr & 0x1fff], (addr, value) {
-        sram[addr & 0x1fff] = value;
+      bus.mapper.setSramRw((addr) => sram[addr & 0x7fff], (addr, value) {
+        sram[addr & 0x7fff] = value;
       });
     }
 
