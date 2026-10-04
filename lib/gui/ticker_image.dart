@@ -13,12 +13,13 @@ class ImageContainer {
   ImageContainer();
 
   final displayWidthNotifier = ValueNotifier<int>(config.imageWidth);
+  final displayHeightNotifier = ValueNotifier<int>(config.imageHeight);
   final imageNotifier = ValueNotifier<ui.Image?>(null);
 
-  int displayHeight = config.imageHeight;
-
-  void push(Uint8List buffer, int width, int height, int displayWidth) {
+  void push(Uint8List buffer, int width, int height, int displayWidth,
+      {int? displayHeight}) {
     displayWidthNotifier.value = displayWidth;
+    displayHeightNotifier.value = displayHeight ?? config.imageHeight;
 
     buffer.isNotEmpty
         ? ui.decodeImageFromPixels(
