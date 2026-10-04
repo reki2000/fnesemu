@@ -9,6 +9,8 @@
 //   -H, --hold N     frames to hold a pressed button (default: 10)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
 //   -b, --bios FILE  gba: boot from this BIOS image (default: HLE boot)
+//   -x, --exe FILE   ps: run this PS-EXE after the BIOS boot (test programs)
+//   -v, --vram       ps: also write vram.png (the whole 1024x512 VRAM)
 //
 // files: <out>/frame_NNNNN.png, <out>/audio.wav, <out>/state.txt
 import 'dart:io';
@@ -37,6 +39,8 @@ void main(List<String> args) {
   int holdFrames = 10;
   bool wav = false;
   String? bios;
+  String? exe;
+  bool vram = false;
   final files = <String>[];
 
   for (int i = 0; i < args.length; i++) {
@@ -53,6 +57,10 @@ void main(List<String> args) {
         wav = true;
       case "-b" || "--bios":
         bios = args[++i];
+      case "-x" || "--exe":
+        exe = args[++i];
+      case "-v" || "--vram":
+        vram = true;
       case "-p" || "--press":
         final p = args[++i].split(":");
         presses.add((int.parse(p[0]), p[1]));
@@ -88,6 +96,7 @@ void main(List<String> args) {
   if (files.length > 2) core.setDisc(DiscLoader.load(files[2]));
   // gba boots from setRom; a reset afterwards drops the boot state
   if (files[0] != "gba") core.reset();
+  if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
   final pressList = presses.map((p) {
@@ -148,6 +157,9 @@ void main(List<String> args) {
     File("$outDir/audio.wav")
         .writeAsBytesSync(_wav(pcm.toBytes(), sampleRate, channels));
   }
+  if (vram && core is Ps) {
+    _saveVram(core, "$outDir/vram.png");
+  }
   File("$outDir/state.txt").writeAsStringSync(core.dump());
   print(core.dump());
 }
@@ -192,5 +204,19 @@ void _savePng(ImageBuffer buf, String path) {
       bytes: buf.buffer.buffer,
       numChannels: 4,
       order: img.ChannelOrder.rgba);
+  File(path).writeAsBytesSync(img.encodePng(image));
+}
+
+// dumps the whole VRAM (1024x512, 15bit) as a png
+void _saveVram(Ps ps, String path) {
+  final fb = ps.gpu.frameBuffer16;
+  final image = img.Image(width: 1024, height: 512);
+  for (int y = 0; y < 512; y++) {
+    for (int x = 0; x < 1024; x++) {
+      final c = fb[y * 1024 + x];
+      int e(int v) => (v << 3) | (v >> 2);
+      image.setPixelRgb(x, y, e(c & 0x1f), e((c >> 5) & 0x1f), e((c >> 10) & 0x1f));
+    }
+  }
   File(path).writeAsBytesSync(img.encodePng(image));
 }

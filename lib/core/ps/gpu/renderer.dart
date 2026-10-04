@@ -44,7 +44,9 @@ extension GpuRenderer on Gpu {
 
     if (scanline == Gpu.scanlinesInFrame - 20) {
       bus.timer.startVBlank();
-      isOddFrame = (height == 480) ? !isOddFrame : false;
+      // the field flag toggles every frame while the vertical interlace flag
+      // is set, even in the 240 line mode (games wait for it to change)
+      isOddFrame = (height == 480 || status.bit22) ? !isOddFrame : false;
       isVblank = true;
       bus.setIrq(Interrupt.vBlank); // vblank irq at the beginning of vblank
     }

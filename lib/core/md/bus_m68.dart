@@ -49,8 +49,9 @@ class BusM68 {
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
 
-      if (offset < rom.rom.length) {
-        return rom.rom[offset];
+      final romOffset = rom.mapOffset(offset);
+      if (romOffset < rom.rom.length) {
+        return rom.rom[romOffset];
       }
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
@@ -96,8 +97,9 @@ class BusM68 {
     if (top < 0x40) {
       final offset = addr & 0x3fffff;
 
-      if (offset < rom.rom.length - 1) {
-        return rom.rom[offset].shl8 | rom.rom[offset.inc];
+      final romOffset = rom.mapOffset(offset);
+      if (romOffset < rom.rom.length - 1) {
+        return rom.rom[romOffset].shl8 | rom.rom[romOffset.inc];
       }
 
       if (rom.ramStartAddr <= offset && offset < rom.ramEndAddr) {
@@ -152,6 +154,10 @@ class BusM68 {
     }
 
     if (top == 0xa10000) {
+      if (addr & 0xfffff0 == 0xa130f0) {
+        rom.writeBankRegister(addr, data);
+        return;
+      }
       addr.bit0 ? writeIo16(addr, data) : writeIo16(addr, data.shl8);
       return;
     }
@@ -195,6 +201,10 @@ class BusM68 {
     }
 
     if (top == 0xa10000) {
+      if (addr & 0xfffff0 == 0xa130f0) {
+        rom.writeBankRegister(addr, data & 0xff);
+        return;
+      }
       writeIo16(addr.mask16, data);
       return;
     }

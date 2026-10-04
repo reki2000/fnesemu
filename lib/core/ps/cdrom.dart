@@ -665,7 +665,10 @@ class Cdrom {
             case 0x04:
               irq(3, [status()]);
             case 0x05:
-              irq(3, [0x01, 0x01]); // SCEx data cd
+              // SCEx counters (total, ...): while playing audio the drive reads
+              // no SCEx strings. games use it as a mod chip check, which
+              // fails when the second counter is not 0
+              irq(3, [0x00, 0x00]);
             case 0x20:
               irq(3, [0x94, 0x09, 0x19, 0xc0]);
             case 0x21:

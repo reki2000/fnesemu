@@ -11,6 +11,8 @@
 
 正本:
   frame_NNNNN.png  取得したフレーム。出力側とはファイル名末尾の数字 (フレーム番号) で突き合わせる
+  vram.png         ps のテスト EXE: VRAM 全体 (1024x512)。--vram で出力。自分の出力との完全一致を見る
+  hwref.json       実機の VRAM ダンプ (case の "vram_ref") との差 (チャンネル差 8 超のピクセル率)。悪化したら失敗
   audio.json       audio.wav の特徴量 (100ms 窓ごとの RMS と帯域エネルギー、PCM の sha1)
 要 Pillow / numpy。
 """
@@ -65,6 +67,18 @@ def compare_png(a, b):
     d = np.abs(np.asarray(ia, np.int16) - np.asarray(ib, np.int16)).max(axis=2)
     ratio = float((d > 0).mean())
     return ratio <= PIXEL_TOL, f"diff pixels {ratio * 100:.3f}% max {int(d.max())}"
+
+
+HWREF_CHANNEL_TOL = 8
+HWREF_SLACK = 0.0005
+
+
+def hwref_ratio(got, ref):
+    a = np.asarray(Image.open(got).convert("RGB"), np.int16)
+    b = np.asarray(Image.open(ref).convert("RGB"), np.int16)
+    if a.shape != b.shape:
+        return 1.0
+    return float((np.abs(a - b).max(axis=2) > HWREF_CHANNEL_TOL).mean())
 
 
 def audio_features(path):
@@ -124,6 +138,23 @@ def compare(c, out):
         good, msg = compare_png(ref, got)
         print(f"  {'ok  ' if good else 'FAIL'} frame {n}: {msg}")
         ok &= good
+    vp = d / "vram.png"
+    if vp.exists():
+        got = out / "vram.png"
+        if not got.exists():
+            print("  FAIL vram: vram.png not found (run the harness with --vram)")
+            ok = False
+        else:
+            good, msg = compare_png(vp, got)
+            print(f"  {'ok  ' if good else 'FAIL'} vram: {msg}")
+            ok &= good
+            hw = d / "hwref.json"
+            if hw.exists() and c.get("vram_ref"):
+                base = json.loads(hw.read_text())["diff"]
+                cur = hwref_ratio(got, c["vram_ref"])
+                good = cur <= base + HWREF_SLACK
+                print(f"  {'ok  ' if good else 'FAIL'} hw reference: diff {cur * 100:.3f}% (baseline {base * 100:.3f}%)")
+                ok &= good
     af = d / "audio.json"
     if af.exists():
         wav = out / "audio.wav"
@@ -149,6 +180,11 @@ def update(c, out):
         if src is None:
             sys.exit(f"frame {n} not found in {out}")
         shutil.copy(src, d / f"frame_{n:05d}.png")
+    if c.get("vram_ref") and (out / "vram.png").exists():
+        shutil.copy(out / "vram.png", d / "vram.png")
+        ratio = hwref_ratio(out / "vram.png", c["vram_ref"])
+        (d / "hwref.json").write_text(json.dumps({"diff": ratio}) + "\n")
+        print(f"  hw reference diff {ratio * 100:.3f}%")
     if c.get("audio"):
         (d / "audio.json").write_text(json.dumps(audio_features(out / "audio.wav")) + "\n")
     print(f"updated {d}")
