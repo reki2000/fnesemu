@@ -621,7 +621,17 @@ extension PpuRenderer on Ppu {
     final hofs = m7hofs.rel13, vofs = m7vofs.rel13;
 
     final sy = vFlipScreen ? (255 - bgY) : bgY;
-    final dy = sy + vofs - y0;
+
+    // the hardware formula: the scroll offsets relative to the center are
+    // wrapped to a signed 10 bit range, and every product is truncated to a
+    // multiple of 64 before summing.
+    // https://wiki.superfamicom.org/mode-7
+    int clip(int v) => (v & 0x2000) != 0 ? (v | ~0x3ff) : (v & 0x3ff);
+    final h = clip(hofs - x0), vv = clip(vofs - y0);
+    final baseX =
+        ((a * h) & ~63) + ((b * vv) & ~63) + ((b * sy) & ~63) + (x0 << 8);
+    final baseY =
+        ((c * h) & ~63) + ((d * vv) & ~63) + ((d * sy) & ~63) + (y0 << 8);
 
     for (int x = 0; x < Ppu.widthNormal; x++) {
       int color = backdrop;
@@ -633,9 +643,8 @@ extension PpuRenderer on Ppu {
         color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
       } else if (bg1Enabled) {
         final sx = hFlipScreen ? (Ppu.widthNormal - 1 - x) : x;
-        final dx = sx + hofs - x0;
-        final u = (a * dx + b * dy).shr8 + x0;
-        final v = (c * dx + d * dy).shr8 + y0;
+        final u = (baseX + a * sx) >> 8;
+        final v = (baseY + c * sx) >> 8;
         final outOfRange = u < 0 || u >= 1024 || v < 0 || v >= 1024;
 
         int tileNum = -1;

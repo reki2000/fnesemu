@@ -57,7 +57,7 @@ class N64 extends Core {
     bus.rom = rom.bytes;
     bus.sram?.init(
         'n64_${rom.bytes.sublist(0x10, 0x18).map((v) => v.x2).join()}',
-        Uint8List(512)..fillRange(0, 512, 255));
+        Uint8List(512 + 0x8000)..fillRange(0, 512, 255)); // EEPROM + SRAM
   }
 
   @override

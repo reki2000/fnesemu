@@ -26,8 +26,19 @@ class N64Bus {
   final tlb = List.generate(32, (_) => List<int>.filled(4, 0));
   final held = List.generate(4, (_) => <String>{});
   Sram? sram;
-  // cartridge backup ram (SRAM games); not persisted yet
+  // cartridge backup ram (SRAM games). the first 512 bytes of [sram] are the
+  // EEPROM, the 32KiB after them hold this SRAM so that it is persisted too
   final cartSram = Uint8List(0x8000);
+  static const sramOffset = 512;
+  int _sramRead(int i) =>
+      sram != null ? sram!.read8(sramOffset + i) : cartSram[i];
+  void _sramWrite(int i, int v) {
+    if (sram != null) {
+      sram!.write8(sramOffset + i, v);
+    } else {
+      cartSram[i] = v;
+    }
+  }
   int scanline = 0, spPc = 0;
   int audioCycles = 0;
   void Function()? onTask;
@@ -99,7 +110,7 @@ class N64Bus {
       return rom[a - 0x10000000];
     }
     if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
-      return cartSram[a - 0x08000000];
+      return _sramRead(a - 0x08000000);
     }
     // 64DD registers / IPL rom: not connected (games probe for the drive)
     if (a >= 0x05000000 && a < 0x08000000) return 0;
@@ -186,7 +197,7 @@ class N64Bus {
       return;
     }
     if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
-      cartSram[a - 0x08000000] = value;
+      _sramWrite(a - 0x08000000, value);
       return;
     }
     if (a >= 0x05000000 && a < 0x08000000) return; // 64DD: not connected
@@ -347,10 +358,12 @@ class N64Bus {
         cart - 0x08000000 + length <= cartSram.length) {
       // cartridge SRAM (32KiB, domain 2)
       final offset = cart - 0x08000000;
-      if (intoRam) {
-        ram.setRange(dram, dram + length, cartSram, offset);
-      } else {
-        cartSram.setRange(offset, offset + length, ram, dram);
+      for (var i = 0; i < length; i++) {
+        if (intoRam) {
+          ram[dram + i] = _sramRead(offset + i);
+        } else {
+          _sramWrite(offset + i, ram[dram + i]);
+        }
       }
     } else if (cart >= 0x05000000 && cart < 0x10000000) {
       // 64DD / unconnected cartridge domains read as zero

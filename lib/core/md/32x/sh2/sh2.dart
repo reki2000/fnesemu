@@ -1,3 +1,5 @@
+import 'onchip.dart';
+
 abstract class Sh2Bus {
   int read8(int address);
   int read16(int address);
@@ -10,8 +12,14 @@ abstract class Sh2Bus {
 /// Integer SH-2 interpreter. Cache control and on-chip peripherals are not emulated yet.
 /// Unsupported instructions stop execution instead of acting as NOPs.
 class Sh2 {
-  final Sh2Bus bus;
-  Sh2(this.bus);
+  /// the bus seen by the instructions: the on-chip registers
+  /// (0xfffffe00-0xffffffff) are served inside the cpu
+  late final Sh2Bus bus;
+  final Sh2OnChip onchip;
+  Sh2(Sh2Bus ext, {bool master = true}) : onchip = Sh2OnChip(master) {
+    bus = _OnChipBus(ext, onchip);
+    onchip.bus = ext;
+  }
   final r = List<int>.filled(16, 0);
   int pc = 0, sr = 0xf0, gbr = 0, vbr = 0, pr = 0, mach = 0, macl = 0;
   int clocks = 0, lastOpcode = 0;
@@ -31,6 +39,7 @@ class Sh2 {
     _irqLevel = _irqVector = 0;
     _delayTarget = _restoreSr = null;
     sleeping = _inDelay = false;
+    onchip.reset();
   }
 
   void setInterrupt(int level, int vector) {
@@ -51,11 +60,28 @@ class Sh2 {
   }
 
   bool exec() {
+    final before = clocks;
+    final ok = _execOne();
+    onchip.tick(clocks - before);
+    return ok;
+  }
+
+  bool _execOne() {
     final target = _delayTarget;
     final restore = _restoreSr;
-    if (target == null && _irqLevel > interruptMask) {
-      _exception(_irqVector, pc, level: _irqLevel);
-      return true;
+    if (target == null) {
+      // the external interrupt (the 32x system) and the on-chip ones (DIVU,
+      // DMAC, FRT, WDT): the higher level wins
+      final (onchipLevel, onchipVector) =
+          onchip.anyPending ? onchip.pendingInterrupt() : (0, 0);
+      if (_irqLevel > interruptMask && _irqLevel >= onchipLevel) {
+        _exception(_irqVector, pc, level: _irqLevel);
+        return true;
+      }
+      if (onchipLevel > interruptMask) {
+        _exception(onchipVector, pc, level: onchipLevel);
+        return true;
+      }
     }
     if (sleeping) {
       clocks++;
@@ -585,4 +611,28 @@ class Sh2 {
 
   String dump() =>
       'pc:${pc.toRadixString(16).padLeft(8, '0')} sr:${sr.toRadixString(16)} pr:${pr.toRadixString(16)} ${List.generate(16, (i) => 'r$i:${r[i].toRadixString(16).padLeft(8, '0')}').join(' ')}';
+}
+
+class _OnChipBus implements Sh2Bus {
+  final Sh2Bus ext;
+  final Sh2OnChip onchip;
+  _OnChipBus(this.ext, this.onchip);
+
+  // effective addresses (register + register) may exceed 32 bits
+  static bool _on(int a) => (a & 0xffffffff) >= 0xfffffe00;
+  @override
+  int read8(int a) => _on(a) ? onchip.read8(a) : ext.read8(a & 0xffffffff);
+  @override
+  int read16(int a) => _on(a) ? onchip.read16(a) : ext.read16(a & 0xffffffff);
+  @override
+  int read32(int a) => _on(a) ? onchip.read32(a) : ext.read32(a & 0xffffffff);
+  @override
+  void write8(int a, int v) =>
+      _on(a) ? onchip.write8(a, v) : ext.write8(a & 0xffffffff, v);
+  @override
+  void write16(int a, int v) =>
+      _on(a) ? onchip.write16(a, v) : ext.write16(a & 0xffffffff, v);
+  @override
+  void write32(int a, int v) =>
+      _on(a) ? onchip.write32(a, v) : ext.write32(a & 0xffffffff, v);
 }

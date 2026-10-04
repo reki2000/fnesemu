@@ -32,7 +32,7 @@ class Md32x {
 
   Md32x() {
     buses = [ExpansionBus(this, 0), ExpansionBus(this, 1)];
-    cpus = [Sh2(buses[0]), Sh2(buses[1])];
+    cpus = [Sh2(buses[0]), Sh2(buses[1], master: false)];
     pwm = ExpansionPwm(() => _raise(0));
     reset();
   }
@@ -114,6 +114,21 @@ class Md32x {
   }
 
   void requestResetInterrupt() => _raise(4);
+
+  /// the FIFO asserts DREQ while it holds data: a DMA channel 0 waiting for an
+  /// external request moves the words to the SH-2 memory
+  void _dreq() {
+    while (_fifo.isNotEmpty) {
+      var moved = false;
+      for (final cpu in cpus) {
+        if (cpu.onchip.dreqTransfer(0)) {
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) break;
+    }
+  }
 
   /// Returns execution flags independently for master and slave.
   (bool, bool, bool) advance(int mainCycles, int mainClockHz,
@@ -305,6 +320,7 @@ class Md32x {
     if (offset == 0x12) {
       if (cpu == null && (registers[7] & 4) != 0 && _fifo.length < 4) {
         _fifo.addLast(value);
+        _dreq();
       }
       return;
     }
