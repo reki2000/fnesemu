@@ -1,7 +1,7 @@
-// headless harness for the cores on develop (nes / pce / md / ps):
+// headless harness for the cores on develop (nes / pce / md / ps / snes):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run lib/tools/core_harness.dart <nes|pce|md|ps> <rom|bios> [disc] [options]
+// usage: dart run lib/tools/core_harness.dart <nes|pce|md|ps|snes> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
@@ -19,6 +19,7 @@ import 'package:fnesemu/core/md/md.dart';
 import 'package:fnesemu/core/nes/nes.dart';
 import 'package:fnesemu/core/pce/pce.dart';
 import 'package:fnesemu/core/ps/ps.dart';
+import 'package:fnesemu/core/snes/snes.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/types.dart';
 import 'package:fnesemu/disc/loader.dart';
@@ -54,7 +55,7 @@ void main(List<String> args) {
   }
 
   if (files.length < 2) {
-    print("usage: core_harness <nes|pce|md|ps> <rom|bios> [disc] "
+    print("usage: core_harness <nes|pce|md|ps|snes> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
@@ -66,6 +67,7 @@ void main(List<String> args) {
     "pce" => Pce(),
     "md" => Md(),
     "ps" => Ps(),
+    "snes" => Snes(),
     _ => throw "unknown core: ${files[0]}",
   };
   core.setSram(Sram());

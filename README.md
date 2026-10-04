@@ -149,6 +149,8 @@ flutter test test/core/md/32x
 
 N64 also assigns `R` to C-up and `T` to C-right.
 
+SS also assigns `R` to its R button (the table has no column for it).
+
 ## How to build and run on local machine
 
 To build and run fnesemu on a local machine, you will need flutter 3.22.0 with at least one enabled device. 
