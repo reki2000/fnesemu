@@ -26,7 +26,7 @@ class Vdc {
   }
 
   reset() {
-    final rand = Random();
+    final rand = Random(0); // fixed seed: deterministic power-on garbage
     vram.setRange(0, vram.length,
         Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
     colorTable.setRange(0, colorTable.length,

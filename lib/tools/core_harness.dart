@@ -1,13 +1,14 @@
-// headless harness for the cores on develop (nes / pce / md / ps / snes):
+// headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run lib/tools/core_harness.dart <nes|pce|md|ps|snes> <rom|bios> [disc] [options]
+// usage: dart run lib/tools/core_harness.dart <nes|pce|md|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
 //   -p, --press F:B  press button B (name or index) at frame F (repeatable)
 //   -H, --hold N     frames to hold a pressed button (default: 10)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
+//   -b, --bios FILE  gba: boot from this BIOS image (default: HLE boot)
 //
 // files: <out>/frame_NNNNN.png, <out>/audio.wav, <out>/state.txt
 import 'dart:io';
@@ -15,7 +16,10 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:fnesemu/core/core.dart';
+import 'package:fnesemu/core/gb/gb.dart';
+import 'package:fnesemu/core/gba/gba.dart';
 import 'package:fnesemu/core/md/md.dart';
+import 'package:fnesemu/core/n64/n64.dart';
 import 'package:fnesemu/core/nes/nes.dart';
 import 'package:fnesemu/core/pce/pce.dart';
 import 'package:fnesemu/core/ps/ps.dart';
@@ -32,6 +36,7 @@ void main(List<String> args) {
   final presses = <(int, String)>[];
   int holdFrames = 10;
   bool wav = false;
+  String? bios;
   final files = <String>[];
 
   for (int i = 0; i < args.length; i++) {
@@ -46,6 +51,8 @@ void main(List<String> args) {
         holdFrames = int.parse(args[++i]);
       case "-w" || "--wav":
         wav = true;
+      case "-b" || "--bios":
+        bios = args[++i];
       case "-p" || "--press":
         final p = args[++i].split(":");
         presses.add((int.parse(p[0]), p[1]));
@@ -55,12 +62,15 @@ void main(List<String> args) {
   }
 
   if (files.length < 2) {
-    print("usage: core_harness <nes|pce|md|ps|snes> <rom|bios> [disc] "
+    print("usage: core_harness <nes|pce|md|ps|snes|gb|gba|n64> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
 
   Directory(outDir).createSync(recursive: true);
+
+  // the gba core reads the bios image when it is created
+  if (bios != null) Gba.biosImage = File(bios).readAsBytesSync();
 
   final Core core = switch (files[0]) {
     "nes" => Nes(),
@@ -68,12 +78,16 @@ void main(List<String> args) {
     "md" => Md(),
     "ps" => Ps(),
     "snes" => Snes(),
+    "gb" => Gb(),
+    "gba" => Gba(),
+    "n64" => N64(),
     _ => throw "unknown core: ${files[0]}",
   };
   core.setSram(Sram());
   core.setRom(_loadRom(files[1]));
   if (files.length > 2) core.setDisc(DiscLoader.load(files[2]));
-  core.reset();
+  // gba boots from setRom; a reset afterwards drops the boot state
+  if (files[0] != "gba") core.reset();
 
   final buttons = core.buttons;
   final pressList = presses.map((p) {

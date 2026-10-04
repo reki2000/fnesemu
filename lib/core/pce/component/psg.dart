@@ -28,7 +28,7 @@ class Wave {
   bool noise = false;
   int noiseFreq = 0;
   int noiseIndex = 0;
-  final random = math.Random();
+  final random = math.Random(0); // fixed seed: deterministic noise
 
   int currentL = 0;
   int currentR = 0;

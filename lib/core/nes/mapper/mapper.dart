@@ -43,6 +43,7 @@ abstract class Mapper {
       19 => MapperNamco163(),
       73 => MapperVrc3(),
       88 => Mapper088(),
+      118 => MapperTxsrom(),
       206 => MapperNamco118(),
       _ => throw Exception("unimplemented mapper:$iNesMapper!")
     };

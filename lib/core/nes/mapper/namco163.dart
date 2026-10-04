@@ -91,7 +91,7 @@ class MapperNamco163 extends Mapper {
         final bank = (reg - 0x8000).shr11; // 00-07
 
         if (data < 0xe0) {
-          _chrBank[bank] = data;
+          _chrBank[bank] = data % chrRoms.length;
           return;
         }
 
@@ -108,8 +108,11 @@ class MapperNamco163 extends Mapper {
       case 0xc800:
       case 0xd000:
       case 0xd800:
+        // 0xe0-0xff: ciram page A/B, otherwise a chr rom bank is the nametable
         final bank = (reg - 0x8000).shr11;
-        _chrBank[bank] = chrRoms.length + (data & 1);
+        _chrBank[bank] = data >= 0xe0
+            ? chrRoms.length + (data & 1)
+            : data % chrRoms.length;
         break;
 
       // prg rom bank 0x8000 select

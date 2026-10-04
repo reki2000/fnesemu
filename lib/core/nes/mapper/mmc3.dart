@@ -241,3 +241,67 @@ class MapperMMC3 extends Mapper {
         "\n";
   }
 }
+
+// TxSROM (iNES mapper 118): MMC3 with the nametable chosen by bit 7 of the
+// chr bank registers instead of the mirroring register.
+// https://www.nesdev.org/wiki/INES_Mapper_118
+class MapperTxsrom extends MapperMMC3 {
+  // bit 7 written to each of the chr registers R0-R5
+  final _ntBit = List<bool>.filled(6, false);
+  bool _chrInverted = false;
+  final _ciram = Uint8List(0x800);
+
+  @override
+  void init() {
+    super.init();
+    _ntBit.fillRange(0, 6, false);
+    _chrInverted = false;
+    mirror(Mirror.external);
+  }
+
+  @override
+  void write(int addr, int data) {
+    final reg = addr & 0xe000;
+    final isOdd = addr.bit0;
+
+    if (reg == 0xa000 && !isOdd) {
+      return; // mirroring is controlled by the chr registers
+    }
+    if (reg == 0x8000) {
+      if (isOdd) {
+        if (_r < 6) {
+          _ntBit[_r] = data.bit7;
+        }
+      } else {
+        _chrInverted = data.bit7;
+      }
+    }
+    super.write(addr, data);
+  }
+
+  // the nametable n (0-3) follows the register of the 1k chr bank at n * 0x400
+  bool _page(int addr) {
+    final n = (addr >> 10) & 3;
+    if (_chrInverted) {
+      return _ntBit[2 + n]; // R2-R5 at 0000-0fff
+    }
+    return _ntBit[n >> 1]; // R0 (0000-07ff), R1 (0800-0fff)
+  }
+
+  @override
+  int readVram(int addr) {
+    if (addr < 0x2000) {
+      return super.readVram(addr);
+    }
+    return _ciram[(_page(addr) ? 0x400 : 0) + (addr & 0x3ff)];
+  }
+
+  @override
+  void writeVram(int addr, int data) {
+    if (addr < 0x2000) {
+      super.writeVram(addr, data);
+      return;
+    }
+    _ciram[(_page(addr) ? 0x400 : 0) + (addr & 0x3ff)] = data;
+  }
+}
