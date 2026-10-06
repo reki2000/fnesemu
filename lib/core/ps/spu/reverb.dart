@@ -27,13 +27,18 @@ extension IntVolume on int {
 
 class FirFilter {
   static const bufferSize = 39;
-  static const coefficients = [
-    -0x0001, 0x0000, 0x0002, 0x0000, -0x000A, 0x0000, 0x0023, 0x0000, //
-    -0x0067, 0x0000, 0x010A, 0x0000, -0x0268, 0x0000, 0x0534, 0x0000, //
-    -0x0B90, 0x0000, 0x2806, 0x4000, 0x2806, 0x0000, -0x0B90, 0x0000, //
-    0x0534, 0x0000, -0x0268, 0x0000, 0x010A, 0x0000, -0x0067, 0x0000, //
-    0x0023, 0x0000, -0x000A, 0x0000, 0x0002, 0x0000, -0x0001, //
-  ];
+  // Full impulse response for inspection and tests, derived once from the
+  // sparse constants used by the sample loop. Coefficient values live only
+  // in _tapCoefficients, avoiding two lists that must be edited together.
+  static final coefficients = _buildCoefficients();
+
+  static List<int> _buildCoefficients() {
+    final result = List<int>.filled(bufferSize, 0);
+    for (var tap = 0; tap < _taps.length; tap++) {
+      result[_taps[tap]] = _tapCoefficients[tap];
+    }
+    return List<int>.unmodifiable(result);
+  }
 
   final _buffer = List.filled(bufferSize, 0);
   int _current = 0;
@@ -51,7 +56,8 @@ class FirFilter {
     _current = 0;
   }
 
-  // the non-zero coefficients and their indices, as the zero ones add nothing
+  // Canonical sparse taps, in accumulation order. Keep these constant so
+  // the per-sample loop retains its original indexing and operation count.
   static const _taps = [
     0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 19, //
     20, 22, 24, 26, 28, 30, 32, 34, 36, 38,
@@ -138,7 +144,8 @@ class Reverb {
   /// output of [render]
   int outLeft = 0, outRight = 0;
 
-  /// renders a sample of the reverb into [outLeft] and [outRight]
+  /// Renders a sample into [outLeft] and [outRight]; consume both before
+  /// the next call, which overwrites them without allocating a result object.
   void render(int inL, int inR) {
     _firFilterInput[0].push(inL);
     _firFilterInput[1].push(inR);
