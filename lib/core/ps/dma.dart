@@ -102,15 +102,15 @@ class Dma {
 
   Dma(this.bus);
 
-  final List<DmaChannel> channels = [
+  final List<DmaChannel> channels = List.of([
     DmaChannel(0, 0x1f801820, 1),
     DmaChannel(1, 0x1f801820, 1),
     DmaChannel(2, 0x1f801810, 1),
     DmaChannel(3, 1, 24),
     DmaChannel(4, 1, 4),
     DmaChannel(5, 0, 20),
-    DmaChannel(6, 1, 1)
-  ];
+    DmaChannel(6, 1, 1),
+  ], growable: false);
 
   int _control = 0;
   int get control => _control;
@@ -209,7 +209,9 @@ class Dma {
 
   void exec(int count) {
     // find highest priority channel
-    for (final d in channels) {
+    final channels = this.channels;
+    for (int ch = 0; ch < channels.length; ch++) {
+      final d = channels[ch];
       if (!d.enabled || !d.running) {
         continue;
       }

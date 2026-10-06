@@ -79,9 +79,9 @@ class Voice {
 
   // Volume control
 
-  final _volReg = [0, 0];
-  final _vol = [0, 0]; // current volume
-  final _volSweep = [Envelope.none(), Envelope.none()];
+  final _volReg = List<int>.filled(2, 0);
+  final _vol = List<int>.filled(2, 0); // current volume
+  final _volSweep = List<Envelope>.generate(2, (_) => Envelope.none(), growable: false);
 
   int volume(int lr) => _volReg[lr];
 
@@ -150,8 +150,12 @@ class Voice {
     _volSweep[1] = Envelope.none();
   }
 
-  /// proceed to next sample
-  (int, int, int) clock(int prevSample) {
+  /// output of [clock]: left, right and the sample before the volume
+  int outLeft = 0, outRight = 0, outSample = 0;
+
+  /// proceed to next sample, the output is in [outLeft], [outRight] and
+  /// [outSample]
+  void clock(int prevSample) {
     int step = pitch;
     if (pitchModulation && no > 0) {
       // modulated by the output of the previous voice
@@ -191,11 +195,12 @@ class Voice {
 
     final adsrVal = val * adsrVolume ~/ 0x8000;
 
-    for (int i = 0; i < 2; i++) {
-      _vol[i] = _volSweep[i].apply(_vol[i]);
-    }
+    final vol0 = _vol[0] = _volSweep[0].apply(_vol[0]);
+    final vol1 = _vol[1] = _volSweep[1].apply(_vol[1]);
 
-    return (adsrVal * _vol[0] ~/ 0x8000, adsrVal * _vol[1] ~/ 0x8000, adsrVal);
+    outLeft = adsrVal * vol0 ~/ 0x8000;
+    outRight = adsrVal * vol1 ~/ 0x8000;
+    outSample = adsrVal;
   }
 
   void keyOn() {

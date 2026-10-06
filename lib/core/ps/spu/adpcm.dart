@@ -1,6 +1,9 @@
 part of 'voice.dart';
 
 extension VoiceAdpcmDecoder on Voice {
+  static const _filter1 = [0, 60, 115, 98, 122];
+  static const _filter2 = [0, 0, -52, -55, -60];
+
   void decodeBlock() {
     final log = logCounter > 0 && _addr >= 0x1000;
     if (log) {
@@ -21,8 +24,8 @@ extension VoiceAdpcmDecoder on Voice {
 
     final filter = header.shr4 & 0x07;
 
-    final (c1, c2) =
-        [(0, 0), (60, 0), (115, -52), (98, -55), (122, -60)][filter.min(4)];
+    final f = filter.min(4);
+    final c1 = _filter1[f], c2 = _filter2[f];
 
     _addr += 2;
 
