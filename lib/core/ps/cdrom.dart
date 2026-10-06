@@ -8,6 +8,7 @@ import '../disc_swap.dart';
 import '../disc.dart';
 import 'bus.dart';
 import 'interrupt.dart';
+import 'log.dart';
 
 part 'cdrom_async.dart';
 part 'cdrom_xa.dart';
@@ -526,8 +527,10 @@ class Cdrom {
 
   void execCommand(int cmd) {
     resultFifo.clear();
-    debugLog(
-        "cdrom: ${cmd.x2}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}");
+    if (psTrace) {
+      debugLog(
+          "cdrom: ${cmd.x2}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}");
+    }
 
     switch (cmd) {
       case 0x01: // GetStat

@@ -72,7 +72,19 @@ extension Hook on R3000 {
     return result;
   }
 
-  hook() {
+  /// called before each instruction: the bios call vectors (tty output and
+  /// call traces) and the exe sideloading
+  @pragma('vm:prefer-inline')
+  void hook() {
+    // pc & 0x1fffff <= 0xc0 covers the bios call vectors
+    if ((pc & 0x1fffff) <= 0xc0 ||
+        pc == 0x80030000 ||
+        (psTrace && pc == biosCallReturnAddr)) {
+      _hook();
+    }
+  }
+
+  void _hook() {
     final vector = pc & 0x1fffff;
     if (vector == 0xa0 || vector == 0xb0 || vector == 0xc0) {
       String name = _bios[vector]?[r[9]] ?? "-";
@@ -83,7 +95,7 @@ extension Hook on R3000 {
         // write to stdout/stderr
         final str = dumpc(r[5], r[6]);
         str.runes.forEach(handleTty);
-      } else if (!name.startsWith("*")) {
+      } else if (psTrace && !name.startsWith("*")) {
         biosCallReturnAddr = r[31];
 
         if (name.startsWith("TestEvent")) {
@@ -111,7 +123,7 @@ extension Hook on R3000 {
       }
     }
 
-    if (pc == biosCallReturnAddr) {
+    if (psTrace && pc == biosCallReturnAddr) {
       debugLog("bios: $biosCallFuncLog --> ${r[2].x8}");
       biosCallReturnAddr = 0;
       biosCallFuncLog = "";

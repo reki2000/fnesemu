@@ -4,6 +4,7 @@ import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
 import 'package:fnesemu/util/debug.dart';
+import '../log.dart';
 import 'exception.dart';
 
 part 'alu.dart';
