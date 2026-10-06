@@ -235,9 +235,9 @@ class Cop2 {
 
   // no: 1,2,3
   int co44(int no, int value) {
-    final (bitOVerflow, bitUnderflow) = [(30, 27), (29, 26), (28, 25)][no - 1];
+    // overflow/underflow bits: 30/27, 29/26, 28/25
     return checkOverflow(
-            value, -0x80000000000, 0x7ffffffffff, bitOVerflow, bitUnderflow)
+            value, -0x80000000000, 0x7ffffffffff, 31 - no, 28 - no)
         .rel44;
   }
 
@@ -300,7 +300,7 @@ class Cop2 {
 
   reset() {}
 
-  _s16x2toU32(int l, int h) => l.mask16 | h.mask16.shl16;
+  int _s16x2toU32(int l, int h) => l.mask16 | h.mask16.shl16;
 
   int readCtrl(int reg) => _read(reg & 0x1f | 0x20);
   void writeCtrl(int reg, int value) => _write(reg & 0x1f | 0x20, value);
@@ -369,9 +369,8 @@ class Cop2 {
         60 => dqb.mask32,
         61 => zsf3.mask32,
         62 => zsf4.mask32,
-        63 => [0, 13, 14, 15, 16, 17, 18, 23, 24, 25, 26, 27, 28, 29, 30]
-                .reduce((a, i) => a | flag << (31 - i) & 0x80000000) |
-            (flag & 0x7ffff000),
+        // bit31: any of the error bits 13-18 and 23-30
+        63 => (flag & 0x7f87e000 != 0 ? 0x80000000 : 0) | (flag & 0x7ffff000),
         _ => throw ("cpu: unimplimited cop2 read $reg"),
       };
 
