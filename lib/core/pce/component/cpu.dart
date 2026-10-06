@@ -2,6 +2,7 @@ import 'package:fnesemu/util/int.dart';
 // Dart imports:
 import 'dart:core';
 import 'dart:developer';
+import 'dart:typed_data';
 
 import 'bus.dart';
 import 'cpu_6280.dart';
@@ -16,7 +17,7 @@ class Regs {
   int p = 0;
   int pc = 0;
   List<int> mpr = List<int>.filled(8, 0);
-  List<int> mprAddress = List<int>.filled(8, 0);
+  final mprAddress = Int32List(8); // mpr << 13
 }
 
 class Flags {
@@ -87,8 +88,9 @@ class Cpu {
 
   bool tFlagOn = false;
 
+  @pragma('vm:prefer-inline')
   int read(int addr) =>
-      bus.read(regs.mprAddress[(addr & 0xe000).shr13] | addr & 0x1fff);
+      bus.read(regs.mprAddress[(addr >> 13) & 7] | addr & 0x1fff);
 
   int readzp(int addr, {int cycle = 0}) {
     this.cycle += cycle;
@@ -115,6 +117,19 @@ class Cpu {
     final inhibit = _irqInhibitOnce;
     _irqInhibitOnce = false;
 
+    if (holdIrq1 || holdIrq2 || holdTirq || holdNmi) {
+      _enterInterrupts(inhibit);
+    }
+
+    if (tFlagOn) {
+      regs.p |= Flags.T;
+      tFlagOn = false;
+    } else {
+      regs.p &= ~Flags.T;
+    }
+  }
+
+  void _enterInterrupts(bool inhibit) {
     // exec irq on the next execution
     if (!inhibit && holdIrq1 && (regs.p & Flags.I) == 0) {
       holdIrq1 = false;
@@ -137,13 +152,6 @@ class Cpu {
     if (holdNmi) {
       holdNmi = false;
       interrupt(nmi: true);
-    }
-
-    if (tFlagOn) {
-      regs.p |= Flags.T;
-      tFlagOn = false;
-    } else {
-      regs.p &= ~Flags.T;
     }
   }
 
@@ -257,6 +265,7 @@ class Cpu {
     return readsp(regs.s);
   }
 
+  @pragma('vm:prefer-inline')
   int pc() {
     final op = read(regs.pc);
     regs.pc = (regs.pc + 1) & 0xffff;

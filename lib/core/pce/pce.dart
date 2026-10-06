@@ -24,7 +24,7 @@ import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Pce implements Core {
+class Pce implements Core, FrameRunner {
   late final Vdc vdc;
   late final Vdc vdc2;
   late final Vpc vpc;
@@ -42,8 +42,11 @@ class Pce implements Core {
   @override
   int get scanlinesInFrame => 263;
 
+  // computed once: the getter is used twice per instruction in exec()
+  static const int _clocksInScanline = systemClockHz_ ~/ 59.97 ~/ 263;
+
   @override
-  int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
+  int get clocksInScanline => _clocksInScanline;
 
   @override
   get cpuInfos => [CpuInfo.of6502(1, "Hu6280")];
@@ -64,16 +67,58 @@ class Pce implements Core {
   int _prevPsgClocks = 0;
   bool _vdc2Synced = false;
 
+  // reused for every instruction (the caller reads it right away)
+  final _result = ExecResult(0, false, false);
+
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec(bool _) {
+    final r = _step();
+    return _result
+      ..elapsedClocks = r == _stopped ? cpu.cycles : cpu.clocks
+      ..stopped = r == _stopped
+      ..scanlineRendered = r == _rendered;
+  }
+
+  /// runs until [scanlines] scanlines are rendered, as exec(false) called
+  /// until it reports a rendered scanline [scanlines] times
+  @override
+  ExecResult runFrame(int scanlines) {
+    int r = _executed;
+    for (int n = 0; n < scanlines;) {
+      r = _step();
+      if (r == _rendered) {
+        n++;
+      } else if (r == _stopped) {
+        break;
+      }
+    }
+    return _result
+      ..elapsedClocks = r == _stopped ? cpu.cycles : cpu.clocks
+      ..stopped = r == _stopped
+      ..scanlineRendered = r == _rendered;
+  }
+
+  static const _executed = 0;
+  static const _rendered = 1;
+  static const _stopped = 2;
+
+  // one cpu instruction, then the devices
+  int _step() {
     if (!cpu.exec()) {
-      return ExecResult(cpu.cycles, true, false);
+      return _stopped;
     }
 
-    bus.timer.exec(cpu.clock);
-    bus.cdrom.exec(cpu.clock);
+    final clock = cpu.clock;
+    timer.exec(clock);
+    bus.cdrom.exec(clock);
+
+    final clocks = cpu.clocks;
+    if (clocks < _nextVdcClocks &&
+        clocks < _prevPsgClocks + _clocksInScanline) {
+      return _executed;
+    }
 
     bool rendered = false;
 
@@ -90,13 +135,11 @@ class Pce implements Core {
       if (vpc.enabled) {
         vdc2.exec();
       }
-      _nextVdcClocks += clocksInScanline;
-      // print(
-      //     "cpu.clocks:${cpu.clocks} cpu.cycles:${cpu.cycles} nextVdcClocks: $nextVdcClocks");
+      _nextVdcClocks += _clocksInScanline;
       rendered = true;
     }
 
-    while (cpu.clocks >= _prevPsgClocks + clocksInScanline) {
+    while (cpu.clocks >= _prevPsgClocks + _clocksInScanline) {
       final elapsed = (cpu.clocks - _prevPsgClocks) ~/ 6 * 6;
       _prevPsgClocks += elapsed;
       final audio = psg.exec(elapsed);
@@ -104,7 +147,7 @@ class Pce implements Core {
       _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, audio));
     }
 
-    return ExecResult(cpu.clocks, false, rendered);
+    return rendered ? _rendered : _executed;
   }
 
   /// returns screen buffer as hSize x vSize argb
@@ -125,8 +168,8 @@ class Pce implements Core {
   /// handles reset button events
   @override
   void reset() {
-    _nextVdcClocks = clocksInScanline;
-    _prevPsgClocks = clocksInScanline;
+    _nextVdcClocks = _clocksInScanline;
+    _prevPsgClocks = _clocksInScanline;
     _vdc2Synced = false;
     bus.onReset();
   }

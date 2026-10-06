@@ -86,21 +86,30 @@ class Wave {
     return out;
   }
 
+  // the counter counts down by 1 per step (12 bit) and reloads when it
+  // reaches 1. instead of stepping it [Psg.divider] times per sample, the
+  // steps up to the next reload are skipped at once: (counter - 2) & 0xfff
+  // steps are taken before the step that reaches 1.
+
   List<int> synthNoise(List<int> out) {
     for (int i = 0; i < out.length; i += 2) {
-      for (int i = 0; i < Psg.divider; i++) {
-        counter = (counter - 1) & 0xfff;
+      int steps = Psg.divider;
+      while (true) {
+        final toReload = ((counter - 2) & 0xfff) + 1;
+        if (toReload > steps) {
+          counter = (counter - steps) & 0xfff;
+          break;
+        }
+        steps -= toReload;
 
-        if (counter == 1) {
-          counter = noiseFreq;
-          noiseIndex = (noiseIndex + 1) & 0x3f;
+        counter = noiseFreq;
+        noiseIndex = (noiseIndex + 1) & 0x3f;
 
-          if (noiseIndex == 0 || noiseIndex == 0x10) {
-            // volume: 5bit volumeLR: 4bit = 9bit
-            final out = (random.nextDouble() > 0.5) ? 31 : 0;
-            currentL = out * (volumeL + 1) ~/ 32;
-            currentR = out * (volumeR + 1) ~/ 32;
-          }
+        if (noiseIndex == 0 || noiseIndex == 0x10) {
+          // volume: 5bit volumeLR: 4bit = 9bit
+          final out = (random.nextDouble() > 0.5) ? 31 : 0;
+          currentL = out * (volumeL + 1) ~/ 32;
+          currentR = out * (volumeR + 1) ~/ 32;
         }
       }
 
@@ -113,19 +122,22 @@ class Wave {
 
   List<int> synthWave(List<int> out) {
     for (int i = 0; i < out.length; i += 2) {
-      for (int i = 0; i < Psg.divider; i++) {
-        counter = (counter - 1) & 0xfff;
-
-        if (counter == 1) {
-          counter = _clip(freq + freqOffset, 0, 0xfff);
-          tableIndex = (tableIndex + 1) & 0x1f;
-
-          // volume: 5bit volumeLR: 4bit = 9bit
-          final out =
-              ((dda ? ddaValue : table[tableIndex]) - 16) * (volume + 1);
-          currentL = out * (volumeL + 1) ~/ (32 * 16);
-          currentR = out * (volumeR + 1) ~/ (32 * 16);
+      int steps = Psg.divider;
+      while (true) {
+        final toReload = ((counter - 2) & 0xfff) + 1;
+        if (toReload > steps) {
+          counter = (counter - steps) & 0xfff;
+          break;
         }
+        steps -= toReload;
+
+        counter = _clip(freq + freqOffset, 0, 0xfff);
+        tableIndex = (tableIndex + 1) & 0x1f;
+
+        // volume: 5bit volumeLR: 4bit = 9bit
+        final out = ((dda ? ddaValue : table[tableIndex]) - 16) * (volume + 1);
+        currentL = out * (volumeL + 1) ~/ (32 * 16);
+        currentR = out * (volumeR + 1) ~/ (32 * 16);
       }
 
       out[i + 0] += currentL;
@@ -260,11 +272,18 @@ class Psg {
 
   var buffer = Float32List(0); // -1.0 .. 1.0 2 channel interleaved
 
+  var _out = Int32List(0); // mix of the channels, reused
+
   /// Generates the output with the duration against given elapsed clocks
   Float32List exec(int elapsedClocks) {
     final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
 
-    final out = List<int>.filled(cycles * 2, 0);
+    if (_out.length != cycles * 2) {
+      _out = Int32List(cycles * 2);
+    } else {
+      _out.fillRange(0, _out.length, 0);
+    }
+    final out = _out;
 
     for (int i = waves.length - 1; i >= 0; i--) {
       if (i == 1 && lfoEnabled) {

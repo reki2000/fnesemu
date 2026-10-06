@@ -72,6 +72,9 @@ final Uint32List rgba = Uint32List.fromList(
 extension VdcRenderer on Vdc {
   static bool debug = false;
 
+  // renders pixel by pixel as the reference of the line renderer (tests)
+  static bool perPixel = false;
+
   static int displayStartLine = 14;
 
   static int frames = 0;
@@ -101,11 +104,13 @@ extension VdcRenderer on Vdc {
     if (0 <= displayLine && displayLine < 242) {
       _fillSpriteBuffer();
 
-      for (scanX = 0; scanX < hSize; scanX++) {
-        // if (!(h == 0 && line == 15)) {
-        //   continue;
-        // }
-        _render();
+      if (debug || perPixel) {
+        for (scanX = 0; scanX < hSize; scanX++) {
+          _render();
+        }
+      } else {
+        _renderLine();
+        scanX = hSize;
       }
 
       // debug: show line counter by 16 lines
@@ -145,6 +150,212 @@ extension VdcRenderer on Vdc {
     if (scanLine == 263) {
       scanLine = 0;
       if (priority == 0) frames++;
+    }
+  }
+
+  // renders the current line at once. same output as calling _render() for
+  // each pixel (which is kept for the debug overlay), without per-pixel calls
+  // and allocations.
+  void _renderLine() {
+    final w = hSize;
+    final buf = indexBuffer;
+    final base = displayLine * w;
+    final spl = spriteLine;
+    final sprite = enableSprite;
+
+    if (sprite) _renderSpriteLine(w);
+
+    if (!enableBg) {
+      // no bg: the bg color is 0 (transparent), so the sprite color is used
+      for (int x = 0; x < w; x++) {
+        buf[base + x] = sprite ? spl[x] & 0x1ff : 0;
+      }
+      return;
+    }
+
+    final vram = this.vram;
+    final sx = scrollX;
+    final maskX = bgScrollMaskX;
+    final row = ((bgRenderLine >> 3) & bgHeightMask) << bgWidthBits;
+    final maskW = bgWidthMask;
+    final fineY = bgRenderLine & 0x07;
+    final dot3 = vramDotWidth == 3;
+    final zero23 = bgTreatPlane23Zero;
+    final expand = _expand;
+    int pal = paletteNo;
+    int p01 = pattern01;
+    int p23 = pattern23;
+    // a tile at a time: bx wraps at a multiple of 8, so every tile starts
+    // with a fetch, as the per-pixel renderer does at x == 0 or bx & 7 == 0
+    for (int x = 0; x < w;) {
+      final bx = (x + sx) & maskX;
+      final tile = vram[row | ((bx >> 3) & maskW)];
+      pal = (tile >> 12) << 4;
+      final addr = ((tile & 0xfff) << 4) | fineY;
+      if (dot3) {
+        if (zero23) {
+          p01 = vram[addr];
+          p23 = 0;
+        } else {
+          p01 = 0;
+          p23 = vram[addr];
+        }
+      } else {
+        p01 = vram[addr];
+        p23 = vram[addr + 8];
+      }
+      // the 8 pixels of the tile, 4 bits each: pixel of shift s at bit s * 4
+      final chunky = expand[p01 & 0xff] |
+          (expand[p01 >> 8] << 1) |
+          (expand[p23 & 0xff] << 2) |
+          (expand[p23 >> 8] << 3);
+
+      int shift = 7 - (bx & 7);
+      final end = x + shift + 1 < w ? x + shift + 1 : w;
+      if (sprite) {
+        for (; x < end; x++, shift--) {
+          final c = (chunky >> (shift << 2)) & 0x0f;
+          final sp = spl[x];
+          // the sprite is in front when it has the priority or the bg is clear
+          buf[base + x] =
+              (sp & _spPrior) != 0 || c == 0 ? sp & 0x1ff : pal | c;
+        }
+      } else {
+        for (; x < end; x++, shift--) {
+          final c = (chunky >> (shift << 2)) & 0x0f;
+          buf[base + x] = c == 0 ? 0 : pal | c;
+        }
+      }
+    }
+
+    paletteNo = pal;
+    pattern01 = p01;
+    pattern23 = p23;
+  }
+
+  // bit n of a byte moved to bit n * 4 (planar to 4-bit chunky pixels)
+  static final _expand = Uint32List.fromList(List.generate(256, (b) {
+    int v = 0;
+    for (int n = 0; n < 8; n++) {
+      v |= ((b >> n) & 1) << (n * 4);
+    }
+    return v;
+  }));
+
+  static const _spPrior = 0x10000;
+
+  // whether a sprite of the line buffer has a non-transparent pixel
+  static final _spriteOpaque = List<bool>.filled(16, false);
+
+  // fills spriteLine[0..w) with the sprite pixel of each x: the 9-bit color
+  // (palette | color no, color no != 0) | _spPrior, or 0 when there is none.
+  // the first opaque sprite in the buffer wins, as in _renderSprite().
+  void _renderSpriteLine(int w) {
+    final spl = spriteLine;
+    spl.fillRange(0, w, 0);
+    final n = spriteBufIndex;
+    if (n == 0) return;
+
+    final vram = this.vram;
+    final pix = spritePixels;
+    final dot3 = vramDotWidth == 3;
+
+    final expand = _expand;
+    final opaque = _spriteOpaque;
+
+    // decode the pixels of each sprite of this line, 16 at a time
+    for (int i = 0; i < n; i++) {
+      final sp = spriteBuf[i];
+      final width = sp.width;
+      final vv = displayLine + 64 - sp.y;
+      final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
+      final y = flippedY & 0x0f;
+      final y2 = flippedY >> 4;
+      final hFlip = sp.hFlip;
+      final off = i * 32;
+      int any = 0;
+
+      for (int x2 = 0; x2 < (width >> 4); x2++) {
+        int p0, p1, p2, p3;
+        if (dot3) {
+          final addr = ((sp.patternNo + x2 + y2 * (width >> 4)) << 5) + y;
+          if (sp.cgModeTreal01Zero) {
+            p0 = p1 = 0;
+            p2 = vram[addr];
+            p3 = vram[addr + 16];
+          } else {
+            p0 = vram[addr];
+            p1 = vram[addr + 16];
+            p2 = p3 = 0;
+          }
+        } else {
+          final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
+          p0 = vram[addr];
+          p1 = vram[addr + 16];
+          p2 = vram[addr + 32];
+          p3 = vram[addr + 48];
+        }
+        any |= p0 | p1 | p2 | p3;
+
+        // pixel fx (0: left) of the column is bit 15 - fx of the planes
+        final left = expand[p0 >> 8] |
+            (expand[p1 >> 8] << 1) |
+            (expand[p2 >> 8] << 2) |
+            (expand[p3 >> 8] << 3);
+        final right = expand[p0 & 0xff] |
+            (expand[p1 & 0xff] << 1) |
+            (expand[p2 & 0xff] << 2) |
+            (expand[p3 & 0xff] << 3);
+        final fx0 = x2 << 4;
+        for (int fx = 0; fx < 8; fx++) {
+          final hh = hFlip ? width - 1 - (fx0 + fx) : fx0 + fx;
+          pix[off + hh] = (left >> ((7 - fx) << 2)) & 0x0f;
+        }
+        for (int fx = 8; fx < 16; fx++) {
+          final hh = hFlip ? width - 1 - (fx0 + fx) : fx0 + fx;
+          pix[off + hh] = (right >> ((15 - fx) << 2)) & 0x0f;
+        }
+      }
+      opaque[i] = any != 0;
+    }
+
+    if (!enalbeSpriteCollision) {
+      // paint from the last sprite so that the first opaque one stays
+      for (int i = n - 1; i >= 0; i--) {
+        if (!opaque[i]) continue;
+        final sp = spriteBuf[i];
+        final xs = sp.x - 32 < 0 ? 0 : sp.x - 32;
+        final xe = sp.x - 32 + sp.width > w ? w : sp.x - 32 + sp.width;
+        final attr = sp.paletteNo | (sp.priority ? _spPrior : 0);
+        final off = i * 32 + 32 - sp.x;
+        for (int x = xs; x < xe; x++) {
+          final c = pix[off + x];
+          if (c != 0) spl[x] = attr | c;
+        }
+      }
+      return;
+    }
+
+    // sprite collision: visit the sprites of each pixel in order, as
+    // _renderSprite() does, since sprite 0 marks the pixels it covers
+    for (int x = 0; x < w; x++) {
+      for (int i = 0; i < n; i++) {
+        final sp = spriteBuf[i];
+        final hh = x + 32 - sp.x;
+        if (hh < 0 || hh >= sp.width) continue;
+        final c = pix[i * 32 + hh];
+        if (sp.no == 0) {
+          sprite0[hh] = true;
+        } else if (c != 0 &&
+            sprite0[hh] &&
+            status & Vdc.statusSpriteCollision == 0) {
+          raiseIrq(Vdc.statusSpriteCollision);
+        }
+        if (c > 0) {
+          spl[x] = sp.paletteNo | c | (sp.priority ? _spPrior : 0);
+          break;
+        }
+      }
     }
   }
 

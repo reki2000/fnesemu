@@ -148,7 +148,7 @@ class Vdc {
   bool bgTreatPlane23Zero = false;
   int vramDotWidth = 0;
 
-  final vram = List<int>.filled(0x10000, 0); // 2 bytes per word
+  final vram = Uint16List(0x10000); // 2 bytes per word
 
   final sat = List<int>.filled(0x100, 0);
 
@@ -170,6 +170,10 @@ class Vdc {
   final spriteBuf =
       List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
   int spriteBufIndex = 0;
+  // line buffers of the renderer: sprite pixel per x, and the decoded
+  // pixels of each buffered sprite (32 per sprite)
+  final spriteLine = Int32List(0x200);
+  final spritePixels = Int32List(16 * 32);
   final sprite0 = List<bool>.filled(32, false); // x of sprite 0
 
   int readReg() {
