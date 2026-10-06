@@ -72,20 +72,36 @@ class CoreFactory {
       orElse: () => throw Exception('unsupported system: $id'));
 
   /// creates the core of the system [id]
-  static Core of(String id) => switch (id) {
-        'nes' => Nes(),
-        'pce' || 'pcecd' => Pce(),
-        'md' => Md(),
-        'mdcd' => Md(cdBoot: true),
-        '32x' => Md(expansionBoot: true),
-        'ps' => Ps(),
-        'ss' => Ss(),
-        'gb' => Gb(),
-        'gba' => Gba(),
-        'snes' => Snes(),
-        'n64' => N64(),
-        _ => throw Exception('unsupported system: $id'),
-      };
+  static Core of(String id) {
+    // Explicit returns retain Core as the result type when every concrete
+    // core also implements FrameRunner (the inferred common type is Object).
+    switch (id) {
+      case 'nes':
+        return Nes();
+      case 'pce' || 'pcecd':
+        return Pce();
+      case 'md':
+        return Md();
+      case 'mdcd':
+        return Md(cdBoot: true);
+      case '32x':
+        return Md(expansionBoot: true);
+      case 'ps':
+        return Ps();
+      case 'ss':
+        return Ss();
+      case 'gb':
+        return Gb();
+      case 'gba':
+        return Gba();
+      case 'snes':
+        return Snes();
+      case 'n64':
+        return N64();
+      default:
+        throw Exception('unsupported system: $id');
+    }
+  }
 
   /// returns the system of the rom file [name]
   static CoreSystem systemOfFile(String name, Uint8List body) {

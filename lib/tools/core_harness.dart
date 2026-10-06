@@ -14,6 +14,8 @@
 //   -x, --exe FILE   ps: run this PS-EXE after the BIOS boot (test programs)
 //   -v, --vram       ps: also write vram.png (the whole 1024x512 VRAM)
 //
+//   -r, --frame-runner  execute whole frames inside the core
+//
 // files: <out>/frame_NNNNN.png, <out>/audio.wav, <out>/state.txt
 import 'dart:io';
 import 'dart:typed_data';
@@ -46,6 +48,7 @@ Future<void> main(List<String> args) async {
   String? boot32x;
   String? exe;
   bool vram = false;
+  bool frameRunner = false;
   final files = <String>[];
 
   for (int i = 0; i < args.length; i++) {
@@ -68,6 +71,8 @@ Future<void> main(List<String> args) async {
         boot32x = args[++i];
       case "-x" || "--exe":
         exe = args[++i];
+      case "-r" || "--frame-runner":
+        frameRunner = true;
       case "-v" || "--vram":
         vram = true;
       case "-p" || "--press":
@@ -79,34 +84,27 @@ Future<void> main(List<String> args) async {
   }
 
   if (files.length < 2) {
-    print("usage: core_harness <nes|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
+    print(
+        "usage: core_harness <nes|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
 
   Directory(outDir).createSync(recursive: true);
 
-  final Core core = switch (files[0]) {
-    "nes" => Nes(),
-    "pce" => Pce(),
-    "md" => Md(),
-    "mdcd" => Md(cdBoot: true), // rom: md cdrom bios, disc: cue/iso
-    "32x" => Md(expansionBoot: true), // rom: .32x cartridge, -3 boot roms
-    "ps" => Ps(),
-    "snes" => Snes(),
-    "gb" => Gb(),
-    "gba" => Gba(),
-    "n64" => N64(),
-    _ => throw "unknown core: ${files[0]}",
-  };
+  final core = _createCore(files[0]);
+  if (frameRunner && core is! FrameRunner) {
+    throw StateError('core does not implement FrameRunner');
+  }
   core.setSram(Sram());
   if (bios != null && core is Gba) {
     core.setBiosFiles([File(bios).readAsBytesSync()]);
   }
   if (files[0] == "32x") {
-    final roms = boot32x!.split(",").map((f) => File(f).readAsBytesSync()).toList();
-    (core as Md).setExpansionBootRoms(
-        main: roms[0], master: roms[1], slave: roms[2]);
+    final roms =
+        boot32x!.split(",").map((f) => File(f).readAsBytesSync()).toList();
+    (core as Md)
+        .setExpansionBootRoms(main: roms[0], master: roms[1], slave: roms[2]);
   }
   AsyncCdromDrive? drive;
   if (files.length > 2) {
@@ -127,7 +125,8 @@ Future<void> main(List<String> args) async {
     core.setCdromDrive(drive);
   }
   // gba boots from setRom; a reset afterwards drops the boot state
-  if (files[0] != "gba" && files[0] != "mdcd" && files[0] != "32x") core.reset();
+  if (files[0] != "gba" && files[0] != "mdcd" && files[0] != "32x")
+    core.reset();
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
@@ -159,14 +158,17 @@ Future<void> main(List<String> args) async {
   int frame = 0;
 
   while (frame < frames) {
-    final r = core.exec(false);
+    final r = frameRunner
+        ? (core as FrameRunner).runFrame(core.scanlinesInFrame)
+        : core.exec(false);
     if (r.stopped) {
       print("stopped at frame $frame\n${core.dump()}");
       _savePng(core.imageBuffer(), "$outDir/stopped.png");
       exit(2);
     }
     if (!r.scanlineRendered) continue;
-    if (++lines < core.scanlinesInFrame) continue;
+    lines += frameRunner ? core.scanlinesInFrame : 1;
+    if (lines < core.scanlinesInFrame) continue;
     lines = 0;
     frame++;
     // sectors are read in the background: wait for them at each frame so
@@ -197,6 +199,33 @@ Future<void> main(List<String> args) async {
   }
   File("$outDir/state.txt").writeAsStringSync(core.dump());
   print(core.dump());
+}
+
+Core _createCore(String name) {
+  switch (name) {
+    case 'nes':
+      return Nes();
+    case 'pce':
+      return Pce();
+    case 'md':
+      return Md();
+    case 'mdcd':
+      return Md(cdBoot: true);
+    case '32x':
+      return Md(expansionBoot: true);
+    case 'ps':
+      return Ps();
+    case 'snes':
+      return Snes();
+    case 'gb':
+      return Gb();
+    case 'gba':
+      return Gba();
+    case 'n64':
+      return N64();
+    default:
+      throw ArgumentError('unknown core: $name');
+  }
 }
 
 Uint8List _wav(Uint8List pcm, int rate, int channels) {
@@ -250,7 +279,8 @@ void _saveVram(Ps ps, String path) {
     for (int x = 0; x < 1024; x++) {
       final c = fb[y * 1024 + x];
       int e(int v) => (v << 3) | (v >> 2);
-      image.setPixelRgb(x, y, e(c & 0x1f), e((c >> 5) & 0x1f), e((c >> 10) & 0x1f));
+      image.setPixelRgb(
+          x, y, e(c & 0x1f), e((c >> 5) & 0x1f), e((c >> 10) & 0x1f));
     }
   }
   File(path).writeAsBytesSync(img.encodePng(image));
