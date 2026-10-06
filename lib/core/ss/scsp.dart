@@ -145,6 +145,7 @@ class Scsp {
 
   // ---- registers ----
 
+  @pragma('vm:prefer-inline')
   int _slotReg(int slot, int reg) => _regs[slot * 0x10 + reg];
 
   int get _scieb => _regs[0x41e >> 1];

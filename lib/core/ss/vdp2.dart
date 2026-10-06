@@ -26,6 +26,7 @@ class _MapCfg {
   bool ccEnabled = false;
   int sfprMode = 0;
 
+  @pragma('vm:prefer-inline')
   int get pageBytes => pnSize == 2
       ? (char16 ? 0x800 : 0x2000)
       : (char16 ? 0x1000 : 0x4000);
@@ -461,6 +462,7 @@ class Vdp2 {
 
   static const _cellBytes = [32, 64, 128, 128, 256, 256, 256, 256];
 
+  @pragma('vm:prefer-inline')
   int _cellDot(_MapCfg cfg, int x, int y) {
     x &= cfg.mapDotsW - 1;
     y &= cfg.mapDotsH - 1;
@@ -520,6 +522,7 @@ class Vdp2 {
     _cellVf = _pnVf;
   }
 
+  @pragma('vm:prefer-inline')
   int _bitmapDot(_MapCfg cfg, int x, int y) {
     x &= cfg.bitmapW - 1;
     y &= cfg.bitmapH - 1;

@@ -174,12 +174,14 @@ class Sh2OnChip {
     if (wtcsr.bit5) {
       final wdtDiv = _wdtDivs[wtcsr & 7];
       _wdtSub += clocks;
-      while (_wdtSub >= wdtDiv) {
-        _wdtSub -= wdtDiv;
-        wtcnt = (wtcnt + 1) & 0xff;
-        if (wtcnt == 0) {
-          wtcsr |= 0x80; // OVF (interval timer mode)
+      if (_wdtSub >= wdtDiv) {
+        final steps = _wdtSub ~/ wdtDiv;
+        _wdtSub -= steps * wdtDiv;
+        final count = wtcnt + steps;
+        if (count > 0xff) {
+          wtcsr |= 0x80; // OVF (interval timer mode): passed through 0
         }
+        wtcnt = count & 0xff;
       }
     }
   }

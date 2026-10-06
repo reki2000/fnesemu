@@ -33,6 +33,7 @@ extension on Vdp2 {
     return s / 65536.0;
   }
 
+  @pragma('vm:prefer-inline')
   static int _sx(int raw, int bits) {
     final m = (1 << bits) - 1;
     final v = raw & m;
@@ -139,6 +140,7 @@ extension on Vdp2 {
   static const _transparentCoef = 0x7fffffff;
 
   // returns the coefficient value as 16.16 fixed, or _transparentCoef
+  @pragma('vm:prefer-inline')
   int _readCoef(_RotParam r, double ka) {
     final index = r.coefOffset + ka.floor();
     if (r.coefWord) {
