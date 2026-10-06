@@ -35,6 +35,9 @@ class Vpc {
 
   Uint32List frameBuffer = Uint32List(0);
 
+  // VCE colour table converted to RGBA, rebuilt per frame
+  final _palette = Uint32List(0x200);
+
   void reset() {
     enabled = false;
     priority0 = 0x11;
@@ -95,10 +98,15 @@ class Vpc {
     final n = buf.length;
     if (frameBuffer.length != n) frameBuffer = Uint32List(n);
     final ct = vdc.colorTable;
+    final pal = _palette;
+    for (int i = 0; i < 0x200; i++) {
+      pal[i] = rgba[ct[i]];
+    }
 
+    final fb = frameBuffer;
     for (int i = 0; i < n; i++) {
       final idx = buf[i];
-      frameBuffer[i] = idx == 0xffff ? 0xffffffff : rgba[ct[idx]];
+      fb[i] = idx == 0xffff ? 0xffffffff : pal[idx];
     }
   }
 

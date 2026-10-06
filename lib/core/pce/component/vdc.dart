@@ -148,7 +148,7 @@ class Vdc {
   bool bgTreatPlane23Zero = false;
   int vramDotWidth = 0;
 
-  final vram = List<int>.filled(0x10000, 0); // 2 bytes per word
+  final vram = Uint16List(0x10000); // 2 bytes per word
 
   final sat = List<int>.filled(0x100, 0);
 
