@@ -24,7 +24,7 @@ import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes implements Core {
+class Nes implements Core, FrameRunner {
   Nes() {
     bus = Bus();
     cpu = Cpu(bus);
@@ -69,9 +69,26 @@ class Nes implements Core {
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec(bool _) {
-    if (!cpu.exec()) {
-      return ExecResult(cpu.cycle, true, false);
+    final status = _advance();
+    return ExecResult(cpu.cycle, status == 2, status == 1);
+  }
+
+  @override
+  ExecResult runFrame(int scanlines) {
+    var rendered = false;
+    while (scanlines > 0) {
+      final status = _advance();
+      if (status == 2) return ExecResult(cpu.cycle, true, false);
+      rendered = status == 1;
+      if (rendered) scanlines--;
     }
+    return ExecResult(cpu.cycle, false, rendered);
+  }
+
+  // 0: no line, 1: line rendered, 2: CPU stopped.
+  @pragma('vm:prefer-inline')
+  int _advance() {
+    if (!cpu.exec()) return 2;
 
     bool rendered = false;
     if (cpu.cycle >= _nextPpuCycle) {
@@ -89,7 +106,7 @@ class Nes implements Core {
       _pushApuBuffer(apuBuf, auxBuf);
     }
 
-    return ExecResult(cpu.cycle, false, rendered);
+    return rendered ? 1 : 0;
   }
 
   // returns audio buffer as float32 with (1.78M/2) Hz * 1/60 samples
@@ -141,7 +158,6 @@ class Nes implements Core {
   void padDown(int id, PadButton k) => bus.joypad.keyDown(id, k);
   @override
   void padUp(int id, PadButton k) => bus.joypad.keyUp(id, k);
-
 
   @override
   void setCdromDrive(CdromDrive drive) {}
