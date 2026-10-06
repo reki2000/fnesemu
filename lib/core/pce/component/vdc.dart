@@ -170,6 +170,10 @@ class Vdc {
   final spriteBuf =
       List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
   int spriteBufIndex = 0;
+  // line buffers of the renderer: sprite pixel per x, and the decoded
+  // pixels of each buffered sprite (32 per sprite)
+  final spriteLine = Int32List(0x200);
+  final spritePixels = Int32List(16 * 32);
   final sprite0 = List<bool>.filled(32, false); // x of sprite 0
 
   int readReg() {
