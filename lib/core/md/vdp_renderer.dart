@@ -51,14 +51,23 @@ class Sprite {
 
 // a pixel of a layer is encoded in an int: bit0-5: color (palette | color
 // number), bit6: priority. it is visible when the color number is not 0.
-const _bitPrior = 0x40;
+const _pixelPriorityFlag = 0x40;
+const _pixelColorNumberMask = 0x0f;
+const _pixelPaletteMask = 0x30;
+const _pixelColorMask = _pixelPaletteMask | _pixelColorNumberMask;
+const _priorityAndColorNumberMask = _pixelPriorityFlag | _pixelColorNumberMask;
+const _spriteHFlipFlag = 1;
+const _spriteVFlipFlag = 2;
 
-// visible and prior
+// A masked value exceeds the priority flag only when the flag is set and
+// the color number is nonzero. Ignoring palette bits keeps color 0 transparent.
+// One AND and one comparison retain the original per-pixel operation count.
 @pragma('vm:prefer-inline')
-bool _isPriorVisible(int c) => c & 0x4f > _bitPrior;
+bool _isPriorVisible(int pixel) =>
+    (pixel & _priorityAndColorNumberMask) > _pixelPriorityFlag;
 
 @pragma('vm:prefer-inline')
-bool _isVisible(int c) => c & 0x0f != 0;
+bool _isVisible(int pixel) => (pixel & _pixelColorNumberMask) != 0;
 
 /// state of a plane (a, b or window) while rendering a line: the tile pattern
 /// is fetched again only when the tile is changed
@@ -68,7 +77,7 @@ class _Plane {
   int yOffsetInTile = 0; // scroll added
   int tileY = 0;
   int pattern = 0; // 32 bit c3c2c1c0 * 8
-  int attr = 0; // palette (pp0000) | priority (_bitPrior)
+  int attr = 0; // palette (pp0000) | priority (_pixelPriorityFlag)
   int hFlipXor = 0;
   int fetchedHHigh = -1;
 
@@ -88,7 +97,8 @@ class _Plane {
     final d0 = vram[name];
     final d1 = vram[name + 1];
 
-    attr = (d0 >> 1) & 0x30 | (d0 & 0x80 != 0 ? _bitPrior : 0);
+    attr = (d0 >> 1) & _pixelPaletteMask |
+        (d0 & 0x80 != 0 ? _pixelPriorityFlag : 0);
     hFlipXor = d0 & 0x08 != 0 ? 0 : 7;
     final vFlipXor = d0 & 0x10 != 0 ? maskTileYOffset : 0;
 
@@ -102,13 +112,14 @@ class _Plane {
 
   @pragma('vm:prefer-inline')
   int pixel(int xOffsetInTile) =>
-      attr | (pattern >> ((xOffsetInTile ^ hFlipXor) << 2)) & 0x0f;
+      attr |
+      (pattern >> ((xOffsetInTile ^ hFlipXor) << 2)) & _pixelColorNumberMask;
 }
 
 /// per line work buffers of the renderer
 class VdpLineState {
   int bitsBgWidth =
-      0; // shift for scnaline(doubled in interlace mode 2) to tile_y
+      0; // shift for scanline (doubled in interlace mode 2) to tile_y
   int maskBgWidth = 0; // mask for tile_x
   int maskScrollH = 0; // mask for hscroll+hcounter
   int maskScrollV = 0; // mask for vscroll+vcounter
@@ -118,6 +129,8 @@ class VdpLineState {
   int y = 0;
   int yy = 0; // doubled when interlace mode
 
+  // Parallel arrays share one sprite slot; only [0, spriteBufIndex) is valid.
+  // storeSprite writes every attribute together before the slot becomes valid.
   // sprites on the line: x, y, pattern address, palette | priority,
   // flags (bit0: hflip, bit1: vflip), width, height, vertical cells
   final spX = Int32List(20);
@@ -129,6 +142,30 @@ class VdpLineState {
   final spHeight = Int32List(20);
   final spVCells = Int32List(20);
   int spriteBufIndex = 0;
+
+  // Store every parallel-array attribute together; the renderer advances its
+  // valid slot count only after this write. No sprite object is allocated.
+  @pragma('vm:prefer-inline')
+  void storeSprite(
+    int slot, {
+    required int x,
+    required int y,
+    required int pattern,
+    required int attributes,
+    required int flags,
+    required int width,
+    required int height,
+    required int verticalCells,
+  }) {
+    spX[slot] = x;
+    spY[slot] = y;
+    spPattern[slot] = pattern;
+    spAttr[slot] = attributes;
+    spFlags[slot] = flags;
+    spWidth[slot] = width;
+    spHeight[slot] = height;
+    spVCells[slot] = verticalCells;
+  }
 
   // sprite pixels of the line
   final spLine = Int32List(320);
@@ -187,14 +224,17 @@ extension VdpRenderer on Vdp {
           break;
         }
 
-        s.spX[n] = d3 & 0x1ff;
-        s.spY[n] = spY;
-        s.spPattern[n] = (d2 << 5) & 0xffe0;
-        s.spAttr[n] = (d2 >> 9) & 0x30 | (d2 & 0x8000 != 0 ? _bitPrior : 0);
-        s.spFlags[n] = (d2 & 0x0800 != 0 ? 1 : 0) | (d2 & 0x1000 != 0 ? 2 : 0);
-        s.spWidth[n] = width;
-        s.spHeight[n] = height;
-        s.spVCells[n] = vCells;
+        s.storeSprite(n,
+            x: d3 & 0x1ff,
+            y: spY,
+            pattern: (d2 << 5) & 0xffe0,
+            attributes: (d2 >> 9) & _pixelPaletteMask |
+                (d2 & 0x8000 != 0 ? _pixelPriorityFlag : 0),
+            flags: (d2 & 0x0800 != 0 ? _spriteHFlipFlag : 0) |
+                (d2 & 0x1000 != 0 ? _spriteVFlipFlag : 0),
+            width: width,
+            height: height,
+            verticalCells: vCells);
         n++;
       }
 
@@ -224,8 +264,8 @@ extension VdpRenderer on Vdp {
     for (int i = s.spriteBufIndex - 1; i >= 0; i--) {
       final spX = s.spX[i];
       final spW = s.spWidth[i];
-      final hFlip = s.spFlags[i] & 1 != 0;
-      final vFlip = s.spFlags[i] & 2 != 0;
+      final hFlip = s.spFlags[i] & _spriteHFlipFlag != 0;
+      final vFlip = s.spFlags[i] & _spriteVFlipFlag != 0;
       final attr = s.spAttr[i];
       final vCells = s.spVCells[i];
 
@@ -263,7 +303,7 @@ extension VdpRenderer on Vdp {
               vram[addr + 3];
         }
 
-        final colorNo = (pattern >> ((7 - x1) << 2)) & 0x0f;
+        final colorNo = (pattern >> ((7 - x1) << 2)) & _pixelColorNumberMask;
 
         if (colorNo > 0) {
           spLine[px] = attr | colorNo;
@@ -465,7 +505,7 @@ extension VdpRenderer on Vdp {
         }
       }
 
-      buf[bufferOffset + hc] = rgba[cr[color & 0x3f]];
+      buf[bufferOffset + hc] = rgba[cr[color & _pixelColorMask]];
       if (opq != null) opq[bufferOffset + hc] = visible ? 1 : 0;
     }
 

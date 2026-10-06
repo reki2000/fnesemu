@@ -75,12 +75,17 @@ class Snes implements Core, FrameRunner {
 
   void Function(AudioBuffer) _onAudio = (_) {};
 
+  static const _stepContinues = 0;
+  static const _stepRenderedLine = 1;
+  static const _stepStopped = 2;
+
   /// exec 1 cpu instruction, advance the scanline counter / vblank when
   /// enough cycles have passed.
   @override
   ExecResult exec(bool _) {
     final status = _advance();
-    return ExecResult(cpu.cycle, status == 2, status == 1);
+    return ExecResult(
+        cpu.cycle, status == _stepStopped, status == _stepRenderedLine);
   }
 
   @override
@@ -88,17 +93,17 @@ class Snes implements Core, FrameRunner {
     var rendered = false;
     while (scanlines > 0) {
       final status = _advance();
-      if (status == 2) return ExecResult(cpu.cycle, true, false);
-      rendered = status == 1;
+      if (status == _stepStopped) return ExecResult(cpu.cycle, true, false);
+      rendered = status == _stepRenderedLine;
       if (rendered) scanlines--;
     }
     return ExecResult(cpu.cycle, false, rendered);
   }
 
-  // 0: no line, 1: line rendered, 2: CPU stopped.
+  // Returns one of the _step* codes without allocating an instruction result.
   @pragma('vm:prefer-inline')
   int _advance() {
-    if (!cpu.exec()) return 2;
+    if (!cpu.exec()) return _stepStopped;
 
     apu.exec(cpu.cycle - _lastApuCycle, cpuClock);
     _lastApuCycle = cpu.cycle;
@@ -134,7 +139,7 @@ class Snes implements Core, FrameRunner {
       }
     }
 
-    return rendered ? 1 : 0;
+    return rendered ? _stepRenderedLine : _stepContinues;
   }
 
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;

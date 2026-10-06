@@ -604,6 +604,9 @@ class N64Graphics {
         intensity.toDouble(), intensity.toDouble());
   }
 
+  // RGB equation: (A - B) * C / 255 + D. C has additional alpha selectors.
+  static const _rgbInputA = 0, _rgbInputB = 1, _rgbInputC = 2, _rgbInputD = 3;
+
   List<double> _combine(List<double> shade, List<double> texture) {
     if (otherHigh.shr20.mask2 == 2) return texture;
     final combined = _combined..fillRange(0, 4, 0);
@@ -617,11 +620,11 @@ class N64Graphics {
       final ac = cycle == 0 ? combine0.shr9.mask3 : combine1.shr18.mask3;
       final ad = cycle == 0 ? combine1.shr9.mask3 : combine1.mask3;
       for (var i = 0; i < 3; i++) {
-        combined[i] = ((_combineRgb(a, i, 0, shade, texture) -
-                        _combineRgb(b, i, 1, shade, texture)) *
-                    _combineRgb(cc, i, 2, shade, texture) /
+        combined[i] = ((_combineRgb(a, i, _rgbInputA, shade, texture) -
+                        _combineRgb(b, i, _rgbInputB, shade, texture)) *
+                    _combineRgb(cc, i, _rgbInputC, shade, texture) /
                     255 +
-                _combineRgb(d, i, 3, shade, texture))
+                _combineRgb(d, i, _rgbInputD, shade, texture))
             .clamp(0, 255)
             .toDouble();
       }
@@ -639,7 +642,7 @@ class N64Graphics {
   @pragma('vm:prefer-inline')
   double _combineRgb(int selector, int channel, int slot, List<double> shade,
       List<double> texture) {
-    if (slot == 2 && selector >= 7) {
+    if (slot == _rgbInputC && selector >= 7) {
       if (selector == 7) return _combined[3];
       if (selector == 8 || selector == 9) return texture[3];
       if (selector == 10) return primitive[3];
@@ -652,7 +655,7 @@ class N64Graphics {
     if (selector == 3) return primitive[channel];
     if (selector == 4) return shade[channel];
     if (selector == 5) return environment[channel];
-    if (selector == 6 && (slot == 0 || slot == 3)) return 255;
+    if (selector == 6 && (slot == _rgbInputA || slot == _rgbInputD)) return 255;
     return 0;
   }
 

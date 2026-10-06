@@ -85,7 +85,7 @@ extension OpC on M68 {
     }
 
     // and
-    final size = _size0[op.shr6 & 0x03];
+    final size = _bytesBySizeField[op.shr6 & 0x03];
     final directionEa = op.bit8;
     final mode = op.shr3 & 0x07;
 

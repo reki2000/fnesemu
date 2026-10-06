@@ -130,6 +130,8 @@ class R3000 {
       cause = cause.setBit(10, onoff); // set cop0.cuase.ip2 on
 
   /// Executes a single instruction.
+  /// Register indices below are masked to five bits before accessing the
+  /// fixed 32-entry register file; keep that invariant with bounds checks off.
   @pragma('vm:unsafe:no-bounds-checks')
   bool step() {
     hook();
@@ -232,8 +234,9 @@ class R3000 {
     }
   }
 
-  /// Main instruction dispatch. switch statements with constant cases only,
-  /// so that they are compiled into jump tables.
+  /// Main instruction dispatch. Constant cases allow jump-table compilation.
+  /// rs/rt/rd are five-bit indices into the 32-entry register files. New
+  /// decoding paths must preserve those bounds under the unsafe pragma.
   @pragma('vm:unsafe:no-bounds-checks')
   void exec(int inst32) {
     final r = this.r;

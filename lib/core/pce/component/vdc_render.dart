@@ -181,7 +181,7 @@ extension VdcRenderer on Vdc {
     final fineY = bgRenderLine & 0x07;
     final dot3 = vramDotWidth == 3;
     final zero23 = bgTreatPlane23Zero;
-    final expand = _expand;
+    final expand = _planeBitsToPixels;
     int pal = paletteNo;
     int p01 = pattern01;
     int p23 = pattern23;
@@ -218,7 +218,7 @@ extension VdcRenderer on Vdc {
           final sp = spl[x];
           // the sprite is in front when it has the priority or the bg is clear
           buf[base + x] =
-              (sp & _spPrior) != 0 || c == 0 ? sp & 0x1ff : pal | c;
+              (sp & _spritePriorityFlag) != 0 || c == 0 ? sp & 0x1ff : pal | c;
         }
       } else {
         for (; x < end; x++, shift--) {
@@ -233,8 +233,10 @@ extension VdcRenderer on Vdc {
     pattern23 = p23;
   }
 
-  // bit n of a byte moved to bit n * 4 (planar to 4-bit chunky pixels)
-  static final _expand = Uint32List.fromList(List.generate(256, (b) {
+  // Bit n of a plane byte moves to bit n * 4 in eight 4-bit pixel slots.
+  // Example: 0b00000011 -> 0x00000011; four planes are ORed at shifts 0..3.
+  // Higher input bits represent the pixels drawn first (left to right).
+  static final _planeBitsToPixels = Uint32List.fromList(List.generate(256, (b) {
     int v = 0;
     for (int n = 0; n < 8; n++) {
       v |= ((b >> n) & 1) << (n * 4);
@@ -242,13 +244,13 @@ extension VdcRenderer on Vdc {
     return v;
   }));
 
-  static const _spPrior = 0x10000;
+  static const _spritePriorityFlag = 0x10000;
 
   // whether a sprite of the line buffer has a non-transparent pixel
   static final _spriteOpaque = List<bool>.filled(16, false);
 
   // fills spriteLine[0..w) with the sprite pixel of each x: the 9-bit color
-  // (palette | color no, color no != 0) | _spPrior, or 0 when there is none.
+  // (palette | color no, color no != 0) | _spritePriorityFlag, or 0 when there is none.
   // the first opaque sprite in the buffer wins, as in _renderSprite().
   void _renderSpriteLine(int w) {
     final spl = spriteLine;
@@ -260,7 +262,7 @@ extension VdcRenderer on Vdc {
     final pix = spritePixels;
     final dot3 = vramDotWidth == 3;
 
-    final expand = _expand;
+    final expand = _planeBitsToPixels;
     final opaque = _spriteOpaque;
 
     // decode the pixels of each sprite of this line, 16 at a time
@@ -326,7 +328,7 @@ extension VdcRenderer on Vdc {
         final sp = spriteBuf[i];
         final xs = sp.x - 32 < 0 ? 0 : sp.x - 32;
         final xe = sp.x - 32 + sp.width > w ? w : sp.x - 32 + sp.width;
-        final attr = sp.paletteNo | (sp.priority ? _spPrior : 0);
+        final attr = sp.paletteNo | (sp.priority ? _spritePriorityFlag : 0);
         final off = i * 32 + 32 - sp.x;
         for (int x = xs; x < xe; x++) {
           final c = pix[off + x];
@@ -352,7 +354,7 @@ extension VdcRenderer on Vdc {
           raiseIrq(Vdc.statusSpriteCollision);
         }
         if (c > 0) {
-          spl[x] = sp.paletteNo | c | (sp.priority ? _spPrior : 0);
+          spl[x] = sp.paletteNo | c | (sp.priority ? _spritePriorityFlag : 0);
           break;
         }
       }

@@ -34,6 +34,12 @@ extension PpuRenderer on Ppu {
   // base vram address for palette
   static const paletteBase = 0x3f00;
 
+  // Sprite row entry: palette RAM offset [7:0], in front of BG [8], sprite 0 [9].
+  // Zero represents transparency. These are renderer flags, not OAM bits.
+  static const _spritePaletteMask = 0xff;
+  static const _spriteFrontFlag = 0x100;
+  static const _spriteZeroFlag = 0x200;
+
   // https://wiki.nesdev.org/w/index.php/PPU_palettes
   static final _colorRGB = """
  84  84  84    0  30 116    8  16 144   48   0 136   68   0 100   92   0  48   84   4   0   60  24   0   32  42   0    8  58   0    0  64   0    0  60   0    0  50  60    0   0   0  0 0 0  0 0 0
@@ -213,8 +219,8 @@ extension PpuRenderer on Ppu {
         o.pattern1 <<= 1;
         if (color == 0 || line[x] != 0) continue;
         line[x] = (0x10 + o.palette * 4 + color) |
-            (o.isPrior ? 0x100 : 0) |
-            (o.index == 0 ? 0x200 : 0);
+            (o.isPrior ? _spriteFrontFlag : 0) |
+            (o.index == 0 ? _spriteZeroFlag : 0);
       }
     }
   }
@@ -224,10 +230,10 @@ extension PpuRenderer on Ppu {
     final sprite = spriteLine[x];
     if (sprite == 0 || clipped) return color;
     if (bgColorNum != 0) {
-      if (sprite & 0x200 != 0 && x != 255) detectObj0 = true;
-      if (sprite & 0x100 == 0) return color;
+      if (sprite & _spriteZeroFlag != 0 && x != 255) detectObj0 = true;
+      if (sprite & _spriteFrontFlag == 0) return color;
     }
-    return readVram(paletteBase + (sprite & 255));
+    return readVram(paletteBase + (sprite & _spritePaletteMask));
   }
 
   void renderLine() {

@@ -123,9 +123,8 @@ class Vdp1 {
 
   void writeFb8(int addr, int data) {
     final i = (addr >> 1) & 0x1ffff;
-    drawFb[i] = addr.bit0
-        ? drawFb[i] & 0xff00 | data
-        : drawFb[i] & 0x00ff | data << 8;
+    drawFb[i] =
+        addr.bit0 ? drawFb[i] & 0xff00 | data : drawFb[i] & 0x00ff | data << 8;
   }
 
   // ---- frame change ----
@@ -414,8 +413,7 @@ class Vdp1 {
 
   static int _half(int c) => (c >> 1) & 0x3def | 0x8000;
 
-  static int _avg(int a, int b) =>
-      ((a & 0x7bde) + (b & 0x7bde) >> 1) | 0x8000;
+  static int _avg(int a, int b) => ((a & 0x7bde) + (b & 0x7bde) >> 1) | 0x8000;
 
   // gouraud values in 5.16 fixed point
   int _gr = 0, _gg = 0, _gb = 0;
@@ -513,16 +511,17 @@ class Vdp1 {
       _endCodes = 0;
       final ty = (y - y0) * 65536 ~/ dh;
 
-      // end codes are counted from the left edge of the sprite.
+      // Start at x0 even when it is clipped: end codes are counted from the
+      // sprite's original left edge, so jumping straight to xs changes them.
       // u = (x - x0) * _texW ~/ dw, stepped without a division per dot
       final texW = _texW;
-      int uq = 0, ur = 0;
+      int textureColumn = 0, textureRemainder = 0;
       for (int x = x0; x <= xe; x++) {
-        int u = uq;
-        ur += texW;
-        while (ur >= dw) {
-          ur -= dw;
-          uq++;
+        int u = textureColumn;
+        textureRemainder += texW;
+        while (textureRemainder >= dw) {
+          textureRemainder -= dw;
+          textureColumn++;
         }
         if (hf) u = texW - 1 - u;
 
@@ -599,8 +598,8 @@ class Vdp1 {
         grB = (_grd[5] << 16) + (_grd[8] - _grd[5]) * t;
       }
 
-      _texLine(lx, ly, rx, ry, v, textured, gouraud, glR, glG, glB, grR, grG,
-          grB);
+      _texLine(
+          lx, ly, rx, ry, v, textured, gouraud, glR, glG, glB, grR, grG, grB);
     }
   }
 

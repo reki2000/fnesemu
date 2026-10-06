@@ -99,7 +99,7 @@ extension Op8 on M68 {
     }
 
     // or
-    final size = _size0[op.shr6 & 0x03];
+    final size = _bytesBySizeField[op.shr6 & 0x03];
     final mode = op.shr3 & 0x07;
     final directionEa = op.bit8;
 

@@ -69,7 +69,11 @@ class Gba implements Core, FrameRunner {
   static const _visibleLines = 160;
 
   @override
-  ExecResult exec(bool step) => ExecResult(_advanceClocks(), false, _rendered);
+  ExecResult exec(bool step) {
+    // Advancing also updates _rendered; capture the result after that update.
+    final elapsedClocks = _advanceClocks();
+    return ExecResult(elapsedClocks, false, _rendered);
+  }
 
   bool _rendered = false;
 

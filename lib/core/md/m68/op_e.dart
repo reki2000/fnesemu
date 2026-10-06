@@ -63,7 +63,7 @@ extension OpE on M68 {
       return false;
     } else {
       //
-      final size = _size0[op.shr6 & 0x03];
+      final size = _bytesBySizeField[op.shr6 & 0x03];
 
       int rot = 0;
       if (op.bit5) {

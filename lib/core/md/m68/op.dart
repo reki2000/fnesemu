@@ -28,7 +28,7 @@ extension Op on M68 {
         case 0x01:
         case 0x02:
         case 0x03:
-          final size = _size2[op.shr12 & 0x03];
+          final size = _bytesByMoveOpcode[op.shr12 & 0x03];
           final src = op & 0x07;
           final modeSrc = op.shr3 & 0x07;
           final dst = op.shr9 & 0x07;
@@ -146,7 +146,7 @@ extension Op on M68 {
     // addq, subq
     final reg = op & 0x07;
     final data = op.shr9 & 0x07;
-    final size = _size0[op.shr6 & 0x03];
+    final size = _bytesBySizeField[op.shr6 & 0x03];
     final mode = op.shr3 & 0x07;
 
     final b = data == 0 ? 8 : data;
@@ -217,7 +217,7 @@ extension Op on M68 {
 
     if (op & 0x130 == 0x100) {
       // subx
-      final size = _size0[s0];
+      final size = _bytesBySizeField[s0];
 
       if (op.bit3) {
         int a, b = 0;
@@ -238,7 +238,7 @@ extension Op on M68 {
     }
 
     // sub
-    final size = _size0[s0];
+    final size = _bytesBySizeField[s0];
     final directionEa = op.bit8;
 
     int dd = d[dn].mask(size);
@@ -258,12 +258,12 @@ extension Op on M68 {
   bool execB(int op) {
     final ry = op & 0x07;
     final rx = op.shr9 & 0x07;
-    final size = _size0[op.shr6 & 0x03];
+    final size = _bytesBySizeField[op.shr6 & 0x03];
     final mode = op.shr3 & 0x07;
 
     if (op & 0x00c0 == 0x00c0) {
       //cmpa
-      final size = _size1[op.shr8 & 0x01];
+      final size = _bytesByWordLongBit[op.shr8 & 0x01];
       final src = readAddr(size, mode, ry);
       final dst = a[rx];
       sub(dst, (size == 2) ? src.rel16.mask32 : src, 4, cmp: true);
@@ -318,7 +318,7 @@ extension Op on M68 {
 
     // addx
     if (op & 0x130 == 0x100) {
-      final size = _size0[s0];
+      final size = _bytesBySizeField[s0];
 
       if (op.bit3) {
         final b = read(preDec(xn, size), size);
@@ -339,7 +339,7 @@ extension Op on M68 {
     }
 
     // add
-    final size = _size0[s0];
+    final size = _bytesBySizeField[s0];
     final directionEa = op.bit8;
 
     int aa = d[dn].mask(size);

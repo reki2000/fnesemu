@@ -67,7 +67,7 @@ extension Op0 on M68 {
     }
 
     final mode = op.shr3 & 0x07;
-    final size = _size0[op.shr6 & 0x03];
+    final size = _bytesBySizeField[op.shr6 & 0x03];
     final xn = op & 0x07;
 
     switch (op.shr9 & 0x07) {

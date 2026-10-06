@@ -411,7 +411,9 @@ class Apu {
     }
   }
 
-  // Keep channel addition order and DAC arithmetic identical.
+  // Deliberately unrolled: each output getter has a concrete channel type.
+  // Keep DAC scaling identical in all four blocks and preserve addition order;
+  // a common _Channel helper would reintroduce polymorphic calls here.
   @pragma('vm:prefer-inline')
   void _mix() {
     final nr51 = _regs[0x15];

@@ -10,10 +10,13 @@ part 'op_8.dart';
 part 'op_c.dart';
 part 'op_e.dart';
 
-// "size" to byte length
-const _size0 = [1, 2, 4, 0]; // commonly used
-const _size1 = [2, 4]; // 1 bit
-const _size2 = [0, 1, 4, 2]; // chk, movea, move
+// Encoded instruction size to byte count; 0 denotes an unused encoding.
+// Two-bit size field: byte, word, long, unused.
+const _bytesBySizeField = [1, 2, 4, 0];
+// Single word/long bit: word, long.
+const _bytesByWordLongBit = [2, 4];
+// MOVE opcode nibble: unused, byte, long, word.
+const _bytesByMoveOpcode = [0, 1, 4, 2];
 
 class BusError implements Exception {
   final bool read;
@@ -252,7 +255,7 @@ class M68 {
     final ex = pc16();
     final modeAn = ex.bit15;
     final xn = ex.shr12 & 0x07;
-    final size = _size1[ex.shr11 & 0x01];
+    final size = _bytesByWordLongBit[ex.shr11 & 0x01];
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.mask8.rel8;
     // debug(

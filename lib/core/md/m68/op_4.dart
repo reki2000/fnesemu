@@ -77,7 +77,7 @@ extension Op4 on M68 {
       return true;
     }
 
-    final size = _size0[op.shr6 & 0x03];
+    final size = _bytesBySizeField[op.shr6 & 0x03];
     final mod = op.shr3 & 0x07;
     final reg = op & 0x07;
 

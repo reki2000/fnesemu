@@ -44,11 +44,16 @@ class Gb implements Core, FrameRunner {
   // ROM CRC
   String crc = "";
 
+  static const _stepContinues = 0;
+  static const _stepRenderedLine = 1;
+  static const _stepStopped = 2;
+
   /// exec 1 cpu instruction and render image/audio if enough cycles passed
   @override
   ExecResult exec(bool step) {
     final status = _advance();
-    return ExecResult(bus.clocks, status == 2, status == 1);
+    return ExecResult(
+        bus.clocks, status == _stepStopped, status == _stepRenderedLine);
   }
 
   @override
@@ -56,17 +61,17 @@ class Gb implements Core, FrameRunner {
     var rendered = false;
     while (scanlines > 0) {
       final status = _advance();
-      if (status == 2) return ExecResult(bus.clocks, true, false);
-      rendered = status == 1;
+      if (status == _stepStopped) return ExecResult(bus.clocks, true, false);
+      rendered = status == _stepRenderedLine;
       if (rendered) scanlines--;
     }
     return ExecResult(bus.clocks, false, rendered);
   }
 
-  // 0: no line, 1: line rendered, 2: CPU stopped.
+  // Returns one of the _step* codes without allocating an instruction result.
   @pragma('vm:prefer-inline')
   int _advance() {
-    if (!cpu.exec()) return 2;
+    if (!cpu.exec()) return _stepStopped;
 
     var rendered = false;
     if (bus.clocks >= _nextScanlineClocks) {
@@ -78,7 +83,7 @@ class Gb implements Core, FrameRunner {
       _onAudio(AudioBuffer(Apu.sampleRate, 2, apu.takeBuffer()));
     }
 
-    return rendered ? 1 : 0;
+    return rendered ? _stepRenderedLine : _stepContinues;
   }
 
   @override
