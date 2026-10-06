@@ -115,6 +115,19 @@ class Cpu {
     final inhibit = _irqInhibitOnce;
     _irqInhibitOnce = false;
 
+    if (holdIrq1 || holdIrq2 || holdTirq || holdNmi) {
+      _enterInterrupts(inhibit);
+    }
+
+    if (tFlagOn) {
+      regs.p |= Flags.T;
+      tFlagOn = false;
+    } else {
+      regs.p &= ~Flags.T;
+    }
+  }
+
+  void _enterInterrupts(bool inhibit) {
     // exec irq on the next execution
     if (!inhibit && holdIrq1 && (regs.p & Flags.I) == 0) {
       holdIrq1 = false;
@@ -137,13 +150,6 @@ class Cpu {
     if (holdNmi) {
       holdNmi = false;
       interrupt(nmi: true);
-    }
-
-    if (tFlagOn) {
-      regs.p |= Flags.T;
-      tFlagOn = false;
-    } else {
-      regs.p &= ~Flags.T;
     }
   }
 
