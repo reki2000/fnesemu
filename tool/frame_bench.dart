@@ -165,10 +165,12 @@ Future<void> main(List<String> options) async {
           'frames': measured,
           'us': timer.elapsedMicroseconds,
           'msPerFrame': timer.elapsedMicroseconds / measured / 1000,
-          'fps': measured * 1000000 / timer.elapsedMicroseconds,
+          'fps': timer.elapsedMicroseconds > 0
+              ? measured * 1000000 / timer.elapsedMicroseconds
+              : null,
           'cpuUs': cpuUs,
           'cpuMsPerFrame': cpuUs / measured / 1000,
-          'cpuFps': measured * 1000000 / cpuUs,
+          'cpuFps': cpuUs > 0 ? measured * 1000000 / cpuUs : null,
           'clocks': clocks,
           'samples': samples
         }));
