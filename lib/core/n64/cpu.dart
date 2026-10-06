@@ -114,7 +114,7 @@ class Vr4300 {
     _delay = false;
     try {
       aligned(pc, 4);
-      final op = bus.read(pc, 4);
+      final op = bus.fetch(pc);
       pc = nextPc;
       nextPc = (nextPc + 4).mask32;
       if (op == 0) {
@@ -125,7 +125,7 @@ class Vr4300 {
       if ((op == 0x1000ffff ||
               (code == 2 &&
                   (((at + 4) & 0xf0000000) | op.mask26.shl2) == at)) &&
-          bus.read((at + 4).mask32, 4) == 0) {
+          bus.fetch((at + 4).mask32) == 0) {
         _idleAddress = at;
       }
       final s = op.shr21.mask5, t = op.shr16.mask5;

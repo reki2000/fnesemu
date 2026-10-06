@@ -39,6 +39,7 @@ class N64Bus {
       cartSram[i] = v;
     }
   }
+
   int scanline = 0, spPc = 0;
   int audioCycles = 0;
   void Function()? onTask;
@@ -128,6 +129,20 @@ class N64Bus {
       return value.shr((3 - a.mask2) * 8).mask8;
     }
     throw UnsupportedError('N64 bus read 0x${a.hex}');
+  }
+
+  // Instruction fetches overwhelmingly use direct-mapped RDRAM. Keep the
+  // mapped and device paths in read() so TLB faults and MMIO stay unchanged.
+  @pragma('vm:prefer-inline')
+  int fetch(int address) {
+    final a = address.mask32;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      final physicalAddress = a & 0x1fffffff;
+      if (physicalAddress + 4 <= ram.length) {
+        return ramData.getUint32(physicalAddress);
+      }
+    }
+    return read(address, 4);
   }
 
   int read(int address, int size) {
