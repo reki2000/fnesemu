@@ -411,26 +411,31 @@ class Apu {
     }
   }
 
-  // DAC output in -1.0 .. 1.0, 0.0 when the DAC is off
-  static double _dac(_Channel ch) =>
-      ch.dacEnabled ? ch.output / 7.5 - 1.0 : 0.0;
-
+  // Keep channel addition order and DAC arithmetic identical.
+  @pragma('vm:prefer-inline')
   void _mix() {
     final nr51 = _regs[0x15];
     var l = 0.0, r = 0.0;
 
-    for (int i = 0; i < 4; i++) {
-      final ch = _channels[i];
-      if (nr51 & (0x11 << i) == 0) {
-        continue;
-      }
-      final v = _dac(ch);
-      if (nr51 & (0x10 << i) != 0) {
-        l += v;
-      }
-      if (nr51 & (0x01 << i) != 0) {
-        r += v;
-      }
+    if (nr51 & 0x11 != 0) {
+      final v = _ch1.dacEnabled ? _ch1.output / 7.5 - 1.0 : 0.0;
+      if (nr51 & 0x10 != 0) l += v;
+      if (nr51 & 0x01 != 0) r += v;
+    }
+    if (nr51 & 0x22 != 0) {
+      final v = _ch2.dacEnabled ? _ch2.output / 7.5 - 1.0 : 0.0;
+      if (nr51 & 0x20 != 0) l += v;
+      if (nr51 & 0x02 != 0) r += v;
+    }
+    if (nr51 & 0x44 != 0) {
+      final v = _ch3.dacEnabled ? _ch3.output / 7.5 - 1.0 : 0.0;
+      if (nr51 & 0x40 != 0) l += v;
+      if (nr51 & 0x04 != 0) r += v;
+    }
+    if (nr51 & 0x88 != 0) {
+      final v = _ch4.dacEnabled ? _ch4.output / 7.5 - 1.0 : 0.0;
+      if (nr51 & 0x80 != 0) l += v;
+      if (nr51 & 0x08 != 0) r += v;
     }
 
     final nr50 = _regs[0x14];
