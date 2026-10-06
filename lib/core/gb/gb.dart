@@ -16,7 +16,7 @@ import 'disasm.dart';
 import 'ppu.dart';
 
 /// main class of the gb core. integrates cpu/ppu/apu/timer/cartridge
-class Gb implements Core {
+class Gb implements Core, FrameRunner {
   final bus = Bus();
 
   Cpu get cpu => bus.cpu;
@@ -47,9 +47,26 @@ class Gb implements Core {
   /// exec 1 cpu instruction and render image/audio if enough cycles passed
   @override
   ExecResult exec(bool step) {
-    if (!cpu.exec()) {
-      return ExecResult(bus.clocks, true, false);
+    final status = _advance();
+    return ExecResult(bus.clocks, status == 2, status == 1);
+  }
+
+  @override
+  ExecResult runFrame(int scanlines) {
+    var rendered = false;
+    while (scanlines > 0) {
+      final status = _advance();
+      if (status == 2) return ExecResult(bus.clocks, true, false);
+      rendered = status == 1;
+      if (rendered) scanlines--;
     }
+    return ExecResult(bus.clocks, false, rendered);
+  }
+
+  // 0: no line, 1: line rendered, 2: CPU stopped.
+  @pragma('vm:prefer-inline')
+  int _advance() {
+    if (!cpu.exec()) return 2;
 
     var rendered = false;
     if (bus.clocks >= _nextScanlineClocks) {
@@ -61,7 +78,7 @@ class Gb implements Core {
       _onAudio(AudioBuffer(Apu.sampleRate, 2, apu.takeBuffer()));
     }
 
-    return ExecResult(bus.clocks, false, rendered);
+    return rendered ? 1 : 0;
   }
 
   @override
@@ -73,7 +90,6 @@ class Gb implements Core {
   void onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
-
 
   @override
   void setCdromDrive(CdromDrive drive) {}
@@ -158,10 +174,14 @@ class Gb implements Core {
   int stackPointer(int cpuNo) => cpu.sp;
 
   @override
-  TraceLog trace(int cpuNo) => TraceLog(cpu.pc, bus.clocks,
-      disasm(0, cpu.pc).$1.padRight(36), cpu.dump(),
+  TraceLog trace(int cpuNo) => TraceLog(
+      cpu.pc,
+      bus.clocks,
+      disasm(0, cpu.pc).$1.padRight(36),
+      cpu.dump(),
       [cpu.af, cpu.bc, cpu.de, cpu.hl, cpu.sp],
-      frame: ppu.frames, scanline: ppu.ly);
+      frame: ppu.frames,
+      scanline: ppu.ly);
 
   @override
   List<int> get vram => ppu.vram;
