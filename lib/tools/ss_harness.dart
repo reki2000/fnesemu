@@ -9,6 +9,9 @@
 //   -H, --hold N     frames to hold a pressed button (default: 10)
 //   -w, --wav        also write audio.wav (16bit pcm) and audio.f32 (raw float)
 //   -q, --quiet      no per-png log, print only the total time (benchmark)
+//   -b, --bench-from N  time only the frames after frame N
+//   --lock FILE      hold flock(1) on FILE while timing (shared benchmark lock)
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -27,6 +30,8 @@ Future<void> main(List<String> args) async {
   bool logCd = false;
   bool wav = false;
   bool quiet = false;
+  int benchFrom = 0;
+  String? lockFile;
   int holdFrames = 10;
   final files = <String>[];
 
@@ -42,6 +47,10 @@ Future<void> main(List<String> args) async {
         holdFrames = int.parse(args[++i]);
       case "-w" || "--wav":
         wav = true;
+      case "-b" || "--bench-from":
+        benchFrom = int.parse(args[++i]);
+      case "--lock":
+        lockFile = args[++i];
       case "-q" || "--quiet":
         quiet = true;
       case "-l" || "--log-cd":
@@ -83,6 +92,18 @@ Future<void> main(List<String> args) async {
   final sw = Stopwatch()..start();
   int lines = 0;
   int frame = 0;
+  Process? lock;
+
+  Future<void> startBench() async {
+    if (lockFile != null) {
+      lock = await Process.start(
+          "flock", [lockFile, "sh", "-c", "echo locked; read x"]);
+      await lock!.stdout.transform(utf8.decoder).first;
+    }
+    sw.reset();
+  }
+
+  if (benchFrom == 0) await startBench();
 
   while (frame < frames) {
     final r = ss.exec(false);
@@ -97,6 +118,7 @@ Future<void> main(List<String> args) async {
     lines = 0;
     frame++;
     await drive?.settle(); // result must not depend on the speed of the disc
+    if (frame == benchFrom) await startBench();
 
     for (final (f, b) in presses) {
       if (frame == f) ss.padDown(0, ss.buttons[b]);
@@ -116,9 +138,15 @@ Future<void> main(List<String> args) async {
   }
 
   final ms = sw.elapsedMilliseconds;
-  print("total $frames frames in $ms ms: "
-      "${(ms / frames).toStringAsFixed(3)} ms/frame, "
-      "${(frames * 1000 / ms).toStringAsFixed(1)} fps");
+  if (lock != null) {
+    lock!.stdin.writeln();
+    await lock!.stdin.close();
+    await lock!.exitCode;
+  }
+  final n = frames - benchFrom;
+  print("total $n frames ($benchFrom-$frames) in $ms ms: "
+      "${(ms / n).toStringAsFixed(3)} ms/frame, "
+      "${(n * 1000 / ms).toStringAsFixed(1)} fps");
 
   if (wav) {
     final raw = f32.toBytes();
