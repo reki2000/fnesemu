@@ -97,6 +97,7 @@ Future<void> main(List<String> args) async {
   int lines = 0;
   int frame = 0;
   Process? lock;
+  int cpuStart = 0;
 
   Future<void> startBench() async {
     if (lockFile != null) {
@@ -105,6 +106,7 @@ Future<void> main(List<String> args) async {
       await lock!.stdout.transform(utf8.decoder).first;
     }
     sw.reset();
+    cpuStart = _cpuMs();
   }
 
   if (benchFrom == 0) await startBench();
@@ -143,6 +145,7 @@ Future<void> main(List<String> args) async {
   }
 
   final ms = sw.elapsedMilliseconds;
+  final cpuMs = _cpuMs() - cpuStart;
   if (lock != null) {
     lock!.stdin.writeln();
     await lock!.stdin.close();
@@ -151,7 +154,8 @@ Future<void> main(List<String> args) async {
   final n = frames - benchFrom;
   print("total $n frames ($benchFrom-$frames) in $ms ms: "
       "${(ms / n).toStringAsFixed(3)} ms/frame, "
-      "${(n * 1000 / ms).toStringAsFixed(1)} fps");
+      "${(n * 1000 / ms).toStringAsFixed(1)} fps, "
+      "cpu ${(cpuMs / n).toStringAsFixed(3)} ms/frame");
 
   if (wav) {
     final raw = f32.toBytes();
@@ -161,6 +165,17 @@ Future<void> main(List<String> args) async {
   }
   File("$outDir/state.txt").writeAsStringSync(ss.dump());
   if (!quiet) print(ss.dump());
+}
+
+// cpu time (user + system) of this process in ms, 0 when not available
+int _cpuMs() {
+  try {
+    final stat = File("/proc/self/stat").readAsStringSync();
+    final f = stat.substring(stat.lastIndexOf(")") + 2).split(" ");
+    return (int.parse(f[11]) + int.parse(f[12])) * 10; // 100 ticks / s
+  } catch (_) {
+    return 0;
+  }
 }
 
 // 16bit stereo pcm
