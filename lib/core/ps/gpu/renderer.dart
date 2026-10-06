@@ -5,13 +5,14 @@ extension GpuRenderer on Gpu {
   static const int alphaChannel = 0xff000000;
 
   // Lookup table for faster color conversion
-  static final c15ToAbgr32 = List<int>.generate(32768, (i) {
+  static final c15ToAbgr32 = Uint32List.fromList(List<int>.generate(32768, (i) {
     final int b = (i.shr10 & 0x1f).shl3.shl16;
     final int g = (i.shr5 & 0x1f).shl3.shl8;
     final int r = ((i >> 0) & 0x1f).shl3 << 0;
     return alphaChannel | r | g | b;
-  });
+  }));
 
+  @pragma('vm:no-bounds-check')
   void renderScanline() {
     final line = height == 240 ? scanline : scanline * 2 + (isOddFrame ? 1 : 0);
     int bufIndex = width * line;
@@ -41,9 +42,11 @@ extension GpuRenderer on Gpu {
         }
       } else {
         final fbIndex = 1024 * fbY;
+        final buffer = this.buffer, fb = frameBuffer16, table = c15ToAbgr32;
+        final startX = startDisplayX;
         for (int x = 0; x < width; x++) {
-          buffer[bufIndex++] = c15ToAbgr32[
-              frameBuffer16[fbIndex + ((startDisplayX + x) & 0x3ff)] & 0x7fff];
+          buffer[bufIndex++] =
+              table[fb[fbIndex + ((startX + x) & 0x3ff)] & 0x7fff];
         }
       }
     }

@@ -97,9 +97,11 @@ Future<void> main(List<String> args) async {
   final sw = Stopwatch();
   int lines = 0;
   final end = warm + measure;
+  int cpu0 = 0;
   if (warm == 0) {
     locker = await _lock(lock);
     sw.start();
+    cpu0 = _cpuTicks();
   }
   while (frame < end) {
     if (frameRunner) {
@@ -137,9 +139,11 @@ Future<void> main(List<String> args) async {
     if (frame == warm) {
       locker = await _lock(lock);
       sw.start();
+      cpu0 = _cpuTicks();
     }
   }
   sw.stop();
+  final cpuMs = (_cpuTicks() - cpu0) * 10;
   locker?.stdin.close();
   await locker?.exitCode;
   if (outDir != null) {
@@ -150,10 +154,21 @@ Future<void> main(List<String> args) async {
   stderr.writeln("timed $measure frames: ${sw.elapsedMilliseconds} ms "
       "(${(sw.elapsedMicroseconds / measure / 1000).toStringAsFixed(2)} ms/frame, "
       "${(measure * 1e6 / sw.elapsedMicroseconds).toStringAsFixed(1)} fps) "
-      "total ${total.elapsedMilliseconds} ms "
+      "cpu $cpuMs ms total ${total.elapsedMilliseconds} ms "
       "image:${imageHash.toRadixString(16)} audio:${audioHash.toRadixString(16)} "
       "pc:${core.cpu.pc.toRadixString(16)} clocks:${core.cpu.clocks}");
   exit(0);
+}
+
+// user + system cpu time of this process in 10ms ticks (linux)
+int _cpuTicks() {
+  try {
+    final f = File("/proc/self/stat").readAsStringSync();
+    final v = f.substring(f.lastIndexOf(")") + 2).split(" ");
+    return int.parse(v[11]) + int.parse(v[12]);
+  } catch (_) {
+    return 0;
+  }
 }
 
 // holds a flock(1) lock until the returned process' stdin is closed
