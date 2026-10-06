@@ -267,6 +267,13 @@ class Ss extends Core {
   }
 
   @override
+  void setBiosFiles(List<Uint8List> files) {
+    if (files.isNotEmpty) {
+      setRom(files.first);
+    }
+  }
+
+  @override
   void setCdromDrive(CdromDrive drive) => cdblock.setDisc(Disc(drive));
 
   @override

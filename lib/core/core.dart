@@ -28,6 +28,11 @@ abstract class Core {
   /// connects the CD-ROM drive. cores without a CD-ROM ignore it
   void setCdromDrive(CdromDrive drive) {}
 
+  /// sets the BIOS (system ROM) images supplied by the user. called before
+  /// [setRom], or instead of it to boot the BIOS without a cartridge.
+  /// cores without a BIOS ignore it
+  void setBiosFiles(List<Uint8List> files) {}
+
   /// set sram storage interface
   void setSram(Sram sram);
 

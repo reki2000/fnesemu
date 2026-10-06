@@ -292,6 +292,26 @@ class Md implements Core {
     _onAudio = onAudio;
   }
 
+  /// md cdrom: the cdrom bios. 32x: the boot roms of the 68000, the master
+  /// and the slave sh-2, told apart by their sizes
+  @override
+  void setBiosFiles(List<Uint8List> files) {
+    if (files.isEmpty) {
+      return;
+    }
+
+    if (cdBoot) {
+      setRom(files.first);
+    } else if (expansionBoot) {
+      if (files.length != 3) {
+        throw ArgumentError("32x requires 3 boot roms: ${files.length} given");
+      }
+      final sorted = [...files]..sort((a, b) => a.length - b.length);
+      setExpansionBootRoms(
+          main: sorted[0], slave: sorted[1], master: sorted[2]);
+    }
+  }
+
   @override
   void setCdromDrive(CdromDrive drive) {
     final disc = Disc(drive);

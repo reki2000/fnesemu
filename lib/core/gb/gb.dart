@@ -79,6 +79,9 @@ class Gb implements Core {
   void setCdromDrive(CdromDrive drive) {}
 
   @override
+  void setBiosFiles(List<Uint8List> files) {}
+
+  @override
   void setSram(Sram sram) {
     _sram = sram;
   }

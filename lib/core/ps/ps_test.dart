@@ -168,7 +168,7 @@ main(List<String> args) async {
   core.setSram(Sram());
 
   final bios = File(args[0]).readAsBytesSync();
-  core.setRom(bios);
+  core.setBiosFiles([bios]);
 
   final drive = AsyncCdromDrive();
   await drive.insert(discSourceFromPath(args[1]));

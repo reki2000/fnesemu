@@ -86,14 +86,11 @@ Future<void> main(List<String> args) async {
 
   Directory(outDir).createSync(recursive: true);
 
-  // the gba core reads the bios image when it is created
-  if (bios != null) Gba.biosImage = File(bios).readAsBytesSync();
-
   final Core core = switch (files[0]) {
     "nes" => Nes(),
     "pce" => Pce(),
     "md" => Md(),
-    "mdcd" => Md(cdBoot: true), // rom: mega cd bios, disc: cue/iso
+    "mdcd" => Md(cdBoot: true), // rom: md cdrom bios, disc: cue/iso
     "32x" => Md(expansionBoot: true), // rom: .32x cartridge, -3 boot roms
     "ps" => Ps(),
     "snes" => Snes(),
@@ -103,6 +100,9 @@ Future<void> main(List<String> args) async {
     _ => throw "unknown core: ${files[0]}",
   };
   core.setSram(Sram());
+  if (bios != null && core is Gba) {
+    core.setBiosFiles([File(bios).readAsBytesSync()]);
+  }
   if (files[0] == "32x") {
     final roms = boot32x!.split(",").map((f) => File(f).readAsBytesSync()).toList();
     (core as Md).setExpansionBootRoms(
@@ -114,11 +114,15 @@ Future<void> main(List<String> args) async {
     await drive.insert(discSourceFromPath(files[2]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[2]}";
   }
-  // the mega cd core needs the disc before the bios
+  // the md cdrom core needs the disc before the bios
   if (files[0] == "mdcd" && drive != null) {
     core.setCdromDrive(drive);
   }
-  core.setRom(_loadRom(files[1]));
+  if (core is Ps) {
+    core.setBiosFiles([_loadRom(files[1])]); // rom: the ps bios
+  } else {
+    core.setRom(_loadRom(files[1]));
+  }
   if (files[0] != "mdcd" && drive != null) {
     core.setCdromDrive(drive);
   }

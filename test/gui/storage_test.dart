@@ -67,6 +67,30 @@ void main() {
     s2.dispose();
   });
 
+  test('bios files are replaced, and listed at the next open', () async {
+    SharedPreferences.setMockInitialValues({});
+    final factory = newIdbFactoryMemory();
+    final a = Uint8List.fromList([1]);
+    final b = Uint8List.fromList([2, 2]);
+
+    final s1 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s1.biosNames("32x"), isEmpty);
+    await s1.setBios("32x", [("old.bin", a)]);
+    await s1.setBios("32x", [("m.bin", b), ("a.bin", a)]);
+    await s1.setBios("ps", [("bios.bin", b)]);
+    expect(s1.biosNames("32x"), ["a.bin", "m.bin"]);
+    s1.dispose();
+
+    final s2 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s2.biosNames("32x"), ["a.bin", "m.bin"]);
+    expect(await s2.bios("32x"), [a, b]);
+    expect(await s2.bios("ps"), [b]);
+    expect(await s2.bios("ss"), isEmpty);
+    s2.dispose();
+  });
+
   test('migrates shared preferences', () async {
     final mem = Uint8List.fromList([1, 2, 3]);
     SharedPreferences.setMockInitialValues(

@@ -139,6 +139,14 @@ class Pce implements Core {
   void padUp(int controllerId, PadButton k) =>
       bus.joypad.keyUp(controllerId, k);
 
+  // the cdrom system card is a rom of the card slot
+  @override
+  void setBiosFiles(List<Uint8List> files) {
+    if (files.isNotEmpty) {
+      setRom(files.first);
+    }
+  }
+
   @override
   void setCdromDrive(CdromDrive drive) {
     final disc = Disc(drive);
@@ -220,7 +228,7 @@ class Pce implements Core {
     if (!vpc.enabled) {
       return buf;
     }
-    // SGX: VDC1's vram on top, VDC2's below
+    // sgx: VDC1's vram on top, VDC2's below
     final buf2 = vdc2.renderVram(useSecondBgColor, paletteNo);
     return ImageBuffer(buf.width, buf.height + buf2.height,
         Uint8List.fromList([...buf.buffer, ...buf2.buffer]));

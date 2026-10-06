@@ -53,9 +53,8 @@ void main(List<String> args) {
 
   Directory(outDir).createSync(recursive: true);
 
-  if (bios != null) Gba.biosImage = File(bios).readAsBytesSync();
-
   final gba = Gba()..setSram(Sram());
+  if (bios != null) gba.setBiosFiles([File(bios).readAsBytesSync()]);
   int audioSamples = 0;
   double audioPeak = 0;
   gba.onAudio((buf) {

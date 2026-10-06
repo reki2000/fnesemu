@@ -26,7 +26,13 @@ class Storage extends Sram {
   // application settings, preloaded as well
   final Map<String, String> _settings;
 
-  Storage._(this._store, this._cache, this._settings) {
+  // keys of the BIOS files. the data is read when a core is created
+  final Set<String> _biosKeys;
+
+  // BIOS files kept on memory when the persistent store is unavailable
+  final Map<String, Uint8List> _biosData = {};
+
+  Storage._(this._store, this._cache, this._settings, this._biosKeys) {
     _worker = Timer.periodic(const Duration(seconds: Storage.saveIntervalSec),
         (timer) => saveIfDirty());
   }
@@ -38,6 +44,7 @@ class Storage extends Sram {
 
       final cache = <String, Uint8List>{};
       final settings = <String, String>{};
+      final biosKeys = <String>{};
       for (final key in await store.keys()) {
         final kind = StorageKey.kindOf(key);
         if (kind == StorageKey.sram) {
@@ -46,12 +53,14 @@ class Storage extends Sram {
         } else if (kind == StorageKey.settings) {
           final data = await store.get(key);
           if (data != null) settings[key] = utf8.decode(data);
+        } else if (kind == StorageKey.bios) {
+          biosKeys.add(key);
         }
       }
-      return Storage._(store, cache, settings);
+      return Storage._(store, cache, settings, biosKeys);
     } catch (e) {
       // run without persistence (e.g. storage is unavailable in the browser)
-      return Storage._(null, {}, {});
+      return Storage._(null, {}, {}, {});
     }
   }
 
@@ -89,13 +98,55 @@ class Storage extends Sram {
     }
   }
 
+  List<String> _biosKeysOf(String system) {
+    final prefix = StorageKey.of(system, StorageKey.bios, "");
+    return _biosKeys.where((k) => k.startsWith(prefix)).toList()..sort();
+  }
+
+  /// returns the file names of the BIOS of [system]
+  List<String> biosNames(String system) {
+    final prefix = StorageKey.of(system, StorageKey.bios, "");
+    return [for (final k in _biosKeysOf(system)) k.substring(prefix.length)];
+  }
+
+  /// returns the BIOS files of [system], in the order of the file names
+  Future<List<Uint8List>> bios(String system) async {
+    final files = <Uint8List>[];
+    for (final key in _biosKeysOf(system)) {
+      final data = _biosData[key] ?? await _store?.get(key);
+      if (data != null) files.add(data);
+    }
+    return files;
+  }
+
+  /// replaces the BIOS files of [system] with [files] of (name, data)
+  Future<void> setBios(String system, List<(String, Uint8List)> files) async {
+    for (final key in _biosKeysOf(system)) {
+      _biosKeys.remove(key);
+      _biosData.remove(key);
+      await _store?.delete(key);
+    }
+
+    final store = _store;
+    for (final (name, data) in files) {
+      final key = StorageKey.of(system, StorageKey.bios, name);
+      _biosKeys.add(key);
+      if (store == null) {
+        _biosData[key] = data;
+      } else {
+        await store.put(key, data);
+      }
+    }
+  }
+
   void dispose() {
     saveIfDirty();
     _worker?.cancel();
   }
 
-  reset() {
-    id = "";
+  @override
+  void reset() {
+    super.reset();
     _dirty = false;
   }
 

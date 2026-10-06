@@ -14,7 +14,7 @@ import 'bus.dart';
 import 'irq.dart';
 import 'ppu.dart';
 
-/// GBA core.
+/// gba core.
 ///
 /// Stage 1: integrates ARM7TDMI + memory bus into the Core abstraction and
 /// produces a (blank) 240x160 frame. CPU decode, PPU and APU are added in
@@ -33,16 +33,18 @@ class Gba implements Core {
   static const _hblankStart = 960; // cycles into the line where HBlank begins
   static const _scanlines = 228; // 160 visible + 68 vblank
 
-  /// GBA BIOS image, kept across core re-creations. When set, reset() boots
-  /// from the BIOS reset vector instead of the HLE boot.
-  static Uint8List? biosImage;
-
   Gba() {
     bus = Bus();
     cpu = Arm7(bus);
     ppu = Ppu(bus);
-    if (biosImage != null) {
-      bus.loadBios(biosImage!);
+  }
+
+  /// when the BIOS is set, reset() boots from the BIOS reset vector instead
+  /// of the HLE boot.
+  @override
+  void setBiosFiles(List<Uint8List> files) {
+    if (files.isNotEmpty) {
+      bus.loadBios(files.first);
     }
   }
 

@@ -9,6 +9,12 @@ class Sram {
     data = List.from(initialData);
   }
 
+  /// detaches from any rom: nothing is saved until the next init()
+  void reset() {
+    id = "";
+    data = [];
+  }
+
   void write8(int addr, int value) {
     if (addr < data.length) {
       data[addr] = value;

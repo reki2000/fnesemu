@@ -96,16 +96,26 @@ class Ps extends Core {
   @override
   List<CpuInfo> get cpuInfos => [CpuInfo.ofR3000(0, "R3000")];
 
+  /// loads a PS-EXE, which runs after the BIOS boot
   @override
   void setRom(Uint8List body) {
-    if (body.getUint32BE(0) == 0x50532d58 &&
-        body.getUint32BE(4) == 0x20455845) {
-      cpu.exe = body;
-      debugLog("loaded PS-EXE");
+    if (body.length < 8 ||
+        body.getUint32BE(0) != 0x50532d58 ||
+        body.getUint32BE(4) != 0x20455845) {
+      throw Exception("not a PS-EXE");
+    }
+
+    cpu.exe = body;
+    debugLog("loaded PS-EXE");
+  }
+
+  @override
+  void setBiosFiles(List<Uint8List> files) {
+    if (files.isEmpty) {
       return;
     }
 
-    bus.rom.setAll(0, body);
+    bus.rom.setAll(0, files.first);
 
     if (fastBoot) {
       const fastBootSequence = [
