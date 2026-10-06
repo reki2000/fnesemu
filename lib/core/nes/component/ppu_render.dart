@@ -200,38 +200,34 @@ extension PpuRenderer on Ppu {
     return _BG(char1: bgChar1, char2: bgChar2, palette: bgPalette);
   }
 
-  // every object covering x must be shifted even when an upper object is
-  // drawn or the pixel is clipped, so that its pattern stays aligned.
-  int _renderObjs(
-      List<_Obj> objs, int x, int bgColorNum, int color, bool clipped) {
-    var result = color;
-    var found = false;
-
+  // Resolve sprite ownership once per row. All visible pattern bits still
+  // shift, including transparent, hidden and left-edge-clipped pixels.
+  void _prepareSpriteLine(List<_Obj> objs) {
+    final line = spriteLine..fillRange(0, 256, 0);
     for (final o in objs) {
-      if (!o.unused() && o.x <= x && x < o.x + 8) {
-        final objColorNum = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)).shr7;
+      if (o.unused()) continue;
+      final end = o.x + 8 < 256 ? o.x + 8 : 256;
+      for (var x = o.x; x < end; x++) {
+        final color = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)) >> 7;
         o.pattern0 <<= 1;
         o.pattern1 <<= 1;
-
-        if (found || clipped || objColorNum == 0) {
-          continue;
-        }
-        found = true;
-
-        if (bgColorNum != 0) {
-          if (o.index == 0 && x != 255) {
-            detectObj0 = true;
-          }
-
-          if (!o.isPrior) {
-            continue; // background has priority
-          }
-        }
-
-        result = readVram(paletteBase + 0x10 + o.palette * 4 + objColorNum);
+        if (color == 0 || line[x] != 0) continue;
+        line[x] = (0x10 + o.palette * 4 + color) |
+            (o.isPrior ? 0x100 : 0) |
+            (o.index == 0 ? 0x200 : 0);
       }
     }
-    return result;
+  }
+
+  @pragma('vm:prefer-inline')
+  int _renderObjPixel(int x, int bgColorNum, int color, bool clipped) {
+    final sprite = spriteLine[x];
+    if (sprite == 0 || clipped) return color;
+    if (bgColorNum != 0) {
+      if (sprite & 0x200 != 0 && x != 255) detectObj0 = true;
+      if (sprite & 0x100 == 0) return color;
+    }
+    return readVram(paletteBase + (sprite & 255));
   }
 
   void renderLine() {
@@ -255,6 +251,12 @@ extension PpuRenderer on Ppu {
     bus.mapper.fetchPhase = Mapper.fetchSprite;
     final objs = _fetchObj();
     bus.mapper.fetchPhase = Mapper.fetchBg;
+    final spritesVisible = showSprite();
+    if (spritesVisible) _prepareSpriteLine(objs);
+    final bgVisible = showBg();
+    final bgClipped = clipLeftEdgeBg();
+    final spriteClipped = clipLeftEdgeSprite();
+    final row = scanLine * Nes.imageWidth;
 
     final bgBase = bgTable() ? 0x1000 : 0x0000;
     final color0 = readVram(paletteBase);
@@ -296,7 +298,7 @@ extension PpuRenderer on Ppu {
           bgPaletteNext = bg.palette;
         }
 
-        if (showBg() && !(clipLeftEdgeBg() && x < 8)) {
+        if (bgVisible && !(bgClipped && x < 8)) {
           bgColorNum = ((bgChar1 >> (15 - fineX)) & 0x01) |
               ((bgChar2 >> (14 - fineX)) & 0x02);
           if (bgColorNum != 0) {
@@ -315,12 +317,11 @@ extension PpuRenderer on Ppu {
       }
 
       // overwrite dot color by obj
-      if (showSprite()) {
-        final clipped = clipLeftEdgeSprite() && x < 8;
-        color = _renderObjs(objs, x, bgColorNum, color, clipped);
+      if (spritesVisible) {
+        color = _renderObjPixel(x, bgColorNum, color, spriteClipped && x < 8);
       }
 
-      buffer[scanLine * Nes.imageWidth + x] = _colorRGBA[color & 0x3f];
+      buffer[row + x] = _colorRGBA[color & 0x3f];
     }
 
     // wrap around Y

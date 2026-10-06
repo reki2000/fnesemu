@@ -51,6 +51,8 @@ class Ppu {
 
   int cycle = 0;
 
+  final spriteLine = Uint16List(256);
+
   final objRam = List<int>.filled(0x100, 0);
 
   final palette = List<int>.filled(0x20, 0);
@@ -144,9 +146,8 @@ class Ppu {
         } else {
           scrollY = val;
           // t: FGH..AB CDE..... <- d: ABCDEFGH
-          tmpVramAddr = (tmpVramAddr & ~0x73e0) |
-              val.shr3.shl5 |
-              (val & 0x07).shl12;
+          tmpVramAddr =
+              (tmpVramAddr & ~0x73e0) | val.shr3.shl5 | (val & 0x07).shl12;
           first = true;
         }
         break;
