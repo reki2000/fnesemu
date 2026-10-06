@@ -1,0 +1,33 @@
+name: mp_bigfile_picker
+description: >-
+  Picks directories or files and reads them at any offset without copying
+  them, on Android (Storage Access Framework), iOS, macOS, desktop and the web.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0
+  file_picker: ^9.0.0
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: io.github.reki2000.mp_bigfile_picker
+        pluginClass: MpBigfilePickerPlugin
+      ios:
+        pluginClass: MpBigfilePickerPlugin
+      macos:
+        pluginClass: MpBigfilePickerPlugin

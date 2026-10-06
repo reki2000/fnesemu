@@ -1,0 +1,22 @@
+name: mp_bigfile_picker_example
+description: "Tries mp_bigfile_picker: picks a directory, lists and reads the files."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mp_bigfile_picker:
+    path: ../
+  shared_preferences: ^2.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

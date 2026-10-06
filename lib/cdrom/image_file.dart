@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:mp_bigfile_picker/api.dart';
+
 /// random access to a disc image file. implemented per platform.
 abstract class ImageFile {
   String get name;
@@ -15,6 +17,25 @@ abstract class ImageFile {
 
   Future<String> readText() async =>
       utf8.decode(await read(0, await length()), allowMalformed: true);
+}
+
+/// an [ImageFile] of a [RandomReadFile] of mp_bigfile_picker
+class PickedImageFile extends ImageFile {
+  final RandomReadFile file;
+
+  PickedImageFile(this.file);
+
+  @override
+  String get name => file.name;
+
+  @override
+  Future<int> length() => file.length();
+
+  @override
+  Future<Uint8List> read(int offset, int length) => file.read(offset, length);
+
+  @override
+  Future<void> close() => file.close();
 }
 
 /// a disc image: a .cue file with its track files, or a single .iso/.bin file
