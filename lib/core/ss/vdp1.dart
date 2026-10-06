@@ -362,6 +362,7 @@ class Vdp1 {
   static const _transparent = -1;
   static const _endCode = -2;
 
+  @pragma('vm:prefer-inline')
   int _texel(int u, int v) {
     final mode = (_pmod >> 3) & 7;
     final ecd = _pmod.bit7;
@@ -395,6 +396,7 @@ class Vdp1 {
 
   // ---- pixel output ----
 
+  @pragma('vm:prefer-inline')
   bool _clipped(int x, int y) {
     if (x < 0 || y < 0 || x > _sysClipX || y > _sysClipY) {
       return true;
@@ -418,6 +420,7 @@ class Vdp1 {
   // gouraud values in 5.16 fixed point
   int _gr = 0, _gg = 0, _gb = 0;
 
+  @pragma('vm:prefer-inline')
   void _plot(int x, int y, int color) {
     if (_clipped(x, y)) {
       return;
@@ -510,10 +513,18 @@ class Vdp1 {
       _endCodes = 0;
       final ty = (y - y0) * 65536 ~/ dh;
 
-      // end codes are counted from the left edge of the sprite
+      // end codes are counted from the left edge of the sprite.
+      // u = (x - x0) * _texW ~/ dw, stepped without a division per dot
+      final texW = _texW;
+      int uq = 0, ur = 0;
       for (int x = x0; x <= xe; x++) {
-        int u = (x - x0) * _texW ~/ dw;
-        if (hf) u = _texW - 1 - u;
+        int u = uq;
+        ur += texW;
+        while (ur >= dw) {
+          ur -= dw;
+          uq++;
+        }
+        if (hf) u = texW - 1 - u;
 
         final t = _texel(u, v);
         if (t == _endCode) {
