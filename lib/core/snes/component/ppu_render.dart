@@ -8,6 +8,58 @@ import 'ppu.dart';
 /// priority bit (0 or 1) that this slot matches.
 typedef _Layer = (bool isObj, int bg, int hi);
 
+/// BG sample stored as an int: color [7:0], palette [10:8], priority [11].
+/// Zero means transparent; -1 marks a scanline-cache entry not yet fetched.
+/// These static helpers keep the representation allocation-free.
+abstract final class _BgSample {
+  static const colorMask = 0xff;
+  static const paletteMask = 0x7;
+  static const paletteShift = 8;
+  static const priorityShift = 11;
+  static const transparent = 0;
+  static const notFetched = -1;
+
+  @pragma('vm:prefer-inline')
+  static int pack(int colorIndex, int palette, int priority) =>
+      colorIndex | (palette << paletteShift) | (priority << priorityShift);
+
+  @pragma('vm:prefer-inline')
+  static int colorIndex(int sample) => sample & colorMask;
+
+  @pragma('vm:prefer-inline')
+  static int palette(int sample) => (sample >> paletteShift) & paletteMask;
+
+  @pragma('vm:prefer-inline')
+  static int priority(int sample) => sample >> priorityShift;
+}
+
+/// Composited screen pixel: CGRAM index [7:0], source [10:8], OBJ palette [13:11].
+/// Source 0-3 selects BG1-4, 4 selects OBJ, and 5 selects the backdrop.
+/// This differs from _BgSample: the middle field identifies the winning layer,
+/// and the upper field is its OBJ palette, not a BG priority bit.
+abstract final class _ScreenPixel {
+  static const cgramMask = 0xff;
+  static const sourceMask = 0x7;
+  static const sourceShift = 8;
+  static const objPaletteShift = 11;
+  static const objSource = 4;
+  static const backdropSource = 5;
+  static const backdrop = backdropSource << sourceShift;
+
+  @pragma('vm:prefer-inline')
+  static int pack(int cgramIndex, int source, int objPalette) =>
+      cgramIndex | (source << sourceShift) | (objPalette << objPaletteShift);
+
+  @pragma('vm:prefer-inline')
+  static int cgramIndex(int pixel) => pixel & cgramMask;
+
+  @pragma('vm:prefer-inline')
+  static int source(int pixel) => (pixel >> sourceShift) & sourceMask;
+
+  @pragma('vm:prefer-inline')
+  static int objPalette(int pixel) => pixel >> objPaletteShift;
+}
+
 extension PpuRenderer on Ppu {
   // OBJ size table indexed by OBSEL's size-select field: [smallW,smallH,largeW,largeH]
   static const _objSizeTable = [
@@ -22,8 +74,7 @@ extension PpuRenderer on Ppu {
   ];
 
   // BG bit depth per implemented mode; index 0-3 = BG1-4, 0 = BG not present.
-  // modes 5/6 (hi-res, 512px wide) are not in this map and fall back to a
-  // backdrop-only scanline - see class doc in ppu.dart.
+  // Modes 5/6 sample 512-wide BG rows; OBJ remains 256-wide and is stretched.
   static const _bgBpp = <int, List<int>>{
     0: [2, 2, 2, 2],
     1: [4, 4, 2, 0],
@@ -95,8 +146,6 @@ extension PpuRenderer on Ppu {
     return paletteNum * 16 + colorIndex; // 4bpp
   }
 
-  /// fetches one BG pixel at screen column/row; returns (colorIndex 1-255,
-  /// paletteNum, tilePriorityBit) or null if transparent (colorIndex 0).
   /// raw 16-bit tilemap entry for BG [bgIdx] at map pixel position (px,py),
   /// respecting that BG's own tilemap address/size. used both for normal
   /// tile lookup and, for BG3, as the offset-per-tile source table.
@@ -171,6 +220,8 @@ extension PpuRenderer on Ppu {
   }
 
   // Spread four plane bits into four bytes, in left-to-right pixel order.
+  // For example, 0b1010 becomes [1, 0, 1, 0], packed as 0x00010001.
+  // Each byte will hold one pixel's color after the planes are ORed together.
   static final _expandPlane = List<int>.generate(
       16,
       (bits) =>
@@ -179,6 +230,7 @@ extension PpuRenderer on Ppu {
           ((bits >> 1) & 1) << 16 |
           (bits & 1) << 24);
 
+  /// Fetches a packed _BgSample, including its palette and tile priority.
   int _bgPixel(int bgIdx, int bpp, int x, int y) {
     final bg = bgs[bgIdx];
     final tileSizePx = bg.bigChar ? 16 : 8;
@@ -208,6 +260,7 @@ extension PpuRenderer on Ppu {
     final byteBase = ((bg.charBase + subTile * wordsPerTile) * 2).mask16;
 
     final rowAddress = (byteBase + row8 * 2).mask16;
+    // The cache key combines the 16-bit VRAM row address with its bit depth.
     final key = rowAddress | bpp << 16;
     if (bgRowKey[bgIdx] != key) {
       var low = 0, high = 0;
@@ -221,10 +274,10 @@ extension PpuRenderer on Ppu {
       bgRowLow[bgIdx] = low;
       bgRowHigh[bgIdx] = high;
     }
-    final packed = col8 < 4 ? bgRowLow[bgIdx] : bgRowHigh[bgIdx];
-    final colorIndex = (packed >> ((col8 & 3) * 8)) & 255;
-    if (colorIndex == 0) return 0;
-    return colorIndex | paletteNum << 8 | priority << 11;
+    final rowPixels = col8 < 4 ? bgRowLow[bgIdx] : bgRowHigh[bgIdx];
+    final colorIndex = (rowPixels >> ((col8 & 3) * 8)) & _BgSample.colorMask;
+    if (colorIndex == 0) return _BgSample.transparent;
+    return _BgSample.pack(colorIndex, paletteNum, priority);
   }
 
   /// evaluates OAM for one scanline, filling per-column output arrays.
@@ -371,9 +424,8 @@ extension PpuRenderer on Ppu {
   bool _layerMasked(int layer, int x, int windowApplyMask) =>
       windowApplyMask.bit(layer) && _insideWindow(layer, x);
 
-  /// composites one screen (main or sub) at column x: returns
-  /// (cgramIndex, sourceKind, objPalette). sourceKind: 0-3=BG1-4, 4=OBJ,
-  /// 5=backdrop. objPalette is only meaningful when sourceKind==4.
+  /// Composites one screen (main or sub) at column x, returning _ScreenPixel's
+  /// packed int format. Its OBJ palette is meaningful only for an OBJ source.
   /// bgX is the BG-side column (0..width-1, hires-aware); objX is the
   /// OBJ-side column (always 0..255 - sprites stay 256px-wide and are
   /// stretched 2x when width==512, matching real hardware).
@@ -395,31 +447,31 @@ extension PpuRenderer on Ppu {
         if (objColor[objX] != -1 &&
             objPriority[objX] == layer.$3 &&
             !_layerMasked(4, bgX, windowApplyMask)) {
-          return (128 + objPalette[objX] * 16 + objColor[objX]) |
-              4 << 8 |
-              objPalette[objX] << 11;
+          return _ScreenPixel.pack(128 + objPalette[objX] * 16 + objColor[objX],
+              _ScreenPixel.objSource, objPalette[objX]);
         }
       } else {
         final bgIdx = layer.$2;
         if (bpp[bgIdx] == 0 || !screenEnable.bit(bgIdx)) continue;
         if (_layerMasked(bgIdx, bgX, windowApplyMask)) continue;
         final pixels = bgLinePixels[bgIdx];
-        var px = pixels[bgX];
-        if (px < 0) {
+        var sample = pixels[bgX];
+        if (sample == _BgSample.notFetched) {
           final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
               ? (bgX ~/ (mosaicSize + 1)) * (mosaicSize + 1)
               : bgX;
-          px = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
-          pixels[bgX] = px;
+          sample = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
+          pixels[bgX] = sample;
         }
-        if (px != 0 && (px >> 11) == layer.$3) {
-          return _bgPaletteIndex(
-                  bgMode, bgIdx, bpp[bgIdx], (px >> 8) & 7, px & 255) |
-              bgIdx << 8;
+        if (sample != _BgSample.transparent &&
+            _BgSample.priority(sample) == layer.$3) {
+          final cgramIndex = _bgPaletteIndex(bgMode, bgIdx, bpp[bgIdx],
+              _BgSample.palette(sample), _BgSample.colorIndex(sample));
+          return _ScreenPixel.pack(cgramIndex, bgIdx, 0);
         }
       }
     }
-    return 5 << 8; // backdrop
+    return _ScreenPixel.backdrop;
   }
 
   /// clamped RGB channel add/subtract for color math, 5-bit channels.
@@ -445,10 +497,10 @@ extension PpuRenderer on Ppu {
     // does this main-screen source permit color math? (CGADSUB bits5-0)
     bool allowed;
     switch (sourceKind) {
-      case 5:
+      case _ScreenPixel.backdropSource:
         allowed = cgadsub.bit5; // backdrop
         break;
-      case 4:
+      case _ScreenPixel.objSource:
         allowed = cgadsub.bit4 && objPalette >= 4; // OBJ, palette 4-7 only
         break;
       default:
@@ -552,7 +604,7 @@ extension PpuRenderer on Ppu {
     // VRAM and registers can change between lines, so caches never survive
     // a scanline. Main/sub screens and priority slots share each BG sample.
     for (final pixels in bgLinePixels) {
-      pixels.fillRange(0, width, -1);
+      pixels.fillRange(0, width, _BgSample.notFetched);
     }
     bgRowKey.fillRange(0, 4, -1);
     final order = _priorityOrder(bgMode, bg3Priority);
@@ -563,8 +615,9 @@ extension PpuRenderer on Ppu {
       final objX = hires ? x ~/ 2 : x;
       final main = _compositePixel(x, objX, bgY, mainScreenEnable, tmw, order,
           bpp, objColor, objPalette, objPriority);
-      final mainIdx = main & 255, mainKind = (main >> 8) & 7;
-      final mainObjPal = main >> 11;
+      final mainIdx = _ScreenPixel.cgramIndex(main);
+      final mainKind = _ScreenPixel.source(main);
+      final mainObjPal = _ScreenPixel.objPalette(main);
 
       int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
       bool subIsBackdrop = false;
@@ -572,8 +625,8 @@ extension PpuRenderer on Ppu {
         final sub = _compositePixel(x, objX, bgY, subScreenEnable, tsw, order,
             bpp, objColor, objPalette, objPriority);
         // the sub screen's backdrop is the fixed color, not CGRAM[0]
-        final subIdx = sub & 255, subKind = (sub >> 8) & 7;
-        subIsBackdrop = subKind == 5;
+        final subIdx = _ScreenPixel.cgramIndex(sub);
+        subIsBackdrop = _ScreenPixel.source(sub) == _ScreenPixel.backdropSource;
         if (!subIsBackdrop) {
           final c = cgram[subIdx.mask8 * 2] | cgram[subIdx.mask8 * 2 + 1].shl8;
           subR = c.mask5;

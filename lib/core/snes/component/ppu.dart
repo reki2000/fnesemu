@@ -40,7 +40,11 @@ class Ppu {
   final objLinePalette = Uint8List(widthNormal);
   final objLinePriority = Uint8List(widthNormal);
 
+  // Packed BG samples: color [7:0], palette [10:8], priority [11];
+  // renderer uses -1 for entries not yet fetched and 0 for transparency.
   final bgLinePixels = List.generate(4, (_) => Int32List(widthHires));
+  // Tile-row cache: VRAM address and bit depth key, plus two groups of four
+  // decoded pixels. Each byte in bgRowLow/bgRowHigh holds a color index.
   final bgRowKey = Int32List(4);
   final bgRowLow = Uint32List(4);
   final bgRowHigh = Uint32List(4);
