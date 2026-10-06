@@ -15,7 +15,7 @@ import 'graphics.dart';
 import 'audio.dart';
 
 /// Independent N64 core with a VR4300 interpreter and GBI/audio task HLE.
-class N64 extends Core {
+class N64 extends Core implements FrameRunner {
   final bus = N64Bus();
   late final cpu = Vr4300(bus);
   late final graphics = N64Graphics(bus);
@@ -91,6 +91,25 @@ class N64 extends Core {
 
   @override
   ExecResult exec(bool step) {
+    final line = _advance(step);
+    _updateResult(line);
+    return _result;
+  }
+
+  @override
+  ExecResult runFrame(int scanlines) {
+    var line = false;
+    while (scanlines > 0) {
+      line = _advance(false);
+      if (cpu.stopReason != null) break;
+      if (line) scanlines--;
+    }
+    _updateResult(line);
+    return _result;
+  }
+
+  @pragma('vm:prefer-inline')
+  bool _advance(bool step) {
     final before = cpu.clocks;
     if (!step && cpu.idleLoop) {
       cpu.idle(_nextLine - cpu.clocks);
@@ -109,6 +128,10 @@ class N64 extends Core {
       if (bus.scanline * 2 == bus.vi[3].mask10) bus.interrupt(8);
       line = true;
     }
+    return line;
+  }
+
+  void _updateResult(bool line) {
     debugStatus.clock = cpu.clocks;
     debugStatus.frame = _frame;
     debugStatus.scanline = bus.scanline;
@@ -116,7 +139,6 @@ class N64 extends Core {
     _result.elapsedClocks = cpu.clocks;
     _result.stopped = cpu.stopReason != null;
     _result.scanlineRendered = line;
-    return _result;
   }
 
   @override
