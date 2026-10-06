@@ -145,8 +145,8 @@ class Md implements Core, FrameRunner {
   static const _fSlave = 0x40;
 
   ExecResult _result(int flags) {
-    final result = ExecResult(_clocks, flags & _fStopped != 0,
-        flags & _fScanline != 0);
+    final result =
+        ExecResult(_clocks, flags & _fStopped != 0, flags & _fScanline != 0);
     result.executed0 = flags & _fExecuted0 != 0;
     result.executed1 = flags & _fExecuted1 != 0;
     if (cdrom != null) result.executed2 = flags & _fExecuted2 != 0;
@@ -176,6 +176,20 @@ class Md implements Core, FrameRunner {
     return _result(flags);
   }
 
+  // m68 clock at which the z80 runs its next instruction, cached for the
+  // z80 cycles it was calculated for
+  int _z80DueCycles = -1;
+  double _z80DueClock = 0;
+
+  @pragma('vm:prefer-inline')
+  double _z80Due(int cycles) {
+    if (cycles != _z80DueCycles) {
+      _z80DueCycles = cycles;
+      _z80DueClock = m68ClockHz * cycles / z80ClockHz;
+    }
+    return _z80DueClock;
+  }
+
   int _step(bool step) {
     int flags = 0;
     final m68 = cpuM68;
@@ -196,7 +210,7 @@ class Md implements Core, FrameRunner {
     }
 
     final z80 = cpuZ80;
-    while (clocks >= m68ClockHz * z80.cycles / z80ClockHz) {
+    while (clocks >= _z80Due(z80.cycles)) {
       if (!z80.exec()) {
         print("z80 unimplemented instruction at ${z80.r.pc.x4}");
         flags |= _fStopped;

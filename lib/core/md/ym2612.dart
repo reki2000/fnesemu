@@ -402,6 +402,20 @@ class Channel {
         op4o.updateEnvelope();
       }
 
+      // an operator at the max attenuation outputs 0 for any phase and
+      // modulation (the level is shifted out): skip a silent channel
+      if (op1o._egLevel == Op.egAttenuationMask &&
+          op2o._egLevel == Op.egAttenuationMask &&
+          op3o._egLevel == Op.egAttenuationMask &&
+          op4o._egLevel == Op.egAttenuationMask) {
+        ob0[i] = 0;
+        ob1[i] = 0;
+        ob2[i] = 0;
+        ob3[i] = 0;
+        buf[i] = 0.0;
+        continue;
+      }
+
       double out = 0;
       int op1 = withFeedback(op1o);
       int op2 = 0;
