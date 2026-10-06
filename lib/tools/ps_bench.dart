@@ -6,6 +6,8 @@
 //   -m N        frames to time (default: 600)
 //   -p F:B      press button B at frame F (repeatable), -H N hold frames (12)
 //   -l FILE     take this flock(1) lock only while timing (shared bench lock)
+//   -s DIR      instead of -l: write DIR/ready.<pid> before timing and wait
+//               for DIR/go (a runner times two builds side by side)
 //   -x FILE     run a PS-EXE after the bios boot
 //   -r          run each frame with runFrame() instead of exec() calls
 //   -o DIR      write frame_NNNNN.png every -e N frames (default 300),
@@ -27,7 +29,7 @@ import 'package:image/image.dart' as img;
 
 Future<void> main(List<String> args) async {
   int warm = 0, measure = 600, hold = 12, every = 300;
-  String? lock, exe, outDir;
+  String? lock, exe, outDir, syncDir;
   bool frameRunner = false;
   final presses = <(int, String)>[];
   final files = <String>[];
@@ -45,6 +47,8 @@ Future<void> main(List<String> args) async {
         frameRunner = true;
       case "-l":
         lock = args[++i];
+      case "-s":
+        syncDir = args[++i];
       case "-x":
         exe = args[++i];
       case "-o":
@@ -57,6 +61,7 @@ Future<void> main(List<String> args) async {
     }
   }
   if (outDir != null) Directory(outDir).createSync(recursive: true);
+  _syncDir = syncDir;
 
   int frame = 0;
   final core = Ps();
@@ -160,6 +165,8 @@ Future<void> main(List<String> args) async {
   exit(0);
 }
 
+String? _syncDir;
+
 // user + system cpu time of this process in 10ms ticks (linux)
 int _cpuTicks() {
   try {
@@ -173,6 +180,13 @@ int _cpuTicks() {
 
 // holds a flock(1) lock until the returned process' stdin is closed
 Future<Process?> _lock(String? path) async {
+  if (_syncDir != null) {
+    File("$_syncDir/ready.$pid").writeAsStringSync("");
+    while (!File("$_syncDir/go").existsSync()) {
+      await Future.delayed(const Duration(milliseconds: 5));
+    }
+    return null;
+  }
   if (path == null) return null;
   final p = await Process.start("flock", [path, "-c", "echo locked; exec cat"]);
   await p.stdout.transform(utf8.decoder).firstWhere((s) => s.contains("locked"));
