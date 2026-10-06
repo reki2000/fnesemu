@@ -29,7 +29,7 @@ import 'spu/spu.dart';
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
 const _memcardFile = String.fromEnvironment("MEMCARD", defaultValue: "");
 
-class Ps extends Core {
+class Ps extends Core implements FrameRunner {
   final Bus bus;
   late final R3000 cpu;
   late final Gpu gpu;
@@ -155,22 +155,66 @@ class Ps extends Core {
 
   ExecResult result = ExecResult(0, false, false);
 
+  /// runs cpu instructions until one of the periodic devices is due. [step]
+  /// runs a single instruction (debugger). the devices are checked after
+  /// each instruction in the order below; instructions between two device
+  /// events are run in a batch, as no check fires before [cpu.clocks] passes
+  /// the nearest event clock.
   @override
   ExecResult exec(bool step) {
-    cpu.step();
+    result.scanlineRendered = _run(step);
+    result.elapsedClocks = cpu.clocks;
+    return result;
+  }
+
+  /// runs until [scanlines] scanlines are rendered, same as calling
+  /// exec(false) until that many scanlines are reported
+  @override
+  ExecResult runFrame(int scanlines) {
+    for (int n = 0; n < scanlines;) {
+      if (_run(false)) n++;
+    }
+    result.scanlineRendered = true;
+    result.elapsedClocks = cpu.clocks;
+    return result;
+  }
+
+  /// runs one batch of instructions and the device events due after it,
+  /// returns true if a scanline is rendered
+  bool _run(bool step) {
+    final cpu = this.cpu;
+
+    if (step) {
+      cpu.step();
+    } else {
+      // the clock up to which none of the checks below fires
+      int limit = nextTimerClock;
+      if (nextScanlineClock < limit) limit = nextScanlineClock;
+      if (_waitFinishLine && nextScanlineClock - 201 < limit) {
+        limit = nextScanlineClock - 201;
+      }
+      if (nextDmaClock < limit) limit = nextDmaClock;
+      if (nextSpuClock < limit) limit = nextSpuClock;
+      if (nextSerialClock < limit) limit = nextSerialClock;
+      if (nextCdromClock < limit) limit = nextCdromClock;
+
+      do {
+        cpu.step();
+      } while (cpu.clocks <= limit);
+    }
 
     if (cpu.clocks > nextTimerClock) {
       nextTimerClock += 100;
       bus.timer.catchUp();
     }
 
-    result.scanlineRendered = false;
+    bool scanlineRendered = false;
     if (cpu.clocks > nextScanlineClock) {
       bus.timer.endHBlank();
       nextScanlineClock += clocksInScanline;
       gpu.renderScanline();
       _waitFinishLine = true;
-      result.scanlineRendered = true;
+      scanlineRendered = true;
     }
 
     if (_waitFinishLine && cpu.clocks >= nextScanlineClock - 200) {
@@ -185,9 +229,9 @@ class Ps extends Core {
 
     if (cpu.clocks > nextSpuClock) {
       nextSpuClock += 768; // master clock 33.8688MHz / 44100Hz
-      final (l, r) = spu.render();
-      audioBuffer[audioBufferIndex + 0] = l;
-      audioBuffer[audioBufferIndex + 1] = r;
+      spu.renderSample();
+      audioBuffer[audioBufferIndex + 0] = spu.outLeft;
+      audioBuffer[audioBufferIndex + 1] = spu.outRight;
       audioBufferIndex += 2;
       if (audioBufferIndex >= audioBuffer.length) {
         _onAudio(AudioBuffer(44100, 2, audioBuffer));
@@ -210,9 +254,7 @@ class Ps extends Core {
     debugStatus.scanline = gpu.scanline;
     debugStatus.pc = cpu.pc;
 
-    result.elapsedClocks = cpu.clocks;
-
-    return result;
+    return scanlineRendered;
   }
 
   @override
