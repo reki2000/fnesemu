@@ -49,8 +49,19 @@ class Spu {
   }
 
   (double, double) render() {
+    renderSample();
+    return (outLeft, outRight);
+  }
+
+  /// output of [renderSample]
+  double outLeft = 0.0, outRight = 0.0;
+
+  /// renders a sample into [outLeft] and [outRight]
+  void renderSample() {
     if (!enabled) {
-      return (0.0, 0.0);
+      outLeft = 0.0;
+      outRight = 0.0;
+      return;
     }
 
     int outL = 0;
@@ -62,13 +73,17 @@ class Spu {
     _clockNoise();
 
     int prevSample = 0; // output of the previous voice for pitch modulation
+    final voices = this.voices;
+    final reverbEnabled = reverb.reverbEnabled;
     for (int i = 0; i < voices.length; i++) {
-      final (l, r, sample) = voices[i].clock(prevSample);
+      final voice = voices[i];
+      voice.clock(prevSample);
+      final l = voice.outLeft, r = voice.outRight, sample = voice.outSample;
       prevSample = sample;
       outL += l;
       outR += r;
 
-      if (reverb.reverbEnabled[i]) {
+      if (reverbEnabled[i]) {
         reverbInputL += l;
         reverbInputR += r;
       }
@@ -88,7 +103,8 @@ class Spu {
       outR = outR * _mainVolume(mainVolumeRight) ~/ 0x8000;
     }
 
-    final [cdL, cdR] = bus.cdrom.popAudioSample();
+    final cdSample = bus.cdrom.popAudioSample();
+    final cdL = cdSample[0], cdR = cdSample[1];
     writeRam16(0x000 + captureIndex, cdL);
     writeRam16(0x400 + captureIndex, cdR);
     if (_control.bit0) {
@@ -99,14 +115,16 @@ class Spu {
 
     captureIndex = (captureIndex + 2) & 0x3fe;
 
-    final (reverbL, reverbR) = reverb.render(
+    reverb.render(
         reverbInputL.clip(-0x8000, 0x7fff), reverbInputR.clip(-0x8000, 0x7fff));
+    final reverbL = reverb.outLeft, reverbR = reverb.outRight;
     if (!muted) {
       outL += reverbL;
       outR += reverbR;
     }
 
-    return ((outL / 0x8000).clip(-1.0, 1.0), (outR / 0x8000).clip(-1.0, 1.0));
+    outLeft = (outL / 0x8000).clip(-1.0, 1.0);
+    outRight = (outR / 0x8000).clip(-1.0, 1.0);
   }
 
   /// fixed volume: 15bit signed value x2, sweep volume is not supported

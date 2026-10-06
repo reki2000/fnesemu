@@ -28,6 +28,7 @@ class Bus implements BusR3000 {
 
   final mem = Uint8List(2 * 1024 * 1024);
   late final Uint32List mem32 = mem.buffer.asUint32List();
+  late final Uint16List mem16 = mem.buffer.asUint16List();
   static const mem32Mask = 0x7ffff;
 
   final rom = Uint8List(1024 * 512);
@@ -36,12 +37,16 @@ class Bus implements BusR3000 {
 
   final scratchPad = Uint8List(1024);
   late final Uint32List scratchPad32 = scratchPad.buffer.asUint32List();
+  late final Uint16List scratchPad16 = scratchPad.buffer.asUint16List();
   static const scratchPad32Mask = 0x3ff;
   bool useScratchPad = false;
 
-  final segMask = [32, 32, 32, 32, 31, 29, 32, 32]
+  final segMask = Uint32List.fromList([32, 32, 32, 32, 31, 29, 32, 32]
       .map((e) => (1 << e) - 1)
-      .toList(growable: false);
+      .toList(growable: false));
+
+  static const _scratchPadStart = 0x1f800000;
+  static const _scratchPadEnd = 0x1f800400;
 
   void reset() {
     interrupt.reset();
@@ -67,6 +72,10 @@ class Bus implements BusR3000 {
   int _read8Full(int addr) {
     final offset = addr & segMask[addr.shr29];
     const sig = "read8";
+
+    if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
+      return useScratchPad ? scratchPad[offset - _scratchPadStart] : 0xff;
+    }
 
     return switch (offset & ~0x03) {
       >= 0x1f000000 && < 0x1f000100 =>
@@ -137,12 +146,29 @@ class Bus implements BusR3000 {
     };
   }
 
+  /// the same as two read8, with fast paths of aligned ram, rom and
+  /// scratchpad accesses
   @override
-  int read16(int addr) => read8(addr) | read8(addr.inc).shl8;
+  @pragma('vm:unsafe:no-bounds-checks')
+  int read16(int addr) {
+    if (addr & 1 == 0) {
+      final offset = addr & 0x1fffffff;
+      if (offset < 0x8000000) {
+        return mem16[(offset & 0x1fffff) >> 1];
+      }
+      final offset2 = addr & segMask[(addr >> 29) & 7];
+      if (offset2 >= _scratchPadStart && offset2 < _scratchPadEnd) {
+        return useScratchPad
+            ? scratchPad16[(offset2 - _scratchPadStart) >> 1]
+            : 0xffff;
+      }
+    }
+    return read8(addr) | read8(addr.inc).shl8;
+  }
 
   @override
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int read32(int addr) {
     final offset = addr & 0x1fffffff;
     return switch (offset) {
@@ -156,6 +182,14 @@ class Bus implements BusR3000 {
   int _read32Full(int addr) {
     final offset = addr & segMask[addr.shr29];
     const sig = "read32";
+
+    if (offset >= _scratchPadStart &&
+        offset < _scratchPadEnd &&
+        offset & 3 == 0) {
+      return useScratchPad
+          ? scratchPad32[(offset - _scratchPadStart) >> 2]
+          : 0xffffffff;
+    }
 
     return switch (offset) {
       0x1f801810 => gpu.readReg(), // gpu read
@@ -203,6 +237,7 @@ class Bus implements BusR3000 {
   }
 
   @override
+  @pragma('vm:unsafe:no-bounds-checks')
   void write16(int addr, int v) {
     // if (addr == debugLogAddr) {
     //   debugLog("bus: write16 to ${debugLogAddr.x8}: ${v.x4}");
@@ -210,6 +245,20 @@ class Bus implements BusR3000 {
 
     final offset = addr & segMask[addr.shr29];
     const sig = "write16";
+
+    // fast paths of the two write8 below for aligned ram and scratchpad
+    if (addr & 1 == 0) {
+      if (offset < 0x00800000) {
+        mem16[(addr & 0x1fffff) >> 1] = v;
+        return;
+      }
+      if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
+        if (useScratchPad) {
+          scratchPad16[(offset - _scratchPadStart) >> 1] = v;
+        }
+        return;
+      }
+    }
 
     return switch (offset) {
       >= 0x1f801070 && < 0x1f801078 => switch (offset & 0x1fff) {
@@ -277,7 +326,7 @@ class Bus implements BusR3000 {
 
   @override
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   void write32(int addr, int v) {
     // if (addr == debugLogAddr) {
     //   debugLog("bus: write32 to ${debugLogAddr.x8}: ${v.x8}");
@@ -290,15 +339,26 @@ class Bus implements BusR3000 {
     _write32Full(addr, v);
   }
 
+  @pragma('vm:unsafe:no-bounds-checks')
   void _write32Full(int addr, int v) {
     final offset = addr & segMask[addr.shr29];
     const sig = "write32";
+
+    // fast path of the write16/write8 below
+    if (offset >= _scratchPadStart &&
+        offset < _scratchPadEnd &&
+        offset & 3 == 0) {
+      if (useScratchPad) {
+        scratchPad32[(offset - _scratchPadStart) >> 2] = v;
+      }
+      return;
+    }
 
     return switch (offset) {
       >= 0x1f801080 && < 0x1f8010f0 => switch (offset & 0x0c) {
           0x00 => dma.channels[offset.shr4 & 0x07].startAddr = v,
           0x04 => dma.channels[offset.shr4 & 0x07].blockCtrl = v,
-          0x08 => dma.channels[offset.shr4 & 0x07].channelCtrl = v,
+          0x08 => dma.setChannelCtrl(offset.shr4 & 0x07, v),
           _ => _unimpl(sig, "dma", addr, value: v)
         },
       0x1f801810 => gpu.writeGp0(v), // gp0

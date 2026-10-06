@@ -98,7 +98,7 @@ class Serial {
         irqDelay = 0;
         dsr = true; // /ACK asserted by the device
         if (irqEnabled) {
-          _debug("sio0: irq delay expired ${dump().replaceAll("\n", " ")}");
+          if (_debugLog) _debug("sio0: irq delay expired ${dump().replaceAll("\n", " ")}");
           bus.setIrq(Interrupt.serial);
           irq = true;
         }
@@ -108,12 +108,12 @@ class Serial {
 
   int readData() {
     if (isRxFifoEmpty()) {
-      _debug("sio0: readEmpt: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
+      if (_debugLog) _debug("sio0: readEmpt: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
       return _prev;
     }
 
     _prev = rxFifo.removeFirst();
-    _debug("sio0:  read<--: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
+    if (_debugLog) _debug("sio0:  read<--: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
     return _prev;
   }
 
@@ -134,7 +134,7 @@ class Serial {
     if (txFifo.isNotEmpty) {
       return;
     }
-    _debug("sio0: write-->: ${val.x2} ${dump().replaceAll("\n", " ")}");
+    if (_debugLog) _debug("sio0: write-->: ${val.x2} ${dump().replaceAll("\n", " ")}");
 
     final txData = val;
 

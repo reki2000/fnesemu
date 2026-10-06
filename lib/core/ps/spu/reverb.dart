@@ -51,14 +51,26 @@ class FirFilter {
     _current = 0;
   }
 
+  // the non-zero coefficients and their indices, as the zero ones add nothing
+  static const _taps = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 19, //
+    20, 22, 24, 26, 28, 30, 32, 34, 36, 38,
+  ];
+  static const _tapCoefficients = [
+    -0x0001, 0x0002, -0x000A, 0x0023, -0x0067, 0x010A, -0x0268, 0x0534, //
+    -0x0B90, 0x2806, 0x4000, 0x2806, -0x0B90, 0x0534, -0x0268, 0x010A, //
+    -0x0067, 0x0023, -0x000A, 0x0002, -0x0001,
+  ];
+
   int apply() {
     int filtered = 0;
-    int index = _current;
-    for (int i = 0; i < coefficients.length; i++) {
-      filtered += coefficients[i] * _buffer[index++];
+    final current = _current;
+    for (int t = 0; t < _taps.length; t++) {
+      int index = current + _taps[t];
       if (index >= bufferSize) {
-        index = 0;
+        index -= bufferSize;
       }
+      filtered += _tapCoefficients[t] * _buffer[index];
     }
     return filtered ~/ 0x8000;
   }
@@ -123,7 +135,11 @@ class Reverb {
     }
   }
 
-  (int, int) render(int inL, int inR) {
+  /// output of [render]
+  int outLeft = 0, outRight = 0;
+
+  /// renders a sample of the reverb into [outLeft] and [outRight]
+  void render(int inL, int inR) {
     _firFilterInput[0].push(inL);
     _firFilterInput[1].push(inR);
 
@@ -142,10 +158,8 @@ class Reverb {
     _firFilterOutput[0].push(l);
     _firFilterOutput[1].push(r);
 
-    return (
-      _firFilterOutput[0].apply().shl1.vol16(outputVolume[0]),
-      _firFilterOutput[1].apply().shl1.vol16(outputVolume[1]),
-    );
+    outLeft = _firFilterOutput[0].apply().shl1.vol16(outputVolume[0]);
+    outRight = _firFilterOutput[1].apply().shl1.vol16(outputVolume[1]);
   }
 
   int _applyReverb(int ch, int value) {

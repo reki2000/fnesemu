@@ -200,7 +200,8 @@ main(List<String> args) async {
             "debug: start logging at pc: 0x${traceAddress.toRadixString(16)}");
       }
 
-      core.exec(false);
+      // single steps while tracing: exec(false) runs instructions in batches
+      core.exec(traceAddress >= 0 || traceCycleStart >= 0);
 
       final inTraceCycleRange = traceCycleStart >= 0 &&
           core.cpu.clocks >= traceCycleStart &&

@@ -214,7 +214,7 @@ class Gpu {
   }
 
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int getTextureColor2(
       int u, int v, int baseX, int baseY, int clutBase, int clutMode,
       {bool debug = false}) {
@@ -267,7 +267,7 @@ class Gpu {
 
   /// modulate a texel by a 24bit color (0x80 = x1.0), then dither if enabled
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int ditherAndModulate(int x, int y, int c16, Color m24,
       {bool dithering = true}) {
     final d = dithering && status.bit9 ? _ditherV[x & 3 | (y & 3).shl2] : 0;
@@ -281,7 +281,7 @@ class Gpu {
 
   /// convert a 24bit color into 15bit with dithering if enabled
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int dither(int x, int y, Color c) {
     if (!status.bit9) {
       return c.c15;
@@ -291,68 +291,90 @@ class Gpu {
     return _c8toC5(c.r + d) | _c8toC5(c.g + d).shl5 | _c8toC5(c.b + d).shl10;
   }
 
-  @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
-
   /// c16.bit15 is written as the mask bit, [blend] enables semi-transparency
-  pset16(int x, int y, int c16,
+  @pragma('vm:prefer-inline')
+  void pset16(int x, int y, int c16,
       {bool ignoreWindow = false, bool blend = false, int? semiTransparent}) {
     if (!ignoreWindow) {
-      x += drawingOffsetX;
-      y += drawingOffsetY;
-      if ((x < drawingX1 || x > drawingX2 || y < drawingY1 || y > drawingY2)) {
-        return;
-      }
-    } else {
-      if (x < 0 || x >= 1024 || y < 0 || y >= 512) {
-        return;
-      }
+      _plot(x, y, c16, blend, semiTransparent ?? status.shr5 & 0x03);
+      return;
+    }
+
+    if (x < 0 || x >= 1024 || y < 0 || y >= 512) {
+      return;
     }
 
     final old = frameBuffer16[y * 1024 + x];
 
     // write protected
     if (status.bit12 && old.bit15) {
-      // if (x == 11 && y == 136) {
-      //   debugLog(
-      //       "gpu: write protected old:${old.x4} status:${status.x4} ");
-      // }
       return;
     }
 
-    // semi-transparency
     if (blend) {
-      final r0 = old & 0x1f;
-      final g0 = old.shr5 & 0x1f;
-      final b0 = old.shr10 & 0x1f;
-      final r1 = c16 & 0x1f;
-      final g1 = c16.shr5 & 0x1f;
-      final b1 = c16.shr10 & 0x1f;
-      // if (x == 11 && y == 136) {
-      //   debugLog("gpu: semi transparency old:${old.x4} new:${c16.x4} "
-      //       "r0:$r0 g0:$g0 b0:$b0 r1:$r1 g1:$g1 b1:$b1 "
-      //       "mode:${status >> 5 & 0x03}");
-      // }
       c16 = c16 & 0x8000 |
-          switch (semiTransparent ?? status.shr5 & 0x03) {
-            0 => (b0 + b1).shr1.shl10 |
-                (g0 + g1).shr1.shl5 |
-                (r0 + r1).shr1, // B/2+F/2
-            1 => 31.min(b0 + b1).shl10 |
-                31.min(g0 + g1).shl5 |
-                31.min(r0 + r1), // B+F
-            2 => 0.max(b0 - b1).shl10 |
-                0.max(g0 - g1).shl5 |
-                0.max(r0 - r1), // B-F
-            _ => 31.min(b0 + b1.shr2).shl10 |
-                31.min(g0 + g1.shr2).shl5 |
-                31.min(r0 + r1.shr2), // B+F/4
-          };
+          _blend(old, c16, semiTransparent ?? status.shr5 & 0x03);
     }
 
-    final forceBit15 = status.bit11 ? 0x8000 : 0;
+    writeFrameBuffer16(x, y, c16 | (status.bit11 ? 0x8000 : 0));
+  }
 
-    writeFrameBuffer16(x, y, c16 | forceBit15);
+  // polygon edges at the current scanline, reused by the renderer
+  final _e0 = _Edge();
+  final _e1 = _Edge();
+
+  /// same as pset16(x, y, c16, blend: [blend], semiTransparent: [semi])
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _plot(int x, int y, int c16, bool blend, int semi) {
+    x += drawingOffsetX;
+    y += drawingOffsetY;
+    if (x < drawingX1 || x > drawingX2 || y < drawingY1 || y > drawingY2) {
+      return;
+    }
+
+    // the drawing area is inside the vram
+    final index = y * 1024 + x;
+    final old = frameBuffer16[index];
+
+    // write protected
+    if (status & 0x1000 != 0 && old & 0x8000 != 0) {
+      return;
+    }
+
+    if (blend) {
+      c16 = c16 & 0x8000 | _blend(old, c16, semi);
+    }
+
+    frameBuffer16[index] = c16 | (status & 0x800 != 0 ? 0x8000 : 0);
+  }
+
+  /// semi-transparency of the 15bit colors: back [b] and front [f]
+  @pragma('vm:prefer-inline')
+  static int _blend(int b, int f, int mode) {
+    final r0 = b & 0x1f;
+    final g0 = b.shr5 & 0x1f;
+    final b0 = b.shr10 & 0x1f;
+    final r1 = f & 0x1f;
+    final g1 = f.shr5 & 0x1f;
+    final b1 = f.shr10 & 0x1f;
+    switch (mode) {
+      case 0: // B/2+F/2
+        return (b0 + b1).shr1.shl10 | (g0 + g1).shr1.shl5 | (r0 + r1).shr1;
+      case 1: // B+F
+        final r = r0 + r1, g = g0 + g1, bb = b0 + b1;
+        return (bb > 31 ? 31 : bb).shl10 |
+            (g > 31 ? 31 : g).shl5 |
+            (r > 31 ? 31 : r);
+      case 2: // B-F
+        final r = r0 - r1, g = g0 - g1, bb = b0 - b1;
+        return (bb < 0 ? 0 : bb).shl10 | (g < 0 ? 0 : g).shl5 | (r < 0 ? 0 : r);
+      default: // B+F/4
+        final r = r0 + r1.shr2, g = g0 + g1.shr2, bb = b0 + b1.shr2;
+        return (bb > 31 ? 31 : bb).shl10 |
+            (g > 31 ? 31 : g).shl5 |
+            (r > 31 ? 31 : r);
+    }
   }
 
   String dump() => "GPU: stat:${status.x8} "
