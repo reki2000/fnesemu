@@ -112,10 +112,20 @@ class Dma {
     DmaChannel(6, 1, 1),
   ], growable: false);
 
+  /// false when no channel is enabled and running, [exec] has nothing to do
+  bool _active = true;
+
+  /// writes the channel control register of [ch], which may start it
+  void setChannelCtrl(int ch, int value) {
+    channels[ch].channelCtrl = value;
+    _active = true;
+  }
+
   int _control = 0;
   int get control => _control;
   set control(int value) {
     _control = value;
+    _active = true;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].enabled = value.bit3;
       channels[ch].priority = value & 0x07;
@@ -158,6 +168,7 @@ class Dma {
     control = 0x07654321;
     _interrupt = 0;
     _irqPending = false;
+    _active = true;
   }
 
   bool transfer32(int ch, DmaChannel d) {
@@ -208,6 +219,10 @@ class Dma {
   }
 
   void exec(int count) {
+    if (!_active) {
+      return;
+    }
+
     // find highest priority channel
     final channels = this.channels;
     for (int ch = 0; ch < channels.length; ch++) {
@@ -289,6 +304,13 @@ class Dma {
           //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].x8}");
 
           completeDma(d.ch);
+      }
+    }
+
+    _active = false;
+    for (int ch = 0; ch < channels.length; ch++) {
+      if (channels[ch].enabled && channels[ch].running) {
+        _active = true;
       }
     }
 

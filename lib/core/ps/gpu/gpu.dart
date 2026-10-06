@@ -214,7 +214,7 @@ class Gpu {
   }
 
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int getTextureColor2(
       int u, int v, int baseX, int baseY, int clutBase, int clutMode,
       {bool debug = false}) {
@@ -267,7 +267,7 @@ class Gpu {
 
   /// modulate a texel by a 24bit color (0x80 = x1.0), then dither if enabled
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int ditherAndModulate(int x, int y, int c16, Color m24,
       {bool dithering = true}) {
     final d = dithering && status.bit9 ? _ditherV[x & 3 | (y & 3).shl2] : 0;
@@ -281,7 +281,7 @@ class Gpu {
 
   /// convert a 24bit color into 15bit with dithering if enabled
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int dither(int x, int y, Color c) {
     if (!status.bit9) {
       return c.c15;
@@ -325,7 +325,7 @@ class Gpu {
 
   /// same as pset16(x, y, c16, blend: [blend], semiTransparent: [semi])
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   void _plot(int x, int y, int c16, bool blend, int semi) {
     x += drawingOffsetX;
     y += drawingOffsetY;

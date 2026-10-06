@@ -158,6 +158,7 @@ extension Gp0Renderer on Gpu {
     return true;
   }
 
+  @pragma('vm:unsafe:no-bounds-checks')
   bool renderGouraudPolygon(
       int cmd, int c0, int v0, int c1, int v1, int c2, int v2) {
     final (p0, p1, p2) = sortVertice(v0, v1, v2, c0, c1, c2, 0, 0, 0);
@@ -256,6 +257,7 @@ extension Gp0Renderer on Gpu {
     return true;
   }
 
+  @pragma('vm:unsafe:no-bounds-checks')
   void _renderTexturedTriangle(
       (Point, Point, Point) points,
       bool modulated,

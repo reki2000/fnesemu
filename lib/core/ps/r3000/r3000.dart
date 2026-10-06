@@ -130,6 +130,7 @@ class R3000 {
       cause = cause.setBit(10, onoff); // set cop0.cuase.ip2 on
 
   /// Executes a single instruction.
+  @pragma('vm:unsafe:no-bounds-checks')
   bool step() {
     hook();
 
@@ -232,6 +233,7 @@ class R3000 {
   }
 
   /// Main instruction dispatch.
+  @pragma('vm:unsafe:no-bounds-checks')
   void exec(int inst32) {
     final op = inst32.shr26 & 0x3f;
     final rs = inst32.shr21 & 0x1f;

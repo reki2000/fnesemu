@@ -149,7 +149,7 @@ class Bus implements BusR3000 {
   /// the same as two read8, with fast paths of aligned ram, rom and
   /// scratchpad accesses
   @override
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int read16(int addr) {
     if (addr & 1 == 0) {
       final offset = addr & 0x1fffffff;
@@ -168,7 +168,7 @@ class Bus implements BusR3000 {
 
   @override
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   int read32(int addr) {
     final offset = addr & 0x1fffffff;
     return switch (offset) {
@@ -237,7 +237,7 @@ class Bus implements BusR3000 {
   }
 
   @override
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   void write16(int addr, int v) {
     // if (addr == debugLogAddr) {
     //   debugLog("bus: write16 to ${debugLogAddr.x8}: ${v.x4}");
@@ -326,7 +326,7 @@ class Bus implements BusR3000 {
 
   @override
   @pragma('vm:prefer-inline')
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   void write32(int addr, int v) {
     // if (addr == debugLogAddr) {
     //   debugLog("bus: write32 to ${debugLogAddr.x8}: ${v.x8}");
@@ -339,7 +339,7 @@ class Bus implements BusR3000 {
     _write32Full(addr, v);
   }
 
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   void _write32Full(int addr, int v) {
     final offset = addr & segMask[addr.shr29];
     const sig = "write32";
@@ -358,7 +358,7 @@ class Bus implements BusR3000 {
       >= 0x1f801080 && < 0x1f8010f0 => switch (offset & 0x0c) {
           0x00 => dma.channels[offset.shr4 & 0x07].startAddr = v,
           0x04 => dma.channels[offset.shr4 & 0x07].blockCtrl = v,
-          0x08 => dma.channels[offset.shr4 & 0x07].channelCtrl = v,
+          0x08 => dma.setChannelCtrl(offset.shr4 & 0x07, v),
           _ => _unimpl(sig, "dma", addr, value: v)
         },
       0x1f801810 => gpu.writeGp0(v), // gp0

@@ -12,7 +12,7 @@ extension GpuRenderer on Gpu {
     return alphaChannel | r | g | b;
   }));
 
-  @pragma('vm:no-bounds-check')
+  @pragma('vm:unsafe:no-bounds-checks')
   void renderScanline() {
     final line = height == 240 ? scanline : scanline * 2 + (isOddFrame ? 1 : 0);
     int bufIndex = width * line;
