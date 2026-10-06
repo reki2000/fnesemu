@@ -208,6 +208,8 @@ class Sh2 extends SsCpu {
   bool _hasFetchWram = false, _hasFetchRom = false;
   ByteData _fetchWram = ByteData(0);
   ByteData _fetchRom = ByteData(0);
+  Uint8List _fetchWramBytes = Uint8List(0);
+  Uint8List _fetchRomBytes = Uint8List(0);
 
   /// sets memories which instructions can be fetched from without the bus.
   /// work RAM high is also read and written directly by data accesses.
@@ -216,6 +218,10 @@ class Sh2 extends SsCpu {
     _fetchWram = wramHigh ?? ByteData(0);
     _hasFetchRom = rom != null;
     _fetchRom = rom ?? ByteData(0);
+    _fetchWramBytes = _fetchWram.buffer
+        .asUint8List(_fetchWram.offsetInBytes, _fetchWram.lengthInBytes);
+    _fetchRomBytes = _fetchRom.buffer
+        .asUint8List(_fetchRom.offsetInBytes, _fetchRom.lengthInBytes);
     _mem._fastWram = _hasFetchWram;
     _mem._wramData = _fetchWram;
     _mem._wram = _fetchWram.buffer
@@ -225,11 +231,14 @@ class Sh2 extends SsCpu {
   @pragma('vm:prefer-inline')
   int _fetch(int a) {
     // 0x06000000-0x07ffffff in cache / cache-through area
+    // big-endian halfword from the bytes (cheaper than ByteData.getUint16)
     if (_hasFetchWram && a & 0xde000000 == 0x06000000) {
-      return _fetchWram.getUint16(a & 0xffffe);
+      final m = _fetchWramBytes, i = a & 0xffffe;
+      return m[i] << 8 | m[i + 1];
     }
     if (_hasFetchRom && a & 0xdff00000 == 0) {
-      return _fetchRom.getUint16(a & 0x7fffe);
+      final m = _fetchRomBytes, i = a & 0x7fffe;
+      return m[i] << 8 | m[i + 1];
     }
     return bus.read16(a);
   }

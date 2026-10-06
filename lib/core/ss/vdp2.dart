@@ -252,6 +252,7 @@ class Vdp2 {
   }
 
   final _active = Int32List(6);
+  final _activeBufs = List<Int32List>.filled(6, Int32List(0));
   int _activeCount = 0;
 
   // ---- NBG ----
@@ -789,8 +790,11 @@ class Vdp2 {
       return;
     }
 
-    final lines = _lines;
     final active = _active;
+    final bufs = _activeBufs;
+    for (int i = 0; i < n; i++) {
+      bufs[i] = _lines[active[i]];
+    }
 
     for (int x = 0; x < w; x++) {
       int top = -1, topPri = 0, topPixel = 0;
@@ -798,7 +802,7 @@ class Vdp2 {
 
       for (int i = 0; i < n; i++) {
         final l = active[i];
-        final p = lines[l][x];
+        final p = bufs[i][x];
         if (p == 0) continue;
         final pri = (p >> 24) & 7;
         if (pri > topPri) {

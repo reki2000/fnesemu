@@ -148,9 +148,26 @@ class Sh2OnChip {
     final frtDiv = _frtDivs[tcr & 3];
     if (frtDiv != 0) {
       _frtSub += clocks;
-      while (_frtSub >= frtDiv) {
-        _frtSub -= frtDiv;
-        _frcIncrement();
+      if (_frtSub >= frtDiv) {
+        int steps = _frtSub ~/ frtDiv;
+        _frtSub -= steps * frtDiv;
+        while (steps > 0) {
+          // counts up at once until the step before 0, OCRA or OCRB,
+          // which _frcIncrement handles one by one
+          final f = frc;
+          int dist = 0x10000 - f;
+          final da = (ocra - f) & 0xffff;
+          if (da != 0 && da < dist) dist = da;
+          final db = (ocrb - f) & 0xffff;
+          if (db != 0 && db < dist) dist = db;
+          if (steps < dist) {
+            frc = f + steps;
+            break;
+          }
+          frc = f + dist - 1;
+          _frcIncrement();
+          steps -= dist;
+        }
       }
     }
 

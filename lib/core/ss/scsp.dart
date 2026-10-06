@@ -328,10 +328,10 @@ class Scsp {
       _tickTimers();
       _raise(10); // sample interval
 
-      final (l, r) = _renderSample();
+      _renderSample();
       if (index + 1 < out.length) {
-        out[index++] = l;
-        out[index++] = r;
+        out[index++] = _outL;
+        out[index++] = _outR;
       }
     }
 
@@ -434,7 +434,10 @@ class Scsp {
     0.0625, 0.044, 0.031, 0.022, 0.016, 0.011, 0.008, 0.0,
   ];
 
-  (double, double) _renderSample() {
+  // output of _renderSample (fields instead of a record: no boxing)
+  double _outL = 0, _outR = 0;
+
+  void _renderSample() {
     double left = 0, right = 0;
 
     for (int n = 0; n < 32; n++) {
@@ -535,7 +538,8 @@ class Scsp {
 
     final mvol = _regs[0x400 >> 1] & 0xf;
     final master = mvol == 0 ? 0.0 : _panTable[(15 - mvol)] * 0.5;
-    return ((left * master).clamp(-1.0, 1.0), (right * master).clamp(-1.0, 1.0));
+    _outL = (left * master).clamp(-1.0, 1.0);
+    _outR = (right * master).clamp(-1.0, 1.0);
   }
 
   String dump() {
