@@ -42,8 +42,11 @@ class Pce implements Core {
   @override
   int get scanlinesInFrame => 263;
 
+  // computed once: the getter is used twice per instruction in exec()
+  static const int _clocksInScanline = systemClockHz_ ~/ 59.97 ~/ 263;
+
   @override
-  int get clocksInScanline => systemClockHz ~/ 59.97 ~/ scanlinesInFrame;
+  int get clocksInScanline => _clocksInScanline;
 
   @override
   get cpuInfos => [CpuInfo.of6502(1, "Hu6280")];
@@ -64,12 +67,18 @@ class Pce implements Core {
   int _prevPsgClocks = 0;
   bool _vdc2Synced = false;
 
+  // reused for every instruction (the caller reads it right away)
+  final _result = ExecResult(0, false, false);
+
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
   ExecResult exec(bool _) {
     if (!cpu.exec()) {
-      return ExecResult(cpu.cycles, true, false);
+      return _result
+        ..elapsedClocks = cpu.cycles
+        ..stopped = true
+        ..scanlineRendered = false;
     }
 
     bus.timer.exec(cpu.clock);
@@ -90,13 +99,13 @@ class Pce implements Core {
       if (vpc.enabled) {
         vdc2.exec();
       }
-      _nextVdcClocks += clocksInScanline;
+      _nextVdcClocks += _clocksInScanline;
       // print(
       //     "cpu.clocks:${cpu.clocks} cpu.cycles:${cpu.cycles} nextVdcClocks: $nextVdcClocks");
       rendered = true;
     }
 
-    while (cpu.clocks >= _prevPsgClocks + clocksInScanline) {
+    while (cpu.clocks >= _prevPsgClocks + _clocksInScanline) {
       final elapsed = (cpu.clocks - _prevPsgClocks) ~/ 6 * 6;
       _prevPsgClocks += elapsed;
       final audio = psg.exec(elapsed);
@@ -104,7 +113,10 @@ class Pce implements Core {
       _onAudio(AudioBuffer(Psg.audioSamplingRate, 2, audio));
     }
 
-    return ExecResult(cpu.clocks, false, rendered);
+    return _result
+      ..elapsedClocks = cpu.clocks
+      ..stopped = false
+      ..scanlineRendered = rendered;
   }
 
   /// returns screen buffer as hSize x vSize argb
@@ -125,8 +137,8 @@ class Pce implements Core {
   /// handles reset button events
   @override
   void reset() {
-    _nextVdcClocks = clocksInScanline;
-    _prevPsgClocks = clocksInScanline;
+    _nextVdcClocks = _clocksInScanline;
+    _prevPsgClocks = _clocksInScanline;
     _vdc2Synced = false;
     bus.onReset();
   }
