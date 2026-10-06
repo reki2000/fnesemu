@@ -19,7 +19,7 @@ import 'ppu.dart';
 /// Stage 1: integrates ARM7TDMI + memory bus into the Core abstraction and
 /// produces a (blank) 240x160 frame. CPU decode, PPU and APU are added in
 /// later stages.
-class Gba implements Core {
+class Gba implements Core, FrameRunner {
   late final Bus bus;
   late final Arm7 cpu;
   late final Ppu ppu;
@@ -58,7 +58,8 @@ class Gba implements Core {
   int get clocksInScanline => _cyclesPerScanline;
 
   @override
-  List<CpuInfo> get cpuInfos => [const CpuInfo(0, "ARM7TDMI", 32, traceDiffs: 17)];
+  List<CpuInfo> get cpuInfos =>
+      [const CpuInfo(0, "ARM7TDMI", 32, traceDiffs: 17)];
 
   int _clocks = 0;
   int _nextEventClock = 0; // next HBlank start or line end
@@ -68,8 +69,24 @@ class Gba implements Core {
   static const _visibleLines = 160;
 
   @override
-  ExecResult exec(bool step) {
-    final result = ExecResult(0, false, false);
+  ExecResult exec(bool step) => ExecResult(_advanceClocks(), false, _rendered);
+
+  bool _rendered = false;
+
+  @override
+  ExecResult runFrame(int scanlines) {
+    var rendered = false;
+    while (scanlines > 0) {
+      _advanceClocks();
+      rendered = _rendered;
+      if (rendered) scanlines--;
+    }
+    return ExecResult(_clocks, false, rendered);
+  }
+
+  @pragma('vm:prefer-inline')
+  int _advanceClocks() {
+    _rendered = false;
 
     final int consumed;
     if (bus.halted && !bus.irq.anyPending) {
@@ -93,14 +110,13 @@ class Gba implements Core {
         _inHblank = false;
         _nextEventClock += _hblankStart;
         _endScanline();
-        result.scanlineRendered = true;
+        _rendered = true;
       }
     }
 
     if (bus.irq.pending) cpu.irq();
 
-    result.elapsedClocks = _clocks;
-    return result;
+    return _clocks;
   }
 
   // HBlank of the current line: DISPSTAT flag, interrupt, render and DMA.
@@ -143,11 +159,13 @@ class Gba implements Core {
   int _audioIndex = 0;
 
   void _renderAudio() {
-    final samples = _clocks * bus.apu.sampleHz ~/ _clockHz - bus.apu.elapsedSamples;
+    final samples =
+        _clocks * bus.apu.sampleHz ~/ _clockHz - bus.apu.elapsedSamples;
     if (samples <= 0) return;
 
     if (_audioIndex + samples * 2 >= _audio.length) {
-      _onAudio(AudioBuffer(bus.apu.sampleHz, 2, _audio.sublist(0, _audioIndex)));
+      _onAudio(
+          AudioBuffer(bus.apu.sampleHz, 2, _audio.sublist(0, _audioIndex)));
       _audioIndex = 0;
     }
 
@@ -166,7 +184,6 @@ class Gba implements Core {
 
   @override
   void onAudio(void Function(AudioBuffer) onAudio) => _onAudio = onAudio;
-
 
   Sram _sram = Sram();
 
@@ -194,7 +211,8 @@ class Gba implements Core {
   }
 
   @override
-  void padDown(int controllerId, PadButton k) => bus.pad.keyDown(controllerId, k);
+  void padDown(int controllerId, PadButton k) =>
+      bus.pad.keyDown(controllerId, k);
   @override
   void padUp(int controllerId, PadButton k) => bus.pad.keyUp(controllerId, k);
 
