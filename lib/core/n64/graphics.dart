@@ -229,7 +229,8 @@ class N64Graphics {
             break; // LOAD_UCODE, SPNOOP, RDPHALF_1
           case 0xe2 || 0xe3:
             // the field is addressed from the top bit: shift = 32 - ofs - len
-            final length = w0.mask8 + 1, shift = 32 - ((w0 >> 8) & 0xff) - length;
+            final length = w0.mask8 + 1,
+                shift = 32 - ((w0 >> 8) & 0xff) - length;
             final mask = (((1 << length) - 1) << shift) & 0xffffffff;
             if (op == 0xe2) {
               otherLow = (otherLow & ~mask) | (w1 & mask);
@@ -360,8 +361,7 @@ class N64Graphics {
     for (var i = 0; i < count; i++) {
       final p = addr + i * 16;
       final clip = transform(
-          [signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1],
-          combined);
+          [signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1], combined);
       final color = List.generate(4, (c) => u(p + 12 + c, 1).toDouble());
       if (geometry.bit17) {
         final normal = [
@@ -394,11 +394,8 @@ class N64Graphics {
           }
         }
       }
-      vertices[first + i] = N64Vertex(
-          clip,
-          color,
-          signed(p + 8, 2) / 32 * textureS,
-          signed(p + 10, 2) / 32 * textureT);
+      vertices[first + i] = N64Vertex(clip, color,
+          signed(p + 8, 2) / 32 * textureS, signed(p + 10, 2) / 32 * textureT);
     }
   }
 
@@ -619,45 +616,58 @@ class N64Graphics {
       final ab = cycle == 0 ? combine1.shr12.mask3 : combine1.shr3.mask3;
       final ac = cycle == 0 ? combine0.shr9.mask3 : combine1.shr18.mask3;
       final ad = cycle == 0 ? combine1.shr9.mask3 : combine1.mask3;
-      double rgb(int selector, int channel, int slot) {
-        if (slot == 2 && selector >= 7) {
-          if (selector == 7) return combined[3];
-          if (selector == 8 || selector == 9) return texture[3];
-          if (selector == 10) return primitive[3];
-          if (selector == 11) return shade[3];
-          if (selector == 12) return environment[3];
-          return 0;
-        }
-        if (selector == 0) return combined[channel];
-        if (selector == 1 || selector == 2) return texture[channel];
-        if (selector == 3) return primitive[channel];
-        if (selector == 4) return shade[channel];
-        if (selector == 5) return environment[channel];
-        if (selector == 6 && (slot == 0 || slot == 3)) return 255;
-        return 0;
-      }
-
-      double alpha(int selector) => switch (selector) {
-            0 => combined[3],
-            1 || 2 => texture[3],
-            3 => primitive[3],
-            4 => shade[3],
-            5 => environment[3],
-            6 => 255,
-            _ => 0
-          };
       for (var i = 0; i < 3; i++) {
-        combined[i] =
-            ((rgb(a, i, 0) - rgb(b, i, 1)) * rgb(cc, i, 2) / 255 + rgb(d, i, 3))
-                .clamp(0, 255)
-                .toDouble();
+        combined[i] = ((_combineRgb(a, i, 0, shade, texture) -
+                        _combineRgb(b, i, 1, shade, texture)) *
+                    _combineRgb(cc, i, 2, shade, texture) /
+                    255 +
+                _combineRgb(d, i, 3, shade, texture))
+            .clamp(0, 255)
+            .toDouble();
       }
-      combined[3] = ((alpha(aa) - alpha(ab)) * alpha(ac) / 255 + alpha(ad))
+      combined[3] = ((_combineAlpha(aa, shade, texture) -
+                      _combineAlpha(ab, shade, texture)) *
+                  _combineAlpha(ac, shade, texture) /
+                  255 +
+              _combineAlpha(ad, shade, texture))
           .clamp(0, 255)
           .toDouble();
     }
     return combined;
   }
+
+  @pragma('vm:prefer-inline')
+  double _combineRgb(int selector, int channel, int slot, List<double> shade,
+      List<double> texture) {
+    if (slot == 2 && selector >= 7) {
+      if (selector == 7) return _combined[3];
+      if (selector == 8 || selector == 9) return texture[3];
+      if (selector == 10) return primitive[3];
+      if (selector == 11) return shade[3];
+      if (selector == 12) return environment[3];
+      return 0;
+    }
+    if (selector == 0) return _combined[channel];
+    if (selector == 1 || selector == 2) return texture[channel];
+    if (selector == 3) return primitive[channel];
+    if (selector == 4) return shade[channel];
+    if (selector == 5) return environment[channel];
+    if (selector == 6 && (slot == 0 || slot == 3)) return 255;
+    return 0;
+  }
+
+  @pragma('vm:prefer-inline')
+  double _combineAlpha(
+          int selector, List<double> shade, List<double> texture) =>
+      switch (selector) {
+        0 => _combined[3],
+        1 || 2 => texture[3],
+        3 => primitive[3],
+        4 => shade[3],
+        5 => environment[3],
+        6 => 255,
+        _ => 0
+      };
 
   void pixel(int x, int y, List<double> color) {
     if (x < scLeft ||
