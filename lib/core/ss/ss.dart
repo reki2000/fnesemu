@@ -21,7 +21,7 @@ import 'vdp1.dart';
 import 'vdp2.dart';
 
 /// SS core
-class Ss extends Core {
+class Ss extends Core implements FrameRunner {
   final bus = Bus();
   final pad = Pad();
 
@@ -134,6 +134,36 @@ class Ss extends Core {
     debugStatus.pc = master.pc;
 
     return _result;
+  }
+
+  /// same as exec(false) called until `scanlines` lines are rendered
+  @override
+  ExecResult runFrame(int scanlines) {
+    final result = _result;
+    result.stopped = false;
+    result.executed0 = true;
+
+    int lines = 0;
+    while (lines < scanlines) {
+      // a new exec(false)
+      result.scanlineRendered = false;
+      result.executed1 = false;
+      do {
+        _runSlice(false);
+      } while (!result.scanlineRendered && !result.stopped);
+      if (result.stopped) break;
+      lines++;
+    }
+
+    final clocks = master.clocks;
+    result.elapsedClocks = clocks;
+
+    debugStatus.clock = clocks;
+    debugStatus.frame = vdp2.frame;
+    debugStatus.scanline = _line;
+    debugStatus.pc = master.pc;
+
+    return result;
   }
 
   void _runSlice(bool step) {

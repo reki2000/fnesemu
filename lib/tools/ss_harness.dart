@@ -9,6 +9,7 @@
 //   -H, --hold N     frames to hold a pressed button (default: 10)
 //   -w, --wav        also write audio.wav (16bit pcm) and audio.f32 (raw float)
 //   -q, --quiet      no per-png log, print only the total time (benchmark)
+//   -r, --run-frame  drive the core by runFrame() (as the gui does) instead of exec()
 //   -b, --bench-from N  time only the frames after frame N
 //   --lock FILE      hold flock(1) on FILE while timing (shared benchmark lock)
 import 'dart:convert';
@@ -30,6 +31,7 @@ Future<void> main(List<String> args) async {
   bool logCd = false;
   bool wav = false;
   bool quiet = false;
+  bool useRunFrame = false;
   int benchFrom = 0;
   String? lockFile;
   int holdFrames = 10;
@@ -51,6 +53,8 @@ Future<void> main(List<String> args) async {
         benchFrom = int.parse(args[++i]);
       case "--lock":
         lockFile = args[++i];
+      case "-r" || "--run-frame":
+        useRunFrame = true;
       case "-q" || "--quiet":
         quiet = true;
       case "-l" || "--log-cd":
@@ -106,15 +110,16 @@ Future<void> main(List<String> args) async {
   if (benchFrom == 0) await startBench();
 
   while (frame < frames) {
-    final r = ss.exec(false);
+    final r = useRunFrame ? ss.runFrame(ss.scanlinesInFrame) : ss.exec(false);
     if (r.stopped) {
       print("stopped at frame $frame\n${ss.dump()}");
       _savePng(ss.imageBuffer(), "$outDir/stopped.png");
       exit(2);
     }
-    if (!r.scanlineRendered) continue;
-
-    if (++lines < ss.scanlinesInFrame) continue;
+    if (!useRunFrame) {
+      if (!r.scanlineRendered) continue;
+      if (++lines < ss.scanlinesInFrame) continue;
+    }
     lines = 0;
     frame++;
     await drive?.settle(); // result must not depend on the speed of the disc
