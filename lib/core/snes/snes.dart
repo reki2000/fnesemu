@@ -26,7 +26,7 @@ import 'rom/snes_file.dart';
 /// simplified echo). Mode 5/6 hi-res is a documented approximation - see
 /// ppu.dart/dsp.dart class docs for exact gaps (Gaussian interpolation,
 /// FIR filter, EXTBG, direct color, vertical mosaic).
-class Snes implements Core {
+class Snes implements Core, FrameRunner {
   Snes() {
     bus = Bus();
     cpu = Cpu(bus);
@@ -79,9 +79,26 @@ class Snes implements Core {
   /// enough cycles have passed.
   @override
   ExecResult exec(bool _) {
-    if (!cpu.exec()) {
-      return ExecResult(cpu.cycle, true, false);
+    final status = _advance();
+    return ExecResult(cpu.cycle, status == 2, status == 1);
+  }
+
+  @override
+  ExecResult runFrame(int scanlines) {
+    var rendered = false;
+    while (scanlines > 0) {
+      final status = _advance();
+      if (status == 2) return ExecResult(cpu.cycle, true, false);
+      rendered = status == 1;
+      if (rendered) scanlines--;
     }
+    return ExecResult(cpu.cycle, false, rendered);
+  }
+
+  // 0: no line, 1: line rendered, 2: CPU stopped.
+  @pragma('vm:prefer-inline')
+  int _advance() {
+    if (!cpu.exec()) return 2;
 
     apu.exec(cpu.cycle - _lastApuCycle, cpuClock);
     _lastApuCycle = cpu.cycle;
@@ -117,7 +134,7 @@ class Snes implements Core {
       }
     }
 
-    return ExecResult(cpu.cycle, false, rendered);
+    return rendered ? 1 : 0;
   }
 
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
@@ -152,7 +169,6 @@ class Snes implements Core {
 
   @override
   List<PadButton> get buttons => SnesPad.buttons;
-
 
   @override
   void setCdromDrive(CdromDrive drive) {}

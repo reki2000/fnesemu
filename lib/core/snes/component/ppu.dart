@@ -35,6 +35,16 @@ class Ppu {
 
   final buffer = Uint32List(widthHires * height);
 
+  // Reused sprite row scratch space; renderer resets it before evaluation.
+  final objLineColor = Int16List(widthNormal);
+  final objLinePalette = Uint8List(widthNormal);
+  final objLinePriority = Uint8List(widthNormal);
+
+  final bgLinePixels = List.generate(4, (_) => Int32List(widthHires));
+  final bgRowKey = Int32List(4);
+  final bgRowLow = Uint32List(4);
+  final bgRowHigh = Uint32List(4);
+
   // ------------------------------------------------------------- memory
   final vram = Uint8List(0x10000); // 64KB, byte-addressed (word reg * 2)
   final cgram = Uint8List(512); // 256 entries x 2 bytes, BGR555 in low 15 bits
@@ -232,7 +242,8 @@ class Ppu {
   int w12sel = 0, w34sel = 0, wobjsel = 0;
   int w1Left = 0, w1Right = 0, w2Left = 0, w2Right = 0;
   int wbglog = 0, wobjlog = 0; // window1/2 combine logic, 2 bits/layer
-  int tmw = 0, tsw = 0; // apply windows to main/sub screen, bit0-3=BG1-4,bit4=OBJ
+  int tmw = 0,
+      tsw = 0; // apply windows to main/sub screen, bit0-3=BG1-4,bit4=OBJ
 
   // --------------------------------------------- $2130-2132 color math
   int cgwsel = 0; // ccmm--sd

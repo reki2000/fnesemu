@@ -38,20 +38,20 @@ extension PpuRenderer on Ppu {
     const obj = true, bgL = false;
     switch (mode) {
       case 0:
-        return [
+        return const [
           (obj, 0, 3), (bgL, 0, 1), (bgL, 1, 1), (obj, 0, 2),
           (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1), (bgL, 2, 1),
           (bgL, 3, 1), (obj, 0, 0), (bgL, 2, 0), (bgL, 3, 0), //
         ];
       case 1:
         if (bg3prio) {
-          return [
+          return const [
             (bgL, 2, 1), (obj, 0, 3), (bgL, 0, 1), (bgL, 1, 1),
             (obj, 0, 2), (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1),
             (obj, 0, 0), (bgL, 2, 0), //
           ];
         }
-        return [
+        return const [
           (obj, 0, 3), (bgL, 0, 1), (bgL, 1, 1), (obj, 0, 2),
           (bgL, 0, 0), (bgL, 1, 0), (obj, 0, 1), (bgL, 2, 1),
           (obj, 0, 0), (bgL, 2, 0), //
@@ -60,12 +60,12 @@ extension PpuRenderer on Ppu {
       case 3:
       case 4:
       case 5:
-        return [
+        return const [
           (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), (bgL, 1, 1),
           (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), (bgL, 1, 0), //
         ];
       case 6:
-        return [
+        return const [
           (obj, 0, 3), (bgL, 0, 1), (obj, 0, 2), //
           (obj, 0, 1), (bgL, 0, 0), (obj, 0, 0), //
         ];
@@ -170,7 +170,16 @@ extension PpuRenderer on Ppu {
     return (mapX, mapY);
   }
 
-  (int, int, int)? _bgPixel(int bgIdx, int bpp, int x, int y) {
+  // Spread four plane bits into four bytes, in left-to-right pixel order.
+  static final _expandPlane = List<int>.generate(
+      16,
+      (bits) =>
+          ((bits >> 3) & 1) |
+          ((bits >> 2) & 1) << 8 |
+          ((bits >> 1) & 1) << 16 |
+          (bits & 1) << 24);
+
+  int _bgPixel(int bgIdx, int bpp, int x, int y) {
     final bg = bgs[bgIdx];
     final tileSizePx = bg.bigChar ? 16 : 8;
     final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
@@ -198,17 +207,24 @@ extension PpuRenderer on Ppu {
     final wordsPerTile = bpp * 4;
     final byteBase = ((bg.charBase + subTile * wordsPerTile) * 2).mask16;
 
-    int colorIndex = 0;
-    for (int p = 0; p < bpp ~/ 2; p++) {
-      final byte0 = vram[(byteBase + p * 16 + row8 * 2).mask16];
-      final byte1 = vram[(byteBase + p * 16 + row8 * 2 + 1).mask16];
-      final bit0 = byte0.shr(7 - col8).mask1;
-      final bit1 = byte1.shr(7 - col8).mask1;
-      colorIndex |= bit0.shl(p * 2) | bit1.shl(p * 2 + 1);
+    final rowAddress = (byteBase + row8 * 2).mask16;
+    final key = rowAddress | bpp << 16;
+    if (bgRowKey[bgIdx] != key) {
+      var low = 0, high = 0;
+      for (var plane = 0; plane < bpp; plane += 2) {
+        final addr = (rowAddress + plane * 8).mask16;
+        final a = vram[addr], b = vram[(addr + 1).mask16];
+        low |= (_expandPlane[a >> 4] | _expandPlane[b >> 4] << 1) << plane;
+        high |= (_expandPlane[a & 15] | _expandPlane[b & 15] << 1) << plane;
+      }
+      bgRowKey[bgIdx] = key;
+      bgRowLow[bgIdx] = low;
+      bgRowHigh[bgIdx] = high;
     }
-
-    if (colorIndex == 0) return null;
-    return (colorIndex, paletteNum, priority);
+    final packed = col8 < 4 ? bgRowLow[bgIdx] : bgRowHigh[bgIdx];
+    final colorIndex = (packed >> ((col8 & 3) * 8)) & 255;
+    if (colorIndex == 0) return 0;
+    return colorIndex | paletteNum << 8 | priority << 11;
   }
 
   /// evaluates OAM for one scanline, filling per-column output arrays.
@@ -361,7 +377,7 @@ extension PpuRenderer on Ppu {
   /// bgX is the BG-side column (0..width-1, hires-aware); objX is the
   /// OBJ-side column (always 0..255 - sprites stay 256px-wide and are
   /// stretched 2x when width==512, matching real hardware).
-  (int, int, int) _compositePixel(
+  int _compositePixel(
     int bgX,
     int objX,
     int y,
@@ -379,30 +395,31 @@ extension PpuRenderer on Ppu {
         if (objColor[objX] != -1 &&
             objPriority[objX] == layer.$3 &&
             !_layerMasked(4, bgX, windowApplyMask)) {
-          return (
-            128 + objPalette[objX] * 16 + objColor[objX],
-            4,
-            objPalette[objX]
-          );
+          return (128 + objPalette[objX] * 16 + objColor[objX]) |
+              4 << 8 |
+              objPalette[objX] << 11;
         }
       } else {
         final bgIdx = layer.$2;
         if (bpp[bgIdx] == 0 || !screenEnable.bit(bgIdx)) continue;
         if (_layerMasked(bgIdx, bgX, windowApplyMask)) continue;
-        final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
-            ? (bgX ~/ (mosaicSize + 1)) * (mosaicSize + 1)
-            : bgX;
-        final px = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
-        if (px != null && px.$3 == layer.$3) {
-          return (
-            _bgPaletteIndex(bgMode, bgIdx, bpp[bgIdx], px.$2, px.$1),
-            bgIdx,
-            0
-          );
+        final pixels = bgLinePixels[bgIdx];
+        var px = pixels[bgX];
+        if (px < 0) {
+          final mx = (mosaicEnable.bit(bgIdx) && mosaicSize > 0)
+              ? (bgX ~/ (mosaicSize + 1)) * (mosaicSize + 1)
+              : bgX;
+          px = _bgPixel(bgIdx, bpp[bgIdx], mx, y);
+          pixels[bgX] = px;
+        }
+        if (px != 0 && (px >> 11) == layer.$3) {
+          return _bgPaletteIndex(
+                  bgMode, bgIdx, bpp[bgIdx], (px >> 8) & 7, px & 255) |
+              bgIdx << 8;
         }
       }
     }
-    return (0, 5, 0); // backdrop
+    return 5 << 8; // backdrop
   }
 
   /// clamped RGB channel add/subtract for color math, 5-bit channels.
@@ -525,37 +542,37 @@ extension PpuRenderer on Ppu {
       return;
     }
 
-    final objColor = List<int>.filled(Ppu.widthNormal, -1);
-    final objPalette = List<int>.filled(Ppu.widthNormal, 0);
-    final objPriority = List<int>.filled(Ppu.widthNormal, 0);
+    final objColor = objLineColor..fillRange(0, Ppu.widthNormal, -1);
+    final objPalette = objLinePalette..fillRange(0, Ppu.widthNormal, 0);
+    final objPriority = objLinePriority..fillRange(0, Ppu.widthNormal, 0);
     if (mainScreenEnable.bit4 || subScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }
 
+    // VRAM and registers can change between lines, so caches never survive
+    // a scanline. Main/sub screens and priority slots share each BG sample.
+    for (final pixels in bgLinePixels) {
+      pixels.fillRange(0, width, -1);
+    }
+    bgRowKey.fillRange(0, 4, -1);
     final order = _priorityOrder(bgMode, bg3Priority);
     final subscreenMode = cgwsel.bit1;
     final hires = width == Ppu.widthHires;
 
     for (int x = 0; x < width; x++) {
       final objX = hires ? x ~/ 2 : x;
-      final (mainIdx, mainKind, mainObjPal) = _compositePixel(x, objX, bgY,
-          mainScreenEnable, tmw, order, bpp, objColor, objPalette, objPriority);
+      final main = _compositePixel(x, objX, bgY, mainScreenEnable, tmw, order,
+          bpp, objColor, objPalette, objPriority);
+      final mainIdx = main & 255, mainKind = (main >> 8) & 7;
+      final mainObjPal = main >> 11;
 
       int subR = fixedColorR, subG = fixedColorG, subB = fixedColorB;
       bool subIsBackdrop = false;
       if (subscreenMode) {
-        final (subIdx, subKind, _) = _compositePixel(
-            x,
-            objX,
-            bgY,
-            subScreenEnable,
-            tsw,
-            order,
-            bpp,
-            objColor,
-            objPalette,
-            objPriority);
+        final sub = _compositePixel(x, objX, bgY, subScreenEnable, tsw, order,
+            bpp, objColor, objPalette, objPriority);
         // the sub screen's backdrop is the fixed color, not CGRAM[0]
+        final subIdx = sub & 255, subKind = (sub >> 8) & 7;
         subIsBackdrop = subKind == 5;
         if (!subIsBackdrop) {
           final c = cgram[subIdx.mask8 * 2] | cgram[subIdx.mask8 * 2 + 1].shl8;
@@ -604,9 +621,9 @@ extension PpuRenderer on Ppu {
   void _renderMode7Scanline(int row, int y, int bgY) {
     final backdrop = _rgba(0);
 
-    final objColor = List<int>.filled(Ppu.widthNormal, -1);
-    final objPalette = List<int>.filled(Ppu.widthNormal, 0);
-    final objPriority = List<int>.filled(Ppu.widthNormal, 0);
+    final objColor = objLineColor..fillRange(0, Ppu.widthNormal, -1);
+    final objPalette = objLinePalette..fillRange(0, Ppu.widthNormal, 0);
+    final objPriority = objLinePriority..fillRange(0, Ppu.widthNormal, 0);
     if (mainScreenEnable.bit4) {
       _evalSprites(y, objColor, objPalette, objPriority);
     }
