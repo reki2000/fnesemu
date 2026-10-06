@@ -15,7 +15,7 @@ import 'arm7_asm.dart';
 ///   0x02000008  completion magic 0x600dc0de, written when the run finishes
 ///
 /// The ROM needs no BIOS: it never uses SWI or interrupts. Note the header
-/// carries no manufacturer logo, so it boots on emulators but not on real
+/// carries no boot logo, so it boots on emulators but not on real
 /// hardware via the official BIOS check.
 Uint8List buildCpuTestRom() {
   final code = <int>[];

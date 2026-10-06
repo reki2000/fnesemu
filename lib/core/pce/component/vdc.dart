@@ -152,7 +152,7 @@ class Vdc {
 
   final sat = List<int>.filled(0x100, 0);
 
-  // --- renderer state (per-VDC, for SGX dual-VDC support) ---
+  // --- renderer state (per-VDC, for sgx dual-VDC support) ---
   // full-frame palette-index buffer (hSize*vSize). value 0..0x1ff = VCE index,
   // 0xffff = direct white (used by debug overlay). VCE->RGBA is done by Vpc.
   Uint16List indexBuffer = Uint16List(0);

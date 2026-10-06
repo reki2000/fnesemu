@@ -160,7 +160,7 @@ extension VdcRenderer on Vdc {
             : bgColor;
 
     // output the 9-bit VCE palette index; Vpc does the VCE->RGBA conversion
-    // (and, in SGX mode, priority composition with the other VDC).
+    // (and, in sgx mode, priority composition with the other VDC).
     // 0xffff is a sentinel for the debug direct-white pixel.
     indexBuffer[displayLine * hSize + scanX] =
         spColor.isDirect ? 0xffff : colorNo;

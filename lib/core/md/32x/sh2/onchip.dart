@@ -4,7 +4,7 @@ import 'package:fnesemu/util/int.dart';
 
 import 'sh2.dart';
 
-/// SH7604 on-chip peripheral modules (copy of the SS one, 32x adapted)
+/// SH7604 on-chip peripheral modules (copy of the ss one, 32x adapted)
 /// (0xfffffe00 - 0xffffffff):
 /// SCI (stub), FRT, WDT, INTC, DIVU, DMAC, BSC and cache control.
 class Sh2OnChip {

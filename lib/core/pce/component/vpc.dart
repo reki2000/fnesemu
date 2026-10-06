@@ -5,13 +5,13 @@ import 'package:fnesemu/util/int.dart';
 import 'vdc.dart';
 import 'vdc_render.dart'; // rgba (512-entry VCE->RGBA table)
 
-/// HuC6202 Video Priority Controller (SGX).
+/// HuC6202 Video Priority Controller (sgx).
 ///
-/// On a plain PCE this just converts VDC1's palette-index line buffer
-/// through the (shared) VCE colour table into RGBA. On SGX it also
+/// On a plain pce (not sgx) this just converts VDC1's palette-index line buffer
+/// through the (shared) VCE colour table into RGBA. On sgx it also
 /// composes VDC1 (front) and VDC2 (back) according to the priority registers.
 ///
-/// SGX mode is latched on first access to any VPC ($08-$0E) or VDC2
+/// sgx mode is latched on first access to any VPC ($08-$0E) or VDC2
 /// ($10-$17) register (see [Bus]); games that never touch those run unchanged.
 class Vpc {
   bool enabled = false;

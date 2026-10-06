@@ -24,7 +24,7 @@ class Rom {
 
     if (bank >= banks.length) {
       return switch (banks.length) {
-        0x30 => banks[bank & 0x0f | 0x20][offset], // 368kB  momotaro dentetsu
+        0x30 => banks[bank & 0x0f | 0x20][offset], // 368kB
         0x20 => banks[bank & 0x1f][offset], // 256kB
         _ => 0xff,
       };

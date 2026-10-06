@@ -28,7 +28,7 @@ Uint8List cartridge() {
   final data = ByteData.sublistView(bytes);
   data.setUint32(0, 0xff8000);
   data.setUint32(4, 0x880300);
-  bytes.setAll(0x100, 'SEGA 32X'.codeUnits);
+  bytes.setAll(0x100, '32X'.codeUnits);
   bytes.setAll(0x1f0, 'JUE'.codeUnits);
   data.setUint16(0x300, 0x60fe);
   return bytes;
@@ -37,7 +37,7 @@ Uint8List cartridge() {
 void main() {
   test('.32x selection enables the adapter without a 32X cartridge header', () {
     final rom = cartridge()
-      ..setAll(0x100, 'SEGA GENESIS    '.codeUnits);
+      ..setAll(0x100, 'CARTRIDGE       '.codeUnits);
     final md = (CoreFactory.of('32x') as Md)..setRom(rom);
     expect(md.expansion, isNotNull);
     expect(md.expansion!.rom.length, rom.length);
@@ -45,7 +45,7 @@ void main() {
 
   test('normal cartridges do not create a 32x adapter or track opacity', () {
     final rom = cartridge();
-    rom.setAll(0x100, 'SEGA GENESIS    '.codeUnits);
+    rom.setAll(0x100, 'CARTRIDGE       '.codeUnits);
     ByteData.sublistView(rom).setUint32(4, 0x300);
     final md = Md()..setRom(rom);
     for (int i = 0; i < 100; i++) {
@@ -58,7 +58,7 @@ void main() {
     final md = Md()..setRom(cartridge());
     expect(md.expansion, isNotNull);
     final ram = md.busM68.ram;
-    final normal = cartridge()..setAll(0x100, 'SEGA GENESIS    '.codeUnits);
+    final normal = cartridge()..setAll(0x100, 'CARTRIDGE       '.codeUnits);
     ByteData.sublistView(normal).setUint32(4, 0x300);
     md.setRom(normal);
     expect(md.expansion, isNull);

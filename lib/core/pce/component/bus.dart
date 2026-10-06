@@ -31,10 +31,10 @@ class Bus {
   final superCdRam = Uint8List(192 * 1024);
 
   // ST0/1/2 are routed to the VDC selected by
-  // the VPC ($000E bit0). On a plain PCE this is always VDC1.
+  // the VPC ($000E bit0). On a plain pce (not sgx) this is always VDC1.
   Vdc get stVdc => vpc.enabled && vpc.vdcSelect == 1 ? vdc2 : vdc;
 
-  // touching any VDC2 register also latches SGX mode.
+  // touching any VDC2 register also latches sgx mode.
   Vdc get _vdc2Sgx {
     vpc.enabled = true;
     return vdc2;
@@ -49,8 +49,8 @@ class Bus {
   // 4-11: cdrom buffer 64k
   final List<List<int>> ram = List.generate(12, (_) => List.filled(0x2000, 0));
 
-  // on a plain PCE, banks f9-fb mirror the 8kb work ram at f8.
-  // on SGX they are independent 8kb banks (32kb total).
+  // on a plain pce (not sgx), banks f9-fb mirror the 8kb work ram at f8.
+  // on sgx they are independent 8kb banks (32kb total).
   int _workRamIndex(int bank) => vpc.enabled ? bank.mask2 : 0;
 
   int read(int addr) {

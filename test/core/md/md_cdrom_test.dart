@@ -56,7 +56,7 @@ void main() {
     test('cartridge loads detach CD and retain the normal MD bus', () {
       final md = Md()..setRom(bios());
       final cartridge = Uint8List.fromList(bios());
-      cartridge.setAll(0x100, 'SEGA MEGA DRIVE '.codeUnits);
+      cartridge.setAll(0x100, 'CARTRIDGE       '.codeUnits);
       md.setRom(cartridge);
       expect(md.cdrom, isNull);
       expect(md.cpuInfos.length, 2);
