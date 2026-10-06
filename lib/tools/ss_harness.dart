@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/core.dart';
 import 'package:fnesemu/core/ss/ss.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/types.dart';
@@ -112,7 +113,9 @@ Future<void> main(List<String> args) async {
   if (benchFrom == 0) await startBench();
 
   while (frame < frames) {
-    final r = useRunFrame ? ss.runFrame(ss.scanlinesInFrame) : ss.exec(false);
+    final r = useRunFrame
+        ? (ss as FrameRunner).runFrame(ss.scanlinesInFrame)
+        : ss.exec(false);
     if (r.stopped) {
       print("stopped at frame $frame\n${ss.dump()}");
       _savePng(ss.imageBuffer(), "$outDir/stopped.png");
