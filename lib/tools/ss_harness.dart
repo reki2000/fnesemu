@@ -9,6 +9,8 @@
 //   -H, --hold N     frames to hold a pressed button (default: 10)
 //   -w, --wav        also write audio.wav (16bit pcm) and audio.f32 (raw float)
 //   -q, --quiet      no per-png log, print only the total time (benchmark)
+//   --fixed-clock    the real time clock always reads 2000-01-01 and the disc
+//                    cache does not expire by wall time (reproducible runs)
 //   -r, --run-frame  drive the core by runFrame() (as the gui does) instead of exec()
 //   -b, --bench-from N  time only the frames after frame N
 //   --lock FILE      hold flock(1) on FILE while timing (shared benchmark lock)
@@ -33,6 +35,7 @@ Future<void> main(List<String> args) async {
   bool wav = false;
   bool quiet = false;
   bool useRunFrame = false;
+  bool fixedClock = false;
   int benchFrom = 0;
   String? lockFile;
   int holdFrames = 10;
@@ -54,6 +57,8 @@ Future<void> main(List<String> args) async {
         benchFrom = int.parse(args[++i]);
       case "--lock":
         lockFile = args[++i];
+      case "--fixed-clock":
+        fixedClock = true;
       case "-r" || "--run-frame":
         useRunFrame = true;
       case "-q" || "--quiet":
@@ -79,13 +84,16 @@ Future<void> main(List<String> args) async {
   ss.setRom(File(files[0]).readAsBytesSync());
   AsyncCdromDrive? drive;
   if (files.length > 1) {
-    drive = AsyncCdromDrive();
+    // with a fixed clock the sector cache never expires, so a slow run
+    // does not re-read sectors and change the timing
+    drive = AsyncCdromDrive(now: fixedClock ? () => DateTime(2000) : null);
     await drive.insert(discSourceFromPath(files[1]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
     ss.setCdromDrive(drive);
   }
   ss.reset();
   ss.cdblock.log = logCd;
+  if (fixedClock) ss.smpc.clock = () => DateTime(2000, 1, 1);
 
   final f32 = BytesBuilder(copy: false);
   if (wav) {

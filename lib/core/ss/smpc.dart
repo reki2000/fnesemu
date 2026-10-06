@@ -9,6 +9,9 @@ class Smpc {
 
   Smpc(this.pad);
 
+  /// time of the real time clock (replaceable for reproducible test runs)
+  DateTime Function() clock = DateTime.now;
+
   // callbacks wired by the core
   void Function(bool on) onSlaveCpu = (_) {};
   void Function(bool on) onSoundCpu = (_) {};
@@ -191,7 +194,7 @@ class Smpc {
     final getPeripheral = ireg[1].bit3;
 
     if (getStatus) {
-      final now = DateTime.now();
+      final now = clock();
 
       oreg[0] = 0x80 | (resetDisabled ? 0x40 : 0); // STE | RESD
       oreg[1] = _bcd(now.year ~/ 100);
