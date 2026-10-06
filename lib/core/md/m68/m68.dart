@@ -10,6 +10,11 @@ part 'op_8.dart';
 part 'op_c.dart';
 part 'op_e.dart';
 
+// "size" to byte length
+const _size0 = [1, 2, 4, 0]; // commonly used
+const _size1 = [2, 4]; // 1 bit
+const _size2 = [0, 1, 4, 2]; // chk, movea, move
+
 class BusError implements Exception {
   final bool read;
   final bool inst;
@@ -19,7 +24,7 @@ class BusError implements Exception {
 }
 
 class _AddressReg {
-  final a = [0, 0, 0, 0, 0, 0, 0]; // a0 - a6
+  final a = List<int>.filled(7, 0); // a0 - a6
   int ssp = 0;
   int usp = 0;
   bool sf = false;
@@ -42,7 +47,7 @@ class M68 {
 
   // registers
   final a = _AddressReg();
-  final d = [0, 0, 0, 0, 0, 0, 0, 0];
+  final d = List<int>.filled(8, 0);
   int _pc = 0;
 
   int pc0 = 0; // pc at every instruction
@@ -201,11 +206,6 @@ class M68 {
         _ => throw ("unreachable"),
       };
 
-  // "size" to byte length
-  final size0 = [1, 2, 4, 0]; // commonly used
-  final size1 = [2, 4]; // 1 bit
-  final size2 = [0, 1, 4, 2]; // chk, movea, move
-
   // addressing modes
   int addressing(int size, int mode, int reg) {
     return switch (mode) {
@@ -252,7 +252,7 @@ class M68 {
     final ex = pc16();
     final modeAn = ex.bit15;
     final xn = ex.shr12 & 0x07;
-    final size = size1[ex.shr11 & 0x01];
+    final size = _size1[ex.shr11 & 0x01];
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.mask8.rel8;
     // debug(
@@ -390,8 +390,7 @@ class M68 {
   String dump() {
     final rega = 'a:${a.map((e) => e.x8).join(' ')}';
     final regd = 'd:${d.map((e) => e.x8).join(' ')}';
-    final regs =
-        'sr:${sr.x8} usp:${usp.x8} ssp:${ssp.x8} pc:${pc.x8}';
+    final regs = 'sr:${sr.x8} usp:${usp.x8} ssp:${ssp.x8} pc:${pc.x8}';
 
     const f = "XNZVC";
     final flags = List.generate(

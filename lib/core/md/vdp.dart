@@ -6,6 +6,7 @@ import 'package:fnesemu/util/int.dart';
 import '../types.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
+import 'vdp_renderer.dart';
 
 class Vdp {
   Vdp();
@@ -79,7 +80,10 @@ class Vdp {
   bool pal30 = false;
   int interlaceMode = 0;
 
-  get isInterlaced => interlaceMode == 3;
+  bool get isInterlaced => interlaceMode == 3;
+
+  // work buffers of the line renderer
+  final line = VdpLineState();
 
   int width = 256; // h32: 256, h40: 320
   static const height = 224; // ntsc 224, pal: 224, pal30: 240

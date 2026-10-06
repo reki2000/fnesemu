@@ -26,7 +26,7 @@ import 'sn76489.dart';
 import 'vdp.dart';
 import 'z80/z80.dart';
 
-class Md implements Core {
+class Md implements Core, FrameRunner {
   MdCdrom? get cdrom => busM68.cdrom;
   final bool cdBoot;
   final bool expansionBoot;
@@ -135,35 +135,89 @@ class Md implements Core {
 
   bool _waitHBlank = false;
 
+  // flags returned by _step
+  static const _fExecuted0 = 0x01;
+  static const _fExecuted1 = 0x02;
+  static const _fExecuted2 = 0x04;
+  static const _fStopped = 0x08;
+  static const _fScanline = 0x10;
+  static const _fMaster = 0x20;
+  static const _fSlave = 0x40;
+
+  ExecResult _result(int flags) {
+    final result =
+        ExecResult(_clocks, flags & _fStopped != 0, flags & _fScanline != 0);
+    result.executed0 = flags & _fExecuted0 != 0;
+    result.executed1 = flags & _fExecuted1 != 0;
+    if (cdrom != null) result.executed2 = flags & _fExecuted2 != 0;
+    if (expansion != null) {
+      result.setExecuted(_shCpuBase, flags & _fMaster != 0);
+      result.setExecuted(_shCpuBase + 1, flags & _fSlave != 0);
+    }
+    return result;
+  }
+
   /// exec 1 cpu instruction and render VDO / FM-PSG if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found
   @override
-  ExecResult exec(bool step) {
-    final result = ExecResult(0, false, false);
-    result.executed0 = false;
+  ExecResult exec(bool step) => _result(_step(step));
 
-    while (_clocks >= cpuM68.clocks) {
-      if (!cpuM68.exec()) {
-        print("m68000 unimplemented instruction at ${cpuM68.pc.x6}");
-        result.stopped = true;
+  /// runs until [scanlines] scanlines are rendered, the same as exec(false)
+  /// called until it renders [scanlines] scanlines
+  @override
+  ExecResult runFrame(int scanlines) {
+    int flags = 0;
+    int lines = 0;
+    while (lines < scanlines) {
+      flags = _step(false);
+      if (flags & _fStopped != 0) break;
+      if (flags & _fScanline != 0) lines++;
+    }
+    return _result(flags);
+  }
+
+  // m68 clock at which the z80 runs its next instruction, cached for the
+  // z80 cycles it was calculated for
+  int _z80DueCycles = -1;
+  double _z80DueClock = 0;
+
+  @pragma('vm:prefer-inline')
+  double _z80Due(int cycles) {
+    if (cycles != _z80DueCycles) {
+      _z80DueCycles = cycles;
+      _z80DueClock = m68ClockHz * cycles / z80ClockHz;
+    }
+    return _z80DueClock;
+  }
+
+  int _step(bool step) {
+    int flags = 0;
+    final m68 = cpuM68;
+    final clocks = _clocks;
+
+    while (clocks >= m68.clocks) {
+      if (!m68.exec()) {
+        print("m68000 unimplemented instruction at ${m68.pc.x6}");
+        flags |= _fStopped;
         break;
       }
 
-      result.executed0 = true;
+      flags |= _fExecuted0;
 
       if (step) {
         break;
       }
     }
 
-    while (_clocks >= m68ClockHz * cpuZ80.clocks / z80ClockHz) {
-      if (!cpuZ80.exec()) {
-        print("z80 unimplemented instruction at ${cpuZ80.r.pc.x4}");
-        result.stopped = true;
+    final z80 = cpuZ80;
+    while (clocks >= _z80Due(z80.cycles)) {
+      if (!z80.exec()) {
+        print("z80 unimplemented instruction at ${z80.r.pc.x4}");
+        flags |= _fStopped;
         break;
       }
 
-      result.executed1 = true;
+      flags |= _fExecuted1;
 
       if (step) {
         break;
@@ -173,24 +227,24 @@ class Md implements Core {
     final cd = cdrom;
     if (cd != null) {
       final before = cd.cpu.clocks;
-      if (!cd.advance(_clocks, m68ClockHz, step: step)) {
-        result.stopped = true;
+      if (!cd.advance(clocks, m68ClockHz, step: step)) {
+        flags |= _fStopped;
       }
-      result.executed2 = cd.running && cd.cpu.clocks != before;
+      if (cd.running && cd.cpu.clocks != before) flags |= _fExecuted2;
     }
 
     final adapter = expansion;
     if (adapter != null) {
       final (ok, master, slave) =
-          adapter.advance(_clocks, m68ClockHz, step: step);
-      result.setExecuted(_shCpuBase, master);
-      result.setExecuted(_shCpuBase + 1, slave);
+          adapter.advance(clocks, m68ClockHz, step: step);
+      if (master) flags |= _fMaster;
+      if (slave) flags |= _fSlave;
       if (!ok) {
-        result.stopped = true;
+        flags |= _fStopped;
       }
     }
 
-    if (_clocks >= _nextScanClock) {
+    if (clocks >= _nextScanClock) {
       // video rendering
       _nextScanClock += clocksInScanline;
       vdp.trackOpacity = adapter?.enabled == true && adapter?.released == true;
@@ -206,22 +260,21 @@ class Md implements Core {
       // drawn (e.g. per-line vscroll changes by h-int)
       vdp.finishLine();
       _waitHBlank = true;
-      result.scanlineRendered = true;
+      flags |= _fScanline;
 
       // audio rendering
       _renderAudio();
     }
 
-    if (_waitHBlank && _clocks >= _nextScanClock - 36) {
+    if (_waitHBlank && clocks >= _nextScanClock - 36) {
       vdp.startHBlank();
       if (vdp.trackOpacity) adapter!.video.hblank = true;
       _waitHBlank = false;
     }
 
-    _clocks += 12;
-    result.elapsedClocks = _clocks;
+    _clocks = clocks + 12;
 
-    return result;
+    return flags;
   }
 
   final _fmBuffer = Float32List(250 * 2); // about 5ms: stereo 50kHz * 2ch
@@ -257,7 +310,8 @@ class Md implements Core {
     }
 
     // add rendered audio to buffer
-    psg.render(psgSamples).forEach((d) => _psgBuffer[_psgBufferIndex++] = d);
+    psg.renderTo(_psgBuffer, _psgBufferIndex, psgSamples);
+    _psgBufferIndex += psgSamples;
     final rendered = fm.render(fmSamples);
     final adapter = expansion;
     if (adapter == null || !adapter.enabled || !adapter.released) {
