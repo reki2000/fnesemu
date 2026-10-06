@@ -14,11 +14,50 @@ class Rom {
   final List<Uint8List> banks;
 
   // constructor to set rom data
-  Rom(this.banks);
+  Rom(this.banks) {
+    _updateMap();
+  }
 
-  int upperBankOffset = 0;
+  int _upperBankOffset = 0;
 
+  int get upperBankOffset => _upperBankOffset;
+
+  set upperBankOffset(int value) {
+    _upperBankOffset = value;
+    _updateMap();
+  }
+
+  // the bank mapped at each of the 0x80 cpu banks, resolved by _readBank.
+  // null where no bank is mapped (read by _readBank itself).
+  final _map = List<Uint8List?>.filled(0x80, null);
+
+  void _updateMap() {
+    for (int bank = 0; bank < 0x80; bank++) {
+      _map[bank] = _bankOf(bank);
+    }
+  }
+
+  Uint8List? _bankOf(int bank) {
+    if (bank >= banks.length) {
+      return switch (banks.length) {
+        0x30 => banks[bank & 0x0f | 0x20], // 368kB
+        0x20 => banks[bank & 0x1f], // 256kB
+        _ => null,
+      };
+    } else if (bank >= 0x40) {
+      final i = _upperBankOffset + bank;
+      return i < banks.length ? banks[i] : null;
+    }
+    return banks[bank];
+  }
+
+  @pragma('vm:prefer-inline')
   int read(int addr) {
+    final b = _map[(addr >> 13) & 0x7f];
+    return b != null && addr < 0x100000 ? b[addr & 0x1fff] : _readBank(addr);
+  }
+
+  int _readBank(int addr) {
     final bank = addr.shr13;
     final offset = addr & 0x1fff;
 
@@ -29,7 +68,7 @@ class Rom {
         _ => 0xff,
       };
     } else if (bank >= 0x40) {
-      return banks[upperBankOffset + bank][offset];
+      return banks[_upperBankOffset + bank][offset];
     }
 
     return banks[bank][offset];

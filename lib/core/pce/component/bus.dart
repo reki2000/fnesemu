@@ -47,7 +47,7 @@ class Bus {
   // 0: original ram 8kb
   // 1-3: supergfx additional ram banks 24k
   // 4-11: cdrom buffer 64k
-  final List<List<int>> ram = List.generate(12, (_) => List.filled(0x2000, 0));
+  final List<Uint8List> ram = List.generate(12, (_) => Uint8List(0x2000));
 
   // on a plain pce (not sgx), banks f9-fb mirror the 8kb work ram at f8.
   // on sgx they are independent 8kb banks (32kb total).
@@ -56,6 +56,14 @@ class Bus {
   int read(int addr) {
     final bank = addr.shr13;
     final offset = addr & 0x1fff;
+
+    // fast paths: hucard rom (below the cd ram banks) and work ram
+    if (bank < 0x68) {
+      return rom.read(addr);
+    }
+    if (0xf8 <= bank && bank <= 0xfb) {
+      return ram[_workRamIndex(bank)][offset];
+    }
 
     if (cdrom.enabled && bank >= 0x68 && bank <= 0x7f) {
       return superCdRam[(bank - 0x68) * 0x2000 + offset];
