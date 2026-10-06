@@ -7,7 +7,10 @@
 //   -l, --log-cd     log CD block commands
 //   -p, --press F:B  press button B (index) at frame F (repeatable)
 //   -H, --hold N     frames to hold a pressed button (default: 10)
+//   -w, --wav        also write audio.wav (16bit pcm) and audio.f32 (raw float)
+//   -q, --quiet      no per-png log, print only the total time (benchmark)
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fnesemu/core/ss/ss.dart';
 import 'package:fnesemu/core/sram.dart';
@@ -22,6 +25,8 @@ Future<void> main(List<String> args) async {
   String outDir = "/tmp/ss_harness";
   final presses = <(int, int)>[];
   bool logCd = false;
+  bool wav = false;
+  bool quiet = false;
   int holdFrames = 10;
   final files = <String>[];
 
@@ -35,6 +40,10 @@ Future<void> main(List<String> args) async {
         outDir = args[++i];
       case "-H" || "--hold":
         holdFrames = int.parse(args[++i]);
+      case "-w" || "--wav":
+        wav = true;
+      case "-q" || "--quiet":
+        quiet = true;
       case "-l" || "--log-cd":
         logCd = true;
       case "-p" || "--press":
@@ -64,6 +73,13 @@ Future<void> main(List<String> args) async {
   ss.reset();
   ss.cdblock.log = logCd;
 
+  final f32 = BytesBuilder(copy: false);
+  if (wav) {
+    ss.onAudio((buf) {
+      f32.add(Float32List.fromList(buf.buffer).buffer.asUint8List());
+    });
+  }
+
   final sw = Stopwatch()..start();
   int lines = 0;
   int frame = 0;
@@ -90,6 +106,7 @@ Future<void> main(List<String> args) async {
     if (frame % every == 0) {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(ss.imageBuffer(), path);
+      if (quiet) continue;
       print("frame $frame (${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
           "pc:${ss.master.pc.toRadixString(16)} "
           "slave:${ss.slave.pc.toRadixString(16)} "
@@ -98,8 +115,51 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  final ms = sw.elapsedMilliseconds;
+  print("total $frames frames in $ms ms: "
+      "${(ms / frames).toStringAsFixed(3)} ms/frame, "
+      "${(frames * 1000 / ms).toStringAsFixed(1)} fps");
+
+  if (wav) {
+    final raw = f32.toBytes();
+    File("$outDir/audio.f32").writeAsBytesSync(raw);
+    File("$outDir/audio.wav").writeAsBytesSync(_wav(raw.buffer.asFloat32List(
+        raw.offsetInBytes, raw.length ~/ 4)));
+  }
   File("$outDir/state.txt").writeAsStringSync(ss.dump());
-  print(ss.dump());
+  if (!quiet) print(ss.dump());
+}
+
+// 16bit stereo pcm
+Uint8List _wav(Float32List samples) {
+  const rate = 44100, channels = 2;
+  final pcm = ByteData(samples.length * 2);
+  for (int i = 0; i < samples.length; i++) {
+    pcm.setInt16(i * 2, (samples[i].clamp(-1.0, 1.0) * 32767).round(),
+        Endian.little);
+  }
+  final h = ByteData(44);
+  void tag(int o, String s) {
+    for (int i = 0; i < 4; i++) {
+      h.setUint8(o + i, s.codeUnitAt(i));
+    }
+  }
+
+  tag(0, "RIFF");
+  h.setUint32(4, 36 + pcm.lengthInBytes, Endian.little);
+  tag(8, "WAVE");
+  tag(12, "fmt ");
+  h.setUint32(16, 16, Endian.little);
+  h.setUint16(20, 1, Endian.little);
+  h.setUint16(22, channels, Endian.little);
+  h.setUint32(24, rate, Endian.little);
+  h.setUint32(28, rate * channels * 2, Endian.little);
+  h.setUint16(32, channels * 2, Endian.little);
+  h.setUint16(34, 16, Endian.little);
+  tag(36, "data");
+  h.setUint32(40, pcm.lengthInBytes, Endian.little);
+  return Uint8List.fromList(
+      [...h.buffer.asUint8List(), ...pcm.buffer.asUint8List()]);
 }
 
 void _savePng(ImageBuffer buf, String path) {
