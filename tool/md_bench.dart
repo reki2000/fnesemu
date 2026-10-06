@@ -6,6 +6,8 @@
 // usage: dart run tool/md_bench.dart <md|mdcd|32x> <rom|bios> [disc]
 //          [-f frames] [-p F:B]... [-H hold] [-3 main,master,slave]
 //          [-l hashfile]   (writes the per-frame hashes)
+//          [-n]            (no hashes: only the speed)
+//          [-r]            (runs frames by FrameRunner.runFrame, not exec)
 //
 // AOT: dart compile exe tool/md_bench.dart -o md_bench && ./md_bench ...
 import 'dart:io';
@@ -15,6 +17,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
 import 'package:fnesemu/cdrom/disc_source_local.dart';
+import 'package:fnesemu/core/core.dart';
 import 'package:fnesemu/core/md/md.dart';
 
 Future<void> main(List<String> args) async {
@@ -22,6 +25,8 @@ Future<void> main(List<String> args) async {
   int frames = 1200;
   int hold = 12;
   String? hashFile;
+  bool noHash = false;
+  bool useRunFrame = false;
   List<String>? bootRoms;
   final presses = <(int, String)>[];
   for (int i = 0; i < args.length; i++) {
@@ -30,6 +35,10 @@ Future<void> main(List<String> args) async {
         frames = int.parse(args[++i]);
       case "-H":
         hold = int.parse(args[++i]);
+      case "-n":
+        noHash = true;
+      case "-r":
+        useRunFrame = true;
       case "-l":
         hashFile = args[++i];
       case "-3":
@@ -86,6 +95,7 @@ Future<void> main(List<String> args) async {
   int audioHash = 0x811c9dc5;
   int audioSamples = 0;
   core.onAudio((buf) {
+    if (noHash) return;
     for (final s in buf.buffer) {
       final v = (s.clamp(-1.0, 1.0) * 32767).round() & 0xffff;
       audioHash = ((audioHash ^ v) * 0x01000193) & 0xffffffff;
@@ -99,16 +109,25 @@ Future<void> main(List<String> args) async {
   int lines = 0;
   int frame = 0;
 
+  final runner = useRunFrame ? core as FrameRunner : null;
+  final cpu0 = _cpuMs();
   sw.start();
   while (frame < frames) {
-    final r = core.exec(false);
-    if (r.stopped) {
-      print("stopped at frame $frame");
-      exit(2);
+    if (runner != null) {
+      if (runner.runFrame(core.scanlinesInFrame).stopped) {
+        print("stopped at frame $frame");
+        exit(2);
+      }
+    } else {
+      final r = core.exec(false);
+      if (r.stopped) {
+        print("stopped at frame $frame");
+        exit(2);
+      }
+      if (!r.scanlineRendered) continue;
+      if (++lines < core.scanlinesInFrame) continue;
+      lines = 0;
     }
-    if (!r.scanlineRendered) continue;
-    if (++lines < core.scanlinesInFrame) continue;
-    lines = 0;
     frame++;
     sw.stop();
     await drive?.settle();
@@ -116,17 +135,23 @@ Future<void> main(List<String> args) async {
       if (frame == f) core.padDown(0, buttons[b]);
       if (frame == f + hold) core.padUp(0, buttons[b]);
     }
+    if (noHash) {
+      sw.start();
+      continue;
+    }
     final h = _hash(core.imageBuffer().buffer);
     frameHashes.add(h);
     allHash = ((allHash * 31) ^ h) & 0xffffffff;
     sw.start();
   }
   sw.stop();
+  final cpuMs = _cpuMs() - cpu0;
 
   final ms = sw.elapsedMicroseconds / 1000;
   print("frames:$frames time:${ms.toStringAsFixed(0)}ms "
       "${(ms / frames).toStringAsFixed(3)}ms/frame "
       "${(frames * 1000 / ms).toStringAsFixed(1)}fps "
+      "cpu:${(cpuMs / frames).toStringAsFixed(3)}ms/frame "
       "video:${allHash.toRadixString(16)} "
       "audio:${audioHash.toRadixString(16)}/$audioSamples");
   if (hashFile != null) {
@@ -137,6 +162,13 @@ Future<void> main(List<String> args) async {
         .join("\n"));
   }
   exit(0);
+}
+
+// user + system cpu time of this process
+int _cpuMs() {
+  final f = File("/proc/self/stat").readAsStringSync();
+  final fields = f.substring(f.lastIndexOf(")") + 2).split(" ");
+  return (int.parse(fields[11]) + int.parse(fields[12])) * 10; // 100Hz ticks
 }
 
 int _hash(Uint8List b) {
