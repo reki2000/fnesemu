@@ -207,9 +207,22 @@ class CoreController {
 
   /// executes emulation during 1 frame
   void _runFrame() {
-    while (_scanline++ < _core.scanlinesInFrame) {
-      if (!_runScanLine()) {
+    final core = _core;
+    if (core case final FrameRunner runner
+        when !debugger.opt.showDebugView && _runMode == runModeNone) {
+      // the core runs the rest of the frame by itself
+      final result = runner.runFrame(core.scanlinesInFrame - _scanline);
+      _currentCpuClocks = result.elapsedClocks;
+      if (result.stopped) {
+        _scanline = 0;
+        stop();
         return;
+      }
+    } else {
+      while (_scanline++ < core.scanlinesInFrame) {
+        if (!_runScanLine()) {
+          return;
+        }
       }
     }
 

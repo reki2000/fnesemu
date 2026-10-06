@@ -81,3 +81,13 @@ abstract class Core {
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo);
   ImageBuffer renderColorTable(int paletteNo);
 }
+
+/// implemented by cores which run a whole frame by themselves, faster than
+/// exec() called for each instruction by the controller. used when the
+/// debugger is off.
+abstract interface class FrameRunner {
+  /// executes until [scanlines] scanlines are rendered, with the same result
+  /// as exec(false) called until `scanlineRendered` [scanlines] times. returns
+  /// early when an exec stops (`stopped`). `elapsedClocks` is of the last exec.
+  ExecResult runFrame(int scanlines);
+}
