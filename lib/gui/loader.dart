@@ -4,20 +4,8 @@ String _fileExtension(String fileName) =>
     fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
 
 /// returns null when the file picker is cancelled.
-Future<(Uint8List, String)?> _pickFile({String name = ""}) async {
-  if (name != "") {
-    try {
-      return (
-        (await rootBundle.load('assets/roms/$name')).buffer.asUint8List(),
-        name
-      );
-    } catch (_) {
-      throw Exception("file not found: $name");
-    }
-  }
-
-  return (await _pickFiles())?.first;
-}
+Future<(Uint8List, String)?> _pickFile() async =>
+    (await _pickFiles())?.first;
 
 /// lets the user select files and reads them. returns null when cancelled.
 Future<List<(Uint8List, String)>?> _pickFiles(

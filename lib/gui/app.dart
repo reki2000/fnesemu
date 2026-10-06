@@ -26,18 +26,12 @@ part 'loader.dart';
 
 class Config {
   final bool debug;
-  final List<String> roms;
-  final String disc;
-  final String rom;
   const Config({
     this.debug = false,
-    this.roms = const [],
-    this.disc = "",
-    this.rom = "",
   });
 
   String dump() {
-    return "debug: $debug, roms: $roms, disc: $disc, rom: $rom";
+    return "debug: $debug";
   }
 }
 
@@ -134,14 +128,6 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
-    if (widget.config.disc.isNotEmpty) {
-      _setDiscFile(widget.config.disc);
-    }
-
-    if (widget.config.rom.isNotEmpty) {
-      _loadRomFile(fileName: widget.config.rom);
-    }
-
     debugLog("initialized: ${widget.config.dump()}");
   }
 
@@ -185,18 +171,8 @@ class MainPageState extends State<MainPage> {
     setState(() {});
   }
 
-  _setDiscFile(String fileName) async {
-    await _drive.insert(discSourceFromPath(fileName));
-    if (!_drive.status.isReady) {
-      AppSnackBar.show("failed to read: $fileName");
-      return;
-    }
-
-    await _startDisc(fileName);
-  }
-
-  _loadRomFile({String fileName = ""}) async {
-    final picked = await _pickFile(name: fileName);
+  _loadRomFile() async {
+    final picked = await _pickFile();
     if (picked == null) {
       return;
     }
@@ -446,18 +422,6 @@ class MainPageState extends State<MainPage> {
                     PopupMenuItem(value: item, child: Text(item.path)),
                 ],
               ),
-
-              if (widget.config.roms.isNotEmpty)
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.file_open_outlined),
-                  tooltip: "Select ROM",
-                  onSelected: (name) =>
-                      _do(() async => await _loadRomFile(fileName: name)),
-                  itemBuilder: (_) => widget.config.roms
-                      .map((name) => PopupMenuItem(
-                          value: name, child: Text(name.split(".")[0])))
-                      .toList(),
-                ),
 
               // file load button
               iconButton(Icons.file_open_outlined, "Load ROM",

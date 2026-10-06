@@ -35,9 +35,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/
-    - assets/roms/
 
 import_path_converter:
   relative: true # true->relative path, false->package path (default: false)

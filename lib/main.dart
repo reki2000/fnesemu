@@ -14,15 +14,7 @@ void main() async {
   final packageInfo = await PackageInfo.fromPlatform();
 
   const debugEnv = bool.fromEnvironment("DEBUG", defaultValue: false);
-  const romsEnv = String.fromEnvironment("ROMS", defaultValue: "");
-  const discEnv = String.fromEnvironment("DISC", defaultValue: "");
-  const romEnv = String.fromEnvironment("ROM", defaultValue: "");
-  final config = Config(
-    debug: debugEnv,
-    roms: romsEnv.split(",").where((s) => s.isNotEmpty).toList(),
-    disc: discEnv,
-    rom: romEnv,
-  );
+  const config = Config(debug: debugEnv);
 
   final storage = await Storage.open();
 
