@@ -4,6 +4,16 @@ import '../cpu.dart';
 import 'disasm.dart';
 import 'onchip.dart';
 
+// sign extensions, same as int.toSigned() but always inlined
+@pragma('vm:prefer-inline')
+int _s8(int x) => ((x & 0xff) ^ 0x80) - 0x80;
+@pragma('vm:prefer-inline')
+int _s12(int x) => ((x & 0xfff) ^ 0x800) - 0x800;
+@pragma('vm:prefer-inline')
+int _s16(int x) => ((x & 0xffff) ^ 0x8000) - 0x8000;
+@pragma('vm:prefer-inline')
+int _s32(int x) => ((x & 0xffffffff) ^ 0x80000000) - 0x80000000;
+
 // SH-2 address space: cache areas and on-chip modules in front of the external bus
 class _Sh2Memory implements SsCpuBus {
   final SsCpuBus ext;
@@ -14,6 +24,16 @@ class _Sh2Memory implements SsCpuBus {
 
   _Sh2Memory(this.ext, this.onchip);
 
+  // work RAM high accessed without the external bus (see Sh2.setFastFetch).
+  // the bus has no side effect on this area, so the result is the same.
+  bool _fastWram = false;
+  Uint8List _wram = Uint8List(0);
+  ByteData _wramData = ByteData(0);
+
+  // 0x06000000-0x07ffffff in the cache / cache-through area
+  @pragma('vm:prefer-inline')
+  static bool _isWram(int a) => a & 0xc6000000 == 0x06000000;
+
   // area by address bits 31-29
   static const _areaCache = 0, _areaThrough = 1, _areaPurge = 2;
   static const _areaAddressArray = 3, _areaDataArray = 6, _areaIo = 7;
@@ -21,6 +41,7 @@ class _Sh2Memory implements SsCpuBus {
   @override
   int read8(int a) {
     a &= 0xffffffff;
+    if (_fastWram && _isWram(a)) return _wram[a & 0xfffff];
     switch (a >>> 29) {
       case _areaCache || _areaThrough:
         return ext.read8(a);
@@ -38,6 +59,7 @@ class _Sh2Memory implements SsCpuBus {
   @override
   int read16(int a) {
     a &= 0xfffffffe;
+    if (_fastWram && _isWram(a)) return _wramData.getUint16(a & 0xffffe);
     switch (a >>> 29) {
       case _areaCache || _areaThrough:
         return ext.read16(a);
@@ -56,6 +78,7 @@ class _Sh2Memory implements SsCpuBus {
   @override
   int read32(int a) {
     a &= 0xfffffffc;
+    if (_fastWram && _isWram(a)) return _wramData.getUint32(a & 0xffffc);
     switch (a >>> 29) {
       case _areaCache || _areaThrough:
         return ext.read32(a);
@@ -74,6 +97,10 @@ class _Sh2Memory implements SsCpuBus {
   void write8(int a, int d) {
     writes++;
     a &= 0xffffffff;
+    if (_fastWram && _isWram(a)) {
+      _wram[a & 0xfffff] = d & 0xff;
+      return;
+    }
     switch (a >>> 29) {
       case _areaCache || _areaThrough:
         ext.write8(a, d);
@@ -92,6 +119,10 @@ class _Sh2Memory implements SsCpuBus {
   void write16(int a, int d) {
     writes++;
     a &= 0xfffffffe;
+    if (_fastWram && _isWram(a)) {
+      _wramData.setUint16(a & 0xffffe, d & 0xffff);
+      return;
+    }
     switch (a >>> 29) {
       case _areaCache || _areaThrough:
         ext.write16(a, d);
@@ -111,6 +142,10 @@ class _Sh2Memory implements SsCpuBus {
   void write32(int a, int d) {
     writes++;
     a &= 0xfffffffc;
+    if (_fastWram && _isWram(a)) {
+      _wramData.setUint32(a & 0xffffc, d & 0xffffffff);
+      return;
+    }
     switch (a >>> 29) {
       case _areaCache || _areaThrough:
         ext.write32(a, d);
@@ -156,7 +191,9 @@ class Sh2 extends SsCpu {
   // -1: none (avoids boxing of nullable ints)
   int _delayTarget = -1, _restoreSr = -1;
   bool sleeping = false, _inDelay = false;
+  @pragma('vm:prefer-inline')
   bool get t => (sr & 1) != 0;
+  @pragma('vm:prefer-inline')
   set t(bool value) => sr = (sr & ~1) | (value ? 1 : 0);
   bool get _q => (sr & 0x100) != 0;
   bool get _m => (sr & 0x200) != 0;
@@ -168,24 +205,40 @@ class Sh2 extends SsCpu {
   int get sp => r[15];
 
   // direct instruction fetch from work RAM high / boot ROM
-  ByteData? _fetchWram;
-  ByteData? _fetchRom;
+  bool _hasFetchWram = false, _hasFetchRom = false;
+  ByteData _fetchWram = ByteData(0);
+  ByteData _fetchRom = ByteData(0);
+  Uint8List _fetchWramBytes = Uint8List(0);
+  Uint8List _fetchRomBytes = Uint8List(0);
 
-  /// sets memories which instructions can be fetched from without the bus
+  /// sets memories which instructions can be fetched from without the bus.
+  /// work RAM high is also read and written directly by data accesses.
   void setFastFetch({ByteData? wramHigh, ByteData? rom}) {
-    _fetchWram = wramHigh;
-    _fetchRom = rom;
+    _hasFetchWram = wramHigh != null;
+    _fetchWram = wramHigh ?? ByteData(0);
+    _hasFetchRom = rom != null;
+    _fetchRom = rom ?? ByteData(0);
+    _fetchWramBytes = _fetchWram.buffer
+        .asUint8List(_fetchWram.offsetInBytes, _fetchWram.lengthInBytes);
+    _fetchRomBytes = _fetchRom.buffer
+        .asUint8List(_fetchRom.offsetInBytes, _fetchRom.lengthInBytes);
+    _mem._fastWram = _hasFetchWram;
+    _mem._wramData = _fetchWram;
+    _mem._wram = _fetchWram.buffer
+        .asUint8List(_fetchWram.offsetInBytes, _fetchWram.lengthInBytes);
   }
 
+  @pragma('vm:prefer-inline')
   int _fetch(int a) {
     // 0x06000000-0x07ffffff in cache / cache-through area
-    final wram = _fetchWram;
-    if (wram != null && a & 0xde000000 == 0x06000000) {
-      return wram.getUint16(a & 0xffffe);
+    // big-endian halfword from the bytes (cheaper than ByteData.getUint16)
+    if (_hasFetchWram && a & 0xde000000 == 0x06000000) {
+      final m = _fetchWramBytes, i = a & 0xffffe;
+      return m[i] << 8 | m[i + 1];
     }
-    final rom = _fetchRom;
-    if (rom != null && a & 0xdff00000 == 0) {
-      return rom.getUint16(a & 0x7fffe);
+    if (_hasFetchRom && a & 0xdff00000 == 0) {
+      final m = _fetchRomBytes, i = a & 0x7fffe;
+      return m[i] << 8 | m[i + 1];
     }
     return bus.read16(a);
   }
@@ -254,24 +307,26 @@ class Sh2 extends SsCpu {
 
   bool _isIdle() {
     final writes = _mem.writes;
-    if (pc == _idlePc &&
+    // compares the registers and keeps them as the next snapshot at once
+    final regs = r, idle = _idleRegs;
+    bool same = true;
+    for (int i = 0; i < 16; i++) {
+      final v = regs[i];
+      if (v != idle[i]) {
+        same = false;
+        idle[i] = v;
+      }
+    }
+    if (same &&
+        pc == _idlePc &&
         writes == _idleWrites &&
         sr == _idleSr &&
         gbr == _idleGbr &&
         mach == _idleMach &&
         macl == _idleMacl &&
         pr == _idlePr) {
-      bool same = true;
-      for (int i = 0; i < 16; i++) {
-        if (r[i] != _idleRegs[i]) {
-          same = false;
-          break;
-        }
-      }
-      if (same) {
-        _idlePc = -1;
-        return true;
-      }
+      _idlePc = -1;
+      return true;
     }
 
     _idlePc = pc;
@@ -281,11 +336,11 @@ class Sh2 extends SsCpu {
     _idleMach = mach;
     _idleMacl = macl;
     _idlePr = pr;
-    _idleRegs.setAll(0, r);
     return false;
   }
 
   // cheap check whether any interrupt may be accepted now
+  @pragma('vm:prefer-inline')
   bool get _interruptRequested =>
       _nmi || _irl > ((sr >> 4) & 15) || onchip.anyPending;
 
@@ -329,6 +384,7 @@ class Sh2 extends SsCpu {
     clocks += 5;
   }
 
+  @pragma('vm:prefer-inline')
   bool exec() {
     final target = _delayTarget;
     final restore = _restoreSr;
@@ -363,6 +419,7 @@ class Sh2 extends SsCpu {
     return true;
   }
 
+  @pragma('vm:prefer-inline')
   bool _branch(int target, {bool delay = true}) {
     if (_inDelay) return false;
     if (delay) {
@@ -378,13 +435,13 @@ class Sh2 extends SsCpu {
     final n = (op >> 8) & 15, m = (op >> 4) & 15, low = op & 15;
     switch (op >> 12) {
       case 0xe:
-        r[n] = (op & 255).toSigned(8);
+        r[n] = _s8(op & 255);
         return true;
       case 7:
-        r[n] += (op & 255).toSigned(8);
+        r[n] += _s8(op & 255);
         return true;
       case 9:
-        r[n] = bus.read16(address + 4 + (op & 255) * 2).toSigned(16);
+        r[n] = _s16(bus.read16(address + 4 + (op & 255) * 2));
         return true;
       case 0xd:
         r[n] = bus.read32(((address + 4) & ~3) + (op & 255) * 4);
@@ -396,27 +453,27 @@ class Sh2 extends SsCpu {
         r[n] = bus.read32(r[m] + low * 4);
         return true;
       case 0xa:
-        return _branch(address + 4 + (op & 0xfff).toSigned(12) * 2);
+        return _branch(address + 4 + _s12(op) * 2);
       case 0xb:
         if (_inDelay) return false;
         pr = (address + 4) & 0xffffffff;
-        return _branch(address + 4 + (op & 0xfff).toSigned(12) * 2);
+        return _branch(address + 4 + _s12(op) * 2);
       case 6:
         final value = r[m];
         switch (low) {
           case 0:
-            r[n] = bus.read8(value).toSigned(8);
+            r[n] = _s8(bus.read8(value));
           case 1:
-            r[n] = bus.read16(value).toSigned(16);
+            r[n] = _s16(bus.read16(value));
           case 2:
             r[n] = bus.read32(value);
           case 3:
             r[n] = value;
           case 4:
-            r[n] = bus.read8(value).toSigned(8);
+            r[n] = _s8(bus.read8(value));
             if (n != m) r[m] += 1;
           case 5:
-            r[n] = bus.read16(value).toSigned(16);
+            r[n] = _s16(bus.read16(value));
             if (n != m) r[m] += 2;
           case 6:
             r[n] = bus.read32(value);
@@ -440,9 +497,9 @@ class Sh2 extends SsCpu {
           case 13:
             r[n] = value & 0xffff;
           case 14:
-            r[n] = value.toSigned(8);
+            r[n] = _s8(value);
           case 15:
-            r[n] = value.toSigned(16);
+            r[n] = _s16(value);
         }
         return true;
       case 2:
@@ -476,13 +533,16 @@ class Sh2 extends SsCpu {
             r[n] |= value;
           case 12:
             final diff = r[n] ^ value;
-            t = List.generate(4, (i) => (diff >> (i * 8)) & 255).contains(0);
+            t = diff & 0xff == 0 ||
+                diff & 0xff00 == 0 ||
+                diff & 0xff0000 == 0 ||
+                diff & 0xff000000 == 0;
           case 13:
             r[n] = (value << 16) | (r[n] >> 16);
           case 14:
             macl = (r[n] & 0xffff) * (value & 0xffff);
           case 15:
-            macl = (r[n].toSigned(16) * value.toSigned(16)) & 0xffffffff;
+            macl = (_s16(r[n]) * _s16(value)) & 0xffffffff;
           default:
             return false;
         }
@@ -495,17 +555,17 @@ class Sh2 extends SsCpu {
           case 2:
             t = a >= b;
           case 3:
-            t = a.toSigned(32) >= b.toSigned(32);
+            t = _s32(a) >= _s32(b);
           case 4:
             _div1(n, b);
           case 5 || 13:
-            final product = low == 5 ? a * b : a.toSigned(32) * b.toSigned(32);
+            final product = low == 5 ? a * b : _s32(a) * _s32(b);
             macl = product & 0xffffffff;
             mach = (product >> 32) & 0xffffffff;
           case 6:
             t = a > b;
           case 7:
-            t = a.toSigned(32) > b.toSigned(32);
+            t = _s32(a) > _s32(b);
           case 8:
             r[n] = a - b;
           case 10:
@@ -531,18 +591,18 @@ class Sh2 extends SsCpu {
         }
         return true;
       case 8:
-        final displacement = (op & 255).toSigned(8) * 2;
+        final displacement = _s8(op & 255) * 2;
         switch ((op >> 8) & 15) {
           case 0:
             bus.write8(r[m] + low, r[0]);
           case 1:
             bus.write16(r[m] + low * 2, r[0]);
           case 4:
-            r[0] = bus.read8(r[m] + low).toSigned(8);
+            r[0] = _s8(bus.read8(r[m] + low));
           case 5:
-            r[0] = bus.read16(r[m] + low * 2).toSigned(16);
+            r[0] = _s16(bus.read16(r[m] + low * 2));
           case 8:
-            t = r[0] == ((op & 255).toSigned(8) & 0xffffffff);
+            t = r[0] == (_s8(op & 255) & 0xffffffff);
           case 9 || 11 || 13 || 15:
             if (_inDelay) return false;
             final take = (n == 9 || n == 13) ? t : !t;
@@ -566,9 +626,9 @@ class Sh2 extends SsCpu {
             if (_inDelay) return false;
             _exception(imm, pc);
           case 4:
-            r[0] = bus.read8(gbr + imm).toSigned(8);
+            r[0] = _s8(bus.read8(gbr + imm));
           case 5:
-            r[0] = bus.read16(gbr + imm * 2).toSigned(16);
+            r[0] = _s16(bus.read16(gbr + imm * 2));
           case 6:
             r[0] = bus.read32(gbr + imm * 4);
           case 7:
@@ -607,10 +667,10 @@ class Sh2 extends SsCpu {
           macl = (r[n] * r[m]) & 0xffffffff;
           return true;
         case 12:
-          r[n] = bus.read8(r[m] + r[0]).toSigned(8);
+          r[n] = _s8(bus.read8(r[m] + r[0]));
           return true;
         case 13:
-          r[n] = bus.read16(r[m] + r[0]).toSigned(16);
+          r[n] = _s16(bus.read16(r[m] + r[0]));
           return true;
         case 14:
           r[n] = bus.read32(r[m] + r[0]);
@@ -692,7 +752,7 @@ class Sh2 extends SsCpu {
           r[n] >>= 1;
         case 0x21:
           t = r[n].isOdd;
-          r[n] = r[n].toSigned(32) >> 1;
+          r[n] = _s32(r[n]) >> 1;
         case 0x04:
           final carry = (r[n] >> 31) & 1;
           r[n] = (r[n] << 1) | carry;
@@ -725,9 +785,9 @@ class Sh2 extends SsCpu {
           r[n]--;
           t = (r[n] & 0xffffffff) == 0;
         case 0x11:
-          t = r[n].toSigned(32) >= 0;
+          t = _s32(r[n]) >= 0;
         case 0x15:
-          t = r[n].toSigned(32) > 0;
+          t = _s32(r[n]) > 0;
         case 0x0b:
           if (_inDelay) return false;
           pr = address + 4;
@@ -805,9 +865,9 @@ class Sh2 extends SsCpu {
   }
 
   void _macL(int n, int m) {
-    final rn = bus.read32(r[n]).toSigned(32);
+    final rn = _s32(bus.read32(r[n]));
     r[n] = (r[n] + 4) & 0xffffffff;
-    final rm = bus.read32(r[m]).toSigned(32);
+    final rm = _s32(bus.read32(r[m]));
     r[m] = (r[m] + 4) & 0xffffffff;
 
     final product = rn * rm;
@@ -827,15 +887,15 @@ class Sh2 extends SsCpu {
   }
 
   void _macW(int n, int m) {
-    final rn = bus.read16(r[n]).toSigned(16);
+    final rn = _s16(bus.read16(r[n]));
     r[n] = (r[n] + 2) & 0xffffffff;
-    final rm = bus.read16(r[m]).toSigned(16);
+    final rm = _s16(bus.read16(r[m]));
     r[m] = (r[m] + 2) & 0xffffffff;
 
     final product = rn * rm;
     if (_s) {
       // 32-bit saturation, MACH bit 0 flags an overflow
-      int result = macl.toSigned(32) + product;
+      int result = _s32(macl) + product;
       if (result > 0x7fffffff) {
         result = 0x7fffffff;
         mach |= 1;

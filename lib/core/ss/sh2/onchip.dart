@@ -148,21 +148,40 @@ class Sh2OnChip {
     final frtDiv = _frtDivs[tcr & 3];
     if (frtDiv != 0) {
       _frtSub += clocks;
-      while (_frtSub >= frtDiv) {
-        _frtSub -= frtDiv;
-        _frcIncrement();
+      if (_frtSub >= frtDiv) {
+        int steps = _frtSub ~/ frtDiv;
+        _frtSub -= steps * frtDiv;
+        while (steps > 0) {
+          // counts up at once until the step before 0, OCRA or OCRB,
+          // which _frcIncrement handles one by one
+          final f = frc;
+          int dist = 0x10000 - f;
+          final da = (ocra - f) & 0xffff;
+          if (da != 0 && da < dist) dist = da;
+          final db = (ocrb - f) & 0xffff;
+          if (db != 0 && db < dist) dist = db;
+          if (steps < dist) {
+            frc = f + steps;
+            break;
+          }
+          frc = f + dist - 1;
+          _frcIncrement();
+          steps -= dist;
+        }
       }
     }
 
     if (wtcsr.bit5) {
       final wdtDiv = _wdtDivs[wtcsr & 7];
       _wdtSub += clocks;
-      while (_wdtSub >= wdtDiv) {
-        _wdtSub -= wdtDiv;
-        wtcnt = (wtcnt + 1) & 0xff;
-        if (wtcnt == 0) {
-          wtcsr |= 0x80; // OVF (interval timer mode)
+      if (_wdtSub >= wdtDiv) {
+        final steps = _wdtSub ~/ wdtDiv;
+        _wdtSub -= steps * wdtDiv;
+        final count = wtcnt + steps;
+        if (count > 0xff) {
+          wtcsr |= 0x80; // OVF (interval timer mode): passed through 0
         }
+        wtcnt = count & 0xff;
       }
     }
   }

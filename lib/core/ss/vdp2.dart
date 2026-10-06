@@ -26,14 +26,19 @@ class _MapCfg {
   bool ccEnabled = false;
   int sfprMode = 0;
 
+  @pragma('vm:prefer-inline')
   int get pageBytes => pnSize == 2
       ? (char16 ? 0x800 : 0x2000)
       : (char16 ? 0x1000 : 0x4000);
 
   int get pageDots => 512;
+  @pragma('vm:prefer-inline')
   int get planeDotsW => planeW * 512;
+  @pragma('vm:prefer-inline')
   int get planeDotsH => planeH * 512;
+  @pragma('vm:prefer-inline')
   int get mapDotsW => planeDotsW * mapW;
+  @pragma('vm:prefer-inline')
   int get mapDotsH => planeDotsH * mapW;
 
   // the address of a plane from its map number
@@ -154,6 +159,7 @@ class Vdp2 {
   // in mode 0, the second half of color ram mirrors the first half
   int _cramAddr(int addr) => cramMode == 0 ? addr & 0x7ff : addr & 0xfff;
 
+  @pragma('vm:prefer-inline')
   static int _rgb555(int c) {
     final r = c & 0x1f, g = (c >> 5) & 0x1f, b = (c >> 10) & 0x1f;
     return (b << 3 | b >> 2) << 16 | (g << 3 | g >> 2) << 8 | (r << 3 | r >> 2);
@@ -184,6 +190,7 @@ class Vdp2 {
 
   int _cramMask = 0x3ff;
 
+  @pragma('vm:prefer-inline')
   int _color(int index) => _colors[index & _cramMask];
 
   // line buffers: bits 23-0 color, 24-26 priority, 27 color calculation enabled
@@ -246,6 +253,7 @@ class Vdp2 {
   }
 
   final _active = Int32List(6);
+  final _activeBufs = List<Int32List>.filled(6, Int32List(0));
   int _activeCount = 0;
 
   // ---- NBG ----
@@ -376,10 +384,28 @@ class Vdp2 {
       return true;
     }
 
-    _lastCellKey = -1;
+    // same as _cellDot for each dot, with the per-line values hoisted
+    final maskW = cfg.mapDotsW - 1;
+    final cy = py & (cfg.mapDotsH - 1);
+    final rowKey = (cy >> 3) << 16;
+    int lastKey = -1;
+    int cellDy = 0;
     for (int x = 0; x < w; x++) {
-      buf[x] = _cellDot(cfg, (sx + x * dx) >> 8, py);
+      final cx = ((sx + x * dx) >> 8) & maskW;
+      final key = rowKey | (cx >> 3);
+      if (key != lastKey) {
+        lastKey = key;
+        _setupCell(cfg, cx, cy);
+        cellDy = _cellVf ? 7 - (cy & 7) : cy & 7;
+      }
+      if (_cellPri == 0) {
+        buf[x] = 0;
+        continue;
+      }
+      final cellDx = _cellHf ? 7 - (cx & 7) : cx & 7;
+      buf[x] = _dot(cfg, _cellAddr, cellDx, cellDy, 8, _cellPalette, _cellPri);
     }
+    _lastCellKey = lastKey;
     return true;
   }
 
@@ -436,6 +462,7 @@ class Vdp2 {
 
   static const _cellBytes = [32, 64, 128, 128, 256, 256, 256, 256];
 
+  @pragma('vm:prefer-inline')
   int _cellDot(_MapCfg cfg, int x, int y) {
     x &= cfg.mapDotsW - 1;
     y &= cfg.mapDotsH - 1;
@@ -495,6 +522,7 @@ class Vdp2 {
     _cellVf = _pnVf;
   }
 
+  @pragma('vm:prefer-inline')
   int _bitmapDot(_MapCfg cfg, int x, int y) {
     x &= cfg.bitmapW - 1;
     y &= cfg.bitmapH - 1;
@@ -503,6 +531,7 @@ class Vdp2 {
   }
 
   /// fetches a dot from character / bitmap data at (x, y), returns packed pixel
+  @pragma('vm:prefer-inline')
   int _dot(_MapCfg cfg, int base, int x, int y, int stride, int palette,
       int pri) {
     int color;
@@ -740,6 +769,7 @@ class Vdp2 {
     }
   }
 
+  @pragma('vm:prefer-inline')
   int _offset(int l, int c) {
     if (!_offOn[l]) return c;
     int r = (c & 0xff) + _offR[l];
@@ -763,8 +793,11 @@ class Vdp2 {
       return;
     }
 
-    final lines = _lines;
     final active = _active;
+    final bufs = _activeBufs;
+    for (int i = 0; i < n; i++) {
+      bufs[i] = _lines[active[i]];
+    }
 
     for (int x = 0; x < w; x++) {
       int top = -1, topPri = 0, topPixel = 0;
@@ -772,7 +805,7 @@ class Vdp2 {
 
       for (int i = 0; i < n; i++) {
         final l = active[i];
-        final p = lines[l][x];
+        final p = bufs[i][x];
         if (p == 0) continue;
         final pri = (p >> 24) & 7;
         if (pri > topPri) {
