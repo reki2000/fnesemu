@@ -155,6 +155,44 @@ class Bus {
 
   // --- 16/32-bit access (little-endian) -------------------------------------
 
+  late final _biosData = ByteData.sublistView(bios);
+  late final _ewramData = ByteData.sublistView(ewram);
+  late final _iwramData = ByteData.sublistView(iwram);
+
+  // Aligned instruction fetches can read RAM/BIOS in one operation. Device
+  // and partial ROM reads retain the normal bus path and its side effects.
+  @pragma('vm:prefer-inline')
+  int fetch16(int addr) {
+    switch ((addr >> 24) & 15) {
+      case 0:
+        final a = addr & 0x0fffffff;
+        if (a + 2 <= bios.length) return _biosData.getUint16(a, Endian.little);
+      case 2:
+        return _ewramData.getUint16(addr & 0x3ffff, Endian.little);
+      case 3:
+        return _iwramData.getUint16(addr & 0x7fff, Endian.little);
+      case 8 || 9 || 10 || 11 || 12:
+        return cart.fetch16(addr & 0x01ffffff);
+    }
+    return read16(addr);
+  }
+
+  @pragma('vm:prefer-inline')
+  int fetch32(int addr) {
+    switch ((addr >> 24) & 15) {
+      case 0:
+        final a = addr & 0x0fffffff;
+        if (a + 4 <= bios.length) return _biosData.getUint32(a, Endian.little);
+      case 2:
+        return _ewramData.getUint32(addr & 0x3ffff, Endian.little);
+      case 3:
+        return _iwramData.getUint32(addr & 0x7fff, Endian.little);
+      case 8 || 9 || 10 || 11 || 12:
+        return cart.fetch32(addr & 0x01ffffff);
+    }
+    return read32(addr);
+  }
+
   int read16(int addr) {
     final region = addr.shr24.mask4;
     if (region == 0x4) return _readIo16(addr & 0x3fe);

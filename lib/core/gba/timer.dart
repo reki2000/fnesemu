@@ -21,6 +21,8 @@ class Timers {
   final _control = List<int>.filled(4, 0); // TMxCNT_H
   final _sub = List<int>.filled(4, 0); // accumulated prescaler sub-cycles
 
+  int _activeMask = 0; // enabled channels driven by CPU cycles
+
   // prescaler shift: 1, 64, 256, 1024 cycles per tick
   static const _prescalerShift = [0, 6, 8, 10];
 
@@ -29,9 +31,11 @@ class Timers {
   bool _irqEnable(int ch) => _control[ch].bit6;
 
   /// supply [cycles] of elapsed CPU time to the prescaler-driven channels.
+  @pragma('vm:prefer-inline')
   void tick(int cycles) {
+    if (_activeMask == 0) return;
     for (int ch = 0; ch < 4; ch++) {
-      if (!_enabled(ch) || _countUp(ch)) continue;
+      if (_activeMask & (1 << ch) == 0) continue;
       final shift = _prescalerShift[_control[ch].mask2];
       _sub[ch] += cycles;
       final ticks = _sub[ch].shr(shift);
@@ -80,6 +84,11 @@ class Timers {
     }
     final wasEnabled = _enabled(ch);
     _control[ch] = data.mask16;
+    if (_enabled(ch) && !_countUp(ch)) {
+      _activeMask |= 1 << ch;
+    } else {
+      _activeMask &= ~(1 << ch);
+    }
     if (!wasEnabled && _enabled(ch)) {
       _counter[ch] = _reload[ch];
       _sub[ch] = 0;
@@ -87,6 +96,7 @@ class Timers {
   }
 
   void reset() {
+    _activeMask = 0;
     for (int ch = 0; ch < 4; ch++) {
       _counter[ch] = 0;
       _reload[ch] = 0;

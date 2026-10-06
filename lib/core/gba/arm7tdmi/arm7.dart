@@ -78,7 +78,7 @@ class Arm7 {
   }
 
   int _fetch(int addr) =>
-      regs.thumb ? bus.read16(addr & ~1) : bus.read32(addr & ~3);
+      regs.thumb ? bus.fetch16(addr & ~1) : bus.fetch32(addr & ~3);
 
   /// execute one instruction. returns elapsed cycles (>=1).
   /// stage 1: decode not implemented yet -> raises undefined.
@@ -179,7 +179,8 @@ class Arm7 {
   // one (regs.pc points two opcodes ahead, so subtract one opcode width).
   void raiseUndefined() =>
       _enterException(_vectorUndefined, CpuMode.und, regs.pc - _opSize);
-  void raiseSwi() => _enterException(_vectorSwi, CpuMode.svc, regs.pc - _opSize);
+  void raiseSwi() =>
+      _enterException(_vectorSwi, CpuMode.svc, regs.pc - _opSize);
   void raisePrefetchAbort() =>
       _enterException(_vectorAbortPrefetch, CpuMode.abt, regs.pc - _opSize + 4);
   void raiseDataAbort() =>

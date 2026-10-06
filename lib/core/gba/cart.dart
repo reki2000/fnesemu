@@ -6,6 +6,7 @@ import 'backup.dart';
 /// Game Pak: ROM + backup memory (SRAM / Flash / EEPROM, auto-detected).
 class Cart {
   Uint8List rom = Uint8List(0);
+  late ByteData _romData = ByteData.sublistView(rom);
   final backup = Backup();
 
   String title = "";
@@ -13,6 +14,7 @@ class Cart {
 
   void load(Uint8List body) {
     rom = body;
+    _romData = ByteData.sublistView(body);
     if (body.length >= 0xc0) {
       title = String.fromCharCodes(body.sublist(0xa0, 0xac)).trim();
       gameCode = String.fromCharCodes(body.sublist(0xac, 0xb0));
@@ -31,6 +33,25 @@ class Cart {
     if (offset < rom.length) return rom[offset];
     // open-bus on GBA returns a value derived from the address; 0 is fine here.
     return 0;
+  }
+
+  @pragma('vm:prefer-inline')
+  int fetch16(int offset) {
+    if (offset + 2 <= rom.length) {
+      return _romData.getUint16(offset, Endian.little);
+    }
+    return readRom8(offset) | readRom8(offset + 1) << 8;
+  }
+
+  @pragma('vm:prefer-inline')
+  int fetch32(int offset) {
+    if (offset + 4 <= rom.length) {
+      return _romData.getUint32(offset, Endian.little);
+    }
+    return readRom8(offset) |
+        readRom8(offset + 1) << 8 |
+        readRom8(offset + 2) << 16 |
+        readRom8(offset + 3) << 24;
   }
 
   int readSram(int offset) => backup.read8(offset);
