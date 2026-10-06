@@ -9,14 +9,14 @@ import 'package:fnesemu/util/int.dart';
 //   https://github.com/nukeykt/Nuked-OPN2/blob/master/ym3438.c
 
 // log sin of 0..PI/4, 256 steps: 0x000-0xfff
-final _logSinTable = List.generate(
-    256, (i) => (-log(sin((i + 0.4) * pi / 2 / 256)) * 370).round().toInt());
+final _logSinTable = Int32List.fromList(List.generate(
+    256, (i) => (-log(sin((i + 0.4) * pi / 2 / 256)) * 370).round().toInt()));
 
 // exp of e^0..e^1, 256 steps, -1 biased: 0x3ff-0x000
-final _expTable = List.generate(
-    256, (i) => ((exp(i / 256) - 1.0) / (exp(1) - 1.0) * 1023).toInt());
+final _expTable = Int32List.fromList(List.generate(
+    256, (i) => ((exp(i / 256) - 1.0) / (exp(1) - 1.0) * 1023).toInt()));
 
-final _attenuateIncTable = [
+final _attenuateIncTable = Int32List.fromList([
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
   0, 1, 0, 1, 0, 1, // 0-3    (0x00-0x03)
   0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1,
@@ -49,7 +49,7 @@ final _attenuateIncTable = [
   8, 8, 4, 8, 8, 8, // 56-59  (0x38-0x3B)
   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
   8, 8, 8, 8, 8, 8, // 60-63  (0x3C-0x3F)
-];
+]);
 
 final _detuneTable = [
   0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, //  dt=1, keyCode 0..1f
@@ -213,8 +213,7 @@ class Op {
           _attenuateIncTable[_egRate.shl3 | ch.egClockCounter >> shift & 0x07];
 
       if (_egState == _egStateAttack) {
-        _egAttenuation +=
-            inc * ((egAttenuationSize - _egAttenuation).shr4 + 1);
+        _egAttenuation += inc * ((egAttenuationSize - _egAttenuation).shr4 + 1);
       } else {
         // TBD: inc x 6 in ssg mode
         _egAttenuation += inc;
@@ -243,12 +242,16 @@ class Op {
     final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
 
     // level: 0(loud)-0x1fff(quiet) 13bit
-    final level =
-        (_logSinTable[qPhase] + _egLevel.shl2 + (am ? ch._lfoAmVal : 0))
-            .clip(0, 0x1fff);
+    int level =
+        _logSinTable[qPhase] + (_egLevel << 2) + (am ? ch._lfoAmVal : 0);
+    if (level < 0) {
+      level = 0;
+    } else if (level > 0x1fff) {
+      level = 0x1fff;
+    }
 
     // output: 0(quiet)-0x1fff(loud) 13bit
-    final output = (_expTable[~level & 0xff] | 0x400).shl2 >> level.shr8;
+    final output = ((_expTable[~level & 0xff] | 0x400) << 2) >> (level >> 8);
 
     // out: 14bit = 13bit + sign
     final out = phase & 0x200 != 0 ? -output : output;
@@ -263,10 +266,16 @@ class Op {
 
 class Channel {
   final int no;
-  late List<Op> op;
+  late final List<Op> op;
+  late final Op _op1, _op2, _op3, _op4;
 
   Channel(this.no) {
-    op = [Op(this, 1), Op(this, 2), Op(this, 3), Op(this, 4)];
+    op =
+        List.unmodifiable([Op(this, 1), Op(this, 2), Op(this, 3), Op(this, 4)]);
+    _op1 = op[0];
+    _op2 = op[1];
+    _op3 = op[2];
+    _op4 = op[3];
   }
 
   int freq = 0;
@@ -310,8 +319,9 @@ class Channel {
   int egClockCounter = 0; // clock counter for EG
   int globalClockCounter = 0; // global counter of FM module
 
+  // output of the last render: [0, samples) is valid
   var buffer = Float32List(1000);
-  var opBuffer = List<List<int>>.generate(4, (j) => List<int>.filled(1000, 0));
+  var opBuffer = List<Int32List>.generate(4, (j) => Int32List(1000));
 
   int calcLfoFreq(int freq, int block) {
     if (!lfoEnabled) {
@@ -329,6 +339,7 @@ class Channel {
     return baseFreq;
   }
 
+  @pragma('vm:prefer-inline')
   int withFeedback(Op op) {
     final input = op.generateOutput(0);
     return feedback == 0
@@ -336,15 +347,22 @@ class Channel {
         : op.generateOutput(feedback == 0 ? 0 : (input >> (10 - feedback)));
   }
 
-  // 1 sample = 1/44100 sec
-  Float32List render(int samples) {
-    if (buffer.length != samples) {
-      buffer = Float32List(samples);
-      opBuffer =
-          List<List<int>>.generate(4, (j) => List<int>.filled(samples, 0));
-    }
+  static const _lfoAmsShift = [7, 3, 1, 0];
 
-    for (int i = 0; i < buffer.length; i++) {
+  // 1 sample = 1/44100 sec. renders [samples] samples into [buffer]
+  void render(int samples) {
+    if (buffer.length < samples) {
+      buffer = Float32List(samples);
+      opBuffer = List<Int32List>.generate(4, (j) => Int32List(samples));
+    }
+    final buf = buffer;
+    final ob0 = opBuffer[0];
+    final ob1 = opBuffer[1];
+    final ob2 = opBuffer[2];
+    final ob3 = opBuffer[3];
+    final op1o = _op1, op2o = _op2, op3o = _op3, op4o = _op4;
+
+    for (int i = 0; i < samples; i++) {
       if (lfoEnabled) {
         if (_lfoCounter & _lfoCounterMask == _lfoCounterMask) {
           _lfoCounter = 0;
@@ -358,32 +376,34 @@ class Channel {
         _lfoFmPhase = _lfoPhase.shr2;
         final lfoAmPhase =
             (_lfoPhase.bit6 ? _lfoPhase ^ 0x3f : _lfoPhase & 0x3f).shl1;
-        _lfoAmVal = lfoAmPhase >> [7, 3, 1, 0][lfoAms];
+        _lfoAmVal = lfoAmPhase >> _lfoAmsShift[lfoAms];
       }
 
       final baseFreq = calcLfoFreq(freq, block);
 
       if (isCh3Special) {
-        for (int i = 0; i < 3; i++) {
-          op[i].updatePhase(calcLfoFreq(op[i].freq, op[i].block));
-        }
-        op[3].updatePhase(baseFreq);
+        op1o.updatePhase(calcLfoFreq(op1o.freq, op1o.block));
+        op2o.updatePhase(calcLfoFreq(op2o.freq, op2o.block));
+        op3o.updatePhase(calcLfoFreq(op3o.freq, op3o.block));
+        op4o.updatePhase(baseFreq);
       } else {
-        for (final o in op) {
-          o.updatePhase(baseFreq);
-        }
+        op1o.updatePhase(baseFreq);
+        op2o.updatePhase(baseFreq);
+        op3o.updatePhase(baseFreq);
+        op4o.updatePhase(baseFreq);
       }
 
       globalClockCounter += 144;
       if (egClockCounter < globalClockCounter ~/ 351) {
         egClockCounter++;
-        for (final o in op) {
-          o.updateEnvelope();
-        }
+        op1o.updateEnvelope();
+        op2o.updateEnvelope();
+        op3o.updateEnvelope();
+        op4o.updateEnvelope();
       }
 
       double out = 0;
-      int op1 = withFeedback(op[0]);
+      int op1 = withFeedback(op1o);
       int op2 = 0;
       int op3 = 0;
       int op4 = 0;
@@ -391,71 +411,69 @@ class Channel {
       switch (algo) {
         case 0:
           // 0: 1->2->3->4->out
-          op2 = op[1].generateOutput(op1.shr1);
-          op3 = op[2].generateOutput(op2.shr1);
-          op4 = op[3].generateOutput(op3.shr1);
+          op2 = op2o.generateOutput(op1.shr1);
+          op3 = op3o.generateOutput(op2.shr1);
+          op4 = op4o.generateOutput(op3.shr1);
           out = op4 / Op.outMask;
           break;
         case 1:
           // 1: 1->3 2->3->4->out
-          op2 = op[1].generateOutput(0);
-          op3 = op[2].generateOutput((op1 + op2).shr2);
-          op4 = op[3].generateOutput(op3.shr1);
+          op2 = op2o.generateOutput(0);
+          op3 = op3o.generateOutput((op1 + op2).shr2);
+          op4 = op4o.generateOutput(op3.shr1);
           out = op4 / Op.outMask;
           break;
         case 2:
           // 2: 1->4 2->3->4->out
-          op2 = op[1].generateOutput(0);
-          op3 = op[2].generateOutput(op2.shr1);
-          op4 = op[3].generateOutput((op1 + op3).shr2);
+          op2 = op2o.generateOutput(0);
+          op3 = op3o.generateOutput(op2.shr1);
+          op4 = op4o.generateOutput((op1 + op3).shr2);
           out = op4 / Op.outMask;
           break;
         case 3:
           // 3: 1->2->4->out 3->4->out
-          op2 = op[1].generateOutput(op1.shr1);
-          op3 = op[2].generateOutput(0);
-          op4 = op[3].generateOutput((op2 + op3).shr2);
+          op2 = op2o.generateOutput(op1.shr1);
+          op3 = op3o.generateOutput(0);
+          op4 = op4o.generateOutput((op2 + op3).shr2);
           out = op4 / Op.outMask;
           break;
         case 4:
           // 4: 1->2->out 3->4->out
-          op2 = op[1].generateOutput(op1.shr1);
-          op3 = op[2].generateOutput(0);
-          op4 = op[3].generateOutput(op3.shr1);
+          op2 = op2o.generateOutput(op1.shr1);
+          op3 = op3o.generateOutput(0);
+          op4 = op4o.generateOutput(op3.shr1);
           out = (op2 + op4) / 2 / Op.outMask;
           break;
         case 5:
           // 5: 1->2->out 1->3->out 1->4->out
-          op2 = op[1].generateOutput(op1.shr1);
-          op3 = op[2].generateOutput(op1.shr1);
-          op4 = op[3].generateOutput(op1.shr1);
+          op2 = op2o.generateOutput(op1.shr1);
+          op3 = op3o.generateOutput(op1.shr1);
+          op4 = op4o.generateOutput(op1.shr1);
           out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 6:
           // 6: 1->2->out 3->out 4->out
-          op2 = op[1].generateOutput(op1.shr1);
-          op3 = op[2].generateOutput(0);
-          op4 = op[3].generateOutput(0);
+          op2 = op2o.generateOutput(op1.shr1);
+          op3 = op3o.generateOutput(0);
+          op4 = op4o.generateOutput(0);
           out = (op2 + op3 + op4) / 3 / Op.outMask;
           break;
         case 7:
           // 7: 1->out 2->out 3->out 4->out
-          op2 = op[1].generateOutput(0);
-          op3 = op[2].generateOutput(0);
-          op4 = op[3].generateOutput(0);
+          op2 = op2o.generateOutput(0);
+          op3 = op3o.generateOutput(0);
+          op4 = op4o.generateOutput(0);
           out = (op1 + op2 + op3 + op4) / 4 / Op.outMask;
           break;
       }
 
-      opBuffer[0][i] = op1;
-      opBuffer[1][i] = op2;
-      opBuffer[2][i] = op3;
-      opBuffer[3][i] = op4;
+      ob0[i] = op1;
+      ob1[i] = op2;
+      ob2[i] = op3;
+      ob3[i] = op4;
 
-      buffer[i] = out;
+      buf[i] = out;
     }
-
-    return buffer;
   }
 
   bool enableDebug = true;
@@ -793,24 +811,29 @@ class Ym2612 {
     countTimer(samples);
 
     final buffer = Float32List(samples * 2);
+    final length = buffer.length;
 
-    for (final ch in _channels) {
+    for (int c = 0; c < _channels.length; c++) {
+      final ch = _channels[c];
+      final left = ch.outLeft;
+      final right = ch.outRight;
       if (_dacEnabled && ch.no == 6) {
         // mix dac
-        for (int i = 0; i < buffer.length; i += 2) {
-          final dacValue = (_dacData - 127) / 128 / 6;
-          buffer[i + 0] += ch.outLeft ? dacValue : 0;
-          buffer[i + 1] += ch.outRight ? dacValue : 0;
+        final dacValue = (_dacData - 127) / 128 / 6;
+        for (int i = 0; i < length; i += 2) {
+          buffer[i + 0] += left ? dacValue : 0;
+          buffer[i + 1] += right ? dacValue : 0;
         }
         continue;
       }
 
       // mix fm
-      final out = ch.render(samples);
-      for (int i = 0; i < buffer.length; i += 2) {
-        final dacValue = out[i.shr1] / 4;
-        buffer[i + 0] += ch.outLeft ? dacValue : 0;
-        buffer[i + 1] += ch.outRight ? dacValue : 0;
+      ch.render(samples);
+      final out = ch.buffer;
+      for (int i = 0; i < length; i += 2) {
+        final dacValue = out[i >> 1] / 4;
+        buffer[i + 0] += left ? dacValue : 0;
+        buffer[i + 1] += right ? dacValue : 0;
       }
     }
 

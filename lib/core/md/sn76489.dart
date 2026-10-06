@@ -16,11 +16,17 @@ class Tone {
   double _vol = 0;
 
   Float32List render(int samples) {
-    if (freq == 0 || freq == 1) {
-      return Float32List(samples)..fillRange(0, samples, _volumeTable[vol]);
-    }
-
     final buf = Float32List(samples);
+    renderTo(buf, samples);
+    return buf;
+  }
+
+  /// renders [samples] samples into the head of [buf]
+  void renderTo(Float32List buf, int samples) {
+    if (freq == 0 || freq == 1) {
+      buf.fillRange(0, samples, _volumeTable[vol]);
+      return;
+    }
 
     for (int i = 0; i < samples; i++) {
       _counter--;
@@ -33,8 +39,6 @@ class Tone {
 
       buf[i] = _vol;
     }
-
-    return buf;
   }
 }
 
@@ -66,7 +70,12 @@ class Noise {
 
   Float32List render(int samples) {
     final buf = Float32List(samples);
+    renderTo(buf, samples);
+    return buf;
+  }
 
+  /// renders [samples] samples into the head of [buf]
+  void renderTo(Float32List buf, int samples) {
     for (int i = 0; i < samples; i++) {
       _counter--;
 
@@ -84,8 +93,6 @@ class Noise {
 
       buf[i] = _vol;
     }
-
-    return buf;
   }
 }
 
@@ -157,20 +164,37 @@ class Sn76489 {
 
   // single channel render
   Float32List render(int samples) {
+    final buf = Float32List(samples);
+    renderTo(buf, 0, samples);
+    return buf;
+  }
+
+  // work buffers of the channels
+  var _wave0 = Float32List(256);
+  var _wave1 = Float32List(256);
+  var _wave2 = Float32List(256);
+  var _wave3 = Float32List(256);
+
+  /// single channel render into [out] from [offset]
+  void renderTo(Float32List out, int offset, int samples) {
     elapsedSamples += samples;
 
-    final buf = Float32List(samples);
+    if (_wave0.length < samples) {
+      _wave0 = Float32List(samples);
+      _wave1 = Float32List(samples);
+      _wave2 = Float32List(samples);
+      _wave3 = Float32List(samples);
+    }
+    final wave0 = _wave0, wave1 = _wave1, wave2 = _wave2, wave3 = _wave3;
 
-    final wave0 = tones[0].render(samples);
-    final wave1 = tones[1].render(samples);
-    final wave2 = tones[2].render(samples);
-    final wave3 = noise.render(samples);
+    tones[0].renderTo(wave0, samples);
+    tones[1].renderTo(wave1, samples);
+    tones[2].renderTo(wave2, samples);
+    noise.renderTo(wave3, samples);
 
     for (int i = 0; i < samples; i++) {
-      buf[i] = (wave0[i] + wave1[i] + wave2[i] + wave3[i]) / 4;
+      out[offset + i] = (wave0[i] + wave1[i] + wave2[i] + wave3[i]) / 4;
     }
-
-    return buf;
   }
 
   String dump() {
