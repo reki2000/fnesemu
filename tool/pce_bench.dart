@@ -6,7 +6,9 @@
 // that an optimization does not change the output.
 //
 // usage: dart run tool/pce_bench.dart <rom|system card> [disc.cue]
-//          [-f frames] [-p frame:button ...] [-H hold] [-c]
+//          [-f frames] [-p frame:button ...] [-H hold] [-c] [-r]
+// -r runs each frame with runFrame() (as the gui does without the debugger)
+// instead of exec() per instruction.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -19,6 +21,7 @@ Future<void> main(List<String> args) async {
   int frames = 1200;
   int hold = 12;
   bool checksum = false;
+  bool runFrame = false;
   final presses = <(int, String)>[];
   final files = <String>[];
   for (int i = 0; i < args.length; i++) {
@@ -29,6 +32,8 @@ Future<void> main(List<String> args) async {
         hold = int.parse(args[++i]);
       case "-c":
         checksum = true;
+      case "-r":
+        runFrame = true;
       case "-p":
         final s = args[++i].split(":");
         presses.add((int.parse(s[0]), s[1]));
@@ -80,11 +85,17 @@ Future<void> main(List<String> args) async {
   int lines = 0;
   int frame = 0;
   while (frame < frames) {
-    final r = core.exec(false);
-    if (r.stopped) throw "stopped at frame $frame";
-    if (!r.scanlineRendered) continue;
-    if (++lines < core.scanlinesInFrame) continue;
-    lines = 0;
+    if (runFrame) {
+      if (core.runFrame(core.scanlinesInFrame).stopped) {
+        throw "stopped at frame $frame";
+      }
+    } else {
+      final r = core.exec(false);
+      if (r.stopped) throw "stopped at frame $frame";
+      if (!r.scanlineRendered) continue;
+      if (++lines < core.scanlinesInFrame) continue;
+      lines = 0;
+    }
     frame++;
     final image = core.imageBuffer();
     if (checksum) hash = mix(hash, image.buffer);
