@@ -181,43 +181,50 @@ extension VdcRenderer on Vdc {
     final fineY = bgRenderLine & 0x07;
     final dot3 = vramDotWidth == 3;
     final zero23 = bgTreatPlane23Zero;
+    final expand = _expand;
     int pal = paletteNo;
     int p01 = pattern01;
     int p23 = pattern23;
-
-    for (int x = 0; x < w; x++) {
+    // a tile at a time: bx wraps at a multiple of 8, so every tile starts
+    // with a fetch, as the per-pixel renderer does at x == 0 or bx & 7 == 0
+    for (int x = 0; x < w;) {
       final bx = (x + sx) & maskX;
-
-      if (x == 0 || (bx & 0x07) == 0) {
-        final tile = vram[row | ((bx >> 3) & maskW)];
-        pal = (tile >> 12) << 4;
-        final addr = ((tile & 0xfff) << 4) | fineY;
-        if (dot3) {
-          if (zero23) {
-            p01 = vram[addr];
-            p23 = 0;
-          } else {
-            p01 = 0;
-            p23 = vram[addr];
-          }
-        } else {
+      final tile = vram[row | ((bx >> 3) & maskW)];
+      pal = (tile >> 12) << 4;
+      final addr = ((tile & 0xfff) << 4) | fineY;
+      if (dot3) {
+        if (zero23) {
           p01 = vram[addr];
-          p23 = vram[addr + 8];
+          p23 = 0;
+        } else {
+          p01 = 0;
+          p23 = vram[addr];
         }
-      }
-
-      final shift = 7 - (bx & 7);
-      final a = p01 >> shift;
-      final b = p23 >> shift;
-      final c = (a & 1) | ((a >> 7) & 0x02) | ((b << 2) & 0x04) | ((b >> 5) & 0x08);
-
-      if (sprite) {
-        final sp = spl[x];
-        // the sprite is in front when it has the priority or the bg is clear
-        buf[base + x] =
-            (sp & _spPrior) != 0 || c == 0 ? sp & 0x1ff : pal | c;
       } else {
-        buf[base + x] = c == 0 ? 0 : pal | c;
+        p01 = vram[addr];
+        p23 = vram[addr + 8];
+      }
+      // the 8 pixels of the tile, 4 bits each: pixel of shift s at bit s * 4
+      final chunky = expand[p01 & 0xff] |
+          (expand[p01 >> 8] << 1) |
+          (expand[p23 & 0xff] << 2) |
+          (expand[p23 >> 8] << 3);
+
+      int shift = 7 - (bx & 7);
+      final end = x + shift + 1 < w ? x + shift + 1 : w;
+      if (sprite) {
+        for (; x < end; x++, shift--) {
+          final c = (chunky >> (shift << 2)) & 0x0f;
+          final sp = spl[x];
+          // the sprite is in front when it has the priority or the bg is clear
+          buf[base + x] =
+              (sp & _spPrior) != 0 || c == 0 ? sp & 0x1ff : pal | c;
+        }
+      } else {
+        for (; x < end; x++, shift--) {
+          final c = (chunky >> (shift << 2)) & 0x0f;
+          buf[base + x] = c == 0 ? 0 : pal | c;
+        }
       }
     }
 
@@ -226,7 +233,19 @@ extension VdcRenderer on Vdc {
     pattern23 = p23;
   }
 
+  // bit n of a byte moved to bit n * 4 (planar to 4-bit chunky pixels)
+  static final _expand = Uint32List.fromList(List.generate(256, (b) {
+    int v = 0;
+    for (int n = 0; n < 8; n++) {
+      v |= ((b >> n) & 1) << (n * 4);
+    }
+    return v;
+  }));
+
   static const _spPrior = 0x10000;
+
+  // whether a sprite of the line buffer has a non-transparent pixel
+  static final _spriteOpaque = List<bool>.filled(16, false);
 
   // fills spriteLine[0..w) with the sprite pixel of each x: the 9-bit color
   // (palette | color no, color no != 0) | _spPrior, or 0 when there is none.
@@ -241,57 +260,69 @@ extension VdcRenderer on Vdc {
     final pix = spritePixels;
     final dot3 = vramDotWidth == 3;
 
-    // decode the visible pixels of each sprite of this line
+    final expand = _expand;
+    final opaque = _spriteOpaque;
+
+    // decode the pixels of each sprite of this line, 16 at a time
     for (int i = 0; i < n; i++) {
       final sp = spriteBuf[i];
       final width = sp.width;
-      final xs = sp.x - 32 < 0 ? 0 : sp.x - 32;
-      final xe = sp.x - 32 + width > w ? w : sp.x - 32 + width;
-      if (xs >= xe) continue;
-
       final vv = displayLine + 64 - sp.y;
       final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
       final y = flippedY & 0x0f;
       final y2 = flippedY >> 4;
+      final hFlip = sp.hFlip;
+      final off = i * 32;
+      int any = 0;
 
-      int fetched = -1;
-      int p0 = 0, p1 = 0, p2 = 0, p3 = 0;
-      for (int x = xs; x < xe; x++) {
-        final hh = x + 32 - sp.x;
-        final flippedX = sp.hFlip ? width - hh - 1 : hh;
-        final x2 = flippedX >> 4;
-        if (x2 != fetched) {
-          fetched = x2;
-          if (dot3) {
-            final addr = ((sp.patternNo + x2 + y2 * (width >> 4)) << 5) + y;
-            if (sp.cgModeTreal01Zero) {
-              p0 = p1 = 0;
-              p2 = vram[addr];
-              p3 = vram[addr + 16];
-            } else {
-              p0 = vram[addr];
-              p1 = vram[addr + 16];
-              p2 = p3 = 0;
-            }
+      for (int x2 = 0; x2 < (width >> 4); x2++) {
+        int p0, p1, p2, p3;
+        if (dot3) {
+          final addr = ((sp.patternNo + x2 + y2 * (width >> 4)) << 5) + y;
+          if (sp.cgModeTreal01Zero) {
+            p0 = p1 = 0;
+            p2 = vram[addr];
+            p3 = vram[addr + 16];
           } else {
-            final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
             p0 = vram[addr];
             p1 = vram[addr + 16];
-            p2 = vram[addr + 32];
-            p3 = vram[addr + 48];
+            p2 = p3 = 0;
           }
+        } else {
+          final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
+          p0 = vram[addr];
+          p1 = vram[addr + 16];
+          p2 = vram[addr + 32];
+          p3 = vram[addr + 48];
         }
-        final shift = 15 - (flippedX & 0x0f);
-        pix[i * 32 + hh] = ((p0 >> shift) & 0x01) |
-            (((p1 >> shift) << 1) & 0x02) |
-            (((p2 >> shift) << 2) & 0x04) |
-            (((p3 >> shift) << 3) & 0x08);
+        any |= p0 | p1 | p2 | p3;
+
+        // pixel fx (0: left) of the column is bit 15 - fx of the planes
+        final left = expand[p0 >> 8] |
+            (expand[p1 >> 8] << 1) |
+            (expand[p2 >> 8] << 2) |
+            (expand[p3 >> 8] << 3);
+        final right = expand[p0 & 0xff] |
+            (expand[p1 & 0xff] << 1) |
+            (expand[p2 & 0xff] << 2) |
+            (expand[p3 & 0xff] << 3);
+        final fx0 = x2 << 4;
+        for (int fx = 0; fx < 8; fx++) {
+          final hh = hFlip ? width - 1 - (fx0 + fx) : fx0 + fx;
+          pix[off + hh] = (left >> ((7 - fx) << 2)) & 0x0f;
+        }
+        for (int fx = 8; fx < 16; fx++) {
+          final hh = hFlip ? width - 1 - (fx0 + fx) : fx0 + fx;
+          pix[off + hh] = (right >> ((15 - fx) << 2)) & 0x0f;
+        }
       }
+      opaque[i] = any != 0;
     }
 
     if (!enalbeSpriteCollision) {
       // paint from the last sprite so that the first opaque one stays
       for (int i = n - 1; i >= 0; i--) {
+        if (!opaque[i]) continue;
         final sp = spriteBuf[i];
         final xs = sp.x - 32 < 0 ? 0 : sp.x - 32;
         final xe = sp.x - 32 + sp.width > w ? w : sp.x - 32 + sp.width;
