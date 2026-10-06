@@ -1,16 +1,16 @@
 // Dart imports:
 // Flutter imports:
 import 'package:archive/archive.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 // Project imports:
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/disc_source.dart';
 import '../core/core_controller.dart';
 import '../core/debugger.dart';
-import '../core/gba/gba.dart';
+import '../core/core_factory.dart';
 import '../cdrom/disc_folder.dart';
 import '../styles.dart';
 import 'package:fnesemu/util/debug.dart';
@@ -112,6 +112,8 @@ class MainPageState extends State<MainPage> {
   // shared by cores, the disc is kept across ROM loading
   final _drive = AsyncCdromDrive();
 
+  final _coreSetupKey = GlobalKey<PopupMenuButtonState>();
+
   @override
   void initState() {
     super.initState();
@@ -177,7 +179,7 @@ class MainPageState extends State<MainPage> {
     // wrap both of async or sync function to catch error
     Future.microtask(action).catchError((e, st) {
       AppSnackBar.show(e.toString());
-      throw e;
+      debugPrint("$e\n$st");
     });
 
     setState(() {});
@@ -185,48 +187,86 @@ class MainPageState extends State<MainPage> {
 
   _setDiscFile(String fileName) async {
     await _drive.insert(discSourceFromPath(fileName));
-
-    await _reset();
-
-    AppSnackBar.show("loaded: $fileName");
-
-    if (!widget.config.debug) {
-      _run();
-    }
-  }
-
-  _loadRomFile({String fileName = ""}) async {
-    final (file, name) = await _pickFile(name: fileName);
-    final (extractedFile, extractedName) = _extractIfZip(file, name);
-
-    // a file named gba_bios.bin is the GBA BIOS image, not a cartridge ROM
-    if (extractedName.toLowerCase().endsWith("gba_bios.bin")) {
-      Gba.biosImage = extractedFile;
-      AppSnackBar.show("gba bios loaded: $name");
+    if (!_drive.status.isReady) {
+      AppSnackBar.show("failed to read: $fileName");
       return;
     }
 
-    final ext = _fileExtension(extractedName);
+    await _startDisc(fileName);
+  }
 
-    if (ext == "exe") {
-      final (bios, _) = await _pickFile(name: "scph1001.ps");
-      _controller.init("ps", bios.buffer.asUint8List(), extRom: extractedFile);
-    } else {
-      _controller.init(ext, extractedFile);
+  _loadRomFile({String fileName = ""}) async {
+    final picked = await _pickFile(name: fileName);
+    if (picked == null) {
+      return;
     }
-    _controller.setCdromDrive(_drive);
+    final (file, name) = picked;
+    final (extractedFile, extractedName) = _extractIfZip(file, name);
+
+    final system = CoreFactory.systemOfFile(extractedName, extractedFile);
+    await _boot(system, rom: extractedFile, name: extractedName);
+  }
+
+  /// replaces the running core with [system] booted with its BIOS and [rom].
+  /// without [rom], the system boots its BIOS (and the disc in the drive).
+  _boot(CoreSystem system, {Uint8List? rom, required String name}) async {
+    final bios = await _storage.bios(system.id);
+    if (system.biosRequired && bios.isEmpty) {
+      AppSnackBar.show("set the BIOS of ${system.name} from Core setup");
+      _coreSetupKey.currentState?.showButtonMenu();
+      return;
+    }
+
+    await _controller.init(system.id, rom: rom, bios: bios, drive: _drive);
 
     _keyHandler.init();
     _mPlayer.resume(); // web platform requires this
-    _romName = extractedName;
-
-    await _reset();
+    _romName = name;
 
     AppSnackBar.show("loaded: $name");
 
     if (!widget.config.debug) {
       _run();
     }
+  }
+
+  /// lets the user select the BIOS files of [system] and saves them
+  _selectBios(CoreSystem system) async {
+    final files = await _pickFiles(
+        multiple: system.biosFiles > 1,
+        dialogTitle: "Select the BIOS of ${system.name}");
+    if (files == null) {
+      return;
+    }
+
+    if (files.length != system.biosFiles) {
+      throw Exception("${system.name} requires ${system.biosFiles} BIOS "
+          "files: ${files.length} selected");
+    }
+
+    await _storage.setBios(
+        system.id, [for (final (data, name) in files) (name, data)]);
+    AppSnackBar.show("BIOS of ${system.name}: "
+        "${_storage.biosNames(system.id).join(", ")}");
+  }
+
+  /// plays the disc in the drive. the running system keeps running if it
+  /// plays the disc (the disc is changed as on the real console), otherwise
+  /// the system of the disc boots.
+  _startDisc(String name) async {
+    final system = await CoreFactory.systemOfDisc(_drive);
+    if (system == null) {
+      AppSnackBar.show("unknown disc: $name");
+      return;
+    }
+
+    final running = _controller.system;
+    if (running.isNotEmpty && CoreFactory.system(running).disc == system.id) {
+      AppSnackBar.show("inserted: $name");
+      return;
+    }
+
+    await _boot(system, name: name);
   }
 
   static const _lastDiscDirKey = "disc_dir";
@@ -286,11 +326,7 @@ class MainPageState extends State<MainPage> {
       return;
     }
 
-    await _reset();
-    AppSnackBar.show("loaded: ${item.path}");
-    if (!widget.config.debug) {
-      _run();
-    }
+    await _startDisc(item.path);
   }
 
   _discMenuAction(Object action) async {
@@ -326,6 +362,18 @@ class MainPageState extends State<MainPage> {
     _controller.debugger.setDebugView(onoff);
   }
 
+  PopupMenuItem<CoreSystem> _coreSetupItem(CoreSystem s) {
+    final names = _storage.biosNames(s.id);
+    return PopupMenuItem(
+        value: s,
+        child: ListTile(
+            title: Text(s.name),
+            subtitle: Text(names.isEmpty
+                ? "BIOS not set${s.biosRequired ? "" : " (optional)"}"
+                : names.join(", ")),
+            trailing: const Icon(Icons.file_open_outlined)));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
@@ -356,6 +404,24 @@ class MainPageState extends State<MainPage> {
                           onPressed: () => _cancelScan = true),
                     ])),
             actions: [
+              // frame per second
+              StreamBuilder<double>(
+                  stream: _controller.fpsStream,
+                  builder: (ctx, snapshot) => Center(
+                      child: Text(
+                          "${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps"))),
+
+              PopupMenuButton<CoreSystem>(
+                key: _coreSetupKey,
+                icon: const Icon(Icons.settings),
+                tooltip: "Core setup",
+                onSelected: (system) => _do(() => _selectBios(system)),
+                itemBuilder: (_) => [
+                  for (final s in CoreFactory.systems.where((s) => s.hasBios))
+                    _coreSetupItem(s),
+                ],
+              ),
+
               PopupMenuButton<Object>(
                 icon: const Icon(Icons.album),
                 tooltip: "Disc",

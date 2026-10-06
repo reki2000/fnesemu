@@ -45,21 +45,15 @@ class _CoreViewState extends State<CoreView> {
                 widget.container.displayHeightNotifier,
               ]),
               builder: (context, child) => imageListener(
-                  width: widget.container.displayWidthNotifier.value *
-                      config.zoom,
-                  height: widget.container.displayHeightNotifier.value *
-                      config.zoom,
+                  width: config.screenWidth,
+                  height: config.screenWidth *
+                      widget.container.displayHeightNotifier.value /
+                      widget.container.displayWidthNotifier.value,
                   notifier: widget.container.imageNotifier)),
 
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            // frame per second
-            StreamBuilder<double>(
-                stream: widget.controller.fpsStream,
-                builder: (ctx, snapshot) => Text(
-                    ((snapshot.data ?? 0.0)).toStringAsFixed(1).padLeft(4))),
-            // virtual pad
-            VirtualPadWidget(controller: widget.controller),
-          ]),
+          // virtual pad
+          VirtualPadWidget(
+              controller: widget.controller, width: config.screenWidth),
         ],
       ),
     );

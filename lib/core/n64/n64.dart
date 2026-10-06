@@ -138,16 +138,16 @@ class N64 extends Core {
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        const PadButton('Z'),
-        const PadButton('start'),
-        const PadButton('B'),
-        const PadButton('A'),
-        const PadButton('C-down'),
-        const PadButton('L'),
-        const PadButton('C-left'),
-        const PadButton('R'),
-        const PadButton('C-up'),
-        const PadButton('C-right')
+        const PadButton('C-left'), // keyA
+        const PadButton('C-down'), // keyS
+        const PadButton('B'), // keyZ
+        const PadButton('A'), // keyX
+        const PadButton('Z'), // keyC
+        const PadButton('L'), // keyQ
+        const PadButton('C-up'), // keyW
+        const PadButton('R'), // keyE
+        const PadButton('start'), // keyR
+        const PadButton('C-right') // keyD
       ];
   @override
   void padDown(int controllerId, PadButton k) => bus.pad(controllerId, k, true);

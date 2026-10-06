@@ -1,22 +1,43 @@
 part of 'app.dart';
 
 String _fileExtension(String fileName) =>
-    fileName.substring(fileName.lastIndexOf(".") + 1);
+    fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
 
-Future<(Uint8List, String)> _pickFile({String name = ""}) async {
-  if (name == "") {
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked != null) {
-      return (picked.files.first.bytes!, picked.files.first.name);
+/// returns null when the file picker is cancelled.
+Future<(Uint8List, String)?> _pickFile({String name = ""}) async {
+  if (name != "") {
+    try {
+      return (
+        (await rootBundle.load('assets/roms/$name')).buffer.asUint8List(),
+        name
+      );
+    } catch (_) {
+      throw Exception("file not found: $name");
     }
-  } else {
-    return (
-      (await rootBundle.load('assets/roms/$name')).buffer.asUint8List(),
-      name
-    );
   }
 
-  throw Exception("file not found: $name");
+  return (await _pickFiles())?.first;
+}
+
+/// lets the user select files and reads them. returns null when cancelled.
+Future<List<(Uint8List, String)>?> _pickFiles(
+    {bool multiple = false, String? dialogTitle}) async {
+  final files = await pickFiles(multiple: multiple, dialogTitle: dialogTitle);
+  if (files == null || files.isEmpty) {
+    return null;
+  }
+
+  return [for (final file in files) await _readPicked(file)];
+}
+
+Future<(Uint8List, String)> _readPicked(RandomReadFile file) async {
+  try {
+    return (await file.read(0, await file.length()), file.name);
+  } catch (e) {
+    throw Exception("failed to read: ${file.name}: $e");
+  } finally {
+    await file.close();
+  }
 }
 
 // if zip, extract the first file with known extention
@@ -28,8 +49,7 @@ Future<(Uint8List, String)> _pickFile({String name = ""}) async {
   final archive = ZipDecoder().decodeBytes(file);
 
   for (final entry in archive) {
-    if (["nes", "pce", "md", "gen", "gb", "ss", "gba", "sfc", "smc", "n64", "z64", "v64", "mdcd", "32x"]
-        .contains(_fileExtension(entry.name))) {
+    if (CoreFactory.extensions.contains(_fileExtension(entry.name))) {
       return (entry.content as Uint8List, entry.name);
     }
   }

@@ -10,15 +10,21 @@ import '../core/pad_button.dart';
 class VirtualPadWidget extends StatelessWidget {
   final CoreController controller;
 
+  /// the buttons are shrunk to be placed in a line within this width
+  final double width;
+
   const VirtualPadWidget({
     super.key,
     required this.controller,
+    required this.width,
   });
 
-  static const keys = "ASZXCQWERT";
+  static const keys = "ASZXCQWERD";
 
   @override
   Widget build(BuildContext context) {
+    final color = Theme.of(context).primaryColor;
+
     // build a tap-effected button
     Widget button(PadButton button,
         {String name = "", IconData? icon, String key = ""}) {
@@ -28,17 +34,19 @@ class VirtualPadWidget extends StatelessWidget {
           onTapDown: (_) => controller.padDown(0, button),
           onTapUp: (_) => controller.padUp(0, button),
           onTapCancel: () => controller.padUp(0, button),
-          child: Row(children: [
-            Stack(
+          // leaves room for the key label at the top right
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8, right: 6),
+            child: Stack(
+              clipBehavior: Clip.none,
               alignment: Alignment.center,
               children: [
                 // icon for this button
-                if (icon != null)
-                  Icon(icon, color: Theme.of(context).primaryColor),
+                if (icon != null) Icon(icon, color: color),
                 // text shown on this button
                 if (name != "")
                   Container(
-                    color: Theme.of(context).primaryColor,
+                    color: color,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     child: Text(
@@ -46,24 +54,27 @@ class VirtualPadWidget extends StatelessWidget {
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
+                // assigned key
+                if (key != "")
+                  Positioned(
+                    top: -10,
+                    right: -8,
+                    child: Text(
+                      key,
+                      style: const TextStyle(color: Colors.grey, fontSize: 11),
+                    ),
+                  ),
               ],
             ),
-            if (key != "")
-              Text(
-                key,
-                style: const TextStyle(color: Colors.grey),
-              ),
-          ]));
+          ));
     }
 
     return Container(
-        width: 512,
+        width: width,
         margin: const EdgeInsets.all(5.0),
-        child: Wrap(
-            alignment: WrapAlignment.spaceEvenly,
-            spacing: 8,
-            runSpacing: 4,
-            children: [
+        child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(spacing: 8, children: [
               button(PadButton.left, icon: Icons.arrow_back),
               button(PadButton.up, icon: Icons.arrow_upward),
               button(PadButton.down, icon: Icons.arrow_downward),
@@ -75,6 +86,6 @@ class VirtualPadWidget extends StatelessWidget {
                         key: e.key < VirtualPadWidget.keys.length
                             ? VirtualPadWidget.keys[e.key]
                             : ""))
-            ]));
+            ])));
   }
 }
