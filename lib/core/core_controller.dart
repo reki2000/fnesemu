@@ -1,6 +1,7 @@
 // Dart imports:
 import 'dart:async';
 import 'dart:core';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/sram.dart';
@@ -45,19 +46,64 @@ class CoreController {
   Core _core = EmptyCore();
   Debugger debugger = Debugger(EmptyCore());
 
-  void init(String coreName, Uint8List body, {Uint8List? extRom}) {
-    _core = CoreFactory.of(coreName)
-      ..setSram(_sram)
-      ..onAudio(_onAudio)
-      ..setRom(body);
+  /// id of the running system (CoreSystem.id), empty if none
+  String get system => _system;
+  String _system = "";
 
-    if (extRom != null) {
-      _core.setRom(extRom);
+  /// replaces the core with a new one of [system] (CoreSystem.id), loaded
+  /// with [bios] and [rom]. without [rom], the core boots its BIOS.
+  /// the emulation is stopped during the replacement, and stays stopped.
+  /// if loading fails, the previous core and its sram are kept.
+  Future<void> init(String system,
+      {Uint8List? rom,
+      List<Uint8List> bios = const [],
+      CdromDrive? drive}) async {
+    final wasRunning = _state.running;
+    await stop();
+
+    // setRom() switches the shared sram to the new rom
+    final sramId = _sram.id;
+    final sramData = Uint8List.fromList(_sram.data);
+
+    final Core core;
+    try {
+      core = CoreFactory.of(system)
+        ..setSram(_sram)
+        ..onAudio(_onAudio)
+        ..setBiosFiles(bios);
+
+      if (rom != null) {
+        core.setRom(rom);
+      }
+    } catch (_) {
+      _restoreSram(sramId, sramData);
+      if (wasRunning) {
+        run();
+      }
+      rethrow;
     }
 
+    if (drive != null) {
+      core.setCdromDrive(drive);
+    }
+
+    _core = core;
+    _system = system;
     debugger.setCore(_core);
 
-    reset();
+    await reset();
+  }
+
+  void _restoreSram(String id, Uint8List data) {
+    if (_sram.id == id) {
+      return;
+    }
+
+    if (id.isEmpty) {
+      _sram.reset();
+    } else {
+      _sram.init(id, data);
+    }
   }
 
   int _currentCpuClocks = 0;
@@ -74,6 +120,9 @@ class CoreController {
 
   bool _stopRequested = false;
 
+  // minimum time given to the UI after each frame
+  static const minYieldUs = 4000;
+
   /// runs emulation continuously
   run({int mode = runModeNone}) async {
     if (_state.running) {
@@ -87,27 +136,41 @@ class CoreController {
 
     final fpsCounter = FrameCounter(
         duration: const Duration(milliseconds: 500)); // shortlife counter
-    final initialCpuClocks = _currentCpuClocks;
-    final runStartedAt = DateTime.now();
-    int nextFrameClocks = 0;
+
+    // the emulation proceeds by the real time elapsed. when the core is slower
+    // than the real time, the clocks behind are dropped instead of being
+    // caught up later: the emulation slows down and the UI keeps running.
+    final clocksInFrame = _core.clocksInScanline * _core.scanlinesInFrame;
+    final clocksPerUs = _core.systemClockHz / 1000000;
+    final watch = Stopwatch()..start();
+    int lastUs = 0;
+    double targetClocks = _currentCpuClocks.toDouble();
 
     while (!_stopRequested) {
-      final now = DateTime.now();
-      _fps = fpsCounter.fps(now);
+      final nowUs = watch.elapsedMicroseconds;
+      targetClocks += (nowUs - lastUs) * clocksPerUs;
+      lastUs = nowUs;
 
-      // run emulation until the next frame timing
-      if (_currentCpuClocks - initialCpuClocks < nextFrameClocks) {
-        _runFrame();
-        fpsCounter.count();
-        await Future.delayed(const Duration(milliseconds: 4));
+      if (_currentCpuClocks >= targetClocks) {
+        // ahead of the real time
+        await Future.delayed(const Duration(milliseconds: 1));
         continue;
       }
 
-      // proceed the emulation
-      nextFrameClocks = _core.systemClockHz *
-          (now.difference(runStartedAt).inMilliseconds) ~/
-          1000;
-      // nextFrameClocks ~/= 2; // slow down for performance issue
+      _fps = fpsCounter.fps(DateTime.now());
+      _runFrame();
+      fpsCounter.count();
+
+      // gives the UI a quarter of the time at least
+      final frameUs = watch.elapsedMicroseconds - nowUs;
+      await Future.delayed(
+          Duration(microseconds: max(minYieldUs, frameUs ~/ 3)));
+
+      // keeps up to 1 frame behind
+      final behind = targetClocks - _currentCpuClocks;
+      if (behind > clocksInFrame) {
+        targetClocks = (_currentCpuClocks + clocksInFrame).toDouble();
+      }
     }
 
     _stopRequested = false;
@@ -241,7 +304,7 @@ class CoreController {
   double _fps = 0.0;
 
   // screen/audio/fps
-  final _fpsStream = StreamController<double>();
+  final _fpsStream = StreamController<double>.broadcast();
 
   // provides fps value
   Stream<double> get fpsStream => _fpsStream.stream;
@@ -254,11 +317,6 @@ class CoreController {
   // UI invokes this when a button of the pad is up
   void padUp(int controlerId, PadButton k) {
     _core.padUp(controlerId, k);
-  }
-
-  /// connects the CD-ROM drive to the core
-  void setCdromDrive(CdromDrive drive) {
-    _core.setCdromDrive(drive);
   }
 
   // returns a list of core's buttons
