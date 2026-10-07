@@ -79,6 +79,7 @@ class Ppu {
       bg.vofs = 0;
     }
     _bgOfsLatch = 0;
+    _hofsLatch = 0;
     vramAddr = 0;
     vramIncHigh = false;
     vramIncAmount = 1;
@@ -179,11 +180,14 @@ class Ppu {
 
   // --------------------------------------------- $210D-2114 BGxH/VOFS
   int _bgOfsLatch = 0; // shared "Prev" latch across all 8 scroll regs
+  int _hofsLatch = 0; // the last byte written to any of the 4 HOFS regs
 
+  // the upper bits come from the byte before (any scroll reg), the lowest 3
+  // bits from the byte before written to a HOFS reg (bsnes latch.ppu2)
   void _writeHofs(BgRegs bg, int val) {
-    bg.hofs = val.shl8 | _bgOfsLatch & ~7 | bg.hofs.shr8.mask3;
-    bg.hofs &= 0x3ff;
+    bg.hofs = (val.shl8 | _bgOfsLatch & ~7 | _hofsLatch & 7) & 0x3ff;
     _bgOfsLatch = val;
+    _hofsLatch = val;
   }
 
   void _writeVofs(BgRegs bg, int val) {
