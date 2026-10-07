@@ -46,6 +46,10 @@ class Ppu {
   // Tile-row cache: VRAM address and bit depth key, plus two groups of four
   // decoded pixels. Each byte in bgRowLow/bgRowHigh holds a color index.
   final bgRowKey = Int32List(4);
+  // Per-line window areas of BG1-4, OBJ and the color window (1 = inside),
+  // computed on first use in a line. windowLineReady has a bit per layer.
+  final windowLine = List.generate(6, (_) => Uint8List(widthHires));
+  int windowLineReady = 0;
   final bgRowLow = Uint32List(4);
   final bgRowHigh = Uint32List(4);
 

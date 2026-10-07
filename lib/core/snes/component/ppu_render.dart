@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fnesemu/util/int.dart';
 
 import 'ppu.dart';
@@ -230,6 +232,54 @@ extension PpuRenderer on Ppu {
           ((bits >> 1) & 1) << 16 |
           (bits & 1) << 24);
 
+  /// Fills the packed _BgSamples of BG [bgIdx] for the whole line [y], with
+  /// the same result as _bgPixel for each column. The tilemap entry and the
+  /// decoded row change only every 8 columns. Not for offset-per-tile or
+  /// mosaic, which move columns individually.
+  void _fillBgLine(int bgIdx, int bpp, int y, Int32List out) {
+    final bg = bgs[bgIdx];
+    final big = bg.bigChar;
+    final tileSizePx = big ? 16 : 8;
+    final mapPxW = (bg.wideX ? 64 : 32) * tileSizePx;
+    final mapPxH = (bg.wideY ? 64 : 32) * tileSizePx;
+    final sy = (y + bg.vofs) & (mapPxH - 1);
+    final yInCell = sy % tileSizePx;
+    final wordsPerTile = bpp * 4;
+
+    var group = -1; // 8-column group of the decoded row
+    var low = 0, high = 0, attr = 0;
+    var hFlip = false;
+    for (var x = 0; x < width; x++) {
+      final sx = (x + bg.hofs) & (mapPxW - 1);
+      if (sx >> 3 != group) {
+        group = sx >> 3;
+        final entry = _tilemapEntryRaw(bgIdx, sx, sy);
+        final tileNum = entry.mask10;
+        hFlip = entry.bit14;
+        final vFlip = entry.bit15;
+        attr = _BgSample.pack(0, entry.shr10.mask3, entry.shr13.mask1);
+        final xInCell = sx % tileSizePx;
+        final srcX = hFlip ? (tileSizePx - 1 - xInCell) : xInCell;
+        final srcY = vFlip ? (tileSizePx - 1 - yInCell) : yInCell;
+        final subTile = tileNum + (srcX ~/ 8) + (srcY ~/ 8) * 16;
+        final byteBase = ((bg.charBase + subTile * wordsPerTile) * 2).mask16;
+        final rowAddress = (byteBase + (srcY % 8) * 2).mask16;
+        low = 0;
+        high = 0;
+        for (var plane = 0; plane < bpp; plane += 2) {
+          final addr = (rowAddress + plane * 8).mask16;
+          final a = vram[addr], b = vram[(addr + 1).mask16];
+          low |= (_expandPlane[a >> 4] | _expandPlane[b >> 4] << 1) << plane;
+          high |= (_expandPlane[a & 15] | _expandPlane[b & 15] << 1) << plane;
+        }
+      }
+      final col8 = hFlip ? 7 - (sx & 7) : sx & 7;
+      final rowPixels = col8 < 4 ? low : high;
+      final colorIndex = (rowPixels >> ((col8 & 3) * 8)) & _BgSample.colorMask;
+      out[x] = colorIndex == 0 ? _BgSample.transparent : attr | colorIndex;
+    }
+  }
+
   /// Fetches a packed _BgSample, including its palette and tile priority.
   int _bgPixel(int bgIdx, int bpp, int x, int y) {
     final bg = bgs[bgIdx];
@@ -370,54 +420,57 @@ extension PpuRenderer on Ppu {
     }
   }
 
-  /// true if column x falls inside window1 / window2's raw range.
-  /// window bounds ($2126-2129) are always 8-bit (0-255); in hi-res mode
-  /// (width==512) this means windows only ever cover the left half of the
-  /// screen - not modeled precisely, documented simplification alongside
-  /// the rest of modes 5/6's approximation (see renderScanline's doc).
-  bool _inWindow1(int x) => x >= w1Left && x <= w1Right;
-  bool _inWindow2(int x) => x >= w2Left && x <= w2Right;
+  /// layer: 0-3=BG1-4, 4=OBJ, 5=color window (the ccmm bits of CGWSEL).
+  /// the area of a line is computed once (windows only change between lines)
+  @pragma('vm:prefer-inline')
+  bool _insideWindow(int layer, int x) {
+    final line = windowLine[layer];
+    if (windowLineReady & (1 << layer) == 0) {
+      _fillWindowLine(layer, line);
+      windowLineReady |= 1 << layer;
+    }
+    return line[x] != 0;
+  }
 
-  /// combines window1/window2 for one layer's 4-bit select field
-  /// [invert2,enable2,invert1,enable1] and 2-bit OR/AND/XOR/XNOR logic.
-  bool _layerInsideWindow(int wsel4, int logic2, int x) {
-    // per window: the lower bit inverts the area, the upper bit enables it
+  /// the window area of [layer] for the whole line. a column is inside a
+  /// window when it is in its raw range ($2126-2129), combined per the
+  /// layer's select bits and logic. window bounds are always 8-bit (0-255); in
+  /// hi-res mode (width==512) this means windows only ever cover the left half
+  /// of the screen - not modeled precisely, documented simplification
+  /// alongside the rest of modes 5/6's approximation (see renderScanline's doc).
+  void _fillWindowLine(int layer, Uint8List line) {
+    final (wsel4, logic2) = switch (layer) {
+      0 => (w12sel.mask4, wbglog.mask2),
+      1 => (w12sel.shr4.mask4, wbglog.shr2.mask2),
+      2 => (w34sel.mask4, wbglog.shr4.mask2),
+      3 => (w34sel.shr4.mask4, wbglog.shr6.mask2),
+      4 => (wobjsel.mask4, wobjlog.mask2),
+      _ => (wobjsel.shr4.mask4, wobjlog.shr2.mask2),
+    };
     final inv1 = wsel4.bit0, en1 = wsel4.bit1;
     final inv2 = wsel4.bit2, en2 = wsel4.bit3;
-    if (!en1 && !en2) return false;
-    final a = en1 ? (_inWindow1(x) != inv1) : false;
-    final b = en2 ? (_inWindow2(x) != inv2) : false;
-    if (en1 && !en2) return a;
-    if (!en1 && en2) return b;
-    switch (logic2) {
-      case 0:
-        return a || b;
-      case 1:
-        return a && b;
-      case 2:
-        return a != b;
-      default:
-        return a == b;
+    if (!en1 && !en2) {
+      line.fillRange(0, width, 0);
+      return;
+    }
+    final l1 = w1Left, r1 = w1Right, l2 = w2Left, r2 = w2Right;
+    for (var x = 0; x < width; x++) {
+      final a = en1 && ((x >= l1 && x <= r1) != inv1);
+      final b = en2 && ((x >= l2 && x <= r2) != inv2);
+      final inside = !en2
+          ? a
+          : !en1
+              ? b
+              : switch (logic2) {
+                  0 => a || b,
+                  1 => a && b,
+                  2 => a != b,
+                  _ => a == b,
+                };
+      line[x] = inside ? 1 : 0;
     }
   }
 
-  /// layer: 0-3=BG1-4, 4=OBJ, 5=color window (the ccmm bits of CGWSEL).
-  bool _insideWindow(int layer, int x) {
-    switch (layer) {
-      case 0:
-        return _layerInsideWindow(w12sel.mask4, wbglog.mask2, x);
-      case 1:
-        return _layerInsideWindow(w12sel.shr4.mask4, wbglog.shr2.mask2, x);
-      case 2:
-        return _layerInsideWindow(w34sel.mask4, wbglog.shr4.mask2, x);
-      case 3:
-        return _layerInsideWindow(w34sel.shr4.mask4, wbglog.shr6.mask2, x);
-      case 4:
-        return _layerInsideWindow(wobjsel.mask4, wobjlog.mask2, x);
-      default:
-        return _layerInsideWindow(wobjsel.shr4.mask4, wobjlog.shr2.mask2, x);
-    }
-  }
 
   /// whether a layer's pixel is masked (hidden) at column x for the given
   /// screen (TMW for main / TSW for sub): masked when that screen's window
@@ -442,7 +495,8 @@ extension PpuRenderer on Ppu {
     List<int> objPalette,
     List<int> objPriority,
   ) {
-    for (final layer in order) {
+    for (var i = 0; i < order.length; i++) {
+      final layer = order[i];
       if (layer.$1) {
         if (!screenEnable.bit4) continue;
         if (objColor[objX] != -1 &&
@@ -564,6 +618,7 @@ extension PpuRenderer on Ppu {
   /// OAM y=0 starts on the first visible line, one row below the BG.
   void renderScanline(int line) {
     if (line < 1 || line > Ppu.height) return;
+    windowLineReady = 0;
     final y = line - 1; // output row and OBJ line
     final bgY = line;
 
@@ -604,10 +659,20 @@ extension PpuRenderer on Ppu {
 
     // VRAM and registers can change between lines, so caches never survive
     // a scanline. Main/sub screens and priority slots share each BG sample.
-    for (final pixels in bgLinePixels) {
-      pixels.fillRange(0, width, _BgSample.notFetched);
-    }
     bgRowKey.fillRange(0, 4, -1);
+    final shown = mainScreenEnable | (cgwsel.bit1 ? subScreenEnable : 0);
+    final opt = bgMode == 2 || bgMode == 4 || bgMode == 6;
+    for (var i = 0; i < 4; i++) {
+      final pixels = bgLinePixels[i];
+      if (bpp[i] != 0 &&
+          shown.bit(i) &&
+          !(opt && i < 2) &&
+          !(mosaicEnable.bit(i) && mosaicSize > 0)) {
+        _fillBgLine(i, bpp[i], bgY, pixels);
+      } else {
+        pixels.fillRange(0, width, _BgSample.notFetched);
+      }
+    }
     final order = _priorityOrder(bgMode, bg3Priority);
     final subscreenMode = cgwsel.bit1;
     final hires = width == Ppu.widthHires;
