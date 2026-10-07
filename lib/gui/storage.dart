@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:fnesemu/util/uint8list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/sram.dart';
 import '../core/storage_key.dart';
 import 'blob_store/blob_store.dart';
+import 'recent_game.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;
@@ -95,6 +97,79 @@ class Storage extends Sram {
       await _store?.put(key, Uint8List.fromList(utf8.encode(value)));
     } catch (e) {
       onEvent("failed to save $name: $e");
+    }
+  }
+
+  static const recentLimit = 20;
+  final _recentRomData = <String, Uint8List>{};
+
+  List<RecentGame> get recentGames {
+    try {
+      final games = (jsonDecode(setting('recent_games') ?? '[]') as List)
+          .map((json) => RecentGame.fromJson(json as Map<String, dynamic>))
+          .toList();
+      games.sort((a, b) {
+        final frequency = b.count.compareTo(a.count);
+        return frequency != 0
+            ? frequency
+            : b.lastPlayed.compareTo(a.lastPlayed);
+      });
+      return games;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<Uint8List?> recentRom(RecentGame game) async =>
+      _recentRomData[game.blobKey] ?? await _store?.get(game.blobKey);
+
+  Future<void> recordRecent(String core, String name,
+      {Uint8List? rom, String? folder}) async {
+    assert((rom == null) != (folder == null));
+    final id = base64Url.encode(utf8.encode(jsonEncode([
+      core,
+      name,
+      folder,
+      if (rom != null) rom.length,
+      if (rom != null) getCrc32(rom),
+    ])));
+    final games = recentGames;
+    final matches = games.where((game) => game.id == id);
+    final previous = matches.isEmpty ? null : matches.first;
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final latest = games.fold<int>(
+        0, (last, game) => game.lastPlayed > last ? game.lastPlayed : last);
+    final entry = RecentGame(
+        id: id,
+        core: core,
+        name: name,
+        folder: folder,
+        count: (previous?.count ?? 0) + 1,
+        lastPlayed: now > latest ? now : latest + 1);
+    try {
+      if (rom != null) {
+        final store = _store;
+        if (store == null) {
+          _recentRomData[entry.blobKey] = Uint8List.fromList(rom);
+        } else {
+          await store.put(entry.blobKey, rom);
+        }
+      }
+      games.removeWhere((game) => game.id == id);
+      games.add(entry);
+      games.sort((a, b) => b.lastPlayed.compareTo(a.lastPlayed));
+      final removed = games.skip(recentLimit).toList();
+      final metadata = jsonEncode(
+          games.take(recentLimit).map((game) => game.toJson()).toList());
+      final metadataKey = StorageKey.setting('recent_games');
+      await _store?.put(metadataKey, Uint8List.fromList(utf8.encode(metadata)));
+      _settings[metadataKey] = metadata;
+      for (final game in removed.where((game) => !game.isDisc)) {
+        _recentRomData.remove(game.blobKey);
+        await _store?.delete(game.blobKey);
+      }
+    } catch (e) {
+      onEvent('failed to save game history: $e');
     }
   }
 

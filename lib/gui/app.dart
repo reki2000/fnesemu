@@ -1,5 +1,6 @@
 // Dart imports:
 import 'dart:async';
+import 'dart:convert';
 // Flutter imports:
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
 import 'key_handler.dart';
 import 'pad_input.dart';
+import 'recent_game.dart';
 import 'sound_player.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
@@ -273,19 +275,21 @@ class MainPageState extends State<MainPage> {
 
   /// replaces the running core with [system] booted with its BIOS and [rom].
   /// without [rom], the system boots its BIOS (and the disc in the drive).
-  _boot(CoreSystem system, {Uint8List? rom, required String name}) async {
+  Future<bool> _boot(CoreSystem system,
+      {Uint8List? rom, required String name}) async {
     final bios = await _storage.bios(system.id);
-    if (!mounted) return;
+    if (!mounted) return false;
     if (system.biosRequired && bios.isEmpty) {
       AppSnackBar.show("set the BIOS of ${system.name} from Core setup");
       _coreSetupKey.currentState?.showButtonMenu();
-      return;
+      return false;
     }
 
     await _controller.init(system.id, rom: rom, bios: bios, drive: _drive);
 
     _keyHandler.init();
     _romName = name;
+    if (rom != null) await _storage.recordRecent(system.id, name, rom: rom);
 
     AppSnackBar.show("loaded: $name");
 
@@ -296,6 +300,7 @@ class MainPageState extends State<MainPage> {
         await _resumeFromMenu();
       }
     }
+    return true;
   }
 
   /// lets the user select the BIOS files of [system] and saves them
@@ -321,20 +326,22 @@ class MainPageState extends State<MainPage> {
   /// plays the disc in the drive. the running system keeps running if it
   /// plays the disc (the disc is changed as on the real console), otherwise
   /// the system of the disc boots.
-  _startDisc(String name) async {
+  Future<bool> _startDisc(String name) async {
     final system = await CoreFactory.systemOfDisc(_drive);
     if (system == null) {
       AppSnackBar.show("unknown disc: $name");
-      return;
+      return false;
     }
 
     final running = _controller.system;
     if (running.isNotEmpty && CoreFactory.system(running).disc == system.id) {
       AppSnackBar.show("inserted: $name");
-      return;
+      _romName = name;
+      _resumeAfterAction = !widget.config.debug;
+      return true;
     }
 
-    await _boot(system, name: name);
+    return await _boot(system, name: name);
   }
 
   static const _lastDiscDirKey = "disc_dir";
@@ -394,7 +401,34 @@ class MainPageState extends State<MainPage> {
       return;
     }
 
-    await _startDisc(item.path);
+    if (await _startDisc(item.path)) {
+      await _storage.recordRecent(_controller.system, item.path,
+          folder: _folderHistoryKey(scan));
+    }
+  }
+
+  String _folderHistoryKey(ScanResult scan) =>
+      scan.folder.persistentPath ??
+      'web:${scan.folder.name}:${getCrc32(utf8.encode(jsonEncode(scan.files.map((file) => file.path).toList()..sort())))}';
+
+  DiscItem? _historyDisc(RecentGame game) {
+    final scan = _scan;
+    if (scan == null || game.folder != _folderHistoryKey(scan)) return null;
+    for (final item in scan.items) {
+      if (item.path == game.name) return item;
+    }
+    return null;
+  }
+
+  Future<void> _launchHistory(RecentGame game) async {
+    if (game.isDisc) {
+      final item = _historyDisc(game);
+      if (item != null) await _insertItem(item);
+    } else {
+      final rom = await _storage.recentRom(game);
+      if (rom == null) throw StateError('Saved ROM is unavailable');
+      await _boot(CoreFactory.system(game.core), rom: rom, name: game.name);
+    }
   }
 
   _discMenuAction(Object action) async {
@@ -484,6 +518,24 @@ class MainPageState extends State<MainPage> {
                         const PopupMenuDivider(),
                       for (final item in _scan?.items ?? const <DiscItem>[])
                         PopupMenuItem(value: item, child: Text(item.path)),
+                    ],
+                  ),
+
+                  PopupMenuButton<RecentGame>(
+                    icon: const Icon(Icons.history),
+                    tooltip: 'History',
+                    onSelected: (game) =>
+                        _menuAction(() => _launchHistory(game)),
+                    itemBuilder: (_) => [
+                      if (_storage.recentGames.isEmpty)
+                        const PopupMenuItem(
+                            enabled: false, child: Text('No history')),
+                      for (final game in _storage.recentGames)
+                        PopupMenuItem(
+                            value: game,
+                            enabled: !game.isDisc || _historyDisc(game) != null,
+                            child: Text(
+                                '${CoreFactory.system(game.core).name.toUpperCase()} ${game.name}')),
                     ],
                   ),
 

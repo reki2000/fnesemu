@@ -89,6 +89,29 @@ void main() {
     expect(find.byKey(const ValueKey('game-menu-backdrop')), findsOneWidget);
     expect(audio.closes, 1);
 
+    expect(storage.recentGames.single.core, 'gb');
+    await tester.runAsync(() =>
+        storage.recordRecent('ss', 'unavailable.cue', folder: '/unavailable'));
+    await tester.pump();
+    await tester.runAsync(() => tester.tap(find.byTooltip('History')));
+    await tester.pumpAndSettle();
+    expect(find.text('GB fixture.gb'), findsOneWidget);
+    final unavailable = find.ancestor(
+        of: find.text('SS unavailable.cue'),
+        matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem));
+    expect(tester.widget<PopupMenuItem>(unavailable).enabled, isFalse);
+    await tester.runAsync(() async {
+      await tester.tap(find.text('GB fixture.gb'));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    });
+    await tester.pump();
+    expect(
+        storage.recentGames.where((game) => game.core == 'gb').single.count, 2);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('game-menu-toggle')));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pump();
     final cancelled = Completer<FilePickerResult?>();
     picker.select = () => cancelled.future;
     await tester.tap(find.byTooltip('Load ROM'));
@@ -97,7 +120,7 @@ void main() {
         isTrue);
     await tester.tapAt(const Offset(600, 400));
     await tester.pump();
-    expect(audio.starts, 1);
+    expect(audio.starts, 2);
     cancelled.complete(null);
     await tester.pump();
     await tester.pump();
@@ -115,7 +138,7 @@ void main() {
     expect(
         tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).expanded,
         isFalse);
-    expect(audio.starts, 2);
+    expect(audio.starts, 3);
     expect(tester.takeException(), isNull);
     await tester.runAsync(() async {
       await tester.pumpWidget(const SizedBox());
