@@ -12,9 +12,9 @@ extension Op on M68 {
     }
 
     if (0 < _assertedIntLevel && _assertedIntLevel > maskedIntLevel) {
-      trap(_assertedIntLevel.shl2 + 0x60,
-          sr & ~0x700 | _assertedIntLevel.shl8 & 0x700);
-      _assertedIntLevel = 0;
+      final level = _assertedIntLevel;
+      trap(level.shl2 + 0x60, sr & ~0x700 | level.shl8 & 0x700);
+      _takeInterrupt(level);
       return true;
     }
 

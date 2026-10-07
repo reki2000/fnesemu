@@ -118,7 +118,8 @@ class M68 {
   set tf(bool on) => on ? sr |= bitT : sr &= ~bitT;
 
   // interrupt
-  int _assertedIntLevel = 0;
+  int _assertedIntLevel = 0; // the highest pending level
+  int _pendingIntLevels = 0; // bit n: level n is pending until it is taken
   bool _halt = false;
 
   // memory access
@@ -374,10 +375,21 @@ class M68 {
     clocks += 8; // 2 prefetch : 40
   }
 
+  /// asserts interrupt [level]. each level stays pending until it is taken,
+  /// so a lower level asserted together with a higher one is not lost
   void interrupt(int level) {
+    _pendingIntLevels |= 1 << level;
     if (_assertedIntLevel < level) {
       _assertedIntLevel = level;
     }
+  }
+
+  /// takes the highest pending level, leaving the others pending
+  void _takeInterrupt(int level) {
+    _pendingIntLevels &= ~(1 << level);
+    _assertedIntLevel = _pendingIntLevels == 0
+        ? 0
+        : _pendingIntLevels.bitLength - 1;
   }
 
   void reset() {
@@ -387,6 +399,7 @@ class M68 {
     _pc = read32(0x04);
     clocks = 0;
     _assertedIntLevel = 0;
+    _pendingIntLevels = 0;
     _halt = false;
   }
 
