@@ -32,12 +32,16 @@ void main() {
                     controller: _Controller(), input: input)))));
     Rect button(String key) =>
         tester.getRect(find.byKey(ValueKey('action-key-$key')));
-    expect(button('A').left - button('Q').left, VirtualPadWidget.keyWidth / 2);
-    expect(button('Z').left - button('A').left, VirtualPadWidget.keyWidth / 2);
-    expect(button('A').top - button('Q').top, 44 + VirtualPadWidget.gap);
-    expect(button('Z').top - button('A').top, 44 + VirtualPadWidget.gap);
+    expect(button('A').left - button('Q').left,
+        moreOrLessEquals(VirtualPadWidget.keyWidth / 2));
+    expect(button('Z').left - button('A').left,
+        moreOrLessEquals(VirtualPadWidget.keyWidth / 2));
+    expect(button('A').top - button('Q').top,
+        moreOrLessEquals(VirtualPadWidget.keyHeight + VirtualPadWidget.gap));
+    expect(button('Z').top - button('A').top,
+        moreOrLessEquals(VirtualPadWidget.keyHeight + VirtualPadWidget.gap));
     for (final key in ['Q', 'W', 'E', 'R', 'D', 'Z', 'X', 'C']) {
-      expect(button(key).width, VirtualPadWidget.keyWidth);
+      expect(button(key).width, moreOrLessEquals(VirtualPadWidget.keyWidth));
       final label = find.descendant(
           of: find.byKey(ValueKey('action-key-$key')),
           matching: find.text(key));

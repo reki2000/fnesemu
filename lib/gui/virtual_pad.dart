@@ -11,8 +11,9 @@ class VirtualPadWidget extends StatelessWidget {
   const VirtualPadWidget(
       {super.key, required this.controller, required this.input});
   static const keys = 'ASZXCQWERD';
-  static const keyWidth = 28.0;
-  static const gap = 4.0;
+  static const keyWidth = 36.4;
+  static const keyHeight = 57.2;
+  static const gap = 12.0;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +22,7 @@ class VirtualPadWidget extends StatelessWidget {
     Widget key(String letter) {
       final index = keys.indexOf(letter);
       if (index >= buttons.length || buttons[index] == PadButton.none) {
-        return const SizedBox(width: keyWidth, height: 44);
+        return const SizedBox(width: keyWidth, height: keyHeight);
       }
       final button = buttons[index];
       return ListenableBuilder(
@@ -45,12 +46,12 @@ class VirtualPadWidget extends StatelessWidget {
                         key: ValueKey('action-key-$letter'),
                         constraints: const BoxConstraints(minWidth: keyWidth),
                         width: button.name.length == 1 ? keyWidth : null,
-                        height: 44,
+                        height: keyHeight,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: Stack(alignment: Alignment.center, children: [
                           Text(button.name,
                               style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 15.6,
                                   color: input.pressed.contains(button)
                                       ? colors.onPrimary
                                       : colors.onSurface)),
@@ -59,7 +60,7 @@ class VirtualPadWidget extends StatelessWidget {
                               left: 0,
                               child: Text(letter,
                                   style: TextStyle(
-                                      fontSize: 9,
+                                      fontSize: 11.7,
                                       color: input.pressed.contains(button)
                                           ? colors.onPrimary
                                           : colors.onSurfaceVariant))),
