@@ -1,4 +1,5 @@
 // Dart imports:
+import 'dart:async';
 // Flutter imports:
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import '../cdrom/disc_folder.dart';
 import '../styles.dart';
 import 'package:fnesemu/util/debug.dart';
 import 'core_view.dart';
+import 'floating_game_menu.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
 import 'key_handler.dart';
@@ -77,8 +79,12 @@ class MyApp extends StatelessWidget {
 class MainPage extends StatefulWidget {
   final Config config;
   final Storage storage;
+  final SoundPlayer? soundPlayer;
   const MainPage(
-      {super.key, required this.storage, this.config = const Config()});
+      {super.key,
+      required this.storage,
+      this.config = const Config(),
+      this.soundPlayer});
 
   @override
   MainPageState createState() => MainPageState();
@@ -87,13 +93,17 @@ class MainPage extends StatefulWidget {
 enum _DiscAction { eject, empty, select, rescan }
 
 class MainPageState extends State<MainPage> {
-  final _mPlayer = SoundPlayer();
+  late final SoundPlayer _mPlayer;
   final _imageContainer = ImageContainer();
   late final KeyHandler _keyHandler;
   late final CoreController _controller;
   late final Storage _storage;
 
-  bool _running = false;
+  bool _menuOpen = true;
+  bool _menuBusy = false;
+  bool _menuTransition = false;
+  bool _resumeAfterAction = false;
+  bool get _hasGame => _controller.system.isNotEmpty;
   bool get _debugging => _controller.debugger.opt.showDebugView;
 
   String _romName = "";
@@ -111,6 +121,8 @@ class MainPageState extends State<MainPage> {
   @override
   void initState() {
     super.initState();
+
+    _mPlayer = widget.soundPlayer ?? SoundPlayer();
 
     _storage = widget.storage..onEvent = AppSnackBar.show;
 
@@ -133,6 +145,7 @@ class MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
+    unawaited(_controller.stop());
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     _mPlayer.dispose();
     _storage.dispose();
@@ -140,15 +153,16 @@ class MainPageState extends State<MainPage> {
   }
 
   void _onCoreStateChange(CoreControllerState state) {
+    if (!mounted) return;
     if (state.running) {
-      _running = true;
-      _enableKeyHandler();
+      if (!_menuOpen && !_menuBusy) _enableKeyHandler();
     } else {
-      _running = false;
+      _menuOpen = true;
+      _mPlayer.pause();
       _disableKeyHandler();
     }
 
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _disableKeyHandler() {
@@ -171,6 +185,66 @@ class MainPageState extends State<MainPage> {
     setState(() {});
   }
 
+  Future<void> _openMenu() async {
+    if (_menuBusy || _menuTransition) return;
+    setState(() {
+      _menuOpen = true;
+      _menuTransition = true;
+    });
+    _disableKeyHandler();
+    for (final button in _controller.buttons) {
+      _controller.padUp(0, button);
+    }
+    try {
+      await _stop();
+    } finally {
+      if (mounted) setState(() => _menuTransition = false);
+    }
+  }
+
+  Future<void> _resumeFromMenu() async {
+    if (!_hasGame ||
+        _menuBusy ||
+        _menuTransition ||
+        _progress != null ||
+        !(ModalRoute.of(context)?.isCurrent ?? false)) {
+      return;
+    }
+    setState(() => _menuTransition = true);
+    try {
+      await _mPlayer.resume();
+      if (!mounted) return;
+      setState(() => _menuOpen = false);
+      _controller.run();
+    } finally {
+      if (mounted) setState(() => _menuTransition = false);
+    }
+  }
+
+  void _toggleMenu() => _do(_menuOpen ? _resumeFromMenu : _openMenu);
+
+  // File pickers and nested settings keep the background resume gesture
+  // disabled until the entire action has completed, including cancellation.
+  void _menuAction(Future<void> Function() action) {
+    if (_menuBusy || _menuTransition || _progress != null) return;
+    setState(() => _menuBusy = true);
+    _do(() async {
+      try {
+        await action();
+      } catch (_) {
+        _resumeAfterAction = false;
+        rethrow;
+      } finally {
+        if (mounted) setState(() => _menuBusy = false);
+      }
+      if (!mounted) return;
+      if (_resumeAfterAction) {
+        _resumeAfterAction = false;
+        await _resumeFromMenu();
+      }
+    });
+  }
+
   _loadRomFile() async {
     final picked = await _pickFile();
     if (picked == null) {
@@ -187,6 +261,7 @@ class MainPageState extends State<MainPage> {
   /// without [rom], the system boots its BIOS (and the disc in the drive).
   _boot(CoreSystem system, {Uint8List? rom, required String name}) async {
     final bios = await _storage.bios(system.id);
+    if (!mounted) return;
     if (system.biosRequired && bios.isEmpty) {
       AppSnackBar.show("set the BIOS of ${system.name} from Core setup");
       _coreSetupKey.currentState?.showButtonMenu();
@@ -196,13 +271,16 @@ class MainPageState extends State<MainPage> {
     await _controller.init(system.id, rom: rom, bios: bios, drive: _drive);
 
     _keyHandler.init();
-    _mPlayer.resume(); // web platform requires this
     _romName = name;
 
     AppSnackBar.show("loaded: $name");
 
     if (!widget.config.debug) {
-      _run();
+      if (_menuBusy) {
+        _resumeAfterAction = true;
+      } else {
+        await _resumeFromMenu();
+      }
     }
   }
 
@@ -220,8 +298,8 @@ class MainPageState extends State<MainPage> {
           "files: ${files.length} selected");
     }
 
-    await _storage.setBios(
-        system.id, [for (final (data, name) in files) (name, data)]);
+    await _storage
+        .setBios(system.id, [for (final (data, name) in files) (name, data)]);
     AppSnackBar.show("BIOS of ${system.name}: "
         "${_storage.biosNames(system.id).join(", ")}");
   }
@@ -322,11 +400,8 @@ class MainPageState extends State<MainPage> {
     setState(() {});
   }
 
-  _run() {
-    _controller.run();
-  }
-
   _stop() async {
+    _mPlayer.pause();
     await _controller.stop();
   }
 
@@ -350,135 +425,178 @@ class MainPageState extends State<MainPage> {
             trailing: const Icon(Icons.file_open_outlined)));
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-            title: Text(_romName),
-            bottom: _progress == null
-                ? null
-                : PreferredSize(
-                    preferredSize: const Size.fromHeight(40),
-                    child: Row(children: [
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            Text("Scanning: $_progress"),
-                            const SizedBox(height: 4),
-                            LinearProgressIndicator(
-                                // known only while checking the cue files
-                                value: _progress!.isListing ||
-                                        _progress!.cues == 0
-                                    ? null
-                                    : _progress!.checkedCues / _progress!.cues),
-                          ])),
-                      IconButton(
-                          icon: const Icon(Icons.close),
-                          tooltip: "Cancel scan",
-                          onPressed: () => _cancelScan = true),
-                    ])),
-            actions: [
-              // frame per second
-              StreamBuilder<double>(
-                  stream: _controller.fpsStream,
-                  builder: (ctx, snapshot) => Center(
-                      child: Text(
-                          "${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps"))),
+  Widget _menuToolbar() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IgnorePointer(
+              ignoring: _menuBusy || _menuTransition || _progress != null,
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  // frame per second
+                  StreamBuilder<double>(
+                      stream: _controller.fpsStream,
+                      builder: (ctx, snapshot) => Center(
+                          child: Text(
+                              "${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps"))),
 
-              PopupMenuButton<CoreSystem>(
-                key: _coreSetupKey,
-                icon: const Icon(Icons.settings),
-                tooltip: "Core setup",
-                onSelected: (system) => _do(() => _selectBios(system)),
-                itemBuilder: (_) => [
-                  for (final s in CoreFactory.systems.where((s) => s.hasBios))
-                    _coreSetupItem(s),
+                  PopupMenuButton<CoreSystem>(
+                    key: _coreSetupKey,
+                    icon: const Icon(Icons.settings),
+                    tooltip: "Core setup",
+                    onSelected: (system) =>
+                        _menuAction(() async => _selectBios(system)),
+                    itemBuilder: (_) => [
+                      for (final s
+                          in CoreFactory.systems.where((s) => s.hasBios))
+                        _coreSetupItem(s),
+                    ],
+                  ),
+
+                  PopupMenuButton<Object>(
+                    icon: const Icon(Icons.album),
+                    tooltip: "Disc",
+                    onSelected: (action) =>
+                        _menuAction(() async => _discMenuAction(action)),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                          value: _DiscAction.eject,
+                          child: Text("Eject (open tray)")),
+                      const PopupMenuItem(
+                          value: _DiscAction.empty,
+                          child: Text("Empty (closed, no disc)")),
+                      const PopupMenuItem(
+                          value: _DiscAction.select,
+                          child: Text("Select image file directory...")),
+                      if (_scan != null)
+                        PopupMenuItem(
+                            value: _DiscAction.rescan,
+                            child: Text("Rescan ${_scan!.folder.name}")),
+                      if (_scan != null && _scan!.items.isNotEmpty)
+                        const PopupMenuDivider(),
+                      for (final item in _scan?.items ?? const <DiscItem>[])
+                        PopupMenuItem(value: item, child: Text(item.path)),
+                    ],
+                  ),
+
+                  // file load button
+                  iconButton(Icons.file_open_outlined, "Load ROM",
+                      () => _menuAction(() async => _loadRomFile())),
+
+                  IconButton(
+                    tooltip: 'Resume',
+                    onPressed: _hasGame ? () => _do(_resumeFromMenu) : null,
+                    icon: const Icon(Icons.play_arrow),
+                  ),
+
+                  // reset button
+                  iconButton(Icons.restart_alt, "Reset",
+                      () => _menuAction(() async => _reset())),
+
+                  // debug on/off button
+                  _debugging
+                      ? iconButton(Icons.bug_report, "Disable Debug Options",
+                          () => _do(() => _debug(false)))
+                      : iconButton(
+                          Icons.bug_report_outlined,
+                          "Enable Debug Options",
+                          () => _do(() => _debug(true))),
+                  IconButton(
+                    tooltip: 'License',
+                    onPressed: () => _menuAction(() async {
+                      await Navigator.of(context).push(MaterialPageRoute<void>(
+                          builder: (_) => const LicensePage()));
+                    }),
+                    icon: const Icon(Icons.info_outline),
+                  ),
                 ],
-              ),
+              )),
+          if (_debugging)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DebugController(controller: _controller),
+            ),
+          if (_romName.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child:
+                  Text(_romName, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          if (_menuBusy || _menuTransition) const LinearProgressIndicator(),
+          if (_progress != null) ...[
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text('Scanning: $_progress',
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
+            LinearProgressIndicator(
+              value: _progress!.isListing || _progress!.cues == 0
+                  ? null
+                  : _progress!.checkedCues / _progress!.cues,
+            ),
+            IconButton(
+              tooltip: 'Cancel scan',
+              onPressed: () => _cancelScan = true,
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ],
+      );
 
-              PopupMenuButton<Object>(
-                icon: const Icon(Icons.album),
-                tooltip: "Disc",
-                onSelected: (action) => _do(() => _discMenuAction(action)),
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                      value: _DiscAction.eject,
-                      child: Text("Eject (open tray)")),
-                  const PopupMenuItem(
-                      value: _DiscAction.empty,
-                      child: Text("Empty (closed, no disc)")),
-                  const PopupMenuItem(
-                      value: _DiscAction.select,
-                      child: Text("Select image file directory...")),
-                  if (_scan != null)
-                    PopupMenuItem(
-                        value: _DiscAction.rescan,
-                        child: Text("Rescan ${_scan!.folder.name}")),
-                  if (_scan != null && _scan!.items.isNotEmpty)
-                    const PopupMenuDivider(),
-                  for (final item in _scan?.items ?? const <DiscItem>[])
-                    PopupMenuItem(value: item, child: Text(item.path)),
-                ],
-              ),
-
-              // file load button
-              iconButton(Icons.file_open_outlined, "Load ROM",
-                  () => _do(_loadRomFile)),
-
-              // run / pause button
-              _running
-                  ? iconButton(Icons.pause, "Pause", () => _do(_stop))
-                  : iconButton(Icons.play_arrow, "Run", () => _do(_run)),
-
-              // reset button
-              iconButton(Icons.restart_alt, "Reset", () => _do(_reset)),
-
-              // debug on/off button
-              _debugging
-                  ? iconButton(Icons.bug_report, "Disable Debug Options",
-                      () => _do(() => _debug(false)))
-                  : iconButton(Icons.bug_report_outlined,
-                      "Enable Debug Options", () => _do(() => _debug(true))),
+  Widget _gameContent() => LayoutBuilder(builder: (context, constraints) {
+        final wideDebug = _debugging && constraints.maxWidth >= 1000;
+        return Row(children: [
+          Expanded(
+            child: Column(children: [
+              Expanded(
+                  child: CoreView(
+                      controller: _controller, container: _imageContainer)),
+              if (_debugging) ...[
+                SizedBox(
+                  height: 100,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: StreamBuilder<DebugOption>(
+                      stream: _controller.debugger.debugStream,
+                      builder: (ctx, snapshot) => SelectableText(
+                          snapshot.data?.text ?? '',
+                          style: debugStyle,
+                          showCursor: true),
+                    ),
+                  ),
+                ),
+              ],
             ]),
-        drawer: Drawer(
-            child: ListView(children: [
-          ListTile(
-            title: const Text("License"),
-            trailing: const Icon(Icons.arrow_forward),
-            onTap: () => showLicensePage(context: context),
           ),
-        ])),
-        body: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  // main view
-                  CoreView(controller: _controller, container: _imageContainer),
-
-                  // debug view if enabled
-                  if (_debugging) ...[
-                    DebugController(controller: _controller),
-                    SizedBox(
-                        width: 640,
-                        child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: StreamBuilder<DebugOption>(
-                                stream: _controller.debugger.debugStream,
-                                builder: (ctx, snapshot) => SelectableText(
-                                      snapshot.data?.text ?? "",
-                                      style: debugStyle,
-                                      showCursor: true,
-                                    )))),
-                  ],
-                ],
+          if (wideDebug)
+            SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DebugPane(debugger: _controller.debugger),
+                ),
               ),
-              if (_debugging) DebugPane(debugger: _controller.debugger),
-            ]),
+            ),
+        ]);
+      });
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !(_menuOpen && _hasGame),
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && _menuOpen) _do(_resumeFromMenu);
+        },
+        child: Scaffold(
+            body: FloatingGameMenu(
+          expanded: _menuOpen,
+          canResume: _hasGame,
+          busy: _menuBusy || _menuTransition || _progress != null,
+          onToggle: _toggleMenu,
+          onResume: () => _do(_resumeFromMenu),
+          toolbar: _menuToolbar(),
+          child: SafeArea(child: _gameContent()),
+        )),
       );
 }

@@ -1,6 +1,8 @@
 // Dart imports:
 
 // Flutter imports:
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:fnesemu/gui/ticker_image.dart';
 
@@ -35,27 +37,45 @@ class _CoreViewState extends State<CoreView> {
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // main view
-          ListenableBuilder(
-              listenable: Listenable.merge([
-                widget.container.displayWidthNotifier,
-                widget.container.displayHeightNotifier,
-              ]),
-              builder: (context, child) => imageListener(
-                  width: config.screenWidth,
-                  height: config.screenWidth *
-                      widget.container.displayHeightNotifier.value /
-                      widget.container.displayWidthNotifier.value,
-                  notifier: widget.container.imageNotifier)),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : config.screenWidth;
+        final availableHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : config.screenWidth + 56;
+        final padHeight = math.min(56.0, availableHeight);
+        return Column(
+          children: [
+            Expanded(
+                child: Center(
+                    child: ListenableBuilder(
+                        listenable: Listenable.merge([
+                          widget.container.displayWidthNotifier,
+                          widget.container.displayHeightNotifier,
+                        ]),
+                        builder: (context, child) {
+                          final aspect =
+                              widget.container.displayWidthNotifier.value /
+                                  widget.container.displayHeightNotifier.value;
+                          final width = math.min(
+                              math.min(config.screenWidth, availableWidth),
+                              math.max(0.0, availableHeight - padHeight) *
+                                  aspect);
+                          return imageListener(
+                              width: width,
+                              height: width / aspect,
+                              notifier: widget.container.imageNotifier);
+                        }))),
 
-          // virtual pad
-          VirtualPadWidget(
-              controller: widget.controller, width: config.screenWidth),
-        ],
-      ),
+            // virtual pad
+            SizedBox(
+                height: padHeight,
+                child: VirtualPadWidget(
+                    controller: widget.controller, width: availableWidth)),
+          ],
+        );
+      }),
     );
   }
 }
