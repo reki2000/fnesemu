@@ -116,6 +116,8 @@ void main() {
     });
     await tester.pump();
     expect(find.text('fresh.gb'), findsOneWidget);
+    // waiting for the selection is not shown as working
+    expect(find.byType(LinearProgressIndicator), findsNothing);
     await tester.runAsync(() => tester.tap(find.text('Cancel')));
     await tester.pump(const Duration(milliseconds: 300));
     expect(storage.gameDirectories.length, 1);
@@ -151,6 +153,7 @@ void main() {
     await tester.pump();
     expect(tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).busy,
         isTrue);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
     await tester.tapAt(const Offset(600, 400));
     await tester.pump();
     expect(audio.starts, 2);

@@ -33,7 +33,8 @@ void main() {
                       onPressed: () async {
                         selected = await showDialog<DiscItem>(
                             context: context,
-                            builder: (_) => GameListDialog(scan: scan));
+                            builder: (_) => GameListDialog(
+                                title: 'fixtures', scan: ValueNotifier(scan)));
                       },
                       child: const Text('Open'))))));
       await tester.tap(find.text('Open'));
@@ -50,4 +51,27 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('game list shows the scan progress until the list is ready',
+      (tester) async {
+    final scan = ValueNotifier<ScanResult?>(null);
+    final progress =
+        ValueNotifier<ScanProgress?>(const ScanProgress(false, 10, 4, 1, 0));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: GameListDialog(
+                title: 'fixtures', scan: scan, progress: progress))));
+    expect(find.text('Scanning: checking: 1 / 4 cue files'), findsOneWidget);
+    expect(
+        tester
+            .widget<LinearProgressIndicator>(
+                find.byType(LinearProgressIndicator))
+            .value,
+        0.25);
+    scan.value =
+        ScanResult(_Folder(), [], [const DiscItem('fixture.gb')], [], false);
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.text('fixture.gb'), findsOneWidget);
+  });
 }

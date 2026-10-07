@@ -119,7 +119,7 @@ class MainPageState extends State<MainPage> {
   final _openedFolders = <String, DiscFolder>{};
   final _folderIds = Expando<String>();
   ScanResult? _scan;
-  ScanProgress? _progress; // not null while scanning
+  final _progress = ValueNotifier<ScanProgress?>(null); // not null while scanning
   bool _cancelScan = false;
 
   // shared by cores, the disc is kept across ROM loading
@@ -226,7 +226,7 @@ class MainPageState extends State<MainPage> {
     if (!_hasGame ||
         _menuBusy ||
         _menuTransition ||
-        _progress != null ||
+        _progress.value != null ||
         !(ModalRoute.of(context)?.isCurrent ?? false)) {
       return;
     }
@@ -246,7 +246,7 @@ class MainPageState extends State<MainPage> {
   // File pickers and nested settings keep the background resume gesture
   // disabled until the entire action has completed, including cancellation.
   void _menuAction(Future<void> Function() action) {
-    if (_menuBusy || _menuTransition || _progress != null) return;
+    if (_menuBusy || _menuTransition || _progress.value != null) return;
     setState(() => _menuBusy = true);
     _do(() async {
       try {
@@ -423,11 +423,24 @@ class MainPageState extends State<MainPage> {
     return folder;
   }
 
-  Future<void> _showGames() async {
-    final scan = _scan;
-    if (scan == null || !mounted) return;
+  /// scans [folder] and lets the user select a game from it. the dialog
+  /// shows the progress until the list is ready, and closing it stops the scan
+  Future<void> _scanAndShowGames(DiscFolder folder) async {
+    if (!mounted) return;
+    final scan = ValueNotifier<ScanResult?>(null);
+    var dialogOpen = true;
+    final scanning = _scanFolder(folder).then((result) => scan.value = result,
+        onError: (Object e, StackTrace st) {
+      if (dialogOpen && mounted) Navigator.of(context).pop();
+      Error.throwWithStackTrace(e, st);
+    });
     final selected = await showDialog<DiscItem>(
-        context: context, builder: (_) => GameListDialog(scan: scan));
+        context: context,
+        builder: (_) => GameListDialog(
+            title: folder.name, scan: scan, progress: _progress));
+    dialogOpen = false;
+    _cancelScan = true;
+    await scanning;
     if (selected != null && mounted) await _openGameItem(selected);
   }
 
@@ -436,45 +449,38 @@ class MainPageState extends State<MainPage> {
     if (folder == null) {
       throw StateError('Directory unavailable; select it again');
     }
-    await _scanFolder(folder);
-    await _showGames();
+    await _scanAndShowGames(folder);
   }
 
   _selectDiscFolder() async {
     final folder = await pickDiscFolder();
     if (folder != null && mounted) {
-      await _scanFolder(folder);
-      await _showGames();
+      await _scanAndShowGames(folder);
     }
   }
 
   /// Cue references are excluded; every other file is shown in the game list.
-  _scanFolder(DiscFolder folder) async {
-    if (_progress != null || !mounted) return;
+  Future<ScanResult?> _scanFolder(DiscFolder folder) async {
+    if (_progress.value != null || !mounted) return null;
     _cancelScan = false;
-    setState(() {
-      _scan = null;
-      _progress = const ScanProgress(true, 0, 0, 0, 0);
-    });
+    _scan = null;
+    _progress.value = const ScanProgress(true, 0, 0, 0, 0);
     try {
       final result = await DiscScanner.scan(folder,
           includeAllFiles: true,
-          onProgress: (p) {
-            if (mounted) setState(() => _progress = p);
-          },
+          onProgress: (p) => _progress.value = p,
           isCancelled: () => _cancelScan || !mounted);
-      if (!result.cancelled && mounted) {
-        _scan = result;
-        final id = _folderHistoryKey(result);
-        _folderIds[folder] = id;
-        _openedFolders[id] = folder;
-        await _storage.rememberDirectory(
-            GameDirectory(id, folder.name, folder.persistentPath));
-        await _storage.setSetting(_lastDiscDirKey, id);
-        AppSnackBar.show('${result.items.length} file(s) in ${folder.name}');
-      }
+      if (result.cancelled || !mounted) return null;
+      _scan = result;
+      final id = _folderHistoryKey(result);
+      _folderIds[folder] = id;
+      _openedFolders[id] = folder;
+      await _storage.rememberDirectory(
+          GameDirectory(id, folder.name, folder.persistentPath));
+      await _storage.setSetting(_lastDiscDirKey, id);
+      return result;
     } finally {
-      if (mounted) setState(() => _progress = null);
+      _progress.value = null;
     }
   }
 
@@ -590,7 +596,7 @@ class MainPageState extends State<MainPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           IgnorePointer(
-              ignoring: _menuBusy || _menuTransition || _progress != null,
+              ignoring: _menuBusy || _menuTransition || _progress.value != null,
               child: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
@@ -687,24 +693,6 @@ class MainPageState extends State<MainPage> {
               child:
                   Text(_romName, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
-          if (_menuBusy || _menuTransition) const LinearProgressIndicator(),
-          if (_progress != null) ...[
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text('Scanning: $_progress',
-                  maxLines: 2, overflow: TextOverflow.ellipsis),
-            ),
-            LinearProgressIndicator(
-              value: _progress!.isListing || _progress!.cues == 0
-                  ? null
-                  : _progress!.checkedCues / _progress!.cues,
-            ),
-            IconButton(
-              tooltip: 'Cancel scan',
-              onPressed: () => _cancelScan = true,
-              icon: const Icon(Icons.close),
-            ),
-          ],
         ],
       );
 
@@ -774,7 +762,7 @@ class MainPageState extends State<MainPage> {
             body: FloatingGameMenu(
           expanded: _menuOpen,
           canResume: _hasGame,
-          busy: _menuBusy || _menuTransition || _progress != null,
+          busy: _menuBusy || _menuTransition || _progress.value != null,
           onToggle: _toggleMenu,
           onResume: () => _do(_resumeFromMenu),
           toolbar: _menuToolbar(),
