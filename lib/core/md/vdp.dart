@@ -189,6 +189,13 @@ class Vdp {
     status |= bitDmaRunning;
   }
 
+  /// md cdrom Word RAM is read one word late by DMA: each transfer gets the
+  /// word before the source address (software adds 2 to the source)
+  int get _dmaReadAddress =>
+      bus.cdrom != null && _dmaSrc >= 0x200000 && _dmaSrc < 0x240000
+          ? _dmaSrc - 2
+          : _dmaSrc;
+
   void execDma(int count) {
     while (count > 0 && _dmaLength > 0) {
       if (_dmaMode == _dmaModeV2V) {
@@ -196,7 +203,9 @@ class Vdp {
         vram[postInc()] = vram[_dmaSrc];
         _dmaSrc = _dmaSrc.inc.mask16;
       } else {
-        data = _dmaMode == _dmaModeM2V ? bus.read16(_dmaSrc) : _dmaFillValue;
+        data = _dmaMode == _dmaModeM2V
+            ? bus.read16(_dmaReadAddress)
+            : _dmaFillValue;
         _dmaSrc += 2;
       }
 

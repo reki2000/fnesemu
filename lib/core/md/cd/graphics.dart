@@ -46,18 +46,20 @@ class CdGraphics {
           if (stamp != 0) {
             int px = sx & (stampSize - 1), py = sy & (stampSize - 1);
             if ((entry & 0x8000) != 0) px = stampSize - 1 - px;
+            // after the flip: bit14 turns the stamp by 180 degrees, then
+            // bit13 by 90 degrees (column <- inverted row, row <- column)
             switch ((entry >> 13) & 3) {
               case 1:
                 final old = px;
-                px = py;
-                py = stampSize - 1 - old;
+                px = stampSize - 1 - py;
+                py = old;
               case 2:
                 px = stampSize - 1 - px;
                 py = stampSize - 1 - py;
               case 3:
                 final old = px;
-                px = stampSize - 1 - py;
-                py = old;
+                px = py;
+                py = stampSize - 1 - old;
             }
             final source = stamp * 128 +
                 ((px >> 3) * (stampSize >> 3) + (py >> 3)) * 32 +
