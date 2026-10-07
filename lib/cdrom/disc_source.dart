@@ -8,9 +8,10 @@ export 'disc_source_io.dart'
     if (dart.library.js_interop) 'disc_source_web.dart';
 
 /// lets the user select a directory of disc images. returns null if canceled.
-Future<DiscFolder?> pickDiscFolder() async {
-  final dir =
-      await pickDirectory(dialogTitle: "Select a directory of CD-ROMs / ROMs");
+Future<DiscFolder?> pickDiscFolder({String? initialDirectory}) async {
+  final dir = await pickDirectory(
+      dialogTitle: "Select a directory of CD-ROMs / ROMs",
+      initialDirectory: initialDirectory);
   return dir == null ? null : PickedDiscFolder(dir);
 }
 

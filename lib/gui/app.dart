@@ -342,7 +342,7 @@ class MainPageState extends State<MainPage> {
   _selectBios(CoreSystem system) async {
     if (system.id == 'mdcd') return _selectMdBios();
 
-    final files = await _pickFiles(
+    final files = await _pickBiosFiles(
         multiple: system.biosFiles > 1,
         dialogTitle: "Select the BIOS of ${system.name}");
     if (files == null) {
@@ -360,10 +360,22 @@ class MainPageState extends State<MainPage> {
         "${_storage.biosNames(system.id).join(", ")}");
   }
 
+  // the directories selected last time, where the pickers open next time
+  static const _lastBiosDirKey = "last_bios_dir";
+  static const _lastGameDirKey = "last_game_dir";
+
+  Future<List<(Uint8List, String)>?> _pickBiosFiles(
+          {required bool multiple, required String dialogTitle}) =>
+      _pickFiles(
+          multiple: multiple,
+          dialogTitle: dialogTitle,
+          initialDirectory: _storage.setting(_lastBiosDirKey),
+          onDirectory: (dir) => _storage.setSetting(_lastBiosDirKey, dir));
+
   /// md cdrom and 32x BIOS files selected at once, told apart by their sizes.
   /// a 32x boot rom which is not selected keeps the one saved before.
   _selectMdBios() async {
-    final files = await _pickFiles(
+    final files = await _pickBiosFiles(
         multiple: true, dialogTitle: "Select the BIOS of md cdrom and/or 32x");
     if (files == null) {
       return;
@@ -509,8 +521,11 @@ class MainPageState extends State<MainPage> {
   }
 
   _selectDiscFolder() async {
-    final folder = await pickDiscFolder();
+    final folder = await pickDiscFolder(
+        initialDirectory: _storage.setting(_lastGameDirKey));
     if (folder != null && mounted) {
+      final path = _localPath(folder.displayPath);
+      if (path != null) await _storage.setSetting(_lastGameDirKey, path);
       await _scanAndShowGames(folder);
     }
   }

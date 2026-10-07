@@ -9,12 +9,15 @@ import 'saf_impl.dart';
 
 bool get _isDarwin => Platform.isIOS || Platform.isMacOS;
 
-/// lets the user select a directory. returns null if canceled.
-Future<PickedDirectory?> pickDirectory({String? dialogTitle}) async {
+/// lets the user select a directory. returns null if canceled. the dialog
+/// opens at [initialDirectory] where the platform supports it.
+Future<PickedDirectory?> pickDirectory(
+    {String? dialogTitle, String? initialDirectory}) async {
   if (Platform.isAndroid) return pickSafDirectory();
   if (_isDarwin) return pickDarwinDirectory(dialogTitle: dialogTitle);
 
-  final path = await FilePicker.getDirectoryPath(dialogTitle: dialogTitle);
+  final path = await FilePicker.getDirectoryPath(
+      dialogTitle: dialogTitle, initialDirectory: initialDirectory);
   return path == null ? null : IoDirectory(path);
 }
 
@@ -29,11 +32,13 @@ Future<PickedDirectory?> restoreDirectory(String restoreKey,
 }
 
 /// lets the user select files. returns null if canceled. [extensions] ('cue',
-/// without dots) is a hint: Android does not filter by it.
+/// without dots) is a hint: Android does not filter by it. the dialog opens
+/// at [initialDirectory] where the platform supports it.
 Future<List<RandomReadFile>?> pickFiles(
     {List<String>? extensions,
     bool multiple = false,
-    String? dialogTitle}) async {
+    String? dialogTitle,
+    String? initialDirectory}) async {
   if (Platform.isAndroid) return pickSafFiles(multiple: multiple);
   if (_isDarwin) {
     return pickDarwinFiles(
@@ -43,10 +48,14 @@ Future<List<RandomReadFile>?> pickFiles(
   final type = extensions == null ? FileType.any : FileType.custom;
   final picked = multiple
       ? await FilePicker.pickFiles(
-          dialogTitle: dialogTitle, type: type, allowedExtensions: extensions)
+          dialogTitle: dialogTitle,
+          initialDirectory: initialDirectory,
+          type: type,
+          allowedExtensions: extensions)
       : [
           if (await FilePicker.pickFile(
                   dialogTitle: dialogTitle,
+                  initialDirectory: initialDirectory,
                   type: type,
                   allowedExtensions: extensions)
               case final file?)

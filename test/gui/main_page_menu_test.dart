@@ -19,6 +19,7 @@ import 'sound_player_test.dart' show FakeAudioStream;
 
 class TestFilePicker extends FilePickerPlatform {
   Future<String?> Function()? select;
+  String? initialDirectory;
   @override
   Future<String?> getDirectoryPath(
           {String? dialogTitle,
@@ -26,8 +27,10 @@ class TestFilePicker extends FilePickerPlatform {
           AndroidOptions androidOptions = const AndroidOptions(),
           WindowsOptions windowsOptions = const WindowsOptions(),
           LinuxOptions linuxOptions = const LinuxOptions(),
-          WebOptions webOptions = const WebOptions()}) =>
-      select!();
+          WebOptions webOptions = const WebOptions()}) {
+    this.initialDirectory = initialDirectory;
+    return select!();
+  }
 }
 
 Future<void> waitFor(bool Function() ready) async {
@@ -154,6 +157,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Select directory...'));
     await tester.pump();
+    // the picker opens at the directory selected last time
+    expect(picker.initialDirectory, temp.path);
     expect(tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).busy,
         isTrue);
     expect(find.byType(LinearProgressIndicator), findsNothing);
