@@ -30,7 +30,7 @@ jobs:
       - run: flutter test
       - run: |
           REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
-          flutter build web --base-href /$REPOSITORY/
+          flutter build web --wasm --base-href /$REPOSITORY/
 
       - name: Upload dist as artifact
         uses: actions/upload-artifact@v4
