@@ -30,6 +30,15 @@ void subProgram(MdCdrom cd) {
   cd.programRam.setAll(0x100, [0x70, 0x2a, 0x60, 0xfe]);
 }
 
+/// ticks through the seek latency and the tick the drive reports playing
+/// before the first sector
+void finishSeek(CdDrive drive) {
+  while (drive.status == 2) {
+    drive.tick();
+  }
+  if (drive.status == 1) drive.tick();
+}
+
 void command(CdDrive drive, List<int> packet) {
   drive.command.fillRange(0, 10, 0);
   drive.command.setAll(0, packet);
@@ -264,12 +273,28 @@ void main() {
         ..hostClock = true;
       command(drive, [3, 0, 0, 0, 0, 1, 7, 3]); // absolute MSF 00:01:73
       expect(drive.lba, -2);
-      drive.tick(); // seek
+      finishSeek(drive);
       drive.tick();
       drive.tick();
       expect(disc.reads, isEmpty);
       drive.tick();
       expect(disc.reads, [150]);
+    });
+
+    test('pregap sectors reach the decoder with their headers', () {
+      final received = <Uint8List>[];
+      final drive = CdDrive(received.add, () {})
+        ..mount(FakeDisc([Disc.mode1Sector(Uint8List(2048), 0)]))
+        ..hostClock = true;
+      command(drive, [3, 0, 0, 0, 0, 1, 7, 3]); // absolute MSF 00:01:73
+      finishSeek(drive);
+      expect(received, isEmpty); // nothing before the host sees playing
+      drive.tick();
+      drive.tick();
+      expect(received.map((s) => s.sublist(12, 16)), [
+        [0, 1, 0x73, 1],
+        [0, 1, 0x74, 1]
+      ]);
     });
 
     test('TOC checksums, track queries and lead-in-aware data reads', () {
@@ -287,14 +312,15 @@ void main() {
       expect(drive.response.sublist(2, 6), [0, 1, 0, 2]);
       expect(drive.response.fold<int>(0, (a, b) => a + b) & 15, 15);
       command(drive, [3, 0, 0, 0, 0, 2, 0, 0]);
-      drive.tick(); // seek
+      finishSeek(drive);
+      final seekInterrupts = interrupts;
       drive.tick();
       expect(disc.reads, [150]);
       expect(received.single[16], 1);
       drive.tick();
       drive.tick(); // audio track is not sent to the decoder
       expect(received.length, 2);
-      expect(interrupts, 4);
+      expect(interrupts - seekInterrupts, 3);
       command(drive, [6]);
       final position = drive.lba;
       drive.tick();
@@ -314,7 +340,7 @@ void main() {
       expect(drive.response[0], 0);
       command(drive, [3, 0, 0, 0, 0, 2, 0, 0]);
       expect(drive.status, 2);
-      drive.tick();
+      finishSeek(drive);
       expect(drive.status, 1);
     });
 
@@ -428,7 +454,7 @@ void main() {
         ..mount(FakeDisc([sector], audioTracks: {1}))
         ..hostClock = true;
       command(drive, [3, 0, 0, 0, 0, 2, 0, 0]);
-      drive.tick();
+      finishSeek(drive);
       drive.tick();
       expect(drive.sample(44100), (0.5, -0.5));
       command(drive, [6]);

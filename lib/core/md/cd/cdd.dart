@@ -103,12 +103,16 @@ class CdDrive {
               command[6] * 10 +
               command[7] -
               150;
-          lba = position.clamp(-150, disc.totalSectors);
+          final target = position.clamp(-150, disc.totalSectors);
+          // the pickup takes a while to move: a fixed latency plus the
+          // distance, so the first sector does not come before the host has
+          // set up the decoder
+          _seekTicks = 10 + (target - lba).abs() ~/ 4500;
+          lba = target;
           track = trackAt(lba);
           _audioPhase = 0;
           _seekStatus = op == 3 ? 1 : 4;
           status = 2;
-          _seekTicks = 1;
           _sectorAudioLba = _currentLba = -1;
         case 0xa:
           status = 4;
@@ -133,19 +137,31 @@ class CdDrive {
   }
 
   int _scanDirection = 1;
+  bool _settling = false;
 
   void tick() {
     _swap.poll(1);
     if (!hostClock) return;
     if (_seekTicks > 0) {
       _seekTicks--;
-      if (_seekTicks == 0) status = _seekStatus;
+      if (_seekTicks == 0) {
+        status = _seekStatus;
+        _settling = status == 1;
+      }
+    } else if (_settling) {
+      // the drive reports playing a tick before the first sector, so the host
+      // sees the status and enables the decoder in time
+      _settling = false;
     } else if (status == 1 && !disc.isEmpty) {
       if (lba >= disc.totalSectors) {
         status = 0xc;
       } else {
         final next = trackAt(lba);
-        final sector = lba >= 0 && !disc.isAudio(next) ? disc.read(lba + 150) : null;
+        final sector = lba < 0
+            ? _pregapSector(lba)
+            : !disc.isAudio(next)
+                ? disc.read(lba + 150)
+                : null;
         if (lba >= 0 && !disc.isAudio(next) && sector == null) {
           // the drive has not read the sector yet: retry on the next tick
         } else {
@@ -161,6 +177,20 @@ class CdDrive {
     // Responses are latched on command submission. A transport tick must
     // not overwrite a Stop/Close acknowledgement before the host reads it.
     interrupt();
+  }
+
+  /// a sector of the pregap before the first track: no data, but a valid
+  /// header, which the BIOS reads to find the start of the data track
+  Uint8List _pregapSector(int lba) {
+    final sector = Uint8List(2352);
+    sector.fillRange(1, 11, 0xff); // sync
+    int bcd(int v) => (v ~/ 10) << 4 | v % 10;
+    final (m, s, f) = Disc.lbaToMsf(lba + 150);
+    sector[12] = bcd(m);
+    sector[13] = bcd(s);
+    sector[14] = bcd(f);
+    sector[15] = 1; // mode 1
+    return sector;
   }
 
   void _msf(int position, int offset) {
