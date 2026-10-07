@@ -3,10 +3,6 @@ part of 'app.dart';
 String _fileExtension(String fileName) =>
     fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
 
-/// returns null when the file picker is cancelled.
-Future<(Uint8List, String)?> _pickFile() async =>
-    (await _pickFiles())?.first;
-
 /// lets the user select files and reads them. returns null when cancelled.
 Future<List<(Uint8List, String)>?> _pickFiles(
     {bool multiple = false, String? dialogTitle}) async {

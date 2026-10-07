@@ -10,13 +10,15 @@ export 'disc_source_io.dart'
 /// lets the user select a directory of disc images. returns null if canceled.
 Future<DiscFolder?> pickDiscFolder() async {
   final dir =
-      await pickDirectory(dialogTitle: "Select a directory of disc images");
+      await pickDirectory(dialogTitle: "Select a directory of CD-ROMs / ROMs");
   return dir == null ? null : PickedDiscFolder(dir);
 }
 
 /// opens the directory saved by [DiscFolder.persistentPath], or null if it is
 /// not available any more
-Future<DiscFolder?> openDiscFolderAt(String path) async {
-  final dir = await restoreDirectory(path);
+Future<DiscFolder?> openDiscFolderAt(String path,
+    {bool requestPermission = false}) async {
+  final dir =
+      await restoreDirectory(path, requestPermission: requestPermission);
   return dir == null ? null : PickedDiscFolder(dir);
 }

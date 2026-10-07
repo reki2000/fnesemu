@@ -25,6 +25,13 @@ void main() {
     expect(d.restoreKey, dir.path);
   });
 
+  test('permission token renewal preserves directory identity', () {
+    final first = IoDirectory.withKey(dir.path, 'old-bookmark');
+    final renewed = IoDirectory.withKey(dir.path, 'new-bookmark');
+    expect(first.identityKey, renewed.identityKey);
+    expect(first.restoreKey, isNot(renewed.restoreKey));
+  });
+
   test('read at any offset, and less at the end', () async {
     final f = IoDirectory(dir.path).open('a.bin');
     expect(f.name, 'a.bin');

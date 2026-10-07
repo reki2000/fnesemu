@@ -20,6 +20,8 @@ abstract class DiscFolder {
   /// cannot (the browser does not allow it)
   String? get persistentPath => null;
 
+  String? get identityKey => persistentPath;
+
   /// lists the files below the folder recursively
   Stream<FolderFile> list();
 
@@ -38,6 +40,9 @@ class PickedDiscFolder extends DiscFolder {
 
   @override
   String? get persistentPath => dir.restoreKey;
+
+  @override
+  String? get identityKey => dir.identityKey;
 
   @override
   Stream<FolderFile> list() => dir.walk().map(FolderFile.new);
@@ -172,6 +177,7 @@ class DiscScanner {
     DiscFolder folder, {
     void Function(ScanProgress progress)? onProgress,
     bool Function()? isCancelled,
+    bool includeAllFiles = false,
   }) async {
     bool cancelled() => isCancelled?.call() ?? false;
     final files = <FolderFile>[];
@@ -222,13 +228,14 @@ class DiscScanner {
         items.add(DiscItem(cue));
       } else {
         skipped.add(cue);
+        if (includeAllFiles) items.add(DiscItem(cue));
       }
       await Future<void>.delayed(Duration.zero); // let the UI update
     }
 
     for (final f in files) {
       final ext = _ext(f.path);
-      if ((ext == 'iso' || ext == 'bin') &&
+      if ((includeAllFiles ? ext != 'cue' : (ext == 'iso' || ext == 'bin')) &&
           !referenced.contains(folderKey('', f.path))) {
         items.add(DiscItem(f.path));
       }

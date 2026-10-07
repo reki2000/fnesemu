@@ -18,22 +18,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'sound_player_test.dart' show FakeAudioStream;
 
 class TestFilePicker extends FilePicker {
-  Future<FilePickerResult?> Function()? select;
+  Future<String?> Function()? select;
   @override
-  Future<FilePickerResult?> pickFiles(
+  Future<String?> getDirectoryPath(
           {String? dialogTitle,
-          String? initialDirectory,
-          FileType type = FileType.any,
-          List<String>? allowedExtensions,
-          Function(FilePickerStatus)? onFileLoading,
-          bool allowCompression = true,
-          int compressionQuality = 30,
-          bool allowMultiple = false,
-          bool withData = false,
-          bool withReadStream = false,
           bool lockParentWindow = false,
-          bool readSequential = false}) =>
+          String? initialDirectory}) =>
       select!();
+}
+
+Future<void> waitFor(bool Function() ready) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 3));
+  while (!ready()) {
+    if (DateTime.now().isAfter(deadline))
+      fail('Timed out waiting for game startup');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
 
 void main() {
@@ -50,9 +50,8 @@ void main() {
       final rom = Uint8List(0x8000)..setAll(0x100, [0, 0xc3, 0, 1]);
       final file = File('${temp.path}/fixture.gb');
       await file.writeAsBytes(rom);
-      picker.select = () async => FilePickerResult([
-            PlatformFile(name: 'fixture.gb', size: rom.length, path: file.path),
-          ]);
+      await File('${temp.path}/notes.txt').writeAsString('fixture');
+      picker.select = () async => temp.path;
       storage = await Storage.open(
           store: await BlobStore.open(factory: newIdbFactoryMemory()));
     });
@@ -70,9 +69,20 @@ void main() {
     final fpsRect = tester.getRect(find.byKey(const ValueKey('fps-indicator')));
     expect(fpsRect.top, 8);
     expect(fpsRect.right, 792);
+    expect(find.byTooltip('Load ROM'), findsNothing);
+    await tester.runAsync(() => tester.tap(find.byTooltip('CD / ROM')));
+    await tester.pumpAndSettle();
     await tester.runAsync(() async {
-      await tester.tap(find.byTooltip('Load ROM'));
+      await tester.tap(find.text('Select directory...'));
       await Future<void>.delayed(const Duration(milliseconds: 150));
+    });
+    await tester.pump();
+    expect(find.text('fixture.gb'), findsOneWidget);
+    expect(find.text('notes.txt'), findsOneWidget);
+    expect(storage.gameDirectories.single.restoreKey, temp.path);
+    await tester.runAsync(() async {
+      await tester.tap(find.text('fixture.gb'));
+      await waitFor(() => audio.starts == 1);
     });
     await tester.pump();
     expect(
@@ -102,7 +112,7 @@ void main() {
     expect(tester.widget<PopupMenuItem>(unavailable).enabled, isFalse);
     await tester.runAsync(() async {
       await tester.tap(find.text('GB fixture.gb'));
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await waitFor(() => audio.starts == 2);
     });
     await tester.pump();
     expect(
@@ -112,9 +122,11 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
     });
     await tester.pump();
-    final cancelled = Completer<FilePickerResult?>();
+    final cancelled = Completer<String?>();
     picker.select = () => cancelled.future;
-    await tester.tap(find.byTooltip('Load ROM'));
+    await tester.tap(find.byTooltip('CD / ROM'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Select directory...'));
     await tester.pump();
     expect(tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).busy,
         isTrue);

@@ -23,6 +23,8 @@ import 'debug/debug_pane.dart';
 import 'key_handler.dart';
 import 'pad_input.dart';
 import 'recent_game.dart';
+import 'game_directory.dart';
+import 'game_list.dart';
 import 'sound_player.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
@@ -93,7 +95,7 @@ class MainPage extends StatefulWidget {
   MainPageState createState() => MainPageState();
 }
 
-enum _DiscAction { eject, empty, select, rescan }
+enum _DiscAction { eject, empty, select, rescan, list }
 
 class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
@@ -114,6 +116,8 @@ class MainPageState extends State<MainPage> {
   String _romName = "";
 
   // disc images found in the directory selected from the disc menu
+  final _openedFolders = <String, DiscFolder>{};
+  final _folderIds = Expando<String>();
   ScanResult? _scan;
   ScanProgress? _progress; // not null while scanning
   bool _cancelScan = false;
@@ -261,22 +265,45 @@ class MainPageState extends State<MainPage> {
     });
   }
 
-  _loadRomFile() async {
-    final picked = await _pickFile();
-    if (picked == null) {
+  Future<void> _openGameItem(DiscItem item) async {
+    final scan = _scan;
+    if (scan == null) return;
+    final extension = _fileExtension(item.path);
+    var isDisc = extension == 'cue' || extension == 'iso';
+    if (extension == 'bin') {
+      // A .bin may be a cartridge or an unreferenced disc image.
+      final probe = AsyncCdromDrive();
+      try {
+        await probe.insert(scan.sourceOf(item));
+        isDisc = probe.status.isReady &&
+            await CoreFactory.systemOfDisc(probe) != null;
+      } finally {
+        await probe.eject();
+      }
+    }
+    if (isDisc) {
+      await _insertItem(item);
       return;
     }
-    final (file, name) = picked;
-    final (extractedFile, extractedName) = _extractIfZip(file, name);
-
-    final system = CoreFactory.systemOfFile(extractedName, extractedFile);
-    await _boot(system, rom: extractedFile, name: extractedName);
+    final file = scan.folder.file(item.path);
+    late Uint8List data;
+    try {
+      data = await file.read(0, await file.length());
+    } finally {
+      await file.close();
+    }
+    final (rom, name) = _extractIfZip(data, item.path);
+    await _boot(CoreFactory.systemOfFile(name, rom),
+        rom: rom, name: name, folder: _folderHistoryKey(scan), path: item.path);
   }
 
   /// replaces the running core with [system] booted with its BIOS and [rom].
   /// without [rom], the system boots its BIOS (and the disc in the drive).
   Future<bool> _boot(CoreSystem system,
-      {Uint8List? rom, required String name}) async {
+      {Uint8List? rom,
+      required String name,
+      String? folder,
+      String? path}) async {
     final bios = await _storage.bios(system.id);
     if (!mounted) return false;
     if (system.biosRequired && bios.isEmpty) {
@@ -289,7 +316,10 @@ class MainPageState extends State<MainPage> {
 
     _keyHandler.init();
     _romName = name;
-    if (rom != null) await _storage.recordRecent(system.id, name, rom: rom);
+    if (rom != null) {
+      await _storage.recordRecent(system.id, name,
+          rom: rom, folder: folder, path: path);
+    }
 
     AppSnackBar.show("loaded: $name");
 
@@ -348,45 +378,108 @@ class MainPageState extends State<MainPage> {
 
   /// scans the directory selected last time, if it can be opened again
   _restoreDiscFolder() async {
-    final path = _storage.setting(_lastDiscDirKey);
-    final folder = path == null ? null : await openDiscFolderAt(path);
-    if (folder != null) {
+    final directories = _storage.gameDirectories;
+    final known = directories.map((entry) => entry.id).toSet();
+    // Preserve directories of histories written before the directory registry.
+    final legacy = [
+      _storage.setting(_lastDiscDirKey),
+      ..._storage.recentGames.map((game) => game.folder),
+    ];
+    for (final key in legacy.whereType<String>()) {
+      if (!known.add(key) || key.startsWith('web:')) continue;
+      directories.add(GameDirectory(key, key.split('/').last, key));
+    }
+    for (final directory in directories) {
+      try {
+        final token = directory.restoreKey;
+        final folder = token == null ? null : await openDiscFolderAt(token);
+        if (!mounted) return;
+        if (folder != null) {
+          _openedFolders[directory.id] = folder;
+          _folderIds[folder] = directory.id;
+          await _storage.rememberDirectory(
+              GameDirectory(directory.id, folder.name, folder.persistentPath));
+        }
+      } catch (_) {
+        // Keep the saved token so the user can retry restoring access.
+      }
+    }
+    if (!mounted) return;
+    setState(() {});
+    final last = _storage.setting(_lastDiscDirKey);
+    final folder = _openedFolders[last];
+    if (folder != null && _scan == null && !_menuBusy) {
       await _scanFolder(folder);
     }
+  }
+
+  Future<DiscFolder?> _restoreSavedDirectory(String id) async {
+    final saved =
+        _storage.gameDirectories.where((entry) => entry.id == id).firstOrNull;
+    final token = saved?.restoreKey;
+    if (token == null) return _openedFolders[id];
+    final folder = await openDiscFolderAt(token, requestPermission: true);
+    if (folder != null) {
+      _openedFolders[id] = folder;
+      _folderIds[folder] = id;
+    } else {
+      _openedFolders.remove(id);
+    }
+    return folder;
+  }
+
+  Future<void> _showGames() async {
+    final scan = _scan;
+    if (scan == null || !mounted) return;
+    final selected = await showDialog<DiscItem>(
+        context: context, builder: (_) => GameListDialog(scan: scan));
+    if (selected != null && mounted) await _openGameItem(selected);
+  }
+
+  Future<void> _openSavedDirectory(String id) async {
+    final folder = await _restoreSavedDirectory(id);
+    if (folder == null) {
+      throw StateError('Directory unavailable; select it again');
+    }
+    await _scanFolder(folder);
+    await _showGames();
   }
 
   _selectDiscFolder() async {
     final folder = await pickDiscFolder();
-    if (folder != null) {
+    if (folder != null && mounted) {
       await _scanFolder(folder);
+      await _showGames();
     }
   }
 
-  /// lists the disc images in [folder], with the progress
+  /// Cue references are excluded; every other file is shown in the game list.
   _scanFolder(DiscFolder folder) async {
-    if (_progress != null) return;
+    if (_progress != null || !mounted) return;
     _cancelScan = false;
     setState(() {
       _scan = null;
       _progress = const ScanProgress(true, 0, 0, 0, 0);
     });
-
     try {
       final result = await DiscScanner.scan(folder,
-          onProgress: (p) => setState(() => _progress = p),
-          isCancelled: () => _cancelScan);
-      if (!result.cancelled) {
+          includeAllFiles: true,
+          onProgress: (p) {
+            if (mounted) setState(() => _progress = p);
+          },
+          isCancelled: () => _cancelScan || !mounted);
+      if (!result.cancelled && mounted) {
         _scan = result;
-        final path = folder.persistentPath;
-        if (path != null) {
-          await _storage.setSetting(_lastDiscDirKey, path);
-        }
-        AppSnackBar.show(
-            "${result.items.length} disc image(s) in ${folder.name}"
-            "${result.skipped.isEmpty ? "" : ", ${result.skipped.length} cue file(s) skipped (missing files)"}");
+        final id = _folderHistoryKey(result);
+        _folderIds[folder] = id;
+        _openedFolders[id] = folder;
+        await _storage.rememberDirectory(
+            GameDirectory(id, folder.name, folder.persistentPath));
+        await _storage.setSetting(_lastDiscDirKey, id);
+        AppSnackBar.show('${result.items.length} file(s) in ${folder.name}');
       }
     } finally {
-      setState(() => _progress = null);
+      if (mounted) setState(() => _progress = null);
     }
   }
 
@@ -408,33 +501,64 @@ class MainPageState extends State<MainPage> {
   }
 
   String _folderHistoryKey(ScanResult scan) =>
-      scan.folder.persistentPath ??
+      _folderIds[scan.folder] ??
+      _openedFolders.entries
+          .where((entry) =>
+              scan.folder.identityKey != null &&
+              entry.value.identityKey == scan.folder.identityKey)
+          .firstOrNull
+          ?.key ??
+      scan.folder.identityKey ??
       'web:${scan.folder.name}:${getCrc32(utf8.encode(jsonEncode(scan.files.map((file) => file.path).toList()..sort())))}';
 
-  DiscItem? _historyDisc(RecentGame game) {
+  bool _historyAvailable(RecentGame game) {
+    if (!game.isDisc) return true;
+    final id = game.folder;
     final scan = _scan;
-    if (scan == null || game.folder != _folderHistoryKey(scan)) return null;
-    for (final item in scan.items) {
-      if (item.path == game.name) return item;
+    if (scan != null && id == _folderHistoryKey(scan)) {
+      return scan.items.any((item) => item.path == game.sourcePath) &&
+          !scan.skipped.contains(game.sourcePath);
     }
-    return null;
+    return _openedFolders.containsKey(id) ||
+        _storage.gameDirectories.any((directory) =>
+            directory.id == id &&
+            (directory.restoreKey?.startsWith('fs-access:') ?? false));
   }
 
   Future<void> _launchHistory(RecentGame game) async {
-    if (game.isDisc) {
-      final item = _historyDisc(game);
-      if (item != null) await _insertItem(item);
-    } else {
-      final rom = await _storage.recentRom(game);
-      if (rom == null) throw StateError('Saved ROM is unavailable');
-      await _boot(CoreFactory.system(game.core), rom: rom, name: game.name);
+    final id = game.folder;
+    if (id != null) {
+      final folder = await _restoreSavedDirectory(id);
+      if (folder != null) await _scanFolder(folder);
+      if (game.isDisc) {
+        final scan = _scan;
+        if (scan == null || _folderHistoryKey(scan) != id) {
+          throw StateError('Directory unavailable; select it again');
+        }
+        final item = scan.items
+            .where((item) => item.path == game.sourcePath)
+            .firstOrNull;
+        if (item == null || scan.skipped.contains(item.path)) {
+          throw StateError('Game is no longer available in the directory');
+        }
+        await _insertItem(item);
+        return;
+      }
     }
+    final rom = await _storage.recentRom(game);
+    if (rom == null) throw StateError('Saved ROM is unavailable');
+    await _boot(CoreFactory.system(game.core),
+        rom: rom, name: game.name, folder: game.folder, path: game.path);
   }
 
   _discMenuAction(Object action) async {
     switch (action) {
       case DiscItem():
-        await _insertItem(action);
+        await _openGameItem(action);
+      case String():
+        await _openSavedDirectory(action);
+      case _DiscAction.list:
+        await _showGames();
       case _DiscAction.eject:
         await _drive.eject(); // the tray stays open
       case _DiscAction.empty:
@@ -443,7 +567,10 @@ class MainPageState extends State<MainPage> {
         await _selectDiscFolder();
       case _DiscAction.rescan:
         final folder = _scan?.folder;
-        if (folder != null) await _scanFolder(folder);
+        if (folder != null) {
+          await _scanFolder(folder);
+          await _showGames();
+        }
     }
     setState(() {});
   }
@@ -496,8 +623,8 @@ class MainPageState extends State<MainPage> {
                   ),
 
                   PopupMenuButton<Object>(
-                    icon: const Icon(Icons.album),
-                    tooltip: "Disc",
+                    icon: const Icon(Icons.folder_open),
+                    tooltip: "CD / ROM",
                     onSelected: (action) =>
                         _menuAction(() async => _discMenuAction(action)),
                     itemBuilder: (_) => [
@@ -509,15 +636,20 @@ class MainPageState extends State<MainPage> {
                           child: Text("Empty (closed, no disc)")),
                       const PopupMenuItem(
                           value: _DiscAction.select,
-                          child: Text("Select image file directory...")),
+                          child: Text("Select directory...")),
                       if (_scan != null)
                         PopupMenuItem(
                             value: _DiscAction.rescan,
                             child: Text("Rescan ${_scan!.folder.name}")),
-                      if (_scan != null && _scan!.items.isNotEmpty)
+                      if (_scan != null)
+                        PopupMenuItem(
+                            value: _DiscAction.list,
+                            child: Text('Games in ${_scan!.folder.name}')),
+                      if (_storage.gameDirectories.isNotEmpty)
                         const PopupMenuDivider(),
-                      for (final item in _scan?.items ?? const <DiscItem>[])
-                        PopupMenuItem(value: item, child: Text(item.path)),
+                      for (final directory in _storage.gameDirectories)
+                        PopupMenuItem(
+                            value: directory.id, child: Text(directory.name)),
                     ],
                   ),
 
@@ -533,15 +665,11 @@ class MainPageState extends State<MainPage> {
                       for (final game in _storage.recentGames)
                         PopupMenuItem(
                             value: game,
-                            enabled: !game.isDisc || _historyDisc(game) != null,
+                            enabled: _historyAvailable(game),
                             child: Text(
                                 '${CoreFactory.system(game.core).name.toUpperCase()} ${game.name}')),
                     ],
                   ),
-
-                  // file load button
-                  iconButton(Icons.file_open_outlined, "Load ROM",
-                      () => _menuAction(() async => _loadRomFile())),
 
                   IconButton(
                     tooltip: 'Resume',

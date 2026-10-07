@@ -49,6 +49,28 @@ void main() {
     expect(r.skipped, isEmpty);
   });
 
+  test('game list includes every remaining file after cue references',
+      () async {
+    final r = await DiscScanner.scan(
+        MemoryFolder({
+          'game.cue': text(cue(['track.bin'])),
+          'track.bin': bin,
+          'fixture.gb': bin,
+          'archive.zip': bin,
+          'readme.txt': text('fixture'),
+          'invalid.cue': text(cue(['missing.bin'])),
+        }),
+        includeAllFiles: true);
+    expect(r.items.map((item) => item.path), [
+      'archive.zip',
+      'fixture.gb',
+      'game.cue',
+      'invalid.cue',
+      'readme.txt',
+    ]);
+    expect(r.skipped, ['invalid.cue']);
+  });
+
   test('a cue with a missing file is skipped, its files are not listed',
       () async {
     final r = await DiscScanner.scan(MemoryFolder({
@@ -96,8 +118,7 @@ void main() {
   });
 
   test('scan can be cancelled', () async {
-    final r = await DiscScanner.scan(
-        MemoryFolder({"a.iso": bin, "b.iso": bin}),
+    final r = await DiscScanner.scan(MemoryFolder({"a.iso": bin, "b.iso": bin}),
         isCancelled: () => true);
     expect(r.cancelled, true);
     expect(r.items, isEmpty);
@@ -120,8 +141,7 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('scan_test_');
     addTearDown(() => dir.deleteSync(recursive: true));
     Directory('${dir.path}/a/b').createSync(recursive: true);
-    File('${dir.path}/a/b/x.cue')
-        .writeAsStringSync(cue(["x.bin"]));
+    File('${dir.path}/a/b/x.cue').writeAsStringSync(cue(["x.bin"]));
     File('${dir.path}/a/b/x.bin').writeAsBytesSync(bin);
     File('${dir.path}/y.iso').writeAsBytesSync(bin);
 

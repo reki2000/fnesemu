@@ -17,8 +17,10 @@ await file.close();
 final files = await pickFiles(extensions: ['cue', 'bin'], multiple: true);
 final head = await files!.first.read(0, 16);
 
-// after a restart. the keys are null on the web
+// after a restart. browser file inputs have no restore key
 final again = await restoreDirectory(dir.restoreKey!);
+// In a browser user action, allow a renewed permission prompt if needed:
+final permitted = await restoreDirectory(dir.restoreKey!, requestPermission: true);
 final file2 = await restoreFile(files.first.restoreKey!);
 ```
 
@@ -28,7 +30,7 @@ final file2 = await restoreFile(files.first.restoreKey!);
 | iOS | `UIDocumentPickerViewController` (not a copy) | dart:io in the security scope | bookmark |
 | macOS | `NSOpenPanel` | dart:io in the security scope | security scoped bookmark |
 | Linux, Windows | `file_picker` | dart:io | path |
-| web | `<input type=file>` (`webkitdirectory`) | `Blob.slice` | not supported |
+| web | File System Access directory picker, or `<input type=file>` (`webkitdirectory`) fallback | `Blob.slice` | directory handles in IndexedDB on supporting browsers |
 
 - `package:mp_bigfile_picker/io.dart` has the dart:io implementation only, with
   no dependency on Flutter, for command line tools.
@@ -43,3 +45,10 @@ final file2 = await restoreFile(files.first.restoreKey!);
   but some cloud providers give pipes, which fail with `UnsupportedError`.
 - `PickedDirectory.open` accepts only the paths found by `walk` on Android.
 - The files in a `PickedDirectory` have no restore key: restore the directory.
+
+- On supporting browsers in a secure context, directory handles are saved in
+  IndexedDB. `restoreDirectory` checks read permission; pass
+  `requestPermission: true` from a user action to request access again. The
+  browser decides whether its permission persists across visits.
+- Browsers without the directory handle API use `webkitdirectory`; access lasts
+  for the current session and the directory must be selected again after a reload.

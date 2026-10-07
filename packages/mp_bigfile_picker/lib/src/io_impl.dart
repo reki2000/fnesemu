@@ -46,6 +46,8 @@ class IoReadFile extends RandomReadFile {
 class IoDirectory extends PickedDirectory {
   final String root;
   @override
+  String get identityKey => root;
+  @override
   final String? restoreKey;
 
   /// restored by [root]

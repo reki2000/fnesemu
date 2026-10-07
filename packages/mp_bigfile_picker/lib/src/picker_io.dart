@@ -21,7 +21,8 @@ Future<PickedDirectory?> pickDirectory({String? dialogTitle}) async {
 
 /// opens the directory of [PickedDirectory.restoreKey] again, or null if it is
 /// not available any more
-Future<PickedDirectory?> restoreDirectory(String restoreKey) async {
+Future<PickedDirectory?> restoreDirectory(String restoreKey,
+    {bool requestPermission = false}) async {
   if (Platform.isAndroid) return restoreSafDirectory(restoreKey);
   if (_isDarwin) return restoreDarwinDirectory(restoreKey);
 

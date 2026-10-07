@@ -24,8 +24,12 @@ abstract class PickedDirectory {
   String get name;
 
   /// a key to open the directory again after a restart by
-  /// `restoreDirectory`, or null if the platform does not allow it (the web)
+  /// `restoreDirectory`, or null in browsers without persistent directory access.
   String? get restoreKey;
+
+  /// Stable directory identity, independent of a renewed permission token.
+  /// Use [restoreKey], rather than this identity, to restore access.
+  String? get identityKey => restoreKey;
 
   /// the paths of the files below the directory, relative to it and separated
   /// by '/'

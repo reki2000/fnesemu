@@ -10,6 +10,7 @@ import '../core/sram.dart';
 import '../core/storage_key.dart';
 import 'blob_store/blob_store.dart';
 import 'recent_game.dart';
+import 'game_directory.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;
@@ -100,7 +101,6 @@ class Storage extends Sram {
     }
   }
 
-  static const recentLimit = 20;
   final _recentRomData = <String, Uint8List>{};
 
   List<RecentGame> get recentGames {
@@ -124,15 +124,14 @@ class Storage extends Sram {
       _recentRomData[game.blobKey] ?? await _store?.get(game.blobKey);
 
   Future<void> recordRecent(String core, String name,
-      {Uint8List? rom, String? folder}) async {
-    assert((rom == null) != (folder == null));
-    final id = base64Url.encode(utf8.encode(jsonEncode([
-      core,
-      name,
-      folder,
-      if (rom != null) rom.length,
-      if (rom != null) getCrc32(rom),
-    ])));
+      {Uint8List? rom, String? folder, String? path}) async {
+    assert(rom != null || folder != null);
+    // ROM identity is independent of the directory, preserving old counts
+    // when switching from individual file selection to directory selection.
+    final identity = rom == null
+        ? [core, name, folder]
+        : [core, name, null, rom.length, getCrc32(rom)];
+    final id = base64Url.encode(utf8.encode(jsonEncode(identity)));
     final games = recentGames;
     final matches = games.where((game) => game.id == id);
     final previous = matches.isEmpty ? null : matches.first;
@@ -144,6 +143,8 @@ class Storage extends Sram {
         core: core,
         name: name,
         folder: folder,
+        disc: rom == null,
+        path: path,
         count: (previous?.count ?? 0) + 1,
         lastPlayed: now > latest ? now : latest + 1);
     try {
@@ -157,20 +158,31 @@ class Storage extends Sram {
       }
       games.removeWhere((game) => game.id == id);
       games.add(entry);
-      games.sort((a, b) => b.lastPlayed.compareTo(a.lastPlayed));
-      final removed = games.skip(recentLimit).toList();
-      final metadata = jsonEncode(
-          games.take(recentLimit).map((game) => game.toJson()).toList());
+      final metadata = jsonEncode(games.map((game) => game.toJson()).toList());
       final metadataKey = StorageKey.setting('recent_games');
       await _store?.put(metadataKey, Uint8List.fromList(utf8.encode(metadata)));
       _settings[metadataKey] = metadata;
-      for (final game in removed.where((game) => !game.isDisc)) {
-        _recentRomData.remove(game.blobKey);
-        await _store?.delete(game.blobKey);
-      }
     } catch (e) {
       onEvent('failed to save game history: $e');
     }
+  }
+
+  List<GameDirectory> get gameDirectories {
+    try {
+      return (jsonDecode(setting('game_directories') ?? '[]') as List)
+          .map((json) => GameDirectory.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> rememberDirectory(GameDirectory directory) async {
+    final directories = gameDirectories
+      ..removeWhere((entry) => entry.id == directory.id);
+    directories.add(directory);
+    await setSetting('game_directories',
+        jsonEncode(directories.map((entry) => entry.toJson()).toList()));
   }
 
   List<String> _biosKeysOf(String system) {
