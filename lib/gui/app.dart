@@ -434,13 +434,6 @@ class MainPageState extends State<MainPage> {
               child: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  // frame per second
-                  StreamBuilder<double>(
-                      stream: _controller.fpsStream,
-                      builder: (ctx, snapshot) => Center(
-                          child: Text(
-                              "${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps"))),
-
                   PopupMenuButton<CoreSystem>(
                     key: _coreSetupKey,
                     icon: const Icon(Icons.settings),
@@ -544,6 +537,22 @@ class MainPageState extends State<MainPage> {
         ],
       );
 
+  Widget _fpsIndicator() => StreamBuilder<double>(
+        stream: _controller.fpsStream,
+        builder: (context, snapshot) => DecoratedBox(
+          key: const ValueKey('fps-indicator'),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Text('${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps',
+                style: const TextStyle(color: Colors.white)),
+          ),
+        ),
+      );
+
   Widget _gameContent() => LayoutBuilder(builder: (context, constraints) {
         final wideDebug = _debugging && constraints.maxWidth >= 1000;
         return Row(children: [
@@ -596,6 +605,7 @@ class MainPageState extends State<MainPage> {
           onToggle: _toggleMenu,
           onResume: () => _do(_resumeFromMenu),
           toolbar: _menuToolbar(),
+          topRight: _fpsIndicator(),
           child: SafeArea(child: _gameContent()),
         )),
       );

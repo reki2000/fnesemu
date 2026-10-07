@@ -9,6 +9,7 @@ class FloatingGameMenu extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onResume;
   final Widget toolbar;
+  final Widget? topRight;
   final Widget child;
 
   const FloatingGameMenu({
@@ -19,6 +20,7 @@ class FloatingGameMenu extends StatelessWidget {
     required this.onToggle,
     required this.onResume,
     required this.toolbar,
+    this.topRight,
     required this.child,
   });
 
@@ -59,35 +61,48 @@ class FloatingGameMenu extends StatelessWidget {
                   minimum: const EdgeInsets.all(8),
                   child: Align(
                     alignment: Alignment.topLeft,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: Material(
-                        elevation: 6,
-                        color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Listener(
-                          // Consume even blank toolbar space instead of letting
-                          // the background resume gesture receive that tap.
-                          behavior: HitTestBehavior.opaque,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              IconButton(
-                                key: const ValueKey('game-menu-toggle'),
-                                tooltip:
-                                    expanded ? 'Close menu / resume' : 'Menu',
-                                onPressed: busy ? null : onToggle,
-                                icon: const Icon(Icons.menu),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(
+                            child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 720),
+                          child: Material(
+                            elevation: 6,
+                            color: Theme.of(context).colorScheme.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Listener(
+                              // Consume even blank toolbar space instead of letting
+                              // the background resume gesture receive that tap.
+                              behavior: HitTestBehavior.opaque,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  IconButton(
+                                    key: const ValueKey('game-menu-toggle'),
+                                    tooltip: expanded
+                                        ? 'Close menu / resume'
+                                        : 'Menu',
+                                    onPressed: busy ? null : onToggle,
+                                    icon: const Icon(Icons.menu),
+                                  ),
+                                  if (expanded)
+                                    Expanded(
+                                      child:
+                                          SingleChildScrollView(child: toolbar),
+                                    ),
+                                ],
                               ),
-                              if (expanded)
-                                Expanded(
-                                  child: SingleChildScrollView(child: toolbar),
-                                ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
+                        )),
+                        if (topRight != null) ...[
+                          const SizedBox(width: 8),
+                          IgnorePointer(child: topRight!),
+                        ],
+                      ],
                     ),
                   ),
                 ),

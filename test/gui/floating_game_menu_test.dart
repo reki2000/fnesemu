@@ -170,7 +170,11 @@ void main() {
     expect(expanded.value, isTrue);
   });
 
-  for (final size in [const Size(320, 640), const Size(640, 320)]) {
+  for (final size in [
+    const Size(320, 640),
+    const Size(640, 320),
+    const Size(1280, 1000),
+  ]) {
     testWidgets('menu and game fit $size without resizing on menu open',
         (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -195,15 +199,32 @@ void main() {
                   9,
                   (i) => IconButton(
                       onPressed: () {}, icon: const Icon(Icons.settings)))),
+          topRight: const Text('60.0 fps'),
           child: CoreView(controller: controller, container: ImageContainer()),
         ),
       ))));
       final rect = tester.getRect(find.byType(CustomPaint).first);
       expect(rect.width, lessThanOrEqualTo(size.width));
       expect(rect.bottom, lessThanOrEqualTo(size.height));
+      final fpsRect = tester.getRect(find.text('60.0 fps'));
+      expect(fpsRect.top, 8);
+      expect(fpsRect.right, size.width - 8);
+      if (size.width > 640) expect(rect.width, greaterThan(640));
       await tester.tap(find.byKey(const ValueKey('game-menu-toggle')));
       await tester.pump();
       expect(tester.getRect(find.byType(CustomPaint).first), rect);
+      expect(tester.getRect(find.text('60.0 fps')), fpsRect);
+      final toolbarRect = tester.getRect(find.byType(Wrap));
+      expect(toolbarRect.right, lessThan(fpsRect.left));
+      expect(tester.takeException(), isNull);
+
+      tester.view.physicalSize = size * 1.5;
+      await tester.pump();
+      final enlarged = tester.getRect(find.byType(CustomPaint).first);
+      expect(enlarged.width, greaterThan(rect.width));
+      expect(enlarged.height, greaterThan(rect.height));
+      expect(enlarged.width / enlarged.height,
+          closeTo(rect.width / rect.height, 0.0001));
       expect(tester.takeException(), isNull);
     });
   }

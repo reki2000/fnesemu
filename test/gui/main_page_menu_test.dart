@@ -67,6 +67,9 @@ void main() {
     expect(
         tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).expanded,
         isTrue);
+    final fpsRect = tester.getRect(find.byKey(const ValueKey('fps-indicator')));
+    expect(fpsRect.top, 8);
+    expect(fpsRect.right, 792);
     await tester.runAsync(() async {
       await tester.tap(find.byTooltip('Load ROM'));
       await Future<void>.delayed(const Duration(milliseconds: 150));
@@ -76,6 +79,8 @@ void main() {
         tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).expanded,
         isFalse);
     expect(audio.starts, 1);
+    expect(
+        tester.getRect(find.byKey(const ValueKey('fps-indicator'))), fpsRect);
     await tester.runAsync(() async {
       await tester.tap(find.byKey(const ValueKey('game-menu-toggle')));
       await Future<void>.delayed(const Duration(milliseconds: 30));

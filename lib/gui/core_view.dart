@@ -59,7 +59,7 @@ class _CoreViewState extends State<CoreView> {
                               widget.container.displayWidthNotifier.value /
                                   widget.container.displayHeightNotifier.value;
                           final width = math.min(
-                              math.min(config.screenWidth, availableWidth),
+                              availableWidth,
                               math.max(0.0, availableHeight - padHeight) *
                                   aspect);
                           return imageListener(
