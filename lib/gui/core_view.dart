@@ -39,10 +39,13 @@ class _CoreViewState extends State<CoreView> {
   Widget build(BuildContext context) => RepaintBoundary(
         child: LayoutBuilder(builder: (context, constraints) {
           const inset = 12.0;
+          const headerHeight = 64.0;
+          final portrait = constraints.maxHeight > constraints.maxWidth;
           return Stack(children: [
             Positioned.fill(
               child: LayoutBuilder(
-                  builder: (context, gameConstraints) => Center(
+                  builder: (context, gameConstraints) => Align(
+                        alignment: Alignment.topCenter,
                         child: ListenableBuilder(
                           listenable: Listenable.merge([
                             widget.container.displayWidthNotifier,
@@ -54,26 +57,47 @@ class _CoreViewState extends State<CoreView> {
                                 widget.container.displayHeightNotifier.value;
                             final width = math.min(gameConstraints.maxWidth,
                                 gameConstraints.maxHeight * aspect);
-                            return SizedBox(
-                              key: const ValueKey('game-viewport'),
-                              width: width,
-                              height: width / aspect,
-                              child: imageListener(
+                            final gameHeight = width / aspect;
+                            final headerFits = portrait &&
+                                gameConstraints.maxHeight - gameHeight >=
+                                    headerHeight +
+                                        DirectionPad.diameter +
+                                        inset * 2;
+                            return Padding(
+                                padding: EdgeInsets.only(
+                                    top: headerFits ? headerHeight : 0),
+                                child: SizedBox(
+                                  key: const ValueKey('game-viewport'),
                                   width: width,
                                   height: width / aspect,
-                                  notifier: widget.container.imageNotifier),
-                            );
+                                  child: imageListener(
+                                      width: width,
+                                      height: width / aspect,
+                                      notifier: widget.container.imageNotifier),
+                                ));
                           },
                         ),
                       )),
             ),
             Positioned(
-                left: inset, bottom: inset, child: DirectionPad(input: _input)),
+                left: inset,
+                top: portrait ? null : 0,
+                bottom: portrait ? inset : 0,
+                child: Align(
+                    widthFactor: 1,
+                    heightFactor: 1,
+                    alignment: Alignment.centerLeft,
+                    child: DirectionPad(input: _input))),
             Positioned(
                 right: inset,
-                bottom: inset,
-                child: VirtualPadWidget(
-                    controller: widget.controller, input: _input)),
+                top: portrait ? null : 0,
+                bottom: portrait ? inset : 0,
+                child: Align(
+                    widthFactor: 1,
+                    heightFactor: 1,
+                    alignment: Alignment.centerRight,
+                    child: VirtualPadWidget(
+                        controller: widget.controller, input: _input))),
           ]);
         }),
       );

@@ -7,6 +7,7 @@ import 'package:fnesemu/gui/core_view.dart';
 import 'package:fnesemu/gui/direction_pad.dart';
 import 'package:fnesemu/gui/floating_game_menu.dart';
 import 'package:fnesemu/gui/ticker_image.dart';
+import 'package:fnesemu/gui/virtual_pad.dart';
 
 void main() {
   testWidgets(
@@ -173,6 +174,7 @@ void main() {
 
   for (final size in [
     const Size(320, 640),
+    const Size(320, 400),
     const Size(640, 320),
     const Size(1280, 1000),
   ]) {
@@ -206,9 +208,18 @@ void main() {
       ))));
       final rect = tester.getRect(find.byKey(const ValueKey('game-viewport')));
       final pad = tester.getRect(find.byType(DirectionPad));
+      final actions = tester.getRect(find.byType(VirtualPadWidget));
       expect(pad.size, const Size(160, 160));
       expect(pad.left, 12);
-      expect(pad.bottom, size.height - 12);
+      if (size.height > size.width) {
+        expect(pad.bottom, size.height - 12);
+        expect(actions.bottom, size.height - 12);
+        expect(rect.top, size.height == 640 ? 64 : 0);
+      } else {
+        expect(pad.center.dy, size.height / 2);
+        expect(actions.center.dy, size.height / 2);
+        expect(rect.top, 0);
+      }
       expect(rect.width == size.width || rect.height == size.height, isTrue);
       expect(rect.width, lessThanOrEqualTo(size.width));
       expect(rect.bottom, lessThanOrEqualTo(size.height));
