@@ -119,7 +119,8 @@ class MainPageState extends State<MainPage> {
   final _openedFolders = <String, DiscFolder>{};
   final _folderIds = Expando<String>();
   ScanResult? _scan;
-  final _progress = ValueNotifier<ScanProgress?>(null); // not null while scanning
+  final _progress =
+      ValueNotifier<ScanProgress?>(null); // not null while scanning
   bool _cancelScan = false;
 
   // shared by cores, the disc is kept across ROM loading
@@ -339,6 +340,8 @@ class MainPageState extends State<MainPage> {
 
   /// lets the user select the BIOS files of [system] and saves them
   _selectBios(CoreSystem system) async {
+    if (system.id == 'mdcd') return _selectMdBios();
+
     final files = await _pickFiles(
         multiple: system.biosFiles > 1,
         dialogTitle: "Select the BIOS of ${system.name}");
@@ -355,6 +358,54 @@ class MainPageState extends State<MainPage> {
         .setBios(system.id, [for (final (data, name) in files) (name, data)]);
     AppSnackBar.show("BIOS of ${system.name}: "
         "${_storage.biosNames(system.id).join(", ")}");
+  }
+
+  /// md cdrom and 32x BIOS files selected at once, told apart by their sizes.
+  /// a 32x boot rom which is not selected keeps the one saved before.
+  _selectMdBios() async {
+    final files = await _pickFiles(
+        multiple: true, dialogTitle: "Select the BIOS of md cdrom and/or 32x");
+    if (files == null) {
+      return;
+    }
+
+    final cd = <(String, Uint8List)>[];
+    final x32 = <String, (String, Uint8List)>{}; // role -> file
+    for (final (data, name) in files) {
+      switch (CoreFactory.mdBiosOf(data)) {
+        case ('mdcd', _):
+          cd.add((name, data));
+        case ('32x', final role):
+          x32[role] = (name, data);
+        default:
+          throw Exception("not a BIOS of md cdrom or 32x: $name");
+      }
+    }
+    if (cd.length > 1) {
+      throw Exception("select one BIOS of md cdrom: ${cd.length} selected");
+    }
+
+    if (cd.isNotEmpty) await _storage.setBios('mdcd', cd);
+    if (x32.isNotEmpty) {
+      final saved = await _storage.bios('32x');
+      final names = _storage.biosNames('32x');
+      for (var i = 0; i < saved.length && i < names.length; i++) {
+        final role = CoreFactory.mdBiosOf(saved[i])?.$2;
+        if (role != null) x32.putIfAbsent(role, () => (names[i], saved[i]));
+      }
+      await _storage.setBios('32x', x32.values.toList());
+    }
+    AppSnackBar.show("BIOS of md: ${_mdBiosSummary()}");
+  }
+
+  String _mdBiosSummary() {
+    final cd = _storage.biosNames('mdcd');
+    final x32 = _storage.biosNames('32x');
+    if (cd.isEmpty && x32.isEmpty) return "BIOS not set";
+    return [
+      "cdrom: ${cd.isEmpty ? "-" : cd.join(", ")}",
+      "32x: ${x32.isEmpty ? "-" : "${x32.join(", ")}${x32.length < 3 ? " (${x32.length}/3)" : ""}"}",
+    ].join(" / ");
   }
 
   /// plays the disc in the drive. the running system keeps running if it
@@ -591,9 +642,11 @@ class MainPageState extends State<MainPage> {
         value: s,
         child: ListTile(
             title: Text(s.name),
-            subtitle: Text(names.isEmpty
-                ? "BIOS not set${s.biosRequired ? "" : " (optional)"}"
-                : names.join(", ")),
+            subtitle: Text(s.id == 'mdcd'
+                ? _mdBiosSummary()
+                : names.isEmpty
+                    ? "BIOS not set${s.biosRequired ? "" : " (optional)"}"
+                    : names.join(", ")),
             trailing: const Icon(Icons.file_open_outlined)));
   }
 
@@ -614,7 +667,9 @@ class MainPageState extends State<MainPage> {
                         _menuAction(() async => _selectBios(system)),
                     itemBuilder: (_) => [
                       for (final s
-                          in CoreFactory.systems.where((s) => s.hasBios))
+                          // 32x is set from the md entry with md cdrom
+                          in CoreFactory.systems
+                              .where((s) => s.hasBios && s.id != '32x'))
                         _coreSetupItem(s),
                     ],
                   ),
@@ -709,8 +764,8 @@ class MainPageState extends State<MainPage> {
   void _showSramSaved() {
     _sramSaved.value = true;
     _sramSavedTimer?.cancel();
-    _sramSavedTimer = Timer(const Duration(milliseconds: 1500),
-        () => _sramSaved.value = false);
+    _sramSavedTimer = Timer(
+        const Duration(milliseconds: 1500), () => _sramSaved.value = false);
   }
 
   // the same look as the fps indicator

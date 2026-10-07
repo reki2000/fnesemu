@@ -50,11 +50,9 @@ class CoreFactory {
     CoreSystem("nes", "nes", extensions: ["nes"]),
     // a cdrom system card loaded as a rom plays pce cd discs as well
     CoreSystem("pce", "pce", extensions: ["pce"], disc: "pcecd"),
-    CoreSystem("pcecd", "pce",
-        biosFiles: 1, biosRequired: true, disc: "pcecd"),
+    CoreSystem("pcecd", "pce", biosFiles: 1, biosRequired: true, disc: "pcecd"),
     CoreSystem("md", "md", extensions: ["gen", "md", "bin"]),
-    CoreSystem("mdcd", "md",
-        biosFiles: 1, biosRequired: true, disc: "mdcd"),
+    CoreSystem("mdcd", "md", biosFiles: 1, biosRequired: true, disc: "mdcd"),
     CoreSystem("32x", "32x", extensions: ["32x"], biosFiles: 3),
     CoreSystem("ps", "ps1",
         extensions: ["exe"], biosFiles: 1, biosRequired: true, disc: "ps"),
@@ -64,6 +62,18 @@ class CoreFactory {
     CoreSystem("snes", "snes", extensions: ["sfc", "smc"]),
     CoreSystem("n64", "n64", extensions: ["n64", "z64", "v64"]),
   ];
+
+  /// md cdrom and 32x share the BIOS menu entry of md. returns the system of
+  /// such a BIOS file told apart by its size (and the role within 32x), or
+  /// null if it is neither
+  static (String system, String role)? mdBiosOf(Uint8List data) =>
+      switch (data.length) {
+        0x20000 => ('mdcd', 'md cdrom'),
+        0x100 => ('32x', '68000'),
+        0x800 => ('32x', 'sh-2 master'),
+        0x400 => ('32x', 'sh-2 slave'),
+        _ => null,
+      };
 
   /// extensions of the files in a zip which can be loaded
   static final extensions = [for (final s in systems) ...s.extensions];
@@ -134,7 +144,8 @@ class CoreFactory {
     if (_contains(head, "SEGADISCSYSTEM")) return system("mdcd");
     if (_contains(head, "SEGA SEGASATURN")) return system("ss");
 
-    if (_contains(await _read(drive, start + 4), "Sony Computer Entertainment") ||
+    if (_contains(
+            await _read(drive, start + 4), "Sony Computer Entertainment") ||
         _contains(await _read(drive, start + 16), "PLAYSTATION")) {
       return system("ps");
     }

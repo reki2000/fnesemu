@@ -72,4 +72,12 @@ void main() {
       expect(CoreFactory.of(s.id), isNotNull, reason: s.id);
     }
   });
+
+  test('md cdrom and 32x BIOS files are told apart by size', () {
+    expect(CoreFactory.mdBiosOf(Uint8List(0x20000)), ('mdcd', 'md cdrom'));
+    expect(CoreFactory.mdBiosOf(Uint8List(0x100))?.$1, '32x');
+    expect(CoreFactory.mdBiosOf(Uint8List(0x800))?.$2, 'sh-2 master');
+    expect(CoreFactory.mdBiosOf(Uint8List(0x400))?.$2, 'sh-2 slave');
+    expect(CoreFactory.mdBiosOf(Uint8List(0x200)), isNull);
+  });
 }
