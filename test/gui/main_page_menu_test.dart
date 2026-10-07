@@ -30,8 +30,9 @@ class TestFilePicker extends FilePicker {
 Future<void> waitFor(bool Function() ready) async {
   final deadline = DateTime.now().add(const Duration(seconds: 3));
   while (!ready()) {
-    if (DateTime.now().isAfter(deadline))
+    if (DateTime.now().isAfter(deadline)) {
       fail('Timed out waiting for game startup');
+    }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
 }
@@ -98,6 +99,26 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('game-menu-backdrop')), findsOneWidget);
     expect(audio.closes, 1);
+
+    await tester.runAsync(() async {
+      await File('${temp.path}/fresh.gb')
+          .writeAsBytes(await File('${temp.path}/fixture.gb').readAsBytes());
+      await tester.tap(find.byTooltip('CD / ROM'));
+    });
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Rescan'), findsNothing);
+    expect(find.textContaining('Games in'), findsNothing);
+    final directoryName = temp.path.split('/').last;
+    expect(find.text(directoryName), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.text(directoryName));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    });
+    await tester.pump();
+    expect(find.text('fresh.gb'), findsOneWidget);
+    await tester.runAsync(() => tester.tap(find.text('Cancel')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(storage.gameDirectories.length, 1);
 
     expect(storage.recentGames.single.core, 'gb');
     await tester.runAsync(() =>

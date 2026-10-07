@@ -95,7 +95,7 @@ class MainPage extends StatefulWidget {
   MainPageState createState() => MainPageState();
 }
 
-enum _DiscAction { eject, empty, select, rescan, list }
+enum _DiscAction { eject, empty, select }
 
 class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
@@ -406,11 +406,6 @@ class MainPageState extends State<MainPage> {
     }
     if (!mounted) return;
     setState(() {});
-    final last = _storage.setting(_lastDiscDirKey);
-    final folder = _openedFolders[last];
-    if (folder != null && _scan == null && !_menuBusy) {
-      await _scanFolder(folder);
-    }
   }
 
   Future<DiscFolder?> _restoreSavedDirectory(String id) async {
@@ -484,8 +479,8 @@ class MainPageState extends State<MainPage> {
   }
 
   /// inserts the image selected from the list and starts it
-  _insertItem(DiscItem item) async {
-    final scan = _scan;
+  _insertItem(DiscItem item, {ScanResult? sourceScan}) async {
+    final scan = sourceScan ?? _scan;
     if (scan == null) return;
 
     await _drive.insert(scan.sourceOf(item));
@@ -529,19 +524,17 @@ class MainPageState extends State<MainPage> {
     final id = game.folder;
     if (id != null) {
       final folder = await _restoreSavedDirectory(id);
-      if (folder != null) await _scanFolder(folder);
       if (game.isDisc) {
-        final scan = _scan;
-        if (scan == null || _folderHistoryKey(scan) != id) {
+        if (folder == null) {
           throw StateError('Directory unavailable; select it again');
         }
-        final item = scan.items
-            .where((item) => item.path == game.sourcePath)
-            .firstOrNull;
-        if (item == null || scan.skipped.contains(item.path)) {
+        // Resolve the saved disc directly, without rebuilding the game list.
+        final files = await folder.list().toList();
+        if (!files.any((file) => file.path == game.sourcePath)) {
           throw StateError('Game is no longer available in the directory');
         }
-        await _insertItem(item);
+        await _insertItem(DiscItem(game.sourcePath),
+            sourceScan: ScanResult(folder, files, const [], const [], false));
         return;
       }
     }
@@ -557,20 +550,12 @@ class MainPageState extends State<MainPage> {
         await _openGameItem(action);
       case String():
         await _openSavedDirectory(action);
-      case _DiscAction.list:
-        await _showGames();
       case _DiscAction.eject:
         await _drive.eject(); // the tray stays open
       case _DiscAction.empty:
         await _drive.insert(); // the tray is closed without a disc
       case _DiscAction.select:
         await _selectDiscFolder();
-      case _DiscAction.rescan:
-        final folder = _scan?.folder;
-        if (folder != null) {
-          await _scanFolder(folder);
-          await _showGames();
-        }
     }
     setState(() {});
   }
@@ -637,14 +622,6 @@ class MainPageState extends State<MainPage> {
                       const PopupMenuItem(
                           value: _DiscAction.select,
                           child: Text("Select directory...")),
-                      if (_scan != null)
-                        PopupMenuItem(
-                            value: _DiscAction.rescan,
-                            child: Text("Rescan ${_scan!.folder.name}")),
-                      if (_scan != null)
-                        PopupMenuItem(
-                            value: _DiscAction.list,
-                            child: Text('Games in ${_scan!.folder.name}')),
                       if (_storage.gameDirectories.isNotEmpty)
                         const PopupMenuDivider(),
                       for (final directory in _storage.gameDirectories)
