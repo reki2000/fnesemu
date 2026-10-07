@@ -1,89 +1,88 @@
-// Flutter imports:
 import 'package:flutter/material.dart';
 
-// Project imports:
 import '../core/core_controller.dart';
-import '../core/pad_button.dart';
 import 'pad_input.dart';
 
-/// Action buttons; directional input is provided by DirectionPad.
+/// Floating action keys in the same staggered rows as a physical keyboard.
 class VirtualPadWidget extends StatelessWidget {
   final CoreController controller;
   final PadInput input;
-
-  /// the buttons are shrunk to be placed in a line within this width
-  final double width;
-
-  const VirtualPadWidget({
-    super.key,
-    required this.controller,
-    required this.input,
-    required this.width,
-  });
-
-  static const keys = "ASZXCQWERD";
+  const VirtualPadWidget(
+      {super.key, required this.controller, required this.input});
+  static const keys = 'ASZXCQWERD';
+  static const keyWidth = 28.0;
+  static const gap = 4.0;
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).primaryColor;
-
-    // build a tap-effected button
-    Widget button(PadButton button,
-        {String name = "", IconData? icon, String key = ""}) {
-      return InkResponse(
-          canRequestFocus: false,
-          containedInkWell: false,
-          onTapDown: (_) => input.setSource(button, {button}),
-          onTapUp: (_) => input.setSource(button, {}),
-          onTapCancel: () => input.setSource(button, {}),
-          // leaves room for the key label at the top right
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8, right: 6),
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                // icon for this button
-                if (icon != null) Icon(icon, color: color),
-                // text shown on this button
-                if (name != "")
-                  Container(
-                    color: color,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    child: Text(
-                      name,
-                      style: const TextStyle(color: Colors.white),
-                    ),
+    final buttons = controller.buttons.skip(4).toList();
+    final colors = Theme.of(context).colorScheme;
+    Widget key(String letter) {
+      final index = keys.indexOf(letter);
+      if (index >= buttons.length) {
+        return const SizedBox(width: keyWidth, height: 44);
+      }
+      final button = buttons[index];
+      return ListenableBuilder(
+          listenable: input,
+          builder: (_, __) => Tooltip(
+                message: '$letter: ${button.name}',
+                child: Material(
+                  color: input.pressed.contains(button)
+                      ? colors.primary
+                      : colors.surfaceContainerHigh.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Listener(
+                    behavior: HitTestBehavior.opaque,
+                    onPointerDown: (event) =>
+                        input.setSource((button, event.pointer), {button}),
+                    onPointerUp: (event) =>
+                        input.setSource((button, event.pointer), {}),
+                    onPointerCancel: (event) =>
+                        input.setSource((button, event.pointer), {}),
+                    child: Container(
+                        key: ValueKey('action-key-$letter'),
+                        constraints: const BoxConstraints(minWidth: keyWidth),
+                        width: button.name.length == 1 ? keyWidth : null,
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Stack(alignment: Alignment.center, children: [
+                          Text(button.name,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: input.pressed.contains(button)
+                                      ? colors.onPrimary
+                                      : colors.onSurface)),
+                          Positioned(
+                              top: 2,
+                              left: 0,
+                              child: Text(letter,
+                                  style: TextStyle(
+                                      fontSize: 9,
+                                      color: input.pressed.contains(button)
+                                          ? colors.onPrimary
+                                          : colors.onSurfaceVariant))),
+                        ])),
                   ),
-                // assigned key
-                if (key != "")
-                  Positioned(
-                    top: -10,
-                    right: -8,
-                    child: Text(
-                      key,
-                      style: const TextStyle(color: Colors.grey, fontSize: 11),
-                    ),
-                  ),
-              ],
-            ),
-          ));
+                ),
+              ));
     }
 
-    return Container(
-        width: width,
-        margin: const EdgeInsets.all(5.0),
-        child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(spacing: 8, children: [
-              if (controller.buttons.length > 4)
-                ...controller.buttons.sublist(4).asMap().entries.map((e) =>
-                    button(e.value,
-                        name: e.value.name,
-                        key: e.key < VirtualPadWidget.keys.length
-                            ? VirtualPadWidget.keys[e.key]
-                            : ""))
-            ])));
+    return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: ['QWER', 'ASD', 'ZXC']
+            .asMap()
+            .entries
+            .map((row) => Padding(
+                  padding: EdgeInsets.only(
+                      left: row.key * keyWidth / 2,
+                      top: row.key == 0 ? 0 : gap),
+                  child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      spacing: gap,
+                      children: row.value.split('').map(key).toList()),
+                ))
+            .toList());
   }
 }

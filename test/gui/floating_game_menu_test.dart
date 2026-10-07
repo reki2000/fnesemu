@@ -207,11 +207,9 @@ void main() {
       final rect = tester.getRect(find.byKey(const ValueKey('game-viewport')));
       final pad = tester.getRect(find.byType(DirectionPad));
       expect(pad.size, const Size(160, 160));
-      if (size.height > size.width) {
-        expect(pad.top, greaterThanOrEqualTo(rect.bottom));
-      } else {
-        expect(pad.right, lessThanOrEqualTo(rect.left));
-      }
+      expect(pad.left, 12);
+      expect(pad.bottom, size.height - 12);
+      expect(rect.width == size.width || rect.height == size.height, isTrue);
       expect(rect.width, lessThanOrEqualTo(size.width));
       expect(rect.bottom, lessThanOrEqualTo(size.height));
       final fpsRect = tester.getRect(find.text('60.0 fps'));

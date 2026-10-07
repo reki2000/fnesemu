@@ -117,7 +117,7 @@ class DirectionPadPainter extends CustomPainter {
   final ColorScheme colors;
   final int? activeSector;
   const DirectionPadPainter({required this.colors, required this.activeSector});
-  static const _arrows = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+  static const _arrows = ['↑', '', '→', '', '↓', '', '←', ''];
 
   @override
   bool? hitTest(Offset position) => DirectionPad.sectorAt(position) != null;
@@ -149,10 +149,11 @@ class DirectionPadPainter extends CustomPainter {
             ..color = colors.outline
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1);
+      if (sector.isOdd) continue;
       final angle = -math.pi / 2 + sector * sweep;
       final label = TextPainter(
         text: TextSpan(
-            text: '$sector ${_arrows[sector]}',
+            text: _arrows[sector],
             style: TextStyle(
                 color: active ? colors.onPrimary : colors.onSurface,
                 fontSize: 14,

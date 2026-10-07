@@ -38,16 +38,9 @@ class _CoreViewState extends State<CoreView> {
   @override
   Widget build(BuildContext context) => RepaintBoundary(
         child: LayoutBuilder(builder: (context, constraints) {
-          final portrait = constraints.maxHeight > constraints.maxWidth;
           const inset = 12.0;
-          const directionSpace = DirectionPad.diameter + inset * 2;
-          const actionSpace = 56.0;
           return Stack(children: [
             Positioned.fill(
-              left:
-                  portrait ? 0 : math.min(directionSpace, constraints.maxWidth),
-              bottom: math.min(portrait ? directionSpace : actionSpace,
-                  constraints.maxHeight),
               child: LayoutBuilder(
                   builder: (context, gameConstraints) => Center(
                         child: ListenableBuilder(
@@ -77,19 +70,10 @@ class _CoreViewState extends State<CoreView> {
             Positioned(
                 left: inset, bottom: inset, child: DirectionPad(input: _input)),
             Positioned(
-                left: math.min(directionSpace, constraints.maxWidth),
-                right: 0,
-                bottom: 0,
-                height: portrait ? directionSpace : actionSpace,
-                child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: SizedBox(
-                        height: actionSpace,
-                        child: VirtualPadWidget(
-                            controller: widget.controller,
-                            input: _input,
-                            width: math.max(
-                                0, constraints.maxWidth - directionSpace))))),
+                right: inset,
+                bottom: inset,
+                child: VirtualPadWidget(
+                    controller: widget.controller, input: _input)),
           ]);
         }),
       );
