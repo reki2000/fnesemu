@@ -391,7 +391,7 @@ class MainPageState extends State<MainPage> {
     ];
     for (final key in legacy.whereType<String>()) {
       if (!known.add(key) || key.startsWith('web:')) continue;
-      directories.add(GameDirectory(key, key.split('/').last, key));
+      directories.add(GameDirectory(key, key.split('/').last, key, path: key));
     }
     for (final directory in directories) {
       try {
@@ -401,8 +401,9 @@ class MainPageState extends State<MainPage> {
         if (folder != null) {
           _openedFolders[directory.id] = folder;
           _folderIds[folder] = directory.id;
-          await _storage.rememberDirectory(
-              GameDirectory(directory.id, folder.name, folder.persistentPath));
+          await _storage.rememberDirectory(GameDirectory(
+              directory.id, folder.name, folder.persistentPath,
+              path: folder.displayPath));
         }
       } catch (_) {
         // Keep the saved token so the user can retry restoring access.
@@ -479,8 +480,9 @@ class MainPageState extends State<MainPage> {
       final id = _folderHistoryKey(result);
       _folderIds[folder] = id;
       _openedFolders[id] = folder;
-      await _storage.rememberDirectory(
-          GameDirectory(id, folder.name, folder.persistentPath));
+      await _storage.rememberDirectory(GameDirectory(
+          id, folder.name, folder.persistentPath,
+          path: folder.displayPath));
       await _storage.setSetting(_lastDiscDirKey, id);
       return result;
     } finally {
@@ -636,7 +638,7 @@ class MainPageState extends State<MainPage> {
                         const PopupMenuDivider(),
                       for (final directory in _storage.gameDirectories)
                         PopupMenuItem(
-                            value: directory.id, child: Text(directory.name)),
+                            value: directory.id, child: Text(directory.path)),
                     ],
                   ),
 

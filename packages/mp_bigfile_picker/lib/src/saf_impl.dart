@@ -88,6 +88,13 @@ class SafDirectory extends PickedDirectory {
   @override
   String? get restoreKey => treeUri;
 
+  /// the path in the tree uri, such as "primary:Games/cd"
+  @override
+  String get displayPath {
+    final segments = Uri.parse(treeUri).pathSegments;
+    return segments.isEmpty ? name : segments.last;
+  }
+
   // the document uri of each path found by [walk]
   final _uris = <String, String>{};
 

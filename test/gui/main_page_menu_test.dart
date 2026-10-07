@@ -108,10 +108,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Rescan'), findsNothing);
     expect(find.textContaining('Games in'), findsNothing);
-    final directoryName = temp.path.split('/').last;
-    expect(find.text(directoryName), findsOneWidget);
+    // a remembered directory is shown by its absolute path
+    expect(find.text(temp.path), findsOneWidget);
     await tester.runAsync(() async {
-      await tester.tap(find.text(directoryName));
+      await tester.tap(find.text(temp.path));
       await Future<void>.delayed(const Duration(milliseconds: 150));
     });
     await tester.pump();

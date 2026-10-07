@@ -45,6 +45,9 @@ class IoReadFile extends RandomReadFile {
 /// a local directory
 class IoDirectory extends PickedDirectory {
   final String root;
+
+  @override
+  String get displayPath => root;
   @override
   String get identityKey => root;
   @override

@@ -23,6 +23,10 @@ abstract class RandomReadFile {
 abstract class PickedDirectory {
   String get name;
 
+  /// the full path to show to the user, or [name] where the platform does
+  /// not give one (the web)
+  String get displayPath => name;
+
   /// a key to open the directory again after a restart by
   /// `restoreDirectory`, or null in browsers without persistent directory access.
   String? get restoreKey;

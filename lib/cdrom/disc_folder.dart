@@ -20,6 +20,9 @@ abstract class DiscFolder {
   /// cannot (the browser does not allow it)
   String? get persistentPath => null;
 
+  /// the full path to show to the user
+  String get displayPath => name;
+
   String? get identityKey => persistentPath;
 
   /// lists the files below the folder recursively
@@ -40,6 +43,9 @@ class PickedDiscFolder extends DiscFolder {
 
   @override
   String? get persistentPath => dir.restoreKey;
+
+  @override
+  String get displayPath => dir.displayPath;
 
   @override
   String? get identityKey => dir.identityKey;
