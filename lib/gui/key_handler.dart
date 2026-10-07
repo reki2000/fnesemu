@@ -4,12 +4,14 @@ import 'package:flutter/services.dart';
 // Project imports:
 import '../core/core_controller.dart';
 import '../core/pad_button.dart';
+import 'pad_input.dart';
 
 class KeyHandler {
   final CoreController controller;
+  final PadInput input;
   late Map<PhysicalKeyboardKey, PadButton?> _keys;
 
-  KeyHandler({required this.controller}) {
+  KeyHandler({required this.controller, required this.input}) {
     init();
   }
 
@@ -39,9 +41,9 @@ class KeyHandler {
 
     if (button != null) {
       if (e is KeyDownEvent) {
-        controller.padDown(0, button);
+        input.setSource(e.physicalKey, {button});
       } else if (e is KeyUpEvent) {
-        controller.padUp(0, button);
+        input.setSource(e.physicalKey, {});
       }
       return true;
     }

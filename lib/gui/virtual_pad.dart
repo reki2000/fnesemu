@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 // Project imports:
 import '../core/core_controller.dart';
 import '../core/pad_button.dart';
+import 'pad_input.dart';
 
-/// provides virtual pad buttons such as left, up, down, right, select, start, b and a.
-/// those buttons handle `tapDown` and tapUp` events
+/// Action buttons; directional input is provided by DirectionPad.
 class VirtualPadWidget extends StatelessWidget {
   final CoreController controller;
+  final PadInput input;
 
   /// the buttons are shrunk to be placed in a line within this width
   final double width;
@@ -16,6 +17,7 @@ class VirtualPadWidget extends StatelessWidget {
   const VirtualPadWidget({
     super.key,
     required this.controller,
+    required this.input,
     required this.width,
   });
 
@@ -31,9 +33,9 @@ class VirtualPadWidget extends StatelessWidget {
       return InkResponse(
           canRequestFocus: false,
           containedInkWell: false,
-          onTapDown: (_) => controller.padDown(0, button),
-          onTapUp: (_) => controller.padUp(0, button),
-          onTapCancel: () => controller.padUp(0, button),
+          onTapDown: (_) => input.setSource(button, {button}),
+          onTapUp: (_) => input.setSource(button, {}),
+          onTapCancel: () => input.setSource(button, {}),
           // leaves room for the key label at the top right
           child: Padding(
             padding: const EdgeInsets.only(top: 8, right: 6),
@@ -75,10 +77,6 @@ class VirtualPadWidget extends StatelessWidget {
         child: FittedBox(
             fit: BoxFit.scaleDown,
             child: Row(spacing: 8, children: [
-              button(PadButton.left, icon: Icons.arrow_back),
-              button(PadButton.up, icon: Icons.arrow_upward),
-              button(PadButton.down, icon: Icons.arrow_downward),
-              button(PadButton.right, icon: Icons.arrow_forward),
               if (controller.buttons.length > 4)
                 ...controller.buttons.sublist(4).asMap().entries.map((e) =>
                     button(e.value,

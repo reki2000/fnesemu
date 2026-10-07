@@ -1,81 +1,96 @@
-// Dart imports:
-
-// Flutter imports:
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:fnesemu/gui/ticker_image.dart';
 
 import '../core/core_controller.dart';
-import 'config.dart';
+import 'direction_pad.dart';
+import 'pad_input.dart';
+import 'ticker_image.dart';
 import 'virtual_pad.dart';
 
 class CoreView extends StatefulWidget {
   final CoreController controller;
   final ImageContainer container;
+  final PadInput? input;
 
   const CoreView(
-      {super.key, required this.controller, required this.container});
+      {super.key,
+      required this.controller,
+      required this.container,
+      this.input});
 
   @override
   State<CoreView> createState() => _CoreViewState();
 }
 
 class _CoreViewState extends State<CoreView> {
-  static final config = Config();
-
-  @override
-  void initState() {
-    super.initState();
-  }
+  late final PadInput _input = widget.input ??
+      PadInput(
+          onDown: (button) => widget.controller.padDown(0, button),
+          onUp: (button) => widget.controller.padUp(0, button));
 
   @override
   void dispose() {
+    if (widget.input == null) _input.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: LayoutBuilder(builder: (context, constraints) {
-        final availableWidth = constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : config.screenWidth;
-        final availableHeight = constraints.maxHeight.isFinite
-            ? constraints.maxHeight
-            : config.screenWidth + 56;
-        final padHeight = math.min(56.0, availableHeight);
-        return Column(
-          children: [
-            Expanded(
-                child: Center(
-                    child: ListenableBuilder(
-                        listenable: Listenable.merge([
-                          widget.container.displayWidthNotifier,
-                          widget.container.displayHeightNotifier,
-                        ]),
-                        builder: (context, child) {
-                          final aspect =
-                              widget.container.displayWidthNotifier.value /
-                                  widget.container.displayHeightNotifier.value;
-                          final width = math.min(
-                              availableWidth,
-                              math.max(0.0, availableHeight - padHeight) *
-                                  aspect);
-                          return imageListener(
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: LayoutBuilder(builder: (context, constraints) {
+          final portrait = constraints.maxHeight > constraints.maxWidth;
+          const inset = 12.0;
+          const directionSpace = DirectionPad.diameter + inset * 2;
+          const actionSpace = 56.0;
+          return Stack(children: [
+            Positioned.fill(
+              left:
+                  portrait ? 0 : math.min(directionSpace, constraints.maxWidth),
+              bottom: math.min(portrait ? directionSpace : actionSpace,
+                  constraints.maxHeight),
+              child: LayoutBuilder(
+                  builder: (context, gameConstraints) => Center(
+                        child: ListenableBuilder(
+                          listenable: Listenable.merge([
+                            widget.container.displayWidthNotifier,
+                            widget.container.displayHeightNotifier,
+                          ]),
+                          builder: (context, _) {
+                            final aspect = widget
+                                    .container.displayWidthNotifier.value /
+                                widget.container.displayHeightNotifier.value;
+                            final width = math.min(gameConstraints.maxWidth,
+                                gameConstraints.maxHeight * aspect);
+                            return SizedBox(
+                              key: const ValueKey('game-viewport'),
                               width: width,
                               height: width / aspect,
-                              notifier: widget.container.imageNotifier);
-                        }))),
-
-            // virtual pad
-            SizedBox(
-                height: padHeight,
-                child: VirtualPadWidget(
-                    controller: widget.controller, width: availableWidth)),
-          ],
-        );
-      }),
-    );
-  }
+                              child: imageListener(
+                                  width: width,
+                                  height: width / aspect,
+                                  notifier: widget.container.imageNotifier),
+                            );
+                          },
+                        ),
+                      )),
+            ),
+            Positioned(
+                left: inset, bottom: inset, child: DirectionPad(input: _input)),
+            Positioned(
+                left: math.min(directionSpace, constraints.maxWidth),
+                right: 0,
+                bottom: 0,
+                height: portrait ? directionSpace : actionSpace,
+                child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: SizedBox(
+                        height: actionSpace,
+                        child: VirtualPadWidget(
+                            controller: widget.controller,
+                            input: _input,
+                            width: math.max(
+                                0, constraints.maxWidth - directionSpace))))),
+          ]);
+        }),
+      );
 }

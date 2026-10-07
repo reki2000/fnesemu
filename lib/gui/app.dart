@@ -20,6 +20,7 @@ import 'floating_game_menu.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
 import 'key_handler.dart';
+import 'pad_input.dart';
 import 'sound_player.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
@@ -96,6 +97,8 @@ class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
   final _imageContainer = ImageContainer();
   late final KeyHandler _keyHandler;
+  late final PadInput _padInput;
+  late final AppLifecycleListener _inputLifecycle;
   late final CoreController _controller;
   late final Storage _storage;
 
@@ -136,7 +139,15 @@ class MainPageState extends State<MainPage> {
 
     _controller.debugger.opt.showDebugView = widget.config.debug;
 
-    _keyHandler = KeyHandler(controller: _controller);
+    _padInput = PadInput(
+        onDown: (button) => _controller.padDown(0, button),
+        onUp: (button) => _controller.padUp(0, button))
+      ..enabled = false;
+    _keyHandler = KeyHandler(controller: _controller, input: _padInput);
+    _inputLifecycle = AppLifecycleListener(
+        onInactive: _padInput.clear,
+        onHide: _padInput.clear,
+        onPause: _padInput.clear);
 
     _restoreDiscFolder();
 
@@ -147,6 +158,9 @@ class MainPageState extends State<MainPage> {
   void dispose() {
     unawaited(_controller.stop());
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
+    _inputLifecycle.dispose();
+    _padInput.clear();
+    _padInput.dispose();
     _mPlayer.dispose();
     _storage.dispose();
     super.dispose();
@@ -166,11 +180,14 @@ class MainPageState extends State<MainPage> {
   }
 
   void _disableKeyHandler() {
+    _padInput.enabled = false;
+    _padInput.clear();
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
   }
 
   void _enableKeyHandler() {
     _disableKeyHandler();
+    _padInput.enabled = true;
     ServicesBinding.instance.keyboard.addHandler(_keyHandler.handle);
   }
 
@@ -192,9 +209,6 @@ class MainPageState extends State<MainPage> {
       _menuTransition = true;
     });
     _disableKeyHandler();
-    for (final button in _controller.buttons) {
-      _controller.padUp(0, button);
-    }
     try {
       await _stop();
     } finally {
@@ -560,7 +574,9 @@ class MainPageState extends State<MainPage> {
             child: Column(children: [
               Expanded(
                   child: CoreView(
-                      controller: _controller, container: _imageContainer)),
+                      controller: _controller,
+                      container: _imageContainer,
+                      input: _padInput)),
               if (_debugging) ...[
                 SizedBox(
                   height: 100,

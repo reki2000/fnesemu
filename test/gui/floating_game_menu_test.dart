@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/core/core_controller.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/gui/core_view.dart';
+import 'package:fnesemu/gui/direction_pad.dart';
 import 'package:fnesemu/gui/floating_game_menu.dart';
 import 'package:fnesemu/gui/ticker_image.dart';
 
@@ -203,7 +204,14 @@ void main() {
           child: CoreView(controller: controller, container: ImageContainer()),
         ),
       ))));
-      final rect = tester.getRect(find.byType(CustomPaint).first);
+      final rect = tester.getRect(find.byKey(const ValueKey('game-viewport')));
+      final pad = tester.getRect(find.byType(DirectionPad));
+      expect(pad.size, const Size(160, 160));
+      if (size.height > size.width) {
+        expect(pad.top, greaterThanOrEqualTo(rect.bottom));
+      } else {
+        expect(pad.right, lessThanOrEqualTo(rect.left));
+      }
       expect(rect.width, lessThanOrEqualTo(size.width));
       expect(rect.bottom, lessThanOrEqualTo(size.height));
       final fpsRect = tester.getRect(find.text('60.0 fps'));
@@ -212,7 +220,7 @@ void main() {
       if (size.width > 640) expect(rect.width, greaterThan(640));
       await tester.tap(find.byKey(const ValueKey('game-menu-toggle')));
       await tester.pump();
-      expect(tester.getRect(find.byType(CustomPaint).first), rect);
+      expect(tester.getRect(find.byKey(const ValueKey('game-viewport'))), rect);
       expect(tester.getRect(find.text('60.0 fps')), fpsRect);
       final toolbarRect = tester.getRect(find.byType(Wrap));
       expect(toolbarRect.right, lessThan(fpsRect.left));
@@ -220,7 +228,9 @@ void main() {
 
       tester.view.physicalSize = size * 1.5;
       await tester.pump();
-      final enlarged = tester.getRect(find.byType(CustomPaint).first);
+      final enlarged =
+          tester.getRect(find.byKey(const ValueKey('game-viewport')));
+      expect(tester.getSize(find.byType(DirectionPad)), pad.size);
       expect(enlarged.width, greaterThan(rect.width));
       expect(enlarged.height, greaterThan(rect.height));
       expect(enlarged.width / enlarged.height,
