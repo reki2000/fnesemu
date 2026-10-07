@@ -133,7 +133,9 @@ class MainPageState extends State<MainPage> {
 
     _mPlayer = widget.soundPlayer ?? SoundPlayer();
 
-    _storage = widget.storage..onEvent = AppSnackBar.show;
+    _storage = widget.storage
+      ..onEvent = AppSnackBar.show
+      ..onSramSaved = _showSramSaved;
 
     _controller = CoreController(
         _onCoreStateChange,
@@ -167,6 +169,8 @@ class MainPageState extends State<MainPage> {
     _inputLifecycle.dispose();
     _padInput.clear();
     _padInput.dispose();
+    _sramSavedTimer?.cancel();
+    _sramSaved.dispose();
     _mPlayer.dispose();
     _storage.dispose();
     super.dispose();
@@ -696,21 +700,51 @@ class MainPageState extends State<MainPage> {
         ],
       );
 
-  Widget _fpsIndicator() => StreamBuilder<double>(
-        stream: _controller.fpsStream,
-        builder: (context, snapshot) => DecoratedBox(
-          key: const ValueKey('fps-indicator'),
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Text('${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps',
-                style: const TextStyle(color: Colors.white)),
-          ),
+  // true for a moment when the sram is saved
+  final _sramSaved = ValueNotifier<bool>(false);
+  Timer? _sramSavedTimer;
+
+  void _showSramSaved() {
+    _sramSaved.value = true;
+    _sramSavedTimer?.cancel();
+    _sramSavedTimer = Timer(const Duration(milliseconds: 1500),
+        () => _sramSaved.value = false);
+  }
+
+  // the same look as the fps indicator
+  static Widget _badge(Widget child, {Key? key}) => DecoratedBox(
+        key: key,
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: child,
         ),
       );
+
+  Widget _fpsIndicator() => Row(mainAxisSize: MainAxisSize.min, children: [
+        // shown for a moment when the sram is saved
+        ValueListenableBuilder<bool>(
+          valueListenable: _sramSaved,
+          builder: (context, lit, _) => AnimatedOpacity(
+            opacity: lit ? 1 : 0,
+            duration: const Duration(milliseconds: 300),
+            child: _badge(
+                const Text('saved', style: TextStyle(color: Colors.white)),
+                key: const ValueKey('sram-saved')),
+          ),
+        ),
+        const SizedBox(width: 6),
+        StreamBuilder<double>(
+          stream: _controller.fpsStream,
+          builder: (context, snapshot) => _badge(
+              Text('${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps',
+                  style: const TextStyle(color: Colors.white)),
+              key: const ValueKey('fps-indicator')),
+        ),
+      ]);
 
   Widget _gameContent() => LayoutBuilder(builder: (context, constraints) {
         final wideDebug = _debugging && constraints.maxWidth >= 1000;

@@ -36,11 +36,20 @@ void main() {
 
     final s1 =
         await Storage.open(store: await BlobStore.open(factory: factory));
+    var saved = 0;
+    final events = <String>[];
+    s1.onSramSaved = () => saved++;
+    s1.onEvent = events.add;
     s1.init("nes/sram/x", Uint8List(4));
     s1.write8(1, 0x55);
     s1.saveIfDirty();
     s1.dispose();
-    await Future.delayed(Duration.zero);
+    for (var i = 0; i < 100 && saved == 0; i++) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+    // a save is shown as a badge, not as a message
+    expect(saved, 1);
+    expect(events, isEmpty);
 
     final s2 =
         await Storage.open(store: await BlobStore.open(factory: factory));

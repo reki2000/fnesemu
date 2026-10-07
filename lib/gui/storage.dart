@@ -19,6 +19,9 @@ class Storage extends Sram {
 
   Function(String) onEvent = (String s) {};
 
+  /// called when the sram is written to the persistent store
+  void Function() onSramSaved = () {};
+
   Timer? _worker;
 
   final BlobStore? _store;
@@ -243,13 +246,7 @@ class Storage extends Sram {
     saveIfDirty();
 
     final saved = _cache[id];
-    if (saved == null) {
-      super.init(id, initialData);
-      onEvent("loading $id: not found. use initial data");
-    } else {
-      super.init(id, saved);
-      onEvent("successfully loaded $id");
-    }
+    super.init(id, saved ?? initialData);
   }
 
   @override
@@ -279,7 +276,7 @@ class Storage extends Sram {
 
     store
         .put(key, bytes)
-        .then((_) => onEvent("saved $key size:${bytes.length}"))
+        .then((_) => onSramSaved())
         .catchError((e) => onEvent("failed to save $key: $e"));
   }
 }
