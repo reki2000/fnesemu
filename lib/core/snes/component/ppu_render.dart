@@ -381,8 +381,9 @@ extension PpuRenderer on Ppu {
   /// combines window1/window2 for one layer's 4-bit select field
   /// [invert2,enable2,invert1,enable1] and 2-bit OR/AND/XOR/XNOR logic.
   bool _layerInsideWindow(int wsel4, int logic2, int x) {
-    final en1 = wsel4.bit0, inv1 = wsel4.bit1;
-    final en2 = wsel4.bit2, inv2 = wsel4.bit3;
+    // per window: the lower bit inverts the area, the upper bit enables it
+    final inv1 = wsel4.bit0, en1 = wsel4.bit1;
+    final inv2 = wsel4.bit2, en2 = wsel4.bit3;
     if (!en1 && !en2) return false;
     final a = en1 ? (_inWindow1(x) != inv1) : false;
     final b = en2 ? (_inWindow2(x) != inv2) : false;
