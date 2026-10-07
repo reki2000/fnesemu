@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 // Replace the platform picker used internally by mp_bigfile_picker.
 // ignore: depend_on_referenced_packages
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker_platform_interface/file_picker_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
@@ -17,13 +17,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'sound_player_test.dart' show FakeAudioStream;
 
-class TestFilePicker extends FilePicker {
+class TestFilePicker extends FilePickerPlatform {
   Future<String?> Function()? select;
   @override
   Future<String?> getDirectoryPath(
           {String? dialogTitle,
-          bool lockParentWindow = false,
-          String? initialDirectory}) =>
+          String? initialDirectory,
+          AndroidOptions androidOptions = const AndroidOptions(),
+          WindowsOptions windowsOptions = const WindowsOptions(),
+          LinuxOptions linuxOptions = const LinuxOptions(),
+          WebOptions webOptions = const WebOptions()}) =>
       select!();
 }
 
@@ -43,7 +46,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     final picker = TestFilePicker();
-    FilePicker.platform = picker;
+    FilePickerPlatform.instance = picker;
     late Directory temp;
     late Storage storage;
     await tester.runAsync(() async {

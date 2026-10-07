@@ -14,8 +14,7 @@ Future<PickedDirectory?> pickDirectory({String? dialogTitle}) async {
   if (Platform.isAndroid) return pickSafDirectory();
   if (_isDarwin) return pickDarwinDirectory(dialogTitle: dialogTitle);
 
-  final path =
-      await FilePicker.platform.getDirectoryPath(dialogTitle: dialogTitle);
+  final path = await FilePicker.getDirectoryPath(dialogTitle: dialogTitle);
   return path == null ? null : IoDirectory(path);
 }
 
@@ -41,12 +40,20 @@ Future<List<RandomReadFile>?> pickFiles(
         extensions: extensions, multiple: multiple, dialogTitle: dialogTitle);
   }
 
-  final picked = await FilePicker.platform.pickFiles(
-      dialogTitle: dialogTitle,
-      type: extensions == null ? FileType.any : FileType.custom,
-      allowedExtensions: extensions,
-      allowMultiple: multiple);
-  return picked?.files
+  final type = extensions == null ? FileType.any : FileType.custom;
+  final picked = multiple
+      ? await FilePicker.pickFiles(
+          dialogTitle: dialogTitle, type: type, allowedExtensions: extensions)
+      : [
+          if (await FilePicker.pickFile(
+                  dialogTitle: dialogTitle,
+                  type: type,
+                  allowedExtensions: extensions)
+              case final file?)
+            file
+        ];
+  if (picked.isEmpty) return null;
+  return picked
       .map((f) => f.path)
       .whereType<String>()
       .map((path) => IoReadFile(path, restoreKey: path))

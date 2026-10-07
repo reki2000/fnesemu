@@ -13,7 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   ffi: ^2.1.0
-  file_picker: ^9.0.0
+  file_picker: ^13.1.0
   web: ^1.1.1
 
 dev_dependencies:
