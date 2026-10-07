@@ -7,8 +7,8 @@ import '../../pad_button.dart';
 class SnesPad {
   static const _b = PadButton("B");
   static const _y = PadButton("Y");
-  static const _select = PadButton("Sel");
-  static const _start = PadButton("Sta");
+  static const _select = PadButton("Select");
+  static const _start = PadButton("Start");
   static const _a = PadButton("A");
   static const _x = PadButton("X");
   static const _l = PadButton("L");
@@ -19,14 +19,17 @@ class SnesPad {
     PadButton.down,
     PadButton.left,
     PadButton.right,
-    _a,
-    _b,
-    _x,
+    // in the order of the keys A S Z X C Q W E R D
     _y,
-    _l,
-    _r,
-    _start,
+    _b,
     _select,
+    PadButton.none,
+    _start,
+    _l,
+    _x,
+    _r,
+    PadButton.none,
+    _a,
   ];
 
   static const _bit = {

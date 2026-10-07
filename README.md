@@ -36,18 +36,17 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-| key | Z | X | C | A | S | Q | W | E | R | D | UP | DOWN | LEFT | RIGHT |
-|-----|---|---|---|---|---|---|---|---|---|---|----|-----|------|------|
-| NES | B | A | | select | start | | | | | | UP | DOWN | LEFT | RIGHT |
-| PCE | II | I | | select | run | | |  | | | UP | DOWN | LEFT | RIGHT |
-| MD  | A | B | C | | start | X | Y | Z | | | UP | DOWN | LEFT | RIGHT |
-| PS1 | # | x | o | select | ^ | L | start | R | | | UP | DOWN | LEFT | RIGHT |
-| GB  | B | A | | select | start | | | | | | UP | DOWN | LEFT | RIGHT |
-| GBA | A | B | L | select | start | R | | | | | UP | DOWN | LEFT | RIGHT |
-| SS  | A | B | C | L | start | X | Y | Z | R | | UP | DOWN | LEFT | RIGHT |
-| N64 | B | A | Z | C-left | C-down | L | C-up | R | start | C-right | UP | DOWN | LEFT | RIGHT |
-
-SS also assigns `R` to its R button (the table has no column for it).
+| key | Z | X | C | A | S | Q | W | E | R | D | arrows |
+|-----|---|---|---|---|---|---|---|---|---|---|--------|
+| NES | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
+| PCE | II | I |  | Select | Run |  |  |  |  |  | up / down / left / right |
+| MD | A | B | C | X | Y | Mode | | Start |  | Z | up / down / left / right |
+| PS1 | # | x | o | Select | ^ | L1 | Start | R1 |  |  | up / down / left / right |
+| GB | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
+| GBA | A | B | L | Select | Start | R |  |  |  |  | up / down / left / right |
+| SNES | Select |  | Start | Y | B | L | X | R |  | A | up / down / left / right |
+| SS | A | B | C | L | Start | X | Y | Z | R |  | up / down / left / right |
+| N64 | B | A | Z | C-left | C-down | L | C-up | R | Start | C-right | up / down / left / right |
 
 ## How to build and run on local machine
 

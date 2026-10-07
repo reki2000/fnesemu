@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/core_controller.dart';
+import '../core/pad_button.dart';
 import 'pad_input.dart';
 
 /// Floating action keys in the same staggered rows as a physical keyboard.
@@ -19,7 +20,7 @@ class VirtualPadWidget extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     Widget key(String letter) {
       final index = keys.indexOf(letter);
-      if (index >= buttons.length) {
+      if (index >= buttons.length || buttons[index] == PadButton.none) {
         return const SizedBox(width: keyWidth, height: 44);
       }
       final button = buttons[index];

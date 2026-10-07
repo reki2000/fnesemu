@@ -16,8 +16,12 @@ class KeyHandler {
   }
 
   init() {
-    maybeButton(int no) =>
-        controller.buttons.length - 1 >= no ? controller.buttons[no] : null;
+    PadButton? maybeButton(int no) {
+      if (no >= controller.buttons.length) return null;
+      final button = controller.buttons[no];
+      return button == PadButton.none ? null : button;
+    }
+
     _keys = {
       PhysicalKeyboardKey.arrowDown: PadButton.down,
       PhysicalKeyboardKey.arrowUp: PadButton.up,

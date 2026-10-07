@@ -10,8 +10,8 @@ class Joypad {
     PadButton.right,
     PadButton.up,
     PadButton.down,
-    const PadButton("Sel"),
-    const PadButton("Sta"),
+    const PadButton("Select"),
+    const PadButton("Start"),
     const PadButton("B"),
     const PadButton("A"),
   ];

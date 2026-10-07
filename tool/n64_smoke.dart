@@ -36,10 +36,10 @@ void main(List<String> args) {
   var nextReport = core.systemClockHz;
   var phase = 0;
   final defaultTimeline = <(double, String, bool)>[
-    (6, 'start', true),
-    (6.2, 'start', false),
-    (8, 'start', true),
-    (8.2, 'start', false),
+    (6, 'Start', true),
+    (6.2, 'Start', false),
+    (8, 'Start', true),
+    (8.2, 'Start', false),
     (11, 'A', true),
     (11.2, 'A', false),
     for (final second in [60, 62, 64, 66, 68, 72, 75, 78, 81]) ...[

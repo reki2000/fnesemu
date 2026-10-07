@@ -9,7 +9,7 @@ class Pad {
     PadButton.down, // 1
     PadButton.left, // 2
     PadButton.right, // 3
-    const PadButton("Sel"), // 4
+    const PadButton("Select"), // 4
     const PadButton("Run"), // 5
     const PadButton("II"), // 6
     const PadButton("I"), // 7

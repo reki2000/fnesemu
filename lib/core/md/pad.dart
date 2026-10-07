@@ -9,36 +9,64 @@ class Pad {
 
   Pad() {
     isPressed = List.generate(
-        controllerNum, (_) => {for (var e in buttons) e.name: false});
+        controllerNum, (_) => {for (var e in _hw) e.name: false});
   }
 
   void keyDown(int id, PadButton d) {
-    if (0 <= id && id < controllerNum) {
+    if (0 <= id && id < controllerNum && d != PadButton.none) {
       isPressed[id][d.name] = true;
     }
     // print("kwydown pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
   void keyUp(int id, PadButton d) {
-    if (0 <= id && id < controllerNum) {
+    if (0 <= id && id < controllerNum && d != PadButton.none) {
       isPressed[id][d.name] = false;
     }
     // print("keyup pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
-  List<PadButton> get buttons => [
+  static const _mode = PadButton("Mode");
+  static const _start = PadButton("Start");
+  static const _a = PadButton("A");
+  static const _b = PadButton("B");
+  static const _c = PadButton("C");
+  static const _x = PadButton("X");
+  static const _y = PadButton("Y");
+  static const _z = PadButton("Z");
+
+  /// the buttons in the order of buttonIndice
+  static const _hw = [
+    PadButton.up,
+    PadButton.down,
+    PadButton.left,
+    PadButton.right,
+    _mode, // 4
+    _start, // 5
+    _a, // 6
+    _b, // 7
+    _c, // 8
+    _x, // 9
+    _y, // 10
+    _z, // 11
+  ];
+
+  /// the buttons in the order of the keys A S Z X C Q W E R D
+  List<PadButton> get buttons => const [
         PadButton.up,
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        const PadButton("Mod"), // 4
-        const PadButton("Start"), // 5
-        const PadButton("A"), // 6
-        const PadButton("B"), // 7
-        const PadButton("C"), // 8
-        const PadButton("X"), // 9
-        const PadButton("Y"), // 10
-        const PadButton("Z"), // 11
+        _x,
+        _y,
+        _a,
+        _b,
+        _c,
+        _mode,
+        PadButton.none,
+        _start,
+        PadButton.none,
+        _z,
       ];
 
   static const buttonIndice = [
@@ -56,7 +84,7 @@ class Pad {
   List<bool> th = [false, false, false];
 
   int buttonValue(int id, int index, int bit) =>
-      !isPressed[id][buttons[index].name]! ? bit : 0;
+      !isPressed[id][_hw[index].name]! ? bit : 0;
 
   void writeData(int id, int val) {
     if (th[id] != val.bit6) {
@@ -76,7 +104,7 @@ class Pad {
             prev.shl1 |
             (idx == -2
                 ? 0
-                : (idx == -1 || !isPressed[id][buttons[idx].name]!)
+                : (idx == -1 || !isPressed[id][_hw[idx].name]!)
                     ? 1
                     : 0));
     // print(

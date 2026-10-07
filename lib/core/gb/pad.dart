@@ -5,8 +5,8 @@ import 'bus.dart';
 class Pad {
   final Bus _bus;
 
-  static const select = PadButton("Sel");
-  static const start = PadButton("Sta");
+  static const select = PadButton("Select");
+  static const start = PadButton("Start");
   static const b = PadButton("B");
   static const a = PadButton("A");
 
@@ -45,8 +45,8 @@ class Pad {
   static int _actBit(PadButton k) => switch (k.name) {
         "A" => 0x01,
         "B" => 0x02,
-        "Sel" => 0x04,
-        "Sta" => 0x08,
+        "Select" => 0x04,
+        "Start" => 0x08,
         _ => 0,
       };
 

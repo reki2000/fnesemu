@@ -168,7 +168,7 @@ class N64 extends Core implements FrameRunner {
         const PadButton('L'), // keyQ
         const PadButton('C-up'), // keyW
         const PadButton('R'), // keyE
-        const PadButton('start'), // keyR
+        const PadButton('Start'), // keyR
         const PadButton('C-right') // keyD
       ];
   @override
