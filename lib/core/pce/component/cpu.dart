@@ -206,7 +206,10 @@ class Cpu {
     push(pushAddr.shr8);
     push(pushAddr & 0xff);
     push(regs.p);
-    regs.p = (regs.p & ~Flags.B) | (brk ? Flags.B : 0) | Flags.I;
+    // the handler starts in binary mode, and a SET just before does not
+    // apply to its first instruction
+    regs.p = (regs.p & ~(Flags.B | Flags.D)) | (brk ? Flags.B : 0) | Flags.I;
+    tFlagOn = false;
 
     final addr = irq2
         ? 0xfff6

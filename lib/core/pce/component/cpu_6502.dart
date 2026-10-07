@@ -143,11 +143,14 @@ extension Cpu6502 on Cpu {
         int c = a + (carry() + b);
 
         if (isDecimal()) {
-          final carry = (c >= 100) ? Flags.C : 0;
-          c %= 100;
-          c = (c % 10) | (c ~/ 10).shl4;
+          // add the bcd digits, carrying from the low digit to the high one
+          var lo = (a & 0x0f) + (b & 0x0f) + carry();
+          if (lo > 0x09) lo += 0x06;
+          c = (a & 0xf0) + (b & 0xf0) + (lo > 0x0f ? 0x10 : 0) + (lo & 0x0f);
+          if (c > 0x9f) c += 0x60;
+          regs.p = (regs.p & ~Flags.C) | (c > 0xff ? Flags.C : 0);
+          c &= 0xff;
           flagsNZ(c);
-          regs.p = (regs.p & ~Flags.C) | carry;
         } else {
           flagsV(a, b, c, sub: false);
           c &= 0xff;
@@ -178,11 +181,18 @@ extension Cpu6502 on Cpu {
         int c = a - ((carry() ^ 0x01) + b);
 
         if (isDecimal()) {
-          final carry = (0 <= c && c < 100) ? Flags.C : 0;
-          c %= 100;
-          c = (c % 10) | (c ~/ 10).shl4;
+          // subtract the bcd digits, borrowing from the high digit
+          final borrow = carry() ^ 0x01;
+          var lo = (a & 0x0f) - (b & 0x0f) - borrow;
+          var hi = (a & 0xf0) - (b & 0xf0);
+          if (lo < 0) {
+            lo -= 0x06;
+            hi -= 0x10;
+          }
+          if (hi < 0) hi -= 0x60;
+          regs.p = (regs.p & ~Flags.C) | (c >= 0 ? Flags.C : 0);
+          c = (hi & 0xf0) | (lo & 0x0f);
           flagsNZ(c);
-          regs.p = (regs.p & ~Flags.C) | carry;
         } else {
           flagsV(a, b, c, sub: true);
           c &= 0xff;
