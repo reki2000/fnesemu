@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import '../../disc.dart';
 import '../../sram.dart';
-import '../bus_m68.dart';
-import '../m68/m68.dart';
+import '../../components/m68k/bus.dart';
+import '../../components/m68k/cpu.dart';
 import 'cdc.dart';
 import 'cdd.dart';
 import 'pcm.dart';
@@ -40,7 +40,6 @@ class MdCdrom {
     bios.setAll(0, body);
     bus = CdSubBus(this);
     cpu = M68(bus);
-    bus.cpu = cpu;
     cdc = CdCdc(() => interrupt(5), _dmaWrite);
     drive = CdDrive(cdc.decode, () => interrupt(4));
     graphics = CdGraphics(wordRam, registers, () => interrupt(1));
@@ -398,7 +397,7 @@ class MdCdrom {
   }
 }
 
-class CdSubBus extends BusM68 {
+class CdSubBus implements M68Bus {
   final MdCdrom cd;
   CdSubBus(this.cd);
   @override

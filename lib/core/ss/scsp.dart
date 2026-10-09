@@ -3,16 +3,13 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
-import '../md/bus_m68.dart';
-import '../md/m68/m68.dart';
+import '../components/m68k/bus.dart';
+import '../components/m68k/cpu.dart';
 
 /// 68000 bus of the sound subsystem
-class ScspBus extends BusM68 {
+class ScspBus implements M68Bus {
   final Scsp scsp;
   ScspBus(this.scsp);
-
-  @override
-  void onReset() => cpu.reset();
 
   @override
   int read8(int addr) {
@@ -103,7 +100,6 @@ class Scsp {
   Scsp() {
     bus = ScspBus(this);
     cpu = M68(bus);
-    bus.cpu = cpu;
     _buildTables();
   }
 
@@ -490,7 +486,9 @@ class Scsp {
       }
 
       if (sbctl != 0) {
-        smp = ((smp & 0xffff) ^ (sbctl.bit0 ? 0x7fff : 0) ^ (sbctl.bit1 ? 0x8000 : 0))
+        smp = ((smp & 0xffff) ^
+                (sbctl.bit0 ? 0x7fff : 0) ^
+                (sbctl.bit1 ? 0x8000 : 0))
             .rel16;
       }
 

@@ -2,7 +2,8 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
 
-import 'm68/m68.dart';
+import '../components/m68k/bus.dart';
+import '../components/m68k/cpu.dart';
 import 'cd/md_cdrom.dart';
 import 'bus_z80.dart';
 import 'pad.dart';
@@ -11,7 +12,7 @@ import 'ym2612.dart';
 import 'rom.dart';
 import 'vdp.dart';
 
-class BusM68 {
+class BusM68 implements M68Bus {
   BusM68({Uint8List? ram, Pad? pad, Rom? rom})
       : ram = ram ?? Uint8List(0x10000),
         pad = pad ?? Pad(),
@@ -38,6 +39,7 @@ class BusM68 {
 
   final Uint8List ram;
 
+  @override
   int read8(int addr) {
     if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain8(addr);
     final top = addr.shr16 & 0xff;
@@ -86,6 +88,7 @@ class BusM68 {
     return 0xff;
   }
 
+  @override
   int read16(int addr) {
     if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain16(addr);
     final top = addr.shr16 & 0xff;
@@ -127,7 +130,8 @@ class BusM68 {
     return 0xff;
   }
 
-  write8(int addr, int data) {
+  @override
+  void write8(int addr, int data) {
     if (cdrom?.mapsMain(addr) ?? false) {
       cdrom!.writeMain8(addr, data);
       return;
@@ -176,11 +180,12 @@ class BusM68 {
         rom.ram[ramOffset.mask16] = data;
       }
 
-      return 0x00;
+      return;
     }
   }
 
-  write16(int addr, int data) {
+  @override
+  void write16(int addr, int data) {
     if (cdrom?.mapsMain(addr) ?? false) {
       cdrom!.writeMain8(addr, data >> 8);
       cdrom!.writeMain8(addr + 1, data & 0xff);
@@ -224,7 +229,7 @@ class BusM68 {
         rom.ram[ramOffset.inc.mask16] = data;
       }
 
-      return 0x00;
+      return;
     }
   }
 

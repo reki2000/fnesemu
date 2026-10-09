@@ -5,7 +5,7 @@ test-z80:
 	dart run lib/core/md/z80/z80_test.dart assets/tests.in assets/tests.expected
 
 test-m68:
-	dart run lib/core/md/m68/m68_test.dart
+	dart run lib/tools/m68_test.dart
 
 test-r3000:
 	dart run lib/core/ps1/r3000/r3000_test.dart

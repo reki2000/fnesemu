@@ -1,4 +1,4 @@
-part of 'm68.dart';
+part of 'cpu.dart';
 
 extension Op4 on M68 {
   bool exec4(int op) {

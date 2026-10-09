@@ -1,4 +1,4 @@
-part of 'm68.dart';
+part of 'cpu.dart';
 
 extension Alu on M68 {
   int add(int a, int b, int size, {bool useXf = false}) {
