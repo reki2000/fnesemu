@@ -111,6 +111,7 @@ class Snes implements Core, FrameRunner {
   int _advance() {
     if (!cpu.exec()) return _stepStopped;
     bus.sa1?.run(cpu.cycle);
+    bus.superFx?.run(cpu.cycle);
 
     apu.exec(cpu.cycle - _lastApuCycle, cpuClock);
     _lastApuCycle = cpu.cycle;

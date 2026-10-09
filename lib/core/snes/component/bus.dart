@@ -12,6 +12,7 @@ import 'pad.dart';
 import 'ppu.dart';
 import 'sa1.dart';
 import 'sdd1.dart';
+import 'superfx.dart';
 
 /// 24-bit address bus for the SNES.
 ///
@@ -35,6 +36,9 @@ class Bus implements CpuBus {
 
   /// the SA-1 chip of the cartridge, if any
   Sa1? sa1;
+
+  /// the Super FX chip of the cartridge, if any
+  SuperFx? superFx;
 
   // 128KB work ram ($7E0000-$7FFFFF, mirrored low 8KB in system area)
   final wram = Uint8List(0x20000);
@@ -61,6 +65,9 @@ class Bus implements CpuBus {
     mapping = file.mapping;
     sdd1 = file.hasSdd1 ? (Sdd1(rom)..reset()) : null;
     sa1 = file.hasSa1 ? Sa1(this, rom, file.sramSize) : null;
+    superFx = file.hasSuperFx
+        ? SuperFx(this, rom, file.sramSize == 0 ? 0x8000 : file.sramSize)
+        : null;
 
     // round rom size to power of two for cheap masking
     var size = 0x8000;
@@ -80,7 +87,9 @@ class Bus implements CpuBus {
 
   @override
   int readVector(int addr) =>
-      sa1?.mainVector(addr) ?? read(addr) | read(addr + 1).shl8;
+      sa1?.mainVector(addr) ??
+      superFx?.mainVector(addr) ??
+      read(addr) | read(addr + 1).shl8;
 
   // ------------------------------------------------------------------ read
   @override
@@ -97,6 +106,11 @@ class Bus implements CpuBus {
     final sa1 = this.sa1;
     if (sa1 != null) {
       final v = sa1.mainRead(addr);
+      if (v >= 0) return v;
+    }
+    final superFx = this.superFx;
+    if (superFx != null) {
+      final v = superFx.mainRead(addr);
       if (v >= 0) return v;
     }
 
@@ -159,6 +173,7 @@ class Bus implements CpuBus {
     }
 
     if (sa1?.mainWrite(addr, data) ?? false) return;
+    if (superFx?.mainWrite(addr, data) ?? false) return;
 
     if (bank.mask7 < 0x40) {
       if (page < 0x2000) {
@@ -309,6 +324,7 @@ class Bus implements CpuBus {
   void onReset() {
     sdd1?.reset();
     sa1?.reset();
+    superFx?.reset();
     _nmiEnabled = false;
     _nmiFlag = false;
     _irqFlag = false;

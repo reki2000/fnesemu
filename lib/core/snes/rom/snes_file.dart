@@ -27,6 +27,9 @@ class SnesFile {
   /// SA-1 (a second cpu, shared I-RAM and BW-RAM)
   bool get hasSa1 => romType >= 0x33 && romType <= 0x36;
 
+  /// Super FX (a risc cpu drawing into its own ram)
+  bool get hasSuperFx => romType >= 0x13 && romType <= 0x1a;
+
   void load(Uint8List body) {
     // strip 512-byte copier header if present
     final hasCopier = body.length.mask10 == 0x200;
