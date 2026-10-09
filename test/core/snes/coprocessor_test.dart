@@ -191,6 +191,18 @@ void main() {
       expect(line0, [128, 0, 0, 128]); // a ground pixel is half a dot
       expect(line1, [128, 0, 0, 128]);
     });
+
+    test('a write of \$8000 ends the raster command', () {
+      final bus = dspBus();
+      command(bus, 0x0a, [0]);
+      for (var i = 0; i < 3; i++) {
+        result(bus);
+      }
+      bus.write(0x6000, 0x00); // \$8000 in place of reading D
+      bus.write(0x6000, 0x80);
+      command(bus, 0x00, [0x4000, 0x4000]); // the next command runs
+      expect(result(bus), 0x2000);
+    });
   });
 
   group('S-DD1', () {

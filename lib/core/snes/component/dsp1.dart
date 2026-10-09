@@ -94,6 +94,17 @@ class Dsp1 {
       _state = _output.isEmpty ? _waitCommand : _writeOutput;
       return;
     }
+    if (_state == _writeOutput && _isRaster(_command)) {
+      // the raster command ends by a write of $8000 in place of a read
+      if (!_highByte) {
+        _lowByte = data;
+        _highByte = true;
+        return;
+      }
+      _highByte = false;
+      if ((_lowByte | data << 8) == 0x8000) _state = _waitCommand;
+      return;
+    }
     // a write while results are pending starts a new command
     _highByte = false;
     if (data & 0xc0 != 0) {
