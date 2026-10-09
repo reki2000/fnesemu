@@ -8,6 +8,7 @@ import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
+import 'constants.dart' as hardware;
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
@@ -34,16 +35,16 @@ class Pce implements Core, FrameRunner {
   late final Timer timer;
   late final Pic pic;
 
-  static const systemClockHz_ = 21477270; // 21.47727MHz
+  static const systemClockHz_ = hardware.systemClockHz;
 
   @override
   int get systemClockHz => systemClockHz_;
 
   @override
-  int get scanlinesInFrame => 263;
+  int get scanlinesInFrame => hardware.scanlinesInFrame;
 
   // computed once: the getter is used twice per instruction in exec()
-  static const int _clocksInScanline = systemClockHz_ ~/ 59.97 ~/ 263;
+  static const int _clocksInScanline = hardware.clocksInScanline;
 
   @override
   int get clocksInScanline => _clocksInScanline;

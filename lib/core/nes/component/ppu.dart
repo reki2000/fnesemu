@@ -4,7 +4,7 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../nes.dart';
+import '../constants.dart' as hardware;
 import '../mapper/mapper.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
@@ -238,7 +238,7 @@ class Ppu {
     palette[addr & 0x1f] = val;
   }
 
-  final buffer = Uint32List(Nes.imageWidth * Nes.imageHeight);
+  final buffer = Uint32List(hardware.imageWidth * hardware.imageHeight);
 
   void exec() {
     if (scanLine < 240) {
@@ -254,10 +254,10 @@ class Ppu {
       if (nmiOnVBlank() && isVBlank) {
         bus.onNmi();
       }
-    } else if (scanLine == Nes.scanlinesInFrame_ - 1) {
+    } else if (scanLine == hardware.scanlinesInFrame - 1) {
       detectObj0 = false;
       isVBlank = false;
-    } else if (scanLine == Nes.scanlinesInFrame_) {
+    } else if (scanLine == hardware.scanlinesInFrame) {
       scanLine = 0;
     }
 

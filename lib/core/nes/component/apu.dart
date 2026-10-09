@@ -4,7 +4,7 @@ import 'dart:developer';
 import 'dart:typed_data';
 
 // Project imports:
-import '../nes.dart';
+import '../constants.dart' as hardware;
 import 'bus.dart';
 import 'cpu.dart';
 
@@ -633,7 +633,7 @@ class Apu {
   // generates sound outout for 1 frame at one APU emulation
   // 29820 (cpu cycles @60Hz) / 2 (apu:cpu cycle ratio)
   static const _frameCycles =
-      Nes.scanlinesInFrame_ * Nes.cpuCyclesInScanline ~/ 2;
+      hardware.scanlinesInFrame * hardware.cpuCyclesInScanline ~/ 2;
 
   // output volume conversion table for pulse channles
   static final _pulseOutTable =

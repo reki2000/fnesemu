@@ -20,7 +20,8 @@ import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
-import 'mapper/mapper.dart';
+import 'mapper/mapper_factory.dart';
+import 'constants.dart' as hardware;
 import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
 import 'fds/fds_image.dart';
@@ -42,16 +43,16 @@ class Nes implements Core, FrameRunner {
   late final Cpu cpu;
   late final Bus bus;
 
-  static const cpuClock = 1789773;
+  static const cpuClock = hardware.cpuClock;
 
-  static const apuClock = cpuClock ~/ 2;
+  static const apuClock = hardware.apuClock;
 
-  static const scanlinesInFrame_ = 262;
+  static const scanlinesInFrame_ = hardware.scanlinesInFrame;
 
-  static const cpuCyclesInScanline = cpuClock / 59.97 ~/ scanlinesInFrame_;
+  static const cpuCyclesInScanline = hardware.cpuCyclesInScanline;
 
-  static const imageWidth = 256;
-  static const imageHeight = 240;
+  static const imageWidth = hardware.imageWidth;
+  static const imageHeight = hardware.imageHeight;
 
   @override
   int get scanlinesInFrame => scanlinesInFrame_;
@@ -272,7 +273,7 @@ class Nes implements Core, FrameRunner {
 
     bus.mirror(nesFile.mirrorVertical ? Mirror.vertical : Mirror.horizontal);
 
-    bus.mapper = Mapper.of(nesFile.mapper)
+    bus.mapper = MapperFactory.of(nesFile.mapper)
       ..setRom(Uint8ListEx.join(nesFile.character),
           Uint8ListEx.join(nesFile.program))
       ..mirror = bus.mirror

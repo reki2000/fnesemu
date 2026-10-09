@@ -1,7 +1,7 @@
 import 'package:fnesemu/util/int.dart';
 // Project imports:
 import '../mapper/mapper.dart';
-import '../nes.dart';
+import '../constants.dart' as hardware;
 import 'ppu.dart';
 
 class _BG {
@@ -262,7 +262,7 @@ extension PpuRenderer on Ppu {
     final bgVisible = showBg();
     final bgClipped = clipLeftEdgeBg();
     final spriteClipped = clipLeftEdgeSprite();
-    final row = scanLine * Nes.imageWidth;
+    final row = scanLine * hardware.imageWidth;
 
     final bgBase = bgTable() ? 0x1000 : 0x0000;
     final color0 = readVram(paletteBase);
