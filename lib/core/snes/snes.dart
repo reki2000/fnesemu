@@ -74,6 +74,7 @@ class Snes implements Core, FrameRunner {
   List<CpuInfo> get cpuInfos => [CpuInfo.ofM68(0, "65816")];
 
   int _scanline = 0;
+  int _frames = 0;
   int _nextScanlineCycle = 0;
   int _lastApuCycle = 0;
   int _nextAudioFlushCycle = 0;
@@ -144,6 +145,7 @@ class Snes implements Core, FrameRunner {
       } else if (_scanline >= scanlinesInFrame_) {
         _scanline = 0;
         bus.leaveVBlank();
+        if (++_frames % 60 == 0) bus.spc7110?.tickSecond();
       }
     }
 

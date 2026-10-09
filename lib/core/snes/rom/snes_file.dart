@@ -38,6 +38,10 @@ class SnesFile {
   /// Cx4 (a risc cpu for sprites and wireframes)
   bool get hasCx4 => romType == 0xf3 && _at(_base - 1) == 0x10;
 
+  /// SPC7110 (graphics decompression, with a real time clock in one game)
+  bool get hasSpc7110 =>
+      (romType == 0xf5 || romType == 0xf9) && _at(_base - 1) == 0x00;
+
   /// Super FX (a risc cpu drawing into its own ram)
   bool get hasSuperFx => romType >= 0x13 && romType <= 0x1a;
 
@@ -67,8 +71,9 @@ class SnesFile {
     fastRom = mapByte.bit4;
 
     romType = _at(base + 0x16);
-    // the low nibble: 2 = rom+ram+battery, 5/6 = rom+chip+ram+battery
-    hasBattery = const [2, 5, 6].contains(romType & 0xf);
+    // the low nibble: 2 = rom+ram+battery, 5/6 = rom+chip+ram+battery,
+    // 9 = rom+chip+ram+battery+clock
+    hasBattery = const [2, 5, 6, 9].contains(romType & 0xf);
 
     final expansion = _at(base - 3);
     if (_at(base + 0x1a) == 0x33 && expansion > 0 && expansion <= 8) {

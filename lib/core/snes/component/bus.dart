@@ -14,6 +14,7 @@ import 'pad.dart';
 import 'ppu.dart';
 import 'sa1.dart';
 import 'sdd1.dart';
+import 'spc7110.dart';
 import 'superfx.dart';
 
 /// 24-bit address bus for the SNES.
@@ -48,6 +49,9 @@ class Bus implements CpuBus {
   /// the Cx4 chip of the cartridge, if any
   Cx4? cx4;
 
+  /// the SPC7110 chip of the cartridge, if any
+  Spc7110? spc7110;
+
   // 128KB work ram ($7E0000-$7FFFFF, mirrored low 8KB in system area)
   final wram = Uint8List(0x20000);
 
@@ -73,6 +77,9 @@ class Bus implements CpuBus {
     mapping = file.mapping;
     sdd1 = file.hasSdd1 ? (Sdd1(rom)..reset()) : null;
     sa1 = file.hasSa1 ? Sa1(this, rom, file.sramSize) : null;
+    spc7110 = file.hasSpc7110
+        ? (Spc7110(rom, (a) => sramRead(a), (a, v) => sramWrite(a, v))..reset())
+        : null;
     cx4 = file.hasCx4 ? (Cx4(read, rom)..reset()) : null;
     dsp1 = file.hasDsp1 ? (Dsp1(file.mapping, rom.length)..reset()) : null;
     superFx =
@@ -127,6 +134,11 @@ class Bus implements CpuBus {
     final superFx = this.superFx;
     if (superFx != null) {
       final v = superFx.mainRead(addr);
+      if (v >= 0) return v;
+    }
+    final spc7110 = this.spc7110;
+    if (spc7110 != null) {
+      final v = spc7110.mainRead(addr);
       if (v >= 0) return v;
     }
     final dsp1 = this.dsp1;
@@ -197,6 +209,7 @@ class Bus implements CpuBus {
 
     if (sa1?.mainWrite(addr, data) ?? false) return;
     if (superFx?.mainWrite(addr, data) ?? false) return;
+    if (spc7110?.mainWrite(addr, data) ?? false) return;
     final dsp1 = this.dsp1;
     if (dsp1 != null) {
       final port = dsp1.port(addr);
@@ -381,6 +394,7 @@ class Bus implements CpuBus {
     superFx?.reset();
     dsp1?.reset();
     cx4?.reset();
+    spc7110?.reset();
     _nmiEnabled = false;
     _nmiFlag = false;
     _irqFlag = false;
