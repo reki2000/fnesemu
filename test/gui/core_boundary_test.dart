@@ -8,7 +8,6 @@ import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/storage.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:idb_shim/idb_client_memory.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('GUI imports only the public core API', () {
@@ -30,7 +29,6 @@ void main() {
     CoreFactory.registerModules([]);
     addTearDown(
         () => CoreFactory.registerModules(createInstalledCoreModules()));
-    SharedPreferences.setMockInitialValues({});
     late Storage storage;
     await tester.runAsync(() async {
       storage = await Storage.open(

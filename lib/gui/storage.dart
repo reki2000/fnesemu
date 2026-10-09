@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu/util/uint8list.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/core_api.dart';
 import 'blob_store/blob_store.dart';
@@ -45,7 +43,6 @@ class Storage extends Sram {
   static Future<Storage> open({BlobStore? store}) async {
     try {
       store ??= await BlobStore.open();
-      await _migrateSharedPreferences(store);
 
       final cache = <String, Uint8List>{};
       final settings = <String, String>{};
@@ -66,22 +63,6 @@ class Storage extends Sram {
     } catch (e) {
       // run without persistence (e.g. storage is unavailable in the browser)
       return Storage._(null, {}, {}, {});
-    }
-  }
-
-  // moves sram saved in shared preferences by older versions
-  static Future<void> _migrateSharedPreferences(BlobStore store) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    for (final oldKey in prefs.getKeys()) {
-      final value = prefs.get(oldKey);
-      if (value is! String) continue;
-
-      final newKey = CoreFactory.legacyStorageKey(oldKey);
-      if (newKey == null) continue;
-
-      await store.put(newKey, Uint8ListEx.fromBase64(value));
-      await prefs.remove(oldKey);
     }
   }
 

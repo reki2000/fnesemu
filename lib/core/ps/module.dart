@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 import '../core.dart';
-import '../storage_key.dart';
 import '../core_module.dart';
 import '../cdrom_drive.dart';
 import '../media_input.dart';
@@ -17,12 +16,6 @@ class PsModule extends CoreModule {
   int get order => 3;
   @override
   int get discPriority => 20;
-  @override
-  int get legacyPriority => 0;
-  @override
-  String? legacyStorageKey(String key) => key == 'psx_mem1'
-      ? StorageKey.of('ps', StorageKey.sram, 'memcard1')
-      : null;
   @override
   Core create(String id) => Ps();
   @override

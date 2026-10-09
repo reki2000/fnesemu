@@ -78,8 +78,6 @@ abstract class CoreModule {
   List<CoreSystem> get systems;
   int get order => 100;
   int get discPriority => 100;
-  int get legacyPriority => 100;
-  String? legacyStorageKey(String key) => null;
   List<BiosSetup> get biosSetups =>
       systems.where((system) => system.hasBios).map(BiosSetup.single).toList();
   Core create(String id);

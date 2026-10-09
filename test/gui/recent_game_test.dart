@@ -6,12 +6,10 @@ import 'package:fnesemu/gui/storage.dart';
 import 'package:fnesemu/gui/game_directory.dart';
 import 'package:fnesemu/gui/recent_game.dart';
 import 'package:idb_shim/idb_client_memory.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('history ranks by frequency then recency and restores ROM bytes',
       () async {
-    SharedPreferences.setMockInitialValues({});
     final store = await BlobStore.open(factory: newIdbFactoryMemory());
     final storage = await Storage.open(store: store);
     addTearDown(store.close);
@@ -35,7 +33,6 @@ void main() {
 
   test('directory permissions and ROM source paths survive reopening',
       () async {
-    SharedPreferences.setMockInitialValues({});
     final store = await BlobStore.open(factory: newIdbFactoryMemory());
     final storage = await Storage.open(store: store);
     addTearDown(store.close);
@@ -73,7 +70,6 @@ void main() {
   });
 
   test('retain every history entry and its ROM blob', () async {
-    SharedPreferences.setMockInitialValues({});
     final store = await BlobStore.open(factory: newIdbFactoryMemory());
     final storage = await Storage.open(store: store);
     addTearDown(store.close);

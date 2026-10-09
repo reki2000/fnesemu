@@ -4,9 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/core/storage_key.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:fnesemu/gui/storage.dart';
-import 'package:fnesemu/util/uint8list.dart';
 import 'package:idb_shim/idb_client_memory.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +29,6 @@ void main() {
   });
 
   test('sram is saved and preloaded on the next open', () async {
-    SharedPreferences.setMockInitialValues({});
     final factory = newIdbFactoryMemory();
 
     final s1 =
@@ -77,7 +74,6 @@ void main() {
   });
 
   test('bios files are replaced, and listed at the next open', () async {
-    SharedPreferences.setMockInitialValues({});
     final factory = newIdbFactoryMemory();
     final a = Uint8List.fromList([1]);
     final b = Uint8List.fromList([2, 2]);
@@ -98,19 +94,5 @@ void main() {
     expect(await s2.bios("ps"), [b]);
     expect(await s2.bios("ss"), isEmpty);
     s2.dispose();
-  });
-
-  test('migrates shared preferences', () async {
-    final mem = Uint8List.fromList([1, 2, 3]);
-    SharedPreferences.setMockInitialValues(
-        {"psx_mem1": mem.toBase64(), "0123abcd": mem.toBase64()});
-
-    final store = await BlobStore.open(factory: newIdbFactoryMemory());
-    final s = await Storage.open(store: store);
-
-    expect(await store.get("ps/sram/memcard1"), mem);
-    expect(await store.get("nes/sram/0123abcd"), mem);
-    expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
-    s.dispose();
   });
 }

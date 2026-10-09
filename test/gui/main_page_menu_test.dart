@@ -6,6 +6,10 @@ import 'dart:typed_data';
 // ignore: depend_on_referenced_packages
 import 'package:file_picker_platform_interface/file_picker_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show AssetManifest;
+// Use the font package's testing hook to keep this GUI test offline.
+// ignore: implementation_imports
+import 'package:google_fonts/src/google_fonts_base.dart' as fonts;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
@@ -14,9 +18,13 @@ import 'package:fnesemu/gui/game_list.dart';
 import 'package:fnesemu/gui/sound_player.dart';
 import 'package:fnesemu/gui/storage.dart';
 import 'package:idb_shim/idb_client_memory.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'sound_player_test.dart' show FakeAudioStream;
+
+class DebugFontManifest extends Fake implements AssetManifest {
+  @override
+  List<String> listAssets() => ['RobotoMono-Regular.ttf'];
+}
 
 class TestFilePicker extends FilePickerPlatform {
   Future<String?> Function()? select;
@@ -61,7 +69,17 @@ void main() {
   testWidgets(
       'ROM boot, menu pause, picker cancellation and backdrop resume work together',
       (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    final previousManifest = fonts.assetManifest;
+    fonts.assetManifest = DebugFontManifest();
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+      'flutter/assets',
+      (message) async => ByteData(0),
+    );
+    addTearDown(() {
+      fonts.assetManifest = previousManifest;
+      tester.binding.defaultBinaryMessenger
+          .setMockMessageHandler('flutter/assets', null);
+    });
     final picker = TestFilePicker();
     FilePickerPlatform.instance = picker;
     late Directory temp;
@@ -197,6 +215,33 @@ void main() {
         tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).expanded,
         isFalse);
     expect(audio.starts, 3);
+
+    // Register dumps remain readable while the menu pauses the game.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('game-menu-toggle')));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pump();
+    await tester.tap(find.byTooltip('Enable Debug Options'));
+    await tester.pump();
+    await tester.pump();
+    final menu = tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu));
+    expect(menu.expanded, isTrue);
+    final toolbarDump = find.descendant(
+        of: find.byWidget(menu.toolbar), matching: find.byType(SelectableText));
+    expect(toolbarDump, findsOneWidget);
+    expect(tester.widget<SelectableText>(toolbarDump).data, contains('BC:'));
+    expect(tester.widget<SelectableText>(toolbarDump).data, contains('PC:'));
+    final verticalScroll = find.ancestor(
+        of: toolbarDump,
+        matching: find.byWidgetPredicate((widget) =>
+            widget is Scrollable &&
+            widget.axisDirection == AxisDirection.down));
+    final dumpScroll = tester.state<ScrollableState>(verticalScroll.first);
+    expect(dumpScroll.position.maxScrollExtent, greaterThan(0));
+    await tester.drag(toolbarDump, const Offset(0, -60));
+    await tester.pump();
+    expect(dumpScroll.position.pixels, greaterThan(0));
     expect(tester.takeException(), isNull);
     await tester.runAsync(() async {
       await tester.pumpWidget(const SizedBox());

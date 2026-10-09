@@ -31,16 +31,6 @@ class CoreFactory {
       List.unmodifiable(_modules.expand((module) => module.biosSetups));
   static List<String> get extensions =>
       systems.expand((system) => system.extensions).toList();
-  static String? legacyStorageKey(String key) {
-    final modules = _modules.toList()
-      ..sort((a, b) => a.legacyPriority.compareTo(b.legacyPriority));
-    for (final module in modules) {
-      final mapped = module.legacyStorageKey(key);
-      if (mapped != null) return mapped;
-    }
-    return null;
-  }
-
   static CoreSystem? systemOrNull(String id) =>
       systems.where((system) => system.id == id).firstOrNull;
   static CoreSystem system(String id) =>

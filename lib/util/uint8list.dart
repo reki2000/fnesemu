@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/int.dart';
@@ -7,14 +6,6 @@ extension Uint8ListEx on Uint8List {
   List<Uint8List> split(int size) {
     return List.generate(
         length ~/ size, (i) => sublist(i * size, (i + 1) * size));
-  }
-
-  String toBase64() {
-    return base64.encode(this);
-  }
-
-  static Uint8List fromBase64(String base64) {
-    return Uint8List.fromList(base64Decode(base64));
   }
 
   static Uint8List join(List<Uint8List> list) {

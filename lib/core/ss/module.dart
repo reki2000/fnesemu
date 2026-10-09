@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 import '../core.dart';
-import '../storage_key.dart';
 import '../core_module.dart';
 import '../cdrom_drive.dart';
 import '../media_input.dart';
@@ -17,11 +16,6 @@ class SsModule extends CoreModule {
   int get order => 4;
   @override
   int get discPriority => 10;
-  @override
-  int get legacyPriority => 1;
-  @override
-  String? legacyStorageKey(String key) =>
-      key == 'ss_bram' ? StorageKey.of('ss', StorageKey.sram, 'bram') : null;
   @override
   Core create(String id) => Ss();
   @override
