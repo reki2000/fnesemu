@@ -2,6 +2,10 @@ import '../api.dart';
 import 'web_access.dart';
 import 'web_impl.dart';
 
+/// replaces the directory dialog in tests (not used on the web)
+Future<String?> Function({String? dialogTitle, String? initialDirectory})?
+    debugDirectoryDialog;
+
 /// lets the user select a directory. returns null if canceled.
 Future<PickedDirectory?> pickDirectory(
         {String? dialogTitle, String? initialDirectory}) =>

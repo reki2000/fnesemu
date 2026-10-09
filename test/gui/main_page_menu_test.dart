@@ -2,9 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-// Replace the platform picker used internally by mp_bigfile_picker.
-// ignore: depend_on_referenced_packages
-import 'package:file_picker_platform_interface/file_picker_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show AssetManifest;
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +15,7 @@ import 'package:fnesemu/gui/storage.dart';
 // ignore: implementation_imports
 import 'package:google_fonts/src/google_fonts_base.dart' as fonts;
 import 'package:idb_shim/idb_client_memory.dart';
+import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 import 'sound_player_test.dart' show FakeAudioStream;
 
@@ -26,17 +24,12 @@ class DebugFontManifest extends Fake implements AssetManifest {
   List<String> listAssets() => ['RobotoMono-Regular.ttf'];
 }
 
-class TestFilePicker extends FilePickerPlatform {
+// replaces the directory dialog of mp_bigfile_picker
+class TestFilePicker {
   Future<String?> Function()? select;
   String? initialDirectory;
-  @override
-  Future<String?> getDirectoryPath(
-      {String? dialogTitle,
-      String? initialDirectory,
-      AndroidOptions androidOptions = const AndroidOptions(),
-      WindowsOptions windowsOptions = const WindowsOptions(),
-      LinuxOptions linuxOptions = const LinuxOptions(),
-      WebOptions webOptions = const WebOptions()}) {
+
+  Future<String?> dialog({String? dialogTitle, String? initialDirectory}) {
     this.initialDirectory = initialDirectory;
     return select!();
   }
@@ -81,7 +74,8 @@ void main() {
           .setMockMessageHandler('flutter/assets', null);
     });
     final picker = TestFilePicker();
-    FilePickerPlatform.instance = picker;
+    debugDirectoryDialog = picker.dialog;
+    addTearDown(() => debugDirectoryDialog = null);
     late Directory temp;
     late Storage storage;
     await tester.runAsync(() async {

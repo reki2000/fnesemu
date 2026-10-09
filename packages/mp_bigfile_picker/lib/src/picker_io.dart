@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 
 import '../api.dart';
 import 'darwin_impl.dart';
@@ -9,10 +10,21 @@ import 'saf_impl.dart';
 
 bool get _isDarwin => Platform.isIOS || Platform.isMacOS;
 
+/// replaces the directory dialog in tests: returns the selected path, or
+/// null if canceled
+@visibleForTesting
+Future<String?> Function({String? dialogTitle, String? initialDirectory})?
+    debugDirectoryDialog;
+
 /// lets the user select a directory. returns null if canceled. the dialog
 /// opens at [initialDirectory] where the platform supports it.
 Future<PickedDirectory?> pickDirectory(
     {String? dialogTitle, String? initialDirectory}) async {
+  if (debugDirectoryDialog case final dialog?) {
+    final path = await dialog(
+        dialogTitle: dialogTitle, initialDirectory: initialDirectory);
+    return path == null ? null : IoDirectory(path);
+  }
   if (Platform.isAndroid) return pickSafDirectory();
   if (_isDarwin) return pickDarwinDirectory(dialogTitle: dialogTitle);
 
