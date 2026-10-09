@@ -9,7 +9,6 @@ import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/disc_folder.dart';
-import '../cdrom/disc_source.dart';
 import '../core/core_api.dart';
 import '../styles.dart';
 import 'core_view.dart';
@@ -20,6 +19,7 @@ import 'game_directory.dart';
 import 'game_list.dart';
 import 'key_handler.dart';
 import 'pad_input.dart';
+import 'picked_disc.dart';
 import 'recent_game.dart';
 import 'sound_player.dart';
 import 'storage.dart';

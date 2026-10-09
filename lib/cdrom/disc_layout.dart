@@ -61,8 +61,8 @@ class DiscLayout {
       }
 
       final segEnd = e.endLba < end ? e.endLba : end;
-      result.add(Segment(pos, segEnd - pos, e.file,
-          e.fileSector + pos - e.startLba,
+      result.add(Segment(
+          pos, segEnd - pos, e.file, e.fileSector + pos - e.startLba,
           cooked: e.cooked));
       pos = segEnd;
     }
@@ -156,16 +156,16 @@ class DiscLayout {
       for (final (pos, len) in gaps) {
         final p = pos.clamp(fileSector, fileSectors);
         if (p > fileSector) {
-          fileExtents.add(Extent(lba, p - fileSector, file, fileSector, cooked: cooked));
+          fileExtents.add(
+              Extent(lba, p - fileSector, file, fileSector, cooked: cooked));
           lba += p - fileSector;
           fileSector = p;
         }
         lba += len;
       }
       if (fileSector < fileSectors) {
-        fileExtents
-            .add(Extent(lba, fileSectors - fileSector, file, fileSector,
-                cooked: cooked));
+        fileExtents.add(Extent(lba, fileSectors - fileSector, file, fileSector,
+            cooked: cooked));
         lba += fileSectors - fileSector;
       }
       extents.addAll(fileExtents);
@@ -221,8 +221,10 @@ class DiscLayout {
           if (files.isEmpty || parts.length < 3) {
             throw const FormatException("cdrom: cue: invalid TRACK");
           }
-          track = _CueTrack(int.tryParse(parts[1]) ?? 0,
-              parts[2].toUpperCase() == "AUDIO", parts[2].toUpperCase() == "MODE1/2048");
+          track = _CueTrack(
+              int.tryParse(parts[1]) ?? 0,
+              parts[2].toUpperCase() == "AUDIO",
+              parts[2].toUpperCase() == "MODE1/2048");
           files.last.tracks.add(track);
 
         case "INDEX":

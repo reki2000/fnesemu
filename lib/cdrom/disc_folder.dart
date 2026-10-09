@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:mp_bigfile_picker/api.dart';
-
 import 'image_file.dart';
 
 /// a file in a [DiscFolder]. [path] is relative to the folder, separated by '/'
@@ -30,31 +28,6 @@ abstract class DiscFolder {
 
   /// returns the file at [path] of [FolderFile]. it is opened when it is read
   ImageFile file(String path);
-}
-
-/// a [DiscFolder] of a [PickedDirectory] of mp_bigfile_picker
-class PickedDiscFolder extends DiscFolder {
-  final PickedDirectory dir;
-
-  PickedDiscFolder(this.dir);
-
-  @override
-  String get name => dir.name;
-
-  @override
-  String? get persistentPath => dir.restoreKey;
-
-  @override
-  String get displayPath => dir.displayPath;
-
-  @override
-  String? get identityKey => dir.identityKey;
-
-  @override
-  Stream<FolderFile> list() => dir.walk().map(FolderFile.new);
-
-  @override
-  ImageFile file(String path) => PickedImageFile(dir.open(path));
 }
 
 /// normalizes a path written in a .cue file ('\' or '/', '.', '..') relative

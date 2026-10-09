@@ -262,8 +262,7 @@ class AsyncCdromDrive implements CdromDrive {
       }
 
       final size = seg.cooked ? 2048 : Disc.sectorSize;
-      final bytes =
-          await file.read(seg.fileSector * size, seg.count * size);
+      final bytes = await file.read(seg.fileSector * size, seg.count * size);
       for (int i = 0; i < seg.count; i++) {
         final data = Uint8List(size); // zero padded at EOF
         final start = i * size;
