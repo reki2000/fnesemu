@@ -5,6 +5,7 @@ import 'package:fnesemu/util/uint8list.dart';
 
 // Project imports:
 import 'cnrom.dart';
+import 'fme7.dart';
 import 'mapper088.dart';
 import 'mirror.dart';
 import 'mmc1.dart';
@@ -45,6 +46,7 @@ abstract class Mapper {
       88 => Mapper088(),
       118 => MapperTxsrom(),
       206 => MapperNamco118(),
+      69 => MapperFme7(),
       _ => throw Exception("unimplemented mapper:$iNesMapper!")
     };
   }
