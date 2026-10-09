@@ -3,7 +3,7 @@ import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
-import 'cputest_rom.dart';
+import 'support/cputest_rom.dart';
 
 void main() {
   test('self-checking CPU test ROM reports all cases passing', () {
@@ -27,7 +27,6 @@ void main() {
     expect(bus.read32(0x02000008).hex, '600dc0de',
         reason: 'completion magic missing');
     expect(bus.read32(0x02000000), 0,
-        reason:
-            'fail count (last failing case id: ${bus.read32(0x02000004)})');
+        reason: 'fail count (last failing case id: ${bus.read32(0x02000004)})');
   });
 }

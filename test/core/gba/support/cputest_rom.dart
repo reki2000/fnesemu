@@ -84,10 +84,7 @@ final _cases = <(List<int>, int)>[
   // adc: 1 + 2 + C(1)
   ([aCmpR(0, 0), aMovI(0, 1), aAdcI(0, 0, 2)], 4),
   // sbc with borrow-in: 5 - 1 - 1
-  (
-    [aMovI(1, 0), aAddI(1, 1, 0, s: true), aMovI(0, 5), aSbcI(0, 0, 1)],
-    3
-  ),
+  ([aMovI(1, 0), aAddI(1, 1, 0, s: true), aMovI(0, 5), aSbcI(0, 0, 1)], 3),
   // mul
   ([aMovI(1, 7), aMovI(2, 6), aMul(0, 1, 2)], 42),
   // mla
@@ -161,13 +158,14 @@ final _cases = <(List<int>, int)>[
     0x3f
   ),
   // bl: lr points at the skipped word ((pc@i2+8) - lr = 12)
-  (
-    [aBl(0), aMovI(0, 0xee), aMovR(1, 15), aSubR(0, 1, 14)],
-    12
-  ),
+  ([aBl(0), aMovI(0, 0xee), aMovR(1, 15), aSubR(0, 1, 14)], 12),
   // conditional execution
   (
-    [aMovI(0, 0, s: true), aMovI(0, 5, cond: condEq), aMovI(0, 7, cond: condNe)],
+    [
+      aMovI(0, 0, s: true),
+      aMovI(0, 5, cond: condEq),
+      aMovI(0, 7, cond: condNe)
+    ],
     5
   ),
   // pc reads +8

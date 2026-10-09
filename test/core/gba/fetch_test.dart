@@ -12,10 +12,20 @@ void main() {
       }
     }
     for (final length in [5, 8]) {
-      bus.cart.load(Uint8List.fromList(List.generate(length, (i) => i + length)));
-      for (final base in [0, 0x10000000, 0x02000000, 0x02040000,
-          0x03000000, 0x03008000, 0x08000000, 0x0a000000, 0x0c000000,
-          0x0d000000]) {
+      bus.cart
+          .load(Uint8List.fromList(List.generate(length, (i) => i + length)));
+      for (final base in [
+        0,
+        0x10000000,
+        0x02000000,
+        0x02040000,
+        0x03000000,
+        0x03008000,
+        0x08000000,
+        0x0a000000,
+        0x0c000000,
+        0x0d000000
+      ]) {
         for (final offset in [0, 2, 4, 6]) {
           expect(bus.fetch16(base + offset), bus.read16(base + offset));
         }
@@ -23,8 +33,13 @@ void main() {
           expect(bus.fetch32(base + offset), bus.read32(base + offset));
         }
       }
-      for (final address in [0x00003ffc, 0x00004000, 0x0203fffc,
-          0x03007ffc, 0x08000000 + length + 4]) {
+      for (final address in [
+        0x00003ffc,
+        0x00004000,
+        0x0203fffc,
+        0x03007ffc,
+        0x08000000 + length + 4
+      ]) {
         final aligned = address & ~3;
         expect(bus.fetch32(aligned), bus.read32(aligned));
         expect(bus.fetch16(aligned + 2), bus.read16(aligned + 2));

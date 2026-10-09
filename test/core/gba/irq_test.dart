@@ -5,7 +5,8 @@ import 'package:fnesemu/core/gba/gba.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
-import 'arm7_asm.dart';
+import 'support/arm7_asm.dart';
+import 'package:fnesemu/core/gba/irq.dart';
 
 /// End-to-end tests for the IRQ delivery chain a real BIOS relies on:
 /// VBlank raise -> HALT wake -> CPU exception entry -> BIOS-style dispatcher
@@ -15,18 +16,6 @@ import 'arm7_asm.dart';
 ///
 /// The synthetic BIOS mirrors the structure of the real one closely enough
 /// that a hang in IntrWait-style wait loops should reproduce here.
-
-Uint8List _words(List<int> words) {
-  final b = Uint8List(words.length * 4);
-  for (var i = 0; i < words.length; i++) {
-    final w = words[i];
-    b[i * 4] = w.mask8;
-    b[i * 4 + 1] = w.shr8.mask8;
-    b[i * 4 + 2] = w.shr16.mask8;
-    b[i * 4 + 3] = w.shr24.mask8;
-  }
-  return b;
-}
 
 /// minimal BIOS: reset stub sets up the banked stacks and jumps to the cart;
 /// the IRQ vector runs the same dispatcher sequence as the official BIOS.
@@ -61,7 +50,8 @@ Uint8List _buildBios() {
     aMovI(15, 8, rot4: 4), // pc = 0x08000000 (cartridge entry)
 
     // irq dispatcher (same shape as the official BIOS handler)
-    aStm(13, 0x500f, pre: true, up: false, wb: true), // stmdb sp!,{r0-r3,r12,lr}
+    aStm(13, 0x500f,
+        pre: true, up: false, wb: true), // stmdb sp!,{r0-r3,r12,lr}
     aMovI(0, 4, rot4: 4), // r0 = 0x04000000
     aAddI(14, 15, 0), // lr = the ldm below
     aLdr(15, 0, 4, up: false), // ldr pc, [r0,#-4] -> [0x03FFFFFC] mirror
@@ -69,8 +59,9 @@ Uint8List _buildBios() {
     aSubI(15, 14, 4, s: true), // subs pc, lr, #4
   ];
   assert(words[resetIdx] == aMsrCtlI(0xd2));
-  assert(words[dispatchIdx] == aStm(13, 0x500f, pre: true, up: false, wb: true));
-  return _words(words);
+  assert(
+      words[dispatchIdx] == aStm(13, 0x500f, pre: true, up: false, wb: true));
+  return wordBytes(words);
 }
 
 const _handlerIdx = 32; // user IRQ handler at ROM word 32 (0x08000080)
@@ -118,7 +109,7 @@ Uint8List _buildRom(List<int> main) {
     words.add(aNop);
   }
   words.addAll(_handler);
-  return _words(words);
+  return wordBytes(words);
 }
 
 /// run [gba] until the ROM writes its result to 0x02000000.
@@ -195,7 +186,15 @@ void main() {
     }
     words.addAll(_handler);
 
-    final v = _runUntilResult(_boot(_words(words)));
+    final v = _runUntilResult(_boot(wordBytes(words)));
     expect(v.mask1, 1, reason: 'VBlank bit missing in BIOS flags (0x03007FF8)');
+  });
+
+  test('byte write to IF only acknowledges that byte', () {
+    final bus = Bus();
+    bus.irq.raise(IrqBit.vblank);
+    bus.irq.raise(IrqBit.dma0);
+    bus.write8(0x04000202, 0x01);
+    expect(bus.irq.if_, 1 << IrqBit.dma0);
   });
 }

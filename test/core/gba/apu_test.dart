@@ -1,5 +1,6 @@
 import 'package:fnesemu/core/gba/bus.dart';
 import 'package:test/test.dart';
+import 'package:fnesemu/util/int.dart';
 
 void main() {
   group('Apu Direct Sound', () {
@@ -51,5 +52,17 @@ void main() {
       final out = apu.render(1);
       expect(out[0], closeTo(0x10 / 128, 0.001));
     });
+  });
+
+  test('PSG frequency byte writes keep the other byte', () {
+    final bus = Bus();
+    bus.write16(0x04000084, 0x0080); // master enable
+    bus.write16(0x04000062, 0xf080); // duty 50%, volume 15
+    bus.write8(0x04000064, 0x34);
+    bus.write8(0x04000065, 0x87); // trigger, freq 0x734
+    expect(bus.read16(0x04000084).mask1, 1);
+    // re-writing the low byte must not lose the high bits
+    bus.write8(0x04000064, 0x35);
+    expect(bus.io[0x64] | bus.io[0x65].shl8, 0x0735);
   });
 }

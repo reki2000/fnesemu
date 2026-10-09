@@ -6,7 +6,7 @@ import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
-import 'arm7_asm.dart';
+import 'support/arm7_asm.dart';
 
 /// test bed: places [words] at the cartridge ROM base (0x08000000), boots the
 /// CPU with the HLE reset (SYS mode, pc = 0x08000000) and steps it.
@@ -258,8 +258,8 @@ void main() {
     });
 
     test('mla', () {
-      final t = armRun(
-          [aMovI(1, 7), aMovI(2, 6), aMovI(3, 5), aMla(0, 1, 2, 3)]);
+      final t =
+          armRun([aMovI(1, 7), aMovI(2, 6), aMovI(3, 5), aMla(0, 1, 2, 3)]);
       expect(t.r[0], 47);
     });
 
@@ -571,5 +571,33 @@ void main() {
       expect(t.r[0], 0x11);
       expect(t.r[1], 0x08000047); // (addr after bl pair) | thumb bit
     });
+  });
+
+  test('ldm {..,pc}^ writes the base back in the exception mode bank', () {
+    final bus = Bus();
+    // 0x08000000: ldmia sp!, {r0, pc}^ ; 0x08000010: b .
+    bus.cart.load(wordBytes([
+      aLdm(13, 0x8001, wb: true) | (1 << 22),
+      aNop,
+      aNop,
+      aNop,
+      aBSelf,
+    ]));
+    final cpu = Arm7(bus)..resetHle();
+    final regs = cpu.regs;
+
+    regs.switchMode(CpuMode.irq);
+    regs.spsr = CpuMode.sys;
+    regs.r[13] = 0x03000000;
+    bus.write32(0x03000000, 0x1234);
+    bus.write32(0x03000004, 0x08000010);
+
+    cpu.step();
+
+    expect(regs.mode, CpuMode.sys);
+    expect(regs.r[0], 0x1234);
+    expect(regs.r[13], 0x03007f00); // sys sp untouched
+    regs.switchMode(CpuMode.irq);
+    expect(regs.r[13], 0x03000008); // irq sp written back
   });
 }

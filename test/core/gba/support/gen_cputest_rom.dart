@@ -4,7 +4,7 @@ import 'cputest_rom.dart';
 
 /// Writes the self-checking CPU test ROM to test/core/gba/roms/arm7_cputest.gba.
 ///
-///   dart run test/core/gba/gen_cputest_rom.dart
+///   dart run test/core/gba/support/gen_cputest_rom.dart
 ///
 /// Load the ROM in a reference emulator (e.g. mGBA) and inspect EWRAM to
 /// cross-check this emulator's expectations:

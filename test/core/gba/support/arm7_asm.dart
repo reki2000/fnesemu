@@ -6,6 +6,8 @@
 /// covered.
 library;
 
+import 'dart:typed_data';
+
 import 'package:fnesemu/util/int.dart';
 
 // --- condition codes ---------------------------------------------------------
@@ -53,10 +55,12 @@ int _dpR(int cond, int opc, bool s, int rn, int rd, int shImm, int shType,
     shType.shl5 |
     rm;
 
-int aMovI(int rd, int imm8, {int rot4 = 0, bool s = false, int cond = condAl}) =>
+int aMovI(int rd, int imm8,
+        {int rot4 = 0, bool s = false, int cond = condAl}) =>
     _dpI(cond, _opMov, s, 0, rd, rot4, imm8);
 
-int aMvnI(int rd, int imm8, {int rot4 = 0, bool s = false, int cond = condAl}) =>
+int aMvnI(int rd, int imm8,
+        {int rot4 = 0, bool s = false, int cond = condAl}) =>
     _dpI(cond, _opMvn, s, 0, rd, rot4, imm8);
 
 int aAddI(int rd, int rn, int imm8,
@@ -83,7 +87,10 @@ int aCmpI(int rn, int imm8, {int rot4 = 0, int cond = condAl}) =>
     _dpI(cond, _opCmp, true, rn, 0, rot4, imm8);
 
 int aMovR(int rd, int rm,
-        {int shType = shLsl, int shImm = 0, bool s = false, int cond = condAl}) =>
+        {int shType = shLsl,
+        int shImm = 0,
+        bool s = false,
+        int cond = condAl}) =>
     _dpR(cond, _opMov, s, 0, rd, shImm, shType, rm);
 
 int aAddR(int rd, int rn, int rm, {bool s = false, int cond = condAl}) =>
@@ -115,8 +122,7 @@ int aMovRS(int rd, int rm, int rs,
 List<int> aMovI32(int rd, int v, {int cond = condAl}) => [
       aMovI(rd, v.mask8, cond: cond),
       if (v & 0xff00 != 0) aOrrI(rd, rd, v.shr8.mask8, rot4: 12, cond: cond),
-      if (v & 0xff0000 != 0)
-        aOrrI(rd, rd, v.shr16.mask8, rot4: 8, cond: cond),
+      if (v & 0xff0000 != 0) aOrrI(rd, rd, v.shr16.mask8, rot4: 8, cond: cond),
       if (v & 0xff000000 != 0)
         aOrrI(rd, rd, v.shr24.mask8, rot4: 4, cond: cond),
     ];
@@ -178,19 +184,31 @@ int _sdt(int cond, bool load, bool byte, bool pre, bool up, bool wb, int rn,
     off12;
 
 int aLdr(int rd, int rn, int off,
-        {bool pre = true, bool up = true, bool wb = false, int cond = condAl}) =>
+        {bool pre = true,
+        bool up = true,
+        bool wb = false,
+        int cond = condAl}) =>
     _sdt(cond, true, false, pre, up, wb, rn, rd, off);
 
 int aStr(int rd, int rn, int off,
-        {bool pre = true, bool up = true, bool wb = false, int cond = condAl}) =>
+        {bool pre = true,
+        bool up = true,
+        bool wb = false,
+        int cond = condAl}) =>
     _sdt(cond, false, false, pre, up, wb, rn, rd, off);
 
 int aLdrb(int rd, int rn, int off,
-        {bool pre = true, bool up = true, bool wb = false, int cond = condAl}) =>
+        {bool pre = true,
+        bool up = true,
+        bool wb = false,
+        int cond = condAl}) =>
     _sdt(cond, true, true, pre, up, wb, rn, rd, off);
 
 int aStrb(int rd, int rn, int off,
-        {bool pre = true, bool up = true, bool wb = false, int cond = condAl}) =>
+        {bool pre = true,
+        bool up = true,
+        bool wb = false,
+        int cond = condAl}) =>
     _sdt(cond, false, true, pre, up, wb, rn, rd, off);
 
 // --- ARM: halfword / signed transfer (immediate offset) -----------------------
@@ -227,7 +245,10 @@ int aLdrsh(int rd, int rn, int off, {int cond = condAl}) =>
 
 /// LDMIA by default (pre=false, up=true)
 int aLdm(int rn, int list,
-        {bool pre = false, bool up = true, bool wb = false, int cond = condAl}) =>
+        {bool pre = false,
+        bool up = true,
+        bool wb = false,
+        int cond = condAl}) =>
     cond.shl28 |
     (4 << 25) |
     (pre ? 1 : 0).shl24 |
@@ -239,7 +260,10 @@ int aLdm(int rn, int list,
 
 /// STMIA by default (pre=false, up=true)
 int aStm(int rn, int list,
-        {bool pre = false, bool up = true, bool wb = false, int cond = condAl}) =>
+        {bool pre = false,
+        bool up = true,
+        bool wb = false,
+        int cond = condAl}) =>
     cond.shl28 |
     (4 << 25) |
     (pre ? 1 : 0).shl24 |
@@ -255,7 +279,8 @@ int aStm(int rn, int list,
 int aB(int offWords, {bool link = false, int cond = condAl}) =>
     cond.shl28 | 5 << 25 | (link ? 1 : 0).shl24 | offWords.mask24;
 
-int aBl(int offWords, {int cond = condAl}) => aB(offWords, link: true, cond: cond);
+int aBl(int offWords, {int cond = condAl}) =>
+    aB(offWords, link: true, cond: cond);
 
 const aBSelf = 0xeafffffe; // b .
 
@@ -273,12 +298,7 @@ int aMsrCtlI(int imm8, {int rot4 = 0, int cond = condAl}) =>
 
 /// SWP rd, rm, [rn]
 int aSwp(int rd, int rm, int rn, {bool byte = false, int cond = condAl}) =>
-    cond.shl28 |
-    0x01000090 |
-    (byte ? 1 : 0).shl22 |
-    rn.shl16 |
-    rd.shl12 |
-    rm;
+    cond.shl28 | 0x01000090 | (byte ? 1 : 0).shl22 | rn.shl16 | rd.shl12 | rm;
 
 int aSwi(int imm24) => 0xef000000 | imm24;
 
@@ -339,3 +359,16 @@ int tBlHi(int off11) => 0xf000 | off11.mask11;
 int tBlLo(int off11) => 0xf800 | off11.mask11;
 
 const tNop = 0x46c0; // mov r8, r8
+
+/// the little-endian bytes of 32-bit [words], for a rom or a bios image
+Uint8List wordBytes(List<int> words) {
+  final b = Uint8List(words.length * 4);
+  for (var i = 0; i < words.length; i++) {
+    final w = words[i];
+    b[i * 4] = w.mask8;
+    b[i * 4 + 1] = w.shr8.mask8;
+    b[i * 4 + 2] = w.shr16.mask8;
+    b[i * 4 + 3] = w.shr24.mask8;
+  }
+  return b;
+}
