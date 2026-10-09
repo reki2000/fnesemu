@@ -1,7 +1,7 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:archive/archive_io.dart';
+import 'package:fnesemu_core/util/crc32.dart';
 import 'package:fnesemu_core/util/int.dart';
 
 
@@ -36,7 +36,7 @@ class NesFile {
         (body[12] != 0 || body[13] != 0 || body[14] != 0 || body[15] != 0);
 
     // caclurate CRC32 of entire file
-    crc = (Crc32()..add(body.toList())).close().map((val) => val.x2).join();
+    crc = crc32Hex(body);
 
     final programRomLength = body[4];
     final characterRomLength = body[5];

@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
+import 'package:fnesemu_core/util/crc32.dart';
 import 'package:fnesemu_core/util/uint8list.dart';
 
 import '../cdrom_drive.dart';
@@ -231,7 +231,7 @@ class Nes implements Core, FrameRunner {
           ..mirror = bus.mirror
           ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
     if (image != null) {
-      crc = getCrc32(image).toRadixString(16).padLeft(8, '0');
+      crc = crc32Hex(image);
       _sram.init(StorageKey.of('fds', StorageKey.sram, crc),
           Uint8ListEx.join(surfaces));
       if (_sram.data.length != offset) {

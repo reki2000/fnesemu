@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:archive/archive_io.dart';
+import 'package:fnesemu_core/util/crc32.dart';
 import 'package:fnesemu_core/util/int.dart';
 
 import '../cdrom_drive.dart';
@@ -131,7 +131,7 @@ class Gb implements Core, FrameRunner {
       throw Exception("GBC-only cartridges are not supported");
     }
 
-    crc = (Crc32()..add(body.toList())).close().map((v) => v.x2).join();
+    crc = crc32Hex(body);
     cart.attachRam(_sram, "gb-$crc");
 
     bus.cart = cart;

@@ -1,9 +1,8 @@
 import 'dart:collection';
 import 'dart:io';
 
-import 'package:fnesemu_core/util/int.dart';
-
 import 'package:fnesemu_core/core/ps/r3000/r3000.dart';
+import 'package:fnesemu_core/util/int.dart';
 
 class Case {
   final String name;

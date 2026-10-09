@@ -1,10 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
-
 import 'package:fnesemu_core/core/md/bus_z80.dart';
 import 'package:fnesemu_core/core/md/z80/z80.dart';
+import 'package:fnesemu_core/util/int.dart';
 
 class BusZ80Test extends BusZ80 {
   final ram_ = Uint8List(0x10000);

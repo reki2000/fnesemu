@@ -1,7 +1,7 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:archive/archive_io.dart';
+import 'package:fnesemu_core/util/crc32.dart';
 import 'package:fnesemu_core/util/int.dart';
 
 enum SnesMapping { loRom, hiRom }
@@ -48,7 +48,7 @@ class SnesFile {
     final hasCopier = body.length.mask10 == 0x200;
     rom = hasCopier ? Uint8List.sublistView(body, 0x200) : body;
 
-    crc = (Crc32()..add(rom.toList())).close().map((v) => v.x2).join();
+    crc = crc32Hex(rom);
 
     final scoreLo = _score(0x7fc0);
     final scoreHi = _score(0xffc0);
