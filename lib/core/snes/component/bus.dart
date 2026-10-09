@@ -7,6 +7,7 @@ import '../rom/snes_file.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'cpu_bus.dart';
+import 'cx4.dart';
 import 'dsp1.dart';
 import 'dma.dart';
 import 'pad.dart';
@@ -44,6 +45,9 @@ class Bus implements CpuBus {
   /// the DSP-1 chip of the cartridge, if any
   Dsp1? dsp1;
 
+  /// the Cx4 chip of the cartridge, if any
+  Cx4? cx4;
+
   // 128KB work ram ($7E0000-$7FFFFF, mirrored low 8KB in system area)
   final wram = Uint8List(0x20000);
 
@@ -69,6 +73,7 @@ class Bus implements CpuBus {
     mapping = file.mapping;
     sdd1 = file.hasSdd1 ? (Sdd1(rom)..reset()) : null;
     sa1 = file.hasSa1 ? Sa1(this, rom, file.sramSize) : null;
+    cx4 = file.hasCx4 ? (Cx4(read, rom)..reset()) : null;
     dsp1 = file.hasDsp1 ? (Dsp1(file.mapping, rom.length)..reset()) : null;
     superFx =
         file.hasSuperFx ? SuperFx(this, rom, _superFxRamSize(file)) : null;
@@ -139,6 +144,7 @@ class Bus implements CpuBus {
       }
       if (page < 0x6000) return _readMmio(page);
       if (page < 0x8000) {
+        if (cx4 != null) return cx4!.read(page);
         final off = _sramOffset(bank, page);
         return off < 0 ? 0 : sramRead(off);
       }
@@ -212,6 +218,10 @@ class Bus implements CpuBus {
         return;
       }
       if (page < 0x8000) {
+        if (cx4 != null) {
+          cx4!.write(page, data);
+          return;
+        }
         final off = _sramOffset(bank, page);
         if (off >= 0) sramWrite(off, data);
         return;
@@ -370,6 +380,7 @@ class Bus implements CpuBus {
     sa1?.reset();
     superFx?.reset();
     dsp1?.reset();
+    cx4?.reset();
     _nmiEnabled = false;
     _nmiFlag = false;
     _irqFlag = false;

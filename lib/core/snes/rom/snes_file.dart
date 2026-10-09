@@ -24,6 +24,7 @@ class SnesFile {
   bool hasBattery = false;
   bool fastRom = false;
   int romType = 0; // $FFD6: chips on the cartridge
+  int _base = 0x7fc0; // the header
 
   /// S-DD1 (graphics decompression and 1MB rom banks)
   bool get hasSdd1 => romType == 0x43 || romType == 0x45;
@@ -33,6 +34,9 @@ class SnesFile {
 
   /// DSP-1 (a math coprocessor for 3D and Mode 7 projection)
   bool get hasDsp1 => romType >= 0x03 && romType <= 0x05;
+
+  /// Cx4 (a risc cpu for sprites and wireframes)
+  bool get hasCx4 => romType == 0xf3 && _at(_base - 1) == 0x10;
 
   /// Super FX (a risc cpu drawing into its own ram)
   bool get hasSuperFx => romType >= 0x13 && romType <= 0x1a;
@@ -56,7 +60,7 @@ class SnesFile {
       mapping = SnesMapping.hiRom;
     }
 
-    final base = mapping == SnesMapping.hiRom ? 0xffc0 : 0x7fc0;
+    final base = _base = mapping == SnesMapping.hiRom ? 0xffc0 : 0x7fc0;
     title = _ascii(base, 21);
 
     final mapByte = _at(base + 0x15);
