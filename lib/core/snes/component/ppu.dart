@@ -506,8 +506,9 @@ class Ppu {
         {
           final v = _vramReadBuf.mask8;
           if (!vramIncHigh) {
-            vramAddr = (vramAddr + vramIncAmount).mask15;
+            // the buffer reloads from the current address, then it moves
             _refreshVramReadBuf();
+            vramAddr = (vramAddr + vramIncAmount).mask15;
           }
           return v;
         }
@@ -515,8 +516,8 @@ class Ppu {
         {
           final v = _vramReadBuf.shr8.mask8;
           if (vramIncHigh) {
-            vramAddr = (vramAddr + vramIncAmount).mask15;
             _refreshVramReadBuf();
+            vramAddr = (vramAddr + vramIncAmount).mask15;
           }
           return v;
         }
