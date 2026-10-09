@@ -1,5 +1,5 @@
 import 'dart:io';
-import '../core/md/z80/z80_disasm.dart';
+import 'package:fnesemu/core/md/z80/z80_disasm.dart';
 
 void main(List<String> args) {
   final bytes = args.map((byte) => int.parse(byte, radix: 16)).toList();

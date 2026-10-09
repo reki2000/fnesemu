@@ -93,7 +93,7 @@ void main() {
         } else {
           dependency = file.uri.resolve(uri);
         }
-        expect(dependency.path, isNot(contains('/lib/tools/')),
+        expect(dependency.path, isNot(contains('/tool/')),
             reason: '${file.path}: $uri');
         expect(dependency.path, isNot(contains('/lib/gui/')),
             reason: '${file.path}: $uri');

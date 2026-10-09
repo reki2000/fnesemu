@@ -4,7 +4,7 @@
 // debug views) as PNG files.
 //
 // usage:
-//   dart run lib/tools/md_harness.dart <rom> [options]
+//   dart run tool/md_harness.dart <rom> [options]
 //
 // options:
 //   -f, --frames N        number of frames to run (default: 60)
@@ -19,11 +19,10 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/md/md.dart';
+import 'package:fnesemu/core/pad_button.dart';
+import 'package:fnesemu/core/types.dart';
 import 'package:image/image.dart' as img;
-
-import '../core/md/md.dart';
-import '../core/pad_button.dart';
-import '../core/types.dart';
 
 class _Press {
   final PadButton button;
@@ -36,7 +35,7 @@ class _Press {
 void _usage([String? error]) {
   if (error != null) stderr.writeln("error: $error");
   stderr.writeln(
-      "usage: dart run lib/tools/md_harness.dart <rom> [-f frames] [-o outdir] [-e every] [-p Button@frame[+len]] [-s scale] [-d]");
+      "usage: dart run tool/md_harness.dart <rom> [-f frames] [-o outdir] [-e every] [-p Button@frame[+len]] [-s scale] [-d]");
   exit(1);
 }
 

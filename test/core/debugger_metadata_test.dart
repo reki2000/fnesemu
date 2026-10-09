@@ -1,6 +1,6 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/core/core_api.dart';
 import 'package:fnesemu/core/core_empty.dart';
+import 'package:test/test.dart';
 
 class _Core extends EmptyCore {
   @override

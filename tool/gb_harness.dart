@@ -1,6 +1,6 @@
 // headless GB harness: runs a rom (.gb/.zip) and dumps frames as png
 //
-// usage: dart run lib/tools/gb_harness.dart <rom> [options]
+// usage: dart run tool/gb_harness.dart <rom> [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/gb_harness)

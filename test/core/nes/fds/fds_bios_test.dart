@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:fnesemu/core/nes/fds/fds_bios.dart';
 import 'package:test/test.dart';
 

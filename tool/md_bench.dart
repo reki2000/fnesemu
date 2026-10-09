@@ -1,5 +1,5 @@
 // benchmark of the md core (also md cdrom / 32x): runs a rom for N frames
-// the same way as lib/tools/core_harness.dart and prints the speed and a hash
+// the same way as tool/core_harness.dart and prints the speed and a hash
 // of every frame image and of the audio output, to check that an optimization
 // does not change the output.
 //

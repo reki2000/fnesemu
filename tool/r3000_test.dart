@@ -6,7 +6,6 @@ import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
-import 'package:test/test.dart';
 
 /// A dummy BusR3000 implementation for tests.
 class _TestBus implements BusR3000 {
@@ -78,8 +77,13 @@ void main() {
     cpu.r[29] = dimage.getUint32BE(0);
     cpu.pc = base;
 
-    test("test ${testgroup.path}", () {
-      void check(String s) => expect(s, equals(snapshot[snapshotIndex++]));
+    {
+      void check(String s) {
+        final expected = snapshot[snapshotIndex++];
+        if (s != expected) {
+          throw StateError('${testgroup.path}: "$s", expected "$expected"');
+        }
+      }
 
       while (snapshotIndex < snapshot.length) {
         final inst32 = bus.read32(cpu.pc);
@@ -106,6 +110,8 @@ void main() {
           rethrow;
         }
       }
-    });
+      // ignore: avoid_print
+      print('ok: ${testgroup.path}');
+    }
   }
 }

@@ -5,7 +5,7 @@ test-z80:
 	dart run lib/core/md/z80/z80_test.dart assets/tests.in assets/tests.expected
 
 test-m68:
-	dart run lib/tools/m68_test.dart
+	dart run tool/m68_test.dart
 
 test-r3000:
 	dart run tool/r3000_test.dart
@@ -17,7 +17,7 @@ test:
 	flutter test
 
 playvgm:
-	dart run lib/tools/vgmplayer.dart $(VGM)
+	dart run tool/vgmplayer.dart $(VGM)
 
 platform-upgrade:
 	rm -rf ios android windows linux macos web

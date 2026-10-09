@@ -1,6 +1,6 @@
 // headless GBA harness: runs a cartridge (.gba or .zip) and dumps frames as png
 //
-// usage: dart run lib/tools/gba_harness.dart <rom> [options]
+// usage: dart run tool/gba_harness.dart <rom> [options]
 //   -b, --bios FILE  boot from this BIOS image (default: HLE boot)
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)

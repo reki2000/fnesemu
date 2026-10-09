@@ -1,5 +1,5 @@
 import 'dart:io';
-import '../core/components/m68k/disasm.dart';
+import 'package:fnesemu/core/components/m68k/disasm.dart';
 
 void main(List<String> args) {
   final words = args.map((word) => int.parse(word, radix: 16)).toList();

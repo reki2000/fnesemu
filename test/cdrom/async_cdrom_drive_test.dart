@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu/cdrom/async_cdrom_drive.dart';

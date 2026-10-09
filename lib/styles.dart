@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-final debugStyle = GoogleFonts.robotoMono(fontSize: 11);
+// a monospace font of the platform, for the debug views
+const debugStyle = TextStyle(
+    fontFamily: 'monospace',
+    fontFamilyFallback: ['Menlo', 'Consolas', 'Courier New'],
+    fontSize: 11);
 
 const denseTextDecoration = InputDecoration(
   isDense: true,

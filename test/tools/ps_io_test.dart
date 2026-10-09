@@ -3,9 +3,10 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/memory_card.dart';
 import 'package:fnesemu/core/ps/ps.dart';
-import 'package:fnesemu/tools/ps_io.dart';
 import 'package:image/image.dart' as img;
 import 'package:test/test.dart';
+
+import '../../tool/ps_io.dart';
 
 int readCardByte(MemoryCard card, int sector) {
   card.reset();

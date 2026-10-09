@@ -1,7 +1,7 @@
 // headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run lib/tools/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
+// usage: dart run tool/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)

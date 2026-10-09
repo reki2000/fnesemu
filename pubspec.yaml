@@ -13,11 +13,9 @@ dependencies:
   flutter:
     sdk: flutter
 
-  google_fonts: ^6.2.1
   package_info_plus: ^10.2.2
   mp_audio_stream: ^0.3.0
   archive: ^3.1.2
-  image: ^4.3.0
   idb_shim: ^2.9.9
   path_provider: ^2.1.6
   web: ^1.1.1
@@ -25,6 +23,7 @@ dependencies:
     path: packages/mp_bigfile_picker
 
 dev_dependencies:
+  image: ^4.3.0
   test: ^1.21.1
   flutter_test:
     sdk: flutter

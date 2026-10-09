@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
+import 'package:fnesemu/cdrom/disc_source_local.dart';
+import 'package:fnesemu/core/ps/ps.dart';
+import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/tracer.dart';
 import 'package:fnesemu/core/types.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../cdrom/async_cdrom_drive.dart';
-import '../cdrom/disc_source_local.dart';
-import '../core/ps/ps.dart';
-import '../core/sram.dart';
 import 'ps_io.dart';
 
 int runSeconds = -1; // run for this many seconds
@@ -96,7 +96,7 @@ class TraceLogger {
 List<String> handleOptions(List<String> args) {
   if (args.length < 2) {
     print(
-      "Usage: dart run lib/tools/ps_test.dart [-f] [-c runCycles] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
+      "Usage: dart run tool/ps_test.dart [-f] [-c runCycles] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
     );
     return [];
   }

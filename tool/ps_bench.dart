@@ -1,7 +1,7 @@
 // ps1 core speed benchmark: boots the bios with a disc, fast-forwards to a
 // scene, then times a fixed number of frames.
 //
-// usage: dart run lib/tools/ps_bench.dart <bios> [disc.cue] [options]
+// usage: dart run tool/ps_bench.dart <bios> [disc.cue] [options]
 //   -w N        frames to run before timing (default: 0)
 //   -m N        frames to time (default: 600)
 //   -p F:B      press button B at frame F (repeatable), -H N hold frames (12)

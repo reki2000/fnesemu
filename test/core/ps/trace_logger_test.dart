@@ -1,5 +1,5 @@
-import 'package:fnesemu/tools/ps_test.dart' show TraceLogger;
 import 'package:test/test.dart';
+import '../../../tool/ps_test.dart' show TraceLogger;
 
 void main() {
   test('trace logger extracts jump target and exception PC', () {

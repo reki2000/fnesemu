@@ -1,6 +1,6 @@
 // headless SS harness: runs BIOS (+ disc) and dumps frames as png
 //
-// usage: dart run lib/tools/ss_harness.dart <bios> [disc] [options]
+// usage: dart run tool/ss_harness.dart <bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/ss_harness)

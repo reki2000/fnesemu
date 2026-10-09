@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/ps/gpu/gpu.dart';
+import 'package:fnesemu/core/ps/ps.dart';
+import 'package:fnesemu/util/int.dart';
 import 'package:image/image.dart' as img;
-import '../core/ps/gpu/gpu.dart';
-import '../core/ps/ps.dart';
-import '../util/int.dart';
 
 /// CLI configuration and file access stay outside the PS core.
 Ps createPsForTools(

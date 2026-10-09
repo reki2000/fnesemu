@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/core/cdrom_drive.dart';
 import 'package:fnesemu/core/core_factory.dart';
 import 'package:fnesemu/core/md/module.dart';
+import 'package:test/test.dart';
 
 /// a ready drive whose sectors are filled with zero except [sectors]
 class _Drive implements CdromDrive {

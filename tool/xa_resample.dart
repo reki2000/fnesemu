@@ -2,10 +2,9 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/ps/cdrom.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:mp_audio_stream/mp_audio_stream.dart';
-
-import '../core/ps/cdrom.dart';
 
 const rateHz = 44100;
 const loopHz = 60 * 250;
@@ -14,7 +13,7 @@ const loopDurationUs = million / loopHz;
 
 // resample checker from 37800Hz xa pcm to 44100Hz pcm
 //  $env:Path += ";build\windows\x64\plugins\mp_audio_stream\shared\Debug"
-//  dart run lib/tools/xa_resample.dart xa2.wav (37800Hz 16bit stereo pcm, exported from cdrom_xa.dart)
+//  dart run tool/xa_resample.dart xa2.wav (37800Hz 16bit stereo pcm, exported from cdrom_xa.dart)
 void main(List<String> args) async {
   final player = getAudioStream()
     ..init(bufferMilliSec: 4000, sampleRate: rateHz, channels: 2);

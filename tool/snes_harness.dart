@@ -1,5 +1,5 @@
 // Run real SNES cartridges without the Flutter UI and capture rendered frames.
-// dart run lib/tools/snes_harness.dart <rom-or-directory> [frames] [output-dir]
+// dart run tool/snes_harness.dart <rom-or-directory> [frames] [output-dir]
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -11,7 +11,7 @@ import 'package:image/image.dart' as image;
 void main(List<String> args) {
   if (args.isEmpty || args.length > 3) {
     stderr.writeln(
-      'Usage: dart run lib/tools/snes_harness.dart '
+      'Usage: dart run tool/snes_harness.dart '
       '<rom-or-directory> [frames=180] [output-dir=/tmp/snes-harness]',
     );
     exitCode = 64;

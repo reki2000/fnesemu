@@ -1,19 +1,18 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
+import 'package:fnesemu/cdrom/disc_source_local.dart';
+import 'package:fnesemu/core/md/md.dart';
+import 'package:fnesemu/core/pad_button.dart';
 import 'package:image/image.dart' as img;
-
-import '../cdrom/async_cdrom_drive.dart';
-import '../cdrom/disc_source_local.dart';
-import '../core/md/md.dart';
-import '../core/pad_button.dart';
 
 /// Headless BIOS/disc smoke runner with optional input and frame captures.
 Future<void> main(List<String> args) async {
   final paths = args.where((arg) => !arg.startsWith('--')).toList();
   if (paths.length < 2 || paths.length > 3) {
     stderr.writeln(
-        'Usage: dart run lib/tools/md_cdrom.dart <128 KiB BIOS> <disc.cue|disc.iso|disc.bin> [frames] [--start-frame=N] [--out=DIR] [--every=N]');
+        'Usage: dart run tool/md_cdrom.dart <128 KiB BIOS> <disc.cue|disc.iso|disc.bin> [frames] [--start-frame=N] [--out=DIR] [--every=N]');
     exitCode = 64;
     return;
   }

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show AssetManifest;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
@@ -11,18 +10,10 @@ import 'package:fnesemu/gui/floating_game_menu.dart';
 import 'package:fnesemu/gui/game_list.dart';
 import 'package:fnesemu/gui/sound_player.dart';
 import 'package:fnesemu/gui/storage.dart';
-// Use the font package's testing hook to keep this GUI test offline.
-// ignore: implementation_imports
-import 'package:google_fonts/src/google_fonts_base.dart' as fonts;
 import 'package:idb_shim/idb_client_memory.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 import 'sound_player_test.dart' show FakeAudioStream;
-
-class DebugFontManifest extends Fake implements AssetManifest {
-  @override
-  List<String> listAssets() => ['RobotoMono-Regular.ttf'];
-}
 
 // replaces the directory dialog of mp_bigfile_picker
 class TestFilePicker {
@@ -62,17 +53,6 @@ void main() {
   testWidgets(
       'ROM boot, menu pause, picker cancellation and backdrop resume work together',
       (tester) async {
-    final previousManifest = fonts.assetManifest;
-    fonts.assetManifest = DebugFontManifest();
-    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
-      'flutter/assets',
-      (message) async => ByteData(0),
-    );
-    addTearDown(() {
-      fonts.assetManifest = previousManifest;
-      tester.binding.defaultBinaryMessenger
-          .setMockMessageHandler('flutter/assets', null);
-    });
     final picker = TestFilePicker();
     debugDirectoryDialog = picker.dialog;
     addTearDown(() => debugDirectoryDialog = null);
