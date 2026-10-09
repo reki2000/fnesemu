@@ -7,6 +7,7 @@ import '../rom/snes_file.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'cpu_bus.dart';
+import 'dsp1.dart';
 import 'dma.dart';
 import 'pad.dart';
 import 'ppu.dart';
@@ -40,6 +41,9 @@ class Bus implements CpuBus {
   /// the Super FX chip of the cartridge, if any
   SuperFx? superFx;
 
+  /// the DSP-1 chip of the cartridge, if any
+  Dsp1? dsp1;
+
   // 128KB work ram ($7E0000-$7FFFFF, mirrored low 8KB in system area)
   final wram = Uint8List(0x20000);
 
@@ -65,6 +69,7 @@ class Bus implements CpuBus {
     mapping = file.mapping;
     sdd1 = file.hasSdd1 ? (Sdd1(rom)..reset()) : null;
     sa1 = file.hasSa1 ? Sa1(this, rom, file.sramSize) : null;
+    dsp1 = file.hasDsp1 ? (Dsp1(file.mapping, rom.length)..reset()) : null;
     superFx = file.hasSuperFx
         ? SuperFx(this, rom, file.sramSize == 0 ? 0x8000 : file.sramSize)
         : null;
@@ -112,6 +117,12 @@ class Bus implements CpuBus {
     if (superFx != null) {
       final v = superFx.mainRead(addr);
       if (v >= 0) return v;
+    }
+    final dsp1 = this.dsp1;
+    if (dsp1 != null) {
+      final port = dsp1.port(addr);
+      if (port == 1) return dsp1.readData();
+      if (port == 2) return dsp1.readStatus();
     }
 
     // system banks $00-$3F / $80-$BF
@@ -174,6 +185,12 @@ class Bus implements CpuBus {
 
     if (sa1?.mainWrite(addr, data) ?? false) return;
     if (superFx?.mainWrite(addr, data) ?? false) return;
+    final dsp1 = this.dsp1;
+    if (dsp1 != null) {
+      final port = dsp1.port(addr);
+      if (port == 1) dsp1.writeData(data);
+      if (port != 0) return;
+    }
 
     if (bank.mask7 < 0x40) {
       if (page < 0x2000) {
@@ -325,6 +342,7 @@ class Bus implements CpuBus {
     sdd1?.reset();
     sa1?.reset();
     superFx?.reset();
+    dsp1?.reset();
     _nmiEnabled = false;
     _nmiFlag = false;
     _irqFlag = false;

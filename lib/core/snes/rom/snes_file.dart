@@ -27,6 +27,9 @@ class SnesFile {
   /// SA-1 (a second cpu, shared I-RAM and BW-RAM)
   bool get hasSa1 => romType >= 0x33 && romType <= 0x36;
 
+  /// DSP-1 (a math coprocessor for 3D and Mode 7 projection)
+  bool get hasDsp1 => romType >= 0x03 && romType <= 0x05;
+
   /// Super FX (a risc cpu drawing into its own ram)
   bool get hasSuperFx => romType >= 0x13 && romType <= 0x1a;
 
