@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/cdrom/disc_image.dart';
 import 'package:fnesemu/cdrom/disc_scanner.dart';
+import 'package:fnesemu/gui/picked_disc.dart';
 import 'package:mp_bigfile_picker/io.dart';
 
 import 'memory_disc.dart';
@@ -127,7 +128,7 @@ void main() {
     File('${dir.path}/a/b/x.bin').writeAsBytesSync(bin);
     File('${dir.path}/y.iso').writeAsBytesSync(bin);
 
-    final r = await DiscScanner.scan(IoDirectory(dir.path));
+    final r = await DiscScanner.scan(PickedDiscDirectory(IoDirectory(dir.path)));
     expect(r.items.map((i) => i.path), ["a/b/x.cue", "y.iso"]);
 
     final image = await DiscImage.open(r.sourceOf(r.items.first));

@@ -59,7 +59,7 @@ void main() {
     results = [];
     cdrom.attachDrive(drive);
     await drive.insert(memoryDisc(
-        "a.bin", {"a.bin": MemoryReadFile("a.bin", makeBin(2000))}));
+        "a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(2000))}));
     cdrom.exec(33868800); // polls the drive, the tray closes after 0.5 sec
   });
 
@@ -83,7 +83,7 @@ void main() {
   test('a swap finished before the next exec is seen as shell open, close',
       () async {
     await drive.insert(memoryDisc(
-        "b.bin", {"b.bin": MemoryReadFile("b.bin", makeBin(50))}));
+        "b.bin", {"b.bin": MemoryDiscFile("b.bin", makeBin(50))}));
     expect(drive.status.isReady, true);
     cdrom.exec(1);
     expect(cdrom.isShellOpen, true);

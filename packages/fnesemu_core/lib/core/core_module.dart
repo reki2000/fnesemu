@@ -7,8 +7,6 @@ typedef BiosUpdates = Map<String, List<BiosFile>>;
 typedef BiosPreparer = BiosUpdates Function(
     List<BiosFile>, Map<String, List<BiosFile>>);
 
-enum MediaHint { unknown, rom, disc, ambiguous }
-
 class CoreSystem {
   final String id, name;
   final List<String> extensions;
@@ -83,7 +81,6 @@ abstract class CoreModule {
   Core create(String id);
   CoreSystem? identifyRom(String name, Uint8List body);
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async => null;
-  MediaHint mediaHint(String name) => MediaHint.unknown;
 }
 
 String mediaExtension(String name) =>

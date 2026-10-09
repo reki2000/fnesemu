@@ -1,7 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:mp_bigfile_picker/api.dart';
-
 import 'disc_source.dart';
 
 class DiscTrack {
@@ -30,7 +28,7 @@ class DiscToc {
 class Extent {
   final int startLba;
   final int sectors;
-  final RandomReadFile file;
+  final DiscFile file;
   final int fileSector; // sector offset in the file
 
   /// true if the file holds 2048 bytes of user data per sector (cooked mode 1)
@@ -47,7 +45,7 @@ class Extent {
 class Segment {
   final int lba;
   final int count;
-  final RandomReadFile? file;
+  final DiscFile? file;
   final int fileSector;
   final bool cooked;
 
@@ -177,7 +175,7 @@ class DiscImage {
 
   // raw images start with the sync pattern. cooked ones have "CD001" at
   // sector 16, or are an .iso whose size is a multiple of 2048 without sync
-  static Future<bool> _isCooked(RandomReadFile file, int length, String name) async {
+  static Future<bool> _isCooked(DiscFile file, int length, String name) async {
     // a size which is a multiple of 2352 but not of 2048 is a raw image
     if (length % sectorSize == 0 && length % _cookedSectorSize != 0) {
       return false;

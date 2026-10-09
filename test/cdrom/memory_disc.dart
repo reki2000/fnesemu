@@ -2,9 +2,8 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/cdrom/disc_source.dart';
-import 'package:mp_bigfile_picker/api.dart';
 
-class MemoryReadFile extends RandomReadFile {
+class MemoryDiscFile extends DiscFile {
   @override
   final String name;
   final Uint8List data;
@@ -12,7 +11,7 @@ class MemoryReadFile extends RandomReadFile {
   /// called on each [read]
   void Function(int offset, int length)? onRead;
 
-  MemoryReadFile(this.name, this.data);
+  MemoryDiscFile(this.name, this.data);
 
   @override
   Future<int> length() async => data.length;
@@ -29,28 +28,27 @@ class MemoryReadFile extends RandomReadFile {
   Future<void> close() async {}
 }
 
-class MemoryDirectory extends PickedDirectory {
-  final Map<String, MemoryReadFile> files;
+class MemoryDirectory extends DiscDirectory {
+  final Map<String, MemoryDiscFile> files;
 
   MemoryDirectory(this.files);
 
   MemoryDirectory.of(Map<String, Uint8List> data)
-      : files = {for (final e in data.entries) e.key: MemoryReadFile(e.key, e.value)};
+      : files = {
+          for (final e in data.entries) e.key: MemoryDiscFile(e.key, e.value)
+        };
 
   @override
   String get name => 'memory';
 
   @override
-  String? get restoreKey => null;
-
-  @override
   Stream<String> walk() => Stream.fromIterable(files.keys);
 
   @override
-  RandomReadFile open(String path) =>
+  DiscFile open(String path) =>
       files[path] ?? (throw ArgumentError("file not found: $path"));
 }
 
 /// the disc image [main] of [files]
-DiscSource memoryDisc(String main, Map<String, MemoryReadFile> files) =>
+DiscSource memoryDisc(String main, Map<String, MemoryDiscFile> files) =>
     DiscSource.inDirectory(MemoryDirectory(files), main, files.keys);

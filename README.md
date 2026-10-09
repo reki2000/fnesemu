@@ -46,10 +46,12 @@ This project is experimental.
 - `packages/mp_bigfile_picker`: the file and directory pickers of each
   platform, and random access to the picked files
 - the app:
-  - `lib/cdrom`: the disc images (.cue/.iso/.bin): the TOC and the sectors by
-    LBA, read from the files of mp_bigfile_picker
-  - `lib/gui`: the GUI. `async_cdrom_drive.dart` gives a disc image to the
-    cores as a `CdromDrive`
+  - `lib/cdrom`: the disc images (.cue/.iso/.bin): which files are images,
+    the TOC and the sectors by LBA. It reads through its own file interfaces,
+    without depending on mp_bigfile_picker or the cores.
+  - `lib/gui`: the GUI. `picked_disc.dart` gives the picked files to
+    `lib/cdrom`, and `async_cdrom_drive.dart` gives a disc image to the cores
+    as a `CdromDrive`
   - `tool/`: the command line harnesses which read discs
 
 ## Core module boundary

@@ -44,12 +44,6 @@ class MdModule extends CoreModule {
   }
 
   @override
-  MediaHint mediaHint(String name) => switch (mediaExtension(name)) {
-        'cue' || 'iso' => MediaHint.disc,
-        'bin' => MediaHint.ambiguous,
-        _ => MediaHint.unknown,
-      };
-  @override
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
     final start = firstDataLba(drive);
     return start != null &&

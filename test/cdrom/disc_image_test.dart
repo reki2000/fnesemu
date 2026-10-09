@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/cdrom/disc_image.dart';
+import 'package:fnesemu/cdrom/disc_source.dart';
 
 import 'memory_disc.dart';
 
@@ -9,7 +10,7 @@ const size = DiscImage.sectorSize;
 
 Future<DiscImage> insert(String main, Map<String, Uint8List> files) =>
     DiscImage.open(memoryDisc(main, {
-      for (final e in files.entries) e.key: MemoryReadFile(e.key, e.value)
+      for (final e in files.entries) e.key: MemoryDiscFile(e.key, e.value)
     }));
 
 Future<Uint8List> read(DiscImage image, int lba) async =>
@@ -34,6 +35,13 @@ Uint8List cooked(int sectors) {
 }
 
 void main() {
+  test('disc images are told by the extension', () {
+    expect(DiscFileKind.of('a/Game.CUE'), DiscFileKind.image);
+    expect(DiscFileKind.of('game.iso'), DiscFileKind.image);
+    expect(DiscFileKind.of('game.bin'), DiscFileKind.maybeImage);
+    expect(DiscFileKind.of('game.md'), DiscFileKind.notImage);
+  });
+
   group('cooked images', () {
     test('.iso of 2048 bytes/sector is expanded to raw mode 1 sectors',
         () async {
@@ -102,7 +110,7 @@ FILE "disc.bin" BINARY
   group('DiscImage', () {
     test('iso: single data track', () async {
       final image = await DiscImage.open(memoryDisc(
-          "a.iso", {"a.iso": MemoryReadFile("a.iso", makeBin(100))}));
+          "a.iso", {"a.iso": MemoryDiscFile("a.iso", makeBin(100))}));
       expect(image.toc.tracks.single.isAudio, false);
       expect(image.totalSectors, 100);
       expect(image.isReadable(99), true);
@@ -122,8 +130,8 @@ FILE "a.bin" BINARY
     INDEX 01 00:01:50
 ''';
       final image = await DiscImage.open(memoryDisc("a.cue", {
-        "a.cue": MemoryReadFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-        "a.bin": MemoryReadFile("a.bin", makeBin(200)),
+        "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
+        "a.bin": MemoryDiscFile("a.bin", makeBin(200)),
       }));
       final toc = image.toc;
       expect([for (final t in toc.tracks) t.startLba], [0, 85, 130]);
@@ -151,9 +159,9 @@ FILE "t2.bin" BINARY
     INDEX 01 00:02:00
 ''';
       final image = await DiscImage.open(memoryDisc("a.cue", {
-        "a.cue": MemoryReadFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-        "t1.bin": MemoryReadFile("t1.bin", makeBin(300)),
-        "t2.bin": MemoryReadFile("t2.bin", makeBin(400)),
+        "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
+        "t1.bin": MemoryDiscFile("t1.bin", makeBin(300)),
+        "t2.bin": MemoryDiscFile("t2.bin", makeBin(400)),
       }));
       expect([for (final t in image.toc.tracks) t.startLba], [0, 450]);
       expect([for (final t in image.toc.tracks) t.sectors], [450, 250]);

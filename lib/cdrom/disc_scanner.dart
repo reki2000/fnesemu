@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:mp_bigfile_picker/api.dart';
-
 import 'disc_image.dart';
 import 'disc_source.dart';
 
@@ -41,8 +39,9 @@ class ScanProgress {
       : "checking: $checkedCues / $cues cue files";
 }
 
-class ScanResult {
-  final PickedDirectory folder;
+/// [D] is the type of the directory given by the app
+class ScanResult<D extends DiscDirectory> {
+  final D folder;
 
   /// the paths of all the files below [folder]
   final List<String> files;
@@ -64,8 +63,8 @@ class ScanResult {
 class DiscScanner {
   static const _maxCueBytes = 1 << 20;
 
-  static Future<ScanResult> scan(
-    PickedDirectory folder, {
+  static Future<ScanResult<D>> scan<D extends DiscDirectory>(
+    D folder, {
     void Function(ScanProgress progress)? onProgress,
     bool Function()? isCancelled,
     bool includeAllFiles = false,
@@ -86,7 +85,7 @@ class DiscScanner {
 
     await for (final f in folder.walk()) {
       if (cancelled()) {
-        return ScanResult(folder, files, const [], const [], true);
+        return ScanResult<D>(folder, files, const [], const [], true);
       }
       files.add(f);
       report(true, 0, 0, 0);
@@ -101,7 +100,7 @@ class DiscScanner {
 
     for (int i = 0; i < cues.length; i++) {
       if (cancelled()) {
-        return ScanResult(folder, files, items, skipped, true);
+        return ScanResult<D>(folder, files, items, skipped, true);
       }
       final cue = cues[i];
       report(false, cues.length, i, items.length);
@@ -126,7 +125,9 @@ class DiscScanner {
 
     for (final f in files) {
       final ext = _ext(f);
-      if ((includeAllFiles ? ext != 'cue' : (ext == 'iso' || ext == 'bin')) &&
+      // the .cue files are listed above
+      if (ext != 'cue' &&
+          (includeAllFiles || DiscFileKind.of(f) != DiscFileKind.notImage) &&
           !referenced.contains(folderKey('', f))) {
         items.add(DiscItem(f));
       }
@@ -134,7 +135,7 @@ class DiscScanner {
 
     items.sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
     report(false, cues.length, cues.length, items.length, force: true);
-    return ScanResult(folder, files, items, skipped, false);
+    return ScanResult<D>(folder, files, items, skipped, false);
   }
 
   static String _ext(String path) {
@@ -144,7 +145,7 @@ class DiscScanner {
 
   /// the files of the FILE commands of the .cue file, or null if unreadable
   static Future<List<String>?> _referencedFiles(
-      PickedDirectory folder, String cuePath) async {
+      DiscDirectory folder, String cuePath) async {
     final file = folder.open(cuePath);
     try {
       return DiscImage.cueFileNames(

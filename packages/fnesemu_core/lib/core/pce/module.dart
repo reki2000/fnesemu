@@ -32,12 +32,6 @@ class PceModule extends CoreModule {
   CoreSystem? identifyRom(String name, Uint8List body) =>
       mediaExtension(name) == 'pce' ? cartridge : null;
   @override
-  MediaHint mediaHint(String name) => switch (mediaExtension(name)) {
-        'cue' || 'iso' => MediaHint.disc,
-        'bin' => MediaHint.ambiguous,
-        _ => MediaHint.unknown,
-      };
-  @override
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
     final start = firstDataLba(drive);
     if (start == null) return null;

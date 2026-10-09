@@ -36,8 +36,8 @@ FILE "a.bin" BINARY
 ''';
     final drive = AsyncCdromDrive();
     await drive.insert(memoryDisc("a.cue", {
-      "a.cue": MemoryReadFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-      "a.bin": MemoryReadFile("a.bin", makeBin(200)),
+      "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
+      "a.bin": MemoryDiscFile("a.bin", makeBin(200)),
     }));
     final toc = drive.status.toc;
     expect(toc.trackCount, 2);
@@ -48,14 +48,14 @@ FILE "a.bin" BINARY
   });
 
   group('AsyncCdromDrive', () {
-    late MemoryReadFile bin;
+    late MemoryDiscFile bin;
     late List<(int, int)> fileReads;
     late AsyncCdromDrive drive;
     late DateTime now;
 
     setUp(() async {
       fileReads = [];
-      bin = MemoryReadFile("a.bin", makeBin(1000))
+      bin = MemoryDiscFile("a.bin", makeBin(1000))
         ..onRead =
             (offset, length) => fileReads.add((offset ~/ size, length ~/ size));
       now = DateTime(2026);
@@ -190,7 +190,7 @@ FILE "a.bin" BINARY
 
     test('broken cue is reported as error', () async {
       await drive.insert(memoryDisc("a.cue", {
-        "a.cue": MemoryReadFile(
+        "a.cue": MemoryDiscFile(
             "a.cue", Uint8List.fromList('FILE "x.bin" BINARY\n'.codeUnits)),
       }));
       expect(drive.status.state, CdromDriveState.error);
@@ -207,8 +207,8 @@ FILE "a.bin" BINARY
     INDEX 01 00:00:10
 ''';
       await drive.insert(memoryDisc("a.cue", {
-        "a.cue": MemoryReadFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-        "a.bin": MemoryReadFile("a.bin", makeBin(20, id: 1)),
+        "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
+        "a.bin": MemoryDiscFile("a.bin", makeBin(20, id: 1)),
       }));
       drive.read(9);
       await pump();
@@ -223,7 +223,7 @@ FILE "a.bin" BINARY
   test('Disc reads with absolute sectors and null while pending', () async {
     final drive = AsyncCdromDrive();
     await drive.insert(
-        memoryDisc("a.bin", {"a.bin": MemoryReadFile("a.bin", makeBin(4))}));
+        memoryDisc("a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(4))}));
     final disc = Disc(drive);
     expect(disc.isEmpty, false);
     expect(disc.totalSectors, 4);

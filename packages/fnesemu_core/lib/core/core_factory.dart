@@ -61,14 +61,4 @@ class CoreFactory {
     }
     return null;
   }
-
-  /// whether a file of [name] is a disc image: [MediaHint.disc] if a core
-  /// takes it as a disc, [MediaHint.ambiguous] if it can be a disc or a ROM
-  /// (the disc is identified by [systemOfDisc]).
-  static MediaHint mediaHint(String name) {
-    final hints = _modules.map((module) => module.mediaHint(name)).toSet();
-    if (hints.contains(MediaHint.disc)) return MediaHint.disc;
-    if (hints.contains(MediaHint.ambiguous)) return MediaHint.ambiguous;
-    return MediaHint.unknown;
-  }
 }

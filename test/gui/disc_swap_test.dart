@@ -8,7 +8,7 @@ import 'package:fnesemu_core/core/disc_swap.dart';
 import '../cdrom/memory_disc.dart';
 
 DiscSource source(String name) => memoryDisc(
-    name, {name: MemoryReadFile(name, Uint8List(2352 * 10))});
+    name, {name: MemoryDiscFile(name, Uint8List(2352 * 10))});
 
 void main() {
   late AsyncCdromDrive drive;

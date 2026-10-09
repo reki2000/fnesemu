@@ -9,6 +9,7 @@ import 'package:fnesemu_core/util/debug.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 import '../cdrom/disc_scanner.dart';
+import '../cdrom/disc_source.dart';
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
 import 'core_view.dart';
@@ -19,6 +20,7 @@ import 'game_directory.dart';
 import 'game_list.dart';
 import 'key_handler.dart';
 import 'pad_input.dart';
+import 'picked_disc.dart';
 import 'recent_game.dart';
 import 'rom_archive.dart';
 import 'sound_player.dart';
@@ -26,6 +28,8 @@ import 'storage.dart';
 import 'ticker_image.dart';
 
 part 'loader.dart';
+
+typedef _Scan = ScanResult<PickedDiscDirectory>;
 
 class Config {
   final bool debug;
@@ -114,7 +118,7 @@ class MainPageState extends State<MainPage> {
   // disc images found in the directory selected from the disc menu
   final _openedFolders = <String, PickedDirectory>{};
   final _folderIds = Expando<String>();
-  ScanResult? _scan;
+  _Scan? _scan;
   final _progress =
       ValueNotifier<ScanProgress?>(null); // not null while scanning
   bool _cancelScan = false;
@@ -287,11 +291,11 @@ class MainPageState extends State<MainPage> {
 
   /// whether [item] is a disc image. a file which can be either a disc or a
   /// ROM by its name is read to find a core which takes it as a disc.
-  Future<bool> _isDiscImage(DiscItem item, ScanResult scan) async {
-    switch (CoreFactory.mediaHint(item.path)) {
-      case MediaHint.disc:
+  Future<bool> _isDiscImage(DiscItem item, _Scan scan) async {
+    switch (DiscFileKind.of(item.path)) {
+      case DiscFileKind.image:
         return true;
-      case MediaHint.ambiguous:
+      case DiscFileKind.maybeImage:
         final drive = AsyncCdromDrive();
         try {
           await drive.insert(scan.sourceOf(item));
@@ -480,7 +484,7 @@ class MainPageState extends State<MainPage> {
   /// shows the progress until the list is ready, and closing it stops the scan
   Future<void> _scanAndShowGames(PickedDirectory folder) async {
     if (!mounted) return;
-    final scan = ValueNotifier<ScanResult?>(null);
+    final scan = ValueNotifier<_Scan?>(null);
     var dialogOpen = true;
     final scanning = _scanFolder(folder).then((result) => scan.value = result,
         onError: (Object e, StackTrace st) {
@@ -520,13 +524,13 @@ class MainPageState extends State<MainPage> {
   }
 
   /// Cue references are excluded; every other file is shown in the game list.
-  Future<ScanResult?> _scanFolder(PickedDirectory folder) async {
+  Future<_Scan?> _scanFolder(PickedDirectory folder) async {
     if (_progress.value != null || !mounted) return null;
     _cancelScan = false;
     _scan = null;
     _progress.value = const ScanProgress(true, 0, 0, 0, 0);
     try {
-      final result = await DiscScanner.scan(folder,
+      final result = await DiscScanner.scan(PickedDiscDirectory(folder),
           includeAllFiles: true,
           onProgress: (p) => _progress.value = p,
           isCancelled: () => _cancelScan || !mounted);
@@ -546,7 +550,7 @@ class MainPageState extends State<MainPage> {
   }
 
   /// inserts the image selected from the list and starts it
-  _insertItem(DiscItem item, {ScanResult? sourceScan}) async {
+  _insertItem(DiscItem item, {_Scan? sourceScan}) async {
     final scan = sourceScan ?? _scan;
     if (scan == null) return;
 
@@ -562,15 +566,15 @@ class MainPageState extends State<MainPage> {
     }
   }
 
-  String _folderHistoryKey(ScanResult scan) =>
-      _folderIds[scan.folder] ??
+  String _folderHistoryKey(_Scan scan) =>
+      _folderIds[scan.folder.dir] ??
       _openedFolders.entries
           .where((entry) =>
-              scan.folder.identityKey != null &&
-              entry.value.identityKey == scan.folder.identityKey)
+              scan.folder.dir.identityKey != null &&
+              entry.value.identityKey == scan.folder.dir.identityKey)
           .firstOrNull
           ?.key ??
-      scan.folder.identityKey ??
+      scan.folder.dir.identityKey ??
       'web:${scan.folder.name}:${getCrc32(utf8.encode(jsonEncode([...scan.files]..sort())))}';
 
   bool _historyAvailable(RecentGame game) {
@@ -602,7 +606,8 @@ class MainPageState extends State<MainPage> {
           throw StateError('Game is no longer available in the directory');
         }
         await _insertItem(DiscItem(game.sourcePath),
-            sourceScan: ScanResult(folder, files, const [], const [], false));
+            sourceScan: ScanResult(
+                PickedDiscDirectory(folder), files, const [], const [], false));
         return;
       }
     }
