@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:archive/archive.dart' show getCrc32;
-import 'package:cdrom/cdrom.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/core/core_api.dart';

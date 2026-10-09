@@ -41,10 +41,10 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
-  cdrom:
+  cdrom_image:
     dependency: "direct main"
     description:
-      path: "packages/cdrom"
+      path: "packages/cdrom_image"
       relative: true
     source: path
     version: "0.0.0"

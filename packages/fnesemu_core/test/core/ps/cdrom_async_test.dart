@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:cdrom/memory.dart';
+import 'package:cdrom_image/memory.dart';
 import 'package:fnesemu_core/core/disc.dart';
 import 'package:fnesemu_core/core/ps/bus.dart';
 import 'package:fnesemu_core/core/ps/cdrom.dart';

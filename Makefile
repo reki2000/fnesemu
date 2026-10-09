@@ -17,7 +17,7 @@ test-gte:
 	dart run $(CORE)/tool/gte_test.dart assets/ps1-tests/gte/test-all/tests.c
 
 test:
-	cd packages/cdrom && dart test
+	cd packages/cdrom_image && dart test
 	cd $(CORE) && dart test
 	flutter test
 
@@ -33,6 +33,6 @@ format:
 	dart fix --apply --code=directives_ordering lib
 	dart fix --apply --code=directives_ordering test
 	cd $(CORE) && dart fix --apply --code=directives_ordering .
-	cd packages/cdrom && dart fix --apply --code=directives_ordering .
+	cd packages/cdrom_image && dart fix --apply --code=directives_ordering .
 
 .PHONY: test format

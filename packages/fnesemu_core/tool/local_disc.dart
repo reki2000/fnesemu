@@ -1,8 +1,8 @@
-// the local files given to the cdrom package, for the harnesses and the tests
+// the local files given to the cdrom_image package, for the harnesses and the tests
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:cdrom/cdrom.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 
 class IoDiscFile extends DiscFile {
   final String path;

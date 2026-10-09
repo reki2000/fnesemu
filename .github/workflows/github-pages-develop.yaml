@@ -28,7 +28,7 @@ jobs:
       - run: flutter --version
       - run: flutter pub get
       - run: dart pub get && dart test
-        working-directory: packages/cdrom
+        working-directory: packages/cdrom_image
       - run: dart test
         working-directory: packages/fnesemu_core
       - run: flutter test

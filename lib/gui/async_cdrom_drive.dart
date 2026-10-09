@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:cdrom/cdrom.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 import 'package:fnesemu_core/core/core_api.dart';
 import 'package:fnesemu_core/util/debug.dart';
 
 /// the [CdromDrive] of the cores, which reads a disc image by a [DiscDrive]
-/// of the cdrom package
+/// of the cdrom_image package
 class AsyncCdromDrive implements CdromDrive {
   final DiscDrive drive;
 

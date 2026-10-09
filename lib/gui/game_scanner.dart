@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cdrom/cdrom.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 import 'package:mp_bigfile_picker/api.dart';
 
 import 'picked_disc.dart';

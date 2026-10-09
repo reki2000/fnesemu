@@ -1,10 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:cdrom/disc_image.dart';
-import 'package:cdrom/disc_source.dart';
+import 'package:cdrom_image/disc_image.dart';
+import 'package:cdrom_image/disc_source.dart';
+import 'package:cdrom_image/memory.dart';
 import 'package:test/test.dart';
-
-import 'package:cdrom/memory.dart';
 
 const size = DiscImage.sectorSize;
 

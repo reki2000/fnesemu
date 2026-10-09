@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:cdrom/cdrom.dart';
-import 'package:cdrom/memory.dart';
+import 'package:cdrom_image/cdrom_image.dart';
+import 'package:cdrom_image/memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/disc.dart';

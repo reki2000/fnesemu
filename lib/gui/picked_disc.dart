@@ -1,7 +1,7 @@
-// gives the files of mp_bigfile_picker to the cdrom package
+// gives the files of mp_bigfile_picker to the cdrom_image package
 import 'dart:typed_data';
 
-import 'package:cdrom/cdrom.dart';
+import 'package:cdrom_image/cdrom_image.dart';
 import 'package:mp_bigfile_picker/api.dart';
 
 class PickedDiscFile extends DiscFile {

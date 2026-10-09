@@ -22,8 +22,8 @@ dependencies:
     path: packages/mp_bigfile_picker
   fnesemu_core:
     path: packages/fnesemu_core
-  cdrom:
-    path: packages/cdrom
+  cdrom_image:
+    path: packages/cdrom_image
 
 dev_dependencies:
   flutter_test:

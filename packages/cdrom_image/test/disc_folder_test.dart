@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:cdrom/disc_folder.dart';
+import 'package:cdrom_image/disc_folder.dart';
+import 'package:cdrom_image/memory.dart';
 import 'package:test/test.dart';
-
-import 'package:cdrom/memory.dart';
 
 Uint8List text(String s) => Uint8List.fromList(s.codeUnits);
 
