@@ -151,3 +151,7 @@ $ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
 $ cd ..
 $ make test-gte 
 ```
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
