@@ -2,8 +2,7 @@
 import 'package:flutter/services.dart';
 
 // Project imports:
-import '../core/core_controller.dart';
-import '../core/pad_button.dart';
+import '../core/core_api.dart';
 import 'pad_input.dart';
 
 class KeyHandler {

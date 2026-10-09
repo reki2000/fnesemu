@@ -1,8 +1,8 @@
 // Dart imports:
 import 'dart:async';
 import 'dart:convert';
+import 'package:archive/archive.dart' show getCrc32;
 // Flutter imports:
-import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
@@ -10,13 +10,10 @@ import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 // Project imports:
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/disc_source.dart';
-import '../core/core_controller.dart';
-import '../core/debugger.dart';
-import '../core/core_factory.dart';
+import '../core/core_api.dart';
 import '../cdrom/disc_folder.dart';
 import '../styles.dart';
 import 'package:fnesemu/util/debug.dart';
-import '../core/nes/fds/fds_bios.dart';
 import 'core_view.dart';
 import 'floating_game_menu.dart';
 import 'debug/debug_controller.dart';
@@ -274,19 +271,8 @@ class MainPageState extends State<MainPage> {
   Future<void> _openGameItem(DiscItem item) async {
     final scan = _scan;
     if (scan == null) return;
-    final extension = _fileExtension(item.path);
-    var isDisc = extension == 'cue' || extension == 'iso';
-    if (extension == 'bin') {
-      // A .bin may be a cartridge or an unreferenced disc image.
-      final probe = AsyncCdromDrive();
-      try {
-        await probe.insert(scan.sourceOf(item));
-        isDisc = probe.status.isReady &&
-            await CoreFactory.systemOfDisc(probe) != null;
-      } finally {
-        await probe.eject();
-      }
-    }
+    final isDisc =
+        await CoreFactory.isDiscImage(item.path, scan.sourceOf(item));
     if (isDisc) {
       await _insertItem(item);
       return;
@@ -298,7 +284,7 @@ class MainPageState extends State<MainPage> {
     } finally {
       await file.close();
     }
-    final (rom, name) = _extractIfZip(data, item.path);
+    final (rom, name) = CoreFactory.unpackRom(data, item.path);
     await _boot(CoreFactory.systemOfFile(name, rom),
         rom: rom, name: name, folder: _folderHistoryKey(scan), path: item.path);
   }
@@ -340,30 +326,33 @@ class MainPageState extends State<MainPage> {
   }
 
   /// lets the user select the BIOS files of [system] and saves them
-  _selectBios(CoreSystem system) async {
-    if (system.id == 'mdcd') return _selectMdBios();
-
+  _selectBios(BiosSetup setup) async {
     final files = await _pickBiosFiles(
-        multiple: system.biosFiles > 1,
-        dialogTitle: "Select the BIOS of ${system.name}");
-    if (files == null) {
-      return;
+        multiple: setup.maxFiles > 1,
+        dialogTitle: 'Select the BIOS of ${setup.name}');
+    if (files == null) return;
+    final existing = <String, List<BiosFile>>{};
+    for (final system in setup.systems) {
+      final data = await _storage.bios(system.id);
+      final names = _storage.biosNames(system.id);
+      existing[system.id] = [
+        for (var i = 0; i < data.length && i < names.length; i++)
+          (names[i], data[i])
+      ];
     }
-
-    if (files.length != system.biosFiles) {
-      throw Exception("${system.name} requires ${system.biosFiles} BIOS "
-          "files: ${files.length} selected");
+    final updates = setup.prepare(
+        [for (final (data, name) in files) (name, data)],
+        existing: existing);
+    for (final update in updates.entries) {
+      await _storage.setBios(update.key, update.value);
     }
-
-    if (system.id == 'fds') {
-      decodeFdsBios(files.single.$1);
-    }
-
-    await _storage
-        .setBios(system.id, [for (final (data, name) in files) (name, data)]);
-    AppSnackBar.show("BIOS of ${system.name}: "
-        "${_storage.biosNames(system.id).join(", ")}");
+    AppSnackBar.show('BIOS of ${setup.name}: ${_biosSummary(setup)}');
   }
+
+  String _biosSummary(BiosSetup setup) => setup.summary({
+        for (final system in setup.systems)
+          system.id: _storage.biosNames(system.id),
+      });
 
   // the directories selected last time, where the pickers open next time
   static const _lastBiosDirKey = "last_bios_dir";
@@ -377,54 +366,6 @@ class MainPageState extends State<MainPage> {
           initialDirectory: _storage.setting(_lastBiosDirKey),
           onDirectory: (dir) => _storage.setSetting(_lastBiosDirKey, dir));
 
-  /// md cdrom and 32x BIOS files selected at once, told apart by their sizes.
-  /// a 32x boot rom which is not selected keeps the one saved before.
-  _selectMdBios() async {
-    final files = await _pickBiosFiles(
-        multiple: true, dialogTitle: "Select the BIOS of md cdrom and/or 32x");
-    if (files == null) {
-      return;
-    }
-
-    final cd = <(String, Uint8List)>[];
-    final x32 = <String, (String, Uint8List)>{}; // role -> file
-    for (final (data, name) in files) {
-      switch (CoreFactory.mdBiosOf(data)) {
-        case ('mdcd', _):
-          cd.add((name, data));
-        case ('32x', final role):
-          x32[role] = (name, data);
-        default:
-          throw Exception("not a BIOS of md cdrom or 32x: $name");
-      }
-    }
-    if (cd.length > 1) {
-      throw Exception("select one BIOS of md cdrom: ${cd.length} selected");
-    }
-
-    if (cd.isNotEmpty) await _storage.setBios('mdcd', cd);
-    if (x32.isNotEmpty) {
-      final saved = await _storage.bios('32x');
-      final names = _storage.biosNames('32x');
-      for (var i = 0; i < saved.length && i < names.length; i++) {
-        final role = CoreFactory.mdBiosOf(saved[i])?.$2;
-        if (role != null) x32.putIfAbsent(role, () => (names[i], saved[i]));
-      }
-      await _storage.setBios('32x', x32.values.toList());
-    }
-    AppSnackBar.show("BIOS of md: ${_mdBiosSummary()}");
-  }
-
-  String _mdBiosSummary() {
-    final cd = _storage.biosNames('mdcd');
-    final x32 = _storage.biosNames('32x');
-    if (cd.isEmpty && x32.isEmpty) return "BIOS not set";
-    return [
-      "cdrom: ${cd.isEmpty ? "-" : cd.join(", ")}",
-      "32x: ${x32.isEmpty ? "-" : "${x32.join(", ")}${x32.length < 3 ? " (${x32.length}/3)" : ""}"}",
-    ].join(" / ");
-  }
-
   /// plays the disc in the drive. the running system keeps running if it
   /// plays the disc (the disc is changed as on the real console), otherwise
   /// the system of the disc boots.
@@ -435,8 +376,7 @@ class MainPageState extends State<MainPage> {
       return false;
     }
 
-    final running = _controller.system;
-    if (running.isNotEmpty && CoreFactory.system(running).disc == system.id) {
+    if (_controller.acceptsDisc(system)) {
       AppSnackBar.show("inserted: $name");
       _romName = name;
       _resumeAfterAction = !widget.config.debug;
@@ -590,6 +530,7 @@ class MainPageState extends State<MainPage> {
       'web:${scan.folder.name}:${getCrc32(utf8.encode(jsonEncode(scan.files.map((file) => file.path).toList()..sort())))}';
 
   bool _historyAvailable(RecentGame game) {
+    if (CoreFactory.systemOrNull(game.core) == null) return false;
     if (!game.isDisc) return true;
     final id = game.folder;
     final scan = _scan;
@@ -656,19 +597,12 @@ class MainPageState extends State<MainPage> {
     _controller.debugger.setDebugView(onoff);
   }
 
-  PopupMenuItem<CoreSystem> _coreSetupItem(CoreSystem s) {
-    final names = _storage.biosNames(s.id);
-    return PopupMenuItem(
-        value: s,
-        child: ListTile(
-            title: Text(s.name),
-            subtitle: Text(s.id == 'mdcd'
-                ? _mdBiosSummary()
-                : names.isEmpty
-                    ? "BIOS not set${s.biosRequired ? "" : " (optional)"}"
-                    : names.join(", ")),
-            trailing: const Icon(Icons.file_open_outlined)));
-  }
+  PopupMenuItem<BiosSetup> _coreSetupItem(BiosSetup setup) => PopupMenuItem(
+      value: setup,
+      child: ListTile(
+          title: Text(setup.name),
+          subtitle: Text(_biosSummary(setup)),
+          trailing: const Icon(Icons.file_open_outlined)));
 
   Widget _menuToolbar() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -679,18 +613,16 @@ class MainPageState extends State<MainPage> {
               child: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  PopupMenuButton<CoreSystem>(
+                  PopupMenuButton<BiosSetup>(
                     key: _coreSetupKey,
                     icon: const Icon(Icons.settings),
                     tooltip: "Core setup",
+                    enabled: CoreFactory.biosSetups.isNotEmpty,
                     onSelected: (system) =>
                         _menuAction(() async => _selectBios(system)),
                     itemBuilder: (_) => [
-                      for (final s
-                          // 32x is set from the md entry with md cdrom
-                          in CoreFactory.systems
-                              .where((s) => s.hasBios && s.id != '32x'))
-                        _coreSetupItem(s),
+                      for (final setup in CoreFactory.biosSetups)
+                        _coreSetupItem(setup),
                     ],
                   ),
 
@@ -717,27 +649,6 @@ class MainPageState extends State<MainPage> {
                     ],
                   ),
 
-                  if (_controller.diskSideCount > 0)
-                    PopupMenuButton<int>(
-                      tooltip: 'FDS disk side',
-                      icon: const Icon(Icons.album),
-                      onSelected: (side) => _menuAction(() async {
-                        _controller.selectDiskSide(side < 0 ? null : side);
-                      }),
-                      itemBuilder: (_) => [
-                        const PopupMenuItem(
-                            value: -1, child: Text('Eject disk')),
-                        for (var side = 0;
-                            side < _controller.diskSideCount;
-                            side++)
-                          CheckedPopupMenuItem(
-                              value: side,
-                              checked: _controller.diskSide == side,
-                              child: Text(
-                                  'Disk ${side ~/ 2 + 1} ${side.isEven ? "A" : "B"}')),
-                      ],
-                    ),
-
                   PopupMenuButton<RecentGame>(
                     icon: const Icon(Icons.history),
                     tooltip: 'History',
@@ -752,7 +663,7 @@ class MainPageState extends State<MainPage> {
                             value: game,
                             enabled: _historyAvailable(game),
                             child: Text(
-                                '${CoreFactory.system(game.core).name.toUpperCase()} ${game.name}')),
+                                '${(CoreFactory.systemOrNull(game.core)?.name ?? game.core).toUpperCase()} ${game.name}')),
                     ],
                   ),
 

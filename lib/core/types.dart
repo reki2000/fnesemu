@@ -6,7 +6,7 @@ class ImageBuffer {
   final Uint8List buffer;
   final int displayWidth;
 
-  // null: use the GUI's default height (TV-like aspect for 240-line systems)
+  // null: use the pixel height; cores may declare a different display aspect
   final int? displayHeight;
 
   const ImageBuffer(this.width, this.height, this.buffer,

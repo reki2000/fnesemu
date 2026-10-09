@@ -13,7 +13,7 @@ This project is experimental.
     - 19: mapper 19, 88/206: mapper 88/206
   - FDS (.fds, with or without the 16-byte header)
     - Requires an 8 KiB BIOS (raw or wrapped in iNES) configured under `fds` in Core setup
-    - Includes disk-side selection, persistent disk writes and FDS expansion audio
+    - Includes A/B side flipping, persistent disk writes and FDS expansion audio
 - PCE (.pce) + SGX16 + CD
 - MD (.gen .md) + CD + 32X
 - GB (.gb)
@@ -41,9 +41,10 @@ This project is experimental.
 
 Set the BIOS from Core setup → fds (8 KiB raw or an iNES `.nes` image),
 then choose an `.fds` file from a
-CD / ROM directory. Disk 1 A is inserted initially. While paused, use the
-FDS disk-side icon to eject or select Disk 1 A/B, Disk 2 A/B, etc., then resume.
-Side changes expose a brief ejected interval to the running software.
+CD / ROM directory. Disk 1 A is inserted initially. Press R or the on-screen
+Flip Disk button to flip between A and B. Holding the key does not flip repeatedly.
+The drive exposes a brief ejected interval to the running software. A one-sided
+image remains on A. There is no menu for choosing a specific disk side.
 Writes are saved in the application's storage; the original image is kept intact.
 
 The headless harness supports the same core:
@@ -82,6 +83,23 @@ flutter run -d [windows|linux|chrome|macos|your-android-device|your-ios-device] 
 ```
 
 # How to develop
+
+## Core module boundary
+
+App/GUI imports only `lib/core/core_api.dart`. Core modules in
+`lib/core/<module>/module.dart` declare their systems, BIOS setup metadata,
+and ROM/disc ownership rules. `CoreFactory` enumerates registered modules and
+forwards identification and construction requests to them.
+
+After adding or removing a module, regenerate the core-side registration list:
+
+```sh
+dart tool/generate_core_registry.dart
+```
+
+No App/GUI changes are needed, including when no game core is installed.
+The tests exercise an empty registry; a Linux build is also checked with all
+concrete module directories removed in a temporary checkout.
 
 ## To add more mapper type support
 

@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../core/core_controller.dart';
+import '../core/core_api.dart';
 import 'direction_pad.dart';
 import 'pad_input.dart';
 import 'ticker_image.dart';

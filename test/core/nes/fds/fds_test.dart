@@ -6,6 +6,7 @@ import 'package:fnesemu/core/nes/fds/fds_mapper.dart';
 import 'package:fnesemu/core/nes/fds/fds_audio.dart';
 import 'package:fnesemu/core/nes/nes.dart';
 import 'package:fnesemu/core/sram.dart';
+import 'package:fnesemu/core/pad_button.dart';
 import 'package:test/test.dart';
 
 Uint8List disk({int sides = 1, bool header = true}) {
@@ -298,7 +299,7 @@ void main() {
     expect(core.programCounter(0), 0xe01f);
     expect([for (var i = 0; i < 56; i++) core.read(0, 0x6000 + i)],
         FdsImage.parse(disk()).sides.first.sublist(0, 56));
-    expect(core.diskSideCount, 1);
+    expect((core.bus.mapper as FdsMapper).sideCount, 1);
   });
 
   test(
@@ -338,6 +339,30 @@ void main() {
       expect(batched.dump(), reference.dump());
       expect(batched.imageBuffer().buffer, reference.imageBuffer().buffer);
     }
+  });
+
+  test('Flip Disk occupies R, is edge triggered and bypasses the joypad', () {
+    final core = Nes(diskSystem: true)
+      ..setBiosFiles([bios()])
+      ..setRom(disk(sides: 2));
+    final mapper = core.bus.mapper as FdsMapper;
+    expect(core.buttons[12], Nes.flipDisk);
+    expect(core.buttons.sublist(8, 12), everyElement(PadButton.none));
+    core.padDown(0, Nes.flipDisk);
+    expect(mapper.selectedSide, 1);
+    expect(core.bus.joypad.isPressed.containsKey(Nes.flipDisk), isFalse);
+    core.padDown(0, Nes.flipDisk);
+    expect(mapper.selectedSide, 1);
+    core.padUp(0, Nes.flipDisk);
+    core.padDown(0, Nes.flipDisk);
+    expect(mapper.selectedSide, 0);
+    core.padUp(0, Nes.flipDisk);
+    final single = Nes(diskSystem: true)
+      ..setBiosFiles([bios()])
+      ..setRom(disk());
+    single.padDown(0, Nes.flipDisk);
+    expect((single.bus.mapper as FdsMapper).selectedSide, 0);
+    expect(Nes().buttons, isNot(contains(Nes.flipDisk)));
   });
 
   test('FDS factory needs BIOS and recognizes extension inside archives', () {

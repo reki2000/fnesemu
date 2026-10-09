@@ -43,12 +43,18 @@ class Debugger {
     pushStream();
   }
 
-  setCore(Core core) {
+  int paletteCount = 1, vramBits = 8;
+
+  setCore(Core core, {int paletteCount = 1, int vramBits = 8}) {
+    this.paletteCount = paletteCount;
+    this.vramBits = vramBits;
     this.core = core;
+    opt.targetCpuNo = core.cpuInfos.isEmpty ? 0 : core.cpuInfos.first.no;
     opt.disasmAddress = List.filled(core.cpuInfos.length, 0);
   }
 
   List<CpuInfo> get cpuInfos => core.cpuInfos;
+  CpuInfo cpuInfo(int no) => cpuInfos.firstWhere((cpu) => cpu.no == no);
 
   final _debugStream = BufferedStreamController<DebugOption>();
   Stream<DebugOption> get debugStream => _debugStream.stream;
@@ -77,7 +83,7 @@ class Debugger {
     } else {
       opt.text = core.dump(showZeroPage: true, showStack: true, showApu: true);
       for (int i = 0; i < cpuInfos.length; i++) {
-        opt.disasmAddress[i] = core.programCounter(i);
+        opt.disasmAddress[i] = core.programCounter(cpuInfos[i].no);
       }
     }
 
@@ -93,7 +99,7 @@ class Debugger {
     pushStream();
 
     if (opt.log && _tracer == null) {
-      final cpuInfo = cpuInfos[opt.targetCpuNo];
+      final cpuInfo = this.cpuInfo(opt.targetCpuNo);
       _tracer = Tracer(_traceStream, maxDiffChars: cpuInfo.traceDiffs);
 
       _traceSubscription = _traceStream.stream.listen((log) {
@@ -118,13 +124,20 @@ class Debugger {
 
   int nextPc(int cpuNo) {
     final pc = core.programCounter(cpuNo);
-    final (_, inc) = core.disasm(0, pc);
-    return (pc + inc) & ((1 << core.cpuInfos[cpuNo].pcBitWidth) - 1);
+    final (_, inc) = disasm(cpuNo, pc);
+    return (pc + inc) & ((1 << cpuInfo(cpuNo).pcBitWidth) - 1);
   }
 
   int stackPointer(int cpuNo) => core.stackPointer(cpuNo);
 
-  (String, int) disasm(int cpuNo, int addr) => core.disasm(cpuNo, addr);
+  int disasmAddress(int cpuNo) =>
+      opt.disasmAddress[cpuInfos.indexWhere((cpu) => cpu.no == cpuNo)];
+
+  (String, int) disasm(int cpuNo, int addr) {
+    final mask = (1 << cpuInfo(cpuNo).pcBitWidth) - 1;
+    final (text, length) = core.disasm(cpuNo, addr & mask);
+    return (text, length > 0 ? length : 1);
+  }
 
   void toggleVdc() {
     opt.showVdc = !opt.showVdc;

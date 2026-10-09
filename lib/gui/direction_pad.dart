@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../core/pad_button.dart';
+import '../core/core_api.dart';
 import 'pad_input.dart';
 
 const directionButtons = <Set<PadButton>>[

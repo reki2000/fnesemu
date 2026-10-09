@@ -2,9 +2,7 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
 
-import '../../core/core_controller.dart';
-import '../../core/debugger.dart';
-import '../../core/types.dart';
+import '../../core/core_api.dart';
 import '../../styles.dart';
 import 'package:fnesemu/util/int.dart';
 import 'vram.dart';
@@ -44,7 +42,7 @@ class DebugController extends StatelessWidget {
       debugger.cpuInfos[_targetCpuIndex(opt.targetCpuNo)];
 
   _setBreakPoint(BuildContext context, String v, DebugOption opt) {
-    if (v.length != _targetCpu(opt).pcBitWidth.shr2) {
+    if (v.length != (_targetCpu(opt).pcBitWidth + 3) ~/ 4) {
       return;
     }
 
@@ -87,11 +85,8 @@ class DebugController extends StatelessWidget {
             (snapshot.hasData) ? body(context, snapshot.data!) : Container(),
       );
 
-  String _formatPc(int pc, int bit) => bit == 32
-      ? pc.x8
-      : bit == 24
-          ? pc.x6
-          : pc.x4;
+  String _formatPc(int pc, int bit) =>
+      pc.toRadixString(16).padLeft((bit + 3) ~/ 4, '0');
 
   Widget body(BuildContext context, DebugOption opt) =>
       Row(spacing: 3, mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -129,7 +124,7 @@ class DebugController extends StatelessWidget {
             )),
         _button(context, "Mem", () => debugger.toggleMem()),
         _button(context, "VRAM", () => pushVramPage(context, controller)),
-        _button(context, "VDC", () => debugger.toggleVdc()),
+        _button(context, "Video", () => debugger.toggleVdc()),
         _button(context, "Log", () => debugger.toggleLog()),
       ]);
 }

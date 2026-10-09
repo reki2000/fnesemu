@@ -1,8 +1,5 @@
 part of 'app.dart';
 
-String _fileExtension(String fileName) =>
-    fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
-
 /// lets the user select files and reads them. returns null when cancelled.
 /// the dialog opens at [initialDirectory], and [onDirectory] receives the
 /// directory of the selected files when it is a local path.
@@ -47,21 +44,4 @@ Future<(Uint8List, String)> _readPicked(RandomReadFile file) async {
   } finally {
     await file.close();
   }
-}
-
-// if zip, extract the first file with known extention
-(Uint8List, String) _extractIfZip(Uint8List file, String name) {
-  if (_fileExtension(name) != "zip") {
-    return (file, name);
-  }
-
-  final archive = ZipDecoder().decodeBytes(file);
-
-  for (final entry in archive) {
-    if (CoreFactory.extensions.contains(_fileExtension(entry.name))) {
-      return (entry.content as Uint8List, entry.name);
-    }
-  }
-
-  throw Exception("No uknown files in the zip: $name");
 }

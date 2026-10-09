@@ -28,7 +28,7 @@ import 'fds/fds_bios.dart';
 import 'fds/fds_mapper.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes implements Core, FrameRunner, DiskSideControl {
+class Nes implements Core, FrameRunner {
   final bool diskSystem;
   Nes({this.diskSystem = false}) {
     bus = Bus();
@@ -159,6 +159,7 @@ class Nes implements Core, FrameRunner, DiskSideControl {
   /// handles reset button events
   @override
   void reset() {
+    _flipDiskHeld = false;
     _nextPpuCycle = cpuCyclesInScanline;
     _nextApuCycle = scanlinesInFrame * cpuCyclesInScanline;
     bus.onReset();
@@ -166,9 +167,29 @@ class Nes implements Core, FrameRunner, DiskSideControl {
 
   /// handles pad down/up events
   @override
-  void padDown(int id, PadButton k) => bus.joypad.keyDown(id, k);
+  void padDown(int id, PadButton k) {
+    if (diskSystem && k == flipDisk) {
+      if (!_flipDiskHeld) {
+        _flipDiskHeld = true;
+        final mapper = _diskMapper;
+        final side = mapper?.selectedSide;
+        if (mapper != null && side != null && (side ^ 1) < mapper.sideCount) {
+          mapper.selectSide(side ^ 1);
+        }
+      }
+      return;
+    }
+    bus.joypad.keyDown(id, k);
+  }
+
   @override
-  void padUp(int id, PadButton k) => bus.joypad.keyUp(id, k);
+  void padUp(int id, PadButton k) {
+    if (diskSystem && k == flipDisk) {
+      _flipDiskHeld = false;
+      return;
+    }
+    bus.joypad.keyUp(id, k);
+  }
 
   @override
   void setCdromDrive(CdromDrive drive) {}
@@ -185,12 +206,13 @@ class Nes implements Core, FrameRunner, DiskSideControl {
 
   Uint8List? _bios;
   FdsMapper? _diskMapper;
-  @override
-  int get diskSideCount => _diskMapper?.sideCount ?? 0;
-  @override
-  int? get diskSide => _diskMapper?.selectedSide;
-  @override
-  void selectDiskSide(int? side) => _diskMapper?.selectSide(side);
+  static const flipDisk = PadButton('Flip Disk');
+  bool _flipDiskHeld = false;
+  late final _diskButtons = <PadButton>[
+    ...bus.joypad.buttons,
+    // Existing key slots: C, Q, W, E are unused; R flips the disk.
+    PadButton.none, PadButton.none, PadButton.none, PadButton.none, flipDisk,
+  ];
 
   void _configureDisk(Uint8List? image) {
     final bios = _bios;
@@ -229,7 +251,7 @@ class Nes implements Core, FrameRunner, DiskSideControl {
   }
 
   @override
-  List<PadButton> get buttons => bus.joypad.buttons;
+  List<PadButton> get buttons => diskSystem ? _diskButtons : bus.joypad.buttons;
 
   // ROM CRC
   String crc = "";

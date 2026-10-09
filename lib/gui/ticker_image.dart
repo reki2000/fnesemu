@@ -19,7 +19,7 @@ class ImageContainer {
   void push(Uint8List buffer, int width, int height, int displayWidth,
       {int? displayHeight}) {
     displayWidthNotifier.value = displayWidth;
-    displayHeightNotifier.value = displayHeight ?? config.imageHeight;
+    displayHeightNotifier.value = displayHeight ?? height;
 
     buffer.isNotEmpty
         ? ui.decodeImageFromPixels(

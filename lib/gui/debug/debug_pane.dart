@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/debugger.dart';
+import '../../core/core_api.dart';
 import '../../styles.dart';
 import 'disasm.dart';
 import 'mem.dart';
@@ -24,14 +24,14 @@ class DebugPane extends StatelessWidget {
         return Row(children: [
           if (opt.showDisasm)
             Column(children: [
-              for (int cpuNo = 0; cpuNo < debugger.cpuInfos.length; cpuNo++)
+              for (final cpu in debugger.cpuInfos)
                 DebugDisasm(
                   debugger: debugger,
-                  cpuNo: cpuNo,
+                  cpuNo: cpu.no,
                   forwardLines: 46 ~/ debugger.cpuInfos.length - 4,
                   backwardLines: 3,
                   width: 300,
-                  addrBits: debugger.cpuInfos[cpuNo].pcBitWidth,
+                  addrBits: cpu.pcBitWidth,
                 ),
             ]),
           if (opt.showMem) MemPane(debugger: debugger),

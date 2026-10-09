@@ -6,8 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:fnesemu/util/uint8list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/sram.dart';
-import '../core/storage_key.dart';
+import '../core/core_api.dart';
 import 'blob_store/blob_store.dart';
 import 'recent_game.dart';
 import 'game_directory.dart';
@@ -78,11 +77,8 @@ class Storage extends Sram {
       final value = prefs.get(oldKey);
       if (value is! String) continue;
 
-      final newKey = switch (oldKey) {
-        "psx_mem1" => StorageKey.of("ps", StorageKey.sram, "memcard1"),
-        "ss_bram" => StorageKey.of("ss", StorageKey.sram, "bram"),
-        _ => StorageKey.of("nes", StorageKey.sram, oldKey),
-      };
+      final newKey = CoreFactory.legacyStorageKey(oldKey);
+      if (newKey == null) continue;
 
       await store.put(newKey, Uint8ListEx.fromBase64(value));
       await prefs.remove(oldKey);

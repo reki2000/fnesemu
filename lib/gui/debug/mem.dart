@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:fnesemu/util/int.dart';
 
 // Project imports:
-import '../../core/debugger.dart';
+import '../../core/core_api.dart';
 import '../../styles.dart';
 
 const _addrIncSize = 0x200;
@@ -30,8 +30,7 @@ class MemPane extends StatelessWidget {
     addrNotifier.value = debugger.opt.memAddress;
   }
 
-  int get _addrBitSize =>
-      debugger.cpuInfos[debugger.opt.targetCpuNo].pcBitWidth;
+  int get _addrBitSize => debugger.cpuInfo(debugger.opt.targetCpuNo).pcBitWidth;
   int get _addrTextLength => _addrBitSize.shr2;
   int get _mask => (1 << _addrBitSize) - 1;
 

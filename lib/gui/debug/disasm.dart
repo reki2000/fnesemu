@@ -1,8 +1,7 @@
 // Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/util/int.dart';
 
-import '../../core/debugger.dart';
+import '../../core/core_api.dart';
 // Project imports:
 import '../../styles.dart';
 
@@ -28,8 +27,8 @@ class DebugDisasm extends StatelessWidget {
       this.backwardLines = 5,
       this.forwardLines = 40,
       this.width = 320})
-      : addrMask = 1 << addrBits - 1 {
-    addrNotifier.value = debugger.opt.disasmAddress[cpuNo];
+      : addrMask = (1 << addrBits) - 1 {
+    addrNotifier.value = debugger.disasmAddress(cpuNo);
   }
 
   final margin10 = const EdgeInsets.all(10.0);
@@ -91,7 +90,7 @@ class DebugDisasm extends StatelessWidget {
                           child: TextField(
                               decoration: denseTextDecoration,
                               onChanged: (v) {
-                                if (v.length == addrBits.shr2) {
+                                if (v.length == (addrBits + 3) ~/ 4) {
                                   addrNotifier.value = int.parse(v, radix: 16);
                                 }
                               })),

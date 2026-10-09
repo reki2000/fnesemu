@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../core/pad_button.dart';
+import '../core/core_api.dart';
 
 /// Combines independent input sources before sending changes to the core.
 class PadInput extends ChangeNotifier {

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/core_controller.dart';
-import '../core/pad_button.dart';
+import '../core/core_api.dart';
 import 'pad_input.dart';
 
 /// Floating action keys in the same staggered rows as a physical keyboard.

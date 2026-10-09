@@ -50,21 +50,9 @@ class CoreController {
   String get system => _system;
   String _system = "";
 
-  int get diskSideCount {
-    final core = _core;
-    return core is DiskSideControl
-        ? (core as DiskSideControl).diskSideCount
-        : 0;
-  }
-
-  int? get diskSide {
-    final core = _core;
-    return core is DiskSideControl ? (core as DiskSideControl).diskSide : null;
-  }
-
-  void selectDiskSide(int? side) {
-    final core = _core;
-    if (core is DiskSideControl) (core as DiskSideControl).selectDiskSide(side);
+  bool acceptsDisc(CoreSystem media) {
+    final loaded = CoreFactory.systemOrNull(_system);
+    return loaded != null && loaded.disc == media.id;
   }
 
   /// replaces the core with a new one of [system] (CoreSystem.id), loaded
@@ -106,7 +94,10 @@ class CoreController {
 
     _core = core;
     _system = system;
-    debugger.setCore(_core);
+    final metadata = CoreFactory.system(system);
+    debugger.setCore(_core,
+        paletteCount: metadata.debugPaletteCount,
+        vramBits: metadata.debugVramBits);
 
     await reset();
   }
