@@ -5,7 +5,8 @@
 ハーネスはブランチごとにあるため、case は worktree 名とコマンドを持つ (docs/baseline/cases.json)。
 
   scripts/regress.py list
-  scripts/regress.py run <case|all> [--update]   # worktree でハーネスを実行して比較 (--update: 正本を更新)
+  scripts/regress.py run <case|all|full> [--update]   # worktree でハーネスを実行して比較 (--update: 正本を更新)
+                                                       # all: "full": true の case を除く / full: すべての case
   scripts/regress.py compare <case> <out-dir>    # 実行済みの出力ディレクトリと比較
   scripts/regress.py update  <case> <out-dir>    # 出力ディレクトリから正本を作る
 
@@ -226,11 +227,18 @@ def main():
     cases = load_cases()
     if a.action == "list":
         for c in cases.values():
-            print(f"{c['name']:24} {c['core']:6} {c.get('worktree', ''):12} {c.get('note', '')}")
+            full = "full" if c.get("full") else ""
+            print(f"{c['name']:24} {c['core']:6} {full:5} {c.get('note', '')}")
         return
     if not a.case:
         ap.error("case required")
-    targets = list(cases.values()) if a.case == "all" else [cases[a.case]]
+    if a.case == "all":
+        # the cases marked "full" run only in the full test
+        targets = [c for c in cases.values() if not c.get("full")]
+    elif a.case == "full":
+        targets = list(cases.values())
+    else:
+        targets = [cases[a.case]]
     if a.action == "run":
         res = [run(c, a.update) for c in targets]
         print(f"\n{sum(r is True for r in res)} ok, {sum(r is False for r in res)} failed, "
