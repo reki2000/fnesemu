@@ -115,13 +115,11 @@ void main() {
       s.w(0x5128 + i, 100 + i);
     }
     // 8x8 sprites: the set A is used for the background as well
-    expect(
-        [for (int i = 0; i < 8; i++) s.pattern(i * 0x400, Mapper.fetchBg)],
+    expect([for (int i = 0; i < 8; i++) s.pattern(i * 0x400, Mapper.fetchBg)],
         [10, 11, 12, 13, 14, 15, 16, 17]);
 
     s.m.ppuCtl = 0x20; // 8x16 sprites
-    expect(
-        [for (int i = 0; i < 8; i++) s.pattern(i * 0x400, Mapper.fetchBg)],
+    expect([for (int i = 0; i < 8; i++) s.pattern(i * 0x400, Mapper.fetchBg)],
         [100, 101, 102, 103, 100, 101, 102, 103]);
     expect(
         [for (int i = 0; i < 8; i++) s.pattern(i * 0x400, Mapper.fetchSprite)],
@@ -136,7 +134,9 @@ void main() {
     s.w(0x5101, 1);
     s.w(0x5123, 5);
     s.w(0x5127, 6);
-    expect([0x0000, 0x0400, 0x1000, 0x1c00].map((a) => s.pattern(a, Mapper.fetchSprite)),
+    expect(
+        [0x0000, 0x0400, 0x1000, 0x1c00]
+            .map((a) => s.pattern(a, Mapper.fetchSprite)),
         [20, 21, 24, 27]);
 
     // 2k mode
@@ -153,13 +153,15 @@ void main() {
     // 8k mode
     s.w(0x5101, 0);
     s.w(0x5127, 2);
-    expect([0x0000, 0x1c00].map((a) => s.pattern(a, Mapper.fetchSprite)), [16, 23]);
+    expect([0x0000, 0x1c00].map((a) => s.pattern(a, Mapper.fetchSprite)),
+        [16, 23]);
 
     // the upper bits
     s.w(0x5101, 3);
     s.w(0x5130, 1);
     s.w(0x5120, 3);
-    expect(s.pattern(0, Mapper.fetchSprite), 3 + 256 - 256); // wraps by the rom size
+    expect(s.pattern(0, Mapper.fetchSprite),
+        3 + 256 - 256); // wraps by the rom size
   });
 
   test('multiplier', () {
@@ -191,7 +193,8 @@ void main() {
 
     // the nametable can mirror ciram page 0 everywhere
     s.w(0x5105, 0x00);
-    expect([0x2000, 0x2400, 0x2800, 0x2c00].map(s.vram), [0x11, 0x11, 0x11, 0x11]);
+    expect(
+        [0x2000, 0x2400, 0x2800, 0x2c00].map(s.vram), [0x11, 0x11, 0x11, 0x11]);
   });
 
   test('exram modes', () {
