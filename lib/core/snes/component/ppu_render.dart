@@ -183,9 +183,9 @@ extension PpuRenderer on Ppu {
   }
 
   /// offset-per-tile (modes 2/4/6): BG3's tilemap is repurposed as a table
-  /// of per-column scroll overrides for BG1/BG2. Based on community-derived
-  /// (srg320, nesdev BBS) and bsnes-style pseudocode - not a primary
-  /// hardware source, so double-check against real ROMs if visuals look off.
+  /// of per-column scroll overrides for BG1/BG2, with the entry format of
+  /// the fullsnes documentation (bit 13/14 = apply to BG1/BG2, bit 15 = H or
+  /// V in mode 4, bits 0-9 = the offset, its low 3 bits ignored for H).
   ///
   /// returns the (x,y) position in BG [bgIdx]'s map for screen pixel (x,y):
   /// normally (x+hofs, y+vofs), with the OPT overrides applied in 2/4/6.

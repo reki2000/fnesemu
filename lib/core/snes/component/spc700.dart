@@ -4,7 +4,7 @@ import 'dsp.dart';
 
 /// the 64-byte IPL boot ROM, identical on every SNES unit. Handles the
 /// handshake that lets the main CPU upload an audio driver over $2140-2143.
-/// verified against bsnes-mercury's iplrom[] (a widely-used accurate core).
+/// the bytes of the boot ROM disassembly in the fullsnes documentation.
 const iplRom = <int>[
   0xcd, 0xef, 0xbd, 0xe8, 0x00, 0xc6, 0x1d, 0xd0, //
   0xfc, 0x8f, 0xaa, 0xf4, 0x8f, 0xbb, 0xf5, 0x78, //

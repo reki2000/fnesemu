@@ -183,7 +183,8 @@ class Ppu {
   int _hofsLatch = 0; // the last byte written to any of the 4 HOFS regs
 
   // the upper bits come from the byte before (any scroll reg), the lowest 3
-  // bits from the byte before written to a HOFS reg (bsnes latch.ppu2)
+  // bits from the byte before written to a HOFS reg (the bghofs_latch of the
+  // nesdev wiki PPU registers page)
   void _writeHofs(BgRegs bg, int val) {
     bg.hofs = (val.shl8 | _bgOfsLatch & ~7 | _hofsLatch & 7) & 0x3ff;
     _bgOfsLatch = val;
@@ -270,7 +271,7 @@ class Ppu {
   // M7HOFS/M7VOFS share $210D/$210E with BG1's HOFS/VOFS: each write there
   // updates BOTH the BG1 shadow regs (via _bgOfsLatch above) and these mode7
   // shadow regs. the two "Prev" latches really are separate pieces of state
-  // on hardware (cf. bsnes latch.bgofs vs latch.mode7), not one shared MDR.
+  // on hardware (BG_old and M7_old in the fullsnes documentation).
   int m7sel = 0; // screen-over (bits7-6) + flip (bits1-0)
   int m7a = 0x0100, m7b = 0, m7c = 0, m7d = 0x0100; // 8.8 fixed, signed 16-bit
   int m7x = 0, m7y = 0; // signed 13-bit pivot point
