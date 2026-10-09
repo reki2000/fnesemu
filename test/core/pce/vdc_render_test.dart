@@ -41,7 +41,8 @@ Pce _machine(int seed, {required bool collision, required int mode}) {
 void main() {
   for (final collision in [false, true]) {
     for (final mode in [0x00, 0x13, 0x50, 0x83, 0x33]) {
-      test('line renderer matches the per-pixel renderer '
+      test(
+          'line renderer matches the per-pixel renderer '
           '(collision:$collision mode:${mode.toRadixString(16)})', () {
         for (int seed = 0; seed < 4; seed++) {
           final a = _machine(seed, collision: collision, mode: mode);

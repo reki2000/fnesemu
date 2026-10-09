@@ -11,7 +11,8 @@ import 'package:test/test.dart';
 class TestDisc extends FakeDisc {
   TestDisc() : super(_sectors(), starts: [0, 4], audioTracks: {2});
 
-  static List<Uint8List> _sectors() => [for (var lba = 0; lba < 6; lba++) _sector(lba + 150)];
+  static List<Uint8List> _sectors() =>
+      [for (var lba = 0; lba < 6; lba++) _sector(lba + 150)];
 
   static Uint8List _sector(int sector) {
     final result = Uint8List(2352);
