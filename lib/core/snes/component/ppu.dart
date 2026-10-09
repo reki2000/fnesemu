@@ -291,6 +291,14 @@ class Ppu {
 
   // -------------------------------------------------------- $213E/213F
   bool rangeOver = false; // >32 sprites on a scanline
+
+  /// the dot (0-340) and the scanline of the beam, packed as dot << 16 |
+  /// line (set up by the owning core, which knows the timing)
+  int Function() beam = () => 0;
+
+  // $213C/$213D: the latched beam position, read low byte first
+  int _latchedDot = 0, _latchedLine = 0;
+  bool _dotHigh = false, _lineHigh = false, _latched = false;
   bool timeOver = false; // >34 tiles on a scanline
 
   // -------------------------------------------------------------- ports
@@ -514,10 +522,24 @@ class Ppu {
         }
       case 0x213b: // CGDATAREAD
         return _cgramRead();
+      case 0x2137: // SLHV: latch the beam position
+        final b = beam();
+        _latchedDot = b >> 16;
+        _latchedLine = b & 0xffff;
+        _latched = true;
+        return 0;
+      case 0x213c: // OPHCT
+        _dotHigh = !_dotHigh;
+        return _dotHigh ? _latchedDot & 0xff : _latchedDot >> 8;
+      case 0x213d: // OPVCT
+        _lineHigh = !_lineHigh;
+        return _lineHigh ? _latchedLine & 0xff : _latchedLine >> 8;
       case 0x213e: // STAT77
         return (rangeOver ? 0x40 : 0) | (timeOver ? 0x80 : 0) | 0x01;
-      case 0x213f: // STAT78: version=1, NTSC
-        return 0x01;
+      case 0x213f: // STAT78: version=1, NTSC; resets the OPHCT/OPVCT order
+        final v = (_latched ? 0x40 : 0) | 0x01;
+        _latched = _dotHigh = _lineHigh = false;
+        return v;
       default:
         return 0; // open bus / write-only registers
     }
