@@ -32,8 +32,8 @@ const _compressed = {
 void main() {
   for (final MapEntry(key: mode, value: data) in _compressed.entries) {
     test('decompresses the documented example in mode $mode', () {
-      final decoder =
-          Spc7110Decoder((a) => a < data.length ? data[a] : 0)..start(mode, 0);
+      final decoder = Spc7110Decoder((a) => a < data.length ? data[a] : 0)
+        ..start(mode, 0);
       final out = [for (var i = 0; i < _plain.length; i++) decoder.next()];
       expect(ascii.decode(out, allowInvalid: true), _plain);
     });
