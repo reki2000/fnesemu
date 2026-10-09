@@ -30,6 +30,7 @@ void main() {
         0x80, 0xfe, // BRA *
       ]);
       _put(rom, 0x0100, [
+        0xa9, 0xff, 0x8d, 0x2a, 0x22, // LDA #$FF / STA $222A: I-RAM writable
         0xa9, 0x42, 0x8d, 0x00, 0x30, // LDA #$42 / STA $3000
         0x80, 0xfe, // BRA *
       ]);
@@ -77,6 +78,15 @@ void main() {
       writeWord(bus, 0x2251, 3);
       writeWord(bus, 0x2253, 4);
       expect(result(bus, 5), 20012);
+    });
+
+    test('I-RAM writes are protected until enabled', () {
+      final bus = sa1Bus();
+      bus.write(0x003000, 0x11);
+      expect(bus.read(0x003000), 0);
+      bus.write(0x2229, 0x01); // SIWP: $3000-$30FF
+      bus.write(0x003000, 0x11);
+      expect(bus.read(0x003000), 0x11);
     });
 
     test('maps 1MB rom banks into \$C0-\$FF', () {

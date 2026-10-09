@@ -11,7 +11,7 @@ import 'cpu_bus.dart';
 /// has a DMA unit with character conversion, an arithmetic unit, a timer and
 /// a variable-length bit reader.
 ///
-/// The register behavior follows bsnes.
+/// Written after the fullsnes documentation of the SA-1 ports.
 class Sa1 {
   final Bus mainBus;
   final Uint8List rom;
@@ -71,6 +71,15 @@ class Sa1 {
 
   // BW-RAM 8KB blocks at $6000-$7FFF for each cpu
   int _sbm = 0, _cbm = 0;
+
+  // I-RAM writes are enabled for each cpu by 256-byte chunk. The BW-RAM
+  // write enables and protected area ($2226-$2228) are not applied: how they
+  // combine is not documented, and games write BW-RAM in states where a
+  // simple reading of them would protect it.
+  int _siwp = 0, _ciwp = 0;
+
+  bool _iramWritable(int a, bool sa1) =>
+      (sa1 ? _ciwp : _siwp) & (1 << ((a >> 8) & 7)) != 0;
   bool _sw46 = false; // the SA-1 block is a bitmap view
   bool _bbf = false; // bitmap: false = 4 bits a pixel, true = 2 bits
 
@@ -107,6 +116,7 @@ class Sa1 {
       _romBankMode[i] = false;
     }
     _sbm = _cbm = 0;
+    _siwp = _ciwp = 0;
     _sw46 = _bbf = false;
     _dmaEn = _cdEn = _cdSel = _cc1Active = false;
     _sd = _dd = _dmaSize = _dmaCb = _sda = _dda = _dtc = _cc2Line = 0;
@@ -211,7 +221,7 @@ class Sa1 {
       if (page >= 0x6000) {
         bwWrite(_sbm << 13 | (page & 0x1fff), data);
       } else if (page >= 0x3000 && page < 0x3800) {
-        iram[page & 0x7ff] = data;
+        if (_iramWritable(page, false)) iram[page & 0x7ff] = data;
       } else if (page >= 0x2200 && page < 0x2400) {
         _writeRegister(page, data);
       } else {
@@ -264,8 +274,8 @@ class Sa1 {
         final v = _vbrData() >> 8;
         if (_hl) _vbrAdvance();
         return v & 0xff;
-      case 0x230e: // VC
-        return 0x23;
+      case 0x230e: // VC: the version is not known
+        return 0;
     }
     return 0;
   }
@@ -372,6 +382,10 @@ class Sa1 {
       case 0x2225: // BMAP
         _sw46 = data & 0x80 != 0;
         _cbm = data & 0x7f;
+      case 0x2229: // SIWP
+        _siwp = data;
+      case 0x222a: // CIWP
+        _ciwp = data;
       case 0x2230: // DCNT
         _dmaEn = data & 0x80 != 0;
         _cdEn = data & 0x20 != 0;
@@ -393,12 +407,10 @@ class Sa1 {
         _dda = (_dda & 0xffff00) | data;
       case 0x2236:
         _dda = (_dda & 0xff00ff) | data << 8;
-        if (_dmaEn) {
-          if (!_cdEn && _dd == 0) {
-            _dmaNormal();
-          } else if (_cdEn && _cdSel) {
-            _cc1Start();
-          }
+        if (_cdEn && _cdSel) {
+          _cc1Start();
+        } else if (_dmaEn && !_cdEn && _dd == 0) {
+          _dmaNormal();
         }
       case 0x2237:
         _dda = (_dda & 0x00ffff) | data << 16;
@@ -411,7 +423,9 @@ class Sa1 {
         _bbf = data & 0x80 != 0;
       case >= 0x2240 && <= 0x224f: // BRF
         _brf[page & 0xf] = data;
-        if ((page & 7) == 7 && _dmaEn && _cdEn && !_cdSel) _cc2();
+        if ((page & 7) == 7 && _dmaEn && _cdEn && !_cdSel) {
+          _cc2Row((page >> 3) & 1);
+        }
       case 0x2250: // MCNT
         _acm = data & 2 != 0;
         _md = data & 1 != 0;
@@ -532,64 +546,52 @@ class Sa1 {
     _updateSa1Irq();
   }
 
-  // character conversion 1: the main cpu's DMA reads a BW-RAM bitmap as
-  // characters, which the chip converts a character at a time into I-RAM
+  // character conversion 1: the main cpu's DMA reads the packed bitmap at
+  // SDA in BW-RAM as characters (8x8 pixels in bitplanes), the bitmap being
+  // the characters of a line wide
   void _cc1Start() {
     _cc1Active = true;
     _chdmaIrqFl = true;
     _updateMainIrq();
   }
 
+  int get _bitsPerPixel => const [8, 4, 2][_dmaCb];
+
+  // the byte [addr] of the characters, from the bitmap
   int _cc1Read(int addr) {
-    final charMask = (1 << (6 - _dmaCb)) - 1;
-    if (addr & charMask == 0) {
-      final bpp = 2 << (2 - _dmaCb);
-      final bpl = (8 << _dmaSize) >> _dmaCb;
-      final bwMask = _bwMask < 0 ? 0 : _bwMask;
-      final tile = ((addr - _sda) & bwMask) >> (6 - _dmaCb);
-      final ty = tile >> _dmaSize;
-      final tx = tile & ((1 << _dmaSize) - 1);
-      var bwAddr = _sda + ty * 8 * bpl + tx * bpp;
-
-      final out = Uint8List(8);
-      for (var y = 0; y < 8; y++) {
-        var data = 0;
-        for (var byte = 0; byte < bpp; byte++) {
-          data |= bwRead(bwAddr + byte) << (byte << 3);
-        }
-        bwAddr += bpl;
-
-        out.fillRange(0, 8, 0);
-        for (var x = 0; x < 8; x++) {
-          for (var p = 0; p < bpp; p++) {
-            out[p] |= (data & 1) << (7 - x);
-            data >>= 1;
-          }
-        }
-        for (var byte = 0; byte < bpp; byte++) {
-          final p = _dda + (y << 1) + ((byte & 6) << 3) + (byte & 1);
-          iram[p & 0x7ff] = out[byte];
-        }
-      }
+    final bpp = _bitsPerPixel;
+    final charBytes = bpp * 8;
+    final charsPerLine = 1 << _dmaSize;
+    final k = (addr - _sda) & (_bwMask < 0 ? 0 : _bwMask);
+    final char = k ~/ charBytes, b = k % charBytes;
+    // a character has rows of planes 0/1, then of planes 2/3, ...
+    final plane = (b >> 4) * 2 + (b & 1);
+    final y = (char ~/ charsPerLine) * 8 + ((b & 15) >> 1);
+    final x0 = (char % charsPerLine) * 8;
+    final line = _sda + y * charsPerLine * bpp; // bytes of a pixel line
+    var out = 0;
+    for (var x = 0; x < 8; x++) {
+      // the lower bits of a byte hold the left pixel
+      final bit = (x0 + x) * bpp;
+      final pixel = bwRead(line + (bit >> 3)) >> (bit & 7);
+      out |= ((pixel >> plane) & 1) << (7 - x);
     }
-    return iram[(_dda + (addr & charMask)) & 0x7ff];
+    return out;
   }
 
-  // character conversion 2: the SA-1 writes a line of 8 pixels to BRF,
-  // which the chip converts into I-RAM
-  void _cc2() {
-    final base = (_cc2Line & 1) << 3;
-    final bpp = 2 << (2 - _dmaCb);
-    var addr = _dda & 0x7ff;
-    addr &= ~((1 << (7 - _dmaCb)) - 1);
-    addr += (_cc2Line & 8) * bpp;
-    addr += (_cc2Line & 7) * 2;
-    for (var byte = 0; byte < bpp; byte++) {
-      var output = 0;
-      for (var bit = 0; bit < 8; bit++) {
-        output |= ((_brf[base + bit] >> byte) & 1) << (7 - bit);
+  // character conversion 2: each row of 8 pixels written to a half of BRF
+  // goes, in bitplanes, to the I-RAM buffer of two characters at DDA
+  void _cc2Row(int half) {
+    final bpp = _bitsPerPixel;
+    final charBytes = bpp * 8;
+    final base = (_dda & 0x7ff) & ~(charBytes * 2 - 1);
+    final dst = base + (_cc2Line >> 3) * charBytes + (_cc2Line & 7) * 2;
+    for (var plane = 0; plane < bpp; plane++) {
+      var out = 0;
+      for (var x = 0; x < 8; x++) {
+        out |= ((_brf[half * 8 + x] >> plane) & 1) << (7 - x);
       }
-      iram[(addr + ((byte & 6) << 3) + (byte & 1)) & 0x7ff] = output;
+      iram[(dst + (plane >> 1) * 16 + (plane & 1)) & 0x7ff] = out;
     }
     _cc2Line = (_cc2Line + 1) & 15;
   }
@@ -629,7 +631,7 @@ class Sa1 {
           bwWrite((_cbm & 0x1f) << 13 | (page & 0x1fff), data);
         }
       } else if (page < 0x800 || (page >= 0x3000 && page < 0x3800)) {
-        iram[page & 0x7ff] = data;
+        if (_iramWritable(page, true)) iram[page & 0x7ff] = data;
       } else if (page >= 0x2200 && page < 0x2400) {
         _writeRegister(page, data);
       }
