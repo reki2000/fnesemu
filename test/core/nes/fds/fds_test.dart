@@ -222,8 +222,9 @@ void main() {
 
     final read = [for (var i = 0; i < 56; i++) nextByte()];
     expect(read, FdsImage.parse(disk()).sides.first.sublist(0, 56));
-    mapper.write(0x4025, 0xd5);
+    // The real BIOS enters CRC phase after the first CRC byte arrived.
     nextByte();
+    mapper.write(0x4025, 0xd5);
     nextByte();
     expect(mapper.read(0x4030) & 0x10, 0);
     mapper.write(0x4025, 0x85);
@@ -346,7 +347,7 @@ void main() {
     expect(
         () => (CoreFactory.of('fds') as Nes).setRom(disk()), throwsStateError);
     expect(() => (CoreFactory.of('fds') as Nes).setBiosFiles([Uint8List(1)]),
-        throwsArgumentError);
+        throwsFormatException);
   });
 
   test('wave write gate, gain registers, envelopes and audible synthesis', () {

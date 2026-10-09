@@ -16,6 +16,7 @@ import '../core/core_factory.dart';
 import '../cdrom/disc_folder.dart';
 import '../styles.dart';
 import 'package:fnesemu/util/debug.dart';
+import '../core/nes/fds/fds_bios.dart';
 import 'core_view.dart';
 import 'floating_game_menu.dart';
 import 'debug/debug_controller.dart';
@@ -354,8 +355,8 @@ class MainPageState extends State<MainPage> {
           "files: ${files.length} selected");
     }
 
-    if (system.id == 'fds' && files.single.$1.length != 8192) {
-      throw ArgumentError('FDS BIOS must be 8192 bytes');
+    if (system.id == 'fds') {
+      decodeFdsBios(files.single.$1);
     }
 
     await _storage

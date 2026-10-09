@@ -24,6 +24,7 @@ import 'mapper/mapper.dart';
 import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
 import 'fds/fds_image.dart';
+import 'fds/fds_bios.dart';
 import 'fds/fds_mapper.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
@@ -175,10 +176,10 @@ class Nes implements Core, FrameRunner, DiskSideControl {
   @override
   void setBiosFiles(List<Uint8List> files) {
     if (!diskSystem) return;
-    if (files.length != 1 || files.single.length != 0x2000) {
-      throw ArgumentError('FDS requires one 8192-byte BIOS image');
+    if (files.length != 1) {
+      throw ArgumentError('FDS requires one BIOS image (raw 8 KiB or iNES)');
     }
-    _bios = Uint8List.fromList(files.single);
+    _bios = decodeFdsBios(files.single);
     _configureDisk(null);
   }
 

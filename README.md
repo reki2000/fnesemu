@@ -12,7 +12,7 @@ This project is experimental.
     - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6, 85: VRC7
     - 19: mapper 19, 88/206: mapper 88/206
   - FDS (.fds, with or without the 16-byte header)
-    - Requires an 8192-byte BIOS configured under `fds` in Core setup
+    - Requires an 8 KiB BIOS (raw or wrapped in iNES) configured under `fds` in Core setup
     - Includes disk-side selection, persistent disk writes and FDS expansion audio
 - PCE (.pce) + SGX16 + CD
 - MD (.gen .md) + CD + 32X
@@ -39,7 +39,8 @@ This project is experimental.
 
 ## FDS
 
-Set the 8 KiB BIOS from Core setup → fds, then choose an `.fds` file from a
+Set the BIOS from Core setup → fds (8 KiB raw or an iNES `.nes` image),
+then choose an `.fds` file from a
 CD / ROM directory. Disk 1 A is inserted initially. While paused, use the
 FDS disk-side icon to eject or select Disk 1 A/B, Disk 2 A/B, etc., then resume.
 Side changes expose a brief ejected interval to the running software.
@@ -51,8 +52,10 @@ The headless harness supports the same core:
 dart run lib/tools/core_harness.dart fds /path/to/disk.fds -b /path/to/bios.bin -f 600
 ```
 
-FDS tests use synthetic BIOS/disk programs. Compatibility with real BIOS and
-commercial disk images has not yet been verified. QD images are not supported.
+FDS tests use synthetic BIOS/disk programs. Additional local checks use
+user-supplied BIOS and disk images, which are not included in the repository.
+Data-only disks require their corresponding boot disk and cannot boot alone.
+QD images are not supported.
 
 ## Joypad-Keyboard assignment
 

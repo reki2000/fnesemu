@@ -126,6 +126,7 @@ class FdsMapper extends Mapper {
         _ackDisk();
       case 0x4025:
         if (_io & 1 == 0) return;
+        if (data & 0x10 == 0) _crcBytes = 0;
         if (data & 0x10 != 0 && _control & 0x10 == 0) {
           _crcBytes = data & 4 != 0 ? 2 : 0;
         }
@@ -242,5 +243,5 @@ class FdsMapper extends Mapper {
       _io & 2 != 0 ? audio.synth(cycles) : Float32List(0);
   @override
   String dump() =>
-      'fds: side:${selectedSide == null ? "ejected" : selectedSide! + 1} head:$_head irq:${_timerIrq || _diskIrq}\n';
+      'fds: side:${selectedSide == null ? "ejected" : selectedSide! + 1} head:$_head irq:${_timerIrq || _diskIrq} control:${_control.toRadixString(16)} crc:${_crc.toRadixString(16)} crcBytes:$_crcBytes bad:$_badCrc\n';
 }
