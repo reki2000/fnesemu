@@ -3,7 +3,7 @@ import 'package:fnesemu/util/int.dart';
 import 'dart:developer';
 
 // Project imports:
-import 'bus.dart';
+import 'cpu_bus.dart';
 
 class Regs {
   int a = 0; // 16-bit accumulator (C); low 8 = A, high 8 = B
@@ -31,7 +31,7 @@ class Flags {
 
 class Cpu {
   final regs = Regs();
-  final Bus bus;
+  final CpuBus bus;
 
   Cpu(this.bus) {
     bus.cpu = this;
@@ -56,9 +56,8 @@ class Cpu {
   @pragma('vm:prefer-inline')
   void _write8(int addr, int v) => bus.write(addr.mask24, v.mask8);
 
-  int _read(int addr, int size) => size == 1
-      ? _read8(addr)
-      : _read8(addr) | _read8((addr + 1).mask24).shl8;
+  int _read(int addr, int size) =>
+      size == 1 ? _read8(addr) : _read8(addr) | _read8((addr + 1).mask24).shl8;
 
   void _write(int addr, int v, int size) {
     _write8(addr, v.mask8);
@@ -109,8 +108,7 @@ class Cpu {
   // ----------------------------------------------------- register access
   @pragma('vm:prefer-inline')
   int get _a => mSize == 1 ? regs.a.mask8 : regs.a.mask16;
-  void _setA(int v) =>
-      regs.a = mSize == 1 ? regs.a.setL8(v) : v.mask16;
+  void _setA(int v) => regs.a = mSize == 1 ? regs.a.setL8(v) : v.mask16;
   void _setX(int v) => regs.x = xSize == 1 ? v.mask8 : v.mask16;
   void _setY(int v) => regs.y = xSize == 1 ? v.mask8 : v.mask16;
 
@@ -148,9 +146,8 @@ class Cpu {
   void _setNZ(int v, int size) {
     final n = size == 1 ? v.bit7 : v.bit15;
     final z = (size == 1 ? v.mask8 : v.mask16) == 0;
-    regs.p = (regs.p & ~(Flags.N | Flags.Z)) |
-        (n ? Flags.N : 0) |
-        (z ? Flags.Z : 0);
+    regs.p =
+        (regs.p & ~(Flags.N | Flags.Z)) | (n ? Flags.N : 0) | (z ? Flags.Z : 0);
   }
 
   @pragma('vm:prefer-inline')
@@ -286,6 +283,7 @@ class Cpu {
   // ------------------------------------------------------------ interrupts
   bool _holdNmi = false;
   bool _holdIrq = false;
+  int _irqLines = 0; // a bit per interrupt source holding the IRQ line
 
   // the instruction running when vblank starts completes before the NMI is
   // taken, so a loop polling RDNMI ($4210) can see the flag before the NMI
@@ -297,8 +295,19 @@ class Cpu {
     _nmiDelay = 1;
   }
 
-  void holdIrq() => _holdIrq = true;
-  void releaseIrq() => _holdIrq = false;
+  void holdIrq([int line = 1]) {
+    _irqLines |= line;
+    _holdIrq = true;
+  }
+
+  void releaseIrq([int line = 1]) {
+    _irqLines &= ~line;
+    _holdIrq = _irqLines != 0;
+  }
+
+  /// true while the cpu does nothing until an interrupt (STP, or WAI with no
+  /// interrupt pending)
+  bool get idle => stopped || (waiting && !_holdIrq && !_holdNmi);
 
   void _interrupt(int vectorNative, int vectorEmu, {bool brk = false}) {
     if (!regs.e) _push8(regs.pbr);
@@ -313,7 +322,7 @@ class Cpu {
     _setFlag(Flags.D, false);
     regs.pbr = 0;
     final v = regs.e ? vectorEmu : vectorNative;
-    regs.pc = _read8(v) | _read8(v.inc).shl8;
+    regs.pc = bus.readVector(v);
     cycle += 7;
   }
 
@@ -330,7 +339,7 @@ class Cpu {
     regs.dbr = 0;
     regs.pbr = 0;
     regs.s = 0x01ff;
-    regs.pc = _read8(0xfffc) | _read8(0xfffd).shl8;
+    regs.pc = bus.readVector(0xfffc);
   }
 
   // ----------------------------------------------------------------- exec

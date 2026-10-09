@@ -6,9 +6,12 @@ import 'dart:typed_data';
 import '../rom/snes_file.dart';
 import 'apu.dart';
 import 'cpu.dart';
+import 'cpu_bus.dart';
 import 'dma.dart';
 import 'pad.dart';
 import 'ppu.dart';
+import 'sa1.dart';
+import 'sdd1.dart';
 
 /// 24-bit address bus for the SNES.
 ///
@@ -18,13 +21,20 @@ import 'ppu.dart';
 /// audio unit (see apu.dart). $4200-$42FF models NMI, the DMA triggers,
 /// auto-joypad 1, H/V timer IRQ, and the multiply/divide unit; programmable
 /// I/O and manual joypad are still scratch stubs.
-class Bus {
+class Bus implements CpuBus {
+  @override
   late final Cpu cpu;
   late final Ppu ppu;
   late final Dma dma;
   late final Apu apu;
 
   final pad = SnesPad();
+
+  /// the S-DD1 chip of the cartridge, if any
+  Sdd1? sdd1;
+
+  /// the SA-1 chip of the cartridge, if any
+  Sa1? sa1;
 
   // 128KB work ram ($7E0000-$7FFFFF, mirrored low 8KB in system area)
   final wram = Uint8List(0x20000);
@@ -49,6 +59,8 @@ class Bus {
   void setRom(SnesFile file) {
     rom = file.rom;
     mapping = file.mapping;
+    sdd1 = file.hasSdd1 ? (Sdd1(rom)..reset()) : null;
+    sa1 = file.hasSa1 ? Sa1(this, rom, file.sramSize) : null;
 
     // round rom size to power of two for cheap masking
     var size = 0x8000;
@@ -66,7 +78,12 @@ class Bus {
     sramWrite = (addr, v) => sram[addr & _sramMask] = v.mask8;
   }
 
+  @override
+  int readVector(int addr) =>
+      sa1?.mainVector(addr) ?? read(addr) | read(addr + 1).shl8;
+
   // ------------------------------------------------------------------ read
+  @override
   int read(int addr) {
     addr &= 0xffffff;
     final bank = addr.shr16;
@@ -77,9 +94,18 @@ class Bus {
       return wram[bank.mask1.shl16 | page];
     }
 
+    final sa1 = this.sa1;
+    if (sa1 != null) {
+      final v = sa1.mainRead(addr);
+      if (v >= 0) return v;
+    }
+
     // system banks $00-$3F / $80-$BF
     if (bank.mask7 < 0x40) {
       if (page < 0x2000) return wram[page]; // low 8KB wram mirror
+      if (sdd1 != null && Sdd1.isRegister(bank, page)) {
+        return sdd1!.readRegister(page);
+      }
       if (page < 0x6000) return _readMmio(page);
       if (page < 0x8000) {
         final off = _sramOffset(bank, page);
@@ -91,6 +117,7 @@ class Bus {
     // banks $40-$7D / $C0-$FF: rom (LoROM sram in $70-$7D/$F0-$FF low half)
     final off = _sramOffset(bank, page);
     if (off >= 0) return sramRead(off);
+    if (sdd1 != null && bank >= 0xc0) return sdd1!.mmcRead(addr);
     return _readRom(bank, page);
   }
 
@@ -119,6 +146,7 @@ class Bus {
   }
 
   // ----------------------------------------------------------------- write
+  @override
   void write(int addr, int data) {
     addr &= 0xffffff;
     data &= 0xff;
@@ -130,9 +158,15 @@ class Bus {
       return;
     }
 
+    if (sa1?.mainWrite(addr, data) ?? false) return;
+
     if (bank.mask7 < 0x40) {
       if (page < 0x2000) {
         wram[page] = data;
+        return;
+      }
+      if (sdd1 != null && Sdd1.isRegister(bank, page)) {
+        sdd1!.writeRegister(page, data);
         return;
       }
       if (page < 0x6000) {
@@ -273,6 +307,8 @@ class Bus {
   }
 
   void onReset() {
+    sdd1?.reset();
+    sa1?.reset();
     _nmiEnabled = false;
     _nmiFlag = false;
     _irqFlag = false;

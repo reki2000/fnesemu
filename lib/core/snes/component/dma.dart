@@ -154,6 +154,10 @@ class Dma {
       int aAddr = c.a1tAddr;
       final count = c.dasLen == 0 ? 0x10000 : c.dasLen;
       totalBytes += count;
+      // an S-DD1 channel reads decompressed data instead of the rom
+      final sdd1 = bus.sdd1;
+      final decompress =
+          !fromPpu && (sdd1?.dmaBegin(ch, c.a1bBank.shl16 | aAddr) ?? false);
 
       for (int i = 0; i < count; i++) {
         final bAddr = 0x2100 | (c.bbad + pattern[i % pattern.length]).mask8;
@@ -161,7 +165,7 @@ class Dma {
         if (fromPpu) {
           bus.write(aFull, bus.read(bAddr));
         } else {
-          bus.write(bAddr, bus.read(aFull));
+          bus.write(bAddr, decompress ? sdd1!.dmaRead() : bus.read(aFull));
         }
         if (!fixed) {
           aAddr = (decrement ? aAddr.dec : aAddr.inc).mask16;
@@ -169,6 +173,7 @@ class Dma {
       }
       c.a1tAddr = aAddr;
       c.dasLen = 0;
+      sdd1?.dmaEnd(ch);
     }
     // approximate timing: ~8 master cycles/byte + per-channel overhead,
     // converted to the CPU's own cycle units (master/6, see Snes.cpuClock)

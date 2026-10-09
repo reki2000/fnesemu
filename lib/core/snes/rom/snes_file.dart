@@ -19,6 +19,13 @@ class SnesFile {
   int sramSize = 0; // bytes
   bool hasBattery = false;
   bool fastRom = false;
+  int romType = 0; // $FFD6: chips on the cartridge
+
+  /// S-DD1 (graphics decompression and 1MB rom banks)
+  bool get hasSdd1 => romType == 0x43 || romType == 0x45;
+
+  /// SA-1 (a second cpu, shared I-RAM and BW-RAM)
+  bool get hasSa1 => romType >= 0x33 && romType <= 0x36;
 
   void load(Uint8List body) {
     // strip 512-byte copier header if present
@@ -37,8 +44,9 @@ class SnesFile {
     final mapByte = _at(base + 0x15);
     fastRom = mapByte.bit4;
 
-    final romType = _at(base + 0x16);
-    hasBattery = romType == 0x02 || romType == 0x05 || romType == 0x06;
+    romType = _at(base + 0x16);
+    // the low nibble: 2 = rom+ram+battery, 5/6 = rom+chip+ram+battery
+    hasBattery = const [2, 5, 6].contains(romType & 0xf);
 
     final ramByte = _at(base + 0x18);
     sramSize = ramByte == 0 ? 0 : (0x400 << ramByte);
