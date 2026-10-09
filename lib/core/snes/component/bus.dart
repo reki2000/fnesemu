@@ -224,6 +224,10 @@ class Bus implements CpuBus {
     if (page >= 0x2140 && page < 0x2144) return apu.mainCpuRead(page - 0x2140);
     if (page >= 0x4300 && page < 0x4380) return dma.read(page);
     switch (page) {
+      case 0x2180: // WMDATA
+        final v = wram[_wramAddr];
+        _wramAddr = (_wramAddr + 1) & 0x1ffff;
+        return v;
       case 0x4210: // RDNMI: bit7 = vblank nmi flag (read-clears)
         {
           final v = _nmiFlag ? 0x82 : 0x02;
@@ -267,6 +271,21 @@ class Bus implements CpuBus {
       dma.write(page, data);
       return;
     }
+    switch (page) {
+      case 0x2180: // WMDATA: a wram write at WMADD, which increments
+        wram[_wramAddr] = data;
+        _wramAddr = (_wramAddr + 1) & 0x1ffff;
+        return;
+      case 0x2181: // WMADDL/M/H
+        _wramAddr = (_wramAddr & 0x1ff00) | data;
+        return;
+      case 0x2182:
+        _wramAddr = (_wramAddr & 0x100ff) | data << 8;
+        return;
+      case 0x2183:
+        _wramAddr = (_wramAddr & 0xffff) | (data & 1) << 16;
+        return;
+    }
     if (page == 0x4200) {
       _nmiEnabled = data.bit7;
       _irqMode = (data >> 4) & 3;
@@ -307,6 +326,8 @@ class Bus implements CpuBus {
   int _hTime = 0x1ff;
   int _vTime = 0x1ff;
   int _hvbjoy = 0;
+
+  int _wramAddr = 0; // $2181-$2183: the wram address of WMDATA
 
   int _mulResult = 0; // $4216/4217: product, or division remainder
   int _divResult = 0; // $4214/4215: division quotient
