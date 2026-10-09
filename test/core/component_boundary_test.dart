@@ -38,7 +38,7 @@ void main() {
         ));
   });
 
-  test('shared 68000 and SS do not depend on console implementations', () {
+  test('shared 68000 and ss do not depend on console implementations', () {
     final pending = [
       File('lib/core/components/m68k/cpu.dart'),
       File('lib/core/components/m68k/disasm.dart'),

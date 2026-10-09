@@ -59,7 +59,7 @@ void main() {
     expect(core.dump(), contains('f31:ffffffffffffffff'));
   });
 
-  test('SS sound CPU disassembly, trace and all CPU register dumps', () {
+  test('ss sound CPU disassembly, trace and all CPU register dumps', () {
     final core = Ss();
     core.scsp.ram
         .setAll(0x100, [0x4e, 0x71, 0x20, 0x3c, 0x12, 0x34, 0x56, 0x78]);
