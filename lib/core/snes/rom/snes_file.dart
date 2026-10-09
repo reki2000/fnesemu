@@ -11,8 +11,8 @@ enum SnesMapping { loRom, hiRom }
 /// parses a .sfc/.smc image: strips the optional 512-byte copier header and
 /// detects LoROM / HiROM by scoring the internal header at $7FC0 / $FFC0.
 class SnesFile {
-  late final Uint8List rom;
-  late final SnesMapping mapping;
+  late Uint8List rom;
+  late SnesMapping mapping;
   late final String title;
   late final String crc;
 
@@ -48,6 +48,14 @@ class SnesFile {
     final scoreHi = _score(0xffc0);
     mapping = scoreHi > scoreLo ? SnesMapping.hiRom : SnesMapping.loRom;
 
+    // a copier's interleaved HiROM image: the header at $7FC0 says HiROM
+    if (mapping == SnesMapping.loRom &&
+        _at(0x7fc0 + 0x15) & 0xef == 0x21 &&
+        rom.length % 0x10000 == 0) {
+      rom = _deinterleave(rom);
+      mapping = SnesMapping.hiRom;
+    }
+
     final base = mapping == SnesMapping.hiRom ? 0xffc0 : 0x7fc0;
     title = _ascii(base, 21);
 
@@ -69,6 +77,20 @@ class SnesFile {
     log("snes rom len:${rom.length} "
         "map:${mapping.name} title:'$title' "
         "type:${romType.x2} sram:${sramSize}B fastRom:$fastRom crc:$crc");
+  }
+
+  // the image holds the odd 32KB blocks first, then the even ones
+  static Uint8List _deinterleave(Uint8List image) {
+    final blocks = image.length ~/ 0x8000;
+    final half = blocks ~/ 2;
+    final out = Uint8List(image.length);
+    for (var i = 0; i < half; i++) {
+      out.setRange((2 * i + 1) * 0x8000, (2 * i + 2) * 0x8000, image,
+          i * 0x8000);
+      out.setRange(2 * i * 0x8000, (2 * i + 1) * 0x8000, image,
+          (half + i) * 0x8000);
+    }
+    return out;
   }
 
   int _at(int i) => i < rom.length ? rom[i] : 0;
