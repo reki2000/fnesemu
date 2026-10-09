@@ -22,6 +22,8 @@ class DiscToc {
   final int totalSectors;
 
   const DiscToc(this.tracks, this.totalSectors);
+
+  static const empty = DiscToc([], 0);
 }
 
 /// a contiguous region of sectors stored in a file

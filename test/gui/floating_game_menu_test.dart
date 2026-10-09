@@ -6,8 +6,7 @@ import 'package:fnesemu/gui/direction_pad.dart';
 import 'package:fnesemu/gui/floating_game_menu.dart';
 import 'package:fnesemu/gui/ticker_image.dart';
 import 'package:fnesemu/gui/virtual_pad.dart';
-import 'package:fnesemu_core/core/core_controller.dart';
-import 'package:fnesemu_core/core/sram.dart';
+import 'package:fnesemu_core/core/core_api.dart';
 
 void main() {
   testWidgets(

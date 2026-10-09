@@ -22,13 +22,14 @@ dependencies:
     path: packages/mp_bigfile_picker
   fnesemu_core:
     path: packages/fnesemu_core
+  cdrom:
+    path: packages/cdrom
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^5.0.0
-  image: ^4.3.0 # tool/
 
 flutter:
   uses-material-design: true

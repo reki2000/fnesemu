@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/ps/ps.dart';
 import 'package:fnesemu_core/core/sram.dart';
 import 'package:fnesemu_core/core/tracer.dart';
 import 'package:fnesemu_core/core/types.dart';
 import 'package:fnesemu_core/util/int.dart';
 
+import 'cdrom_drive.dart';
 import 'local_disc.dart';
 import 'ps_io.dart';
 

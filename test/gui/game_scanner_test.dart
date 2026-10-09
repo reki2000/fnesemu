@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cdrom/cdrom.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/cdrom/disc_image.dart';
 import 'package:fnesemu/gui/game_scanner.dart';
 import 'package:mp_bigfile_picker/io.dart';
 

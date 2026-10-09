@@ -27,6 +27,8 @@ jobs:
           cache: true
       - run: flutter --version
       - run: flutter pub get
+      - run: dart pub get && dart test
+        working-directory: packages/cdrom
       - run: dart test
         working-directory: packages/fnesemu_core
       - run: flutter test

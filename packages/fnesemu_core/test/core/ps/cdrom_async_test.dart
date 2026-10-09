@@ -1,12 +1,12 @@
 import 'dart:typed_data';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/gui/async_cdrom_drive.dart';
+import 'package:cdrom/memory.dart';
 import 'package:fnesemu_core/core/disc.dart';
 import 'package:fnesemu_core/core/ps/bus.dart';
 import 'package:fnesemu_core/core/ps/cdrom.dart';
+import 'package:test/test.dart';
 
-import '../cdrom/memory_disc.dart';
+import '../../../tool/cdrom_drive.dart';
 
 void main() {
   late Cdrom cdrom;

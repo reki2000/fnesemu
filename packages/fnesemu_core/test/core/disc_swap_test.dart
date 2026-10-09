@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/cdrom/disc_source.dart';
-import 'package:fnesemu/gui/async_cdrom_drive.dart';
+import 'package:cdrom/cdrom.dart';
+import 'package:cdrom/memory.dart';
 import 'package:fnesemu_core/core/disc_swap.dart';
+import 'package:test/test.dart';
 
-import '../cdrom/memory_disc.dart';
+import '../../tool/cdrom_drive.dart';
 
 DiscSource source(String name) => memoryDisc(
     name, {name: MemoryDiscFile(name, Uint8List(2352 * 10))});

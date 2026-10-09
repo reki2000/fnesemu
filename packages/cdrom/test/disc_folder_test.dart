@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/cdrom/disc_folder.dart';
+import 'package:cdrom/disc_folder.dart';
+import 'package:test/test.dart';
 
-import 'memory_disc.dart';
+import 'package:cdrom/memory.dart';
 
 Uint8List text(String s) => Uint8List.fromList(s.codeUnits);
 

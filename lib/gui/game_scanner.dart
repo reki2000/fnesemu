@@ -1,9 +1,8 @@
 import 'dart:async';
 
+import 'package:cdrom/cdrom.dart';
 import 'package:mp_bigfile_picker/api.dart';
 
-import '../cdrom/disc_folder.dart';
-import '../cdrom/disc_source.dart';
 import 'picked_disc.dart';
 
 /// a file found by [GameScanner]: a disc image or a ROM

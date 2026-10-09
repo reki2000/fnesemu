@@ -41,18 +41,18 @@ This project is experimental.
 
 - `packages/fnesemu_core`: the emulation cores and the utilities, in pure Dart
   without Flutter, with their tests (`dart test`) and the command line
-  harnesses which need no disc in its `tool/`. A core reads a disc through its
-  `CdromDrive` interface (tray, TOC and sectors by LBA).
+  harnesses in its `tool/`. A core reads a disc through its `CdromDrive`
+  interface (tray, TOC and sectors by LBA), and does not know the disc image
+  formats.
+- `packages/cdrom`: the disc images (.cue/.iso/.bin) on a virtual file system
+  (`DiscFile`, `DiscDirectory`), in pure Dart without dependencies: which
+  files are images, the files a .cue refers to, the TOC, and the sectors by LBA
+  read in the background (`DiscDrive`)
 - `packages/mp_bigfile_picker`: the file and directory pickers of each
   platform, and random access to the picked files
-- the app:
-  - `lib/cdrom`: the disc images (.cue/.iso/.bin): which files are images,
-    the TOC and the sectors by LBA. It reads through its own file interfaces,
-    without depending on mp_bigfile_picker or the cores.
-  - `lib/gui`: the GUI. `picked_disc.dart` gives the picked files to
-    `lib/cdrom`, and `async_cdrom_drive.dart` gives a disc image to the cores
-    as a `CdromDrive`
-  - `tool/`: the command line harnesses which read discs
+- the app (`lib/`): the GUI, which glues them: `picked_disc.dart` gives the
+  picked files to cdrom, and `async_cdrom_drive.dart` gives a `DiscDrive` to
+  the cores as a `CdromDrive`
 
 ## Core module boundary
 

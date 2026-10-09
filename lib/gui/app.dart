@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:archive/archive.dart' show getCrc32;
+import 'package:cdrom/cdrom.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/core/core_api.dart';
 import 'package:fnesemu_core/util/debug.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
-import '../cdrom/disc_source.dart';
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
 import 'core_view.dart';

@@ -12,10 +12,10 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/pce/pce.dart';
 import 'package:fnesemu_core/core/sram.dart';
 
+import 'cdrom_drive.dart';
 import 'local_disc.dart';
 
 Future<void> main(List<String> args) async {

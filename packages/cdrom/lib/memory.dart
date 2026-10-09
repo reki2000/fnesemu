@@ -1,8 +1,10 @@
-// disc images on memory, for tests
+/// disc images on memory, for tests
+library;
+
 import 'dart:typed_data';
 
-import 'package:fnesemu/cdrom/disc_folder.dart';
-import 'package:fnesemu/cdrom/disc_source.dart';
+import 'disc_folder.dart';
+import 'disc_source.dart';
 
 class MemoryDiscFile extends DiscFile {
   @override

@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import '../../tool/ps_test.dart' show TraceLogger;
 
 void main() {

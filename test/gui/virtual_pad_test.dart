@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/pad_input.dart';
 import 'package:fnesemu/gui/virtual_pad.dart';
-import 'package:fnesemu_core/core/core_controller.dart';
-import 'package:fnesemu_core/core/pad_button.dart';
-import 'package:fnesemu_core/core/sram.dart';
+import 'package:fnesemu_core/core/core_api.dart';
 
 class _Controller extends CoreController {
   _Controller() : super((_) {}, (_) {}, (_) {}, Sram());

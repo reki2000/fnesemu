@@ -49,6 +49,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  cdrom:
+    dependency: "direct dev"
+    description:
+      path: "../cdrom"
+      relative: true
+    source: path
+    version: "0.0.0"
   cli_config:
     dependency: transitive
     description:

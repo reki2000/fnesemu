@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/md/md.dart';
 import 'package:fnesemu_core/core/pad_button.dart';
 import 'package:image/image.dart' as img;
 
+import 'cdrom_drive.dart';
 import 'local_disc.dart';
 
 /// Headless BIOS/disc smoke runner with optional input and frame captures.

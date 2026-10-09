@@ -15,10 +15,10 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/core.dart';
 import 'package:fnesemu_core/core/md/md.dart';
 
+import 'cdrom_drive.dart';
 import 'local_disc.dart';
 
 Future<void> main(List<String> args) async {
