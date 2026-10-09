@@ -4,29 +4,14 @@ A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64 Emulator Built with Flutter
 
 This project is experimental.
 
-- Achieves 60 fps: NES and PCE on i5-8250 (web), MD on i5-8250 (Windows), PS1 on i7-13700HX (Windows)
 - Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
-- NES (.nes)
-  - Supports the following iNES mapper types:
-    - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
-    - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6, 85: VRC7
-    - 19: mapper 19, 88/206: mapper 88/206
-  - FDS (.fds, with or without the 16-byte header)
-    - Requires an 8 KiB BIOS (raw or wrapped in iNES) configured under `fds` in Core setup
-    - Includes A/B side flipping, persistent disk writes and FDS expansion audio
-- PCE (.pce) + SGX16 + CD
-- MD (.gen .md) + CD + 32X
-- GB (.gb)
-  - Supports ROM only / MBC1 / MBC2 / MBC3 (with clock) / MBC5 cartridges
-- PS1 (.exe, disc) * experimental *, requires BIOS
-- SS (disc) * work in progress *, requires BIOS
-- N64 (.z64 .v64 .n64)
+- Targets 60 fps for NES and PCE on i5-8250 (web), MD on i5-8250 (Windows), PS1 on i7-13700HX (Windows)
 
 # How to use 
 
 1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
-1. Open the menu, choose 'CD / ROM', and select a game directory
-1. Choose a game in the list to start emulation. The menu button or Escape pauses/resumes it
+1. Open the menu, choose 'CD / ROM', and select a ROM directory
+1. Choose a ROM in the list to start emulation. The menu button or Escape pauses/resumes it
 
 ## BIOS and discs
 
@@ -151,7 +136,3 @@ $ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
 $ cd ..
 $ make test-gte 
 ```
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
