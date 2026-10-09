@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
-import '../core/core_api.dart';
+import 'package:fnesemu_core/core/core_api.dart';
 import 'blob_store/blob_store.dart';
 import 'game_directory.dart';
 import 'recent_game.dart';

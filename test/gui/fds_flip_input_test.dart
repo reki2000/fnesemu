@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/core/core_api.dart';
-import 'package:fnesemu/core/nes/fds/fds_mapper.dart';
-import 'package:fnesemu/core/nes/nes.dart';
 import 'package:fnesemu/gui/key_handler.dart';
 import 'package:fnesemu/gui/pad_input.dart';
 import 'package:fnesemu/gui/virtual_pad.dart';
+import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/core/nes/fds/fds_mapper.dart';
+import 'package:fnesemu_core/core/nes/nes.dart';
 
 class _Controller extends CoreController {
   final Nes core;

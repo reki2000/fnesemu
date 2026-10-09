@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:fnesemu/util/int.dart';
+import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/util/int.dart';
 
-import '../../core/core_api.dart';
 import '../../styles.dart';
 import 'vram.dart';
 

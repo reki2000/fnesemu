@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/cdrom/disc_folder.dart';
-import 'package:fnesemu/cdrom/image_file.dart';
 import 'package:fnesemu/gui/game_list.dart';
+import 'package:fnesemu_core/cdrom/disc_folder.dart';
+import 'package:fnesemu_core/cdrom/image_file.dart';
 
 class _Folder extends DiscFolder {
   @override

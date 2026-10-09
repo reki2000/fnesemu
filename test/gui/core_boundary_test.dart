@@ -3,11 +3,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/core/core_api.dart';
-import 'package:fnesemu/core/installed_core_modules.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:fnesemu/gui/storage.dart';
+import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/core/installed_core_modules.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 
 void main() {

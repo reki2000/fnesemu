@@ -2,10 +2,9 @@
 // the cdrom drive
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/cdrom/disc_folder.dart';
+import 'package:fnesemu_core/cdrom/image_file.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
-
-import '../cdrom/disc_folder.dart';
-import '../cdrom/image_file.dart';
 
 /// an [ImageFile] of a [RandomReadFile] of mp_bigfile_picker
 class PickedImageFile extends ImageFile {

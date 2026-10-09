@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/core_api.dart';
+import 'package:fnesemu_core/core/core_api.dart';
 import '../../styles.dart';
 
 Widget _dump(List<int> buf, int start, int bits) {

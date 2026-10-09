@@ -3,12 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/core/core_controller.dart';
-import 'package:fnesemu/core/pad_button.dart';
-import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/gui/direction_pad.dart';
 import 'package:fnesemu/gui/key_handler.dart';
 import 'package:fnesemu/gui/pad_input.dart';
+import 'package:fnesemu_core/core/core_controller.dart';
+import 'package:fnesemu_core/core/pad_button.dart';
+import 'package:fnesemu_core/core/sram.dart';
 
 Offset point(double degrees, [double radius = 54]) {
   final angle = degrees * math.pi / 180;

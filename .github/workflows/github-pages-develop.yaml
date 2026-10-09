@@ -27,6 +27,8 @@ jobs:
           cache: true
       - run: flutter --version
       - run: flutter pub get
+      - run: dart test
+        working-directory: packages/fnesemu_core
       - run: flutter test
       - run: |
           REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")

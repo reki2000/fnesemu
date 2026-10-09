@@ -4,12 +4,12 @@ import 'dart:convert';
 import 'package:archive/archive.dart' show getCrc32;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fnesemu/util/debug.dart';
+import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
+import 'package:fnesemu_core/cdrom/disc_folder.dart';
+import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/util/debug.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
-import '../cdrom/async_cdrom_drive.dart';
-import '../cdrom/disc_folder.dart';
-import '../core/core_api.dart';
 import '../styles.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';

@@ -1,0 +1,328 @@
+import 'dart:developer';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'package:fnesemu_core/util/int.dart';
+
+import '../constants.dart' as hardware;
+import 'bus.dart';
+
+class Wave {
+  bool enabled = false;
+
+  int freq = 0;
+  int freqOffset = 0;
+
+  final table = List.filled(32, 0, growable: false);
+  int counter = 0;
+  int tableIndex = 0;
+  int tableWriteIndex = 0;
+
+  int volume = 0;
+  int volumeL = 0;
+  int volumeR = 0;
+
+  bool dda = false;
+  int ddaValue = 0;
+
+  bool noise = false;
+  int noiseFreq = 0;
+  int noiseIndex = 0;
+  final random = math.Random(0); // fixed seed: deterministic noise
+
+  int currentL = 0;
+  int currentR = 0;
+
+  void reset() {
+    enabled = false;
+
+    freq = 0;
+    freqOffset = 0;
+
+    table.fillRange(0, table.length, 0);
+    counter = 0;
+    tableIndex = 0;
+    tableWriteIndex = 0;
+
+    volume = 0;
+    volumeL = 0;
+    volumeR = 0;
+
+    dda = false;
+    ddaValue = 0;
+
+    noise = false;
+    noiseFreq = 0;
+    noiseIndex = 0;
+
+    currentL = 0;
+    currentR = 0;
+  }
+
+  void pushWave(int val) {
+    table[tableWriteIndex] = val;
+    tableWriteIndex = (tableWriteIndex + 1) & 0x1f;
+  }
+
+  // generate 2 channel interleaved 5bit PCM
+  List<int> synth(List<int> out) {
+    return dda
+        ? synthDda(out)
+        : noise
+            ? synthNoise(out)
+            : synthWave(out);
+  }
+
+  List<int> synthDda(List<int> out) {
+    final vol = (ddaValue - 16) * (volume + 1);
+    currentL = vol * (volumeL + 1) ~/ (32 * 16);
+    currentR = vol * (volumeR + 1) ~/ (32 * 16);
+
+    for (int i = 0; i < out.length; i += 2) {
+      out[i + 0] += currentL;
+      out[i + 1] += currentR;
+    }
+
+    return out;
+  }
+
+  // the counter counts down by 1 per step (12 bit) and reloads when it
+  // reaches 1. instead of stepping it [Psg.divider] times per sample, the
+  // steps up to the next reload are skipped at once: (counter - 2) & 0xfff
+  // steps are taken before the step that reaches 1.
+
+  List<int> synthNoise(List<int> out) {
+    for (int i = 0; i < out.length; i += 2) {
+      int steps = Psg.divider;
+      while (true) {
+        final toReload = ((counter - 2) & 0xfff) + 1;
+        if (toReload > steps) {
+          counter = (counter - steps) & 0xfff;
+          break;
+        }
+        steps -= toReload;
+
+        counter = noiseFreq;
+        noiseIndex = (noiseIndex + 1) & 0x3f;
+
+        if (noiseIndex == 0 || noiseIndex == 0x10) {
+          // volume: 5bit volumeLR: 4bit = 9bit
+          final out = (random.nextDouble() > 0.5) ? 31 : 0;
+          currentL = out * (volumeL + 1) ~/ 32;
+          currentR = out * (volumeR + 1) ~/ 32;
+        }
+      }
+
+      out[i + 0] += currentL;
+      out[i + 1] += currentR;
+    }
+
+    return out;
+  }
+
+  List<int> synthWave(List<int> out) {
+    for (int i = 0; i < out.length; i += 2) {
+      int steps = Psg.divider;
+      while (true) {
+        final toReload = ((counter - 2) & 0xfff) + 1;
+        if (toReload > steps) {
+          counter = (counter - steps) & 0xfff;
+          break;
+        }
+        steps -= toReload;
+
+        counter = _clip(freq + freqOffset, 0, 0xfff);
+        tableIndex = (tableIndex + 1) & 0x1f;
+
+        // volume: 5bit volumeLR: 4bit = 9bit
+        final out = ((dda ? ddaValue : table[tableIndex]) - 16) * (volume + 1);
+        currentL = out * (volumeL + 1) ~/ (32 * 16);
+        currentR = out * (volumeR + 1) ~/ (32 * 16);
+      }
+
+      out[i + 0] += currentL;
+      out[i + 1] += currentR;
+    }
+
+    return out;
+  }
+
+  int _clip(int val, int min, int max) {
+    return val < min
+        ? min
+        : val > max
+            ? max
+            : val;
+  }
+}
+
+/// Emulates PSG
+class Psg {
+  late final Bus _bus;
+
+  Psg(bus) {
+    _bus = bus;
+    _bus.psg = this;
+  }
+
+  void reset() {
+    cycle = 0;
+    ampL = 0;
+    ampR = 0;
+    for (final wave in waves) {
+      wave.reset();
+    }
+  }
+
+  int cycle = 0;
+
+  static const divider = 8; // divider for 3.579545MHz
+  static const audioSamplingRate = hardware.systemClockHz ~/ 6 ~/ divider;
+
+  final waves = List<Wave>.generate(6, (_) => Wave());
+
+  int ch = 0;
+  int ampL = 0;
+  int ampR = 0;
+
+  int lfoFreq = 0;
+  bool lfoEnabled = false;
+  int lfoControl = 0;
+  int lfoCounter = 0;
+
+  void write(int reg, int val) {
+    switch (reg) {
+      // pulse wave 0
+      case 0x00:
+        if ((val & 0x07) < 6) {
+          ch = val & 0x07;
+        }
+        return;
+
+      case 0x01:
+        ampR = val & 0x0f;
+        ampL = val.shr4;
+        return;
+
+      case 0x02:
+        waves[ch].freq = waves[ch].freq.setL8(val);
+        return;
+
+      case 0x03:
+        waves[ch].freq = waves[ch].freq.setH8(val & 0x0f);
+        return;
+
+      case 0x04:
+        waves[ch].volume = val & 0x1f;
+        waves[ch].enabled = val.bit7;
+        waves[ch].dda = val.bit6;
+        // DDA
+        return;
+
+      case 0x05:
+        waves[ch].volumeR = val & 0x0f;
+        waves[ch].volumeL = val.shr4;
+        return;
+
+      case 0x06: // waveform
+        if (waves[ch].dda) {
+          if (waves[ch].enabled) {
+            waves[ch].ddaValue = val;
+          } else {
+            waves[ch].tableWriteIndex = 0;
+          }
+        } else {
+          if (!waves[ch].enabled) {
+            waves[ch].pushWave(val);
+          }
+        }
+        return;
+
+      case 0x07: // noise ch4 or 5 only
+        if (ch == 4 || ch == 5) {
+          waves[ch].noise = val.bit7;
+          waves[ch].noiseFreq = (val & 0x1f) ^ 0x1f;
+        }
+        return;
+
+      case 0x08:
+        lfoFreq = val;
+        return;
+
+      case 0x09: // LFO control ch0 or 1 only
+        lfoEnabled = val.bit7;
+        if (!lfoEnabled) {
+          waves[1].tableIndex = 0;
+        }
+        lfoControl = val & 0x03;
+        return;
+
+      default:
+        log("Unsupported apu write at 0x${reg.x4}");
+        return;
+    }
+  }
+
+  int read(int reg) {
+    return 0xff;
+  }
+
+  // generate table which has output volume values, 15 to 0 with each step -1.5dB
+  final volumeTable = List.generate(16, (i) => i == 0 ? 0 : (0.3 / (16 - i)));
+
+  var buffer = Float32List(0); // -1.0 .. 1.0 2 channel interleaved
+
+  var _out = Int32List(0); // mix of the channels, reused
+
+  /// Generates the output with the duration against given elapsed clocks
+  Float32List exec(int elapsedClocks) {
+    final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
+
+    if (_out.length != cycles * 2) {
+      _out = Int32List(cycles * 2);
+    } else {
+      _out.fillRange(0, _out.length, 0);
+    }
+    final out = _out;
+
+    for (int i = waves.length - 1; i >= 0; i--) {
+      if (i == 1 && lfoEnabled) {
+        _applyLfo(out.length);
+      } else if (waves[i].enabled) {
+        waves[i].synth(out); // -16 .. 15, 2 channel interleaved 5bit PCM
+      }
+    }
+
+    if (buffer.length != cycles * 2) {
+      buffer = Float32List(cycles * 2);
+    }
+
+    final ampLrate = volumeTable[ampL] / 6 / 16;
+    final ampRrate = volumeTable[ampR] / 6 / 16;
+    for (int i = 0; i < buffer.length; i += 2) {
+      buffer[i + 0] = out[i + 0] * ampLrate;
+      buffer[i + 1] = out[i + 1] * ampRrate;
+    }
+
+    return buffer;
+  }
+
+  _applyLfo(int length) {
+    for (int j = 0; j < length; j++) {
+      lfoCounter = (lfoCounter - 1) & 0x3ffff;
+      if (lfoCounter == 0) {
+        lfoCounter = 0;
+        waves[1].tableIndex = (waves[1].tableIndex + 1) & 0x1f;
+      }
+    }
+
+    // apply lfo offset to wave 0
+    final lfoVal = waves[1].table[waves[1].tableIndex];
+    waves[0].freqOffset = switch (lfoControl) {
+      1 => lfoVal - 16,
+      2 => lfoVal.shl4 - 256,
+      3 => lfoVal.shl8 - 4096,
+      _ => 0
+    };
+  }
+}

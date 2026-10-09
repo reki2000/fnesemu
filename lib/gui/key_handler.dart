@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-import '../core/core_api.dart';
+import 'package:fnesemu_core/core/core_api.dart';
 import 'pad_input.dart';
 
 class KeyHandler {

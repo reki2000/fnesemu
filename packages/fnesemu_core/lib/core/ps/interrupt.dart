@@ -1,0 +1,95 @@
+import 'package:fnesemu_core/core/ps/r3000/r3000.dart';
+import 'package:fnesemu_core/util/debug.dart' show debugLog;
+import 'package:fnesemu_core/util/int.dart';
+
+const _debugLog = false;
+void _debug(String log) {
+  if (_debugLog) {
+    debugLog(log);
+  }
+}
+
+class Interrupt {
+  static const vBlank = 0;
+  static const gpu = 1;
+  static const cdrom = 2;
+  static const dma = 3;
+  static const timer0 = 4;
+  static const timer1 = 5;
+  static const timer2 = 6;
+  static const serial = 7;
+  static const sio = 8;
+  static const spu = 9;
+}
+
+class InterruptController {
+  late final R3000 cpu;
+
+  int status = 0;
+  int _mask = 0;
+  int get mask => _mask;
+  set mask(int value) {
+    if (_debugLog) _debug(
+        "interrupt: set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
+    _mask = value;
+
+    cpu.setInterruptPending(mask & status != 0);
+  }
+
+  void reset() {
+    status = 0;
+    _mask = 0;
+  }
+
+  void setIrq(int irqNo) {
+    if (status.bit(irqNo)) {
+      return;
+    }
+
+    if (_debugLog) _debug(
+        "interrupt: set:${irqNo.x4}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} triggered:${mask & status.setBit(irqNo, true) != 0}");
+    status = status.setBit(irqNo, true);
+
+    if (mask & status != 0) {
+      cpu.setInterruptPending(true);
+    }
+  }
+
+  void ackIrq(int ackValue) {
+    if (ackValue.mask16 != 0xffff) {
+      if (_debugLog) _debug(
+          'interrupt: ack:${ackValue.x4}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8}');
+    }
+
+    status &= ackValue;
+
+    if (mask & status == 0) {
+      cpu.setInterruptPending(false);
+    }
+  }
+
+  static const _names = [
+    "vb",
+    "gp",
+    "cd",
+    "dm",
+    "t0",
+    "t1",
+    "t2",
+    "sr",
+    "si",
+    "sp"
+  ];
+
+  String _statToName(int stat) {
+    return _names
+        .asMap()
+        .entries
+        .map((e) => stat.bit(e.key) ? e.value : "  ")
+        .join(" ");
+  }
+
+  String dump() {
+    return "istat:${status.x4}(${_statToName(status)}) imask:${mask.x4}(${_statToName(mask)})";
+  }
+}

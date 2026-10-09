@@ -2,11 +2,11 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fnesemu/core/ps/bus.dart';
-import 'package:fnesemu/core/ps/gpu/gpu.dart';
-import 'package:fnesemu/core/ps/r3000/r3000.dart';
-import 'package:fnesemu/util/int.dart';
-import 'package:fnesemu/util/uint8list.dart';
+import 'package:fnesemu_core/core/ps/bus.dart';
+import 'package:fnesemu_core/core/ps/gpu/gpu.dart';
+import 'package:fnesemu_core/core/ps/r3000/r3000.dart';
+import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/util/uint8list.dart';
 
 Uint8List getARGBImageData(Uint8List frameBuffer) {
   final result = Uint8List(1024 * 512 * 4);

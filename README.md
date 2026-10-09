@@ -37,17 +37,26 @@ This project is experimental.
 
 # How to develop
 
+## Packages
+
+- `packages/fnesemu_core`: the emulation cores, the CD-ROM drive and the
+  utilities, in pure Dart without Flutter, with their tests (`dart test`) and
+  the command line harnesses in its `tool/`
+- `packages/mp_bigfile_picker`: the file and directory pickers of each
+  platform, which also read the selected files
+- the app (`lib/`): the GUI, which gives the picked discs to the cores
+
 ## Core module boundary
 
-App/GUI imports only `lib/core/core_api.dart`. Core modules in
-`lib/core/<module>/module.dart` declare their systems, BIOS setup metadata,
+App/GUI imports only `package:fnesemu_core/core/core_api.dart`. Core modules in
+`packages/fnesemu_core/lib/core/<module>/module.dart` declare their systems, BIOS setup metadata,
 and ROM/disc ownership rules. `CoreFactory` enumerates registered modules and
 forwards identification and construction requests to them.
 
 After adding or removing a module, regenerate the core-side registration list:
 
 ```sh
-dart tool/generate_core_registry.dart
+cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
 ```
 
 No App/GUI changes are needed, including when no game core is installed.

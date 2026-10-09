@@ -1,19 +1,23 @@
-test-6502: 
-	dart run lib/main_cputest.dart 
+# the cpu test runners of the core package, run from here for the assets/
+CORE := packages/fnesemu_core
 
-test-z80: 
-	dart run lib/core/md/z80/z80_test.dart assets/tests.in assets/tests.expected
+test-6502:
+	dart run $(CORE)/tool/nes_cputest.dart
+
+test-z80:
+	dart run $(CORE)/tool/z80_test.dart assets/tests.in assets/tests.expected
 
 test-m68:
-	dart run tool/m68_test.dart
+	dart run $(CORE)/tool/m68_test.dart
 
 test-r3000:
-	dart run tool/r3000_test.dart
+	dart run $(CORE)/tool/r3000_test.dart
 
 test-gte:
-	dart run lib/core/ps/r3000/cop2_test.dart assets/ps1-tests/gte/test-all/tests.c
+	dart run $(CORE)/tool/gte_test.dart assets/ps1-tests/gte/test-all/tests.c
 
 test:
+	cd $(CORE) && dart test
 	flutter test
 
 playvgm:
@@ -25,7 +29,8 @@ platform-upgrade:
 
 format:
 	flutter pub get
-	dart fix --apply --code=directives_ordering
+	dart fix --apply --code=directives_ordering lib
+	dart fix --apply --code=directives_ordering test
+	cd $(CORE) && dart fix --apply --code=directives_ordering .
 
-.PHONY: cputest 
-.PHONY: format
+.PHONY: test format

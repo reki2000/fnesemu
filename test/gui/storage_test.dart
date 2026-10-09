@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/core/storage_key.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:fnesemu/gui/storage.dart';
+import 'package:fnesemu_core/core/storage_key.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 
 void main() {

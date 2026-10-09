@@ -2,8 +2,8 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/ps/cdrom.dart';
-import 'package:fnesemu/util/int.dart';
+import 'package:fnesemu_core/core/ps/cdrom.dart';
+import 'package:fnesemu_core/util/int.dart';
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 const rateHz = 44100;
