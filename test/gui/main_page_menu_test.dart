@@ -7,9 +7,6 @@ import 'dart:typed_data';
 import 'package:file_picker_platform_interface/file_picker_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show AssetManifest;
-// Use the font package's testing hook to keep this GUI test offline.
-// ignore: implementation_imports
-import 'package:google_fonts/src/google_fonts_base.dart' as fonts;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
@@ -17,6 +14,9 @@ import 'package:fnesemu/gui/floating_game_menu.dart';
 import 'package:fnesemu/gui/game_list.dart';
 import 'package:fnesemu/gui/sound_player.dart';
 import 'package:fnesemu/gui/storage.dart';
+// Use the font package's testing hook to keep this GUI test offline.
+// ignore: implementation_imports
+import 'package:google_fonts/src/google_fonts_base.dart' as fonts;
 import 'package:idb_shim/idb_client_memory.dart';
 
 import 'sound_player_test.dart' show FakeAudioStream;

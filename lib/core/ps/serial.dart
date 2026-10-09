@@ -1,8 +1,8 @@
 import 'dart:collection';
 
+import 'package:fnesemu/util/debug.dart' show debugLog;
 import 'package:fnesemu/util/int.dart';
 
-import 'package:fnesemu/util/debug.dart' show debugLog;
 import 'bus.dart';
 import 'interrupt.dart';
 

@@ -1,5 +1,6 @@
-import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
+
+import 'package:fnesemu/util/int.dart';
 
 import 'vdc.dart';
 

@@ -1,9 +1,10 @@
 import 'dart:typed_data';
+
+import 'package:fnesemu/core/n64/audio.dart';
 import 'package:fnesemu/core/n64/bus.dart';
 import 'package:fnesemu/core/n64/cpu.dart';
 import 'package:fnesemu/core/n64/fpu.dart';
 import 'package:fnesemu/core/n64/graphics.dart';
-import 'package:fnesemu/core/n64/audio.dart';
 import 'package:fnesemu/core/pad_button.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/util/int.dart';

@@ -1,6 +1,4 @@
 import 'package:fnesemu/util/int.dart';
-// Dart imports:
-// Project imports:
 import 'mapper.dart';
 import 'mirror.dart';
 

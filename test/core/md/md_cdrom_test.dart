@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/core_factory.dart';
 import 'package:fnesemu/core/disc.dart';
-import '../../support/fake_cdrom_drive.dart';
 import 'package:fnesemu/core/md/cd/cdc.dart';
 import 'package:fnesemu/core/md/cd/cdd.dart';
 import 'package:fnesemu/core/md/cd/md_cdrom.dart';
@@ -10,6 +9,8 @@ import 'package:fnesemu/core/md/cd/pcm.dart';
 import 'package:fnesemu/core/md/md.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:test/test.dart';
+
+import '../../support/fake_cdrom_drive.dart';
 
 Uint8List bios() {
   final bytes = Uint8List(0x20000);

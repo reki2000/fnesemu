@@ -1,9 +1,6 @@
-// Dart imports:
-// Flutter imports:
 import 'package:flutter/material.dart';
 import 'package:fnesemu/util/int.dart';
 
-// Project imports:
 import '../../core/core_api.dart';
 import '../../styles.dart';
 

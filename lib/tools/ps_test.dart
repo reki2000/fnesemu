@@ -7,8 +7,8 @@ import 'package:fnesemu/util/int.dart';
 
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/disc_source_local.dart';
-import '../core/sram.dart';
 import '../core/ps/ps.dart';
+import '../core/sram.dart';
 import 'ps_io.dart';
 
 int runSeconds = -1; // run for this many seconds

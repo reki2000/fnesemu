@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
-import 'package:fnesemu/util/debug.dart';
 import '../../types.dart';
 import '../bus.dart';
 import '../interrupt.dart';

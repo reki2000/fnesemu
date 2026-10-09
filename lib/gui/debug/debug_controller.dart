@@ -1,10 +1,8 @@
-// Dart imports:
-// Flutter imports:
 import 'package:flutter/material.dart';
+import 'package:fnesemu/util/int.dart';
 
 import '../../core/core_api.dart';
 import '../../styles.dart';
-import 'package:fnesemu/util/int.dart';
 import 'vram.dart';
 
 class DebugController extends StatelessWidget {

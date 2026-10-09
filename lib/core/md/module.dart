@@ -1,7 +1,8 @@
 import 'dart:typed_data';
+
+import '../cdrom_drive.dart';
 import '../core.dart';
 import '../core_module.dart';
-import '../cdrom_drive.dart';
 import '../media_input.dart';
 import 'md.dart';
 

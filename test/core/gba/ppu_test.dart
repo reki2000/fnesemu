@@ -1,8 +1,9 @@
 import 'package:fnesemu/core/gba/bus.dart';
+import 'package:fnesemu/core/gba/gba.dart';
 import 'package:fnesemu/core/gba/ppu.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
-import 'package:fnesemu/core/gba/gba.dart';
+
 import 'support/arm7_asm.dart';
 
 // expected ABGR8888 value for a BGR555 colour (mirrors Ppu's internal table).

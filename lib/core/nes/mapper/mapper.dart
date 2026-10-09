@@ -1,9 +1,7 @@
-// Dart imports:
 import 'dart:typed_data';
 
 import 'package:fnesemu/util/uint8list.dart';
 
-// Project imports:
 import 'mirror.dart';
 
 abstract class Mapper {

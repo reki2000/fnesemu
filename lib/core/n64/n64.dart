@@ -6,15 +6,15 @@ import 'package:fnesemu/util/int.dart';
 import '../../util/debug.dart';
 import '../core.dart';
 import '../pad_button.dart';
+import '../register_dump.dart';
 import '../sram.dart';
 import '../types.dart';
+import 'audio.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'disasm.dart';
-import '../register_dump.dart';
-import 'rom.dart';
 import 'graphics.dart';
-import 'audio.dart';
+import 'rom.dart';
 
 /// Independent N64 core with a VR4300 interpreter and GBI/audio task HLE.
 class N64 extends Core implements FrameRunner {

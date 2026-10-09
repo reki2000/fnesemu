@@ -1,7 +1,5 @@
-// Dart imports:
 import 'dart:io';
 
-// Project imports:
 import 'core/nes/component/apu.dart';
 import 'core/nes/component/bus.dart';
 import 'core/nes/component/cpu.dart';

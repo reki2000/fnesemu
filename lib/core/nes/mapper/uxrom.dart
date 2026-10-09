@@ -1,7 +1,5 @@
-// Dart imports:
 import 'dart:typed_data';
 
-// Project imports:
 import 'nrom.dart';
 
 // https://www.nesdev.org/wiki/UxROM

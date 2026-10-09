@@ -1,9 +1,8 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:core';
 import 'dart:developer';
 
-// Project imports:
+import 'package:fnesemu/util/int.dart';
+
 import 'bus.dart';
 
 class Regs {

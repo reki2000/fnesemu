@@ -1,4 +1,3 @@
-// Dart imports:
 import 'dart:async';
 import 'dart:core';
 import 'dart:math';
@@ -13,7 +12,6 @@ import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
 import 'frame_counter.dart';
-// Project imports:
 
 import 'pad_button.dart';
 import 'types.dart';

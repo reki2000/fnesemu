@@ -2,11 +2,11 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/core/gba/bus.dart';
 import 'package:fnesemu/core/gba/gba.dart';
+import 'package:fnesemu/core/gba/irq.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
 
 import 'support/arm7_asm.dart';
-import 'package:fnesemu/core/gba/irq.dart';
 
 /// End-to-end tests for the IRQ delivery chain a real BIOS relies on:
 /// VBlank raise -> HALT wake -> CPU exception entry -> BIOS-style dispatcher

@@ -1,13 +1,13 @@
 import 'dart:typed_data';
 
-import '../../disc.dart';
-import '../../sram.dart';
 import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
+import '../../disc.dart';
+import '../../sram.dart';
 import 'cdc.dart';
 import 'cdd.dart';
-import 'pcm.dart';
 import 'graphics.dart';
+import 'pcm.dart';
 
 /// MD CD-ROM in BIOS boot mode (the cartridge slot is unused).
 class MdCdrom {

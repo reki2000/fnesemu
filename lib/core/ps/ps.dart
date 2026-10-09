@@ -3,10 +3,10 @@ import 'dart:typed_data';
 import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
 import 'package:fnesemu/core/ps/serial.dart';
 import 'package:fnesemu/core/ps/timer.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
-import 'package:fnesemu/util/debug.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../pad_button.dart';

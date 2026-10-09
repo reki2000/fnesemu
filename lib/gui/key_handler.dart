@@ -1,7 +1,5 @@
-// Flutter imports:
 import 'package:flutter/services.dart';
 
-// Project imports:
 import '../core/core_api.dart';
 import 'pad_input.dart';
 

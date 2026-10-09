@@ -1,5 +1,3 @@
-// Dart imports:
-// Flutter imports:
 import 'dart:async';
 import 'dart:ui' as ui;
 

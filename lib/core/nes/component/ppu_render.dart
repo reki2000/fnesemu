@@ -1,7 +1,7 @@
 import 'package:fnesemu/util/int.dart';
-// Project imports:
-import '../mapper/mapper.dart';
+
 import '../constants.dart' as hardware;
+import '../mapper/mapper.dart';
 import 'ppu.dart';
 
 class _BG {

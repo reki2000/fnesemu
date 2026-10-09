@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/disc.dart';
-import '../../support/fake_cdrom_drive.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/ss/cpu.dart';
 import 'package:fnesemu/core/ss/ss.dart';
 import 'package:test/test.dart';
+
+import '../../support/fake_cdrom_drive.dart';
 
 class _TestCpu extends NullCpu {
   _TestCpu(super.bus, {super.master});

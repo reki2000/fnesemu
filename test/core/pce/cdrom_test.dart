@@ -1,12 +1,13 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/cdrom_drive.dart';
 import 'package:fnesemu/core/pce/component/cdrom.dart';
 import 'package:fnesemu/core/pce/pce.dart';
 import 'package:fnesemu/core/sram.dart';
-import 'package:fnesemu/core/cdrom_drive.dart';
-import '../../support/fake_cdrom_drive.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:test/test.dart';
+
+import '../../support/fake_cdrom_drive.dart';
 
 class TestDisc extends FakeDisc {
   TestDisc() : super(_sectors(), starts: [0, 4], audioTracks: {2});

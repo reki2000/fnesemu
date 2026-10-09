@@ -1,6 +1,5 @@
-import 'package:fnesemu/util/int.dart';
-
 import 'package:fnesemu/util/debug.dart';
+import 'package:fnesemu/util/int.dart';
 
 const showAddress = true;
 

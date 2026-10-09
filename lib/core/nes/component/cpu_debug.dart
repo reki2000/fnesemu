@@ -1,8 +1,7 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:core';
 
-// Project imports:
+import 'package:fnesemu/util/int.dart';
+
 import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';

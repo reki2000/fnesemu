@@ -1,5 +1,4 @@
 import 'package:fnesemu/util/int.dart';
-// Project imports:
 import '../../pad_button.dart';
 
 class Joypad {

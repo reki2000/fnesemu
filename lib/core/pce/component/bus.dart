@@ -1,10 +1,9 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
-
 import 'dart:typed_data';
 
-import '../mapper/rom.dart';
+import 'package:fnesemu/util/int.dart';
+
 import '../../sram.dart';
+import '../mapper/rom.dart';
 import 'cdrom.dart';
 import 'cpu.dart';
 import 'pad.dart';

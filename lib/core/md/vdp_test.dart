@@ -1,8 +1,8 @@
+import 'dart:core';
 import 'dart:developer';
 
-import 'vdp_renderer.dart';
 import 'vdp.dart';
-import 'dart:core';
+import 'vdp_renderer.dart';
 
 void main() {
   final vdp = Vdp();

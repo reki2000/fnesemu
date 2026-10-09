@@ -1,9 +1,11 @@
 import 'dart:typed_data';
+
 import 'package:archive/archive.dart';
+
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/image_file.dart';
-import 'core_module.dart';
 import 'cdrom_drive.dart';
+import 'core_module.dart';
 
 /// Container handling and I/O orchestration, independent of any console format.
 (Uint8List, String) unpackRom(Uint8List bytes, String name,

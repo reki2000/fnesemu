@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
-import '../core/md/md.dart';
-import '../core/pad_button.dart';
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/disc_source_local.dart';
+import '../core/md/md.dart';
+import '../core/pad_button.dart';
 
 /// Headless BIOS/disc smoke runner with optional input and frame captures.
 Future<void> main(List<String> args) async {

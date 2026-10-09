@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
-import 'package:fnesemu/util/debug.dart';
 import 'serial.dart' show SioResponse, SioDevice;
 
 class MemoryCard extends SioDevice {

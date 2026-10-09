@@ -1,8 +1,7 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:typed_data';
 
-// Project imports:
+import 'package:fnesemu/util/int.dart';
+
 import 'mapper.dart';
 import 'mirror.dart';
 import 'mmc5_apu.dart';

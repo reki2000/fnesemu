@@ -1,8 +1,6 @@
-// Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
-// Project imports:
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 

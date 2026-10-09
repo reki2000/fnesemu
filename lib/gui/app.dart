@@ -1,28 +1,26 @@
-// Dart imports:
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:archive/archive.dart' show getCrc32;
-// Flutter imports:
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:fnesemu/util/debug.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
-// Project imports:
 import '../cdrom/async_cdrom_drive.dart';
+import '../cdrom/disc_folder.dart';
 import '../cdrom/disc_source.dart';
 import '../core/core_api.dart';
-import '../cdrom/disc_folder.dart';
 import '../styles.dart';
-import 'package:fnesemu/util/debug.dart';
 import 'core_view.dart';
-import 'floating_game_menu.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
+import 'floating_game_menu.dart';
+import 'game_directory.dart';
+import 'game_list.dart';
 import 'key_handler.dart';
 import 'pad_input.dart';
 import 'recent_game.dart';
-import 'game_directory.dart';
-import 'game_list.dart';
 import 'sound_player.dart';
 import 'storage.dart';
 import 'ticker_image.dart';

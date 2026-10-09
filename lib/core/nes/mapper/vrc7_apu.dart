@@ -1,7 +1,7 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:math';
 import 'dart:typed_data';
+
+import 'package:fnesemu/util/int.dart';
 
 // https://www.nesdev.org/wiki/VRC7_audio
 //

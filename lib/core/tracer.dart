@@ -1,4 +1,3 @@
-// Dart imports:
 import 'dart:async';
 
 import 'package:fnesemu/util/int.dart';

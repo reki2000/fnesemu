@@ -1,9 +1,8 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/pce/component/vdc_render.dart';
+import 'package:fnesemu/util/int.dart';
 
 import 'bus.dart';
 

@@ -18,12 +18,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/core.dart';
-import 'package:fnesemu/core/ss/ss.dart';
-import 'package:fnesemu/core/sram.dart';
-import 'package:fnesemu/core/types.dart';
 import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
 import 'package:fnesemu/cdrom/disc_source_local.dart';
+import 'package:fnesemu/core/core.dart';
+import 'package:fnesemu/core/sram.dart';
+import 'package:fnesemu/core/ss/ss.dart';
+import 'package:fnesemu/core/types.dart';
 import 'package:image/image.dart' as img;
 
 Future<void> main(List<String> args) async {

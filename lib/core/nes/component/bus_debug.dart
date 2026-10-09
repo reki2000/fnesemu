@@ -1,5 +1,4 @@
 import 'package:fnesemu/util/int.dart';
-// Project imports:
 import 'bus.dart';
 
 extension BusDebugger on Bus {

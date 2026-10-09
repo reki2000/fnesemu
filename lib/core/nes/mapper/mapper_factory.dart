@@ -1,5 +1,6 @@
-import 'mapper.dart';
 import 'cnrom.dart';
+import 'fme7.dart';
+import 'mapper.dart';
 import 'mapper088.dart';
 import 'mmc1.dart';
 import 'mmc2.dart';
@@ -14,7 +15,6 @@ import 'vrc1.dart';
 import 'vrc3.dart';
 import 'vrc4.dart';
 import 'vrc6.dart';
-import 'fme7.dart';
 import 'vrc7.dart';
 
 /// Constructs cartridge mappers without coupling their base class to implementations.

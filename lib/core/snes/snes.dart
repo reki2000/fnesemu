@@ -1,7 +1,5 @@
-// Dart imports:
 import 'dart:typed_data';
 
-// Project imports:
 import 'package:fnesemu/util/int.dart';
 
 import '../cdrom_drive.dart';

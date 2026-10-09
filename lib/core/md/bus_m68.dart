@@ -4,13 +4,13 @@ import 'package:fnesemu/util/int.dart';
 
 import '../components/m68k/bus.dart';
 import '../components/m68k/cpu.dart';
-import 'cd/md_cdrom.dart';
 import 'bus_z80.dart';
+import 'cd/md_cdrom.dart';
 import 'pad.dart';
-import 'sn76489.dart';
-import 'ym2612.dart';
 import 'rom.dart';
+import 'sn76489.dart';
 import 'vdp.dart';
+import 'ym2612.dart';
 
 class BusM68 implements M68Bus {
   BusM68({Uint8List? ram, Pad? pad, Rom? rom})

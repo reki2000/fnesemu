@@ -3,9 +3,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu/core/snes/snes.dart';
-import 'package:fnesemu/core/snes/rom/snes_file.dart';
 import 'package:fnesemu/core/snes/component/ppu_render.dart';
+import 'package:fnesemu/core/snes/rom/snes_file.dart';
+import 'package:fnesemu/core/snes/snes.dart';
 import 'package:image/image.dart' as image;
 
 void main(List<String> args) {

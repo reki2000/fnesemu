@@ -1,6 +1,6 @@
 import 'package:fnesemu/core/gba/bus.dart';
-import 'package:test/test.dart';
 import 'package:fnesemu/util/int.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('Apu Direct Sound', () {

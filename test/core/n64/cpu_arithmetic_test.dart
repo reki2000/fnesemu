@@ -1,10 +1,11 @@
 import 'dart:math' as math;
-import 'package:fnesemu/util/int.dart';
-import 'package:test/test.dart';
+
 import 'package:fnesemu/core/n64/bus.dart';
 import 'package:fnesemu/core/n64/cpu.dart';
 import 'package:fnesemu/core/n64/graphics.dart';
 import 'package:fnesemu/core/n64/registers.dart';
+import 'package:fnesemu/util/int.dart';
+import 'package:test/test.dart';
 
 void main() {
   test('register file stores 64-bit values and sign-extends word writes', () {

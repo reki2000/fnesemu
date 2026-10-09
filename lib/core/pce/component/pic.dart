@@ -1,5 +1,5 @@
-import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/core/pce/component/bus.dart';
+import 'package:fnesemu/util/int.dart';
 
 import 'cpu.dart';
 

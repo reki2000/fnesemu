@@ -1,10 +1,11 @@
-import 'package:fnesemu/util/int.dart';
 import 'dart:typed_data';
 
-import 'z80/z80.dart';
+import 'package:fnesemu/util/int.dart';
+
 import 'bus_m68.dart';
-import 'ym2612.dart';
 import 'sn76489.dart';
+import 'ym2612.dart';
+import 'z80/z80.dart';
 
 class BusZ80 {
   late BusM68 busM68;

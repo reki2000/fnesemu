@@ -1,8 +1,8 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
-import 'sh2/sh2.dart';
 import 'pwm.dart';
+import 'sh2/sh2.dart';
 import 'video.dart';
 
 /// MD 32x adapter, dual SH-2 buses and shared peripherals.

@@ -1,7 +1,5 @@
-// Dart imports:
 import 'dart:core';
 
-// Project imports:
 import 'package:fnesemu/util/int.dart';
 
 import '../../types.dart';

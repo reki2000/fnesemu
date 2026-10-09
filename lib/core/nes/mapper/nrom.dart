@@ -1,4 +1,3 @@
-// Project imports:
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/NROM

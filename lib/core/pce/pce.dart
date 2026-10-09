@@ -1,14 +1,11 @@
-// Dart imports:
 import 'dart:typed_data';
 
-// Project imports:
-import '../core.dart';
 import '../cdrom_drive.dart';
+import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
-import 'constants.dart' as hardware;
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
@@ -21,6 +18,7 @@ import 'component/vdc.dart';
 import 'component/vdc_debug.dart';
 import 'component/vdc_render.dart';
 import 'component/vpc.dart';
+import 'constants.dart' as hardware;
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 

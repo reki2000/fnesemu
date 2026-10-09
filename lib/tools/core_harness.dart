@@ -20,9 +20,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'ps_io.dart';
-
 import 'package:archive/archive.dart';
+import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
+import 'package:fnesemu/cdrom/disc_source_local.dart';
 import 'package:fnesemu/core/core.dart';
 import 'package:fnesemu/core/gb/gb.dart';
 import 'package:fnesemu/core/gba/gba.dart';
@@ -34,9 +34,9 @@ import 'package:fnesemu/core/ps/ps.dart';
 import 'package:fnesemu/core/snes/snes.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:fnesemu/core/types.dart';
-import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu/cdrom/disc_source_local.dart';
 import 'package:image/image.dart' as img;
+
+import 'ps_io.dart';
 
 Future<void> main(List<String> args) async {
   int frames = 600;

@@ -1,9 +1,7 @@
-// Dart imports:
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:archive/archive.dart';
 
-// Project imports:
+import 'package:archive/archive.dart';
 import 'package:fnesemu/util/uint8list.dart';
 
 import '../cdrom_drive.dart';
@@ -20,13 +18,13 @@ import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
-import 'mapper/mapper_factory.dart';
 import 'constants.dart' as hardware;
+import 'fds/fds_bios.dart';
+import 'fds/fds_image.dart';
+import 'fds/fds_mapper.dart';
+import 'mapper/mapper_factory.dart';
 import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
-import 'fds/fds_image.dart';
-import 'fds/fds_bios.dart';
-import 'fds/fds_mapper.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
 class Nes implements Core, FrameRunner {

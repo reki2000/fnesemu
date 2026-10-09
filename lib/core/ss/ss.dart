@@ -3,13 +3,13 @@ import 'dart:typed_data';
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../core.dart';
 import '../cdrom_drive.dart';
+import '../components/m68k/disasm.dart';
+import '../core.dart';
 import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
-import '../components/m68k/disasm.dart';
 import 'bus.dart';
 import 'cdblock.dart';
 import 'cpu.dart';

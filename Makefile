@@ -26,7 +26,7 @@ platform-upgrade:
 format:
 	flutter pub get
 	flutter pub run import_path_converter:main
-	flutter pub run import_sorter:main
+	dart fix --apply --code=directives_ordering
 
 .PHONY: cputest 
 .PHONY: format

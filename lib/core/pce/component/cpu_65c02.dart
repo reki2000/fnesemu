@@ -1,4 +1,3 @@
-// Dart imports:
 import 'dart:core';
 
 import 'package:fnesemu/util/int.dart';

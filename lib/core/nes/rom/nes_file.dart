@@ -1,10 +1,8 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:developer';
 import 'dart:typed_data';
 
-// Project imports:
 import 'package:archive/archive_io.dart';
+import 'package:fnesemu/util/int.dart';
 
 
 class NesFile {

@@ -1,9 +1,6 @@
-// Dart imports:
-// Flutter imports:
 import 'package:flutter/material.dart';
 
 import '../../core/core_api.dart';
-// Project imports:
 import '../../styles.dart';
 
 Widget _dump(List<int> buf, int start, int bits) {

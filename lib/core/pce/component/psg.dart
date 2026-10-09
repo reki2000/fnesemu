@@ -1,8 +1,8 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:developer';
 import 'dart:math' as math;
 import 'dart:typed_data';
+
+import 'package:fnesemu/util/int.dart';
 
 import '../constants.dart' as hardware;
 import 'bus.dart';

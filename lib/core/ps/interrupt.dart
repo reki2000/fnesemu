@@ -1,7 +1,6 @@
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
-import 'package:fnesemu/util/int.dart';
-
 import 'package:fnesemu/util/debug.dart' show debugLog;
+import 'package:fnesemu/util/int.dart';
 
 const _debugLog = false;
 void _debug(String log) {

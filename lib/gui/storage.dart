@@ -6,8 +6,8 @@ import 'package:archive/archive.dart';
 
 import '../core/core_api.dart';
 import 'blob_store/blob_store.dart';
-import 'recent_game.dart';
 import 'game_directory.dart';
+import 'recent_game.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;

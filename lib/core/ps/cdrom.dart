@@ -3,9 +3,10 @@ import 'dart:typed_data';
 
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
+
 import '../cdrom_drive.dart';
-import '../disc_swap.dart';
 import '../disc.dart';
+import '../disc_swap.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 import 'log.dart';

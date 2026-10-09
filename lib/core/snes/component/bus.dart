@@ -1,15 +1,14 @@
-import 'package:fnesemu/util/int.dart';
-// Dart imports:
 import 'dart:typed_data';
 
-// Project imports:
+import 'package:fnesemu/util/int.dart';
+
 import '../rom/snes_file.dart';
 import 'apu.dart';
 import 'cpu.dart';
 import 'cpu_bus.dart';
 import 'cx4.dart';
-import 'dsp1.dart';
 import 'dma.dart';
+import 'dsp1.dart';
 import 'pad.dart';
 import 'ppu.dart';
 import 'sa1.dart';
