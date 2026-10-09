@@ -146,7 +146,8 @@ class DiscImage {
     int bcd(int value) => ((value ~/ 10) << 4) | (value % 10);
     return Uint8List(sectorSize)
       ..setAll(0, sync)
-      ..setAll(12, [bcd(msf ~/ (60 * 75)), bcd(msf ~/ 75 % 60), bcd(msf % 75), 1])
+      ..setAll(
+          12, [bcd(msf ~/ (60 * 75)), bcd(msf ~/ 75 % 60), bcd(msf % 75), 1])
       ..setAll(16, data);
   }
 
@@ -169,7 +170,9 @@ class DiscImage {
     if (sectors == 0) {
       throw const FormatException("cdrom: empty image");
     }
-    return DiscImage(source, DiscToc([DiscTrack(1, false, 0, sectors)], sectors),
+    return DiscImage(
+        source,
+        DiscToc([DiscTrack(1, false, 0, sectors)], sectors),
         [Extent(0, sectors, file, 0, cooked: cooked)]);
   }
 

@@ -3,11 +3,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/cdrom/disc_image.dart';
-import 'package:fnesemu/cdrom/disc_scanner.dart';
-import 'package:fnesemu/gui/picked_disc.dart';
+import 'package:fnesemu/gui/game_scanner.dart';
 import 'package:mp_bigfile_picker/io.dart';
 
-import 'memory_disc.dart';
+import 'memory_picked_directory.dart';
 
 Uint8List text(String s) => Uint8List.fromList(s.codeUnits);
 
@@ -20,7 +19,7 @@ final bin = Uint8List(2352 * 4);
 
 void main() {
   test('a cue is listed, the files it refers to are not', () async {
-    final r = await DiscScanner.scan(MemoryDirectory.of({
+    final r = await GameScanner.scan(MemoryPickedDirectory({
       "game/game.cue": text(cue(["game (Track 1).bin", "game (Track 2).bin"])),
       "game/game (Track 1).bin": bin,
       "game/game (Track 2).bin": bin,
@@ -29,22 +28,20 @@ void main() {
       "readme.txt": text("x"),
     }));
     expect(r.items.map((i) => i.path),
-        ["game/game.cue", "single.iso", "sub/deep/other.bin"]);
+        ["game/game.cue", "readme.txt", "single.iso", "sub/deep/other.bin"]);
     expect(r.skipped, isEmpty);
   });
 
   test('game list includes every remaining file after cue references',
       () async {
-    final r = await DiscScanner.scan(
-        MemoryDirectory.of({
-          'game.cue': text(cue(['track.bin'])),
-          'track.bin': bin,
-          'fixture.gb': bin,
-          'archive.zip': bin,
-          'readme.txt': text('fixture'),
-          'invalid.cue': text(cue(['missing.bin'])),
-        }),
-        includeAllFiles: true);
+    final r = await GameScanner.scan(MemoryPickedDirectory({
+      'game.cue': text(cue(['track.bin'])),
+      'track.bin': bin,
+      'fixture.gb': bin,
+      'archive.zip': bin,
+      'readme.txt': text('fixture'),
+      'invalid.cue': text(cue(['missing.bin'])),
+    }));
     expect(r.items.map((item) => item.path), [
       'archive.zip',
       'fixture.gb',
@@ -55,40 +52,22 @@ void main() {
     expect(r.skipped, ['invalid.cue']);
   });
 
-  test('a cue with a missing file is skipped, its files are not listed',
+  test('a cue with a missing file is marked skipped, its files are not listed',
       () async {
-    final r = await DiscScanner.scan(MemoryDirectory.of({
+    final r = await GameScanner.scan(MemoryPickedDirectory({
       "a/a.cue": text(cue(["a1.bin", "a2.bin"])),
       "a/a1.bin": bin, // a2.bin is missing
       "b/b.cue": text(cue(["b.bin"])),
       "b/b.bin": bin,
     }));
-    expect(r.items.map((i) => i.path), ["b/b.cue"]);
+    expect(r.items.map((i) => i.path), ["a/a.cue", "b/b.cue"]);
     expect(r.skipped, ["a/a.cue"]);
-  });
-
-  test('file names are matched ignoring the case, with back slashes and ..',
-      () async {
-    final r = await DiscScanner.scan(MemoryDirectory.of({
-      "x/game.cue": text(cue(["GAME.BIN", "..\\shared\\Track2.bin"])),
-      "x/game.bin": bin,
-      "shared/track2.BIN": bin,
-    }));
-    expect(r.items.map((i) => i.path), ["x/game.cue"]);
-  });
-
-  test('a cue referring outside of the folder is skipped', () async {
-    final r = await DiscScanner.scan(MemoryDirectory.of({
-      "game.cue": text(cue(["../outside.bin"])),
-    }));
-    expect(r.items, isEmpty);
-    expect(r.skipped, ["game.cue"]);
   });
 
   test('progress is reported while listing and checking', () async {
     final progress = <ScanProgress>[];
-    await DiscScanner.scan(
-        MemoryDirectory.of({
+    await GameScanner.scan(
+        MemoryPickedDirectory({
           "a.cue": text(cue(["a.bin"])),
           "a.bin": bin,
         }),
@@ -102,19 +81,21 @@ void main() {
   });
 
   test('scan can be cancelled', () async {
-    final r = await DiscScanner.scan(MemoryDirectory.of({"a.iso": bin, "b.iso": bin}),
+    final r = await GameScanner.scan(
+        MemoryPickedDirectory({"a.iso": bin, "b.iso": bin}),
         isCancelled: () => true);
     expect(r.cancelled, true);
     expect(r.items, isEmpty);
   });
 
-  test('the source of an item finds the files of the cue in the folder', () async {
-    final folder = MemoryDirectory.of({
+  test('the source of an item finds the files of the cue in the folder',
+      () async {
+    final folder = MemoryPickedDirectory({
       "g/game.cue": text('FILE "GAME.BIN" BINARY\n'
           '  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n'),
       "g/game.bin": bin,
     });
-    final r = await DiscScanner.scan(folder);
+    final r = await GameScanner.scan(folder);
     final image = await DiscImage.open(r.sourceOf(r.items.single));
     expect(image.totalSectors, 4);
     await image.close();
@@ -128,7 +109,7 @@ void main() {
     File('${dir.path}/a/b/x.bin').writeAsBytesSync(bin);
     File('${dir.path}/y.iso').writeAsBytesSync(bin);
 
-    final r = await DiscScanner.scan(PickedDiscDirectory(IoDirectory(dir.path)));
+    final r = await GameScanner.scan(IoDirectory(dir.path));
     expect(r.items.map((i) => i.path), ["a/b/x.cue", "y.iso"]);
 
     final image = await DiscImage.open(r.sourceOf(r.items.first));

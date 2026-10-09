@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/cdrom/disc_scanner.dart';
 import 'package:fnesemu/gui/game_list.dart';
+import 'package:fnesemu/gui/game_scanner.dart';
 
-import '../cdrom/memory_disc.dart';
+import 'memory_picked_directory.dart';
 
 void main() {
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
@@ -13,17 +13,18 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final items = [
-        const DiscItem('invalid.cue'),
-        ...List.generate(500, (i) => DiscItem('fixture-$i.gb'))
+        const GameItem('invalid.cue'),
+        ...List.generate(500, (i) => GameItem('fixture-$i.gb'))
       ];
-      final scan = ScanResult(MemoryDirectory({}), [], items, ['invalid.cue'], false);
-      DiscItem? selected;
+      final scan = ScanResult(
+          MemoryPickedDirectory({}), [], items, ['invalid.cue'], false);
+      GameItem? selected;
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: Builder(
                   builder: (context) => TextButton(
                       onPressed: () async {
-                        selected = await showDialog<DiscItem>(
+                        selected = await showDialog<GameItem>(
                             context: context,
                             builder: (_) => GameListDialog(
                                 title: 'fixtures', scan: ValueNotifier(scan)));
@@ -60,8 +61,8 @@ void main() {
                 find.byType(LinearProgressIndicator))
             .value,
         0.25);
-    scan.value =
-        ScanResult(MemoryDirectory({}), [], [const DiscItem('fixture.gb')], [], false);
+    scan.value = ScanResult(MemoryPickedDirectory({}), [],
+        [const GameItem('fixture.gb')], [], false);
     await tester.pump();
     expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(find.text('fixture.gb'), findsOneWidget);

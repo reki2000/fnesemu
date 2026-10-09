@@ -1,6 +1,7 @@
 // disc images on memory, for tests
 import 'dart:typed_data';
 
+import 'package:fnesemu/cdrom/disc_folder.dart';
 import 'package:fnesemu/cdrom/disc_source.dart';
 
 class MemoryDiscFile extends DiscFile {
@@ -51,4 +52,4 @@ class MemoryDirectory extends DiscDirectory {
 
 /// the disc image [main] of [files]
 DiscSource memoryDisc(String main, Map<String, MemoryDiscFile> files) =>
-    DiscSource.inDirectory(MemoryDirectory(files), main, files.keys);
+    DiscFolder(MemoryDirectory(files), files.keys).source(main);
