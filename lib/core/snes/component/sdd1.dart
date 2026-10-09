@@ -3,8 +3,8 @@ import 'dart:typed_data';
 /// S-DD1: a cartridge chip which maps 1MB rom banks into $C0-$FF and
 /// decompresses graphics while a DMA channel reads them.
 ///
-/// The decompressor (context model + Golomb codes) follows the description
-/// by Andreas Naive used by bsnes and snes9x.
+/// Written after the fullsnes documentation of the ports and of the
+/// decompression algorithm (a context model over Golomb coded runs).
 class Sdd1 {
   final Uint8List rom;
   final int _romMask;
@@ -72,173 +72,124 @@ class Sdd1 {
   void dmaEnd(int channel) => _dmaReady &= ~(1 << channel);
 }
 
+/// the decompressor of the fullsnes description: bitplanes of 2/4/8 bits
+/// per pixel (or bytes of 8 planes), each bit predicted from the bits before
+/// it in its plane, and coded as runs of the more probable bit
 class _Decompressor {
   final Sdd1 chip;
   _Decompressor(this.chip);
 
-  // input manager
-  int _offset = 0, _bitCount = 0;
-
-  // bit generators for code numbers 0-7
-  final _mpsCount = List<int>.filled(8, 0);
-  final _lpsIndex = List<bool>.filled(8, false);
-
-  // probability estimation
-  final _status = List<int>.filled(32, 0);
-  final _mps = List<int>.filled(32, 0);
-
-  // context model
-  int _bitplanesInfo = 0, _contextBitsInfo = 0, _bitNumber = 0;
-  int _currentBitplane = 0;
-  final _prevBitplaneBits = List<int>.filled(8, 0);
-
-  // output logic
-  int _r0 = 0, _r1 = 0, _r2 = 0;
-
-  void init(int offset) {
-    _offset = offset;
-    _bitCount = 4;
-    _mpsCount.fillRange(0, 8, 0);
-    _lpsIndex.fillRange(0, 8, false);
-    _status.fillRange(0, 32, 0);
-    _mps.fillRange(0, 32, 0);
-
-    final header = chip.mmcRead(offset);
-    _bitplanesInfo = header & 0xc0;
-    _contextBitsInfo = header & 0x30;
-    _bitNumber = 0;
-    _prevBitplaneBits.fillRange(0, 8, 0);
-    _currentBitplane = switch (_bitplanesInfo) {
-      0x00 => 1,
-      0x40 => 7,
-      0x80 => 3,
-      _ => 0,
-    };
-    _r0 = 1;
-  }
-
-  int _codeWord(int codeLength) {
-    var codeWord = (chip.mmcRead(_offset) << _bitCount) & 0xff;
-    _bitCount++;
-    if ((codeWord & 0x80) != 0) {
-      codeWord |= chip.mmcRead(_offset + 1) >> (9 - _bitCount);
-      _bitCount += codeLength;
-    }
-    if ((_bitCount & 8) != 0) {
-      _offset++;
-      _bitCount &= 7;
-    }
-    return codeWord & 0xff;
-  }
-
-  // the run length of the MPS before an LPS, for a code word of [n] bits
-  static final _runCount = Uint8List.fromList(List.generate(256, (i) {
-    if (i == 0) return 0;
-    final k = i.bitLength - 1;
-    var low = i - (1 << k), reversed = 0;
-    for (var b = 0; b < k; b++) {
-      reversed = (reversed << 1) | (low & 1);
-      low >>= 1;
-    }
-    return ~reversed & ((1 << k) - 1);
-  }));
-
-  // returns (bit, endOfRun) packed as bit | endOfRun << 1
-  int _generatorBit(int codeNumber) {
-    if (_mpsCount[codeNumber] == 0 && !_lpsIndex[codeNumber]) {
-      final codeWord = _codeWord(codeNumber);
-      if ((codeWord & 0x80) != 0) {
-        _lpsIndex[codeNumber] = true;
-        _mpsCount[codeNumber] = _runCount[codeWord >> (codeNumber ^ 7)];
-      } else {
-        _mpsCount[codeNumber] = 1 << codeNumber;
-      }
-    }
-    int bit;
-    if (_mpsCount[codeNumber] != 0) {
-      bit = 0;
-      _mpsCount[codeNumber]--;
-    } else {
-      bit = 1;
-      _lpsIndex[codeNumber] = false;
-    }
-    final end = _mpsCount[codeNumber] == 0 && !_lpsIndex[codeNumber];
-    return bit | (end ? 2 : 0);
-  }
-
-  // (code number, next status if MPS, next status if LPS)
-  static const _evolution = [
-    [0, 25, 25], [0, 2, 1], [0, 3, 1], [0, 4, 2], [0, 5, 3], [1, 6, 4], //
-    [1, 7, 5], [1, 8, 6], [1, 9, 7], [2, 10, 8], [2, 11, 9], [2, 12, 10],
-    [2, 13, 11], [3, 14, 12], [3, 15, 13], [3, 16, 14], [3, 17, 15],
-    [4, 18, 16], [4, 19, 17], [5, 20, 18], [5, 21, 19], [6, 22, 20],
-    [6, 23, 21], [7, 24, 22], [7, 24, 23], [0, 26, 1], [1, 27, 2],
-    [2, 28, 4], [3, 29, 8], [4, 30, 12], [5, 31, 16], [6, 32, 18],
-    [7, 24, 22],
+  static const _codeSize = [
+    0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, //
+    4, 4, 5, 5, 6, 6, 7, 7, 0, 1, 2, 3, 4, 5, 6, 7,
+  ];
+  static const _mpsNext = [
+    25, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, //
+    18, 19, 20, 21, 22, 23, 24, 24, 26, 27, 28, 29, 30, 31, 32, 24,
+  ];
+  static const _lpsNext = [
+    25, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, //
+    16, 17, 18, 19, 20, 21, 22, 23, 1, 2, 4, 8, 12, 16, 18, 22,
   ];
 
-  int _estimatedBit(int context) {
-    final status = _status[context], mps = _mps[context];
-    final state = _evolution[status];
-    final result = _generatorBit(state[0]);
-    final bit = result & 1;
-    if ((result & 2) != 0) {
-      if (bit != 0) {
-        if ((status & 0xfe) == 0) _mps[context] ^= 1;
-        _status[context] = state[2];
-      } else {
-        _status[context] = state[1];
-      }
+  // 128, 64, 96, 32, ...: the run lengths of the code words, which are the
+  // bit-reversed indexes
+  static final _runTable = List<int>.generate(128, (i) {
+    var r = 0;
+    for (var b = 0; b < 7; b++) {
+      r |= ((i >> b) & 1) << (6 - b);
     }
-    return bit ^ mps;
-  }
+    return 128 - r;
+  });
 
-  int _contextBit() {
-    switch (_bitplanesInfo) {
-      case 0x00:
-        _currentBitplane ^= 1;
-      case 0x40:
-        _currentBitplane ^= 1;
-        if ((_bitNumber & 0x7f) == 0) {
-          _currentBitplane = (_currentBitplane + 2) & 7;
-        }
-      case 0x80:
-        _currentBitplane ^= 1;
-        if ((_bitNumber & 0x7f) == 0) _currentBitplane ^= 2;
-      case 0xc0:
-        _currentBitplane = _bitNumber & 7;
-    }
-    final bits = _prevBitplaneBits[_currentBitplane];
-    var context = (_currentBitplane & 1) << 4;
-    context |= switch (_contextBitsInfo) {
-      0x00 => ((bits & 0x01c0) >> 5) | (bits & 1),
-      0x10 => ((bits & 0x0180) >> 5) | (bits & 1),
-      0x20 => ((bits & 0x00c0) >> 5) | (bits & 1),
-      _ => ((bits & 0x0180) >> 5) | (bits & 3),
-    };
-    final bit = _estimatedBit(context);
-    _prevBitplaneBits[_currentBitplane] = ((bits << 1) | bit) & 0xffff;
-    _bitNumber++;
-    return bit;
+  int _src = 0, _input = 0, _validBits = 0;
+  int _planes = 0, _highContext = 0, _lowContext = 0;
+  int _plane = 0, _yloc = 0, _raw = 0;
+  final _bitCtr = List<int>.filled(8, 0);
+  final _prevBits = List<int>.filled(8, 0);
+  final _states = List<int>.filled(32, 0);
+  final _mps = List<int>.filled(32, 0);
+
+  int _byte() => chip.mmcRead(_src++);
+
+  void init(int src) {
+    _src = src;
+    final head = _byte();
+    _planes = const [2, 8, 4, 0][head >> 6];
+    _highContext = const [0x1c0, 0x180, 0x0c0, 0x180][(head >> 4) & 3];
+    _lowContext = (head & 0x30) == 0x30 ? 3 : 1;
+    _input = (head << 11 | _byte() << 3) & 0xffff;
+    _validBits = 5;
+    _bitCtr.fillRange(0, 8, 0);
+    _prevBits.fillRange(0, 8, 0);
+    _states.fillRange(0, 32, 0);
+    _mps.fillRange(0, 32, 0);
+    _plane = _yloc = _raw = 0;
   }
 
   int read() {
-    if (_bitplanesInfo == 0xc0) {
-      _r1 = 0;
-      for (var r0 = 1; r0 < 0x100; r0 <<= 1) {
-        if (_contextBit() != 0) _r1 |= r0;
+    if (_planes == 0) {
+      for (var plane = 0; plane < 8; plane++) {
+        _getBit(plane);
       }
-      return _r1;
+      return _raw;
     }
-    if (_r0 == 0) {
-      _r0 = 0xff;
-      return _r2;
+    if (_plane & 1 == 0) {
+      for (var i = 0; i < 8; i++) {
+        _getBit(_plane);
+        _getBit(_plane + 1);
+      }
+      return _prevBits[_plane++] & 0xff;
     }
-    _r1 = _r2 = 0;
-    for (_r0 = 0x80; _r0 != 0; _r0 >>= 1) {
-      if (_contextBit() != 0) _r1 |= _r0;
-      if (_contextBit() != 0) _r2 |= _r0;
+    final v = _prevBits[_plane--] & 0xff;
+    if (++_yloc == 8) {
+      _yloc = 0;
+      _plane = (_plane + 2) & (_planes - 1);
     }
-    return _r1;
+    return v;
+  }
+
+  void _getBit(int plane) {
+    final prev = _prevBits[plane];
+    final context = (plane & 1) << 4 |
+        (prev & _highContext) >> 5 |
+        (prev & _lowContext);
+    final bit = _probGetBit(context);
+    _prevBits[plane] = ((prev << 1) + bit) & 0xffff;
+    if (_planes == 0) _raw = (_raw >> 1) + (bit << 7);
+  }
+
+  int _probGetBit(int context) {
+    final state = _states[context];
+    final size = _codeSize[state];
+    if (_bitCtr[size] & 0x7f == 0) _bitCtr[size] = _codeword(size);
+    var bit = _mps[context];
+    _bitCtr[size]--;
+    if (_bitCtr[size] == 0) {
+      _states[context] = _lpsNext[state];
+      bit ^= 1;
+      if (state < 2) _mps[context] = bit;
+    } else if (_bitCtr[size] == 0x80) {
+      _states[context] = _mpsNext[state];
+    }
+    return bit;
+  }
+
+  int _codeword(int size) {
+    if (_validBits == 0) {
+      _input |= _byte();
+      _validBits = 8;
+    }
+    _input = (_input << 1) & 0xffff;
+    _validBits--;
+    if (_input & 0x8000 == 0) return 0x80 + (1 << size);
+    final tmp = ((_input >> 8) & 0x7f) | (0x7f >> size);
+    _input = (_input << size) & 0xffff;
+    _validBits -= size;
+    if (_validBits < 0) {
+      _input |= _byte() << -_validBits;
+      _validBits += 8;
+    }
+    return _runTable[tmp];
   }
 }
