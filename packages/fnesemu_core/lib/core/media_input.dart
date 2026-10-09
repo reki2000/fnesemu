@@ -1,24 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
-
 import '../cdrom/async_cdrom_drive.dart';
 import '../cdrom/image_file.dart';
 import 'cdrom_drive.dart';
 import 'core_module.dart';
 
-/// Container handling and I/O orchestration, independent of any console format.
-(Uint8List, String) unpackRom(Uint8List bytes, String name,
-    CoreSystem? Function(String, Uint8List) identify) {
-  if (mediaExtension(name) != 'zip') return (bytes, name);
-  for (final entry in ZipDecoder().decodeBytes(bytes)) {
-    if (!entry.isFile) continue;
-    final data = Uint8List.fromList(entry.content as List<int>);
-    if (identify(entry.name, data) != null) return (data, entry.name);
-  }
-  throw FormatException('No supported ROM in archive: $name');
-}
-
+/// I/O orchestration of discs, independent of any console format.
 Future<bool> probeDiscSource(Iterable<MediaHint> hints, DiscSource source,
     Future<CoreSystem?> Function(CdromDrive) identify) async {
   final available = hints.toSet();

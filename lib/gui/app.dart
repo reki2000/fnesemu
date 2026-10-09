@@ -21,6 +21,7 @@ import 'key_handler.dart';
 import 'pad_input.dart';
 import 'picked_disc.dart';
 import 'recent_game.dart';
+import 'rom_archive.dart';
 import 'sound_player.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
@@ -282,7 +283,7 @@ class MainPageState extends State<MainPage> {
     } finally {
       await file.close();
     }
-    final (rom, name) = CoreFactory.unpackRom(data, item.path);
+    final (rom, name) = unpackRom(data, item.path);
     await _boot(CoreFactory.systemOfFile(name, rom),
         rom: rom, name: name, folder: _folderHistoryKey(scan), path: item.path);
   }

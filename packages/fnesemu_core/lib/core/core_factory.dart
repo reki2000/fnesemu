@@ -64,8 +64,6 @@ class CoreFactory {
     return null;
   }
 
-  static (Uint8List, String) unpackRom(Uint8List body, String name) =>
-      media.unpackRom(body, name, findRom);
   static Future<bool> isDiscImage(String name, DiscSource source) =>
       media.probeDiscSource(_modules.map((module) => module.mediaHint(name)),
           source, systemOfDisc);
