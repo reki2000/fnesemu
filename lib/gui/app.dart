@@ -354,6 +354,10 @@ class MainPageState extends State<MainPage> {
           "files: ${files.length} selected");
     }
 
+    if (system.id == 'fds' && files.single.$1.length != 8192) {
+      throw ArgumentError('FDS BIOS must be 8192 bytes');
+    }
+
     await _storage
         .setBios(system.id, [for (final (data, name) in files) (name, data)]);
     AppSnackBar.show("BIOS of ${system.name}: "
@@ -711,6 +715,27 @@ class MainPageState extends State<MainPage> {
                             value: directory.id, child: Text(directory.path)),
                     ],
                   ),
+
+                  if (_controller.diskSideCount > 0)
+                    PopupMenuButton<int>(
+                      tooltip: 'FDS disk side',
+                      icon: const Icon(Icons.album),
+                      onSelected: (side) => _menuAction(() async {
+                        _controller.selectDiskSide(side < 0 ? null : side);
+                      }),
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                            value: -1, child: Text('Eject disk')),
+                        for (var side = 0;
+                            side < _controller.diskSideCount;
+                            side++)
+                          CheckedPopupMenuItem(
+                              value: side,
+                              checked: _controller.diskSide == side,
+                              child: Text(
+                                  'Disk ${side ~/ 2 + 1} ${side.isEven ? "A" : "B"}')),
+                      ],
+                    ),
 
                   PopupMenuButton<RecentGame>(
                     icon: const Icon(Icons.history),

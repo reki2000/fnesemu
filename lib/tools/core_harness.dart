@@ -1,7 +1,7 @@
 // headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run lib/tools/core_harness.dart <nes|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
+// usage: dart run lib/tools/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
@@ -9,7 +9,7 @@
 //   -H, --hold N     frames to hold a pressed button (default: 10)
 //   -s, --start N    save pngs only from frame N on (default: 0)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
-//   -b, --bios FILE  gba: boot from this BIOS image (default: HLE boot)
+//   -b, --bios FILE  gba/fds: BIOS image (required for fds)
 //   -3, --boot A,B,C 32x: boot roms (main 256B, master 2048B, slave 1024B)
 //   -x, --exe FILE   ps: run this PS-EXE after the BIOS boot (test programs)
 //   -v, --vram       ps: also write vram.png (the whole 1024x512 VRAM)
@@ -85,7 +85,7 @@ Future<void> main(List<String> args) async {
 
   if (files.length < 2) {
     print(
-        "usage: core_harness <nes|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
+        "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
@@ -97,7 +97,7 @@ Future<void> main(List<String> args) async {
     throw StateError('core does not implement FrameRunner');
   }
   core.setSram(Sram());
-  if (bios != null && core is Gba) {
+  if (bios != null && (core is Gba || files[0] == "fds")) {
     core.setBiosFiles([File(bios).readAsBytesSync()]);
   }
   if (files[0] == "32x") {
@@ -205,6 +205,8 @@ Core _createCore(String name) {
   switch (name) {
     case 'nes':
       return Nes();
+    case 'fds':
+      return Nes(diskSystem: true);
     case 'pce':
       return Pce();
     case 'md':

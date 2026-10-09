@@ -11,6 +11,9 @@ This project is experimental.
     - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
     - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6, 85: VRC7
     - 19: mapper 19, 88/206: mapper 88/206
+  - FDS (.fds, with or without the 16-byte header)
+    - Requires an 8192-byte BIOS configured under `fds` in Core setup
+    - Includes disk-side selection, persistent disk writes and FDS expansion audio
 - PCE (.pce) + SGX16 + CD
 - MD (.gen .md) + CD + 32X
 - GB (.gb)
@@ -22,17 +25,34 @@ This project is experimental.
 # How to use 
 
 1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
-1. Select the file by clicking on the 'Load ROM' icon (a square and small arrow) on the leftmost of the App bar icons
-1. Click on the 'Run' icon (a right-directed triangle) to start emulation
+1. Open the menu, choose 'CD / ROM', and select a game directory
+1. Choose a game in the list to start emulation. The menu button or Escape pauses/resumes it
 
 ## BIOS and discs
 
 - Set the BIOS of each system from the 'Core setup' menu (the gear icon). The files are saved and used each time the system starts
-  - the pce cdrom (system card), md cdrom, ps1 and ss require it. 32x (3 boot ROM files) and gba are optional
+  - fds (8 KiB), pce cdrom (system card), md cdrom, ps1 and ss require it. 32x (3 boot ROM files) and gba are optional
 - Select a disc from the disc menu. The system is detected from the disc header
   - if the running system plays the disc, only the disc is changed as on the real console. press Reset to boot it
 
 
+
+## FDS
+
+Set the 8 KiB BIOS from Core setup → fds, then choose an `.fds` file from a
+CD / ROM directory. Disk 1 A is inserted initially. While paused, use the
+FDS disk-side icon to eject or select Disk 1 A/B, Disk 2 A/B, etc., then resume.
+Side changes expose a brief ejected interval to the running software.
+Writes are saved in the application's storage; the original image is kept intact.
+
+The headless harness supports the same core:
+
+```sh
+dart run lib/tools/core_harness.dart fds /path/to/disk.fds -b /path/to/bios.bin -f 600
+```
+
+FDS tests use synthetic BIOS/disk programs. Compatibility with real BIOS and
+commercial disk images has not yet been verified. QD images are not supported.
 
 ## Joypad-Keyboard assignment
 

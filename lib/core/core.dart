@@ -91,3 +91,10 @@ abstract interface class FrameRunner {
   /// early when an exec stops (`stopped`). `elapsedClocks` is of the last exec.
   ExecResult runFrame(int scanlines);
 }
+
+/// Removable sides of a floppy image; independent of the CD-ROM drive.
+abstract interface class DiskSideControl {
+  int get diskSideCount;
+  int? get diskSide;
+  void selectDiskSide(int? side);
+}

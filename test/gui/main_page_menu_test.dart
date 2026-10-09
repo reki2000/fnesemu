@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:fnesemu/gui/floating_game_menu.dart';
+import 'package:fnesemu/gui/game_list.dart';
 import 'package:fnesemu/gui/sound_player.dart';
 import 'package:fnesemu/gui/storage.dart';
 import 'package:idb_shim/idb_client_memory.dart';
@@ -22,12 +23,12 @@ class TestFilePicker extends FilePickerPlatform {
   String? initialDirectory;
   @override
   Future<String?> getDirectoryPath(
-          {String? dialogTitle,
-          String? initialDirectory,
-          AndroidOptions androidOptions = const AndroidOptions(),
-          WindowsOptions windowsOptions = const WindowsOptions(),
-          LinuxOptions linuxOptions = const LinuxOptions(),
-          WebOptions webOptions = const WebOptions()}) {
+      {String? dialogTitle,
+      String? initialDirectory,
+      AndroidOptions androidOptions = const AndroidOptions(),
+      WindowsOptions windowsOptions = const WindowsOptions(),
+      LinuxOptions linuxOptions = const LinuxOptions(),
+      WebOptions webOptions = const WebOptions()}) {
     this.initialDirectory = initialDirectory;
     return select!();
   }
@@ -39,6 +40,19 @@ Future<void> waitFor(bool Function() ready) async {
     if (DateTime.now().isAfter(deadline)) {
       fail('Timed out waiting for game startup');
     }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
+Future<void> waitForGameList(WidgetTester tester) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (find.byType(GameListDialog).evaluate().isEmpty ||
+      tester.widget<GameListDialog>(find.byType(GameListDialog)).scan.value ==
+          null) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for directory scan');
+    }
+    await tester.pump();
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
 }
@@ -81,7 +95,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
       await tester.tap(find.text('Select directory...'));
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await waitForGameList(tester);
     });
     await tester.pump();
     expect(find.text('fixture.gb'), findsOneWidget);
@@ -118,7 +132,7 @@ void main() {
     expect(find.text(temp.path), findsOneWidget);
     await tester.runAsync(() async {
       await tester.tap(find.text(temp.path));
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await waitForGameList(tester);
     });
     await tester.pump();
     expect(find.text('fresh.gb'), findsOneWidget);

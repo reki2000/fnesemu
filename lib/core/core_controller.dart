@@ -50,6 +50,23 @@ class CoreController {
   String get system => _system;
   String _system = "";
 
+  int get diskSideCount {
+    final core = _core;
+    return core is DiskSideControl
+        ? (core as DiskSideControl).diskSideCount
+        : 0;
+  }
+
+  int? get diskSide {
+    final core = _core;
+    return core is DiskSideControl ? (core as DiskSideControl).diskSide : null;
+  }
+
+  void selectDiskSide(int? side) {
+    final core = _core;
+    if (core is DiskSideControl) (core as DiskSideControl).selectDiskSide(side);
+  }
+
   /// replaces the core with a new one of [system] (CoreSystem.id), loaded
   /// with [bios] and [rom]. without [rom], the core boots its BIOS.
   /// the emulation is stopped during the replacement, and stays stopped.

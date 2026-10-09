@@ -1,6 +1,7 @@
 // Dart imports:
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:archive/archive.dart';
 
 // Project imports:
 import 'package:fnesemu/util/uint8list.dart';
@@ -22,10 +23,13 @@ import 'component/ppu_debug.dart';
 import 'mapper/mapper.dart';
 import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
+import 'fds/fds_image.dart';
+import 'fds/fds_mapper.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes implements Core, FrameRunner {
-  Nes() {
+class Nes implements Core, FrameRunner, DiskSideControl {
+  final bool diskSystem;
+  Nes({this.diskSystem = false}) {
     bus = Bus();
     cpu = Cpu(bus);
     ppu = Ppu(bus);
@@ -94,6 +98,7 @@ class Nes implements Core, FrameRunner {
   @pragma('vm:prefer-inline')
   int _advance() {
     if (!cpu.exec()) return _stepStopped;
+    _diskMapper?.handleClock(cpu.cycle);
 
     bool rendered = false;
     if (cpu.cycle >= _nextPpuCycle) {
@@ -168,7 +173,54 @@ class Nes implements Core, FrameRunner {
   void setCdromDrive(CdromDrive drive) {}
 
   @override
-  void setBiosFiles(List<Uint8List> files) {}
+  void setBiosFiles(List<Uint8List> files) {
+    if (!diskSystem) return;
+    if (files.length != 1 || files.single.length != 0x2000) {
+      throw ArgumentError('FDS requires one 8192-byte BIOS image');
+    }
+    _bios = Uint8List.fromList(files.single);
+    _configureDisk(null);
+  }
+
+  Uint8List? _bios;
+  FdsMapper? _diskMapper;
+  @override
+  int get diskSideCount => _diskMapper?.sideCount ?? 0;
+  @override
+  int? get diskSide => _diskMapper?.selectedSide;
+  @override
+  void selectDiskSide(int? side) => _diskMapper?.selectSide(side);
+
+  void _configureDisk(Uint8List? image) {
+    final bios = _bios;
+    if (bios == null) {
+      throw StateError('Set the FDS BIOS before loading a disk');
+    }
+    final surfaces =
+        image == null ? <Uint8List>[] : FdsImage.parse(image).surfaces();
+    final offsets = <int>[];
+    var offset = 0;
+    for (final surface in surfaces) {
+      offsets.add(offset);
+      offset += surface.length;
+    }
+    final mapper =
+        FdsMapper(bios, offsets, surfaces.map((side) => side.length).toList())
+          ..mirror = bus.mirror
+          ..holdIrq = ((hold) => hold ? bus.holdIrq() : bus.releaseIrq());
+    if (image != null) {
+      crc = getCrc32(image).toRadixString(16).padLeft(8, '0');
+      _sram.init(StorageKey.of('fds', StorageKey.sram, crc),
+          Uint8ListEx.join(surfaces));
+      if (_sram.data.length != offset) {
+        throw StateError('Saved FDS image has an invalid size');
+      }
+      mapper.setSramRw(_sram.read8, _sram.write8);
+    }
+    bus.mapper = mapper;
+    _diskMapper = mapper;
+    reset();
+  }
 
   @override
   void setSram(Sram sram) {
@@ -186,6 +238,10 @@ class Nes implements Core, FrameRunner {
   // throws exception if the mapper type of the rom file is not supported.
   @override
   void setRom(Uint8List body) {
+    if (diskSystem) {
+      _configureDisk(body);
+      return;
+    }
     final nesFile = NesFile();
     nesFile.load(body);
     crc = nesFile.crc;

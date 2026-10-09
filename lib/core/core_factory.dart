@@ -48,6 +48,8 @@ class CoreSystem {
 class CoreFactory {
   static const systems = [
     CoreSystem("nes", "nes", extensions: ["nes"]),
+    CoreSystem("fds", "fds",
+        extensions: ["fds"], biosFiles: 1, biosRequired: true),
     // a cdrom system card loaded as a rom plays pce cd discs as well
     CoreSystem("pce", "pce", extensions: ["pce"], disc: "pcecd"),
     CoreSystem("pcecd", "pce", biosFiles: 1, biosRequired: true, disc: "pcecd"),
@@ -88,6 +90,8 @@ class CoreFactory {
     switch (id) {
       case 'nes':
         return Nes();
+      case 'fds':
+        return Nes(diskSystem: true);
       case 'pce' || 'pcecd':
         return Pce();
       case 'md':
