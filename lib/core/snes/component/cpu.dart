@@ -287,7 +287,16 @@ class Cpu {
   bool _holdNmi = false;
   bool _holdIrq = false;
 
-  void onNmi() => _holdNmi = true;
+  // the instruction running when vblank starts completes before the NMI is
+  // taken, so a loop polling RDNMI ($4210) can see the flag before the NMI
+  // handler reads and clears it
+  int _nmiDelay = 0;
+
+  void onNmi() {
+    _holdNmi = true;
+    _nmiDelay = 1;
+  }
+
   void holdIrq() => _holdIrq = true;
   void releaseIrq() => _holdIrq = false;
 
@@ -331,12 +340,13 @@ class Cpu {
       return true;
     }
 
-    if (_holdNmi) {
+    if (_holdNmi && (_nmiDelay == 0 || waiting)) {
       _holdNmi = false;
       waiting = false;
       _interrupt(0xffea, 0xfffa);
       return true;
     }
+    if (_nmiDelay > 0) _nmiDelay--;
 
     if (_holdIrq && !regs.p.bit2) {
       waiting = false;
