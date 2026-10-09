@@ -117,8 +117,9 @@ extension CdromXA on Cdrom {
 }
 
 class XaResampler {
-  static // 7 x 29
-      const zigzagTables = [
+  // the seven 29-tap tables resampling 37800Hz to 44100Hz, from
+  // https://psx-spx.consoledev.net/cdromdrive/ (XA-ADPCM interpolation)
+  static const zigzagTables = [
     [
       0x0000, 0x0000, 0x0000, 0x0000, 0x0000, -0x0002, 0x000A, -0x0022, 0x0041,
       -0x0054, 0x0034, 0x0009, -0x010A, 0x0400, -0x0A78, //

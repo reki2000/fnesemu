@@ -278,6 +278,8 @@ class Decoder {
   final qtY = List<int>.filled(64, 0);
   final qtC = List<int>.filled(64, 0);
 
+  // the IDCT scale factors and the zigzag order of
+  // https://psx-spx.consoledev.net/macroblockdecodermdec/
   static List<double> scaleFactors = [
     1.000000000, 1.387039845, 1.306562965, 1.175875602, //
     1.000000000, 0.785694958, 0.541196100, 0.275899379 //
