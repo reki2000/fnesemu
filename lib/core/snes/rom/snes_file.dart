@@ -17,6 +17,10 @@ class SnesFile {
   late final String crc;
 
   int sramSize = 0; // bytes
+
+  /// the cartridge's expansion ram (bytes) from the extended header, which
+  /// a header with the maker code $33 has just before it
+  int expansionRamSize = 0;
   bool hasBattery = false;
   bool fastRom = false;
   int romType = 0; // $FFD6: chips on the cartridge
@@ -53,6 +57,11 @@ class SnesFile {
     romType = _at(base + 0x16);
     // the low nibble: 2 = rom+ram+battery, 5/6 = rom+chip+ram+battery
     hasBattery = const [2, 5, 6].contains(romType & 0xf);
+
+    final expansion = _at(base - 3);
+    if (_at(base + 0x1a) == 0x33 && expansion > 0 && expansion <= 8) {
+      expansionRamSize = 0x400 << expansion;
+    }
 
     final ramByte = _at(base + 0x18);
     sramSize = ramByte == 0 ? 0 : (0x400 << ramByte);

@@ -70,9 +70,8 @@ class Bus implements CpuBus {
     sdd1 = file.hasSdd1 ? (Sdd1(rom)..reset()) : null;
     sa1 = file.hasSa1 ? Sa1(this, rom, file.sramSize) : null;
     dsp1 = file.hasDsp1 ? (Dsp1(file.mapping, rom.length)..reset()) : null;
-    superFx = file.hasSuperFx
-        ? SuperFx(this, rom, file.sramSize == 0 ? 0x8000 : file.sramSize)
-        : null;
+    superFx =
+        file.hasSuperFx ? SuperFx(this, rom, _superFxRamSize(file)) : null;
 
     // round rom size to power of two for cheap masking
     var size = 0x8000;
@@ -95,6 +94,13 @@ class Bus implements CpuBus {
       sa1?.mainVector(addr) ??
       superFx?.mainVector(addr) ??
       read(addr) | read(addr + 1).shl8;
+
+  // the GSU ram: from the extended header, else the ram size, else 32KB
+  static int _superFxRamSize(SnesFile file) => file.expansionRamSize > 0
+      ? file.expansionRamSize
+      : file.sramSize > 0
+          ? file.sramSize
+          : 0x8000;
 
   // ------------------------------------------------------------------ read
   @override
