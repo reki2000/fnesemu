@@ -5,10 +5,11 @@ import 'package:fnesemu/core/tracer.dart';
 import 'package:fnesemu/core/types.dart';
 import 'package:fnesemu/util/int.dart';
 
-import '../../cdrom/async_cdrom_drive.dart';
-import '../../cdrom/disc_source_local.dart';
-import '../sram.dart';
-import 'ps.dart';
+import '../cdrom/async_cdrom_drive.dart';
+import '../cdrom/disc_source_local.dart';
+import '../core/sram.dart';
+import '../core/ps/ps.dart';
+import 'ps_io.dart';
 
 int runSeconds = -1; // run for this many seconds
 int runCycles = -1; // run for this many cycles (overrides runSeconds if >= 0)
@@ -19,7 +20,7 @@ int measureLoopCount =
     1; // number of times to run the main loop for measuring performance
 bool skipTraceIntHandler = false;
 
-Ps core = Ps();
+Ps core = createPsForTools();
 
 TraceLogger logger = TraceLogger(); // start logging from this address
 
@@ -95,7 +96,7 @@ class TraceLogger {
 List<String> handleOptions(List<String> args) {
   if (args.length < 2) {
     print(
-      "Usage: dart ps_test.dart [-f] [-c runCycles] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
+      "Usage: dart run lib/tools/ps_test.dart [-f] [-c runCycles] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
     );
     return [];
   }

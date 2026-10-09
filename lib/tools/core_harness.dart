@@ -20,6 +20,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'ps_io.dart';
+
 import 'package:archive/archive.dart';
 import 'package:fnesemu/core/core.dart';
 import 'package:fnesemu/core/gb/gb.dart';
@@ -216,7 +218,7 @@ Core _createCore(String name) {
     case '32x':
       return Md(expansionBoot: true);
     case 'ps':
-      return Ps();
+      return createPsForTools();
     case 'snes':
       return Snes();
     case 'gb':

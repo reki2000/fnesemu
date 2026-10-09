@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:fnesemu/util/int.dart';
 
 class Z80Disasm {
@@ -248,18 +246,4 @@ class Z80Disasm {
 
     return (asm, addr);
   }
-}
-
-int main(List<String> args) {
-  final data = args.map((e) => int.parse(e, radix: 16)).toList();
-  final (inst, size) = Z80Disasm.disasm(data, 0);
-
-  _print(inst);
-  _print(size.toString());
-
-  return 0;
-}
-
-void _print(String msg) {
-  stdout.writeln(msg);
 }

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fnesemu/core/ps/gpu/gpu_debug.dart';
@@ -27,7 +26,6 @@ import 'r3000/r3000.dart';
 import 'spu/spu.dart';
 
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
-const _memcardFile = String.fromEnvironment("MEMCARD", defaultValue: "");
 
 class Ps extends Core implements FrameRunner {
   final Bus bus;
@@ -45,18 +43,16 @@ class Ps extends Core implements FrameRunner {
 
   bool fastBoot = _fastboot;
 
-  Ps() : bus = Bus() {
+  Ps({Uint8List? memoryCard2Image}) : bus = Bus() {
     cpu = R3000(bus);
     gpu = Gpu(bus);
     pad = Pad();
     memoryCard = MemoryCard();
 
     memoryCard2 = MemoryCard();
-    if (_memcardFile.isNotEmpty) {
-      debugLog("loaded memory card from $_memcardFile");
-      final memcard2Image = File(_memcardFile).readAsBytesSync();
-      memoryCard2.setRw((addr) => memcard2Image[addr],
-          (addr, value) => memcard2Image[addr] = value);
+    if (memoryCard2Image != null) {
+      memoryCard2.setRw((addr) => memoryCard2Image[addr],
+          (addr, value) => memoryCard2Image[addr] = value);
     }
 
     serial = Serial(

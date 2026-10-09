@@ -21,9 +21,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'ps_io.dart';
+
 import 'package:fnesemu/cdrom/async_cdrom_drive.dart';
 import 'package:fnesemu/cdrom/disc_source_local.dart';
-import 'package:fnesemu/core/ps/ps.dart';
 import 'package:fnesemu/core/sram.dart';
 import 'package:image/image.dart' as img;
 
@@ -64,7 +65,7 @@ Future<void> main(List<String> args) async {
   _syncDir = syncDir;
 
   int frame = 0;
-  final core = Ps();
+  final core = createPsForTools();
   core.setSram(Sram());
   AsyncCdromDrive? drive;
   if (files.length > 1) {
@@ -81,7 +82,8 @@ Future<void> main(List<String> args) async {
   final pressList = presses
       .map((p) => (
             p.$1,
-            buttons.indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase())
+            buttons
+                .indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase())
           ))
       .toList();
 
@@ -189,6 +191,8 @@ Future<Process?> _lock(String? path) async {
   }
   if (path == null) return null;
   final p = await Process.start("flock", [path, "-c", "echo locked; exec cat"]);
-  await p.stdout.transform(utf8.decoder).firstWhere((s) => s.contains("locked"));
+  await p.stdout
+      .transform(utf8.decoder)
+      .firstWhere((s) => s.contains("locked"));
   return p;
 }
