@@ -5,9 +5,9 @@ import 'bus.dart';
 /// Super FX (GSU): a cartridge risc cpu which draws polygons into its own
 /// RAM as bitplane characters, for the main cpu to DMA to vram.
 ///
-/// The instruction behavior follows bsnes. The clock is counted in master
-/// clocks: 2 for an instruction byte from the cache, 6 for other memory
-/// accesses.
+/// Written after the fullsnes documentation of the GSU ports, opcodes and
+/// caches. The clock is counted in master clocks: 2 for an instruction byte
+/// from the cache, 6 for other memory accesses.
 class SuperFx {
   final Bus mainBus;
   final Uint8List rom;
@@ -95,21 +95,22 @@ class SuperFx {
     return ram[addr & _ramMask];
   }
 
+  // the 512 bytes from CBR are cached in lines of 16 bytes; the slot of an
+  // address is its low 9 bits, as the main cpu sees them at $3100-$32FF
   int _readOpcode(int addr) {
-    final offset = (addr - _cbr) & 0xffff;
-    if (offset < 512) {
-      if (!_cacheValid[offset >> 4]) {
-        final dp = offset & 0x1f0;
-        final sp = (_cbr + dp) & 0xfff0;
+    if ((addr - _cbr) & 0xffff < 512) {
+      final slot = addr & 0x1ff;
+      if (!_cacheValid[slot >> 4]) {
+        final line = addr & 0xfff0;
         for (var n = 0; n < 16; n++) {
-          _cache[dp + n] = _read(_pbr << 16 | ((sp + n) & 0xffff));
+          _cache[(slot & 0x1f0) + n] = _read(_pbr << 16 | line + n);
         }
         _clock += 16 * _memoryClocks;
-        _cacheValid[offset >> 4] = true;
+        _cacheValid[slot >> 4] = true;
       } else {
         _clock += _cacheClocks;
       }
-      return _cache[offset];
+      return _cache[slot];
     }
     _clock += _memoryClocks;
     return _read(_pbr << 16 | addr);
@@ -211,7 +212,7 @@ class SuperFx {
     final page = addr & 0xffff;
     if (bank & 0x40 == 0) {
       if (page >= 0x8000) {
-        if (_romOwned && page >= 0xffe0) return _vectors[page & 0xf];
+        if (_romOwned) return _vectors[page & 0xf];
         return rom[((bank & 0x3f) << 15 | (page & 0x7fff)) & _romMask];
       }
       if (page >= 0x6000) return ram[(page & 0x1fff) & _ramMask];
@@ -219,7 +220,10 @@ class SuperFx {
       return -1;
     }
     final b = bank & 0x7f;
-    if (b < 0x60) return rom[addr & 0x3fffff & _romMask];
+    if (b < 0x60) {
+      if (_romOwned) return _vectors[page & 0xf];
+      return rom[addr & 0x3fffff & _romMask];
+    }
     if (b == 0x70 || b == 0x71) return ram[addr & 0x1ffff & _ramMask];
     return 0;
   }
@@ -253,7 +257,7 @@ class SuperFx {
 
   int _readRegister(int page) {
     if (page >= 0x3100 && page < 0x3300) {
-      return _cache[(page - 0x3100 + _cbr) & 0x1ff];
+      return _cache[page - 0x3100];
     }
     if (page < 0x3020) {
       final v = r[(page >> 1) & 0xf];
@@ -271,8 +275,8 @@ class SuperFx {
         return _pbr;
       case 0x3036:
         return _rombr;
-      case 0x303b: // VCR
-        return 0x01;
+      case 0x303b: // VCR: 4 for the GSU-2 of the 2MB games, 1 for the others
+        return rom.length > 0x100000 ? 4 : 1;
       case 0x303c:
         return _rambr;
       case 0x303e:
@@ -285,7 +289,7 @@ class SuperFx {
 
   void _writeRegister(int page, int data) {
     if (page >= 0x3100 && page < 0x3300) {
-      final a = (page - 0x3100 + _cbr) & 0x1ff;
+      final a = page - 0x3100;
       _cache[a] = data;
       if (a & 0xf == 0xf) _cacheValid[a >> 4] = true;
       return;
@@ -527,9 +531,8 @@ class SuperFx {
           // RAMB
           _rambr = _sr & 1;
         } else {
-          // ROMB
-          _rombr = _sr & 0x7f;
-          _updateRomBuffer();
+          // ROMB: the rom buffer keeps the byte of the old bank
+          _rombr = _sr & 0xff;
         }
         _resetPrefix();
       case 0xe:
@@ -571,10 +574,9 @@ class SuperFx {
   void _op0(int op) {
     switch (op) {
       case 0x00: // STOP
-        if (_cfgr & 0x80 == 0) {
-          _irq = true;
-          mainBus.cpu.holdIrq(_mainIrqLine);
-        }
+        // the flag is set even when CFGR masks the IRQ
+        _irq = true;
+        if (_cfgr & 0x80 == 0) mainBus.cpu.holdIrq(_mainIrqLine);
         _g = false;
         _pipeline = 1;
         _resetPrefix();
@@ -647,7 +649,7 @@ class SuperFx {
         if (!_alt1) {
           _colr = _color(_sr & 0xff);
         } else {
-          _por = _sr & 0xff;
+          _por = _sr & 0x1f;
         }
       default: // NOT
         final v = ~_sr & 0xffff;
@@ -697,8 +699,12 @@ class SuperFx {
         _setDr(v);
       default: // FMULT / LMULT
         final v = _s16(_sr) * _s16(r[6]);
-        if (_alt1) _setR(4, v & 0xffff);
-        _setDr((v >> 16) & 0xffff);
+        if (_alt1) {
+          _setR(4, v & 0xffff);
+          _setDr((v >> 16) & 0xffff);
+        } else if (_dreg != 4) {
+          _setDr((v >> 16) & 0xffff); // FMULT leaves R4 as it is
+        }
         _s = v & 0x80000000 != 0;
         _cy = v & 0x8000 != 0;
         _z = v & 0xffff0000 == 0;
