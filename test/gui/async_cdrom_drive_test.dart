@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_layout.dart';
-import 'package:fnesemu_core/cdrom/image_file.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/cdrom_drive.dart';
 import 'package:fnesemu_core/core/disc.dart';
-import 'package:test/test.dart';
+
+import '../cdrom/memory_disc.dart';
 
 const size = Disc.sectorSize;
 
@@ -25,90 +25,42 @@ Future<void> pump() async {
 }
 
 void main() {
-  group('DiscLayout', () {
-    test('iso: single data track', () async {
-      final layout = await DiscLayout.build(MemoryDiscSource(
-          "a.iso", {"a.iso": MemoryImageFile("a.iso", makeBin(100))}));
-      expect(layout.toc.trackCount, 1);
-      expect(layout.toc.isAudio(1), false);
-      expect(layout.totalSectors, 100);
-      expect(layout.isReadable(99), true);
-      expect(layout.isReadable(100), false);
-    });
-
-    test('cue: single file with INDEX 00 and PREGAP', () async {
-      const cue = '''
+  test('the TOC of the image is given to the core', () async {
+    const cue = '''
 FILE "a.bin" BINARY
   TRACK 01 MODE2/2352
     INDEX 01 00:00:00
   TRACK 02 AUDIO
     INDEX 00 00:01:00
     INDEX 01 00:01:10
-  TRACK 03 AUDIO
-    PREGAP 00:00:05
-    INDEX 01 00:01:50
 ''';
-      final layout = await DiscLayout.build(MemoryDiscSource("a.cue", {
-        "a.cue": MemoryImageFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-        "a.bin": MemoryImageFile("a.bin", makeBin(200)),
-      }));
-      final toc = layout.toc;
-      expect(toc.trackCount, 3);
-      expect([for (final t in toc.tracks) t.startLba], [0, 85, 130]);
-      expect([for (final t in toc.tracks) t.isAudio], [false, true, true]);
-      expect(toc.totalSectors, 205);
-      expect(toc.isAudioLba(85), true);
-      expect(toc.isAudioLba(84), false); // INDEX 00 belongs to track 1 in TOC
-      expect(toc.isAudioLba(74), false);
-
-      final segs = layout.segments(120, 20);
-      expect([
-        for (final s in segs) (s.lba, s.count, s.file != null, s.fileSector)
-      ], [
-        (120, 5, true, 120),
-        (125, 5, false, 0),
-        (130, 10, true, 125)
-      ]);
-    });
-
-    test('cue: multiple files', () async {
-      const cue = '''
-FILE "t1.bin" BINARY
-  TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
-FILE "t2.bin" BINARY
-  TRACK 02 AUDIO
-    INDEX 00 00:00:00
-    INDEX 01 00:02:00
-''';
-      final layout = await DiscLayout.build(MemoryDiscSource("a.cue", {
-        "a.cue": MemoryImageFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-        "t1.bin": MemoryImageFile("t1.bin", makeBin(300)),
-        "t2.bin": MemoryImageFile("t2.bin", makeBin(400)),
-      }));
-      expect([for (final t in layout.toc.tracks) t.startLba], [0, 450]);
-      expect([for (final t in layout.toc.tracks) t.sectors], [450, 250]);
-      expect(layout.totalSectors, 700);
-      final seg = layout.segments(450, 1).single;
-      expect(seg.file!.name, "t2.bin");
-      expect(seg.fileSector, 150);
-    });
+    final drive = AsyncCdromDrive();
+    await drive.insert(memoryDisc("a.cue", {
+      "a.cue": MemoryReadFile("a.cue", Uint8List.fromList(cue.codeUnits)),
+      "a.bin": MemoryReadFile("a.bin", makeBin(200)),
+    }));
+    final toc = drive.status.toc;
+    expect(toc.trackCount, 2);
+    expect(toc.startLba(2), 85);
+    expect(toc.totalSectors, 200);
+    expect(toc.isAudioLba(85), true);
+    expect(toc.isAudioLba(84), false); // INDEX 00 belongs to track 1 in TOC
   });
 
   group('AsyncCdromDrive', () {
-    late MemoryImageFile bin;
+    late MemoryReadFile bin;
     late List<(int, int)> fileReads;
     late AsyncCdromDrive drive;
     late DateTime now;
 
     setUp(() async {
       fileReads = [];
-      bin = MemoryImageFile("a.bin", makeBin(1000))
+      bin = MemoryReadFile("a.bin", makeBin(1000))
         ..onRead =
             (offset, length) => fileReads.add((offset ~/ size, length ~/ size));
       now = DateTime(2026);
       drive = AsyncCdromDrive(now: () => now);
-      await drive.insert(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      await drive.insert(memoryDisc("a.bin", {"a.bin": bin}));
     });
 
     test('reads TOC on insert', () async {
@@ -119,7 +71,7 @@ FILE "t2.bin" BINARY
       // disc id changes on each state change: trayOpen, loading, ready
       final id = drive.status.discId;
       final states = <CdromDriveState>[];
-      final ejected = drive.insert(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      final ejected = drive.insert(memoryDisc("a.bin", {"a.bin": bin}));
       states.add(drive.status.state);
       await ejected;
       states.add(drive.status.state);
@@ -229,7 +181,7 @@ FILE "t2.bin" BINARY
       await drive.insert(); // closed, no disc
       expect(drive.status.state, CdromDriveState.empty);
 
-      await drive.insert(MemoryDiscSource("a.bin", {"a.bin": bin}));
+      await drive.insert(memoryDisc("a.bin", {"a.bin": bin}));
       expect(drive.status.isReady, true);
 
       await drive.insert(); // a disc in the drive: the tray opens and closes
@@ -237,8 +189,8 @@ FILE "t2.bin" BINARY
     });
 
     test('broken cue is reported as error', () async {
-      await drive.insert(MemoryDiscSource("a.cue", {
-        "a.cue": MemoryImageFile(
+      await drive.insert(memoryDisc("a.cue", {
+        "a.cue": MemoryReadFile(
             "a.cue", Uint8List.fromList('FILE "x.bin" BINARY\n'.codeUnits)),
       }));
       expect(drive.status.state, CdromDriveState.error);
@@ -254,9 +206,9 @@ FILE "a.bin" BINARY
     PREGAP 00:02:00
     INDEX 01 00:00:10
 ''';
-      await drive.insert(MemoryDiscSource("a.cue", {
-        "a.cue": MemoryImageFile("a.cue", Uint8List.fromList(cue.codeUnits)),
-        "a.bin": MemoryImageFile("a.bin", makeBin(20, id: 1)),
+      await drive.insert(memoryDisc("a.cue", {
+        "a.cue": MemoryReadFile("a.cue", Uint8List.fromList(cue.codeUnits)),
+        "a.bin": MemoryReadFile("a.bin", makeBin(20, id: 1)),
       }));
       drive.read(9);
       await pump();
@@ -266,5 +218,19 @@ FILE "a.bin" BINARY
       await pump();
       expect(drive.read(160)![0], 11);
     });
+  });
+
+  test('Disc reads with absolute sectors and null while pending', () async {
+    final drive = AsyncCdromDrive();
+    await drive.insert(
+        memoryDisc("a.bin", {"a.bin": MemoryReadFile("a.bin", makeBin(4))}));
+    final disc = Disc(drive);
+    expect(disc.isEmpty, false);
+    expect(disc.totalSectors, 4);
+    expect(disc.read(150 + 1), isNull);
+    await drive.settle();
+    expect(disc.read(150 + 1)![16], 1);
+    expect(disc.read(149), isEmpty);
+    expect(Disc.empty().isEmpty, true);
   });
 }

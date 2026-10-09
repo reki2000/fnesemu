@@ -12,10 +12,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/pce/pce.dart';
 import 'package:fnesemu_core/core/sram.dart';
+
+import 'local_disc.dart';
 
 Future<void> main(List<String> args) async {
   int frames = 1200;
@@ -48,7 +49,7 @@ Future<void> main(List<String> args) async {
   AsyncCdromDrive? drive;
   if (files.length > 1) {
     drive = AsyncCdromDrive();
-    await drive.insert(discSourceFromPath(files[1]));
+    await drive.insert(localDisc(files[1]));
     core.setCdromDrive(drive);
   }
   core.reset();

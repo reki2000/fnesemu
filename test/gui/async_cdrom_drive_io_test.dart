@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fnesemu/cdrom/disc_source.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/disc.dart';
-import 'package:test/test.dart';
+import 'package:mp_bigfile_picker/io.dart';
 
 void main() {
   late Directory dir;
@@ -35,7 +36,8 @@ FILE "t2.bin" BINARY
 ''');
 
     final drive = AsyncCdromDrive();
-    await drive.insert(discSourceFromPath("${dir.path}/a.cue"));
+    final folder = IoDirectory(dir.path);
+    await drive.insert(DiscSource(folder.open("a.cue"), folder.open));
     expect(drive.status.isReady, true);
     expect(drive.status.toc.startLba(2), 450);
 

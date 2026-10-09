@@ -21,11 +21,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/sram.dart';
 import 'package:image/image.dart' as img;
 
+import 'local_disc.dart';
 import 'ps_io.dart';
 
 Future<void> main(List<String> args) async {
@@ -71,7 +71,7 @@ Future<void> main(List<String> args) async {
   if (files.length > 1) {
     drive = AsyncCdromDrive(
         now: () => DateTime.fromMillisecondsSinceEpoch(frame * 1000 ~/ 60));
-    await drive.insert(discSourceFromPath(files[1]));
+    await drive.insert(localDisc(files[1]));
   }
   core.setBiosFiles([File(files[0]).readAsBytesSync()]);
   if (drive != null) core.setCdromDrive(drive);

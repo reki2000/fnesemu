@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/ps/ps.dart';
 import 'package:fnesemu_core/core/sram.dart';
 import 'package:fnesemu_core/core/tracer.dart';
 import 'package:fnesemu_core/core/types.dart';
 import 'package:fnesemu_core/util/int.dart';
 
+import 'local_disc.dart';
 import 'ps_io.dart';
 
 int runSeconds = -1; // run for this many seconds
@@ -172,7 +172,7 @@ main(List<String> args) async {
   core.setBiosFiles([bios]);
 
   final drive = AsyncCdromDrive();
-  await drive.insert(discSourceFromPath(args[1]));
+  await drive.insert(localDisc(args[1]));
   core.setCdromDrive(drive);
 
   final elapsedResults = List<int>.filled(measureLoopCount, 0);

@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/image_file.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/disc.dart';
 import 'package:fnesemu_core/core/ps/bus.dart';
 import 'package:fnesemu_core/core/ps/cdrom.dart';
-import 'package:test/test.dart';
+
+import '../cdrom/memory_disc.dart';
 
 void main() {
   late Cdrom cdrom;
@@ -57,8 +58,8 @@ void main() {
     irqs = [];
     results = [];
     cdrom.attachDrive(drive);
-    await drive.insert(MemoryDiscSource(
-        "a.bin", {"a.bin": MemoryImageFile("a.bin", makeBin(2000))}));
+    await drive.insert(memoryDisc(
+        "a.bin", {"a.bin": MemoryReadFile("a.bin", makeBin(2000))}));
     cdrom.exec(33868800); // polls the drive, the tray closes after 0.5 sec
   });
 
@@ -81,8 +82,8 @@ void main() {
 
   test('a swap finished before the next exec is seen as shell open, close',
       () async {
-    await drive.insert(MemoryDiscSource(
-        "b.bin", {"b.bin": MemoryImageFile("b.bin", makeBin(50))}));
+    await drive.insert(memoryDisc(
+        "b.bin", {"b.bin": MemoryReadFile("b.bin", makeBin(50))}));
     expect(drive.status.isReady, true);
     cdrom.exec(1);
     expect(cdrom.isShellOpen, true);

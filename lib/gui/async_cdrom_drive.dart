@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import '../core/cdrom_drive.dart';
-import '../core/disc.dart';
-import '../util/debug.dart';
-import 'disc_layout.dart';
-import 'image_file.dart';
+import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/util/debug.dart';
+
+import '../cdrom/disc_image.dart';
+import '../cdrom/disc_source.dart';
 
 class _CacheEntry {
   final Uint8List data; // empty if failed to read
@@ -13,8 +13,8 @@ class _CacheEntry {
   _CacheEntry(this.data, this.loadedAt);
 }
 
-/// [CdromDrive] which reads only the required sectors from the image files
-/// in the background.
+/// [CdromDrive] of the cores, which reads only the required sectors of a
+/// [DiscImage] in the background.
 ///
 /// - the TOC is read when a disc is inserted by [eject], and kept on memory
 /// - each read also reads ahead [readAheadSectors] sectors
@@ -28,8 +28,8 @@ class AsyncCdromDrive implements CdromDrive {
   AsyncCdromDrive({DateTime Function()? now}) : _now = now ?? DateTime.now;
 
   CdromDriveState _state = CdromDriveState.empty;
-  DiscSource? _source;
-  DiscLayout? _layout;
+  DiscImage? _image;
+  CdromToc _toc = CdromToc.empty;
   int _seekLba = 0;
   bool _seekRequested = false;
 
@@ -50,14 +50,14 @@ class AsyncCdromDrive implements CdromDrive {
   CdromDriveStatus get status => _status;
 
   void _updateStatus() {
-    final layout = _layout;
-    final readable = layout != null && layout.isReadable(_seekLba);
+    final image = _image;
+    final readable = image != null && image.isReadable(_seekLba);
     final entry = _cache[_seekLba];
 
     _status = CdromDriveStatus(
       _state,
       _discId,
-      layout?.toc ?? CdromToc.empty,
+      _toc,
       seekLba: _seekLba,
       isSeeking: _seekRequested && readable && entry == null,
       seekError: _seekRequested &&
@@ -92,8 +92,8 @@ class AsyncCdromDrive implements CdromDrive {
   /// opens the tray, returns the disc id of the status
   Future<int> _openTray() async {
     final discId = _changeDisc(CdromDriveState.trayOpen);
-    final old = _source;
-    _source = null;
+    final old = _image;
+    _image = null;
     await old?.close();
     return discId;
   }
@@ -113,16 +113,19 @@ class AsyncCdromDrive implements CdromDrive {
     final loadingId = _changeDisc(CdromDriveState.loading);
 
     try {
-      final layout = await DiscLayout.build(next);
+      final image = await DiscImage.open(next);
       if (loadingId != _discId) {
-        await next.close();
+        await image.close();
         return;
       }
-      _source = next;
-      _layout = layout;
+      _image = image;
+      _toc = CdromToc([
+        for (final t in image.toc.tracks)
+          CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
+      ], image.totalSectors);
       debugLog("cdrom: inserted ${next.name}: "
-          "${layout.toc.trackCount} track(s) ${layout.totalSectors} sectors");
-      for (final t in layout.toc.tracks) {
+          "${_toc.trackCount} track(s) ${_toc.totalSectors} sectors");
+      for (final t in _toc.tracks) {
         debugLog("cdrom: $t");
       }
       _changeDisc(CdromDriveState.ready);
@@ -140,7 +143,8 @@ class AsyncCdromDrive implements CdromDrive {
     _discId++;
     _state = state;
     if (state != CdromDriveState.ready) {
-      _layout = null;
+      _image = null;
+      _toc = CdromToc.empty;
     }
     _cache.clear();
     _inflight.clear();
@@ -154,8 +158,8 @@ class AsyncCdromDrive implements CdromDrive {
   void seek(int lba) {
     _seekLba = lba;
     _seekRequested = true;
-    final layout = _layout;
-    if (layout != null && layout.isReadable(lba)) {
+    final image = _image;
+    if (image != null && image.isReadable(lba)) {
       _ensureLoaded(lba);
     }
     _updateStatus();
@@ -163,8 +167,8 @@ class AsyncCdromDrive implements CdromDrive {
 
   @override
   Uint8List? read(int lba) {
-    final layout = _layout;
-    if (layout == null || !layout.isReadable(lba)) {
+    final image = _image;
+    if (image == null || !image.isReadable(lba)) {
       return Uint8List(0);
     }
 
@@ -194,8 +198,8 @@ class AsyncCdromDrive implements CdromDrive {
   /// starts reading ahead when less than half of the read-ahead window is
   /// cached or being read
   void _readAhead(int lba) {
-    final layout = _layout!;
-    final end = (lba + 1 + readAheadSectors).clamp(0, layout.totalSectors);
+    final image = _image!;
+    final end = (lba + 1 + readAheadSectors).clamp(0, image.totalSectors);
 
     for (int s = lba + 1; s < end; s++) {
       if (_isCached(s) || _inflight.containsKey(s)) continue;
@@ -209,10 +213,10 @@ class AsyncCdromDrive implements CdromDrive {
   /// reads [count] sectors from [lba] in the background, skipping the sectors
   /// already cached or being read
   void _load(int lba, int count) {
-    final layout = _layout!;
+    final image = _image!;
     final discId = _discId;
 
-    var end = (lba + count).clamp(0, layout.totalSectors);
+    var end = (lba + count).clamp(0, image.totalSectors);
     for (int s = lba + 1; s < end; s++) {
       if (_isCached(s) || _inflight.containsKey(s)) {
         end = s;
@@ -221,7 +225,7 @@ class AsyncCdromDrive implements CdromDrive {
     }
 
     late final Future<void> future;
-    future = _readRange(layout, lba, end - lba).then((sectors) {
+    future = image.readSectors(lba, end - lba).then((sectors) {
       if (discId != _discId) return;
       final now = _now();
       for (int i = 0; i < sectors.length; i++) {
@@ -248,33 +252,6 @@ class AsyncCdromDrive implements CdromDrive {
     for (int s = lba; s < end; s++) {
       _inflight[s] = future;
     }
-  }
-
-  Future<List<Uint8List>> _readRange(
-      DiscLayout layout, int lba, int count) async {
-    final result = <Uint8List>[];
-    for (final seg in layout.segments(lba, count)) {
-      final file = seg.file;
-      if (file == null) {
-        result.addAll(
-            List.generate(seg.count, (_) => Uint8List(Disc.sectorSize)));
-        continue;
-      }
-
-      final size = seg.cooked ? 2048 : Disc.sectorSize;
-      final bytes = await file.read(seg.fileSector * size, seg.count * size);
-      for (int i = 0; i < seg.count; i++) {
-        final data = Uint8List(size); // zero padded at EOF
-        final start = i * size;
-        if (start < bytes.length) {
-          final end = (start + size).clamp(0, bytes.length);
-          data.setRange(0, end - start, bytes, start);
-        }
-        // cooked sectors are expanded to raw mode 1 ones
-        result.add(seg.cooked ? Disc.mode1Sector(data, seg.lba + i) : data);
-      }
-    }
-    return result;
   }
 
   /// removes expired sectors, at most once per second

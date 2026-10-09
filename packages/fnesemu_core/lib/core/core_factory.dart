@@ -1,10 +1,8 @@
 import 'dart:typed_data';
-import '../cdrom/image_file.dart';
 import 'cdrom_drive.dart';
 import 'core.dart';
 import 'core_module.dart';
 import 'installed_core_modules.dart';
-import 'media_input.dart' as media;
 export 'core_module.dart';
 
 /// Registry and delegation only. This library imports no concrete core.
@@ -64,7 +62,13 @@ class CoreFactory {
     return null;
   }
 
-  static Future<bool> isDiscImage(String name, DiscSource source) =>
-      media.probeDiscSource(_modules.map((module) => module.mediaHint(name)),
-          source, systemOfDisc);
+  /// whether a file of [name] is a disc image: [MediaHint.disc] if a core
+  /// takes it as a disc, [MediaHint.ambiguous] if it can be a disc or a ROM
+  /// (the disc is identified by [systemOfDisc]).
+  static MediaHint mediaHint(String name) {
+    final hints = _modules.map((module) => module.mediaHint(name)).toSet();
+    if (hints.contains(MediaHint.disc)) return MediaHint.disc;
+    if (hints.contains(MediaHint.ambiguous)) return MediaHint.ambiguous;
+    return MediaHint.unknown;
+  }
 }

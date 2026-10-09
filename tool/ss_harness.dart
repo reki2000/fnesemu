@@ -18,13 +18,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/core.dart';
 import 'package:fnesemu_core/core/sram.dart';
 import 'package:fnesemu_core/core/ss/ss.dart';
 import 'package:fnesemu_core/core/types.dart';
 import 'package:image/image.dart' as img;
+
+import 'local_disc.dart';
 
 Future<void> main(List<String> args) async {
   int frames = 600;
@@ -87,7 +88,7 @@ Future<void> main(List<String> args) async {
     // with a fixed clock the sector cache never expires, so a slow run
     // does not re-read sectors and change the timing
     drive = AsyncCdromDrive(now: fixedClock ? () => DateTime(2000) : null);
-    await drive.insert(discSourceFromPath(files[1]));
+    await drive.insert(localDisc(files[1]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
     ss.setCdromDrive(drive);
   }

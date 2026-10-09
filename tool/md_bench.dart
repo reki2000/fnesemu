@@ -15,10 +15,11 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/core.dart';
 import 'package:fnesemu_core/core/md/md.dart';
+
+import 'local_disc.dart';
 
 Future<void> main(List<String> args) async {
   final files = <String>[];
@@ -62,7 +63,7 @@ Future<void> main(List<String> args) async {
   AsyncCdromDrive? drive;
   if (files.length > 2) {
     drive = AsyncCdromDrive();
-    await drive.insert(discSourceFromPath(files[2]));
+    await drive.insert(localDisc(files[2]));
   }
   if (kind == "mdcd" && drive != null) core.setCdromDrive(drive);
   if (bootRoms != null) {

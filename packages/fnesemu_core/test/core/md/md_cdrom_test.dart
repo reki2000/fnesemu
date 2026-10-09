@@ -12,6 +12,16 @@ import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
 
+/// a raw mode 1 sector of [data] at [lba], without EDC/ECC
+Uint8List mode1Sector(Uint8List data, int lba) {
+  final (m, s, f) = Disc.lbaToMsf(lba, addLeadIn: true);
+  int bcd(int value) => ((value ~/ 10) << 4) | (value % 10);
+  return Uint8List(Disc.sectorSize)
+    ..setAll(0, Disc.sync)
+    ..setAll(12, [bcd(m), bcd(s), bcd(f), 1])
+    ..setAll(16, data);
+}
+
 Uint8List bios() {
   final bytes = Uint8List(0x20000);
   final view = ByteData.sublistView(bytes);
@@ -268,7 +278,7 @@ void main() {
 
     test('playing in the lead-in reaches sector zero without skipping data',
         () {
-      final disc = FakeDisc([Disc.mode1Sector(Uint8List(2048), 0)]);
+      final disc = FakeDisc([mode1Sector(Uint8List(2048), 0)]);
       final drive = CdDrive((_) {}, () {})
         ..mount(disc)
         ..hostClock = true;
@@ -285,7 +295,7 @@ void main() {
     test('pregap sectors reach the decoder with their headers', () {
       final received = <Uint8List>[];
       final drive = CdDrive(received.add, () {})
-        ..mount(FakeDisc([Disc.mode1Sector(Uint8List(2048), 0)]))
+        ..mount(FakeDisc([mode1Sector(Uint8List(2048), 0)]))
         ..hostClock = true;
       command(drive, [3, 0, 0, 0, 0, 1, 7, 3]); // absolute MSF 00:01:73
       finishSeek(drive);
@@ -301,7 +311,7 @@ void main() {
     test('TOC checksums, track queries and lead-in-aware data reads', () {
       final disc = FakeDisc(
           List.generate(
-              4, (i) => Disc.mode1Sector(Uint8List(2048)..[0] = i + 1, i)),
+              4, (i) => mode1Sector(Uint8List(2048)..[0] = i + 1, i)),
           starts: [0, 2],
           audioTracks: {2});
       final received = <Uint8List>[];
@@ -366,7 +376,7 @@ void main() {
 
       write(1, 0x62);
       write(10, 0x84);
-      final sector = Disc.mode1Sector(
+      final sector = mode1Sector(
           Uint8List(2048)..setAll(0, [0x12, 0x34, 0x56, 0x78]), 0);
       cdc.decode(sector);
       expect(cdc.header, [0, 2, 0, 1]);
@@ -404,7 +414,7 @@ void main() {
       write(11, 0x08);
       expect(read(12), 0x80);
       expect(read(14), 0x08);
-      cdc.decode(Disc.mode1Sector(Uint8List(2048), 0));
+      cdc.decode(mode1Sector(Uint8List(2048), 0));
       expect(read(15), 0);
       expect(read(15), 0x80);
       expect(read(1) & 0x20, 0x20);

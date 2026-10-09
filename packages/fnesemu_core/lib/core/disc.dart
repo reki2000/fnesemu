@@ -36,21 +36,6 @@ class Disc {
   }
 
   static const int sectorSize = 2352; // 0x930 = 24bytes x 98frames
-  // static const int sectorDataSize = 2324; // bytes per sector data
-  /// Expand a cooked Mode 1 sector to the raw format used by the CD cores.
-  /// EDC/ECC bytes remain zero; the emulator does not perform error correction.
-  static Uint8List mode1Sector(Uint8List data, int lba) {
-    if (data.length != 2048) {
-      throw ArgumentError('Mode 1 data must be 2048 bytes');
-    }
-    final sector = Uint8List(sectorSize)..setAll(0, sync);
-    final (m, s, f) = lbaToMsf(lba, addLeadIn: true);
-    int bcd(int value) => ((value ~/ 10) << 4) | (value % 10);
-    sector.setAll(12, [bcd(m), bcd(s), bcd(f), 1]);
-    sector.setAll(16, data);
-    return sector;
-  }
-
   static Uint8List emptySector = Uint8List(sectorSize);
 
   static const sync = [

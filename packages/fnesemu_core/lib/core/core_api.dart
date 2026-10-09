@@ -1,6 +1,7 @@
 /// Public application boundary. Console implementations are not exported.
 library;
 
+export 'cdrom_drive.dart';
 export 'core.dart';
 export 'core_controller.dart';
 export 'core_factory.dart';

@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/md/md.dart';
 import 'package:fnesemu_core/core/pad_button.dart';
 import 'package:image/image.dart' as img;
+
+import 'local_disc.dart';
 
 /// Headless BIOS/disc smoke runner with optional input and frame captures.
 Future<void> main(List<String> args) async {
@@ -36,7 +37,7 @@ Future<void> main(List<String> args) async {
     return;
   }
   final drive = AsyncCdromDrive();
-  await drive.insert(discSourceFromPath(paths[1]));
+  await drive.insert(localDisc(paths[1]));
   if (!drive.status.isReady) {
     stderr.writeln('Could not load disc: ${paths[1]}');
     exitCode = 66;

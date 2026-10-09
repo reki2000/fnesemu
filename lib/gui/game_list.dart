@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'package:fnesemu_core/cdrom/disc_folder.dart';
+import '../cdrom/disc_scanner.dart';
 
 /// Large directories are filtered and rendered lazily. While the directory is
 /// being scanned ([scan] is null), the dialog shows the [progress] instead.

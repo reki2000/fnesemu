@@ -1,12 +1,14 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/image_file.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fnesemu/cdrom/disc_source.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/disc_swap.dart';
-import 'package:test/test.dart';
 
-MemoryDiscSource source(String name) => MemoryDiscSource(
-    name, {name: MemoryImageFile(name, Uint8List(2352 * 10))});
+import '../cdrom/memory_disc.dart';
+
+DiscSource source(String name) => memoryDisc(
+    name, {name: MemoryReadFile(name, Uint8List(2352 * 10))});
 
 void main() {
   late AsyncCdromDrive drive;

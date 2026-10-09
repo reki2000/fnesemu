@@ -21,8 +21,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/cdrom/async_cdrom_drive.dart';
-import 'package:fnesemu_core/cdrom/disc_source_local.dart';
+import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/core.dart';
 import 'package:fnesemu_core/core/gb/gb.dart';
 import 'package:fnesemu_core/core/gba/gba.dart';
@@ -36,6 +35,7 @@ import 'package:fnesemu_core/core/sram.dart';
 import 'package:fnesemu_core/core/types.dart';
 import 'package:image/image.dart' as img;
 
+import 'local_disc.dart';
 import 'ps_io.dart';
 
 Future<void> main(List<String> args) async {
@@ -111,7 +111,7 @@ Future<void> main(List<String> args) async {
   AsyncCdromDrive? drive;
   if (files.length > 2) {
     drive = AsyncCdromDrive();
-    await drive.insert(discSourceFromPath(files[2]));
+    await drive.insert(localDisc(files[2]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[2]}";
   }
   // the md cdrom core needs the disc before the bios
@@ -127,8 +127,9 @@ Future<void> main(List<String> args) async {
     core.setCdromDrive(drive);
   }
   // gba boots from setRom; a reset afterwards drops the boot state
-  if (files[0] != "gba" && files[0] != "mdcd" && files[0] != "32x")
+  if (files[0] != "gba" && files[0] != "mdcd" && files[0] != "32x") {
     core.reset();
+  }
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
