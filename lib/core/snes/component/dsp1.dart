@@ -6,10 +6,10 @@ import '../rom/snes_file.dart';
 /// and its 16-bit parameters to the data register, and reads the results
 /// back from it.
 ///
-/// The commands are computed directly (high level) after the formulas of
-/// the bsnes implementation; where bsnes uses the chip's internal tables
-/// (inverse, sine and the projection math), this computes the same values
-/// in floating point, so results can differ in the lowest bits.
+/// The commands are computed directly (high level) from the equations of
+/// the development manual (book II, chapter 5); the projection commands from
+/// the geometry it describes. The chip computes with its internal tables, so
+/// results here can differ in the lowest bits.
 class Dsp1 {
   final SnesMapping mapping;
   final int romSize;
@@ -152,10 +152,8 @@ class Dsp1 {
   List<int> _execute() {
     final i = _input;
     switch (_command) {
-      case 0x00: // multiply
+      case 0x00 || 0x20: // multiply
         return [_s16(i[0] * i[1] >> 15)];
-      case 0x20:
-        return [_s16((i[0] * i[1] >> 15) + 1)];
       case 0x10 || 0x30:
         final (c, e) = _inverse(i[0], i[1]);
         return [c, e];
@@ -242,7 +240,7 @@ class Dsp1 {
   /// the reciprocal of coefficient * 2^exponent (a Q15 coefficient), as a
   /// Q15 coefficient and an exponent
   static (int, int) _inverse(int coefficient, int exponent) {
-    if (coefficient == 0) return (0x7fff, 0x002f);
+    if (coefficient == 0) return (0x7fff, 0x7fff); // the largest value
     var sign = 1;
     if (coefficient < 0) {
       coefficient = math.max(coefficient, -32767).abs();
@@ -266,60 +264,82 @@ class Dsp1 {
     return (result, _s16(1 - exponent));
   }
 
+  // the rotation matrices of the manual, for a row vector times them
+  static List<List<double>> _rotZ(double a, int sign) => [
+        [math.cos(a), -sign * math.sin(a), 0],
+        [sign * math.sin(a), math.cos(a), 0],
+        [0, 0, 1],
+      ];
+
+  static List<List<double>> _rotX(double a, int sign) => [
+        [1, 0, 0],
+        [0, math.cos(a), -sign * math.sin(a)],
+        [0, sign * math.sin(a), math.cos(a)],
+      ];
+
+  static List<List<double>> _rotY(double a, int sign) => [
+        [math.cos(a), 0, sign * math.sin(a)],
+        [0, 1, 0],
+        [-sign * math.sin(a), 0, math.cos(a)],
+      ];
+
+  static List<List<double>> _mul(List<List<double>> a, List<List<double>> b) =>
+      [
+        for (var r = 0; r < 3; r++)
+          [
+            for (var c = 0; c < 3; c++)
+              a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c]
+          ]
+      ];
+
+  // equation 5-8: (x, y, z) Ry(psi) Rx(phi) Rz(theta) = (X, Y, Z), the
+  // angles given as theta (Z axis), phi (X axis), psi (Y axis)
   List<int> _polar(List<int> i) {
-    final az = i[0], ay = i[1], ax = i[2];
-    var x1 = i[3], y1 = i[4], z1 = i[5];
-    var x2 = _s16((y1 * _sin(az) >> 15) + (x1 * _cos(az) >> 15));
-    var y2 = _s16((y1 * _cos(az) >> 15) - (x1 * _sin(az) >> 15));
-    x1 = x2;
-    y1 = y2;
-    var z2 = _s16((x1 * _sin(ay) >> 15) + (z1 * _cos(ay) >> 15));
-    x2 = _s16((x1 * _cos(ay) >> 15) - (z1 * _sin(ay) >> 15));
-    z1 = z2;
-    y2 = _s16((z1 * _sin(ax) >> 15) + (y1 * _cos(ax) >> 15));
-    z2 = _s16((z1 * _cos(ax) >> 15) - (y1 * _sin(ax) >> 15));
-    return [x2, y2, z2];
+    final m = _mul(
+        _mul(_rotY(_rad(i[2]), 1), _rotX(_rad(i[1]), 1)), _rotZ(_rad(i[0]), 1));
+    final v = [i[3], i[4], i[5]];
+    return [
+      for (var c = 0; c < 3; c++)
+        _clip(v[0] * m[0][c] + v[1] * m[1][c] + v[2] * m[2][c])
+    ];
   }
 
   // -------------------------------------------------------------- matrices
+  // the attitude matrices (equation 5-9), as fractions times 2^15
   final _matrixA = List.generate(3, (_) => List<int>.filled(3, 0));
   final _matrixB = List.generate(3, (_) => List<int>.filled(3, 0));
   final _matrixC = List.generate(3, (_) => List<int>.filled(3, 0));
 
+  // M = m Ry(psi) Rx(phi) Rz(theta), with the matrices of equation 5-9,
+  // from m, theta (Z axis), phi (X axis), psi (Y axis)
   void _attitude(List<List<int>> m, List<int> i) {
-    final mm = i[0] >> 1;
-    final sz = _sin(i[1]), cz = _cos(i[1]);
-    final sy = _sin(i[2]), cy = _cos(i[2]);
-    final sx = _sin(i[3]), cx = _cos(i[3]);
-    final mcz = mm * cz >> 15, msz = mm * sz >> 15;
-    m[0][0] = _s16(mcz * cy >> 15);
-    m[0][1] = _s16(-(msz * cy >> 15));
-    m[0][2] = _s16(mm * sy >> 15);
-    m[1][0] = _s16((msz * cx >> 15) + ((mcz * sx >> 15) * sy >> 15));
-    m[1][1] = _s16((mcz * cx >> 15) - ((msz * sx >> 15) * sy >> 15));
-    m[1][2] = _s16(-((mm * sx >> 15) * cy >> 15));
-    m[2][0] = _s16((msz * sx >> 15) - ((mcz * cx >> 15) * sy >> 15));
-    m[2][1] = _s16((mcz * sx >> 15) + ((msz * cx >> 15) * sy >> 15));
-    m[2][2] = _s16((mm * cx >> 15) * cy >> 15);
+    final r = _mul(_mul(_rotY(_rad(i[3]), -1), _rotX(_rad(i[2]), -1)),
+        _rotZ(_rad(i[1]), -1));
+    for (var row = 0; row < 3; row++) {
+      for (var c = 0; c < 3; c++) {
+        m[row][c] = _clip(i[0] * r[row][c]);
+      }
+    }
   }
 
+  // equation 5-10: 1/2 (x, y, z) M^-1 = (F, L, U), the inverse of the
+  // rotation being its transpose
   List<int> _objective(List<List<int>> m, List<int> i) => [
         for (var r = 0; r < 3; r++)
-          _s16((i[0] * m[r][0] >> 15) +
-              (i[1] * m[r][1] >> 15) +
-              (i[2] * m[r][2] >> 15)),
+          _s16((i[0] * m[r][0] + i[1] * m[r][1] + i[2] * m[r][2]) >> 16),
       ];
 
+  // equation 5-11: 1/2 (F, L, U) M = (X, Y, Z)
   List<int> _subjective(List<List<int>> m, List<int> i) => [
         for (var c = 0; c < 3; c++)
-          _s16((i[0] * m[0][c] >> 15) +
-              (i[1] * m[1][c] >> 15) +
-              (i[2] * m[2][c] >> 15)),
+          _s16((i[0] * m[0][c] + i[1] * m[1][c] + i[2] * m[2][c]) >> 16),
       ];
 
+  // equation 5-12: the inner product with the first row of M
   List<int> _scalar(List<List<int>> m, List<int> i) =>
       [_s16((i[0] * m[0][0] + i[1] * m[0][1] + i[2] * m[0][2]) >> 15)];
 
+  // equation 5-13
   List<int> _gyrate(List<int> i) {
     final az = i[0], ax = i[1], ay = i[2], u = i[3], f = i[4], l = i[5];
     final sy = math.sin(_rad(ay)), cy = math.cos(_rad(ay));
@@ -331,12 +351,6 @@ class Dsp1 {
   }
 
   // ------------------------------------------------------------ projection
-  // the zenith angle is clipped by the height of the viewpoint
-  static const _maxZenith = [
-    0x38b4, 0x38b7, 0x38ba, 0x38be, 0x38c0, 0x38c4, 0x38c7, 0x38ca, //
-    0x38ce, 0x38d0, 0x38d4, 0x38d7, 0x38da, 0x38dd, 0x38e0, 0x38e4,
-  ];
-
   double _sinAas = 0, _cosAas = 1, _sinAzs = 0, _cosAzs = 1;
   double _nx = 0, _ny = 0, _nz = 1;
   double _centreX = 0, _centreY = 0;
@@ -344,23 +358,6 @@ class Dsp1 {
   double _gx = 0, _gy = 0, _gz = 0;
   int _les = 0;
   double _vOffset = 0, _secZenith = 1;
-
-  // the number of left shifts normalizing a 16-bit value
-  static int _normalShift(int m) {
-    var bit = 0x4000, e = 0;
-    if (m < 0) {
-      while (m & bit != 0 && bit != 0) {
-        bit >>= 1;
-        e++;
-      }
-    } else {
-      while (m & bit == 0 && bit != 0) {
-        bit >>= 1;
-        e++;
-      }
-    }
-    return e;
-  }
 
   List<int> _parameter(List<int> i) {
     final fx = i[0], fy = i[1], fz = i[2], lfe = i[3], les = i[4];
@@ -384,16 +381,7 @@ class Dsp1 {
     _gz = _centreZ - les * _nz;
     _les = les;
 
-    // clip the zenith angle
-    var maxZenith = _maxZenith[math.min(_normalShift(_centreZ), 15)];
-    var zenith = azs;
-    if (zenith < 0) {
-      maxZenith = -maxZenith;
-      if (zenith < maxZenith + 1) zenith = maxZenith + 1;
-    } else if (zenith > maxZenith) {
-      zenith = maxZenith;
-    }
-    final sinZ = math.sin(_rad(zenith)), cosZ = math.cos(_rad(zenith));
+    final sinZ = _sinAzs, cosZ = _cosAzs;
     _secZenith = 1 / cosZ;
 
     final c = _clip(_centreZ * _secZenith) * sinZ;
@@ -428,12 +416,14 @@ class Dsp1 {
     return [_clip(h), _clip(v), _clip(256 * scale)];
   }
 
+  // the ground point seen at (h, v) on the screen: the screen right is
+  // (cos, sin) of the azimuth on the ground, a raster down is backward
   List<int> _target(int h, int v) {
     final t = _centreZ / (v * _sinAzs + _vOffset);
     final ch = t * h, cv = t * v * _secZenith;
     return [
       _clip(_centreX + ch * _cosAas - cv * _sinAas),
-      _clip(_centreY - ch * _sinAas + cv * _cosAas),
+      _clip(_centreY + ch * _sinAas + cv * _cosAas),
     ];
   }
 }
