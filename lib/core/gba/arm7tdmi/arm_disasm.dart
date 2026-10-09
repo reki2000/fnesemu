@@ -35,7 +35,22 @@ class Arm7Disasm {
     if (kind == 0x2 || kind == 0x3) return _armSingle(op, c); // 0b010/0b011
     if (kind == 0x7) {
       // 0b111
-      return op.bit24 ? "swi$c ${op.mask24.x6}" : "und";
+      if (op.bit24) return "swi$c ${op.mask24.x6}";
+      final cp = 'p${op.shr8.mask4}';
+      final rn = 'c${op.shr16.mask4}', rm = 'c${op.mask4}';
+      if (op.bit4) {
+        return '${op.bit20 ? "mrc" : "mcr"}$c $cp, ${op.shr21.mask3}, ${_reg[op.shr12.mask4]}, $rn, $rm, ${op.shr5.mask3}';
+      }
+      return 'cdp$c $cp, ${op.shr20.mask4}, c${op.shr12.mask4}, $rn, $rm, ${op.shr5.mask3}';
+    }
+
+    if (kind == 6) {
+      final name = '${op.bit20 ? "ldc" : "stc"}${op.bit22 ? "l" : ""}$c';
+      final offset = '#${op.bit23 ? "" : "-"}${op.mask8 * 4}';
+      final address = op.bit24
+          ? '[${_reg[op.shr16.mask4]}, $offset]${op.bit21 ? "!" : ""}'
+          : '[${_reg[op.shr16.mask4]}], $offset';
+      return '$name p${op.shr8.mask4}, c${op.shr12.mask4}, $address';
     }
 
     // 0b000 / 0b001
@@ -60,7 +75,11 @@ class Arm7Disasm {
       // PSR transfer
       final spsr = op.bit22 ? "spsr" : "cpsr";
       if (!op.bit21) return "mrs$c ${_reg[rd]}, $spsr";
-      return "msr$c $spsr, ${_op2(op)}";
+      final fields = [
+        for (var bit = 0; bit < 4; bit++)
+          if (op & (1 << (16 + bit)) != 0) 'cxsf'[bit]
+      ].join();
+      return "msr$c ${spsr}_$fields, ${_op2(op)}";
     }
 
     final sFlag = s ? "s" : "";
@@ -88,7 +107,8 @@ class Arm7Disasm {
     }
     final amount = op.shr7.mask5;
     if (amount == 0 && op.shr5.mask2 == 0) return rm; // lsl #0
-    return "$rm, $type #$amount";
+    if (amount == 0 && type == 'ror') return '$rm, rrx';
+    return "$rm, $type #${amount == 0 ? 32 : amount}";
   }
 
   static String _armMul(int op, String c) {
@@ -114,20 +134,22 @@ class Arm7Disasm {
     if (!op.bit25) {
       off = "#$up${op.mask12}";
     } else {
-      off = "$up${_reg[op.mask4]}";
+      off = "$up${_op2(op & ~(1 << 25))}";
     }
     final pre = op.bit24;
     final wb = op.bit21 ? "!" : "";
-    return pre
-        ? "$l$b$c $rd, [$rn, $off]$wb"
-        : "$l$b$c $rd, [$rn], $off";
+    return pre ? "$l$b$c $rd, [$rn, $off]$wb" : "$l$b$c $rd, [$rn], $off";
   }
 
   static String _armHalf(int op, String c) {
     final l = op.bit20;
     final sh = op.shr5.mask2;
     final ty = l
-        ? (sh == 1 ? "ldrh" : sh == 2 ? "ldrsb" : "ldrsh")
+        ? (sh == 1
+            ? "ldrh"
+            : sh == 2
+                ? "ldrsb"
+                : "ldrsh")
         : "strh";
     final rd = _reg[op.shr12.mask4];
     final rn = _reg[op.shr16.mask4];
@@ -160,7 +182,7 @@ class Arm7Disasm {
   }
 
   /// disassemble one THUMB instruction at [pc].
-  static String thumb(int op, int pc) {
+  static String thumb(int op, int pc, {int? nextHalfword}) {
     final hi = op.shr13;
     switch (hi) {
       case 0:
@@ -171,7 +193,7 @@ class Arm7Disasm {
           return "$sub ${_reg[op.mask3]}, ${_reg[op.shr3.mask3]}, $v";
         }
         final ty = _shift[op.shr11.mask2];
-        return "$ty ${_reg[op.mask3]}, ${_reg[op.shr3.mask3]}, #${op.shr6.mask5}";
+        return "$ty ${_reg[op.mask3]}, ${_reg[op.shr3.mask3]}, #${op.shr6.mask5 == 0 && ty != "lsl" ? 32 : op.shr6.mask5}";
       case 1:
         final ops = ["mov", "cmp", "add", "sub"];
         return "${ops[op.shr11.mask2]} ${_reg[op.shr8.mask3]}, #${op.mask8}";
@@ -198,6 +220,9 @@ class Arm7Disasm {
           final sub = op.bit7 ? "-" : "";
           return "add sp, #$sub${op.mask7.shl2}";
         }
+        if (op & 0xfe00 != 0xb400 && op & 0xfe00 != 0xbc00) {
+          return '.hword 0x${op.x4}';
+        }
         final pop = op.bit11;
         final extra = op.bit8 ? (pop ? ", pc" : ", lr") : "";
         return "${pop ? "pop" : "push"} {${_regList(op.mask8)}$extra}";
@@ -207,14 +232,22 @@ class Arm7Disasm {
           return "$l ${_reg[op.shr8.mask3]}!, {${_regList(op.mask8)}}";
         }
         if (op & 0x0f00 == 0x0f00) return "swi #${op.mask8}";
+        if (op.shr8.mask4 == 14) return '.hword 0x${op.x4}';
         final off = op.mask8.toSigned(8).shl1;
         return "b${_cond[op.shr8.mask4]} ${(pc + 4 + off).x8}";
       default: // 7
-        if (!op.bit12) {
+        if (op & 0xf800 == 0xe000) {
           final off = op.mask11.toSigned(11).shl1;
           return "b ${(pc + 4 + off).x8}";
         }
-        return op.bit11 ? "bl (lo)" : "bl (hi)";
+        if (op & 0xf800 == 0xf000 &&
+            nextHalfword != null &&
+            nextHalfword & 0xf800 == 0xf800) {
+          final offset =
+              (op.mask11.toSigned(11) << 12) + ((nextHalfword & 0x7ff) << 1);
+          return 'bl ${(pc + 4 + offset).mask32.x8}';
+        }
+        return '.hword 0x${op.x4}';
     }
   }
 
@@ -229,7 +262,7 @@ class Arm7Disasm {
         final b = op.bit10 ? "b" : "";
         return "$l$b $rd, [$rb, $ro]";
       }
-      const sh = ["strh", "ldrh", "ldrsb", "ldrsh"];
+      const sh = ["strh", "ldrsb", "ldrh", "ldrsh"];
       return "${sh[op.shr10.mask2]} $rd, [$rb, $ro]";
     }
     if (op.bit11) {

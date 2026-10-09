@@ -43,6 +43,22 @@ void main() {
     }
   }
 
+  test('debug dump includes special registers and wraps every eight registers',
+      () {
+    cpu.r[8] = -1;
+    cpu.gbr = 0x12345678;
+    cpu.macl = 0x9abcdef0;
+    final dump = cpu.dump();
+    expect(dump, contains('gbr:12345678'));
+    expect(dump, contains('macl:9abcdef0'));
+    expect(dump, contains('r8:ffffffff'));
+    final rows = dump.split('\n').skip(1);
+    expect(rows.length, 2);
+    for (final row in rows) {
+      expect(RegExp(r'r\d+:').allMatches(row).length, 8);
+    }
+  });
+
   test('reset reads big-endian vectors and masks interrupts', () {
     expect(cpu.pc, 0x100);
     expect(cpu.r[15], 0xff00);

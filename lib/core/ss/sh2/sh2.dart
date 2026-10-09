@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../register_dump.dart';
 
 import '../cpu.dart';
 import 'disasm.dart';
@@ -358,8 +359,7 @@ class Sh2 extends SsCpu {
     if (_irl > mask && _irl >= onchipLevel) {
       final level = _irl;
       final vector = onIrlAck();
-      _exception(
-          onchip.externalVector ? vector : 64 + (level >> 1), pc,
+      _exception(onchip.externalVector ? vector : 64 + (level >> 1), pc,
           level: level);
       return true;
     }
@@ -915,13 +915,18 @@ class Sh2 extends SsCpu {
   (String, int) disasm(int addr) {
     final op = bus.read16(addr);
     String hex(int v, int w) => v.toRadixString(16).padLeft(w, '0');
-    return ("${hex(addr & 0xffffffff, 8)}: ${hex(op, 4)}  ${Sh2Disasm.disasm(op, addr)}", 2);
+    return (
+      "${hex(addr & 0xffffffff, 8)}: ${hex(op, 4)}  ${Sh2Disasm.disasm(op, addr)}",
+      2
+    );
   }
 
   @override
   String dump() {
     String h(int v) => (v & 0xffffffff).toRadixString(16).padLeft(8, '0');
     return 'pc:${h(pc)} sr:${(sr & 0x3f3).toRadixString(16).padLeft(3, '0')} gbr:${h(gbr)} vbr:${h(vbr)} pr:${h(pr)} mach:${h(mach)} macl:${h(macl)}\n'
-        '${List.generate(16, (i) => 'r$i:${h(r[i])}').join(' ')}\n${onchip.dump()}';
+        '${registerRows([
+          for (var i = 0; i < 16; i++) ('r$i', r[i])
+        ])}\n${onchip.dump()}';
   }
 }

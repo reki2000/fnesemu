@@ -727,6 +727,7 @@ class MainPageState extends State<MainPage> {
               scrollDirection: Axis.horizontal,
               child: DebugController(controller: _controller),
             ),
+          if (_debugging) _registerDump(height: 160),
           if (_romName.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -782,6 +783,23 @@ class MainPageState extends State<MainPage> {
         ),
       ]);
 
+  Widget _registerDump({required double height}) => SizedBox(
+        height: height,
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: StreamBuilder<DebugOption>(
+              stream: _controller.debugger.debugStream,
+              initialData: _controller.debugger.opt,
+              builder: (context, snapshot) => SelectableText(
+                snapshot.data?.text ?? '',
+                style: debugStyle,
+              ),
+            ),
+          ),
+        ),
+      );
+
   Widget _gameContent() => LayoutBuilder(builder: (context, constraints) {
         final wideDebug = _debugging && constraints.maxWidth >= 1000;
         return Row(children: [
@@ -793,19 +811,7 @@ class MainPageState extends State<MainPage> {
                       container: _imageContainer,
                       input: _padInput)),
               if (_debugging) ...[
-                SizedBox(
-                  height: 100,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: StreamBuilder<DebugOption>(
-                      stream: _controller.debugger.debugStream,
-                      builder: (ctx, snapshot) => SelectableText(
-                          snapshot.data?.text ?? '',
-                          style: debugStyle,
-                          showCursor: true),
-                    ),
-                  ),
-                ),
+                _registerDump(height: 100),
               ],
             ]),
           ),

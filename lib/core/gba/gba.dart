@@ -247,7 +247,25 @@ class Gba implements Core, FrameRunner {
   (String, int) disasm(int cpuNo, int addr) {
     final thumb = cpu.regs.thumb;
     if (thumb) {
-      final op = bus.read16(addr & ~1);
+      final aligned = addr & ~1;
+      final op = bus.read16(aligned);
+      if (op & 0xf800 == 0xf000) {
+        final next = bus.read16(aligned + 2);
+        if (next & 0xf800 == 0xf800) {
+          return (
+            '${addr.x8}: ${op.x4} ${next.x4}  ${Arm7Disasm.thumb(op, aligned, nextHalfword: next)}',
+            4
+          );
+        }
+      } else if (op & 0xf800 == 0xf800) {
+        final previous = bus.read16(aligned - 2);
+        if (previous & 0xf800 == 0xf000) {
+          return (
+            '${addr.x8}: ${op.x4}      ${Arm7Disasm.thumb(previous, aligned - 2, nextHalfword: op)}',
+            2
+          );
+        }
+      }
       return ("${addr.x8}: ${op.x4}      ${Arm7Disasm.thumb(op, addr)}", 2);
     }
     final op = bus.read32(addr & ~3);

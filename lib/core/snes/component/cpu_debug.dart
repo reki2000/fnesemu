@@ -34,7 +34,7 @@ extension CpuDebugger on Cpu {
 
   (String, int) dumpDisasm(int addr) {
     final (asm, next) = _disasmAt(addr);
-    return (asm.padRight(20).toUpperCase(), addr + next);
+    return (asm.padRight(20).toUpperCase(), next);
   }
 
   (String, int) _disasmAt(int addr) {

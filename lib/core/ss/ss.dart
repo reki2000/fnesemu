@@ -9,6 +9,7 @@ import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
+import '../components/m68k/disasm.dart';
 import 'bus.dart';
 import 'cdblock.dart';
 import 'cpu.dart';
@@ -171,7 +172,9 @@ class Ss extends Core implements FrameRunner {
     final lineEnd = _nextLineClock;
     final target = step
         ? m.clocks + 1
-        : (m.clocks + _sliceClocks < lineEnd ? m.clocks + _sliceClocks : lineEnd);
+        : (m.clocks + _sliceClocks < lineEnd
+            ? m.clocks + _sliceClocks
+            : lineEnd);
 
     if (!(step ? m.step() : m.run(target))) {
       debugLog("ss: master sh-2 unimplemented instruction at ${m.pc.x8}");
@@ -353,16 +356,26 @@ class Ss extends Core implements FrameRunner {
       bool showSpriteVram = false,
       bool showStack = false,
       bool showApu = false}) {
-    return "${master.disasm(master.pc).$1}\n${master.dump()}\n"
+    return "SH-2 master\n${master.disasm(master.pc).$1}\n${master.dump()}\n"
         "slave(${_slaveEnabled ? "on" : "off"}): ${slave.dump()}\n"
-        "${scu.dump()}\n${smpc.dump()}\n${vdp1.dump()}\n${vdp2.dump()}\n"
+        "68000 sound\n${scsp.cpu.dump()}\n${scu.dump()}\n${smpc.dump()}\n${vdp1.dump()}\n${vdp2.dump()}\n"
         "${scsp.dump()}\n${cdblock.dump()}";
   }
 
   @override
-  (String, int) disasm(int cpuNo, int addr) => cpuNo == 2
-      ? ("${addr.x6}: 68k", 2)
-      : _cpu(cpuNo).disasm(addr);
+  (String, int) disasm(int cpuNo, int addr) =>
+      cpuNo == 2 ? _soundDisasm(addr) : _cpu(cpuNo).disasm(addr);
+
+  (String, int) _soundDisasm(int address) {
+    final words =
+        List.generate(6, (i) => scsp.bus.read16((address + i * 2) & 0xffffff));
+    try {
+      final (text, length) = Disasm().disasm(words, address);
+      return ('${address.x6}: ${words.first.x4}  $text', length * 2);
+    } catch (_) {
+      return ('${address.x6}: dc.w \$${words.first.x4}', 2);
+    }
+  }
 
   @override
   int programCounter(int cpuNo) => cpuNo == 2 ? scsp.cpu.pc : _cpu(cpuNo).pc;
@@ -372,6 +385,12 @@ class Ss extends Core implements FrameRunner {
 
   @override
   TraceLog trace(int cpuNo) {
+    if (cpuNo == 2) {
+      final cpu = scsp.cpu;
+      return TraceLog(cpu.pc, cpu.clocks, _soundDisasm(cpu.pc).$1,
+          cpu.dump().replaceAll('\n', ' '), [],
+          frame: vdp2.frame, scanline: _line);
+    }
     final cpu = _cpu(cpuNo);
     return TraceLog(cpu.pc, cpu.clocks, cpu.disasm(cpu.pc).$1.padRight(40),
         cpu.dump().replaceAll("\n", " "), [],

@@ -10,6 +10,8 @@ import '../sram.dart';
 import '../types.dart';
 import 'bus.dart';
 import 'cpu.dart';
+import 'disasm.dart';
+import '../register_dump.dart';
 import 'rom.dart';
 import 'graphics.dart';
 import 'audio.dart';
@@ -180,10 +182,14 @@ class N64 extends Core implements FrameRunner {
   @override
   int stackPointer(int cpuNo) => cpu.address(cpu.r[29]);
   @override
-  (String, int) disasm(int cpuNo, int addr) => (
-        '${addr.x8}: .word 0x${bus.read(addr, 4).x8}',
-        4,
-      );
+  (String, int) disasm(int cpuNo, int addr) {
+    final opcode = bus.read(addr, 4);
+    return (
+      '${addr.x8}: ${opcode.x8}  ${Vr4300Disasm.disasm(opcode, addr)}',
+      4
+    );
+  }
+
   @override
   TraceLog trace(int cpuNo) => TraceLog(
         cpu.pc,
@@ -203,7 +209,18 @@ class N64 extends Core implements FrameRunner {
   }) =>
       'N64 ${_rom?.title ?? ''} (Dart / task HLE)\n'
       'PC:${cpu.pc.hex} cycles:${cpu.clocks}\n'
-      '${List.generate(32, (i) => 'r$i:${(cpu.r[i] >>> 32).x8}${cpu.r[i].x8}').join(' ')}\n'
+      '${registerRows([
+            for (var i = 0; i < 32; i++) ("r$i", cpu.r[i])
+          ], bits: 64)}\n'
+      '${registerRows([("HI", cpu.hi), ("LO", cpu.lo)], bits: 64)}\n'
+      '${registerRows([
+            for (var i = 0; i < 32; i++) ("CP0[$i]", cpu.cop0[i])
+          ])}\n'
+      '${registerRows([
+            for (var i = 0; i < 32; i++)
+              ("f$i", cpu.fpu.wide ? cpu.fpu.long(i) : cpu.fpu.word(i))
+          ], bits: cpu.fpu.wide ? 64 : 32)}\n'
+      'FCR31:${cpu.fpu.control.x8}\n'
       'RSP graphics:${graphics.tasks} triangles:${graphics.triangles} audio:${audio.tasks}\n'
       '${cpu.stopReason ?? ''}';
   @override

@@ -1,3 +1,4 @@
+import '../../../register_dump.dart';
 import 'onchip.dart';
 
 abstract class Sh2Bus {
@@ -609,8 +610,16 @@ class Sh2 {
     return '.word 0x${op.toRadixString(16).padLeft(4, '0')}';
   }
 
-  String dump() =>
-      'pc:${pc.toRadixString(16).padLeft(8, '0')} sr:${sr.toRadixString(16)} pr:${pr.toRadixString(16)} ${List.generate(16, (i) => 'r$i:${r[i].toRadixString(16).padLeft(8, '0')}').join(' ')}';
+  String dump() => '${registerRows([
+            ('pc', pc),
+            ('sr', sr),
+            ('gbr', gbr),
+            ('vbr', vbr),
+            ('pr', pr),
+            ('mach', mach),
+            ('macl', macl),
+          ])}\n'
+      '${registerRows([for (var i = 0; i < 16; i++) ('r$i', r[i])])}';
 }
 
 class _OnChipBus implements Sh2Bus {
