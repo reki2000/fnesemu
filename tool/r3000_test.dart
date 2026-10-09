@@ -1,13 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fnesemu/core/ps/r3000/disasm.dart';
 import 'package:fnesemu/core/ps/r3000/r3000.dart';
 import 'package:fnesemu/util/debug.dart';
 import 'package:fnesemu/util/int.dart';
 import 'package:fnesemu/util/uint8list.dart';
 import 'package:test/test.dart';
-
-import 'disasm.dart';
 
 /// A dummy BusR3000 implementation for tests.
 class _TestBus implements BusR3000 {
