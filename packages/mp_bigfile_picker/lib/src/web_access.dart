@@ -103,6 +103,20 @@ Future<PickedDirectory?> pickAccessDirectory() async {
   }
 }
 
+/// deletes the handle saved by [_saveHandle]
+Future<void> releaseAccessDirectory(String key) async {
+  if (!key.startsWith('fs-access:')) return;
+  final db = await _database();
+  try {
+    await _request(db
+        .transaction('directories'.toJS, 'readwrite')
+        .objectStore('directories')
+        .delete(key.toJS));
+  } finally {
+    db.close();
+  }
+}
+
 Future<PickedDirectory?> restoreAccessDirectory(String key,
     {bool requestPermission = false}) async {
   if (!key.startsWith('fs-access:') || _directoryPicker == null) return null;

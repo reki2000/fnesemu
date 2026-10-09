@@ -39,6 +39,14 @@ Future<RandomReadFile?> restoreDarwinFile(String restoreKey) async {
   return r == null ? null : IoReadFile(r['path']!, restoreKey: r['key']);
 }
 
+Future<void> releaseDarwin(String restoreKey) async {
+  try {
+    await _channel.invokeMethod<void>('release', restoreKey);
+  } on PlatformException {
+    // nothing to release
+  }
+}
+
 /// the path and the key, which is made again if it is stale
 Future<Map<String, String>?> _restore(String restoreKey) async {
   try {

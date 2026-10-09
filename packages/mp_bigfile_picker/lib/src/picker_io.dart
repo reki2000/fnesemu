@@ -31,6 +31,13 @@ Future<PickedDirectory?> restoreDirectory(String restoreKey,
   return await Directory(restoreKey).exists() ? IoDirectory(restoreKey) : null;
 }
 
+/// gives back the access to the directory of [PickedDirectory.restoreKey]
+/// kept for `restoreDirectory`. the directory is not opened again by the key.
+Future<void> releaseDirectory(String restoreKey) async {
+  if (Platform.isAndroid) return releaseSafDirectory(restoreKey);
+  if (_isDarwin) return releaseDarwin(restoreKey);
+}
+
 /// lets the user select files. returns null if canceled. [extensions] ('cue',
 /// without dots) is a hint: Android does not filter by it. the dialog opens
 /// at [initialDirectory] where the platform supports it.

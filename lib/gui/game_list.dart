@@ -10,8 +10,15 @@ class GameListDialog extends StatefulWidget {
   final ValueListenable<ScanResult?> scan;
   final ValueListenable<ScanProgress?>? progress;
 
+  /// removes the directory from the directory menu
+  final VoidCallback? onRemove;
+
   const GameListDialog(
-      {super.key, required this.title, required this.scan, this.progress});
+      {super.key,
+      required this.title,
+      required this.scan,
+      this.progress,
+      this.onRemove});
 
   @override
   State<GameListDialog> createState() => _GameListDialogState();
@@ -31,6 +38,13 @@ class _GameListDialogState extends State<GameListDialog> {
                 builder: (context, scan, _) =>
                     scan == null ? _scanning() : _list(scan))),
         actions: [
+          if (widget.onRemove != null)
+            TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  widget.onRemove!();
+                },
+                child: const Text('Remove Directory')),
           TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancel'))

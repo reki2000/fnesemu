@@ -388,15 +388,21 @@ class MainPageState extends State<MainPage> {
 
   static const _lastDiscDirKey = "disc_dir";
 
+  // set once the directories of older histories are in the directory list
+  static const _directoriesImportedKey = "directories_imported";
+
   /// scans the directory selected last time, if it can be opened again
   _restoreDiscFolder() async {
     final directories = _storage.gameDirectories;
     final known = directories.map((entry) => entry.id).toSet();
-    // Preserve directories of histories written before the directory registry.
-    final legacy = [
-      _storage.setting(_lastDiscDirKey),
-      ..._storage.recentGames.map((game) => game.folder),
-    ];
+    // Preserve directories of histories written before the directory registry,
+    // once: a directory removed later must not come back from the histories.
+    final legacy = _storage.setting(_directoriesImportedKey) != null
+        ? <String?>[]
+        : [
+            _storage.setting(_lastDiscDirKey),
+            ..._storage.recentGames.map((game) => game.folder),
+          ];
     for (final key in legacy.whereType<String>()) {
       if (!known.add(key) || key.startsWith('web:')) continue;
       directories.add(GameDirectory(key, key.split('/').last, key, path: key));
@@ -409,7 +415,7 @@ class MainPageState extends State<MainPage> {
         if (folder != null) {
           _openedFolders[directory.id] = folder;
           _folderIds[folder] = directory.id;
-          await _storage.rememberDirectory(GameDirectory(
+          await _storage.updateDirectory(GameDirectory(
               directory.id, folder.name, folder.persistentPath,
               path: folder.displayPath));
         }
@@ -417,8 +423,26 @@ class MainPageState extends State<MainPage> {
         // Keep the saved token so the user can retry restoring access.
       }
     }
+    await _storage.setSetting(_directoriesImportedKey, "1");
     if (!mounted) return;
     setState(() {});
+  }
+
+  /// removes the directory of [folder] from the menu, and gives back the
+  /// access to it kept to open it again
+  Future<void> _removeDirectory(DiscFolder folder) async {
+    final id = _folderIds[folder];
+    if (id == null) return;
+    final saved =
+        _storage.gameDirectories.where((entry) => entry.id == id).firstOrNull;
+    final key = saved?.restoreKey ?? folder.persistentPath;
+    if (key != null) await releaseDirectory(key);
+    await _storage.forgetDirectory(id);
+    _openedFolders.remove(id);
+    _folderIds[folder] = null;
+    if (!mounted) return;
+    setState(() {});
+    AppSnackBar.show("removed: ${folder.name}");
   }
 
   Future<DiscFolder?> _restoreSavedDirectory(String id) async {
@@ -450,7 +474,10 @@ class MainPageState extends State<MainPage> {
     final selected = await showDialog<DiscItem>(
         context: context,
         builder: (_) => GameListDialog(
-            title: folder.name, scan: scan, progress: _progress));
+            title: folder.name,
+            scan: scan,
+            progress: _progress,
+            onRemove: () => _removeDirectory(folder)));
     dialogOpen = false;
     _cancelScan = true;
     await scanning;

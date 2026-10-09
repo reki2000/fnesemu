@@ -12,6 +12,10 @@ Future<PickedDirectory?> restoreDirectory(String restoreKey,
         {bool requestPermission = false}) =>
     restoreAccessDirectory(restoreKey, requestPermission: requestPermission);
 
+/// forgets the saved handle, which takes its permission with it
+Future<void> releaseDirectory(String restoreKey) =>
+    releaseAccessDirectory(restoreKey);
+
 /// lets the user select files. returns null if canceled.
 Future<List<RandomReadFile>?> pickFiles(
         {List<String>? extensions,

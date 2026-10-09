@@ -166,23 +166,50 @@ class Storage extends Sram {
     }
   }
 
+  // the directories, the last opened first. the older setting kept them the
+  // last opened last.
+  static const _directoriesKey = 'game_directories_recent_first';
+  static const _oldDirectoriesKey = 'game_directories';
+
+  /// the directories selected before, the last opened one first
   List<GameDirectory> get gameDirectories {
+    final saved = setting(_directoriesKey);
     try {
-      return (jsonDecode(setting('game_directories') ?? '[]') as List)
+      final directories = (jsonDecode(
+              saved ?? setting(_oldDirectoriesKey) ?? '[]') as List)
           .map((json) => GameDirectory.fromJson(json as Map<String, dynamic>))
           .toList();
+      return saved == null ? directories.reversed.toList() : directories;
     } catch (_) {
       return [];
     }
   }
 
-  Future<void> rememberDirectory(GameDirectory directory) async {
-    final directories = gameDirectories
-      ..removeWhere((entry) => entry.id == directory.id);
-    directories.add(directory);
-    await setSetting('game_directories',
-        jsonEncode(directories.map((entry) => entry.toJson()).toList()));
+  Future<void> _saveDirectories(List<GameDirectory> directories) => setSetting(
+      _directoriesKey,
+      jsonEncode(directories.map((entry) => entry.toJson()).toList()));
+
+  /// puts [directory] at the top, as the last opened one
+  Future<void> rememberDirectory(GameDirectory directory) =>
+      _saveDirectories(gameDirectories
+        ..removeWhere((entry) => entry.id == directory.id)
+        ..insert(0, directory));
+
+  /// updates [directory] (a renewed access key) where it is in the order
+  Future<void> updateDirectory(GameDirectory directory) {
+    final directories = gameDirectories;
+    final i = directories.indexWhere((entry) => entry.id == directory.id);
+    if (i < 0) {
+      directories.add(directory);
+    } else {
+      directories[i] = directory;
+    }
+    return _saveDirectories(directories);
   }
+
+  /// removes the directory [id] from the list
+  Future<void> forgetDirectory(String id) =>
+      _saveDirectories(gameDirectories..removeWhere((entry) => entry.id == id));
 
   List<String> _biosKeysOf(String system) {
     final prefix = StorageKey.of(system, StorageKey.bios, "");

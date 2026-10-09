@@ -72,6 +72,10 @@ class MpBigfilePickerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler,
                 val doc = Uri.parse(call.arguments as String)
                 if (isGranted(doc)) displayName(doc) else null
             }
+            "releaseDirectory" -> background(result) {
+                release(Uri.parse(call.arguments as String))
+                null
+            }
             "walk" -> background(result) { walk(Uri.parse(call.arguments as String)) }
             "openFd" -> background(result) {
                 context.contentResolver
@@ -124,6 +128,16 @@ class MpBigfilePickerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler,
                 uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (e: SecurityException) {
             // not persistable: readable until the app ends
+        }
+    }
+
+    /** gives back the permission kept by [persist] */
+    private fun release(uri: Uri) {
+        try {
+            context.contentResolver.releasePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: SecurityException) {
+            // not persisted
         }
     }
 

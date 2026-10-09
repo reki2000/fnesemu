@@ -132,6 +132,14 @@ Future<PickedDirectory?> restoreSafDirectory(String treeUri) async {
   }
 }
 
+Future<void> releaseSafDirectory(String treeUri) async {
+  try {
+    await _channel.invokeMethod<void>('releaseDirectory', treeUri);
+  } on PlatformException {
+    // nothing to release
+  }
+}
+
 /// the restore key of a file is its document uri, whose permission is
 /// persisted
 Future<List<RandomReadFile>?> pickSafFiles({bool multiple = false}) async {

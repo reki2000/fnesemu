@@ -24,6 +24,9 @@ public class MpBigfilePickerPlugin: NSObject, FlutterPlugin, UIDocumentPickerDel
       pick(result, types: types, multiple: args?["multiple"] as? Bool ?? false, files: true)
     case "restore":
       result(restore(call.arguments as? String))
+    case "release":
+      release(call.arguments as? String)
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -89,5 +92,13 @@ public class MpBigfilePickerPlugin: NSObject, FlutterPlugin, UIDocumentPickerDel
       top = presented
     }
     return top
+  }
+
+  /// stops accessing the directory or file of a bookmark
+  private func release(_ key: String?) {
+    guard let key = key, let data = Data(base64Encoded: key) else { return }
+    var stale = false
+    let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale)
+    url?.stopAccessingSecurityScopedResource()
   }
 }
