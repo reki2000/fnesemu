@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 import 'gui/app.dart';
 import 'gui/storage.dart';
 
+// the version given by --dart-define=APP_VERSION=... at build time
+const _version = String.fromEnvironment('APP_VERSION');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final packageInfo = await PackageInfo.fromPlatform();
 
   const debugEnv = bool.fromEnvironment("DEBUG", defaultValue: false);
   const config = Config(debug: debugEnv);
@@ -14,7 +15,7 @@ void main() async {
   final storage = await Storage.open();
 
   runApp(MyApp(
-      title: "fnesemu ${packageInfo.version}",
+      title: _version.isEmpty ? "fnesemu" : "fnesemu $_version",
       storage: storage,
       config: config));
 }

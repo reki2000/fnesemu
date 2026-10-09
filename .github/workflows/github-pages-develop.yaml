@@ -30,7 +30,8 @@ jobs:
       - run: flutter test
       - run: |
           REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
-          flutter build web --wasm --base-href /$REPOSITORY/
+          VERSION=$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)
+          flutter build web --wasm --base-href /$REPOSITORY/ --dart-define=APP_VERSION=$VERSION
 
       - name: Upload dist as artifact
         uses: actions/upload-artifact@v4
