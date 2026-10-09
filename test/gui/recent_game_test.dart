@@ -55,7 +55,7 @@ void main() {
     final restored = await Storage.open(store: store);
     addTearDown(restored.dispose);
     expect(restored.gameDirectories.length, 2);
-    expect(restored.gameDirectories.last.restoreKey, 'renewed-token');
+    expect(restored.gameDirectories.first.restoreKey, 'renewed-token');
     expect(restored.recentGames.single.isDisc, isFalse);
     expect(restored.recentGames.single.count, 2);
     expect(restored.recentGames.single.folder, 'first');
