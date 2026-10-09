@@ -1,23 +1,32 @@
 import 'disc_image.dart';
 import 'disc_source.dart';
 
-/// the files a .cue file refers to, in a [DiscFolder]
-class CueReferences {
-  /// the paths of the files found in the folder
-  final List<String> found;
+/// a disc image in a [DiscFolder], parsed by [DiscFolder.parse]
+class DiscImageFile {
+  final DiscFolder folder;
+
+  /// the .cue, .iso or .bin file
+  final String path;
+
+  /// the paths of the files the .cue file refers to, found in the folder.
+  /// they are parts of this image, not disc images or ROMs by themselves.
+  /// empty for an .iso/.bin file.
+  final List<String> referredFiles;
 
   /// the names written in the .cue file which are not in the folder
-  final List<String> missing;
+  final List<String> missingFiles;
 
-  /// false if the .cue file cannot be read
-  final bool readable;
+  const DiscImageFile(
+      this.folder, this.path, this.referredFiles, this.missingFiles);
 
-  const CueReferences(this.found, this.missing, {this.readable = true});
+  bool get isCue => path.toLowerCase().endsWith(".cue");
 
-  static const unreadable = CueReferences([], [], readable: false);
+  /// true if all the files of the image are in the folder
+  bool get isComplete =>
+      missingFiles.isEmpty && (!isCue || referredFiles.isNotEmpty);
 
-  /// true if the .cue file is a disc image with all of its files
-  bool get isComplete => readable && found.isNotEmpty && missing.isEmpty;
+  /// the image to read by [DiscImage.open] or [DiscDrive.insert]
+  DiscSource open() => folder.source(path);
 }
 
 /// the files of a [DiscDirectory]. the files referred from a .cue file are
@@ -42,29 +51,29 @@ class DiscFolder {
     return key == null ? null : _index[key];
   }
 
-  /// the files the .cue file at [cuePath] refers to. a file found here is a
-  /// part of the disc image, not a disc image or a ROM by itself, even if the
-  /// .cue file is not complete.
-  Future<CueReferences> cueReferences(String cuePath) async {
-    DiscFile? file;
-    final List<String> names;
-    try {
-      file = dir.open(cuePath);
-      names =
-          DiscImage.cueFileNames(await readText(file, maxBytes: _maxCueBytes));
-    } catch (_) {
-      return CueReferences.unreadable;
-    } finally {
-      await file?.close();
+  /// parses the .cue/.iso/.bin file at [path]. throws if a .cue file cannot
+  /// be read.
+  Future<DiscImageFile> parse(String path) async {
+    if (!path.toLowerCase().endsWith(".cue")) {
+      return DiscImageFile(this, path, const [], const []);
     }
 
-    final found = <String>[];
+    final file = dir.open(path);
+    final List<String> names;
+    try {
+      names =
+          DiscImage.cueFileNames(await readText(file, maxBytes: _maxCueBytes));
+    } finally {
+      await file.close();
+    }
+
+    final referred = <String>[];
     final missing = <String>[];
     for (final name in names) {
-      final path = resolve(cuePath, name);
-      path == null ? missing.add(name) : found.add(path);
+      final found = resolve(path, name);
+      found == null ? missing.add(name) : referred.add(found);
     }
-    return CueReferences(found, missing);
+    return DiscImageFile(this, path, referred, missing);
   }
 
   /// the disc image of the .cue/.iso/.bin file at [path]

@@ -104,10 +104,14 @@ class GameScanner {
       final cue = cues[i];
       report(false, cues.length, i, items.length);
 
-      final refs = await discs.cueReferences(cue);
-      referenced.addAll(refs.found);
       items.add(GameItem(cue));
-      if (!refs.isComplete) skipped.add(cue);
+      try {
+        final image = await discs.parse(cue);
+        referenced.addAll(image.referredFiles);
+        if (!image.isComplete) skipped.add(cue);
+      } catch (_) {
+        skipped.add(cue); // unreadable
+      }
       await Future<void>.delayed(Duration.zero); // let the UI update
     }
 
