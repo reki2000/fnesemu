@@ -113,8 +113,12 @@ class N64Bus {
     if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
       return _sramRead(a - 0x08000000);
     }
-    // 64DD registers / IPL rom: not connected (games probe for the drive)
-    if (a >= 0x05000000 && a < 0x08000000) return 0;
+    // 64DD registers / IPL rom: not connected (games probe for the drive).
+    // the open PI bus returns the low 16 bits of each halfword's address
+    if (a >= 0x05000000 && a < 0x08000000) {
+      final half = a & 0xfffe;
+      return a.isEven ? half.shr8 : half.mask8;
+    }
     // RDRAM address space beyond the installed memory (games probe its size)
     if (a >= ram.length && a < 0x03f00000) return 0;
     if (a & ~3 == 0x04080000) return spPc.shr((3 - a.mask2) * 8).mask8;

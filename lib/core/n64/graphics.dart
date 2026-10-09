@@ -134,8 +134,10 @@ class N64Graphics {
   void task(int address, int size, int ucodeData, int ucodeSize) {
     final end = math.min(bus.ram.length, ucodeData + math.min(ucodeSize, 2048));
     final name = String.fromCharCodes(bus.ram.sublist(ucodeData, end.toInt()));
-    // F3DEX2 microcodes are named F3DEX2 / F3DZEX, or "F3DEX ... 2.xx"
-    final version = RegExp(r'F3D(?:EX|LX|LP)[^0-9]*(\d)\.\d').firstMatch(name);
+    // F3DEX2 microcodes are named F3DEX2 / F3DZEX, or "RSP Gfx ucode <name>
+    // ... 2.xx" (F3DEX, F3DLX, F3DFLX, L3DEX, ...)
+    final version =
+        RegExp(r'RSP Gfx ucode [A-Z0-9.]+[^0-9]*(\d)\.\d').firstMatch(name);
     f3dex2 = name.contains('F3DEX2') ||
         name.contains('F3DZEX') ||
         name.contains('F3DLX2') ||
