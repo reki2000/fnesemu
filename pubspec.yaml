@@ -24,13 +24,14 @@ dependencies:
   mp_bigfile_picker:
     path: packages/mp_bigfile_picker
 
+  test: any
 dev_dependencies:
-  test: ^1.21.1
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^5.0.0
 
+  file_picker_platform_interface: any
 flutter:
   uses-material-design: true
 

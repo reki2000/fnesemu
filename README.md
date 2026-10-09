@@ -21,28 +21,6 @@ This project is experimental.
   - if the running system plays the disc, only the disc is changed as on the real console. press Reset to boot it
 
 
-
-## FDS
-
-Set the BIOS from Core setup → fds (8 KiB raw or an iNES `.nes` image),
-then choose an `.fds` file from a
-CD / ROM directory. Disk 1 A is inserted initially. Press R or the on-screen
-Flip Disk button to flip between A and B. Holding the key does not flip repeatedly.
-The drive exposes a brief ejected interval to the running software. A one-sided
-image remains on A. There is no menu for choosing a specific disk side.
-Writes are saved in the application's storage; the original image is kept intact.
-
-The headless harness supports the same core:
-
-```sh
-dart run lib/tools/core_harness.dart fds /path/to/disk.fds -b /path/to/bios.bin -f 600
-```
-
-FDS tests use synthetic BIOS/disk programs. Additional local checks use
-user-supplied BIOS and disk images, which are not included in the repository.
-Data-only disks require their corresponding boot disk and cannot boot alone.
-QD images are not supported.
-
 ## Joypad-Keyboard assignment
 
 | key | Z | X | C | A | S | Q | W | E | R | D | arrows |
@@ -56,16 +34,6 @@ QD images are not supported.
 | SNES | Select |  | Start | Y | B | L | X | R |  | A | up / down / left / right |
 | SS | A | B | C | L | Start | X | Y | Z | R |  | up / down / left / right |
 | N64 | B | A | Z | C-left | C-down | L | C-up | R | Start | C-right | up / down / left / right |
-
-## How to build and run on local machine
-
-To build and run fnesemu on a local machine, you will need flutter 3.22.0 with at least one enabled device. 
-Follow these steps:
-
-```
-git submodule update --init
-flutter run -d [windows|linux|chrome|macos|your-android-device|your-ios-device] --release
-```
 
 # How to develop
 
@@ -85,10 +53,6 @@ dart tool/generate_core_registry.dart
 No App/GUI changes are needed, including when no game core is installed.
 The tests exercise an empty registry; a Linux build is also checked with all
 concrete module directories removed in a temporary checkout.
-
-## To add more mapper type support
-
-TBD
 
 ## To test 6502 emulation
 
@@ -136,3 +100,4 @@ $ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
 $ cd ..
 $ make test-gte 
 ```
+
