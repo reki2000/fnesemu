@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:cdrom_image/disc_image.dart' show ParsedDiscImage;
+import 'package:cdrom_image/format/file_image.dart' show FileImage;
 import 'package:cdrom_image/memory.dart';
 import 'package:test/test.dart';
 
@@ -141,7 +141,7 @@ void main() {
 
       final s = await read(image, 2);
       expect(s.length, size);
-      expect(s.sublist(0, 12), ParsedDiscImage.sync);
+      expect(s.sublist(0, 12), FileImage.sync);
       expect(s.sublist(12, 16), [0, 2, 2, 1]); // 00:02:02 mode 1
       expect(s.sublist(16, 16 + 2048).every((b) => b == 3), true);
     });
@@ -155,7 +155,7 @@ void main() {
     });
 
     test('a raw image starting with the sync pattern is not cooked', () async {
-      final raw = Uint8List(2352 * 4)..setRange(0, 12, ParsedDiscImage.sync);
+      final raw = Uint8List(2352 * 4)..setRange(0, 12, FileImage.sync);
       final image = await insert("a.iso", {"a.iso": raw});
       expect(image.totalSectors, 4);
       expect(await read(image, 0), raw.sublist(0, 2352));
@@ -229,7 +229,7 @@ FILE "a.bin" BINARY
       expect([for (final t in toc.tracks) t.isAudio], [false, true, true]);
       expect(toc.totalSectors, 205);
 
-      final segs = (image as ParsedDiscImage).segments(120, 20);
+      final segs = (image as FileImage).segments(120, 20);
       expect([
         for (final s in segs) (s.lba, s.count, s.file != null, s.fileSector)
       ], [
@@ -257,7 +257,7 @@ FILE "t2.bin" BINARY
       expect([for (final t in image.toc.tracks) t.startLba], [0, 450]);
       expect([for (final t in image.toc.tracks) t.sectors], [450, 250]);
       expect(image.totalSectors, 700);
-      final seg = (image as ParsedDiscImage).segments(450, 1).single;
+      final seg = (image as FileImage).segments(450, 1).single;
       expect(seg.file!.path, "t2.bin");
       expect(seg.fileSector, 150);
     });

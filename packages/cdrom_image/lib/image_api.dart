@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import 'disc_image.dart' as parser;
 import 'filesystem_api.dart';
+import 'format/parse.dart' as parser;
 
 /// whether a file can be a disc image, by its name
 enum DiscFileKind {
-  /// .cue or .iso
+  /// .cue, .iso or .chd
   image,
 
   /// .bin: a raw disc image, or a ROM
@@ -15,7 +15,7 @@ enum DiscFileKind {
 
   static DiscFileKind of(String name) =>
       switch (name.substring(name.lastIndexOf('.') + 1).toLowerCase()) {
-        'cue' || 'iso' => image,
+        'cue' || 'iso' || 'chd' => image,
         'bin' => maybeImage,
         _ => notImage,
       };

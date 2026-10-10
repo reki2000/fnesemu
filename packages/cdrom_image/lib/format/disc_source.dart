@@ -1,8 +1,8 @@
 // internal: the files of a disc image, for the parser
 import 'dart:convert';
 
-import 'filesystem_api.dart';
-import 'image_api.dart';
+import '../filesystem_api.dart';
+import '../image_api.dart';
 
 /// a disc image: a .cue file with the files it refers to, or a single
 /// .iso/.bin file
