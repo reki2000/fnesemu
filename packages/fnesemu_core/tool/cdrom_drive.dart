@@ -53,17 +53,18 @@ class SimpleCdromDrive implements CdromDrive {
     _image = null;
   }
 
-  /// closes the tray with the disc [source], or without a disc if null
-  Future<void> insert([DiscSource? source]) async {
+  /// closes the tray with the disc image [disc] (the arguments of
+  /// [DiscImage.parse]), or without a disc if null
+  Future<void> insert([(DiscFile, Iterable<DiscFile>)? disc]) async {
     if (_state != CdromDriveState.trayOpen) await eject();
-    if (source == null) {
+    if (disc == null) {
       _change(CdromDriveState.empty);
       return;
     }
 
     final discId = _change(CdromDriveState.loading);
     try {
-      final image = await parseSource(source);
+      final (image, _) = await DiscImage.parse(disc.$2, disc.$1);
       if (discId != _discId) {
         return;
       }

@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'disc_folder.dart';
 import 'disc_source.dart';
 import 'filesystem_api.dart';
 import 'image_api.dart';
@@ -353,26 +352,16 @@ class _CueTrack {
   int get firstIndex => index0 >= 0 ? index0 : index1;
 }
 
-/// Parses a file, resolving the referenced tracks in [files].
+/// Parses [file], resolving the referenced tracks in [files].
 Future<(DiscImage, List<DiscFile>)> parse(
     Iterable<DiscFile> files, DiscFile file) async {
-  final source = DiscFolder([...files, file]).source(file.path);
-  final referenced = <String, DiscFile>{};
-  final image = await parseSource(DiscSource(source.main, (name) {
-    final resolved = source.resolve(name);
-    if (resolved.path != file.path) referenced[resolved.path] = resolved;
-    return resolved;
-  }));
-  return (image, List<DiscFile>.unmodifiable(referenced.values));
-}
-
-/// Parses a source with an existing resolver, suitable for batch use.
-Future<DiscImage> parseSource(DiscSource source) async {
+  final source = DiscSource(files, file);
   try {
-    return await (source.isCue
+    final image = await (source.isCue
         ? ParsedDiscImage._buildCue(source)
         : ParsedDiscImage._buildImage(source));
+    return (image, List<DiscFile>.unmodifiable(source.referenced.values));
   } on FormatException catch (error) {
-    throw DiscParseException(source.main.path, error.message, cause: error);
+    throw DiscParseException(file.path, error.message, cause: error);
   }
 }

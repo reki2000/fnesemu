@@ -78,13 +78,15 @@ class AsyncCdromDrive implements CdromDrive {
     await _openTray();
   }
 
-  /// closes the tray with the disc [source], or without a disc if null.
+  /// closes the tray with the disc image [disc] (the arguments of
+  /// [DiscImage.parse]: the image file and the files of its directory), or
+  /// without a disc if null.
   /// The status changes to trayOpen first if the tray is not open, then to
-  /// loading and ready (or error) when the TOC of [source] is read.
-  Future<void> insert([DiscSource? source]) async {
+  /// loading and ready (or error) when the TOC of [disc] is read.
+  Future<void> insert([(DiscFile, Iterable<DiscFile>)? disc]) async {
     final discId =
         _state == CdromDriveState.trayOpen ? _discId : await _openTray();
-    await _close(source, discId);
+    await _close(disc, discId);
   }
 
   /// opens the tray, returns the disc id of the status
@@ -94,7 +96,7 @@ class AsyncCdromDrive implements CdromDrive {
     return discId;
   }
 
-  Future<void> _close(DiscSource? next, int discId) async {
+  Future<void> _close((DiscFile, Iterable<DiscFile>)? next, int discId) async {
     if (next == null) {
       if (discId == _discId) {
         _changeDisc(CdromDriveState.empty);
@@ -108,7 +110,7 @@ class AsyncCdromDrive implements CdromDrive {
     final loadingId = _changeDisc(CdromDriveState.loading);
 
     try {
-      final image = await parseSource(next);
+      final (image, _) = await DiscImage.parse(next.$2, next.$1);
       if (loadingId != _discId) {
         return;
       }
@@ -117,14 +119,14 @@ class AsyncCdromDrive implements CdromDrive {
         for (final t in image.toc.tracks)
           CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
       ], image.totalSectors);
-      debugLog("cdrom: inserted ${next.name}: "
+      debugLog("cdrom: inserted ${next.$1.path}: "
           "${image.toc.tracks.length} track(s) ${image.totalSectors} sectors");
       for (final t in image.toc.tracks) {
         debugLog("cdrom: $t");
       }
       _changeDisc(CdromDriveState.ready);
     } catch (e) {
-      debugLog("cdrom: failed to read TOC of ${next.name}: $e");
+      debugLog("cdrom: failed to read TOC of ${next.$1.path}: $e");
       if (loadingId == _discId) {
         _changeDisc(CdromDriveState.error);
       }

@@ -20,11 +20,10 @@ or 2352 bytes per sector).
   refers to in `files`. Returns the image and the referenced files (empty
   for an .iso/.bin). Throws `DiscParseException` for an invalid description
   or a missing file.
-- `DiscFolder(files)`: one index for parsing many images of a directory.
-  `parse(path)` returns the referenced and missing files without reading
-  the tracks, and `parseSource(folder.source(path))` reads the image.
-- `DiscFileKind.of(name)`: whether a file name can be a disc image.
-- `memory.dart`: files on memory, for tests.
+- `DiscFileKind.of(name)` (`image_api.dart`): whether a file name can be a
+  disc image.
+- `memory.dart`: files on memory, for tests. `memoryDisc(main, files)`
+  gives the arguments of `DiscImage.parse`.
 
 ## Usage
 

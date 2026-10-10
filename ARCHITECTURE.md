@@ -27,7 +27,7 @@ Each part owns its domain and depends only on the interfaces below.
   its referenced files.
 - Only the app connects the packages: `lib/gui/picked_disc.dart` adapts picker
   files; `async_cdrom_drive.dart` adapts disc images with read-ahead and caching;
-  `rom_scanner.dart` excludes CUE-referenced files from the game list.
+  `rom_scanner.dart` excludes CUE-referenced files from the ROM list.
 - Headless tools supply their own adapters: `tool/local_disc.dart` and
   `tool/cdrom_drive.dart` inside the core package.
 

@@ -3,8 +3,6 @@ library;
 
 import 'dart:typed_data';
 
-import 'disc_folder.dart';
-import 'disc_source.dart';
 import 'filesystem_api.dart';
 
 class MemoryDiscFile extends DiscFile {
@@ -41,6 +39,7 @@ class MemoryDirectory {
         };
 }
 
-/// the disc image [main] of [files]
-DiscSource memoryDisc(String main, Map<String, MemoryDiscFile> files) =>
-    DiscFolder(files.values).source(main);
+/// the arguments of [DiscImage.parse] for the disc image [main] of [files]
+(DiscFile, Iterable<DiscFile>) memoryDisc(
+        String main, Map<String, MemoryDiscFile> files) =>
+    (files[main]!, files.values);

@@ -3,8 +3,5 @@
 /// [DiscImage].
 library;
 
-export 'disc_folder.dart';
-export 'disc_image.dart' show parseSource;
-export 'disc_source.dart';
 export 'filesystem_api.dart';
 export 'image_api.dart';

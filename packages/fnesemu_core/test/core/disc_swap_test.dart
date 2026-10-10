@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 
 import '../../tool/cdrom_drive.dart';
 
-DiscSource source(String name) => memoryDisc(
+(DiscFile, Iterable<DiscFile>) source(String name) => memoryDisc(
     name, {name: MemoryDiscFile(name, Uint8List(2352 * 10))});
 
 void main() {

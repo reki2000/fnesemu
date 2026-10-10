@@ -54,11 +54,18 @@ class ScanResult {
 
   ScanResult(this.folder, this.files, this.items, this.skipped, this.cancelled);
 
-  late final _discs = DiscFolder(
-      files.map((path) => PickedDiscFile(path, () => folder.open(path))));
+  late final _files = _discFiles(folder, files);
 
-  DiscSource sourceOf(RomFile item) => _discs.source(item.path);
+  /// the disc image of [item]: the arguments of [DiscImage.parse]
+  (DiscFile, Iterable<DiscFile>) sourceOf(RomFile item) =>
+      (_files[item.path]!, _files.values);
 }
+
+Map<String, DiscFile> _discFiles(PickedDirectory folder, List<String> files) =>
+    {
+      for (final path in files)
+        path: PickedDiscFile(path, () => folder.open(path))
+    };
 
 /// lists the ROM files in a ROM directory: all the files, except the ones which a .cue
 /// file refers to (they are parts of the disc image of the .cue file).
@@ -91,8 +98,7 @@ class RomScanner {
     }
     report(true, 0, 0, 0, force: true);
 
-    final discs = DiscFolder(
-        files.map((path) => PickedDiscFile(path, () => folder.open(path))));
+    final discs = _discFiles(folder, files);
     final cues = files.where((f) => _ext(f) == 'cue').toList();
     final referenced = <String>{};
     final items = <RomFile>[];
@@ -107,11 +113,10 @@ class RomScanner {
 
       items.add(RomFile(cue));
       try {
-        final image = await discs.parse(cue);
-        referenced.addAll(image.referredFiles);
-        if (!image.isComplete) skipped.add(cue);
+        final (_, refs) = await DiscImage.parse(discs.values, discs[cue]!);
+        referenced.addAll(refs.map((file) => file.path));
       } catch (_) {
-        skipped.add(cue); // unreadable
+        skipped.add(cue); // a missing file, or unreadable
       }
       await Future<void>.delayed(Duration.zero); // let the UI update
     }

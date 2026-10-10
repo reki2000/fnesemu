@@ -48,10 +48,14 @@ Stream<DiscFile> localDiscFiles(String root) async* {
   }
 }
 
-/// the .cue/.iso/.bin file at [path]. the files referred from a .cue file are
-/// opened relative to it.
-DiscSource localDisc(String path) {
-  final dir = File(path).parent.path;
-  return DiscSource(IoDiscFile(path),
-      (name) => IoDiscFile('$dir/${name.replaceAll('\\', '/')}'));
+/// the .cue/.iso/.bin file at [path], and the files of its directory: the
+/// arguments of [DiscImage.parse]. a .cue file's references are found in the
+/// same directory.
+(DiscFile, Iterable<DiscFile>) localDisc(String path) {
+  final dir = File(path).parent;
+  final files = [
+    for (final e in dir.listSync(followLinks: false))
+      if (e is File) IoDiscFile(e.path)
+  ];
+  return (IoDiscFile(path), files);
 }

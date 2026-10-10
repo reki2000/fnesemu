@@ -7,8 +7,12 @@ import 'package:test/test.dart';
 
 const size = DiscImage.sectorSize;
 
+/// the image of [disc], the arguments of [DiscImage.parse]
+Future<DiscImage> open((DiscFile, Iterable<DiscFile>) disc) async =>
+    (await DiscImage.parse(disc.$2, disc.$1)).$1;
+
 Future<DiscImage> insert(String main, Map<String, Uint8List> files) =>
-    parseSource(memoryDisc(main, {
+    open(memoryDisc(main, {
       for (final e in files.entries) e.key: MemoryDiscFile(e.key, e.value)
     }));
 
@@ -196,7 +200,7 @@ FILE "disc.bin" BINARY
 
   group('DiscImage', () {
     test('iso: single data track', () async {
-      final image = await parseSource(memoryDisc(
+      final image = await open(memoryDisc(
           "a.iso", {"a.iso": MemoryDiscFile("a.iso", makeBin(100))}));
       expect(image.toc.tracks.single.isAudio, false);
       expect(image.totalSectors, 100);
@@ -216,7 +220,7 @@ FILE "a.bin" BINARY
     PREGAP 00:00:05
     INDEX 01 00:01:50
 ''';
-      final image = await parseSource(memoryDisc("a.cue", {
+      final image = await open(memoryDisc("a.cue", {
         "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
         "a.bin": MemoryDiscFile("a.bin", makeBin(200)),
       }));
@@ -245,7 +249,7 @@ FILE "t2.bin" BINARY
     INDEX 00 00:00:00
     INDEX 01 00:02:00
 ''';
-      final image = await parseSource(memoryDisc("a.cue", {
+      final image = await open(memoryDisc("a.cue", {
         "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
         "t1.bin": MemoryDiscFile("t1.bin", makeBin(300)),
         "t2.bin": MemoryDiscFile("t2.bin", makeBin(400)),

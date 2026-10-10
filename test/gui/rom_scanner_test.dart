@@ -52,7 +52,7 @@ void main() {
     expect(r.skipped, ['invalid.cue']);
   });
 
-  test('a cue with a missing file is marked skipped, its files are not listed',
+  test('a cue with a missing file is marked skipped, with its files listed',
       () async {
     final r = await RomScanner.scan(MemoryPickedDirectory({
       "a/a.cue": text(cue(["a1.bin", "a2.bin"])),
@@ -60,7 +60,8 @@ void main() {
       "b/b.cue": text(cue(["b.bin"])),
       "b/b.bin": bin,
     }));
-    expect(r.items.map((i) => i.path), ["a/a.cue", "b/b.cue"]);
+    // the files of a broken cue are not known to be its parts
+    expect(r.items.map((i) => i.path), ["a/a.cue", "a/a1.bin", "b/b.cue"]);
     expect(r.skipped, ["a/a.cue"]);
   });
 
@@ -96,7 +97,8 @@ void main() {
       "g/game.bin": bin,
     });
     final r = await RomScanner.scan(folder);
-    final image = await parseSource(r.sourceOf(r.items.single));
+    final (file, files) = r.sourceOf(r.items.single);
+    final (image, _) = await DiscImage.parse(files, file);
     expect(image.totalSectors, 4);
   });
 
@@ -111,7 +113,8 @@ void main() {
     final r = await RomScanner.scan(IoDirectory(dir.path));
     expect(r.items.map((i) => i.path), ["a/b/x.cue", "y.iso"]);
 
-    final image = await parseSource(r.sourceOf(r.items.first));
+    final (file, files) = r.sourceOf(r.items.first);
+    final (image, _) = await DiscImage.parse(files, file);
     expect(image.totalSectors, 4);
   });
 }

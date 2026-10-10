@@ -3,6 +3,24 @@ import 'dart:typed_data';
 import 'disc_image.dart' as parser;
 import 'filesystem_api.dart';
 
+/// whether a file can be a disc image, by its name
+enum DiscFileKind {
+  /// .cue or .iso
+  image,
+
+  /// .bin: a raw disc image, or a ROM
+  maybeImage,
+
+  notImage;
+
+  static DiscFileKind of(String name) =>
+      switch (name.substring(name.lastIndexOf('.') + 1).toLowerCase()) {
+        'cue' || 'iso' => image,
+        'bin' => maybeImage,
+        _ => notImage,
+      };
+}
+
 class DiscTrack {
   final int number; // 1..
   final bool isAudio;
