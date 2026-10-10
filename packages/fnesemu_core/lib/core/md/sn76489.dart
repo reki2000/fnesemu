@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 final _volumeTable = [
   32767, 26028, 20675, 16422, 13045, 10362, 8231, 6568, //

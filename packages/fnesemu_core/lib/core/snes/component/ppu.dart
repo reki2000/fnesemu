@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 /// per-BG register group (BG1-4 share the same register shapes).
 class BgRegs {

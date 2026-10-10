@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 // MMC5 expansion audio: 2 pulse channels (no sweep, length counter and
 // envelope are both clocked at 240Hz) and an 8bit PCM channel.

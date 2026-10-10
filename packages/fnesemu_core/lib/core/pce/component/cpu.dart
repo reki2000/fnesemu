@@ -2,7 +2,7 @@ import 'dart:core';
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 import 'bus.dart';
 import 'cpu_6280.dart';

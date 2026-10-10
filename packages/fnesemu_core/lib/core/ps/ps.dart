@@ -1,12 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/ps/gpu/gpu_debug.dart';
-import 'package:fnesemu_core/core/ps/serial.dart';
-import 'package:fnesemu_core/core/ps/timer.dart';
-import 'package:fnesemu_core/util/debug.dart';
-import 'package:fnesemu_core/util/int.dart';
-import 'package:fnesemu_core/util/uint8list.dart';
-
+import '../../util/debug.dart';
+import '../../util/int.dart';
+import '../../util/uint8list.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../pad_button.dart';
@@ -17,13 +13,16 @@ import 'bus.dart';
 import 'cdrom.dart';
 import 'dma.dart';
 import 'gpu/gpu.dart';
+import 'gpu/gpu_debug.dart';
 import 'interrupt.dart';
 import 'mdec.dart';
 import 'memory_card.dart';
 import 'pad.dart';
 import 'r3000/disasm.dart';
 import 'r3000/r3000.dart';
+import 'serial.dart';
 import 'spu/spu.dart';
+import 'timer.dart';
 
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
 

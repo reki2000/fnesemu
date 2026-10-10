@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 // Lots of helpful hints from this thread:
 //   https://gendev.spritesmind.net/forum/viewtopic.php?t=386&start=105

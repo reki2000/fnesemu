@@ -30,12 +30,19 @@ void main() {
 
   test('abstract Mapper does not depend on construction or implementations',
       () {
-    expect(
-        directives(File('lib/core/nes/mapper/mapper.dart')),
-        everyElement(
-          anyOf(startsWith('dart:'), startsWith('package:fnesemu_core/util/'),
-              'mirror.dart'),
-        ));
+    final file = File('lib/core/nes/mapper/mapper.dart').absolute;
+    final util = Directory('lib/util').absolute.uri.path;
+    for (final uri in directives(file)) {
+      if (uri.startsWith('dart:') || uri == 'mirror.dart') continue;
+      final path = uri.startsWith('package:fnesemu_core/')
+          ? Directory('lib')
+              .absolute
+              .uri
+              .resolve(uri.substring('package:fnesemu_core/'.length))
+              .path
+          : file.uri.resolve(uri).path;
+      expect(path, startsWith(util), reason: uri);
+    }
   });
 
   test('shared 68000 and ss do not depend on console implementations', () {

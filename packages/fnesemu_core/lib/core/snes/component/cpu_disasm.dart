@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 /// addressing-mode kinds used only for disassembly formatting.
 enum _Am {

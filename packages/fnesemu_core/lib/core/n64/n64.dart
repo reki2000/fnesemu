@@ -1,9 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
-
 import '../../util/debug.dart';
+import '../../util/int.dart';
 import '../core.dart';
 import '../pad_button.dart';
 import '../register_dump.dart';

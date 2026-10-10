@@ -1,7 +1,7 @@
 import 'dart:collection';
 
-import 'package:fnesemu_core/util/debug.dart';
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/debug.dart';
+import '../../util/int.dart';
 
 class Mdec {
   final decoder = Decoder();

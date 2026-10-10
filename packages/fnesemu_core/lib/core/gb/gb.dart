@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/crc32.dart';
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/crc32.dart';
+import '../../util/int.dart';
 
 import '../cdrom_drive.dart';
 import '../core.dart';

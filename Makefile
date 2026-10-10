@@ -30,9 +30,9 @@ platform-upgrade:
 
 format:
 	flutter pub get
-	dart fix --apply --code=directives_ordering lib
-	dart fix --apply --code=directives_ordering test
-	cd $(CORE) && dart fix --apply --code=directives_ordering .
-	cd packages/cdrom_image && dart fix --apply --code=directives_ordering .
+	dart fix --apply --code=prefer_relative_imports,directives_ordering lib
+	dart fix --apply --code=prefer_relative_imports,directives_ordering test
+	cd $(CORE) && dart fix --apply --code=prefer_relative_imports,directives_ordering .
+	cd packages/cdrom_image && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 
 .PHONY: test format

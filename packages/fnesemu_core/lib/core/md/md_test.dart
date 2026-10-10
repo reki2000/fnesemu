@@ -1,7 +1,7 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/md/md.dart';
+import 'md.dart';
 
 void bench0() {
   final startAt = DateTime.now();

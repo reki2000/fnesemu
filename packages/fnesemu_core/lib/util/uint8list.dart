@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import 'int.dart';
 
 extension Uint8ListEx on Uint8List {
   List<Uint8List> split(int size) {

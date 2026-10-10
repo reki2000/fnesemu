@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../util/int.dart';
 
 import 'types.dart';
 

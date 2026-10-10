@@ -1,5 +1,5 @@
-import 'package:fnesemu_core/core/md/z80/z80.dart';
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
+import 'z80.dart';
 
 extension OpCb on Z80 {
   bool execCb(int op) {

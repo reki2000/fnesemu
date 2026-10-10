@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/crc32.dart';
+import '../../../util/crc32.dart';
 
 
 class PceFile {

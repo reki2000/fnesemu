@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import 'int.dart';
 
 String _previousLog = "";
 int _supressCount = 0;

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 /*
  * 128kB: bank 0x00-0x0f (0x10 * 0x2000 = 0x20000 = 128kB)

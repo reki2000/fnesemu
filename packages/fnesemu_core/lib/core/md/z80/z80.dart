@@ -1,12 +1,11 @@
-import 'package:fnesemu_core/core/md/z80/op_40_bf.dart';
-import 'package:fnesemu_core/core/md/z80/op_c0_ff.dart';
-import 'package:fnesemu_core/core/md/z80/op_cb.dart';
-import 'package:fnesemu_core/core/md/z80/op_ddfd.dart';
-import 'package:fnesemu_core/core/md/z80/op_ed.dart';
-import 'package:fnesemu_core/util/int.dart';
-
+import '../../../util/int.dart';
 import '../bus_z80.dart';
 import 'op_00_3f.dart';
+import 'op_40_bf.dart';
+import 'op_c0_ff.dart';
+import 'op_cb.dart';
+import 'op_ddfd.dart';
+import 'op_ed.dart';
 
 class Regs {
   List<int> r8 = List.filled(8, 0); // b,c,d,e,h,l,_,a;

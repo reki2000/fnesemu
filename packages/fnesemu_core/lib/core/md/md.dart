@@ -1,12 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/md/vdp_debug.dart';
-import 'package:fnesemu_core/core/md/vdp_renderer.dart';
-import 'package:fnesemu_core/core/md/ym2612.dart';
-import 'package:fnesemu_core/core/md/z80/z80_disasm.dart';
-import 'package:fnesemu_core/util/double.dart';
-import 'package:fnesemu_core/util/int.dart';
-
+import '../../util/double.dart';
+import '../../util/int.dart';
 import '../cdrom_drive.dart';
 import '../components/m68k/cpu.dart';
 import '../components/m68k/disasm.dart';
@@ -23,7 +18,11 @@ import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
 import 'sn76489.dart';
 import 'vdp.dart';
+import 'vdp_debug.dart';
+import 'vdp_renderer.dart';
+import 'ym2612.dart';
 import 'z80/z80.dart';
+import 'z80/z80_disasm.dart';
 
 class Md implements Core, FrameRunner {
   MdCdrom? get cdrom => busM68.cdrom;

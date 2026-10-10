@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/uint8list.dart';
+import '../../../util/uint8list.dart';
 
 import 'mirror.dart';
 

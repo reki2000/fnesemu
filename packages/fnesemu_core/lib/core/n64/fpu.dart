@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 /// COP1 register file and scalar IEEE-754 operations. No host-native code.
 class N64Fpu {

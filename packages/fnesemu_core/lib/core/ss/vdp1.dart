@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 /// VDP1: sprite / polygon renderer drawing into double-buffered frame buffers
 class Vdp1 {

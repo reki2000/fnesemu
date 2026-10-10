@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 import '../components/m68k/bus.dart';
 import '../components/m68k/cpu.dart';

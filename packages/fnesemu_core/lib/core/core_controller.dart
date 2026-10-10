@@ -3,17 +3,15 @@ import 'dart:core';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/sram.dart';
-import 'package:fnesemu_core/util/debug.dart';
-
+import '../util/debug.dart';
 import 'cdrom_drive.dart';
 import 'core.dart';
 import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
 import 'frame_counter.dart';
-
 import 'pad_button.dart';
+import 'sram.dart';
 import 'types.dart';
 
 class CoreControllerState {

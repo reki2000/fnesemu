@@ -1,8 +1,8 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
-import 'package:fnesemu_core/util/uint8list.dart';
+import '../../util/int.dart';
+import '../../util/uint8list.dart';
 
 class Rom {
   var rom = Uint8List(0);

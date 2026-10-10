@@ -1,5 +1,5 @@
-import 'package:fnesemu_core/util/debug.dart';
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/debug.dart';
+import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 

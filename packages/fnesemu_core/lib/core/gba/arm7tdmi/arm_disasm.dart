@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 /// Compact ARM7TDMI disassembler used by the debugger view.
 /// Covers the common instruction classes; rare/edge encodings fall back to a

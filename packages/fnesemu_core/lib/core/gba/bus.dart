@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 import 'apu.dart';
 import 'cart.dart';

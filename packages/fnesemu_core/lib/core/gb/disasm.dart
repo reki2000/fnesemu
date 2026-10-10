@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 /// disassembler of the SM83 instruction set
 class Disasm {

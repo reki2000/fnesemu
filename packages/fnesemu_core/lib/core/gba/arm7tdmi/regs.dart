@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 /// ARM7TDMI processor modes (CPSR bits 4..0)
 class CpuMode {

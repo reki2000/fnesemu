@@ -1,10 +1,9 @@
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/pce/component/vdc_render.dart';
-import 'package:fnesemu_core/util/int.dart';
-
+import '../../../util/int.dart';
 import 'bus.dart';
+import 'vdc_render.dart';
 
 class Vdc {
   final Bus bus;

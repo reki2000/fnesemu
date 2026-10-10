@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import '../../util/int.dart';
 
 import 'bus.dart';
 import 'interrupt.dart';

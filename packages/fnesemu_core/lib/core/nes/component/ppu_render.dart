@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/util/int.dart';
+import '../../../util/int.dart';
 
 import '../constants.dart' as hardware;
 import '../mapper/mapper.dart';
