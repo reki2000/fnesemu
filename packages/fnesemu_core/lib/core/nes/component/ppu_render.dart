@@ -58,7 +58,7 @@ extension PpuRenderer on Ppu {
       .toList(growable: false);
 
   void _wrapAroundX() {
-    if (vramAddr & 0x1f == 31) {
+    if (vramAddr.mask5 == 31) {
       vramAddr &= ~0x001F;
       vramAddr ^= 0x0400;
     } else {
@@ -67,11 +67,11 @@ extension PpuRenderer on Ppu {
   }
 
   void _wrapAroundY() {
-    if ((vramAddr.shr12 & 0x07) < 7) {
+    if (vramAddr.shr12.mask3 < 7) {
       vramAddr += 0x1000;
     } else {
       vramAddr &= 0xfff;
-      var y = vramAddr.shr5 & 0x1f;
+      var y = vramAddr.shr5.mask5;
       if (y == 29) {
         // line 240
         y = 0;
@@ -147,7 +147,7 @@ extension PpuRenderer on Ppu {
       final attribute = objRam[objNo * 4 + 2];
 
       final objScanY = scanLine - objY - 1;
-      final objFineY = objScanY & 0x07;
+      final objFineY = objScanY.mask3;
       final flipV = attribute.bit7;
 
       // pattern address
@@ -160,7 +160,7 @@ extension PpuRenderer on Ppu {
       if (objSize16()) {
         final lowerOffset = ((objScanY >= 8) ? 1 : 0) ^ (flipV ? 1 : 0);
         objAddr =
-            (((pattern & 0xfe) + lowerOffset).shl4) | (pattern & 0x01).shl12;
+            (((pattern & 0xfe) + lowerOffset).shl4) | pattern.mask1.shl12;
       } else {
         objAddr = objBase | pattern.shl4;
       }
@@ -176,7 +176,7 @@ extension PpuRenderer on Ppu {
       obj.pattern1 <<= 1;
 
       obj.isPrior = !attribute.bit5;
-      obj.palette = attribute & 0x03;
+      obj.palette = attribute.mask2;
       obj.x = objRam[objNo * 4 + 3];
     }
 
@@ -189,19 +189,19 @@ extension PpuRenderer on Ppu {
     final colorBase = 0x23c0 |
         (vramAddr & 0x0c00) |
         (vramAddr.shr4 & 0x38) |
-        (vramAddr.shr2 & 0x07);
+        vramAddr.shr2.mask3;
     return readVram(colorBase);
   }
 
   _BG _fetchBG(int bgBase, int fineY) {
-    final nameBase = 0x2000 | (vramAddr & 0x0fff);
+    final nameBase = 0x2000 | vramAddr.mask12;
     final bgChar = readVram(nameBase);
     final patternAddr = bgBase + bgChar * 16 + fineY;
     final bgChar1 = readVram(patternAddr);
     final bgChar2 = readVram(patternAddr + 8);
     final palette =
         _fetchBGPalette() >> ((vramAddr & 0x02) | (vramAddr.shr4 & 0x04));
-    final bgPalette = palette & 0x03;
+    final bgPalette = palette.mask2;
     _wrapAroundX();
     return _BG(char1: bgChar1, char2: bgChar2, palette: bgPalette);
   }
@@ -214,7 +214,7 @@ extension PpuRenderer on Ppu {
       if (o.unused()) continue;
       final end = o.x + 8 < 256 ? o.x + 8 : 256;
       for (var x = o.x; x < end; x++) {
-        final color = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)) >> 7;
+        final color = ((o.pattern0 & 0x80) | (o.pattern1 & 0x100)).shr7;
         o.pattern0 <<= 1;
         o.pattern1 <<= 1;
         if (color == 0 || line[x] != 0) continue;
@@ -251,7 +251,7 @@ extension PpuRenderer on Ppu {
       }
     }
 
-    final fineY = vramAddr.shr12 & 0x07;
+    final fineY = vramAddr.shr12.mask3;
 
     // dot 257-320 of prev line: obj read
     bus.mapper.fetchPhase = Mapper.fetchSprite;
@@ -283,7 +283,7 @@ extension PpuRenderer on Ppu {
     // dot 337-340: 2 dummy nametable fetches, mmc5 detects the start of a
     // scanline by 3 reads of the same nametable address
     if (rendering) {
-      final nameAddr = 0x2000 | (vramAddr & 0x0fff);
+      final nameAddr = 0x2000 | vramAddr.mask12;
       readVram(nameAddr);
       readVram(nameAddr);
     }
@@ -294,7 +294,7 @@ extension PpuRenderer on Ppu {
     for (int x = 0; x < 256; x++) {
       var bgColorNum = 0;
       var color = color0;
-      final xand7 = x & 0x07;
+      final xand7 = x.mask3;
 
       if (rendering) {
         if (xand7 == 0) {
@@ -305,7 +305,7 @@ extension PpuRenderer on Ppu {
         }
 
         if (bgVisible && !(bgClipped && x < 8)) {
-          bgColorNum = ((bgChar1 >> (15 - fineX)) & 0x01) |
+          bgColorNum = (bgChar1 >> (15 - fineX)).mask1 |
               ((bgChar2 >> (14 - fineX)) & 0x02);
           if (bgColorNum != 0) {
             final bgPaletteNum =
@@ -327,7 +327,7 @@ extension PpuRenderer on Ppu {
         color = _renderObjPixel(x, bgColorNum, color, spriteClipped && x < 8);
       }
 
-      buffer[row + x] = _colorRGBA[color & 0x3f];
+      buffer[row + x] = _colorRGBA[color.mask6];
     }
 
     // wrap around Y

@@ -30,7 +30,7 @@ extension Cop0 on R3000 {
   }
 
   void execCop0(int inst32) {
-    switch (inst32 & 0x3f) {
+    switch (inst32.mask6) {
       case 0x10: // rfe
         sr = sr.masked(0x0f, sr.shr2);
       // sr &= ~0x30;

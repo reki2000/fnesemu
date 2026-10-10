@@ -13,20 +13,20 @@ class ScspBus implements M68Bus {
 
   @override
   int read8(int addr) {
-    final a = addr & 0xffffff;
+    final a = addr.mask24;
     if (a < 0x100000) {
       return scsp.ram[a & 0x7ffff];
     }
     if (a < 0x100f00) {
       final d = scsp.readReg16(a & 0xffe);
-      return a.bit0 ? d & 0xff : d >> 8;
+      return a.bit0 ? d.mask8 : d.shr8;
     }
     return 0;
   }
 
   @override
   int read16(int addr) {
-    final a = addr & 0xffffff;
+    final a = addr.mask24;
     if (a < 0x100000) {
       return scsp.ramData.getUint16(a & 0x7fffe);
     }
@@ -38,19 +38,19 @@ class ScspBus implements M68Bus {
 
   @override
   void write8(int addr, int data) {
-    final a = addr & 0xffffff;
+    final a = addr.mask24;
     if (a < 0x100000) {
       scsp.ram[a & 0x7ffff] = data;
       return;
     }
     if (a < 0x100f00) {
-      scsp.writeReg8(a & 0xfff, data);
+      scsp.writeReg8(a.mask12, data);
     }
   }
 
   @override
   void write16(int addr, int data) {
-    final a = addr & 0xffffff;
+    final a = addr.mask24;
     if (a < 0x100000) {
       scsp.ramData.setUint16(a & 0x7fffe, data);
       return;
@@ -156,40 +156,40 @@ class Scsp {
         return 0x0100; // MIDI: input buffer empty
       case 0x408:
         // monitor: call address of MSLC slot
-        final slot = (_regs[0x408 >> 1] >> 11) & 0x1f;
+        final slot = _regs[0x408 >> 1].shr11.mask5;
         final s = _slots[slot];
-        final ca = ((s.pos >> 16) >> 12) & 0xf;
+        final ca = s.pos.shr16.shr12.mask4;
         final sgc = s.active ? s.egState : 3;
-        return (_regs[0x408 >> 1] & 0xf800) | ca << 7 | sgc << 5 | (s.eg >> 5);
+        return (_regs[0x408 >> 1] & 0xf800) | ca.shl7 | sgc.shl5 | s.eg.shr5;
       case 0x418 || 0x41a || 0x41c:
-        final t = (addr - 0x418) >> 1;
-        return (_regs[addr >> 1] & 0x0700) | _timer[t] & 0xff;
+        final t = (addr - 0x418).shr1;
+        return (_regs[addr.shr1] & 0x0700) | _timer[t].mask8;
       default:
-        return _regs[addr >> 1];
+        return _regs[addr.shr1];
     }
   }
 
   void writeReg8(int addr, int data) {
     final a = addr & 0xffe;
     if (addr.bit0) {
-      writeReg16(a, data & 0xff, 0x00ff);
+      writeReg16(a, data.mask8, 0x00ff);
     } else {
-      writeReg16(a, (data & 0xff) << 8, 0xff00);
+      writeReg16(a, data.mask8.shl8, 0xff00);
     }
   }
 
   void writeReg16(int addr, int data, int mask) {
     addr &= 0xffe;
-    final i = addr >> 1;
+    final i = addr.shr1;
     final old = _regs[i];
     final v = old & ~mask | data & mask;
 
     switch (addr) {
       case 0x418 || 0x41a || 0x41c:
-        final t = (addr - 0x418) >> 1;
+        final t = (addr - 0x418).shr1;
         _regs[i] = v & 0x0700;
-        if (mask & 0xff != 0) {
-          _timer[t] = v & 0xff;
+        if (mask.mask8 != 0) {
+          _timer[t] = v.mask8;
         }
         return;
       case 0x420: // SCIPD: only bit 5 can be set by writing
@@ -220,7 +220,7 @@ class Scsp {
     _regs[i] = v;
 
     // slot register 0: key on execute
-    if (addr < 0x400 && addr & 0x1f == 0 && v.bit12) {
+    if (addr < 0x400 && addr.mask5 == 0 && v.bit12) {
       _regs[i] &= ~0x1000;
       _keyOnExecute();
     }
@@ -271,9 +271,9 @@ class Scsp {
     for (int bit = 0; bit < 11; bit++) {
       if (pending & (1 << bit) == 0) continue;
       final b = bit > 7 ? 7 : bit;
-      final l = (_regs[0x424 >> 1] >> b & 1) |
-          (_regs[0x426 >> 1] >> b & 1) << 1 |
-          (_regs[0x428 >> 1] >> b & 1) << 2;
+      final l = (_regs[0x424 >> 1] >> b).mask1 |
+          (_regs[0x426 >> 1] >> b).mask1.shl1 |
+          (_regs[0x428 >> 1] >> b).mask1.shl2;
       if (l > level) level = l;
     }
     return level;
@@ -286,7 +286,7 @@ class Scsp {
 
   void _tickTimers() {
     for (int t = 0; t < 3; t++) {
-      final ctl = (_regs[(0x418 >> 1) + t] >> 8) & 7;
+      final ctl = _regs[(0x418 >> 1) + t].shr8.mask3;
       if (++_timerSub[t] < (1 << ctl)) continue;
       _timerSub[t] = 0;
       _timer[t]++;
@@ -367,12 +367,12 @@ class Scsp {
 
   int _effRate(int rate, int n) {
     if (rate == 0) return 0;
-    final krs = (_slotReg(n, 5) >> 10) & 0xf;
+    final krs = _slotReg(n, 5).shr10.mask4;
     int r = rate * 2;
     if (krs != 0xf) {
-      final oct = ((_slotReg(n, 8) >> 11) & 0xf).rel4;
-      final fns = _slotReg(n, 8) & 0x3ff;
-      r += (krs + oct) * 2 + (fns >> 9);
+      final oct = _slotReg(n, 8).shr11.mask4.rel4;
+      final fns = _slotReg(n, 8).mask10;
+      r += (krs + oct) * 2 + fns.shr9;
     }
     return r < 0 ? 0 : (r > 63 ? 63 : r);
   }
@@ -383,7 +383,7 @@ class Scsp {
 
     switch (s.egState) {
       case _Slot._attack:
-        final ar = _effRate(r4 & 0x1f, n);
+        final ar = _effRate(r4.mask5, n);
         if (ar >= 62) {
           s.eg = 0;
         } else {
@@ -402,17 +402,17 @@ class Scsp {
         }
         break;
       case _Slot._decay1:
-        final dl = ((r5 >> 5) & 0x1f) << 5;
-        _decay(s, _effRate((r4 >> 6) & 0x1f, n));
+        final dl = r5.shr5.mask5.shl5;
+        _decay(s, _effRate(r4.shr6.mask5, n));
         if (s.eg >= dl) {
           s.egState = _Slot._decay2;
         }
         break;
       case _Slot._decay2:
-        _decay(s, _effRate((r4 >> 11) & 0x1f, n));
+        _decay(s, _effRate(r4.shr11.mask5, n));
         break;
       default:
-        _decay(s, _effRate(r5 & 0x1f, n));
+        _decay(s, _effRate(r5.mask5, n));
         if (s.eg >= 0x3ff) {
           s.active = false;
         }
@@ -421,7 +421,7 @@ class Scsp {
 
   void _decay(_Slot s, int rate) {
     s.egFrac += _egStep[rate];
-    s.eg += s.egFrac >> 16;
+    s.eg += s.egFrac.shr16;
     s.egFrac &= 0xffff;
     if (s.eg > 0x3ff) s.eg = 0x3ff;
   }
@@ -442,43 +442,43 @@ class Scsp {
 
       if (!s.active) {
         _ring[_ringPtr] = 0;
-        _ringPtr = (_ringPtr + 1) & 63;
+        _ringPtr = (_ringPtr + 1).mask6;
         continue;
       }
 
       final r0 = _slotReg(n, 0);
-      final sa = (r0 & 0xf) << 16 | _slotReg(n, 1);
+      final sa = r0.mask4.shl16 | _slotReg(n, 1);
       final lsa = _slotReg(n, 2);
       final lea = _slotReg(n, 3);
       final pcm8 = r0.bit4;
-      final lpctl = (r0 >> 5) & 3;
-      final ssctl = (r0 >> 7) & 3;
-      final sbctl = (r0 >> 9) & 3;
+      final lpctl = r0.shr5.mask2;
+      final ssctl = r0.shr7.mask2;
+      final sbctl = r0.shr9.mask2;
 
       // modulation
       final r7 = _slotReg(n, 7);
-      final mdl = (r7 >> 12) & 0xf;
+      final mdl = r7.shr12.mask4;
       int modOffset = 0;
       if (mdl > 4) {
-        final mx = _ring[(_ringPtr + ((r7 >> 6) & 0x3f)) & 63];
-        final my = _ring[(_ringPtr + (r7 & 0x3f)) & 63];
-        modOffset = ((mx + my) >> 1) >> (16 - mdl);
+        final mx = _ring[(_ringPtr + r7.shr6.mask6).mask6];
+        final my = _ring[(_ringPtr + r7.mask6).mask6];
+        modOffset = (mx + my).shr1 >> (16 - mdl);
       }
 
-      final sampleIndex = (s.pos >> 16) + modOffset;
+      final sampleIndex = s.pos.shr16 + modOffset;
 
       int smp;
       switch (ssctl) {
         case 0:
-          final idx = sampleIndex & 0xffff;
+          final idx = sampleIndex.mask16;
           if (pcm8) {
-            smp = ram[(sa + idx) & 0x7ffff].rel8 << 8;
+            smp = ram[(sa + idx) & 0x7ffff].rel8.shl8;
           } else {
             smp = ramData.getUint16((sa + idx * 2) & 0x7fffe).rel16;
           }
           break;
         case 1:
-          s.lfsr = (s.lfsr >> 1) ^ (-(s.lfsr & 1) & 0xb400);
+          s.lfsr = s.lfsr.shr1 ^ (-s.lfsr.mask1 & 0xb400);
           smp = s.lfsr.rel16;
           break;
         default:
@@ -486,7 +486,7 @@ class Scsp {
       }
 
       if (sbctl != 0) {
-        smp = ((smp & 0xffff) ^
+        smp = (smp.mask16 ^
                 (sbctl.bit0 ? 0x7fff : 0) ^
                 (sbctl.bit1 ? 0x8000 : 0))
             .rel16;
@@ -494,38 +494,38 @@ class Scsp {
 
       // pitch
       final r8 = _slotReg(n, 8);
-      final oct = ((r8 >> 11) & 0xf).rel4;
-      int step = (0x400 + (r8 & 0x3ff)) << 6;
+      final oct = r8.shr11.mask4.rel4;
+      int step = (0x400 + r8.mask10).shl6;
       step = oct >= 0 ? step << oct : step >> -oct;
 
       s.pos += step;
-      final ipos = s.pos >> 16;
+      final ipos = s.pos.shr16;
       if (ipos > lea) {
         if (lpctl == 0) {
           s.active = false;
           s.pos = 0;
         } else {
           final len = lea - lsa;
-          s.pos -= (len <= 0 ? ipos - lsa : len) << 16;
-          if ((s.pos >> 16) > lea) s.pos = lsa << 16;
+          s.pos -= (len <= 0 ? ipos - lsa : len).shl16;
+          if (s.pos.shr16 > lea) s.pos = lsa.shl16;
         }
       }
 
       _updateEg(s, n);
 
-      final tl = _slotReg(n, 6) & 0xff;
+      final tl = _slotReg(n, 6).mask8;
       final out = smp * _tlGain[tl] * _egGain[s.eg];
 
       _ring[_ringPtr] = out.toInt();
-      _ringPtr = (_ringPtr + 1) & 63;
+      _ringPtr = (_ringPtr + 1).mask6;
 
       // direct output
       final rb = _slotReg(n, 0xb);
-      final disdl = (rb >> 13) & 7;
+      final disdl = rb.shr13.mask3;
       if (disdl == 0) continue;
-      final dipan = (rb >> 8) & 0x1f;
+      final dipan = rb.shr8.mask5;
       final level = out * _panTable[(7 - disdl) * 2] / 32768.0;
-      final panAtt = _panTable[dipan & 0xf];
+      final panAtt = _panTable[dipan.mask4];
       if (dipan.bit4) {
         left += level;
         right += level * panAtt;
@@ -535,7 +535,7 @@ class Scsp {
       }
     }
 
-    final mvol = _regs[0x400 >> 1] & 0xf;
+    final mvol = _regs[0x400 >> 1].mask4;
     final master = mvol == 0 ? 0.0 : _panTable[(15 - mvol)] * 0.5;
     _outL = (left * master).clamp(-1.0, 1.0);
     _outR = (right * master).clamp(-1.0, 1.0);

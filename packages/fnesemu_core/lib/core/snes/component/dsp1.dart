@@ -21,8 +21,8 @@ class Dsp1 {
 
   /// which register [addr] is: 0 = none, 1 = data, 2 = status
   int port(int addr) {
-    final bank = (addr >> 16) & 0x7f;
-    final page = addr & 0xffff;
+    final bank = addr.shr16.mask7;
+    final page = addr.mask16;
     if (mapping == SnesMapping.hiRom) {
       if (bank < 0x20 && page >= 0x6000 && page < 0x8000) {
         return page < 0x7000 ? _dr : _sr;
@@ -64,7 +64,7 @@ class Dsp1 {
     final word = _output[_outputIndex];
     if (!_highByte) {
       _highByte = true;
-      return word & 0xff;
+      return word.mask8;
     }
     _highByte = false;
     if (++_outputIndex == _output.length) {
@@ -77,7 +77,7 @@ class Dsp1 {
         _state = _waitCommand;
       }
     }
-    return (word >> 8) & 0xff;
+    return word.shr8.mask8;
   }
 
   void writeData(int data) {
@@ -88,7 +88,7 @@ class Dsp1 {
         return;
       }
       _highByte = false;
-      _input[_inputIndex++] = (_lowByte | data << 8).rel16;
+      _input[_inputIndex++] = (_lowByte | data.shl8).rel16;
       if (_inputIndex < _inputCount) return;
       _output = _execute();
       _outputIndex = 0;
@@ -103,7 +103,7 @@ class Dsp1 {
         return;
       }
       _highByte = false;
-      if ((_lowByte | data << 8) == 0x8000) _state = _waitCommand;
+      if ((_lowByte | data.shl8) == 0x8000) _state = _waitCommand;
       return;
     }
     // a write while results are pending starts a new command
@@ -118,7 +118,7 @@ class Dsp1 {
     _state = _readInput;
   }
 
-  static bool _isRaster(int c) => c & 0x0f == 0x0a;
+  static bool _isRaster(int c) => c.mask4 == 0x0a;
 
   // the number of parameters of each command
   static final _inputCounts = List<int>.generate(64, (c) {
@@ -154,18 +154,18 @@ class Dsp1 {
     final i = _input;
     switch (_command) {
       case 0x00 || 0x20: // multiply
-        return [(i[0] * i[1] >> 15).rel16];
+        return [(i[0] * i[1]).shr15.rel16];
       case 0x10 || 0x30:
         final (c, e) = _inverse(i[0], i[1]);
         return [c, e];
       case 0x04 || 0x24: // triangle
-        return [(i[1] * _sin(i[0]) >> 15).rel16, (i[1] * _cos(i[0]) >> 15).rel16];
+        return [(i[1] * _sin(i[0])).shr15.rel16, (i[1] * _cos(i[0])).shr15.rel16];
       case 0x08: // radius
-        final size = ((i[0] * i[0] + i[1] * i[1] + i[2] * i[2]) << 1);
-        return [size.rel16, (size >> 16).rel16];
+        final size = (i[0] * i[0] + i[1] * i[1] + i[2] * i[2]).shl1;
+        return [size.rel16, size.shr16.rel16];
       case 0x18 || 0x38: // range
         return [
-          ((i[0] * i[0] + i[1] * i[1] + i[2] * i[2] - i[3] * i[3]) >> 15).rel16
+          (i[0] * i[0] + i[1] * i[1] + i[2] * i[2] - i[3] * i[3]).shr15.rel16
         ];
       case 0x28: // distance
         final d = math.sqrt(i[0] * i[0] + i[1] * i[1] + i[2] * i[2]);
@@ -173,8 +173,8 @@ class Dsp1 {
       case 0x0c || 0x2c: // rotate
         final s = _sin(i[0]), c = _cos(i[0]);
         return [
-          ((i[2] * s >> 15) + (i[1] * c >> 15)).rel16,
-          ((i[2] * c >> 15) - (i[1] * s >> 15)).rel16,
+          ((i[2] * s).shr15 + (i[1] * c).shr15).rel16,
+          ((i[2] * c).shr15 - (i[1] * s).shr15).rel16,
         ];
       case 0x1c || 0x3c:
         return _polar(i);
@@ -326,18 +326,18 @@ class Dsp1 {
   // rotation being its transpose
   List<int> _objective(List<List<int>> m, List<int> i) => [
         for (var r = 0; r < 3; r++)
-          ((i[0] * m[r][0] + i[1] * m[r][1] + i[2] * m[r][2]) >> 16).rel16,
+          (i[0] * m[r][0] + i[1] * m[r][1] + i[2] * m[r][2]).shr16.rel16,
       ];
 
   // equation 5-11: 1/2 (F, L, U) M = (X, Y, Z)
   List<int> _subjective(List<List<int>> m, List<int> i) => [
         for (var c = 0; c < 3; c++)
-          ((i[0] * m[0][c] + i[1] * m[1][c] + i[2] * m[2][c]) >> 16).rel16,
+          (i[0] * m[0][c] + i[1] * m[1][c] + i[2] * m[2][c]).shr16.rel16,
       ];
 
   // equation 5-12: the inner product with the first row of M
   List<int> _scalar(List<List<int>> m, List<int> i) =>
-      [((i[0] * m[0][0] + i[1] * m[0][1] + i[2] * m[0][2]) >> 15).rel16];
+      [(i[0] * m[0][0] + i[1] * m[0][1] + i[2] * m[0][2]).shr15.rel16];
 
   // equation 5-13
   List<int> _gyrate(List<int> i) {
@@ -345,7 +345,7 @@ class Dsp1 {
     final sy = math.sin(_rad(ay)), cy = math.cos(_rad(ay));
     final sx = math.sin(_rad(ax)), cx = math.cos(_rad(ax));
     final rz = az + _clip((u * cy - f * sy) / cx);
-    final rx = ax + (u * _sin(ay) >> 15) + (f * _cos(ay) >> 15);
+    final rx = ax + (u * _sin(ay)).shr15 + (f * _cos(ay)).shr15;
     final ry = ay + _clip(-(u * cy + f * sy) * sx / cx) + l;
     return [rz.rel16, rx.rel16, ry.rel16];
   }
@@ -407,7 +407,7 @@ class Dsp1 {
 
   List<int> _project(int x, int y, int z) {
     final px = x - _gx, py = y - _gy, pz = z - _gz;
-    final depth = (_les & 0xffff) - (px * _nx + py * _ny + pz * _nz);
+    final depth = _les.mask16 - (px * _nx + py * _ny + pz * _nz);
     final scale = _les / depth;
     final h = (px * _cosAas + py * _sinAas) * scale;
     final v =

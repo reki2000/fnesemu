@@ -48,25 +48,25 @@ class Regs {
   int get af => r8[7].shl8 | f;
   set af(int val) {
     r8[7] = val.shr8;
-    f = val & 0xff;
+    f = val.mask8;
   }
 
   int get bc => r8[0].shl8 | r8[1];
   set bc(int val) {
     r8[0] = val.shr8;
-    r8[1] = val & 0xff;
+    r8[1] = val.mask8;
   }
 
   int get de => r8[2].shl8 | r8[3];
   set de(int val) {
     r8[2] = val.shr8;
-    r8[3] = val & 0xff;
+    r8[3] = val.mask8;
   }
 
   int get hl => r8[4].shl8 | r8[5];
   set hl(int val) {
     r8[4] = val.shr8;
-    r8[5] = val & 0xff;
+    r8[5] = val.mask8;
   }
 
   int get ix => ixiy[0];
@@ -106,15 +106,15 @@ class Regs {
 
   void setV(int oldVal, int val, int newVal, {bool sub = false}) {
     pvf = sub
-        ? (oldVal ^ val) & (oldVal ^ newVal) & 0x80 != 0
-        : (oldVal ^ val ^ 0x80) & (val ^ newVal) & 0x80 != 0;
+        ? ((oldVal ^ val) & (oldVal ^ newVal)).bit7
+        : ((oldVal ^ val ^ 0x80) & (val ^ newVal)).bit7;
   }
 
   void setP(int result) {
     int count = result ^ result.shr1;
     count = count ^ count.shr2;
     count = count ^ count.shr4;
-    pvf = (count & 1) == 0;
+    pvf = !count.bit0;
   }
 }
 
@@ -214,7 +214,7 @@ class Z80 {
     final d = read(r.pc);
     cycles += 4;
     r.pc = r.pc.inc.mask16;
-    r.r = r.r.inc & 0x7f | r.r & 0x80;
+    r.r = r.r.inc.mask7 | r.r & 0x80;
     return d;
   }
 
@@ -247,7 +247,7 @@ class Z80 {
 
   void push(int d) {
     r.sp = r.sp.dec2.mask16;
-    write(r.sp, d & 0xff);
+    write(r.sp, d.mask8);
     write(r.sp.inc.mask16, d.shr8);
     cycles += 7;
   }
@@ -268,7 +268,7 @@ class Z80 {
     } else if (reg == 4) {
       return r.ixiy[xy].shr8;
     } else if (reg == 5) {
-      return r.ixiy[xy] & 0xff;
+      return r.ixiy[xy].mask8;
     } else {
       return r.r8[reg];
     }
@@ -298,16 +298,16 @@ class Z80 {
 
   int add16(int org, int val, {int c = 0}) {
     final result = org + val + c;
-    r.hf = (org & 0xfff) + (val & 0xfff) > 0xfff;
+    r.hf = org.mask12 + val.mask12 > 0xfff;
     r.cf = result > 0xffff;
     r.nf = false;
     cycles += 7;
-    return result & 0xffff;
+    return result.mask16;
   }
 
   int sbc16(int org, int val) {
     final result = org - val - (r.cf ? 1 : 0);
-    r.hf = (org & 0xfff) - (val & 0xfff) - (r.cf ? 1 : 0) < 0;
+    r.hf = org.mask12 - val.mask12 - (r.cf ? 1 : 0) < 0;
     r.cf = result < 0;
     r.nf = true;
     cycles += 7;
@@ -315,41 +315,41 @@ class Z80 {
   }
 
   int inc8(int val) {
-    final result = (val + 1) & 0xff;
+    final result = (val + 1).mask8;
     r.setSZ(result);
     r.pvf = val == 0x7f;
-    r.hf = (val & 0x0f) == 0x0f;
+    r.hf = val.mask4 == 0x0f;
     r.nf = false;
     return result;
   }
 
   int dec8(int val) {
-    final result = (val - 1) & 0xff;
+    final result = (val - 1).mask8;
     r.setSZ(result);
     r.pvf = val == 0x80;
-    r.hf = (val & 0x0f) == 0x00;
+    r.hf = val.mask4 == 0x00;
     r.nf = true;
-    return result & 0xff;
+    return result.mask8;
   }
 
   void add8(int val, int c) {
     final result = r.a + val + c;
-    r.setSZ(result & 0xff);
+    r.setSZ(result.mask8);
     r.setV(r.a, val, result);
-    r.hf = (r.a & 0xf) + (val & 0xf) > 0xf;
+    r.hf = r.a.mask4 + val.mask4 > 0xf;
     r.nf = false;
     r.cf = result > 0xff;
-    r.a = result & 0xff;
+    r.a = result.mask8;
   }
 
   void sub8(int val, int c) {
     final result = r.a - val - c;
-    r.setSZ(result & 0xff);
+    r.setSZ(result.mask8);
     r.setV(r.a, val, result, sub: true);
-    r.hf = (r.a & 0xf) - (val & 0xf) - c < 0;
+    r.hf = r.a.mask4 - val.mask4 - c < 0;
     r.nf = true;
     r.cf = result < 0;
-    r.a = result & 0xff;
+    r.a = result.mask8;
   }
 
   void and8(int val) {
@@ -376,17 +376,17 @@ class Z80 {
 
   void cp8(int val) {
     final result = r.a - val;
-    r.setSZ(result & 0xff);
+    r.setSZ(result.mask8);
     r.setV(r.a, val, result, sub: true);
-    r.hf = (r.a & 0xf) - (val & 0xf) < 0;
+    r.hf = r.a.mask4 - val.mask4 < 0;
     r.nf = true;
     r.cf = result < 0;
   }
 
   int rl8(int val, {bool setSZP = true}) {
     final c = r.cf ? 1 : 0;
-    r.cf = val & 0x80 != 0;
-    val = (val.shl1 | c) & 0xff;
+    r.cf = val.bit7;
+    val = (val.shl1 | c).mask8;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -395,8 +395,8 @@ class Z80 {
   }
 
   int rlc8(int val, {bool setSZP = true}) {
-    r.cf = val & 0x80 != 0;
-    val = (val.shl1 | val.shr7) & 0xff;
+    r.cf = val.bit7;
+    val = (val.shl1 | val.shr7).mask8;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -406,7 +406,7 @@ class Z80 {
 
   int rr8(int val, {bool setSZP = true}) {
     final c = r.cf ? 0x80 : 0;
-    r.cf = val & 1 != 0;
+    r.cf = val.bit0;
     val = val.shr1 | c;
     r.hf = r.nf = false;
     if (!setSZP) return val;
@@ -416,8 +416,8 @@ class Z80 {
   }
 
   int rrc8(int val, {bool setSZP = true}) {
-    r.cf = val & 1 != 0;
-    val = val.shr1 | (val & 1).shl7;
+    r.cf = val.bit0;
+    val = val.shr1 | val.mask1.shl7;
     r.hf = r.nf = false;
     if (!setSZP) return val;
     r.setSZ(val);
@@ -426,16 +426,16 @@ class Z80 {
   }
 
   int sla8(int val) {
-    r.cf = val & 0x80 != 0;
-    val = val.shl1 & 0xff;
+    r.cf = val.bit7;
+    val = val.shl1.mask8;
     r.setSZ(val);
     r.setP(val);
     r.hf = r.nf = false;
-    return val & 0xff;
+    return val.mask8;
   }
 
   int sra8(int val) {
-    r.cf = val & 1 != 0;
+    r.cf = val.bit0;
     val = (val & 0x80) | val.shr1;
     r.setSZ(val);
     r.setP(val);
@@ -444,8 +444,8 @@ class Z80 {
   }
 
   int sll8(int val) {
-    r.cf = val & 0x80 != 0;
-    val = (val.shl1 | 1) & 0xff;
+    r.cf = val.bit7;
+    val = (val.shl1 | 1).mask8;
     r.setSZ(val);
     r.setP(val);
     r.hf = r.nf = false;
@@ -453,7 +453,7 @@ class Z80 {
   }
 
   int srl8(int val) {
-    r.cf = val & 1 != 0;
+    r.cf = val.bit0;
     val >>= 1;
     r.setSZ(val);
     r.setP(val);

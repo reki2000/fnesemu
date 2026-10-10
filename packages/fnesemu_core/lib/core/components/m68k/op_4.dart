@@ -2,13 +2,13 @@ part of 'cpu.dart';
 
 extension Op4 on M68 {
   bool exec4(int op) {
-    final xn = op & 0x07;
-    final dn = op.shr9 & 0x07;
+    final xn = op.mask3;
+    final dn = op.shr9.mask3;
 
-    if (op & 0xb80 == 0x880 && (op.shr3 & 0x07) != 0) {
+    if (op & 0xb80 == 0x880 && op.shr3.mask3 != 0) {
       // movem
       final memToReg = op.bit10;
-      final mode = op.shr3 & 0x07;
+      final mode = op.shr3.mask3;
       final size = op.bit6 ? 4 : 2;
       int regMask = pc16();
       addr0 = addressing(size, mode, xn);
@@ -52,14 +52,14 @@ extension Op4 on M68 {
 
     if (op & 0x01c0 == 0x01c0) {
       // lea
-      final addr = addressing(4, op.shr3 & 0x07, xn);
+      final addr = addressing(4, op.shr3.mask3, xn);
       a[dn] = addr.mask32;
       return true;
     }
 
     if (op & 0x01c0 == 0x0180) {
       // chk
-      final mode = op.shr3 & 0x07;
+      final mode = op.shr3.mask3;
       final bound = readAddr(2, mode, xn).rel16;
       final data = d[dn].rel16;
       zf = vf = cf = false;
@@ -77,11 +77,11 @@ extension Op4 on M68 {
       return true;
     }
 
-    final size = _bytesBySizeField[op.shr6 & 0x03];
-    final mod = op.shr3 & 0x07;
-    final reg = op & 0x07;
+    final size = _bytesBySizeField[op.shr6.mask2];
+    final mod = op.shr3.mask3;
+    final reg = op.mask3;
 
-    switch (op.shr8 & 0x0f) {
+    switch (op.shr8.mask4) {
       case 0x00:
         if (op & 0x00c0 == 0x00c0) {
           // movefromsr
@@ -155,14 +155,14 @@ extension Op4 on M68 {
 
           final diff = 0 - src - (xf ? 1 : 0);
           final high = 0 - (src & 0xf0) - (0x60 & diff.shr4);
-          final low = 0 - (src & 0x0f) - (xf ? 1 : 0);
+          final low = 0 - src.mask4 - (xf ? 1 : 0);
           final lowBorrow = 0x06 & low.shr4; // 0x06 if low < 0x0a else 0x00
           final r = low + high - lowBorrow;
 
           xf = cf = (diff - lowBorrow) & 0x300 != 0;
           zf = zf && r.mask8 == 0;
           nf = r.bit7;
-          vf = diff & ~r & 0x80 != 0;
+          vf = (diff & ~r).bit7;
 
           writeAddr(1, mod, reg, r);
           return true;
@@ -205,7 +205,7 @@ extension Op4 on M68 {
         return true;
 
       case 0x0e:
-        switch (op & 0xff) {
+        switch (op.mask8) {
           case 0x70: // reset
             return true;
 

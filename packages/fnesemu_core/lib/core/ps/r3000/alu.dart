@@ -3,7 +3,7 @@ part of 'r3000.dart';
 extension Alu on R3000 {
   int lwl(int addr, int org) {
     final value = read32(addr & 0xfffffffc);
-    return switch (addr & 3) {
+    return switch (addr.mask2) {
       0 => value.mask8.shl24 | org.mask24,
       1 => value.mask16.shl16 | org.mask16,
       2 => value.mask24.shl8 | org.mask8,
@@ -13,7 +13,7 @@ extension Alu on R3000 {
 
   int lwr(int addr, int org) {
     final value = read32(addr & 0xfffffffc);
-    return switch (addr & 3) {
+    return switch (addr.mask2) {
       0 => value,
       1 => value.shr8 | org & 0xff000000,
       2 => value.shr16 | org & 0xffff0000,
@@ -23,7 +23,7 @@ extension Alu on R3000 {
 
   void swl(int addr, int value) {
     final aligned = addr & 0xfffffffc;
-    switch (addr & 0x03) {
+    switch (addr.mask2) {
       case 0:
         write32(aligned, value.shr24 | read32(aligned) & 0xffffff00);
       case 1:
@@ -37,7 +37,7 @@ extension Alu on R3000 {
 
   void swr(int addr, int value) {
     final aligned = addr & 0xfffffffc;
-    switch (addr & 0x03) {
+    switch (addr.mask2) {
       case 0:
         write32(aligned, value);
       case 1:
@@ -49,9 +49,9 @@ extension Alu on R3000 {
     }
   }
 
-  int sll(int value, int shift) => (value << (shift & 0x1f)).mask32;
-  int srl(int value, int shift) => value.mask32 >> (shift & 0x1f);
-  int sra(int value, int shift) => (value.rel32 >> (shift & 0x1f)).mask32;
+  int sll(int value, int shift) => (value << shift.mask5).mask32;
+  int srl(int value, int shift) => value.mask32 >> shift.mask5;
+  int sra(int value, int shift) => (value.rel32 >> shift.mask5).mask32;
 
   void add(RegNo rd, int a, int b) {
     final result = (a + b).mask32;

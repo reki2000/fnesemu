@@ -39,8 +39,8 @@ class Rom {
   Uint8List? _bankOf(int bank) {
     if (bank >= banks.length) {
       return switch (banks.length) {
-        0x30 => banks[bank & 0x0f | 0x20], // 368kB
-        0x20 => banks[bank & 0x1f], // 256kB
+        0x30 => banks[bank.mask4 | 0x20], // 368kB
+        0x20 => banks[bank.mask5], // 256kB
         _ => null,
       };
     } else if (bank >= 0x40) {
@@ -52,18 +52,18 @@ class Rom {
 
   @pragma('vm:prefer-inline')
   int read(int addr) {
-    final b = _map[(addr >> 13) & 0x7f];
-    return b != null && addr < 0x100000 ? b[addr & 0x1fff] : _readBank(addr);
+    final b = _map[addr.shr13.mask7];
+    return b != null && addr < 0x100000 ? b[addr.mask13] : _readBank(addr);
   }
 
   int _readBank(int addr) {
     final bank = addr.shr13;
-    final offset = addr & 0x1fff;
+    final offset = addr.mask13;
 
     if (bank >= banks.length) {
       return switch (banks.length) {
-        0x30 => banks[bank & 0x0f | 0x20][offset], // 368kB
-        0x20 => banks[bank & 0x1f][offset], // 256kB
+        0x30 => banks[bank.mask4 | 0x20][offset], // 368kB
+        0x20 => banks[bank.mask5][offset], // 256kB
         _ => 0xff,
       };
     } else if (bank >= 0x40) {
@@ -76,7 +76,7 @@ class Rom {
   void write(int addr, int data) {
     // SF2 mapper: each 512kB = 8kB x 64banks(0x40) is mapped to bank 0x40-0x7f
     if (0x1ff0 <= addr && addr <= 0x1fff) {
-      upperBankOffset = (addr & 0x0f).shl6;
+      upperBankOffset = addr.mask4.shl6;
     }
   }
 

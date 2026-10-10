@@ -183,11 +183,11 @@ class Smpc {
     sf = 0;
   }
 
-  static int _bcd(int v) => (v ~/ 10) << 4 | (v % 10);
+  static int _bcd(int v) => (v ~/ 10).shl4 | (v % 10);
 
   // SR bits 3-0: port modes requested by IREG1 (P2MD, P1MD).
   // software skips ports whose mode is 3 (0 byte mode)
-  int get _portModes => (ireg[1] >> 4) & 0x0f;
+  int get _portModes => ireg[1].shr4.mask4;
 
   void _intback() {
     final getStatus = ireg[0].bit0;
@@ -199,7 +199,7 @@ class Smpc {
       oreg[0] = 0x80 | (resetDisabled ? 0x40 : 0); // STE | RESD
       oreg[1] = _bcd(now.year ~/ 100);
       oreg[2] = _bcd(now.year % 100);
-      oreg[3] = (now.weekday % 7) << 4 | now.month;
+      oreg[3] = (now.weekday % 7).shl4 | now.month;
       oreg[4] = _bcd(now.day);
       oreg[5] = _bcd(now.hour);
       oreg[6] = _bcd(now.minute);
@@ -273,13 +273,13 @@ class Smpc {
 
     // TH: bit6, TR: bit5
     final nibble = switch (sel) {
-      0x60 => 0x04 | (d1 >> 3) & 0x08, // L
-      0x20 => d0 >> 4, // right, left, down, up
-      0x40 => d0 & 0x0f, // start, A, C, B
-      _ => d1 >> 4, // R, X, Y, Z
+      0x60 => 0x04 | d1.shr3 & 0x08, // L
+      0x20 => d0.shr4, // right, left, down, up
+      0x40 => d0.mask4, // start, A, C, B
+      _ => d1.shr4, // R, X, Y, Z
     };
 
-    return 0x10 | sel | nibble & 0x0f;
+    return 0x10 | sel | nibble.mask4;
   }
 
   String dump() =>

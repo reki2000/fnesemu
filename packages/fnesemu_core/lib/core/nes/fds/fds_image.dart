@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// fwNES .fds images omit physical gaps, sync marks and CRCs.
 class FdsImage {
@@ -28,7 +29,7 @@ class FdsImage {
   static int crcByte(int crc, int value) {
     crc ^= value;
     for (var bit = 0; bit < 8; bit++) {
-      crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0x8408 : 0);
+      crc = crc.shr1 ^ (crc.bit0 ? 0x8408 : 0);
     }
     return crc;
   }
@@ -51,7 +52,7 @@ class FdsImage {
             throw const FormatException('Truncated FDS block');
           }
           if (type == 3) {
-            fileLength = side[position + 13] | side[position + 14] << 8;
+            fileLength = side[position + 13] | side[position + 14].shl8;
           }
           if (position != 0) out.addAll(List.filled(122, 0));
           out.add(0x80);
@@ -61,7 +62,7 @@ class FdsImage {
             out.add(value);
             crc = crcByte(crc, value);
           }
-          out.addAll([crc & 0xff, crc >> 8]);
+          out.addAll([crc.mask8, crc.shr8]);
           position += length;
         }
         // About eight seconds per revolution at 149 1/3 CPU clocks per byte.

@@ -11,19 +11,19 @@ class Color {
   Color(this.r, this.g, this.b);
 
   Color.ofC24(int c)
-      : b = c.shr16 & 0xff,
-        g = c.shr8 & 0xff,
-        r = c & 0xff;
+      : b = c.shr16.mask8,
+        g = c.shr8.mask8,
+        r = c.mask8;
 
   Color.ofC15(int c)
-      : b = c5ToC8(c.shr10 & 0x1f),
-        g = c5ToC8(c.shr5 & 0x1f),
-        r = c5ToC8(c & 0x1f);
+      : b = c5ToC8(c.shr10.mask5),
+        g = c5ToC8(c.shr5.mask5),
+        r = c5ToC8(c.mask5);
 
   @pragma('vm:prefer-inline')
   int get c24 => b.shl16 | g.shl8 | r;
   @pragma('vm:prefer-inline')
-  int get c15 => b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3 & 0x1f;
+  int get c15 => b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3.mask5;
 
   @pragma('vm:prefer-inline')
   Color mix(Color c, int part, int total) {
@@ -52,7 +52,7 @@ class Point {
   Point(this.x, this.y, this.c, this.u, this.v);
 
   Point.of(int v, int c, int t)
-      : this(v.rel11, v.shr16.rel11, Color.ofC24(c), t & 0xff, t.shr8 & 0xff);
+      : this(v.rel11, v.shr16.rel11, Color.ofC24(c), t.mask8, t.shr8.mask8);
 
   @pragma('vm:prefer-inline')
   Point mix(Point p, int part, int total) {

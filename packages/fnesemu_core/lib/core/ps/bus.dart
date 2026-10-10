@@ -91,54 +91,54 @@ class Bus implements BusR3000 {
       0x1f801018 => 0x00020843.byteAt(offset),
       0x1f80101c => 0x00070777.byteAt(offset),
       // pop rx fifo only once for 16/32bit access
-      0x1f801040 => offset & 0x03 == 0 ? serial.readData() : 0,
+      0x1f801040 => offset.mask2 == 0 ? serial.readData() : 0,
       0x1f801044 => serial.readStatus().byteAt(offset),
       >= 0x1f801048 && < 0x1f801050 => switch (offset & 0x1ffe) {
-          0x1048 => serial.readMode().byteAt(offset & 1),
-          0x104a => serial.readControl().byteAt(offset & 1),
-          0x104e => serial.readBaudrate().byteAt(offset & 1),
+          0x1048 => serial.readMode().byteAt(offset.mask1),
+          0x104a => serial.readControl().byteAt(offset.mask1),
+          0x104e => serial.readBaudrate().byteAt(offset.mask1),
           _ => _unimpl(sig, "serial", addr),
         },
       0x1f801060 => 0x00000B88.byteAt(offset), // memory control: joypad ports
       0x1f801070 => interrupt.status.byteAt(offset),
       0x1f801074 => interrupt.mask.byteAt(offset),
       >= 0x1f801080 && < 0x1f8010f0 => switch (offset & 0x0c) {
-          0x00 => dma.channels[offset.shr4 & 0x07].startAddr.byteAt(offset),
-          0x04 => dma.channels[offset.shr4 & 0x07].blockCtrl.byteAt(offset),
-          0x08 => dma.channels[offset.shr4 & 0x07].channelCtrl.byteAt(offset),
+          0x00 => dma.channels[offset.shr4.mask3].startAddr.byteAt(offset),
+          0x04 => dma.channels[offset.shr4.mask3].blockCtrl.byteAt(offset),
+          0x08 => dma.channels[offset.shr4.mask3].channelCtrl.byteAt(offset),
           _ => _unimpl(sig, "dma", addr)
         },
       0x1f8010f0 => dma.control.byteAt(offset),
       0x1f8010f4 => dma.interrupt.byteAt(offset),
       >= 0x1f801100 && < 0x1f801130 => switch (offset & 0x0e) {
-          0x00 => timer.counter(offset.shr4 & 3).byteAt(offset),
+          0x00 => timer.counter(offset.shr4.mask2).byteAt(offset),
           // reached flags (bit11-12) are cleared after reading the upper byte
           0x04 => timer
-              .mode(offset.shr4 & 3, clearFlags: offset & 0x03 == 1)
+              .mode(offset.shr4.mask2, clearFlags: offset.mask2 == 1)
               .byteAt(offset),
-          0x08 => timer.target(offset.shr4 & 3).byteAt(offset),
+          0x08 => timer.target(offset.shr4.mask2).byteAt(offset),
           _ => 0,
         },
       >= 0x1f801c00 && < 0x1f801ec0 => switch (offset & 0x1ffe) {
           >= 0x1c00 && < 0x1d80 =>
-            spu.readVoice(offset & 0x0e, offset.shr4 & 0x1f).byteAt(offset & 1),
+            spu.readVoice(offset & 0x0e, offset.shr4.mask5).byteAt(offset.mask1),
           >= 0x1d88 && < 0x1d90 => 0, // key on/off write only
           0x1d98 || 0x1d9a => spu.reverb.getReverbEnabled().byteAt(offset),
           0x1d94 || 0x1d96 => spu.noiseFlags.byteAt(offset),
           0x1d90 || 0x1d92 => spu.pitchModulation.byteAt(offset),
-          0x1d9c => spu.endx.byteAt(offset & 1), // spu endx
-          0x1da4 => spu.irqAddr.byteAt(offset & 1), // spu irq address
-          0x1da6 => spu.fifoAddr.byteAt(offset & 1), // spu dma start address
-          0x1daa => spu.control.byteAt(offset & 1), // spu control
-          0x1dac => spu.fifoType.byteAt(offset & 1), // spu ram ctrl
-          0x1dae => spu.status.byteAt(offset & 1), // spu status
-          0x1db8 => spu.mainVolumeLeft.byteAt(offset & 1),
-          0x1dba => spu.mainVolumeRight.byteAt(offset & 1),
+          0x1d9c => spu.endx.byteAt(offset.mask1), // spu endx
+          0x1da4 => spu.irqAddr.byteAt(offset.mask1), // spu irq address
+          0x1da6 => spu.fifoAddr.byteAt(offset.mask1), // spu dma start address
+          0x1daa => spu.control.byteAt(offset.mask1), // spu control
+          0x1dac => spu.fifoType.byteAt(offset.mask1), // spu ram ctrl
+          0x1dae => spu.status.byteAt(offset.mask1), // spu status
+          0x1db8 => spu.mainVolumeLeft.byteAt(offset.mask1),
+          0x1dba => spu.mainVolumeRight.byteAt(offset.mask1),
           >= 0x1e00 && < 0x1ec0 =>
-            spu.readVoice(offset & 0x02, offset.shr2 & 0x1f).byteAt(offset & 1),
+            spu.readVoice(offset & 0x02, offset.shr2.mask5).byteAt(offset.mask1),
           _ => _unimpl(sig, "spu", addr),
         },
-      0x1f801800 => cdrom.readPort8(offset & 0x03),
+      0x1f801800 => cdrom.readPort8(offset.mask2),
       >= 0x1f802000 && < 0x1f802100 => _unimpl(sig, "expansion 2", addr),
       >= 0x1fa00000 && < 0x1fc00000 => _unimpl(sig, "expansion 3", addr),
       _ => _unimpl(sig, "unknown", addr),
@@ -150,15 +150,15 @@ class Bus implements BusR3000 {
   @override
   @pragma('vm:unsafe:no-bounds-checks')
   int read16(int addr) {
-    if (addr & 1 == 0) {
+    if (!addr.bit0) {
       final offset = addr & 0x1fffffff;
       if (offset < 0x8000000) {
-        return mem16[(offset & 0x1fffff) >> 1];
+        return mem16[(offset & 0x1fffff).shr1];
       }
-      final offset2 = addr & segMask[(addr >> 29) & 7];
+      final offset2 = addr & segMask[addr.shr29.mask3];
       if (offset2 >= _scratchPadStart && offset2 < _scratchPadEnd) {
         return useScratchPad
-            ? scratchPad16[(offset2 - _scratchPadStart) >> 1]
+            ? scratchPad16[(offset2 - _scratchPadStart).shr1]
             : 0xffff;
       }
     }
@@ -184,9 +184,9 @@ class Bus implements BusR3000 {
 
     if (offset >= _scratchPadStart &&
         offset < _scratchPadEnd &&
-        offset & 3 == 0) {
+        offset.mask2 == 0) {
       return useScratchPad
-          ? scratchPad32[(offset - _scratchPadStart) >> 2]
+          ? scratchPad32[(offset - _scratchPadStart).shr2]
           : 0xffffffff;
     }
 
@@ -223,8 +223,8 @@ class Bus implements BusR3000 {
           0x1040 => serial.writeData(v),
           >= 0x1050 && < 0x1070 => 0, // memory control
           0x10f0 => dma.control = dma.control.replaceByteAt(offset, v),
-          0x10f4 => dma.setInterrupt(offset & 0x03, v),
-          0x1800 => cdrom.writePort8(offset & 0x03, v),
+          0x10f4 => dma.setInterrupt(offset.mask2, v),
+          0x1800 => cdrom.writePort8(offset.mask2, v),
           _ => _unimpl(sig, "I/O", addr, value: v)
         },
       0x1f802041 => debugLog("post: $v"),
@@ -246,26 +246,26 @@ class Bus implements BusR3000 {
     const sig = "write16";
 
     // fast paths of the two write8 below for aligned ram and scratchpad
-    if (addr & 1 == 0) {
+    if (!addr.bit0) {
       if (offset < 0x00800000) {
-        mem16[(addr & 0x1fffff) >> 1] = v;
+        mem16[(addr & 0x1fffff).shr1] = v;
         return;
       }
       if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
         if (useScratchPad) {
-          scratchPad16[(offset - _scratchPadStart) >> 1] = v;
+          scratchPad16[(offset - _scratchPadStart).shr1] = v;
         }
         return;
       }
     }
 
     return switch (offset) {
-      >= 0x1f801070 && < 0x1f801078 => switch (offset & 0x1fff) {
+      >= 0x1f801070 && < 0x1f801078 => switch (offset.mask13) {
           0x1070 => interrupt.ackIrq(v),
           0x1074 => interrupt.mask = v.mask16,
           _ => 0,
         },
-      >= 0x1f801048 && < 0x1f801050 => switch (offset & 0x1fff) {
+      >= 0x1f801048 && < 0x1f801050 => switch (offset.mask13) {
           0x1048 => serial.writeMode(v),
           0x104a => serial.writeControl(v),
           0x104e => serial.writeBaudrate(v),
@@ -279,7 +279,7 @@ class Bus implements BusR3000 {
           0x08 => timer.setTarget(offset.shr4.mask2, v),
           _ => _unimpl(sig, "timer", addr, value: v),
         },
-      >= 0x1f801c00 && < 0x1f801ec0 => switch (offset & 0x1fff) {
+      >= 0x1f801c00 && < 0x1f801ec0 => switch (offset.mask13) {
           >= 0x1c00 && < 0x1d80 =>
             spu.writeVoice(offset & 0x0e, offset.shr4.mask5, v),
           0x1d80 => spu.mainVolumeLeft = v,
@@ -346,18 +346,18 @@ class Bus implements BusR3000 {
     // fast path of the write16/write8 below
     if (offset >= _scratchPadStart &&
         offset < _scratchPadEnd &&
-        offset & 3 == 0) {
+        offset.mask2 == 0) {
       if (useScratchPad) {
-        scratchPad32[(offset - _scratchPadStart) >> 2] = v;
+        scratchPad32[(offset - _scratchPadStart).shr2] = v;
       }
       return;
     }
 
     return switch (offset) {
       >= 0x1f801080 && < 0x1f8010f0 => switch (offset & 0x0c) {
-          0x00 => dma.channels[offset.shr4 & 0x07].startAddr = v,
-          0x04 => dma.channels[offset.shr4 & 0x07].blockCtrl = v,
-          0x08 => dma.setChannelCtrl(offset.shr4 & 0x07, v),
+          0x00 => dma.channels[offset.shr4.mask3].startAddr = v,
+          0x04 => dma.channels[offset.shr4.mask3].blockCtrl = v,
+          0x08 => dma.setChannelCtrl(offset.shr4.mask3, v),
           _ => _unimpl(sig, "dma", addr, value: v)
         },
       0x1f801810 => gpu.writeGp0(v), // gp0

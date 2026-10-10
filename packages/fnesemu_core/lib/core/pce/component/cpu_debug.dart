@@ -24,19 +24,19 @@ extension CpuDebugger on Cpu {
       Operand.im || Operand.im16 || Operand.none => -1,
       Operand.rel || Operand.zerorel || Operand.blk => -1,
       Operand.zp => d1 | Cpu.zeroAddr,
-      Operand.zpx => (d1 + regs.x) & 0xff | Cpu.zeroAddr,
-      Operand.zpy => (d1 + regs.y) & 0xff | Cpu.zeroAddr,
+      Operand.zpx => (d1 + regs.x).mask8 | Cpu.zeroAddr,
+      Operand.zpy => (d1 + regs.y).mask8 | Cpu.zeroAddr,
       Operand.abs => d1 | d2.shl8,
-      Operand.absx => ((d1 | d2.shl8) + regs.x) & 0xffff,
-      Operand.absy => ((d1 | d2.shl8) + regs.y) & 0xffff,
+      Operand.absx => ((d1 | d2.shl8) + regs.x).mask16,
+      Operand.absy => ((d1 | d2.shl8) + regs.y).mask16,
       Operand.ind16 => d1 | d2.shl8,
       Operand.zpindx => readzp(d1 + regs.x) | readzp(d1 + regs.x + 1).shl8,
       Operand.zpindy => (readzp(d1) | readzp(d1 + 1).shl8) + regs.y,
       Operand.zpind => readzp(d1) | readzp(d1 + 1).shl8,
       Operand.imzp => d2 | Cpu.zeroAddr,
-      Operand.imzpx => (d2 + regs.x) & 0xff | Cpu.zeroAddr,
+      Operand.imzpx => (d2 + regs.x).mask8 | Cpu.zeroAddr,
       Operand.imabs => d2 | d3.shl8,
-      Operand.imabsx => ((d2 | d3.shl8) + regs.x) & 0xffff,
+      Operand.imabsx => ((d2 | d3.shl8) + regs.x).mask16,
     };
 
     final dstValue = addr < 0x2000 ? 0 : read(addr); // avoid I/O accses
@@ -52,7 +52,7 @@ extension CpuDebugger on Cpu {
   }
 
   int _mprAddr(int addr) {
-    return regs.mpr[addr.shr13 & 7];
+    return regs.mpr[addr.shr13.mask3];
   }
 
   String _reg() {

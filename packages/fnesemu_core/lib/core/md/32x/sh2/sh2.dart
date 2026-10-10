@@ -28,9 +28,9 @@ class Sh2 {
   int _irqLevel = 0, _irqVector = 0;
   int? _delayTarget, _restoreSr;
   bool sleeping = false, _inDelay = false;
-  bool get t => (sr & 1) != 0;
+  bool get t => sr.bit0;
   set t(bool value) => sr = (sr & ~1) | (value ? 1 : 0);
-  int get interruptMask => (sr >> 4) & 15;
+  int get interruptMask => sr.shr4.mask4;
 
   void reset() {
     r.fillRange(0, 16, 0);
@@ -50,12 +50,12 @@ class Sh2 {
   }
 
   void _exception(int vector, int savedPc, {int? level}) {
-    r[15] = (r[15] - 4) & 0xffffffff;
+    r[15] = (r[15] - 4).mask32;
     bus.write32(r[15], sr);
-    r[15] = (r[15] - 4) & 0xffffffff;
+    r[15] = (r[15] - 4).mask32;
     bus.write32(r[15], savedPc);
-    if (level != null) sr = (sr & ~0xf0) | (level << 4);
-    pc = bus.read32((vbr + vector * 4) & 0xffffffff);
+    if (level != null) sr = (sr & ~0xf0) | level.shl4;
+    pc = bus.read32((vbr + vector * 4).mask32);
     _delayTarget = _restoreSr = null;
     sleeping = false;
     clocks += 5;
@@ -95,7 +95,7 @@ class Sh2 {
     }
     final address = pc;
     lastOpcode = bus.read16(address);
-    pc = (pc + 2) & 0xffffffff;
+    pc = (pc + 2).mask32;
     _delayTarget = _restoreSr = null;
     _inDelay = target != null;
     if (!_execute(lastOpcode, address)) {
@@ -119,17 +119,17 @@ class Sh2 {
   bool _branch(int target, {bool delay = true}) {
     if (_inDelay) return false;
     if (delay) {
-      _delayTarget = target & 0xffffffff;
+      _delayTarget = target.mask32;
     } else {
-      pc = target & 0xffffffff;
+      pc = target.mask32;
     }
     clocks++;
     return true;
   }
 
   bool _execute(int op, int address) {
-    final n = (op >> 8) & 15, m = (op >> 4) & 15, low = op & 15;
-    switch (op >> 12) {
+    final n = op.shr8.mask4, m = op.shr4.mask4, low = op.mask4;
+    switch (op.shr12) {
       case 0xe:
         r[n] = op.rel8;
         return true;
@@ -137,10 +137,10 @@ class Sh2 {
         r[n] += op.rel8;
         return true;
       case 9:
-        r[n] = bus.read16(address + 4 + (op & 255) * 2).rel16;
+        r[n] = bus.read16(address + 4 + op.mask8 * 2).rel16;
         return true;
       case 0xd:
-        r[n] = bus.read32(((address + 4) & ~3) + (op & 255) * 4);
+        r[n] = bus.read32(((address + 4) & ~3) + op.mask8 * 4);
         return true;
       case 1:
         bus.write32(r[n] + low * 4, r[m]);
@@ -152,7 +152,7 @@ class Sh2 {
         return _branch(address + 4 + op.rel12 * 2);
       case 0xb:
         if (_inDelay) return false;
-        pr = (address + 4) & 0xffffffff;
+        pr = (address + 4).mask32;
         return _branch(address + 4 + op.rel12 * 2);
       case 6:
         final value = r[m];
@@ -178,10 +178,10 @@ class Sh2 {
             r[n] = ~value;
           case 8:
             r[n] = (value & 0xffff0000) |
-                ((value & 255) << 8) |
-                ((value >> 8) & 255);
+                value.mask8.shl8 |
+                value.shr8.mask8;
           case 9:
-            r[n] = ((value & 0xffff) << 16) | (value >> 16);
+            r[n] = value.mask16.shl16 | value.shr16;
           case 10:
             final result = -value - (t ? 1 : 0);
             r[n] = result;
@@ -189,9 +189,9 @@ class Sh2 {
           case 11:
             r[n] = -value;
           case 12:
-            r[n] = value & 255;
+            r[n] = value.mask8;
           case 13:
-            r[n] = value & 0xffff;
+            r[n] = value.mask16;
           case 14:
             r[n] = value.rel8;
           case 15:
@@ -217,8 +217,8 @@ class Sh2 {
             r[n] -= 4;
             bus.write32(r[n], value);
           case 7:
-            final q = (r[n] >> 31) & 1, mb = (value >> 31) & 1;
-            sr = (sr & ~0x301) | (q << 8) | (mb << 9) | (q ^ mb);
+            final q = r[n].shr31.mask1, mb = value.shr31.mask1;
+            sr = (sr & ~0x301) | q.shl8 | mb.shl9 | (q ^ mb);
           case 8:
             t = (r[n] & value) == 0;
           case 9:
@@ -229,13 +229,13 @@ class Sh2 {
             r[n] |= value;
           case 12:
             final diff = r[n] ^ value;
-            t = List.generate(4, (i) => (diff >> (i * 8)) & 255).contains(0);
+            t = List.generate(4, (i) => (diff >> (i * 8)).mask8).contains(0);
           case 13:
-            r[n] = (value << 16) | (r[n] >> 16);
+            r[n] = value.shl16 | r[n].shr16;
           case 14:
-            macl = (r[n] & 0xffff) * (value & 0xffff);
+            macl = r[n].mask16 * value.mask16;
           case 15:
-            macl = (r[n].rel16 * value.rel16) & 0xffffffff;
+            macl = (r[n].rel16 * value.rel16).mask32;
           default:
             return false;
         }
@@ -250,14 +250,14 @@ class Sh2 {
           case 3:
             t = a.rel32 >= b.rel32;
           case 4:
-            final oldQ = (sr & 0x100) != 0;
-            final divisorSign = (sr & 0x200) != 0;
-            final dividendSign = (a & 0x80000000) != 0;
-            final shifted = ((a << 1) | (t ? 1 : 0)) & 0xffffffff;
+            final oldQ = sr.bit8;
+            final divisorSign = sr.bit9;
+            final dividendSign = a.bit31;
+            final shifted = (a.shl1 | (t ? 1 : 0)).mask32;
             final subtract = oldQ == divisorSign;
             final result = subtract
-                ? (shifted - b) & 0xffffffff
-                : (shifted + b) & 0xffffffff;
+                ? (shifted - b).mask32
+                : (shifted + b).mask32;
             final carry = subtract ? result > shifted : result < shifted;
             final newQ = oldQ == divisorSign
                 ? (oldQ ? dividendSign == carry : dividendSign != carry)
@@ -268,8 +268,8 @@ class Sh2 {
                 (newQ == divisorSign ? 1 : 0);
           case 5 || 13:
             final product = low == 5 ? a * b : a.rel32 * b.rel32;
-            macl = product & 0xffffffff;
-            mach = (product >> 32) & 0xffffffff;
+            macl = product.mask32;
+            mach = (product >> 32).mask32;
           case 6:
             t = a > b;
           case 7:
@@ -283,7 +283,7 @@ class Sh2 {
           case 11:
             final result = a - b;
             r[n] = result;
-            t = ((a ^ b) & (a ^ result) & 0x80000000) != 0;
+            t = ((a ^ b) & (a ^ result)).bit31;
           case 12:
             r[n] = a + b;
           case 14:
@@ -293,14 +293,14 @@ class Sh2 {
           case 15:
             final result = a + b;
             r[n] = result;
-            t = (~(a ^ b) & (a ^ result) & 0x80000000) != 0;
+            t = (~(a ^ b) & (a ^ result)).bit31;
           default:
             return false;
         }
         return true;
       case 8:
         final displacement = op.rel8 * 2;
-        switch ((op >> 8) & 15) {
+        switch (op.shr8.mask4) {
           case 0:
             bus.write8(r[m] + low, r[0]);
           case 1:
@@ -310,7 +310,7 @@ class Sh2 {
           case 5:
             r[0] = bus.read16(r[m] + low * 2).rel16;
           case 8:
-            t = r[0] == (op.rel8 & 0xffffffff);
+            t = r[0] == op.rel8.mask32;
           case 9 || 11 || 13 || 15:
             if (_inDelay) return false;
             final take = (n == 9 || n == 13) ? t : !t;
@@ -322,7 +322,7 @@ class Sh2 {
         }
         return true;
       case 0xc:
-        final imm = op & 255;
+        final imm = op.mask8;
         switch (n) {
           case 0:
             bus.write8(gbr + imm, r[0]);
@@ -360,7 +360,7 @@ class Sh2 {
         }
         return true;
     }
-    if ((op >> 12) == 0) {
+    if (op.shr12 == 0) {
       switch (low) {
         case 4:
           bus.write8(r[n] + r[0], r[m]);
@@ -372,7 +372,7 @@ class Sh2 {
           bus.write32(r[n] + r[0], r[m]);
           return true;
         case 7:
-          macl = (r[n] * r[m]) & 0xffffffff;
+          macl = (r[n] * r[m]).mask32;
           return true;
         case 12:
           r[n] = bus.read8(r[m] + r[0]).rel8;
@@ -387,25 +387,25 @@ class Sh2 {
           // MAC.L reads each operand before incrementing its address register.
           // When m == n, the two reads therefore use consecutive longwords.
           final left = bus.read32(r[n]).rel32;
-          r[n] = (r[n] + 4) & 0xffffffff;
+          r[n] = (r[n] + 4).mask32;
           final right = bus.read32(r[m]).rel32;
-          r[m] = (r[m] + 4) & 0xffffffff;
+          r[m] = (r[m] + 4).mask32;
           final product = left * right;
-          final low = macl + (product & 0xffffffff);
-          final high = ((sr & 2) != 0
+          final low = macl + product.mask32;
+          final high = (sr.bit1
                   ? mach.rel16
                   : mach.rel32) +
               (product >> 32) +
               (low >> 32);
-          if ((sr & 2) != 0 && high > 0x7fff) {
+          if (sr.bit1 && high > 0x7fff) {
             mach = 0x7fff;
             macl = 0xffffffff;
-          } else if ((sr & 2) != 0 && high < -0x8000) {
+          } else if (sr.bit1 && high < -0x8000) {
             mach = 0xffff8000;
             macl = 0;
           } else {
-            mach = high & 0xffffffff;
-            macl = low & 0xffffffff;
+            mach = high.mask32;
+            macl = low.mask32;
           }
           clocks += 2;
           return true;
@@ -469,55 +469,54 @@ class Sh2 {
           return _branch(next);
       }
     }
-    if ((op >> 12) == 4) {
+    if (op.shr12 == 4) {
       if (low == 15) {
         final left = bus.read16(r[n]).rel16;
-        r[n] = (r[n] + 2) & 0xffffffff;
+        r[n] = (r[n] + 2).mask32;
         final right = bus.read16(r[m]).rel16;
-        r[m] = (r[m] + 2) & 0xffffffff;
+        r[m] = (r[m] + 2).mask32;
         final product = left * right;
-        if ((sr & 2) != 0) {
+        if (sr.bit1) {
           final sum = macl.rel32 + product;
           macl = (sum > 0x7fffffff
                   ? 0x7fffffff
                   : sum < -0x80000000
                       ? -0x80000000
-                      : sum) &
-              0xffffffff;
+                      : sum).mask32;
         } else {
-          final low = macl + (product & 0xffffffff);
-          mach = (mach + (product >> 32) + (low >> 32)) & 0xffffffff;
-          macl = low & 0xffffffff;
+          final low = macl + product.mask32;
+          mach = (mach + (product >> 32) + (low >> 32)).mask32;
+          macl = low.mask32;
         }
         clocks += 2;
         return true;
       }
-      switch (op & 255) {
+      switch (op.mask8) {
         case 0x00 || 0x20:
-          t = (r[n] & 0x80000000) != 0;
+          t = r[n].bit31;
           r[n] <<= 1;
         case 0x01:
           t = r[n].isOdd;
           r[n] >>= 1;
         case 0x21:
           t = r[n].isOdd;
-          r[n] = r[n].rel32 >> 1;
+          r[n] = r[n].rel32.shr1;
         case 0x04:
-          final carry = (r[n] >> 31) & 1;
-          r[n] = (r[n] << 1) | carry;
+          final carry = r[n].shr31.mask1;
+          r[n] = r[n].shl1 | carry;
           t = carry != 0;
         case 0x05:
-          final carry = r[n] & 1;
-          r[n] = (r[n] >> 1) | (carry << 31);
+          final carry = r[n].mask1;
+          r[n] = r[n].shr1 | carry.shl31;
           t = carry != 0;
         case 0x24:
           final old = t;
-          t = (r[n] & 0x80000000) != 0;
-          r[n] = (r[n] << 1) | (old ? 1 : 0);
+          t = r[n].bit31;
+          r[n] = r[n].shl1 | (old ? 1 : 0);
         case 0x25:
           final old = t;
           t = r[n].isOdd;
-          r[n] = (r[n] >> 1) | (old ? 0x80000000 : 0);
+          r[n] = r[n].shr1 | (old ? 0x80000000 : 0);
         case 0x08:
           r[n] <<= 2;
         case 0x09:
@@ -532,7 +531,7 @@ class Sh2 {
           r[n] >>= 16;
         case 0x10:
           r[n]--;
-          t = (r[n] & 0xffffffff) == 0;
+          t = r[n].mask32 == 0;
         case 0x11:
           t = r[n].rel32 >= 0;
         case 0x15:
@@ -560,7 +559,7 @@ class Sh2 {
         case 0x2a:
           pr = r[n];
         case 0x02 || 0x12 || 0x22 || 0x03 || 0x13 || 0x23:
-          final value = switch (op & 255) {
+          final value = switch (op.mask8) {
             2 => mach,
             0x12 => macl,
             0x22 => pr,
@@ -573,7 +572,7 @@ class Sh2 {
         case 0x06 || 0x16 || 0x26 || 0x07 || 0x17 || 0x27:
           final value = bus.read32(r[n]);
           r[n] += 4;
-          switch (op & 255) {
+          switch (op.mask8) {
             case 6:
               mach = value;
             case 0x16:
@@ -596,17 +595,17 @@ class Sh2 {
   }
 
   static String disasm(int op, int address) {
-    final n = (op >> 8) & 15, m = (op >> 4) & 15;
+    final n = op.shr8.mask4, m = op.shr4.mask4;
     if (op == 9) return 'nop';
     if (op == 0xb) return 'rts';
     if (op == 0x2b) return 'rte';
     if (op == 0x1b) return 'sleep';
-    if (op >> 12 == 0xe) return 'mov #${op.rel8},r$n';
-    if (op >> 12 == 7) return 'add #${op.rel8},r$n';
+    if (op.shr12 == 0xe) return 'mov #${op.rel8},r$n';
+    if (op.shr12 == 7) return 'add #${op.rel8},r$n';
     if ((op & 0xf00f) == 0x6003) return 'mov r$m,r$n';
-    if (op >> 12 == 0xa || op >> 12 == 0xb) {
-      final target = (address + 4 + op.rel12 * 2) & 0xffffffff;
-      return '${op >> 12 == 0xa ? 'bra' : 'bsr'} 0x${target.toRadixString(16)}';
+    if (op.shr12 == 0xa || op.shr12 == 0xb) {
+      final target = (address + 4 + op.rel12 * 2).mask32;
+      return '${op.shr12 == 0xa ? 'bra' : 'bsr'} 0x${target.toRadixString(16)}';
     }
     return '.word 0x${op.toRadixString(16).padLeft(4, '0')}';
   }
@@ -629,20 +628,20 @@ class _OnChipBus implements Sh2Bus {
   _OnChipBus(this.ext, this.onchip);
 
   // effective addresses (register + register) may exceed 32 bits
-  static bool _on(int a) => (a & 0xffffffff) >= 0xfffffe00;
+  static bool _on(int a) => a.mask32 >= 0xfffffe00;
   @override
-  int read8(int a) => _on(a) ? onchip.read8(a) : ext.read8(a & 0xffffffff);
+  int read8(int a) => _on(a) ? onchip.read8(a) : ext.read8(a.mask32);
   @override
-  int read16(int a) => _on(a) ? onchip.read16(a) : ext.read16(a & 0xffffffff);
+  int read16(int a) => _on(a) ? onchip.read16(a) : ext.read16(a.mask32);
   @override
-  int read32(int a) => _on(a) ? onchip.read32(a) : ext.read32(a & 0xffffffff);
+  int read32(int a) => _on(a) ? onchip.read32(a) : ext.read32(a.mask32);
   @override
   void write8(int a, int v) =>
-      _on(a) ? onchip.write8(a, v) : ext.write8(a & 0xffffffff, v);
+      _on(a) ? onchip.write8(a, v) : ext.write8(a.mask32, v);
   @override
   void write16(int a, int v) =>
-      _on(a) ? onchip.write16(a, v) : ext.write16(a & 0xffffffff, v);
+      _on(a) ? onchip.write16(a, v) : ext.write16(a.mask32, v);
   @override
   void write32(int a, int v) =>
-      _on(a) ? onchip.write32(a, v) : ext.write32(a & 0xffffffff, v);
+      _on(a) ? onchip.write32(a, v) : ext.write32(a.mask32, v);
 }

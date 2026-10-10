@@ -61,7 +61,7 @@ class ScuDsp {
 
   void writeControl(int d) {
     if (d.bit15) {
-      pc = d & 0xff; // LE: load program counter
+      pc = d.mask8; // LE: load program counter
     }
 
     if (d.bit25) {
@@ -85,17 +85,17 @@ class ScuDsp {
 
   void writeProgram(int d) {
     prog[pc] = d;
-    pc = (pc + 1) & 0xff;
+    pc = (pc + 1).mask8;
   }
 
-  void writeDataAddr(int d) => _dataAddr = d & 0xff;
+  void writeDataAddr(int d) => _dataAddr = d.mask8;
 
   int readData() {
     if (executing) {
       return 0xffffffff;
     }
-    final r = data[_dataAddr.shr6 & 3][_dataAddr & 0x3f];
-    _dataAddr = (_dataAddr & 0xc0) | (_dataAddr + 1) & 0x3f;
+    final r = data[_dataAddr.shr6.mask2][_dataAddr.mask6];
+    _dataAddr = (_dataAddr & 0xc0) | (_dataAddr + 1).mask6;
     return r;
   }
 
@@ -103,8 +103,8 @@ class ScuDsp {
     if (executing) {
       return;
     }
-    data[_dataAddr.shr6 & 3][_dataAddr & 0x3f] = d;
-    _dataAddr = (_dataAddr & 0xc0) | (_dataAddr + 1) & 0x3f;
+    data[_dataAddr.shr6.mask2][_dataAddr.mask6] = d;
+    _dataAddr = (_dataAddr & 0xc0) | (_dataAddr + 1).mask6;
   }
 
   // execution
@@ -114,7 +114,7 @@ class ScuDsp {
   final _ctWritten = [false, false, false, false];
 
   int _readSrc(int src) {
-    final bank = src & 3;
+    final bank = src.mask2;
     if (src >= 4) {
       _inc[bank] = true;
     }
@@ -141,13 +141,13 @@ class ScuDsp {
         wa0 = val & 0x1ffffff;
         break;
       case 10:
-        lop = val & 0xfff;
+        lop = val.mask12;
         break;
       case 11:
-        top = val & 0xff;
+        top = val.mask8;
         break;
       case 12 || 13 || 14 || 15:
-        ct[dst - 12] = val & 0x3f;
+        ct[dst - 12] = val.mask6;
         _ctWritten[dst - 12] = true;
         break;
     }
@@ -156,7 +156,7 @@ class ScuDsp {
   void _commitCt() {
     for (int i = 0; i < 4; i++) {
       if (_inc[i] && !_ctWritten[i]) {
-        ct[i] = (ct[i] + 1) & 0x3f;
+        ct[i] = (ct[i] + 1).mask6;
       }
       _inc[i] = false;
       _ctWritten[i] = false;
@@ -164,7 +164,7 @@ class ScuDsp {
   }
 
   bool _cond(int cond) {
-    if (cond & 0x1f == 0) {
+    if (cond.mask5 == 0) {
       return true;
     }
     final r = (cond.bit0 && z) ||
@@ -175,7 +175,7 @@ class ScuDsp {
   }
 
   void _jump(int target) {
-    _jumpTarget = target & 0xff;
+    _jumpTarget = target.mask8;
     _jumpDelay = 2;
   }
 
@@ -183,14 +183,14 @@ class ScuDsp {
     for (int i = 0; i < steps && executing; i++) {
       final instPc = pc;
       final op = prog[pc];
-      pc = (pc + 1) & 0xff;
+      pc = (pc + 1).mask8;
 
       _execOne(op);
       _commitCt();
 
       if (_loopPc >= 0 && instPc == _loopPc) {
         if (lop != 0) {
-          lop = (lop - 1) & 0xfff;
+          lop = (lop - 1).mask12;
           pc = _loopPc;
         } else {
           _loopPc = -1;
@@ -221,12 +221,12 @@ class ScuDsp {
 
   void _execOperation(int op) {
     // values latched at the beginning of the instruction
-    final acl = a & 0xffffffff;
-    final pl = p & 0xffffffff;
+    final acl = a.mask32;
+    final pl = p.mask32;
     final mul = (rx * ry).rel48;
 
     // ALU
-    switch ((op >> 26) & 0xf) {
+    switch (op.shr26.mask4) {
       case 0x0: // NOP
         break;
       case 0x1: // AND
@@ -241,13 +241,13 @@ class ScuDsp {
       case 0x4: // ADD
         final r = acl + pl;
         c = r > 0xffffffff;
-        v = v || ((~(acl ^ pl) & (acl ^ r)) & 0x80000000 != 0);
+        v = v || (~(acl ^ pl) & (acl ^ r)).bit31;
         _set32(r);
         break;
       case 0x5: // SUB
         final r = acl - pl;
         c = r < 0;
-        v = v || (((acl ^ pl) & (acl ^ r)) & 0x80000000 != 0);
+        v = v || ((acl ^ pl) & (acl ^ r)).bit31;
         _set32(r);
         break;
       case 0x6: // AD2
@@ -262,53 +262,53 @@ class ScuDsp {
         break;
       case 0x8: // SR
         c = acl.bit0;
-        _set32((acl.rel32 >> 1));
+        _set32(acl.rel32.shr1);
         break;
       case 0x9: // RR
         c = acl.bit0;
-        _set32(acl >> 1 | (acl & 1) << 31);
+        _set32(acl.shr1 | acl.mask1.shl31);
         break;
       case 0xa: // SL
         c = acl.bit31;
-        _set32(acl << 1);
+        _set32(acl.shl1);
         break;
       case 0xb: // RL
         c = acl.bit31;
-        _set32(acl << 1 | acl >> 31);
+        _set32(acl.shl1 | acl.shr31);
         break;
       case 0xf: // RL8
         c = acl.bit24;
-        _set32(acl << 8 | acl >> 24);
+        _set32(acl.shl8 | acl.shr24);
         break;
     }
 
     // X-bus
-    final xop = (op >> 23) & 7;
-    final xsrc = (op >> 20) & 7;
+    final xop = op.shr23.mask3;
+    final xsrc = op.shr20.mask3;
     int? xval;
-    if (xop.bit2 || xop & 3 == 3) {
+    if (xop.bit2 || xop.mask2 == 3) {
       xval = _readSrc(xsrc);
     }
     if (xop.bit2) {
       rx = xval!.rel32;
     }
-    if (xop & 3 == 2) {
+    if (xop.mask2 == 2) {
       p = mul;
-    } else if (xop & 3 == 3) {
+    } else if (xop.mask2 == 3) {
       p = xval!.rel32;
     }
 
     // Y-bus
-    final yop = (op >> 17) & 7;
-    final ysrc = (op >> 14) & 7;
+    final yop = op.shr17.mask3;
+    final ysrc = op.shr14.mask3;
     int? yval;
-    if (yop.bit2 || yop & 3 == 3) {
+    if (yop.bit2 || yop.mask2 == 3) {
       yval = _readSrc(ysrc);
     }
     if (yop.bit2) {
       ry = yval!.rel32;
     }
-    switch (yop & 3) {
+    switch (yop.mask2) {
       case 1:
         a = 0;
         break;
@@ -321,17 +321,17 @@ class ScuDsp {
     }
 
     // D1-bus
-    final dst = (op >> 8) & 0xf;
-    switch ((op >> 12) & 3) {
+    final dst = op.shr8.mask4;
+    switch (op.shr12.mask2) {
       case 1:
         _writeDst(dst, op.rel8);
         break;
       case 3:
-        final src = op & 0xf;
+        final src = op.mask4;
         final val = switch (src) {
           < 8 => _readSrc(src),
-          9 => alu & 0xffffffff,
-          10 => (alu >> 16) & 0xffffffff,
+          9 => alu.mask32,
+          10 => alu.shr16.mask32,
           _ => 0,
         };
         _writeDst(dst, val);
@@ -353,15 +353,15 @@ class ScuDsp {
   }
 
   void _execMvi(int op) {
-    final dst = (op >> 26) & 0xf;
+    final dst = op.shr26.mask4;
     int imm;
     if (op.bit25) {
-      if (!_cond((op >> 19) & 0x3f)) {
+      if (!_cond(op.shr19.mask6)) {
         return;
       }
-      imm = (op & 0x7ffff) - ((op & 0x40000) << 1);
+      imm = (op & 0x7ffff) - (op & 0x40000).shl1;
     } else {
-      imm = (op & 0x1ffffff) - ((op & 0x1000000) << 1);
+      imm = (op & 0x1ffffff) - (op & 0x1000000).shl1;
     }
 
     if (dst == 12) {
@@ -372,13 +372,13 @@ class ScuDsp {
   }
 
   void _execSpecial(int op) {
-    switch ((op >> 28) & 3) {
+    switch (op.shr28.mask2) {
       case 0:
         _execDma(op);
         return;
       case 1: // JMP
-        if (_cond((op >> 19) & 0x3f)) {
-          _jump(op & 0xff);
+        if (_cond(op.shr19.mask6)) {
+          _jump(op.mask8);
         }
         return;
       case 2:
@@ -387,7 +387,7 @@ class ScuDsp {
           _loopPc = pc;
         } else if (lop != 0) {
           // BTM
-          lop = (lop - 1) & 0xfff;
+          lop = (lop - 1).mask12;
           _jump(top);
         }
         return;
@@ -402,17 +402,17 @@ class ScuDsp {
   }
 
   void _execDma(int op) {
-    final addShift = (op >> 15) & 7;
+    final addShift = op.shr15.mask3;
     final add = addShift == 0 ? 0 : (1 << (addShift - 1)) * 4;
     final hold = op.bit14;
     final toExternal = op.bit12;
-    final ram = (op >> 8) & 7;
+    final ram = op.shr8.mask3;
 
     int count;
     if (op.bit13) {
-      count = _readSrc(op & 7);
+      count = _readSrc(op.mask3);
     } else {
-      count = op & 0xff;
+      count = op.mask8;
     }
     count &= 0xff;
     if (count == 0) {
@@ -423,32 +423,32 @@ class ScuDsp {
     final bus = scu.bus;
 
     if (toExternal) {
-      int addr = wa0 << 2;
-      final bank = ram & 3;
+      int addr = wa0.shl2;
+      final bank = ram.mask2;
       for (int i = 0; i < count; i++) {
         final d = data[bank][ct[bank]];
-        ct[bank] = (ct[bank] + 1) & 0x3f;
+        ct[bank] = (ct[bank] + 1).mask6;
         bus.write32(addr, d);
         addr += add;
       }
       if (!hold) {
-        wa0 = (addr >> 2) & 0x1ffffff;
+        wa0 = addr.shr2 & 0x1ffffff;
       }
     } else {
-      int addr = ra0 << 2;
+      int addr = ra0.shl2;
       final readAdd = add == 0 ? 0 : 4;
       for (int i = 0; i < count; i++) {
         final d = bus.read32(addr);
         addr += readAdd;
         if (ram < 4) {
           data[ram][ct[ram]] = d;
-          ct[ram] = (ct[ram] + 1) & 0x3f;
+          ct[ram] = (ct[ram] + 1).mask6;
         } else {
-          prog[i & 0xff] = d;
+          prog[i.mask8] = d;
         }
       }
       if (!hold) {
-        ra0 = (addr >> 2) & 0x1ffffff;
+        ra0 = addr.shr2 & 0x1ffffff;
       }
     }
 

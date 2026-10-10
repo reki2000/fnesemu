@@ -227,10 +227,10 @@ extension PpuRenderer on Ppu {
   static final _expandPlane = List<int>.generate(
       16,
       (bits) =>
-          ((bits >> 3) & 1) |
-          ((bits >> 2) & 1) << 8 |
-          ((bits >> 1) & 1) << 16 |
-          (bits & 1) << 24);
+          bits.shr3.mask1 |
+          bits.shr2.mask1.shl8 |
+          bits.shr1.mask1.shl16 |
+          bits.mask1.shl24);
 
   /// Fills the packed _BgSamples of BG [bgIdx] for the whole line [y], with
   /// the same result as _bgPixel for each column. The tilemap entry and the
@@ -251,8 +251,8 @@ extension PpuRenderer on Ppu {
     var hFlip = false;
     for (var x = 0; x < width; x++) {
       final sx = (x + bg.hofs) & (mapPxW - 1);
-      if (sx >> 3 != group) {
-        group = sx >> 3;
+      if (sx.shr3 != group) {
+        group = sx.shr3;
         final entry = _tilemapEntryRaw(bgIdx, sx, sy);
         final tileNum = entry.mask10;
         hFlip = entry.bit14;
@@ -269,13 +269,13 @@ extension PpuRenderer on Ppu {
         for (var plane = 0; plane < bpp; plane += 2) {
           final addr = (rowAddress + plane * 8).mask16;
           final a = vram[addr], b = vram[(addr + 1).mask16];
-          low |= (_expandPlane[a >> 4] | _expandPlane[b >> 4] << 1) << plane;
-          high |= (_expandPlane[a & 15] | _expandPlane[b & 15] << 1) << plane;
+          low |= (_expandPlane[a.shr4] | _expandPlane[b.shr4].shl1) << plane;
+          high |= (_expandPlane[a.mask4] | _expandPlane[b.mask4].shl1) << plane;
         }
       }
-      final col8 = hFlip ? 7 - (sx & 7) : sx & 7;
+      final col8 = hFlip ? 7 - sx.mask3 : sx.mask3;
       final rowPixels = col8 < 4 ? low : high;
-      final colorIndex = (rowPixels >> ((col8 & 3) * 8)) & _BgSample.colorMask;
+      final colorIndex = (rowPixels >> (col8.mask2 * 8)) & _BgSample.colorMask;
       out[x] = colorIndex == 0 ? _BgSample.transparent : attr | colorIndex;
     }
   }
@@ -311,21 +311,21 @@ extension PpuRenderer on Ppu {
 
     final rowAddress = (byteBase + row8 * 2).mask16;
     // The cache key combines the 16-bit VRAM row address with its bit depth.
-    final key = rowAddress | bpp << 16;
+    final key = rowAddress | bpp.shl16;
     if (bgRowKey[bgIdx] != key) {
       var low = 0, high = 0;
       for (var plane = 0; plane < bpp; plane += 2) {
         final addr = (rowAddress + plane * 8).mask16;
         final a = vram[addr], b = vram[(addr + 1).mask16];
-        low |= (_expandPlane[a >> 4] | _expandPlane[b >> 4] << 1) << plane;
-        high |= (_expandPlane[a & 15] | _expandPlane[b & 15] << 1) << plane;
+        low |= (_expandPlane[a.shr4] | _expandPlane[b.shr4].shl1) << plane;
+        high |= (_expandPlane[a.mask4] | _expandPlane[b.mask4].shl1) << plane;
       }
       bgRowKey[bgIdx] = key;
       bgRowLow[bgIdx] = low;
       bgRowHigh[bgIdx] = high;
     }
     final rowPixels = col8 < 4 ? bgRowLow[bgIdx] : bgRowHigh[bgIdx];
-    final colorIndex = (rowPixels >> ((col8 & 3) * 8)) & _BgSample.colorMask;
+    final colorIndex = (rowPixels >> (col8.mask2 * 8)) & _BgSample.colorMask;
     if (colorIndex == 0) return _BgSample.transparent;
     return _BgSample.pack(colorIndex, paletteNum, priority);
   }
@@ -762,12 +762,12 @@ extension PpuRenderer on Ppu {
     // wrapped to a signed 10 bit range, and every product is truncated to a
     // multiple of 64 before summing.
     // https://wiki.superfamicom.org/mode-7
-    int clip(int v) => (v & 0x2000) != 0 ? (v | ~0x3ff) : (v & 0x3ff);
+    int clip(int v) => v.bit13 ? (v | ~0x3ff) : v.mask10;
     final h = clip(hofs - x0), vv = clip(vofs - y0);
     final baseX =
-        ((a * h) & ~63) + ((b * vv) & ~63) + ((b * sy) & ~63) + (x0 << 8);
+        ((a * h) & ~63) + ((b * vv) & ~63) + ((b * sy) & ~63) + x0.shl8;
     final baseY =
-        ((c * h) & ~63) + ((d * vv) & ~63) + ((d * sy) & ~63) + (y0 << 8);
+        ((c * h) & ~63) + ((d * vv) & ~63) + ((d * sy) & ~63) + y0.shl8;
 
     for (int x = 0; x < Ppu.widthNormal; x++) {
       int color = backdrop;
@@ -779,8 +779,8 @@ extension PpuRenderer on Ppu {
         color = _rgba(128 + objPalette[x] * 16 + objColor[x]);
       } else if (bg1Enabled) {
         final sx = hFlipScreen ? (Ppu.widthNormal - 1 - x) : x;
-        final u = (baseX + a * sx) >> 8;
-        final v = (baseY + c * sx) >> 8;
+        final u = (baseX + a * sx).shr8;
+        final v = (baseY + c * sx).shr8;
         final outOfRange = u < 0 || u >= 1024 || v < 0 || v >= 1024;
 
         int tileNum = -1;

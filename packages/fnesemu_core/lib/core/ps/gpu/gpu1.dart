@@ -6,7 +6,7 @@ extension Gpu1 on Gpu {
 
   void writeGp1(int value) {
     final cmd = value.shr24;
-    switch (cmd & 0x3f) {
+    switch (cmd.mask6) {
       case 0x00: // reset
         status = 0x00802000; // display disabled, interlace field
         readValue = 0;
@@ -55,16 +55,16 @@ extension Gpu1 on Gpu {
         break;
 
       case 0x08: // display mode
-        displayMode = value & 0x7f;
+        displayMode = value.mask7;
         status = status
             .masked(0x7e0000, value.shl17)
             .setBit(16, value.bit6)
             .setBit(14, value.bit7);
 
-        width = value.bit6 ? 368 : [256, 320, 512, 640][displayMode & 0x03];
+        width = value.bit6 ? 368 : [256, 320, 512, 640][displayMode.mask2];
 
         dotClockDivider =
-            7 * (value.bit6 ? 7 : [10, 8, 5, 4][displayMode & 0x03]);
+            7 * (value.bit6 ? 7 : [10, 8, 5, 4][displayMode.mask2]);
 
         height = (value & 0x24 == 0x24) ? 480 : 240;
         if (buffer.length != width * height) {
@@ -75,7 +75,7 @@ extension Gpu1 on Gpu {
         textureDisableAllowed = value.bit0;
 
       case >= 0x10 && < 0x20: // read gpu internal register
-        switch (value & 0x07) {
+        switch (value.mask3) {
           case 0x02: //  Read Texture Window setting
             readValue = textureMaskX |
                 textureMaskY.shl5 |

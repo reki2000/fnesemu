@@ -14,7 +14,7 @@ class ChrRomDebugger {
       final ch0 = data[i];
       final ch1 = (data[i + 8]).shl1;
       for (int j = 0; j < 8; j++) {
-        final c = ((ch1 >> (7 - j)) & 2) | ((ch0 >> (7 - j)) & 1);
+        final c = ((ch1 >> (7 - j)) & 2) | (ch0 >> (7 - j)).mask1;
         final bufIndex = ((y + i) * _width + (x + j)) * 4;
         buf[bufIndex + 0] = c == 1 ? 0xff : 0; // r
         buf[bufIndex + 1] = c == 2 ? 0xff : 0; // g

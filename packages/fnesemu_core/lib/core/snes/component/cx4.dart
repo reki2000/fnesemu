@@ -72,13 +72,13 @@ class Cx4 {
 
   /// true if [page] ($6000-$7FFF in banks $00-$3F/$80-$BF) is the chip's
   static bool isMapped(int bank, int page) =>
-      (bank & 0x40) == 0 && page >= 0x6000 && page < 0x8000;
+      !bank.bit6 && page >= 0x6000 && page < 0x8000;
 
   int read(int page) {
     if (page < 0x6c00) return ram[page - 0x6000];
     if (page >= 0x7f80 && page < 0x7fb0) {
       final n = (page - 0x7f80) ~/ 3;
-      return (_r[n] >> ((page - 0x7f80) % 3 * 8)) & 0xff;
+      return (_r[n] >> ((page - 0x7f80) % 3 * 8)).mask8;
     }
     if (page == 0x7f5e) return 0; // never busy
     if (page >= 0x7f40 && page < 0x7fc0) return _io[page - 0x7f40];
@@ -103,19 +103,19 @@ class Cx4 {
         _dma();
       case 0x7f4f:
         final base = _io24(9);
-        _programBase = ((base >> 16) & 0x7f) * 0x8000 + (base & 0x7fff);
-        _page = _io[0x0d] | _io[0x0e] << 8;
+        _programBase = base.shr16.mask7 * 0x8000 + base.mask15;
+        _page = _io[0x0d] | _io[0x0e].shl8;
         _pc = data;
         _run();
     }
   }
 
-  int _io24(int i) => _io[i] | _io[i + 1] << 8 | _io[i + 2] << 16;
+  int _io24(int i) => _io[i] | _io[i + 1].shl8 | _io[i + 2].shl16;
 
   void _dma() {
     var src = _io24(0);
-    final length = _io[3] | _io[4] << 8;
-    var dst = (_io[5] | _io[6] << 8) - 0x6000;
+    final length = _io[3] | _io[4].shl8;
+    var dst = (_io[5] | _io[6].shl8) - 0x6000;
     for (var i = 0; i < length; i++) {
       final d = busRead(src);
       if (dst >= 0 && dst < ram.length) ram[dst] = d;
@@ -126,20 +126,20 @@ class Cx4 {
 
   // the next byte of a LoROM address, skipping the lower half of the banks
   static int _nextLoRom(int addr) {
-    addr = (addr + 1) & 0xffffff;
-    return addr & 0x8000 == 0 ? (addr | 0x8000) : addr;
+    addr = (addr + 1).mask24;
+    return !addr.bit15 ? (addr | 0x8000) : addr;
   }
 
   // the program base ($7F49-$7F4B, a LoROM address) as a rom offset
   int _programBase = 0;
 
   int _fetch() {
-    final a = (_programBase + (((_page << 8) | _pc) << 1)) & _romMask;
-    final op = rom[a] | rom[(a + 1) & _romMask] << 8;
+    final a = (_programBase + (_page.shl8 | _pc).shl1) & _romMask;
+    final op = rom[a] | rom[(a + 1) & _romMask].shl8;
     _pc++;
     if (_pc == 0x100) {
       _pc = 0;
-      _page = (_page + 1) & 0xffff;
+      _page = (_page + 1).mask16;
     }
     return op;
   }
@@ -173,7 +173,7 @@ class Cx4 {
       case >= 0x50 && < 0x60:
         return _constants[op - 0x50];
       case >= 0x60 && < 0x70:
-        return _r[op & 0xf];
+        return _r[op.mask4];
     }
     return 0;
   }
@@ -198,37 +198,37 @@ class Cx4 {
       case 0x1c:
         _ramPtr = v;
       case >= 0x60 && < 0x70:
-        _r[op & 0xf] = v;
+        _r[op.mask4] = v;
     }
   }
 
   // A, A*2, A*100h or A*10000h
-  int _shiftedA(int ss) => (_a << const [0, 1, 8, 16][ss]) & 0xffffff;
+  int _shiftedA(int ss) => (_a << const [0, 1, 8, 16][ss]).mask24;
 
   void _setNZ(int v) {
-    _n = v & 0x800000 != 0;
-    _z = v & 0xffffff == 0;
+    _n = v.bit23;
+    _z = v.mask24 == 0;
   }
 
   int _add(int x, int y) {
     final r = x + y;
     _c = r > 0xffffff;
     _setNZ(r);
-    return r & 0xffffff;
+    return r.mask24;
   }
 
   int _sub(int x, int y) {
     final r = x - y;
     _c = r >= 0;
     _setNZ(r);
-    return r & 0xffffff;
+    return r.mask24;
   }
 
   static int _s24(int v) => (v & 0x7fffff) - (v & 0x800000);
 
   void _jump(int op) {
-    if (op & 0x200 != 0) _page = _prgPage;
-    _pc = op & 0xff;
+    if (op.bit9) _page = _prgPage;
+    _pc = op.mask8;
   }
 
   bool _flag(int which) => switch (which) {
@@ -242,68 +242,68 @@ class Cx4 {
     _stack.clear();
     for (var steps = 0; steps < 1 << 22; steps++) {
       final op = _fetch();
-      final ss = (op >> 8) & 3;
-      final operand = op & 0xff;
-      int src() => op & 0x400 != 0 ? operand : _readReg(operand);
+      final ss = op.shr8.mask2;
+      final operand = op.mask8;
+      int src() => op.bit10 ? operand : _readReg(operand);
 
-      switch (op >> 11) {
+      switch (op.shr11) {
         case 0x00: // nop
           break;
         case 0x01: // jmp / jz
-          if (op & 0x400 == 0 || _z) _jump(op);
+          if (!op.bit10 || _z) _jump(op);
         case 0x02: // jc / js
-          if (op & 0x400 == 0 ? _c : _n) _jump(op);
+          if (!op.bit10 ? _c : _n) _jump(op);
         case 0x03: // finish ext_dta: waits for the read, done at once here
           break;
         case 0x04: // skip
-          if (op & 0x400 != 0 && _flag(ss) == (op & 1 != 0)) {
+          if (op.bit10 && _flag(ss) == op.bit0) {
             _fetch();
           }
         case 0x05: // call / callz
-          if (op & 0x400 == 0 || _z) _call(op);
+          if (!op.bit10 || _z) _call(op);
         case 0x06: // callc / calls
-          if (op & 0x400 == 0 ? _c : _n) _call(op);
+          if (!op.bit10 ? _c : _n) _call(op);
         case 0x07: // ret
-          if (op & 0x400 != 0) {
+          if (op.bit10) {
             if (_stack.isEmpty) return;
             final ret = _stack.removeLast();
-            _page = ret >> 8;
-            _pc = ret & 0xff;
+            _page = ret.shr8;
+            _pc = ret.mask8;
           }
         case 0x08: // inc ext_ptr
-          if (op & 0x400 == 0) _extPtr = _nextLoRom(_extPtr);
+          if (!op.bit10) _extPtr = _nextLoRom(_extPtr);
         case 0x09: // cmp op,A / cmp imm,A
           _sub(src(), _shiftedA(ss));
         case 0x0a: // cmp A,op / cmp A,imm
           _sub(_shiftedA(ss), src());
         case 0x0b: // sign expand / -
-          if (op & 0x400 == 0) {
-            if (ss == 1) _a = _a.rel8 & 0xffffff;
-            if (ss == 2) _a = _a.rel16 & 0xffffff;
+          if (!op.bit10) {
+            if (ss == 1) _a = _a.rel8.mask24;
+            if (ss == 2) _a = _a.rel16.mask24;
             _setNZ(_a);
           }
         case 0x0c: // mov
           final v = src();
           switch (ss) {
             case 0:
-              _a = v & 0xffffff;
+              _a = v.mask24;
             case 1:
-              _extDta = v & 0xffffff;
+              _extDta = v.mask24;
             case 3:
-              _prgPage = v & 0xffff;
+              _prgPage = v.mask16;
           }
         case 0x0d: // movb ram_dta.byte, cx4ram[op] / [ram_ptr + imm]
-          final addr = op & 0x400 != 0 ? _ramPtr + operand : _readReg(operand);
+          final addr = op.bit10 ? _ramPtr + operand : _readReg(operand);
           final shift = ss * 8;
           final b = ram[addr % ram.length];
-          _ramDta = (_ramDta & ~(0xff << shift) & 0xffffff) | b << shift;
+          _ramDta = (_ramDta & ~(0xff << shift)).mask24 | b << shift;
         case 0x0e: // mov rom_dta, cx4rom[op]
-          if (op & 0x400 == 0) _romDta = dataRom[_readReg(operand) & 0x3ff];
+          if (!op.bit10) _romDta = dataRom[_readReg(operand).mask10];
         case 0x0f: // mov prg_page.lsb/msb
-          final v = src() & 0xff;
-          _prgPage = ss & 1 == 0
+          final v = src().mask8;
+          _prgPage = !ss.bit0
               ? (_prgPage & 0xff00) | v
-              : (_prgPage & 0x00ff) | v << 8;
+              : _prgPage.mask8 | v.shl8;
         case 0x10: // add A, A*n + op
           _a = _add(_shiftedA(ss), src());
         case 0x11: // sub A, op - A*n
@@ -311,50 +311,50 @@ class Cx4 {
         case 0x12: // sub A, A*n - op
           _a = _sub(_shiftedA(ss), src());
         case 0x13: // smul MH:ML, A, op
-          final r = _s24(_a) * _s24(src() & 0xffffff);
-          _ml = r & 0xffffff;
-          _mh = (r >> 24) & 0xffffff;
+          final r = _s24(_a) * _s24(src().mask24);
+          _ml = r.mask24;
+          _mh = r.shr24.mask24;
         case 0x15: // xor
-          _a = _shiftedA(ss) ^ (src() & 0xffffff);
+          _a = _shiftedA(ss) ^ src().mask24;
           _setNZ(_a);
         case 0x16: // and
           _a = _shiftedA(ss) & src();
           _setNZ(_a);
         case 0x17: // or
-          _a = _shiftedA(ss) | (src() & 0xffffff);
+          _a = _shiftedA(ss) | src().mask24;
           _setNZ(_a);
         case 0x18: // shr
-          _a = _a >> (src() & 0x1f);
+          _a = _a >> src().mask5;
           _setNZ(_a);
         case 0x19: // sar
-          _a = (_s24(_a) >> (src() & 0x1f)) & 0xffffff;
+          _a = (_s24(_a) >> src().mask5).mask24;
           _setNZ(_a);
         case 0x1a: // ror
           final n = src() % 24;
-          _a = ((_a >> n) | (_a << (24 - n))) & 0xffffff;
+          _a = ((_a >> n) | (_a << (24 - n))).mask24;
           _setNZ(_a);
         case 0x1b: // shl
-          _a = (_a << (src() & 0x1f)) & 0xffffff;
+          _a = (_a << src().mask5).mask24;
           _setNZ(_a);
         case 0x1c: // mov op, A
-          if (op & 0x400 == 0) _writeReg(operand, _a);
+          if (!op.bit10) _writeReg(operand, _a);
         case 0x1d: // movb cx4ram[op] / [ram_ptr + imm], ram_dta.byte
-          final addr = op & 0x400 != 0 ? _ramPtr + operand : _readReg(operand);
-          ram[addr % ram.length] = (_ramDta >> (ss * 8)) & 0xff;
+          final addr = op.bit10 ? _ramPtr + operand : _readReg(operand);
+          ram[addr % ram.length] = (_ramDta >> (ss * 8)).mask8;
         case 0x1e: // xchg op, A
-          if (op & 0x400 == 0) {
+          if (!op.bit10) {
             final v = _readReg(operand);
             _writeReg(operand, _a);
-            _a = v & 0xffffff;
+            _a = v.mask24;
           }
         case 0x1f: // stop
-          if (op & 0x400 != 0) return;
+          if (op.bit10) return;
       }
     }
   }
 
   void _call(int op) {
-    _stack.add(_page << 8 | _pc);
+    _stack.add(_page.shl8 | _pc);
     _jump(op);
   }
 }

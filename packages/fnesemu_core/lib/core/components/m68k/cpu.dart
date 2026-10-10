@@ -72,7 +72,7 @@ class M68 {
   set usp(int v) => a.usp = v;
   set ssp(int v) => a.ssp = v;
 
-  int get ccr => _sr & 0xff;
+  int get ccr => _sr.mask8;
 
   int get sr => _sr;
   set sr(int val) {
@@ -105,7 +105,7 @@ class M68 {
   set nf(bool on) => on ? _sr |= bitN : _sr &= ~bitN;
   set xf(bool on) => on ? _sr |= bitX : _sr &= ~bitX;
 
-  int get maskedIntLevel => _sr.shr8 & 0x07;
+  int get maskedIntLevel => _sr.shr8.mask3;
 
   bool get sf => _sr & bitS != 0;
   bool get tf => _sr & bitT != 0;
@@ -255,8 +255,8 @@ class M68 {
     clocks += 2;
     final ex = pc16();
     final modeAn = ex.bit15;
-    final xn = ex.shr12 & 0x07;
-    final size = _bytesByWordLongBit[ex.shr11 & 0x01];
+    final xn = ex.shr12.mask3;
+    final size = _bytesByWordLongBit[ex.shr11.mask1];
     final x = modeAn ? a[xn] : d[xn];
     final disp = ex.rel8;
     // debug(

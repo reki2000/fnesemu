@@ -28,21 +28,21 @@ class MapperMMC4 extends Mapper {
         break;
 
       case 0xa000:
-        _prgBanks[0] = data & 0x0f;
+        _prgBanks[0] = data.mask4;
         break;
 
       case 0xb000:
-        _chrBanks[0] = data & 0x1f;
+        _chrBanks[0] = data.mask5;
         break;
       case 0xc000:
-        _chrBanks[2] = data & 0x1f;
+        _chrBanks[2] = data.mask5;
         break;
 
       case 0xd000:
-        _chrBanks[1] = data & 0x1f;
+        _chrBanks[1] = data.mask5;
         break;
       case 0xe000:
-        _chrBanks[3] = data & 0x1f;
+        _chrBanks[3] = data.mask5;
         break;
 
       case 0xf000:
@@ -54,11 +54,11 @@ class MapperMMC4 extends Mapper {
   @override
   int read(int addr) {
     if (addr & 0xe000 == 0x6000) {
-      return readSram(addr & 0x1fff);
+      return readSram(addr.mask13);
     }
 
     final bank = (addr - 0x8000).shr14; // 0-1
-    final offset = addr & 0x3fff;
+    final offset = addr.mask14;
     return prgRoms[_prgBanks[bank]][offset];
   }
 
@@ -75,9 +75,9 @@ class MapperMMC4 extends Mapper {
       _latch[1] = 2;
     }
 
-    final bank = addr.shr12 & 1;
+    final bank = addr.shr12.mask1;
 
-    return chrRoms[_chrBanks[bank + _latch[bank]]][addr & 0x0fff];
+    return chrRoms[_chrBanks[bank + _latch[bank]]][addr.mask12];
   }
 
   @override

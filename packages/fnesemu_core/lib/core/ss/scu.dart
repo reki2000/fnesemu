@@ -92,7 +92,7 @@ class Scu {
 
   // internal interrupts are masked per bit, A-bus interrupts by IMS bit 15
   int _pendingMask() =>
-      ist & ~ims & 0x3fff | ist & (ims.bit15 ? 0 : 0xffff0000);
+      (ist & ~ims).mask14 | ist & (ims.bit15 ? 0 : 0xffff0000);
 
   int _highestSource() {
     final pending = _pendingMask();
@@ -177,7 +177,7 @@ class Scu {
         _startDmaByFactor(factorTimer1);
       }
     }
-    _timer0Counter = (_timer0Counter + 1) & 0x3ff;
+    _timer0Counter = (_timer0Counter + 1).mask10;
   }
 
   void onSoundRequest() {
@@ -200,7 +200,7 @@ class Scu {
 
   int read32(int addr) {
     if (addr < 0x60) {
-      return dma[addr ~/ 0x20].read(addr & 0x1f);
+      return dma[addr ~/ 0x20].read(addr.mask5);
     }
 
     return switch (addr) {
@@ -222,7 +222,7 @@ class Scu {
   void write32(int addr, int data, int mask) {
     if (addr < 0x60) {
       final ch = dma[addr ~/ 0x20];
-      final reg = addr & 0x1f;
+      final reg = addr.mask5;
       ch.write(reg, ch.read(reg) & ~mask | data & mask);
       if (reg == 0x10 && ch.enabled && ch.factor == factorManual && data.bit0) {
         _execDma(ch);
@@ -246,10 +246,10 @@ class Scu {
         dsp.writeData(data);
         break;
       case 0x90:
-        t0c = (t0c & ~mask | data & mask) & 0x3ff;
+        t0c = (t0c & ~mask | data & mask).mask10;
         break;
       case 0x94:
-        t1s = (t1s & ~mask | data & mask) & 0x1ff;
+        t1s = (t1s & ~mask | data & mask).mask9;
         break;
       case 0x98:
         t1md = (t1md & ~mask | data & mask) & 0x101;
@@ -294,7 +294,7 @@ class Scu {
 
   void _execDma(ScuDma ch) {
     final readAdd = ch.add.bit8 ? 4 : 0;
-    final writeAdd = _writeAddTable[ch.add & 7];
+    final writeAdd = _writeAddTable[ch.add.mask3];
 
     if (ch.indirect) {
       int table = ch.writeAddr & 0x7fffffc;
@@ -348,7 +348,7 @@ class Scu {
       // B-bus is 16-bit wide: the source is read in 16-bit units
       for (int i = 0; i < count; i += 2) {
         final d = src.bit0
-            ? bus.read8(src) << 8 | bus.read8(src + 1)
+            ? bus.read8(src).shl8 | bus.read8(src + 1)
             : bus.read16(src);
         bus.write16(dst, d);
         dst += writeAdd;
@@ -362,10 +362,10 @@ class Scu {
     final dstAdd = writeAdd == 0 ? 0 : (writeAdd < 4 ? 4 : writeAdd);
     int i = 0;
     for (; i + 4 <= count; i += 4) {
-      final d = src & 3 != 0
-          ? bus.read8(src) << 24 |
-              bus.read8(src + 1) << 16 |
-              bus.read8(src + 2) << 8 |
+      final d = src.mask2 != 0
+          ? bus.read8(src).shl24 |
+              bus.read8(src + 1).shl16 |
+              bus.read8(src + 2).shl8 |
               bus.read8(src + 3)
           : bus.read32(src);
       bus.write32(dst, d);
@@ -396,7 +396,7 @@ class ScuDma {
   int md = 0x7;
 
   bool get enabled => en.bit8;
-  int get factor => md & 7;
+  int get factor => md.mask3;
   bool get indirect => md.bit24;
   bool get readUpdate => md.bit16;
   bool get writeUpdate => md.bit8;

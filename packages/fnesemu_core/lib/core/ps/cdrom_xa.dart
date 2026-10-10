@@ -8,7 +8,7 @@ extension CdromXA on Cdrom {
     final s = (shift >= 0 ? value << shift : value >> -shift).rel16;
 
     // apply filter
-    final sample = s + ((old * k0 + older * k1 + 32) >> 6);
+    final sample = s + (old * k0 + older * k1 + 32).shr6;
 
     // clip to 16bit signed
     return sample.max(-32768).min(32767);
@@ -36,10 +36,10 @@ extension CdromXA on Cdrom {
 
     isXaAdpcmBusy = true;
 
-    final isStereo = codingInfo & 0x03 == 1;
-    xaSampleRate = (codingInfo.shr2 & 0x03) == 0 ? 37800 : 18900;
+    final isStereo = codingInfo.mask2 == 1;
+    xaSampleRate = codingInfo.shr2.mask2 == 0 ? 37800 : 18900;
     final isSampleRate18900 = xaSampleRate == 18900;
-    final is8bit = (codingInfo.shr4 & 0x03) == 1;
+    final is8bit = codingInfo.shr4.mask2 == 1;
 
     final buf = List<int>.filled(28, 0);
     // final debugBuffer = [
@@ -56,7 +56,7 @@ extension CdromXA on Cdrom {
       for (int unit = 0; unit < (is8bit ? 4 : 8); unit++) {
         final param = packetData[4 + unit];
         final shift = (is8bit ? 8 : 12) - (param.mask4 > 12 ? 9 : param.mask4);
-        final filter = param.shr4 & 0x03;
+        final filter = param.shr4.mask2;
         final (k0, k1) = _xaFilters[filter];
 
         final oldIndex = !isStereo
@@ -187,7 +187,7 @@ class XaResampler {
   int _applyZigzag(List<int> ring, int table, int p) {
     int sum = 0;
     for (int i = 1; i < 29; i++) {
-      sum += ring[(p - i) & 0x1f] * zigzagTables[table][i] ~/ 0x8000;
+      sum += ring[(p - i).mask5] * zigzagTables[table][i] ~/ 0x8000;
     }
     return sum.min(0x7fff).max(-0x8000);
   }
@@ -197,7 +197,7 @@ class XaResampler {
     for (final val in org) {
       // use 1 sample twice  when 18900Hz
       for (int i = 0; i < 2; i++) {
-        _ring[ch][_p[ch]++ & 0x1f] = val;
+        _ring[ch][(_p[ch]++).mask5] = val;
 
         if (--_step[ch] <= 0) {
           _step[ch] = 6;

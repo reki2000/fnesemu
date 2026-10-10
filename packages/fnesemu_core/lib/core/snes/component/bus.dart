@@ -308,24 +308,24 @@ class Bus implements CpuBus {
         _wramAddr = (_wramAddr & 0x1ff00) | data;
         return;
       case 0x2182:
-        _wramAddr = (_wramAddr & 0x100ff) | data << 8;
+        _wramAddr = (_wramAddr & 0x100ff) | data.shl8;
         return;
       case 0x2183:
-        _wramAddr = (_wramAddr & 0xffff) | (data & 1) << 16;
+        _wramAddr = _wramAddr.mask16 | data.mask1.shl16;
         return;
     }
     if (page == 0x4200) {
       _nmiEnabled = data.bit7;
-      _irqMode = (data >> 4) & 3;
+      _irqMode = data.shr4.mask2;
       if (_irqMode == 0) {
         _irqFlag = false;
         cpu.releaseIrq();
       }
     }
     if (page == 0x4207) _hTime = (_hTime & 0x100) | data;
-    if (page == 0x4208) _hTime = (_hTime & 0xff) | ((data & 1) << 8);
+    if (page == 0x4208) _hTime = _hTime.mask8 | data.mask1.shl8;
     if (page == 0x4209) _vTime = (_vTime & 0x100) | data;
-    if (page == 0x420a) _vTime = (_vTime & 0xff) | ((data & 1) << 8);
+    if (page == 0x420a) _vTime = _vTime.mask8 | data.mask1.shl8;
     if (page == 0x4203) {
       // WRMPYB: unsigned 8x8 multiply of WRMPYA * WRMPYB
       _mulResult = _mmio[0x4202 & 0x3ff] * data;
@@ -364,10 +364,10 @@ class Bus implements CpuBus {
   /// core's approximate CPU-cycle clock. The caller keeps a per-line guard.
   bool timerReached(
       int scanline, int lineStartCycle, int cpuCycle, int cyclesInScanline) {
-    if (_irqMode == 0 || (_irqMode & 2 != 0 && scanline != _vTime)) {
+    if (_irqMode == 0 || (_irqMode.bit1 && scanline != _vTime)) {
       return false;
     }
-    final h = _irqMode & 1 != 0 ? _hTime : 0;
+    final h = _irqMode.bit0 ? _hTime : 0;
     if (h >= 340) return false;
     final target = lineStartCycle + h * cyclesInScanline ~/ 341;
     if (cpuCycle < target) return false;

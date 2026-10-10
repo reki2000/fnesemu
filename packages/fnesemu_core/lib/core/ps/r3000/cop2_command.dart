@@ -132,9 +132,9 @@ extension Cop2Command on Cop2 {
   // V: Vector (0=V0, 1=V1, 2=V2, 3=IR/RGB)
   // T: Translation Vector (0=TR, 1=BK, 2=FC/Bugged, 3=None)
   void mvmva() {
-    final matrixSel = cmd.shr17 & 3;
-    final vectorSel = cmd.shr15 & 3;
-    final transSel = cmd.shr13 & 3;
+    final matrixSel = cmd.shr17.mask2;
+    final vectorSel = cmd.shr15.mask2;
+    final transSel = cmd.shr13.mask2;
 
     final v = switch (vectorSel) {
       0 => v0,

@@ -41,18 +41,18 @@ class BusZ80 {
   }
 
   int read(int addr) {
-    if (addr < 0x4000) return ram[addr & 0x1fff]; // mirror of 0x0000-0x1fff
+    if (addr < 0x4000) return ram[addr.mask13]; // mirror of 0x0000-0x1fff
 
     if (addr < 0x6000) return ym2612.read8(0); // ym2612 a0
 
     if (addr >= 0x8000) {
-      final value = busM68.read16(bank | addr & 0x7fff); // m68 bus
+      final value = busM68.read16(bank | addr.mask15); // m68 bus
       // print(
       //     "z80 read 0x8000-0xffff: ${(bank | addr & 0x7fff).x6} -> ${value.x4}");
       return value.shr8;
     }
 
-    if (addr & 0xff00 == 0x7f00) return busM68.read8(0xc00000 | addr & 0x1f);
+    if (addr & 0xff00 == 0x7f00) return busM68.read8(0xc00000 | addr.mask5);
 
     return 0xff;
   }
@@ -60,13 +60,13 @@ class BusZ80 {
   write(int addr, int data) {
     // ram: 0x2000-0x3fff is a mirror of 0x0000-0x1fff
     if (addr < 0x4000) {
-      ram[addr & 0x1fff] = data;
+      ram[addr.mask13] = data;
       return;
     }
 
     // ym2612: 0x4000-0x5fff
     if (addr < 0x6000) {
-      switch (addr & 0x03) {
+      switch (addr.mask2) {
         case 0x00: // ym2612 a0
           ym2612.writePort8(0, data);
           return;
@@ -91,13 +91,13 @@ class BusZ80 {
 
     // 0x7f00-0x7f1f: vdp & psg
     if (addr & 0xff00 == 0x7f00) {
-      busM68.write8(0xc00000 | addr & 0x1f, data);
+      busM68.write8(0xc00000 | addr.mask5, data);
       return;
     }
 
     // 0x8000-0xffff:  banked m68k address space
     if (addr >= 0x8000) {
-      busM68.write8(bank | addr & 0x7fff, data);
+      busM68.write8(bank | addr.mask15, data);
       return;
     }
   }

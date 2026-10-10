@@ -96,7 +96,7 @@ abstract class Cartridge {
 
   @pragma('vm:prefer-inline')
   int romBank(int bank, int addr) =>
-      rom[((bank & _romBankMask) << 14 | (addr & 0x3fff)) % rom.length];
+      rom[((bank & _romBankMask).shl14 | addr.mask14) % rom.length];
 
   int read(int addr);
   void write(int addr, int data);
@@ -105,7 +105,7 @@ abstract class Cartridge {
   void writeRam(int addr, int data);
 
   int ramOffset(int bank, int addr) =>
-      ramSize == 0 ? 0 : (bank << 13 | (addr & 0x1fff)) % ramSize;
+      ramSize == 0 ? 0 : (bank.shl13 | addr.mask13) % ramSize;
 
   int readRamBank(int bank, int addr) {
     if (!ramEnabled || ramSize == 0) {
@@ -153,23 +153,23 @@ class _Mbc1 extends Cartridge {
 
   @override
   int read(int addr) => addr < 0x4000
-      ? romBank(_mode == 0 ? 0 : _bank2 << 5, addr)
-      : romBank(_bank2 << 5 | _bank1, addr);
+      ? romBank(_mode == 0 ? 0 : _bank2.shl5, addr)
+      : romBank(_bank2.shl5 | _bank1, addr);
 
   @override
   void write(int addr, int data) {
-    switch (addr >> 13) {
+    switch (addr.shr13) {
       case 0:
-        ramEnabled = data & 0x0f == 0x0a;
+        ramEnabled = data.mask4 == 0x0a;
       case 1:
-        _bank1 = data & 0x1f;
+        _bank1 = data.mask5;
         if (_bank1 == 0) {
           _bank1 = 1;
         }
       case 2:
-        _bank2 = data & 3;
+        _bank2 = data.mask2;
       case 3:
-        _mode = data & 1;
+        _mode = data.mask1;
     }
   }
 
@@ -203,10 +203,10 @@ class _Mbc2 extends Cartridge {
     if (addr >= 0x4000) {
       return;
     }
-    if (addr & 0x100 == 0) {
-      ramEnabled = data & 0x0f == 0x0a;
+    if (!addr.bit8) {
+      ramEnabled = data.mask4 == 0x0a;
     } else {
-      _bank = data & 0x0f;
+      _bank = data.mask4;
       if (_bank == 0) {
         _bank = 1;
       }
@@ -215,12 +215,12 @@ class _Mbc2 extends Cartridge {
 
   @override
   int readRam(int addr) =>
-      ramEnabled && ramSize != 0 ? _ramRead(addr & 0x1ff) | 0xf0 : 0xff;
+      ramEnabled && ramSize != 0 ? _ramRead(addr.mask9) | 0xf0 : 0xff;
 
   @override
   void writeRam(int addr, int data) {
     if (ramEnabled && ramSize != 0) {
-      _ramWrite(addr & 0x1ff, data & 0x0f);
+      _ramWrite(addr.mask9, data.mask4);
     }
   }
 
@@ -266,19 +266,19 @@ class _Mbc3 extends Cartridge {
       s % 60,
       s ~/ 60 % 60,
       s ~/ 3600 % 24,
-      days & 0xff,
-      (days >> 8 & 1) | (_halted ? 0x40 : 0) | (_dayCarry ? 0x80 : 0),
+      days.mask8,
+      days.shr8.mask1 | (_halted ? 0x40 : 0) | (_dayCarry ? 0x80 : 0),
     ];
   }
 
   void _writeClock(int reg, int data) {
     final r = _clockRegs();
     r[reg] = data;
-    final days = r[3] | (r[4] & 1) << 8;
+    final days = r[3] | r[4].mask1.shl8;
     final s = days * 86400 + r[2] * 3600 + r[1] * 60 + r[0];
 
-    final halt = r[4] & 0x40 != 0;
-    _dayCarry = r[4] & 0x80 != 0;
+    final halt = r[4].bit6;
+    _dayCarry = r[4].bit7;
 
     if (halt && !_halted) {
       _halted = true;
@@ -296,16 +296,16 @@ class _Mbc3 extends Cartridge {
 
   @override
   void write(int addr, int data) {
-    switch (addr >> 13) {
+    switch (addr.shr13) {
       case 0:
-        ramEnabled = data & 0x0f == 0x0a;
+        ramEnabled = data.mask4 == 0x0a;
       case 1:
-        _romBank = data & 0x7f;
+        _romBank = data.mask7;
         if (_romBank == 0) {
           _romBank = 1;
         }
       case 2:
-        _ramBank = data & 0x0f;
+        _ramBank = data.mask4;
       case 3:
         if (_latch == 0 && data == 1) {
           _latched.setAll(0, _clockRegs());
@@ -319,7 +319,7 @@ class _Mbc3 extends Cartridge {
     if (_ramBank >= 0x08 && _ramBank <= 0x0c) {
       return ramEnabled ? _latched[_ramBank - 8] : 0xff;
     }
-    return readRamBank(_ramBank & 3, addr);
+    return readRamBank(_ramBank.mask2, addr);
   }
 
   @override
@@ -330,7 +330,7 @@ class _Mbc3 extends Cartridge {
       }
       return;
     }
-    writeRamBank(_ramBank & 3, addr, data);
+    writeRamBank(_ramBank.mask2, addr, data);
   }
 
   @override
@@ -349,15 +349,15 @@ class _Mbc5 extends Cartridge {
 
   @override
   void write(int addr, int data) {
-    switch (addr >> 12) {
+    switch (addr.shr12) {
       case 0 || 1:
-        ramEnabled = data & 0x0f == 0x0a;
+        ramEnabled = data.mask4 == 0x0a;
       case 2:
         _romBank = (_romBank & 0x100) | data;
       case 3:
-        _romBank = (_romBank & 0xff) | (data & 1) << 8;
+        _romBank = _romBank.mask8 | data.mask1.shl8;
       case 4 || 5:
-        _ramBank = data & 0x0f;
+        _ramBank = data.mask4;
     }
   }
 

@@ -71,7 +71,7 @@ class SnesFile {
     romType = _at(base + 0x16);
     // the low nibble: 2 = rom+ram+battery, 5/6 = rom+chip+ram+battery,
     // 9 = rom+chip+ram+battery+clock
-    hasBattery = const [2, 5, 6, 9].contains(romType & 0xf);
+    hasBattery = const [2, 5, 6, 9].contains(romType.mask4);
 
     final expansion = _at(base - 3);
     if (_at(base + 0x1a) == 0x33 && expansion > 0 && expansion <= 8) {

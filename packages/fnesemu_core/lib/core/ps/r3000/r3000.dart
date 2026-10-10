@@ -168,8 +168,8 @@ class R3000 {
       // }
     }
 
-    r[delayReg & 0x1f] = delayVal;
-    r[immediateReg & 0x1f] = immediateVal;
+    r[delayReg.mask5] = delayVal;
+    r[immediateReg.mask5] = immediateVal;
 
     r[0] = 0; // r0 is always hardwired to 0.
 
@@ -240,25 +240,25 @@ class R3000 {
   @pragma('vm:unsafe:no-bounds-checks')
   void exec(int inst32) {
     final r = this.r;
-    final rs = (inst32 >> 21) & 0x1f;
-    final rt = (inst32 >> 16) & 0x1f;
+    final rs = inst32.shr21.mask5;
+    final rt = inst32.shr16.mask5;
 
-    switch ((inst32 >> 26) & 0x3f) {
+    switch (inst32.shr26.mask6) {
       case 0x00:
-        final rd = (inst32 >> 11) & 0x1f;
-        switch (inst32 & 0x3f) {
+        final rd = inst32.shr11.mask5;
+        switch (inst32.mask6) {
           case 0x00: // sll
-            immediate(rd, (r[rt] << ((inst32 >> 6) & 0x1f)) & 0xffffffff);
+            immediate(rd, (r[rt] << inst32.shr6.mask5).mask32);
           case 0x02: // srl
-            immediate(rd, r[rt] >> ((inst32 >> 6) & 0x1f));
+            immediate(rd, r[rt] >> inst32.shr6.mask5);
           case 0x03: // sra
-            immediate(rd, (r[rt].rel32 >> ((inst32 >> 6) & 0x1f)) & 0xffffffff);
+            immediate(rd, (r[rt].rel32 >> inst32.shr6.mask5).mask32);
           case 0x04: // sllv
-            immediate(rd, (r[rt] << (r[rs] & 0x1f)) & 0xffffffff);
+            immediate(rd, (r[rt] << r[rs].mask5).mask32);
           case 0x06: // srlv
-            immediate(rd, r[rt] >> (r[rs] & 0x1f));
+            immediate(rd, r[rt] >> r[rs].mask5);
           case 0x07: // srav
-            immediate(rd, (r[rt].rel32 >> (r[rs] & 0x1f)) & 0xffffffff);
+            immediate(rd, (r[rt].rel32 >> r[rs].mask5).mask32);
           case 0x08: // jr
             jump(r[rs]);
           case 0x09: // jalr
@@ -310,20 +310,20 @@ class R3000 {
         final rel = inst32.rel16;
         switch (rt) {
           case 0x10: // bltzal
-            jal(r[rs].rel32 < 0, 31, pc + (rel << 2));
+            jal(r[rs].rel32 < 0, 31, pc + rel.shl2);
           case 0x11: // bgezal
-            jal(r[rs].rel32 >= 0, 31, pc + (rel << 2));
+            jal(r[rs].rel32 >= 0, 31, pc + rel.shl2);
           default:
-            if (rt & 1 == 0) {
+            if (!rt.bit0) {
               branch(r[rs].rel32 < 0, rel); // bltz
             } else {
               branch(r[rs].rel32 >= 0, rel); // bgez
             }
         }
       case 0x02: // j
-        jump(pc & 0xf0000000 | (inst32 & 0x3ffffff) << 2);
+        jump(pc & 0xf0000000 | inst32.mask26.shl2);
       case 0x03: // jal
-        jal(true, 31, pc & 0xf0000000 | (inst32 & 0x3ffffff) << 2);
+        jal(true, 31, pc & 0xf0000000 | inst32.mask26.shl2);
       case 0x04: // beq
         branch(r[rs] == r[rt], inst32.rel16);
       case 0x05: // bne
@@ -335,21 +335,21 @@ class R3000 {
       case 0x08: // addi
         add(rt, r[rs], inst32.rel16);
       case 0x09: // addiu
-        immediate(rt, r[rs] + (inst32.rel16 & 0xffffffff));
+        immediate(rt, r[rs] + inst32.rel16.mask32);
       case 0x0a: // slti
         immediate(rt, r[rs].rel32 < inst32.rel16 ? 1 : 0);
       case 0x0b: // sltiu
-        immediate(rt, r[rs] < (inst32.rel16 & 0xffffffff) ? 1 : 0);
+        immediate(rt, r[rs] < inst32.rel16.mask32 ? 1 : 0);
       case 0x0c: // andi
-        immediate(rt, r[rs] & (inst32 & 0xffff));
+        immediate(rt, r[rs] & inst32.mask16);
       case 0x0d: // ori
-        immediate(rt, r[rs] | (inst32 & 0xffff));
+        immediate(rt, r[rs] | inst32.mask16);
       case 0x0e: // xori
-        immediate(rt, r[rs] ^ (inst32 & 0xffff));
+        immediate(rt, r[rs] ^ inst32.mask16);
       case 0x0f: // lui
-        immediate(rt, (inst32 & 0xffff) << 16);
+        immediate(rt, inst32.mask16.shl16);
       case 0x10:
-        final rd = (inst32 >> 11) & 0x1f;
+        final rd = inst32.shr11.mask5;
         if (rs >= 0x10) {
           execCop0(inst32);
         } else if (rs == 0x00) {
@@ -360,7 +360,7 @@ class R3000 {
           _unknown(inst32);
         }
       case 0x12:
-        final rd = (inst32 >> 11) & 0x1f;
+        final rd = inst32.shr11.mask5;
         if (rs >= 0x10) {
           cop2.execCmd(inst32);
         } else {

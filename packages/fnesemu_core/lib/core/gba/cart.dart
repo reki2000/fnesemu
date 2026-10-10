@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../util/int.dart';
 import '../sram.dart';
 import 'backup.dart';
 
@@ -40,7 +41,7 @@ class Cart {
     if (offset + 2 <= rom.length) {
       return _romData.getUint16(offset, Endian.little);
     }
-    return readRom8(offset) | readRom8(offset + 1) << 8;
+    return readRom8(offset) | readRom8(offset + 1).shl8;
   }
 
   @pragma('vm:prefer-inline')
@@ -49,9 +50,9 @@ class Cart {
       return _romData.getUint32(offset, Endian.little);
     }
     return readRom8(offset) |
-        readRom8(offset + 1) << 8 |
-        readRom8(offset + 2) << 16 |
-        readRom8(offset + 3) << 24;
+        readRom8(offset + 1).shl8 |
+        readRom8(offset + 2).shl16 |
+        readRom8(offset + 3).shl24;
   }
 
   int readSram(int offset) => backup.read8(offset);

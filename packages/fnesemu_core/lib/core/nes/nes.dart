@@ -2,8 +2,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../util/crc32.dart';
+import '../../util/int.dart';
 import '../../util/uint8list.dart';
-
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../pad_button.dart';
@@ -283,8 +283,8 @@ class Nes implements Core, FrameRunner {
       bus.mapper.setSramRw(_sram.read8, _sram.write8);
     } else {
       final sram = Uint8List(32 * 1024);
-      bus.mapper.setSramRw((addr) => sram[addr & 0x7fff], (addr, value) {
-        sram[addr & 0x7fff] = value;
+      bus.mapper.setSramRw((addr) => sram[addr.mask15], (addr, value) {
+        sram[addr.mask15] = value;
       });
     }
 

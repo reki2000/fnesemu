@@ -71,7 +71,7 @@ class MapperVrc7 extends Mapper {
   void write(int addr, int data) {
     if (addr & 0xe000 == 0x6000) {
       if (_ramEnabled) {
-        writeSram(addr & 0x1fff, data);
+        writeSram(addr.mask13, data);
       }
       return;
     }
@@ -89,12 +89,12 @@ class MapperVrc7 extends Mapper {
 
     switch (addr & 0xf000) {
       case 0x8000:
-        _prgBank[high ? 1 : 0] = data & 0x3f & _prgBankMask;
+        _prgBank[high ? 1 : 0] = data.mask6 & _prgBankMask;
         return;
 
       case 0x9000:
         if (!high) {
-          _prgBank[2] = data & 0x3f & _prgBankMask;
+          _prgBank[2] = data.mask6 & _prgBankMask;
         }
         return;
 
@@ -126,8 +126,8 @@ class MapperVrc7 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = addr.shr13 & 0x03;
-    final offset = addr & 0x1fff;
+    final bank = addr.shr13.mask2;
+    final offset = addr.mask13;
 
     if ((addr & 0xe000) == 0x6000) {
       return _ramEnabled ? readSram(offset) : 0xff;
@@ -141,7 +141,7 @@ class MapperVrc7 extends Mapper {
   @override
   int readVram(int addr) {
     final bank = addr.shr10;
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
     return chrRoms[_chrBank[bank]][offset];
   }
@@ -153,7 +153,7 @@ class MapperVrc7 extends Mapper {
     }
 
     final bank = addr.shr10;
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
     chrRoms[_chrBank[bank]][offset] = data;
   }
@@ -169,7 +169,7 @@ class MapperVrc7 extends Mapper {
   void _setControl(int data) {
     _ramEnabled = data.bit7;
     _apu.mute = data.bit6;
-    mirror(_mirrors[data & 0x03]);
+    mirror(_mirrors[data.mask2]);
   }
 
   void _setIrqControl(int data) {

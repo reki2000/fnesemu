@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// RF5C164: eight channels of sign/magnitude PCM, with 11 fractional bits.
 class CdPcm {
@@ -24,20 +25,20 @@ class CdPcm {
   }
 
   int read(int address) {
-    final offset = (address & 0x3fff) >> 1;
-    if (offset >= 0x1000) return ram[(_bank << 12) | (offset & 0xfff)];
+    final offset = address.mask14.shr1;
+    if (offset >= 0x1000) return ram[_bank.shl12 | offset.mask12];
     if (offset >= 0x10 && offset < 0x20) {
-      final c = _channels[(offset - 0x10) >> 1];
-      return (c.position >> (11 + (offset.isOdd ? 8 : 0))) & 0xff;
+      final c = _channels[(offset - 0x10).shr1];
+      return (c.position >> (11 + (offset.isOdd ? 8 : 0))).mask8;
     }
     return 0xff;
   }
 
   void write(int address, int data) {
     data &= 0xff;
-    final offset = (address & 0x3fff) >> 1;
+    final offset = address.mask14.shr1;
     if (offset >= 0x1000) {
-      ram[(_bank << 12) | (offset & 0xfff)] = data;
+      ram[_bank.shl12 | offset.mask12] = data;
       return;
     }
     final c = _channels[_channel];
@@ -49,25 +50,25 @@ class CdPcm {
       case 2:
         c.step = (c.step & 0xff00) | data;
       case 3:
-        c.step = (c.step & 0xff) | (data << 8);
+        c.step = c.step.mask8 | data.shl8;
       case 4:
         c.loop = (c.loop & 0xff00) | data;
       case 5:
-        c.loop = (c.loop & 0xff) | (data << 8);
+        c.loop = c.loop.mask8 | data.shl8;
       case 6:
-        c.start = data << 8;
-        if ((_off & (1 << _channel)) != 0) c.position = c.start << 11;
+        c.start = data.shl8;
+        if ((_off & (1 << _channel)) != 0) c.position = c.start.shl11;
       case 7:
-        _enabled = (data & 0x80) != 0;
-        if ((data & 0x40) != 0) {
-          _channel = data & 7;
+        _enabled = data.bit7;
+        if (data.bit6) {
+          _channel = data.mask3;
         } else {
-          _bank = data & 15;
+          _bank = data.mask4;
         }
       case 8:
         for (int i = 0; i < 8; i++) {
           if ((data & (1 << i)) != 0) {
-            _channels[i].position = _channels[i].start << 11;
+            _channels[i].position = _channels[i].start.shl11;
           }
         }
         _off = data;
@@ -83,16 +84,16 @@ class CdPcm {
       for (int i = 0; i < 8; i++) {
         if ((_off & (1 << i)) != 0) continue;
         final c = _channels[i];
-        int value = ram[(c.position >> 11) & 0xffff];
+        int value = ram[c.position.shr11.mask16];
         if (value == 0xff) {
-          c.position = c.loop << 11;
+          c.position = c.loop.shl11;
           value = ram[c.loop];
           if (value == 0xff) continue;
         }
         final amplitude =
-            ((value & 0x80) != 0 ? 1 : -1) * (value & 0x7f) * c.envelope;
-        _left += amplitude * (c.pan & 15) / (32 * 32768);
-        _right += amplitude * (c.pan >> 4) / (32 * 32768);
+            (value.bit7 ? 1 : -1) * value.mask7 * c.envelope;
+        _left += amplitude * c.pan.mask4 / (32 * 32768);
+        _right += amplitude * c.pan.shr4 / (32 * 32768);
         c.position = (c.position + c.step) & 0x7ffffff;
       }
     }

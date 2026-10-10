@@ -159,7 +159,7 @@ class N64Graphics {
           case 0x00 || 0x02 || 0x03 || 0x04 || 0x08:
             break; // NOOP, MODIFYVTX, CULLDL, BRANCH_Z, LINE3D are not needed
           case 0x01:
-            final n = (w0 >> 12) & 0xff, end = (w0 >> 1) & 0x7f;
+            final n = w0.shr12.mask8, end = w0.shr1.mask7;
             _loadVertices(resolve(w1), end - n, n);
           case 0x05:
             drawIndices(w0, 2);
@@ -167,8 +167,8 @@ class N64Graphics {
             drawIndices(w0, 2);
             drawIndices(w1, 2);
           case 0xd7:
-            activeTile = (w0 >> 8) & 7;
-            textureOn = ((w0 >> 1) & 0x7f) != 0;
+            activeTile = w0.shr8.mask3;
+            textureOn = w0.shr1.mask7 != 0;
             textureS = w1.shr16.mask16 / 65536;
             textureT = w1.mask16 / 65536;
           case 0xd8:
@@ -179,9 +179,9 @@ class N64Graphics {
             // w0 holds the inverted clear mask, w1 the bits to set
             geometry2 = (geometry2 & w0.mask24) | w1;
             geometry = (geometry2.bit0 ? 1 : 0) |
-                (geometry2 & 0x200 != 0 ? 0x1000 : 0) |
-                (geometry2 & 0x400 != 0 ? 0x2000 : 0) |
-                (geometry2 & 0x20000 != 0 ? 0x20000 : 0);
+                (geometry2.bit9 ? 0x1000 : 0) |
+                (geometry2.bit10 ? 0x2000 : 0) |
+                (geometry2.bit17 ? 0x20000 : 0);
           case 0xda:
             final flags = w0.mask8 ^ 1, m = matrix(resolve(w1));
             if (flags.bit2) {
@@ -196,14 +196,14 @@ class N64Graphics {
               model = flags.bit1 ? m : multiply(m, model);
             }
           case 0xdb:
-            final index = (w0 >> 16) & 0xff, offset = w0.mask16;
+            final index = w0.shr16.mask8, offset = w0.mask16;
             if (index == 0x06) {
               segments[(offset ~/ 4).mask4] = w1.mask24;
             } else if (index == 0x02) {
               numLights = w1 ~/ 24;
             }
           case 0xdc:
-            final index = w0.mask8, offset = ((w0 >> 8) & 0xff) * 8;
+            final index = w0.mask8, offset = w0.shr8.mask8 * 8;
             final addr = resolve(w1);
             if (index == 8) {
               scale = List.generate(3, (i) => signed(addr + i * 2, 2) / 4);
@@ -232,8 +232,8 @@ class N64Graphics {
           case 0xe2 || 0xe3:
             // the field is addressed from the top bit: shift = 32 - ofs - len
             final length = w0.mask8 + 1,
-                shift = 32 - ((w0 >> 8) & 0xff) - length;
-            final mask = (((1 << length) - 1) << shift) & 0xffffffff;
+                shift = 32 - w0.shr8.mask8 - length;
+            final mask = (((1 << length) - 1) << shift).mask32;
             if (op == 0xe2) {
               otherLow = (otherLow & ~mask) | (w1 & mask);
             } else {

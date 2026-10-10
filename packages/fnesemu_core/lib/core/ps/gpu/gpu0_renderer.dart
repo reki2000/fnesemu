@@ -144,7 +144,7 @@ extension Gp0Renderer on Gpu {
       return false;
     }
     final c15 = c24.c15; // flat polygons are not dithered
-    final semi = status.shr5 & 0x03;
+    final semi = status.shr5.mask2;
 
     for (int y = p0.y; y < p2.y; y++) {
       _span(p0, p1, p2, y, false);
@@ -166,7 +166,7 @@ extension Gp0Renderer on Gpu {
     if (_tooLarge(p0, p1) || _tooLarge(p1, p2) || _tooLarge(p0, p2)) {
       return false;
     }
-    final semi = status.shr5 & 0x03;
+    final semi = status.shr5.mask2;
     final dithering = status.bit9;
 
     for (int y = p0.y; y < p2.y; y++) {
@@ -188,9 +188,9 @@ extension Gp0Renderer on Gpu {
         final b = (lb * rest + rb * part + half) ~/ width;
         final int c15;
         if (!dithering) {
-          c15 = b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3 & 0x1f;
+          c15 = b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3.mask5;
         } else {
-          final d = Gpu._ditherV[x & 3 | (y & 3).shl2];
+          final d = Gpu._ditherV[x.mask2 | y.mask2.shl2];
           c15 = Gpu._c8toC5(r + d) |
               Gpu._c8toC5(g + d).shl5 |
               Gpu._c8toC5(b + d).shl10;
@@ -213,12 +213,12 @@ extension Gp0Renderer on Gpu {
     final clut = c[2].shr16;
     final page = c[gouraud ? 5 : 4].shr16;
 
-    final semiTransparent = page.shr5 & 0x03;
+    final semiTransparent = page.shr5.mask2;
 
     final baseX = page.shl6 & 0x3c0;
     final baseY = page.shl4 & 0x100;
-    final clutMode = page.shr7 & 3;
-    final clutBase = (clut.shr6 & yMask) * 1024 + (clut & 0x3f).shl4;
+    final clutMode = page.shr7.mask2;
+    final clutBase = (clut.shr6 & yMask) * 1024 + clut.mask6.shl4;
 
     // 0c,1xy,2uv   3c,4xy,5uv  6c,7xy,8uv   9c,10xy,11uv
     // 0c,1xy,2uv   3xy,4uv  5xy,6uv  7xy,8uv
@@ -299,7 +299,7 @@ extension Gp0Renderer on Gpu {
       final rr = right.r, rg = right.g, rb = right.b;
       final width = rx - lx;
       final half = width ~/ 2;
-      final dy = (y & 3).shl2;
+      final dy = y.mask2.shl2;
 
       for (int x = lx; x < rx; x++) {
         final part = x - lx;
@@ -322,10 +322,10 @@ extension Gp0Renderer on Gpu {
               g = mg;
               b = mb;
             }
-            final d = dithering ? Gpu._ditherV[x & 3 | dy] : 0;
-            c16 = Gpu._c8toC5(((texColor & 0x1f) * r).shr4 + d) |
-                Gpu._c8toC5(((texColor.shr5 & 0x1f) * g).shr4 + d).shl5 |
-                Gpu._c8toC5(((texColor.shr10 & 0x1f) * b).shr4 + d).shl10 |
+            final d = dithering ? Gpu._ditherV[x.mask2 | dy] : 0;
+            c16 = Gpu._c8toC5((texColor.mask5 * r).shr4 + d) |
+                Gpu._c8toC5((texColor.shr5.mask5 * g).shr4 + d).shl5 |
+                Gpu._c8toC5((texColor.shr10.mask5 * b).shr4 + d).shl10 |
                 texColor & 0x8000;
           }
           _plot(x, y, c16, transparent && texColor.bit15, semiTransparent);

@@ -35,7 +35,7 @@ class Bus {
     }
 
     if (addr < 0x3f00) {
-      return vram[_mirror.mask(addr & 0x0fff)];
+      return vram[_mirror.mask(addr.mask12)];
     }
 
     log("invalid vram addr ${addr.x4}");
@@ -48,7 +48,7 @@ class Bus {
     }
 
     if (addr < 0x3f00) {
-      vram[_mirror.mask(addr & 0x0fff)] = val;
+      vram[_mirror.mask(addr.mask12)] = val;
       return;
     }
 
@@ -59,9 +59,9 @@ class Bus {
 
   int read(int addr) {
     if (addr < 0x2000) {
-      return ram[addr & 0x7ff];
+      return ram[addr.mask11];
     } else if (addr < 0x4000) {
-      return ppu.read(0x2000 | (addr & 0x07));
+      return ppu.read(0x2000 | addr.mask3);
     } else if (addr == 0x4014) {
       return ppu.read(addr);
     } else if (addr == 0x4016 || addr == 0x4017) {
@@ -77,9 +77,9 @@ class Bus {
 
   void write(int addr, int data) {
     if (addr < 0x2000) {
-      ram[addr & 0x7ff] = data & 0xff;
+      ram[addr.mask11] = data.mask8;
     } else if (addr < 0x4000) {
-      ppu.write(0x2000 | (addr & 0x07), data);
+      ppu.write(0x2000 | addr.mask3, data);
     } else if (0x4014 == addr) {
       final src = data.shl8;
       ppu.onDMA(List.generate(256, (i) => read(src + i)));

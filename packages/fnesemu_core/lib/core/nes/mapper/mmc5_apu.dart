@@ -38,7 +38,7 @@ class _Pulse {
     dutyType = val.shr6;
     halt = val.bit5;
     constantVolume = val.bit4;
-    volumeOrPeriod = val & 0x0f;
+    volumeOrPeriod = val.mask4;
   }
 
   void writeFreqLow(int val) {
@@ -46,9 +46,9 @@ class _Pulse {
   }
 
   void writeFreqHigh(int val) {
-    freq = freq.setH8(val & 0x07);
+    freq = freq.setH8(val.mask3);
     if (enabled) {
-      lengthCounter = _lengthTable[val.shr3 & 0x1f];
+      lengthCounter = _lengthTable[val.shr3.mask5];
     }
     _index = 0;
     _envStart = true;
@@ -92,7 +92,7 @@ class _Pulse {
     }
     if (_timer <= 0) {
       _timer = freq;
-      _index = (_index + 1) & 0x07;
+      _index = (_index + 1).mask3;
     } else {
       _timer--;
     }
@@ -158,7 +158,7 @@ class Mmc5Apu {
       buffer = Float32List(cycles);
     }
 
-    final pcmOut = _pcmOutTable[pcm >> 1];
+    final pcmOut = _pcmOutTable[pcm.shr1];
     for (int i = 0; i < cycles; i++) {
       _tickAcc += 240;
       if (_tickAcc >= _apuRate) {

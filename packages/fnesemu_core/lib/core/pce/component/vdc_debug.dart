@@ -69,7 +69,7 @@ extension VdcDebug on Vdc {
                 final p01 = pattern01 >> shiftBits;
                 final p23 = pattern23 >> shiftBits;
 
-                final color = (p01 & 0x01) |
+                final color = p01.mask1 |
                     p01.shr7 & 0x02 |
                     p23.shl2 & 0x04 |
                     p23.shr5 & 0x08;
@@ -135,16 +135,16 @@ extension VdcDebug on Vdc {
         final palette = pattern.shr12.shl4;
 
         for (int y = 0; y < tileSize; y++) {
-          final addr = (pattern & 0xfff) * 16 + y;
+          final addr = pattern.mask12 * 16 + y;
           final pattern01 = vram[addr];
           final pattern23 = vram[addr + 8];
 
           for (int x = 0; x < tileSize; x++) {
-            final shiftBits = (7 - (x & 7));
+            final shiftBits = (7 - x.mask3);
             final p01 = pattern01 >> shiftBits;
             final p23 = pattern23 >> shiftBits;
 
-            final color = (p01 & 0x01) |
+            final color = p01.mask1 |
                 p01.shr7 & 0x02 |
                 p23.shl2 & 0x04 |
                 p23.shr5 & 0x08;

@@ -68,10 +68,10 @@ class Vdp1 {
       0x12 => lopr,
       0x14 => copr,
       0x16 => 0x1000 |
-          (ptmr & 3) << 8 |
-          (fbcr & 0x1c) << 3 |
-          (fbcr & 2) << 3 |
-          (tvmr & 0xf),
+          ptmr.mask2.shl8 |
+          (fbcr & 0x1c).shl3 |
+          (fbcr & 2).shl3 |
+          tvmr.mask4,
       _ => 0,
     };
   }
@@ -79,10 +79,10 @@ class Vdp1 {
   void writeReg(int addr, int data) {
     switch (addr & 0x1e) {
       case 0x00:
-        tvmr = data & 0xf;
+        tvmr = data.mask4;
         break;
       case 0x02:
-        fbcr = data & 0x1f;
+        fbcr = data.mask5;
         if (fbcr.bit1) {
           if (fbcr.bit0) {
             _manualChange = true;
@@ -92,7 +92,7 @@ class Vdp1 {
         }
         break;
       case 0x04:
-        ptmr = data & 3;
+        ptmr = data.mask2;
         if (ptmr == 1) {
           _draw();
         }
@@ -114,17 +114,17 @@ class Vdp1 {
 
   // ---- frame buffer access from CPU ----
 
-  int readFb16(int addr) => drawFb[(addr >> 1) & 0x1ffff];
+  int readFb16(int addr) => drawFb[addr.shr1 & 0x1ffff];
 
   void writeFb16(int addr, int data, int mask) {
-    final i = (addr >> 1) & 0x1ffff;
+    final i = addr.shr1 & 0x1ffff;
     drawFb[i] = drawFb[i] & ~mask | data & mask;
   }
 
   void writeFb8(int addr, int data) {
-    final i = (addr >> 1) & 0x1ffff;
+    final i = addr.shr1 & 0x1ffff;
     drawFb[i] =
-        addr.bit0 ? drawFb[i] & 0xff00 | data : drawFb[i] & 0x00ff | data << 8;
+        addr.bit0 ? drawFb[i] & 0xff00 | data : drawFb[i].mask8 | data.shl8;
   }
 
   // ---- frame change ----
@@ -168,10 +168,10 @@ class Vdp1 {
   }
 
   void _erase(Uint16List fb) {
-    final x1 = ((ewlr >> 9) & 0x3f) * 8;
-    final y1 = ewlr & 0x1ff;
-    final x3 = ((ewrr >> 9) & 0x7f) * 8;
-    final y3 = ewrr & 0x1ff;
+    final x1 = ewlr.shr9.mask6 * 8;
+    final y1 = ewlr.mask9;
+    final x3 = ewrr.shr9.mask7 * 8;
+    final y3 = ewrr.mask9;
 
     for (int y = y1; y <= y3 && y < fbHeight; y++) {
       final base = y * fbWidth;
@@ -197,7 +197,7 @@ class Vdp1 {
 
     for (; commands < 20000; commands++) {
       final ctrl = _r16(addr);
-      copr = addr >> 3;
+      copr = addr.shr3;
 
       if (ctrl.bit15) {
         break;
@@ -207,10 +207,10 @@ class Vdp1 {
         _execCommand(addr, ctrl);
       }
 
-      lopr = addr >> 3;
+      lopr = addr.shr3;
 
-      final link = _r16(addr + 2) << 3;
-      switch ((ctrl >> 12) & 3) {
+      final link = _r16(addr + 2).shl3;
+      switch (ctrl.shr12.mask2) {
         case 0:
           addr += 0x20;
           break;
@@ -236,7 +236,7 @@ class Vdp1 {
     }
 
     edsr |= 2;
-    _drawEndWait = 200 + commands * 20 + (_pixels >> 1);
+    _drawEndWait = 200 + commands * 20 + _pixels.shr1;
   }
 
   // command parameters
@@ -248,15 +248,15 @@ class Vdp1 {
   final _grd = Int32List(12); // gouraud rgb for A, B, C, D
 
   void _execCommand(int addr, int ctrl) {
-    final cmd = ctrl & 0xf;
+    final cmd = ctrl.mask4;
 
     _pmod = _r16(addr + 0x04);
     _colr = _r16(addr + 0x06);
-    _srca = _r16(addr + 0x08) << 3;
+    _srca = _r16(addr + 0x08).shl3;
     final size = _r16(addr + 0x0a);
-    _texW = ((size >> 8) & 0x3f) * 8;
-    _texH = size & 0xff;
-    _dir = (ctrl >> 4) & 3;
+    _texW = size.shr8.mask6 * 8;
+    _texH = size.mask8;
+    _dir = ctrl.shr4.mask2;
 
     final xa = _r16(addr + 0x0c).rel11;
     final ya = _r16(addr + 0x0e).rel11;
@@ -267,13 +267,13 @@ class Vdp1 {
     final xd = _r16(addr + 0x18).rel11;
     final yd = _r16(addr + 0x1a).rel11;
 
-    if (_pmod & 7 >= 4) {
-      final g = _r16(addr + 0x1c) << 3;
+    if (_pmod.mask3 >= 4) {
+      final g = _r16(addr + 0x1c).shl3;
       for (int i = 0; i < 4; i++) {
         final c = _r16(g + i * 2);
-        _grd[i * 3 + 0] = c & 0x1f;
-        _grd[i * 3 + 1] = (c >> 5) & 0x1f;
-        _grd[i * 3 + 2] = (c >> 10) & 0x1f;
+        _grd[i * 3 + 0] = c.mask5;
+        _grd[i * 3 + 1] = c.shr5.mask5;
+        _grd[i * 3 + 2] = c.shr10.mask5;
       }
     }
 
@@ -299,7 +299,7 @@ class Vdp1 {
         final ys = [ya, yb, yc, yd];
         final gi = [0, 1, 2, 3];
         for (int i = 0; i < 4; i++) {
-          final j = (i + 1) & 3;
+          final j = (i + 1).mask2;
           _drawLine(xs[i] + _localX, ys[i] + _localY, xs[j] + _localX,
               ys[j] + _localY, gi[i], gi[j]);
         }
@@ -308,14 +308,14 @@ class Vdp1 {
         _drawLine(xa + _localX, ya + _localY, xb + _localX, yb + _localY, 0, 1);
         break;
       case 0x8 || 0xb: // user clipping
-        _userX1 = _r16(addr + 0x0c) & 0x3ff;
-        _userY1 = _r16(addr + 0x0e) & 0x1ff;
-        _userX2 = _r16(addr + 0x14) & 0x3ff;
-        _userY2 = _r16(addr + 0x16) & 0x1ff;
+        _userX1 = _r16(addr + 0x0c).mask10;
+        _userY1 = _r16(addr + 0x0e).mask9;
+        _userX2 = _r16(addr + 0x14).mask10;
+        _userY2 = _r16(addr + 0x16).mask9;
         break;
       case 0x9: // system clipping
-        _sysClipX = _r16(addr + 0x14) & 0x3ff;
-        _sysClipY = _r16(addr + 0x16) & 0x1ff;
+        _sysClipX = _r16(addr + 0x14).mask10;
+        _sysClipY = _r16(addr + 0x16).mask9;
         break;
       case 0xa: // local coordinate
         _localX = _r16(addr + 0x0c).rel11;
@@ -325,7 +325,7 @@ class Vdp1 {
   }
 
   void _scaledSprite(int ctrl, int xa, int ya, int xb, int yb, int xc, int yc) {
-    final zp = (ctrl >> 8) & 0xf;
+    final zp = ctrl.shr8.mask4;
     int x0, y0, x1, y1;
 
     if (zp == 0) {
@@ -336,12 +336,12 @@ class Vdp1 {
     } else {
       final w = xb;
       final h = yb;
-      x0 = switch (zp & 3) {
+      x0 = switch (zp.mask2) {
         2 => xa - w ~/ 2,
         3 => xa - w,
         _ => xa,
       };
-      y0 = switch ((zp >> 2) & 3) {
+      y0 = switch (zp.shr2.mask2) {
         2 => ya - h ~/ 2,
         3 => ya - h,
         _ => ya,
@@ -362,26 +362,26 @@ class Vdp1 {
 
   @pragma('vm:prefer-inline')
   int _texel(int u, int v) {
-    final mode = (_pmod >> 3) & 7;
+    final mode = _pmod.shr3.mask3;
     final ecd = _pmod.bit7;
     final spd = _pmod.bit6;
 
     switch (mode) {
       case 0 || 1:
-        final b = vram[(_srca + ((v * _texW + u) >> 1)) & 0x7ffff];
-        final dot = u.bit0 ? b & 0xf : b >> 4;
+        final b = vram[(_srca + (v * _texW + u).shr1) & 0x7ffff];
+        final dot = u.bit0 ? b.mask4 : b.shr4;
         if (dot == 0xf && !ecd) return _endCode;
         if (dot == 0 && !spd) return _transparent;
         return mode == 0
             ? (_colr & 0xfff0) | dot
-            : _r16((_colr << 3) + dot * 2);
+            : _r16(_colr.shl3 + dot * 2);
       case 2 || 3 || 4:
         final dot = vram[(_srca + v * _texW + u) & 0x7ffff];
         if (dot == 0xff && !ecd) return _endCode;
         if (dot == 0 && !spd) return _transparent;
         return switch (mode) {
-          2 => (_colr & 0xffc0) | dot & 0x3f,
-          3 => (_colr & 0xff80) | dot & 0x7f,
+          2 => (_colr & 0xffc0) | dot.mask6,
+          3 => (_colr & 0xff80) | dot.mask7,
           _ => (_colr & 0xff00) | dot,
         };
       default:
@@ -410,9 +410,9 @@ class Vdp1 {
     return false;
   }
 
-  static int _half(int c) => (c >> 1) & 0x3def | 0x8000;
+  static int _half(int c) => c.shr1 & 0x3def | 0x8000;
 
-  static int _avg(int a, int b) => ((a & 0x7bde) + (b & 0x7bde) >> 1) | 0x8000;
+  static int _avg(int a, int b) => ((a & 0x7bde) + (b & 0x7bde)).shr1 | 0x8000;
 
   // gouraud values in 5.16 fixed point
   int _gr = 0, _gg = 0, _gb = 0;
@@ -422,7 +422,7 @@ class Vdp1 {
     if (_clipped(x, y)) {
       return;
     }
-    if (_pmod.bit8 && (x ^ y) & 1 != 0) {
+    if (_pmod.bit8 && (x ^ y).bit0) {
       return; // mesh
     }
 
@@ -435,7 +435,7 @@ class Vdp1 {
       return;
     }
 
-    final calc = _pmod & 7;
+    final calc = _pmod.mask3;
     if (calc == 0 || !color.bit15) {
       if (calc == 1) return; // shadow on palette data: nothing
       fb[i] = color;
@@ -464,13 +464,13 @@ class Vdp1 {
   }
 
   int _gouraud(int c) {
-    int r = (c & 0x1f) + (_gr >> 16) - 16;
-    int g = ((c >> 5) & 0x1f) + (_gg >> 16) - 16;
-    int b = ((c >> 10) & 0x1f) + (_gb >> 16) - 16;
+    int r = c.mask5 + _gr.shr16 - 16;
+    int g = c.shr5.mask5 + _gg.shr16 - 16;
+    int b = c.shr10.mask5 + _gb.shr16 - 16;
     r = r < 0 ? 0 : (r > 31 ? 31 : r);
     g = g < 0 ? 0 : (g > 31 ? 31 : g);
     b = b < 0 ? 0 : (b > 31 ? 31 : b);
-    return 0x8000 | b << 10 | g << 5 | r;
+    return 0x8000 | b.shl10 | g.shl5 | r;
   }
 
   // ---- primitives ----
@@ -496,7 +496,7 @@ class Vdp1 {
 
     final dw = x1 - x0 + 1;
     final dh = y1 - y0 + 1;
-    final gouraud = _pmod & 7 >= 4;
+    final gouraud = _pmod.mask3 >= 4;
 
     final ys = y0 < 0 ? 0 : y0;
     final ye = y1 > _sysClipY ? _sysClipY : y1;
@@ -543,11 +543,11 @@ class Vdp1 {
   }
 
   void _bilinearGouraud(int tx, int ty) {
-    int lerp(int a, int b, int t) => (a << 16) + (b - a) * t;
+    int lerp(int a, int b, int t) => a.shl16 + (b - a) * t;
     int ch(int c) {
       final top = lerp(_grd[c], _grd[3 + c], tx);
       final bottom = lerp(_grd[9 + c], _grd[6 + c], tx);
-      return top + (((bottom - top) * ty) >> 16);
+      return top + ((bottom - top) * ty).shr16;
     }
 
     _gr = ch(0);
@@ -575,26 +575,26 @@ class Vdp1 {
       return;
     }
 
-    final gouraud = _pmod & 7 >= 4;
+    final gouraud = _pmod.mask3 >= 4;
 
     for (int i = 0; i <= steps; i++) {
       final t = i * 65536 ~/ steps;
-      final lx = ax + (((dx - ax) * t + 0x8000) >> 16);
-      final ly = ay + (((dy - ay) * t + 0x8000) >> 16);
-      final rx = bx + (((cx - bx) * t + 0x8000) >> 16);
-      final ry = by + (((cy - by) * t + 0x8000) >> 16);
+      final lx = ax + ((dx - ax) * t + 0x8000).shr16;
+      final ly = ay + ((dy - ay) * t + 0x8000).shr16;
+      final rx = bx + ((cx - bx) * t + 0x8000).shr16;
+      final ry = by + ((cy - by) * t + 0x8000).shr16;
 
       int v = textured ? (i * _texH) ~/ (steps + 1) : 0;
       if (_dir.bit1) v = _texH - 1 - v;
 
       int glR = 0, glG = 0, glB = 0, grR = 0, grG = 0, grB = 0;
       if (gouraud) {
-        glR = (_grd[0] << 16) + (_grd[9] - _grd[0]) * t;
-        glG = (_grd[1] << 16) + (_grd[10] - _grd[1]) * t;
-        glB = (_grd[2] << 16) + (_grd[11] - _grd[2]) * t;
-        grR = (_grd[3] << 16) + (_grd[6] - _grd[3]) * t;
-        grG = (_grd[4] << 16) + (_grd[7] - _grd[4]) * t;
-        grB = (_grd[5] << 16) + (_grd[8] - _grd[5]) * t;
+        glR = _grd[0].shl16 + (_grd[9] - _grd[0]) * t;
+        glG = _grd[1].shl16 + (_grd[10] - _grd[1]) * t;
+        glB = _grd[2].shl16 + (_grd[11] - _grd[2]) * t;
+        grR = _grd[3].shl16 + (_grd[6] - _grd[3]) * t;
+        grG = _grd[4].shl16 + (_grd[7] - _grd[4]) * t;
+        grB = _grd[5].shl16 + (_grd[8] - _grd[5]) * t;
       }
 
       _texLine(
@@ -632,9 +632,9 @@ class Vdp1 {
       if (color != _transparent) {
         if (gouraud) {
           final t = n == 0 ? 0 : j * 65536 ~/ n;
-          _gr = glR + (((grR - glR) >> 8) * t >> 8);
-          _gg = glG + (((grG - glG) >> 8) * t >> 8);
-          _gb = glB + (((grB - glB) >> 8) * t >> 8);
+          _gr = glR + ((grR - glR).shr8 * t).shr8;
+          _gg = glG + ((grG - glG).shr8 * t).shr8;
+          _gb = glB + ((grB - glB).shr8 * t).shr8;
         }
         _plot(px, py, color);
       }
@@ -661,7 +661,7 @@ class Vdp1 {
   }
 
   void _drawLine(int x0, int y0, int x1, int y1, int g0, int g1) {
-    final gouraud = _pmod & 7 >= 4;
+    final gouraud = _pmod.mask3 >= 4;
     _texLine(
         x0,
         y0,
@@ -670,12 +670,12 @@ class Vdp1 {
         0,
         false,
         gouraud,
-        _grd[g0 * 3] << 16,
-        _grd[g0 * 3 + 1] << 16,
-        _grd[g0 * 3 + 2] << 16,
-        _grd[g1 * 3] << 16,
-        _grd[g1 * 3 + 1] << 16,
-        _grd[g1 * 3 + 2] << 16);
+        _grd[g0 * 3].shl16,
+        _grd[g0 * 3 + 1].shl16,
+        _grd[g0 * 3 + 2].shl16,
+        _grd[g1 * 3].shl16,
+        _grd[g1 * 3 + 1].shl16,
+        _grd[g1 * 3 + 2].shl16);
   }
 
   static int _max(int a, int b) => a > b ? a : b;

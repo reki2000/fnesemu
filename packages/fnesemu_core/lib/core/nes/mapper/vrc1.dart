@@ -30,15 +30,15 @@ class MapperVrc1 extends Mapper {
 
     switch (reg) {
       case 0x8000:
-        final bank = (data & 0x0f);
+        final bank = data.mask4;
         _prgBank[0] = bank;
         break;
       case 0xa000:
-        final bank = (data & 0x0f);
+        final bank = data.mask4;
         _prgBank[1] = bank;
         break;
       case 0xc000:
-        final bank = (data & 0x0f);
+        final bank = data.mask4;
         _prgBank[2] = bank;
         break;
 
@@ -46,17 +46,17 @@ class MapperVrc1 extends Mapper {
         mirror(data.bit0 ? Mirror.horizontal : Mirror.vertical);
         _chrBit0 = data.bit1 ? 0x10 : 0;
         _chrBit1 = data.bit2 ? 0x10 : 0;
-        _chrBank[0] = (_chrBank[0] & 0x0f) | _chrBit0;
-        _chrBank[1] = (_chrBank[1] & 0x0f) | _chrBit1;
+        _chrBank[0] = _chrBank[0].mask4 | _chrBit0;
+        _chrBank[1] = _chrBank[1].mask4 | _chrBit1;
         break;
 
       case 0xe000:
-        final bank = (data & 0x0f);
+        final bank = data.mask4;
         _chrBank[0] = bank | _chrBit0;
         break;
 
       case 0xf000:
-        final bank = (data & 0x0f);
+        final bank = data.mask4;
         _chrBank[1] = bank | _chrBit1;
         break;
     }
@@ -64,8 +64,8 @@ class MapperVrc1 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = addr.shr13 & 0x03;
-    final offset = addr & 0x1fff;
+    final bank = addr.shr13.mask2;
+    final offset = addr.mask13;
 
     return prgRoms[_prgBank[bank]][offset];
   }
@@ -73,7 +73,7 @@ class MapperVrc1 extends Mapper {
   @override
   int readVram(int addr) {
     final bank = addr.shr12;
-    final offset = addr & 0x0fff;
+    final offset = addr.mask12;
 
     return chrRoms[_chrBank[bank]][offset];
   }

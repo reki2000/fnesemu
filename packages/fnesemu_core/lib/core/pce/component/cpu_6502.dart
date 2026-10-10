@@ -143,9 +143,9 @@ extension Cpu6502 on Cpu {
 
         if (isDecimal()) {
           // add the bcd digits, carrying from the low digit to the high one
-          var lo = (a & 0x0f) + (b & 0x0f) + carry();
+          var lo = a.mask4 + b.mask4 + carry();
           if (lo > 0x09) lo += 0x06;
-          c = (a & 0xf0) + (b & 0xf0) + (lo > 0x0f ? 0x10 : 0) + (lo & 0x0f);
+          c = (a & 0xf0) + (b & 0xf0) + (lo > 0x0f ? 0x10 : 0) + lo.mask4;
           if (c > 0x9f) c += 0x60;
           regs.p = (regs.p & ~Flags.C) | (c > 0xff ? Flags.C : 0);
           c &= 0xff;
@@ -182,7 +182,7 @@ extension Cpu6502 on Cpu {
         if (isDecimal()) {
           // subtract the bcd digits, borrowing from the high digit
           final borrow = carry() ^ 0x01;
-          var lo = (a & 0x0f) - (b & 0x0f) - borrow;
+          var lo = a.mask4 - b.mask4 - borrow;
           var hi = (a & 0xf0) - (b & 0xf0);
           if (lo < 0) {
             lo -= 0x06;
@@ -190,7 +190,7 @@ extension Cpu6502 on Cpu {
           }
           if (hi < 0) hi -= 0x60;
           regs.p = (regs.p & ~Flags.C) | (c >= 0 ? Flags.C : 0);
-          c = (hi & 0xf0) | (lo & 0x0f);
+          c = (hi & 0xf0) | lo.mask4;
           flagsNZ(c);
         } else {
           flagsV(a, b, c, sub: true);
@@ -295,7 +295,7 @@ extension Cpu6502 on Cpu {
 
       // LSR
       case 0x4a:
-        final lsb = regs.a & 0x01;
+        final lsb = regs.a.mask1;
         regs.a >>= 1;
         flags(regs.a);
         regs.p |= lsb;
@@ -307,7 +307,7 @@ extension Cpu6502 on Cpu {
       case 0x5e:
         final addr = address(op, st: true);
         var acm = read(addr);
-        final mlb = acm & 0x01;
+        final mlb = acm.mask1;
         acm >>= 1;
         flags(acm);
         acm &= 0xff;
@@ -320,7 +320,7 @@ extension Cpu6502 on Cpu {
       case 0x2a:
         regs.a <<= 1;
         regs.a |= carry();
-        final msb = regs.a.shr8 & 0x01;
+        final msb = regs.a.shr8.mask1;
         cycle += 2;
         flags(regs.a);
         regs.p |= msb;
@@ -333,7 +333,7 @@ extension Cpu6502 on Cpu {
         final addr = address(op, st: true);
         var acm = read(addr).shl1;
         acm |= carry();
-        final msb = acm.shr8 & 0x01;
+        final msb = acm.shr8.mask1;
         flags(acm);
         acm &= 0xff;
         regs.p |= msb;
@@ -343,7 +343,7 @@ extension Cpu6502 on Cpu {
 
       // ROR
       case 0x6a:
-        final bit0 = regs.a & 0x01;
+        final bit0 = regs.a.mask1;
         regs.a = regs.a.shr1 | carry().shl7;
         flags(regs.a);
         regs.a &= 0xff;
@@ -356,7 +356,7 @@ extension Cpu6502 on Cpu {
       case 0x7e:
         final addr = address(op, st: true);
         var acm = read(addr);
-        final bit0 = acm & 0x01;
+        final bit0 = acm.mask1;
         acm = acm.shr1 | carry().shl7;
         flags(acm);
         acm &= 0xff;
@@ -422,7 +422,7 @@ extension Cpu6502 on Cpu {
       case 0xee:
       case 0xfe:
         final addr = address(op, st: true);
-        final acm = (read(addr) + 1) & 0xff;
+        final acm = (read(addr) + 1).mask8;
         flagsNZ(acm);
         write(addr, acm);
         cycle += 4;
@@ -450,7 +450,7 @@ extension Cpu6502 on Cpu {
       case 0xce:
       case 0xde:
         final addr = address(op, st: true);
-        final acm = (read(addr) - 1) & 0xff;
+        final acm = (read(addr) - 1).mask8;
         flagsNZ(acm);
         write(addr, acm);
         cycle += 4;
@@ -505,7 +505,7 @@ extension Cpu6502 on Cpu {
       case 0x6c:
       case 0x7c:
         final addr = absolute() + (op == 0x7c ? regs.x : 0);
-        regs.pc = read(addr) | (read((addr + 1) & 0xffff).shl8);
+        regs.pc = read(addr) | (read((addr + 1).mask16).shl8);
         cycle += 3;
         break;
 
@@ -515,7 +515,7 @@ extension Cpu6502 on Cpu {
         regs.pc--;
         regs.pc &= 0xffff;
         push(regs.pc.shr8);
-        push(regs.pc & 0xff);
+        push(regs.pc.mask8);
         regs.pc = addr;
         cycle += 4;
         break;

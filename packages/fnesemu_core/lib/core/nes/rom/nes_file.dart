@@ -49,14 +49,14 @@ class NesFile {
 
     final mapperLow = flags1.shr4;
     final mapperMid = isDirtyHeader ? 0 : body[7] & 0xf0;
-    final mapperHigh = isNes20 ? (body[8] & 0x0f).shl8 : 0;
+    final mapperHigh = isNes20 ? body[8].mask4.shl8 : 0;
     mapper = mapperHigh | mapperMid | mapperLow;
     subMapper = isNes20 ? body[8].shr4 : 0;
 
-    final ramSize = (body[10] & 0x0f) == 0 ? 0 : (64 << (body[10] & 0x0f));
+    final ramSize = body[10].mask4 == 0 ? 0 : (64 << body[10].mask4);
     final nvramSize = body[10].shr4 == 0 ? 0 : (64 << body[10].shr4);
 
-    final chrRamSize = body[11] == 0 ? 0 : (64 << (body[11] & 0x0f));
+    final chrRamSize = body[11] == 0 ? 0 : (64 << body[11].mask4);
     final chrNvramSize = body[11] == 0 ? 0 : (64 << body[11].shr4);
 
     log("loaded len:${body.length} "

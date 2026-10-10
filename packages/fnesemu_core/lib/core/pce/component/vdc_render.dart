@@ -24,17 +24,17 @@ class Sprite {
 
   Sprite.of(List<int> sat, int i) {
     no = i.shr2;
-    y = sat[i] & 0x3ff;
-    x = sat[i + 1] & 0x3ff;
+    y = sat[i].mask10;
+    x = sat[i + 1].mask10;
 
-    cgModeTreal01Zero = sat[i + 2] & 0x01 != 0;
-    vFlip = (sat[i + 3] & 0x8000) != 0;
-    hFlip = (sat[i + 3] & 0x0800) != 0;
-    priority = (sat[i + 3] & 0x80) != 0;
-    paletteNo = (sat[i + 3] & 0x0f).shl4 | 0x100;
+    cgModeTreal01Zero = sat[i + 2].bit0;
+    vFlip = sat[i + 3].bit15;
+    hFlip = sat[i + 3].bit11;
+    priority = sat[i + 3].bit7;
+    paletteNo = sat[i + 3].mask4.shl4 | 0x100;
 
-    height = switch (sat[i + 3].shr12 & 0x03) { 0 => 16, 1 => 32, _ => 64 };
-    width = switch (sat[i + 3].shr8 & 0x01) { 0 => 16, _ => 32 };
+    height = switch (sat[i + 3].shr12.mask2) { 0 => 16, 1 => 32, _ => 64 };
+    width = switch (sat[i + 3].shr8.mask1) { 0 => 16, _ => 32 };
 
     int patternMask = 0;
     if (height == 64) {
@@ -45,7 +45,7 @@ class Sprite {
     if (width == 32) {
       patternMask |= 0x01;
     }
-    patternNo = sat[i + 2].shr1 & 0x3ff & ~patternMask;
+    patternNo = sat[i + 2].shr1.mask10 & ~patternMask;
   }
 }
 
@@ -63,9 +63,9 @@ const _map3to8 = [
 
 final Uint32List rgba = Uint32List.fromList(
   List.generate(512, (i) {
-    final b = _map3to8[i & 0x07];
-    final r = _map3to8[i.shr3 & 0x07];
-    final g = _map3to8[i.shr6 & 0x07];
+    final b = _map3to8[i.mask3];
+    final r = _map3to8[i.shr3.mask3];
+    final g = _map3to8[i.shr6.mask3];
     return 0xff000000 | b.shl16 | g.shl8 | r;
   }, growable: false),
 );
@@ -117,10 +117,10 @@ extension VdcRenderer on Vdc {
       // debug: show line counter by 16 lines
       if (debug &&
           displayLine >= 0x10 &&
-          0 <= displayLine & 0x0f &&
-          displayLine & 0x0f < 5) {
+          0 <= displayLine.mask4 &&
+          displayLine.mask4 < 5) {
         for (int x = 0; x < 4 * 2; x++) {
-          if ((displayLine & 0xf0).drawHexValue(x, displayLine & 0x0f, 2)) {
+          if ((displayLine & 0xf0).drawHexValue(x, displayLine.mask4, 2)) {
             indexBuffer[(displayLine - 5) * hSize + 1 + x] = 0xffff;
           }
         }
@@ -169,7 +169,7 @@ extension VdcRenderer on Vdc {
     if (!enableBg) {
       // no bg: the bg color is 0 (transparent), so the sprite color is used
       for (int x = 0; x < w; x++) {
-        buf[base + x] = sprite ? spl[x] & 0x1ff : 0;
+        buf[base + x] = sprite ? spl[x].mask9 : 0;
       }
       return;
     }
@@ -177,9 +177,9 @@ extension VdcRenderer on Vdc {
     final vram = this.vram;
     final sx = scrollX;
     final maskX = bgScrollMaskX;
-    final row = ((bgRenderLine >> 3) & bgHeightMask) << bgWidthBits;
+    final row = (bgRenderLine.shr3 & bgHeightMask) << bgWidthBits;
     final maskW = bgWidthMask;
-    final fineY = bgRenderLine & 0x07;
+    final fineY = bgRenderLine.mask3;
     final dot3 = vramDotWidth == 3;
     final zero23 = bgTreatPlane23Zero;
     final expand = _planeBitsToPixels;
@@ -190,9 +190,9 @@ extension VdcRenderer on Vdc {
     // with a fetch, as the per-pixel renderer does at x == 0 or bx & 7 == 0
     for (int x = 0; x < w;) {
       final bx = (x + sx) & maskX;
-      final tile = vram[row | ((bx >> 3) & maskW)];
-      pal = (tile >> 12) << 4;
-      final addr = ((tile & 0xfff) << 4) | fineY;
+      final tile = vram[row | (bx.shr3 & maskW)];
+      pal = tile.shr12.shl4;
+      final addr = tile.mask12.shl4 | fineY;
       if (dot3) {
         if (zero23) {
           p01 = vram[addr];
@@ -206,24 +206,24 @@ extension VdcRenderer on Vdc {
         p23 = vram[addr + 8];
       }
       // the 8 pixels of the tile, 4 bits each: pixel of shift s at bit s * 4
-      final chunky = expand[p01 & 0xff] |
-          (expand[p01 >> 8] << 1) |
-          (expand[p23 & 0xff] << 2) |
-          (expand[p23 >> 8] << 3);
+      final chunky = expand[p01.mask8] |
+          expand[p01.shr8].shl1 |
+          expand[p23.mask8].shl2 |
+          expand[p23.shr8].shl3;
 
-      int shift = 7 - (bx & 7);
+      int shift = 7 - bx.mask3;
       final end = x + shift + 1 < w ? x + shift + 1 : w;
       if (sprite) {
         for (; x < end; x++, shift--) {
-          final c = (chunky >> (shift << 2)) & 0x0f;
+          final c = (chunky >> shift.shl2).mask4;
           final sp = spl[x];
           // the sprite is in front when it has the priority or the bg is clear
           buf[base + x] =
-              (sp & _spritePriorityFlag) != 0 || c == 0 ? sp & 0x1ff : pal | c;
+              (sp & _spritePriorityFlag) != 0 || c == 0 ? sp.mask9 : pal | c;
         }
       } else {
         for (; x < end; x++, shift--) {
-          final c = (chunky >> (shift << 2)) & 0x0f;
+          final c = (chunky >> shift.shl2).mask4;
           buf[base + x] = c == 0 ? 0 : pal | c;
         }
       }
@@ -240,7 +240,7 @@ extension VdcRenderer on Vdc {
   static final _planeBitsToPixels = Uint32List.fromList(List.generate(256, (b) {
     int v = 0;
     for (int n = 0; n < 8; n++) {
-      v |= ((b >> n) & 1) << (n * 4);
+      v |= (b >> n).mask1 << (n * 4);
     }
     return v;
   }));
@@ -272,16 +272,16 @@ extension VdcRenderer on Vdc {
       final width = sp.width;
       final vv = displayLine + 64 - sp.y;
       final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
-      final y = flippedY & 0x0f;
-      final y2 = flippedY >> 4;
+      final y = flippedY.mask4;
+      final y2 = flippedY.shr4;
       final hFlip = sp.hFlip;
       final off = i * 32;
       int any = 0;
 
-      for (int x2 = 0; x2 < (width >> 4); x2++) {
+      for (int x2 = 0; x2 < width.shr4; x2++) {
         int p0, p1, p2, p3;
         if (dot3) {
-          final addr = ((sp.patternNo + x2 + y2 * (width >> 4)) << 5) + y;
+          final addr = (sp.patternNo + x2 + y2 * width.shr4).shl5 + y;
           if (sp.cgModeTreal01Zero) {
             p0 = p1 = 0;
             p2 = vram[addr];
@@ -292,7 +292,7 @@ extension VdcRenderer on Vdc {
             p2 = p3 = 0;
           }
         } else {
-          final addr = ((sp.patternNo + x2 + (y2 << 1)) << 6) + y;
+          final addr = (sp.patternNo + x2 + y2.shl1).shl6 + y;
           p0 = vram[addr];
           p1 = vram[addr + 16];
           p2 = vram[addr + 32];
@@ -301,22 +301,22 @@ extension VdcRenderer on Vdc {
         any |= p0 | p1 | p2 | p3;
 
         // pixel fx (0: left) of the column is bit 15 - fx of the planes
-        final left = expand[p0 >> 8] |
-            (expand[p1 >> 8] << 1) |
-            (expand[p2 >> 8] << 2) |
-            (expand[p3 >> 8] << 3);
-        final right = expand[p0 & 0xff] |
-            (expand[p1 & 0xff] << 1) |
-            (expand[p2 & 0xff] << 2) |
-            (expand[p3 & 0xff] << 3);
-        final fx0 = x2 << 4;
+        final left = expand[p0.shr8] |
+            expand[p1.shr8].shl1 |
+            expand[p2.shr8].shl2 |
+            expand[p3.shr8].shl3;
+        final right = expand[p0.mask8] |
+            expand[p1.mask8].shl1 |
+            expand[p2.mask8].shl2 |
+            expand[p3.mask8].shl3;
+        final fx0 = x2.shl4;
         for (int fx = 0; fx < 8; fx++) {
           final hh = hFlip ? width - 1 - (fx0 + fx) : fx0 + fx;
-          pix[off + hh] = (left >> ((7 - fx) << 2)) & 0x0f;
+          pix[off + hh] = (left >> (7 - fx).shl2).mask4;
         }
         for (int fx = 8; fx < 16; fx++) {
           final hh = hFlip ? width - 1 - (fx0 + fx) : fx0 + fx;
-          pix[off + hh] = (right >> ((15 - fx) << 2)) & 0x0f;
+          pix[off + hh] = (right >> (15 - fx).shl2).mask4;
         }
       }
       opaque[i] = any != 0;
@@ -369,7 +369,7 @@ extension VdcRenderer on Vdc {
 
     final colorNo = spColor.isPrior
         ? spColor.color
-        : (bgColor & 0x0f == 0)
+        : (bgColor.mask4 == 0)
             ? spColor.color
             : bgColor;
 
@@ -383,7 +383,7 @@ extension VdcRenderer on Vdc {
   int _renderBg() {
     final x = (scanX + scrollX) & bgScrollMaskX;
 
-    if (scanX == 0 || (x & 0x07) == 0) {
+    if (scanX == 0 || x.mask3 == 0) {
       final nameTableAddress =
           ((bgRenderLine.shr3 & bgHeightMask) << bgWidthBits) |
               (x.shr3 & bgWidthMask);
@@ -393,7 +393,7 @@ extension VdcRenderer on Vdc {
       paletteNo = tile.shr12.shl4;
 
       if (vramDotWidth == 3) {
-        final addr = (tile & 0xfff).shl4 | bgRenderLine & 0x07;
+        final addr = tile.mask12.shl4 | bgRenderLine.mask3;
         if (bgTreatPlane23Zero) {
           pattern01 = (vram[addr]);
           pattern23 = 0;
@@ -402,13 +402,13 @@ extension VdcRenderer on Vdc {
           pattern23 = (vram[addr]);
         }
       } else {
-        final addr = (tile & 0xfff).shl4 | bgRenderLine & 0x07;
+        final addr = tile.mask12.shl4 | bgRenderLine.mask3;
         pattern01 = vram[addr];
         pattern23 = vram[addr + 8];
       }
     }
 
-    final shiftBits = (7 - (x & 7));
+    final shiftBits = (7 - x.mask3);
     final p01 = pattern01 >> shiftBits;
     final p23 = pattern23 >> shiftBits;
 
@@ -456,12 +456,12 @@ extension VdcRenderer on Vdc {
 
       if (0 <= hh && hh < sp.width) {
         final flippedX = sp.hFlip ? sp.width - hh - 1 : hh;
-        final x = flippedX & 0x0f;
+        final x = flippedX.mask4;
         final x2 = flippedX.shr4;
 
         final vv = displayLine + 64 - sp.y;
         final flippedY = sp.vFlip ? sp.height - vv - 1 : vv;
-        final y = flippedY & 0x0f;
+        final y = flippedY.mask4;
         final y2 = flippedY.shr4;
 
         if (debug) {
@@ -505,7 +505,7 @@ extension VdcRenderer on Vdc {
         }
 
         final shiftBits = 15 - x;
-        final colorNo = ((sp.p0 >> shiftBits) & 0x01) |
+        final colorNo = (sp.p0 >> shiftBits).mask1 |
             ((sp.p1 >> shiftBits).shl1 & 0x02) |
             ((sp.p2 >> shiftBits).shl2 & 0x04) |
             ((sp.p3 >> shiftBits).shl3 & 0x08);

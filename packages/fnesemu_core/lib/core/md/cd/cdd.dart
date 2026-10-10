@@ -80,7 +80,7 @@ class CdDrive {
 
   void submit() {
     if (!hostClock) return;
-    final checksum = (~command.take(9).fold<int>(0, (a, b) => a + b)) & 15;
+    final checksum = (~command.take(9).fold<int>(0, (a, b) => a + b)).mask4;
     if (checksum != command[9]) return;
     final op = command[0];
     if (op != 0 && op != 2) _seekTicks = 0;
@@ -190,7 +190,7 @@ class CdDrive {
   Uint8List _pregapSector(int lba) {
     final sector = Uint8List(2352);
     sector.fillRange(1, 11, 0xff); // sync
-    int bcd(int v) => (v ~/ 10) << 4 | v % 10;
+    int bcd(int v) => (v ~/ 10).shl4 | v % 10;
     final (m, s, f) = Disc.lbaToMsf(lba + 150);
     sector[12] = bcd(m);
     sector[13] = bcd(s);
@@ -201,7 +201,7 @@ class CdDrive {
 
   void _msf(int position, int offset) {
     final (m, s, f) = Disc.lbaToMsf(position);
-    response[offset] = (m ~/ 10) & 15;
+    response[offset] = (m ~/ 10).mask4;
     response[offset + 1] = m % 10;
     response[offset + 2] = s ~/ 10;
     response[offset + 3] = s % 10;
@@ -240,7 +240,7 @@ class CdDrive {
       }
       if (_query < 3) response[8] = disc.isAudio(track) ? 0 : 4;
     }
-    response[9] = (~response.take(9).fold<int>(0, (a, b) => a + b)) & 15;
+    response[9] = (~response.take(9).fold<int>(0, (a, b) => a + b)).mask4;
   }
 
   (double, double) sample(int outputHz) {
@@ -257,7 +257,7 @@ class CdDrive {
     _audioPhase += 44100;
     final offset = frame * 4;
     if (offset + 3 >= _audio.length) return (0, 0);
-    int signed(int i) => (_audio[i] | (_audio[i + 1] << 8)).rel16;
+    int signed(int i) => (_audio[i] | _audio[i + 1].shl8).rel16;
     return (
       signed(offset) / 32768 * volume,
       signed(offset + 2) / 32768 * volume

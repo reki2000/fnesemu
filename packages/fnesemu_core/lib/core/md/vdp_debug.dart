@@ -67,7 +67,7 @@ extension VdpDebug on Vdp {
               for (int x = 0; x < tileSize; x++) {
                 final shiftBits = 7 - x;
 
-                final color = (pattern >> shiftBits.shl2) & 0x0f;
+                final color = (pattern >> shiftBits.shl2).mask4;
                 final c = useGlayscale
                     ? (0xff000000 | color.shl20 | color.shl12 | color.shl4)
                     : rgba[cram[((color == 0) ? 0 : palette) | color]];
@@ -127,8 +127,8 @@ extension VdpDebug on Vdp {
     for (int plane = 0; plane < 3; plane++) {
       final nameAddressBase = [nameA, nameB, window][plane];
 
-      final bgHshift = [5, 6, 7, 7][plane == 2 ? 1 : reg[16] & 0x03];
-      final bgVShift = [5, 6, 7, 7][plane == 2 ? 0 : reg[16].shr4 & 0x03];
+      final bgHshift = [5, 6, 7, 7][plane == 2 ? 1 : reg[16].mask2];
+      final bgVShift = [5, 6, 7, 7][plane == 2 ? 0 : reg[16].shr4.mask2];
 
       final bgWidth = 1 << bgHshift;
       final bgHeight = 1 << bgVShift;
@@ -157,7 +157,7 @@ extension VdpDebug on Vdp {
 
             for (int x = 0; x < tileSize; x++) {
               final shift = x ^ hFlipXor;
-              final color = (pattern >> shift.shl2) & 0x0f;
+              final color = (pattern >> shift.shl2).mask4;
               final c = cram[((color == 0) ? 0 : palette) | color];
 
               buf[imageOffset +

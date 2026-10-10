@@ -2,15 +2,15 @@ part of 'cpu.dart';
 
 extension OpE on M68 {
   bool execE(int op) {
-    final ry = op & 0x07;
-    final rx = op.shr9 & 0x07;
+    final ry = op.mask3;
+    final rx = op.shr9.mask3;
 
     if (op & 0xc0 == 0xc0) {
       // 1 bit shift ops on the effective address, size = WORD
-      final mode = op.shr3 & 0x07;
+      final mode = op.shr3.mask3;
       final aa = readAddr(2, mode, ry);
 
-      switch (op.shr8 & 0x07) {
+      switch (op.shr8.mask3) {
         case 0:
           // asr
           final r = asr(aa, 2, 1);
@@ -63,18 +63,18 @@ extension OpE on M68 {
       return false;
     } else {
       //
-      final size = _bytesBySizeField[op.shr6 & 0x03];
+      final size = _bytesBySizeField[op.shr6.mask2];
 
       int rot = 0;
       if (op.bit5) {
         // register
-        rot = d[rx] & 0x3f;
+        rot = d[rx].mask6;
       } else {
         // immed
         rot = rx == 0 ? 8 : rx;
       }
 
-      switch ((op.shr2 & 0x06) | (op.shr8 & 0x01)) {
+      switch ((op.shr2 & 0x06) | op.shr8.mask1) {
         case 0:
           // asr
           d[ry] = d[ry].setL(asr(d[ry], size, rot), size);

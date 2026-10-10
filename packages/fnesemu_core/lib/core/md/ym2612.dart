@@ -111,7 +111,7 @@ class Op {
     _dt = dt;
     _keyCode = keyCode;
     final detune =
-        dt & 3 == 0 ? 0 : _detuneTable[((dt & 3) - 1).shl5 | keyCode];
+        dt.mask2 == 0 ? 0 : _detuneTable[(dt.mask2 - 1).shl5 | keyCode];
     _detuneVal = dt.bit2 ? detune : -detune;
   }
 
@@ -210,7 +210,7 @@ class Op {
 
     if (shift == 0 || ch.egClockCounter & ((1 << shift) - 1) == 0) {
       final inc =
-          _attenuateIncTable[_egRate.shl3 | ch.egClockCounter >> shift & 0x07];
+          _attenuateIncTable[_egRate.shl3 | (ch.egClockCounter >> shift).mask3];
 
       if (_egState == _egStateAttack) {
         _egAttenuation += inc * ((egAttenuationSize - _egAttenuation).shr4 + 1);
@@ -238,12 +238,12 @@ class Op {
   // modulation: -0xfff..0xfff
   int generateOutput(int modulation) {
     // phase: 24bit 0..0xfffff
-    final phase = (modulation + _phase.shr10) & 0x3ff;
-    final qPhase = (phase & 0x100 != 0 ? ~phase : phase) & 0xff;
+    final phase = (modulation + _phase.shr10).mask10;
+    final qPhase = (phase.bit8 ? ~phase : phase).mask8;
 
     // level: 0(loud)-0x1fff(quiet) 13bit
     int level =
-        _logSinTable[qPhase] + (_egLevel << 2) + (am ? ch._lfoAmVal : 0);
+        _logSinTable[qPhase] + _egLevel.shl2 + (am ? ch._lfoAmVal : 0);
     if (level < 0) {
       level = 0;
     } else if (level > 0x1fff) {
@@ -251,10 +251,10 @@ class Op {
     }
 
     // output: 0(quiet)-0x1fff(loud) 13bit
-    final output = ((_expTable[~level & 0xff] | 0x400) << 2) >> (level >> 8);
+    final output = (_expTable[(~level).mask8] | 0x400).shl2 >> level.shr8;
 
     // out: 14bit = 13bit + sign
-    final out = phase & 0x200 != 0 ? -output : output;
+    final out = phase.bit9 ? -output : output;
 
     return out;
   }
@@ -329,7 +329,7 @@ class Channel {
     }
 
     final freqH = freq.shr4;
-    final lfoPhase = (_lfoFmPhase ^ (_lfoFmPhase.bit3 ? 0x0f : 0)) & 0x07;
+    final lfoPhase = (_lfoFmPhase ^ (_lfoFmPhase.bit3 ? 0x0f : 0)).mask3;
     final lfoVal = (freqH >> _lfoFms1Table[lfoFms][lfoPhase]) +
         (freqH >> _lfoFms2Table[lfoFms][lfoPhase]);
     final lfoVal2 = lfoVal << (lfoFms > 5 ? lfoFms - 5 : 0);
@@ -375,7 +375,7 @@ class Channel {
 
         _lfoFmPhase = _lfoPhase.shr2;
         final lfoAmPhase =
-            (_lfoPhase.bit6 ? _lfoPhase ^ 0x3f : _lfoPhase & 0x3f).shl1;
+            (_lfoPhase.bit6 ? _lfoPhase ^ 0x3f : _lfoPhase.mask6).shl1;
         _lfoAmVal = lfoAmPhase >> _lfoAmsShift[lfoAms];
       }
 
@@ -601,7 +601,7 @@ class Ym2612 {
   writeData8(int part, int value) {
     final reg = _regs[part];
     final chBase = part + part + part;
-    final chNo = chBase + (reg & 0x03);
+    final chNo = chBase + reg.mask2;
     if (chNo > 5) {
       // print("Invalid channel $chNo");
       return;
@@ -609,7 +609,7 @@ class Ym2612 {
 
     switch (reg) {
       case 0x22: // LFO
-        _lfoFreq = value & 0x07;
+        _lfoFreq = value.mask3;
         for (final ch in _channels) {
           ch.lfoFreq = _lfoFreq;
           ch.lfoEnabled = value.bit3;
@@ -617,11 +617,11 @@ class Ym2612 {
         break;
 
       case 0x24: // Timer A Low
-        _timerA = _timerA & 0x03 | value.shl2;
+        _timerA = _timerA.mask2 | value.shl2;
         break;
 
       case 0x25: // Timer A High
-        _timerA = _timerA & 0x3fc | value & 0x03;
+        _timerA = _timerA & 0x3fc | value.mask2;
         break;
 
       case 0x26: // Timer B
@@ -629,7 +629,7 @@ class Ym2612 {
         break;
 
       case 0x27: // Timer Control
-        _ch3Mode = value.shr6 & 3;
+        _ch3Mode = value.shr6.mask2;
         _channels[2].isCh3Special = _ch3Mode != _ch3ModeNone;
 
         // reset flags take effect immediately on write
@@ -656,20 +656,20 @@ class Ym2612 {
         break;
 
       case 0x28: // Operator Control
-        if (value & 0x03 == 0x03) {
+        if (value.mask2 == 0x03) {
           return; // invalid channel
         }
-        final ch = _channels[(value & 3) + (value.bit2 ? 3 : 0)];
+        final ch = _channels[value.mask2 + (value.bit2 ? 3 : 0)];
 
         for (var op = 0; op < 4; op++) {
-          value >> (op + 4) & 0x01 == 1
+          (value >> (op + 4)).mask1 == 1
               ? ch.op[op].keyOn()
               : ch.op[op].keyOff();
         }
         break;
 
       case 0x2a: // dac data
-        _dacData = value & 0xff;
+        _dacData = value.mask8;
         break;
 
       case 0x2b: // dac control
@@ -677,41 +677,41 @@ class Ym2612 {
         return;
     }
 
-    if (0x30 <= reg && reg < 0xb8 && reg & 0x03 == 0x03) {
+    if (0x30 <= reg && reg < 0xb8 && reg.mask2 == 0x03) {
       return; // invalid channel
     }
 
     if (0x30 <= reg && reg < 0xa0) {
-      final op = _channels[chNo].op[[0, 2, 1, 3][reg.shr2 & 0x03]];
+      final op = _channels[chNo].op[[0, 2, 1, 3][reg.shr2.mask2]];
 
       switch (reg & 0xf0) {
         case 0x30: // DT, MUL
-          op.dt = value.shr4 & 0x07;
+          op.dt = value.shr4.mask3;
           op.mul = value.shl1 & 0x1e;
           if (op.mul == 0) {
             op.mul = 1;
           }
           break;
         case 0x40: // TL
-          op.tl = value & 0x7f;
+          op.tl = value.mask7;
           break;
         case 0x50: // RS(KS), AR
-          op.ar = value & 0x1f;
-          op.rs = value.shr6 & 0x03;
+          op.ar = value.mask5;
+          op.rs = value.shr6.mask2;
           break;
         case 0x60: // AM, DR(D1R)
           op.am = value.bit7;
-          op.dr = value & 0x1f;
+          op.dr = value.mask5;
           break;
         case 0x70: // SR(D2R)
-          op.sr = value & 0x1f;
+          op.sr = value.mask5;
           break;
         case 0x80: // SL(D1L), RR
-          op.sl = value.shr4 & 0x0f;
-          op.rr = value & 0x0f;
+          op.sl = value.shr4.mask4;
+          op.rr = value.mask4;
           break;
         case 0x90: // SSG-EG
-          op.ssgEg = value & 0x0f;
+          op.ssgEg = value.mask4;
           break;
       }
       return;
@@ -721,13 +721,13 @@ class Ym2612 {
       if (0xa8 <= reg && reg < 0xb0) {
         // ch3 special mode fnum/block: a9/ad -> op1, aa/ae -> op2, a8/ac -> op3
         if (part == 0) {
-          final op = _channels[2].op[[2, 0, 1][reg & 0x03]];
+          final op = _channels[2].op[[2, 0, 1][reg.mask2]];
           if (reg < 0xac) {
             op.freq = op.freq.setL8(value);
             op.keyCode = op.block.shl2 | _keyCodeTable[op.freq.shr7];
           } else {
-            op.freq = op.freq.setH8(value & 0x07);
-            op.block = value.shr3 & 0x07;
+            op.freq = op.freq.setH8(value.mask3);
+            op.block = value.shr3.mask3;
           }
         }
         return;
@@ -742,18 +742,18 @@ class Ym2612 {
           ch.setFreq();
           break;
         case 0xa4: // FNUM
-          ch.freq = ch.freq.setH8(value & 0x07);
-          ch.block = value.shr3 & 0x07;
+          ch.freq = ch.freq.setH8(value.mask3);
+          ch.block = value.shr3.mask3;
           break;
         case 0xb0: // FB & ALGO
-          ch.feedback = value.shr3 & 0x07;
-          ch.algo = value & 0x07;
+          ch.feedback = value.shr3.mask3;
+          ch.algo = value.mask3;
           break;
         case 0xb4: // L, R and LFO
           ch.outLeft = value.bit7;
           ch.outRight = value.bit6;
-          ch.lfoAms = value.shr4 & 0x03;
-          ch.lfoFms = value & 0x07;
+          ch.lfoAms = value.shr4.mask2;
+          ch.lfoFms = value.mask3;
           break;
       }
       return;
@@ -845,7 +845,7 @@ class Ym2612 {
       ch.render(samples);
       final out = ch.buffer;
       for (int i = 0; i < length; i += 2) {
-        final dacValue = out[i >> 1] / 4;
+        final dacValue = out[i.shr1] / 4;
         buffer[i + 0] += left ? dacValue : 0;
         buffer[i + 1] += right ? dacValue : 0;
       }

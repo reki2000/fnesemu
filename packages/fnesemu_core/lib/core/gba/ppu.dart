@@ -422,8 +422,7 @@ class Ppu {
         // tile numbers wrap within the 32KB OBJ VRAM
         final tileNo = (oneDim
                 ? tileBase + (tileY * tilesWide + tileX) * (color256 ? 2 : 1)
-                : tileBase + tileY * 32 + tileX * (color256 ? 2 : 1)) &
-            0x3ff;
+                : tileBase + tileY * 32 + tileX * (color256 ? 2 : 1)).mask10;
 
         // in bitmap modes only the upper half of OBJ VRAM is usable.
         if (bitmapMode && tileNo < 512) continue;

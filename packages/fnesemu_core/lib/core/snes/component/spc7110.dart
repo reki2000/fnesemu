@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// SPC7110: a cartridge chip which decompresses graphics from the data rom
 /// (the rom after the first 1MB of program), maps 1MB data rom banks into
@@ -39,26 +40,26 @@ class Spc7110 {
 
   /// a byte of the data rom, which follows the 1MB program rom
   int dataRead(int addr) {
-    final a = 0x100000 + (addr & 0xffffff);
+    final a = 0x100000 + addr.mask24;
     return a < rom.length ? rom[a] : 0;
   }
 
   // ------------------------------------------------------------- mapping
   /// a read by the main cpu, or -1 if the address is not the chip's
   int mainRead(int addr) {
-    final bank = addr >> 16;
-    final page = addr & 0xffff;
-    if (bank & 0x40 == 0) {
+    final bank = addr.shr16;
+    final page = addr.mask16;
+    if (!bank.bit6) {
       if (page >= 0x8000) return _programRead(bank, page);
       if (page >= 0x4800 && page < 0x4850) return _readRegister(page);
       if (page >= 0x6000) {
-        return _reg[0x30] & 0x80 != 0 ? sramRead(page & 0x1fff) : 0;
+        return _reg[0x30].bit7 ? sramRead(page.mask13) : 0;
       }
       return -1;
     }
     if (bank >= 0xd0) {
-      final b = _dataBank[(bank - 0xd0) >> 4];
-      return dataRead(b << 20 | (addr & 0xfffff));
+      final b = _dataBank[(bank - 0xd0).shr4];
+      return dataRead(b.shl20 | (addr & 0xfffff));
     }
     if (bank >= 0x7e && bank < 0x80) return -1; // wram
     return _programRead(bank, page);
@@ -66,15 +67,15 @@ class Spc7110 {
 
   /// a write by the main cpu: false if the address is not the chip's
   bool mainWrite(int addr, int data) {
-    final bank = addr >> 16;
-    final page = addr & 0xffff;
-    if (bank & 0x40 != 0) return false;
+    final bank = addr.shr16;
+    final page = addr.mask16;
+    if (bank.bit6) return false;
     if (page >= 0x4800 && page < 0x4850) {
       _writeRegister(page, data);
       return true;
     }
     if (page >= 0x6000 && page < 0x8000) {
-      if (_reg[0x30] & 0x80 != 0) sramWrite(page & 0x1fff, data);
+      if (_reg[0x30].bit7) sramWrite(page.mask13, data);
       return true;
     }
     return false;
@@ -82,7 +83,7 @@ class Spc7110 {
 
   // the 1MB program rom in HiROM banks, mirrored
   int _programRead(int bank, int page) =>
-      rom[((bank & 0x0f) << 16 | page) % rom.length];
+      rom[(bank.mask4.shl16 | page) % rom.length];
 
   // ----------------------------------------------------------- registers
   int _get(int i, int bytes) {
@@ -95,7 +96,7 @@ class Spc7110 {
 
   void _set(int i, int bytes, int v) {
     for (var b = 0; b < bytes; b++) {
-      _reg[i + b] = (v >> (b * 8)) & 0xff;
+      _reg[i + b] = (v >> (b * 8)).mask8;
     }
   }
 
@@ -104,7 +105,7 @@ class Spc7110 {
     switch (i) {
       case 0x00: // decompressed data
         if (!_decompressing) return 0;
-        final counter = (_get(0x09, 2) - 1) & 0xffff;
+        final counter = (_get(0x09, 2) - 1).mask16;
         _set(0x09, 2, counter);
         return _decoder.next();
       case 0x0c: // decompression status
@@ -114,7 +115,7 @@ class Spc7110 {
       case 0x1a: // data rom read at base+offset
         if (!_directActive) return 0;
         final v = dataRead(_get(0x11, 3) + _offset());
-        if ((_reg[0x18] >> 5) & 3 == 3) _addToBase(_offset());
+        if (_reg[0x18].shr5.mask2 == 3) _addToBase(_offset());
         return v;
       case 0x2f: // multiply/divide status: always ready
         return 0;
@@ -140,8 +141,8 @@ class Spc7110 {
         final entry = base + _reg[0x04] * 4;
         _decoder.start(
             dataRead(entry),
-            dataRead(entry + 1) << 16 |
-                dataRead(entry + 2) << 8 |
+            dataRead(entry + 1).shl16 |
+                dataRead(entry + 2).shl8 |
                 dataRead(entry + 3));
         for (var n = _get(0x05, 2); n > 0; n--) {
           _decoder.next();
@@ -152,37 +153,37 @@ class Spc7110 {
         _offsetWritten |= i == 0x14 ? 1 : 2;
         if (_offsetWritten == 3) {
           _offsetWritten = 0;
-          final action = (_reg[0x18] >> 5) & 3;
+          final action = _reg[0x18].shr5.mask2;
           if (action == 1) _addToBase(_sign(_reg[0x14], 8, _reg[0x18] & 8));
           if (action == 2) _addToBase(_offset());
         }
       case 0x25: // multiply
         final a = _get(0x20, 2), b = _get(0x24, 2);
         final r = _signed ? _sign(a, 16, 1) * _sign(b, 16, 1) : a * b;
-        _set(0x28, 4, r & 0xffffffff);
+        _set(0x28, 4, r.mask32);
       case 0x27: // divide
         final dividend = _get(0x20, 4), divisor = _get(0x26, 2);
         if (divisor == 0) {
           _set(0x28, 4, 0);
-          _set(0x2c, 2, dividend & 0xffff);
+          _set(0x2c, 2, dividend.mask16);
         } else if (_signed) {
           final x = _sign(dividend, 32, 1), y = _sign(divisor, 16, 1);
-          _set(0x28, 4, (x ~/ y) & 0xffffffff);
-          _set(0x2c, 2, x.remainder(y) & 0xffff);
+          _set(0x28, 4, (x ~/ y).mask32);
+          _set(0x2c, 2, x.remainder(y).mask16);
         } else {
           _set(0x28, 4, dividend ~/ divisor);
           _set(0x2c, 2, dividend % divisor);
         }
       case 0x31 || 0x32 || 0x33:
-        _dataBank[i - 0x31] = data & 7;
+        _dataBank[i - 0x31] = data.mask3;
       case 0x40:
-        _rtc.select(data & 1 != 0);
+        _rtc.select(data.bit0);
       case 0x41:
-        _rtc.write(data & 0xf);
+        _rtc.write(data.mask4);
     }
   }
 
-  bool get _signed => _reg[0x2e] & 1 != 0;
+  bool get _signed => _reg[0x2e].bit0;
 
   static int _sign(int v, int bits, int signed) {
     if (signed == 0) return v;
@@ -192,15 +193,15 @@ class Spc7110 {
 
   int _offset() => _sign(_get(0x14, 2), 16, _reg[0x18] & 8);
 
-  void _addToBase(int v) => _set(0x11, 3, (_get(0x11, 3) + v) & 0xffffff);
+  void _addToBase(int v) => _set(0x11, 3, (_get(0x11, 3) + v).mask24);
 
   int _directRead() {
     final mode = _reg[0x18];
     final base = _get(0x11, 3);
-    final v = dataRead(base + (mode & 2 != 0 ? _offset() : 0));
-    final step = mode & 1 != 0 ? _sign(_get(0x16, 2), 16, mode & 4) : 1;
-    if (mode & 0x10 != 0) {
-      _set(0x14, 2, (_get(0x14, 2) + step) & 0xffff);
+    final v = dataRead(base + (mode.bit1 ? _offset() : 0));
+    final step = mode.bit0 ? _sign(_get(0x16, 2), 16, mode & 4) : 1;
+    if (mode.bit4) {
+      _set(0x14, 2, (_get(0x14, 2) + step).mask16);
     } else {
       _addToBase(step);
     }
@@ -250,7 +251,7 @@ class Spc7110Decoder {
     _out = 0;
     _c = 0;
     _top = 255;
-    _val = read(_src++) << 8;
+    _val = read(_src++).shl8;
     _inCount = 0;
     for (var i = 0; i < 16; i++) {
       _pixelOrder[i] = i;
@@ -260,11 +261,11 @@ class Spc7110Decoder {
   }
 
   void _core(int con) {
-    _decoded = (_decoded << 1) ^ _contextInvert[con];
+    _decoded = _decoded.shl1 ^ _contextInvert[con];
     final evl = _contextIndex[con];
     _top -= _prob[evl];
-    if ((_val >> 8) > _top) {
-      _val -= (_top + 1) << 8;
+    if (_val.shr8 > _top) {
+      _val -= (_top + 1).shl8;
       _top = _prob[evl] - 1;
       if (_top > 79) _contextInvert[con] ^= 1;
       _decoded ^= 1;
@@ -277,8 +278,8 @@ class Spc7110Decoder {
         _val = (_val & 0xff00) | read(_src++);
         _inCount = 8;
       }
-      _top = (_top << 1) + 1;
-      _val = (_val << 1) & 0xffff;
+      _top = _top.shl1 + 1;
+      _val = _val.shl1.mask16;
       _inCount--;
     }
   }
@@ -310,7 +311,7 @@ class Spc7110Decoder {
     _moveToFront(_realOrder, _c);
     _moveToFront(_realOrder, b);
     _moveToFront(_realOrder, a);
-    _out = ((_out << shift) + _realOrder[_decoded]) & 0xffffffff;
+    _out = ((_out << shift) + _realOrder[_decoded]).mask32;
     _c = b;
   }
 
@@ -333,16 +334,16 @@ class Spc7110Decoder {
   int _mode0() {
     for (final base in const [0, 15]) {
       final d = _nibble(base);
-      _out = ((_out << 4) ^ (((_out >> 12) ^ d) & 0xf)) & 0xffffffff;
+      _out = (_out.shl4 ^ (_out.shr12 ^ d).mask4).mask32;
     }
-    return _out & 0xff;
+    return _out.mask8;
   }
 
   int _mode1() {
     int v;
-    if (_bufIndex & 1 == 0) {
+    if (!_bufIndex.bit0) {
       for (var pixel = 0; pixel < 8; pixel++) {
-        final a = (_out >> 2) & 3, b = (_out >> 14) & 3;
+        final a = _out.shr2.mask2, b = _out.shr14.mask2;
         _decoded = 0;
         final con = _getCon(a, b, _c);
         _core(con);
@@ -362,24 +363,24 @@ class Spc7110Decoder {
     int v;
     if (_bufIndex & 0x11 == 0) {
       for (var pixel = 0; pixel < 8; pixel++) {
-        final a = _out & 0xf, b = (_out >> 28) & 0xf;
+        final a = _out.mask4, b = _out.shr28.mask4;
         _decoded = 0;
         _core(0);
         var con = _decoded + 1;
         _core(con);
         con = con == 2 ? _decoded + 11 : _getCon(a, b, _c) + 3 + _decoded * 5;
         _core(con);
-        _core(_mode2Context[con] + (_decoded & 1));
+        _core(_mode2Context[con] + _decoded.mask1);
         _pixelOrderStep(a, b, 4);
       }
       v = _bits(_out, 31, 4);
       _plane1 = _bits(_out, 30, 4);
-      _planes[_bufIndex & 0xf] = _bits(_out, 29, 4);
-      _planes[(_bufIndex + 1) & 0xf] = _bits(_out, 28, 4);
-    } else if (_bufIndex & 0x10 == 0) {
+      _planes[_bufIndex.mask4] = _bits(_out, 29, 4);
+      _planes[(_bufIndex + 1).mask4] = _bits(_out, 28, 4);
+    } else if (!_bufIndex.bit4) {
       v = _plane1;
     } else {
-      v = _planes[_bufIndex & 0xf];
+      v = _planes[_bufIndex.mask4];
     }
     _bufIndex++;
     return v;
@@ -389,7 +390,7 @@ class Spc7110Decoder {
   static int _bits(int v, int top, int step) {
     var r = 0;
     for (var i = 0; i < 8; i++) {
-      r = (r << 1) | ((v >> (top - i * step)) & 1);
+      r = r.shl1 | (v >> (top - i * step)).mask1;
     }
     return r;
   }
@@ -420,7 +421,7 @@ class _Rtc4513 {
   }
 
   bool get _running =>
-      _regs[0xf] & 3 == 0 && _regs[0xd] & 1 == 0;
+      _regs[0xf].mask2 == 0 && !_regs[0xd].bit0;
 
   /// advances the clock by a second of emulated time
   void tick() {
@@ -442,17 +443,17 @@ class _Rtc4513 {
     _selected = on;
   }
 
-  static int _bcd(int v) => (v ~/ 10) << 4 | v % 10;
-  static int _bin(int v) => (v >> 4) * 10 + (v & 0xf);
+  static int _bcd(int v) => (v ~/ 10).shl4 | v % 10;
+  static int _bin(int v) => v.shr4 * 10 + v.mask4;
 
   int _pair(int i, int highMask) =>
-      _bin(_regs[i] | (_regs[i + 1] & highMask) << 4);
+      _bin(_regs[i] | (_regs[i + 1] & highMask).shl4);
 
   void _latchTime() {
     final t = _time;
     void put(int i, int v, int highMask) {
-      _regs[i] = v & 0xf;
-      _regs[i + 1] = (_regs[i + 1] & ~highMask & 0xf) | ((v >> 4) & highMask);
+      _regs[i] = v.mask4;
+      _regs[i + 1] = (_regs[i + 1] & ~highMask).mask4 | (v.shr4 & highMask);
     }
 
     put(0, _bcd(t.second), 0x7);
@@ -474,7 +475,7 @@ class _Rtc4513 {
         _pair(4, 0x3),
         _pair(2, 0x7),
         _pair(0, 0x7));
-    _week = _regs[12] & 7;
+    _week = _regs[12].mask3;
   }
 
   void write(int nibble) {
@@ -491,14 +492,14 @@ class _Rtc4513 {
           _regs[_index] = nibble;
           if (_index <= 12) _timeWritten = true;
         }
-        _index = (_index + 1) & 0xf;
+        _index = (_index + 1).mask4;
     }
   }
 
   int read() {
     if (!_selected || !_reading || _state != 2) return 0;
     final v = _regs[_index];
-    _index = (_index + 1) & 0xf;
+    _index = (_index + 1).mask4;
     return v;
   }
 }

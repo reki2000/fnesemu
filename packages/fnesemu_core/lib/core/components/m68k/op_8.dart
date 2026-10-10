@@ -2,12 +2,12 @@ part of 'cpu.dart';
 
 extension Op8 on M68 {
   bool exec8(int op) {
-    final ry = op & 0x07;
-    final rx = op.shr9 & 0x07;
+    final ry = op.mask3;
+    final rx = op.shr9.mask3;
 
     if (op & 0x01c0 == 0x01c0) {
       // divs
-      final mode = op.shr3 & 0x07;
+      final mode = op.shr3.mask3;
       final src = readAddr(2, mode, ry).rel16;
       final dst = d[rx].rel32;
 
@@ -38,7 +38,7 @@ extension Op8 on M68 {
 
     if (op & 0x01c0 == 0x00c0) {
       // divu
-      final mode = op.shr3 & 0x07;
+      final mode = op.shr3.mask3;
       final src = readAddr(2, mode, ry);
       final dst = d[rx];
 
@@ -76,14 +76,14 @@ extension Op8 on M68 {
 
       final diff = dst - src - (xf ? 1 : 0);
       final high = (dst & 0xf0) - (src & 0xf0) - (0x60 & diff.shr4);
-      final low = (dst & 0x0f) - (src & 0x0f) - (xf ? 1 : 0);
+      final low = dst.mask4 - src.mask4 - (xf ? 1 : 0);
       final lowBorrow = 0x06 & low.shr4; // 0x06 if low < 0x0a else 0x00
       final r = low + high - lowBorrow;
 
       xf = cf = (diff - lowBorrow) & 0x300 != 0;
       zf = zf && r.mask8 == 0;
       nf = r.bit7;
-      vf = diff & ~r & 0x80 != 0;
+      vf = (diff & ~r).bit7;
       // debug(
       //     "sbcd r:${r.mask16.x4} r1:${high.mask16..x4} rx:$rx ry:$ry src:${src.x2} dst:${dst.x2} xf:$xf");
 
@@ -99,8 +99,8 @@ extension Op8 on M68 {
     }
 
     // or
-    final size = _bytesBySizeField[op.shr6 & 0x03];
-    final mode = op.shr3 & 0x07;
+    final size = _bytesBySizeField[op.shr6.mask2];
+    final mode = op.shr3.mask3;
     final directionEa = op.bit8;
 
     int aa = d[rx].mask(size);

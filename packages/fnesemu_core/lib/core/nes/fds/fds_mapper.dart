@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import '../mapper/mapper.dart';
 import '../mapper/mirror.dart';
 import 'fds_audio.dart';
@@ -64,10 +65,10 @@ class FdsMapper extends Mapper {
 
   @override
   int read(int addr) {
-    if (addr >= 0xe000) return bios[addr & 0x1fff];
+    if (addr >= 0xe000) return bios[addr.mask13];
     if (addr >= 0x6000) return ram[addr - 0x6000];
-    if (addr >= 0x4040) return _io & 2 != 0 ? audio.read(addr) : 0xff;
-    if (_io & 1 == 0) return 0xff;
+    if (addr >= 0x4040) return _io.bit1 ? audio.read(addr) : 0xff;
+    if (!_io.bit0) return 0xff;
     switch (addr) {
       case 0x4030:
         final status = (_timerIrq ? 1 : 0) |
@@ -97,17 +98,17 @@ class FdsMapper extends Mapper {
       return;
     }
     if (addr >= 0x4040) {
-      if (_io & 2 != 0) audio.write(addr, data);
+      if (_io.bit1) audio.write(addr, data);
       return;
     }
     switch (addr) {
       case 0x4020:
         _reload = (_reload & 0xff00) | data;
       case 0x4021:
-        _reload = (_reload & 0xff) | data << 8;
+        _reload = _reload.mask8 | data.shl8;
       case 0x4022:
-        _repeat = data & 1 != 0;
-        _timerEnabled = data & 2 != 0 && _io & 1 != 0;
+        _repeat = data.bit0;
+        _timerEnabled = data.bit1 && _io.bit0;
         if (_timerEnabled) {
           _counter = _reload;
         } else {
@@ -116,30 +117,30 @@ class FdsMapper extends Mapper {
         _updateIrq();
       case 0x4023:
         _io = data;
-        if (_io & 1 == 0) {
+        if (!_io.bit0) {
           _timerEnabled = _timerIrq = _diskIrq = _readyByte = false;
           _updateIrq();
         }
       case 0x4024:
-        if (_io & 1 == 0) return;
+        if (!_io.bit0) return;
         _writeData = data;
         _ackDisk();
       case 0x4025:
-        if (_io & 1 == 0) return;
-        if (data & 0x10 == 0) _crcBytes = 0;
-        if (data & 0x10 != 0 && _control & 0x10 == 0) {
-          _crcBytes = data & 4 != 0 ? 2 : 0;
+        if (!_io.bit0) return;
+        if (!data.bit4) _crcBytes = 0;
+        if (data.bit4 && !_control.bit4) {
+          _crcBytes = data.bit2 ? 2 : 0;
         }
         _control = data;
-        mirror(data & 8 != 0 ? Mirror.horizontal : Mirror.vertical);
-        if (data & 1 == 0) {
+        mirror(data.bit3 ? Mirror.horizontal : Mirror.vertical);
+        if (!data.bit0) {
           _motor = _scanning = false;
         } else if (!_motor && _inserted) {
           _startMotor();
         }
         _ackDisk();
       case 0x4026:
-        if (_io & 1 != 0) _external = data;
+        if (_io.bit0) _external = data;
     }
   }
 
@@ -173,10 +174,10 @@ class FdsMapper extends Mapper {
       _insertDelay -= elapsed;
       if (_insertDelay > 0) return;
       _insertDelay = 0;
-      if (_control & 1 != 0) _startMotor();
+      if (_control.bit0) _startMotor();
       return;
     }
-    if (!_inserted || !_motor || (_control & 2 != 0 && !_scanning)) return;
+    if (!_inserted || !_motor || (_control.bit1 && !_scanning)) return;
     _byteDelay -= elapsed * 3;
     while (_byteDelay <= 0 && _motor) {
       _scanning = true;
@@ -188,8 +189,8 @@ class FdsMapper extends Mapper {
   void _transfer() {
     final side = selectedSide!;
     final offset = sideOffsets[side] + _head;
-    final blockEnabled = _control & 0x40 != 0;
-    if (_control & 4 != 0) {
+    final blockEnabled = _control.bit6;
+    if (_control.bit2) {
       final data = readSram(offset);
       if (!blockEnabled) {
         _crc = 0;
@@ -202,45 +203,45 @@ class FdsMapper extends Mapper {
       } else {
         _data = data;
         _readyByte = true;
-        if (_control & 0x10 == 0 || _crcBytes > 0) {
+        if (!_control.bit4 || _crcBytes > 0) {
           _crc = FdsImage.crcByte(_crc, data);
           if (_crcBytes > 0 && --_crcBytes == 0) _badCrc = _crc != 0;
         }
-        if (_control & 0x80 != 0) _diskIrq = true;
+        if (_control.bit7) _diskIrq = true;
       }
     } else {
       var data = _writeData;
       if (!blockEnabled) {
         data = 0;
         _crc = 0;
-      } else if (_control & 0x10 != 0) {
-        data = _crc & 255;
+      } else if (_control.bit4) {
+        data = _crc.mask8;
         _crc >>= 8;
       } else {
         _crc = FdsImage.crcByte(_crc, data);
       }
       writeSram(offset, data);
       _gapEnded = _badCrc = false;
-      if (_control & 0x10 == 0) {
+      if (!_control.bit4) {
         _readyByte = true;
-        if (_control & 0x80 != 0) _diskIrq = true;
+        if (_control.bit7) _diskIrq = true;
       }
     }
     _head++;
     if (_head >= sideLengths[side]) {
       _motor = _scanning = false;
-      if (_control & 0x80 != 0) _diskIrq = true;
+      if (_control.bit7) _diskIrq = true;
     }
     _updateIrq();
   }
 
   @override
-  int readVram(int addr) => chr[addr & 0x1fff];
+  int readVram(int addr) => chr[addr.mask13];
   @override
-  void writeVram(int addr, int data) => chr[addr & 0x1fff] = data & 255;
+  void writeVram(int addr, int data) => chr[addr.mask13] = data.mask8;
   @override
   Float32List handleApu(int cycles) =>
-      _io & 2 != 0 ? audio.synth(cycles) : Float32List(0);
+      _io.bit1 ? audio.synth(cycles) : Float32List(0);
   @override
   String dump() =>
       'fds: side:${selectedSide == null ? "ejected" : selectedSide! + 1} head:$_head irq:${_timerIrq || _diskIrq} control:${_control.toRadixString(16)} crc:${_crc.toRadixString(16)} crcBytes:$_crcBytes bad:$_badCrc\n';

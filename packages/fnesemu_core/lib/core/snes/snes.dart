@@ -39,7 +39,7 @@ class Snes implements Core, FrameRunner {
       final inLine = cpuCyclesInScanline - (_nextScanlineCycle - cpu.cycle);
       final dot = (inLine.clamp(0, cpuCyclesInScanline - 1) * 341) ~/
           cpuCyclesInScanline;
-      return dot << 16 | _scanline;
+      return dot.shl16 | _scanline;
     };
   }
 

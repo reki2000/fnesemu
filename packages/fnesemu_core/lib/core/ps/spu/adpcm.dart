@@ -12,17 +12,17 @@ extension VoiceAdpcmDecoder on Voice {
     }
 
     spu.checkIrqRange(_addr, 16);
-    final header = spu.ram[_addr] | spu.ram[_addr + 1] << 8;
+    final header = spu.ram[_addr] | spu.ram[_addr + 1].shl8;
     final loop = header.shr8;
 
     if (loop.bit2) {
       repeatAddr = _addr;
     }
 
-    int shift = header & 0x0f;
+    int shift = header.mask4;
     shift = (shift > 12) ? 9 : shift;
 
-    final filter = header.shr4 & 0x07;
+    final filter = header.shr4.mask3;
 
     final f = filter.min(4);
     final c1 = _filter1[f], c2 = _filter2[f];
@@ -39,7 +39,7 @@ extension VoiceAdpcmDecoder on Voice {
       final raw = spu.ram[_addr] >> (i.bit0 ? 4 : 0);
       final shifted = raw.rel4 << (12 - shift);
       final filtered =
-          shifted + ((c1 * _block[i - 1] + c2 * _block[i - 2] + 32) >> 6);
+          shifted + (c1 * _block[i - 1] + c2 * _block[i - 2] + 32).shr6;
       final val = filtered.clip(-0x8000, 0x7fff);
       if (log) {
         debugLog(

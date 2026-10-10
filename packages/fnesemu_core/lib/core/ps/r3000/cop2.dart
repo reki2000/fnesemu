@@ -193,10 +193,10 @@ class Cop2 {
   // color registers,  unsigned 8 bit x 4
 
   int rgbc = 0;
-  int get r => rgbc & 0xff;
-  int get g => rgbc.shr8 & 0xff;
-  int get b => rgbc.shr16 & 0xff;
-  int get code => rgbc.shr24 & 0xff;
+  int get r => rgbc.mask8;
+  int get g => rgbc.shr8.mask8;
+  int get b => rgbc.shr16.mask8;
+  int get code => rgbc.shr24.mask8;
   Vector get rgb => (r.shl4, g.shl4, b.shl4);
 
   setRgb(int r, int g, int b, int code) {
@@ -302,10 +302,10 @@ class Cop2 {
 
   int _s16x2toU32(int l, int h) => l.mask16 | h.mask16.shl16;
 
-  int readCtrl(int reg) => _read(reg & 0x1f | 0x20);
-  void writeCtrl(int reg, int value) => _write(reg & 0x1f | 0x20, value);
-  int readReg(int reg) => _read(reg & 0x1f);
-  void writeReg(int reg, int value) => _write(reg & 0x1f, value);
+  int readCtrl(int reg) => _read(reg.mask5 | 0x20);
+  void writeCtrl(int reg, int value) => _write(reg.mask5 | 0x20, value);
+  int readReg(int reg) => _read(reg.mask5);
+  void writeReg(int reg, int value) => _write(reg.mask5, value);
 
   int _read(int reg) => switch (reg) {
         0 => _s16x2toU32(vx0, vy0),
@@ -572,7 +572,7 @@ class Cop2 {
     //   "EX_38", "EX_39", "EX_3A", "EX_3B", "EX_3C", "GPF", "GPL", "NCCT" //
     // ][inst32 & 0x3f]} ${(inst32 & 0x3f).x2}");
 
-    return switch (inst32 & 0x3f) {
+    return switch (inst32.mask6) {
       0x01 => rtps(vx0, vy0, vz0),
       0x06 => nclip(),
       0x0c => op(),

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// MD 32x double-buffered bitmap VDP. All bus storage is big-endian.
 class ExpansionVideo {
@@ -35,24 +36,24 @@ class ExpansionVideo {
       case 0:
         mode = value & 0x83;
       case 2:
-        shift = value & 1;
+        shift = value.mask1;
       case 4:
-        fillLength = value & 255;
+        fillLength = value.mask8;
       case 6:
-        fillAddress = value & 0xffff;
+        fillAddress = value.mask16;
       case 8:
         final frame = accessFrame;
         final page = fillAddress & 0xff00;
         for (int i = 0; i <= fillLength; i++) {
-          final address = (page | ((fillAddress + i) & 255)) * 2;
-          frame[address] = (value >> 8) & 255;
-          frame[address + 1] = value & 255;
+          final address = (page | (fillAddress + i).mask8) * 2;
+          frame[address] = value.shr8.mask8;
+          frame[address + 1] = value.mask8;
         }
-        fillAddress = page | ((fillAddress + fillLength + 1) & 255);
+        fillAddress = page | (fillAddress + fillLength + 1).mask8;
         _fillClocks = (fillLength + 1) * 2;
       case 0xa:
-        _requestedBank = value & 1;
-        if (vblank || (mode & 3) == 0) displayBank = _requestedBank;
+        _requestedBank = value.mask1;
+        if (vblank || mode.mask2 == 0) displayBank = _requestedBank;
     }
   }
 
@@ -66,25 +67,25 @@ class ExpansionVideo {
 
   int readFrame8(int offset) => accessFrame[offset & 0x1ffff];
   void writeFrame8(int offset, int value, {bool overwrite = false}) {
-    if (!overwrite || (value & 255) != 0) {
-      accessFrame[offset & 0x1ffff] = value & 255;
+    if (!overwrite || value.mask8 != 0) {
+      accessFrame[offset & 0x1ffff] = value.mask8;
     }
   }
 
   static int color(int value) {
-    int expand(int v) => (v << 3) | (v >> 2);
+    int expand(int v) => v.shl3 | v.shr2;
     return 0xff000000 |
-        (expand((value >> 10) & 31) << 16) |
-        (expand((value >> 5) & 31) << 8) |
-        expand(value & 31);
+        expand(value.shr10.mask5).shl16 |
+        expand(value.shr5.mask5).shl8 |
+        expand(value.mask5);
   }
 
   void renderLine(
       int line, Uint32List mdPixels, Uint8List mdOpaque, int mdWidth) {
     if (line < 0 || line >= 224) return;
     final frame = frames[displayBank];
-    final linePointer = ((frame[line * 2] << 8) | frame[line * 2 + 1]) * 2;
-    final bitmapMode = mode & 3;
+    final linePointer = (frame[line * 2].shl8 | frame[line * 2 + 1]) * 2;
+    final bitmapMode = mode.mask2;
     int source = linePointer, run = 0, index = 0;
     for (int x = 0; x < 320; x++) {
       final mdOffset = line * mdWidth + x * mdWidth ~/ 320;
@@ -97,7 +98,7 @@ class ExpansionVideo {
           visible = true;
         case 2:
           source = (linePointer + x * 2) & 0x1fffe;
-          pixel = (frame[source] << 8) | frame[source + 1];
+          pixel = frame[source].shl8 | frame[source + 1];
           visible = true;
         case 3:
           if (run == 0) {
@@ -110,7 +111,7 @@ class ExpansionVideo {
           visible = true;
       }
       // The priority bit inverts the global plane priority for this pixel.
-      final front = ((pixel & 0x8000) != 0) != ((mode & 0x80) != 0);
+      final front = pixel.bit15 != mode.bit7;
       output[line * 320 + x] = visible && (front || mdOpaque[mdOffset] == 0)
           ? color(pixel)
           : mdPixels[mdOffset];

@@ -1,4 +1,5 @@
 import 'dart:collection';
+import '../../../util/int.dart';
 
 /// Three-entry PWM FIFOs, clocked by the SH-2 clock divider.
 class ExpansionPwm {
@@ -46,7 +47,7 @@ class ExpansionPwm {
   }
 
   void tick(int clocks) {
-    final period = (cycle - 1) & 0xfff;
+    final period = (cycle - 1).mask12;
     if (period == 0) return;
     _phase += clocks;
     while (_phase >= period) {
@@ -54,7 +55,7 @@ class ExpansionPwm {
       if (left.isNotEmpty) _left = left.removeFirst();
       if (right.isNotEmpty) _right = right.removeFirst();
       _irqCounter++;
-      final interval = (control >> 8) & 15;
+      final interval = control.shr8.mask4;
       if (_irqCounter >= (interval == 0 ? 16 : interval)) {
         _irqCounter = 0;
         interrupt();
@@ -63,14 +64,14 @@ class ExpansionPwm {
   }
 
   (double, double) sample() {
-    final period = (cycle - 1) & 0xfff;
+    final period = (cycle - 1).mask12;
     if (period == 0) return (0, 0);
     double convert(int value) => ((value * 2 / period) - 1).clamp(-1.0, 1.0);
     double route(int mode, int a, int b) =>
         switch (mode) { 1 => convert(a), 2 => convert(b), _ => 0 };
     return (
-      route(control & 3, _left, _right),
-      route((control >> 2) & 3, _right, _left)
+      route(control.mask2, _left, _right),
+      route(control.shr2.mask2, _right, _left)
     );
   }
 }

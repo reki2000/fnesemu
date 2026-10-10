@@ -195,12 +195,12 @@ class Serial {
   void writeMode(int val) {
     // debugLog("sio0: writeMode: ${val.x4} ${dump()}");
     mode = val;
-    timerFactor = [1, 1, 16, 64][val & 0x03];
+    timerFactor = [1, 1, 16, 64][val.mask2];
   }
 
   void writeBaudrate(int val) {
     // debugLog("sio0: writeBaudrate: ${val.x4} ${dump()}");
-    timerReload = val & 0xffff;
+    timerReload = val.mask16;
   }
 
   String dump() =>

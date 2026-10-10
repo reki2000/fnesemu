@@ -6,9 +6,9 @@ extension GpuRenderer on Gpu {
 
   // Lookup table for faster color conversion
   static final c15ToAbgr32 = Uint32List.fromList(List<int>.generate(32768, (i) {
-    final int b = (i.shr10 & 0x1f).shl3.shl16;
-    final int g = (i.shr5 & 0x1f).shl3.shl8;
-    final int r = ((i >> 0) & 0x1f).shl3 << 0;
+    final int b = i.shr10.mask5.shl3.shl16;
+    final int g = i.shr5.mask5.shl3.shl8;
+    final int r = (i >> 0).mask5.shl3 << 0;
     return alphaChannel | r | g | b;
   }));
 
@@ -23,8 +23,7 @@ extension GpuRenderer on Gpu {
     final top = isPal ? 0 : displayY1 - 16;
     final rel = scanline - top; // line inside the display range
     final fbY = (startDisplayY +
-            (height == 240 ? rel : rel * 2 + (isOddFrame ? 1 : 0))) &
-        0x1ff;
+            (height == 240 ? rel : rel * 2 + (isOddFrame ? 1 : 0))).mask9;
 
     if (scanline < 240) {
       if (status.bit23 || rel < 0 || rel >= displayY2 - displayY1) {
@@ -35,9 +34,9 @@ extension GpuRenderer on Gpu {
         int x8 = startDisplayX.shl1;
         for (int x = 0; x < width; x++) {
           buffer[bufIndex++] = alphaChannel |
-              frameBuffer[fbIndex + (x8 & 0x7ff)] | // R
-              frameBuffer[fbIndex + ((x8 + 1) & 0x7ff)].shl8 | // G
-              frameBuffer[fbIndex + ((x8 + 2) & 0x7ff)].shl16; // B
+              frameBuffer[fbIndex + x8.mask11] | // R
+              frameBuffer[fbIndex + (x8 + 1).mask11].shl8 | // G
+              frameBuffer[fbIndex + (x8 + 2).mask11].shl16; // B
           x8 += 3;
         }
       } else {
@@ -46,7 +45,7 @@ extension GpuRenderer on Gpu {
         final startX = startDisplayX;
         for (int x = 0; x < width; x++) {
           buffer[bufIndex++] =
-              table[fb[fbIndex + ((startX + x) & 0x3ff)] & 0x7fff];
+              table[fb[fbIndex + (startX + x).mask10].mask15];
         }
       }
     }

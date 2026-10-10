@@ -71,7 +71,7 @@ extension Cpu6280 on Cpu {
       case 0x43:
         int reg = immediate();
         for (int i = 0; i < 8; i++) {
-          if (reg & 0x01 == 1) {
+          if (reg.mask1 == 1) {
             regs.a = regs.mpr[i];
           }
           reg >>= 1;
@@ -83,7 +83,7 @@ extension Cpu6280 on Cpu {
       case 0x53:
         int reg = immediate();
         for (int i = 0; i < 8; i++) {
-          if (reg & 0x01 == 1) {
+          if (reg.mask1 == 1) {
             regs.mpr[i] = regs.a;
             regs.mprAddress[i] = regs.a.shl13;
           }
@@ -171,7 +171,7 @@ extension Cpu6280 on Cpu {
         int alt = 0;
         while (count-- != 0) {
           from &= 0xffff;
-          write((to + alt) & 0xffff, read(from++));
+          write((to + alt).mask16, read(from++));
           alt ^= 1;
           cycle += 6;
         }
@@ -189,7 +189,7 @@ extension Cpu6280 on Cpu {
         int alt = 0;
         while (count-- != 0) {
           to &= 0xffff;
-          write(to++, read((from + alt) & 0xffff));
+          write(to++, read((from + alt).mask16));
           alt ^= 1;
           cycle += 6;
         }
@@ -199,7 +199,7 @@ extension Cpu6280 on Cpu {
       // BSR
       case 0x44:
         push(regs.pc.shr8);
-        push(regs.pc & 0xff);
+        push(regs.pc.mask8);
         branch(true);
         cycle += 5;
         break;

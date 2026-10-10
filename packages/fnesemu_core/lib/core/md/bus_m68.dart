@@ -42,7 +42,7 @@ class BusM68 implements M68Bus {
   @override
   int read8(int addr) {
     if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain8(addr);
-    final top = addr.shr16 & 0xff;
+    final top = addr.shr16.mask8;
 
     if (top == 0xff) {
       return ram[addr.mask16];
@@ -69,7 +69,7 @@ class BusM68 implements M68Bus {
         return psg.read8();
       }
 
-      return (addr & 0x01 == 0)
+      return (!addr.bit0)
           ? vdp.read16(addr.mask16).shr8
           : vdp.read16(addr & 0xfffe).mask8;
     }
@@ -78,7 +78,7 @@ class BusM68 implements M68Bus {
       // i/o registers (0xa10000-0xa1001f) return the same value on both bytes,
       // other control registers have their status on the even (upper) byte
       final value = readIo16(addr);
-      return (addr.bit0 || addr & 0xffff < 0x20) ? value.mask8 : value.shr8;
+      return (addr.bit0 || addr.mask16 < 0x20) ? value.mask8 : value.shr8;
     }
 
     if (top == 0xa0) {
@@ -91,7 +91,7 @@ class BusM68 implements M68Bus {
   @override
   int read16(int addr) {
     if (cdrom?.mapsMain(addr) ?? false) return cdrom!.readMain16(addr);
-    final top = addr.shr16 & 0xff;
+    final top = addr.shr16.mask8;
 
     if (top == 0xff) {
       return ram[addr.mask16].shl8 | ram[addr.inc.mask16];
@@ -187,8 +187,8 @@ class BusM68 implements M68Bus {
   @override
   void write16(int addr, int data) {
     if (cdrom?.mapsMain(addr) ?? false) {
-      cdrom!.writeMain8(addr, data >> 8);
-      cdrom!.writeMain8(addr + 1, data & 0xff);
+      cdrom!.writeMain8(addr, data.shr8);
+      cdrom!.writeMain8(addr + 1, data.mask8);
       return;
     }
     final top = addr & 0xff0000;
@@ -207,7 +207,7 @@ class BusM68 implements M68Bus {
 
     if (top == 0xa10000) {
       if (addr & 0xfffff0 == 0xa130f0) {
-        rom.writeBankRegister(addr, data & 0xff);
+        rom.writeBankRegister(addr, data.mask8);
         return;
       }
       writeIo16(addr.mask16, data);
@@ -237,7 +237,7 @@ class BusM68 implements M68Bus {
     return switch (addr & 0xfffe) {
       0x00 =>
         region | (cdrom == null ? 0x20 : 0), // region, ntsc, no fdd, version 0
-      0x02 || 0x04 || 0x06 => pad.readData((addr.shr1 & 0x03).dec), // data
+      0x02 || 0x04 || 0x06 => pad.readData(addr.shr1.mask2.dec), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
@@ -262,11 +262,11 @@ class BusM68 implements M68Bus {
       0x02 ||
       0x04 ||
       0x06 =>
-        pad.writeData((addr.shr1 & 0x03).dec, data), // data 1 (ctrl1)
+        pad.writeData(addr.shr1.mask2.dec, data), // data 1 (ctrl1)
       0x08 ||
       0x0a ||
       0x0c =>
-        pad.writeCtrl((addr.shr1 & 0x03), data), // ctrl 1 (ctrl1)
+        pad.writeCtrl(addr.shr1.mask2, data), // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
       0x12 => 0x00, // s-ctrl 1

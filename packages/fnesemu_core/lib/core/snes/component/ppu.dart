@@ -186,7 +186,7 @@ class Ppu {
   // bits from the byte before written to a HOFS reg (the bghofs_latch of the
   // nesdev wiki PPU registers page)
   void _writeHofs(BgRegs bg, int val) {
-    bg.hofs = (val.shl8 | _bgOfsLatch & ~7 | _hofsLatch & 7) & 0x3ff;
+    bg.hofs = (val.shl8 | _bgOfsLatch & ~7 | _hofsLatch.mask3).mask10;
     _bgOfsLatch = val;
     _hofsLatch = val;
   }
@@ -382,7 +382,7 @@ class Ppu {
         break;
       case 0x2115: // VMAIN
         vramIncHigh = val.bit7;
-        vramIncAmount = const [1, 32, 128, 128][val & 0x03];
+        vramIncAmount = const [1, 32, 128, 128][val.mask2];
         break;
       case 0x2116: // VMADDL
         vramAddr = (vramAddr & 0x7f00) | val;
@@ -526,16 +526,16 @@ class Ppu {
         return _cgramRead();
       case 0x2137: // SLHV: latch the beam position
         final b = beam();
-        _latchedDot = b >> 16;
-        _latchedLine = b & 0xffff;
+        _latchedDot = b.shr16;
+        _latchedLine = b.mask16;
         _latched = true;
         return 0;
       case 0x213c: // OPHCT
         _dotHigh = !_dotHigh;
-        return _dotHigh ? _latchedDot & 0xff : _latchedDot >> 8;
+        return _dotHigh ? _latchedDot.mask8 : _latchedDot.shr8;
       case 0x213d: // OPVCT
         _lineHigh = !_lineHigh;
-        return _lineHigh ? _latchedLine & 0xff : _latchedLine >> 8;
+        return _lineHigh ? _latchedLine.mask8 : _latchedLine.shr8;
       case 0x213e: // STAT77
         return (rangeOver ? 0x40 : 0) | (timeOver ? 0x80 : 0) | 0x01;
       case 0x213f: // STAT78: version=1, NTSC; resets the OPHCT/OPVCT order

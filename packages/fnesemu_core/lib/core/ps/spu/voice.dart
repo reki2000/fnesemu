@@ -93,7 +93,7 @@ class Voice {
       _volSweep[lr] = Envelope.none();
     } else {
       _volSweep[lr] = Envelope.of(
-          val.shr8 & 0x3, val.shr2 & 0x1f, val.bit14, val.bit13,
+          val.shr8.mask2, val.shr2.mask5, val.bit14, val.bit13,
           negativePhase_: val.bit6);
     }
   }
@@ -159,7 +159,7 @@ class Voice {
     int step = pitch;
     if (pitchModulation && no > 0) {
       // modulated by the output of the previous voice
-      step = ((step.rel16 * (prevSample + 0x8000)) >> 15).mask16;
+      step = (step.rel16 * (prevSample + 0x8000)).shr15.mask16;
     }
     _counter += step.min(0x4000);
 
@@ -175,19 +175,19 @@ class Voice {
     final val = noise
         ? spu.noiseLevel.rel16
         : gaussian(_block[i], _block[i - 1], _block[i - 2], _block[i - 3],
-            _counter.shr4 & 0xff);
+            _counter.shr4.mask8);
 
     adsrVolume = envelope.apply(adsrVolume);
 
     switch (_adsrPhase) {
       case 1:
         if (adsrVolume == 0x7fff) {
-          envelope = Envelope.of(0, adsr.shr4 & 0x0f, true, true); // decay
+          envelope = Envelope.of(0, adsr.shr4.mask4, true, true); // decay
           _adsrPhase = 2;
         }
       case 2:
         if (adsrVolume <= sustainLevel) {
-          envelope = Envelope.of(adsr.shr22 & 0x03, adsr.shr24 & 0x1f,
+          envelope = Envelope.of(adsr.shr22.mask2, adsr.shr24.mask5,
               adsr.bit31, adsr.bit30); // sustain
           _adsrPhase = 3;
         }
@@ -217,8 +217,8 @@ class Voice {
     _counter = 0;
 
     envelope = Envelope.of(
-        adsr.shr8 & 0x03, adsr.shr10 & 0x1f, adsr.bit15, false); // attack
-    sustainLevel = ((adsr & 0xf) + 1).shl11;
+        adsr.shr8.mask2, adsr.shr10.mask5, adsr.bit15, false); // attack
+    sustainLevel = (adsr.mask4 + 1).shl11;
     adsrVolume = 0;
     _adsrPhase = 1;
 
@@ -227,7 +227,7 @@ class Voice {
 
   void keyOff() {
     _adsrPhase = 4;
-    envelope = Envelope.of(0, adsr.shr16 & 0x1f, adsr.bit21, true); // release
+    envelope = Envelope.of(0, adsr.shr16.mask5, adsr.bit21, true); // release
 
     // debugLog(
     //     "SPU: keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
