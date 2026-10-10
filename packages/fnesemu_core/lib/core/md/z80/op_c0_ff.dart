@@ -1,3 +1,4 @@
+import '../../../util/int.dart';
 import 'z80.dart';
 
 extension OpC0ff on Z80 {
@@ -14,7 +15,7 @@ extension OpC0ff on Z80 {
       };
 
   bool execC0ff(int op) {
-    switch (op & 0x07) {
+    switch (op.mask3) {
       case 0x00: // ret
         if (cond(op)) {
           r.pc = pop();

@@ -93,7 +93,7 @@ class MapperMMC3 extends Mapper {
     switch (reg) {
       case 0x6000:
         if (_ramEnabled && _ramWriteEnabled) {
-          writeSram(addr & 0x1fff, data);
+          writeSram(addr.mask13, data);
         }
         break;
 
@@ -143,7 +143,7 @@ class MapperMMC3 extends Mapper {
             _prgBank[2] = _prgBank0;
           }
 
-          _r = data & 0x07;
+          _r = data.mask3;
         }
         break;
 
@@ -175,8 +175,8 @@ class MapperMMC3 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = addr.shr13 & 0x03;
-    final offset = addr & 0x1fff;
+    final bank = addr.shr13.mask2;
+    final offset = addr.mask13;
 
     if ((addr & 0xe000) == 0x6000) {
       return _ramEnabled ? readSram(offset) : 0xff;
@@ -195,17 +195,17 @@ class MapperMMC3 extends Mapper {
     _a12 = a12;
 
     final bank = addr.shr10;
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
-    return chrRoms[_chrBank[bank.shr2][bank & 0x03]][offset];
+    return chrRoms[_chrBank[bank.shr2][bank.mask2]][offset];
   }
 
   @override
   void writeVram(int addr, int data) {
     final bank = addr.shr10;
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
-    chrRoms[_chrBank[bank.shr2][bank & 0x03]][offset] = data;
+    chrRoms[_chrBank[bank.shr2][bank.mask2]][offset] = data;
   }
 
   void _tickIrq() {
@@ -280,11 +280,11 @@ class MapperTxsrom extends MapperMMC3 {
 
   // the nametable n (0-3) follows the register of the 1k chr bank at n * 0x400
   bool _page(int addr) {
-    final n = (addr >> 10) & 3;
+    final n = addr.shr10.mask2;
     if (_chrInverted) {
       return _ntBit[2 + n]; // R2-R5 at 0000-0fff
     }
-    return _ntBit[n >> 1]; // R0 (0000-07ff), R1 (0800-0fff)
+    return _ntBit[n.shr1]; // R0 (0000-07ff), R1 (0800-0fff)
   }
 
   @override
@@ -292,7 +292,7 @@ class MapperTxsrom extends MapperMMC3 {
     if (addr < 0x2000) {
       return super.readVram(addr);
     }
-    return _ciram[(_page(addr) ? 0x400 : 0) + (addr & 0x3ff)];
+    return _ciram[(_page(addr) ? 0x400 : 0) + addr.mask10];
   }
 
   @override
@@ -301,6 +301,6 @@ class MapperTxsrom extends MapperMMC3 {
       super.writeVram(addr, data);
       return;
     }
-    _ciram[(_page(addr) ? 0x400 : 0) + (addr & 0x3ff)] = data;
+    _ciram[(_page(addr) ? 0x400 : 0) + addr.mask10] = data;
   }
 }

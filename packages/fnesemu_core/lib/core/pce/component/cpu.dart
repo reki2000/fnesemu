@@ -90,20 +90,20 @@ class Cpu {
 
   @pragma('vm:prefer-inline')
   int read(int addr) =>
-      bus.read(regs.mprAddress[(addr >> 13) & 7] | addr & 0x1fff);
+      bus.read(regs.mprAddress[addr.shr13.mask3] | addr.mask13);
 
   int readzp(int addr, {int cycle = 0}) {
     this.cycle += cycle;
-    return bus.read(regs.mprAddress[1] | addr & 0xff);
+    return bus.read(regs.mprAddress[1] | addr.mask8);
   }
 
-  int readsp(int addr) => bus.read(regs.mprAddress[1] | 0x100 | addr & 0xff);
+  int readsp(int addr) => bus.read(regs.mprAddress[1] | 0x100 | addr.mask8);
 
   void write(int addr, int data) {
     // if (data >= 256) {
     //   print("cpu.write: data over 8bit: $data, regs: ${regs.pc.x4}\n");
     // }
-    bus.write(regs.mprAddress[(addr & 0xe000).shr13] | addr & 0x1fff, data);
+    bus.write(regs.mprAddress[(addr & 0xe000).shr13] | addr.mask13, data);
   }
 
   // the interrupt mask register is written in the last cycle of the store
@@ -204,7 +204,7 @@ class Cpu {
       bool tirq = false}) {
     final pushAddr = brk ? regs.pc + 1 : regs.pc;
     push(pushAddr.shr8);
-    push(pushAddr & 0xff);
+    push(pushAddr.mask8);
     push(regs.p);
     // the handler starts in binary mode, and a SET just before does not
     // apply to its first instruction
@@ -271,14 +271,14 @@ class Cpu {
   @pragma('vm:prefer-inline')
   int pc() {
     final op = read(regs.pc);
-    regs.pc = (regs.pc + 1) & 0xffff;
+    regs.pc = (regs.pc + 1).mask16;
     return op;
   }
 
   void branch(bool cond) {
-    final offset = ((immediate() + 128) & 0xff) - 128;
+    final offset = (immediate() + 128).mask8 - 128;
     if (cond) {
-      regs.pc = (regs.pc + offset) & 0xffff;
+      regs.pc = (regs.pc + offset).mask16;
     }
     cycle += 2;
   }
@@ -290,7 +290,7 @@ class Cpu {
   }
 
   void flags(int acm, {bool sub = false}) {
-    var carry = (acm & 0x100 != 0) ? Flags.C : 0;
+    var carry = acm.bit8 ? Flags.C : 0;
     if (sub) {
       carry ^= Flags.C;
     }
@@ -300,7 +300,7 @@ class Cpu {
 
   void flagsNZ(int acm) {
     final negative = acm.bit7 ? Flags.N : 0;
-    final zero = (acm & 0xff == 0) ? Flags.Z : 0;
+    final zero = (acm.mask8 == 0) ? Flags.Z : 0;
 
     regs.p = (regs.p & 0x7d) | Flags.T | negative | zero;
   }
@@ -330,7 +330,7 @@ class Cpu {
         0x1c => absoluteXY(regs.x, st: st), // 111
         0x18 => absoluteXY(regs.y, st: st), // 110
         0x00 => indirectX(), // 000
-        0x10 => op & 0x0f == 0x02 ? indirect() : indirectY(st: st), // 010
+        0x10 => op.mask4 == 0x02 ? indirect() : indirectY(st: st), // 010
         _ => 0, // log("unimplemented addressing mode: $op\n");
       };
 
@@ -343,7 +343,7 @@ class Cpu {
 
   int zeropageXY(int offset) {
     cycle += 2;
-    return (pc() + offset) & 0xff | zeroAddr;
+    return (pc() + offset).mask8 | zeroAddr;
   }
 
   int absolute() {
@@ -354,7 +354,7 @@ class Cpu {
   int absoluteXY(int offset, {bool st = false}) {
     cycle += 2;
     final base = pc() | pc().shl8;
-    return (base + offset) & 0xffff;
+    return (base + offset).mask16;
   }
 
   int indirect() {
@@ -373,6 +373,6 @@ class Cpu {
     cycle += 3;
     final addr = pc();
     final base = readzp(addr) | readzp(addr + 1).shl8;
-    return (base + regs.y) & 0xffff;
+    return (base + regs.y).mask16;
   }
 }

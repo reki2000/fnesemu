@@ -89,7 +89,7 @@ extension ArmAlu on Arm7 {
     final sum = a + b + cin; // dart ints are 64-bit, no overflow up to 2^33
     _aluC = sum > 0xffffffff;
     final res = sum.mask32;
-    _aluV = ((a ^ res) & (b ^ res) & 0x80000000) != 0;
+    _aluV = ((a ^ res) & (b ^ res)).bit31;
     return res;
   }
 

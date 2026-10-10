@@ -67,7 +67,7 @@ mixin _LengthCounter {
   }
 
   void setLength(int l) {
-    length = lengthTable[l & 0x1f];
+    length = lengthTable[l.mask5];
     if (enabled) {
       lengthCounter = length;
     }
@@ -105,7 +105,7 @@ class _SweepUnit {
     _enabled = val.bit7;
     _period = (val & 0x70).shr4;
     _negate = val.bit3;
-    _shift = val & 0x07;
+    _shift = val.mask3;
   }
 
   void sweep() {
@@ -177,7 +177,7 @@ class _PulseWave with _LengthCounter {
     for (int i = 0; i < buf.length; i++) {
       if (_timer == 0) {
         _timer = sweep.freq + 1;
-        _index = (_index + 1) & 0x07;
+        _index = (_index + 1).mask3;
       }
       buf[i] = _waveTable[dutyType][_index] == 1 ? envelope.volume : 0;
       _timer--;
@@ -234,7 +234,7 @@ class TriangleWave with _LengthCounter {
     for (int i = 0; i < buf.length; i++) {
       if (_timer <= 0) {
         _timer = freq + 1;
-        _index = (_index + 1) & 0x1f;
+        _index = (_index + 1).mask5;
 
         // to avoid pop noise, delay mute until table value becomes 0
         if (mute && table[_index] == 0) {
@@ -275,7 +275,7 @@ class NoiseWave with _LengthCounter {
 
     for (int i = 0; i < buf.length; i++) {
       if (counter <= 0) {
-        final feedback = (reg ^ (short ? reg.shr6 : reg.shr1)) & 0x01;
+        final feedback = (reg ^ (short ? reg.shr6 : reg.shr1)).mask1;
         reg = reg.shr1 | feedback.shl14;
         counter += _table[timer];
       }
@@ -322,7 +322,7 @@ class DPCMWave {
       clearIrq();
     }
     _loop = val.bit6;
-    _initTimer = _timerTable[val & 0x0f] ~/ 2;
+    _initTimer = _timerTable[val.mask4] ~/ 2;
     _timer = _initTimer;
   }
 
@@ -338,7 +338,7 @@ class DPCMWave {
   int get length => _length;
 
   set deltaCounter(int counter) {
-    _deltaCounter = counter & 0x7f;
+    _deltaCounter = counter.mask7;
   }
 
   // $4015 bit4: restarts the sample if finished, or stops it
@@ -364,7 +364,7 @@ class DPCMWave {
     }
 
     _sample = fetch(_address);
-    _address = (_address + 1) & 0xffff | 0x8000;
+    _address = (_address + 1).mask16 | 0x8000;
     _length--;
 
     if (_length == 0) {
@@ -380,7 +380,7 @@ class DPCMWave {
   }
 
   void _updateDeltaCounter() {
-    final bit = _sample & 0x01;
+    final bit = _sample.mask1;
     _sample >>= 1;
 
     if (bit == 0) {
@@ -464,7 +464,7 @@ class Apu {
         pulse0.dutyType = val.shr6;
         pulse0.halt = val.bit5;
         pulse0.envelope
-            .prepare(disabled: val.bit4, loop: pulse0.halt, n: val & 0x0f);
+            .prepare(disabled: val.bit4, loop: pulse0.halt, n: val.mask4);
         return;
 
       case 0x4001:
@@ -476,7 +476,7 @@ class Apu {
         return;
 
       case 0x4003:
-        pulse0.sweep.freq = (pulse0.sweep.freq & 0xff) | (val & 0x07).shl8;
+        pulse0.sweep.freq = pulse0.sweep.freq.mask8 | val.mask3.shl8;
         pulse0.setLength(val.shr3);
         pulse0.noteOn();
         return;
@@ -486,7 +486,7 @@ class Apu {
         pulse1.dutyType = val.shr6;
         pulse1.halt = val.bit5;
         pulse1.envelope
-            .prepare(disabled: val.bit4, loop: pulse1.halt, n: val & 0x0f);
+            .prepare(disabled: val.bit4, loop: pulse1.halt, n: val.mask4);
         return;
 
       case 0x4005:
@@ -498,7 +498,7 @@ class Apu {
         return;
 
       case 0x4007:
-        pulse1.sweep.freq = (pulse1.sweep.freq & 0xff) | (val & 0x07).shl8;
+        pulse1.sweep.freq = pulse1.sweep.freq.mask8 | val.mask3.shl8;
         pulse1.setLength(val.shr3);
         pulse1.noteOn();
         return;
@@ -507,7 +507,7 @@ class Apu {
       case 0x4008:
         triangle.halt = val.bit7;
         triangle.linearControl = val.bit7;
-        triangle.linearReload = val & 0x7f;
+        triangle.linearReload = val.mask7;
         return;
 
       case 0x4009:
@@ -518,7 +518,7 @@ class Apu {
         return;
 
       case 0x400b:
-        triangle.freq = triangle.freq & 0xff | (val & 0x07).shl8;
+        triangle.freq = triangle.freq.mask8 | val.mask3.shl8;
         triangle.setLength(val.shr3);
         triangle.prepare();
         return;
@@ -527,7 +527,7 @@ class Apu {
       case 0x400c:
         noise.halt = val.bit5;
         noise.envelope
-            .prepare(disabled: val.bit4, loop: noise.halt, n: val & 0x0f);
+            .prepare(disabled: val.bit4, loop: noise.halt, n: val.mask4);
         return;
 
       case 0x400d:
@@ -535,7 +535,7 @@ class Apu {
 
       case 0x400e:
         noise.short = val.bit7;
-        noise.timer = val & 0x0f;
+        noise.timer = val.mask4;
         return;
 
       case 0x400f:

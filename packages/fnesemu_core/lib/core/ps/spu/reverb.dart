@@ -20,7 +20,7 @@ class ReverbUint {
 
 extension IntVolume on int {
   // apply signed 16-bit volume
-  int vol16(int vol) => this * vol >> 15;
+  int vol16(int vol) => (this * vol).shr15;
 
   int volClip() => this.clip(-0x8000, 0x7fff);
 }
@@ -205,7 +205,7 @@ class Reverb {
   }
 
   void setOutputVolume(int ch, int value) {
-    outputVolume[ch & 1] = value.rel16;
+    outputVolume[ch.mask1] = value.rel16;
   }
 
   int getReverbEnabled() => reverbEnabled.asMap().entries.fold(
@@ -223,7 +223,7 @@ class Reverb {
   void write16(int offset, int value) {
     final addr = value.mask16.shl3;
     final volume = value.rel16;
-    final _ = switch (offset.shr1 & 0x1f) {
+    final _ = switch (offset.shr1.mask5) {
       0x00 => _apf[0].offset = addr,
       0x01 => _apf[1].offset = addr,
       0x02 => _ssr[0].volume = _dsr[0].volume = volume,

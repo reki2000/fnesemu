@@ -70,43 +70,43 @@ extension on Vdp2 {
     final cfg = r.cfg;
     final chctlb = reg(0x2a);
 
-    cfg.colorMode = (chctlb >> 12) & 7;
+    cfg.colorMode = chctlb.shr12.mask3;
     cfg.bitmap = chctlb.bit9;
     cfg.bitmapW = 512;
     cfg.bitmapH = chctlb.bit10 ? 512 : 256;
     cfg.char16 = chctlb.bit8;
-    cfg.bitmapPalette = reg(0x2e) & 7;
+    cfg.bitmapPalette = reg(0x2e).mask3;
 
     cfg.pncn = reg(0x38);
     cfg.pnSize = cfg.pncn.bit15 ? 2 : 4;
 
     final plsz = reg(0x3a) >> (paramNo == 0 ? 8 : 12);
-    cfg.planeW = plsz & 3 == 0 ? 1 : 2;
-    cfg.planeH = plsz & 3 == 3 ? 2 : 1;
+    cfg.planeW = plsz.mask2 == 0 ? 1 : 2;
+    cfg.planeH = plsz.mask2 == 3 ? 2 : 1;
     cfg.mapW = 4;
-    r.overMode = (plsz >> 2) & 3;
+    r.overMode = plsz.shr2.mask2;
 
-    final mapOffset = (reg(0x3e) >> (paramNo * 4)) & 7;
+    final mapOffset = (reg(0x3e) >> (paramNo * 4)).mask3;
     final mapRegs = paramNo == 0 ? 0x50 : 0x60;
     for (int i = 0; i < 8; i++) {
       final v = reg(mapRegs + i * 2);
-      cfg.planeAddr[i * 2] = cfg.planeAddrOf(mapOffset << 6 | v & 0x3f);
+      cfg.planeAddr[i * 2] = cfg.planeAddrOf(mapOffset.shl6 | v.mask6);
       cfg.planeAddr[i * 2 + 1] =
-          cfg.planeAddrOf(mapOffset << 6 | (v >> 8) & 0x3f);
+          cfg.planeAddrOf(mapOffset.shl6 | v.shr8.mask6);
     }
 
     cfg.bitmapAddr = mapOffset * 0x20000;
-    cfg.craOffset = (reg(0xe6) & 7) << 8;
+    cfg.craOffset = reg(0xe6).mask3.shl8;
     cfg.transparentEnabled = !reg(0x20).bit12;
-    cfg.priority = reg(0xfc) & 7;
+    cfg.priority = reg(0xfc).mask3;
     cfg.ccEnabled = reg(0xec).bit4;
-    cfg.sfprMode = (reg(0xea) >> 8) & 3;
+    cfg.sfprMode = reg(0xea).shr8.mask2;
 
     final ktctl = reg(0xb4) >> (paramNo * 8);
     r.coefEnabled = ktctl.bit0;
     r.coefWord = ktctl.bit1;
-    r.coefMode = (ktctl >> 2) & 3;
-    r.coefOffset = ((reg(0xb6) >> (paramNo * 8)) & 7) << 16;
+    r.coefMode = ktctl.shr2.mask2;
+    r.coefOffset = (reg(0xb6) >> (paramNo * 8)).mask3.shl16;
   }
 
   void _setupRotLine(_RotParam r, int y) {
@@ -140,7 +140,7 @@ extension on Vdp2 {
     if (r.coefWord) {
       final d = vramData.getUint16((index * 2) & 0x7fffe);
       if (d.bit15) return _transparentCoef;
-      return d.rel15 << 6; // 4.10 -> 16.16
+      return d.rel15.shl6; // 4.10 -> 16.16
     }
     final d = vramData.getUint32((index * 4) & 0x7fffc);
     if (d.bit31) return _transparentCoef;
@@ -198,8 +198,8 @@ extension on Vdp2 {
   }
 
   void _renderRbg0(int y, int w, Int32List buf) {
-    final tableAddr = ((reg(0xbc) & 7) << 16 | reg(0xbe) & 0xfffe) << 1;
-    final mode = reg(0xb0) & 3;
+    final tableAddr = (reg(0xbc).mask3.shl16 | reg(0xbe) & 0xfffe).shl1;
+    final mode = reg(0xb0).mask2;
 
     final pa = _rotA;
     final pb = _rotB;

@@ -555,7 +555,7 @@ int mulHiSigned(int x, int y) =>
 (int, int) divUnsigned(int x, int y) {
   if (x >= 0 && y > 0) return (x ~/ y, x.remainder(y));
   if (y < 0) return ltu(x, y) ? (0, x) : (1, x - y);
-  var q = (x >>> 1) ~/ y << 1;
+  var q = ((x >>> 1) ~/ y).shl1;
   var rem = x - q * y;
   if (!ltu(rem, y)) {
     q++;

@@ -154,7 +154,7 @@ class Gpu {
   }
 
   int readStat() {
-    final b25 = switch (status.shr29 & 0x03) {
+    final b25 = switch (status.shr29.mask2) {
       0 => false,
       1 => true, // fifo is never full
       2 => dmaReceiveReady, // same as bit28
@@ -194,7 +194,7 @@ class Gpu {
 
   @pragma('vm:prefer-inline')
   writeFrameBuffer16(int x, int y, int u16) {
-    final offset = (y & 0x1ff) * 1024 + (x & 0x3ff);
+    final offset = y.mask9 * 1024 + x.mask10;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   debugLog(
     //       "writeFrameBuffer16: ${u16.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
@@ -204,7 +204,7 @@ class Gpu {
 
   @pragma('vm:prefer-inline')
   int readFrameBuffer16(int x, int y) {
-    final offset = (y & 0x1ff) * 1024 + (x & 0x3ff);
+    final offset = y.mask9 * 1024 + x.mask10;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   final result = frameBuffer.getUint16LE(offset);
     //   debugLog(
@@ -228,12 +228,12 @@ class Gpu {
       case 0:
         final clutByteIndex = base + (baseX + uu.shr2).mask10;
         final clutByte = frameBuffer16[clutByteIndex & 0x7ffff];
-        final clutIndex = clutByte >> (uu & 3).shl2;
-        addr = clutBase + (clutIndex & 0x0f);
+        final clutIndex = clutByte >> uu.mask2.shl2;
+        addr = clutBase + clutIndex.mask4;
 
       case 1:
         final clutIndex = frameBuffer[
-            ((base + (baseX + uu.shr1).mask10).shl1 | uu & 1) & 0xfffff];
+            ((base + (baseX + uu.shr1).mask10).shl1 | uu.mask1) & 0xfffff];
         addr = clutBase + clutIndex;
 
       default:
@@ -270,11 +270,11 @@ class Gpu {
   @pragma('vm:unsafe:no-bounds-checks')
   int ditherAndModulate(int x, int y, int c16, Color m24,
       {bool dithering = true}) {
-    final d = dithering && status.bit9 ? _ditherV[x & 3 | (y & 3).shl2] : 0;
+    final d = dithering && status.bit9 ? _ditherV[x.mask2 | y.mask2.shl2] : 0;
 
-    final r = _c8toC5(((c16 & 0x1f) * m24.r).shr4 + d);
-    final g = _c8toC5(((c16.shr5 & 0x1f) * m24.g).shr4 + d);
-    final b = _c8toC5(((c16.shr10 & 0x1f) * m24.b).shr4 + d);
+    final r = _c8toC5((c16.mask5 * m24.r).shr4 + d);
+    final g = _c8toC5((c16.shr5.mask5 * m24.g).shr4 + d);
+    final b = _c8toC5((c16.shr10.mask5 * m24.b).shr4 + d);
 
     return b.shl10 | g.shl5 | r | c16 & 0x8000;
   }
@@ -287,7 +287,7 @@ class Gpu {
       return c.c15;
     }
 
-    final d = _ditherV[x & 3 | (y & 3).shl2];
+    final d = _ditherV[x.mask2 | y.mask2.shl2];
     return _c8toC5(c.r + d) | _c8toC5(c.g + d).shl5 | _c8toC5(c.b + d).shl10;
   }
 
@@ -296,7 +296,7 @@ class Gpu {
   void pset16(int x, int y, int c16,
       {bool ignoreWindow = false, bool blend = false, int? semiTransparent}) {
     if (!ignoreWindow) {
-      _plot(x, y, c16, blend, semiTransparent ?? status.shr5 & 0x03);
+      _plot(x, y, c16, blend, semiTransparent ?? status.shr5.mask2);
       return;
     }
 
@@ -313,7 +313,7 @@ class Gpu {
 
     if (blend) {
       c16 = c16 & 0x8000 |
-          _blend(old, c16, semiTransparent ?? status.shr5 & 0x03);
+          _blend(old, c16, semiTransparent ?? status.shr5.mask2);
     }
 
     writeFrameBuffer16(x, y, c16 | (status.bit11 ? 0x8000 : 0));
@@ -338,7 +338,7 @@ class Gpu {
     final old = frameBuffer16[index];
 
     // write protected
-    if (status & 0x1000 != 0 && old & 0x8000 != 0) {
+    if (status.bit12 && old.bit15) {
       return;
     }
 
@@ -346,18 +346,18 @@ class Gpu {
       c16 = c16 & 0x8000 | _blend(old, c16, semi);
     }
 
-    frameBuffer16[index] = c16 | (status & 0x800 != 0 ? 0x8000 : 0);
+    frameBuffer16[index] = c16 | (status.bit11 ? 0x8000 : 0);
   }
 
   /// semi-transparency of the 15bit colors: back [b] and front [f]
   @pragma('vm:prefer-inline')
   static int _blend(int b, int f, int mode) {
-    final r0 = b & 0x1f;
-    final g0 = b.shr5 & 0x1f;
-    final b0 = b.shr10 & 0x1f;
-    final r1 = f & 0x1f;
-    final g1 = f.shr5 & 0x1f;
-    final b1 = f.shr10 & 0x1f;
+    final r0 = b.mask5;
+    final g0 = b.shr5.mask5;
+    final b0 = b.shr10.mask5;
+    final r1 = f.mask5;
+    final g1 = f.shr5.mask5;
+    final b1 = f.shr10.mask5;
     switch (mode) {
       case 0: // B/2+F/2
         return (b0 + b1).shr1.shl10 | (g0 + g1).shr1.shl5 | (r0 + r1).shr1;

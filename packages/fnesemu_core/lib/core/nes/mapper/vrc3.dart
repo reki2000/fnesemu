@@ -42,11 +42,11 @@ class MapperVrc3 extends Mapper {
     switch (reg) {
       case 0x6000:
       case 0x7000:
-        writeSram(addr & 0x1fff, data);
+        writeSram(addr.mask13, data);
         return;
 
       case 0xf000:
-        _prgBank = data & 0x07;
+        _prgBank = data.mask3;
         return;
 
       case 0x8000:
@@ -78,11 +78,11 @@ class MapperVrc3 extends Mapper {
   @override
   int read(int addr) {
     if (addr & 0xe000 == 0x6000) {
-      return readSram(addr & 0x1fff);
+      return readSram(addr.mask13);
     }
 
     final bank = addr & 0xc000;
-    final offset = addr & 0x3fff;
+    final offset = addr.mask14;
 
     switch (bank) {
       case 0x8000:
@@ -96,14 +96,14 @@ class MapperVrc3 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final offset = addr & 0x1fff;
+    final offset = addr.mask13;
     return chrRam[offset];
   }
 
   @override
   void writeVram(int addr, int data) {
-    final offset = addr & 0x1fff;
-    chrRam[offset] = data & 0xff;
+    final offset = addr.mask13;
+    chrRam[offset] = data.mask8;
   }
 
   void _setIrqControl(int data) {
@@ -139,8 +139,8 @@ class MapperVrc3 extends Mapper {
             _irqCounter += 1;
           }
         } else {
-          if (_irqCounter & 0xff == 0xff) {
-            _irqCounter = _irqCounter.setL8(_irqLatch & 0xff);
+          if (_irqCounter.mask8 == 0xff) {
+            _irqCounter = _irqCounter.setL8(_irqLatch.mask8);
             holdIrq(true);
           } else {
             _irqCounter += 1;

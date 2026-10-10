@@ -71,7 +71,7 @@ class Ppu {
   bool bgTable() => ctl1.bit4;
   bool objTable() => ctl1.bit3;
   bool vramIncrement() => ctl1.bit2;
-  int baseNameAddr() => ctl1 & 0x03;
+  int baseNameAddr() => ctl1.mask2;
 
   // ppu control 2
   bool strongRed() => ctl2.bit7;
@@ -113,7 +113,7 @@ class Ppu {
         }
         // t: ...GH.. ........ <- d: ......GH
         //    <used elsewhere> <- d: ABCDEF..
-        tmpVramAddr = (tmpVramAddr & ~0x0c00) | (val & 0x03).shl10;
+        tmpVramAddr = (tmpVramAddr & ~0x0c00) | val.mask2.shl10;
         break;
 
       case 0x2001: // ppu control 2
@@ -140,13 +140,13 @@ class Ppu {
           // t: ....... ...ABCDE <- d: ABCDE...
           // x:              FGH <- d: .....FGH
           tmpVramAddr = (tmpVramAddr & ~0x1f) | val.shr3;
-          fineX = val & 0x07;
+          fineX = val.mask3;
           first = false;
         } else {
           scrollY = val;
           // t: FGH..AB CDE..... <- d: ABCDEFGH
           tmpVramAddr =
-              (tmpVramAddr & ~0x73e0) | val.shr3.shl5 | (val & 0x07).shl12;
+              (tmpVramAddr & ~0x73e0) | val.shr3.shl5 | val.mask3.shl12;
           first = true;
         }
         break;
@@ -156,7 +156,7 @@ class Ppu {
           // t: .CDEFGH ........ <- d: ..CDEFGH
           //        <unused>     <- d: AB......
           // t: Z...... ........ <- 0 (bit Z is cleared)
-          tmpVramAddr = (val & 0x3f).shl8 | tmpVramAddr & 0xff;
+          tmpVramAddr = val.mask6.shl8 | tmpVramAddr.mask8;
           first = false;
         } else {
           // t: ....... ABCDEFGH <- d: ABCDEFGH
@@ -169,9 +169,9 @@ class Ppu {
 
       case 0x2007: // vram access
         bus.mapper.fetchPhase = Mapper.fetchCpu;
-        writeVram(vramAddr & 0x3fff, val);
+        writeVram(vramAddr.mask14, val);
         bus.mapper.fetchPhase = Mapper.fetchBg;
-        vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)) & 0x7fff;
+        vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)).mask15;
         break;
 
       default:
@@ -192,7 +192,7 @@ class Ppu {
         return objRam[objAddr];
 
       case 0x2007:
-        final addr = vramAddr & 0x3fff;
+        final addr = vramAddr.mask14;
         bus.mapper.fetchPhase = Mapper.fetchCpu;
         var data = readVram(addr);
         if (addr < 0x3f00) {
@@ -204,7 +204,7 @@ class Ppu {
           vramBuffer = readVram(addr - 0x1000);
         }
         bus.mapper.fetchPhase = Mapper.fetchBg;
-        vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)) & 0x7fff;
+        vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)).mask15;
         return data;
 
       default:
@@ -222,7 +222,7 @@ class Ppu {
     if (addr & 0x13 == 0x10) {
       addr &= ~0x10;
     }
-    return palette[addr & 0x1f];
+    return palette[addr.mask5];
   }
 
   void writeVram(int addr, int val) {
@@ -234,7 +234,7 @@ class Ppu {
     if (addr & 0x13 == 0x10) {
       addr &= ~0x10;
     }
-    palette[addr & 0x1f] = val;
+    palette[addr.mask5] = val;
   }
 
   final buffer = Uint32List(hardware.imageWidth * hardware.imageHeight);

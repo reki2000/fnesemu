@@ -201,7 +201,7 @@ class Ss extends Core implements FrameRunner {
       vdp1.exec(elapsed);
       cdblock.exec(elapsed);
       if (scu.dsp.executing) {
-        scu.dsp.exec(elapsed >> 1);
+        scu.dsp.exec(elapsed.shr1);
       }
       _execSound(elapsed);
     }
@@ -368,7 +368,7 @@ class Ss extends Core implements FrameRunner {
 
   (String, int) _soundDisasm(int address) {
     final words =
-        List.generate(6, (i) => scsp.bus.read16((address + i * 2) & 0xffffff));
+        List.generate(6, (i) => scsp.bus.read16((address + i * 2).mask24));
     try {
       final (text, length) = Disasm().disasm(words, address);
       return ('${address.x6}: ${words.first.x4}  $text', length * 2);

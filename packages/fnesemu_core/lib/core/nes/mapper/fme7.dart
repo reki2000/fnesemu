@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 import 'sunsoft5b_apu.dart';
@@ -36,13 +37,13 @@ class MapperFme7 extends Mapper {
   void write(int addr, int data) {
     switch (addr & 0xe000) {
       case 0x6000:
-        if (_ram6000 && _ramEnabled) writeSram(addr & 0x1fff, data);
+        if (_ram6000 && _ramEnabled) writeSram(addr.mask13, data);
       case 0x8000:
-        _command = data & 0xf;
+        _command = data.mask4;
       case 0xa000:
         _parameter(data);
       case 0xc000:
-        _audioReg = data & 0xf;
+        _audioReg = data.mask4;
       case 0xe000:
         _apu.write(_audioReg, data);
     }
@@ -53,21 +54,21 @@ class MapperFme7 extends Mapper {
       case < 8:
         _chrBank[_command] = data % chrRoms.length;
       case 8:
-        _bank6000 = data & 0x3f;
-        _ram6000 = data & 0x40 != 0;
-        _ramEnabled = data & 0x80 != 0;
+        _bank6000 = data.mask6;
+        _ram6000 = data.bit6;
+        _ramEnabled = data.bit7;
       case 9 || 10 || 11:
-        _prgBank[_command - 9] = (data & 0x3f) % prgRoms.length;
+        _prgBank[_command - 9] = data.mask6 % prgRoms.length;
       case 12:
-        mirror(_mirrors[data & 3]);
+        mirror(_mirrors[data.mask2]);
       case 13:
-        _irqEnabled = data & 1 != 0;
-        _counterEnabled = data & 0x80 != 0;
+        _irqEnabled = data.bit0;
+        _counterEnabled = data.bit7;
         holdIrq(false);
       case 14:
         _irqCounter = (_irqCounter & 0xff00) | data;
       case 15:
-        _irqCounter = (_irqCounter & 0xff) | data << 8;
+        _irqCounter = _irqCounter.mask8 | data.shl8;
     }
   }
 
@@ -81,22 +82,22 @@ class MapperFme7 extends Mapper {
   @override
   int read(int addr) {
     if (addr & 0xe000 == 0x6000) {
-      if (_ram6000) return _ramEnabled ? readSram(addr & 0x1fff) : 0xff;
-      return prgRoms[_bank6000 % prgRoms.length][addr & 0x1fff];
+      if (_ram6000) return _ramEnabled ? readSram(addr.mask13) : 0xff;
+      return prgRoms[_bank6000 % prgRoms.length][addr.mask13];
     }
-    if (addr & 0x8000 != 0) {
-      return prgRoms[_prgBank[(addr >> 13) & 3]][addr & 0x1fff];
+    if (addr.bit15) {
+      return prgRoms[_prgBank[addr.shr13.mask2]][addr.mask13];
     }
     return 0xff;
   }
 
   @override
-  int readVram(int addr) => chrRoms[_chrBank[addr >> 10]][addr & 0x3ff];
+  int readVram(int addr) => chrRoms[_chrBank[addr.shr10]][addr.mask10];
 
   @override
   void writeVram(int addr, int data) {
     // a board with chr ram
-    chrRoms[_chrBank[addr >> 10]][addr & 0x3ff] = data;
+    chrRoms[_chrBank[addr.shr10]][addr.mask10] = data;
   }
 
   // the counter decrements every cpu cycle, and the IRQ fires as it wraps
@@ -106,7 +107,7 @@ class MapperFme7 extends Mapper {
     _prevCycle = cycles;
     if (!_counterEnabled || elapsed <= 0) return;
     final wraps = elapsed > _irqCounter;
-    _irqCounter = (_irqCounter - elapsed) & 0xffff;
+    _irqCounter = (_irqCounter - elapsed).mask16;
     if (wraps && _irqEnabled) holdIrq(true);
   }
 

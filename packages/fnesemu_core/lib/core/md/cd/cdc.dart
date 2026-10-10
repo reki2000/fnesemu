@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// LC89510 decoder, circular sector buffer and host/DMA transfer interface.
 class CdCdc {
@@ -28,26 +29,26 @@ class CdCdc {
 
   int readRegister() {
     final index = register;
-    if (index != 0) register = (register + 1) & 15;
+    if (index != 0) register = (register + 1).mask4;
     switch (index) {
       case 0:
         return 0xff;
       case 1:
         return _ifstat;
       case 2:
-        return _count & 0xff;
+        return _count.mask8;
       case 3:
-        return (_count >> 8) & 15;
+        return _count.shr8.mask4;
       case 4 || 5 || 6 || 7:
         return header[index - 4];
       case 8:
-        return _pointer & 0xff;
+        return _pointer.mask8;
       case 9:
-        return _pointer >> 8;
+        return _pointer.shr8;
       case 10:
-        return _write & 0xff;
+        return _write.mask8;
       case 11:
-        return _write >> 8;
+        return _write.shr8;
       case 12:
         return _ctrl0 & 0x80;
       case 13:
@@ -67,24 +68,24 @@ class CdCdc {
   void writeRegister(int data) {
     data &= 0xff;
     final index = register;
-    if (index != 0) register = (register + 1) & 15;
+    if (index != 0) register = (register + 1).mask4;
     switch (index) {
       case 1:
         _ifctrl = data;
-        if ((data & 2) == 0) {
+        if (!data.bit1) {
           _transfer = false;
           _ifstat |= 0x0a;
         }
       case 2:
         _count = (_count & 0xf00) | data;
       case 3:
-        _count = (_count & 0xff) | ((data & 15) << 8);
+        _count = _count.mask8 | data.mask4.shl8;
       case 4:
         _source = (_source & 0xff00) | data;
       case 5:
-        _source = (_source & 0xff) | (data << 8);
+        _source = _source.mask8 | data.shl8;
       case 6:
-        if ((_ifctrl & 2) != 0) {
+        if (_ifctrl.bit1) {
           _transfer = true;
           _ended = false;
           _dmaBytes = _dmaCycles = 0;
@@ -95,47 +96,47 @@ class CdCdc {
       case 8:
         _write = (_write & 0xff00) | data;
       case 9:
-        _write = (_write & 0xff) | (data << 8);
+        _write = _write.mask8 | data.shl8;
       case 10:
         _ctrl0 = data;
-        if ((data & 0x80) == 0) _ifstat |= 0x20;
+        if (!data.bit7) _ifstat |= 0x20;
       case 11:
         _ctrl1 = data;
       case 12:
         _pointer = (_pointer & 0xff00) | data;
       case 13:
-        _pointer = (_pointer & 0xff) | (data << 8);
+        _pointer = _pointer.mask8 | data.shl8;
       case 15:
         reset();
     }
   }
 
   void decode(Uint8List sector) {
-    if ((_ctrl0 & 0x80) == 0 || sector.length < 2352) return;
+    if (!_ctrl0.bit7 || sector.length < 2352) return;
     header.setRange(0, 4, sector, 12);
     _stat3 = 0;
-    if ((_ctrl0 & 4) != 0) {
-      _pointer = (_pointer + 2352) & 0x3fff;
-      _write = (_write + 2352) & 0x3fff;
+    if (_ctrl0.bit2) {
+      _pointer = (_pointer + 2352).mask14;
+      _write = (_write + 2352).mask14;
       for (int i = 0; i < 2352; i++) {
         // Normal decode stores header + data, omitting the 12-byte sync.
-        ram[(_pointer + i) & 0x3fff] = sector[(i + 12) % 2352];
+        ram[(_pointer + i).mask14] = sector[(i + 12) % 2352];
       }
     }
     _ifstat &= ~0x20;
-    if ((_ifctrl & 0x20) != 0) interrupt();
+    if (_ifctrl.bit5) interrupt();
   }
 
   int _readByte() {
-    final value = ram[_source & 0x3fff];
-    _source = (_source + 1) & 0xffff;
+    final value = ram[_source.mask14];
+    _source = (_source + 1).mask16;
     _count--;
     if (_count < 0) {
       _count = 0xffff;
       _transfer = false;
       _ended = true;
       _ifstat = (_ifstat | 0x0a) & ~0x40;
-      if ((_ifctrl & 0x40) != 0) interrupt();
+      if (_ifctrl.bit6) interrupt();
     }
     return value;
   }
@@ -144,7 +145,7 @@ class CdCdc {
     if (!dataReady || destination != cpuDestination) return 0xffff;
     final high = _readByte();
     final low = _transfer ? _readByte() : 0;
-    return (high << 8) | low;
+    return high.shl8 | low;
   }
 
   void tick(int cycles) {
@@ -161,7 +162,7 @@ class CdCdc {
       dmaWrite(destination, offset + 1, low);
       _dmaBytes += 2;
       if (_dmaBytes >= (destination == 4 ? 4 : 8)) {
-        dmaAddress = (dmaAddress + 1) & 0xffff;
+        dmaAddress = (dmaAddress + 1).mask16;
         _dmaBytes = 0;
       }
     }

@@ -117,17 +117,17 @@ class _Patch {
       op.pm = r[i].bit6;
       op.egSustained = r[i].bit5;
       op.ksr = r[i].bit4;
-      op.mul = r[i] & 0x0f;
+      op.mul = r[i].mask4;
       op.ksl = r[2 + i].shr6;
       op.ar = r[4 + i].shr4;
-      op.dr = r[4 + i] & 0x0f;
+      op.dr = r[4 + i].mask4;
       op.sl = r[6 + i].shr4;
-      op.rr = r[6 + i] & 0x0f;
+      op.rr = r[6 + i].mask4;
     }
-    mod.tl = r[2] & 0x3f;
+    mod.tl = r[2].mask6;
     car.rectify = r[3].bit4;
     mod.rectify = r[3].bit3;
-    fb = r[3] & 0x07;
+    fb = r[3].mask3;
   }
 }
 
@@ -159,13 +159,13 @@ class _Slot {
   static int _decayInc(int rate, int rks) {
     if (rate == 0) return 0;
     final rm = min(15, rate + rks.shr2);
-    return ((rks & 3) + 4) << (rm - 1);
+    return (rks.mask2 + 4) << (rm - 1);
   }
 
   static int _attackInc(int rate, int rks) {
     if (rate == 0) return 0;
     final rm = min(15, rate + rks.shr2);
-    return (3 * ((rks & 3) + 4)) << (rm + 1);
+    return (3 * (rks.mask2 + 4)) << (rm + 1);
   }
 
   /// advances the envelope and returns its attenuation in EG units
@@ -261,7 +261,7 @@ class Vrc7Apu {
   }
 
   void selectReg(int val) {
-    _addr = val & 0xff;
+    _addr = val.mask8;
   }
 
   void write(int val) {
@@ -273,7 +273,7 @@ class Vrc7Apu {
       return;
     }
 
-    final n = reg & 0x0f;
+    final n = reg.mask4;
     if (n >= 6) {
       return;
     }
@@ -285,8 +285,8 @@ class Vrc7Apu {
         break;
 
       case 0x20:
-        c.fnum = (val & 0x01) << 8 | c.fnum & 0xff;
-        c.block = (val >> 1) & 0x07;
+        c.fnum = val.mask1.shl8 | c.fnum.mask8;
+        c.block = val.shr1.mask3;
         c.susOn = val.bit5;
 
         final key = val.bit4;
@@ -302,28 +302,28 @@ class Vrc7Apu {
 
       case 0x30:
         c.inst = val.shr4;
-        c.vol = val & 0x0f;
+        c.vol = val.mask4;
         break;
     }
   }
 
   // returns the output of the operator in -4096..4096
   static int _wave(int index, int att, bool rectify) {
-    final i = index & 0x3ff;
-    final q = i & 0x100 != 0 ? 0xff - (i & 0xff) : i & 0xff;
-    final negative = i & 0x200 != 0;
+    final i = index.mask10;
+    final q = i.bit8 ? 0xff - i.mask8 : i.mask8;
+    final negative = i.bit9;
 
     if (negative && rectify) {
       return 0;
     }
 
     final level = _logSin[q] + att * 16;
-    final shift = level >> 8;
+    final shift = level.shr8;
     if (shift >= 13) {
       return 0;
     }
 
-    final out = _exp[level & 0xff] >> shift;
+    final out = _exp[level.mask8] >> shift;
     return negative ? -out : out;
   }
 
@@ -331,7 +331,7 @@ class Vrc7Apu {
     if (ksl == 0) {
       return 0;
     }
-    final base = _kslBase[fnum >> 5] - 16 * (7 - block);
+    final base = _kslBase[fnum.shr5] - 16 * (7 - block);
     if (base <= 0) {
       return 0;
     }
@@ -339,7 +339,7 @@ class Vrc7Apu {
   }
 
   int _phaseInc(_OpParam p, _Channel c, double pm) {
-    final inc = ((c.fnum * _mul2[p.mul]) << c.block) >> 1;
+    final inc = ((c.fnum * _mul2[p.mul]) << c.block).shr1;
     return p.pm ? (inc * (1 + pm)).toInt() : inc;
   }
 
@@ -360,7 +360,7 @@ class Vrc7Apu {
       final p = _patches[c.inst];
 
       // key scale rate
-      final rksBase = c.block << 1 | c.fnum >> 8;
+      final rksBase = c.block.shl1 | c.fnum.shr8;
 
       // modulator
       final mp = p.mod;
@@ -375,7 +375,7 @@ class Vrc7Apu {
             mp.tl * 2 +
             _ksl(mp.ksl, c.fnum, c.block) +
             (mp.am ? am : 0);
-        modOut = _wave((c.mod.phase >> 9) + fb, att, mp.rectify);
+        modOut = _wave(c.mod.phase.shr9 + fb, att, mp.rectify);
       }
       c.fb2 = c.fb1;
       c.fb1 = modOut;
@@ -392,7 +392,7 @@ class Vrc7Apu {
             c.vol * 8 +
             _ksl(cp.ksl, c.fnum, c.block) +
             (cp.am ? am : 0);
-        out = _wave((c.car.phase >> 9) + modOut, att, cp.rectify);
+        out = _wave(c.car.phase.shr9 + modOut, att, cp.rectify);
       }
       c.output = out;
       sum += out;

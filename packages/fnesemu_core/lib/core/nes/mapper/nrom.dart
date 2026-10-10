@@ -1,3 +1,4 @@
+import '../../../util/int.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/NROM
@@ -14,7 +15,7 @@ class MapperNROM extends Mapper {
   @override
   int read(int addr) {
     final bank = addr & 0xc000;
-    final offset = addr & 0x3fff;
+    final offset = addr.mask14;
     if (bank == 0x8000) {
       return prgRoms[0][offset];
     } else if (bank == 0xc000) {
@@ -26,6 +27,6 @@ class MapperNROM extends Mapper {
 
   @override
   int readVram(int addr) {
-    return chrRoms[0][addr & 0x1fff];
+    return chrRoms[0][addr.mask13];
   }
 }

@@ -52,7 +52,7 @@ class _Filter {
     if (mode.bit1) ok = ok && b.cn == cn;
     if (mode.bit2) ok = ok && (b.sm & smMask) == smVal;
     if (mode.bit3) ok = ok && (b.ci & ciMask) == ciVal;
-    if (mode.bit4 && mode & 0x0f != 0) ok = !ok;
+    if (mode.bit4 && mode.mask4 != 0) ok = !ok;
     return ok;
   }
 }
@@ -216,7 +216,7 @@ class CdBlock {
       return _readData();
     }
 
-    return switch (addr & 0x3f) {
+    return switch (addr.mask6) {
       0x08 => hirq,
       0x0c => hirqMask,
       0x18 => cr[0],
@@ -237,7 +237,7 @@ class CdBlock {
       return; // put sector data: not supported
     }
 
-    switch (addr & 0x3f) {
+    switch (addr.mask6) {
       case 0x08:
         hirq &= data;
         break;
@@ -264,11 +264,11 @@ class CdBlock {
   int _readData() {
     if (!_xferActive || _xferPos + 1 >= _xfer.length) {
       if (_xferActive && _xferPos < _xfer.length) {
-        return _xfer[_xferPos++] << 8;
+        return _xfer[_xferPos++].shl8;
       }
       return 0;
     }
-    final d = _xfer[_xferPos] << 8 | _xfer[_xferPos + 1];
+    final d = _xfer[_xferPos].shl8 | _xfer[_xferPos + 1];
     _xferPos += 2;
     return d;
   }
@@ -296,17 +296,17 @@ class CdBlock {
 
   void _report({int flags = 0}) {
     if (disc.isEmpty) {
-      cr[0] = (_status | flags) << 8;
+      cr[0] = (_status | flags).shl8;
       cr[1] = 0xffff;
       cr[2] = 0xffff;
       cr[3] = 0xffff;
       return;
     }
     final t = _track;
-    cr[0] = (_status | flags) << 8 | (_repeat & 0xf);
-    cr[1] = _ctrlAdr(t) << 8 | t;
-    cr[2] = 0x01 << 8 | (_fad >> 16) & 0xff;
-    cr[3] = _fad & 0xffff;
+    cr[0] = (_status | flags).shl8 | _repeat.mask4;
+    cr[1] = _ctrlAdr(t).shl8 | t;
+    cr[2] = 0x01 << 8 | _fad.shr16.mask8;
+    cr[3] = _fad.mask16;
   }
 
   void _respond(int c0, int c1, int c2, int c3) {
@@ -435,7 +435,7 @@ class CdBlock {
 
   void _execCommand() {
     final c = _cmd;
-    final op = c[0] >> 8;
+    final op = c[0].shr8;
     _responseRead = false;
 
     switch (op) {
@@ -443,20 +443,20 @@ class CdBlock {
         _report();
         break;
       case 0x01: // get hardware info
-        _respond(_status << 8, 0x0201, 0x0000, 0x0400);
+        _respond(_status.shl8, 0x0201, 0x0000, 0x0400);
         break;
       case 0x02: // get TOC
         _startTransfer(_toc());
-        _respond(_status << 8, 0xcc, 0, 0);
+        _respond(_status.shl8, 0xcc, 0, 0);
         _setIrq(_drdy);
         break;
       case 0x03: // get session info
         final leadout = disc.isEmpty ? 0 : disc.totalSectors + 150;
-        if (c[0] & 0xff == 0) {
-          _respond(_status << 8, 0, 0x0100 | (leadout >> 16) & 0xff,
-              leadout & 0xffff);
+        if (c[0].mask8 == 0) {
+          _respond(_status.shl8, 0, 0x0100 | leadout.shr16.mask8,
+              leadout.mask16);
         } else {
-          _respond(_status << 8, 0, 0x0100, 0x0000);
+          _respond(_status.shl8, 0, 0x0100, 0x0000);
         }
         break;
       case 0x04: // initialize CD system
@@ -475,10 +475,10 @@ class CdBlock {
         _report();
         break;
       case 0x06: // end data transfer
-        final words = _xferActive ? _xferPos >> 1 : _lastXferWords;
+        final words = _xferActive ? _xferPos.shr1 : _lastXferWords;
         _xferActive = false;
         _lastXferWords = 0xffffff;
-        _respond(_status << 8 | (words >> 16) & 0xff, words & 0xffff, 0, 0);
+        _respond(_status.shl8 | words.shr16.mask8, words.mask16, 0, 0);
         _setIrq(_ehst);
         break;
       case 0x10: // play disc
@@ -491,49 +491,49 @@ class CdBlock {
         _subcode(c);
         break;
       case 0x30: // set CD device connection
-        _cdConn = c[2] >> 8;
+        _cdConn = c[2].shr8;
         _report();
         _setIrq(_esel);
         break;
       case 0x31: // get CD device connection
-        _respond(_status << 8, 0, _cdConn << 8, 0);
+        _respond(_status.shl8, 0, _cdConn.shl8, 0);
         break;
       case 0x32: // get last buffer destination
-        _respond(_status << 8, 0, _lastDest << 8, 0);
+        _respond(_status.shl8, 0, _lastDest.shl8, 0);
         break;
       case 0x40: // set filter range
-        final f = _filters[(c[2] >> 8) % 24];
-        f.fad = (c[0] & 0xff) << 16 | c[1];
-        f.range = (c[2] & 0xff) << 16 | c[3];
+        final f = _filters[c[2].shr8 % 24];
+        f.fad = c[0].mask8.shl16 | c[1];
+        f.range = c[2].mask8.shl16 | c[3];
         _report();
         _setIrq(_esel);
         break;
       case 0x41: // get filter range
-        final f = _filters[(c[2] >> 8) % 24];
-        _respond(_status << 8 | (f.fad >> 16) & 0xff, f.fad & 0xffff,
-            (c[2] & 0xff00) | (f.range >> 16) & 0xff, f.range & 0xffff);
+        final f = _filters[c[2].shr8 % 24];
+        _respond(_status.shl8 | f.fad.shr16.mask8, f.fad.mask16,
+            (c[2] & 0xff00) | f.range.shr16.mask8, f.range.mask16);
         break;
       case 0x42: // set filter subheader conditions
-        final f = _filters[(c[2] >> 8) % 24];
-        f.cn = c[0] & 0xff;
-        f.smMask = c[1] >> 8;
-        f.ciMask = c[1] & 0xff;
-        f.fn = c[2] & 0xff;
-        f.smVal = c[3] >> 8;
-        f.ciVal = c[3] & 0xff;
+        final f = _filters[c[2].shr8 % 24];
+        f.cn = c[0].mask8;
+        f.smMask = c[1].shr8;
+        f.ciMask = c[1].mask8;
+        f.fn = c[2].mask8;
+        f.smVal = c[3].shr8;
+        f.ciVal = c[3].mask8;
         _report();
         _setIrq(_esel);
         break;
       case 0x43: // get filter subheader conditions
-        final f = _filters[(c[2] >> 8) % 24];
-        _respond(_status << 8 | f.cn, f.smMask << 8 | f.ciMask,
-            (c[2] & 0xff00) | f.fn, f.smVal << 8 | f.ciVal);
+        final f = _filters[c[2].shr8 % 24];
+        _respond(_status.shl8 | f.cn, f.smMask.shl8 | f.ciMask,
+            (c[2] & 0xff00) | f.fn, f.smVal.shl8 | f.ciVal);
         break;
       case 0x44: // set filter mode
-        final f = _filters[(c[2] >> 8) % 24];
-        final mode = c[0] & 0xff;
+        final f = _filters[c[2].shr8 % 24];
+        final mode = c[0].mask8;
         if (mode.bit7) {
-          f.init((c[2] >> 8) % 24);
+          f.init(c[2].shr8 % 24);
         } else {
           f.mode = mode;
         }
@@ -541,56 +541,56 @@ class CdBlock {
         _setIrq(_esel);
         break;
       case 0x45: // get filter mode
-        final f = _filters[(c[2] >> 8) % 24];
-        _respond(_status << 8 | f.mode, 0, c[2] & 0xff00, 0);
+        final f = _filters[c[2].shr8 % 24];
+        _respond(_status.shl8 | f.mode, 0, c[2] & 0xff00, 0);
         break;
       case 0x46: // set filter connection
-        final f = _filters[(c[2] >> 8) % 24];
-        if (c[0].bit0) f.trueConn = c[1] >> 8;
-        if (c[0].bit1) f.falseConn = c[1] & 0xff;
+        final f = _filters[c[2].shr8 % 24];
+        if (c[0].bit0) f.trueConn = c[1].shr8;
+        if (c[0].bit1) f.falseConn = c[1].mask8;
         _report();
         _setIrq(_esel);
         break;
       case 0x47: // get filter connection
-        final f = _filters[(c[2] >> 8) % 24];
-        _respond(_status << 8, f.trueConn << 8 | f.falseConn, 0, 0);
+        final f = _filters[c[2].shr8 % 24];
+        _respond(_status.shl8, f.trueConn.shl8 | f.falseConn, 0, 0);
         break;
       case 0x48: // reset selector
-        _resetSelector(c[0] & 0xff, c[2] >> 8);
+        _resetSelector(c[0].mask8, c[2].shr8);
         _report();
         _setIrq(_esel);
         break;
       case 0x50: // get buffer size
-        _respond(_status << 8, _maxBlocks - _usedBlocks, 0x1800, _maxBlocks);
+        _respond(_status.shl8, _maxBlocks - _usedBlocks, 0x1800, _maxBlocks);
         break;
       case 0x51: // get sector number
-        final p = _partitions[(c[2] >> 8) % 24];
-        _respond(_status << 8, 0, 0, p.length);
+        final p = _partitions[c[2].shr8 % 24];
+        _respond(_status.shl8, 0, 0, p.length);
         break;
       case 0x52: // calculate actual size
-        final blocks = _selectBlocks(c[1], c[2] >> 8, c[3]);
+        final blocks = _selectBlocks(c[1], c[2].shr8, c[3]);
         _actualSize = blocks.length * _getLength ~/ 2;
         _report();
         _setIrq(_esel);
         break;
       case 0x53: // get actual size
-        _respond(_status << 8 | (_actualSize >> 16) & 0xff,
-            _actualSize & 0xffff, 0, 0);
+        _respond(_status.shl8 | _actualSize.shr16.mask8,
+            _actualSize.mask16, 0, 0);
         break;
       case 0x54: // get sector info
-        final p = _partitions[(c[2] >> 8) % 24];
-        final i = c[1] & 0xff;
+        final p = _partitions[c[2].shr8 % 24];
+        final i = c[1].mask8;
         if (i < p.length) {
           final b = p[i];
-          _respond(_status << 8 | (b.fad >> 16) & 0xff, b.fad & 0xffff,
-              b.fn << 8 | b.cn, b.sm << 8 | b.ci);
+          _respond(_status.shl8 | b.fad.shr16.mask8, b.fad.mask16,
+              b.fn.shl8 | b.cn, b.sm.shl8 | b.ci);
         } else {
-          _respond(_stReject << 8, 0, 0, 0);
+          _respond(_stReject.shl8, 0, 0, 0);
         }
         break;
       case 0x60: // set sector length
         const lengths = [2048, 2336, 2340, 2352];
-        if (c[0] & 0xff != 0xff) _getLength = lengths[c[0] & 3];
+        if (c[0].mask8 != 0xff) _getLength = lengths[c[0].mask2];
         _report();
         _setIrq(_esel);
         break;
@@ -600,14 +600,14 @@ class CdBlock {
         _getDeleteSectors(op, c);
         break;
       case 0x67: // get copy error
-        _respond(_status << 8, 0, 0, 0);
+        _respond(_status.shl8, 0, 0, 0);
         break;
       case 0x70: // change directory
       case 0x71: // read directory
         _changeDir(c);
         break;
       case 0x72: // get file system scope
-        _respond(_status << 8, _dirEntries.length - 2, 0x0100, 0x0002);
+        _respond(_status.shl8, _dirEntries.length - 2, 0x0100, 0x0002);
         break;
       case 0x73: // get file info
         _fileInfo(c);
@@ -627,7 +627,7 @@ class CdBlock {
         _setIrq(_efls | _csct);
         break;
       case 0xe1: // is device authenticated
-        _respond(_status << 8, disc.isEmpty ? 0 : 4, 0, 0);
+        _respond(_status.shl8, disc.isEmpty ? 0 : 4, 0, 0);
         break;
       case 0xe2: // get MPEG ROM
         _report();
@@ -697,13 +697,13 @@ class CdBlock {
   }
 
   void _getDeleteSectors(int op, List<int> c) {
-    final pn = (c[2] >> 8) % 24;
+    final pn = c[2].shr8 % 24;
     final offset = c[1];
     final count = c[3];
     final blocks = _selectBlocks(offset, pn, count);
 
     if (blocks.isEmpty && op != 0x62) {
-      _respond(_stReject << 8, 0, 0, 0);
+      _respond(_stReject.shl8, 0, 0, 0);
       return;
     }
 
@@ -739,7 +739,7 @@ class CdBlock {
     if (pos.bit23) {
       return pos & 0x7fffff;
     }
-    final track = (pos >> 8) & 0xff;
+    final track = pos.shr8.mask8;
     if (track == 0 || disc.isEmpty) {
       return end ? disc.totalSectors + 150 : 150;
     }
@@ -757,9 +757,9 @@ class CdBlock {
       return;
     }
 
-    final start = (c[0] & 0xff) << 16 | c[1];
-    final mode = c[2] >> 8;
-    final end = (c[2] & 0xff) << 16 | c[3];
+    final start = c[0].mask8.shl16 | c[1];
+    final mode = c[2].shr8;
+    final end = c[2].mask8.shl16 | c[3];
 
     if (start != 0xffffff) {
       _playStart = _positionToFad(start);
@@ -776,7 +776,7 @@ class CdBlock {
       }
     }
 
-    _repeat = mode & 0xf;
+    _repeat = mode.mask4;
     _playing = true;
     _readingFile = false;
     _status = _stPlay;
@@ -785,7 +785,7 @@ class CdBlock {
   }
 
   void _seek(List<int> c) {
-    final pos = (c[0] & 0xff) << 16 | c[1];
+    final pos = c[0].mask8.shl16 | c[1];
     _playing = false;
     if (pos == 0xffffff) {
       _status = _stPause;
@@ -800,22 +800,22 @@ class CdBlock {
   }
 
   void _subcode(List<int> c) {
-    final type = c[0] & 0xff;
+    final type = c[0].mask8;
     if (type == 0) {
       final t = _track;
       final rel = disc.isEmpty ? 0 : _fad - (disc.startLba(t) + 150);
       final (rm, rs, rf) = Disc.lbaToMsf(rel < 0 ? 0 : rel);
       final (am, as_, af) = Disc.lbaToMsf(_fad);
-      int bcd(int v) => (v ~/ 10) << 4 | v % 10;
+      int bcd(int v) => (v ~/ 10).shl4 | v % 10;
       final q = Uint8List.fromList([
         _ctrlAdr(t), bcd(t), 1, bcd(rm), bcd(rs), bcd(rf), 0, //
         bcd(am), bcd(as_), bcd(af),
       ]);
       _startTransfer(q);
-      _respond(_status << 8, 5, 0, 0);
+      _respond(_status.shl8, 5, 0, 0);
     } else {
       _startTransfer(Uint8List(24));
-      _respond(_status << 8, 12, 0, 0);
+      _respond(_status.shl8, 12, 0, 0);
     }
     _setIrq(_drdy);
   }
@@ -832,11 +832,11 @@ class CdBlock {
 
     final n = disc.trackCount;
     for (int t = 1; t <= n && t <= 99; t++) {
-      d.setUint32((t - 1) * 4, _ctrlAdr(t) << 24 | disc.startLba(t) + 150);
+      d.setUint32((t - 1) * 4, _ctrlAdr(t).shl24 | disc.startLba(t) + 150);
     }
-    d.setUint32(99 * 4, _ctrlAdr(1) << 24 | 1 << 16);
-    d.setUint32(100 * 4, _ctrlAdr(n) << 24 | n << 16);
-    d.setUint32(101 * 4, _ctrlAdr(n) << 24 | disc.totalSectors + 150);
+    d.setUint32(99 * 4, _ctrlAdr(1).shl24 | 1 << 16);
+    d.setUint32(100 * 4, _ctrlAdr(n).shl24 | n.shl16);
+    d.setUint32(101 * 4, _ctrlAdr(n).shl24 | disc.totalSectors + 150);
     return toc;
   }
 
@@ -905,7 +905,7 @@ class CdBlock {
       id < _dirEntries.length ? _dirEntries[id] : null;
 
   void _changeDir(List<int> c) {
-    final id = (c[2] & 0xff) << 16 | c[3];
+    final id = c[2].mask8.shl16 | c[3];
     if (id == 0xffffff) {
       _loadDir(_rootFad, _rootSize);
     } else {
@@ -919,7 +919,7 @@ class CdBlock {
   }
 
   void _fileInfo(List<int> c) {
-    final id = (c[2] & 0xff) << 16 | c[3];
+    final id = c[2].mask8.shl16 | c[3];
     final entries = id == 0xffffff
         ? _dirEntries.skip(2).take(254).toList()
         : [if (_entry(id) != null) _entry(id)!];
@@ -936,18 +936,18 @@ class CdBlock {
       data[i * 12 + 11] = e.attr;
     }
     _startTransfer(data);
-    _respond(_status << 8, entries.length * 6, 0, 0);
+    _respond(_status.shl8, entries.length * 6, 0, 0);
     _setIrq(_drdy);
   }
 
   void _readFile(List<int> c) {
-    final fn = (c[2] >> 8) % 24;
-    final id = (c[2] & 0xff) << 16 | c[3];
-    final offset = (c[0] & 0xff) << 16 | c[1];
+    final fn = c[2].shr8 % 24;
+    final id = c[2].mask8.shl16 | c[3];
+    final offset = c[0].mask8.shl16 | c[1];
     final e = _entry(id);
 
     if (e == null) {
-      _respond(_stReject << 8, 0, 0, 0);
+      _respond(_stReject.shl8, 0, 0, 0);
       return;
     }
 

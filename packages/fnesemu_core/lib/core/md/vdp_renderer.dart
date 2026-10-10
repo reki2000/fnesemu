@@ -9,9 +9,9 @@ const _map3to8 = [0x00, 0x24, 0x49, 0x6d, 0x92, 0xb6, 0xdb, 0xff]; //
 
 final Uint32List rgba = Uint32List.fromList(
   List.generate(512, (i) {
-    final r = _map3to8[i & 0x07];
-    final g = _map3to8[i.shr3 & 0x07];
-    final b = _map3to8[i.shr6 & 0x07];
+    final r = _map3to8[i.mask3];
+    final g = _map3to8[i.shr3.mask3];
+    final b = _map3to8[i.shr6.mask3];
     return 0xff000000 | b.shl16 | g.shl8 | r;
   }, growable: false),
 );
@@ -31,20 +31,20 @@ class Sprite {
 
   Sprite.of(int d0, int d1, int d2, int d3, {bool interlaced = false}) {
     y = d0 & (interlaced ? 0x3ff : 0x1ff);
-    x = d3 & 0x1ff;
+    x = d3.mask9;
 
-    vFlip = d2 & 0x1000 != 0;
-    hFlip = d2 & 0x0800 != 0;
-    priority = d2 & 0x8000 != 0;
+    vFlip = d2.bit12;
+    hFlip = d2.bit11;
+    priority = d2.bit15;
     paletteNo = d2.shr9 & 0x30;
     patternAddr = d2.shl5 & 0xffe0;
 
-    next = d1 & 0x7f;
+    next = d1.mask7;
 
-    vCells = (d1.shr8 & 3) + 1;
+    vCells = d1.shr8.mask2 + 1;
     height = vCells.shl3;
 
-    final hCells = (d1.shr10 & 3) + 1;
+    final hCells = d1.shr10.mask2 + 1;
     width = hCells.shl3;
   }
 }
@@ -97,23 +97,23 @@ class _Plane {
     final d0 = vram[name];
     final d1 = vram[name + 1];
 
-    attr = (d0 >> 1) & _pixelPaletteMask |
-        (d0 & 0x80 != 0 ? _pixelPriorityFlag : 0);
-    hFlipXor = d0 & 0x08 != 0 ? 0 : 7;
-    final vFlipXor = d0 & 0x10 != 0 ? maskTileYOffset : 0;
+    attr = d0.shr1 & _pixelPaletteMask |
+        (d0.bit7 ? _pixelPriorityFlag : 0);
+    hFlipXor = d0.bit3 ? 0 : 7;
+    final vFlipXor = d0.bit4 ? maskTileYOffset : 0;
 
     final offset = yOffsetInTile ^ vFlipXor;
-    final addr = (((d0 << 8) & 0x0700 | d1) << bitsTileV | offset) << 2;
+    final addr = ((d0.shl8 & 0x0700 | d1) << bitsTileV | offset).shl2;
 
-    final a = addr & 0xffff;
+    final a = addr.mask16;
     pattern =
-        vram[a] << 24 | vram[a + 1] << 16 | vram[a + 2] << 8 | vram[a + 3];
+        vram[a].shl24 | vram[a + 1].shl16 | vram[a + 2].shl8 | vram[a + 3];
   }
 
   @pragma('vm:prefer-inline')
   int pixel(int xOffsetInTile) =>
       attr |
-      (pattern >> ((xOffsetInTile ^ hFlipXor) << 2)) & _pixelColorNumberMask;
+      (pattern >> (xOffsetInTile ^ hFlipXor).shl2) & _pixelColorNumberMask;
 }
 
 /// per line work buffers of the renderer
@@ -194,20 +194,20 @@ extension VdpRenderer on Vdp {
 
     for (int i = 0; i < displayCount; i++) {
       final base = baseAddr + spriteNo * 8;
-      final a0 = base & 0xffff;
-      final a1 = (base + 2) & 0xffff;
-      final a2 = (base + 4) & 0xffff;
-      final a3 = (base + 6) & 0xffff;
-      final d0 = vram[a0] << 8 | vram[a0 + 1];
-      final d1 = vram[a1] << 8 | vram[a1 + 1];
-      final d2 = vram[a2] << 8 | vram[a2 + 1];
-      final d3 = vram[a3] << 8 | vram[a3 + 1];
+      final a0 = base.mask16;
+      final a1 = (base + 2).mask16;
+      final a2 = (base + 4).mask16;
+      final a3 = (base + 6).mask16;
+      final d0 = vram[a0].shl8 | vram[a0 + 1];
+      final d1 = vram[a1].shl8 | vram[a1 + 1];
+      final d2 = vram[a2].shl8 | vram[a2 + 1];
+      final d3 = vram[a3].shl8 | vram[a3 + 1];
 
       final spY = d0 & (interlaced ? 0x3ff : 0x1ff);
-      final vCells = ((d1 >> 8) & 3) + 1;
-      final height = vCells << 3;
-      final width = (((d1 >> 10) & 3) + 1) << 3;
-      final next = d1 & 0x7f;
+      final vCells = d1.shr8.mask2 + 1;
+      final height = vCells.shl3;
+      final width = (d1.shr10.mask2 + 1).shl3;
+      final next = d1.mask7;
 
       final isTarget = interlaced
           ? (spY - 256 <= yy && yy < spY - 256 + height * 2)
@@ -225,13 +225,13 @@ extension VdpRenderer on Vdp {
         }
 
         s.storeSprite(n,
-            x: d3 & 0x1ff,
+            x: d3.mask9,
             y: spY,
-            pattern: (d2 << 5) & 0xffe0,
-            attributes: (d2 >> 9) & _pixelPaletteMask |
-                (d2 & 0x8000 != 0 ? _pixelPriorityFlag : 0),
-            flags: (d2 & 0x0800 != 0 ? _spriteHFlipFlag : 0) |
-                (d2 & 0x1000 != 0 ? _spriteVFlipFlag : 0),
+            pattern: d2.shl5 & 0xffe0,
+            attributes: d2.shr9 & _pixelPaletteMask |
+                (d2.bit15 ? _pixelPriorityFlag : 0),
+            flags: (d2.bit11 ? _spriteHFlipFlag : 0) |
+                (d2.bit12 ? _spriteVFlipFlag : 0),
             width: width,
             height: height,
             verticalCells: vCells);
@@ -288,22 +288,21 @@ extension VdpRenderer on Vdp {
 
       for (; hh < spW && px < width; hh++, px++) {
         final flippedX = hFlip ? spW - hh - 1 : hh;
-        final x1 = flippedX & 0x07;
-        final x2 = flippedX >> 3;
+        final x1 = flippedX.mask3;
+        final x2 = flippedX.shr3;
 
         // fetch pattern data if x2 is changed
         if (x2 != fetchedX2) {
           fetchedX2 = x2;
           final addr =
-              (patternBase + (((x2 * vCells + y2) << bitsTileV | y1) << 2)) &
-                  0xffff;
-          pattern = vram[addr] << 24 |
-              vram[addr + 1] << 16 |
-              vram[addr + 2] << 8 |
+              (patternBase + ((x2 * vCells + y2) << bitsTileV | y1).shl2).mask16;
+          pattern = vram[addr].shl24 |
+              vram[addr + 1].shl16 |
+              vram[addr + 2].shl8 |
               vram[addr + 3];
         }
 
-        final colorNo = (pattern >> ((7 - x1) << 2)) & _pixelColorNumberMask;
+        final colorNo = (pattern >> (7 - x1).shl2) & _pixelColorNumberMask;
 
         if (colorNo > 0) {
           spLine[px] = attr | colorNo;
@@ -314,14 +313,14 @@ extension VdpRenderer on Vdp {
 
   void _setBgSize() {
     final s = line;
-    s.bitsBgWidth = const [5, 6, 7, 7][reg[16] & 0x03];
+    s.bitsBgWidth = const [5, 6, 7, 7][reg[16].mask2];
     s.maskBgWidth = (1 << s.bitsBgWidth) - 1;
     s.maskScrollH = (1 << (s.bitsBgWidth + 3)) - 1;
 
     s.bitsTileV = isInterlaced ? 4 : 3;
     s.maskTileYOffset = (1 << s.bitsTileV) - 1;
 
-    final maskBgHeight = const [0x1f, 0x3f, 0x7f, 0x7f][reg[16].shr4 & 0x03];
+    final maskBgHeight = const [0x1f, 0x3f, 0x7f, 0x7f][reg[16].shr4.mask2];
     s.maskScrollV = maskBgHeight << s.bitsTileV | s.maskTileYOffset;
   }
 
@@ -342,16 +341,16 @@ extension VdpRenderer on Vdp {
   @pragma('vm:prefer-inline')
   int _windowColor(_Plane ctx, int h) {
     final s = line;
-    final hLow = h & 0x07;
-    final hHigh = h >> 3;
+    final hLow = h.mask3;
+    final hHigh = h.shr3;
 
     if (hHigh != ctx.fetchedHHigh) {
       ctx.fetchedHHigh = hHigh;
       final v = s.y;
       final name = ctx.nameAddrBase |
           (width == 256
-              ? (hHigh & 0x1f) << 1 | (v >> 3) << 6
-              : (hHigh & 0x3f) << 1 | (v >> 3) << 7);
+              ? hHigh.mask5.shl1 | v.shr3.shl6
+              : hHigh.mask6.shl1 | v.shr3.shl7);
       ctx.fetch(vram, name, s.maskTileYOffset, s.bitsTileV);
     }
 
@@ -362,16 +361,16 @@ extension VdpRenderer on Vdp {
   int _planeColor(_Plane ctx, int hc) {
     final s = line;
     final h = (hc - ctx.hScroll) & s.maskScrollH;
-    final tileX = h >> 3;
+    final tileX = h.shr3;
 
     if (tileX != ctx.fetchedHHigh) {
       ctx.fetchedHHigh = tileX;
       final name = ctx.nameAddrBase |
-          (tileX & s.maskBgWidth | ctx.tileY << s.bitsBgWidth) << 1;
+          (tileX & s.maskBgWidth | ctx.tileY << s.bitsBgWidth).shl1;
       ctx.fetch(vram, name, s.maskTileYOffset, s.bitsTileV);
     }
 
-    return ctx.pixel(h & 0x07);
+    return ctx.pixel(h.mask3);
   }
 
   // true: require rendering+hsync, false: retrace
@@ -422,12 +421,12 @@ extension VdpRenderer on Vdp {
 
     final ctxA = s.a
       ..init(reg[2].shl10 & 0xe000,
-          (vram[hScrollAddr] << 8 | vram[hScrollAddr + 1]) & 0x3ff, 0, 0);
+          (vram[hScrollAddr].shl8 | vram[hScrollAddr + 1]).mask10, 0, 0);
     _setVScroll(ctxA, vsram[0]);
 
     final ctxB = s.b
       ..init(reg[4].shl13 & 0xe000,
-          (vram[hScrollAddr + 2] << 8 | vram[hScrollAddr + 3]) & 0x3ff, 0, 0);
+          (vram[hScrollAddr + 2].shl8 | vram[hScrollAddr + 3]).mask10, 0, 0);
     _setVScroll(ctxB, vsram[1]);
 
     final ctxWindow = s.window
@@ -444,7 +443,7 @@ extension VdpRenderer on Vdp {
 
     final vInWindow = windowV0 <= y && y < windowV1;
     final bufferOffset = y * width;
-    final bg = reg[7] & 0x3f;
+    final bg = reg[7].mask6;
 
     if (!enableDisplay) {
       buffer.fillRange(bufferOffset, bufferOffset + width, rgba[cram[bg]]);
@@ -471,8 +470,8 @@ extension VdpRenderer on Vdp {
       bool visible = true;
 
       // 2-cell vertical scroll: each 16 pixel column has its own vscroll
-      if (vScr2 && hc & 0x0f == 0) {
-        final column = (hc >> 4) << 1;
+      if (vScr2 && hc.mask4 == 0) {
+        final column = hc.shr4.shl1;
         _setVScroll(ctxA, vsr[column]);
         _setVScroll(ctxB, vsr[column + 1]);
       }

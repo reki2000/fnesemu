@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// S-DD1: a cartridge chip which maps 1MB rom banks into $C0-$FF and
 /// decompresses graphics while a DMA channel reads them.
@@ -34,29 +35,29 @@ class Sdd1 {
 
   /// true if [addr] ($00-$3F/$80-$BF:$4800-$480F) is a register
   static bool isRegister(int bank, int page) =>
-      (bank & 0x7f) < 0x40 && page >= 0x4800 && page < 0x4810;
+      bank.mask7 < 0x40 && page >= 0x4800 && page < 0x4810;
 
-  int readRegister(int page) => switch (page & 0xf) {
+  int readRegister(int page) => switch (page.mask4) {
         0 => _dmaEnable,
         1 => _dmaReady,
-        4 || 5 || 6 || 7 => _mmc[page & 3],
+        4 || 5 || 6 || 7 => _mmc[page.mask2],
         _ => 0,
       };
 
   void writeRegister(int page, int data) {
-    switch (page & 0xf) {
+    switch (page.mask4) {
       case 0:
         _dmaEnable = data;
       case 1:
         _dmaReady = data;
       case 4 || 5 || 6 || 7:
-        _mmc[page & 3] = data & 0xf;
+        _mmc[page.mask2] = data.mask4;
     }
   }
 
   /// rom read through the bank registers ($C0-$FF and the decompressor)
   int mmcRead(int addr) =>
-      rom[((_mmc[(addr >> 20) & 3] << 20) | (addr & 0xfffff)) & _romMask];
+      rom[(_mmc[addr.shr20.mask2].shl20 | (addr & 0xfffff)) & _romMask];
 
   /// called when DMA channel [channel] starts from [addr]: returns true if
   /// the channel reads decompressed data, through [dmaRead]
@@ -97,7 +98,7 @@ class _Decompressor {
   static final _runTable = List<int>.generate(128, (i) {
     var r = 0;
     for (var b = 0; b < 7; b++) {
-      r |= ((i >> b) & 1) << (6 - b);
+      r |= (i >> b).mask1 << (6 - b);
     }
     return 128 - r;
   });
@@ -115,10 +116,10 @@ class _Decompressor {
   void init(int src) {
     _src = src;
     final head = _byte();
-    _planes = const [2, 8, 4, 0][head >> 6];
-    _highContext = const [0x1c0, 0x180, 0x0c0, 0x180][(head >> 4) & 3];
+    _planes = const [2, 8, 4, 0][head.shr6];
+    _highContext = const [0x1c0, 0x180, 0x0c0, 0x180][head.shr4.mask2];
     _lowContext = (head & 0x30) == 0x30 ? 3 : 1;
-    _input = (head << 11 | _byte() << 3) & 0xffff;
+    _input = (head.shl11 | _byte().shl3).mask16;
     _validBits = 5;
     _bitCtr.fillRange(0, 8, 0);
     _prevBits.fillRange(0, 8, 0);
@@ -134,14 +135,14 @@ class _Decompressor {
       }
       return _raw;
     }
-    if (_plane & 1 == 0) {
+    if (!_plane.bit0) {
       for (var i = 0; i < 8; i++) {
         _getBit(_plane);
         _getBit(_plane + 1);
       }
-      return _prevBits[_plane++] & 0xff;
+      return _prevBits[_plane++].mask8;
     }
-    final v = _prevBits[_plane--] & 0xff;
+    final v = _prevBits[_plane--].mask8;
     if (++_yloc == 8) {
       _yloc = 0;
       _plane = (_plane + 2) & (_planes - 1);
@@ -151,18 +152,18 @@ class _Decompressor {
 
   void _getBit(int plane) {
     final prev = _prevBits[plane];
-    final context = (plane & 1) << 4 |
-        (prev & _highContext) >> 5 |
+    final context = plane.mask1.shl4 |
+        (prev & _highContext).shr5 |
         (prev & _lowContext);
     final bit = _probGetBit(context);
-    _prevBits[plane] = ((prev << 1) + bit) & 0xffff;
-    if (_planes == 0) _raw = (_raw >> 1) + (bit << 7);
+    _prevBits[plane] = (prev.shl1 + bit).mask16;
+    if (_planes == 0) _raw = _raw.shr1 + bit.shl7;
   }
 
   int _probGetBit(int context) {
     final state = _states[context];
     final size = _codeSize[state];
-    if (_bitCtr[size] & 0x7f == 0) _bitCtr[size] = _codeword(size);
+    if (_bitCtr[size].mask7 == 0) _bitCtr[size] = _codeword(size);
     var bit = _mps[context];
     _bitCtr[size]--;
     if (_bitCtr[size] == 0) {
@@ -180,11 +181,11 @@ class _Decompressor {
       _input |= _byte();
       _validBits = 8;
     }
-    _input = (_input << 1) & 0xffff;
+    _input = _input.shl1.mask16;
     _validBits--;
-    if (_input & 0x8000 == 0) return 0x80 + (1 << size);
-    final tmp = ((_input >> 8) & 0x7f) | (0x7f >> size);
-    _input = (_input << size) & 0xffff;
+    if (!_input.bit15) return 0x80 + (1 << size);
+    final tmp = _input.shr8.mask7 | (0x7f >> size);
+    _input = (_input << size).mask16;
     _validBits -= size;
     if (_validBits < 0) {
       _input |= _byte() << -_validBits;

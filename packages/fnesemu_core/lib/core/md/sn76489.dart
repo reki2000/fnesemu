@@ -122,14 +122,14 @@ class Sn76489 {
       _latch = value;
     }
 
-    final ch = _latch.shr5 & 0x03;
+    final ch = _latch.shr5.mask2;
 
     // volume: both latch and data bytes update the latched channel
     if (_latch.bit4) {
       if (ch == 3) {
-        noise.vol = value & 0x0f;
+        noise.vol = value.mask4;
       } else {
-        tones[ch].vol = value & 0x0f;
+        tones[ch].vol = value.mask4;
       }
       return;
     }
@@ -137,14 +137,14 @@ class Sn76489 {
     // noise
     if (ch == 3) {
       noise.periodic = value.bit2;
-      noise.shift = value & 0x03;
+      noise.shift = value.mask2;
       return;
     }
 
     // tone: latch byte updates low 4 bits, data byte updates high 6 bits
     tones[ch].freq = value.bit7
-        ? tones[ch].freq & 0x3f0 | value & 0x0f
-        : (value.shl4 & 0x3f0) | tones[ch].freq & 0x0f;
+        ? tones[ch].freq & 0x3f0 | value.mask4
+        : (value.shl4 & 0x3f0) | tones[ch].freq.mask4;
 
     if (ch == 2) {
       noise.tone2freq = tones[2].freq;

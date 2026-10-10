@@ -2,20 +2,20 @@
 import '../../../util/int.dart';
 
 class Sh2Disasm {
-  static String _h(int v) => '0x${(v & 0xffffffff).toRadixString(16)}';
+  static String _h(int v) => '0x${v.mask32.toRadixString(16)}';
 
   static String disasm(int op, int pc) {
-    final n = (op >> 8) & 15;
-    final m = (op >> 4) & 15;
-    final d4 = op & 15;
-    final i8 = op & 255;
+    final n = op.shr8.mask4;
+    final m = op.shr4.mask4;
+    final d4 = op.mask4;
+    final i8 = op.mask8;
     final s8 = i8.rel8;
 
     String disp8() => _h(pc + 4 + s8 * 2);
     String pcrel(int scale) =>
         _h((scale == 4 ? (pc + 4) & ~3 : pc + 4) + i8 * scale);
 
-    switch (op >> 12) {
+    switch (op.shr12) {
       case 0x0:
         switch (d4) {
           case 0x4:
@@ -35,7 +35,7 @@ class Sh2Disasm {
           case 0xf:
             return 'mac.l @r$m+,@r$n+';
         }
-        switch (op & 0xff) {
+        switch (op.mask8) {
           case 0x02:
             return 'stc sr,r$n';
           case 0x12:
@@ -107,7 +107,7 @@ class Sh2Disasm {
         };
       case 0x4:
         if (d4 == 0xf) return 'mac.w @r$m+,@r$n+';
-        return switch (op & 0xff) {
+        return switch (op.mask8) {
           0x00 => 'shll r$n',
           0x01 => 'shlr r$n',
           0x02 => 'sts.l mach,@-r$n',

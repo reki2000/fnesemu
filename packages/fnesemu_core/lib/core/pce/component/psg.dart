@@ -61,7 +61,7 @@ class Wave {
 
   void pushWave(int val) {
     table[tableWriteIndex] = val;
-    tableWriteIndex = (tableWriteIndex + 1) & 0x1f;
+    tableWriteIndex = (tableWriteIndex + 1).mask5;
   }
 
   // generate 2 channel interleaved 5bit PCM
@@ -95,15 +95,15 @@ class Wave {
     for (int i = 0; i < out.length; i += 2) {
       int steps = Psg.divider;
       while (true) {
-        final toReload = ((counter - 2) & 0xfff) + 1;
+        final toReload = (counter - 2).mask12 + 1;
         if (toReload > steps) {
-          counter = (counter - steps) & 0xfff;
+          counter = (counter - steps).mask12;
           break;
         }
         steps -= toReload;
 
         counter = noiseFreq;
-        noiseIndex = (noiseIndex + 1) & 0x3f;
+        noiseIndex = (noiseIndex + 1).mask6;
 
         if (noiseIndex == 0 || noiseIndex == 0x10) {
           // volume: 5bit volumeLR: 4bit = 9bit
@@ -124,15 +124,15 @@ class Wave {
     for (int i = 0; i < out.length; i += 2) {
       int steps = Psg.divider;
       while (true) {
-        final toReload = ((counter - 2) & 0xfff) + 1;
+        final toReload = (counter - 2).mask12 + 1;
         if (toReload > steps) {
-          counter = (counter - steps) & 0xfff;
+          counter = (counter - steps).mask12;
           break;
         }
         steps -= toReload;
 
         counter = _clip(freq + freqOffset, 0, 0xfff);
-        tableIndex = (tableIndex + 1) & 0x1f;
+        tableIndex = (tableIndex + 1).mask5;
 
         // volume: 5bit volumeLR: 4bit = 9bit
         final out = ((dda ? ddaValue : table[tableIndex]) - 16) * (volume + 1);
@@ -194,13 +194,13 @@ class Psg {
     switch (reg) {
       // pulse wave 0
       case 0x00:
-        if ((val & 0x07) < 6) {
-          ch = val & 0x07;
+        if (val.mask3 < 6) {
+          ch = val.mask3;
         }
         return;
 
       case 0x01:
-        ampR = val & 0x0f;
+        ampR = val.mask4;
         ampL = val.shr4;
         return;
 
@@ -209,18 +209,18 @@ class Psg {
         return;
 
       case 0x03:
-        waves[ch].freq = waves[ch].freq.setH8(val & 0x0f);
+        waves[ch].freq = waves[ch].freq.setH8(val.mask4);
         return;
 
       case 0x04:
-        waves[ch].volume = val & 0x1f;
+        waves[ch].volume = val.mask5;
         waves[ch].enabled = val.bit7;
         waves[ch].dda = val.bit6;
         // DDA
         return;
 
       case 0x05:
-        waves[ch].volumeR = val & 0x0f;
+        waves[ch].volumeR = val.mask4;
         waves[ch].volumeL = val.shr4;
         return;
 
@@ -241,7 +241,7 @@ class Psg {
       case 0x07: // noise ch4 or 5 only
         if (ch == 4 || ch == 5) {
           waves[ch].noise = val.bit7;
-          waves[ch].noiseFreq = (val & 0x1f) ^ 0x1f;
+          waves[ch].noiseFreq = val.mask5 ^ 0x1f;
         }
         return;
 
@@ -254,7 +254,7 @@ class Psg {
         if (!lfoEnabled) {
           waves[1].tableIndex = 0;
         }
-        lfoControl = val & 0x03;
+        lfoControl = val.mask2;
         return;
 
       default:
@@ -312,7 +312,7 @@ class Psg {
       lfoCounter = (lfoCounter - 1) & 0x3ffff;
       if (lfoCounter == 0) {
         lfoCounter = 0;
-        waves[1].tableIndex = (waves[1].tableIndex + 1) & 0x1f;
+        waves[1].tableIndex = (waves[1].tableIndex + 1).mask5;
       }
     }
 

@@ -269,7 +269,7 @@ class Spc700 {
   void _adc(int v) {
     final r = a + v + _carry;
     _setFlag(Flags.h, a.mask4 + v.mask4 + _carry > 0xf);
-    _setFlag(Flags.v, (~(a ^ v) & (a ^ r) & 0x80) != 0);
+    _setFlag(Flags.v, (~(a ^ v) & (a ^ r)).bit7);
     _setFlag(Flags.c, r > 0xff);
     a = r.mask8;
     _setNZ(a);
@@ -1113,7 +1113,7 @@ class Spc700 {
           final operand = read(p) | read(hiAddr).shl8;
           final r = ya + operand;
           _setFlag(Flags.h, ya.mask12 + operand.mask12 > 0xfff);
-          _setFlag(Flags.v, (~(ya ^ operand) & (ya ^ r) & 0x8000) != 0);
+          _setFlag(Flags.v, (~(ya ^ operand) & (ya ^ r)).bit15);
           _setFlag(Flags.c, r > 0xffff);
           a = r.mask8;
           y = r.shr8.mask8;
@@ -1128,7 +1128,7 @@ class Spc700 {
           final operand = read(p) | read(hiAddr).shl8;
           final r = ya - operand;
           _setFlag(Flags.h, ya.mask12 - operand.mask12 < 0);
-          _setFlag(Flags.v, ((ya ^ operand) & (ya ^ r) & 0x8000) != 0);
+          _setFlag(Flags.v, ((ya ^ operand) & (ya ^ r)).bit15);
           _setFlag(Flags.c, r >= 0);
           a = r.mask8;
           y = r.shr8.mask8;

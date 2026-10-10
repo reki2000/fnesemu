@@ -42,13 +42,13 @@ extension Gpu0 on Gpu {
       // debugLog("gp0: e1: draw mode setting: ${status.x8}");
 
       case 0xe2: // texture window setting
-        textureMaskX = value & 0x1f;
-        textureMaskY = value.shr5 & 0x1f;
-        textureOffsetX = value.shr10 & 0x1f;
-        textureOffsetY = value.shr15 & 0x1f;
+        textureMaskX = value.mask5;
+        textureMaskY = value.shr5.mask5;
+        textureOffsetX = value.shr10.mask5;
+        textureOffsetY = value.shr15.mask5;
 
-        textureMaskX2 = ~textureMaskX.shl3 & 0xff;
-        textureMaskY2 = ~textureMaskY.shl3 & 0xff;
+        textureMaskX2 = (~textureMaskX.shl3).mask8;
+        textureMaskY2 = (~textureMaskY.shl3).mask8;
         textureOffsetX2 = (textureOffsetX & textureMaskX).shl3;
         textureOffsetY2 = (textureOffsetY & textureMaskY).shl3;
       // debugLog(
@@ -165,9 +165,9 @@ extension Gpu0 on Gpu {
 
     if (cmdSize == 3) {
       final x0 = cmd[1] & 0x3f0;
-      final y0 = cmd[1].shr16 & 0x1ff;
-      final w = ((cmd[2] & 0x3ff) + 0x0f) & 0x7f0;
-      final h = cmd[2].shr16 & 0x1ff;
+      final y0 = cmd[1].shr16.mask9;
+      final w = (cmd[2].mask10 + 0x0f) & 0x7f0;
+      final h = cmd[2].shr16.mask9;
       final c16 = Color.ofC24(cmd[0]).c15;
       // wraps around vram, ignores drawing area and mask settings
       for (int y = y0; y < y0 + h; y++) {
@@ -253,7 +253,7 @@ extension Gpu0 on Gpu {
         renderGouraudLine(cmd[0], cmd[1], cmd[3], cmd[0], cmd[2]);
         if (polyline) {
           // the end point becomes the start point of the next segment
-          cmd[0] = cmd[0] & 0xff000000 | cmd[2] & 0xffffff;
+          cmd[0] = cmd[0] & 0xff000000 | cmd[2].mask24;
           cmd[1] = cmd[3];
           cmdSize = 2;
         } else {
@@ -278,7 +278,7 @@ extension Gpu0 on Gpu {
     cmd[cmdSize++] = value;
 
     final textured = cmd[0].bit26;
-    final size = cmd[0].shr27 & 3;
+    final size = cmd[0].shr27.mask2;
 
     int beginIndex = 2;
     int sizeIndex = 2;
@@ -299,7 +299,7 @@ extension Gpu0 on Gpu {
 
       final (clut, v0, u0) = !textured
           ? (0, 0, 0)
-          : (cmd[2].shr16, cmd[2].shr8 & 0xff, cmd[2] & 0xff);
+          : (cmd[2].shr16, cmd[2].shr8.mask8, cmd[2].mask8);
 
       final (w, h) = switch (size) {
         0 => (cmd[sizeIndex] & xMask, cmd[sizeIndex].shr16 & yMask),
@@ -312,8 +312,8 @@ extension Gpu0 on Gpu {
       final (x0, y0) = (cmd[1].rel11, cmd[1].shr16.rel11);
       final baseX = status.shl6 & 0x3c0;
       final baseY = status.shl4 & 0x100;
-      final clutMode = status.shr7 & 3;
-      final clutBase = (clut.shr6 & yMask) * 1024 + (clut & 0x3f).shl4;
+      final clutMode = status.shr7.mask2;
+      final clutBase = (clut.shr6 & yMask) * 1024 + clut.mask6.shl4;
 
       // debugLog("gp0: drawRectangle: ${dumpCmd()} "
       //     "${transparent ? "semi" : "opaq"} mod:${modulated ? cmd[0].x6 : "-"} "
@@ -454,7 +454,7 @@ extension Gpu0 on Gpu {
 
   String dumpClut(int clut, int page) {
     final (clutX, clutY, clutMode) =
-        (clut.shl4 & 0x3f0, clut.shr6 & 0x1ff, page.shr7 & 3);
+        (clut.shl4 & 0x3f0, clut.shr6.mask9, page.shr7.mask2);
     final clutBase = clutY * 2048 + clutX * 2;
 
     final dump = switch (clutMode) {
@@ -478,15 +478,15 @@ extension Gpu0 on Gpu {
     final page = c[4].shr16;
 
     final (x0, y0) = (c[1] & xMask, c[1].shr16 & yMask);
-    final (u0, v0) = (c[2] & 0xff, c[2].shr8 & 0xff);
+    final (u0, v0) = (c[2].mask8, c[2].shr8.mask8);
     final (x1, y1) = (c[3] & xMask, c[3].shr16 & yMask);
-    final (u1, v1) = (c[4] & 0xff, c[4].shr8 & 0xff);
+    final (u1, v1) = (c[4].mask8, c[4].shr8.mask8);
     final (x2, y2) = (c[5] & xMask, c[5].shr16 & yMask);
-    final (u2, v2) = (c[6] & 0xff, c[6].shr8 & 0xff);
+    final (u2, v2) = (c[6].mask8, c[6].shr8.mask8);
     final (x3, y3) = (c[7] & xMask, c[7].shr16 & yMask);
-    final (u3, v3) = (c[8] & 0xff, c[8].shr8 & 0xff);
+    final (u3, v3) = (c[8].mask8, c[8].shr8.mask8);
     final (clutX, clutY, clutMode) =
-        (clut.shl4 & 0x3f0, clut.shr6 & 0x1ff, page.shr7 & 3);
+        (clut.shl4 & 0x3f0, clut.shr6.mask9, page.shr7.mask2);
     final (pageX, pageY) = (page.shl6 & 0x3c0, page.shl4 & 0x100);
     final clutDump = dumpClut(clut, page);
     if (logAllVertice) {

@@ -198,7 +198,7 @@ class Disasm {
 
   static String disasm(final int pc, int d0, int d1, int d2,
       {int d34 = 0, int d56 = 0}) {
-    final d3 = d34 & 0xff;
+    final d3 = d34.mask8;
 
     final addr = pc.x4;
     final op = d0.x2;
@@ -220,8 +220,8 @@ class Disasm {
     final inst = val.$1;
     var set = "";
 
-    final rel = pc + 2 + ((d1 + 128) & 0xff) - 128;
-    final rel2 = pc + 3 + ((d2 + 128) & 0xff) - 128;
+    final rel = pc + 2 + (d1 + 128).mask8 - 128;
+    final rel2 = pc + 3 + (d2 + 128).mask8 - 128;
 
     final args = switch (val.$2) {
       Operand.im => "$a1     $inst #\$$a1 $set",

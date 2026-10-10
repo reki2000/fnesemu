@@ -50,18 +50,18 @@ class MapperNamco118 extends Mapper {
             case 3:
             case 4:
             case 5:
-              final bank = data & 0x3f | chrRomA16;
+              final bank = data.mask6 | chrRomA16;
               _chrBanks[_r + 2] = bank;
               break;
             case 6:
-              _prgBanks[0] = data & 0x0f;
+              _prgBanks[0] = data.mask4;
               break;
             case 7:
-              _prgBanks[1] = data & 0x0f;
+              _prgBanks[1] = data.mask4;
               break;
           }
         } else {
-          _r = data & 0x07;
+          _r = data.mask3;
         }
         break;
     }
@@ -69,24 +69,24 @@ class MapperNamco118 extends Mapper {
 
   @override
   int read(int addr) {
-    final bank = addr.shr13 & 0x03; // 0-3
-    final offset = addr & 0x1fff;
+    final bank = addr.shr13.mask2; // 0-3
+    final offset = addr.mask13;
 
     return prgRoms[_prgBanks[bank]][offset];
   }
 
   @override
   int readVram(int addr) {
-    final bank = addr.shr10 & 0x07;
-    final offset = addr & 0x03ff;
+    final bank = addr.shr10.mask3;
+    final offset = addr.mask10;
 
     return chrRoms[_chrBanks[bank]][offset];
   }
 
   @override
   void writeVram(int addr, int data) {
-    final bank = addr.shr10 & 0x07;
-    final offset = addr & 0x03ff;
+    final bank = addr.shr10.mask3;
+    final offset = addr.mask10;
 
     chrRoms[_chrBanks[bank]][offset] = data;
   }

@@ -95,12 +95,12 @@ class Vdp2 {
 
   // register accessors
 
-  int reg(int addr) => regs[addr >> 1];
+  int reg(int addr) => regs[addr.shr1];
 
   int get tvmd => regs[0x00 >> 1];
   bool get displayOn => tvmd.bit15;
 
-  int get width => switch (tvmd & 7) {
+  int get width => switch (tvmd.mask3) {
         0 || 4 => 320,
         1 || 5 => 352,
         2 || 6 => 640,
@@ -108,19 +108,19 @@ class Vdp2 {
       };
 
   /// number of display lines per field
-  int get displayLines => switch ((tvmd >> 4) & 3) {
+  int get displayLines => switch (tvmd.shr4.mask2) {
         0 => 224,
         1 => 240,
         _ => 256,
       };
 
   /// double-density interlace (LSMD = 3): both fields are rendered at once
-  bool get doubleDensity => (tvmd >> 6) & 3 == 3;
+  bool get doubleDensity => tvmd.shr6.mask2 == 3;
 
   /// height of the output image
   int get height => doubleDensity ? displayLines * 2 : displayLines;
 
-  int get cramMode => (regs[0x0e >> 1] >> 12) & 3;
+  int get cramMode => regs[0x0e >> 1].shr12.mask2;
 
   int readReg(int addr) {
     return switch (addr) {
@@ -129,13 +129,13 @@ class Vdp2 {
           (oddField ? 0x02 : 0), // TVSTAT (NTSC)
       0x006 => regs[0x06 >> 1] & 0x8000, // VRSIZE, version 0
       0x008 => 0, // HCNT
-      0x00a => line & 0x3ff, // VCNT
-      _ => regs[addr >> 1],
+      0x00a => line.mask10, // VCNT
+      _ => regs[addr.shr1],
     };
   }
 
   void writeReg(int addr, int data) {
-    regs[addr >> 1] = data;
+    regs[addr.shr1] = data;
     if (addr == 0x00e) {
       _cramMask = cramMode == 1 ? 0x7ff : 0x3ff;
       _rebuildColors();
@@ -157,33 +157,33 @@ class Vdp2 {
   }
 
   // in mode 0, the second half of color ram mirrors the first half
-  int _cramAddr(int addr) => cramMode == 0 ? addr & 0x7ff : addr & 0xfff;
+  int _cramAddr(int addr) => cramMode == 0 ? addr.mask11 : addr.mask12;
 
   @pragma('vm:prefer-inline')
   static int _rgb555(int c) {
-    final r = c & 0x1f, g = (c >> 5) & 0x1f, b = (c >> 10) & 0x1f;
-    return (b << 3 | b >> 2) << 16 | (g << 3 | g >> 2) << 8 | (r << 3 | r >> 2);
+    final r = c.mask5, g = c.shr5.mask5, b = c.shr10.mask5;
+    return (b.shl3 | b.shr2).shl16 | (g.shl3 | g.shr2).shl8 | (r.shl3 | r.shr2);
   }
 
   void _updateColor(int a) {
     if (cramMode == 2) {
-      final i = a >> 2;
-      final c = cramData.getUint32(i << 2);
+      final i = a.shr2;
+      final c = cramData.getUint32(i.shl2);
       // bits 23-16: B, 15-8: G, 7-0: R
-      _colors[i & 0x3ff] = c & 0xffffff;
+      _colors[i.mask10] = c.mask24;
     } else {
-      _colors[(a >> 1) & 0x7ff] = _rgb555(cramData.getUint16(a));
+      _colors[a.shr1.mask11] = _rgb555(cramData.getUint16(a));
     }
   }
 
   void _rebuildColors() {
     if (cramMode == 2) {
       for (int i = 0; i < 1024; i++) {
-        _colors[i] = cramData.getUint32(i << 2) & 0xffffff;
+        _colors[i] = cramData.getUint32(i.shl2).mask24;
       }
     } else {
       for (int i = 0; i < 2048; i++) {
-        _colors[i] = _rgb555(cramData.getUint16(i << 1));
+        _colors[i] = _rgb555(cramData.getUint16(i.shl1));
       }
     }
   }
@@ -233,7 +233,7 @@ class Vdp2 {
       _active[_activeCount++] = _layerSprite;
     }
 
-    if (bgon.bit4 && reg(0xfc) & 7 != 0) {
+    if (bgon.bit4 && reg(0xfc).mask3 != 0) {
       final buf = _lines[_layerRbg0];
       buf.fillRange(0, w, 0);
       _renderRbg0(y, w, buf);
@@ -268,18 +268,18 @@ class Vdp2 {
 
     switch (n) {
       case 0:
-        cfg.colorMode = (chctla >> 4) & 7;
+        cfg.colorMode = chctla.shr4.mask3;
         cfg.bitmap = chctla.bit1;
         cfg.char16 = chctla.bit0;
-        _setBitmapSize(cfg, (chctla >> 2) & 3);
-        cfg.bitmapPalette = reg(0x2c) & 7;
+        _setBitmapSize(cfg, chctla.shr2.mask2);
+        cfg.bitmapPalette = reg(0x2c).mask3;
         break;
       case 1:
-        cfg.colorMode = (chctla >> 12) & 3;
+        cfg.colorMode = chctla.shr12.mask2;
         cfg.bitmap = chctla.bit9;
         cfg.char16 = chctla.bit8;
-        _setBitmapSize(cfg, (chctla >> 10) & 3);
-        cfg.bitmapPalette = (reg(0x2c) >> 8) & 7;
+        _setBitmapSize(cfg, chctla.shr10.mask2);
+        cfg.bitmapPalette = reg(0x2c).shr8.mask3;
         break;
       case 2:
         cfg.colorMode = chctlb.bit1 ? 1 : 0;
@@ -296,27 +296,27 @@ class Vdp2 {
     cfg.pncn = reg(0x30 + n * 2);
     cfg.pnSize = cfg.pncn.bit15 ? 2 : 4;
 
-    final plsz = (reg(0x3a) >> (n * 2)) & 3;
+    final plsz = (reg(0x3a) >> (n * 2)).mask2;
     cfg.planeW = plsz == 0 ? 1 : 2;
     cfg.planeH = plsz == 3 ? 2 : 1;
     cfg.mapW = 2;
 
-    final mapOffset = (reg(0x3c) >> (n * 4)) & 7;
+    final mapOffset = (reg(0x3c) >> (n * 4)).mask3;
     final ab = reg(0x40 + n * 4);
     final cd = reg(0x42 + n * 4);
-    final nums = [ab & 0x3f, (ab >> 8) & 0x3f, cd & 0x3f, (cd >> 8) & 0x3f];
+    final nums = [ab.mask6, ab.shr8.mask6, cd.mask6, cd.shr8.mask6];
     for (int i = 0; i < 4; i++) {
-      cfg.planeAddr[i] = cfg.planeAddrOf(mapOffset << 6 | nums[i]);
+      cfg.planeAddr[i] = cfg.planeAddrOf(mapOffset.shl6 | nums[i]);
     }
 
     cfg.bitmapAddr = mapOffset * 0x20000;
-    cfg.craOffset = ((reg(0xe4) >> (n * 4)) & 7) << 8;
+    cfg.craOffset = (reg(0xe4) >> (n * 4)).mask3.shl8;
     cfg.transparentEnabled = reg(0x20) & (0x100 << n) == 0;
     cfg.priority = n < 2
-        ? (reg(0xf8) >> (n * 8)) & 7
-        : (reg(0xfa) >> ((n - 2) * 8)) & 7;
+        ? (reg(0xf8) >> (n * 8)).mask3
+        : (reg(0xfa) >> ((n - 2) * 8)).mask3;
     cfg.ccEnabled = reg(0xec) & (1 << n) != 0;
-    cfg.sfprMode = (reg(0xea) >> (n * 2)) & 3;
+    cfg.sfprMode = (reg(0xea) >> (n * 2)).mask2;
   }
 
   static void _setBitmapSize(_MapCfg cfg, int size) {
@@ -336,10 +336,10 @@ class Vdp2 {
     int sx, sy, dx;
     if (n < 2) {
       final base = 0x70 + n * 0x10;
-      sx = (reg(base) & 0x7ff) << 8 | reg(base + 2) >> 8;
-      sy = (reg(base + 4) & 0x7ff) << 8 | reg(base + 6) >> 8;
-      dx = (reg(base + 8) & 7) << 8 | reg(base + 10) >> 8;
-      int dy = (reg(base + 12) & 7) << 8 | reg(base + 14) >> 8;
+      sx = reg(base).mask11.shl8 | reg(base + 2).shr8;
+      sy = reg(base + 4).mask11.shl8 | reg(base + 6).shr8;
+      dx = reg(base + 8).mask3.shl8 | reg(base + 10).shr8;
+      int dy = reg(base + 12).mask3.shl8 | reg(base + 14).shr8;
       // zoom registers are 0 after reset: treat as 1.0
       if (dx == 0) dx = 0x100;
       if (dy == 0) dy = 0x100;
@@ -348,38 +348,38 @@ class Vdp2 {
       // line scroll
       final scrctl = reg(0x9a) >> (n * 8);
       if (scrctl & 0x0e != 0) {
-        final interval = 1 << ((scrctl >> 4) & 3);
+        final interval = 1 << scrctl.shr4.mask2;
         final tableAddr =
-            ((reg(0xa0 + n * 4) & 7) << 16 | reg(0xa2 + n * 4) & 0xfffe) << 1;
+            (reg(0xa0 + n * 4).mask3.shl16 | reg(0xa2 + n * 4) & 0xfffe).shl1;
         final entrySize = (scrctl.bit1 ? 4 : 0) +
             (scrctl.bit2 ? 4 : 0) +
             (scrctl.bit3 ? 4 : 0);
         int addr = tableAddr + (y ~/ interval) * entrySize;
         if (scrctl.bit1) {
-          sx += (vramData.getUint32(addr & 0x7fffc) >> 8) & 0x7ffff;
+          sx += vramData.getUint32(addr & 0x7fffc).shr8 & 0x7ffff;
           addr += 4;
         }
         if (scrctl.bit2) {
-          sy = (reg(base + 4) & 0x7ff) << 8 | reg(base + 6) >> 8;
-          sy += (vramData.getUint32(addr & 0x7fffc) >> 8) & 0x7ffff;
+          sy = reg(base + 4).mask11.shl8 | reg(base + 6).shr8;
+          sy += vramData.getUint32(addr & 0x7fffc).shr8 & 0x7ffff;
           addr += 4;
         }
         if (scrctl.bit3) {
-          dx = (vramData.getUint32(addr & 0x7fffc) >> 8) & 0x7ff;
+          dx = vramData.getUint32(addr & 0x7fffc).shr8.mask11;
         }
       }
     } else {
       final base = 0x90 + (n - 2) * 4;
-      sx = (reg(base) & 0x7ff) << 8;
-      sy = ((reg(base + 2) & 0x7ff) + y) << 8;
+      sx = reg(base).mask11.shl8;
+      sy = (reg(base + 2).mask11 + y).shl8;
       dx = 0x100;
     }
 
-    final py = sy >> 8;
+    final py = sy.shr8;
 
     if (cfg.bitmap) {
       for (int x = 0; x < w; x++) {
-        buf[x] = _bitmapDot(cfg, (sx + x * dx) >> 8, py);
+        buf[x] = _bitmapDot(cfg, (sx + x * dx).shr8, py);
       }
       return true;
     }
@@ -387,22 +387,22 @@ class Vdp2 {
     // same as _cellDot for each dot, with the per-line values hoisted
     final maskW = cfg.mapDotsW - 1;
     final cy = py & (cfg.mapDotsH - 1);
-    final rowKey = (cy >> 3) << 16;
+    final rowKey = cy.shr3.shl16;
     int lastKey = -1;
     int cellDy = 0;
     for (int x = 0; x < w; x++) {
-      final cx = ((sx + x * dx) >> 8) & maskW;
-      final key = rowKey | (cx >> 3);
+      final cx = (sx + x * dx).shr8 & maskW;
+      final key = rowKey | cx.shr3;
       if (key != lastKey) {
         lastKey = key;
         _setupCell(cfg, cx, cy);
-        cellDy = _cellVf ? 7 - (cy & 7) : cy & 7;
+        cellDy = _cellVf ? 7 - cy.mask3 : cy.mask3;
       }
       if (_cellPri == 0) {
         buf[x] = 0;
         continue;
       }
-      final cellDx = _cellHf ? 7 - (cx & 7) : cx & 7;
+      final cellDx = _cellHf ? 7 - cx.mask3 : cx.mask3;
       buf[x] = _dot(cfg, _cellAddr, cellDx, cellDy, 8, _cellPalette, _cellPri);
     }
     _lastCellKey = lastKey;
@@ -430,34 +430,34 @@ class Vdp2 {
     if (cfg.pnSize == 4) {
       final w0 = vramData.getUint16(addr & 0x7fffc);
       final w1 = vramData.getUint16((addr & 0x7fffc) + 2);
-      charNum = w1 & 0x7fff;
+      charNum = w1.mask15;
       _pnHf = w0.bit14;
       _pnVf = w0.bit15;
       _pnSpr = w0.bit13;
-      _pnPalette = cfg.colorMode == 0 ? w0 & 0x7f : w0 & 0x70;
+      _pnPalette = cfg.colorMode == 0 ? w0.mask7 : w0 & 0x70;
     } else {
       final d = vramData.getUint16(addr & 0x7fffe);
       _pnSpr = pncn.bit9;
       _pnPalette = cfg.colorMode == 0
-          ? (d >> 12) & 0xf | (pncn & 0xe0) >> 1
-          : (d >> 8) & 0x70;
+          ? d.shr12.mask4 | (pncn & 0xe0).shr1
+          : d.shr8 & 0x70;
 
       if (!pncn.bit14) {
         _pnHf = d.bit10;
         _pnVf = d.bit11;
         charNum = cfg.char16
-            ? (d & 0x3ff) << 2 | pncn & 0x3 | (pncn & 0x1c) << 10
-            : (d & 0x3ff) | (pncn & 0x1f) << 10;
+            ? d.mask10.shl2 | pncn.mask2 | (pncn & 0x1c).shl10
+            : d.mask10 | pncn.mask5.shl10;
       } else {
         _pnHf = false;
         _pnVf = false;
         charNum = cfg.char16
-            ? (d & 0xfff) << 2 | pncn & 0x3 | (pncn & 0x10) << 10
-            : (d & 0xfff) | (pncn & 0x1c) << 10;
+            ? d.mask12.shl2 | pncn.mask2 | (pncn & 0x10).shl10
+            : d.mask12 | (pncn & 0x1c).shl10;
       }
     }
 
-    _pnCharAddr = (charNum & 0x3fff) << 5;
+    _pnCharAddr = charNum.mask14.shl5;
   }
 
   static const _cellBytes = [32, 64, 128, 128, 256, 256, 256, 256];
@@ -467,7 +467,7 @@ class Vdp2 {
     x &= cfg.mapDotsW - 1;
     y &= cfg.mapDotsH - 1;
 
-    final key = (y >> 3) << 16 | (x >> 3);
+    final key = y.shr3.shl16 | x.shr3;
     if (key != _lastCellKey) {
       _lastCellKey = key;
       _setupCell(cfg, x, y);
@@ -477,8 +477,8 @@ class Vdp2 {
       return 0;
     }
 
-    final dx = _cellHf ? 7 - (x & 7) : x & 7;
-    final dy = _cellVf ? 7 - (y & 7) : y & 7;
+    final dx = _cellHf ? 7 - x.mask3 : x.mask3;
+    final dy = _cellVf ? 7 - y.mask3 : y.mask3;
     return _dot(cfg, _cellAddr, dx, dy, 8, _cellPalette, _cellPri);
   }
 
@@ -488,12 +488,12 @@ class Vdp2 {
     final plane = (y ~/ planeH) * cfg.mapW + (x ~/ planeW);
     final px = x & (planeW - 1);
     final py = y & (planeH - 1);
-    final page = (py >> 9) * cfg.planeW + (px >> 9);
-    final cx = px & 511;
-    final cy = py & 511;
+    final page = py.shr9 * cfg.planeW + px.shr9;
+    final cx = px.mask9;
+    final cy = py.mask9;
 
     final patternIndex =
-        cfg.char16 ? (cy >> 4) * 32 + (cx >> 4) : (cy >> 3) * 64 + (cx >> 3);
+        cfg.char16 ? cy.shr4 * 32 + cx.shr4 : cy.shr3 * 64 + cx.shr3;
     final patternAddr = cfg.planeAddr[plane] +
         page * cfg.pageBytes +
         patternIndex * cfg.pnSize;
@@ -503,8 +503,8 @@ class Vdp2 {
     int addr = _pnCharAddr;
     if (cfg.char16) {
       // select one of 2x2 cells, flips apply to the whole 16x16 character
-      int subX = (cx >> 3) & 1;
-      int subY = (cy >> 3) & 1;
+      int subX = cx.shr3.mask1;
+      int subY = cy.shr3.mask1;
       if (_pnHf) subX ^= 1;
       if (_pnVf) subY ^= 1;
       addr += (subY * 2 + subX) * _cellBytes[cfg.colorMode];
@@ -526,7 +526,7 @@ class Vdp2 {
   int _bitmapDot(_MapCfg cfg, int x, int y) {
     x &= cfg.bitmapW - 1;
     y &= cfg.bitmapH - 1;
-    return _dot(cfg, cfg.bitmapAddr, x, y, cfg.bitmapW, cfg.bitmapPalette << 4,
+    return _dot(cfg, cfg.bitmapAddr, x, y, cfg.bitmapW, cfg.bitmapPalette.shl4,
         cfg.priority);
   }
 
@@ -537,8 +537,8 @@ class Vdp2 {
     int color;
     switch (cfg.colorMode) {
       case 0:
-        final b = vram[(base + ((y * stride + x) >> 1)) & 0x7ffff];
-        final d = x.bit0 ? b & 0xf : b >> 4;
+        final b = vram[(base + (y * stride + x).shr1) & 0x7ffff];
+        final d = x.bit0 ? b.mask4 : b.shr4;
         if (d == 0 && cfg.transparentEnabled) return 0;
         color = _color(cfg.craOffset + palette * 16 + d);
         break;
@@ -549,7 +549,7 @@ class Vdp2 {
         break;
       case 2:
         final d =
-            vramData.getUint16((base + (y * stride + x) * 2) & 0x7fffe) & 0x7ff;
+            vramData.getUint16((base + (y * stride + x) * 2) & 0x7fffe).mask11;
         if (d == 0 && cfg.transparentEnabled) return 0;
         color = _color(cfg.craOffset + d);
         break;
@@ -561,11 +561,11 @@ class Vdp2 {
       default:
         final d = vramData.getUint32((base + (y * stride + x) * 4) & 0x7fffc);
         if (!d.bit31 && cfg.transparentEnabled) return 0;
-        color = d & 0xffffff;
+        color = d.mask24;
         break;
     }
 
-    return pri << 24 | (cfg.ccEnabled ? _ccBit : 0) | color;
+    return pri.shl24 | (cfg.ccEnabled ? _ccBit : 0) | color;
   }
 
   // ---- sprite ----
@@ -576,17 +576,17 @@ class Vdp2 {
   /// renders the sprite layer, returns false when nothing can be displayed
   bool _renderSprite(int y, int w, Int32List buf) {
     final spctl = reg(0xe0);
-    final type = spctl & 0xf;
+    final type = spctl.mask4;
     final rgbMixed = spctl.bit5;
-    final ccCond = (spctl >> 12) & 3;
-    final ccNum = (spctl >> 8) & 7;
+    final ccCond = spctl.shr12.mask2;
+    final ccNum = spctl.shr8.mask3;
     final ccEnabled = reg(0xec).bit6;
-    final craOffset = ((reg(0xe6) >> 4) & 7) << 8;
+    final craOffset = reg(0xe6).shr4.mask3.shl8;
 
     int anyPri = 0;
     for (int i = 0; i < 8; i++) {
-      _sprPri[i] = (reg(0xf0 + (i >> 1) * 2) >> (i.bit0 ? 8 : 0)) & 7;
-      _sprRatio[i] = (reg(0x100 + (i >> 1) * 2) >> (i.bit0 ? 8 : 0)) & 0x1f;
+      _sprPri[i] = (reg(0xf0 + i.shr1 * 2) >> (i.bit0 ? 8 : 0)).mask3;
+      _sprRatio[i] = (reg(0x100 + i.shr1 * 2) >> (i.bit0 ? 8 : 0)).mask5;
       anyPri |= _sprPri[i];
     }
     if (anyPri == 0) {
@@ -612,7 +612,7 @@ class Vdp2 {
     final rgbCc = ccEnabled && _spriteCc(ccCond, ccNum, rgbPri, true);
 
     for (int x = 0; x < w; x++) {
-      final fx = hiRes ? x >> 1 : x;
+      final fx = hiRes ? x.shr1 : x;
       final d = fb[rowBase + (fx & (fbWidth - 1))];
 
       if (d == 0) {
@@ -624,89 +624,89 @@ class Vdp2 {
         // RGB direct color
         _spriteRatio[x] = _sprRatio[0];
         buf[x] =
-            rgbPri == 0 ? 0 : rgbPri << 24 | (rgbCc ? _ccBit : 0) | _rgb555(d);
+            rgbPri == 0 ? 0 : rgbPri.shl24 | (rgbCc ? _ccBit : 0) | _rgb555(d);
         continue;
       }
 
       int prIndex = 0, ccIndex = 0, dc = 0;
       switch (type) {
         case 0:
-          prIndex = (d >> 14) & 3;
-          ccIndex = (d >> 11) & 7;
-          dc = d & 0x7ff;
+          prIndex = d.shr14.mask2;
+          ccIndex = d.shr11.mask3;
+          dc = d.mask11;
           break;
         case 1:
-          prIndex = (d >> 13) & 7;
-          ccIndex = (d >> 11) & 3;
-          dc = d & 0x7ff;
+          prIndex = d.shr13.mask3;
+          ccIndex = d.shr11.mask2;
+          dc = d.mask11;
           break;
         case 2:
-          prIndex = (d >> 14) & 1;
-          ccIndex = (d >> 11) & 7;
-          dc = d & 0x7ff;
+          prIndex = d.shr14.mask1;
+          ccIndex = d.shr11.mask3;
+          dc = d.mask11;
           break;
         case 3:
-          prIndex = (d >> 13) & 3;
-          ccIndex = (d >> 11) & 3;
-          dc = d & 0x7ff;
+          prIndex = d.shr13.mask2;
+          ccIndex = d.shr11.mask2;
+          dc = d.mask11;
           break;
         case 4:
-          prIndex = (d >> 13) & 3;
-          ccIndex = (d >> 10) & 7;
-          dc = d & 0x3ff;
+          prIndex = d.shr13.mask2;
+          ccIndex = d.shr10.mask3;
+          dc = d.mask10;
           break;
         case 5:
-          prIndex = (d >> 12) & 7;
-          ccIndex = (d >> 11) & 1;
-          dc = d & 0x7ff;
+          prIndex = d.shr12.mask3;
+          ccIndex = d.shr11.mask1;
+          dc = d.mask11;
           break;
         case 6:
-          prIndex = (d >> 12) & 7;
-          ccIndex = (d >> 10) & 3;
-          dc = d & 0x3ff;
+          prIndex = d.shr12.mask3;
+          ccIndex = d.shr10.mask2;
+          dc = d.mask10;
           break;
         case 7:
-          prIndex = (d >> 12) & 7;
-          ccIndex = (d >> 9) & 7;
-          dc = d & 0x1ff;
+          prIndex = d.shr12.mask3;
+          ccIndex = d.shr9.mask3;
+          dc = d.mask9;
           break;
         case 8:
-          prIndex = (d >> 7) & 1;
-          dc = d & 0x7f;
+          prIndex = d.shr7.mask1;
+          dc = d.mask7;
           break;
         case 9:
-          prIndex = (d >> 7) & 1;
-          ccIndex = (d >> 6) & 1;
-          dc = d & 0x3f;
+          prIndex = d.shr7.mask1;
+          ccIndex = d.shr6.mask1;
+          dc = d.mask6;
           break;
         case 10:
-          prIndex = (d >> 6) & 3;
-          dc = d & 0x3f;
+          prIndex = d.shr6.mask2;
+          dc = d.mask6;
           break;
         case 11:
-          ccIndex = (d >> 6) & 3;
-          dc = d & 0x3f;
+          ccIndex = d.shr6.mask2;
+          dc = d.mask6;
           break;
         case 12:
-          prIndex = (d >> 7) & 1;
-          dc = d & 0xff;
+          prIndex = d.shr7.mask1;
+          dc = d.mask8;
           break;
         case 13:
-          prIndex = (d >> 7) & 1;
-          ccIndex = (d >> 6) & 1;
-          dc = d & 0xff;
+          prIndex = d.shr7.mask1;
+          ccIndex = d.shr6.mask1;
+          dc = d.mask8;
           break;
         case 14:
-          prIndex = (d >> 6) & 3;
-          dc = d & 0xff;
+          prIndex = d.shr6.mask2;
+          dc = d.mask8;
           break;
         default:
-          ccIndex = (d >> 6) & 3;
-          dc = d & 0xff;
+          ccIndex = d.shr6.mask2;
+          dc = d.mask8;
           break;
       }
 
-      if (type >= 8 && d & 0xff == 0) {
+      if (type >= 8 && d.mask8 == 0) {
         buf[x] = 0;
         continue;
       }
@@ -719,7 +719,7 @@ class Vdp2 {
 
       final cc = ccEnabled && _spriteCc(ccCond, ccNum, pri, d.bit15);
       _spriteRatio[x] = _sprRatio[ccIndex];
-      buf[x] = pri << 24 | (cc ? _ccBit : 0) | _color(craOffset + dc);
+      buf[x] = pri.shl24 | (cc ? _ccBit : 0) | _color(craOffset + dc);
     }
     return true;
   }
@@ -735,7 +735,7 @@ class Vdp2 {
 
   int _backColor(int y) {
     final bktau = reg(0xac);
-    int addr = ((bktau & 7) << 16 | reg(0xae)) << 1;
+    int addr = (bktau.mask3.shl16 | reg(0xae)).shl1;
     if (bktau.bit15) {
       addr += y * 2;
     }
@@ -765,20 +765,20 @@ class Vdp2 {
       }
     }
     for (int l = 1; l < 6; l++) {
-      _ratios[l] = (reg(_layerRatioRegs[l]) >> _layerRatioShift[l]) & 0x1f;
+      _ratios[l] = (reg(_layerRatioRegs[l]) >> _layerRatioShift[l]).mask5;
     }
   }
 
   @pragma('vm:prefer-inline')
   int _offset(int l, int c) {
     if (!_offOn[l]) return c;
-    int r = (c & 0xff) + _offR[l];
-    int g = ((c >> 8) & 0xff) + _offG[l];
-    int b = ((c >> 16) & 0xff) + _offB[l];
+    int r = c.mask8 + _offR[l];
+    int g = c.shr8.mask8 + _offG[l];
+    int b = c.shr16.mask8 + _offB[l];
     r = r < 0 ? 0 : (r > 255 ? 255 : r);
     g = g < 0 ? 0 : (g > 255 ? 255 : g);
     b = b < 0 ? 0 : (b > 255 ? 255 : b);
-    return b << 16 | g << 8 | r;
+    return b.shl16 | g.shl8 | r;
   }
 
   void _compose(int y, int w, int out) {
@@ -807,7 +807,7 @@ class Vdp2 {
         final l = active[i];
         final p = bufs[i][x];
         if (p == 0) continue;
-        final pri = (p >> 24) & 7;
+        final pri = p.shr24.mask3;
         if (pri > topPri) {
           second = top;
           secondPri = topPri;
@@ -826,11 +826,11 @@ class Vdp2 {
       if (top < 0) {
         color = back;
       } else {
-        color = _offset(top, topPixel & 0xffffff);
+        color = _offset(top, topPixel.mask24);
 
         if (topPixel & _ccBit != 0) {
           final under =
-              second < 0 ? back : _offset(second, secondPixel & 0xffffff);
+              second < 0 ? back : _offset(second, secondPixel.mask24);
           color = additive
               ? _add(color, under)
               : _blend(color, under,
@@ -843,23 +843,23 @@ class Vdp2 {
   }
 
   static int _add(int a, int b) {
-    int r = (a & 0xff) + (b & 0xff);
-    int g = ((a >> 8) & 0xff) + ((b >> 8) & 0xff);
-    int bl = ((a >> 16) & 0xff) + ((b >> 16) & 0xff);
+    int r = a.mask8 + b.mask8;
+    int g = a.shr8.mask8 + b.shr8.mask8;
+    int bl = a.shr16.mask8 + b.shr16.mask8;
     if (r > 255) r = 255;
     if (g > 255) g = 255;
     if (bl > 255) bl = 255;
-    return bl << 16 | g << 8 | r;
+    return bl.shl16 | g.shl8 | r;
   }
 
   // ratio 0: top only, 31: almost bottom only
   static int _blend(int a, int b, int ratio) {
     final ta = 32 - ratio;
     final tb = ratio;
-    final r = ((a & 0xff) * ta + (b & 0xff) * tb) >> 5;
-    final g = (((a >> 8) & 0xff) * ta + ((b >> 8) & 0xff) * tb) >> 5;
-    final bl = (((a >> 16) & 0xff) * ta + ((b >> 16) & 0xff) * tb) >> 5;
-    return bl << 16 | g << 8 | r;
+    final r = (a.mask8 * ta + b.mask8 * tb).shr5;
+    final g = (a.shr8.mask8 * ta + b.shr8.mask8 * tb).shr5;
+    final bl = (a.shr16.mask8 * ta + b.shr16.mask8 * tb).shr5;
+    return bl.shl16 | g.shl8 | r;
   }
 
   String dump() {

@@ -17,7 +17,7 @@ mixin _Wave {
   }
 
   void setHighFreq(int val) {
-    _freq = _freq.setH8(val & 0x07);
+    _freq = _freq.setH8(val.mask3);
     _enabled = val.bit7;
 
     if (!_enabled) {
@@ -51,7 +51,7 @@ class _PulseWave with _Wave {
 
       if (_timer <= 0) {
         _timer += _freq + 1;
-        _dutyCycle = (_dutyCycle - 1) & 0x0f;
+        _dutyCycle = (_dutyCycle - 1).mask4;
       }
 
       _timer -= 2;
@@ -91,8 +91,8 @@ class _SawToothWave with _Wave {
         if (_count == 14) {
           _count = 0;
           _accumlator = 0;
-        } else if ((_count & 0x01) == 0) {
-          _accumlator = (_accumlator + accum) & 0xff;
+        } else if (!_count.bit0) {
+          _accumlator = (_accumlator + accum).mask8;
         }
       }
 
@@ -120,8 +120,8 @@ class Vrc6Apu {
     switch (reg) {
       // pulse wave 0
       case 0x9000:
-        pulse0.duty = val.bit7 ? 15 : (val.shr4 & 0x07);
-        pulse0.volume = val & 0x0f;
+        pulse0.duty = val.bit7 ? 15 : val.shr4.mask3;
+        pulse0.volume = val.mask4;
         return;
 
       case 0x9001:
@@ -134,8 +134,8 @@ class Vrc6Apu {
 
       // pulse wave 1
       case 0xa000:
-        pulse1.duty = val.bit7 ? 15 : (val.shr4 & 0x07);
-        pulse1.volume = val & 0x0f;
+        pulse1.duty = val.bit7 ? 15 : val.shr4.mask3;
+        pulse1.volume = val.mask4;
         return;
 
       case 0xa001:
@@ -148,7 +148,7 @@ class Vrc6Apu {
 
       // triangle wave
       case 0xb000:
-        saw.accum = val & 0x3f;
+        saw.accum = val.mask6;
         return;
 
       case 0xb001:

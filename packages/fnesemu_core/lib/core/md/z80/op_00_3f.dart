@@ -10,10 +10,10 @@ extension Op003f on Z80 {
 
       case 0x10: // djnz
         final rel = rel8();
-        r.b = (r.b - 1) & 0xff;
+        r.b = (r.b - 1).mask8;
         if (r.b != 0) {
           cycles += 6;
-          r.pc = (r.pc + rel) & 0xffff;
+          r.pc = (r.pc + rel).mask16;
         } else {
           cycles += 1;
         }
@@ -26,11 +26,11 @@ extension Op003f on Z80 {
         return true;
 
       default:
-        switch (op & 0x0f) {
+        switch (op.mask4) {
           case 0x00: // jr
           case 0x08:
             final rel = rel8();
-            final addr = (r.pc + rel) & 0xffff;
+            final addr = (r.pc + rel).mask16;
             final flag = switch (op & 0x38) {
               0x20 => !r.zf,
               0x30 => !r.cf,
@@ -132,28 +132,28 @@ extension Op003f on Z80 {
             cycles += 2;
             switch (op) {
               case 0x03: // inc bc
-                r.bc = (r.bc + 1) & 0xffff;
+                r.bc = (r.bc + 1).mask16;
                 return true;
               case 0x13: // inc de
-                r.de = (r.de + 1) & 0xffff;
+                r.de = (r.de + 1).mask16;
                 return true;
               case 0x23: // inc hl
-                r.hl = (r.hl + 1) & 0xffff;
+                r.hl = (r.hl + 1).mask16;
                 return true;
               case 0x33: // inc sp
-                r.sp = (r.sp + 1) & 0xffff;
+                r.sp = (r.sp + 1).mask16;
                 return true;
               case 0x0b: // dec bc
-                r.bc = (r.bc - 1) & 0xffff;
+                r.bc = (r.bc - 1).mask16;
                 return true;
               case 0x1b: // dec de
-                r.de = (r.de - 1) & 0xffff;
+                r.de = (r.de - 1).mask16;
                 return true;
               case 0x2b: // dec hl
-                r.hl = (r.hl - 1) & 0xffff;
+                r.hl = (r.hl - 1).mask16;
                 return true;
               case 0x3b: // dec sp
-                r.sp = (r.sp - 1) & 0xffff;
+                r.sp = (r.sp - 1).mask16;
                 return true;
             }
             return true;
@@ -191,7 +191,7 @@ extension Op003f on Z80 {
                 r.a = rl8(r.a, setSZP: false);
                 return true;
               case 0x27: // daa SZ-H-PNC
-                final lowOver = (r.a & 0x0f) > 0x09;
+                final lowOver = r.a.mask4 > 0x09;
                 final highOver = (r.a & 0xf0) > (lowOver ? 0x80 : 0x90);
                 int d = 0;
                 d |= (r.hf || lowOver) ? 0x06 : 0x00;
@@ -202,7 +202,7 @@ extension Op003f on Z80 {
                   d = r.a + d;
                 }
                 d &= 0xff;
-                r.hf = (r.a ^ d) & 0x10 != 0;
+                r.hf = (r.a ^ d).bit4;
                 r.a = d;
                 r.setP(r.a);
                 r.setSZ(r.a);
@@ -220,7 +220,7 @@ extension Op003f on Z80 {
                 r.a = rr8(r.a, setSZP: false);
                 return true;
               case 0x2f: // cpl
-                r.a = ~r.a & 0xff;
+                r.a = (~r.a).mask8;
                 r.hf = true;
                 r.nf = true;
                 return true;

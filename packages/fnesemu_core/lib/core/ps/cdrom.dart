@@ -23,7 +23,7 @@ class CmdResult {
 }
 
 extension IntBcd on int {
-  int get asBcd => (this & 0x0f) + (this & 0xf0).shr4 * 10;
+  int get asBcd => this.mask4 + (this & 0xf0).shr4 * 10;
   int get toBcd => (this ~/ 10).shl4 | (this % 10);
 }
 
@@ -212,7 +212,7 @@ class Cdrom {
           .setBit(7, isCmdBusy),
       1 => readCmdResult(),
       2 => readBuffer8(),
-      3 => 0xe0 | (bank.bit0 ? currentIntNo : intMask) & 0x1f,
+      3 => 0xe0 | (bank.bit0 ? currentIntNo : intMask).mask5,
       _ => 0,
     };
     // if (reg != 2) {
@@ -224,7 +224,7 @@ class Cdrom {
   void writePort8(int reg, int value) {
     // debugLog("cdrom: write8 $bank-$reg <= ${value.x2} ${dump()}");
     if (reg == 0) {
-      bank = value & 0x03;
+      bank = value.mask2;
       return;
     }
 
@@ -253,7 +253,7 @@ class Cdrom {
         break;
 
       case (1, 2): // hintmsk
-        intMask = value & 0x1f;
+        intMask = value.mask5;
         // Re-evaluate pending interrupt when mask is updated.
         _raisePendingIrqIfEnabled();
 
@@ -265,7 +265,7 @@ class Cdrom {
           // reset decoder
           isXaAdpcmBusy = false;
         }
-        if (value & 0x7 != 0) {
+        if (value.mask3 != 0) {
           // irq ack
           currentIntNo = 0;
         }
@@ -459,7 +459,7 @@ class Cdrom {
   }
 
   void _raisePendingIrqIfEnabled() {
-    if (currentIntNo != 0 && (intMask & currentIntNo & 0x07) != 0) {
+    if (currentIntNo != 0 && (intMask & currentIntNo).mask3 != 0) {
       bus.setIrq(Interrupt.cdrom);
     }
   }
@@ -530,7 +530,7 @@ class Cdrom {
     resultFifo.clear();
     if (psTrace) {
       debugLog(
-          "cdrom: ${cmd.x2}:${commandNames[cmd & 0x1f]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}");
+          "cdrom: ${cmd.x2}:${commandNames[cmd.mask5]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}");
     }
 
     switch (cmd) {

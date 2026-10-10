@@ -6,9 +6,9 @@ extension OpEd on Z80 {
   bool repLd(int repDirection) {
     write(r.de, read(r.hl));
     cycles += 6;
-    r.de = (r.de + repDirection) & 0xffff;
-    r.hl = (r.hl + repDirection) & 0xffff;
-    r.bc = (r.bc - 1) & 0xffff;
+    r.de = (r.de + repDirection).mask16;
+    r.hl = (r.hl + repDirection).mask16;
+    r.bc = (r.bc - 1).mask16;
     r.nf = false;
     r.hf = false;
     r.pvf = true;
@@ -24,8 +24,8 @@ extension OpEd on Z80 {
   bool repCp(int repDirection) {
     final val = read(r.hl);
     cycles += 6;
-    r.hl = (r.hl + repDirection) & 0xffff;
-    r.bc = (r.bc - 1) & 0xffff;
+    r.hl = (r.hl + repDirection).mask16;
+    r.bc = (r.bc - 1).mask16;
 
     final res = r.a - val;
     r.hf = (r.a ^ val ^ res) & Regs.H != 0;
@@ -47,13 +47,13 @@ extension OpEd on Z80 {
     final val = input(r.c);
     write(r.hl, val);
     cycles += 6;
-    r.hl = (r.hl + repDirection) & 0xffff;
-    r.b = (r.b - 1) & 0xff;
+    r.hl = (r.hl + repDirection).mask16;
+    r.b = (r.b - 1).mask8;
 
-    final t = ((r.c + repDirection) & 0xff) + val;
+    final t = (r.c + repDirection).mask8 + val;
     r.nf = val & Regs.S != 0;
-    r.cf = r.hf = t & 0x100 != 0;
-    r.setP((t & 0x07) ^ r.b);
+    r.cf = r.hf = t.bit8;
+    r.setP(t.mask3 ^ r.b);
     r.setSZ(r.b);
 
     cycles += 2;
@@ -67,13 +67,13 @@ extension OpEd on Z80 {
     final val = read(r.hl);
     output(r.c, val);
     cycles += 6;
-    r.hl = (r.hl + repDirection) & 0xffff;
-    r.b = (r.b - 1) & 0xff;
+    r.hl = (r.hl + repDirection).mask16;
+    r.b = (r.b - 1).mask8;
 
     final t = r.l + val;
     r.nf = val & Regs.S != 0;
-    r.cf = r.hf = t & 0x100 != 0;
-    r.setP((t & 0x07) ^ r.b);
+    r.cf = r.hf = t.bit8;
+    r.setP(t.mask3 ^ r.b);
     r.setSZ(r.b);
 
     cycles += 2;
@@ -162,7 +162,7 @@ extension OpEd on Z80 {
         return true;
       case 0x73: // ld (nn), sp
         final addr = pc16();
-        write(addr, r.sp & 0xff);
+        write(addr, r.sp.mask8);
         write(addr + 1, r.sp.shr8);
         cycles += 6;
         return true;
@@ -199,12 +199,12 @@ extension OpEd on Z80 {
       case 0x74:
       case 0x7c:
         final result = 0 - r.a;
-        r.setSZ(result & 0xff);
+        r.setSZ(result.mask8);
         r.setV(0, r.a, result, sub: true);
-        r.hf = 0 < (r.a & 0xf);
+        r.hf = 0 < r.a.mask4;
         r.nf = true;
         r.cf = result < 0;
-        r.a = result & 0xff;
+        r.a = result.mask8;
         return true;
 
       case 0x4d: // reti
@@ -264,7 +264,7 @@ extension OpEd on Z80 {
         final addr = r.hl;
         final val = read(addr);
         write(addr, val.shr4 | r.a.shl4 & 0xf0);
-        r.a = (r.a & 0xf0) | (val & 0x0f);
+        r.a = (r.a & 0xf0) | val.mask4;
         r.setSZ(r.a);
         r.setP(r.a);
         r.hf = false;
@@ -274,7 +274,7 @@ extension OpEd on Z80 {
       case 0x6f: // rld
         final addr = r.hl;
         final val = read(addr);
-        write(addr, r.a & 0x0f | val.shl4 & 0xf0);
+        write(addr, r.a.mask4 | val.shl4 & 0xf0);
         r.a = (r.a & 0xf0) | val.shr4;
         r.setSZ(r.a);
         r.setP(r.a);
@@ -333,13 +333,13 @@ extension OpEd on Z80 {
       case 0xb0: // ldir
         if (repLd(1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
       case 0xb8: // lddr
         if (repLd(-1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
 
@@ -352,13 +352,13 @@ extension OpEd on Z80 {
       case 0xb1: // cpir
         if (repCp(1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
       case 0xb9: // cpdr
         if (repCp(-1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
 
@@ -371,13 +371,13 @@ extension OpEd on Z80 {
       case 0xb2: // inir
         if (repIn(1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
       case 0xba: // indr
         if (repIn(-1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
 
@@ -390,13 +390,13 @@ extension OpEd on Z80 {
       case 0xb3: // otir
         if (repOut(1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
       case 0xbb: // otdr
         if (repOut(-1)) {
           cycles += 5;
-          r.pc = (r.pc - 2) & 0xffff;
+          r.pc = (r.pc - 2).mask16;
         }
         return true;
     }

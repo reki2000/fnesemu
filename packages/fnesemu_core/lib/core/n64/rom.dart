@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../util/int.dart';
 
 /// Cartridge dumps are normalized to the N64's big endian bus order.
 class N64Rom {
@@ -22,10 +23,10 @@ class N64Rom {
     for (var i = start; i < end; i++) {
       crc ^= data[i];
       for (var k = 0; k < 8; k++) {
-        crc = (crc & 1) != 0 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+        crc = crc.bit0 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
       }
     }
-    return (~crc) & 0xffffffff;
+    return (~crc).mask32;
   }
 
   N64Rom._(this.bytes, int crc)
@@ -36,8 +37,7 @@ class N64Rom {
                   0x0b050ee0 => 0x100000,
                   0xacc8580a => 0x200000,
                   _ => 0,
-                }) &
-            0xffffffff,
+                }).mask32,
         title = String.fromCharCodes(bytes.sublist(0x20, 0x34))
             .replaceAll('\x00', '')
             .trim();

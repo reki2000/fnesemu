@@ -78,7 +78,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x180000) {
-      return addr.bit0 ? smpc.read(addr.shr1 & 0x3f) : 0xff;
+      return addr.bit0 ? smpc.read(addr.shr1.mask6) : 0xff;
     }
 
     if (addr < 0x200000) {
@@ -106,7 +106,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x180000) {
-      return 0xff00 | smpc.read(addr.shr1 & 0x3f);
+      return 0xff00 | smpc.read(addr.shr1.mask6);
     }
 
     if (addr < 0x200000) {
@@ -143,7 +143,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x5c00000) {
-      return scsp.readReg16(addr & 0xfff);
+      return scsp.readReg16(addr.mask12);
     }
 
     if (addr < 0x5c80000) {
@@ -155,7 +155,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x5e00000) {
-      return vdp1.readReg(addr & 0x1f);
+      return vdp1.readReg(addr.mask5);
     }
 
     if (addr < 0x5f00000) {
@@ -224,7 +224,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x180000) {
-      if (addr.bit0) smpc.write(addr.shr1 & 0x3f, data);
+      if (addr.bit0) smpc.write(addr.shr1.mask6, data);
       return;
     }
 
@@ -249,7 +249,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr >= 0x5b00000 && addr < 0x5c00000) {
-      scsp.writeReg8(addr & 0xfff, data);
+      scsp.writeReg8(addr.mask12, data);
       return;
     }
 
@@ -269,12 +269,12 @@ class Bus implements SsCpuBus {
     }
 
     if (addr >= 0x5f00000 && addr < 0x5f80000) {
-      vdp2.writeCram8(addr & 0xfff, data);
+      vdp2.writeCram8(addr.mask12, data);
       return;
     }
 
     if (addr >= 0x5fe0000 && addr < 0x5ff0000) {
-      final shift = (3 - (addr & 3)) * 8;
+      final shift = (3 - addr.mask2) * 8;
       scu.write32(addr & 0xfc, data << shift, 0xff << shift);
       return;
     }
@@ -299,7 +299,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x180000) {
-      smpc.write(addr.shr1 & 0x3f, data.mask8);
+      smpc.write(addr.shr1.mask6, data.mask8);
       return;
     }
 
@@ -364,7 +364,7 @@ class Bus implements SsCpuBus {
     }
 
     if (addr < 0x5e00000) {
-      if (mask == 0xffff) vdp1.writeReg(addr & 0x1f, data);
+      if (mask == 0xffff) vdp1.writeReg(addr.mask5, data);
       return;
     }
 

@@ -119,7 +119,7 @@ class PceCdrom {
 
   int read(int address) {
     if ((address & 0x18c0) == 0x18c0) {
-      return (address & 12) == 0 ? const [0, 0xaa, 0x55, 3][address & 3] : 0xff;
+      return (address & 12) == 0 ? const [0, 0xaa, 0x55, 3][address.mask2] : 0xff;
     }
     switch (address.mask4) {
       case 0:
@@ -312,7 +312,7 @@ class PceCdrom {
     _ports[3] |= 0x40;
   }
 
-  static int _bcd(int value) => (value ~/ 10 << 4) | value % 10;
+  static int _bcd(int value) => (value ~/ 10).shl4 | value % 10;
   static int _unbcd(int value) => value.shr4 * 10 + value.mask4;
   List<int> _msf(int lba) {
     final (m, s, f) = Disc.lbaToMsf(lba);
@@ -533,7 +533,7 @@ class PceCdrom {
         (nibble.bit1 ? step ~/ 2 : 0) +
         (nibble.bit2 ? step : 0);
     _sample = (_sample + (nibble.bit3 ? -delta : delta)).clamp(-2048, 2047);
-    _stepIndex = (_stepIndex + const [-1, -1, -1, -1, 2, 4, 6, 8][nibble & 7])
+    _stepIndex = (_stepIndex + const [-1, -1, -1, -1, 2, 4, 6, 8][nibble.mask3])
         .clamp(0, 48);
     _nibble ^= 1;
     if (_nibble == 0) {

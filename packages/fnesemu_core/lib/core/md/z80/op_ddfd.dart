@@ -23,7 +23,7 @@ extension OpDdFd on Z80 {
           return true;
         case 0x22: // ld (nn), ix
           final addr = pc16();
-          write(addr, r.ixiy[xy] & 0xff);
+          write(addr, r.ixiy[xy].mask8);
           write(addr + 1, r.ixiy[xy].shr8);
           cycles += 6;
           return true;
@@ -33,17 +33,17 @@ extension OpDdFd on Z80 {
           cycles += 6;
           return true;
         case 0x23: // inc ix
-          r.ixiy[xy] = (r.ixiy[xy] + 1) & 0xffff;
+          r.ixiy[xy] = (r.ixiy[xy] + 1).mask16;
           cycles += 2;
           return true;
         case 0x2b: // dec ix
-          r.ixiy[xy] = (r.ixiy[xy] - 1) & 0xffff;
+          r.ixiy[xy] = (r.ixiy[xy] - 1).mask16;
           cycles += 2;
           return true;
         default:
           final reg = (op & 0x38).shr3;
           final rel = reg == 0x06 ? rel8() : 0;
-          switch (op & 0x07) {
+          switch (op.mask3) {
             case 0x04: // inc r
               writeRegXY(reg, xy, rel, inc8(readRegXY(reg, xy, rel)));
               if (reg == 0x06) cycles += 6;
@@ -68,7 +68,7 @@ extension OpDdFd on Z80 {
         return true;
       }
 
-      final src = op & 0x07;
+      final src = op.mask3;
       final dst = (op & 0x38).shr3;
       int rel = 0;
       if (src == 0x06 || dst == 0x06) {
@@ -86,7 +86,7 @@ extension OpDdFd on Z80 {
 
     if (op < 0xc0) {
       // alu r
-      final reg = op & 0x07;
+      final reg = op.mask3;
       int rel = 0;
       if (reg == 0x06) {
         cycles += 5;
@@ -129,12 +129,12 @@ extension OpDdFd on Z80 {
         return true;
       case 0xe3: // ex (sp), ix
         final tmp = read(r.sp);
-        write(r.sp, r.ixiy[xy] & 0xff);
+        write(r.sp, r.ixiy[xy].mask8);
         r.ixiy[xy] = (r.ixiy[xy] & 0xff00) | tmp;
         final sp2 = r.sp + 1;
         final tmp2 = read(sp2);
         write(sp2, r.ixiy[xy].shr8);
-        r.ixiy[xy] = (r.ixiy[xy] & 0x00ff) | tmp2.shl8;
+        r.ixiy[xy] = r.ixiy[xy].mask8 | tmp2.shl8;
         cycles += 15;
         return true;
       case 0xe5: // push ix
@@ -151,8 +151,8 @@ extension OpDdFd on Z80 {
       case 0xcb: // dd cb
         final addr = r.ixiy[xy] + rel8();
         final op2 = next();
-        r.r = (r.r - 1) & 0x7f | r.r & 0x80;
-        final dst = op2 & 0x07;
+        r.r = (r.r - 1).mask7 | r.r & 0x80;
+        final dst = op2.mask3;
         final org = read(addr);
 
         switch (op2 & 0xc0) {
@@ -174,7 +174,7 @@ extension OpDdFd on Z80 {
             return true;
 
           case 0x40:
-            final bit = op2.shr3 & 0x07;
+            final bit = op2.shr3.mask3;
             final val = org & (1 << bit);
             r.setSZ(val);
             r.hf = true;
@@ -184,14 +184,14 @@ extension OpDdFd on Z80 {
             return true;
 
           case 0x80:
-            final val = org & ~(1 << (op2.shr3 & 0x07));
+            final val = org & ~(1 << op2.shr3.mask3);
             write(addr, val);
             if (dst != 0x06) writeReg(dst, val);
             cycles += 8;
             return true;
 
           case 0xc0:
-            final val = org | (1 << (op2.shr3 & 0x07));
+            final val = org | (1 << op2.shr3.mask3);
             write(addr, val);
             if (dst != 0x06) writeReg(dst, val);
             cycles += 8;

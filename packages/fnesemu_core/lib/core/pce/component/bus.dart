@@ -54,7 +54,7 @@ class Bus {
 
   int read(int addr) {
     final bank = addr.shr13;
-    final offset = addr & 0x1fff;
+    final offset = addr.mask13;
 
     // fast paths: hucard rom (below the cd ram banks) and work ram
     if (bank < 0x68) {
@@ -75,7 +75,7 @@ class Bus {
     }
 
     if (0x80 <= bank && bank <= 0x87) {
-      return ram[(bank & 0x07) + 4][offset];
+      return ram[bank.mask3 + 4][offset];
     }
 
     if (0xf8 <= bank && bank <= 0xfb) {
@@ -100,7 +100,7 @@ class Bus {
 
       // VCE
       if (offset < 0x0800) {
-        return switch (offset & 0x07) {
+        return switch (offset.mask3) {
           0x04 => vdc.readColorTableLsb(),
           0x05 => vdc.readColorTableMsb(),
           int() => 0xff,
@@ -114,7 +114,7 @@ class Bus {
 
       // Timer
       if (offset < 0x1000) {
-        return timer.counter & 0x7f;
+        return timer.counter.mask7;
       }
 
       if (offset < 0x1400) {
@@ -123,7 +123,7 @@ class Bus {
 
       // PIC
       if (offset < 0x1800) {
-        return switch (offset & 0x03) {
+        return switch (offset.mask2) {
           0x02 => pic.mask,
           0x03 => pic.hold,
           int() => 0,
@@ -139,7 +139,7 @@ class Bus {
 
   void write(int addr, int data) {
     final bank = addr.shr13;
-    final offset = addr & 0x1fff;
+    final offset = addr.mask13;
 
     data &= 0xff;
     if (cdrom.enabled && bank >= 0x68 && bank <= 0x7f) {
@@ -203,7 +203,7 @@ class Bus {
 
       // VCE
       if (offset < 0x0800) {
-        switch (offset & 0x07) {
+        switch (offset.mask3) {
           case 0x00:
             return;
           case 0x02:
@@ -224,15 +224,15 @@ class Bus {
 
       // PSG
       if (offset < 0x0c00) {
-        psg.write(offset & 0x0f, data);
+        psg.write(offset.mask4, data);
         return;
       }
 
       // Timer
       if (offset < 0x1000) {
-        switch (offset & 0x01) {
+        switch (offset.mask1) {
           case 0x00:
-            timer.size = data & 0x7f;
+            timer.size = data.mask7;
             return;
           case 0x01:
             timer.trigger(data.bit0);
@@ -243,15 +243,15 @@ class Bus {
 
       // I/O
       if (offset < 0x1400) {
-        joypad.port = data & 0x03;
+        joypad.port = data.mask2;
         return;
       }
 
       // PIC
       if (offset < 0x1800) {
-        switch (offset & 0x03) {
+        switch (offset.mask2) {
           case 0x02:
-            pic.mask = data & 0x07;
+            pic.mask = data.mask3;
             return;
           case 0x03:
             pic.acknoledgeTirq();
@@ -262,7 +262,7 @@ class Bus {
     }
 
     if (0x80 <= bank && bank <= 0x87) {
-      ram[(bank & 0x07) + 4][offset] = data;
+      ram[bank.mask3 + 4][offset] = data;
       return;
     }
 

@@ -1,8 +1,10 @@
 /// Formats register values without encoding any CPU-specific register names.
+import '../util/int.dart';
+
 String registerRows(Iterable<(String, int)> registers,
     {int bits = 32, int perLine = 8}) {
   String hex(int value) => bits == 64
-      ? '${(value >>> 32 & 0xffffffff).toRadixString(16).padLeft(8, "0")}${(value & 0xffffffff).toRadixString(16).padLeft(8, "0")}'
+      ? '${(value >>> 32).mask32.toRadixString(16).padLeft(8, "0")}${value.mask32.toRadixString(16).padLeft(8, "0")}'
       : (value & ((1 << bits) - 1))
           .toRadixString(16)
           .padLeft((bits + 3) ~/ 4, '0');

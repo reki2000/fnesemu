@@ -129,32 +129,32 @@ class MapperMmc5 extends Mapper {
         if (slot < 2) {
           final r = _prgReg[2];
           return r.bit7
-              ? ((r & 0x7e) + (slot & 1), false)
-              : ((r & 0x06) + (slot & 1), true);
+              ? ((r & 0x7e) + slot.mask1, false)
+              : ((r & 0x06) + slot.mask1, true);
         }
-        return ((_prgReg[4] & 0x7e) + (slot & 1), false);
+        return ((_prgReg[4] & 0x7e) + slot.mask1, false);
       case 2:
         if (slot < 2) {
           final r = _prgReg[2];
           return r.bit7
-              ? ((r & 0x7e) + (slot & 1), false)
-              : ((r & 0x06) + (slot & 1), true);
+              ? ((r & 0x7e) + slot.mask1, false)
+              : ((r & 0x06) + slot.mask1, true);
         }
         if (slot == 2) {
           final r = _prgReg[3];
-          return r.bit7 ? (r & 0x7f, false) : (r & 0x07, true);
+          return r.bit7 ? (r.mask7, false) : (r.mask3, true);
         }
-        return (_prgReg[4] & 0x7f, false);
+        return (_prgReg[4].mask7, false);
       default:
         final r = _prgReg[slot + 1];
         if (slot == 3) {
-          return (r & 0x7f, false);
+          return (r.mask7, false);
         }
-        return r.bit7 ? (r & 0x7f, false) : (r & 0x07, true);
+        return r.bit7 ? (r.mask7, false) : (r.mask3, true);
     }
   }
 
-  int _ramAddr(int bank, int addr) => (bank & 0x07) * 0x2000 + (addr & 0x1fff);
+  int _ramAddr(int bank, int addr) => bank.mask3 * 0x2000 + addr.mask13;
 
   @override
   int read(int addr) {
@@ -163,7 +163,7 @@ class MapperMmc5 extends Mapper {
       if (isRam) {
         return readSram(_ramAddr(bank, addr));
       }
-      return prgRoms[bank % prgRoms.length][addr & 0x1fff];
+      return prgRoms[bank % prgRoms.length][addr.mask13];
     }
 
     if (addr >= 0x6000) {
@@ -172,7 +172,7 @@ class MapperMmc5 extends Mapper {
 
     if (addr >= 0x5c00) {
       // exram: readable only in the mode 2 (ram) and 3 (read only ram)
-      return _exMode >= 2 ? _exram[addr & 0x3ff] : 0xff;
+      return _exMode >= 2 ? _exram[addr.mask10] : 0xff;
     }
 
     switch (addr) {
@@ -186,9 +186,9 @@ class MapperMmc5 extends Mapper {
         holdIrq(false);
         return v;
       case 0x5205:
-        return (_mulA * _mulB) & 0xff;
+        return (_mulA * _mulB).mask8;
       case 0x5206:
-        return ((_mulA * _mulB) >> 8) & 0xff;
+        return (_mulA * _mulB).shr8.mask8;
     }
     return 0xff;
   }
@@ -215,9 +215,9 @@ class MapperMmc5 extends Mapper {
         case 0:
         case 1:
           // used as a nametable: written only while the ppu is rendering
-          _exram[addr & 0x3ff] = _inFrame ? data : 0;
+          _exram[addr.mask10] = _inFrame ? data : 0;
         case 2:
-          _exram[addr & 0x3ff] = data;
+          _exram[addr.mask10] = data;
       }
       return;
     }
@@ -229,21 +229,21 @@ class MapperMmc5 extends Mapper {
 
     switch (addr) {
       case 0x5100:
-        _prgMode = data & 3;
+        _prgMode = data.mask2;
       case 0x5101:
-        _chrMode = data & 3;
+        _chrMode = data.mask2;
       case 0x5102:
-        _ramProtect1 = data & 3;
+        _ramProtect1 = data.mask2;
       case 0x5103:
-        _ramProtect2 = data & 3;
+        _ramProtect2 = data.mask2;
       case 0x5104:
-        _exMode = data & 3;
+        _exMode = data.mask2;
       case 0x5105:
         _ntMap = data;
       case 0x5106:
         _fillTile = data;
       case 0x5107:
-        _fillColor = data & 3;
+        _fillColor = data.mask2;
       case >= 0x5113 && <= 0x5117:
         _prgReg[addr - 0x5113] = data;
       case >= 0x5120 && <= 0x5127:
@@ -253,7 +253,7 @@ class MapperMmc5 extends Mapper {
         _chrB[addr - 0x5128] = data | _chrHi.shl8;
         _lastChrIsB = true;
       case 0x5130:
-        _chrHi = data & 3;
+        _chrHi = data.mask2;
       case 0x5200:
         _splitCtl = data;
       case 0x5201:
@@ -278,23 +278,23 @@ class MapperMmc5 extends Mapper {
   int _chrBank(int slot, bool setB) {
     if (setB) {
       return switch (_chrMode) {
-        0 => _chrB[3] * 8 + (slot & 3),
-        1 => _chrB[3] * 4 + (slot & 3),
-        2 => _chrB[(slot & 2) | 1] * 2 + (slot & 1),
-        _ => _chrB[slot & 3],
+        0 => _chrB[3] * 8 + slot.mask2,
+        1 => _chrB[3] * 4 + slot.mask2,
+        2 => _chrB[(slot & 2) | 1] * 2 + slot.mask1,
+        _ => _chrB[slot.mask2],
       };
     }
     return switch (_chrMode) {
       0 => _chrA[7] * 8 + slot,
-      1 => _chrA[(slot & 4) | 3] * 4 + (slot & 3),
-      2 => _chrA[(slot & 6) | 1] * 2 + (slot & 1),
+      1 => _chrA[(slot & 4) | 3] * 4 + slot.mask2,
+      2 => _chrA[(slot & 6) | 1] * 2 + slot.mask1,
       _ => _chrA[slot],
     };
   }
 
   int _readChr(int bank1k, int addr) {
     if (chrRoms.isEmpty) return 0;
-    return chrRoms[bank1k % chrRoms.length][addr & 0x3ff];
+    return chrRoms[bank1k % chrRoms.length][addr.mask10];
   }
 
   bool get _sprite16 => ppuCtl.bit5;
@@ -302,7 +302,7 @@ class MapperMmc5 extends Mapper {
   bool get _splitEnabled => _splitCtl.bit7 && _exMode < 2;
 
   bool _inSplit(int col) {
-    final threshold = _splitCtl & 0x1f;
+    final threshold = _splitCtl.mask5;
     return _splitCtl.bit6 ? col >= threshold : col < threshold;
   }
 
@@ -318,18 +318,18 @@ class MapperMmc5 extends Mapper {
   }
 
   int _readPattern(int addr) {
-    final slot = (addr >> 10) & 7;
+    final slot = addr.shr10.mask3;
 
     if (fetchPhase == Mapper.fetchBg) {
       if (_splitTile) {
         // split area: 4k bank of $5202, the fine y follows the split scroll
-        final a = (addr & 0xff8) | (_splitY & 7);
-        return _readChr(_splitBank * 4 + ((a >> 10) & 3), a);
+        final a = (addr & 0xff8) | _splitY.mask3;
+        return _readChr(_splitBank * 4 + a.shr10.mask2, a);
       }
       if (_exMode == 1) {
         // extended attribute: the tile has its own 4k bank in the exram byte
-        final bank = (_exByte & 0x3f) | _chrHi.shl6;
-        return _readChr(bank * 4 + ((addr >> 10) & 3), addr);
+        final bank = _exByte.mask6 | _chrHi.shl6;
+        return _readChr(bank * 4 + addr.shr10.mask2, addr);
       }
       return _readChr(_chrBank(slot, _sprite16), addr);
     }
@@ -343,7 +343,7 @@ class MapperMmc5 extends Mapper {
   }
 
   int _readNametable(int addr) {
-    final offset = addr & 0x3ff;
+    final offset = addr.mask10;
     final isAttr = offset >= 0x3c0;
 
     if (fetchPhase == Mapper.fetchBg) {
@@ -364,12 +364,12 @@ class MapperMmc5 extends Mapper {
 
       if (_splitTile) {
         final row = _splitY ~/ 8;
-        final attr = _exram[0x3c0 + (row >> 2) * 8 + (_curCol >> 2)];
+        final attr = _exram[0x3c0 + row.shr2 * 8 + _curCol.shr2];
         return attr;
       }
       if (_exMode == 1) {
         // palette bits of the exram byte, replicated to the 4 quadrants
-        return (_exByte >> 6) * 0x55;
+        return _exByte.shr6 * 0x55;
       }
     }
 
@@ -378,8 +378,8 @@ class MapperMmc5 extends Mapper {
 
   // reads the nametable byte through the $5105 mapping
   int _ntByte(int addr) {
-    final offset = addr & 0x3ff;
-    final src = (_ntMap >> (((addr >> 10) & 3) * 2)) & 3;
+    final offset = addr.mask10;
+    final src = (_ntMap >> (addr.shr10.mask2 * 2)).mask2;
     switch (src) {
       case 0:
         return _ciram[offset];
@@ -398,8 +398,8 @@ class MapperMmc5 extends Mapper {
       return; // chr rom
     }
 
-    final offset = addr & 0x3ff;
-    final src = (_ntMap >> (((addr >> 10) & 3) * 2)) & 3;
+    final offset = addr.mask10;
+    final src = (_ntMap >> (addr.shr10.mask2 * 2)).mask2;
     switch (src) {
       case 0:
         _ciram[offset] = data;

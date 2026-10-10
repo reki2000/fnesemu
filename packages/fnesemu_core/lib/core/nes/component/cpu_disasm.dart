@@ -136,7 +136,7 @@ class Disasm {
     final inst = val[0];
     var set = "";
 
-    final rel = pc + 2 + ((a + 128) & 0xff) - 128;
+    final rel = pc + 2 + (a + 128).mask8 - 128;
 
     switch (val[1]) {
       case _Operand.immed:

@@ -19,13 +19,13 @@ class Rom {
   bool get banked => rom.length > 0x400000;
 
   int mapOffset(int offset) =>
-      banked ? (bank[offset >> 19] << 19) | (offset & 0x7ffff) : offset;
+      banked ? bank[offset.shr19].shl19 | (offset & 0x7ffff) : offset;
 
   // addr: $a130f0-$a130ff
   void writeBankRegister(int addr, int data) {
-    final slot = (addr & 0x0f) >> 1;
+    final slot = addr.mask4.shr1;
     if (slot > 0) {
-      bank[slot] = data & 0x3f;
+      bank[slot] = data.mask6;
     }
   }
 

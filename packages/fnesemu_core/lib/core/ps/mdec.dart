@@ -97,7 +97,7 @@ class Mdec {
         if (paramCount == 0) {
           paramCount = 0x10000;
         }
-        depth = value.shr27 & 0x3;
+        depth = value.shr27.mask2;
         blockType = blockTypeCr;
         signed = value.bit24;
         bit15Set = value.bit23;
@@ -329,7 +329,7 @@ class Decoder {
       return false;
     }
 
-    final runLength = input.shr10 & 0x3f;
+    final runLength = input.shr10.mask6;
     outputIndex += runLength + 1;
 
     if (outputIndex > 63) {
@@ -441,5 +441,5 @@ class Color {
   Color(this.r, this.g, this.b);
 
   int get c24 => b.mask8.shl16 | g.mask8.shl8 | r.mask8;
-  int get c15 => b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3 & 0x1f;
+  int get c15 => b.shl7 & 0x7c00 | g.shl2 & 0x3e0 | r.shr3.mask5;
 }

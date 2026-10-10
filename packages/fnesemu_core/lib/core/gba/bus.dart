@@ -163,14 +163,14 @@ class Bus {
   // and partial ROM reads retain the normal bus path and its side effects.
   @pragma('vm:prefer-inline')
   int fetch16(int addr) {
-    switch ((addr >> 24) & 15) {
+    switch (addr.shr24.mask4) {
       case 0:
         final a = addr & 0x0fffffff;
         if (a + 2 <= bios.length) return _biosData.getUint16(a, Endian.little);
       case 2:
         return _ewramData.getUint16(addr & 0x3ffff, Endian.little);
       case 3:
-        return _iwramData.getUint16(addr & 0x7fff, Endian.little);
+        return _iwramData.getUint16(addr.mask15, Endian.little);
       case 8 || 9 || 10 || 11 || 12:
         return cart.fetch16(addr & 0x01ffffff);
     }
@@ -179,14 +179,14 @@ class Bus {
 
   @pragma('vm:prefer-inline')
   int fetch32(int addr) {
-    switch ((addr >> 24) & 15) {
+    switch (addr.shr24.mask4) {
       case 0:
         final a = addr & 0x0fffffff;
         if (a + 4 <= bios.length) return _biosData.getUint32(a, Endian.little);
       case 2:
         return _ewramData.getUint32(addr & 0x3ffff, Endian.little);
       case 3:
-        return _iwramData.getUint32(addr & 0x7fff, Endian.little);
+        return _iwramData.getUint32(addr.mask15, Endian.little);
       case 8 || 9 || 10 || 11 || 12:
         return cart.fetch32(addr & 0x01ffffff);
     }

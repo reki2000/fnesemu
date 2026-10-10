@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import 'nrom.dart';
 
 // https://www.nesdev.org/wiki/INES_Mapper_003
@@ -15,12 +16,12 @@ class MapperCNROM extends MapperNROM {
   @override
   void write(int addr, int data) {
     if (addr & 0x8000 == 0x8000) {
-      _charBank = chrRoms[(data & 0x03) % chrRoms.length];
+      _charBank = chrRoms[data.mask2 % chrRoms.length];
     }
   }
 
   @override
   int readVram(int addr) {
-    return _charBank[addr & 0x1fff];
+    return _charBank[addr.mask13];
   }
 }

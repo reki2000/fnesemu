@@ -102,7 +102,7 @@ class Sh2OnChip {
 
   void _updatePending() {
     anyPending = ftcsr & tier & 0x8e != 0 ||
-        dvcr & 3 == 3 ||
+        dvcr.mask2 == 3 ||
         chcr[0] & 6 == 6 ||
         chcr[1] & 6 == 6 ||
         wtcsr & 0xc0 == 0x80;
@@ -119,15 +119,15 @@ class Sh2OnChip {
       }
     }
 
-    check(dvcr & 3 == 3, ipra >> 12 & 0xf, vcrdiv & 0x7f);
-    check(chcr[0] & 6 == 6, ipra >> 8 & 0xf, vcrdma[0] & 0x7f);
-    check(chcr[1] & 6 == 6, ipra >> 8 & 0xf, vcrdma[1] & 0x7f);
-    check(wtcsr & 0xc0 == 0x80, ipra >> 4 & 0xf, vcrwdt >> 8 & 0x7f);
+    check(dvcr.mask2 == 3, ipra.shr12.mask4, vcrdiv.mask7);
+    check(chcr[0] & 6 == 6, ipra.shr8.mask4, vcrdma[0].mask7);
+    check(chcr[1] & 6 == 6, ipra.shr8.mask4, vcrdma[1].mask7);
+    check(wtcsr & 0xc0 == 0x80, ipra.shr4.mask4, vcrwdt.shr8.mask7);
 
-    final frtLevel = iprb >> 8 & 0xf;
-    check(ftcsr & tier & 0x80 != 0, frtLevel, vcrc >> 8 & 0x7f);
-    check(ftcsr & tier & 0x0c != 0, frtLevel, vcrc & 0x7f);
-    check(ftcsr & tier & 0x02 != 0, frtLevel, vcrd >> 8 & 0x7f);
+    final frtLevel = iprb.shr8.mask4;
+    check((ftcsr & tier).bit7, frtLevel, vcrc.shr8.mask7);
+    check(ftcsr & tier & 0x0c != 0, frtLevel, vcrc.mask7);
+    check((ftcsr & tier).bit1, frtLevel, vcrd.shr8.mask7);
 
     return (level, vector);
   }
@@ -146,7 +146,7 @@ class Sh2OnChip {
   }
 
   void _tickTimers(int clocks) {
-    final frtDiv = _frtDivs[tcr & 3];
+    final frtDiv = _frtDivs[tcr.mask2];
     if (frtDiv != 0) {
       _frtSub += clocks;
       while (_frtSub >= frtDiv) {
@@ -156,11 +156,11 @@ class Sh2OnChip {
     }
 
     if (wtcsr.bit5) {
-      final wdtDiv = _wdtDivs[wtcsr & 7];
+      final wdtDiv = _wdtDivs[wtcsr.mask3];
       _wdtSub += clocks;
       while (_wdtSub >= wdtDiv) {
         _wdtSub -= wdtDiv;
-        wtcnt = (wtcnt + 1) & 0xff;
+        wtcnt = (wtcnt + 1).mask8;
         if (wtcnt == 0) {
           wtcsr |= 0x80; // OVF (interval timer mode)
         }
@@ -169,7 +169,7 @@ class Sh2OnChip {
   }
 
   void _frcIncrement() {
-    frc = (frc + 1) & 0xffff;
+    frc = (frc + 1).mask16;
     if (frc == 0) {
       ftcsr |= 0x02; // OVF
     }
@@ -194,13 +194,13 @@ class Sh2OnChip {
   // ---- register access ----
 
   int read8(int addr) {
-    final a = addr & 0x1ff;
+    final a = addr.mask9;
     if (a >= 0x100) {
-      return _read32(a & ~3) >> ((3 - (a & 3)) * 8) & 0xff;
+      return (_read32(a & ~3) >> ((3 - a.mask2) * 8)).mask8;
     }
     if (_is16(a)) {
       final d = _read16(a & ~1);
-      return a.bit0 ? d & 0xff : d >> 8;
+      return a.bit0 ? d.mask8 : d.shr8;
     }
     return _read8(a);
   }
@@ -208,12 +208,12 @@ class Sh2OnChip {
   int read16(int addr) {
     final a = addr & 0x1fe;
     if (a >= 0x100) {
-      return _read32(a & ~3) >> (a.bit1 ? 0 : 16) & 0xffff;
+      return (_read32(a & ~3) >> (a.bit1 ? 0 : 16)).mask16;
     }
     if (_is16(a)) {
       return _read16(a);
     }
-    return _read8(a) << 8 | _read8(a + 1);
+    return _read8(a).shl8 | _read8(a + 1);
   }
 
   int read32(int addr) {
@@ -221,7 +221,7 @@ class Sh2OnChip {
     if (a >= 0x100) {
       return _read32(a);
     }
-    return read16(a) << 16 | read16(a + 2);
+    return read16(a).shl16 | read16(a + 2);
   }
 
   void write8(int addr, int data) {
@@ -230,17 +230,17 @@ class Sh2OnChip {
   }
 
   void _write8Impl(int addr, int data) {
-    final a = addr & 0x1ff;
+    final a = addr.mask9;
     data &= 0xff;
     if (a >= 0x100) {
-      final shift = (3 - (a & 3)) * 8;
+      final shift = (3 - a.mask2) * 8;
       final old = _read32(a & ~3);
       _write32(a & ~3, old & ~(0xff << shift) | data << shift);
       return;
     }
     if (_is16(a)) {
       final old = _read16(a & ~1);
-      _write16(a & ~1, a.bit0 ? old & 0xff00 | data : old & 0xff | data << 8);
+      _write16(a & ~1, a.bit0 ? old & 0xff00 | data : old.mask8 | data.shl8);
       return;
     }
     _write8(a, data);
@@ -264,8 +264,8 @@ class Sh2OnChip {
       _write16(a, data);
       return;
     }
-    _write8(a, data >> 8);
-    _write8(a + 1, data & 0xff);
+    _write8(a, data.shr8);
+    _write8(a + 1, data.mask8);
   }
 
   void write32(int addr, int data) {
@@ -280,8 +280,8 @@ class Sh2OnChip {
       _write32(a, data);
       return;
     }
-    write16(a, data >> 16);
-    write16(a + 2, data & 0xffff);
+    write16(a, data.shr16);
+    write16(a + 2, data.mask16);
   }
 
   // 16-bit registers in the 8-bit area
@@ -297,21 +297,21 @@ class Sh2OnChip {
       case 0x11:
         return ftcsr;
       case 0x12:
-        _frtTemp = frc & 0xff;
-        return frc >> 8;
+        _frtTemp = frc.mask8;
+        return frc.shr8;
       case 0x13:
         return _frtTemp;
       case 0x14:
-        return (tocr.bit4 ? ocrb : ocra) >> 8;
+        return (tocr.bit4 ? ocrb : ocra).shr8;
       case 0x15:
-        return (tocr.bit4 ? ocrb : ocra) & 0xff;
+        return (tocr.bit4 ? ocrb : ocra).mask8;
       case 0x16:
         return tcr;
       case 0x17:
         return tocr;
       case 0x18:
-        _frtTemp = icrFrt & 0xff;
-        return icrFrt >> 8;
+        _frtTemp = icrFrt.mask8;
+        return icrFrt.shr8;
       case 0x19:
         return _frtTemp;
       case 0x71:
@@ -338,22 +338,22 @@ class Sh2OnChip {
         break;
       case 0x11:
         // flags are cleared by writing 0, CCLRA is writable
-        ftcsr = ftcsr & (d | 0x01) & 0x8e | d & 0x01;
+        ftcsr = ftcsr & (d | 0x01) & 0x8e | d.mask1;
         break;
       case 0x12:
         _frtTemp = d;
         break;
       case 0x13:
-        frc = _frtTemp << 8 | d;
+        frc = _frtTemp.shl8 | d;
         break;
       case 0x14:
         _frtTemp = d;
         break;
       case 0x15:
         if (tocr.bit4) {
-          ocrb = _frtTemp << 8 | d;
+          ocrb = _frtTemp.shl8 | d;
         } else {
-          ocra = _frtTemp << 8 | d;
+          ocra = _frtTemp.shl8 | d;
         }
         break;
       case 0x16:
@@ -363,10 +363,10 @@ class Sh2OnChip {
         tocr = d | 0xe0;
         break;
       case 0x71:
-        drcr[0] = d & 3;
+        drcr[0] = d.mask2;
         break;
       case 0x72:
-        drcr[1] = d & 3;
+        drcr[1] = d.mask2;
         break;
       case 0x92:
         ccr = d & ~0x10; // CP (cache purge) always reads 0
@@ -421,14 +421,14 @@ class Sh2OnChip {
         break;
       case 0x80:
         // WDT: 0xa5xx writes WTCSR, 0x5axx writes WTCNT
-        if (d >> 8 == 0xa5) {
+        if (d.shr8 == 0xa5) {
           wtcsr = wtcsr & (d | 0x7f) & 0x80 | d & 0x67 | 0x18;
-        } else if (d >> 8 == 0x5a) {
-          wtcnt = d & 0xff;
+        } else if (d.shr8 == 0x5a) {
+          wtcnt = d.mask8;
         }
         break;
       case 0x82:
-        if (d >> 8 == 0xa5) {
+        if (d.shr8 == 0xa5) {
           rstcsr = rstcsr & (d | 0x7f) & 0x80 | d & 0x60 | 0x1f;
         }
         break;
@@ -460,7 +460,7 @@ class Sh2OnChip {
       0x1a0 => vcrdma[0],
       0x1a8 => vcrdma[1],
       0x1b0 => dmaor,
-      0x1e0 => (master ? 0 : 0x8000) | bcr1 & 0x7fff,
+      0x1e0 => (master ? 0 : 0x8000) | bcr1.mask15,
       0x1e4 => bcr2,
       0x1e8 => wcr,
       0x1ec => mcr,
@@ -481,10 +481,10 @@ class Sh2OnChip {
           _div32(d);
           break;
         case 0x108:
-          dvcr = d & 3;
+          dvcr = d.mask2;
           break;
         case 0x10c:
-          vcrdiv = d & 0x7f;
+          vcrdiv = d.mask7;
           break;
         case 0x110 || 0x118:
           dvdnth = d;
@@ -504,7 +504,7 @@ class Sh2OnChip {
         dar[0] = d;
         break;
       case 0x188:
-        tcrDma[0] = d & 0xffffff;
+        tcrDma[0] = d.mask24;
         break;
       case 0x18c:
         chcr[0] = _chcrWrite(chcr[0], d);
@@ -517,17 +517,17 @@ class Sh2OnChip {
         dar[1] = d;
         break;
       case 0x198:
-        tcrDma[1] = d & 0xffffff;
+        tcrDma[1] = d.mask24;
         break;
       case 0x19c:
         chcr[1] = _chcrWrite(chcr[1], d);
         _dmaStart(1);
         break;
       case 0x1a0:
-        vcrdma[0] = d & 0x7f;
+        vcrdma[0] = d.mask7;
         break;
       case 0x1a8:
-        vcrdma[1] = d & 0x7f;
+        vcrdma[1] = d.mask7;
         break;
       case 0x1b0:
         // NMIF and AE are cleared by writing 0
@@ -537,31 +537,31 @@ class Sh2OnChip {
         break;
       // BSC registers are written with 0xa55a in the upper half
       case 0x1e0:
-        if (d >> 16 == 0xa55a) bcr1 = d & 0x1ff7;
+        if (d.shr16 == 0xa55a) bcr1 = d & 0x1ff7;
         break;
       case 0x1e4:
-        if (d >> 16 == 0xa55a) bcr2 = d & 0xfc;
+        if (d.shr16 == 0xa55a) bcr2 = d & 0xfc;
         break;
       case 0x1e8:
-        if (d >> 16 == 0xa55a) wcr = d & 0xffff;
+        if (d.shr16 == 0xa55a) wcr = d.mask16;
         break;
       case 0x1ec:
-        if (d >> 16 == 0xa55a) mcr = d & 0xfefc;
+        if (d.shr16 == 0xa55a) mcr = d & 0xfefc;
         break;
       case 0x1f0:
-        if (d >> 16 == 0xa55a) rtcsr = d & 0xf8;
+        if (d.shr16 == 0xa55a) rtcsr = d & 0xf8;
         break;
       case 0x1f4:
-        if (d >> 16 == 0xa55a) rtcnt = d & 0xff;
+        if (d.shr16 == 0xa55a) rtcnt = d.mask8;
         break;
       case 0x1f8:
-        if (d >> 16 == 0xa55a) rtcor = d & 0xff;
+        if (d.shr16 == 0xa55a) rtcor = d.mask8;
         break;
     }
   }
 
   // TE is cleared by writing 0
-  static int _chcrWrite(int old, int d) => d & 0xfffd & 0xffff | old & d & 2;
+  static int _chcrWrite(int old, int d) => (d & 0xfffd).mask16 | old & d & 2;
 
   // ---- DIVU ----
 
@@ -585,12 +585,12 @@ class Sh2OnChip {
       return;
     }
 
-    dvdntl = (dividend ~/ divisor) & 0xffffffff;
-    dvdnth = dividend.remainder(divisor) & 0xffffffff;
+    dvdntl = (dividend ~/ divisor).mask32;
+    dvdnth = dividend.remainder(divisor).mask32;
   }
 
   void _div64(int low) {
-    final dividend = (dvdnth.rel32 << 32) | (low & 0xffffffff);
+    final dividend = (dvdnth.rel32 << 32) | low.mask32;
     final divisor = dvsr.rel32;
 
     if (divisor == 0) {
@@ -604,8 +604,8 @@ class Sh2OnChip {
       return;
     }
 
-    dvdntl = q & 0xffffffff;
-    dvdnth = (divisor == -1 ? 0 : dividend.remainder(divisor)) & 0xffffffff;
+    dvdntl = q.mask32;
+    dvdnth = (divisor == -1 ? 0 : dividend.remainder(divisor)).mask32;
   }
 
   // ---- DMAC ----
@@ -614,20 +614,20 @@ class Sh2OnChip {
 
   void _dmaStart(int ch) {
     final c = chcr[ch];
-    if (c & 3 != 1 || dmaor & 7 != 1) {
+    if (c.mask2 != 1 || dmaor.mask3 != 1) {
       return; // not enabled, already ended, or DMAC stopped
     }
     if (!c.bit9) {
       return; // only auto request is supported
     }
 
-    final ts = (c >> 10) & 3;
+    final ts = c.shr10.mask2;
     final unit = _unitSizes[ts];
     int count = tcrDma[ch] == 0 ? 0x1000000 : tcrDma[ch];
 
     int srcStep(int mode) => switch (mode) { 1 => unit, 2 => -unit, _ => 0 };
-    final ss = srcStep((c >> 12) & 3);
-    final ds = srcStep((c >> 14) & 3);
+    final ss = srcStep(c.shr12.mask2);
+    final ds = srcStep(c.shr14.mask2);
 
     int src = sar[ch];
     int dst = dar[ch];
@@ -653,8 +653,8 @@ class Sh2OnChip {
           count -= 4;
           break;
       }
-      src = (src + ss) & 0xffffffff;
-      dst = (dst + ds) & 0xffffffff;
+      src = (src + ss).mask32;
+      dst = (dst + ds).mask32;
     }
 
     sar[ch] = src;
@@ -668,11 +668,11 @@ class Sh2OnChip {
   /// the channel is not waiting for a request
   bool dreqTransfer(int ch) {
     final c = chcr[ch];
-    if (c & 3 != 1 || dmaor & 7 != 1 || c.bit9) {
+    if (c.mask2 != 1 || dmaor.mask3 != 1 || c.bit9) {
       return false; // disabled / ended / DMAC stopped / auto request
     }
 
-    final ts = (c >> 10) & 3;
+    final ts = c.shr10.mask2;
     final unit = _unitSizes[ts];
     int step(int mode) => switch (mode) { 1 => unit, 2 => -unit, _ => 0 };
 
@@ -688,9 +688,9 @@ class Sh2OnChip {
           bus.write32(dar[ch] + i, bus.read32(sar[ch] + i));
         }
     }
-    sar[ch] = (sar[ch] + step((c >> 12) & 3)) & 0xffffffff;
-    dar[ch] = (dar[ch] + step((c >> 14) & 3)) & 0xffffffff;
-    tcrDma[ch] = (tcrDma[ch] - (ts == 3 ? 4 : 1)) & 0xffffff;
+    sar[ch] = (sar[ch] + step(c.shr12.mask2)).mask32;
+    dar[ch] = (dar[ch] + step(c.shr14.mask2)).mask32;
+    tcrDma[ch] = (tcrDma[ch] - (ts == 3 ? 4 : 1)).mask24;
     if (tcrDma[ch] == 0) {
       chcr[ch] |= 2; // TE
     }

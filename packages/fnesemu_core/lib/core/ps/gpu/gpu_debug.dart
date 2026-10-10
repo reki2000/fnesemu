@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import '../../types.dart';
 import 'gpu.dart';
 
@@ -9,7 +10,7 @@ extension GpuDebugger on Gpu {
     for (var y = 0; y < 512; y++) {
       for (var x = 0; x < 1024; x++) {
         final index = y * 1024 + x;
-        buf[index] = GpuRenderer.c15ToAbgr32[frameBuffer16[index] & 0x7fff];
+        buf[index] = GpuRenderer.c15ToAbgr32[frameBuffer16[index].mask15];
       }
     }
     final bg =

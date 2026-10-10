@@ -3,7 +3,7 @@ import '../../util/int.dart';
 
 class Vr4300Disasm {
   static String _hex(int value) =>
-      '0x${(value & 0xffffffff).toRadixString(16).padLeft(8, '0')}';
+      '0x${value.mask32.toRadixString(16).padLeft(8, '0')}';
   static const _cp0 = [
     'index',
     'random',
@@ -39,9 +39,9 @@ class Vr4300Disasm {
     'reserved31'
   ];
   static String disasm(int word, int pc) {
-    final op = word >>> 26, rs = word >>> 21 & 31, rt = word >>> 16 & 31;
-    final rd = word >>> 11 & 31, sa = word >>> 6 & 31, fn = word & 63;
-    final immediate = word & 0xffff, signed = immediate.rel16;
+    final op = word >>> 26, rs = (word >>> 21).mask5, rt = (word >>> 16).mask5;
+    final rd = (word >>> 11).mask5, sa = (word >>> 6).mask5, fn = word.mask6;
+    final immediate = word.mask16, signed = immediate.rel16;
     final branch = _hex(pc + 4 + signed * 4);
     String memory(String name, {bool floating = false}) =>
         '$name ${floating ? "f" : "r"}$rt, $signed(r$rs)';
@@ -115,7 +115,7 @@ class Vr4300Disasm {
         54: 'tne'
       };
       if (traps.containsKey(fn)) {
-        return '${traps[fn]} r$rs, r$rt, ${word >>> 6 & 0x3ff}';
+        return '${traps[fn]} r$rs, r$rt, ${(word >>> 6).mask10}';
       }
     } else if (op == 1) {
       const branches = {
@@ -139,7 +139,7 @@ class Vr4300Disasm {
       };
       if (traps.containsKey(rt)) return '${traps[rt]} r$rs, $signed';
     } else if (op == 2 || op == 3) {
-      return '${op == 2 ? "j" : "jal"} ${_hex((pc + 4) & 0xf0000000 | (word & 0x3ffffff) << 2)}';
+      return '${op == 2 ? "j" : "jal"} ${_hex((pc + 4) & 0xf0000000 | word.mask26.shl2)}';
     } else if ([4, 5, 20, 21].contains(op)) {
       const branches = {4: 'beq', 5: 'bne', 20: 'beql', 21: 'bnel'};
       return '${branches[op]} r$rs, r$rt, $branch';

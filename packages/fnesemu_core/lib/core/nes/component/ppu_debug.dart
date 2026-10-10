@@ -26,7 +26,7 @@ extension PpuDebugger on Ppu {
               : (addr + i) == target + 1
                   ? "]"
                   : " ") +
-          objRam[(addr + i) & 0xff].x2;
+          objRam[(addr + i).mask8].x2;
     }
     return "$str\n";
   }

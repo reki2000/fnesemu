@@ -73,9 +73,9 @@ class MapperVrc6 extends Mapper {
     if (addr == 0xb003) {
       _ramEnabled = data.bit7;
 
-      _setMirror((data & 0x0f).shr2);
+      _setMirror(data.mask4.shr2);
 
-      _chrMode = data & 0x03;
+      _chrMode = data.mask2;
       _chrA10 = data.bit5;
       _updateChrBank();
 
@@ -86,7 +86,7 @@ class MapperVrc6 extends Mapper {
       case 0x6000:
       case 0x7000:
         if (_ramEnabled) {
-          writeSram(addr & 0x1fff, data);
+          writeSram(addr.mask13, data);
         }
         return;
 
@@ -135,10 +135,10 @@ class MapperVrc6 extends Mapper {
     for (int i = 0; i < 8; i++) {
       final bank = switch (_chrMode) {
         0 => _ppuReg[i], // 1k x 8
-        1 => _chr2k(_ppuReg[i.shr1], i & 1), // 2k x 4
+        1 => _chr2k(_ppuReg[i.shr1], i.mask1), // 2k x 4
         _ => i < 4 // 1k x 4 + 2k x 2
             ? _ppuReg[i]
-            : _chr2k(_ppuReg[4 + (i - 4).shr1], i & 1),
+            : _chr2k(_ppuReg[4 + (i - 4).shr1], i.mask1),
       };
       _chrBank[i] = bank & _chrBankMask;
     }
@@ -146,13 +146,13 @@ class MapperVrc6 extends Mapper {
 
   // overriden in subclasses, which calls writeReg with mapped `reg`
   int addrToReg(int addr) {
-    return addr & 0x03;
+    return addr.mask2;
   }
 
   @override
   int read(int addr) {
-    final bank = addr.shr13 & 0x03;
-    final offset = addr & 0x1fff;
+    final bank = addr.shr13.mask2;
+    final offset = addr.mask13;
 
     if ((addr & 0xe000) == 0x6000) {
       return _ramEnabled ? readSram(offset) : 0xff;
@@ -166,7 +166,7 @@ class MapperVrc6 extends Mapper {
   @override
   int readVram(int addr) {
     final bank = addr.shr10; // 1 1100 0000 0000
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
     return chrRoms[_chrBank[bank]][offset];
   }
@@ -179,7 +179,7 @@ class MapperVrc6 extends Mapper {
   ];
 
   void _setMirror(int data) {
-    mirror(_mirrors[data & 0x03]);
+    mirror(_mirrors[data.mask2]);
   }
 
   void _setIrqLatchLow(int data) {
@@ -255,6 +255,6 @@ class MapperVrc6b extends MapperVrc6 {
   // VRC6b +0x00, +0x02, +0x01, +0x03
   @override
   int addrToReg(int addr) {
-    return (addr & 1).shl1 | (addr & 2).shr1;
+    return addr.mask1.shl1 | (addr & 2).shr1;
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
 import '../../disc.dart';
@@ -30,8 +31,8 @@ class MdCdrom {
   int _irqMask = 0;
   int hintVector = 0xffff;
   bool get running => _resetReleased && !_busRequested;
-  bool get oneMegabit => (_memoryMode & 4) != 0;
-  bool get mainOwnsWordRam => (_memoryMode & 1) != 0;
+  bool get oneMegabit => _memoryMode.bit2;
+  bool get mainOwnsWordRam => _memoryMode.bit0;
 
   MdCdrom(Uint8List body) {
     if (body.length != bios.length) {
@@ -112,38 +113,38 @@ class MdCdrom {
   int readMain8(int address) {
     address &= 0xffffff;
     if (address < 0x20000) {
-      if (address == 0x72) return hintVector >> 8;
-      if (address == 0x73) return hintVector & 0xff;
+      if (address == 0x72) return hintVector.shr8;
+      if (address == 0x73) return hintVector.mask8;
       return bios[address];
     }
     if (address < 0x40000) {
       return _busRequested || !_resetReleased
-          ? programRam[(_bank << 17) | (address & 0x1ffff)]
+          ? programRam[_bank.shl17 | (address & 0x1ffff)]
           : 0xff;
     }
     if (address >= 0x200000 && address < 0x240000) {
       final offset = _wordOffset(true, address - 0x200000);
       return offset == null ? 0xff : wordRam[offset];
     }
-    return _readRegister(address & 0xff, true);
+    return _readRegister(address.mask8, true);
   }
 
   int readMain16(int address) {
     if ((address & 0xfffffe) == 0xa12008) return cdc.readHost(2);
-    return (readMain8(address) << 8) | readMain8(address + 1);
+    return readMain8(address).shl8 | readMain8(address + 1);
   }
 
   void writeMain8(int address, int data) {
     data &= 0xff;
     if (address >= 0x20000 && address < 0x40000) {
       if (_busRequested || !_resetReleased) {
-        programRam[(_bank << 17) | (address & 0x1ffff)] = data;
+        programRam[_bank.shl17 | (address & 0x1ffff)] = data;
       }
     } else if (address >= 0x200000 && address < 0x240000) {
       final offset = _wordOffset(true, address - 0x200000);
       if (offset != null) wordRam[offset] = data;
     } else if (address >= 0xa12000 && address < 0xa12100) {
-      _writeRegister(address & 0xff, data, true);
+      _writeRegister(address.mask8, data, true);
     }
   }
 
@@ -164,14 +165,14 @@ class MdCdrom {
         _ => (0x1e000, 4),
       };
       final local = cellOffset - base;
-      final cell = local >> 5;
-      final x = (cell ~/ verticalCells) * 4 + (local & 3);
-      final y = (cell % verticalCells) * 8 + ((local >> 2) & 7);
+      final cell = local.shr5;
+      final x = (cell ~/ verticalCells) * 4 + local.mask2;
+      final y = (cell % verticalCells) * 8 + local.shr2.mask3;
       offset = base + y * 256 + x;
     }
     // 1M banks are interleaved at word granularity in physical 2M RAM.
-    final bank = (main ? _memoryMode : ~_memoryMode) & 1;
-    return ((offset & 0x1fffe) << 1) | (bank << 1) | (offset & 1);
+    final bank = (main ? _memoryMode : ~_memoryMode).mask1;
+    return (offset & 0x1fffe).shl1 | bank.shl1 | offset.mask1;
   }
 
   int readSub8(int address) {
@@ -180,28 +181,28 @@ class MdCdrom {
     if (address >= 0x80000 && address < 0xe0000) {
       if (oneMegabit && address < 0xc0000) {
         final pixel = address - 0x80000;
-        final offset = _wordOffset(false, pixel >> 1)!;
-        return (wordRam[offset] >> (pixel.isEven ? 4 : 0)) & 15;
+        final offset = _wordOffset(false, pixel.shr1)!;
+        return (wordRam[offset] >> (pixel.isEven ? 4 : 0)).mask4;
       }
       final offset =
           _wordOffset(false, address - (oneMegabit ? 0xc0000 : 0x80000));
       return offset == null ? 0xff : wordRam[offset];
     }
     if (address >= 0xfe0000 && address < 0xfe4000) {
-      return address.isOdd ? backupRam[(address & 0x3fff) >> 1] : 0xff;
+      return address.isOdd ? backupRam[address.mask14.shr1] : 0xff;
     }
     if (address >= 0xff0000 && address < 0xff4000) {
       return address.isOdd ? pcm.read(address) : 0xff;
     }
     if (address >= 0xff8000 && address < 0xff8100) {
-      return _readRegister(address & 0xff, false);
+      return _readRegister(address.mask8, false);
     }
     return 0xff;
   }
 
   int readSub16(int address) {
     if ((address & 0xfffffe) == 0xff8008) return cdc.readHost(3);
-    return (readSub8(address) << 8) | readSub8(address + 1);
+    return readSub8(address).shl8 | readSub8(address + 1);
   }
 
   void writeSub8(int address, int data) {
@@ -212,26 +213,26 @@ class MdCdrom {
     } else if (address >= 0x80000 && address < 0xe0000) {
       if (oneMegabit && address < 0xc0000) {
         final pixel = address - 0x80000;
-        final offset = _wordOffset(false, pixel >> 1)!;
+        final offset = _wordOffset(false, pixel.shr1)!;
         final shift = pixel.isEven ? 4 : 0;
-        final old = (wordRam[offset] >> shift) & 15;
-        final mode = (_memoryMode >> 3) & 3;
-        if ((mode == 1 && old != 0) || (mode == 2 && (data & 15) == 0)) return;
+        final old = (wordRam[offset] >> shift).mask4;
+        final mode = _memoryMode.shr3.mask2;
+        if ((mode == 1 && old != 0) || (mode == 2 && data.mask4 == 0)) return;
         wordRam[offset] =
-            (wordRam[offset] & ~(15 << shift)) | ((data & 15) << shift);
+            (wordRam[offset] & ~(15 << shift)) | (data.mask4 << shift);
       } else {
         final offset =
             _wordOffset(false, address - (oneMegabit ? 0xc0000 : 0x80000));
         if (offset != null) wordRam[offset] = data;
       }
     } else if (address >= 0xfe0000 && address < 0xfe4000 && address.isOdd) {
-      final offset = (address & 0x3fff) >> 1;
+      final offset = address.mask14.shr1;
       backupRam[offset] = data;
       _sram?.write8(offset, data);
     } else if (address >= 0xff0000 && address < 0xff4000 && address.isOdd) {
       pcm.write(address, data);
     } else if (address >= 0xff8000 && address < 0xff8100) {
-      _writeRegister(address & 0xff, data, false);
+      _writeRegister(address.mask8, data, false);
     }
   }
 
@@ -241,13 +242,13 @@ class MdCdrom {
       case 0x58:
         return graphics.busy ? 0x80 : 0;
       case 0:
-        return main ? ((_irqMask & 4) != 0 ? 0x80 : 0) : 3;
+        return main ? (_irqMask.bit2 ? 0x80 : 0) : 3;
       case 1:
         return main ? (_resetReleased ? 1 : 0) | (_busRequested ? 2 : 0) : 1;
       case 2:
         return _writeProtect;
       case 3:
-        return _memoryMode | (main ? _bank << 6 : 0);
+        return _memoryMode | (main ? _bank.shl6 : 0);
       case 4:
         return cdc.destination |
             (cdc.dataReady ? 0x40 : 0) |
@@ -255,17 +256,17 @@ class MdCdrom {
       case 5:
         return main ? 0 : cdc.register;
       case 6:
-        return main ? hintVector >> 8 : 0;
+        return main ? hintVector.shr8 : 0;
       case 7:
-        return main ? hintVector & 0xff : cdc.readRegister();
+        return main ? hintVector.mask8 : cdc.readRegister();
       case 0xa:
-        return main ? 0 : cdc.dmaAddress >> 8;
+        return main ? 0 : cdc.dmaAddress.shr8;
       case 0xb:
-        return main ? 0 : cdc.dmaAddress & 0xff;
+        return main ? 0 : cdc.dmaAddress.mask8;
       case 0xc:
-        return (((_cycles - _stopwatchBase) ~/ 384) & 0xfff) >> 8;
+        return ((_cycles - _stopwatchBase) ~/ 384).mask12.shr8;
       case 0xd:
-        return ((_cycles - _stopwatchBase) ~/ 384) & 0xff;
+        return ((_cycles - _stopwatchBase) ~/ 384).mask8;
       case 0x32:
         return 0;
       case 0x33:
@@ -277,16 +278,16 @@ class MdCdrom {
     }
     if (offset >= 0x38 && offset <= 0x41) return drive.response[offset - 0x38];
     if (offset >= 0x50 && offset <= 0x57) {
-      final bits = (registers[0x4e] << 8) | registers[0x4f];
+      final bits = registers[0x4e].shl8 | registers[0x4f];
       int word = 0;
-      final row = (offset - 0x50) >> 1;
+      final row = (offset - 0x50).shr1;
       for (int i = 0; i < 4; i++) {
-        final color = ((bits >> (15 - row * 4 - i)) & 1) != 0
-            ? registers[0x4d] >> 4
-            : registers[0x4d] & 15;
-        word = (word << 4) | color;
+        final color = (bits >> (15 - row * 4 - i)).bit0
+            ? registers[0x4d].shr4
+            : registers[0x4d].mask4;
+        word = word.shl4 | color;
       }
-      return offset.isEven ? word >> 8 : word & 0xff;
+      return offset.isEven ? word.shr8 : word.mask8;
     }
     return registers[offset];
   }
@@ -295,25 +296,25 @@ class MdCdrom {
     if (main) {
       switch (offset) {
         case 0:
-          if ((data & 1) != 0) interrupt(2);
+          if (data.bit0) interrupt(2);
         case 1:
-          final release = (data & 1) != 0;
+          final release = data.bit0;
           if (release && !_resetReleased) {
             cpu.reset();
             cpu.clocks = _cycles;
           }
           _resetReleased = release;
-          _busRequested = (data & 2) != 0;
+          _busRequested = data.bit1;
         case 2:
           _writeProtect = data;
         case 3:
-          _bank = data >> 6;
-          if (!oneMegabit && (data & 2) != 0) {
+          _bank = data.shr6;
+          if (!oneMegabit && data.bit1) {
             _memoryMode = (_memoryMode & ~1) | 2;
           }
-          if (oneMegabit && (data & 2) == 0) _memoryMode |= 2;
+          if (oneMegabit && !data.bit1) _memoryMode |= 2;
         case 6:
-          hintVector = (hintVector & 0xff) | (data << 8);
+          hintVector = hintVector.mask8 | data.shl8;
         case 7:
           hintVector = (hintVector & 0xff00) | data;
         case 0xe:
@@ -325,29 +326,29 @@ class MdCdrom {
     }
     switch (offset) {
       case 0:
-        registers[offset] = data & 3;
+        registers[offset] = data.mask2;
       case 1:
-        if ((data & 1) == 0) {
+        if (!data.bit0) {
           cdc.reset();
           pcm.reset();
           drive.reset();
         }
       case 3:
         final previous = _memoryMode;
-        _memoryMode = (previous & 3) | (data & 0x1c);
+        _memoryMode = previous.mask2 | (data & 0x1c);
         if (oneMegabit) {
-          _memoryMode = (_memoryMode & ~3) | (data & 1);
-        } else if ((data & 1) != 0) {
+          _memoryMode = (_memoryMode & ~3) | data.mask1;
+        } else if (data.bit0) {
           _memoryMode = (_memoryMode & ~2) | 1;
         }
       case 4:
-        cdc.destination = data & 7;
+        cdc.destination = data.mask3;
       case 5:
-        cdc.register = data & 15;
+        cdc.register = data.mask4;
       case 7:
         cdc.writeRegister(data);
       case 0xa:
-        cdc.dmaAddress = (cdc.dmaAddress & 0xff) | (data << 8);
+        cdc.dmaAddress = cdc.dmaAddress.mask8 | data.shl8;
       case 0xb:
         cdc.dmaAddress = (cdc.dmaAddress & 0xff00) | data;
       case 0xc || 0xd:
@@ -363,17 +364,17 @@ class MdCdrom {
         _irqMask = data & 0x7e;
       case 0x34 || 0x35:
         registers[offset] = data;
-        final fade = (registers[0x34] << 8) | registers[0x35];
-        drive.volume = ((fade >> 4) & 0x7ff).clamp(0, 1024) / 1024;
+        final fade = registers[0x34].shl8 | registers[0x35];
+        drive.volume = fade.shr4.mask11.clamp(0, 1024) / 1024;
       case 0x37:
-        drive.hostClock = (data & 4) != 0;
+        drive.hostClock = data.bit2;
       case >= 0x42 && <= 0x4b:
-        drive.command[offset - 0x42] = data & 15;
+        drive.command[offset - 0x42] = data.mask4;
         if (offset == 0x4b) drive.submit();
       case >= 0x4c && <= 0x67:
         registers[offset] = data;
         if (offset == 0x67 && !oneMegabit && !mainOwnsWordRam) {
-          graphics.start((_memoryMode >> 3) & 3);
+          graphics.start(_memoryMode.shr3.mask2);
         }
     }
   }
@@ -381,7 +382,7 @@ class MdCdrom {
   void _dmaWrite(int destination, int address, int value) {
     switch (destination) {
       case 4:
-        pcm.ram[address & 0xffff] = value;
+        pcm.ram[address.mask16] = value;
       case 5:
         programRam[address & 0x7ffff] = value;
       case 7:
@@ -408,7 +409,7 @@ class CdSubBus implements M68Bus {
   void write8(int addr, int data) => cd.writeSub8(addr, data);
   @override
   void write16(int addr, int data) {
-    cd.writeSub8(addr, data >> 8);
-    cd.writeSub8(addr + 1, data & 0xff);
+    cd.writeSub8(addr, data.shr8);
+    cd.writeSub8(addr + 1, data.mask8);
   }
 }

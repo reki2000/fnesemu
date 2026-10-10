@@ -63,7 +63,7 @@ class MapperNamco163 extends Mapper {
         holdIrq(false);
         return;
       case 0x5800:
-        _irqCounter = _irqCounter.setH8(data & 0x7f);
+        _irqCounter = _irqCounter.setH8(data.mask7);
         _irqEnabled = data.bit7;
         holdIrq(false);
         return;
@@ -98,7 +98,7 @@ class MapperNamco163 extends Mapper {
         if (!_chrRamEnabled[bank.shr2]) {
           _chrBank[bank] = chrRoms.length - 0x20 + (data - 0xe0);
         } else {
-          _chrBank[bank] = chrRoms.length + (data & 1);
+          _chrBank[bank] = chrRoms.length + data.mask1;
         }
         break;
 
@@ -110,7 +110,7 @@ class MapperNamco163 extends Mapper {
         // 0xe0-0xff: ciram page A/B, otherwise a chr rom bank is the nametable
         final bank = (reg - 0x8000).shr11;
         _chrBank[bank] = data >= 0xe0
-            ? chrRoms.length + (data & 1)
+            ? chrRoms.length + data.mask1
             : data % chrRoms.length;
         break;
 
@@ -156,7 +156,7 @@ class MapperNamco163 extends Mapper {
 
     switch (reg) {
       case 0x5000:
-        return _irqCounter & 0xff;
+        return _irqCounter.mask8;
       case 0x5800:
         return _irqCounter.shr8 | (_irqEnabled ? 0x80 : 0);
 
@@ -170,7 +170,7 @@ class MapperNamco163 extends Mapper {
 
     if (addr >= 0x8000) {
       final bank = (addr - 0x8000).shr13;
-      final offset = addr & 0x1fff;
+      final offset = addr.mask13;
 
       return prgRoms[_prgBank[bank]][offset];
     }
@@ -181,7 +181,7 @@ class MapperNamco163 extends Mapper {
   @override
   int readVram(int addr) {
     final bank = addr.shr10;
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
     final ramBank = _chrBank[bank] - chrRoms.length;
     if (ramBank >= 0) {
@@ -194,7 +194,7 @@ class MapperNamco163 extends Mapper {
   @override
   void writeVram(int addr, int data) {
     final bank = addr.shr10;
-    final offset = addr & 0x03ff;
+    final offset = addr.mask10;
 
     final ramBank = _chrBank[bank] - chrRoms.length;
     if (ramBank >= 0) {

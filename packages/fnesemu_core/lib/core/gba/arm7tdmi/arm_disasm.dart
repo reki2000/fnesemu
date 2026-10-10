@@ -244,7 +244,7 @@ class Arm7Disasm {
             nextHalfword != null &&
             nextHalfword & 0xf800 == 0xf800) {
           final offset =
-              (op.rel11 << 12) + ((nextHalfword & 0x7ff) << 1);
+              op.rel11.shl12 + nextHalfword.mask11.shl1;
           return 'bl ${(pc + 4 + offset).mask32.x8}';
         }
         return '.hword 0x${op.x4}';

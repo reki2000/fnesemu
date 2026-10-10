@@ -38,7 +38,7 @@ class Vdp {
 
   bool get enableExtInt => reg[11].bit3;
   bool get vScr2Cell => reg[11].bit2;
-  int get vScrMode => reg[11] & 0x03;
+  int get vScrMode => reg[11].mask2;
 
   int status = 0x200; // 0x02xx means fifo is always empty
   static const bitVblankInt = 0x80;
@@ -228,14 +228,14 @@ class Vdp {
     // print(
     //     "vdp:ctrl=${value.x4} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
     if (value & 0xe000 == 0x8000) {
-      final regNo = value.shr8 & 0x1f;
+      final regNo = value.shr8.mask5;
       reg[regNo] = value.mask8;
 
       switch (regNo) {
         case 12:
           h32 = value & 0x81 != 0x81;
           width = h32 ? 256 : 320;
-          interlaceMode = value.shr1 & 0x03;
+          interlaceMode = value.shr1.mask2;
           break;
         case 0x17:
           if (!reg[0x17].bit7) {
@@ -263,10 +263,10 @@ class Vdp {
 
     _is1st = true;
 
-    _addr = value.shl14 & 0xc000 | _ctrl & 0x3fff;
-    final cd = value.shr2 & 0x3c | _ctrl.shr14 & 0x03;
+    _addr = value.shl14 & 0xc000 | _ctrl.mask14;
+    final cd = value.shr2 & 0x3c | _ctrl.shr14.mask2;
 
-    switch (cd & 0x0f) {
+    switch (cd.mask4) {
       case 0x00:
       case 0x01:
         ram = ramVram;
@@ -289,7 +289,7 @@ class Vdp {
     }
 
     if (enableDma && cd.bit5 && _dmaMode == _dmaModeM2V) {
-      _dmaSrc = (reg[0x15] | reg[0x16].shl8 | (reg[0x17] & 0x7f).shl16).shl1;
+      _dmaSrc = (reg[0x15] | reg[0x16].shl8 | reg[0x17].mask7.shl16).shl1;
       startDma();
       execDma(0x10000);
     } else if (enableDma && cd & 0x30 == 0x30 && _dmaMode == _dmaModeV2V) {
@@ -317,7 +317,7 @@ class Vdp {
       vram[postInc(1)] = value.mask8;
     } else if (ram == ramCram) {
       cram[postInc().shr1] =
-          value.shr3 & 0x1c0 | value.shr2 & 0x038 | value.shr1 & 0x07;
+          value.shr3 & 0x1c0 | value.shr2 & 0x038 | value.shr1.mask3;
     } else {
       vsram[postInc().shr1] = value;
     }
@@ -342,14 +342,14 @@ class Vdp {
         .map((i) => reg.sublist(i, i + 4).map((e) => e.x2).join(" "))
         .join("  ");
 
-    final bgSizeH = ["32", "64", "--", "128"][reg[16] & 0x03];
-    final bgSizeV = ["32", "64", "--", "128"][reg[16].shr4 & 0x03];
+    final bgSizeH = ["32", "64", "--", "128"][reg[16].mask2];
+    final bgSizeV = ["32", "64", "--", "128"][reg[16].shr4.mask2];
     final nameA = reg[2].shl10 & 0xe000;
     final nameB = reg[4].shl13 & 0xe000;
     final win = reg[3].shl10 & 0xf800;
     final spr = reg[5].shl9 & 0xfc00;
 
-    final hScrMode = ["f", "-", "8", "1"][reg[11] & 0x03];
+    final hScrMode = ["f", "-", "8", "1"][reg[11].mask2];
     final vScrMode = reg[11].bit2 ? "16  " : vsram[0].x4;
 
     final dma =

@@ -22,7 +22,7 @@ class DmaChannel {
 
   int get blockCtrl => size | amount.shl16;
   set blockCtrl(int value) {
-    size = value & 0xffff;
+    size = value.mask16;
     if (size == 0) {
       size = 0x10000;
     }
@@ -37,7 +37,7 @@ class DmaChannel {
     // OTC: only bit24, 28, 30 are writable, bit1 is always set
     _channelCtrl = ch == 6 ? value & 0x51000000 | 0x02 : value & 0x71770703;
 
-    syncMode = value.shr9 & 0x03;
+    syncMode = value.shr9.mask2;
     toRam = !value.bit0;
     incr = value.bit1 ? -4 : 4;
     if (ch == 6) {
@@ -128,7 +128,7 @@ class Dma {
     _active = true;
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].enabled = value.bit3;
-      channels[ch].priority = value & 0x07;
+      channels[ch].priority = value.mask3;
       value >>= 4;
       // debugLog(
       //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.x8} ra:${bus.cpu.r[31].x8}");

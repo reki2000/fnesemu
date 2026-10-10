@@ -81,7 +81,7 @@ class MapperMMC1 extends Mapper {
     // ram
     if (bank == 0x6000) {
       if (_ramEnabled) {
-        writeSram(addr & 0x1fff | _ramBank.shl13, data);
+        writeSram(addr.mask13 | _ramBank.shl13, data);
       } else {
         log("mmc1: write to disabled ram: ${addr.x4} ${data.x2}");
       }
@@ -99,7 +99,7 @@ class MapperMMC1 extends Mapper {
 
     // shift register write
     _shiftReg >>= 1;
-    _shiftReg |= (data & 0x01).shl4;
+    _shiftReg |= data.mask1.shl4;
     _counter++;
 
     // the fifth write to control
@@ -109,10 +109,10 @@ class MapperMMC1 extends Mapper {
           _chrBank4k = _shiftReg.bit4;
           _setChrBank();
 
-          _prgBankMode = _shiftReg.shr2 & 0x03;
+          _prgBankMode = _shiftReg.shr2.mask2;
           _setPrgBank();
 
-          mirror(_mirrors[_shiftReg & 0x03]);
+          mirror(_mirrors[_shiftReg.mask2]);
           break;
 
         case 0xa000:
@@ -140,7 +140,7 @@ class MapperMMC1 extends Mapper {
               break;
             case 2:
             case 3:
-              _prgBank0 = _shiftReg & 0x0f;
+              _prgBank0 = _shiftReg.mask4;
               _setPrgBank();
               break;
           }
@@ -160,7 +160,7 @@ class MapperMMC1 extends Mapper {
       return;
     }
 
-    _ramBank = val.shr2 & 0x03;
+    _ramBank = val.shr2.mask2;
 
     // 512k ROM A18 select
     _prgBank512 = val.bit4 && prgRoms.length == 32;
@@ -170,8 +170,8 @@ class MapperMMC1 extends Mapper {
   void _setChrBank() {
     if (_hasChrRam) {
       // 8k chr ram
-      _chrBank[0] = _chrBank4k ? _chrReg[0] & 0x01 : 0;
-      _chrBank[1] = _chrBank4k ? _chrReg[1] & 0x01 : 1;
+      _chrBank[0] = _chrBank4k ? _chrReg[0].mask1 : 0;
+      _chrBank[1] = _chrBank4k ? _chrReg[1].mask1 : 1;
       return;
     }
 
@@ -199,7 +199,7 @@ class MapperMMC1 extends Mapper {
         break;
       case 3:
         _prgBank[0] = _prgBank0 | a18;
-        _prgBank[1] = (prgRoms.length - 1) & 0x0f | a18;
+        _prgBank[1] = (prgRoms.length - 1).mask4 | a18;
         break;
     }
 
@@ -210,11 +210,11 @@ class MapperMMC1 extends Mapper {
   @override
   int read(int addr) {
     final bank = addr & 0xe000;
-    final offset = addr & 0x3fff;
+    final offset = addr.mask14;
 
     switch (bank) {
       case 0x6000:
-        return _ramEnabled ? readSram(addr & 0x1fff | _ramBank.shl13) : 0xff;
+        return _ramEnabled ? readSram(addr.mask13 | _ramBank.shl13) : 0xff;
 
       case 0x8000:
       case 0xa000:
@@ -231,8 +231,8 @@ class MapperMMC1 extends Mapper {
 
   @override
   int readVram(int addr) {
-    final bank = addr.shr12 & 0x1;
-    final offset = addr & 0x0fff;
+    final bank = addr.shr12.mask1;
+    final offset = addr.mask12;
     return _hasChrRam
         ? _vram4k[_chrBank[bank]][offset]
         : chrRoms[_chrBank[bank]][offset];
@@ -244,9 +244,9 @@ class MapperMMC1 extends Mapper {
       return;
     }
 
-    final bank = addr.shr12 & 0x1;
-    final offset = addr & 0x0fff;
-    _vram4k[_chrBank[bank]][offset] = data & 0xff;
+    final bank = addr.shr12.mask1;
+    final offset = addr.mask12;
+    _vram4k[_chrBank[bank]][offset] = data.mask8;
   }
 
   @override

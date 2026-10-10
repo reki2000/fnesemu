@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import 'pwm.dart';
 import 'sh2/sh2.dart';
 import 'video.dart';
@@ -25,10 +26,10 @@ class Md32x {
   int control = 0, _bank = 0, _cycles = 0, _hcount = 0;
   bool biosLoaded = false;
   String? stoppedReason;
-  bool get enabled => (control & 1) != 0;
-  bool get released => (control & 2) != 0;
-  bool get shOwnsVideo => (control & 0x8000) != 0;
-  bool get romToVram => (registers[7] & 1) != 0;
+  bool get enabled => control.bit0;
+  bool get released => control.bit1;
+  bool get shOwnsVideo => control.bit15;
+  bool get romToVram => registers[7].bit0;
 
   Md32x() {
     buses = [ExpansionBus(this, 0), ExpansionBus(this, 1)];
@@ -72,10 +73,10 @@ class Md32x {
     }
   }
 
-  int _word(int offset) => (registers[offset] << 8) | registers[offset + 1];
+  int _word(int offset) => registers[offset].shl8 | registers[offset + 1];
   void _setWord(int offset, int value) {
-    registers[offset] = (value >> 8) & 255;
-    registers[offset + 1] = value & 255;
+    registers[offset] = value.shr8.mask8;
+    registers[offset + 1] = value.mask8;
   }
 
   void _raise(int bit, {int? cpu}) {
@@ -189,14 +190,14 @@ class Md32x {
       return _romByte(address - 0x880000);
     }
     if (address >= 0x900000 && address < 0xa00000) {
-      return _romByte((_bank << 20) | (address & 0xfffff));
+      return _romByte(_bank.shl20 | (address & 0xfffff));
     }
     if (address >= 0x840000 && address < 0x880000) {
       return shOwnsVideo ? 0xff : video.readFrame8(address);
     }
     if (address < 0xa15100 || address >= 0xa15400) return 0xff;
     final word = readMain16(address & ~1);
-    return address.isEven ? word >> 8 : word & 255;
+    return address.isEven ? word.shr8 : word.mask8;
   }
 
   int readMain16(int address) {
@@ -207,10 +208,10 @@ class Md32x {
       return shOwnsVideo ? 0xffff : video.readRegister(address - 0xa15180);
     }
     if (address >= 0xa15200 && address < 0xa15400) {
-      return shOwnsVideo ? 0xffff : video.palette[(address - 0xa15200) >> 1];
+      return shOwnsVideo ? 0xffff : video.palette[(address - 0xa15200).shr1];
     }
     if (address >= 0xa15100 && address < 0xa15400) return 0xffff;
-    return (readMain8(address) << 8) | readMain8(address + 1);
+    return readMain8(address).shl8 | readMain8(address + 1);
   }
 
   void writeMain8(int address, int value) {
@@ -226,7 +227,7 @@ class Md32x {
     final wordAddress = address & ~1;
     final old = readMain16(wordAddress);
     writeMain16(wordAddress,
-        address.isEven ? (value << 8) | (old & 255) : (old & 0xff00) | value);
+        address.isEven ? value.shl8 | old.mask8 : (old & 0xff00) | value);
   }
 
   void writeMain16(int address, int value) {
@@ -240,11 +241,11 @@ class Md32x {
       return;
     }
     if (address >= 0xa15200 && address < 0xa15400) {
-      if (!shOwnsVideo) video.palette[(address - 0xa15200) >> 1] = value;
+      if (!shOwnsVideo) video.palette[(address - 0xa15200).shr1] = value;
       return;
     }
     if (address >= 0x840000 && address < 0x880000) {
-      writeMain8(address, value >> 8);
+      writeMain8(address, value.shr8);
       writeMain8(address + 1, value);
     }
   }
@@ -281,7 +282,7 @@ class Md32x {
           _updateInterrupts();
         }
       } else {
-        _masks[cpu] = value & 15;
+        _masks[cpu] = value.mask4;
         control = (control & ~0x8000) | (value & 0x8000);
         _updateInterrupts();
       }
@@ -295,7 +296,7 @@ class Md32x {
       return;
     }
     if (cpu == null && offset == 2) {
-      _setWord(2, value & 3);
+      _setWord(2, value.mask2);
       for (int i = 0; i < 2; i++) {
         if ((value & (1 << i)) != 0) _raise(1, cpu: i);
       }
@@ -303,22 +304,22 @@ class Md32x {
     }
     if (offset == 4) {
       if (cpu == null) {
-        _bank = value & 3;
+        _bank = value.mask2;
       } else {
-        _setWord(4, value & 255);
-        _hcount = value & 255;
+        _setWord(4, value.mask8);
+        _hcount = value.mask8;
       }
       return;
     }
     if (offset == 6) {
       if (cpu == null) {
-        _setWord(6, value & 7);
-        if ((value & 4) == 0) _fifo.clear();
+        _setWord(6, value.mask3);
+        if (!value.bit2) _fifo.clear();
       }
       return;
     }
     if (offset == 0x12) {
-      if (cpu == null && (registers[7] & 4) != 0 && _fifo.length < 4) {
+      if (cpu == null && registers[7].bit2 && _fifo.length < 4) {
         _fifo.addLast(value);
         _dreq();
       }
@@ -338,7 +339,7 @@ class Md32x {
 
   int readSh8(int address, int cpu) {
     if ((address & 0xfffff000) == 0xc0000000) {
-      return cacheData[cpu][address & 0xfff];
+      return cacheData[cpu][address.mask12];
     }
     address &= 0x1fffffff; // uncached alias
     final boot = cpu == 0 ? masterBoot : slaveBoot;
@@ -354,14 +355,14 @@ class Md32x {
     }
     if (address >= 0x4000 && address < 0x4400) {
       final word = readSh16(address & ~1, cpu);
-      return address.isEven ? word >> 8 : word & 255;
+      return address.isEven ? word.shr8 : word.mask8;
     }
     return 0xff;
   }
 
   int readSh16(int address, int cpu) {
     if ((address & 0xfffff000) == 0xc0000000) {
-      return (readSh8(address, cpu) << 8) | readSh8(address + 1, cpu);
+      return readSh8(address, cpu).shl8 | readSh8(address + 1, cpu);
     }
     address &= 0x1fffffff;
     if (address >= 0x4000 && address < 0x4040) {
@@ -371,15 +372,15 @@ class Md32x {
       return shOwnsVideo ? video.readRegister(address - 0x4100) : 0xffff;
     }
     if (address >= 0x4200 && address < 0x4400) {
-      return shOwnsVideo ? video.palette[(address - 0x4200) >> 1] : 0xffff;
+      return shOwnsVideo ? video.palette[(address - 0x4200).shr1] : 0xffff;
     }
     if (address >= 0x4000 && address < 0x4400) return 0xffff;
-    return (readSh8(address, cpu) << 8) | readSh8(address + 1, cpu);
+    return readSh8(address, cpu).shl8 | readSh8(address + 1, cpu);
   }
 
   void writeSh8(int address, int value, int cpu) {
     if ((address & 0xfffff000) == 0xc0000000) {
-      cacheData[cpu][address & 0xfff] = value & 255;
+      cacheData[cpu][address.mask12] = value.mask8;
       return;
     }
     address &= 0x1fffffff;
@@ -400,7 +401,7 @@ class Md32x {
       writeSh16(
           address & ~1,
           address.isEven
-              ? (value << 8) | (word & 255)
+              ? value.shl8 | word.mask8
               : (word & 0xff00) | value,
           cpu);
     }
@@ -408,7 +409,7 @@ class Md32x {
 
   void writeSh16(int address, int value, int cpu) {
     if ((address & 0xfffff000) == 0xc0000000) {
-      writeSh8(address, value >> 8, cpu);
+      writeSh8(address, value.shr8, cpu);
       writeSh8(address + 1, value, cpu);
       return;
     }
@@ -423,10 +424,10 @@ class Md32x {
       return;
     }
     if (address >= 0x4200 && address < 0x4400) {
-      if (shOwnsVideo) video.palette[(address - 0x4200) >> 1] = value;
+      if (shOwnsVideo) video.palette[(address - 0x4200).shr1] = value;
       return;
     }
-    writeSh8(address, value >> 8, cpu);
+    writeSh8(address, value.shr8, cpu);
     writeSh8(address + 1, value, cpu);
   }
 }
@@ -440,7 +441,7 @@ class ExpansionBus implements Sh2Bus {
   @override
   int read16(int address) => expansion.readSh16(address, cpu);
   @override
-  int read32(int address) => (read16(address) << 16) | read16(address + 2);
+  int read32(int address) => read16(address).shl16 | read16(address + 2);
   @override
   void write8(int address, int value) =>
       expansion.writeSh8(address, value, cpu);
@@ -449,7 +450,7 @@ class ExpansionBus implements Sh2Bus {
       expansion.writeSh16(address, value, cpu);
   @override
   void write32(int address, int value) {
-    write16(address, value >> 16);
+    write16(address, value.shr16);
     write16(address + 2, value);
   }
 }

@@ -3,7 +3,7 @@ import 'z80.dart';
 
 extension OpCb on Z80 {
   bool execCb(int op) {
-    final src = op & 0x07;
+    final src = op.mask3;
     final op38 = op & 0x38;
     int val = readReg(src);
 

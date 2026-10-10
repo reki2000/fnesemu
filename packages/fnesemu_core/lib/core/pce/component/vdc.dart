@@ -183,19 +183,19 @@ class Vdc {
   }
 
   int readLsb() {
-    return readLatch & 0xff;
+    return readLatch.mask8;
   }
 
   int readMsb() {
     final val = readLatch.shr8;
-    marr = (marr + addrInc) & 0xffff;
+    marr = (marr + addrInc).mask16;
     readLatch = vram[marr];
     return val;
   }
 
   writeReg(int val) {
     // print("writeReg: ${reg.x2}");
-    reg = val & 0x1f;
+    reg = val.mask5;
   }
 
   writeLsb(int val) {
@@ -212,13 +212,13 @@ class Vdc {
         break;
 
       case 0x05:
-        enalbeSpriteCollision = val & 0x01 != 0;
-        enableSpriteOverflow = val & 0x02 != 0;
-        enableRasterCompareIrq = val & 0x04 != 0;
-        enableVBlank = val & 0x08 != 0;
+        enalbeSpriteCollision = val.bit0;
+        enableSpriteOverflow = val.bit1;
+        enableRasterCompareIrq = val.bit2;
+        enableVBlank = val.bit3;
 
-        enableSprite = val & 0x40 != 0;
-        enableBg = val & 0x80 != 0;
+        enableSprite = val.bit6;
+        enableBg = val.bit7;
         break;
 
       case 0x06:
@@ -233,7 +233,7 @@ class Vdc {
         break;
 
       case 0x09:
-        vramDotWidth = val & 0x03;
+        vramDotWidth = val.mask2;
         bgWidthBits = switch (val & 0x30) {
           0x00 => 5,
           0x10 => 6,
@@ -252,7 +252,7 @@ class Vdc {
         bgHeightMask = (1 << bgHeightBits) - 1;
         bgScrollMaskY = (1 << (bgHeightBits + 3)) - 1;
 
-        bgTreatPlane23Zero = val & 0x80 == 0;
+        bgTreatPlane23Zero = !val.bit7;
         // print(
         //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
         break;
@@ -263,7 +263,7 @@ class Vdc {
       // Horizontal Display Register
       case 0x0b:
         final oldHSize = hSize;
-        hSize = ((val & 0x3f) + 1).shl3;
+        hSize = (val.mask6 + 1).shl3;
         if (oldHSize != hSize) indexBuffer = Uint16List(hSize * vSize);
         break;
       // Vertical Sync Register
@@ -312,7 +312,7 @@ class Vdc {
       case 0x02:
         writeLatch = writeLatch.setH8(val);
         vram[mawr] = writeLatch;
-        mawr = (mawr + addrInc) & 0xffff;
+        mawr = (mawr + addrInc).mask16;
         // if (mawr == 0x7f00 && writeLatch == 0x0060) {
         //   print(
         //       "frame:${VdcRenderer.frames} write vram: ${mawr.x4}\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
@@ -330,13 +330,13 @@ class Vdc {
         break;
 
       case 0x06:
-        rasterCompareRegister = rasterCompareRegister.setH8(val & 0x03);
+        rasterCompareRegister = rasterCompareRegister.setH8(val.mask2);
         break;
       case 0x07:
-        scrollX = scrollX.setH8(val & 0x03);
+        scrollX = scrollX.setH8(val.mask2);
         break;
       case 0x08:
-        scrollY = scrollY.setH8(val & 0x01);
+        scrollY = scrollY.setH8(val.mask1);
         bgRenderLine = scrollY & bgScrollMaskY;
         break;
 
@@ -385,12 +385,12 @@ class Vdc {
   int colorTableAddress = 0;
 
   int readColorTableLsb() {
-    return colorTable[colorTableAddress] & 0xff;
+    return colorTable[colorTableAddress].mask8;
   }
 
   int readColorTableMsb() {
     final value = colorTable[colorTableAddress].shr8 | 0xfe;
-    colorTableAddress = (colorTableAddress + 1) & 0x1ff;
+    colorTableAddress = (colorTableAddress + 1).mask9;
     return value;
   }
 
@@ -400,8 +400,8 @@ class Vdc {
 
   writeColorTableMsb(int val) {
     colorTable[colorTableAddress] =
-        colorTable[colorTableAddress].setH8(val & 1);
-    colorTableAddress = (colorTableAddress + 1) & 0x1ff;
+        colorTable[colorTableAddress].setH8(val.mask1);
+    colorTableAddress = (colorTableAddress + 1).mask9;
   }
 
   writeColorTableAddressLsb(int val) {
@@ -409,7 +409,7 @@ class Vdc {
   }
 
   writeColorTableAddressMsb(int val) {
-    colorTableAddress = colorTableAddress.setH8(val & 1);
+    colorTableAddress = colorTableAddress.setH8(val.mask1);
   }
 
   // DMA
@@ -431,7 +431,7 @@ class Vdc {
     // print("execDmaSatb : $dmaSatb ${dmaSrcSatb.x4}");
     if (dmaSatb || dmaSatbAlways) {
       for (int i = 0; i < sat.length; i++) {
-        sat[i] = vram[(dmaSrcSatb + i) & 0xffff];
+        sat[i] = vram[(dmaSrcSatb + i).mask16];
       }
 
       fetchSatb();
@@ -453,8 +453,8 @@ class Vdc {
 
     for (int i = 0; i < 1024; i++) {
       vram[dmaDst] = vram[dmaSrc];
-      dmaSrc = (dmaSrc + dmaSrcDir) & 0xffff;
-      dmaDst = (dmaDst + dmaDstDir) & 0xffff;
+      dmaSrc = (dmaSrc + dmaSrcDir).mask16;
+      dmaDst = (dmaDst + dmaDstDir).mask16;
       dmaLen--;
 
       if (dmaLen == 0) {
