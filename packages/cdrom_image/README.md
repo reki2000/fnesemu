@@ -98,3 +98,7 @@ class LocalDiscFile extends DiscFile {
 ```sh
 dart test
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

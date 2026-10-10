@@ -52,3 +52,7 @@ final file2 = await restoreFile(files.first.restoreKey!);
   browser decides whether its permission persists across visits.
 - Browsers without the directory handle API use `webkitdirectory`; access lasts
   for the current session and the directory must be selected again after a reload.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
