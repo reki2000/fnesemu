@@ -1,5 +1,6 @@
 name: cdrom_image
 description: CD-ROM disc images (.cue/.iso/.bin) on a virtual file system, in pure Dart.
+version: 0.1.0
 
 publish_to: none
 

@@ -1,5 +1,6 @@
 name: fnesemu_core
 description: The emulation cores of fnesemu, in pure Dart without Flutter.
+version: 0.1.0
 
 publish_to: none
 
