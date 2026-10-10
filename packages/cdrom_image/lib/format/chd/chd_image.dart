@@ -36,7 +36,10 @@ int _tag(String s) =>
     s.codeUnitAt(2) << 8 |
     s.codeUnitAt(3);
 
-final _cdzl = _tag('cdzl'), _cdlz = _tag('cdlz'), _cdfl = _tag('cdfl');
+final _cdzl = _tag('cdzl'),
+    _cdlz = _tag('cdlz'),
+    _cdzs = _tag('cdzs'),
+    _cdfl = _tag('cdfl');
 
 // the kinds of the map entries
 const _compressed3 = 3; // 0..3: the codec of the header
@@ -562,7 +565,7 @@ class ChdImage implements DiscImage {
       }
       return out;
     }
-    if (codec != _cdzl && codec != _cdlz) {
+    if (codec != _cdzl && codec != _cdlz && codec != _cdzs) {
       throw FormatException('chd: the codec ${String.fromCharCodes([
             codec >> 24,
             (codec >> 16) & 0xff,
@@ -580,7 +583,9 @@ class ChdImage implements DiscImage {
     final base = Uint8List.sublistView(src, header, header + baseLength);
     final sectors = codec == _cdzl
         ? inflate(base, sectorBytes)
-        : lzmaDecode(base, sectorBytes);
+        : codec == _cdlz
+            ? lzmaDecode(base, sectorBytes)
+            : zstdDecode(base, sectorBytes);
     for (int f = 0; f < frames; f++) {
       final at = f * _frameBytes;
       out.setRange(at, at + _sectorBytes, sectors, f * _sectorBytes);

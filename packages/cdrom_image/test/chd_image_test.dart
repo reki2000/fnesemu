@@ -271,22 +271,29 @@ void main() {
 }
 
 void chdmanFixture() {
-  test('a CHD made by chdman (cdlz, cdzl, cdfl) gives the sectors of the disc',
-      () async {
-    final file = MemoryDiscFile(
-        'small.chd', File('test/fixtures/small.chd').readAsBytesSync());
-    final (image, _) = await DiscImage.parse([file], file);
-    expect([
-      for (final t in image.toc.tracks)
-        (t.number, t.isAudio, t.startLba, t.sectors)
-    ], [
-      (1, false, 0, dataSectors),
-      (2, true, dataSectors, audioSectors)
-    ]);
-    final expected = fixtureSectors();
-    final sectors = await image.readSectors(0, image.totalSectors);
-    for (int lba = 0; lba < expected.length; lba++) {
-      expect(sectors[lba], expected[lba], reason: 'lba $lba');
-    }
-  });
+  // made by chdman 0.242 with its default codecs, and by chdman 0.289 with
+  // -c cdzs,cdfl
+  for (final (name, codecs) in [
+    ('small.chd', 'cdlz, cdzl, cdfl'),
+    ('small_zstd.chd', 'cdzs, cdfl'),
+  ]) {
+    test('a CHD made by chdman ($codecs) gives the sectors of the disc',
+        () async {
+      final file =
+          MemoryDiscFile(name, File('test/fixtures/$name').readAsBytesSync());
+      final (image, _) = await DiscImage.parse([file], file);
+      expect([
+        for (final t in image.toc.tracks)
+          (t.number, t.isAudio, t.startLba, t.sectors)
+      ], [
+        (1, false, 0, dataSectors),
+        (2, true, dataSectors, audioSectors)
+      ]);
+      final expected = fixtureSectors();
+      final sectors = await image.readSectors(0, image.totalSectors);
+      for (int lba = 0; lba < expected.length; lba++) {
+        expect(sectors[lba], expected[lba], reason: 'lba $lba');
+      }
+    });
+  }
 }

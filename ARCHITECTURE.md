@@ -7,7 +7,7 @@ Each part owns its domain and depends only on the interfaces below.
 | Part | Location | Responsibility | Dependencies |
 |---|---|---|---|
 | Cores | `packages/fnesemu_core` | Emulation, ROM/disc identification, BIOS setup | Dart SDK only; no Flutter or `dart:io` |
-| Disc images | `packages/cdrom_image` | CUE/ISO/BIN/CHD parsing, referenced files, TOC, sector reads | Dart SDK and `archive` (deflate, LZMA); no `dart:io` |
+| Disc images | `packages/cdrom_image` | CUE/ISO/BIN/CHD parsing, referenced files, TOC, sector reads | Dart SDK and `archive` (deflate, LZMA, zstd); no `dart:io` |
 | File picker | `packages/mp_bigfile_picker` | Platform file/directory selection and random reads | Flutter and platform APIs; no app or core knowledge |
 | App | `lib/` | GUI, storage, adapters connecting the packages | All three packages |
 | Core harnesses | `packages/fnesemu_core/tool` | Headless runs, benchmarks, CPU tests | Cores, `dart:io`, disc images as a dev dependency; never the app |

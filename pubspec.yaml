@@ -14,7 +14,7 @@ dependencies:
     sdk: flutter
 
   mp_audio_stream: ^0.3.0
-  archive: ^3.1.2
+  archive: ^4.4.0
   idb_shim: ^2.9.9
   path_provider: ^2.1.6
   web: ^1.1.1

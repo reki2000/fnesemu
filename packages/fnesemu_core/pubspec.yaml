@@ -8,7 +8,7 @@ environment:
   sdk: ">=3.0.0 <4.0.0"
 
 dev_dependencies:
-  archive: ^3.1.2
+  archive: ^4.4.0
   cdrom_image: # tool/ and the tests of the cd cores
     path: ../cdrom_image
   image: ^4.3.0

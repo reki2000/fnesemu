@@ -111,7 +111,7 @@ Uint8List _loadRom(String path) {
 
   for (final entry in ZipDecoder().decodeBytes(data)) {
     if (entry.name.toLowerCase().endsWith(".gba")) {
-      return entry.content as Uint8List;
+      return entry.content;
     }
   }
   throw Exception("no .gba file in $path");

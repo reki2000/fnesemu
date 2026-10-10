@@ -10,7 +10,7 @@ void main() {
     final archive = Archive()
       ..addFile(ArchiveFile('readme.txt', 5, 'hello'.codeUnits))
       ..addFile(ArchiveFile('game.gb', rom.length, rom));
-    final zip = Uint8List.fromList(ZipEncoder().encode(archive)!);
+    final zip = Uint8List.fromList(ZipEncoder().encode(archive));
     final (data, name) = unpackRom(zip, 'game.zip');
     expect(name, 'game.gb');
     expect(data, rom);
@@ -24,7 +24,7 @@ void main() {
   test('a zip without a recognized ROM is rejected', () {
     final archive = Archive()
       ..addFile(ArchiveFile('readme.txt', 5, 'hello'.codeUnits));
-    final zip = Uint8List.fromList(ZipEncoder().encode(archive)!);
+    final zip = Uint8List.fromList(ZipEncoder().encode(archive));
     expect(() => unpackRom(zip, 'notes.zip'), throwsFormatException);
   });
 
@@ -34,7 +34,7 @@ void main() {
       archive.addFile(ArchiveFile(e.key, e.value.length, e.value));
     }
     if (comment != null) archive.comment = comment;
-    return Uint8List.fromList(ZipEncoder().encode(archive)!);
+    return Uint8List.fromList(ZipEncoder().encode(archive));
   }
 
   Future<List<String>> names(Uint8List zip) => zipEntryNames(
