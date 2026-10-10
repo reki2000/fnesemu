@@ -32,12 +32,6 @@ class PickedDiscFile extends DiscFile {
   }
 }
 
-class PickedDiscDirectory extends DiscDirectory {
-  final PickedDirectory dir;
-
-  PickedDiscDirectory(this.dir);
-
-  @override
-  Stream<DiscFile> walk() =>
-      dir.walk().map((path) => PickedDiscFile(path, () => dir.open(path)));
-}
+/// the files below [dir]
+Stream<DiscFile> pickedDiscFiles(PickedDirectory dir) =>
+    dir.walk().map((path) => PickedDiscFile(path, () => dir.open(path)));

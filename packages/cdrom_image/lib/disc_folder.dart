@@ -31,7 +31,7 @@ class DiscImageFile {
   DiscSource open() => folder.source(path);
 }
 
-/// the files of a [DiscDirectory]. the files referred from a .cue file are
+/// the files of a directory. the files referred from a .cue file are
 /// found by the names written in it, relative to the .cue file and ignoring
 /// the case.
 class DiscFolder {

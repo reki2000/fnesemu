@@ -53,7 +53,7 @@ void main() {
       'walk yields lazy descriptors and each read releases a fresh picker file',
       () async {
     final picker = TrackedDirectory();
-    final files = await PickedDiscDirectory(picker).walk().toList();
+    final files = await pickedDiscFiles(picker).toList();
     expect(files.single.path, 'nested/track.bin');
     expect(picker.opened, isEmpty);
     expect(await files.single.length(), 4);
@@ -69,7 +69,7 @@ void main() {
 
   test('metadata and read failures still release picker resources', () async {
     final picker = TrackedDirectory()..failLength = true;
-    final file = (await PickedDiscDirectory(picker).walk().toList()).single;
+    final file = (await pickedDiscFiles(picker).toList()).single;
     await expectLater(file.length(), throwsStateError);
     picker.failLength = false;
     await expectLater(file.read(-1, 1), throwsStateError);

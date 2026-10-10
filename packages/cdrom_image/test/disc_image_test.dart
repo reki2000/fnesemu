@@ -53,11 +53,11 @@ void main() {
               .codeUnits),
       'first/track.bin': makeBin(1, id: 7),
     });
-    final files = await directory.walk().toList();
-    final (first, firstFiles) = await DiscImage.parse(
-        directory, files.singleWhere((file) => file.path == 'first/disc.cue'));
-    final (second, secondFiles) = await DiscImage.parse(
-        directory, files.singleWhere((file) => file.path == 'second/disc.cue'));
+    final files = directory.files.values.toList();
+    final (first, firstFiles) = await DiscImage.parse(directory.files.values,
+        files.singleWhere((file) => file.path == 'first/disc.cue'));
+    final (second, secondFiles) = await DiscImage.parse(directory.files.values,
+        files.singleWhere((file) => file.path == 'second/disc.cue'));
     expect((await first.readSectors(0, 1)).single[100], 7);
     expect((await second.readSectors(0, 1)).single[100], 42);
     expect(firstFiles.map((file) => file.path), ['first/track.bin']);
@@ -78,13 +78,15 @@ void main() {
       'track.bin': makeBin(2),
       'standalone.iso': Uint8List(2048),
     });
-    final files = await directory.walk().toList();
-    final (disc, referenced) = await DiscImage.parse(directory, files[0]);
+    final files = directory.files.values.toList();
+    final (disc, referenced) =
+        await DiscImage.parse(directory.files.values, files[0]);
     expect(disc.toc.tracks.length, 2);
     expect(referenced, [files[1]]);
     expect(await referenced.single.length(), size * 2);
     expect(() => referenced.clear(), throwsUnsupportedError);
-    final (iso, isoFiles) = await DiscImage.parse(directory, files[2]);
+    final (iso, isoFiles) =
+        await DiscImage.parse(directory.files.values, files[2]);
     expect(iso.totalSectors, 1);
     expect(isoFiles, isEmpty);
   });
@@ -97,15 +99,15 @@ void main() {
           .codeUnits),
       'invalid.cue': Uint8List.fromList('FILE "empty.bin" BINARY'.codeUnits),
     });
-    final files = await directory.walk().toList();
+    final files = directory.files.values.toList();
     await expectLater(
-        DiscImage.parse(directory, files[0]),
+        DiscImage.parse(directory.files.values, files[0]),
         throwsA(isA<DiscParseException>()
             .having((error) => error.imagePath, 'image path', 'disc.cue')
             .having(
                 (error) => error.referencedPath, 'reference', 'missing.bin')));
     await expectLater(
-        DiscImage.parse(directory, files[1]),
+        DiscImage.parse(directory.files.values, files[1]),
         throwsA(isA<DiscParseException>()
             .having((error) => error.imagePath, 'image path', 'invalid.cue')
             .having((error) => error.cause, 'cause', isA<FormatException>())));
@@ -121,7 +123,7 @@ void main() {
         'track.bin': makeBin(1),
       });
       await expectLater(
-          DiscImage.parse(directory, directory.files['disc.cue']!),
+          DiscImage.parse(directory.files.values, directory.files['disc.cue']!),
           throwsA(isA<DiscParseException>().having(
               (error) => error.cause, 'cause', isA<FormatException>())));
     }

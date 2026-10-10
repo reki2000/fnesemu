@@ -20,9 +20,11 @@ Each part owns its domain and depends only on the interfaces below.
   or formats. Identification and BIOS interpretation belong to each core.
 - Cores receive discs through `CdromDrive`: tray state, TOC, and synchronous
   polling of raw sectors by LBA. They do not know CUE/ISO/BIN or file pickers.
-- Disc images receive files through their own `DiscFile` (relative path,
-  self-contained reads) and `DiscDirectory` (file enumeration) interfaces in `filesystem_api.dart`. The format-independent sector and TOC
-  contract is in `image_api.dart`; `DiscImage.parse(directory, file)` returns an image and its referenced files.
+- Disc images receive files through their own `DiscFile` interface
+  (relative path, self-contained reads) in `filesystem_api.dart`; a directory
+  is an `Iterable<DiscFile>`. The format-independent sector and TOC contract
+  is in `image_api.dart`; `DiscImage.parse(files, file)` returns an image and
+  its referenced files.
 - Only the app connects the packages: `lib/gui/picked_disc.dart` adapts picker
   files; `async_cdrom_drive.dart` adapts disc images with read-ahead and caching;
   `rom_scanner.dart` excludes CUE-referenced files from the game list.

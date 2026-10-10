@@ -1,6 +1,6 @@
 /// CD-ROM disc images (.cue/.iso/.bin) on a virtual file system: give the
-/// files by [DiscFile] and [DiscDirectory], and read the TOC and the sectors
-/// by LBA with [DiscImage].
+/// files as [DiscFile]s, and read the TOC and the sectors by LBA with
+/// [DiscImage].
 library;
 
 export 'disc_folder.dart';

@@ -19,8 +19,8 @@ void main() {
     final sub = Directory('${dir.path}/nested')..createSync();
     final file = File('${sub.path}/track.bin')
       ..writeAsBytesSync(List.generate(100, (i) => i));
-    final directory = IoDiscDirectory(dir.path);
-    final walked = await directory.walk().toList();
+    final directory = localDiscFiles(dir.path);
+    final walked = await directory.toList();
     expect(walked.single.path, 'nested/track.bin');
     final bytes = await Future.wait(
         [for (var i = 0; i < 30; i++) walked.single.read(i, 2)]);
@@ -38,9 +38,8 @@ void main() {
 
   test('parse uses directory files without caller-managed handles', () async {
     File('${dir.path}/disc.iso').writeAsBytesSync(Uint8List(2048 * 2));
-    final directory = IoDiscDirectory(dir.path);
-    final file = (await directory.walk().toList()).single;
-    final (image, referenced) = await DiscImage.parse(directory, file);
+    final files = await localDiscFiles(dir.path).toList();
+    final (image, referenced) = await DiscImage.parse(files, files.single);
     expect(referenced, isEmpty);
     expect(image.totalSectors, 2);
     expect((await image.readSectors(1, 1)).single.length, 2352);

@@ -28,28 +28,22 @@ class IoDiscFile extends DiscFile {
   }
 }
 
-class IoDiscDirectory extends DiscDirectory {
-  final String root;
-
-  IoDiscDirectory(this.root);
-
-  @override
-  Stream<DiscFile> walk() async* {
-    final dirs = <(Directory, String)>[(Directory(root), '')];
-    while (dirs.isNotEmpty) {
-      final (dir, prefix) = dirs.removeLast();
-      try {
-        await for (final e in dir.list(followLinks: false)) {
-          final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
-          if (e is Directory) {
-            dirs.add((e, '$prefix$name/'));
-          } else if (e is File) {
-            yield IoDiscFile(e.path, relativePath: '$prefix$name');
-          }
+/// the files below the local directory [root]
+Stream<DiscFile> localDiscFiles(String root) async* {
+  final dirs = <(Directory, String)>[(Directory(root), '')];
+  while (dirs.isNotEmpty) {
+    final (dir, prefix) = dirs.removeLast();
+    try {
+      await for (final e in dir.list(followLinks: false)) {
+        final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
+        if (e is Directory) {
+          dirs.add((e, '$prefix$name/'));
+        } else if (e is File) {
+          yield IoDiscFile(e.path, relativePath: '$prefix$name');
         }
-      } on FileSystemException {
-        // an unreadable directory is skipped
       }
+    } on FileSystemException {
+      // an unreadable directory is skipped
     }
   }
 }

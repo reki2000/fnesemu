@@ -353,10 +353,9 @@ class _CueTrack {
   int get firstIndex => index0 >= 0 ? index0 : index1;
 }
 
-/// Parses a file using directory paths to resolve referenced tracks.
+/// Parses a file, resolving the referenced tracks in [files].
 Future<(DiscImage, List<DiscFile>)> parse(
-    DiscDirectory directory, DiscFile file) async {
-  final files = await directory.walk().toList();
+    Iterable<DiscFile> files, DiscFile file) async {
   final source = DiscFolder([...files, file]).source(file.path);
   final referenced = <String, DiscFile>{};
   final image = await parseSource(DiscSource(source.main, (name) {

@@ -13,10 +13,3 @@ abstract class DiscFile {
   /// completing, including on failure. Concurrent calls must be independent.
   Future<Uint8List> read(int offset, int length);
 }
-
-/// Files below a directory. Enumeration order is unspecified.
-abstract class DiscDirectory {
-  /// Recursively yields files with paths relative to this directory.
-  /// Enumeration does not open their contents.
-  Stream<DiscFile> walk();
-}

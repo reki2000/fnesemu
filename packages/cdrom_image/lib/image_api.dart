@@ -45,13 +45,15 @@ class DiscParseException implements Exception {
 abstract interface class DiscImage {
   static const sectorSize = 2352;
 
-  /// Async factory. [file.path] is relative to [directory].
+  /// Async factory. [files] are the files of the directory of [file], with
+  /// the paths relative to it; a .cue file's references are found in them.
+  /// They are iterated once, to index their paths.
   /// Returns the image and distinct referenced files, excluding [file].
   /// Standalone images have no referenced files.
   /// Throws [DiscParseException] for invalid descriptions or missing references.
   static Future<(DiscImage, List<DiscFile>)> parse(
-          DiscDirectory directory, DiscFile file) =>
-      parser.parse(directory, file);
+          Iterable<DiscFile> files, DiscFile file) =>
+      parser.parse(files, file);
 
   DiscToc get toc;
   int get totalSectors;

@@ -29,7 +29,8 @@ class MemoryDiscFile extends DiscFile {
   }
 }
 
-class MemoryDirectory extends DiscDirectory {
+/// files on memory, by their paths. [files] are given to [DiscImage.parse].
+class MemoryDirectory {
   final Map<String, MemoryDiscFile> files;
 
   MemoryDirectory(this.files);
@@ -38,9 +39,6 @@ class MemoryDirectory extends DiscDirectory {
       : files = {
           for (final e in data.entries) e.key: MemoryDiscFile(e.key, e.value)
         };
-
-  @override
-  Stream<DiscFile> walk() => Stream.fromIterable(files.values);
 }
 
 /// the disc image [main] of [files]
