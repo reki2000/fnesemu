@@ -67,10 +67,9 @@ Future<void> main(List<String> args) async {
   int frame = 0;
   final core = createPsForTools();
   core.setSram(Sram());
-  AsyncCdromDrive? drive;
+  SimpleCdromDrive? drive;
   if (files.length > 1) {
-    drive = AsyncCdromDrive(
-        now: () => DateTime.fromMillisecondsSinceEpoch(frame * 1000 ~/ 60));
+    drive = SimpleCdromDrive();
     await drive.insert(localDisc(files[1]));
   }
   core.setBiosFiles([File(files[0]).readAsBytesSync()]);

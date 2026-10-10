@@ -171,7 +171,7 @@ main(List<String> args) async {
   final bios = File(args[0]).readAsBytesSync();
   core.setBiosFiles([bios]);
 
-  final drive = AsyncCdromDrive();
+  final drive = SimpleCdromDrive();
   await drive.insert(localDisc(args[1]));
   core.setCdromDrive(drive);
 

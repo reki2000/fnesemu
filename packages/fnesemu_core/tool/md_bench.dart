@@ -60,9 +60,9 @@ Future<void> main(List<String> args) async {
     _ => throw "unknown core: $kind",
   };
 
-  AsyncCdromDrive? drive;
+  SimpleCdromDrive? drive;
   if (files.length > 2) {
-    drive = AsyncCdromDrive();
+    drive = SimpleCdromDrive();
     await drive.insert(localDisc(files[2]));
   }
   if (kind == "mdcd" && drive != null) core.setCdromDrive(drive);

@@ -36,7 +36,7 @@ Future<void> main(List<String> args) async {
     exitCode = 64;
     return;
   }
-  final drive = AsyncCdromDrive();
+  final drive = SimpleCdromDrive();
   await drive.insert(localDisc(paths[1]));
   if (!drive.status.isReady) {
     stderr.writeln('Could not load disc: ${paths[1]}');

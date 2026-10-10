@@ -46,9 +46,9 @@ Future<void> main(List<String> args) async {
   final core = Pce();
   core.setSram(Sram());
   core.setRom(File(files[0]).readAsBytesSync());
-  AsyncCdromDrive? drive;
+  SimpleCdromDrive? drive;
   if (files.length > 1) {
-    drive = AsyncCdromDrive();
+    drive = SimpleCdromDrive();
     await drive.insert(localDisc(files[1]));
     core.setCdromDrive(drive);
   }

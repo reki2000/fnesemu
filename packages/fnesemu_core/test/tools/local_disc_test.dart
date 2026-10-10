@@ -35,7 +35,7 @@ FILE "t2.bin" BINARY
     INDEX 01 00:02:00
 ''');
 
-    final drive = AsyncCdromDrive();
+    final drive = SimpleCdromDrive();
     await drive.insert(localDisc("${dir.path}/a.cue"));
     expect(drive.status.isReady, true);
     expect(drive.status.toc.startLba(2), 450);

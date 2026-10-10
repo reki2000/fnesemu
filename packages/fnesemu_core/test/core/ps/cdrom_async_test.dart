@@ -10,7 +10,7 @@ import '../../../tool/cdrom_drive.dart';
 
 void main() {
   late Cdrom cdrom;
-  late AsyncCdromDrive drive;
+  late SimpleCdromDrive drive;
   late List<int> irqs;
   late List<List<int>> results;
 
@@ -54,7 +54,7 @@ void main() {
 
   setUp(() async {
     cdrom = Cdrom(Bus());
-    drive = AsyncCdromDrive();
+    drive = SimpleCdromDrive();
     irqs = [];
     results = [];
     cdrom.attachDrive(drive);

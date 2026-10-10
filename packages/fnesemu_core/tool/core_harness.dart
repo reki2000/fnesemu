@@ -108,9 +108,9 @@ Future<void> main(List<String> args) async {
     (core as Md)
         .setExpansionBootRoms(main: roms[0], master: roms[1], slave: roms[2]);
   }
-  AsyncCdromDrive? drive;
+  SimpleCdromDrive? drive;
   if (files.length > 2) {
-    drive = AsyncCdromDrive();
+    drive = SimpleCdromDrive();
     await drive.insert(localDisc(files[2]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[2]}";
   }

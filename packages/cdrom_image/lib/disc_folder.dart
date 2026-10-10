@@ -25,7 +25,7 @@ class DiscImageFile {
   bool get isComplete =>
       missingFiles.isEmpty && (!isCue || referredFiles.isNotEmpty);
 
-  /// the image to read by [DiscImage.open] or [DiscDrive.insert]
+  /// the image to read by [DiscImage.open]
   DiscSource open() => folder.source(path);
 }
 

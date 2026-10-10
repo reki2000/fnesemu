@@ -11,12 +11,12 @@ DiscSource source(String name) => memoryDisc(
     name, {name: MemoryDiscFile(name, Uint8List(2352 * 10))});
 
 void main() {
-  late AsyncCdromDrive drive;
+  late SimpleCdromDrive drive;
   late List<String> events;
   late DiscSwapWatcher watcher;
 
   setUp(() async {
-    drive = AsyncCdromDrive();
+    drive = SimpleCdromDrive();
     await drive.insert(source("a.bin"));
     events = [];
     watcher = DiscSwapWatcher(100,

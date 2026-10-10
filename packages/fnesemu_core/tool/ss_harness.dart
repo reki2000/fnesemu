@@ -83,11 +83,9 @@ Future<void> main(List<String> args) async {
 
   final ss = Ss()..setSram(Sram());
   ss.setRom(File(files[0]).readAsBytesSync());
-  AsyncCdromDrive? drive;
+  SimpleCdromDrive? drive;
   if (files.length > 1) {
-    // with a fixed clock the sector cache never expires, so a slow run
-    // does not re-read sectors and change the timing
-    drive = AsyncCdromDrive(now: fixedClock ? () => DateTime(2000) : null);
+    drive = SimpleCdromDrive();
     await drive.insert(localDisc(files[1]));
     if (!drive.status.isReady) throw "cannot read disc: ${files[1]}";
     ss.setCdromDrive(drive);
