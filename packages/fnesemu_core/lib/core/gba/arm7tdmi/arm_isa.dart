@@ -46,7 +46,7 @@ extension ArmIsa on Arm7 {
 
   int _armBranch(int op) {
     final link = op.bit24;
-    final off = op.mask24.toSigned(24).shl2;
+    final off = op.rel24.shl2;
     if (link) regs.r[14] = (regs.r[15] - 4).mask32; // return addr
     _setPC((regs.r[15] + off).mask32);
     return 3;
@@ -213,8 +213,8 @@ extension ArmIsa on Arm7 {
 
     // 64-bit int arithmetic wraps modulo 2^64, so the low 64 bits of the
     // product (and accumulate) are exact even for UMULL/UMLAL.
-    final m = signed ? regs.r[rm].toSigned(32) : regs.r[rm];
-    final sN = signed ? regs.r[rs].toSigned(32) : regs.r[rs];
+    final m = signed ? regs.r[rm].rel32 : regs.r[rm];
+    final sN = signed ? regs.r[rs].rel32 : regs.r[rs];
     var prod = m * sN;
     if (acc) prod += regs.r[rdHi] << 32 | regs.r[rdLo];
     final lo = prod.mask32;
@@ -334,13 +334,13 @@ extension ArmIsa on Arm7 {
           v = addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
           break;
         case 2: // LDRSB
-          v = bus.read8(addr).toSigned(8).mask32;
+          v = bus.read8(addr).rel8.mask32;
           break;
         default: // 3: LDRSH
           if (addr.bit0) {
-            v = bus.read8(addr).toSigned(8).mask32; // misaligned -> SB
+            v = bus.read8(addr).rel8.mask32; // misaligned -> SB
           } else {
-            v = bus.read16(addr).toSigned(16).mask32;
+            v = bus.read16(addr).rel16.mask32;
           }
           break;
       }

@@ -222,14 +222,14 @@ extension ThumbIsa on Arm7 {
       return 3;
     } else if (s && !h) {
       // LDRSB
-      regs.r[rd] = bus.read8(addr).toSigned(8).mask32;
+      regs.r[rd] = bus.read8(addr).rel8.mask32;
       return 3;
     } else {
       // LDRSH
       if (addr.bit0) {
-        regs.r[rd] = bus.read8(addr).toSigned(8).mask32;
+        regs.r[rd] = bus.read8(addr).rel8.mask32;
       } else {
-        regs.r[rd] = bus.read16(addr).toSigned(16).mask32;
+        regs.r[rd] = bus.read16(addr).rel16.mask32;
       }
       return 3;
     }
@@ -401,14 +401,14 @@ extension ThumbIsa on Arm7 {
   int _thCondBranch(int op) {
     final cond = op.shr8.mask4;
     if (!checkCond(cond)) return 1;
-    final off = op.mask8.toSigned(8).shl1;
+    final off = op.rel8.shl1;
     _setPC((regs.r[15] + off).mask32);
     return 3;
   }
 
   // format 18: unconditional branch
   int _thBranch(int op) {
-    final off = op.mask11.toSigned(11).shl1;
+    final off = op.rel11.shl1;
     _setPC((regs.r[15] + off).mask32);
     return 3;
   }
@@ -418,7 +418,7 @@ extension ThumbIsa on Arm7 {
     final low = op.bit11; // second half
     if (!low) {
       // first half: LR = PC + (offset<<12)
-      final off = op.mask11.toSigned(11).shl12;
+      final off = op.rel11.shl12;
       regs.r[14] = (regs.r[15] + off).mask32;
       return 1;
     } else {

@@ -307,7 +307,7 @@ class R3000 {
             _unknown(inst32);
         }
       case 0x01:
-        final rel = (inst32 & 0xffff).rel16;
+        final rel = inst32.rel16;
         switch (rt) {
           case 0x10: // bltzal
             jal(r[rs].rel32 < 0, 31, pc + (rel << 2));
@@ -325,21 +325,21 @@ class R3000 {
       case 0x03: // jal
         jal(true, 31, pc & 0xf0000000 | (inst32 & 0x3ffffff) << 2);
       case 0x04: // beq
-        branch(r[rs] == r[rt], (inst32 & 0xffff).rel16);
+        branch(r[rs] == r[rt], inst32.rel16);
       case 0x05: // bne
-        branch(r[rs] != r[rt], (inst32 & 0xffff).rel16);
+        branch(r[rs] != r[rt], inst32.rel16);
       case 0x06: // blez
-        branch(r[rs].rel32 <= 0, (inst32 & 0xffff).rel16);
+        branch(r[rs].rel32 <= 0, inst32.rel16);
       case 0x07: // bgtz
-        branch(r[rs].rel32 > 0, (inst32 & 0xffff).rel16);
+        branch(r[rs].rel32 > 0, inst32.rel16);
       case 0x08: // addi
-        add(rt, r[rs], (inst32 & 0xffff).rel16);
+        add(rt, r[rs], inst32.rel16);
       case 0x09: // addiu
-        immediate(rt, r[rs] + ((inst32 & 0xffff).rel16 & 0xffffffff));
+        immediate(rt, r[rs] + (inst32.rel16 & 0xffffffff));
       case 0x0a: // slti
-        immediate(rt, r[rs].rel32 < (inst32 & 0xffff).rel16 ? 1 : 0);
+        immediate(rt, r[rs].rel32 < inst32.rel16 ? 1 : 0);
       case 0x0b: // sltiu
-        immediate(rt, r[rs] < ((inst32 & 0xffff).rel16 & 0xffffffff) ? 1 : 0);
+        immediate(rt, r[rs] < (inst32.rel16 & 0xffffffff) ? 1 : 0);
       case 0x0c: // andi
         immediate(rt, r[rs] & (inst32 & 0xffff));
       case 0x0d: // ori
@@ -378,39 +378,39 @@ class R3000 {
           }
         }
       case 0x20: // lb
-        delay(rt, read8(r[rs] + (inst32 & 0xffff).rel16).rel8);
+        delay(rt, read8(r[rs] + inst32.rel16).rel8);
       case 0x21: // lh
-        delay(rt, read16(r[rs] + (inst32 & 0xffff).rel16).rel16);
+        delay(rt, read16(r[rs] + inst32.rel16).rel16);
       case 0x22: // lwl
         delay(
             rt,
-            lwl(r[rs] + (inst32 & 0xffff).rel16,
+            lwl(r[rs] + inst32.rel16,
                 rt == delayReg ? delayVal : r[rt]));
       case 0x23: // lw
-        delay(rt, read32(r[rs] + (inst32 & 0xffff).rel16));
+        delay(rt, read32(r[rs] + inst32.rel16));
       case 0x24: // lbu
-        delay(rt, read8(r[rs] + (inst32 & 0xffff).rel16));
+        delay(rt, read8(r[rs] + inst32.rel16));
       case 0x25: // lhu
-        delay(rt, read16(r[rs] + (inst32 & 0xffff).rel16));
+        delay(rt, read16(r[rs] + inst32.rel16));
       case 0x26: // lwr
         delay(
             rt,
-            lwr(r[rs] + (inst32 & 0xffff).rel16,
+            lwr(r[rs] + inst32.rel16,
                 rt == delayReg ? delayVal : r[rt]));
       case 0x28: // sb
-        write8(r[rs] + (inst32 & 0xffff).rel16, r[rt]);
+        write8(r[rs] + inst32.rel16, r[rt]);
       case 0x29: // sh
-        write16(r[rs] + (inst32 & 0xffff).rel16, r[rt]);
+        write16(r[rs] + inst32.rel16, r[rt]);
       case 0x2a: // swl
-        swl(r[rs] + (inst32 & 0xffff).rel16, r[rt]);
+        swl(r[rs] + inst32.rel16, r[rt]);
       case 0x2b: // sw
-        write32(r[rs] + (inst32 & 0xffff).rel16, r[rt]);
+        write32(r[rs] + inst32.rel16, r[rt]);
       case 0x2e: // swr
-        swr(r[rs] + (inst32 & 0xffff).rel16, r[rt]);
+        swr(r[rs] + inst32.rel16, r[rt]);
       case 0x32: // lwc2
-        cop2.writeReg(rt, read32(r[rs] + (inst32 & 0xffff).rel16));
+        cop2.writeReg(rt, read32(r[rs] + inst32.rel16));
       case 0x3a: // swc2
-        write32(r[rs] + (inst32 & 0xffff).rel16, cop2.readReg(rt));
+        write32(r[rs] + inst32.rel16, cop2.readReg(rt));
       default:
         _unknown(inst32);
     }

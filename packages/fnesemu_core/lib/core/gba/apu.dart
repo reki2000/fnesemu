@@ -155,13 +155,13 @@ class Apu {
     final timerB = _cntH.bit14 ? 1 : 0;
     if (timerId == timerA) {
       for (int i = 0; i < count; i++) {
-        if (_fifoA.isNotEmpty) _dsaLevel = _fifoA.pop().toSigned(8);
+        if (_fifoA.isNotEmpty) _dsaLevel = _fifoA.pop().rel8;
       }
       if (_fifoA.length <= 16) bus.dma.requestSoundFifo(0x040000a0);
     }
     if (timerId == timerB) {
       for (int i = 0; i < count; i++) {
-        if (_fifoB.isNotEmpty) _dsbLevel = _fifoB.pop().toSigned(8);
+        if (_fifoB.isNotEmpty) _dsbLevel = _fifoB.pop().rel8;
       }
       if (_fifoB.length <= 16) bus.dma.requestSoundFifo(0x040000a4);
     }

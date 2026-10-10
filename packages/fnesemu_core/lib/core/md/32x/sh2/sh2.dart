@@ -1,3 +1,4 @@
+import '../../../../util/int.dart';
 import '../../../register_dump.dart';
 import 'onchip.dart';
 
@@ -130,13 +131,13 @@ class Sh2 {
     final n = (op >> 8) & 15, m = (op >> 4) & 15, low = op & 15;
     switch (op >> 12) {
       case 0xe:
-        r[n] = (op & 255).toSigned(8);
+        r[n] = op.rel8;
         return true;
       case 7:
-        r[n] += (op & 255).toSigned(8);
+        r[n] += op.rel8;
         return true;
       case 9:
-        r[n] = bus.read16(address + 4 + (op & 255) * 2).toSigned(16);
+        r[n] = bus.read16(address + 4 + (op & 255) * 2).rel16;
         return true;
       case 0xd:
         r[n] = bus.read32(((address + 4) & ~3) + (op & 255) * 4);
@@ -148,27 +149,27 @@ class Sh2 {
         r[n] = bus.read32(r[m] + low * 4);
         return true;
       case 0xa:
-        return _branch(address + 4 + (op & 0xfff).toSigned(12) * 2);
+        return _branch(address + 4 + op.rel12 * 2);
       case 0xb:
         if (_inDelay) return false;
         pr = (address + 4) & 0xffffffff;
-        return _branch(address + 4 + (op & 0xfff).toSigned(12) * 2);
+        return _branch(address + 4 + op.rel12 * 2);
       case 6:
         final value = r[m];
         switch (low) {
           case 0:
-            r[n] = bus.read8(value).toSigned(8);
+            r[n] = bus.read8(value).rel8;
           case 1:
-            r[n] = bus.read16(value).toSigned(16);
+            r[n] = bus.read16(value).rel16;
           case 2:
             r[n] = bus.read32(value);
           case 3:
             r[n] = value;
           case 4:
-            r[n] = bus.read8(value).toSigned(8);
+            r[n] = bus.read8(value).rel8;
             if (n != m) r[m] += 1;
           case 5:
-            r[n] = bus.read16(value).toSigned(16);
+            r[n] = bus.read16(value).rel16;
             if (n != m) r[m] += 2;
           case 6:
             r[n] = bus.read32(value);
@@ -192,9 +193,9 @@ class Sh2 {
           case 13:
             r[n] = value & 0xffff;
           case 14:
-            r[n] = value.toSigned(8);
+            r[n] = value.rel8;
           case 15:
-            r[n] = value.toSigned(16);
+            r[n] = value.rel16;
         }
         return true;
       case 2:
@@ -234,7 +235,7 @@ class Sh2 {
           case 14:
             macl = (r[n] & 0xffff) * (value & 0xffff);
           case 15:
-            macl = (r[n].toSigned(16) * value.toSigned(16)) & 0xffffffff;
+            macl = (r[n].rel16 * value.rel16) & 0xffffffff;
           default:
             return false;
         }
@@ -247,7 +248,7 @@ class Sh2 {
           case 2:
             t = a >= b;
           case 3:
-            t = a.toSigned(32) >= b.toSigned(32);
+            t = a.rel32 >= b.rel32;
           case 4:
             final oldQ = (sr & 0x100) != 0;
             final divisorSign = (sr & 0x200) != 0;
@@ -266,13 +267,13 @@ class Sh2 {
                 (newQ ? 0x100 : 0) |
                 (newQ == divisorSign ? 1 : 0);
           case 5 || 13:
-            final product = low == 5 ? a * b : a.toSigned(32) * b.toSigned(32);
+            final product = low == 5 ? a * b : a.rel32 * b.rel32;
             macl = product & 0xffffffff;
             mach = (product >> 32) & 0xffffffff;
           case 6:
             t = a > b;
           case 7:
-            t = a.toSigned(32) > b.toSigned(32);
+            t = a.rel32 > b.rel32;
           case 8:
             r[n] = a - b;
           case 10:
@@ -298,18 +299,18 @@ class Sh2 {
         }
         return true;
       case 8:
-        final displacement = (op & 255).toSigned(8) * 2;
+        final displacement = op.rel8 * 2;
         switch ((op >> 8) & 15) {
           case 0:
             bus.write8(r[m] + low, r[0]);
           case 1:
             bus.write16(r[m] + low * 2, r[0]);
           case 4:
-            r[0] = bus.read8(r[m] + low).toSigned(8);
+            r[0] = bus.read8(r[m] + low).rel8;
           case 5:
-            r[0] = bus.read16(r[m] + low * 2).toSigned(16);
+            r[0] = bus.read16(r[m] + low * 2).rel16;
           case 8:
-            t = r[0] == ((op & 255).toSigned(8) & 0xffffffff);
+            t = r[0] == (op.rel8 & 0xffffffff);
           case 9 || 11 || 13 || 15:
             if (_inDelay) return false;
             final take = (n == 9 || n == 13) ? t : !t;
@@ -333,9 +334,9 @@ class Sh2 {
             if (_inDelay) return false;
             _exception(imm, pc);
           case 4:
-            r[0] = bus.read8(gbr + imm).toSigned(8);
+            r[0] = bus.read8(gbr + imm).rel8;
           case 5:
-            r[0] = bus.read16(gbr + imm * 2).toSigned(16);
+            r[0] = bus.read16(gbr + imm * 2).rel16;
           case 6:
             r[0] = bus.read32(gbr + imm * 4);
           case 7:
@@ -374,10 +375,10 @@ class Sh2 {
           macl = (r[n] * r[m]) & 0xffffffff;
           return true;
         case 12:
-          r[n] = bus.read8(r[m] + r[0]).toSigned(8);
+          r[n] = bus.read8(r[m] + r[0]).rel8;
           return true;
         case 13:
-          r[n] = bus.read16(r[m] + r[0]).toSigned(16);
+          r[n] = bus.read16(r[m] + r[0]).rel16;
           return true;
         case 14:
           r[n] = bus.read32(r[m] + r[0]);
@@ -385,15 +386,15 @@ class Sh2 {
         case 15:
           // MAC.L reads each operand before incrementing its address register.
           // When m == n, the two reads therefore use consecutive longwords.
-          final left = bus.read32(r[n]).toSigned(32);
+          final left = bus.read32(r[n]).rel32;
           r[n] = (r[n] + 4) & 0xffffffff;
-          final right = bus.read32(r[m]).toSigned(32);
+          final right = bus.read32(r[m]).rel32;
           r[m] = (r[m] + 4) & 0xffffffff;
           final product = left * right;
           final low = macl + (product & 0xffffffff);
           final high = ((sr & 2) != 0
-                  ? (mach & 0xffff).toSigned(16)
-                  : mach.toSigned(32)) +
+                  ? mach.rel16
+                  : mach.rel32) +
               (product >> 32) +
               (low >> 32);
           if ((sr & 2) != 0 && high > 0x7fff) {
@@ -470,13 +471,13 @@ class Sh2 {
     }
     if ((op >> 12) == 4) {
       if (low == 15) {
-        final left = bus.read16(r[n]).toSigned(16);
+        final left = bus.read16(r[n]).rel16;
         r[n] = (r[n] + 2) & 0xffffffff;
-        final right = bus.read16(r[m]).toSigned(16);
+        final right = bus.read16(r[m]).rel16;
         r[m] = (r[m] + 2) & 0xffffffff;
         final product = left * right;
         if ((sr & 2) != 0) {
-          final sum = macl.toSigned(32) + product;
+          final sum = macl.rel32 + product;
           macl = (sum > 0x7fffffff
                   ? 0x7fffffff
                   : sum < -0x80000000
@@ -500,7 +501,7 @@ class Sh2 {
           r[n] >>= 1;
         case 0x21:
           t = r[n].isOdd;
-          r[n] = r[n].toSigned(32) >> 1;
+          r[n] = r[n].rel32 >> 1;
         case 0x04:
           final carry = (r[n] >> 31) & 1;
           r[n] = (r[n] << 1) | carry;
@@ -533,9 +534,9 @@ class Sh2 {
           r[n]--;
           t = (r[n] & 0xffffffff) == 0;
         case 0x11:
-          t = r[n].toSigned(32) >= 0;
+          t = r[n].rel32 >= 0;
         case 0x15:
-          t = r[n].toSigned(32) > 0;
+          t = r[n].rel32 > 0;
         case 0x0b:
           if (_inDelay) return false;
           pr = address + 4;
@@ -600,11 +601,11 @@ class Sh2 {
     if (op == 0xb) return 'rts';
     if (op == 0x2b) return 'rte';
     if (op == 0x1b) return 'sleep';
-    if (op >> 12 == 0xe) return 'mov #${(op & 255).toSigned(8)},r$n';
-    if (op >> 12 == 7) return 'add #${(op & 255).toSigned(8)},r$n';
+    if (op >> 12 == 0xe) return 'mov #${op.rel8},r$n';
+    if (op >> 12 == 7) return 'add #${op.rel8},r$n';
     if ((op & 0xf00f) == 0x6003) return 'mov r$m,r$n';
     if (op >> 12 == 0xa || op >> 12 == 0xb) {
-      final target = (address + 4 + (op & 0xfff).toSigned(12) * 2) & 0xffffffff;
+      final target = (address + 4 + op.rel12 * 2) & 0xffffffff;
       return '${op >> 12 == 0xa ? 'bra' : 'bsr'} 0x${target.toRadixString(16)}';
     }
     return '.word 0x${op.toRadixString(16).padLeft(4, '0')}';

@@ -147,41 +147,47 @@ extension IntBit on int {
   @pragma('vm:prefer-inline')
   int get dec4 => this - 4;
 
-  // sign extend a number with specified bit width
+  // sign extend a number with specified bit width.
+  // (x & low) - (x & sign): the same code as int.toSigned(), which the VM
+  // compiles to two independent ANDs and a subtraction
   @pragma('vm:prefer-inline')
-  int get rel4 => (this & 0xf) - ((this & 0x8) << 1);
+  int get rel4 => (this & 0x7) - (this & 0x8);
   @pragma('vm:prefer-inline')
-  int get rel5 => (this & 0x1f) - ((this & 0x10) << 1);
+  int get rel5 => (this & 0xf) - (this & 0x10);
   @pragma('vm:prefer-inline')
-  int get rel6 => (this & 0x3f) - ((this & 0x20) << 1);
+  int get rel6 => (this & 0x1f) - (this & 0x20);
   @pragma('vm:prefer-inline')
-  int get rel7 => (this & 0x7f) - ((this & 0x40) << 1);
+  int get rel7 => (this & 0x3f) - (this & 0x40);
   @pragma('vm:prefer-inline')
-  int get rel8 => (this & 0xff) - ((this & 0x80) << 1);
+  int get rel8 => (this & 0x7f) - (this & 0x80);
   @pragma('vm:prefer-inline')
-  int get rel9 => (this & 0x1ff) - ((this & 0x100) << 1);
+  int get rel9 => (this & 0xff) - (this & 0x100);
   @pragma('vm:prefer-inline')
-  int get rel10 => (this & 0x3ff) - ((this & 0x200) << 1);
+  int get rel10 => (this & 0x1ff) - (this & 0x200);
   @pragma('vm:prefer-inline')
-  int get rel11 => (this & 0x7ff) - ((this & 0x400) << 1);
+  int get rel11 => (this & 0x3ff) - (this & 0x400);
   @pragma('vm:prefer-inline')
-  int get rel12 => (this & 0xfff) - ((this & 0x800) << 1);
+  int get rel12 => (this & 0x7ff) - (this & 0x800);
   @pragma('vm:prefer-inline')
-  int get rel13 => (this & 0x1fff) - ((this & 0x1000) << 1);
+  int get rel13 => (this & 0xfff) - (this & 0x1000);
   @pragma('vm:prefer-inline')
-  int get rel14 => (this & 0x3fff) - ((this & 0x2000) << 1);
+  int get rel14 => (this & 0x1fff) - (this & 0x2000);
   @pragma('vm:prefer-inline')
-  int get rel15 => (this & 0x7fff) - ((this & 0x4000) << 1);
+  int get rel15 => (this & 0x3fff) - (this & 0x4000);
   @pragma('vm:prefer-inline')
-  int get rel16 => (this & 0xffff) - ((this & 0x8000) << 1);
+  int get rel16 => (this & 0x7fff) - (this & 0x8000);
   @pragma('vm:prefer-inline')
-  int get rel24 => (this & 0xffffff) - ((this & 0x800000) << 1);
+  int get rel24 => (this & 0x7fffff) - (this & 0x800000);
   @pragma('vm:prefer-inline')
-  int get rel26 => (this & 0x3ffffff) - ((this & 0x2000000) << 1);
+  int get rel26 => (this & 0x1ffffff) - (this & 0x2000000);
   @pragma('vm:prefer-inline')
-  int get rel32 => (this & 0xffffffff) - ((this & 0x80000000) << 1);
+  int get rel28 => (this & 0x7ffffff) - (this & 0x8000000);
   @pragma('vm:prefer-inline')
-  int get rel44 => (this & 0xfffffffffff) - ((this & 0x80000000000) << 1);
+  int get rel32 => (this & 0x7fffffff) - (this & 0x80000000);
+  @pragma('vm:prefer-inline')
+  int get rel44 => (this & 0x7ffffffffff) - (this & 0x80000000000);
+  @pragma('vm:prefer-inline')
+  int get rel48 => (this & 0x7fffffffffff) - (this & 0x800000000000);
 
   /// sign extend a number with specified byte size
   @pragma('vm:prefer-inline')

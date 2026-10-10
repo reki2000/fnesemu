@@ -4,8 +4,6 @@ import '../../util/int.dart';
 
 import 'scu.dart';
 
-int _sx32(int v) => (v & 0xffffffff).rel32;
-int _sx48(int v) => (v << 16) >> 16;
 const _mask48 = 0xffffffffffff;
 
 /// SCU DSP: 32-bit VLIW fixed-point processor
@@ -131,10 +129,10 @@ class ScuDsp {
         _inc[dst] = true;
         break;
       case 4:
-        rx = _sx32(val);
+        rx = val.rel32;
         break;
       case 5:
-        p = _sx32(val);
+        p = val.rel32;
         break;
       case 6:
         ra0 = val & 0x1ffffff;
@@ -225,7 +223,7 @@ class ScuDsp {
     // values latched at the beginning of the instruction
     final acl = a & 0xffffffff;
     final pl = p & 0xffffffff;
-    final mul = _sx48(rx * ry);
+    final mul = (rx * ry).rel48;
 
     // ALU
     switch ((op >> 26) & 0xf) {
@@ -258,7 +256,7 @@ class ScuDsp {
         final r = a48 + p48;
         c = r > _mask48;
         v = v || ((~(a48 ^ p48) & (a48 ^ r)) & 0x800000000000 != 0);
-        alu = _sx48(r);
+        alu = r.rel48;
         s = alu < 0;
         z = alu == 0;
         break;
@@ -292,12 +290,12 @@ class ScuDsp {
       xval = _readSrc(xsrc);
     }
     if (xop.bit2) {
-      rx = _sx32(xval!);
+      rx = xval!.rel32;
     }
     if (xop & 3 == 2) {
       p = mul;
     } else if (xop & 3 == 3) {
-      p = _sx32(xval!);
+      p = xval!.rel32;
     }
 
     // Y-bus
@@ -308,7 +306,7 @@ class ScuDsp {
       yval = _readSrc(ysrc);
     }
     if (yop.bit2) {
-      ry = _sx32(yval!);
+      ry = yval!.rel32;
     }
     switch (yop & 3) {
       case 1:
@@ -318,7 +316,7 @@ class ScuDsp {
         a = alu;
         break;
       case 3:
-        a = _sx32(yval!);
+        a = yval!.rel32;
         break;
     }
 
@@ -326,7 +324,7 @@ class ScuDsp {
     final dst = (op >> 8) & 0xf;
     switch ((op >> 12) & 3) {
       case 1:
-        _writeDst(dst, (op & 0xff).rel8);
+        _writeDst(dst, op.rel8);
         break;
       case 3:
         final src = op & 0xf;
@@ -349,7 +347,7 @@ class ScuDsp {
   void _set32(int r) {
     r &= 0xffffffff;
     alu = (alu & ~0xffffffff) | r;
-    alu = _sx48(alu);
+    alu = alu.rel48;
     s = r.bit31;
     z = r == 0;
   }

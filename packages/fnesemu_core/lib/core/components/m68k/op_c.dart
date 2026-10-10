@@ -50,7 +50,7 @@ extension OpC on M68 {
       // muls
       final mode = op.shr3 & 0x07;
       final src = readAddr(2, mode, ry).rel16;
-      final val = d[rx].mask16.rel16 * src;
+      final val = d[rx].rel16 * src;
       d[rx] = val.mask32;
       zf = val.mask32 == 0;
       cf = false;

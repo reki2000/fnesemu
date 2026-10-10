@@ -51,7 +51,7 @@ class N64Fpu {
       throw UnsupportedError('COP1 format $fmt');
     }
     final a = fmt == 20
-        ? word(fs).toSigned(32).toDouble()
+        ? word(fs).rel32.toDouble()
         : fmt == 21
             ? long(fs).toDouble()
             : value(fs, fmt);

@@ -402,7 +402,7 @@ class N64Bus {
     final rate = (48681812 ~/ (ai[4] + 1)).clamp(8000, 96000);
     final samples = Float32List(bytes ~/ 2);
     for (var i = 0; i < samples.length; i++) {
-      samples[i] = ramRead(start + i * 2, 2).toSigned(16) / 32768;
+      samples[i] = ramRead(start + i * 2, 2).rel16 / 32768;
     }
     onAudio?.call(AudioBuffer(rate, 2, samples));
     ai[3] |= 0x40000000;

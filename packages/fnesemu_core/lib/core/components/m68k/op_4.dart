@@ -61,7 +61,7 @@ extension Op4 on M68 {
       // chk
       final mode = op.shr3 & 0x07;
       final bound = readAddr(2, mode, xn).rel16;
-      final data = d[dn].mask16.rel16;
+      final data = d[dn].rel16;
       zf = vf = cf = false;
       nf = (data < 0)
           ? true

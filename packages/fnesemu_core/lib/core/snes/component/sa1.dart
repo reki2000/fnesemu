@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_bus.dart';
@@ -454,18 +455,17 @@ class Sa1 {
     }
   }
 
-  static int _s16(int v) => (v & 0x7fff) - (v & 0x8000);
 
   void _arithmetic() {
     if (!_acm) {
       if (!_md) {
-        _mr = (_s16(_ma) * _s16(_mb)) & 0xffffffff;
+        _mr = (_ma.rel16 * _mb.rel16) & 0xffffffff;
         _mb = 0;
       } else {
         if (_mb == 0) {
           _mr = 0;
         } else {
-          final dividend = _s16(_ma);
+          final dividend = _ma.rel16;
           final remainder = dividend % _mb; // non-negative in dart
           final quotient = (dividend - remainder) ~/ _mb;
           _mr = remainder << 16 | (quotient & 0xffff);
@@ -473,7 +473,7 @@ class Sa1 {
         _ma = _mb = 0;
       }
     } else {
-      _mr += _s16(_ma) * _s16(_mb);
+      _mr += _ma.rel16 * _mb.rel16;
       _overflow = _mr < 0 || _mr >= 1 << 40;
       _mr &= (1 << 40) - 1;
       _mb = 0;

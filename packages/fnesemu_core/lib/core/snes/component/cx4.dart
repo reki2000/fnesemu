@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// Cx4 (manufacturer HG51B169): a cartridge risc cpu which runs 16-bit opcodes
 /// from the cartridge rom, with 3KB of ram, a 1024 x 24-bit data rom of math
@@ -277,8 +278,8 @@ class Cx4 {
           _sub(_shiftedA(ss), src());
         case 0x0b: // sign expand / -
           if (op & 0x400 == 0) {
-            if (ss == 1) _a = ((_a & 0xff) ^ 0x80) - 0x80 & 0xffffff;
-            if (ss == 2) _a = ((_a & 0xffff) ^ 0x8000) - 0x8000 & 0xffffff;
+            if (ss == 1) _a = _a.rel8 & 0xffffff;
+            if (ss == 2) _a = _a.rel16 & 0xffffff;
             _setNZ(_a);
           }
         case 0x0c: // mov

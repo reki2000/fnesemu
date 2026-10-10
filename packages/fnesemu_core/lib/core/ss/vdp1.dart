@@ -186,7 +186,6 @@ class Vdp1 {
 
   int _r16(int addr) => vramData.getUint16(addr & 0x7fffe);
 
-  static int _sx(int v) => (v & 0x7ff) - (v & 0x400) * 2; // 11 bit signed
 
   void _draw() {
     edsr &= ~2;
@@ -259,14 +258,14 @@ class Vdp1 {
     _texH = size & 0xff;
     _dir = (ctrl >> 4) & 3;
 
-    final xa = _sx(_r16(addr + 0x0c));
-    final ya = _sx(_r16(addr + 0x0e));
-    final xb = _sx(_r16(addr + 0x10));
-    final yb = _sx(_r16(addr + 0x12));
-    final xc = _sx(_r16(addr + 0x14));
-    final yc = _sx(_r16(addr + 0x16));
-    final xd = _sx(_r16(addr + 0x18));
-    final yd = _sx(_r16(addr + 0x1a));
+    final xa = _r16(addr + 0x0c).rel11;
+    final ya = _r16(addr + 0x0e).rel11;
+    final xb = _r16(addr + 0x10).rel11;
+    final yb = _r16(addr + 0x12).rel11;
+    final xc = _r16(addr + 0x14).rel11;
+    final yc = _r16(addr + 0x16).rel11;
+    final xd = _r16(addr + 0x18).rel11;
+    final yd = _r16(addr + 0x1a).rel11;
 
     if (_pmod & 7 >= 4) {
       final g = _r16(addr + 0x1c) << 3;
@@ -319,8 +318,8 @@ class Vdp1 {
         _sysClipY = _r16(addr + 0x16) & 0x1ff;
         break;
       case 0xa: // local coordinate
-        _localX = _sx(_r16(addr + 0x0c));
-        _localY = _sx(_r16(addr + 0x0e));
+        _localX = _r16(addr + 0x0c).rel11;
+        _localY = _r16(addr + 0x0e).rel11;
         break;
     }
   }

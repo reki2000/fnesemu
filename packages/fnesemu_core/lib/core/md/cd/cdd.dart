@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import '../../disc.dart';
 import '../../disc_swap.dart';
 
@@ -256,7 +257,7 @@ class CdDrive {
     _audioPhase += 44100;
     final offset = frame * 4;
     if (offset + 3 >= _audio.length) return (0, 0);
-    int signed(int i) => (_audio[i] | (_audio[i + 1] << 8)).toSigned(16);
+    int signed(int i) => (_audio[i] | (_audio[i + 1] << 8)).rel16;
     return (
       signed(offset) / 32768 * volume,
       signed(offset + 2) / 32768 * volume

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../../util/int.dart';
 
 /// Stamp-map coordinate conversion into the VDP's column-major cell format.
 class CdGraphics {
@@ -30,10 +31,10 @@ class CdGraphics {
     for (int line = 0; line < height; line++) {
       final trace = traceBase + line * 8;
       // Start coordinates have three fractional bits; deltas have eleven.
-      int x = _word(trace).toSigned(16) << 8;
-      int y = _word(trace + 2).toSigned(16) << 8;
-      final dx = _word(trace + 4).toSigned(16);
-      final dy = _word(trace + 6).toSigned(16);
+      int x = _word(trace).rel16 << 8;
+      int y = _word(trace + 2).rel16 << 8;
+      final dx = _word(trace + 4).rel16;
+      final dy = _word(trace + 6).rel16;
       for (int pixel = 0; pixel < width; pixel++, x += dx, y += dy) {
         int sx = x >> 11, sy = y >> 11, color = 0;
         if ((flags & 1) != 0 ||

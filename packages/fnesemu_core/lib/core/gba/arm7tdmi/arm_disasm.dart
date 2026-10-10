@@ -28,7 +28,7 @@ class Arm7Disasm {
     if (kind == 0x5) {
       // 0b101: branch
       final l = op.bit24 ? "l" : "";
-      final off = op.mask24.toSigned(24).shl2;
+      final off = op.rel24.shl2;
       return "b$l$c ${(pc + 8 + off).x8}";
     }
     if (kind == 0x4) return _armBlock(op, c); // 0b100
@@ -233,18 +233,18 @@ class Arm7Disasm {
         }
         if (op & 0x0f00 == 0x0f00) return "swi #${op.mask8}";
         if (op.shr8.mask4 == 14) return '.hword 0x${op.x4}';
-        final off = op.mask8.toSigned(8).shl1;
+        final off = op.rel8.shl1;
         return "b${_cond[op.shr8.mask4]} ${(pc + 4 + off).x8}";
       default: // 7
         if (op & 0xf800 == 0xe000) {
-          final off = op.mask11.toSigned(11).shl1;
+          final off = op.rel11.shl1;
           return "b ${(pc + 4 + off).x8}";
         }
         if (op & 0xf800 == 0xf000 &&
             nextHalfword != null &&
             nextHalfword & 0xf800 == 0xf800) {
           final offset =
-              (op.mask11.toSigned(11) << 12) + ((nextHalfword & 0x7ff) << 1);
+              (op.rel11 << 12) + ((nextHalfword & 0x7ff) << 1);
           return 'bl ${(pc + 4 + offset).mask32.x8}';
         }
         return '.hword 0x${op.x4}';

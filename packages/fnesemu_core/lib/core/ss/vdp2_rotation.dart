@@ -33,12 +33,6 @@ extension on Vdp2 {
     return s / 65536.0;
   }
 
-  @pragma('vm:prefer-inline')
-  static int _sx(int raw, int bits) {
-    final m = (1 << bits) - 1;
-    final v = raw & m;
-    return (v & (1 << (bits - 1))) != 0 ? v - (1 << bits) : v;
-  }
 
   void _readRotParam(_RotParam r, int addr) {
     int l(int off) => vramData.getUint32((addr + off) & 0x7fffc);
@@ -57,12 +51,12 @@ extension on Vdp2 {
     r.d = _fx(l(0x28) & ~0x3f, 20);
     r.e = _fx(l(0x2c) & ~0x3f, 20);
     r.f = _fx(l(0x30) & ~0x3f, 20);
-    r.px = _sx(w(0x34), 14).toDouble();
-    r.py = _sx(w(0x36), 14).toDouble();
-    r.pz = _sx(w(0x38), 14).toDouble();
-    r.cx = _sx(w(0x3c), 14).toDouble();
-    r.cy = _sx(w(0x3e), 14).toDouble();
-    r.cz = _sx(w(0x40), 14).toDouble();
+    r.px = w(0x34).rel14.toDouble();
+    r.py = w(0x36).rel14.toDouble();
+    r.pz = w(0x38).rel14.toDouble();
+    r.cx = w(0x3c).rel14.toDouble();
+    r.cy = w(0x3e).rel14.toDouble();
+    r.cz = w(0x40).rel14.toDouble();
     r.mx = _fx(l(0x44) & ~0x3f, 30);
     r.my = _fx(l(0x48) & ~0x3f, 30);
     r.kx = _fx(l(0x4c), 24);
@@ -146,11 +140,11 @@ extension on Vdp2 {
     if (r.coefWord) {
       final d = vramData.getUint16((index * 2) & 0x7fffe);
       if (d.bit15) return _transparentCoef;
-      return _sx(d, 15) << 6; // 4.10 -> 16.16
+      return d.rel15 << 6; // 4.10 -> 16.16
     }
     final d = vramData.getUint32((index * 4) & 0x7fffc);
     if (d.bit31) return _transparentCoef;
-    return _sx(d, 24); // 8.16
+    return d.rel24; // 8.16
   }
 
   /// returns packed pixel for screen x, or -1 when transparent by coefficient

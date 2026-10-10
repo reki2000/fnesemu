@@ -69,7 +69,7 @@ extension Op on M68 {
 
         case 0x07:
           // moveq
-          final val = op.mask8.rel8.mask32;
+          final val = op.rel8.mask32;
           d[op.shr9 & 0x07] = val;
           nf = val.msb(4);
           zf = val == 0;
@@ -176,7 +176,7 @@ extension Op on M68 {
     final disp = switch (op.mask8) {
       0x00 => pc16().rel16,
       // 0xff => pc32().rel32,
-      _ => op.mask8.rel8
+      _ => op.rel8
     };
 
     if (cc == 0x01) {

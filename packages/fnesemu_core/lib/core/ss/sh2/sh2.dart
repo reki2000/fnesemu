@@ -1,19 +1,10 @@
 import 'dart:typed_data';
-import '../../register_dump.dart';
 
+import '../../../util/int.dart';
+import '../../register_dump.dart';
 import '../cpu.dart';
 import 'disasm.dart';
 import 'onchip.dart';
-
-// sign extensions, same as int.toSigned() but always inlined
-@pragma('vm:prefer-inline')
-int _s8(int x) => ((x & 0xff) ^ 0x80) - 0x80;
-@pragma('vm:prefer-inline')
-int _s12(int x) => ((x & 0xfff) ^ 0x800) - 0x800;
-@pragma('vm:prefer-inline')
-int _s16(int x) => ((x & 0xffff) ^ 0x8000) - 0x8000;
-@pragma('vm:prefer-inline')
-int _s32(int x) => ((x & 0xffffffff) ^ 0x80000000) - 0x80000000;
 
 // SH-2 address space: cache areas and on-chip modules in front of the external bus
 class _Sh2Memory implements SsCpuBus {
@@ -435,13 +426,13 @@ class Sh2 extends SsCpu {
     final n = (op >> 8) & 15, m = (op >> 4) & 15, low = op & 15;
     switch (op >> 12) {
       case 0xe:
-        r[n] = _s8(op & 255);
+        r[n] = op.rel8;
         return true;
       case 7:
-        r[n] += _s8(op & 255);
+        r[n] += op.rel8;
         return true;
       case 9:
-        r[n] = _s16(bus.read16(address + 4 + (op & 255) * 2));
+        r[n] = bus.read16(address + 4 + (op & 255) * 2).rel16;
         return true;
       case 0xd:
         r[n] = bus.read32(((address + 4) & ~3) + (op & 255) * 4);
@@ -453,27 +444,27 @@ class Sh2 extends SsCpu {
         r[n] = bus.read32(r[m] + low * 4);
         return true;
       case 0xa:
-        return _branch(address + 4 + _s12(op) * 2);
+        return _branch(address + 4 + op.rel12 * 2);
       case 0xb:
         if (_inDelay) return false;
         pr = (address + 4) & 0xffffffff;
-        return _branch(address + 4 + _s12(op) * 2);
+        return _branch(address + 4 + op.rel12 * 2);
       case 6:
         final value = r[m];
         switch (low) {
           case 0:
-            r[n] = _s8(bus.read8(value));
+            r[n] = bus.read8(value).rel8;
           case 1:
-            r[n] = _s16(bus.read16(value));
+            r[n] = bus.read16(value).rel16;
           case 2:
             r[n] = bus.read32(value);
           case 3:
             r[n] = value;
           case 4:
-            r[n] = _s8(bus.read8(value));
+            r[n] = bus.read8(value).rel8;
             if (n != m) r[m] += 1;
           case 5:
-            r[n] = _s16(bus.read16(value));
+            r[n] = bus.read16(value).rel16;
             if (n != m) r[m] += 2;
           case 6:
             r[n] = bus.read32(value);
@@ -497,9 +488,9 @@ class Sh2 extends SsCpu {
           case 13:
             r[n] = value & 0xffff;
           case 14:
-            r[n] = _s8(value);
+            r[n] = value.rel8;
           case 15:
-            r[n] = _s16(value);
+            r[n] = value.rel16;
         }
         return true;
       case 2:
@@ -542,7 +533,7 @@ class Sh2 extends SsCpu {
           case 14:
             macl = (r[n] & 0xffff) * (value & 0xffff);
           case 15:
-            macl = (_s16(r[n]) * _s16(value)) & 0xffffffff;
+            macl = (r[n].rel16 * value.rel16) & 0xffffffff;
           default:
             return false;
         }
@@ -555,17 +546,17 @@ class Sh2 extends SsCpu {
           case 2:
             t = a >= b;
           case 3:
-            t = _s32(a) >= _s32(b);
+            t = a.rel32 >= b.rel32;
           case 4:
             _div1(n, b);
           case 5 || 13:
-            final product = low == 5 ? a * b : _s32(a) * _s32(b);
+            final product = low == 5 ? a * b : a.rel32 * b.rel32;
             macl = product & 0xffffffff;
             mach = (product >> 32) & 0xffffffff;
           case 6:
             t = a > b;
           case 7:
-            t = _s32(a) > _s32(b);
+            t = a.rel32 > b.rel32;
           case 8:
             r[n] = a - b;
           case 10:
@@ -591,18 +582,18 @@ class Sh2 extends SsCpu {
         }
         return true;
       case 8:
-        final displacement = _s8(op & 255) * 2;
+        final displacement = op.rel8 * 2;
         switch ((op >> 8) & 15) {
           case 0:
             bus.write8(r[m] + low, r[0]);
           case 1:
             bus.write16(r[m] + low * 2, r[0]);
           case 4:
-            r[0] = _s8(bus.read8(r[m] + low));
+            r[0] = bus.read8(r[m] + low).rel8;
           case 5:
-            r[0] = _s16(bus.read16(r[m] + low * 2));
+            r[0] = bus.read16(r[m] + low * 2).rel16;
           case 8:
-            t = r[0] == (_s8(op & 255) & 0xffffffff);
+            t = r[0] == (op.rel8 & 0xffffffff);
           case 9 || 11 || 13 || 15:
             if (_inDelay) return false;
             final take = (n == 9 || n == 13) ? t : !t;
@@ -626,9 +617,9 @@ class Sh2 extends SsCpu {
             if (_inDelay) return false;
             _exception(imm, pc);
           case 4:
-            r[0] = _s8(bus.read8(gbr + imm));
+            r[0] = bus.read8(gbr + imm).rel8;
           case 5:
-            r[0] = _s16(bus.read16(gbr + imm * 2));
+            r[0] = bus.read16(gbr + imm * 2).rel16;
           case 6:
             r[0] = bus.read32(gbr + imm * 4);
           case 7:
@@ -667,10 +658,10 @@ class Sh2 extends SsCpu {
           macl = (r[n] * r[m]) & 0xffffffff;
           return true;
         case 12:
-          r[n] = _s8(bus.read8(r[m] + r[0]));
+          r[n] = bus.read8(r[m] + r[0]).rel8;
           return true;
         case 13:
-          r[n] = _s16(bus.read16(r[m] + r[0]));
+          r[n] = bus.read16(r[m] + r[0]).rel16;
           return true;
         case 14:
           r[n] = bus.read32(r[m] + r[0]);
@@ -752,7 +743,7 @@ class Sh2 extends SsCpu {
           r[n] >>= 1;
         case 0x21:
           t = r[n].isOdd;
-          r[n] = _s32(r[n]) >> 1;
+          r[n] = r[n].rel32 >> 1;
         case 0x04:
           final carry = (r[n] >> 31) & 1;
           r[n] = (r[n] << 1) | carry;
@@ -785,9 +776,9 @@ class Sh2 extends SsCpu {
           r[n]--;
           t = (r[n] & 0xffffffff) == 0;
         case 0x11:
-          t = _s32(r[n]) >= 0;
+          t = r[n].rel32 >= 0;
         case 0x15:
-          t = _s32(r[n]) > 0;
+          t = r[n].rel32 > 0;
         case 0x0b:
           if (_inDelay) return false;
           pr = address + 4;
@@ -865,9 +856,9 @@ class Sh2 extends SsCpu {
   }
 
   void _macL(int n, int m) {
-    final rn = _s32(bus.read32(r[n]));
+    final rn = bus.read32(r[n]).rel32;
     r[n] = (r[n] + 4) & 0xffffffff;
-    final rm = _s32(bus.read32(r[m]));
+    final rm = bus.read32(r[m]).rel32;
     r[m] = (r[m] + 4) & 0xffffffff;
 
     final product = rn * rm;
@@ -887,15 +878,15 @@ class Sh2 extends SsCpu {
   }
 
   void _macW(int n, int m) {
-    final rn = _s16(bus.read16(r[n]));
+    final rn = bus.read16(r[n]).rel16;
     r[n] = (r[n] + 2) & 0xffffffff;
-    final rm = _s16(bus.read16(r[m]));
+    final rm = bus.read16(r[m]).rel16;
     r[m] = (r[m] + 2) & 0xffffffff;
 
     final product = rn * rm;
     if (_s) {
       // 32-bit saturation, MACH bit 0 flags an overflow
-      int result = _s32(macl) + product;
+      int result = macl.rel32 + product;
       if (result > 0x7fffffff) {
         result = 0x7fffffff;
         mach |= 1;

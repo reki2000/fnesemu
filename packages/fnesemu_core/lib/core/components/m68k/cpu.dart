@@ -258,10 +258,10 @@ class M68 {
     final xn = ex.shr12 & 0x07;
     final size = _bytesByWordLongBit[ex.shr11 & 0x01];
     final x = modeAn ? a[xn] : d[xn];
-    final disp = ex.mask8.rel8;
+    final disp = ex.rel8;
     // debug(
     //     "Ex:${ex.x4}, ${modeAn ? "A$xn" : "X$xn"}, $size, ${x.x8}, ${ex.mask8.x2}");
-    return disp + ((size == 2) ? x.mask16.rel16 : x);
+    return disp + ((size == 2) ? x.rel16 : x);
   }
 
   // preserved the address calulated by readAddr, used by writeAddr

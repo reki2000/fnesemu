@@ -723,9 +723,9 @@ class N64Graphics {
       right++;
       bottom++;
     }
-    final s = st.shr16.toSigned(16) / 32, t = st.mask16.toSigned(16) / 32;
-    final ds = delta.shr16.toSigned(16) / 1024 / (cycle == 2 ? 4 : 1),
-        dt = delta.mask16.toSigned(16) / 1024;
+    final s = st.shr16.rel16 / 32, t = st.rel16 / 32;
+    final ds = delta.shr16.rel16 / 1024 / (cycle == 2 ? 4 : 1),
+        dt = delta.rel16 / 1024;
     for (var y = math.max(scTop, top.ceil());
         y < math.min(scBottom, bottom.ceil());
         y++) {

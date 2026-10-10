@@ -50,7 +50,7 @@ class Vr4300 {
     cop0[12] = 0x34000000;
     cop0[16] = 0x7006e463;
     cop0[15] = 0x00000b22;
-    r[29] = 0x807ffff0.toSigned(32);
+    r[29] = 0x807ffff0.rel32;
   }
 
   void put(int index, int value) => r[index] = value;
@@ -77,7 +77,6 @@ class Vr4300 {
   }
 
   int address(int value) => value.mask32;
-  int signed16(int value) => value.mask16.toSigned(16);
 
   void aligned(int address, int size) {
     if (address % size != 0) throw UnsupportedError('Unaligned N64 access');
@@ -130,7 +129,7 @@ class Vr4300 {
       }
       final s = op.shr21.mask5, t = op.shr16.mask5;
       final d = op.shr11.mask5, shift = op.shr6.mask5;
-      final immediate = signed16(op);
+      final immediate = op.rel16;
       late final a = (lowWord(s) + immediate).mask32;
       void branch(bool condition, {bool likely = false}) {
         _delay = true;
@@ -233,8 +232,8 @@ class Vr4300 {
               final x = unsigned ? r[s].mask32 : lowWord(s);
               final y = unsigned ? r[t].mask32 : lowWord(t);
               final product = x * y; // wraps modulo 2^64: low 64 bits exact
-              lo = product.toSigned(32);
-              hi = (product >> 32).toSigned(32);
+              lo = product.rel32;
+              hi = (product >> 32).rel32;
             case 26:
             case 27:
               final unsigned = op.mask6 == 27;
@@ -242,10 +241,10 @@ class Vr4300 {
               final y = unsigned ? r[t].mask32 : lowWord(t);
               if (y == 0) {
                 lo = unsigned || x >= 0 ? -1 : 1;
-                hi = x.toSigned(32);
+                hi = x.rel32;
               } else {
-                lo = (x ~/ y).toSigned(32);
-                hi = x.remainder(y).toSigned(32);
+                lo = (x ~/ y).rel32;
+                hi = x.remainder(y).rel32;
               }
             case 28:
             case 29:

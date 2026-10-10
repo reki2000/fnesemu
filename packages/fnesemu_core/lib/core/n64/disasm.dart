@@ -1,4 +1,6 @@
 /// VR4300 (MIPS III) instruction formatting; never reads machine state.
+import '../../util/int.dart';
+
 class Vr4300Disasm {
   static String _hex(int value) =>
       '0x${(value & 0xffffffff).toRadixString(16).padLeft(8, '0')}';
@@ -39,7 +41,7 @@ class Vr4300Disasm {
   static String disasm(int word, int pc) {
     final op = word >>> 26, rs = word >>> 21 & 31, rt = word >>> 16 & 31;
     final rd = word >>> 11 & 31, sa = word >>> 6 & 31, fn = word & 63;
-    final immediate = word & 0xffff, signed = immediate.toSigned(16);
+    final immediate = word & 0xffff, signed = immediate.rel16;
     final branch = _hex(pc + 4 + signed * 4);
     String memory(String name, {bool floating = false}) =>
         '$name ${floating ? "f" : "r"}$rt, $signed(r$rs)';

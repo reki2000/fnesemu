@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/int.dart';
 import 'bus.dart';
 
 /// Super FX (GSU): a cartridge risc cpu which draws polygons into its own
@@ -392,8 +393,6 @@ class SuperFx {
     return source;
   }
 
-  static int _s8(int v) => (v & 0x7f) - (v & 0x80);
-  static int _s16(int v) => (v & 0x7fff) - (v & 0x8000);
 
   // ---------------------------------------------------------- instructions
   void _instruction(int op) {
@@ -472,7 +471,7 @@ class SuperFx {
       case 0x8: // MULT / UMULT
         final operand = _alt2 ? n : r[n];
         final v = (!_alt1
-                ? _s8(_sr & 0xff) * _s8(operand & 0xff)
+                ? _sr.rel8 * operand.rel8
                 : (_sr & 0xff) * (operand & 0xff)) &
             0xffff;
         _setSZ(v);
@@ -491,7 +490,7 @@ class SuperFx {
           _ramWrite(_ramaddr, r[n] & 0xff);
           _ramWrite(_ramaddr ^ 1, r[n] >> 8);
         } else {
-          _setR(n, _s8(_pipe()) & 0xffff);
+          _setR(n, _pipe().rel8 & 0xffff);
         }
         _resetPrefix();
       case 0xb: // FROM / MOVES
@@ -545,7 +544,7 @@ class SuperFx {
           final v = _romdr;
           _clock += _memoryClocks;
           if (_alt1 && _alt2) {
-            _setDr(_s8(v) & 0xffff);
+            _setDr(v.rel8 & 0xffff);
           } else if (_alt1) {
             _setDr(v << 8 | (_sr & 0xff));
           } else if (_alt2) {
@@ -603,7 +602,7 @@ class SuperFx {
         _setDr(v);
         _resetPrefix();
       default: // branches
-        final e = _s8(_pipe());
+        final e = _pipe().rel8;
         final take = switch (op) {
           0x05 => true,
           0x06 => _s == _ov,
@@ -668,13 +667,13 @@ class SuperFx {
       case <= 0x4: // LINK
         _setR(11, (r[15] + n) & 0xffff);
       case 0x5: // SEX
-        final v = _s8(_sr & 0xff) & 0xffff;
+        final v = _sr.rel8 & 0xffff;
         _setSZ(v);
         _setDr(v);
       case 0x6: // ASR / DIV2
         final sr = _sr;
         _cy = sr & 1 != 0;
-        final v = ((_s16(sr) >> 1) + (_alt1 ? (sr + 1) >> 16 : 0)) & 0xffff;
+        final v = ((sr.rel16 >> 1) + (_alt1 ? (sr + 1) >> 16 : 0)) & 0xffff;
         _setSZ(v);
         _setDr(v);
       case 0x7: // ROR
@@ -698,7 +697,7 @@ class SuperFx {
         _z = v == 0;
         _setDr(v);
       default: // FMULT / LMULT
-        final v = _s16(_sr) * _s16(r[6]);
+        final v = _sr.rel16 * r[6].rel16;
         if (_alt1) {
           _setR(4, v & 0xffff);
           _setDr((v >> 16) & 0xffff);

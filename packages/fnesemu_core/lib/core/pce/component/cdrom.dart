@@ -570,7 +570,7 @@ class PceCdrom {
       final unsigned = offset + 1 < _audioSector.length
           ? _audioSector[offset] | _audioSector[offset + 1].shl8
           : 0;
-      _pcm[channel] = unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
+      _pcm[channel] = unsigned.rel16;
     }
     _audioOffset += 4;
     if (_audioOffset >= Disc.sectorSize) {

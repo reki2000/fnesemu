@@ -30,7 +30,7 @@ class N64Audio {
   }
 
   int read(int a) =>
-      (memory[a.mask16].shl8 | memory[(a + 1).mask16]).toSigned(16);
+      (memory[a.mask16].shl8 | memory[(a + 1).mask16]).rel16;
   void write(int a, int v) {
     v = v.clamp(-32768, 32767);
     memory[a.mask16] = v.shr8;
@@ -117,20 +117,20 @@ class N64Audio {
         case 9:
           if (shindou) throw UnsupportedError('Shindou audio opcode 9');
           if (flags.bit3) {
-            dryVol = w0.mask16.toSigned(16);
-            wetVol = low.toSigned(16);
+            dryVol = w0.rel16;
+            wetVol = low.rel16;
           } else if (flags.bit2) {
             if (flags.bit1) {
-              leftVol = w0.mask16.toSigned(16);
+              leftVol = w0.rel16;
             } else {
-              rightVol = w0.mask16.toSigned(16);
+              rightVol = w0.rel16;
             }
           } else if (flags.bit1) {
-            leftTarget = w0.mask16.toSigned(16);
-            leftRate = w1.toSigned(32);
+            leftTarget = w0.rel16;
+            leftRate = w1.rel32;
           } else {
-            rightTarget = w0.mask16.toSigned(16);
-            rightRate = w1.toSigned(32);
+            rightTarget = w0.rel16;
+            rightRate = w1.rel32;
           }
         case 10:
           final source = w0.mask16, bytes = (low + 15) & ~15;
@@ -142,10 +142,10 @@ class N64Audio {
             throw StateError('ADPCM predictor table overflow');
           }
           for (var i = 0; i < n; i++) {
-            book[i] = bus.ramRead(addr(w1) + i * 2, 2).toSigned(16);
+            book[i] = bus.ramRead(addr(w1) + i * 2, 2).rel16;
           }
         case 12:
-          mix(high, low, shindou ? flags * 16 : count, w0.mask16.toSigned(16));
+          mix(high, low, shindou ? flags * 16 : count, w0.rel16);
         case 13:
           final dest = shindou ? w0.mask16 : output,
               bytes = shindou ? flags * 16 : count;
@@ -171,9 +171,9 @@ class N64Audio {
           }
         case 18:
           reverb = flags.shl8;
-          reverbRamp = w0.mask16.toSigned(16);
-          leftRamp = high.toSigned(16);
-          rightRamp = low.toSigned(16);
+          reverbRamp = w0.rel16;
+          leftRamp = high.rel16;
+          rightRamp = low.rel16;
         case 19:
           final source = flags.shl4, n = (w0.shr8.mask8 + 15) & ~15;
           final dl = w1.shr24.mask8.shl4,
@@ -237,7 +237,7 @@ class N64Audio {
     if (!flags.bit0) {
       for (var i = 0; i < 16; i++) {
         history[i] =
-            bus.ramRead((flags.bit1 ? loop : state) + i * 2, 2).toSigned(16);
+            bus.ramRead((flags.bit1 ? loop : state) + i * 2, 2).rel16;
       }
     }
     for (var i = 0; i < 16; i++) {
@@ -247,7 +247,7 @@ class N64Audio {
     for (var block = 0; block < (count + 31) ~/ 32; block++) {
       if (signed8) {
         for (var i = 0; i < 16; i++) {
-          history[i] = memory[src++].toSigned(8).shl8;
+          history[i] = memory[src++].rel8.shl8;
           write(dst, history[i]);
           dst += 2;
         }
@@ -262,7 +262,7 @@ class N64Audio {
       final residual = List<int>.generate(16, (i) {
         final nibble =
             i.isEven ? memory[src + i ~/ 2].shr4 : memory[src + i ~/ 2].mask4;
-        return nibble.toSigned(4).shl(scale.clamp(0, 12));
+        return nibble.rel4.shl(scale.clamp(0, 12));
       });
       src += 8;
       for (var group = 0; group < 2; group++) {
@@ -298,7 +298,7 @@ class N64Audio {
     if (!nearest) {
       for (var i = 0; i < 4; i++) {
         write(base + i * 2,
-            flags.bit0 ? 0 : bus.ramRead(state + i * 2, 2).toSigned(16));
+            flags.bit0 ? 0 : bus.ramRead(state + i * 2, 2).rel16);
       }
     }
     var pos = nearest ? input : base;

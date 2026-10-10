@@ -29,7 +29,7 @@ extension ArmAlu on Arm7 {
             return _shiftC ? 0xffffffff : 0;
           }
           _shiftC = v.shr(amount - 1).bit0;
-          return v.toSigned(32).shr(amount).mask32;
+          return v.rel32.shr(amount).mask32;
         default: // 3: ROR (#0 means RRX)
           if (amount == 0) {
             final cin = regs.cf ? 1 : 0;
@@ -68,7 +68,7 @@ extension ArmAlu on Arm7 {
         case 2: // ASR
           if (amount < 32) {
             _shiftC = v.shr(amount - 1).bit0;
-            return v.toSigned(32).shr(amount).mask32;
+            return v.rel32.shr(amount).mask32;
           }
           _shiftC = v.bit31;
           return _shiftC ? 0xffffffff : 0;

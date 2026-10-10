@@ -1,4 +1,6 @@
 /// SH-2 disassembler
+import '../../../util/int.dart';
+
 class Sh2Disasm {
   static String _h(int v) => '0x${(v & 0xffffffff).toRadixString(16)}';
 
@@ -7,7 +9,7 @@ class Sh2Disasm {
     final m = (op >> 4) & 15;
     final d4 = op & 15;
     final i8 = op & 255;
-    final s8 = i8.toSigned(8);
+    final s8 = i8.rel8;
 
     String disp8() => _h(pc + 4 + s8 * 2);
     String pcrel(int scale) =>
@@ -185,9 +187,9 @@ class Sh2Disasm {
       case 0x9:
         return 'mov.w @(${pcrel(2)}),r$n';
       case 0xa:
-        return 'bra ${_h(pc + 4 + (op & 0xfff).toSigned(12) * 2)}';
+        return 'bra ${_h(pc + 4 + op.rel12 * 2)}';
       case 0xb:
-        return 'bsr ${_h(pc + 4 + (op & 0xfff).toSigned(12) * 2)}';
+        return 'bsr ${_h(pc + 4 + op.rel12 * 2)}';
       case 0xc:
         return switch (n) {
           0x0 => 'mov.b r0,@($i8,gbr)',

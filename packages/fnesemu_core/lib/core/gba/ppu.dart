@@ -106,17 +106,17 @@ class Ppu {
   }
 
   void _latchAffine(int i) {
-    _refX[i] = _io32(0x028 + i * 0x10).toSigned(28);
-    _refY[i] = _io32(0x02c + i * 0x10).toSigned(28);
+    _refX[i] = _io32(0x028 + i * 0x10).rel28;
+    _refY[i] = _io32(0x02c + i * 0x10).rel28;
     bus.affineRefDirty[i] = false;
   }
 
   void _advanceAffine() {
     // dmx/dmy = BGxPB / BGxPD
-    _refX[0] += _io16(0x022).toSigned(16);
-    _refY[0] += _io16(0x026).toSigned(16);
-    _refX[1] += _io16(0x032).toSigned(16);
-    _refY[1] += _io16(0x036).toSigned(16);
+    _refX[0] += _io16(0x022).rel16;
+    _refY[0] += _io16(0x026).rel16;
+    _refX[1] += _io16(0x032).rel16;
+    _refY[1] += _io16(0x036).rel16;
   }
 
   void _renderBackgrounds(int mode, int dispcnt, int line) {
@@ -236,8 +236,8 @@ class Ppu {
     final tilesWide = 16 << size;
 
     final i = bg - 2;
-    final pa = _io16(0x20 + i * 0x10).toSigned(16);
-    final pc = _io16(0x24 + i * 0x10).toSigned(16);
+    final pa = _io16(0x20 + i * 0x10).rel16;
+    final pc = _io16(0x24 + i * 0x10).rel16;
 
     int cx = _refX[i];
     int cy = _refY[i];
@@ -272,8 +272,8 @@ class Ppu {
     final cnt = _io16(0x0c); // BG2CNT
     final priority = cnt.mask2;
 
-    final pa = _io16(0x20).toSigned(16);
-    final pc = _io16(0x24).toSigned(16);
+    final pa = _io16(0x20).rel16;
+    final pc = _io16(0x24).rel16;
     int cx = _refX[0];
     int cy = _refY[0];
 
@@ -381,10 +381,10 @@ class Ppu {
       bool hflip = false, vflip = false;
       if (affine) {
         final p = a1.shr9.mask5;
-        pa = _oam16(p * 0x20 + 0x06).toSigned(16);
-        pb = _oam16(p * 0x20 + 0x0e).toSigned(16);
-        pc = _oam16(p * 0x20 + 0x16).toSigned(16);
-        pd = _oam16(p * 0x20 + 0x1e).toSigned(16);
+        pa = _oam16(p * 0x20 + 0x06).rel16;
+        pb = _oam16(p * 0x20 + 0x0e).rel16;
+        pc = _oam16(p * 0x20 + 0x16).rel16;
+        pd = _oam16(p * 0x20 + 0x1e).rel16;
       } else {
         hflip = a1.bit12;
         vflip = a1.bit13;

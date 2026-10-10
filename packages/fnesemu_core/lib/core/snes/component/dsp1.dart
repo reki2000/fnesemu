@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../../../util/int.dart';
 import '../rom/snes_file.dart';
 
 /// DSP-1: a cartridge math coprocessor. The main cpu writes a command byte
@@ -70,7 +71,7 @@ class Dsp1 {
       _outputIndex = 0;
       if (_isRaster(_command)) {
         // the raster command goes on with the next line until a new command
-        _input[0] = _s16(_input[0] + 1);
+        _input[0] = (_input[0] + 1).rel16;
         _output = _execute();
       } else {
         _state = _waitCommand;
@@ -87,7 +88,7 @@ class Dsp1 {
         return;
       }
       _highByte = false;
-      _input[_inputIndex++] = _s16(_lowByte | data << 8);
+      _input[_inputIndex++] = (_lowByte | data << 8).rel16;
       if (_inputIndex < _inputCount) return;
       _output = _execute();
       _outputIndex = 0;
@@ -153,18 +154,18 @@ class Dsp1 {
     final i = _input;
     switch (_command) {
       case 0x00 || 0x20: // multiply
-        return [_s16(i[0] * i[1] >> 15)];
+        return [(i[0] * i[1] >> 15).rel16];
       case 0x10 || 0x30:
         final (c, e) = _inverse(i[0], i[1]);
         return [c, e];
       case 0x04 || 0x24: // triangle
-        return [_s16(i[1] * _sin(i[0]) >> 15), _s16(i[1] * _cos(i[0]) >> 15)];
+        return [(i[1] * _sin(i[0]) >> 15).rel16, (i[1] * _cos(i[0]) >> 15).rel16];
       case 0x08: // radius
         final size = ((i[0] * i[0] + i[1] * i[1] + i[2] * i[2]) << 1);
-        return [_s16(size), _s16(size >> 16)];
+        return [size.rel16, (size >> 16).rel16];
       case 0x18 || 0x38: // range
         return [
-          _s16((i[0] * i[0] + i[1] * i[1] + i[2] * i[2] - i[3] * i[3]) >> 15)
+          ((i[0] * i[0] + i[1] * i[1] + i[2] * i[2] - i[3] * i[3]) >> 15).rel16
         ];
       case 0x28: // distance
         final d = math.sqrt(i[0] * i[0] + i[1] * i[1] + i[2] * i[2]);
@@ -172,8 +173,8 @@ class Dsp1 {
       case 0x0c || 0x2c: // rotate
         final s = _sin(i[0]), c = _cos(i[0]);
         return [
-          _s16((i[2] * s >> 15) + (i[1] * c >> 15)),
-          _s16((i[2] * c >> 15) - (i[1] * s >> 15)),
+          ((i[2] * s >> 15) + (i[1] * c >> 15)).rel16,
+          ((i[2] * c >> 15) - (i[1] * s >> 15)).rel16,
         ];
       case 0x1c || 0x3c:
         return _polar(i);
@@ -224,7 +225,6 @@ class Dsp1 {
   }
 
   // ----------------------------------------------------------- arithmetic
-  static int _s16(int v) => ((v & 0xffff) ^ 0x8000) - 0x8000;
 
   static int _clip(num v) {
     if (v.isNaN) return 0;
@@ -261,7 +261,7 @@ class Dsp1 {
     } else {
       result = sign * ((1 << 29) ~/ coefficient);
     }
-    return (result, _s16(1 - exponent));
+    return (result, (1 - exponent).rel16);
   }
 
   // the rotation matrices of the manual, for a row vector times them
@@ -326,18 +326,18 @@ class Dsp1 {
   // rotation being its transpose
   List<int> _objective(List<List<int>> m, List<int> i) => [
         for (var r = 0; r < 3; r++)
-          _s16((i[0] * m[r][0] + i[1] * m[r][1] + i[2] * m[r][2]) >> 16),
+          ((i[0] * m[r][0] + i[1] * m[r][1] + i[2] * m[r][2]) >> 16).rel16,
       ];
 
   // equation 5-11: 1/2 (F, L, U) M = (X, Y, Z)
   List<int> _subjective(List<List<int>> m, List<int> i) => [
         for (var c = 0; c < 3; c++)
-          _s16((i[0] * m[0][c] + i[1] * m[1][c] + i[2] * m[2][c]) >> 16),
+          ((i[0] * m[0][c] + i[1] * m[1][c] + i[2] * m[2][c]) >> 16).rel16,
       ];
 
   // equation 5-12: the inner product with the first row of M
   List<int> _scalar(List<List<int>> m, List<int> i) =>
-      [_s16((i[0] * m[0][0] + i[1] * m[0][1] + i[2] * m[0][2]) >> 15)];
+      [((i[0] * m[0][0] + i[1] * m[0][1] + i[2] * m[0][2]) >> 15).rel16];
 
   // equation 5-13
   List<int> _gyrate(List<int> i) {
@@ -347,7 +347,7 @@ class Dsp1 {
     final rz = az + _clip((u * cy - f * sy) / cx);
     final rx = ax + (u * _sin(ay) >> 15) + (f * _cos(ay) >> 15);
     final ry = ay + _clip(-(u * cy + f * sy) * sx / cx) + l;
-    return [_s16(rz), _s16(rx), _s16(ry)];
+    return [rz.rel16, rx.rel16, ry.rel16];
   }
 
   // ------------------------------------------------------------ projection

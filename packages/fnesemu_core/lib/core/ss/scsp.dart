@@ -479,7 +479,7 @@ class Scsp {
           break;
         case 1:
           s.lfsr = (s.lfsr >> 1) ^ (-(s.lfsr & 1) & 0xb400);
-          smp = (s.lfsr & 0xffff).rel16;
+          smp = s.lfsr.rel16;
           break;
         default:
           smp = 0;
