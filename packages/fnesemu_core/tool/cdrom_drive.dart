@@ -50,9 +50,7 @@ class SimpleCdromDrive implements CdromDrive {
   /// opens the tray, and removes the disc
   Future<void> eject() async {
     _change(CdromDriveState.trayOpen);
-    final old = _image;
     _image = null;
-    await old?.close();
   }
 
   /// closes the tray with the disc [source], or without a disc if null
@@ -65,9 +63,8 @@ class SimpleCdromDrive implements CdromDrive {
 
     final discId = _change(CdromDriveState.loading);
     try {
-      final image = await DiscImage.open(source);
+      final image = await parseSource(source);
       if (discId != _discId) {
-        await image.close();
         return;
       }
       _image = image;
@@ -77,7 +74,6 @@ class SimpleCdromDrive implements CdromDrive {
       ], image.totalSectors);
       _change(CdromDriveState.ready);
     } catch (e) {
-      await source.close();
       if (discId == _discId) _change(CdromDriveState.error);
     }
   }

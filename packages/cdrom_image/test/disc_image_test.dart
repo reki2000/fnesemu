@@ -1,14 +1,14 @@
 import 'dart:typed_data';
 
-import 'package:cdrom_image/disc_image.dart';
-import 'package:cdrom_image/disc_source.dart';
+import 'package:cdrom_image/cdrom_image.dart';
+import 'package:cdrom_image/disc_image.dart' show ParsedDiscImage;
 import 'package:cdrom_image/memory.dart';
 import 'package:test/test.dart';
 
 const size = DiscImage.sectorSize;
 
 Future<DiscImage> insert(String main, Map<String, Uint8List> files) =>
-    DiscImage.open(memoryDisc(main, {
+    parseSource(memoryDisc(main, {
       for (final e in files.entries) e.key: MemoryDiscFile(e.key, e.value)
     }));
 
@@ -41,6 +41,92 @@ void main() {
     expect(DiscFileKind.of('game.md'), DiscFileKind.notImage);
   });
 
+  test('parse accepts walked files and resolves nested CUE paths in any order',
+      () async {
+    final directory = MemoryDirectory.of({
+      'second/track.bin': makeBin(2, id: 42),
+      'first/disc.cue': Uint8List.fromList(
+          'FILE "TRACK.BIN" BINARY\n TRACK 01 MODE1/2352\n INDEX 01 00:00:00'
+              .codeUnits),
+      'second/disc.cue': Uint8List.fromList(
+          'FILE "track.bin" BINARY\n TRACK 01 MODE1/2352\n INDEX 01 00:00:00'
+              .codeUnits),
+      'first/track.bin': makeBin(1, id: 7),
+    });
+    final files = await directory.walk().toList();
+    final (first, firstFiles) = await DiscImage.parse(
+        directory, files.singleWhere((file) => file.path == 'first/disc.cue'));
+    final (second, secondFiles) = await DiscImage.parse(
+        directory, files.singleWhere((file) => file.path == 'second/disc.cue'));
+    expect((await first.readSectors(0, 1)).single[100], 7);
+    expect((await second.readSectors(0, 1)).single[100], 42);
+    expect(firstFiles.map((file) => file.path), ['first/track.bin']);
+    expect(secondFiles.map((file) => file.path), ['second/track.bin']);
+    expect(first.totalSectors, 1);
+    expect(second.totalSectors, 2);
+  });
+
+  test(
+      'factory returns distinct referenced files and no files for a standalone image',
+      () async {
+    final directory = MemoryDirectory.of({
+      'disc.cue': Uint8List.fromList(('FILE "track.bin" BINARY\n'
+              ' TRACK 01 MODE1/2352\n INDEX 01 00:00:00\n'
+              'FILE "TRACK.BIN" BINARY\n'
+              ' TRACK 02 AUDIO\n INDEX 01 00:00:00')
+          .codeUnits),
+      'track.bin': makeBin(2),
+      'standalone.iso': Uint8List(2048),
+    });
+    final files = await directory.walk().toList();
+    final (disc, referenced) = await DiscImage.parse(directory, files[0]);
+    expect(disc.toc.tracks.length, 2);
+    expect(referenced, [files[1]]);
+    expect(await referenced.single.length(), size * 2);
+    expect(() => referenced.clear(), throwsUnsupportedError);
+    final (iso, isoFiles) = await DiscImage.parse(directory, files[2]);
+    expect(iso.totalSectors, 1);
+    expect(isoFiles, isEmpty);
+  });
+
+  test('missing references and invalid descriptions produce structured errors',
+      () async {
+    final directory = MemoryDirectory.of({
+      'disc.cue': Uint8List.fromList(('FILE "missing.bin" BINARY\n'
+              ' TRACK 01 MODE1/2352\n INDEX 01 00:00:00')
+          .codeUnits),
+      'invalid.cue': Uint8List.fromList('FILE "empty.bin" BINARY'.codeUnits),
+    });
+    final files = await directory.walk().toList();
+    await expectLater(
+        DiscImage.parse(directory, files[0]),
+        throwsA(isA<DiscParseException>()
+            .having((error) => error.imagePath, 'image path', 'disc.cue')
+            .having(
+                (error) => error.referencedPath, 'reference', 'missing.bin')));
+    await expectLater(
+        DiscImage.parse(directory, files[1]),
+        throwsA(isA<DiscParseException>()
+            .having((error) => error.imagePath, 'image path', 'invalid.cue')
+            .having((error) => error.cause, 'cause', isA<FormatException>())));
+  });
+
+  test('malformed gap fields report parse errors rather than indexing errors',
+      () async {
+    for (final gap in ['PREGAP', 'POSTGAP']) {
+      final directory = MemoryDirectory.of({
+        'disc.cue': Uint8List.fromList(('FILE "track.bin" BINARY\n'
+                ' TRACK 01 MODE1/2352\n $gap')
+            .codeUnits),
+        'track.bin': makeBin(1),
+      });
+      await expectLater(
+          DiscImage.parse(directory, directory.files['disc.cue']!),
+          throwsA(isA<DiscParseException>().having(
+              (error) => error.cause, 'cause', isA<FormatException>())));
+    }
+  });
+
   group('cooked images', () {
     test('.iso of 2048 bytes/sector is expanded to raw mode 1 sectors',
         () async {
@@ -49,7 +135,7 @@ void main() {
 
       final s = await read(image, 2);
       expect(s.length, size);
-      expect(s.sublist(0, 12), DiscImage.sync);
+      expect(s.sublist(0, 12), ParsedDiscImage.sync);
       expect(s.sublist(12, 16), [0, 2, 2, 1]); // 00:02:02 mode 1
       expect(s.sublist(16, 16 + 2048).every((b) => b == 3), true);
     });
@@ -63,7 +149,7 @@ void main() {
     });
 
     test('a raw image starting with the sync pattern is not cooked', () async {
-      final raw = Uint8List(2352 * 4)..setRange(0, 12, DiscImage.sync);
+      final raw = Uint8List(2352 * 4)..setRange(0, 12, ParsedDiscImage.sync);
       final image = await insert("a.iso", {"a.iso": raw});
       expect(image.totalSectors, 4);
       expect(await read(image, 0), raw.sublist(0, 2352));
@@ -108,7 +194,7 @@ FILE "disc.bin" BINARY
 
   group('DiscImage', () {
     test('iso: single data track', () async {
-      final image = await DiscImage.open(memoryDisc(
+      final image = await parseSource(memoryDisc(
           "a.iso", {"a.iso": MemoryDiscFile("a.iso", makeBin(100))}));
       expect(image.toc.tracks.single.isAudio, false);
       expect(image.totalSectors, 100);
@@ -128,7 +214,7 @@ FILE "a.bin" BINARY
     PREGAP 00:00:05
     INDEX 01 00:01:50
 ''';
-      final image = await DiscImage.open(memoryDisc("a.cue", {
+      final image = await parseSource(memoryDisc("a.cue", {
         "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
         "a.bin": MemoryDiscFile("a.bin", makeBin(200)),
       }));
@@ -137,7 +223,7 @@ FILE "a.bin" BINARY
       expect([for (final t in toc.tracks) t.isAudio], [false, true, true]);
       expect(toc.totalSectors, 205);
 
-      final segs = image.segments(120, 20);
+      final segs = (image as ParsedDiscImage).segments(120, 20);
       expect([
         for (final s in segs) (s.lba, s.count, s.file != null, s.fileSector)
       ], [
@@ -157,7 +243,7 @@ FILE "t2.bin" BINARY
     INDEX 00 00:00:00
     INDEX 01 00:02:00
 ''';
-      final image = await DiscImage.open(memoryDisc("a.cue", {
+      final image = await parseSource(memoryDisc("a.cue", {
         "a.cue": MemoryDiscFile("a.cue", Uint8List.fromList(cue.codeUnits)),
         "t1.bin": MemoryDiscFile("t1.bin", makeBin(300)),
         "t2.bin": MemoryDiscFile("t2.bin", makeBin(400)),
@@ -165,8 +251,8 @@ FILE "t2.bin" BINARY
       expect([for (final t in image.toc.tracks) t.startLba], [0, 450]);
       expect([for (final t in image.toc.tracks) t.sectors], [450, 250]);
       expect(image.totalSectors, 700);
-      final seg = image.segments(450, 1).single;
-      expect(seg.file!.name, "t2.bin");
+      final seg = (image as ParsedDiscImage).segments(450, 1).single;
+      expect(seg.file!.path, "t2.bin");
       expect(seg.fileSector, 150);
     });
   });

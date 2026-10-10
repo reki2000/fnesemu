@@ -90,9 +90,7 @@ class AsyncCdromDrive implements CdromDrive {
   /// opens the tray, returns the disc id of the status
   Future<int> _openTray() async {
     final discId = _changeDisc(CdromDriveState.trayOpen);
-    final old = _image;
     _image = null;
-    await old?.close();
     return discId;
   }
 
@@ -105,15 +103,13 @@ class AsyncCdromDrive implements CdromDrive {
     }
 
     if (discId != _discId) {
-      await next.close();
       return;
     }
     final loadingId = _changeDisc(CdromDriveState.loading);
 
     try {
-      final image = await DiscImage.open(next);
+      final image = await parseSource(next);
       if (loadingId != _discId) {
-        await image.close();
         return;
       }
       _image = image;
@@ -129,7 +125,6 @@ class AsyncCdromDrive implements CdromDrive {
       _changeDisc(CdromDriveState.ready);
     } catch (e) {
       debugLog("cdrom: failed to read TOC of ${next.name}: $e");
-      await next.close();
       if (loadingId == _discId) {
         _changeDisc(CdromDriveState.error);
       }

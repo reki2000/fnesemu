@@ -14,7 +14,7 @@ String cue(List<String> names) => [
 final bin = Uint8List(2352 * 4);
 
 DiscFolder folder(Map<String, Uint8List> files) =>
-    DiscFolder(MemoryDirectory.of(files), files.keys);
+    DiscFolder(MemoryDirectory.of(files).files.values);
 
 void main() {
   test('the files a cue refers to are found', () async {
@@ -58,8 +58,7 @@ void main() {
   });
 
   test('an unreadable cue throws', () async {
-    expect(DiscFolder(MemoryDirectory.of({}), ["lost.cue"]).parse("lost.cue"),
-        throwsA(anything));
+    expect(DiscFolder([]).parse("lost.cue"), throwsA(anything));
   });
 
   test('an iso or a bin is an image by itself', () async {
@@ -73,8 +72,7 @@ void main() {
       "g/game.cue": text(cue(["GAME.BIN"])),
       "g/game.bin": bin,
     }).parse("g/game.cue");
-    final disc = await DiscImage.open(image.open());
+    final disc = await parseSource(image.open());
     expect(disc.totalSectors, 4);
-    await disc.close();
   });
 }

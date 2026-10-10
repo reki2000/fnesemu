@@ -96,9 +96,8 @@ void main() {
       "g/game.bin": bin,
     });
     final r = await RomScanner.scan(folder);
-    final image = await DiscImage.open(r.sourceOf(r.items.single));
+    final image = await parseSource(r.sourceOf(r.items.single));
     expect(image.totalSectors, 4);
-    await image.close();
   });
 
   test('a local directory lists the files recursively', () async {
@@ -112,8 +111,7 @@ void main() {
     final r = await RomScanner.scan(IoDirectory(dir.path));
     expect(r.items.map((i) => i.path), ["a/b/x.cue", "y.iso"]);
 
-    final image = await DiscImage.open(r.sourceOf(r.items.first));
+    final image = await parseSource(r.sourceOf(r.items.first));
     expect(image.totalSectors, 4);
-    await image.close();
   });
 }

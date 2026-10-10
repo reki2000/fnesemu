@@ -1,0 +1,63 @@
+import 'dart:typed_data';
+
+import 'disc_image.dart' as parser;
+import 'filesystem_api.dart';
+
+class DiscTrack {
+  final int number; // 1..
+  final bool isAudio;
+  final int startLba; // LBA of INDEX 01, without 2 seconds of lead-in
+  final int sectors;
+
+  const DiscTrack(this.number, this.isAudio, this.startLba, this.sectors);
+
+  @override
+  String toString() =>
+      "track $number ${isAudio ? "audio" : "data"} lba:$startLba sectors:$sectors";
+}
+
+class DiscToc {
+  final List<DiscTrack> tracks;
+
+  /// number of sectors of the disc, from LBA 0 (without lead-in)
+  final int totalSectors;
+
+  const DiscToc(this.tracks, this.totalSectors);
+
+  static const empty = DiscToc([], 0);
+}
+
+/// A description cannot be parsed or a referenced track cannot be resolved.
+class DiscParseException implements Exception {
+  final String imagePath;
+  final String message;
+  final String? referencedPath;
+  final Object? cause;
+
+  const DiscParseException(this.imagePath, this.message,
+      {this.referencedPath, this.cause});
+
+  @override
+  String toString() => 'DiscParseException: $imagePath: $message';
+}
+
+/// Format-independent access to a parsed CD-ROM image.
+abstract interface class DiscImage {
+  static const sectorSize = 2352;
+
+  /// Async factory. [file.path] is relative to [directory].
+  /// Returns the image and distinct referenced files, excluding [file].
+  /// Standalone images have no referenced files.
+  /// Throws [DiscParseException] for invalid descriptions or missing references.
+  static Future<(DiscImage, List<DiscFile>)> parse(
+          DiscDirectory directory, DiscFile file) =>
+      parser.parse(directory, file);
+
+  DiscToc get toc;
+  int get totalSectors;
+  bool isReadable(int lba);
+
+  /// Reads raw sectors starting at LBA zero, without the lead-in.
+  /// The requested range must be inside [totalSectors].
+  Future<List<Uint8List>> readSectors(int lba, int count);
+}

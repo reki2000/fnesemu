@@ -1,25 +1,35 @@
-// gives the files of mp_bigfile_picker to the cdrom_image package
+// Adapts picker files to the resource-free virtual file API.
 import 'dart:typed_data';
 
-import 'package:cdrom_image/cdrom_image.dart';
+import 'package:cdrom_image/filesystem_api.dart';
 import 'package:mp_bigfile_picker/api.dart';
 
 class PickedDiscFile extends DiscFile {
-  final RandomReadFile file;
+  @override
+  final String path;
+  final RandomReadFile Function() _file;
 
-  PickedDiscFile(this.file);
+  PickedDiscFile(this.path, this._file);
 
   @override
-  String get name => file.name;
+  Future<int> length() async {
+    final file = _file();
+    try {
+      return await file.length();
+    } finally {
+      await file.close();
+    }
+  }
 
   @override
-  Future<int> length() => file.length();
-
-  @override
-  Future<Uint8List> read(int offset, int length) => file.read(offset, length);
-
-  @override
-  Future<void> close() => file.close();
+  Future<Uint8List> read(int offset, int length) async {
+    final file = _file();
+    try {
+      return await file.read(offset, length);
+    } finally {
+      await file.close();
+    }
+  }
 }
 
 class PickedDiscDirectory extends DiscDirectory {
@@ -28,11 +38,6 @@ class PickedDiscDirectory extends DiscDirectory {
   PickedDiscDirectory(this.dir);
 
   @override
-  String get name => dir.name;
-
-  @override
-  Stream<String> walk() => dir.walk();
-
-  @override
-  DiscFile open(String path) => PickedDiscFile(dir.open(path));
+  Stream<DiscFile> walk() =>
+      dir.walk().map((path) => PickedDiscFile(path, () => dir.open(path)));
 }

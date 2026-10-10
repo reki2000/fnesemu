@@ -54,7 +54,8 @@ class ScanResult {
 
   ScanResult(this.folder, this.files, this.items, this.skipped, this.cancelled);
 
-  late final _discs = DiscFolder(PickedDiscDirectory(folder), files);
+  late final _discs = DiscFolder(
+      files.map((path) => PickedDiscFile(path, () => folder.open(path))));
 
   DiscSource sourceOf(RomFile item) => _discs.source(item.path);
 }
@@ -90,7 +91,8 @@ class RomScanner {
     }
     report(true, 0, 0, 0, force: true);
 
-    final discs = DiscFolder(PickedDiscDirectory(folder), files);
+    final discs = DiscFolder(
+        files.map((path) => PickedDiscFile(path, () => folder.open(path))));
     final cues = files.where((f) => _ext(f) == 'cue').toList();
     final referenced = <String>{};
     final items = <RomFile>[];

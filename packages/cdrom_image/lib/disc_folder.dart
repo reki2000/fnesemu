@@ -1,5 +1,7 @@
 import 'disc_image.dart';
 import 'disc_source.dart';
+import 'filesystem_api.dart';
+import 'image_api.dart';
 
 /// a disc image in a [DiscFolder], parsed by [DiscFolder.parse]
 class DiscImageFile {
@@ -25,7 +27,7 @@ class DiscImageFile {
   bool get isComplete =>
       missingFiles.isEmpty && (!isCue || referredFiles.isNotEmpty);
 
-  /// the image to read by [DiscImage.open]
+  /// the image to read by [parseSource]
   DiscSource open() => folder.source(path);
 }
 
@@ -35,20 +37,21 @@ class DiscImageFile {
 class DiscFolder {
   static const _maxCueBytes = 1 << 20;
 
-  final DiscDirectory dir;
+  /// Normalized path -> file. Reuse this index when parsing many images.
+  final Map<String, DiscFile> _index;
 
-  /// [_key] of the path -> the path
-  final Map<String, String> _index;
+  DiscFolder(Iterable<DiscFile> files)
+      : _index = {for (final file in files) _key('', file.path)!: file};
 
-  /// [files] are the paths of [DiscDirectory.walk]
-  DiscFolder(this.dir, Iterable<String> files)
-      : _index = {for (final f in files) _key('', f)!: f};
+  DiscFile _file(String path) =>
+      _index[_key('', path)] ??
+      (throw ArgumentError('cdrom: file not found in the directory: $path'));
 
   /// the path of [name] written in the .cue file at [cuePath], or null if it
   /// is not in the folder
   String? resolve(String cuePath, String name) {
     final key = _key(_dirOf(cuePath), name);
-    return key == null ? null : _index[key];
+    return key == null ? null : _index[key]?.path;
   }
 
   /// parses the .cue/.iso/.bin file at [path]. throws if a .cue file cannot
@@ -58,14 +61,8 @@ class DiscFolder {
       return DiscImageFile(this, path, const [], const []);
     }
 
-    final file = dir.open(path);
-    final List<String> names;
-    try {
-      names =
-          DiscImage.cueFileNames(await readText(file, maxBytes: _maxCueBytes));
-    } finally {
-      await file.close();
-    }
+    final names = ParsedDiscImage.cueFileNames(
+        await readText(_file(path), maxBytes: _maxCueBytes));
 
     final referred = <String>[];
     final missing = <String>[];
@@ -77,12 +74,13 @@ class DiscFolder {
   }
 
   /// the disc image of the .cue/.iso/.bin file at [path]
-  DiscSource source(String path) => DiscSource(dir.open(path), (name) {
+  DiscSource source(String path) => DiscSource(_file(path), (name) {
         final found = resolve(path, name);
         if (found == null) {
-          throw ArgumentError("cdrom: file not found in the folder: $name");
+          throw DiscParseException(path, 'Referenced file not found: $name',
+              referencedPath: name);
         }
-        return dir.open(found);
+        return _file(found);
       });
 
   /// normalizes a path written in a .cue file ('\' or '/', '.', '..')

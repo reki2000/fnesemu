@@ -1,30 +1,9 @@
 import 'dart:typed_data';
 
+import 'disc_folder.dart';
 import 'disc_source.dart';
-
-class DiscTrack {
-  final int number; // 1..
-  final bool isAudio;
-  final int startLba; // LBA of INDEX 01, without 2 seconds of lead-in
-  final int sectors;
-
-  const DiscTrack(this.number, this.isAudio, this.startLba, this.sectors);
-
-  @override
-  String toString() =>
-      "track $number ${isAudio ? "audio" : "data"} lba:$startLba sectors:$sectors";
-}
-
-class DiscToc {
-  final List<DiscTrack> tracks;
-
-  /// number of sectors of the disc, from LBA 0 (without lead-in)
-  final int totalSectors;
-
-  const DiscToc(this.tracks, this.totalSectors);
-
-  static const empty = DiscToc([], 0);
-}
+import 'filesystem_api.dart';
+import 'image_api.dart';
 
 /// a contiguous region of sectors stored in a file
 class Extent {
@@ -57,20 +36,23 @@ class Segment {
 
 /// a disc image opened from a .cue or a .iso/.bin file: the TOC, and the raw
 /// sectors by LBA (without lead-in)
-class DiscImage {
-  static const sectorSize = 2352;
+class ParsedDiscImage implements DiscImage {
+  static const sectorSize = DiscImage.sectorSize;
   static const sync = [
     0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0 // 12 bytes
   ];
 
   final DiscSource source;
+  @override
   final DiscToc toc;
   final List<Extent> extents; // sorted by startLba
 
-  DiscImage(this.source, this.toc, this.extents);
+  ParsedDiscImage(this.source, this.toc, this.extents);
 
+  @override
   int get totalSectors => toc.totalSectors;
 
+  @override
   bool isReadable(int lba) => lba >= 0 && lba < totalSectors;
 
   /// splits [lba, lba+count) into file-backed segments and gaps.
@@ -105,15 +87,10 @@ class DiscImage {
     return result;
   }
 
-  /// reads the TOC of [source]. the files of [source] are closed by [close].
-  static Future<DiscImage> open(DiscSource source) =>
-      source.isCue ? _buildCue(source) : _buildImage(source);
-
-  Future<void> close() => source.close();
-
   /// reads [count] raw sectors (2352 bytes) from [lba]. cooked sectors are
   /// expanded to raw mode 1 ones, and gaps are filled with zero. the range
   /// must be readable.
+  @override
   Future<List<Uint8List>> readSectors(int lba, int count) async {
     final result = <Uint8List>[];
     for (final seg in segments(lba, count)) {
@@ -164,7 +141,7 @@ class DiscImage {
   static const _cookedSectorSize = 2048;
 
   /// a single data track, raw (2352 bytes/sector) or cooked (2048 bytes)
-  static Future<DiscImage> _buildImage(DiscSource source) async {
+  static Future<ParsedDiscImage> _buildImage(DiscSource source) async {
     final file = source.main;
     final length = await file.length();
     final cooked = await _isCooked(file, length, source.name);
@@ -172,7 +149,7 @@ class DiscImage {
     if (sectors == 0) {
       throw const FormatException("cdrom: empty image");
     }
-    return DiscImage(
+    return ParsedDiscImage(
         source,
         DiscToc([DiscTrack(1, false, 0, sectors)], sectors),
         [Extent(0, sectors, file, 0, cooked: cooked)]);
@@ -206,7 +183,7 @@ class DiscImage {
     return (bytes + size - 1) ~/ size;
   }
 
-  static Future<DiscImage> _buildCue(DiscSource source) async {
+  static Future<ParsedDiscImage> _buildCue(DiscSource source) async {
     final files = _parseCue(await readText(source.main));
     if (files.isEmpty || files.every((f) => f.tracks.isEmpty)) {
       throw const FormatException("cdrom: cue: no tracks");
@@ -217,7 +194,7 @@ class DiscImage {
 
     int lba = 0;
     for (final f in files) {
-      final file = source.open(f.name);
+      final file = source.resolve(f.name);
       final cooked = f.tracks.any((t) => t.isCooked);
       final fileSectors = _sectorsOf(await file.length(), cooked);
 
@@ -270,7 +247,7 @@ class DiscImage {
       tocTracks.add(DiscTrack(number, isAudio, start, end - start));
     }
 
-    return DiscImage(source, DiscToc(tocTracks, total), extents);
+    return ParsedDiscImage(source, DiscToc(tocTracks, total), extents);
   }
 
   /// the LBA of [fileSector], placed after the gap inserted at the position
@@ -326,9 +303,15 @@ class DiscImage {
           }
 
         case "PREGAP":
+          if (parts.length < 2) {
+            throw const FormatException("cdrom: cue: PREGAP requires a time");
+          }
           track?.pregap = _msfToSectors(parts[1]);
 
         case "POSTGAP":
+          if (parts.length < 2) {
+            throw const FormatException("cdrom: cue: POSTGAP requires a time");
+          }
           track?.postgap = _msfToSectors(parts[1]);
       }
     }
@@ -368,4 +351,29 @@ class _CueTrack {
   _CueTrack(this.number, this.isAudio, this.isCooked);
 
   int get firstIndex => index0 >= 0 ? index0 : index1;
+}
+
+/// Parses a file using directory paths to resolve referenced tracks.
+Future<(DiscImage, List<DiscFile>)> parse(
+    DiscDirectory directory, DiscFile file) async {
+  final files = await directory.walk().toList();
+  final source = DiscFolder([...files, file]).source(file.path);
+  final referenced = <String, DiscFile>{};
+  final image = await parseSource(DiscSource(source.main, (name) {
+    final resolved = source.resolve(name);
+    if (resolved.path != file.path) referenced[resolved.path] = resolved;
+    return resolved;
+  }));
+  return (image, List<DiscFile>.unmodifiable(referenced.values));
+}
+
+/// Parses a source with an existing resolver, suitable for batch use.
+Future<DiscImage> parseSource(DiscSource source) async {
+  try {
+    return await (source.isCue
+        ? ParsedDiscImage._buildCue(source)
+        : ParsedDiscImage._buildImage(source));
+  } on FormatException catch (error) {
+    throw DiscParseException(source.main.path, error.message, cause: error);
+  }
 }

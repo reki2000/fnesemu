@@ -5,38 +5,26 @@ import 'dart:typed_data';
 import 'package:cdrom_image/cdrom_image.dart';
 
 class IoDiscFile extends DiscFile {
+  final File _file;
+  @override
   final String path;
-  RandomAccessFile? _file;
-  Future<void> _lock = Future.value();
 
-  IoDiscFile(this.path);
-
-  @override
-  String get name => path.split(RegExp(r'[\\/]')).last;
-
-  Future<RandomAccessFile> _open() async => _file ??= await File(path).open();
+  IoDiscFile(String location, {String? relativePath})
+      : _file = File(location),
+        path = relativePath ?? location.split(RegExp(r'[\\/]')).last;
 
   @override
-  Future<int> length() async => (await _open()).length();
+  Future<int> length() => _file.length();
 
   @override
-  Future<Uint8List> read(int offset, int length) {
-    // a RandomAccessFile allows one pending operation at a time
-    final result = _lock.then((_) async {
-      final file = await _open();
+  Future<Uint8List> read(int offset, int length) async {
+    final file = await _file.open();
+    try {
       await file.setPosition(offset);
-      return file.read(length);
-    });
-    _lock = result.then((_) {}, onError: (_) {});
-    return result;
-  }
-
-  @override
-  Future<void> close() async {
-    final file = _file;
-    _file = null;
-    await _lock;
-    await file?.close();
+      return await file.read(length);
+    } finally {
+      await file.close();
+    }
   }
 }
 
@@ -46,12 +34,7 @@ class IoDiscDirectory extends DiscDirectory {
   IoDiscDirectory(this.root);
 
   @override
-  String get name =>
-      root.split(RegExp(r'[\\/]')).where((s) => s.isNotEmpty).lastOrNull ??
-      root;
-
-  @override
-  Stream<String> walk() async* {
+  Stream<DiscFile> walk() async* {
     final dirs = <(Directory, String)>[(Directory(root), '')];
     while (dirs.isNotEmpty) {
       final (dir, prefix) = dirs.removeLast();
@@ -61,7 +44,7 @@ class IoDiscDirectory extends DiscDirectory {
           if (e is Directory) {
             dirs.add((e, '$prefix$name/'));
           } else if (e is File) {
-            yield '$prefix$name';
+            yield IoDiscFile(e.path, relativePath: '$prefix$name');
           }
         }
       } on FileSystemException {
@@ -69,9 +52,6 @@ class IoDiscDirectory extends DiscDirectory {
       }
     }
   }
-
-  @override
-  DiscFile open(String path) => IoDiscFile('$root/$path');
 }
 
 /// the .cue/.iso/.bin file at [path]. the files referred from a .cue file are

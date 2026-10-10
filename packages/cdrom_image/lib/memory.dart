@@ -5,16 +5,17 @@ import 'dart:typed_data';
 
 import 'disc_folder.dart';
 import 'disc_source.dart';
+import 'filesystem_api.dart';
 
 class MemoryDiscFile extends DiscFile {
   @override
-  final String name;
+  final String path;
   final Uint8List data;
 
   /// called on each [read]
   void Function(int offset, int length)? onRead;
 
-  MemoryDiscFile(this.name, this.data);
+  MemoryDiscFile(this.path, this.data);
 
   @override
   Future<int> length() async => data.length;
@@ -26,9 +27,6 @@ class MemoryDiscFile extends DiscFile {
     final end = (offset + length).clamp(0, data.length);
     return Uint8List.sublistView(data, start, end);
   }
-
-  @override
-  Future<void> close() async {}
 }
 
 class MemoryDirectory extends DiscDirectory {
@@ -42,16 +40,9 @@ class MemoryDirectory extends DiscDirectory {
         };
 
   @override
-  String get name => 'memory';
-
-  @override
-  Stream<String> walk() => Stream.fromIterable(files.keys);
-
-  @override
-  DiscFile open(String path) =>
-      files[path] ?? (throw ArgumentError("file not found: $path"));
+  Stream<DiscFile> walk() => Stream.fromIterable(files.values);
 }
 
 /// the disc image [main] of [files]
 DiscSource memoryDisc(String main, Map<String, MemoryDiscFile> files) =>
-    DiscFolder(MemoryDirectory(files), files.keys).source(main);
+    DiscFolder(files.values).source(main);
