@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
-import 'package:fnesemu/gui/game_directory.dart';
 import 'package:fnesemu/gui/recent_game.dart';
+import 'package:fnesemu/gui/rom_directory.dart';
 import 'package:fnesemu/gui/storage.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 
@@ -38,11 +38,11 @@ void main() {
     addTearDown(store.close);
     addTearDown(storage.dispose);
     await storage.rememberDirectory(
-        const GameDirectory('first', 'fixtures', 'original-token'));
+        const RomDirectory('first', 'fixtures', 'original-token'));
     await storage.rememberDirectory(
-        const GameDirectory('second', 'other', 'other-token'));
+        const RomDirectory('second', 'other', 'other-token'));
     await storage.rememberDirectory(
-        const GameDirectory('first', 'fixtures', 'renewed-token'));
+        const RomDirectory('first', 'fixtures', 'renewed-token'));
     await storage.recordRecent('gb', 'fixture.gb',
         rom: Uint8List.fromList([1, 2, 3]));
     await storage.recordRecent('gb', 'fixture.gb',
@@ -51,8 +51,8 @@ void main() {
         path: 'archive.zip');
     final restored = await Storage.open(store: store);
     addTearDown(restored.dispose);
-    expect(restored.gameDirectories.length, 2);
-    expect(restored.gameDirectories.first.restoreKey, 'renewed-token');
+    expect(restored.romDirectories.length, 2);
+    expect(restored.romDirectories.first.restoreKey, 'renewed-token');
     expect(restored.recentGames.single.isDisc, isFalse);
     expect(restored.recentGames.single.count, 2);
     expect(restored.recentGames.single.folder, 'first');

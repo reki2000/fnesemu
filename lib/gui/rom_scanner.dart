@@ -5,12 +5,12 @@ import 'package:mp_bigfile_picker/api.dart';
 
 import 'picked_disc.dart';
 
-/// a file found by [GameScanner]: a disc image or a ROM
-class GameItem {
+/// a ROM file found by [RomScanner]: a disc image or a ROM
+class RomFile {
   /// relative to the folder
   final String path;
 
-  const GameItem(this.path);
+  const RomFile(this.path);
 
   bool get isCue => path.toLowerCase().endsWith('.cue');
 
@@ -41,13 +41,12 @@ class ScanProgress {
       : "checking: $checkedCues / $cues cue files";
 }
 
-/// [D] is the type of the directory given by the app
 class ScanResult {
   final PickedDirectory folder;
 
   /// the paths of all the files below [folder]
   final List<String> files;
-  final List<GameItem> items;
+  final List<RomFile> items;
 
   /// .cue files which refer to files that do not exist, or cannot be read
   final List<String> skipped;
@@ -57,12 +56,12 @@ class ScanResult {
 
   late final _discs = DiscFolder(PickedDiscDirectory(folder), files);
 
-  DiscSource sourceOf(GameItem item) => _discs.source(item.path);
+  DiscSource sourceOf(RomFile item) => _discs.source(item.path);
 }
 
-/// lists the games in a folder: all the files, except the ones which a .cue
+/// lists the ROM files in a ROM directory: all the files, except the ones which a .cue
 /// file refers to (they are parts of the disc image of the .cue file).
-class GameScanner {
+class RomScanner {
   static Future<ScanResult> scan(
     PickedDirectory folder, {
     void Function(ScanProgress progress)? onProgress,
@@ -94,7 +93,7 @@ class GameScanner {
     final discs = DiscFolder(PickedDiscDirectory(folder), files);
     final cues = files.where((f) => _ext(f) == 'cue').toList();
     final referenced = <String>{};
-    final items = <GameItem>[];
+    final items = <RomFile>[];
     final skipped = <String>[];
 
     for (int i = 0; i < cues.length; i++) {
@@ -104,7 +103,7 @@ class GameScanner {
       final cue = cues[i];
       report(false, cues.length, i, items.length);
 
-      items.add(GameItem(cue));
+      items.add(RomFile(cue));
       try {
         final image = await discs.parse(cue);
         referenced.addAll(image.referredFiles);
@@ -117,7 +116,7 @@ class GameScanner {
 
     for (final f in files) {
       if (_ext(f) != 'cue' && !referenced.contains(f)) {
-        items.add(GameItem(f));
+        items.add(RomFile(f));
       }
     }
 

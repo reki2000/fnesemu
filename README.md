@@ -37,40 +37,14 @@ This project is experimental.
 
 # How to develop
 
-## Packages
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the packages, the direction of
+the dependencies and the interfaces between them.
 
-- `packages/fnesemu_core`: the emulation cores and the utilities, in pure Dart
-  without Flutter, with their tests (`dart test`) and the command line
-  harnesses in its `tool/`. A core reads a disc through its `CdromDrive`
-  interface (tray, TOC and sectors by LBA), and does not know the disc image
-  formats.
-- `packages/cdrom_image`: the disc images (.cue/.iso/.bin) on a virtual file
-  system (`DiscFile`, `DiscDirectory`), in pure Dart without dependencies:
-  which files are images, the files a .cue refers to, the TOC, and async reads
-  of the sectors by LBA
-- `packages/mp_bigfile_picker`: the file and directory pickers of each
-  platform, and random access to the picked files
-- the app (`lib/`): the GUI, which glues them: `picked_disc.dart` gives the
-  picked files to cdrom_image, and `async_cdrom_drive.dart` is the
-  `CdromDrive` of the cores on a disc image, which reads ahead and caches the
-  sectors
-
-## Core module boundary
-
-App/GUI imports only `package:fnesemu_core/core/core_api.dart`. Core modules in
-`packages/fnesemu_core/lib/core/<module>/module.dart` declare their systems, BIOS setup metadata,
-and ROM/disc ownership rules. `CoreFactory` enumerates registered modules and
-forwards identification and construction requests to them.
-
-After adding or removing a module, regenerate the core-side registration list:
+After adding or removing a core module, regenerate the registration list:
 
 ```sh
 cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
 ```
-
-No App/GUI changes are needed, including when no game core is installed.
-The tests exercise an empty registry; a Linux build is also checked with all
-concrete module directories removed in a temporary checkout.
 
 ## To test 6502 emulation
 

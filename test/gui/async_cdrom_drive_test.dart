@@ -5,7 +5,6 @@ import 'package:cdrom_image/memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/core/core_api.dart';
-import 'package:fnesemu_core/core/disc.dart';
 
 const size = DiscImage.sectorSize;
 
@@ -47,18 +46,16 @@ FILE "a.bin" BINARY
     expect(toc.isAudioLba(84), false); // INDEX 00 belongs to track 1 in TOC
   });
 
-  test('Disc reads with absolute sectors and null while pending', () async {
+  test('reads are null while pending, empty out of the disc', () async {
     final drive = AsyncCdromDrive();
     await drive.insert(
         memoryDisc("a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(4))}));
-    final disc = Disc(drive);
-    expect(disc.isEmpty, false);
-    expect(disc.totalSectors, 4);
-    expect(disc.read(150 + 1), isNull);
+    expect(drive.status.toc.totalSectors, 4);
+    expect(drive.read(1), isNull);
     await drive.settle();
-    expect(disc.read(150 + 1)![16], 1);
-    expect(disc.read(149), isEmpty);
-    expect(Disc.empty().isEmpty, true);
+    expect(drive.read(1)![16], 1);
+    expect(drive.read(-1), isEmpty);
+    expect(drive.read(4), isEmpty);
   });
 
   test('the status is converted only when it changes', () async {

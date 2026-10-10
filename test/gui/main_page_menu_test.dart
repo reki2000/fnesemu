@@ -92,7 +92,7 @@ void main() {
     await tester.pump();
     expect(find.text('fixture.gb'), findsOneWidget);
     expect(find.text('notes.txt'), findsOneWidget);
-    expect(storage.gameDirectories.single.restoreKey, temp.path);
+    expect(storage.romDirectories.single.restoreKey, temp.path);
     await tester.runAsync(() async {
       await tester.tap(find.text('fixture.gb'));
       await waitFor(() => audio.starts == 1);
@@ -132,7 +132,7 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
     await tester.runAsync(() => tester.tap(find.text('Cancel')));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(storage.gameDirectories.length, 1);
+    expect(storage.romDirectories.length, 1);
 
     expect(storage.recentGames.single.core, 'gb');
     await tester.runAsync(() =>

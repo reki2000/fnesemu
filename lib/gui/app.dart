@@ -15,13 +15,13 @@ import 'core_view.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
 import 'floating_game_menu.dart';
-import 'game_directory.dart';
 import 'game_list.dart';
-import 'game_scanner.dart';
 import 'key_handler.dart';
 import 'pad_input.dart';
 import 'recent_game.dart';
 import 'rom_archive.dart';
+import 'rom_directory.dart';
+import 'rom_scanner.dart';
 import 'sound_player.dart';
 import 'storage.dart';
 import 'ticker_image.dart';
@@ -267,7 +267,7 @@ class MainPageState extends State<MainPage> {
     });
   }
 
-  Future<void> _openGameItem(GameItem item) async {
+  Future<void> _openRomFile(RomFile item) async {
     final scan = _scan;
     if (scan == null) return;
     if (await _isDiscImage(item, scan)) {
@@ -288,7 +288,7 @@ class MainPageState extends State<MainPage> {
 
   /// whether [item] is a disc image. a file which can be either a disc or a
   /// ROM by its name is read to find a core which takes it as a disc.
-  Future<bool> _isDiscImage(GameItem item, ScanResult scan) async {
+  Future<bool> _isDiscImage(RomFile item, ScanResult scan) async {
     switch (DiscFileKind.of(item.path)) {
       case DiscFileKind.image:
         return true;
@@ -373,7 +373,7 @@ class MainPageState extends State<MainPage> {
 
   // the directories selected last time, where the pickers open next time
   static const _lastBiosDirKey = "last_bios_dir";
-  static const _lastGameDirKey = "last_game_dir";
+  static const _lastRomDirKey = "last_game_dir";
 
   Future<List<(Uint8List, String)>?> _pickBiosFiles(
           {required bool multiple, required String dialogTitle}) =>
@@ -410,7 +410,7 @@ class MainPageState extends State<MainPage> {
 
   /// scans the directory selected last time, if it can be opened again
   _restoreDiscFolder() async {
-    final directories = _storage.gameDirectories;
+    final directories = _storage.romDirectories;
     final known = directories.map((entry) => entry.id).toSet();
     // Preserve directories of histories written before the directory registry,
     // once: a directory removed later must not come back from the histories.
@@ -422,7 +422,7 @@ class MainPageState extends State<MainPage> {
           ];
     for (final key in legacy.whereType<String>()) {
       if (!known.add(key) || key.startsWith('web:')) continue;
-      directories.add(GameDirectory(key, key.split('/').last, key, path: key));
+      directories.add(RomDirectory(key, key.split('/').last, key, path: key));
     }
     for (final directory in directories) {
       try {
@@ -432,7 +432,7 @@ class MainPageState extends State<MainPage> {
         if (folder != null) {
           _openedFolders[directory.id] = folder;
           _folderIds[folder] = directory.id;
-          await _storage.updateDirectory(GameDirectory(
+          await _storage.updateDirectory(RomDirectory(
               directory.id, folder.name, folder.restoreKey,
               path: folder.displayPath));
         }
@@ -451,7 +451,7 @@ class MainPageState extends State<MainPage> {
     final id = _folderIds[folder];
     if (id == null) return;
     final saved =
-        _storage.gameDirectories.where((entry) => entry.id == id).firstOrNull;
+        _storage.romDirectories.where((entry) => entry.id == id).firstOrNull;
     final key = saved?.restoreKey ?? folder.restoreKey;
     if (key != null) await releaseDirectory(key);
     await _storage.forgetDirectory(id);
@@ -464,7 +464,7 @@ class MainPageState extends State<MainPage> {
 
   Future<PickedDirectory?> _restoreSavedDirectory(String id) async {
     final saved =
-        _storage.gameDirectories.where((entry) => entry.id == id).firstOrNull;
+        _storage.romDirectories.where((entry) => entry.id == id).firstOrNull;
     final token = saved?.restoreKey;
     if (token == null) return _openedFolders[id];
     final folder = await restoreDirectory(token, requestPermission: true);
@@ -488,7 +488,7 @@ class MainPageState extends State<MainPage> {
       if (dialogOpen && mounted) Navigator.of(context).pop();
       Error.throwWithStackTrace(e, st);
     });
-    final selected = await showDialog<GameItem>(
+    final selected = await showDialog<RomFile>(
         context: context,
         builder: (_) => GameListDialog(
             title: folder.name,
@@ -498,7 +498,7 @@ class MainPageState extends State<MainPage> {
     dialogOpen = false;
     _cancelScan = true;
     await scanning;
-    if (selected != null && mounted) await _openGameItem(selected);
+    if (selected != null && mounted) await _openRomFile(selected);
   }
 
   Future<void> _openSavedDirectory(String id) async {
@@ -512,10 +512,10 @@ class MainPageState extends State<MainPage> {
   _selectDiscFolder() async {
     final folder = await pickDirectory(
         dialogTitle: "Select a directory of CD-ROMs / ROMs",
-        initialDirectory: _storage.setting(_lastGameDirKey));
+        initialDirectory: _storage.setting(_lastRomDirKey));
     if (folder != null && mounted) {
       final path = _localPath(folder.displayPath);
-      if (path != null) await _storage.setSetting(_lastGameDirKey, path);
+      if (path != null) await _storage.setSetting(_lastRomDirKey, path);
       await _scanAndShowGames(folder);
     }
   }
@@ -527,7 +527,7 @@ class MainPageState extends State<MainPage> {
     _scan = null;
     _progress.value = const ScanProgress(true, 0, 0, 0, 0);
     try {
-      final result = await GameScanner.scan(folder,
+      final result = await RomScanner.scan(folder,
           onProgress: (p) => _progress.value = p,
           isCancelled: () => _cancelScan || !mounted);
       if (result.cancelled || !mounted) return null;
@@ -535,7 +535,7 @@ class MainPageState extends State<MainPage> {
       final id = _folderHistoryKey(result);
       _folderIds[folder] = id;
       _openedFolders[id] = folder;
-      await _storage.rememberDirectory(GameDirectory(
+      await _storage.rememberDirectory(RomDirectory(
           id, folder.name, folder.restoreKey,
           path: folder.displayPath));
       await _storage.setSetting(_lastDiscDirKey, id);
@@ -546,7 +546,7 @@ class MainPageState extends State<MainPage> {
   }
 
   /// inserts the image selected from the list and starts it
-  _insertItem(GameItem item, {ScanResult? sourceScan}) async {
+  _insertItem(RomFile item, {ScanResult? sourceScan}) async {
     final scan = sourceScan ?? _scan;
     if (scan == null) return;
 
@@ -585,7 +585,7 @@ class MainPageState extends State<MainPage> {
           !scan.skipped.contains(game.sourcePath);
     }
     return _openedFolders.containsKey(id) ||
-        _storage.gameDirectories.any((directory) =>
+        _storage.romDirectories.any((directory) =>
             directory.id == id &&
             (directory.restoreKey?.startsWith('fs-access:') ?? false));
   }
@@ -601,9 +601,9 @@ class MainPageState extends State<MainPage> {
         // Resolve the saved disc directly, without rebuilding the game list.
         final files = await folder.walk().toList();
         if (!files.contains(game.sourcePath)) {
-          throw StateError('Game is no longer available in the directory');
+          throw StateError('ROM file is no longer available in the directory');
         }
-        await _insertItem(GameItem(game.sourcePath),
+        await _insertItem(RomFile(game.sourcePath),
             sourceScan: ScanResult(folder, files, const [], const [], false));
         return;
       }
@@ -616,8 +616,8 @@ class MainPageState extends State<MainPage> {
 
   _discMenuAction(Object action) async {
     switch (action) {
-      case GameItem():
-        await _openGameItem(action);
+      case RomFile():
+        await _openRomFile(action);
       case String():
         await _openSavedDirectory(action);
       case _DiscAction.eject:
@@ -687,9 +687,9 @@ class MainPageState extends State<MainPage> {
                       const PopupMenuItem(
                           value: _DiscAction.select,
                           child: Text("Select directory...")),
-                      if (_storage.gameDirectories.isNotEmpty)
+                      if (_storage.romDirectories.isNotEmpty)
                         const PopupMenuDivider(),
-                      for (final directory in _storage.gameDirectories)
+                      for (final directory in _storage.romDirectories)
                         PopupMenuItem(
                             value: directory.id, child: Text(directory.path)),
                     ],

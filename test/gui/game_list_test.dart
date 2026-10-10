@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/game_list.dart';
-import 'package:fnesemu/gui/game_scanner.dart';
+import 'package:fnesemu/gui/rom_scanner.dart';
 
 import 'memory_picked_directory.dart';
 
@@ -13,18 +13,18 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final items = [
-        const GameItem('invalid.cue'),
-        ...List.generate(500, (i) => GameItem('fixture-$i.gb'))
+        const RomFile('invalid.cue'),
+        ...List.generate(500, (i) => RomFile('fixture-$i.gb'))
       ];
       final scan = ScanResult(
           MemoryPickedDirectory({}), [], items, ['invalid.cue'], false);
-      GameItem? selected;
+      RomFile? selected;
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: Builder(
                   builder: (context) => TextButton(
                       onPressed: () async {
-                        selected = await showDialog<GameItem>(
+                        selected = await showDialog<RomFile>(
                             context: context,
                             builder: (_) => GameListDialog(
                                 title: 'fixtures', scan: ValueNotifier(scan)));
@@ -62,7 +62,7 @@ void main() {
             .value,
         0.25);
     scan.value = ScanResult(MemoryPickedDirectory({}), [],
-        [const GameItem('fixture.gb')], [], false);
+        [const RomFile('fixture.gb')], [], false);
     await tester.pump();
     expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(find.text('fixture.gb'), findsOneWidget);

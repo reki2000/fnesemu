@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-
 import 'package:fnesemu_core/core/core_api.dart';
+
 import 'blob_store/blob_store.dart';
-import 'game_directory.dart';
 import 'recent_game.dart';
+import 'rom_directory.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;
@@ -153,12 +153,12 @@ class Storage extends Sram {
   static const _oldDirectoriesKey = 'game_directories';
 
   /// the directories selected before, the last opened one first
-  List<GameDirectory> get gameDirectories {
+  List<RomDirectory> get romDirectories {
     final saved = setting(_directoriesKey);
     try {
       final directories = (jsonDecode(
               saved ?? setting(_oldDirectoriesKey) ?? '[]') as List)
-          .map((json) => GameDirectory.fromJson(json as Map<String, dynamic>))
+          .map((json) => RomDirectory.fromJson(json as Map<String, dynamic>))
           .toList();
       return saved == null ? directories.reversed.toList() : directories;
     } catch (_) {
@@ -166,19 +166,19 @@ class Storage extends Sram {
     }
   }
 
-  Future<void> _saveDirectories(List<GameDirectory> directories) => setSetting(
+  Future<void> _saveDirectories(List<RomDirectory> directories) => setSetting(
       _directoriesKey,
       jsonEncode(directories.map((entry) => entry.toJson()).toList()));
 
   /// puts [directory] at the top, as the last opened one
-  Future<void> rememberDirectory(GameDirectory directory) =>
-      _saveDirectories(gameDirectories
+  Future<void> rememberDirectory(RomDirectory directory) =>
+      _saveDirectories(romDirectories
         ..removeWhere((entry) => entry.id == directory.id)
         ..insert(0, directory));
 
   /// updates [directory] (a renewed access key) where it is in the order
-  Future<void> updateDirectory(GameDirectory directory) {
-    final directories = gameDirectories;
+  Future<void> updateDirectory(RomDirectory directory) {
+    final directories = romDirectories;
     final i = directories.indexWhere((entry) => entry.id == directory.id);
     if (i < 0) {
       directories.add(directory);
@@ -190,7 +190,7 @@ class Storage extends Sram {
 
   /// removes the directory [id] from the list
   Future<void> forgetDirectory(String id) =>
-      _saveDirectories(gameDirectories..removeWhere((entry) => entry.id == id));
+      _saveDirectories(romDirectories..removeWhere((entry) => entry.id == id));
 
   List<String> _biosKeysOf(String system) {
     final prefix = StorageKey.of(system, StorageKey.bios, "");

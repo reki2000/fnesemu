@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'game_scanner.dart';
+import 'rom_scanner.dart';
 
 /// Large directories are filtered and rendered lazily. While the directory is
 /// being scanned ([scan] is null), the dialog shows the [progress] instead.
@@ -78,7 +78,7 @@ class _GameListDialogState extends State<GameListDialog> {
       TextField(
           autofocus: true,
           decoration: const InputDecoration(
-              hintText: 'Filter games', prefixIcon: Icon(Icons.search)),
+              hintText: 'Filter ROM files', prefixIcon: Icon(Icons.search)),
           onChanged: (text) => setState(() => _search = text.toLowerCase())),
       const SizedBox(height: 8),
       Expanded(
