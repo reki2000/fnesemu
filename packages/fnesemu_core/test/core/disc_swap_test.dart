@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
 import 'package:cdrom_image/memory.dart';
-import 'package:fnesemu_core/core/disc_swap.dart';
+import 'package:fnesemu_core/core/cdrom.dart';
 import 'package:test/test.dart';
 
 import '../../tool/cdrom_drive.dart';

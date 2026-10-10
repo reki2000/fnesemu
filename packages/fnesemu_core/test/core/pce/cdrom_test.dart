@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
 
-class TestDisc extends FakeDisc {
+class TestDisc extends FakeCdromDrive {
   TestDisc() : super(_sectors(), starts: [0, 4], audioTracks: {2});
 
   static List<Uint8List> _sectors() =>
@@ -64,7 +64,7 @@ void main() {
   setUp(() {
     pce = Pce();
     disc = TestDisc();
-    pce.setCdromDrive(disc.fake);
+    pce.setCdromDrive(disc);
     cd = pce.bus.cdrom;
   });
 
@@ -98,7 +98,7 @@ void main() {
       () {
     final sram = Sram()..init('saved', Uint8List(2048)..[0] = 42);
     pce.setSram(sram);
-    pce.setCdromDrive(disc.fake);
+    pce.setCdromDrive(disc);
     const address = 0xf7 * 8192;
     expect(pce.bus.read(address), 255);
     pce.bus.write(io + 0x1807, 0x80);

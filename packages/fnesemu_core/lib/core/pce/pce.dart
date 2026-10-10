@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
+import '../cdrom.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -191,9 +191,8 @@ class Pce implements Core, FrameRunner {
 
   @override
   void setCdromDrive(CdromDrive drive) {
-    final disc = Disc(drive);
-    bus.cdrom.setDisc(disc);
-    if (!disc.isEmpty && bus.sram.data.length != 0x800) {
+    bus.cdrom.setDisc(drive);
+    if (!drive.isEmpty && bus.sram.data.length != 0x800) {
       bus.sram.init('pce-cd-bram', Uint8List(0x800));
     }
   }

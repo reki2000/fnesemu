@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
-import '../../register_dump.dart';
+import '../../debugger.dart';
 import '../cpu.dart';
 import 'disasm.dart';
 import 'onchip.dart';

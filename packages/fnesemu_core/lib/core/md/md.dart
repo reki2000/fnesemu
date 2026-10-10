@@ -6,7 +6,6 @@ import '../cdrom_drive.dart';
 import '../components/m68k/cpu.dart';
 import '../components/m68k/disasm.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -43,7 +42,7 @@ class Md implements Core, FrameRunner {
     expansion!.setBootRoms(main: main, master: master, slave: slave);
   }
 
-  Disc? _disc;
+  CdromDrive? _disc;
   Sram? _sram;
 
   late final M68 cpuM68;
@@ -366,9 +365,8 @@ class Md implements Core, FrameRunner {
 
   @override
   void setCdromDrive(CdromDrive drive) {
-    final disc = Disc(drive);
-    _disc = disc;
-    cdrom?.setDisc(disc);
+    _disc = drive;
+    cdrom?.setDisc(drive);
   }
 
   @override

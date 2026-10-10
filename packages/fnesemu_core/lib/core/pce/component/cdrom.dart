@@ -3,17 +3,16 @@ import 'dart:typed_data';
 
 import '../../../util/int.dart';
 
-import '../../disc.dart';
-import '../../disc_swap.dart';
+import '../../cdrom.dart';
 import 'bus.dart';
 
-// Register-level CD interface. Disc.read uses absolute MSF sectors (LBA + 150).
+// Register-level CD interface.
 // SCSI bytes advance on ACK edges; $1808 provides the automatic data ACK port.
 enum CdPhase { idle, command, data, status, message }
 
 class PceCdrom {
   final Bus bus;
-  Disc disc = Disc.empty();
+  CdromDrive disc = EmptyCdromDrive();
   bool enabled = false;
   bool backupEnabled = false;
   CdPhase phase = CdPhase.idle;
@@ -51,11 +50,11 @@ class PceCdrom {
 
   PceCdrom(this.bus);
 
-  void setDisc(Disc value) {
+  void setDisc(CdromDrive value) {
     disc = value;
     enabled = !value.isEmpty;
     reset();
-    _swap.attach(value.drive);
+    _swap.attach(value);
   }
 
   // a disc change is seen as the tray opened then closed
@@ -315,7 +314,7 @@ class PceCdrom {
   static int _bcd(int value) => (value ~/ 10).shl4 | value % 10;
   static int _unbcd(int value) => value.shr4 * 10 + value.mask4;
   List<int> _msf(int lba) {
-    final (m, s, f) = Disc.lbaToMsf(lba);
+    final (m, s, f) = lbaToMsf(lba);
     return [_bcd(m), _bcd(s), _bcd(f)];
   }
 
@@ -468,11 +467,11 @@ class PceCdrom {
       _readClocks -= clocks;
       if (_readClocks <= 0) {
         transferClocks = -_readClocks;
-        final sector = disc.read(_readLba + 150);
+        final sector = disc.read(_readLba);
         if (sector == null) {
           // the drive has not read the sector yet: retry on the next exec
           transferClocks = clocks;
-        } else if (sector.length != Disc.sectorSize || sector[15] != 1) {
+        } else if (sector.length != cdSectorSize || sector[15] != 1) {
           _error(3, 0x11);
         } else {
           _readLba++;
@@ -557,7 +556,7 @@ class PceCdrom {
       }
     }
     if (_audioSector.isEmpty) {
-      final sector = disc.read(_audioLba + 150);
+      final sector = disc.read(_audioLba);
       if (sector == null) {
         _pcm.fillRange(0, 2, 0); // not read yet: silence, retry on the next sample
         return;
@@ -573,7 +572,7 @@ class PceCdrom {
       _pcm[channel] = unsigned.rel16;
     }
     _audioOffset += 4;
-    if (_audioOffset >= Disc.sectorSize) {
+    if (_audioOffset >= cdSectorSize) {
       _audioLba++;
       _audioSector = Uint8List(0);
     }

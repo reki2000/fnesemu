@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/core/cdrom_drive.dart';
-import 'package:fnesemu_core/core/disc.dart';
 
 /// [CdromDrive] holding raw sectors on memory. all sectors are always
 /// available.
@@ -41,17 +40,4 @@ class FakeCdromDrive implements CdromDrive {
     reads.add(lba + 150);
     return lba < 0 || lba >= sectors.length ? Uint8List(0) : sectors[lba];
   }
-}
-
-/// [Disc] on a [FakeCdromDrive]
-class FakeDisc extends Disc {
-  final FakeCdromDrive fake;
-
-  FakeDisc(List<Uint8List> sectors,
-      {List<int> starts = const [0], Set<int> audioTracks = const {}})
-      : this._(FakeCdromDrive(sectors, starts: starts, audioTracks: audioTracks));
-
-  FakeDisc._(this.fake) : super(fake);
-
-  List<int> get reads => fake.reads;
 }

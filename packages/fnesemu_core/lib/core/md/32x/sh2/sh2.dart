@@ -1,5 +1,5 @@
 import '../../../../util/int.dart';
-import '../../../register_dump.dart';
+import '../../../debugger.dart';
 import 'onchip.dart';
 
 abstract class Sh2Bus {

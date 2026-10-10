@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
+import '../cdrom.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../core_module.dart';
-import '../media_input.dart';
 import 'pce.dart';
 
 CoreModule createModule() => PceModule();
@@ -33,11 +33,11 @@ class PceModule extends CoreModule {
       mediaExtension(name) == 'pce' ? cartridge : null;
   @override
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
-    final start = firstDataLba(drive);
+    final start = drive.firstDataLba;
     if (start == null) return null;
     for (final lba in [start + 1, start, start + 2, start + 3]) {
       if (sectorContains(
-          await readDiscSector(drive, lba), 'PC Engine CD-ROM SYSTEM')) {
+          await drive.readWhenReady(lba), 'PC Engine CD-ROM SYSTEM')) {
         return cd;
       }
     }

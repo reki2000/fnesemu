@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
+import '../cdrom.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../core_module.dart';
-import '../media_input.dart';
 import 'ps.dart';
 
 CoreModule createModule() => PsModule();
@@ -24,12 +24,12 @@ class PsModule extends CoreModule {
       system.extensions.contains(mediaExtension(name)) ? system : null;
   @override
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
-    final start = firstDataLba(drive);
+    final start = drive.firstDataLba;
     if (start == null) return null;
-    return sectorContains(await readDiscSector(drive, start + 4),
+    return sectorContains(await drive.readWhenReady(start + 4),
                 'Sony Computer Entertainment') ||
             sectorContains(
-                await readDiscSector(drive, start + 16), 'PLAYSTATION')
+                await drive.readWhenReady(start + 16), 'PLAYSTATION')
         ? system
         : null;
   }

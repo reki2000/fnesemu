@@ -1,12 +1,11 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
-import '../../disc.dart';
-import '../../disc_swap.dart';
+import '../../cdrom.dart';
 
 /// Ten-nibble CDD command/status protocol and 75 Hz disc transport.
 class CdDrive {
-  Disc disc = Disc.empty();
+  CdromDrive disc = EmptyCdromDrive();
   final command = Uint8List(10);
   final response = Uint8List(10);
   final void Function(Uint8List) onSector;
@@ -23,10 +22,10 @@ class CdDrive {
   int _audioPhase = 0;
   double volume = 1;
 
-  void mount(Disc value) {
+  void mount(CdromDrive value) {
     disc = value;
     reset();
-    _swap.attach(value.drive);
+    _swap.attach(value);
   }
 
   // a disc change is seen as the tray opened then closed. the unit is a tick
@@ -165,7 +164,7 @@ class CdDrive {
         final sector = lba < 0
             ? _pregapSector(lba)
             : !disc.isAudio(next)
-                ? disc.read(lba + 150)
+                ? disc.read(lba)
                 : null;
         if (lba >= 0 && !disc.isAudio(next) && sector == null) {
           // the drive has not read the sector yet: retry on the next tick
@@ -191,7 +190,7 @@ class CdDrive {
     final sector = Uint8List(2352);
     sector.fillRange(1, 11, 0xff); // sync
     int bcd(int v) => (v ~/ 10).shl4 | v % 10;
-    final (m, s, f) = Disc.lbaToMsf(lba + 150);
+    final (m, s, f) = lbaToMsf(lba + 150);
     sector[12] = bcd(m);
     sector[13] = bcd(s);
     sector[14] = bcd(f);
@@ -200,7 +199,7 @@ class CdDrive {
   }
 
   void _msf(int position, int offset) {
-    final (m, s, f) = Disc.lbaToMsf(position);
+    final (m, s, f) = lbaToMsf(position);
     response[offset] = (m ~/ 10).mask4;
     response[offset + 1] = m % 10;
     response[offset + 2] = s ~/ 10;
@@ -247,7 +246,7 @@ class CdDrive {
     if (!playingAudio) return (0, 0);
     final sector = _currentLba;
     if (_sectorAudioLba != sector) {
-      final data = disc.read(sector + 150);
+      final data = disc.read(sector);
       if (data == null) return (0, 0); // not read yet: silence, retry
       _sectorAudioLba = sector;
       _audio = data;

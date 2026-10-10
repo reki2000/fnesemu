@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
+import '../cdrom.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../core_module.dart';
-import '../media_input.dart';
 import 'ss.dart';
 
 CoreModule createModule() => SsModule();
@@ -24,9 +24,9 @@ class SsModule extends CoreModule {
       system.extensions.contains(mediaExtension(name)) ? system : null;
   @override
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
-    final start = firstDataLba(drive);
+    final start = drive.firstDataLba;
     if (start == null) return null;
-    return sectorContains(await readDiscSector(drive, start), 'SEGA SEGASATURN')
+    return sectorContains(await drive.readWhenReady(start), 'SEGA SEGASATURN')
         ? system
         : null;
   }

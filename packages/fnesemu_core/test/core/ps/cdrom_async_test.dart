@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cdrom_image/memory.dart';
-import 'package:fnesemu_core/core/disc.dart';
+import 'package:fnesemu_core/core/cdrom.dart';
 import 'package:fnesemu_core/core/ps/bus.dart';
 import 'package:fnesemu_core/core/ps/cdrom.dart';
 import 'package:test/test.dart';
@@ -15,9 +15,9 @@ void main() {
   late List<List<int>> results;
 
   Uint8List makeBin(int sectors) {
-    final data = Uint8List(sectors * Disc.sectorSize);
+    final data = Uint8List(sectors * cdSectorSize);
     for (int i = 0; i < sectors; i++) {
-      data.fillRange(i * Disc.sectorSize, (i + 1) * Disc.sectorSize, i & 0xff);
+      data.fillRange(i * cdSectorSize, (i + 1) * cdSectorSize, i & 0xff);
     }
     return data;
   }

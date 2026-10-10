@@ -3,8 +3,7 @@ import 'dart:typed_data';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 
-import '../disc.dart';
-import '../disc_swap.dart';
+import '../cdrom.dart';
 
 class _Block {
   final Uint8List raw;
@@ -74,7 +73,7 @@ class _FileEntry {
 
 /// CD block (high level emulation of the SH-1 firmware)
 class CdBlock {
-  Disc disc = Disc.empty();
+  CdromDrive disc = EmptyCdromDrive();
 
   void Function() onInterrupt = () {};
 
@@ -162,7 +161,7 @@ class CdBlock {
     cr[3] = 0x434b;
     _started = false;
     _responseRead = true;
-    _status = disc.drive.status.isTrayOpen
+    _status = disc.status.isTrayOpen
         ? _stOpen
         : disc.isEmpty
             ? _stNoDisc
@@ -183,10 +182,10 @@ class CdBlock {
     _loadRootDir();
   }
 
-  void setDisc(Disc d) {
+  void setDisc(CdromDrive d) {
     disc = d;
     reset();
-    _swap.attach(d.drive);
+    _swap.attach(d);
   }
 
   // a disc change is seen as the tray opened then closed
@@ -369,7 +368,7 @@ class CdBlock {
     }
 
     if (_isAudioFad(_fad)) {
-      final raw = disc.read(_fad);
+      final raw = disc.readAbsolute(_fad);
       if (raw == null) {
         _sectorWait += _clockHz ~/ 600; // not read yet: retry soon
         return;
@@ -389,12 +388,12 @@ class CdBlock {
       return; // wait until buffer becomes free
     }
 
-    final raw = disc.read(_fad);
+    final raw = disc.readAbsolute(_fad);
     if (raw == null) {
       _sectorWait += _clockHz ~/ 600; // not read yet: retry soon
       return;
     }
-    if (raw.length < Disc.sectorSize) {
+    if (raw.length < cdSectorSize) {
       _fad++;
       return;
     }
@@ -421,7 +420,7 @@ class CdBlock {
   }
 
   void _pushCdda(Uint8List raw) {
-    if (raw.length < Disc.sectorSize) return;
+    if (raw.length < cdSectorSize) return;
     final data = ByteData.sublistView(raw);
     for (int i = 0; i < 588 * 2; i++) {
       final next = (cddaWrite + 1) % cdda.length;
@@ -804,8 +803,8 @@ class CdBlock {
     if (type == 0) {
       final t = _track;
       final rel = disc.isEmpty ? 0 : _fad - (disc.startLba(t) + 150);
-      final (rm, rs, rf) = Disc.lbaToMsf(rel < 0 ? 0 : rel);
-      final (am, as_, af) = Disc.lbaToMsf(_fad);
+      final (rm, rs, rf) = lbaToMsf(rel < 0 ? 0 : rel);
+      final (am, as_, af) = lbaToMsf(_fad);
       int bcd(int v) => (v ~/ 10).shl4 | v % 10;
       final q = Uint8List.fromList([
         _ctrlAdr(t), bcd(t), 1, bcd(rm), bcd(rs), bcd(rf), 0, //
@@ -843,9 +842,9 @@ class CdBlock {
   // ---- file system (ISO9660) ----
 
   Uint8List _userData(int fad) {
-    final raw = disc.read(fad);
+    final raw = disc.readAbsolute(fad);
     if (raw == null) throw const _SectorPending();
-    if (raw.length < Disc.sectorSize) return Uint8List(2048);
+    if (raw.length < cdSectorSize) return Uint8List(2048);
     final start = raw[15] == 2 ? 24 : 16;
     return Uint8List.sublistView(raw, start, start + 2048);
   }

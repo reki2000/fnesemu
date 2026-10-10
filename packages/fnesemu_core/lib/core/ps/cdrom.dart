@@ -3,10 +3,8 @@ import 'dart:typed_data';
 
 import '../../util/debug.dart';
 import '../../util/int.dart';
-
+import '../cdrom.dart';
 import '../cdrom_drive.dart';
-import '../disc.dart';
-import '../disc_swap.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 import 'log.dart';
@@ -395,9 +393,9 @@ class Cdrom {
 
     // report mode: position report every 10 sectors
     if (mode.bit2 && readingSector % 10 == 0) {
-      final (am, as_, af) = Disc.lbaToMsf(readingSector);
+      final (am, as_, af) = lbaToMsf(readingSector);
       final isRelative = (af ~/ 10).isOdd;
-      final (rm, rs, rf) = Disc.lbaToMsf(
+      final (rm, rs, rf) = lbaToMsf(
           (readingSector - _trackStart(track)).max(0),
           addLeadIn: false);
       irq(
@@ -628,8 +626,8 @@ class Cdrom {
         final trackNo = _trackOf(currentSector);
         final relative =
             trackNo == 0 ? 0 : currentSector - _trackStart(trackNo);
-        final (rm, rs, rf) = Disc.lbaToMsf(relative.abs());
-        final (am, as_, af) = Disc.lbaToMsf(currentSector);
+        final (rm, rs, rf) = lbaToMsf(relative.abs());
+        final (am, as_, af) = lbaToMsf(currentSector);
         irq(3, [
           trackNo.toBcd,
           relative < 0 ? 0 : 1, // index 0 for pregap
@@ -655,7 +653,7 @@ class Cdrom {
         } else {
           final sector =
               track == 0 ? _totalSectors + 2 * 75 : _trackStart(track);
-          final (mm, ss, _) = Disc.lbaToMsf(sector);
+          final (mm, ss, _) = lbaToMsf(sector);
           irq(3, [status(), mm.toBcd, ss.toBcd]);
         }
 
@@ -780,7 +778,7 @@ class Cdrom {
       "result:[${resultFifo.map((e) => e.x2).join(" ")}] "
       "pend:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.x2).join(" ")}]]").join(" ")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.x2} mode:${mode.x2} seek:${Disc.dumpSector(seekSector)} read:${Disc.dumpSector(readingSector)}";
+      "mask:${intMask.x2} mode:${mode.x2} seek:${msfString(seekSector)} read:${msfString(readingSector)}";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",

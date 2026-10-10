@@ -18,8 +18,11 @@ Each part owns its domain and depends only on the interfaces below.
 - App/GUI and app tests access cores through `core/core_api.dart` and generic
   `util/` helpers. They never import concrete cores or encode core-specific IDs
   or formats. Identification and BIOS interpretation belong to each core.
-- Cores receive discs through `CdromDrive`: tray state, TOC, and synchronous
-  polling of raw sectors by LBA. They do not know CUE/ISO/BIN or file pickers.
+- Cores receive discs through `CdromDrive` (`core/cdrom_drive.dart`): tray
+  state, TOC, and synchronous polling of raw sectors by LBA. They do not know
+  CUE/ISO/BIN or file pickers. The CD cores use it through the helpers of
+  `core/cdrom.dart` (not exported): reads by absolute sector, sector constants
+  and MSF, the disc identification helpers, and `DiscSwapWatcher`.
 - Disc images receive files through their own `DiscFile` interface
   (relative path, self-contained reads) in `filesystem_api.dart`; a directory
   is an `Iterable<DiscFile>`. The format-independent sector and TOC contract

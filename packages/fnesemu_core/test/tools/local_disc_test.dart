@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:fnesemu_core/core/disc.dart';
+import 'package:fnesemu_core/core/cdrom.dart';
 import 'package:test/test.dart';
 
 import '../../tool/cdrom_drive.dart';
@@ -50,10 +50,10 @@ void main() {
       ("t1.bin", 300, 0),
       ("t2.bin", 200, 100)
     ]) {
-      final data = Uint8List(sectors * Disc.sectorSize);
+      final data = Uint8List(sectors * cdSectorSize);
       for (int i = 0; i < sectors; i++) {
         data.fillRange(
-            i * Disc.sectorSize, (i + 1) * Disc.sectorSize, (id + i) & 0xff);
+            i * cdSectorSize, (i + 1) * cdSectorSize, (id + i) & 0xff);
       }
       File("${dir.path}/$name").writeAsBytesSync(data);
     }

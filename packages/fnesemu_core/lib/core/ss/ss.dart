@@ -2,11 +2,9 @@ import 'dart:typed_data';
 
 import '../../util/debug.dart';
 import '../../util/int.dart';
-
 import '../cdrom_drive.dart';
 import '../components/m68k/disasm.dart';
 import '../core.dart';
-import '../disc.dart';
 import '../pad_button.dart';
 import '../sram.dart';
 import '../types.dart';
@@ -307,7 +305,7 @@ class Ss extends Core implements FrameRunner {
   }
 
   @override
-  void setCdromDrive(CdromDrive drive) => cdblock.setDisc(Disc(drive));
+  void setCdromDrive(CdromDrive drive) => cdblock.setDisc(drive);
 
   @override
   void setSram(Sram sram) => _sram = sram;

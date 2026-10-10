@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../cdrom.dart';
 import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
-import '../../disc.dart';
 import '../../sram.dart';
 import 'cdc.dart';
 import 'cdd.dart';
@@ -47,7 +47,7 @@ class MdCdrom {
     reset();
   }
 
-  void setDisc(Disc disc) => drive.mount(disc);
+  void setDisc(CdromDrive disc) => drive.mount(disc);
   void setSram(Sram sram) {
     _sram = sram;
     sram.init("md_cdrom_bram", backupRam);

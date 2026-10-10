@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/disc.dart';
+import 'package:fnesemu_core/core/cdrom.dart';
 import 'package:fnesemu_core/core/sram.dart';
 import 'package:fnesemu_core/core/ss/cpu.dart';
 import 'package:fnesemu_core/core/ss/ss.dart';
@@ -82,9 +82,9 @@ class _TestDisc {
   }
 
   static Uint8List _sector(int lba, Uint8List data) {
-    final raw = Uint8List(Disc.sectorSize);
-    raw.setRange(0, 12, Disc.sync);
-    final (m, s, f) = Disc.lbaToMsf(lba, addLeadIn: true);
+    final raw = Uint8List(cdSectorSize);
+    raw.setRange(0, 12, cdSync);
+    final (m, s, f) = lbaToMsf(lba, addLeadIn: true);
     int bcd(int v) => (v ~/ 10) << 4 | v % 10;
     raw[12] = bcd(m);
     raw[13] = bcd(s);

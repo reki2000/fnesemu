@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
+import '../cdrom.dart';
 import '../cdrom_drive.dart';
 import '../core.dart';
 import '../core_module.dart';
-import '../media_input.dart';
 import 'md.dart';
 
 CoreModule createModule() => MdModule();
@@ -45,9 +45,9 @@ class MdModule extends CoreModule {
 
   @override
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
-    final start = firstDataLba(drive);
+    final start = drive.firstDataLba;
     return start != null &&
-            sectorContains(await readDiscSector(drive, start), 'SEGADISCSYSTEM')
+            sectorContains(await drive.readWhenReady(start), 'SEGADISCSYSTEM')
         ? cd
         : null;
   }
