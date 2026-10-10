@@ -277,7 +277,14 @@ class MainPageState extends State<MainPage> {
     final file = scan.folder.open(item.path);
     late Uint8List data;
     try {
-      data = await file.read(0, await file.length());
+      final length = await file.length();
+      // a disc image in a zip is ignored, before reading the whole zip
+      if (isZip(item.path) &&
+          hasDiscImage(await zipEntryNames(length, file.read))) {
+        AppSnackBar.show("CD-ROM images in a zip are not supported");
+        return;
+      }
+      data = await file.read(0, length);
     } finally {
       await file.close();
     }
