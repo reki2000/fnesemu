@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:fnesemu_core/core/cdrom_drive.dart';
+import 'package:fnesemu_core/src/core/cdrom_drive.dart';
 
 /// [CdromDrive] which starts reading [chunkSectors] sectors when the core asks
 /// for a sector not read yet, and keeps all the sectors read. [settle] waits

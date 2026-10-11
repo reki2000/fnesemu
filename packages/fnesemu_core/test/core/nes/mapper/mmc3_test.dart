@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/nes/mapper/mmc3.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/mmc3.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -3,12 +3,12 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-const coreDir = 'lib/core';
+const coreDir = 'lib/src/core';
 
 /// the part of lib/ which [path] (relative to lib/) belongs to: a module
-/// name, 'components', 'shared' (lib/core/*.dart) or 'util'
+/// name, 'components', 'shared' (lib/src/core/*.dart) or 'util'
 String layerOf(String path) {
-  final parts = path.split('/');
+  final parts = path.replaceFirst(RegExp(r'^src/'), '').split('/');
   if (parts[0] == 'util') return 'util';
   if (parts.length == 2) return 'shared';
   return parts[1];
@@ -79,7 +79,7 @@ void main() {
   });
 
   test('util imports no core', () {
-    for (final file in Directory('lib/util')
+    for (final file in Directory('lib/src/util')
         .listSync(recursive: true)
         .whereType<File>()) {
       for (final to in importsOf(file).map(layerOf)) {

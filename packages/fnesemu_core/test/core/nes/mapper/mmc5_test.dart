@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/nes/mapper/mapper.dart';
-import 'package:fnesemu_core/core/nes/mapper/mmc5.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/mapper.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/mmc5.dart';
 import 'package:test/test.dart';
 
 // 64 x 8k prg banks and 256 x 1k chr banks, every byte holds its bank number

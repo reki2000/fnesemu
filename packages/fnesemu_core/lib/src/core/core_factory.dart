@@ -9,20 +9,6 @@ export 'core_module.dart';
 class CoreFactory {
   static List<CoreModule> _modules = createInstalledCoreModules()
     ..sort((a, b) => a.order.compareTo(b.order));
-  static void registerModules(Iterable<CoreModule> modules) {
-    final installed = modules.toList()
-      ..sort((a, b) => a.order.compareTo(b.order));
-    final ids = <String>{};
-    for (final module in installed) {
-      for (final system in module.systems) {
-        if (!ids.add(system.id)) {
-          throw ArgumentError('Duplicate core: ${system.id}');
-        }
-      }
-    }
-    _modules = installed;
-  }
-
   static List<CoreSystem> get systems =>
       List.unmodifiable(_modules.expand((module) => module.systems));
   static List<BiosSetup> get biosSetups =>
@@ -61,4 +47,19 @@ class CoreFactory {
     }
     return null;
   }
+}
+
+/// Internal composition hook, also used by package boundary tests.
+void registerCoreModules(Iterable<CoreModule> modules) {
+  final installed = modules.toList()
+    ..sort((a, b) => a.order.compareTo(b.order));
+  final ids = <String>{};
+  for (final module in installed) {
+    for (final system in module.systems) {
+      if (!ids.add(system.id)) {
+        throw ArgumentError('Duplicate core: ${system.id}');
+      }
+    }
+  }
+  CoreFactory._modules = installed;
 }

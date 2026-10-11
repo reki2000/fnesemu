@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/nes/mapper/fme7.dart';
-import 'package:fnesemu_core/core/nes/mapper/sunsoft5b_apu.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/fme7.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/sunsoft5b_apu.dart';
 import 'package:test/test.dart';
 
 MapperFme7 _mapper() {

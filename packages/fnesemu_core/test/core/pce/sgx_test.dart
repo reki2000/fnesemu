@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/pce/component/cpu_6280.dart';
-import 'package:fnesemu_core/core/pce/component/vdc.dart';
-import 'package:fnesemu_core/core/pce/component/vdc_render.dart';
-import 'package:fnesemu_core/core/pce/pce.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/pce/component/cpu_6280.dart';
+import 'package:fnesemu_core/src/core/pce/component/vdc.dart';
+import 'package:fnesemu_core/src/core/pce/component/vdc_render.dart';
+import 'package:fnesemu_core/src/core/pce/pce.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
 const hardware = 0xff << 13;

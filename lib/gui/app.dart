@@ -5,8 +5,7 @@ import 'package:archive/archive.dart' show getCrc32;
 import 'package:cdrom_image/cdrom_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fnesemu_core/core/core_api.dart';
-import 'package:fnesemu_core/util/debug.dart';
+import 'package:fnesemu_core/app_api.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
 import '../styles.dart';

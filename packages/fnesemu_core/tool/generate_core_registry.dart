@@ -29,7 +29,7 @@ void main() {
     return true;
   }
 
-  final modules = Directory('lib/core')
+  final modules = Directory('lib/src/core')
       .listSync()
       .whereType<Directory>()
       .where((dir) => File('${dir.path}/module.dart').existsSync())
@@ -54,6 +54,6 @@ void main() {
     }
     output.writeln('    ];');
   }
-  File('lib/core/installed_core_modules.dart')
+  File('lib/src/core/installed_core_modules.dart')
       .writeAsStringSync(output.toString());
 }

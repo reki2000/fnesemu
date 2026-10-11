@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/pce/pce.dart';
+import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:test/test.dart';
 
 // a rom of random code (with a valid reset vector) that keeps the cpu busy,

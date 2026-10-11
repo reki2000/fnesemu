@@ -8,7 +8,7 @@ library;
 
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 
 // --- condition codes ---------------------------------------------------------
 const condEq = 0x0;

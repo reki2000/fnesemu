@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'package:fnesemu_core/core/n64/bus.dart';
-import 'package:fnesemu_core/core/n64/cpu.dart';
-import 'package:fnesemu_core/core/n64/graphics.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/n64/bus.dart';
+import 'package:fnesemu_core/src/core/n64/cpu.dart';
+import 'package:fnesemu_core/src/core/n64/graphics.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 
 void main() {
   for (final wide in [false, true]) {

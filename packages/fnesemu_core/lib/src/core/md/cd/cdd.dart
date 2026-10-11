@@ -97,14 +97,13 @@ class CdDrive {
         case 2:
           _query = command[3];
         case 3 || 4:
-          final position = ((command[2] * 10 + command[3]) * 60 +
-                      command[4] * 10 +
-                      command[5]) *
-                  75 +
-              command[6] * 10 +
-              command[7] -
-              150;
-          final target = position.clamp(-150, disc.totalSectors);
+          final position = Msf.ofParts(
+                command[2] * 10 + command[3],
+                command[4] * 10 + command[5],
+                command[6] * 10 + command[7],
+              ).frames() -
+              cdLbaOffset;
+          final target = position.clamp(-cdLbaOffset, disc.totalSectors);
           // the pickup takes a while to move: a fixed latency plus the
           // distance, so the first sector does not come before the host has
           // set up the decoder
@@ -189,17 +188,16 @@ class CdDrive {
   Uint8List _pregapSector(int lba) {
     final sector = Uint8List(2352);
     sector.fillRange(1, 11, 0xff); // sync
-    int bcd(int v) => (v ~/ 10).shl4 | v % 10;
-    final (m, s, f) = lbaToMsf(lba + 150);
-    sector[12] = bcd(m);
-    sector[13] = bcd(s);
-    sector[14] = bcd(f);
+    final (m, s, f) = Msf.ofLba(lba).bcd();
+    sector[12] = m;
+    sector[13] = s;
+    sector[14] = f;
     sector[15] = 1; // mode 1
     return sector;
   }
 
-  void _msf(int position, int offset) {
-    final (m, s, f) = lbaToMsf(position);
+  void _writeTime(Msf time, int offset) {
+    final (m, s, f) = time.parts();
     response[offset] = (m ~/ 10).mask4;
     response[offset + 1] = m % 10;
     response[offset + 2] = s ~/ 10;
@@ -216,14 +214,17 @@ class CdDrive {
       track = trackAt(lba);
       switch (_query) {
         case 0:
-          _msf(lba + 150, 2);
+          _writeTime(Msf.ofLba(lba), 2);
         case 1:
-          _msf((lba - disc.startLba(track)).clamp(0, disc.totalSectors), 2);
+          _writeTime(
+              Msf.ofFrames(
+                  (lba - disc.startLba(track)).clamp(0, disc.totalSectors)),
+              2);
         case 2:
           response[2] = track ~/ 10;
           response[3] = track % 10;
         case 3:
-          _msf(disc.totalSectors + 150, 2);
+          _writeTime(Msf.ofLba(disc.totalSectors), 2);
         case 4:
           response[2] = 0;
           response[3] = 1;
@@ -232,7 +233,7 @@ class CdDrive {
         case 5:
           final requested = command[4] * 10 + command[5];
           if (requested >= 1 && requested <= disc.trackCount) {
-            _msf(disc.startLba(requested) + 150, 2);
+            _writeTime(Msf.ofLba(disc.startLba(requested)), 2);
             if (!disc.isAudio(requested)) response[6] |= 8;
             response[8] = requested % 10;
           }
@@ -244,11 +245,11 @@ class CdDrive {
 
   (double, double) sample(int outputHz) {
     if (!playingAudio) return (0, 0);
-    final sector = _currentLba;
-    if (_sectorAudioLba != sector) {
-      final data = disc.read(sector);
+    final lba = _currentLba;
+    if (_sectorAudioLba != lba) {
+      final data = disc.read(lba);
       if (data == null) return (0, 0); // not read yet: silence, retry
-      _sectorAudioLba = sector;
+      _sectorAudioLba = lba;
       _audio = data;
       _audioPhase = (_audioPhase - 588 * outputHz).clamp(0, outputHz);
     }

@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/n64/bus.dart';
-import 'package:fnesemu_core/core/n64/cpu.dart';
-import 'package:fnesemu_core/core/n64/n64.dart';
-import 'package:fnesemu_core/core/n64/rom.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/n64/bus.dart';
+import 'package:fnesemu_core/src/core/n64/cpu.dart';
+import 'package:fnesemu_core/src/core/n64/n64.dart';
+import 'package:fnesemu_core/src/core/n64/rom.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
 Uint8List cartridge(List<int> instructions, {int entry = 0x80000400}) {

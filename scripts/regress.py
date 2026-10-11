@@ -1,35 +1,31 @@
 #!/usr/bin/env python3
-"""スクリーンショット / 音声の回帰テスト。
+"""軽い回帰 / 実 ROM の画像・音声フル回帰。
 
-正本 (docs/baseline/<core>/<case>/) と、各ハーネスで取得した結果を比較する。
-ハーネスはブランチごとにあるため、case は worktree 名とコマンドを持つ (docs/baseline/cases.json)。
-
+  scripts/regress.py run                 # quick: 合成データの全テスト (55秒予算)
+  scripts/regress.py run quick           # 同上、ROM・正本・numpy/Pillow は不要
+  scripts/regress.py run full            # 全実 ROM case の正本比較 (長時間)
+  scripts/regress.py run all             # full の別名
+  scripts/regress.py run <case> [--update]
   scripts/regress.py list
-  scripts/regress.py run <case|all|full> [--update]   # worktree でハーネスを実行して比較 (--update: 正本を更新)
-                                                       # all: "full": true の case を除く / full: すべての case
-  scripts/regress.py compare <case> <out-dir>    # 実行済みの出力ディレクトリと比較
-  scripts/regress.py update  <case> <out-dir>    # 出力ディレクトリから正本を作る
+  scripts/regress.py compare <case> <out-dir>
+  scripts/regress.py update <case> <out-dir>
 
-正本:
-  frame_NNNNN.png  取得したフレーム。出力側とはファイル名末尾の数字 (フレーム番号) で突き合わせる
-  vram.png         ps のテスト EXE: VRAM 全体 (1024x512)。--vram で出力。自分の出力との完全一致を見る
-  hwref.json       実機の VRAM ダンプ (case の "vram_ref") との差 (チャンネル差 8 超のピクセル率)。悪化したら失敗
-  audio.json       audio.wav の特徴量 (100ms 窓ごとの RMS と帯域エネルギー、PCM の sha1)
-要 Pillow / numpy。
+フル回帰には docs/baseline/cases.json と正本、ROM、Pillow、numpy が必要。
+--update は正本の変更を確認したときだけ指定する。
 """
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import wave
 from pathlib import Path
-
-import numpy as np
-from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE = ROOT / "docs" / "baseline"
@@ -62,6 +58,9 @@ def find_frame(out, n):
 
 
 def compare_png(a, b):
+    import numpy as np
+    from PIL import Image
+
     ia, ib = Image.open(a).convert("RGBA"), Image.open(b).convert("RGBA")
     if ia.size != ib.size:
         return False, f"size {ia.size} != {ib.size}"
@@ -75,6 +74,9 @@ HWREF_SLACK = 0.0005
 
 
 def hwref_ratio(got, ref):
+    import numpy as np
+    from PIL import Image
+
     a = np.asarray(Image.open(got).convert("RGB"), np.int16)
     b = np.asarray(Image.open(ref).convert("RGB"), np.int16)
     if a.shape != b.shape:
@@ -83,6 +85,8 @@ def hwref_ratio(got, ref):
 
 
 def audio_features(path):
+    import numpy as np
+
     with wave.open(str(path)) as w:
         rate, ch = w.getframerate(), w.getnchannels()
         pcm = w.readframes(w.getnframes())
@@ -108,6 +112,8 @@ def audio_features(path):
 
 
 def compare_audio(base, wav_path, tol=None):
+    import numpy as np
+
     tol = tol or {}
     rms_tol = tol.get("rms", AUDIO_RMS_TOL)
     band_tol = tol.get("band", AUDIO_BAND_TOL)
@@ -128,8 +134,12 @@ def compare_audio(base, wav_path, tol=None):
 def compare(c, out):
     out = Path(out)
     d = case_dir(c)
+    refs = sorted(d.glob("frame_*.png"))
+    if not refs and not (d / "vram.png").exists() and not (d / "audio.json").exists():
+        print(f"  FAIL no reference artifacts: {d}")
+        return False
     ok = True
-    for ref in sorted(d.glob("frame_*.png")):
+    for ref in refs:
         n = frame_no(ref)
         got = find_frame(out, n)
         if got is None:
@@ -217,33 +227,101 @@ def run(c, do_update):
     return ok
 
 
-def main():
+def _kill_process_tree(process):
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=2)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        process.communicate(timeout=2)
+    except subprocess.TimeoutExpired:
+        # An escaped descendant may still hold the output pipe open.
+        process.stdout.close()
+        process.wait(timeout=2)
+
+
+def run_quick(budget=55.0, suites=None):
+    """Run the synthetic-data suites within one total wall-clock budget."""
+    suites = suites if suites is not None else [
+        ("disc images", ROOT / "packages/cdrom_image",
+         ["dart", "test", "--reporter", "expanded"]),
+        ("cores", ROOT / "packages/fnesemu_core",
+         ["dart", "test", "--reporter", "expanded"]),
+        ("app", ROOT, ["flutter", "test", "--no-pub", "--reporter", "expanded"]),
+    ]
+    started = time.monotonic()
+    deadline = started + budget
+    for name, cwd, cmd in suites:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            print(f"FAIL quick budget exhausted before {name} ({budget:g}s)")
+            return False
+        print(f"[quick] {name}", flush=True)
+        suite_started = time.monotonic()
+        try:
+            process = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, text=True,
+                                       start_new_session=os.name != "nt")
+        except OSError as error:
+            print(f"FAIL cannot start {name}: {error}")
+            return False
+        try:
+            output, _ = process.communicate(timeout=max(0.001, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(process)
+            print(f"FAIL quick exceeded its {budget:g}s total budget during {name}")
+            return False
+        except KeyboardInterrupt:
+            _kill_process_tree(process)
+            raise
+        if process.returncode:
+            print(output[-8000:])
+            print(f"FAIL {name}: exit {process.returncode}")
+            return False
+        print(f"  passed ({time.monotonic() - suite_started:.1f}s)")
+    print(f"quick passed: {len(suites)} suites in {time.monotonic() - started:.1f}s")
+    return True
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["list", "run", "compare", "update"])
     ap.add_argument("case", nargs="?")
     ap.add_argument("out", nargs="?")
     ap.add_argument("--update", action="store_true")
-    a = ap.parse_args()
+    ap.add_argument("--budget", type=float, default=55.0, help="quick suite total budget in seconds (default: 55)")
+    a = ap.parse_args(argv)
+    if a.action == "run" and a.case in (None, "quick"):
+        if a.update:
+            ap.error("quick has no ROM baselines to update")
+        if a.budget <= 0:
+            ap.error("budget must be positive")
+        sys.exit(0 if run_quick(a.budget) else 1)
     cases = load_cases()
     if a.action == "list":
+        print("quick: synthetic-data suites (default, 55s budget)")
+        print("full: all ROM image/audio cases (long running)")
         for c in cases.values():
-            full = "full" if c.get("full") else ""
-            print(f"{c['name']:24} {c['core']:6} {full:5} {c.get('note', '')}")
+            print(f"{c['name']:24} {c['core']:6} {c.get('note', '')}")
         return
     if not a.case:
         ap.error("case required")
-    if a.case == "all":
-        # the cases marked "full" run only in the full test
-        targets = [c for c in cases.values() if not c.get("full")]
-    elif a.case == "full":
+    if a.case in ("all", "full"):
         targets = list(cases.values())
-    else:
+    elif a.case in cases:
         targets = [cases[a.case]]
+    else:
+        ap.error(f"unknown case: {a.case}")
     if a.action == "run":
         res = [run(c, a.update) for c in targets]
         print(f"\n{sum(r is True for r in res)} ok, {sum(r is False for r in res)} failed, "
               f"{sum(r is None for r in res)} skipped")
-        sys.exit(1 if any(r is False for r in res) else 0)
+        sys.exit(1 if any(r is False for r in res) or not any(r is True for r in res) else 0)
     if not a.out:
         ap.error("out-dir required")
     if a.action == "compare":

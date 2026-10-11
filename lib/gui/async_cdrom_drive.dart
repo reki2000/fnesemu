@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:fnesemu_core/core/core_api.dart';
-import 'package:fnesemu_core/util/debug.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 class _CacheEntry {
   final Uint8List data; // empty if failed to read

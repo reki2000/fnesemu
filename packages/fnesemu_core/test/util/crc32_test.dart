@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:fnesemu_core/util/crc32.dart';
+import 'package:fnesemu_core/src/util/crc32.dart';
 import 'package:test/test.dart';
 
 void main() {

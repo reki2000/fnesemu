@@ -1,9 +1,9 @@
 import 'dart:developer';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
-import 'package:fnesemu_core/util/sampler.dart';
-import 'package:fnesemu_core/util/uint8list.dart';
+import 'package:fnesemu_core/src/util/int.dart';
+import 'package:fnesemu_core/src/util/sampler.dart';
+import 'package:fnesemu_core/src/util/uint8list.dart';
 
 void main(List<String> args) {
   final v = DateTime.now().second > 0 ? 1 : 0;

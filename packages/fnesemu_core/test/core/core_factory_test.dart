@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/cdrom_drive.dart';
-import 'package:fnesemu_core/core/core_factory.dart';
-import 'package:fnesemu_core/core/md/module.dart';
+import 'package:fnesemu_core/src/core/cdrom_drive.dart';
+import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/src/core/md/module.dart';
 import 'package:test/test.dart';
 
 /// a ready drive whose sectors are filled with zero except [sectors]

@@ -339,7 +339,8 @@ class CdBlock {
     if (_playing) {
       _sectorWait -= clocks;
       while (_sectorWait <= 0 && _playing) {
-        _sectorWait += _clockHz ~/ (_standardSpeed || _isAudioFad(_fad) ? 75 : 150);
+        _sectorWait +=
+            _clockHz ~/ (_standardSpeed || _isAudioFad(_fad) ? 75 : 150);
         _readSector();
       }
     }
@@ -452,8 +453,8 @@ class CdBlock {
       case 0x03: // get session info
         final leadout = disc.isEmpty ? 0 : disc.totalSectors + 150;
         if (c[0].mask8 == 0) {
-          _respond(_status.shl8, 0, 0x0100 | leadout.shr16.mask8,
-              leadout.mask16);
+          _respond(
+              _status.shl8, 0, 0x0100 | leadout.shr16.mask8, leadout.mask16);
         } else {
           _respond(_status.shl8, 0, 0x0100, 0x0000);
         }
@@ -573,8 +574,8 @@ class CdBlock {
         _setIrq(_esel);
         break;
       case 0x53: // get actual size
-        _respond(_status.shl8 | _actualSize.shr16.mask8,
-            _actualSize.mask16, 0, 0);
+        _respond(
+            _status.shl8 | _actualSize.shr16.mask8, _actualSize.mask16, 0, 0);
         break;
       case 0x54: // get sector info
         final p = _partitions[c[2].shr8 % 24];
@@ -803,12 +804,12 @@ class CdBlock {
     if (type == 0) {
       final t = _track;
       final rel = disc.isEmpty ? 0 : _fad - (disc.startLba(t) + 150);
-      final (rm, rs, rf) = lbaToMsf(rel < 0 ? 0 : rel);
-      final (am, as_, af) = lbaToMsf(_fad);
+      final (rm, rs, rf) = Msf.ofFrames(rel < 0 ? 0 : rel).bcd();
+      final (am, as_, af) = Msf.ofFrames(_fad).bcd();
       int bcd(int v) => (v ~/ 10).shl4 | v % 10;
       final q = Uint8List.fromList([
-        _ctrlAdr(t), bcd(t), 1, bcd(rm), bcd(rs), bcd(rf), 0, //
-        bcd(am), bcd(as_), bcd(af),
+        _ctrlAdr(t), bcd(t), 1, rm, rs, rf, 0, //
+        am, as_, af,
       ]);
       _startTransfer(q);
       _respond(_status.shl8, 5, 0, 0);
@@ -882,7 +883,8 @@ class CdBlock {
         if (len == 0) break;
         final r = ByteData.sublistView(data, i, i + len);
         final nameLen = data[i + 32];
-        final name = String.fromCharCodes(data.sublist(i + 33, i + 33 + nameLen));
+        final name =
+            String.fromCharCodes(data.sublist(i + 33, i + 33 + nameLen));
         entries.add(_FileEntry(
           r.getUint32(6) + 150,
           r.getUint32(14),

@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/ps/memory_card.dart';
-import 'package:fnesemu_core/core/ps/ps.dart';
+import 'package:fnesemu_core/src/core/ps/memory_card.dart';
+import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:image/image.dart' as img;
 import 'package:test/test.dart';
 

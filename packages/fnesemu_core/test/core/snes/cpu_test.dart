@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/core/snes/component/cpu.dart';
+import 'package:fnesemu_core/src/core/snes/component/cpu.dart';
 import 'package:test/test.dart';
 
 import 'test_rom.dart';

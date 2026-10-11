@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/core/nes/mapper/vrc6_apu.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/vrc6_apu.dart';
 import 'package:test/test.dart';
 
 void main() {

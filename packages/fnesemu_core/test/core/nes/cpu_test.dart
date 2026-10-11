@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/core/nes/component/cpu.dart';
+import 'package:fnesemu_core/src/core/nes/component/cpu.dart';
 import 'package:test/test.dart';
 
 import 'test_system.dart';

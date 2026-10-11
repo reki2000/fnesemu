@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/core/pce/component/bus.dart';
+import 'package:fnesemu_core/src/core/pce/component/bus.dart';
 import 'package:test/test.dart';
 
 void main() {

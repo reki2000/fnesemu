@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/cdrom_drive.dart';
+import 'package:fnesemu_core/src/core/cdrom_drive.dart';
 
 /// [CdromDrive] holding raw sectors on memory. all sectors are always
 /// available.

@@ -4,7 +4,7 @@ import 'package:cdrom_image/cdrom_image.dart';
 import 'package:cdrom_image/memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/async_cdrom_drive.dart';
-import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 const size = DiscImage.sectorSize;
 

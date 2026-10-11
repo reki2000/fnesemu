@@ -1,6 +1,6 @@
-import 'package:fnesemu_core/core/gba/arm7tdmi/arm7.dart';
-import 'package:fnesemu_core/core/gba/bus.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/gba/arm7tdmi/arm7.dart';
+import 'package:fnesemu_core/src/core/gba/bus.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
 import 'support/cputest_rom.dart';

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/md/32x/sh2/sh2.dart';
+import 'package:fnesemu_core/src/core/md/32x/sh2/sh2.dart';
 import 'package:test/test.dart';
 
 class MemoryBus implements Sh2Bus {

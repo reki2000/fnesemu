@@ -21,6 +21,12 @@ test:
 	cd $(CORE) && dart test
 	flutter test
 
+regress:
+	python3 scripts/regress.py run quick
+
+regress-full:
+	flock /tmp/claude-1000/fnesemu-bench.lock python3 scripts/regress.py run full
+
 playvgm:
 	dart run tool/vgmplayer.dart $(VGM)
 
@@ -35,4 +41,4 @@ format:
 	cd $(CORE) && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 	cd packages/cdrom_image && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 
-.PHONY: test format
+.PHONY: test format regress regress-full

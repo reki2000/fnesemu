@@ -1,5 +1,5 @@
-import 'package:fnesemu_core/core/snes/component/ppu.dart';
-import 'package:fnesemu_core/core/snes/component/ppu_render.dart';
+import 'package:fnesemu_core/src/core/snes/component/ppu.dart';
+import 'package:fnesemu_core/src/core/snes/component/ppu_render.dart';
 import 'package:test/test.dart';
 
 void main() {

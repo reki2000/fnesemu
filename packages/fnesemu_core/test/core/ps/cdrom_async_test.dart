@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:cdrom_image/memory.dart';
-import 'package:fnesemu_core/core/cdrom.dart';
-import 'package:fnesemu_core/core/ps/bus.dart';
-import 'package:fnesemu_core/core/ps/cdrom.dart';
+import 'package:fnesemu_core/src/core/cdrom.dart';
+import 'package:fnesemu_core/src/core/ps/bus.dart';
+import 'package:fnesemu_core/src/core/ps/cdrom.dart';
 import 'package:test/test.dart';
 
 import '../../../tool/cdrom_drive.dart';

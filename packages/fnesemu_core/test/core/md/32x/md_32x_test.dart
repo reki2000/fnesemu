@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/core_factory.dart';
-import 'package:fnesemu_core/core/md/32x/md_32x.dart';
-import 'package:fnesemu_core/core/md/32x/video.dart';
-import 'package:fnesemu_core/core/md/md.dart';
+import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/src/core/md/32x/md_32x.dart';
+import 'package:fnesemu_core/src/core/md/32x/video.dart';
+import 'package:fnesemu_core/src/core/md/md.dart';
 import 'package:test/test.dart';
 
 Uint8List boot(int length, int instruction) {

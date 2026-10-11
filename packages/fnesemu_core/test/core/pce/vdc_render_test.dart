@@ -1,8 +1,8 @@
 import 'dart:math';
 
-import 'package:fnesemu_core/core/pce/component/vdc.dart';
-import 'package:fnesemu_core/core/pce/component/vdc_render.dart';
-import 'package:fnesemu_core/core/pce/pce.dart';
+import 'package:fnesemu_core/src/core/pce/component/vdc.dart';
+import 'package:fnesemu_core/src/core/pce/component/vdc_render.dart';
+import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:test/test.dart';
 
 // sets up a vdc with random vram, sprites and registers from [seed]

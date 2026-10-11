@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 import 'blob_store/blob_store.dart';
 import 'recent_game.dart';

@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/direction_pad.dart';
 import 'package:fnesemu/gui/key_handler.dart';
 import 'package:fnesemu/gui/pad_input.dart';
-import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 Offset point(double degrees, [double radius = 54]) {
   final angle = degrees * math.pi / 180;

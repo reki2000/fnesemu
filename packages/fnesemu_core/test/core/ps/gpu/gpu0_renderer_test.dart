@@ -1,8 +1,8 @@
 import 'dart:math';
 
-import 'package:fnesemu_core/core/ps/bus.dart';
-import 'package:fnesemu_core/core/ps/gpu/gpu.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/ps/bus.dart';
+import 'package:fnesemu_core/src/core/ps/gpu/gpu.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -1,12 +1,14 @@
+// Diagnostic tools intentionally inspect core internals.
+// ignore_for_file: implementation_imports
 import 'dart:developer';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/md/sn76489.dart';
-import 'package:fnesemu_core/core/md/ym2612.dart';
-import 'package:fnesemu_core/util/double.dart';
-import 'package:fnesemu_core/util/int.dart';
-import 'package:fnesemu_core/util/uint8list.dart';
+import 'package:fnesemu_core/src/core/md/sn76489.dart';
+import 'package:fnesemu_core/src/core/md/ym2612.dart';
+import 'package:fnesemu_core/src/util/double.dart';
+import 'package:fnesemu_core/src/util/int.dart';
+import 'package:fnesemu_core/src/util/uint8list.dart';
 
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 

@@ -1,5 +1,5 @@
-import 'package:fnesemu_core/core/pce/component/pad.dart';
-import 'package:fnesemu_core/core/pce/pce.dart';
+import 'package:fnesemu_core/src/core/pce/component/pad.dart';
+import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:test/test.dart';
 
 void main() {

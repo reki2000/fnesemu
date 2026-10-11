@@ -1,10 +1,10 @@
 // cartridge images and components shared by the snes tests
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/snes/component/bus.dart';
-import 'package:fnesemu_core/core/snes/component/dsp.dart';
-import 'package:fnesemu_core/core/snes/component/spc700.dart';
-import 'package:fnesemu_core/core/snes/rom/snes_file.dart';
+import 'package:fnesemu_core/src/core/snes/component/bus.dart';
+import 'package:fnesemu_core/src/core/snes/component/dsp.dart';
+import 'package:fnesemu_core/src/core/snes/component/spc700.dart';
+import 'package:fnesemu_core/src/core/snes/rom/snes_file.dart';
 
 /// a LoROM image of [size] bytes with [romType] (the chips) and
 /// [sramSizeByte] (0 = none, 3 = 8KB) in the header, the reset vector at

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/snes/snes.dart';
-import 'package:fnesemu_core/core/types.dart';
+import 'package:fnesemu_core/src/core/snes/snes.dart';
+import 'package:fnesemu_core/src/core/types.dart';
 import 'package:test/test.dart';
 
 Snes createCore({bool stop = false}) {

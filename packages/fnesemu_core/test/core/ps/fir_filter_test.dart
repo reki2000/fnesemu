@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/core/ps/spu/reverb.dart';
+import 'package:fnesemu_core/src/core/ps/spu/reverb.dart';
 import 'package:test/test.dart';
 
 void main() {

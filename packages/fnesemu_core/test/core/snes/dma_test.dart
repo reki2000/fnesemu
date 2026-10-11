@@ -1,6 +1,6 @@
-import 'package:fnesemu_core/core/snes/component/bus.dart';
-import 'package:fnesemu_core/core/snes/component/dma.dart';
-import 'package:fnesemu_core/core/snes/component/ppu.dart';
+import 'package:fnesemu_core/src/core/snes/component/bus.dart';
+import 'package:fnesemu_core/src/core/snes/component/dma.dart';
+import 'package:fnesemu_core/src/core/snes/component/ppu.dart';
 import 'package:test/test.dart';
 
 import 'test_rom.dart';

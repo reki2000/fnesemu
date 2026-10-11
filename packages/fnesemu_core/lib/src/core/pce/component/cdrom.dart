@@ -59,12 +59,10 @@ class PceCdrom {
 
   // a disc change is seen as the tray opened then closed
   late final _swap = DiscSwapWatcher(21477270 ~/ 2,
-      onTrayOpen: _resetDrive,
-      onClosedEmpty: _resetDrive,
-      onInserted: () {
-        _resetDrive();
-        enabled = true;
-      });
+      onTrayOpen: _resetDrive, onClosedEmpty: _resetDrive, onInserted: () {
+    _resetDrive();
+    enabled = true;
+  });
 
   void reset() {
     _swap.sync();
@@ -118,7 +116,9 @@ class PceCdrom {
 
   int read(int address) {
     if ((address & 0x18c0) == 0x18c0) {
-      return (address & 12) == 0 ? const [0, 0xaa, 0x55, 3][address.mask2] : 0xff;
+      return (address & 12) == 0
+          ? const [0, 0xaa, 0x55, 3][address.mask2]
+          : 0xff;
     }
     switch (address.mask4) {
       case 0:
@@ -313,17 +313,16 @@ class PceCdrom {
 
   static int _bcd(int value) => (value ~/ 10).shl4 | value % 10;
   static int _unbcd(int value) => value.shr4 * 10 + value.mask4;
-  List<int> _msf(int lba) {
-    final (m, s, f) = lbaToMsf(lba);
-    return [_bcd(m), _bcd(s), _bcd(f)];
+  List<int> _bcdTime(Msf time) {
+    final (m, s, f) = time.bcd();
+    return [m, s, f];
   }
 
   int _position() {
     switch (_command[9] & 0xc0) {
       case 0x40:
-        return (_unbcd(_command[2]) * 60 + _unbcd(_command[3])) * 75 +
-            _unbcd(_command[4]) -
-            150;
+        return Msf.ofBcd(_command[2], _command[3], _command[4]).frames() -
+            cdLbaOffset;
       case 0x80:
         final track = _unbcd(_command[2]);
         return track > disc.trackCount
@@ -415,8 +414,9 @@ class PceCdrom {
           disc.isAudio(track) ? 0 : 4,
           _bcd(track),
           1,
-          ..._msf(math.max(0, _audioLba - disc.startLba(track))),
-          ..._msf(_audioLba + 150)
+          ..._bcdTime(
+              Msf.ofFrames(math.max(0, _audioLba - disc.startLba(track)))),
+          ..._bcdTime(Msf.ofLba(_audioLba))
         ]);
         break;
       case 0xde:
@@ -425,7 +425,7 @@ class PceCdrom {
             _send([1, _bcd(disc.trackCount)]);
             break;
           case 1:
-            _send(_msf(disc.totalSectors + 150));
+            _send(_bcdTime(Msf.ofLba(disc.totalSectors)));
             break;
           case 2:
             final track = _command[2] == 0xaa
@@ -437,7 +437,8 @@ class PceCdrom {
             }
             final end = track > disc.trackCount;
             _send([
-              ..._msf((end ? disc.totalSectors : disc.startLba(track)) + 150),
+              ..._bcdTime(
+                  Msf.ofLba(end ? disc.totalSectors : disc.startLba(track))),
               end || disc.isAudio(track) ? 0 : 4
             ]);
             break;
@@ -558,7 +559,8 @@ class PceCdrom {
     if (_audioSector.isEmpty) {
       final sector = disc.read(_audioLba);
       if (sector == null) {
-        _pcm.fillRange(0, 2, 0); // not read yet: silence, retry on the next sample
+        _pcm.fillRange(
+            0, 2, 0); // not read yet: silence, retry on the next sample
         return;
       }
       _audioSector = sector;

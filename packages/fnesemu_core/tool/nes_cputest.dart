@@ -1,12 +1,12 @@
 import 'dart:io';
 
-import 'package:fnesemu_core/core/nes/component/apu.dart';
-import 'package:fnesemu_core/core/nes/component/bus.dart';
-import 'package:fnesemu_core/core/nes/component/cpu.dart';
-import 'package:fnesemu_core/core/nes/component/cpu_debug.dart';
-import 'package:fnesemu_core/core/nes/mapper/nrom.dart';
-import 'package:fnesemu_core/core/nes/rom/nes_file.dart';
-import 'package:fnesemu_core/util/uint8list.dart';
+import 'package:fnesemu_core/src/core/nes/component/apu.dart';
+import 'package:fnesemu_core/src/core/nes/component/bus.dart';
+import 'package:fnesemu_core/src/core/nes/component/cpu.dart';
+import 'package:fnesemu_core/src/core/nes/component/cpu_debug.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/nrom.dart';
+import 'package:fnesemu_core/src/core/nes/rom/nes_file.dart';
+import 'package:fnesemu_core/src/util/uint8list.dart';
 
 void log(String s) {
   stdout.writeln(s);

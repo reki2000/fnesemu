@@ -21,17 +21,17 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/core/core.dart';
-import 'package:fnesemu_core/core/gb/gb.dart';
-import 'package:fnesemu_core/core/gba/gba.dart';
-import 'package:fnesemu_core/core/md/md.dart';
-import 'package:fnesemu_core/core/n64/n64.dart';
-import 'package:fnesemu_core/core/nes/nes.dart';
-import 'package:fnesemu_core/core/pce/pce.dart';
-import 'package:fnesemu_core/core/ps/ps.dart';
-import 'package:fnesemu_core/core/snes/snes.dart';
-import 'package:fnesemu_core/core/sram.dart';
-import 'package:fnesemu_core/core/types.dart';
+import 'package:fnesemu_core/src/core/core.dart';
+import 'package:fnesemu_core/src/core/gb/gb.dart';
+import 'package:fnesemu_core/src/core/gba/gba.dart';
+import 'package:fnesemu_core/src/core/md/md.dart';
+import 'package:fnesemu_core/src/core/n64/n64.dart';
+import 'package:fnesemu_core/src/core/nes/nes.dart';
+import 'package:fnesemu_core/src/core/pce/pce.dart';
+import 'package:fnesemu_core/src/core/ps/ps.dart';
+import 'package:fnesemu_core/src/core/snes/snes.dart';
+import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/core/types.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';

@@ -1,11 +1,11 @@
 // a system and images shared by the nes tests
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/nes/component/apu.dart';
-import 'package:fnesemu_core/core/nes/component/bus.dart';
-import 'package:fnesemu_core/core/nes/component/cpu.dart';
-import 'package:fnesemu_core/core/nes/component/ppu.dart';
-import 'package:fnesemu_core/core/nes/mapper/mapper.dart';
+import 'package:fnesemu_core/src/core/nes/component/apu.dart';
+import 'package:fnesemu_core/src/core/nes/component/bus.dart';
+import 'package:fnesemu_core/src/core/nes/component/cpu.dart';
+import 'package:fnesemu_core/src/core/nes/component/ppu.dart';
+import 'package:fnesemu_core/src/core/nes/mapper/mapper.dart';
 
 /// a mapper whose 0x6000-0xffff is RAM, so that a test can place a program
 /// and vectors

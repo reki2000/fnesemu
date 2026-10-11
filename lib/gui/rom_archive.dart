@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 bool isZip(String name) => name.toLowerCase().endsWith('.zip');
 

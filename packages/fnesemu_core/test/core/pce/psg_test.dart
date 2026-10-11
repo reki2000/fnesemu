@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:fnesemu_core/core/pce/component/psg.dart';
+import 'package:fnesemu_core/src/core/pce/component/psg.dart';
 import 'package:test/test.dart';
 
 // the counter stepped once per clock, as the reference of the skipping synth

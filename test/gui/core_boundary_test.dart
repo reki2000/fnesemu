@@ -6,8 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:fnesemu/gui/storage.dart';
-import 'package:fnesemu_core/core/core_api.dart';
-import 'package:fnesemu_core/core/installed_core_modules.dart';
+import 'package:fnesemu_core/app_api.dart';
+// Only this boundary test changes and restores the internal registry.
+// ignore: implementation_imports
+import 'package:fnesemu_core/src/core/core_factory.dart'
+    show registerCoreModules;
+// ignore: implementation_imports
+import 'package:fnesemu_core/src/core/installed_core_modules.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 
 void main() {
@@ -19,10 +24,11 @@ void main() {
       for (final match in RegExp(r'''import\s+['"]([^'"]+)['"]''')
           .allMatches(file.readAsStringSync())) {
         final uri = match.group(1)!;
-        if (uri.contains('/core/')) {
+        if (uri.startsWith('package:fnesemu_core/')) {
           expect(
-              uri.endsWith('/core/core_api.dart') ||
-                  allowed.any((name) => uri.endsWith('/core/$name')),
+              uri == 'package:fnesemu_core/app_api.dart' ||
+                  (file.path.endsWith('core_boundary_test.dart') &&
+                      allowed.contains(uri)),
               isTrue,
               reason: '${file.path}: $uri');
         }
@@ -36,14 +42,16 @@ void main() {
 
   test('app tests import only the public core API', () {
     // the registry, to test the app without cores
-    expectOnlyPublicCore('test', allowed: {'installed_core_modules.dart'});
+    expectOnlyPublicCore('test', allowed: {
+      'package:fnesemu_core/src/core/installed_core_modules.dart',
+      'package:fnesemu_core/src/core/core_factory.dart',
+    });
   });
 
   testWidgets('empty core registry renders and disables old game history',
       (tester) async {
-    CoreFactory.registerModules([]);
-    addTearDown(
-        () => CoreFactory.registerModules(createInstalledCoreModules()));
+    registerCoreModules([]);
+    addTearDown(() => registerCoreModules(createInstalledCoreModules()));
     late Storage storage;
     await tester.runAsync(() async {
       storage = await Storage.open(

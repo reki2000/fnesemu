@@ -1,12 +1,12 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/core_factory.dart';
-import 'package:fnesemu_core/core/nes/fds/fds_audio.dart';
-import 'package:fnesemu_core/core/nes/fds/fds_image.dart';
-import 'package:fnesemu_core/core/nes/fds/fds_mapper.dart';
-import 'package:fnesemu_core/core/nes/nes.dart';
-import 'package:fnesemu_core/core/pad_button.dart';
-import 'package:fnesemu_core/core/sram.dart';
+import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/src/core/nes/fds/fds_audio.dart';
+import 'package:fnesemu_core/src/core/nes/fds/fds_image.dart';
+import 'package:fnesemu_core/src/core/nes/fds/fds_mapper.dart';
+import 'package:fnesemu_core/src/core/nes/nes.dart';
+import 'package:fnesemu_core/src/core/pad_button.dart';
+import 'package:fnesemu_core/src/core/sram.dart';
 import 'package:test/test.dart';
 
 Uint8List disk({int sides = 1, bool header = true}) {

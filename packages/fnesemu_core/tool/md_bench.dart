@@ -15,8 +15,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/core/core.dart';
-import 'package:fnesemu_core/core/md/md.dart';
+import 'package:fnesemu_core/src/core/core.dart';
+import 'package:fnesemu_core/src/core/md/md.dart';
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';

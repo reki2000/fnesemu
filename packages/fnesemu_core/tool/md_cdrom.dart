@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/md/md.dart';
-import 'package:fnesemu_core/core/pad_button.dart';
+import 'package:fnesemu_core/src/core/md/md.dart';
+import 'package:fnesemu_core/src/core/pad_button.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';

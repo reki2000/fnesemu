@@ -1,5 +1,5 @@
-import 'package:fnesemu_core/core/core_api.dart';
-import 'package:fnesemu_core/core/core_empty.dart';
+import 'package:fnesemu_core/src/core/core_api.dart';
+import 'package:fnesemu_core/src/core/core_empty.dart';
 import 'package:test/test.dart';
 
 class _Core extends EmptyCore {

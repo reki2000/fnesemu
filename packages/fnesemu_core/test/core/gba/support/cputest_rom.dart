@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 
 import 'arm7_asm.dart';
 

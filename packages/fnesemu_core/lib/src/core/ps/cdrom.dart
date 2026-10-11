@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 import '../cdrom.dart';
-import '../cdrom_drive.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 import 'log.dart';
@@ -393,20 +392,19 @@ class Cdrom {
 
     // report mode: position report every 10 sectors
     if (mode.bit2 && readingSector % 10 == 0) {
-      final (am, as_, af) = lbaToMsf(readingSector);
-      final isRelative = (af ~/ 10).isOdd;
-      final (rm, rs, rf) = lbaToMsf(
-          (readingSector - _trackStart(track)).max(0),
-          addLeadIn: false);
+      final (am, as_, af) = Msf.ofFrames(readingSector).bcd();
+      final isRelative = af.shr4.isOdd;
+      final (rm, rs, rf) =
+          Msf.ofFrames((readingSector - _trackStart(track)).max(0)).bcd();
       irq(
           1,
           [
             status(),
             track.toBcd,
             1,
-            isRelative ? rm.toBcd : am.toBcd,
-            isRelative ? rs.toBcd | 0x80 : as_.toBcd,
-            isRelative ? rf.toBcd : af.toBcd,
+            isRelative ? rm : am,
+            isRelative ? rs | 0x80 : as_,
+            isRelative ? rf : af,
             0,
             0,
           ],
@@ -536,8 +534,7 @@ class Cdrom {
         irq(3, [status()]);
 
       case 0x02: // SetLoc
-        seekSector =
-            _param(0).asBcd * 60 * 75 + _param(1).asBcd * 75 + _param(2).asBcd;
+        seekSector = Msf.ofBcd(_param(0), _param(1), _param(2)).frames();
         isSeekPending = true;
         irq(3, [status()], delay: 5000);
 
@@ -626,17 +623,17 @@ class Cdrom {
         final trackNo = _trackOf(currentSector);
         final relative =
             trackNo == 0 ? 0 : currentSector - _trackStart(trackNo);
-        final (rm, rs, rf) = lbaToMsf(relative.abs());
-        final (am, as_, af) = lbaToMsf(currentSector);
+        final (rm, rs, rf) = Msf.ofFrames(relative.abs()).bcd();
+        final (am, as_, af) = Msf.ofFrames(currentSector).bcd();
         irq(3, [
           trackNo.toBcd,
           relative < 0 ? 0 : 1, // index 0 for pregap
-          rm.toBcd,
-          rs.toBcd,
-          rf.toBcd,
-          am.toBcd,
-          as_.toBcd,
-          af.toBcd,
+          rm,
+          rs,
+          rf,
+          am,
+          as_,
+          af,
         ]);
 
       case 0x13: // GetTN
@@ -653,8 +650,8 @@ class Cdrom {
         } else {
           final sector =
               track == 0 ? _totalSectors + 2 * 75 : _trackStart(track);
-          final (mm, ss, _) = lbaToMsf(sector);
-          irq(3, [status(), mm.toBcd, ss.toBcd]);
+          final (mm, ss, _) = Msf.ofFrames(sector).bcd();
+          irq(3, [status(), mm, ss]);
         }
 
       case 0x15: // SeekL
@@ -778,7 +775,7 @@ class Cdrom {
       "result:[${resultFifo.map((e) => e.x2).join(" ")}] "
       "pend:${cmdResults.map((r) => "[${r.intNo} ${r.delay} [${r.fifo.map((e) => e.x2).join(" ")}]]").join(" ")} "
       "${isXaAdpcmBusy ? "Adpcm" : "DRQ"} ${sectorBufferEmpty ? "empty" : "ready"} ${isHighSpeed ? "x2" : "x1"} ${isSectorSize924 ? "924" : "800"} "
-      "mask:${intMask.x2} mode:${mode.x2} seek:${msfString(seekSector)} read:${msfString(readingSector)}";
+      "mask:${intMask.x2} mode:${mode.x2} seek:$seekSector (${Msf.ofFrames(seekSector).format()}) read:$readingSector (${Msf.ofFrames(readingSector).format()})";
 
   static List<String> commandNames = [
     "", "GetStat", "SetLoc", "SetMode", "Forward", "Backward", "ReadN",

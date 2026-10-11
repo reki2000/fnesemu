@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:fnesemu_core/core/snes/component/spc7110.dart';
+import 'package:fnesemu_core/src/core/snes/component/spc7110.dart';
 import 'package:test/test.dart';
 
 // the example of the fullsnes documentation: one string compressed in the

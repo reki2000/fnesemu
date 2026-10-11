@@ -2,10 +2,11 @@
 // exported to the app: the boundary is cdrom_drive.dart.
 import 'dart:typed_data';
 
-import '../util/int.dart';
 import 'cdrom_drive.dart';
+import 'msf.dart';
 
 export 'cdrom_drive.dart';
+export 'msf.dart';
 
 /// bytes of a raw sector: 24 bytes x 98 frames
 const cdSectorSize = 2352;
@@ -26,21 +27,8 @@ const cdSync = [
   0
 ];
 
-/// the sectors of the lead-in before LBA 0. an absolute sector (as in MSF
-/// addresses) is LBA + [cdLeadIn].
-const cdLeadIn = 150;
-
-/// minutes, seconds and frames of [lba]
-(int, int, int) lbaToMsf(int lba, {bool addLeadIn = false}) {
-  final msf = lba + (addLeadIn ? cdLeadIn : 0);
-  return (msf ~/ (60 * 75), (msf ~/ 75) % 60, msf % 75);
-}
-
-/// "sector (mm:ss:ff)", for debugging
-String msfString(int sector) {
-  final (m, s, f) = lbaToMsf(sector);
-  return "$sector (${m.d2z}:${s.d2z}:${f.d2z})";
-}
+/// Difference between the LBA origin and the absolute MSF time origin.
+const cdLbaOffset = Msf.lbaOffset;
 
 bool sectorContains(Uint8List bytes, String signature) =>
     String.fromCharCodes(bytes).contains(signature);
@@ -55,13 +43,13 @@ extension CdromAccess on CdromDrive {
   int startLba(int trackNo) => toc.startLba(trackNo);
   bool isAudio(int trackNo) => toc.isAudio(trackNo);
 
-  /// [read] by an absolute sector (LBA + [cdLeadIn]). returns empty data if
+  /// [read] by an absolute sector (LBA + [cdLbaOffset]). returns empty data if
   /// it is not readable, null if it is not read yet.
-  Uint8List? readAbsolute(int sector) => read(sector - cdLeadIn);
+  Uint8List? readAbsolute(int sector) => read(sector - cdLbaOffset);
 
-  /// whether the absolute [sector] (LBA + [cdLeadIn]) is in an audio track
+  /// whether the absolute [sector] (LBA + [cdLbaOffset]) is in an audio track
   bool isAudioSector(int sector) {
-    final lba = sector - cdLeadIn;
+    final lba = sector - cdLbaOffset;
     if (isEmpty || lba < 0 || lba >= totalSectors) return false;
     return toc.isAudioLba(lba);
   }

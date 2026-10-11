@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/core/nes/rom/nes_file.dart';
+import 'package:fnesemu_core/src/core/nes/rom/nes_file.dart';
 import 'package:test/test.dart';
 
 import 'test_system.dart';

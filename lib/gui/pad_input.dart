@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import 'package:fnesemu_core/core/core_api.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 /// Combines independent input sources before sending changes to the core.
 class PadInput extends ChangeNotifier {

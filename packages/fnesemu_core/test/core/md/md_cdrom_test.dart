@@ -1,20 +1,20 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/core/cdrom.dart';
-import 'package:fnesemu_core/core/core_factory.dart';
-import 'package:fnesemu_core/core/md/cd/cdc.dart';
-import 'package:fnesemu_core/core/md/cd/cdd.dart';
-import 'package:fnesemu_core/core/md/cd/md_cdrom.dart';
-import 'package:fnesemu_core/core/md/cd/pcm.dart';
-import 'package:fnesemu_core/core/md/md.dart';
-import 'package:fnesemu_core/core/sram.dart';
+import 'package:fnesemu_core/src/core/cdrom.dart';
+import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/src/core/md/cd/cdc.dart';
+import 'package:fnesemu_core/src/core/md/cd/cdd.dart';
+import 'package:fnesemu_core/src/core/md/cd/md_cdrom.dart';
+import 'package:fnesemu_core/src/core/md/cd/pcm.dart';
+import 'package:fnesemu_core/src/core/md/md.dart';
+import 'package:fnesemu_core/src/core/sram.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
 
 /// a raw mode 1 sector of [data] at [lba], without EDC/ECC
 Uint8List mode1Sector(Uint8List data, int lba) {
-  final (m, s, f) = lbaToMsf(lba, addLeadIn: true);
+  final (m, s, f) = Msf.ofLba(lba).parts();
   int bcd(int value) => ((value ~/ 10) << 4) | (value % 10);
   return Uint8List(cdSectorSize)
     ..setAll(0, cdSync)

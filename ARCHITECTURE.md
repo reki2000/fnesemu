@@ -15,8 +15,7 @@ Each part owns its domain and depends only on the interfaces below.
 
 ## Package boundaries
 
-- App/GUI and app tests access cores through `core/core_api.dart` and generic
-  `util/` helpers. They never import concrete cores or encode core-specific IDs
+- App/GUI and app tests access cores through `app_api.dart` only. They never import concrete cores or encode core-specific IDs
   or formats. Identification and BIOS interpretation belong to each core.
 - Cores receive discs through `CdromDrive` (`core/cdrom_drive.dart`): tray
   state, TOC, and synchronous polling of raw sectors by LBA. They do not know
@@ -36,8 +35,13 @@ Each part owns its domain and depends only on the interfaces below.
 
 ## Core layers
 
-Within `packages/fnesemu_core/lib`:
+The public entry point is `packages/fnesemu_core/lib/app_api.dart`.
+The existing `core/` and `util/` trees live unchanged under `lib/src/`;
+GUI/App never imports `src/` directly. Diagnostic app tools may inspect
+internals when testing chips with Flutter or audio output. Within `lib/src/`:
 
+- Before implementing core-package code, read the extensions in `util/` and
+  use them where they improve readability.
 - **Modules** (`core/<system>/`) use shared core contracts, components, and
   utilities. They never import another module.
 - **Shared contracts and helpers** (`core/*.dart`) never import modules or
@@ -69,4 +73,6 @@ without changes to App/GUI.
 `make test` runs all three suites, as does CI. Boundary rules are checked by
 `test/gui/core_boundary_test.dart` and
 `packages/fnesemu_core/test/core/core_layers_test.dart`.
-Screenshot/audio regressions use `scripts/regress.py`; see `docs/TEST.md`.
+Routine regression checks use `make regress` (55-second budget).
+Real-ROM screenshot/audio checks are opt-in via `make regress-full`;
+see `docs/TEST.md`.

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:fnesemu_core/core/md/md.dart';
+import 'package:fnesemu_core/src/core/md/md.dart';
 
 /// Headless md 32x smoke runner with externally supplied boot ROMs.
 void main(List<String> args) {

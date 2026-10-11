@@ -1,6 +1,6 @@
-import 'package:fnesemu_core/core/snes/component/dsp.dart';
-import 'package:fnesemu_core/core/snes/component/spc700.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/snes/component/dsp.dart';
+import 'package:fnesemu_core/src/core/snes/component/spc700.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
 void main() {

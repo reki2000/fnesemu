@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/core/components/m68k/bus.dart';
-import 'package:fnesemu_core/core/components/m68k/cpu.dart';
-import 'package:fnesemu_core/core/components/m68k/debug.dart';
-import 'package:fnesemu_core/util/int.dart';
+import 'package:fnesemu_core/src/core/components/m68k/bus.dart';
+import 'package:fnesemu_core/src/core/components/m68k/cpu.dart';
+import 'package:fnesemu_core/src/core/components/m68k/debug.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 
 class BusM68Test implements M68Bus {
   final ram_ = List<int>.filled(0x1000000, 0xff);
