@@ -98,7 +98,7 @@ void main() {
     });
     final r = await RomScanner.scan(folder);
     final (file, files) = r.sourceOf(r.items.single);
-    final (image, _) = await DiscImage.parse(files, file);
+    final (image, _) = await DiscImage.parse(file, files: files);
     expect(image.totalSectors, 4);
   });
 
@@ -114,7 +114,7 @@ void main() {
     expect(r.items.map((i) => i.path), ["a/b/x.cue", "y.iso"]);
 
     final (file, files) = r.sourceOf(r.items.first);
-    final (image, _) = await DiscImage.parse(files, file);
+    final (image, _) = await DiscImage.parse(file, files: files);
     expect(image.totalSectors, 4);
   });
 }

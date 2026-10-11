@@ -37,6 +37,28 @@ This project is experimental.
 
 # How to develop
 
+Clone with the package submodules:
+
+```sh
+git clone --recurse-submodules https://github.com/reki2000/fnesemu.git
+```
+
+For an existing checkout, initialize them with `git submodule update --init --recursive`.
+
+`packages/cdrom_image` and `packages/mp_bigfile_picker` are maintained in
+their own repositories and used here through local `path` dependencies.
+Before editing a package, switch its submodule to a development branch:
+
+```sh
+git -C packages/cdrom_image switch main
+git -C packages/mp_bigfile_picker switch main
+```
+
+Package edits are used directly by the app. Commit and push changes in the
+package repository first, then commit the updated submodule reference in
+fnesemu. To update to the commits recorded by fnesemu after a pull, run
+`git submodule update --init --recursive`.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the packages, the direction of
 the dependencies and the interfaces between them.
 

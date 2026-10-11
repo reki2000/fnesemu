@@ -113,7 +113,8 @@ class RomScanner {
 
       items.add(RomFile(cue));
       try {
-        final (_, refs) = await DiscImage.parse(discs.values, discs[cue]!);
+        final (_, refs) =
+            await DiscImage.parse(discs[cue]!, files: discs.values);
         referenced.addAll(refs.map((file) => file.path));
       } catch (_) {
         skipped.add(cue); // a missing file, or unreadable

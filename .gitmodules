@@ -1,3 +1,11 @@
 [submodule "native/miniaudio"]
 	path = native/miniaudio
 	url = https://github.com/mackron/miniaudio.git
+[submodule "cdrom_image"]
+	path = packages/cdrom_image
+	url = https://github.com/reki2000/cdrom_image.git
+	branch = main
+[submodule "mp_bigfile_picker"]
+	path = packages/mp_bigfile_picker
+	url = https://github.com/reki2000/mp_bigfile_picker.git
+	branch = main
