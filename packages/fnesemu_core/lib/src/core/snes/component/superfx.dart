@@ -393,7 +393,6 @@ class SuperFx {
     return source;
   }
 
-
   // ---------------------------------------------------------- instructions
   void _instruction(int op) {
     final n = op.mask4;
@@ -470,9 +469,8 @@ class SuperFx {
         _resetPrefix();
       case 0x8: // MULT / UMULT
         final operand = _alt2 ? n : r[n];
-        final v = (!_alt1
-                ? _sr.rel8 * operand.rel8
-                : _sr.mask8 * operand.mask8).mask16;
+        final v = (!_alt1 ? _sr.rel8 * operand.rel8 : _sr.mask8 * operand.mask8)
+            .mask16;
         _setSZ(v);
         _setDr(v);
         if (!_cfgr.bit5) _clock += _cacheClocks;

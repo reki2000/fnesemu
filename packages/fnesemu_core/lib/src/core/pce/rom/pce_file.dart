@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import '../../../util/crc32.dart';
 
-
 class PceFile {
   final banks = List<Uint8List>.filled(0, Uint8List(0), growable: true);
   late final String crc;

@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 
+import '../../sram.dart';
 import '../../util/int.dart';
-
-import '../sram.dart';
 
 /// Cartridge backup memory kind, auto-detected from identifier strings the
 /// developer tools embed in the ROM.
@@ -64,8 +63,7 @@ class Backup {
         _flash = _Flash(storage, banks: 1);
         break;
       case BackupType.flash1m:
-        storage.init(
-            "$id.fl", Uint8List(0x20000)..fillRange(0, 0x20000, 0xff));
+        storage.init("$id.fl", Uint8List(0x20000)..fillRange(0, 0x20000, 0xff));
         _flash = _Flash(storage, banks: 2);
         break;
       case BackupType.eeprom:
@@ -126,7 +124,8 @@ class _Flash {
   bool _bankArmed = false;
 
   // identification bytes (manufacturer, device).
-  int get _manufacturer => banks == 2 ? 0x62 : 0x32; // manufacturer 128K / manufacturer 64K
+  int get _manufacturer =>
+      banks == 2 ? 0x62 : 0x32; // manufacturer 128K / manufacturer 64K
   int get _device => banks == 2 ? 0x13 : 0x1b;
 
   int _index(int addr) => _bank * 0x10000 + addr.mask16;

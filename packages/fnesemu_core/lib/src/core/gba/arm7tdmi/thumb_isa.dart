@@ -106,22 +106,62 @@ extension ThumbIsa on Arm7 {
     bool arith = false;
 
     switch (code) {
-      case 0x0: res = a & b; break; // AND
-      case 0x1: res = a ^ b; break; // EOR
-      case 0x2: res = _barrel(0, a, b.mask8, imm: false); break; // LSL
-      case 0x3: res = _barrel(1, a, b.mask8, imm: false); break; // LSR
-      case 0x4: res = _barrel(2, a, b.mask8, imm: false); break; // ASR
-      case 0x5: res = _adc(a, b, regs.cf ? 1 : 0); arith = true; break; // ADC
-      case 0x6: res = _sbc(a, b, regs.cf ? 1 : 0); arith = true; break; // SBC
-      case 0x7: res = _barrel(3, a, b.mask8, imm: false); break; // ROR
-      case 0x8: res = a & b; write = false; break; // TST
-      case 0x9: res = _sbc(0, b, 1); arith = true; break; // NEG
-      case 0xa: res = _sbc(a, b, 1); arith = true; write = false; break; // CMP
-      case 0xb: res = _adc(a, b, 0); arith = true; write = false; break; // CMN
-      case 0xc: res = a | b; break; // ORR
-      case 0xd: res = (a * b).mask32; break; // MUL
-      case 0xe: res = a & (~b).mask32; break; // BIC
-      default: res = (~b).mask32; break; // MVN
+      case 0x0:
+        res = a & b;
+        break; // AND
+      case 0x1:
+        res = a ^ b;
+        break; // EOR
+      case 0x2:
+        res = _barrel(0, a, b.mask8, imm: false);
+        break; // LSL
+      case 0x3:
+        res = _barrel(1, a, b.mask8, imm: false);
+        break; // LSR
+      case 0x4:
+        res = _barrel(2, a, b.mask8, imm: false);
+        break; // ASR
+      case 0x5:
+        res = _adc(a, b, regs.cf ? 1 : 0);
+        arith = true;
+        break; // ADC
+      case 0x6:
+        res = _sbc(a, b, regs.cf ? 1 : 0);
+        arith = true;
+        break; // SBC
+      case 0x7:
+        res = _barrel(3, a, b.mask8, imm: false);
+        break; // ROR
+      case 0x8:
+        res = a & b;
+        write = false;
+        break; // TST
+      case 0x9:
+        res = _sbc(0, b, 1);
+        arith = true;
+        break; // NEG
+      case 0xa:
+        res = _sbc(a, b, 1);
+        arith = true;
+        write = false;
+        break; // CMP
+      case 0xb:
+        res = _adc(a, b, 0);
+        arith = true;
+        write = false;
+        break; // CMN
+      case 0xc:
+        res = a | b;
+        break; // ORR
+      case 0xd:
+        res = (a * b).mask32;
+        break; // MUL
+      case 0xe:
+        res = a & (~b).mask32;
+        break; // BIC
+      default:
+        res = (~b).mask32;
+        break; // MVN
     }
 
     if (write) regs.r[rd] = res;
@@ -217,8 +257,7 @@ extension ThumbIsa on Arm7 {
     } else if (!s && h) {
       // LDRH
       final raw = bus.read16(addr & ~1);
-      regs.r[rd] =
-          addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
+      regs.r[rd] = addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
       return 3;
     } else if (s && !h) {
       // LDRSB
@@ -242,8 +281,7 @@ extension ThumbIsa on Arm7 {
     final offset = op.shr6.mask5;
     final rb = op.shr3.mask3;
     final rd = op.mask3;
-    final addr =
-        (regs.r[rb] + (byte ? offset : offset.shl2)).mask32;
+    final addr = (regs.r[rb] + (byte ? offset : offset.shl2)).mask32;
     if (load) {
       regs.r[rd] = byte ? bus.read8(addr) : _ldrWord(addr);
       return 3;
@@ -266,8 +304,7 @@ extension ThumbIsa on Arm7 {
     final addr = (regs.r[rb] + offset).mask32;
     if (load) {
       final raw = bus.read16(addr & ~1);
-      regs.r[rd] =
-          addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
+      regs.r[rd] = addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
       return 3;
     } else {
       bus.write16(addr & ~1, regs.r[rd].mask16);
@@ -304,8 +341,7 @@ extension ThumbIsa on Arm7 {
   int _thAddSp(int op) {
     final imm = op.mask7.shl2;
     final sub = op.bit7;
-    regs.r[13] =
-        (regs.r[13] + (sub ? -imm : imm)).mask32;
+    regs.r[13] = (regs.r[13] + (sub ? -imm : imm)).mask32;
     return 1;
   }
 

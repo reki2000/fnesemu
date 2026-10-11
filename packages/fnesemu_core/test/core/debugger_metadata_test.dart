@@ -1,8 +1,7 @@
-import 'package:fnesemu_core/src/core/core_api.dart';
-import 'package:fnesemu_core/src/core/core_empty.dart';
+import 'package:fnesemu_core/app_api.dart';
 import 'package:test/test.dart';
 
-class _Core extends EmptyCore {
+class _DebugCore extends CoreDebug {
   @override
   List<CpuInfo> get cpuInfos =>
       const [CpuInfo(2, 'first', 20), CpuInfo(7, 'second', 24)];
@@ -14,8 +13,8 @@ class _Core extends EmptyCore {
 
 void main() {
   test('debugger uses metadata CPU identities instead of list positions', () {
-    final debugger = Debugger(_Core());
-    expect(debugger.opt.targetCpuNo, 2);
+    final debugger = Debugger(_DebugCore());
+    expect(debugger.state.targetCpuNo, 2);
     debugger.setDebugView(true);
     expect(debugger.disasmAddress(7), 112);
     expect(debugger.cpuInfo(7).pcBitWidth, 24);

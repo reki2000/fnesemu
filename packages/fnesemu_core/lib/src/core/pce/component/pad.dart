@@ -1,6 +1,5 @@
+import '../../../pad_button.dart';
 import '../../../util/int.dart';
-
-import '../../pad_button.dart';
 
 class Pad {
   final buttons = [
@@ -67,14 +66,14 @@ class Pad {
   int get port => counter >= controllerNum
       ? 0
       : selectLRDU
-      ? buttonValue(2, 0x08) |
-            buttonValue(1, 0x04) |
-            buttonValue(3, 0x02) |
-            buttonValue(0, 0x01)
-      : buttonValue(5, 0x08) | // Run
-            buttonValue(4, 0x04) | // Select
-            buttonValue(7, 0x02) | // I
-            buttonValue(6, 0x01); // II
+          ? buttonValue(2, 0x08) |
+              buttonValue(1, 0x04) |
+              buttonValue(3, 0x02) |
+              buttonValue(0, 0x01)
+          : buttonValue(5, 0x08) | // Run
+              buttonValue(4, 0x04) | // Select
+              buttonValue(7, 0x02) | // I
+              buttonValue(6, 0x01); // II
 
   String dump() {
     final joys = buttons.map(

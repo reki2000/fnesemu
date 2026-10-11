@@ -201,6 +201,12 @@ class MapperMMC3 extends Mapper {
   }
 
   @override
+  int peekVram(int addr, {bool sprite = false}) {
+    final bank = addr.shr10;
+    return chrRoms[_chrBank[bank.shr2][bank.mask2]][addr.mask10];
+  }
+
+  @override
   void writeVram(int addr, int data) {
     final bank = addr.shr10;
     final offset = addr.mask10;
@@ -225,13 +231,10 @@ class MapperMMC3 extends Mapper {
   String dump() {
     final range0_3 = range(0, 4);
 
-    final chrBanks0 =
-        range0_3.map((i) => _chrBank[0][i].x2).toList().join(" ");
-    final chrBanks1 =
-        range0_3.map((i) => _chrBank[1][i].x2).toList().join(" ");
+    final chrBanks0 = range0_3.map((i) => _chrBank[0][i].x2).toList().join(" ");
+    final chrBanks1 = range0_3.map((i) => _chrBank[1][i].x2).toList().join(" ");
 
-    final prgBanks =
-        range0_3.map((i) => _prgBank[i][0].x2).toList().join(" ");
+    final prgBanks = range0_3.map((i) => _prgBank[i][0].x2).toList().join(" ");
 
     return "rom: irq:${_irqEnabled ? '*' : '-'} "
         "@${_irqCounter.d3z}"
@@ -294,6 +297,11 @@ class MapperTxsrom extends MapperMMC3 {
     }
     return _ciram[(_page(addr) ? 0x400 : 0) + addr.mask10];
   }
+
+  @override
+  int peekVram(int addr, {bool sprite = false}) => addr < 0x2000
+      ? super.peekVram(addr, sprite: sprite)
+      : _ciram[(_page(addr) ? 0x400 : 0) + addr.mask10];
 
   @override
   void writeVram(int addr, int data) {

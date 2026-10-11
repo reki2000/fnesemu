@@ -22,8 +22,9 @@ extension GpuRenderer on Gpu {
     // picture (y1 = 24) is centered with 8 black lines above and below
     final top = isPal ? 0 : displayY1 - 16;
     final rel = scanline - top; // line inside the display range
-    final fbY = (startDisplayY +
-            (height == 240 ? rel : rel * 2 + (isOddFrame ? 1 : 0))).mask9;
+    final fbY =
+        (startDisplayY + (height == 240 ? rel : rel * 2 + (isOddFrame ? 1 : 0)))
+            .mask9;
 
     if (scanline < 240) {
       if (status.bit23 || rel < 0 || rel >= displayY2 - displayY1) {
@@ -44,8 +45,7 @@ extension GpuRenderer on Gpu {
         final buffer = this.buffer, fb = frameBuffer16, table = c15ToAbgr32;
         final startX = startDisplayX;
         for (int x = 0; x < width; x++) {
-          buffer[bufIndex++] =
-              table[fb[fbIndex + (startX + x).mask10].mask15];
+          buffer[bufIndex++] = table[fb[fbIndex + (startX + x).mask10].mask15];
         }
       }
     }

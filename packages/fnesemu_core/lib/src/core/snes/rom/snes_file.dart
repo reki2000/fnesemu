@@ -92,10 +92,10 @@ class SnesFile {
     final half = blocks ~/ 2;
     final out = Uint8List(image.length);
     for (var i = 0; i < half; i++) {
-      out.setRange((2 * i + 1) * 0x8000, (2 * i + 2) * 0x8000, image,
-          i * 0x8000);
-      out.setRange(2 * i * 0x8000, (2 * i + 1) * 0x8000, image,
-          (half + i) * 0x8000);
+      out.setRange(
+          (2 * i + 1) * 0x8000, (2 * i + 2) * 0x8000, image, i * 0x8000);
+      out.setRange(
+          2 * i * 0x8000, (2 * i + 1) * 0x8000, image, (half + i) * 0x8000);
     }
     return out;
   }

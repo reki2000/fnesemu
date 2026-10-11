@@ -12,12 +12,18 @@ class CoreView extends StatefulWidget {
   final CoreController controller;
   final ImageContainer container;
   final PadInput? input;
+  final bool? portrait;
+  final bool showPad;
+  final double? maxImageWidth;
 
   const CoreView(
       {super.key,
       required this.controller,
       required this.container,
-      this.input});
+      this.input,
+      this.portrait,
+      this.showPad = true,
+      this.maxImageWidth});
 
   @override
   State<CoreView> createState() => _CoreViewState();
@@ -40,7 +46,8 @@ class _CoreViewState extends State<CoreView> {
         child: LayoutBuilder(builder: (context, constraints) {
           const inset = 12.0;
           const headerHeight = 64.0;
-          final portrait = constraints.maxHeight > constraints.maxWidth;
+          final portrait =
+              widget.portrait ?? constraints.maxHeight > constraints.maxWidth;
           return Stack(children: [
             Positioned.fill(
               child: LayoutBuilder(
@@ -55,7 +62,9 @@ class _CoreViewState extends State<CoreView> {
                             final aspect = widget
                                     .container.displayWidthNotifier.value /
                                 widget.container.displayHeightNotifier.value;
-                            final width = math.min(gameConstraints.maxWidth,
+                            final width = math.min(
+                                math.min(gameConstraints.maxWidth,
+                                    widget.maxImageWidth ?? double.infinity),
                                 gameConstraints.maxHeight * aspect);
                             final gameHeight = width / aspect;
                             final headerFits = portrait &&
@@ -79,25 +88,27 @@ class _CoreViewState extends State<CoreView> {
                         ),
                       )),
             ),
-            Positioned(
-                left: inset,
-                top: portrait ? null : 0,
-                bottom: portrait ? inset : 0,
-                child: Align(
-                    widthFactor: 1,
-                    heightFactor: 1,
-                    alignment: Alignment.centerLeft,
-                    child: DirectionPad(input: _input))),
-            Positioned(
-                right: inset,
-                top: portrait ? null : 0,
-                bottom: portrait ? inset : 0,
-                child: Align(
-                    widthFactor: 1,
-                    heightFactor: 1,
-                    alignment: Alignment.centerRight,
-                    child: VirtualPadWidget(
-                        controller: widget.controller, input: _input))),
+            if (widget.showPad)
+              Positioned(
+                  left: inset,
+                  top: portrait ? null : 0,
+                  bottom: portrait ? inset : 0,
+                  child: Align(
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      alignment: Alignment.centerLeft,
+                      child: DirectionPad(input: _input))),
+            if (widget.showPad)
+              Positioned(
+                  right: inset,
+                  top: portrait ? null : 0,
+                  bottom: portrait ? inset : 0,
+                  child: Align(
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      alignment: Alignment.centerRight,
+                      child: VirtualPadWidget(
+                          controller: widget.controller, input: _input))),
           ]);
         }),
       );

@@ -1,9 +1,8 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../types.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'vdp_renderer.dart';

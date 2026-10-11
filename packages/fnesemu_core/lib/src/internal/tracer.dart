@@ -1,13 +1,15 @@
 import 'dart:async';
 
+import '../types.dart';
 import '../util/int.dart';
-
-import 'types.dart';
 
 class TraceLogState {
   final int _pc;
   final List<int> _state;
-  const TraceLogState(this._pc, this._state);
+  final int _scope;
+  final String _instruction;
+  const TraceLogState(this._pc, this._state,
+      [this._scope = 0, this._instruction = '']);
   static const empty = TraceLogState(-1, []);
 
   @override
@@ -15,7 +17,7 @@ class TraceLogState {
 
   bool matched(TraceLogState b, int allowDiffCounts) {
     // pc should match
-    if (_pc != b._pc) {
+    if (_pc != b._pc || _scope != b._scope || _instruction != b._instruction) {
       return false;
     }
     if (b._state.length < _state.length) {
@@ -95,6 +97,15 @@ class RepeatDetector {
     return _buf.size;
   }
 
+  (int, List<TraceLog>) finish(int threshold) {
+    final count = _repeatCount;
+    final pending = [for (final entry in _pendingLogs) entry.$2];
+    _repeatCount = 0;
+    _nextIndex = 0;
+    _pendingLogs.clear();
+    return count > threshold ? (count, <TraceLog>[]) : (0, pending);
+  }
+
   // check if the item is matched with the expected line
   // returns (shouldSkip, skippedCount, pendingLogs)
   (bool, int, List<(TraceLogState, TraceLog)>) isRepeating(
@@ -162,28 +173,83 @@ class Tracer {
       : _detector = RepeatDetector(size, allowDiffStates: maxDiffChars),
         _minSkipThreshold = minSkipThreshold;
 
-  void addTraceLog(TraceLog log) {
-    final line = TraceLogState(log.pc, log.state);
+  final _calls = <(int, bool)>[];
+  final _scopes = <String, int>{};
+  TraceFlow? _delayedFlow;
+  int _delayRemaining = 0;
 
+  String _format(TraceLog log) =>
+      '${'  ' * log.indent}${log.disasm} ${log.regs} cl:${log.cycle.format3} f:${log.frame} s:${log.scanline}\n';
+
+  void _applyFlow(TraceFlow flow, int nextPc) {
+    switch (flow.kind) {
+      case TraceFlowKind.call:
+      case TraceFlowKind.exception:
+        if (flow.target == null || flow.target == nextPc) {
+          _calls
+              .add((flow.returnAddress!, flow.kind == TraceFlowKind.exception));
+        }
+      case TraceFlowKind.returned:
+      case TraceFlowKind.jump:
+      case TraceFlowKind.interruptReturn:
+        final interrupt = flow.kind == TraceFlowKind.interruptReturn;
+        final match = _calls.lastIndexWhere(
+            (entry) => entry.$1 == nextPc && entry.$2 == interrupt);
+        if (match >= 0) {
+          _calls.removeRange(match, _calls.length);
+        } else if (flow.kind == TraceFlowKind.returned &&
+            !_calls.any((entry) => entry.$2)) {
+          // A return outside the captured stack (capture may start mid-function).
+          _calls.clear();
+        }
+      case TraceFlowKind.none:
+        break;
+    }
+  }
+
+  /// Emit the deferred tail when capture ends, even inside a repeated loop.
+  void finish() {
+    final (skipped, pending) = _detector.finish(_minSkipThreshold);
+    for (final log in pending) {
+      _stream.add(_format(log));
+    }
+    if (skipped > 0) _stream.add('...skipped $skipped lines...\n');
+  }
+
+  void addTraceLog(TraceLog source, {int? nextPc}) {
+    final path = _calls.map((entry) => '${entry.$1}:${entry.$2}').join('/');
+    final scope = _scopes.putIfAbsent(path, () => _scopes.length);
+    final log = TraceLog(source.pc, source.cycle, source.disasm, source.regs,
+        List<int>.of(source.state),
+        frame: source.frame,
+        scanline: source.scanline,
+        flow: source.flow,
+        indent: _calls.length,
+        scope: scope);
+    // Branch and return delay slots still belong to the caller/callee respectively.
+    if (nextPc != null) {
+      if (_delayedFlow != null && --_delayRemaining == 0) {
+        _applyFlow(_delayedFlow!, nextPc);
+        _delayedFlow = null;
+      }
+      if (log.flow.kind != TraceFlowKind.none) {
+        if (log.flow.delaySlots > 0) {
+          _delayedFlow = log.flow;
+          _delayRemaining = log.flow.delaySlots;
+        } else {
+          _applyFlow(log.flow, nextPc);
+        }
+      }
+    }
+    final line = TraceLogState(log.pc, log.state, scope, log.disasm);
     final (repeating, skippedCount, pendingLogs) =
         _detector.isRepeating(line, log, minSkipThreshold: _minSkipThreshold);
-
-    if (repeating) {
-      return; // Skip during repeat pattern (pending)
+    if (repeating) return;
+    for (final (_, pending) in pendingLogs) {
+      _stream.add(_format(pending));
     }
-
-    // Output pending logs first if any
-    for (final (_, pendingLog) in pendingLogs) {
-      _stream.add(
-          "${pendingLog.disasm} ${pendingLog.regs} cl:${pendingLog.cycle.format3}\n");
-    }
-
-    if (skippedCount > 0) {
-      _stream.add("...skipped $skippedCount lines...\n");
-    }
-
+    if (skippedCount > 0) _stream.add('...skipped $skippedCount lines...\n');
     _detector.add(line);
-    _stream.add(
-        "${log.disasm} ${log.regs} cl:${log.cycle.format3} f:${log.frame} s:${log.scanline}\n");
+    _stream.add(_format(log));
   }
 }

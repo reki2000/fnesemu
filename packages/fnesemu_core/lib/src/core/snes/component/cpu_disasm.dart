@@ -122,14 +122,31 @@ class Disasm {
 
   // opcodes that share an addressing-mode pattern by low nibble group.
   static const _alu = <int, String>{
-    0x00: "ORA", 0x20: "AND", 0x40: "EOR", 0x60: "ADC",
-    0x80: "STA", 0xa0: "LDA", 0xc0: "CMP", 0xe0: "SBC",
+    0x00: "ORA",
+    0x20: "AND",
+    0x40: "EOR",
+    0x60: "ADC",
+    0x80: "STA",
+    0xa0: "LDA",
+    0xc0: "CMP",
+    0xe0: "SBC",
   };
   static const _aluModes = <int, _Am>{
-    0x01: _Am.idpX, 0x03: _Am.sr, 0x05: _Am.dp, 0x07: _Am.ildp,
-    0x09: _Am.immM, 0x0d: _Am.abs, 0x0f: _Am.lng, 0x11: _Am.idpY,
-    0x12: _Am.idp, 0x13: _Am.srY, 0x15: _Am.dpX, 0x17: _Am.ildpY,
-    0x19: _Am.absY, 0x1d: _Am.absX, 0x1f: _Am.lngX,
+    0x01: _Am.idpX,
+    0x03: _Am.sr,
+    0x05: _Am.dp,
+    0x07: _Am.ildp,
+    0x09: _Am.immM,
+    0x0d: _Am.abs,
+    0x0f: _Am.lng,
+    0x11: _Am.idpY,
+    0x12: _Am.idp,
+    0x13: _Am.srY,
+    0x15: _Am.dpX,
+    0x17: _Am.ildpY,
+    0x19: _Am.absY,
+    0x1d: _Am.absX,
+    0x1f: _Am.lngX,
   };
 
   static (String, _Am) _lookup(int op) {

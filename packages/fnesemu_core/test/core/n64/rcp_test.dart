@@ -5,8 +5,8 @@ import 'package:fnesemu_core/src/core/n64/bus.dart';
 import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/fpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
-import 'package:fnesemu_core/src/core/pad_button.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 

@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/gba/backup.dart';
 import 'package:fnesemu_core/src/core/gba/bus.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 

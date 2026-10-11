@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
+import '../../cdrom.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
-
-import '../cdrom.dart';
 
 class _Block {
   final Uint8List raw;
@@ -178,35 +177,45 @@ class CdBlock {
       _filters[i].init(i);
     }
     cddaRead = cddaWrite = 0;
-    _swap.sync();
+    disc.clearEvents();
     _loadRootDir();
   }
 
   void setDisc(CdromDrive d) {
     disc = d;
     reset();
-    _swap.attach(d);
+    d.clearEvents();
   }
 
-  // a disc change is seen as the tray opened then closed
-  late final _swap = DiscSwapWatcher(_clockHz ~/ 2, onTrayOpen: () {
-    _status = _stOpen;
-    _playing = false;
-    _readingFile = false;
-    _rootPending = false;
-    _retryCommand = false;
-    _dirEntries.clear();
-    _setIrq(_dchg);
-  }, onClosedEmpty: () {
-    _status = _stNoDisc;
-    _setIrq(_dchg);
-  }, onInserted: () {
-    _status = _stPause;
-    _fad = 150;
-    _playing = false;
-    _loadRootDir();
-    _setIrq(_dchg | _efls);
-  });
+  void _pollDriveEvent() {
+    final event = disc.takeEvent();
+    switch (event?.type) {
+      case CdromDriveEventType.trayOpened:
+        _status = _stOpen;
+        _playing = false;
+        _readingFile = false;
+        _rootPending = false;
+        _retryCommand = false;
+        _dirEntries.clear();
+        _setIrq(_dchg);
+      case CdromDriveEventType.trayClosed:
+        _status = _stNoDisc;
+        _setIrq(_dchg);
+      case CdromDriveEventType.discReady:
+        if (event!.discId != disc.status.discId) return;
+        _status = _stPause;
+        _fad = 150;
+        _playing = false;
+        _loadRootDir();
+        _setIrq(_dchg | _efls);
+      case CdromDriveEventType.discError:
+        if (event!.discId != disc.status.discId) return;
+        _status = _stNoDisc;
+        _setIrq(_dchg);
+      case null:
+        break;
+    }
+  }
 
   // ---- register access ----
 
@@ -332,7 +341,7 @@ class CdBlock {
   }
 
   void exec(int clocks) {
-    _swap.poll(clocks);
+    _pollDriveEvent();
     if (_rootPending) _loadRootDir();
     if (_retryCommand) _runCommand();
 

@@ -1,6 +1,9 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../video_debug.dart';
+
+part 'vdp1_debug.dart';
 
 /// VDP1: sprite / polygon renderer drawing into double-buffered frame buffers
 class Vdp1 {
@@ -185,7 +188,6 @@ class Vdp1 {
   // ---- command processing ----
 
   int _r16(int addr) => vramData.getUint16(addr & 0x7fffe);
-
 
   void _draw() {
     edsr &= ~2;
@@ -372,9 +374,7 @@ class Vdp1 {
         final dot = u.bit0 ? b.mask4 : b.shr4;
         if (dot == 0xf && !ecd) return _endCode;
         if (dot == 0 && !spd) return _transparent;
-        return mode == 0
-            ? (_colr & 0xfff0) | dot
-            : _r16(_colr.shl3 + dot * 2);
+        return mode == 0 ? (_colr & 0xfff0) | dot : _r16(_colr.shl3 + dot * 2);
       case 2 || 3 || 4:
         final dot = vram[(_srca + v * _texW + u) & 0x7ffff];
         if (dot == 0xff && !ecd) return _endCode;

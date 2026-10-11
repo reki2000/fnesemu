@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../types.dart';
+import '../../video_debug.dart';
 import 'vdp1.dart';
 
 part 'vdp2_rotation.dart';
+part 'video_debug.dart';
 
 /// map configuration of a scroll screen (NBG / RBG)
 class _MapCfg {
@@ -27,9 +28,8 @@ class _MapCfg {
   int sfprMode = 0;
 
   @pragma('vm:prefer-inline')
-  int get pageBytes => pnSize == 2
-      ? (char16 ? 0x800 : 0x2000)
-      : (char16 ? 0x1000 : 0x4000);
+  int get pageBytes =>
+      pnSize == 2 ? (char16 ? 0x800 : 0x2000) : (char16 ? 0x1000 : 0x4000);
 
   int get pageDots => 512;
   @pragma('vm:prefer-inline')
@@ -81,9 +81,9 @@ class Vdp2 {
   int _fbWidth = 320;
   int _fbHeight = 224;
 
-  ImageBuffer get imageBuffer => ImageBuffer(
-      _fbWidth, _fbHeight, _frameBuffer.buffer.asUint8List(),
-      displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth);
+  ImageBuffer get imageBuffer =>
+      ImageBuffer(_fbWidth, _fbHeight, _frameBuffer.buffer.asUint8List(),
+          displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth);
 
   void reset() {
     regs.fillRange(0, regs.length, 0);
@@ -494,9 +494,8 @@ class Vdp2 {
 
     final patternIndex =
         cfg.char16 ? cy.shr4 * 32 + cx.shr4 : cy.shr3 * 64 + cx.shr3;
-    final patternAddr = cfg.planeAddr[plane] +
-        page * cfg.pageBytes +
-        patternIndex * cfg.pnSize;
+    final patternAddr =
+        cfg.planeAddr[plane] + page * cfg.pageBytes + patternIndex * cfg.pnSize;
 
     _decodePattern(cfg, patternAddr);
 
@@ -532,8 +531,8 @@ class Vdp2 {
 
   /// fetches a dot from character / bitmap data at (x, y), returns packed pixel
   @pragma('vm:prefer-inline')
-  int _dot(_MapCfg cfg, int base, int x, int y, int stride, int palette,
-      int pri) {
+  int _dot(
+      _MapCfg cfg, int base, int x, int y, int stride, int palette, int pri) {
     int color;
     switch (cfg.colorMode) {
       case 0:
@@ -829,8 +828,7 @@ class Vdp2 {
         color = _offset(top, topPixel.mask24);
 
         if (topPixel & _ccBit != 0) {
-          final under =
-              second < 0 ? back : _offset(second, secondPixel.mask24);
+          final under = second < 0 ? back : _offset(second, secondPixel.mask24);
           color = additive
               ? _add(color, under)
               : _blend(color, under,

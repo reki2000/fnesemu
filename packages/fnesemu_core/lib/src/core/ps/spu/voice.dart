@@ -81,7 +81,8 @@ class Voice {
 
   final _volReg = List<int>.filled(2, 0);
   final _vol = List<int>.filled(2, 0); // current volume
-  final _volSweep = List<Envelope>.generate(2, (_) => Envelope.none(), growable: false);
+  final _volSweep =
+      List<Envelope>.generate(2, (_) => Envelope.none(), growable: false);
 
   int volume(int lr) => _volReg[lr];
 
@@ -187,8 +188,8 @@ class Voice {
         }
       case 2:
         if (adsrVolume <= sustainLevel) {
-          envelope = Envelope.of(adsr.shr22.mask2, adsr.shr24.mask5,
-              adsr.bit31, adsr.bit30); // sustain
+          envelope = Envelope.of(adsr.shr22.mask2, adsr.shr24.mask5, adsr.bit31,
+              adsr.bit30); // sustain
           _adsrPhase = 3;
         }
     }

@@ -13,6 +13,7 @@ import 'async_cdrom_drive.dart';
 import 'core_view.dart';
 import 'debug/debug_controller.dart';
 import 'debug/debug_pane.dart';
+import 'debug/game_layout.dart';
 import 'floating_game_menu.dart';
 import 'game_list.dart';
 import 'key_handler.dart';
@@ -107,7 +108,9 @@ class MainPageState extends State<MainPage> {
   bool _menuTransition = false;
   bool _resumeAfterAction = false;
   bool get _hasGame => _controller.system.isNotEmpty;
-  bool get _debugging => _controller.debugger.opt.showDebugView;
+  bool _debugRequested = false;
+  final _debugGameWidth = ValueNotifier<double?>(null);
+  bool get _debugging => _controller.debugger.state.showDebugView;
 
   String _romName = "";
 
@@ -142,7 +145,7 @@ class MainPageState extends State<MainPage> {
             displayHeight: buf.displayHeight),
         _storage);
 
-    _controller.debugger.opt.showDebugView = widget.config.debug;
+    _debugRequested = widget.config.debug;
 
     _padInput = PadInput(
         onDown: (button) => _controller.padDown(0, button),
@@ -160,7 +163,22 @@ class MainPageState extends State<MainPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncDebugVisibility();
+  }
+
+  void _syncDebugVisibility() {
+    final size = MediaQuery.sizeOf(context);
+    final visible = _debugRequested && size.width >= size.height;
+    if (_controller.debugger.state.showDebugView != visible) {
+      _controller.debugger.setDebugView(visible);
+    }
+  }
+
+  @override
   void dispose() {
+    _debugGameWidth.dispose();
     unawaited(_controller.stop());
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
     _inputLifecycle.dispose();
@@ -176,9 +194,14 @@ class MainPageState extends State<MainPage> {
   void _onCoreStateChange(CoreControllerState state) {
     if (!mounted) return;
     if (state.running) {
-      if (!_menuOpen && !_menuBusy) _enableKeyHandler();
+      if (!_menuOpen && !_menuBusy) {
+        unawaited(_mPlayer.resume());
+        _enableKeyHandler();
+      }
     } else {
-      _menuOpen = true;
+      // Pausing/stepping in the inspector keeps its controls accessible.
+      // Explicit menu opening has already set _menuOpen before stopping.
+      if (!_controller.debugger.state.showDebugView) _menuOpen = true;
       _mPlayer.pause();
       _disableKeyHandler();
     }
@@ -646,7 +669,13 @@ class MainPageState extends State<MainPage> {
   }
 
   _debug(bool onoff) {
-    _controller.debugger.setDebugView(onoff);
+    _debugRequested = onoff;
+    _syncDebugVisibility();
+    if (onoff && _hasGame && _controller.debugger.state.showDebugView) {
+      // The menu already paused the game. Reveal the inspector without
+      // resuming, otherwise the menu backdrop blocks every debug control.
+      _menuOpen = false;
+    }
   }
 
   PopupMenuItem<BiosSetup> _coreSetupItem(BiosSetup setup) => PopupMenuItem(
@@ -747,12 +776,6 @@ class MainPageState extends State<MainPage> {
                   ),
                 ],
               )),
-          if (_debugging)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DebugController(controller: _controller),
-            ),
-          if (_debugging) _registerDump(height: 160),
           if (_romName.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -808,50 +831,55 @@ class MainPageState extends State<MainPage> {
         ),
       ]);
 
-  Widget _registerDump({required double height}) => SizedBox(
-        height: height,
-        child: SingleChildScrollView(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: StreamBuilder<DebugOption>(
-              stream: _controller.debugger.debugStream,
-              initialData: _controller.debugger.opt,
-              builder: (context, snapshot) => SelectableText(
-                snapshot.data?.text ?? '',
-                style: debugStyle,
-              ),
-            ),
-          ),
-        ),
-      );
-
-  Widget _gameContent() => LayoutBuilder(builder: (context, constraints) {
-        final wideDebug = _debugging && constraints.maxWidth >= 1000;
-        return Row(children: [
-          Expanded(
-            child: Column(children: [
-              Expanded(
-                  child: CoreView(
-                      controller: _controller,
-                      container: _imageContainer,
-                      input: _padInput)),
-              if (_debugging) ...[
-                _registerDump(height: 100),
-              ],
-            ]),
-          ),
-          if (wideDebug)
-            SizedBox(
-              width: 400,
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DebugPane(debugger: _controller.debugger),
-                ),
-              ),
-            ),
-        ]);
+  Widget _fpsOverlay() => ValueListenableBuilder<double?>(
+      valueListenable: _debugGameWidth,
+      builder: (context, width, _) {
+        final size = MediaQuery.sizeOf(context);
+        final debug = _debugRequested && size.width >= size.height;
+        final paneWidth = width ?? (size.width - 280).clamp(128.0, 640.0);
+        return Padding(
+            padding: EdgeInsets.only(
+                right: debug
+                    ? (size.width - paneWidth).clamp(0.0, double.infinity)
+                    : 0),
+            child: _fpsIndicator());
       });
+
+  Widget _gameContent() {
+    if (!_debugRequested) {
+      return CoreView(
+          controller: _controller,
+          container: _imageContainer,
+          input: _padInput);
+    }
+    return ListenableBuilder(
+        listenable: Listenable.merge([
+          _imageContainer.displayWidthNotifier,
+          _imageContainer.displayHeightNotifier
+        ]),
+        builder: (context, _) => DebugGameLayout(
+              gameAspect: _imageContainer.displayWidthNotifier.value /
+                  _imageContainer.displayHeightNotifier.value,
+              paneWidth: _debugGameWidth,
+              game: (portrait, showPad, maxWidth) => CoreView(
+                  controller: _controller,
+                  container: _imageContainer,
+                  input: _padInput,
+                  portrait: portrait,
+                  showPad: showPad,
+                  maxImageWidth: maxWidth),
+              dump: StreamBuilder<DebugState>(
+                  stream: _controller.debugger.debugStream,
+                  initialData: _controller.debugger.state,
+                  builder: (context, snapshot) => SingleChildScrollView(
+                      child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SelectableText(snapshot.data?.text ?? '',
+                              style: debugStyle)))),
+              panel: DebugPane(
+                  debugger: _controller.debugger, controller: _controller),
+            ));
+  }
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -860,15 +888,22 @@ class MainPageState extends State<MainPage> {
           if (!didPop && _menuOpen) _do(_resumeFromMenu);
         },
         child: Scaffold(
-            body: FloatingGameMenu(
-          expanded: _menuOpen,
-          canResume: _hasGame,
-          busy: _menuBusy || _menuTransition || _progress.value != null,
-          onToggle: _toggleMenu,
-          onResume: () => _do(_resumeFromMenu),
-          toolbar: _menuToolbar(),
-          topRight: _fpsIndicator(),
-          child: SafeArea(child: _gameContent()),
-        )),
+            body: DebugShortcuts(
+                debugger: _controller.debugger,
+                enabled: !_menuOpen &&
+                    !_menuBusy &&
+                    !_menuTransition &&
+                    _progress.value == null &&
+                    _controller.debugger.state.showDebugView,
+                child: FloatingGameMenu(
+                  expanded: _menuOpen,
+                  canResume: _hasGame,
+                  busy: _menuBusy || _menuTransition || _progress.value != null,
+                  onToggle: _toggleMenu,
+                  onResume: () => _do(_resumeFromMenu),
+                  toolbar: _menuToolbar(),
+                  topRight: _fpsOverlay(),
+                  child: SafeArea(child: _gameContent()),
+                ))),
       );
 }

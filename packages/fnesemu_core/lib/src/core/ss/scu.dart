@@ -304,8 +304,9 @@ class Scu {
         final srcAndEnd = bus.read32(table + 8);
         table += 12;
 
-        final countMasked =
-            ch.level == 0 ? count.maskZeroMax(0xfffff) : count.maskZeroMax(0xfff);
+        final countMasked = ch.level == 0
+            ? count.maskZeroMax(0xfffff)
+            : count.maskZeroMax(0xfff);
         transfer(srcAndEnd & 0x7ffffff, dst & 0x7ffffff, countMasked, readAdd,
             writeAdd);
 
@@ -321,8 +322,8 @@ class Scu {
       final count = ch.level == 0
           ? ch.count.maskZeroMax(0xfffff)
           : ch.count.maskZeroMax(0xfff);
-      final (src, dst) = transfer(
-          ch.readAddr & 0x7ffffff, ch.writeAddr & 0x7ffffff, count, readAdd, writeAdd);
+      final (src, dst) = transfer(ch.readAddr & 0x7ffffff,
+          ch.writeAddr & 0x7ffffff, count, readAdd, writeAdd);
       if (ch.readUpdate) {
         ch.readAddr = src;
       }

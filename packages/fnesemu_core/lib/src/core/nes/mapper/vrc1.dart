@@ -80,11 +80,9 @@ class MapperVrc1 extends Mapper {
 
   @override
   String dump() {
-    final chrBanks =
-        range(0, 2).map((i) => _chrBank[i].x2).toList().join(" ");
+    final chrBanks = range(0, 2).map((i) => _chrBank[i].x2).toList().join(" ");
 
-    final prgBanks =
-        range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
+    final prgBanks = range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

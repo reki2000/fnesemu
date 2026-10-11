@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import '../cdrom.dart';
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../core_module.dart';
+import '../../cdrom.dart';
+import '../../cdrom_drive.dart';
+import '../../core.dart';
+import '../../core_module.dart';
 import 'ps.dart';
 
 CoreModule createModule() => PsModule();
@@ -28,8 +28,7 @@ class PsModule extends CoreModule {
     if (start == null) return null;
     return sectorContains(await drive.readWhenReady(start + 4),
                 'Sony Computer Entertainment') ||
-            sectorContains(
-                await drive.readWhenReady(start + 16), 'PLAYSTATION')
+            sectorContains(await drive.readWhenReady(start + 16), 'PLAYSTATION')
         ? system
         : null;
   }

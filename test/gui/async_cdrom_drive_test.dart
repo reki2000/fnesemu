@@ -24,6 +24,32 @@ Future<void> pump() async {
 }
 
 void main() {
+  test('paused swaps queue physical events separately from TOC completion',
+      () async {
+    final drive = AsyncCdromDrive();
+    await drive.insert(memoryDisc('a.bin', {
+      'a.bin': MemoryDiscFile('a.bin', makeBin(4)),
+    }));
+    drive.clearEvents();
+    await drive.insert(memoryDisc('b.bin', {
+      'b.bin': MemoryDiscFile('b.bin', makeBin(4)),
+    }));
+    expect(drive.takeEvent()?.type, CdromDriveEventType.trayOpened);
+    expect(drive.takeEvent()?.type, CdromDriveEventType.trayClosed);
+    final ready = drive.takeEvent();
+    expect(ready?.type, CdromDriveEventType.discReady);
+    expect(ready?.discId, drive.status.discId);
+    expect(drive.takeEvent(), isNull);
+    drive.read(0);
+    await drive.settle();
+    expect(drive.takeEvent(), isNull);
+    await drive.eject();
+    expect(drive.takeEvent()?.type, CdromDriveEventType.trayOpened);
+    await drive.insert();
+    expect(drive.takeEvent()?.type, CdromDriveEventType.trayClosed);
+    expect(drive.takeEvent(), isNull);
+  });
+
   test('the TOC of the image is given to the core', () async {
     const cue = '''
 FILE "a.bin" BINARY

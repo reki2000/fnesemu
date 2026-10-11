@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/cdrom.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/cdrom.dart';
 import 'package:fnesemu_core/src/core/ss/cpu.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -93,7 +93,6 @@ class _TestDisc {
     raw.setRange(16, 16 + 2048, data);
     return raw;
   }
-
 }
 
 void main() {
@@ -412,6 +411,21 @@ void main() {
 
     int cr(Ss ss, int n) => ss.bus.read16(0x25890018 + n * 4);
 
+    test('tray status follows queued events without a fixed hold delay', () {
+      final ss = _newSs();
+      final disc = FakeCdromDrive(_TestDisc().sectors);
+      ss.setCdromDrive(disc);
+      disc.events.add(CdromDriveState.trayOpen, 1);
+      disc.events.add(CdromDriveState.loading, 1);
+      disc.events.add(CdromDriveState.ready, 0); // old disc completion
+      disc.events.add(CdromDriveState.ready, 1);
+      for (final expected in [6, 7, 7, 1]) {
+        ss.cdblock.exec(1);
+        command(ss, 0, 0, 0, 0); // Get Status
+        expect(cr(ss, 0) >> 8, expected);
+      }
+    });
+
     test('signature after reset', () {
       final ss = withDisc();
       expect([for (int i = 0; i < 4; i++) cr(ss, i)],
@@ -424,9 +438,7 @@ void main() {
       expect(ss.bus.read16(0x25890008) & 0x3, 0x3); // CMOK | DRDY
       expect(cr(ss, 1), 0xcc);
 
-      final toc = [
-        for (int i = 0; i < 0xcc; i++) ss.bus.read16(0x25818000)
-      ];
+      final toc = [for (int i = 0; i < 0xcc; i++) ss.bus.read16(0x25818000)];
       expect(toc[0] << 16 | toc[1], 0x41000096);
       expect(toc[101 * 2] << 16 | toc[101 * 2 + 1], 0x41000000 | 40 + 150);
 
@@ -451,9 +463,7 @@ void main() {
       expect(cr(ss, 3), 2);
 
       command(ss, 0x6300, 0, 0x0000, 2); // get then delete
-      final data = [
-        for (int i = 0; i < 1024; i++) ss.bus.read32(0x25818000)
-      ];
+      final data = [for (int i = 0; i < 1024; i++) ss.bus.read32(0x25818000)];
       expect(data[0], 0x00010203);
       expect(data[512], 0x07080900 | 0x0a);
       command(ss, 0x0600, 0, 0, 0);
@@ -466,7 +476,8 @@ void main() {
     test('play with filter range and periodic report', () {
       final ss = withDisc();
       command(ss, 0x3000, 0, 0x0000, 0); // CD -> filter 0
-      command(ss, 0x1000 | 0x80, 150 + 16, 0x0080, 3); // play FAD 166, 3 sectors
+      command(
+          ss, 0x1000 | 0x80, 150 + 16, 0x0080, 3); // play FAD 166, 3 sectors
       expect(cr(ss, 0) >> 8, 0x03); // PLAY
       ss.cdblock.exec(28636360 ~/ 150 * 5);
       expect(ss.bus.read16(0x25890008) & 0x0010, 0x0010); // PEND

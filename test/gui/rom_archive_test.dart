@@ -52,7 +52,10 @@ void main() {
 
   test('a zip of a CD-ROM image is not a ROM', () async {
     for (final image in ['game.cue', 'game.iso']) {
-      final zip = zipOf({image: [1], 'game.bin': List.filled(0x8000, 1)});
+      final zip = zipOf({
+        image: [1],
+        'game.bin': List.filled(0x8000, 1)
+      });
       expect(hasDiscImage(await names(zip)), isTrue);
       expect(() => unpackRom(zip, 'game.zip'), throwsFormatException);
     }

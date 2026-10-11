@@ -23,23 +23,17 @@ class _DrivePort {
   bool _isSeeking = false; // waiting for the drive to complete a seek
   int _seekIssuedAt = 0; // clock when the seek is issued
 
-  // a disc change is seen by the core as the shell opened then closed
-  late final _swap = DiscSwapWatcher(33868800 ~/ 2,
-      onTrayOpen: () => _cdrom._onTray(open: true, hasDisc: false),
-      onInserted: () => _cdrom._onTray(open: false, hasDisc: true),
-      onClosedEmpty: () => _cdrom._onTray(open: false, hasDisc: false));
-
   void attach(CdromDrive drive) {
     _drive = drive;
     _discId = drive.status.discId;
     _isSeeking = false;
-    _swap.attach(drive);
+    drive.clearEvents();
     _applyState();
   }
 
   void clear() {
     _isSeeking = false;
-    _swap.sync();
+    _drive?.clearEvents();
     _applyState();
   }
 
@@ -62,9 +56,8 @@ class _DrivePort {
     _drive?.seek(sector - _leadIn);
   }
 
-  /// checks the drive, called on each exec. [clock] is the elapsed clocks,
-  /// [delta] the clocks of this exec
-  void poll(int clock, int delta) {
+  /// Checks the drive and consumes one event on each exec.
+  void poll() {
     final s = status;
 
     if (s.discId != _discId) {
@@ -78,6 +71,18 @@ class _DrivePort {
       _cdrom._onSeekComplete(!s.seekError, _seekIssuedAt);
     }
 
-    _swap.poll(delta);
+    final event = _drive?.takeEvent();
+    switch (event?.type) {
+      case CdromDriveEventType.trayOpened:
+        _cdrom._onTray(open: true, hasDisc: false);
+      case CdromDriveEventType.trayClosed:
+        _cdrom._onTray(open: false, hasDisc: false);
+      case CdromDriveEventType.discReady || CdromDriveEventType.discError:
+        if (event!.discId != s.discId) return;
+        _cdrom._onTray(
+            open: false, hasDisc: event.type == CdromDriveEventType.discReady);
+      case null:
+        break;
+    }
   }
 }

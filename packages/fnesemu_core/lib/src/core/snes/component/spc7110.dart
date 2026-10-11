@@ -420,8 +420,7 @@ class _Rtc4513 {
     _week = now.weekday % 7;
   }
 
-  bool get _running =>
-      _regs[0xf].mask2 == 0 && !_regs[0xd].bit0;
+  bool get _running => _regs[0xf].mask2 == 0 && !_regs[0xd].bit0;
 
   /// advances the clock by a second of emulated time
   void tick() {

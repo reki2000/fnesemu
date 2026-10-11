@@ -231,8 +231,7 @@ class N64Graphics {
             break; // LOAD_UCODE, SPNOOP, RDPHALF_1
           case 0xe2 || 0xe3:
             // the field is addressed from the top bit: shift = 32 - ofs - len
-            final length = w0.mask8 + 1,
-                shift = 32 - w0.shr8.mask8 - length;
+            final length = w0.mask8 + 1, shift = 32 - w0.shr8.mask8 - length;
             final mask = (((1 << length) - 1) << shift).mask32;
             if (op == 0xe2) {
               otherLow = (otherLow & ~mask) | (w1 & mask);

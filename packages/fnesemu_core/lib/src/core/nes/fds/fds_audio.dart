@@ -119,8 +119,7 @@ class FdsAudio {
       var mod = _modCounter * _modGain.gain;
       if (mod.mask4 != 0 && mod >= 0) mod += 32;
       final factor = (mod + 0x400).shr4.mask8;
-      _wavePhase =
-          (_wavePhase + ((_pitch * factor) & 0xfffff) ~/ 16).mask24;
+      _wavePhase = (_wavePhase + ((_pitch * factor) & 0xfffff) ~/ 16).mask24;
     }
   }
 

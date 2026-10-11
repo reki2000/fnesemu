@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import '../../../util/int.dart';
 
-
 // Project imports
 
 mixin _Wave {

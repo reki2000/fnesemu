@@ -1,4 +1,4 @@
-import '../../../util/int.dart';
+import '../../util/int.dart';
 
 import 'cpu.dart';
 

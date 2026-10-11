@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import '../cdrom.dart';
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../cdrom.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../types.dart';
+import '../../video_debug.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
@@ -17,13 +17,24 @@ import 'component/timer.dart';
 import 'component/vdc.dart';
 import 'component/vdc_debug.dart';
 import 'component/vdc_render.dart';
+import 'component/video_debug.dart';
 import 'component/vpc.dart';
 import 'constants.dart' as hardware;
 import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Pce implements Core, FrameRunner {
+class Pce implements Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers =>
+      [...vdc.debugVideoLayers, if (vpc.enabled) ...vdc2.debugVideoLayers];
+  @override
+  List<DebugPatternTable> get patternTables =>
+      [...vdc.debugPatternTables, if (vpc.enabled) ...vdc2.debugPatternTables];
+
   late final Vdc vdc;
   late final Vdc vdc2;
   late final Vpc vpc;

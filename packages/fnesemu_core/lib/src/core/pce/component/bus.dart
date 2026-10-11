@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 
+import '../../../sram.dart';
 import '../../../util/int.dart';
-
-import '../../sram.dart';
 import '../mapper/rom.dart';
 import 'cdrom.dart';
 import 'cpu.dart';

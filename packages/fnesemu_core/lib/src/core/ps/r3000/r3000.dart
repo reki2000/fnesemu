@@ -382,10 +382,7 @@ class R3000 {
       case 0x21: // lh
         delay(rt, read16(r[rs] + inst32.rel16).rel16);
       case 0x22: // lwl
-        delay(
-            rt,
-            lwl(r[rs] + inst32.rel16,
-                rt == delayReg ? delayVal : r[rt]));
+        delay(rt, lwl(r[rs] + inst32.rel16, rt == delayReg ? delayVal : r[rt]));
       case 0x23: // lw
         delay(rt, read32(r[rs] + inst32.rel16));
       case 0x24: // lbu
@@ -393,10 +390,7 @@ class R3000 {
       case 0x25: // lhu
         delay(rt, read16(r[rs] + inst32.rel16));
       case 0x26: // lwr
-        delay(
-            rt,
-            lwr(r[rs] + inst32.rel16,
-                rt == delayReg ? delayVal : r[rt]));
+        delay(rt, lwr(r[rs] + inst32.rel16, rt == delayReg ? delayVal : r[rt]));
       case 0x28: // sb
         write8(r[rs] + inst32.rel16, r[rt]);
       case 0x29: // sh

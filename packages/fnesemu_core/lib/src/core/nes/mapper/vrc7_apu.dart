@@ -370,8 +370,7 @@ class Vrc7Apu {
       int modOut = 0;
       if (modEg < _egMute) {
         final fb = p.fb == 0 ? 0 : (c.fb1 + c.fb2) >> (9 - p.fb);
-        final att =
-            modEg +
+        final att = modEg +
             mp.tl * 2 +
             _ksl(mp.ksl, c.fnum, c.block) +
             (mp.am ? am : 0);
@@ -387,8 +386,7 @@ class Vrc7Apu {
 
       int out = 0;
       if (carEg < _egMute) {
-        final att =
-            carEg +
+        final att = carEg +
             c.vol * 8 +
             _ksl(cp.ksl, c.fnum, c.block) +
             (cp.am ? am : 0);
@@ -427,8 +425,7 @@ class Vrc7Apu {
   String dump() {
     return _ch
         .map(
-          (c) =>
-              "${c.inst.hex}${c.key ? '*' : '-'}"
+          (c) => "${c.inst.hex}${c.key ? '*' : '-'}"
               "${c.block}:${c.fnum.toRadixString(16).padLeft(3, '0')}"
               "v${c.vol.hex}${c.car.state.name[0]}",
         )

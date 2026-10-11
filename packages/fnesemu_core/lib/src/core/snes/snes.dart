@@ -1,12 +1,12 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import 'component/apu.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
@@ -24,7 +24,15 @@ import 'rom/snes_file.dart';
 /// simplified echo). Mode 5/6 hi-res is a documented approximation - see
 /// ppu.dart/dsp.dart class docs for exact gaps (Gaussian interpolation,
 /// FIR filter, EXTBG, direct color, vertical mosaic).
-class Snes implements Core, FrameRunner {
+class Snes implements Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers => ppu.debugVideoLayers;
+  @override
+  List<DebugPatternTable> get patternTables => ppu.debugPatternTables;
+
   Snes() {
     bus = Bus();
     cpu = Cpu(bus);

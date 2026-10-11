@@ -317,6 +317,11 @@ class MapperMmc5 extends Mapper {
     return _readNametable(addr);
   }
 
+  @override
+  int peekVram(int addr, {bool sprite = false}) => addr < 0x2000
+      ? _readChr(_chrBank(addr.shr10.mask3, !sprite && _sprite16), addr)
+      : _ntByte(addr);
+
   int _readPattern(int addr) {
     final slot = addr.shr10.mask3;
 

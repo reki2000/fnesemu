@@ -141,7 +141,8 @@ class Spu {
               noiseLevel.shr12 ^
               noiseLevel.shr11 ^
               noiseLevel.shr10 ^
-              1).mask1;
+              1)
+          .mask1;
       noiseLevel = (noiseLevel.shl1 | parity).mask16;
       _noiseTimer += 0x20000 >> noiseFreqShift;
       if (_noiseTimer < 0) {
@@ -265,8 +266,7 @@ class Spu {
     _control = value;
     enabled = value.bit15;
     muted = !value.bit14;
-    fifoMode =
-        value.shr4.mask2; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
+    fifoMode = value.shr4.mask2; // 0=Stop, 1=ManualWrite, 2=DMAwrite, 3=DMAread
     reverb.writeEnabled = value.bit7;
     noiseFreqShift = value.shr10.mask4;
     noiseFreqStep = value.shr8.mask2;

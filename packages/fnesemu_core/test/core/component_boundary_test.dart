@@ -47,8 +47,8 @@ void main() {
 
   test('shared 68000 and ss do not depend on console implementations', () {
     final pending = [
-      File('lib/src/core/components/m68k/cpu.dart'),
-      File('lib/src/core/components/m68k/disasm.dart'),
+      File('lib/src/components/m68k/cpu.dart'),
+      File('lib/src/components/m68k/disasm.dart'),
       File('lib/src/core/ss/module.dart'),
     ];
     final visited = <String>{};

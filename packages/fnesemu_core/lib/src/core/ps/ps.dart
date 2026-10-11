@@ -1,14 +1,15 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../trace_flow.dart';
+import '../../types.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 import '../../util/uint8list.dart';
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../storage_key.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import 'bus.dart';
 import 'cdrom.dart';
 import 'dma.dart';
@@ -26,7 +27,10 @@ import 'timer.dart';
 
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
 
-class Ps extends Core implements FrameRunner {
+class Ps extends Core {
+  @override
+  List<DebugVideoLayer> get videoLayers => gpu.debugVideoLayers;
+
   final Bus bus;
   late final R3000 cpu;
   late final Gpu gpu;
@@ -345,7 +349,8 @@ class Ps extends Core implements FrameRunner {
       cpu.dump().replaceAll("\n", " "),
       [for (int i = 0; i < 32; i++) cpu.r[i]],
       frame: gpu.frame,
-      scanline: gpu.scanline);
+      scanline: gpu.scanline,
+      flow: traceMipsFlow(bus.read32(cpu.pc), cpu.pc, cpu.r));
 
   @override
   int read(int _, int addr) => (addr.shr28 == 0x07)

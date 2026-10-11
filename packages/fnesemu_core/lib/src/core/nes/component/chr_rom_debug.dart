@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 
+import '../../../types.dart';
 import '../../../util/int.dart';
-
-import '../../types.dart';
 
 class ChrRomDebugger {
   static const _width = 128;

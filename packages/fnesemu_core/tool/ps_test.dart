@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fnesemu_core/src/core/ps/ps.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
-import 'package:fnesemu_core/src/core/tracer.dart';
-import 'package:fnesemu_core/src/core/types.dart';
+import 'package:fnesemu_core/src/internal/tracer.dart';
+import 'package:fnesemu_core/src/sram.dart';
+import 'package:fnesemu_core/src/types.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
 import 'cdrom_drive.dart';

@@ -1,9 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../../cdrom.dart';
 import '../../../util/int.dart';
-
-import '../../cdrom.dart';
 import 'bus.dart';
 
 // Register-level CD interface.
@@ -54,18 +53,27 @@ class PceCdrom {
     disc = value;
     enabled = !value.isEmpty;
     reset();
-    _swap.attach(value);
+    value.clearEvents();
   }
 
-  // a disc change is seen as the tray opened then closed
-  late final _swap = DiscSwapWatcher(21477270 ~/ 2,
-      onTrayOpen: _resetDrive, onClosedEmpty: _resetDrive, onInserted: () {
-    _resetDrive();
-    enabled = true;
-  });
+  void _pollDriveEvent() {
+    final event = disc.takeEvent();
+    switch (event?.type) {
+      case CdromDriveEventType.trayOpened || CdromDriveEventType.trayClosed:
+        _resetDrive();
+      case CdromDriveEventType.discReady:
+        if (event!.discId != disc.status.discId) return;
+        _resetDrive();
+        enabled = true;
+      case CdromDriveEventType.discError:
+        if (event!.discId == disc.status.discId) _resetDrive();
+      case null:
+        break;
+    }
+  }
 
   void reset() {
-    _swap.sync();
+    disc.clearEvents();
     backupEnabled = false;
     _ports.fillRange(0, 16, 0);
     _resetDrive();
@@ -452,7 +460,7 @@ class PceCdrom {
   }
 
   void exec(int clocks) {
-    _swap.poll(clocks);
+    _pollDriveEvent();
     if (!enabled) return;
     if (_readPending > 0) {
       _readPending -= clocks;

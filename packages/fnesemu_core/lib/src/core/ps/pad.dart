@@ -1,6 +1,5 @@
+import '../../pad_button.dart';
 import '../../util/int.dart';
-
-import '../pad_button.dart';
 import 'serial.dart' show SioResponse, SioDevice;
 
 class Pad extends SioDevice {

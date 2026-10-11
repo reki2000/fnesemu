@@ -183,8 +183,7 @@ class Disasm {
       }
     }
 
-    return ops
-        .map((op, e) => MapEntry(op, (e[0] as String, e[1] as Operand)));
+    return ops.map((op, e) => MapEntry(op, (e[0] as String, e[1] as Operand)));
   }
 
   static Operand operand(int op) {

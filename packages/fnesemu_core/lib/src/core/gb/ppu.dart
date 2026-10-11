@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../types.dart';
 import 'bus.dart';
 
 /// scanline based picture processor
@@ -70,9 +69,9 @@ class Ppu {
     _front.fillRange(0, _front.length, colors[0]);
   }
 
-  ImageBuffer get imageBuffer => ImageBuffer(
-      width, height, _front.buffer.asUint8List(),
-      displayWidth_: 269); // keep 10:9 aspect ratio at 242 lines
+  ImageBuffer get imageBuffer =>
+      ImageBuffer(width, height, _front.buffer.asUint8List(),
+          displayWidth_: 269); // keep 10:9 aspect ratio at 242 lines
 
   void _updateStat() {
     final coincidence = ly == lyc;
@@ -392,7 +391,8 @@ class Ppu {
 
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
-        buf[y * w + x] = colors[(palettes[y ~/ block] >> (x ~/ block * 2)).mask2];
+        buf[y * w + x] =
+            colors[(palettes[y ~/ block] >> (x ~/ block * 2)).mask2];
       }
     }
 

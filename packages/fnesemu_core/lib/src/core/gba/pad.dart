@@ -1,6 +1,5 @@
+import '../../pad_button.dart';
 import '../../util/int.dart';
-
-import '../pad_button.dart';
 
 /// GBA keypad. Produces the KEYINPUT register value where a 0 bit = pressed.
 /// Button order is chosen so the existing key_handler maps keys A/S/Z/X/C/Q

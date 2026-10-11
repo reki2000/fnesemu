@@ -1,10 +1,9 @@
 import 'dart:typed_data';
 
+import '../../../types.dart';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
-
-import '../../types.dart';
 import '../bus.dart';
 import '../interrupt.dart';
 import 'point_color.dart';
@@ -312,8 +311,8 @@ class Gpu {
     }
 
     if (blend) {
-      c16 = c16 & 0x8000 |
-          _blend(old, c16, semiTransparent ?? status.shr5.mask2);
+      c16 =
+          c16 & 0x8000 | _blend(old, c16, semiTransparent ?? status.shr5.mask2);
     }
 
     writeFrameBuffer16(x, y, c16 | (status.bit11 ? 0x8000 : 0));

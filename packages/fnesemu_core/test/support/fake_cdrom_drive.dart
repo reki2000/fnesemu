@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/cdrom_drive.dart';
+import 'package:fnesemu_core/src/cdrom_drive.dart';
 
 /// [CdromDrive] holding raw sectors on memory. all sectors are always
 /// available.
@@ -8,6 +8,7 @@ class FakeCdromDrive implements CdromDrive {
   final List<Uint8List> sectors;
   final List<int> starts;
   final Set<int> audioTracks;
+  final events = CdromDriveEvents();
 
   /// absolute sectors (LBA + 150) passed to [read]
   final reads = <int>[];
@@ -31,6 +32,12 @@ class FakeCdromDrive implements CdromDrive {
   CdromDriveStatus get status => sectors.isEmpty
       ? CdromDriveStatus.empty
       : CdromDriveStatus(CdromDriveState.ready, 1, toc);
+
+  @override
+  CdromDriveEvent? takeEvent() => events.take();
+
+  @override
+  void clearEvents() => events.clear();
 
   @override
   void seek(int lba) {}

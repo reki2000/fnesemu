@@ -1,6 +1,6 @@
+import '../../../trace_flow.dart';
+import '../../../types.dart';
 import '../../../util/int.dart';
-
-import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
@@ -24,11 +24,14 @@ extension CpuDebugger on Cpu {
     final addr = regs.pbr.shl16 | regs.pc;
     final (asm, _) = _disasmAt(addr);
     return TraceLog(
-      regs.pc,
+      addr,
       cycle,
       asm.padRight(20).toUpperCase(),
       _regStr().toUpperCase(),
       [regs.a, regs.x, regs.y, regs.s, regs.p, regs.e ? 1 : 0],
+      flow: trace6502Flow(peek(addr), addr,
+          wide: true,
+          operand: peek(addr + 1) | peek(addr + 2) << 8 | peek(addr + 3) << 16),
     );
   }
 

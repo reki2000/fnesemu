@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/cdrom_drive.dart';
+import 'package:fnesemu_core/src/cdrom_drive.dart';
 import 'package:fnesemu_core/src/core/pce/component/cdrom.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
@@ -66,6 +66,24 @@ void main() {
     disc = TestDisc();
     pce.setCdromDrive(disc);
     cd = pce.bus.cdrom;
+  });
+
+  test('tray events cancel a command at the next execution step', () {
+    cd.write(0x1800, 0);
+    expect(cd.phase, CdPhase.command);
+    disc.events.add(CdromDriveState.trayOpen, 1);
+    cd.exec(1);
+    expect(cd.phase, CdPhase.idle);
+    cd.enabled = false;
+    disc.events.add(CdromDriveState.loading, 1);
+    disc.events.add(CdromDriveState.ready, 0); // old disc completion
+    disc.events.add(CdromDriveState.ready, 1);
+    cd.exec(1);
+    expect(cd.enabled, false);
+    cd.exec(1);
+    expect(cd.enabled, false);
+    cd.exec(1);
+    expect(cd.enabled, true);
   });
 
   test('Super CD RAM is writable and independent of CD and SGX work RAM', () {

@@ -109,9 +109,8 @@ class MapperNamco163 extends Mapper {
       case 0xd800:
         // 0xe0-0xff: ciram page A/B, otherwise a chr rom bank is the nametable
         final bank = (reg - 0x8000).shr11;
-        _chrBank[bank] = data >= 0xe0
-            ? chrRoms.length + data.mask1
-            : data % chrRoms.length;
+        _chrBank[bank] =
+            data >= 0xe0 ? chrRoms.length + data.mask1 : data % chrRoms.length;
         break;
 
       // prg rom bank 0x8000 select
@@ -235,8 +234,7 @@ class MapperNamco163 extends Mapper {
         .toList()
         .join(" ");
 
-    final prgBanks =
-        range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
+    final prgBanks = range(0, 4).map((i) => _prgBank[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

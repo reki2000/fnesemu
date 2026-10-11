@@ -400,9 +400,7 @@ class Md32x {
       final word = readSh16(address & ~1, cpu);
       writeSh16(
           address & ~1,
-          address.isEven
-              ? value.shl8 | word.mask8
-              : (word & 0xff00) | value,
+          address.isEven ? value.shl8 | word.mask8 : (word & 0xff00) | value,
           cpu);
     }
   }

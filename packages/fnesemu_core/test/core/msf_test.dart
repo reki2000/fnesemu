@@ -1,4 +1,4 @@
-import 'package:fnesemu_core/src/core/msf.dart';
+import 'package:fnesemu_core/src/cdrom.dart';
 import 'package:test/test.dart';
 
 void main() {

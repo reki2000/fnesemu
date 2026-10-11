@@ -301,9 +301,8 @@ class Cx4 {
           if (!op.bit10) _romDta = dataRom[_readReg(operand).mask10];
         case 0x0f: // mov prg_page.lsb/msb
           final v = src().mask8;
-          _prgPage = !ss.bit0
-              ? (_prgPage & 0xff00) | v
-              : _prgPage.mask8 | v.shl8;
+          _prgPage =
+              !ss.bit0 ? (_prgPage & 0xff00) | v : _prgPage.mask8 | v.shl8;
         case 0x10: // add A, A*n + op
           _a = _add(_shiftedA(ss), src());
         case 0x11: // sub A, op - A*n

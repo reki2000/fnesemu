@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/cdrom_drive.dart';
-import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/core_factory.dart';
+import 'package:fnesemu_core/src/cdrom_drive.dart';
 import 'package:fnesemu_core/src/core/md/module.dart';
 import 'package:test/test.dart';
 
@@ -15,6 +15,12 @@ class _Drive implements CdromDrive {
   @override
   CdromDriveStatus get status =>
       CdromDriveStatus(CdromDriveState.ready, 1, CdromToc(tracks, 100000));
+
+  @override
+  CdromDriveEvent? takeEvent() => null;
+
+  @override
+  void clearEvents() {}
 
   @override
   void seek(int lba) {}

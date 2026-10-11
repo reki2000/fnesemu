@@ -25,14 +25,13 @@ class _RotParam {
   int overMode = 0;
 }
 
-extension on Vdp2 {
+extension Vdp2Rotation on Vdp2 {
   static double _fx(int raw, int bits) {
     final m = (1 << bits) - 1;
     final v = raw & m;
     final s = (v & (1 << (bits - 1))) != 0 ? v - (1 << bits) : v;
     return s / 65536.0;
   }
-
 
   void _readRotParam(_RotParam r, int addr) {
     int l(int off) => vramData.getUint32((addr + off) & 0x7fffc);
@@ -91,8 +90,7 @@ extension on Vdp2 {
     for (int i = 0; i < 8; i++) {
       final v = reg(mapRegs + i * 2);
       cfg.planeAddr[i * 2] = cfg.planeAddrOf(mapOffset.shl6 | v.mask6);
-      cfg.planeAddr[i * 2 + 1] =
-          cfg.planeAddrOf(mapOffset.shl6 | v.shr8.mask6);
+      cfg.planeAddr[i * 2 + 1] = cfg.planeAddrOf(mapOffset.shl6 | v.shr8.mask6);
     }
 
     cfg.bitmapAddr = mapOffset * 0x20000;

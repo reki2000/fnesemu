@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core/md/32x/md_32x.dart';
 import 'package:fnesemu_core/src/core/md/32x/video.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';

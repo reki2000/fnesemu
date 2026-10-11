@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
+import '../../../cdrom.dart';
 import '../../../util/int.dart';
-import '../../cdrom.dart';
 
 /// Ten-nibble CDD command/status protocol and 75 Hz disc transport.
 class CdDrive {
@@ -25,19 +25,24 @@ class CdDrive {
   void mount(CdromDrive value) {
     disc = value;
     reset();
-    _swap.attach(value);
+    value.clearEvents();
   }
 
-  // a disc change is seen as the tray opened then closed. the unit is a tick
-  // (75Hz), the tray stays open for half a second.
-  late final _swap = DiscSwapWatcher(75 ~/ 2, onTrayOpen: () {
-    _noDisc();
-  }, onClosedEmpty: () {
-    _noDisc();
-  }, onInserted: () {
-    status = 9;
-    lba = 0;
-  });
+  void _pollDriveEvent() {
+    final event = disc.takeEvent();
+    switch (event?.type) {
+      case CdromDriveEventType.trayOpened || CdromDriveEventType.trayClosed:
+        _noDisc();
+      case CdromDriveEventType.discReady:
+        if (event!.discId != disc.status.discId) return;
+        status = 9;
+        lba = 0;
+      case CdromDriveEventType.discError:
+        if (event!.discId == disc.status.discId) _noDisc();
+      case null:
+        break;
+    }
+  }
 
   void _noDisc() {
     status = 0xb;
@@ -48,7 +53,7 @@ class CdDrive {
   }
 
   void reset() {
-    _swap.sync();
+    disc.clearEvents();
     status = disc.isEmpty ? 0xb : 9;
     lba = _query = _seekTicks = _audioPhase = 0;
     track = 1;
@@ -143,7 +148,7 @@ class CdDrive {
   bool _holdResponse = false;
 
   void tick() {
-    _swap.poll(1);
+    _pollDriveEvent();
     if (!hostClock) return;
     if (_seekTicks > 0) {
       _seekTicks--;

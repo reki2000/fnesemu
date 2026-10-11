@@ -1,8 +1,8 @@
 import 'dart:core';
 
+import '../../../trace_flow.dart';
+import '../../../types.dart';
 import '../../../util/int.dart';
-
-import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
@@ -62,12 +62,12 @@ extension CpuDebugger on Cpu {
   TraceLog trace() {
     final bank = _mprAddr(regs.pc);
     final pc = bank.shl16 | regs.pc;
-    return TraceLog(
-        pc,
-        cycles,
-        "${bank.x2}-${_disasm(regs.pc)}".toUpperCase(),
-        _reg().toUpperCase(),
-        [regs.a, regs.x, regs.y, regs.p, regs.s]);
+    return TraceLog(pc, cycles, "${bank.x2}-${_disasm(regs.pc)}".toUpperCase(),
+        _reg().toUpperCase(), [regs.a, regs.x, regs.y, regs.p, regs.s],
+        flow: trace6502Flow(read(regs.pc), regs.pc,
+            pce: true,
+            operand: read((regs.pc + 1) & 0xffff) |
+                read((regs.pc + 2) & 0xffff) << 8));
   }
 
   String dumpDisasm(int addr) {

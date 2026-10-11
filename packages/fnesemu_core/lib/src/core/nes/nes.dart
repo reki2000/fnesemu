@@ -1,15 +1,15 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../types.dart';
 import '../../util/crc32.dart';
 import '../../util/int.dart';
 import '../../util/uint8list.dart';
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../storage_key.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import 'component/apu.dart';
 import 'component/apu_debug.dart';
 import 'component/bus.dart';
@@ -18,6 +18,7 @@ import 'component/cpu.dart';
 import 'component/cpu_debug.dart';
 import 'component/ppu.dart';
 import 'component/ppu_debug.dart';
+import 'component/video_debug.dart';
 import 'constants.dart' as hardware;
 import 'fds/fds_bios.dart';
 import 'fds/fds_image.dart';
@@ -27,7 +28,15 @@ import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes implements Core, FrameRunner {
+class Nes implements Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers => bus.ppu.debugVideoLayers;
+  @override
+  List<DebugPatternTable> get patternTables => bus.ppu.debugPatternTables;
+
   final bool diskSystem;
   Nes({this.diskSystem = false}) {
     bus = Bus();

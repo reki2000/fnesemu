@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
-import 'package:fnesemu_core/src/core/pad_button.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
 /// Private ROMs stay outside the repository. Writes raw RGBA evidence to /tmp.

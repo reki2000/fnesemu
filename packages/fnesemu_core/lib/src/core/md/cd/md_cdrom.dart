@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
+import '../../../cdrom.dart';
+import '../../../components/m68k/bus.dart';
+import '../../../components/m68k/cpu.dart';
+import '../../../sram.dart';
 import '../../../util/int.dart';
-import '../../cdrom.dart';
-import '../../components/m68k/bus.dart';
-import '../../components/m68k/cpu.dart';
-import '../../sram.dart';
 import 'cdc.dart';
 import 'cdd.dart';
 import 'graphics.dart';

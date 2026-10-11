@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
+import '../../sram.dart';
 import '../../util/int.dart';
-import '../sram.dart';
 import 'backup.dart';
 
 /// Game Pak: ROM + backup memory (SRAM / Flash / EEPROM, auto-detected).

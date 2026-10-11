@@ -21,7 +21,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';

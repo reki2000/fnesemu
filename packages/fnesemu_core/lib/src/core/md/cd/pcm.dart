@@ -90,8 +90,7 @@ class CdPcm {
           value = ram[c.loop];
           if (value == 0xff) continue;
         }
-        final amplitude =
-            (value.bit7 ? 1 : -1) * value.mask7 * c.envelope;
+        final amplitude = (value.bit7 ? 1 : -1) * value.mask7 * c.envelope;
         _left += amplitude * c.pan.mask4 / (32 * 32768);
         _right += amplitude * c.pan.shr4 / (32 * 32768);
         c.position = (c.position + c.step) & 0x7ffffff;

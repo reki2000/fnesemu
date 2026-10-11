@@ -34,6 +34,9 @@ abstract class Mapper {
   void write(int addr, int data) {}
 
   int readVram(int addr) => 0xff;
+
+  /// Side-effect-free inspection. Stateful mappers override this method.
+  int peekVram(int addr, {bool sprite = false}) => readVram(addr);
   void writeVram(int addr, int data) {}
 
   Uint8List defaultSram() => Uint8List(8 * 1024);

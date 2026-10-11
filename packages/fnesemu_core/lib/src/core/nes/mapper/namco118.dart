@@ -93,11 +93,9 @@ class MapperNamco118 extends Mapper {
 
   @override
   String dump() {
-    final chrBanks =
-        range(0, 8).map((i) => _chrBanks[i].x2).toList().join(" ");
+    final chrBanks = range(0, 8).map((i) => _chrBanks[i].x2).toList().join(" ");
 
-    final prgBanks =
-        range(0, 4).map((i) => _prgBanks[i].x2).toList().join(" ");
+    final prgBanks = range(0, 4).map((i) => _prgBanks[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

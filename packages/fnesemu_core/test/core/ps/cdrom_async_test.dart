@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cdrom_image/memory.dart';
-import 'package:fnesemu_core/src/core/cdrom.dart';
+import 'package:fnesemu_core/src/cdrom.dart';
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:fnesemu_core/src/core/ps/cdrom.dart';
 import 'package:test/test.dart';
@@ -58,9 +58,11 @@ void main() {
     irqs = [];
     results = [];
     cdrom.attachDrive(drive);
-    await drive.insert(memoryDisc(
-        "a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(2000))}));
-    cdrom.exec(33868800); // polls the drive, the tray closes after 0.5 sec
+    await drive.insert(
+        memoryDisc("a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(2000))}));
+    cdrom.exec(1); // open
+    cdrom.exec(1); // close
+    cdrom.exec(1); // TOC ready
   });
 
   test('shell follows the drive', () async {
@@ -82,13 +84,16 @@ void main() {
 
   test('a swap finished before the next exec is seen as shell open, close',
       () async {
-    await drive.insert(memoryDisc(
-        "b.bin", {"b.bin": MemoryDiscFile("b.bin", makeBin(50))}));
+    await drive.insert(
+        memoryDisc("b.bin", {"b.bin": MemoryDiscFile("b.bin", makeBin(50))}));
     expect(drive.status.isReady, true);
     cdrom.exec(1);
     expect(cdrom.isShellOpen, true);
-    cdrom.exec(33868800);
+    cdrom.exec(1); // close
     expect(cdrom.isShellOpen, false);
+    expect(cdrom.isSpindleMotorOn, false);
+    cdrom.exec(1); // TOC ready
+    expect(cdrom.isSpindleMotorOn, true);
   });
 
   test('eject during seek raises INT5', () async {

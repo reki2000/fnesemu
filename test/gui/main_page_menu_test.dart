@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/app.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
@@ -190,7 +190,7 @@ void main() {
         isFalse);
     expect(audio.starts, 3);
 
-    // Register dumps remain readable while the menu pauses the game.
+    // Register dumps are below the game, outside the floating menu.
     await tester.runAsync(() async {
       await tester.tap(find.byKey(const ValueKey('game-menu-toggle')));
       await Future<void>.delayed(const Duration(milliseconds: 30));
@@ -200,22 +200,57 @@ void main() {
     await tester.pump();
     await tester.pump();
     final menu = tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu));
-    expect(menu.expanded, isTrue);
-    final toolbarDump = find.descendant(
-        of: find.byWidget(menu.toolbar), matching: find.byType(SelectableText));
-    expect(toolbarDump, findsOneWidget);
-    expect(tester.widget<SelectableText>(toolbarDump).data, contains('BC:'));
-    expect(tester.widget<SelectableText>(toolbarDump).data, contains('PC:'));
-    final verticalScroll = find.ancestor(
-        of: toolbarDump,
-        matching: find.byWidgetPredicate((widget) =>
-            widget is Scrollable &&
-            widget.axisDirection == AxisDirection.down));
-    final dumpScroll = tester.state<ScrollableState>(verticalScroll.first);
-    expect(dumpScroll.position.maxScrollExtent, greaterThan(0));
-    await tester.drag(toolbarDump, const Offset(0, -60));
+    expect(menu.expanded, isFalse);
+    expect(
+        tester.getRect(find.byKey(const ValueKey('fps-indicator'))).right,
+        lessThanOrEqualTo(tester
+            .getRect(find.byKey(const ValueKey('debug-game-area')))
+            .right));
+    final dump = find.descendant(
+        of: find.byKey(const ValueKey('debug-game-area')),
+        matching: find.byType(SelectableText));
+    expect(dump, findsOneWidget);
+    expect(tester.widget<SelectableText>(dump).data, contains('BC:'));
+    expect(tester.widget<SelectableText>(dump).data, contains('PC:'));
+    expect(
+        find.descendant(
+            of: find.byWidget(menu.toolbar),
+            matching: find.byType(SelectableText)),
+        findsNothing);
+    final scrolls = find.ancestor(of: dump, matching: find.byType(Scrollable));
+    expect(scrolls, findsWidgets);
+    expect(find.byKey(const ValueKey('game-menu-backdrop')), findsNothing);
+    await tester.runAsync(() async {
+      await tester.tap(find.byTooltip('Run (F5)'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
     await tester.pump();
-    expect(dumpScroll.position.pixels, greaterThan(0));
+    final closes = audio.closes;
+    await tester.runAsync(() async {
+      await tester.tap(find.byTooltip('Pause (F4)'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pump();
+    expect(audio.closes, closes + 1);
+    expect(
+        tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).expanded,
+        false);
+    await tester.runAsync(() async {
+      await tester.sendKeyEvent(LogicalKeyboardKey.f6);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pump();
+    expect(
+        tester.widget<FloatingGameMenu>(find.byType(FloatingGameMenu)).expanded,
+        false);
+    final starts = audio.starts;
+    await tester.runAsync(() async {
+      await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pump();
+    expect(audio.starts, starts + 1);
+
     expect(tester.takeException(), isNull);
     await tester.runAsync(() async {
       await tester.pumpWidget(const SizedBox());

@@ -100,22 +100,66 @@ extension ArmIsa on Arm7 {
     bool logical = false;
 
     switch (opcode) {
-      case 0x0: res = a & op2; logical = true; break; // AND
-      case 0x1: res = a ^ op2; logical = true; break; // EOR
-      case 0x2: res = _sbc(a, op2, 1); break; // SUB
-      case 0x3: res = _sbc(op2, a, 1); break; // RSB
-      case 0x4: res = _adc(a, op2, 0); break; // ADD
-      case 0x5: res = _adc(a, op2, regs.cf ? 1 : 0); break; // ADC
-      case 0x6: res = _sbc(a, op2, regs.cf ? 1 : 0); break; // SBC
-      case 0x7: res = _sbc(op2, a, regs.cf ? 1 : 0); break; // RSC
-      case 0x8: res = a & op2; logical = true; write = false; break; // TST
-      case 0x9: res = a ^ op2; logical = true; write = false; break; // TEQ
-      case 0xa: res = _sbc(a, op2, 1); write = false; break; // CMP
-      case 0xb: res = _adc(a, op2, 0); write = false; break; // CMN
-      case 0xc: res = a | op2; logical = true; break; // ORR
-      case 0xd: res = op2; logical = true; break; // MOV
-      case 0xe: res = a & (~op2).mask32; logical = true; break; // BIC
-      default: res = (~op2).mask32; logical = true; break; // MVN
+      case 0x0:
+        res = a & op2;
+        logical = true;
+        break; // AND
+      case 0x1:
+        res = a ^ op2;
+        logical = true;
+        break; // EOR
+      case 0x2:
+        res = _sbc(a, op2, 1);
+        break; // SUB
+      case 0x3:
+        res = _sbc(op2, a, 1);
+        break; // RSB
+      case 0x4:
+        res = _adc(a, op2, 0);
+        break; // ADD
+      case 0x5:
+        res = _adc(a, op2, regs.cf ? 1 : 0);
+        break; // ADC
+      case 0x6:
+        res = _sbc(a, op2, regs.cf ? 1 : 0);
+        break; // SBC
+      case 0x7:
+        res = _sbc(op2, a, regs.cf ? 1 : 0);
+        break; // RSC
+      case 0x8:
+        res = a & op2;
+        logical = true;
+        write = false;
+        break; // TST
+      case 0x9:
+        res = a ^ op2;
+        logical = true;
+        write = false;
+        break; // TEQ
+      case 0xa:
+        res = _sbc(a, op2, 1);
+        write = false;
+        break; // CMP
+      case 0xb:
+        res = _adc(a, op2, 0);
+        write = false;
+        break; // CMN
+      case 0xc:
+        res = a | op2;
+        logical = true;
+        break; // ORR
+      case 0xd:
+        res = op2;
+        logical = true;
+        break; // MOV
+      case 0xe:
+        res = a & (~op2).mask32;
+        logical = true;
+        break; // BIC
+      default:
+        res = (~op2).mask32;
+        logical = true;
+        break; // MVN
     }
 
     if (rd == 15 && write) {
@@ -274,8 +318,7 @@ extension ArmIsa on Arm7 {
       final v = byte ? bus.read8(addr) : _ldrWord(addr);
       // writeback before the load result so Rn==Rd ends up with loaded value
       if (!pre) {
-        final wbAddr =
-            up ? (base + offset).mask32 : (base - offset).mask32;
+        final wbAddr = up ? (base + offset).mask32 : (base - offset).mask32;
         regs.r[rn] = wbAddr;
       } else if (wb) {
         regs.r[rn] = addr;
@@ -290,8 +333,7 @@ extension ArmIsa on Arm7 {
         bus.write32(addr & ~3, v);
       }
       if (!pre) {
-        regs.r[rn] =
-            up ? (base + offset).mask32 : (base - offset).mask32;
+        regs.r[rn] = up ? (base + offset).mask32 : (base - offset).mask32;
       } else if (wb) {
         regs.r[rn] = addr;
       }
@@ -318,9 +360,7 @@ extension ArmIsa on Arm7 {
     final rd = op.shr12.mask4;
     final sh = op.shr5.mask2; // 01=H 10=SB 11=SH
 
-    final offset = immForm
-        ? op.shr8.mask4.shl4 | op.mask4
-        : regs.r[op.mask4];
+    final offset = immForm ? op.shr8.mask4.shl4 | op.mask4 : regs.r[op.mask4];
 
     var addr = regs.r[rn];
     final base = addr;
@@ -345,8 +385,7 @@ extension ArmIsa on Arm7 {
           break;
       }
       if (!pre) {
-        regs.r[rn] =
-            up ? (base + offset).mask32 : (base - offset).mask32;
+        regs.r[rn] = up ? (base + offset).mask32 : (base - offset).mask32;
       } else if (wb) {
         regs.r[rn] = addr;
       }
@@ -357,8 +396,7 @@ extension ArmIsa on Arm7 {
       final v = regs.r[rd];
       bus.write16(addr & ~1, v.mask16);
       if (!pre) {
-        regs.r[rn] =
-            up ? (base + offset).mask32 : (base - offset).mask32;
+        regs.r[rn] = up ? (base + offset).mask32 : (base - offset).mask32;
       } else if (wb) {
         regs.r[rn] = addr;
       }

@@ -10,8 +10,7 @@ class DebugStatus {
   int pc = 0;
 
   @override
-  String toString() =>
-      "${pc.x8} $frame ${scanline.d3z} $clock";
+  String toString() => "${pc.x8} $frame ${scanline.d3z} $clock";
 }
 
 final debugStatus = DebugStatus();

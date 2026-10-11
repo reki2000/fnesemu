@@ -1,6 +1,5 @@
+import '../../pad_button.dart';
 import '../../util/int.dart';
-
-import '../pad_button.dart';
 
 class Pad {
   late List<Map<String, bool>> isPressed;
@@ -8,8 +7,8 @@ class Pad {
   static const controllerNum = 3;
 
   Pad() {
-    isPressed = List.generate(
-        controllerNum, (_) => {for (var e in _hw) e.name: false});
+    isPressed =
+        List.generate(controllerNum, (_) => {for (var e in _hw) e.name: false});
   }
 
   void keyDown(int id, PadButton d) {

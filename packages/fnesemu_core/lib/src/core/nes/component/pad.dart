@@ -1,5 +1,5 @@
+import '../../../pad_button.dart';
 import '../../../util/int.dart';
-import '../../pad_button.dart';
 
 class Joypad {
   late Map<PadButton, bool> isPressed;

@@ -1,17 +1,20 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../components/m68k/cpu.dart';
+import '../../components/m68k/disasm.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../trace_flow.dart';
+import '../../types.dart';
 import '../../util/double.dart';
 import '../../util/int.dart';
-import '../cdrom_drive.dart';
-import '../components/m68k/cpu.dart';
-import '../components/m68k/disasm.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import '32x/bus_m68.dart';
 import '32x/md_32x.dart';
 import '32x/sh2/sh2.dart';
+import '32x/video.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
@@ -23,7 +26,34 @@ import 'ym2612.dart';
 import 'z80/z80.dart';
 import 'z80/z80_disasm.dart';
 
-class Md implements Core, FrameRunner {
+class Md implements Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers => [
+        ...vdp.debugVideoLayers,
+        if (expansion != null)
+          DebugVideoLayer('32X Framebuffer', (_) {
+            final source = expansion!.video, copy = ExpansionVideo();
+            copy.frames[0].setAll(0, source.frames[0]);
+            copy.frames[1].setAll(0, source.frames[1]);
+            copy.palette.setAll(0, source.palette);
+            copy.mode = source.mode;
+            copy.shift = source.shift;
+            copy.displayBank = source.displayBank;
+            final blank = Uint32List(320 * 224),
+                transparent = Uint8List(320 * 224);
+            for (var y = 0; y < 224; y++) {
+              copy.renderLine(y, blank, transparent, 320);
+            }
+            return DebugRaster(
+                ImageBuffer(320, 224, copy.output.buffer.asUint8List()));
+          }, kind: DebugLayerKind.framebuffer),
+      ];
+  @override
+  List<DebugPatternTable> get patternTables => vdp.debugPatternTables;
+
   MdCdrom? get cdrom => busM68.cdrom;
   final bool cdBoot;
   final bool expansionBoot;
@@ -556,6 +586,21 @@ class Md implements Core, FrameRunner {
   // debug: set debug logging
   @override
   TraceLog trace(int cpuNo) {
+    final pc = programCounter(cpuNo);
+    int word(int address) =>
+        read(cpuNo, address) << 8 | read(cpuNo, address + 1);
+    final flow = _isShCpu(cpuNo)
+        ? traceSh2Flow(word(pc), pc)
+        : cpuNo == 1
+            ? traceZ80Flow(read(cpuNo, pc), pc, cpuZ80.r.af & 255,
+                operand: read(cpuNo, (pc + 1) & 0xffff) |
+                    read(cpuNo, (pc + 2) & 0xffff) << 8,
+                second: read(cpuNo, (pc + 1) & 0xffff))
+            : traceM68kFlow(word(pc), pc, extension: word(pc + 2));
+    return _trace(cpuNo).withFlow(flow);
+  }
+
+  TraceLog _trace(int cpuNo) {
     if (_isShCpu(cpuNo)) {
       final cpu = _shCpu(cpuNo);
       return TraceLog(cpu.pc, cpu.clocks, disasm(cpuNo, cpu.pc).$1, cpu.dump(),

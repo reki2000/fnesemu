@@ -1,13 +1,15 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../components/m68k/disasm.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../trace_flow.dart';
+import '../../types.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
-import '../cdrom_drive.dart';
-import '../components/m68k/disasm.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import 'bus.dart';
 import 'cdblock.dart';
 import 'cpu.dart';
@@ -20,7 +22,15 @@ import 'vdp1.dart';
 import 'vdp2.dart';
 
 /// SS core
-class Ss extends Core implements FrameRunner {
+class Ss extends Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers => vdp2.debugVideoLayers;
+  @override
+  List<DebugPatternTable> get patternTables => vdp2.debugPatternTables;
+
   final bus = Bus();
   final pad = Pad();
 
@@ -383,16 +393,38 @@ class Ss extends Core implements FrameRunner {
 
   @override
   TraceLog trace(int cpuNo) {
+    final pc = programCounter(cpuNo);
+    int word(int address) =>
+        read(cpuNo, address) << 8 | read(cpuNo, address + 1);
+    final flow = cpuNo == 2
+        ? traceM68kFlow(word(pc), pc, extension: word(pc + 2))
+        : traceSh2Flow(word(pc), pc);
+    return _trace(cpuNo).withFlow(flow);
+  }
+
+  TraceLog _trace(int cpuNo) {
     if (cpuNo == 2) {
       final cpu = scsp.cpu;
-      return TraceLog(cpu.pc, cpu.clocks, _soundDisasm(cpu.pc).$1,
-          cpu.dump().replaceAll('\n', ' '), [],
-          frame: vdp2.frame, scanline: _line);
+      return TraceLog(
+          cpu.pc,
+          cpu.clocks,
+          _soundDisasm(cpu.pc).$1,
+          cpu.dump().replaceAll('\n', ' '),
+          [for (var i = 0; i < 8; i++) cpu.a[i], ...cpu.d, cpu.sr],
+          frame: vdp2.frame,
+          scanline: _line);
     }
     final cpu = _cpu(cpuNo);
-    return TraceLog(cpu.pc, cpu.clocks, cpu.disasm(cpu.pc).$1.padRight(40),
-        cpu.dump().replaceAll("\n", " "), [],
-        frame: vdp2.frame, scanline: _line);
+    return TraceLog(
+        cpu.pc,
+        cpu.clocks,
+        cpu.disasm(cpu.pc).$1.padRight(40),
+        cpu.dump().replaceAll("\n", " "),
+        cpu is Sh2
+            ? [...cpu.r, cpu.sr, cpu.pr, cpu.gbr, cpu.vbr, cpu.mach, cpu.macl]
+            : [],
+        frame: vdp2.frame,
+        scanline: _line);
   }
 
   @override

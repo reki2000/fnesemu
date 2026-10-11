@@ -153,7 +153,6 @@ extension Hook on R3000 {
       write32(i + loadAddr, exe.getUint32LE(i + headerSize));
     }
 
-    debugLog(
-        "exe sideloaded on ${loadAddr.x8} size:${size.x8} entry:${pc.x8}");
+    debugLog("exe sideloaded on ${loadAddr.x8} size:${size.x8} entry:${pc.x8}");
   }
 }

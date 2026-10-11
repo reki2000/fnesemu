@@ -1,13 +1,13 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/cdrom.dart';
-import 'package:fnesemu_core/src/core/core_factory.dart';
+import 'package:fnesemu_core/core_factory.dart';
+import 'package:fnesemu_core/src/cdrom.dart';
 import 'package:fnesemu_core/src/core/md/cd/cdc.dart';
 import 'package:fnesemu_core/src/core/md/cd/cdd.dart';
 import 'package:fnesemu_core/src/core/md/cd/md_cdrom.dart';
 import 'package:fnesemu_core/src/core/md/cd/pcm.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/sram.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -260,6 +260,23 @@ void main() {
   });
 
   group('CDD / CDC', () {
+    test('queued tray events are handled without a fixed hold delay', () {
+      final disc = FakeCdromDrive([Uint8List(cdSectorSize)]);
+      final drive = CdDrive((_) {}, () {})..mount(disc);
+      disc.events.add(CdromDriveState.trayOpen, 1);
+      disc.events.add(CdromDriveState.loading, 1);
+      disc.events.add(CdromDriveState.ready, 0); // old disc completion
+      disc.events.add(CdromDriveState.ready, 1);
+      drive.tick();
+      expect(drive.status, 0xb);
+      drive.tick();
+      expect(drive.status, 0xb);
+      drive.tick();
+      expect(drive.status, 0xb);
+      drive.tick();
+      expect(drive.status, 9);
+    });
+
     test('reset and stop response packets remain latched across drive ticks',
         () {
       final drive = CdDrive((_) {}, () {})
@@ -310,8 +327,7 @@ void main() {
 
     test('TOC checksums, track queries and lead-in-aware data reads', () {
       final disc = FakeCdromDrive(
-          List.generate(
-              4, (i) => mode1Sector(Uint8List(2048)..[0] = i + 1, i)),
+          List.generate(4, (i) => mode1Sector(Uint8List(2048)..[0] = i + 1, i)),
           starts: [0, 2],
           audioTracks: {2});
       final received = <Uint8List>[];
@@ -376,8 +392,8 @@ void main() {
 
       write(1, 0x62);
       write(10, 0x84);
-      final sector = mode1Sector(
-          Uint8List(2048)..setAll(0, [0x12, 0x34, 0x56, 0x78]), 0);
+      final sector =
+          mode1Sector(Uint8List(2048)..setAll(0, [0x12, 0x34, 0x56, 0x78]), 0);
       cdc.decode(sector);
       expect(cdc.header, [0, 2, 0, 1]);
       expect(interrupts, 1);
@@ -401,6 +417,7 @@ void main() {
         cdc.register = reg;
         return cdc.readRegister();
       }
+
       void write(int reg, int value) {
         cdc.register = reg;
         cdc.writeRegister(value);

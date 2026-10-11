@@ -3,16 +3,15 @@ import 'dart:core';
 import 'dart:math';
 import 'dart:typed_data';
 
-import '../util/debug.dart';
-import 'cdrom_drive.dart';
-import 'core.dart';
-import 'core_empty.dart';
 import 'core_factory.dart';
 import 'debugger.dart';
-import 'frame_counter.dart';
-import 'pad_button.dart';
-import 'sram.dart';
-import 'types.dart';
+import 'src/cdrom_drive.dart';
+import 'src/core.dart';
+import 'src/internal/frame_counter.dart';
+import 'src/pad_button.dart';
+import 'src/sram.dart';
+import 'src/types.dart';
+import 'src/util/debug.dart';
 
 class CoreControllerState {
   bool _running = false;
@@ -39,8 +38,9 @@ class CoreController {
   CoreController(onStateChange, this._onAudio, this._onImage, this._sram)
       : _state = CoreControllerState(onStateChange);
 
-  Core _core = EmptyCore();
-  Debugger debugger = Debugger(EmptyCore());
+  Core _core = Core();
+  late final Debugger debugger =
+      Debugger(_core, onRun: _runExecution, onStop: _stopExecution);
 
   /// id of the running system (CoreSystem.id), empty if none
   String get system => _system;
@@ -112,15 +112,7 @@ class CoreController {
 
   int _currentCpuClocks = 0;
 
-  int _runMode = 0;
-  static const runModeNone = 0;
-  static const runModeStep = 1;
-  static const runModeStepOut = 2;
-  static const runModeLine = 3;
-  static const runModeFrame = 4;
-
   int _scanline = 0;
-  int _frames = 0;
 
   bool _stopRequested = false;
 
@@ -128,15 +120,15 @@ class CoreController {
   static const minYieldUs = 4000;
 
   /// runs emulation continuously
-  run({int mode = runModeNone}) async {
-    if (_state.running) {
+  Future<void> run() {
+    debugger.cancelExecution();
+    return _runExecution();
+  }
+
+  Future<void> _runExecution() async {
+    if (_system.isEmpty || _state.running) {
       return;
     }
-
-    _state.running = true;
-    _stopRequested = false;
-
-    _runMode = mode;
 
     final fpsCounter = FrameCounter(
         duration: const Duration(milliseconds: 500)); // shortlife counter
@@ -150,39 +142,49 @@ class CoreController {
     int lastUs = 0;
     double targetClocks = _currentCpuClocks.toDouble();
 
-    while (!_stopRequested) {
-      final nowUs = watch.elapsedMicroseconds;
-      targetClocks += (nowUs - lastUs) * clocksPerUs;
-      lastUs = nowUs;
-
-      if (_currentCpuClocks >= targetClocks) {
-        // ahead of the real time
-        await Future.delayed(const Duration(milliseconds: 1));
-        continue;
-      }
-
-      _fps = fpsCounter.fps(DateTime.now());
-      _runFrame();
-      fpsCounter.count();
-
-      // gives the UI a quarter of the time at least
-      final frameUs = watch.elapsedMicroseconds - nowUs;
-      await Future.delayed(
-          Duration(microseconds: max(minYieldUs, frameUs ~/ 3)));
-
-      // keeps up to 1 frame behind
-      final behind = targetClocks - _currentCpuClocks;
-      if (behind > clocksInFrame) {
-        targetClocks = (_currentCpuClocks + clocksInFrame).toDouble();
-      }
-    }
-
+    _state.running = true;
     _stopRequested = false;
-    _state.running = false;
+    try {
+      while (!_stopRequested) {
+        final nowUs = watch.elapsedMicroseconds;
+        targetClocks += (nowUs - lastUs) * clocksPerUs;
+        lastUs = nowUs;
+
+        if (_currentCpuClocks >= targetClocks) {
+          // ahead of the real time
+          await Future.delayed(const Duration(milliseconds: 1));
+          continue;
+        }
+
+        _fps = fpsCounter.fps(DateTime.now());
+        _runFrame();
+        fpsCounter.count();
+
+        // gives the UI a quarter of the time at least
+        final frameUs = watch.elapsedMicroseconds - nowUs;
+        await Future.delayed(
+            Duration(microseconds: max(minYieldUs, frameUs ~/ 3)));
+
+        // keeps up to 1 frame behind
+        final behind = targetClocks - _currentCpuClocks;
+        if (behind > clocksInFrame) {
+          targetClocks = (_currentCpuClocks + clocksInFrame).toDouble();
+        }
+      }
+    } finally {
+      _stopRequested = false;
+      _state.running = false;
+      debugger.executionStopped();
+    }
   }
 
   /// stop emulation
-  stop() async {
+  Future<void> stop() {
+    debugger.cancelExecution();
+    return _stopExecution();
+  }
+
+  Future<void> _stopExecution() async {
     _stopRequested = true;
 
     while (_state.running) {
@@ -193,37 +195,31 @@ class CoreController {
   }
 
   /// reset emulation. keep run/stop state
-  reset() async {
+  Future<void> reset() async {
+    final wasRunning = _state.running;
+    await stop();
     _fps = 0.0;
-    _currentCpuClocks = 0;
-
+    _currentCpuClocks = _scanline = 0;
     _core.reset();
-
     debugger.reset();
-
     _renderAll();
-
-    if (_state.running) {
-      await stop();
-      run();
-    }
+    if (wasRunning) run();
   }
 
   /// executes emulation during 1 frame
   void _runFrame() {
     final core = _core;
-    if (core case final FrameRunner runner
-        when !debugger.opt.showDebugView && _runMode == runModeNone) {
+    if (!debugger.needsInstructionLoop) {
       // the core runs the rest of the frame by itself
-      final result = runner.runFrame(core.scanlinesInFrame - _scanline);
+      final result = core.runFrame(core.scanlinesInFrame - _scanline);
       _currentCpuClocks = result.elapsedClocks;
       if (result.stopped) {
         _scanline = 0;
-        stop();
+        _stopRequested = true;
         return;
       }
     } else {
-      while (_scanline++ < core.scanlinesInFrame) {
+      while (_scanline < core.scanlinesInFrame) {
         if (!_runScanLine()) {
           return;
         }
@@ -231,10 +227,9 @@ class CoreController {
     }
 
     _scanline = 0;
-    _frames++;
 
-    if (_runMode == runModeFrame) {
-      stop();
+    if (debugger.stopAfterFrame) {
+      _stopRequested = true;
     }
 
     _renderAll();
@@ -243,77 +238,43 @@ class CoreController {
   /// for debugger: executes emulation during 1 scanline
   /// returns false if the emulation is stopped
   bool _runScanLine() {
-    final opt = debugger.opt;
-
-    if (!opt.showDebugView) {
-      while (true) {
-        // exec 1 cpu instruction
-        final result = _core.exec(false);
-        _currentCpuClocks = result.elapsedClocks;
-
-        if (result.stopped) {
-          stop();
-          return false;
-        }
-
-        if (result.scanlineRendered) {
-          break;
-        }
+    bool cpuExecuted = true;
+    while (true) {
+      if (cpuExecuted && debugger.logEnabled) {
+        debugger.recordTrace();
+        cpuExecuted = false;
       }
-    } else {
-      final step = _runMode != runModeNone || opt.breakPoint >= 0 || opt.log;
-      bool cpuExecuted = true;
 
-      while (true) {
-        if (cpuExecuted && opt.log) {
-          debugger.addLog(_core.trace(opt.targetCpuNo));
-          cpuExecuted = false;
-        }
-
-        // exec 1 cpu instruction
-        final result = _core.exec(step);
-        _currentCpuClocks = result.elapsedClocks;
-
-        if (result.stopped) {
-          stop();
-          return false;
-        }
-
-        cpuExecuted = result.executed(opt.targetCpuNo);
-
-        final needBreak = cpuExecuted &&
-            opt.showDebugView &&
-            ((opt.breakClock <= debugStatus.clock && opt.breackClockEnabled) ||
-                opt.breakPoint == _core.programCounter(opt.targetCpuNo) ||
-                _runMode == runModeStep ||
-                _runMode == runModeStepOut &&
-                    _core.stackPointer(opt.targetCpuNo) > opt.stackPointer);
-
-        if (needBreak) {
-          opt.breackClockEnabled = opt.breakClock > debugStatus.clock;
-          _renderAll();
-          stop();
-          return false;
-        }
-
-        if (result.scanlineRendered) {
-          break;
-        }
+      final result = _core.exec(debugger.stepInstructions);
+      debugger.completeTrace(result);
+      _currentCpuClocks = result.elapsedClocks;
+      if (result.stopped) {
+        _stopRequested = true;
+        return false;
       }
+      cpuExecuted = result.executed(debugger.executionCpuNo);
+      if (result.scanlineRendered) _scanline++;
+      if (debugger.shouldPause(result, debugStatus.clock)) {
+        if (_scanline >= _core.scanlinesInFrame) _scanline = 0;
+        _renderAll();
+        _stopRequested = true;
+        return false;
+      }
+      if (result.scanlineRendered) break;
     }
 
-    if (_runMode == runModeLine) {
+    if (debugger.stopAfterLine) {
+      if (_scanline >= _core.scanlinesInFrame) _scanline = 0;
       _renderAll();
-      stop();
+      _stopRequested = true;
       return false;
     }
-
     return true;
   }
 
   void _renderAll() {
     _onImage(_core.imageBuffer());
-    debugger.pushStream();
+    debugger.pushStream(frameRendered: true);
     _fpsStream.add(_fps);
   }
 

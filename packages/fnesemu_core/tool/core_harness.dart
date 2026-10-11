@@ -21,7 +21,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/src/core/core.dart';
+import 'package:fnesemu_core/src/core.dart';
 import 'package:fnesemu_core/src/core/gb/gb.dart';
 import 'package:fnesemu_core/src/core/gba/gba.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
@@ -30,8 +30,8 @@ import 'package:fnesemu_core/src/core/nes/nes.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
-import 'package:fnesemu_core/src/core/types.dart';
+import 'package:fnesemu_core/src/sram.dart';
+import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
@@ -95,9 +95,6 @@ Future<void> main(List<String> args) async {
   Directory(outDir).createSync(recursive: true);
 
   final core = _createCore(files[0]);
-  if (frameRunner && core is! FrameRunner) {
-    throw StateError('core does not implement FrameRunner');
-  }
   core.setSram(Sram());
   if (bios != null && (core is Gba || files[0] == "fds")) {
     core.setBiosFiles([File(bios).readAsBytesSync()]);
@@ -161,9 +158,8 @@ Future<void> main(List<String> args) async {
   int frame = 0;
 
   while (frame < frames) {
-    final r = frameRunner
-        ? (core as FrameRunner).runFrame(core.scanlinesInFrame)
-        : core.exec(false);
+    final r =
+        frameRunner ? core.runFrame(core.scanlinesInFrame) : core.exec(false);
     if (r.stopped) {
       print("stopped at frame $frame\n${core.dump()}");
       _savePng(core.imageBuffer(), "$outDir/stopped.png");

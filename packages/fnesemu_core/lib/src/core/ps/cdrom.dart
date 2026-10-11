@@ -1,9 +1,9 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import '../../cdrom.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
-import '../cdrom.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 import 'log.dart';
@@ -313,7 +313,7 @@ class Cdrom {
     }
 
     _clock += clocks;
-    _port.poll(_clock, clocks);
+    _port.poll();
 
     // sector read
     if (isReading || isPlaying) {

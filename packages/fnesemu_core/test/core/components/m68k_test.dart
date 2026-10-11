@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/components/m68k/bus.dart';
-import 'package:fnesemu_core/src/core/components/m68k/cpu.dart';
+import 'package:fnesemu_core/src/components/m68k/bus.dart';
+import 'package:fnesemu_core/src/components/m68k/cpu.dart';
 import 'package:test/test.dart';
 
 class MemoryBus implements M68Bus {

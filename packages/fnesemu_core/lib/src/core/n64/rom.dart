@@ -37,7 +37,8 @@ class N64Rom {
                   0x0b050ee0 => 0x100000,
                   0xacc8580a => 0x200000,
                   _ => 0,
-                }).mask32,
+                })
+            .mask32,
         title = String.fromCharCodes(bytes.sublist(0x20, 0x34))
             .replaceAll('\x00', '')
             .trim();

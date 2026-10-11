@@ -14,9 +14,10 @@ class MemoryPickedFile extends RandomReadFile {
   Future<int> length() async => data.length;
 
   @override
-  Future<Uint8List> read(int offset, int length) async =>
-      Uint8List.sublistView(data, offset.clamp(0, data.length),
-          (offset + length).clamp(0, data.length));
+  Future<Uint8List> read(int offset, int length) async => Uint8List.sublistView(
+      data,
+      offset.clamp(0, data.length),
+      (offset + length).clamp(0, data.length));
 
   @override
   Future<void> close() async {}

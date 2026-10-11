@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
+import '../../components/m68k/bus.dart';
+import '../../components/m68k/cpu.dart';
 import '../../util/int.dart';
-
-import '../components/m68k/bus.dart';
-import '../components/m68k/cpu.dart';
 import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
 import 'pad.dart';

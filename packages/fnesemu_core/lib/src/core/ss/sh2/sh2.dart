@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
-import '../../debugger.dart';
+import '../../../util/register_dump.dart';
 import '../cpu.dart';
 import 'disasm.dart';
 import 'onchip.dart';
@@ -472,9 +472,7 @@ class Sh2 extends SsCpu {
           case 7:
             r[n] = ~value;
           case 8:
-            r[n] = (value & 0xffff0000) |
-                value.mask8.shl8 |
-                value.shr8.mask8;
+            r[n] = (value & 0xffff0000) | value.mask8.shl8 | value.shr8.mask8;
           case 9:
             r[n] = value.mask16.shl16 | value.shr16;
           case 10:

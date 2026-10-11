@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/src/core/components/m68k/bus.dart';
-import 'package:fnesemu_core/src/core/components/m68k/cpu.dart';
-import 'package:fnesemu_core/src/core/components/m68k/debug.dart';
+import 'package:fnesemu_core/src/components/m68k/bus.dart';
+import 'package:fnesemu_core/src/components/m68k/cpu.dart';
+import 'package:fnesemu_core/src/components/m68k/debug.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
 class BusM68Test implements M68Bus {

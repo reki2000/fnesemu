@@ -222,8 +222,7 @@ class MapperVrc4 extends Mapper {
 
   @override
   String dump() {
-    final chrBanks =
-        range(0, 8).map((i) => _chrBank[i].x2).toList().join(" ");
+    final chrBanks = range(0, 8).map((i) => _chrBank[i].x2).toList().join(" ");
     final prgBanks =
         range(0, 4).map((i) => _prgBank[i][0].x2).toList().join(" ");
 

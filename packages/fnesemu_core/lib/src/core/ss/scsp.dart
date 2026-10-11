@@ -1,10 +1,9 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import '../../components/m68k/bus.dart';
+import '../../components/m68k/cpu.dart';
 import '../../util/int.dart';
-
-import '../components/m68k/bus.dart';
-import '../components/m68k/cpu.dart';
 
 /// 68000 bus of the sound subsystem
 class ScspBus implements M68Bus {
@@ -486,10 +485,9 @@ class Scsp {
       }
 
       if (sbctl != 0) {
-        smp = (smp.mask16 ^
-                (sbctl.bit0 ? 0x7fff : 0) ^
-                (sbctl.bit1 ? 0x8000 : 0))
-            .rel16;
+        smp =
+            (smp.mask16 ^ (sbctl.bit0 ? 0x7fff : 0) ^ (sbctl.bit1 ? 0x8000 : 0))
+                .rel16;
       }
 
       // pitch

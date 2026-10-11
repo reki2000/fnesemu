@@ -1,8 +1,11 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../video_debug.dart';
 
 import 'vdp.dart';
+
+part 'video_debug.dart';
 
 // preliminary building an RGBA color map for all 512 colors
 const _map3to8 = [0x00, 0x24, 0x49, 0x6d, 0x92, 0xb6, 0xdb, 0xff]; //
@@ -97,8 +100,7 @@ class _Plane {
     final d0 = vram[name];
     final d1 = vram[name + 1];
 
-    attr = d0.shr1 & _pixelPaletteMask |
-        (d0.bit7 ? _pixelPriorityFlag : 0);
+    attr = d0.shr1 & _pixelPaletteMask | (d0.bit7 ? _pixelPriorityFlag : 0);
     hFlipXor = d0.bit3 ? 0 : 7;
     final vFlipXor = d0.bit4 ? maskTileYOffset : 0;
 
@@ -295,7 +297,8 @@ extension VdpRenderer on Vdp {
         if (x2 != fetchedX2) {
           fetchedX2 = x2;
           final addr =
-              (patternBase + ((x2 * vCells + y2) << bitsTileV | y1).shl2).mask16;
+              (patternBase + ((x2 * vCells + y2) << bitsTileV | y1).shl2)
+                  .mask16;
           pattern = vram[addr].shl24 |
               vram[addr + 1].shl16 |
               vram[addr + 2].shl8 |

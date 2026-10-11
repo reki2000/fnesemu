@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 
+import '../../sram.dart';
 import '../../util/int.dart';
-
-import '../sram.dart';
 
 /// cartridge header
 class CartridgeHeader {
@@ -58,8 +57,8 @@ abstract class Cartridge {
     _romBankMask = banks <= 1 ? 0 : (1 << (banks - 1).bitLength) - 1;
   }
 
-  factory Cartridge.empty() => _RomOnly(Uint8List(0x8000),
-      CartridgeHeader(Uint8List(0x8000)..[0x149] = 0));
+  factory Cartridge.empty() => _RomOnly(
+      Uint8List(0x8000), CartridgeHeader(Uint8List(0x8000)..[0x149] = 0));
 
   /// creates a cartridge. throws when the controller type is not supported
   factory Cartridge.of(Uint8List body) {
@@ -79,8 +78,7 @@ abstract class Cartridge {
       0x05 || 0x06 => _Mbc2(rom, header),
       0x0f || 0x10 || 0x11 || 0x12 || 0x13 => _Mbc3(rom, header),
       0x19 || 0x1a || 0x1b || 0x1c || 0x1d || 0x1e => _Mbc5(rom, header),
-      _ => throw Exception(
-          "unsupported cartridge type: ${header.type.x2}"),
+      _ => throw Exception("unsupported cartridge type: ${header.type.x2}"),
     };
   }
 

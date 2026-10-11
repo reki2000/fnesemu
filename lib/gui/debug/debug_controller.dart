@@ -1,24 +1,93 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fnesemu_core/app_api.dart';
 
 import '../../styles.dart';
-import 'vram.dart';
 
-class DebugController extends StatelessWidget {
-  final CoreController controller;
+typedef _DebugAction = (
+  String,
+  IconData,
+  LogicalKeyboardKey,
+  Future<void> Function()
+);
+
+List<_DebugAction> _executionActions(Debugger debugger) => [
+      ('Pause', Icons.pause, LogicalKeyboardKey.f4, debugger.pause),
+      ('Run', Icons.play_arrow, LogicalKeyboardKey.f5, debugger.run),
+      ('Step', Icons.arrow_downward, LogicalKeyboardKey.f6, debugger.step),
+      ('StepOut', Icons.arrow_upward, LogicalKeyboardKey.f7, debugger.stepOut),
+      ('Next', Icons.redo, LogicalKeyboardKey.f8, debugger.next),
+      ('Frame', Icons.skip_next, LogicalKeyboardKey.f9, debugger.runToFrame),
+      ('Line', Icons.last_page, LogicalKeyboardKey.f10, debugger.runToLine),
+    ];
+
+class DebugExecutionControls extends StatelessWidget {
   final Debugger debugger;
+  const DebugExecutionControls({super.key, required this.debugger});
+  @override
+  Widget build(BuildContext context) =>
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        for (final action in _executionActions(debugger))
+          IconButton(
+              tooltip: '${action.$1} (${action.$3.keyLabel})',
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+              padding: const EdgeInsets.all(2),
+              iconSize: 18,
+              onPressed: action.$4,
+              icon: Icon(action.$2)),
+      ]);
+}
 
-  DebugController({super.key, required this.controller})
-      : debugger = controller.debugger;
+/// Wrap both the game and inspector so keys work while either has focus.
+class DebugShortcuts extends StatelessWidget {
+  final Debugger debugger;
+  final bool enabled;
+  final Widget child;
+  const DebugShortcuts(
+      {super.key,
+      required this.debugger,
+      required this.child,
+      this.enabled = true});
+  @override
+  Widget build(BuildContext context) => CallbackShortcuts(
+      bindings: enabled
+          ? {
+              for (final action in _executionActions(debugger))
+                SingleActivator(action.$3, includeRepeats: false): () {
+                  action.$4();
+                },
+            }
+          : const {},
+      child: child);
+}
+
+class DebugController extends StatefulWidget {
+  final CoreController controller;
+  const DebugController({super.key, required this.controller});
+  @override
+  State<DebugController> createState() => _DebugControllerState();
+}
+
+class _DebugControllerState extends State<DebugController> {
+  CoreController get controller => widget.controller;
+  Debugger get debugger => controller.debugger;
+  bool _copying = false;
+  Future<void> _copyTrace() async {
+    if (_copying) return;
+    setState(() => _copying = true);
+    try {
+      await Clipboard.setData(ClipboardData(text: debugger.traceText()));
+      debugger.setLogEnabled(false);
+      if (mounted) _showSnackBar(context, 'Trace copied');
+    } catch (error) {
+      if (mounted) _showSnackBar(context, 'Copy failed: $error');
+    } finally {
+      if (mounted) setState(() => _copying = false);
+    }
+  }
 
   Widget _button(BuildContext context, String text, void Function() func) =>
-      TextButton(
-          style: textButtonMinimum.copyWith(
-              foregroundColor: WidgetStateProperty.all(Colors.white),
-              backgroundColor:
-                  WidgetStateProperty.all(Theme.of(context).primaryColor)),
-          onPressed: func,
-          child: Text(text));
+      TextButton(onPressed: func, child: Text(text));
 
   void _showSnackBar(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -35,11 +104,11 @@ class DebugController extends StatelessWidget {
     return 0;
   }
 
-  CpuInfo _targetCpu(DebugOption opt) =>
-      debugger.cpuInfos[_targetCpuIndex(opt.targetCpuNo)];
+  CpuInfo _targetCpu(DebugState state) =>
+      debugger.cpuInfos[_targetCpuIndex(state.targetCpuNo)];
 
-  _setBreakPoint(BuildContext context, String v, DebugOption opt) {
-    if (v.length != (_targetCpu(opt).pcBitWidth + 3) ~/ 4) {
+  _setBreakPoint(BuildContext context, String v, DebugState state) {
+    if (v.length != (_targetCpu(state).pcBitWidth + 3) ~/ 4) {
       return;
     }
 
@@ -66,18 +135,10 @@ class DebugController extends StatelessWidget {
     }
   }
 
-  _toggleTargtCpu() {
-    final cpuInfos = controller.debugger.cpuInfos;
-    final value = (targetCpuNotifier.value + 1) % cpuInfos.length;
-    controller.debugger.opt.targetCpuNo = cpuInfos[value].no;
-    targetCpuNotifier.value = value;
-  }
-
-  final targetCpuNotifier = ValueNotifier<int>(0);
-
   @override
   Widget build(BuildContext context) => StreamBuilder(
         stream: debugger.debugStream,
+        initialData: debugger.state,
         builder: (context, snapshot) =>
             (snapshot.hasData) ? body(context, snapshot.data!) : Container(),
       );
@@ -85,43 +146,37 @@ class DebugController extends StatelessWidget {
   String _formatPc(int pc, int bit) =>
       pc.toRadixString(16).padLeft((bit + 3) ~/ 4, '0');
 
-  Widget body(BuildContext context, DebugOption opt) =>
-      Row(spacing: 3, mainAxisAlignment: MainAxisAlignment.center, children: [
-        _button(context, _targetCpu(opt).name, _toggleTargtCpu),
-        _button(context, "Step", () {
-          controller.run(mode: CoreController.runModeStep);
-        }),
-        _button(context, "Next", () {
-          opt.breakPoint = debugger.nextPc(opt.targetCpuNo);
-          controller.run();
-        }),
-        _button(context, "StepOut", () {
-          opt.stackPointer = debugger.stackPointer(opt.targetCpuNo);
-          controller.run(mode: CoreController.runModeStepOut);
-        }),
-        _button(context, "Line",
-            () => controller.run(mode: CoreController.runModeLine)),
-        _button(context, "Frame",
-            () => controller.run(mode: CoreController.runModeFrame)),
-        SizedBox(
-            width: 90,
-            child: TextField(
-              controller:
-                  TextEditingController(text: opt.breakClock.toString()),
-              decoration: denseTextDecoration,
-              onSubmitted: (v) => _setBreakClock(context, v),
-            )),
-        SizedBox(
-            width: 70,
-            child: TextField(
-              controller: TextEditingController(
-                  text: _formatPc(opt.breakPoint, _targetCpu(opt).pcBitWidth)),
-              decoration: denseTextDecoration,
-              onSubmitted: (v) => _setBreakPoint(context, v, opt),
-            )),
-        _button(context, "Mem", () => debugger.toggleMem()),
-        _button(context, "VRAM", () => pushVramPage(context, controller)),
-        _button(context, "Video", () => debugger.toggleVdc()),
-        _button(context, "Log", () => debugger.toggleLog()),
-      ]);
+  Widget body(BuildContext context, DebugState state) =>
+      debugger.cpuInfos.isEmpty
+          ? const SizedBox.shrink()
+          : Wrap(spacing: 3, runSpacing: 3, children: [
+              SizedBox(
+                  width: 90,
+                  child: TextField(
+                    controller: TextEditingController(
+                        text: state.breakClock.toString()),
+                    decoration: denseTextDecoration,
+                    onSubmitted: (v) => _setBreakClock(context, v),
+                  )),
+              SizedBox(
+                  width: 70,
+                  child: TextField(
+                    controller: TextEditingController(
+                        text: _formatPc(
+                            state.breakPoint, _targetCpu(state).pcBitWidth)),
+                    decoration: denseTextDecoration,
+                    onSubmitted: (v) => _setBreakPoint(context, v, state),
+                  )),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                _button(context, state.log ? 'Copy' : 'Log', () {
+                  if (state.log) {
+                    _copyTrace();
+                  } else {
+                    debugger.startTrace();
+                  }
+                }),
+                Text('${state.traceLog.length} lines',
+                    key: const ValueKey('trace-line-count'), style: debugStyle),
+              ]),
+            ]);
 }

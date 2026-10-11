@@ -76,11 +76,43 @@ class CpuInfo {
   CpuInfo.ofR3000(int no, String name) : this(no, name, 32, traceDiffs: 4);
 }
 
+enum TraceFlowKind { none, call, returned, jump, exception, interruptReturn }
+
+/// Native instruction semantics supplied by cores only during tracing.
+class TraceFlow {
+  final TraceFlowKind kind;
+  final int? returnAddress, target;
+  final int delaySlots;
+  static const none = TraceFlow._(TraceFlowKind.none);
+  const TraceFlow._(this.kind,
+      {this.returnAddress, this.target, this.delaySlots = 0});
+  const TraceFlow.call(int address, {int? target, int delaySlots = 0})
+      : this._(TraceFlowKind.call,
+            returnAddress: address, target: target, delaySlots: delaySlots);
+  const TraceFlow.returned({int delaySlots = 0})
+      : this._(TraceFlowKind.returned, delaySlots: delaySlots);
+  const TraceFlow.jump({int delaySlots = 0})
+      : this._(TraceFlowKind.jump, delaySlots: delaySlots);
+  const TraceFlow.exception(int address)
+      : this._(TraceFlowKind.exception, returnAddress: address);
+  const TraceFlow.interruptReturn({int delaySlots = 0})
+      : this._(TraceFlowKind.interruptReturn, delaySlots: delaySlots);
+}
+
 class TraceLog {
   final int pc, cycle, frame, scanline;
   final String disasm, regs;
   final List<int> state;
+  final TraceFlow flow;
+  final int indent, scope;
 
   const TraceLog(this.pc, this.cycle, this.disasm, this.regs, this.state,
-      {this.frame = 0, this.scanline = 0});
+      {this.frame = 0,
+      this.scanline = 0,
+      this.flow = TraceFlow.none,
+      this.indent = 0,
+      this.scope = 0});
+
+  TraceLog withFlow(TraceFlow flow) => TraceLog(pc, cycle, disasm, regs, state,
+      frame: frame, scanline: scanline, flow: flow);
 }

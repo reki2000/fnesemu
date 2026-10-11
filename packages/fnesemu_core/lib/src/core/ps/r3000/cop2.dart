@@ -236,8 +236,7 @@ class Cop2 {
   // no: 1,2,3
   int co44(int no, int value) {
     // overflow/underflow bits: 30/27, 29/26, 28/25
-    return checkOverflow(
-            value, -0x80000000000, 0x7ffffffffff, 31 - no, 28 - no)
+    return checkOverflow(value, -0x80000000000, 0x7ffffffffff, 31 - no, 28 - no)
         .rel44;
   }
 

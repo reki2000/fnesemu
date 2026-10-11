@@ -243,8 +243,7 @@ class Arm7Disasm {
         if (op & 0xf800 == 0xf000 &&
             nextHalfword != null &&
             nextHalfword & 0xf800 == 0xf800) {
-          final offset =
-              op.rel11.shl12 + nextHalfword.mask11.shl1;
+          final offset = op.rel11.shl12 + nextHalfword.mask11.shl1;
           return 'bl ${(pc + 4 + offset).mask32.x8}';
         }
         return '.hword 0x${op.x4}';

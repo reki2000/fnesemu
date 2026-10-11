@@ -1,22 +1,32 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../trace_flow.dart';
+import '../../types.dart';
 import '../../util/crc32.dart';
 import '../../util/int.dart';
-
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import 'apu.dart';
 import 'bus.dart';
 import 'cartridge.dart';
 import 'cpu.dart';
 import 'disasm.dart';
 import 'ppu.dart';
+import 'video_debug.dart';
 
 /// main class of the gb core. integrates cpu/ppu/apu/timer/cartridge
-class Gb implements Core, FrameRunner {
+class Gb implements Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers => ppu.debugVideoLayers;
+  @override
+  List<DebugPatternTable> get patternTables => ppu.debugPatternTables;
+
   final bus = Bus();
 
   Cpu get cpu => bus.cpu;
@@ -167,8 +177,9 @@ class Gb implements Core, FrameRunner {
   @override
   (String, int) disasm(int cpuNo, int addr) {
     final (inst, len) = Disasm.disasm(bus.read, addr);
-    final bytes = List.generate(
-        3, (i) => i < len ? bus.read((addr + i).mask16).x2 : "  ").join(" ");
+    final bytes =
+        List.generate(3, (i) => i < len ? bus.read((addr + i).mask16).x2 : "  ")
+            .join(" ");
     return ("${addr.x4}: $bytes  $inst", (addr + len).mask16);
   }
 
@@ -186,7 +197,11 @@ class Gb implements Core, FrameRunner {
       cpu.dump(),
       [cpu.af, cpu.bc, cpu.de, cpu.hl, cpu.sp],
       frame: ppu.frames,
-      scanline: ppu.ly);
+      scanline: ppu.ly,
+      flow: traceZ80Flow(bus.read(cpu.pc), cpu.pc, cpu.af & 255,
+          gb: true,
+          operand: bus.read((cpu.pc + 1) & 0xffff) |
+              bus.read((cpu.pc + 2) & 0xffff) << 8));
 
   @override
   List<int> get vram => ppu.vram;

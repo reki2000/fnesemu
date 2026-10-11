@@ -1,8 +1,8 @@
 import 'dart:core';
 
+import '../../../trace_flow.dart';
+import '../../../types.dart';
 import '../../../util/int.dart';
-
-import '../../types.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
@@ -16,8 +16,9 @@ extension CpuDebugger on Cpu {
     final reg =
         "A:${regs.a.x2} X:${regs.x.x2} Y:${regs.y.x2} P:${regs.p.x2} SP:${regs.s.x2}";
 
-    return TraceLog(op, cycle, asm.toUpperCase(), reg.toUpperCase(),
-        [regs.a, regs.x, regs.y, regs.p, regs.s]);
+    return TraceLog(regs.pc, cycle, asm.toUpperCase(), reg.toUpperCase(),
+        [regs.a, regs.x, regs.y, regs.p, regs.s],
+        flow: trace6502Flow(op, regs.pc, operand: a | b << 8));
   }
 
   (String, int) dumpDisasm(int addr) {

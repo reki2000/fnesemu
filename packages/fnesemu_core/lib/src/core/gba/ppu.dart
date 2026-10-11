@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../types.dart';
+import '../../video_debug.dart';
 import 'bus.dart';
+
+part 'video_debug.dart';
 
 /// GBA Picture Processing Unit.
 ///
@@ -258,7 +260,8 @@ class Ppu {
       }
 
       final tileNum = bus.vram[screenBase + texY.shr3 * tilesWide + texX.shr3];
-      final idx = bus.vram[charBase + tileNum * 64 + texY.mask3 * 8 + texX.mask3];
+      final idx =
+          bus.vram[charBase + tileNum * 64 + texY.mask3 * 8 + texX.mask3];
       out[x] = idx != 0 ? _pal(idx) : -1;
     }
 
@@ -422,7 +425,8 @@ class Ppu {
         // tile numbers wrap within the 32KB OBJ VRAM
         final tileNo = (oneDim
                 ? tileBase + (tileY * tilesWide + tileX) * (color256 ? 2 : 1)
-                : tileBase + tileY * 32 + tileX * (color256 ? 2 : 1)).mask10;
+                : tileBase + tileY * 32 + tileX * (color256 ? 2 : 1))
+            .mask10;
 
         // in bitmap modes only the upper half of OBJ VRAM is usable.
         if (bitmapMode && tileNo < 512) continue;
@@ -630,9 +634,8 @@ class Ppu {
         for (int x = 0; x < 8; x++) {
           final byte = bus.vram[tileAddr + y * 4 + x.shr1];
           final nibble = x.bit0 ? byte.shr4 : byte.mask4;
-          buf[row + x] = nibble == 0
-              ? 0xff000000
-              : _rgba[_pal(palBase + nibble).mask15];
+          buf[row + x] =
+              nibble == 0 ? 0xff000000 : _rgba[_pal(palBase + nibble).mask15];
         }
       }
     }

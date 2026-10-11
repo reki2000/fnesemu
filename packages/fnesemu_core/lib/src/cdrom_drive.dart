@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 enum CdromDriveState {
@@ -15,6 +16,38 @@ enum CdromDriveState {
 
   /// failed to read the TOC
   error,
+}
+
+/// Physical tray events and the separate result of reading the inserted disc.
+enum CdromDriveEventType { trayOpened, trayClosed, discReady, discError }
+
+class CdromDriveEvent {
+  final CdromDriveEventType type;
+  final int discId;
+
+  const CdromDriveEvent(this.type, this.discId);
+}
+
+/// FIFO for a drive's single core consumer. State transitions are recorded
+/// even while emulation is paused; sector reads do not generate events.
+class CdromDriveEvents {
+  final _queue = Queue<CdromDriveEvent>();
+
+  void add(CdromDriveState state, int discId) {
+    final type = switch (state) {
+      CdromDriveState.trayOpen => CdromDriveEventType.trayOpened,
+      CdromDriveState.empty ||
+      CdromDriveState.loading =>
+        CdromDriveEventType.trayClosed,
+      CdromDriveState.ready => CdromDriveEventType.discReady,
+      CdromDriveState.error => CdromDriveEventType.discError,
+    };
+    _queue.add(CdromDriveEvent(type, discId));
+  }
+
+  CdromDriveEvent? take() => _queue.isEmpty ? null : _queue.removeFirst();
+
+  void clear() => _queue.clear();
 }
 
 class CdromTrack {
@@ -100,6 +133,14 @@ abstract class CdromDrive {
   /// returns the current status. cheap enough to be polled on each exec.
   CdromDriveStatus get status;
 
+  /// Takes the oldest event, or null. A single core consumes the queue on
+  /// its execution thread. Ready/error events belong to [CdromDriveEvent.discId]; ignore
+  /// them if a newer medium has replaced that generation.
+  CdromDriveEvent? takeEvent();
+
+  /// Discards past events when attaching or resetting to the current status.
+  void clearEvents();
+
   /// moves the head to [lba]. the core polls [CdromDriveStatus.isSeeking]
   /// and [CdromDriveStatus.seekError] for the result.
   void seek(int lba);
@@ -114,6 +155,12 @@ abstract class CdromDrive {
 class EmptyCdromDrive implements CdromDrive {
   @override
   CdromDriveStatus get status => CdromDriveStatus.empty;
+
+  @override
+  CdromDriveEvent? takeEvent() => null;
+
+  @override
+  void clearEvents() {}
 
   @override
   void seek(int lba) {}

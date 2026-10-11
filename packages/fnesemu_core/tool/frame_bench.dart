@@ -6,13 +6,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/src/core/core.dart';
+import 'package:fnesemu_core/src/core.dart';
 import 'package:fnesemu_core/src/core/gb/gb.dart';
 import 'package:fnesemu_core/src/core/gba/gba.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/nes/nes.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
+import 'package:fnesemu_core/src/sram.dart';
 
 Future<void> main(List<String> options) async {
   String? caseFile, out;
@@ -42,7 +42,6 @@ Future<void> main(List<String> options) async {
   final args =
       (jsonDecode(File(caseFile).readAsStringSync()) as List).cast<String>();
   final core = createCore(args[0]);
-  if (frameRunner && core is! FrameRunner) throw StateError('No FrameRunner');
   core.setSram(Sram());
   final presses = <(int, String)>[];
   var hold = 10;
@@ -124,7 +123,7 @@ Future<void> main(List<String> options) async {
       }
       if (frame > warmup) timer.start();
       if (frameRunner) {
-        final result = (core as FrameRunner).runFrame(core.scanlinesInFrame);
+        final result = core.runFrame(core.scanlinesInFrame);
         if (result.stopped) throw StateError('Stopped at frame $frame');
         clocks = result.elapsedClocks;
       } else {

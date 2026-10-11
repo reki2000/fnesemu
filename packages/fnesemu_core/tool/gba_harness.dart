@@ -13,8 +13,8 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:fnesemu_core/src/core/gba/gba.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
-import 'package:fnesemu_core/src/core/types.dart';
+import 'package:fnesemu_core/src/sram.dart';
+import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
 void main(List<String> args) {

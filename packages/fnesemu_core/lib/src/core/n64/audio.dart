@@ -29,8 +29,7 @@ class N64Audio {
         leftRate = rightRate = reverb = reverbRamp = leftRamp = rightRamp = 0;
   }
 
-  int read(int a) =>
-      (memory[a.mask16].shl8 | memory[(a + 1).mask16]).rel16;
+  int read(int a) => (memory[a.mask16].shl8 | memory[(a + 1).mask16]).rel16;
   void write(int a, int v) {
     v = v.clamp(-32768, 32767);
     memory[a.mask16] = v.shr8;
@@ -236,8 +235,7 @@ class N64Audio {
     final history = List<int>.filled(16, 0);
     if (!flags.bit0) {
       for (var i = 0; i < 16; i++) {
-        history[i] =
-            bus.ramRead((flags.bit1 ? loop : state) + i * 2, 2).rel16;
+        history[i] = bus.ramRead((flags.bit1 ? loop : state) + i * 2, 2).rel16;
       }
     }
     for (var i = 0; i < 16; i++) {
@@ -297,8 +295,8 @@ class N64Audio {
     final base = input - 8;
     if (!nearest) {
       for (var i = 0; i < 4; i++) {
-        write(base + i * 2,
-            flags.bit0 ? 0 : bus.ramRead(state + i * 2, 2).rel16);
+        write(
+            base + i * 2, flags.bit0 ? 0 : bus.ramRead(state + i * 2, 2).rel16);
       }
     }
     var pos = nearest ? input : base;

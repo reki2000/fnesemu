@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
+import '../../types.dart';
 import '../../util/int.dart';
 import '../../util/uint8list.dart';
-
-import '../types.dart';
 import 'vdp.dart';
 import 'vdp_renderer.dart';
 

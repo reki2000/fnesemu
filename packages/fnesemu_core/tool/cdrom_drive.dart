@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:fnesemu_core/src/core/cdrom_drive.dart';
+import 'package:fnesemu_core/src/cdrom_drive.dart';
 
 /// [CdromDrive] which starts reading [chunkSectors] sectors when the core asks
 /// for a sector not read yet, and keeps all the sectors read. [settle] waits
@@ -17,6 +17,7 @@ class SimpleCdromDrive implements CdromDrive {
   DiscImage? _image;
   CdromToc _toc = CdromToc.empty;
   int _discId = 0;
+  final _events = CdromDriveEvents();
   int _seekLba = 0;
   bool _seekRequested = false;
 
@@ -27,6 +28,12 @@ class SimpleCdromDrive implements CdromDrive {
 
   @override
   CdromDriveStatus get status => _status;
+
+  @override
+  CdromDriveEvent? takeEvent() => _events.take();
+
+  @override
+  void clearEvents() => _events.clear();
 
   void _updateStatus() {
     final readable = _isReadable(_seekLba);
@@ -64,7 +71,7 @@ class SimpleCdromDrive implements CdromDrive {
 
     final discId = _change(CdromDriveState.loading);
     try {
-      final (image, _) = await DiscImage.parse(disc.$2, disc.$1);
+      final (image, _) = await DiscImage.parse(disc.$1, files: disc.$2);
       if (discId != _discId) {
         return;
       }
@@ -82,6 +89,7 @@ class SimpleCdromDrive implements CdromDrive {
   /// discards the state of the current disc, returns the new disc id
   int _change(CdromDriveState state) {
     _discId++;
+    if (state != _state) _events.add(state, _discId);
     _state = state;
     if (state != CdromDriveState.ready) {
       _image = null;

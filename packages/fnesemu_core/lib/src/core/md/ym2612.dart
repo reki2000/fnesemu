@@ -242,8 +242,7 @@ class Op {
     final qPhase = (phase.bit8 ? ~phase : phase).mask8;
 
     // level: 0(loud)-0x1fff(quiet) 13bit
-    int level =
-        _logSinTable[qPhase] + _egLevel.shl2 + (am ? ch._lfoAmVal : 0);
+    int level = _logSinTable[qPhase] + _egLevel.shl2 + (am ? ch._lfoAmVal : 0);
     if (level < 0) {
       level = 0;
     } else if (level > 0x1fff) {

@@ -1,13 +1,15 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../trace_flow.dart';
+import '../../types.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
-import '../core.dart';
-import '../debugger.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../util/register_dump.dart';
+import '../../video_debug.dart';
 import 'audio.dart';
 import 'bus.dart';
 import 'cpu.dart';
@@ -16,7 +18,41 @@ import 'graphics.dart';
 import 'rom.dart';
 
 /// Independent N64 core with a VR4300 interpreter and GBI/audio task HLE.
-class N64 extends Core implements FrameRunner {
+class N64 extends Core {
+  @override
+  List<DebugVideoLayer> get videoLayers => [
+        DebugVideoLayer('VI Framebuffer', _debugFramebuffer,
+            hasMap: true, kind: DebugLayerKind.framebuffer)
+      ];
+  DebugRaster _debugFramebuffer(bool map) {
+    final image = bus.image();
+    if (!map) return DebugRaster.copy(image);
+    final stride = bus.vi[2] & 0xfff, mode = bus.vi[0] & 3;
+    if (stride == 0 || mode < 2) return DebugRaster.copy(image);
+    final canvas = DebugCanvas(stride, image.height);
+    final origin = bus.vi[1] & 0xffffff, bytes = mode == 2 ? 2 : 4;
+    for (var y = 0; y < image.height; y++)
+      for (var x = 0; x < stride; x++) {
+        final a = origin + (y * stride + x) * bytes;
+        if (a + bytes > bus.ram.length) continue;
+        if (bytes == 4) {
+          canvas.pixels[y * stride + x] = 0xff000000 |
+              bus.ram[a] |
+              bus.ram[a + 1] << 8 |
+              bus.ram[a + 2] << 16;
+        } else {
+          final c = bus.ram[a] << 8 | bus.ram[a + 1];
+          int expand(int n) => (n << 3) | (n >> 2);
+          canvas.pixels[y * stride + x] = 0xff000000 |
+              expand((c >> 11) & 31) |
+              expand((c >> 6) & 31) << 8 |
+              expand((c >> 1) & 31) << 16;
+        }
+      }
+    canvas.viewport(0, 0, image.width, image.height);
+    return canvas.raster();
+  }
+
   final bus = N64Bus();
   late final cpu = Vr4300(bus);
   late final graphics = N64Graphics(bus);
@@ -198,6 +234,7 @@ class N64 extends Core implements FrameRunner {
         [cpu.pc, ...cpu.r.map(cpu.address)],
         frame: _frame,
         scanline: bus.scanline,
+        flow: traceMipsFlow(bus.read(cpu.pc, 4), cpu.pc, cpu.r, wide: true),
       );
   @override
   String dump({

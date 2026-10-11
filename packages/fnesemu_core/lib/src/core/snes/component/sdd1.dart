@@ -152,9 +152,8 @@ class _Decompressor {
 
   void _getBit(int plane) {
     final prev = _prevBits[plane];
-    final context = plane.mask1.shl4 |
-        (prev & _highContext).shr5 |
-        (prev & _lowContext);
+    final context =
+        plane.mask1.shl4 | (prev & _highContext).shr5 | (prev & _lowContext);
     final bit = _probGetBit(context);
     _prevBits[plane] = (prev.shl1 + bit).mask16;
     if (_planes == 0) _raw = _raw.shr1 + bit.shl7;

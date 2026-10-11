@@ -1,8 +1,7 @@
 import 'dart:typed_data';
 
+import '../../../types.dart';
 import '../../../util/int.dart';
-
-import '../../types.dart';
 import 'vdc.dart';
 import 'vdc_render.dart';
 
@@ -100,8 +99,7 @@ extension VdcDebug on Vdc {
     for (int i = 0; i < 64; i++) {
       final sp = Sprite.of(sat, i * 4);
       final xy = "${sp.x.d4},${sp.y.d4}";
-      final patNo =
-          "${sp.patternNo.d4} ${sp.patternNo.shl6.x4}";
+      final patNo = "${sp.patternNo.d4} ${sp.patternNo.shl6.x4}";
       buf[i] =
           "${i.d2} $xy  $patNo ${sp.paletteNo.d2} ${sp.vFlip ? "v" : " "}${sp.hFlip ? "h" : " "}";
     }
@@ -144,10 +142,8 @@ extension VdcDebug on Vdc {
             final p01 = pattern01 >> shiftBits;
             final p23 = pattern23 >> shiftBits;
 
-            final color = p01.mask1 |
-                p01.shr7 & 0x02 |
-                p23.shl2 & 0x04 |
-                p23.shr5 & 0x08;
+            final color =
+                p01.mask1 | p01.shr7 & 0x02 | p23.shl2 & 0x04 | p23.shr5 & 0x08;
 
             final c = colorTable[((color == 0) ? 0 : palette) | color];
             buf[imageOffset +

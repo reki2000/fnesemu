@@ -29,8 +29,10 @@ class InterruptController {
   int _mask = 0;
   int get mask => _mask;
   set mask(int value) {
-    if (_debugLog) _debug(
-        "interrupt: set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
+    if (_debugLog) {
+      _debug(
+          "interrupt: set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
+    }
     _mask = value;
 
     cpu.setInterruptPending(mask & status != 0);
@@ -46,8 +48,10 @@ class InterruptController {
       return;
     }
 
-    if (_debugLog) _debug(
-        "interrupt: set:${irqNo.x4}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} triggered:${mask & status.setBit(irqNo, true) != 0}");
+    if (_debugLog) {
+      _debug(
+          "interrupt: set:${irqNo.x4}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} triggered:${mask & status.setBit(irqNo, true) != 0}");
+    }
     status = status.setBit(irqNo, true);
 
     if (mask & status != 0) {
@@ -57,8 +61,10 @@ class InterruptController {
 
   void ackIrq(int ackValue) {
     if (ackValue.mask16 != 0xffff) {
-      if (_debugLog) _debug(
-          'interrupt: ack:${ackValue.x4}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8}');
+      if (_debugLog) {
+        _debug(
+            'interrupt: ack:${ackValue.x4}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8}');
+      }
     }
 
     status &= ackValue;

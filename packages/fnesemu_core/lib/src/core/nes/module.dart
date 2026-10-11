@@ -1,6 +1,6 @@
 import 'dart:typed_data';
-import '../core.dart';
-import '../core_module.dart';
+import '../../core.dart';
+import '../../core_module.dart';
 import 'nes.dart';
 
 CoreModule createModule() => NesModule();

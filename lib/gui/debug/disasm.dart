@@ -29,7 +29,7 @@ class DebugDisasm extends StatelessWidget {
     addrNotifier.value = debugger.disasmAddress(cpuNo);
   }
 
-  final margin10 = const EdgeInsets.all(10.0);
+  final margin10 = const EdgeInsets.all(2.0);
   final node = FocusNode();
 
   List<(int, String)> _asm(int addr, int lines) {
@@ -59,7 +59,7 @@ class DebugDisasm extends StatelessWidget {
   }
 
   _button(String text, void Function() func) =>
-      TextButton(onPressed: func, style: textButtonMinimum, child: Text(text));
+      TextButton(onPressed: func, child: Text(text));
 
   _addrInc(int offset) {
     addrNotifier.value = (addrNotifier.value + offset) & addrMask;

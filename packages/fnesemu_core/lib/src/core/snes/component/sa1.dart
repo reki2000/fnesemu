@@ -455,7 +455,6 @@ class Sa1 {
     }
   }
 
-
   void _arithmetic() {
     if (!_acm) {
       if (!_md) {

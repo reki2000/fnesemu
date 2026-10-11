@@ -7,7 +7,7 @@
 //          [-f frames] [-p F:B]... [-H hold] [-3 main,master,slave]
 //          [-l hashfile]   (writes the per-frame hashes)
 //          [-n]            (no hashes: only the speed)
-//          [-r]            (runs frames by FrameRunner.runFrame, not exec)
+//          [-r]            (runs frames by Core.runFrame, not exec)
 //
 // AOT: dart compile exe tool/md_bench.dart -o md_bench && ./md_bench ...
 import 'dart:io';
@@ -15,7 +15,6 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:fnesemu_core/src/core/core.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
 
 import 'cdrom_drive.dart';
@@ -87,8 +86,8 @@ Future<void> main(List<String> args) async {
 
   final buttons = core.buttons;
   final pressList = presses.map((p) {
-    final idx = buttons
-        .indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase());
+    final idx =
+        buttons.indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase());
     if (idx < 0) throw "unknown button: ${p.$2}";
     return (p.$1, idx);
   }).toList();
@@ -110,7 +109,7 @@ Future<void> main(List<String> args) async {
   int lines = 0;
   int frame = 0;
 
-  final runner = useRunFrame ? core as FrameRunner : null;
+  final runner = useRunFrame ? core : null;
   final cpu0 = _cpuMs();
   sw.start();
   while (frame < frames) {

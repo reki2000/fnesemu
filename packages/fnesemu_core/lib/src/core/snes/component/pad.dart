@@ -1,6 +1,5 @@
+import '../../../pad_button.dart';
 import '../../../util/int.dart';
-
-import '../../pad_button.dart';
 
 /// SNES standard pad. bit layout of the auto-joypad word ($4219$4218):
 /// B Y Select Start Up Down Left Right A X L R - - - -  (b15..b0)

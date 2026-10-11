@@ -1,1 +1,1 @@
-export '../../components/m68k/debug.dart';
+export '../../../components/m68k/debug.dart';

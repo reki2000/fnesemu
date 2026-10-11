@@ -4,7 +4,7 @@ import 'package:fnesemu_core/src/core/gb/bus.dart';
 import 'package:fnesemu_core/src/core/gb/cpu.dart';
 import 'package:fnesemu_core/src/core/gb/gb.dart';
 import 'package:fnesemu_core/src/core/gb/pad.dart';
-import 'package:fnesemu_core/src/core/pad_button.dart';
+import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:test/test.dart';
 
 // builds a rom image with the program placed at the entry point 0x0100

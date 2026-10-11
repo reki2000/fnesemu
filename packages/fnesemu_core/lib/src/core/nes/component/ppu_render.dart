@@ -31,6 +31,8 @@ extension Take3<T> on List<T> {
 }
 
 extension PpuRenderer on Ppu {
+  static int debugColor(int index) => _colorRGBA[index & 63];
+
   // base vram address for palette
   static const paletteBase = 0x3f00;
 
@@ -159,8 +161,7 @@ extension PpuRenderer on Ppu {
       late final int objAddr;
       if (objSize16()) {
         final lowerOffset = ((objScanY >= 8) ? 1 : 0) ^ (flipV ? 1 : 0);
-        objAddr =
-            (((pattern & 0xfe) + lowerOffset).shl4) | pattern.mask1.shl12;
+        objAddr = (((pattern & 0xfe) + lowerOffset).shl4) | pattern.mask1.shl12;
       } else {
         objAddr = objBase | pattern.shl4;
       }

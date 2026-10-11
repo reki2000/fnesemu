@@ -1,12 +1,13 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
+import '../../core.dart';
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../trace_flow.dart';
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../cdrom_drive.dart';
-import '../core.dart';
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
+import '../../video_debug.dart';
 import 'arm7tdmi/arm7.dart';
 import 'arm7tdmi/arm_disasm.dart';
 import 'bus.dart';
@@ -18,7 +19,15 @@ import 'ppu.dart';
 /// Stage 1: integrates ARM7TDMI + memory bus into the Core abstraction and
 /// produces a (blank) 240x160 frame. CPU decode, PPU and APU are added in
 /// later stages.
-class Gba implements Core, FrameRunner {
+class Gba implements Core {
+  @override
+  bool get hasPatternTables => true;
+
+  @override
+  List<DebugVideoLayer> get videoLayers => ppu.debugVideoLayers;
+  @override
+  List<DebugPatternTable> get patternTables => ppu.debugPatternTables;
+
   late final Bus bus;
   late final Arm7 cpu;
   late final Ppu ppu;
@@ -284,6 +293,13 @@ class Gba implements Core, FrameRunner {
         disasm(0, cpu.regs.pc).$1.padRight(32),
         cpu.dump().replaceAll("\n", " "),
         [...cpu.regs.r, cpu.regs.cpsr],
+        flow: traceArmFlow(
+            cpu.regs.cpsr & 32 != 0
+                ? bus.read16(cpu.regs.pc)
+                : bus.read32(cpu.regs.pc),
+            cpu.regs.pc,
+            cpu.regs.cpsr,
+            cpu.regs.r),
       );
 
   @override

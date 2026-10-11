@@ -81,11 +81,15 @@ class MapperMMC4 extends Mapper {
   }
 
   @override
+  int peekVram(int addr, {bool sprite = false}) {
+    final bank = addr.shr12.mask1;
+    return chrRoms[_chrBanks[bank + _latch[bank]]][addr.mask12];
+  }
+
+  @override
   String dump() {
-    final chrBanks =
-        range(0, 4).map((i) => _chrBanks[i].x2).toList().join(" ");
-    final prgBanks =
-        range(0, 1).map((i) => _prgBanks[i].x2).toList().join(" ");
+    final chrBanks = range(0, 4).map((i) => _chrBanks[i].x2).toList().join(" ");
+    final prgBanks = range(0, 1).map((i) => _prgBanks[i].x2).toList().join(" ");
 
     return "rom: "
         "chr: $chrBanks prg: $prgBanks "

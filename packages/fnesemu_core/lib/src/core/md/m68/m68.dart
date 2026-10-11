@@ -1,1 +1,1 @@
-export '../../components/m68k/cpu.dart';
+export '../../../components/m68k/cpu.dart';

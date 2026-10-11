@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/n64/n64.dart';
-import 'package:fnesemu_core/src/core/types.dart';
+import 'package:fnesemu_core/src/types.dart';
 import 'package:test/test.dart';
 
 N64 createCore({bool stop = false}) {

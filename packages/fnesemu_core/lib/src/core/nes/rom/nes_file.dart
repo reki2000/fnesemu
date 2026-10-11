@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import '../../../util/crc32.dart';
 import '../../../util/int.dart';
 
-
 class NesFile {
   final program = <Uint8List>[];
   final character = <Uint8List>[];

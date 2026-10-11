@@ -398,10 +398,7 @@ class Dsp {
             pred = v.hist1 + (-v.hist1).shr4;
             break;
           case 2:
-            pred = v.hist1 * 2 +
-                (-(v.hist1 * 3)).shr5 -
-                v.hist2 +
-                v.hist2.shr4;
+            pred = v.hist1 * 2 + (-(v.hist1 * 3)).shr5 - v.hist2 + v.hist2.shr4;
             break;
           default:
             pred = v.hist1 * 2 +
@@ -531,10 +528,8 @@ class Dsp {
       right += echoOutR / 32768.0 * (evolR.rel8) / 128.0;
 
       if (!flg.bit5) {
-        final newL =
-            _clamp16(echoInL.round() + (echoOutL * (efb.rel8)) ~/ 128);
-        final newR =
-            _clamp16(echoInR.round() + (echoOutR * (efb.rel8)) ~/ 128);
+        final newL = _clamp16(echoInL.round() + (echoOutL * (efb.rel8)) ~/ 128);
+        final newR = _clamp16(echoInR.round() + (echoOutR * (efb.rel8)) ~/ 128);
         spc.ram[addr] = newL.mask8;
         spc.ram[(addr + 1).mask16] = newL.shr8.mask8;
         spc.ram[(addr + 2).mask16] = newR.mask8;

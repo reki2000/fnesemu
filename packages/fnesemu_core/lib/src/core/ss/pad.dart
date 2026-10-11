@@ -1,4 +1,4 @@
-import '../pad_button.dart';
+import '../../pad_button.dart';
 
 /// SS standard digital pad
 ///

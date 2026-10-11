@@ -18,10 +18,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/core.dart';
-import 'package:fnesemu_core/src/core/sram.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
-import 'package:fnesemu_core/src/core/types.dart';
+import 'package:fnesemu_core/src/sram.dart';
+import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
@@ -120,9 +119,7 @@ Future<void> main(List<String> args) async {
   if (benchFrom == 0) await startBench();
 
   while (frame < frames) {
-    final r = useRunFrame
-        ? (ss as FrameRunner).runFrame(ss.scanlinesInFrame)
-        : ss.exec(false);
+    final r = useRunFrame ? ss.runFrame(ss.scanlinesInFrame) : ss.exec(false);
     if (r.stopped) {
       print("stopped at frame $frame\n${ss.dump()}");
       _savePng(ss.imageBuffer(), "$outDir/stopped.png");
@@ -146,7 +143,8 @@ Future<void> main(List<String> args) async {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(ss.imageBuffer(), path);
       if (quiet) continue;
-      print("frame $frame (${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
+      print(
+          "frame $frame (${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
           "pc:${ss.master.pc.toRadixString(16)} "
           "slave:${ss.slave.pc.toRadixString(16)} "
           "68k:${ss.scsp.cpu.pc.toRadixString(16)} -> $path");
@@ -170,8 +168,8 @@ Future<void> main(List<String> args) async {
   if (wav) {
     final raw = f32.toBytes();
     File("$outDir/audio.f32").writeAsBytesSync(raw);
-    File("$outDir/audio.wav").writeAsBytesSync(_wav(raw.buffer.asFloat32List(
-        raw.offsetInBytes, raw.length ~/ 4)));
+    File("$outDir/audio.wav").writeAsBytesSync(
+        _wav(raw.buffer.asFloat32List(raw.offsetInBytes, raw.length ~/ 4)));
   }
   File("$outDir/state.txt").writeAsStringSync(ss.dump());
   if (!quiet) print(ss.dump());
@@ -193,8 +191,8 @@ Uint8List _wav(Float32List samples) {
   const rate = 44100, channels = 2;
   final pcm = ByteData(samples.length * 2);
   for (int i = 0; i < samples.length; i++) {
-    pcm.setInt16(i * 2, (samples[i].clamp(-1.0, 1.0) * 32767).round(),
-        Endian.little);
+    pcm.setInt16(
+        i * 2, (samples[i].clamp(-1.0, 1.0) * 32767).round(), Endian.little);
   }
   final h = ByteData(44);
   void tag(int o, String s) {

@@ -1,8 +1,11 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../video_debug.dart';
 
 import 'ppu.dart';
+
+part 'video_debug.dart';
 
 /// a single layer slot in a mode's front-to-back priority order.
 /// isObj=true: `hi` is the OBJ priority level (0-3), `bg` unused.
@@ -470,7 +473,6 @@ extension PpuRenderer on Ppu {
       line[x] = inside ? 1 : 0;
     }
   }
-
 
   /// whether a layer's pixel is masked (hidden) at column x for the given
   /// screen (TMW for main / TSW for sub): masked when that screen's window

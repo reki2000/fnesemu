@@ -159,7 +159,10 @@ class Dsp1 {
         final (c, e) = _inverse(i[0], i[1]);
         return [c, e];
       case 0x04 || 0x24: // triangle
-        return [(i[1] * _sin(i[0])).shr15.rel16, (i[1] * _cos(i[0])).shr15.rel16];
+        return [
+          (i[1] * _sin(i[0])).shr15.rel16,
+          (i[1] * _cos(i[0])).shr15.rel16
+        ];
       case 0x08: // radius
         final size = (i[0] * i[0] + i[1] * i[1] + i[2] * i[2]).shl1;
         return [size.rel16, size.shr16.rel16];

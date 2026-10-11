@@ -9,10 +9,10 @@ import 'package:fnesemu/gui/storage.dart';
 import 'package:fnesemu_core/app_api.dart';
 // Only this boundary test changes and restores the internal registry.
 // ignore: implementation_imports
-import 'package:fnesemu_core/src/core/core_factory.dart'
+import 'package:fnesemu_core/src/internal/core_registry.dart'
     show registerCoreModules;
 // ignore: implementation_imports
-import 'package:fnesemu_core/src/core/installed_core_modules.dart';
+import 'package:fnesemu_core/src/internal/core_registry_generated.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 
 void main() {
@@ -43,8 +43,8 @@ void main() {
   test('app tests import only the public core API', () {
     // the registry, to test the app without cores
     expectOnlyPublicCore('test', allowed: {
-      'package:fnesemu_core/src/core/installed_core_modules.dart',
-      'package:fnesemu_core/src/core/core_factory.dart',
+      'package:fnesemu_core/src/internal/core_registry_generated.dart',
+      'package:fnesemu_core/src/internal/core_registry.dart',
     });
   });
 

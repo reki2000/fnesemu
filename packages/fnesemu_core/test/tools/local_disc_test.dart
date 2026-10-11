@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
-import 'package:fnesemu_core/src/core/cdrom.dart';
+import 'package:fnesemu_core/src/cdrom.dart';
 import 'package:test/test.dart';
 
 import '../../tool/cdrom_drive.dart';
@@ -39,7 +39,8 @@ void main() {
   test('parse uses directory files without caller-managed handles', () async {
     File('${dir.path}/disc.iso').writeAsBytesSync(Uint8List(2048 * 2));
     final files = await localDiscFiles(dir.path).toList();
-    final (image, referenced) = await DiscImage.parse(files, files.single);
+    final (image, referenced) =
+        await DiscImage.parse(files.single, files: files);
     expect(referenced, isEmpty);
     expect(image.totalSectors, 2);
     expect((await image.readSectors(1, 1)).single.length, 2352);

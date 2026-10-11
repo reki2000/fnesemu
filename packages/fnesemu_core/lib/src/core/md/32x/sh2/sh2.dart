@@ -1,5 +1,5 @@
 import '../../../../util/int.dart';
-import '../../../debugger.dart';
+import '../../../../util/register_dump.dart';
 import 'onchip.dart';
 
 abstract class Sh2Bus {
@@ -177,9 +177,7 @@ class Sh2 {
           case 7:
             r[n] = ~value;
           case 8:
-            r[n] = (value & 0xffff0000) |
-                value.mask8.shl8 |
-                value.shr8.mask8;
+            r[n] = (value & 0xffff0000) | value.mask8.shl8 | value.shr8.mask8;
           case 9:
             r[n] = value.mask16.shl16 | value.shr16;
           case 10:
@@ -255,9 +253,8 @@ class Sh2 {
             final dividendSign = a.bit31;
             final shifted = (a.shl1 | (t ? 1 : 0)).mask32;
             final subtract = oldQ == divisorSign;
-            final result = subtract
-                ? (shifted - b).mask32
-                : (shifted + b).mask32;
+            final result =
+                subtract ? (shifted - b).mask32 : (shifted + b).mask32;
             final carry = subtract ? result > shifted : result < shifted;
             final newQ = oldQ == divisorSign
                 ? (oldQ ? dividendSign == carry : dividendSign != carry)
@@ -392,9 +389,7 @@ class Sh2 {
           r[m] = (r[m] + 4).mask32;
           final product = left * right;
           final low = macl + product.mask32;
-          final high = (sr.bit1
-                  ? mach.rel16
-                  : mach.rel32) +
+          final high = (sr.bit1 ? mach.rel16 : mach.rel32) +
               (product >> 32) +
               (low >> 32);
           if (sr.bit1 && high > 0x7fff) {
@@ -482,7 +477,8 @@ class Sh2 {
                   ? 0x7fffffff
                   : sum < -0x80000000
                       ? -0x80000000
-                      : sum).mask32;
+                      : sum)
+              .mask32;
         } else {
           final low = macl + product.mask32;
           mach = (mach + (product >> 32) + (low >> 32)).mask32;

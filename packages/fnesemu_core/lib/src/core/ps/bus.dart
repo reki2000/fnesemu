@@ -120,8 +120,9 @@ class Bus implements BusR3000 {
           _ => 0,
         },
       >= 0x1f801c00 && < 0x1f801ec0 => switch (offset & 0x1ffe) {
-          >= 0x1c00 && < 0x1d80 =>
-            spu.readVoice(offset & 0x0e, offset.shr4.mask5).byteAt(offset.mask1),
+          >= 0x1c00 && < 0x1d80 => spu
+              .readVoice(offset & 0x0e, offset.shr4.mask5)
+              .byteAt(offset.mask1),
           >= 0x1d88 && < 0x1d90 => 0, // key on/off write only
           0x1d98 || 0x1d9a => spu.reverb.getReverbEnabled().byteAt(offset),
           0x1d94 || 0x1d96 => spu.noiseFlags.byteAt(offset),
@@ -134,8 +135,9 @@ class Bus implements BusR3000 {
           0x1dae => spu.status.byteAt(offset.mask1), // spu status
           0x1db8 => spu.mainVolumeLeft.byteAt(offset.mask1),
           0x1dba => spu.mainVolumeRight.byteAt(offset.mask1),
-          >= 0x1e00 && < 0x1ec0 =>
-            spu.readVoice(offset & 0x02, offset.shr2.mask5).byteAt(offset.mask1),
+          >= 0x1e00 && < 0x1ec0 => spu
+              .readVoice(offset & 0x02, offset.shr2.mask5)
+              .byteAt(offset.mask1),
           _ => _unimpl(sig, "spu", addr),
         },
       0x1f801800 => cdrom.readPort8(offset.mask2),

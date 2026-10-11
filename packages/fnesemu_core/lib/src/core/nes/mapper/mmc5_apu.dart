@@ -113,8 +113,8 @@ class Mmc5Apu {
   int _tickAcc = 0;
 
   // same non linear mixing as the 2A03 pulse channels
-  static final _pulseOutTable = List<double>.generate(
-      31, (n) => n == 0 ? 0 : 95.52 / (8128.0 / n + 100));
+  static final _pulseOutTable =
+      List<double>.generate(31, (n) => n == 0 ? 0 : 95.52 / (8128.0 / n + 100));
   static final _pcmOutTable = List<double>.generate(
       128, (n) => n == 0 ? 0 : 163.67 / (24329.0 / n + 100));
 

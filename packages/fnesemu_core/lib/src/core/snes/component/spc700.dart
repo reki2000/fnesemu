@@ -260,8 +260,7 @@ class Spc700 {
         (v.mask16 == 0 ? Flags.z : 0);
   }
 
-  void _setFlag(int flag, bool on) =>
-      psw = on ? (psw | flag) : (psw & ~flag);
+  void _setFlag(int flag, bool on) => psw = on ? (psw | flag) : (psw & ~flag);
 
   int get _carry => psw & Flags.c;
 
@@ -1317,7 +1316,8 @@ class Spc700 {
       case 0xca: // MOV1 m.b,C
         {
           final (addr, bit) = _memBit();
-          final v = _carry != 0 ? read(addr) | (1 << bit) : read(addr) & ~(1 << bit);
+          final v =
+              _carry != 0 ? read(addr) | (1 << bit) : read(addr) & ~(1 << bit);
           write(addr, v);
         }
         break;

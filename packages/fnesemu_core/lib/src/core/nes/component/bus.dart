@@ -42,6 +42,11 @@ class Bus {
     return 0xff;
   }
 
+  int peekVram(int addr, {bool sprite = false}) =>
+      addr < 0x2000 || _mirror.isExternal
+          ? mapper.peekVram(addr, sprite: sprite)
+          : vram[_mirror.mask(addr.mask12)];
+
   void writeVram(int addr, int val) {
     if (addr < 0x2000 || _mirror.isExternal) {
       return mapper.writeVram(addr, val);

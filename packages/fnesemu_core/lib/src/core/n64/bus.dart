@@ -1,10 +1,9 @@
 import 'dart:typed_data';
 
+import '../../pad_button.dart';
+import '../../sram.dart';
+import '../../types.dart';
 import '../../util/int.dart';
-
-import '../pad_button.dart';
-import '../sram.dart';
-import '../types.dart';
 
 class N64AddressFault implements Exception {
   final int address;

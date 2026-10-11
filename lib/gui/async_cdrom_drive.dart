@@ -32,6 +32,7 @@ class AsyncCdromDrive implements CdromDrive {
 
   /// incremented on each disc change to discard the results of the old disc
   int _discId = 0;
+  final _events = CdromDriveEvents();
 
   final _cache = <int, _CacheEntry>{};
   final _inflight = <int, Future<void>>{};
@@ -45,6 +46,12 @@ class AsyncCdromDrive implements CdromDrive {
 
   @override
   CdromDriveStatus get status => _status;
+
+  @override
+  CdromDriveEvent? takeEvent() => _events.take();
+
+  @override
+  void clearEvents() => _events.clear();
 
   void _updateStatus() {
     final image = _image;
@@ -109,7 +116,7 @@ class AsyncCdromDrive implements CdromDrive {
     final loadingId = _changeDisc(CdromDriveState.loading);
 
     try {
-      final (image, _) = await DiscImage.parse(next.$2, next.$1);
+      final (image, _) = await DiscImage.parse(next.$1, files: next.$2);
       if (loadingId != _discId) {
         return;
       }
@@ -135,6 +142,7 @@ class AsyncCdromDrive implements CdromDrive {
   /// discards the state of the current disc, returns the new disc id
   int _changeDisc(CdromDriveState state) {
     _discId++;
+    if (state != _state) _events.add(state, _discId);
     _state = state;
     if (state != CdromDriveState.ready) {
       _image = null;

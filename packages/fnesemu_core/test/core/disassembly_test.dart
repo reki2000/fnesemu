@@ -1,10 +1,10 @@
-import 'package:fnesemu_core/src/core/debugger.dart';
 import 'package:fnesemu_core/src/core/gba/arm7tdmi/arm_disasm.dart';
 import 'package:fnesemu_core/src/core/gba/gba.dart';
 import 'package:fnesemu_core/src/core/n64/disasm.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
+import 'package:fnesemu_core/src/util/register_dump.dart';
 import 'package:test/test.dart';
 
 void main() {
