@@ -877,7 +877,9 @@ class MainPageState extends State<MainPage> {
                           child: SelectableText(snapshot.data?.text ?? '',
                               style: debugStyle)))),
               panel: DebugPane(
-                  debugger: _controller.debugger, controller: _controller),
+                  debugger: _controller.debugger,
+                  controller: _controller,
+                  onClose: () => _do(() => _debug(false))),
             ));
   }
 

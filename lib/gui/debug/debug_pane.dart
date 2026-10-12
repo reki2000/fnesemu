@@ -12,7 +12,9 @@ import 'video.dart';
 class DebugPane extends StatefulWidget {
   final Debugger debugger;
   final CoreController? controller;
-  const DebugPane({super.key, required this.debugger, this.controller});
+  final VoidCallback? onClose;
+  const DebugPane(
+      {super.key, required this.debugger, this.controller, this.onClose});
   @override
   State<DebugPane> createState() => _DebugPaneState();
 }
@@ -168,6 +170,13 @@ class _DebugPaneState extends State<DebugPane> {
                       for (final tab in views) Tab(text: tab.$3, height: 32),
                     ],
                   )),
+                  IconButton(
+                      key: const ValueKey('debug-close'),
+                      tooltip: 'Close debugger',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: widget.onClose ??
+                          () => widget.debugger.setDebugView(false),
+                      icon: const Icon(Icons.close)),
                 ])));
       });
 
