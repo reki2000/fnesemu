@@ -69,8 +69,13 @@ void main() {
     controller.debugger.setDebugView(true);
     await tester.pump();
     await tester.pump();
+    expect(
+        tester
+            .widgetList<IconButton>(find.byType(IconButton))
+            .firstWhere((button) => button.tooltip == 'Pause (F4)')
+            .onPressed,
+        isNull);
     for (final label in [
-      'Pause (F4)',
       'Run (F5)',
       'Step (F6)',
       'StepOut (F7)',
@@ -81,13 +86,18 @@ void main() {
       await tester.tap(find.byTooltip(label));
       await tester.pump();
     }
+    controller.debugger.executionStarted();
+    await tester.pump();
+    await tester.tap(find.byTooltip('Pause (F4)'));
+    controller.debugger.executionStopped();
+    await tester.pump();
     expect(controller.debugger.calls,
-        ['pause', 'run', 'step', 'stepOut', 'next', 'frame', 'line']);
+        ['run', 'step', 'stepOut', 'next', 'frame', 'line', 'pause']);
     expect(controller.debugger.state.breakPoint, 40);
     expect(tester.getRect(find.byType(DebugExecutionControls)).right,
         lessThanOrEqualTo(tester.getRect(find.text('CPU')).left));
     expect(tester.getTopLeft(find.text('CPU')).dx,
-        lessThan(tester.getTopLeft(find.text('Layer')).dx));
+        lessThan(tester.getTopLeft(find.text('ViewPort')).dx));
 
     expect(find.text('Main CPU'), findsOneWidget);
     expect(find.text('Other CPU'), findsOneWidget);
@@ -155,8 +165,21 @@ void main() {
       await tester.sendKeyRepeatEvent(key);
       await tester.sendKeyUpEvent(key);
     }
-    expect(debugger.calls,
-        ['pause', 'run', 'step', 'stepOut', 'next', 'frame', 'line']);
+    expect(debugger.calls, ['run', 'step', 'stepOut', 'next', 'frame', 'line']);
+    debugger.calls.clear();
+    debugger.executionStarted();
+    for (final key in [
+      LogicalKeyboardKey.f4,
+      LogicalKeyboardKey.f5,
+      LogicalKeyboardKey.f6,
+      LogicalKeyboardKey.f7,
+      LogicalKeyboardKey.f8,
+      LogicalKeyboardKey.f9,
+      LogicalKeyboardKey.f10,
+    ]) {
+      await tester.sendKeyEvent(key);
+    }
+    expect(debugger.calls, ['pause']);
     debugger.calls.clear();
     await tester.pumpWidget(MaterialApp(
         home: DebugShortcuts(
@@ -164,6 +187,33 @@ void main() {
             enabled: false,
             child: const Focus(autofocus: true, child: SizedBox.expand()))));
     await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+    expect(debugger.calls, isEmpty);
+  });
+
+  testWidgets('execution buttons track running and automatic stops',
+      (tester) async {
+    final debugger = _Debugger();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: DebugExecutionControls(debugger: debugger))));
+    void expectEnabled(bool running) {
+      for (final button
+          in tester.widgetList<IconButton>(find.byType(IconButton))) {
+        expect(button.onPressed != null,
+            button.tooltip == 'Pause (F4)' ? running : !running,
+            reason: button.tooltip);
+      }
+    }
+
+    expectEnabled(false);
+    debugger.executionStarted();
+    await tester.pump();
+    expectEnabled(true);
+    await tester.tap(find.byTooltip('Step (F6)'));
+    expect(debugger.calls, isEmpty);
+    debugger.executionStopped();
+    await tester.pump();
+    expectEnabled(false);
+    await tester.tap(find.byTooltip('Pause (F4)'));
     expect(debugger.calls, isEmpty);
   });
 

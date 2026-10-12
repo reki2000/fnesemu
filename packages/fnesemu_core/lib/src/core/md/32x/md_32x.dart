@@ -341,7 +341,10 @@ class Md32x {
     if ((address & 0xfffff000) == 0xc0000000) {
       return cacheData[cpu][address.mask12];
     }
-    address &= 0x1fffffff; // uncached alias
+    // Only P1 is an uncached alias of external memory. P2 is the
+    // associative cache purge area, not another alias of SDRAM.
+    if (address >= 0x40000000) return 0xff;
+    address &= 0x1fffffff;
     final boot = cpu == 0 ? masterBoot : slaveBoot;
     if (address < boot.length) return biosLoaded ? boot[address] : 0xff;
     if (address >= 0x02000000 && address < 0x02400000) {
@@ -364,6 +367,7 @@ class Md32x {
     if ((address & 0xfffff000) == 0xc0000000) {
       return readSh8(address, cpu).shl8 | readSh8(address + 1, cpu);
     }
+    if (address >= 0x40000000) return 0xffff;
     address &= 0x1fffffff;
     if (address >= 0x4000 && address < 0x4040) {
       return _readSystem(address - 0x4000, cpu);
@@ -383,6 +387,9 @@ class Md32x {
       cacheData[cpu][address.mask12] = value.mask8;
       return;
     }
+    // The interpreter does not cache external memory, so a P2 purge needs
+    // no work. In particular, it must not overwrite the underlying data.
+    if (address >= 0x40000000) return;
     address &= 0x1fffffff;
     value &= 255;
     if (address >= 0x06000000 && address < 0x06040000) {
@@ -411,6 +418,7 @@ class Md32x {
       writeSh8(address + 1, value, cpu);
       return;
     }
+    if (address >= 0x40000000) return;
     address &= 0x1fffffff;
     value &= 0xffff;
     if (address >= 0x4000 && address < 0x4040) {

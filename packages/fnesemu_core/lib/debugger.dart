@@ -9,6 +9,7 @@ import 'src/video_debug.dart';
 
 /// Immutable settings and display data delivered to debugger clients.
 class DebugState {
+  final bool running;
   final bool showDebugView, showVdc, showDisasm, showMem, log;
   final int memAddress, breakPoint, breakClock, targetCpuNo;
   final String text;
@@ -26,6 +27,7 @@ class DebugState {
   final List<DebugVideoPanel> videoPanels;
 
   DebugState({
+    this.running = false,
     required this.showDebugView,
     required this.showVdc,
     required this.showDisasm,
@@ -69,6 +71,7 @@ class Debugger {
   }
 
   bool _showDebugView = false, _showVdc = false, _showDisasm = true;
+  bool _running = false;
   bool _showMem = false, _logging = false;
   bool _traceLimitReached = false;
   int _memAddress = 0, _breakPoint = -1, _breakClock = 0, _targetCpuNo = 0;
@@ -366,8 +369,15 @@ class Debugger {
     _commandCpuNo = _temporaryBreakPoint = _initialStackPointer = null;
   }
 
+  /// Controller integration: called when the execution loop starts.
+  void executionStarted() {
+    _running = true;
+    pushStream();
+  }
+
   /// Controller integration: called when the execution loop has stopped.
   void executionStopped() {
+    _running = false;
     _clearTemporaryStop();
     _tracer?.finish();
     refreshVideo();
@@ -453,6 +463,7 @@ class Debugger {
       ];
     }
     _state = DebugState(
+      running: _running,
       showDebugView: _showDebugView,
       showVdc: _showVdc,
       showDisasm: _showDisasm,

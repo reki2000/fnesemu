@@ -287,13 +287,16 @@ void main() {
     await debugger.step();
     await debugger.pause();
     expect(controllerState.running, false);
+    expect(debugger.state.running, false);
     expect(debugger.stepInstructions, false);
     final running = debugger.run();
     await Future<void>.delayed(const Duration(milliseconds: 5));
     expect(controllerState.running, true);
+    expect(debugger.state.running, true);
     await debugger.pause();
     await running;
     expect(controllerState.running, false);
+    expect(debugger.state.running, false);
   });
 
   test(

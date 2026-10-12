@@ -82,6 +82,19 @@ class _PatternLayoutCore extends _VideoCore {
       ];
 }
 
+class _PatternRowsCore extends _VideoCore {
+  @override
+  List<DebugPatternTable> get patternTables => [
+        for (var bg = 0; bg < 4; bg++)
+          DebugPatternTable('BG${bg + 1}',
+              row: bg ~/ 2,
+              width: 512,
+              count: 1,
+              colorCount: 2,
+              readPixel: (_, x, y) => 1),
+      ];
+}
+
 class _LayerRowsCore extends _VideoCore {
   @override
   List<DebugVideoLayer> get videoLayers => [
@@ -113,7 +126,15 @@ void main() {
                 width: 440,
                 height: 640,
                 child: DebugPane(debugger: debugger)))));
-    await tester.tap(find.text('Layer'));
+    expect(find.text('ViewPort'), findsOneWidget);
+    expect(find.text('Screen'), findsOneWidget);
+    expect(tester.getCenter(find.text('Screen')).dy,
+        tester.getCenter(find.text('ViewPort')).dy);
+    await tester.tap(find.text('Screen'));
+    await tester.pump();
+    expect(debugger.state.view, DebugView.layers);
+    expect(debugger.state.layerView, LayerView.map);
+    await tester.tap(find.text('ViewPort'));
     await tester.pump();
     expect(find.text('BG layer'), findsOneWidget);
     expect(find.text('Sprite layer'), findsOneWidget);
@@ -183,9 +204,9 @@ void main() {
     await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: DebugPane(debugger: debugger))));
     expect(find.text('CPU'), findsOneWidget);
-    expect(find.text('Layer'), findsOneWidget);
+    expect(find.text('ViewPort'), findsOneWidget);
     expect(find.text('Patterns'), findsNothing);
-    await tester.tap(find.text('Layer'));
+    await tester.tap(find.text('ViewPort'));
     await tester.pump();
     expect(find.byTooltip('Next palette'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -339,6 +360,33 @@ void main() {
         tester.getTopLeft(find.text('BG C')).dy);
     expect(tester.getTopLeft(find.text('BG D')).dy,
         greaterThan(tester.getTopLeft(find.text('BG C')).dy));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('pattern rows preserve core-owned BG pairs at every zoom',
+      (tester) async {
+    final debugger = Debugger(_PatternRowsCore())
+      ..setDebugView(true)
+      ..selectView(DebugView.patterns);
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: DebugPane(debugger: debugger))));
+    void expectPairs() {
+      final first = tester.getTopLeft(find.text('BG1'));
+      final second = tester.getTopLeft(find.text('BG3'));
+      expect(tester.getTopLeft(find.text('BG2')).dy, first.dy);
+      expect(tester.getTopLeft(find.text('BG2')).dx, greaterThan(first.dx));
+      expect(tester.getTopLeft(find.text('BG4')).dy, second.dy);
+      expect(tester.getTopLeft(find.text('BG4')).dx, greaterThan(second.dx));
+      expect(second.dy, greaterThan(first.dy));
+    }
+
+    expectPairs();
+    tester
+        .widget<Slider>(find.byKey(const ValueKey('debug-video-scale')))
+        .onChanged!(2);
+    await tester.pump();
+    expectPairs();
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

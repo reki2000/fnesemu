@@ -36,8 +36,7 @@ Uint8List cartridge() {
 
 void main() {
   test('.32x selection enables the adapter without a 32X cartridge header', () {
-    final rom = cartridge()
-      ..setAll(0x100, 'CARTRIDGE       '.codeUnits);
+    final rom = cartridge()..setAll(0x100, 'CARTRIDGE       '.codeUnits);
     final md = (CoreFactory.of('32x') as Md)..setRom(rom);
     expect(md.expansion, isNotNull);
     expect(md.expansion!.rom.length, rom.length);
@@ -116,6 +115,29 @@ void main() {
     expect(a.buses[0].read16(0xc00005f0), 0x00ab);
     a.reset();
     expect(a.buses[1].read32(0xc00005f0), 0);
+  });
+  test('SH-2 associative cache purges preserve polygon data in SDRAM', () {
+    final a = adapter();
+    for (final bus in a.buses) {
+      // reference game purges each cache line of a queued polygon before
+      // reading it through the cached SDRAM address.
+      for (var offset = 0; offset < 64; offset += 4) {
+        bus.write32(0x26038000 + offset, 0x12345678 + offset);
+      }
+      for (var offset = 0; offset < 64; offset += 16) {
+        bus.write32(0x46038000 + offset, 0);
+      }
+      bus.write8(0x46038001, 0);
+      bus.write16(0x46038002, 0);
+      for (var offset = 0; offset < 64; offset += 4) {
+        expect(bus.read32(0x06038000 + offset), 0x12345678 + offset);
+        expect(bus.read32(0x26038000 + offset), 0x12345678 + offset);
+      }
+      // P2 reads also do not expose external RAM as an alias.
+      expect(bus.read8(0x46038000), 0xff);
+      expect(bus.read16(0x46038000), 0xffff);
+      expect(bus.read32(0x46038000), 0xffffffff);
+    }
   });
   test('video ownership and word-only palettes are enforced', () {
     final a = adapter();

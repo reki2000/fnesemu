@@ -164,6 +164,9 @@ class DebugPalette {
 /// A pattern source supplies native colour indices, never rendered UI text.
 class DebugPatternTable {
   final DebugLayerKind kind;
+
+  /// Tables with the same row appear together; null uses width-based packing.
+  final int? row;
   static const maxWidth = 512;
   final String name;
   final int count, width, height, colorCount;
@@ -175,6 +178,7 @@ class DebugPatternTable {
   final int originalBackground, alternativeBackground;
   DebugPatternTable(this.name,
       {this.kind = DebugLayerKind.background,
+      this.row,
       required this.count,
       this.width = 8,
       this.height = 8,
@@ -227,6 +231,7 @@ class DebugPatternTable {
     return DebugVideoPanel(name, canvas.raster(),
         alternative ? alternativeBackground : originalBackground,
         kind: kind,
+        row: row,
         paletteName:
             directColor ? 'Direct color' : palette?.name ?? 'Grayscale',
         palette: directColor
@@ -242,7 +247,7 @@ class DebugPatternTable {
 
 class DebugVideoPanel {
   final String name;
-  final int row;
+  final int? row;
   final DebugLayerKind kind;
   final DebugRaster raster;
   final int background;

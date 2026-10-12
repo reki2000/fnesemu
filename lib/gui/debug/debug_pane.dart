@@ -94,12 +94,17 @@ class _DebugPaneState extends State<DebugPane> {
         if (!state.showDebugView || widget.debugger.cpuInfos.isEmpty) {
           return const SizedBox.shrink();
         }
-        final views = [
-          DebugView.cpu,
-          DebugView.layers,
-          if (state.hasPatterns) DebugView.patterns
+        final views = <(DebugView, LayerView?, String)>[
+          (DebugView.cpu, null, 'CPU'),
+          (DebugView.layers, LayerView.screen, 'ViewPort'),
+          (DebugView.layers, LayerView.map, 'Screen'),
+          if (state.hasPatterns) (DebugView.patterns, null, 'Patterns'),
         ];
-        final selected = views.indexOf(state.view).clamp(0, views.length - 1);
+        final selected = views
+            .indexWhere((tab) =>
+                tab.$1 == state.view &&
+                (tab.$2 == null || tab.$2 == state.layerView))
+            .clamp(0, views.length - 1);
         return Theme(
             data: debugTheme(Theme.of(context)),
             child: Material(
@@ -136,7 +141,7 @@ class _DebugPaneState extends State<DebugPane> {
                             ]),
                         state))));
       });
-  Widget _header(List<DebugView> views) =>
+  Widget _header(List<(DebugView, LayerView?, String)> views) =>
       LayoutBuilder(builder: (context, bounds) {
         return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -152,12 +157,15 @@ class _DebugPaneState extends State<DebugPane> {
                     isScrollable: true,
                     tabAlignment: TabAlignment.start,
                     labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                    onTap: (index) => widget.debugger.selectView(views[index]),
+                    onTap: (index) {
+                      final tab = views[index];
+                      if (tab.$2 != null) {
+                        widget.debugger.setLayerView(tab.$2!);
+                      }
+                      widget.debugger.selectView(tab.$1);
+                    },
                     tabs: [
-                      const Tab(text: 'CPU', height: 32),
-                      const Tab(text: 'Layer', height: 32),
-                      if (views.contains(DebugView.patterns))
-                        const Tab(text: 'Patterns', height: 32)
+                      for (final tab in views) Tab(text: tab.$3, height: 32),
                     ],
                   )),
                 ])));
@@ -221,14 +229,6 @@ class _DebugPaneState extends State<DebugPane> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               option('Live rendering', state.videoLive, debugger.setVideoLive),
-              if (state.view == DebugView.layers)
-                SegmentedButton<LayerView>(segments: const [
-                  ButtonSegment(
-                      value: LayerView.screen, label: Text('ViewPort')),
-                  ButtonSegment(value: LayerView.map, label: Text('Screen'))
-                ], selected: {
-                  state.layerView
-                }, onSelectionChanged: (v) => debugger.setLayerView(v.single)),
               if (state.view == DebugView.patterns) ...[
                 SegmentedButton<int>(
                     segments: const [

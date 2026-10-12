@@ -143,6 +143,7 @@ class CoreController {
     double targetClocks = _currentCpuClocks.toDouble();
 
     _state.running = true;
+    debugger.executionStarted();
     _stopRequested = false;
     try {
       while (!_stopRequested) {

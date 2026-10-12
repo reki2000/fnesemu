@@ -49,7 +49,7 @@ class DebugVideoImages extends StatelessWidget {
       BuildContext context, Iterable<DebugVideoPanel> panels, Key key) {
     final rows = <int, List<DebugVideoPanel>>{};
     for (final panel in panels) {
-      rows.putIfAbsent(panel.row, () => []).add(panel);
+      rows.putIfAbsent(panel.row ?? 0, () => []).add(panel);
     }
     final order = rows.keys.toList()..sort();
     return Column(
@@ -74,7 +74,10 @@ class DebugVideoImages extends StatelessWidget {
     var row = <DebugVideoPanel>[], width = 0.0;
     for (final panel in panels) {
       final nextWidth = _patternWidth(panel);
-      if (row.isNotEmpty && width + nextWidth > DebugPatternTable.maxWidth) {
+      if (row.isNotEmpty &&
+          (panel.row != row.last.row ||
+              (panel.row == null &&
+                  width + nextWidth > DebugPatternTable.maxWidth))) {
         yield row;
         row = [];
         width = 0;

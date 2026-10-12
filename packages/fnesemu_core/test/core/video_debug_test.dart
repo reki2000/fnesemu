@@ -263,6 +263,17 @@ void main() {
     expect(core.videoLayers.map((layer) => layer.row), [0, 0, 1, 1, 2, 2, 3]);
   });
 
+  test('SNES pattern tables pair BG1/BG2 and BG3/BG4 by row', () {
+    final core = Snes();
+    core.ppu.bgMode = 0;
+    final backgrounds = core.patternTables
+        .where((table) => table.kind == DebugLayerKind.background)
+        .toList();
+    expect(backgrounds.map((table) => table.row), [0, 0, 1, 1]);
+    expect(
+        backgrounds.map((table) => table.capture(0, false).row), [0, 0, 1, 1]);
+  });
+
   final constructors = <String, Core Function()>{
     'nes': Nes.new,
     'gb': Gb.new,
