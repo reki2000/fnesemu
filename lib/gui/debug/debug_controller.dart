@@ -21,9 +21,11 @@ List<_DebugAction> _executionActions(Debugger debugger) => [
       ('Line', Icons.last_page, LogicalKeyboardKey.f10, debugger.runToLine),
     ];
 
-bool _actionEnabled(Debugger debugger, _DebugAction action) =>
+bool _actionEnabled(Debugger debugger, _DebugAction action, {bool? running}) =>
     debugger.cpuInfos.isNotEmpty &&
-    (action.$3 == LogicalKeyboardKey.f4) == debugger.state.running;
+    (action.$3 == LogicalKeyboardKey.f4
+        ? running ?? debugger.state.running
+        : !(running ?? debugger.state.running));
 
 class DebugExecutionControls extends StatelessWidget {
   final Debugger debugger;
@@ -32,19 +34,22 @@ class DebugExecutionControls extends StatelessWidget {
   Widget build(BuildContext context) => StreamBuilder<DebugState>(
       stream: debugger.debugStream,
       initialData: debugger.state,
-      builder: (context, snapshot) =>
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            for (final action in _executionActions(debugger))
-              IconButton(
-                  tooltip: '${action.$1} (${action.$3.keyLabel})',
-                  constraints:
-                      const BoxConstraints.tightFor(width: 28, height: 28),
-                  padding: const EdgeInsets.all(2),
-                  iconSize: 18,
-                  onPressed:
-                      _actionEnabled(debugger, action) ? action.$4 : null,
-                  icon: Icon(action.$2)),
-          ]));
+      builder: (context, snapshot) {
+        final running = snapshot.data?.running ?? debugger.state.running;
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          for (final action in _executionActions(debugger))
+            IconButton(
+                tooltip: '${action.$1} (${action.$3.keyLabel})',
+                constraints:
+                    const BoxConstraints.tightFor(width: 28, height: 28),
+                padding: const EdgeInsets.all(2),
+                iconSize: 18,
+                onPressed: _actionEnabled(debugger, action, running: running)
+                    ? action.$4
+                    : null,
+                icon: Icon(action.$2)),
+        ]);
+      });
 }
 
 /// Wrap both the game and inspector so keys work while either has focus.
