@@ -5,6 +5,7 @@ import 'package:fnesemu/gui/debug/debug_controller.dart';
 import 'package:fnesemu/gui/debug/debug_pane.dart';
 import 'package:fnesemu/gui/debug/disasm.dart';
 import 'package:fnesemu/gui/debug/mem.dart';
+import 'package:fnesemu/styles.dart';
 import 'package:fnesemu_core/app_api.dart';
 
 class _DebugCore extends CoreDebug {
@@ -54,6 +55,15 @@ class _Controller extends CoreController {
 }
 
 void main() {
+  test('debugger theme dims disabled icon buttons', () {
+    final style = debugTheme(ThemeData.light()).iconButtonTheme.style!;
+    final enabled = style.foregroundColor!.resolve({});
+    final disabled = style.foregroundColor!.resolve({WidgetState.disabled});
+
+    expect(disabled, isNot(enabled));
+    expect(disabled!.a, lessThan(enabled!.a));
+  });
+
   testWidgets('debug buttons invoke methods and CPU selection updates the view',
       (tester) async {
     tester.view.physicalSize = const Size(1800, 800);

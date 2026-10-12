@@ -41,7 +41,10 @@ ThemeData debugTheme(ThemeData base) {
       visualDensity: VisualDensity.compact,
       backgroundColor: WidgetStateProperty.resolveWith((states) =>
           states.contains(WidgetState.selected) ? selected : background),
-      foregroundColor: WidgetStatePropertyAll(foreground),
+      foregroundColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.disabled)
+              ? foreground.withValues(alpha: 0.38)
+              : foreground),
       side: WidgetStatePropertyAll(BorderSide(color: border)));
   return base.copyWith(
       textButtonTheme: TextButtonThemeData(style: button),
