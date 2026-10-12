@@ -124,9 +124,6 @@ class DebugVideoImages extends StatelessWidget {
                             DebugPatternTable.maxWidth /
                             panel.raster.image.width
                         : scale,
-                    numbers: state.patternNumbers,
-                    bounds: state.patternBounds,
-                    viewport: state.viewportBounds,
                     onHover: onHover,
                     onExit: onExit),
             ])),
@@ -137,16 +134,12 @@ class _RasterView extends StatefulWidget {
   final DebugRaster raster;
   final int background;
   final double scale;
-  final bool numbers, bounds, viewport;
   final ValueChanged<VideoHover>? onHover;
   final VoidCallback? onExit;
   const _RasterView(
       {required this.raster,
       required this.background,
       required this.scale,
-      required this.numbers,
-      required this.bounds,
-      required this.viewport,
       this.onHover,
       this.onExit});
   @override
@@ -233,57 +226,9 @@ class _RasterViewState extends State<_RasterView> {
           child: CustomPaint(
         size: Size(widget.raster.image.width * widget.scale,
             widget.raster.image.height * widget.scale),
-        painter: _RasterPainter(_image, widget.raster, widget.background,
-            widget.scale, widget.numbers, widget.bounds, widget.viewport),
+        painter: _RasterPainter(
+            _image, widget.raster, widget.background, widget.scale),
       )));
-}
-
-void _paintAnnotations(Canvas canvas, DebugRaster raster,
-    {required double scale,
-    required bool numbers,
-    required bool bounds,
-    required bool viewport}) {
-  void outline(DebugOutline shape, Color color, bool label) {
-    if (shape.points.isEmpty) return;
-    final path = Path()..moveTo(shape.points.first.$1, shape.points.first.$2);
-    for (final p in shape.points.skip(1)) {
-      path.lineTo(p.$1, p.$2);
-    }
-    path.close();
-    if (bounds && color != Colors.greenAccent || color == Colors.greenAccent) {
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = color
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1 / scale);
-    }
-    if (label && shape.label != null) {
-      final text = TextPainter(
-          text: TextSpan(
-              text: shape.label,
-              style: const TextStyle(
-                  fontSize: 6,
-                  color: Colors.white,
-                  backgroundColor: Colors.black)),
-          textDirection: TextDirection.ltr)
-        ..layout();
-      text.paint(
-          canvas, Offset(shape.points.first.$1 + 1, shape.points.first.$2 + 1));
-      text.dispose();
-    }
-  }
-
-  if (bounds || numbers) {
-    for (final shape in raster.patterns) {
-      outline(shape, Colors.orangeAccent, numbers);
-    }
-  }
-  if (viewport) {
-    for (final shape in raster.viewports) {
-      outline(shape, Colors.greenAccent, false);
-    }
-  }
 }
 
 class _RasterPainter extends CustomPainter {
@@ -291,9 +236,7 @@ class _RasterPainter extends CustomPainter {
   final DebugRaster raster;
   final int background;
   final double scale;
-  final bool numbers, bounds, viewport;
-  _RasterPainter(this.image, this.raster, this.background, this.scale,
-      this.numbers, this.bounds, this.viewport);
+  _RasterPainter(this.image, this.raster, this.background, this.scale);
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _rgba(background));
@@ -305,8 +248,6 @@ class _RasterPainter extends CustomPainter {
       canvas.drawImage(
           image!, Offset.zero, Paint()..filterQuality = FilterQuality.none);
     }
-    _paintAnnotations(canvas, raster,
-        scale: scale, numbers: numbers, bounds: bounds, viewport: viewport);
     canvas.restore();
   }
 
@@ -315,10 +256,7 @@ class _RasterPainter extends CustomPainter {
       old.image != image ||
       old.raster != raster ||
       old.background != background ||
-      old.scale != scale ||
-      old.numbers != numbers ||
-      old.bounds != bounds ||
-      old.viewport != viewport;
+      old.scale != scale;
 }
 
 /// A UI-only hover snapshot; refreshing it follows scrolling and new captures.
@@ -331,17 +269,11 @@ class VideoHover {
       this.raster, this.background, this.native, this.global, this.refresh);
 }
 
-/// Original pixels at 3x, with the same enabled annotations as the source.
+/// Original bitmap pixels enlarged at 3x.
 class VideoMagnifier extends StatelessWidget {
   static const extent = 300.0;
   final VideoHover hover;
-  final bool numbers, bounds, viewport;
-  const VideoMagnifier(
-      {super.key,
-      required this.hover,
-      this.numbers = false,
-      this.bounds = false,
-      this.viewport = false});
+  const VideoMagnifier({super.key, required this.hover});
   @override
   Widget build(BuildContext context) => IgnorePointer(
       child: Material(
@@ -349,15 +281,12 @@ class VideoMagnifier extends StatelessWidget {
           child: SizedBox(
               width: extent,
               height: extent,
-              child: CustomPaint(
-                  painter:
-                      _MagnifierPainter(hover, numbers, bounds, viewport)))));
+              child: CustomPaint(painter: _MagnifierPainter(hover)))));
 }
 
 class _MagnifierPainter extends CustomPainter {
   final VideoHover hover;
-  final bool numbers, bounds, viewport;
-  _MagnifierPainter(this.hover, this.numbers, this.bounds, this.viewport);
+  _MagnifierPainter(this.hover);
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
@@ -381,15 +310,6 @@ class _MagnifierPainter extends CustomPainter {
         canvas.drawRect(Rect.fromLTWH(x * 3.0, y * 3.0, 3, 3), paint);
       }
     }
-    canvas.save();
-    canvas.clipRect(Offset.zero & size);
-    canvas.scale(zoom);
-    canvas.translate(-startX.toDouble(), -startY.toDouble());
-    canvas.clipRect(
-        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()));
-    _paintAnnotations(canvas, hover.raster,
-        scale: zoom, numbers: numbers, bounds: bounds, viewport: viewport);
-    canvas.restore();
     canvas.drawRect(
         (Offset.zero & size).deflate(0.5),
         Paint()
@@ -399,9 +319,5 @@ class _MagnifierPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MagnifierPainter old) =>
-      old.hover != hover ||
-      old.numbers != numbers ||
-      old.bounds != bounds ||
-      old.viewport != viewport;
+  bool shouldRepaint(_MagnifierPainter old) => old.hover != hover;
 }

@@ -81,10 +81,7 @@ class _DebugPaneState extends State<DebugPane> {
                     top: top,
                     child: VideoMagnifier(
                         key: const ValueKey('video-magnifier'),
-                        hover: _hover!,
-                        numbers: state.patternNumbers,
-                        bounds: state.patternBounds,
-                        viewport: state.viewportBounds)),
+                        hover: _hover!)),
             ]));
       });
   @override

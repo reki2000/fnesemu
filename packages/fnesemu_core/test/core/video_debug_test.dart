@@ -81,6 +81,24 @@ void main() {
     expect(map.viewports.length, 2);
     expect(screen.patterns.map((p) => p.label), containsAll(['A', 'B']));
   });
+
+  test('annotations are rasterized into inclusive integer bitmap bounds', () {
+    final canvas = DebugCanvas(12, 12)
+      ..pixels.fillRange(0, 12 * 12, 0xff101010)
+      ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'))
+      ..viewports.add(DebugOutline.rect(7, 2, 4, 4));
+    final original = canvas.raster();
+    final bounded = original.annotated(bounds: true, viewport: true);
+
+    expect(pixel(original, 5, 3), 0xff101010);
+    expect(pixel(bounded, 5, 3), 0xff00abff);
+    expect(pixel(bounded, 3, 5), 0xff00abff);
+    expect(pixel(bounded, 10, 3), 0xffaef069);
+    expect(pixel(bounded, 8, 5), 0xffaef069);
+    final numbered = original.annotated(numbers: true);
+    expect(pixel(numbered, 2, 2), 0xff000000);
+    expect(pixel(numbered, 4, 2), 0xffffffff);
+  });
   test(
       'CPU notifications do not capture video; active views capture all sources',
       () {
@@ -101,6 +119,16 @@ void main() {
     connected.setAlternativeBackground(true);
     expect(connected.state.videoPanels.first.background, 0xffabcdef);
     expect(before.videoPanels.first.background, 0xff123456);
+    connected.setPatternNumbersVisible(true);
+    expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff000000);
+    connected.setPatternNumbersVisible(false);
+    expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff0000ff);
+    connected.setLayerView(LayerView.map);
+    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xffaef069);
+    connected.setViewportBoundsVisible(false);
+    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0000ff);
+    connected.setPatternBoundsVisible(true);
+    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff00abff);
     expect(debugger.state.videoPanels, isEmpty);
   });
   test(
@@ -263,13 +291,15 @@ void main() {
     expect(core.videoLayers.map((layer) => layer.row), [0, 0, 1, 1, 2, 2, 3]);
   });
 
-  test('SNES pattern tables pair BG1/BG2 and BG3/BG4 by row', () {
+  test('SNES pattern tables pair BG0/BG1 and BG2/BG3 by row', () {
     final core = Snes();
     core.ppu.bgMode = 0;
     final backgrounds = core.patternTables
         .where((table) => table.kind == DebugLayerKind.background)
         .toList();
     expect(backgrounds.map((table) => table.row), [0, 0, 1, 1]);
+    expect(backgrounds.map((table) => table.name),
+        ['BG0 (2 bpp)', 'BG1 (2 bpp)', 'BG2 (2 bpp)', 'BG3 (2 bpp)']);
     expect(
         backgrounds.map((table) => table.capture(0, false).row), [0, 0, 1, 1]);
   });

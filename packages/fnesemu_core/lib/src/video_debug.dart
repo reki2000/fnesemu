@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'types.dart';
+import 'util/int.dart';
 
 /// Images and colours use the same little-endian RGBA words as ImageBuffer.
 enum DebugView { cpu, layers, patterns }
@@ -88,6 +89,39 @@ class DebugRaster {
               image.width, image.height, Uint8List.fromList(image.buffer)),
           viewports: viewports);
 
+  /// Returns a copy with debug annotations drawn into its native pixels.
+  /// Pixel writes stay integer-only so clients can display and magnify the
+  /// resulting bitmap without recreating overlay geometry.
+  DebugRaster annotated(
+      {bool numbers = false, bool bounds = false, bool viewport = false}) {
+    final drawPatterns = (numbers || bounds) && patterns.isNotEmpty,
+        drawViewports = viewport && viewports.isNotEmpty;
+    if (!drawPatterns && !drawViewports) {
+      return this;
+    }
+    final canvas = DebugCanvas(image.width, image.height),
+        source = ByteData.sublistView(image.buffer);
+    for (var i = 0; i < canvas.pixels.length; i++) {
+      canvas.pixels[i] = source.getUint32(i * 4, Endian.little);
+    }
+    canvas.patterns.addAll(patterns);
+    canvas.viewports.addAll(viewports);
+    if (drawPatterns) {
+      for (final pattern in patterns) {
+        if (bounds) _drawOutline(canvas, pattern, 0xff00abff);
+        if (numbers && pattern.label != null) {
+          _drawHexLabel(canvas, pattern, pattern.label!);
+        }
+      }
+    }
+    if (drawViewports) {
+      for (final shape in viewports) {
+        _drawOutline(canvas, shape, 0xffaef069);
+      }
+    }
+    return canvas.raster();
+  }
+
   /// Crops a scrolling tilemap, wrapping in both directions. The map keeps
   /// its viewport outlines; the screen retains translated tile annotations.
   DebugRaster cropWrapped(int x, int y, int width, int height) {
@@ -116,6 +150,55 @@ class DebugRaster {
       }
     }
     return dst.raster();
+  }
+}
+
+void _drawOutline(DebugCanvas canvas, DebugOutline shape, int color) {
+  if (shape.points.length < 2) return;
+  var area = 0.0;
+  for (var i = 0; i < shape.points.length; i++) {
+    final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
+    area += a.$1 * b.$2 - b.$1 * a.$2;
+  }
+  final direction = area >= 0 ? 1.0 : -1.0;
+  for (var i = 0; i < shape.points.length; i++) {
+    final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
+    final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+    final length = math.sqrt(dx * dx + dy * dy);
+    if (length == 0) continue;
+    final steps = math.max(1, length.ceil());
+    final nx = -dy / length * direction * 0.5;
+    final ny = dx / length * direction * 0.5;
+    for (var step = 0; step <= steps; step++) {
+      final t = step / steps;
+      _putPixel(canvas, (a.$1 + dx * t + nx).floor(),
+          (a.$2 + dy * t + ny).floor(), color);
+    }
+  }
+}
+
+void _drawHexLabel(DebugCanvas canvas, DebugOutline shape, String label) {
+  final value = int.tryParse(label, radix: 16), first = shape.points.first;
+  if (value == null) return;
+  final x = first.$1.floor() + 1, y = first.$2.floor() + 1;
+  final width = IntImageExt.patternWidth * label.length;
+  for (var py = 0; py < IntImageExt.digitPattern.length; py++) {
+    for (var px = 0; px < width; px++) {
+      _putPixel(canvas, x + px, y + py, 0xff000000);
+    }
+  }
+  for (var py = 0; py < IntImageExt.digitPattern.length; py++) {
+    for (var px = 0; px < width; px++) {
+      if (value.drawHexValue(px, py, label.length)) {
+        _putPixel(canvas, x + px, y + py, 0xffffffff);
+      }
+    }
+  }
+}
+
+void _putPixel(DebugCanvas canvas, int x, int y, int color) {
+  if (x >= 0 && y >= 0 && x < canvas.width && y < canvas.height) {
+    canvas.pixels[y * canvas.width + x] = color;
   }
 }
 

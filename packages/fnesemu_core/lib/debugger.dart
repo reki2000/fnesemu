@@ -261,17 +261,17 @@ class Debugger {
 
   void setPatternNumbersVisible(bool visible) {
     _patternNumbers = visible;
-    pushStream();
+    refreshVideo();
   }
 
   void setPatternBoundsVisible(bool visible) {
     _patternBounds = visible;
-    pushStream();
+    refreshVideo();
   }
 
   void setViewportBoundsVisible(bool visible) {
     _viewportBounds = visible;
-    pushStream();
+    refreshVideo();
   }
 
   /// Captures only the active video view. Normal frame notifications reuse the
@@ -287,23 +287,35 @@ class Debugger {
     } else if (_view == DebugView.layers) {
       _videoPanels = [
         for (final layer in _core.videoLayers)
-          DebugVideoPanel(
+          _annotatedPanel(DebugVideoPanel(
               layer.name,
               layer.capture(_layerView == LayerView.map && layer.hasMap),
               _alternativeBackground
                   ? layer.alternativeBackground
                   : layer.originalBackground,
               kind: layer.kind,
-              row: layer.row)
+              row: layer.row))
       ];
     } else {
       _videoPanels = [
         for (final table in _core.patternTables)
-          table.capture(_paletteOffset, _alternativeBackground,
-              blockSize: _patternBlockSize)
+          _annotatedPanel(table.capture(_paletteOffset, _alternativeBackground,
+              blockSize: _patternBlockSize))
       ];
     }
   }
+
+  DebugVideoPanel _annotatedPanel(DebugVideoPanel panel) => DebugVideoPanel(
+      panel.name,
+      panel.raster.annotated(
+          numbers: _patternNumbers,
+          bounds: _patternBounds,
+          viewport: _viewportBounds),
+      panel.background,
+      kind: panel.kind,
+      row: panel.row,
+      paletteName: panel.paletteName,
+      palette: panel.palette);
 
   Future<void> pause() async {
     cancelExecution();

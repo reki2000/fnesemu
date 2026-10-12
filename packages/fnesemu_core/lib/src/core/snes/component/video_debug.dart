@@ -32,7 +32,7 @@ extension PpuVideoDebug on Ppu {
         final bits = depths[bg];
         if (bits == 0) continue;
         final base = bgs[bg].charBase;
-        result.add(DebugPatternTable('BG${bg + 1} ($bits bpp)',
+        result.add(DebugPatternTable('BG$bg ($bits bpp)',
             row: bg ~/ 2,
             count: 65536 ~/ (bits * 8),
             colorCount: 1 << bits,

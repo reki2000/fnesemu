@@ -86,7 +86,7 @@ class _PatternRowsCore extends _VideoCore {
   @override
   List<DebugPatternTable> get patternTables => [
         for (var bg = 0; bg < 4; bg++)
-          DebugPatternTable('BG${bg + 1}',
+          DebugPatternTable('BG$bg',
               row: bg ~/ 2,
               width: 512,
               count: 1,
@@ -372,12 +372,12 @@ void main() {
     await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: DebugPane(debugger: debugger))));
     void expectPairs() {
-      final first = tester.getTopLeft(find.text('BG1'));
-      final second = tester.getTopLeft(find.text('BG3'));
-      expect(tester.getTopLeft(find.text('BG2')).dy, first.dy);
-      expect(tester.getTopLeft(find.text('BG2')).dx, greaterThan(first.dx));
-      expect(tester.getTopLeft(find.text('BG4')).dy, second.dy);
-      expect(tester.getTopLeft(find.text('BG4')).dx, greaterThan(second.dx));
+      final first = tester.getTopLeft(find.text('BG0'));
+      final second = tester.getTopLeft(find.text('BG2'));
+      expect(tester.getTopLeft(find.text('BG1')).dy, first.dy);
+      expect(tester.getTopLeft(find.text('BG1')).dx, greaterThan(first.dx));
+      expect(tester.getTopLeft(find.text('BG3')).dy, second.dy);
+      expect(tester.getTopLeft(find.text('BG3')).dx, greaterThan(second.dx));
       expect(second.dy, greaterThan(first.dy));
     }
 
@@ -414,30 +414,22 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets(
-      'magnifier independently paints bounds, numbers and viewport overlays',
+  testWidgets('magnifier enlarges annotations already in the bitmap',
       (tester) async {
     final raster = DebugRaster(ImageBuffer(64, 64, Uint8List(64 * 64 * 4)),
-        patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
-        viewports: [DebugOutline.rect(32, 16, 8, 8)]);
+            patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
+            viewports: [DebugOutline.rect(32, 16, 8, 8)])
+        .annotated(numbers: true, bounds: true, viewport: true);
     final hover = VideoHover(
         raster, 0xff000000, const Offset(32, 32), Offset.zero, () => null);
     const key = ValueKey('magnifier-render');
-    Future<Uint8List> render(
-        {bool bounds = false,
-        bool numbers = false,
-        bool viewport = false}) async {
+    Future<Uint8List> render() async {
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: Align(
                   alignment: Alignment.topLeft,
                   child: RepaintBoundary(
-                      key: key,
-                      child: VideoMagnifier(
-                          hover: hover,
-                          bounds: bounds,
-                          numbers: numbers,
-                          viewport: viewport))))));
+                      key: key, child: VideoMagnifier(hover: hover))))));
       await tester.pump();
       final boundary =
           tester.renderObject<RenderRepaintBoundary>(find.byKey(key));
@@ -450,15 +442,10 @@ void main() {
       }))!;
     }
 
-    final plain = await render();
-    for (final pixels in [
-      await render(bounds: true),
-      await render(numbers: true),
-      await render(viewport: true)
-    ]) {
-      expect(pixels.length, 300 * 300 * 4);
-      expect(pixels, isNot(orderedEquals(plain)));
-    }
+    final pixels = await render();
+    expect(pixels.length, 300 * 300 * 4);
+    final orange = (103 * 300 + 115) * 4;
+    expect(pixels.sublist(orange, orange + 4), [255, 171, 0, 255]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
