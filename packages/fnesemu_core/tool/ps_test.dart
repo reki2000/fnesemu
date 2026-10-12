@@ -40,7 +40,7 @@ class TraceLogger {
     // Clear the trace.log file at the beginning
     _logFile?.writeAsStringSync("", mode: FileMode.write);
 
-    _tracer = Tracer(_traceStream, size: 100, maxDiffChars: cpuInfo.traceDiffs);
+    _tracer = Tracer(_traceStream, mode: TraceRepeatMode.path);
 
     _traceSubscription = _traceStream.stream.listen((log) {
       _logFile?.writeAsStringSync("${log.replaceAll("\n", "")}\n",
@@ -53,7 +53,9 @@ class TraceLogger {
 
   void log(int pc, TraceLog Function() getTrace) {
     final t = getTrace();
-    final t2 = TraceLog(t.pc, t.cycle, "$_indent${t.disasm}", t.regs, t.state);
+    final t2 = TraceLog(t.pc, t.cycle, "$_indent${t.disasm}", t.regs, t.state,
+        instructionKey:
+            '${callStack.join('/')}:${t.instructionKey ?? t.disasm}');
     _indent = "|" * callStack.length; // delay indent change to next log line
 
     // Adjust indent for function calls/returns

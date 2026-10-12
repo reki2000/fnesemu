@@ -8,6 +8,7 @@ import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
+import '../../util/disasm.dart';
 import '../../util/double.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
@@ -519,30 +520,31 @@ class Md implements Core {
   }
 
   (String, int) disasmZ80(int addr) {
-    final addrHex = addr.x4;
     final data = List.generate(4, (i) => busZ80.read((addr + i).mask16),
         growable: false);
     try {
       final (inst, next) = Z80Disasm.disasm(data, addr);
 
-      final dataHex =
-          List.generate(4, (i) => i < next ? data[i].x2 : "  ").join(" ");
-      return ("$addrHex: $dataHex  $inst", next);
+      final dataHex = data.take(next).map((value) => value.x2).join(' ');
+      return (formatDisasm(addr.x4, dataHex, inst, codeWidth: 11), next);
     } catch (e) {
-      return ("$addrHex: [$e]", 1);
+      return (formatDisasm(addr.x4, data.first.x2, '[$e]', codeWidth: 11), 1);
     }
   }
 
   (String, int) disasmM68(int addr, {bool subCpu = false}) {
     final bus = subCpu ? cdrom!.bus : busM68;
-    final addrHex = addr.x6;
     final data = List.generate(6, (i) => bus.read16((addr + i * 2).mask24),
         growable: false);
     try {
       final (inst, next) = Disasm().disasm(data, addr);
-      return ("$addrHex: ${data[0].x4}  $inst", next * 2);
+      return (
+        formatDisasm(addr.x6, data.take(next).map((v) => v.x4).join(' '), inst,
+            codeWidth: 29),
+        next * 2
+      );
     } catch (e) {
-      return ("$addrHex: [$e]", 2);
+      return (formatDisasm(addr.x6, data.first.x4, '[$e]', codeWidth: 29), 2);
     }
   }
 
@@ -552,7 +554,7 @@ class Md implements Core {
     if (_isShCpu(cpuNo)) {
       final op = _shCpu(cpuNo).bus.read16(addr);
       return (
-        '${addr.toRadixString(16).padLeft(8, '0')}: ${op.toRadixString(16).padLeft(4, '0')}  ${Sh2.disasm(op, addr)}',
+        formatDisasm(addr.x8, op.x4, Sh2.disasm(op, addr), codeWidth: 4),
         2
       );
     }
@@ -626,10 +628,7 @@ class Md implements Core {
                 ...cpuM68.d,
                 cpuM68.sr
               ])
-            : TraceLog(
-                cpuZ80.r.pc,
-                cpuZ80.cycles,
-                "${cpuZ80.r.pc.x4}: ${disasmZ80(cpuZ80.r.pc).$1.padRight(36)}",
+            : TraceLog(cpuZ80.r.pc, cpuZ80.cycles, disasmZ80(cpuZ80.r.pc).$1,
                 cpuZ80.dump().replaceAll("\n", " "), [
                 cpuZ80.r.af,
                 cpuZ80.r.bc,

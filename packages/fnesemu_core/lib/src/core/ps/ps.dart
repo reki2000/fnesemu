@@ -7,6 +7,7 @@ import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../util/uint8list.dart';
 import '../../video_debug.dart';
@@ -319,7 +320,9 @@ class Ps extends Core {
     addr = addr.mask32 & ~0x03;
     final inst32 = bus.read32(addr);
     return (
-      "${addr.x8}: ${inst32.x8} ${DisasmR3000.disasm(inst32, pc: addr, regs: cpu.r)}",
+      formatDisasm(
+          addr.x8, inst32.x8, DisasmR3000.disasm(inst32, pc: addr, regs: cpu.r),
+          codeWidth: 8),
       4
     );
   }
@@ -342,15 +345,19 @@ class Ps extends Core {
   }
 
   @override
-  TraceLog trace(int cpuNo) => TraceLog(
-      cpu.pc,
-      cpu.clocks,
-      disasm(0, cpu.pc).$1.padRight(46),
-      cpu.dump().replaceAll("\n", " "),
-      [for (int i = 0; i < 32; i++) cpu.r[i]],
-      frame: gpu.frame,
-      scanline: gpu.scanline,
-      flow: traceMipsFlow(bus.read32(cpu.pc), cpu.pc, cpu.r));
+  TraceLog trace(int cpuNo) {
+    final opcode = bus.read32(cpu.pc);
+    return TraceLog(
+        cpu.pc,
+        cpu.clocks,
+        disasm(0, cpu.pc).$1.padRight(46),
+        cpu.dump().replaceAll("\n", " "),
+        [for (int i = 0; i < 32; i++) cpu.r[i]],
+        frame: gpu.frame,
+        scanline: gpu.scanline,
+        instructionKey: opcode.x8,
+        flow: traceMipsFlow(opcode, cpu.pc, cpu.r));
+  }
 
   @override
   int read(int _, int addr) => (addr.shr28 == 0x07)

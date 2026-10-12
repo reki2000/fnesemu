@@ -66,14 +66,12 @@ class CpuInfo {
   final String name;
   final int pcBitWidth;
 
-  final int traceDiffs;
+  const CpuInfo(this.no, this.name, this.pcBitWidth);
 
-  const CpuInfo(this.no, this.name, this.pcBitWidth, {this.traceDiffs = 0});
-
-  CpuInfo.ofM68(int no, String name) : this(no, name, 24, traceDiffs: 4);
-  CpuInfo.ofZ80(int no, String name) : this(no, name, 16, traceDiffs: 2);
-  CpuInfo.of6502(int no, String name) : this(no, name, 16, traceDiffs: 2);
-  CpuInfo.ofR3000(int no, String name) : this(no, name, 32, traceDiffs: 4);
+  CpuInfo.ofM68(int no, String name) : this(no, name, 24);
+  CpuInfo.ofZ80(int no, String name) : this(no, name, 16);
+  CpuInfo.of6502(int no, String name) : this(no, name, 16);
+  CpuInfo.ofR3000(int no, String name) : this(no, name, 32);
 }
 
 enum TraceFlowKind { none, call, returned, jump, exception, interruptReturn }
@@ -106,13 +104,23 @@ class TraceLog {
   final TraceFlow flow;
   final int indent, scope;
 
+  /// Stable instruction encoding when disassembly includes runtime annotations.
+  /// Null uses [disasm], which must then be independent of register values.
+  final String? instructionKey;
+
   const TraceLog(this.pc, this.cycle, this.disasm, this.regs, this.state,
       {this.frame = 0,
       this.scanline = 0,
       this.flow = TraceFlow.none,
       this.indent = 0,
-      this.scope = 0});
+      this.scope = 0,
+      this.instructionKey});
 
   TraceLog withFlow(TraceFlow flow) => TraceLog(pc, cycle, disasm, regs, state,
-      frame: frame, scanline: scanline, flow: flow);
+      frame: frame,
+      scanline: scanline,
+      flow: flow,
+      indent: indent,
+      scope: scope,
+      instructionKey: instructionKey);
 }

@@ -78,7 +78,9 @@ class Pce implements Core {
   bool _vdc2Synced = false;
 
   // reused for every instruction (the caller reads it right away)
-  final _result = ExecResult(0, false, false);
+  final _result = ExecResult(0, false, false)
+    ..executed0 = false
+    ..executed1 = true;
 
   /// exec 1 cpu instruction and render PPU / APU if enough cycles passed
   /// returns current CPU cycle and bool - false when unimplemented instruction is found

@@ -7,6 +7,7 @@ import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../util/register_dump.dart';
 import '../../video_debug.dart';
@@ -84,7 +85,7 @@ class N64 extends Core {
   @override
   int get clocksInScanline => systemClockHz ~/ 60 ~/ scanlinesInFrame;
   @override
-  List<CpuInfo> get cpuInfos => [const CpuInfo(0, 'VR4300', 32, traceDiffs: 4)];
+  List<CpuInfo> get cpuInfos => [const CpuInfo(0, 'VR4300', 32)];
 
   @override
   void setRom(Uint8List body) {
@@ -220,7 +221,8 @@ class N64 extends Core {
   (String, int) disasm(int cpuNo, int addr) {
     final opcode = bus.read(addr, 4);
     return (
-      '${addr.x8}: ${opcode.x8}  ${Vr4300Disasm.disasm(opcode, addr)}',
+      formatDisasm(addr.x8, opcode.x8, Vr4300Disasm.disasm(opcode, addr),
+          codeWidth: 8),
       4
     );
   }
@@ -230,12 +232,28 @@ class N64 extends Core {
         cpu.pc,
         cpu.clocks,
         disasm(cpuNo, cpu.pc).$1,
-        dump(),
+        _traceRegisters(),
         [cpu.pc, ...cpu.r.map(cpu.address)],
         frame: _frame,
         scanline: bus.scanline,
         flow: traceMipsFlow(bus.read(cpu.pc, 4), cpu.pc, cpu.r, wide: true),
       );
+
+  String _traceRegisters() => [
+        registerRows([
+          for (var i = 0; i < 32; i++) ('r$i', cpu.r[i]),
+          ('HI', cpu.hi),
+          ('LO', cpu.lo),
+        ], bits: 64, perLine: 34),
+        registerRows([
+          for (var i = 0; i < 32; i++) ('CP0[$i]', cpu.cop0[i]),
+        ], perLine: 32),
+        registerRows([
+          for (var i = 0; i < 32; i++)
+            ('f$i', cpu.fpu.wide ? cpu.fpu.long(i) : cpu.fpu.word(i)),
+        ], bits: cpu.fpu.wide ? 64 : 32, perLine: 32),
+        'FCR31:${cpu.fpu.control.x8}',
+      ].join(' ');
   @override
   String dump({
     bool showZeroPage = false,

@@ -35,7 +35,7 @@ void main() {
     final output = <String>[];
     final stream = StreamController<String>(sync: true)
       ..stream.listen(output.add);
-    final tracer = Tracer(stream.sink, minSkipThreshold: 100);
+    final tracer = Tracer(stream.sink);
     void add(int pc, String name, int next,
             [TraceFlow flow = TraceFlow.none]) =>
         tracer.addTraceLog(TraceLog(pc, 0, name, '', [], flow: flow),
@@ -84,13 +84,16 @@ void main() {
       final output = <String>[];
       final stream = StreamController<String>(sync: true)
         ..stream.listen(output.add);
-      final tracer = Tracer(stream.sink, minSkipThreshold: 3);
+      final tracer = Tracer(stream.sink);
       for (var n = 0; n <= count; n++) {
         tracer.addTraceLog(const TraceLog(1, 0, 'loop', '', []));
       }
       tracer.finish();
-      expect(output.length, count == 2 ? 3 : 2);
-      if (count == 8) expect(output.last, contains('skipped 8'));
+      expect(output.length, 2);
+      if (count == 8) {
+        expect(output[1], contains('skipped 8 lines'));
+        expect(output[1], contains('iterations:9'));
+      }
       stream.close();
     }
   });

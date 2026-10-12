@@ -361,6 +361,7 @@ class Debugger {
   /// Controller integration: called when the execution loop has stopped.
   void executionStopped() {
     _clearTemporaryStop();
+    _tracer?.finish();
     refreshVideo();
   }
 
@@ -402,7 +403,10 @@ class Debugger {
     final log = _core.trace(_targetCpuNo);
     _pendingTrace = TraceLog(
         log.pc, log.cycle, log.disasm, log.regs, List<int>.of(log.state),
-        frame: log.frame, scanline: log.scanline, flow: log.flow);
+        frame: log.frame,
+        scanline: log.scanline,
+        flow: log.flow,
+        instructionKey: log.instructionKey);
   }
 
   TraceLog? _pendingTrace;
@@ -470,8 +474,7 @@ class Debugger {
     _tracer = null;
     _pendingTrace = null;
     if (!_logging || _core.cpuInfos.isEmpty) return;
-    _tracer =
-        Tracer(_traceStream, maxDiffChars: cpuInfo(_targetCpuNo).traceDiffs);
+    _tracer = Tracer(_traceStream, mode: TraceRepeatMode.path);
     _traceSubscription = _traceStream.stream.listen((line) {
       _log.add(line.replaceAll('\n', ''));
     });

@@ -7,6 +7,7 @@ import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/crc32.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
 import 'apu.dart';
@@ -45,7 +46,7 @@ class Gb implements Core {
   int get clocksInScanline => Ppu.clocksInLine;
 
   @override
-  get cpuInfos => [const CpuInfo(0, "SM83", 16, traceDiffs: 2)];
+  get cpuInfos => [const CpuInfo(0, "SM83", 16)];
 
   int _nextScanlineClocks = 0;
 
@@ -178,9 +179,11 @@ class Gb implements Core {
   (String, int) disasm(int cpuNo, int addr) {
     final (inst, len) = Disasm.disasm(bus.read, addr);
     final bytes =
-        List.generate(3, (i) => i < len ? bus.read((addr + i).mask16).x2 : "  ")
-            .join(" ");
-    return ("${addr.x4}: $bytes  $inst", (addr + len).mask16);
+        List.generate(len, (i) => bus.read((addr + i).mask16).x2).join(' ');
+    return (
+      formatDisasm(addr.x4, bytes, inst, codeWidth: 8),
+      (addr + len).mask16
+    );
   }
 
   @override

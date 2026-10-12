@@ -2,12 +2,13 @@ import 'dart:core';
 
 import '../../../trace_flow.dart';
 import '../../../types.dart';
+import '../../../util/disasm.dart';
 import '../../../util/int.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
 
 extension CpuDebugger on Cpu {
-  String _disasm(pc) {
+  String _disasm(int pc, {bool formatted = true}) {
     final op = read(pc);
     final d1 = read(pc + 1);
     final d2 = read(pc + 2);
@@ -48,7 +49,21 @@ extension CpuDebugger on Cpu {
                 ? "[${addr.x4}:${dstValue.x2}]"
                 : "[${addr.x4}:${read(addr + 1).x2}${dstValue.x2}]";
 
-    return "$disasm$dst".padRight(47, " ");
+    if (!formatted) return "$disasm$dst".padRight(47, " ");
+    // The legacy decoder's prefix is wider for block-transfer and immediate
+    // absolute instructions. Keep its compatibility dump separate from trace.
+    final mnemonicOffset = switch (operand) {
+      Operand.blk => 25,
+      Operand.imabs || Operand.imabsx => 18,
+      _ => 16,
+    };
+    final bytes = [op, d1, d2, d3, d4, d56.mask8, d56.shr8]
+        .take(Disasm.nextPC(op))
+        .map((value) => value.x2)
+        .join(' ');
+    return formatDisasm('${_mprAddr(pc).x2}${pc.x4}', bytes,
+        '${disasm.substring(mnemonicOffset)}$dst',
+        codeWidth: 20);
   }
 
   int _mprAddr(int addr) {
@@ -62,7 +77,7 @@ extension CpuDebugger on Cpu {
   TraceLog trace() {
     final bank = _mprAddr(regs.pc);
     final pc = bank.shl16 | regs.pc;
-    return TraceLog(pc, cycles, "${bank.x2}-${_disasm(regs.pc)}".toUpperCase(),
+    return TraceLog(pc, cycles, _disasm(regs.pc).toUpperCase(),
         _reg().toUpperCase(), [regs.a, regs.x, regs.y, regs.p, regs.s],
         flow: trace6502Flow(read(regs.pc), regs.pc,
             pce: true,
@@ -71,7 +86,7 @@ extension CpuDebugger on Cpu {
   }
 
   String dumpDisasm(int addr) {
-    return "${_mprAddr(addr).x2}-${_disasm(addr)} ".toUpperCase();
+    return _disasm(addr).toUpperCase();
   }
 
   String dumpNesTest() {
@@ -79,7 +94,8 @@ extension CpuDebugger on Cpu {
     // final ppuScanline = (ppuCycle ~/ 341).toString().padLeft(3, " ");
     // final ppuHorizontalCycle = (ppuCycle % 341).toString().padLeft(3, " ");
 
-    final result = "${_mprAddr(regs.pc).x2}-${_disasm(regs.pc)} ${_reg()}";
+    final result =
+        "${_mprAddr(regs.pc).x2}-${_disasm(regs.pc, formatted: false)} ${_reg()}";
     return result.toUpperCase();
   }
 

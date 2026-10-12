@@ -2,6 +2,7 @@ import 'dart:core';
 
 import '../../../trace_flow.dart';
 import '../../../types.dart';
+import '../../../util/disasm.dart';
 import '../../../util/int.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
@@ -12,7 +13,7 @@ extension CpuDebugger on Cpu {
     final a = read(regs.pc + 1);
     final b = read(regs.pc + 2);
 
-    final asm = Disasm.disasm(regs.pc, op, a, b).padRight(47, " ");
+    final asm = _formattedDisasm(regs.pc, op, a, b);
     final reg =
         "A:${regs.a.x2} X:${regs.x.x2} Y:${regs.y.x2} P:${regs.p.x2} SP:${regs.s.x2}";
 
@@ -26,10 +27,16 @@ extension CpuDebugger on Cpu {
     final op = read(addr);
     final a = read(addr + 1);
     final b = read(addr + 2);
-    result += Disasm.disasm(addr, op, a, b).padRight(34, " ").toUpperCase();
+    result += _formattedDisasm(addr, op, a, b).toUpperCase();
 
     return (result, Disasm.nextPC(op));
   }
+
+  String _formattedDisasm(int pc, int op, int a, int b) => formatDisasm(
+      pc.x4,
+      [op, a, b].take(Disasm.nextPC(op)).map((value) => value.x2).join(' '),
+      Disasm.disasm(pc, op, a, b).substring(16),
+      codeWidth: 8);
 
   String dumpNesTest() {
     final op = read(regs.pc);

@@ -6,6 +6,7 @@ import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
 import 'arm7tdmi/arm7.dart';
@@ -66,8 +67,7 @@ class Gba implements Core {
   int get clocksInScanline => _cyclesPerScanline;
 
   @override
-  List<CpuInfo> get cpuInfos =>
-      [const CpuInfo(0, "ARM7TDMI", 32, traceDiffs: 17)];
+  List<CpuInfo> get cpuInfos => [const CpuInfo(0, "ARM7TDMI", 32)];
 
   int _clocks = 0;
   int _nextEventClock = 0; // next HBlank start or line end
@@ -261,7 +261,9 @@ class Gba implements Core {
         final next = bus.read16(aligned + 2);
         if (next & 0xf800 == 0xf800) {
           return (
-            '${addr.x8}: ${op.x4} ${next.x4}  ${Arm7Disasm.thumb(op, aligned, nextHalfword: next)}',
+            formatDisasm(addr.x8, '${op.x4} ${next.x4}',
+                Arm7Disasm.thumb(op, aligned, nextHalfword: next),
+                codeWidth: 9),
             4
           );
         }
@@ -269,15 +271,23 @@ class Gba implements Core {
         final previous = bus.read16(aligned - 2);
         if (previous & 0xf800 == 0xf000) {
           return (
-            '${addr.x8}: ${op.x4}      ${Arm7Disasm.thumb(previous, aligned - 2, nextHalfword: op)}',
+            formatDisasm(addr.x8, op.x4,
+                Arm7Disasm.thumb(previous, aligned - 2, nextHalfword: op),
+                codeWidth: 9),
             2
           );
         }
       }
-      return ("${addr.x8}: ${op.x4}      ${Arm7Disasm.thumb(op, addr)}", 2);
+      return (
+        formatDisasm(addr.x8, op.x4, Arm7Disasm.thumb(op, addr), codeWidth: 9),
+        2
+      );
     }
     final op = bus.read32(addr & ~3);
-    return ("${addr.x8}: ${op.x8}  ${Arm7Disasm.arm(op, addr)}", 4);
+    return (
+      formatDisasm(addr.x8, op.x8, Arm7Disasm.arm(op, addr), codeWidth: 9),
+      4
+    );
   }
 
   @override

@@ -229,6 +229,23 @@ void main() {
     expect(debugger.state.traceLog, isNotEmpty);
   });
 
+  test('stopping trace flushes statistics and Copy does not duplicate it', () {
+    debugger.setLogEnabled(true);
+    for (var i = 0; i < 20; i++) {
+      core.clocks = i;
+      debugger.recordTrace();
+      debugger.completeTrace(ExecResult(i, false, false)
+        ..executed0 = false
+        ..setExecuted(7, true));
+    }
+    debugger.executionStopped();
+    final text = debugger.traceText();
+    expect(text, contains('period:1 iterations:20'));
+    expect(text, contains('skipped 19 lines'));
+    expect(text, contains('cl:0..19'));
+    expect(debugger.traceText(), text);
+  });
+
   test('log OFF discards pending capture and restores execution flags',
       () async {
     debugger.startTrace();

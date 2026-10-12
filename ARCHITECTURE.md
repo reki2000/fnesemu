@@ -67,6 +67,27 @@ the selected CPU runs. Calls, returns and delayed branches control indentation;
 interrupt returns are distinct from normal returns. A new capture clears both
 text and call context. Copy flushes deferred loop output before copying. Turning
 logging or the debug view off discards all trace buffers and detection context.
+Repeat suppression confirms a complete consecutive cycle and compares each
+instruction with the same phase of the previous cycle, including its executed
+next PC and call context. `LoopDetector` owns immutable snapshots, bounded history
+with monotonic indices (2048 instructions by default), and a PC index that expires
+with the history. Search examines at most eight recent occurrences of the current
+PC; limiting candidates can miss a repeat but never discards unconfirmed output.
+Once a period is confirmed, the PC index is released and history retains only one
+cycle for comparison. Exact mode compares structured and displayed register state;
+the debugger explicitly uses path mode, which reports state changes. Cores may
+supply a stable instruction key when disassembly includes runtime annotations.
+The first cycle is ordinary output. Completed repeated cycles are omitted, and
+only the unfinished exit cycle is returned with the statistics; its mismatching
+instruction is ordinary output. `add` and `finish` return detection state, ready
+snapshots and optional loop-end snapshots/statistics; `reset` discards capture.
+Tracer owns call context and output formatting. Stop and Copy close the comparison
+segment while preserving call and delay-slot context.
+Disassembly uses `address: code mnemonic operands`, with a fixed code-column
+width supplied by each CPU's native decoder, including extension words.
+Trace appends a single-line register dump and `cl:clock f:frame s:scanline`.
+Only the shared formatter owns separators; native decoders own instruction
+length, code units and address width.
 
 Internal registration and application support (tracing, FPS
 counting and stream notifications) live in `src/internal/`.

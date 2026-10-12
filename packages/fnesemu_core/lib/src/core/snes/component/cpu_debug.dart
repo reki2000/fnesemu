@@ -1,5 +1,6 @@
 import '../../../trace_flow.dart';
 import '../../../types.dart';
+import '../../../util/disasm.dart';
 import '../../../util/int.dart';
 import 'cpu.dart';
 import 'cpu_disasm.dart';
@@ -22,11 +23,11 @@ extension CpuDebugger on Cpu {
 
   TraceLog trace() {
     final addr = regs.pbr.shl16 | regs.pc;
-    final (asm, _) = _disasmAt(addr);
+    final (asm, length) = _disasmAt(addr);
     return TraceLog(
       addr,
       cycle,
-      asm.padRight(20).toUpperCase(),
+      _formattedDisasm(addr, asm, length),
       _regStr().toUpperCase(),
       [regs.a, regs.x, regs.y, regs.s, regs.p, regs.e ? 1 : 0],
       flow: trace6502Flow(peek(addr), addr,
@@ -37,8 +38,20 @@ extension CpuDebugger on Cpu {
 
   (String, int) dumpDisasm(int addr) {
     final (asm, next) = _disasmAt(addr);
-    return (asm.padRight(20).toUpperCase(), next);
+    return (_formattedDisasm(addr, asm, next), next);
   }
+
+  String _formattedDisasm(
+          int address, String mnemonic, int length) =>
+      formatDisasm(
+              address.x6,
+              List.generate(
+                  length,
+                  (i) => peek((address & 0xff0000) | ((address + i) & 0xffff))
+                      .x2).join(' '),
+              mnemonic,
+              codeWidth: 11)
+          .toUpperCase();
 
   (String, int) _disasmAt(int addr) {
     final op = peek(addr);

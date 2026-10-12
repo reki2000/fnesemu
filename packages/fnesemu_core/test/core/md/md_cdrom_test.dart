@@ -59,6 +59,20 @@ void command(CdDrive drive, List<int> packet) {
 }
 
 void main() {
+  test('68000 disassembly includes extension words in a fixed code column', () {
+    final rom = bios()
+      ..setAll(
+          0x200, [0x23, 0xfc, 0x12, 0x34, 0x56, 0x78, 0x00, 0xff, 0x80, 0x00])
+      ..setAll(0x210, [0x4e, 0x71]);
+    final md = Md()..setRom(rom);
+    final (long, length) = md.disasm(0, 0x200);
+    final short = md.disasm(0, 0x210).$1;
+    expect(length, 10);
+    expect(long, startsWith('000200: 23fc 1234 5678 00ff 8000'));
+    expect(short, startsWith('000210: 4e71'));
+    expect(long.indexOf('move.l'), short.indexOf('nop'));
+  });
+
   group('MD CD-ROM bus', () {
     test('BIOS and HINT vector are visible to main CPU only', () {
       final md = Md()..setRom(bios());

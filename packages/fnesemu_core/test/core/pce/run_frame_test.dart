@@ -34,6 +34,28 @@ Uint8List _rom() {
 }
 
 void main() {
+  test('trace includes all seven block-transfer bytes in a fixed code column',
+      () {
+    final rom = _rom()..setAll(0, [0x73, 0x34, 0x12, 0x78, 0x56, 0xbc, 0x9a]);
+    final core = Pce()..setRom(rom);
+    final block = core.trace(core.cpuInfos.single.no).disasm;
+    expect(block, startsWith('00E000: 73 34 12 78 56 BC 9A TII'));
+    expect(block, contains('1234,5678,9ABC'));
+    core.cpu.regs.pc = 0xe100; // the short LDA in the shared ROM helper
+    final short = core.trace(core.cpuInfos.single.no).disasm;
+    expect(short, startsWith('00E100: AD 00 00'));
+    expect(short.indexOf('LDA'), block.indexOf('TII'));
+  });
+
+  test('execution reports the advertised CPU for trace capture', () {
+    final core = Pce()..setRom(_rom());
+    final cpu = core.cpuInfos.single.no;
+    final instruction = core.exec(false);
+    expect(instruction.executed(cpu), isTrue);
+    expect(instruction.executed(cpu == 0 ? 1 : 0), isFalse);
+    expect(core.runFrame(1).executed(cpu), isTrue);
+  });
+
   test('runFrame gives the same result as exec until scanlines rendered', () {
     final a = Pce()..setRom(_rom());
     final b = Pce()..setRom(_rom());

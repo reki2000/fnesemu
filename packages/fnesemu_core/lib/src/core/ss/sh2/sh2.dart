@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/disasm.dart';
 import '../../../util/int.dart';
 import '../../../util/register_dump.dart';
 import '../cpu.dart';
@@ -903,9 +904,8 @@ class Sh2 extends SsCpu {
   @override
   (String, int) disasm(int addr) {
     final op = bus.read16(addr);
-    String hex(int v, int w) => v.toRadixString(16).padLeft(w, '0');
     return (
-      "${hex(addr.mask32, 8)}: ${hex(op, 4)}  ${Sh2Disasm.disasm(op, addr)}",
+      formatDisasm(addr.x8, op.x4, Sh2Disasm.disasm(op, addr), codeWidth: 4),
       2
     );
   }

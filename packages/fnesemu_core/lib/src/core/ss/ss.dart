@@ -8,6 +8,7 @@ import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
+import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
 import 'bus.dart';
@@ -106,8 +107,8 @@ class Ss extends Core {
 
   @override
   List<CpuInfo> get cpuInfos => [
-        const CpuInfo(0, "SH-2 master", 32, traceDiffs: 2),
-        const CpuInfo(1, "SH-2 slave", 32, traceDiffs: 2),
+        const CpuInfo(0, "SH-2 master", 32),
+        const CpuInfo(1, "SH-2 slave", 32),
         CpuInfo.ofM68(2, "68000"),
       ];
 
@@ -379,9 +380,18 @@ class Ss extends Core {
         List.generate(6, (i) => scsp.bus.read16((address + i * 2).mask24));
     try {
       final (text, length) = Disasm().disasm(words, address);
-      return ('${address.x6}: ${words.first.x4}  $text', length * 2);
+      return (
+        formatDisasm(
+            address.x6, words.take(length).map((v) => v.x4).join(' '), text,
+            codeWidth: 29),
+        length * 2
+      );
     } catch (_) {
-      return ('${address.x6}: dc.w \$${words.first.x4}', 2);
+      return (
+        formatDisasm(address.x6, words.first.x4, 'dc.w \$${words.first.x4}',
+            codeWidth: 29),
+        2
+      );
     }
   }
 
