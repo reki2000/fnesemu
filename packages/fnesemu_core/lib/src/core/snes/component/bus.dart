@@ -182,8 +182,10 @@ class Bus implements CpuBus {
   /// sram offset for (bank,page), or -1 if that address isn't sram.
   /// LoROM: banks $70-$7D / $F0-$FF, $0000-$7FFF (32KB per bank).
   /// HiROM: banks $20-$3F / $A0-$BF, $6000-$7FFF (8KB per bank).
+  /// S-DD1: banks $C0-$FF are rom only (1MB blocks via $4804-$4807).
   int _sramOffset(int bank, int page) {
     if (sram.isEmpty) return -1;
+    if (sdd1 != null && bank >= 0xc0) return -1;
     final b = bank.mask7;
     if (mapping == SnesMapping.hiRom) {
       if (b < 0x20 || b >= 0x40 || page < 0x6000 || page >= 0x8000) return -1;
