@@ -108,7 +108,8 @@ class DebugRaster {
     canvas.viewports.addAll(viewports);
     if (drawPatterns) {
       for (final pattern in patterns) {
-        if (bounds) _drawOutline(canvas, pattern, 0xff00abff);
+        if (bounds)
+          _drawOutline(canvas, pattern, 0xff00abff, skipTopLeft: true);
         if (numbers && pattern.label != null) {
           _drawHexLabel(canvas, pattern, pattern.label!);
         }
@@ -153,17 +154,23 @@ class DebugRaster {
   }
 }
 
-void _drawOutline(DebugCanvas canvas, DebugOutline shape, int color) {
+void _drawOutline(DebugCanvas canvas, DebugOutline shape, int color,
+    {bool skipTopLeft = false}) {
   if (shape.points.length < 2) return;
-  var area = 0.0;
+  var area = 0.0, minX = double.infinity, minY = double.infinity;
   for (var i = 0; i < shape.points.length; i++) {
     final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
     area += a.$1 * b.$2 - b.$1 * a.$2;
+    minX = math.min(minX, a.$1);
+    minY = math.min(minY, a.$2);
   }
   final direction = area >= 0 ? 1.0 : -1.0;
   for (var i = 0; i < shape.points.length; i++) {
     final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
     final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
+    if (skipTopLeft && (dy == 0 && a.$2 == minY || dx == 0 && a.$1 == minX)) {
+      continue;
+    }
     final length = math.sqrt(dx * dx + dy * dy);
     if (length == 0) continue;
     final steps = math.max(1, length.ceil());
@@ -182,11 +189,6 @@ void _drawHexLabel(DebugCanvas canvas, DebugOutline shape, String label) {
   if (value == null) return;
   final x = first.$1.floor() + 1, y = first.$2.floor() + 1;
   final width = IntImageExt.patternWidth * label.length;
-  for (var py = 0; py < IntImageExt.digitPattern.length; py++) {
-    for (var px = 0; px < width; px++) {
-      _putPixel(canvas, x + px, y + py, 0xff000000);
-    }
-  }
   for (var py = 0; py < IntImageExt.digitPattern.length; py++) {
     for (var px = 0; px < width; px++) {
       if (value.drawHexValue(px, py, label.length)) {

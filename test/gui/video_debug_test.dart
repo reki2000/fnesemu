@@ -444,7 +444,7 @@ void main() {
 
     final pixels = await render();
     expect(pixels.length, 300 * 300 * 4);
-    final orange = (103 * 300 + 115) * 4;
+    final orange = (115 * 300 + 124) * 4;
     expect(pixels.sublist(orange, orange + 4), [255, 171, 0, 255]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

@@ -93,10 +93,14 @@ void main() {
     expect(pixel(original, 5, 3), 0xff101010);
     expect(pixel(bounded, 5, 3), 0xff00abff);
     expect(pixel(bounded, 3, 5), 0xff00abff);
+    expect(pixel(bounded, 3, 1), 0xff101010);
+    expect(pixel(bounded, 1, 3), 0xff101010);
     expect(pixel(bounded, 10, 3), 0xffaef069);
     expect(pixel(bounded, 8, 5), 0xffaef069);
+    expect(pixel(bounded, 8, 2), 0xffaef069);
+    expect(pixel(bounded, 7, 3), 0xffaef069);
     final numbered = original.annotated(numbers: true);
-    expect(pixel(numbered, 2, 2), 0xff000000);
+    expect(pixel(numbered, 2, 2), 0xff101010);
     expect(pixel(numbered, 4, 2), 0xffffffff);
   });
   test(
@@ -120,7 +124,8 @@ void main() {
     expect(connected.state.videoPanels.first.background, 0xffabcdef);
     expect(before.videoPanels.first.background, 0xff123456);
     connected.setPatternNumbersVisible(true);
-    expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff000000);
+    expect(pixel(connected.state.videoPanels.first.raster, 1, 1), 0xffffffff);
+    expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff0000ff);
     connected.setPatternNumbersVisible(false);
     expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff0000ff);
     connected.setLayerView(LayerView.map);
