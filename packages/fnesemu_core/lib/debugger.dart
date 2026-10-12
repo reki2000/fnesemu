@@ -56,6 +56,8 @@ class DebugState {
 enum _DebugRunMode { none, step, next, stepOut, line, frame }
 
 class Debugger {
+  static const _maxTraceLines = 50000;
+
   CoreDebug _core;
   final Future<void> Function()? _onRun, _onStop;
 
@@ -68,6 +70,7 @@ class Debugger {
 
   bool _showDebugView = false, _showVdc = false, _showDisasm = true;
   bool _showMem = false, _logging = false;
+  bool _traceLimitReached = false;
   int _memAddress = 0, _breakPoint = -1, _breakClock = 0, _targetCpuNo = 0;
   bool _breakClockEnabled = false;
   String _text = '';
@@ -181,12 +184,14 @@ class Debugger {
 
   void _resetTrace() {
     _logging = false;
+    _traceLimitReached = false;
     _log.clear();
     _restartTrace();
   }
 
   void setLogEnabled(bool enabled) {
     _logging = enabled;
+    _traceLimitReached = false;
     _log.clear();
     _restartTrace();
     pushStream();
@@ -205,6 +210,7 @@ class Debugger {
   void toggleLog() => setLogEnabled(!_logging);
 
   void clearLog() {
+    _traceLimitReached = false;
     _log.clear();
     _restartTrace();
     pushStream();
@@ -307,6 +313,7 @@ class Debugger {
   }
 
   Future<void> run() async {
+    _traceLimitReached = false;
     cancelExecution();
     if (_core.cpuInfos.isEmpty) return;
     final resume = _onRun;
@@ -324,6 +331,7 @@ class Debugger {
 
   Future<void> _execute(_DebugRunMode mode) async {
     if (_core.cpuInfos.isEmpty) return;
+    _traceLimitReached = false;
     final resume = _onRun;
     final stop = _onStop;
     if (resume == null || stop == null) {
@@ -387,7 +395,8 @@ class Debugger {
     if (!needsInstructionLoop || !result.executed(executionCpuNo)) return false;
     final clockReached = _breakClockEnabled && _breakClock <= clock;
     final pc = _core.programCounter(executionCpuNo);
-    final pause = clockReached ||
+    final pause = _traceLimitReached ||
+        clockReached ||
         (_breakPoint >= 0 && pc == _breakPoint) ||
         (_temporaryBreakPoint != null && pc == _temporaryBreakPoint) ||
         _runMode == _DebugRunMode.step ||
@@ -418,6 +427,12 @@ class Debugger {
     _pendingTrace = null;
     _tracer?.addTraceLog(pending,
         nextPc: result.stopped ? null : _core.programCounter(_targetCpuNo));
+    if (_traceLimitReached && _logging) {
+      // Keep the captured lines available for Copy, but stop recording so a
+      // later explicit Run can resume emulation without immediately stopping.
+      _logging = false;
+      _restartTrace();
+    }
   }
 
   /// Controller integration: publish a fresh immutable display snapshot.
@@ -476,7 +491,9 @@ class Debugger {
     if (!_logging || _core.cpuInfos.isEmpty) return;
     _tracer = Tracer(_traceStream, mode: TraceRepeatMode.path);
     _traceSubscription = _traceStream.stream.listen((line) {
+      if (_log.length >= _maxTraceLines) return;
       _log.add(line.replaceAll('\n', ''));
+      if (_log.length == _maxTraceLines) _traceLimitReached = true;
     });
   }
 

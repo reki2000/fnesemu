@@ -187,30 +187,21 @@ void main() {
     await tester.tap(find.text('Log'));
     await tester.pump();
     expect(controller.debugger.logEnabled, true);
-    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text('Copy 0 lines'), findsOneWidget);
     controller.debugger.recordTrace();
     controller.debugger
         .completeTrace(ExecResult(1, false, false)..setExecuted(7, true));
     controller.debugger.pushStream();
     await tester.pump();
-    expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('trace-line-count')))
-            .data,
-        '1 lines');
+    expect(find.text('Copy 1 lines'), findsOneWidget);
 
-    await tester.tap(find.text('Copy'));
+    await tester.tap(find.text('Copy 1 lines'));
     await tester.pump();
     expect(copied, isNotNull);
     expect(controller.debugger.logEnabled, false);
     expect(find.text('Log'), findsOneWidget);
     expect(find.text('Trace copied'), findsOneWidget);
     expect(controller.debugger.state.traceLog, isEmpty);
-    expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('trace-line-count')))
-            .data,
-        '0 lines');
 
     expect(tester.takeException(), isNull);
   });

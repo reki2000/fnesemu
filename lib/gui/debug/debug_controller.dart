@@ -167,16 +167,16 @@ class _DebugControllerState extends State<DebugController> {
                     decoration: denseTextDecoration,
                     onSubmitted: (v) => _setBreakPoint(context, v, state),
                   )),
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                _button(context, state.log ? 'Copy' : 'Log', () {
-                  if (state.log) {
-                    _copyTrace();
-                  } else {
-                    debugger.startTrace();
-                  }
-                }),
-                Text('${state.traceLog.length} lines',
-                    key: const ValueKey('trace-line-count'), style: debugStyle),
-              ]),
+              _button(
+                  context,
+                  state.log || state.traceLog.isNotEmpty
+                      ? 'Copy ${state.traceLog.length} lines'
+                      : 'Log', () {
+                if (state.log || state.traceLog.isNotEmpty) {
+                  _copyTrace();
+                } else {
+                  debugger.startTrace();
+                }
+              }),
             ]);
 }
