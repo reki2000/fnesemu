@@ -3,13 +3,14 @@ import 'package:fnesemu_core/app_api.dart';
 
 import '../../styles.dart';
 
-const _addrIncSize = 0x200;
 const _bytesPerLine = 16; //22; // 22 for exodus view
 
-String _dump(Debugger debugger, int cpuNo, int start, int bits, int mask) {
+String _dump(
+    Debugger debugger, int cpuNo, int start, int bits, int mask, int rowCount) {
   final lines = <String>[];
 
-  for (int base = start; base < start + _addrIncSize; base += _bytesPerLine) {
+  for (int row = 0; row < rowCount; row++) {
+    final base = start + row * _bytesPerLine;
     final bytes = List.generate(_bytesPerLine,
         (i) => debugger.read((base + i) & mask, cpuNo: cpuNo).x2);
     final address =
@@ -23,7 +24,12 @@ String _dump(Debugger debugger, int cpuNo, int start, int bits, int mask) {
 class MemPane extends StatefulWidget {
   final Debugger debugger;
   final int cpuNo;
-  const MemPane({super.key, required this.debugger, required this.cpuNo});
+  final int visibleLines;
+  const MemPane(
+      {super.key,
+      required this.debugger,
+      required this.cpuNo,
+      required this.visibleLines});
   @override
   State<MemPane> createState() => _MemPaneState();
 }
@@ -36,6 +42,7 @@ class _MemPaneState extends State<MemPane> {
   int get _bits => debugger.cpuInfo(widget.cpuNo).pcBitWidth;
   int get _mask => (1 << _bits) - 1;
   int get _digits => (_bits + 3) ~/ 4;
+  int get _pageSize => widget.visibleLines * _bytesPerLine;
   String _format(int value) =>
       (value & _mask).toRadixString(16).padLeft(_digits, '0');
 
@@ -81,10 +88,10 @@ class _MemPaneState extends State<MemPane> {
                     }
                   })),
           ElevatedButton(
-              onPressed: () => _setAddress(_address.value - _addrIncSize),
+              onPressed: () => _setAddress(_address.value - _pageSize),
               child: const Text('-')),
           ElevatedButton(
-              onPressed: () => _setAddress(_address.value + _addrIncSize),
+              onPressed: () => _setAddress(_address.value + _pageSize),
               child: const Text('+')),
         ]),
         ValueListenableBuilder<int>(
@@ -100,7 +107,8 @@ class _MemPaneState extends State<MemPane> {
                   child: Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: SelectableText(
-                          _dump(debugger, widget.cpuNo, address, _bits, _mask),
+                          _dump(debugger, widget.cpuNo, address, _bits, _mask,
+                              widget.visibleLines),
                           style: debugStyle,
                           showCursor: true)),
                 ))),

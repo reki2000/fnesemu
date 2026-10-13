@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:fnesemu_core/app_api.dart';
 
+const int _magnifierZoom = 4, _magnifierAnnotationScale = 2;
+
 Color _rgba(int value) => Color.fromARGB(
     value >> 24 & 255, value & 255, value >> 8 & 255, value >> 16 & 255);
 
@@ -284,7 +286,7 @@ class VideoHover {
       {this.numbers = false, this.bounds = false, this.viewport = false});
 }
 
-/// Original bitmap pixels enlarged at 3x.
+/// Original bitmap pixels enlarged at 4x.
 class VideoMagnifier extends StatelessWidget {
   static const extent = 300.0;
   final VideoHover hover;
@@ -308,7 +310,7 @@ class _MagnifierPainter extends CustomPainter {
         Offset.zero & size, Paint()..color = _rgba(hover.background));
     final image = hover.raster.image,
         bytes = ByteData.sublistView(image.buffer);
-    const zoom = 3.0;
+    final zoom = _magnifierZoom.toDouble();
     final columns = (size.width / zoom).ceil(),
         rows = (size.height / zoom).ceil();
     final startX = (hover.native.dx - columns / 2).floor(),
@@ -322,14 +324,20 @@ class _MagnifierPainter extends CustomPainter {
         }
         paint.color =
             _rgba(bytes.getUint32((sy * image.width + sx) * 4, Endian.little));
-        canvas.drawRect(Rect.fromLTWH(x * 3.0, y * 3.0, 3, 3), paint);
+        canvas.drawRect(Rect.fromLTWH(x * zoom, y * zoom, zoom, zoom), paint);
       }
     }
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(
+        math.max(0, -startX * _magnifierZoom).toDouble(),
+        math.max(0, -startY * _magnifierZoom).toDouble(),
+        math.min(columns, image.width - startX) * _magnifierZoom.toDouble(),
+        math.min(rows, image.height - startY) * _magnifierZoom.toDouble()));
     if (hover.bounds) {
       for (final shape in hover.raster.patterns) {
-        _drawMagnifierOutline(canvas, image, shape, startX, startY, columns,
-            rows, const Color(0x80ffab00),
-            skipTopLeft: true, blend: true);
+        _drawMagnifierOutline(canvas, shape, startX, startY, columns, rows,
+            const Color(0x80ffab00),
+            skipTopLeft: true);
       }
     }
     if (hover.numbers) {
@@ -340,10 +348,11 @@ class _MagnifierPainter extends CustomPainter {
     }
     if (hover.viewport) {
       for (final shape in hover.raster.viewports) {
-        _drawMagnifierOutline(canvas, image, shape, startX, startY, columns,
-            rows, _rgba(0xffaef069));
+        _drawMagnifierOutline(
+            canvas, shape, startX, startY, columns, rows, _rgba(0xffaef069));
       }
     }
+    canvas.restore();
     canvas.drawRect(
         (Offset.zero & size).deflate(0.5),
         Paint()
@@ -356,9 +365,9 @@ class _MagnifierPainter extends CustomPainter {
   bool shouldRepaint(_MagnifierPainter old) => old.hover != hover;
 }
 
-void _drawMagnifierOutline(Canvas canvas, ImageBuffer image, DebugOutline shape,
-    int startX, int startY, int columns, int rows, Color color,
-    {bool skipTopLeft = false, bool blend = false}) {
+void _drawMagnifierOutline(Canvas canvas, DebugOutline shape, int startX,
+    int startY, int columns, int rows, Color color,
+    {bool skipTopLeft = false}) {
   if (shape.points.length < 2) return;
   var minX = double.infinity,
       minY = double.infinity,
@@ -378,44 +387,31 @@ void _drawMagnifierOutline(Canvas canvas, ImageBuffer image, DebugOutline shape,
       maxY < startY ||
       minY >= startY + rows) return;
   final zoomed = [
-    for (final (x, y) in shape.points) ((x - startX) * 3, (y - startY) * 3)
+    for (final (x, y) in shape.points)
+      ((x - startX) * _magnifierZoom, (y - startY) * _magnifierZoom)
   ];
   minX = zoomed.map((point) => point.$1).reduce(math.min);
   minY = zoomed.map((point) => point.$2).reduce(math.min);
   maxX = zoomed.map((point) => point.$1).reduce(math.max);
   maxY = zoomed.map((point) => point.$2).reduce(math.max);
-  final drawn = blend ? <int>{} : null, paint = Paint()..color = color;
-  void draw(int x, int y) {
-    if (x < 0 || y < 0 || x >= columns * 3 || y >= rows * 3) return;
-    final sourceX = startX + x ~/ 3, sourceY = startY + y ~/ 3;
-    if (sourceX < 0 ||
-        sourceY < 0 ||
-        sourceX >= image.width ||
-        sourceY >= image.height) return;
-    final index = y * columns * 3 + x;
-    if (drawn != null && !drawn.add(index)) return;
-    canvas.drawRect(Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1), paint);
-  }
-
+  final paint = Paint()
+    ..color = color
+    ..isAntiAlias = false;
+  final thickness = _magnifierAnnotationScale.toDouble();
   if (axisAligned) {
-    final left = (minX + 0.5).floor(),
-        right = (maxX - 0.5).floor(),
-        top = (minY + 0.5).floor(),
-        bottom = (maxY - 0.5).floor();
+    final left = minX, right = maxX, top = minY, bottom = maxY;
+    final path = Path();
     if (!skipTopLeft) {
-      for (var x = left; x <= right; x++) {
-        draw(x, top);
-      }
-      for (var y = top; y <= bottom; y++) {
-        draw(left, y);
-      }
+      path
+        ..addRect(Rect.fromLTRB(left, top, right, top + thickness))
+        ..addRect(Rect.fromLTRB(
+            left, top + thickness, left + thickness, bottom - thickness));
     }
-    for (var x = left; x <= right; x++) {
-      draw(x, bottom);
-    }
-    for (var y = top; y < bottom; y++) {
-      draw(right, y);
-    }
+    path
+      ..addRect(Rect.fromLTRB(
+          right - thickness, top + thickness, right, bottom - thickness))
+      ..addRect(Rect.fromLTRB(left, bottom - thickness, right, bottom));
+    canvas.drawPath(path, paint);
     return;
   }
 
@@ -425,6 +421,7 @@ void _drawMagnifierOutline(Canvas canvas, ImageBuffer image, DebugOutline shape,
     area += a.$1 * b.$2 - b.$1 * a.$2;
   }
   final direction = area >= 0 ? 1.0 : -1.0;
+  final path = Path();
   for (var i = 0; i < zoomed.length; i++) {
     final a = zoomed[i], b = zoomed[(i + 1) % zoomed.length];
     final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
@@ -433,14 +430,17 @@ void _drawMagnifierOutline(Canvas canvas, ImageBuffer image, DebugOutline shape,
     }
     final length = math.sqrt(dx * dx + dy * dy);
     if (length == 0) continue;
-    final steps = math.max(1, length.ceil()),
-        nx = -dy / length * direction * 0.5,
-        ny = dx / length * direction * 0.5;
-    for (var step = 0; step <= steps; step++) {
-      final t = step / steps;
-      draw((a.$1 + dx * t + nx).floor(), (a.$2 + dy * t + ny).floor());
-    }
+    final nx = -dy / length * direction * thickness / 2,
+        ny = dx / length * direction * thickness / 2;
+    path
+      ..moveTo(a.$1 + nx, a.$2 + ny)
+      ..lineTo(b.$1 + nx, b.$2 + ny);
   }
+  canvas.drawPath(
+      path,
+      paint
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = thickness);
 }
 
 void _drawMagnifierLabel(
@@ -461,19 +461,23 @@ void _drawMagnifierLabel(
       y = first.$2.floor() + 1,
       width = IntImageExt.patternWidth * label.length,
       height = IntImageExt.digitPattern.length,
-      glyphX = (x - startX) * 3,
-      glyphY = (y - startY) * 3;
-  if (glyphX + width <= 0 ||
-      glyphX >= columns * 3 ||
-      glyphY + height <= 0 ||
-      glyphY >= rows * 3) return;
+      glyphX = (x - startX) * _magnifierZoom,
+      glyphY = (y - startY) * _magnifierZoom,
+      glyphWidth = width * _magnifierAnnotationScale,
+      glyphHeight = height * _magnifierAnnotationScale;
+  if (glyphX + glyphWidth <= 0 ||
+      glyphX >= columns * _magnifierZoom ||
+      glyphY + glyphHeight <= 0 ||
+      glyphY >= rows * _magnifierZoom) return;
 
   var luminance = 0, count = 0;
   for (var py = 0; py < height; py++) {
     for (var px = 0; px < width; px++) {
       if (!value.drawHexValue(px, py, label.length)) continue;
-      final sx = startX + (glyphX + px) ~/ 3,
-          sy = startY + (glyphY + py) ~/ 3,
+      final sx = startX +
+              (glyphX + px * _magnifierAnnotationScale) ~/ _magnifierZoom,
+          sy = startY +
+              (glyphY + py * _magnifierAnnotationScale) ~/ _magnifierZoom,
           pixel = sx < 0 || sy < 0 || sx >= image.width || sy >= image.height
               ? background
               : bytes.getUint32((sy * image.width + sx) * 4, Endian.little);
@@ -489,7 +493,10 @@ void _drawMagnifierLabel(
       if (!value.drawHexValue(px, py, label.length)) continue;
       canvas.drawRect(
           Rect.fromLTWH(
-              (glyphX + px).toDouble(), (glyphY + py).toDouble(), 1, 1),
+              (glyphX + px * _magnifierAnnotationScale).toDouble(),
+              (glyphY + py * _magnifierAnnotationScale).toDouble(),
+              _magnifierAnnotationScale.toDouble(),
+              _magnifierAnnotationScale.toDouble()),
           paint);
     }
   }

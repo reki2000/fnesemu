@@ -21,6 +21,8 @@ class DebugPane extends StatefulWidget {
 
 class _DebugPaneState extends State<DebugPane> {
   double _scale = 1;
+  double _disasmWidth = 500;
+  static const _cpuWidth = 904.0;
   VideoHover? _hover;
   bool? _magnifierRight, _magnifierBottom;
   void _hoverChanged(VideoHover value) => setState(() => _hover = value);
@@ -127,12 +129,12 @@ class _DebugPaneState extends State<DebugPane> {
                               if (state.view != DebugView.cpu)
                                 _videoControls(state),
                               Expanded(
-                                  child: SingleChildScrollView(
-                                      child: SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          child: state.view == DebugView.cpu
-                                              ? _cpu(state)
-                                              : DebugVideoImages(
+                                  child: state.view == DebugView.cpu
+                                      ? _cpu(state)
+                                      : SingleChildScrollView(
+                                          child: SingleChildScrollView(
+                                              scrollDirection: Axis.horizontal,
+                                              child: DebugVideoImages(
                                                   state: state,
                                                   scale: _scale,
                                                   onHover: _hoverChanged,
@@ -195,27 +197,57 @@ class _DebugPaneState extends State<DebugPane> {
 
   Widget _cpu(DebugState state) {
     final cpu = widget.debugger.cpuInfo(state.targetCpuNo);
-    return Padding(
-        padding: const EdgeInsets.all(2),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            DebugDisasm(
-                key: ValueKey(('disasm', cpu.no)),
-                debugger: widget.debugger,
-                cpuNo: cpu.no,
-                forwardLines: 48,
-                backwardLines: 6,
-                width: 300,
-                addrBits: cpu.pcBitWidth),
-            const SizedBox(width: 4),
-            SizedBox(
-                width: 396,
-                child: MemPane(
-                    key: ValueKey(('memory', cpu.no)),
-                    debugger: widget.debugger,
-                    cpuNo: cpu.no)),
-          ]),
-        ]));
+    return LayoutBuilder(builder: (context, bounds) {
+      final lines =
+          ((bounds.maxHeight - 64) / 13).floor().clamp(1, 200).toInt();
+      final backwardLines = math.min(6, lines - 1).toInt();
+      final memoryWidth = _cpuWidth - _disasmWidth - 12;
+      return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: SizedBox(
+                  width: _cpuWidth,
+                  child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DebugDisasm(
+                            key: ValueKey(('disasm', cpu.no)),
+                            debugger: widget.debugger,
+                            cpuNo: cpu.no,
+                            forwardLines: lines - backwardLines,
+                            backwardLines: backwardLines,
+                            width: _disasmWidth,
+                            addrBits: cpu.pcBitWidth),
+                        MouseRegion(
+                            cursor: SystemMouseCursors.resizeLeftRight,
+                            child: GestureDetector(
+                                key: const ValueKey('cpu-debug-divider'),
+                                behavior: HitTestBehavior.opaque,
+                                onHorizontalDragUpdate: (event) => setState(() {
+                                      _disasmWidth =
+                                          (_disasmWidth + event.delta.dx)
+                                              .clamp(180.0, _cpuWidth - 220 - 12)
+                                              .toDouble();
+                                    }),
+                                child: SizedBox(
+                                    width: 8,
+                                    height: bounds.maxHeight,
+                                    child: Center(
+                                        child: Container(
+                                            width: 2,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .outlineVariant))))),
+                        SizedBox(
+                            width: memoryWidth,
+                            child: MemPane(
+                                key: ValueKey(('memory', cpu.no)),
+                                debugger: widget.debugger,
+                                cpuNo: cpu.no,
+                                visibleLines: lines)),
+                      ]))));
+    });
   }
 
   Widget _videoControls(DebugState state) {

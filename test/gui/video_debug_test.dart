@@ -415,9 +415,13 @@ void main() {
   });
 
   testWidgets(
-      'magnifier draws one-pixel labels and bounds over enlarged pixels',
+      'magnifier draws two-pixel labels and bounds over four-times pixels',
       (tester) async {
-    final raster = DebugRaster(ImageBuffer(64, 64, Uint8List(64 * 64 * 4)),
+    final bitmap = Uint8List(64 * 64 * 4);
+    final redPixel = (15 * 64 + 15) * 4;
+    bitmap[redPixel] = 255;
+    bitmap[redPixel + 3] = 255;
+    final raster = DebugRaster(ImageBuffer(64, 64, bitmap),
         patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
         viewports: [DebugOutline.rect(32, 16, 8, 8)]);
     final hover = VideoHover(
@@ -450,12 +454,13 @@ void main() {
       return pixels.sublist(start, start + 4);
     }
 
-    expect(rgba(105, 105), [255, 255, 255, 255]);
-    expect(rgba(108, 105), [0, 0, 0, 255]);
-    expect(rgba(124, 115), [0, 0, 0, 255]);
-    expect(rgba(125, 115), [128, 86, 0, 255]);
-    expect(rgba(115, 125), [128, 86, 0, 255]);
-    expect(rgba(150, 102), [105, 240, 174, 255]);
+    expect(rgba(87, 87), [255, 0, 0, 255]);
+    expect(rgba(92, 92), [255, 255, 255, 255]);
+    expect(rgba(98, 92), [0, 0, 0, 255]);
+    expect(rgba(117, 100), [0, 0, 0, 255]);
+    expect(rgba(118, 100), [128, 86, 0, 255]);
+    expect(rgba(100, 118), [128, 86, 0, 255]);
+    expect(rgba(152, 88), [105, 240, 174, 255]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
