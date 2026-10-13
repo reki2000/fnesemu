@@ -91,6 +91,7 @@ class Debugger {
   int _paletteOffset = 0;
   int _patternBlockSize = 8;
   List<DebugVideoPanel> _videoPanels = [];
+  List<(int original, int alternative)> _videoBackgrounds = [];
 
   DebugState get state => _state;
   List<CpuInfo> get cpuInfos => List.unmodifiable(_core.cpuInfos);
@@ -256,22 +257,31 @@ class Debugger {
 
   void setAlternativeBackground(bool alternative) {
     _alternativeBackground = alternative;
-    refreshVideo();
+    _videoPanels = [
+      for (var n = 0; n < _videoPanels.length; n++)
+        DebugVideoPanel(_videoPanels[n].name, _videoPanels[n].raster,
+            alternative ? _videoBackgrounds[n].$2 : _videoBackgrounds[n].$1,
+            kind: _videoPanels[n].kind,
+            row: _videoPanels[n].row,
+            paletteName: _videoPanels[n].paletteName,
+            palette: _videoPanels[n].palette),
+    ];
+    pushStream();
   }
 
   void setPatternNumbersVisible(bool visible) {
     _patternNumbers = visible;
-    refreshVideo();
+    pushStream();
   }
 
   void setPatternBoundsVisible(bool visible) {
     _patternBounds = visible;
-    refreshVideo();
+    pushStream();
   }
 
   void setViewportBoundsVisible(bool visible) {
     _viewportBounds = visible;
-    refreshVideo();
+    pushStream();
   }
 
   /// Captures only the active video view. Normal frame notifications reuse the
@@ -284,9 +294,15 @@ class Debugger {
   void _captureVideo() {
     if (!_showDebugView || _view == DebugView.cpu) {
       _videoPanels = [];
+      _videoBackgrounds = [];
     } else if (_view == DebugView.layers) {
+      final layers = _core.videoLayers;
+      _videoBackgrounds = [
+        for (final layer in layers)
+          (layer.originalBackground, layer.alternativeBackground)
+      ];
       _videoPanels = [
-        for (final layer in _core.videoLayers)
+        for (final layer in layers)
           DebugVideoPanel(
               layer.name,
               layer.capture(_layerView == LayerView.map && layer.hasMap),
@@ -297,8 +313,13 @@ class Debugger {
               row: layer.row)
       ];
     } else {
+      final tables = _core.patternTables;
+      _videoBackgrounds = [
+        for (final table in tables)
+          (table.originalBackground, table.alternativeBackground)
+      ];
       _videoPanels = [
-        for (final table in _core.patternTables)
+        for (final table in tables)
           table.capture(_paletteOffset, _alternativeBackground,
               blockSize: _patternBlockSize)
       ];

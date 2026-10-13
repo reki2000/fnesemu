@@ -28,12 +28,18 @@ class Pce implements Core {
   @override
   bool get hasPatternTables => true;
 
+  // Register access latches SGX mode even when the game disables VDC 1 output.
+  bool get _showSecondVdc =>
+      vpc.enabled && ((vpc.priority0 | vpc.priority1) & 0x22) != 0;
+
   @override
   List<DebugVideoLayer> get videoLayers =>
-      [...vdc.debugVideoLayers, if (vpc.enabled) ...vdc2.debugVideoLayers];
+      [...vdc.debugVideoLayers, if (_showSecondVdc) ...vdc2.debugVideoLayers];
   @override
-  List<DebugPatternTable> get patternTables =>
-      [...vdc.debugPatternTables, if (vpc.enabled) ...vdc2.debugPatternTables];
+  List<DebugPatternTable> get patternTables => [
+        ...vdc.debugPatternTables,
+        if (_showSecondVdc) ...vdc2.debugPatternTables
+      ];
 
   late final Vdc vdc;
   late final Vdc vdc2;

@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/app_api.dart';
@@ -8,6 +9,7 @@ import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/nes/mapper/mmc2.dart';
 import 'package:fnesemu_core/src/core/nes/mapper/mmc3.dart';
 import 'package:fnesemu_core/src/core/nes/nes.dart';
+import 'package:fnesemu_core/src/core/pce/component/vdc_render.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
@@ -60,6 +62,81 @@ class _VideoCore extends CoreDebug {
 }
 
 void main() {
+  test('wrapped row copies preserve pixels at negative and repeated offsets',
+      () {
+    final source = DebugCanvas(7, 5);
+    for (var i = 0; i < source.pixels.length; i++) {
+      source.pixels[i] = 0x80000000 | i;
+    }
+    for (final (x, y, w, h) in [
+      (0, 0, 7, 5),
+      (-3, -2, 19, 12),
+      (6, 4, 2, 2),
+      (15, 11, 10, 8),
+    ]) {
+      final cropped = source.raster().cropWrapped(x, y, w, h);
+      for (var py = 0; py < h; py++) {
+        for (var px = 0; px < w; px++) {
+          expect(pixel(cropped, px, py),
+              source.pixels[((py + y) % 5) * 7 + (px + x) % 7]);
+        }
+      }
+    }
+  });
+  test('sprite line admission matches scanning earlier OAM entries', () {
+    final random = Random(42);
+    for (final limit in [8, 10, 16]) {
+      final spans = [
+        for (var n = 0; n < 64; n++)
+          (random.nextInt(40) - 16, 8 << random.nextInt(3))
+      ];
+      final visible = debugSpriteLineVisibility(spans, limit);
+      for (var n = 0; n < spans.length; n++) {
+        for (var row = 0; row < spans[n].$2; row++) {
+          final y = spans[n].$1 + row;
+          final earlier =
+              spans.take(n).where((s) => y >= s.$1 && y < s.$1 + s.$2).length;
+          expect(visible[n][row], earlier < limit ? 1 : 0);
+        }
+      }
+    }
+  });
+  test('annotation toggles reuse the captured bitmaps', () {
+    final core = _VideoCore(), debugger = Debugger(_VideoCore());
+    debugger.setCore(core);
+    debugger.setDebugView(true);
+    for (final view in [DebugView.layers, DebugView.patterns]) {
+      debugger.selectView(view);
+      final panels = debugger.state.videoPanels;
+      final captures = core.captures, samples = core.samples;
+      debugger.setPatternNumbersVisible(true);
+      debugger.setPatternBoundsVisible(true);
+      debugger.setViewportBoundsVisible(true);
+      expect(debugger.state.videoPanels, orderedEquals(panels));
+      expect(core.captures, captures);
+      expect(core.samples, samples);
+      expect(debugger.state.patternNumbers, true);
+      expect(debugger.state.patternBounds, true);
+      expect(debugger.state.viewportBounds, true);
+      for (final alternative in [true, false]) {
+        debugger.setAlternativeBackground(alternative);
+        for (var n = 0; n < panels.length; n++) {
+          expect(
+              identical(debugger.state.videoPanels[n].raster, panels[n].raster),
+              true);
+          expect(
+              debugger.state.videoPanels[n].paletteName, panels[n].paletteName);
+          expect(debugger.state.videoPanels[n].palette, panels[n].palette);
+        }
+        if (view == DebugView.layers) {
+          expect(debugger.state.videoPanels.first.background,
+              alternative ? 0xffabcdef : 0xff123456);
+        }
+        expect(core.captures, captures);
+        expect(core.samples, samples);
+      }
+    }
+  });
   test('shared pixel formats preserve bit-plane order and nibble order', () {
     final data = Uint8List(64);
     data[0] = 0x80;
@@ -368,5 +445,39 @@ void main() {
     core.bus.affineRefDirty[0] = true;
     core.videoLayers.first.capture(false);
     expect(core.bus.affineRefDirty[0], true);
+  });
+  test('PCE sprite viewport retains raster enable changes across a frame', () {
+    final core = Pce()..reset();
+    final vdc = core.vdc;
+    vdc.sat.fillRange(0, vdc.sat.length, 0);
+    vdc.sat[0] = 64;
+    vdc.sat[1] = 32;
+    vdc.sat[2] = 2; // Pattern 1.
+    vdc.colorTable[257] = 7;
+    vdc.vram.fillRange(0, vdc.vram.length, 0);
+    vdc.vram.fillRange(64, 80, 0xffff);
+    vdc.fetchSatb();
+    final layer = core.videoLayers[1];
+    vdc.enableSprite = true;
+    expect(pixel(layer.capture(false), 0, 0), rgba[7]);
+
+    // A HUD hides sprites, gameplay enables them, then the HUD disables them
+    // again before the debugger captures the viewport (as in Darius Plus).
+    for (var y = 0; y < 16; y++) {
+      vdc.scanLine = VdcRenderer.displayStartLine + y;
+      vdc.enableSprite = y >= 4 && y < 12;
+      vdc.exec();
+    }
+    final before = List<int>.of(vdc.indexBuffer);
+    final screen = layer.capture(false);
+    expect(pixel(screen, 0, 0), 0);
+    expect(pixel(screen, 0, 4), rgba[7]);
+    expect(pixel(screen, 0, 11), rgba[7]);
+    expect(pixel(screen, 0, 12), 0);
+    expect(pixel(layer.capture(true), 32, 64), rgba[7]);
+    expect(vdc.indexBuffer, orderedEquals(before));
+    vdc.reset();
+    expect(vdc.renderedSpriteEnabled.every((enabled) => enabled == null), true);
+    expect(pixel(layer.capture(false), 0, 4), 0);
   });
 }

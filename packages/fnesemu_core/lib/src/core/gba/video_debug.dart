@@ -72,8 +72,14 @@ extension PpuVideoDebug on Ppu {
         copy._refY[i] =
             _io32(0x2c + i * 16).rel28 + _io16(0x26 + i * 16).rel16 * y;
       }
-      copy._renderBackgrounds(mode, dispcnt, y);
-      copy._renderObjects(dispcnt, y);
+      if (layer < 4) {
+        copy._renderBackgrounds(
+            mode, dispcnt & ~0x0f00 | (1 << (8 + layer)), y);
+      }
+      // Background inspection only needs OBJ evaluation for the OBJ window.
+      if (layer == 4 || dispcnt.bit15) {
+        copy._renderObjects(layer == 4 ? dispcnt : dispcnt & ~0x1000, y);
+      }
       for (var x = 0; x < Ppu.width; x++) {
         final color = layer == 4
             ? copy._objColor[x]
@@ -87,7 +93,7 @@ extension PpuVideoDebug on Ppu {
       }
     }
     if (layer < 4 && _debugText(layer)) {
-      final map = _debugBgMap(layer);
+      final map = _debugBgMap(layer, paintPixels: false);
       canvas.patterns.addAll(map
           .cropWrapped(_io16(0x10 + layer * 4).mask9,
               _io16(0x12 + layer * 4).mask9, Ppu.width, Ppu.height)
@@ -98,7 +104,7 @@ extension PpuVideoDebug on Ppu {
     return canvas.raster();
   }
 
-  DebugRaster _debugBgMap(int bg) {
+  DebugRaster _debugBgMap(int bg, {bool paintPixels = true}) {
     final cnt = _io16(8 + bg * 2), size = cnt.shr14.mask2;
     if (_debugBitmap(bg)) {
       final mode = _io16(0).mask3,
@@ -149,7 +155,10 @@ extension PpuVideoDebug on Ppu {
           if (c == 0) return 0;
           return Ppu
               ._rgba[_pal(c + (bits == 4 ? entry.shr12.mask4 * 16 : 0)).mask15];
-        }, flipX: text && entry.bit10, flipY: text && entry.bit11);
+        },
+            flipX: text && entry.bit10,
+            flipY: text && entry.bit11,
+            paintPixels: paintPixels);
       }
     if (text) {
       canvas.viewport(_io16(0x10 + bg * 4).mask9, _io16(0x12 + bg * 4).mask9,
@@ -181,7 +190,8 @@ extension PpuVideoDebug on Ppu {
         _debugAffinePosition(bg, 0, Ppu.height.toDouble())
       ]);
   void _debugAffineAnnotations(int bg, DebugCanvas canvas) {
-    final map = _debugBgMap(bg), origin = _debugAffinePosition(bg, 0, 0);
+    final map = _debugBgMap(bg, paintPixels: false),
+        origin = _debugAffinePosition(bg, 0, 0);
     final px = _debugAffinePosition(bg, 1, 0),
         py = _debugAffinePosition(bg, 0, 1);
     final a = px.$1 - origin.$1,

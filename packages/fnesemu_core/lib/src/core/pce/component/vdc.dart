@@ -109,6 +109,9 @@ class Vdc {
   bool enableBg = false;
   bool enableSprite = false;
 
+  // Last rendered enable state per visible line; null before that line renders.
+  final renderedSpriteEnabled = List<bool?>.filled(242, null);
+
   bool enableVBlank = false;
   bool enableRasterCompareIrq = false;
   bool enalbeSpriteCollision = false;

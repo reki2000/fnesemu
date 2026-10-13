@@ -158,7 +158,8 @@ class _RasterView extends StatefulWidget {
 
 class _RasterViewState extends State<_RasterView> {
   ui.Image? _image;
-  int _generation = 0;
+  ImageBuffer? _imageSource;
+  bool _decoding = false;
   Offset? _pointer;
   @override
   void initState() {
@@ -169,11 +170,15 @@ class _RasterViewState extends State<_RasterView> {
   @override
   void didUpdateWidget(_RasterView old) {
     super.didUpdateWidget(old);
-    if (!identical(old.raster.image.buffer, widget.raster.image.buffer)) {
+    if (!identical(old.raster.image.buffer, widget.raster.image.buffer) ||
+        old.raster.image.width != widget.raster.image.width ||
+        old.raster.image.height != widget.raster.image.height) {
       _decode();
     }
     if (_pointer != null &&
         (!identical(old.raster.image.buffer, widget.raster.image.buffer) ||
+            old.raster.image.width != widget.raster.image.width ||
+            old.raster.image.height != widget.raster.image.height ||
             old.scale != widget.scale ||
             old.background != widget.background ||
             old.numbers != widget.numbers ||
@@ -186,23 +191,37 @@ class _RasterViewState extends State<_RasterView> {
   }
 
   void _decode() {
-    final generation = ++_generation, buffer = widget.raster.image;
+    if (_decoding) return;
+    _decoding = true;
+    final buffer = widget.raster.image;
     ui.decodeImageFromPixels(
         buffer.buffer, buffer.width, buffer.height, ui.PixelFormat.rgba8888,
         (image) {
-      if (!mounted || generation != _generation) {
+      _decoding = false;
+      if (!mounted) {
         image.dispose();
         return;
       }
+      final latest = widget.raster.image;
+      if (!identical(buffer.buffer, latest.buffer) ||
+          buffer.width != latest.width ||
+          buffer.height != latest.height) {
+        image.dispose();
+        _decode();
+        return;
+      }
       final previous = _image;
-      setState(() => _image = image);
+      setState(() {
+        _image = image;
+        _imageSource = buffer;
+      });
+      if (_pointer != null) _emitHover();
       previous?.dispose();
     });
   }
 
   @override
   void dispose() {
-    _generation++;
     _image?.dispose();
     super.dispose();
   }
@@ -216,7 +235,11 @@ class _RasterViewState extends State<_RasterView> {
         _pointer!, _hover,
         numbers: widget.numbers,
         bounds: widget.bounds,
-        viewport: widget.viewport);
+        image: identical(_imageSource?.buffer, widget.raster.image.buffer) &&
+                _imageSource?.width == widget.raster.image.width &&
+                _imageSource?.height == widget.raster.image.height
+            ? _image
+            : null);
   }
 
   void _emitHover() {
@@ -243,7 +266,8 @@ class _RasterViewState extends State<_RasterView> {
         size: Size(widget.raster.image.width * widget.scale,
             widget.raster.image.height * widget.scale),
         painter: _RasterPainter(
-            _image, widget.raster, widget.background, widget.scale),
+            _image, widget.raster, widget.background, widget.scale,
+            viewport: widget.viewport),
       )));
 }
 
@@ -252,7 +276,9 @@ class _RasterPainter extends CustomPainter {
   final DebugRaster raster;
   final int background;
   final double scale;
-  _RasterPainter(this.image, this.raster, this.background, this.scale);
+  final bool viewport;
+  _RasterPainter(this.image, this.raster, this.background, this.scale,
+      {this.viewport = false});
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _rgba(background));
@@ -264,6 +290,22 @@ class _RasterPainter extends CustomPainter {
       canvas.drawImage(
           image!, Offset.zero, Paint()..filterQuality = FilterQuality.none);
     }
+    if (viewport) {
+      final paint = Paint()
+        ..color = _rgba(0xffaef069)
+        ..isAntiAlias = false
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 / scale;
+      for (final shape in raster.viewports) {
+        if (shape.points.length < 2) continue;
+        final path = Path()
+          ..moveTo(shape.points.first.$1, shape.points.first.$2);
+        for (final (x, y) in shape.points.skip(1)) {
+          path.lineTo(x, y);
+        }
+        canvas.drawPath(path..close(), paint);
+      }
+    }
     canvas.restore();
   }
 
@@ -272,7 +314,8 @@ class _RasterPainter extends CustomPainter {
       old.image != image ||
       old.raster != raster ||
       old.background != background ||
-      old.scale != scale;
+      old.scale != scale ||
+      old.viewport != viewport;
 }
 
 /// A UI-only hover snapshot; refreshing it follows scrolling and new captures.
@@ -280,31 +323,88 @@ class VideoHover {
   final DebugRaster raster;
   final int background;
   final Offset native, global;
-  final bool numbers, bounds, viewport;
+  final bool numbers, bounds;
   final VideoHover? Function() refresh;
+  final ui.Image? image;
   const VideoHover(
       this.raster, this.background, this.native, this.global, this.refresh,
-      {this.numbers = false, this.bounds = false, this.viewport = false});
+      {this.numbers = false, this.bounds = false, this.image});
 }
 
 /// Original bitmap pixels enlarged at 4x.
-class VideoMagnifier extends StatelessWidget {
+class VideoMagnifier extends StatefulWidget {
   static const extent = 300.0;
   final VideoHover hover;
   const VideoMagnifier({super.key, required this.hover});
+  @override
+  State<VideoMagnifier> createState() => _VideoMagnifierState();
+}
+
+class _VideoMagnifierState extends State<VideoMagnifier> {
+  ui.Image? _image;
+  int _generation = 0;
+  @override
+  void initState() {
+    super.initState();
+    _decode();
+  }
+
+  @override
+  void didUpdateWidget(VideoMagnifier old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.hover.raster.image, widget.hover.raster.image) ||
+        old.hover.image != widget.hover.image) {
+      _decode();
+    }
+  }
+
+  void _decode() {
+    final generation = ++_generation;
+    void accept(ui.Image image) {
+      if (!mounted || generation != _generation) {
+        image.dispose();
+        return;
+      }
+      final previous = _image;
+      setState(() => _image = image);
+      previous?.dispose();
+    }
+
+    // Clone the handle so replacing the source bitmap cannot dispose the
+    // image while the popup still paints it. Pixel storage is shared.
+    final source = widget.hover.image;
+    if (source != null) {
+      accept(source.clone());
+    } else {
+      final bitmap = widget.hover.raster.image;
+      ui.decodeImageFromPixels(bitmap.buffer, bitmap.width, bitmap.height,
+          ui.PixelFormat.rgba8888, accept);
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _image?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => IgnorePointer(
       child: Material(
           elevation: 8,
           child: SizedBox(
-              width: extent,
-              height: extent,
-              child: CustomPaint(painter: _MagnifierPainter(hover)))));
+              width: VideoMagnifier.extent,
+              height: VideoMagnifier.extent,
+              child: RepaintBoundary(
+                  child: CustomPaint(
+                      painter: _MagnifierPainter(widget.hover, _image))))));
 }
 
 class _MagnifierPainter extends CustomPainter {
   final VideoHover hover;
-  _MagnifierPainter(this.hover);
+  final ui.Image? decodedImage;
+  _MagnifierPainter(this.hover, this.decodedImage);
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
@@ -316,17 +416,15 @@ class _MagnifierPainter extends CustomPainter {
         rows = (size.height / zoom).ceil();
     final startX = (hover.native.dx - columns / 2).floor(),
         startY = (hover.native.dy - rows / 2).floor();
-    final paint = Paint();
-    for (var y = 0; y < rows; y++) {
-      for (var x = 0; x < columns; x++) {
-        final sx = startX + x, sy = startY + y;
-        if (sx < 0 || sy < 0 || sx >= image.width || sy >= image.height) {
-          continue;
-        }
-        paint.color =
-            _rgba(bytes.getUint32((sy * image.width + sx) * 4, Endian.little));
-        canvas.drawRect(Rect.fromLTWH(x * zoom, y * zoom, zoom, zoom), paint);
-      }
+    if (decodedImage != null) {
+      canvas.save();
+      canvas.clipRect(Offset.zero & size);
+      canvas.scale(zoom);
+      canvas.drawImage(
+          decodedImage!,
+          Offset(-startX.toDouble(), -startY.toDouble()),
+          Paint()..filterQuality = FilterQuality.none);
+      canvas.restore();
     }
     canvas.save();
     canvas.clipRect(Rect.fromLTRB(
@@ -347,12 +445,6 @@ class _MagnifierPainter extends CustomPainter {
             startX, startY, columns, rows);
       }
     }
-    if (hover.viewport) {
-      for (final shape in hover.raster.viewports) {
-        _drawMagnifierOutline(
-            canvas, shape, startX, startY, columns, rows, _rgba(0xffaef069));
-      }
-    }
     canvas.restore();
     canvas.drawRect(
         (Offset.zero & size).deflate(0.5),
@@ -363,7 +455,18 @@ class _MagnifierPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MagnifierPainter old) => old.hover != hover;
+  bool shouldRepaint(_MagnifierPainter old) {
+    const radius = VideoMagnifier.extent / _magnifierZoom / 2;
+    return old.decodedImage != decodedImage ||
+        old.hover.raster != hover.raster ||
+        old.hover.background != hover.background ||
+        old.hover.numbers != hover.numbers ||
+        old.hover.bounds != hover.bounds ||
+        (old.hover.native.dx - radius).floor() !=
+            (hover.native.dx - radius).floor() ||
+        (old.hover.native.dy - radius).floor() !=
+            (hover.native.dy - radius).floor();
+  }
 }
 
 void _drawMagnifierOutline(Canvas canvas, DebugOutline shape, int startX,
@@ -456,6 +559,13 @@ void _drawMagnifierLabel(
     int rows) {
   if (shape.points.isEmpty || shape.label == null) return;
   final label = shape.label!;
+  final right = shape.points.map((point) => point.$1).reduce(math.max),
+      top = shape.points.map((point) => point.$2).reduce(math.min);
+  // Reject vertically distant labels before doing any font layout. Eight
+  // native rows leave 32 display pixels for the fixed 10px, single-line font.
+  if (right - 1 <= startX || top + 1 >= startY + rows || top + 1 < startY - 8) {
+    return;
+  }
   final textPainter = TextPainter(
       text: TextSpan(
           text: label,
@@ -467,9 +577,7 @@ void _drawMagnifierLabel(
       textDirection: TextDirection.ltr,
       maxLines: 1)
     ..layout();
-  final right = shape.points.map((point) => point.$1).reduce(math.max),
-      top = shape.points.map((point) => point.$2).reduce(math.min),
-      glyphWidth = textPainter.width,
+  final glyphWidth = textPainter.width,
       glyphHeight = textPainter.height,
       glyphX = (((right - 1 - startX) * _magnifierZoom) - glyphWidth)
           .floorToDouble(),
@@ -477,7 +585,10 @@ void _drawMagnifierLabel(
   if (glyphX + glyphWidth <= 0 ||
       glyphX >= columns * _magnifierZoom ||
       glyphY + glyphHeight <= 0 ||
-      glyphY >= rows * _magnifierZoom) return;
+      glyphY >= rows * _magnifierZoom) {
+    textPainter.dispose();
+    return;
+  }
 
   var luminance = 0, count = 0;
   for (var py = 0; py < glyphHeight.ceil(); py++) {
@@ -503,6 +614,7 @@ void _drawMagnifierLabel(
           color: foreground));
   textPainter.layout();
   textPainter.paint(canvas, Offset(glyphX, glyphY));
+  textPainter.dispose();
 }
 
 int _rasterLuminance(int color) {

@@ -12,6 +12,34 @@ const hardware = 0xff << 13;
 Pce machine() => Pce()..reset();
 
 void main() {
+  test('debug panels omit VDC 1 when SGX output is disabled', () {
+    final pce = machine();
+    void expectSingleVdc() {
+      expect(pce.videoLayers.map((layer) => layer.name),
+          ['VDC 0 BG', 'VDC 0 Sprites']);
+      expect(pce.patternTables.map((table) => table.name),
+          ['VDC 0 BG', 'VDC 0 Sprites']);
+    }
+
+    expectSingleVdc();
+    pce.vpc.read(0x08); // Detection alone does not enable VDC 1 output.
+    expect(pce.vpc.enabled, true);
+    expectSingleVdc();
+    for (final (reg, value) in [
+      (0x08, 0x02),
+      (0x08, 0x20),
+      (0x09, 0x02),
+      (0x09, 0x20)
+    ]) {
+      pce.vpc.write(reg, value);
+      expect(pce.videoLayers.map((layer) => layer.name),
+          ['VDC 0 BG', 'VDC 0 Sprites', 'VDC 1 BG', 'VDC 1 Sprites']);
+      expect(pce.patternTables.map((table) => table.name),
+          ['VDC 0 BG', 'VDC 0 Sprites', 'VDC 1 BG', 'VDC 1 Sprites']);
+      pce.vpc.write(reg, 0x11);
+      expectSingleVdc();
+    }
+  });
   test('VPC selects ST instructions without remapping memory ports', () {
     final pce = machine();
     pce.bus.write(hardware + 0x0e, 1);
