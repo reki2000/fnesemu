@@ -219,6 +219,7 @@ extension PpuVideoDebug on Ppu {
     }
     if (!map) {
       for (var y = 0; y < Ppu.height; y++) {
+        copy.objLineColor.fillRange(0, Ppu.widthNormal, -1);
         copy._evalSprites(
             y, copy.objLineColor, copy.objLinePalette, copy.objLinePriority);
         for (var x = 0; x < screenWidth; x++) {
