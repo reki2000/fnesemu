@@ -81,6 +81,7 @@ class _MemPaneState extends State<MemPane> {
               width: 80,
               child: TextField(
                   controller: _input,
+                  decoration: denseTextDecoration,
                   onChanged: (text) {
                     final address = int.tryParse(text, radix: 16);
                     if (text.length == _digits && address != null) {
