@@ -310,7 +310,8 @@ class Debugger {
       panel.raster.annotated(
           numbers: _patternNumbers,
           bounds: _patternBounds,
-          viewport: _viewportBounds),
+          viewport: _viewportBounds,
+          background: panel.background),
       panel.background,
       kind: panel.kind,
       row: panel.row,

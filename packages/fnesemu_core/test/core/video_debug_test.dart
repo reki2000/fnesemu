@@ -91,8 +91,9 @@ void main() {
     final bounded = original.annotated(bounds: true, viewport: true);
 
     expect(pixel(original, 5, 3), 0xff101010);
-    expect(pixel(bounded, 5, 3), 0xff00abff);
-    expect(pixel(bounded, 3, 5), 0xff00abff);
+    expect(pixel(bounded, 5, 3), 0xff085d87);
+    expect(pixel(bounded, 3, 5), 0xff085d87);
+    expect(pixel(bounded, 5, 5), 0xff085d87);
     expect(pixel(bounded, 3, 1), 0xff101010);
     expect(pixel(bounded, 1, 3), 0xff101010);
     expect(pixel(bounded, 10, 3), 0xffaef069);
@@ -102,6 +103,14 @@ void main() {
     final numbered = original.annotated(numbers: true);
     expect(pixel(numbered, 2, 2), 0xff101010);
     expect(pixel(numbered, 4, 2), 0xffffffff);
+
+    final mixedCanvas = DebugCanvas(12, 12)
+      ..pixels.fillRange(0, 12 * 12, 0xff101010)
+      ..pixels[2 * 12 + 4] = 0xfff0f0f0
+      ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'));
+    final mixed = mixedCanvas.raster().annotated(numbers: true);
+    expect(pixel(mixed, 4, 2), 0xff000000);
+    expect(pixel(mixed, 4, 4), 0xffffffff);
   });
   test(
       'CPU notifications do not capture video; active views capture all sources',
@@ -133,7 +142,7 @@ void main() {
     connected.setViewportBoundsVisible(false);
     expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0000ff);
     connected.setPatternBoundsVisible(true);
-    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff00abff);
+    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0055ff);
     expect(debugger.state.videoPanels, isEmpty);
   });
   test(

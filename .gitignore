@@ -68,3 +68,4 @@ run*.cmd
 # agent related
 .claude/settings.local.json
 .claude/worktrees
+.worktree/

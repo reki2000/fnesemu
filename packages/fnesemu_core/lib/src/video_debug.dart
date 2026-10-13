@@ -93,7 +93,10 @@ class DebugRaster {
   /// Pixel writes stay integer-only so clients can display and magnify the
   /// resulting bitmap without recreating overlay geometry.
   DebugRaster annotated(
-      {bool numbers = false, bool bounds = false, bool viewport = false}) {
+      {bool numbers = false,
+      bool bounds = false,
+      bool viewport = false,
+      int background = 0xff000000}) {
     final drawPatterns = (numbers || bounds) && patterns.isNotEmpty,
         drawViewports = viewport && viewports.isNotEmpty;
     if (!drawPatterns && !drawViewports) {
@@ -101,17 +104,30 @@ class DebugRaster {
     }
     final canvas = DebugCanvas(image.width, image.height),
         source = ByteData.sublistView(image.buffer);
-    for (var i = 0; i < canvas.pixels.length; i++) {
-      canvas.pixels[i] = source.getUint32(i * 4, Endian.little);
+    final sourceBuffer = image.buffer;
+    if (sourceBuffer.offsetInBytes % 4 == 0 &&
+        sourceBuffer.lengthInBytes >= canvas.pixels.length * 4) {
+      canvas.pixels.setAll(
+          0,
+          Uint32List.view(sourceBuffer.buffer, sourceBuffer.offsetInBytes,
+              canvas.pixels.length));
+    } else {
+      for (var i = 0; i < canvas.pixels.length; i++) {
+        canvas.pixels[i] = source.getUint32(i * 4, Endian.little);
+      }
     }
     canvas.patterns.addAll(patterns);
     canvas.viewports.addAll(viewports);
+    final glyphCache = <(int, int), List<int>>{}, contrastCache = <int, int>{};
     if (drawPatterns) {
       for (final pattern in patterns) {
-        if (bounds)
-          _drawOutline(canvas, pattern, 0xff00abff, skipTopLeft: true);
+        if (bounds) {
+          _drawOutline(canvas, pattern, 0xff00abff,
+              skipTopLeft: true, blend: true, background: background);
+        }
         if (numbers && pattern.label != null) {
-          _drawHexLabel(canvas, pattern, pattern.label!);
+          _drawHexLabel(canvas, pattern, pattern.label!, background, glyphCache,
+              contrastCache);
         }
       }
     }
@@ -155,16 +171,54 @@ class DebugRaster {
 }
 
 void _drawOutline(DebugCanvas canvas, DebugOutline shape, int color,
-    {bool skipTopLeft = false}) {
+    {bool skipTopLeft = false,
+    bool blend = false,
+    int background = 0xff000000}) {
   if (shape.points.length < 2) return;
-  var area = 0.0, minX = double.infinity, minY = double.infinity;
+  var minX = double.infinity,
+      minY = double.infinity,
+      maxX = -double.infinity,
+      maxY = -double.infinity,
+      axisAligned = shape.points.length == 4;
+  for (var i = 0; i < shape.points.length; i++) {
+    final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
+    minX = math.min(minX, a.$1);
+    minY = math.min(minY, a.$2);
+    maxX = math.max(maxX, a.$1);
+    maxY = math.max(maxY, a.$2);
+    axisAligned &= a.$1 == b.$1 || a.$2 == b.$2;
+  }
+  if (axisAligned) {
+    final left = (minX + 0.5).floor(),
+        right = (maxX - 0.5).floor(),
+        top = (minY + 0.5).floor(),
+        bottom = (maxY - 0.5).floor();
+    void draw(int x, int y) =>
+        _plotOutline(canvas, x, y, color, blend, background);
+
+    if (!skipTopLeft) {
+      for (var x = left; x <= right; x++) {
+        draw(x, top);
+      }
+      for (var y = top; y <= bottom; y++) {
+        draw(left, y);
+      }
+    }
+    for (var x = left; x <= right; x++) {
+      draw(x, bottom);
+    }
+    for (var y = top; y < bottom; y++) {
+      draw(right, y);
+    }
+    return;
+  }
+  var area = 0.0;
   for (var i = 0; i < shape.points.length; i++) {
     final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
     area += a.$1 * b.$2 - b.$1 * a.$2;
-    minX = math.min(minX, a.$1);
-    minY = math.min(minY, a.$2);
   }
   final direction = area >= 0 ? 1.0 : -1.0;
+  final drawn = blend ? <int>{} : null;
   for (var i = 0; i < shape.points.length; i++) {
     final a = shape.points[i], b = shape.points[(i + 1) % shape.points.length];
     final dx = b.$1 - a.$1, dy = b.$2 - a.$2;
@@ -178,24 +232,101 @@ void _drawOutline(DebugCanvas canvas, DebugOutline shape, int color,
     final ny = dx / length * direction * 0.5;
     for (var step = 0; step <= steps; step++) {
       final t = step / steps;
-      _putPixel(canvas, (a.$1 + dx * t + nx).floor(),
-          (a.$2 + dy * t + ny).floor(), color);
+      final x = (a.$1 + dx * t + nx).floor(),
+          y = (a.$2 + dy * t + ny).floor(),
+          index = y * canvas.width + x;
+      if (drawn != null &&
+          (x < 0 ||
+              y < 0 ||
+              x >= canvas.width ||
+              y >= canvas.height ||
+              !drawn.add(index))) {
+        continue;
+      }
+      _plotOutline(canvas, x, y, color, blend, background);
     }
   }
 }
 
-void _drawHexLabel(DebugCanvas canvas, DebugOutline shape, String label) {
+void _drawHexLabel(
+    DebugCanvas canvas,
+    DebugOutline shape,
+    String label,
+    int background,
+    Map<(int, int), List<int>> glyphCache,
+    Map<int, int> contrastCache) {
   final value = int.tryParse(label, radix: 16), first = shape.points.first;
   if (value == null) return;
   final x = first.$1.floor() + 1, y = first.$2.floor() + 1;
-  final width = IntImageExt.patternWidth * label.length;
+  final rows = glyphCache.putIfAbsent(
+      (value, label.length), () => _hexGlyphRows(value, label.length));
   for (var py = 0; py < IntImageExt.digitPattern.length; py++) {
-    for (var px = 0; px < width; px++) {
-      if (value.drawHexValue(px, py, label.length)) {
-        _putPixel(canvas, x + px, y + py, 0xffffffff);
-      }
+    var row = rows[py];
+    while (row != 0) {
+      final bit = row & -row, px = bit.bitLength - 1;
+      _putPixel(canvas, x + px, y + py,
+          _contrastColor(canvas, x + px, y + py, background, contrastCache));
+      row ^= bit;
     }
   }
+}
+
+List<int> _hexGlyphRows(int value, int characters) => [
+      for (var y = 0; y < IntImageExt.digitPattern.length; y++)
+        () {
+          var row = 0;
+          for (var x = 0; x < IntImageExt.patternWidth * characters; x++) {
+            if (value.drawHexValue(x, y, characters)) row |= 1 << x;
+          }
+          return row;
+        }(),
+    ];
+
+int _contrastColor(DebugCanvas canvas, int x, int y, int background,
+    Map<int, int> contrastCache) {
+  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) {
+    return 0xffffffff;
+  }
+  final pixel = _composite(canvas.pixels[y * canvas.width + x], background),
+      cached = contrastCache[pixel];
+  if (cached != null) return cached;
+  final red = pixel & 0xff,
+      green = pixel >> 8 & 0xff,
+      blue = pixel >> 16 & 0xff,
+      luminance = (299 * red + 587 * green + 114 * blue) ~/ 1000;
+  return contrastCache[pixel] = luminance >= 128 ? 0xff000000 : 0xffffffff;
+}
+
+int _composite(int color, int background) {
+  final alpha = color >> 24 & 0xff;
+  if (alpha == 0xff) return color;
+  if (alpha == 0) return 0xff000000 | (background & 0xffffff);
+  final inverse = 0xff - alpha;
+  int channel(int shift) =>
+      ((color >> shift & 0xff) * alpha +
+          (background >> shift & 0xff) * inverse +
+          0x7f) ~/
+      0xff;
+  return 0xff000000 | channel(16) << 16 | channel(8) << 8 | channel(0);
+}
+
+void _plotOutline(
+    DebugCanvas canvas, int x, int y, int color, bool blend, int background) {
+  if (blend) {
+    _blendPixel(canvas, x, y, color, background);
+  } else {
+    _putPixel(canvas, x, y, color);
+  }
+}
+
+void _blendPixel(DebugCanvas canvas, int x, int y, int color, int background) {
+  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return;
+  final index = y * canvas.width + x,
+      original = _composite(canvas.pixels[y * canvas.width + x], background);
+  final red = ((original & 0xff) + (color & 0xff)) >> 1,
+      green = ((original >> 8 & 0xff) + (color >> 8 & 0xff)) >> 1,
+      blue = ((original >> 16 & 0xff) + (color >> 16 & 0xff)) >> 1;
+  canvas.pixels[index] = 0xff000000 | blue << 16 | green << 8 | red;
 }
 
 void _putPixel(DebugCanvas canvas, int x, int y, int color) {
