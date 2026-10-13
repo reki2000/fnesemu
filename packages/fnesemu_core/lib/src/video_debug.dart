@@ -118,7 +118,7 @@ class DebugRaster {
     }
     canvas.patterns.addAll(patterns);
     canvas.viewports.addAll(viewports);
-    final glyphCache = <(int, int), List<int>>{}, contrastCache = <int, int>{};
+    final glyphCache = <(int, int), List<int>>{};
     if (drawPatterns) {
       for (final pattern in patterns) {
         if (bounds) {
@@ -126,8 +126,7 @@ class DebugRaster {
               skipTopLeft: true, blend: true, background: background);
         }
         if (numbers && pattern.label != null) {
-          _drawHexLabel(canvas, pattern, pattern.label!, background, glyphCache,
-              contrastCache);
+          _drawHexLabel(canvas, pattern, pattern.label!, background, glyphCache);
         }
       }
     }
@@ -253,19 +252,18 @@ void _drawHexLabel(
     DebugOutline shape,
     String label,
     int background,
-    Map<(int, int), List<int>> glyphCache,
-    Map<int, int> contrastCache) {
+    Map<(int, int), List<int>> glyphCache) {
   final value = int.tryParse(label, radix: 16), first = shape.points.first;
   if (value == null) return;
   final x = first.$1.floor() + 1, y = first.$2.floor() + 1;
   final rows = glyphCache.putIfAbsent(
       (value, label.length), () => _hexGlyphRows(value, label.length));
+  final foreground = _labelColor(canvas, x, y, rows, background);
   for (var py = 0; py < IntImageExt.digitPattern.length; py++) {
     var row = rows[py];
     while (row != 0) {
       final bit = row & -row, px = bit.bitLength - 1;
-      _putPixel(canvas, x + px, y + py,
-          _contrastColor(canvas, x + px, y + py, background, contrastCache));
+      _putPixel(canvas, x + px, y + py, foreground);
       row ^= bit;
     }
   }
@@ -282,19 +280,37 @@ List<int> _hexGlyphRows(int value, int characters) => [
         }(),
     ];
 
-int _contrastColor(DebugCanvas canvas, int x, int y, int background,
-    Map<int, int> contrastCache) {
-  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) {
-    return 0xffffffff;
+int _labelColor(
+    DebugCanvas canvas, int x, int y, List<int> rows, int background) {
+  var luminance = 0, pixels = 0;
+  for (var py = 0; py < rows.length; py++) {
+    var row = rows[py];
+    while (row != 0) {
+      final bit = row & -row, px = bit.bitLength - 1,
+          pxAt = x + px,
+          pyAt = y + py,
+          color = pxAt < 0 ||
+                  pyAt < 0 ||
+                  pxAt >= canvas.width ||
+                  pyAt >= canvas.height
+              ? background
+              : canvas.pixels[pyAt * canvas.width + pxAt];
+      luminance += _luminance(_composite(color, background));
+      pixels++;
+      row ^= bit;
+    }
   }
-  final pixel = _composite(canvas.pixels[y * canvas.width + x], background),
-      cached = contrastCache[pixel];
-  if (cached != null) return cached;
-  final red = pixel & 0xff,
-      green = pixel >> 8 & 0xff,
-      blue = pixel >> 16 & 0xff,
-      luminance = (299 * red + 587 * green + 114 * blue) ~/ 1000;
-  return contrastCache[pixel] = luminance >= 128 ? 0xff000000 : 0xffffffff;
+  final average = pixels == 0
+      ? _luminance(background)
+      : luminance ~/ pixels;
+  return average >= 128 ? 0xff000000 : 0xffffffff;
+}
+
+int _luminance(int color) {
+  final red = color & 0xff,
+      green = color >> 8 & 0xff,
+      blue = color >> 16 & 0xff;
+  return (299 * red + 587 * green + 114 * blue) ~/ 1000;
 }
 
 int _composite(int color, int background) {

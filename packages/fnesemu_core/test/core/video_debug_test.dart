@@ -12,6 +12,7 @@ import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
+import 'package:fnesemu_core/src/util/int.dart';
 import 'package:fnesemu_core/src/video_debug.dart';
 import 'package:test/test.dart';
 
@@ -103,14 +104,26 @@ void main() {
     final numbered = original.annotated(numbers: true);
     expect(pixel(numbered, 2, 2), 0xff101010);
     expect(pixel(numbered, 4, 2), 0xffffffff);
+    for (var y = 0; y < IntImageExt.digitPattern.length; y++) {
+      for (var x = 0; x < IntImageExt.patternWidth; x++) {
+        expect(pixel(numbered, x + 2, y + 2),
+            1.drawHexValue(x, y, 1) ? 0xffffffff : 0xff101010);
+      }
+    }
 
     final mixedCanvas = DebugCanvas(12, 12)
       ..pixels.fillRange(0, 12 * 12, 0xff101010)
       ..pixels[2 * 12 + 4] = 0xfff0f0f0
       ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'));
     final mixed = mixedCanvas.raster().annotated(numbers: true);
-    expect(pixel(mixed, 4, 2), 0xff000000);
+    expect(pixel(mixed, 4, 2), 0xffffffff);
     expect(pixel(mixed, 4, 4), 0xffffffff);
+
+    final brightCanvas = DebugCanvas(12, 12)
+      ..pixels.fillRange(0, 12 * 12, 0xfff0f0f0)
+      ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'));
+    final darkText = brightCanvas.raster().annotated(numbers: true);
+    expect(pixel(darkText, 4, 2), 0xff000000);
   });
   test(
       'CPU notifications do not capture video; active views capture all sources',
