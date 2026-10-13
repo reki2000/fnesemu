@@ -32,8 +32,8 @@ jobs:
         working-directory: packages/cdrom_image
       - run: dart test
         working-directory: packages/fnesemu_core
-      - name: PCE / SGX regression tests on WebAssembly
-        run: dart test --platform chrome --compiler dart2wasm test/core/pce/sgx_test.dart test/core/pce/vdc_render_test.dart test/core/pce/run_frame_test.dart
+      - name: Video regression tests on WebAssembly
+        run: dart test --platform chrome --compiler dart2wasm test/core/pce/sgx_test.dart test/core/pce/vdc_render_test.dart test/core/pce/run_frame_test.dart test/core/ps/gpu/display_aspect_test.dart
         working-directory: packages/fnesemu_core
       - run: flutter test
       - run: |
