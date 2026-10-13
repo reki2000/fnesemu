@@ -1,0 +1,471 @@
+// import '../../../util/debug.dart';
+import 'dart:math';
+import 'dart:typed_data';
+
+import '../../../util/int.dart';
+import 'bus.dart';
+import 'vdc_render.dart';
+
+// final _log = DebugLog('pce.vdc');
+
+class Vdc {
+  final Bus bus;
+  final int priority;
+
+  Vdc(this.bus, this.priority);
+
+  String dump() {
+    final regs = "${reg.x2} r${marr.x4} w${mawr.x4}";
+    final scr =
+        "scr:${scrollX.x4.substring(1)},${scrollY.x4.substring(1)},${rasterCompareRegister.x4.substring(1)}+${addrInc.x2}";
+    final flags =
+        "i:${enableRasterCompareIrq ? 's' : '-'}${enableVBlank ? 'v' : '-'}${enalbeSpriteCollision ? 'c' : '-'}${enableSpriteOverflow ? 'o' : '-'}";
+    final bg =
+        "bg:${hSize}x$vSize ${bgWidthMask + 1}x${bgHeightMask + 1} ${enableBg ? 'b' : '-'}${enableSprite ? 's' : '-'}";
+    final line = "l:$scanLine,${bgRenderLine} f:${VdcRenderer.frames}";
+    return "vdc: $regs $bg $scr $flags $line";
+  }
+
+  reset() {
+    final rand = Random(0); // fixed seed: deterministic power-on garbage
+    vram.setRange(0, vram.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    colorTable.setRange(0, colorTable.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
+    sat.setRange(0, sat.length,
+        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+
+    reg = 0;
+
+    status = 0;
+    irqPending = false;
+
+    controlRegister = 0;
+
+    scanLine = 0;
+    scanX = 0;
+    scrollX = 0;
+    scrollY = 0;
+    rasterCompareRegister = 0;
+
+    enableBg = false;
+    enableSprite = false;
+
+    enableVBlank = false;
+    enableRasterCompareIrq = false;
+    enalbeSpriteCollision = false;
+    enableSpriteOverflow = false;
+    enableDmaVramIrq = false;
+    enableDmaSatIrq = false;
+
+    writeLatch = 0;
+    readLatch = 0;
+    mawr = 0;
+    marr = 0;
+    addrInc = 1;
+
+    vramDotWidth = 0;
+    hSize = 256;
+    vSize = 242;
+
+    bgWidthBits = 5;
+    bgHeightBits = 5;
+    bgWidthMask = 0x1f;
+    bgHeightMask = 0x1f;
+    bgScrollMaskX = 0xff;
+    bgScrollMaskY = 0xff;
+    bgTreatPlane23Zero = false;
+
+    dmaSrc = 0;
+    dmaSrcDir = 0;
+    dmaDst = 0;
+    dmaDstDir = 0;
+    dmaLen = 0;
+    dma = false;
+    dmaSrcSatb = 0;
+    dmaSatb = false;
+    dmaSatbAlways = false;
+
+    resetRenderer();
+  }
+
+  int scanLine = 0; // vertical counter
+  int scanX = 0; // horizontal counter
+
+  int hSize = 256; // rendered image width
+  int vSize = 242; // rendered image height
+
+  int reg = 0;
+
+  int readLatch = 0;
+
+  int mawr = 0;
+  int marr = 0;
+  int addrInc = 1;
+
+  int scrollX = 0;
+  int scrollY = 0;
+
+  bool enableBg = false;
+  bool enableSprite = false;
+
+  bool enableVBlank = false;
+  bool enableRasterCompareIrq = false;
+  bool enalbeSpriteCollision = false;
+  bool enableSpriteOverflow = false;
+
+  int writeLatch = 0;
+
+  int status = 0;
+  bool irqPending = false;
+
+  void raiseIrq(int flag) {
+    status |= flag;
+    irqPending = true;
+    bus.updateVdcIrq();
+  }
+
+  static const statusBusy = 0x40;
+  static const statusVBlank = 0x20; // vblank irq
+  static const statusDmaVram = 0x10; // dma vram irq
+  static const statusDmaSat = 0x08; // dma satb irq
+  static const statusRasterCompare = 0x04; // raster compare
+  static const statusSpriteOverflow = 0x02; // sprite overflow
+  static const statusSpriteCollision = 0x01; // sprite collision
+
+  int rasterCompareRegister = 0;
+
+  int controlRegister = 0;
+
+  int bgWidthBits = 5;
+  int bgHeightBits = 5;
+
+  int bgWidthMask = 0x1f;
+  int bgHeightMask = 0x1f;
+
+  int bgScrollMaskX = 0xff;
+  int bgScrollMaskY = 0xff;
+
+  bool bgTreatPlane23Zero = false;
+  int vramDotWidth = 0;
+
+  final vram = Uint16List(0x10000); // 2 bytes per word
+
+  final sat = List<int>.filled(0x100, 0);
+
+  // --- renderer state (per-VDC, for sgx dual-VDC support) ---
+  // full-frame palette-index buffer (hSize*vSize). value 0..0x1ff = VCE index,
+  // 0xffff = direct white (used by debug overlay). VCE->RGBA is done by Vpc.
+  Uint16List indexBuffer = Uint16List(0);
+  int bgRenderLine = 0;
+  int displayLine = 0;
+
+  // bg fetch latches (kept across the 8 pixels of a tile)
+  int paletteNo = 0;
+  int pattern01 = 0;
+  int pattern23 = 0;
+
+  // sprite evaluation state (independent SAT per VDC)
+  final sprites =
+      List<Sprite>.filled(64, Sprite.of(List.filled(4, 0), 0), growable: false);
+  final spriteBuf =
+      List<Sprite>.filled(16, Sprite.of(List.filled(4, 0), 0), growable: false);
+  int spriteBufIndex = 0;
+  // line buffers of the renderer: sprite pixel per x, and the decoded
+  // pixels of each buffered sprite (32 per sprite)
+  final spriteLine = Int32List(0x200);
+  final spritePixels = Int32List(16 * 32);
+  final sprite0 = List<bool>.filled(32, false); // x of sprite 0
+
+  int readReg() {
+    final value = status;
+    status = 0;
+    irqPending = false;
+    bus.updateVdcIrq();
+    return value;
+  }
+
+  int readLsb() {
+    return readLatch.mask8;
+  }
+
+  int readMsb() {
+    final val = readLatch.shr8;
+    marr = (marr + addrInc).mask16;
+    readLatch = vram[marr];
+    return val;
+  }
+
+  writeReg(int val) {
+    // _log.debugc(() => "writeReg: ${reg.x2}");
+    reg = val.mask5;
+  }
+
+  writeLsb(int val) {
+    // _log.debugc(() => "writeLsb: ${val.x2}");
+    switch (reg) {
+      case 0x00:
+        mawr = mawr.setL8(val);
+        break;
+      case 0x01:
+        marr = marr.setL8(val);
+        break;
+      case 0x02:
+        writeLatch = writeLatch.setL8(val);
+        break;
+
+      case 0x05:
+        enalbeSpriteCollision = val.bit0;
+        enableSpriteOverflow = val.bit1;
+        enableRasterCompareIrq = val.bit2;
+        enableVBlank = val.bit3;
+
+        enableSprite = val.bit6;
+        enableBg = val.bit7;
+        break;
+
+      case 0x06:
+        rasterCompareRegister = rasterCompareRegister.setL8(val);
+        break;
+      case 0x07:
+        scrollX = scrollX.setL8(val);
+        break;
+      case 0x08:
+        scrollY = scrollY.setL8(val);
+        bgRenderLine = scrollY & bgScrollMaskY;
+        break;
+
+      case 0x09:
+        vramDotWidth = val.mask2;
+        bgWidthBits = switch (val & 0x30) {
+          0x00 => 5,
+          0x10 => 6,
+          0x20 => 7,
+          0x30 => 7,
+          int() => throw UnimplementedError(),
+        };
+        bgWidthMask = (1 << bgWidthBits) - 1;
+        bgScrollMaskX = (1 << (bgWidthBits + 3)) - 1;
+
+        bgHeightBits = switch (val & 0x40) {
+          0x00 => 5,
+          0x40 => 6,
+          int() => throw UnimplementedError(),
+        };
+        bgHeightMask = (1 << bgHeightBits) - 1;
+        bgScrollMaskY = (1 << (bgHeightBits + 3)) - 1;
+
+        bgTreatPlane23Zero = !val.bit7;
+        // _log.debugc(() =>
+        //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
+        break;
+
+      // Horizontal Sync Register
+      case 0x0a:
+        break;
+      // Horizontal Display Register
+      case 0x0b:
+        final oldHSize = hSize;
+        hSize = (val.mask6 + 1).shl3;
+        if (oldHSize != hSize) indexBuffer = Uint16List(hSize * vSize);
+        break;
+      // Vertical Sync Register
+      case 0x0c:
+        break;
+      // Vertical Display Register
+      case 0x0d:
+        break;
+      // Vertical Display End Position Register
+      case 0x0e:
+        break;
+
+      case 0x0f:
+        enableDmaSatIrq = val.bit0;
+        enableDmaVramIrq = val.bit1;
+        dmaSrcDir = val.bit2 ? -1 : 1;
+        dmaDstDir = val.bit3 ? -1 : 1;
+        dmaSatbAlways = val.bit4;
+        break;
+
+      case 0x10:
+        dmaSrc = dmaSrc.setL8(val);
+        break;
+      case 0x11:
+        dmaDst = dmaDst.setL8(val);
+        break;
+      case 0x12:
+        dmaLen = dmaLen.setL8(val);
+        break;
+      case 0x13:
+        dmaSrcSatb = dmaSrcSatb.setL8(val);
+        break;
+    }
+  }
+
+  writeMsb(int val) {
+    // _log.debugc(() => "writeMsb: ${val.x2}");
+    switch (reg) {
+      case 0x00:
+        mawr = mawr.setH8(val);
+        break;
+      case 0x01:
+        marr = marr.setH8(val);
+        readLatch = vram[marr];
+        break;
+      case 0x02:
+        writeLatch = writeLatch.setH8(val);
+        vram[mawr] = writeLatch;
+        mawr = (mawr + addrInc).mask16;
+        // if (mawr == 0x7f00 && writeLatch == 0x0060) {
+        //   _log.debugc(() =>
+        //       "frame:${VdcRenderer.frames} write vram: ${mawr.x4}\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
+        // }
+        break;
+
+      case 0x05:
+        addrInc = switch (val & 0x18) {
+          0x00 => 1,
+          0x08 => 32,
+          0x10 => 64,
+          0x18 => 128,
+          int() => throw UnimplementedError(),
+        };
+        break;
+
+      case 0x06:
+        rasterCompareRegister = rasterCompareRegister.setH8(val.mask2);
+        break;
+      case 0x07:
+        scrollX = scrollX.setH8(val.mask2);
+        break;
+      case 0x08:
+        scrollY = scrollY.setH8(val.mask1);
+        bgRenderLine = scrollY & bgScrollMaskY;
+        break;
+
+      case 0x09:
+        break;
+
+      // Horizontal Sync Register
+      case 0x0a:
+        break;
+      // Horizontal Display Register
+      case 0x0b:
+        break;
+      // Vertical Sync Register
+      case 0x0c:
+        break;
+      // Vertical Display Register
+      case 0x0d:
+        break;
+      // Vertical Display End Position Register
+      case 0x0e:
+        break;
+
+      case 0x0f:
+        break;
+      case 0x10:
+        dmaSrc = dmaSrc.setH8(val);
+        break;
+      case 0x11:
+        dmaDst = dmaDst.setH8(val);
+        break;
+      case 0x12:
+        dmaLen = dmaLen.setH8(val);
+        dma = true;
+        break;
+      case 0x13:
+        dmaSrcSatb = dmaSrcSatb.setH8(val);
+        dmaSatb = true;
+        break;
+    }
+  }
+
+  // VCE
+  // the colour table is a single shared chip (VCE); Pce() points vdc2 at
+  // vdc1's table so both VDCs and the debug views see the same palette.
+  List<int> colorTable = List<int>.filled(512, 0x1ff, growable: false);
+  int colorTableAddress = 0;
+
+  int readColorTableLsb() {
+    return colorTable[colorTableAddress].mask8;
+  }
+
+  int readColorTableMsb() {
+    final value = colorTable[colorTableAddress].shr8 | 0xfe;
+    colorTableAddress = (colorTableAddress + 1).mask9;
+    return value;
+  }
+
+  writeColorTableLsb(int val) {
+    colorTable[colorTableAddress] = colorTable[colorTableAddress].setL8(val);
+  }
+
+  writeColorTableMsb(int val) {
+    colorTable[colorTableAddress] =
+        colorTable[colorTableAddress].setH8(val.mask1);
+    colorTableAddress = (colorTableAddress + 1).mask9;
+  }
+
+  writeColorTableAddressLsb(int val) {
+    colorTableAddress = colorTableAddress.setL8(val);
+  }
+
+  writeColorTableAddressMsb(int val) {
+    colorTableAddress = colorTableAddress.setH8(val.mask1);
+  }
+
+  // DMA
+
+  int dmaSrc = 0;
+  int dmaSrcDir = 0;
+  int dmaDst = 0;
+  int dmaDstDir = 0;
+  int dmaLen = 0;
+  bool dma = false;
+  bool enableDmaVramIrq = false;
+  bool enableDmaSatIrq = false;
+
+  int dmaSrcSatb = 0;
+  bool dmaSatb = false;
+  bool dmaSatbAlways = false;
+
+  execDmaSatb() {
+    // _log.debugc(() => "execDmaSatb : $dmaSatb ${dmaSrcSatb.x4}");
+    if (dmaSatb || dmaSatbAlways) {
+      for (int i = 0; i < sat.length; i++) {
+        sat[i] = vram[(dmaSrcSatb + i).mask16];
+      }
+
+      fetchSatb();
+
+      dmaSatb = false;
+
+      if (enableDmaSatIrq) {
+        raiseIrq(statusDmaSat);
+      }
+    }
+  }
+
+  execDmaVram() {
+    if (!dma) {
+      return;
+    }
+
+    dma = false;
+
+    for (int i = 0; i < 1024; i++) {
+      vram[dmaDst] = vram[dmaSrc];
+      dmaSrc = (dmaSrc + dmaSrcDir).mask16;
+      dmaDst = (dmaDst + dmaDstDir).mask16;
+      dmaLen--;
+
+      if (dmaLen == 0) {
+        if (enableDmaVramIrq) {
+          raiseIrq(statusDmaVram);
+        }
+        break;
+      }
+    }
+  }
+}

@@ -1,9 +1,6 @@
-// Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/util/int.dart';
 
-import '../../core/debugger.dart';
-// Project imports:
+import 'package:fnesemu_core/app_api.dart';
 import '../../styles.dart';
 
 // get 40 lines of disassemble string
@@ -28,11 +25,11 @@ class DebugDisasm extends StatelessWidget {
       this.backwardLines = 5,
       this.forwardLines = 40,
       this.width = 320})
-      : addrMask = 1 << addrBits - 1 {
-    addrNotifier.value = debugger.opt.disasmAddress[cpuNo];
+      : addrMask = (1 << addrBits) - 1 {
+    addrNotifier.value = debugger.disasmAddress(cpuNo);
   }
 
-  final margin10 = const EdgeInsets.all(10.0);
+  final margin10 = const EdgeInsets.all(2.0);
   final node = FocusNode();
 
   List<(int, String)> _asm(int addr, int lines) {
@@ -62,7 +59,7 @@ class DebugDisasm extends StatelessWidget {
   }
 
   _button(String text, void Function() func) =>
-      TextButton(onPressed: func, style: textButtonMinimum, child: Text(text));
+      TextButton(onPressed: func, child: Text(text));
 
   _addrInc(int offset) {
     addrNotifier.value = (addrNotifier.value + offset) & addrMask;
@@ -91,7 +88,7 @@ class DebugDisasm extends StatelessWidget {
                           child: TextField(
                               decoration: denseTextDecoration,
                               onChanged: (v) {
-                                if (v.length == addrBits.shr2) {
+                                if (v.length == (addrBits + 3) ~/ 4) {
                                   addrNotifier.value = int.parse(v, radix: 16);
                                 }
                               })),

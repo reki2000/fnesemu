@@ -1,0 +1,390 @@
+import 'dart:typed_data';
+
+import '../../../types.dart';
+import '../../../util/debug.dart';
+import '../../../util/int.dart';
+import '../../../util/uint8list.dart';
+import '../bus.dart';
+import '../interrupt.dart';
+import 'point_color.dart';
+
+part 'gpu0.dart';
+part 'gpu0_renderer.dart';
+part 'gpu1.dart';
+part 'renderer.dart';
+
+final _log = DebugLog('ps.gpu');
+
+class Gpu {
+  final Bus bus;
+
+  Gpu(this.bus) {
+    reset();
+  }
+
+  static const xMask = 0x3ff;
+  static const yMask = 0x1ff;
+
+  int status = 0;
+  int gp0 = 0;
+  int gp1 = 0;
+
+  // rendering status
+  int width = 320; //  256, 320, 368, 512, 640
+  int dotClockDivider =
+      7 * 8; // 7* 10:256pix 8:320pix 7:368pix 5:512pix 4:640pix
+  int height = 240; // 240p or 480i
+  Uint32List buffer = Uint32List(320 * 240);
+
+  ImageBuffer get imageBuffer =>
+      ImageBuffer(width, height, buffer.buffer.asUint8List(),
+          displayWidth_: 320);
+
+  static const scanlinesInFrame = 262; // ntsc
+
+  int scanline = 0;
+  int frame = 0;
+  bool isOddFrame = false;
+  bool isVblank = false;
+
+  // GP1 status register
+  final cmd = List<int>.filled(16, 0);
+  int cmdSize = 0;
+  bool get cmdReady => cmdSize == 0;
+  bool get dmaReceiveReady =>
+      cmdReady ||
+      cmdSize == 3 && cmd[0].shr29 == 0x05; // GP0 DMA receive command
+  bool vramToCpuReady = false; // GP0 VRAM to CPU command
+
+  bool irq1 = false;
+  bool textureDisableAllowed = false; // GP1(09h)
+
+  int textureMaskX = 0;
+  int textureMaskY = 0;
+  int textureOffsetX = 0;
+  int textureOffsetY = 0;
+  int textureMaskX2 = 0xff;
+  int textureMaskY2 = 0xff;
+  int textureOffsetX2 = 0;
+  int textureOffsetY2 = 0;
+
+  int drawingX1 = 0;
+  int drawingY1 = 0;
+  int drawingX2 = 0;
+  int drawingY2 = 0;
+
+  int drawingOffsetX = 0;
+  int drawingOffsetY = 0;
+
+  int bltSizeX = 0;
+  int bltSizeY = 0;
+  int bltPosX = 0;
+  int bltPosY = 0;
+  int bltFromX = 0;
+  int bltFromY = 0;
+
+  int debugCmdIndexInFrame = 0;
+  String debugCmdLog = "";
+
+  void reset() {
+    status = 0.setBit(23, true);
+    gp0 = 0;
+    gp1 = 0;
+    cmd.fillRange(0, cmd.length, 0);
+    cmdSize = 0;
+    irq1 = false;
+    vramToCpuReady = false;
+    textureDisableAllowed = false;
+
+    width = 320;
+    height = 240;
+    dotClockDivider = 7 * 8;
+    buffer = Uint32List(320 * 240);
+
+    textureMaskX = 0;
+    textureMaskY = 0;
+    textureOffsetX = 0;
+    textureOffsetY = 0;
+    textureMaskX2 = 0xff;
+    textureMaskY2 = 0xff;
+    textureOffsetX2 = 0;
+    textureOffsetY2 = 0;
+
+    drawingX1 = 0;
+    drawingY1 = 0;
+    drawingX2 = 0;
+    drawingY2 = 0;
+
+    drawingOffsetX = 0;
+    drawingOffsetY = 0;
+
+    bltSizeX = 0;
+    bltSizeY = 0;
+    bltPosX = 0;
+    bltPosY = 0;
+    bltFromX = 0;
+    bltFromY = 0;
+
+    scanline = 0;
+    frame = 0;
+    isOddFrame = false;
+
+    cmd.fillRange(0, cmd.length, 0);
+    cmdSize = 0;
+    readValue = 0;
+
+    irq1 = false;
+
+    startDisplayX = 0;
+    startDisplayY = 0;
+    displayX1 = 0;
+    displayY1 = 0;
+    displayX2 = 0;
+    displayY2 = 0;
+
+    displayMode = 0;
+    frameBuffer.fillRange(0, frameBuffer.length, 0);
+  }
+
+  int readReg() {
+    // _log.debugc(() => "GPREAD: ${readValue.x8} ${dumpCmd()}");
+    final result = readValue;
+    postRead();
+
+    return result;
+  }
+
+  int readStat() {
+    final b25 = switch (status.shr29.mask2) {
+      0 => false,
+      1 => true, // fifo is never full
+      2 => dmaReceiveReady, // same as bit28
+      _ => vramToCpuReady, // same as bit27
+    };
+
+    final result = status
+        .setBit(13, true)
+        .setBit(24, irq1)
+        .setBit(25, b25)
+        .setBit(26, cmdReady)
+        .setBit(27, vramToCpuReady)
+        .setBit(28, dmaReceiveReady)
+        .setBit(31, isOddFrame & !isVblank);
+    // _log.debugc(() => "GPSTAT: ${result.x8}  ${dumpCmd()}");
+    return result;
+  }
+
+  // GP1 status register
+  int startDisplayX = 0;
+  int startDisplayY = 0;
+  int displayX1 = 0;
+  int displayY1 = 0;
+  int displayX2 = 0;
+  int displayY2 = 0;
+
+  int displayMode = 0;
+  bool get isH480 => displayMode.bit2;
+  bool get isPal => displayMode.bit3;
+  bool get isRgb24 => displayMode.bit4;
+  bool get isInterlaced => displayMode.bit5;
+
+  final frameBuffer = Uint8List(512 * 2048);
+  late final frameBuffer16 = frameBuffer.buffer.asUint16List();
+
+  int readValue = 0;
+
+  @pragma('vm:prefer-inline')
+  writeFrameBuffer16(int x, int y, int u16) {
+    final offset = y.mask9 * 1024 + x.mask10;
+    // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
+    //   _log.debugc(() =>
+    //       "writeFrameBuffer16: ${u16.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
+    // }
+    frameBuffer16[offset] = u16;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readFrameBuffer16(int x, int y) {
+    final offset = y.mask9 * 1024 + x.mask10;
+    // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
+    //   final result = frameBuffer.getUint16LE(offset);
+    //   _log.debugc(() =>
+    //       "readFrameBuffer16: value ${result.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
+    // }
+    return frameBuffer16[offset];
+  }
+
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int getTextureColor2(
+      int u, int v, int baseX, int baseY, int clutBase, int clutMode,
+      {bool debug = false}) {
+    final uu = u & textureMaskX2 | textureOffsetX2;
+    final vv = v & textureMaskY2 | textureOffsetY2;
+
+    final base = (baseY + vv).shl10;
+
+    final int addr;
+    switch (clutMode) {
+      case 0:
+        final clutByteIndex = base + (baseX + uu.shr2).mask10;
+        final clutByte = frameBuffer16[clutByteIndex & 0x7ffff];
+        final clutIndex = clutByte >> uu.mask2.shl2;
+        addr = clutBase + clutIndex.mask4;
+
+      case 1:
+        final clutIndex = frameBuffer[
+            ((base + (baseX + uu.shr1).mask10).shl1 | uu.mask1) & 0xfffff];
+        addr = clutBase + clutIndex;
+
+      default:
+        addr = base + (baseX + uu).mask10;
+    }
+    final result = frameBuffer16[addr & 0x7ffff];
+
+    if (debug) {
+      _log.debugc(() =>
+          "getTexureColor($u+$textureOffsetX2/${textureMaskX2.x2}, $v+$textureOffsetY2/${textureMaskY2.x2}, "
+          "$baseX, $baseY, ${clutBase.x6}, $clutMode) -> ${result.x4}");
+    }
+
+    return result;
+  }
+
+  // 4x4 dither matrix added to 8bit color components
+  static const _ditherV = [
+    -4, 0, -3, 1, //
+    2, -2, 3, -1, //
+    -3, 1, -4, 0, //
+    3, -1, 2, -2, //
+  ];
+
+  @pragma('vm:prefer-inline')
+  static int _c8toC5(int c8) => c8 < 0
+      ? 0
+      : c8 > 0xff
+          ? 0x1f
+          : c8.shr3;
+
+  /// modulate a texel by a 24bit color (0x80 = x1.0), then dither if enabled
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int ditherAndModulate(int x, int y, int c16, Color m24,
+      {bool dithering = true}) {
+    final d = dithering && status.bit9 ? _ditherV[x.mask2 | y.mask2.shl2] : 0;
+
+    final r = _c8toC5((c16.mask5 * m24.r).shr4 + d);
+    final g = _c8toC5((c16.shr5.mask5 * m24.g).shr4 + d);
+    final b = _c8toC5((c16.shr10.mask5 * m24.b).shr4 + d);
+
+    return b.shl10 | g.shl5 | r | c16 & 0x8000;
+  }
+
+  /// convert a 24bit color into 15bit with dithering if enabled
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int dither(int x, int y, Color c) {
+    if (!status.bit9) {
+      return c.c15;
+    }
+
+    final d = _ditherV[x.mask2 | y.mask2.shl2];
+    return _c8toC5(c.r + d) | _c8toC5(c.g + d).shl5 | _c8toC5(c.b + d).shl10;
+  }
+
+  /// c16.bit15 is written as the mask bit, [blend] enables semi-transparency
+  @pragma('vm:prefer-inline')
+  void pset16(int x, int y, int c16,
+      {bool ignoreWindow = false, bool blend = false, int? semiTransparent}) {
+    if (!ignoreWindow) {
+      _plot(x, y, c16, blend, semiTransparent ?? status.shr5.mask2);
+      return;
+    }
+
+    if (x < 0 || x >= 1024 || y < 0 || y >= 512) {
+      return;
+    }
+
+    final old = frameBuffer16[y * 1024 + x];
+
+    // write protected
+    if (status.bit12 && old.bit15) {
+      return;
+    }
+
+    if (blend) {
+      c16 =
+          c16 & 0x8000 | _blend(old, c16, semiTransparent ?? status.shr5.mask2);
+    }
+
+    writeFrameBuffer16(x, y, c16 | (status.bit11 ? 0x8000 : 0));
+  }
+
+  // polygon edges at the current scanline, reused by the renderer
+  final _e0 = _Edge();
+  final _e1 = _Edge();
+
+  /// same as pset16(x, y, c16, blend: [blend], semiTransparent: [semi])
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _plot(int x, int y, int c16, bool blend, int semi) {
+    x += drawingOffsetX;
+    y += drawingOffsetY;
+    if (x < drawingX1 || x > drawingX2 || y < drawingY1 || y > drawingY2) {
+      return;
+    }
+
+    // the drawing area is inside the vram
+    final index = y * 1024 + x;
+    final old = frameBuffer16[index];
+
+    // write protected
+    if (status.bit12 && old.bit15) {
+      return;
+    }
+
+    if (blend) {
+      c16 = c16 & 0x8000 | _blend(old, c16, semi);
+    }
+
+    frameBuffer16[index] = c16 | (status.bit11 ? 0x8000 : 0);
+  }
+
+  /// semi-transparency of the 15bit colors: back [b] and front [f]
+  @pragma('vm:prefer-inline')
+  static int _blend(int b, int f, int mode) {
+    final r0 = b.mask5;
+    final g0 = b.shr5.mask5;
+    final b0 = b.shr10.mask5;
+    final r1 = f.mask5;
+    final g1 = f.shr5.mask5;
+    final b1 = f.shr10.mask5;
+    switch (mode) {
+      case 0: // B/2+F/2
+        return (b0 + b1).shr1.shl10 | (g0 + g1).shr1.shl5 | (r0 + r1).shr1;
+      case 1: // B+F
+        final r = r0 + r1, g = g0 + g1, bb = b0 + b1;
+        return (bb > 31 ? 31 : bb).shl10 |
+            (g > 31 ? 31 : g).shl5 |
+            (r > 31 ? 31 : r);
+      case 2: // B-F
+        final r = r0 - r1, g = g0 - g1, bb = b0 - b1;
+        return (bb < 0 ? 0 : bb).shl10 | (g < 0 ? 0 : g).shl5 | (r < 0 ? 0 : r);
+      default: // B+F/4
+        final r = r0 + r1.shr2, g = g0 + g1.shr2, bb = b0 + b1.shr2;
+        return (bb > 31 ? 31 : bb).shl10 |
+            (g > 31 ? 31 : g).shl5 |
+            (r > 31 ? 31 : r);
+    }
+  }
+
+  String dump() => "GPU: stat:${status.x8} "
+      "${width}x$height "
+      "(${displayX1.d3},${displayY1.d3}) ${(displayX2 - displayX1).d4}x${(displayY2 - displayY1).d3} "
+      "(${startDisplayX.d3},${startDisplayY.d3}) "
+      "(${drawingX1.d3},${drawingY1.d3})-(${drawingX2.d3},${drawingY2.d3}) "
+      "offset:(${drawingOffsetX.d4},${drawingOffsetY.d3}) frame:$frame ${scanline.d3}";
+
+  String dumpCmd() =>
+      "cmd[${cmd.sublist(0, cmdSize).map((d) => d.x8).join(" ")}]";
+}

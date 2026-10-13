@@ -1,12 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fnesemu/core/storage_key.dart';
 import 'package:fnesemu/gui/blob_store/blob_store.dart';
 import 'package:fnesemu/gui/storage.dart';
-import 'package:fnesemu/util/uint8list.dart';
+import 'package:fnesemu_core/app_api.dart';
 import 'package:idb_shim/idb_client_memory.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -31,16 +29,24 @@ void main() {
   });
 
   test('sram is saved and preloaded on the next open', () async {
-    SharedPreferences.setMockInitialValues({});
     final factory = newIdbFactoryMemory();
 
     final s1 =
         await Storage.open(store: await BlobStore.open(factory: factory));
+    var saved = 0;
+    final events = <String>[];
+    s1.onSramSaved = () => saved++;
+    s1.onEvent = events.add;
     s1.init("nes/sram/x", Uint8List(4));
     s1.write8(1, 0x55);
     s1.saveIfDirty();
     s1.dispose();
-    await Future.delayed(Duration.zero);
+    for (var i = 0; i < 100 && saved == 0; i++) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+    // a save is shown as a badge, not as a message
+    expect(saved, 1);
+    expect(events, isEmpty);
 
     final s2 =
         await Storage.open(store: await BlobStore.open(factory: factory));
@@ -49,17 +55,44 @@ void main() {
     s2.dispose();
   });
 
-  test('migrates shared preferences', () async {
-    final mem = Uint8List.fromList([1, 2, 3]);
-    SharedPreferences.setMockInitialValues(
-        {"psx_mem1": mem.toBase64(), "0123abcd": mem.toBase64()});
+  test('settings are saved without a core and loaded at open', () async {
+    expect(StorageKey.setting("disc_dir"), "settings/disc_dir");
+    expect(StorageKey.kindOf("settings/disc_dir"), StorageKey.settings);
 
-    final store = await BlobStore.open(factory: newIdbFactoryMemory());
-    final s = await Storage.open(store: store);
+    final factory = newIdbFactoryMemory();
+    final s1 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s1.setting("disc_dir"), isNull);
+    await s1.setSetting("disc_dir", "/home/user/ディスク");
+    expect(s1.setting("disc_dir"), "/home/user/ディスク");
+    s1.dispose();
 
-    expect(await store.get("ps/sram/memcard1"), mem);
-    expect(await store.get("nes/sram/0123abcd"), mem);
-    expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
-    s.dispose();
+    final s2 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s2.setting("disc_dir"), "/home/user/ディスク");
+    s2.dispose();
+  });
+
+  test('bios files are replaced, and listed at the next open', () async {
+    final factory = newIdbFactoryMemory();
+    final a = Uint8List.fromList([1]);
+    final b = Uint8List.fromList([2, 2]);
+
+    final s1 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s1.biosNames("32x"), isEmpty);
+    await s1.setBios("32x", [("old.bin", a)]);
+    await s1.setBios("32x", [("m.bin", b), ("a.bin", a)]);
+    await s1.setBios("ps", [("bios.bin", b)]);
+    expect(s1.biosNames("32x"), ["a.bin", "m.bin"]);
+    s1.dispose();
+
+    final s2 =
+        await Storage.open(store: await BlobStore.open(factory: factory));
+    expect(s2.biosNames("32x"), ["a.bin", "m.bin"]);
+    expect(await s2.bios("32x"), [a, b]);
+    expect(await s2.bios("ps"), [b]);
+    expect(await s2.bios("ss"), isEmpty);
+    s2.dispose();
   });
 }

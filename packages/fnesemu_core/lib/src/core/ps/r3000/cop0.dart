@@ -1,0 +1,43 @@
+part of 'r3000.dart';
+
+extension Cop0 on R3000 {
+  int readCop0(int reg) {
+    return switch (reg) {
+      6 => tar,
+      8 => badvaddr,
+      12 => sr,
+      13 => cause,
+      14 => epc,
+      15 => 0x00000002,
+      _ => 0,
+    };
+  }
+
+  void writeCop0(int reg, int value) {
+    switch (reg) {
+      case 6:
+        tar = value;
+      case 8:
+        badvaddr = value;
+      case 12:
+        // _log.debugc(() => "sr <- ${value.x8}");
+        sr = value;
+      case 13:
+        cause = cause.masked(0x300, value);
+      case 14:
+        epc = value;
+    }
+  }
+
+  void execCop0(int inst32) {
+    switch (inst32.mask6) {
+      case 0x10: // rfe
+        sr = sr.masked(0x0f, sr.shr2);
+      // sr &= ~0x30;
+      // _log.debugc(() =>
+      //     "rfe sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
+      default:
+        _unknown(inst32);
+    }
+  }
+}

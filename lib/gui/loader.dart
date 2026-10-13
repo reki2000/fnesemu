@@ -1,37 +1,47 @@
 part of 'app.dart';
 
-String _fileExtension(String fileName) =>
-    fileName.substring(fileName.lastIndexOf(".") + 1);
-
-Future<(Uint8List, String)> _pickFile({String name = ""}) async {
-  if (name == "") {
-    final picked = await FilePicker.platform.pickFiles(withData: true);
-    if (picked != null) {
-      return (picked.files.first.bytes!, picked.files.first.name);
-    }
-  } else {
-    return (
-      (await rootBundle.load('assets/roms/$name')).buffer.asUint8List(),
-      name
-    );
+/// lets the user select files and reads them. returns null when cancelled.
+/// the dialog opens at [initialDirectory], and [onDirectory] receives the
+/// directory of the selected files when it is a local path.
+Future<List<(Uint8List, String)>?> _pickFiles(
+    {bool multiple = false,
+    String? dialogTitle,
+    String? initialDirectory,
+    void Function(String directory)? onDirectory}) async {
+  final files = await pickFiles(
+      multiple: multiple,
+      dialogTitle: dialogTitle,
+      initialDirectory: initialDirectory);
+  if (files == null || files.isEmpty) {
+    return null;
   }
 
-  throw Exception("file not found: $name");
+  final directory = _localDirectoryOf(files.first.restoreKey);
+  if (directory != null) onDirectory?.call(directory);
+
+  return [for (final file in files) await _readPicked(file)];
 }
 
-// if zip, extract the first file with known extention
-(Uint8List, String) _extractIfZip(Uint8List file, String name) {
-  if (_fileExtension(name) != "zip") {
-    return (file, name);
+/// the directory of a local file path ('/...' or 'C:\\...'), or null for
+/// other restore keys (content uris, bookmarks) and the web
+String? _localDirectoryOf(String? path) {
+  if (path == null || !path.startsWith(RegExp(r'/|[A-Za-z]:\\'))) {
+    return null;
   }
+  final i = path.lastIndexOf(RegExp(r'[/\\]'));
+  return i <= 0 ? null : path.substring(0, i);
+}
 
-  final archive = ZipDecoder().decodeBytes(file);
+/// a local directory path, or null (content uris, bookmarks, the web)
+String? _localPath(String? path) =>
+    path != null && path.startsWith(RegExp(r'/|[A-Za-z]:\\')) ? path : null;
 
-  for (final entry in archive) {
-    if (["nes", "pce", "md", "gen"].contains(_fileExtension(entry.name))) {
-      return (entry.content as Uint8List, entry.name);
-    }
+Future<(Uint8List, String)> _readPicked(RandomReadFile file) async {
+  try {
+    return (await file.read(0, await file.length()), file.name);
+  } catch (e) {
+    throw Exception("failed to read: ${file.name}: $e");
+  } finally {
+    await file.close();
   }
-
-  throw Exception("No uknown files in the zip: $name");
 }

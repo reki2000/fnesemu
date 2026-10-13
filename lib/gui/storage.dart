@@ -1,12 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:fnesemu/util/uint8list.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:archive/archive.dart';
+import 'package:fnesemu_core/app_api.dart';
 
-import '../core/sram.dart';
-import '../core/storage_key.dart';
 import 'blob_store/blob_store.dart';
+import 'recent_game.dart';
+import 'rom_directory.dart';
 
 class Storage extends Sram {
   static const int saveIntervalSec = 5;
@@ -15,6 +16,9 @@ class Storage extends Sram {
 
   Function(String) onEvent = (String s) {};
 
+  /// called when the sram is written to the persistent store
+  void Function() onSramSaved = () {};
+
   Timer? _worker;
 
   final BlobStore? _store;
@@ -22,7 +26,16 @@ class Storage extends Sram {
   // sram entries are preloaded so that cores can call init() synchronously
   final Map<String, Uint8List> _cache;
 
-  Storage._(this._store, this._cache) {
+  // application settings, preloaded as well
+  final Map<String, String> _settings;
+
+  // keys of the BIOS files. the data is read when a core is created
+  final Set<String> _biosKeys;
+
+  // BIOS files kept on memory when the persistent store is unavailable
+  final Map<String, Uint8List> _biosData = {};
+
+  Storage._(this._store, this._cache, this._settings, this._biosKeys) {
     _worker = Timer.periodic(const Duration(seconds: Storage.saveIntervalSec),
         (timer) => saveIfDirty());
   }
@@ -30,38 +43,188 @@ class Storage extends Sram {
   static Future<Storage> open({BlobStore? store}) async {
     try {
       store ??= await BlobStore.open();
-      await _migrateSharedPreferences(store);
 
       final cache = <String, Uint8List>{};
+      final settings = <String, String>{};
+      final biosKeys = <String>{};
       for (final key in await store.keys()) {
-        if (StorageKey.kindOf(key) == StorageKey.sram) {
+        final kind = StorageKey.kindOf(key);
+        if (kind == StorageKey.sram) {
           final data = await store.get(key);
           if (data != null) cache[key] = data;
+        } else if (kind == StorageKey.settings) {
+          final data = await store.get(key);
+          if (data != null) settings[key] = utf8.decode(data);
+        } else if (kind == StorageKey.bios) {
+          biosKeys.add(key);
         }
       }
-      return Storage._(store, cache);
+      return Storage._(store, cache, settings, biosKeys);
     } catch (e) {
       // run without persistence (e.g. storage is unavailable in the browser)
-      return Storage._(null, {});
+      return Storage._(null, {}, {}, {});
     }
   }
 
-  // moves sram saved in shared preferences by older versions
-  static Future<void> _migrateSharedPreferences(BlobStore store) async {
-    final prefs = await SharedPreferences.getInstance();
+  /// returns the setting [name] saved before, or null
+  String? setting(String name) => _settings[StorageKey.setting(name)];
 
-    for (final oldKey in prefs.getKeys()) {
-      final value = prefs.get(oldKey);
-      if (value is! String) continue;
+  /// saves the setting [name]. the value can be read at once, and is kept
+  /// across restarts if the persistent store is available.
+  Future<void> setSetting(String name, String value) async {
+    final key = StorageKey.setting(name);
+    _settings[key] = value;
+    try {
+      await _store?.put(key, Uint8List.fromList(utf8.encode(value)));
+    } catch (e) {
+      onEvent("failed to save $name: $e");
+    }
+  }
 
-      final newKey = switch (oldKey) {
-        "psx_mem1" => StorageKey.of("ps", StorageKey.sram, "memcard1"),
-        "ss_bram" => StorageKey.of("ss", StorageKey.sram, "bram"),
-        _ => StorageKey.of("nes", StorageKey.sram, oldKey),
-      };
+  final _recentRomData = <String, Uint8List>{};
 
-      await store.put(newKey, Uint8ListEx.fromBase64(value));
-      await prefs.remove(oldKey);
+  List<RecentGame> get recentGames {
+    try {
+      final games = (jsonDecode(setting('recent_games') ?? '[]') as List)
+          .map((json) => RecentGame.fromJson(json as Map<String, dynamic>))
+          .toList();
+      games.sort((a, b) => b.lastPlayed.compareTo(a.lastPlayed));
+      return games;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<Uint8List?> recentRom(RecentGame game) async =>
+      _recentRomData[game.blobKey] ?? await _store?.get(game.blobKey);
+
+  Future<void> recordRecent(String core, String name,
+      {Uint8List? rom, String? folder, String? path}) async {
+    assert(rom != null || folder != null);
+    // ROM identity is independent of the directory, preserving old counts
+    // when switching from individual file selection to directory selection.
+    final identity = rom == null
+        ? [core, name, folder]
+        : [core, name, null, rom.length, getCrc32(rom)];
+    final id = base64Url.encode(utf8.encode(jsonEncode(identity)));
+    final games = recentGames;
+    final matches = games.where((game) => game.id == id);
+    final previous = matches.isEmpty ? null : matches.first;
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final latest = games.fold<int>(
+        0, (last, game) => game.lastPlayed > last ? game.lastPlayed : last);
+    final entry = RecentGame(
+        id: id,
+        core: core,
+        name: name,
+        folder: folder,
+        disc: rom == null,
+        path: path,
+        count: (previous?.count ?? 0) + 1,
+        lastPlayed: now > latest ? now : latest + 1);
+    try {
+      if (rom != null) {
+        final store = _store;
+        if (store == null) {
+          _recentRomData[entry.blobKey] = Uint8List.fromList(rom);
+        } else {
+          await store.put(entry.blobKey, rom);
+        }
+      }
+      games.removeWhere((game) => game.id == id);
+      games.add(entry);
+      final metadata = jsonEncode(games.map((game) => game.toJson()).toList());
+      final metadataKey = StorageKey.setting('recent_games');
+      await _store?.put(metadataKey, Uint8List.fromList(utf8.encode(metadata)));
+      _settings[metadataKey] = metadata;
+    } catch (e) {
+      onEvent('failed to save game history: $e');
+    }
+  }
+
+  // the directories, the last opened first. the older setting kept them the
+  // last opened last.
+  static const _directoriesKey = 'game_directories_recent_first';
+  static const _oldDirectoriesKey = 'game_directories';
+
+  /// the directories selected before, the last opened one first
+  List<RomDirectory> get romDirectories {
+    final saved = setting(_directoriesKey);
+    try {
+      final directories = (jsonDecode(
+              saved ?? setting(_oldDirectoriesKey) ?? '[]') as List)
+          .map((json) => RomDirectory.fromJson(json as Map<String, dynamic>))
+          .toList();
+      return saved == null ? directories.reversed.toList() : directories;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _saveDirectories(List<RomDirectory> directories) => setSetting(
+      _directoriesKey,
+      jsonEncode(directories.map((entry) => entry.toJson()).toList()));
+
+  /// puts [directory] at the top, as the last opened one
+  Future<void> rememberDirectory(RomDirectory directory) =>
+      _saveDirectories(romDirectories
+        ..removeWhere((entry) => entry.id == directory.id)
+        ..insert(0, directory));
+
+  /// updates [directory] (a renewed access key) where it is in the order
+  Future<void> updateDirectory(RomDirectory directory) {
+    final directories = romDirectories;
+    final i = directories.indexWhere((entry) => entry.id == directory.id);
+    if (i < 0) {
+      directories.add(directory);
+    } else {
+      directories[i] = directory;
+    }
+    return _saveDirectories(directories);
+  }
+
+  /// removes the directory [id] from the list
+  Future<void> forgetDirectory(String id) =>
+      _saveDirectories(romDirectories..removeWhere((entry) => entry.id == id));
+
+  List<String> _biosKeysOf(String system) {
+    final prefix = StorageKey.of(system, StorageKey.bios, "");
+    return _biosKeys.where((k) => k.startsWith(prefix)).toList()..sort();
+  }
+
+  /// returns the file names of the BIOS of [system]
+  List<String> biosNames(String system) {
+    final prefix = StorageKey.of(system, StorageKey.bios, "");
+    return [for (final k in _biosKeysOf(system)) k.substring(prefix.length)];
+  }
+
+  /// returns the BIOS files of [system], in the order of the file names
+  Future<List<Uint8List>> bios(String system) async {
+    final files = <Uint8List>[];
+    for (final key in _biosKeysOf(system)) {
+      final data = _biosData[key] ?? await _store?.get(key);
+      if (data != null) files.add(data);
+    }
+    return files;
+  }
+
+  /// replaces the BIOS files of [system] with [files] of (name, data)
+  Future<void> setBios(String system, List<(String, Uint8List)> files) async {
+    for (final key in _biosKeysOf(system)) {
+      _biosKeys.remove(key);
+      _biosData.remove(key);
+      await _store?.delete(key);
+    }
+
+    final store = _store;
+    for (final (name, data) in files) {
+      final key = StorageKey.of(system, StorageKey.bios, name);
+      _biosKeys.add(key);
+      if (store == null) {
+        _biosData[key] = data;
+      } else {
+        await store.put(key, data);
+      }
     }
   }
 
@@ -70,8 +233,9 @@ class Storage extends Sram {
     _worker?.cancel();
   }
 
-  reset() {
-    id = "";
+  @override
+  void reset() {
+    super.reset();
     _dirty = false;
   }
 
@@ -81,13 +245,7 @@ class Storage extends Sram {
     saveIfDirty();
 
     final saved = _cache[id];
-    if (saved == null) {
-      super.init(id, initialData);
-      onEvent("loading $id: not found. use initial data");
-    } else {
-      super.init(id, saved);
-      onEvent("successfully loaded $id");
-    }
+    super.init(id, saved ?? initialData);
   }
 
   @override
@@ -117,7 +275,7 @@ class Storage extends Sram {
 
     store
         .put(key, bytes)
-        .then((_) => onEvent("saved $key size:${bytes.length}"))
+        .then((_) => onSramSaved())
         .catchError((e) => onEvent("failed to save $key: $e"));
   }
 }

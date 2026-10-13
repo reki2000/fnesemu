@@ -1,0 +1,170 @@
+import 'dart:collection';
+import 'dart:typed_data';
+
+enum CdromDriveState {
+  /// no disc in the drive
+  empty,
+
+  /// tray is open (during eject)
+  trayOpen,
+
+  /// a disc is inserted and the TOC is being read
+  loading,
+
+  /// TOC is read and sectors are readable
+  ready,
+
+  /// failed to read the TOC
+  error,
+}
+
+/// Physical tray events and the separate result of reading the inserted disc.
+enum CdromDriveEventType { trayOpened, trayClosed, discReady, discError }
+
+class CdromDriveEvent {
+  final CdromDriveEventType type;
+  final int discId;
+
+  const CdromDriveEvent(this.type, this.discId);
+}
+
+/// FIFO for a drive's single core consumer. State transitions are recorded
+/// even while emulation is paused; sector reads do not generate events.
+class CdromDriveEvents {
+  final _queue = Queue<CdromDriveEvent>();
+
+  void add(CdromDriveState state, int discId) {
+    final type = switch (state) {
+      CdromDriveState.trayOpen => CdromDriveEventType.trayOpened,
+      CdromDriveState.empty ||
+      CdromDriveState.loading =>
+        CdromDriveEventType.trayClosed,
+      CdromDriveState.ready => CdromDriveEventType.discReady,
+      CdromDriveState.error => CdromDriveEventType.discError,
+    };
+    _queue.add(CdromDriveEvent(type, discId));
+  }
+
+  CdromDriveEvent? take() => _queue.isEmpty ? null : _queue.removeFirst();
+
+  void clear() => _queue.clear();
+}
+
+class CdromTrack {
+  final int number; // 1..
+  final bool isAudio;
+  final int startLba; // LBA of INDEX 01, without 2 seconds of lead-in
+  final int sectors;
+
+  const CdromTrack(this.number, this.isAudio, this.startLba, this.sectors);
+
+  @override
+  String toString() =>
+      "track $number ${isAudio ? "audio" : "data"} lba:$startLba sectors:$sectors";
+}
+
+class CdromToc {
+  final List<CdromTrack> tracks;
+
+  /// number of sectors of the disc, from LBA 0 (without lead-in)
+  final int totalSectors;
+
+  const CdromToc(this.tracks, this.totalSectors);
+
+  static const empty = CdromToc([], 0);
+
+  bool get isEmpty => tracks.isEmpty;
+  int get trackCount => tracks.length;
+
+  int startLba(int trackNo) {
+    if (trackNo < 1 || trackNo > tracks.length) {
+      throw RangeError("cdrom: invalid track number $trackNo");
+    }
+    return tracks[trackNo - 1].startLba;
+  }
+
+  bool isAudio(int trackNo) => tracks[trackNo - 1].isAudio;
+
+  /// returns true if [lba] (without lead-in) is in an audio track
+  bool isAudioLba(int lba) {
+    for (int i = tracks.length - 1; i >= 0; i--) {
+      if (lba >= tracks[i].startLba) {
+        return tracks[i].isAudio;
+      }
+    }
+    return false;
+  }
+}
+
+/// synchronous snapshot of the drive
+class CdromDriveStatus {
+  final CdromDriveState state;
+
+  /// incremented on each disc change (eject, insert, TOC read)
+  final int discId;
+
+  final CdromToc toc;
+
+  /// LBA of the last [CdromDrive.seek]
+  final int seekLba;
+
+  /// true while the sector at [seekLba] is being read
+  final bool isSeeking;
+
+  /// true if [seekLba] is not readable
+  final bool seekError;
+
+  const CdromDriveStatus(this.state, this.discId, this.toc,
+      {this.seekLba = 0, this.isSeeking = false, this.seekError = false});
+
+  static const empty =
+      CdromDriveStatus(CdromDriveState.empty, 0, CdromToc.empty);
+
+  bool get isReady => state == CdromDriveState.ready;
+  bool get isTrayOpen => state == CdromDriveState.trayOpen;
+}
+
+/// A CD-ROM drive seen from the emulator core.
+///
+/// All accesses are synchronous: the drive reads the image files in the
+/// background, and the core polls [status] and [read] until the result is
+/// available. All LBAs are without 2 seconds of lead-in.
+abstract class CdromDrive {
+  /// returns the current status. cheap enough to be polled on each exec.
+  CdromDriveStatus get status;
+
+  /// Takes the oldest event, or null. A single core consumes the queue on
+  /// its execution thread. Ready/error events belong to [CdromDriveEvent.discId]; ignore
+  /// them if a newer medium has replaced that generation.
+  CdromDriveEvent? takeEvent();
+
+  /// Discards past events when attaching or resetting to the current status.
+  void clearEvents();
+
+  /// moves the head to [lba]. the core polls [CdromDriveStatus.isSeeking]
+  /// and [CdromDriveStatus.seekError] for the result.
+  void seek(int lba);
+
+  /// returns the raw sector (2352 bytes) at [lba], or null if it has not been
+  /// read yet (the drive starts reading it). returns empty data if [lba] is
+  /// not readable.
+  Uint8List? read(int lba);
+}
+
+/// a drive without a disc
+class EmptyCdromDrive implements CdromDrive {
+  @override
+  CdromDriveStatus get status => CdromDriveStatus.empty;
+
+  @override
+  CdromDriveEvent? takeEvent() => null;
+
+  @override
+  void clearEvents() {}
+
+  @override
+  void seek(int lba) {}
+
+  @override
+  Uint8List? read(int lba) => Uint8List(0);
+}

@@ -1,0 +1,62 @@
+import 'dart:typed_data';
+
+import '../../../util/debug.dart';
+import '../../../util/int.dart';
+import 'r3000.dart';
+
+final _log = DebugLog('ps.r3000.bench');
+
+/// A dummy BusR3000 implementation for tests.
+class _TestBus implements BusR3000 {
+  final ByteData ram;
+  late final Uint32List ram32;
+
+  _TestBus(int size) : ram = ByteData(size) {
+    ram32 = ram.buffer.asUint32List();
+  }
+
+  @override
+  int read8(int addr) => ram.getUint8(addr);
+
+  @override
+  int read16(int addr) => ram.getUint16(addr); // BE
+
+  @override
+  int read32(int addr) => ram.getUint32(addr); // BE
+
+  @override
+  void write8(int addr, int value) => ram.setUint8(addr, value);
+
+  @override
+  void write16(int addr, int value) => ram.setUint16(addr, value); // BE
+
+  @override
+  void write32(int addr, int value) => ram.setUint32(addr, value); // BE
+}
+
+void main() {
+  final bus = _TestBus(1024 * 1024);
+
+  final idata = [0x3c030001, 0x00002021, 0x24638610, 0];
+  final base = 0x0;
+  for (int i = 0; i < idata.length; i++) {
+    bus.write32(i * 4 + base, idata[i]);
+  }
+  _log.debugc(
+      () => "idata: ${range(0, 16).map((e) => bus.read8(e).x2).join(" ")}");
+
+  final cpu = R3000(bus);
+  const count = 4; //50 * 1000 * 1000;
+
+  final startAt = DateTime.now().millisecondsSinceEpoch;
+  cpu.pc = base;
+  cpu.nextPc = base + 4;
+  for (int i = 0; i < count; i++) {
+    _log.debugc(() => cpu.dump());
+    cpu.step();
+  }
+  final elapsedMs = DateTime.now().millisecondsSinceEpoch - startAt;
+
+  _log.infoc(() =>
+      "elapsed time: ${elapsedMs}ms , ${count / elapsedMs / 1000} Mcycles/sec");
+}

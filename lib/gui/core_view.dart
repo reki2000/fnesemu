@@ -1,62 +1,115 @@
-// Dart imports:
+import 'dart:math' as math;
 
-// Flutter imports:
 import 'package:flutter/material.dart';
-import 'package:fnesemu/gui/ticker_image.dart';
 
-import '../core/core_controller.dart';
-import 'config.dart';
+import 'package:fnesemu_core/app_api.dart';
+import 'direction_pad.dart';
+import 'pad_input.dart';
+import 'ticker_image.dart';
 import 'virtual_pad.dart';
 
 class CoreView extends StatefulWidget {
   final CoreController controller;
   final ImageContainer container;
+  final PadInput? input;
+  final bool? portrait;
+  final bool showPad;
+  final double? maxImageWidth;
 
   const CoreView(
-      {super.key, required this.controller, required this.container});
+      {super.key,
+      required this.controller,
+      required this.container,
+      this.input,
+      this.portrait,
+      this.showPad = true,
+      this.maxImageWidth});
 
   @override
   State<CoreView> createState() => _CoreViewState();
 }
 
 class _CoreViewState extends State<CoreView> {
-  static final config = Config();
-
-  @override
-  void initState() {
-    super.initState();
-  }
+  late final PadInput _input = widget.input ??
+      PadInput(
+          onDown: (button) => widget.controller.padDown(0, button),
+          onUp: (button) => widget.controller.padUp(0, button));
 
   @override
   void dispose() {
+    if (widget.input == null) _input.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // main view
-          ValueListenableBuilder<int>(
-              valueListenable: widget.container.displayWidthNotifier,
-              builder: (context, width, child) => imageListener(
-                  width: width * config.zoom,
-                  height: widget.container.displayHeight * config.zoom,
-                  notifier: widget.container.imageNotifier)),
-
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            // frame per second
-            StreamBuilder<double>(
-                stream: widget.controller.fpsStream,
-                builder: (ctx, snapshot) => Text(
-                    ((snapshot.data ?? 0.0)).toStringAsFixed(1).padLeft(4))),
-            // virtual pad
-            VirtualPadWidget(controller: widget.controller),
-          ]),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: LayoutBuilder(builder: (context, constraints) {
+          const inset = 12.0;
+          const headerHeight = 64.0;
+          final portrait =
+              widget.portrait ?? constraints.maxHeight > constraints.maxWidth;
+          return Stack(children: [
+            Positioned.fill(
+              child: LayoutBuilder(
+                  builder: (context, gameConstraints) => Align(
+                        alignment: Alignment.topCenter,
+                        child: ListenableBuilder(
+                          listenable: Listenable.merge([
+                            widget.container.displayWidthNotifier,
+                            widget.container.displayHeightNotifier,
+                          ]),
+                          builder: (context, _) {
+                            final aspect = widget
+                                    .container.displayWidthNotifier.value /
+                                widget.container.displayHeightNotifier.value;
+                            final width = math.min(
+                                math.min(gameConstraints.maxWidth,
+                                    widget.maxImageWidth ?? double.infinity),
+                                gameConstraints.maxHeight * aspect);
+                            final gameHeight = width / aspect;
+                            final headerFits = portrait &&
+                                gameConstraints.maxHeight - gameHeight >=
+                                    headerHeight +
+                                        DirectionPad.diameter +
+                                        inset * 2;
+                            return Padding(
+                                padding: EdgeInsets.only(
+                                    top: headerFits ? headerHeight : 0),
+                                child: SizedBox(
+                                  key: const ValueKey('game-viewport'),
+                                  width: width,
+                                  height: width / aspect,
+                                  child: imageListener(
+                                      width: width,
+                                      height: width / aspect,
+                                      notifier: widget.container.imageNotifier),
+                                ));
+                          },
+                        ),
+                      )),
+            ),
+            if (widget.showPad)
+              Positioned(
+                  left: inset,
+                  top: portrait ? null : 0,
+                  bottom: portrait ? inset : 0,
+                  child: Align(
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      alignment: Alignment.centerLeft,
+                      child: DirectionPad(input: _input))),
+            if (widget.showPad)
+              Positioned(
+                  right: inset,
+                  top: portrait ? null : 0,
+                  bottom: portrait ? inset : 0,
+                  child: Align(
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      alignment: Alignment.centerRight,
+                      child: VirtualPadWidget(
+                          controller: widget.controller, input: _input))),
+          ]);
+        }),
+      );
 }
