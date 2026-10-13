@@ -45,24 +45,27 @@ git clone --recurse-submodules https://github.com/reki2000/fnesemu.git
 
 For an existing checkout, initialize them with `git submodule update --init --recursive`.
 
-`packages/cdrom_image` and `packages/mp_bigfile_picker` are maintained in
-their own repositories and used here through local `path` dependencies.
-Before editing a package, switch its submodule to a development branch:
+### Packages
+
+`packages/cdrom_image` and `packages/mp_bigfile_picker` are submodules from
+separate repositories, used as local dependencies. Switch a package to `main`
+before editing it:
 
 ```sh
 git -C packages/cdrom_image switch main
 git -C packages/mp_bigfile_picker switch main
 ```
 
-Package edits are used directly by the app. Commit and push changes in the
-package repository first, then commit the updated submodule reference in
-fnesemu. To update to the commits recorded by fnesemu after a pull, run
+Commit and push package changes in that repository, then commit its updated
+submodule reference here. Restore the recorded revisions with
 `git submodule update --init --recursive`.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the packages, the direction of
-the dependencies and the interfaces between them.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
+dependency rules.
 
-After adding or removing a core module, regenerate the registration list:
+### Adding or removing a core
+
+After changing core modules, regenerate the registration list:
 
 ```sh
 cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
