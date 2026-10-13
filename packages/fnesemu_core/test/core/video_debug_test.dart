@@ -12,7 +12,6 @@ import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
-import 'package:fnesemu_core/src/util/int.dart';
 import 'package:fnesemu_core/src/video_debug.dart';
 import 'package:test/test.dart';
 
@@ -83,47 +82,17 @@ void main() {
     expect(screen.patterns.map((p) => p.label), containsAll(['A', 'B']));
   });
 
-  test('annotations are rasterized into inclusive integer bitmap bounds', () {
+  test('video rasters keep source pixels and annotation metadata separate', () {
     final canvas = DebugCanvas(12, 12)
       ..pixels.fillRange(0, 12 * 12, 0xff101010)
       ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'))
       ..viewports.add(DebugOutline.rect(7, 2, 4, 4));
-    final original = canvas.raster();
-    final bounded = original.annotated(bounds: true, viewport: true);
-
-    expect(pixel(original, 5, 3), 0xff101010);
-    expect(pixel(bounded, 5, 3), 0xff085d87);
-    expect(pixel(bounded, 3, 5), 0xff085d87);
-    expect(pixel(bounded, 5, 5), 0xff085d87);
-    expect(pixel(bounded, 3, 1), 0xff101010);
-    expect(pixel(bounded, 1, 3), 0xff101010);
-    expect(pixel(bounded, 10, 3), 0xffaef069);
-    expect(pixel(bounded, 8, 5), 0xffaef069);
-    expect(pixel(bounded, 8, 2), 0xffaef069);
-    expect(pixel(bounded, 7, 3), 0xffaef069);
-    final numbered = original.annotated(numbers: true);
-    expect(pixel(numbered, 2, 2), 0xff101010);
-    expect(pixel(numbered, 4, 2), 0xffffffff);
-    for (var y = 0; y < IntImageExt.digitPattern.length; y++) {
-      for (var x = 0; x < IntImageExt.patternWidth; x++) {
-        expect(pixel(numbered, x + 2, y + 2),
-            1.drawHexValue(x, y, 1) ? 0xffffffff : 0xff101010);
-      }
-    }
-
-    final mixedCanvas = DebugCanvas(12, 12)
-      ..pixels.fillRange(0, 12 * 12, 0xff101010)
-      ..pixels[2 * 12 + 4] = 0xfff0f0f0
-      ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'));
-    final mixed = mixedCanvas.raster().annotated(numbers: true);
-    expect(pixel(mixed, 4, 2), 0xffffffff);
-    expect(pixel(mixed, 4, 4), 0xffffffff);
-
-    final brightCanvas = DebugCanvas(12, 12)
-      ..pixels.fillRange(0, 12 * 12, 0xfff0f0f0)
-      ..patterns.add(DebugOutline.rect(1, 1, 5, 5, label: '1'));
-    final darkText = brightCanvas.raster().annotated(numbers: true);
-    expect(pixel(darkText, 4, 2), 0xff000000);
+    final raster = canvas.raster();
+    expect(pixel(raster, 5, 3), 0xff101010);
+    expect(pixel(raster, 3, 1), 0xff101010);
+    expect(pixel(raster, 1, 3), 0xff101010);
+    expect(raster.patterns.single.label, '1');
+    expect(raster.viewports, hasLength(1));
   });
   test(
       'CPU notifications do not capture video; active views capture all sources',
@@ -146,16 +115,16 @@ void main() {
     expect(connected.state.videoPanels.first.background, 0xffabcdef);
     expect(before.videoPanels.first.background, 0xff123456);
     connected.setPatternNumbersVisible(true);
-    expect(pixel(connected.state.videoPanels.first.raster, 1, 1), 0xffffffff);
+    expect(pixel(connected.state.videoPanels.first.raster, 1, 1), 0xff0000ff);
     expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff0000ff);
     connected.setPatternNumbersVisible(false);
     expect(pixel(connected.state.videoPanels.first.raster, 2, 1), 0xff0000ff);
     connected.setLayerView(LayerView.map);
-    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xffaef069);
+    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0000ff);
     connected.setViewportBoundsVisible(false);
     expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0000ff);
     connected.setPatternBoundsVisible(true);
-    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0055ff);
+    expect(pixel(connected.state.videoPanels.first.raster, 7, 4), 0xff0000ff);
     expect(debugger.state.videoPanels, isEmpty);
   });
   test(

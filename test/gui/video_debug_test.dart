@@ -414,14 +414,15 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('magnifier enlarges annotations already in the bitmap',
+  testWidgets(
+      'magnifier draws one-pixel labels and bounds over enlarged pixels',
       (tester) async {
     final raster = DebugRaster(ImageBuffer(64, 64, Uint8List(64 * 64 * 4)),
-            patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
-            viewports: [DebugOutline.rect(32, 16, 8, 8)])
-        .annotated(numbers: true, bounds: true, viewport: true);
+        patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
+        viewports: [DebugOutline.rect(32, 16, 8, 8)]);
     final hover = VideoHover(
-        raster, 0xff000000, const Offset(32, 32), Offset.zero, () => null);
+        raster, 0xff000000, const Offset(32, 32), Offset.zero, () => null,
+        numbers: true, bounds: true, viewport: true);
     const key = ValueKey('magnifier-render');
     Future<Uint8List> render() async {
       await tester.pumpWidget(MaterialApp(
@@ -444,8 +445,17 @@ void main() {
 
     final pixels = await render();
     expect(pixels.length, 300 * 300 * 4);
-    final orange = (115 * 300 + 124) * 4;
-    expect(pixels.sublist(orange, orange + 4), [127, 85, 0, 255]);
+    List<int> rgba(int x, int y) {
+      final start = (y * 300 + x) * 4;
+      return pixels.sublist(start, start + 4);
+    }
+
+    expect(rgba(105, 105), [255, 255, 255, 255]);
+    expect(rgba(108, 105), [0, 0, 0, 255]);
+    expect(rgba(124, 115), [0, 0, 0, 255]);
+    expect(rgba(125, 115), [128, 86, 0, 255]);
+    expect(rgba(115, 125), [128, 86, 0, 255]);
+    expect(rgba(150, 102), [105, 240, 174, 255]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

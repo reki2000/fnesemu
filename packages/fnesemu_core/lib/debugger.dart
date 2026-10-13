@@ -287,36 +287,23 @@ class Debugger {
     } else if (_view == DebugView.layers) {
       _videoPanels = [
         for (final layer in _core.videoLayers)
-          _annotatedPanel(DebugVideoPanel(
+          DebugVideoPanel(
               layer.name,
               layer.capture(_layerView == LayerView.map && layer.hasMap),
               _alternativeBackground
                   ? layer.alternativeBackground
                   : layer.originalBackground,
               kind: layer.kind,
-              row: layer.row))
+              row: layer.row)
       ];
     } else {
       _videoPanels = [
         for (final table in _core.patternTables)
-          _annotatedPanel(table.capture(_paletteOffset, _alternativeBackground,
-              blockSize: _patternBlockSize))
+          table.capture(_paletteOffset, _alternativeBackground,
+              blockSize: _patternBlockSize)
       ];
     }
   }
-
-  DebugVideoPanel _annotatedPanel(DebugVideoPanel panel) => DebugVideoPanel(
-      panel.name,
-      panel.raster.annotated(
-          numbers: _patternNumbers,
-          bounds: _patternBounds,
-          viewport: _viewportBounds,
-          background: panel.background),
-      panel.background,
-      kind: panel.kind,
-      row: panel.row,
-      paletteName: panel.paletteName,
-      palette: panel.palette);
 
   Future<void> pause() async {
     cancelExecution();
