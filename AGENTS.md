@@ -6,6 +6,7 @@ Follow `docs/TEST.md` if it exists.
 
 Use a simple technical style. Do not insert line breaks within a sentence. Follow `docs/DOCUMENT.md` if it exists.
 Write all document / code comments in English.
+PR descriptions do not need a Validation section.
 
 # Architecture
 
