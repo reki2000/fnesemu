@@ -1,14 +1,24 @@
-# Test
-see docs/TEST.md
+# Tests
+
+Follow `docs/TEST.md` if it exists.
+
+# Document Writing
+
+Use a simple technical style. Do not insert line breaks within a sentence. Follow `docs/DOCUMENT.md` if it exists.
+Write all document / code comments in English.
+PR descriptions do not need a Validation section.
 
 # Architecture
-Follow the design rules in ARCHITECTURE.md: the parts, the direction of the
-dependencies, and the interfaces between them.
-- After adding/removing a core module, run `dart run tool/generate_core_registry.dart` in `packages/fnesemu_core`; do not modify App/GUI for it.
+
+Follow `ARCHITECTURE.md` for component responsibilities, dependency directions, and interfaces.
+
+- After adding or removing a core module, run `dart run tool/generate_core_registry.dart` in `packages/fnesemu_core`. Do not modify the app or GUI to accommodate the module change.
 
 # Imports
-- Within a package's `lib/`, import the same package's files by relative paths (lint `prefer_relative_imports`). Tests and tools import `lib/` by `package:` URIs.
-- Keep the directives sorted (lint `directives_ordering`; `make format` applies both).
+
+- Within a package's `lib/`, use relative imports for files in the same package (`prefer_relative_imports`). In tests and tools, use `package:` URIs to import files from `lib/`.
+- Keep import directives sorted (`directives_ordering`). Run `make format` to apply both import rules.
 
 # Worktrees
+
 - Create working Git worktrees under the repository's `.worktrees/` directory. This directory is ignored by Git.
