@@ -13,12 +13,10 @@ This project is experimental.
 1. Open the menu, choose 'CD / ROM', and select a ROM directory
 1. Choose a ROM in the list to start emulation. The menu button or Escape pauses/resumes it
 
-## BIOS and discs
+## BIOS 
 
-- Set the BIOS of each system from the 'Core setup' menu (the gear icon). The files are saved and used each time the system starts
-  - fds (8 KiB), pce cdrom (system card), md cdrom, ps1 and ss require it. 32x (3 boot ROM files) and gba are optional
-- Select a disc from the disc menu. The system is detected from the disc header
-  - if the running system plays the disc, only the disc is changed as on the real console. press Reset to boot it
+- Set the BIOS of each system from the 'Core setup' menu (the gear icon).
+- The files are saved on your browser's IndexDB and used each time the system starts
 
 
 ## Joypad-Keyboard assignment
