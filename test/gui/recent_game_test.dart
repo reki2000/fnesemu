@@ -8,7 +8,7 @@ import 'package:fnesemu/gui/storage.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 
 void main() {
-  test('history ranks by frequency then recency and restores ROM bytes',
+  test('history ranks by recency and restores ROM bytes',
       () async {
     final store = await BlobStore.open(factory: newIdbFactoryMemory());
     final storage = await Storage.open(store: store);
@@ -16,19 +16,22 @@ void main() {
     addTearDown(storage.dispose);
     final rom = Uint8List.fromList([1, 2, 3]);
     await storage.recordRecent('gb', 'fixture.gb', rom: rom);
-    await storage.recordRecent('gb', 'fixture.gb', rom: rom);
     await storage.recordRecent('ss', 'fixture.cue', folder: '/fixture');
     await storage.recordRecent('nes', 'fixture.nes', rom: rom);
+    await storage.recordRecent('gb', 'fixture.gb', rom: rom);
     expect(storage.recentGames.map((game) => game.core), ['gb', 'nes', 'ss']);
     expect(storage.recentGames.first.count, 2);
     final restored = await Storage.open(store: store);
     addTearDown(restored.dispose);
-    expect(restored.recentGames.first.count, 2);
-    expect(await restored.recentRom(restored.recentGames.first), rom);
-    expect(restored.recentGames.last.folder, '/fixture');
+    final restoredGb =
+        restored.recentGames.singleWhere((game) => game.core == 'gb');
+    expect(restoredGb.count, 2);
+    expect(await restored.recentRom(restoredGb), rom);
+    expect(restored.recentGames.last.folder, null);
     await restored.recordRecent('ss', 'fixture.cue', folder: '/fixture');
     expect(restored.recentGames.first.core, 'ss');
     expect(restored.recentGames.first.count, 2);
+    expect(restored.recentGames.last.core, 'nes');
   });
 
   test('directory permissions and ROM source paths survive reopening',
@@ -83,7 +86,7 @@ void main() {
       await storage.recordRecent('gb', 'fixture-$i.gb', rom: rom);
     }
     expect(storage.recentGames.length, 21);
-    expect(storage.recentGames.first.name, 'first.gb');
+    expect(storage.recentGames.last.name, 'first.gb');
     expect(await store.get(first.blobKey), rom);
     expect(
         (await store.keys())

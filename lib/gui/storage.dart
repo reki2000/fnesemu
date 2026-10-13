@@ -88,12 +88,7 @@ class Storage extends Sram {
       final games = (jsonDecode(setting('recent_games') ?? '[]') as List)
           .map((json) => RecentGame.fromJson(json as Map<String, dynamic>))
           .toList();
-      games.sort((a, b) {
-        final frequency = b.count.compareTo(a.count);
-        return frequency != 0
-            ? frequency
-            : b.lastPlayed.compareTo(a.lastPlayed);
-      });
+      games.sort((a, b) => b.lastPlayed.compareTo(a.lastPlayed));
       return games;
     } catch (_) {
       return [];
