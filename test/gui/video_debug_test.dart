@@ -415,7 +415,7 @@ void main() {
   });
 
   testWidgets(
-      'magnifier draws two-pixel labels and bounds over four-times pixels',
+      'magnifier places labels at the top right with thin bounds over enlarged pixels',
       (tester) async {
     final bitmap = Uint8List(64 * 64 * 4);
     final redPixel = (15 * 64 + 15) * 4;
@@ -424,11 +424,11 @@ void main() {
     final raster = DebugRaster(ImageBuffer(64, 64, bitmap),
         patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
         viewports: [DebugOutline.rect(32, 16, 8, 8)]);
-    final hover = VideoHover(
-        raster, 0xff000000, const Offset(32, 32), Offset.zero, () => null,
-        numbers: true, bounds: true, viewport: true);
     const key = ValueKey('magnifier-render');
-    Future<Uint8List> render() async {
+    Future<Uint8List> render({required bool numbers}) async {
+      final hover = VideoHover(
+          raster, 0xff000000, const Offset(32, 32), Offset.zero, () => null,
+          numbers: numbers, bounds: true, viewport: true);
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: Align(
@@ -447,7 +447,8 @@ void main() {
       }))!;
     }
 
-    final pixels = await render();
+    final withoutLabels = await render(numbers: false);
+    final pixels = await render(numbers: true);
     expect(pixels.length, 300 * 300 * 4);
     List<int> rgba(int x, int y) {
       final start = (y * 300 + x) * 4;
@@ -455,11 +456,38 @@ void main() {
     }
 
     expect(rgba(87, 87), [255, 0, 0, 255]);
-    expect(rgba(92, 92), [255, 255, 255, 255]);
+    // Font rasterization varies, so compare the labeled and unlabeled images
+    // instead of requiring a particular glyph pixel. Every changed pixel must
+    // be within the label area at the top right of the pattern.
+    final labelPixels = <(int, int)>[];
+    for (var y = 0; y < 300; y++) {
+      for (var x = 0; x < 300; x++) {
+        final offset = (y * 300 + x) * 4;
+        if (pixels[offset] != withoutLabels[offset] ||
+            pixels[offset + 1] != withoutLabels[offset + 1] ||
+            pixels[offset + 2] != withoutLabels[offset + 2] ||
+            pixels[offset + 3] != withoutLabels[offset + 3]) {
+          labelPixels.add((x, y));
+        }
+      }
+    }
+    expect(labelPixels, isNotEmpty);
+    for (final (x, y) in labelPixels) {
+      expect(x, inInclusiveRange(100, 115));
+      expect(y, inInclusiveRange(92, 107));
+    }
+    expect(
+        labelPixels.any((pixel) => rgba(pixel.$1, pixel.$2)
+            .take(3)
+            .every((channel) => channel == 255)),
+        isTrue);
+    expect(rgba(92, 92), [0, 0, 0, 255]);
     expect(rgba(98, 92), [0, 0, 0, 255]);
     expect(rgba(117, 100), [0, 0, 0, 255]);
-    expect(rgba(118, 100), [128, 86, 0, 255]);
-    expect(rgba(100, 118), [128, 86, 0, 255]);
+    expect(rgba(118, 100), [0, 0, 0, 255]);
+    expect(rgba(119, 100), [128, 86, 0, 255]);
+    expect(rgba(100, 118), [0, 0, 0, 255]);
+    expect(rgba(100, 119), [128, 86, 0, 255]);
     expect(rgba(152, 88), [105, 240, 174, 255]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
