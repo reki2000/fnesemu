@@ -9,6 +9,9 @@ import 'disasm.dart';
 import 'mem.dart';
 import 'video.dart';
 
+const _cpuPaneFixedHeight = 72.0;
+const _cpuLineHeight = 15.0;
+
 class DebugPane extends StatefulWidget {
   final Debugger debugger;
   final CoreController? controller;
@@ -198,8 +201,10 @@ class _DebugPaneState extends State<DebugPane> {
   Widget _cpu(DebugState state) {
     final cpu = widget.debugger.cpuInfo(state.targetCpuNo);
     return LayoutBuilder(builder: (context, bounds) {
-      final lines =
-          ((bounds.maxHeight - 64) / 13).floor().clamp(1, 200).toInt();
+      final lines = ((bounds.maxHeight - _cpuPaneFixedHeight) / _cpuLineHeight)
+          .floor()
+          .clamp(1, 200)
+          .toInt();
       final backwardLines = math.min(6, lines - 1).toInt();
       final memoryWidth = _cpuWidth - _disasmWidth - 12;
       return SingleChildScrollView(
