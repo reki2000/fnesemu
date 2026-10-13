@@ -9,3 +9,6 @@ dependencies, and the interfaces between them.
 # Imports
 - Within a package's `lib/`, import the same package's files by relative paths (lint `prefer_relative_imports`). Tests and tools import `lib/` by `package:` URIs.
 - Keep the directives sorted (lint `directives_ordering`; `make format` applies both).
+
+# Worktrees
+- Create working Git worktrees under the repository's `.worktrees/` directory. This directory is ignored by Git.
