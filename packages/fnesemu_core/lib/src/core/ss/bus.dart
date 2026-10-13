@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import '../../util/debug.dart';
 import '../../util/int.dart';
-
 import 'cdblock.dart';
 import 'cpu.dart';
 import 'scsp.dart';
@@ -10,6 +9,8 @@ import 'scu.dart';
 import 'smpc.dart';
 import 'vdp1.dart';
 import 'vdp2.dart';
+
+final _log = DebugLog('ss.bus');
 
 /// SS main bus (SH-2 external area).
 ///
@@ -432,5 +433,5 @@ class Bus implements SsCpuBus {
     }
   }
 
-  void unimpl(String s) => debugLog("ss bus: $s");
+  void unimpl(String s) => _log.debug(s);
 }

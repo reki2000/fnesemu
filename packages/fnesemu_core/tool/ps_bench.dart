@@ -26,9 +26,11 @@ import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 import 'ps_io.dart';
 
 Future<void> main(List<String> args) async {
+  configureLogging();
   int warm = 0, measure = 600, hold = 12, every = 300;
   String? lock, exe, outDir, syncDir;
   bool frameRunner = false;

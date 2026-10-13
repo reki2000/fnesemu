@@ -1,9 +1,10 @@
 import 'dart:core';
-import 'dart:developer';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'bus.dart';
+
+final _log = DebugLog('nes.cpu');
 
 class Regs {
   int a = 0;
@@ -876,7 +877,7 @@ class Cpu {
         break;
 
       default:
-        log("unimplemented opcode: ${op.x2} at ${regs.pc.x4}\n");
+        _log.warnc(() => "unimplemented opcode: ${op.x2} at ${regs.pc.x4}\n");
         return false;
     }
 
@@ -1012,7 +1013,7 @@ class Cpu {
       case 0x10: // 100
         return indirectY(st: st);
       default:
-        log("umimplemented addressing mode: $op\n");
+        _log.debugc(() => "umimplemented addressing mode: $op\n");
         return 0;
     }
   }

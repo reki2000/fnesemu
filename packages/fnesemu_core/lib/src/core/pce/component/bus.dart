@@ -1,3 +1,4 @@
+// import '../../../util/debug.dart';
 import 'dart:typed_data';
 
 import '../../../sram.dart';
@@ -11,6 +12,8 @@ import 'psg.dart';
 import 'timer.dart';
 import 'vdc.dart';
 import 'vpc.dart';
+
+// final _log = DebugLog('pce.bus');
 
 class Bus {
   Bus() {
@@ -157,7 +160,7 @@ class Bus {
       // final logAddrs = [0x3cd5];
       // for (final addr in logAddrs) {
       //   if (offset == addr & 0x1fff) {
-      //     print(
+      //     _log.debugc(() =>
       //         "ram write: ${addr.x4} ${data.x2}\n${cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
       //   }
       // }

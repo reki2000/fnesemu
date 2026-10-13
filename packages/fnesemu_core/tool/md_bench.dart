@@ -19,8 +19,10 @@ import 'package:fnesemu_core/src/core/md/md.dart';
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 
 Future<void> main(List<String> args) async {
+  configureLogging();
   final files = <String>[];
   int frames = 1200;
   int hold = 12;
@@ -115,13 +117,13 @@ Future<void> main(List<String> args) async {
   while (frame < frames) {
     if (runner != null) {
       if (runner.runFrame(core.scanlinesInFrame).stopped) {
-        print("stopped at frame $frame");
+        stdout.writeln("stopped at frame $frame");
         exit(2);
       }
     } else {
       final r = core.exec(false);
       if (r.stopped) {
-        print("stopped at frame $frame");
+        stdout.writeln("stopped at frame $frame");
         exit(2);
       }
       if (!r.scanlineRendered) continue;
@@ -148,7 +150,7 @@ Future<void> main(List<String> args) async {
   final cpuMs = _cpuMs() - cpu0;
 
   final ms = sw.elapsedMicroseconds / 1000;
-  print("frames:$frames time:${ms.toStringAsFixed(0)}ms "
+  stdout.writeln("frames:$frames time:${ms.toStringAsFixed(0)}ms "
       "${(ms / frames).toStringAsFixed(3)}ms/frame "
       "${(frames * 1000 / ms).toStringAsFixed(1)}fps "
       "cpu:${(cpuMs / frames).toStringAsFixed(3)}ms/frame "

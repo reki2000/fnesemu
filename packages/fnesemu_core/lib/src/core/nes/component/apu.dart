@@ -1,11 +1,12 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import '../constants.dart' as hardware;
 import 'bus.dart';
 import 'cpu.dart';
+
+final _log = DebugLog('nes.apu');
 
 class _EnvelopeUnit {
   int _n = 0; // constant volume or envelope period
@@ -584,7 +585,7 @@ class Apu {
         return;
 
       default:
-        log("Unsupported apu write at 0x${reg.x4}");
+        _log.warnc(() => "Unsupported apu write at 0x${reg.x4}");
         return;
     }
   }
@@ -606,7 +607,7 @@ class Apu {
         return 0;
 
       default:
-        log("Unsupported apu read at 0x${reg.x4}");
+        _log.warnc(() => "Unsupported apu read at 0x${reg.x4}");
         return 0;
     }
   }

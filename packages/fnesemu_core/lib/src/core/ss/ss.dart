@@ -22,6 +22,8 @@ import 'smpc.dart';
 import 'vdp1.dart';
 import 'vdp2.dart';
 
+final _log = DebugLog('ss');
+
 /// SS core
 class Ss extends Core {
   @override
@@ -186,7 +188,7 @@ class Ss extends Core {
             : lineEnd);
 
     if (!(step ? m.step() : m.run(target))) {
-      debugLog("ss: master sh-2 unimplemented instruction at ${m.pc.x8}");
+      _log.warnc(() => "master sh-2 unimplemented instruction at ${m.pc.x8}");
       _result.stopped = true;
       return;
     }
@@ -196,7 +198,7 @@ class Ss extends Core {
     if (_slaveEnabled && slave.clocks < clocks) {
       final s = slave;
       if (!(step ? s.step() : s.run(clocks))) {
-        debugLog("ss: slave sh-2 unimplemented instruction at ${s.pc.x8}");
+        _log.warnc(() => "slave sh-2 unimplemented instruction at ${s.pc.x8}");
         _result.stopped = true;
       }
       _result.executed1 = true;

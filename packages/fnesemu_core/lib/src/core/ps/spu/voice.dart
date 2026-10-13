@@ -1,9 +1,10 @@
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'spu.dart';
 
 part 'adpcm.dart';
+
+final _log = DebugLog('ps.spu.voice');
 
 class Envelope {
   static const counterMax = 0x400000;
@@ -205,8 +206,8 @@ class Voice {
   }
 
   void keyOn() {
-    // debugLog(
-    //     "SPU: keyOn  ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
+    // _log.debugc(() =>
+    //     "keyOn  ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
     _addr = startAddr;
     if (!_repeatAddrSet) {
       repeatAddr = startAddr;
@@ -230,8 +231,8 @@ class Voice {
     _adsrPhase = 4;
     envelope = Envelope.of(0, adsr.shr16.mask5, adsr.bit21, true); // release
 
-    // debugLog(
-    //     "SPU: keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
+    // _log.debugc(() =>
+    //     "keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
   }
 
   String dump() => "${no.d2}${endx ? "E" : "R"}:"

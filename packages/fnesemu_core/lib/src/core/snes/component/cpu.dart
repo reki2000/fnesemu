@@ -1,8 +1,8 @@
-import 'dart:developer';
-
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'cpu_bus.dart';
+
+final _log = DebugLog('snes.cpu');
 
 class Regs {
   int a = 0; // 16-bit accumulator (C); low 8 = A, high 8 = B
@@ -1276,7 +1276,7 @@ class Cpu {
         break;
 
       default:
-        log("65816: unimplemented opcode ${op.x2} at "
+        _log.debugc(() => "unimplemented opcode ${op.x2} at "
             "${regs.pbr.x2}:${regs.pc.dec.mask16.x4}");
         return false;
     }

@@ -1,8 +1,10 @@
 import 'dart:core';
-import 'dart:developer';
 
+import '../../util/debug.dart';
 import 'vdp.dart';
 import 'vdp_renderer.dart';
+
+final _log = DebugLog('md.vdp_test');
 
 void main() {
   final vdp = Vdp();
@@ -32,5 +34,5 @@ void main() {
     min = (elapsed < min) ? elapsed : min;
   }
 
-  log('elapsed: ${sum ~/ measureCount} us (max: $max, min: $min)');
+  _log.infoc(() => 'elapsed: ${sum ~/ measureCount} us (max: $max, min: $min)');
 }

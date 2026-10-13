@@ -1,8 +1,10 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
 import '../../../util/crc32.dart';
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
+
+final _log = DebugLog('snes.rom.snes_file');
 
 enum SnesMapping { loRom, hiRom }
 
@@ -81,7 +83,7 @@ class SnesFile {
     final ramByte = _at(base + 0x18);
     sramSize = ramByte == 0 ? 0 : (0x400 << ramByte);
 
-    log("snes rom len:${rom.length} "
+    _log.debugc(() => "snes rom len:${rom.length} "
         "map:${mapping.name} title:'$title' "
         "type:${romType.x2} sram:${sramSize}B fastRom:$fastRom crc:$crc");
   }

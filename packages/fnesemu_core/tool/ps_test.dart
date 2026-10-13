@@ -9,6 +9,7 @@ import 'package:fnesemu_core/src/util/int.dart';
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 import 'ps_io.dart';
 
 int runSeconds = -1; // run for this many seconds
@@ -97,7 +98,7 @@ class TraceLogger {
 
 List<String> handleOptions(List<String> args) {
   if (args.length < 2) {
-    print(
+    stdout.writeln(
       "Usage: dart run tool/ps_test.dart [-f] [-c runCycles] [-n runSeconds] [-ta traceStartAddress] [-tc traceCycleStart-traceCycleEnd] <bios file> <disc file> [<exe file>]",
     );
     return [];
@@ -162,6 +163,7 @@ List<String> handleOptions(List<String> args) {
 }
 
 main(List<String> args) async {
+  configureLogging();
   args = handleOptions(args);
 
   if (args.isEmpty) {
@@ -199,7 +201,7 @@ main(List<String> args) async {
           traceAddress >= 0 &&
           core.programCounter(0) == traceAddress) {
         afterTraceAddress = true;
-        print(
+        stdout.writeln(
             "debug: start logging at pc: 0x${traceAddress.toRadixString(16)}");
       }
 
@@ -229,8 +231,8 @@ main(List<String> args) async {
   final meanElapsed = elapsedResults.isNotEmpty
       ? elapsedResults.reduce((a, b) => a + b) ~/ elapsedResults.length
       : 0;
-  print(
+  stdout.writeln(
       "Elapsed time: $meanElapsed ms (${elapsedResults.map((e) => "$e").join(', ')} ms)");
-  print(core.cpu.dump());
-  print(core.cdrom.dump());
+  stdout.writeln(core.cpu.dump());
+  stdout.writeln(core.cdrom.dump());
 }

@@ -242,7 +242,7 @@ class Cop2 {
 
   int checkOverflow(
       int value, int min, int max, int bitOverflow, int bitUnderflow) {
-    // debugLog(
+    // _log.debugc(() =>
     //     "gte: checkOverflow v:${value.toRadixString(16)} min:${min.toRadixString(16)} max:${max.toRadixString(16)} $bitOverflow, $bitUnderflow");
     if (value > max) {
       setFlag(bitOverflow);
@@ -284,7 +284,7 @@ class Cop2 {
       z++;
       d <<= 1;
     }
-    // debugLog("gte: h:$h, sz:$sz, z:$z, d:$d");
+    // _log.debugc(() => "gte: h:$h, sz:$sz, z:$z, d:$d");
     final n = h << z;
     final u = unrTable[(d - 0x7fc0) >>> 7] + 0x101;
     d = (0x2000080 - (d * u)) >>> 8;
@@ -374,7 +374,7 @@ class Cop2 {
       };
 
   void _write(int reg, int value) {
-    // debugLog("cpu: cop2 [$reg] <= ${value.x8}");
+    // _log.debugc(() => "cop2 [$reg] <= ${value.x8}");
 
     switch (reg) {
       case 0:
@@ -560,7 +560,7 @@ class Cop2 {
     shift = sf ? 12 : 0;
     flag = 0;
 
-    // debugLog("cop2: ${[
+    // _log.debugc(() => "cop2: ${[
     //   "EX_00", "RTPS", "EX_02", "EX_03", "EX_04", "EX_05", "NCLIP", "EX_07", //
     //   "EX_08", "EX_09", "EX_0A", "EX_0B", "OP", "EX_0D", "EX_0E", "EX_0F", //
     //   "DPCS", "INTPL", "MVMVA", "NCDS", "CDP", "EX_15", "NCDT", "EX_17", //

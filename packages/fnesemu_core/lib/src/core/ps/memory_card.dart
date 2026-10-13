@@ -2,8 +2,9 @@ import 'dart:typed_data';
 
 import '../../util/debug.dart';
 import '../../util/int.dart';
-
 import 'serial.dart' show SioResponse, SioDevice;
+
+final _log = DebugLog('ps.memory_card');
 
 class MemoryCard extends SioDevice {
   static const int waitIgnore = -1;
@@ -95,8 +96,8 @@ class MemoryCard extends SioDevice {
   @override
   SioResponse notify(int txData) {
     // if (step != waitAddr) {
-    //   debugLog(
-    //       "memcard: notify txData:${txData.x2} pre:${_pre.x2} dump:${dump()}");
+    //   _log.debugc(() =>
+    //       "notify txData:${txData.x2} pre:${_pre.x2} dump:${dump()}");
     // }
 
     switch (step) {
@@ -118,7 +119,7 @@ class MemoryCard extends SioDevice {
           command = commandId;
         } else {
           // unknown command
-          debugLog("memcard: unknown command ${txData.x2}");
+          _log.warnc(() => "unknown command ${txData.x2}");
           step = waitAddr;
           return ack(flag);
         }
@@ -175,7 +176,7 @@ class MemoryCard extends SioDevice {
         if (count == 0) {
           step = waitReadCheckSum;
         }
-        // debugLog("memcard: read from ${addr.x4} data:${readData.x2} "
+        // _log.debugc(() => "read from ${addr.x4} data:${readData.x2} "
         //     "checkSum:${checkSum.x2} count:$count");
         return ack(readData);
 
@@ -197,8 +198,8 @@ class MemoryCard extends SioDevice {
 
       case waitWriteCheckSum:
         if (txData != checkSum) {
-          debugLog(
-              "memcard: write checksum error: got:${txData.x2} expected:${checkSum.x2}");
+          _log.warnc(() =>
+              "write checksum error: got:${txData.x2} expected:${checkSum.x2}");
         }
         step = waitCmdAck0;
         return ack(_pre);

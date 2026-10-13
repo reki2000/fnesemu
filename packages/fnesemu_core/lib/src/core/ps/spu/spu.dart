@@ -8,6 +8,8 @@ import '../bus.dart';
 import 'reverb.dart';
 import 'voice.dart';
 
+final _log = DebugLog('ps.spu');
+
 class Spu {
   static const clockHz = 44100;
 
@@ -155,7 +157,7 @@ class Spu {
   int get status => _status;
   int _control = 0;
   int get control {
-    // debugLog("spu: readControl ${_control.x8}");
+    // _log.debugc(() => "readControl ${_control.x8}");
     return _control;
   }
 
@@ -225,7 +227,7 @@ class Spu {
     if (irqEnabled && addr == _irqAddr) {
       _status = _status.setBit(6, true); // set irq flag
       bus.setIrq(9);
-      // debugLog("spu: IRQ triggered at ${_fifoAddr.x6}");
+      // _log.debugc(() => "IRQ triggered at ${_fifoAddr.x6}");
     }
 
     return ram.getUint16LE(addr);
@@ -241,7 +243,7 @@ class Spu {
     if (irqEnabled && addr == _irqAddr) {
       _status = _status.setBit(6, true); // set irq flag
       bus.setIrq(9);
-      debugLog("spu: IRQ triggered at ${addr.x6}");
+      _log.debugc(() => "IRQ triggered at ${addr.x6}");
     }
 
     ram[addr] = value.mask8;
@@ -252,8 +254,8 @@ class Spu {
 
   void writeFifo16(int value) {
     // if (0x1030 <= _fifoAddr && _fifoAddr < 0x1050) {
-    //   debugLog(
-    //       "SPU: writeFifo ${_fifoAddr.x8} ${value.x8} ${bus.cpu.dump()}");
+    //   _log.debugc(() =>
+    //       "writeFifo ${_fifoAddr.x8} ${value.x8} ${bus.cpu.dump()}");
     // }
     if (value != 0) fifoWriteCount++;
     writeRam16(_fifoAddr, value);
@@ -261,8 +263,8 @@ class Spu {
   }
 
   void writeCtrl(int value) {
-    // debugLog(
-    //     "spu: writeCtrl ${value.x8} irq:${irqEnabled ? "E" : "e"}:${_irqAddr.x6}");
+    // _log.debugc(() =>
+    //     "writeCtrl ${value.x8} irq:${irqEnabled ? "E" : "e"}:${_irqAddr.x6}");
     _control = value;
     enabled = value.bit15;
     muted = !value.bit14;
@@ -313,7 +315,7 @@ class Spu {
       }
     }
     // if (voices[0].pitch == 0x400 && voices[0].startAddress == 0x6140) {
-    //   debugLog("SPU: dump ram into file..");
+    //   _log.debug("dump ram into file..");
     //   File("docs/spu_ram.bin").writeAsBytesSync(ram);
     // }
   }
@@ -342,7 +344,7 @@ class Spu {
         result |= 1 << i;
       }
     }
-    // debugLog("SPU: endx ${result.x8}");
+    // _log.debugc(() => "endx ${result.x8}");
     return result;
   }
 

@@ -13,6 +13,8 @@ part 'gpu0_renderer.dart';
 part 'gpu1.dart';
 part 'renderer.dart';
 
+final _log = DebugLog('ps.gpu');
+
 class Gpu {
   final Bus bus;
 
@@ -145,7 +147,7 @@ class Gpu {
   }
 
   int readReg() {
-    // debugLog("GPREAD: ${readValue.x8} ${dumpCmd()}");
+    // _log.debugc(() => "GPREAD: ${readValue.x8} ${dumpCmd()}");
     final result = readValue;
     postRead();
 
@@ -168,7 +170,7 @@ class Gpu {
         .setBit(27, vramToCpuReady)
         .setBit(28, dmaReceiveReady)
         .setBit(31, isOddFrame & !isVblank);
-    // debugLog("GPSTAT: ${result.x8}  ${dumpCmd()}");
+    // _log.debugc(() => "GPSTAT: ${result.x8}  ${dumpCmd()}");
     return result;
   }
 
@@ -195,7 +197,7 @@ class Gpu {
   writeFrameBuffer16(int x, int y, int u16) {
     final offset = y.mask9 * 1024 + x.mask10;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
-    //   debugLog(
+    //   _log.debugc(() =>
     //       "writeFrameBuffer16: ${u16.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
     // }
     frameBuffer16[offset] = u16;
@@ -206,7 +208,7 @@ class Gpu {
     final offset = y.mask9 * 1024 + x.mask10;
     // if ((offset >= 32 * 1024 && offset < 33 * 1024)) {
     //   final result = frameBuffer.getUint16LE(offset);
-    //   debugLog(
+    //   _log.debugc(() =>
     //       "readFrameBuffer16: value ${result.x4} at ($x, $y) offset:${offset.x8} ${dumpCmd()}");
     // }
     return frameBuffer16[offset];
@@ -241,7 +243,7 @@ class Gpu {
     final result = frameBuffer16[addr & 0x7ffff];
 
     if (debug) {
-      debugLog(
+      _log.debugc(() =>
           "getTexureColor($u+$textureOffsetX2/${textureMaskX2.x2}, $v+$textureOffsetY2/${textureMaskY2.x2}, "
           "$baseX, $baseY, ${clutBase.x6}, $clutMode) -> ${result.x4}");
     }

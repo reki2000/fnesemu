@@ -63,7 +63,7 @@ extension Cop2Command on Cop2 {
     sz3 = ssz.shr12.rel32;
 
     final hsz1 = divUnr(h.mask16, sz3.mask16);
-    // debugLog(
+    // _log.debugc(() =>
     //     "gte: h:${h.x8} sz3:${sz3.toRadixString(16)} hdz1: ${hsz1.toRadixString(16)} ir1: ${ir1.x8} ofx:${ofx.x8} flag:${flag.x8}");
 
     final sx = hsz1 * ir1 + ofx;
@@ -80,7 +80,7 @@ extension Cop2Command on Cop2 {
       ir0 = p.shr12;
     }
 
-    // debugLog("gte: rtps ${dump()}");
+    // _log.debugc(() => "gte: rtps ${dump()}");
   }
 
   void rtpt() {
@@ -116,7 +116,7 @@ extension Cop2Command on Cop2 {
     setMacAndIrV(rgb.dot(ir_) + ir * ir0);
 
     pushColor();
-    // debugLog(
+    // _log.debugc(() =>
     //     "gte: ncds ${vx.x4} ${vy.x4} ${vz.x4} ir:${ir0.x4} rgbc:${rgbc.x8} rgb2:${rgb2.x8}");
   }
 

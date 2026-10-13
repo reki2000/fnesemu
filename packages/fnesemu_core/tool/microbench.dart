@@ -5,7 +5,10 @@ import 'package:fnesemu_core/src/util/int.dart';
 import 'package:fnesemu_core/src/util/sampler.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 
+import 'logging.dart';
+
 void main(List<String> args) {
+  configureLogging();
   final v = DateTime.now().second > 0 ? 1 : 0;
   final s = DateTime.now().second > 0 ? 1 : 2;
 

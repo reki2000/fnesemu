@@ -17,8 +17,10 @@ import 'package:fnesemu_core/src/sram.dart';
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 
 Future<void> main(List<String> args) async {
+  configureLogging();
   int frames = 1200;
   int hold = 12;
   bool checksum = false;
@@ -58,8 +60,8 @@ Future<void> main(List<String> args) async {
   final pressList = presses
       .map((p) => (
             p.$1,
-            buttons.firstWhere(
-                (b) => b.name.toLowerCase() == p.$2.toLowerCase())
+            buttons
+                .firstWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase())
           ))
       .toList();
 
@@ -77,8 +79,10 @@ Future<void> main(List<String> args) async {
   core.onAudio((buf) {
     samples += buf.buffer.length;
     if (checksum) {
-      audioHash = mix(audioHash, buf.buffer.buffer.asUint8List(
-          buf.buffer.offsetInBytes, buf.buffer.lengthInBytes));
+      audioHash = mix(
+          audioHash,
+          buf.buffer.buffer
+              .asUint8List(buf.buffer.offsetInBytes, buf.buffer.lengthInBytes));
     }
   });
 
@@ -113,7 +117,7 @@ Future<void> main(List<String> args) async {
   sw.stop();
 
   final ms = sw.elapsedMicroseconds / 1000;
-  print("frames:$frames time:${ms.toStringAsFixed(0)}ms "
+  stdout.writeln("frames:$frames time:${ms.toStringAsFixed(0)}ms "
       "${(ms / frames).toStringAsFixed(3)}ms/frame "
       "${(frames * 1000 / ms).toStringAsFixed(1)}fps samples:$samples"
       "${checksum ? " image:${hash.toRadixString(16)} audio:${audioHash.toRadixString(16)}" : ""}");

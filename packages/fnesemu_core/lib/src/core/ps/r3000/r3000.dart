@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
-
 import '../log.dart';
 import 'exception.dart';
 
@@ -14,6 +13,8 @@ part 'cop2.dart';
 part 'cop2_command.dart';
 part 'cop2_math.dart';
 part 'hook.dart';
+
+final _log = DebugLog('ps.r3000');
 
 /// A simple bus interface for MIPS memory accesses.
 abstract class BusR3000 {
@@ -223,8 +224,8 @@ class R3000 {
     pc = sr.bit22 ? 0xbfc00180 : 0x80000080; // bit22: BEV
     nextPc = pc.inc4;
 
-    // debugLog(
-    //     "cpu: exception  excode:${excode.x2} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
+    // _log.debugc(() =>
+    //     "exception  excode:${excode.x2} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
   }
 
   void branch(bool cond, int rel16) {

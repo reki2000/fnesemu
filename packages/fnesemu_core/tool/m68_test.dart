@@ -7,6 +7,8 @@ import 'package:fnesemu_core/src/components/m68k/cpu.dart';
 import 'package:fnesemu_core/src/components/m68k/debug.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
+import 'logging.dart';
+
 class BusM68Test implements M68Bus {
   final ram_ = List<int>.filled(0x1000000, 0xff);
 
@@ -63,6 +65,7 @@ loadMap() {
 }
 
 int main() {
+  configureLogging();
   final bus = BusM68Test();
   final cpu = M68(bus);
   cpu.bus = bus;
@@ -95,7 +98,7 @@ int main() {
       continue;
     }
 
-    print('${file.path}: running...');
+    stdout.writeln('${file.path}: running...');
 
     final uncompressedData = GZipDecoder().decodeBytes(file.readAsBytesSync());
     final tests = json.decode(utf8.decode(uncompressedData));
@@ -108,7 +111,7 @@ int main() {
       }
 
       loadTest(test['initial'], cpu);
-      // print(cpu.debug());
+      // stdout.writeln(cpu.debug());
       loadTest(test['final'], cpu2);
       cpu2.clocks = test['length'];
 
@@ -153,7 +156,7 @@ int main() {
       final actual = cpu.debug().substring(0, 207);
       // final expected = cpu2.debug();
       // final actual = cpu.debug();
-      // print(expected);
+      // stdout.writeln(expected);
 
       if (expected != actual) {
         debug('$expected\n$actual');
@@ -187,15 +190,15 @@ int main() {
 
       // show result
       if (error) {
-        print('\ntest ${test['name']} failed');
-        print(debugLog);
-        print(convertIntegersToHex(test));
+        stdout.writeln('\ntest ${test['name']} failed');
+        stdout.writeln(debugLog);
+        stdout.writeln(convertIntegersToHex(test));
         return 1;
       }
     }
   }
 
-  print('all tests passed');
+  stdout.writeln('all tests passed');
 
   return 0;
 }
@@ -217,10 +220,6 @@ class Mem {
   final int addr;
   final int val;
   Mem(this.addr, this.val);
-}
-
-void print(String msg) {
-  stdout.writeln(msg);
 }
 
 String debugLog = "";

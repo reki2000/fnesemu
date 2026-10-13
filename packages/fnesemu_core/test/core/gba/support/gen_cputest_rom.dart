@@ -15,6 +15,5 @@ void main() {
   final file = File('test/core/gba/roms/arm7_cputest.gba')
     ..createSync(recursive: true)
     ..writeAsBytesSync(rom);
-  // ignore: avoid_print
-  print('wrote ${file.path} (${rom.length} bytes)');
+  stdout.writeln('wrote ${file.path} (${rom.length} bytes)');
 }

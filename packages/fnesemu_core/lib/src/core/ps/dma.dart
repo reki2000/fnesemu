@@ -3,6 +3,8 @@ import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 
+final _log = DebugLog('ps.dma');
+
 const List<int> debugLogChannel = [];
 
 class DmaChannel {
@@ -51,7 +53,7 @@ class DmaChannel {
       _channelCtrl &= ~0x10000000; // start trigger is cleared when started
     }
     if (running && (debugLogChannel.contains(ch))) {
-      debugLog("DMA$ch: started   ${dump()} ");
+      _log.debugc(() => "DMA$ch: started   ${dump()} ");
     }
   }
 
@@ -130,7 +132,7 @@ class Dma {
       channels[ch].enabled = value.bit3;
       channels[ch].priority = value.mask3;
       value >>= 4;
-      // debugLog(
+      // _log.debugc(() =>
       //     "DMA$ch: controlled   ${channels[ch].dump()} pc:${bus.cpu.pc.x8} ra:${bus.cpu.r[31].x8}");
     }
   }
@@ -146,8 +148,8 @@ class Dma {
       3 => _interrupt & (~value.shl24 | 0xffffff),
       _ => throw "illegal DMA interrupt addr:${addr.x8} value:${value.x8}",
     };
-    // debugLog(
-    //     "DMA: interrupt set addr:$addr value:${value.x2} -> ${_interrupt.x8} ");
+    // _log.debugc(() =>
+    //     "interrupt set addr:$addr value:${value.x2} -> ${_interrupt.x8} ");
 
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].irqOnComplete = _interrupt.bit(ch + 16);
@@ -179,7 +181,7 @@ class Dma {
             return false;
           }
           final data = bus.read32(d.addr);
-          // debugLog(
+          // _log.debugc(() =>
           //     "DMA0: MDEC DMA [${d.addr.x8}]=0x${data.x8} ${d.dump()}");
           bus.mdec.writeCommand(data);
         }
@@ -194,7 +196,7 @@ class Dma {
 
       case 3:
         // CDROM
-        // debugLog("DMA3: CDROM DMA ${d.dump()}");
+        // _log.debugc(() => "DMA3: CDROM DMA ${d.dump()}");
         if (d.toRam) {
           bus.write16(d.addr, bus.cdrom.readBuffer16());
           bus.write16(d.addr.inc2, bus.cdrom.readBuffer16());
@@ -287,7 +289,7 @@ class Dma {
             final node = bus.read32(d.addr);
 
             if (node == 0) {
-              debugLog(
+              _log.debugc(() =>
                   "DMA${d.ch}: node is zero. aborted. ${d.dump()} ra:${bus.cpu.r[31].x8}");
               break;
             }
@@ -300,7 +302,7 @@ class Dma {
 
             d.addr = node.mask24;
           }
-          // debugLog(
+          // _log.debugc(() =>
           //     "DMA${d.ch}: completed linked list. ${d.dump()} ra:${bus.cpu.r[31].x8}");
 
           completeDma(d.ch);
@@ -326,10 +328,10 @@ class Dma {
     d.running = false;
 
     // if (ch == 1) {
-    //   debugLog("dma: complete ch1, mdec:${bus.mdec.dump()} ");
+    //   _log.debugc(() => "complete ch1, mdec:${bus.mdec.dump()} ");
     // }
     if (debugLogChannel.contains(ch)) {
-      debugLog(
+      _log.debugc(() =>
           "DMA$ch: completed ${d.dump()} ctl:${_control.x8} int:${_interrupt.x8} ");
     }
 
@@ -343,7 +345,7 @@ class Dma {
     }
     // bus.setIrq(Interrupt.dma);
     // if (!oldBit31 && _bit31()) {
-    //   // debugLog(
+    //   // _log.debugc(() =>
     //   //     "DMA$ch: irq cnt:${_control.x8} int:${_interrupt.x8} ${d.dump()}");
     //   irqPending = true;
     // }

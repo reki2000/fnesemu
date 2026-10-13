@@ -1,12 +1,13 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import '../constants.dart' as hardware;
 import '../mapper/mapper.dart';
 import 'bus.dart';
 import 'ppu_render.dart';
+
+final _log = DebugLog('nes.ppu');
 
 class Ppu {
   final Bus bus;
@@ -175,7 +176,7 @@ class Ppu {
         break;
 
       default:
-        log("Unsupported ppu write at 0x${reg.x4}");
+        _log.warnc(() => "Unsupported ppu write at 0x${reg.x4}");
         return;
     }
   }
@@ -208,7 +209,7 @@ class Ppu {
         return data;
 
       default:
-        log("Unsupported ppu read at 0x${reg.x4}");
+        _log.warnc(() => "Unsupported ppu read at 0x${reg.x4}");
         return 0;
     }
   }

@@ -26,6 +26,8 @@ import 'serial.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
 
+final _log = DebugLog('ps');
+
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
 
 class Ps extends Core {
@@ -106,7 +108,7 @@ class Ps extends Core {
     }
 
     cpu.exe = body;
-    debugLog("loaded PS-EXE");
+    _log.info("loaded PS-EXE");
   }
 
   @override
@@ -293,7 +295,7 @@ class Ps extends Core {
 
   @override
   void setCdromDrive(CdromDrive drive) {
-    debugLog("set cdrom drive: ${drive.status.state.name}");
+    _log.infoc(() => "set cdrom drive: ${drive.status.state.name}");
     bus.cdrom.attachDrive(drive);
   }
 

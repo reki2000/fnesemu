@@ -4,6 +4,8 @@ import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import 'r3000.dart';
 
+final _log = DebugLog('ps.r3000.bench');
+
 /// A dummy BusR3000 implementation for tests.
 class _TestBus implements BusR3000 {
   final ByteData ram;
@@ -40,7 +42,8 @@ void main() {
   for (int i = 0; i < idata.length; i++) {
     bus.write32(i * 4 + base, idata[i]);
   }
-  debugLog("idata: ${range(0, 16).map((e) => bus.read8(e).x2).join(" ")}");
+  _log.debugc(
+      () => "idata: ${range(0, 16).map((e) => bus.read8(e).x2).join(" ")}");
 
   final cpu = R3000(bus);
   const count = 4; //50 * 1000 * 1000;
@@ -49,11 +52,11 @@ void main() {
   cpu.pc = base;
   cpu.nextPc = base + 4;
   for (int i = 0; i < count; i++) {
-    debugLog(cpu.dump());
+    _log.debugc(() => cpu.dump());
     cpu.step();
   }
   final elapsedMs = DateTime.now().millisecondsSinceEpoch - startAt;
 
-  debugLog(
+  _log.infoc(() =>
       "elapsed time: ${elapsedMs}ms , ${count / elapsedMs / 1000} Mcycles/sec");
 }

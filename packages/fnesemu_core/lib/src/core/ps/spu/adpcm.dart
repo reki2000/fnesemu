@@ -7,7 +7,7 @@ extension VoiceAdpcmDecoder on Voice {
   void decodeBlock() {
     final log = logCounter > 0 && _addr >= 0x1000;
     if (log) {
-      debugLog(
+      _log.debugc(() =>
           "SPU${no.d2z}: addr:${_addr.x6} ram:${spu.ram.sublist(_addr, _addr + 16).map((e) => e.x2).join(" ")}");
     }
 
@@ -42,7 +42,7 @@ extension VoiceAdpcmDecoder on Voice {
           shifted + (c1 * _block[i - 1] + c2 * _block[i - 2] + 32).shr6;
       final val = filtered.clip(-0x8000, 0x7fff);
       if (log) {
-        debugLog(
+        _log.debugc(() =>
             "SPU${no.d2z}: decode:$i raw:${raw.x2} shifted:$shifted filtered:$filtered val:$val");
       }
 
@@ -63,7 +63,7 @@ extension VoiceAdpcmDecoder on Voice {
     }
 
     if (log) {
-      debugLog(
+      _log.debugc(() =>
           "SPU${no.d2z}: addr:${_addr.x6} block:${_block.map((e) => e.x4).join(" ")}");
       logCounter--;
     }

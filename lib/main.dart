@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fnesemu_core/app_api.dart';
 
 import 'gui/app.dart';
 import 'gui/storage.dart';
@@ -8,6 +9,7 @@ const _version = String.fromEnvironment('APP_VERSION');
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  logs.sink = (event) => debugPrint(event.toString());
 
   const debugEnv = bool.fromEnvironment("DEBUG", defaultValue: false);
   const config = Config(debug: debugEnv);

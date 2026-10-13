@@ -38,7 +38,7 @@ extension Hook on R3000 {
       case >= 0x20 && < 0x80 || 0x09:
         console.write(String.fromCharCode(ch));
       case 0x0a:
-        debugLog("tty: ${console.toString()}");
+        _log.debugc(() => "tty: ${console.toString()}");
         console.clear();
     }
   }
@@ -117,14 +117,14 @@ extension Hook on R3000 {
         final func = "${vector.x2}(${r[9].x2}): $name";
 
         if (biosCallFuncLog.isNotEmpty) {
-          debugLog("bios: $biosCallFuncLog");
+          _log.debugc(() => "bios: $biosCallFuncLog");
         }
         biosCallFuncLog = func;
       }
     }
 
     if (psTrace && pc == biosCallReturnAddr) {
-      debugLog("bios: $biosCallFuncLog --> ${r[2].x8}");
+      _log.debugc(() => "bios: $biosCallFuncLog --> ${r[2].x8}");
       biosCallReturnAddr = 0;
       biosCallFuncLog = "";
     }
@@ -153,6 +153,7 @@ extension Hook on R3000 {
       write32(i + loadAddr, exe.getUint32LE(i + headerSize));
     }
 
-    debugLog("exe sideloaded on ${loadAddr.x8} size:${size.x8} entry:${pc.x8}");
+    _log.debugc(() =>
+        "exe sideloaded on ${loadAddr.x8} size:${size.x8} entry:${pc.x8}");
   }
 }

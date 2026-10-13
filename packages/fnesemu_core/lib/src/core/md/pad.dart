@@ -1,5 +1,8 @@
+// import '../../util/debug.dart';
 import '../../pad_button.dart';
 import '../../util/int.dart';
+
+// final _log = DebugLog('md.pad');
 
 class Pad {
   late List<Map<String, bool>> isPressed;
@@ -15,14 +18,14 @@ class Pad {
     if (0 <= id && id < controllerNum && d != PadButton.none) {
       isPressed[id][d.name] = true;
     }
-    // print("kwydown pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
+    // _log.debugc(() => "kwydown pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
   void keyUp(int id, PadButton d) {
     if (0 <= id && id < controllerNum && d != PadButton.none) {
       isPressed[id][d.name] = false;
     }
-    // print("keyup pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
+    // _log.debugc(() => "keyup pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
   static const _mode = PadButton("Mode");
@@ -93,7 +96,7 @@ class Pad {
         counter[id] = 0;
       }
     }
-    // print("pad:$id writeData ${val.x2} th:${th[id]} counter:${counter[id]}");
+    // _log.debugc(() => "$id writeData ${val.x2} th:${th[id]} counter:${counter[id]}");
   }
 
   int readData(int id) {
@@ -106,8 +109,8 @@ class Pad {
                 : (idx == -1 || !isPressed[id][_hw[idx].name]!)
                     ? 1
                     : 0));
-    // print(
-    //     "pad:$id counter:${counter[id]} ${val.x2} isPressed:${isPressed[id]}");
+    // _log.debugc(() =>
+    //     "$id counter:${counter[id]} ${val.x2} isPressed:${isPressed[id]}");
     return val | (th[id] ? 0x40 : 0);
   }
 
@@ -116,6 +119,6 @@ class Pad {
       th[id] = true;
     }
     counter[id] = 0;
-    // print("pad:$id writeCtrl ${val.x2} th:${th[id]} counter:${counter[id]}");
+    // _log.debugc(() => "$id writeCtrl ${val.x2} th:${th[id]} counter:${counter[id]}");
   }
 }

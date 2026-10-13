@@ -1,9 +1,9 @@
-import 'dart:developer';
-
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'mapper.dart';
 import 'mirror.dart';
+
+final _log = DebugLog('nes.mapper.vrc4');
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 class MapperVrc4 extends Mapper {
@@ -40,13 +40,13 @@ class MapperVrc4 extends Mapper {
   void init() {
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
-      log("invalid chr rom size: ${chrRoms.length}k");
+      _log.warnc(() => "invalid chr rom size: ${chrRoms.length}k");
       return;
     }
 
     _prgBankMask = prgRoms.length - 1;
     if (_prgBankMask & prgRoms.length != 0) {
-      log("invalid prg rom size: ${prgRoms.length}k");
+      _log.warnc(() => "invalid prg rom size: ${prgRoms.length}k");
       return;
     }
 

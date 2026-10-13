@@ -1,12 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
+import 'logging.dart';
+
 /// Private ROMs stay outside the repository. Writes raw RGBA evidence to /tmp.
 void main(List<String> args) {
+  configureLogging();
   if (args.isEmpty) {
     stderr.writeln('Usage: dart tool/n64_smoke.dart ROM [cycles] [--input]');
     exit(64);

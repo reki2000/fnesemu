@@ -6,12 +6,12 @@ extension Gpu0 on Gpu {
 
   void writeGp0(int value) {
     // if (bus.gpu.frame >= 1072 && bus.gpu.frame <= 1072) {
-    // debugLog("gp0: writeGp0: value:${value.x8} ${dumpCmd()}");
+    // _log.debugc(() => "writeGp0: value:${value.x8} ${dumpCmd()}");
     // }
 
     if (!cmdReady || !handleSingleWordCommand(value)) {
       if (!handleMultiwordCommand(value)) {
-        debugLog("invalid GP0 command cmd0:${value.x8} ${dumpCmd()}");
+        _log.warnc(() => "invalid GP0 command cmd0:${value.x8} ${dumpCmd()}");
         cmdSize = 0;
       }
     }
@@ -33,13 +33,13 @@ extension Gpu0 on Gpu {
         return false;
 
       case >= 0x00 && < 0x20:
-        debugLog("gp0: unknown misc command: ${value.x8}");
+        _log.warnc(() => "unknown misc command: ${value.x8}");
 
       case 0xe1: // draw mode setting
         status = status
             .masked(0x7ff, value)
             .setBit(15, textureDisableAllowed && value.bit11);
-      // debugLog("gp0: e1: draw mode setting: ${status.x8}");
+      // _log.debugc(() => "e1: draw mode setting: ${status.x8}");
 
       case 0xe2: // texture window setting
         textureMaskX = value.mask5;
@@ -51,35 +51,35 @@ extension Gpu0 on Gpu {
         textureMaskY2 = (~textureMaskY.shl3).mask8;
         textureOffsetX2 = (textureOffsetX & textureMaskX).shl3;
         textureOffsetY2 = (textureOffsetY & textureMaskY).shl3;
-      // debugLog(
-      //     "gp0: e2: texture window setting: ${value.x8} mask:($textureMaskX, $textureMaskY) offset:($textureOffsetX, $textureOffsetY)");
+      // _log.debugc(() =>
+      //     "e2: texture window setting: ${value.x8} mask:($textureMaskX, $textureMaskY) offset:($textureOffsetX, $textureOffsetY)");
 
       case 0xe3: // set drawing area top left
         drawingX1 = value & xMask;
         drawingY1 = value.shr10 & yMask;
-      // debugLog(
-      //     "gp0: e3: set drawing area top left: ${value.x8} area:($drawingX1, $drawingY1)");
+      // _log.debugc(() =>
+      //     "e3: set drawing area top left: ${value.x8} area:($drawingX1, $drawingY1)");
 
       case 0xe4: // set drawing area bottom right
         drawingX2 = value & xMask;
         drawingY2 = value.shr10 & yMask;
-      // debugLog(
-      //     "gp0: e4: set drawing area bottom right: ${value.x8} area:($drawingX2, $drawingY2)");
+      // _log.debugc(() =>
+      //     "e4: set drawing area bottom right: ${value.x8} area:($drawingX2, $drawingY2)");
 
       case 0xe5: // set drawing offset
         drawingOffsetX = value.rel11;
         drawingOffsetY = value.shr11.rel11;
-      // debugLog(
-      //     "gp0: e5: set drawing offset: ${value.x8} offset:($drawingOffsetX, $drawingOffsetY)");
+      // _log.debugc(() =>
+      //     "e5: set drawing offset: ${value.x8} offset:($drawingOffsetX, $drawingOffsetY)");
 
       case 0xe6: // mask bit setting
         status = status.setBit(11, value.bit0);
         status = status.setBit(12, value.bit1);
-      // debugLog(
-      //     "gp0: e6: mask:${value.bit0 ? "on " : "off"} check:${value.bit1 ? "on " : "off"}");
+      // _log.debugc(() =>
+      //     "e6: mask:${value.bit0 ? "on " : "off"} check:${value.bit1 ? "on " : "off"}");
 
       case >= 0xe0 && < 0x100:
-        debugLog("gp0: unknown environment command: ${value.x8}");
+        _log.warnc(() => "unknown environment command: ${value.x8}");
 
       default:
         return false;
@@ -91,8 +91,8 @@ extension Gpu0 on Gpu {
   bool handleMultiwordCommand(int value) {
     final cmd0 = cmdSize == 0 ? value : cmd[0];
 
-    // debugLog(
-    //     "gp0: multiword value:${value.x8} [${cmd0 >> 29}] cmd:${dumpCmd()}");
+    // _log.debugc(() =>
+    //     "multiword value:${value.x8} [${cmd0 >> 29}] cmd:${dumpCmd()}");
 
     switch (cmd0.shr29) {
       case 0x00: // misc
@@ -148,11 +148,11 @@ extension Gpu0 on Gpu {
         bltSizeY--;
         bltFromY++;
 
-        // debugLog(
-        //     "gp0: blit vram to cpu:  ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
+        // _log.debugc(() =>
+        //     "blit vram to cpu:  ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
         if (bltSizeY == 0) {
-          // debugLog("gp0: blit vram to cpu completed");
+          // _log.debug("blit vram to cpu completed");
           cmdSize = 0;
           break;
         }
@@ -176,8 +176,8 @@ extension Gpu0 on Gpu {
         }
       }
 
-      // debugLog(
-      //     "gp0: quick rectangle fill completed : ${dumpCmd()} (${p0.x},${p0.y}) ${w}x$h ${c16.x4}");
+      // _log.debugc(() =>
+      //     "quick rectangle fill completed : ${dumpCmd()} (${p0.x},${p0.y}) ${w}x$h ${c16.x4}");
       cmdSize = 0;
     }
   }
@@ -220,16 +220,16 @@ extension Gpu0 on Gpu {
             // final (x1, y1) = (c[2] & xMask, c[2] >> 16 & yMask);
             // final (x2, y2) = (c[3] & xMask, c[3] >> 16 & yMask);
             // final (x3, y3) = (c[4] & xMask, c[4] >> 16 & yMask);
-            // debugLog(
-            //     "gp0: flat rectangle polygon completed ${dumpCmd()} "
+            // _log.debugc(() =>
+            //     "flat rectangle polygon completed ${dumpCmd()} "
             //     "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0}");
           }
         }
       }
 
-      // debugCmdLog = "gp0: polygon completed ${dumpCmd()}";
-      // debugLog(
-      //     "gp0: polygon completed ${dumpCmd()}");
+      // debugCmdLog = "polygon completed ${dumpCmd()}";
+      // _log.debugc(() =>
+      //     "polygon completed ${dumpCmd()}");
       //     "($x0, $y0) $w x $h ($u0, $v0) "
       //     "clut:${clut.x4} ${clut << 4 & 0x3e0},${clut >> 5 & 0x1ff} page:${page.x4} ${page << 6 & 0x3c0},${page << 4 & 0x100} c${page >> 7 & 3} ");
       cmdSize = 0;
@@ -315,7 +315,7 @@ extension Gpu0 on Gpu {
       final clutMode = status.shr7.mask2;
       final clutBase = (clut.shr6 & yMask) * 1024 + clut.mask6.shl4;
 
-      // debugLog("gp0: drawRectangle: ${dumpCmd()} "
+      // _log.debugc(() => "drawRectangle: ${dumpCmd()} "
       //     "${transparent ? "semi" : "opaq"} mod:${modulated ? cmd[0].x6 : "-"} "
       //     "xy($x0, $y0) $w x $h ->(${drawingOffsetX + x0},${drawingOffsetY + y0}) "
       //     "${!textured ? "flat" //
@@ -342,7 +342,7 @@ extension Gpu0 on Gpu {
         }
       }
 
-      // debugCmdLog = "gp0: rectangle completed ${dumpCmd()}";
+      // debugCmdLog = "rectangle completed ${dumpCmd()}";
 
       cmdSize = 0;
     }
@@ -359,7 +359,7 @@ extension Gpu0 on Gpu {
       bltFromX = cmd[1] & xMask;
       bltPosX = cmd[2] & xMask;
       bltSizeX = cmd[3].maskZeroMax(xMask);
-      // debugLog(
+      // _log.debugc(() =>
       //     "GP0 vram to vram blit: [${dumpCmd()}] $bltFromX,$bltFromY -> $bltPosX,$bltPosY w:$bltSizeX h:$bltSizeY");
 
       final forceMask = status.bit11 ? 0x8000 : 0;
@@ -408,8 +408,8 @@ extension Gpu0 on Gpu {
           bltSizeY--;
 
           if (bltSizeY == 0) {
-            // debugLog(
-            //     "gp0: blit cpu to vram: completed  pc:${bus.cpu.pc.x8}");
+            // _log.debugc(() =>
+            //     "blit cpu to vram: completed  pc:${bus.cpu.pc.x8}");
             cmdSize = 0;
             break;
           }
@@ -428,8 +428,8 @@ extension Gpu0 on Gpu {
       bltPosY = cmd[1].shr16 & yMask;
       bltSizeY = cmd[2].shr16.maskZeroMax(yMask);
 
-      // debugLog(
-      //     "gp0: blit cpu to vram: ${dumpCmd()} ($bltPosX,$bltPosY) $bltSizeX x $bltSizeY");
+      // _log.debugc(() =>
+      //     "blit cpu to vram: ${dumpCmd()} ($bltPosX,$bltPosY) $bltSizeX x $bltSizeY");
     }
   }
 
@@ -443,8 +443,8 @@ extension Gpu0 on Gpu {
       bltFromY = cmd[1].shr16 & yMask;
       bltSizeY = cmd[2].shr16.maskZeroMax(yMask);
 
-      // debugLog(
-      //     "gp0: blit vram to cpu: ${dumpCmd()} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
+      // _log.debugc(() =>
+      //     "blit vram to cpu: ${dumpCmd()} ($bltFromX, $bltFromY) $bltSizeX x $bltSizeY");
 
       cmdSize++;
 
@@ -490,17 +490,17 @@ extension Gpu0 on Gpu {
     final (pageX, pageY) = (page.shl6 & 0x3c0, page.shl4 & 0x100);
     final clutDump = dumpClut(clut, page);
     if (logAllVertice) {
-      debugLog(
-          "gp0: textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.x8).join(" ")} "
+      _log.debugc(() =>
+          "textured rectangle polygon completed ${cmd.sublist(0, cmdSize).map((e) => e.x8).join(" ")} "
           "($x0,$y0)-($x1,$y1)-($x2,$y2)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u1,$v1)-($u2,$v2)-($u3,$v3) "
           "clut:${clut.x4} $clutX,$clutY page:${page.x4} $pageX,$pageY c$clutMode [$clutDump]");
     } else {
-      debugLog("gp0: textured rectangle polygon completed ${dumpCmd()} "
+      _log.debugc(() => "textured rectangle polygon completed ${dumpCmd()} "
           "($x0,$y0)-($x3,$y3) ${x3 - x0}x${y3 - y0} ($u0,$v0)-($u3,$v3) "
           "clut:${clut.x4} $clutX,$clutY page:${page.x4} $pageX,$pageY c$clutMode [$clutDump]");
     }
-    // debugLog(
-    //     "gp0: texture color at (0,144): ${getTextureColor(0, 144, clut, status).x4}");
+    // _log.debugc(() =>
+    //     "texture color at (0,144): ${getTextureColor(0, 144, clut, status).x4}");
     // renderFlatPolygon(0, c[3], c[5], c[7]);
     // }
   }

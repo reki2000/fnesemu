@@ -9,7 +9,6 @@ import 'package:fnesemu_core/src/core/md/ym2612.dart';
 import 'package:fnesemu_core/src/util/double.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
-
 import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 const rateHz = 44100;
@@ -49,7 +48,7 @@ class VgmPlayer {
 
   int execCommands() {
     final cmd = fetch();
-    // print("cmd: ${cmd.x2}");
+    // stdout.writeln("cmd: ${cmd.x2}");
 
     switch (cmd & 0xf0) {
       case 0x70: // wait n samples
@@ -129,7 +128,7 @@ class VgmPlayer {
         continue;
       }
 
-      //print("waitAccum: $waitAccum");
+      //stdout.writeln("waitAccum: $waitAccum");
       waitAccum -= loopDurationUs * rateHz ~/ million;
 
       final fmSamples =
@@ -173,7 +172,7 @@ class VgmPlayer {
 
       final elapsedSeconds = DateTime.now().difference(starttedAt).inSeconds;
       if (elapsedSeconds > prevSeconds) {
-        //print(fm.dump());
+        //stdout.writeln(fm.dump());
         prevSeconds = elapsedSeconds;
       }
     }

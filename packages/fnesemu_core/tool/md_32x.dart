@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:fnesemu_core/src/core/md/md.dart';
 
+import 'logging.dart';
+
 /// Headless md 32x smoke runner with externally supplied boot ROMs.
 void main(List<String> args) {
+  configureLogging();
   if (args.length < 4 || args.length > 5) {
     stderr.writeln(
         'Usage: dart run tool/md_32x.dart <cart.32x> <256-byte main boot> <2048-byte master boot> <1024-byte slave boot> [frames]');

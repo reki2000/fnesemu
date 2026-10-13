@@ -1,8 +1,10 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
 import '../../../util/crc32.dart';
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
+
+final _log = DebugLog('nes.rom.nes_file');
 
 class NesFile {
   final program = <Uint8List>[];
@@ -58,7 +60,7 @@ class NesFile {
     final chrRamSize = body[11] == 0 ? 0 : (64 << body[11].mask4);
     final chrNvramSize = body[11] == 0 ? 0 : (64 << body[11].shr4);
 
-    log("loaded len:${body.length} "
+    _log.infoc(() => "loaded len:${body.length} "
         "mapper:$mapper-$subMapper "
         "prog:16k*$programRomLength "
         "char:8k*$characterRomLength "

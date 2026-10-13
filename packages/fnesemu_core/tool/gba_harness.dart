@@ -17,7 +17,10 @@ import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
+import 'logging.dart';
+
 void main(List<String> args) {
+  configureLogging();
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/gba_harness";
@@ -47,7 +50,8 @@ void main(List<String> args) {
   }
 
   if (files.isEmpty) {
-    print("usage: gba_harness <rom> [-b bios] [-f frames] [-e every] [-o dir]");
+    stdout.writeln(
+        "usage: gba_harness <rom> [-b bios] [-f frames] [-e every] [-o dir]");
     exit(1);
   }
 
@@ -64,7 +68,7 @@ void main(List<String> args) {
     }
   });
   gba.setRom(_loadRom(files[0]));
-  print("title:${gba.bus.cart.title} code:${gba.bus.cart.gameCode} "
+  stdout.writeln("title:${gba.bus.cart.title} code:${gba.bus.cart.gameCode} "
       "save:${gba.bus.cart.backup.type.name} bios:${bios != null}");
 
   final sw = Stopwatch()..start();
@@ -74,7 +78,7 @@ void main(List<String> args) {
   while (frame < frames) {
     final r = gba.exec(false);
     if (r.stopped) {
-      print("stopped at frame $frame\n${gba.dump()}");
+      stdout.writeln("stopped at frame $frame\n${gba.dump()}");
       _savePng(gba.imageBuffer(), "$outDir/stopped.png");
       exit(2);
     }
@@ -92,7 +96,8 @@ void main(List<String> args) {
     if (frame % every == 0) {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(gba.imageBuffer(), path);
-      print("frame $frame (${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
+      stdout.writeln(
+          "frame $frame (${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
           "pc:${gba.cpu.regs.pc.toRadixString(16)} "
           "thumb:${gba.cpu.regs.thumb} halt:${gba.bus.halted} "
           "audio:$audioSamples peak:${audioPeak.toStringAsFixed(3)} -> $path");
@@ -101,7 +106,7 @@ void main(List<String> args) {
   }
 
   File("$outDir/state.txt").writeAsStringSync(gba.dump());
-  print(gba.dump());
+  stdout.writeln(gba.dump());
 }
 
 // read a .gba file, or the first .gba entry of a zip

@@ -11,7 +11,8 @@ export 'src/core_module.dart' show BiosFile, BiosSetup, BiosUpdates, CoreSystem;
 export 'src/pad_button.dart';
 export 'src/sram.dart';
 export 'src/types.dart';
-export 'src/util/debug.dart' show debugLog;
+export 'src/util/debug.dart'
+    show DebugLog, DebugLogs, DebugLogEvent, LogLevel, logs;
 export 'src/util/double.dart';
 export 'src/util/int.dart';
 export 'src/util/uint8list.dart';

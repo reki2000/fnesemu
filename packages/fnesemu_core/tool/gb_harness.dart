@@ -15,7 +15,10 @@ import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
+import 'logging.dart';
+
 void main(List<String> args) {
+  configureLogging();
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/gb_harness";
@@ -42,7 +45,8 @@ void main(List<String> args) {
   }
 
   if (files.isEmpty) {
-    print("usage: gb_harness <rom> [-f frames] [-e every] [-o dir] [-p F:B]");
+    stdout.writeln(
+        "usage: gb_harness <rom> [-f frames] [-e every] [-o dir] [-p F:B]");
     exit(1);
   }
 
@@ -50,7 +54,7 @@ void main(List<String> args) {
 
   final gb = Gb()..setSram(Sram());
   gb.setRom(_loadRom(files[0]));
-  print("${gb.bus.cart.header}");
+  stdout.writeln("${gb.bus.cart.header}");
 
   final buttons = gb.buttons;
   final pressList = presses.map((p) {
@@ -68,7 +72,7 @@ void main(List<String> args) {
   while (frame < frames) {
     final r = gb.exec(false);
     if (r.stopped) {
-      print("stopped at frame $frame\n${gb.dump()}");
+      stdout.writeln("stopped at frame $frame\n${gb.dump()}");
       _savePng(gb.imageBuffer(), "$outDir/stopped.png");
       exit(2);
     }
@@ -83,14 +87,14 @@ void main(List<String> args) {
     if (frame % every == 0) {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(gb.imageBuffer(), path);
-      print("frame $frame "
+      stdout.writeln("frame $frame "
           "(${(sw.elapsedMicroseconds / frame / 1000).toStringAsFixed(2)} ms/frame) "
           "pc:${gb.cpu.pc.toRadixString(16)} -> $path");
     }
   }
 
   File("$outDir/state.txt").writeAsStringSync(gb.dump());
-  print(gb.dump());
+  stdout.writeln(gb.dump());
 }
 
 Uint8List _loadRom(String path) {
@@ -98,8 +102,8 @@ Uint8List _loadRom(String path) {
   if (!path.toLowerCase().endsWith(".zip")) return bytes;
 
   final archive = ZipDecoder().decodeBytes(bytes);
-  final entry = archive.files.firstWhere(
-      (f) => f.isFile && RegExp(r"\.gbc?$", caseSensitive: false).hasMatch(f.name));
+  final entry = archive.files.firstWhere((f) =>
+      f.isFile && RegExp(r"\.gbc?$", caseSensitive: false).hasMatch(f.name));
   return Uint8List.fromList(entry.content as List<int>);
 }
 

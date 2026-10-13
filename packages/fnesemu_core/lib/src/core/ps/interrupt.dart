@@ -1,11 +1,13 @@
-import '../../util/debug.dart' show debugLog;
+import '../../util/debug.dart' show DebugLog;
 import '../../util/int.dart';
 import 'r3000/r3000.dart';
 
+final _log = DebugLog('ps.interrupt');
+
 const _debugLog = false;
-void _debug(String log) {
+void _debug(String Function() message) {
   if (_debugLog) {
-    debugLog(log);
+    _log.debugc(message);
   }
 }
 
@@ -30,8 +32,8 @@ class InterruptController {
   int get mask => _mask;
   set mask(int value) {
     if (_debugLog) {
-      _debug(
-          "interrupt: set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
+      _debug(() =>
+          "set mask:${value.x4}(${_statToName(value)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} pending:${mask & status != 0}");
     }
     _mask = value;
 
@@ -49,8 +51,8 @@ class InterruptController {
     }
 
     if (_debugLog) {
-      _debug(
-          "interrupt: set:${irqNo.x4}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} triggered:${mask & status.setBit(irqNo, true) != 0}");
+      _debug(() =>
+          "set:${irqNo.x4}(${_statToName(1 << irqNo).toUpperCase()}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8} triggered:${mask & status.setBit(irqNo, true) != 0}");
     }
     status = status.setBit(irqNo, true);
 
@@ -62,8 +64,8 @@ class InterruptController {
   void ackIrq(int ackValue) {
     if (ackValue.mask16 != 0xffff) {
       if (_debugLog) {
-        _debug(
-            'interrupt: ack:${ackValue.x4}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8}');
+        _debug(() =>
+            'ack:${ackValue.x4}(${_statToName(~ackValue)}) ${dump()} sr:${cpu.sr.x8} cause:${cpu.cause.x8}');
       }
     }
 

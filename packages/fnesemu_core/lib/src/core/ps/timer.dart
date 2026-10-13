@@ -1,7 +1,9 @@
+// import '../../util/debug.dart';
 import '../../util/int.dart';
-
 import 'bus.dart';
 import 'interrupt.dart';
+
+// final _log = DebugLog('ps.timer');
 
 class Timer {
   final int no;
@@ -240,7 +242,7 @@ class TimerController {
   }
 
   void setMode(int no, int newMode) {
-    // debugLog("Timer$no: set mode ${mode.x8}");
+    // _log.debugc(() => "Timer$no: set mode ${mode.x8}");
     catchUp();
     final t = timers[no];
     t.mode_ = newMode;

@@ -1,6 +1,8 @@
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
 
+final _log = DebugLog('ps.r3000.disasm');
+
 const showAddress = true;
 
 class DisasmR3000 {
@@ -137,7 +139,7 @@ class DisasmR3000 {
         ? ";${_ioAddrName(regs[rs] + inst32.rel16)}"
         : "";
 
-    // print(
+    // _log.debugc(() =>
     //     "op:${op.x2} rs:${rs.x2} rt:${rt.x2} rd:${rd.x2} shamt:${shamt.x2} funct:${funct.x2} im16:$im16_ im26:$im26_");
 
     return switch (op) {
@@ -258,6 +260,6 @@ class DisasmR3000 {
 main(List<String> args) {
   for (final arg in args) {
     final inst32 = int.parse(arg, radix: 16);
-    debugLog("${inst32.x8} ${DisasmR3000.disasm(inst32)}");
+    _log.debugc(() => "${inst32.x8} ${DisasmR3000.disasm(inst32)}");
   }
 }

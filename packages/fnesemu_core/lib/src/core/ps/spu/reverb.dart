@@ -1,6 +1,8 @@
+// import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'spu.dart';
+
+// final _log = DebugLog('ps.spu.reverb');
 
 class ReverbUint {
   final addr = [0, 0];
@@ -217,7 +219,7 @@ class Reverb {
     for (int i = 0; i < reverbEnabled.length; i++, value >>= 1) {
       reverbEnabled[i] = value.bit0;
     }
-    // debugLog(dump());
+    // _log.debugc(() => dump());
   }
 
   void write16(int offset, int value) {

@@ -1,3 +1,4 @@
+// import '../../util/debug.dart';
 import 'dart:typed_data';
 
 import '../../components/m68k/bus.dart';
@@ -10,6 +11,8 @@ import 'rom.dart';
 import 'sn76489.dart';
 import 'vdp.dart';
 import 'ym2612.dart';
+
+// final _log = DebugLog('md.bus_m68');
 
 class BusM68 implements M68Bus {
   BusM68({Uint8List? ram, Pad? pad, Rom? rom})
@@ -139,7 +142,7 @@ class BusM68 implements M68Bus {
 
     if (top == 0xff0000) {
       // if (addr.mask16 == 0x1a) {
-      //   print("write8: ${addr.x8} ${data.x2}");
+      //   _log.debugc(() => "write8: ${addr.x8} ${data.x2}");
       // }
       ram[addr.mask16] = data;
       return;
@@ -166,7 +169,7 @@ class BusM68 implements M68Bus {
     }
 
     if (top == 0xa00000) {
-      // print("write z80 addr:${addr.mask16.x4}:${data.x2}");
+      // _log.debugc(() => "write z80 addr:${addr.mask16.x4}:${data.x2}");
       busZ80.write(addr.mask16, data);
       return;
     }
@@ -199,7 +202,7 @@ class BusM68 implements M68Bus {
     }
 
     if (top == 0xc00000) {
-      // print("write16: ${addr.x8} ${data.x4} pc:${cpu.pc.x6}");
+      // _log.debugc(() => "write16: ${addr.x8} ${data.x4} pc:${cpu.pc.x6}");
       vdp.write16(addr.mask16, data);
       return;
     }
@@ -255,7 +258,7 @@ class BusM68 implements M68Bus {
   }
 
   void writeIo16(int addr, int data) {
-    // print("io:${addr.x8} ${data.x2}");
+    // _log.debugc(() => "io:${addr.x8} ${data.x2}");
     final _ = switch (addr & 0xfffe) {
       0x00 => 0x20, // domestic, ntsc, no fdd, version 0
       0x02 ||

@@ -1,8 +1,7 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import '../mapper/mapper.dart';
 import '../mapper/mapper_factory.dart';
 import '../mapper/mirror.dart';
@@ -10,6 +9,8 @@ import 'apu.dart';
 import 'cpu.dart';
 import 'pad.dart';
 import 'ppu.dart';
+
+final _log = DebugLog('nes.bus');
 
 class Bus {
   late final Cpu cpu;
@@ -38,7 +39,7 @@ class Bus {
       return vram[_mirror.mask(addr.mask12)];
     }
 
-    log("invalid vram addr ${addr.x4}");
+    _log.warnc(() => "invalid vram addr ${addr.x4}");
     return 0xff;
   }
 
@@ -57,7 +58,7 @@ class Bus {
       return;
     }
 
-    log("invalid vram addr ${addr.x4}");
+    _log.warnc(() => "invalid vram addr ${addr.x4}");
   }
 
   final List<int> ram = List.filled(0x800, 0);

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:fnesemu_core/src/core/ps/r3000/r3000.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
+import 'logging.dart';
+
 class Case {
   final String name;
   final int opcode;
@@ -192,16 +194,17 @@ final Map<int, String> regNames = {
 };
 
 main(List<String> args) {
+  configureLogging();
   final bus = _DummyBus();
   final cpu = R3000(bus);
   Cop2 cop2 = Cop2(cpu);
 
   final tests = loadTests(args[0]);
 
-  print("Loaded ${tests.length} tests");
+  stdout.writeln("Loaded ${tests.length} tests");
 
   for (var test in tests) {
-    print("Test 0x${test.opcode} ${test.name}");
+    stdout.writeln("Test 0x${test.opcode} ${test.name}");
 
     for (int i = 0; i < 64; i++) {
       i > 31
@@ -221,7 +224,7 @@ main(List<String> args) {
       }
 
       pass = false;
-      print(
+      stdout.writeln(
           "Reg $i ${regNames[i]} Expected: ${test.result[i].x8} Got: ${result.x8}");
 
       if (i != 63) {
@@ -230,17 +233,17 @@ main(List<String> args) {
 
       for (var bit = 0; bit < 32; bit++) {
         if (result.bit(bit) != test.result[i].bit(bit)) {
-          print(
+          stdout.writeln(
               "Bit $bit: ${test.result[i].bit(bit) ? "must" : "must not"} be set - ${flagBits[bit]}");
         }
       }
     }
 
     if (!pass) {
-      print("Test failed!");
+      stdout.writeln("Test failed!");
       return;
     }
   }
 
-  print("All tests completed.");
+  stdout.writeln("All tests completed.");
 }

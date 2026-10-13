@@ -1,10 +1,14 @@
 import 'dart:io';
+
 import 'package:fnesemu_core/src/core/n64/bus.dart';
 import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
+import 'logging.dart';
+
 void main() {
+  configureLogging();
   for (final wide in [false, true]) {
     final cpu = Vr4300(N64Bus());
     // Share the CPU's bus; its RAM stores both code and loop data.

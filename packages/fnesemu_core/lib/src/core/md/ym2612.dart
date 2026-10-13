@@ -1,7 +1,10 @@
+// import '../../util/debug.dart';
 import 'dart:math';
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+
+// final _log = DebugLog('md.ym2612');
 
 // Lots of helpful hints from this thread:
 //   https://gendev.spritesmind.net/forum/viewtopic.php?t=386&start=105
@@ -155,7 +158,7 @@ class Op {
     _egAttenuation = 0;
     _egRate = rate(ar);
     // if (ar != 0) {
-    //   print(
+    //   _log.debugc(() =>
     //       "op$no ph:${_phase.x6} state:$_state rate:${_rate.x2} atten:${_attenuation.x4} lv:${_level.x4}");
     // }
   }
@@ -204,7 +207,7 @@ class Op {
     final shift = (_egRate >= 44) ? 0 : (11 - _egRate.shr2);
 
     // if (no == "1-4") {
-    //   print(
+    //   _log.debugc(() =>
     //       "op$no state:$_state counter:$egClockCounter rate:$_rate shift:$shift inc:${incTable[_rate << 3 | egClockCounter >> shift & 0x07]} atten:$_attenuation lv:$_level");
     // }
 
@@ -582,7 +585,7 @@ class Ym2612 {
         }
 
         if (_notifyTimerBOverflow) {
-          //print("timerB overflow");
+          //_log.debug("timerB overflow");
           _timerOverflow |= _bitTimerB;
         }
       }
@@ -602,7 +605,7 @@ class Ym2612 {
     final chBase = part + part + part;
     final chNo = chBase + reg.mask2;
     if (chNo > 5) {
-      // print("Invalid channel $chNo");
+      // _log.warnc(() => "Invalid channel $chNo");
       return;
     }
 

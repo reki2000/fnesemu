@@ -3,6 +3,8 @@ import 'dart:collection';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 
+final _log = DebugLog('ps.mdec');
+
 class Mdec {
   final decoder = Decoder();
   final params = Queue<int>();
@@ -57,7 +59,7 @@ class Mdec {
   }
 
   void writeCommand(int value) {
-    // debugLog("mdec: got ${value.x8} state:${dump()}");
+    // _log.debugc(() => "got ${value.x8} state:${dump()}");
 
     if (paramCount > 0) {
       params.add(value.mask16);
@@ -73,10 +75,10 @@ class Mdec {
         switch (command) {
           case Mdec.commandDecode:
             decodeStep(0xfe00); // EOB
-          // debugLog(
-          //     "mdec: decode command completes oIdx:${decoder.outputIndex} lenOutput:${output.length} ${dump()}");
+          // _log.debugc(() =>
+          //     "decode command completes oIdx:${decoder.outputIndex} lenOutput:${output.length} ${dump()}");
           // for (int i = 0; i < output.length; i += 64) {
-          //   debugLog(
+          //   _log.debugc(() =>
           //       " ${range(0, 64).map((v) => output.elementAt(i + v).x4).join(" ")}");
           // }
           case Mdec.commandSetQuant:
@@ -102,7 +104,7 @@ class Mdec {
         signed = value.bit24;
         bit15Set = value.bit23;
         command = Mdec.commandDecode;
-        //debugLog("mdec: decode command ${value.x8} ${dump()}");
+        //_log.debugc(() => "decode command ${value.x8} ${dump()}");
         break;
 
       case 0x02: // SetQuant
@@ -116,12 +118,12 @@ class Mdec {
         break;
 
       default:
-        debugLog("mdec: got unknown command ${value.x8}");
+        _log.debugc(() => "got unknown command ${value.x8}");
     }
   }
 
   void writeControl(int value) {
-    // debugLog("mdec: writeControl ${value.x8} ${dump()}");
+    // _log.debugc(() => "writeControl ${value.x8} ${dump()}");
     if (value.bit31) {
       reset();
     }
@@ -131,7 +133,7 @@ class Mdec {
   }
 
   int readStatus() {
-    // debugLog("mdec: readStatus ${dump()}");
+    // _log.debugc(() => "readStatus ${dump()}");
     return 0
             .setBit(31, output.isEmpty) // Data-Out Fifo Empty
             .setBit(30, params.length >= 64) // Data-In Fifo Full
@@ -154,12 +156,12 @@ class Mdec {
       return;
     }
 
-    // debugLog("mdec: RLE extract completes a block $blockType\n"
+    // _log.debugc(() => "RLE extract completes a block $blockType\n"
     //     " [${buf[blockType].map((i) => i.x4).join(" ")}]");
 
     decoder.fastIdct(buf[blockType]);
 
-    // debugLog("mdec: IDCT completes a block $blockType\n"
+    // _log.debugc(() => "IDCT completes a block $blockType\n"
     //     " [${buf[blockType].map((i) => i.x4).join(" ")}]");
 
     if (depth == depth4bit) {
@@ -172,7 +174,7 @@ class Mdec {
         }
         output.add(value);
       }
-      // debugLog("mdec: output a 4bpp block\n"
+      // _log.debugc(() => "output a 4bpp block\n"
       //     " [${output.map((i) => i.x8).join(" ")}]");
 
       return;
@@ -189,7 +191,7 @@ class Mdec {
         output.add(value);
       }
 
-      // debugLog("mdec: output a 8bpp block\n"
+      // _log.debugc(() => "output a 8bpp block\n"
       //     " [${output.map((i) => i.x8).join(" ")}]");
 
       return;
@@ -210,7 +212,7 @@ class Mdec {
         for (int i = 0; i < 16 * 16; i += 2) {
           output.add((rgb[i].c15 | rgb[i + 1].c15.shl16 | bit15) ^ xor);
         }
-        // debugLog("mdec: output a 15bpp block\n"
+        // _log.debugc(() => "output a 15bpp block\n"
         //     " [${output.toList().sublist(0, 128).map((i) => i.x8).join(" ")}]");
       } else {
         final xor = signed ? 0 : 0x80808080;
@@ -226,7 +228,7 @@ class Mdec {
           };
           output.add(value ^ xor);
         }
-        // debugLog("mdec: output a 24bpp block\n"
+        // _log.debugc(() => "output a 24bpp block\n"
         //     " [${output.map((i) => i.x8).join(" ")}]");
       }
     }
@@ -255,14 +257,14 @@ class Mdec {
       }
     }
 
-    debugLog("mdec: SetQuant ${dump()}\n"
+    _log.debugc(() => "SetQuant ${dump()}\n"
         " [${decoder.qtY.map((i) => i.x2).join(" ")}]\n"
         " [${decoder.qtC.map((i) => i.x2).join(" ")}]");
   }
 
   void setScale() {
     decoder.scale.setAll(0, params);
-    debugLog("mdec: SetScale ${dump()}\n"
+    _log.debugc(() => "SetScale ${dump()}\n"
         " [${decoder.scale.map((i) => i.x4).join(" ")}]");
   }
 
@@ -312,8 +314,8 @@ class Decoder {
   // Extract one RLE encoded data, return true if block is completed
   bool extractRle(int input, List<int> output, bool isChrominance) {
     final qt = isChrominance ? qtC : qtY;
-    // debugLog(
-    //     "mdec: RLE ${input.x4} idx:$outputIndex q:${q.x2} ac:${ac.x4} [${output.map((i) => i.x4).join(",")}]");
+    // _log.debugc(() =>
+    //     "RLE ${input.x4} idx:$outputIndex q:${q.x2} ac:${ac.x4} [${output.map((i) => i.x4).join(",")}]");
     if (outputIndex == -1) {
       if (input == 0xfe00) {
         return false;

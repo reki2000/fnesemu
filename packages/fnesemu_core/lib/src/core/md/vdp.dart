@@ -1,3 +1,4 @@
+// import '../../util/debug.dart';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -6,6 +7,8 @@ import '../../util/int.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'vdp_renderer.dart';
+
+// final _log = DebugLog('md.vdp');
 
 class Vdp {
   Vdp();
@@ -137,7 +140,7 @@ class Vdp {
       _is1st = true; // reading status cancels the pending 2nd control word
       return val;
     } else if (port == 0x08) {
-      // print(
+      // _log.debugc(() =>
       //     "vdp hv couter read: ${vCounter.x4} ${hCounter.x4} pc:${bus.cpu.pc.x6}");
       return vCounter.shl8 | hCounter.shr1;
     }
@@ -183,7 +186,7 @@ class Vdp {
       _dmaLength = 0x10000;
     }
 
-    // print(
+    // _log.debugc(() =>
     //     "start dma: len:${_dmaLength.x6} src:${_dmaSrc.x6} mode:$_dmaMode pc:${bus.cpu.pc.x6}");
     status |= bitDmaRunning;
   }
@@ -218,14 +221,14 @@ class Vdp {
       _dmaFillValue = 0;
       _dmaLength = 0;
       status &= ~bitDmaRunning;
-      // print(
+      // _log.debugc(() =>
       //     "end dma: len:${_dmaLength.x4} src:${_dmaSrc.x4} mode:$_dmaMode pc:${bus.cpu.pc.x6}");
     }
   }
 
   set ctrl(int value) {
-    // print(
-    //     "vdp:ctrl=${value.x4} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
+    // _log.debugc(() =>
+    //     "ctrl=${value.x4} ram:${ram == 0 ? "v" : ram == 1 ? "c" : "vs"} is1st:$_is1st");
     if (value & 0xe000 == 0x8000) {
       final regNo = value.shr8.mask5;
       reg[regNo] = value.mask8;
@@ -246,7 +249,7 @@ class Vdp {
           }
           break;
         // case 0x0a:
-        //   print(
+        //   _log.debugc(() =>
         //       "vdp[0x0a]:${value.x2} ${bus.cpu.clocks} ${bus.cpu.pc.x6} vcounter:${vCounter.x4}"); // debug
       }
 
@@ -284,7 +287,7 @@ class Vdp {
         _addr &= 0x7f;
         break;
       // default:
-      //   print("vdp: ignored access cd=${cd.x2} addr=${_addr.x4}");
+      //   _log.debugc(() => "ignored access cd=${cd.x2} addr=${_addr.x4}");
     }
 
     if (enableDma && cd.bit5 && _dmaMode == _dmaModeM2V) {
@@ -305,12 +308,12 @@ class Vdp {
           : vsram[postInc().shr1];
 
   set data(int value) {
-    // print(
+    // _log.debugc(() =>
     //     "${ram == 0 ? "v" : ram == 1 ? "c" : "vs"}ram[${_addr.x4}] = ${value.x4} pc:${bus.cpu.pc.x6}");
     if (ram == ramVram) {
       // if (_addr == 0xc350) {
-      //   print(
-      //       "vdp:debug: v:${value.x4} ${dump()} pc:${bus.cpu.pc}"); // debug
+      //   _log.debugc(() =>
+      //       "debug: v:${value.x4} ${dump()} pc:${bus.cpu.pc}"); // debug
       // }
       vram[_addr] = value.shr8;
       vram[postInc(1)] = value.mask8;

@@ -1,15 +1,16 @@
 import 'dart:collection';
 
-import '../../util/debug.dart' show debugLog;
+import '../../util/debug.dart' show DebugLog;
 import '../../util/int.dart';
-
 import 'bus.dart';
 import 'interrupt.dart';
 
+final _log = DebugLog('ps.serial');
+
 const _debugLog = false;
-void _debug(String log) {
+void _debug(String Function() message) {
   if (_debugLog) {
-    debugLog(log);
+    _log.debugc(message);
   }
 }
 
@@ -99,7 +100,7 @@ class Serial {
         dsr = true; // /ACK asserted by the device
         if (irqEnabled) {
           if (_debugLog) {
-            _debug("sio0: irq delay expired ${dump().replaceAll("\n", " ")}");
+            _debug(() => "irq delay expired ${dump().replaceAll("\n", " ")}");
           }
           bus.setIrq(Interrupt.serial);
           irq = true;
@@ -111,13 +112,13 @@ class Serial {
   int readData() {
     if (isRxFifoEmpty()) {
       if (_debugLog) {
-        _debug("sio0: readEmpt: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
+        _debug(() => "readEmpt: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
       }
       return _prev;
     }
     _prev = rxFifo.removeFirst();
     if (_debugLog) {
-      _debug("sio0:  read<--: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
+      _debug(() => " read<--: ${_prev.x2} ${dump().replaceAll("\n", " ")}");
     }
     return _prev;
   }
@@ -130,8 +131,8 @@ class Serial {
   int readStatus() {
     final result = status;
     dsr = false; // dsr (=/ack) reset
-    // debugLog(
-    //     "sio0: readStatus: ${result.x4} ${dump().replaceAll("\n", " ")}");
+    // _log.debugc(() =>
+    //     "readStatus: ${result.x4} ${dump().replaceAll("\n", " ")}");
     return result;
   }
 
@@ -140,7 +141,7 @@ class Serial {
       return;
     }
     if (_debugLog) {
-      _debug("sio0: write-->: ${val.x2} ${dump().replaceAll("\n", " ")}");
+      _debug(() => "write-->: ${val.x2} ${dump().replaceAll("\n", " ")}");
     }
 
     final txData = val;
@@ -149,8 +150,8 @@ class Serial {
       final response = device.notify(txData);
 
       // if (device.runtimeType != Pad) {
-      // debugLog(
-      //     "sio0: notify port${port1Selected ? "1" : "2"} ${device.runtimeType} "
+      // _log.debugc(() =>
+      //     "notify port${port1Selected ? "1" : "2"} ${device.runtimeType} "
       //     "txData:${txData.x2} rxData:${response.rxData.x2} "
       //     "ack:${response.ack} ignored:${response.ignored} "
       //     "${dump().replaceAll("\n", " ")}");
@@ -168,16 +169,16 @@ class Serial {
     }
 
     // if (port1Selected) {
-    //   debugLog(
-    //       "sio0: no device responded to txData:${txData.x2} ${dump().replaceAll("\n", " ")}");
+    //   _log.debugc(() =>
+    //       "no device responded to txData:${txData.x2} ${dump().replaceAll("\n", " ")}");
     // }
 
     rxFifo.add(0xff);
   }
 
   void writeControl(int val) {
-    // debugLog(
-    //     "sio0: writeControl: ${val.x4} ${dump().replaceAll("\n", " ")}");
+    // _log.debugc(() =>
+    //     "writeControl: ${val.x4} ${dump().replaceAll("\n", " ")}");
 
     ctrl = val;
 
@@ -200,13 +201,13 @@ class Serial {
   }
 
   void writeMode(int val) {
-    // debugLog("sio0: writeMode: ${val.x4} ${dump()}");
+    // _log.debugc(() => "writeMode: ${val.x4} ${dump()}");
     mode = val;
     timerFactor = [1, 1, 16, 64][val.mask2];
   }
 
   void writeBaudrate(int val) {
-    // debugLog("sio0: writeBaudrate: ${val.x4} ${dump()}");
+    // _log.debugc(() => "writeBaudrate: ${val.x4} ${dump()}");
     timerReload = val.mask16;
   }
 

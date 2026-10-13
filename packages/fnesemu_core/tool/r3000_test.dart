@@ -7,6 +7,8 @@ import 'package:fnesemu_core/src/util/debug.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 
+import 'logging.dart';
+
 /// A dummy BusR3000 implementation for tests.
 class _TestBus implements BusR3000 {
   final Uint8List ram;
@@ -48,6 +50,7 @@ class _TestBus implements BusR3000 {
 }
 
 void main() {
+  configureLogging();
   const baseDir = "assets/MIPS-R3000-CPU-Simulator/tests/test_dataset";
 
   for (final testgroup in Directory(baseDir).listSync()) {
@@ -92,8 +95,7 @@ void main() {
 
         check("cycle ${cpu.clocks}");
         for (int i = 0; i < 32; i++) {
-          check(
-              "\$${i.d2z}: 0x${cpu.r[i].x8.toUpperCase()}");
+          check("\$${i.d2z}: 0x${cpu.r[i].x8.toUpperCase()}");
         }
         check("PC: 0x${cpu.pc.x8.toUpperCase()}");
         check("");
@@ -106,12 +108,11 @@ void main() {
         try {
           cpu.step();
         } catch (e) {
-          debugLog(log);
+          const DebugLog('tool.r3000').debug(log);
           rethrow;
         }
       }
-      // ignore: avoid_print
-      print('ok: ${testgroup.path}');
+      stdout.writeln('ok: ${testgroup.path}');
     }
   }
 }

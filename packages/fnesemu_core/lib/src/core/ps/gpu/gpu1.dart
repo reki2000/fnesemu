@@ -92,7 +92,7 @@ extension Gpu1 on Gpu {
         }
 
       default:
-        debugLog("unknown GP1 command: ${value.x8}");
+        _log.warnc(() => "unknown GP1 command: ${value.x8}");
     }
   }
 }

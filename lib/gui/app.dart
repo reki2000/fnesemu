@@ -28,6 +28,8 @@ import 'ticker_image.dart';
 
 part 'loader.dart';
 
+final _log = DebugLog('app');
+
 class Config {
   final bool debug;
   const Config({
@@ -159,7 +161,7 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
-    debugLog("initialized: ${widget.config.dump()}");
+    _log.infoc(() => "initialized: ${widget.config.dump()}");
   }
 
   @override
@@ -226,7 +228,7 @@ class MainPageState extends State<MainPage> {
     // wrap both of async or sync function to catch error
     Future.microtask(action).catchError((e, st) {
       AppSnackBar.show(e.toString());
-      debugPrint("$e\n$st");
+      _log.errorc(() => "$e\n$st");
     });
 
     setState(() {});

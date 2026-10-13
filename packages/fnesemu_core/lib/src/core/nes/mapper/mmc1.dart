@@ -1,11 +1,12 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
-
 import 'mapper.dart';
 import 'mirror.dart';
+
+final _log = DebugLog('nes.mapper.mmc1');
 
 // MMC1
 // https://www.nesdev.org/wiki/MMC1
@@ -83,7 +84,7 @@ class MapperMMC1 extends Mapper {
       if (_ramEnabled) {
         writeSram(addr.mask13 | _ramBank.shl13, data);
       } else {
-        log("mmc1: write to disabled ram: ${addr.x4} ${data.x2}");
+        _log.debugc(() => "write to disabled ram: ${addr.x4} ${data.x2}");
       }
       return;
     }
@@ -147,7 +148,7 @@ class MapperMMC1 extends Mapper {
 
           break;
       }
-      //log("mmc1: ${addr.x4} <= ${_shiftReg.x2} ${dump()}");
+      //_log.debugc(() => "${addr.x4} <= ${_shiftReg.x2} ${dump()}");
 
       _shiftReg = 0;
       _counter = 0;
@@ -225,7 +226,7 @@ class MapperMMC1 extends Mapper {
         return prgRoms[_prgBank[1]][offset];
     }
 
-    log("mmc1: invalid addr: ${addr.x4}");
+    _log.warnc(() => "invalid addr: ${addr.x4}");
     return 0xff;
   }
 

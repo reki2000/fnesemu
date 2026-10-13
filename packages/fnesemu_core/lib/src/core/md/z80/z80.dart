@@ -1,3 +1,4 @@
+// import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../bus_z80.dart';
 import 'op_00_3f.dart';
@@ -6,6 +7,8 @@ import 'op_c0_ff.dart';
 import 'op_cb.dart';
 import 'op_ddfd.dart';
 import 'op_ed.dart';
+
+// final _log = DebugLog('md.z80');
 
 class Regs {
   List<int> r8 = List.filled(8, 0); // b,c,d,e,h,l,_,a;
@@ -184,7 +187,7 @@ class Z80 {
       return true;
     }
 
-    // print(dump().replaceAll("\n", " "));
+    // _log.debugc(() => dump().replaceAll("\n", " "));
     final op = next();
 
     if (op < 0x40) {

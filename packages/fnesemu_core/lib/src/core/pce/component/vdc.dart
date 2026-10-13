@@ -1,9 +1,12 @@
+// import '../../../util/debug.dart';
 import 'dart:math';
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
 import 'bus.dart';
 import 'vdc_render.dart';
+
+// final _log = DebugLog('pce.vdc');
 
 class Vdc {
   final Bus bus;
@@ -194,12 +197,12 @@ class Vdc {
   }
 
   writeReg(int val) {
-    // print("writeReg: ${reg.x2}");
+    // _log.debugc(() => "writeReg: ${reg.x2}");
     reg = val.mask5;
   }
 
   writeLsb(int val) {
-    // print("writeLsb: ${val.x2}");
+    // _log.debugc(() => "writeLsb: ${val.x2}");
     switch (reg) {
       case 0x00:
         mawr = mawr.setL8(val);
@@ -253,7 +256,7 @@ class Vdc {
         bgScrollMaskY = (1 << (bgHeightBits + 3)) - 1;
 
         bgTreatPlane23Zero = !val.bit7;
-        // print(
+        // _log.debugc(() =>
         //     "bgTreatPlane23Zero: $bgTreatPlane23Zero, vramDotWidth:$vramDotWidth, bg: ${bgWidthMask + 1} x ${bgHeightMask + 1}");
         break;
 
@@ -300,7 +303,7 @@ class Vdc {
   }
 
   writeMsb(int val) {
-    // print("writeMsb: ${val.x2}");
+    // _log.debugc(() => "writeMsb: ${val.x2}");
     switch (reg) {
       case 0x00:
         mawr = mawr.setH8(val);
@@ -314,7 +317,7 @@ class Vdc {
         vram[mawr] = writeLatch;
         mawr = (mawr + addrInc).mask16;
         // if (mawr == 0x7f00 && writeLatch == 0x0060) {
-        //   print(
+        //   _log.debugc(() =>
         //       "frame:${VdcRenderer.frames} write vram: ${mawr.x4}\n${bus.cpu.dump(showRegs: true, showIRQVector: true, showStack: true)}");
         // }
         break;
@@ -428,7 +431,7 @@ class Vdc {
   bool dmaSatbAlways = false;
 
   execDmaSatb() {
-    // print("execDmaSatb : $dmaSatb ${dmaSrcSatb.x4}");
+    // _log.debugc(() => "execDmaSatb : $dmaSatb ${dmaSrcSatb.x4}");
     if (dmaSatb || dmaSatbAlways) {
       for (int i = 0; i < sat.length; i++) {
         sat[i] = vram[(dmaSrcSatb + i).mask16];

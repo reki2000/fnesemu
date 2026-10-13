@@ -1,11 +1,13 @@
+// import '../../util/debug.dart';
 import 'dart:typed_data';
 
 import '../../util/int.dart';
-
 import 'bus_m68.dart';
 import 'sn76489.dart';
 import 'ym2612.dart';
 import 'z80/z80.dart';
+
+// final _log = DebugLog('md.bus_z80');
 
 class BusZ80 {
   late BusM68 busM68;
@@ -20,13 +22,13 @@ class BusZ80 {
 
   bool get busReq => cpu.busReq;
   set busReq(bool value) {
-    // print("z80 busreq:$value m68 pc:${busM68.cpu.pc.x6}");
+    // _log.debugc(() => "z80 busreq:$value m68 pc:${busM68.cpu.pc.x6}");
     cpu.busReq = value;
   }
 
   bool _reset = false;
   set resetReq(bool value) {
-    // print("z80 reset:$_reset->$value m68 pc:${busM68.cpu.pc.x6}");
+    // _log.debugc(() => "z80 reset:$_reset->$value m68 pc:${busM68.cpu.pc.x6}");
     if (value && !_reset) {
       cpu.reset(keepCycles: true); // reset when resetReq becomes up
     }
@@ -47,7 +49,7 @@ class BusZ80 {
 
     if (addr >= 0x8000) {
       final value = busM68.read16(bank | addr.mask15); // m68 bus
-      // print(
+      // _log.debugc(() =>
       //     "z80 read 0x8000-0xffff: ${(bank | addr & 0x7fff).x6} -> ${value.x4}");
       return value.shr8;
     }
@@ -85,7 +87,7 @@ class BusZ80 {
     // bank: 0x6000-0x60ff
     if (addr < 0x6100) {
       bank = bank.shr1 & 0x7f8000 | data.shl23 & 0x800000;
-      // print("bank: ${_bank.x6}");
+      // _log.debugc(() => "bank: ${_bank.x6}");
       return;
     }
 
@@ -109,12 +111,12 @@ class BusZ80 {
   void output(int port, int data) {}
 
   void assertInt() {
-    // print("z80 assertInt");
+    // _log.debug("z80 assertInt");
     cpu.assertInt();
   }
 
   void deassertInt() {
-    // print("z80 de-assertInt");
+    // _log.debug("z80 de-assertInt");
     cpu.deassertInt();
   }
 }

@@ -8,11 +8,14 @@ import 'package:fnesemu_core/src/core/nes/mapper/nrom.dart';
 import 'package:fnesemu_core/src/core/nes/rom/nes_file.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 
+import 'logging.dart';
+
 void log(String s) {
   stdout.writeln(s);
 }
 
 void main() async {
+  configureLogging();
   log("running fnesemu cpu test...");
   final bus = Bus();
   final cpu = Cpu(bus);
@@ -54,7 +57,7 @@ void main() async {
     cpu.exec();
     prevLine = l;
   }
-  //print("\$02:${hex8(cpu.read(2))} \$03:${hex8(cpu.read(3))}");
+  //stdout.writeln("\$02:${hex8(cpu.read(2))} \$03:${hex8(cpu.read(3))}");
   log("cpu test completed successfully.");
 }
 

@@ -1,11 +1,12 @@
-import 'dart:developer';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import '../constants.dart' as hardware;
 import 'bus.dart';
+
+final _log = DebugLog('pce.psg');
 
 class Wave {
   bool enabled = false;
@@ -258,7 +259,7 @@ class Psg {
         return;
 
       default:
-        log("Unsupported apu write at 0x${reg.x4}");
+        _log.warnc(() => "Unsupported apu write at 0x${reg.x4}");
         return;
     }
   }

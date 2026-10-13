@@ -11,6 +11,8 @@ import 'log.dart';
 part 'cdrom_async.dart';
 part 'cdrom_xa.dart';
 
+final _log = DebugLog('ps.cdrom');
+
 class CmdResult {
   int delay = 0;
   int intNo = 0;
@@ -184,13 +186,13 @@ class Cdrom {
   int readBuffer16() {
     final data = readBuffer8() | readBuffer8().shl8;
 
-    // debugLog(
-    //     "cdrom: readBuffer16 ${sectorBufferIndex.x4} ${data.x4} ${dump()}");
+    // _log.debugc(() =>
+    //     "readBuffer16 ${sectorBufferIndex.x4} ${data.x4} ${dump()}");
     return data;
   }
 
   int readCmdResult() {
-    // debugLog("cdrom: readFifo ${dump()}");
+    // _log.debugc(() => "readFifo ${dump()}", id: 'fifo');
     if (resultFifo.isEmpty) {
       return 0;
     }
@@ -213,13 +215,13 @@ class Cdrom {
       _ => 0,
     };
     // if (reg != 2) {
-    //   debugLog("cdrom: read8 $bank-$reg => ${result.x2} ${dump()}");
+    //   _log.debugc(() => "read8 $bank-$reg => ${result.x2} ${dump()}");
     // }
     return result;
   }
 
   void writePort8(int reg, int value) {
-    // debugLog("cdrom: write8 $bank-$reg <= ${value.x2} ${dump()}");
+    // _log.debugc(() => "write8 $bank-$reg <= ${value.x2} ${dump()}");
     if (reg == 0) {
       bank = value.mask2;
       return;
@@ -287,7 +289,8 @@ class Cdrom {
         }
 
       default:
-        debugLog("cdrom: unknown write8: $bank-$reg <= ${value.x2}, ${dump()}");
+        _log.warnc(
+            () => "unknown write8: $bank-$reg <= ${value.x2}, ${dump()}");
     }
   }
 
@@ -303,7 +306,7 @@ class Cdrom {
         resultFifo.addAll(result.fifo);
         cmdResults.removeFirst();
         _raisePendingIrqIfEnabled();
-        // debugLog("cdrom: irq ${result.intNo} ${dump()}");
+        // _log.debugc(() => "irq ${result.intNo} ${dump()}");
       }
     }
 
@@ -525,8 +528,10 @@ class Cdrom {
   void execCommand(int cmd) {
     resultFifo.clear();
     if (psTrace) {
-      debugLog(
-          "cdrom: ${cmd.x2}:${commandNames[cmd.mask5]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}");
+      _log.debugc(
+          () =>
+              "${cmd.x2}:${commandNames[cmd.mask5]}(${paramFifo.map((e) => "0x${e.x2}").join(",")}) ${dump()}",
+          id: 'command');
     }
 
     switch (cmd) {
@@ -684,7 +689,7 @@ class Cdrom {
 
       case 0x19: // test
         if (paramFifo.isEmpty) {
-          debugLog("cdrom: test no params");
+          _log.debug("test no params");
         } else {
           switch (_param(0)) {
             case 0x04:
@@ -701,13 +706,13 @@ class Cdrom {
             case 0x22:
               irq(3, Uint8List.fromList("for U/C".codeUnits));
             default:
-              debugLog(
-                  "cdrom: unknown test command ${paramFifo.map((e) => e.x2).join(" ")}");
+              _log.warnc(() =>
+                  "unknown test command ${paramFifo.map((e) => e.x2).join(" ")}");
           }
         }
       default:
-        debugLog(
-            "cdrom: unknown command ${cmd.x2} params:${paramFifo.map((e) => e.x2).join(" ")}");
+        _log.warnc(() =>
+            "unknown command ${cmd.x2} params:${paramFifo.map((e) => e.x2).join(" ")}");
     }
 
     paramFifo.clear();

@@ -8,7 +8,10 @@ import 'package:fnesemu_core/src/core/snes/rom/snes_file.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:image/image.dart' as image;
 
+import 'logging.dart';
+
 void main(List<String> args) {
+  configureLogging();
   if (args.isEmpty || args.length > 3) {
     stderr.writeln(
       'Usage: dart run tool/snes_harness.dart '

@@ -7,9 +7,11 @@ import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 
 /// Headless BIOS/disc smoke runner with optional input and frame captures.
 Future<void> main(List<String> args) async {
+  configureLogging();
   final paths = args.where((arg) => !arg.startsWith('--')).toList();
   if (paths.length < 2 || paths.length > 3) {
     stderr.writeln(

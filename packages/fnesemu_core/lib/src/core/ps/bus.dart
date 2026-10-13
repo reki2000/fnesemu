@@ -12,6 +12,8 @@ import 'serial.dart';
 import 'spu/spu.dart';
 import 'timer.dart';
 
+final _log = DebugLog('ps.bus');
+
 final debugLogAddr = 0x80067840;
 
 class Bus implements BusR3000 {
@@ -208,7 +210,7 @@ class Bus implements BusR3000 {
   @override
   void write8(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write8 to ${debugLogAddr.x8}: ${v.x2}");
+    //   _log.debugc(() => "write8 to ${debugLogAddr.x8}: ${v.x2}");
     // }
 
     final offset = addr & segMask[addr.shr29];
@@ -229,7 +231,7 @@ class Bus implements BusR3000 {
           0x1800 => cdrom.writePort8(offset.mask2, v),
           _ => _unimpl(sig, "I/O", addr, value: v)
         },
-      0x1f802041 => debugLog("post: $v"),
+      0x1f802041 => _log.debugc(() => "post: $v"),
       >= 0x1f802000 && < 0x1f802100 =>
         _unimpl(sig, "expansion 2", addr, value: v), // expansion 2
       >= 0x1fc00000 && < 0x1fe00000 => 0, // bios rom
@@ -241,7 +243,7 @@ class Bus implements BusR3000 {
   @pragma('vm:unsafe:no-bounds-checks')
   void write16(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write16 to ${debugLogAddr.x8}: ${v.x4}");
+    //   _log.debugc(() => "write16 to ${debugLogAddr.x8}: ${v.x4}");
     // }
 
     final offset = addr & segMask[addr.shr29];
@@ -330,7 +332,7 @@ class Bus implements BusR3000 {
   @pragma('vm:unsafe:no-bounds-checks')
   void write32(int addr, int v) {
     // if (addr == debugLogAddr) {
-    //   debugLog("bus: write32 to ${debugLogAddr.x8}: ${v.x8}");
+    //   _log.debugc(() => "write32 to ${debugLogAddr.x8}: ${v.x8}");
     // }
     final offset = addr & 0x1fffffff;
     if (offset < 0x8000000) {
@@ -380,9 +382,9 @@ class Bus implements BusR3000 {
   }
 
   int _unimpl(String op, String device, int addr, {int value = 0}) {
-    debugLog('====================================================');
-    debugLog('$op: unknown ${addr.x8} <= ${value.x8} $device');
-    debugLog('====================================================');
+    _log.debug('====================================================');
+    _log.debugc(() => '$op: unknown ${addr.x8} <= ${value.x8} $device');
+    _log.debug('====================================================');
     return 0;
   }
 }

@@ -14,7 +14,10 @@ import 'package:fnesemu_core/src/core/nes/nes.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:fnesemu_core/src/sram.dart';
 
+import 'logging.dart';
+
 Future<void> main(List<String> options) async {
+  configureLogging();
   String? caseFile, out;
   var warmup = 600, measured = 300, repetitions = 1, frameRunner = false;
   for (var i = 0; i < options.length; i++) {

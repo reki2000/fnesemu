@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:cdrom_image/cdrom_image.dart';
 import 'package:fnesemu_core/app_api.dart';
 
+final _log = DebugLog('app.cdrom');
+
 class _CacheEntry {
   final Uint8List data; // empty if failed to read
   final DateTime loadedAt;
@@ -125,14 +127,14 @@ class AsyncCdromDrive implements CdromDrive {
         for (final t in image.toc.tracks)
           CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
       ], image.totalSectors);
-      debugLog("cdrom: inserted ${next.$1.path}: "
+      _log.infoc(() => "inserted ${next.$1.path}: "
           "${image.toc.tracks.length} track(s) ${image.totalSectors} sectors");
       for (final t in image.toc.tracks) {
-        debugLog("cdrom: $t");
+        _log.infoc(() => "$t");
       }
       _changeDisc(CdromDriveState.ready);
     } catch (e) {
-      debugLog("cdrom: failed to read TOC of ${next.$1.path}: $e");
+      _log.warnc(() => "failed to read TOC of ${next.$1.path}: $e");
       if (loadingId == _discId) {
         _changeDisc(CdromDriveState.error);
       }
@@ -234,7 +236,7 @@ class AsyncCdromDrive implements CdromDrive {
         _cache[lba + i] = _CacheEntry(sectors[i], now);
       }
     }).catchError((e) {
-      debugLog("cdrom: read error at $lba-${end - 1}: $e");
+      _log.warnc(() => "read error at $lba-${end - 1}: $e");
       if (discId != _discId) return;
       // cached as unreadable, retried after the lifetime
       final now = _now();

@@ -1,6 +1,9 @@
+// import '../../util/debug.dart';
 import '../../pad_button.dart';
 import '../../util/int.dart';
 import 'serial.dart' show SioResponse, SioDevice;
+
+// final _log = DebugLog('ps.pad');
 
 class Pad extends SioDevice {
   static const int waitIgnore = -1;
@@ -37,7 +40,7 @@ class Pad extends SioDevice {
       final buttonBit = _buttons.where((b) => b.$1 == d).first.$2;
       buttonValue = buttonValue.setBit(buttonBit, false);
     }
-    // debugLog("pad: keyDown $id buttonValue:${buttonValue.x4}");
+    // _log.debugc(() => "keyDown $id buttonValue:${buttonValue.x4}");
   }
 
   void keyUp(int id, PadButton d) {
@@ -45,7 +48,7 @@ class Pad extends SioDevice {
       final buttonBit = _buttons.where((b) => b.$1 == d).first.$2;
       buttonValue = buttonValue.setBit(buttonBit, true);
     }
-    // debugLog("pad: keyUp $id buttonValue:${buttonValue.x4}");
+    // _log.debugc(() => "keyUp $id buttonValue:${buttonValue.x4}");
   }
 
   List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
@@ -68,19 +71,19 @@ class Pad extends SioDevice {
   @override
   SioResponse notify(int txData) {
     // if (padStep == waitMotor2) {
-    //   debugLog("pad: notify txData:${txData.x2} dump:${dump()}");
+    //   _log.debugc(() => "notify txData:${txData.x2} dump:${dump()}");
     // }
 
     switch (padStep) {
       case waitAddr:
         if (txData == 0x01) {
-          // debugLog("pad: 0x01 -> -- <- ${dump()}");
+          // _log.debugc(() => "0x01 -> -- <- ${dump()}");
           padStep = waitCommand;
           return ack(0xff);
         }
 
       case waitCommand:
-        // debugLog("pad: 0x42 -> 0x41 <- $padStep ${dump()}");
+        // _log.debugc(() => "0x42 -> 0x41 <- $padStep ${dump()}");
         if (txData != 0x42) {
           break;
         }
@@ -88,18 +91,18 @@ class Pad extends SioDevice {
         return ack(0x41);
 
       case waitPadNo:
-        // debugLog("pad: ${padNo.x2} -> 0x5a <- ${dump()}");
+        // _log.debugc(() => "${padNo.x2} -> 0x5a <- ${dump()}");
         padStep = waitMotor1;
         return ack(0x5a);
 
       case waitMotor1:
         padStep = waitMotor2;
-        // debugLog("pad: ${padNo.x2} -> 0x00 <- ${dump()}");
+        // _log.debugc(() => "${padNo.x2} -> 0x00 <- ${dump()}");
         return ack(buttonValue.mask8);
 
       case waitMotor2:
         padStep = waitAddr;
-        // debugLog("pad: ${padNo.x2} -> 0x00 <- ${dump()}");
+        // _log.debugc(() => "${padNo.x2} -> 0x00 <- ${dump()}");
         return ack(buttonValue.shr8.mask8);
     }
 

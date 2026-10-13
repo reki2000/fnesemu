@@ -14,12 +14,14 @@ import 'package:fnesemu_core/src/types.dart';
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 
 /// Manifest: [{"system":"nes", "rom":"/path/sample.nes",
 /// "bios":["/path/bios"], "disc":"/path/disc.chd",
 /// "warmupFrames":0, "steps":30000}]. BIOS/disc fields are optional.
 /// Writes raw and compressed logs per CPU, an excerpt report and statistics.
 Future<void> main(List<String> args) async {
+  configureLogging();
   if (args.length != 2) {
     stderr.writeln('usage: trace_rom <manifest.json> <output-directory>');
     exitCode = 64;

@@ -1,13 +1,14 @@
 import 'dart:core';
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'bus.dart';
 import 'cpu_6280.dart';
 import 'cpu_6502.dart';
 import 'cpu_65c02.dart';
+
+final _log = DebugLog('pce.cpu');
 
 class Regs {
   int a = 0;
@@ -43,7 +44,7 @@ class Cpu2 extends Cpu {
     final result = exec6502(op) || exec65c02(op) || exec6280(op);
 
     if (!result) {
-      log("unimplemented opcode: ${op.x2} at ${regs.pc.x4}\n");
+      _log.warnc(() => "unimplemented opcode: ${op.x2} at ${regs.pc.x4}\n");
       cycle += 2;
     }
 
@@ -101,7 +102,7 @@ class Cpu {
 
   void write(int addr, int data) {
     // if (data >= 256) {
-    //   print("cpu.write: data over 8bit: $data, regs: ${regs.pc.x4}\n");
+    //   _log.debugc(() => "cpu.write: data over 8bit: $data, regs: ${regs.pc.x4}\n");
     // }
     bus.write(regs.mprAddress[(addr & 0xe000).shr13] | addr.mask13, data);
   }
@@ -157,7 +158,7 @@ class Cpu {
 
   // interrupt handling
   void holdInterrupt(Interrupt int) {
-    // print("interrupted: $int ${regs.pc.x4}");
+    // _log.debugc(() => "interrupted: $int ${regs.pc.x4}");
     switch (int) {
       case Interrupt.irq1:
         holdIrq1 = true;
@@ -331,7 +332,7 @@ class Cpu {
         0x18 => absoluteXY(regs.y, st: st), // 110
         0x00 => indirectX(), // 000
         0x10 => op.mask4 == 0x02 ? indirect() : indirectY(st: st), // 010
-        _ => 0, // log("unimplemented addressing mode: $op\n");
+        _ => 0, // _log.warnc(() => "unimplemented addressing mode: $op\n");
       };
 
   int immediate() => pc();

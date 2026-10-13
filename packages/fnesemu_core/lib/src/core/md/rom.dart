@@ -1,8 +1,10 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../util/debug.dart';
 import '../../util/int.dart';
 import '../../util/uint8list.dart';
+
+final _log = DebugLog('md.rom');
 
 class Rom {
   var rom = Uint8List(0);
@@ -42,6 +44,7 @@ class Rom {
       ram = Uint8List.fromList(List.filled(ramEndAddr - ramStartAddr, 0xff));
     }
 
-    log("loaded rom: ${rom.length.x6}, ram:${ramStartAddr.x6}-${ramEndAddr.x6}");
+    _log.infoc(() =>
+        "loaded rom: ${rom.length.x6}, ram:${ramStartAddr.x6}-${ramEndAddr.x6}");
   }
 }

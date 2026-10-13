@@ -1,18 +1,20 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../util/debug.dart';
 import 'md.dart';
+
+final _log = DebugLog('md.md_test');
 
 void bench0() {
   final startAt = DateTime.now();
 
   for (var i = 0; i < 0x10000 * 3; i++) {
-    // print(md.dump());
+    // _log.debugc(() => md.dump());
     md.exec(true);
   }
 
   final elapsed = DateTime.now().difference(startAt);
-  log('elapsed: ${elapsed.inMilliseconds}ms');
+  _log.infoc(() => 'elapsed: ${elapsed.inMilliseconds}ms');
 }
 
 final md = Md();

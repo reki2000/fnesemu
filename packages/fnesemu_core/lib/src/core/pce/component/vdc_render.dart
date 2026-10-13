@@ -1,8 +1,10 @@
+// import '../../../util/debug.dart';
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
-
 import 'vdc.dart';
+
+// final _log = DebugLog('pce.vdc_render');
 
 class Sprite {
   late final int no;
@@ -387,7 +389,7 @@ extension VdcRenderer on Vdc {
       final nameTableAddress =
           ((bgRenderLine.shr3 & bgHeightMask) << bgWidthBits) |
               (x.shr3 & bgWidthMask);
-      // print(
+      // _log.debugc(() =>
       //     "h:$h, l:$line, x:$x, y:$y, sc:$scrollX, sy:$scrollY, addr: ${addr.x4}");
       final tile = vram[nameTableAddress];
       paletteNo = tile.shr12.shl4;
@@ -466,7 +468,7 @@ extension VdcRenderer on Vdc {
 
         if (debug) {
           // if (0 == hh && 0 == vv && sp.no == 0) {
-          //   print(
+          //   _log.debugc(() =>
           //       "sp: ${sp.no}, x: ${sp.x}, y: ${sp.y}, p: ${sp.patternNo}, pal: ${sp.paletteNo}, cg: ${sp.cgModeTreal01Zero}, v: ${sp.vFlip}, h: ${sp.hFlip}, h: ${sp.height}, w: ${sp.width}, p: ${sp.priority}");
           // }
 

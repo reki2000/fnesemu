@@ -25,8 +25,10 @@ import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 
 Future<void> main(List<String> args) async {
+  configureLogging();
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/ss_harness";
@@ -74,7 +76,8 @@ Future<void> main(List<String> args) async {
   }
 
   if (files.isEmpty) {
-    print("usage: ss_harness <bios> [disc] [-f frames] [-e every] [-o dir]");
+    stdout.writeln(
+        "usage: ss_harness <bios> [disc] [-f frames] [-e every] [-o dir]");
     exit(1);
   }
 
@@ -121,7 +124,7 @@ Future<void> main(List<String> args) async {
   while (frame < frames) {
     final r = useRunFrame ? ss.runFrame(ss.scanlinesInFrame) : ss.exec(false);
     if (r.stopped) {
-      print("stopped at frame $frame\n${ss.dump()}");
+      stdout.writeln("stopped at frame $frame\n${ss.dump()}");
       _savePng(ss.imageBuffer(), "$outDir/stopped.png");
       exit(2);
     }
@@ -143,12 +146,12 @@ Future<void> main(List<String> args) async {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(ss.imageBuffer(), path);
       if (quiet) continue;
-      print(
+      stdout.writeln(
           "frame $frame (${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
           "pc:${ss.master.pc.toRadixString(16)} "
           "slave:${ss.slave.pc.toRadixString(16)} "
           "68k:${ss.scsp.cpu.pc.toRadixString(16)} -> $path");
-      print("  ${ss.cdblock.dump()}");
+      stdout.writeln("  ${ss.cdblock.dump()}");
     }
   }
 
@@ -160,7 +163,7 @@ Future<void> main(List<String> args) async {
     await lock!.exitCode;
   }
   final n = frames - benchFrom;
-  print("total $n frames ($benchFrom-$frames) in $ms ms: "
+  stdout.writeln("total $n frames ($benchFrom-$frames) in $ms ms: "
       "${(ms / n).toStringAsFixed(3)} ms/frame, "
       "${(n * 1000 / ms).toStringAsFixed(1)} fps, "
       "cpu ${(cpuMs / n).toStringAsFixed(3)} ms/frame");
@@ -172,7 +175,7 @@ Future<void> main(List<String> args) async {
         _wav(raw.buffer.asFloat32List(raw.offsetInBytes, raw.length ~/ 4)));
   }
   File("$outDir/state.txt").writeAsStringSync(ss.dump());
-  if (!quiet) print(ss.dump());
+  if (!quiet) stdout.writeln(ss.dump());
 }
 
 // cpu time (user + system) of this process in ms, 0 when not available

@@ -36,9 +36,11 @@ import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
 import 'local_disc.dart';
+import 'logging.dart';
 import 'ps_io.dart';
 
 Future<void> main(List<String> args) async {
+  configureLogging();
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/core_harness";
@@ -86,7 +88,7 @@ Future<void> main(List<String> args) async {
   }
 
   if (files.length < 2) {
-    print(
+    stdout.writeln(
         "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
@@ -161,7 +163,7 @@ Future<void> main(List<String> args) async {
     final r =
         frameRunner ? core.runFrame(core.scanlinesInFrame) : core.exec(false);
     if (r.stopped) {
-      print("stopped at frame $frame\n${core.dump()}");
+      stdout.writeln("stopped at frame $frame\n${core.dump()}");
       _savePng(core.imageBuffer(), "$outDir/stopped.png");
       exit(2);
     }
@@ -182,7 +184,7 @@ Future<void> main(List<String> args) async {
     if (frame % every == 0 && frame >= saveFrom) {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
       _savePng(core.imageBuffer(), path);
-      print("frame $frame "
+      stdout.writeln("frame $frame "
           "(${(sw.elapsedMilliseconds / frame).toStringAsFixed(1)} ms/frame) "
           "pc:${core.programCounter(0).toRadixString(16)} audio-peak:"
           "${peak.toStringAsFixed(3)} -> $path");
@@ -197,7 +199,7 @@ Future<void> main(List<String> args) async {
     _saveVram(core, "$outDir/vram.png");
   }
   File("$outDir/state.txt").writeAsStringSync(core.dump());
-  print(core.dump());
+  stdout.writeln(core.dump());
 }
 
 Core _createCore(String name) {

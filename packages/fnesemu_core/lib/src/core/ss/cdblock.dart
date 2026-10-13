@@ -4,6 +4,8 @@ import '../../cdrom.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 
+final _log = DebugLog('ss.cdblock');
+
 class _Block {
   final Uint8List raw;
   final int fad;
@@ -643,14 +645,14 @@ class CdBlock {
         _setIrq(0x800 /* MPED */);
         break;
       default:
-        debugLog("cdblock: unsupported command ${op.x2}");
+        _log.warnc(() => "unsupported command ${op.x2}");
         _report();
     }
 
     _setIrq(_cmok);
 
     if (log) {
-      debugLog("cdblock: cmd ${c.map((e) => e.x4).join(" ")} -> "
+      _log.debugc(() => "cmd ${c.map((e) => e.x4).join(" ")} -> "
           "${cr.map((e) => e.x4).join(" ")} hirq:${hirq.x4}");
     }
   }
@@ -877,7 +879,7 @@ class CdBlock {
     } on _SectorPending {
       _rootPending = true; // retried by exec() when the drive has read it
     } catch (e) {
-      debugLog("cdblock: failed to read file system: $e");
+      _log.warnc(() => "failed to read file system: $e");
     }
   }
 

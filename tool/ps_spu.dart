@@ -115,7 +115,7 @@ main(List<String> args) {
     final key = args[0].substring("--reverb=".length);
     final setting = reverbSettings[key];
     if (setting == null) {
-      print("Unknown reverb setting: $key");
+      stdout.writeln("Unknown reverb setting: $key");
       return;
     }
 
@@ -129,7 +129,7 @@ main(List<String> args) {
     spu.reverb.outputVolume[1] = 0x8000;
     spu.reverb.reverbEnabled.fillRange(0, 24, true);
     spu.reverb.setBaseAddr(0x80000 - setting.size);
-    print("SPU: reverb setting: ${spu.reverb.dump()}}");
+    stdout.writeln("SPU: reverb setting: ${spu.reverb.dump()}}");
   }
 
   // "false" requires events.txt to have "#begin" and "#end"

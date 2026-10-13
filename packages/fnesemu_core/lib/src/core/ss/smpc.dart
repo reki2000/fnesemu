@@ -1,7 +1,8 @@
 import '../../util/debug.dart';
 import '../../util/int.dart';
-
 import 'pad.dart';
+
+final _log = DebugLog('ss.smpc');
 
 /// System Manager & Peripheral Control
 class Smpc {
@@ -176,7 +177,7 @@ class Smpc {
         resetDisabled = true;
         break;
       default:
-        debugLog("smpc: unknown command ${command.x2}");
+        _log.warnc(() => "unknown command ${command.x2}");
     }
 
     oreg[31] = command;

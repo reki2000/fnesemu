@@ -1,7 +1,9 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
+
+final _log = DebugLog('nes.mapper.vrc6_apu');
 
 // Project imports
 
@@ -159,7 +161,7 @@ class Vrc6Apu {
         return;
 
       default:
-        log("Unsupported apu write at 0x${reg.x4}");
+        _log.warnc(() => "Unsupported apu write at 0x${reg.x4}");
         return;
     }
   }

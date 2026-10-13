@@ -1,10 +1,11 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'mapper.dart';
 import 'mirror.dart';
+
+final _log = DebugLog('nes.mapper.mmc3');
 
 // https://www.nesdev.org/wiki/MMC3
 class MapperMMC3 extends Mapper {
@@ -67,14 +68,14 @@ class MapperMMC3 extends Mapper {
 
     _chrBankMask = chrRoms.length - 1;
     if (chrRoms.length & _chrBankMask != 0) {
-      log("invalid chr rom size: ${_chrBank.length}k");
+      _log.warnc(() => "invalid chr rom size: ${_chrBank.length}k");
       return;
     }
 
     // resize prg roms from 16k to 8k
     _prgBankMask = prgRoms.length - 1;
     if (_prgBankMask & prgRoms.length != 0) {
-      log("invalid prg rom size: ${prgRoms.length}k");
+      _log.warnc(() => "invalid prg rom size: ${prgRoms.length}k");
       return;
     }
 

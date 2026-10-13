@@ -24,7 +24,7 @@ extension CdromXA on Cdrom {
     if (submode & 0x44 != 0x44) return;
     if (!isXaAdpcmEnabled) return;
 
-    // debugLog("cdrom: decode XA ${dumpSector(sector)} "
+    // _log.debugc(() => "decode XA ${dumpSector(sector)} "
     //     "submode=${submode.x2} coding=${codingInfo.x2} "
     //     "xaAdpcm=$isXaAdpcmEnabled filter=${isXaFilterEnabled ? "$file:$channel" : "no"}:${rawSector[16]}:${rawSector[17]}");
 
@@ -66,8 +66,8 @@ extension CdromXA on Cdrom {
                 : 2;
 
         // if (packet == 0 && unit == 0) {
-        //   debugLog(
-        //       "cdrom: xa: coding:${codingInfo.x2} ${xaSampleRate}Hz ${is8bit ? "8" : "4"}bit "
+        //   _log.debugc(() =>
+        //       "xa: coding:${codingInfo.x2} ${xaSampleRate}Hz ${is8bit ? "8" : "4"}bit "
         //       "${isStereo ? "stereo" : "mono  "} shift:$shift filter:$filter");
         // }
 

@@ -8,6 +8,7 @@ import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
+import '../../util/debug.dart';
 import '../../util/disasm.dart';
 import '../../util/double.dart';
 import '../../util/int.dart';
@@ -26,6 +27,8 @@ import 'vdp_renderer.dart';
 import 'ym2612.dart';
 import 'z80/z80.dart';
 import 'z80/z80_disasm.dart';
+
+final _log = DebugLog('md');
 
 class Md implements Core {
   @override
@@ -225,7 +228,7 @@ class Md implements Core {
 
     while (clocks >= m68.clocks) {
       if (!m68.exec()) {
-        print("m68000 unimplemented instruction at ${m68.pc.x6}");
+        _log.warnc(() => "m68000 unimplemented instruction at ${m68.pc.x6}");
         flags |= _fStopped;
         break;
       }
@@ -240,7 +243,7 @@ class Md implements Core {
     final z80 = cpuZ80;
     while (clocks >= _z80Due(z80.cycles)) {
       if (!z80.exec()) {
-        print("z80 unimplemented instruction at ${z80.r.pc.x4}");
+        _log.warnc(() => "z80 unimplemented instruction at ${z80.r.pc.x4}");
         flags |= _fStopped;
         break;
       }

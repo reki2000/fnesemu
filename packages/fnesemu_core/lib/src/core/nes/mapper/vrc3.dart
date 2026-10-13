@@ -1,9 +1,10 @@
-import 'dart:developer';
 import 'dart:typed_data';
 
+import '../../../util/debug.dart';
 import '../../../util/int.dart';
-
 import 'mapper.dart';
+
+final _log = DebugLog('nes.mapper.vrc3');
 
 // https://www.nesdev.org/wiki/VRC3
 class MapperVrc3 extends Mapper {
@@ -28,7 +29,7 @@ class MapperVrc3 extends Mapper {
   @override
   void init() {
     if (prgRoms.length - 1 & prgRoms.length != 0) {
-      log("invalid prg rom size: ${prgRoms.length}k");
+      _log.warnc(() => "invalid prg rom size: ${prgRoms.length}k");
       return;
     }
     _prgBank = 0;

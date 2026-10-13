@@ -5,6 +5,8 @@ import 'package:fnesemu_core/src/core/md/bus_z80.dart';
 import 'package:fnesemu_core/src/core/md/z80/z80.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
+import 'logging.dart';
+
 class BusZ80Test extends BusZ80 {
   final ram_ = Uint8List(0x10000);
 
@@ -114,6 +116,7 @@ String dump(Z80 cpu) {
 }
 
 void main(List<String> args) {
+  configureLogging();
   final bus = BusZ80Test();
   final Z80 cpu = Z80(bus);
   final Z80 cpu2 = Z80(bus);
@@ -167,7 +170,7 @@ void main(List<String> args) {
     // assert
     final expectTestNo = expects[expectLineNo++];
     if (expectTestNo != testNo) {
-      print("Test loading failed: $expectTestNo != $testNo");
+      stdout.writeln("Test loading failed: $expectTestNo != $testNo");
       return;
     }
 
@@ -184,10 +187,11 @@ void main(List<String> args) {
     dump1.padRight(dump2.length, " ");
 
     if (dump1 != dump2) {
-      print("Test $testNo failed. expected, actual:\n$dump2\n$dump1");
-      print(List.generate(dump1.length, (i) => dump1[i] == dump2[i] ? " " : "^")
-          .join());
-      print(bus.wrLog.toString());
+      stdout.writeln("Test $testNo failed. expected, actual:\n$dump2\n$dump1");
+      stdout.writeln(
+          List.generate(dump1.length, (i) => dump1[i] == dump2[i] ? " " : "^")
+              .join());
+      stdout.writeln(bus.wrLog.toString());
       return;
     }
 
@@ -197,8 +201,8 @@ void main(List<String> args) {
       final wr = expects[expectLineNo];
       final log = "${bus.wrLog[i][0]} ${bus.wrLog[i][1]}-1";
       if (wr != log) {
-        print("Test $testNo failed. expected, actual:\n$wr, $log");
-        print(bus.wrLog.toString());
+        stdout.writeln("Test $testNo failed. expected, actual:\n$wr, $log");
+        stdout.writeln(bus.wrLog.toString());
         return;
       }
       i++;
@@ -208,9 +212,5 @@ void main(List<String> args) {
     expectLineNo++;
   }
 
-  print("All tests passed.");
-}
-
-void print(String msg) {
-  stdout.writeln(msg);
+  stdout.writeln("All tests passed.");
 }

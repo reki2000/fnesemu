@@ -24,6 +24,8 @@ import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
+import 'logging.dart';
+
 class _Press {
   final PadButton button;
   final int from;
@@ -40,6 +42,7 @@ void _usage([String? error]) {
 }
 
 void main(List<String> args) {
+  configureLogging();
   String? romPath;
   var frames = 60;
   var outDir = "out/md_harness";
@@ -108,11 +111,11 @@ void main(List<String> args) {
     if (frame == frames || (every > 0 && frame % every == 0)) {
       final path = "$outDir/${name}_${frame.toString().padLeft(5, "0")}.png";
       _savePng(md.imageBuffer(), path, scale);
-      print("frame $frame -> $path");
+      stdout.writeln("frame $frame -> $path");
     }
   }
 
-  print("ran $frames frames in ${sw.elapsedMilliseconds}ms");
+  stdout.writeln("ran $frames frames in ${sw.elapsedMilliseconds}ms");
 
   if (debug) {
     File("$outDir/${name}_state.txt").writeAsStringSync(
@@ -120,7 +123,8 @@ void main(List<String> args) {
     _savePng(md.renderBg(), "$outDir/${name}_bg.png", 1);
     _savePng(md.renderVram(false, 0), "$outDir/${name}_vram.png", 1);
     _savePng(md.renderColorTable(0), "$outDir/${name}_cram.png", 4);
-    print("debug dump -> $outDir/${name}_{state.txt,bg,vram,cram.png}");
+    stdout
+        .writeln("debug dump -> $outDir/${name}_{state.txt,bg,vram,cram.png}");
   }
 }
 
@@ -146,7 +150,8 @@ _Press _parsePress(String spec, List<PadButton> buttons) {
 void _savePng(ImageBuffer buf, String path, int scale) {
   if (buf.width == 0 || buf.height == 0) return;
 
-  final bytes = Uint8List.sublistView(buf.buffer, 0, buf.width * buf.height * 4);
+  final bytes =
+      Uint8List.sublistView(buf.buffer, 0, buf.width * buf.height * 4);
   var image = img.Image.fromBytes(
       width: buf.width,
       height: buf.height,
