@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:fnesemu_core/app_api.dart';
 
 const int _magnifierZoom = 4, _magnifierAnnotationScale = 2;
+const double _magnifierBoundsWidth = 1;
 
 Color _rgba(int value) => Color.fromARGB(
     value >> 24 & 255, value & 255, value >> 8 & 255, value >> 16 & 255);
@@ -337,7 +338,7 @@ class _MagnifierPainter extends CustomPainter {
       for (final shape in hover.raster.patterns) {
         _drawMagnifierOutline(canvas, shape, startX, startY, columns, rows,
             const Color(0x80ffab00),
-            skipTopLeft: true);
+            skipTopLeft: true, lineWidth: _magnifierBoundsWidth);
       }
     }
     if (hover.numbers) {
@@ -367,7 +368,7 @@ class _MagnifierPainter extends CustomPainter {
 
 void _drawMagnifierOutline(Canvas canvas, DebugOutline shape, int startX,
     int startY, int columns, int rows, Color color,
-    {bool skipTopLeft = false}) {
+    {bool skipTopLeft = false, double? lineWidth}) {
   if (shape.points.length < 2) return;
   var minX = double.infinity,
       minY = double.infinity,
@@ -397,7 +398,7 @@ void _drawMagnifierOutline(Canvas canvas, DebugOutline shape, int startX,
   final paint = Paint()
     ..color = color
     ..isAntiAlias = false;
-  final thickness = _magnifierAnnotationScale.toDouble();
+  final thickness = lineWidth ?? _magnifierAnnotationScale.toDouble();
   if (axisAligned) {
     final left = minX, right = maxX, top = minY, bottom = maxY;
     final path = Path();
@@ -454,30 +455,35 @@ void _drawMagnifierLabel(
     int columns,
     int rows) {
   if (shape.points.isEmpty || shape.label == null) return;
-  final label = shape.label!, value = int.tryParse(shape.label!, radix: 16);
-  if (value == null) return;
-  final first = shape.points.first,
-      x = first.$1.floor() + 1,
-      y = first.$2.floor() + 1,
-      width = IntImageExt.patternWidth * label.length,
-      height = IntImageExt.digitPattern.length,
-      glyphX = (x - startX) * _magnifierZoom,
-      glyphY = (y - startY) * _magnifierZoom,
-      glyphWidth = width * _magnifierAnnotationScale,
-      glyphHeight = height * _magnifierAnnotationScale;
+  final label = shape.label!;
+  final textPainter = TextPainter(
+      text: TextSpan(
+          text: label,
+          style: const TextStyle(
+              fontFamily: 'monospace',
+              fontFamilyFallback: ['Menlo', 'Consolas', 'Courier New'],
+              fontSize: 10,
+              height: 1)),
+      textDirection: TextDirection.ltr,
+      maxLines: 1)
+    ..layout();
+  final right = shape.points.map((point) => point.$1).reduce(math.max),
+      top = shape.points.map((point) => point.$2).reduce(math.min),
+      glyphWidth = textPainter.width,
+      glyphHeight = textPainter.height,
+      glyphX = (((right - 1 - startX) * _magnifierZoom) - glyphWidth)
+          .floorToDouble(),
+      glyphY = ((top + 1 - startY) * _magnifierZoom).floorToDouble();
   if (glyphX + glyphWidth <= 0 ||
       glyphX >= columns * _magnifierZoom ||
       glyphY + glyphHeight <= 0 ||
       glyphY >= rows * _magnifierZoom) return;
 
   var luminance = 0, count = 0;
-  for (var py = 0; py < height; py++) {
-    for (var px = 0; px < width; px++) {
-      if (!value.drawHexValue(px, py, label.length)) continue;
-      final sx = startX +
-              (glyphX + px * _magnifierAnnotationScale) ~/ _magnifierZoom,
-          sy = startY +
-              (glyphY + py * _magnifierAnnotationScale) ~/ _magnifierZoom,
+  for (var py = 0; py < glyphHeight.ceil(); py++) {
+    for (var px = 0; px < glyphWidth.ceil(); px++) {
+      final sx = startX + ((glyphX + px) / _magnifierZoom).floor(),
+          sy = startY + ((glyphY + py) / _magnifierZoom).floor(),
           pixel = sx < 0 || sy < 0 || sx >= image.width || sy >= image.height
               ? background
               : bytes.getUint32((sy * image.width + sx) * 4, Endian.little);
@@ -487,19 +493,16 @@ void _drawMagnifierLabel(
   }
   final foreground =
       count == 0 || luminance ~/ count < 128 ? Colors.white : Colors.black;
-  final paint = Paint()..color = foreground;
-  for (var py = 0; py < height; py++) {
-    for (var px = 0; px < width; px++) {
-      if (!value.drawHexValue(px, py, label.length)) continue;
-      canvas.drawRect(
-          Rect.fromLTWH(
-              (glyphX + px * _magnifierAnnotationScale).toDouble(),
-              (glyphY + py * _magnifierAnnotationScale).toDouble(),
-              _magnifierAnnotationScale.toDouble(),
-              _magnifierAnnotationScale.toDouble()),
-          paint);
-    }
-  }
+  textPainter.text = TextSpan(
+      text: label,
+      style: TextStyle(
+          fontFamily: 'monospace',
+          fontFamilyFallback: const ['Menlo', 'Consolas', 'Courier New'],
+          fontSize: 10,
+          height: 1,
+          color: foreground));
+  textPainter.layout();
+  textPainter.paint(canvas, Offset(glyphX, glyphY));
 }
 
 int _rasterLuminance(int color) {

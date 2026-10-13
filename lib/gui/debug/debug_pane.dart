@@ -10,7 +10,7 @@ import 'mem.dart';
 import 'video.dart';
 
 const _cpuPaneFixedHeight = 96.0;
-const _cpuLineHeight = 15.25;
+const _cpuLineHeight = 15.4;
 
 class DebugPane extends StatefulWidget {
   final Debugger debugger;
