@@ -10,21 +10,37 @@
         });
       }
 
-      constructor() {
+      constructor(options) {
         super();
         
         this.maxBufferSize = 0;
         this.keepBufferSize = 0;
 
-        this.buffer = [];
+        // ring buffer: `size` samples are stored from `readPos`
+        this.buffer = new Float32Array(this.maxBufferSize);
+        this.readPos = 0;
+        this.size = 0;
         this.exhaustCount = 0;
         this.fullCount = 0;
         this.isExhaust = false;
 
+        // for fade-out on exhaust and fade-in on recovery (5ms)
+        this.last = [];
+        this.gain = 0;
+        this.gainStep = 1 / (0.005 * sampleRate);
+        this.decay = Math.exp(-1 / (0.005 * sampleRate));
+        this.fade = !!options?.processorOptions?.fadeOnExhaust;
+
         this.port.onmessage = (event) => {
           if (event.data.type == "data") {
-            if (this.buffer.length < this.maxBufferSize) {
-              this.buffer.push(...event.data.data);
+            const data = event.data.data;
+            const cap = this.buffer.length;
+            if (this.size + data.length <= cap) {
+              const writePos = (this.readPos + this.size) % cap;
+              const first = Math.min(data.length, cap - writePos);
+              this.buffer.set(data.subarray(0, first), writePos);
+              this.buffer.set(data.subarray(first), 0);
+              this.size += data.length;
             } else {
               this.fullCount++;
             }
@@ -38,13 +54,42 @@
         }
       }
 
+      // writes all frames: the first `copyFrames` from the buffer (fading in),
+      // and the rest by decaying the last output value toward zero
+      writeFrames(out, copyFrames) {
+        const channels = out.length;
+        const frames = out[0].length;
+        const cap = this.buffer.length;
+
+        // without fade: copy as is, and fill zero when exhausted
+        const decay = this.fade ? this.decay : 0;
+
+        for (let f=0; f<frames; f++) {
+          if (f < copyFrames) {
+            const gain = this.fade ? this.gain : 1;
+            for (let channel=0; channel<channels; channel++) {
+              this.last[channel] = this.buffer[(this.readPos + f * channels + channel) % cap] * gain;
+              out[channel][f] = this.last[channel];
+            }
+            this.gain = Math.min(1, this.gain + this.gainStep);
+          } else {
+            for (let channel=0; channel<channels; channel++) {
+              this.last[channel] = (this.last[channel] || 0) * decay;
+              out[channel][f] = this.last[channel];
+            }
+            this.gain = 0;
+          }
+        }
+      }
+
       process(_, outputs, __) {
         const out = outputs[0];
         const channels = outputs[0].length
   
-        const playableSize = this.buffer.length;
+        const playableSize = this.size;
   
         if (this.isExhaust && this.keepBufferSize > playableSize) {
+          this.writeFrames(out, 0);
           this.exhaustCount++;
           return true;
         }
@@ -52,21 +97,17 @@
         this.isExhaust = false;
         var copyLength = 0;
 
-        if (this.buffer.length < out[0].length * channels) {
-          copyLength = this.buffer.length;
+        if (this.size < out[0].length * channels) {
+          copyLength = this.size;
           this.exhaustCount++;
           this.isExhaust = true;
         } else {
           copyLength = out[0].length * channels;
         }
 
-        for (let channel=0; channel<channels; channel++) {
-          var dest = 0;
-          for (let source=channel; source<copyLength; source+=channels) {
-            out[channel][dest++] = this.buffer[source];
-          }
-        }
-        this.buffer = this.buffer.slice(copyLength);
+        this.writeFrames(out, Math.floor(copyLength / channels));
+        this.readPos = (this.readPos + copyLength) % this.buffer.length;
+        this.size -= copyLength;
 
         this.postStatistics();
 
@@ -77,7 +118,15 @@
     var audioCtx;
     var workletNode;
 
-    const init =  async (bufSize, waitingBufSize, channels, sampleRate) => {
+    const uninit = async () => {
+      const ctx = audioCtx;
+      audioCtx = null;
+      workletNode = null;
+      await ctx?.close();
+    }
+
+    const init =  async (bufSize, waitingBufSize, channels, sampleRate, fadeOnExhaust) => {
+      await uninit();
       audioCtx = new AudioContext({sampleRate:sampleRate});
 
       const proc = Processor;
@@ -87,7 +136,10 @@
       const f = `data:text/javascript,${encodeURI(procCode)}; registerProcessor("${proc.name}",${proc.name});`;
       await audioCtx.audioWorklet.addModule(f);
 
-      workletNode = new AudioWorkletNode(audioCtx, 'Processor', {outputChannelCount : [channels]});
+      workletNode = new AudioWorkletNode(audioCtx, 'Processor', {
+        outputChannelCount : [channels],
+        processorOptions : {fadeOnExhaust : !!fadeOnExhaust},
+      });
       workletNode.port.onmessage = (event) => { window.AudioStream.stat = event.data; };
       workletNode.connect(audioCtx.destination);
         
@@ -121,10 +173,7 @@
   
       push: push,
   
-      uninit: async () => {
-        await audioCtx?.close();
-        audioCtx = null;
-      },
+      uninit: uninit,
 
       stat: {"exhaustCount":0, "fullCount":0}, // overwritten in workletNode.port.onmessage
 
