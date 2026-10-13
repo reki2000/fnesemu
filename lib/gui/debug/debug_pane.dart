@@ -26,69 +26,80 @@ class _DebugPaneState extends State<DebugPane> {
   double _scale = 1;
   double _disasmWidth = 500;
   static const _cpuWidth = 904.0;
-  VideoHover? _hover;
+  final _hoverState = ValueNotifier<VideoHover?>(null);
+  VideoHover? get _hover => _hoverState.value;
   bool? _magnifierRight, _magnifierBottom;
-  void _hoverChanged(VideoHover value) => setState(() => _hover = value);
+  void _hoverChanged(VideoHover value) => _hoverState.value = value;
   void _hoverExit() {
     if (_hover != null) {
-      setState(() {
-        _hover = null;
-        _magnifierRight = _magnifierBottom = null;
-      });
+      _magnifierRight = _magnifierBottom = null;
+      _hoverState.value = null;
     }
   }
 
-  Widget _magnified(Widget child, DebugState state) =>
-      LayoutBuilder(builder: (context, bounds) {
-        final box =
-            _hover == null ? null : context.findRenderObject() as RenderBox?;
-        final point = _hover != null && box != null
-            ? box.globalToLocal(_hover!.global)
-            : null;
-        final show = state.view != DebugView.cpu &&
-            point != null &&
-            (Offset.zero & Size(bounds.maxWidth, bounds.maxHeight))
-                .contains(point);
-        if (show) {
-          final cursorRight = point.dx >= bounds.maxWidth / 2;
-          _magnifierBottom ??= point.dy < bounds.maxHeight / 2;
-          _magnifierRight ??= !cursorRight;
-          if (_magnifierRight == cursorRight) _magnifierRight = !cursorRight;
-        }
-        final origin = box?.localToGlobal(Offset.zero) ?? Offset.zero;
-        final window = MediaQuery.sizeOf(context);
-        final desiredLeft = _magnifierRight == false
-            ? 6.0
-            : bounds.maxWidth - VideoMagnifier.extent - 6;
-        final desiredTop = _magnifierBottom == false
-            ? 6.0
-            : bounds.maxHeight - VideoMagnifier.extent - 6;
-        final left = (origin.dx + desiredLeft).clamp(
-                6.0, math.max(6.0, window.width - VideoMagnifier.extent - 6)) -
-            origin.dx;
-        final top = (origin.dy + desiredTop).clamp(
-                6.0, math.max(6.0, window.height - VideoMagnifier.extent - 6)) -
-            origin.dy;
-        return NotificationListener<ScrollNotification>(
-            onNotification: (_) {
-              if (_hover != null) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() => _hover = _hover?.refresh());
-                });
+  Widget _magnified(Widget child, DebugState state) => LayoutBuilder(
+      builder: (context, bounds) => ValueListenableBuilder<VideoHover?>(
+          valueListenable: _hoverState,
+          child: child,
+          builder: (context, hover, child) {
+            final box = _hover == null
+                ? null
+                : context.findRenderObject() as RenderBox?;
+            final point = _hover != null && box != null
+                ? box.globalToLocal(_hover!.global)
+                : null;
+            final show = state.view != DebugView.cpu &&
+                point != null &&
+                (Offset.zero & Size(bounds.maxWidth, bounds.maxHeight))
+                    .contains(point);
+            if (show) {
+              final cursorRight = point.dx >= bounds.maxWidth / 2;
+              _magnifierBottom ??= point.dy < bounds.maxHeight / 2;
+              _magnifierRight ??= !cursorRight;
+              if (_magnifierRight == cursorRight) {
+                _magnifierRight = !cursorRight;
               }
-              return false;
-            },
-            child: Stack(clipBehavior: Clip.none, children: [
-              Positioned.fill(child: child),
-              if (show)
-                Positioned(
-                    left: left,
-                    top: top,
-                    child: VideoMagnifier(
-                        key: const ValueKey('video-magnifier'),
-                        hover: _hover!)),
-            ]));
-      });
+            }
+            final origin = box?.localToGlobal(Offset.zero) ?? Offset.zero;
+            final window = MediaQuery.sizeOf(context);
+            final desiredLeft = _magnifierRight == false
+                ? 6.0
+                : bounds.maxWidth - VideoMagnifier.extent - 6;
+            final desiredTop = _magnifierBottom == false
+                ? 6.0
+                : bounds.maxHeight - VideoMagnifier.extent - 6;
+            final left = (origin.dx + desiredLeft).clamp(6.0,
+                    math.max(6.0, window.width - VideoMagnifier.extent - 6)) -
+                origin.dx;
+            final top = (origin.dy + desiredTop).clamp(6.0,
+                    math.max(6.0, window.height - VideoMagnifier.extent - 6)) -
+                origin.dy;
+            return NotificationListener<ScrollNotification>(
+                onNotification: (_) {
+                  if (_hover != null) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) _hoverState.value = _hover?.refresh();
+                    });
+                  }
+                  return false;
+                },
+                child: Stack(clipBehavior: Clip.none, children: [
+                  Positioned.fill(child: child!),
+                  if (show)
+                    Positioned(
+                        left: left,
+                        top: top,
+                        child: VideoMagnifier(
+                            key: const ValueKey('video-magnifier'),
+                            hover: _hover!)),
+                ]));
+          }));
+  @override
+  void dispose() {
+    _hoverState.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => StreamBuilder<DebugState>(
       stream: widget.debugger.debugStream,
@@ -230,10 +241,10 @@ class _DebugPaneState extends State<DebugPane> {
                                 key: const ValueKey('cpu-debug-divider'),
                                 behavior: HitTestBehavior.opaque,
                                 onHorizontalDragUpdate: (event) => setState(() {
-                                      _disasmWidth =
-                                          (_disasmWidth + event.delta.dx)
-                                              .clamp(180.0, _cpuWidth - 220 - 12)
-                                              .toDouble();
+                                      _disasmWidth = (_disasmWidth +
+                                              event.delta.dx)
+                                          .clamp(180.0, _cpuWidth - 220 - 12)
+                                          .toDouble();
                                     }),
                                 child: SizedBox(
                                     width: 8,

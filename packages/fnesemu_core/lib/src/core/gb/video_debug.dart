@@ -28,6 +28,9 @@ extension PpuVideoDebug on Ppu {
             kind: DebugLayerKind.sprites, originalBackground: _background),
       ];
   DebugRaster _backgroundMap(bool window, bool map) {
+    if (!map && (!lcdOn || lcdc & 1 == 0 || window && lcdc & 0x20 == 0)) {
+      return DebugCanvas(160, 144).raster();
+    }
     final canvas = DebugCanvas(256, 256);
     final base = (lcdc & (window ? 0x40 : 8)) != 0 ? 0x1c00 : 0x1800;
     for (var y = 0; y < 32; y++) {
@@ -46,8 +49,6 @@ extension PpuVideoDebug on Ppu {
           0, 0, (160 - (wx - 7)).clamp(0, 256), (144 - wy).clamp(0, 256));
     }
     if (map) return canvas.raster();
-    if (!lcdOn || lcdc & 1 == 0 || window && lcdc & 0x20 == 0)
-      return DebugCanvas(160, 144).raster();
     if (!window) return canvas.raster().cropWrapped(scx, scy, 160, 144);
     final out = DebugCanvas(160, 144);
     final source = canvas.pixels;
@@ -67,6 +68,8 @@ extension PpuVideoDebug on Ppu {
     final canvas = DebugCanvas(160, 144);
     if (!lcdOn || lcdc & 2 == 0) return canvas.raster();
     final height = lcdc & 4 != 0 ? 16 : 8;
+    final visibility = debugSpriteLineVisibility(
+        [for (var n = 0; n < 40; n++) (oam[n * 4] - 16, height)], 10);
     final order = [for (var n = 0; n < 40; n++) n]..sort((a, b) {
         final x = oam[b * 4 + 1].compareTo(oam[a * 4 + 1]);
         return x != 0 ? x : b.compareTo(a);
@@ -78,12 +81,7 @@ extension PpuVideoDebug on Ppu {
       if (x >= 160 || y >= 144 || y + height <= 0) continue;
       canvas.tile(number, x, y, 8, height, (px, py) {
         final screenY = y + (attr & 0x40 != 0 ? height - 1 - py : py);
-        var earlier = 0;
-        for (var i = 0; i < n; i++) {
-          final oy = oam[i * 4] - 16;
-          if (screenY >= oy && screenY < oy + height) earlier++;
-        }
-        if (earlier >= 10) return 0;
+        if (visibility[n][screenY - y] == 0) return 0;
         final color = _pixel(number + py ~/ 8, px, py % 8);
         return color == 0 ? 0 : _color(attr & 0x10 != 0 ? obp1 : obp0, color);
       }, flipX: attr & 0x20 != 0, flipY: attr & 0x40 != 0);

@@ -48,6 +48,7 @@ extension VdcVideoDebug on Vdc {
             originalBackground: _background),
       ];
   DebugRaster _bgMap(bool map) {
+    if (!map && !enableBg) return DebugCanvas(hSize, vSize).raster();
     final columns = bgWidthMask + 1, rows = bgHeightMask + 1;
     final canvas = DebugCanvas(columns * 8, rows * 8);
     for (var y = 0; y < rows; y++) {
@@ -63,16 +64,19 @@ extension VdcVideoDebug on Vdc {
     }
     canvas.viewport(scrollX, scrollY, hSize, vSize);
     if (map) return canvas.raster();
-    return enableBg
-        ? canvas.raster().cropWrapped(scrollX, scrollY, hSize, vSize)
-        : DebugCanvas(hSize, vSize).raster();
+    return canvas.raster().cropWrapped(scrollX, scrollY, hSize, vSize);
   }
 
   DebugRaster _sprites(bool map) {
     final canvas = DebugCanvas(1024, 1024);
     if (map || enableSprite || renderedSpriteEnabled.contains(true)) {
+      final objects = [for (var n = 0; n < 64; n++) Sprite.of(sat, n * 4)];
+      final visibility = map
+          ? null
+          : debugSpriteLineVisibility(
+              [for (final sp in objects) (sp.y, sp.height)], 16);
       for (var n = 63; n >= 0; n--) {
-        final sprite = Sprite.of(sat, n * 4);
+        final sprite = objects[n];
         for (var ty = 0; ty < sprite.height ~/ 16; ty++) {
           for (var tx = 0; tx < sprite.width ~/ 16; tx++) {
             final number = sprite.patternNo + tx + ty * 2;
@@ -92,12 +96,7 @@ extension VdcVideoDebug on Vdc {
                 final line = sy - 64;
                 if (line < 0 || line >= vSize) return 0;
                 if (!(renderedSpriteEnabled[line] ?? enableSprite)) return 0;
-                var earlier = 0;
-                for (var i = 0; i < n; i++) {
-                  final other = Sprite.of(sat, i * 4);
-                  if (sy >= other.y && sy < other.y + other.height) earlier++;
-                }
-                if (earlier >= 16) return 0;
+                if (visibility![n][sy - sprite.y] == 0) return 0;
               }
               var c = _objPixel(number, x, y);
               if (vramDotWidth == 3) {

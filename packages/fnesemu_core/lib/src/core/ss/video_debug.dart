@@ -157,16 +157,30 @@ extension Vdp2VideoDebug on Vdp2 {
     final canvas = DebugCanvas(w, h);
     cfg.priority = 1;
     copy._lastCellKey = -1;
-    for (var y = 0; y < h; y++)
-      for (var x = 0; x < w; x++) {
-        final pixel =
-            cfg.bitmap ? copy._bitmapDot(cfg, x, y) : copy._cellDot(cfg, x, y);
-        if (pixel != 0) canvas.pixels[y * w + x] = 0xff000000 | pixel.mask24;
-        if (!cfg.bitmap && x % 8 == 0 && y % 8 == 0) {
-          canvas.patterns.add(DebugOutline.rect(x, y, 8, 8,
-              label: (copy._cellAddr ~/ 32).toRadixString(16).toUpperCase()));
+    // Finish each cell before moving on so the native cell cache also serves
+    // its remaining rows instead of decoding it again on every scanline.
+    final step = cfg.bitmap ? 1 : 8;
+    for (var ty = 0; ty < h; ty += step) {
+      for (var tx = 0; tx < w; tx += step) {
+        for (var py = 0; py < step; py++) {
+          final y = ty + py;
+          for (var px = 0; px < step; px++) {
+            final x = tx + px;
+            final pixel = cfg.bitmap
+                ? copy._bitmapDot(cfg, x, y)
+                : copy._cellDot(cfg, x, y);
+            if (pixel != 0) {
+              canvas.pixels[y * w + x] = 0xff000000 | pixel.mask24;
+            }
+            if (!cfg.bitmap && px == 0 && py == 0) {
+              canvas.patterns.add(DebugOutline.rect(x, y, 8, 8,
+                  label:
+                      (copy._cellAddr ~/ 32).toRadixString(16).toUpperCase()));
+            }
+          }
         }
       }
+    }
     if (nbg != null) {
       final base = nbg < 2 ? 0x70 + nbg * 16 : 0x90 + (nbg - 2) * 4;
       final sx = reg(base).mask11, sy = reg(base + (nbg < 2 ? 4 : 2)).mask11;

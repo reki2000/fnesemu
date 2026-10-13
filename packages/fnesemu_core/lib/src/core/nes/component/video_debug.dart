@@ -34,6 +34,7 @@ extension PpuVideoDebug on Ppu {
       ];
 
   DebugRaster _background(bool map) {
+    if (!map && !showBg()) return DebugCanvas(256, 240).raster();
     final canvas = DebugCanvas(512, 480);
     for (var ny = 0; ny < 2; ny++) {
       for (var nx = 0; nx < 2; nx++) {
@@ -56,7 +57,6 @@ extension PpuVideoDebug on Ppu {
     final sy = (baseNameAddr() >> 1) * 240 + scrollY;
     canvas.viewport(sx, sy, 256, 240);
     if (map) return canvas.raster();
-    if (!showBg()) return DebugCanvas(256, 240).raster();
     final screen = canvas.raster().cropWrapped(sx, sy, 256, 240);
     if (clipLeftEdgeBg()) {
       for (var y = 0; y < 240; y++) {
@@ -70,6 +70,8 @@ extension PpuVideoDebug on Ppu {
     final canvas = DebugCanvas(256, 240);
     if (!showSprite()) return canvas.raster();
     final height = objSize16() ? 16 : 8;
+    final visibility = debugSpriteLineVisibility(
+        [for (var n = 0; n < 64; n++) (objRam[n * 4] + 1, height)], 8);
     for (var n = 63; n >= 0; n--) {
       final x = objRam[n * 4 + 3], y = objRam[n * 4] + 1;
       final attr = objRam[n * 4 + 2], tile = objRam[n * 4 + 1];
@@ -79,12 +81,7 @@ extension PpuVideoDebug on Ppu {
       if (y >= 240) continue;
       canvas.tile(number, x, y, 8, height, (px, py) {
         final screenY = y + ((attr & 0x80) != 0 ? height - 1 - py : py);
-        var earlier = 0;
-        for (var i = 0; i < n; i++) {
-          final oy = objRam[i * 4] + 1;
-          if (screenY >= oy && screenY < oy + height) earlier++;
-        }
-        if (earlier >= 8 ||
+        if (visibility[n][screenY - y] == 0 ||
             clipLeftEdgeSprite() && x + (attr & 0x40 != 0 ? 7 - px : px) < 8) {
           return 0;
         }

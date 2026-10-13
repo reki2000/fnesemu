@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -115,7 +116,74 @@ class _LayerRowsCore extends _VideoCore {
       ];
 }
 
+class _ViewportCore extends _VideoCore {
+  @override
+  List<DebugVideoLayer> get videoLayers => [
+        DebugVideoLayer(
+            'Map',
+            (_) => DebugRaster(ImageBuffer(32, 32, Uint8List(32 * 32 * 4)),
+                    viewports: [
+                      DebugOutline.rect(4, 4, 16, 16),
+                      DebugOutline.rect(28, 4, 4, 16),
+                    ]),
+            hasMap: true),
+      ];
+}
+
 void main() {
+  testWidgets('Screen viewport outlines paint on the bitmap without hovering',
+      (tester) async {
+    final debugger = Debugger(_ViewportCore())
+      ..setDebugView(true)
+      ..selectView(DebugView.layers)
+      ..setLayerView(LayerView.map);
+    for (final scale in [0.5, 1.0, 2.0]) {
+      for (final visible in [false, true, false]) {
+        debugger.setViewportBoundsVisible(visible);
+        await tester.pumpWidget(MaterialApp(
+            home: Scaffold(
+                body: DebugVideoImages(state: debugger.state, scale: scale))));
+        await tester.pump();
+        final bitmap = find.descendant(
+            of: find.byType(DebugVideoImages),
+            matching: find.byType(CustomPaint));
+        final painter = tester.widget<CustomPaint>(bitmap).painter!;
+        final size = tester.getSize(bitmap);
+        final recorder = ui.PictureRecorder();
+        painter.paint(Canvas(recorder), size);
+        final picture = recorder.endRecording();
+        final pixels = (await tester.runAsync(() async {
+          final image =
+              await picture.toImage(size.width.toInt(), size.height.toInt());
+          final data =
+              await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+          final result = Uint8List.fromList(data!.buffer.asUint8List());
+          image.dispose();
+          return result;
+        }))!;
+        picture.dispose();
+        final greenPixels = <(int, int)>[];
+        for (var i = 0; i < pixels.length; i += 4) {
+          if (pixels[i] == 105 &&
+              pixels[i + 1] == 240 &&
+              pixels[i + 2] == 174) {
+            greenPixels.add(
+                (i ~/ 4 % size.width.toInt(), i ~/ 4 ~/ size.width.toInt()));
+          }
+        }
+        if (visible) {
+          expect(greenPixels, isNotEmpty);
+          // Both viewport segments appear, including the segment at the edge.
+          expect(greenPixels.any((p) => p.$1 < 20 * scale), true);
+          expect(greenPixels.any((p) => p.$1 >= 28 * scale - 1), true);
+        } else {
+          expect(greenPixels, isEmpty);
+        }
+        expect(find.byType(VideoMagnifier), findsNothing);
+      }
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   testWidgets(
       'tabs show all layers and both pattern sources with shared controls',
       (tester) async {
@@ -276,12 +344,19 @@ void main() {
             matching: find.byType(CustomPaint))
         .first;
     final mouse = await tester.createGesture(kind: ui.PointerDeviceKind.mouse);
+    final originalImages =
+        tester.widget<DebugVideoImages>(find.byType(DebugVideoImages));
     await mouse.addPointer(location: Offset.zero);
     await mouse.moveTo(tester.getTopLeft(bitmap) + const Offset(0.5, 0.5));
     await tester.pump();
     final popup = find.byKey(const ValueKey('video-magnifier'));
     expect(popup, findsOneWidget);
     expect(tester.getSize(popup), const Size(300, 300));
+    expect(
+        identical(
+            tester.widget<DebugVideoImages>(find.byType(DebugVideoImages)),
+            originalImages),
+        true);
     final area = tester.getRect(find.byType(DebugPane));
     final cursor = tester.getTopLeft(bitmap) + const Offset(0.5, 0.5);
     final corner = tester.getRect(popup).center;
@@ -425,10 +500,17 @@ void main() {
         patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
         viewports: [DebugOutline.rect(32, 16, 8, 8)]);
     const key = ValueKey('magnifier-render');
+    final decoded = (await tester.runAsync(() {
+      final ready = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+          bitmap, 64, 64, ui.PixelFormat.rgba8888, ready.complete);
+      return ready.future;
+    }))!;
+    addTearDown(decoded.dispose);
     Future<Uint8List> render({required bool numbers}) async {
       final hover = VideoHover(
           raster, 0xff000000, const Offset(32, 32), Offset.zero, () => null,
-          numbers: numbers, bounds: true, viewport: true);
+          numbers: numbers, bounds: true, image: decoded);
       await tester.pumpWidget(MaterialApp(
           home: Scaffold(
               body: Align(
@@ -488,7 +570,7 @@ void main() {
     expect(rgba(119, 100), [128, 86, 0, 255]);
     expect(rgba(100, 118), [0, 0, 0, 255]);
     expect(rgba(100, 119), [128, 86, 0, 255]);
-    expect(rgba(152, 88), [105, 240, 174, 255]);
+    expect(rgba(152, 88), [0, 0, 0, 255]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

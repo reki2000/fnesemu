@@ -96,10 +96,15 @@ extension VdpVideoDebug on Vdp {
     final copy = _debugClone(), canvas = DebugCanvas(width, Vdp.height);
     final regions = DebugPatternRegions(width, Vdp.height);
     if (!enableDisplay) return canvas.raster();
+    copy._setBgSize();
     for (var y = 0; y < Vdp.height; y++) {
-      copy.vCounter = y + 1;
-      copy.renderLine(); // only the copy's counters and scratch buffers change
       final state = copy.line;
+      state.y = y;
+      state.yy = isInterlaced ? y * 2 + (oddFrame ? 1 : 0) : y;
+      if (n == 3) {
+        copy._fillSpriteBuffer();
+        copy._renderSprites(width);
+      }
       final mode = reg[11] & 3;
       final line = mode & 2 == 0
           ? 0
@@ -153,13 +158,14 @@ extension VdpVideoDebug on Vdp {
     if (n < 3) {
       canvas.patterns.addAll(regions.outlines());
     } else {
-      canvas.patterns.addAll(
-          _debugSpriteMap().cropWrapped(128, 128, width, Vdp.height).patterns);
+      canvas.patterns.addAll(_debugSpriteMap(paintPixels: false)
+          .cropWrapped(128, 128, width, Vdp.height)
+          .patterns);
     }
     return canvas.raster();
   }
 
-  DebugRaster _debugSpriteMap() {
+  DebugRaster _debugSpriteMap({bool paintPixels = true}) {
     final canvas = DebugCanvas(512, 512);
     final base = (reg[5] << 9) & (h32 ? 0xfe00 : 0xfc00);
     var n = 0;
@@ -190,7 +196,10 @@ extension VdpVideoDebug on Vdp {
               tileHeight, (x, y) {
             final c = _debugPixel(number, x, y);
             return c == 0 ? 0 : rgba[cram[sprite.paletteNo + c]];
-          }, flipX: sprite.hFlip, flipY: sprite.vFlip);
+          },
+              flipX: sprite.hFlip,
+              flipY: sprite.vFlip,
+              paintPixels: paintPixels);
         }
       }
     }

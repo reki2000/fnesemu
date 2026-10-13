@@ -8,7 +8,11 @@ extension PpuVideoDebug on Ppu {
           (base * 2 + number * bpp * 8) & 0xffff,
           x,
           y,
-          [for (var p = 0; p < bpp; p++) (p ~/ 2) * 16 + p % 2]);
+          switch (bpp) {
+            2 => const [0, 1],
+            4 => const [0, 1, 16, 17],
+            _ => const [0, 1, 16, 17, 32, 33, 48, 49],
+          });
   List<DebugPalette> _debugPalettes(int count,
           {int base = 0, String name = 'Palette'}) =>
       [
@@ -114,6 +118,28 @@ extension PpuVideoDebug on Ppu {
     final bits = PpuRenderer._bgBpp[bgMode]![index], cell = bg.bigChar ? 16 : 8;
     final mw = (bg.wideX ? 64 : 32) * cell, mh = (bg.wideY ? 64 : 32) * cell;
     final canvas = DebugCanvas(map ? mw : copy.width, map ? mh : Ppu.height);
+    if (map && bgMode != 2 && bgMode != 4 && bgMode != 6) {
+      // Regular maps have one rectangular annotation per native 8px tile.
+      // Avoid per-pixel region IDs and contour tracing for that geometry.
+      for (var y = 0; y < mh; y += 8) {
+        for (var x = 0; x < mw; x += 8) {
+          final entry = copy._tilemapEntryRaw(index, x, y);
+          final u = entry.bit14 ? cell - 1 - x % cell : x % cell;
+          final v = entry.bit15 ? cell - 1 - y % cell : y % cell;
+          final number = (entry & 1023) + u ~/ 8 + v ~/ 8 * 16;
+          final palette = entry.shr10.mask3;
+          canvas.tile(number, x, y, 8, 8, (px, py) {
+            final color = _debugPixel(bg.charBase, bits, number, px, py);
+            return color == 0
+                ? 0
+                : _debugColor(
+                    copy._bgPaletteIndex(bgMode, index, bits, palette, color));
+          }, flipX: entry.bit14, flipY: entry.bit15);
+        }
+      }
+      canvas.viewport(bg.hofs, bg.vofs + 1, copy.width, Ppu.height);
+      return canvas.raster();
+    }
     final regions = DebugPatternRegions(canvas.width, canvas.height);
     if (!map &&
         (forcedBlank ||

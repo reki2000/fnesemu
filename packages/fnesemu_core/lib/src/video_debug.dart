@@ -93,12 +93,19 @@ class DebugRaster {
   DebugRaster cropWrapped(int x, int y, int width, int height) {
     final sw = image.width, sh = image.height;
     if (sw == 0 || sh == 0) return DebugRaster(ImageBuffer.empty());
-    final src = ByteData.sublistView(image.buffer);
     final dst = DebugCanvas(width, height);
+    final bytes = dst.pixels.buffer.asUint8List();
+    final sx = x % sw;
     for (var py = 0; py < height; py++) {
-      for (var px = 0; px < width; px++) {
-        dst.pixels[py * width + px] = src.getUint32(
-            (((py + y) % sh) * sw + (px + x) % sw) * 4, Endian.little);
+      final row = ((py + y) % sh) * sw;
+      var px = 0, sourceX = sx;
+      while (px < width) {
+        final count = math.min(width - px, sw - sourceX);
+        final offset = (py * width + px) * 4;
+        bytes.setRange(
+            offset, offset + count * 4, image.buffer, (row + sourceX) * 4);
+        px += count;
+        sourceX = 0;
       }
     }
     for (var oy = -(y % sh); oy < height; oy += sh) {
@@ -344,6 +351,7 @@ class DebugCanvas {
       bool flipY = false,
       bool wrapX = false,
       bool wrapY = false,
+      bool paintPixels = true,
       String? label}) {
     final shape = DebugOutline.rect(x, y, w, h,
         label: label ?? number.toRadixString(16).toUpperCase());
@@ -361,9 +369,10 @@ class DebugCanvas {
               if (x + w > width) -width.toDouble()
             ]
           : [0.0]) {
-        patterns.add(shape.translated(sx, sy));
+        patterns.add(sx == 0 && sy == 0 ? shape : shape.translated(sx, sy));
       }
     }
+    if (!paintPixels) return;
     for (var py = 0; py < h; py++) {
       final dy = wrapY ? (y + py) % height : y + py;
       if (dy < 0 || dy >= height) continue;
@@ -431,6 +440,28 @@ class DebugCanvas {
   DebugRaster raster() =>
       DebugRaster(ImageBuffer(width, height, pixels.buffer.asUint8List()),
           patterns: patterns, viewports: viewports);
+}
+
+/// Sprite admission in SAT/OAM order, once per row rather than per pixel.
+/// Each result is indexed by the sprite's local (unflipped) row. Offscreen X
+/// and transparent pixels still consume the line limit, as in hardware.
+List<Uint8List> debugSpriteLineVisibility(
+    List<(int y, int height)> sprites, int limit) {
+  if (sprites.isEmpty) return [];
+  final first = sprites.map((s) => s.$1).reduce(math.min);
+  final last = sprites.map((s) => s.$1 + s.$2).reduce(math.max);
+  final counts = Uint16List(last - first);
+  final result = <Uint8List>[];
+  for (final (y, height) in sprites) {
+    final visible = Uint8List(height);
+    for (var row = 0; row < height; row++) {
+      final line = y + row - first;
+      visible[row] = counts[line] < limit ? 1 : 0;
+      counts[line]++;
+    }
+    result.add(visible);
+  }
+  return result;
 }
 
 int debugPlanarPixel(
