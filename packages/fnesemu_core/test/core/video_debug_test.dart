@@ -8,6 +8,7 @@ import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/nes/mapper/mmc2.dart';
 import 'package:fnesemu_core/src/core/nes/mapper/mmc3.dart';
 import 'package:fnesemu_core/src/core/nes/nes.dart';
+import 'package:fnesemu_core/src/core/pce/component/vdc_render.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
@@ -368,5 +369,39 @@ void main() {
     core.bus.affineRefDirty[0] = true;
     core.videoLayers.first.capture(false);
     expect(core.bus.affineRefDirty[0], true);
+  });
+  test('PCE sprite viewport retains raster enable changes across a frame', () {
+    final core = Pce()..reset();
+    final vdc = core.vdc;
+    vdc.sat.fillRange(0, vdc.sat.length, 0);
+    vdc.sat[0] = 64;
+    vdc.sat[1] = 32;
+    vdc.sat[2] = 2; // Pattern 1.
+    vdc.colorTable[257] = 7;
+    vdc.vram.fillRange(0, vdc.vram.length, 0);
+    vdc.vram.fillRange(64, 80, 0xffff);
+    vdc.fetchSatb();
+    final layer = core.videoLayers[1];
+    vdc.enableSprite = true;
+    expect(pixel(layer.capture(false), 0, 0), rgba[7]);
+
+    // A HUD hides sprites, gameplay enables them, then the HUD disables them
+    // again before the debugger captures the viewport (as in Darius Plus).
+    for (var y = 0; y < 16; y++) {
+      vdc.scanLine = VdcRenderer.displayStartLine + y;
+      vdc.enableSprite = y >= 4 && y < 12;
+      vdc.exec();
+    }
+    final before = List<int>.of(vdc.indexBuffer);
+    final screen = layer.capture(false);
+    expect(pixel(screen, 0, 0), 0);
+    expect(pixel(screen, 0, 4), rgba[7]);
+    expect(pixel(screen, 0, 11), rgba[7]);
+    expect(pixel(screen, 0, 12), 0);
+    expect(pixel(layer.capture(true), 32, 64), rgba[7]);
+    expect(vdc.indexBuffer, orderedEquals(before));
+    vdc.reset();
+    expect(vdc.renderedSpriteEnabled.every((enabled) => enabled == null), true);
+    expect(pixel(layer.capture(false), 0, 4), 0);
   });
 }

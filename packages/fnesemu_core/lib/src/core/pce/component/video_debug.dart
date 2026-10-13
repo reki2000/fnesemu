@@ -70,7 +70,7 @@ extension VdcVideoDebug on Vdc {
 
   DebugRaster _sprites(bool map) {
     final canvas = DebugCanvas(1024, 1024);
-    if (map || enableSprite) {
+    if (map || enableSprite || renderedSpriteEnabled.contains(true)) {
       for (var n = 63; n >= 0; n--) {
         final sprite = Sprite.of(sat, n * 4);
         for (var ty = 0; ty < sprite.height ~/ 16; ty++) {
@@ -89,6 +89,9 @@ extension VdcVideoDebug on Vdc {
                     (sprite.vFlip
                         ? sprite.height - 1 - ty * 16 - y
                         : ty * 16 + y);
+                final line = sy - 64;
+                if (line < 0 || line >= vSize) return 0;
+                if (!(renderedSpriteEnabled[line] ?? enableSprite)) return 0;
                 var earlier = 0;
                 for (var i = 0; i < n; i++) {
                   final other = Sprite.of(sat, i * 4);

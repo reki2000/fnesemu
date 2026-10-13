@@ -86,6 +86,7 @@ extension VdcRenderer on Vdc {
     bgRenderLine = 0;
     displayLine = 0;
     spriteBufIndex = 0;
+    renderedSpriteEnabled.fillRange(0, renderedSpriteEnabled.length, null);
     sprite0.fillRange(0, sprite0.length, false);
     paletteNo = 0;
     pattern01 = 0;
@@ -105,6 +106,7 @@ extension VdcRenderer on Vdc {
 
     // 242 lines
     if (0 <= displayLine && displayLine < 242) {
+      renderedSpriteEnabled[displayLine] = enableSprite;
       _fillSpriteBuffer();
 
       if (debug || perPixel) {
