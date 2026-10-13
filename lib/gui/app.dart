@@ -189,6 +189,7 @@ class MainPageState extends State<MainPage> {
     _sramSavedTimer?.cancel();
     _sramSaved.dispose();
     _mPlayer.dispose();
+    _imageContainer.dispose();
     _storage.dispose();
     super.dispose();
   }
