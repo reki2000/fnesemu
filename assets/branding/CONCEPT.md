@@ -8,26 +8,37 @@ The blue palette, diagonal ribbons, and folded shapes recall Flutter. Six distin
 
 ## Approved source
 
-`app_icon.svg` is the approved vector master, without embedded raster data. Its canvas is 1254 × 1254, centered at (627, 627), with a white background. All platform icons are exported from this SVG. Only the master SVG and these notes are retained as design sources; proposal images, comparison pages, and generation scripts are excluded.
+`app_icon.svg` is the approved vector master, without embedded raster data. Its canvas is 1254 × 1254, centered at (627, 627), with a white background. All platform icons are exported from this SVG. The master SVG, the R2 alternative SVG, and these notes are retained as design sources; comparison pages, raster proposals, and generation scripts are excluded.
+
+## Retained alternative
+
+`app_icon_r2.svg` retains the R2 alternative for future design comparison and is not used for platform exports. It joins the original four central cores while preserving their size, face colors, and rotations. All shared corners are square; only the four corners of the combined outer silhouette remain rounded. The six outer pieces retain their original positions rather than the R1 spacing adjustments.
 
 ## Geometry and placement
 
-All straight edges are horizontal, vertical, or at ±45 degrees. Curves appear only at the central cores' outer corners. Shared outer vertices were adjusted to these directions while remaining close to the approved concept 10. The overall layout is asymmetric, so the gaps are not all identical.
-
-The original four core centers were moved 45 degrees counterclockwise around the image center, independently of each core's own orientation. The cores were enlarged, then enlarged another 5% in linear dimensions, giving a final square side of 168 pixels.
+All straight edges are horizontal, vertical, or at ±45 degrees. Curves appear only at the central cores' outer corners. The R1 revision retains the four central cores, six outer pieces, face colors, and individual piece geometry while balancing their spacing.
 
 Each core consists of two touching 168 × 84 rectangles with a 2:1 aspect ratio. Only the original square's four outer corners are rounded, with a radius of 33.6 pixels. Corners on the shared boundary remain square, and there is no gap between the rectangles.
 
-| Position | Center | Rotation added to the original 45 degrees |
+The core centers are symmetric around (627, 627), at a radius of approximately 152.735065 pixels. Adjacent cores have a 48-pixel gap between their parallel straight edges.
+
+| Position | Center | Rotation |
 |---|---|---|
-| Top | (631.24264069, 462.95122676) | 0 degrees |
-| Right | (787.15968594, 628.76776695) | 90 degrees |
-| Bottom | (630.18198052, 784.33125881) | 180 degrees |
-| Left | (475.67914883, 616.39339828) | 270 degrees |
+| Top | (627, 474.264935) | 45 degrees |
+| Right | (779.735065, 627) | 135 degrees |
+| Bottom | (627, 779.735065) | 225 degrees |
+| Left | (474.264935, 627) | 315 degrees |
 
-The rightmost cyan face is a trapezoid with a horizontal top edge, parallel 45-degree sides, and an acute point facing right.
+The six outer pieces are translated without rotating, scaling, or changing their paths. The minimum gap between each pair of neighboring outer pieces and between each outer piece and its nearest central core is approximately 48 pixels on the 1254-pixel canvas. Rounded-core outlines were sampled at 7.5-degree intervals when checking distances; measured gaps range from 47.996 to 48.008 pixels. Wedge-shaped openings still widen away from their closest points.
 
-The blue face of the upper-right piece extends downward by approximately 33.27 pixels. Its minimum distance from the piece below decreases from 90.01 to 56.74 pixels. This matches the median of three other narrow outer gaps: 38.70, 56.74, and 59.56 pixels.
+| Outer piece | Translation (x, y) |
+|---|---|
+| Upper left | (39.413908, 8.933621) |
+| Upper right | (-50.775199, 4.986688) |
+| Left | (48.159898, -7.007017) |
+| Right | (-7.739014, -3.757110) |
+| Lower right | (3.815559, -16.110587) |
+| Lower left | (40.370566, 2.300800) |
 
 ## Colors
 
