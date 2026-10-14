@@ -5,28 +5,76 @@ import 'package:flutter/material.dart';
 
 import 'config.dart';
 
+typedef PixelDecoder = void Function(Uint8List pixels, int width, int height,
+    ui.PixelFormat format, ui.ImageDecoderCallback callback);
+
 class ImageContainer {
   static final config = Config();
 
   ui.Image? image;
 
-  ImageContainer();
+  ImageContainer({PixelDecoder? decoder})
+      : _decoder = decoder ?? ui.decodeImageFromPixels;
+
+  final PixelDecoder _decoder;
+  bool _disposed = false;
+  int _generation = 0;
+  int _displayedGeneration = 0;
+  final _retiredImages = <ui.Image>{};
+  bool _retirementScheduled = false;
 
   final displayWidthNotifier = ValueNotifier<int>(config.imageWidth);
+  final displayHeightNotifier = ValueNotifier<int>(config.imageHeight);
   final imageNotifier = ValueNotifier<ui.Image?>(null);
 
-  int displayHeight = config.imageHeight;
+  void push(Uint8List buffer, int width, int height, int displayWidth,
+      {int? displayHeight}) {
+    if (_disposed || buffer.isEmpty) return;
 
-  void push(Uint8List buffer, int width, int height, int displayWidth) {
-    displayWidthNotifier.value = displayWidth;
+    final generation = ++_generation;
+    _decoder(buffer, width, height, ui.PixelFormat.rgba8888, (next) {
+      // An asynchronous decode may finish after a newer frame or disposal.
+      if (_disposed || generation < _displayedGeneration) {
+        next.dispose();
+        return;
+      }
+      _displayedGeneration = generation;
+      final previous = image;
+      image = next;
+      displayWidthNotifier.value = displayWidth;
+      displayHeightNotifier.value = displayHeight ?? height;
+      imageNotifier.value = next;
+      if (previous != null) _retire(previous);
+    });
+  }
 
-    buffer.isNotEmpty
-        ? ui.decodeImageFromPixels(
-            buffer, width, height, ui.PixelFormat.rgba8888, (image) {
-            this.image = image;
-            imageNotifier.value = image;
-          })
-        : null;
+  void _retire(ui.Image previous) {
+    _retiredImages.add(previous);
+    if (_retirementScheduled) return;
+    _retirementScheduled = true;
+    // The existing painter can still reference the old image until repaint.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _retirementScheduled = false;
+      _disposeRetiredImages();
+    });
+  }
+
+  void _disposeRetiredImages() {
+    for (final retired in _retiredImages) {
+      retired.dispose();
+    }
+    _retiredImages.clear();
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    image?.dispose();
+    image = null;
+    _disposeRetiredImages();
+    imageNotifier.dispose();
+    displayWidthNotifier.dispose();
+    displayHeightNotifier.dispose();
   }
 }
 

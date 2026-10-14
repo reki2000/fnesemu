@@ -1,0 +1,499 @@
+import 'dart:math';
+
+extension IntFormat on int {
+  /// formats a number with commas per 3 digits
+  String get format3 {
+    int column = 0;
+    final r = List<String>.empty(growable: true);
+    for (int val = abs(); column == 0 || val != 0; val ~/= 10) {
+      if (column > 0 && column % 3 == 0) {
+        r.add(',');
+      }
+      column++;
+
+      r.add('0123456789'[val % 10]);
+    }
+
+    return "${this < 0 ? "-" : ""}${r.reversed.join()}";
+  }
+
+  // format a number with specified bit wide hexadecimals (printf-compatible names)
+  String get x2 => mask8.toRadixString(16).padLeft(2, "0");
+  String get x4 => mask16.toRadixString(16).padLeft(4, "0");
+  String get x6 => mask24.toRadixString(16).padLeft(6, "0");
+  String get x8 => mask32.toRadixString(16).padLeft(8, "0");
+  String get hex => toRadixString(16);
+
+  String get d2 => toString().padLeft(2, " ");
+  String get d3 => toString().padLeft(3, " ");
+  String get d4 => toString().padLeft(4, " ");
+  String get d2z => toString().padLeft(2, "0");
+  String get d3z => toString().padLeft(3, "0");
+  String get d4z => toString().padLeft(4, "0");
+}
+
+extension IntBit on int {
+  // mask a number with specified bit wide mask
+  @pragma('vm:prefer-inline')
+  int get mask1 => this & 0x1;
+  @pragma('vm:prefer-inline')
+  int get mask2 => this & 0x3;
+  @pragma('vm:prefer-inline')
+  int get mask3 => this & 0x7;
+  @pragma('vm:prefer-inline')
+  int get mask4 => this & 0xf;
+  @pragma('vm:prefer-inline')
+  int get mask5 => this & 0x1f;
+  @pragma('vm:prefer-inline')
+  int get mask6 => this & 0x3f;
+  @pragma('vm:prefer-inline')
+  int get mask7 => this & 0x7f;
+  @pragma('vm:prefer-inline')
+  int get mask8 => this & 0xff;
+  @pragma('vm:prefer-inline')
+  int get mask9 => this & 0x1ff;
+  @pragma('vm:prefer-inline')
+  int get mask10 => this & 0x3ff;
+  @pragma('vm:prefer-inline')
+  int get mask11 => this & 0x7ff;
+  @pragma('vm:prefer-inline')
+  int get mask12 => this & 0xfff;
+  @pragma('vm:prefer-inline')
+  int get mask13 => this & 0x1fff;
+  @pragma('vm:prefer-inline')
+  int get mask14 => this & 0x3fff;
+  @pragma('vm:prefer-inline')
+  int get mask15 => this & 0x7fff;
+  @pragma('vm:prefer-inline')
+  int get mask16 => this & 0xffff;
+  @pragma('vm:prefer-inline')
+  int get mask24 => this & 0xffffff;
+  @pragma('vm:prefer-inline')
+  int get mask26 => this & 0x3ffffff;
+  @pragma('vm:prefer-inline')
+  int get mask32 => this & 0xffffffff;
+  @pragma('vm:prefer-inline')
+  int get mask44 => this & 0xfffffffffff;
+
+  /// mask a number but zero means the max value (mask + 1)
+  @pragma('vm:prefer-inline')
+  int maskZeroMax(int mask) => (dec & mask).inc;
+
+  /// mask a number with specified byte size
+  @pragma('vm:prefer-inline')
+  int mask(int size) => size == 1
+      ? mask8
+      : size == 2
+          ? mask16
+          : size == 4
+              ? mask32
+              : throw ("unreachable");
+
+  /// mask a number with specified byte size, keep the sign bit
+  @pragma('vm:prefer-inline')
+  int smask(int size) => size == 1
+      ? mask8.rel8.mask32
+      : size == 2
+          ? mask16.rel16.mask32
+          : size == 4
+              ? mask32
+              : throw ("unreachable");
+
+  /// check if the most significant bit is set
+  @pragma('vm:prefer-inline')
+  bool msb(int size) => size == 1
+      ? bit7
+      : size == 2
+          ? bit15
+          : size == 4
+              ? bit31
+              : throw ("unreachable");
+
+  /// fast multiply a number by 1, 2, 4
+  @pragma('vm:prefer-inline')
+  int scale(int size) => size == 1
+      ? this
+      : size == 2
+          ? this << 1
+          : size == 4
+              ? this << 2
+              : throw ("unreachable");
+
+  /// number of bits of the byte size
+  @pragma('vm:prefer-inline')
+  int get bits => this == 1
+      ? 8
+      : this == 2
+          ? 16
+          : this == 4
+              ? 32
+              : throw ("unreachable");
+
+  // shortcut for increment and decrement to reduce blackets
+  @pragma('vm:prefer-inline')
+  int get inc => this + 1;
+  @pragma('vm:prefer-inline')
+  int get inc2 => this + 2;
+  @pragma('vm:prefer-inline')
+  int get inc3 => this + 3;
+  @pragma('vm:prefer-inline')
+  int get inc4 => this + 4;
+  @pragma('vm:prefer-inline')
+  int get dec => this - 1;
+  @pragma('vm:prefer-inline')
+  int get dec2 => this - 2;
+  @pragma('vm:prefer-inline')
+  int get dec3 => this - 3;
+  @pragma('vm:prefer-inline')
+  int get dec4 => this - 4;
+
+  // sign extend a number with specified bit width.
+  // (x & low) - (x & sign): the same code as int.toSigned(), which the VM
+  // compiles to two independent ANDs and a subtraction
+  @pragma('vm:prefer-inline')
+  int get rel4 => (this & 0x7) - (this & 0x8);
+  @pragma('vm:prefer-inline')
+  int get rel5 => (this & 0xf) - (this & 0x10);
+  @pragma('vm:prefer-inline')
+  int get rel6 => (this & 0x1f) - (this & 0x20);
+  @pragma('vm:prefer-inline')
+  int get rel7 => (this & 0x3f) - (this & 0x40);
+  @pragma('vm:prefer-inline')
+  int get rel8 => (this & 0x7f) - (this & 0x80);
+  @pragma('vm:prefer-inline')
+  int get rel9 => (this & 0xff) - (this & 0x100);
+  @pragma('vm:prefer-inline')
+  int get rel10 => (this & 0x1ff) - (this & 0x200);
+  @pragma('vm:prefer-inline')
+  int get rel11 => (this & 0x3ff) - (this & 0x400);
+  @pragma('vm:prefer-inline')
+  int get rel12 => (this & 0x7ff) - (this & 0x800);
+  @pragma('vm:prefer-inline')
+  int get rel13 => (this & 0xfff) - (this & 0x1000);
+  @pragma('vm:prefer-inline')
+  int get rel14 => (this & 0x1fff) - (this & 0x2000);
+  @pragma('vm:prefer-inline')
+  int get rel15 => (this & 0x3fff) - (this & 0x4000);
+  @pragma('vm:prefer-inline')
+  int get rel16 => (this & 0x7fff) - (this & 0x8000);
+  @pragma('vm:prefer-inline')
+  int get rel24 => (this & 0x7fffff) - (this & 0x800000);
+  @pragma('vm:prefer-inline')
+  int get rel26 => (this & 0x1ffffff) - (this & 0x2000000);
+  @pragma('vm:prefer-inline')
+  int get rel28 => (this & 0x7ffffff) - (this & 0x8000000);
+  @pragma('vm:prefer-inline')
+  int get rel32 => (this & 0x7fffffff) - (this & 0x80000000);
+  @pragma('vm:prefer-inline')
+  int get rel44 => (this & 0x7ffffffffff) - (this & 0x80000000000);
+  @pragma('vm:prefer-inline')
+  int get rel48 => (this & 0x7fffffffffff) - (this & 0x800000000000);
+
+  /// sign extend a number with specified byte size
+  @pragma('vm:prefer-inline')
+  int rel(int size) => size == 1
+      ? rel8
+      : size == 2
+          ? rel16
+          : size == 4
+              ? rel32
+              : throw ("unreachable");
+
+  /// replace part of the number with mask and new value
+  @pragma('vm:prefer-inline')
+  int masked(int mask, int value) => this & ~mask | value & mask;
+
+  /// replace specific bit of the number with new value
+  @pragma('vm:prefer-inline')
+  int setBit(int bit, bool value) =>
+      value ? this | (1 << bit) : this & ~(1 << bit);
+
+  @pragma('vm:prefer-inline')
+  int setL8(int val) => masked(0xff, val);
+  @pragma('vm:prefer-inline')
+  int setH8(int val) => masked(0xff00, val << 8);
+  @pragma('vm:prefer-inline')
+  int setL16(int val) => masked(0xffff, val);
+  @pragma('vm:prefer-inline')
+  int setH16(int val) => masked(0xffff0000, val << 16);
+  @pragma('vm:prefer-inline')
+  int set4Bit(int val, {int lsbPosition = 0}) =>
+      (this & ~(0x0f << lsbPosition)) | ((val & 0x0f) << lsbPosition);
+
+  /// replace part of the number with specified byte size and new value
+  @pragma('vm:prefer-inline')
+  int setL(int val, int size) => size == 1
+      ? setL8(val)
+      : size == 2
+          ? setL16(val)
+          : size == 4
+              ? val
+              : throw ("unreachable");
+
+  /// check if specific bit is set
+  @pragma('vm:prefer-inline')
+  bool bit(int b) => this & (1 << b) != 0;
+
+  // shortcut for bit check to reduce blackets
+  @pragma('vm:prefer-inline')
+  bool get bit0 => this & 0x1 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit1 => this & 0x2 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit2 => this & 0x4 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit3 => this & 0x8 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit4 => this & 0x10 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit5 => this & 0x20 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit6 => this & 0x40 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit7 => this & 0x80 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit8 => this & 0x100 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit9 => this & 0x200 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit10 => this & 0x400 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit11 => this & 0x800 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit12 => this & 0x1000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit13 => this & 0x2000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit14 => this & 0x4000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit15 => this & 0x8000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit16 => this & 0x10000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit17 => this & 0x20000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit18 => this & 0x40000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit19 => this & 0x80000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit20 => this & 0x100000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit21 => this & 0x200000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit22 => this & 0x400000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit23 => this & 0x800000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit24 => this & 0x1000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit25 => this & 0x2000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit26 => this & 0x4000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit27 => this & 0x8000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit28 => this & 0x10000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit29 => this & 0x20000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit30 => this & 0x40000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit31 => this & 0x80000000 != 0;
+  @pragma('vm:prefer-inline')
+  bool get bit43 => this & 0x80000000000 != 0; // '<<' doesnt work over 32 bits
+
+  @pragma('vm:prefer-inline')
+  int get shl1 => this << 1;
+  @pragma('vm:prefer-inline')
+  int get shl2 => this << 2;
+  @pragma('vm:prefer-inline')
+  int get shl3 => this << 3;
+  @pragma('vm:prefer-inline')
+  int get shl4 => this << 4;
+  @pragma('vm:prefer-inline')
+  int get shl5 => this << 5;
+  @pragma('vm:prefer-inline')
+  int get shl6 => this << 6;
+  @pragma('vm:prefer-inline')
+  int get shl7 => this << 7;
+  @pragma('vm:prefer-inline')
+  int get shl8 => this << 8;
+  @pragma('vm:prefer-inline')
+  int get shl9 => this << 9;
+  @pragma('vm:prefer-inline')
+  int get shl10 => this << 10;
+  @pragma('vm:prefer-inline')
+  int get shl11 => this << 11;
+  @pragma('vm:prefer-inline')
+  int get shl12 => this << 12;
+  @pragma('vm:prefer-inline')
+  int get shl13 => this << 13;
+  @pragma('vm:prefer-inline')
+  int get shl14 => this << 14;
+  @pragma('vm:prefer-inline')
+  int get shl15 => this << 15;
+  @pragma('vm:prefer-inline')
+  int get shl16 => this << 16;
+  @pragma('vm:prefer-inline')
+  int get shl17 => this << 17;
+  @pragma('vm:prefer-inline')
+  int get shl18 => this << 18;
+  @pragma('vm:prefer-inline')
+  int get shl19 => this << 19;
+  @pragma('vm:prefer-inline')
+  int get shl20 => this << 20;
+  @pragma('vm:prefer-inline')
+  int get shl21 => this << 21;
+  @pragma('vm:prefer-inline')
+  int get shl22 => this << 22;
+  @pragma('vm:prefer-inline')
+  int get shl23 => this << 23;
+  @pragma('vm:prefer-inline')
+  int get shl24 => this << 24;
+  @pragma('vm:prefer-inline')
+  int get shl25 => this << 25;
+  @pragma('vm:prefer-inline')
+  int get shl26 => this << 26;
+  @pragma('vm:prefer-inline')
+  int get shl27 => this << 27;
+  @pragma('vm:prefer-inline')
+  int get shl28 => this << 28;
+  @pragma('vm:prefer-inline')
+  int get shl29 => this << 29;
+  @pragma('vm:prefer-inline')
+  int get shl30 => this << 30;
+  @pragma('vm:prefer-inline')
+  int get shl31 => this << 31;
+  @pragma('vm:prefer-inline')
+  int shl(int n) => this << n;
+
+  @pragma('vm:prefer-inline')
+  int get shr1 => this >> 1;
+  @pragma('vm:prefer-inline')
+  int get shr2 => this >> 2;
+  @pragma('vm:prefer-inline')
+  int get shr3 => this >> 3;
+  @pragma('vm:prefer-inline')
+  int get shr4 => this >> 4;
+  @pragma('vm:prefer-inline')
+  int get shr5 => this >> 5;
+  @pragma('vm:prefer-inline')
+  int get shr6 => this >> 6;
+  @pragma('vm:prefer-inline')
+  int get shr7 => this >> 7;
+  @pragma('vm:prefer-inline')
+  int get shr8 => this >> 8;
+  @pragma('vm:prefer-inline')
+  int get shr9 => this >> 9;
+  @pragma('vm:prefer-inline')
+  int get shr10 => this >> 10;
+  @pragma('vm:prefer-inline')
+  int get shr11 => this >> 11;
+  @pragma('vm:prefer-inline')
+  int get shr12 => this >> 12;
+  @pragma('vm:prefer-inline')
+  int get shr13 => this >> 13;
+  @pragma('vm:prefer-inline')
+  int get shr14 => this >> 14;
+  @pragma('vm:prefer-inline')
+  int get shr15 => this >> 15;
+  @pragma('vm:prefer-inline')
+  int get shr16 => this >> 16;
+  @pragma('vm:prefer-inline')
+  int get shr17 => this >> 17;
+  @pragma('vm:prefer-inline')
+  int get shr18 => this >> 18;
+  @pragma('vm:prefer-inline')
+  int get shr19 => this >> 19;
+  @pragma('vm:prefer-inline')
+  int get shr20 => this >> 20;
+  @pragma('vm:prefer-inline')
+  int get shr21 => this >> 21;
+  @pragma('vm:prefer-inline')
+  int get shr22 => this >> 22;
+  @pragma('vm:prefer-inline')
+  int get shr23 => this >> 23;
+  @pragma('vm:prefer-inline')
+  int get shr24 => this >> 24;
+  @pragma('vm:prefer-inline')
+  int get shr25 => this >> 25;
+  @pragma('vm:prefer-inline')
+  int get shr26 => this >> 26;
+  @pragma('vm:prefer-inline')
+  int get shr27 => this >> 27;
+  @pragma('vm:prefer-inline')
+  int get shr28 => this >> 28;
+  @pragma('vm:prefer-inline')
+  int get shr29 => this >> 29;
+  @pragma('vm:prefer-inline')
+  int get shr30 => this >> 30;
+  @pragma('vm:prefer-inline')
+  int get shr31 => this >> 31;
+  @pragma('vm:prefer-inline')
+  int shr(int n) => this >> n;
+
+  /// flip 8 bit from b7..b0 to b0..b7
+  @pragma('vm:prefer-inline')
+  int get flip8 {
+    final p = ((this & 0x55) << 1) | ((this & 0xaa) >> 1);
+    final pp = ((p & 0x33) << 2) | ((p & 0xcc) >> 2);
+    return ((pp & 0x0f) << 4) | ((pp & 0xf0) >> 4);
+  }
+}
+
+extension IntClip on int {
+  // lesser of two numbers
+  @pragma('vm:prefer-inline')
+  int min(int val) => this < val ? this : val;
+
+  // greater of two numbers
+  @pragma('vm:prefer-inline')
+  int max(int val) => this > val ? this : val;
+
+  // clip a number between min and max
+  @pragma('vm:prefer-inline')
+  int clip(int min, int max) => this < min
+      ? min
+      : this > max
+          ? max
+          : this;
+}
+
+extension IntImageExt on int {
+  // define a bit pattern which respresents the image of the digit in 3x5 matrix
+  static const digitPattern = [
+    "ooo ..o ooo ooo o.o ooo ooo ooo ooo ooo ooo oo. ooo oo. ooo ooo ",
+    "o.o ..o ..o ..o o.o o.. o.. ..o o.o o.o o.o o.o o.. o.o o.. o.. ",
+    "o.o ..o ooo ooo ooo ooo ooo ..o ooo ooo ooo oo. o.. o.o ooo ooo ",
+    "o.o ..o o.. ..o ..o ..o o.o ..o o.o ..o o.o o.o o.. o.o o.. o.. ",
+    "ooo ..o ooo ooo ..o ooo ooo ..o ooo ooo o.o oo. ooo oo. ooo o.. ",
+  ];
+
+  static const patternWidth = 4;
+
+  bool drawHexValue(int x, int y, int drawChars) {
+    if (0 <= y &&
+        y < digitPattern.length &&
+        0 <= x &&
+        x < patternWidth * drawChars) {
+      final digit = (this >> (4 * (drawChars - x ~/ patternWidth - 1))) & 0x0f;
+      return digitPattern[y][digit * patternWidth + (x % patternWidth)] == 'o';
+    }
+    return false;
+  }
+
+  bool drawValue(int x, int y, int drawChars) {
+    if (0 <= y &&
+        y < digitPattern.length &&
+        0 <= x &&
+        x < patternWidth * drawChars) {
+      final digit =
+          (this ~/ pow(10, (drawChars - (x ~/ patternWidth) - 1))) % 10;
+      return digitPattern[y][digit * patternWidth + (x % patternWidth)] == 'o';
+    }
+    return false;
+  }
+}
+
+/// makes range object
+List<int> range(int start, int end) => [for (var i = start; i < end; i++) i];

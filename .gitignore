@@ -7,6 +7,9 @@ assets/ps1-tests
 docs/*
 .tool-versions
 log.txt
+xa.wav
+devtools_options.yaml
+trace
 
 # dev settings
 run*.cmd
@@ -54,9 +57,15 @@ app.*.symbols
 app.*.map.json
 
 # Android Studio will place build artifacts here
+/android/build/
 /android/app/debug
 /android/app/profile
 /android/app/release
 
 # dev settings
 run*.cmd
+
+# agent related
+.claude/settings.local.json
+.claude/worktrees
+.worktrees/

@@ -1,9 +1,9 @@
 name: fnesemu
-description: A multiplatform NES/PCE/MD/PS1 Emulator written in Flutter.
+description: A multiplatform NES/PCE/MD/PS1/N64 Emulator written in Flutter.
 
 publish_to: none # Remove this line if you wish to publish to pub.dev
 
-version: 0.7.0+0
+version: 1.0.0+0
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -13,28 +13,26 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.2
-  google_fonts: ^6.2.1
-  file_picker: ^9.0.0
-  package_info_plus: ^8.0.0
-  mp_audio_stream: ^0.2.2
-  test: ^1.21.1
-  archive: ^3.1.2
-  shared_preferences: ^2.5.2
+  mp_audio_stream: ^0.3.0
+  archive: ^4.4.0
+  idb_shim: ^2.9.9
+  path_provider: ^2.1.6
+  web: ^1.1.1
+  mp_bigfile_picker:
+    path: packages/mp_bigfile_picker
+  fnesemu_core:
+    path: packages/fnesemu_core
+  cdrom_image:
+    path: packages/cdrom_image
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   flutter_lints: ^5.0.0
-  import_sorter: ^4.6.0
-  import_path_converter: ^1.0.1
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/
-    - assets/roms/
+    - assets/branding/app_icon.svg
 
-import_path_converter:
-  relative: true # true->relative path, false->package path (default: false)

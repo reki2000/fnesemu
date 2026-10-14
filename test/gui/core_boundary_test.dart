@@ -1,0 +1,74 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fnesemu/gui/app.dart';
+import 'package:fnesemu/gui/blob_store/blob_store.dart';
+import 'package:fnesemu/gui/storage.dart';
+import 'package:fnesemu_core/app_api.dart';
+// Only this boundary test changes and restores the internal registry.
+// ignore: implementation_imports
+import 'package:fnesemu_core/src/internal/core_registry.dart'
+    show registerCoreModules;
+// ignore: implementation_imports
+import 'package:fnesemu_core/src/internal/core_registry_generated.dart';
+import 'package:idb_shim/idb_client_memory.dart';
+
+void main() {
+  /// the core files which [dir] may import
+  void expectOnlyPublicCore(String dir, {Set<String> allowed = const {}}) {
+    for (final file
+        in Directory(dir).listSync(recursive: true).whereType<File>()) {
+      if (!file.path.endsWith('.dart')) continue;
+      for (final match in RegExp(r'''import\s+['"]([^'"]+)['"]''')
+          .allMatches(file.readAsStringSync())) {
+        final uri = match.group(1)!;
+        if (uri.startsWith('package:fnesemu_core/')) {
+          expect(
+              uri == 'package:fnesemu_core/app_api.dart' ||
+                  (file.path.endsWith('core_boundary_test.dart') &&
+                      allowed.contains(uri)),
+              isTrue,
+              reason: '${file.path}: $uri');
+        }
+      }
+    }
+  }
+
+  test('GUI imports only the public core API', () {
+    expectOnlyPublicCore('lib');
+  });
+
+  test('app tests import only the public core API', () {
+    // the registry, to test the app without cores
+    expectOnlyPublicCore('test', allowed: {
+      'package:fnesemu_core/src/internal/core_registry_generated.dart',
+      'package:fnesemu_core/src/internal/core_registry.dart',
+    });
+  });
+
+  testWidgets('empty core registry renders and disables old game history',
+      (tester) async {
+    registerCoreModules([]);
+    addTearDown(() => registerCoreModules(createInstalledCoreModules()));
+    late Storage storage;
+    await tester.runAsync(() async {
+      storage = await Storage.open(
+          store: await BlobStore.open(factory: newIdbFactoryMemory()));
+      await storage.recordRecent('missing-core', 'fixture.bin',
+          rom: Uint8List.fromList([1, 2, 3]));
+    });
+    await tester.pumpWidget(MaterialApp(home: MainPage(storage: storage)));
+    expect(CoreFactory.systems, isEmpty);
+    expect(CoreFactory.biosSetups, isEmpty);
+    await tester.tap(find.byTooltip('History'));
+    await tester.pumpAndSettle();
+    final entry = find.ancestor(
+        of: find.text('MISSING-CORE fixture.bin'),
+        matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem));
+    expect(tester.widget<PopupMenuItem>(entry).enabled, isFalse);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+}

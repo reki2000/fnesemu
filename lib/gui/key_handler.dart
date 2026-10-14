@@ -1,21 +1,24 @@
-// Flutter imports:
 import 'package:flutter/services.dart';
 
-// Project imports:
-import '../core/core_controller.dart';
-import '../core/pad_button.dart';
+import 'package:fnesemu_core/app_api.dart';
+import 'pad_input.dart';
 
 class KeyHandler {
   final CoreController controller;
+  final PadInput input;
   late Map<PhysicalKeyboardKey, PadButton?> _keys;
 
-  KeyHandler({required this.controller}) {
+  KeyHandler({required this.controller, required this.input}) {
     init();
   }
 
   init() {
-    maybeButton(int no) =>
-        controller.buttons.length - 1 >= no ? controller.buttons[no] : null;
+    PadButton? maybeButton(int no) {
+      if (no >= controller.buttons.length) return null;
+      final button = controller.buttons[no];
+      return button == PadButton.none ? null : button;
+    }
+
     _keys = {
       PhysicalKeyboardKey.arrowDown: PadButton.down,
       PhysicalKeyboardKey.arrowUp: PadButton.up,
@@ -29,6 +32,8 @@ class KeyHandler {
       PhysicalKeyboardKey.keyQ: maybeButton(9),
       PhysicalKeyboardKey.keyW: maybeButton(10),
       PhysicalKeyboardKey.keyE: maybeButton(11),
+      PhysicalKeyboardKey.keyR: maybeButton(12),
+      PhysicalKeyboardKey.keyD: maybeButton(13),
     };
   }
 
@@ -37,9 +42,9 @@ class KeyHandler {
 
     if (button != null) {
       if (e is KeyDownEvent) {
-        controller.padDown(0, button);
+        input.setSource(e.physicalKey, {button});
       } else if (e is KeyUpEvent) {
-        controller.padUp(0, button);
+        input.setSource(e.physicalKey, {});
       }
       return true;
     }

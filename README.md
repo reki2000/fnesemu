@@ -1,55 +1,73 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1 Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64 Emulator Built with Flutter
 
 This project is experimental.
 
-- Achieves 60 fps on an i5-8250 processor @web(NES,PCE), @windows(all except PS1)
 - Runs on all Flutter-supported platforms: Android, iOS, macOS, Linux, Windows, and Web
-- NES (.nes)
-  - SRAM backup by [shared_preference](https://pub.dev/packages/shared_preferences)
-  - Supports the following iNES mapper types:
-    - 0: NROM, 1: MMC1, 2: UxROM, 3: CNROM, 4: MMC3, 9/10: MMC2/4
-    - 73: VRC3, 75: VRC1, 21/23/25: VRC2/4, 24|26: VRC6 (with audio)
-    - 19: mapper 19 (waveform sound not supported), 88/206: mapper 88/206
-- PCE (.pce)
-  - Does not support SRAM / CD / SG16
-- MD (.gen .md)
-  - Does not suppor SRAM / CD / PAL / 32X
-- PS1 (.ps) * experimental *
-  - requires BIOS with `.ps` extension 
-  - loads disc file by build-time parameter, `--dart-define=DISCS={local-iso-file,...}`
+- Targets 60 fps for NES and PCE on i5-8250 (web), MD on i5-8250 (Windows), PS1 on i7-13700HX (Windows)
 
 # How to use 
 
 1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
-1. Select the file by clicking on the 'Load ROM' icon (a square and small arrow) on the leftmost of the App bar icons
-1. Click on the 'Run' icon (a right-directed triangle) to start emulation
+1. Open the menu, choose 'CD / ROM', and select a ROM directory
+1. Choose a ROM in the list to start emulation. The menu button or Escape pauses/resumes it
+
+## BIOS 
+
+- Set the BIOS of each system from the 'Core setup' menu (the gear icon).
+- The files are saved on your browser's IndexDB and used each time the system starts
+
 
 ## Joypad-Keyboard assignment
 
-| key | Z | X | C | A | S | Q | W | E | UP | DOWN | LEFT | RIGHT |
-|-----|---|---|---|---|---|---|---|---|----|-----|------|------|
-| NES | B | A | | select | start | | | | UP | DOWN | LEFT | RIGHT |
-| PCE | II | I | | select | run | | |  | UP | DOWN | LEFT | RIGHT |
-| MD  | A | B | C | | start | X | Y | Z | UP | DOWN | LEFT | RIGHT |
-| PS1 | # | x | o | select | ^ | L | start | R | UP | DOWN | LEFT | RIGHT |
-
-## How to build and run on local machine
-
-To build and run fnesemu on a local machine, you will need flutter 3.22.0 with at least one enabled device. 
-Follow these steps:
-
-```
-git submodule update --init
-flutter run -d [windows|linux|chrome|macos|your-android-device|your-ios-device] --release
-```
+| key | Z | X | C | A | S | Q | W | E | R | D | arrows |
+|-----|---|---|---|---|---|---|---|---|---|---|--------|
+| NES | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
+| PCE | II | I |  | Select | Run |  |  |  |  |  | up / down / left / right |
+| MD | A | B | C | X | Y | Mode | | Start |  | Z | up / down / left / right |
+| PS1 | # | x | o | Select | ^ | L1 | Start | R1 |  |  | up / down / left / right |
+| GB | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
+| GBA | A | B | L | Select | Start | R |  |  |  |  | up / down / left / right |
+| SNES | Select |  | Start | Y | B | L | X | R |  | A | up / down / left / right |
+| SS | A | B | C | L | Start | X | Y | Z | R |  | up / down / left / right |
+| N64 | B | A | Z | C-left | C-down | L | C-up | R | Start | C-right | up / down / left / right |
 
 # How to develop
 
-## To add more mapper type support
+Clone with the package submodules:
 
-TBD
+```sh
+git clone --recurse-submodules https://github.com/reki2000/fnesemu.git
+```
+
+For an existing checkout, initialize them with `git submodule update --init --recursive`.
+
+### Packages
+
+`packages/cdrom_image` and `packages/mp_bigfile_picker` are submodules from
+separate repositories, used as local dependencies. Switch a package to `main`
+before editing it:
+
+```sh
+git -C packages/cdrom_image switch main
+git -C packages/mp_bigfile_picker switch main
+```
+
+Commit and push package changes in that repository, then commit its updated
+submodule reference here. Restore the recorded revisions with
+`git submodule update --init --recursive`.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
+dependency rules.
+
+### Adding or removing a core
+
+After changing core modules, regenerate the registration list:
+
+```sh
+cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
+```
 
 ## To test 6502 emulation
 
@@ -97,3 +115,4 @@ $ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
 $ cd ..
 $ make test-gte 
 ```
+

@@ -1,0 +1,100 @@
+import '../../../util/int.dart';
+import 'mapper.dart';
+import 'mirror.dart';
+
+// https://www.nesdev.org/wiki/MMC2
+class MapperMMC2 extends Mapper {
+  final _prgBanks = [0, 0, 0, 0];
+  final _chrBanks = [0, 0, 0, 0]; // 0,1: 0xFD  2,3: 0xFE
+  final _latch = [0, 0]; // latch = fd: 0,   fe: 2
+
+  @override
+  int get chrRomSizeK => 4;
+  @override
+  int get prgRomSizeK => 8;
+
+  @override
+  void init() {
+    _prgBanks[1] = prgRoms.length - 3;
+    _prgBanks[2] = prgRoms.length - 2;
+    _prgBanks[3] = prgRoms.length - 1;
+  }
+
+  @override
+  void write(int addr, int data) {
+    final bank = addr & 0xf000;
+    switch (bank) {
+      case 0x6000:
+      case 0x7000:
+        writeSram(addr - 0x6000, data);
+        break;
+
+      case 0xa000:
+        _prgBanks[0] = data.mask4;
+        break;
+
+      case 0xb000:
+        _chrBanks[0] = data.mask5;
+        break;
+      case 0xc000:
+        _chrBanks[2] = data.mask5;
+        break;
+
+      case 0xd000:
+        _chrBanks[1] = data.mask5;
+        break;
+      case 0xe000:
+        _chrBanks[3] = data.mask5;
+        break;
+
+      case 0xf000:
+        mirror(data.bit0 ? Mirror.horizontal : Mirror.vertical);
+        break;
+    }
+  }
+
+  @override
+  int read(int addr) {
+    final offset = addr.mask13;
+
+    if (addr & 0xe000 == 0x6000) {
+      return readSram(offset);
+    }
+
+    final bank = (addr - 0x8000).shr13; // 0-3
+    return prgRoms[_prgBanks[bank]][offset];
+  }
+
+  @override
+  int readVram(int addr) {
+    if (addr == 0x0FD8) {
+      _latch[0] = 0;
+    } else if (addr == 0x0fe8) {
+      _latch[0] = 2;
+    } else if (addr & 0x1ff8 == 0x1fd8) {
+      _latch[1] = 0;
+    } else if (addr & 0x1ff8 == 0x1fe8) {
+      _latch[1] = 2;
+    }
+
+    final bank = addr.shr12.mask1;
+
+    return chrRoms[_chrBanks[bank + _latch[bank]]][addr.mask12];
+  }
+
+  @override
+  int peekVram(int addr, {bool sprite = false}) {
+    final bank = addr.shr12.mask1;
+    return chrRoms[_chrBanks[bank + _latch[bank]]][addr.mask12];
+  }
+
+  @override
+  String dump() {
+    final chrBanks = range(0, 4).map((i) => _chrBanks[i].x2).toList().join(" ");
+    final prgBanks = range(0, 4).map((i) => _prgBanks[i].x2).toList().join(" ");
+
+    return "rom: "
+        "chr: $chrBanks prg: $prgBanks "
+        "\n";
+  }
+}
