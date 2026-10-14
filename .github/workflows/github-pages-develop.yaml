@@ -1,5 +1,4 @@
-# nekomimi-daimao/kanban_memo/.github/workflows/github-pages.yml
-name: github pages
+name: Core and Web regressions
 
 on:
   push:
@@ -36,32 +35,3 @@ jobs:
         run: dart test --platform chrome --compiler dart2wasm test/core/pce/sgx_test.dart test/core/pce/vdc_render_test.dart test/core/pce/run_frame_test.dart test/core/ps/gpu/display_aspect_test.dart
         working-directory: packages/fnesemu_core
       - run: flutter test
-      - run: |
-          REPOSITORY=$(echo ${{ github.repository }} | sed -e "s#.*/##")
-          VERSION=$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)
-          flutter build web --wasm --base-href /$REPOSITORY/ --dart-define=APP_VERSION=$VERSION
-          test -s build/web/main.dart.wasm
-          test -s build/web/main.dart.mjs
-
-      - name: Upload dist as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: ./build/web
-
-  deploy:
-    runs-on: ubuntu-22.04
-    needs: build
-    if: github.ref == 'refs/heads/develop'
-    steps:
-      - name: Download dist artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: ./build/web
-
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
