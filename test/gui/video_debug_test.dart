@@ -555,7 +555,8 @@ void main() {
     }
     expect(labelPixels, isNotEmpty);
     for (final (x, y) in labelPixels) {
-      expect(x, inInclusiveRange(100, 115));
+      // Allow one pixel of glyph overhang at the label's right anchor.
+      expect(x, inInclusiveRange(100, 116));
       expect(y, inInclusiveRange(92, 107));
     }
     expect(
