@@ -69,3 +69,5 @@ run*.cmd
 .claude/settings.local.json
 .claude/worktrees
 .worktrees/
+/release-assets/
+/ci-artifacts/

@@ -116,3 +116,6 @@ $ cd ..
 $ make test-gte 
 ```
 
+## Binary builds and releases
+
+The **Build binaries** GitHub Actions workflow tests and builds all supported platforms. Download its artifacts for internal verification, then tag that exact successful commit to publish the same binaries to GitHub Releases without rebuilding. See [BINARY-DISTRIBUTION.md](BINARY-DISTRIBUTION.md) for the release process and optional signing secrets.
