@@ -9,6 +9,23 @@ on:
       - 'develop'
 
 jobs:
+  test-macos:
+    name: GUI tests on macOS
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: 'stable'
+          cache: true
+      - run: flutter test
+
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
