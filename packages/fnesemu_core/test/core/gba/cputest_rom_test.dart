@@ -1,3 +1,7 @@
+// The self-checking ROM includes UMULL, which requires VM/Wasm 64-bit arithmetic.
+@TestOn('!dart2js')
+library;
+
 import 'package:fnesemu_core/src/core/gba/arm7tdmi/arm7.dart';
 import 'package:fnesemu_core/src/core/gba/bus.dart';
 import 'package:fnesemu_core/src/util/int.dart';

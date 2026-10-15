@@ -1,3 +1,4 @@
+// Cases marked !dart2js require exact 64-bit operations; run them on VM/Wasm.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/n64/audio.dart';
@@ -132,7 +133,7 @@ void main() {
     c.step();
     expect(c.pc, 0x80000000);
     expect(c.cop0[12] & 2, 0);
-  });
+  }, testOn: '!dart2js');
   test('delay slot exceptions record branch PC and Cause.BD', () {
     final b = N64Bus()..reset();
     b.ramWrite(0, 0x10000001, 4);
@@ -143,7 +144,7 @@ void main() {
     expect(c.cop0[14], 0x80000000);
     expect(c.cop0[13] & 0x80000000, 0x80000000);
     expect(c.cop0[13].shr2.mask5, 8);
-  });
+  }, testOn: '!dart2js');
   test('unaligned big endian LWL/LWR merge the addressed bytes', () {
     final b = N64Bus()..reset();
     b.ram.setRange(0x101, 0x105, [0x12, 0x34, 0x56, 0x78]);
@@ -153,7 +154,7 @@ void main() {
     c.step();
     c.step();
     expect(c.r[1], 0x12345678);
-  });
+  }, testOn: '!dart2js');
   test(
       'COP1 disabled raises a coprocessor-unusable exception for OS lazy FPU context switching',
       () {
@@ -165,7 +166,7 @@ void main() {
     expect(c.pc, 0x80000180);
     expect(c.cop0[13].shr2.mask5, 11);
     expect(c.cop0[13].shr28.mask2, 1);
-  });
+  }, testOn: '!dart2js');
   test('GBI viewport flips clip Y into screen coordinates', () {
     final b = N64Bus()..reset(), g = N64Graphics(b);
     g.width = 4;

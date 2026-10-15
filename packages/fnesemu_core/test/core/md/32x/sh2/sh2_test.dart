@@ -1,3 +1,4 @@
+// Cases marked !dart2js require exact 64-bit operations; run them on VM/Wasm.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/md/32x/sh2/sh2.dart';
@@ -138,7 +139,7 @@ void main() {
     expect(cpu.r[2], 0x308);
     expect(cpu.mach, 0xfffffffe);
     expect(cpu.macl, 0xfffffffd);
-  });
+  }, testOn: '!dart2js');
   test('MAC.L reads consecutive longwords when both operands use one register',
       () {
     bus.code([0x011f]);
@@ -161,7 +162,7 @@ void main() {
     run(1);
     expect(cpu.mach, 0x7fff);
     expect(cpu.macl, 0xffffffff);
-  });
+  }, testOn: '!dart2js');
   test('MAC.W accumulates signed words and advances both source registers', () {
     bus.code([0x412f, 0x412f]);
     cpu.r[1] = 0x200;
@@ -175,7 +176,7 @@ void main() {
     expect(cpu.r[2], 0x304);
     expect(cpu.mach, 0xffffffff);
     expect(cpu.macl, 0xfffefffd);
-  });
+  }, testOn: '!dart2js');
   test('MAC.W reads consecutive words for one register and saturates MACL', () {
     bus.code([0x411f]);
     cpu.r[1] = 0x200;

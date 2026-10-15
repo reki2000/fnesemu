@@ -1,3 +1,7 @@
+// The N64 CPU uses Int64List registers, unsupported by dart2js.
+@TestOn('!dart2js')
+library;
+
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/n64/n64.dart';

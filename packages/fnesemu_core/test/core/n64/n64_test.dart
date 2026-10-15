@@ -1,3 +1,4 @@
+// Cases marked !dart2js require exact 64-bit operations; run them on VM/Wasm.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/n64/bus.dart';
@@ -71,7 +72,7 @@ void main() {
     expect(cpu.r[2], 2147483647);
     expect(cpu.r[3], -2147483648);
     expect(cpu.r[0], 0);
-  });
+  }, testOn: '!dart2js');
 
   test('SUB handles the minimum signed operand and delivers overflow', () {
     final cpu = processor([0x3c018000, 0x00211022, 0x00011822]);
@@ -83,7 +84,7 @@ void main() {
     expect(cpu.cop0[13].shr2.mask5, 12);
     expect(cpu.cop0[14], 0x80000008);
     expect(cpu.pc, 0x80000180);
-  });
+  }, testOn: '!dart2js');
 
   test('64-bit shifts, stores and loads preserve both halves', () {
     final cpu = processor([
@@ -100,7 +101,7 @@ void main() {
     expect(cpu.r[2], 0x123400005678);
     expect(cpu.bus.read(0x100, 4), 0x1234);
     expect(cpu.bus.read(0x104, 4), 0x5678);
-  });
+  }, testOn: '!dart2js');
 
   test('taken branch executes delay slot and skips intervening code', () {
     final cpu = processor([0x10000002, 0x24010007, 0x24010063, 0x24020009]);
@@ -110,7 +111,7 @@ void main() {
     expect(cpu.r[1], 7);
     expect(cpu.r[2], 9);
     expect(cpu.pc, 0x80000010);
-  });
+  }, testOn: '!dart2js');
 
   test('untaken likely branch annuls its delay slot', () {
     final cpu = processor([0x54000001, 0x24010007, 0x24020009]);
@@ -118,7 +119,7 @@ void main() {
     cpu.step();
     expect(cpu.r[1], 0);
     expect(cpu.r[2], 9);
-  });
+  }, testOn: '!dart2js');
 
   test('unsupported instructions and unaligned memory stop at fault PC', () {
     for (final opcode in [0x4c000000, 0x8c010001]) {
@@ -129,7 +130,7 @@ void main() {
       cpu.step();
       expect(cpu.clocks, 0);
     }
-  });
+  }, testOn: '!dart2js');
 
   test('KSEG aliases and cartridge PI DMA expose big endian data', () {
     final bus = N64Bus()..rom = Uint8List.fromList([1, 2, 3, 4]);
@@ -186,5 +187,5 @@ void main() {
     expect(core.cpu.clocks, 0);
     expect(core.bus.vi[0], 0);
     expect(core.programCounter(0), 0x80000400);
-  });
+  }, testOn: '!dart2js');
 }

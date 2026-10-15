@@ -1,3 +1,4 @@
+// Cases marked !dart2js require exact 64-bit operations; run them on VM/Wasm.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/gba/arm7tdmi/arm7.dart';
@@ -267,13 +268,13 @@ void main() {
       final t = armRun([aMvnI(1, 0), aMovI(2, 2), aUmull(4, 5, 1, 2)]);
       expect(t.r[4], 0xfffffffe); // lo
       expect(t.r[5], 1); // hi
-    });
+    }, testOn: '!dart2js');
 
     test('umull full 64-bit product', () {
       final t = armRun([aMvnI(1, 0), aMvnI(2, 0), aUmull(4, 5, 1, 2)]);
       expect(t.r[4], 1); // 0xffffffff * 0xffffffff = 0xfffffffe_00000001
       expect(t.r[5], 0xfffffffe);
-    });
+    }, testOn: '!dart2js');
 
     test('umlal wraps modulo 2^64', () {
       final t = armRun([

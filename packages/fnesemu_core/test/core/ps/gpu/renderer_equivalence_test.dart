@@ -211,11 +211,11 @@ void main() {
           b.renderTexturedGouraudPolygon4(words);
       }
 
-      final a64 = a.frameBuffer.buffer.asUint64List();
-      final b64 = b.frameBuffer.buffer.asUint64List();
-      for (int j = 0; j < a64.length; j++) {
-        if (a64[j] == b64[j]) continue;
-        final i = j * 4;
+      final a32 = a.frameBuffer.buffer.asUint32List();
+      final b32 = b.frameBuffer.buffer.asUint32List();
+      for (int j = 0; j < a32.length; j++) {
+        if (a32[j] == b32[j]) continue;
+        final i = j * 2;
         {
           fail("round $round: vram differs at $i "
               "${a.frameBuffer16[i].x4} != ${b.frameBuffer16[i].x4}");
