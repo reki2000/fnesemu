@@ -1,0 +1,63 @@
+{
+  "shared_repository": "reki2000/mp-build-tools",
+  "action_ref_placeholder": "REPLACE_WITH_PUBLISHED_SHA",
+  "applications": [
+    {
+      "repository": "reki2000/fnesemu",
+      "pull_request": 108,
+      "expected_head": "68af77c5f80a9118d8ca5538728f12666a6ee973",
+      "files": {
+        "build-binaries.yaml": "examples/fnesemu/build-binaries.yaml",
+        "release.yaml": "examples/fnesemu/release.yaml",
+        "BINARY-DISTRIBUTION.md": "examples/fnesemu/BINARY-DISTRIBUTION.md"
+      },
+      "delete_helpers": [
+        ".github/scripts/build.sh",
+        ".github/scripts/package.sh",
+        ".github/scripts/release.sh",
+        ".github/scripts/setup-linux.sh",
+        ".github/scripts/signing.sh",
+        ".github/scripts/windows.ps1",
+        ".github/scripts/verify-release.cjs"
+      ]
+    },
+    {
+      "repository": "reki2000/mp_bigfile_picker",
+      "pull_request": 3,
+      "expected_head": "c601d9c8b5ae50ce07594d46a94e0561fc4ee78e",
+      "files": {
+        "build-binaries.yaml": "examples/mp_bigfile_picker/build-binaries.yaml",
+        "release.yaml": "examples/mp_bigfile_picker/release.yaml",
+        "BINARY-DISTRIBUTION.md": "examples/mp_bigfile_picker/BINARY-DISTRIBUTION.md"
+      },
+      "delete_helpers": [
+        ".github/scripts/build.sh",
+        ".github/scripts/package.sh",
+        ".github/scripts/release.sh",
+        ".github/scripts/setup-linux.sh",
+        ".github/scripts/signing.sh",
+        ".github/scripts/windows.ps1",
+        ".github/scripts/verify-release.cjs"
+      ]
+    },
+    {
+      "repository": "reki2000/mp-audio-stream",
+      "pull_request": 41,
+      "expected_head": "4a7e8c8183a8a011e4a42fbe77f769b8665e1818",
+      "files": {
+        "build-binaries.yaml": "examples/mp-audio-stream/build-binaries.yaml",
+        "release.yaml": "examples/mp-audio-stream/release.yaml",
+        "BINARY-DISTRIBUTION.md": "examples/mp-audio-stream/BINARY-DISTRIBUTION.md"
+      },
+      "delete_helpers": [
+        ".github/scripts/build.sh",
+        ".github/scripts/package.sh",
+        ".github/scripts/release.sh",
+        ".github/scripts/setup-linux.sh",
+        ".github/scripts/signing.sh",
+        ".github/scripts/windows.ps1",
+        ".github/scripts/verify-release.cjs"
+      ]
+    }
+  ]
+}

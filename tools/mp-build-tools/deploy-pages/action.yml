@@ -1,0 +1,35 @@
+name: Deploy verified Web binaries
+description: Publish the current CI Web artifact while retaining develop.
+inputs:
+  target-folder:
+    description: Destination on gh-pages; empty publishes stable.
+    default: ''
+  dry-run:
+    description: Validate deployment without publishing.
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: release-web-browser
+        path: ${{ runner.temp }}/mp-build-tools-web
+        digest-mismatch: error
+    - name: Extract the verified Web archive
+      id: site
+      shell: bash
+      run: |
+        site=$(mktemp -d "$RUNNER_TEMP/mp-build-tools-site.XXXXXX")
+        unzip -q "$RUNNER_TEMP/mp-build-tools-web/"*.zip -d "$site"
+        echo "directory=$site" >> "$GITHUB_OUTPUT"
+    - uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
+      with:
+        branch: gh-pages
+        folder: ${{ steps.site.outputs.directory }}
+        target-folder: ${{ inputs.target-folder }}
+        clean: true
+        clean-exclude: |
+          develop
+          develop/**
+        force: false
+        dry-run: ${{ inputs.dry-run == 'true' }}

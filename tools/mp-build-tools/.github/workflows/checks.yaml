@@ -1,0 +1,78 @@
+name: Check shared Actions
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Action and workflow metadata
+        uses: mpalmer/action-validator@c994f427b7c42cd5ecb1bc9315cb91c3d7d72e3d
+        with:
+          version: '0.9.0'
+          patterns: |
+            :(glob)*/action.yml
+            .github/workflows/*.yaml
+            :(glob)examples/**/*.yaml
+      - name: Check workflow expressions
+        run: |
+          curl --fail --silent --show-error --location https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz | tar --no-same-owner -xz -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yaml examples/*/*.yaml
+      - name: Check script syntax and release-source policy
+        run: |
+          for script in scripts/*.sh; do bash -n "$script"; done
+          node --check scripts/verify-release.cjs
+          node --test test/release.test.cjs
+
+  version:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - shell: bash
+        run: |
+          echo 'version: "1.2.3-rc.1+42"' > pubspec.yaml
+      - id: version
+        uses: ./read-version
+      - name: Check composite outputs
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NAME: ${{ steps.version.outputs.build-name }}
+        run: test "$VERSION" = '1.2.3-rc.1' && test "$BUILD_NAME" = '1.2.3'
+      - name: Check build environment
+        id: config
+        shell: bash
+        env:
+          APP_DIR: example
+          ARTIFACT_NAME: sample
+          FLUTTER_VERSION: '3.47.5'
+          TARGET: web
+          ARCH: ''
+          ANDROID_SIGNING: 'false'
+          IOS_SIGNING: 'false'
+        run: bash scripts/configure-build.sh
+      - name: Check configured Web version and script path
+        shell: bash
+        run: |
+          test "$VERSION" = "1.2.3-rc.1" && test "$BUILD_NAME" = "1.2.3-rc.1" && test "$ARCH" = browser
+          test -f "$MP_BUILD_SCRIPTS/build.sh"
+      - name: Check the native PowerShell path and syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $path = "$env:MP_BUILD_SCRIPTS/windows.ps1"
+          if (!(Test-Path $path)) { throw 'Shared PowerShell script was not found' }
+          $tokens = $null; $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { throw ($errors | Out-String) }

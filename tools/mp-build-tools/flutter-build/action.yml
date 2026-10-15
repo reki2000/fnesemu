@@ -1,0 +1,174 @@
+name: Build and package a Flutter application
+description: Build one native or portable Web target and upload its CI binaries.
+inputs:
+  target:
+    description: "Flutter target: web, android, linux, windows, macos, ios or ios-simulator."
+    required: true
+  architecture:
+    description: "Native architecture: all, x64, arm64 or universal. Web uses browser."
+    default: ""
+  app-directory:
+    description: "Application directory relative to the checked-out repository."
+    default: "."
+  artifact-name:
+    description: "Application prefix for distribution filenames."
+    required: true
+  flutter-version:
+    description: "Pinned Flutter SDK version."
+    default: "3.47.5"
+  retention-days:
+    description: "Days to retain the uploaded CI artifact."
+    default: "90"
+  android-keystore-base64:
+    description: "Optional caller signing secret (ANDROID_KEYSTORE_BASE64)."
+    default: ""
+  android-keystore-password:
+    description: "Optional caller signing secret (ANDROID_KEYSTORE_PASSWORD)."
+    default: ""
+  android-key-alias:
+    description: "Optional caller signing secret (ANDROID_KEY_ALIAS)."
+    default: ""
+  android-key-password:
+    description: "Optional caller signing secret (ANDROID_KEY_PASSWORD)."
+    default: ""
+  ios-certificate-base64:
+    description: "Optional caller signing secret (IOS_CERTIFICATE_BASE64)."
+    default: ""
+  ios-certificate-password:
+    description: "Optional caller signing secret (IOS_CERTIFICATE_PASSWORD)."
+    default: ""
+  ios-profile-base64:
+    description: "Optional caller signing secret (IOS_PROFILE_BASE64)."
+    default: ""
+  ios-export-options-base64:
+    description: "Optional caller signing secret (IOS_EXPORT_OPTIONS_BASE64)."
+    default: ""
+outputs:
+  version:
+    description: Full root pubspec version.
+    value: ${{ steps.configure.outputs.version }}
+  build-name:
+    description: Numeric native build version.
+    value: ${{ steps.configure.outputs.build_name }}
+  artifact-id:
+    description: Immutable uploaded CI artifact ID.
+    value: ${{ steps.artifact.outputs.artifact-id }}
+runs:
+  using: composite
+  steps:
+    - name: Configure the application build
+      id: configure
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        TARGET: ${{ inputs.target }}
+        ARCH: ${{ inputs.architecture }}
+        APP_DIR: ${{ inputs.app-directory }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        FLUTTER_VERSION: ${{ inputs.flutter-version }}
+        ANDROID_SIGNING: ${{ github.event_name != 'pull_request' && inputs.android-keystore-base64 != '' }}
+        IOS_SIGNING: ${{ github.event_name != 'pull_request' && inputs.ios-certificate-base64 != '' }}
+      run: bash "${ACTION_PATH//\\//}/../scripts/configure-build.sh"
+    - uses: actions/setup-java@v4
+      if: inputs.target == 'android'
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+        cache-dependency-path: '${{ env.APP_DIR }}/android/**/*.gradle*'
+    - uses: actions/cache@v4
+      if: inputs.target == 'linux' && inputs.architecture == 'arm64'
+      with:
+        path: ${{ runner.temp }}/flutter-arm64
+        key: flutter-linux-arm64-${{ env.FLUTTER_VERSION }}
+    - name: Set up Linux dependencies and ARM64 Flutter
+      if: inputs.target == 'linux'
+      shell: bash
+      run: bash "$MP_BUILD_SCRIPTS/setup-linux.sh"
+    - uses: subosito/flutter-action@v2
+      if: inputs.target != 'linux' || inputs.architecture != 'arm64'
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        architecture: ${{ runner.os == 'Windows' && 'x64' || (runner.arch == 'ARM64' && 'arm64' || 'x64') }}
+        cache: true
+        cache-key: 'flutter-:os:-${{ runner.arch }}-:channel:-:version:-:arch:'
+    - name: Bootstrap native Dart on Windows ARM64
+      if: inputs.target == 'windows' && inputs.architecture == 'arm64'
+      shell: pwsh
+      run: '& "$env:MP_BUILD_SCRIPTS/windows.ps1" bootstrap'
+    - name: Validate optional signing configuration
+      if: inputs.target == 'android' || inputs.target == 'ios'
+      shell: bash
+      env:
+        ANY_ANDROID: ${{ github.event_name != 'pull_request' && (inputs.android-keystore-base64 != '' || inputs.android-keystore-password != '' || inputs.android-key-alias != '' || inputs.android-key-password != '') }}
+        ALL_ANDROID: ${{ github.event_name != 'pull_request' && inputs.android-keystore-base64 != '' && inputs.android-keystore-password != '' && inputs.android-key-alias != '' && inputs.android-key-password != '' }}
+        ANY_IOS: ${{ github.event_name != 'pull_request' && (inputs.ios-certificate-base64 != '' || inputs.ios-certificate-password != '' || inputs.ios-profile-base64 != '' || inputs.ios-export-options-base64 != '') }}
+        ALL_IOS: ${{ github.event_name != 'pull_request' && inputs.ios-certificate-base64 != '' && inputs.ios-certificate-password != '' && inputs.ios-profile-base64 != '' && inputs.ios-export-options-base64 != '' }}
+      run: bash "$MP_BUILD_SCRIPTS/signing.sh" validate
+    - uses: apple-actions/import-codesign-certs@77ba2a2a8f5cfc8c405ebf3159f767c323e238f9 # v7.1.0
+      if: inputs.target == 'ios' && env.IOS_SIGNING == 'true'
+      with:
+        p12-file-base64: ${{ inputs.ios-certificate-base64 }}
+        p12-password: ${{ inputs.ios-certificate-password }}
+    - uses: timheuer/base64-to-file@dfa5a5dd38803cb4f5c3a081eeb28e8362d43e9c # v2
+      if: inputs.target == 'ios' && env.IOS_SIGNING == 'true'
+      with:
+        fileName: signing.mobileprovision
+        encodedString: ${{ inputs.ios-profile-base64 }}
+    - uses: timheuer/base64-to-file@dfa5a5dd38803cb4f5c3a081eeb28e8362d43e9c # v2
+      if: inputs.target == 'ios' && env.IOS_SIGNING == 'true'
+      with:
+        fileName: ExportOptions.plist
+        encodedString: ${{ inputs.ios-export-options-base64 }}
+    - name: Configure the iOS provisioning profile
+      if: inputs.target == 'ios' && env.IOS_SIGNING == 'true'
+      shell: bash
+      run: bash "$MP_BUILD_SCRIPTS/signing.sh" configure-ios
+    - name: Build the application
+      shell: bash
+      run: bash "$MP_BUILD_SCRIPTS/build.sh" "$TARGET"
+    - name: Prepare Android signing
+      id: test-key
+      if: inputs.target == 'android'
+      shell: bash
+      run: bash "$MP_BUILD_SCRIPTS/signing.sh" prepare-android
+    - name: Sign Android APKs
+      if: inputs.target == 'android'
+      uses: r0adkll/sign-android-release@d5f8436b702872ad5cdb1e6e4d5c8b983d25a997 # Node 24 revision
+      with:
+        releaseDirectory: ${{ env.APP_DIR }}/build/app/outputs/flutter-apk
+        signingKeyBase64: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-keystore-base64 || steps.test-key.outputs.key }}
+        alias: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-key-alias || 'androiddebugkey' }}
+        keyStorePassword: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-keystore-password || 'android' }}
+        keyPassword: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-key-password || 'android' }}
+    - name: Sign Android app bundle
+      if: inputs.target == 'android'
+      uses: r0adkll/sign-android-release@d5f8436b702872ad5cdb1e6e4d5c8b983d25a997 # Node 24 revision
+      with:
+        releaseDirectory: ${{ env.APP_DIR }}/build/app/outputs/bundle/release
+        signingKeyBase64: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-keystore-base64 || steps.test-key.outputs.key }}
+        alias: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-key-alias || 'androiddebugkey' }}
+        keyStorePassword: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-keystore-password || 'android' }}
+        keyPassword: ${{ env.ANDROID_SIGNING == 'true' && inputs.android-key-password || 'android' }}
+    - name: Include the matching Visual C++ runtime
+      if: inputs.target == 'windows'
+      shell: pwsh
+      run: '& "$env:MP_BUILD_SCRIPTS/windows.ps1" runtime'
+    - name: Package the application
+      shell: bash
+      run: bash "$MP_BUILD_SCRIPTS/package.sh" "$TARGET" "$ARCH"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      id: artifact
+      with:
+        name: release-${{ env.TARGET }}-${{ env.ARCH }}
+        path: release-assets/*
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}
+        compression-level: 0
+    - name: Remove signing material
+      if: always() && (inputs.target == 'android' || inputs.target == 'ios')
+      shell: bash
+      env:
+        APP_DIR: ${{ inputs.app-directory }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "${ACTION_PATH//\\//}/../scripts/signing.sh" cleanup

@@ -1,0 +1,17 @@
+name: Read Flutter package version
+description: Read the root pubspec version without its build suffix.
+outputs:
+  version:
+    description: Full version including any prerelease suffix.
+    value: ${{ steps.version.outputs.version }}
+  build-name:
+    description: Numeric version for native platform metadata.
+    value: ${{ steps.version.outputs.build_name }}
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "${ACTION_PATH//\\//}/../scripts/release.sh" version
