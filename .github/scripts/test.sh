@@ -3,6 +3,7 @@ set -euo pipefail
 runtime=${1:-vm}
 
 flutter pub get
+bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime"
 (
   cd packages/cdrom_image
   dart pub get
@@ -14,4 +15,3 @@ flutter pub get
   fi
 )
 (cd packages/fnesemu_core && dart pub get && bash "$MP_BUILD_SCRIPTS/test.sh" dart "$runtime")
-bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime"
