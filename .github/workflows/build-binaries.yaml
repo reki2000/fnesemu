@@ -30,3 +30,13 @@ jobs:
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
       IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
       IOS_EXPORT_OPTIONS_BASE64: ${{ secrets.IOS_EXPORT_OPTIONS_BASE64 }}
+
+  # Required by the existing develop branch protection rule.
+  build:
+    needs: ci
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - run: test "$CI_RESULT" = success
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
