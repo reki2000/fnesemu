@@ -1,3 +1,7 @@
+// Reads source files to check architecture layers.
+@TestOn('vm')
+library;
+
 // the rules between the cores in ARCHITECTURE.md
 import 'dart:io';
 
@@ -31,7 +35,7 @@ Iterable<String> importsOf(File file) sync* {
       }
       continue;
     }
-    final path = dir.resolve(uri).toFilePath();
+    final path = dir.resolve(uri).path;
     yield path.substring(path.indexOf('lib/') + 4);
   }
 }
@@ -48,7 +52,7 @@ void main() {
       .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
       .toSet();
 
-  String rel(File f) => f.path.substring(f.path.indexOf('lib/') + 4);
+  String rel(File f) => f.uri.path.substring(f.uri.path.indexOf('lib/') + 4);
 
   test('core directory contains only individual core modules', () {
     for (final entry in Directory(coreDir).listSync()) {

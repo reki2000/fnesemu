@@ -1,3 +1,7 @@
+// Tests the command-line trace logger, which imports dart:io.
+@TestOn('vm')
+library;
+
 import 'package:test/test.dart';
 import '../../tool/ps_test.dart' show TraceLogger;
 

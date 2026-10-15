@@ -1,3 +1,7 @@
+// Exercises the native filesystem disc adapter.
+@TestOn('vm')
+library;
+
 import 'dart:io';
 import 'dart:typed_data';
 
