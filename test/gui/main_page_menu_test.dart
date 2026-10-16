@@ -1,3 +1,7 @@
+// Uses real temporary files through the native picker adapter.
+@TestOn('vm')
+library;
+
 import 'dart:async';
 import 'dart:io';
 

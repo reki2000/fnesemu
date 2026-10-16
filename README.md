@@ -9,7 +9,7 @@ This project is experimental.
 
 # How to use 
 
-1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
+1. Visit the [stable version](https://reki2000.github.io/fnesemu/) or the [develop version](https://reki2000.github.io/fnesemu/develop/)
 1. Open the menu, choose 'CD / ROM', and select a ROM directory
 1. Choose a ROM in the list to start emulation. The menu button or Escape pauses/resumes it
 
@@ -116,3 +116,6 @@ $ cd ..
 $ make test-gte 
 ```
 
+## Binary builds and releases
+
+The **Build binaries** GitHub Actions workflow tests PRs and builds Web; merges to `main` and manual runs build all supported platforms. Download its artifacts for internal verification, then tag that exact successful full-build commit to publish the same binaries to GitHub Releases without rebuilding. See [BINARY-DISTRIBUTION.md](BINARY-DISTRIBUTION.md) for the release process and optional signing secrets.

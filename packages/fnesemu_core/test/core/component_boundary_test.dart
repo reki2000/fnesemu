@@ -1,3 +1,7 @@
+// Reads source files to check component dependencies.
+@TestOn('vm')
+library;
+
 import 'dart:io';
 
 import 'package:test/test.dart';

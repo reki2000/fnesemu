@@ -130,6 +130,12 @@ class _ViewportCore extends _VideoCore {
       ];
 }
 
+// Browser image decoding can schedule a final zero-duration timer on disposal.
+Future<void> unmountVideo(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('Screen viewport outlines paint on the bitmap without hovering',
       (tester) async {
@@ -182,7 +188,7 @@ void main() {
         expect(find.byType(VideoMagnifier), findsNothing);
       }
     }
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
   testWidgets(
       'tabs show all layers and both pattern sources with shared controls',
@@ -264,7 +270,7 @@ void main() {
     expect(debugger.state.videoPanels.map((p) => p.paletteName),
         ['Grayscale', 'Grayscale']);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
   testWidgets('framebuffer-only core retains CPU tab and hides pattern tab',
       (tester) async {
@@ -278,7 +284,7 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('Next palette'), findsNothing);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
   testWidgets('divider retains absolute width after window resize',
       (tester) async {
@@ -322,7 +328,7 @@ void main() {
         width);
     expect(preference.value, width);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
     preference.dispose();
   });
 
@@ -367,7 +373,7 @@ void main() {
     expect(popup, findsNothing);
     expect(tester.takeException(), isNull);
     await mouse.removePointer();
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets(
@@ -406,7 +412,7 @@ void main() {
     expect(flipped.left, lessThan(first.left));
     expect(flipped.top, first.top);
     await mouse.removePointer();
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
     expect(tester.takeException(), isNull);
   });
 
@@ -436,7 +442,7 @@ void main() {
     expect(tester.getTopLeft(find.text('BG D')).dy,
         greaterThan(tester.getTopLeft(find.text('BG C')).dy));
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets('pattern rows preserve core-owned BG pairs at every zoom',
@@ -463,7 +469,7 @@ void main() {
     await tester.pump();
     expectPairs();
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets(
@@ -486,7 +492,7 @@ void main() {
     expect(tester.getTopLeft(find.text('Sprites')).dy,
         greaterThan(tester.getTopLeft(find.text('Rotation')).dy));
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets(
@@ -555,7 +561,8 @@ void main() {
     }
     expect(labelPixels, isNotEmpty);
     for (final (x, y) in labelPixels) {
-      expect(x, inInclusiveRange(100, 115));
+      // Allow one pixel of glyph overhang at the label's right anchor.
+      expect(x, inInclusiveRange(100, 116));
       expect(y, inInclusiveRange(92, 107));
     }
     expect(
@@ -572,7 +579,7 @@ void main() {
     expect(rgba(100, 119), [128, 86, 0, 255]);
     expect(rgba(152, 88), [0, 0, 0, 255]);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   for (final size in [
@@ -621,7 +628,7 @@ void main() {
         expect(find.text('dump contents'), findsOneWidget);
       }
       expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
+      await unmountVideo(tester);
     });
   }
 }
