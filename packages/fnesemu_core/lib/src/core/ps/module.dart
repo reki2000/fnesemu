@@ -26,9 +26,11 @@ class PsModule extends CoreModule {
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
     final start = drive.firstDataLba;
     if (start == null) return null;
-    return sectorContains(await drive.readWhenReady(start + 4),
-                'Sony Computer Entertainment') ||
-            sectorContains(await drive.readWhenReady(start + 16), 'PLAYSTATION')
+    if (sectorContains(await drive.readWhenReady(start + 4),
+        'Sony Computer Entertainment')) {
+      return system;
+    }
+    return sectorContains(await drive.readWhenReady(start + 16), 'PLAYSTATION')
         ? system
         : null;
   }

@@ -1,7 +1,3 @@
-// Requires exact 64-bit literals, registers and arithmetic unavailable in dart2js.
-@TestOn('!dart2js')
-library;
-
 import 'dart:math' as math;
 
 import 'package:fnesemu_core/src/core/n64/bus.dart';

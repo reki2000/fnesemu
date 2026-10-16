@@ -198,7 +198,7 @@ void main() {
       return c;
     }
 
-    test('DIVU 32 / 32 and overflow', () {
+    test('DIVU 32 / 32 and 64 / 32', () {
       final c = cpu();
       c.bus.write32(0xffffff00, 7);
       c.bus.write32(0xffffff04, -100);
@@ -206,14 +206,6 @@ void main() {
       expect(c.bus.read32(0xffffff10), (-2) & 0xffffffff);
       expect(c.bus.read32(0xffffff14), (-14) & 0xffffffff);
 
-      c.bus.write32(0xffffff00, 0);
-      c.bus.write32(0xffffff04, 5);
-      expect(c.bus.read32(0xffffff08) & 1, 1); // overflow
-    });
-
-    // The 64-bit dividend and shifts require VM/Wasm integer semantics.
-    test('DIVU 64 / 32 and register mirrors', () {
-      final c = cpu();
       c.bus.write32(0xffffff00, 3);
       c.bus.write32(0xffffff10, 1);
       c.bus.write32(0xffffff14, 0);
@@ -222,7 +214,11 @@ void main() {
 
       // mirror at 0xffffff20
       expect(c.bus.read32(0xffffff34), 0x100000000 ~/ 3);
-    }, testOn: '!dart2js');
+
+      c.bus.write32(0xffffff00, 0);
+      c.bus.write32(0xffffff04, 5);
+      expect(c.bus.read32(0xffffff08) & 1, 1); // overflow
+    });
 
     test('DMAC auto request transfer', () {
       final c = cpu();
