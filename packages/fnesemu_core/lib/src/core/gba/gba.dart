@@ -203,6 +203,9 @@ class Gba implements Core {
   void setCdromDrive(CdromDrive drive) {}
 
   @override
+  void dispose() {}
+
+  @override
   void setSram(Sram sram) => _sram = sram;
 
   @override

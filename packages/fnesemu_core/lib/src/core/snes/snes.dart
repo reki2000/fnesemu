@@ -197,6 +197,9 @@ class Snes implements Core {
   void setBiosFiles(List<Uint8List> files) {}
 
   @override
+  void dispose() {}
+
+  @override
   void setSram(Sram sram) {
     _sram = sram;
   }

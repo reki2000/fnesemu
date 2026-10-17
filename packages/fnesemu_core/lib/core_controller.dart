@@ -66,9 +66,11 @@ class CoreController {
     final sramId = _sram.id;
     final sramData = Uint8List.fromList(_sram.data);
 
+    Core? created;
     final Core core;
     try {
-      core = CoreFactory.of(system)
+      core = created = CoreFactory.of(system);
+      core
         ..setSram(_sram)
         ..onAudio(_onAudio)
         ..setBiosFiles(bios);
@@ -77,6 +79,7 @@ class CoreController {
         core.setRom(rom);
       }
     } catch (_) {
+      created?.dispose();
       _restoreSram(sramId, sramData);
       if (wasRunning) {
         run();
@@ -88,6 +91,7 @@ class CoreController {
       core.setCdromDrive(drive);
     }
 
+    _core.dispose();
     _core = core;
     _system = system;
     final metadata = CoreFactory.system(system);

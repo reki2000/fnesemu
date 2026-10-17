@@ -216,6 +216,9 @@ class Pce implements Core {
   }
 
   @override
+  void dispose() {}
+
+  @override
   void setSram(Sram sram) => bus.sram = sram;
 
   @override
