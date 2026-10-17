@@ -7,6 +7,10 @@ test-6502:
 test-z80:
 	dart run $(CORE)/tool/z80_test.dart assets/tests.in assets/tests.expected
 
+# the 8088 tests of https://github.com/SingleStepTests/8088 (v2) in assets/8088
+test-v30:
+	dart run $(CORE)/tool/v30_test.dart assets/8088/metadata.json $(wildcard assets/8088/*.json.gz)
+
 test-m68:
 	dart run $(CORE)/tool/m68_test.dart
 
