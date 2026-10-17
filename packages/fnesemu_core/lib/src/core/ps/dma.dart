@@ -116,6 +116,7 @@ class Dma {
 
   /// false when no channel is enabled and running, [exec] has nothing to do
   bool _active = true;
+  bool get active => _active;
 
   /// writes the channel control register of [ch], which may start it
   void setChannelCtrl(int ch, int value) {

@@ -57,6 +57,10 @@ class Core extends CoreDebug {
   /// set sram storage interface
   void setSram(Sram sram) {}
 
+  /// releases what the core holds outside the Dart heap; the core is not
+  /// used afterwards
+  void dispose() {}
+
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');
 

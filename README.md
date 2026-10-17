@@ -61,6 +61,10 @@ submodule reference here. Restore the recorded revisions with
 See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
 dependency rules.
 
+### PS1 recompiler
+
+Build or run with `--dart-define=JIT=true` to run the PS1 CPU through `packages/mp_jit_recompiler`, which translates R3000 code to x86-64 on Linux, Android and Windows x64 hosts. Other hosts, including the Web, keep the interpreter. The Windows backend is not tested yet. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+
 ### Adding or removing a core
 
 After changing core modules, regenerate the registration list:

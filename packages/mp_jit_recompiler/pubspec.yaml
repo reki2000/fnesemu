@@ -1,0 +1,12 @@
+name: mp_jit_recompiler
+description: A block recompiler that runs a small IR as host native code, with a reference interpreter.
+version: 0.1.0
+
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.21.1
