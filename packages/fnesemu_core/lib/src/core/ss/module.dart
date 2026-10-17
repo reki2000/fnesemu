@@ -8,6 +8,10 @@ import 'ss.dart';
 
 CoreModule createModule() => SsModule();
 
+// signature bytes, as character codes
+const ssSignature = '\x53\x45\x47\x41\x20\x53\x45\x47\x41\x53\x41\x54'
+    '\x55\x52\x4e';
+
 class SsModule extends CoreModule {
   static const system =
       CoreSystem('ss', 'ss', biosFiles: 1, biosRequired: true, disc: 'ss');
@@ -26,7 +30,7 @@ class SsModule extends CoreModule {
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
     final start = drive.firstDataLba;
     if (start == null) return null;
-    return sectorContains(await drive.readWhenReady(start), 'SEGA SEGASATURN')
+    return sectorContains(await drive.readWhenReady(start), ssSignature)
         ? system
         : null;
   }

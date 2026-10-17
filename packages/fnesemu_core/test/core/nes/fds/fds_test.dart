@@ -15,7 +15,7 @@ Uint8List disk({int sides = 1, bool header = true}) {
   for (var side = 0; side < sides; side++) {
     final at = (header ? 16 : 0) + 65500 * side;
     result[at] = 1;
-    result.setAll(at + 1, '*NINTENDO-HVC*'.codeUnits);
+    result.setAll(at + 1, List.filled(14, 0x2a));
     result[at + 21] = side;
     result.setAll(at + 56, [2, 1, 3]);
     result[at + 58 + 11] = 0;

@@ -30,6 +30,9 @@ import 'ym2612.dart';
 
 final _log = DebugLog('md');
 
+// signature bytes, as character codes
+const mdBootSignature = '\x53\x45\x47\x41\x20\x42\x4f\x4f\x54';
+
 class Md implements Core {
   @override
   bool get hasPatternTables => true;
@@ -441,7 +444,7 @@ class Md implements Core {
     if (cdBoot ||
         (body.length == 0x20000 &&
             String.fromCharCodes(body.sublist(0x100, 0x180))
-                .contains("SEGA BOOT"))) {
+                .contains(mdBootSignature))) {
       final cd = MdCdrom(body);
       busM68.cdrom = cd;
       if (_disc != null) cd.setDisc(_disc!);

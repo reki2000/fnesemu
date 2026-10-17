@@ -5,7 +5,7 @@
 // prints a checksum of every frame image and of the audio output, to check
 // that an optimization does not change the output.
 //
-// usage: dart run tool/pce_bench.dart <rom|system card> [disc.cue]
+// usage: dart run tool/pce_bench.dart <rom|bios> [disc.cue]
 //          [-f frames] [-p frame:button ...] [-H hold] [-c] [-r]
 // -r runs each frame with runFrame() (as the gui does without the debugger)
 // instead of exec() per instruction.
