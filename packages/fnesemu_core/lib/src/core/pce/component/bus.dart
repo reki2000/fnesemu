@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../../../sram.dart';
 import '../../../util/int.dart';
 import '../mapper/rom.dart';
+import 'arcade_card.dart';
 import 'cdrom.dart';
 import 'cpu.dart';
 import 'pad.dart';
@@ -28,6 +29,7 @@ class Bus {
   late final Timer timer;
   late final Pic pic;
   late final PceCdrom cdrom;
+  final ArcadeCard arcadeCard = ArcadeCard();
   Sram sram = Sram();
   final superCdRam = Uint8List(192 * 1024);
 
@@ -57,6 +59,11 @@ class Bus {
   int read(int addr) {
     final bank = addr.shr13;
     final offset = addr.mask13;
+
+    // Data-port mirrors are only present with the CD expansion.
+    if (cdrom.enabled && bank >= 0x40 && bank <= 0x43) {
+      return arcadeCard.readData(bank - 0x40);
+    }
 
     // fast paths: hucard rom (below the cd ram banks) and work ram
     if (bank < 0x68) {
@@ -134,7 +141,9 @@ class Bus {
     }
 
     if (bank == 0xff && offset >= 0x1800 && cdrom.enabled) {
-      return cdrom.read(offset);
+      return offset >= 0x1a00 && offset < 0x1c00
+          ? arcadeCard.read(offset)
+          : cdrom.read(offset);
     }
     return 0xff;
   }
@@ -144,6 +153,10 @@ class Bus {
     final offset = addr.mask13;
 
     data &= 0xff;
+    if (cdrom.enabled && bank >= 0x40 && bank <= 0x43) {
+      arcadeCard.writeData(bank - 0x40, data);
+      return;
+    }
     if (cdrom.enabled && bank >= 0x68 && bank <= 0x7f) {
       superCdRam[(bank - 0x68) * 0x2000 + offset] = data;
       return;
@@ -153,7 +166,11 @@ class Bus {
       return;
     }
     if (bank == 0xff && offset >= 0x1800 && cdrom.enabled) {
-      cdrom.write(offset, data);
+      if (offset >= 0x1a00 && offset < 0x1c00) {
+        arcadeCard.write(offset, data);
+      } else {
+        cdrom.write(offset, data);
+      }
       return;
     }
     if (0xf8 <= bank && bank <= 0xfb) {
@@ -300,6 +317,7 @@ class Bus {
     pic.reset();
     joypad.reset();
     cdrom.reset();
+    arcadeCard.reset();
   }
 
   void holdIrq() => {};
