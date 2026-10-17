@@ -30,6 +30,7 @@ class Bus {
   late final Pic pic;
   late final PceCdrom cdrom;
   final ArcadeCard arcadeCard = ArcadeCard();
+  bool arcadeCardEnabled = false;
   Sram sram = Sram();
   final superCdRam = Uint8List(192 * 1024);
 
@@ -61,7 +62,7 @@ class Bus {
     final offset = addr.mask13;
 
     // Data-port mirrors are only present with the CD expansion.
-    if (cdrom.enabled && bank >= 0x40 && bank <= 0x43) {
+    if (arcadeCardEnabled && bank >= 0x40 && bank <= 0x43) {
       return arcadeCard.readData(bank - 0x40);
     }
 
@@ -140,10 +141,12 @@ class Bus {
       }
     }
 
+    if (bank == 0xff && offset >= 0x1a00 && offset < 0x1c00 &&
+        arcadeCardEnabled) {
+      return arcadeCard.read(offset);
+    }
     if (bank == 0xff && offset >= 0x1800 && cdrom.enabled) {
-      return offset >= 0x1a00 && offset < 0x1c00
-          ? arcadeCard.read(offset)
-          : cdrom.read(offset);
+      return cdrom.read(offset);
     }
     return 0xff;
   }
@@ -153,7 +156,7 @@ class Bus {
     final offset = addr.mask13;
 
     data &= 0xff;
-    if (cdrom.enabled && bank >= 0x40 && bank <= 0x43) {
+    if (arcadeCardEnabled && bank >= 0x40 && bank <= 0x43) {
       arcadeCard.writeData(bank - 0x40, data);
       return;
     }
@@ -165,12 +168,13 @@ class Bus {
       if (cdrom.backupEnabled && offset < 0x800) sram.write8(offset, data);
       return;
     }
+    if (bank == 0xff && offset >= 0x1a00 && offset < 0x1c00 &&
+        arcadeCardEnabled) {
+      arcadeCard.write(offset, data);
+      return;
+    }
     if (bank == 0xff && offset >= 0x1800 && cdrom.enabled) {
-      if (offset >= 0x1a00 && offset < 0x1c00) {
-        arcadeCard.write(offset, data);
-      } else {
-        cdrom.write(offset, data);
-      }
+      cdrom.write(offset, data);
       return;
     }
     if (0xf8 <= bank && bank <= 0xfb) {
