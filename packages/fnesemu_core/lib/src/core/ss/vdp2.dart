@@ -81,9 +81,8 @@ class Vdp2 {
   int _fbWidth = 320;
   int _fbHeight = 224;
 
-  ImageBuffer get imageBuffer =>
-      ImageBuffer(_fbWidth, _fbHeight, _frameBuffer.buffer.asUint8List(),
-          displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth);
+  ImageBuffer get imageBuffer => ImageBuffer(_fbWidth, _fbHeight, _frameBuffer,
+      displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth);
 
   void reset() {
     regs.fillRange(0, regs.length, 0);

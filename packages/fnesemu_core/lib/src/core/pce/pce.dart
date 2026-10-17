@@ -172,8 +172,7 @@ class Pce implements Core {
   @override
   ImageBuffer imageBuffer() {
     vpc.render(vdc, vdc2);
-    return ImageBuffer(
-        vdc.hSize, vdc.vSize, vpc.frameBuffer.buffer.asUint8List());
+    return ImageBuffer(vdc.hSize, vdc.vSize, vpc.frameBuffer);
   }
 
   void Function(AudioBuffer) _onAudio = (_) {};
@@ -291,7 +290,7 @@ class Pce implements Core {
     // sgx: VDC1's vram on top, VDC2's below
     final buf2 = vdc2.renderVram(useSecondBgColor, paletteNo);
     return ImageBuffer(buf.width, buf.height + buf2.height,
-        Uint8List.fromList([...buf.buffer, ...buf2.buffer]));
+        Uint32List.fromList([...buf.buffer, ...buf2.buffer]));
   }
 
   @override

@@ -127,8 +127,7 @@ Future<void> main(List<String> args) async {
       if (frame == f + hold) core.padUp(0, buttons[b]);
     }
     final ib = core.imageBuffer();
-    final w = ib.buffer.buffer
-        .asUint32List(ib.buffer.offsetInBytes, ib.buffer.length >> 2);
+    final w = ib.buffer;
     int h = imageHash;
     for (int i = 0; i < w.length; i += 7) {
       h = ((h ^ w[i]) * 0x01000193) & 0xffffffff;

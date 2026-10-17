@@ -69,9 +69,8 @@ class Ppu {
     _front.fillRange(0, _front.length, colors[0]);
   }
 
-  ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, _front.buffer.asUint8List(),
-          displayWidth_: 269); // keep 10:9 aspect ratio at 242 lines
+  ImageBuffer get imageBuffer => ImageBuffer(width, height, _front,
+      displayWidth_: 269); // keep 10:9 aspect ratio at 242 lines
 
   void _updateStat() {
     final coincidence = ly == lyc;
@@ -353,7 +352,7 @@ class Ppu {
       }
     }
 
-    return ImageBuffer(size, size, buf.buffer.asUint8List());
+    return ImageBuffer(size, size, buf);
   }
 
   int _palette(int paletteNo) => switch (paletteNo % 4) {
@@ -380,7 +379,7 @@ class Ppu {
       }
     }
 
-    return ImageBuffer(w, h, buf.buffer.asUint8List());
+    return ImageBuffer(w, h, buf);
   }
 
   /// renders bg, obj0, obj1 palettes as 4 x 3 blocks of 16x16 pixels
@@ -396,7 +395,7 @@ class Ppu {
       }
     }
 
-    return ImageBuffer(w, h, buf.buffer.asUint8List());
+    return ImageBuffer(w, h, buf);
   }
 
   List<String> spriteInfo() => List.generate(40, (i) {

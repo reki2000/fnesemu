@@ -1,13 +1,14 @@
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:host_pixels/host_pixels.dart';
+import 'package:mp_pixel_image/mp_pixel_image.dart';
 
 import 'config.dart';
 
-typedef PixelDecoder = void Function(Uint8List pixels, int width, int height,
-    ui.PixelFormat format, ui.ImageDecoderCallback callback);
+typedef PixelDecoder = void Function(
+    Uint32List pixels, int width, int height, ui.ImageDecoderCallback callback);
 
 class ImageContainer {
   static final config = Config();
@@ -15,7 +16,7 @@ class ImageContainer {
   ui.Image? image;
 
   ImageContainer({PixelDecoder? decoder})
-      : _decoder = decoder ?? ui.decodeImageFromPixels;
+      : _decoder = decoder ?? decodePixelImage;
 
   final PixelDecoder _decoder;
   bool _disposed = false;
@@ -28,13 +29,12 @@ class ImageContainer {
   final displayHeightNotifier = ValueNotifier<int>(config.imageHeight);
   final imageNotifier = ValueNotifier<ui.Image?>(null);
 
-  void push(Uint8List buffer, int width, int height, int displayWidth,
+  void push(Uint32List buffer, int width, int height, int displayWidth,
       {int? displayHeight}) {
     if (_disposed || buffer.isEmpty) return;
 
     final generation = ++_generation;
-    _decoder(hostPixels(buffer), width, height, ui.PixelFormat.rgba8888,
-        (next) {
+    _decoder(buffer, width, height, (next) {
       // An asynchronous decode may finish after a newer frame or disposal.
       if (_disposed || generation < _displayedGeneration) {
         next.dispose();

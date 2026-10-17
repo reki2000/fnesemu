@@ -173,8 +173,7 @@ int _cpuMs() {
   return (int.parse(fields[11]) + int.parse(fields[12])) * 10; // 100Hz ticks
 }
 
-int _hash(Uint8List b) {
-  final w = b.buffer.asUint32List(b.offsetInBytes, b.lengthInBytes >> 2);
+int _hash(Uint32List w) {
   int h = 0x811c9dc5;
   for (int i = 0; i < w.length; i++) {
     h = ((h ^ w[i]) * 0x01000193) & 0xffffffff;

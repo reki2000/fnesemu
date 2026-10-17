@@ -18,8 +18,7 @@ import 'package:fnesemu_core/src/video_debug.dart';
 import 'package:test/test.dart';
 
 int pixel(DebugRaster raster, int x, int y) =>
-    ByteData.sublistView(raster.image.buffer)
-        .getUint32((y * raster.image.width + x) * 4, Endian.little);
+    raster.image.buffer[y * raster.image.width + x];
 
 class _VideoCore extends CoreDebug {
   int captures = 0, samples = 0;
@@ -320,7 +319,7 @@ void main() {
     core.ppu.vram[0] = 0x80;
     core.ppu.bgp = 0xe4;
     core.ppu.lcdc = 0x91;
-    final before = Uint8List.fromList(core.imageBuffer().buffer);
+    final before = Uint32List.fromList(core.imageBuffer().buffer);
     final raster = core.videoLayers.first.capture(true);
     expect(pixel(raster, 0, 0), 0xff70c088);
     expect(pixel(raster, 1, 0), 0xffd0f8e0);
@@ -391,12 +390,12 @@ void main() {
   for (final entry in constructors.entries) {
     test('${entry.key} exposes isolated layers and valid pattern readers', () {
       final core = entry.value()..setSram(Sram());
-      final before = Uint8List.fromList(core.imageBuffer().buffer);
+      final before = Uint32List.fromList(core.imageBuffer().buffer);
       expect(core.videoLayers, isNotEmpty);
       for (final layer in core.videoLayers) {
         final image = layer.capture(false);
-        expect(image.image.buffer.length,
-            image.image.width * image.image.height * 4,
+        expect(
+            image.image.buffer.length, image.image.width * image.image.height,
             reason: layer.name);
       }
       expect(core.imageBuffer().buffer, orderedEquals(before));

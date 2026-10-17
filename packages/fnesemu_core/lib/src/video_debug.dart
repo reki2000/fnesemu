@@ -85,7 +85,7 @@ class DebugRaster {
           {Iterable<DebugOutline> viewports = const []}) =>
       DebugRaster(
           ImageBuffer(
-              image.width, image.height, Uint8List.fromList(image.buffer)),
+              image.width, image.height, Uint32List.fromList(image.buffer)),
           viewports: viewports);
 
   /// Crops a scrolling tilemap, wrapping in both directions. The map keeps
@@ -94,16 +94,15 @@ class DebugRaster {
     final sw = image.width, sh = image.height;
     if (sw == 0 || sh == 0) return DebugRaster(ImageBuffer.empty());
     final dst = DebugCanvas(width, height);
-    final bytes = dst.pixels.buffer.asUint8List();
     final sx = x % sw;
     for (var py = 0; py < height; py++) {
       final row = ((py + y) % sh) * sw;
       var px = 0, sourceX = sx;
       while (px < width) {
         final count = math.min(width - px, sw - sourceX);
-        final offset = (py * width + px) * 4;
-        bytes.setRange(
-            offset, offset + count * 4, image.buffer, (row + sourceX) * 4);
+        final offset = py * width + px;
+        dst.pixels
+            .setRange(offset, offset + count, image.buffer, row + sourceX);
         px += count;
         sourceX = 0;
       }
@@ -437,9 +436,8 @@ class DebugCanvas {
     }
   }
 
-  DebugRaster raster() =>
-      DebugRaster(ImageBuffer(width, height, pixels.buffer.asUint8List()),
-          patterns: patterns, viewports: viewports);
+  DebugRaster raster() => DebugRaster(ImageBuffer(width, height, pixels),
+      patterns: patterns, viewports: viewports);
 }
 
 /// Sprite admission in SAT/OAM order, once per row rather than per pixel.

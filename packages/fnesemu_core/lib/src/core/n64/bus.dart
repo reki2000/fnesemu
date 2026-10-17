@@ -545,26 +545,26 @@ class N64Bus {
         height <= 0 ||
         width > 640 ||
         height > 576) {
-      return ImageBuffer(320, 240, Uint8List(320 * 240 * 4));
+      return ImageBuffer(320, 240, Uint32List(320 * 240));
     }
-    final output = Uint8List(width * height * 4);
+    final output = Uint32List(width * height);
     final origin = vi[1].mask24;
     final size = mode == 2 ? 2 : 4;
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
         final source = origin + (y * stride + x) * size;
-        final target = (y * width + x) * 4;
         if (x >= stride || source + size > ram.length) continue;
+        var abgr = 0xff000000;
         if (size == 2) {
           final color = ram[source].shl8 | ram[source + 1];
           for (var c = 0; c < 3; c++) {
             final v = color.shr(11 - c * 5).mask5;
-            output[target + c] = v.shl3 | v.shr2;
+            abgr |= (v.shl3 | v.shr2) << (c * 8);
           }
         } else {
-          output.setRange(target, target + 3, ram, source);
+          abgr |= ram[source] | ram[source + 1] << 8 | ram[source + 2] << 16;
         }
-        output[target + 3] = 255;
+        output[y * width + x] = abgr;
       }
     }
     return ImageBuffer(width, height, output);

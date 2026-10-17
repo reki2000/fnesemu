@@ -11,6 +11,7 @@ import 'package:fnesemu/gui/debug/game_layout.dart';
 import 'package:fnesemu/gui/debug/video.dart';
 import 'package:fnesemu/gui/ticker_image.dart';
 import 'package:fnesemu_core/app_api.dart';
+import 'package:mp_pixel_image/mp_pixel_image.dart';
 
 class _VideoCore extends Core {
   final bool patterns, largeBitmap;
@@ -32,8 +33,7 @@ class _VideoCore extends Core {
                               ? 4
                               : 2,
                       largeBitmap ? 400 : 2,
-                      Uint8List(
-                          largeBitmap ? 400 * 400 * 4 : (map ? 4 : 2) * 2 * 4)),
+                      Uint32List(largeBitmap ? 400 * 400 : (map ? 4 : 2) * 2)),
                   patterns: [DebugOutline.rect(0, 0, 2, 2, label: '1')],
                   viewports: [DebugOutline.rect(0, 0, 1, 1)]),
               kind: name == 'Sprite layer'
@@ -108,7 +108,7 @@ class _LayerRowsCore extends _VideoCore {
           ('Sprites', 3)
         ])
           DebugVideoLayer(entry.$1,
-              (_) => DebugRaster(ImageBuffer(8, 8, Uint8List(8 * 8 * 4))),
+              (_) => DebugRaster(ImageBuffer(8, 8, Uint32List(8 * 8))),
               row: entry.$2,
               kind: entry.$2 == 3
                   ? DebugLayerKind.sprites
@@ -121,7 +121,7 @@ class _ViewportCore extends _VideoCore {
   List<DebugVideoLayer> get videoLayers => [
         DebugVideoLayer(
             'Map',
-            (_) => DebugRaster(ImageBuffer(32, 32, Uint8List(32 * 32 * 4)),
+            (_) => DebugRaster(ImageBuffer(32, 32, Uint32List(32 * 32)),
                     viewports: [
                       DebugOutline.rect(4, 4, 16, 16),
                       DebugOutline.rect(28, 4, 4, 16),
@@ -498,18 +498,15 @@ void main() {
   testWidgets(
       'magnifier places labels at the top right with thin bounds over enlarged pixels',
       (tester) async {
-    final bitmap = Uint8List(64 * 64 * 4);
-    final redPixel = (15 * 64 + 15) * 4;
-    bitmap[redPixel] = 255;
-    bitmap[redPixel + 3] = 255;
+    final bitmap = Uint32List(64 * 64);
+    bitmap[15 * 64 + 15] = 0xff0000ff; // red
     final raster = DebugRaster(ImageBuffer(64, 64, bitmap),
         patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
         viewports: [DebugOutline.rect(32, 16, 8, 8)]);
     const key = ValueKey('magnifier-render');
     final decoded = (await tester.runAsync(() {
       final ready = Completer<ui.Image>();
-      ui.decodeImageFromPixels(
-          bitmap, 64, 64, ui.PixelFormat.rgba8888, ready.complete);
+      decodePixelImage(bitmap, 64, 64, ready.complete);
       return ready.future;
     }))!;
     addTearDown(decoded.dispose);

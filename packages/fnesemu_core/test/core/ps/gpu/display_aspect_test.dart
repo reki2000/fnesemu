@@ -11,7 +11,7 @@ void main() {
         final image = gpu.imageBuffer;
         expect(image.width, mode == 0x40 ? 368 : [256, 320, 512, 640][mode]);
         expect(image.height, interlaced ? 480 : 240);
-        expect(image.buffer.length, image.width * image.height * 4);
+        expect(image.buffer.length, image.width * image.height);
         expect(image.displayWidth / (image.displayHeight ?? image.height),
             closeTo(4 / 3, 1e-10));
       });
@@ -27,7 +27,7 @@ void main() {
       expect(image.displayWidth, 320);
       expect(image.displayHeight, 240);
       expect(image.height, mode & 0x24 == 0x24 ? 480 : 240);
-      expect(image.buffer.length, image.width * image.height * 4);
+      expect(image.buffer.length, image.width * image.height);
     }
   });
 }

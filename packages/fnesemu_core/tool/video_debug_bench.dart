@@ -90,7 +90,7 @@ void main(List<String> args) {
       }
 
       for (final r in reference) {
-        mix(r.image.buffer);
+        mix(r.image.bytes);
         mix(utf8.encode(jsonEncode([
           r.image.width,
           r.image.height,

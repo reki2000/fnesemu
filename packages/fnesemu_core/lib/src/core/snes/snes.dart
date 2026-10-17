@@ -161,9 +161,8 @@ class Snes implements Core {
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
   /// other modes show backdrop only - see Ppu's class doc)
   @override
-  ImageBuffer imageBuffer() =>
-      ImageBuffer(ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List(),
-          displayWidth_: Ppu.widthNormal);
+  ImageBuffer imageBuffer() => ImageBuffer(ppu.width, Ppu.height, ppu.buffer,
+      displayWidth_: Ppu.widthNormal);
 
   @override
   onAudio(void Function(AudioBuffer) onAudio) {

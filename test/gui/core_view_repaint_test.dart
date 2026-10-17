@@ -23,13 +23,12 @@ void main() {
       (tester) async {
     final controller = CoreController((_) {}, (_) {}, (_) {}, Sram());
     final container = ImageContainer(
-        decoder: (pixels, width, height, format, callback) =>
-            callback(_image()));
+        decoder: (pixels, width, height, callback) => callback(_image()));
     addTearDown(container.dispose);
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
             body: CoreView(controller: controller, container: container))));
-    container.push(Uint8List(4), 1, 1, 256, displayHeight: 240);
+    container.push(Uint32List(1), 1, 1, 256, displayHeight: 240);
     await tester.pump();
 
     var padPaints = 0, imagePaints = 0;
@@ -42,7 +41,7 @@ void main() {
       }
     };
     for (var i = 0; i < 3; i++) {
-      container.push(Uint8List(4), 1, 1, 256, displayHeight: 240);
+      container.push(Uint32List(1), 1, 1, 256, displayHeight: 240);
       await tester.pump();
     }
     debugProfilePaintsEnabled = false;

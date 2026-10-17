@@ -15,3 +15,4 @@ bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime"
   fi
 )
 (cd packages/fnesemu_core && dart pub get && bash "$MP_BUILD_SCRIPTS/test.sh" dart "$runtime")
+(cd packages/mp_pixel_image && flutter pub get && bash "$MP_BUILD_SCRIPTS/test.sh" flutter "$runtime")

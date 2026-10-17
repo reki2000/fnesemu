@@ -150,12 +150,12 @@ void main() {
     bus.vi[12] = bus.vi[13] = 1024;
     bus.vi[0] = 2;
     bus.write(0x100, 0xf801, 2);
-    expect(bus.image().buffer, [255, 0, 0, 255]);
+    expect(bus.image().bytes, [255, 0, 0, 255]);
     bus.vi[0] = 3;
     bus.write(0x100, 0x123456ff, 4);
-    expect(bus.image().buffer, [0x12, 0x34, 0x56, 255]);
+    expect(bus.image().bytes, [0x12, 0x34, 0x56, 255]);
     bus.vi[1] = 0xffffff;
-    expect(bus.image().buffer, [0, 0, 0, 0]);
+    expect(bus.image().bytes, [0, 0, 0, 0]);
   });
 
   test('direct boot runs a ROM that configures VI and draws a red pixel', () {
@@ -181,7 +181,7 @@ void main() {
       if (result.scanlineRendered) lines++;
     }
     expect(lines, 2);
-    expect(core.imageBuffer().buffer, [255, 0, 0, 255]);
+    expect(core.imageBuffer().bytes, [255, 0, 0, 255]);
     core.reset();
     expect(core.cpu.clocks, 0);
     expect(core.bus.vi[0], 0);

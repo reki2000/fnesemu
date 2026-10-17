@@ -1,9 +1,9 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:fnesemu_core/app_api.dart';
+import 'package:mp_pixel_image/mp_pixel_image.dart';
 
 const int _magnifierZoom = 4, _magnifierAnnotationScale = 2;
 const double _magnifierBoundsWidth = 1;
@@ -194,9 +194,7 @@ class _RasterViewState extends State<_RasterView> {
     if (_decoding) return;
     _decoding = true;
     final buffer = widget.raster.image;
-    ui.decodeImageFromPixels(
-        buffer.buffer, buffer.width, buffer.height, ui.PixelFormat.rgba8888,
-        (image) {
+    decodePixelImage(buffer.buffer, buffer.width, buffer.height, (image) {
       _decoding = false;
       if (!mounted) {
         image.dispose();
@@ -377,8 +375,7 @@ class _VideoMagnifierState extends State<VideoMagnifier> {
       accept(source.clone());
     } else {
       final bitmap = widget.hover.raster.image;
-      ui.decodeImageFromPixels(bitmap.buffer, bitmap.width, bitmap.height,
-          ui.PixelFormat.rgba8888, accept);
+      decodePixelImage(bitmap.buffer, bitmap.width, bitmap.height, accept);
     }
   }
 
@@ -409,8 +406,7 @@ class _MagnifierPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
         Offset.zero & size, Paint()..color = _rgba(hover.background));
-    final image = hover.raster.image,
-        bytes = ByteData.sublistView(image.buffer);
+    final image = hover.raster.image;
     final zoom = _magnifierZoom.toDouble();
     final columns = (size.width / zoom).ceil(),
         rows = (size.height / zoom).ceil();
@@ -441,8 +437,8 @@ class _MagnifierPainter extends CustomPainter {
     }
     if (hover.numbers) {
       for (final shape in hover.raster.patterns) {
-        _drawMagnifierLabel(canvas, image, bytes, shape, hover.background,
-            startX, startY, columns, rows);
+        _drawMagnifierLabel(canvas, image, shape, hover.background, startX,
+            startY, columns, rows);
       }
     }
     canvas.restore();
@@ -547,16 +543,8 @@ void _drawMagnifierOutline(Canvas canvas, DebugOutline shape, int startX,
         ..strokeWidth = thickness);
 }
 
-void _drawMagnifierLabel(
-    Canvas canvas,
-    ImageBuffer image,
-    ByteData bytes,
-    DebugOutline shape,
-    int background,
-    int startX,
-    int startY,
-    int columns,
-    int rows) {
+void _drawMagnifierLabel(Canvas canvas, ImageBuffer image, DebugOutline shape,
+    int background, int startX, int startY, int columns, int rows) {
   if (shape.points.isEmpty || shape.label == null) return;
   final label = shape.label!;
   final right = shape.points.map((point) => point.$1).reduce(math.max),
@@ -597,7 +585,7 @@ void _drawMagnifierLabel(
           sy = startY + ((glyphY + py) / _magnifierZoom).floor(),
           pixel = sx < 0 || sy < 0 || sx >= image.width || sy >= image.height
               ? background
-              : bytes.getUint32((sy * image.width + sx) * 4, Endian.little);
+              : image.buffer[sy * image.width + sx];
       luminance += _rasterLuminance(_compositeRasterColor(pixel, background));
       count++;
     }

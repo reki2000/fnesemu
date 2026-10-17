@@ -103,7 +103,7 @@ Future<void> main(List<String> args) async {
     }
     frame++;
     final image = core.imageBuffer();
-    if (checksum) hash = mix(hash, image.buffer);
+    if (checksum) hash = mix(hash, image.bytes);
     if (drive != null) {
       sw.stop();
       await drive.settle();
