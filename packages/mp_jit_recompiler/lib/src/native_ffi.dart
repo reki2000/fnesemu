@@ -123,6 +123,8 @@ final class _X64Runtime extends JitRuntime implements X64Env {
   late final _Enter _enter;
   late final int _codeStart;
   int _codeEnd = 0;
+  bool _disposed = false;
+  bool _failed = false;
 
   final _callables = <NativeCallable<_HelperC>>[];
   final _helperAddrs = <int>[];
@@ -139,40 +141,46 @@ final class _X64Runtime extends JitRuntime implements X64Env {
   late final int exitStub;
 
   _X64Runtime(this._os, int ctxWords, super.addrMask, super.read, super.write) {
-    final pages = (addrMask >>> JitRuntime.pageBits) + 1;
-    _ctxAddr = _alloc(ctxWords * 4);
-    _ctx = Pointer<Uint32>.fromAddress(_ctxAddr).asTypedList(ctxWords);
-    _readTable = _alloc(pages * 8);
-    _writeTable = _alloc(pages * 8);
-    _readTableView = Pointer<Uint64>.fromAddress(_readTable).asTypedList(pages);
-    _writeTableView =
-        Pointer<Uint64>.fromAddress(_writeTable).asTypedList(pages);
-    _slots = _alloc(_maxSlots * 8);
-    _slotView = Pointer<Uint64>.fromAddress(_slots).asTypedList(_maxSlots);
-    _dyn = _alloc(X64Backend.dynEntries << X64Backend.dynEntryBits);
-    _dynView = Pointer<Uint64>.fromAddress(_dyn)
-        .asTypedList(X64Backend.dynEntries * 2);
-    _code = _alloc(_codeSize);
+    try {
+      final pages = (addrMask >>> JitRuntime.pageBits) + 1;
+      _ctxAddr = _alloc(ctxWords * 4);
+      _ctx = Pointer<Uint32>.fromAddress(_ctxAddr).asTypedList(ctxWords);
+      _readTable = _alloc(pages * 8);
+      _writeTable = _alloc(pages * 8);
+      _readTableView =
+          Pointer<Uint64>.fromAddress(_readTable).asTypedList(pages);
+      _writeTableView =
+          Pointer<Uint64>.fromAddress(_writeTable).asTypedList(pages);
+      _slots = _alloc(_maxSlots * 8);
+      _slotView = Pointer<Uint64>.fromAddress(_slots).asTypedList(_maxSlots);
+      _dyn = _alloc(X64Backend.dynEntries << X64Backend.dynEntryBits);
+      _dynView = Pointer<Uint64>.fromAddress(_dyn)
+          .asTypedList(X64Backend.dynEntries * 2);
+      _code = _alloc(_codeSize);
 
-    _readFn = _callable((a, b, c) => read(a, b));
-    _writeFn = _callable((a, b, c) {
-      write(a, c, c == 4 ? b : b & ((1 << (c * 8)) - 1));
-      return 0;
-    });
+      _readFn = _callable((a, b, c) => read(a, b));
+      _writeFn = _callable((a, b, c) {
+        write(a, c, c == 4 ? b : b & ((1 << (c * 8)) - 1));
+        return 0;
+      });
 
-    final (bytes, exitOffset) = X64Backend.trampoline(
-        win64: _os.win64,
-        ctx: _ctxAddr,
-        readTable: _readTable,
-        writeTable: _writeTable,
-        slots: _slots,
-        dyn: _dyn);
-    _write(0, bytes);
-    exitStub = _code + exitOffset;
-    _codeStart = (bytes.length + 63) & ~63;
-    _codeEnd = _codeStart;
-    _enter = Pointer<NativeFunction<_EnterC>>.fromAddress(_code)
-        .asFunction<_Enter>();
+      final (bytes, exitOffset) = X64Backend.trampoline(
+          win64: _os.win64,
+          ctx: _ctxAddr,
+          readTable: _readTable,
+          writeTable: _writeTable,
+          slots: _slots,
+          dyn: _dyn);
+      _write(0, bytes);
+      exitStub = _code + exitOffset;
+      _codeStart = (bytes.length + 63) & ~63;
+      _codeEnd = _codeStart;
+      _enter = Pointer<NativeFunction<_EnterC>>.fromAddress(_code)
+          .asFunction<_Enter>();
+    } catch (_) {
+      dispose();
+      rethrow;
+    }
   }
 
   int _alloc(int size) {
@@ -195,11 +203,15 @@ final class _X64Runtime extends JitRuntime implements X64Env {
     final start = offset & ~(JitRuntime.pageSize - 1);
     final end = (offset + bytes.length + JitRuntime.pageSize - 1) &
         ~(JitRuntime.pageSize - 1);
-    _os.protect(_code + start, end - start, exec: false);
+    if (!_os.protect(_code + start, end - start, exec: false)) {
+      throw StateError('cannot make JIT code writable');
+    }
     Pointer<Uint8>.fromAddress(_code + offset)
         .asTypedList(bytes.length)
         .setAll(0, bytes);
-    _os.protect(_code + start, end - start, exec: true);
+    if (!_os.protect(_code + start, end - start, exec: true)) {
+      throw StateError('cannot make JIT code executable');
+    }
   }
 
   @override
@@ -264,6 +276,7 @@ final class _X64Runtime extends JitRuntime implements X64Env {
 
   @override
   void install(IrBlock block) {
+    _checkAlive();
     List<int> bytes;
     int at;
     try {
@@ -275,7 +288,14 @@ final class _X64Runtime extends JitRuntime implements X64Env {
       at = _codeEnd;
       bytes = X64Backend.compile(block, _code + at, this);
     }
-    _write(at, bytes);
+    try {
+      _write(at, bytes);
+    } catch (_) {
+      // A failed protection change may leave existing code non-executable.
+      // Keep shared guest buffers alive until their owner disposes the core.
+      _failed = true;
+      rethrow;
+    }
     _codeEnd = (at + bytes.length + 15) & ~15;
 
     final key = (block.pc, block.tag);
@@ -312,6 +332,7 @@ final class _X64Runtime extends JitRuntime implements X64Env {
 
   @override
   int run(int pc, int tag) {
+    _checkAlive();
     final entry = _blocks[(pc, tag)];
     if (entry == null) {
       _ctx[JitCtx.exitReason] = JitReason.miss;
@@ -322,8 +343,15 @@ final class _X64Runtime extends JitRuntime implements X64Env {
     return _enter(entry);
   }
 
+  void _checkAlive() {
+    if (_disposed) throw StateError('JIT runtime is disposed');
+    if (_failed) throw StateError('JIT code protection failed');
+  }
+
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     for (final c in _callables) {
       c.close();
     }

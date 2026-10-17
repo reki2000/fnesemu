@@ -5,8 +5,11 @@ import 'ps_jit.dart';
 
 /// Translates R3000 code to [IrBlock]s with the semantics of [R3000.step].
 ///
-/// A block runs from its pc to the first branch and its delay slot. The
-/// load delay is modelled as in the interpreter: a loaded value lands after
+/// A block ends after a branch and its delay slot. Device accesses and
+/// writes to code pages exit before the instruction, so the interpreter
+/// observes the exact clocks and architectural state. Code guards are
+/// checked again after the interpreter completes the write.
+/// The load delay is modelled as in the interpreter: a loaded value lands after
 /// the next instruction unless that instruction loads the same register.
 /// A load which is still in its delay at the end of a block is passed to
 /// the next block as its tag (the register number) with the value in the
@@ -174,12 +177,51 @@ final class _Block {
           if (slot == null || _kindOf(slot) != _Kind.plain) {
             return _interpretAt(addr);
           }
+          if (_isMemory(slot)) {
+            // Check the slot before committing the branch, so a device
+            // access exits at the branch with its original load delay.
+            final base = slot.shr21.mask5;
+            final link = switch (inst.shr26.mask6) {
+              0x00 when inst.mask6 == 0x09 => inst.shr11.mask5,
+              0x03 => 31,
+              0x01 when inst.shr16.mask5 == 0x10 || inst.shr16.mask5 == 0x11 =>
+                31,
+              _ => 0,
+            };
+            final value = base == 0
+                ? b.c32(0)
+                : base == link
+                    ? b.c32(addr.inc4.inc4.mask32)
+                    : base == _pendingReg
+                        ? _pendingValue!
+                        : _get(base);
+            _guardMemory(slot, b.add(value, b.c32(slot.rel16)), addr);
+          }
           final term = _branch(inst, addr);
-          _exec(slot, slotAddr);
+          _exec(slot, slotAddr, memoryGuarded: true);
           _flush();
           return b.finish(term(_pendingReg), cost: _cost);
       }
     }
+  }
+
+  static bool _isStore(int inst) => switch (inst.shr26.mask6) {
+        0x28 || 0x29 || 0x2a || 0x2b || 0x2e || 0x3a => true,
+        _ => false,
+      };
+
+  static bool _isMemory(int inst) => switch (inst.shr26.mask6) {
+        >= 0x20 && <= 0x26 || 0x32 => true,
+        _ => _isStore(inst),
+      };
+
+  /// The runtime mappings define ordinary memory. Device accesses and
+  /// writes to protected code pages run once through the interpreter.
+  void _guardMemory(int inst, IrValue address, int exitPc) {
+    _flush();
+    b.guardMapped(address,
+        IrExit(PsJit.reasonInterpret, exitPc, tag: _pendingReg, spent: _cost),
+        write: _isStore(inst));
   }
 
   /// translates the branch at [addr] and returns its terminator for the
@@ -229,14 +271,17 @@ final class _Block {
     }
   }
 
-  void _exec(int inst, int addr) {
+  void _exec(int inst, int addr, {bool memoryGuarded = false}) {
     final rs = inst.shr21.mask5, rt = inst.shr16.mask5, rd = inst.shr11.mask5;
     IrValue s() => _get(rs);
     IrValue u() => _get(rt);
     IrValue simm() => b.c32(inst.rel16);
     IrValue zimm() => b.c32(inst.mask16);
     void imm(int reg, IrValue v) => _commit(imm: (reg, v));
-    IrValue ea() => b.add(s(), simm());
+    IrValue? address;
+    IrValue ea() => address ??= b.add(s(), simm());
+
+    if (!memoryGuarded && _isMemory(inst)) _guardMemory(inst, ea(), addr);
 
     // an operation without side effects whose result is dropped
     final op = inst.shr26.mask6;

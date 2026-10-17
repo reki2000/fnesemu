@@ -63,7 +63,9 @@ dependency rules.
 
 ### PS1 recompiler
 
-Build or run with `--dart-define=JIT=true` to run the PS1 CPU through `packages/mp_jit_recompiler`, which translates R3000 code to x86-64 on Linux, Android and Windows x64 hosts. Other hosts, including the Web, keep the interpreter. The Windows backend is not tested yet. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+Build or run with `--dart-define=JIT=true` to run the PS1 CPU through `packages/mp_jit_recompiler`, which translates R3000 code to x86-64 on Linux, Android and Windows x64 hosts. Other hosts, including the Web, keep the interpreter. Linux and Windows x64 CI exercise the native backend. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+
+Device accesses and writes to translated RAM pages return to the interpreter before the instruction executes, preserving device clocks, interrupts and self-modifying code. Ordinary RAM accesses remain native. A debugger step that stops at a branch delay slot completes that slot before entering compiled code.
 
 ### Adding or removing a core
 

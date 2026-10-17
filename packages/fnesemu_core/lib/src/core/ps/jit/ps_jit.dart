@@ -38,6 +38,7 @@ final class PsJit {
   late final Uint32List regs = Uint32List.sublistView(rt.ctx, ctxRegs, ctxHi);
 
   bool _scratchPadMapped = false;
+  final _codePages = <int>{};
 
   PsJit._(this.rt);
 
@@ -102,7 +103,17 @@ final class PsJit {
   /// is guarded against modification
   (int, bool)? _fetch(int pc) {
     final offset = pc & 0x1fffffff;
-    if (offset < 0x800000) return (bus.read32(pc), true);
+    if (offset < 0x800000) {
+      final page = offset & (ram.length - JitRuntime.pageSize);
+      if (_codePages.add(page)) {
+        // Writes to translated RAM must leave the current block before
+        // they can change an upcoming instruction, including RAM aliases.
+        for (int a = page; a < 0x800000; a += ram.length) {
+          rt.unmapPages(a, JitRuntime.pageSize, read: false);
+        }
+      }
+      return (bus.read32(pc), true);
+    }
     if (offset >= 0x1fc00000 && offset < 0x1fc80000) {
       return (bus.read32(pc), false);
     }
@@ -157,7 +168,15 @@ final class PsJit {
   }
 
   /// drops every block, after the rom or the whole memory changes
-  void reset() => rt.clear();
+  void reset() {
+    rt.clear();
+    for (final page in _codePages) {
+      for (int a = page; a < 0x800000; a += ram.length) {
+        rt.mapPages(a, JitRuntime.pageSize, ram, offset: page, read: false);
+      }
+    }
+    _codePages.clear();
+  }
 
   /// frees the runtime with the memory; nothing runs afterwards
   void dispose() => rt.dispose();
@@ -168,7 +187,9 @@ final class PsJit {
     final cpu = this.cpu, rt = this.rt, ctx = rt.ctx;
     _syncScratchPad();
     while (cpu.clocks <= limit) {
-      if (_stop != 0) {
+      // A debugger step may have left a taken branch's slot unexecuted.
+      // Blocks only accept a sequential nextPc at their entry.
+      if (_stop != 0 || cpu.nextPc != cpu.pc.inc4.mask32) {
         _interpret();
         continue;
       }
