@@ -101,7 +101,8 @@ void main() {
       card.write(0x1a09, 0x11); // unsigned 0xffff
       card.readData(0);
       expect(card.read(0x1a02), 0xfe);
-      expect(card.read(0x1a03), 0xff);
+      expect(card.read(0x1a03), 0x00);
+      expect(card.read(0x1a04), 0x01);
     });
 
     test('offset can be added to base on selected register writes', () {
