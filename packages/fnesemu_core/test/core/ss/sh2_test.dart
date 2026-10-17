@@ -92,7 +92,10 @@ void main() {
       final cpu = _run([
         0xe200, // mov #0,r2
         0x0019, // div0u
-        for (int i = 0; i < 32; i++) ...[0x4124, 0x3204], // rotcl r1; div1 r0,r2
+        for (int i = 0; i < 32; i++) ...[
+          0x4124,
+          0x3204
+        ], // rotcl r1; div1 r0,r2
         0x4124, // rotcl r1
         ..._loop,
       ], steps: 80, setup: (cpu, _) {

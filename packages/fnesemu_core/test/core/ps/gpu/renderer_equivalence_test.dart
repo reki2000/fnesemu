@@ -30,9 +30,7 @@ extension _Reference on Gpu {
       c16 = c16 & 0x8000 |
           switch (semiTransparent ?? status.shr5 & 0x03) {
             0 => (b0 + b1).shr1.shl10 | (g0 + g1).shr1.shl5 | (r0 + r1).shr1,
-            1 => 31.min(b0 + b1).shl10 |
-                31.min(g0 + g1).shl5 |
-                31.min(r0 + r1),
+            1 => 31.min(b0 + b1).shl10 | 31.min(g0 + g1).shl5 | 31.min(r0 + r1),
             2 => 0.max(b0 - b1).shl10 | 0.max(g0 - g1).shl5 | 0.max(r0 - r1),
             _ => 31.min(b0 + b1.shr2).shl10 |
                 31.min(g0 + g1.shr2).shl5 |
@@ -55,8 +53,8 @@ extension _Reference on Gpu {
 
   void refFlat(int cmd, int v0, int v1, int v2) {
     final c24 = Color.ofC24(cmd);
-    final (p0, p1, p2) = refSort(
-        Point.of(v0, 0, 0), Point.of(v1, 0, 0), Point.of(v2, 0, 0));
+    final (p0, p1, p2) =
+        refSort(Point.of(v0, 0, 0), Point.of(v1, 0, 0), Point.of(v2, 0, 0));
     final transparent = cmd.bit25;
     if (tooLarge(p0, p1) || tooLarge(p1, p2) || tooLarge(p0, p2)) return;
     final c15 = c24.c15;
@@ -71,8 +69,8 @@ extension _Reference on Gpu {
   }
 
   void refGouraud(int cmd, int c0, int v0, int c1, int v1, int c2, int v2) {
-    final (p0, p1, p2) = refSort(
-        Point.of(v0, c0, 0), Point.of(v1, c1, 0), Point.of(v2, c2, 0));
+    final (p0, p1, p2) =
+        refSort(Point.of(v0, c0, 0), Point.of(v1, c1, 0), Point.of(v2, c2, 0));
     final transparent = cmd.bit25;
     if (tooLarge(p0, p1) || tooLarge(p1, p2) || tooLarge(p0, p2)) return;
     for (int y = p0.y; y < p2.y; y++) {
