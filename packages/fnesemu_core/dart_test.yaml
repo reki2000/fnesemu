@@ -1,0 +1,7 @@
+# A browser suite's 30-second load timeout includes waiting for one of the
+# runner's eight iframe slots. On slow hosts, long suites can hold every slot
+# for longer than that, so a waiting suite fails before it starts loading.
+# Scaling the browser timeout scales the load timeout with it.
+on_platform:
+  browser:
+    timeout: 4x
