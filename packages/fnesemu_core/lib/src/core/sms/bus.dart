@@ -173,7 +173,7 @@ class Bus implements Z80Bus {
       case 0x40:
         return vdp.vCounter;
       case 0x41:
-        return vdp.hCounter(cpu.cycles - lineStartCycles);
+        return vdp.hLatch;
       case 0x80:
         return vdp.readData();
       case 0x81:
@@ -196,6 +196,12 @@ class Bus implements Z80Bus {
 
     switch (port & 0xc1) {
       case 0x01:
+        // a rising edge of a TH pin latches the horizontal counter. the pins
+        // set as inputs are pulled up
+        int th(int v) => (v | v >> 4) & 0x0a;
+        if (th(data) & ~th(ioControl) != 0) {
+          vdp.hLatch = Vdp.hCounter(cpu.cycles - lineStartCycles);
+        }
         ioControl = data;
       case 0x40:
       case 0x41:

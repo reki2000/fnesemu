@@ -158,11 +158,18 @@ class Vdp {
   }
 
   /// the horizontal counter at [cycles] CPU cycles into the line
-  int hCounter(int cycles) {
-    final pixel = cycles * 3 ~/ 2;
-    final h = pixel.shr1;
-    return h <= 0x93 ? h : (h + 0x55).mask8;
+  ///
+  /// a line starts when the counter is 0xf4, counts up to 0x93 and jumps to
+  /// 0xe9: 171 values in 228 cycles
+  static int hCounter(int cycles) {
+    final index = ((cycles % 228) * 3 + 2) ~/ 4;
+    if (index < 12) return 0xf4 + index;
+    if (index < 160) return index - 12;
+    return 0xe9 + index - 160;
   }
+
+  // the horizontal counter latched by the TH pins
+  int hLatch = 0;
 
   // ----------------------------------------------------------------------
   // scanline processing
@@ -176,9 +183,23 @@ class Vdp {
 
     if (line < active) {
       _renderLine(line);
+    } else if (mode4 && displayOn) {
+      // sprites in the borders still collide
+      _renderSprites4(vCounter);
+    }
+    if (line == active) {
+      _swap(active);
+      frames++;
     }
 
-    // the line counter runs on the active lines and the line after them
+    line++;
+    if (line == linesInFrame) {
+      line = 0;
+    }
+
+    // the events at the start of the new line, just before the counter
+    // changes: the line counter runs on the active lines and the line after
+    // them, and the frame interrupt comes on the second line after them
     if (line <= active) {
       _lineCounter--;
       if (_lineCounter < 0) {
@@ -188,17 +209,8 @@ class Vdp {
     } else {
       _lineCounter = reg[10];
     }
-
-    if (line == active) {
-      _frameInt = true;
-      _swap(active);
-      frames++;
-    }
-
-    line++;
-    if (line == linesInFrame) {
-      line = 0;
-    }
+    if (line == active + 1) _frameInt = true;
+    _evaluateSprites4(vCounter);
   }
 
   void _swap(int height) {
@@ -336,30 +348,46 @@ class Vdp {
         vram[addr + 3].shr(shift).mask1.shl3;
   }
 
+  int get _spriteHeight => (reg[1].bit1 ? 16 : 8) * (reg[1].bit0 ? 2 : 1);
+
+  /// the row of the sprite [i] at the line [y], or -1 when it is not on it
+  int _spriteRow(int i, int y) {
+    final sy = vram[(reg[5] & 0x7e).shl7 + i];
+    final row = (y - sy - 1).mask8;
+    return row < _spriteHeight ? row : -1;
+  }
+
+  bool _spriteEnd(int i) =>
+      activeLines == 192 && vram[(reg[5] & 0x7e).shl7 + i] == 0xd0;
+
+  /// sets the overflow flag when more than 8 sprites are on the line [y]
+  void _evaluateSprites4(int y) {
+    if (!mode4 || !displayOn) return;
+    var count = 0;
+    for (var i = 0; i < 64 && !_spriteEnd(i); i++) {
+      if (_spriteRow(i, y) >= 0 && ++count > 8) {
+        _overflow = true;
+        return;
+      }
+    }
+  }
+
   void _renderSprites4(int y) {
     _spriteLine.fillRange(0, width, 0);
     final satBase = (reg[5] & 0x7e).shl7;
     final patternBase = reg[6].bit2 ? 0x2000 : 0;
     final tall = reg[1].bit1;
     final zoom = reg[1].bit0 ? 2 : 1;
-    final height = (tall ? 16 : 8) * zoom;
     var count = 0;
-    for (var i = 0; i < 64; i++) {
-      final sy = vram[satBase + i];
-      if (sy == 0xd0 && activeLines == 192) break;
-      var top = sy + 1;
-      if (top > 0xf0) top -= 256;
-      if (y < top || y >= top + height) continue;
-      if (count == 8) {
-        _overflow = true;
-        break;
-      }
+    for (var i = 0; i < 64 && !_spriteEnd(i) && count < 8; i++) {
+      final spriteRow = _spriteRow(i, y);
+      if (spriteRow < 0) continue;
       count++;
       var sx = vram[satBase + 0x80 + i * 2];
       if (reg[0].bit3) sx -= 8;
       var tile = vram[satBase + 0x81 + i * 2];
       if (tall) tile &= 0xfe;
-      final row = (y - top) ~/ zoom;
+      final row = spriteRow ~/ zoom;
       final addr = patternBase + tile * 32 + row * 4;
       for (var px = 0; px < 8 * zoom; px++) {
         final x = sx + px;
