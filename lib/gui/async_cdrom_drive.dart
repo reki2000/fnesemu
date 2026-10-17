@@ -32,6 +32,9 @@ class AsyncCdromDrive implements CdromDrive {
   int _seekLba = 0;
   bool _seekRequested = false;
 
+  /// the sector of the last [read] which returned null
+  int? _waitLba;
+
   /// incremented on each disc change to discard the results of the old disc
   int _discId = 0;
   final _events = CdromDriveEvents();
@@ -42,6 +45,14 @@ class AsyncCdromDrive implements CdromDrive {
 
   /// for tests and debugging
   int get cachedSectors => _cache.length;
+
+  /// true while the core waits for the drive: the TOC is being read, or the
+  /// sector of the last seek or read is not available yet
+  bool get isWaiting {
+    if (_state == CdromDriveState.loading || _status.isSeeking) return true;
+    final lba = _waitLba;
+    return lba != null && _image != null && !_cache.containsKey(lba);
+  }
 
   /// rebuilt on each change, as the core polls it on each exec
   CdromDriveStatus _status = CdromDriveStatus.empty;
@@ -154,6 +165,7 @@ class AsyncCdromDrive implements CdromDrive {
     _inflight.clear();
     _seekLba = 0;
     _seekRequested = false;
+    _waitLba = null;
     _updateStatus();
     return _discId;
   }
@@ -173,11 +185,14 @@ class AsyncCdromDrive implements CdromDrive {
   Uint8List? read(int lba) {
     final image = _image;
     if (image == null || !image.isReadable(lba)) {
+      _waitLba = null;
       return Uint8List(0);
     }
 
     _ensureLoaded(lba);
-    return _cache[lba]?.data;
+    final data = _cache[lba]?.data;
+    _waitLba = data == null ? lba : null;
+    return data;
   }
 
   bool _isCached(int lba) {

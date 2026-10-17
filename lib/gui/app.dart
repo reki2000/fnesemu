@@ -161,6 +161,9 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
+    _cdromWaitTimer = Timer.periodic(
+        const Duration(milliseconds: 300), (_) => _tickCdromWait());
+
     _log.infoc(() => "initialized: ${widget.config.dump()}");
   }
 
@@ -188,6 +191,8 @@ class MainPageState extends State<MainPage> {
     _padInput.dispose();
     _sramSavedTimer?.cancel();
     _sramSaved.dispose();
+    _cdromWaitTimer.cancel();
+    _cdromWaitDots.dispose();
     _mPlayer.dispose();
     _imageContainer.dispose();
     _storage.dispose();
@@ -799,6 +804,15 @@ class MainPageState extends State<MainPage> {
         const Duration(milliseconds: 1500), () => _sramSaved.value = false);
   }
 
+  // 1 to 3 while the core waits for the cdrom drive, 0 otherwise. the number
+  // of the dots changes to show that the emulation is not frozen.
+  final _cdromWaitDots = ValueNotifier<int>(0);
+  late final Timer _cdromWaitTimer;
+
+  void _tickCdromWait() {
+    _cdromWaitDots.value = _drive.isWaiting ? _cdromWaitDots.value % 3 + 1 : 0;
+  }
+
   // the same look as the fps indicator
   static Widget _badge(Widget child, {Key? key}) => DecoratedBox(
         key: key,
@@ -825,6 +839,18 @@ class MainPageState extends State<MainPage> {
           ),
         ),
         const SizedBox(width: 6),
+        ValueListenableBuilder<int>(
+          valueListenable: _cdromWaitDots,
+          builder: (context, dots, _) => dots == 0
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _badge(
+                      Text('loading${'.' * dots}',
+                          style: const TextStyle(color: Colors.white)),
+                      key: const ValueKey('cdrom-loading')),
+                ),
+        ),
         StreamBuilder<double>(
           stream: _controller.fpsStream,
           builder: (context, snapshot) => _badge(

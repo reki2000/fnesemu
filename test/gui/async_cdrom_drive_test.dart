@@ -84,6 +84,21 @@ FILE "a.bin" BINARY
     expect(drive.read(4), isEmpty);
   });
 
+  test('the drive is waiting until the read sector is available', () async {
+    final drive = AsyncCdromDrive();
+    await drive.insert(
+        memoryDisc("a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(4))}));
+    expect(drive.isWaiting, false);
+    expect(drive.read(1), isNull);
+    expect(drive.isWaiting, true);
+    await drive.settle();
+    expect(drive.isWaiting, false);
+    drive.seek(2);
+    expect(drive.isWaiting, false); // already read ahead
+    await drive.eject();
+    expect(drive.isWaiting, false);
+  });
+
   test('the status is converted only when it changes', () async {
     final drive = AsyncCdromDrive();
     expect(identical(drive.status, drive.status), true);
