@@ -883,7 +883,7 @@ class V30mz {
           r[ax] = (n % v).shl8 | q;
           _setDivFlags(zero: n % v == 0 && q.bit0, keepOverflow: true);
         }
-      default: // idiv
+      default: // idiv: the quotients -128 and -32768 raise the exception
         cycles += 18;
         if (word) {
           final n = (r[dx].shl16 | r[ax]).rel32;
@@ -894,7 +894,7 @@ class V30mz {
             return true;
           }
           final d = v.rel16;
-          if (d == 0 || n ~/ d > 0x7fff || n ~/ d < -0x8000) {
+          if (d == 0 || n ~/ d > 0x7fff || n ~/ d < -0x7fff) {
             _setDivFlags(zero: false, keepOverflow: false);
             interrupt(0);
             return true;
@@ -912,7 +912,7 @@ class V30mz {
             return true;
           }
           final d = v.rel8;
-          if (d == 0 || n ~/ d > 0x7f || n ~/ d < -0x80) {
+          if (d == 0 || n ~/ d > 0x7f || n ~/ d < -0x7f) {
             _divideError(false);
             return true;
           }
