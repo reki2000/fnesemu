@@ -14,7 +14,9 @@ const coreDir = 'lib/src/core';
 String layerOf(String path) {
   if (!path.startsWith('src/')) return 'public';
   final parts = path.replaceFirst(RegExp(r'^src/'), '').split('/');
-  if (parts[0] == 'util' || parts[0] == 'components' || parts[0] == 'internal') {
+  if (parts[0] == 'util' ||
+      parts[0] == 'components' ||
+      parts[0] == 'internal') {
     return parts[0];
   }
   if (parts.length == 1) return 'shared';

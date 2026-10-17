@@ -46,6 +46,11 @@ class Noise {
   int vol = 15;
   bool periodic = false;
 
+  /// the noise shift register is 16 bits tapping bits 0 and 3, or 15 bits
+  /// tapping bits 0 and 1 in the earlier variant
+  bool lfsr15 = false;
+  int get _lfsrTop => lfsr15 ? 0x4000 : 0x8000;
+
   int _tone2freq = 0;
   int _shift = 0;
 
@@ -59,7 +64,7 @@ class Noise {
   set shift(int s) {
     _shift = s;
     _freq = [0x10, 0x20, 0x40, _tone2freq][s];
-    _lfsr = 0x8000;
+    _lfsr = _lfsrTop;
   }
 
   int _counter = 0;
@@ -84,8 +89,9 @@ class Noise {
         _counter = _freq;
 
         if (_high) {
-          final input = periodic ? _lfsr : (_lfsr ^ _lfsr.shr3);
-          _lfsr = _lfsr.shr1 | input.shl15 & 0x8000;
+          final input =
+              periodic ? _lfsr : (_lfsr ^ (lfsr15 ? _lfsr.shr1 : _lfsr.shr3));
+          _lfsr = _lfsr.shr1 | (input.bit0 ? _lfsrTop : 0);
         }
 
         _vol = _lfsr.bit0 ? _volumeTable[vol] : -_volumeTable[vol];
@@ -107,9 +113,15 @@ class Sn76489 {
 
   int _latch = 0;
 
+  /// stereo control: bits 0-3 enable channels 0-3 on the right
+  /// output and bits 4-7 enable them on the left output
+  int stereo = 0xff;
+
   int elapsedSamples = 0;
 
-  Sn76489();
+  Sn76489({bool lfsr15 = false}) {
+    noise.lfsr15 = lfsr15;
+  }
 
   Float32List get audioBuffer => Float32List(1000);
 
@@ -160,6 +172,7 @@ class Sn76489 {
     noise.vol = 15;
     noise.tone2freq = 0;
     noise.periodic = false;
+    stereo = 0xff;
   }
 
   // single channel render
@@ -194,6 +207,38 @@ class Sn76489 {
 
     for (int i = 0; i < samples; i++) {
       out[offset + i] = (wave0[i] + wave1[i] + wave2[i] + wave3[i]) / 4;
+    }
+  }
+
+  /// renders [samples] stereo frames into [out] from [offset], interleaved in
+  /// left and right order, applying [stereo]
+  void renderStereoTo(Float32List out, int offset, int samples) {
+    elapsedSamples += samples;
+
+    if (_wave0.length < samples) {
+      _wave0 = Float32List(samples);
+      _wave1 = Float32List(samples);
+      _wave2 = Float32List(samples);
+      _wave3 = Float32List(samples);
+    }
+    final waves = [_wave0, _wave1, _wave2, _wave3];
+
+    tones[0].renderTo(waves[0], samples);
+    tones[1].renderTo(waves[1], samples);
+    tones[2].renderTo(waves[2], samples);
+    noise.renderTo(waves[3], samples);
+
+    final right = [for (var ch = 0; ch < 4; ch++) stereo >> ch & 1];
+    final left = [for (var ch = 0; ch < 4; ch++) stereo >> (ch + 4) & 1];
+    for (int i = 0; i < samples; i++) {
+      var l = 0.0, r = 0.0;
+      for (var ch = 0; ch < 4; ch++) {
+        final v = waves[ch][i];
+        if (left[ch] != 0) l += v;
+        if (right[ch] != 0) r += v;
+      }
+      out[offset + i * 2] = l / 4;
+      out[offset + i * 2 + 1] = r / 4;
     }
   }
 

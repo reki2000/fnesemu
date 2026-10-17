@@ -134,7 +134,7 @@ class Z80 {
   static const imVector = 2;
 
   bool _intAsserted = false;
-  bool eiDelay = false; // EI instruction delay
+  bool eiDelay = false; // set by EI: no interrupt before the next instruction
 
   bool halted = false; // HALT instruction
   bool busReq = false; // BUSREQ: the bus is owned by another master
@@ -194,11 +194,8 @@ class Z80 {
       return true;
     }
 
-    if (eiDelay) {
-      iff1 = true;
-      iff2 = true;
-      eiDelay = false;
-    }
+    // EI enables interrupts after the next instruction
+    eiDelay = false;
 
     // halt
     if (halted) {
@@ -329,7 +326,7 @@ class Z80 {
 
   int add16(int org, int val, {int c = 0}) {
     final result = org + val + c;
-    r.hf = org.mask12 + val.mask12 > 0xfff;
+    r.hf = org.mask12 + val.mask12 + c > 0xfff;
     r.cf = result > 0xffff;
     r.nf = false;
     cycles += 7;
@@ -367,7 +364,7 @@ class Z80 {
     final result = r.a + val + c;
     r.setSZ(result.mask8);
     r.setV(r.a, val, result);
-    r.hf = r.a.mask4 + val.mask4 > 0xf;
+    r.hf = r.a.mask4 + val.mask4 + c > 0xf;
     r.nf = false;
     r.cf = result > 0xff;
     r.a = result.mask8;

@@ -125,6 +125,7 @@ void main(List<String> args) {
   final expects = File(args[1]).readAsLinesSync(); // text.expected
 
   int inpputLineNo = 0;
+  int failures = 0;
   int expectLineNo = 0;
 
   while (inpputLineNo < inputs.length) {
@@ -191,18 +192,20 @@ void main(List<String> args) {
           List.generate(dump1.length, (i) => dump1[i] == dump2[i] ? " " : "^")
               .join());
       stdout.writeln(bus.wrLog.toString());
-      return;
+      failures++;
     }
 
     // skip memory change log
     int i = 0;
     while (expects[expectLineNo].endsWith("-1")) {
       final wr = expects[expectLineNo];
-      final log = "${bus.wrLog[i][0]} ${bus.wrLog[i][1]}-1";
+      final log = i < bus.wrLog.length
+          ? "${bus.wrLog[i][0]} ${bus.wrLog[i][1]}-1"
+          : "(none)";
       if (wr != log) {
         stdout.writeln("Test $testNo failed. expected, actual:\n$wr, $log");
         stdout.writeln(bus.wrLog.toString());
-        return;
+        failures++;
       }
       i++;
       expectLineNo++;
@@ -211,5 +214,6 @@ void main(List<String> args) {
     expectLineNo++;
   }
 
-  stdout.writeln("All tests passed.");
+  stdout
+      .writeln(failures == 0 ? "All tests passed." : "$failures tests failed.");
 }
