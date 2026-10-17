@@ -99,4 +99,5 @@ void main() {
     final (image, _) = await DiscImage.parse(file, files: files);
     expect(image.totalSectors, 4);
   });
+
 }

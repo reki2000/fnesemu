@@ -151,11 +151,10 @@ class Storage extends Sram {
   List<RomDirectory> get romDirectories {
     final saved = setting(_directoriesKey);
     try {
-      final directories =
-          (jsonDecode(saved ?? setting(_oldDirectoriesKey) ?? '[]') as List)
-              .map(
-                  (json) => RomDirectory.fromJson(json as Map<String, dynamic>))
-              .toList();
+      final directories = (jsonDecode(
+              saved ?? setting(_oldDirectoriesKey) ?? '[]') as List)
+          .map((json) => RomDirectory.fromJson(json as Map<String, dynamic>))
+          .toList();
       return saved == null ? directories.reversed.toList() : directories;
     } catch (_) {
       return [];
