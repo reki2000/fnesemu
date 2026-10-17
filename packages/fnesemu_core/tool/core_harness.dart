@@ -1,7 +1,7 @@
-// headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64):
+// headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64 / sms / ws):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run tool/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] [options]
+// usage: dart run tool/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sms|mk3|smstms|gg|ws|wsc> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
@@ -29,7 +29,10 @@ import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/nes/nes.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
+import 'package:fnesemu_core/src/core/sms/bus.dart';
+import 'package:fnesemu_core/src/core/sms/sms.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
+import 'package:fnesemu_core/src/core/ws/ws.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
@@ -89,7 +92,7 @@ Future<void> main(List<String> args) async {
 
   if (files.length < 2) {
     stdout.writeln(
-        "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64> <rom|bios> [disc] "
+        "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sms|mk3|smstms|gg|ws|wsc> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
@@ -226,6 +229,18 @@ Core _createCore(String name) {
       return Gba();
     case 'n64':
       return N64();
+    case 'smstms':
+      return Sms(SmsModel.tms);
+    case 'sms':
+      return Sms(SmsModel.standard);
+    case 'mk3':
+      return Sms(SmsModel.mk3);
+    case 'gg':
+      return Sms(SmsModel.gg);
+    case 'ws':
+      return Ws(color: false);
+    case 'wsc':
+      return Ws(color: true);
     default:
       throw ArgumentError('unknown core: $name');
   }

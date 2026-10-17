@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64 Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS Emulator Built with Flutter
 
 This project is experimental.
 
@@ -21,17 +21,19 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-| key | Z | X | C | A | S | Q | W | E | R | D | arrows |
+| key | Z | X | C | A | S | D | Q | W | E | R | arrows |
 |-----|---|---|---|---|---|---|---|---|---|---|--------|
 | NES | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
 | PCE | II | I |  | Select | Run |  |  |  |  |  | up / down / left / right |
-| MD | A | B | C | X | Y | Mode | | Start |  | Z | up / down / left / right |
-| PS1 | # | x | o | Select | ^ | L1 | Start | R1 |  |  | up / down / left / right |
+| MD | A | B | C | X | Y | Z | Mode | | Start |  | up / down / left / right |
+| PS1 | # | x | o | Select | ^ |  | L1 | Start | R1 |  | up / down / left / right |
 | GB | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
-| GBA | A | B | L | Select | Start | R |  |  |  |  | up / down / left / right |
-| SNES | Select |  | Start | Y | B | L | X | R |  | A | up / down / left / right |
-| SS | A | B | C | L | Start | X | Y | Z | R |  | up / down / left / right |
-| N64 | B | A | Z | C-left | C-down | L | C-up | R | Start | C-right | up / down / left / right |
+| GBA | A | B | L | Select | Start |  | R |  |  |  | up / down / left / right |
+| SNES | Select |  | Start | Y | B | A | L | X | R |  | up / down / left / right |
+| SS | A | B | C | L | Start |  | X | Y | Z | R | up / down / left / right |
+| N64 | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start | up / down / left / right |
+| SMS | 1 | 2 |  |  | Pause (Start on the portable console) |  |  |  |  |  | up / down / left / right |
+| WS | B | A | Y2 | Y1 | Start |  | Y4 | Y3 |  |  | X1 / X3 / X4 / X2 |
 
 # How to develop
 
