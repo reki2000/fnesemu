@@ -86,6 +86,10 @@ abstract final class X64Backend {
 
   /// compiles [block] to be placed at the native address [base]
   static List<int> compile(IrBlock block, int base, X64Env env) {
+    if (block.usesI64 || block.usesBigEndian) {
+      throw UnsupportedError(
+          'x64 backend currently emits i32 little-endian IR');
+    }
     if (block.insts.length > maxValues) {
       throw StateError('block too long: ${block.insts.length} values');
     }
@@ -186,6 +190,8 @@ abstract final class X64Backend {
       void alu(int op) => binary(() => a.aluRM(op, R.rax, _slot(inst.b)));
 
       switch (inst.op) {
+        case IrOp.sext32 || IrOp.zext32 || IrOp.trunc32:
+          throw UnsupportedError('x64 i64 emission is not implemented');
         case IrOp.constant:
           a.movMI(out, inst.imm);
         case IrOp.ctxLoad:

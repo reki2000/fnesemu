@@ -1,11 +1,26 @@
 /// The IR of a guest code block.
 ///
 /// A block is straight-line SSA code with one entry, optional side exits
-/// ([IrBuilder.exitIf]) and one terminator. Every value is a 32-bit integer.
+/// ([IrBuilder.exitIf]) and one terminator. Values have explicit i32 or i64 widths.
 /// Guest state lives in the context, an array of 32-bit words shared with the
 /// host; [IrBuilder.ctxLoad] and [IrBuilder.ctxStore] access it by a constant
-/// word index. Guest memory is accessed through the page table of the runtime.
+/// word index; i64 context values occupy two words, low word first. Guest
+/// addresses remain i32 independently of value width. Memory byte order is
+/// explicit on each access and is independent of the context layout.
 library;
+
+/// Integer bit patterns; arithmetic wraps at the declared width.
+enum IrType {
+  i32(32),
+  i64(64);
+
+  final int bits;
+  const IrType(this.bits);
+  int get bytes => bits ~/ 8;
+}
+
+/// Byte order of a guest memory access, independent of host byte order.
+enum IrEndian { little, big }
 
 /// The operations of [IrInst].
 enum IrOp {
@@ -22,22 +37,22 @@ enum IrOp {
   sub,
   mul,
 
-  /// the upper 32 bits of the signed 64-bit product
+  /// the upper half of the signed double-width product
   mulHiS,
 
-  /// the upper 32 bits of the unsigned 64-bit product
+  /// the upper half of the unsigned double-width product
   mulHiU,
   and,
   or,
   xor,
 
-  /// a << (b & 31)
+  /// a << (b & (width - 1)); b is i32
   shl,
 
-  /// a >>> (b & 31)
+  /// a >>> (b & (width - 1)); b is i32
   shrU,
 
-  /// a >> (b & 31), arithmetic
+  /// a >> (b & (width - 1)), arithmetic; b is i32
   shrS,
 
   /// 1 if a == b else 0
@@ -57,11 +72,16 @@ enum IrOp {
   zext8,
   zext16,
 
-  /// loads imm bytes (1, 2 or 4) at the guest address a; aux is 1 to sign
+  /// Sign/zero extends an i32 value to i64, or truncates i64 to i32.
+  sext32,
+  zext32,
+  trunc32,
+
+  /// loads imm bytes (1, 2, 4 or 8) at the guest address a; aux is 1 to sign
   /// extend
   load,
 
-  /// stores imm bytes (1, 2 or 4) of b at the guest address a
+  /// stores imm bytes (1, 2, 4 or 8) of b at the guest address a
   store,
 
   /// calls the helper imm with (a, b, c) and returns its result
@@ -82,6 +102,9 @@ int irOperandCount(IrOp op) => switch (op) {
       IrOp.sext16 ||
       IrOp.zext8 ||
       IrOp.zext16 ||
+      IrOp.sext32 ||
+      IrOp.zext32 ||
+      IrOp.trunc32 ||
       IrOp.load ||
       IrOp.exitIf ||
       IrOp.guardMapped =>
@@ -103,6 +126,15 @@ extension type const IrValue(int index) {}
 /// One instruction. Unused operands are -1.
 final class IrInst {
   final IrOp op;
+
+  /// Result width, or the stored value width for ctxStore/store.
+  /// Comparisons and conditions produce i32, even with i64 operands.
+  final IrType type;
+  final IrEndian endian;
+
+  /// Upper constant word for i64; imm holds the low word. This avoids
+  /// routing exact 64-bit constants through JavaScript numbers.
+  final int immHi;
   final int a, b, c;
 
   /// constant, context index, access size or helper id
@@ -112,12 +144,19 @@ final class IrInst {
   final int aux;
 
   const IrInst(this.op,
-      {this.a = -1, this.b = -1, this.c = -1, this.imm = 0, this.aux = 0});
+      {this.a = -1,
+      this.b = -1,
+      this.c = -1,
+      this.imm = 0,
+      this.aux = 0,
+      this.type = IrType.i32,
+      this.endian = IrEndian.little,
+      this.immHi = 0});
 
   @override
   String toString() {
     final ops = [a, b, c].where((v) => v >= 0).map((v) => 'v$v').join(', ');
-    return '${op.name}($ops${ops.isEmpty ? '' : ', '}imm: $imm, aux: $aux)';
+    return '${op.name}.${type.name}.${endian.name}($ops${ops.isEmpty ? '' : ', '}imm: $imm, immHi: $immHi, aux: $aux)';
   }
 }
 
@@ -202,7 +241,7 @@ final class IrExitTerm extends IrTerm {
 
 /// A word of guest memory that must still hold [value] when the block is
 /// entered, used to detect modified code.
-typedef IrGuard = ({int addr, int value});
+typedef IrGuard = ({int addr, int value, IrEndian endian});
 
 final class IrBlock {
   /// the key of the block
@@ -222,8 +261,13 @@ final class IrBlock {
     verify();
   }
 
-  /// checks the operands of every instruction
-  void verify() {
+  bool get usesI64 => insts.any((i) => i.type == IrType.i64);
+  bool get usesBigEndian =>
+      insts.any((i) => i.endian == IrEndian.big) ||
+      guards.any((g) => g.endian == IrEndian.big);
+
+  /// Checks SSA operands and widths; runtimes also check context bounds.
+  void verify({int? ctxWords}) {
     void check(bool ok, String message) {
       if (!ok) throw StateError('IrBlock ${pc.toRadixString(16)}: $message');
     }
@@ -231,7 +275,8 @@ final class IrBlock {
     void value(int v, int at) => check(
         v >= 0 && v < at && irHasResult(insts[v].op),
         'v$at uses an invalid value v$v');
-
+    IrType type(int v) => insts[v].type;
+    check(cost >= 0, 'negative block cost');
     for (int i = 0; i < insts.length; i++) {
       final inst = insts[i];
       final n = irOperandCount(inst.op);
@@ -242,26 +287,76 @@ final class IrBlock {
           check(v == -1, 'v$i has an extra operand');
         }
       }
+      void width(bool ok) =>
+          check(ok, 'v$i has incompatible operand/result widths');
+      check(
+          inst.op == IrOp.load ||
+              inst.op == IrOp.store ||
+              inst.endian == IrEndian.little,
+          'v$i assigns byte order to a non-memory operation');
+      check(inst.op == IrOp.constant || inst.immHi == 0,
+          'v$i has an extra constant word');
       switch (inst.op) {
+        case IrOp.constant:
+          check(inst.type == IrType.i64 || inst.immHi == 0,
+              'i32 constant has an upper word');
+        case IrOp.ctxLoad || IrOp.ctxStore:
+          check(
+              inst.imm >= 0 &&
+                  (ctxWords == null ||
+                      inst.imm + inst.type.bytes ~/ 4 <= ctxWords),
+              'v$i has an out-of-bounds context access');
+          if (inst.op == IrOp.ctxStore) width(type(inst.a) == inst.type);
         case IrOp.load || IrOp.store:
-          check(inst.imm == 1 || inst.imm == 2 || inst.imm == 4,
-              'v$i has an invalid size ${inst.imm}');
+          check([1, 2, 4, 8].contains(inst.imm) && inst.imm <= inst.type.bytes,
+              'v$i has an invalid access size ${inst.imm}');
+          width(type(inst.a) == IrType.i32);
+          if (inst.op == IrOp.store) {
+            width(type(inst.b) == inst.type);
+          } else {
+            check(inst.aux == 0 || inst.aux == 1,
+                'v$i has invalid sign extension');
+          }
+        case IrOp.call:
+          width(inst.type == IrType.i32 &&
+              [inst.a, inst.b, inst.c].every((v) => type(v) == IrType.i32));
         case IrOp.exitIf || IrOp.guardMapped:
+          width(inst.type == IrType.i32 && type(inst.a) == IrType.i32);
           check(inst.aux >= 0 && inst.aux < exits.length,
-              'v$i has an invalid exit ${inst.aux}');
+              'v$i has an invalid exit');
           final spent = exits[inst.aux].spent;
           check(spent == null || (spent >= 0 && spent <= cost),
               'v$i spends more than the cost');
-        case IrOp.ctxLoad || IrOp.ctxStore:
-          check(inst.imm >= 0, 'v$i has an invalid context index');
+          if (inst.op == IrOp.guardMapped) {
+            check(inst.imm == 0 || inst.imm == 1,
+                'v$i has an invalid mapping access mode');
+          }
+        case IrOp.eq || IrOp.ne || IrOp.ltS || IrOp.ltU:
+          width(inst.type == IrType.i32 && type(inst.a) == type(inst.b));
+        case IrOp.shl || IrOp.shrU || IrOp.shrS:
+          width(inst.type == type(inst.a) && type(inst.b) == IrType.i32);
+        case IrOp.select:
+          width(type(inst.a) == IrType.i32 &&
+              type(inst.b) == type(inst.c) &&
+              inst.type == type(inst.b));
+        case IrOp.sext32 || IrOp.zext32:
+          width(type(inst.a) == IrType.i32 && inst.type == IrType.i64);
+        case IrOp.trunc32:
+          width(type(inst.a) == IrType.i64 && inst.type == IrType.i32);
+        case IrOp.sext8 || IrOp.sext16 || IrOp.zext8 || IrOp.zext16:
+          // These conversions may extend a narrow value to either width.
+          break;
         default:
+          width(inst.type == type(inst.a) && inst.type == type(inst.b));
       }
     }
     switch (term) {
       case IrBranch(:final cond):
         value(cond.index, insts.length);
+        check(type(cond.index) == IrType.i32, 'branch condition must be i32');
       case IrJumpDyn(pc: final v):
         value(v.index, insts.length);
+        check(type(v.index) == IrType.i32, 'guest addresses must be i32');
       default:
     }
   }
@@ -282,7 +377,7 @@ final class IrBuilder {
   final _insts = <IrInst>[];
   final _guards = <IrGuard>[];
   final _exits = <IrExit>[];
-  final _constants = <int, IrValue>{};
+  final _constants = <(IrType, int, int), IrValue>{};
 
   IrBuilder(this.pc, {this.tag = 0});
 
@@ -293,18 +388,37 @@ final class IrBuilder {
     return IrValue(_insts.length - 1);
   }
 
+  IrType typeOf(IrValue value) => _insts[value.index].type;
+
   IrValue _bin(IrOp op, IrValue a, IrValue b) =>
+      _emit(IrInst(op, a: a.index, b: b.index, type: typeOf(a)));
+
+  IrValue _compare(IrOp op, IrValue a, IrValue b) =>
       _emit(IrInst(op, a: a.index, b: b.index));
 
   /// a constant; the same constant is shared in a block
   IrValue c32(int value) {
     value = value.toSigned(32);
-    return _constants[value] ??= _emit(IrInst(IrOp.constant, imm: value));
+    return _constants[(IrType.i32, value, 0)] ??=
+        _emit(IrInst(IrOp.constant, imm: value));
   }
 
-  IrValue ctxLoad(int index) => _emit(IrInst(IrOp.ctxLoad, imm: index));
+  /// Portable exact constants, including in dart2js builds.
+  IrValue c64(BigInt value) => c64Parts(
+      (value & BigInt.from(0xffffffff)).toInt(),
+      ((value >> 32) & BigInt.from(0xffffffff)).toInt());
+
+  IrValue c64Parts(int low, int high) {
+    low = low.toSigned(32);
+    high = high.toSigned(32);
+    return _constants[(IrType.i64, low, high)] ??=
+        _emit(IrInst(IrOp.constant, imm: low, immHi: high, type: IrType.i64));
+  }
+
+  IrValue ctxLoad(int index, {IrType type = IrType.i32}) =>
+      _emit(IrInst(IrOp.ctxLoad, imm: index, type: type));
   void ctxStore(int index, IrValue v) =>
-      _emit(IrInst(IrOp.ctxStore, a: v.index, imm: index));
+      _emit(IrInst(IrOp.ctxStore, a: v.index, imm: index, type: typeOf(v)));
 
   IrValue add(IrValue a, IrValue b) => _bin(IrOp.add, a, b);
   IrValue sub(IrValue a, IrValue b) => _bin(IrOp.sub, a, b);
@@ -314,25 +428,51 @@ final class IrBuilder {
   IrValue and(IrValue a, IrValue b) => _bin(IrOp.and, a, b);
   IrValue or(IrValue a, IrValue b) => _bin(IrOp.or, a, b);
   IrValue xor(IrValue a, IrValue b) => _bin(IrOp.xor, a, b);
-  IrValue not(IrValue a) => xor(a, c32(-1));
+  IrValue not(IrValue a) =>
+      xor(a, typeOf(a) == IrType.i32 ? c32(-1) : c64Parts(-1, -1));
   IrValue shl(IrValue a, IrValue b) => _bin(IrOp.shl, a, b);
   IrValue shrU(IrValue a, IrValue b) => _bin(IrOp.shrU, a, b);
   IrValue shrS(IrValue a, IrValue b) => _bin(IrOp.shrS, a, b);
-  IrValue eq(IrValue a, IrValue b) => _bin(IrOp.eq, a, b);
-  IrValue ne(IrValue a, IrValue b) => _bin(IrOp.ne, a, b);
-  IrValue ltS(IrValue a, IrValue b) => _bin(IrOp.ltS, a, b);
-  IrValue ltU(IrValue a, IrValue b) => _bin(IrOp.ltU, a, b);
+  IrValue eq(IrValue a, IrValue b) => _compare(IrOp.eq, a, b);
+  IrValue ne(IrValue a, IrValue b) => _compare(IrOp.ne, a, b);
+  IrValue ltS(IrValue a, IrValue b) => _compare(IrOp.ltS, a, b);
+  IrValue ltU(IrValue a, IrValue b) => _compare(IrOp.ltU, a, b);
   IrValue select(IrValue cond, IrValue a, IrValue b) =>
-      _emit(IrInst(IrOp.select, a: cond.index, b: a.index, c: b.index));
-  IrValue sext8(IrValue a) => _emit(IrInst(IrOp.sext8, a: a.index));
-  IrValue sext16(IrValue a) => _emit(IrInst(IrOp.sext16, a: a.index));
-  IrValue zext8(IrValue a) => _emit(IrInst(IrOp.zext8, a: a.index));
-  IrValue zext16(IrValue a) => _emit(IrInst(IrOp.zext16, a: a.index));
+      _emit(IrInst(IrOp.select,
+          a: cond.index, b: a.index, c: b.index, type: typeOf(a)));
+  IrValue sext8(IrValue a, {IrType? type}) =>
+      _emit(IrInst(IrOp.sext8, a: a.index, type: type ?? typeOf(a)));
+  IrValue sext16(IrValue a, {IrType? type}) =>
+      _emit(IrInst(IrOp.sext16, a: a.index, type: type ?? typeOf(a)));
+  IrValue zext8(IrValue a, {IrType? type}) =>
+      _emit(IrInst(IrOp.zext8, a: a.index, type: type ?? typeOf(a)));
+  IrValue zext16(IrValue a, {IrType? type}) =>
+      _emit(IrInst(IrOp.zext16, a: a.index, type: type ?? typeOf(a)));
 
-  IrValue load(int size, IrValue addr, {bool signed = false}) =>
-      _emit(IrInst(IrOp.load, a: addr.index, imm: size, aux: signed ? 1 : 0));
-  void store(int size, IrValue addr, IrValue v) =>
-      _emit(IrInst(IrOp.store, a: addr.index, b: v.index, imm: size));
+  IrValue sext32(IrValue a) =>
+      _emit(IrInst(IrOp.sext32, a: a.index, type: IrType.i64));
+  IrValue zext32(IrValue a) =>
+      _emit(IrInst(IrOp.zext32, a: a.index, type: IrType.i64));
+  IrValue trunc32(IrValue a) => _emit(IrInst(IrOp.trunc32, a: a.index));
+
+  IrValue load(int size, IrValue addr,
+          {bool signed = false,
+          IrType type = IrType.i32,
+          IrEndian endian = IrEndian.little}) =>
+      _emit(IrInst(IrOp.load,
+          a: addr.index,
+          imm: size,
+          aux: signed ? 1 : 0,
+          type: type,
+          endian: endian));
+  void store(int size, IrValue addr, IrValue v,
+          {IrEndian endian = IrEndian.little}) =>
+      _emit(IrInst(IrOp.store,
+          a: addr.index,
+          b: v.index,
+          imm: size,
+          type: typeOf(v),
+          endian: endian));
 
   IrValue call(int helper, [IrValue? a, IrValue? b, IrValue? c]) {
     final zero = c32(0);
@@ -356,8 +496,12 @@ final class IrBuilder {
         a: address.index, imm: write ? 1 : 0, aux: _exits.length - 1));
   }
 
-  void guard(int addr, int value) =>
-      _guards.add((addr: addr.toUnsigned(32), value: value.toUnsigned(32)));
+  void guard(int addr, int value, {IrEndian endian = IrEndian.little}) =>
+      _guards.add((
+        addr: addr.toUnsigned(32),
+        value: value.toUnsigned(32),
+        endian: endian
+      ));
 
   IrBlock finish(IrTerm term, {required int cost}) => IrBlock(
       pc,

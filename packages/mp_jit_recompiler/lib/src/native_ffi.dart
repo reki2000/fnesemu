@@ -277,6 +277,7 @@ final class _X64Runtime extends JitRuntime implements X64Env {
   @override
   void install(IrBlock block) {
     _checkAlive();
+    checkBlock(block);
     List<int> bytes;
     int at;
     try {

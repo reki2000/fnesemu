@@ -10,11 +10,12 @@ import 'native_stub.dart'
 /// values and the result is truncated to 32 bits.
 typedef JitHelper = int Function(int a, int b, int c);
 
-/// Reads [size] bytes at a guest address without a page mapping.
+/// Reads 1, 2 or 4 raw bytes at an unmapped guest address, packed with the
+/// lowest-address byte in the low bits. IR byte order is applied afterwards.
 typedef JitRead = int Function(int addr, int size);
 
-/// Writes the low [size] bytes of value at a guest address without a page
-/// mapping.
+/// Writes 1, 2 or 4 raw bytes, lowest-address byte in the low bits. The IR
+/// runtime applies the access byte order before calling this function.
 typedef JitWrite = void Function(int addr, int size, int value);
 
 /// Runs [IrBlock]s on guest state shared with the host.
@@ -58,6 +59,25 @@ abstract class JitRuntime {
   /// the context words; the first [JitCtx.user] words are reserved
   Uint32List get ctx;
 
+  /// Width and byte-order capabilities of the executor, not of its host.
+  /// Compiled i64/big-endian emission can be added without changing i32 IR.
+  bool get supportsI64 => false;
+  bool get supportsBigEndian => false;
+
+  bool supportsBlock(IrBlock block) =>
+      (supportsI64 || !block.usesI64) &&
+      (supportsBigEndian || !block.usesBigEndian);
+
+  /// Validate before compiling or publishing links to a block. Unsupported
+  /// widths must never be silently truncated by a narrower backend.
+  void checkBlock(IrBlock block) {
+    block.verify(ctxWords: ctx.length);
+    if (!supportsBlock(block)) {
+      throw UnsupportedError(
+          'executor does not support this IR width or byte order');
+    }
+  }
+
   /// zeroed memory which can be mapped with [mapPages]
   Uint8List alloc(int size);
 
@@ -100,14 +120,14 @@ abstract class JitRuntime {
       (write ? writePages : readPages)[page] = host;
 
   /// the word at [addr] in mapped memory, or null if it is unmapped
-  int? mappedWord(int addr) {
+  int? mappedWord(int addr, {IrEndian endian = IrEndian.little}) {
     final masked = addr & addrMask;
     final page = readPages[masked >>> pageBits];
     if (page == null) return null;
     final (host, offset) = page;
-    return host.buffer
-        .asByteData(host.offsetInBytes)
-        .getUint32(offset + (masked & (pageSize - 1)), Endian.little);
+    return host.buffer.asByteData(host.offsetInBytes).getUint32(
+        offset + (masked & (pageSize - 1)),
+        endian == IrEndian.big ? Endian.big : Endian.little);
   }
 
   /// registers [f] and returns its id for [IrBuilder.call]
