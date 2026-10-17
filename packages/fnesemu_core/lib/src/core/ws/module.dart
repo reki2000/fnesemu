@@ -9,7 +9,7 @@ CoreModule createModule() => WsModule();
 class WsModule extends CoreModule {
   static const mono = CoreSystem('ws', 'ws', extensions: ['ws']);
   static const color =
-      CoreSystem('wsc', 'wsc', debugPaletteCount: 16, extensions: ['wsc']);
+      CoreSystem('wsc', 'ws', debugPaletteCount: 16, extensions: ['wsc']);
   @override
   List<CoreSystem> get systems => [mono, color];
   @override
@@ -20,7 +20,7 @@ class WsModule extends CoreModule {
   CoreSystem? identifyRom(String name, Uint8List body) =>
       switch (mediaExtension(name)) {
         'wsc' => color,
-        // color games are run on the WonderSwan Color
+        // games with the color flag in the header run on the color console
         'ws' =>
           body.length >= 16 && body[body.length - 9] & 1 != 0 ? color : mono,
         _ => null,

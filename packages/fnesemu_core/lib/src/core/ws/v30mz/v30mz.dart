@@ -9,14 +9,14 @@ abstract interface class V30Bus {
   void output8(int port, int data);
 }
 
-/// NEC V30MZ: an 80186 compatible CPU without the V30 extensions
+/// V30MZ: an 80186 compatible CPU without the V30 extensions
 class V30mz {
   final V30Bus bus;
 
-  /// the SPHINX SoC of the WonderSwan Color, which sets ZF on MUL
-  final bool sphinx;
+  /// the SoC of the color console, which sets ZF on MUL
+  final bool colorSoc;
 
-  V30mz(this.bus, {this.sphinx = false});
+  V30mz(this.bus, {this.colorSoc = false});
 
   // general registers: ax cx dx bx sp bp si di
   final r = List<int>.filled(8, 0);
@@ -832,10 +832,10 @@ class V30mz {
           final res = r[ax] * v;
           r[ax] = res.mask16;
           r[dx] = res.shr16.mask16;
-          _setMulFlags(r[dx] != 0, sphinx);
+          _setMulFlags(r[dx] != 0, colorSoc);
         } else {
           r[ax] = reg8(0) * v;
-          _setMulFlags(r[ax].shr8 != 0, sphinx);
+          _setMulFlags(r[ax].shr8 != 0, colorSoc);
         }
         cycles += 3;
       case 5: // imul

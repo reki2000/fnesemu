@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../components/sn76489/sn76489.dart';
+import '../../components/ym2413/opll.dart';
 import '../../components/z80/bus.dart';
 import '../../components/z80/z80.dart';
 import '../../sram.dart';
@@ -8,11 +9,23 @@ import '../../util/int.dart';
 import 'pad.dart';
 import 'vdp.dart';
 
-enum SmsModel { sg1000, sms, gg }
+enum SmsModel { tms, standard, mk3, portable }
 
-enum Mapper { none, sega, codemasters }
+enum Mapper { none, slots, pages }
 
-/// memory map and I/O ports of the SG-1000, Master System and Game Gear
+/// the consoles of the sms core
+/// - [tms]: the TMS9918 VDP only, 1KB of RAM
+/// - [standard]: the mode 4 VDP, 8KB of RAM
+/// - [mk3]: the domestic console with the FM sound chip
+/// - [portable]: the 160x144 window, 12-bit colors, the start button and the
+///   stereo PSG
+///
+/// mappers
+/// - [Mapper.slots]: registers at 0xfffc-0xffff select the ROM banks of the
+///   slots 0-2 and the cartridge RAM
+/// - [Mapper.pages]: writes to 0x0000, 0x4000 and 0x8000 select the ROM banks
+///
+/// memory map and I/O ports of the sms core
 class Bus implements Z80Bus {
   final SmsModel model;
   late final Z80 cpu = Z80(this);
@@ -21,22 +34,31 @@ class Bus implements Z80Bus {
   final pad = Pad();
 
   Bus(this.model)
-      : vdp = Vdp(tms: model == SmsModel.sg1000, gg: model == SmsModel.gg),
-        psg = Sn76489(ti: model == SmsModel.sg1000);
+      : vdp = Vdp(
+            tms: model == SmsModel.tms, portable: model == SmsModel.portable),
+        psg = Sn76489(lfsr15: model == SmsModel.tms),
+        fm = model == SmsModel.mk3 ? Opll(sampleRate: 3579545 ~/ 80) : null;
+
+  /// the FM sound chip of the domestic console, at the ports 0xf0-0xf2
+  final Opll? fm;
+
+  // the audio control port 0xf2: bit 0 adds the FM sound to the PSG
+  int audioControl = 0;
+  bool get fmEnabled => audioControl & 1 != 0;
 
   Uint8List rom = Uint8List(0x4000);
   Mapper mapper = Mapper.none;
 
-  // the system RAM: 8KB on the Master System and Game Gear, 1KB (mirrored) on
-  // the SG-1000. cartridges of the SG-1000 may have 8KB of RAM at 0x2000
+  // the system RAM: 8KB, or 1KB (mirrored) on the TMS9918 console whose
+  // cartridges may have 8KB of RAM at 0x2000
   final ram = Uint8List(0x2000);
-  int get _ramMask => model == SmsModel.sg1000 ? 0x3ff : 0x1fff;
+  int get _ramMask => model == SmsModel.tms ? 0x3ff : 0x1fff;
 
-  // the 32KB battery backed cartridge RAM switched by the Sega mapper
+  // the 32KB battery backed cartridge RAM switched by the slot mapper
   static const cartRamSize = 0x8000;
   Sram _cartRam = Sram()..init("", Uint8List(cartRamSize));
 
-  // the Sega mapper: 0xfffc control, 0xfffd-0xffff slot 0-2 banks
+  // the slot mapper: 0xfffc control, 0xfffd-0xffff slot 0-2 banks
   final banks = [0, 1, 2];
   int ramControl = 0;
 
@@ -46,8 +68,8 @@ class Bus implements Z80Bus {
   // I/O port control (0x3f)
   int ioControl = 0xff;
 
-  // Game Gear: the start button and the stereo setting
-  bool ggStart = false;
+  // the start button of the portable console
+  bool portableStart = false;
 
   void setRom(Uint8List body) {
     // drop a 512 byte copier header
@@ -59,15 +81,15 @@ class Bus implements Z80Bus {
   }
 
   Mapper _detectMapper(Uint8List body) {
-    if (model == SmsModel.sg1000 && body.length <= 0xc000) return Mapper.none;
-    if (body.length <= 0x8000 && model != SmsModel.sg1000) return Mapper.sega;
+    if (model == SmsModel.tms && body.length <= 0xc000) return Mapper.none;
+    if (body.length <= 0x8000 && model != SmsModel.tms) return Mapper.slots;
     if (body.length >= 0x8000) {
-      // codemasters header: a checksum and its complement at 0x7fe6
+      // the page mapper header: a checksum and its complement at 0x7fe6
       final sum = body[0x7fe6] | body[0x7fe7].shl8;
       final inv = body[0x7fe8] | body[0x7fe9].shl8;
-      if (sum + inv == 0x10000 && sum != 0) return Mapper.codemasters;
+      if (sum + inv == 0x10000 && sum != 0) return Mapper.pages;
     }
-    return Mapper.sega;
+    return Mapper.slots;
   }
 
   int get _bankCount => (rom.length + 0x3fff) >> 14;
@@ -80,9 +102,11 @@ class Bus implements Z80Bus {
     lineStartCycles = 0;
     vdp.reset();
     psg.reset();
+    fm?.reset();
+    audioControl = 0;
     cpu.reset();
-    // the BIOS leaves the stack pointer at the top of the RAM
-    if (model != SmsModel.sg1000) cpu.r.sp = 0xdff0;
+    // the boot ROM leaves the stack pointer at the top of the RAM
+    if (model != SmsModel.tms) cpu.r.sp = 0xdff0;
   }
 
   /// attaches the persistent storage of the cartridge RAM
@@ -104,18 +128,18 @@ class Bus implements Z80Bus {
     switch (mapper) {
       case Mapper.none:
         if (addr < rom.length) return rom[addr];
-        if (model == SmsModel.sg1000 && addr >= 0x2000 && addr < 0x4000) {
+        if (model == SmsModel.tms && addr >= 0x2000 && addr < 0x4000) {
           return ram[addr & 0x1fff];
         }
         return 0xff;
-      case Mapper.sega:
+      case Mapper.slots:
         if (addr < 0x400) return rom.length > addr ? rom[addr] : 0xff;
         final slot = addr.shr14;
         if (slot == 2 && ramControl.bit3) {
           return _cartRam.read8((ramControl.bit2 ? 0x4000 : 0) | addr.mask14);
         }
         return _romByte(banks[slot], addr.mask14);
-      case Mapper.codemasters:
+      case Mapper.pages:
         return _romByte(banks[addr.shr14], addr.mask14);
     }
   }
@@ -124,7 +148,7 @@ class Bus implements Z80Bus {
   void write(int addr, int data) {
     if (addr >= 0xc000) {
       ram[addr & _ramMask] = data;
-      if (mapper == Mapper.sega && addr >= 0xfffc) {
+      if (mapper == Mapper.slots && addr >= 0xfffc) {
         switch (addr) {
           case 0xfffc:
             ramControl = data;
@@ -141,17 +165,17 @@ class Bus implements Z80Bus {
 
     switch (mapper) {
       case Mapper.none:
-        if (model == SmsModel.sg1000 &&
+        if (model == SmsModel.tms &&
             addr >= 0x2000 &&
             addr < 0x4000 &&
             rom.length <= 0x2000) {
           ram[addr & 0x1fff] = data;
         }
-      case Mapper.sega:
+      case Mapper.slots:
         if (addr >= 0x8000 && ramControl.bit3) {
           _cartRam.write8((ramControl.bit2 ? 0x4000 : 0) | addr.mask14, data);
         }
-      case Mapper.codemasters:
+      case Mapper.pages:
         if (addr.mask14 == 0) banks[addr.shr14] = data;
     }
   }
@@ -159,15 +183,17 @@ class Bus implements Z80Bus {
   @override
   int input(int port) {
     port = port.mask8;
-    if (model == SmsModel.gg && port < 7) {
+    if (model == SmsModel.portable && port < 7) {
       return switch (port) {
-        0 => (ggStart ? 0 : 0x80) | 0x40, // overseas, NTSC
+        0 => (portableStart ? 0 : 0x80) | 0x40, // overseas, NTSC
         1 => 0x7f,
         2 => 0xff,
         4 => 0xff,
         _ => 0,
       };
     }
+
+    if (fm != null && port == 0xf2) return audioControl;
 
     switch (port & 0xc1) {
       case 0x40:
@@ -181,7 +207,7 @@ class Bus implements Z80Bus {
       case 0xc0:
         return pad.portA();
       case 0xc1:
-        return pad.portB(ioControl);
+        return pad.portB(ioControl, domestic: model == SmsModel.mk3);
     }
     return 0xff;
   }
@@ -189,8 +215,21 @@ class Bus implements Z80Bus {
   @override
   void output(int port, int data) {
     port = port.mask8;
-    if (model == SmsModel.gg && port < 7) {
+    if (model == SmsModel.portable && port < 7) {
       if (port == 6) psg.stereo = data;
+      return;
+    }
+
+    final fm = this.fm;
+    if (fm != null && port >= 0xf0 && port <= 0xf2) {
+      switch (port) {
+        case 0xf0:
+          fm.writeAddress(data);
+        case 0xf1:
+          fm.writeData(data);
+        default:
+          audioControl = data & 0x03;
+      }
       return;
     }
 

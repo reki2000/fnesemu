@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import '../../util/int.dart';
 
-/// the four wavetable channels of the WonderSwan, with the voice mode of the
+/// the four wavetable channels of the ws core, with the voice mode of the
 /// channel 2, the sweep of the channel 3 and the noise of the channel 4
 class Sound {
   /// the I/O ports 0x00-0xff, of which the sound uses 0x80-0x94
@@ -47,6 +47,8 @@ class Sound {
 
   int _freq(int ch) => io[0x80 + ch * 2] | io[0x81 + ch * 2].mask3.shl8;
 
+  // the noise taps of the modes 0-7, whose sequences repeat after 32767,
+  // 1953, 254, 217, 73, 63, 42 and 28 steps
   static const _taps = [14, 10, 13, 4, 8, 6, 9, 11];
 
   /// advances the channels by [clocks] CPU clocks and renders the samples

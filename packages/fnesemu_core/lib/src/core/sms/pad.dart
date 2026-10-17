@@ -1,6 +1,6 @@
 import '../../pad_button.dart';
 
-/// the two control pads of the SG-1000, Master System and Game Gear
+/// the two control pads of the sms core
 class Pad {
   static const button1 = PadButton("1");
   static const button2 = PadButton("2");
@@ -34,10 +34,12 @@ class Pad {
   int portA() => _state[0] | (_state[1] & 3) << 6;
 
   /// port 0xdd: the rest of the controller 2 and the TH lines, which return
-  /// the level written to the port 0x3f when they are outputs
-  int portB(int ioControl) {
-    final thA = ioControl & 0x02 == 0 ? ioControl >> 5 & 1 : 1;
-    final thB = ioControl & 0x08 == 0 ? ioControl >> 7 & 1 : 1;
+  /// the level written to the port 0x3f when they are outputs. the domestic
+  /// console returns the inverted level, which software uses as its region
+  int portB(int ioControl, {bool domestic = false}) {
+    final invert = domestic ? 1 : 0;
+    final thA = ioControl & 0x02 == 0 ? ioControl >> 5 & 1 ^ invert : 1;
+    final thB = ioControl & 0x08 == 0 ? ioControl >> 7 & 1 ^ invert : 1;
     return _state[1] >> 2 | 0x30 | thA << 6 | thB << 7;
   }
 }

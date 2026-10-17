@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/sms/bus.dart';
+import 'package:fnesemu_core/src/core/sms/module.dart';
 import 'package:fnesemu_core/src/core/sms/pad.dart';
 import 'package:fnesemu_core/src/core/sms/sms.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
@@ -76,7 +77,7 @@ void main() {
       ..._command(0x01, 0xc0), // cram 1
       ..._data(0x03), // red
     ]);
-    final sms = _run(SmsModel.sms, rom, 4);
+    final sms = _run(SmsModel.standard, rom, 4);
     expect(sms.bus.ram[0], greaterThanOrEqualTo(3));
     final image = sms.imageBuffer();
     expect(image.width, 256);
@@ -84,7 +85,7 @@ void main() {
     expect(_pixel(image, 100, 100), 0xff0000ff);
   });
 
-  test('graphics I mode of the SG-1000 uses the fixed palette', () {
+  test('graphics I mode of the TMS9918 console uses the fixed palette', () {
     final rom = _program([
       0x00, 0x80, 0x60, 0x81, 0x0e, 0x82, 0x80, 0x83, 0x00, 0x84, //
       0x76, 0x85, 0x00, 0x86, 0x01, 0x87,
@@ -94,14 +95,14 @@ void main() {
       ..._command(0x00, 0x60), // color table 0x2000
       ..._data(0xf4), // white on dark blue
     ]);
-    final sms = _run(SmsModel.sg1000, rom, 3);
+    final sms = _run(SmsModel.tms, rom, 3);
     expect(sms.bus.ram[0], greaterThanOrEqualTo(2));
     final image = sms.imageBuffer();
     expect(_pixel(image, 0, 0), 0xffffffff);
     expect(_pixel(image, 4, 0), 0xffed5554);
   });
 
-  test('the Game Gear shows a 160x144 window with 12-bit colors', () {
+  test('the portable console shows a 160x144 window with 12-bit colors', () {
     final rom = _program([
       0x04, 0x80, 0x60, 0x81, 0xff, 0x82, 0xff, 0x83, 0xff, 0x84, //
       0xff, 0x85, 0xfb, 0x86, 0x00, 0x87,
@@ -109,20 +110,20 @@ void main() {
       ..._command(0x00, 0xc0), // cram 0: background color 0
       ..._data(0x0f), ..._data(0x08), // r=15 g=0 b=8
     ]);
-    final sms = _run(SmsModel.gg, rom, 3);
+    final sms = _run(SmsModel.portable, rom, 3);
     final image = sms.imageBuffer();
     expect(image.width, 160);
     expect(image.height, 144);
     expect(_pixel(image, 10, 10), 0xff8800ff);
   });
 
-  test('the Sega mapper switches banks and the cartridge RAM', () {
+  test('the slot mapper switches banks and the cartridge RAM', () {
     final rom = Uint8List(0x20000);
     for (var bank = 0; bank < 8; bank++) {
       rom[bank * 0x4000 + 0x10] = bank;
     }
-    final bus = (Sms(SmsModel.sms)..setRom(rom)).bus;
-    expect(bus.mapper, Mapper.sega);
+    final bus = (Sms(SmsModel.standard)..setRom(rom)).bus;
+    expect(bus.mapper, Mapper.slots);
     expect(bus.read(0x8010), 2);
     bus.write(0xffff, 5);
     expect(bus.read(0x8010), 5);
@@ -140,7 +141,7 @@ void main() {
       0x0000: [0x31, 0xf0, 0xdf, 0x18, 0xfe], // ld sp; jr $
       0x0066: [0x3e, 0x99, 0x32, 0x00, 0xc0, 0xed, 0x45], // ld ($c000), a
     });
-    final sms = Sms(SmsModel.sms)..setRom(rom);
+    final sms = Sms(SmsModel.standard)..setRom(rom);
     sms.runFrame(10);
     sms.padDown(0, Pad.pause);
     sms.runFrame(10);
@@ -148,7 +149,7 @@ void main() {
   });
 
   test('pads are read active low on the port 0xdc', () {
-    final sms = Sms(SmsModel.sms)..setRom(Uint8List(0x8000));
+    final sms = Sms(SmsModel.standard)..setRom(Uint8List(0x8000));
     expect(sms.bus.input(0xdc), 0xff);
     sms.padDown(0, PadButton.up);
     sms.padDown(0, Pad.button2);
@@ -158,12 +159,58 @@ void main() {
   });
 
   test('audio is produced every frame', () {
-    final sms = Sms(SmsModel.sms)..setRom(Uint8List(0x8000));
+    final sms = Sms(SmsModel.standard)..setRom(Uint8List(0x8000));
     final buffers = <AudioBuffer>[];
     sms.onAudio(buffers.add);
     sms.runFrame(262 * 3);
     expect(buffers, isNotEmpty);
     expect(buffers.first.sampleRate, Sms.sampleRate);
     expect(buffers.last.buffer.length, closeTo(Sms.sampleRate / 60 * 2, 8));
+  });
+
+  test('the domestic console is identified by the header region', () {
+    final rom = Uint8List(0x8000);
+    rom.setAll(0x7ff0, 'TMR '.codeUnits);
+    rom[0x7fff] = 0x3c;
+    final module = SmsModule();
+    expect(module.identifyRom('a.sms', rom)?.id, 'mk3');
+    rom[0x7fff] = 0x4c;
+    expect(module.identifyRom('a.sms', rom)?.id, 'sms');
+    expect(module.identifyRom('a.gg', rom)?.id, 'smsport');
+    expect(module.identifyRom('a.sg', rom)?.id, 'smstms');
+  });
+
+  test('the domestic console inverts the TH levels', () {
+    final standard = Sms(SmsModel.standard)..setRom(Uint8List(0x8000));
+    final mk3 = Sms(SmsModel.mk3)..setRom(Uint8List(0x8000));
+    for (final sms in [standard, mk3]) {
+      sms.bus.output(0x3f, 0xf5); // TH outputs high
+    }
+    expect(standard.bus.input(0xdd) & 0xc0, 0xc0);
+    expect(mk3.bus.input(0xdd) & 0xc0, 0x00);
+  });
+
+  test('the FM sound is mixed when the audio control enables it', () {
+    final sms = Sms(SmsModel.mk3)..setRom(Uint8List(0x8000));
+    final buffers = <AudioBuffer>[];
+    sms.onAudio(buffers.add);
+    final bus = sms.bus;
+    void reg(int addr, int value) {
+      bus.output(0xf0, addr);
+      bus.output(0xf1, value);
+    }
+
+    bus.output(0xf2, 1);
+    expect(bus.input(0xf2), 1);
+    reg(0x30, 0x10); // channel 0: violin, full volume
+    reg(0x10, 0x20); // A4: F-number 288, block 4
+    reg(0x20, 0x19);
+    sms.runFrame(262 * 3);
+    final peak =
+        buffers.last.buffer.fold(0.0, (m, v) => v.abs() > m ? v.abs() : m);
+    expect(peak, greaterThan(0.01));
+
+    // the standard console has no FM sound chip
+    expect(Sms(SmsModel.standard).bus.fm, isNull);
   });
 }

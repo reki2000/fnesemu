@@ -14,7 +14,8 @@ import 'bus.dart';
 import 'pad.dart';
 import 'vdp.dart';
 
-/// main class of the SG-1000, Master System and Game Gear core
+/// main class of the sms core: the consoles with the TMS9918 VDP, the mode 4
+/// VDP, the domestic console with the FM sound chip and the portable console
 class Sms extends Core {
   final SmsModel model;
   final Bus bus;
@@ -118,6 +119,7 @@ class Sms extends Core {
     _psgFrames += samples;
 
     // decimates by averaging
+    final first = _audioFrames;
     var i = 0;
     while (_psgFrames - i >= _decimation && _audioFrames * 2 < _audio.length) {
       var l = 0.0, r = 0.0;
@@ -132,7 +134,22 @@ class Sms extends Core {
     }
     _psgBuffer.setRange(0, (_psgFrames - i) * 2, _psgBuffer, i * 2);
     _psgFrames -= i;
+
+    final fm = bus.fm;
+    final count = _audioFrames - first;
+    if (fm != null && count > 0) {
+      if (_fmBuffer.length < count) _fmBuffer = Float32List(count * 2);
+      fm.renderTo(_fmBuffer, 0, count);
+      if (bus.fmEnabled) {
+        for (var k = 0; k < count; k++) {
+          _audio[(first + k) * 2] += _fmBuffer[k];
+          _audio[(first + k) * 2 + 1] += _fmBuffer[k];
+        }
+      }
+    }
   }
+
+  var _fmBuffer = Float32List(64);
 
   void _flushAudio() {
     if (_audioFrames == 0) return;
@@ -176,7 +193,7 @@ class Sms extends Core {
     if (k == Pad.pause) {
       cpu.triggerNmi();
     } else if (k == Pad.start) {
-      bus.ggStart = true;
+      bus.portableStart = true;
     } else {
       bus.pad.keyDown(controllerId, k);
     }
@@ -185,7 +202,7 @@ class Sms extends Core {
   @override
   void padUp(int controllerId, PadButton k) {
     if (k == Pad.start) {
-      bus.ggStart = false;
+      bus.portableStart = false;
     } else {
       bus.pad.keyUp(controllerId, k);
     }
@@ -199,7 +216,7 @@ class Sms extends Core {
         PadButton.left,
         PadButton.right,
         PadButton.none,
-        model == SmsModel.gg ? Pad.start : Pad.pause,
+        model == SmsModel.portable ? Pad.start : Pad.pause,
         Pad.button1,
         Pad.button2,
       ];
@@ -208,7 +225,7 @@ class Sms extends Core {
   void setRom(Uint8List body) {
     crc = crc32Hex(body);
     bus.setRom(body);
-    if (bus.mapper == Mapper.sega) {
+    if (bus.mapper == Mapper.slots) {
       bus.attachCartRam(_sram, "${model.name}-$crc");
     }
     reset();

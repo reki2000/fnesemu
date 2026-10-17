@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the homebrew test ROMs of the SMS and WonderSwan cores from source.
+# Builds the homebrew test ROMs of the sms and ws cores from source.
 #
 # usage: scripts/build_test_roms.sh [out-dir]   (default: assets/testroms)
 #
@@ -8,9 +8,9 @@
 #   WSCpuTest.wsc     V30MZ instructions and flags  (select "Test All")
 #   WSHWTest.wsc      interrupts, timers, I/O ports  (select "Test All")
 #   WSTimingTest.ws   V30MZ instruction timing
-#   zexdoc.sms        Z80 documented flags, also runs on the SG-1000
+#   zexdoc.sms        Z80 documented flags, also runs in the TMS9918 mode
 #   zexall.sms        Z80 with the undocumented flags
-#   SMSVDPTest.sms    SMS VDP ports, counters, interrupts and sprites
+#   SMSVDPTest.sms    VDP ports, counters, interrupts and sprites
 #
 # run them with the core harness, for example:
 #   cd packages/fnesemu_core

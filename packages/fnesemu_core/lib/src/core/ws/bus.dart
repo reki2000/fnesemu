@@ -148,10 +148,10 @@ class Pad {
       (select.bit6 ? _buttons : 0);
 }
 
-/// memory map, I/O ports, interrupts, timers and DMA of the WonderSwan
+/// memory map, I/O ports, interrupts, timers and DMA of the ws core
 class Bus implements V30Bus {
   final bool color;
-  late final V30mz cpu = V30mz(this, sphinx: color);
+  late final V30mz cpu = V30mz(this, colorSoc: color);
   final io = Uint8List(0x100);
   final ram = Uint8List(0x10000);
   late final display = Display(io, ram, color: color);
@@ -210,10 +210,7 @@ class Bus implements V30Bus {
 
   void reset() {
     ram.fillRange(0, ram.length, 0);
-    for (var port = 0; port < io.length; port++) {
-      final mask = ioMask(port, color: color, colorMode: false);
-      io[port] = mask == 0xffff ? 0 : mask >> 8;
-    }
+    io.fillRange(0, io.length, 0);
     io[0xa0] = 0x04; // 16-bit cartridge bus
     // the state left by the boot ROM
     io[0x14] = 0x01; // lcd on
@@ -350,11 +347,14 @@ class Bus implements V30Bus {
         cartEeprom.writePort(port - 0xc4, data);
         return;
     }
-    final mask = ioMask(port, color: color, colorMode: _colorRam);
+    // the color mode registers do not exist on the mono console
+    final mask = !color && port >= 0x40 && port <= 0x6f
+        ? 0
+        : ioMask(port, colorMode: _colorRam);
     io[port] = switch (port) {
       0x91 => io[0x91] & 0x80 | data & 0x0f,
-      _ when mask == 0xffff => data,
-      _ => data & mask | mask >> 8,
+      // other ports of the SoC hold nothing; the cartridge ports pass
+      _ => mask == null ? (port < 0xb8 ? 0 : data) : data & mask,
     };
     if (port == 0x48 && data.bit7 && color) _generalDma();
     if (port >= 0x80 && port <= 0x9f) sound.write(port, data);

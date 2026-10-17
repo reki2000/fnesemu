@@ -46,10 +46,10 @@ class Noise {
   int vol = 15;
   bool periodic = false;
 
-  /// the Sega variant has a 16-bit shift register tapping bits 0 and 3, and
-  /// the TI variant has a 15-bit one tapping bits 0 and 1
-  bool ti = false;
-  int get _lfsrTop => ti ? 0x4000 : 0x8000;
+  /// the noise shift register is 16 bits tapping bits 0 and 3, or 15 bits
+  /// tapping bits 0 and 1 in the earlier variant
+  bool lfsr15 = false;
+  int get _lfsrTop => lfsr15 ? 0x4000 : 0x8000;
 
   int _tone2freq = 0;
   int _shift = 0;
@@ -90,7 +90,7 @@ class Noise {
 
         if (_high) {
           final input =
-              periodic ? _lfsr : (_lfsr ^ (ti ? _lfsr.shr1 : _lfsr.shr3));
+              periodic ? _lfsr : (_lfsr ^ (lfsr15 ? _lfsr.shr1 : _lfsr.shr3));
           _lfsr = _lfsr.shr1 | (input.bit0 ? _lfsrTop : 0);
         }
 
@@ -113,14 +113,14 @@ class Sn76489 {
 
   int _latch = 0;
 
-  /// Game Gear stereo control: bits 0-3 enable channels 0-3 on the right
+  /// stereo control: bits 0-3 enable channels 0-3 on the right
   /// output and bits 4-7 enable them on the left output
   int stereo = 0xff;
 
   int elapsedSamples = 0;
 
-  Sn76489({bool ti = false}) {
-    noise.ti = ti;
+  Sn76489({bool lfsr15 = false}) {
+    noise.lfsr15 = lfsr15;
   }
 
   Float32List get audioBuffer => Float32List(1000);

@@ -56,6 +56,7 @@ void main() {
       File('lib/src/components/z80/z80.dart'),
       File('lib/src/components/z80/z80_disasm.dart'),
       File('lib/src/components/sn76489/sn76489.dart'),
+      File('lib/src/components/ym2413/opll.dart'),
       File('lib/src/core/ss/module.dart'),
       File('lib/src/core/sms/module.dart'),
     ];

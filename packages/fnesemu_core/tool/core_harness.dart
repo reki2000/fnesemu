@@ -1,7 +1,7 @@
 // headless harness for the cores on develop (nes / pce / md / ps / snes / gb / gba / n64 / sms / ws):
 // runs a rom, dumps frames as png and the audio output as wav
 //
-// usage: dart run tool/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sg1000|sms|gg|ws|wsc> <rom|bios> [disc] [options]
+// usage: dart run tool/core_harness.dart <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sms|mk3|smstms|smsport|ws|wsc> <rom|bios> [disc] [options]
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
@@ -92,7 +92,7 @@ Future<void> main(List<String> args) async {
 
   if (files.length < 2) {
     stdout.writeln(
-        "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sg1000|sms|gg|ws|wsc> <rom|bios> [disc] "
+        "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sms|mk3|smstms|smsport|ws|wsc> <rom|bios> [disc] "
         "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
     exit(1);
   }
@@ -229,12 +229,14 @@ Core _createCore(String name) {
       return Gba();
     case 'n64':
       return N64();
-    case 'sg1000':
-      return Sms(SmsModel.sg1000);
+    case 'smstms':
+      return Sms(SmsModel.tms);
     case 'sms':
-      return Sms(SmsModel.sms);
-    case 'gg':
-      return Sms(SmsModel.gg);
+      return Sms(SmsModel.standard);
+    case 'mk3':
+      return Sms(SmsModel.mk3);
+    case 'smsport':
+      return Sms(SmsModel.portable);
     case 'ws':
       return Ws(color: false);
     case 'wsc':

@@ -3,21 +3,21 @@ import 'dart:typed_data';
 import '../../types.dart';
 import '../../util/int.dart';
 
-/// The video display processor of the SG-1000 (TMS9918A), the Master System
-/// (315-5124/5246) and the Game Gear (315-5378). Renders one scanline at a
+/// The video display processor of the sms core: the TMS9918 modes, the mode
+/// 4 and the portable console's 12-bit colors. Renders one scanline at a
 /// time into a 256 pixel wide buffer.
 class Vdp {
   /// the TMS9918A has no mode 4 and no line interrupt
   final bool tms;
 
-  /// the Game Gear has 12-bit colors and shows a 160x144 window
-  final bool gg;
+  /// the portable console has 12-bit colors and shows a 160x144 window
+  final bool portable;
 
-  Vdp({this.tms = false, this.gg = false});
+  Vdp({this.tms = false, this.portable = false});
 
   static const width = 256;
   static const linesInFrame = 262;
-  static const ggWidth = 160, ggHeight = 144;
+  static const portableWidth = 160, portableHeight = 144;
 
   final vram = Uint8List(0x4000);
   final cram = Uint8List(64);
@@ -61,7 +61,7 @@ class Vdp {
     vram.fillRange(0, vram.length, 0);
     cram.fillRange(0, cram.length, 0);
     reg.fillRange(0, reg.length, 0);
-    // the values left by the Master System BIOS
+    // the values left by the boot ROM
     if (!tms) {
       reg.setAll(0, [0x36, 0x80, 0xff, 0xff, 0xff, 0xff, 0xfb, 0x00]);
       reg[10] = 0xff;
@@ -115,7 +115,7 @@ class Vdp {
   void writeData(int data) {
     _latched = false;
     if (_code == 3 && !tms) {
-      if (gg) {
+      if (portable) {
         if (!_addr.bit0) {
           _cramLatch = data;
         } else {
@@ -221,14 +221,14 @@ class Vdp {
   }
 
   ImageBuffer get imageBuffer {
-    if (gg) {
-      final top = (_frontHeight - ggHeight) ~/ 2;
-      final buf = Uint32List(ggWidth * ggHeight);
-      for (var y = 0; y < ggHeight; y++) {
-        final src = (top + y) * width + (width - ggWidth) ~/ 2;
-        buf.setRange(y * ggWidth, (y + 1) * ggWidth, _front, src);
+    if (portable) {
+      final top = (_frontHeight - portableHeight) ~/ 2;
+      final buf = Uint32List(portableWidth * portableHeight);
+      for (var y = 0; y < portableHeight; y++) {
+        final src = (top + y) * width + (width - portableWidth) ~/ 2;
+        buf.setRange(y * portableWidth, (y + 1) * portableWidth, _front, src);
       }
-      return ImageBuffer(ggWidth, ggHeight, buf);
+      return ImageBuffer(portableWidth, portableHeight, buf);
     }
     return ImageBuffer(width, _frontHeight,
         Uint32List.sublistView(_front, 0, width * _frontHeight),
@@ -241,7 +241,7 @@ class Vdp {
   static int _rgba(int r, int g, int b) => 0xff000000 | b.shl16 | g.shl8 | r;
 
   void _updatePalette(int index) {
-    if (gg) {
+    if (portable) {
       final value = cram[index * 2] | cram[index * 2 + 1].shl8;
       _palette[index] =
           _rgba(value.mask4 * 17, value.shr4.mask4 * 17, value.shr8.mask4 * 17);

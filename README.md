@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/GG/SG-1000/WS/WSC Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS Emulator Built with Flutter
 
 This project is experimental.
 
@@ -32,9 +32,8 @@ This project is experimental.
 | SNES | Select |  | Start | Y | B | L | X | R |  | A | up / down / left / right |
 | SS | A | B | C | L | Start | X | Y | Z | R |  | up / down / left / right |
 | N64 | B | A | Z | C-left | C-down | L | C-up | R | Start | C-right | up / down / left / right |
-| SMS / SG-1000 | 1 | 2 |  |  | Pause |  |  |  |  |  | up / down / left / right |
-| GG | 1 | 2 |  |  | Start |  |  |  |  |  | up / down / left / right |
-| WS / WSC | B | A | Y2 | Y1 | Start | Y4 | Y3 |  |  |  | X1 / X3 / X4 / X2 |
+| SMS | 1 | 2 |  |  | Pause (Start on the portable console) |  |  |  |  |  | up / down / left / right |
+| WS | B | A | Y2 | Y1 | Start | Y4 | Y3 |  |  |  | X1 / X3 / X4 / X2 |
 
 # How to develop
 
@@ -72,7 +71,7 @@ After changing core modules, regenerate the registration list:
 cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
 ```
 
-## To test the SMS and WonderSwan cores
+## To test the SMS and WS cores
 
 `scripts/build_test_roms.sh` builds homebrew test ROMs (ZEXDOC/ZEXALL for SMS, SMSVDPTest, WSCpuTest, WSHWTest and WSTimingTest) into `assets/testroms`. It needs nasm, WLA DX and Pillow. Run them with `packages/fnesemu_core/tool/core_harness.dart` as shown in the script.
 

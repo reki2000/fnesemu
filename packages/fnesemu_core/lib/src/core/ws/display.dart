@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import '../../types.dart';
 import '../../util/int.dart';
 
-/// the LCD controller of the WonderSwan and WonderSwan Color: two tile
+/// the LCD controller of the mono and color consoles: two tile
 /// layers and sprites, rendered one line at a time
 class Display {
   static const width = 224;

@@ -13,7 +13,7 @@ import 'sound.dart';
 import 'v30mz/disasm.dart';
 import 'v30mz/v30mz.dart';
 
-/// main class of the WonderSwan and WonderSwan Color core
+/// main class of the ws core: the mono and the color consoles
 class Ws extends Core {
   final bool color;
   final Bus bus;
@@ -150,7 +150,7 @@ class Ws extends Core {
 
   @override
   void setRom(Uint8List body) {
-    if (body.length < 16) throw Exception("Not a WonderSwan ROM");
+    if (body.length < 16) throw Exception("Not a ws ROM");
     crc = crc32Hex(body);
     bus.setRom(body);
     bus.attachSaves(_sram, "${color ? "wsc" : "ws"}-$crc");
