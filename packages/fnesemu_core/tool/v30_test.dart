@@ -8,7 +8,9 @@ import 'package:fnesemu_core/src/core/ws/v30mz/v30mz.dart';
 
 /// runs the V30MZ against the 8088 tests of SingleStepTests
 /// (https://github.com/SingleStepTests/8088) for the instructions which
-/// behave the same on both CPUs.
+/// behave the same on both CPUs. The V30MZ differs in the shift counts, the
+/// undefined flags of MUL, DIV and the BCD instructions, which WSCpuTest
+/// covers instead.
 ///
 /// usage: dart run tool/v30_test.dart metadata.json XX.json.gz ...
 class _Bus implements V30Bus {

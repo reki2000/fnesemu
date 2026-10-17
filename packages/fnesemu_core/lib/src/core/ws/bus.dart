@@ -4,6 +4,7 @@ import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../util/int.dart';
 import 'display.dart';
+import 'io_masks.dart';
 import 'sound.dart';
 import 'v30mz/v30mz.dart';
 
@@ -150,7 +151,7 @@ class Pad {
 /// memory map, I/O ports, interrupts, timers and DMA of the WonderSwan
 class Bus implements V30Bus {
   final bool color;
-  late final V30mz cpu = V30mz(this);
+  late final V30mz cpu = V30mz(this, sphinx: color);
   final io = Uint8List(0x100);
   final ram = Uint8List(0x10000);
   late final display = Display(io, ram, color: color);
@@ -209,7 +210,11 @@ class Bus implements V30Bus {
 
   void reset() {
     ram.fillRange(0, ram.length, 0);
-    io.fillRange(0, io.length, 0);
+    for (var port = 0; port < io.length; port++) {
+      final mask = ioMask(port, color: color, colorMode: false);
+      io[port] = mask == 0xffff ? 0 : mask >> 8;
+    }
+    io[0xa0] = 0x04; // 16-bit cartridge bus
     // the state left by the boot ROM
     io[0x14] = 0x01; // lcd on
     io.setAll(0x1c, [0x20, 0x64, 0xb9, 0xfd]); // shades
@@ -281,8 +286,8 @@ class Bus implements V30Bus {
         return sound.lfsr.mask8;
       case 0x93:
         return sound.lfsr.shr8;
-      case 0xa0:
-        return 0x85 | (color ? 0x02 : 0);
+      case 0xa0: // bits 2-3 are writable
+        return 0x81 | (color ? 0x02 : 0) | io[0xa0] & 0x0c;
       case 0xa8:
         return _hblankCounter.mask8;
       case 0xa9:
@@ -291,8 +296,8 @@ class Bus implements V30Bus {
         return _vblankCounter.mask8;
       case 0xab:
         return _vblankCounter.shr8;
-      case 0xb3:
-        return 0x04; // the serial send buffer is empty
+      case 0xb3: // the send buffer is empty while the serial port is enabled
+        return io[0xb3] & 0xc0 | (io[0xb3].bit7 ? 0x04 : 0);
       case 0xb5:
         return pad.read(io[0xb5]);
       case >= 0xba && <= 0xbe:
@@ -310,9 +315,13 @@ class Bus implements V30Bus {
   void output8(int port, int data) {
     switch (port) {
       case 0x02:
-      case 0xa0:
       case 0xb4:
         return; // read only
+      case 0xa0: // bit 2 can not be cleared once set
+        io[0xa0] = io[0xa0] & 0x04 | data & 0x0c;
+        return;
+      case 0xb1: // serial send: the port reads the received data
+        return;
       case 0xa4:
       case 0xa5:
         io[port] = data;
@@ -323,17 +332,15 @@ class Bus implements V30Bus {
         io[port] = data;
         _vblankCounter = io[0xa6] | io[0xa7].shl8;
         return;
-      case 0xb2:
+      case 0xb2: // latched causes stay when they are disabled
         io[port] = data;
-        io[0xb4] &= data;
-        _updateIrq();
         return;
       case 0xb6: // interrupt acknowledge
         io[0xb4] &= ~data;
         _updateIrq();
         return;
       case 0xb0:
-        io[port] = data;
+        io[port] = data & 0xf8;
         _updateIrq();
         return;
       case >= 0xba && <= 0xbe:
@@ -343,7 +350,12 @@ class Bus implements V30Bus {
         cartEeprom.writePort(port - 0xc4, data);
         return;
     }
-    io[port] = data;
+    final mask = ioMask(port, color: color, colorMode: _colorRam);
+    io[port] = switch (port) {
+      0x91 => io[0x91] & 0x80 | data & 0x0f,
+      _ when mask == 0xffff => data,
+      _ => data & mask | mask >> 8,
+    };
     if (port == 0x48 && data.bit7 && color) _generalDma();
     if (port >= 0x80 && port <= 0x9f) sound.write(port, data);
   }
@@ -359,7 +371,8 @@ class Bus implements V30Bus {
   }
 
   void _updateIrq() {
-    final pending = io[0xb4] & io[0xb2];
+    // the enable bits only gate the latching of the causes
+    final pending = io[0xb4];
     if (pending == 0) {
       cpu.irqVector = -1;
       return;
@@ -388,7 +401,7 @@ class Bus implements V30Bus {
     if (line == Display.height) {
       display.swap();
       interrupt(intVblank);
-      if (io[0xa2].bit2 && _vblankCounter > 0) {
+      if (_vblankCounter > 0 && (io[0xa2].bit2 || _vblankCounter == 1)) {
         _vblankCounter--;
         if (_vblankCounter == 0) {
           interrupt(intVblankTimer);
@@ -399,7 +412,8 @@ class Bus implements V30Bus {
     }
     if (line == Display.height - 2) display.latchSprites();
 
-    if (io[0xa2].bit0 && _hblankCounter > 0) {
+    // a counter at 1 fires even when the timer is stopped
+    if (_hblankCounter > 0 && (io[0xa2].bit0 || _hblankCounter == 1)) {
       _hblankCounter--;
       if (_hblankCounter == 0) {
         interrupt(intHblankTimer);

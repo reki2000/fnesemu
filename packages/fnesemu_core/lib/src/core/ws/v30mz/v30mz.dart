@@ -12,7 +12,11 @@ abstract interface class V30Bus {
 /// NEC V30MZ: an 80186 compatible CPU without the V30 extensions
 class V30mz {
   final V30Bus bus;
-  V30mz(this.bus);
+
+  /// the SPHINX SoC of the WonderSwan Color, which sets ZF on MUL
+  final bool sphinx;
+
+  V30mz(this.bus, {this.sphinx = false});
 
   // general registers: ax cx dx bx sp bp si di
   final r = List<int>.filled(8, 0);
@@ -159,7 +163,14 @@ class V30mz {
     _mod = b.shr6;
     _reg = b.shr3.mask3;
     _rm = b.mask3;
-    if (_mod == 3) return;
+    if (_mod == 3) {
+      // instructions which need an address get these modes instead
+      const bases = [bx, bx, bp, bp, si, di, bp, bx];
+      const segs = [ds, ds, ss, ss, ds, ds, ss, ds];
+      _eaOff = (r[bases[_rm]] + r[_rm]).mask16;
+      _eaSeg = _seg(segs[_rm]);
+      return;
+    }
 
     var seg = ds;
     int off;
@@ -272,15 +283,19 @@ class V30mz {
   }
 
   int _shift(int op, int v, int count, bool word) {
-    if (count == 0) return v;
+    // the count is masked, but the flags are updated even without a shift
+    count &= 0x1f;
     final bits = word ? 16 : 8;
     final mask = word ? 0xffff : 0xff;
     final sign = word ? 0x8000 : 0x80;
-    var previous = v;
     cycles += count;
+    if (op == 6) {
+      // SAL with the reg field 6 clears the operand
+      v = 0;
+      count = 0;
+    }
     for (var i = 0; i < count; i++) {
       final c = flags & cf != 0 ? 1 : 0;
-      previous = v;
       switch (op) {
         case 0: // rol
           final out = v & sign != 0 ? 1 : 0;
@@ -297,7 +312,6 @@ class V30mz {
           _setFlag(cf, v & 1 != 0);
           v = v >> 1 | c << (bits - 1);
         case 4: // shl
-        case 6:
           _setFlag(cf, v & sign != 0);
           v = (v << 1) & mask;
         case 5: // shr
@@ -308,22 +322,14 @@ class V30mz {
           v = v >> 1 | v & sign;
       }
     }
-    switch (op) {
-      case 0:
-      case 2:
-        _setFlag(of, (v & sign != 0) != _flag(cf));
-      case 1:
-      case 3:
-        _setFlag(of, (v ^ v << 1) & sign != 0);
-      default:
-        _setSZP(v, word);
-        if (op == 5) {
-          _setFlag(of, previous & sign != 0);
-        } else if (op == 7) {
-          _setFlag(of, false);
-        } else {
-          _setFlag(of, (v & sign != 0) != _flag(cf));
-        }
+    if (op.isEven) {
+      _setFlag(of, (v & sign != 0) != _flag(cf));
+    } else {
+      _setFlag(of, (v ^ v << 1) & sign != 0);
+    }
+    if (op >= 4) {
+      _setSZP(v, word);
+      flags &= ~af;
     }
     return v;
   }
@@ -380,6 +386,16 @@ class V30mz {
 
     _segOverride = -1;
     _rep = 0;
+    if (flags & tf != 0) {
+      // single step: the trap is taken after the instruction
+      final ok = _execPrefixed();
+      interrupt(1);
+      return ok;
+    }
+    return _execPrefixed();
+  }
+
+  bool _execPrefixed() {
     var op = fetch8();
     while (true) {
       switch (op) {
@@ -440,8 +456,10 @@ class V30mz {
       case 0x17:
       case 0x1f:
         s[op >> 3] = pop();
-      case 0x0f: // pop cs is not supported by the V30MZ
-        return false;
+      case 0x0f: // undefined opcodes are 1 byte nops
+      case >= 0x63 && <= 0x67:
+      case 0xf1:
+        break;
       case 0x27: // daa
         _daa(false);
       case 0x2f: // das
@@ -485,9 +503,7 @@ class V30mz {
         final b = op == 0x69 ? fetch16().rel16 : _fetchS8();
         final res = a * b;
         r[_reg] = res.mask16;
-        final overflow = res != res.mask16.rel16;
-        _setFlag(cf, overflow);
-        _setFlag(of, overflow);
+        _setMulFlags(res != res.mask16.rel16, true);
         cycles += 3;
       case 0x6c:
       case 0x6d:
@@ -666,25 +682,24 @@ class V30mz {
       case 0xd4: // aam
         final base = fetch8();
         if (base == 0) {
-          interrupt(0);
+          _divideError(reg8(0) & 0xc0 == 0);
           return true;
         }
         final al = reg8(0);
         r[ax] = (al ~/ base).shl8 | al % base;
         _setSZP8(r[ax].mask8);
+        flags &= ~(af | cf | of);
         cycles += 16;
       case 0xd5: // aad
         final base = fetch8();
-        final res = reg8(4) * base + reg8(0);
-        r[ax] = res.mask8;
-        _setSZP8(res.mask8);
+        r[ax] = _add((reg8(4) * base).mask8, reg8(0), 0, false);
         cycles += 5;
       case 0xd6: // salc
         setReg8(0, _flag(cf) ? 0xff : 0);
       case 0xd7: // xlat
         setReg8(0, read8(_seg(ds), r[bx] + reg8(0)));
-      case >= 0xd8 && <= 0xdf: // no coprocessor
-        _modrm();
+      case >= 0xd8 && <= 0xdf: // no coprocessor: 2 byte nops
+        fetch8();
       case 0xe0:
       case 0xe1:
       case 0xe2:
@@ -750,13 +765,14 @@ class V30mz {
         flags |= df;
       case 0xfe:
         _modrm();
-        final v = _getRM(false);
+        final v = _reg < 2 ? _getRM(false) : 0;
         if (_reg == 0) {
           _putRM(false, _inc(v, false));
         } else if (_reg == 1) {
           _putRM(false, _dec(v, false));
         } else {
-          return false;
+          // the other operations work as the 0xff variants
+          return _group5(decoded: true);
         }
       case 0xff:
         return _group5();
@@ -776,99 +792,141 @@ class V30mz {
     bus.output8(port.mask8, v);
   }
 
+  // CF and OF of the last multiplication, which division keeps
+  bool _mulOverflow = false;
+
+  void _setMulFlags(bool overflow, bool zero) {
+    _mulOverflow = overflow;
+    flags = flags & ~(af | pf | sf | zf | cf | of) |
+        (overflow ? cf | of : 0) |
+        (zero ? zf : 0);
+  }
+
+  // division flags: AF, PF and SF are cleared
+  void _setDivFlags({required bool zero, required bool keepOverflow}) {
+    flags = flags & ~(af | pf | sf | zf | cf | of) |
+        (keepOverflow && _mulOverflow ? cf | of : 0) |
+        (zero ? zf : 0);
+  }
+
+  void _divideError(bool zero) {
+    _setDivFlags(zero: zero, keepOverflow: true);
+    interrupt(0);
+  }
+
   bool _group3(bool word) {
     _modrm();
     final v = _getRM(word);
     switch (_reg) {
       case 0:
-      case 1:
         _logic(v & (word ? fetch16() : fetch8()), word);
+      case 1: // changes nothing
+        word ? fetch16() : fetch8();
       case 2:
         _putRM(word, ~v & (word ? 0xffff : 0xff));
       case 3:
         final res = _sub(0, v, 0, word);
-        _setFlag(cf, v != 0);
         _putRM(word, res);
       case 4: // mul
         if (word) {
           final res = r[ax] * v;
           r[ax] = res.mask16;
           r[dx] = res.shr16.mask16;
-          _setFlag(cf | of, r[dx] != 0);
+          _setMulFlags(r[dx] != 0, sphinx);
         } else {
           r[ax] = reg8(0) * v;
-          _setFlag(cf | of, r[ax].shr8 != 0);
+          _setMulFlags(r[ax].shr8 != 0, sphinx);
         }
-        _setFlag(zf, false);
         cycles += 3;
       case 5: // imul
         if (word) {
           final res = r[ax].rel16 * v.rel16;
           r[ax] = res.mask16;
           r[dx] = (res >> 16).mask16;
-          _setFlag(cf | of, res != res.mask16.rel16);
+          _setMulFlags(res != res.mask16.rel16, true);
         } else {
           final res = reg8(0).rel8 * v.rel8;
           r[ax] = res.mask16;
-          _setFlag(cf | of, res != res.mask8.rel8);
+          _setMulFlags(res != res.mask8.rel8, true);
         }
-        _setFlag(zf, false);
         cycles += 3;
       case 6: // div
-        if (v == 0) {
-          interrupt(0);
-          return true;
-        }
+        cycles += 15;
         if (word) {
           final n = r[dx].shl16 | r[ax];
-          final q = n ~/ v;
-          if (q > 0xffff) {
+          if (v == 0 || n ~/ v > 0xffff) {
+            final d = (0x10000 - v).mask16;
+            _setDivFlags(
+                zero: v == 0
+                    ? n & 0x3fffc000 == 0
+                    : (n + (d << 14)) & 0xffffc000 == 0 ||
+                        (n + ((d * 3) << 14)) & 0xffffc000 == 0,
+                keepOverflow: false);
             interrupt(0);
             return true;
           }
+          final q = n ~/ v;
           r[dx] = n % v;
           r[ax] = q;
+          _setDivFlags(zero: r[dx] == 0 && q.bit0, keepOverflow: false);
         } else {
-          final q = r[ax] ~/ v;
-          if (q > 0xff) {
-            interrupt(0);
+          final n = r[ax];
+          if (v == 0 || n ~/ v > 0xff) {
+            final d = (0x100 - v).mask8;
+            _divideError(v == 0
+                ? n & 0x3fc0 == 0
+                : (n + (d << 6)) & 0xffc0 == 0 ||
+                    (n + ((d * 3) << 6)) & 0xffc0 == 0);
             return true;
           }
-          r[ax] = (r[ax] % v).shl8 | q;
+          final q = n ~/ v;
+          r[ax] = (n % v).shl8 | q;
+          _setDivFlags(zero: n % v == 0 && q.bit0, keepOverflow: true);
         }
-        cycles += 15;
       default: // idiv
-        if (v == 0) {
-          interrupt(0);
-          return true;
-        }
+        cycles += 18;
         if (word) {
           final n = (r[dx].shl16 | r[ax]).rel32;
+          if (v == 0 && n == -0x80000000) {
+            r[dx] = 0;
+            r[ax] = 0x8001;
+            _setDivFlags(zero: true, keepOverflow: false);
+            return true;
+          }
           final d = v.rel16;
-          final q = n ~/ d;
-          if (q > 0x7fff || q < -0x8000) {
+          if (d == 0 || n ~/ d > 0x7fff || n ~/ d < -0x8000) {
+            _setDivFlags(zero: false, keepOverflow: false);
             interrupt(0);
             return true;
           }
+          final q = n ~/ d;
           r[dx] = n.remainder(d).mask16;
           r[ax] = q.mask16;
+          _setDivFlags(zero: r[dx] == 0 && q.isOdd, keepOverflow: false);
         } else {
           final n = r[ax].rel16;
-          final d = v.rel8;
-          final q = n ~/ d;
-          if (q > 0x7f || q < -0x80) {
-            interrupt(0);
+          if (v == 0 && n == -0x8000) {
+            r[ax] = 0x0081;
+            _setSZP8(0x81);
+            flags &= ~(af | cf | of);
             return true;
           }
+          final d = v.rel8;
+          if (d == 0 || n ~/ d > 0x7f || n ~/ d < -0x80) {
+            _divideError(false);
+            return true;
+          }
+          final q = n ~/ d;
           r[ax] = n.remainder(d).mask8.shl8 | q.mask8;
+          _setSZP8(q.mask8);
+          flags &= ~(af | cf | of);
         }
-        cycles += 18;
     }
     return true;
   }
 
-  bool _group5() {
-    _modrm();
+  bool _group5({bool decoded = false}) {
+    if (!decoded) _modrm();
     switch (_reg) {
       case 0:
         _putRM(true, _inc(_getRM(true), true));
@@ -880,10 +938,11 @@ class V30mz {
         ip = target;
         cycles += 4;
       case 3:
-        final off = read16(_eaSeg, _eaOff);
-        final seg = read16(_eaSeg, _eaOff + 2);
+        // the return address is pushed before the target is read
         push(s[cs]);
         push(ip);
+        final off = read16(_eaSeg, _eaOff);
+        final seg = read16(_eaSeg, _eaOff + 2);
         ip = off;
         s[cs] = seg;
         cycles += 8;
@@ -898,7 +957,7 @@ class V30mz {
       case 6:
         push(_getRM(true));
       default:
-        return false;
+        break;
     }
     return true;
   }
@@ -955,36 +1014,26 @@ class V30mz {
     }
   }
 
+  // the flags are those of the addition of the adjustment, except that
+  // AF and CF are never cleared
   void _daa(bool sub) {
-    var al = reg8(0);
-    final oldAl = al;
-    final oldCf = _flag(cf);
-    final limit = _flag(af) ? 0x9f : 0x99;
-    if (al.mask4 > 9 || _flag(af)) {
-      al = sub ? al - 6 : al + 6;
-      _setFlag(af, true);
-    } else {
-      _setFlag(af, false);
-    }
-    if (oldAl > limit || oldCf) {
-      al = sub ? al - 0x60 : al + 0x60;
-      _setFlag(cf, true);
-    } else {
-      _setFlag(cf, false);
-    }
-    setReg8(0, al);
-    _setSZP8(al.mask8);
+    final al = reg8(0);
+    final lowAdjust = al.mask4 > 9 || _flag(af);
+    final highAdjust = al > 0x99 || _flag(cf);
+    final adjust = (lowAdjust ? 6 : 0) + (highAdjust ? 0x60 : 0);
+    setReg8(0, sub ? _sub(al, adjust, 0, false) : _add(al, adjust, 0, false));
+    flags = flags & ~(af | cf) | (lowAdjust ? af : 0) | (highAdjust ? cf : 0);
   }
 
   void _aaa(bool sub) {
-    if (reg8(0).mask4 > 9 || _flag(af)) {
+    final adjust = reg8(0).mask4 > 9 || _flag(af);
+    if (adjust) {
       setReg8(0, sub ? reg8(0) - 6 : reg8(0) + 6);
       setReg8(4, sub ? reg8(4) - 1 : reg8(4) + 1);
-      _setFlag(af | cf, true);
-    } else {
-      _setFlag(af | cf, false);
     }
     setReg8(0, reg8(0).mask4);
+    flags =
+        flags & ~(af | cf | zf | sf | of) | pf | (adjust ? af | cf | zf : sf);
   }
 
   String dump() {

@@ -40,10 +40,7 @@ class Sound {
 
   /// handles writes to the sound ports which have side effects
   void write(int port, int value) {
-    if (port == 0x8e && value.bit3) {
-      _lfsr = 0;
-      io[0x8e] = value & ~0x08;
-    }
+    if (port == 0x8e && value.bit3) _lfsr = 0;
   }
 
   int get lfsr => _lfsr;
