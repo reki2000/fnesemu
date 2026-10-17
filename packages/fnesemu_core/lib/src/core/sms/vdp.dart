@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../../types.dart';
@@ -14,6 +15,12 @@ class Vdp {
   final bool portable;
 
   Vdp({this.tms = false, this.portable = false});
+
+  /// the portable console runs a cartridge of the mode 4 console: 6-bit
+  /// colors, and the whole picture is scaled into the window
+  bool compatible = false;
+
+  bool get _colors12 => portable && !compatible;
 
   static const width = 256;
   static const linesInFrame = 262;
@@ -115,7 +122,7 @@ class Vdp {
   void writeData(int data) {
     _latched = false;
     if (_code == 3 && !tms) {
-      if (portable) {
+      if (_colors12) {
         if (!_addr.bit0) {
           _cramLatch = data;
         } else {
@@ -221,6 +228,7 @@ class Vdp {
   }
 
   ImageBuffer get imageBuffer {
+    if (portable && compatible) return _scaledImage();
     if (portable) {
       final top = (_frontHeight - portableHeight) ~/ 2;
       final buf = Uint32List(portableWidth * portableHeight);
@@ -235,13 +243,40 @@ class Vdp {
         displayWidth_: width * 8 ~/ 7);
   }
 
+  /// scales the picture into the window by averaging the source pixels
+  /// which each window pixel covers
+  ImageBuffer _scaledImage() {
+    final buf = Uint32List(portableWidth * portableHeight);
+    final h = _frontHeight;
+    for (var y = 0; y < portableHeight; y++) {
+      final y0 = y * h ~/ portableHeight;
+      final y1 = max(y0 + 1, (y + 1) * h ~/ portableHeight);
+      for (var x = 0; x < portableWidth; x++) {
+        final x0 = x * width ~/ portableWidth;
+        final x1 = max(x0 + 1, (x + 1) * width ~/ portableWidth);
+        var r = 0, g = 0, b = 0;
+        for (var sy = y0; sy < y1; sy++) {
+          for (var sx = x0; sx < x1; sx++) {
+            final c = _front[sy * width + sx];
+            r += c & 0xff;
+            g += c >> 8 & 0xff;
+            b += c >> 16 & 0xff;
+          }
+        }
+        final n = (y1 - y0) * (x1 - x0);
+        buf[y * portableWidth + x] = _rgba(r ~/ n, g ~/ n, b ~/ n);
+      }
+    }
+    return ImageBuffer(portableWidth, portableHeight, buf);
+  }
+
   // ----------------------------------------------------------------------
   // colors
 
   static int _rgba(int r, int g, int b) => 0xff000000 | b.shl16 | g.shl8 | r;
 
   void _updatePalette(int index) {
-    if (portable) {
+    if (_colors12) {
       final value = cram[index * 2] | cram[index * 2 + 1].shl8;
       _palette[index] =
           _rgba(value.mask4 * 17, value.shr4.mask4 * 17, value.shr8.mask4 * 17);

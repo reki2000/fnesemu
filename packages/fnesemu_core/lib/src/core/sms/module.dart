@@ -36,17 +36,16 @@ class SmsModule extends CoreModule {
   @override
   CoreSystem? identifyRom(String name, Uint8List body) {
     final ext = mediaExtension(name);
-    if (ext == 'sms') return _domestic(body) ? mk3 : standard;
+    if (ext == 'sms') {
+      return switch (romRegion(body)) {
+        3 => mk3,
+        5 || 6 || 7 => portable,
+        _ => standard,
+      };
+    }
     for (final system in systems) {
       if (system.extensions.contains(ext)) return system;
     }
     return null;
   }
-
-  /// the header at 0x7ff0 starts with "TMR " and holds the region code in
-  /// the high nibble of its last byte: 3 for the domestic console
-  static bool _domestic(Uint8List body) =>
-      body.length >= 0x8000 &&
-      String.fromCharCodes(body.sublist(0x7ff0, 0x7ff4)) == 'TMR ' &&
-      body[0x7fff] >> 4 == 3;
 }

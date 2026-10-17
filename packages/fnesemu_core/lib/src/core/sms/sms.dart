@@ -193,7 +193,12 @@ class Sms extends Core {
     if (k == Pad.pause) {
       cpu.triggerNmi();
     } else if (k == Pad.start) {
-      bus.portableStart = true;
+      // the compatible mode turns the start button into the pause button
+      if (bus.compatible) {
+        cpu.triggerNmi();
+      } else {
+        bus.portableStart = true;
+      }
     } else {
       bus.pad.keyDown(controllerId, k);
     }

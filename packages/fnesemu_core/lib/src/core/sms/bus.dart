@@ -13,12 +13,26 @@ enum SmsModel { tms, standard, mk3, portable }
 
 enum Mapper { none, slots, pages }
 
+/// the region code in the ROM header at 0x7ff0, which starts with "TMR ":
+/// 3 domestic, 4 export, 5 portable domestic, 6 portable export and 7
+/// portable international. null without the header
+int? romRegion(Uint8List body) {
+  for (final base in [0x7ff0, 0x3ff0, 0x1ff0]) {
+    if (body.length >= base + 16 &&
+        String.fromCharCodes(body.sublist(base, base + 4)) == 'TMR ') {
+      return body[base + 15] >> 4;
+    }
+  }
+  return null;
+}
+
 /// the consoles of the sms core
 /// - [tms]: the TMS9918 VDP only, 1KB of RAM
 /// - [standard]: the mode 4 VDP, 8KB of RAM
 /// - [mk3]: the domestic console with the FM sound chip
-/// - [portable]: the 160x144 window, 12-bit colors, the start button and the
-///   stereo PSG
+/// - [portable]: the 160x144 window, 12-bit colors, the start button, the
+///   stereo PSG and the link port. cartridges for the mode 4 console run in
+///   the compatible mode, which scales the whole picture into the window
 ///
 /// mappers
 /// - [Mapper.slots]: registers at 0xfffc-0xffff select the ROM banks of the
@@ -68,8 +82,14 @@ class Bus implements Z80Bus {
   // I/O port control (0x3f)
   int ioControl = 0xff;
 
-  // the start button of the portable console
+  // the portable console: the start button, the region of the cartridge
+  // and the link port registers 0x01-0x05
   bool portableStart = false;
+  bool portableDomestic = false;
+  final linkPort = Uint8List(6);
+
+  /// the portable console runs a cartridge of the mode 4 console
+  bool get compatible => vdp.compatible;
 
   void setRom(Uint8List body) {
     // drop a 512 byte copier header
@@ -78,6 +98,11 @@ class Bus implements Z80Bus {
     }
     rom = body;
     mapper = _detectMapper(body);
+    if (model == SmsModel.portable) {
+      final region = romRegion(body);
+      vdp.compatible = region == 3 || region == 4;
+      portableDomestic = region == 5;
+    }
   }
 
   Mapper _detectMapper(Uint8List body) {
@@ -104,6 +129,7 @@ class Bus implements Z80Bus {
     psg.reset();
     fm?.reset();
     audioControl = 0;
+    linkPort.setAll(0, [0, 0x7f, 0xff, 0, 0xff, 0]);
     cpu.reset();
     // the boot ROM leaves the stack pointer at the top of the RAM
     if (model != SmsModel.tms) cpu.r.sp = 0xdff0;
@@ -183,13 +209,15 @@ class Bus implements Z80Bus {
   @override
   int input(int port) {
     port = port.mask8;
-    if (model == SmsModel.portable && port < 7) {
+    if (model == SmsModel.portable && !compatible && port < 7) {
       return switch (port) {
-        0 => (portableStart ? 0 : 0x80) | 0x40, // overseas, NTSC
-        1 => 0x7f,
-        2 => 0xff,
+        // start (active low), export region, NTSC
+        0 => (portableStart ? 0 : 0x80) | (portableDomestic ? 0 : 0x40),
+        // the link port: nothing is connected
         4 => 0xff,
-        _ => 0,
+        5 => linkPort[5] & 0xf8 | 0x02, // the send buffer is empty
+        6 => psg.stereo,
+        _ => linkPort[port],
       };
     }
 
@@ -215,8 +243,12 @@ class Bus implements Z80Bus {
   @override
   void output(int port, int data) {
     port = port.mask8;
-    if (model == SmsModel.portable && port < 7) {
-      if (port == 6) psg.stereo = data;
+    if (model == SmsModel.portable && !compatible && port < 7) {
+      if (port == 6) {
+        psg.stereo = data;
+      } else if (port != 0 && port != 4) {
+        linkPort[port] = data;
+      }
       return;
     }
 

@@ -213,4 +213,63 @@ void main() {
     // the standard console has no FM sound chip
     expect(Sms(SmsModel.standard).bus.fm, isNull);
   });
+
+  Uint8List headerRom(int region) {
+    final rom = Uint8List(0x8000);
+    rom.setAll(0x7ff0, 'TMR '.codeUnits);
+    rom[0x7fff] = region << 4 | 0x0c;
+    return rom;
+  }
+
+  test('the portable console reads the start button, region and link port', () {
+    final export = Sms(SmsModel.portable)..setRom(headerRom(6));
+    expect(export.bus.input(0x00), 0xc0);
+    export.padDown(0, Pad.start);
+    expect(export.bus.input(0x00), 0x40);
+    export.bus.output(0x01, 0x5a);
+    expect(export.bus.input(0x01), 0x5a);
+    export.bus.output(0x06, 0x0f);
+    expect(export.bus.input(0x06), 0x0f);
+
+    final domestic = Sms(SmsModel.portable)..setRom(headerRom(5));
+    expect(domestic.bus.input(0x00), 0x80);
+    expect(domestic.bus.compatible, isFalse);
+  });
+
+  test('a mode 4 cartridge runs scaled in the compatible mode', () {
+    final rom = _program([
+      0x04, 0x80, 0x60, 0x81, 0xff, 0x82, 0xff, 0x83, 0xff, 0x84, //
+      0xff, 0x85, 0xfb, 0x86, 0x00, 0x87,
+    ], [
+      ..._command(0x00, 0xc0), // cram 0: 6-bit colors
+      ..._data(0x03), // red
+    ]);
+    rom.setAll(0x7ff0, 'TMR '.codeUnits);
+    rom[0x7fff] = 0x4c;
+    final sms = _run(SmsModel.portable, rom, 3);
+    expect(sms.bus.compatible, isTrue);
+    final image = sms.imageBuffer();
+    expect(image.width, 160);
+    expect(image.height, 144);
+    expect(_pixel(image, 0, 0), 0xff0000ff);
+    expect(_pixel(image, 159, 143), 0xff0000ff);
+
+    // the start button raises the pause NMI
+    final nmi = _rom({
+      0x0000: [0x31, 0xf0, 0xdf, 0x18, 0xfe],
+      0x0066: [0x3e, 0x99, 0x32, 0x00, 0xc0, 0xed, 0x45],
+      0x7ff0: [...'TMR '.codeUnits, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x4c],
+    });
+    final paused = Sms(SmsModel.portable)..setRom(nmi);
+    paused.runFrame(10);
+    paused.padDown(0, Pad.start);
+    paused.runFrame(10);
+    expect(paused.bus.ram[0], 0x99);
+  });
+
+  test('cartridges are identified by the header region', () {
+    final module = SmsModule();
+    expect(module.identifyRom('a.sms', headerRom(6))?.id, 'smsport');
+    expect(module.identifyRom('a.sms', headerRom(4))?.id, 'sms');
+  });
 }
