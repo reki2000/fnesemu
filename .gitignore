@@ -4,6 +4,7 @@ assets/tests.*
 assets/680x0
 assets/MIPS-R3000-CPU-Simulator
 assets/ps1-tests
+assets/testroms
 docs/*
 .tool-versions
 log.txt

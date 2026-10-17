@@ -72,6 +72,10 @@ After changing core modules, regenerate the registration list:
 cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
 ```
 
+## To test the SMS and WonderSwan cores
+
+`scripts/build_test_roms.sh` builds homebrew test ROMs (ZEXDOC/ZEXALL for SMS, SMSVDPTest, WSCpuTest, WSHWTest and WSTimingTest) into `assets/testroms`. It needs nasm, WLA DX and Pillow. Run them with `packages/fnesemu_core/tool/core_harness.dart` as shown in the script.
+
 ## To test 6502 emulation
 
 The 6502 emulator core used in fnesemu has been validated using the Nestest ROM by comparing register and flag values against the Nestest log.
