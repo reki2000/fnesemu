@@ -23,8 +23,7 @@ class Ppu {
 
   ImageBuffer get imageBuffer =>
       // LCD with square pixels: display at the native 3:2 size
-      ImageBuffer(width, height, buffer.buffer.asUint8List(),
-          displayHeight: height);
+      ImageBuffer(width, height, buffer, displayHeight: height);
 
   // BGR555 -> ABGR8888 lookup (32768 entries).
   static final Uint32List _rgba = _buildRgba();
@@ -612,7 +611,7 @@ class Ppu {
         }
       }
     }
-    return ImageBuffer(cols * cell, rows * cell, buf.buffer.asUint8List());
+    return ImageBuffer(cols * cell, rows * cell, buf);
   }
 
   /// 4bpp tile sheet from the start of VRAM (32x32 tiles = 256x256 px), using
@@ -639,7 +638,7 @@ class Ppu {
         }
       }
     }
-    return ImageBuffer(w, h, buf.buffer.asUint8List());
+    return ImageBuffer(w, h, buf);
   }
 
   /// one line per OAM sprite describing its position, size and attributes.

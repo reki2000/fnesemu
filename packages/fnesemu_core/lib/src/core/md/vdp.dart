@@ -74,8 +74,7 @@ class Vdp {
   Uint32List buffer = Uint32List(320 * 224);
 
   ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, buffer.buffer.asUint8List(),
-          displayWidth_: 320);
+      ImageBuffer(width, height, buffer, displayWidth_: 320);
 
   bool h32 = true;
   bool ntsc = true; // false: pal

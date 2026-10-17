@@ -89,7 +89,7 @@ void main(List<String> args) {
       final image = core.imageBuffer(),
           second = nextReport ~/ core.systemClockHz;
       File('${directory.path}/fnesemu-n64-$second.rgba')
-          .writeAsBytesSync(image.buffer);
+          .writeAsBytesSync(image.bytes);
       File('${directory.path}/fnesemu-n64-$second.json')
           .writeAsStringSync(jsonEncode({
         'width': image.width,

@@ -51,8 +51,7 @@ class Md implements Core {
             for (var y = 0; y < 224; y++) {
               copy.renderLine(y, blank, transparent, 320);
             }
-            return DebugRaster(
-                ImageBuffer(320, 224, copy.output.buffer.asUint8List()));
+            return DebugRaster(ImageBuffer(320, 224, copy.output));
           }, kind: DebugLayerKind.framebuffer),
       ];
   @override
@@ -365,7 +364,7 @@ class Md implements Core {
   @override
   ImageBuffer imageBuffer() =>
       (expansion?.enabled == true && expansion?.released == true)
-          ? ImageBuffer(320, 224, expansion!.video.output.buffer.asUint8List())
+          ? ImageBuffer(320, 224, expansion!.video.output)
           : vdp.imageBuffer;
 
   // call this after rendering audio

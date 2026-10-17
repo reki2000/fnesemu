@@ -75,7 +75,7 @@ void main(List<String> args) {
       if (frame == 1 || frame % 30 == 0 || frame == frames) {
         final pixels = core.imageBuffer();
         final rgba = Uint8List.fromList(
-          pixels.buffer.sublist(0, pixels.width * pixels.height * 4),
+          pixels.bytes.sublist(0, pixels.width * pixels.height * 4),
         );
         final picture = image.Image.fromBytes(
           width: pixels.width,
@@ -116,7 +116,7 @@ void main(List<String> args) {
             final layerImage = image.Image.fromBytes(
               width: isolated.width,
               height: isolated.height,
-              bytes: Uint8List.fromList(isolated.buffer
+              bytes: Uint8List.fromList(isolated.bytes
                       .sublist(0, isolated.width * isolated.height * 4))
                   .buffer,
               order: image.ChannelOrder.rgba,

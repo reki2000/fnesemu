@@ -24,6 +24,8 @@ dependencies:
     path: packages/fnesemu_core
   cdrom_image:
     path: packages/cdrom_image
+  mp_pixel_image:
+    path: packages/mp_pixel_image
 
 dev_dependencies:
   flutter_test:

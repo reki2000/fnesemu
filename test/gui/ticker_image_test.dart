@@ -19,17 +19,16 @@ void main() {
       (tester) async {
     final callbacks = <ui.ImageDecoderCallback>[];
     final container = ImageContainer(
-        decoder: (pixels, width, height, format, callback) =>
-            callbacks.add(callback));
+        decoder: (pixels, width, height, callback) => callbacks.add(callback));
     await tester.pumpWidget(Directionality(
         textDirection: TextDirection.ltr,
         child: imageListener(
             notifier: container.imageNotifier, width: 100, height: 100)));
     final first = _image(), second = _image();
-    container.push(Uint8List(4), 1, 1, 320);
+    container.push(Uint32List(1), 1, 1, 320);
     callbacks.removeAt(0)(first);
     await tester.pump();
-    container.push(Uint8List(4), 1, 1, 256);
+    container.push(Uint32List(1), 1, 1, 256);
     callbacks.removeAt(0)(second);
     expect(first.debugDisposed, isFalse);
     expect(container.imageNotifier.value, same(second));
@@ -45,10 +44,9 @@ void main() {
       (tester) async {
     final callbacks = <ui.ImageDecoderCallback>[];
     final container = ImageContainer(
-        decoder: (pixels, width, height, format, callback) =>
-            callbacks.add(callback));
-    container.push(Uint8List(4), 1, 1, 320, displayHeight: 242);
-    container.push(Uint8List(4), 1, 1, 256, displayHeight: 224);
+        decoder: (pixels, width, height, callback) => callbacks.add(callback));
+    container.push(Uint32List(1), 1, 1, 320, displayHeight: 242);
+    container.push(Uint32List(1), 1, 1, 256, displayHeight: 224);
     final older = _image(), newer = _image();
     callbacks[1](newer);
     callbacks[0](older);
@@ -62,9 +60,9 @@ void main() {
   testWidgets('completion after disposal releases the pending image',
       (tester) async {
     late ui.ImageDecoderCallback callback;
-    final container = ImageContainer(
-        decoder: (pixels, width, height, format, cb) => callback = cb);
-    container.push(Uint8List(4), 1, 1, 320);
+    final container =
+        ImageContainer(decoder: (pixels, width, height, cb) => callback = cb);
+    container.push(Uint32List(1), 1, 1, 320);
     container.dispose();
     final pending = _image();
     callback(pending);

@@ -149,7 +149,7 @@ Future<void> main(List<String> options) async {
       if (out != null &&
           (frame % 150 == 0 || frame == warmup + measured * repetitions)) {
         final image = core.imageBuffer();
-        File('$out/frame_$frame.rgba').writeAsBytesSync(image.buffer);
+        File('$out/frame_$frame.rgba').writeAsBytesSync(image.bytes);
       }
       if (frame > warmup && (frame - warmup) % measured == 0) {
         final cpuUs = (cpuTicks() - startTicks) * 1000000 ~/ ticksPerSecond;

@@ -4,13 +4,13 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'package:fnesemu_core/app_api.dart';
+import 'package:mp_pixel_image/mp_pixel_image.dart';
 import '../../styles.dart';
 
 Widget _imageBufferRenderer(ImageBuffer buf) {
   if (buf.buffer.isEmpty) return const SizedBox();
   final completer = Completer<ui.Image>();
-  ui.decodeImageFromPixels(buf.buffer, buf.width, buf.height,
-      ui.PixelFormat.rgba8888, completer.complete);
+  decodePixelImage(buf.buffer, buf.width, buf.height, completer.complete);
   return FutureBuilder<ui.Image>(
       future: completer.future,
       builder: (_, image) => RawImage(image: image.data));
