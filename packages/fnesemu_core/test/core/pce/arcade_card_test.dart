@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:fnesemu_core/src/core/pce/component/arcade_card.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:test/test.dart';
+
+import '../../support/fake_cdrom_drive.dart';
 
 const _io = 0xff << 13;
 int _bank(int bank, [int offset = 0]) => (bank << 13) | offset;
@@ -163,17 +167,23 @@ void main() {
 
     setUp(() => pce = Pce());
 
+    void mountDisc() {
+      pce.setCdromDrive(FakeCdromDrive([Uint8List(2352)]));
+    }
+
     test('the expansion is absent for cartridge-only sessions', () {
       expect(pce.bus.read(_io + 0x1aff), 0xff);
       expect(pce.bus.read(_bank(0x40)), 0xff);
       pce.bus.write(_bank(0x40), 0x45);
-      pce.bus.cdrom.enabled = true;
+      mountDisc();
       expect(pce.bus.read(_io + 0x1aff), 0x51);
       expect(pce.bus.read(_bank(0x40)), 0);
+      pce.bus.cdrom.enabled = false; // drive not ready; card stays inserted
+      expect(pce.bus.read(_io + 0x1aff), 0x51);
     });
 
     test('banks 0x40-0x43 are mirrored data ports across each 8 KiB bank', () {
-      pce.bus.cdrom.enabled = true;
+      mountDisc();
       for (var port = 0; port < 4; port++) {
         final reg = _io + 0x1a00 + port * 0x10;
         pce.bus.write(reg + 2, port + 1);
@@ -187,7 +197,7 @@ void main() {
     });
 
     test('the dedicated I/O range does not disturb the CD interface', () {
-      pce.bus.cdrom.enabled = true;
+      mountDisc();
       expect(pce.bus.read(_io + 0x1800), 0);
       expect(pce.bus.read(_io + 0x18c1), 0xaa);
       expect(pce.bus.read(_io + 0x1aff), 0x51);
