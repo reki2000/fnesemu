@@ -1,4 +1,4 @@
-import '../../../util/int.dart';
+import '../../util/int.dart';
 import 'z80.dart';
 
 extension OpC0ff on Z80 {
@@ -90,6 +90,7 @@ extension OpC0ff on Z80 {
           case 0xf3: // di
             iff1 = false;
             iff2 = false;
+            eiDelay = false;
             return true;
           case 0xdb: // in a, (n)
             r.a = input(pc8());

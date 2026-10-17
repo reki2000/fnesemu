@@ -1,15 +1,16 @@
 // import '../../util/debug.dart';
 import 'dart:typed_data';
 
+import '../../components/sn76489/sn76489.dart';
+import '../../components/z80/bus.dart';
+import '../../components/z80/z80.dart';
 import '../../util/int.dart';
 import 'bus_m68.dart';
-import 'sn76489.dart';
 import 'ym2612.dart';
-import 'z80/z80.dart';
 
 // final _log = DebugLog('md.bus_z80');
 
-class BusZ80 {
+class BusZ80 implements Z80Bus {
   late BusM68 busM68;
   late Z80 cpu;
   late Sn76489 psg;
@@ -42,6 +43,7 @@ class BusZ80 {
     cpu.reset();
   }
 
+  @override
   int read(int addr) {
     if (addr < 0x4000) return ram[addr.mask13]; // mirror of 0x0000-0x1fff
 
@@ -59,7 +61,8 @@ class BusZ80 {
     return 0xff;
   }
 
-  write(int addr, int data) {
+  @override
+  void write(int addr, int data) {
     // ram: 0x2000-0x3fff is a mirror of 0x0000-0x1fff
     if (addr < 0x4000) {
       ram[addr.mask13] = data;
@@ -104,10 +107,12 @@ class BusZ80 {
     }
   }
 
+  @override
   int input(int port) {
     return 0xff;
   }
 
+  @override
   void output(int port, int data) {}
 
   void assertInt() {

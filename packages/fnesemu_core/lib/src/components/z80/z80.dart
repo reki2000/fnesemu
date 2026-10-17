@@ -1,14 +1,11 @@
-// import '../../../util/debug.dart';
-import '../../../util/int.dart';
-import '../bus_z80.dart';
+import '../../util/int.dart';
+import 'bus.dart';
 import 'op_00_3f.dart';
 import 'op_40_bf.dart';
 import 'op_c0_ff.dart';
 import 'op_cb.dart';
 import 'op_ddfd.dart';
 import 'op_ed.dart';
-
-// final _log = DebugLog('md.z80');
 
 class Regs {
   List<int> r8 = List.filled(8, 0); // b,c,d,e,h,l,_,a;
@@ -122,7 +119,7 @@ class Regs {
 }
 
 class Z80 {
-  final BusZ80 bus;
+  final Z80Bus bus;
 
   int get clocks => cycles;
   int cycles = 0;
@@ -140,7 +137,9 @@ class Z80 {
   bool eiDelay = false; // EI instruction delay
 
   bool halted = false; // HALT instruction
-  bool busReq = false; // bus is requested by m68
+  bool busReq = false; // BUSREQ: the bus is owned by another master
+
+  bool _nmiPending = false;
 
   Z80(this.bus);
 
@@ -152,6 +151,11 @@ class Z80 {
     _intAsserted = false;
   }
 
+  /// latches a falling edge of the NMI line
+  void triggerNmi() {
+    _nmiPending = true;
+  }
+
   bool exec() {
     // stopped while m68 owns the bus
     if (busReq) {
@@ -159,19 +163,34 @@ class Z80 {
       return true;
     }
 
+    if (_nmiPending) {
+      _nmiPending = false;
+      eiDelay = false;
+      iff2 = iff1;
+      iff1 = false;
+      _leaveHalt();
+      push(r.pc);
+      r.pc = 0x66;
+      cycles += 11;
+      return true;
+    }
+
     // interrupt
-    if (_intAsserted && iff1) {
+    if (_intAsserted && iff1 && !eiDelay) {
       _intAsserted = false;
       iff1 = false;
       iff2 = false;
-      if (halted) {
-        // resume from the instruction next to HALT
-        halted = false;
-        r.pc = r.pc.inc.mask16;
-      }
+      _leaveHalt();
       push(r.pc);
-      r.pc = 0x38;
-      cycles += 13;
+      if (im == imVector) {
+        // the data bus floats high: the vector is read from (I << 8) | 0xff
+        final addr = r.i.shl8 | 0xff;
+        r.pc = read(addr) | read(addr.inc.mask16).shl8;
+        cycles += 12;
+      } else {
+        r.pc = 0x38;
+        cycles += 6;
+      }
       return true;
     }
 
@@ -183,6 +202,7 @@ class Z80 {
 
     // halt
     if (halted) {
+      r.r = r.r.inc.mask7 | r.r & 0x80;
       cycles += 4;
       return true;
     }
@@ -205,6 +225,14 @@ class Z80 {
       0xcb => execCb(next()),
       _ => execC0ff(op)
     };
+  }
+
+  void _leaveHalt() {
+    if (halted) {
+      // resume from the instruction next to HALT
+      halted = false;
+      r.pc = r.pc.inc.mask16;
+    }
   }
 
   int read(int addr) => bus.read(addr);
@@ -473,6 +501,9 @@ class Z80 {
     iff2 = false;
     im = 0;
     halted = false;
+    eiDelay = false;
+    _nmiPending = false;
+    _intAsserted = false;
     r.r8.fillRange(0, 8, 0);
     r.ixiy.fillRange(0, 2, 0);
     r.af2 = 0;

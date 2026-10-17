@@ -1,13 +1,13 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/md/bus_z80.dart';
-import 'package:fnesemu_core/src/core/md/z80/z80.dart';
+import 'package:fnesemu_core/src/components/z80/bus.dart';
+import 'package:fnesemu_core/src/components/z80/z80.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
 import 'logging.dart';
 
-class BusZ80Test extends BusZ80 {
+class BusZ80Test implements Z80Bus {
   final ram_ = Uint8List(0x10000);
 
   BusZ80Test();
@@ -120,7 +120,6 @@ void main(List<String> args) {
   final bus = BusZ80Test();
   final Z80 cpu = Z80(bus);
   final Z80 cpu2 = Z80(bus);
-  bus.cpu = cpu;
 
   final inputs = File(args[0]).readAsLinesSync(); // test.in
   final expects = File(args[1]).readAsLinesSync(); // text.expected

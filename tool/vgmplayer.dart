@@ -4,7 +4,7 @@ import 'dart:developer';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/md/sn76489.dart';
+import 'package:fnesemu_core/src/components/sn76489/sn76489.dart';
 import 'package:fnesemu_core/src/core/md/ym2612.dart';
 import 'package:fnesemu_core/src/util/double.dart';
 import 'package:fnesemu_core/src/util/int.dart';
@@ -148,14 +148,17 @@ class VgmPlayer {
       // mix resampled psgOut + fmOut
       for (int i = 0; i < buf.length; i += 2) {
         final psgIndex = i.shr1 * psg.sampleHz ~/ rateHz;
-        final psgVal =
-            psgSamples > 0 ? psgOut[psgIndex.clip(0, psgOut.length - 1)] : 0.0;
+        final psgVal = psgSamples > 0
+            ? psgOut[psgIndex.clip(0, psgOut.length - 1)]
+            : 0.0;
 
         final fmIndex = (i.shr1 * fm.sampleHz ~/ rateHz).shl1;
-        final fmValL =
-            fmSamples > 0 ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 0] : 0.0;
-        final fmValR =
-            fmSamples > 0 ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 1] : 0.0;
+        final fmValL = fmSamples > 0
+            ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 0]
+            : 0.0;
+        final fmValR = fmSamples > 0
+            ? fmOut[fmIndex.clip(0, fmOut.length - 2) + 1]
+            : 0.0;
 
         final mixL = psgVal * 0.25 + fmValL * 2;
         final mixR = psgVal * 0.25 + fmValR * 2;
