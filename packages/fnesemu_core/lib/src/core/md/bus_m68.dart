@@ -3,12 +3,12 @@ import 'dart:typed_data';
 
 import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
+import '../../components/sn76489/sn76489.dart';
 import '../../util/int.dart';
 import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
 import 'pad.dart';
 import 'rom.dart';
-import 'sn76489.dart';
 import 'vdp.dart';
 import 'ym2612.dart';
 
