@@ -49,6 +49,17 @@ List<int> _bios() => [
     ];
 
 void main() {
+  test('the default backend follows build flags and explicit overrides', () {
+    const enabled = bool.fromEnvironment('JIT', defaultValue: true);
+    const trace = bool.fromEnvironment('PS_TRACE');
+    final ps = Ps();
+    addTearDown(ps.dispose);
+    expect(ps.jit != null, enabled && !trace && JitRuntime.nativeSupported);
+    final interpreted = Ps(jit: false);
+    addTearDown(interpreted.dispose);
+    expect(interpreted.jit, isNull);
+  });
+
   test('the recompiler takes the interrupts of the interpreter', () {
     if (!JitRuntime.nativeSupported) {
       markTestSkipped('no native recompiler on this host');
