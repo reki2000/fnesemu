@@ -209,6 +209,7 @@ class Pce implements Core {
 
   @override
   void setCdromDrive(CdromDrive drive) {
+    bus.arcadeCardEnabled = !drive.isEmpty;
     bus.cdrom.setDisc(drive);
     if (!drive.isEmpty && bus.sram.data.length != 0x800) {
       bus.sram.init('pce-cd-bram', Uint8List(0x800));
@@ -233,6 +234,7 @@ class Pce implements Core {
     crc = file.crc;
 
     bus.rom = Rom(file.banks);
+    bus.arcadeCard.powerOn();
 
     reset();
   }
