@@ -38,5 +38,4 @@ void main() {
       'package:fnesemu_core/src/internal/core_registry.dart',
     });
   });
-
 }
