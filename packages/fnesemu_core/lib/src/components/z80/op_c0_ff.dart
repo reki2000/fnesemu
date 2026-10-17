@@ -102,6 +102,8 @@ extension OpC0ff on Z80 {
             r.hl = tmp;
             return true;
           case 0xfb: // ei
+            iff1 = true;
+            iff2 = true;
             eiDelay = true;
             return true;
         }

@@ -30,17 +30,11 @@ extension OpEd on Z80 {
     final res = r.a - val;
     r.hf = (r.a ^ val ^ res) & Regs.H != 0;
     r.nf = true;
-    r.pvf = true;
-    r.setSZ(res);
+    r.pvf = r.bc != 0;
+    r.setSZ(res.mask8);
 
     cycles += 2;
-    if (r.a == val) {
-      return false;
-    } else if (r.bc == 0) {
-      r.pvf = false;
-      return false;
-    }
-    return true;
+    return r.a != val && r.bc != 0;
   }
 
   bool repIn(int repDirection) {
