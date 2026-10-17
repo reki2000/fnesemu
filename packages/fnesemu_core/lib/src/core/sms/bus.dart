@@ -95,6 +95,11 @@ class Bus implements Z80Bus {
     if (body.length % 0x4000 == 0x200) {
       body = Uint8List.sublistView(body, 0x200);
     }
+    // drop trailing data shorter than a bank (dumps with appended junk),
+    // otherwise the bank numbers wrap at a wrong count
+    if (body.length > 0x8000 && body.length % 0x4000 != 0) {
+      body = Uint8List.sublistView(body, 0, body.length & ~0x3fff);
+    }
     rom = body;
     mapper = _detectMapper(body);
     if (model == SmsModel.gg) {

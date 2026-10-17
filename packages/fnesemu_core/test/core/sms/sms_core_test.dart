@@ -136,6 +136,16 @@ void main() {
     expect(bus.read(0x8010), 5);
   });
 
+  test('trailing data shorter than a bank does not change the bank wrap', () {
+    final rom = Uint8List(0x20000 + 730);
+    for (var bank = 0; bank < 8; bank++) {
+      rom[bank * 0x4000 + 0x10] = bank;
+    }
+    final bus = (Sms(SmsModel.standard)..setRom(rom)).bus;
+    bus.write(0xffff, 0x0a);
+    expect(bus.read(0x8010), 2);
+  });
+
   test('the pause button raises an NMI', () {
     final rom = _rom({
       0x0000: [0x31, 0xf0, 0xdf, 0x18, 0xfe], // ld sp; jr $
