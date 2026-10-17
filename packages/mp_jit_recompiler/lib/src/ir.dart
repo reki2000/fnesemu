@@ -78,10 +78,12 @@ enum IrOp {
   trunc32,
 
   /// loads imm bytes (1, 2, 4 or 8) at the guest address a; aux is 1 to sign
-  /// extend
+  /// extend. With an [IrInst.exit], an unmapped page exits the block instead
+  /// of calling the host read function
   load,
 
-  /// stores imm bytes (1, 2, 4 or 8) of b at the guest address a
+  /// stores imm bytes (1, 2, 4 or 8) of b at the guest address a; an
+  /// [IrInst.exit] works as for load
   store,
 
   /// calls the helper imm with (a, b, c) and returns its result
@@ -143,12 +145,17 @@ final class IrInst {
   /// sign extension of a load, or the exit of an exitIf
   final int aux;
 
+  /// the exit of a load or store at an unmapped page, or -1 to call the
+  /// host read or write function
+  final int exit;
+
   const IrInst(this.op,
       {this.a = -1,
       this.b = -1,
       this.c = -1,
       this.imm = 0,
       this.aux = 0,
+      this.exit = -1,
       this.type = IrType.i32,
       this.endian = IrEndian.little,
       this.immHi = 0});
@@ -156,7 +163,7 @@ final class IrInst {
   @override
   String toString() {
     final ops = [a, b, c].where((v) => v >= 0).map((v) => 'v$v').join(', ');
-    return '${op.name}.${type.name}.${endian.name}($ops${ops.isEmpty ? '' : ', '}imm: $imm, immHi: $immHi, aux: $aux)';
+    return '${op.name}.${type.name}.${endian.name}($ops${ops.isEmpty ? '' : ', '}imm: $imm, immHi: $immHi, aux: $aux${exit < 0 ? '' : ', exit: $exit'})';
   }
 }
 
@@ -172,7 +179,12 @@ final class IrExit {
   /// rest is given back to the budget. Null takes the whole cost.
   final int? spent;
 
-  const IrExit(this.reason, this.pc, {this.tag = 0, this.spent});
+  /// context words written only when the block leaves through this exit,
+  /// such as guest registers kept in values; each value is i32
+  final List<(int, IrValue)> stores;
+
+  const IrExit(this.reason, this.pc,
+      {this.tag = 0, this.spent, this.stores = const []});
 
   int refund(int cost) => spent == null ? 0 : cost - spent!;
 }
@@ -202,6 +214,10 @@ abstract final class JitCtx {
 
   /// a block exits at its entry when this is not 0
   static const stop = 4;
+
+  /// the guest address of the access which left through an unmapped page
+  /// exit, see [IrInst.exit] and [IrOp.guardMapped]
+  static const faultAddr = 5;
 
   /// the first word free for the guest
   static const user = 8;
@@ -261,9 +277,8 @@ final class IrBlock {
     verify();
   }
 
-  bool get usesI64 => insts.any((i) => i.type == IrType.i64);
-  bool get usesBigEndian =>
-      insts.any((i) => i.endian == IrEndian.big) ||
+  late final bool usesI64 = insts.any((i) => i.type == IrType.i64);
+  late final bool usesBigEndian = insts.any((i) => i.endian == IrEndian.big) ||
       guards.any((g) => g.endian == IrEndian.big);
 
   /// Checks SSA operands and widths; runtimes also check context bounds.
@@ -277,6 +292,25 @@ final class IrBlock {
         'v$at uses an invalid value v$v');
     IrType type(int v) => insts[v].type;
     check(cost >= 0, 'negative block cost');
+    void exitStores(int at, IrExit e) {
+      for (final (word, v) in e.stores) {
+        value(v.index, at);
+        check(
+            insts[v.index].type == IrType.i32 &&
+                word >= 0 &&
+                (ctxWords == null || word < ctxWords),
+            'an exit of v$at has an invalid store');
+      }
+    }
+
+    void exitAt(int i, int e) {
+      check(e >= 0 && e < exits.length, 'v$i has an invalid exit');
+      final spent = exits[e].spent;
+      check(spent == null || (spent >= 0 && spent <= cost),
+          'v$i spends more than the cost');
+      exitStores(i, exits[e]);
+    }
+
     for (int i = 0; i < insts.length; i++) {
       final inst = insts[i];
       final n = irOperandCount(inst.op);
@@ -296,6 +330,8 @@ final class IrBlock {
           'v$i assigns byte order to a non-memory operation');
       check(inst.op == IrOp.constant || inst.immHi == 0,
           'v$i has an extra constant word');
+      check(inst.op == IrOp.load || inst.op == IrOp.store || inst.exit == -1,
+          'v$i has an unmapped exit on a non-memory operation');
       switch (inst.op) {
         case IrOp.constant:
           check(inst.type == IrType.i64 || inst.immHi == 0,
@@ -311,6 +347,7 @@ final class IrBlock {
           check([1, 2, 4, 8].contains(inst.imm) && inst.imm <= inst.type.bytes,
               'v$i has an invalid access size ${inst.imm}');
           width(type(inst.a) == IrType.i32);
+          if (inst.exit >= 0) exitAt(i, inst.exit);
           if (inst.op == IrOp.store) {
             width(type(inst.b) == inst.type);
           } else {
@@ -322,11 +359,7 @@ final class IrBlock {
               [inst.a, inst.b, inst.c].every((v) => type(v) == IrType.i32));
         case IrOp.exitIf || IrOp.guardMapped:
           width(inst.type == IrType.i32 && type(inst.a) == IrType.i32);
-          check(inst.aux >= 0 && inst.aux < exits.length,
-              'v$i has an invalid exit');
-          final spent = exits[inst.aux].spent;
-          check(spent == null || (spent >= 0 && spent <= cost),
-              'v$i spends more than the cost');
+          exitAt(i, inst.aux);
           if (inst.op == IrOp.guardMapped) {
             check(inst.imm == 0 || inst.imm == 1,
                 'v$i has an invalid mapping access mode');
@@ -351,6 +384,8 @@ final class IrBlock {
       }
     }
     switch (term) {
+      case IrExitTerm(:final exit):
+        exitStores(insts.length, exit);
       case IrBranch(:final cond):
         value(cond.index, insts.length);
         check(type(cond.index) == IrType.i32, 'branch condition must be i32');
@@ -455,22 +490,33 @@ final class IrBuilder {
       _emit(IrInst(IrOp.zext32, a: a.index, type: IrType.i64));
   IrValue trunc32(IrValue a) => _emit(IrInst(IrOp.trunc32, a: a.index));
 
+  int _exitIndex(IrExit? exit) {
+    if (exit == null) return -1;
+    _exits.add(exit);
+    return _exits.length - 1;
+  }
+
+  /// [unmapped] exits the block before an access to an unmapped page,
+  /// instead of calling the host; the address is left in [JitCtx.faultAddr]
   IrValue load(int size, IrValue addr,
           {bool signed = false,
           IrType type = IrType.i32,
-          IrEndian endian = IrEndian.little}) =>
+          IrEndian endian = IrEndian.little,
+          IrExit? unmapped}) =>
       _emit(IrInst(IrOp.load,
           a: addr.index,
           imm: size,
           aux: signed ? 1 : 0,
+          exit: _exitIndex(unmapped),
           type: type,
           endian: endian));
   void store(int size, IrValue addr, IrValue v,
-          {IrEndian endian = IrEndian.little}) =>
+          {IrEndian endian = IrEndian.little, IrExit? unmapped}) =>
       _emit(IrInst(IrOp.store,
           a: addr.index,
           b: v.index,
           imm: size,
+          exit: _exitIndex(unmapped),
           type: typeOf(v),
           endian: endian));
 

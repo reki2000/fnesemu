@@ -124,6 +124,10 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   @override
   Uint32List get ctx => _ctx;
 
+  /// about 3ms to translate, compile and instantiate a block
+  @override
+  int get compileThreshold => 32;
+
   @override
   Uint8List alloc(int size) {
     final offset = _allocate(size);

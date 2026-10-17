@@ -217,6 +217,10 @@ final class _X64Runtime extends JitRuntime implements X64Env {
   @override
   Uint32List get ctx => _ctx;
 
+  /// about 0.5ms to translate and install a block
+  @override
+  int get compileThreshold => 4;
+
   @override
   Uint8List alloc(int size) {
     final p = _alloc(size);

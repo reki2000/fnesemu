@@ -42,7 +42,9 @@ final class _Machine {
   late final R3000 cpu;
 
   _Machine(bool? native, List<int> program)
-      : jit = native == null ? null : PsJit.create(native: native)! {
+      : jit = native == null
+            ? null
+            : PsJit.create(native: native, compileThreshold: 1)! {
     bus = _Bus(jit);
     cpu = R3000(bus, regs: jit?.regs);
     bus.cpu = cpu;
@@ -115,6 +117,27 @@ void main() {
           expect(m.cpu.r[1], 2);
         });
       }
+
+      test('a code page written by a loop still sees changed code', () {
+        // the loop stores data next to its code more often than a code page
+        // stays protected, then changes the instruction after a store
+        final m = _Machine(native, [
+          _i(9, 0, 4, 40), // addiu r4, r0, 40
+          _i(15, 0, 2, _code >> 16), // lui r2, code
+          _i(0x2b, 2, 4, 0x100), // loop: sw r4, 0x100(r2)
+          _i(9, 4, 4, -1), // addiu r4, r4, -1
+          _i(5, 4, 0, -3), // bne r4, r0, loop
+          0,
+          _i(0x2b, 2, 3, 0x1c), // sw r3, 0x1c(r2)
+          _i(9, 0, 1, 1), // addiu r1, r0, 1
+        ]);
+        m.cpu.r[3] = _i(9, 0, 1, 2);
+        for (int n = 0; n < 20; n++) {
+          m.run();
+        }
+        expect(m.bus.read32(_code + 0x100), 1);
+        expect(m.cpu.r[1], 2);
+      });
 
       test('timer reads observe elapsed instructions', () {
         final m = _Machine(native, [

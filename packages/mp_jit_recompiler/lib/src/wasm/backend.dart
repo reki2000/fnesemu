@@ -61,7 +61,13 @@ abstract final class WasmBackend {
       c.store();
     }
 
-    void exit(int reason, int pc, int tag, {int refund = 0, int? pcLocal}) {
+    void exit(int reason, int pc, int tag,
+        {int refund = 0,
+        int? pcLocal,
+        List<(int, IrValue)> stores = const []}) {
+      for (final (word, v) in stores) {
+        ctxStore(word, () => c.get(v.index));
+      }
       ctxStore(JitCtx.exitReason, () => c.i32(reason));
       ctxStore(
           JitCtx.exitPc, () => pcLocal == null ? c.i32(pc) : c.get(pcLocal));
@@ -77,8 +83,8 @@ abstract final class WasmBackend {
       c.op(0x0f);
     }
 
-    void sideExit(IrExit e) =>
-        exit(e.reason, e.pc, e.tag, refund: e.refund(block.cost));
+    void sideExit(IrExit e) => exit(e.reason, e.pc, e.tag,
+        refund: e.refund(block.cost), stores: e.stores);
     void lookup(bool write) {
       c.i32(write ? env.writeTable : env.readTable);
       c.get(address);
@@ -90,6 +96,16 @@ abstract final class WasmBackend {
       c.op(0x74, 0x6a);
       c.load();
       c.set(page);
+    }
+
+    // leaves through e when the page looked up is unmapped, with the guest
+    // address as the fault address
+    void exitIfUnmapped(IrExit e) {
+      c.get(page);
+      c.op(0x45, 0x04, 0x40);
+      ctxStore(JitCtx.faultAddr, () => c.get(address));
+      sideExit(e);
+      c.op(0x0b);
     }
 
     void hostAddress() {
@@ -200,9 +216,6 @@ abstract final class WasmBackend {
           a();
           c.set(address);
           lookup(false);
-          c.get(page);
-          c.op(0x04, 0x7f); // if -> i32
-          hostAddress();
           final opcode = switch ((inst.imm, inst.aux != 0)) {
             (1, false) => 0x2d,
             (1, true) => 0x2c,
@@ -210,13 +223,21 @@ abstract final class WasmBackend {
             (2, true) => 0x2e,
             _ => 0x28,
           };
-          c.load(
-              opcode: opcode,
-              align: inst.imm == 4
-                  ? 2
-                  : inst.imm == 2
-                      ? 1
-                      : 0);
+          final align = inst.imm == 4
+              ? 2
+              : inst.imm == 2
+                  ? 1
+                  : 0;
+          if (inst.exit >= 0) {
+            exitIfUnmapped(block.exits[inst.exit]);
+            hostAddress();
+            c.load(opcode: opcode, align: align);
+            break;
+          }
+          c.get(page);
+          c.op(0x04, 0x7f); // if -> i32
+          hostAddress();
+          c.load(opcode: opcode, align: align);
           c.op(0x05);
           c.get(address);
           c.i32(inst.imm);
@@ -235,11 +256,7 @@ abstract final class WasmBackend {
           a();
           c.set(address);
           lookup(true);
-          c.get(page);
-          c.op(0x04, 0x40);
-          hostAddress();
-          b();
-          c.store(
+          void store() => c.store(
               opcode: inst.imm == 1
                   ? 0x3a
                   : inst.imm == 2
@@ -250,6 +267,18 @@ abstract final class WasmBackend {
                   : inst.imm == 2
                       ? 1
                       : 0);
+          if (inst.exit >= 0) {
+            exitIfUnmapped(block.exits[inst.exit]);
+            hostAddress();
+            b();
+            store();
+            break;
+          }
+          c.get(page);
+          c.op(0x04, 0x40);
+          hostAddress();
+          b();
+          store();
           c.op(0x05);
           c.get(address);
           b();
@@ -270,10 +299,7 @@ abstract final class WasmBackend {
           a();
           c.set(address);
           lookup(inst.imm != 0);
-          c.get(page);
-          c.op(0x45, 0x04, 0x40);
-          sideExit(block.exits[inst.aux]);
-          c.op(0x0b);
+          exitIfUnmapped(block.exits[inst.aux]);
       }
       if (irHasResult(inst.op)) c.set(i);
     }

@@ -229,41 +229,47 @@ final class _Generator {
 void main() {
   for (final native in [false, true]) {
     final name = native ? 'native' : 'interpreted';
-    test('$name blocks run random programs like the interpreter', () {
-      if (identical(0, 0.0)) {
-        // R3000.mult and multu lose the upper bits with the numbers of JS
-        markTestSkipped('the interpreter multiplies inexactly on dart2js');
-        return;
-      }
-      final jit = PsJit.create(native: native);
-      if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
-        return;
-      }
-      final a = _Machine.interpreter(), b = _Machine.jit(jit);
-      final rnd = Random(7);
-      for (int n = 0; n < 300; n++) {
-        final program = _Generator(rnd).program(40 + rnd.nextInt(200));
-        final rom = Uint8List.fromList(
-            List.generate(512 * 1024, (i) => (i * 0x9e3779b1) >> 13));
-        final data =
-            Uint8List.fromList(List.generate(0x2000, (_) => rnd.nextInt(256)));
-        final end = _code + 4 * (program.length - 2);
-        for (final m in [a, b]) {
-          m.load(program, rom, data);
-          m.run(end, rnd);
+    // 1 translates every block; the default interprets cold blocks first
+    for (final threshold in [1, null]) {
+      test(
+          '$name blocks run random programs like the interpreter'
+          '${threshold == null ? ' after warming up' : ''}', () {
+        if (identical(0, 0.0)) {
+          // R3000.mult and multu lose the upper bits with the numbers of JS
+          markTestSkipped('the interpreter multiplies inexactly on dart2js');
+          return;
         }
-        expect(b.state, a.state, reason: 'program $n');
-        expect(b.bus.mem.sublist(_data & 0x1fffff, (_data & 0x1fffff) + 0x2000),
-            a.bus.mem.sublist(_data & 0x1fffff, (_data & 0x1fffff) + 0x2000),
-            reason: 'program $n');
-        expect(b.bus.scratchPad.sublist(0, 1024), a.bus.scratchPad,
-            reason: 'program $n');
-      }
-    });
+        final jit = PsJit.create(native: native, compileThreshold: threshold);
+        if (jit == null) {
+          markTestSkipped('no native recompiler on this host');
+          return;
+        }
+        final a = _Machine.interpreter(), b = _Machine.jit(jit);
+        final rnd = Random(7);
+        for (int n = 0; n < 300; n++) {
+          final program = _Generator(rnd).program(40 + rnd.nextInt(200));
+          final rom = Uint8List.fromList(
+              List.generate(512 * 1024, (i) => (i * 0x9e3779b1) >> 13));
+          final data = Uint8List.fromList(
+              List.generate(0x2000, (_) => rnd.nextInt(256)));
+          final end = _code + 4 * (program.length - 2);
+          for (final m in [a, b]) {
+            m.load(program, rom, data);
+            m.run(end, rnd);
+          }
+          expect(b.state, a.state, reason: 'program $n');
+          expect(
+              b.bus.mem.sublist(_data & 0x1fffff, (_data & 0x1fffff) + 0x2000),
+              a.bus.mem.sublist(_data & 0x1fffff, (_data & 0x1fffff) + 0x2000),
+              reason: 'program $n');
+          expect(b.bus.scratchPad.sublist(0, 1024), a.bus.scratchPad,
+              reason: 'program $n');
+        }
+      });
+    }
 
     test('$name blocks keep the load delay of the interpreter', () {
-      final jit = PsJit.create(native: native);
+      final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
         markTestSkipped('no native recompiler on this host');
         return;
@@ -305,7 +311,7 @@ void main() {
     });
 
     test('$name blocks see code written by the program', () {
-      final jit = PsJit.create(native: native);
+      final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
         markTestSkipped('no native recompiler on this host');
         return;

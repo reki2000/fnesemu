@@ -59,6 +59,11 @@ abstract class JitRuntime {
   /// the context words; the first [JitCtx.user] words are reserved
   Uint32List get ctx;
 
+  /// How often a host should see a block run before installing it. Below
+  /// it, running the guest code in the host interpreter costs less than
+  /// compiling; an estimate from the compile time of this executor.
+  int get compileThreshold => 1;
+
   /// Width and byte-order capabilities of the executor, not of its host.
   /// Compiled i64/big-endian emission can be added without changing i32 IR.
   bool get supportsI64 => false;
