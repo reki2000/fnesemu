@@ -222,6 +222,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.1"
+  host_pixels:
+    dependency: "direct main"
+    description:
+      path: "packages/host_pixels"
+      relative: true
+    source: path
+    version: "0.1.0"
   idb_shim:
     dependency: "direct main"
     description:

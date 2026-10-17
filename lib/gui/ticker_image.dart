@@ -2,10 +2,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:host_pixels/host_pixels.dart';
 
 import 'config.dart';
-import 'pixels/host_pixels_io.dart'
-    if (dart.library.js_interop) 'pixels/host_pixels_web.dart';
 
 typedef PixelDecoder = void Function(Uint8List pixels, int width, int height,
     ui.PixelFormat format, ui.ImageDecoderCallback callback);

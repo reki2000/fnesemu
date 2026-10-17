@@ -8,6 +8,7 @@ Each package owns its domain and communicates through the interfaces below.
 |---|---|---|---|
 | Cores | `packages/fnesemu_core` | Emulation, media identification, BIOS setup | Dart SDK; no Flutter or `dart:io` |
 | Disc images | `packages/cdrom_image` | CUE/ISO/BIN/CHD parsing and sector reads | Dart SDK, `archive`; no `dart:io` |
+| Host pixels | `packages/host_pixels` | Platform-specific conversion of RGBA frames for the image decoder | Dart SDK; `dart:js_interop` on the Web only |
 | File picker | `packages/mp_bigfile_picker` | Platform file/directory selection and random reads | Flutter and platform APIs; no app/core dependencies |
 | App | `lib/` | GUI, storage, and package adapters | All packages |
 | Core tools | `packages/fnesemu_core/tool` | Headless runs, benchmarks, and CPU tests | Cores, `dart:io`, disc images; never the app |
@@ -43,6 +44,6 @@ Each package owns its domain and communicates through the interfaces below.
 
 ## Tests
 
-- Run core and harness tests with `cd packages/fnesemu_core && dart test`, disc-image tests with `cd packages/cdrom_image && dart test`, and GUI tests with `flutter test`.
-- `make test` runs all three suites; boundary rules are checked by `test/gui/core_boundary_test.dart` and `packages/fnesemu_core/test/core/core_layers_test.dart`.
+- Run core and harness tests with `cd packages/fnesemu_core && dart test`, disc-image tests with `cd packages/cdrom_image && dart test`, host-pixel tests with `cd packages/host_pixels && dart test`, and GUI tests with `flutter test`.
+- `make test` runs all four suites; boundary rules are checked by `test/gui/core_boundary_test.dart` and `packages/fnesemu_core/test/core/core_layers_test.dart`.
 - Use `make regress` for routine regression checks (55-second budget) and `make regress-full` for opt-in real-ROM screenshot/audio comparisons; see `docs/TEST.md`.
