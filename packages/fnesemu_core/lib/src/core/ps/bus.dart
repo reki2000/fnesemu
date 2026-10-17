@@ -35,17 +35,17 @@ class Bus implements BusR3000 {
         scratchPad = scratchPad ?? Uint8List(1024);
 
   final Uint8List mem;
-  late final Uint32List mem32 = mem.buffer.asUint32List();
-  late final Uint16List mem16 = mem.buffer.asUint16List();
+  late final Uint32List mem32 = Uint32List.sublistView(mem);
+  late final Uint16List mem16 = Uint16List.sublistView(mem);
   static const mem32Mask = 0x7ffff;
 
   final Uint8List rom;
-  late final Uint32List rom32 = rom.buffer.asUint32List();
+  late final Uint32List rom32 = Uint32List.sublistView(rom);
   static const rom32Mask = 0x1ffff;
 
   final Uint8List scratchPad;
-  late final Uint32List scratchPad32 = scratchPad.buffer.asUint32List();
-  late final Uint16List scratchPad16 = scratchPad.buffer.asUint16List();
+  late final Uint32List scratchPad32 = Uint32List.sublistView(scratchPad);
+  late final Uint16List scratchPad16 = Uint16List.sublistView(scratchPad);
   static const scratchPad32Mask = 0x3ff;
   bool useScratchPad = false;
 

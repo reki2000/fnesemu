@@ -2,7 +2,9 @@ import 'dart:typed_data';
 
 import 'interp_runtime.dart';
 import 'ir.dart';
-import 'native_stub.dart' if (dart.library.io) 'native_ffi.dart' as host;
+import 'native_stub.dart'
+    if (dart.library.io) 'native_ffi.dart'
+    if (dart.library.js_interop) 'wasm_runtime.dart' as host;
 
 /// A host function called from a block; arguments are unsigned 32-bit
 /// values and the result is truncated to 32 bits.
@@ -27,7 +29,8 @@ abstract class JitRuntime {
   static const pageBits = 12;
   static const pageSize = 1 << pageBits;
 
-  /// the native runtime of this host, or null if it cannot run native code
+  /// The compiled runtime of this host: x86-64 on supported native hosts,
+  /// Wasm on the Web, or null when compilation is unavailable or blocked.
   static JitRuntime? native(
           {required int ctxWords,
           required int addrMask,
@@ -43,7 +46,7 @@ abstract class JitRuntime {
           required JitWrite write}) =>
       IrInterpreterRuntime(ctxWords, addrMask, read, write);
 
-  /// whether [native] returns a runtime on this host
+  /// Whether [native] can compile blocks on this host.
   static bool get nativeSupported => host.supported;
 
   final int addrMask;
