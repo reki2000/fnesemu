@@ -1,9 +1,11 @@
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'config.dart';
+import 'pixels/host_pixels_io.dart'
+    if (dart.library.js_interop) 'pixels/host_pixels_web.dart';
 
 typedef PixelDecoder = void Function(Uint8List pixels, int width, int height,
     ui.PixelFormat format, ui.ImageDecoderCallback callback);
@@ -32,7 +34,8 @@ class ImageContainer {
     if (_disposed || buffer.isEmpty) return;
 
     final generation = ++_generation;
-    _decoder(buffer, width, height, ui.PixelFormat.rgba8888, (next) {
+    _decoder(hostPixels(buffer), width, height, ui.PixelFormat.rgba8888,
+        (next) {
       // An asynchronous decode may finish after a newer frame or disposal.
       if (_disposed || generation < _displayedGeneration) {
         next.dispose();
@@ -82,23 +85,22 @@ Widget imageListener(
         {required ValueNotifier<ui.Image?> notifier,
         required double width,
         required double height}) =>
-    ValueListenableBuilder(
-        valueListenable: notifier,
-        builder: (context, value, child) => CustomPaint(
-              size: Size(width, height),
-              painter: _ImagePainter(value),
-            ));
+    // A new frame repaints only this layer. Rebuilding a widget here would
+    // relayout the enclosing LayoutBuilder and repaint the overlaid controls.
+    RepaintBoundary(
+        child: CustomPaint(
+      size: Size(width, height),
+      painter: _ImagePainter(notifier),
+    ));
 
 class _ImagePainter extends CustomPainter {
-  final ui.Image? image;
+  final ValueListenable<ui.Image?> notifier;
 
-  _ImagePainter(this.image);
+  _ImagePainter(this.notifier) : super(repaint: notifier);
 
   @override
   void paint(Canvas canvas, Size size) {
-    // paint image to canvas
-    final paint = Paint();
-
+    final image = notifier.value;
     if (image == null) {
       canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
           Paint()..color = Colors.black);
@@ -106,14 +108,12 @@ class _ImagePainter extends CustomPainter {
     }
 
     final srcRect =
-        Rect.fromLTWH(0, 0, image!.width.toDouble(), image!.height.toDouble());
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
     final dstRect = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.drawImageRect(image!, srcRect, dstRect, paint);
+    canvas.drawImageRect(image, srcRect, dstRect, Paint());
   }
 
   @override
-  bool shouldRepaint(covariant _ImagePainter oldDelegate) {
-    // repaint only if image is changed
-    return oldDelegate.image != image;
-  }
+  bool shouldRepaint(covariant _ImagePainter oldDelegate) =>
+      oldDelegate.notifier != notifier;
 }
