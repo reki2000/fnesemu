@@ -28,6 +28,7 @@ the outputs must still match the data under expected/, which records the current
 Reading the cases needs Python 3.11 or later, and comparing images and audio needs Pillow and numpy.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -35,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -66,11 +68,15 @@ class Case:
     def checks(self):
         return self.spec.get("checks", [])
 
-    def command(self, out: Path):
+    def harness(self) -> str:
+        return self.spec.get("harness", "core_harness.dart")
+
+    def command(self, out: Path, exe: Path):
+        """The harness command; exe is the compiled harness."""
         s = self.spec
         frames = [c["frame"] for c in self.checks() if "frame" in c]
-        harness = s.get("harness", "core_harness.dart")
-        cmd = ["dart", "run", f"tool/{harness}"]
+        harness = self.harness()
+        cmd = [str(exe)]
         if harness == "core_harness.dart":
             cmd.append(s.get("core", self.core))
         cmd += [str(self.path(f)) for f in s["files"]]
@@ -211,7 +217,41 @@ def update(case: Case, out: Path, say):
         say(f"  updated {show(ref)}")
 
 
-def run_case(case: Case, do_update, slow=False):
+def source_hash() -> str:
+    """A hash of the sources that the compiled harnesses depend on."""
+    h = hashlib.sha256()
+    files = [CORE_PKG / "pubspec.lock"] + sorted((CORE_PKG / "lib").rglob("*.dart")) + sorted((CORE_PKG / "tool").glob("*.dart"))
+    for f in files:
+        h.update(str(f.relative_to(CORE_PKG)).encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def compile_harnesses(cases) -> dict:
+    """Compiles each harness that the cases use once (AOT), and caches the executables by the source hash.
+
+    Starting a compiled harness takes milliseconds, while dart run loads and compiles the sources for each case.
+    """
+    cache = CORE_PKG / ".dart_tool" / "romtest"
+    cache.mkdir(parents=True, exist_ok=True)
+    digest = source_hash()
+    exes = {}
+    for harness in sorted({c.harness() for c in cases}):
+        stem = Path(harness).stem
+        exe = cache / f"{stem}-{digest}"
+        if not exe.exists():
+            for old in cache.glob(f"{stem}-*"):
+                old.unlink()
+            print(f"compiling tool/{harness}...", flush=True)
+            r = subprocess.run(["dart", "compile", "exe", f"tool/{harness}", "-o", str(exe)],
+                               cwd=CORE_PKG, capture_output=True, text=True)
+            if r.returncode != 0:
+                sys.exit(f"cannot compile tool/{harness}:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
+        exes[harness] = exe
+    return exes
+
+
+def run_case(case: Case, do_update, slow=False, exes=None):
     """Returns ("ok" | "fail" | "xfail" | "skip", report)."""
     lines = []
     if case.spec.get("slow") and not slow:
@@ -224,15 +264,17 @@ def run_case(case: Case, do_update, slow=False):
     if missing:
         return "skip", f"SKIP {case.id}: missing {', '.join(missing)} (run setup first)"
     out = Path(tempfile.mkdtemp(prefix=f"romtest_{case.core}_{case.name}_"))
-    cmd = case.command(out)
+    cmd = case.command(out, exes[case.harness()])
+    started = time.monotonic()
     try:
         r = subprocess.run(cmd, cwd=CORE_PKG, capture_output=True, text=True,
                            timeout=case.spec.get("timeout", 600))
     except subprocess.TimeoutExpired:
         return "fail", f"[{case.id}]\n  FAIL harness timeout\n  output kept: {out}"
+    elapsed = time.monotonic() - started
     if r.returncode != 0:
-        return "fail", f"[{case.id}]\n  FAIL harness exit {r.returncode}\n{r.stdout[-800:]}{r.stderr[-800:]}"
-    lines.append(f"[{case.id}]")
+        return "fail", f"[{case.id}] {elapsed:.1f}s\n  FAIL harness exit {r.returncode}\n{r.stdout[-800:]}{r.stderr[-800:]}"
+    lines.append(f"[{case.id}] {elapsed:.1f}s")
     if do_update:
         update(case, out, lines.append)
     ok, upstream_ok, has_upstream = compare(case, out, lines.append)
@@ -323,13 +365,16 @@ def main(argv=None):
         failed = len({d for c in cases for d in _setup_dirs(c)}) - len(ready)
         print(f"{len(ready)} ready, {failed} failed")
         return
+    started = time.monotonic()
+    exes = compile_harnesses([c for c in cases if a.slow or not c.spec.get("slow")])
     with ThreadPoolExecutor(max(1, a.j)) as ex:
         results = []
-        for status, text in ex.map(lambda c: run_case(c, a.update, a.slow), cases):
+        for status, text in ex.map(lambda c: run_case(c, a.update, a.slow, exes), cases):
             print(text, flush=True)
             results.append(status)
     print(f"\n{results.count('ok')} ok, {results.count('fail')} failed, "
-          f"{results.count('xfail')} known failures, {results.count('skip')} skipped")
+          f"{results.count('xfail')} known failures, {results.count('skip')} skipped "
+          f"in {time.monotonic() - started:.0f}s")
     sys.exit(1 if "fail" in results else 0)
 
 
