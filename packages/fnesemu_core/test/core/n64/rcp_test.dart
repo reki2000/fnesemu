@@ -147,9 +147,10 @@ void main() {
   test('unaligned big endian LWL/LWR merge the addressed bytes', () {
     final b = N64Bus()..reset();
     b.ram.setRange(0x101, 0x105, [0x12, 0x34, 0x56, 0x78]);
-    b.ramWrite(0, 0x88010101, 4);
-    b.ramWrite(4, 0x98010104, 4);
+    b.ramWrite(0, 0x88410101, 4); // lwl r1,0x101(r2)
+    b.ramWrite(4, 0x98410104, 4); // lwr r1,0x104(r2)
     final c = Vr4300(b)..reset(0x80000000);
+    c.r[2] = 0x80000000.toSigned(32); // the unmapped segment
     c.step();
     c.step();
     expect(c.r[1], 0x12345678);

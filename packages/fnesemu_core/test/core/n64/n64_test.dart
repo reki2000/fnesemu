@@ -20,7 +20,8 @@ Uint8List cartridge(List<int> instructions, {int entry = 0x80000400}) {
 Vr4300 processor(List<int> instructions) {
   final bus = N64Bus();
   for (var i = 0; i < instructions.length; i++) {
-    bus.write(i * 4, instructions[i], 4);
+    // through the unmapped segment: user addresses go through the TLB
+    bus.write(0xa0000000 + i * 4, instructions[i], 4);
   }
   return Vr4300(bus)..reset(0x80000000);
 }
@@ -87,19 +88,20 @@ void main() {
 
   test('64-bit shifts, stores and loads preserve both halves', () {
     final cpu = processor([
+      0x3c038000, // lui r3,0x8000
       0x34011234, // ori r1,zero,0x1234
       0x0001083c, // dsll32 r1,r1,0
       0x34215678, // ori r1,r1,0x5678
-      0xfc010100, // sd r1,0x100(zero)
-      0xdc020100, // ld r2,0x100(zero)
+      0xfc610100, // sd r1,0x100(r3)
+      0xdc620100, // ld r2,0x100(r3)
     ]);
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < 6; i++) {
       cpu.step();
     }
     expect(cpu.stopReason, isNull);
     expect(cpu.r[2], 0x123400005678);
-    expect(cpu.bus.read(0x100, 4), 0x1234);
-    expect(cpu.bus.read(0x104, 4), 0x5678);
+    expect(cpu.bus.read(0x80000100, 4), 0x1234);
+    expect(cpu.bus.read(0x80000104, 4), 0x5678);
   });
 
   test('taken branch executes delay slot and skips intervening code', () {
@@ -138,7 +140,8 @@ void main() {
     bus.write(0xa460000c, 3, 4);
     expect(bus.read(0x80000100, 4), 0x01020304);
     expect(bus.read(0xa0000100, 4), 0x01020304);
-    expect(bus.read(0xa4600010, 4), 0);
+    // PI_STATUS reports the pending interrupt of the finished DMA
+    expect(bus.read(0xa4600010, 4), 8);
   });
 
   test('VI scans 16-bit and 32-bit framebuffers with RAM bounds', () {
@@ -149,10 +152,10 @@ void main() {
     bus.vi[10] = 2;
     bus.vi[12] = bus.vi[13] = 1024;
     bus.vi[0] = 2;
-    bus.write(0x100, 0xf801, 2);
+    bus.write(0xa0000100, 0xf801, 2);
     expect(bus.image().bytes, [255, 0, 0, 255]);
     bus.vi[0] = 3;
-    bus.write(0x100, 0x123456ff, 4);
+    bus.write(0xa0000100, 0x123456ff, 4);
     expect(bus.image().bytes, [0x12, 0x34, 0x56, 255]);
     bus.vi[1] = 0xffffff;
     expect(bus.image().bytes, [0, 0, 0, 0]);
