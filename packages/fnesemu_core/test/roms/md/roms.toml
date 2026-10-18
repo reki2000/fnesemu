@@ -1,0 +1,88 @@
+# ROM harness cases of this core, run by scripts/romtest.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
+# Not run, as the harness stops: illegal-opcodes (Md.setRom rejects its unknown region in the header), vdp-fifo
+# (VDPFIFOTesting; reading the VDP data port throws a RangeError in Vdp.data) and opcode-sizes (the 68000 stops at an
+# unimplemented instruction).
+
+[[case]]
+name = "bcd-verifier"
+dir = "exodus-tests"
+files = [".build/bcd-verifier.bin"]
+frames = 480
+description = "68000 ABCD/SBCD/NBCD results and flags against a table; shows the error counts (0 is a pass)."
+checks = [{ frame = 480, expected = "expected/bcd-verifier_00480.png" }]
+
+[[case]]
+name = "sprite-masking"
+dir = "exodus-tests"
+files = [".build/sprite-masking.bin"]
+frames = 120
+description = "Sprite masking and overflow in H32 mode."
+known_failure = "FAIL on 4. sprite mask, 6. mask S1 on dot overflow, 7. and 8.; crosses on 2., 3. and 9."
+checks = [{ frame = 120, expected = "expected/sprite-masking_00120.png" }]
+
+[[case]]
+name = "memtest-68k"
+dir = "exodus-tests"
+files = [".build/memtest-68k.bin"]
+frames = 120
+description = "68000 reads of the memory map; shows the values without PASS/FAIL."
+checks = [{ frame = 120, expected = "expected/memtest-68k_00120.png" }]
+
+[[case]]
+name = "vcounter"
+dir = "exodus-tests"
+files = [".build/vcounter.bin"]
+frames = 120
+description = "The V counter test menu; a test runs after Start (not pressed here)."
+note = "the menu only"
+checks = [{ frame = 120, expected = "expected/vcounter_00120.png" }]
+
+[[case]]
+name = "vdp-disable-reg"
+dir = "exodus-tests"
+files = [".build/vdp-disable-reg.bin"]
+frames = 120
+description = "A VDP register test; the screen is filled with one color."
+checks = [{ frame = 120, expected = "expected/vdp-disable-reg_00120.png" }]
+
+[[case]]
+name = "cram-flicker"
+dir = "exodus-tests"
+files = [".build/cram-flicker.bin"]
+frames = 120
+description = "CRAM writes during display; the screen is black here."
+checks = [{ frame = 120, expected = "expected/cram-flicker_00120.png" }]
+
+[[case]]
+name = "color-1536"
+dir = "exodus-tests"
+files = [".build/color-1536.bin"]
+frames = 600
+description = "1536-color display; the picture keeps changing."
+checks = [{ frame = 600, expected = "expected/color-1536_00600.png" }]
+
+[[case]]
+name = "shadow-highlight"
+dir = "exodus-tests"
+files = [".build/shadow-highlight.bin"]
+frames = 600
+description = "Shadow and highlight colors; the picture keeps changing."
+checks = [{ frame = 600, expected = "expected/shadow-highlight_00600.png" }]
+
+[[case]]
+name = "window"
+dir = "exodus-tests"
+files = [".build/window.bin"]
+frames = 120
+description = "The window plane; the screen is black here."
+checks = [{ frame = 120, expected = "expected/window_00120.png" }]
+
+[[case]]
+name = "window-distortion"
+dir = "exodus-tests"
+files = [".build/window-distortion.bin"]
+frames = 600
+description = "A window plane distortion; the picture keeps changing."
+checks = [{ frame = 600, expected = "expected/window-distortion_00600.png" }]
