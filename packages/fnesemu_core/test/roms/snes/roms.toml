@@ -16,7 +16,6 @@ dir = "snes-tests"
 files = [".build/cputest-full.sfc"]
 frames = 120
 description = "65816 instructions with more operand values; stops at the first failure (see cputest/tests-full.txt upstream)."
-known_failure = "Failed, test number 0103 (COP in emulation mode)"
 checks = [{ frame = 120, expected = "expected/cputest-full_00120.png" }]
 
 [[case]]
@@ -25,7 +24,6 @@ dir = "snes-tests"
 files = [".build/spctest.sfc"]
 frames = 180
 description = "SPC700 instructions; stops at the first failure (see spctest/tests.txt upstream)."
-known_failure = "Failed, test number 0523"
 checks = [{ frame = 180, expected = "expected/spctest_00180.png" }]
 
 [[case]]
@@ -132,7 +130,6 @@ name = "gsufmult"
 dir = "peterlemon"
 files = [".build/SNES/CHIP/GSU/GSUTest/FMULT/GSUFMULT.sfc"]
 frames = 120
-known_failure = "FAIL at R4/$9F"
 checks = [{ frame = 120, expected = "expected/gsufmult_00120.png" }]
 
 [[case]]
@@ -491,5 +488,4 @@ name = "spc700sbc"
 dir = "peterlemon"
 files = [".build/SNES/CPUTest/SPC700/SBC/SPC700SBC.sfc"]
 frames = 1620
-known_failure = "FAIL at SBW dp"
 checks = [{ frame = 1620, expected = "expected/spc700sbc_01620.png" }]
