@@ -5,7 +5,7 @@
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
-//   -p, --press F:B[:N]  press button B (name or index) at frame F for N frames (repeatable)
+//   -p, --press F:B[:N]  press button B (name, or index when no button has that name) at frame F for N frames (repeatable)
 //   -H, --hold N     frames to hold a press without N (default: 10)
 //   -s, --start N    save pngs only from frame N on (default: 0)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
@@ -151,9 +151,11 @@ Future<void> main(List<String> args) async {
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
+  // a name first: some cores have buttons named "1" and "2"
   int buttonIndex(String name) {
-    final idx = int.tryParse(name) ??
+    final byName =
         buttons.indexWhere((b) => b.name.toLowerCase() == name.toLowerCase());
+    final idx = byName >= 0 ? byName : int.tryParse(name) ?? -1;
     if (idx < 0 || idx >= buttons.length) {
       throw "unknown button: $name (${buttons.map((b) => b.name).join(",")})";
     }
