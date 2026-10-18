@@ -509,7 +509,6 @@ name = "mmc3_test-1-clocking"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/mmc3_test/1-clocking.nes"]
 frames = 120
-known_failure = "#3, the text is garbled"
 checks = [{ frame = 120, expected = "expected/mmc3_test-1-clocking_00120.png" }]
 
 [[case]]
@@ -517,7 +516,6 @@ name = "mmc3_test-2-details"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/mmc3_test/2-details.nes"]
 frames = 120
-known_failure = "#2, the text is garbled"
 checks = [{ frame = 120, expected = "expected/mmc3_test-2-details_00120.png" }]
 
 [[case]]
@@ -525,7 +523,6 @@ name = "mmc3_test-3-a12_clocking"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/mmc3_test/3-A12_clocking.nes"]
 frames = 120
-known_failure = "#4, the text is garbled"
 checks = [{ frame = 120, expected = "expected/mmc3_test-3-a12_clocking_00120.png" }]
 
 [[case]]
@@ -533,7 +530,7 @@ name = "mmc3_test-4-scanline_timing"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/mmc3_test/4-scanline_timing.nes"]
 frames = 1980
-known_failure = "#2, the text is garbled"
+known_failure = "#2, the IRQ fires at the line granularity, not at the dot of the A12 edge"
 checks = [{ frame = 1980, expected = "expected/mmc3_test-4-scanline_timing_01980.png" }]
 
 [[case]]
@@ -541,7 +538,6 @@ name = "mmc3_test-5-mmc3"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/mmc3_test/5-MMC3.nes"]
 frames = 120
-known_failure = "#2, the text is garbled"
 checks = [{ frame = 120, expected = "expected/mmc3_test-5-mmc3_00120.png" }]
 
 [[case]]
@@ -549,7 +545,7 @@ name = "mmc3_test-6-mmc6"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/mmc3_test/6-MMC6.nes"]
 frames = 120
-known_failure = "#2, the text is garbled; this test is for MMC6 boards"
+known_failure = "#3; this test is for the MMC6 chip"
 checks = [{ frame = 120, expected = "expected/mmc3_test-6-mmc6_00120.png" }]
 
 [[case]]
