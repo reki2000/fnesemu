@@ -33,10 +33,11 @@ checks = [{ frame = 120, expected = "expected/memtest-68k_00120.png" }]
 name = "vcounter"
 dir = "exodus-tests"
 files = [".build/vcounter.bin"]
-frames = 120
-description = "The V counter test menu; a test runs after Start (not pressed here)."
-note = "the menu only"
-checks = [{ frame = 120, expected = "expected/vcounter_00120.png" }]
+frames = 360
+input = [[60, "Start"], [150, "C"], [270, "C"]]
+hold = 12
+description = "The V counter test: Start runs the test of the first mode, C shows the next of the 3 pages of the counter values."
+checks = [{ frame = 40, expected = "expected/vcounter_00040.png" }, { frame = 120, expected = "expected/vcounter_00120.png" }, { frame = 240, expected = "expected/vcounter_00240.png" }, { frame = 360, expected = "expected/vcounter_00360.png" }]
 
 [[case]]
 name = "vdp-disable-reg"
