@@ -5,8 +5,8 @@
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/ss_harness)
 //   -l, --log-cd     log CD block commands
-//   -p, --press F:B  press button B (index) at frame F (repeatable)
-//   -H, --hold N     frames to hold a pressed button (default: 10)
+//   -p, --press F:B[:N]  press button B (index) at frame F for N frames (repeatable)
+//   -H, --hold N     frames to hold a press without N (default: 10)
 //   -w, --wav        also write audio.wav (16bit pcm) and audio.f32 (raw float)
 //   -q, --quiet      no per-png log, print only the total time (benchmark)
 //   --fixed-clock    the real time clock always reads 2000-01-01 and the disc
@@ -32,7 +32,7 @@ Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/ss_harness";
-  final presses = <(int, int)>[];
+  final presses = <(int, int, int?)>[];
   bool logCd = false;
   bool wav = false;
   bool quiet = false;
@@ -69,7 +69,11 @@ Future<void> main(List<String> args) async {
         logCd = true;
       case "-p" || "--press":
         final p = args[++i].split(":");
-        presses.add((int.parse(p[0]), int.parse(p[1])));
+        presses.add((
+          int.parse(p[0]),
+          int.parse(p[1]),
+          p.length > 2 ? int.parse(p[2]) : null
+        ));
       default:
         files.add(args[i]);
     }
@@ -106,6 +110,7 @@ Future<void> main(List<String> args) async {
   final sw = Stopwatch()..start();
   int lines = 0;
   int frame = 0;
+  final held = List<bool>.filled(ss.buttons.length, false);
   Process? lock;
   int cpuStart = 0;
 
@@ -137,9 +142,15 @@ Future<void> main(List<String> args) async {
     await drive?.settle(); // result must not depend on the speed of the disc
     if (frame == benchFrom) await startBench();
 
-    for (final (f, b) in presses) {
-      if (frame == f) ss.padDown(0, ss.buttons[b]);
-      if (frame == f + holdFrames) ss.padUp(0, ss.buttons[b]);
+    // a button is down while any of its presses lasts
+    final down = List<bool>.filled(ss.buttons.length, false);
+    for (final (f, b, n) in presses) {
+      if (frame >= f && frame < f + (n ?? holdFrames)) down[b] = true;
+    }
+    for (var b = 0; b < ss.buttons.length; b++) {
+      if (down[b] == held[b]) continue;
+      held[b] = down[b];
+      down[b] ? ss.padDown(0, ss.buttons[b]) : ss.padUp(0, ss.buttons[b]);
     }
 
     if (frame % every == 0) {

@@ -5,8 +5,8 @@
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
-//   -p, --press F:B  press button B (name or index) at frame F (repeatable)
-//   -H, --hold N     frames to hold a pressed button (default: 10)
+//   -p, --press F:B[:N]  press button B (name or index) at frame F for N frames (repeatable)
+//   -H, --hold N     frames to hold a press without N (default: 10)
 //   -s, --start N    save pngs only from frame N on (default: 0)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
 //   -b, --bios FILE  gba/fds: BIOS image (required for fds)
@@ -47,7 +47,7 @@ Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/core_harness";
-  final presses = <(int, String)>[];
+  final presses = <(int, String, int?)>[];
   int holdFrames = 10;
   bool wav = false;
   int saveFrom = 0;
@@ -84,7 +84,8 @@ Future<void> main(List<String> args) async {
         vram = true;
       case "-p" || "--press":
         final p = args[++i].split(":");
-        presses.add((int.parse(p[0]), p[1]));
+        presses.add(
+            (int.parse(p[0]), p[1], p.length > 2 ? int.parse(p[2]) : null));
       default:
         files.add(args[i]);
     }
@@ -141,8 +142,9 @@ Future<void> main(List<String> args) async {
     if (idx < 0 || idx >= buttons.length) {
       throw "unknown button: ${p.$2} (${buttons.map((b) => b.name).join(",")})";
     }
-    return (p.$1, idx);
+    return (p.$1, idx, p.$3 ?? holdFrames);
   }).toList();
+  final held = List<bool>.filled(buttons.length, false);
 
   final pcm = BytesBuilder();
   int sampleRate = 0, channels = 0;
@@ -179,9 +181,15 @@ Future<void> main(List<String> args) async {
     // that the result does not depend on the speed of the disc
     await drive?.settle();
 
-    for (final (f, b) in pressList) {
-      if (frame == f) core.padDown(0, buttons[b]);
-      if (frame == f + holdFrames) core.padUp(0, buttons[b]);
+    // a button is down while any of its presses lasts
+    final down = List<bool>.filled(buttons.length, false);
+    for (final (f, b, n) in pressList) {
+      if (frame >= f && frame < f + n) down[b] = true;
+    }
+    for (var b = 0; b < buttons.length; b++) {
+      if (down[b] == held[b]) continue;
+      held[b] = down[b];
+      down[b] ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
     }
 
     if (frame % every == 0 && frame >= saveFrom) {
