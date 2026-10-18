@@ -18,7 +18,7 @@ dir = "exodus-tests"
 files = [".build/sprite-masking.bin"]
 frames = 120
 description = "Sprite masking and overflow in H32 mode."
-known_failure = "FAIL on 4. sprite mask, 6. mask S1 on dot overflow, 7. and 8.; crosses on 2., 3. and 9."
+known_failure = "a cross on 9. max sprites per frame"
 checks = [{ frame = 120, expected = "expected/sprite-masking_00120.png" }]
 
 [[case]]
