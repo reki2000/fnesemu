@@ -236,7 +236,7 @@ extension ThumbIsa on Arm7 {
       if (byte) {
         bus.write8(addr, regs.r[rd]);
       } else {
-        bus.write32(addr & ~3, regs.r[rd]);
+        bus.write32(addr, regs.r[rd]);
       }
       return 2;
     }
@@ -252,7 +252,7 @@ extension ThumbIsa on Arm7 {
     final addr = (regs.r[rb] + regs.r[ro]).mask32;
     if (!s && !h) {
       // STRH
-      bus.write16(addr & ~1, regs.r[rd].mask16);
+      bus.write16(addr, regs.r[rd].mask16);
       return 2;
     } else if (!s && h) {
       // LDRH
@@ -289,7 +289,7 @@ extension ThumbIsa on Arm7 {
       if (byte) {
         bus.write8(addr, regs.r[rd]);
       } else {
-        bus.write32(addr & ~3, regs.r[rd]);
+        bus.write32(addr, regs.r[rd]);
       }
       return 2;
     }
@@ -307,7 +307,7 @@ extension ThumbIsa on Arm7 {
       regs.r[rd] = addr.bit0 ? (raw >>> 8 | raw.shl24).mask32 : raw;
       return 3;
     } else {
-      bus.write16(addr & ~1, regs.r[rd].mask16);
+      bus.write16(addr, regs.r[rd].mask16);
       return 2;
     }
   }
@@ -322,7 +322,7 @@ extension ThumbIsa on Arm7 {
       regs.r[rd] = _ldrWord(addr);
       return 3;
     } else {
-      bus.write32(addr & ~3, regs.r[rd]);
+      bus.write32(addr, regs.r[rd]);
       return 2;
     }
   }

@@ -11,7 +11,6 @@ files = [".build/gba-tests/arm/arm.gba"]
 args = ["-b", "../cult-bios/.build/bios.bin"]
 frames = 600
 description = "ARM instructions."
-known_failure = "stays on the BIOS boot screen (the CPU halts with IME=0)"
 checks = [{ frame = 600, expected = "expected/arm_00600.png" }]
 
 [[case]]
@@ -21,7 +20,6 @@ files = [".build/gba-tests/thumb/thumb.gba"]
 args = ["-b", "../cult-bios/.build/bios.bin"]
 frames = 180
 description = "THUMB instructions."
-known_failure = "Failed test 068"
 checks = [{ frame = 180, expected = "expected/thumb_00180.png" }]
 
 [[case]]
@@ -78,7 +76,6 @@ files = [".build/gba-tests/save/sram.gba"]
 args = ["-b", "../cult-bios/.build/bios.bin"]
 frames = 180
 description = "SRAM save memory."
-known_failure = "Failed test 001"
 checks = [{ frame = 180, expected = "expected/save-sram_00180.png" }]
 
 [[case]]
@@ -88,7 +85,6 @@ files = [".build/gba-tests/save/flash64.gba"]
 args = ["-b", "../cult-bios/.build/bios.bin"]
 frames = 180
 description = "64KB flash save memory."
-known_failure = "Failed test 004"
 checks = [{ frame = 180, expected = "expected/save-flash64_00180.png" }]
 
 [[case]]
@@ -98,7 +94,6 @@ files = [".build/gba-tests/save/flash128.gba"]
 args = ["-b", "../cult-bios/.build/bios.bin"]
 frames = 180
 description = "128KB flash save memory (two banks)."
-known_failure = "Failed test 004"
 checks = [{ frame = 180, expected = "expected/save-flash128_00180.png" }]
 
 [[case]]

@@ -198,6 +198,8 @@ class Bus {
     if (region == 0x4) return _readIo16(addr & 0x3fe);
     // EEPROM is bit-serial: a 16-bit read consumes exactly one bit.
     if (region == 0xd && cart.hasEeprom) return cart.backup.eepromRead();
+    // the SRAM / Flash bus is 8-bit: the byte repeats in each lane
+    if (region >= 0xe) return read8(addr) * 0x0101;
     return read8(addr) | read8(addr + 1).shl8;
   }
 
@@ -206,6 +208,7 @@ class Bus {
       final r = addr & 0x3fc;
       return _readIo16(r) | _readIo16(r + 2).shl16;
     }
+    if (addr.shr24.mask4 >= 0xe) return read8(addr) * 0x01010101;
     return read8(addr) |
         read8(addr + 1).shl8 |
         read8(addr + 2).shl16 |
@@ -242,7 +245,8 @@ class Bus {
         return;
       case 0xe:
       case 0xf:
-        cart.writeSram(addr.mask16, data.mask8);
+        // the 8-bit bus stores the byte of the lane that the address selects
+        cart.writeSram(addr.mask16, (data >> (addr & 1) * 8).mask8);
         return;
       default:
         return; // BIOS / ROM are not writable
@@ -250,6 +254,10 @@ class Bus {
   }
 
   void write32(int addr, int data) {
+    if (addr.shr24.mask4 >= 0xe) {
+      cart.writeSram(addr.mask16, (data >> (addr & 3) * 8).mask8);
+      return;
+    }
     if (addr.shr24.mask4 == 0x4) {
       final r = (addr & 0x3fc);
       _writeIo16(r, data.mask16);
