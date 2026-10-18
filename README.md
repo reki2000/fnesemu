@@ -107,6 +107,7 @@ The CPU cores are checked instruction by instruction against public test data. E
 | `make test-m68` | 68000 | [SingleStepTests/680x0](https://github.com/SingleStepTests/680x0) (`68000/v1`, about 200MB; skips the ASR cases that disagree with hardware) |
 | `make test-r3000` | R3000 (PS1) | [SingleStepTests/r3000](https://github.com/SingleStepTests/r3000) (`v1`; registers, delay slots and memory writes, not cycles; skips misaligned loads and stores, whose address errors are not emulated) |
 | `make test-gte` | PS1 GTE | `gte/test-all/tests.c` from [ps1-tests](https://github.com/JaCzekanski/ps1-tests) |
+| `make test-huc6280` | HuC6280 (PCE) | [SingleStepTests/huc6280](https://github.com/SingleStepTests/huc6280) (`v1`; registers, MPRs and memory, not cycles; skips ST0/ST1/ST2, which write the VDC) |
 
 `make test-cpu` runs all of them.
 
