@@ -58,13 +58,24 @@ String showDiff(String a1, String a2) {
       .join();
 }
 
-loadMap() {
-  final mapFile =
-      File('assets/680x0/map/68000.official.json').readAsBytesSync();
-  return json.decode(utf8.decode(mapFile)).cast<String, String>();
+// ASR by a register count larger than the operand size, on a negative operand:
+// the vectors clear X and C, while the 68000 sets them to the last bit shifted out (the sign bit),
+// as the manual describes and as a run of the vectors on hardware shows (transistorfet/68k-test-runner)
+bool _asrBeyondSize(Map test) {
+  final initial = test['initial'];
+  final int op = initial['prefetch'][0];
+  final size = op.shr6.mask2;
+  if (op & 0xf138 != 0xe020 || size == 3) {
+    return false;
+  }
+  final bits = 8 << size;
+  final int count = initial['d${op.shr9.mask3}'];
+  final int value = initial['d${op.mask3}'];
+  return count.mask6 > bits && (value >> (bits - 1)) & 1 == 1;
 }
 
-int main() {
+// args[0]: the 68000/v1 directory of SingleStepTests/680x0
+int main(List<String> args) {
   configureLogging();
   final bus = BusM68Test();
   final cpu = M68(bus);
@@ -72,9 +83,8 @@ int main() {
 
   final cpu2 = M68(bus);
 
-  //final opMap = loadMap();
-
-  final directory = Directory('assets/680x0/68000/v1');
+  final directory = Directory(args[0]);
+  final failures = <String, (int, int)>{};
   final jsonGzFiles = directory
       .listSync()
       .where((file) => file is File && file.path.endsWith('.json.gz'))
@@ -102,11 +112,13 @@ int main() {
 
     final uncompressedData = GZipDecoder().decodeBytes(file.readAsBytesSync());
     final tests = json.decode(utf8.decode(uncompressedData));
+    int failed = 0;
 
     for (final test in tests) {
       debugLog = "";
 
-      if ([...knownBugs, ...skipTests].contains(test['name'].substring(0, 4))) {
+      if ([...knownBugs, ...skipTests].contains(test['name'].substring(0, 4)) ||
+          _asrBeyondSize(test)) {
         continue;
       }
 
@@ -132,7 +144,7 @@ int main() {
 
       // set memory at pc
       int i = 0;
-      for (final val in test['initial']['prefetch']) {
+      for (final int val in test['initial']['prefetch']) {
         bus.ram_[cpu.pc + i++] = val.shr8;
         bus.ram_[cpu.pc + i++] = val & 0xff;
       }
@@ -188,19 +200,31 @@ int main() {
         debug(showDiff(memExpect, memActual));
       }
 
-      // show result
+      // show the first failure of each file and keep running the rest
       if (error) {
-        stdout.writeln('\ntest ${test['name']} failed');
-        stdout.writeln(debugLog);
-        stdout.writeln(convertIntegersToHex(test));
-        return 1;
+        if (failed++ == 0) {
+          stdout.writeln('\ntest ${test['name']} failed');
+          stdout.writeln(debugLog);
+          stdout.writeln(convertIntegersToHex(test));
+        }
       }
+    }
+
+    if (failed > 0) {
+      failures[file.uri.pathSegments.last] = (failed, tests.length);
     }
   }
 
-  stdout.writeln('all tests passed');
-
-  return 0;
+  if (failures.isEmpty) {
+    stdout.writeln('all tests passed');
+    return 0;
+  }
+  stdout.writeln('\nfailed tests:');
+  for (final MapEntry(:key, :value) in failures.entries) {
+    stdout.writeln('  $key: ${value.$1}/${value.$2}');
+  }
+  exitCode = 1;
+  return 1;
 }
 
 dynamic convertIntegersToHex(dynamic input) {
