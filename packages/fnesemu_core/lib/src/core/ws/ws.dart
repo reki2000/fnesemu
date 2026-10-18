@@ -101,8 +101,39 @@ class Ws extends Core {
     _onAudio = onAudio;
   }
 
+  /// the console held vertically: the frame is shown turned 90 degrees to
+  /// the left, and the directions are turned with it
+  bool vertical = false;
+  Uint32List _turned = Uint32List(0);
+
+  static const rotate = PadButton("Rotate");
+
   @override
-  ImageBuffer imageBuffer() => display.imageBuffer;
+  ImageBuffer imageBuffer() {
+    final image = display.imageBuffer;
+    if (!vertical) return image;
+    final w = image.width, h = image.height;
+    if (_turned.length != w * h) _turned = Uint32List(w * h);
+    final src = image.buffer, dst = _turned;
+    // the pixel (x, y) moves to (y, w - 1 - x) of the h x w frame
+    for (var y = 0; y < h; y++) {
+      final row = y * w;
+      for (var x = 0; x < w; x++) {
+        dst[(w - 1 - x) * h + y] = src[row + x];
+      }
+    }
+    return ImageBuffer(h, w, dst);
+  }
+
+  // the direction keys of the vertical console: the screen up is the right
+  // of the X keys, and so on around
+  static PadButton _turn(PadButton k) => switch (k.name) {
+        "up" => PadButton.right,
+        "right" => PadButton.down,
+        "down" => PadButton.left,
+        "left" => PadButton.up,
+        _ => k,
+      };
 
   @override
   void setSram(Sram sram) {
@@ -122,17 +153,33 @@ class Ws extends Core {
 
   @override
   void padDown(int controllerId, PadButton k) {
-    if (controllerId == 0 && bus.pad.keyDown(k)) {
+    if (controllerId != 0) return;
+    if (k == rotate) {
+      // the directions held before turning would be released as others
+      for (final d in const [
+        PadButton.up,
+        PadButton.down,
+        PadButton.left,
+        PadButton.right
+      ]) {
+        bus.pad.keyUp(d);
+      }
+      vertical = !vertical;
+      return;
+    }
+    if (bus.pad.keyDown(vertical ? _turn(k) : k)) {
       bus.interrupt(Bus.intKey);
     }
   }
 
   @override
   void padUp(int controllerId, PadButton k) {
-    if (controllerId == 0) bus.pad.keyUp(k);
+    if (controllerId == 0 && k != rotate) {
+      bus.pad.keyUp(vertical ? _turn(k) : k);
+    }
   }
 
-  /// the buttons in the order of the keys A S Z X C Q W E
+  /// the buttons in the order of the keys A S Z X C Q W E (none) R
   @override
   List<PadButton> get buttons => const [
         PadButton.up,
@@ -146,6 +193,8 @@ class Ws extends Core {
         Pad.y2,
         Pad.y4,
         Pad.y3,
+        PadButton.none,
+        rotate,
       ];
 
   @override
