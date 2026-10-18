@@ -2,8 +2,8 @@
 # Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
 # known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
 # The test EXEs run after OpenBIOS (openbios/, built from source) boots. Each case compares the whole VRAM with
-# expected/ exactly, and with the VRAM dump of the real hardware that the release has: the share of pixels whose
-# channel differs by more than 8 must not grow (max_diff is the share when the case was recorded, plus 0.0005).
+# the VRAM dump of the real hardware that the release has, so no expected/ data is kept here: the share of pixels
+# whose channel differs by more than 8 must not grow (max_diff is the share when the case was recorded, plus 0.0005).
 # Most of that difference is where a test does not draw (white on the hardware, black here).
 
 [[case]]
@@ -12,7 +12,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/clipping/clipping.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-clipping_vram.png" }, { vram = ".build/ps1-tests/gpu/clipping/vram.png", channel_tol = 8, max_diff = 0.0005 }]
+checks = [{ vram = ".build/ps1-tests/gpu/clipping/vram.png", channel_tol = 8, max_diff = 0.0005 }]
 
 [[case]]
 name = "gpu-clut-cache"
@@ -20,7 +20,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/clut-cache/clut-cache.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-clut-cache_vram.png" }, { vram = ".build/ps1-tests/gpu/clut-cache/vram.png", channel_tol = 8, max_diff = 0.002623 }]
+checks = [{ vram = ".build/ps1-tests/gpu/clut-cache/vram.png", channel_tol = 8, max_diff = 0.002623 }]
 
 [[case]]
 name = "gpu-lines"
@@ -28,7 +28,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/lines/lines.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-lines_vram.png" }, { vram = ".build/ps1-tests/gpu/lines/vram.png", channel_tol = 8, max_diff = 0.009392 }]
+checks = [{ vram = ".build/ps1-tests/gpu/lines/vram.png", channel_tol = 8, max_diff = 0.009392 }]
 
 [[case]]
 name = "gpu-quad"
@@ -36,7 +36,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/quad/quad.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-quad_vram.png" }, { vram = ".build/ps1-tests/gpu/quad/vram.png", channel_tol = 8, max_diff = 0.000744 }]
+checks = [{ vram = ".build/ps1-tests/gpu/quad/vram.png", channel_tol = 8, max_diff = 0.000744 }]
 
 [[case]]
 name = "gpu-rectangles"
@@ -44,7 +44,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/rectangles/rectangles.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-rectangles_vram.png" }, { vram = ".build/ps1-tests/gpu/rectangles/vram.png", channel_tol = 8, max_diff = 0.0005 }]
+checks = [{ vram = ".build/ps1-tests/gpu/rectangles/vram.png", channel_tol = 8, max_diff = 0.0005 }]
 
 [[case]]
 name = "gpu-texture-flip"
@@ -52,7 +52,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/texture-flip/texture-flip.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-texture-flip_vram.png" }, { vram = ".build/ps1-tests/gpu/texture-flip/vram.png", channel_tol = 8, max_diff = 0.373982 }]
+checks = [{ vram = ".build/ps1-tests/gpu/texture-flip/vram.png", channel_tol = 8, max_diff = 0.373982 }]
 
 [[case]]
 name = "gpu-texture-overflow"
@@ -60,7 +60,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/texture-overflow/texture-overflow.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-texture-overflow_vram.png" }, { vram = ".build/ps1-tests/gpu/texture-overflow/vram.png", channel_tol = 8, max_diff = 0.0005 }]
+checks = [{ vram = ".build/ps1-tests/gpu/texture-overflow/vram.png", channel_tol = 8, max_diff = 0.0005 }]
 
 [[case]]
 name = "gpu-transparency"
@@ -68,7 +68,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/transparency/transparency.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-transparency_vram.png" }, { vram = ".build/ps1-tests/gpu/transparency/vram.png", channel_tol = 8, max_diff = 0.854016 }]
+checks = [{ vram = ".build/ps1-tests/gpu/transparency/vram.png", channel_tol = 8, max_diff = 0.854016 }]
 
 [[case]]
 name = "gpu-triangle"
@@ -76,7 +76,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/triangle/triangle.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-triangle_vram.png" }, { vram = ".build/ps1-tests/gpu/triangle/vram.png", channel_tol = 8, max_diff = 0.008488 }]
+checks = [{ vram = ".build/ps1-tests/gpu/triangle/vram.png", channel_tol = 8, max_diff = 0.008488 }]
 
 [[case]]
 name = "gpu-uv-interpolation"
@@ -84,7 +84,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/uv-interpolation/uv-interpolation.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-uv-interpolation_vram.png" }, { vram = ".build/ps1-tests/gpu/uv-interpolation/vram.png", channel_tol = 8, max_diff = 0.031121 }]
+checks = [{ vram = ".build/ps1-tests/gpu/uv-interpolation/vram.png", channel_tol = 8, max_diff = 0.031121 }]
 
 [[case]]
 name = "gpu-vram-to-vram-overlap"
@@ -92,7 +92,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/gpu/vram-to-vram-overlap/vram-to-vram-overlap.exe"]
 frames = 600
-checks = [{ vram = "expected/gpu-vram-to-vram-overlap_vram.png" }, { vram = ".build/ps1-tests/gpu/vram-to-vram-overlap/vram.png", channel_tol = 8, max_diff = 0.006861 }]
+checks = [{ vram = ".build/ps1-tests/gpu/vram-to-vram-overlap/vram.png", channel_tol = 8, max_diff = 0.006861 }]
 
 [[case]]
 name = "mdec-4bit"
@@ -100,7 +100,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/mdec/4bit/4bit.exe"]
 frames = 600
-checks = [{ vram = "expected/mdec-4bit_vram.png" }, { vram = ".build/ps1-tests/mdec/4bit/vram.png", channel_tol = 8, max_diff = 0.000542 }]
+checks = [{ vram = ".build/ps1-tests/mdec/4bit/vram.png", channel_tol = 8, max_diff = 0.000542 }]
 
 [[case]]
 name = "mdec-8bit"
@@ -108,7 +108,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/mdec/8bit/8bit.exe"]
 frames = 600
-checks = [{ vram = "expected/mdec-8bit_vram.png" }, { vram = ".build/ps1-tests/mdec/8bit/vram.png", channel_tol = 8, max_diff = 0.00051 }]
+checks = [{ vram = ".build/ps1-tests/mdec/8bit/vram.png", channel_tol = 8, max_diff = 0.00051 }]
 
 [[case]]
 name = "mdec-frame-15bit-dma"
@@ -116,7 +116,7 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/mdec/frame/frame-15bit-dma.exe"]
 frames = 600
-checks = [{ vram = "expected/mdec-frame-15bit-dma_vram.png" }, { vram = ".build/ps1-tests/mdec/frame/vram-15bit.png", channel_tol = 8, max_diff = 0.00549 }]
+checks = [{ vram = ".build/ps1-tests/mdec/frame/vram-15bit.png", channel_tol = 8, max_diff = 0.00549 }]
 
 [[case]]
 name = "mdec-frame-24bit-dma"
@@ -124,4 +124,4 @@ dir = "ps1-tests"
 files = ["../openbios/.build/openbios.bin"]
 args = ["-x", "./.build/ps1-tests/mdec/frame/frame-24bit-dma.exe"]
 frames = 600
-checks = [{ vram = "expected/mdec-frame-24bit-dma_vram.png" }, { vram = ".build/ps1-tests/mdec/frame/vram-24bit.png", channel_tol = 8, max_diff = 0.193276 }]
+checks = [{ vram = ".build/ps1-tests/mdec/frame/vram-24bit.png", channel_tol = 8, max_diff = 0.193276 }]
