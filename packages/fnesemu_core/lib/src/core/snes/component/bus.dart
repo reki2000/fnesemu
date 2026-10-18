@@ -258,14 +258,17 @@ class Bus implements CpuBus {
         final v = wram[_wramAddr];
         _wramAddr = (_wramAddr + 1) & 0x1ffff;
         return v;
+      // the unused bits of RDNMI and TIMEUP are open bus. They hold the last
+      // byte on the data bus, which is the high byte $42 of the address for
+      // the usual absolute access (LDA / BIT $4210).
       case 0x4210: // RDNMI: bit7 = vblank nmi flag (read-clears)
         {
-          final v = _nmiFlag ? 0x82 : 0x02;
+          final v = (_nmiFlag ? 0x80 : 0) | (0x42 & 0x70) | 0x02;
           _nmiFlag = false;
           return v;
         }
       case 0x4211: // TIMEUP: reading acknowledges the timer IRQ
-        final v = _irqFlag ? 0x80 : 0;
+        final v = (_irqFlag ? 0x80 : 0) | (0x42 & 0x7f);
         _irqFlag = false;
         cpu.releaseIrq();
         return v;

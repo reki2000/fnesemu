@@ -127,9 +127,18 @@ class Cpu {
 
   int _dpX() => _dpIndexed(regs.x);
   int _dpY() => _dpIndexed(regs.y);
-  int _idp() => regs.dbr.shl16 | _ptr16(_dp());
-  int _idpX() => regs.dbr.shl16 | _ptr16(_dpX());
-  int _idpY() => (regs.dbr.shl16 | _ptr16(_dp())).inc24(regs.y);
+  // in emulation mode, the high byte of a direct page pointer is read within
+  // the page of the low byte: always for (dp,x), and for (dp) and (dp),y only
+  // when DL is 0
+  int _dpPtr16(int p, {bool indexed = false}) {
+    final wrap = regs.e && (indexed || regs.d.mask8 == 0);
+    final next = wrap ? (p & 0xff00) | p.inc.mask8 : p.inc.mask16;
+    return _read8(p) | _read8(next).shl8;
+  }
+
+  int _idp() => regs.dbr.shl16 | _dpPtr16(_dp());
+  int _idpX() => regs.dbr.shl16 | _dpPtr16(_dpX(), indexed: true);
+  int _idpY() => (regs.dbr.shl16 | _dpPtr16(_dp())).inc24(regs.y);
   int _ildp() => _ptr24(_dp());
   int _ildpY() => _ptr24(_dp()).inc24(regs.y);
   int _abs() => regs.dbr.shl16 | _fetch16();
@@ -164,18 +173,26 @@ class Cpu {
       int lo = a.mask4 + v.mask4 + _carry;
       if (lo > 0x09) lo += 0x06;
       int hi = a.shr4.mask4 + v.shr4.mask4 + (lo > 0x0f ? 1 : 0);
+      // V is computed as in binary mode, from the result before the decimal
+      // adjustment of the top digit
+      int top = hi;
       if (hi > 0x09) hi += 0x06;
       int r = hi.shl4 & 0xf0 | lo.mask4;
+      int msb = 0x80;
+      int pre = top.shl4 | lo.mask4;
       if (size == 2) {
         int hi2 = a.shr8.mask4 + v.shr8.mask4 + (hi > 0x0f ? 1 : 0);
         if (hi2 > 0x09) hi2 += 0x06;
         int hi3 = a.shr12.mask4 + v.shr12.mask4 + (hi2 > 0x0f ? 1 : 0);
+        pre = hi3.shl12 | (hi2.shl8 & 0x0f00) | (r & 0xff);
+        msb = 0x8000;
         if (hi3 > 0x09) hi3 += 0x06;
         r |= (hi2.shl8 & 0x0f00) | (hi3.shl12 & 0xf000);
         _setFlag(Flags.C, hi3 > 0x0f);
       } else {
         _setFlag(Flags.C, hi > 0x0f);
       }
+      _setFlag(Flags.V, (~(a ^ v) & (a ^ pre) & msb) != 0);
       _setA(r);
       _setNZ(r, size);
       return;
@@ -200,6 +217,10 @@ class Cpu {
       int borrowHi = hi < 0 ? 1 : 0;
       if (hi < 0) hi += 0x0a;
       int r = hi.shl4 & 0xf0 | lo.mask4;
+      // V is computed as in binary mode
+      final msb = size == 1 ? 0x80 : 0x8000;
+      final bin = a - v - (1 - c);
+      _setFlag(Flags.V, ((a ^ v) & (a ^ bin) & msb) != 0);
       if (size == 2) {
         int hi2 = a.shr8.mask4 - v.shr8.mask4 - borrowHi;
         int borrow2 = hi2 < 0 ? 1 : 0;
