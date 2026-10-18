@@ -27,7 +27,7 @@ Uint8List bios() {
   final view = ByteData.sublistView(bytes);
   view.setUint32(0, 0xff8000);
   view.setUint32(4, 0x200);
-  bytes.setAll(0x100, 'SEGA BOOT'.codeUnits);
+  bytes.setAll(0x100, mdBootSignature.codeUnits);
   bytes.setAll(0x1f0, 'JUE'.codeUnits);
   bytes.setAll(0x200, [0x60, 0xfe]); // BRA.S forever
   return bytes;

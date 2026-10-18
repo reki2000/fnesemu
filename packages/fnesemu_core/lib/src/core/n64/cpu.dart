@@ -25,6 +25,8 @@ class Vr4300 {
 
   bool _ll = false;
   int _countOffset = 0;
+  // the timer interrupt is raised when count changes to compare
+  int _lastCount = 0;
   bool _timerIrq = false;
   final r = N64Registers();
   final cop0 = List<int>.filled(32, 0);
@@ -46,8 +48,15 @@ class Vr4300 {
     fpu.reset();
     _delay = _ll = _timerIrq = false;
     _countOffset = 0;
+    _lastCount = 0;
     fpu.wide = true;
-    cop0[12] = 0x34000000;
+    // the state the boot code leaves
+    cop0[4] = 0x007ffff0; // Context
+    cop0[8] = 0xffffffff; // BadVAddr
+    cop0[12] = 0x241000e0; // Status: CU1, FR, KX, SX, UX
+    cop0[13] = 0x30000000; // Cause: CE = 3
+    cop0[14] = 0xffffffff; // EPC
+    cop0[30] = 0xffffffff; // ErrorEPC
     cop0[16] = 0x7006e463;
     cop0[15] = 0x00000b22;
     r[29] = 0x807ffff0.rel32;
@@ -82,15 +91,36 @@ class Vr4300 {
     if (address % size != 0) throw UnsupportedError('Unaligned N64 access');
   }
 
-  void exception(int code, int at, bool delay, {int? badAddress}) {
-    cop0[13] = cop0[13] & 0xff00 | code.shl2;
+  void exception(int code, int at, bool delay,
+      {int? badAddress, bool refill = false}) {
+    // BD is kept with EPC while EXL is set
+    cop0[13] = cop0[13] & (cop0[12].bit1 ? 0x8000ff00 : 0xff00) | code.shl2;
+    // a TLB refill outside of an exception has its own vector
+    var vector = 0x180;
+    if (refill && !cop0[12].bit1) {
+      final a = badAddress!;
+      final wide = a < 0x80000000
+          ? cop0[12].bit5
+          : a < 0xc0000000 || a >= 0xe0000000
+              ? cop0[12].bit7
+              : cop0[12].bit6;
+      vector = wide ? 0x080 : 0x000;
+    }
     if (!cop0[12].bit1) {
       cop0[14] = delay ? (at - 4).mask32 : at;
       if (delay) cop0[13] |= 0x80000000;
     }
-    if (badAddress != null) cop0[8] = badAddress;
+    if (badAddress != null) {
+      cop0[8] = badAddress;
+      if (code == 1 || code == 2 || code == 3) {
+        final vpn2 = badAddress >>> 13;
+        cop0[4] = cop0[4] & ~0x7ffff0 | (vpn2 << 4) & 0x7ffff0;
+        cop0[20] = cop0[20] & ~0x7ffffff0 | (vpn2 << 4) & 0x7ffffff0;
+        cop0[10] = badAddress & ~0x1fff | cop0[10].mask8;
+      }
+    }
     cop0[12] |= 2;
-    pc = cop0[12].bit22 ? 0xbfc00380 : 0x80000180;
+    pc = (cop0[12].bit22 ? 0xbfc00200 : 0x80000000) + vector;
     nextPc = (pc + 4).mask32;
     _delay = false;
     _ll = false;
@@ -99,7 +129,11 @@ class Vr4300 {
   int get count => (clocks ~/ 2 + _countOffset).mask32;
   void step() {
     if (stopReason != null) return;
-    if (count == cop0[11] && clocks > 0) _timerIrq = true;
+    final c = count;
+    if (c != _lastCount) {
+      if (c == cop0[11]) _timerIrq = true;
+      _lastCount = c;
+    }
     cop0[13] = (cop0[13] & ~0x8400) |
         (bus.interruptPending ? 0x400 : 0) |
         (_timerIrq ? 0x8000 : 0);
@@ -481,9 +515,11 @@ class Vr4300 {
         case 48:
           loadWord(4, true);
           _ll = true;
+          cop0[17] = bus.physical(a) >> 4; // LLAddr
         case 52:
           put(t, load64());
           _ll = true;
+          cop0[17] = bus.physical(a) >> 4;
         case 56:
         case 60:
           if (_ll) store(code == 56 ? 4 : 8);
@@ -523,7 +559,8 @@ class Vr4300 {
       if (fault.code == 11) cop0[13] |= 0x10000000;
       clocks++;
     } on N64AddressFault catch (fault) {
-      exception(fault.write ? 3 : 2, at, delay, badAddress: fault.address);
+      exception(fault.modified ? 1 : (fault.write ? 3 : 2), at, delay,
+          badAddress: fault.address, refill: fault.refill);
       clocks++;
     } on UnsupportedError catch (error) {
       pc = at;

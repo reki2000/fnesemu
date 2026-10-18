@@ -695,12 +695,10 @@ class SuperFx {
         _setDr(v);
       default: // FMULT / LMULT
         final v = _sr.rel16 * r[6].rel16;
-        if (_alt1) {
-          _setR(4, v.mask16);
-          _setDr(v.shr16.mask16);
-        } else if (_dreg != 4) {
-          _setDr(v.shr16.mask16); // FMULT leaves R4 as it is
-        }
+        // FMULT writes the high word to the destination, LMULT also the low
+        // word to R4
+        if (_alt1) _setR(4, v.mask16);
+        _setDr(v.shr16.mask16);
         _s = v.bit31;
         _cy = v.bit15;
         _z = v & 0xffff0000 == 0;

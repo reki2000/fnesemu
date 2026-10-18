@@ -37,7 +37,7 @@ void main() {
 
   test('N64 exposes assembler text and full-width register rows', () {
     final core = N64();
-    core.bus.write(0, 0x2402ffff, 4);
+    core.bus.write(0xa0000000, 0x2402ffff, 4);
     expect(core.disasm(0, 0x80000000).$1, contains('addiu r2, r0, -1'));
     expect(core.disasm(0, 0x80000000).$2, 4);
     core.cpu.r[8] = -1;

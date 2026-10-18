@@ -104,6 +104,29 @@ class Cpu {
 
   int _pull16() => _pull8() | _pull8().shl8;
 
+  // the instructions that the 65816 added move S as 16 bits even in
+  // emulation mode; the high byte returns to 1 after the instruction
+  void _push8n(int v) {
+    _write8(regs.s, v);
+    regs.s = regs.s.dec.mask16;
+  }
+
+  int _pull8n() {
+    regs.s = regs.s.inc.mask16;
+    return _read8(regs.s);
+  }
+
+  void _push16n(int v) {
+    _push8n(v.shr8);
+    _push8n(v.mask8);
+  }
+
+  int _pull16n() => _pull8n() | _pull8n().shl8;
+
+  void _endStack16() {
+    if (regs.e) regs.s = 0x0100 | regs.s.mask8;
+  }
+
   // ----------------------------------------------------- register access
   @pragma('vm:prefer-inline')
   int get _a => mSize == 1 ? regs.a.mask8 : regs.a.mask16;
@@ -127,9 +150,18 @@ class Cpu {
 
   int _dpX() => _dpIndexed(regs.x);
   int _dpY() => _dpIndexed(regs.y);
-  int _idp() => regs.dbr.shl16 | _ptr16(_dp());
-  int _idpX() => regs.dbr.shl16 | _ptr16(_dpX());
-  int _idpY() => (regs.dbr.shl16 | _ptr16(_dp())).inc24(regs.y);
+  // in emulation mode, the high byte of a direct page pointer is read within
+  // the page of the low byte: always for (dp,x), and for (dp) and (dp),y only
+  // when DL is 0
+  int _dpPtr16(int p, {bool indexed = false}) {
+    final wrap = regs.e && (indexed || regs.d.mask8 == 0);
+    final next = wrap ? (p & 0xff00) | p.inc.mask8 : p.inc.mask16;
+    return _read8(p) | _read8(next).shl8;
+  }
+
+  int _idp() => regs.dbr.shl16 | _dpPtr16(_dp());
+  int _idpX() => regs.dbr.shl16 | _dpPtr16(_dpX(), indexed: true);
+  int _idpY() => (regs.dbr.shl16 | _dpPtr16(_dp())).inc24(regs.y);
   int _ildp() => _ptr24(_dp());
   int _ildpY() => _ptr24(_dp()).inc24(regs.y);
   int _abs() => regs.dbr.shl16 | _fetch16();
@@ -164,18 +196,26 @@ class Cpu {
       int lo = a.mask4 + v.mask4 + _carry;
       if (lo > 0x09) lo += 0x06;
       int hi = a.shr4.mask4 + v.shr4.mask4 + (lo > 0x0f ? 1 : 0);
+      // V is computed as in binary mode, from the result before the decimal
+      // adjustment of the top digit
+      int top = hi;
       if (hi > 0x09) hi += 0x06;
       int r = hi.shl4 & 0xf0 | lo.mask4;
+      int msb = 0x80;
+      int pre = top.shl4 | lo.mask4;
       if (size == 2) {
         int hi2 = a.shr8.mask4 + v.shr8.mask4 + (hi > 0x0f ? 1 : 0);
         if (hi2 > 0x09) hi2 += 0x06;
         int hi3 = a.shr12.mask4 + v.shr12.mask4 + (hi2 > 0x0f ? 1 : 0);
+        pre = hi3.shl12 | (hi2.shl8 & 0x0f00) | (r & 0xff);
+        msb = 0x8000;
         if (hi3 > 0x09) hi3 += 0x06;
         r |= (hi2.shl8 & 0x0f00) | (hi3.shl12 & 0xf000);
         _setFlag(Flags.C, hi3 > 0x0f);
       } else {
         _setFlag(Flags.C, hi > 0x0f);
       }
+      _setFlag(Flags.V, (~(a ^ v) & (a ^ pre) & msb) != 0);
       _setA(r);
       _setNZ(r, size);
       return;
@@ -200,6 +240,10 @@ class Cpu {
       int borrowHi = hi < 0 ? 1 : 0;
       if (hi < 0) hi += 0x0a;
       int r = hi.shl4 & 0xf0 | lo.mask4;
+      // V is computed as in binary mode
+      final msb = size == 1 ? 0x80 : 0x8000;
+      final bin = a - v - (1 - c);
+      _setFlag(Flags.V, ((a ^ v) & (a ^ bin) & msb) != 0);
       if (size == 2) {
         int hi2 = a.shr8.mask4 - v.shr8.mask4 - borrowHi;
         int borrow2 = hi2 < 0 ? 1 : 0;
@@ -308,15 +352,16 @@ class Cpu {
   /// interrupt pending)
   bool get idle => stopped || (waiting && !_holdIrq && !_holdNmi);
 
-  void _interrupt(int vectorNative, int vectorEmu, {bool brk = false}) {
+  void _interrupt(int vectorNative, int vectorEmu, {bool software = false}) {
     if (!regs.e) _push8(regs.pbr);
     _push16(regs.pc);
-    // emulation mode: bit4 is the B flag - set for BRK, clear for IRQ/NMI
+    // emulation mode: bit5 is always 1, and bit4 is the B flag - set for
+    // BRK and COP, clear for IRQ/NMI
     _push8(!regs.e
         ? regs.p
-        : brk
-            ? regs.p | Flags.X
-            : regs.p & ~Flags.X);
+        : software
+            ? regs.p | Flags.M | Flags.X
+            : (regs.p | Flags.M) & ~Flags.X);
     _setFlag(Flags.I, true);
     _setFlag(Flags.D, false);
     regs.pbr = 0;
@@ -1060,29 +1105,32 @@ class Cpu {
       case 0xfc: // JSR (abs,X)
         {
           final ptr = (_fetch16() + regs.x).mask16;
-          _push16(regs.pc.dec.mask16);
+          _push16n(regs.pc.dec.mask16);
           regs.pc = _ptr16Pbr(ptr);
           cycle += 5;
         }
+        _endStack16();
         break;
       case 0x22: // JSL long
         {
           final a = _fetch24();
-          _push8(regs.pbr);
-          _push16(regs.pc.dec.mask16);
+          _push8n(regs.pbr);
+          _push16n(regs.pc.dec.mask16);
           regs.pbr = a.shr16;
           regs.pc = a.mask16;
           cycle += 6;
         }
+        _endStack16();
         break;
       case 0x60: // RTS
         regs.pc = _pull16().inc.mask16;
         cycle += 4;
         break;
       case 0x6b: // RTL
-        regs.pc = _pull16().inc.mask16;
-        regs.pbr = _pull8();
+        regs.pc = _pull16n().inc.mask16;
+        regs.pbr = _pull8n();
         cycle += 4;
+        _endStack16();
         break;
       case 0x40: // RTI
         regs.p = _pull8();
@@ -1106,7 +1154,8 @@ class Cpu {
         _push8(regs.p);
         break;
       case 0x0b: // PHD
-        _push16(regs.d);
+        _push16n(regs.d);
+        _endStack16();
         break;
       case 0x8b: // PHB
         _push8(regs.dbr);
@@ -1115,16 +1164,19 @@ class Cpu {
         _push8(regs.pbr);
         break;
       case 0xf4: // PEA
-        _push16(_fetch16());
+        _push16n(_fetch16());
+        _endStack16();
         break;
       case 0xd4: // PEI
-        _push16(_ptr16(_dp()));
+        _push16n(_ptr16(_dp()));
+        _endStack16();
         break;
       case 0x62: // PER
         {
           final disp = _fetch16().rel16;
-          _push16((regs.pc + disp).mask16);
+          _push16n((regs.pc + disp).mask16);
         }
+        _endStack16();
         break;
       case 0x68: // PLA
         _setA(_pullReg(mSize));
@@ -1143,12 +1195,14 @@ class Cpu {
         _normalizeWidths();
         break;
       case 0x2b: // PLD
-        regs.d = _pull16();
+        regs.d = _pull16n();
         _setNZ(regs.d, 2);
+        _endStack16();
         break;
       case 0xab: // PLB
-        regs.dbr = _pull8();
+        regs.dbr = _pull8n();
         _setNZ(regs.dbr, 1);
+        _endStack16();
         break;
 
       // ---------------------------------------------------------- transfers
@@ -1268,11 +1322,11 @@ class Cpu {
 
       case 0x00: // BRK
         _fetch8();
-        _interrupt(0xffe6, 0xfffe, brk: true);
+        _interrupt(0xffe6, 0xfffe, software: true);
         break;
       case 0x02: // COP
         _fetch8();
-        _interrupt(0xffe4, 0xfff4);
+        _interrupt(0xffe4, 0xfff4, software: true);
         break;
 
       default:

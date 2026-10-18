@@ -28,6 +28,9 @@ class MapperMMC3 extends Mapper {
   int _chrBankMask = 0;
   int _prgBankMask = 0;
 
+  // writes to the pattern tables reach only CHR RAM, not CHR ROM
+  bool _chrRam = false;
+
   // ppu 2 x 4k banks (0000-0fff, 1000-1fff)
   // each item points one of _chrBankR2_5 or _chrBankR0_1
   //
@@ -53,12 +56,10 @@ class MapperMMC3 extends Mapper {
   @override
   void init() {
     if (chrRoms.isEmpty) {
-      // TNROM: chr ram 1k x 8
+      // chr ram 1k x 8. init() runs again on reset with the ram added
+      _chrRam = true;
       chrRoms.addAll(List.generate(8, (i) => Uint8List(1024)));
     }
-    _chrBank[0] = _chrBankR2_5;
-    _chrBank[1] = _chrBankR0_1;
-
     _irqLatch = 0;
     _irqCounter = 0;
     _irqReload = false;
@@ -72,6 +73,15 @@ class MapperMMC3 extends Mapper {
       return;
     }
 
+    // power-up banks are undefined; use R0-R5 = 0, 2, 4, 5, 6, 7 without
+    // A12 inversion, which maps the first 8k linearly
+    _chrBank[0] = _chrBankR0_1;
+    _chrBank[1] = _chrBankR2_5;
+    for (int i = 0; i < 4; i++) {
+      _chrBankR0_1[i] = i & _chrBankMask;
+      _chrBankR2_5[i] = (i + 4) & _chrBankMask;
+    }
+
     // resize prg roms from 16k to 8k
     _prgBankMask = prgRoms.length - 1;
     if (_prgBankMask & prgRoms.length != 0) {
@@ -79,6 +89,8 @@ class MapperMMC3 extends Mapper {
       return;
     }
 
+    _prgBank0[0] = 0;
+    _prgBankA000[0] = 1 & _prgBankMask;
     _prgBank2ndLast[0] = prgRoms.length - 2;
     _prgBank[0] = _prgBank0; // 0x8000-0x9fff
     _prgBank[1] = _prgBankA000; // 0xa000-0xbfff
@@ -187,13 +199,20 @@ class MapperMMC3 extends Mapper {
   }
 
   @override
-  int readVram(int addr) {
-    // a12 edge detection for IRQ
+  void ppuAddressBus(int addr) => _watchA12(addr);
+
+  // a12 rising edge detection for IRQ
+  void _watchA12(int addr) {
     final a12 = addr & 0x1000;
     if (a12 != 0 && _a12 == 0) {
       _tickIrq();
     }
     _a12 = a12;
+  }
+
+  @override
+  int readVram(int addr) {
+    _watchA12(addr);
 
     final bank = addr.shr10;
     final offset = addr.mask10;
@@ -209,6 +228,7 @@ class MapperMMC3 extends Mapper {
 
   @override
   void writeVram(int addr, int data) {
+    if (!_chrRam) return;
     final bank = addr.shr10;
     final offset = addr.mask10;
 

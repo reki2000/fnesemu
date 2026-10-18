@@ -1,0 +1,491 @@
+# ROM harness cases of this core, run by scripts/romtest.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
+
+[[case]]
+name = "cputest-basic"
+dir = "snes-tests"
+files = [".build/cputest-basic.sfc"]
+frames = 180
+description = "65816 instructions in all modes; stops at the first failure and shows the test number (see cputest/tests-basic.txt upstream)."
+checks = [{ frame = 180, expected = "expected/cputest-basic_00180.png" }]
+
+[[case]]
+name = "cputest-full"
+dir = "snes-tests"
+files = [".build/cputest-full.sfc"]
+frames = 120
+description = "65816 instructions with more operand values; stops at the first failure (see cputest/tests-full.txt upstream)."
+checks = [{ frame = 120, expected = "expected/cputest-full_00120.png" }]
+
+[[case]]
+name = "spctest"
+dir = "snes-tests"
+files = [".build/spctest.sfc"]
+frames = 180
+description = "SPC700 instructions; stops at the first failure (see spctest/tests.txt upstream)."
+checks = [{ frame = 180, expected = "expected/spctest_00180.png" }]
+
+[[case]]
+name = "bankhiromfastrom"
+dir = "peterlemon"
+files = [".build/SNES/BANK/HiROMFastROM/BANKHiROMFastROM.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/bankhiromfastrom_00120.png" }]
+
+[[case]]
+name = "bankhiromslowrom"
+dir = "peterlemon"
+files = [".build/SNES/BANK/HiROMSlowROM/BANKHiROMSlowROM.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/bankhiromslowrom_00120.png" }]
+
+[[case]]
+name = "bankloromfastrom"
+dir = "peterlemon"
+files = [".build/SNES/BANK/LoROMFastROM/BANKLoROMFastROM.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/bankloromfastrom_00120.png" }]
+
+[[case]]
+name = "bankloromslowrom"
+dir = "peterlemon"
+files = [".build/SNES/BANK/LoROMSlowROM/BANKLoROMSlowROM.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/bankloromslowrom_00120.png" }]
+
+[[case]]
+name = "bankwram"
+dir = "peterlemon"
+files = [".build/SNES/BANK/WRAM/BANKWRAM.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/bankwram_00120.png" }]
+
+[[case]]
+name = "gsuadc"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/ADC/GSUADC.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsuadc_00180.png" }]
+
+[[case]]
+name = "gsuadd"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/ADD/GSUADD.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsuadd_00180.png" }]
+
+[[case]]
+name = "gsuand"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/AND/GSUAND.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsuand_00180.png" }]
+
+[[case]]
+name = "gsuasr"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/ASR/GSUASR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuasr_00120.png" }]
+
+[[case]]
+name = "gsubic"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/BIC/GSUBIC.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsubic_00180.png" }]
+
+[[case]]
+name = "gsucacheinject"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/CACHEINJECT/GSUCACHEINJECT.sfc"]
+frames = 120
+note = "a cache injection demo with two checks"
+checks = [{ frame = 120, expected = "expected/gsucacheinject_00120.png" }]
+
+[[case]]
+name = "gsucmp"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/CMP/GSUCMP.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsucmp_00120.png" }]
+
+[[case]]
+name = "gsudec"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/DEC/GSUDEC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsudec_00120.png" }]
+
+[[case]]
+name = "gsudiv2"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/DIV2/GSUDIV2.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsudiv2_00120.png" }]
+
+[[case]]
+name = "gsufmult"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/FMULT/GSUFMULT.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsufmult_00120.png" }]
+
+[[case]]
+name = "gsuhib"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/HIB/GSUHIB.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuhib_00120.png" }]
+
+[[case]]
+name = "gsuibt"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/IBT/GSUIBT.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuibt_00120.png" }]
+
+[[case]]
+name = "gsuinc"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/INC/GSUINC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuinc_00120.png" }]
+
+[[case]]
+name = "gsuiwt"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/IWT/GSUIWT.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuiwt_00120.png" }]
+
+[[case]]
+name = "gsulmult"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/LMULT/GSULMULT.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsulmult_00120.png" }]
+
+[[case]]
+name = "gsulob"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/LOB/GSULOB.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsulob_00120.png" }]
+
+[[case]]
+name = "gsulsr"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/LSR/GSULSR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsulsr_00120.png" }]
+
+[[case]]
+name = "gsumerge"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/MERGE/GSUMERGE.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsumerge_00120.png" }]
+
+[[case]]
+name = "gsumove"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/MOVE/GSUMOVE.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsumove_00120.png" }]
+
+[[case]]
+name = "gsumoves"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/MOVES/GSUMOVES.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsumoves_00120.png" }]
+
+[[case]]
+name = "gsumult"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/MULT/GSUMULT.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsumult_00180.png" }]
+
+[[case]]
+name = "gsunot"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/NOT/GSUNOT.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsunot_00120.png" }]
+
+[[case]]
+name = "gsuor"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/OR/GSUOR.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsuor_00180.png" }]
+
+[[case]]
+name = "gsurol"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/ROL/GSUROL.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsurol_00120.png" }]
+
+[[case]]
+name = "gsuror"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/ROR/GSUROR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuror_00120.png" }]
+
+[[case]]
+name = "gsusbc"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/SBC/GSUSBC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsusbc_00120.png" }]
+
+[[case]]
+name = "gsusex"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/SEX/GSUSEX.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsusex_00120.png" }]
+
+[[case]]
+name = "gsusub"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/SUB/GSUSUB.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsusub_00180.png" }]
+
+[[case]]
+name = "gsuswap"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/SWAP/GSUSWAP.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/gsuswap_00120.png" }]
+
+[[case]]
+name = "gsuumult"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/UMULT/GSUUMULT.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsuumult_00180.png" }]
+
+[[case]]
+name = "gsuxor"
+dir = "peterlemon"
+files = [".build/SNES/CHIP/GSU/GSUTest/XOR/GSUXOR.sfc"]
+frames = 180
+checks = [{ frame = 180, expected = "expected/gsuxor_00180.png" }]
+
+[[case]]
+name = "cpuadc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/ADC/CPUADC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuadc_00120.png" }]
+
+[[case]]
+name = "cpuand"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/AND/CPUAND.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuand_00120.png" }]
+
+[[case]]
+name = "cpuasl"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/ASL/CPUASL.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuasl_00120.png" }]
+
+[[case]]
+name = "cpubit"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/BIT/CPUBIT.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpubit_00120.png" }]
+
+[[case]]
+name = "cpubra"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/BRA/CPUBRA.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpubra_00120.png" }]
+
+[[case]]
+name = "cpucmp"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/CMP/CPUCMP.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpucmp_00120.png" }]
+
+[[case]]
+name = "cpudec"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/DEC/CPUDEC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpudec_00120.png" }]
+
+[[case]]
+name = "cpueor"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/EOR/CPUEOR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpueor_00120.png" }]
+
+[[case]]
+name = "cpuinc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/INC/CPUINC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuinc_00120.png" }]
+
+[[case]]
+name = "cpujmp"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/JMP/CPUJMP.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpujmp_00120.png" }]
+
+[[case]]
+name = "cpuldr"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/LDR/CPULDR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuldr_00120.png" }]
+
+[[case]]
+name = "cpulsr"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/LSR/CPULSR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpulsr_00120.png" }]
+
+[[case]]
+name = "cpumov"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/MOV/CPUMOV.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpumov_00120.png" }]
+
+[[case]]
+name = "cpumsc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/MSC/CPUMSC.sfc"]
+frames = 120
+note = "stops at STP, which passes only after a reset (the harness does not reset)"
+checks = [{ frame = 120, expected = "expected/cpumsc_00120.png" }]
+
+[[case]]
+name = "cpuora"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/ORA/CPUORA.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuora_00120.png" }]
+
+[[case]]
+name = "cpuphl"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/PHL/CPUPHL.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuphl_00120.png" }]
+
+[[case]]
+name = "cpupsr"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/PSR/CPUPSR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpupsr_00120.png" }]
+
+[[case]]
+name = "cpuret"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/RET/CPURET.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuret_00120.png" }]
+
+[[case]]
+name = "cpurol"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/ROL/CPUROL.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpurol_00120.png" }]
+
+[[case]]
+name = "cpuror"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/ROR/CPUROR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpuror_00120.png" }]
+
+[[case]]
+name = "cpusbc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/SBC/CPUSBC.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpusbc_00120.png" }]
+
+[[case]]
+name = "cpustr"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/STR/CPUSTR.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cpustr_00120.png" }]
+
+[[case]]
+name = "cputrn"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/CPU/TRN/CPUTRN.sfc"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/cputrn_00120.png" }]
+
+[[case]]
+name = "spc700adc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/ADC/SPC700ADC.sfc"]
+frames = 1680
+checks = [{ frame = 1680, expected = "expected/spc700adc_01680.png" }]
+
+[[case]]
+name = "spc700and"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/AND/SPC700AND.sfc"]
+frames = 1800
+checks = [{ frame = 1800, expected = "expected/spc700and_01800.png" }]
+
+[[case]]
+name = "spc700dec"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/DEC/SPC700DEC.sfc"]
+frames = 900
+checks = [{ frame = 900, expected = "expected/spc700dec_00900.png" }]
+
+[[case]]
+name = "spc700eor"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/EOR/SPC700EOR.sfc"]
+frames = 1680
+checks = [{ frame = 1680, expected = "expected/spc700eor_01680.png" }]
+
+[[case]]
+name = "spc700inc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/INC/SPC700INC.sfc"]
+frames = 900
+checks = [{ frame = 900, expected = "expected/spc700inc_00900.png" }]
+
+[[case]]
+name = "spc700ora"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/ORA/SPC700ORA.sfc"]
+frames = 1800
+checks = [{ frame = 1800, expected = "expected/spc700ora_01800.png" }]
+
+[[case]]
+name = "spc700sbc"
+dir = "peterlemon"
+files = [".build/SNES/CPUTest/SPC700/SBC/SPC700SBC.sfc"]
+frames = 1620
+checks = [{ frame = 1620, expected = "expected/spc700sbc_01620.png" }]

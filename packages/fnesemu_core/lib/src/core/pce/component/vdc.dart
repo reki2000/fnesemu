@@ -1,5 +1,4 @@
 // import '../../../util/debug.dart';
-import 'dart:math';
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
@@ -27,13 +26,11 @@ class Vdc {
   }
 
   reset() {
-    final rand = Random(0); // fixed seed: deterministic power-on garbage
-    vram.setRange(0, vram.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
-    colorTable.setRange(0, colorTable.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
-    sat.setRange(0, sat.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    // the power-on contents are undefined; clear them, so that software
+    // which does not set up the sprite table shows no garbage sprites
+    vram.fillRange(0, vram.length, 0);
+    colorTable.fillRange(0, colorTable.length, 0);
+    sat.fillRange(0, sat.length, 0);
 
     reg = 0;
 

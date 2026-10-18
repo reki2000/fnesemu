@@ -39,6 +39,9 @@ abstract class Mapper {
   int peekVram(int addr, {bool sprite = false}) => readVram(addr);
   void writeVram(int addr, int data) {}
 
+  // the cpu put addr on the ppu address bus through $2006 or $2007
+  void ppuAddressBus(int addr) {}
+
   Uint8List defaultSram() => Uint8List(8 * 1024);
 
   void setSramRw(int Function(int) read, void Function(int, int) write) {

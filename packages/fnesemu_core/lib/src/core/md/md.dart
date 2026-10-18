@@ -30,6 +30,9 @@ import 'ym2612.dart';
 
 final _log = DebugLog('md');
 
+// signature bytes, as character codes
+const mdBootSignature = '\x53\x45\x47\x41\x20\x42\x4f\x4f\x54';
+
 class Md implements Core {
   @override
   bool get hasPatternTables => true;
@@ -441,7 +444,7 @@ class Md implements Core {
     if (cdBoot ||
         (body.length == 0x20000 &&
             String.fromCharCodes(body.sublist(0x100, 0x180))
-                .contains("SEGA BOOT"))) {
+                .contains(mdBootSignature))) {
       final cd = MdCdrom(body);
       busM68.cdrom = cd;
       if (_disc != null) cd.setDisc(_disc!);
@@ -476,7 +479,7 @@ class Md implements Core {
       } else if (newStyleIndex.bit3) {
         busM68.region = _regionOverseaPal;
       } else {
-        throw Exception("unknown ROM region:$r0");
+        busM68.region = _regionOversea;
       }
     } else if ("$r0$r1$r2".contains("J")) {
       busM68.region = _regionDomestic;
@@ -485,7 +488,8 @@ class Md implements Core {
     } else if ("$r0$r1$r2".contains("E")) {
       busM68.region = _regionOverseaPal;
     } else {
-      throw Exception("unknown ROM region:$r0$r1$r2");
+      // an unknown or blank region field: run as an overseas NTSC machine
+      busM68.region = _regionOversea;
     }
 
     reset();

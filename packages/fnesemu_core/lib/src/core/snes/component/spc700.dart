@@ -1126,7 +1126,8 @@ class Spc700 {
           final ya = a | y.shl8;
           final operand = read(p) | read(hiAddr).shl8;
           final r = ya - operand;
-          _setFlag(Flags.h, ya.mask12 - operand.mask12 < 0);
+          // H is the carry of bit 11 as in YA + ~operand + 1, i.e. no borrow
+          _setFlag(Flags.h, ya.mask12 >= operand.mask12);
           _setFlag(Flags.v, ((ya ^ operand) & (ya ^ r)).bit15);
           _setFlag(Flags.c, r >= 0);
           a = r.mask8;
@@ -1157,19 +1158,18 @@ class Spc700 {
         break;
       case 0x9e:
         {
+          // the hardware divides by repeated shifts; a quotient that does
+          // not fit in 9 bits (including x = 0) gives these values
           final ya = a | y.shl8;
-          if (x == 0) {
-            a = 0xff;
-            y = ya.mask8; // documented edge case: div by zero
-            _setFlag(Flags.v, true);
-            _setFlag(Flags.h, true);
+          _setFlag(Flags.v, y >= x);
+          _setFlag(Flags.h, y.mask4 >= x.mask4);
+          if (y < x.shl1) {
+            a = (ya ~/ x).mask8;
+            y = (ya % x).mask8;
           } else {
-            _setFlag(Flags.h, y.mask4 <= x.mask4);
-            final q = ya ~/ x;
-            final rem = ya % x;
-            _setFlag(Flags.v, q > 0xff);
-            a = q.mask8;
-            y = rem.mask8;
+            final rest = ya - x.shl(9);
+            a = (0xff - rest ~/ (0x100 - x)).mask8;
+            y = (x + rest % (0x100 - x)).mask8;
           }
           _setNZ(a);
         }

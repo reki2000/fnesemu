@@ -175,6 +175,12 @@ extension ArmIsa on Arm7 {
 
     if (write) regs.r[rd] = res;
 
+    // a compare with Rd = PC (the old TEQP form) copies the SPSR to the CPSR
+    if (rd == 15 && s) {
+      regs.restoreCpsr();
+      return 1;
+    }
+
     if (s) {
       if (logical) {
         regs.setNZ(res.bit31, res == 0);
@@ -330,7 +336,7 @@ extension ArmIsa on Arm7 {
       if (byte) {
         bus.write8(addr, v);
       } else {
-        bus.write32(addr & ~3, v);
+        bus.write32(addr, v);
       }
       if (!pre) {
         regs.r[rn] = up ? (base + offset).mask32 : (base - offset).mask32;
@@ -394,7 +400,7 @@ extension ArmIsa on Arm7 {
     } else {
       // STRH only
       final v = regs.r[rd];
-      bus.write16(addr & ~1, v.mask16);
+      bus.write16(addr, v.mask16);
       if (!pre) {
         regs.r[rn] = up ? (base + offset).mask32 : (base - offset).mask32;
       } else if (wb) {

@@ -58,14 +58,15 @@ void main() {
       expect(bus.timerReached(3, 300, 400, 227), isFalse);
       expect(bus.timerReached(4, 400, 465, 227), isFalse);
       expect(bus.timerReached(4, 400, 466, 227), isTrue);
-      expect(bus.read(0x4211), 0x80);
-      expect(bus.read(0x4211), 0);
+      // bit 7 is the flag, the other bits read the open bus
+      expect(bus.read(0x4211) & 0x80, 0x80);
+      expect(bus.read(0x4211) & 0x80, 0);
 
       bus.write(0x4200, 0x10); // H-only: trigger on any scanline
       expect(bus.timerReached(5, 500, 565, 227), isFalse);
       expect(bus.timerReached(5, 500, 566, 227), isTrue);
       bus.write(0x4200, 0); // disabling clears the pending IRQ
-      expect(bus.read(0x4211), 0);
+      expect(bus.read(0x4211) & 0x80, 0);
     });
 
     test('vertical timer runs an IRQ handler during the frame', () {
@@ -95,7 +96,7 @@ void main() {
       }
       expect(core.ppu.bgMode, 7);
       expect(core.cpu.cycle, lessThan(Snes.cpuCyclesInScanline * 6));
-      expect(core.bus.read(0x4211), 0x80);
+      expect(core.bus.read(0x4211) & 0x80, 0x80);
     });
   });
 

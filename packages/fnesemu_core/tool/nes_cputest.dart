@@ -14,14 +14,15 @@ void log(String s) {
   stdout.writeln(s);
 }
 
-void main() async {
+// args[0]: nestest.nes, args[1]: nestest.log
+void main(List<String> args) async {
   configureLogging();
   log("running fnesemu cpu test...");
   final bus = Bus();
   final cpu = Cpu(bus);
   Apu(bus);
 
-  final f = File("assets/rom/nestest.nes");
+  final f = File(args[0]);
   log("loading: $f");
   final body = await f.readAsBytes();
   final file = NesFile()..load(body);
@@ -35,7 +36,7 @@ void main() async {
   cpu.regs.s = 0xfd;
   cpu.cycle = 7;
 
-  final testLog = File("assets/nestest.log");
+  final testLog = File(args[1]);
   final testLogs = await testLog.readAsLines();
 
   String prevLine = "";

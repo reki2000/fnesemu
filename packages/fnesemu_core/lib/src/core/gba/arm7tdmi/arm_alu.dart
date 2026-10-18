@@ -13,7 +13,10 @@ extension ArmAlu on Arm7 {
     if (imm) {
       switch (type) {
         case 0: // LSL
-          if (amount == 0) return v; // C unchanged
+          if (amount == 0) {
+            _shiftC = regs.cf; // C unchanged
+            return v;
+          }
           _shiftC = v.shr(32 - amount).bit0;
           return v.shl(amount).mask32;
         case 1: // LSR (#0 means #32)
@@ -41,7 +44,10 @@ extension ArmAlu on Arm7 {
       }
     } else {
       // register form
-      if (amount == 0) return v; // C unchanged, value passes through
+      if (amount == 0) {
+        _shiftC = regs.cf; // C unchanged, value passes through
+        return v;
+      }
       switch (type) {
         case 0: // LSL
           if (amount < 32) {

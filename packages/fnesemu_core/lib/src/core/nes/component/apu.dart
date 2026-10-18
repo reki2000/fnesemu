@@ -581,7 +581,14 @@ class Apu {
         } else {
           frameIrqEnabled = true;
         }
+        // the sequence restarts, and the 5-step mode clocks the envelopes
+        // and the length counters at once
         frameCountTick = 0;
+        apuFrameCounter = _frameCycles ~/ (frameCounterMode0 ? 4 : 5);
+        if (val.bit7) {
+          _countEnvelope();
+          _countLength();
+        }
         return;
 
       default:

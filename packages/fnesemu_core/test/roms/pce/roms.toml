@@ -1,0 +1,85 @@
+# ROM harness cases of this core, run by scripts/romtest.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
+# These card ROMs show pictures without PASS/FAIL, so expected/ records the current behavior. Some of them do not
+# clear the sprite table; the core clears the VDC memories at power-on, so no garbage sprites appear.
+
+[[case]]
+name = "240p-suite"
+dir = "display-tests"
+files = [".build/240p-suite.pce"]
+frames = 120
+description = "240p Test Suite 1.10, the card build (GPL-2.0): the main menu."
+checks = [{ frame = 120, expected = "expected/240p-suite_00120.png" }]
+
+[[case]]
+name = "512-colours"
+dir = "display-tests"
+files = [".build/512-colours.pce"]
+frames = 120
+description = "Chris Covell: all 512 colors with palette changes during display."
+checks = [{ frame = 120, expected = "expected/512-colours_00120.png" }]
+
+[[case]]
+name = "greyscale"
+dir = "display-tests"
+files = [".build/greyscale.pce"]
+frames = 120
+description = "Chris Covell: a greyscale slideshow."
+checks = [{ frame = 120, expected = "expected/greyscale_00120.png" }]
+
+[[case]]
+name = "screen-dimension"
+dir = "display-tests"
+files = [".build/screen-dimension.pce"]
+frames = 600
+description = "Chris Covell: VDC display timing registers with sprites at the screen edges; the picture keeps changing."
+checks = [{ frame = 600, expected = "expected/screen-dimension_00600.png" }]
+
+[[case]]
+name = "split-res"
+dir = "display-tests"
+files = [".build/split-res.pce"]
+frames = 600
+description = "Chris Covell: changes of the dot clock in the middle of the screen; black here."
+checks = [{ frame = 600, expected = "expected/split-res_00600.png" }]
+
+[[case]]
+name = "rgalland-sprite"
+dir = "display-tests"
+files = [".build/rgalland/SPRITE/sprite.pce"]
+frames = 120
+description = "rgalland: sprites."
+checks = [{ frame = 120, expected = "expected/rgalland-sprite_00120.png" }]
+
+[[case]]
+name = "rgalland-latching"
+dir = "display-tests"
+files = [".build/rgalland/LATCHING_TEST/cr_byr_bxr_latching_test.pce"]
+frames = 120
+description = "rgalland: when writes to CR, BYR and BXR take effect."
+checks = [{ frame = 120, expected = "expected/rgalland-latching_00120.png" }]
+
+[[case]]
+name = "rgalland-bg-128x64"
+dir = "display-tests"
+files = [".build/rgalland/BG_128x64/bg_128x64.pce"]
+frames = 120
+description = "rgalland: a 128x64 background map."
+checks = [{ frame = 120, expected = "expected/rgalland-bg-128x64_00120.png" }]
+
+[[case]]
+name = "rgalland-bg-64x32"
+dir = "display-tests"
+files = [".build/rgalland/BG_64x32/bg_64x32.pce"]
+frames = 120
+description = "rgalland: a 64x32 background map."
+checks = [{ frame = 120, expected = "expected/rgalland-bg-64x32_00120.png" }]
+
+[[case]]
+name = "rgalland-loading"
+dir = "display-tests"
+files = [".build/rgalland/LOADING_SCREEN/loading_screen.pce"]
+frames = 600
+description = "rgalland: an animated loading screen."
+checks = [{ frame = 600, expected = "expected/rgalland-loading_00600.png" }]

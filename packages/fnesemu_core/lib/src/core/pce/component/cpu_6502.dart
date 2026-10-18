@@ -173,9 +173,8 @@ extension Cpu6502 on Cpu {
       case 0xe1:
       case 0xf1:
       case 0xf2:
-        final t = (regs.p & Flags.T) != 0;
-
-        final a = t ? readzp(regs.x) : regs.a;
+        // the T flag does not apply to SBC
+        final a = regs.a;
         final b = readAddressing(op);
         int c = a - ((carry() ^ 0x01) + b);
 
@@ -197,12 +196,7 @@ extension Cpu6502 on Cpu {
           c &= 0xff;
         }
         cycle += 2;
-
-        if (t) {
-          write(Cpu.zeroAddr | regs.x, c);
-        } else {
-          regs.a = c;
-        }
+        regs.a = c;
         break;
 
       // AND
@@ -480,7 +474,7 @@ extension Cpu6502 on Cpu {
 
       // PHP
       case 0x08:
-        push(regs.p | Flags.B);
+        push((regs.p | Flags.B) & ~Flags.T);
         cycle += 3;
         break;
 
@@ -493,7 +487,7 @@ extension Cpu6502 on Cpu {
 
       // PLP
       case 0x28:
-        regs.p = pop();
+        pullFlags(pop());
         cycle += 4;
         break;
 
@@ -530,7 +524,7 @@ extension Cpu6502 on Cpu {
 
       // RTI
       case 0x40:
-        regs.p = pop();
+        pullFlags(pop());
         final addr = pop() | pop().shl8;
         regs.pc = addr;
         cycle += 6;

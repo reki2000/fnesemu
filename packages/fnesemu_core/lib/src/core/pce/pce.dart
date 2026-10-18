@@ -199,7 +199,7 @@ class Pce implements Core {
   void padUp(int controllerId, PadButton k) =>
       bus.joypad.keyUp(controllerId, k);
 
-  // the cdrom system card is a rom of the card slot
+  // the CD BIOS is a rom of the card slot
   @override
   void setBiosFiles(List<Uint8List> files) {
     if (files.isNotEmpty) {
