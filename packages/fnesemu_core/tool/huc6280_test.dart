@@ -88,6 +88,37 @@ class _TestBus extends Bus {
 // ST0/ST1/ST2 write the VDC, which is not a part of the CPU
 const _skippedOpcodes = {0x03, 0x13, 0x23};
 
+// the tests record at most 500 cycles, so the final state of a block
+// transfer longer than this (17 + 6 * length cycles) is cut in the middle
+const _blockTransfers = {0x73, 0xc3, 0xd3, 0xe3, 0xf3};
+const _maxBlockLength = (500 - 17) ~/ 6;
+
+int _read(_State s, int addr) =>
+    s.ram[(s.mpr[addr.mask16 >> 13] << 13) | (addr & 0x1fff)] ?? 0;
+
+/// The reason to skip a test, or null.
+String? _skip(_Test t) {
+  final i = t.initial;
+  if (_skippedOpcodes.contains(t.opcode)) {
+    return "ST0/ST1/ST2";
+  }
+  if (_blockTransfers.contains(t.opcode)) {
+    final length = _read(i, i.pc + 5) | _read(i, i.pc + 6) << 8;
+    // the length may also be overwritten when the registers are saved, so a
+    // test that reached the limit of 500 recorded writes is cut as well
+    if (length == 0 ||
+        length > _maxBlockLength ||
+        t.expected.ram.length >= 499) {
+      return "block transfers longer than $_maxBlockLength bytes";
+    }
+  }
+  // TMA without a selected MPR returns an internal value of the generator
+  if (t.opcode == 0x43 && _read(i, i.pc + 1) == 0) {
+    return "TMA #0";
+  }
+  return null;
+}
+
 List<String> _run(_Test t) {
   final bus = _TestBus();
   final cpu = Cpu2(bus);
@@ -147,15 +178,16 @@ void main(List<String> args) {
     ..sort((a, b) => a.path.compareTo(b.path));
 
   final failures = <String, (int, int)>{};
-  int skipped = 0;
+  final skipped = <String, int>{};
   for (final file in files) {
     final reader = _Reader(file.readAsBytesSync());
     final count = reader.u32();
     int failed = 0;
     for (int n = 0; n < count; n++) {
       final t = reader.test();
-      if (_skippedOpcodes.contains(t.opcode)) {
-        skipped++;
+      final reason = _skip(t);
+      if (reason != null) {
+        skipped[reason] = (skipped[reason] ?? 0) + 1;
         continue;
       }
       final diffs = _run(t);
@@ -171,7 +203,9 @@ void main(List<String> args) {
     }
   }
 
-  stdout.writeln("skipped $skipped tests of ST0/ST1/ST2");
+  for (final MapEntry(:key, :value) in skipped.entries) {
+    stdout.writeln("skipped $value tests: $key");
+  }
   if (failures.isEmpty) {
     stdout.writeln("all tests passed (${files.length} files)");
     return;
