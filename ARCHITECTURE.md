@@ -24,6 +24,39 @@ Each package owns its domain and communicates through the interfaces below.
 - Disc images accept files through `DiscFile` (`filesystem_api.dart`) and expose format-independent TOC and sector access through `image_api.dart`; `DiscImage.parse` resolves referenced files from the supplied directory.
 - The app connects packages through `picked_disc.dart`, `async_cdrom_drive.dart`, and `rom_scanner.dart`; headless tools provide their own adapters.
 
+## JIT correctness and performance notes
+
+### PS1 state and memory boundaries
+
+- Compiled blocks and the interpreter share registers, RAM, ROM, and scratchpad buffers. Keep ordinary RAM and valid scratchpad loads/stores in generated code; exit before device accesses, exceptions, cache isolation, or writes to protected code pages so the interpreter can execute the instruction with synchronized CPU state.
+- A stale interpreter branch flag caused the DQ7 divergence investigated in October 2026. After compiled instructions finish, clear `inBranchDelay` and `inBranchTaken` along with synchronizing PC, load-delay state, HI/LO, and elapsed clocks. Clear those flags only when compiled execution spent clocks: an exit before its first instruction must preserve a branch left by the interpreter. Forcing subsequent loads through the interpreter hid this bug and unnecessarily penalized memory access.
+- Default PS1 RAM mapping mirrors 2MiB over the first 8MiB. The earlier 128MiB read fast path incorrectly treated unmapped space as RAM. The bus and JIT must agree on read/write ranges and every alias used for code-page protection and invalidation.
+- Scratchpad is exactly 1KiB at physical `0x1f800000..0x1f8003ff`, accessible through KUSEG and KSEG0 while enabled. Neither the following 3KiB nor the KSEG1 alias is scratchpad. PS1 uses `addrMask: 0x7fffffff` and explicitly maps uncached RAM/ROM aliases so address masking cannot accidentally expose scratchpad through KSEG1. Synchronize scratchpad mappings after interpreted cache-control changes before entering another compiled block.
+- Guest mapping granularity is configurable through `pageShift`; PS1 uses 10 for 1KiB pages, while the runtime default and host allocation page size remain 4KiB. Code-page protection, aliases, native/Wasm page lookup, and the reference executor must use the guest granularity consistently.
+- Smaller pages and the wider address mask increase dense page-table memory: PS1's native read/write pointer tables alone occupy 32MiB. A sparse `Map` metadata experiment reduced memory but regressed native speed and was discarded. Measure both memory and execution time before changing this representation again.
+- MFC0 can call the existing COP0 read helper from generated code, preserving the normal load delay and branch-slot behavior. COP0 writes and commands still use the interpreter. Restrict BIOS-hook exits to the actual hook addresses rather than interpreting the entire low vector area.
+
+### Scheduling experiments
+
+- Retain the existing fixed timer/serial/CD-ROM polling of 100/100/200 CPU clocks. These are emulator scheduling choices, not PS1 hardware requirements. The current CPU model charges two clocks per instruction, and the last JIT block can cross a device deadline; it is not cycle accurate.
+- Timer updates must count all target/overflow events crossed by a batch, preserve toggle parity, and retain one-shot behavior. Increasing polling intervals exposed event loss in the old single-hit implementation. Correct batched updates are necessary even with fixed polling and are tested independently of the scheduler.
+- Polling all three devices at 300 clocks changed DQ7 menu progression, so its apparent FPS improvement was not a valid comparison of equivalent work. Do not adopt a larger interval based only on throughput.
+- An event-driven scheduler with strict block budgets made JIT/interpreter registers, RAM, scratchpad, image histories, and audio hashes agree through DQ7 frame 2400. It did not improve throughput over the fixed-period JIT control and was approximately 1-5% slower in the measured scenes. Its scheduler, register-access synchronization, and strict-budget machinery were discarded because the demonstrated benefit did not justify the added complexity. The independent timer event-counting fix remains.
+
+### Measurement and expected speedup
+
+- Compare variants within one executable where possible, rotate timed batches, warm up compilation and disc caches, and use the same inputs and emulated frames. Exclude screenshots/state-file encoding from timed intervals. Native Linux headless FPS and browser/Wasm FPS are different measurements and must not be compared directly.
+- A matching screenshot alone does not establish correct execution. Check registers, pending loads and branch state, IRQ EPC/BD, RAM/scratchpad boundaries, self-modifying code aliases, image/audio histories, and actual game progression. Fixed polling and block overshoot can still produce timing differences between the retained JIT and interpreter; the complete-state agreement above belongs to the discarded scheduling experiment.
+- Use an AOT build to explain AOT performance. Sparse stopwatch measurements of short CPU batches were unstable and sometimes yielded impossible estimates; nested or sampled stopwatch durations must not be added or extrapolated into whole-program percentages. A Dart VM profile is useful for diagnosis but is not an AOT measurement.
+- The October 2026 Linux x64 AOT profile used DQ7 disc 1 with the interpreter and fixed 100/100/200 polling. It sampled Linux user-space CPU time at 0.5ms and 1ms, resolved AOT call chains and inlined functions with separate DWARF information, and counted only samples under `Ps._run`. Harness work, image/state captures, and drive settling were excluded. Both intervals produced matching emulated states and no lost sampling records.
+
+| AOT scene | Timed frames after warm-up | Core samples across both runs | R3000.step including callees |
+| --- | --- | ---: | ---: |
+| DQ7 title | 901-1200 | 11,575 | 43.1% |
+| DQ7 menu | 2101-2400 | 9,169 | 42.7% |
+
+- These are scene-specific estimates. In the first AOT run, SPU work was approximately 24%/15% and GPU work 8%/18% at the title/menu. With a CPU fraction near 43%, doubling only CPU execution predicts about `1 / (0.57 + 0.43 / 2) = 1.27x` overall; eliminating that work entirely would cap this simplified model near 1.75x. These estimates do not measure the JIT's internal speedup or establish performance in other scenes.
+
 ## Core API and debugging
 
 - `packages/fnesemu_core/lib/app_api.dart` is the public core API; controllers, factories, and debuggers live directly under `lib/`, and cores expose inspection data through `CoreDebug` in `src/core_debug.dart`.

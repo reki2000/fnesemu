@@ -11,6 +11,7 @@ abstract interface class WasmEnv {
   int get slots;
   int get dyn;
   int get addrMask;
+  int get pageShift;
   int get helperCount;
   int slotFor(int pc, int tag);
 }
@@ -90,7 +91,7 @@ abstract final class WasmBackend {
       c.get(address);
       c.i32(env.addrMask);
       c.op(0x71);
-      c.i32(12);
+      c.i32(env.pageShift);
       c.op(0x76);
       c.i32(2);
       c.op(0x74, 0x6a);
@@ -111,7 +112,7 @@ abstract final class WasmBackend {
     void hostAddress() {
       c.get(page);
       c.get(address);
-      c.i32(0xfff);
+      c.i32((1 << env.pageShift) - 1);
       c.op(0x71, 0x6a);
     }
 

@@ -13,7 +13,8 @@ final class IrInterpreterRuntime extends JitRuntime {
   final _helpers = <JitHelper>[];
   final _blocks = <(int, int), IrBlock>{};
 
-  IrInterpreterRuntime(int ctxWords, super.addrMask, super.read, super.write)
+  IrInterpreterRuntime(
+      int ctxWords, super.addrMask, super.read, super.write, super.pageShift)
       : ctx = Uint32List(ctxWords);
 
   @override
@@ -57,13 +58,13 @@ final class IrInterpreterRuntime extends JitRuntime {
 
   int _load(int addr, int size, bool signed, IrEndian endian) {
     final masked = addr & addrMask;
-    final page = readPages[masked >>> JitRuntime.pageBits];
+    final page = readPages[masked >>> pageShift];
     int v;
     if (page == null) {
       v = read(addr, size);
     } else {
       final (host, offset) = page;
-      final at = offset + (masked & (JitRuntime.pageSize - 1));
+      final at = offset + (masked & (pageBytes - 1));
       v = switch (size) {
         1 => host[at],
         2 => host[at] | host[at + 1] << 8,
@@ -85,13 +86,13 @@ final class IrInterpreterRuntime extends JitRuntime {
   void _store(int addr, int size, int v, IrEndian endian) {
     if (endian == IrEndian.big) v = _swap(v, size);
     final masked = addr & addrMask;
-    final page = writePages[masked >>> JitRuntime.pageBits];
+    final page = writePages[masked >>> pageShift];
     if (page == null) {
       write(addr, size, v & (size == 4 ? 0xffffffff : (1 << (size * 8)) - 1));
       return;
     }
     final (host, offset) = page;
-    final at = offset + (masked & (JitRuntime.pageSize - 1));
+    final at = offset + (masked & (pageBytes - 1));
     for (int i = 0; i < size; i++) {
       host[at + i] = v >> (8 * i);
     }
@@ -133,9 +134,7 @@ final class IrInterpreterRuntime extends JitRuntime {
   bool _unmapped(IrInst inst, int addr) {
     final write =
         inst.op == IrOp.store || (inst.op == IrOp.guardMapped && inst.imm != 0);
-    if ((write
-            ? writePages
-            : readPages)[(addr & addrMask) >>> JitRuntime.pageBits] !=
+    if ((write ? writePages : readPages)[(addr & addrMask) >>> pageShift] !=
         null) {
       return false;
     }
