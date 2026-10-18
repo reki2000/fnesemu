@@ -21,6 +21,15 @@ Layout of a root:
   <core>/<dir>/expected/        expected data kept in the repository
 
 A case with slow = true (minutes long) runs only with --slow.
+
+input gives the button presses, either as a list of [frame, "button"] or [frame, "button", frames held], or as a
+sequence string (or a list of them, which run as parallel tracks from frame 0), read with a cursor at frame 0:
+  @F          moves the cursor to frame F
+  wN          waits N frames
+  B:N         holds button B for N frames and moves the cursor by N; B alone holds it for hold (default 10)
+  B+C:N       holds several buttons together
+  [ ... ]*N   repeats the part N times
+e.g. ["@150 Start", "@250 right:710", "@262 [A:6 w30]*20"] presses Start, then holds right while tapping A.
 setup runs the setup.py scripts (fetching or building the ROMs); run does not, and skips a case whose ROM or
 upstream reference is missing, so run setup first.
 A case may fail its upstream references (under .build/) when roms.toml gives the reason in "known_failure";
@@ -37,6 +46,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import re
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -88,19 +98,73 @@ class Case:
                 cmd += ["-s", str(min(frames))]
         else:
             cmd += ["-e", str(s["frames"])]
-        for f, b in s.get("input", []):
-            cmd += ["-p", f"{f}:{b}"]
-        if "hold" in s:
-            cmd += ["-H", str(s["hold"])]
+        for f, b, n in self.presses():
+            cmd += ["-p", f"{f}:{b}:{n}"]
         if any("audio" in c for c in self.checks()):
             cmd.append("-w")
         if any("vram" in c for c in self.checks()):
             cmd.append("-v")
         return cmd
 
+    def presses(self):
+        """The presses of input as (frame, button, frames held), sorted by frame."""
+        return parse_input(self.spec.get("input", []), self.spec.get("hold", 10))
+
     def is_expected(self, p: Path) -> bool:
         """True for paths under expected/, which --update may write."""
         return (self.dir / "expected").resolve() in p.parents
+
+
+_TOKEN = re.compile(r"\[|\]\*\d+|[^\s\[\]]+")
+
+
+def parse_input(spec, hold: int):
+    """Compiles input (a list of presses, a sequence string or a list of them) into (frame, button, frames)."""
+    if isinstance(spec, str):
+        spec = [spec]
+    presses = []
+    for item in spec:
+        if isinstance(item, list):
+            f, b, *n = item
+            presses.append((int(f), str(b), int(n[0]) if n else hold))
+            continue
+        tokens = _TOKEN.findall(item)
+        pos, end = _parse_track(tokens, 0, 0, hold, presses)
+        if pos != len(tokens):
+            raise ValueError(f"unexpected {tokens[pos]!r} in input {item!r}")
+    return sorted(presses)
+
+
+def _parse_track(tokens, pos, frame, hold, presses):
+    """Reads tokens from pos until the end or a closing ]*N; returns the next position and the frame."""
+    while pos < len(tokens):
+        t = tokens[pos]
+        if t.startswith("]"):
+            return pos, frame
+        pos += 1
+        if t == "[":
+            # read the group once to find its ]*N, then repeat it from the cursor
+            end, _ = _parse_track(tokens, pos, 0, hold, [])
+            if end >= len(tokens):
+                raise ValueError("a [ without its ]*N in input")
+            for _ in range(int(tokens[end][2:])):
+                _, frame = _parse_track(tokens, pos, frame, hold, presses)
+            pos = end + 1
+        elif t.startswith("@") and t[1:].isdigit():
+            frame = int(t[1:])
+        elif t.startswith("w") and t[1:].isdigit():
+            frame += int(t[1:])
+        else:
+            names, _, n = t.partition(":")
+            if n and not n.isdigit():
+                raise ValueError(f"bad length in {t!r} in input")
+            n = int(n) if n else hold
+            for b in names.split("+"):
+                if not b:
+                    raise ValueError(f"empty button in {t!r} in input")
+                presses.append((frame, b, n))
+            frame += n
+    return pos, frame
 
 
 def load_cases(root: Path):
@@ -324,6 +388,10 @@ def lint(root: Path, cases, inside_only: bool):
                 errors.append(f"{c.id}: {rel} is outside the root")
         if not c.dir.is_dir():
             errors.append(f"{c.id}: no directory {show(c.dir)}")
+        try:
+            c.presses()
+        except (ValueError, TypeError) as e:
+            errors.append(f"{c.id}: {e}")
         size = sum(c.path(v).stat().st_size for ch in c.checks() for k, v in ch.items()
                    if k in ("expected", "audio", "vram") and c.is_expected(c.path(v)) and c.path(v).exists())
         if inside_only and size > EXPECTED_LIMIT:

@@ -5,8 +5,8 @@
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
-//   -p, --press F:B  press button B (name or index) at frame F (repeatable)
-//   -H, --hold N     frames to hold a pressed button (default: 10)
+//   -p, --press F:B[:N]  press button B (name, or index when no button has that name) at frame F for N frames (repeatable)
+//   -H, --hold N     frames to hold a press without N (default: 10)
 //   -s, --start N    save pngs only from frame N on (default: 0)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
 //   -b, --bios FILE  gba/fds: BIOS image (required for fds)
@@ -15,8 +15,20 @@
 //   -v, --vram       ps: also write vram.png (the whole 1024x512 VRAM)
 //
 //   -r, --frame-runner  execute whole frames inside the core
+//   --serve PORT     instead of running -f frames, wait for HTTP requests on 127.0.0.1:PORT (0 picks a port)
+//
+// server mode (GET requests, answers are JSON; the frame counter starts at 0):
+//   /run?frames=N[&every=E&dir=D]   runs N frames; with every, saves D/frame_NNNNN.png every E frames
+//   /press?button=B[&at=F][&frames=N]  presses B (name or index, "+" for several) from frame F (default:
+//                                   the next frame) for N frames (default: -H)
+//   /shot?path=P                    saves the current screen as a png
+//   /audio?path=P                   saves the audio since the previous /audio as a wav
+//   /state                          the frame, the program counter and the core dump
+//   /buttons                        the button names
+//   /quit                           stops the server
 //
 // files: <out>/frame_NNNNN.png, <out>/audio.wav, <out>/state.txt
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -47,7 +59,7 @@ Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/core_harness";
-  final presses = <(int, String)>[];
+  final presses = <(int, String, int?)>[];
   int holdFrames = 10;
   bool wav = false;
   int saveFrom = 0;
@@ -56,6 +68,7 @@ Future<void> main(List<String> args) async {
   String? exe;
   bool vram = false;
   bool frameRunner = false;
+  int? servePort;
   final files = <String>[];
 
   for (int i = 0; i < args.length; i++) {
@@ -82,9 +95,12 @@ Future<void> main(List<String> args) async {
         frameRunner = true;
       case "-v" || "--vram":
         vram = true;
+      case "--serve":
+        servePort = int.parse(args[++i]);
       case "-p" || "--press":
         final p = args[++i].split(":");
-        presses.add((int.parse(p[0]), p[1]));
+        presses.add(
+            (int.parse(p[0]), p[1], p.length > 2 ? int.parse(p[2]) : null));
       default:
         files.add(args[i]);
     }
@@ -135,14 +151,21 @@ Future<void> main(List<String> args) async {
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
-  final pressList = presses.map((p) {
-    final idx = int.tryParse(p.$2) ??
-        buttons.indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase());
+  // a name first: some cores have buttons named "1" and "2"
+  int buttonIndex(String name) {
+    final byName =
+        buttons.indexWhere((b) => b.name.toLowerCase() == name.toLowerCase());
+    final idx = byName >= 0 ? byName : int.tryParse(name) ?? -1;
     if (idx < 0 || idx >= buttons.length) {
-      throw "unknown button: ${p.$2} (${buttons.map((b) => b.name).join(",")})";
+      throw "unknown button: $name (${buttons.map((b) => b.name).join(",")})";
     }
-    return (p.$1, idx);
-  }).toList();
+    return idx;
+  }
+
+  final pressList = presses
+      .map((p) => (p.$1, buttonIndex(p.$2), p.$3 ?? holdFrames))
+      .toList();
+  final held = List<bool>.filled(buttons.length, false);
 
   final pcm = BytesBuilder();
   int sampleRate = 0, channels = 0;
@@ -162,26 +185,94 @@ Future<void> main(List<String> args) async {
   int lines = 0;
   int frame = 0;
 
-  while (frame < frames) {
-    final r =
-        frameRunner ? core.runFrame(core.scanlinesInFrame) : core.exec(false);
-    if (r.stopped) {
-      stdout.writeln("stopped at frame $frame\n${core.dump()}");
-      _savePng(core.imageBuffer(), "$outDir/stopped.png");
-      exit(2);
+  // runs the core to the end of the next frame and applies the presses;
+  // false when the core stopped
+  Future<bool> stepFrame() async {
+    while (true) {
+      final r =
+          frameRunner ? core.runFrame(core.scanlinesInFrame) : core.exec(false);
+      if (r.stopped) return false;
+      if (!r.scanlineRendered) continue;
+      lines += frameRunner ? core.scanlinesInFrame : 1;
+      if (lines < core.scanlinesInFrame) continue;
+      lines = 0;
+      break;
     }
-    if (!r.scanlineRendered) continue;
-    lines += frameRunner ? core.scanlinesInFrame : 1;
-    if (lines < core.scanlinesInFrame) continue;
-    lines = 0;
     frame++;
     // sectors are read in the background: wait for them at each frame so
     // that the result does not depend on the speed of the disc
     await drive?.settle();
 
-    for (final (f, b) in pressList) {
-      if (frame == f) core.padDown(0, buttons[b]);
-      if (frame == f + holdFrames) core.padUp(0, buttons[b]);
+    // a button is down while any of its presses lasts
+    final down = List<bool>.filled(buttons.length, false);
+    for (final (f, b, n) in pressList) {
+      if (frame >= f && frame < f + n) down[b] = true;
+    }
+    for (var b = 0; b < buttons.length; b++) {
+      if (down[b] == held[b]) continue;
+      held[b] = down[b];
+      down[b] ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
+    }
+    return true;
+  }
+
+  if (servePort != null) {
+    var audioFrom = 0;
+    await _serve(servePort, (path, q) async {
+      switch (path) {
+        case "/run":
+          final n = int.parse(q["frames"] ?? "1");
+          final step = int.tryParse(q["every"] ?? "");
+          final dir = q["dir"] ?? outDir;
+          if (step != null) Directory(dir).createSync(recursive: true);
+          for (var i = 0; i < n; i++) {
+            if (!await stepFrame()) {
+              return {"frame": frame, "stopped": true, "dump": core.dump()};
+            }
+            if (step != null && frame % step == 0) {
+              _savePng(core.imageBuffer(),
+                  "$dir/frame_${frame.toString().padLeft(5, "0")}.png");
+            }
+          }
+          return {"frame": frame, "pc": core.programCounter(0)};
+        case "/press":
+          final at = int.tryParse(q["at"] ?? "") ?? frame + 1;
+          final n = int.tryParse(q["frames"] ?? "") ?? holdFrames;
+          for (final b in q["button"]!.split("+")) {
+            pressList.add((at, buttonIndex(b), n));
+          }
+          return {"frame": frame, "at": at, "frames": n};
+        case "/shot":
+          _savePng(core.imageBuffer(), q["path"]!);
+          return {"frame": frame, "path": q["path"]};
+        case "/audio":
+          final bytes = pcm.toBytes();
+          File(q["path"]!).writeAsBytesSync(
+              _wav(bytes.sublist(audioFrom), sampleRate, channels));
+          audioFrom = bytes.length;
+          return {"frame": frame, "path": q["path"]};
+        case "/state":
+          return {
+            "frame": frame,
+            "pc": core.programCounter(0),
+            "dump": core.dump()
+          };
+        case "/buttons":
+          return {"buttons": buttons.map((b) => b.name).toList()};
+        case "/quit":
+          return null;
+        default:
+          throw "unknown request: $path";
+      }
+    });
+    exit(0);
+  }
+
+  while (frame < frames) {
+    if (!await stepFrame()) {
+      stdout.writeln("stopped at frame $frame\n${core.dump()}");
+      _savePng(core.imageBuffer(), "$outDir/stopped.png");
+      exit(2);
     }
 
     if (frame % every == 0 && frame >= saveFrom) {
@@ -203,6 +294,30 @@ Future<void> main(List<String> args) async {
   }
   File("$outDir/state.txt").writeAsStringSync(core.dump());
   stdout.writeln(core.dump());
+}
+
+/// answers the requests one at a time until the handler returns null (quit);
+/// a handler error is answered with status 400
+Future<void> _serve(
+    int port,
+    Future<Map<String, Object?>?> Function(String, Map<String, String>)
+        handle) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+  stdout.writeln("serving on 127.0.0.1:${server.port}");
+  await for (final req in server) {
+    Map<String, Object?>? res;
+    try {
+      res = await handle(req.uri.path, req.uri.queryParameters);
+      req.response.write(jsonEncode(res ?? {"quit": true}));
+    } catch (e) {
+      req.response.statusCode = 400;
+      req.response.write(jsonEncode({"error": e.toString()}));
+      res = {};
+    }
+    await req.response.close();
+    if (res == null) break;
+  }
+  await server.close();
 }
 
 Core _createCore(String name) {
