@@ -369,7 +369,7 @@ name = "apu_test"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/apu_test/apu_test.nes"]
 frames = 120
-known_failure = "Failed #4 in 1-len_ctr"
+known_failure = "Failed #2 in 4-jitter (the frame IRQ is set too soon)"
 checks = [{ frame = 120, expected = "expected/apu_test_00120.png" }]
 
 [[case]]
@@ -377,7 +377,6 @@ name = "blargg_apu_2005_07_30-01_len_ctr"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/01.len_ctr.nes"]
 frames = 120
-known_failure = "result $04"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-01_len_ctr_00120.png" }]
 
 [[case]]
@@ -385,7 +384,6 @@ name = "blargg_apu_2005_07_30-02_len_table"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/02.len_table.nes"]
 frames = 120
-known_failure = "result $02"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-02_len_table_00120.png" }]
 
 [[case]]
@@ -400,7 +398,7 @@ name = "blargg_apu_2005_07_30-04_clock_jitter"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/04.clock_jitter.nes"]
 frames = 120
-known_failure = "result $05"
+known_failure = "result $03"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-04_clock_jitter_00120.png" }]
 
 [[case]]
@@ -408,7 +406,7 @@ name = "blargg_apu_2005_07_30-05_len_timing_mode0"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/05.len_timing_mode0.nes"]
 frames = 120
-known_failure = "result $03"
+known_failure = "result $04"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-05_len_timing_mode0_00120.png" }]
 
 [[case]]
@@ -416,7 +414,7 @@ name = "blargg_apu_2005_07_30-06_len_timing_mode1"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/06.len_timing_mode1.nes"]
 frames = 120
-known_failure = "result $03"
+known_failure = "result $02"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-06_len_timing_mode1_00120.png" }]
 
 [[case]]
@@ -424,7 +422,7 @@ name = "blargg_apu_2005_07_30-07_irq_flag_timing"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/07.irq_flag_timing.nes"]
 frames = 120
-known_failure = "result $02"
+known_failure = "result $03"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-07_irq_flag_timing_00120.png" }]
 
 [[case]]
@@ -448,7 +446,7 @@ name = "blargg_apu_2005_07_30-10_len_halt_timing"
 dir = "nes-test-roms"
 files = [".build/nes-test-roms/blargg_apu_2005.07.30/10.len_halt_timing.nes"]
 frames = 120
-known_failure = "result $03"
+known_failure = "result $02"
 checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-10_len_halt_timing_00120.png" }]
 
 [[case]]
