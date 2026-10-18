@@ -4,4 +4,5 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates git make python3 \
+        gcc-mipsel-linux-gnu g++-mipsel-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
