@@ -152,6 +152,34 @@ void main() {
     expect(samples.any((v) => v == 0), isTrue);
   });
 
+  test('the vertical console turns the frame and the directions', () {
+    final ws = Ws(color: false)..setRom(_rom([0xeb, 0xfe]));
+    ws.runFrame(159);
+    final flat = ws.imageBuffer();
+    // mark the top-left pixel to follow it through the turn
+    flat.buffer[0] = 0x12345678;
+    expect(ws.buttons[12], Ws.rotate);
+
+    ws.padDown(0, Ws.rotate);
+    ws.padUp(0, Ws.rotate);
+    final turned = ws.imageBuffer();
+    expect((turned.width, turned.height), (flat.height, flat.width));
+    // turned to the left: the top-left corner goes to the bottom-left
+    expect(turned.buffer[(flat.width - 1) * turned.width], 0x12345678);
+
+    // the screen up is the right of the X keys
+    ws.padDown(0, PadButton.up);
+    expect(ws.bus.pad.read(0x20) & 0x0f, 2);
+    ws.padUp(0, PadButton.up);
+    ws.padDown(0, PadButton.left);
+    expect(ws.bus.pad.read(0x20) & 0x0f, 1);
+
+    // turning back releases the held direction and shows the frame as is
+    ws.padDown(0, Ws.rotate);
+    expect(ws.bus.pad.read(0x20) & 0x0f, 0);
+    expect(ws.imageBuffer().width, flat.width);
+  });
+
   test('the disassembler decodes modrm operands', () {
     final code = [0x26, 0x8b, 0x47, 0xfe, 0xc3];
     expect(disasmV30((i) => code[i], 0), ('mov ax, word es:[bx-02]', 4));
