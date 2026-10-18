@@ -1,8 +1,8 @@
 # ROM harness cases of this core, run by scripts/romtest.py; one [[case]] table per case.
 # Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
 # known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
-# These card ROMs show pictures without PASS/FAIL, so expected/ records the current behavior. The noise-like blocks
-# in some of them look like sprites made of the power-on VRAM, which the core fills with fixed-seed random values.
+# These card ROMs show pictures without PASS/FAIL, so expected/ records the current behavior. Some of them do not
+# clear the sprite table; the core clears the VDC memories at power-on, so no garbage sprites appear.
 
 [[case]]
 name = "240p-suite"
@@ -49,7 +49,7 @@ name = "rgalland-sprite"
 dir = "display-tests"
 files = [".build/rgalland/SPRITE/sprite.pce"]
 frames = 120
-description = "rgalland: sprites; the screen is covered with noise-like sprites here."
+description = "rgalland: sprites."
 checks = [{ frame = 120, expected = "expected/rgalland-sprite_00120.png" }]
 
 [[case]]
