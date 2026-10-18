@@ -135,7 +135,7 @@ python3 scripts/romtest.py list                  # the cases
 python3 scripts/romtest.py lint                  # paths stay in the tree, expected/ stays small
 ```
 
-Covered cores: GB, NES, GBA (with a replacement BIOS), SNES, N64 and PS1 (test EXEs on OpenBIOS).
+Covered cores: NES, PCE, SNES, MD, SMS, GB, GBA (with a replacement BIOS), N64, WS and PS1 (test EXEs on OpenBIOS). Cases marked `slow = true` (minutes long) run only with `--slow`.
 
 ## Quick regression
 

@@ -1,0 +1,56 @@
+# ROM harness cases of this core, run by scripts/romtest.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
+# slow = true marks the cases that take minutes; they run only with --slow.
+
+[[case]]
+name = "zexdoc"
+dir = "sms-tests"
+files = [".build/zexdoc.sms"]
+args = ["-r"]
+frames = 12000
+description = "Z80 instructions with the documented flags (ZEXDOC); the first tests of the list by frame 12000. zexdoc-full runs all of them."
+checks = [{ frame = 12000, expected = "expected/zexdoc_12000.png" }]
+
+[[case]]
+name = "zexdoc-full"
+dir = "sms-tests"
+files = [".build/zexdoc.sms"]
+args = ["-r"]
+frames = 280000
+slow = true
+timeout = 1800
+description = "All the ZEXDOC tests; \"Tests complete\" by frame 270000, every test OK. About 10 minutes."
+checks = [{ frame = 280000, expected = "expected/zexdoc_280000.png" }]
+
+[[case]]
+name = "zexall"
+dir = "sms-tests"
+files = [".build/zexall.sms"]
+args = ["-r"]
+frames = 12000
+description = "Z80 instructions with the undocumented flags (ZEXALL); the first tests by frame 12000. zexall-full runs all of them."
+checks = [{ frame = 12000, expected = "expected/zexall_12000.png" }]
+
+[[case]]
+name = "zexall-full"
+dir = "sms-tests"
+files = [".build/zexall.sms"]
+args = ["-r"]
+frames = 320000
+slow = true
+timeout = 1800
+description = "All the ZEXALL tests; \"Tests complete\" by frame 320000. About 11 minutes."
+known_failure = "CRC mismatches in the aluop, add, bit, neg, daa, adc/sbc and other tests that check the undocumented flags"
+checks = [{ frame = 320000, expected = "expected/zexall_320000.png" }]
+
+[[case]]
+name = "vdp-data"
+dir = "sms-tests"
+files = [".build/SMSVDPTest.sms"]
+args = ["-r"]
+frames = 600
+input = [[300, "6"]]
+hold = 12
+description = "SMSVDPTest: button 1 (6) on the menu starts the SMS VDP data test (ports, buffer, latches); every line reads Ok."
+checks = [{ frame = 600, expected = "expected/vdp-data_00600.png" }]

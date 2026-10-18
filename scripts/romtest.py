@@ -3,7 +3,7 @@
 
   scripts/romtest.py list  [target...] [--root DIR]
   scripts/romtest.py setup [target...] [--root DIR]
-  scripts/romtest.py run   [target...] [--root DIR] [--update] [-j N]
+  scripts/romtest.py run   [target...] [--root DIR] [--update] [-j N] [--slow]
   scripts/romtest.py lint  [--root DIR]
   scripts/romtest.py show  [target...] [--root DIR]
 
@@ -20,6 +20,7 @@ Layout of a root:
   <core>/<dir>/setup.py         prepares the ROM and upstream data in <core>/<dir>/.build/
   <core>/<dir>/expected/        expected data kept in the repository
 
+A case with slow = true (minutes long) runs only with --slow.
 setup runs the setup.py scripts (fetching or building the ROMs); run does not, and skips a case whose ROM or
 upstream reference is missing, so run setup first.
 A case may fail its upstream references (under .build/) when roms.toml gives the reason in "known_failure";
@@ -210,9 +211,11 @@ def update(case: Case, out: Path, say):
         say(f"  updated {show(ref)}")
 
 
-def run_case(case: Case, do_update):
+def run_case(case: Case, do_update, slow=False):
     """Returns ("ok" | "fail" | "xfail" | "skip", report)."""
     lines = []
+    if case.spec.get("slow") and not slow:
+        return "skip", f"SKIP {case.id}: slow (run with --slow)"
     # the files that setup.py prepares: the ROM and the upstream references
     prepared = list(case.spec["files"]) + [a for a in case.spec.get("args", []) if a.startswith(("./", "../"))]
     prepared += [ref for ch in case.checks() for k, ref in ch.items()
@@ -298,6 +301,7 @@ def main(argv=None):
     ap.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="the ROM tree (default: %(default)s)")
     ap.add_argument("--update", action="store_true", help="write the outputs to the expected/ data")
     ap.add_argument("-j", type=int, default=1, help="cases to run in parallel")
+    ap.add_argument("--slow", action="store_true", help="also run the cases marked slow")
     a = ap.parse_args(argv)
     root = a.root.resolve()
     if not root.is_dir():
@@ -321,7 +325,7 @@ def main(argv=None):
         return
     with ThreadPoolExecutor(max(1, a.j)) as ex:
         results = []
-        for status, text in ex.map(lambda c: run_case(c, a.update), cases):
+        for status, text in ex.map(lambda c: run_case(c, a.update, a.slow), cases):
             print(text, flush=True)
             results.append(status)
     print(f"\n{results.count('ok')} ok, {results.count('fail')} failed, "
