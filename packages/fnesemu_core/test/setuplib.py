@@ -66,6 +66,18 @@ def extract_tar(archive: Path, members: dict[str, Path]):
             dest.write_bytes(f.read())
 
 
+def extract_zip(archive: Path, members: dict[str, Path]):
+    """Extracts the archive members (name -> destination) from a zip file."""
+    import zipfile
+
+    with zipfile.ZipFile(archive) as z:
+        for name, dest in members.items():
+            try:
+                dest.write_bytes(z.read(name))
+            except KeyError as e:
+                raise SetupError(f"{name} is not in {archive.name}") from e
+
+
 def git_checkout(url: str, commit: str, dest: Path, sparse: list[str] | None = None,
                  submodules: bool = False) -> Path:
     """Checks out one commit of a repository into dest, optionally sparse or with its submodules."""
