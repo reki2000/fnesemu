@@ -20,11 +20,12 @@ dir = "ws-tests"
 files = [".build/WSHWTest.wsc"]
 core = "wsc"
 args = ["-r"]
-frames = 2400
-input = [[60, "A"]]
-description = "WSHWTest: interrupts, timers and I/O ports (A selects Test All)."
-note = "shows a register dump from frame 2000 on"
-checks = [{ frame = 2400, expected = "expected/hw_02400.png" }]
+frames = 1200
+input = [[60, "down"], [120, "A"]]
+hold = 6
+description = "WSHWTest: interrupts, timers and I/O ports. The menu starts at Show Registers, so down and A select Test All. The test stops at the first failure."
+known_failure = "IO Registers: 28:07 Failed! (the timer tests before it are Ok)"
+checks = [{ frame = 1200, expected = "expected/hw_01200.png" }]
 
 [[case]]
 name = "timing"
