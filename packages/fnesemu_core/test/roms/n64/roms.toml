@@ -9,7 +9,6 @@ name = "cop0cause"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/CP0/COP0Cause/COP0Cause.N64"]
 frames = 120
-known_failure = "FAIL on every line"
 checks = [{ frame = 120, expected = "expected/cop0cause_00120.png" }]
 
 [[case]]
@@ -17,7 +16,6 @@ name = "cop0register"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/CP0/COP0Register/COP0Register.N64"]
 frames = 600
-known_failure = "FAIL on some registers"
 checks = [{ frame = 600, expected = "expected/cop0register_00600.png" }]
 
 [[case]]
@@ -477,7 +475,6 @@ name = "ll_lld_sc_scd"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/CPU/LOADSTORE/LL_LLD_SC_SCD/LL_LLD_SC_SCD.N64"]
 frames = 120
-known_failure = "FAIL on LL+SC, LLD+SCD and the LL/SC pairs"
 checks = [{ frame = 120, expected = "expected/ll_lld_sc_scd_00120.png" }]
 
 [[case]]
@@ -682,7 +679,7 @@ name = "dmaalignment-pi-rom-from"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/DMAAlignment-PI-cart/DMAAlignment-PI-ROM-FROM.N64"]
 frames = 120
-known_failure = "FAIL on some offsets and lengths"
+known_failure = "FAIL on the PI registers left by the boot code and on the CPU reads of ROM below 32 bits"
 checks = [{ frame = 120, expected = "expected/dmaalignment-pi-rom-from_00120.png" }]
 
 [[case]]
@@ -690,7 +687,6 @@ name = "dmaalignment-pi-rom-from_large_2"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/DMAAlignment-PI-cart/DMAAlignment-PI-ROM-FROM_large_2.N64"]
 frames = 120
-known_failure = "FAIL at offset 112->127"
 checks = [{ frame = 120, expected = "expected/dmaalignment-pi-rom-from_large_2_00120.png" }]
 
 [[case]]
@@ -698,7 +694,6 @@ name = "dmaalignment-pi-rom-from_large_4"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/DMAAlignment-PI-cart/DMAAlignment-PI-ROM-FROM_large_4.N64"]
 frames = 120
-known_failure = "FAIL at offset 112->127"
 checks = [{ frame = 120, expected = "expected/dmaalignment-pi-rom-from_large_4_00120.png" }]
 
 [[case]]
@@ -706,7 +701,6 @@ name = "dmaalignment-pi-rom-from_large_6"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/DMAAlignment-PI-cart/DMAAlignment-PI-ROM-FROM_large_6.N64"]
 frames = 120
-known_failure = "FAIL at offset 112->127"
 checks = [{ frame = 120, expected = "expected/dmaalignment-pi-rom-from_large_6_00120.png" }]
 
 [[case]]
@@ -721,7 +715,6 @@ name = "exceptioncompareregisters"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/Compare/ExceptionCompareRegisters.n64"]
 frames = 120
-known_failure = "FAIL on ErrorPC, ExceptPC and Status"
 checks = [{ frame = 120, expected = "expected/exceptioncompareregisters_00120.png" }]
 
 [[case]]
@@ -729,7 +722,6 @@ name = "exceptionsyscall"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/Syscall/ExceptionSyscall.n64"]
 frames = 120
-known_failure = "FAIL on ErrorPC, ExceptPC and Status"
 checks = [{ frame = 120, expected = "expected/exceptionsyscall_00120.png" }]
 
 [[case]]
@@ -737,7 +729,6 @@ name = "exceptionsyscalldelay"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/Syscall/ExceptionSyscallDelay.n64"]
 frames = 120
-known_failure = "FAIL on ErrorPC, ExceptPC, Cause and Status"
 checks = [{ frame = 120, expected = "expected/exceptionsyscalldelay_00120.png" }]
 
 [[case]]
@@ -745,7 +736,6 @@ name = "exceptionsyscalldelay2"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/Syscall/ExceptionSyscallDelay2.n64"]
 frames = 120
-known_failure = "FAIL on ErrorPC, ExceptPC, Cause and Status"
 checks = [{ frame = 120, expected = "expected/exceptionsyscalldelay2_00120.png" }]
 
 [[case]]
@@ -753,7 +743,6 @@ name = "exceptionsyscallwhileinexception"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/Syscall/ExceptionSyscallWhileInException.n64"]
 frames = 120
-known_failure = "FAIL on ErrorPC, ExceptPC, Cause and Status"
 checks = [{ frame = 120, expected = "expected/exceptionsyscallwhileinexception_00120.png" }]
 
 [[case]]
@@ -761,7 +750,6 @@ name = "exceptiontlbreadmiss"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/TLB/ExceptionTLBReadMiss.n64"]
 frames = 120
-known_failure = "FAIL on most lines (TLB miss exceptions)"
 checks = [{ frame = 120, expected = "expected/exceptiontlbreadmiss_00120.png" }]
 
 [[case]]
@@ -769,7 +757,6 @@ name = "exceptiontlbreadmissdelay"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/TLB/ExceptionTLBReadMissDelay.n64"]
 frames = 120
-known_failure = "FAIL on most lines (TLB miss exceptions)"
 checks = [{ frame = 120, expected = "expected/exceptiontlbreadmissdelay_00120.png" }]
 
 [[case]]
@@ -777,7 +764,6 @@ name = "exceptiontlbreadmissnested"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/TLB/ExceptionTLBReadMissNested.n64"]
 frames = 120
-known_failure = "FAIL on most lines (TLB miss exceptions)"
 checks = [{ frame = 120, expected = "expected/exceptiontlbreadmissnested_00120.png" }]
 
 [[case]]
@@ -785,7 +771,6 @@ name = "exceptiontlbreadmissnesteddelay"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/TLB/ExceptionTLBReadMissNestedDelay.n64"]
 frames = 120
-known_failure = "FAIL on most lines (TLB miss exceptions)"
 checks = [{ frame = 120, expected = "expected/exceptiontlbreadmissnesteddelay_00120.png" }]
 
 [[case]]
@@ -793,7 +778,6 @@ name = "exceptiontlbwritemiss"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/TLB/ExceptionTLBWriteMiss.n64"]
 frames = 120
-known_failure = "FAIL on most lines (TLB miss exceptions)"
 checks = [{ frame = 120, expected = "expected/exceptiontlbwritemiss_00120.png" }]
 
 [[case]]
@@ -801,7 +785,6 @@ name = "exceptiontlbwritemissdelay"
 dir = "peterlemon"
 files = [".build/N64/CPUTest/Exceptions/TLB/ExceptionTLBWriteMissDelay.n64"]
 frames = 120
-known_failure = "FAIL on most lines (TLB miss exceptions)"
 checks = [{ frame = 120, expected = "expected/exceptiontlbwritemissdelay_00120.png" }]
 
 [[case]]
@@ -816,7 +799,6 @@ name = "dmaalignment-sp-from"
 dir = "peterlemon"
 files = [".build/N64/RSPTest/DMAAlignment-SP/DMAAlignment-SP-FROM.N64"]
 frames = 120
-known_failure = "FAIL on some offsets and lengths"
 checks = [{ frame = 120, expected = "expected/dmaalignment-sp-from_00120.png" }]
 
 [[case]]
@@ -824,5 +806,4 @@ name = "dmaalignment-sp-to"
 dir = "peterlemon"
 files = [".build/N64/RSPTest/DMAAlignment-SP/DMAAlignment-SP-TO.N64"]
 frames = 120
-known_failure = "FAIL on some offsets and lengths"
 checks = [{ frame = 120, expected = "expected/dmaalignment-sp-to_00120.png" }]
