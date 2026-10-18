@@ -625,7 +625,7 @@ class Cpu {
     return true;
   }
 
-  bool execUnofficials(op) {
+  bool execUnofficials(int op) {
     switch (op) {
       // SKB
       case 0x80:

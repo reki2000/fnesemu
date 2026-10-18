@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../util/int.dart';
 import 'mapper.dart';
 
@@ -5,11 +7,15 @@ import 'mapper.dart';
 class MapperNROM extends Mapper {
   int _highMemBank = 0;
 
+  // a board without CHR ROM has 8KB of CHR RAM
+  Uint8List? _chrRam;
+
   @override
   void init() {
     if (prgRoms.length > 1) {
       _highMemBank = prgRoms.length - 1;
     }
+    _chrRam = chrRoms.isEmpty ? Uint8List(8 * 1024) : null;
   }
 
   @override
@@ -27,6 +33,11 @@ class MapperNROM extends Mapper {
 
   @override
   int readVram(int addr) {
-    return chrRoms[0][addr.mask13];
+    return _chrRam?[addr.mask13] ?? chrRoms[0][addr.mask13];
+  }
+
+  @override
+  void writeVram(int addr, int data) {
+    _chrRam?[addr.mask13] = data.mask8;
   }
 }
