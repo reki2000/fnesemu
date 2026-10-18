@@ -300,11 +300,12 @@ class Vdp {
     }
   }
 
+  // the CRAM and VSRAM addresses wrap at 64 words
   int get data => ram == ramVram
       ? vram[_addr].shl8 | vram[postInc(1)]
       : ram == ramCram
-          ? encodeCram(cram[postInc().shr1])
-          : vsram[postInc().shr1];
+          ? encodeCram(cram[postInc().shr1 & 0x3f])
+          : vsram[postInc().shr1 & 0x3f];
 
   set data(int value) {
     // _log.debugc(() =>
@@ -317,10 +318,10 @@ class Vdp {
       vram[_addr] = value.shr8;
       vram[postInc(1)] = value.mask8;
     } else if (ram == ramCram) {
-      cram[postInc().shr1] =
+      cram[postInc().shr1 & 0x3f] =
           value.shr3 & 0x1c0 | value.shr2 & 0x038 | value.shr1.mask3;
     } else {
-      vsram[postInc().shr1] = value;
+      vsram[postInc().shr1 & 0x3f] = value;
     }
   }
 

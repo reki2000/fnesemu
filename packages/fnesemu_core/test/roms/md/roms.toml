@@ -1,9 +1,8 @@
 # ROM harness cases of this core, run by scripts/romtest.py; one [[case]] table per case.
 # Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
 # known_failure records why the ROM's own result is a failure; the outputs must still match expected/.
-# Not run, as the harness stops: illegal-opcodes (Md.setRom rejects its unknown region in the header), vdp-fifo
-# (VDPFIFOTesting; reading the VDP data port throws a RangeError in Vdp.data) and opcode-sizes (the 68000 stops at an
-# unimplemented instruction).
+# Not run: opcode-sizes measures the instructions with the trace exception, which the core does not emulate, so the
+# program loses its way and the stack pointer becomes odd.
 
 [[case]]
 name = "bcd-verifier"
@@ -86,3 +85,21 @@ files = [".build/window-distortion.bin"]
 frames = 600
 description = "A window plane distortion; the picture keeps changing."
 checks = [{ frame = 600, expected = "expected/window-distortion_00600.png" }]
+
+[[case]]
+name = "vdp-fifo"
+dir = "exodus-tests"
+files = [".build/vdp-fifo.bin"]
+frames = 600
+description = "VDPFIFOTesting (VDP Port Access Test ROM): the FIFO, DMA and byte order of the VDP ports; the first page lists 9 tests."
+known_failure = "Results 0/9/9: every test of the first page fails"
+checks = [{ frame = 600, expected = "expected/vdp-fifo_00600.png" }]
+
+[[case]]
+name = "illegal-opcodes"
+dir = "exodus-tests"
+files = [".build/illegal-opcodes.bin"]
+frames = 300
+description = "Every opcode that the 68000 does not define must raise the illegal instruction exception (line A / line F use their own vectors). A green screen is a pass, red a fail."
+known_failure = "a red screen: some undefined opcodes do not raise the exception"
+checks = [{ frame = 300, expected = "expected/illegal-opcodes_00300.png" }]

@@ -479,7 +479,7 @@ class Md implements Core {
       } else if (newStyleIndex.bit3) {
         busM68.region = _regionOverseaPal;
       } else {
-        throw Exception("unknown ROM region:$r0");
+        busM68.region = _regionOversea;
       }
     } else if ("$r0$r1$r2".contains("J")) {
       busM68.region = _regionDomestic;
@@ -488,7 +488,8 @@ class Md implements Core {
     } else if ("$r0$r1$r2".contains("E")) {
       busM68.region = _regionOverseaPal;
     } else {
-      throw Exception("unknown ROM region:$r0$r1$r2");
+      // an unknown or blank region field: run as an overseas NTSC machine
+      busM68.region = _regionOversea;
     }
 
     reset();
