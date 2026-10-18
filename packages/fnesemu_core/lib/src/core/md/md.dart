@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import '../../cdrom_drive.dart';
 import '../../components/m68k/cpu.dart';
 import '../../components/m68k/disasm.dart';
+import '../../components/sn76489/sn76489.dart';
+import '../../components/z80/z80.dart';
+import '../../components/z80/z80_disasm.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
@@ -20,13 +23,10 @@ import '32x/video.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
-import 'sn76489.dart';
 import 'vdp.dart';
 import 'vdp_debug.dart';
 import 'vdp_renderer.dart';
 import 'ym2612.dart';
-import 'z80/z80.dart';
-import 'z80/z80_disasm.dart';
 
 final _log = DebugLog('md');
 

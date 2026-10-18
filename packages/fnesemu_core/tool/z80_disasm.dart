@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:fnesemu_core/src/core/md/z80/z80_disasm.dart';
+import 'package:fnesemu_core/src/components/z80/z80_disasm.dart';
 
 import 'logging.dart';
 
