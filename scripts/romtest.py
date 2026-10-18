@@ -113,10 +113,20 @@ def select(cases, targets):
     return picked
 
 
+def _setup_dirs(case: Case):
+    """The case dir and the dirs whose .build/ the case refers to (such as a BIOS shared by the cases of a core)."""
+    yield case.dir
+    for rel in list(case.spec["files"]) + [a for a in case.spec.get("args", []) if a.startswith(("./", "../"))]:
+        p = case.path(rel)
+        owner = next((q.parent for q in p.parents if q.name == ".build"), None)
+        if owner is not None:
+            yield owner
+
+
 def setup(cases):
     """Runs each setup.py once; returns the set of dirs that are ready."""
     ready = set()
-    for d in dict.fromkeys(c.dir for c in cases):
+    for d in dict.fromkeys(d for c in cases for d in _setup_dirs(c)):
         script = d / "setup.py"
         if not script.exists():
             ready.add(d)
@@ -204,8 +214,9 @@ def run_case(case: Case, do_update):
     """Returns ("ok" | "fail" | "xfail" | "skip", report)."""
     lines = []
     # the files that setup.py prepares: the ROM and the upstream references
-    prepared = list(case.spec["files"]) + [ref for ch in case.checks() for k, ref in ch.items()
-                                           if k in ("expected", "audio", "vram") and not case.is_expected(case.path(ref))]
+    prepared = list(case.spec["files"]) + [a for a in case.spec.get("args", []) if a.startswith(("./", "../"))]
+    prepared += [ref for ch in case.checks() for k, ref in ch.items()
+                 if k in ("expected", "audio", "vram") and not case.is_expected(case.path(ref))]
     missing = [f for f in prepared if not case.path(f).exists()]
     if missing:
         return "skip", f"SKIP {case.id}: missing {', '.join(missing)} (run setup first)"
@@ -305,7 +316,7 @@ def main(argv=None):
         sys.exit(0 if lint(root, cases, inside_only=root == DEFAULT_ROOT.resolve()) else 1)
     if a.action == "setup":
         ready = setup(cases)
-        failed = len({c.dir for c in cases}) - len(ready)
+        failed = len({d for c in cases for d in _setup_dirs(c)}) - len(ready)
         print(f"{len(ready)} ready, {failed} failed")
         return
     with ThreadPoolExecutor(max(1, a.j)) as ex:
