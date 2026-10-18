@@ -59,6 +59,9 @@ class R3000 {
   int immediateReg = 0, immediateVal = 0;
   bool inBranchTaken = false;
   bool inBranchDelay = false;
+  // the current instruction is in the delay slot of a branch (taken or not)
+  bool inDelaySlot = false;
+  bool delaySlotTaken = false;
 
   // bios putchar() hacking
   final console = StringBuffer();
@@ -77,6 +80,8 @@ class R3000 {
 
     inBranchTaken = false;
     inBranchDelay = false;
+    inDelaySlot = false;
+    delaySlotTaken = false;
 
     r.fillRange(0, 32, 0);
     hi = 0;
@@ -148,13 +153,16 @@ class R3000 {
     immediateReg = 0;
     immediateVal = 0;
 
+    inDelaySlot = inBranchDelay;
+    delaySlotTaken = inBranchTaken;
+    inBranchTaken = false;
+    inBranchDelay = false;
+
     if ((cause & sr & 0xff00 != 0) && sr.bit0 && read32(instPc).shr26 != 0x12) {
       // delay excaption if the current instruction is cop2
       exception(Exception.interrupt);
     } else {
       // try {
-      inBranchTaken = false;
-      inBranchDelay = false;
       exec(read32(instPc));
       // } catch (e) {
       //   if (e is ReadMisalignException) {
@@ -213,9 +221,9 @@ class R3000 {
       this.badvaddr = badvaddr;
     }
 
-    if (inBranchDelay) {
+    if (inDelaySlot) {
       epc = instPc.dec4.mask32;
-      cause |= 0x80000000.setBit(30, inBranchTaken);
+      cause |= 0x80000000.setBit(30, delaySlotTaken);
       tar = pc;
     } else {
       epc = instPc;
@@ -413,6 +421,7 @@ class R3000 {
 
   void jal(bool cond, RegNo rd, int addr) {
     immediate(rd, pc.inc4.mask32);
+    inBranchDelay = true; // the next instruction is in the delay slot even if not taken
 
     if (cond) {
       jump(addr);
