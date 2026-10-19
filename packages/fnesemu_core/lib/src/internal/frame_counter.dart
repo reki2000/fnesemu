@@ -1,32 +1,24 @@
 class FrameCounter {
-  late Duration? duration;
+  final Duration? duration;
+  DateTime _startAt;
+  int _frames = 0;
 
-  // when duration is set, this connter is reset every duration with only one previous window
-  FrameCounter({this.duration}) {
-    startAt =
-        DateTime.now().add(duration != null ? -duration! : -const Duration());
-    prevStartAt = startAt;
-  }
+  FrameCounter({this.duration, DateTime? startAt})
+      : _startAt = startAt ?? DateTime.now();
 
-  int frames = 0;
-  late DateTime startAt;
+  void count() => _frames++;
 
-  int prevFrames = 0;
-  late DateTime prevStartAt;
-
-  count() => frames++;
-
-  elapsedMilliseconds(DateTime now) {
-    return now.difference(startAt).inMilliseconds.toDouble();
-  }
-
-  fps(DateTime now) {
-    if (duration != null && now.difference(startAt) < duration!) {
-      prevFrames = frames;
-      prevStartAt = startAt;
-      frames = 0;
-      startAt = now;
+  // Only publish completed measurement windows.
+  double? fps(DateTime now) {
+    final elapsedUs = now.difference(_startAt).inMicroseconds;
+    if (elapsedUs <= 0 ||
+        (duration != null && elapsedUs < duration!.inMicroseconds)) {
+      return null;
     }
-    return (frames + prevFrames) * 1000.0 / elapsedMilliseconds(now);
+
+    final fps = _frames * Duration.microsecondsPerSecond / elapsedUs;
+    _frames = 0;
+    _startAt = now;
+    return fps;
   }
 }
