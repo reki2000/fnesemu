@@ -33,7 +33,10 @@ This project is experimental.
 | SS | A | B | C | L | Start |  | X | Y | Z | R | up / down / left / right |
 | N64 | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start | up / down / left / right |
 | SMS | 1 | 2 |  |  | Pause (Start on the portable console) |  |  |  |  |  | up / down / left / right |
-| WS | B | A | Y2 | Y1 | Start |  | Y4 | Y3 |  | Rotate (hold the console vertically) | X1 / X3 / X4 / X2 (X2 / X4 / X1 / X3 when vertical) |
+| WS | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate | X1 / X3 / X4 / X2 |
+| WS (vertical) | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate | Y2 / Y4 / Y1 / Y3 |
+
+On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. Q cycles the emulated speaker volume.
 
 # How to develop
 

@@ -134,6 +134,105 @@ void main() {
     expect(ws.bus.input8(0xb4) & 0x02, 0x02);
   });
 
+  test('keyboard slots match the horizontal WS layout', () {
+    final buttons = Ws(color: false).buttons;
+    expect(buttons, [
+      PadButton.up, PadButton.down, PadButton.left, PadButton.right,
+      Pad.y4, Pad.y3, Pad.b, Pad.a, PadButton.none, Pad.sound,
+      Pad.y1, Pad.start, Ws.rotate, Pad.y2,
+    ]);
+  });
+
+  test('Sound cycles speaker output level without modifying keypad scan', () {
+    final ws = Ws(color: false)..setRom(_rom([0xeb, 0xfe]));
+    ws.bus.output8(0xb5, 0x70);
+    expect(ws.speakerVolume, 3);
+    for (final level in [2, 1, 0, 3]) {
+      ws.padDown(0, Pad.sound);
+      expect(ws.speakerVolume, level);
+      expect(ws.bus.input8(0xb5), 0x70);
+    }
+  });
+
+  test('horizontal directions and Y keys use independent groups', () {
+    final ws = Ws(color: false)..setRom(_rom([]));
+    final cases = [
+      (PadButton.up, 0x20, 1),
+      (PadButton.right, 0x20, 2),
+      (PadButton.down, 0x20, 4),
+      (PadButton.left, 0x20, 8),
+      (Pad.y1, 0x10, 1),
+      (Pad.y2, 0x10, 2),
+      (Pad.y3, 0x10, 4),
+      (Pad.y4, 0x10, 8),
+    ];
+    for (final (button, select, bit) in cases) {
+      ws.padDown(0, button);
+      ws.bus.output8(0xb5, select);
+      expect(ws.bus.input8(0xb5), select | bit,
+          reason: 'horizontal input ${button.name}');
+      ws.padUp(0, button);
+      expect(ws.bus.input8(0xb5), select);
+    }
+  });
+
+  test('vertical arrows use Y and WASD uses the rotated X group', () {
+    final ws = Ws(color: false)..setRom(_rom([]));
+    ws.padDown(0, Ws.rotate);
+    ws.padUp(0, Ws.rotate);
+
+    final cases = [
+      (PadButton.up, 0x10, 2),
+      (PadButton.right, 0x10, 4),
+      (PadButton.down, 0x10, 8),
+      (PadButton.left, 0x10, 1),
+      (Pad.y1, 0x20, 2),
+      (Pad.y2, 0x20, 4),
+      (Pad.y3, 0x20, 8),
+      (Pad.y4, 0x20, 1),
+    ];
+    for (final (button, select, bit) in cases) {
+      ws.padDown(0, button);
+      ws.bus.output8(0xb5, select);
+      expect(ws.bus.input8(0xb5), select | bit,
+          reason: 'vertical input ${button.name}');
+      ws.padUp(0, button);
+      expect(ws.bus.input8(0xb5), select);
+    }
+  });
+
+  test('held arrow and WASD keys rebind when rotating', () {
+    final ws = Ws(color: false)..setRom(_rom([]));
+    ws.padDown(0, PadButton.up);
+    ws.padDown(0, Pad.y1);
+    ws.bus.output8(0xb5, 0x30);
+    expect(ws.bus.input8(0xb5), 0x31);
+
+    ws.padDown(0, Ws.rotate);
+    ws.padUp(0, Ws.rotate);
+    // Arrow Up now uses Y2 and W now uses X2.
+    expect(ws.bus.input8(0xb5), 0x32);
+
+    ws.padUp(0, PadButton.up);
+    ws.bus.output8(0xb5, 0x10);
+    expect(ws.bus.input8(0xb5), 0x10);
+    ws.bus.output8(0xb5, 0x20);
+    expect(ws.bus.input8(0xb5), 0x22);
+    ws.padUp(0, Pad.y1);
+    expect(ws.bus.input8(0xb5), 0x20);
+
+    ws.padDown(0, PadButton.left);
+    ws.padDown(0, Pad.y4);
+    ws.bus.output8(0xb5, 0x30);
+    expect(ws.bus.input8(0xb5), 0x31);
+    ws.padDown(0, Ws.rotate);
+    ws.padUp(0, Ws.rotate);
+    expect(ws.bus.input8(0xb5), 0x38);
+    ws.padUp(0, PadButton.left);
+    ws.padUp(0, Pad.y4);
+    expect(ws.bus.input8(0xb5), 0x30);
+  });
+
   test('a wave channel produces audio', () {
     final ws = Ws(color: false)..setRom(_rom([0xeb, 0xfe]));
     final buffers = <AudioBuffer>[];
@@ -150,6 +249,15 @@ void main() {
     final samples = buffers.expand((b) => b.buffer);
     expect(samples.any((v) => v > 0), isTrue);
     expect(samples.any((v) => v == 0), isTrue);
+
+    // The console SOUND key mutes the emulated speaker output.
+    for (var i = 0; i < 3; i++) {
+      ws.padDown(0, Pad.sound);
+    }
+    buffers.clear();
+    ws.runFrame(159);
+    expect(buffers, isNotEmpty);
+    expect(buffers.expand((b) => b.buffer).every((v) => v == 0), isTrue);
   });
 
   test('the vertical console turns the frame and the directions', () {
@@ -167,15 +275,18 @@ void main() {
     // turned to the left: the top-left corner goes to the bottom-left
     expect(turned.buffer[(flat.width - 1) * turned.width], 0x12345678);
 
-    // the screen up is the right of the X keys
+    // Arrows now activate the Y group in vertical mode.
     ws.padDown(0, PadButton.up);
-    expect(ws.bus.pad.read(0x20) & 0x0f, 2);
+    expect(ws.bus.pad.read(0x10) & 0x0f, 2);
     ws.padUp(0, PadButton.up);
     ws.padDown(0, PadButton.left);
-    expect(ws.bus.pad.read(0x20) & 0x0f, 1);
+    expect(ws.bus.pad.read(0x10) & 0x0f, 1);
 
-    // turning back releases the held direction and shows the frame as is
+    // Turning back moves a held direction into the horizontal X group.
     ws.padDown(0, Ws.rotate);
+    expect(ws.bus.pad.read(0x10) & 0x0f, 0);
+    expect(ws.bus.pad.read(0x20) & 0x0f, 8);
+    ws.padUp(0, PadButton.left);
     expect(ws.bus.pad.read(0x20) & 0x0f, 0);
     expect(ws.imageBuffer().width, flat.width);
   });
