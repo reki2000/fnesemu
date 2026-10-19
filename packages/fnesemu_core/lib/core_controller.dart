@@ -130,8 +130,8 @@ class CoreController {
       return;
     }
 
-    final fpsCounter = FrameCounter(
-        duration: const Duration(milliseconds: 500)); // shortlife counter
+    final fpsCounter =
+        FrameCounter(duration: const Duration(milliseconds: 500));
 
     // the emulation proceeds by the real time elapsed. when the core is slower
     // than the real time, the clocks behind are dropped instead of being
@@ -157,9 +157,13 @@ class CoreController {
           continue;
         }
 
-        _fps = fpsCounter.fps(DateTime.now());
         _runFrame();
         fpsCounter.count();
+        final fps = fpsCounter.fps(DateTime.now());
+        if (fps != null) {
+          _fps = fps;
+          _fpsStream.add(fps);
+        }
 
         // gives the UI a quarter of the time at least
         final frameUs = watch.elapsedMicroseconds - nowUs;
@@ -200,6 +204,7 @@ class CoreController {
     final wasRunning = _state.running;
     await stop();
     _fps = 0.0;
+    _fpsStream.add(_fps);
     _currentCpuClocks = _scanline = 0;
     _core.reset();
     debugger.reset();
@@ -276,7 +281,6 @@ class CoreController {
   void _renderAll() {
     _onImage(_core.imageBuffer());
     debugger.pushStream(frameRendered: true);
-    _fpsStream.add(_fps);
   }
 
   // calculated fps
