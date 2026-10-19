@@ -89,8 +89,17 @@ class Ws extends Core {
 
   void _flushAudio() {
     if (sound.samples == 0) return;
-    _onAudio(AudioBuffer(Sound.sampleRate, 2,
-        Float32List.fromList(sound.buffer.sublist(0, sound.samples * 2))));
+    final audio = Float32List.fromList(
+        sound.buffer.sublist(0, sound.samples * 2));
+    // The SOUND button controls the console speaker independently of games.
+    const gains = [0.0, 0.25, 0.5, 1.0];
+    final gain = gains[speakerVolume];
+    if (gain != 1.0) {
+      for (var i = 0; i < audio.length; i++) {
+        audio[i] *= gain;
+      }
+    }
+    _onAudio(AudioBuffer(Sound.sampleRate, 2, audio));
     sound.samples = 0;
   }
 
@@ -107,6 +116,9 @@ class Ws extends Core {
   Uint32List _turned = Uint32List(0);
 
   static const rotate = PadButton("Rotate");
+
+  /// Emulated speaker output level (0 = mute, 3 = full volume).
+  int speakerVolume = 3;
 
   @override
   ImageBuffer imageBuffer() {
@@ -125,15 +137,44 @@ class Ws extends Core {
     return ImageBuffer(h, w, dst);
   }
 
-  // the direction keys of the vertical console: the screen up is the right
-  // of the X keys, and so on around
+  // A rotated display uses the Y group for arrows and the X group for
+  // WASD, with both directions corrected for the display rotation.
   static PadButton _turn(PadButton k) => switch (k.name) {
-        "up" => PadButton.right,
-        "right" => PadButton.down,
-        "down" => PadButton.left,
-        "left" => PadButton.up,
+        "up" => Pad.y2,
+        "right" => Pad.y3,
+        "down" => Pad.y4,
+        "left" => Pad.y1,
+        "Y1" => Pad.x2,
+        "Y2" => Pad.x3,
+        "Y3" => Pad.x4,
+        "Y4" => Pad.x1,
         _ => k,
       };
+
+  // Keep input identities across rotation so held keys can be released
+  // and rebound without sticking to their previous orientation.
+  final _heldKeys = <String, PadButton>{};
+  final _mappedKeys = <String, PadButton>{};
+
+  void _syncPad() {
+    final next = <String, PadButton>{};
+    for (final key in _heldKeys.values) {
+      final mapped = vertical ? _turn(key) : key;
+      next[mapped.name] = mapped;
+    }
+    for (final entry in _mappedKeys.entries) {
+      if (!next.containsKey(entry.key)) bus.pad.keyUp(entry.value);
+    }
+    for (final entry in next.entries) {
+      if (!_mappedKeys.containsKey(entry.key) &&
+          bus.pad.keyDown(entry.value)) {
+        bus.interrupt(Bus.intKey);
+      }
+    }
+    _mappedKeys
+      ..clear()
+      ..addAll(next);
+  }
 
   @override
   void setSram(Sram sram) {
@@ -143,6 +184,8 @@ class Ws extends Core {
   @override
   void reset() {
     bus.reset();
+    _heldKeys.clear();
+    _mappedKeys.clear();
     // starts the cartridge at its entry point FFFF:0000
     cpu.s[V30mz.cs] = 0xffff;
     cpu.ip = 0;
@@ -154,47 +197,43 @@ class Ws extends Core {
   @override
   void padDown(int controllerId, PadButton k) {
     if (controllerId != 0) return;
-    if (k == rotate) {
-      // the directions held before turning would be released as others
-      for (final d in const [
-        PadButton.up,
-        PadButton.down,
-        PadButton.left,
-        PadButton.right
-      ]) {
-        bus.pad.keyUp(d);
-      }
-      vertical = !vertical;
+    if (k == Pad.sound) {
+      speakerVolume = (speakerVolume + 3) % 4;
       return;
     }
-    if (bus.pad.keyDown(vertical ? _turn(k) : k)) {
-      bus.interrupt(Bus.intKey);
+    if (k == rotate) {
+      vertical = !vertical;
+      _syncPad();
+      return;
     }
+    _heldKeys[k.name] = k;
+    _syncPad();
   }
 
   @override
   void padUp(int controllerId, PadButton k) {
-    if (controllerId == 0 && k != rotate) {
-      bus.pad.keyUp(vertical ? _turn(k) : k);
-    }
+    if (controllerId != 0 || k == rotate || k == Pad.sound) return;
+    _heldKeys.remove(k.name);
+    _syncPad();
   }
 
-  /// the buttons in the order of the keys A S Z X C Q W E (none) R
+  /// the buttons in the order of the keys A S Z X C Q W E R D
   @override
   List<PadButton> get buttons => const [
         PadButton.up,
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        Pad.y1,
-        Pad.start,
-        Pad.b,
-        Pad.a,
-        Pad.y2,
-        Pad.y4,
-        Pad.y3,
-        PadButton.none,
-        rotate,
+        Pad.y4, // A
+        Pad.y3, // S
+        Pad.b, // Z
+        Pad.a, // X
+        PadButton.none, // C
+        Pad.sound, // Q
+        Pad.y1, // W
+        Pad.start, // E
+        rotate, // R
+        Pad.y2, // D
       ];
 
   @override

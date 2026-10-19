@@ -89,6 +89,8 @@ class Pad {
   static const y2 = PadButton("Y2");
   static const y3 = PadButton("Y3");
   static const y4 = PadButton("Y4");
+  // Sound is a console control, not part of the scanned keypad matrix.
+  static const sound = PadButton("Sound");
   static const start = PadButton("Start");
   static const a = PadButton("A");
   static const b = PadButton("B");
