@@ -33,7 +33,7 @@ final _log = DebugLog('ps');
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
 
 /// runs the cpu with the recompiler where the host supports it
-const _jit = bool.fromEnvironment("JIT", defaultValue: false);
+const _jit = bool.fromEnvironment("JIT", defaultValue: true);
 
 class Ps extends Core {
   @override
