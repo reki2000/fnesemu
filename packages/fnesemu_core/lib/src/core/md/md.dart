@@ -406,6 +406,9 @@ class Md implements Core {
   }
 
   @override
+  void dispose() {}
+
+  @override
   void setSram(Sram sram) {
     _sram = sram;
     cdrom?.setSram(sram);

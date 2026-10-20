@@ -27,16 +27,23 @@ class Bus implements BusR3000 {
   late final Dma dma;
   late final InterruptController interrupt;
 
-  final mem = Uint8List(2 * 1024 * 1024);
+  /// [mem], [rom] and [scratchPad] place the memory in buffers shared with
+  /// a recompiler; [scratchPad] may be longer than its 1KiB
+  Bus({Uint8List? mem, Uint8List? rom, Uint8List? scratchPad})
+      : mem = mem ?? Uint8List(2 * 1024 * 1024),
+        rom = rom ?? Uint8List(1024 * 512),
+        scratchPad = scratchPad ?? Uint8List(1024);
+
+  final Uint8List mem;
   late final Uint32List mem32 = mem.buffer.asUint32List();
   late final Uint16List mem16 = mem.buffer.asUint16List();
   static const mem32Mask = 0x7ffff;
 
-  final rom = Uint8List(1024 * 512);
+  final Uint8List rom;
   late final Uint32List rom32 = rom.buffer.asUint32List();
   static const rom32Mask = 0x1ffff;
 
-  final scratchPad = Uint8List(1024);
+  final Uint8List scratchPad;
   late final Uint32List scratchPad32 = scratchPad.buffer.asUint32List();
   late final Uint16List scratchPad16 = scratchPad.buffer.asUint16List();
   static const scratchPad32Mask = 0x3ff;

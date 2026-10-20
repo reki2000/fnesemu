@@ -200,6 +200,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  mp_jit_recompiler:
+    dependency: "direct main"
+    description:
+      path: "../mp_jit_recompiler"
+      relative: true
+    source: path
+    version: "0.1.0"
   node_preamble:
     dependency: transitive
     description:

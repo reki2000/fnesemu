@@ -33,12 +33,13 @@ class R3000 {
   final BusR3000 bus;
   late final Cop2 cop2;
 
-  R3000(this.bus) {
+  /// [regs] places the registers in memory shared with a recompiler
+  R3000(this.bus, {Uint32List? regs}) : r = regs ?? Uint32List(32) {
     cop2 = Cop2(this);
   }
 
   /// 32 general-purpose registers. Note: r0 is always 0.
-  final r = Uint32List(32);
+  final Uint32List r;
 
   int pc = 0; // the PC (actually the next instruction during execution)
   int nextPc = 0; // the PC to be executed next, reflects branch delay slot

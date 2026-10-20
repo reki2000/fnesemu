@@ -309,6 +309,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  mp_jit_recompiler:
+    dependency: transitive
+    description:
+      path: "packages/mp_jit_recompiler"
+      relative: true
+    source: path
+    version: "0.1.0"
   mp_pixel_image:
     dependency: "direct main"
     description:

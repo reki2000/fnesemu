@@ -17,6 +17,8 @@ import 'dma.dart';
 import 'gpu/gpu.dart';
 import 'gpu/gpu_debug.dart';
 import 'interrupt.dart';
+import 'jit/ps_jit.dart';
+import 'log.dart';
 import 'mdec.dart';
 import 'memory_card.dart';
 import 'pad.dart';
@@ -29,6 +31,9 @@ import 'timer.dart';
 final _log = DebugLog('ps');
 
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
+
+/// runs the cpu with the recompiler where the host supports it
+const _jit = bool.fromEnvironment("JIT", defaultValue: false);
 
 class Ps extends Core {
   @override
@@ -49,8 +54,16 @@ class Ps extends Core {
 
   bool fastBoot = _fastboot;
 
-  Ps({Uint8List? memoryCard2Image}) : bus = Bus() {
-    cpu = R3000(bus);
+  /// the recompiler, or null when the interpreter runs every instruction;
+  /// it is off while tracing, which hooks every BIOS call
+  final PsJit? jit;
+
+  Ps({Uint8List? memoryCard2Image, bool jit = _jit})
+      : this._(jit && !psTrace ? PsJit.create() : null, memoryCard2Image);
+
+  Ps._(this.jit, Uint8List? memoryCard2Image)
+      : bus = Bus(mem: jit?.ram, rom: jit?.rom, scratchPad: jit?.scratchPad) {
+    cpu = R3000(bus, regs: jit?.regs);
     gpu = Gpu(bus);
     pad = Pad();
     memoryCard = MemoryCard();
@@ -82,6 +95,7 @@ class Ps extends Core {
     bus.timer = timer;
     bus.cdrom = cdrom;
     bus.mdec = mdec;
+    jit?.attach(cpu, bus);
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -133,6 +147,7 @@ class Ps extends Core {
       bus.rom32.setRange(
           patchAddr, patchAddr + fastBootSequence.length, fastBootSequence);
     }
+    jit?.reset();
 
     cdrom.closeShell();
 
@@ -184,7 +199,7 @@ class Ps extends Core {
   /// runs one batch of instructions and the device events due after it,
   /// returns true if a scanline is rendered
   bool _run(bool step) {
-    final cpu = this.cpu;
+    final cpu = this.cpu, jit = this.jit;
 
     if (step) {
       cpu.step();
@@ -195,14 +210,22 @@ class Ps extends Core {
       if (_waitFinishLine && nextScanlineClock - 201 < limit) {
         limit = nextScanlineClock - 201;
       }
-      if (nextDmaClock < limit) limit = nextDmaClock;
+      // the recompiler runs to the next event without stopping for an idle
+      // dma, as stopping costs more than the instructions in 24 clocks
+      if (nextDmaClock < limit && (jit == null || bus.dma.active)) {
+        limit = nextDmaClock;
+      }
       if (nextSpuClock < limit) limit = nextSpuClock;
       if (nextSerialClock < limit) limit = nextSerialClock;
       if (nextCdromClock < limit) limit = nextCdromClock;
 
-      do {
-        cpu.step();
-      } while (cpu.clocks <= limit);
+      if (jit != null) {
+        jit.run(limit);
+      } else {
+        do {
+          cpu.step();
+        } while (cpu.clocks <= limit);
+      }
     }
 
     if (cpu.clocks > nextTimerClock) {
@@ -228,6 +251,7 @@ class Ps extends Core {
       nextDmaClock += 24;
       bus.dma.exec(24);
     }
+    if (jit != null && !bus.dma.active) nextDmaClock = cpu.clocks;
 
     if (cpu.clocks > nextSpuClock) {
       nextSpuClock += 768; // master clock 33.8688MHz / 44100Hz
@@ -262,6 +286,7 @@ class Ps extends Core {
   @override
   void reset() {
     cpu.reset();
+    jit?.reset();
 
     nextScanlineClock = 0;
     nextTimerClock = 0;
@@ -286,6 +311,9 @@ class Ps extends Core {
     debugStatus.scanline = 0;
     debugStatus.pc = cpu.pc;
   }
+
+  @override
+  void dispose() => jit?.dispose();
 
   @override
   ImageBuffer imageBuffer() => gpu.imageBuffer;

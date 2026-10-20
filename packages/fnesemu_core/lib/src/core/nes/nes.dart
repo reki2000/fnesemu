@@ -253,6 +253,9 @@ class Nes implements Core {
   }
 
   @override
+  void dispose() {}
+
+  @override
   void setSram(Sram sram) {
     _sram = sram;
   }

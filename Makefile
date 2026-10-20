@@ -43,6 +43,7 @@ test-roms-setup:
 
 test:
 	cd packages/cdrom_image && dart test
+	cd packages/mp_jit_recompiler && dart test
 	cd packages/mp_pixel_image && flutter test
 	cd $(CORE) && dart test
 	flutter test
@@ -66,6 +67,7 @@ format:
 	dart fix --apply --code=prefer_relative_imports,directives_ordering test
 	cd $(CORE) && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 	cd packages/cdrom_image && dart fix --apply --code=prefer_relative_imports,directives_ordering .
+	cd packages/mp_jit_recompiler && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 	cd packages/mp_pixel_image && dart fix --apply --code=prefer_relative_imports,directives_ordering .
 
 .PHONY: test format regress regress-full
