@@ -108,7 +108,12 @@ abstract final class X64Backend {
     final arg2 = win64 ? R.r8 : R.rdx;
 
     // jumps to the exit with eax = reason after setting the exit pc and tag
-    void exitTo(int reason, int pc, int tag, {int refund = 0}) {
+    void exitTo(int reason, int pc, int tag,
+        {int refund = 0, List<(int, IrValue)> stores = const []}) {
+      for (final (word, v) in stores) {
+        a.movRM(R.rcx, _slot(v.index));
+        a.movMR(_ctx(word), R.rcx);
+      }
       a.movMI(_ctx(JitCtx.exitPc), pc);
       a.movMI(_ctx(JitCtx.exitTag), tag);
       if (refund != 0) a.aluMI(Alu.add, _ctx(JitCtx.budget), refund);
@@ -157,6 +162,13 @@ abstract final class X64Backend {
       a.shiftRI(Shift.shr, R.rdx, 12);
       a.movRM64(R.rdx, Mem(table, index: R.rdx, scale: 8));
     }
+
+    // leaves through e with the guest address in eax as the fault address
+    Label unmappedExit(IrExit e) => stub(() {
+          a.movMR(_ctx(JitCtx.faultAddr), R.rax);
+          exitTo(e.reason, e.pc, e.tag,
+              refund: e.refund(block.cost), stores: e.stores);
+        });
 
     void extend(int size, bool signed) {
       if (size == 1) {
@@ -253,15 +265,17 @@ abstract final class X64Backend {
         case IrOp.load:
           final size = inst.imm, signed = inst.aux != 0;
           final done = label();
-          final slow = stub(() {
-            a.movRR(arg0, R.rax);
-            a.movRI(arg1, size);
-            a.movRI(arg2, 0);
-            a.movRI64(R.rax, env.readFn);
-            a.callR(R.rax);
-            extend(size, signed);
-            a.jmp(done);
-          });
+          final slow = inst.exit >= 0
+              ? unmappedExit(block.exits[inst.exit])
+              : stub(() {
+                  a.movRR(arg0, R.rax);
+                  a.movRI(arg1, size);
+                  a.movRI(arg2, 0);
+                  a.movRI64(R.rax, env.readFn);
+                  a.callR(R.rax);
+                  extend(size, signed);
+                  a.jmp(done);
+                });
           a.movRM(R.rax, _slot(inst.a));
           lookup(R.r12);
           a.testRR64(R.rdx, R.rdx);
@@ -285,14 +299,16 @@ abstract final class X64Backend {
         case IrOp.store:
           final size = inst.imm;
           final done = label();
-          final slow = stub(() {
-            a.movRR(arg0, R.rax);
-            a.movRM(arg1, _slot(inst.b));
-            a.movRI(arg2, size);
-            a.movRI64(R.rax, env.writeFn);
-            a.callR(R.rax);
-            a.jmp(done);
-          });
+          final slow = inst.exit >= 0
+              ? unmappedExit(block.exits[inst.exit])
+              : stub(() {
+                  a.movRR(arg0, R.rax);
+                  a.movRM(arg1, _slot(inst.b));
+                  a.movRI(arg2, size);
+                  a.movRI64(R.rax, env.writeFn);
+                  a.callR(R.rax);
+                  a.jmp(done);
+                });
           a.movRM(R.rax, _slot(inst.a));
           lookup(R.r13);
           a.testRR64(R.rdx, R.rdx);
@@ -318,14 +334,12 @@ abstract final class X64Backend {
           a.movMR(out, R.rax);
         case IrOp.exitIf:
           final e = block.exits[inst.aux];
-          final l = stub(() =>
-              exitTo(e.reason, e.pc, e.tag, refund: e.refund(block.cost)));
+          final l = stub(() => exitTo(e.reason, e.pc, e.tag,
+              refund: e.refund(block.cost), stores: e.stores));
           a.aluMI(Alu.cmp, _slot(inst.a), 0);
           a.jcc(Cc.ne, l);
         case IrOp.guardMapped:
-          final e = block.exits[inst.aux];
-          final l = stub(() =>
-              exitTo(e.reason, e.pc, e.tag, refund: e.refund(block.cost)));
+          final l = unmappedExit(block.exits[inst.aux]);
           a.movRM(R.rax, _slot(inst.a));
           lookup(inst.imm != 0 ? R.r13 : R.r12);
           a.testRR64(R.rdx, R.rdx);
@@ -375,7 +389,8 @@ abstract final class X64Backend {
         a.jcc(Cc.e, miss);
         a.jmpR(R.rdx);
       case IrExitTerm(:final exit):
-        exitTo(exit.reason, exit.pc, exit.tag, refund: exit.refund(block.cost));
+        exitTo(exit.reason, exit.pc, exit.tag,
+            refund: exit.refund(block.cost), stores: exit.stores);
     }
 
     for (final s in stubs) {

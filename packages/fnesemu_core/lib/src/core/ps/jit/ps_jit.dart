@@ -30,6 +30,13 @@ final class PsJit {
   /// the exit of an instruction run by the interpreter
   static const reasonInterpret = JitReason.user;
 
+  /// the exit of a store to an unmapped page: a device or a page with
+  /// translated code, which the interpreter runs
+  static const reasonStore = JitReason.user + 1;
+
+  /// stores to a code page after which it is no longer protected
+  static const _maxCodeStores = 16;
+
   late final Uint8List ram = rt.alloc(2 * 1024 * 1024);
   late final Uint8List rom = rt.alloc(512 * 1024);
 
@@ -38,13 +45,30 @@ final class PsJit {
   late final Uint32List regs = Uint32List.sublistView(rt.ctx, ctxRegs, ctxHi);
 
   bool _scratchPadMapped = false;
+
+  /// RAM pages with translated code, whose writes leave the blocks
   final _codePages = <int>{};
 
-  PsJit._(this.rt);
+  /// the blocks translated from each RAM page
+  final _pageBlocks = <int, Set<(int, int)>>{};
+  final _codeStores = <int, int>{};
+
+  /// pages where code and written data meet, see [_release]
+  final _volatilePages = <int>{};
+  (int, int) _translating = (0, 0);
+
+  /// blocks are translated once they would have run this often; until
+  /// then the interpreter runs them, as most code runs only a few times
+  final int compileThreshold;
+  final _misses = <(int, int), int>{};
+
+  PsJit._(this.rt, int? compileThreshold)
+      : compileThreshold = compileThreshold ?? rt.compileThreshold;
 
   /// the recompiler of this host, or null if it has none; [native] false
-  /// interprets the blocks instead, for tests
-  static PsJit? create({bool native = true}) {
+  /// interprets the blocks instead, for tests. [compileThreshold] replaces
+  /// the estimate of the runtime
+  static PsJit? create({bool native = true, int? compileThreshold}) {
     late final PsJit jit;
     int read(int addr, int size) => jit._read(addr, size);
     void write(int addr, int size, int value) => jit._write(addr, size, value);
@@ -55,7 +79,7 @@ final class PsJit {
         : JitRuntime.interpreter(
             ctxWords: _ctxWords, addrMask: mask, read: read, write: write);
     if (rt == null) return null;
-    return jit = PsJit._(rt);
+    return jit = PsJit._(rt, compileThreshold);
   }
 
   /// connects the cpu and the bus created on [regs], [ram], [rom] and
@@ -76,6 +100,7 @@ final class PsJit {
     final cop2 = cpu.cop2;
     _translator = R3000Translator(
       fetch: _fetch,
+      endsAfterStore: _endsAfterStore,
       cop2Cmd: rt.addHelper((inst, _, __) {
         cop2.execCmd(inst);
         return 0;
@@ -105,7 +130,8 @@ final class PsJit {
     final offset = pc & 0x1fffffff;
     if (offset < 0x800000) {
       final page = offset & (ram.length - JitRuntime.pageSize);
-      if (_codePages.add(page)) {
+      (_pageBlocks[page] ??= {}).add(_translating);
+      if (!_volatilePages.contains(page) && _codePages.add(page)) {
         // Writes to translated RAM must leave the current block before
         // they can change an upcoming instruction, including RAM aliases.
         for (int a = page; a < 0x800000; a += ram.length) {
@@ -167,15 +193,41 @@ final class PsJit {
     return ((cpu.cause & sr & 0xff00) != 0 && sr.bit0) || sr.bit16 ? 1 : 0;
   }
 
+  /// makes [page] writable again for every RAM alias
+  void _mapWrites(int page) {
+    for (int a = page; a < 0x800000; a += ram.length) {
+      rt.mapPages(a, JitRuntime.pageSize, ram, offset: page, read: false);
+    }
+  }
+
+  /// Stops protecting a code page which blocks keep writing, such as data
+  /// next to code or code replaced by data. Its blocks are translated
+  /// again to end after each store, so that the guards of the next block
+  /// see an instruction changed by the store.
+  void _release(int page) {
+    for (final (pc, tag) in _pageBlocks.remove(page) ?? const <(int, int)>{}) {
+      rt.invalidate(pc, tag);
+    }
+    _codePages.remove(page);
+    _volatilePages.add(page);
+    _mapWrites(page);
+  }
+
+  /// whether a store at [pc] ends its block, see [_release]
+  bool _endsAfterStore(int pc) =>
+      _volatilePages
+          .contains(pc & 0x1fffffff & (ram.length - JitRuntime.pageSize)) &&
+      (pc & 0x1fffffff) < 0x800000;
+
   /// drops every block, after the rom or the whole memory changes
   void reset() {
     rt.clear();
-    for (final page in _codePages) {
-      for (int a = page; a < 0x800000; a += ram.length) {
-        rt.mapPages(a, JitRuntime.pageSize, ram, offset: page, read: false);
-      }
-    }
+    _codePages.forEach(_mapWrites);
     _codePages.clear();
+    _pageBlocks.clear();
+    _codeStores.clear();
+    _volatilePages.clear();
+    _misses.clear();
   }
 
   /// frees the runtime with the memory; nothing runs afterwards
@@ -207,11 +259,12 @@ final class PsJit {
         reason = rt.run(pc, tag);
         if (reason == JitReason.invalid) {
           rt.invalidate(rt.exitPc, rt.exitTag);
-        } else if (reason != JitReason.miss) {
+        } else if (reason != JitReason.miss || !_hot(rt.exitPc, rt.exitTag)) {
           break;
         }
         pc = rt.exitPc;
         tag = rt.exitTag;
+        _translating = (pc, tag);
         rt.install(_translator.translate(pc, tag));
       }
 
@@ -223,8 +276,53 @@ final class PsJit {
       cpu.hi = ctx[ctxHi];
       cpu.lo = ctx[ctxLo];
 
-      if (reason == reasonInterpret || ctx[JitCtx.stop] != 0) _interpret();
+      if (reason == reasonStore) {
+        final offset = ctx[JitCtx.faultAddr] & 0x1fffffff;
+        final page = offset & (ram.length - JitRuntime.pageSize);
+        if (offset < 0x800000 &&
+            _codePages.contains(page) &&
+            (_codeStores[page] = (_codeStores[page] ?? 0) + 1) >=
+                _maxCodeStores) {
+          _release(page);
+        }
+      }
+      if (reason == JitReason.miss) {
+        _interpretBlock();
+      } else if (reason == reasonInterpret ||
+          reason == reasonStore ||
+          ctx[JitCtx.stop] != 0) {
+        _interpret();
+      }
     }
+  }
+
+  /// whether the missing block (pc, tag) has been seen often enough to be
+  /// translated
+  bool _hot(int pc, int tag) {
+    final key = (pc, tag);
+    final seen = (_misses[key] ?? 0) + 1;
+    if (seen >= compileThreshold) {
+      _misses.remove(key);
+      return true;
+    }
+    if (_misses.length >= 1 << 16) _misses.clear();
+    _misses[key] = seen;
+    return false;
+  }
+
+  /// steps the interpreter over a block not translated yet, up to the end
+  /// of a taken branch
+  void _interpretBlock() {
+    final cpu = this.cpu;
+    for (int n = 0; n < R3000Translator.maxInstructions; n++) {
+      final slot = cpu.nextPc != cpu.pc.inc4.mask32;
+      cpu.step();
+      if (slot && cpu.nextPc == cpu.pc.inc4.mask32) break;
+    }
+    while (cpu.nextPc != cpu.pc.inc4.mask32) {
+      cpu.step();
+    }
+    _syncScratchPad();
   }
 
   /// steps the interpreter to the next instruction outside a delay slot

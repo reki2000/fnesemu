@@ -24,6 +24,9 @@ final class R3000Translator {
   /// the code word at pc, and whether it is guarded; null if the address
   /// holds no code the blocks can run
   final (int, bool)? Function(int pc) fetch;
+
+  /// whether the block ends after a store at pc, for code next to data
+  final bool Function(int pc) endsAfterStore;
   final int cop2Cmd, mfc2, cfc2, mtc2, ctc2, div;
 
   static const maxInstructions = 64;
@@ -31,6 +34,7 @@ final class R3000Translator {
 
   R3000Translator(
       {required this.fetch,
+      required this.endsAfterStore,
       required this.cop2Cmd,
       required this.mfc2,
       required this.cfc2,
@@ -113,6 +117,14 @@ final class _Block {
     _dirty[reg] = true;
   }
 
+  /// the context stores of a side exit: the registers not yet written and
+  /// the load in delay, written only when the block leaves there
+  List<(int, IrValue)> _exitStores() => [
+        for (int r = 1; r < 34; r++)
+          if (_dirty[r]) (_ctxOf(r), _regs[r]!),
+        if (_pendingReg != 0) (PsJit.ctxPendingValue, _pendingValue!),
+      ];
+
   /// writes the known registers and the load in delay to the context
   void _flush() {
     for (int r = 1; r < 34; r++) {
@@ -168,6 +180,11 @@ final class _Block {
           return _interpretAt(addr);
         case _Kind.plain:
           _exec(inst, addr);
+          if (_isStore(inst) && t.endsAfterStore(addr)) {
+            _flush();
+            return b.finish(IrJump((addr + 4).mask32, tag: _pendingReg),
+                cost: _cost);
+          }
         case _Kind.overflow:
           _exec(inst, addr);
         case _Kind.branch:
@@ -177,28 +194,11 @@ final class _Block {
           if (slot == null || _kindOf(slot) != _Kind.plain) {
             return _interpretAt(addr);
           }
-          if (_isMemory(slot)) {
-            // Check the slot before committing the branch, so a device
-            // access exits at the branch with its original load delay.
-            final base = slot.shr21.mask5;
-            final link = switch (inst.shr26.mask6) {
-              0x00 when inst.mask6 == 0x09 => inst.shr11.mask5,
-              0x03 => 31,
-              0x01 when inst.shr16.mask5 == 0x10 || inst.shr16.mask5 == 0x11 =>
-                31,
-              _ => 0,
-            };
-            final value = base == 0
-                ? b.c32(0)
-                : base == link
-                    ? b.c32(addr.inc4.inc4.mask32)
-                    : base == _pendingReg
-                        ? _pendingValue!
-                        : _get(base);
-            _guardMemory(slot, b.add(value, b.c32(slot.rel16)), addr);
-          }
+          // A device access in the slot exits at the branch with the state
+          // before it, which the interpreter runs with its delay slot.
+          if (_isMemory(slot)) _beginAccess(addr);
           final term = _branch(inst, addr);
-          _exec(slot, slotAddr, memoryGuarded: true);
+          _exec(slot, slotAddr, accessSet: true);
           _flush();
           return b.finish(term(_pendingReg), cost: _cost);
       }
@@ -215,14 +215,29 @@ final class _Block {
         _ => _isStore(inst),
       };
 
+  /// where the accesses of the current instruction leave when their page
+  /// is unmapped: before the instruction, or before its branch
+  ({int pc, int tag, int spent, List<(int, IrValue)> stores})? _access;
+
   /// The runtime mappings define ordinary memory. Device accesses and
-  /// writes to protected code pages run once through the interpreter.
-  void _guardMemory(int inst, IrValue address, int exitPc) {
-    _flush();
-    b.guardMapped(address,
-        IrExit(PsJit.reasonInterpret, exitPc, tag: _pendingReg, spent: _cost),
-        write: _isStore(inst));
+  /// writes to protected code pages run once through the interpreter, from
+  /// the state written here.
+  void _beginAccess(int exitPc) {
+    _access =
+        (pc: exitPc, tag: _pendingReg, spent: _cost, stores: _exitStores());
   }
+
+  IrExit _accessExit(bool write) {
+    final at = _access!;
+    return IrExit(write ? PsJit.reasonStore : PsJit.reasonInterpret, at.pc,
+        tag: at.tag, spent: at.spent, stores: at.stores);
+  }
+
+  IrValue _load(int size, IrValue addr, {bool signed = false}) =>
+      b.load(size, addr, signed: signed, unmapped: _accessExit(false));
+
+  void _store(int size, IrValue addr, IrValue value) =>
+      b.store(size, addr, value, unmapped: _accessExit(true));
 
   /// translates the branch at [addr] and returns its terminator for the
   /// tag after the delay slot
@@ -271,7 +286,7 @@ final class _Block {
     }
   }
 
-  void _exec(int inst, int addr, {bool memoryGuarded = false}) {
+  void _exec(int inst, int addr, {bool accessSet = false}) {
     final rs = inst.shr21.mask5, rt = inst.shr16.mask5, rd = inst.shr11.mask5;
     IrValue s() => _get(rs);
     IrValue u() => _get(rt);
@@ -281,7 +296,7 @@ final class _Block {
     IrValue? address;
     IrValue ea() => address ??= b.add(s(), simm());
 
-    if (!memoryGuarded && _isMemory(inst)) _guardMemory(inst, ea(), addr);
+    if (!accessSet && _isMemory(inst)) _beginAccess(addr);
 
     // an operation without side effects whose result is dropped
     final op = inst.shr26.mask6;
@@ -389,40 +404,40 @@ final class _Block {
           }
         }
       case 0x20:
-        _commit(load: (rt, b.load(1, ea(), signed: true)));
+        _commit(load: (rt, _load(1, ea(), signed: true)));
       case 0x21:
-        _commit(load: (rt, b.load(2, b.and(ea(), b.c32(~1)), signed: true)));
+        _commit(load: (rt, _load(2, b.and(ea(), b.c32(~1)), signed: true)));
       case 0x22:
         _commit(load: (rt, _lwl(ea(), _inDelay(rt))));
       case 0x23:
-        _commit(load: (rt, b.load(4, b.and(ea(), b.c32(~3)))));
+        _commit(load: (rt, _load(4, b.and(ea(), b.c32(~3)))));
       case 0x24:
-        _commit(load: (rt, b.load(1, ea())));
+        _commit(load: (rt, _load(1, ea())));
       case 0x25:
-        _commit(load: (rt, b.load(2, b.and(ea(), b.c32(~1)))));
+        _commit(load: (rt, _load(2, b.and(ea(), b.c32(~1)))));
       case 0x26:
         _commit(load: (rt, _lwr(ea(), _inDelay(rt))));
       case 0x28:
-        b.store(1, ea(), u());
+        _store(1, ea(), u());
         _commit();
       case 0x29:
-        b.store(2, b.and(ea(), b.c32(~1)), u());
+        _store(2, b.and(ea(), b.c32(~1)), u());
         _commit();
       case 0x2a:
         _swl(ea(), u());
         _commit();
       case 0x2b:
-        b.store(4, b.and(ea(), b.c32(~3)), u());
+        _store(4, b.and(ea(), b.c32(~3)), u());
         _commit();
       case 0x2e:
         _swr(ea(), u());
         _commit();
       case 0x32: // lwc2
-        b.call(t.mtc2, b.c32(rt), b.load(4, b.and(ea(), b.c32(~3))));
+        b.call(t.mtc2, b.c32(rt), _load(4, b.and(ea(), b.c32(~3))));
         _commit();
       default: // 0x3a swc2
         final a = b.and(ea(), b.c32(~3));
-        b.store(4, a, b.call(t.mfc2, b.c32(rt)));
+        _store(4, a, b.call(t.mfc2, b.c32(rt)));
         _commit();
     }
   }
@@ -449,23 +464,24 @@ final class _Block {
         ? b.and(b.not(b.xor(x, y)), b.xor(r, x))
         : b.and(b.xor(x, y), b.xor(r, x));
     final overflow = b.shrU(sign, b.c32(31));
-    _flush();
-    b.exitIf(overflow,
-        IrExit(PsJit.reasonInterpret, addr, tag: _pendingReg, spent: _cost));
+    b.exitIf(
+        overflow,
+        IrExit(PsJit.reasonInterpret, addr,
+            tag: _pendingReg, spent: _cost, stores: _exitStores()));
     _commit(imm: (dst, r));
   }
 
   // the unaligned accesses, as in alu.dart with shifts by the byte offset
 
   IrValue _lwl(IrValue addr, IrValue org) {
-    final value = b.load(4, b.and(addr, b.c32(~3)));
+    final value = _load(4, b.and(addr, b.c32(~3)));
     final shift = b.shl(b.xor(b.and(addr, b.c32(3)), b.c32(3)), b.c32(3));
     final keep = b.sub(b.shl(b.c32(1), shift), b.c32(1));
     return b.or(b.shl(value, shift), b.and(org, keep));
   }
 
   IrValue _lwr(IrValue addr, IrValue org) {
-    final value = b.load(4, b.and(addr, b.c32(~3)));
+    final value = _load(4, b.and(addr, b.c32(~3)));
     final shift = b.shl(b.and(addr, b.c32(3)), b.c32(3));
     final keep = b.not(b.shrU(b.c32(-1), shift));
     return b.or(b.shrU(value, shift), b.and(org, keep));
@@ -473,17 +489,17 @@ final class _Block {
 
   void _swl(IrValue addr, IrValue value) {
     final aligned = b.and(addr, b.c32(~3));
-    final old = b.load(4, aligned);
+    final old = _load(4, aligned);
     final shift = b.shl(b.xor(b.and(addr, b.c32(3)), b.c32(3)), b.c32(3));
     final keep = b.not(b.shrU(b.c32(-1), shift));
-    b.store(4, aligned, b.or(b.shrU(value, shift), b.and(old, keep)));
+    _store(4, aligned, b.or(b.shrU(value, shift), b.and(old, keep)));
   }
 
   void _swr(IrValue addr, IrValue value) {
     final aligned = b.and(addr, b.c32(~3));
-    final old = b.load(4, aligned);
+    final old = _load(4, aligned);
     final shift = b.shl(b.and(addr, b.c32(3)), b.c32(3));
     final keep = b.sub(b.shl(b.c32(1), shift), b.c32(1));
-    b.store(4, aligned, b.or(b.shl(value, shift), b.and(old, keep)));
+    _store(4, aligned, b.or(b.shl(value, shift), b.and(old, keep)));
   }
 }

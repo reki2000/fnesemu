@@ -69,6 +69,11 @@ IrBlock _randomBlock(Random rnd, int helper) {
   }
 
   final constants = [0, 1, 2, 31, 32, 0x7fffffff, 0x80000000, -1, 0x1234];
+  // some accesses leave the block at an unmapped page
+  IrExit? unmapped() => rnd.nextInt(4) == 0
+      ? IrExit(JitReason.user + rnd.nextInt(4), 0x300 + rnd.nextInt(16) * 4,
+          tag: rnd.nextInt(8), spent: rnd.nextInt(11))
+      : null;
   for (int i = 0; i < 40; i++) {
     final x = pick(), y = pick();
     final IrValue v = switch (rnd.nextInt(26)) {
@@ -97,11 +102,12 @@ IrBlock _randomBlock(Random rnd, int helper) {
       22 => () {
           final a = addr();
           return b.load(1 << rnd.nextInt(3), b.and(a, b.c32(~3)),
-              signed: rnd.nextBool());
+              signed: rnd.nextBool(), unmapped: unmapped());
         }(),
       23 => () {
           final size = 1 << rnd.nextInt(3);
-          b.store(size, b.and(addr(), b.c32(~(size - 1))), x);
+          b.store(size, b.and(addr(), b.c32(~(size - 1))), x,
+              unmapped: unmapped());
           return x;
         }(),
       24 => b.call(helper, x, y, pick()),
@@ -137,6 +143,7 @@ void main() {
     for (int n = 0; n < 2000; n++) {
       final block = _randomBlock(rnd, 0);
       final init = [for (int i = 0; i < 24; i++) rnd.nextInt(0x100000000)];
+      final reasons = <int>[];
       for (final env in [a, b]) {
         env.rt.clear();
         env.rt.install(block);
@@ -144,8 +151,10 @@ void main() {
         env.ctx.setAll(8, init.sublist(8));
         env.rt.ctx[JitCtx.budget] = 100;
         env.rt.ctx[JitCtx.stop] = 0;
-        expect(env.rt.run(0x200, 0), JitReason.miss);
+        env.rt.ctx[JitCtx.faultAddr] = 0;
+        reasons.add(env.rt.run(0x200, 0));
       }
+      expect(reasons[1], reasons[0], reason: '$block');
       expect(b.rt.ctx, a.rt.ctx, reason: '$block');
       expect(b.ram, a.ram, reason: '$block');
       expect(b.log, a.log, reason: '$block');
@@ -288,6 +297,43 @@ void main() {
         expect(env.ctx[JitCtx.exitReason], JitReason.invalid);
         expect(env.ctx[8], 0);
       });
+
+      for (final write in [false, true]) {
+        test('unmapped ${write ? 'stores' : 'loads'} exit with the address',
+            () {
+          if (factory == null) return;
+          final b = IrBuilder(0x100);
+          final address = b.ctxLoad(9);
+          const exit = IrExit(JitReason.user, 0x104, tag: 3, spent: 2);
+          if (write) {
+            b.store(4, address, b.c32(42), unmapped: exit);
+          } else {
+            b.ctxStore(10, b.load(4, address, unmapped: exit));
+          }
+          b.ctxStore(8, b.c32(1));
+          env.rt.install(b.finish(
+              const IrExitTerm(IrExit(JitReason.user + 1, 0x108)),
+              cost: 6));
+          for (final address in [0xa0001004, 0x2008, 0x500c]) {
+            final allowed = address != 0x500c && (!write || address != 0x2008);
+            env.ctx[8] = 0;
+            env.ctx[9] = address;
+            env.ctx[JitCtx.faultAddr] = 0;
+            run(0x100, budget: 100);
+            expect(env.ctx[JitCtx.exitReason],
+                allowed ? JitReason.user + 1 : JitReason.user);
+            expect(env.ctx[8], allowed ? 1 : 0);
+            expect(env.ctx[JitCtx.budget], allowed ? 94 : 98);
+            expect(env.ctx[JitCtx.faultAddr], allowed ? 0 : address);
+            if (!allowed) expect(env.rt.exitTag, 3);
+            if (allowed && !write) {
+              final word = Uint32List.sublistView(env.rom)[2];
+              expect(env.ctx[10], address == 0x2008 ? word : 0);
+            }
+            expect(env.log, isEmpty);
+          }
+        });
+      }
 
       for (final write in [false, true]) {
         test('mapped ${write ? 'write' : 'read'} guards exit before callbacks',
