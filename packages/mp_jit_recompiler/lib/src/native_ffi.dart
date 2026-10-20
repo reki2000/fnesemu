@@ -100,9 +100,12 @@ final class _Windows extends _Os {
 
 bool get supported => _Os.current != null;
 
-JitRuntime? create(int ctxWords, int addrMask, JitRead read, JitWrite write) {
+JitRuntime? create(
+    int ctxWords, int addrMask, JitRead read, JitWrite write, int pageShift) {
   final os = _Os.current;
-  return os == null ? null : _X64Runtime(os, ctxWords, addrMask, read, write);
+  return os == null
+      ? null
+      : _X64Runtime(os, ctxWords, addrMask, read, write, pageShift);
 }
 
 typedef _HelperC = Uint32 Function(Uint32, Uint32, Uint32);
@@ -140,9 +143,10 @@ final class _X64Runtime extends JitRuntime implements X64Env {
   @override
   late final int exitStub;
 
-  _X64Runtime(this._os, int ctxWords, super.addrMask, super.read, super.write) {
+  _X64Runtime(this._os, int ctxWords, super.addrMask, super.read, super.write,
+      super.pageShift) {
     try {
-      final pages = (addrMask >>> JitRuntime.pageBits) + 1;
+      final pages = (addrMask >>> pageShift) + 1;
       _ctxAddr = _alloc(ctxWords * 4);
       _ctx = Pointer<Uint32>.fromAddress(_ctxAddr).asTypedList(ctxWords);
       _readTable = _alloc(pages * 8);
@@ -259,9 +263,9 @@ final class _X64Runtime extends JitRuntime implements X64Env {
   @override
   int? guardAddr(int guestAddr) {
     final masked = guestAddr & addrMask;
-    final page = readPages[masked >>> JitRuntime.pageBits];
+    final page = readPages[masked >>> pageShift];
     if (page == null) return null;
-    return _hostAddr[page.$1]! + page.$2 + (masked & (JitRuntime.pageSize - 1));
+    return _hostAddr[page.$1]! + page.$2 + (masked & (pageBytes - 1));
   }
 
   @override

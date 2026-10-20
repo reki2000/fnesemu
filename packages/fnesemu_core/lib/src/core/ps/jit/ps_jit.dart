@@ -40,11 +40,10 @@ final class PsJit {
   late final Uint8List ram = rt.alloc(2 * 1024 * 1024);
   late final Uint8List rom = rt.alloc(512 * 1024);
 
-  /// a page, of which the scratchpad uses the first 1KiB
-  late final Uint8List scratchPad = rt.alloc(JitRuntime.pageSize);
-  late final Uint32List regs = Uint32List.sublistView(rt.ctx, ctxRegs, ctxHi);
-
+  /// The scratchpad occupies exactly one 1KiB guest mapping page.
+  late final Uint8List scratchPad = rt.alloc(1024);
   bool _scratchPadMapped = false;
+  late final Uint32List regs = Uint32List.sublistView(rt.ctx, ctxRegs, ctxHi);
 
   /// RAM pages with translated code, whose writes leave the blocks
   final _codePages = <int>{};
@@ -72,12 +71,21 @@ final class PsJit {
     late final PsJit jit;
     int read(int addr, int size) => jit._read(addr, size);
     void write(int addr, int size, int value) => jit._write(addr, size, value);
-    const mask = 0x1fffffff;
+    // Only bit 31 aliases KSEG0 to KUSEG; other scratchpad aliases stay unmapped.
+    const mask = 0x7fffffff;
     final rt = native
         ? JitRuntime.native(
-            ctxWords: _ctxWords, addrMask: mask, read: read, write: write)
+            ctxWords: _ctxWords,
+            addrMask: mask,
+            read: read,
+            write: write,
+            pageShift: 10)
         : JitRuntime.interpreter(
-            ctxWords: _ctxWords, addrMask: mask, read: read, write: write);
+            ctxWords: _ctxWords,
+            addrMask: mask,
+            read: read,
+            write: write,
+            pageShift: 10);
     if (rt == null) return null;
     return jit = PsJit._(rt, compileThreshold);
   }
@@ -88,18 +96,22 @@ final class PsJit {
     this.cpu = cpu;
     this.bus = bus;
 
-    // reads mirror the ram over 128MiB and the rom over 2MiB, writes the
-    // ram over 8MiB, like the fast paths of Bus
-    for (int a = 0; a < 0x8000000; a += ram.length) {
-      rt.mapPages(a, ram.length, ram, write: a < 0x800000);
+    // Bit 29 distinguishes uncached aliases in the runtime's address mask.
+    for (final alias in [0, 0x20000000]) {
+      // The default RAM bank mirrors 2MiB over 8MiB, as in Bus.
+      for (int a = 0; a < 0x800000; a += ram.length) {
+        rt.mapPages(alias + a, ram.length, ram);
+      }
+      for (int a = 0x1fc00000; a < 0x1fe00000; a += rom.length) {
+        rt.mapPages(alias + a, rom.length, rom, write: false);
+      }
     }
-    for (int a = 0x1fc00000; a < 0x1fe00000; a += rom.length) {
-      rt.mapPages(a, rom.length, rom, write: false);
-    }
+    _syncScratchPad();
 
     final cop2 = cpu.cop2;
     _translator = R3000Translator(
       fetch: _fetch,
+      mfc0: rt.addHelper((reg, _, __) => cpu.readCop0(reg)),
       endsAfterStore: _endsAfterStore,
       cop2Cmd: rt.addHelper((inst, _, __) {
         cop2.execCmd(inst);
@@ -129,13 +141,15 @@ final class PsJit {
   (int, bool)? _fetch(int pc) {
     final offset = pc & 0x1fffffff;
     if (offset < 0x800000) {
-      final page = offset & (ram.length - JitRuntime.pageSize);
+      final page = offset & (ram.length - rt.pageBytes);
       (_pageBlocks[page] ??= {}).add(_translating);
       if (!_volatilePages.contains(page) && _codePages.add(page)) {
         // Writes to translated RAM must leave the current block before
         // they can change an upcoming instruction, including RAM aliases.
-        for (int a = page; a < 0x800000; a += ram.length) {
-          rt.unmapPages(a, JitRuntime.pageSize, read: false);
+        for (final alias in [0, 0x20000000]) {
+          for (int a = page; a < 0x800000; a += ram.length) {
+            rt.unmapPages(alias + a, rt.pageBytes, read: false);
+          }
         }
       }
       return (bus.read32(pc), true);
@@ -168,21 +182,9 @@ final class PsJit {
     _afterIo();
   }
 
-  /// an I/O access may raise an interrupt or toggle the scratchpad
+  /// an I/O access may raise an interrupt or change cache isolation
   void _afterIo() {
     rt.ctx[JitCtx.stop] = _stop;
-    _syncScratchPad();
-  }
-
-  void _syncScratchPad() {
-    if (bus.useScratchPad == _scratchPadMapped) return;
-    _scratchPadMapped = bus.useScratchPad;
-    // the 3KiB after the scratchpad, unused by the hardware, are mapped too
-    if (_scratchPadMapped) {
-      rt.mapPages(0x1f800000, JitRuntime.pageSize, scratchPad);
-    } else {
-      rt.unmapPages(0x1f800000, JitRuntime.pageSize);
-    }
   }
 
   /// whether the interpreter must run: an interrupt is taken, or the cache
@@ -193,10 +195,24 @@ final class PsJit {
     return ((cpu.cause & sr & 0xff00) != 0 && sr.bit0) || sr.bit16 ? 1 : 0;
   }
 
+  /// Only KUSEG and KSEG0 can access scratchpad, and only when enabled.
+  void _syncScratchPad() {
+    final enabled = bus.useScratchPad;
+    if (enabled == _scratchPadMapped) return;
+    if (enabled) {
+      rt.mapPages(0x1f800000, scratchPad.length, scratchPad);
+    } else {
+      rt.unmapPages(0x1f800000, scratchPad.length);
+    }
+    _scratchPadMapped = enabled;
+  }
+
   /// makes [page] writable again for every RAM alias
   void _mapWrites(int page) {
-    for (int a = page; a < 0x800000; a += ram.length) {
-      rt.mapPages(a, JitRuntime.pageSize, ram, offset: page, read: false);
+    for (final alias in [0, 0x20000000]) {
+      for (int a = page; a < 0x800000; a += ram.length) {
+        rt.mapPages(alias + a, rt.pageBytes, ram, offset: page, read: false);
+      }
     }
   }
 
@@ -215,8 +231,7 @@ final class PsJit {
 
   /// whether a store at [pc] ends its block, see [_release]
   bool _endsAfterStore(int pc) =>
-      _volatilePages
-          .contains(pc & 0x1fffffff & (ram.length - JitRuntime.pageSize)) &&
+      _volatilePages.contains(pc & 0x1fffffff & (ram.length - rt.pageBytes)) &&
       (pc & 0x1fffffff) < 0x800000;
 
   /// drops every block, after the rom or the whole memory changes
@@ -237,8 +252,8 @@ final class PsJit {
   /// [R3000.step]; the last block may pass it by a block
   void run(int limit) {
     final cpu = this.cpu, rt = this.rt, ctx = rt.ctx;
-    _syncScratchPad();
     while (cpu.clocks <= limit) {
+      _syncScratchPad();
       // A debugger step may have left a taken branch's slot unexecuted.
       // Blocks only accept a sequential nextPc at their entry.
       if (_stop != 0 || cpu.nextPc != cpu.pc.inc4.mask32) {
@@ -268,7 +283,14 @@ final class PsJit {
         rt.install(_translator.translate(pc, tag));
       }
 
-      cpu.clocks += budget - ctx[JitCtx.budget].toSigned(32);
+      final spent = budget - ctx[JitCtx.budget].toSigned(32);
+      cpu.clocks += spent;
+      // Executed blocks finish outside a branch delay slot, as after the interpreter steps the slot.
+      // An exit before the first instruction must retain any branch state from the interpreter.
+      if (spent > 0) {
+        cpu.inBranchDelay = false;
+        cpu.inBranchTaken = false;
+      }
       cpu.pc = rt.exitPc;
       cpu.nextPc = cpu.pc.inc4.mask32;
       cpu.nextDelayReg = rt.exitTag;
@@ -278,7 +300,7 @@ final class PsJit {
 
       if (reason == reasonStore) {
         final offset = ctx[JitCtx.faultAddr] & 0x1fffffff;
-        final page = offset & (ram.length - JitRuntime.pageSize);
+        final page = offset & (ram.length - rt.pageBytes);
         if (offset < 0x800000 &&
             _codePages.contains(page) &&
             (_codeStores[page] = (_codeStores[page] ?? 0) + 1) >=
@@ -322,7 +344,6 @@ final class PsJit {
     while (cpu.nextPc != cpu.pc.inc4.mask32) {
       cpu.step();
     }
-    _syncScratchPad();
   }
 
   /// steps the interpreter to the next instruction outside a delay slot
@@ -331,6 +352,5 @@ final class PsJit {
     do {
       cpu.step();
     } while (cpu.nextPc != cpu.pc.inc4.mask32);
-    _syncScratchPad();
   }
 }

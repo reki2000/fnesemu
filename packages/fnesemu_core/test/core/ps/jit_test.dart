@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:fnesemu_core/src/core/ps/jit/ps_jit.dart';
 import 'package:fnesemu_core/src/core/ps/r3000/r3000.dart';
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
 
 const _code = 0x80010000;
@@ -308,6 +309,195 @@ void main() {
         }
         expect(b.state, a.state, reason: 'case $n');
       }
+    });
+
+    test('$name COP0 reads preserve load delays and branch slots', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final a = _Machine.interpreter(), b = _Machine.jit(jit);
+      for (final reg in [0, 6, 8, 12, 13, 14, 15]) {
+        final program = [
+          _i(0x09, 0, 5, 0x55),
+          _r(0x10, 0, 5, reg, 0, 0),
+          _r(0, 5, 0, 6, 0, 0x21),
+          _r(0, 5, 0, 7, 0, 0x21),
+          _i(0x04, 0, 0, 1),
+          _r(0x10, 0, 8, reg, 0, 0),
+          _r(0, 8, 0, 9, 0, 0x21),
+          _r(0, 8, 0, 10, 0, 0x21),
+          _j(_code + 4 * 8),
+          0,
+        ];
+        for (final m in [a, b]) {
+          m.load(program, Uint8List(512 * 1024), Uint8List(0));
+          m.cpu.tar = 0x81234560;
+          m.cpu.badvaddr = 0x9f800400;
+          m.cpu.sr = 0x40000000;
+          m.cpu.cause = 0x300;
+          m.cpu.epc = 0x80123458;
+          m.run(_code + 4 * 8, Random(reg));
+          expect(m.cpu.r[6], 0x55);
+          expect(m.cpu.r[9], 0);
+          expect(m.cpu.r[7], m.cpu.readCop0(reg));
+          expect(m.cpu.r[10], m.cpu.readCop0(reg));
+        }
+        expect(b.state, a.state, reason: 'COP0 register $reg');
+      }
+    });
+
+    test('$name compiled low vectors retain BIOS hooks', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final m = _Machine.jit(jit);
+      final end = _code + 4 * 4;
+      m.load([
+        _i(0x09, 0, 9, 0x3d), // B0 putchar
+        _i(0x09, 0, 4, 0x58),
+        _j(0x80000080),
+        0,
+        _j(end),
+        0,
+      ], Uint8List(512 * 1024), Uint8List(0));
+      m.bus.write32(0x80000080, _j(0x800000b0));
+      m.bus.write32(0x80000084, 0);
+      m.bus.write32(0x800000b0, _j(end));
+      m.bus.write32(0x800000b4, 0);
+      m.run(end, Random(1));
+      expect(jit.rt.contains(0x80000080, 0), isTrue);
+      expect(m.cpu.console.toString(), 'X');
+    });
+
+    test('$name scratchpad loads and stores stay in compiled blocks', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final m = _Machine.jit(jit);
+      final program = [
+        _i(0x0f, 0, 2, 0x1f80),
+        _i(0x09, 0, 3, 0x1234),
+        _i(0x2b, 2, 3, 0x3fc),
+        _i(0x23, 2, 4, 0x3fc),
+        0,
+        _i(0x0f, 0, 2, 0x9f80),
+        _i(0x25, 2, 5, 0x3fc),
+        0,
+        _i(0x24, 2, 6, 0x3fd),
+        0,
+        _j(_code + 4 * 10),
+        0,
+      ];
+      m.load(program, Uint8List(512 * 1024), Uint8List(0));
+      jit.rt.ctx[JitCtx.faultAddr] = 0xdeadbeef;
+      jit.run(m.cpu.clocks + 200);
+      expect(m.cpu.r[4], 0x1234);
+      expect(m.cpu.r[5], 0x1234);
+      expect(m.cpu.r[6], 0x12);
+      expect(jit.rt.ctx[JitCtx.faultAddr], 0xdeadbeef,
+          reason:
+              'scratchpad accesses must not leave through memory side exits');
+    });
+
+    test('$name scratchpad excludes invalid virtual aliases', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final m = _Machine.jit(jit);
+      for (final high in [0x3f80, 0x5f80, 0x7f80, 0xbf80, 0xdf80, 0xff80]) {
+        m.load([
+          _i(0x0f, 0, 2, high),
+          _i(0x09, 0, 3, 0x1234),
+          _i(0x2b, 2, 3, 0),
+          _i(0x23, 2, 4, 0),
+          _i(0x25, 2, 5, 0),
+          _i(0x24, 2, 6, 0),
+          0,
+          _j(_code + 4 * 7),
+          0,
+        ], Uint8List(512 * 1024), Uint8List(0));
+        m.bus.write32(0x1f800000, 0x5678);
+        m.run(_code + 4 * 7, Random(1));
+        expect(m.cpu.r.sublist(4, 7), [0, 0, 0], reason: 'alias $high');
+        expect(m.bus.read32(0x1f800000), 0x5678);
+      }
+    });
+
+    test('$name scratchpad mapping follows cache control changes', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final m = _Machine.jit(jit);
+      final program = [
+        _i(0x0f, 0, 2, 0x1f80),
+        _i(0x09, 0, 3, 0x1234),
+        _i(0x2b, 2, 3, 0),
+        _i(0x0f, 0, 8, 0xfffe),
+        _i(0x2b, 8, 0, 0x130),
+        _i(0x23, 2, 4, 0),
+        0,
+        _i(0x2b, 2, 0, 0),
+        _i(0x09, 0, 9, 0x88),
+        _i(0x2b, 8, 9, 0x130),
+        _i(0x23, 2, 5, 0),
+        0,
+        _j(_code + 4 * 12),
+        0,
+      ];
+      m.load(program, Uint8List(512 * 1024), Uint8List(0));
+      m.run(_code + 4 * 12, Random(1));
+      expect(m.cpu.r[4], 0xffffffff);
+      expect(m.cpu.r[5], 0x1234);
+      expect(m.bus.read32(0x1f800000), 0x1234);
+    });
+
+    test('$name blocks respect unmapped memory ranges', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final m = _Machine.jit(jit);
+      final program = [
+        _i(0x0f, 0, 2, 0x1f80),
+        _i(0x0d, 2, 2, 0x0400),
+        _i(0x09, 0, 3, 0x1234),
+        _i(0x2b, 2, 3, 0),
+        _i(0x23, 2, 4, 0),
+        _i(0x0f, 0, 5, 0xbf80),
+        _i(0x2b, 5, 3, 0),
+        _i(0x23, 5, 6, 0),
+        _i(0x0f, 0, 7, 0x0080),
+        _i(0x23, 7, 8, 0),
+        0,
+        0,
+        _j(_code + 4 * 12),
+        0,
+      ];
+      m.load(program, Uint8List(512 * 1024), Uint8List(0));
+      m.bus.write32(0x1f800000, 0x5678);
+      m.bus.write32(0, 0x12345678);
+      m.run(_code + 4 * 12, Random(1));
+      expect(m.cpu.r[4], 0);
+      expect(m.cpu.r[6], 0);
+      expect(m.cpu.r[8], 0);
+      expect(m.bus.read32(0x1f800000), 0x5678);
     });
 
     test('$name blocks see code written by the program', () {

@@ -16,7 +16,7 @@ import 'ps_jit.dart';
 /// context, so a block is keyed by the pc and the register in delay.
 ///
 /// Instructions the blocks leave to the interpreter end a block with
-/// [PsJit.reasonInterpret] before them: COP0, syscall, break, unknown
+/// [PsJit.reasonInterpret] before them: COP0 writes and commands, syscall, break, unknown
 /// opcodes, the BIOS hook addresses, and a branch whose delay slot is one
 /// of them or may raise an overflow. add, addi and sub leave the block when
 /// they overflow, so that the interpreter raises the exception.
@@ -27,7 +27,7 @@ final class R3000Translator {
 
   /// whether the block ends after a store at pc, for code next to data
   final bool Function(int pc) endsAfterStore;
-  final int cop2Cmd, mfc2, cfc2, mtc2, ctc2, div;
+  final int mfc0, cop2Cmd, mfc2, cfc2, mtc2, ctc2, div;
 
   static const maxInstructions = 64;
   static const _clocksPerInstruction = 2;
@@ -35,6 +35,7 @@ final class R3000Translator {
   R3000Translator(
       {required this.fetch,
       required this.endsAfterStore,
+      required this.mfc0,
       required this.cop2Cmd,
       required this.mfc2,
       required this.cfc2,
@@ -43,7 +44,13 @@ final class R3000Translator {
       required this.div});
 
   /// the addresses where [R3000.step] calls its hook first
-  static bool isHook(int pc) => (pc & 0x1fffff) <= 0xc0 || pc == 0x80030000;
+  static bool isHook(int pc) {
+    final vector = pc & 0x1fffff;
+    return vector == 0xa0 ||
+        vector == 0xb0 ||
+        vector == 0xc0 ||
+        pc == 0x80030000;
+  }
 
   IrBlock translate(int pc, int tag) => _Block(this, pc, tag).translate();
 }
@@ -66,6 +73,7 @@ _Kind _kindOf(int inst) {
     0x01 || 0x02 || 0x03 || 0x04 || 0x05 || 0x06 || 0x07 => _Kind.branch,
     0x08 => _Kind.overflow,
     >= 0x09 && <= 0x0f => _Kind.plain,
+    0x10 => rs == 0 ? _Kind.plain : _Kind.interpret,
     0x12 => rs >= 0x10 || rs == 0 || rs == 2 || rs == 4 || rs == 6
         ? _Kind.plain
         : _Kind.interpret,
@@ -385,6 +393,8 @@ final class _Block {
         imm(rt, b.xor(s(), zimm()));
       case 0x0f:
         imm(rt, b.c32(inst.mask16.shl16));
+      case 0x10:
+        _commit(load: (rt, b.call(t.mfc0, b.c32(rd))));
       case 0x12:
         if (rs >= 0x10) {
           b.call(t.cop2Cmd, b.c32(inst));

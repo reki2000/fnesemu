@@ -39,8 +39,9 @@ final bool supported = () {
   }
 }();
 
-JitRuntime? create(int ctxWords, int addrMask, JitRead read, JitWrite write) =>
-    supported ? _WasmRuntime(ctxWords, addrMask, read, write) : null;
+JitRuntime? create(int ctxWords, int addrMask, JitRead read, JitWrite write,
+        int pageShift) =>
+    supported ? _WasmRuntime(ctxWords, addrMask, read, write, pageShift) : null;
 
 /// A fixed linear memory keeps every Dart view valid for the runtime's
 /// lifetime; growing a non-shared Wasm memory would detach existing views.
@@ -71,10 +72,11 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   @override
   int get helperCount => _helpers.length;
 
-  _WasmRuntime(int ctxWords, super.addrMask, super.read, super.write) {
+  _WasmRuntime(
+      int ctxWords, super.addrMask, super.read, super.write, super.pageShift) {
     ctxOffset = _allocate(ctxWords * 4);
     _ctx = _buffer.asUint32List(ctxOffset, ctxWords);
-    final pages = (addrMask >>> JitRuntime.pageBits) + 1;
+    final pages = (addrMask >>> pageShift) + 1;
     readTable = _allocate(pages * 4);
     writeTable = _allocate(pages * 4);
     _reads = _buffer.asUint32List(readTable, pages);

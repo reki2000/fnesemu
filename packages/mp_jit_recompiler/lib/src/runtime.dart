@@ -22,7 +22,7 @@ typedef JitWrite = void Function(int addr, int size, int value);
 ///
 /// The host owns the guest state through views returned by [ctx] and
 /// [alloc], so nothing is copied when a run starts or returns. Guest
-/// addresses are masked with `addrMask` and mapped in 4KiB pages; an
+/// addresses are masked with `addrMask` and mapped in fixed-size pages; an
 /// access to an unmapped page calls the read or write function given to
 /// the constructor. Blocks are found by (pc, tag); a run continues from
 /// block to block until one exits, and returns its reason.
@@ -36,16 +36,18 @@ abstract class JitRuntime {
           {required int ctxWords,
           required int addrMask,
           required JitRead read,
-          required JitWrite write}) =>
-      host.create(ctxWords, addrMask, read, write);
+          required JitWrite write,
+          int pageShift = pageBits}) =>
+      host.create(ctxWords, addrMask, read, write, pageShift);
 
   /// a runtime that interprets the IR, available on every platform
   static JitRuntime interpreter(
           {required int ctxWords,
           required int addrMask,
           required JitRead read,
-          required JitWrite write}) =>
-      IrInterpreterRuntime(ctxWords, addrMask, read, write);
+          required JitWrite write,
+          int pageShift = pageBits}) =>
+      IrInterpreterRuntime(ctxWords, addrMask, read, write, pageShift);
 
   /// Whether [native] can compile blocks on this host.
   static bool get nativeSupported => host.supported;
@@ -54,7 +56,17 @@ abstract class JitRuntime {
   final JitRead read;
   final JitWrite write;
 
-  JitRuntime(this.addrMask, this.read, this.write);
+  /// Guest mapping granularity, independent of the host allocation page size.
+  final int pageShift;
+  int get pageBytes => 1 << pageShift;
+
+  JitRuntime(this.addrMask, this.read, this.write,
+      [this.pageShift = pageBits]) {
+    if (pageShift < 3 || pageShift > pageBits) {
+      throw ArgumentError.value(
+          pageShift, 'pageShift', 'expected 3 through 12');
+    }
+  }
 
   /// the context words; the first [JitCtx.user] words are reserved
   Uint32List get ctx;
@@ -89,24 +101,24 @@ abstract class JitRuntime {
   int get exitPc => ctx[JitCtx.exitPc];
   int get exitTag => ctx[JitCtx.exitTag];
 
-  /// the read and write pages: a host buffer and its offset for each page
+  /// The read and write pages: a host buffer and its offset for each page.
   late final readPages =
-      List<(Uint8List, int)?>.filled((addrMask >>> pageBits) + 1, null);
+      List<(Uint8List, int)?>.filled((addrMask >>> pageShift) + 1, null);
   late final writePages =
-      List<(Uint8List, int)?>.filled((addrMask >>> pageBits) + 1, null);
+      List<(Uint8List, int)?>.filled((addrMask >>> pageShift) + 1, null);
 
   /// maps [size] bytes of guest memory at [guestAddr] to [host] from
   /// [offset]; [host] must be returned by [alloc]
   void mapPages(int guestAddr, int size, Uint8List host,
       {int offset = 0, bool read = true, bool write = true}) {
-    if ((guestAddr | size | offset) & (pageSize - 1) != 0) {
+    if ((guestAddr | size | offset) & (pageBytes - 1) != 0) {
       throw ArgumentError('unaligned page mapping');
     }
     if (offset + size > host.length) {
       throw ArgumentError('page mapping beyond the host buffer');
     }
-    for (int p = 0; p < size; p += pageSize) {
-      final page = ((guestAddr + p) & addrMask) >>> pageBits;
+    for (int p = 0; p < size; p += pageBytes) {
+      final page = ((guestAddr + p) & addrMask) >>> pageShift;
       if (read) setPage(false, page, (host, offset + p));
       if (write) setPage(true, page, (host, offset + p));
     }
@@ -114,8 +126,8 @@ abstract class JitRuntime {
 
   void unmapPages(int guestAddr, int size,
       {bool read = true, bool write = true}) {
-    for (int p = 0; p < size; p += pageSize) {
-      final page = ((guestAddr + p) & addrMask) >>> pageBits;
+    for (int p = 0; p < size; p += pageBytes) {
+      final page = ((guestAddr + p) & addrMask) >>> pageShift;
       if (read) setPage(false, page, null);
       if (write) setPage(true, page, null);
     }
@@ -127,11 +139,11 @@ abstract class JitRuntime {
   /// the word at [addr] in mapped memory, or null if it is unmapped
   int? mappedWord(int addr, {IrEndian endian = IrEndian.little}) {
     final masked = addr & addrMask;
-    final page = readPages[masked >>> pageBits];
+    final page = readPages[masked >>> pageShift];
     if (page == null) return null;
     final (host, offset) = page;
     return host.buffer.asByteData(host.offsetInBytes).getUint32(
-        offset + (masked & (pageSize - 1)),
+        offset + (masked & (pageBytes - 1)),
         endian == IrEndian.big ? Endian.big : Endian.little);
   }
 

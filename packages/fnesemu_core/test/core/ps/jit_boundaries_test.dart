@@ -84,6 +84,39 @@ void main() {
             ? 'native'
             : 'IR';
     group(name, () {
+      for (final (op, taken) in [(0x05, false), (0x04, true)]) {
+        test(
+            'compiled delay slots clear interpreter branch state before interrupts ($taken)',
+            () {
+          // Both branches leave nextPc sequential, so JIT can run the slot after cpu.step().
+          final m = _Machine(native, [
+            _i(op, 0, 0, 1),
+            _i(0x23, 2, 1, 0),
+            _j(_code + 8),
+            0,
+          ]);
+          m.cpu.r[2] = _code + 0x4000;
+          m.bus.write32(_code + 0x4000, 1234);
+          m.cpu.step();
+          expect(m.cpu.inBranchDelay, isTrue);
+          expect(m.cpu.inBranchTaken, taken);
+          if (m.jit != null) {
+            m.jit!.run(23);
+          } else {
+            while (m.cpu.clocks <= 23) {
+              m.cpu.step();
+            }
+          }
+          expect(m.cpu.r[1], 1234);
+          final interruptedPc = m.cpu.pc;
+          m.cpu.sr = 0x401;
+          m.cpu.cause = 0x400;
+          m.cpu.step();
+          expect(m.cpu.epc, interruptedPc);
+          expect(m.cpu.cause & 0xc0000000, 0);
+        });
+      }
+
       test('resumes a branch stepped by the debugger', () {
         final m = _Machine(native, [
           _j(_code + 16),

@@ -7,6 +7,7 @@ abstract interface class X64Env {
 
   /// the mask applied to guest addresses before the page lookup
   int get addrMask;
+  int get pageShift;
 
   /// the shared exit code, see [X64Backend.exitStub]
   int get exitStub;
@@ -159,7 +160,7 @@ abstract final class X64Backend {
       a.movRR(R.rcx, R.rax);
       if (env.addrMask != 0xffffffff) a.aluRI(Alu.and, R.rcx, env.addrMask);
       a.movRR(R.rdx, R.rcx);
-      a.shiftRI(Shift.shr, R.rdx, 12);
+      a.shiftRI(Shift.shr, R.rdx, env.pageShift);
       a.movRM64(R.rdx, Mem(table, index: R.rdx, scale: 8));
     }
 
@@ -280,7 +281,7 @@ abstract final class X64Backend {
           lookup(R.r12);
           a.testRR64(R.rdx, R.rdx);
           a.jcc(Cc.e, slow);
-          a.aluRI(Alu.and, R.rcx, 0xfff);
+          a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
           final m = Mem(R.rdx, index: R.rcx);
           switch ((size, signed)) {
             case (1, false):
@@ -313,7 +314,7 @@ abstract final class X64Backend {
           lookup(R.r13);
           a.testRR64(R.rdx, R.rdx);
           a.jcc(Cc.e, slow);
-          a.aluRI(Alu.and, R.rcx, 0xfff);
+          a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
           a.movRM(R.r8, _slot(inst.b));
           final m = Mem(R.rdx, index: R.rcx);
           switch (size) {

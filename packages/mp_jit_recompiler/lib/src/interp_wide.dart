@@ -88,14 +88,14 @@ extension _Wide on IrInterpreterRuntime {
       return signed ? bits.toSigned(size * 8) : bits;
     }
     final masked = addr & addrMask;
-    final page = readPages[masked >>> JitRuntime.pageBits];
+    final page = readPages[masked >>> pageShift];
     BigInt bits;
     if (page == null) {
       bits = BigInt.from(read(addr, 4).toUnsigned(32)) |
           BigInt.from(read((addr + 4).toUnsigned(32), 4).toUnsigned(32)) << 32;
     } else {
       final (host, offset) = page;
-      final at = offset + (masked & (JitRuntime.pageSize - 1));
+      final at = offset + (masked & (pageBytes - 1));
       bits = BigInt.zero;
       for (int i = 0; i < 8; i++) {
         bits |= BigInt.from(host[at + i]) << (8 * i);
@@ -112,13 +112,13 @@ extension _Wide on IrInterpreterRuntime {
     }
     if (endian == IrEndian.big) value = _swapWide(value);
     final masked = addr & addrMask;
-    final page = writePages[masked >>> JitRuntime.pageBits];
+    final page = writePages[masked >>> pageShift];
     if (page == null) {
       write(addr, 4, _word(value));
       write((addr + 4).toUnsigned(32), 4, _word(value >> 32));
     } else {
       final (host, offset) = page;
-      final at = offset + (masked & (JitRuntime.pageSize - 1));
+      final at = offset + (masked & (pageBytes - 1));
       for (int i = 0; i < 8; i++) {
         host[at + i] = ((value >> (8 * i)) & BigInt.from(255)).toInt();
       }
