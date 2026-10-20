@@ -57,6 +57,40 @@ Each package owns its domain and communicates through the interfaces below.
 
 - These are scene-specific estimates. In the first AOT run, SPU work was approximately 24%/15% and GPU work 8%/18% at the title/menu. With a CPU fraction near 43%, doubling only CPU execution predicts about `1 / (0.57 + 0.43 / 2) = 1.27x` overall; eliminating that work entirely would cap this simplified model near 1.75x. These estimates do not measure the JIT's internal speedup or establish performance in other scenes.
 
+### Other CPU candidates and exploratory timing
+
+- The October 2026 GBA/SS exploration used commit `e47a688`, Dart 3.13.4 AOT on Linux x64, and three consecutive 300-frame intervals after warm-up with local regression inputs.
+- It sampled GBA `cpu.step()`, SS master/slave execution in `_runSlice()`, and the sound M68000 loop in `Scsp.exec()` at an expected interval of 64 calls.
+- The sampler subtracted an empty timing-path calibration and multiplied sampled durations by 64 to estimate whole-core shares.
+  This is the sparse stopwatch method rejected above; calibration does not establish that its instrumentation, code layout, or scheduling effects are negligible.
+  Record the following outputs as rejected CPU-share estimates, not as established performance measurements or confidence intervals.
+
+| Exploratory scene | Frames | Reported main CPU median (interval range) | Reported sound M68000 median |
+| --- | --- | ---: | ---: |
+| GBA race | 4801-5700 | 65.4% (61.6-76.1%) | N/A |
+| GBA introduction/dialogue | 1201-2100 | 62.0% (49.1-69.2%) | N/A |
+| SS stage | 2701-3600 | 51.0% (47.6-53.7%), both SH-2 CPUs | 5.2% |
+| SS combat | 2701-3600 | 54.3% (53.6-54.4%), both SH-2 CPUs | 3.2% |
+
+- GBA and the final SS stage run were pinned to logical CPU 0; the SS combat run was unpinned.
+  Large timing variation remained: the pinned GBA race baseline and instrumented medians were 7.89 and 19.22ms/frame, respectively.
+  This comparison cannot distinguish instrumentation effects from environmental variation, so it does not validate either the overhead correction or the reported CPU shares.
+- Captured PNG bytes, final state dumps, and audio sample counts matched between the baseline and instrumented runs; audio waveform hashes were not collected.
+  These checks support equivalent observed execution, not timing accuracy or complete internal-state equality.
+  CPU intervals also included memory and device calls, and SS SH-2 intervals included on-chip updates; even a reliable inclusive CPU share would not be entirely removable by JIT compilation.
+- Before choosing the next CPU from these results, collect Linux AOT CPU samples with resolved call chains and inline frames, restrict the denominator to core execution, repeat equivalent scenes, and check sample loss and output histories as for PS1 above.
+  The stopwatch outputs alone do not establish that GBA should precede SS or predict an overall JIT speedup.
+- ARM7TDMI is a practical frontend candidate because its 32-bit values and little-endian memory fit the current compiled backends.
+  Preserve ARM/Thumb state, conditional execution, flags, pipeline-visible PC values, memory timing, timers, DMA, and IRQ boundaries.
+  GBA currently advances timers and display events after each instruction, so block execution needs an explicit timing contract.
+- SH-2 fixed-length instructions and 32-bit registers fit the i32 IR, but compiled big-endian accesses still need backend support.
+  SS already has `run(targetClocks)` with 32-clock slices, direct RAM access, and idle-loop skipping; preserve those optimizations and master/slave synchronization when comparing variants.
+  32X currently alternates the CPUs after each instruction for communication polling, so longer compiled blocks require a validated synchronization strategy.
+- M68000 translation must preserve partial register updates, X/N/Z/V/C flags, addressing side effects, access order, exceptions, bank mappings, and shared-memory invalidation.
+  MD advances its scheduler in 12-clock increments, which can limit block amortization; measure transition costs before changing scheduling, and retain equivalent device timing.
+- VR4300 additionally needs compiled i64 and floating-point support; existing typed IR preparation does not enable its recompiler.
+  For 65816/SA-1, SPC700, Z80, 6502-family CPUs, HuC6280, and the GB CPU, first establish CPU cost relative to rendering, audio, and bus work, then account for mode changes, bank mappings, and device synchronization.
+
 ## Core API and debugging
 
 - `packages/fnesemu_core/lib/app_api.dart` is the public core API; controllers, factories, and debuggers live directly under `lib/`, and cores expose inspection data through `CoreDebug` in `src/core_debug.dart`.
