@@ -43,6 +43,10 @@ abstract final class WasmBackend {
   }
 
   static Uint8List compile(IrBlock block, WasmEnv env) {
+    if (block.usesI64 || block.usesBigEndian) {
+      throw UnsupportedError(
+          'Wasm backend currently emits i32 little-endian IR');
+    }
     final c = _Code();
     final address = block.insts.length;
     final page = address + 1, temp = page + 1;
@@ -131,6 +135,8 @@ abstract final class WasmBackend {
       }
 
       switch (inst.op) {
+        case IrOp.sext32 || IrOp.zext32 || IrOp.trunc32:
+          throw UnsupportedError('Wasm i64 emission is not implemented');
         case IrOp.constant:
           c.i32(inst.imm);
         case IrOp.ctxLoad:

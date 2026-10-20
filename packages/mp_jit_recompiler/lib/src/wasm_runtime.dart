@@ -165,6 +165,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   @override
   void install(IrBlock block) {
     _checkAlive();
+    checkBlock(block);
     if (_blocks.length >= _maxBlocks || _slotCount >= _maxSlots - 3) clear();
     final slot = slotFor(block.pc, block.tag);
     final function = _instantiate(WasmBackend.compile(block, this));

@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'ir.dart';
 import 'runtime.dart';
 
+part 'interp_wide.dart';
+
 /// The reference implementation of [JitRuntime], which interprets the IR.
 /// The native backends must behave the same.
 final class IrInterpreterRuntime extends JitRuntime {
@@ -18,6 +20,11 @@ final class IrInterpreterRuntime extends JitRuntime {
   Uint8List alloc(int size) => Uint8List(size);
 
   @override
+  bool get supportsI64 => true;
+  @override
+  bool get supportsBigEndian => true;
+
+  @override
   int addHelper(JitHelper f) {
     _helpers.add(f);
     return _helpers.length - 1;
@@ -27,7 +34,10 @@ final class IrInterpreterRuntime extends JitRuntime {
   bool contains(int pc, int tag) => _blocks.containsKey((pc, tag));
 
   @override
-  void install(IrBlock block) => _blocks[(block.pc, block.tag)] = block;
+  void install(IrBlock block) {
+    checkBlock(block);
+    _blocks[(block.pc, block.tag)] = block;
+  }
 
   @override
   void invalidate(int pc, int tag) => _blocks.remove((pc, tag));
@@ -45,7 +55,7 @@ final class IrInterpreterRuntime extends JitRuntime {
     return reason;
   }
 
-  int _load(int addr, int size, bool signed) {
+  int _load(int addr, int size, bool signed, IrEndian endian) {
     final masked = addr & addrMask;
     final page = readPages[masked >>> JitRuntime.pageBits];
     int v;
@@ -63,6 +73,7 @@ final class IrInterpreterRuntime extends JitRuntime {
             host[at + 3] << 24,
       };
     }
+    if (endian == IrEndian.big) v = _swap(v, size);
     return switch (size) {
       1 => signed ? v.toSigned(8) : v & 0xff,
       2 => signed ? v.toSigned(16) : v & 0xffff,
@@ -71,7 +82,8 @@ final class IrInterpreterRuntime extends JitRuntime {
         .toUnsigned(32);
   }
 
-  void _store(int addr, int size, int v) {
+  void _store(int addr, int size, int v, IrEndian endian) {
+    if (endian == IrEndian.big) v = _swap(v, size);
     final masked = addr & addrMask;
     final page = writePages[masked >>> JitRuntime.pageBits];
     if (page == null) {
@@ -95,18 +107,23 @@ final class IrInterpreterRuntime extends JitRuntime {
         return _exit(JitReason.budget, pc, tag);
       }
       for (final g in block.guards) {
-        final v = mappedWord(g.addr);
+        final v = mappedWord(g.addr, endian: g.endian);
         if (v != null && v != g.value) {
           return _exit(JitReason.invalid, pc, tag);
         }
       }
       ctx[JitCtx.budget] -= block.cost;
 
-      final values = List<int>.filled(block.insts.length, 0);
+      final values = List<Object>.filled(block.insts.length, 0);
       for (int i = 0; i < block.insts.length; i++) {
         final inst = block.insts[i];
-        int a() => values[inst.a];
-        int b() => values[inst.b];
+        if (inst.type == IrType.i64 ||
+            (inst.a >= 0 && block.insts[inst.a].type == IrType.i64)) {
+          values[i] = _wide(inst, values);
+          continue;
+        }
+        int a() => values[inst.a] as int;
+        int b() => values[inst.b] as int;
         final int v = switch (inst.op) {
           IrOp.constant => inst.imm,
           IrOp.ctxLoad => ctx[inst.imm],
@@ -128,17 +145,21 @@ final class IrInterpreterRuntime extends JitRuntime {
           IrOp.ne => a() != b() ? 1 : 0,
           IrOp.ltS => a().toSigned(32) < b().toSigned(32) ? 1 : 0,
           IrOp.ltU => a() < b() ? 1 : 0,
-          IrOp.select => a() != 0 ? b() : values[inst.c],
+          IrOp.select => a() != 0 ? b() : values[inst.c] as int,
           IrOp.sext8 => a().toSigned(8),
           IrOp.sext16 => a().toSigned(16),
           IrOp.zext8 => a() & 0xff,
           IrOp.zext16 => a() & 0xffff,
-          IrOp.load => _load(a(), inst.imm, inst.aux != 0),
+          IrOp.load => _load(a(), inst.imm, inst.aux != 0, inst.endian),
           IrOp.store => () {
-              _store(a(), inst.imm, b());
+              _store(a(), inst.imm, b(), inst.endian);
               return 0;
             }(),
-          IrOp.call => _helpers[inst.imm](a(), b(), values[inst.c]),
+          IrOp.call => _helpers[inst.imm](a(), b(), values[inst.c] as int),
+          IrOp.sext32 ||
+          IrOp.zext32 ||
+          IrOp.trunc32 =>
+            throw StateError('wide conversion in i32 execution path'),
           IrOp.exitIf => a(),
           IrOp.guardMapped => (inst.imm != 0
                       ? writePages
@@ -164,7 +185,7 @@ final class IrInterpreterRuntime extends JitRuntime {
           pc = taken ? b.pcTrue : b.pcFalse;
           tag = taken ? b.tagTrue : b.tagFalse;
         case IrJumpDyn(pc: final v, tag: final t):
-          pc = values[v.index];
+          pc = values[v.index] as int;
           tag = t;
         case IrExitTerm(:final exit):
           ctx[JitCtx.budget] += exit.refund(block.cost);
@@ -183,5 +204,13 @@ final class IrInterpreterRuntime extends JitRuntime {
     final ll = al * bl, lh = al * bh, hl = ah * bl, hh = ah * bh;
     final mid = (ll >>> 16) + (lh & 0xffff) + (hl & 0xffff);
     return hh + (lh >>> 16) + (hl >>> 16) + (mid >>> 16);
+  }
+
+  static int _swap(int value, int size) {
+    int result = 0;
+    for (int i = 0; i < size; i++) {
+      result = (result << 8) | ((value >>> (8 * i)) & 0xff);
+    }
+    return result.toUnsigned(32);
   }
 }
