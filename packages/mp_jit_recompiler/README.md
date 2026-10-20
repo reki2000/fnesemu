@@ -1,6 +1,6 @@
 # mp_jit_recompiler
 
-A block recompiler for emulator cores. A core translates guest code to `IrBlock`s, and `JitRuntime` runs them as host native code.
+A block recompiler for emulator cores. A core translates guest code to `IrBlock`s, and `JitRuntime` runs them as x86-64 or WebAssembly code.
 
 - `IrBlock` is straight-line SSA code over 32-bit values with side exits and one terminator: a static jump, a branch, a dynamic jump or an exit to the host. Blocks are keyed by (pc, tag); the tag carries guest state that the code depends on, such as a load in its delay slot.
 - The context is an array of 32-bit words shared with the host. The first words hold the exit reason, pc and tag, the clock budget and a stop word; the rest belong to the guest.
@@ -8,4 +8,10 @@ A block recompiler for emulator cores. A core translates guest code to `IrBlock`
 - `IrBuilder.guardMapped` exits before an access to an unmapped read or write page without calling the host. A core can then synchronize clocks and CPU state and execute the instruction in its interpreter. Removing write mappings for translated code pages also makes stores to upcoming instructions leave the block before changing them; the core must protect every writable alias of those pages.
 - A run continues from block to block through link slots and a dynamic jump table, and returns to the host only when a block exits, a target is missing, the budget runs out or the stop word is set.
 
-`JitRuntime.native` returns the x86-64 backend on Linux, Android and Windows hosts, or null elsewhere. Linux and Windows x64 CI exercise the native backend. `JitRuntime.interpreter` interprets the IR on every platform and is the reference for the backends. Allocation and code-protection failures throw; construction releases partially allocated resources, and a runtime whose code-protection update fails cannot run again. Shared guest buffers remain valid until the owner calls `dispose`.
+`JitRuntime.native` returns the x86-64 backend on Linux, Android and Windows x64 hosts, or the Wasm backend on the Web. The Web backend works with both dart2js and dart2wasm. Unsupported hosts and policies that prohibit compiling Wasm return null. `JitRuntime.interpreter` interprets the IR on every platform and is the reference for the backends.
+
+The Wasm backend emits one small module per block and uses a common function table and a Wasm dispatcher loop to chain them without Dart calls or growing the stack. Registers, page tables, links and guest buffers occupy the same fixed 64MiB linear memory. Memory does not grow, so existing Dart views remain valid. Guest allocations beyond that capacity throw. The code cache clears at 4,096 installed blocks and recompiles on demand; it does not reclaim guest allocations.
+
+Allocation and x86-64 code-protection failures throw; construction releases partially allocated native resources, and a runtime whose code-protection update fails cannot run again. Shared guest buffers remain valid until the owner calls `dispose`.
+
+Run `dart test` for the host backend, `dart test -p chrome --compiler dart2wasm` for the browser backend, or `dart test -p node --compiler dart2wasm` for Wasm without a browser. `web_runtime_test.dart` requires an active compiled backend so browser CI cannot silently skip Wasm coverage.

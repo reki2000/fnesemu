@@ -7,7 +7,7 @@ Each package owns its domain and communicates through the interfaces below.
 | Part | Location | Responsibility | Dependencies |
 |---|---|---|---|
 | Cores | `packages/fnesemu_core` | Emulation, media identification, BIOS setup | Dart SDK, recompiler; no Flutter or `dart:io` |
-| Recompiler | `packages/mp_jit_recompiler` | Block IR, native code generation, and the reference IR interpreter | Dart SDK (`dart:ffi` on native hosts); no Flutter, `dart:io` or core dependencies |
+| Recompiler | `packages/mp_jit_recompiler` | Block IR, x86-64/Wasm code generation, and the reference IR interpreter | Dart SDK (`dart:ffi` on native hosts, `dart:js_interop` on the Web); no Flutter, `dart:io` or core dependencies |
 | Disc images | `packages/cdrom_image` | CUE/ISO/BIN/CHD parsing and sector reads | Dart SDK, `archive`; no `dart:io` |
 | Pixel images | `packages/mp_pixel_image` | `ui.Image` creation from 32-bit RGBA pixel buffers, fast on every platform | Flutter; `dart:js_interop` on the Web only; no app/core dependencies |
 | File picker | `packages/mp_bigfile_picker` | Platform file/directory selection and random reads | Flutter and platform APIs; no app/core dependencies |

@@ -73,7 +73,7 @@ IrBlock _randomBlock(Random rnd, int helper) {
     final x = pick(), y = pick();
     final IrValue v = switch (rnd.nextInt(26)) {
       0 => b.c32(constants[rnd.nextInt(constants.length)]),
-      1 => b.c32(rnd.nextInt(1 << 32)),
+      1 => b.c32(rnd.nextInt(0x100000000)),
       2 => b.add(x, y),
       3 => b.sub(x, y),
       4 => b.mul(x, y),
@@ -136,7 +136,7 @@ void main() {
     final rnd = Random(1);
     for (int n = 0; n < 2000; n++) {
       final block = _randomBlock(rnd, 0);
-      final init = [for (int i = 0; i < 24; i++) rnd.nextInt(1 << 32)];
+      final init = [for (int i = 0; i < 24; i++) rnd.nextInt(0x100000000)];
       for (final env in [a, b]) {
         env.rt.clear();
         env.rt.install(block);

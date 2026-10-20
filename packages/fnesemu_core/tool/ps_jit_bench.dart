@@ -4,8 +4,6 @@
 //
 // usage: dart compile exe tool/ps_jit_bench.dart -o /tmp/ps-jit-bench
 //        /tmp/ps-jit-bench [-s SLICE]...
-import 'dart:io';
-
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:fnesemu_core/src/core/ps/jit/ps_jit.dart';
 import 'package:fnesemu_core/src/core/ps/r3000/r3000.dart';
@@ -19,7 +17,7 @@ const _code = 0x80010000;
 
 /// a checksum over a 4KiB buffer, written to a second buffer, [_outer]
 /// times; it ends in a self loop at [_end]
-const _outer = 3000;
+const _outer = int.fromEnvironment('BENCH_LOOPS', defaultValue: 3000);
 final _program = [
   _i(0x0f, 0, 8, 0x8010), // lui t0, 0x8010
   _i(0x09, 0, 16, _outer), // addiu s0, r0, outer
@@ -68,8 +66,7 @@ void main(List<String> args) {
     cpu.step();
   }
   final checksum = cpu.r[12];
-  stdout
-      .writeln('interpreter: ${mips(sw, cpu.clocks).toStringAsFixed(1)} MIPS');
+  print('interpreter: ${mips(sw, cpu.clocks).toStringAsFixed(1)} MIPS');
 
   for (final native in [false, true]) {
     final jit = PsJit.create(native: native);
@@ -85,7 +82,7 @@ void main(List<String> args) {
         jit.run(cpu.clocks + slice);
       }
       final ok = cpu.r[12] == checksum ? '' : ' (checksum differs)';
-      stdout.writeln('${native ? 'native' : 'ir interpreter'} slice $slice: '
+      print('${native ? 'compiled' : 'ir interpreter'} slice $slice: '
           '${mips(sw, cpu.clocks).toStringAsFixed(1)} MIPS$ok');
     }
     jit.rt.dispose();
