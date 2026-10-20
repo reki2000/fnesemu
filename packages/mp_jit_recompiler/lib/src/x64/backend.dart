@@ -316,6 +316,14 @@ abstract final class X64Backend {
               exitTo(e.reason, e.pc, e.tag, refund: e.refund(block.cost)));
           a.aluMI(Alu.cmp, _slot(inst.a), 0);
           a.jcc(Cc.ne, l);
+        case IrOp.guardMapped:
+          final e = block.exits[inst.aux];
+          final l = stub(() =>
+              exitTo(e.reason, e.pc, e.tag, refund: e.refund(block.cost)));
+          a.movRM(R.rax, _slot(inst.a));
+          lookup(inst.imm != 0 ? R.r13 : R.r12);
+          a.testRR64(R.rdx, R.rdx);
+          a.jcc(Cc.e, l);
       }
     }
 

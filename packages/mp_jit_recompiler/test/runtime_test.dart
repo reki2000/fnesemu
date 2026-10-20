@@ -288,8 +288,63 @@ void main() {
         expect(env.ctx[JitCtx.exitReason], JitReason.invalid);
         expect(env.ctx[8], 0);
       });
+
+      for (final write in [false, true]) {
+        test('mapped ${write ? 'write' : 'read'} guards exit before callbacks',
+            () {
+          if (factory == null) return;
+          final b = IrBuilder(0x100);
+          final address = b.ctxLoad(9);
+          b.guardMapped(
+              address, const IrExit(JitReason.user, 0x104, tag: 3, spent: 2),
+              write: write);
+          if (write) {
+            b.store(4, address, b.c32(42));
+          } else {
+            b.ctxStore(10, b.load(4, address));
+          }
+          b.ctxStore(8, b.c32(1));
+          env.rt.install(b.finish(
+              const IrExitTerm(IrExit(JitReason.user + 1, 0x108)),
+              cost: 6));
+          for (final address in [0xa0001000, 0x2000, 0x5000]) {
+            final allowed = address != 0x5000 && (!write || address != 0x2000);
+            env.ctx[8] = 0;
+            env.ctx[9] = address;
+            run(0x100, budget: 100);
+            expect(env.ctx[JitCtx.exitReason],
+                allowed ? JitReason.user + 1 : JitReason.user);
+            expect(env.ctx[8], allowed ? 1 : 0);
+            expect(env.ctx[JitCtx.budget], allowed ? 94 : 98);
+            if (!allowed) expect(env.rt.exitTag, 3);
+            expect(env.log, isEmpty);
+          }
+          env.rt.unmapPages(0x1000, 4096);
+          env.ctx[9] = 0x1000;
+          run(0x100);
+          expect(env.ctx[JitCtx.exitReason], JitReason.user);
+          expect(env.log, isEmpty);
+        });
+      }
     });
   }
+
+  test('a disposed native runtime cannot execute or install code', () {
+    final factory = _factories['native'];
+    if (factory == null) {
+      markTestSkipped('no native runtime on this host');
+      return;
+    }
+    final env = _env(factory);
+    final b = IrBuilder(0x100);
+    final block =
+        b.finish(const IrExitTerm(IrExit(JitReason.user, 0x104)), cost: 1);
+    env.rt.install(block);
+    env.dispose();
+    env.dispose();
+    expect(() => env.rt.run(0x100, 0), throwsStateError);
+    expect(() => env.rt.install(block), throwsStateError);
+  });
 }
 
 extension on _Env {

@@ -69,6 +69,9 @@ enum IrOp {
 
   /// exits the block if a != 0, see [IrExit]
   exitIf,
+
+  /// exits through aux if address a has no mapped page; imm is 1 for write
+  guardMapped,
 }
 
 /// Number of value operands of each [IrOp].
@@ -80,7 +83,8 @@ int irOperandCount(IrOp op) => switch (op) {
       IrOp.zext8 ||
       IrOp.zext16 ||
       IrOp.load ||
-      IrOp.exitIf =>
+      IrOp.exitIf ||
+      IrOp.guardMapped =>
         1,
       IrOp.select || IrOp.call => 3,
       _ => 2,
@@ -88,7 +92,10 @@ int irOperandCount(IrOp op) => switch (op) {
 
 /// Whether an [IrOp] produces a value.
 bool irHasResult(IrOp op) =>
-    op != IrOp.ctxStore && op != IrOp.store && op != IrOp.exitIf;
+    op != IrOp.ctxStore &&
+    op != IrOp.store &&
+    op != IrOp.exitIf &&
+    op != IrOp.guardMapped;
 
 /// A value produced by an instruction, identified by its index in the block.
 extension type const IrValue(int index) {}
@@ -239,7 +246,7 @@ final class IrBlock {
         case IrOp.load || IrOp.store:
           check(inst.imm == 1 || inst.imm == 2 || inst.imm == 4,
               'v$i has an invalid size ${inst.imm}');
-        case IrOp.exitIf:
+        case IrOp.exitIf || IrOp.guardMapped:
           check(inst.aux >= 0 && inst.aux < exits.length,
               'v$i has an invalid exit ${inst.aux}');
           final spent = exits[inst.aux].spent;
@@ -339,6 +346,14 @@ final class IrBuilder {
   void exitIf(IrValue cond, IrExit exit) {
     _exits.add(exit);
     _emit(IrInst(IrOp.exitIf, a: cond.index, aux: _exits.length - 1));
+  }
+
+  /// Exits before an access requiring a host callback. The caller can
+  /// synchronize guest state and execute that access outside the block.
+  void guardMapped(IrValue address, IrExit exit, {bool write = false}) {
+    _exits.add(exit);
+    _emit(IrInst(IrOp.guardMapped,
+        a: address.index, imm: write ? 1 : 0, aux: _exits.length - 1));
   }
 
   void guard(int addr, int value) =>

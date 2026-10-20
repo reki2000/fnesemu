@@ -140,9 +140,15 @@ final class IrInterpreterRuntime extends JitRuntime {
             }(),
           IrOp.call => _helpers[inst.imm](a(), b(), values[inst.c]),
           IrOp.exitIf => a(),
+          IrOp.guardMapped => (inst.imm != 0
+                      ? writePages
+                      : readPages)[(a() & addrMask) >>> JitRuntime.pageBits] ==
+                  null
+              ? 1
+              : 0,
         };
         values[i] = v.toUnsigned(32);
-        if (inst.op == IrOp.exitIf && v != 0) {
+        if ((inst.op == IrOp.exitIf || inst.op == IrOp.guardMapped) && v != 0) {
           final e = block.exits[inst.aux];
           ctx[JitCtx.budget] += e.refund(block.cost);
           return _exit(e.reason, e.pc, e.tag);
