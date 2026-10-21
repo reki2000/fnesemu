@@ -4,7 +4,7 @@
 // usage: dart run tool/ps_bench.dart <bios> [disc.cue] [options]
 //   -w N        frames to run before timing (default: 0)
 //   -m N        frames to time (default: 600)
-//   -p F:B      press button B at frame F (repeatable), -H N hold frames (12)
+//   -i SEQ      the button presses, in the syntax of tool/input_sequence.dart
 //   -l FILE     take this flock(1) lock only while timing (shared bench lock)
 //   -s DIR      instead of -l: write DIR/ready.<pid> before timing and wait
 //               for DIR/go (a runner times two builds side by side)
@@ -25,16 +25,17 @@ import 'package:fnesemu_core/src/sram.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
+import 'input_sequence.dart';
 import 'local_disc.dart';
 import 'logging.dart';
 import 'ps_io.dart';
 
 Future<void> main(List<String> args) async {
   configureLogging();
-  int warm = 0, measure = 600, hold = 12, every = 300;
+  int warm = 0, measure = 600, every = 300;
   String? lock, exe, outDir, syncDir;
   bool frameRunner = false;
-  final presses = <(int, String)>[];
+  var input = "";
   final files = <String>[];
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -42,8 +43,6 @@ Future<void> main(List<String> args) async {
         warm = int.parse(args[++i]);
       case "-m":
         measure = int.parse(args[++i]);
-      case "-H":
-        hold = int.parse(args[++i]);
       case "-e":
         every = int.parse(args[++i]);
       case "-r":
@@ -56,9 +55,8 @@ Future<void> main(List<String> args) async {
         exe = args[++i];
       case "-o":
         outDir = args[++i];
-      case "-p":
-        final p = args[++i].split(":");
-        presses.add((int.parse(p[0]), p[1]));
+      case "-i" || "--input":
+        input = args[++i];
       default:
         files.add(args[i]);
     }
@@ -80,13 +78,9 @@ Future<void> main(List<String> args) async {
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
   final buttons = core.buttons;
-  final pressList = presses
-      .map((p) => (
-            p.$1,
-            buttons
-                .indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase())
-          ))
-      .toList();
+  final pad = PadPlayer(
+      resolveInput(input, buttons.map((b) => b.name).toList()),
+      buttons.length);
 
   final pcm = outDir != null ? BytesBuilder() : null;
   int audioHash = 0x811c9dc5;
@@ -122,10 +116,9 @@ Future<void> main(List<String> args) async {
     }
     frame++;
     await drive?.settle();
-    for (final (f, b) in pressList) {
-      if (frame == f) core.padDown(0, buttons[b]);
-      if (frame == f + hold) core.padUp(0, buttons[b]);
-    }
+    pad.step(frame, (b, down) {
+      down ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
+    });
     final ib = core.imageBuffer();
     final w = ib.buffer;
     int h = imageHash;

@@ -6,7 +6,7 @@
 // that an optimization does not change the output.
 //
 // usage: dart run tool/pce_bench.dart <rom|bios> [disc.cue]
-//          [-f frames] [-p frame:button ...] [-H hold] [-c] [-r]
+//          [-f frames] [-i input] [-c] [-r]
 // -r runs each frame with runFrame() (as the gui does without the debugger)
 // instead of exec() per instruction.
 import 'dart:io';
@@ -16,30 +16,27 @@ import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/sram.dart';
 
 import 'cdrom_drive.dart';
+import 'input_sequence.dart';
 import 'local_disc.dart';
 import 'logging.dart';
 
 Future<void> main(List<String> args) async {
   configureLogging();
   int frames = 1200;
-  int hold = 12;
   bool checksum = false;
   bool runFrame = false;
-  final presses = <(int, String)>[];
+  var input = "";
   final files = <String>[];
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "-f":
         frames = int.parse(args[++i]);
-      case "-H":
-        hold = int.parse(args[++i]);
       case "-c":
         checksum = true;
       case "-r":
         runFrame = true;
-      case "-p":
-        final s = args[++i].split(":");
-        presses.add((int.parse(s[0]), s[1]));
+      case "-i" || "--input":
+        input = args[++i];
       default:
         files.add(args[i]);
     }
@@ -57,13 +54,9 @@ Future<void> main(List<String> args) async {
   core.reset();
 
   final buttons = core.buttons;
-  final pressList = presses
-      .map((p) => (
-            p.$1,
-            buttons
-                .firstWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase())
-          ))
-      .toList();
+  final pad = PadPlayer(
+      resolveInput(input, buttons.map((b) => b.name).toList()),
+      buttons.length);
 
   // fnv-1a over the raw bytes
   int hash = 0xcbf29ce484222325;
@@ -109,10 +102,9 @@ Future<void> main(List<String> args) async {
       await drive.settle();
       sw.start();
     }
-    for (final (f, b) in pressList) {
-      if (frame == f) core.padDown(0, b);
-      if (frame == f + hold) core.padUp(0, b);
-    }
+    pad.step(frame, (b, down) {
+      down ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
+    });
   }
   sw.stop();
 
