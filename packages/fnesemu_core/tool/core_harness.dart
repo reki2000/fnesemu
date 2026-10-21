@@ -5,8 +5,9 @@
 //   -f, --frames N   number of frames to run (default: 600)
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/core_harness)
-//   -p, --press F:B[:N]  press button B (name, or index when no button has that name) at frame F for N frames (repeatable)
-//   -H, --hold N     frames to hold a press without N (default: 10)
+//   -i, --input SEQ  the button presses, in the syntax of tool/input_sequence.dart
+//   --check-input    print the presses of --input as JSON and exit without running
+//   --buttons        print the button names as JSON and exit without running
 //   -s, --start N    save pngs only from frame N on (default: 0)
 //   -w, --wav        also write audio.wav (16bit pcm) to the output directory
 //   -b, --bios FILE  gba/fds: BIOS image (required for fds)
@@ -20,8 +21,8 @@
 //
 // server mode (GET requests, answers are JSON; the frame counter starts at 0):
 //   /run?frames=N[&every=E&dir=D]   runs N frames; with every, saves D/frame_NNNNN.png every E frames
-//   /press?button=B[&at=F][&frames=N]  presses B (name or index, "+" for several) from frame F (default:
-//                                   the next frame) for N frames (default: -H)
+//   /press?seq=S                    adds the presses of the input sequence S, read with the cursor at the
+//                                   next frame; answers the presses and the cursor at the end
 //   /shot?path=P                    saves the current screen as a png
 //   /audio?path=P                   saves the audio since the previous /audio as a wav
 //   /state                          the frame, the program counter and the core dump
@@ -51,6 +52,7 @@ import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
+import 'input_sequence.dart';
 import 'local_disc.dart';
 import 'logging.dart';
 import 'ps_io.dart';
@@ -60,8 +62,9 @@ Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/core_harness";
-  final presses = <(int, String, int?)>[];
-  int holdFrames = 10;
+  String? input;
+  bool checkInput = false;
+  bool printButtons = false;
   bool wav = false;
   int saveFrom = 0;
   String? bios;
@@ -81,8 +84,6 @@ Future<void> main(List<String> args) async {
         every = int.parse(args[++i]);
       case "-o" || "--out":
         outDir = args[++i];
-      case "-H" || "--hold":
-        holdFrames = int.parse(args[++i]);
       case "-s" || "--start":
         saveFrom = int.parse(args[++i]);
       case "-w" || "--wav":
@@ -101,10 +102,13 @@ Future<void> main(List<String> args) async {
         servePort = int.parse(args[++i]);
       case "--fast-boot":
         fastBoot = true;
-      case "-p" || "--press":
-        final p = args[++i].split(":");
-        presses.add(
-            (int.parse(p[0]), p[1], p.length > 2 ? int.parse(p[2]) : null));
+      case "-i" || "--input":
+        if (input != null) throw "--input is given twice";
+        input = args[++i];
+      case "--check-input":
+        checkInput = true;
+      case "--buttons":
+        printButtons = true;
       default:
         files.add(args[i]);
     }
@@ -113,13 +117,24 @@ Future<void> main(List<String> args) async {
   if (files.length < 2) {
     stdout.writeln(
         "usage: core_harness <nes|fds|pce|md|mdcd|32x|ps|snes|gb|gba|n64|sms|mk3|smstms|gg|ws|wsc> <rom|bios> [disc] "
-        "[-f frames] [-e every] [-o dir] [-p F:B] [-w]");
+        "[-f frames] [-e every] [-o dir] [-i input] [-w]");
     exit(1);
   }
 
-  Directory(outDir).createSync(recursive: true);
-
   final core = _createCore(files[0]);
+  final buttons = core.buttons;
+  final names = buttons.map((b) => b.name).toList();
+  if (printButtons) {
+    stdout.writeln(jsonEncode(names));
+    exit(0);
+  }
+  final pad = PadPlayer(_readInput(input, names), buttons.length);
+  if (checkInput) {
+    stdout.writeln(pressesJson(pad.presses, names));
+    exit(0);
+  }
+
+  Directory(outDir).createSync(recursive: true);
   core.setSram(Sram());
   if (bios != null && (core is Gba || files[0] == "fds")) {
     core.setBiosFiles([File(bios).readAsBytesSync()]);
@@ -155,22 +170,6 @@ Future<void> main(List<String> args) async {
   }
   if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
-  final buttons = core.buttons;
-  // a name first: some cores have buttons named "1" and "2"
-  int buttonIndex(String name) {
-    final byName =
-        buttons.indexWhere((b) => b.name.toLowerCase() == name.toLowerCase());
-    final idx = byName >= 0 ? byName : int.tryParse(name) ?? -1;
-    if (idx < 0 || idx >= buttons.length) {
-      throw "unknown button: $name (${buttons.map((b) => b.name).join(",")})";
-    }
-    return idx;
-  }
-
-  final pressList = presses
-      .map((p) => (p.$1, buttonIndex(p.$2), p.$3 ?? holdFrames))
-      .toList();
-  final held = List<bool>.filled(buttons.length, false);
 
   final pcm = BytesBuilder();
   int sampleRate = 0, channels = 0;
@@ -208,16 +207,9 @@ Future<void> main(List<String> args) async {
     // that the result does not depend on the speed of the disc
     await drive?.settle();
 
-    // a button is down while any of its presses lasts
-    final down = List<bool>.filled(buttons.length, false);
-    for (final (f, b, n) in pressList) {
-      if (frame >= f && frame < f + n) down[b] = true;
-    }
-    for (var b = 0; b < buttons.length; b++) {
-      if (down[b] == held[b]) continue;
-      held[b] = down[b];
-      down[b] ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
-    }
+    pad.step(frame, (b, down) {
+      down ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
+    });
     return true;
   }
 
@@ -241,12 +233,15 @@ Future<void> main(List<String> args) async {
           }
           return {"frame": frame, "pc": core.programCounter(0)};
         case "/press":
-          final at = int.tryParse(q["at"] ?? "") ?? frame + 1;
-          final n = int.tryParse(q["frames"] ?? "") ?? holdFrames;
-          for (final b in q["button"]!.split("+")) {
-            pressList.add((at, buttonIndex(b), n));
-          }
-          return {"frame": frame, "at": at, "frames": n};
+          final seq = q["seq"]!;
+          final added = resolveInput(seq, names, origin: frame + 1);
+          pad.presses.addAll(added);
+          return {
+            "frame": frame,
+            "from": frame + 1,
+            "end": readInput(seq, origin: frame + 1).end,
+            "presses": jsonDecode(pressesJson(added, names)),
+          };
         case "/shot":
           _savePng(core.imageBuffer(), q["path"]!);
           return {"frame": frame, "path": q["path"]};
@@ -299,6 +294,16 @@ Future<void> main(List<String> args) async {
   }
   File("$outDir/state.txt").writeAsStringSync(core.dump());
   stdout.writeln(core.dump());
+}
+
+/// the presses of [input]; an error in it ends the harness
+List<(int, int, int)> _readInput(String? input, List<String> buttons) {
+  try {
+    return resolveInput(input ?? "", buttons);
+  } on InputError catch (e) {
+    stderr.writeln(e);
+    exit(64);
+  }
 }
 
 /// answers the requests one at a time until the handler returns null (quit);

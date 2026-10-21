@@ -14,6 +14,7 @@ import 'package:fnesemu_core/src/core/nes/nes.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:fnesemu_core/src/sram.dart';
 
+import 'input_sequence.dart';
 import 'logging.dart';
 
 Future<void> main(List<String> options) async {
@@ -46,17 +47,13 @@ Future<void> main(List<String> options) async {
       (jsonDecode(File(caseFile).readAsStringSync()) as List).cast<String>();
   final core = createCore(args[0]);
   core.setSram(Sram());
-  final presses = <(int, String)>[];
-  var hold = 10;
+  var input = '';
   for (var i = 2; i < args.length; i++) {
     switch (args[i]) {
       case '-b':
         core.setBiosFiles([File(args[++i]).readAsBytesSync()]);
-      case '-p':
-        final pair = args[++i].split(':');
-        presses.add((int.parse(pair[0]), pair[1]));
-      case '-H':
-        hold = int.parse(args[++i]);
+      case '-i' || '--input':
+        input = args[++i];
       case '-f' || '-e' || '-s' || '-o':
         i++;
       case '-w':
@@ -77,14 +74,9 @@ Future<void> main(List<String> options) async {
   core.setRom(bytes);
   if (args[0] != 'gba') core.reset();
   final buttons = core.buttons;
-  final events = presses.map((p) {
-    final index = int.tryParse(p.$2) ??
-        buttons.indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase());
-    if (index < 0 || index >= buttons.length) {
-      throw ArgumentError('Unknown button');
-    }
-    return (p.$1, index);
-  }).toList();
+  final pad = PadPlayer(
+      resolveInput(input, buttons.map((b) => b.name).toList()),
+      buttons.length);
   final audio = BytesBuilder();
   var samples = 0;
   core.onAudio((buffer) {
@@ -142,10 +134,9 @@ Future<void> main(List<String> options) async {
       if (frame <= warmup && frame % 600 == 0) {
         stderr.writeln('warmup $frame/$warmup');
       }
-      for (final event in events) {
-        if (frame == event.$1) core.padDown(0, buttons[event.$2]);
-        if (frame == event.$1 + hold) core.padUp(0, buttons[event.$2]);
-      }
+      pad.step(frame, (b, down) {
+        down ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
+      });
       if (out != null &&
           (frame % 150 == 0 || frame == warmup + measured * repetitions)) {
         final image = core.imageBuffer();

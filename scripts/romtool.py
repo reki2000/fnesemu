@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
 """Tools for writing the cases of a ROM tree: try inputs, pick the frames and record them in roms.toml.
 
-  scripts/romtool.py shoot <core>/<case> FRAMES EVERY [--input JSON] [--hold N] [--start N] [--cols N] [--scale S]
+  scripts/romtool.py shoot <core>/<case> N --every E [--start S] [--input SEQ] [--cols C] [--scale X]
+  scripts/romtool.py buttons [<core>/<case>]
   scripts/romtool.py serve <core>/<case>
-  scripts/romtool.py run N [--every E] [--cols N]
-  scripts/romtool.py press "<sequence>"
-  scripts/romtool.py shot NAME
+  scripts/romtool.py run N [--every E] [--cols C] [--scale X]
+  scripts/romtool.py press SEQ
+  scripts/romtool.py input
+  scripts/romtool.py shot [NAME]
   scripts/romtool.py state
   scripts/romtool.py stop
-  scripts/romtool.py set <core>/<case> --frames N --shots F1,F2,... [--input JSON] [--hold N] [--note TEXT]
-                         [--history TEXT]
+  scripts/romtool.py set <core>/<case> --frames N --shots F1,F2,... [--input SEQ] [--note TEXT] [--history TEXT]
 
-Every command takes --root DIR like romtest.py (default: packages/fnesemu_core/test/roms).
+Every command takes --root DIR like romtest.py (default: packages/fnesemu_core/test/roms). SEQ is an input
+sequence in the syntax of the input of roms.toml (see romtest.py); @F is always an absolute frame.
 
-shoot runs the case (with --input in place of its input, given as JSON in the roms.toml input syntax) and tiles
-the screenshots saved every EVERY frames, with their frame numbers, into sheet.png.
+shoot runs the case for N frames (with --input in place of its input) and tiles the screenshots saved every E
+frames from frame S, with their frame numbers, into sheet.png. buttons prints the button names of the case (or of
+the served case) as they are written in a sequence.
 
-serve starts core_harness --serve for the case in the background; run, press, shot and state control it, and stop
-ends it. run advances N frames (with --every, it saves shots and tiles them into sheet.png). press schedules an
-input sequence; its cursor starts at the next frame, so @F is relative to it. Each press is logged with its start
-frame in press.log, from which the input of the case can be written.
+serve starts the harness of the case with --serve in the background; run, press, shot and state control it, and
+stop ends it. run advances N frames (with --every, it saves the screenshots of the frames that are multiples of E
+and tiles them into sheet.png). press adds the presses of SEQ, read with the cursor at the next frame, and logs it
+in press.log. input prints the input of the logged presses (one after another, or in parallel where they overlap),
+e.g. for set --input "$(scripts/romtool.py input)".
 
-set rewrites the frames, input, hold, note and screenshot checks of a case (the other checks stay) and adds a
-[[case.history]] entry. The screenshots are expected/<case>_NNNNN.png when the case shares its dir, and
+set rewrites the frames, input, note and screenshot checks of a case (the other checks stay) and adds a
+[[case.history]] entry, which replaces the last entry when that has the date of today. The harness reads the
+input first. The screenshots are expected/<case>_NNNNN.png when the case shares its dir, and
 expected/frame_NNNNN.png otherwise; screenshots of the case that are no longer checked are deleted. Write the
 expected data with romtest.py run --update afterwards.
 
@@ -55,19 +60,14 @@ def find_case(root: Path, case_id: str) -> romtest.Case:
     return cases[0]
 
 
-def harness_command(case: romtest.Case, exe: Path):
-    """The harness command without frames, output and input."""
-    cmd = [str(exe)]
-    if case.harness() == "core_harness.dart":
-        cmd.append(case.spec.get("core", case.core))
-    cmd += [str(case.path(f)) for f in case.spec["files"]]
-    cmd += [str(case.path(a)) if a.startswith(("./", "../")) else a for a in case.spec.get("args", [])]
-    return cmd
+def harness(case: romtest.Case) -> Path:
+    return romtest.compile_harnesses([case])[case.harness()]
 
 
-def sheet(paths, dest: Path, cols=6, scale=0.5):
-    """Tiles the screenshots with their frame numbers."""
+def sheet(paths, dest: Path, cols=None, scale=0.5):
+    """Tiles the screenshots with their frame numbers; cols defaults to up to 12 in a row."""
     from PIL import Image, ImageDraw
+    cols = cols or min(len(paths), 12)
     ims = [Image.open(p).convert("RGB") for p in paths]
     w = int(max(i.width for i in ims) * scale)
     h = int(max(i.height for i in ims) * scale)
@@ -84,17 +84,15 @@ def sheet(paths, dest: Path, cols=6, scale=0.5):
 
 def shoot(a):
     case = find_case(a.root, a.case)
-    exe = romtest.compile_harnesses([case])[case.harness()]
-    spec = json.loads(a.input) if a.input is not None else case.spec.get("input", [])
-    hold = a.hold if a.hold is not None else case.spec.get("hold", 10)
+    seq = a.input if a.input is not None else case.input()
     out = OUT / "shoot" / case.name
     subprocess.run(["rm", "-rf", str(out)])
     out.mkdir(parents=True)
-    cmd = harness_command(case, exe) + ["-f", str(a.frames), "-e", str(a.every), "-o", str(out)]
+    cmd = case.base_command(harness(case)) + ["-f", str(a.frames), "-e", str(a.every), "-o", str(out)]
     if case.harness() == "core_harness.dart":
         cmd += ["-s", str(a.start)]
-    for f, b, n in romtest.parse_input(spec, hold):
-        cmd += ["-p", f"{f}:{b}:{n}"]
+    if seq:
+        cmd += ["--input", seq]
     r = subprocess.run(cmd, cwd=romtest.CORE_PKG, capture_output=True, text=True)
     pngs = sorted(p for p in out.glob("frame_*.png") if int(p.stem[6:]) >= a.start)
     if not pngs:
@@ -116,16 +114,33 @@ def server_dir() -> Path:
     return OUT / "serve" / json.loads(SERVER.read_text())["case"]
 
 
+def buttons(a):
+    if a.case is None:
+        names = request("/buttons")["buttons"]
+    else:
+        case = find_case(a.root, a.case)
+        r = subprocess.run(case.base_command(harness(case)) + ["--buttons"], cwd=romtest.CORE_PKG,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(r.stderr[-1000:] or r.stdout[-1000:])
+        names = json.loads(r.stdout)
+    print(" ".join(quote_button(n) for n in names if n))
+
+
+def quote_button(name: str) -> str:
+    """The name as written in a sequence (the rule of quoteButton in tool/input_sequence.dart)."""
+    return f'"{name}"' if any(c in '@_:+[]*()|" \t\n\r' for c in name) else name
+
+
 def serve(a):
     case = find_case(a.root, a.case)
     if case.harness() != "core_harness.dart":
         sys.exit(f"{case.id} uses {case.harness()}, which has no server mode")
-    exe = romtest.compile_harnesses([case])[case.harness()]
     d = OUT / "serve" / case.name
     subprocess.run(["rm", "-rf", str(d)])
     d.mkdir(parents=True)
     log = d / "server.log"
-    cmd = harness_command(case, exe) + ["-H", str(case.spec.get("hold", 10)), "-w", "--serve", "0"]
+    cmd = case.base_command(harness(case)) + ["-w", "--serve", "0"]
     subprocess.Popen(cmd, cwd=romtest.CORE_PKG, stdout=open(log, "w"), stderr=subprocess.STDOUT,
                      start_new_session=True)
     text = ""
@@ -137,45 +152,68 @@ def serve(a):
     else:
         sys.exit(f"the server did not start:\n{text[-1000:]}")
     port = int(text.split("127.0.0.1:")[1].split()[0])
-    SERVER.write_text(json.dumps({"case": case.name, "port": port, "hold": case.spec.get("hold", 10)}))
+    SERVER.write_text(json.dumps({"case": case.name, "port": port}))
     print(f"serving {case.id} on port {port}")
 
 
 def run(a):
     if a.every is None:
-        print(request("/run", frames=a.frames))
+        print(json.dumps(request("/run", frames=a.frames)))
         return
     d = server_dir() / f"run_{time.time_ns()}"
     r = request("/run", frames=a.frames, every=a.every, dir=str(d))
     pngs = sorted(d.glob("frame_*.png"))
     if pngs:
-        sheet(pngs, server_dir() / "sheet.png", a.cols)
-    print(r)
+        sheet(pngs, server_dir() / "sheet.png", a.cols, a.scale)
+    print(json.dumps(r))
 
 
 def press(a):
-    frame = request("/state")["frame"]
-    hold = json.loads(SERVER.read_text())["hold"]
-    for f, b, n in romtest.parse_input(a.sequence, hold):
-        r = request("/press", button=b, at=frame + 1 + f, frames=n)
-        if "error" in r:
-            sys.exit(r["error"])
+    r = request("/press", seq=a.seq)
+    if "error" in r:
+        sys.exit(r["error"])
     with open(server_dir() / "press.log", "a") as log:
-        log.write(f"@{frame + 1} {a.sequence}\n")
-    print(f"scheduled from frame {frame + 1}")
+        log.write(json.dumps({"from": r["from"], "end": r["end"], "seq": a.seq}, ensure_ascii=False) + "\n")
+    print(json.dumps({"from": r["from"], "end": r["end"], "presses": r["presses"]}))
+
+
+def logged_input() -> str:
+    """The input of the presses in press.log: one after another, or in parallel when they overlap."""
+    path = server_dir() / "press.log"
+    entries = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    tracks = []  # [end, [parts]]
+    for e in entries:
+        at = re.match(r"\s*@(\d+)", e["seq"])
+        start = int(at.group(1)) if at else e["from"]
+        part = e["seq"] if at else f"@{e['from']} {e['seq']}"
+        track = next((t for t in tracks if t[0] <= start), None)
+        if track is None:
+            track = [0, []]
+            tracks.append(track)
+        # a default length set in a part must not reach the parts after it
+        track[1].append(f"( {part} )" if re.search(r"(^|[\s\[(|]):\d", part) else part)
+        track[0] = e["end"]
+    if len(tracks) <= 1:
+        return " ".join(tracks[0][1]) if tracks else ""
+    return "( " + " | ".join(" ".join(t[1]) for t in tracks) + " )"
+
+
+def input_(a):
+    print(logged_input())
 
 
 def shot(a):
-    print(request("/shot", path=str(server_dir() / f"{a.name}.png")))
+    name = a.name or f"frame_{request('/state')['frame']:05d}"
+    print(json.dumps(request("/shot", path=str(server_dir() / f"{name}.png"))))
 
 
 def state(a):
     r = request("/state")
-    print(r["frame"], hex(r.get("pc", 0)))
+    print(json.dumps({"frame": r["frame"], "pc": hex(r.get("pc", 0))}))
 
 
 def stop(a):
-    print(request("/quit"))
+    print(json.dumps(request("/quit")))
 
 
 def set_case(a):
@@ -188,6 +226,9 @@ def set_case(a):
     prefix = f"{case.name}_" if "dir" in case.spec else "frame_"
 
     def text(s):
+        # a literal string keeps the quotes of the button names readable
+        if '"' in s and "'" not in s and "\n" not in s:
+            return f"'{s}'"
         return json.dumps(s, ensure_ascii=False)
 
     def set_line(block, key, value):
@@ -199,13 +240,10 @@ def set_case(a):
 
     block = set_line(block, "frames", str(a.frames))
     if a.input is not None:
-        spec = json.loads(a.input)
-        romtest.parse_input(spec, 10)  # rejects input that cannot be read
-        items = spec if isinstance(spec, list) else [spec]
-        block = set_line(block, "input", "[" + ", ".join(
-            text(x) if isinstance(x, str) else "[" + ", ".join(text(v) for v in x) + "]" for x in items) + "]")
-    if a.hold is not None:
-        block = set_line(block, "hold", str(a.hold))
+        case.spec["input"] = a.input
+        if a.input and (err := case.check_input(harness(case))):
+            sys.exit(err)
+        block = set_line(block, "input", text(a.input))
     if a.note is not None:
         block = set_line(block, "note", text(a.note))
     checks = [f'{{ frame = {f}, expected = "expected/{prefix}{f:05d}.png" }}' for f in shots]
@@ -215,6 +253,7 @@ def set_case(a):
     block = set_line(block, "checks", "[" + ", ".join(checks) + "]")
     if a.history is not None:
         today = datetime.date.today().isoformat()
+        block = re.sub(rf'\n*\[\[case\.history\]\]\ndate = "{today}"\ntext = .*\n*$', "", block)
         block = block.rstrip("\n") + f'\n\n[[case.history]]\ndate = "{today}"\ntext = {text(a.history)}\n\n'
     blocks[idx] = block
     new = "[[case]]".join(blocks)
@@ -234,27 +273,31 @@ def main(argv=None):
     p = sub.add_parser("shoot", help="run a case and tile its screenshots")
     p.add_argument("case")
     p.add_argument("frames", type=int)
-    p.add_argument("every", type=int)
-    p.add_argument("--input", help="the input as JSON, in the roms.toml syntax")
-    p.add_argument("--hold", type=int)
+    p.add_argument("--every", type=int, required=True)
     p.add_argument("--start", type=int, default=0, help="the first frame to tile")
-    p.add_argument("--cols", type=int, default=6)
+    p.add_argument("--input", help="the input sequence in place of the input of the case")
+    p.add_argument("--cols", type=int, help="screenshots in a row (default: up to 12)")
     p.add_argument("--scale", type=float, default=0.5)
     p.set_defaults(func=shoot)
 
+    p = sub.add_parser("buttons", help="print the button names of a case or of the served case")
+    p.add_argument("case", nargs="?")
+    p.set_defaults(func=buttons)
     p = sub.add_parser("serve", help="start the harness server for a case")
     p.add_argument("case")
     p.set_defaults(func=serve)
     p = sub.add_parser("run", help="advance the server")
     p.add_argument("frames", type=int)
     p.add_argument("--every", type=int)
-    p.add_argument("--cols", type=int, default=6)
+    p.add_argument("--cols", type=int, help="screenshots in a row (default: up to 12)")
+    p.add_argument("--scale", type=float, default=0.5)
     p.set_defaults(func=run)
-    p = sub.add_parser("press", help="schedule an input sequence from the next frame")
-    p.add_argument("sequence")
+    p = sub.add_parser("press", help="add the presses of an input sequence from the next frame")
+    p.add_argument("seq")
     p.set_defaults(func=press)
+    sub.add_parser("input", help="print the input of the presses so far, for set --input").set_defaults(func=input_)
     p = sub.add_parser("shot", help="save the current screen")
-    p.add_argument("name")
+    p.add_argument("name", nargs="?", help="the file name without .png (default: frame_NNNNN)")
     p.set_defaults(func=shot)
     sub.add_parser("state", help="print the frame and the program counter").set_defaults(func=state)
     sub.add_parser("stop", help="stop the server").set_defaults(func=stop)
@@ -263,8 +306,7 @@ def main(argv=None):
     p.add_argument("case")
     p.add_argument("--frames", type=int, required=True)
     p.add_argument("--shots", required=True, help="the frames to check, comma separated")
-    p.add_argument("--input", help="the input as JSON, in the roms.toml syntax")
-    p.add_argument("--hold", type=int)
+    p.add_argument("--input", help="the input sequence")
     p.add_argument("--note")
     p.add_argument("--history", help="a [[case.history]] entry")
     p.set_defaults(func=set_case)

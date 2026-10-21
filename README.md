@@ -141,15 +141,17 @@ python3 scripts/romtest.py lint                  # paths stay in the tree, expec
 
 Covered cores: NES, PCE, SNES, MD, SMS, GB, GBA (with a replacement BIOS), N64, WS and PS1 (test EXEs on OpenBIOS). Cases marked `slow = true` (minutes long) run only with `--slow`.
 
-`scripts/romtool.py` helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `roms.toml`.
+`scripts/romtool.py` helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `roms.toml`. An input is one line such as `@60 Start _40 ( right:300 | [A _20]*10 )`; the syntax is in `packages/fnesemu_core/tool/input_sequence.dart` and `romtest.py --help`.
 
 ```sh
-python3 scripts/romtool.py shoot md/vcounter 360 60 --input '["@60 Start"]'   # run with an input, tile a shot every 60 frames
+python3 scripts/romtool.py buttons md/vcounter   # the button names of the case
+python3 scripts/romtool.py shoot md/vcounter 360 --every 60 --input "@60 Start"   # run with an input, tile a shot every 60 frames
 python3 scripts/romtool.py serve md/vcounter     # start the harness server for the case, then:
 python3 scripts/romtool.py run 300 --every 30    #   advance 300 frames and tile the shots
-python3 scripts/romtool.py press "Start w40 C"   #   send an input from the next frame (logged in press.log)
+python3 scripts/romtool.py press "Start _40 C"   #   add presses from the next frame (logged in press.log)
+python3 scripts/romtool.py input                 #   the input of the logged presses
 python3 scripts/romtool.py stop
-python3 scripts/romtool.py set md/vcounter --frames 360 --shots 40,120,240,360 --input '["@60 Start", "@150 C"]'
+python3 scripts/romtool.py set md/vcounter --frames 360 --shots 40,120,240,360 --input "@60 Start @150 C"
 ```
 
 ## Quick regression

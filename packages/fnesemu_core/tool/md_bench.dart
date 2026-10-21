@@ -4,7 +4,7 @@
 // does not change the output.
 //
 // usage: dart run tool/md_bench.dart <md|mdcd|32x> <rom|bios> [disc]
-//          [-f frames] [-p F:B]... [-H hold] [-3 main,master,slave]
+//          [-f frames] [-i input] [-3 main,master,slave]
 //          [-l hashfile]   (writes the per-frame hashes)
 //          [-n]            (no hashes: only the speed)
 //          [-r]            (runs frames by Core.runFrame, not exec)
@@ -18,6 +18,7 @@ import 'package:archive/archive.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
 
 import 'cdrom_drive.dart';
+import 'input_sequence.dart';
 import 'local_disc.dart';
 import 'logging.dart';
 
@@ -25,18 +26,15 @@ Future<void> main(List<String> args) async {
   configureLogging();
   final files = <String>[];
   int frames = 1200;
-  int hold = 12;
   String? hashFile;
   bool noHash = false;
   bool useRunFrame = false;
   List<String>? bootRoms;
-  final presses = <(int, String)>[];
+  var input = "";
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "-f":
         frames = int.parse(args[++i]);
-      case "-H":
-        hold = int.parse(args[++i]);
       case "-n":
         noHash = true;
       case "-r":
@@ -45,9 +43,8 @@ Future<void> main(List<String> args) async {
         hashFile = args[++i];
       case "-3":
         bootRoms = args[++i].split(",");
-      case "-p":
-        final p = args[++i].split(":");
-        presses.add((int.parse(p[0]), p[1]));
+      case "-i" || "--input":
+        input = args[++i];
       default:
         files.add(args[i]);
     }
@@ -87,12 +84,9 @@ Future<void> main(List<String> args) async {
   }
 
   final buttons = core.buttons;
-  final pressList = presses.map((p) {
-    final idx =
-        buttons.indexWhere((b) => b.name.toLowerCase() == p.$2.toLowerCase());
-    if (idx < 0) throw "unknown button: ${p.$2}";
-    return (p.$1, idx);
-  }).toList();
+  final pad = PadPlayer(
+      resolveInput(input, buttons.map((b) => b.name).toList()),
+      buttons.length);
 
   int audioHash = 0x811c9dc5;
   int audioSamples = 0;
@@ -133,10 +127,9 @@ Future<void> main(List<String> args) async {
     frame++;
     sw.stop();
     await drive?.settle();
-    for (final (f, b) in pressList) {
-      if (frame == f) core.padDown(0, buttons[b]);
-      if (frame == f + hold) core.padUp(0, buttons[b]);
-    }
+    pad.step(frame, (b, down) {
+      down ? core.padDown(0, buttons[b]) : core.padUp(0, buttons[b]);
+    });
     if (noHash) {
       sw.start();
       continue;

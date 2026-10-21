@@ -10,7 +10,7 @@ files = [".build/WSCpuTest.wsc"]
 core = "wsc"
 args = ["-r"]
 frames = 12000
-input = [[60, "A"]]
+input = "@60 A"
 description = "WSCpuTest: V30MZ instructions and flags (A selects Test All). The whole run takes more than 300000 frames, so the case compares the progress at frame 12000."
 checks = [{ frame = 12000, expected = "expected/cpu_12000.png" }]
 
@@ -21,8 +21,7 @@ files = [".build/WSHWTest.wsc"]
 core = "wsc"
 args = ["-r"]
 frames = 1200
-input = [[60, "down"], [120, "A"]]
-hold = 6
+input = ":6 @60 down @120 A"
 description = "WSHWTest: interrupts, timers and I/O ports. The menu starts at Show Registers, so down and A select Test All. The test stops at the first failure."
 known_failure = "IO Registers: 28:07 Failed! (the timer tests before it are Ok)"
 checks = [{ frame = 1200, expected = "expected/hw_01200.png" }]

@@ -22,14 +22,17 @@ Layout of a root:
 
 A case with slow = true (minutes long) runs only with --slow.
 
-input gives the button presses, either as a list of [frame, "button"] or [frame, "button", frames held], or as a
-sequence string (or a list of them, which run as parallel tracks from frame 0), read with a cursor at frame 0:
-  @F          moves the cursor to frame F
-  wN          waits N frames
-  B:N         holds button B for N frames and moves the cursor by N; B alone holds it for hold (default 10)
+input gives the button presses as one line, read by the harness with a cursor at frame 0
+(packages/fnesemu_core/tool/input_sequence.dart):
+  @F          moves the cursor to frame F (not before the cursor)
+  _N          moves the cursor N frames on
+  B / B:N     holds button B for the default length / N frames and moves the cursor by it
   B+C:N       holds several buttons together
-  [ ... ]*N   repeats the part N times
-e.g. ["@150 Start", "@250 right:710", "@262 [A:6 w30]*20"] presses Start, then holds right while tapping A.
+  :N          sets the default length (initially 10) until the end of the enclosing [ ] or ( )
+  [ ... ]*N   repeats the part N times (no @F inside)
+  ( a | b )   runs the parts in parallel from the cursor; the cursor moves to the latest end
+  "..."       a button name with a reserved character: @ _ : + [ ] * ( ) | " or a space
+e.g. "@150 Start @250 ( right:710 | _12 [A:6 _30]*20 )" presses Start, then holds right while tapping A.
 setup runs the setup.py scripts (fetching or building the ROMs); run does not, and skips a case whose ROM or
 upstream reference is missing, so run setup first.
 A case may fail its upstream references (under .build/) when roms.toml gives the reason in "known_failure";
@@ -46,7 +49,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import re
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -81,90 +83,54 @@ class Case:
     def harness(self) -> str:
         return self.spec.get("harness", "core_harness.dart")
 
+    def base_command(self, exe: Path):
+        """The harness command with the core, the files and the args, without frames, output and input."""
+        s = self.spec
+        cmd = [str(exe)]
+        if self.harness() == "core_harness.dart":
+            cmd.append(s.get("core", self.core))
+        cmd += [str(self.path(f)) for f in s["files"]]
+        cmd += [str(self.path(a)) if a.startswith(("./", "../")) else a for a in s.get("args", [])]
+        return cmd
+
+    def input(self) -> str:
+        i = self.spec.get("input", "")
+        if not isinstance(i, str):
+            raise TypeError("input is not a string")
+        return i
+
     def command(self, out: Path, exe: Path):
         """The harness command; exe is the compiled harness."""
         s = self.spec
         frames = [c["frame"] for c in self.checks() if "frame" in c]
         harness = self.harness()
-        cmd = [str(exe)]
-        if harness == "core_harness.dart":
-            cmd.append(s.get("core", self.core))
-        cmd += [str(self.path(f)) for f in s["files"]]
-        cmd += [str(self.path(a)) if a.startswith(("./", "../")) else a for a in s.get("args", [])]
-        cmd += ["-f", str(s["frames"]), "-o", str(out)]
+        cmd = self.base_command(exe) + ["-f", str(s["frames"]), "-o", str(out)]
         if frames:
             cmd += ["-e", str(math.gcd(*frames))]
             if harness == "core_harness.dart":
                 cmd += ["-s", str(min(frames))]
         else:
             cmd += ["-e", str(s["frames"])]
-        for f, b, n in self.presses():
-            cmd += ["-p", f"{f}:{b}:{n}"]
+        if self.input():
+            cmd += ["--input", self.input()]
         if any("audio" in c for c in self.checks()):
             cmd.append("-w")
         if any("vram" in c for c in self.checks()):
             cmd.append("-v")
         return cmd
 
-    def presses(self):
-        """The presses of input as (frame, button, frames held), sorted by frame."""
-        return parse_input(self.spec.get("input", []), self.spec.get("hold", 10))
+    def check_input(self, exe: Path) -> str | None:
+        """Lets the harness read the input; returns the error, or None."""
+        r = subprocess.run(self.base_command(exe) + ["--input", self.input(), "--check-input"], cwd=CORE_PKG,
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            return None
+        lines = (r.stderr or r.stdout).strip().splitlines()
+        return next((line for line in lines if "Unhandled exception" not in line), "harness error")
 
     def is_expected(self, p: Path) -> bool:
         """True for paths under expected/, which --update may write."""
         return (self.dir / "expected").resolve() in p.parents
-
-
-_TOKEN = re.compile(r"\[|\]\*\d+|[^\s\[\]]+")
-
-
-def parse_input(spec, hold: int):
-    """Compiles input (a list of presses, a sequence string or a list of them) into (frame, button, frames)."""
-    if isinstance(spec, str):
-        spec = [spec]
-    presses = []
-    for item in spec:
-        if isinstance(item, list):
-            f, b, *n = item
-            presses.append((int(f), str(b), int(n[0]) if n else hold))
-            continue
-        tokens = _TOKEN.findall(item)
-        pos, end = _parse_track(tokens, 0, 0, hold, presses)
-        if pos != len(tokens):
-            raise ValueError(f"unexpected {tokens[pos]!r} in input {item!r}")
-    return sorted(presses)
-
-
-def _parse_track(tokens, pos, frame, hold, presses):
-    """Reads tokens from pos until the end or a closing ]*N; returns the next position and the frame."""
-    while pos < len(tokens):
-        t = tokens[pos]
-        if t.startswith("]"):
-            return pos, frame
-        pos += 1
-        if t == "[":
-            # read the group once to find its ]*N, then repeat it from the cursor
-            end, _ = _parse_track(tokens, pos, 0, hold, [])
-            if end >= len(tokens):
-                raise ValueError("a [ without its ]*N in input")
-            for _ in range(int(tokens[end][2:])):
-                _, frame = _parse_track(tokens, pos, frame, hold, presses)
-            pos = end + 1
-        elif t.startswith("@") and t[1:].isdigit():
-            frame = int(t[1:])
-        elif t.startswith("w") and t[1:].isdigit():
-            frame += int(t[1:])
-        else:
-            names, _, n = t.partition(":")
-            if n and not n.isdigit():
-                raise ValueError(f"bad length in {t!r} in input")
-            n = int(n) if n else hold
-            for b in names.split("+"):
-                if not b:
-                    raise ValueError(f"empty button in {t!r} in input")
-                presses.append((frame, b, n))
-            frame += n
-    return pos, frame
 
 
 def load_cases(root: Path):
@@ -362,7 +328,7 @@ def show_case(case: Case):
     """Prints a case with its description and history, the context for investigating it."""
     s = case.spec
     print(f"[{case.id}] {s.get('note', '')}")
-    for k in ("harness", "core", "files", "args", "frames", "input", "hold", "known_failure"):
+    for k in ("harness", "core", "files", "args", "frames", "input", "known_failure"):
         if k in s:
             print(f"  {k}: {s[k]}")
     for ch in case.checks():
@@ -377,8 +343,10 @@ def show_case(case: Case):
 
 
 def lint(root: Path, cases, inside_only: bool):
-    """Checks that the default tree refers only to files inside itself, and that expected data stays small."""
+    """Checks that the default tree refers only to files inside itself, that the harness reads each input and that
+    expected data stays small."""
     errors = []
+    exes = compile_harnesses(cases)
     for c in cases:
         rels = list(c.spec["files"]) + [a for a in c.spec.get("args", []) if a.startswith(("./", "../"))]
         rels += [v for ch in c.checks() for k, v in ch.items() if k in ("expected", "audio", "vram")]
@@ -388,9 +356,12 @@ def lint(root: Path, cases, inside_only: bool):
                 errors.append(f"{c.id}: {rel} is outside the root")
         if not c.dir.is_dir():
             errors.append(f"{c.id}: no directory {show(c.dir)}")
+        if "hold" in c.spec:
+            errors.append(f"{c.id}: hold is no longer read; write :N at the start of input")
         try:
-            c.presses()
-        except (ValueError, TypeError) as e:
+            if c.input() and (err := c.check_input(exes[c.harness()])):
+                errors.append(f"{c.id}: {err}")
+        except TypeError as e:
             errors.append(f"{c.id}: {e}")
         size = sum(c.path(v).stat().st_size for ch in c.checks() for k, v in ch.items()
                    if k in ("expected", "audio", "vram") and c.is_expected(c.path(v)) and c.path(v).exists())

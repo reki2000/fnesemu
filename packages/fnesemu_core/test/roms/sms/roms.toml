@@ -50,7 +50,6 @@ dir = "sms-tests"
 files = [".build/SMSVDPTest.sms"]
 args = ["-r"]
 frames = 600
-input = [[300, "6"]]
-hold = 12
+input = ":12 @300 1"
 description = "SMSVDPTest: button 1 (6) on the menu starts the SMS VDP data test (ports, buffer, latches); every line reads Ok."
 checks = [{ frame = 600, expected = "expected/vdp-data_00600.png" }]

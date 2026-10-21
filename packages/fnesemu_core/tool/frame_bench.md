@@ -1,6 +1,6 @@
 The frame benchmark drives a core through the same frame boundaries and input schedule as `tool/core_harness.dart`. It supports `nes`, `snes`, `gb`, `gba` and `n64`.
 
-Store a harness argument array in a local JSON file. Include the core, media path, input events, hold duration and BIOS option when applicable. Media names and paths belong in the local file rather than the repository. Harness `-f`, `-e`, `-s`, `-o` and `-w` options are accepted but ignored by the timing driver.
+Store a harness argument array in a local JSON file. Include the core, media path, the input sequence (`-i`, the syntax of `tool/input_sequence.dart`) and BIOS option when applicable. Media names and paths belong in the local file rather than the repository. Harness `-f`, `-e`, `-s`, `-o` and `-w` options are accepted but ignored by the timing driver.
 
 ```sh
 dart compile exe tool/frame_bench.dart -o /tmp/frame-bench

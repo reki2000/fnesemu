@@ -5,8 +5,9 @@
 //   -e, --every N    save a png every N frames (default: 60)
 //   -o, --out DIR    output directory (default: /tmp/ss_harness)
 //   -l, --log-cd     log CD block commands
-//   -p, --press F:B[:N]  press button B (index) at frame F for N frames (repeatable)
-//   -H, --hold N     frames to hold a press without N (default: 10)
+//   -i, --input SEQ  the button presses, in the syntax of tool/input_sequence.dart
+//   --check-input    print the presses of --input as JSON and exit without running
+//   --buttons        print the button names as JSON and exit without running
 //   -w, --wav        also write audio.wav (16bit pcm) and audio.f32 (raw float)
 //   -q, --quiet      no per-png log, print only the total time (benchmark)
 //   --fixed-clock    the real time clock always reads 2000-01-01 and the disc
@@ -24,6 +25,7 @@ import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
 
 import 'cdrom_drive.dart';
+import 'input_sequence.dart';
 import 'local_disc.dart';
 import 'logging.dart';
 
@@ -32,7 +34,9 @@ Future<void> main(List<String> args) async {
   int frames = 600;
   int every = 60;
   String outDir = "/tmp/ss_harness";
-  final presses = <(int, int, int?)>[];
+  String? input;
+  bool checkInput = false;
+  bool printButtons = false;
   bool logCd = false;
   bool wav = false;
   bool quiet = false;
@@ -40,7 +44,6 @@ Future<void> main(List<String> args) async {
   bool fixedClock = false;
   int benchFrom = 0;
   String? lockFile;
-  int holdFrames = 10;
   final files = <String>[];
 
   for (int i = 0; i < args.length; i++) {
@@ -51,8 +54,6 @@ Future<void> main(List<String> args) async {
         every = int.parse(args[++i]);
       case "-o" || "--out":
         outDir = args[++i];
-      case "-H" || "--hold":
-        holdFrames = int.parse(args[++i]);
       case "-w" || "--wav":
         wav = true;
       case "-b" || "--bench-from":
@@ -67,13 +68,13 @@ Future<void> main(List<String> args) async {
         quiet = true;
       case "-l" || "--log-cd":
         logCd = true;
-      case "-p" || "--press":
-        final p = args[++i].split(":");
-        presses.add((
-          int.parse(p[0]),
-          int.parse(p[1]),
-          p.length > 2 ? int.parse(p[2]) : null
-        ));
+      case "-i" || "--input":
+        if (input != null) throw "--input is given twice";
+        input = args[++i];
+      case "--check-input":
+        checkInput = true;
+      case "--buttons":
+        printButtons = true;
       default:
         files.add(args[i]);
     }
@@ -85,9 +86,26 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  Directory(outDir).createSync(recursive: true);
-
   final ss = Ss()..setSram(Sram());
+  final names = ss.buttons.map((b) => b.name).toList();
+  if (printButtons) {
+    stdout.writeln(jsonEncode(names));
+    exit(0);
+  }
+  final List<(int, int, int)> presses;
+  try {
+    presses = resolveInput(input ?? "", names);
+  } on InputError catch (e) {
+    stderr.writeln(e);
+    exit(64);
+  }
+  final pad = PadPlayer(presses, names.length);
+  if (checkInput) {
+    stdout.writeln(pressesJson(pad.presses, names));
+    exit(0);
+  }
+
+  Directory(outDir).createSync(recursive: true);
   ss.setRom(File(files[0]).readAsBytesSync());
   SimpleCdromDrive? drive;
   if (files.length > 1) {
@@ -110,7 +128,6 @@ Future<void> main(List<String> args) async {
   final sw = Stopwatch()..start();
   int lines = 0;
   int frame = 0;
-  final held = List<bool>.filled(ss.buttons.length, false);
   Process? lock;
   int cpuStart = 0;
 
@@ -142,16 +159,9 @@ Future<void> main(List<String> args) async {
     await drive?.settle(); // result must not depend on the speed of the disc
     if (frame == benchFrom) await startBench();
 
-    // a button is down while any of its presses lasts
-    final down = List<bool>.filled(ss.buttons.length, false);
-    for (final (f, b, n) in presses) {
-      if (frame >= f && frame < f + (n ?? holdFrames)) down[b] = true;
-    }
-    for (var b = 0; b < ss.buttons.length; b++) {
-      if (down[b] == held[b]) continue;
-      held[b] = down[b];
-      down[b] ? ss.padDown(0, ss.buttons[b]) : ss.padUp(0, ss.buttons[b]);
-    }
+    pad.step(frame, (b, down) {
+      down ? ss.padDown(0, ss.buttons[b]) : ss.padUp(0, ss.buttons[b]);
+    });
 
     if (frame % every == 0) {
       final path = "$outDir/frame_${frame.toString().padLeft(5, "0")}.png";
