@@ -141,6 +141,17 @@ python3 scripts/romtest.py lint                  # paths stay in the tree, expec
 
 Covered cores: NES, PCE, SNES, MD, SMS, GB, GBA (with a replacement BIOS), N64, WS and PS1 (test EXEs on OpenBIOS). Cases marked `slow = true` (minutes long) run only with `--slow`.
 
+`scripts/romtool.py` helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `roms.toml`.
+
+```sh
+python3 scripts/romtool.py shoot md/vcounter 360 60 --input '["@60 Start"]'   # run with an input, tile a shot every 60 frames
+python3 scripts/romtool.py serve md/vcounter     # start the harness server for the case, then:
+python3 scripts/romtool.py run 300 --every 30    #   advance 300 frames and tile the shots
+python3 scripts/romtool.py press "Start w40 C"   #   send an input from the next frame (logged in press.log)
+python3 scripts/romtool.py stop
+python3 scripts/romtool.py set md/vcounter --frames 360 --shots 40,120,240,360 --input '["@60 Start", "@150 C"]'
+```
+
 ## Quick regression
 
 `make regress` runs the unit test suites of the disc image package, the cores and the app within a total time budget of 55 seconds, and fails when the budget runs out.
