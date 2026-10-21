@@ -13,6 +13,7 @@
 //   -3, --boot A,B,C 32x: boot roms (main 256B, master 2048B, slave 1024B)
 //   -x, --exe FILE   ps: run this PS-EXE after the BIOS boot (test programs)
 //   -v, --vram       ps: also write vram.png (the whole 1024x512 VRAM)
+//   --fast-boot      ps: skip the logo animation of the BIOS
 //
 //   -r, --frame-runner  execute whole frames inside the core
 //   --serve PORT     instead of running -f frames, wait for HTTP requests on 127.0.0.1:PORT (0 picks a port)
@@ -69,6 +70,7 @@ Future<void> main(List<String> args) async {
   bool vram = false;
   bool frameRunner = false;
   int? servePort;
+  bool fastBoot = false;
   final files = <String>[];
 
   for (int i = 0; i < args.length; i++) {
@@ -97,6 +99,8 @@ Future<void> main(List<String> args) async {
         vram = true;
       case "--serve":
         servePort = int.parse(args[++i]);
+      case "--fast-boot":
+        fastBoot = true;
       case "-p" || "--press":
         final p = args[++i].split(":");
         presses.add(
@@ -137,6 +141,7 @@ Future<void> main(List<String> args) async {
     core.setCdromDrive(drive);
   }
   if (core is Ps) {
+    core.fastBoot = fastBoot; // patches the bios when it is set
     core.setBiosFiles([_loadRom(files[1])]); // rom: the ps bios
   } else {
     core.setRom(_loadRom(files[1]));
