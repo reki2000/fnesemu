@@ -1,4 +1,4 @@
-# The toolchains that the setup.py scripts under test/roms use to build public test ROMs that have no prebuilt release.
+# The toolchains that the setup.py scripts under test/e2e use to build public test ROMs that have no prebuilt release.
 # setuplib.toolchain() builds this image on demand and runs a build inside it when a tool is missing on the host.
 FROM debian:bookworm-slim
 

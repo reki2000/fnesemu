@@ -1,4 +1,4 @@
-// the input sequence of the harnesses: button presses written as a line of text
+// the input sequence of the headless runner: button presses written as a line of text
 //
 //   @F          moves the cursor to frame F (not before the cursor)
 //   _N          moves the cursor N frames on

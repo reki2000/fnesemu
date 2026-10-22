@@ -32,12 +32,12 @@ test-r3000:
 test-huc6280:
 	$(call cpu_test,huc6280,dart run $(CORE)/tool/cpu_test.dart huc6280 $(CPU)/huc6280/.build/huc6280/v1)
 
-# the public test ROMs of test/roms (scripts/romtest.py); make test-roms-setup fetches or builds them
-test-roms:
-	python3 scripts/romtest.py run -j 4
+# the end-to-end cases of test/e2e (scripts/e2e.py); make test-e2e-setup fetches or builds their media
+test-e2e:
+	python3 scripts/e2e.py run -j 4
 
-test-roms-setup:
-	python3 scripts/romtest.py setup
+test-e2e-setup:
+	python3 scripts/e2e.py setup
 
 test:
 	cd packages/cdrom_image && dart test

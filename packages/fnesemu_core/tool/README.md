@@ -4,23 +4,23 @@ Command-line tools of the cores. Run them with `dart run tool/<name>.dart` in `p
 
 | Tool | What it does |
 |---|---|
-| `core_harness.dart` | Runs a core with its media and input: `run` writes the screen and the audio, `serve` gives stepwise control over HTTP, `bench` times frames, `trace` records the instructions through the tracer of the debugger, `buttons` and `check-input` print the button names and the presses of an input |
+| `core_headless.dart` | Runs a core with its media and input: `run` writes the screen and the audio, `serve` gives stepwise control over HTTP, `bench` times frames, `trace` records the instructions through the tracer of the debugger, `buttons` and `check-input` print the button names and the presses of an input |
 | `cpu_test.dart` | Runs the instruction tests of a CPU (`nestest`, `z80`, `v30`, `m68k`, `r3000`, `huc6280`), used by `make test-cpu` |
 | `disasm.dart` | Disassembles one 68000 or Z80 instruction |
 | `microbench.dart` | Synthetic benchmarks that need no ROM (`vr4300`, `video-debug`) |
 | `generate_core_registry.dart` | Writes the registry of the core modules |
 
-`input_sequence.dart` holds the syntax of the button presses, which the harness, its server, `scripts/romtest.py` and `scripts/romtool.py` share.
+`input_sequence.dart` holds the syntax of the button presses, which `core_headless`, its server and `scripts/e2e.py` share.
 
 ## Benchmarks
 
-`core_harness bench` drives a core through the same frames and input as `core_harness run`, so a case of `roms.toml` can be timed with the same media and input. Media names and paths belong in local commands, not in the repository.
+`core_headless bench` drives a core through the same frames and input as `core_headless run`, so a case of `e2e.toml` can be timed with the same media and input. Media names and paths belong in local commands, not in the repository.
 
 ```sh
-dart compile exe tool/core_harness.dart -o /tmp/core-harness
-/tmp/core-harness bench snes <rom> --input ":12 @300 Start" --warmup 1800 --measure 300 --repetitions 3 \
+dart compile exe tool/core_headless.dart -o /tmp/core-headless
+/tmp/core-headless bench snes <rom> --input ":12 @300 Start" --warmup 1800 --measure 300 --repetitions 3 \
     --lock /tmp/claude-1000/fnesemu-bench.lock
-/tmp/core-harness bench ps <bios> <disc> --fast-boot --warmup 2000 --measure 600 --checksum
+/tmp/core-headless bench ps <bios> <disc> --fast-boot --warmup 2000 --measure 600 --checksum
 ```
 
 - `--lock FILE` holds `flock` on the shared benchmark lock during each timed block and releases it after the block, also on errors. Do not wrap the command in another `flock` on the same file. Keep each block within a few tens of seconds.
