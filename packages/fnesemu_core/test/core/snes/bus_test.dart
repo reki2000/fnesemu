@@ -1,4 +1,5 @@
 import 'package:fnesemu_core/src/core/snes/component/cpu.dart';
+import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/core/snes/component/ppu.dart';
 import 'package:fnesemu_core/src/core/snes/rom/snes_file.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
@@ -25,6 +26,24 @@ void main() {
       expect(bus.read(0xa06000), 0xa5);
       expect(bus.read(0x217fff), 0x3c);
       expect(bus.sram[0x1fff], 0x3c); // 8KB sram mirrors per bank
+    });
+
+    test('pad 1 reads serially through \$4016', () {
+      final bus = busWith(loRom());
+      bus.pad.keyDown(0, PadButton.up); // bit 11
+      bus.write(0x4016, 1);
+      bus.write(0x4016, 0);
+      final bits = [for (var i = 0; i < 17; i++) bus.read(0x4016) & 1];
+      expect(bits, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+      expect(bus.read(0x4017) & 0x1f, 0x1c); // pad 2 is not connected
+    });
+
+    test('a standard pad reads 1 after the auto-joypad read', () {
+      final bus = busWith(loRom());
+      Cpu(bus).reset();
+      bus.write(0x4200, 1);
+      bus.enterVBlank();
+      expect(bus.read(0x4016) & 1, 1);
     });
 
     test('multiply / divide unit', () {

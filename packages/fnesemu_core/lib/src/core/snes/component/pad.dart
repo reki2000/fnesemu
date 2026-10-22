@@ -48,6 +48,30 @@ class SnesPad {
 
   int state1 = 0;
 
+  // the serial shift register of pad 1, read through $4016. It shifts in 1s,
+  // so a standard pad reads 1 after its 16 bits.
+  int _shift1 = 0;
+  bool _latch = false;
+
+  /// $4016 write: bit 0 latches the buttons into the shift register
+  void writeLatch(int data) {
+    _latch = data.bit0;
+    if (_latch) _shift1 = state1;
+  }
+
+  /// $4016 read: bit 0 is the next bit of pad 1
+  int readSerial1() {
+    if (_latch) return state1.bit15 ? 1 : 0;
+    final bit = _shift1.bit15 ? 1 : 0;
+    _shift1 = (_shift1.shl1 | 1).mask16;
+    return bit;
+  }
+
+  /// the auto-joypad read at vblank shifts out all 16 bits
+  void autoRead() {
+    _shift1 = 0xffff;
+  }
+
   void keyDown(int id, PadButton k) {
     final b = _bit[k];
     if (b != null && id == 0) state1 = state1.setBit(b, true);
