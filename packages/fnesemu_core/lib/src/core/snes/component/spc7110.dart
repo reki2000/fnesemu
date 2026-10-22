@@ -2,9 +2,9 @@ import 'dart:typed_data';
 import '../../../util/int.dart';
 
 /// SPC7110: a cartridge chip which decompresses graphics from the data rom
-/// (the rom after the first 1MB of program), maps 1MB data rom banks into
-/// $D0-$FF, reads the data rom by pointer, multiplies and divides, and
-/// connects an RTC-4513 real time clock in one game.
+/// (the rom after the first 1MB of program) to $4800 and bank $50, maps 1MB
+/// data rom banks into $D0-$FF, reads the data rom by pointer, multiplies
+/// and divides, and connects an RTC-4513 real time clock in one game.
 ///
 /// Written after the fullsnes documentation, including its description of
 /// the decompression algorithm.
@@ -62,6 +62,7 @@ class Spc7110 {
       return dataRead(b.shl20 | (addr & 0xfffff));
     }
     if (bank >= 0x7e && bank < 0x80) return -1; // wram
+    if (bank == 0x50) return _readRegister(0x4800); // decompressed data
     return _programRead(bank, page);
   }
 
@@ -409,9 +410,19 @@ class _Rtc4513 {
   DateTime _time = DateTime.utc(2000);
   int _week = 0;
 
+  _Rtc4513() {
+    _powerOn();
+  }
+
+  /// the reset of the console ends a transfer; the clock and its registers
+  /// are kept by the battery
   void reset() {
     _selected = false;
     _state = 0;
+  }
+
+  // the battery is connected: the clock starts from the host time
+  void _powerOn() {
     _regs.fillRange(0, 16, 0);
     _regs[0xf] = 0x4; // 24 hour mode, running
     final now = DateTime.now();

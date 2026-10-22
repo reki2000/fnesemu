@@ -36,6 +36,8 @@ This project is experimental.
 | WS | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate | X1 / X3 / X4 / X2 |
 | WS (vertical) | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate | Y2 / Y4 / Y1 / Y3 |
 
+On N64, the arrows move the analog stick. The D-pad buttons (D-up, D-down, D-left, D-right) have no key and are used by the end-to-end tests.
+
 On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. Q cycles the emulated speaker volume.
 
 # How to develop
@@ -84,7 +86,7 @@ The **Build binaries** GitHub Actions workflow tests PRs and builds Web; merges 
 |---|---|---|---|
 | Unit tests | | `make test` | Dart and Flutter |
 | CPU tests | `make test-cpu-setup` | `make test-cpu` | Python 3.11+, Git |
-| ROM harness tests | `make test-roms-setup` | `make test-roms` | Python 3.11+, Git, Pillow, numpy (Docker for ROMs built from source) |
+| End-to-end tests | `make test-e2e-setup` | `make test-e2e` | Python 3.11+, Git, Pillow, numpy (Docker for media built from source) |
 | Quick regression | | `make regress` | Dart and Flutter |
 
 The setup targets fetch (or build) public test data into `.build/` directories, which Git ignores. Run them once, and again after the pinned data changes. The tests do not run the setup, and skip a test whose data is missing.
@@ -109,37 +111,50 @@ The CPU cores are checked instruction by instruction against public test data. E
 | `make test-z80` | Z80 | `tests.in` and `tests.expected` from the [Fuse](https://fuse-emulator.sourceforge.net/) 1.6.0 release |
 | `make test-m68` | 68000 | [SingleStepTests/680x0](https://github.com/SingleStepTests/680x0) (`68000/v1`, about 200MB; skips the ASR cases that disagree with hardware) |
 | `make test-r3000` | R3000 (PS1) | [SingleStepTests/r3000](https://github.com/SingleStepTests/r3000) (`v1`; registers, delay slots and memory writes, not cycles; skips misaligned loads and stores, whose address errors are not emulated) |
-| `make test-gte` | PS1 GTE | `gte/test-all/tests.c` from [ps1-tests](https://github.com/JaCzekanski/ps1-tests) |
 | `make test-huc6280` | HuC6280 (PCE) | [SingleStepTests/huc6280](https://github.com/SingleStepTests/huc6280) (`v1`; registers, MPRs and memory, not cycles; skips ST0/ST1/ST2, which write the VDC) |
 
 `make test-cpu` runs all of them.
 
-## ROM harness tests
+## End-to-end tests
 
-Public test ROMs run in the headless harness (`packages/fnesemu_core/tool/core_harness.dart`), and their screens are compared with expected images.
+An end-to-end case runs a core headless (`packages/fnesemu_core/tool/core_headless.dart run`) with public test media and an input, and compares its screens, audio and other outputs with expected data. The tools of the cores are listed in `packages/fnesemu_core/tool/README.md`.
 
 ```
-packages/fnesemu_core/test/roms/<core>/
-  roms.toml            the cases of the core
-  <dir>/setup.py       fetches (or builds) the ROM and its upstream data into <dir>/.build/
-  <dir>/expected/      the expected images kept in the repository
+packages/fnesemu_core/test/e2e/<core>/
+  e2e.toml             the cases of the core
+  <dir>/setup.py       fetches (or builds) the media and their upstream data into <dir>/.build/
+  <dir>/expected/      the expected data kept in the repository
 ```
 
-- A check compares a frame with an image under `expected/` (the current behavior) or with a reference image that the ROM's project publishes (under `.build/`).
-- A case whose ROM reports a failure records the reason in `known_failure`. Its output must still match `expected/`, so a change of behavior is detected.
-- ROMs that have no prebuilt release are built in a Docker image (`packages/fnesemu_core/test/docker/Dockerfile`) when the tools are not installed.
+- A check compares a frame with an image under `expected/` (the current behavior) or with a reference image that the project of the media publishes (under `.build/`).
+- A PS1 test EXE that prints its results is checked by its TTY output (`tty`, compared with `expected/`); `tty_fail` is the pattern of the lines with which the test reports a failure, which count like a failing upstream reference.
+- A case whose media reports a failure records the reason in `known_failure`. Its output must still match `expected/`, so a change of behavior is detected.
+- Media that have no prebuilt release are built in a Docker image (`packages/fnesemu_core/test/docker/Dockerfile`) when the tools are not installed.
 
 ```sh
-make test-roms-setup                             # fetch or build the ROMs (python3 scripts/romtest.py setup [target...])
-make test-roms                                   # all cases
-python3 scripts/romtest.py run nes -j 4          # one core, 4 cases in parallel
-python3 scripts/romtest.py run gb/dmg-acid2      # one case
-python3 scripts/romtest.py run nes --update      # record the outputs as expected/ after checking them
-python3 scripts/romtest.py list                  # the cases
-python3 scripts/romtest.py lint                  # paths stay in the tree, expected/ stays small
+make test-e2e-setup                              # fetch or build the media (python3 scripts/e2e.py setup [target...])
+make test-e2e                                    # all cases
+python3 scripts/e2e.py run nes -j 4              # one core, 4 cases in parallel
+python3 scripts/e2e.py run gb/dmg-acid2          # one case
+python3 scripts/e2e.py run nes --update          # record the outputs as expected/ after checking them
+python3 scripts/e2e.py list                      # the cases
+python3 scripts/e2e.py lint                      # paths stay in the tree, expected/ stays small
 ```
 
 Covered cores: NES, PCE, SNES, MD, SMS, GB, GBA (with a replacement BIOS), N64, WS and PS1 (test EXEs on OpenBIOS). Cases marked `slow = true` (minutes long) run only with `--slow`.
+
+`scripts/e2e.py` also helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `e2e.toml`. An input is one line such as `@60 Start _40 ( right:300 | [A _20]*10 )`; the syntax is in `packages/fnesemu_core/tool/input_sequence.dart` and `e2e.py --help`. Every core has the button `Reset` after its own buttons, which resets the core and keeps the SRAM, for media that ask to turn the power off and on.
+
+```sh
+python3 scripts/e2e.py buttons md/vcounter       # the button names of the case
+python3 scripts/e2e.py shoot md/vcounter 360 --every 60 --input "@60 Start"   # run with an input, tile a shot every 60 frames
+python3 scripts/e2e.py session start md/vcounter # run the case frame by frame in the background, then:
+python3 scripts/e2e.py session step 300 --every 30   # advance 300 frames and tile the shots
+python3 scripts/e2e.py session press "Start _40 C"   # add presses from the next frame (logged in press.log)
+python3 scripts/e2e.py session input             # the input of the logged presses
+python3 scripts/e2e.py session stop
+python3 scripts/e2e.py set md/vcounter --frames 360 --shots 40,120,240,360 --input "@60 Start @150 C"
+```
 
 ## Quick regression
 

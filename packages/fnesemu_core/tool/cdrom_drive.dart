@@ -1,4 +1,4 @@
-// a CD-ROM drive for the harnesses and the tests of the cores, on the disc
+// a CD-ROM drive for the headless runner and the tests of the cores, on the disc
 // images of cdrom_image. The app has its own drive with read-ahead and cache.
 import 'dart:async';
 import 'dart:typed_data';

@@ -1,0 +1,124 @@
+# End-to-end cases of this core, run by scripts/e2e.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the result that the media reports is a failure; the outputs must still match expected/.
+# Each ROM shows "All tests passed" or the number of the first failed test (mode 4).
+# The test ROMs call BIOS functions, so every case boots the replacement BIOS of cult-bios/ (-b).
+
+[[case]]
+name = "arm"
+dir = "gba-tests"
+files = [".build/gba-tests/arm/arm.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 600
+description = "ARM instructions."
+checks = [{ frame = 600, expected = "expected/arm_00600.png" }]
+
+[[case]]
+name = "thumb"
+dir = "gba-tests"
+files = [".build/gba-tests/thumb/thumb.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "THUMB instructions."
+checks = [{ frame = 180, expected = "expected/thumb_00180.png" }]
+
+[[case]]
+name = "memory"
+dir = "gba-tests"
+files = [".build/gba-tests/memory/memory.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "Memory mirrors and access widths."
+checks = [{ frame = 180, expected = "expected/memory_00180.png" }]
+
+[[case]]
+name = "bios"
+dir = "gba-tests"
+files = [".build/gba-tests/bios/bios.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "BIOS functions; the result also depends on the replacement BIOS."
+known_failure = "Failed test 001"
+checks = [{ frame = 180, expected = "expected/bios_00180.png" }]
+
+[[case]]
+name = "nes"
+dir = "gba-tests"
+files = [".build/gba-tests/nes/nes.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "Hardware checks that some re-released ROMs make (the upstream names the test nes)."
+checks = [{ frame = 180, expected = "expected/nes_00180.png" }]
+
+[[case]]
+name = "unsafe"
+dir = "gba-tests"
+files = [".build/gba-tests/unsafe/unsafe.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "Behaviors that games should not rely on."
+known_failure = "Failed test 002"
+checks = [{ frame = 180, expected = "expected/unsafe_00180.png" }]
+
+[[case]]
+name = "save-none"
+dir = "gba-tests"
+files = [".build/gba-tests/save/none.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "No save memory."
+checks = [{ frame = 180, expected = "expected/save-none_00180.png" }]
+
+[[case]]
+name = "save-sram"
+dir = "gba-tests"
+files = [".build/gba-tests/save/sram.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "SRAM save memory."
+checks = [{ frame = 180, expected = "expected/save-sram_00180.png" }]
+
+[[case]]
+name = "save-flash64"
+dir = "gba-tests"
+files = [".build/gba-tests/save/flash64.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "64KB flash save memory."
+checks = [{ frame = 180, expected = "expected/save-flash64_00180.png" }]
+
+[[case]]
+name = "save-flash128"
+dir = "gba-tests"
+files = [".build/gba-tests/save/flash128.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "128KB flash save memory (two banks)."
+checks = [{ frame = 180, expected = "expected/save-flash128_00180.png" }]
+
+[[case]]
+name = "ppu-hello"
+dir = "gba-tests"
+files = [".build/gba-tests/ppu/hello.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "A text screen without a result."
+checks = [{ frame = 180, expected = "expected/ppu-hello_00180.png" }]
+
+[[case]]
+name = "ppu-shades"
+dir = "gba-tests"
+files = [".build/gba-tests/ppu/shades.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "Color shades without a result."
+checks = [{ frame = 180, expected = "expected/ppu-shades_00180.png" }]
+
+[[case]]
+name = "ppu-stripes"
+dir = "gba-tests"
+files = [".build/gba-tests/ppu/stripes.gba"]
+args = ["-b", "../cult-bios/.build/bios.bin"]
+frames = 180
+description = "Stripes without a result."
+checks = [{ frame = 180, expected = "expected/ppu-stripes_00180.png" }]

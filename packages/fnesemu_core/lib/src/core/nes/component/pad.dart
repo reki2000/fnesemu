@@ -28,6 +28,9 @@ class Joypad {
 
   var counter = 0;
 
+  // the strobe (bit 0 of $4016) holds the shift register at the first button
+  bool _strobe = false;
+
   Joypad() {
     isPressed = {for (var e in buttons) e: false};
   }
@@ -40,22 +43,10 @@ class Joypad {
     isPressed[d] = false;
   }
 
-  void _reset1() {
-    counter = 0;
-  }
-
   void write(int addr, int data) {
-    if (data.bit0) {
-      return;
-    }
-
-    switch (addr) {
-      case 0x4016:
-        _reset1();
-        break;
-      case 0x04017:
-        break;
-    }
+    if (addr != 0x4016) return;
+    _strobe = data.bit0;
+    if (_strobe) counter = 0;
   }
 
   int read(int addr) {
@@ -69,14 +60,11 @@ class Joypad {
     }
   }
 
+  // a standard pad reads 1 after its 8 buttons
   int _read1() {
+    if (counter >= 8) return 0x41;
     final result = isPressed[buttons[scanOrder[counter]]]! ? 0x41 : 0x40;
-
-    counter++;
-    if (counter == 8) {
-      counter = 0;
-    }
-
+    if (!_strobe) counter++;
     return result;
   }
 

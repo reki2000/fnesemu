@@ -72,8 +72,8 @@ class Pad {
               buttonValue(0, 0x01)
           : buttonValue(5, 0x08) | // Run
               buttonValue(4, 0x04) | // Select
-              buttonValue(7, 0x02) | // I
-              buttonValue(6, 0x01); // II
+              buttonValue(6, 0x02) | // II
+              buttonValue(7, 0x01); // I
 
   String dump() {
     final joys = buttons.map(

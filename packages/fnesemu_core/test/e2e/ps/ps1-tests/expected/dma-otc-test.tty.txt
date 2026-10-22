@@ -1,0 +1,28 @@
+PS-X Realtime Kernel OpenBios - build id 64e85417612d69e56d010404fc354960f9aa402c.
+Copyright (C) 2019-2026 PCSX-Redux authors.
+KERNEL SETUP!
+
+Configuration : EvCB	0x10		TCB	0x04
+ResetGraph:itb=80014ad4,ehk=80014b04
+ResetGraph:SR=40000000
+ResetGraph:Interrupt hooks enabled.
+ResetGraph:About to init interrupts.
+ResetGraph:Interrupts enabled!
+
+dma/otc-test (DMA Channel 6)
+pass - testOtcStandard
+pass - testOtcBigTransfer
+pass - testOtcWontStartOnAutomaticMode
+pass - testOtcWontStartWithoutStartFlag
+fail - testOtcForward:111 `buf[3] == ((uint32_t)&buf[2]) & 0xffffff`, given: 0x44444444, expected: 0x1ffd48 
+fail - testOtcFromRam:90 `buf[3] == ((uint32_t)&buf[2]) & 0xffffff`, given: 0x44444444, expected: 0x1ffd48 
+pass - testOtcSyncModeBlocks
+pass - testOtcSyncModeLinkedList
+fail - testOtcSyncModeReserved:176 `buf[3] == ((uint32_t)&buf[2]) & 0xffffff`, given: 0x44444444, expected: 0x1ffd48 
+pass - testOtcWhichBitsAreHardwiredToZero
+pass - testOtcWhichBitsAreHardwiredToOne
+pass - testOtcUnusedControlBitsAreAlwaysZero
+fail - testOtcControlBitsAfterTransfer:219 `read32(DMA_OTC_CTRL) == 0b00000000'00000000'00000000'00000010`, given: 0x1000002, expected: 0x2 
+fail - testOtcControlBitsAfterTransferWithChopping:236 `read32(DMA_OTC_CTRL) == 0b00000000'00000000'00000000'00000010`, given: 0x1000002, expected: 0x2 
+pass - testOtcStandardWithMasterDisabled
+Done.

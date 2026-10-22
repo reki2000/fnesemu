@@ -56,4 +56,30 @@ void main() {
     expect([ppu.read(0x2139), ppu.read(0x213a)], [0x11, 0x12]);
     expect([ppu.read(0x2139), ppu.read(0x213a)], [0x22, 0x23]);
   });
+
+  group('OAM', () {
+    test('vblank reloads the address from OAMADD', () {
+      final ppu = Ppu()
+        ..reset()
+        ..forcedBlank = false
+        ..write(0x2102, 0x01)
+        ..write(0x2103, 0x00)
+        ..write(0x2104, 0x11)
+        ..write(0x2104, 0x22)
+        ..write(0x2104, 0x33) // a third byte leaves the address odd
+        ..onVBlank()
+        ..write(0x2104, 0x44)
+        ..write(0x2104, 0x55);
+      expect(ppu.oam.sublist(2, 4), [0x44, 0x55]);
+    });
+
+    test('the high table is written by bytes', () {
+      final ppu = Ppu()
+        ..reset()
+        ..write(0x2102, 0x00)
+        ..write(0x2103, 0x01)
+        ..write(0x2104, 0xab);
+      expect(ppu.oam[0x200], 0xab);
+    });
+  });
 }

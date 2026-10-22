@@ -1,5 +1,6 @@
 import 'package:fnesemu_core/src/core/pce/component/pad.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
+import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -8,6 +9,25 @@ void main() {
     pad.keyDown(0, pad.buttons[7]);
     pad.counter = 1;
     expect(pad.port, 0x0f);
+  });
+
+  test('the buttons are read in the order of the hardware', () {
+    int read(String name, {required bool sel}) {
+      final pad = Pad()
+        ..keyDown(0, pad0Button(name))
+        ..port = 3 // clear: the first controller
+        ..port = sel ? 1 : 0;
+      return ~pad.port & 0x0f;
+    }
+
+    expect(read('up', sel: true), 0x01);
+    expect(read('right', sel: true), 0x02);
+    expect(read('down', sel: true), 0x04);
+    expect(read('left', sel: true), 0x08);
+    expect(read('I', sel: false), 0x01);
+    expect(read('II', sel: false), 0x02);
+    expect(read('Select', sel: false), 0x04);
+    expect(read('Run', sel: false), 0x08);
   });
 
   test('polling beyond five controllers does not throw', () {
@@ -47,7 +67,7 @@ void main() {
     pad.port = 3;
     for (var i = 0; i < Pad.controllerNum; i++) {
       pad.port = 0;
-      expect(pad.port, i == 2 ? 0x0d : 0x0f);
+      expect(pad.port, i == 2 ? 0x0e : 0x0f); // I is bit 0
       pad.port = 1;
     }
     expect(pad.port, 0);
@@ -74,3 +94,6 @@ void main() {
     expect(pad.port, 0);
   });
 }
+
+PadButton pad0Button(String name) =>
+    Pad().buttons.firstWhere((b) => b.name == name);

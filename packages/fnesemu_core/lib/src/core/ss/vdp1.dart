@@ -16,6 +16,10 @@ class Vdp1 {
   final _fb = [Uint16List(fbWidth * fbHeight), Uint16List(fbWidth * fbHeight)];
   int _drawIndex = 0;
 
+  /// TVMR bit 0: the frame buffer holds 8-bit pixels, 1024 x 256, two
+  /// pixels to a word with the even pixel in the upper byte
+  bool get eightBit => tvmr.bit0;
+
   Uint16List get displayFb => _fb[_drawIndex ^ 1];
   Uint16List get drawFb => _fb[_drawIndex];
 
@@ -399,7 +403,8 @@ class Vdp1 {
     if (x < 0 || y < 0 || x > _sysClipX || y > _sysClipY) {
       return true;
     }
-    if (x >= fbWidth || y >= fbHeight) {
+    if (x >= (eightBit ? fbWidth * 2 : fbWidth) ||
+        (fbcr.bit3 ? y.shr1 : y) >= fbHeight) {
       return true;
     }
     if (_pmod.bit10) {
@@ -425,9 +430,23 @@ class Vdp1 {
     if (_pmod.bit8 && (x ^ y).bit0) {
       return; // mesh
     }
+    // FBCR DIE: the lines are of the 448-line screen, and the frame buffer
+    // holds the lines of the field that DIL selects
+    if (fbcr.bit3) {
+      if (y.bit0 != fbcr.bit2) return;
+      y = y.shr1;
+    }
 
     _pixels++;
     final fb = drawFb;
+    if (eightBit) {
+      // no color calculation on 8-bit pixels
+      final i = y * fbWidth + x.shr1;
+      fb[i] = x.bit0
+          ? fb[i] & 0xff00 | color.mask8
+          : fb[i].mask8 | color.mask8.shl8;
+      return;
+    }
     final i = y * fbWidth + x;
 
     if (_pmod.bit15) {

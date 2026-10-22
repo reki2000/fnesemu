@@ -1,0 +1,30 @@
+PS-X Realtime Kernel OpenBios - build id 64e85417612d69e56d010404fc354960f9aa402c.
+Copyright (C) 2019-2026 PCSX-Redux authors.
+KERNEL SETUP!
+
+Configuration : EvCB	0x10		TCB	0x04
+ResetGraph:itb=80013574,ehk=800135a4
+ResetGraph:SR=40000000
+ResetGraph:Interrupt hooks enabled.
+ResetGraph:About to init interrupts.
+ResetGraph:Interrupts enabled!
+
+cpu/cop
+pass - testCop0Disabled
+pass - testCop0Enabled
+fail - testCop0InvalidOpcode:111 `wasExceptionThrown() == false`, given: 0x1, expected: 0x0 
+pass - testSwc0Disabled
+fail - testSwc0Enabled:125 `wasExceptionThrown() == false`, given: 0x1, expected: 0x0 
+pass - testCop1Disabled
+fail - testCop1Enabled:140 `wasExceptionThrown() == false`, given: 0x1, expected: 0x0 
+fail - testCop2Disabled:148 `wasExceptionThrown() == true`, given: 0x0, expected: 0x1 
+pass - testCop2Enabled
+pass - testCop2InvalidOpcode
+fail - testSwc2Disabled:169 `wasExceptionThrown() == true`, given: 0x0, expected: 0x1 
+pass - testSwc2Enabled
+pass - testCop3Disabled
+fail - testCop3Enabled:191 `wasExceptionThrown() == false`, given: 0x1, expected: 0x0 
+pass - testSwc3Disabled
+fail - testSwc3Enabled:205 `wasExceptionThrown() == false`, given: 0x1, expected: 0x0 
+fail - testDisabledCoprocessorThrowsCoprocessorUnusable:214 `getExceptionType() == Exception::coprocessorUnusable`, given: 0xa, expected: 0xb 
+Done.

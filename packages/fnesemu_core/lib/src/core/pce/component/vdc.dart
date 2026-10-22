@@ -63,6 +63,8 @@ class Vdc {
 
     vramDotWidth = 0;
     hSize = 256;
+    pendingHSize = 256;
+    hdrWidth = 256;
     vSize = 242;
 
     bgWidthBits = 5;
@@ -90,6 +92,8 @@ class Vdc {
   int scanX = 0; // horizontal counter
 
   int hSize = 256; // rendered image width
+  int pendingHSize = 256; // the widest HDR of this frame, from the next frame
+  int hdrWidth = 256; // the width that HDR sets now
   int vSize = 242; // rendered image height
 
   int reg = 0;
@@ -264,10 +268,13 @@ class Vdc {
       case 0x0a:
         break;
       // Horizontal Display Register
+      // the width takes effect at the next frame, so that a change in the
+      // middle of a frame keeps the lines already rendered. a frame that
+      // changes it is as wide as the widest setting.
       case 0x0b:
-        final oldHSize = hSize;
-        hSize = (val.mask6 + 1).shl3;
-        if (oldHSize != hSize) indexBuffer = Uint16List(hSize * vSize);
+        final w = (val.mask6 + 1).shl3;
+        hdrWidth = w;
+        if (w > pendingHSize) pendingHSize = w;
         break;
       // Vertical Sync Register
       case 0x0c:

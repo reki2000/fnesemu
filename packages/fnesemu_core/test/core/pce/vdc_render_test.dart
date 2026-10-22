@@ -73,4 +73,20 @@ void main() {
       });
     }
   }
+
+  test('a change of HDR in a frame keeps the lines rendered so far', () {
+    final vdc = (Pce()..reset()).vdc;
+    void reg(int no, int lsb) {
+      vdc.writeReg(no);
+      vdc.writeLsb(lsb);
+      vdc.writeMsb(0);
+    }
+
+    final buffer = vdc.indexBuffer;
+    reg(0x0b, 0x25); // 304 dots
+    expect(vdc.indexBuffer, same(buffer));
+    expect(vdc.hSize, 256);
+    reg(0x0b, 0x1f); // 256 dots
+    expect(vdc.pendingHSize, 304, reason: 'the widest of the frame');
+  });
 }

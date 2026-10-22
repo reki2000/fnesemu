@@ -1,0 +1,222 @@
+# End-to-end cases of this core, run by scripts/e2e.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the result that the media reports is a failure; the outputs must still match expected/.
+# The test EXEs run after OpenBIOS (openbios/, built from source) boots. Each case compares the whole VRAM with
+# the VRAM dump of the real hardware that the release has, so no expected/ data is kept here: the share of pixels
+# whose channel differs by more than 8 must not grow (max_diff is the share when the case was recorded, plus 0.0005).
+# Most of that difference is where a test does not draw (white on the hardware, black here).
+# The tests that print their results to the tty compare it with expected/<case>.tty.txt (the current output, from
+# the OpenBIOS banner on). tty_fail is the pattern of the lines with which a test reports a failure; such lines count
+# as a failure against the upstream reference. The psx.log of the release is the output of the real hardware, but
+# some of the logs are older than the test EXEs, so it is not compared line by line.
+
+[[case]]
+name = "gpu-clipping"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/clipping/clipping.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/clipping/vram.png", channel_tol = 8, max_diff = 0.0005 }]
+
+[[case]]
+name = "gpu-clut-cache"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/clut-cache/clut-cache.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/clut-cache/vram.png", channel_tol = 8, max_diff = 0.002623 }]
+
+[[case]]
+name = "gpu-lines"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/lines/lines.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/lines/vram.png", channel_tol = 8, max_diff = 0.009392 }]
+
+[[case]]
+name = "gpu-quad"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/quad/quad.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/quad/vram.png", channel_tol = 8, max_diff = 0.000744 }]
+
+[[case]]
+name = "gpu-rectangles"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/rectangles/rectangles.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/rectangles/vram.png", channel_tol = 8, max_diff = 0.0005 }]
+
+[[case]]
+name = "gpu-texture-flip"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/texture-flip/texture-flip.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/texture-flip/vram.png", channel_tol = 8, max_diff = 0.373982 }]
+
+[[case]]
+name = "gpu-texture-overflow"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/texture-overflow/texture-overflow.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/texture-overflow/vram.png", channel_tol = 8, max_diff = 0.0005 }]
+
+[[case]]
+name = "gpu-transparency"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/transparency/transparency.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/transparency/vram.png", channel_tol = 8, max_diff = 0.854016 }]
+
+[[case]]
+name = "gpu-triangle"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/triangle/triangle.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/triangle/vram.png", channel_tol = 8, max_diff = 0.008488 }]
+
+[[case]]
+name = "gpu-uv-interpolation"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/uv-interpolation/uv-interpolation.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/uv-interpolation/vram.png", channel_tol = 8, max_diff = 0.031121 }]
+
+[[case]]
+name = "gpu-vram-to-vram-overlap"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/vram-to-vram-overlap/vram-to-vram-overlap.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/gpu/vram-to-vram-overlap/vram.png", channel_tol = 8, max_diff = 0.006861 }]
+
+[[case]]
+name = "mdec-4bit"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/mdec/4bit/4bit.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/mdec/4bit/vram.png", channel_tol = 8, max_diff = 0.000542 }, { tty = "expected/mdec-4bit.tty.txt" }]
+
+[[case]]
+name = "mdec-8bit"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/mdec/8bit/8bit.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/mdec/8bit/vram.png", channel_tol = 8, max_diff = 0.00051 }, { tty = "expected/mdec-8bit.tty.txt" }]
+
+[[case]]
+name = "mdec-frame-15bit-dma"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/mdec/frame/frame-15bit-dma.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/mdec/frame/vram-15bit.png", channel_tol = 8, max_diff = 0.00549 }]
+
+[[case]]
+name = "mdec-frame-24bit-dma"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/mdec/frame/frame-24bit-dma.exe"]
+frames = 600
+checks = [{ vram = ".build/ps1-tests/mdec/frame/vram-24bit.png", channel_tol = 8, max_diff = 0.193276 }]
+
+[[case]]
+name = "cpu-cop"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/cpu/cop/cop.exe"]
+frames = 600
+known_failure = "the exceptions of the coprocessor instructions (COPn, SWCn) differ from the hardware: 8 of 18 fail"
+checks = [{ tty = "expected/cpu-cop.tty.txt" }, { tty_fail = "^fail - " }]
+
+[[case]]
+name = "cpu-io-access-bitwidth"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/cpu/io-access-bitwidth/io-access-bitwidth.exe"]
+frames = 600
+checks = [{ tty = "expected/cpu-io-access-bitwidth.tty.txt" }]
+
+[[case]]
+name = "dma-chopping"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/dma/chopping/chopping.exe"]
+frames = 600
+checks = [{ tty = "expected/dma-chopping.tty.txt" }]
+
+[[case]]
+name = "dma-dpcr"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/dma/dpcr/dpcr.exe"]
+frames = 600
+checks = [{ tty = "expected/dma-dpcr.tty.txt" }, { tty_fail = "^fail - " }]
+
+[[case]]
+name = "dma-otc-test"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/dma/otc-test/otc-test.exe"]
+frames = 600
+known_failure = "the OTC DMA with the forward direction or the reserved sync mode, and the control bits after a transfer"
+checks = [{ tty = "expected/dma-otc-test.tty.txt" }, { tty_fail = "^fail - " }]
+
+[[case]]
+name = "gpu-gp0-e1"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/gp0-e1/gp0-e1.exe"]
+frames = 600
+checks = [{ tty = "expected/gpu-gp0-e1.tty.txt" }, { tty_fail = "^fail - " }]
+
+[[case]]
+name = "gpu-mask-bit"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gpu/mask-bit/mask-bit.exe"]
+frames = 600
+checks = [{ tty = "expected/gpu-mask-bit.tty.txt" }, { tty_fail = "^fail - " }]
+
+[[case]]
+name = "gte-test-all"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/gte/test-all/test-all.exe"]
+frames = 600
+checks = [{ tty = "expected/gte-test-all.tty.txt" }, { tty_fail = "^Failed tests: [1-9]" }]
+
+[[case]]
+name = "mdec-step-by-step-log"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/mdec/step-by-step-log/step-by-step-log.exe"]
+frames = 600
+checks = [{ tty = "expected/mdec-step-by-step-log.tty.txt" }]
+
+[[case]]
+name = "spu-memory-transfer"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/spu/memory-transfer/memory-transfer.exe"]
+frames = 600
+known_failure = "the timing of the SPU DMA in sync mode 1 and the DMA read in sync mode 0"
+checks = [{ tty = "expected/spu-memory-transfer.tty.txt" }, { tty_fail = "^fail - " }]
+
+[[case]]
+name = "timers"
+dir = "ps1-tests"
+files = ["../openbios/.build/openbios.bin"]
+args = ["-x", "./.build/ps1-tests/timers/timers.exe"]
+frames = 600
+checks = [{ tty = "expected/timers.tty.txt" }]

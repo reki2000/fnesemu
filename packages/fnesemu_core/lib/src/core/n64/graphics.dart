@@ -227,8 +227,11 @@ class N64Graphics {
           case 0xdf:
             if (returns.isEmpty) return;
             pc = returns.removeLast();
-          case 0xdd || 0xe0 || 0xe1:
-            break; // LOAD_UCODE, SPNOOP, RDPHALF_1
+          case 0xd6 || 0xdd || 0xe0 || 0xe1:
+            // DMA_IO, LOAD_UCODE, SPNOOP, RDPHALF_1. DMA_IO moves data
+            // between the DMEM of the microcode and RDRAM, which this HLE
+            // does not have.
+            break;
           case 0xe2 || 0xe3:
             // the field is addressed from the top bit: shift = 32 - ofs - len
             final length = w0.mask8 + 1, shift = 32 - w0.shr8.mask8 - length;

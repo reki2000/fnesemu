@@ -147,6 +147,7 @@ class Snes implements Core {
       rendered = true;
 
       if (_scanline == 225) {
+        ppu.onVBlank();
         bus.enterVBlank();
       } else if (_scanline >= scanlinesInFrame_) {
         _scanline = 0;

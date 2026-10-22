@@ -1,4 +1,4 @@
-"""Helpers for the setup.py scripts under test/cpu and test/roms.
+"""Helpers for the setup.py scripts under test/cpu and test/e2e.
 
 Each setup.py prepares its data in a .build/ directory next to itself.
 A setup.py exits with 0 when the data is ready and with a non-zero code
