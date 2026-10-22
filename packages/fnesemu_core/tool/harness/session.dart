@@ -21,7 +21,12 @@ import 'options.dart';
 
 /// the options that set up the core, shared by the subcommands that run it
 const mediaValued = {"--bios", "--boot", "--exe", "--input"};
-const mediaFlags = {"--fast-boot", "--fixed-clock", "--log-cd", "--frame-runner"};
+const mediaFlags = {
+  "--fast-boot",
+  "--fixed-clock",
+  "--log-cd",
+  "--frame-runner"
+};
 const mediaAliases = {
   "-b": "--bios",
   "-3": "--boot",
@@ -53,7 +58,12 @@ Core createCore(String name) =>
     name == "ps" ? createPsForTools() : CoreFactory.of(name);
 
 /// the button names of [core], in the order of the pad
-List<String> buttonNames(Core core) => core.buttons.map((b) => b.name).toList();
+/// the name of the button that resets the core (the sram stays), which every
+/// core has after its own buttons
+const resetButton = "Reset";
+
+List<String> buttonNames(Core core) =>
+    [...core.buttons.map((b) => b.name), resetButton];
 
 /// the presses of [input]; an error in it ends the harness
 List<(int, int, int)> readPresses(String? input, List<String> buttons) {
@@ -139,8 +149,8 @@ class Session {
     final exe = o["--exe"];
     if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
-    final session = Session._(
-        name, core, drive, pad, buttons, o.flag("--frame-runner"));
+    final session =
+        Session._(name, core, drive, pad, buttons, o.flag("--frame-runner"));
     if (recordAudio) core.onAudio(session.record);
     return session;
   }
@@ -182,7 +192,11 @@ class Session {
     // that the result does not depend on the speed of the disc
     await drive?.settle();
     pad.step(frame, (b, down) {
-      down ? core.padDown(0, _pads[b]) : core.padUp(0, _pads[b]);
+      if (b == _pads.length) {
+        if (down) core.reset();
+      } else {
+        down ? core.padDown(0, _pads[b]) : core.padUp(0, _pads[b]);
+      }
     });
   }
 

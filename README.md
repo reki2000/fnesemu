@@ -143,7 +143,7 @@ python3 scripts/romtest.py lint                  # paths stay in the tree, expec
 
 Covered cores: NES, PCE, SNES, MD, SMS, GB, GBA (with a replacement BIOS), N64, WS and PS1 (test EXEs on OpenBIOS). Cases marked `slow = true` (minutes long) run only with `--slow`.
 
-`scripts/romtool.py` helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `roms.toml`. An input is one line such as `@60 Start _40 ( right:300 | [A _20]*10 )`; the syntax is in `packages/fnesemu_core/tool/input_sequence.dart` and `romtest.py --help`.
+`scripts/romtool.py` helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `roms.toml`. An input is one line such as `@60 Start _40 ( right:300 | [A _20]*10 )`; the syntax is in `packages/fnesemu_core/tool/input_sequence.dart` and `romtest.py --help`. Every core has the button `Reset` after its own buttons, which resets the core and keeps the SRAM, for a game that asks to turn the power off and on.
 
 ```sh
 python3 scripts/romtool.py buttons md/vcounter   # the button names of the case
