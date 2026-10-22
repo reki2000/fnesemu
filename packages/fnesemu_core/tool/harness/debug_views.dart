@@ -30,6 +30,10 @@ void _writeSnes(Snes core, String dir) {
     "BG: ${ppu.bgs.map((bg) => "(${bg.hofs},${bg.vofs}) ${bg.charBase.toRadixString(16)} ${bg.wideX}/${bg.wideY} big=${bg.bigChar}").join(" ")}",
     "HDMA: ${core.dma.hdmaEnableMask.toRadixString(16)} ${core.dma.channels.map((c) => "${c.bbad.toRadixString(16)}:${c.dmap.toRadixString(16)}:${c.a1tAddr.toRadixString(16)}").join(" ")}",
     "windows: ${ppu.w12sel.toRadixString(16)} tmw=${ppu.tmw.toRadixString(16)} ${ppu.w1Left}-${ppu.w1Right} ${ppu.w2Left}-${ppu.w2Right}",
+    "OBJ: size=${ppu.objSizeSel} base=${ppu.objBase} gap=${ppu.objGap}",
+    for (var i = 0; i < 128; i++)
+      if (ppu.oam[i * 4 + 1] < 224 || ppu.oam[i * 4 + 1] >= 0xf0)
+        "  $i: x=${ppu.oam[i * 4] | ((ppu.oam[512 + i ~/ 4] >> (i % 4 * 2)) & 1) << 8} y=${ppu.oam[i * 4 + 1]} tile=${ppu.oam[i * 4 + 2].toRadixString(16)} attr=${ppu.oam[i * 4 + 3].toRadixString(16)} large=${(ppu.oam[512 + i ~/ 4] >> (i % 4 * 2 + 1)) & 1}",
     "",
   ].join("\n"));
   File("$dir/vram.bin").writeAsBytesSync(ppu.vram);
