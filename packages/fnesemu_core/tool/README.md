@@ -5,7 +5,7 @@ Command-line tools of the cores. Run them with `dart run tool/<name>.dart` in `p
 | Tool | What it does |
 |---|---|
 | `core_harness.dart` | Runs a core with its media and input: `run` writes the screen and the audio, `serve` gives stepwise control over HTTP, `bench` times frames, `trace` records the instructions through the tracer of the debugger, `buttons` and `check-input` print the button names and the presses of an input |
-| `cpu_test.dart` | Runs the instruction tests of a CPU (`nestest`, `z80`, `v30`, `m68k`, `r3000`, `gte`, `huc6280`), used by `make test-cpu` |
+| `cpu_test.dart` | Runs the instruction tests of a CPU (`nestest`, `z80`, `v30`, `m68k`, `r3000`, `huc6280`), used by `make test-cpu` |
 | `disasm.dart` | Disassembles one 68000 or Z80 instruction |
 | `microbench.dart` | Synthetic benchmarks that need no ROM (`vr4300`, `video-debug`) |
 | `generate_core_registry.dart` | Writes the registry of the core modules |

@@ -39,6 +39,7 @@ extension Hook on R3000 {
         console.write(String.fromCharCode(ch));
       case 0x0a:
         _log.debugc(() => "tty: ${console.toString()}");
+        onTtyLine?.call(console.toString());
         console.clear();
     }
   }

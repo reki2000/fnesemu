@@ -66,6 +66,10 @@ class R3000 {
   // bios putchar() hacking
   final console = StringBuffer();
 
+  /// called with each line that the program writes to the tty (bios putchar
+  /// and write to stdout / stderr), without the line feed
+  void Function(String line)? onTtyLine;
+
   // ps-exe bianry to be sideloaded
   Uint8List exe = Uint8List(0);
 

@@ -44,6 +44,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -109,6 +110,8 @@ class Case:
             cmd.append("-w")
         if any("vram" in c for c in self.checks()):
             cmd.append("-v")
+        if any("tty" in c or "tty_fail" in c for c in self.checks()):
+            cmd.append("-t")
         return cmd
 
     def check_input(self, exe: Path) -> str | None:
@@ -190,17 +193,51 @@ def compare_frame(check, got: Path, ref: Path):
     return ratio <= check.get("max_diff", 0.0), f"diff pixels {ratio * 100:.3f}%"
 
 
+_DATA_KEYS = ("expected", "audio", "vram", "tty")
+
+
+def check_ref(check: dict):
+    """The file that a check compares with, or None for a check without one (tty_fail)."""
+    return next((check[k] for k in _DATA_KEYS if k in check), None)
+
+
+def compare_tty(got: Path, ref: Path):
+    a, b = got.read_text().splitlines(), ref.read_text().replace("\r", "").splitlines()
+    if a == b:
+        return True, f"{len(a)} lines"
+    first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+    return False, f"{len(a)} lines, expected {len(b)}; first difference at line {first + 1}"
+
+
+def tty_failures(check: dict, got: Path):
+    """The lines of the tty output that report a failure (the pattern of tty_fail)."""
+    pat = re.compile(check["tty_fail"])
+    lines = got.read_text().splitlines() if got.exists() else []
+    bad = [line for line in lines if pat.search(line)]
+    return not bad, (f"{len(bad)} failure lines, the first: {bad[0]}" if bad else "no failure lines")
+
+
 def compare(case: Case, out: Path, say):
     """Returns (matches expected/, matches the upstream references, has upstream references)."""
     ok, upstream_ok, has_upstream = True, True, False
     for check in case.checks():
+        if "tty_fail" in check:
+            # the result that the program itself reports, like an upstream reference
+            good, msg = tty_failures(check, out / "tty.txt")
+            tag = "ok  " if good else ("xfail" if "known_failure" in case.spec else "FAIL")
+            say(f"  {tag} tty result (upstream): {msg}")
+            has_upstream = True
+            upstream_ok &= good
+            continue
         if "frame" in check:
             label, got = f"frame {check['frame']}", out / f"frame_{check['frame']:05d}.png"
         elif "audio" in check:
             label, got = "audio", out / "audio.wav"
+        elif "tty" in check:
+            label, got = "tty", out / "tty.txt"
         else:
             label, got = "vram", out / "vram.png"
-        ref = case.path(check.get("expected") or check.get("audio") or check.get("vram"))
+        ref = case.path(check_ref(check))
         upstream = not case.is_expected(ref)
         has_upstream |= upstream
         if not ref.exists():
@@ -213,6 +250,8 @@ def compare(case: Case, out: Path, say):
             continue
         if "audio" in check:
             good, msg = regress.compare_audio(json.loads(ref.read_text()), got, check.get("tol"))
+        elif "tty" in check:
+            good, msg = compare_tty(got, ref)
         else:
             good, msg = compare_frame(check, got, ref)
         tag = "ok  " if good else ("xfail" if upstream and "known_failure" in case.spec else "FAIL")
@@ -226,7 +265,9 @@ def compare(case: Case, out: Path, say):
 
 def update(case: Case, out: Path, say):
     for check in case.checks():
-        ref = case.path(check.get("expected") or check.get("audio") or check.get("vram"))
+        if check_ref(check) is None:
+            continue
+        ref = case.path(check_ref(check))
         if not case.is_expected(ref):
             continue  # upstream reference data is never overwritten
         ref.parent.mkdir(parents=True, exist_ok=True)
@@ -234,6 +275,8 @@ def update(case: Case, out: Path, say):
             shutil.copy(out / f"frame_{check['frame']:05d}.png", ref)
         elif "audio" in check:
             ref.write_text(json.dumps(regress.audio_features(out / "audio.wav")) + "\n")
+        elif "tty" in check:
+            shutil.copy(out / "tty.txt", ref)
         else:
             shutil.copy(out / "vram.png", ref)
         say(f"  updated {show(ref)}")
@@ -276,7 +319,7 @@ def run_case(case: Case, do_update, slow, exe: Path):
     # the files that setup.py prepares: the ROM and the upstream references
     prepared = list(case.spec["files"]) + [a for a in case.spec.get("args", []) if a.startswith(("./", "../"))]
     prepared += [ref for ch in case.checks() for k, ref in ch.items()
-                 if k in ("expected", "audio", "vram") and not case.is_expected(case.path(ref))]
+                 if k in _DATA_KEYS and not case.is_expected(case.path(ref))]
     missing = [f for f in prepared if not case.path(f).exists()]
     if missing:
         return "skip", f"SKIP {case.id}: missing {', '.join(missing)} (run setup first)"
@@ -336,7 +379,7 @@ def lint(root: Path, cases, inside_only: bool):
     exe = compile_harness()
     for c in cases:
         rels = list(c.spec["files"]) + [a for a in c.spec.get("args", []) if a.startswith(("./", "../"))]
-        rels += [v for ch in c.checks() for k, v in ch.items() if k in ("expected", "audio", "vram")]
+        rels += [v for ch in c.checks() for k, v in ch.items() if k in _DATA_KEYS]
         for rel in rels:
             p = c.path(rel)
             if inside_only and (Path(rel).is_absolute() or root.resolve() not in p.parents):
@@ -352,7 +395,7 @@ def lint(root: Path, cases, inside_only: bool):
         except TypeError as e:
             errors.append(f"{c.id}: {e}")
         size = sum(c.path(v).stat().st_size for ch in c.checks() for k, v in ch.items()
-                   if k in ("expected", "audio", "vram") and c.is_expected(c.path(v)) and c.path(v).exists())
+                   if k in _DATA_KEYS and c.is_expected(c.path(v)) and c.path(v).exists())
         if inside_only and size > EXPECTED_LIMIT:
             errors.append(f"{c.id}: expected data is {size} bytes (limit {EXPECTED_LIMIT})")
     names = [c.id for c in cases]

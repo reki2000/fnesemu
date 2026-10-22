@@ -109,7 +109,6 @@ The CPU cores are checked instruction by instruction against public test data. E
 | `make test-z80` | Z80 | `tests.in` and `tests.expected` from the [Fuse](https://fuse-emulator.sourceforge.net/) 1.6.0 release |
 | `make test-m68` | 68000 | [SingleStepTests/680x0](https://github.com/SingleStepTests/680x0) (`68000/v1`, about 200MB; skips the ASR cases that disagree with hardware) |
 | `make test-r3000` | R3000 (PS1) | [SingleStepTests/r3000](https://github.com/SingleStepTests/r3000) (`v1`; registers, delay slots and memory writes, not cycles; skips misaligned loads and stores, whose address errors are not emulated) |
-| `make test-gte` | PS1 GTE | `gte/test-all/tests.c` from [ps1-tests](https://github.com/JaCzekanski/ps1-tests) |
 | `make test-huc6280` | HuC6280 (PCE) | [SingleStepTests/huc6280](https://github.com/SingleStepTests/huc6280) (`v1`; registers, MPRs and memory, not cycles; skips ST0/ST1/ST2, which write the VDC) |
 
 `make test-cpu` runs all of them.
@@ -126,6 +125,7 @@ packages/fnesemu_core/test/roms/<core>/
 ```
 
 - A check compares a frame with an image under `expected/` (the current behavior) or with a reference image that the ROM's project publishes (under `.build/`).
+- A PS1 test EXE that prints its results is checked by its TTY output (`tty`, compared with `expected/`); `tty_fail` is the pattern of the lines with which the test reports a failure, which count like a failing upstream reference.
 - A case whose ROM reports a failure records the reason in `known_failure`. Its output must still match `expected/`, so a change of behavior is detected.
 - ROMs that have no prebuilt release are built in a Docker image (`packages/fnesemu_core/test/docker/Dockerfile`) when the tools are not installed.
 

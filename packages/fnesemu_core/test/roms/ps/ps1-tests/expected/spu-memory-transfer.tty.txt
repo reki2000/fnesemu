@@ -1,0 +1,41 @@
+PS-X Realtime Kernel OpenBios - build id 64e85417612d69e56d010404fc354960f9aa402c.
+Copyright (C) 2019-2026 PCSX-Redux authors.
+KERNEL SETUP!
+
+Configuration : EvCB	0x10		TCB	0x04
+ResetGraph:itb=800154b4,ehk=800154e4
+ResetGraph:SR=40000000
+ResetGraph:Interrupt hooks enabled.
+ResetGraph:About to init interrupts.
+ResetGraph:Interrupts enabled!
+
+spu/memory-transfer
+Test SPU memory access using DMA and regular IO.
+
+pass - testDtcRegister
+pass - testManualWriteToSpuRam
+pass - testDMAReadFromSpuRam
+pass - testDMAWriteToSpuRam
+fail - testDMAWriteTiming:251 `transferFinishedImmediately == false`, given: 0x1, expected: 0x0  - ("DMA in mode 1 should allow for code execution between block transfers")
+fail - testDMAWriteTiming:254 `measuredCycles > writeSize * 16 * 0.1f == true`, given: 0x0, expected: 0x1  - ("DMA transfer was too fast")
+fail - testDMAReadTiming:284 `transferFinishedImmediately == false`, given: 0x1, expected: 0x0  - ("DMA in mode 1 should allow for code execution between block transfers")
+fail - testDMAReadTiming:287 `measuredCycles > readSize * 16 * 0.1f == true`, given: 0x0, expected: 0x1  - ("DMA transfer was too fast")
+pass - testDMAWriteToRamSyncMode0
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x48 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x65 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x6c 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x6c 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x6f 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x20 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x74 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x68 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x65 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x72 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x65 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x20 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x20 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x20 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x3a 
+fail - testDMAReadToRamSyncMode0:312 `download_buf[i] == TEST_STRING[i]`, given: 0x0, expected: 0x29 
+pass - testControlBitsAreCopiedToStatusRegister
+Done.

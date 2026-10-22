@@ -6,11 +6,9 @@
 //   v30      <metadata.json> <XX.json.gz...>       V30MZ, the 8088 tests of SingleStepTests
 //   m68k     <68000/v1 dir>                        68000, SingleStepTests/680x0
 //   r3000    <r3000/v1 dir>                        R3000 (PS1), SingleStepTests/r3000
-//   gte      <tests.c>                             PS1 GTE, gte/test-all of ps1-tests
 //   huc6280  <huc6280/v1 dir>                      HuC6280 (PCE), SingleStepTests/huc6280
 import 'dart:io';
 
-import 'cpu_test/gte.dart' as gte;
 import 'cpu_test/huc6280.dart' as huc6280;
 import 'cpu_test/m68k.dart' as m68k;
 import 'cpu_test/nestest.dart' as nestest;
@@ -24,7 +22,6 @@ final _tests = <String, dynamic Function(List<String>)>{
   "v30": v30.main,
   "m68k": m68k.main,
   "r3000": r3000.main,
-  "gte": gte.main,
   "huc6280": huc6280.main,
 };
 

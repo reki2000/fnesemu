@@ -1,0 +1,26 @@
+PS-X Realtime Kernel OpenBios - build id 64e85417612d69e56d010404fc354960f9aa402c.
+Copyright (C) 2019-2026 PCSX-Redux authors.
+KERNEL SETUP!
+
+Configuration : EvCB	0x10		TCB	0x04
+ResetGraph:itb=80012100,ehk=80012130
+ResetGraph:SR=40000000
+ResetGraph:Interrupt hooks enabled.
+ResetGraph:About to init interrupts.
+ResetGraph:Interrupts enabled!
+
+dma/dpcr
+Tests DMA transfer behaviour with various DPCR values.
+
+pass - writeToSPURAM
+Testing DMA read with master enable = true, priority = 5
+  DPCR was 0x3B3B3B33, setting to 0x3B3D3B33
+  ... transfer complete
+pass - testSPUDMARead
+Testing DMA read with master enable = false, priority = 5
+  DPCR was 0x3B3B3B33, setting to 0x3B353B33
+  ... transfer timed out
+Testing DMA read with master enable = false, priority = 0
+  DPCR was 0x3B3B3B33, setting to 0x3B303B33
+  ... transfer timed out
+Done.

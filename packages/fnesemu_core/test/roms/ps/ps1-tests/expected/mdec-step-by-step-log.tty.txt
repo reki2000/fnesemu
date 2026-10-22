@@ -1,0 +1,1630 @@
+PS-X Realtime Kernel OpenBios - build id 64e85417612d69e56d010404fc354960f9aa402c.
+Copyright (C) 2019-2026 PCSX-Redux authors.
+KERNEL SETUP!
+
+Configuration : EvCB	0x10		TCB	0x04
+ResetGraph:itb=8001384c,ehk=8001387c
+ResetGraph:SR=40000000
+ResetGraph:Interrupt hooks enabled.
+ResetGraph:About to init interrupts.
+ResetGraph:Interrupts enabled!
+
+mdec/step-by-step-log
+Manually feeds the MDEC data, monitors status register at every step.
+When MDECin FIFO is full, program switches to read mode which dumps decoded image until FIFO out gets empty. 
+Decoded blocks are copied manually WITHOUT swizzling, blocks are copied as 16x4 instead of 8x8
+mdec_reset (MDEC_CTRL <- 0x80000000)... ok
+mdec_quantTable(addr=0x8001364c, color=1)... ok
+mdec_idctTable(addr=0x800136cc)... ok
+mdec_enableDma (MDEC_CTRL <- 0x60000000)... ok
+mdec_decode(addr=0x8001324c, length=0x400, colorDepth=3, outputSigned=0, setBit15=0)... 
+
+
+----- MDECin
+==== MDEC_STATUS: 0x9e0000ff, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xf8000400
+==== MDEC_STATUS: 0x9e0100fe, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0xf8000400
+==== MDEC_STATUS: 0x9e0200fd, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 2
+MDEC_DATA <- 0xf8000600
+==== MDEC_STATUS: 0x9e0300fc, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x07ed07fe
+==== MDEC_STATUS: 0x9e0300fb, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03fb0024
+==== MDEC_STATUS: 0x9e0300fa, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x041d0031
+==== MDEC_STATUS: 0x9e0300f9, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x00230006
+==== MDEC_STATUS: 0x9e0300f8, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x00040035
+==== MDEC_STATUS: 0x9e0300f7, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000803b9
+==== MDEC_STATUS: 0x9e0300f6, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x07e6007f
+==== MDEC_STATUS: 0x9e0300f5, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03d103f6
+==== MDEC_STATUS: 0x9e0300f4, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03e303f2
+==== MDEC_STATUS: 0x9e0300f3, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x00050043
+==== MDEC_STATUS: 0x9e0300f2, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03f903a8
+==== MDEC_STATUS: 0x9e0300f1, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03ff0392
+==== MDEC_STATUS: 0x9e0300f0, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x04120056
+==== MDEC_STATUS: 0x9e0300ef, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x00250002
+==== MDEC_STATUS: 0x9e0300ee, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x001e001a
+==== MDEC_STATUS: 0x9e0300ed, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x0011000a
+==== MDEC_STATUS: 0x9e0300ec, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03c003f5
+==== MDEC_STATUS: 0x9e0300eb, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03cb03f8
+==== MDEC_STATUS: 0x9e0300ea, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03b90001
+==== MDEC_STATUS: 0x9e0300e9, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000803fa
+==== MDEC_STATUS: 0x9e0300e8, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03fb03e8
+==== MDEC_STATUS: 0x9e0300e7, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03f003f2
+==== MDEC_STATUS: 0x9e0300e6, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x001003f7
+==== MDEC_STATUS: 0x9e0300e5, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000203d9
+==== MDEC_STATUS: 0x9e0300e4, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000603c9
+==== MDEC_STATUS: 0x9e0300e3, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000303ed
+==== MDEC_STATUS: 0x9e0300e2, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03f70003
+==== MDEC_STATUS: 0x9e0300e1, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000703fd
+==== MDEC_STATUS: 0x9e0300e0, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x000c0008
+==== MDEC_STATUS: 0x9e0300df, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03f7000c
+==== MDEC_STATUS: 0x9e0400de, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x0118078e
+==== MDEC_STATUS: 0x9e0400dd, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03640044
+==== MDEC_STATUS: 0x9e0400dc, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x0015002b
+==== MDEC_STATUS: 0x9e0400db, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03fd0015
+==== MDEC_STATUS: 0x9e0400da, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03dd03cd
+==== MDEC_STATUS: 0x9e0400d9, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00170009
+==== MDEC_STATUS: 0x9e0400d8, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00020040
+==== MDEC_STATUS: 0x9e0400d7, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000e0010
+==== MDEC_STATUS: 0x9e0400d6, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000f0001
+==== MDEC_STATUS: 0x9e0400d5, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03d1002d
+==== MDEC_STATUS: 0x9e0400d4, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03fb0007
+==== MDEC_STATUS: 0x9e0400d3, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03db03e2
+==== MDEC_STATUS: 0x9e0400d2, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000d0005
+==== MDEC_STATUS: 0x9e0400d1, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00060001
+==== MDEC_STATUS: 0x9e0400d0, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03ff0028
+==== MDEC_STATUS: 0x9e0400cf, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x0004000a
+==== MDEC_STATUS: 0x9e0400ce, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00020014
+==== MDEC_STATUS: 0x9e0400cd, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03f60005
+==== MDEC_STATUS: 0x9e0400cc, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03f70009
+==== MDEC_STATUS: 0x9e0400cb, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00090023
+==== MDEC_STATUS: 0x9e0400ca, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x001a0003
+==== MDEC_STATUS: 0x9e0400c9, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03f60007
+==== MDEC_STATUS: 0x9e0400c8, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000d0010
+==== MDEC_STATUS: 0x9e0400c7, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03f4000c
+==== MDEC_STATUS: 0x9e0400c6, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03fd03f4
+==== MDEC_STATUS: 0x9e0400c5, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00190003
+==== MDEC_STATUS: 0x9e0400c4, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000503f3
+==== MDEC_STATUS: 0x9e0400c3, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000103f8
+==== MDEC_STATUS: 0x9e0400c2, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x001f03f8
+==== MDEC_STATUS: 0x9e0400c1, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03fd03fe
+==== MDEC_STATUS: 0x9e0400c0, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000103fa
+==== MDEC_STATUS: 0x9e0400bf, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000103fc
+==== MDEC_STATUS: 0x9e0500be, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x0384078e
+==== MDEC_STATUS: 0x9e0500bd, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03640044
+==== MDEC_STATUS: 0x9e0500bc, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x036e03f0
+==== MDEC_STATUS: 0x9e0500bb, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03e50060
+==== MDEC_STATUS: 0x9e0500ba, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03dd03ef
+==== MDEC_STATUS: 0x9e0500b9, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03d80009
+==== MDEC_STATUS: 0x9e0500b8, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x00110054
+==== MDEC_STATUS: 0x9e0500b7, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x00530390
+==== MDEC_STATUS: 0x9e0500b6, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f103f2
+==== MDEC_STATUS: 0x9e0500b5, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x00340014
+==== MDEC_STATUS: 0x9e0500b4, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fb0007
+==== MDEC_STATUS: 0x9e0500b3, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000c001d
+==== MDEC_STATUS: 0x9e0500b2, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000d0012
+==== MDEC_STATUS: 0x9e0500b1, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03d4000d
+==== MDEC_STATUS: 0x9e0500b0, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fb003f
+==== MDEC_STATUS: 0x9e0500af, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f703f6
+==== MDEC_STATUS: 0x9e0500ae, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x002003dd
+==== MDEC_STATUS: 0x9e0500ad, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f603fb
+==== MDEC_STATUS: 0x9e0500ac, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f203f6
+==== MDEC_STATUS: 0x9e0500ab, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000903f0
+==== MDEC_STATUS: 0x9e0500aa, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ec0004
+==== MDEC_STATUS: 0x9e0500a9, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fd000a
+==== MDEC_STATUS: 0x9e0500a8, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000803ef
+==== MDEC_STATUS: 0x9e0500a7, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fc03fb
+==== MDEC_STATUS: 0x9e0500a6, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03e703f2
+==== MDEC_STATUS: 0x9e0500a5, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x00140003
+==== MDEC_STATUS: 0x9e0500a4, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000e0004
+==== MDEC_STATUS: 0x9e0500a3, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ec03f2
+==== MDEC_STATUS: 0x9e0500a2, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ff03fd
+==== MDEC_STATUS: 0x9e0500a1, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x0008000f
+==== MDEC_STATUS: 0x9e0500a0, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ff03fe
+==== MDEC_STATUS: 0x9e05009f, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x00020004
+==== MDEC_STATUS: 0x3e00009e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xf8000400
+==== MDEC_STATUS: 0x3e01009d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0xf8000400
+==== MDEC_STATUS: 0x3e02009c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 2
+MDEC_DATA <- 0xf8000600
+==== MDEC_STATUS: 0x3e03009b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x043206bf
+==== MDEC_STATUS: 0x3e03009a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x070603f2
+==== MDEC_STATUS: 0x3e030099, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x07fc07be
+==== MDEC_STATUS: 0x3e030098, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x04bf0814
+==== MDEC_STATUS: 0x3e030097, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x0405042b
+==== MDEC_STATUS: 0x3e030096, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x03e50410
+==== MDEC_STATUS: 0x3e030095, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x07b50ff1
+==== MDEC_STATUS: 0x3e030094, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x07fd07e9
+==== MDEC_STATUS: 0x3e030093, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x041007ed
+==== MDEC_STATUS: 0x3e030092, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x0c080420
+==== MDEC_STATUS: 0x3e030091, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x040f0802
+==== MDEC_STATUS: 0x3e030090, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x07e807ef
+==== MDEC_STATUS: 0x3e03008f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x040d13f8
+==== MDEC_STATUS: 0x3e03008e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0x0bfa040b
+==== MDEC_STATUS: 0x3e03008d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0xfe000000
+==== MDEC_STATUS: 0x3e04008c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x006e043e
+==== MDEC_STATUS: 0x3e04008b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03b60066
+==== MDEC_STATUS: 0x3e04008a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03ca0008
+==== MDEC_STATUS: 0x3e040089, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03e4007f
+==== MDEC_STATUS: 0x3e040088, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x001603ea
+==== MDEC_STATUS: 0x3e040087, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000c03dd
+==== MDEC_STATUS: 0x3e040086, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x002a03b3
+==== MDEC_STATUS: 0x3e040085, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00040361
+==== MDEC_STATUS: 0x3e040084, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03dd0005
+==== MDEC_STATUS: 0x3e040083, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000d03ff
+==== MDEC_STATUS: 0x3e040082, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03e8002a
+==== MDEC_STATUS: 0x3e040081, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03fd0012
+==== MDEC_STATUS: 0x3e040080, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x003303fa
+==== MDEC_STATUS: 0x3e04007f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03de03f8
+==== MDEC_STATUS: 0x3e04007e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03e803d5
+==== MDEC_STATUS: 0x3e04007d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03dc03bb
+==== MDEC_STATUS: 0x3e04007c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03bc03bf
+==== MDEC_STATUS: 0x3e04007b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000d03f7
+==== MDEC_STATUS: 0x3e04007a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00100003
+==== MDEC_STATUS: 0x3e040079, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03ee03d7
+==== MDEC_STATUS: 0x3e040078, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000403eb
+==== MDEC_STATUS: 0x3e040077, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00140408
+==== MDEC_STATUS: 0x3e040076, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x00060015
+==== MDEC_STATUS: 0x3e040075, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03e9000b
+==== MDEC_STATUS: 0x3e040074, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000e03f8
+==== MDEC_STATUS: 0x3e040073, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x002403fb
+==== MDEC_STATUS: 0x3e040072, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000403fe
+==== MDEC_STATUS: 0x3e040071, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000b000a
+==== MDEC_STATUS: 0x3e040070, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03f60003
+==== MDEC_STATUS: 0x3e04006f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x03e203f4
+==== MDEC_STATUS: 0x3e04006e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0x000303f6
+==== MDEC_STATUS: 0x3e04006d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0xfe000002
+==== MDEC_STATUS: 0x3e05006c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000d072f
+==== MDEC_STATUS: 0x3e05006b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000103f7
+==== MDEC_STATUS: 0x3e05006a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x02d4000b
+==== MDEC_STATUS: 0x3e050069, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03cf03ed
+==== MDEC_STATUS: 0x3e050068, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x001e0004
+==== MDEC_STATUS: 0x3e050067, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fe03c2
+==== MDEC_STATUS: 0x3e050066, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ed001f
+==== MDEC_STATUS: 0x3e050065, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x0004008f
+==== MDEC_STATUS: 0x3e050064, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f9003e
+==== MDEC_STATUS: 0x3e050063, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f903e6
+==== MDEC_STATUS: 0x3e050062, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03c9002b
+==== MDEC_STATUS: 0x3e050061, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x001e03f8
+==== MDEC_STATUS: 0x3e050060, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03cc0003
+==== MDEC_STATUS: 0x3e05005f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03b70003
+==== MDEC_STATUS: 0x3e05005e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x0401000e
+==== MDEC_STATUS: 0x3e05005d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000d000b
+==== MDEC_STATUS: 0x3e05005c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f903f7
+==== MDEC_STATUS: 0x3e05005b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fd0010
+==== MDEC_STATUS: 0x3e05005a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000d000e
+==== MDEC_STATUS: 0x3e050059, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ff001a
+==== MDEC_STATUS: 0x3e050058, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x000d0014
+==== MDEC_STATUS: 0x3e050057, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f40006
+==== MDEC_STATUS: 0x3e050056, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ee03fe
+==== MDEC_STATUS: 0x3e050055, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ff000c
+==== MDEC_STATUS: 0x3e050054, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x00230005
+==== MDEC_STATUS: 0x3e050053, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fe03fd
+==== MDEC_STATUS: 0x3e050052, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f703fd
+==== MDEC_STATUS: 0x3e050051, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fe03ed
+==== MDEC_STATUS: 0x3e050050, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03ff03f8
+==== MDEC_STATUS: 0x3e05004f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03f403fa
+==== MDEC_STATUS: 0x3e05004e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0x03fb03f8
+==== MDEC_STATUS: 0x3e05004d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0xfe0003fd
+==== MDEC_STATUS: 0x3e00004c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x0061046b
+==== MDEC_STATUS: 0x3e00004b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x04d803d5
+==== MDEC_STATUS: 0x3e00004a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x080c07e3
+==== MDEC_STATUS: 0x3e000049, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07b407c6
+==== MDEC_STATUS: 0x3e000048, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x13f90413
+==== MDEC_STATUS: 0x3e000047, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x04140421
+==== MDEC_STATUS: 0x3e000046, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07f2042e
+==== MDEC_STATUS: 0x3e000045, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x03eb1804
+==== MDEC_STATUS: 0x3e000044, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07f407f6
+==== MDEC_STATUS: 0x3e000043, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x180607dd
+==== MDEC_STATUS: 0x3e000042, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x040b0407
+==== MDEC_STATUS: 0x3e000041, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07f913fd
+==== MDEC_STATUS: 0x3e000040, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe000802
+==== MDEC_STATUS: 0x3e01003f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x004d0454
+==== MDEC_STATUS: 0x3e01003e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x07ff0320
+==== MDEC_STATUS: 0x3e01003d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x084007e9
+==== MDEC_STATUS: 0x3e01003c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x13de140f
+==== MDEC_STATUS: 0x3e01003b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x18151ff5
+==== MDEC_STATUS: 0x3e01003a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0xfe006c00
+==== MDEC_STATUS: 0x3e020039, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 2
+MDEC_DATA <- 0xf8000731
+==== MDEC_STATUS: 0x3e030038, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0xf8000457
+==== MDEC_STATUS: 0x3e040037, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0xf8000674
+==== MDEC_STATUS: 0x3e050036, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0xf80007a5
+==== MDEC_STATUS: 0x3e000035, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x00860795
+==== MDEC_STATUS: 0x3e000034, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x045903ba
+==== MDEC_STATUS: 0x3e000033, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x081407d8
+==== MDEC_STATUS: 0x3e000032, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07e107e8
+==== MDEC_STATUS: 0x3e000031, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x13f5041b
+==== MDEC_STATUS: 0x3e000030, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x0408040d
+==== MDEC_STATUS: 0x3e00002f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07ed0413
+==== MDEC_STATUS: 0x3e00002e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x03f81807
+==== MDEC_STATUS: 0x3e00002d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07fb07fc
+==== MDEC_STATUS: 0x3e00002c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x180207f2
+==== MDEC_STATUS: 0x3e00002b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x04050403
+==== MDEC_STATUS: 0x3e00002a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0x07fd13ff
+==== MDEC_STATUS: 0x3e000029, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe000801
+==== MDEC_STATUS: 0x3e010028, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x036507ac
+==== MDEC_STATUS: 0x3e010027, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x079a03c8
+==== MDEC_STATUS: 0x3e010026, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x0810042e
+==== MDEC_STATUS: 0x3e010025, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x0424041b
+==== MDEC_STATUS: 0x3e010024, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x13f807e1
+==== MDEC_STATUS: 0x3e010023, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x07f607f1
+==== MDEC_STATUS: 0x3e010022, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x041607ea
+==== MDEC_STATUS: 0x3e010021, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x000a1805
+==== MDEC_STATUS: 0x3e010020, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x04050405
+==== MDEC_STATUS: 0x3e01001f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x1bfd0411
+==== MDEC_STATUS: 0x3e01001e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x07fb07fc
+==== MDEC_STATUS: 0x3e01001d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0x04031002
+==== MDEC_STATUS: 0x3e01001c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 1
+MDEC_DATA <- 0xfe000bff
+==== MDEC_STATUS: 0x3e02001b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 2
+MDEC_DATA <- 0xf8000588
+==== MDEC_STATUS: 0x3e03001a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 3
+MDEC_DATA <- 0xf80004cb
+==== MDEC_STATUS: 0x3e040019, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 4
+MDEC_DATA <- 0xf8000600
+==== MDEC_STATUS: 0x3e050018, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 5
+MDEC_DATA <- 0xf80005fc
+==== MDEC_STATUS: 0x3e000017, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000016, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000015, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000014, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000013, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000012, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000011, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000010, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e00000f, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e00000e, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e00000d, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e00000c, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e00000b, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e00000a, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000009, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000008, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000007, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000006, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000005, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000004, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000003, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000002, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000001, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+==== MDEC_STATUS: 0x3e000000, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA <- 0xfe00fe00
+
+
+----- MDECout
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd6f7b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6f7b7bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x18c60842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c630c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x739c0421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x18c60000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x108418c6
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6f7b77bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x10840c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x000018c6
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff6318
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6b5a7bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x000077bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c631084
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c630842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04211084
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6f7b7fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x000014a5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x000018c6
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bde7fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bde7bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6b5a77bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x63187fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff77bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6739739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x739c6f7b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x631877bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00006b5a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x63184e73
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd77bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6f7b739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6b5a6f7b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x67397fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x739c7fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00001084
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x000014a5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77bd7fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x08427fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x084214a5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00001084
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c6314a5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x10842108
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x10840c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x08420c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x10840000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c6314a5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x14a50421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04212108
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x294a0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0000294a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000c63
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c630000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x21080000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00002108
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x08420000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x739c77bd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff6739
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00001084
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff7fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff7bde
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff6f7b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff5ad6
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff6b5a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x739c7fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff739c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x08420842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00007fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6f7b6f7b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff6739
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000842
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6b5a0000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fff6739
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x63187fff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00006b5a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x21080000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04212d6b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x21081084
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x000014a5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000421
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1ce70000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00002108
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x04210000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x143a143a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141c141c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141d141d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x181f181f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0fe00fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17841784
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17851785
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17661766
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x143a143a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141c141c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141d141d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x181f181f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0fe00fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17841784
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17851785
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17661766
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x183a183a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x183b183b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141d141d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1c1f1c1f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13e013e0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1b841b84
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17661766
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17671767
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x183a183a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x183b183b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141d141d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1c1f1c1f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13e013e0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1b841b84
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17661766
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17671767
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c5a0c5a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c1d0c1d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x083b083b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x101f101f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x07e007e0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0f840f84
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0fa30fa3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0f860f86
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c5a0c5a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0c1d0c1d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x083b083b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x101f101f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x07e007e0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0f840f84
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0fa30fa3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0f860f86
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x181d181d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x183a183a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141e141e
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1c1f1c1f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13c213c2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1ba31ba3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17671767
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17841784
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x181d181d
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x183a183a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x141e141e
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1c1f1c1f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13c213c2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x1ba31ba3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17671767
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17841784
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64026402
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64056405
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64016401
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6c026c02
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x607b607b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x685c685c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68986898
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687b687b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64026402
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64056405
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64016401
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6c026c02
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x607b607b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x685c685c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68986898
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687b687b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70057005
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70027002
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70047004
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x78207820
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6c1f6c1f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x747b747b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x705c705c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70797079
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70057005
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70027002
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70047004
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x78207820
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6c1f6c1f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x747b747b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x705c705c
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70797079
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64046404
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64046404
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64026402
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6c006c00
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x605e605e
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687b687b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68996899
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68996899
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64046404
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64046404
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x64026402
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x6c006c00
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x605e605e
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687b687b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68996899
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68996899
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68056805
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68036803
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68036803
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70207020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x641f641f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687b687b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687a687a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68996899
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68056805
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68036803
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68036803
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x70207020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x641f641f
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687b687b
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x687a687a
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x68996899
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17fe17fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13ff13ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13ff13ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03df03df
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc37bc3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc37bc3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc47bc4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17fe17fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13ff13ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13ff13ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03df03df
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc37bc3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc37bc3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc47bc4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13fe13fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13fe13fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x07ff07ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03ff03ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fc27fc2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77c477c4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77c477c4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13fe13fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13fe13fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x07ff07ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03ff03ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fc27fc2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77c477c4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77c477c4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17fe17fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13ff13ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17ff17ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03df03df
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7be27be2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fc27fc2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc37bc3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17fe17fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13ff13ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x17ff17ff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03df03df
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7be27be2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fc27fc2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bc37bc3
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13fe13fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0bff0bff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0ffd0ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03df03df
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ba57ba5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fc27fc2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77c477c4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x13fe13fe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0bff0bff
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x0ffd0ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x03df03df
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fe07fe0
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ba57ba5
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7fc27fc2
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x77c477c4
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffb7ffb
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffb7ffb
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00200020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bfe7bfe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffe7ffe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00200020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bfe7bfe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffe7ffe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00020002
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffb7ffb
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffe7ffe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00010001
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00020002
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffb7ffb
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffe7ffe
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00200020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00200020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bfd7bfd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00200020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00200020
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x00000000
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7bfd7bfd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffd7ffd
+==== MDEC_STATUS: 0x3e00ffff, dataOutFifoEmpty: 0, dataInFifoFull: 0, cmdBusy: 1, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+MDEC_DATA -> 0x7ffc7ffc
+==== MDEC_STATUS: 0x9e00ffff, dataOutFifoEmpty: 1, dataInFifoFull: 0, cmdBusy: 0, dataInReq: 1, dataOutReq: 1, currentBlock: 0
+done
+   0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 bd 77 7b 6f bd 77 de 7b 7b 6f de 7b 00 00 
+  20: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f 00 00 42 08 c6 18 63 0c 63 0c 00 00 ff 7f 
+  40: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f 00 00 ff 7f 00 00 21 04 9c 73 00 00 ff 7f 
+  60: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f 00 00 00 00 c6 18 c6 18 84 10 00 00 ff 7f 
+  80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f 00 00 00 00 ff 7f 9c 73 bd 77 00 00 ff 7f 
+  a0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f 00 00 bd 77 7b 6f ff 7f 00 00 00 00 ff 7f 
+  c0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f 00 00 63 0c 84 10 c6 18 00 00 00 00 ff 7f 
+  e0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 bd 77 18 63 ff 7f de 7b 5a 6b bd 77 00 00 
+ 100: ff 7f 00 00 84 10 63 0c 42 08 21 04 63 0c 21 04 42 08 63 0c 84 10 21 04 63 0c 21 04 ff 7f 00 00 
+ 120: ff 7f 7b 6f ff 7f 00 00 a5 14 00 00 00 00 21 04 00 00 21 04 c6 18 00 00 ff 7f de 7b ff 7f 00 00 
+ 140: de 7b de 7b bd 77 5a 6b de 7b 00 00 63 0c 00 00 00 00 00 00 ff 7f 18 63 bd 77 ff 7f ff 7f 00 00 
+ 160: 9c 73 39 67 7b 6f 9c 73 bd 77 18 63 5a 6b 00 00 73 4e 18 63 bd 77 bd 77 9c 73 7b 6f ff 7f 00 00 
+ 180: 9c 73 bd 77 7b 6f 5a 6b de 7b 00 00 42 08 00 00 00 00 00 00 ff 7f 39 67 9c 73 ff 7f ff 7f 00 00 
+ 1a0: ff 7f 9c 73 ff 7f 00 00 84 10 00 00 00 00 00 00 00 00 00 00 a5 14 00 00 ff 7f bd 77 ff 7f 00 00 
+ 1c0: ff 7f 42 08 a5 14 42 08 21 04 00 00 42 08 21 04 00 00 21 04 84 10 00 00 a5 14 63 0c ff 7f 00 00 
+ 1e0: 08 21 84 10 63 0c 84 10 63 0c 42 08 21 04 21 04 00 00 84 10 a5 14 63 0c 21 04 a5 14 08 21 21 04 
+ 200: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 21 04 00 00 00 00 ff 7f ff 7f 00 00 00 00 21 04 
+ 220: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 240: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 260: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 280: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 21 04 00 00 00 00 ff 7f ff 7f 00 00 00 00 21 04 
+ 2a0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 21 04 00 00 00 00 4a 29 4a 29 00 00 00 00 21 04 
+ 2c0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 63 0c 00 00 00 00 ff 7f ff 7f 00 00 00 00 63 0c 
+ 2e0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 42 08 00 00 00 00 08 21 08 21 00 00 00 00 42 08 
+ 300: 00 00 ff 7f bd 77 9c 73 9c 73 ff 7f 00 00 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 320: 39 67 ff 7f 84 10 00 00 ff 7f ff 7f ff 7f 00 00 00 00 00 00 de 7b ff 7f ff 7f 00 00 00 00 00 00 
+ 340: 7b 6f ff 7f 00 00 ff 7f d6 5a ff 7f ff 7f 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 360: 5a 6b ff 7f ff 7f 9c 73 00 00 ff 7f ff 7f 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 21 04 
+ 380: 9c 73 ff 7f ff 7f 00 00 00 00 ff 7f ff 7f 00 00 21 04 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 3a0: 9c 73 ff 7f 42 08 42 08 00 00 ff 7f ff 7f 00 00 00 00 00 00 00 00 ff 7f ff 7f 00 00 00 00 00 00 
+ 3c0: 00 00 ff 7f 7b 6f 7b 6f 39 67 ff 7f 42 08 00 00 00 00 5a 6b 39 67 ff 7f ff 7f 18 63 5a 6b 00 00 
+ 3e0: 00 00 08 21 6b 2d 21 04 84 10 08 21 a5 14 00 00 21 04 00 00 00 00 e7 1c 08 21 00 00 00 00 21 04 
+ 400: 3a 14 3a 14 1c 14 1c 14 1d 14 1d 14 1f 18 1f 18 e0 0f e0 0f 84 17 84 17 85 17 85 17 66 17 66 17 
+ 420: 3a 14 3a 14 1c 14 1c 14 1d 14 1d 14 1f 18 1f 18 e0 0f e0 0f 84 17 84 17 85 17 85 17 66 17 66 17 
+ 440: 3a 18 3a 18 3b 18 3b 18 1d 14 1d 14 1f 1c 1f 1c e0 13 e0 13 84 1b 84 1b 66 17 66 17 67 17 67 17 
+ 460: 3a 18 3a 18 3b 18 3b 18 1d 14 1d 14 1f 1c 1f 1c e0 13 e0 13 84 1b 84 1b 66 17 66 17 67 17 67 17 
+ 480: 5a 0c 5a 0c 1d 0c 1d 0c 3b 08 3b 08 1f 10 1f 10 e0 07 e0 07 84 0f 84 0f a3 0f a3 0f 86 0f 86 0f 
+ 4a0: 5a 0c 5a 0c 1d 0c 1d 0c 3b 08 3b 08 1f 10 1f 10 e0 07 e0 07 84 0f 84 0f a3 0f a3 0f 86 0f 86 0f 
+ 4c0: 1d 18 1d 18 3a 18 3a 18 1e 14 1e 14 1f 1c 1f 1c c2 13 c2 13 a3 1b a3 1b 67 17 67 17 84 17 84 17 
+ 4e0: 1d 18 1d 18 3a 18 3a 18 1e 14 1e 14 1f 1c 1f 1c c2 13 c2 13 a3 1b a3 1b 67 17 67 17 84 17 84 17 
+ 500: 02 64 02 64 05 64 05 64 01 64 01 64 02 6c 02 6c 7b 60 7b 60 5c 68 5c 68 98 68 98 68 7b 68 7b 68 
+ 520: 02 64 02 64 05 64 05 64 01 64 01 64 02 6c 02 6c 7b 60 7b 60 5c 68 5c 68 98 68 98 68 7b 68 7b 68 
+ 540: 05 70 05 70 02 70 02 70 04 70 04 70 20 78 20 78 1f 6c 1f 6c 7b 74 7b 74 5c 70 5c 70 79 70 79 70 
+ 560: 05 70 05 70 02 70 02 70 04 70 04 70 20 78 20 78 1f 6c 1f 6c 7b 74 7b 74 5c 70 5c 70 79 70 79 70 
+ 580: 04 64 04 64 04 64 04 64 02 64 02 64 00 6c 00 6c 5e 60 5e 60 7b 68 7b 68 99 68 99 68 99 68 99 68 
+ 5a0: 04 64 04 64 04 64 04 64 02 64 02 64 00 6c 00 6c 5e 60 5e 60 7b 68 7b 68 99 68 99 68 99 68 99 68 
+ 5c0: 05 68 05 68 03 68 03 68 03 68 03 68 20 70 20 70 1f 64 1f 64 7b 68 7b 68 7a 68 7a 68 99 68 99 68 
+ 5e0: 05 68 05 68 03 68 03 68 03 68 03 68 20 70 20 70 1f 64 1f 64 7b 68 7b 68 7a 68 7a 68 99 68 99 68 
+ 600: fe 17 fe 17 ff 13 ff 13 ff 13 ff 13 df 03 df 03 e0 7f e0 7f c3 7b c3 7b c3 7b c3 7b c4 7b c4 7b 
+ 620: fe 17 fe 17 ff 13 ff 13 ff 13 ff 13 df 03 df 03 e0 7f e0 7f c3 7b c3 7b c3 7b c3 7b c4 7b c4 7b 
+ 640: fe 13 fe 13 fe 13 fe 13 ff 07 ff 07 ff 03 ff 03 e0 7f e0 7f c2 7f c2 7f c4 77 c4 77 c4 77 c4 77 
+ 660: fe 13 fe 13 fe 13 fe 13 ff 07 ff 07 ff 03 ff 03 e0 7f e0 7f c2 7f c2 7f c4 77 c4 77 c4 77 c4 77 
+ 680: fe 17 fe 17 ff 13 ff 13 ff 17 ff 17 df 03 df 03 e0 7f e0 7f e2 7b e2 7b c2 7f c2 7f c3 7b c3 7b 
+ 6a0: fe 17 fe 17 ff 13 ff 13 ff 17 ff 17 df 03 df 03 e0 7f e0 7f e2 7b e2 7b c2 7f c2 7f c3 7b c3 7b 
+ 6c0: fe 13 fe 13 ff 0b ff 0b fd 0f fd 0f df 03 df 03 e0 7f e0 7f a5 7b a5 7b c2 7f c2 7f c4 77 c4 77 
+ 6e0: fe 13 fe 13 ff 0b ff 0b fd 0f fd 0f df 03 df 03 e0 7f e0 7f a5 7b a5 7b c2 7f c2 7f c4 77 c4 77 
+ 700: 01 00 01 00 00 00 00 00 01 00 01 00 01 00 01 00 fc 7f fc 7f fb 7f fb 7f fd 7f fd 7f fc 7f fc 7f 
+ 720: 01 00 01 00 00 00 00 00 01 00 01 00 01 00 01 00 fc 7f fc 7f fb 7f fb 7f fd 7f fd 7f fc 7f fc 7f 
+ 740: 00 00 00 00 00 00 00 00 20 00 20 00 00 00 00 00 fe 7b fe 7b fe 7f fe 7f fd 7f fd 7f fc 7f fc 7f 
+ 760: 00 00 00 00 00 00 00 00 20 00 20 00 00 00 00 00 fe 7b fe 7b fe 7f fe 7f fd 7f fd 7f fc 7f fc 7f 
+ 780: 01 00 01 00 01 00 01 00 00 00 00 00 02 00 02 00 fb 7f fb 7f fe 7f fe 7f fc 7f fc 7f fc 7f fc 7f 
+ 7a0: 01 00 01 00 01 00 01 00 00 00 00 00 02 00 02 00 fb 7f fb 7f fe 7f fe 7f fc 7f fc 7f fc 7f fc 7f 
+ 7c0: 00 00 00 00 20 00 20 00 20 00 20 00 00 00 00 00 fd 7b fd 7b fd 7f fd 7f fd 7f fd 7f fc 7f fc 7f 
+ 7e0: 00 00 00 00 20 00 20 00 20 00 20 00 00 00 00 00 fd 7b fd 7b fd 7f fd 7f fd 7f fd 7f fc 7f fc 7f 
+mdec_reset (MDEC_CTRL <- 0x80000000)... ok
+Done
