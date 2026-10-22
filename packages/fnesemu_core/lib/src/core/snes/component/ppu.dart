@@ -88,7 +88,7 @@ class Ppu {
     cgramLatchHigh = false;
     _cgramLowByte = 0;
     oamAddr = 0;
-    oamLatchHigh = false;
+    _oamByte = 0;
     _oamLowByte = 0;
     mainScreenEnable = 0;
     subScreenEnable = 0;
@@ -139,35 +139,38 @@ class Ppu {
   int objBase = 0; // "name base", 0-7 (word addr = base << 13)
 
   // ------------------------------------------------- $2102/2103 OAMADD
-  int oamAddr = 0; // 9-bit word address into the 272-word OAM table
-  bool oamLatchHigh = false;
+  int oamAddr = 0; // OAMADD: the 9-bit word address that $2102/$2103 set
+  int _oamByte = 0; // the 10-bit byte address of the next OAMDATA access
   int _oamLowByte = 0;
 
+  /// the start of vblank reloads the address from OAMADD, unless the
+  /// screen is forced blank
+  void onVBlank() {
+    if (!forcedBlank) _oamByte = oamAddr.shl1;
+  }
+
+  // the bytes above the 512-byte table mirror the 32-byte high table
+  static int _oamIndex(int byte) => byte < 0x200 ? byte : 0x200 | byte.mask5;
+
   // ----------------------------------------------------------- $2104 OAMDATA
-  // simplification: treats the whole 272-word table (low + high) uniformly
-  // as low-byte-then-high-byte buffered writes. real hardware has a subtler
-  // per-byte-parity rule specifically for the high table; not modeled here.
+  // the low table is written by words: an even byte is latched and the odd
+  // byte writes both. the high table is written by bytes.
   void _oamWrite(int val) {
-    if (!oamLatchHigh) {
+    if (_oamByte >= 0x200) {
+      oam[_oamIndex(_oamByte)] = val;
+    } else if (!_oamByte.bit0) {
       _oamLowByte = val;
-      oamLatchHigh = true;
     } else {
-      final byteAddr = (oamAddr * 2).mask16;
-      if (byteAddr < oam.length) oam[byteAddr] = _oamLowByte;
-      if (byteAddr + 1 < oam.length) oam[byteAddr + 1] = val;
-      oamAddr = (oamAddr + 1).mask9;
-      oamLatchHigh = false;
+      oam[_oamByte - 1] = _oamLowByte;
+      oam[_oamByte] = val;
     }
+    _oamByte = (_oamByte + 1).mask10;
   }
 
   int _oamRead() {
-    final byteAddr = (oamAddr * 2).mask16;
-    final v = byteAddr < oam.length ? oam[byteAddr] : 0;
-    final hi = byteAddr + 1 < oam.length ? oam[byteAddr + 1] : 0;
-    final result = oamLatchHigh ? hi : v;
-    if (oamLatchHigh) oamAddr = (oamAddr + 1).mask9;
-    oamLatchHigh = !oamLatchHigh;
-    return result;
+    final v = oam[_oamIndex(_oamByte)];
+    _oamByte = (_oamByte + 1).mask10;
+    return v;
   }
 
   // ------------------------------------------------------- $2105 BGMODE
@@ -318,11 +321,11 @@ class Ppu {
         break;
       case 0x2102:
         oamAddr = (oamAddr & 0x100) | val;
-        oamLatchHigh = false;
+        _oamByte = oamAddr.shl1;
         break;
       case 0x2103:
         oamAddr = oamAddr.mask8 | val.mask1.shl8;
-        oamLatchHigh = false;
+        _oamByte = oamAddr.shl1;
         break;
       case 0x2104:
         _oamWrite(val);
