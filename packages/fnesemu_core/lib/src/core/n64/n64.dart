@@ -192,6 +192,7 @@ class N64 extends Core {
   }
 
   // Arrow buttons drive the analog stick; the remaining buttons use PIF bits.
+  // The D-pad follows the buttons of the keys.
   @override
   List<PadButton> get buttons => [
         PadButton.up,
@@ -207,7 +208,11 @@ class N64 extends Core {
         const PadButton('C-up'), // keyW
         const PadButton('R'), // keyE
         const PadButton('Start'), // keyR
-        const PadButton('C-right') // keyD
+        const PadButton('C-right'), // keyD
+        const PadButton('D-up'),
+        const PadButton('D-down'),
+        const PadButton('D-left'),
+        const PadButton('D-right'),
       ];
   @override
   void padDown(int controllerId, PadButton k) => bus.pad(controllerId, k, true);

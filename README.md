@@ -36,6 +36,8 @@ This project is experimental.
 | WS | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate | X1 / X3 / X4 / X2 |
 | WS (vertical) | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate | Y2 / Y4 / Y1 / Y3 |
 
+On N64, the arrows move the analog stick. The D-pad buttons (D-up, D-down, D-left, D-right) have no key and are used by the test harness.
+
 On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. Q cycles the emulated speaker volume.
 
 # How to develop
