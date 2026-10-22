@@ -233,7 +233,8 @@ class Pce implements Core {
     file.load(body);
     crc = file.crc;
 
-    bus.rom = Rom(file.banks);
+    bus.rom =
+        Rom(file.banks, cartridgeRam: ramCartridgeCrcs.contains(file.bodyCrc));
     bus.arcadeCard.powerOn();
 
     reset();
