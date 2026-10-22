@@ -141,7 +141,9 @@ class Bus {
       }
     }
 
-    if (bank == 0xff && offset >= 0x1a00 && offset < 0x1c00 &&
+    if (bank == 0xff &&
+        offset >= 0x1a00 &&
+        offset < 0x1c00 &&
         arcadeCardEnabled) {
       return arcadeCard.read(offset);
     }
@@ -168,7 +170,14 @@ class Bus {
       if (cdrom.backupEnabled && offset < 0x800) sram.write8(offset, data);
       return;
     }
-    if (bank == 0xff && offset >= 0x1a00 && offset < 0x1c00 &&
+    // the cartridge ram of some HuCards
+    if (bank >= 0x40 && bank <= 0x43) {
+      rom.write(addr, data);
+      return;
+    }
+    if (bank == 0xff &&
+        offset >= 0x1a00 &&
+        offset < 0x1c00 &&
         arcadeCardEnabled) {
       arcadeCard.write(offset, data);
       return;
