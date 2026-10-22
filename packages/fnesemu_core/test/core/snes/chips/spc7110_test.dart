@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/snes/component/spc7110.dart';
 import 'package:test/test.dart';
@@ -38,4 +39,43 @@ void main() {
       expect(ascii.decode(out, allowInvalid: true), _plain);
     });
   }
+
+  // a 1MB program rom and a data rom whose directory entry 0 points to the
+  // mode 0 example at 0x100
+  Spc7110 chip() {
+    final rom = Uint8List(0x100000 + 0x200)
+      ..setAll(0x100000, [0, 0, 0x01, 0x00])
+      ..setAll(0x100100, _compressed[0]!);
+    return Spc7110(rom, (a) => 0, (a, v) {})..reset();
+  }
+
+  test('bank \$50 reads the decompressed data as \$4800 does', () {
+    final c = chip();
+    for (final (r, v) in [(0x4801, 0), (0x4802, 0), (0x4803, 0)]) {
+      c.mainWrite(r, v);
+    }
+    c.mainWrite(0x4804, 0);
+    c.mainWrite(0x4805, 0);
+    c.mainWrite(0x4806, 0);
+    final out = [for (var i = 0; i < 8; i++) c.mainRead(0x500000 + i)];
+    expect(ascii.decode(out), _plain.substring(0, 8));
+  });
+
+  test('the real time clock keeps its registers across a reset', () {
+    final c = chip();
+    void writeRtc(List<int> nibbles) {
+      c.mainWrite(0x4840, 1);
+      for (final n in nibbles) {
+        c.mainWrite(0x4841, n);
+      }
+      c.mainWrite(0x4840, 0);
+    }
+
+    writeRtc([0x3, 0xd, 0x5]); // write 5 to register d
+    c.reset();
+    c.mainWrite(0x4840, 1);
+    c.mainWrite(0x4841, 0xc); // read
+    c.mainWrite(0x4841, 0xd);
+    expect(c.mainRead(0x4841), 5);
+  });
 }
