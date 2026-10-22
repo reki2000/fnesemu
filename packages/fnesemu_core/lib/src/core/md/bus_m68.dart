@@ -239,7 +239,10 @@ class BusM68 implements M68Bus {
     return switch (addr & 0xfffe) {
       0x00 =>
         region | (cdrom == null ? 0x20 : 0), // region, ntsc, no fdd, version 0
-      0x02 || 0x04 || 0x06 => pad.readData(addr.shr1.mask2.dec), // data
+      0x02 ||
+      0x04 ||
+      0x06 =>
+        pad.readData(addr.shr1.mask2.dec, cpu.clocks), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
@@ -264,7 +267,7 @@ class BusM68 implements M68Bus {
       0x02 ||
       0x04 ||
       0x06 =>
-        pad.writeData(addr.shr1.mask2.dec, data), // data 1 (ctrl1)
+        pad.writeData(addr.shr1.mask2.dec, data, cpu.clocks), // data 1 (ctrl1)
       0x08 ||
       0x0a ||
       0x0c =>
