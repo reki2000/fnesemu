@@ -41,7 +41,7 @@ name = "split-res"
 dir = "display-tests"
 files = [".build/split-res.pce"]
 frames = 600
-description = "Chris Covell: changes of the dot clock in the middle of the screen; black here."
+description = "Chris Covell: changes of the dot clock in the middle of the screen. The frame is as wide as the widest region, so the regions are not scaled to the screen as on the hardware."
 checks = [{ frame = 600, expected = "expected/split-res_00600.png" }]
 
 [[case]]

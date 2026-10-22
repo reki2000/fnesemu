@@ -100,6 +100,11 @@ extension VdcRenderer on Vdc {
     displayLine = scanLine - displayStartLine;
 
     if (displayLine == 0) {
+      if (pendingHSize != hSize) {
+        hSize = pendingHSize;
+        indexBuffer = Uint16List(hSize * vSize);
+      }
+      pendingHSize = hdrWidth;
       bgRenderLine = scrollY & bgScrollMaskY;
       // buffer = Uint32List(hSize * vSize);
     }
