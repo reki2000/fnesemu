@@ -11,7 +11,7 @@ import 'package:fnesemu_core/src/core/ps/r3000/disasm.dart';
 import 'package:fnesemu_core/src/core/ps/r3000/r3000.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
-import 'logging.dart';
+import '../logging.dart';
 
 class _State {
   final r = List<int>.filled(32, 0);

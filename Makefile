@@ -13,26 +13,26 @@ test-cpu-setup:
 	done
 
 test-6502:
-	$(call cpu_test,nestest,dart run $(CORE)/tool/nes_cputest.dart $(CPU)/nestest/.build/nestest.nes $(CPU)/nestest/.build/nestest.log)
+	$(call cpu_test,nestest,dart run $(CORE)/tool/cpu_test.dart nestest $(CPU)/nestest/.build/nestest.nes $(CPU)/nestest/.build/nestest.log)
 
 test-z80:
-	$(call cpu_test,z80_fuse,dart run $(CORE)/tool/z80_test.dart $(CPU)/z80_fuse/.build/tests.in $(CPU)/z80_fuse/.build/tests.expected)
+	$(call cpu_test,z80_fuse,dart run $(CORE)/tool/cpu_test.dart z80 $(CPU)/z80_fuse/.build/tests.in $(CPU)/z80_fuse/.build/tests.expected)
 
 # the 8088 tests of https://github.com/SingleStepTests/8088 (v2) in assets/8088
 test-v30:
-	dart run $(CORE)/tool/v30_test.dart assets/8088/metadata.json $(wildcard assets/8088/*.json.gz)
+	dart run $(CORE)/tool/cpu_test.dart v30 assets/8088/metadata.json $(wildcard assets/8088/*.json.gz)
 
 test-m68:
-	$(call cpu_test,m68k_sst,dart run $(CORE)/tool/m68_test.dart $(CPU)/m68k_sst/.build/680x0/68000/v1)
+	$(call cpu_test,m68k_sst,dart run $(CORE)/tool/cpu_test.dart m68k $(CPU)/m68k_sst/.build/680x0/68000/v1)
 
 test-r3000:
-	$(call cpu_test,r3000,dart run $(CORE)/tool/r3000_test.dart $(CPU)/r3000/.build/r3000/v1)
+	$(call cpu_test,r3000,dart run $(CORE)/tool/cpu_test.dart r3000 $(CPU)/r3000/.build/r3000/v1)
 
 test-gte:
-	$(call cpu_test,gte,dart run $(CORE)/tool/gte_test.dart $(CPU)/gte/.build/tests.c)
+	$(call cpu_test,gte,dart run $(CORE)/tool/cpu_test.dart gte $(CPU)/gte/.build/tests.c)
 
 test-huc6280:
-	$(call cpu_test,huc6280,dart run $(CORE)/tool/huc6280_test.dart $(CPU)/huc6280/.build/huc6280/v1)
+	$(call cpu_test,huc6280,dart run $(CORE)/tool/cpu_test.dart huc6280 $(CPU)/huc6280/.build/huc6280/v1)
 
 # the public test ROMs of test/roms (scripts/romtest.py); make test-roms-setup fetches or builds them
 test-roms:

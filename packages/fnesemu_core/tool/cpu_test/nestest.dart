@@ -8,7 +8,7 @@ import 'package:fnesemu_core/src/core/nes/mapper/nrom.dart';
 import 'package:fnesemu_core/src/core/nes/rom/nes_file.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 
-import 'logging.dart';
+import '../logging.dart';
 
 void log(String s) {
   stdout.writeln(s);

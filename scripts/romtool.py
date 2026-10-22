@@ -19,7 +19,7 @@ shoot runs the case for N frames (with --input in place of its input) and tiles 
 frames from frame S, with their frame numbers, into sheet.png. buttons prints the button names of the case (or of
 the served case) as they are written in a sequence.
 
-serve starts the harness of the case with --serve in the background; run, press, shot and state control it, and
+serve starts core_harness serve for the case in the background; run, press, shot and state control it, and
 stop ends it. run advances N frames (with --every, it saves the screenshots of the frames that are multiples of E
 and tiles them into sheet.png). press adds the presses of SEQ, read with the cursor at the next frame, and logs it
 in press.log. input prints the input of the logged presses (one after another, or in parallel where they overlap),
@@ -60,8 +60,8 @@ def find_case(root: Path, case_id: str) -> romtest.Case:
     return cases[0]
 
 
-def harness(case: romtest.Case) -> Path:
-    return romtest.compile_harnesses([case])[case.harness()]
+def harness() -> Path:
+    return romtest.compile_harness()
 
 
 def sheet(paths, dest: Path, cols=None, scale=0.5):
@@ -88,9 +88,8 @@ def shoot(a):
     out = OUT / "shoot" / case.name
     subprocess.run(["rm", "-rf", str(out)])
     out.mkdir(parents=True)
-    cmd = case.base_command(harness(case)) + ["-f", str(a.frames), "-e", str(a.every), "-o", str(out)]
-    if case.harness() == "core_harness.dart":
-        cmd += ["-s", str(a.start)]
+    cmd = case.base_command(harness(), "run") + ["-f", str(a.frames), "-e", str(a.every), "-o", str(out),
+                                                 "-s", str(a.start)]
     if seq:
         cmd += ["--input", seq]
     r = subprocess.run(cmd, cwd=romtest.CORE_PKG, capture_output=True, text=True)
@@ -119,7 +118,7 @@ def buttons(a):
         names = request("/buttons")["buttons"]
     else:
         case = find_case(a.root, a.case)
-        r = subprocess.run(case.base_command(harness(case)) + ["--buttons"], cwd=romtest.CORE_PKG,
+        r = subprocess.run(case.base_command(harness(), "buttons"), cwd=romtest.CORE_PKG,
                            capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit(r.stderr[-1000:] or r.stdout[-1000:])
@@ -134,13 +133,11 @@ def quote_button(name: str) -> str:
 
 def serve(a):
     case = find_case(a.root, a.case)
-    if case.harness() != "core_harness.dart":
-        sys.exit(f"{case.id} uses {case.harness()}, which has no server mode")
     d = OUT / "serve" / case.name
     subprocess.run(["rm", "-rf", str(d)])
     d.mkdir(parents=True)
     log = d / "server.log"
-    cmd = case.base_command(harness(case)) + ["-w", "--serve", "0"]
+    cmd = case.base_command(harness(), "serve") + ["--port", "0"]
     subprocess.Popen(cmd, cwd=romtest.CORE_PKG, stdout=open(log, "w"), stderr=subprocess.STDOUT,
                      start_new_session=True)
     text = ""
@@ -241,7 +238,7 @@ def set_case(a):
     block = set_line(block, "frames", str(a.frames))
     if a.input is not None:
         case.spec["input"] = a.input
-        if a.input and (err := case.check_input(harness(case))):
+        if a.input and (err := case.check_input(harness())):
             sys.exit(err)
         block = set_line(block, "input", text(a.input))
     if a.note is not None:

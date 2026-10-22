@@ -5,7 +5,7 @@ import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
-import 'logging.dart';
+import '../logging.dart';
 
 void main() {
   configureLogging();

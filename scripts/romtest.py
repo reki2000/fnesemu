@@ -80,15 +80,10 @@ class Case:
     def checks(self):
         return self.spec.get("checks", [])
 
-    def harness(self) -> str:
-        return self.spec.get("harness", "core_harness.dart")
-
-    def base_command(self, exe: Path):
+    def base_command(self, exe: Path, command: str):
         """The harness command with the core, the files and the args, without frames, output and input."""
         s = self.spec
-        cmd = [str(exe)]
-        if self.harness() == "core_harness.dart":
-            cmd.append(s.get("core", self.core))
+        cmd = [str(exe), command, s.get("core", self.core)]
         cmd += [str(self.path(f)) for f in s["files"]]
         cmd += [str(self.path(a)) if a.startswith(("./", "../")) else a for a in s.get("args", [])]
         return cmd
@@ -103,12 +98,9 @@ class Case:
         """The harness command; exe is the compiled harness."""
         s = self.spec
         frames = [c["frame"] for c in self.checks() if "frame" in c]
-        harness = self.harness()
-        cmd = self.base_command(exe) + ["-f", str(s["frames"]), "-o", str(out)]
+        cmd = self.base_command(exe, "run") + ["-f", str(s["frames"]), "-o", str(out)]
         if frames:
-            cmd += ["-e", str(math.gcd(*frames))]
-            if harness == "core_harness.dart":
-                cmd += ["-s", str(min(frames))]
+            cmd += ["-e", str(math.gcd(*frames)), "-s", str(min(frames))]
         else:
             cmd += ["-e", str(s["frames"])]
         if self.input():
@@ -121,7 +113,7 @@ class Case:
 
     def check_input(self, exe: Path) -> str | None:
         """Lets the harness read the input; returns the error, or None."""
-        r = subprocess.run(self.base_command(exe) + ["--input", self.input(), "--check-input"], cwd=CORE_PKG,
+        r = subprocess.run(self.base_command(exe, "check-input") + ["--input", self.input()], cwd=CORE_PKG,
                            capture_output=True, text=True)
         if r.returncode == 0:
             return None
@@ -250,38 +242,33 @@ def update(case: Case, out: Path, say):
 def source_hash() -> str:
     """A hash of the sources that the compiled harnesses depend on."""
     h = hashlib.sha256()
-    files = [CORE_PKG / "pubspec.lock"] + sorted((CORE_PKG / "lib").rglob("*.dart")) + sorted((CORE_PKG / "tool").glob("*.dart"))
+    files = [CORE_PKG / "pubspec.lock"] + sorted((CORE_PKG / "lib").rglob("*.dart")) + sorted((CORE_PKG / "tool").rglob("*.dart"))
     for f in files:
         h.update(str(f.relative_to(CORE_PKG)).encode())
         h.update(f.read_bytes())
     return h.hexdigest()[:16]
 
 
-def compile_harnesses(cases) -> dict:
-    """Compiles each harness that the cases use once (AOT), and caches the executables by the source hash.
+def compile_harness() -> Path:
+    """Compiles tool/core_harness.dart once (AOT), and caches the executable by the source hash.
 
     Starting a compiled harness takes milliseconds, while dart run loads and compiles the sources for each case.
     """
     cache = CORE_PKG / ".dart_tool" / "romtest"
     cache.mkdir(parents=True, exist_ok=True)
-    digest = source_hash()
-    exes = {}
-    for harness in sorted({c.harness() for c in cases}):
-        stem = Path(harness).stem
-        exe = cache / f"{stem}-{digest}"
-        if not exe.exists():
-            for old in cache.glob(f"{stem}-*"):
-                old.unlink()
-            print(f"compiling tool/{harness}...", flush=True)
-            r = subprocess.run(["dart", "compile", "exe", f"tool/{harness}", "-o", str(exe)],
-                               cwd=CORE_PKG, capture_output=True, text=True)
-            if r.returncode != 0:
-                sys.exit(f"cannot compile tool/{harness}:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
-        exes[harness] = exe
-    return exes
+    exe = cache / f"core_harness-{source_hash()}"
+    if not exe.exists():
+        for old in cache.glob("*-*"):
+            old.unlink()
+        print("compiling tool/core_harness.dart...", flush=True)
+        r = subprocess.run(["dart", "compile", "exe", "tool/core_harness.dart", "-o", str(exe)],
+                           cwd=CORE_PKG, capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(f"cannot compile tool/core_harness.dart:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
+    return exe
 
 
-def run_case(case: Case, do_update, slow=False, exes=None):
+def run_case(case: Case, do_update, slow, exe: Path):
     """Returns ("ok" | "fail" | "xfail" | "skip", report)."""
     lines = []
     if case.spec.get("slow") and not slow:
@@ -294,7 +281,7 @@ def run_case(case: Case, do_update, slow=False, exes=None):
     if missing:
         return "skip", f"SKIP {case.id}: missing {', '.join(missing)} (run setup first)"
     out = Path(tempfile.mkdtemp(prefix=f"romtest_{case.core}_{case.name}_"))
-    cmd = case.command(out, exes[case.harness()])
+    cmd = case.command(out, exe)
     started = time.monotonic()
     try:
         r = subprocess.run(cmd, cwd=CORE_PKG, capture_output=True, text=True,
@@ -328,7 +315,7 @@ def show_case(case: Case):
     """Prints a case with its description and history, the context for investigating it."""
     s = case.spec
     print(f"[{case.id}] {s.get('note', '')}")
-    for k in ("harness", "core", "files", "args", "frames", "input", "known_failure"):
+    for k in ("core", "files", "args", "frames", "input", "known_failure"):
         if k in s:
             print(f"  {k}: {s[k]}")
     for ch in case.checks():
@@ -346,7 +333,7 @@ def lint(root: Path, cases, inside_only: bool):
     """Checks that the default tree refers only to files inside itself, that the harness reads each input and that
     expected data stays small."""
     errors = []
-    exes = compile_harnesses(cases)
+    exe = compile_harness()
     for c in cases:
         rels = list(c.spec["files"]) + [a for a in c.spec.get("args", []) if a.startswith(("./", "../"))]
         rels += [v for ch in c.checks() for k, v in ch.items() if k in ("expected", "audio", "vram")]
@@ -356,10 +343,11 @@ def lint(root: Path, cases, inside_only: bool):
                 errors.append(f"{c.id}: {rel} is outside the root")
         if not c.dir.is_dir():
             errors.append(f"{c.id}: no directory {show(c.dir)}")
-        if "hold" in c.spec:
-            errors.append(f"{c.id}: hold is no longer read; write :N at the start of input")
+        for key, why in (("hold", "write :N at the start of input"), ("harness", "core_harness runs every core")):
+            if key in c.spec:
+                errors.append(f"{c.id}: {key} is no longer read; {why}")
         try:
-            if c.input() and (err := c.check_input(exes[c.harness()])):
+            if c.input() and (err := c.check_input(exe)):
                 errors.append(f"{c.id}: {err}")
         except TypeError as e:
             errors.append(f"{c.id}: {e}")
@@ -405,10 +393,10 @@ def main(argv=None):
         print(f"{len(ready)} ready, {failed} failed")
         return
     started = time.monotonic()
-    exes = compile_harnesses([c for c in cases if a.slow or not c.spec.get("slow")])
+    exe = compile_harness()
     with ThreadPoolExecutor(max(1, a.j)) as ex:
         results = []
-        for status, text in ex.map(lambda c: run_case(c, a.update, a.slow, exes), cases):
+        for status, text in ex.map(lambda c: run_case(c, a.update, a.slow, exe), cases):
             print(text, flush=True)
             results.append(status)
     print(f"\n{results.count('ok')} ok, {results.count('fail')} failed, "

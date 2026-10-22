@@ -116,7 +116,7 @@ The CPU cores are checked instruction by instruction against public test data. E
 
 ## ROM harness tests
 
-Public test ROMs run in the headless harness (`packages/fnesemu_core/tool/core_harness.dart`), and their screens are compared with expected images.
+Public test ROMs run in the headless harness (`packages/fnesemu_core/tool/core_harness.dart run`), and their screens are compared with expected images. The tools of the cores are listed in `packages/fnesemu_core/tool/README.md`.
 
 ```
 packages/fnesemu_core/test/roms/<core>/

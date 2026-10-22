@@ -1,83 +1,21 @@
-import 'dart:developer';
-import 'dart:typed_data';
+// synthetic benchmarks that need no ROM
+//
+// usage: dart run tool/microbench.dart <name> [args...]
+//   vr4300                 the VR4300 (N64) interpreter on two instruction loops
+//   video-debug [core...]  the debug video captures of each core (all by default)
+import 'dart:io';
 
-import 'package:fnesemu_core/src/util/int.dart';
-import 'package:fnesemu_core/src/util/sampler.dart';
-import 'package:fnesemu_core/src/util/uint8list.dart';
-
-import 'logging.dart';
+import 'microbench/video_debug.dart' as video_debug;
+import 'microbench/vr4300.dart' as vr4300;
 
 void main(List<String> args) {
-  configureLogging();
-  final v = DateTime.now().second > 0 ? 1 : 0;
-  final s = DateTime.now().second > 0 ? 1 : 2;
-
-  measure(v, s, 10, testGetUint32Le);
-  measure(v, s, 10, testGetUint32List);
-}
-
-void measure(int v, s, t, int Function(int, int, int) f) {
-  final sampler = Sampler(10);
-  for (int t = 0; t < sampler.size; t++) {
-    final start = DateTime.now().microsecondsSinceEpoch;
-    log("${f(v, s, 50 * 1000 * 1000)}");
-    sampler.add(DateTime.now().microsecondsSinceEpoch - start, log);
+  switch (args.firstOrNull) {
+    case "vr4300":
+      vr4300.main();
+    case "video-debug":
+      video_debug.main(args.sublist(1));
+    default:
+      stderr.writeln("usage: microbench <vr4300|video-debug> [args...]");
+      exit(64);
   }
-}
-
-int test1(int v, s, count) {
-  double sum = 0;
-  for (int i = 0; i < count; i++) {
-    sum += v.clamp(0, s);
-  }
-  return sum.toInt();
-}
-
-int test2(int v, s, count) {
-  double sum = 0;
-  for (int i = 0; i < count; i++) {
-    sum += v < -s
-        ? -s
-        : v > s
-            ? s
-            : v;
-  }
-  return sum.toInt();
-}
-
-Uint8List data =
-    Uint8List.fromList(List.generate(1024 * 1024, (i) => i & 0xff));
-Uint32List data32 = data.buffer.asUint32List();
-
-int testGetUint32Le(int v, int s, int count) {
-  int sum = 0;
-  for (int i = 0; i < count; i++) {
-    sum += data.getUint32LE(v & 0xfffff);
-  }
-  return sum;
-}
-
-int testGetUint32List(int v, int s, int count) {
-  int sum = 0;
-  for (int i = 0; i < count; i++) {
-    sum += data32[v & 0xfffff.shr2];
-  }
-  return sum;
-}
-
-extension IntExt on int {
-  int get mask8 => this & (1.shl8 - 1);
-  int get mask16 => this & (1.shl16 - 1);
-  int get mask24 => this & (1.shl24 - 1);
-  int get mask32 => this & ((1 << 32) - 1);
-
-  int mask(int size) => size == 1
-      ? mask8
-      : size == 2
-          ? mask16
-          : size == 4
-              ? mask32
-              : throw ("unreachable");
-
-  int mask2(int size) => this & ((1 << size.shl3) - 1);
 }

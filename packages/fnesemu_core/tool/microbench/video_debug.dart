@@ -1,5 +1,5 @@
 // Synthetic debug capture benchmark; no ROMs or GUI required.
-// dart run tool/video_debug_bench.dart [core ...]
+// dart run tool/microbench.dart video-debug [core ...]
 // Reports the median of seven captures after three warmups. Checksums cover
 // pixels and annotations; compare them when assessing an optimization.
 import 'dart:convert';

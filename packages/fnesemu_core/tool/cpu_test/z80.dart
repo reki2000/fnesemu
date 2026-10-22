@@ -5,7 +5,7 @@ import 'package:fnesemu_core/src/components/z80/bus.dart';
 import 'package:fnesemu_core/src/components/z80/z80.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
-import 'logging.dart';
+import '../logging.dart';
 
 class BusZ80Test implements Z80Bus {
   final ram_ = Uint8List(0x10000);

@@ -11,7 +11,7 @@ import 'package:fnesemu_core/src/core/pce/component/bus.dart';
 import 'package:fnesemu_core/src/core/pce/component/cpu.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
-import 'logging.dart';
+import '../logging.dart';
 
 class _State {
   int a = 0, x = 0, y = 0, s = 0, p = 0, pc = 0;

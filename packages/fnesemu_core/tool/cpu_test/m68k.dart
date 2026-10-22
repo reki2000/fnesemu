@@ -7,7 +7,7 @@ import 'package:fnesemu_core/src/components/m68k/cpu.dart';
 import 'package:fnesemu_core/src/components/m68k/debug.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 
-import 'logging.dart';
+import '../logging.dart';
 
 class BusM68Test implements M68Bus {
   final ram_ = List<int>.filled(0x1000000, 0xff);
