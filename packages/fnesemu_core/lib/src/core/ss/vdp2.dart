@@ -609,9 +609,17 @@ class Vdp2 {
     final rgbPri = _sprPri[0];
     final rgbCc = ccEnabled && _spriteCc(ccCond, ccNum, rgbPri, true);
 
+    final eightBit = vdp1.eightBit;
     for (int x = 0; x < w; x++) {
-      final fx = hiRes ? x.shr1 : x;
-      final d = fb[rowBase + (fx & (fbWidth - 1))];
+      final int d;
+      if (eightBit) {
+        // one 8-bit pixel of the frame buffer to each dot, also in hi-res
+        final word = fb[rowBase + (x.shr1 & (fbWidth - 1))];
+        d = x.bit0 ? word.mask8 : word.shr8;
+      } else {
+        final fx = hiRes ? x.shr1 : x;
+        d = fb[rowBase + (fx & (fbWidth - 1))];
+      }
 
       if (d == 0) {
         buf[x] = 0;
