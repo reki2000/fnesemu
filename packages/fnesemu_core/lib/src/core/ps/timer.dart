@@ -49,62 +49,93 @@ class Timer {
       .setBit(11, reachTarget)
       .setBit(12, reachFfff);
 
-  void clock(int cycles) {
-    if (!_toggleMode && intRequested) {
-      intRequested = false;
-    }
+  static const _noEvent = 0x1fffffffffffff;
 
-    if (pause) {
+  int _distance(int value) {
+    if (_resetAfterTarget && counter <= target) {
+      if (value > target) return _noEvent;
+      final period = target + 1;
+      final distance = (value - counter) % period;
+      return distance == 0 ? period : distance;
+    }
+    final distance = (value - counter) & 0xffff;
+    return distance == 0 ? 0x10000 : distance;
+  }
+
+  void clock(int cycles) {
+    if (cycles <= 0) return;
+    if (!_toggleMode) intRequested = false;
+    if (pause) return;
+    if (!_resetAfterTarget && !_irqWhenTarget && !_irqWhenFfff) {
+      reachTarget |= cycles >= _distance(target);
+      reachFfff |= cycles >= _distance(0xffff);
+      counter = (counter + cycles) & 0xffff;
       return;
     }
 
-    final prev = counter;
-    int next = prev + cycles;
-    bool hitTarget = false;
-    bool hitFfff = false;
-
-    if (_resetAfterTarget && prev <= target) {
-      // counts 0..target, then wraps to 0
-      if (next >= target && (prev < target || cycles > target)) {
-        hitTarget = true;
-      }
-      if (next > target) {
-        next %= target + 1;
-      }
-    } else {
-      // counts up to 0xffff, then wraps to 0
-      if (prev < target && next >= target) {
-        hitTarget = true;
-      }
-      if (prev < 0xffff && next >= 0xffff) {
-        hitFfff = true;
-      }
-      if (next > 0xffff) {
-        next -= 0x10000;
-        if (next >= target) {
-          hitTarget = true;
-          if (_resetAfterTarget) {
-            next %= target + 1;
-          }
-        }
+    int irqCount = 0, lastIrq = -1, firstIrq = _noEvent;
+    void hits(int value, int distance, int period, int elapsed, int offset) {
+      if (elapsed < distance) return;
+      final count = 1 + (elapsed - distance) ~/ period;
+      if (value == target) reachTarget = true;
+      if (value == 0xffff) reachFfff = true;
+      if ((value == target && _irqWhenTarget) ||
+          (value == 0xffff && _irqWhenFfff)) {
+        irqCount += count;
+        if (offset + distance < firstIrq) firstIrq = offset + distance;
+        final last = offset + distance + (count - 1) * period;
+        if (last > lastIrq) lastIrq = last;
       }
     }
 
-    counter = next;
-    reachTarget |= hitTarget;
-    reachFfff |= hitFfff;
-
-    if ((hitTarget && _irqWhenTarget) || (hitFfff && _irqWhenFfff)) {
-      if (_toggleMode) {
-        intRequested = !intRequested;
-      } else {
-        intRequested = true;
+    final initial = counter;
+    if (!_resetAfterTarget) {
+      hits(target, _distance(target), 0x10000, cycles, 0);
+      if (target != 0xffff) {
+        hits(0xffff, _distance(0xffff), 0x10000, cycles, 0);
       }
+      counter = (initial + cycles) & 0xffff;
+    } else {
+      int remaining = cycles, offset = 0;
+      if (initial > target) {
+        final wrap = 0x10000 - initial;
+        hits(0xffff, _distance(0xffff), 0x10000,
+            remaining < wrap ? remaining : wrap, 0);
+        if (remaining < wrap) {
+          counter += remaining;
+          remaining = 0;
+        } else {
+          remaining -= wrap;
+          offset = wrap;
+          counter = 0;
+          if (target == 0) hits(0, 0, 1, 0, offset);
+        }
+      }
+      if (remaining > 0) {
+        final period = target + 1;
+        hits(target, _distance(target), period, remaining, offset);
+        counter = (counter + remaining) % period;
+      }
+    }
 
-      if (intRequested && (_repeatMode || !triggered)) {
+    if (irqCount == 0 || (triggered && !_repeatMode)) return;
+    if (!_repeatMode) {
+      irqCount = 1;
+      lastIrq = firstIrq;
+    }
+    if (_toggleMode) {
+      final requests = (irqCount + (intRequested ? 0 : 1)) ~/ 2;
+      if (irqCount.isOdd) intRequested = !intRequested;
+      for (int n = 0; n < requests; n++) {
         bus.setIrq(Interrupt.timer0 + no);
-        triggered = true;
       }
+      triggered |= requests > 0;
+    } else {
+      for (int n = 0; n < irqCount; n++) {
+        bus.setIrq(Interrupt.timer0 + no);
+      }
+      triggered = true;
+      intRequested = lastIrq == cycles;
     }
   }
 

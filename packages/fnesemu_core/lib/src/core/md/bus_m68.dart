@@ -5,6 +5,7 @@ import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
 import '../../components/sn76489/sn76489.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
 import 'pad.dart';
@@ -31,6 +32,24 @@ class BusM68 implements M68Bus {
   int region = 0x00;
 
   final Pad pad;
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('md-main-bus');
+    w.bytes(ram);
+    w.int32(region);
+    rom.saveState(w);
+    pad.saveState(w);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('md-main-bus');
+    s.bytesInto(ram);
+    region = s.int32();
+    rom.loadState(s);
+    pad.loadState(s);
+  }
 
   void onReset() {
     cpu.reset();

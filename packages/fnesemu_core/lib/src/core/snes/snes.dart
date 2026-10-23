@@ -24,7 +24,7 @@ import 'rom/snes_file.dart';
 /// simplified echo). Mode 5/6 hi-res is a documented approximation - see
 /// ppu.dart/dsp.dart class docs for exact gaps (Gaussian interpolation,
 /// FIR filter, EXTBG, direct color, vertical mosaic).
-class Snes implements Core {
+class Snes extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -196,6 +196,9 @@ class Snes implements Core {
 
   @override
   void setBiosFiles(List<Uint8List> files) {}
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) {

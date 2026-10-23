@@ -1,6 +1,7 @@
 // import '../../util/debug.dart';
 import '../../pad_button.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 // final _log = DebugLog('md.pad');
 
@@ -12,6 +13,32 @@ class Pad {
   Pad() {
     isPressed =
         List.generate(controllerNum, (_) => {for (var e in _hw) e.name: false});
+  }
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('md-pad');
+    w.ints(counter);
+    w.ints(_lastEdge);
+    for (var i = 0; i < controllerNum; i++) {
+      w.boolean(th[i]);
+      for (final button in _hw) {
+        w.boolean(isPressed[i][button.name]!);
+      }
+    }
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('md-pad');
+    s.intsInto(counter);
+    s.intsInto(_lastEdge);
+    for (var i = 0; i < controllerNum; i++) {
+      th[i] = s.boolean();
+      for (final button in _hw) {
+        isPressed[i][button.name] = s.boolean();
+      }
+    }
   }
 
   void keyDown(int id, PadButton d) {

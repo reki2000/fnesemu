@@ -6,6 +6,7 @@ import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core.dart';
 import 'package:fnesemu_core/src/core/gba/gba.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
+import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
@@ -20,11 +21,21 @@ import '../ps_io.dart';
 import 'options.dart';
 
 /// the options that set up the core, shared by the subcommands that run it
-const mediaValued = {"--bios", "--boot", "--exe", "--input"};
+const mediaValued = {
+  "--bios",
+  "--boot",
+  "--exe",
+  "--input",
+  "--jit",
+  "--jit-cop1",
+  "--ss-slice-clocks",
+  "--32x-slice-clocks"
+};
 const mediaFlags = {
   "--fast-boot",
   "--fixed-clock",
   "--log-cd",
+  "--jit-stats",
   "--frame-runner"
 };
 const mediaAliases = {
@@ -45,6 +56,9 @@ const mediaUsage = """
   --fast-boot        ps: skip the logo animation of the BIOS
   --fixed-clock      ss: the real time clock always reads 2000-01-01
   --log-cd           ss: log the commands of the CD block
+  --32x-slice-clocks N  32x: CPU quantum (default 32; 1 selects legacy; requires --jit)
+  --ss-slice-clocks N  ss: experimental CPU quantum (default 64; requires --jit)
+  --jit on|off      select native compilation for ps, n64, ss or 32x
   -r, --frame-runner run whole frames inside the core instead of exec()""";
 
 /// the core name and the media files of the positional arguments
@@ -102,7 +116,52 @@ class Session {
   /// keeps the audio output in [pcm]
   static Future<Session> open(String name, List<String> files, Options o,
       {bool recordAudio = true}) async {
-    final core = createCore(name);
+    final mode = o["--jit"];
+    if (mode != null && mode != "on" && mode != "off") {
+      throw UsageError("--jit takes on or off");
+    }
+    // bench --warmup-jit on builds the compiled backend even when the timed
+    // part uses the interpreter.
+    final enabled = mode == "on" || o["--warmup-jit"] == "on";
+    final cop1 = o["--jit-cop1"] ?? "native";
+    if (!const ['off', 'transfers', 'native', 'helpers'].contains(cop1)) {
+      throw UsageError('--jit-cop1 takes off, transfers, native or helpers');
+    }
+    if (o["--jit-cop1"] != null && (name != 'n64' || !enabled)) {
+      throw UsageError('--jit-cop1 requires n64 --jit on');
+    }
+    if (o.flag('--jit-stats') && (name != 'n64' || !enabled)) {
+      throw UsageError('--jit-stats requires n64 --jit on');
+    }
+    final slice = o.integer('--ss-slice-clocks', 64);
+    if (o['--ss-slice-clocks'] != null &&
+        (name != 'ss' || mode == null || slice <= 0)) {
+      throw UsageError(
+          '--ss-slice-clocks requires ss --jit on|off and a positive value');
+    }
+    final expansionSlice = o.integer('--32x-slice-clocks', 32);
+    if (o['--32x-slice-clocks'] != null &&
+        (name != '32x' || mode == null || expansionSlice <= 0)) {
+      throw UsageError(
+          '--32x-slice-clocks requires 32x --jit on|off and a positive value');
+    }
+    final core = mode == null
+        ? createCore(name)
+        : switch (name) {
+            "ps" => Ps(jit: enabled),
+            "n64" => N64(
+                jit: enabled,
+                jitStatistics: o.flag("--jit-stats"),
+                jitCop1: cop1 != "off",
+                jitNativeFpu: cop1 == "native",
+                jitFpu: o["--jit-cop1"] == "helpers"),
+            "ss" => Ss(jit: enabled, sliceClocks: slice),
+            "32x" => Md(
+                expansionBoot: true,
+                sh2Jit: enabled,
+                sh2SliceClocks: expansionSlice),
+            _ => throw UsageError("--jit supports ps, n64, ss and 32x"),
+          };
     final buttons = buttonNames(core);
     final pad = PadPlayer(readPresses(o["--input"], buttons), buttons.length);
     core.setSram(Sram());
@@ -152,6 +211,10 @@ class Session {
     final session =
         Session._(name, core, drive, pad, buttons, o.flag("--frame-runner"));
     if (recordAudio) core.onAudio(session.record);
+    if (enabled && !core.jitEnabled) {
+      core.dispose();
+      throw StateError("Native JIT unavailable");
+    }
     return session;
   }
 
@@ -205,6 +268,24 @@ class Session {
     if (!execFrame()) return false;
     await endFrame();
     return true;
+  }
+
+  /// Writes the core state after [frame] to [path]: the frame number as
+  /// eight little-endian bytes followed by the core's state.
+  void saveState(String path) {
+    final head = ByteData(8)..setInt64(0, frame, Endian.little);
+    File(path).writeAsBytesSync(
+        [...head.buffer.asUint8List(), ...core.saveState()],
+        flush: true);
+  }
+
+  /// Restores a state from [saveState]; the input continues from its frame.
+  void loadState(String path) {
+    final bytes = File(path).readAsBytesSync();
+    if (bytes.length < 8) throw UsageError("$path is not a state file");
+    core.loadState(Uint8List.sublistView(bytes, 8));
+    frame = ByteData.sublistView(bytes, 0, 8).getInt64(0, Endian.little);
+    pad.seek(frame);
   }
 
   /// the recorded audio as a wav file

@@ -1,3 +1,4 @@
+import '../../state.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 import 'pad.dart';
@@ -45,6 +46,38 @@ class Smpc {
 
   // intback continuation state
   bool _intbackPeripheralPending = false;
+
+  void saveState(StateWriter w) {
+    w.section('smpc');
+    for (final list in [ireg, oreg, pdr, ddr, smem]) {
+      w.ints(list);
+    }
+    w.ints([areaCode, comreg, sr, sf, iosel, exle, _pendingCommand]);
+    w.int64(_commandWait);
+    for (final b in [resetDisabled, is352, _intbackPeripheralPending]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('smpc');
+    for (final list in [ireg, oreg, pdr, ddr, smem]) {
+      s.intsInto(list);
+    }
+    final v = s.ints();
+    if (v.length != 7) throw const StateMismatch('smpc state layout');
+    areaCode = v[0];
+    comreg = v[1];
+    sr = v[2];
+    sf = v[3];
+    iosel = v[4];
+    exle = v[5];
+    _pendingCommand = v[6];
+    _commandWait = s.int64();
+    resetDisabled = s.boolean();
+    is352 = s.boolean();
+    _intbackPeripheralPending = s.boolean();
+  }
 
   void reset() {
     ireg.fillRange(0, ireg.length, 0);

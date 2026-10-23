@@ -358,6 +358,7 @@ void main() {
 
   test('SS owns the two NBG rows, rotation row and sprite row', () {
     final core = Ss();
+    addTearDown(core.dispose);
     expect(core.videoLayers.map((layer) => layer.row), [0, 0, 1, 1, 2, 3]);
     core.vdp2.writeReg(0xb0, 2);
     expect(core.videoLayers.map((layer) => layer.row), [0, 0, 1, 1, 2, 2, 3]);
@@ -390,6 +391,7 @@ void main() {
   for (final entry in constructors.entries) {
     test('${entry.key} exposes isolated layers and valid pattern readers', () {
       final core = entry.value()..setSram(Sram());
+      addTearDown(core.dispose);
       final before = Uint32List.fromList(core.imageBuffer().buffer);
       expect(core.videoLayers, isNotEmpty);
       for (final layer in core.videoLayers) {

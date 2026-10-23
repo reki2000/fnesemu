@@ -1,5 +1,9 @@
+import 'dart:typed_data';
+
+import '../../../../components/sh2/jit/jit.dart';
 import '../../../../util/int.dart';
 import '../../../../util/register_dump.dart';
+import '../../../../util/state.dart';
 import 'onchip.dart';
 
 abstract class Sh2Bus {
@@ -18,13 +22,39 @@ class Sh2 {
   /// (0xfffffe00-0xffffffff) are served inside the cpu
   late final Sh2Bus bus;
   final Sh2OnChip onchip;
-  Sh2(Sh2Bus ext, {bool master = true}) : onchip = Sh2OnChip(master) {
+  Sh2(Sh2Bus ext, {bool master = true, Sh2Jit? jit})
+      : jit = jit,
+        onchip = Sh2OnChip(master) {
+    r = jit?.regs ?? Uint32List(16);
+    _state = jit?.state ?? Uint32List(8);
+    sr = 0xf0;
+    jit?.attach(
+        (address) => _jitCodeAddress(address) ? ext.read16(address) : null);
     bus = _OnChipBus(ext, onchip);
     onchip.bus = ext;
   }
-  final r = List<int>.filled(16, 0);
-  int pc = 0, sr = 0xf0, gbr = 0, vbr = 0, pr = 0, mach = 0, macl = 0;
-  int clocks = 0, lastOpcode = 0;
+  // Only even SDRAM addresses and their P1 aliases can be compiled here.
+  static bool _jitCodeAddress(int address) =>
+      (address & 0xdffc0001) == 0x06000000;
+
+  final Sh2Jit? jit;
+  late final Uint32List r, _state;
+  int pc = 0;
+  int get sr => _state[0];
+  set sr(int value) => _state[0] = value;
+  int get gbr => _state[1];
+  set gbr(int value) => _state[1] = value;
+  int get vbr => _state[2];
+  set vbr(int value) => _state[2] = value;
+  int get pr => _state[3];
+  set pr(int value) => _state[3] = value;
+  int get mach => _state[4];
+  set mach(int value) => _state[4] = value;
+  int get macl => _state[5];
+  set macl(int value) => _state[5] = value;
+  int clocks = 0;
+  int get lastOpcode => _state[6];
+  set lastOpcode(int value) => _state[6] = value;
   int _irqLevel = 0, _irqVector = 0;
   int? _delayTarget, _restoreSr;
   bool sleeping = false, _inDelay = false;
@@ -32,7 +62,43 @@ class Sh2 {
   set t(bool value) => sr = (sr & ~1) | (value ? 1 : 0);
   int get interruptMask => sr.shr4.mask4;
 
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('32x-sh2');
+    w.ints(r);
+    w.ints(_state);
+    w.int64(pc);
+    w.int64(clocks);
+    w.int64(_irqLevel);
+    w.int64(_irqVector);
+    w.boolean(_delayTarget != null);
+    if (_delayTarget != null) w.int64(_delayTarget!);
+    w.boolean(_restoreSr != null);
+    if (_restoreSr != null) w.int64(_restoreSr!);
+    w.boolean(sleeping);
+    w.boolean(_inDelay);
+    onchip.saveState(w);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('32x-sh2');
+    jit?.reset();
+    s.intsInto(r);
+    s.intsInto(_state);
+    pc = s.int64();
+    clocks = s.int64();
+    _irqLevel = s.int64();
+    _irqVector = s.int64();
+    _delayTarget = s.boolean() ? s.int64() : null;
+    _restoreSr = s.boolean() ? s.int64() : null;
+    sleeping = s.boolean();
+    _inDelay = s.boolean();
+    onchip.loadState(s);
+  }
+
   void reset() {
+    jit?.reset();
     r.fillRange(0, 16, 0);
     pc = bus.read32(0);
     r[15] = bus.read32(4);
@@ -61,14 +127,25 @@ class Sh2 {
     clocks += 5;
   }
 
-  bool exec() {
+  bool exec({bool compiled = true}) {
     final before = clocks;
-    final ok = _execOne();
+    final ok = _execOne(compiled);
     onchip.tick(clocks - before);
     return ok;
   }
 
-  bool _execOne() {
+  /// Runs to the adapter deadline, retaining instruction-based debug stepping.
+  bool run(int targetClocks, {bool compiled = true}) {
+    while (clocks < targetClocks) {
+      final before = clocks;
+      final ok = _execOne(compiled, targetClocks - clocks);
+      onchip.tick(clocks - before);
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  bool _execOne(bool compiled, [int budget = 1]) {
     final target = _delayTarget;
     final restore = _restoreSr;
     if (target == null) {
@@ -82,6 +159,19 @@ class Sh2 {
       }
       if (onchipLevel > interruptMask) {
         _exception(onchipVector, pc, level: onchipLevel);
+        return true;
+      }
+    }
+    if (compiled &&
+        jit != null &&
+        !jit!.suspended &&
+        target == null &&
+        !sleeping &&
+        _jitCodeAddress(pc)) {
+      final result = jit!.run(pc, budget);
+      if (result != null) {
+        pc = result.$1;
+        clocks += result.$2;
         return true;
       }
     }

@@ -1,5 +1,7 @@
 import 'dart:collection';
+
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// Three-entry PWM FIFOs, clocked by the SH-2 clock divider.
 class ExpansionPwm {
@@ -8,6 +10,37 @@ class ExpansionPwm {
   ExpansionPwm(this.interrupt);
   int control = 0, cycle = 0, _phase = 0, _irqCounter = 0;
   int _left = 0, _right = 0;
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('32x-pwm');
+    w.int64(control);
+    w.int64(cycle);
+    w.int64(_phase);
+    w.int64(_irqCounter);
+    w.int64(_left);
+    w.int64(_right);
+    w.ints(left.toList());
+    w.ints(right.toList());
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('32x-pwm');
+    control = s.int64();
+    cycle = s.int64();
+    _phase = s.int64();
+    _irqCounter = s.int64();
+    _left = s.int64();
+    _right = s.int64();
+    left
+      ..clear()
+      ..addAll(s.ints());
+    right
+      ..clear()
+      ..addAll(s.ints());
+  }
+
   void reset() {
     left.clear();
     right.clear();

@@ -57,6 +57,21 @@ class Core extends CoreDebug {
   /// set sram storage interface
   void setSram(Sram sram) {}
 
+  /// releases what the core holds outside the Dart heap; the core is not
+  /// used afterwards
+  void dispose() {}
+
+  /// Saves the logical emulation state at a frame boundary, for restoring
+  /// into a new instance of the same core with the same media. Cores
+  /// without state support throw [UnsupportedError].
+  Uint8List saveState() => throw UnsupportedError('Core.saveState');
+
+  /// Restores a state from [saveState]; throws a StateMismatch for another
+  /// core, media or format version. Callbacks, media and configuration of
+  /// this instance are kept.
+  void loadState(Uint8List state) =>
+      throw UnsupportedError('Core.loadState');
+
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');
 

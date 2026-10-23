@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../../../components/sh2/jit/jit.dart';
+import '../../../state.dart';
 import '../../../util/disasm.dart';
 import '../../../util/int.dart';
 import '../../../util/register_dump.dart';
@@ -163,22 +165,46 @@ class Sh2 extends SsCpu {
   late final SsCpuBus bus;
   final Sh2OnChip onchip;
 
-  Sh2(SsCpuBus ext, {bool master = true}) : onchip = Sh2OnChip(master) {
+  Sh2(SsCpuBus ext, {bool master = true, Sh2Jit? jit, bool jitFtcsr = true})
+      : jit = jit,
+        onchip = Sh2OnChip(master) {
+    r = jit?.regs ?? Uint32List(16);
+    _state = jit?.state ?? Uint32List(8);
+    sr = 0xf0;
+    _jitFtcsr = jitFtcsr
+        ? jit?.addReadRegister(
+            (address, size) => address == 0xfffffe11 && size == 1)
+        : null;
+    jit?.attach(_jitFetch);
     _mem = _Sh2Memory(ext, onchip);
     bus = _mem;
     onchip.bus = bus;
   }
 
   late final _Sh2Memory _mem;
+  late final Uint32List? _jitFtcsr;
 
   // stores wrap to 32 bits, and typed data keeps the values unboxed
-  final r = Uint32List(16);
+  final Sh2Jit? jit;
+  late final Uint32List r, _state;
   @override
   int pc = 0;
-  int sr = 0xf0, gbr = 0, vbr = 0, pr = 0, mach = 0, macl = 0;
+  int get sr => _state[0];
+  set sr(int value) => _state[0] = value;
+  int get gbr => _state[1];
+  set gbr(int value) => _state[1] = value;
+  int get vbr => _state[2];
+  set vbr(int value) => _state[2] = value;
+  int get pr => _state[3];
+  set pr(int value) => _state[3] = value;
+  int get mach => _state[4];
+  set mach(int value) => _state[4] = value;
+  int get macl => _state[5];
+  set macl(int value) => _state[5] = value;
   @override
   int clocks = 0;
-  int lastOpcode = 0;
+  int get lastOpcode => _state[6];
+  set lastOpcode(int value) => _state[6] = value;
   int _irl = 0;
   bool _nmi = false;
   // -1: none (avoids boxing of nullable ints)
@@ -221,6 +247,16 @@ class Sh2 extends SsCpu {
         .asUint8List(_fetchWram.offsetInBytes, _fetchWram.lengthInBytes);
   }
 
+  int? _jitFetch(int address) {
+    if (address & 0xc0000001 != 0) return null;
+    final physical = address & 0x07ffffff;
+    if (physical < 0x100000 ||
+        physical >= 0x6000000 ||
+        (physical >= 0x200000 && physical < 0x300000))
+      return bus.read16(address);
+    return null;
+  }
+
   @pragma('vm:prefer-inline')
   int _fetch(int a) {
     // 0x06000000-0x07ffffff in cache / cache-through area
@@ -238,6 +274,9 @@ class Sh2 extends SsCpu {
 
   @override
   void reset() {
+    jit?.reset();
+    _state[7] = 0;
+    _idlePc = _idleWrites = -1;
     onchip.reset();
     r.fillRange(0, 16, 0);
     pc = bus.read32(0);
@@ -248,6 +287,55 @@ class Sh2 extends SsCpu {
     _nmi = false;
     _delayTarget = _restoreSr = -1;
     sleeping = _inDelay = false;
+  }
+
+  /// Saves registers, delay and idle-detector state and the on-chip
+  /// modules. Register views shared with the JIT context are written in
+  /// place on load, after resetting compiled code.
+  void saveState(StateWriter w) {
+    w.section(onchip.master ? 'sh2-master' : 'sh2-slave');
+    w.ints(r);
+    // Native and interpreted writes are counted apart and only their sum
+    // matters; the split depends on which code happened to be compiled.
+    w.ints([..._state.sublist(0, 7), 0]);
+    final writes = _mem.writes + _state[7];
+    w.ints([pc, clocks, _irl, _delayTarget, _restoreSr, writes]);
+    w.ints([_idlePc, _idleWrites, _idleSr, _idleGbr, _idleMach]);
+    w.ints([_idleMacl, _idlePr]);
+    w.ints(_idleRegs);
+    for (final b in [_nmi, sleeping, _inDelay]) {
+      w.boolean(b);
+    }
+    onchip.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section(onchip.master ? 'sh2-master' : 'sh2-slave');
+    jit?.reset();
+    s.intsInto(r);
+    s.intsInto(_state);
+    final v = s.ints(), idle = s.ints(), idle2 = s.ints();
+    if (v.length != 6 || idle.length != 5 || idle2.length != 2) {
+      throw const StateMismatch('sh2 state layout');
+    }
+    pc = v[0];
+    clocks = v[1];
+    _irl = v[2];
+    _delayTarget = v[3];
+    _restoreSr = v[4];
+    _mem.writes = v[5];
+    _idlePc = idle[0];
+    _idleWrites = idle[1];
+    _idleSr = idle[2];
+    _idleGbr = idle[3];
+    _idleMach = idle[4];
+    _idleMacl = idle2[0];
+    _idlePr = idle2[1];
+    s.intsInto(_idleRegs);
+    _nmi = s.boolean();
+    sleeping = s.boolean();
+    _inDelay = s.boolean();
+    onchip.loadState(s);
   }
 
   @override
@@ -276,13 +364,39 @@ class Sh2 extends SsCpu {
     bool ok = true;
     while (clocks < targetClocks) {
       final prev = pc;
-      if (!exec()) {
+      (int, int)? compiled;
+      if (jit != null &&
+          !jit!.suspended &&
+          _delayTarget < 0 &&
+          !sleeping &&
+          !_interruptRequested) {
+        // On-chip time advances at the run boundary.
+        // Refresh after CPU instructions too, including FTCSR writes and input capture.
+        final status = _jitFtcsr;
+        if (status != null) status[0] = onchip.ftcsr;
+        compiled = jit!.run(pc, targetClocks - clocks);
+      }
+      if (compiled != null) {
+        pc = compiled.$1;
+        clocks += compiled.$2;
+        if (idleSkip && jit!.idleDetected) {
+          _idlePc = -1;
+          // A compiled block may already have overshot the target.
+          if (clocks < targetClocks) clocks = targetClocks;
+          break;
+        }
+      } else if (!exec()) {
         ok = false;
         break;
       }
+      final idleFrom = compiled == null ? prev : jit!.idleCheckPc;
       if (idleSkip &&
-          (sleeping || (pc < prev && prev - pc <= 32 && _isIdle()))) {
-        clocks = targetClocks;
+          (sleeping ||
+              (idleFrom != null &&
+                  (pc < idleFrom || (compiled != null && pc == idleFrom)) &&
+                  idleFrom - pc <= Sh2Jit.idleBranchDistance &&
+                  _isIdle()))) {
+        if (clocks < targetClocks) clocks = targetClocks;
         break;
       }
     }
@@ -299,7 +413,7 @@ class Sh2 extends SsCpu {
   int _idleSr = 0, _idleGbr = 0, _idleMach = 0, _idleMacl = 0, _idlePr = 0;
 
   bool _isIdle() {
-    final writes = _mem.writes;
+    final writes = _mem.writes + _state[7];
     // compares the registers and keeps them as the next snapshot at once
     final regs = r, idle = _idleRegs;
     bool same = true;

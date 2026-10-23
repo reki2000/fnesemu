@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../util/debug.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../util/uint8list.dart';
 
 final _log = DebugLog('md.rom');
@@ -19,6 +20,24 @@ class Rom {
   // slot 0 is fixed, the registers $a130f3-$a130ff select the bank of slot 1-7
   final bank = List<int>.generate(8, (i) => i);
   bool get banked => rom.length > 0x400000;
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('md-rom');
+    w.bytes(ram);
+    w.int64(ramStartAddr);
+    w.int64(ramEndAddr);
+    w.ints(bank);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('md-rom');
+    s.bytesInto(ram);
+    ramStartAddr = s.int64();
+    ramEndAddr = s.int64();
+    s.intsInto(bank);
+  }
 
   int mapOffset(int offset) =>
       banked ? bank[offset.shr19].shl19 | (offset & 0x7ffff) : offset;

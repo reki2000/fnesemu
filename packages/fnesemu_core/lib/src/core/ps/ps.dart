@@ -17,6 +17,8 @@ import 'dma.dart';
 import 'gpu/gpu.dart';
 import 'gpu/gpu_debug.dart';
 import 'interrupt.dart';
+import 'jit/ps_jit.dart';
+import 'log.dart';
 import 'mdec.dart';
 import 'memory_card.dart';
 import 'pad.dart';
@@ -29,6 +31,9 @@ import 'timer.dart';
 final _log = DebugLog('ps');
 
 const _fastboot = bool.fromEnvironment("FASTBOOT", defaultValue: false);
+
+/// runs the cpu with the recompiler where the host supports it
+const _jit = bool.fromEnvironment("JIT", defaultValue: true);
 
 class Ps extends Core {
   @override
@@ -49,8 +54,28 @@ class Ps extends Core {
 
   bool fastBoot = _fastboot;
 
-  Ps({Uint8List? memoryCard2Image}) : bus = Bus() {
-    cpu = R3000(bus);
+  /// the recompiler, or null when the interpreter runs every instruction;
+  /// it is off while tracing, which hooks every BIOS call
+  final PsJit? jit;
+
+  @override
+  bool get jitEnabled => jit?.native ?? false;
+  @override
+  bool get jitSuspended => jit?.suspended ?? false;
+  @override
+  set jitSuspended(bool value) => jit?.suspended = value;
+
+  @override
+  int get cpuClocks => cpu.clocks;
+  @override
+  int get jitClocks => jit?.compiledClocks ?? 0;
+
+  Ps({Uint8List? memoryCard2Image, bool jit = _jit})
+      : this._(jit && !psTrace ? PsJit.create() : null, memoryCard2Image);
+
+  Ps._(this.jit, Uint8List? memoryCard2Image)
+      : bus = Bus(mem: jit?.ram, rom: jit?.rom, scratchPad: jit?.scratchPad) {
+    cpu = R3000(bus, regs: jit?.regs);
     gpu = Gpu(bus);
     pad = Pad();
     memoryCard = MemoryCard();
@@ -71,7 +96,7 @@ class Ps extends Core {
     timer = TimerController(bus);
     cdrom = Cdrom(bus);
     mdec = Mdec();
-    dma = Dma(bus);
+    dma = Dma(bus)..onActivate = _scheduleDma;
 
     bus.interrupt = InterruptController()..cpu = cpu;
     bus.dma = dma;
@@ -82,6 +107,7 @@ class Ps extends Core {
     bus.timer = timer;
     bus.cdrom = cdrom;
     bus.mdec = mdec;
+    jit?.attach(cpu, bus);
   }
 
   static const _systemClockHz = 33868800; // 33.8688MHz
@@ -133,6 +159,7 @@ class Ps extends Core {
       bus.rom32.setRange(
           patchAddr, patchAddr + fastBootSequence.length, fastBootSequence);
     }
+    jit?.reset();
 
     cdrom.closeShell();
 
@@ -144,7 +171,9 @@ class Ps extends Core {
   int nextScanlineClock = 0;
   int nextTimerClock = 0;
   bool _waitFinishLine = false;
+  static const _dmaClocks = 24;
   int nextDmaClock = 0;
+  int _cpuLimit = 0;
   int nextSpuClock = 0;
   int nextSerialClock = 0;
   int nextCdromClock = 0;
@@ -181,10 +210,19 @@ class Ps extends Core {
     return result;
   }
 
-  /// runs one batch of instructions and the device events due after it,
-  /// returns true if a scanline is rendered
+  void _scheduleDma() {
+    // Preserve the existing DMA tick phase when waking during an instruction.
+    nextDmaClock = ((cpu.clocks + _dmaClocks - 1) ~/ _dmaClocks) * _dmaClocks;
+    if (nextDmaClock < _cpuLimit) {
+      _cpuLimit = nextDmaClock;
+    }
+    jit?.yieldForDevice();
+  }
+
+  /// Runs one CPU batch and the device events due after it.
+  /// Returns true if a scanline is rendered.
   bool _run(bool step) {
-    final cpu = this.cpu;
+    final cpu = this.cpu, jit = this.jit;
 
     if (step) {
       cpu.step();
@@ -195,14 +233,20 @@ class Ps extends Core {
       if (_waitFinishLine && nextScanlineClock - 201 < limit) {
         limit = nextScanlineClock - 201;
       }
-      if (nextDmaClock < limit) limit = nextDmaClock;
+      if (dma.active && nextDmaClock < limit) limit = nextDmaClock;
       if (nextSpuClock < limit) limit = nextSpuClock;
       if (nextSerialClock < limit) limit = nextSerialClock;
       if (nextCdromClock < limit) limit = nextCdromClock;
 
-      do {
-        cpu.step();
-      } while (cpu.clocks <= limit);
+      // A DMA register write can shorten this batch through _scheduleDma.
+      _cpuLimit = limit;
+      if (jit != null && !jit.suspended) {
+        jit.run(limit);
+      } else {
+        do {
+          cpu.step();
+        } while (cpu.clocks <= _cpuLimit);
+      }
     }
 
     if (cpu.clocks > nextTimerClock) {
@@ -224,9 +268,9 @@ class Ps extends Core {
       _waitFinishLine = false;
     }
 
-    if (cpu.clocks > nextDmaClock) {
-      nextDmaClock += 24;
-      bus.dma.exec(24);
+    if (dma.active && cpu.clocks > nextDmaClock) {
+      nextDmaClock += _dmaClocks;
+      dma.exec(_dmaClocks);
     }
 
     if (cpu.clocks > nextSpuClock) {
@@ -262,10 +306,12 @@ class Ps extends Core {
   @override
   void reset() {
     cpu.reset();
+    jit?.reset();
 
     nextScanlineClock = 0;
     nextTimerClock = 0;
     nextDmaClock = 0;
+    _cpuLimit = 0;
     nextSpuClock = 0;
     nextSerialClock = 0;
     nextCdromClock = 0;
@@ -286,6 +332,9 @@ class Ps extends Core {
     debugStatus.scanline = 0;
     debugStatus.pc = cpu.pc;
   }
+
+  @override
+  void dispose() => jit?.dispose();
 
   @override
   ImageBuffer imageBuffer() => gpu.imageBuffer;

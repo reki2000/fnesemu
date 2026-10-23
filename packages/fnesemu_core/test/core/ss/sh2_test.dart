@@ -289,6 +289,7 @@ void main() {
       final ss = Ss()
         ..setSram(Sram())
         ..setRom(bios);
+      addTearDown(ss.dispose);
       ss.reset();
       return ss;
     }

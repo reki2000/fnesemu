@@ -1,0 +1,64 @@
+# mp_jit_recompiler
+
+A block recompiler for emulator cores. A core translates guest code to `IrBlock`s, and `JitRuntime` runs them as x86-64, ARM64 or WebAssembly code.
+
+- `IrBlock` is straight-line SSA code over explicit `i32` and `i64` values with side exits and one terminator: a static jump, a branch, a dynamic jump or an exit to the host. Blocks are keyed by (pc, tag); the tag carries guest state that the code depends on, such as a load in its delay slot.
+- The context is an array of 32-bit words shared with the host. The first words hold the exit reason, pc and tag, the clock budget and a stop word; the rest belong to the guest.
+- Guest memory is mapped in pages of `1 << pageShift` bytes (4KiB by default) to buffers from `JitRuntime.alloc`, separately for reads and writes. Unmapped accesses call the host read and write functions. Guards compare code words at block entry to detect modified code.
+- A load or store built with `unmapped:` exits at an unmapped read or write page instead of calling the host, with the address in `JitCtx.faultAddr`; the page lookup is shared with the access. `IrBuilder.guardMapped` checks a page without accessing it. A core can then synchronize clocks and CPU state and execute the instruction in its interpreter. An exit's `stores` write guest registers held in values only on that exit path. Removing write mappings for translated code pages also makes stores to upcoming instructions leave the block before changing them; the core must protect every writable alias of those pages.
+- `JitCodeMemory` owns write protection for translated code. A core declares its guest mappings with `map`; `protect` removes the write mappings of every writable alias of the same host page and records the blocks translated from it; `release` drops those blocks and stops protecting a page that compiled code keeps writing; `reset` restores all write mappings. Writes outside compiled code are still detected by block guards. PS1, N64 and the SH-2 component use it.
+- `JitDriver` runs the shared dispatch loop for PS1, N64 and SH-2: it translates missing successors at the selected threshold and caches untranslatable code words. Adapters may prepare cold entries before runtime entry, observe live registers during warmup, bound host dispatch retries, and stop on device or idle returns. Invalidation clears observations; a guarded specialization miss may mark its next translation hot. Counters and fallbacks are bounded together, and SH-2 drops its cold register observations after installation. The adapter keeps entry conditions, translation, budgets, interrupts and interpreter execution.
+- An `IrExit` with `link: true` applies its snapshot stores and unused-clock refund, then chains to its `(pc, tag)` target. It keeps normal target budget/stop/code guards and returns `JitReason.miss` if the target is absent. x64, ARM64, Wasm and the reference executor share this behavior. This supports conditional continuation without a host round trip, including an annulled delay slot. The exit's host reason is ignored for linked exits.
+- `JitRuntime.compileThreshold` supplies a backend hotness suggestion; adapters choose cold-execution and specialization policy. Measure compilation amortization on the workload rather than treating a threshold as proof of profitability.
+- Compiled backends fold i32 constants and algebraic identities and discard unused pure values before emission. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks retain i64 operations while applying safe i32 simplifications and dead-value removal.
+- The x86-64 backend uses immediate arithmetic and shifts, rematerializes constants, and assigns block-local values to seven general-purpose registers with a linear scan. Both widths use the same allocator and eight-byte spill slots. Values spanning possible helper calls remain in stack slots; side exits retain values at their branch point. No register state is shared across block boundaries.
+- A run continues from block to block through link slots and a dynamic jump table, and returns to the host only when a block exits, a target is missing, the budget runs out or the stop word is set. A block entered with a positive budget runs completely, so the budget may end negative by up to one block; the host carries that overshoot. Native/Wasm misses to installed targets refresh the direct-mapped dynamic table without recompiling; code guards and invalidation still apply.
+
+`JitRuntime.native` returns the x86-64 backend on Linux, Android and Windows x64 hosts, the ARM64 backend on macOS, Linux, Windows and Android ARM64 hosts, or the Wasm backend on the Web. The Web backend works with both dart2js and dart2wasm. Unsupported hosts and policies that prohibit compiling Wasm return null. `JitRuntime.interpreter` interprets the IR on every platform and is the reference for the backends.
+
+Every backend provides the same IR and runtime features on every platform: both value widths, both memory byte orders, floating-point operations, buffer sharing, entry counters and diagnostics. Frontends and cores therefore emit one lowering and do not query backend capabilities. A new IR feature is complete only when the reference executor and all compiled backends implement it. Block profiling is the one compiled-only diagnostic.
+
+The Wasm backend emits one small module per block and uses a common function table and a Wasm dispatcher loop to chain them without Dart calls or growing the stack. All Wasm runtimes allocate registers, page tables, links and guest buffers from one fixed 64MiB linear memory, so a runtime can map another runtime's guest buffer. Memory does not grow, so existing Dart views remain valid. `dispose` returns a runtime's allocations, and a finalizer returns those of a runtime dropped without `dispose`; allocations beyond the free capacity throw. Dispose runtimes explicitly, since finalization timing is not guaranteed. The code cache clears at 4,096 installed blocks and recompiles on demand; it does not reclaim guest allocations. i64 values use Wasm i64 locals; big-endian accesses and guards reverse bytes around little-endian linear-memory operations.
+
+Allocation and native code-publication failures throw; construction releases partially allocated native resources, and a runtime whose code-protection update fails cannot run again. Shared guest buffers remain valid until the owner calls `dispose`.
+
+Run `dart test` for the host backend, `dart test -p chrome --compiler dart2wasm` for the browser backend, or `dart test -p node --compiler dart2wasm` for Wasm without a browser. `web_runtime_test.dart` requires an active compiled backend so browser CI cannot silently skip Wasm coverage.
+
+## Documentation
+
+| Document | Owns |
+| --- | --- |
+| [Architecture](../../ARCHITECTURE.md) | Component responsibilities and core state/timing boundaries |
+| [Frontend contracts](FRONTENDS.md) | State, lowering, register allocation and implemented specialization rules |
+| [Performance guide](OPTIMIZATION.md) | Improvement workflow, metric definitions, diagnostics and acceptance |
+| [ARM64](ARM64.md) | Platform ABI/publication contracts and correctness evidence |
+| [x64 report](PERFORMANCE.md) | Historical backend experiments and results |
+| [Core tools](../fnesemu_core/tool/README.md) | Runner commands and core-specific measurement reports |
+| [Roadmap](ROADMAP.md) | Pending proposals |
+
+## Native hosts
+
+The package builds a small C memory-publication helper through `hook/build.dart`; a C toolchain is required. OS publication, cache synchronization and macOS entitlement rules are documented in [ARM64.md](ARM64.md#abi-and-memory-publication).
+
+Use `dart run` or `dart test` for development. For a standalone AOT tool, use `dart build cli -t tool/example.dart -o /tmp/example` and run `/tmp/example/bundle/bin/example`. Preserve its `bundle/lib` directory when copying the executable. Bare `dart compile exe` and `aot-snapshot` do not package the native asset. Flutter builds package the helper automatically. Web builds do not compile it.
+
+The ARM64 backend supports the complete integer IR, both memory byte orders, callbacks, guards, side-exit snapshots and block linking. It keeps runtime pointers in X19-X23, preserves the callee-saved registers it uses, leaves X18 reserved for the platform and uses eight-byte SSA stack slots. It does not yet allocate SSA values to host registers. Floating-point add, subtract and multiply use caller-saved V0/V1 scratch registers. See [ARM64 validation notes](ARM64.md).
+
+`shareBuffer(owner, buffer)` permits separately executing native runtimes to map guest RAM allocated by another runtime while keeping their contexts separate. The owner must remain alive until all borrowers have finished executing and removed their mappings. This does not provide concurrent-code-publication or guest-memory synchronization. Wasm runtimes share their linear memory; the reference executor accepts the buffer directly.
+
+## Value widths and byte order
+
+Every executor supports both value widths and both memory byte orders. The reference executor uses `BigInt` for exact i64 semantics on every Dart compiler; x86-64, ARM64 and Wasm use native 64-bit integer operations. Wasm i64 values stay inside generated code and linear memory, so no 64-bit value crosses the JavaScript boundary.
+
+- Arithmetic wraps at its declared width. Comparisons return i32; shift counts, conditions, guest addresses, block PCs and tags remain i32 independently of register width.
+- `sext32`, `zext32` and `trunc32` make word-to-register conversions explicit. For example, an N64 word result can use `b.sext32(b.add(b.trunc32(register), b.c32(1)))` before storing to an i64 register.
+- Context indices count 32-bit words. An i64 load/store occupies two consecutive words, low word first, independently of guest memory byte order. Runtime installation checks the whole access against the context size.
+- `c64(BigInt)` and `c64Parts(low, high)` preserve exact constants without converting a 64-bit value through a JavaScript number.
+- Memory accesses specify `IrEndian.little` or `IrEndian.big` and may transfer up to the value width, including 8 bytes for i64. The default remains i32 little-endian for PS1. A sign-extended big-endian word load can use `b.load(4, address, type: IrType.i64, signed: true, endian: IrEndian.big)`. Frontends handle guest alignment faults and split accesses that cross page mappings.
+- Instruction guards also take an explicit byte order through `b.guard(address, instruction, endian: IrEndian.big)`, so translators using typed big-endian IR can compare decoded 32-bit instructions with big-endian code bytes.
+- Unmapped read/write callbacks exchange raw little-endian packed bytes; IR applies the access byte order. The reference and native executors split an 8-byte callback access into two 4-byte calls in address order. N64 exits to the CPU interpreter for device accesses.
+- Helpers still use the existing three-i32-argument/i32-result ABI. The verifier rejects i64 helper arguments; a typed 64-bit helper ABI, additional floating-point operations and TLB-aware fast paths remain future work.
+
+## Floating-point bit patterns
+
+`floatAdd`, `floatSub` and `floatMul` interpret i32 values as binary32 and i64 values as binary64, evaluate in binary64, then round to the result width. Every executor supports these operations; Wasm reinterprets the bit patterns as f32/f64 values. `floatConvert` widens binary32 to binary64 exactly or narrows to nearest even, and `floatToInt` converts either width to a signed word to nearest even or toward zero; nonfinite and out-of-range conversions are unspecified, so frontends exit before them. Native backends rely on the host default rounding mode (x64 MXCSR, ARM64 FPCR). The ARM64 encodings were checked with a disassembler; this change was not run under QEMU. These operations preserve the current N64 interpreter arithmetic model rather than implementing all guest exception flags and rounding modes. NaN payloads are unspecified by this IR contract, and the N64 frontend exits before nonfinite operands to preserve CPU behavior. Values remain ordinary SSA bit patterns; this does not add persistent allocation of guest FPRs to host floating-point registers.

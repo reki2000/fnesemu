@@ -323,8 +323,12 @@ extension Gpu0 on Gpu {
       //             "uv($u0, $v0) page:${status.x4} ->(${u0 + baseX}+$textureOffsetX/${textureMaskX.x2},${v0 + baseY}+$textureOffsetY/${textureMaskY.x2}) "
       //             "${!clutMode.bit1 ? "clut:${clut.x4} ${clut << 4 & 0x3f0},${clut >> 6 & 0x1ff} ${dumpClut(clut, status)} " : ""}"}");
 
-      for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
+      final left = 0.max(drawingX1 - drawingOffsetX - x0);
+      final right = w.min(drawingX2 - drawingOffsetX - x0 + 1);
+      final top = 0.max(drawingY1 - drawingOffsetY - y0);
+      final bottom = h.min(drawingY2 - drawingOffsetY - y0 + 1);
+      for (int y = top; y < bottom; y++) {
+        for (int x = left; x < right; x++) {
           if (textured) {
             final texColor = getTextureColor2(
                 u0 + x, v0 + y, baseX, baseY, clutBase, clutMode);

@@ -68,6 +68,12 @@ submodule reference here. Restore the recorded revisions with
 See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
 dependency rules.
 
+### PS1 recompiler
+
+The PS1 CPU uses `packages/mp_jit_recompiler` by default, translating R3000 code to x86-64 on Linux, Android and Windows x64 hosts, or to WebAssembly on the Web. For example, `flutter build web --wasm` includes the Web backend. WebAssembly is also used when the app itself is compiled to JavaScript. Build or run with `--dart-define=JIT=false` to use the interpreter explicitly. Other hosts, browser policies that prohibit compiling Wasm, and `PS_TRACE=true` builds keep the interpreter automatically. Linux and Windows x64 CI exercise the native backend, and browser tests exercise Wasm. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+
+Device accesses and writes to translated RAM pages return to the interpreter before the instruction executes, preserving device clocks, interrupts and self-modifying code. Ordinary RAM accesses remain native. A debugger step that stops at a branch delay slot completes that slot before entering compiled code.
+
 ### Adding or removing a core
 
 After changing core modules, regenerate the registration list:

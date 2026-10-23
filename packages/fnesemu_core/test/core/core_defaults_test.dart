@@ -46,6 +46,8 @@ void main() {
     final core = Core();
     final debugger = Debugger(core);
     debugger.setDebugView(true);
+    expect(core.jitEnabled, isFalse);
+    expect(debugger.state.jitEnabled, isFalse);
     expect(core.cpuInfos, isEmpty);
     expect(core.buttons, isEmpty);
     expect(core.imageBuffer().buffer, isEmpty);

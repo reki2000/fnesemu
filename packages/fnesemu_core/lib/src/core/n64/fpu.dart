@@ -1,13 +1,30 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import '../../state.dart';
 import '../../util/int.dart';
 
 /// COP1 register file and scalar IEEE-754 operations. No host-native code.
 class N64Fpu {
-  final data = ByteData(32 * 8);
+  final ByteData data;
+
+  N64Fpu({ByteData? data}) : data = data ?? ByteData(32 * 8);
   bool wide = false;
   int control = 0;
   bool get condition => control.bit23;
+
+  void saveState(StateWriter w) {
+    w.section('fpu');
+    w.bytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+    w.boolean(wide);
+    w.int64(control);
+  }
+
+  void loadState(StateReader s) {
+    s.section('fpu');
+    s.bytesInto(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+    wide = s.boolean();
+    control = s.int64();
+  }
   int offset(int r) => wide ? r * 8 : r * 4;
   int word(int r) => data.getUint32(offset(r), Endian.little);
   void setWord(int r, int v) => data.setUint32(offset(r), v, Endian.little);
@@ -26,7 +43,9 @@ class N64Fpu {
   }
 
   void reset() {
-    data.buffer.asUint8List().fillRange(0, data.lengthInBytes, 0);
+    data.buffer
+        .asUint8List(data.offsetInBytes, data.lengthInBytes)
+        .fillRange(0, data.lengthInBytes, 0);
     control = 0;
     wide = false;
   }

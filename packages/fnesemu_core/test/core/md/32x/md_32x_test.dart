@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/core_factory.dart';
+import 'package:fnesemu_core/src/components/sh2/jit/jit.dart';
 import 'package:fnesemu_core/src/core/md/32x/md_32x.dart';
 import 'package:fnesemu_core/src/core/md/32x/video.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
@@ -35,6 +36,245 @@ Uint8List cartridge() {
 }
 
 void main() {
+  final probe = Sh2Jit.create();
+  final native = probe != null;
+  probe?.dispose();
+  test('unaligned SH-2 memory replays the original bus access', () {
+    final expected = Md32x(jit: false),
+        actual = Md32x(jit: true, sliceClocks: 1);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      final bytes = ByteData.sublistView(a.ram);
+      bytes.setUint16(0x200, 0x61c1);
+      bytes.setUint16(0x202, 9);
+      bytes.setUint32(0x1000, 0x11223344);
+      a.cpus[0].r[12] = 0x06001001;
+    }
+    for (var iteration = 0; iteration < 8; iteration++) {
+      for (final a in [expected, actual]) {
+        a.cpus[0].pc = 0x06000200;
+        expect(a.cpus[0].exec(), isTrue);
+      }
+      expect(actual.cpus[0].r[1], 0x2233);
+      expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+    }
+    expect(actual.cpus[0].jit!.compiledClocks, 0);
+  }, skip: native ? false : 'No big-endian native backend');
+  test('optional SH-2 recompilation preserves instruction alternation', () {
+    final expected = Md32x(jit: false),
+        actual = Md32x(jit: true, sliceClocks: 1);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      a.setBootRoms(
+          main: Uint8List(256), master: boot(2048, 9), slave: boot(1024, 9));
+      final data = ByteData.sublistView(a.ram);
+      for (var i = 0; i < 2; i++) {
+        final offset = i * 32;
+        data.setUint16(offset, 0x7101);
+        data.setUint16(offset + 2, 0xaffd);
+        data.setUint16(offset + 4, 9);
+        a.cpus[i].pc = 0x06000000 + offset;
+      }
+      a.control = 3;
+    }
+    for (var target = 1; target < 150; target += 3) {
+      for (final a in [expected, actual]) {
+        for (var i = 0; i < 2; i++) {
+          while (a.cpus[i].clocks < target) {
+            expect(a.cpus[i].exec(), isTrue);
+          }
+        }
+      }
+      for (var i = 0; i < 2; i++) {
+        expect(actual.cpus[i].dump(), expected.cpus[i].dump());
+        expect(actual.cpus[i].clocks, expected.cpus[i].clocks);
+      }
+    }
+    expect(actual.ram, expected.ram);
+    expect(actual.cpus[0].jit!.compiledClocks, greaterThan(0));
+    expect(actual.cpus[1].jit!.compiledClocks, greaterThan(0));
+    final before = actual.cpus[0].jit!.compiledClocks;
+    expect(actual.cpus[0].exec(compiled: false), isTrue);
+    expect(actual.cpus[0].jit!.compiledClocks, before);
+  }, skip: native ? false : 'No big-endian native backend');
+
+  test('communication reads continue natively and observe peer updates', () {
+    final expected = Md32x(jit: false), actual = Md32x(jit: true);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      final bytes = ByteData.sublistView(a.ram);
+      for (var i = 0; i < 4; i++) {
+        bytes.setUint16(i * 2, 0x6141 + ((i == 3 ? 4 : i) << 8));
+      }
+      bytes.setUint16(8, 0xffff);
+      bytes.setUint16(10, 9);
+      a.cpus[0].r[4] = 0x20004020;
+    }
+    for (var pass = 0; pass < 12; pass++) {
+      for (final a in [expected, actual]) {
+        a.writeMain16(0xa15120, 0x8000 + pass);
+        a.cpus[0].pc = 0x06000000;
+        expect(a.cpus[0].run(a.cpus[0].clocks + 4), isTrue);
+      }
+      expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+    }
+    final jit = actual.cpus[0].jit!;
+    final entries = jit.rt.nativeEntries;
+    final clocks = jit.compiledClocks;
+    actual.cpus[0].pc = 0x06000000;
+    actual.cpus[0].run(actual.cpus[0].clocks + 4);
+    expect(jit.rt.nativeEntries - entries, 1);
+    expect(jit.compiledClocks - clocks, 4);
+    expect(actual.cpus[0].r[1], 0xffff800b);
+    expected.cpus[0].pc = 0x06000000;
+    expected.cpus[0].run(expected.cpus[0].clocks + 4);
+    // Switching the same PC to FIFO reads must replay each read exactly once.
+    for (final a in [expected, actual]) {
+      a.writeMain16(0xa15106, 4);
+      a.writeMain16(0xa15110, 4);
+      for (var word = 0; word < 4; word++) {
+        a.writeMain16(0xa15112, 0x100 + word);
+      }
+      a.cpus[0].r[4] = 0x20004012;
+      a.cpus[0].pc = 0x06000000;
+      expect(a.cpus[0].run(a.cpus[0].clocks + 4), isTrue);
+      expect(a.readSh16(0x20004012, 0), 0xffff);
+      expect(a.readSh16(0x20004010, 0), 0);
+    }
+    expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+  }, skip: native ? false : 'No native backend');
+
+  test('guarded literal pointers update after host writes and exclude FIFO', () {
+    final expected = Md32x(jit: false), actual = Md32x(jit: true);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      final code = ByteData.sublistView(a.ram);
+      for (final (i, op) in [0xd407, 0x6141, 0x6241, 9, 0xffff, 9].indexed) {
+        code.setUint16(i * 2, op);
+      }
+      code.setUint32(32, 0x20004020);
+      a.writeMain16(0xa15120, 42);
+      a.writeMain16(0xa15124, 99);
+    }
+    void pass() {
+      for (final a in [expected, actual]) {
+        a.cpus[0].pc = 0x06000000;
+        expect(a.cpus[0].run(a.cpus[0].clocks + 4), isTrue);
+      }
+      expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+    }
+    for (var warm = 0; warm < 12; warm++) {
+      pass();
+    }
+    final jit = actual.cpus[0].jit!;
+    final entries = jit.rt.nativeEntries;
+    final clocks = jit.compiledClocks;
+    pass();
+    expect(jit.rt.nativeEntries - entries, 1);
+    expect(jit.compiledClocks - clocks, 4);
+    for (final a in [expected, actual]) {
+      ByteData.sublistView(a.ram).setUint32(32, 0x20004024);
+    }
+    pass();
+    expect(actual.cpus[0].r[1], 99);
+    for (final a in [expected, actual]) {
+      ByteData.sublistView(a.ram).setUint32(32, 0x20004012);
+      a.writeMain16(0xa15106, 4);
+      a.writeMain16(0xa15110, 2);
+      a.writeMain16(0xa15112, 0x101);
+      a.writeMain16(0xa15112, 0x102);
+    }
+    pass();
+    expect(actual.cpus[0].r[1], 0x101);
+    expect(actual.cpus[0].r[2], 0x102);
+  }, skip: native ? false : 'No native backend');
+
+  test('private cache code remains interpreted with native JIT enabled', () {
+    final expected = Md32x(jit: false), actual = Md32x(jit: true);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      final bytes = ByteData.sublistView(a.cacheData[0]);
+      bytes.setUint16(0x100, 0x7101);
+      bytes.setUint16(0x102, 0xaffd);
+      bytes.setUint16(0x104, 9);
+      a.cpus[0].pc = 0xc0000100;
+      expect(a.cpus[0].run(200), isTrue);
+    }
+    expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+    expect(actual.cpus[0].clocks, expected.cpus[0].clocks);
+    expect(actual.cpus[0].r[1], 50);
+    expect(actual.cpus[0].jit!.compiledClocks, 0);
+  }, skip: native ? false : 'No big-endian native backend');
+
+  test('idle yielding is optional for adapters without an idle detector', () {
+    for (final stop in [true, false]) {
+      final jit = Sh2Jit.create(compileThreshold: 1, stopOnNoStore: stop)!;
+      addTearDown(jit.dispose);
+      final ram = jit.rt.alloc(0x1000);
+      final bytes = ByteData.sublistView(ram);
+      bytes.setUint16(0, 0x7101);
+      bytes.setUint16(2, 0xaffd);
+      bytes.setUint16(4, 9);
+      jit.map(0x06000000, ram.length, ram);
+      jit.attach((at) => bytes.getUint16(at & 0xfff));
+      final result = jit.run(0x06000000, 32)!;
+      expect(result.$1, 0x06000000);
+      expect(result.$2, stop ? 4 : 32);
+      expect(jit.regs[1], stop ? 1 : 8);
+    }
+  }, skip: native ? false : 'No big-endian native backend');
+
+  test('batched native execution matches CPU across deadlines and debug steps',
+      () {
+    for (final quantum in [32, 64]) {
+      final expected = Md32x(jit: false, sliceClocks: quantum);
+      final actual = Md32x(jit: true, sliceClocks: quantum);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      for (final a in [expected, actual]) {
+        a.setBootRoms(
+            main: Uint8List(256), master: boot(2048, 9), slave: boot(1024, 9));
+        final data = ByteData.sublistView(a.ram);
+        for (var i = 0; i < 2; i++) {
+          final offset = i * 32;
+          data.setUint16(offset, 0x7101);
+          data.setUint16(offset + 2, 0x2c12);
+          data.setUint16(offset + 4, 0xaffc);
+          data.setUint16(offset + 6, 9);
+          a.cpus[i].pc = 0x06000000 + offset;
+          a.cpus[i].r[12] = 0x06001000 + i * 4;
+        }
+        a.control = 3;
+      }
+      for (var target = 1; target < 600; target += 36) {
+        for (final a in [expected, actual]) {
+          expect(a.advance(target, Md32x.clockHz).$1, isTrue);
+        }
+        for (var i = 0; i < 2; i++) {
+          // Compiled blocks may overshoot the deadline. The CPUs write
+          // separate words here, so each reference CPU can catch up alone.
+          expected.cpus[i].run(actual.cpus[i].clocks, compiled: false);
+          expect(actual.cpus[i].dump(), expected.cpus[i].dump());
+          expect(actual.cpus[i].clocks, expected.cpus[i].clocks);
+        }
+        expect(actual.ram, expected.ram);
+      }
+      expect(actual.cpus[0].jit!.compiledClocks, greaterThan(0));
+      final clocks = actual.cpus.map((c) => c.clocks).toList();
+      final compiled = actual.cpus.map((c) => c.jit!.compiledClocks).toList();
+      expect(actual.advance(1000, Md32x.clockHz, step: true).$1, isTrue);
+      for (var i = 0; i < 2; i++) {
+        expect(actual.cpus[i].clocks - clocks[i], inInclusiveRange(1, 2));
+        expect(actual.cpus[i].jit!.compiledClocks, compiled[i]);
+      }
+    }
+  }, skip: native ? false : 'No big-endian native backend');
+
   test('.32x selection enables the adapter without a 32X cartridge header', () {
     final rom = cartridge()..setAll(0x100, 'CARTRIDGE       '.codeUnits);
     final md = (CoreFactory.of('32x') as Md)..setRom(rom);

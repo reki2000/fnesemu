@@ -1,4 +1,5 @@
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 import 'op_00_3f.dart';
 import 'op_40_bf.dart';
@@ -487,6 +488,56 @@ class Z80 {
     r.setP(val);
     r.hf = r.nf = false;
     return val;
+  }
+
+  /// Saves logical CPU state; the owning adapter saves its bus and memory.
+  void saveState(StateWriter w) {
+    w.section('z80');
+    w.ints(r.r8);
+    w.int32(r.f);
+    w.int32(r.i);
+    w.int32(r.r);
+    w.ints(r.ixiy);
+    w.int32(r.pc);
+    w.int32(r.sp);
+    w.int32(r.af2);
+    w.int32(r.bc2);
+    w.int32(r.de2);
+    w.int32(r.hl2);
+    w.int64(cycles);
+    w.boolean(iff1);
+    w.boolean(iff2);
+    w.int32(im);
+    w.boolean(_intAsserted);
+    w.boolean(_nmiPending);
+    w.boolean(eiDelay);
+    w.boolean(halted);
+    w.boolean(busReq);
+  }
+
+  /// Restores into the existing CPU and keeps its adapter's bus reference.
+  void loadState(StateReader s) {
+    s.section('z80');
+    s.intsInto(r.r8);
+    r.f = s.int32();
+    r.i = s.int32();
+    r.r = s.int32();
+    s.intsInto(r.ixiy);
+    r.pc = s.int32();
+    r.sp = s.int32();
+    r.af2 = s.int32();
+    r.bc2 = s.int32();
+    r.de2 = s.int32();
+    r.hl2 = s.int32();
+    cycles = s.int64();
+    iff1 = s.boolean();
+    iff2 = s.boolean();
+    im = s.int32();
+    _intAsserted = s.boolean();
+    _nmiPending = s.boolean();
+    eiDelay = s.boolean();
+    halted = s.boolean();
+    busReq = s.boolean();
   }
 
   void reset({bool keepCycles = false}) {

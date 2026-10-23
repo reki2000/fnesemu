@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 // final _log = DebugLog('md.ym2612');
 
@@ -145,6 +146,67 @@ class Op {
   int _egState = _egStateRelease;
 
   bool _keyed = false;
+
+  List<int> get _scalars => [
+        freq,
+        block,
+        _keyCode,
+        _detuneVal,
+        _dt,
+        mul,
+        tl,
+        ar,
+        rs,
+        dr,
+        sr,
+        sl,
+        rr,
+        ssgEg,
+        _phase,
+        _egLevel,
+        _egAttenuation,
+        _egRate,
+        _egState
+      ];
+
+  void saveState(StateWriter w) {
+    w.section('ym2612-op');
+    w.ints(_scalars);
+    w.boolean(am);
+    w.boolean(_egInvert);
+    w.boolean(_keyed);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ym2612-op');
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('ym2612 operator state layout');
+    }
+    var i = 0;
+    freq = v[i++];
+    block = v[i++];
+    _keyCode = v[i++];
+    _detuneVal = v[i++];
+    _dt = v[i++];
+    mul = v[i++];
+    tl = v[i++];
+    ar = v[i++];
+    rs = v[i++];
+    dr = v[i++];
+    sr = v[i++];
+    sl = v[i++];
+    rr = v[i++];
+    ssgEg = v[i++];
+    _phase = v[i++];
+    _egLevel = v[i++];
+    _egAttenuation = v[i++];
+    _egRate = v[i++];
+    _egState = v[i++];
+    am = s.boolean();
+    _egInvert = s.boolean();
+    _keyed = s.boolean();
+  }
 
   keyOn({bool retrigger = false}) {
     if (_keyed && !retrigger) {
@@ -324,6 +386,69 @@ class Channel {
   // output of the last render: [0, samples) is valid
   var buffer = Float32List(1000);
   var opBuffer = List<Int32List>.generate(4, (j) => Int32List(1000));
+
+  List<int> get _scalars => [
+        freq,
+        block,
+        algo,
+        feedback,
+        lfoAms,
+        lfoFms,
+        _lfoCounterMask,
+        _lfoCounter,
+        _lfoPhase,
+        _lfoFmPhase,
+        _lfoAmVal,
+        counter,
+        egClockCounter,
+        globalClockCounter
+      ];
+
+  void saveState(StateWriter w) {
+    w.section('ym2612-ch');
+    w.ints(_scalars);
+    w.boolean(lfoEnabled);
+    w.boolean(outLeft);
+    w.boolean(outRight);
+    w.boolean(isCh3Special);
+    w.floats(buffer);
+    opBuffer.forEach(w.ints);
+    for (final o in op) {
+      o.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ym2612-ch');
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('ym2612 channel state layout');
+    }
+    var i = 0;
+    freq = v[i++];
+    block = v[i++];
+    algo = v[i++];
+    feedback = v[i++];
+    lfoAms = v[i++];
+    lfoFms = v[i++];
+    _lfoCounterMask = v[i++];
+    _lfoCounter = v[i++];
+    _lfoPhase = v[i++];
+    _lfoFmPhase = v[i++];
+    _lfoAmVal = v[i++];
+    counter = v[i++];
+    egClockCounter = v[i++];
+    globalClockCounter = v[i++];
+    lfoEnabled = s.boolean();
+    outLeft = s.boolean();
+    outRight = s.boolean();
+    isCh3Special = s.boolean();
+    buffer = Float32List.fromList(s.floats());
+    opBuffer = [for (var n = 0; n < 4; n++) Int32List.fromList(s.ints())];
+    for (final o in op) {
+      o.loadState(s);
+    }
+  }
 
   int calcLfoFreq(int freq, int block) {
     if (!lfoEnabled) {
@@ -551,6 +676,61 @@ class Ym2612 {
 
   int _dacData = 0;
   bool _dacEnabled = false;
+
+  List<int> get _scalars => [
+        _lfoFreq,
+        _ch3Mode,
+        _timerA,
+        _timerB,
+        _timerOverflow,
+        _timerCountA,
+        _timerCountB,
+        _dacData,
+        sampleHz,
+        elapsedSamples
+      ];
+
+  void saveState(StateWriter w) {
+    w.section('ym2612');
+    w.ints(_scalars);
+    w.boolean(_enableTimerA);
+    w.boolean(_enableTimerB);
+    w.boolean(_notifyTimerAOverflow);
+    w.boolean(_notifyTimerBOverflow);
+    w.boolean(_dacEnabled);
+    w.ints(_regs);
+    for (final c in _channels) {
+      c.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ym2612');
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('ym2612 state layout');
+    }
+    var i = 0;
+    _lfoFreq = v[i++];
+    _ch3Mode = v[i++];
+    _timerA = v[i++];
+    _timerB = v[i++];
+    _timerOverflow = v[i++];
+    _timerCountA = v[i++];
+    _timerCountB = v[i++];
+    _dacData = v[i++];
+    sampleHz = v[i++];
+    elapsedSamples = v[i++];
+    _enableTimerA = s.boolean();
+    _enableTimerB = s.boolean();
+    _notifyTimerAOverflow = s.boolean();
+    _notifyTimerBOverflow = s.boolean();
+    _dacEnabled = s.boolean();
+    s.intsInto(_regs);
+    for (final c in _channels) {
+      c.loadState(s);
+    }
+  }
 
   // TIMERA_period = 9us x (1024 -TIMER)
   // TIMERB_period = 9us x 16 x (256 -TIMER)

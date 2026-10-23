@@ -6,7 +6,9 @@ import '../../util/int.dart';
 /// wrap modulo 2^64, so values are stored directly. Writes to r0 are ignored.
 /// The List interface keeps debugger, boot and test access synchronized.
 class N64Registers extends ListBase<int> {
-  final _values = Int64List(32);
+  final Int64List _values;
+
+  N64Registers({Int64List? values}) : _values = values ?? Int64List(32);
 
   @override
   int get length => 32;

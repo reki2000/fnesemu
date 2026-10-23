@@ -28,7 +28,7 @@ import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes implements Core {
+class Nes extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -251,6 +251,9 @@ class Nes implements Core {
     _diskMapper = mapper;
     reset();
   }
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) {

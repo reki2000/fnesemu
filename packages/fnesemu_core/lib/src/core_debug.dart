@@ -4,6 +4,18 @@ import 'video_debug.dart';
 /// Debugging data supplied by a core, independent of execution and media I/O.
 /// Unsupported inspection features default to empty output.
 class CoreDebug {
+  /// Whether the loaded core uses an available JIT backend.
+  bool get jitEnabled => false;
+
+  /// Whether an available JIT backend is suspended: the CPU interpreter runs
+  /// on the same shared guest state and compiled blocks are kept.
+  bool get jitSuspended => false;
+  set jitSuspended(bool value) {}
+
+  /// Cumulative guest CPU clocks and the subset executed by compiled code.
+  int get cpuClocks => 0;
+  int get jitClocks => 0;
+
   bool get hasPatternTables => false;
   List<DebugVideoLayer> get videoLayers => const [];
   List<DebugPatternTable> get patternTables => const [];

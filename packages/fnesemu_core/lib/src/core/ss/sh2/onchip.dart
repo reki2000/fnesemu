@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../state.dart';
 import '../../../util/int.dart';
 
 import '../cpu.dart';
@@ -63,6 +64,74 @@ class Sh2OnChip {
   // cache
   int ccr = 0;
   final cacheData = Uint8List(0x1000);
+
+  List<int> get _scalars => [
+        ipra, iprb, vcra, vcrb, vcrc, vcrd, vcrwdt, icr, tier, ftcsr, frc,
+        ocra, ocrb, tcr, tocr, icrFrt, _frtTemp, _frtSub, wtcsr, wtcnt,
+        rstcsr, _wdtSub, dvsr, dvcr, vcrdiv, dvdnth, dvdntl, dmaor, bcr1,
+        bcr2, wcr, mcr, rtcsr, rtcnt, rtcor, ccr
+      ];
+
+  void saveState(StateWriter w) {
+    w.section(master ? 'sh2-onchip-master' : 'sh2-onchip-slave');
+    w.bytes(_raw);
+    w.ints(_scalars);
+    for (final list in [sar, dar, tcrDma, chcr, vcrdma, drcr]) {
+      w.ints(list);
+    }
+    w.bytes(cacheData);
+  }
+
+  void loadState(StateReader s) {
+    s.section(master ? 'sh2-onchip-master' : 'sh2-onchip-slave');
+    s.bytesInto(_raw);
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('sh2 on-chip state layout');
+    }
+    var i = 0;
+    ipra = v[i++];
+    iprb = v[i++];
+    vcra = v[i++];
+    vcrb = v[i++];
+    vcrc = v[i++];
+    vcrd = v[i++];
+    vcrwdt = v[i++];
+    icr = v[i++];
+    tier = v[i++];
+    ftcsr = v[i++];
+    frc = v[i++];
+    ocra = v[i++];
+    ocrb = v[i++];
+    tcr = v[i++];
+    tocr = v[i++];
+    icrFrt = v[i++];
+    _frtTemp = v[i++];
+    _frtSub = v[i++];
+    wtcsr = v[i++];
+    wtcnt = v[i++];
+    rstcsr = v[i++];
+    _wdtSub = v[i++];
+    dvsr = v[i++];
+    dvcr = v[i++];
+    vcrdiv = v[i++];
+    dvdnth = v[i++];
+    dvdntl = v[i++];
+    dmaor = v[i++];
+    bcr1 = v[i++];
+    bcr2 = v[i++];
+    wcr = v[i++];
+    mcr = v[i++];
+    rtcsr = v[i++];
+    rtcnt = v[i++];
+    rtcor = v[i++];
+    ccr = v[i++];
+    for (final list in [sar, dar, tcrDma, chcr, vcrdma, drcr]) {
+      s.intsInto(list);
+    }
+    s.bytesInto(cacheData);
+    _updatePending();
+  }
 
   void reset() {
     _raw.fillRange(0, _raw.length, 0);
