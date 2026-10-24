@@ -4,6 +4,7 @@ import '../../util/int.dart';
 import 'apu.dart';
 import 'cartridge.dart';
 import 'cpu.dart';
+import 'hdma.dart';
 import 'pad.dart';
 import 'ppu.dart';
 import 'timer.dart';
@@ -16,14 +17,26 @@ class Bus {
   static const intSerial = 0x08;
   static const intJoypad = 0x10;
 
+  // approximate CPU stall of a GBC speed switch, in machine cycles at the new speed
+  static const _speedSwitchStall = 2050;
+
   late final Cpu cpu;
   late final Ppu ppu;
   late final Apu apu;
   late final Timer timer;
   late final Pad pad;
+  late final Hdma hdma;
   Cartridge cart = Cartridge.empty();
 
-  final wram = Uint8List(0x2000);
+  /// GBC mode: VRAM/WRAM banks, GBC palettes, double speed and VRAM DMA are enabled
+  bool gbc = false;
+  bool doubleSpeed = false;
+  bool _speedArmed = false; // KEY1 bit 0
+
+  // WRAM bank at D000-DFFF in GBC mode. DMG keeps bank 1 there.
+  int _wramBank = 1;
+
+  final wram = Uint8List(0x8000);
   final hram = Uint8List(0x7f);
 
   int ie = 0;
@@ -34,6 +47,9 @@ class Bus {
 
   /// elapsed clocks (4 clocks per machine cycle)
   int clocks = 0;
+
+  /// elapsed system clocks that drive the PPU and APU (4.19MHz in both speeds)
+  int dotClocks = 0;
 
   // serial port
   int _sb = 0;
@@ -55,6 +71,7 @@ class Bus {
     apu = Apu();
     timer = Timer(this);
     pad = Pad(this);
+    hdma = Hdma(this);
   }
 
   void reset() {
@@ -63,6 +80,11 @@ class Bus {
     ie = 0;
     _if = 0x01;
     clocks = 0;
+    dotClocks = 0;
+    doubleSpeed = false;
+    _speedArmed = false;
+    _wramBank = 1;
+    hdma.reset();
     _sb = 0;
     _sc = 0;
     _serialClocks = 0;
@@ -80,12 +102,15 @@ class Bus {
 
   void requestInterrupt(int bit) => _if |= bit;
 
-  /// advances one machine cycle
+  /// advances one machine cycle. the timer runs on CPU clocks, while the PPU
+  /// and APU run on system clocks, which are half as many in double speed.
   void tick() {
     clocks += 4;
     timer.tick();
-    ppu.tick();
-    apu.tick();
+    final dots = doubleSpeed ? 2 : 4;
+    dotClocks += dots;
+    ppu.tick(dots);
+    apu.tick(dots);
 
     if (_dmaIndex < 160) {
       _stepDma();
@@ -99,6 +124,23 @@ class Bus {
         _if |= intSerial;
       }
     }
+  }
+
+  /// called by the PPU when a visible line enters HBlank
+  void hblank() => hdma.onHBlank();
+
+  /// STOP with KEY1 armed toggles the CPU speed. returns false when the STOP
+  /// does not switch the speed.
+  bool switchSpeed() {
+    if (!gbc || !_speedArmed) {
+      return false;
+    }
+    _speedArmed = false;
+    doubleSpeed = !doubleSpeed;
+    for (int i = 0; i < _speedSwitchStall; i++) {
+      tick();
+    }
+    return true;
   }
 
   @pragma('vm:prefer-inline')
@@ -122,21 +164,27 @@ class Bus {
     _dmaIndex++;
   }
 
+  // index into wram for C000-FDFF. C000-CFFF is bank 0; D000-DFFF is the
+  // switchable bank, which stays bank 1 outside GBC mode.
+  @pragma('vm:prefer-inline')
+  int _wramIndex(int addr) {
+    final offset = addr.mask13;
+    return offset < 0x1000 ? offset : (_wramBank << 12) | (offset & 0xfff);
+  }
+
   int read(int addr) {
     switch (addr.shr12) {
       case 0x0 || 0x1 || 0x2 || 0x3 || 0x4 || 0x5 || 0x6 || 0x7:
         return cart.read(addr);
       case 0x8 || 0x9:
-        return ppu.vram[addr.mask13];
+        return ppu.vram[ppu.vramBank.shl13 | addr.mask13];
       case 0xa || 0xb:
         return cart.readRam(addr);
-      case 0xc || 0xd:
-        return wram[addr.mask13];
-      case 0xe:
-        return wram[addr.mask13];
+      case 0xc || 0xd || 0xe:
+        return wram[_wramIndex(addr)];
       default:
         if (addr < 0xfe00) {
-          return wram[addr.mask13];
+          return wram[_wramIndex(addr)];
         }
         if (addr < 0xfea0) {
           return ppu.oam[addr - 0xfe00];
@@ -159,14 +207,14 @@ class Bus {
       case 0x0 || 0x1 || 0x2 || 0x3 || 0x4 || 0x5 || 0x6 || 0x7:
         cart.write(addr, data);
       case 0x8 || 0x9:
-        ppu.vram[addr.mask13] = data;
+        ppu.vram[ppu.vramBank.shl13 | addr.mask13] = data;
       case 0xa || 0xb:
         cart.writeRam(addr, data);
       case 0xc || 0xd || 0xe:
-        wram[addr.mask13] = data;
+        wram[_wramIndex(addr)] = data;
       default:
         if (addr < 0xfe00) {
-          wram[addr.mask13] = data;
+          wram[_wramIndex(addr)] = data;
         } else if (addr < 0xfea0) {
           ppu.oam[addr - 0xfe00] = data;
         } else if (addr < 0xff00) {
@@ -195,11 +243,23 @@ class Bus {
         return _if | 0xe0;
       case 0xff46:
         return _dmaReg;
+      case 0xff4d:
+        if (!gbc) {
+          return 0xff;
+        }
+        return (doubleSpeed ? 0x80 : 0) | (_speedArmed ? 1 : 0) | 0x7e;
+      case 0xff55:
+        return gbc ? hdma.read() : 0xff;
+      case 0xff70:
+        return gbc ? 0xf8 | _wramBank : 0xff;
       default:
         if (addr >= 0xff10 && addr < 0xff40) {
           return apu.read(addr);
         }
         if (addr >= 0xff40 && addr < 0xff4c) {
+          return ppu.read(addr);
+        }
+        if (addr == 0xff4f || (addr >= 0xff68 && addr < 0xff6d)) {
           return ppu.read(addr);
         }
         return 0xff;
@@ -227,10 +287,24 @@ class Bus {
         _dmaSource = data.shl8;
         _dmaIndex = 0;
         _dmaDelay = 1;
+      case 0xff4d:
+        if (gbc) {
+          _speedArmed = data.bit0;
+        }
+      case 0xff51 || 0xff52 || 0xff53 || 0xff54 || 0xff55:
+        if (gbc) {
+          hdma.write(addr, data);
+        }
+      case 0xff70:
+        if (gbc) {
+          _wramBank = data.mask3 == 0 ? 1 : data.mask3;
+        }
       default:
         if (addr >= 0xff10 && addr < 0xff40) {
           apu.write(addr, data);
         } else if (addr >= 0xff40 && addr < 0xff4c) {
+          ppu.write(addr, data);
+        } else if (addr == 0xff4f || (addr >= 0xff68 && addr < 0xff6d)) {
           ppu.write(addr, data);
         }
     }

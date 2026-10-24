@@ -9,7 +9,8 @@ class CartridgeHeader {
   final int type;
   final int romSize;
   final int ramSize;
-  final bool gbcOnly;
+  // GBC features are enabled for GBC-compatible (0x80) and GBC-only (0xc0) images
+  final bool gbc;
 
   CartridgeHeader(Uint8List rom)
       : title = String.fromCharCodes(rom
@@ -26,7 +27,7 @@ class CartridgeHeader {
           5 => 0x10000,
           _ => 0,
         },
-        gbcOnly = rom[0x143] == 0xc0;
+        gbc = rom[0x143].bit7;
 
   bool get hasBattery => const [
         0x03, 0x06, 0x09, 0x0d, 0x0f, 0x10, 0x13, 0x1b, 0x1e, 0x22, 0xff //
