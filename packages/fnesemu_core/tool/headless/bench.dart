@@ -27,6 +27,8 @@ bench <core> <media...> [options]: times the frames after a warmup
   --sync DIR         instead of --lock: write DIR/ready.<pid> before the first
                      block and wait for DIR/go (a runner times two builds side by side)
   --profile-blocks   diagnostic executed-block cycle histogram; timing is perturbed
+  --profile-compile  translation/publication time, code bytes and cache events;
+                     requires --jit on; timing is perturbed
   --profile-cpu      CPU dispatch, idle clocks and CPU-side bus requests;
                      requires --jit on|off and an available compiled backend
   --profile-exits    diagnostic return reasons, budgets and hot PCs; timing is perturbed
@@ -61,7 +63,8 @@ Future<void> bench(List<String> args) async {
     "--checksum",
     "--profile-blocks",
     "--profile-exits",
-    "--profile-cpu"
+    "--profile-cpu",
+    "--profile-compile"
   }, aliases: {
     ...mediaAliases,
     "-o": "--out",
@@ -100,6 +103,11 @@ Future<void> bench(List<String> args) async {
   if (o.flag("--profile-blocks") && (!core.jitEnabled || runtimes.isEmpty)) {
     throw UsageError("--profile-blocks requires native JIT");
   }
+  final compilationStats = <JitCompilationStats>[];
+  if (o.flag('--profile-compile') &&
+      (o['--jit'] != 'on' || !core.jitEnabled || core.jitDiagnostics.isEmpty)) {
+    throw UsageError('--profile-compile requires --jit on and an available compiled backend');
+  }
   final cpuStats = <JitExecutionStats>[];
   if (o.flag('--profile-cpu') && core.jitDiagnostics.isEmpty) {
     throw UsageError('--profile-cpu requires an available compiled backend');
@@ -134,6 +142,14 @@ Future<void> bench(List<String> args) async {
           core.jitSuspended = o["--jit"] == "off";
         }
         if (saveState != null && s.frame == warmup) s.saveState(saveState);
+        if (o.flag('--profile-compile') && compilationStats.isEmpty) {
+          for (final diagnostics in core.jitDiagnostics) {
+            compilationStats.add(diagnostics.enableCompilationStats());
+          }
+        }
+        for (final stats in compilationStats) {
+          stats.clear();
+        }
         if (o.flag('--profile-cpu') && cpuStats.isEmpty) {
           for (final diagnostics in core.jitDiagnostics) {
             cpuStats.add(diagnostics.enableExecutionStats());
@@ -216,7 +232,9 @@ Future<void> bench(List<String> args) async {
           "jitEnabled": core.jitEnabled && !core.jitSuspended,
           "profiled": runtimes.isNotEmpty ||
               exitStats.isNotEmpty ||
-              cpuStats.isNotEmpty,
+              cpuStats.isNotEmpty || compilationStats.isNotEmpty,
+          if (compilationStats.isNotEmpty)
+            'compilationProfiles': [for (final stats in compilationStats) stats.report()],
           if (cpuStats.isNotEmpty)
             'cpuProfiles': [for (final stats in cpuStats) stats.report()],
           if (exitStats.isNotEmpty)
@@ -253,6 +271,11 @@ Future<void> bench(List<String> args) async {
       }
     }
   } finally {
+    if (o.flag('--profile-compile')) {
+      for (final diagnostics in core.jitDiagnostics) {
+        diagnostics.disableCompilationStats();
+      }
+    }
     if (o.flag('--profile-cpu')) {
       for (final diagnostics in core.jitDiagnostics) {
         diagnostics.disableExecutionStats();

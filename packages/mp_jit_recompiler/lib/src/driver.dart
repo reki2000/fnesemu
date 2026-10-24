@@ -105,7 +105,9 @@ final class JitDriver {
   /// Whether (pc, tag) failed to translate with its current code word.
   bool isFallback(int pc, int tag) {
     final word = _fallbacks[(pc, tag)];
-    return word != null && word == codeWord(pc);
+    final hit = word != null && word == codeWord(pc);
+    if (hit) rt.compilationStats?.fallbackCacheHits++;
+    return hit;
   }
 
   /// Runs compiled code from (pc, tag) and returns the last runtime reason.
@@ -118,7 +120,10 @@ final class JitDriver {
       maxDispatches == null || dispatch < maxDispatches!;
       dispatch++
     ) {
-      if (prepareFirst && !rt.contains(pc, tag)) {
+      final stats = rt.compilationStats;
+      final present = prepareFirst || stats != null ? rt.contains(pc, tag) : false;
+      stats?.recordLookup(present);
+      if (prepareFirst && !present) {
         rt.ctx[JitCtx.exitPc] = pc;
         rt.ctx[JitCtx.exitTag] = tag;
         if (!_hot(pc, tag) || !_compile(pc, tag)) return JitReason.miss;
@@ -127,6 +132,7 @@ final class JitDriver {
       pc = rt.exitPc;
       tag = rt.exitTag;
       onExit?.call(reason, pc);
+      if (reason == JitReason.invalid) stats?.guardFailures++;
       if (continueAfterExit?.call(reason) == false) return reason;
       if (reason == JitReason.invalid) {
         invalidate(pc, tag);
@@ -145,7 +151,9 @@ final class JitDriver {
   }
 
   bool _compile(int pc, int tag) {
-    final block = translate(pc, tag);
+    final stats = rt.compilationStats;
+    final block = stats == null ? translate(pc, tag) :
+        stats.measureTranslation(pc, tag, () => translate(pc, tag));
     if (block == null) {
       final word = codeWord(pc);
       if (word != null) _fallbacks[(pc, tag)] = word;
@@ -171,7 +179,10 @@ final class JitDriver {
     final key = (pc, tag);
     final word = codeWord(pc);
     if (word == null) return false;
-    if (_fallbacks[key] == word) return false;
+    if (_fallbacks[key] == word) {
+      rt.compilationStats?.fallbackCacheHits++;
+      return false;
+    }
     if (_misses.length + _fallbacks.length >= capacity) {
       clear();
     }
@@ -187,6 +198,7 @@ final class JitDriver {
 
   /// Forgets counters and fallbacks, for example after a reset.
   void clear() {
+    rt.compilationStats?.dispatchProfileClears++;
     _misses.clear();
     _fallbacks.clear();
     onClear?.call();

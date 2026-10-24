@@ -36,16 +36,24 @@ final class IrInterpreterRuntime extends JitRuntime {
   int? blockCost(int pc, int tag) => _blocks[(pc, tag)]?.cost;
 
   @override
-  void install(IrBlock block) {
+  int installBlock(IrBlock block) {
     checkBlock(block);
     _blocks[(block.pc, block.tag)] = block;
+    return 0;
   }
 
   @override
-  void invalidate(int pc, int tag) => _blocks.remove((pc, tag));
+  void invalidate(int pc, int tag) {
+    if (_blocks.remove((pc, tag)) != null) {
+      compilationStats?.recordInvalidation(pc, tag);
+    }
+  }
 
   @override
-  void clear() => _blocks.clear();
+  void clear() {
+    compilationStats?.recordCacheClear(_blocks.length);
+    _blocks.clear();
+  }
 
   @override
   void dispose() => clear();

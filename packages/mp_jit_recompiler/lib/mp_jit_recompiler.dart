@@ -3,6 +3,7 @@
 library;
 
 export 'src/code_memory.dart';
+export 'src/compilation_stats.dart';
 export 'src/diagnostics.dart';
 export 'src/driver.dart';
 export 'src/execution_stats.dart';

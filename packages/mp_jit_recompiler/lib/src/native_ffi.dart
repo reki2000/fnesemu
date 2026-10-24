@@ -276,7 +276,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   int? blockCost(int pc, int tag) => _blocks[(pc, tag)]?.$2;
 
   @override
-  void install(IrBlock block) {
+  int installBlock(IrBlock block) {
     _checkAlive();
     checkBlock(block);
     block = optimizeIrBlock(block);
@@ -314,12 +314,14 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     final d = X64Backend.dynIndex(block.pc, block.tag) * 2;
     _dynView[d] = block.pc | block.tag << 32;
     _dynView[d + 1] = entry;
+    return bytes.length;
   }
 
   @override
   void invalidate(int pc, int tag) {
     final key = (pc, tag);
     if (_blocks.remove(key) == null) return;
+    compilationStats?.recordInvalidation(pc, tag);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = 0;
     }
@@ -329,6 +331,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
 
   @override
   void clear() {
+    compilationStats?.recordCacheClear(_blocks.length);
     _blocks.clear();
     _slotsOf.clear();
     _slotView.fillRange(0, _slotCount, 0);
@@ -396,6 +399,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   @override
   void dispose() {
     if (_disposed) return;
+    compilationStats?.recordCacheClear(_blocks.length);
     _disposed = true;
     for (final c in _callables) {
       c.close();

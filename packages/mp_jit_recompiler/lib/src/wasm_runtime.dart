@@ -273,13 +273,14 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   int? blockCost(int pc, int tag) => _blocks[(pc, tag)]?.$2;
 
   @override
-  void install(IrBlock block) {
+  int installBlock(IrBlock block) {
     _checkAlive();
     checkBlock(block);
     block = optimizeIrBlock(block);
     if (_blocks.length >= _maxBlocks || _slotCount >= _maxSlots - 3) clear();
     final slot = slotFor(block.pc, block.tag);
-    final function = _instantiate(WasmBackend.compile(block, this));
+    final bytes = WasmBackend.compile(block, this);
+    final function = _instantiate(bytes);
     _table.set(slot, function);
     _slotWords[slot] = slot;
     _blocks[(block.pc, block.tag)] = (slot, block.cost);
@@ -287,6 +288,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     _dynWords[d] = block.pc;
     _dynWords[d + 1] = block.tag;
     _dynWords[d + 2] = slot;
+    return bytes.length;
   }
 
   @override
@@ -294,6 +296,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     _checkAlive();
     final slot = _blocks.remove((pc, tag))?.$1;
     if (slot == null) return;
+    compilationStats?.recordInvalidation(pc, tag);
     _slotWords[slot] = 0;
     _table.set(slot, null);
     final d = WasmBackend.dynIndex(pc, tag) * 3;
@@ -350,6 +353,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   @override
   void clear() {
     _checkAlive();
+    compilationStats?.recordCacheClear(_blocks.length);
     for (final slot in _blocks.values) {
       _table.set(slot.$1, null);
     }

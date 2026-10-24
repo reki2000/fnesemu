@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'compilation_stats.dart';
 import 'interp_runtime.dart';
 import 'ir.dart';
 import 'native_stub.dart'
@@ -41,6 +42,9 @@ abstract class JitRuntime {
 
   /// Optional return-level diagnostics; does not instrument individual blocks.
   JitNativeExit? onNativeExit;
+
+  /// Optional compilation and cache telemetry; enabling it does not clear code.
+  JitCompilationStats? compilationStats;
 
   /// Diagnostic histogram of positive guest cycles actually consumed per entry.
   /// Enable before installing blocks; entry callbacks change host throughput.
@@ -173,7 +177,19 @@ abstract class JitRuntime {
   int? blockCost(int pc, int tag);
 
   /// compiles [block], replacing the block with the same key
-  void install(IrBlock block);
+  void install(IrBlock block) {
+    final stats = compilationStats;
+    if (stats == null) {
+      installBlock(block);
+    } else {
+      stats.measureInstallation(block, () => installBlock(block));
+    }
+  }
+
+  /// Backend publication primitive; callers use [install] for shared telemetry.
+  /// Returns emitted payload bytes, excluding allocation padding and shared stubs.
+  /// The reference executor returns zero because it retains IR instead of code.
+  int installBlock(IrBlock block);
 
   /// removes the block (pc, tag); blocks linked to it miss afterwards
   void invalidate(int pc, int tag);

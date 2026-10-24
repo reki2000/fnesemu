@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'compilation_stats.dart';
 import 'execution_stats.dart';
 import 'ir.dart';
 import 'runtime.dart';
@@ -14,6 +15,13 @@ final class JitDiagnostics {
   String Function(int address)? memoryRegion;
   JitExecutionStats? _executionStats;
   JitExecutionStats? get executionStats => _executionStats;
+  JitCompilationStats? get compilationStats => rt.compilationStats;
+
+  JitCompilationStats enableCompilationStats({int capacity = 4096}) =>
+      rt.compilationStats = JitCompilationStats(capacity: capacity);
+
+  void disableCompilationStats() => rt.compilationStats = null;
+
   void Function(JitExecutionStats?)? _bindExecutionStats;
 
   /// Connects one CPU adapter and immediately supplies the current recorder.
