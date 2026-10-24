@@ -14,7 +14,6 @@ import 'onchip.dart';
 // SH-2 address space: cache areas and on-chip modules in front of the external bus
 class _Sh2Memory implements SsCpuBus {
   final SsCpuBus ext;
-  JitExecutionStats? executionStats;
   final Sh2OnChip onchip;
 
   /// number of writes, used for idle loop detection
@@ -38,7 +37,6 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   int read8(int a) {
-    executionStats?.recordMemory(a & 0xffffffff, 1);
     a &= 0xffffffff;
     if (_fastWram && _isWram(a)) return _wram[a & 0xfffff];
     switch (a >>> 29) {
@@ -57,7 +55,6 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   int read16(int a) {
-    executionStats?.recordMemory(a & 0xffffffff, 2);
     a &= 0xfffffffe;
     if (_fastWram && _isWram(a)) return _wramData.getUint16(a & 0xffffe);
     switch (a >>> 29) {
@@ -77,7 +74,6 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   int read32(int a) {
-    executionStats?.recordMemory(a & 0xffffffff, 4);
     a &= 0xfffffffc;
     if (_fastWram && _isWram(a)) return _wramData.getUint32(a & 0xffffc);
     switch (a >>> 29) {
@@ -96,7 +92,6 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   void write8(int a, int d) {
-    executionStats?.recordMemory(a & 0xffffffff, 1, write: true);
     writes++;
     a &= 0xffffffff;
     if (_fastWram && _isWram(a)) {
@@ -119,7 +114,6 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   void write16(int a, int d) {
-    executionStats?.recordMemory(a & 0xffffffff, 2, write: true);
     writes++;
     a &= 0xfffffffe;
     if (_fastWram && _isWram(a)) {
@@ -143,7 +137,6 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   void write32(int a, int d) {
-    executionStats?.recordMemory(a & 0xffffffff, 4, write: true);
     writes++;
     a &= 0xfffffffc;
     if (_fastWram && _isWram(a)) {
@@ -166,12 +159,59 @@ class _Sh2Memory implements SsCpuBus {
   }
 }
 
+/// Records each CPU data request, then forwards it to the memory.
+/// Installed only while execution statistics are bound, so the CPU data path
+/// has no per-access check when statistics are off.
+class _ObservedBus implements SsCpuBus {
+  final SsCpuBus inner;
+  final JitExecutionStats stats;
+
+  _ObservedBus(this.inner, this.stats);
+
+  @override
+  int read8(int a) {
+    stats.recordMemory(a & 0xffffffff, 1);
+    return inner.read8(a);
+  }
+
+  @override
+  int read16(int a) {
+    stats.recordMemory(a & 0xffffffff, 2);
+    return inner.read16(a);
+  }
+
+  @override
+  int read32(int a) {
+    stats.recordMemory(a & 0xffffffff, 4);
+    return inner.read32(a);
+  }
+
+  @override
+  void write8(int a, int d) {
+    stats.recordMemory(a & 0xffffffff, 1, write: true);
+    inner.write8(a, d);
+  }
+
+  @override
+  void write16(int a, int d) {
+    stats.recordMemory(a & 0xffffffff, 2, write: true);
+    inner.write16(a, d);
+  }
+
+  @override
+  void write32(int a, int d) {
+    stats.recordMemory(a & 0xffffffff, 4, write: true);
+    inner.write32(a, d);
+  }
+}
+
 /// Integer SH-2 (SH7604) interpreter for SS.
 /// Derived from another SH-2 core of this project, extended with DIV1 / MAC,
 /// on-chip peripherals, cache areas, NMI and vectored external interrupts.
 /// Unsupported instructions stop execution instead of acting as NOPs.
 class Sh2 extends SsCpu {
-  late final SsCpuBus bus;
+  /// CPU data bus: the memory, or the memory behind _ObservedBus while bound
+  late SsCpuBus bus;
   JitExecutionStats? executionStats;
   final Sh2OnChip onchip;
 
@@ -191,9 +231,11 @@ class Sh2 extends SsCpu {
     onchip.bus = bus;
     if (jit != null) {
       jit.diagnostics.memoryRegion = _memoryRegion;
+      // called at once with the current recorder, and again when it changes
       jit.diagnostics.bindExecutionStats((stats) {
         executionStats = stats;
-        _mem.executionStats = stats;
+        bus = stats == null ? _mem : _ObservedBus(_mem, stats);
+        onchip.bus = bus;
       });
     }
   }
@@ -270,7 +312,7 @@ class Sh2 extends SsCpu {
     if (physical < 0x100000 ||
         physical >= 0x6000000 ||
         (physical >= 0x200000 && physical < 0x300000))
-      return bus.read16(address);
+      return _mem.read16(address);
     return null;
   }
 
@@ -286,7 +328,8 @@ class Sh2 extends SsCpu {
       final m = _fetchRomBytes, i = a & 0x7fffe;
       return m[i].shl8 | m[i + 1];
     }
-    return bus.read16(a);
+    // instruction fetches bypass the bus wrapper; see _execObserved
+    return _mem.read16(a);
   }
 
   @override
@@ -412,20 +455,20 @@ class Sh2 extends SsCpu {
   @override
   bool run(int targetClocks) {
     final before = clocks;
+    final jit = this.jit, status = _jitFtcsr;
     bool ok = true;
     while (clocks < targetClocks) {
       final prev = pc;
       (int, int)? compiled;
       if (jit != null &&
-          !jit!.suspended &&
+          !jit.suspended &&
           _delayTarget < 0 &&
           !sleeping &&
           !_interruptRequested) {
         // On-chip time advances at the run boundary.
         // Refresh after CPU instructions too, including FTCSR writes and input capture.
-        final status = _jitFtcsr;
         if (status != null) status[0] = onchip.ftcsr;
-        compiled = jit!.run(pc, targetClocks - clocks);
+        compiled = jit.run(pc, targetClocks - clocks);
       }
       if (compiled != null) {
         pc = compiled.$1;
@@ -590,10 +633,16 @@ class Sh2 extends SsCpu {
   @pragma('vm:prefer-inline')
   bool exec() {
     final stats = executionStats;
-    if (stats == null) return _exec();
+    return stats == null ? _exec() : _execObserved(stats);
+  }
+
+  // the instruction fetch is counted for each step that is not sleeping,
+  // so an accepted interrupt or an address error also counts one fetch
+  bool _execObserved(JitExecutionStats stats) {
     final at = pc, before = clocks, wasSleeping = sleeping;
     final opcode = stats.opcodeAt(at);
     stats.beginCpuStep();
+    if (!sleeping) stats.recordMemory(at, 2, fetch: true);
     try {
       return _exec();
     } finally {
@@ -618,18 +667,6 @@ class Sh2 extends SsCpu {
     return 'device';
   }
 
-  int _fetchInstruction(int address) {
-    final stats = executionStats;
-    if (stats == null) return _fetch(address);
-    stats.fetching = true;
-    stats.recordMemory(address, 2, fetch: true);
-    try {
-      return _fetch(address);
-    } finally {
-      stats.fetching = false;
-    }
-  }
-
   @pragma('vm:prefer-inline')
   bool _exec() {
     final target = _delayTarget;
@@ -646,7 +683,7 @@ class Sh2 extends SsCpu {
       return true;
     }
     final address = pc;
-    final op = _fetchInstruction(address);
+    final op = _fetch(address);
     // the lastOpcode slot, also read by the JIT context and saved states
     _state[6] = op;
     pc = (pc + 2).mask32;
