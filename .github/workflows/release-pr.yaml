@@ -55,10 +55,16 @@ jobs:
       - name: Open the release PR
         if: steps.version.outputs.release == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # A PR opened with the GitHub Actions token does not start pull_request workflows,
+          # so the PR uses a fine-grained token that is stored as a secret.
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "The RELEASE_PR_TOKEN secret is not set." >&2
+            exit 1
+          fi
           open=$(gh pr list --base main --head develop --state open --json number --jq '.[].number')
           if [[ -n "$open" ]]; then
             echo "Open release PR #$open already exists."
