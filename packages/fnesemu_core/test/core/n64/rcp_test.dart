@@ -225,6 +225,52 @@ void main() {
     expect(c.cop0[13].shr2.mask5, 11);
     expect(c.cop0[13].shr28.mask2, 1);
   });
+  test('transparent texture holes do not occlude later geometry', () {
+    for (final size in [2, 3]) {
+      for (final reverse in [false, true]) {
+        final b = N64Bus()..reset(), g = N64Graphics(b);
+        g.width = g.scRight = g.scBottom = 4;
+        g.colorImage = 0x1000;
+        g.colorSize = size;
+        g.scale = [2, 2, 1];
+        g.translate = [2, 2, 1];
+        g.geometry = 1;
+        // AA_ZB_TEX_EDGE: depth compare/update and alpha-derived coverage.
+        g.otherLow = 0x00003078;
+        g.tiles[0]
+          ..size = 2
+          ..line = 1;
+        // Yellow texels have identical RGB but opposite one-bit alpha.
+        g.tmem.setRange(0, 4, [0xff, 0xc0, 0xff, 0xc1]);
+        void draw(double z, bool textured) {
+          g.textureOn = textured;
+          g.combine0 = textured ? (1 << 12) | (6 << 9) : 0;
+          g.combine1 = (7 << 28) |
+              ((textured ? 1 : 4) << 15) |
+              (7 << 12) |
+              ((textured ? 7 : 6) << 9);
+          g.triangle(
+              N64Vertex([-1, -1, z, 1], [255, 0, 0, 255], 0, 0),
+              N64Vertex([1, -1, z, 1], [255, 0, 0, 255], 4, 0),
+              N64Vertex([-1, 1, z, 1], [255, 0, 0, 255], 0, 0));
+        }
+
+        if (reverse) draw(0.5, false);
+        draw(0, true);
+        expect(g.depth[2 * 4], reverse ? 1.5 : double.infinity);
+        expect(g.depth[2 * 4 + 1], 1);
+        if (!reverse) draw(0.5, false);
+        final bytes = size == 3 ? 4 : 2;
+        expect(b.ramRead(0x1000 + 2 * 4 * bytes, bytes),
+            size == 3 ? 0xff0000ff : 0xf801);
+        expect(b.ramRead(0x1000 + (2 * 4 + 1) * bytes, bytes),
+            size == 3 ? 0xffff00ff : 0xffc1);
+        expect(g.depth[2 * 4], 1.5);
+        expect(g.depth[2 * 4 + 1], 1);
+      }
+    }
+  });
+
   test('GBI viewport flips clip Y into screen coordinates', () {
     final b = N64Bus()..reset(), g = N64Graphics(b);
     g.width = 4;
