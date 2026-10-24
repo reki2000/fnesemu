@@ -6,6 +6,7 @@ import 'package:fnesemu_core/src/core.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 
+import 'headless/comparison.dart';
 import 'headless/jit_metrics.dart';
 import 'headless/options.dart';
 import 'headless/session.dart';
@@ -82,24 +83,6 @@ final class _Variant {
   }
 }
 
-bool _sameRam(List<int> a, List<int> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
-List<Map<String, int>> _differenceBytes(int start, List<int> x, List<int> y) {
-  final result = <Map<String, int>>[];
-  for (var i = 0; i < x.length && result.length < 8; i++) {
-    if (x[i] != y[i]) {
-      result.add({'address': start + i, 'baseline': x[i], 'variant': y[i]});
-    }
-  }
-  return result;
-}
-
 Future<void> main(List<String> args) async {
   configureLogging();
   final o =
@@ -111,7 +94,6 @@ Future<void> main(List<String> args) async {
   final config = (jsonDecode(File(o['--case']!).readAsStringSync()) as List)
       .cast<String>();
   final variants = <_Variant>[];
-  Process? lock;
   try {
     final name = config.first;
     final plan = switch (name) {
@@ -168,83 +150,76 @@ Future<void> main(List<String> args) async {
           b.details.putIfAbsent('cpuVariant', () => b.cpuState);
         }
         final x = a.memories, y = b.memories;
-        if (List.generate(x.length, (i) => !_sameRam(x[i].$2, y[i].$2))
+        if (List.generate(
+                x.length, (i) => firstMismatch(x[i].$2, y[i].$2) != null)
             .any((v) => v)) {
           difference('ram');
           b.details.putIfAbsent(
               'ramBytes',
               () => [
                     for (var i = 0; i < x.length; i++)
-                      ..._differenceBytes(x[i].$1, x[i].$2, y[i].$2),
+                      ...differenceBytes(x[i].$1, x[i].$2, y[i].$2),
                   ]);
         }
       }
     }
 
-    for (var f = 0; f < warm; f++) {
-      for (final v in variants) {
-        await v.frame(false);
-      }
-      if ((f + 1) % 100 == 0) check(f + 1 - 100);
-      if ((f + 1) % 200 == 0) stderr.writeln('warmup ${f + 1}/$warm');
-    }
-    check(0);
-    for (final v in variants) {
-      v.countersStart = JitCounters(v.core);
-    }
-    lock = await Process.start('flock', [
-      '/tmp/claude-1000/fnesemu-bench.lock',
-      'sh',
-      '-c',
-      'echo locked; read release'
-    ]);
-    await lock.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .first;
-    for (var batch = 0; batch < frames ~/ 10; batch++) {
-      final order = batch.isEven ? variants : variants.reversed.toList();
-      for (var i = 0; i < variants.length; i++) {
-        final v = order[(i + batch ~/ 2) % variants.length];
+    await runComparison(
+      variants: variants,
+      warmupFrames: warm,
+      frames: frames,
+      batchFrames: 10,
+      warmupFrame: (v, _) => v.frame(false),
+      afterWarmupFrame: (f) {
+        if (f % 100 == 0) check(f - 100);
+        if (f % 200 == 0) stderr.writeln('warmup $f/$warm');
+      },
+      afterWarmup: () {
+        check(0);
+        for (final v in variants) {
+          v.countersStart = JitCounters(v.core);
+        }
+      },
+      measureBatch: (v, interval) async {
         final before = v.watch.elapsedMicroseconds;
-        for (var f = 0; f < 10; f++) {
+        for (var f = 0; f < interval.frames; f++) {
           await v.frame(true);
         }
         v.batches.add(v.watch.elapsedMicroseconds - before);
-      }
-      check(warm + batch * 10);
-    }
-    for (final v in variants) {
-      if (v.output != null && v.session.pcm.length > 0) {
-        File('${v.output}/audio.wav').writeAsBytesSync(v.session.wav());
-      }
-    }
-    print(jsonEncode([
-      for (final v in variants)
-        {
-          'name': v.name,
-          'jit': v.core.jitEnabled,
-          'sliceClocks': v.quantum,
-          'warmup': warm,
-          'frames': frames,
-          'msPerFrame': v.watch.elapsedMicroseconds / frames / 1000,
-          'firstDifferenceFrame': v.differences,
-          'firstDifferenceDetails': v.details,
-          'measuredImageDifferences': [
-            for (var f = warm; f < warm + frames; f++)
-              if (v.images[f] != variants.first.images[f]) f + 1
-          ].length,
-          'measuredAudioDifferences': [
-            for (var f = warm; f < warm + frames; f++)
-              if (v.audio[f] != variants.first.audio[f]) f + 1
-          ].length,
-          ...JitCounters(v.core).since(v.countersStart),
-          'batchesUs': v.batches,
+      },
+      afterBatch: (interval) => check(interval.firstFrame - 1),
+      afterMeasurements: () {
+        for (final v in variants) {
+          if (v.output != null && v.session.pcm.length > 0) {
+            File('${v.output}/audio.wav').writeAsBytesSync(v.session.wav());
+          }
         }
-    ]));
+        print(jsonEncode([
+          for (final v in variants)
+            {
+              'name': v.name,
+              'jit': v.core.jitEnabled,
+              'sliceClocks': v.quantum,
+              'warmup': warm,
+              'frames': frames,
+              'msPerFrame': v.watch.elapsedMicroseconds / frames / 1000,
+              'firstDifferenceFrame': v.differences,
+              'firstDifferenceDetails': v.details,
+              'measuredImageDifferences': [
+                for (var f = warm; f < warm + frames; f++)
+                  if (v.images[f] != variants.first.images[f]) f + 1
+              ].length,
+              'measuredAudioDifferences': [
+                for (var f = warm; f < warm + frames; f++)
+                  if (v.audio[f] != variants.first.audio[f]) f + 1
+              ].length,
+              ...JitCounters(v.core).since(v.countersStart),
+              'batchesUs': v.batches,
+            }
+        ]));
+      },
+    );
   } finally {
-    await lock?.stdin.close();
-    await lock?.exitCode;
     for (final v in variants) {
       v.core.dispose();
     }

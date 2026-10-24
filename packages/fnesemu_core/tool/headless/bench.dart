@@ -5,6 +5,7 @@ import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import 'benchmark_lock.dart';
 import 'jit_metrics.dart';
 import 'options.dart';
 import 'session.dart';
@@ -157,7 +158,8 @@ Future<void> bench(List<String> args) async {
           rt.executedBlockCycles.clear();
         }
         lock =
-            await _acquire(o["--lock"], s.frame == warmup ? o["--sync"] : null);
+            await acquireBenchmarkLock(o["--lock"],
+                syncDir: s.frame == warmup ? o["--sync"] : null);
         timer.reset();
         cpuStart = _cpuTicks();
         if (core is N64 && core.jit != null) {
@@ -195,7 +197,7 @@ Future<void> bench(List<String> args) async {
       }
       if (timed && (s.frame - warmup) % measure == 0) {
         final cpuUs = (_cpuTicks() - cpuStart) * 1000000 ~/ ticksPerSecond;
-        await _release(lock);
+        await releaseBenchmarkLock(lock);
         lock = null;
         final us = timer.elapsedMicroseconds;
         final counters = JitCounters(core).since(countersStart);
@@ -257,7 +259,7 @@ Future<void> bench(List<String> args) async {
       }
     }
     // releases the lock also when the core stops or a file cannot be written
-    await _release(lock);
+    await releaseBenchmarkLock(lock);
   }
   if (hashes != null) File(o["--hashes"]!).writeAsStringSync("$hashes");
   if (outDir != null) {
@@ -276,34 +278,6 @@ int _hashImage(ImageBuffer image) {
     h = _fnv(h, p);
   }
   return h;
-}
-
-/// takes the lock (or waits for the go of [syncDir]); the process holds the
-/// lock until its stdin is closed
-Future<Process?> _acquire(String? path, String? syncDir) async {
-  if (syncDir != null) {
-    File("$syncDir/ready.$pid").writeAsStringSync("");
-    while (!File("$syncDir/go").existsSync()) {
-      await Future.delayed(const Duration(milliseconds: 5));
-    }
-    return null;
-  }
-  if (path == null) return null;
-  final p =
-      await Process.start("flock", [path, "sh", "-c", "echo locked; read x"]);
-  final ready = await p.stdout
-      .transform(utf8.decoder)
-      .transform(const LineSplitter())
-      .first;
-  if (ready != "locked") throw StateError("the lock $path is not taken");
-  return p;
-}
-
-Future<void> _release(Process? lock) async {
-  if (lock == null) return;
-  lock.stdin.writeln();
-  await lock.stdin.close();
-  await lock.exitCode;
 }
 
 int _ticksPerSecond() {

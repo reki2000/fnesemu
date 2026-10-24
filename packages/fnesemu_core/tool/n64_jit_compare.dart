@@ -7,6 +7,7 @@ import 'package:archive/archive.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/sram.dart';
 
+import 'headless/comparison.dart';
 import 'logging.dart';
 
 final class _Variant {
@@ -51,20 +52,18 @@ void _same(N64 a, N64 b) {
   if (a.dump() != b.dump() || a.cpu.nextPc != b.cpu.nextPc) {
     throw StateError('CPU state differs');
   }
-  for (var i = 0; i < a.bus.ram.length; i++) {
-    if (a.bus.ram[i] != b.bus.ram[i]) throw StateError('RAM differs at $i');
-  }
+  final ram = firstMismatch(a.bus.ram, b.bus.ram);
+  if (ram != null) throw StateError('RAM differs at $ram');
   final af = a.cpu.fpu.data, bf = b.cpu.fpu.data;
   if (a.cpu.fpu.wide != b.cpu.fpu.wide) throw StateError('FPU layout differs');
-  for (var i = 0; i < af.lengthInBytes; i++) {
-    if (af.getUint8(i) != bf.getUint8(i))
-      throw StateError('FPU register differs at $i');
-  }
+  final registers = firstMismatch(
+      af.buffer.asUint8List(af.offsetInBytes, af.lengthInBytes),
+      bf.buffer.asUint8List(bf.offsetInBytes, bf.lengthInBytes));
+  if (registers != null) throw StateError('FPU register differs at $registers');
   final x = a.imageBuffer().buffer, y = b.imageBuffer().buffer;
   if (x.length != y.length) throw StateError('Image dimensions differ');
-  for (var i = 0; i < x.length; i++) {
-    if (x[i] != y[i]) throw StateError('Image differs at $i');
-  }
+  final pixel = firstMismatch(x, y);
+  if (pixel != null) throw StateError('Image differs at $pixel');
 }
 
 Future<void> main(List<String> args) async {
@@ -92,7 +91,11 @@ Future<void> main(List<String> args) async {
         throw ArgumentError('Unknown option ${args[i]}');
     }
   }
-  if (caseFile == null || frames <= 0 || batch <= 0 || frames % batch != 0) {
+  if (caseFile == null ||
+      warm < 0 ||
+      frames <= 0 ||
+      batch <= 0 ||
+      frames % batch != 0) {
     throw ArgumentError('--case FILE --warmup N --frames N --batch N');
   }
   final config =
@@ -146,78 +149,80 @@ Future<void> main(List<String> args) async {
     }
   }
 
-  Process? lock;
   try {
     for (final v in variants) {
       v.core.setRom(Uint8List.fromList(rom));
       v.core.reset();
-      if (v.size != 0 && !v.core.jitEnabled)
+      if (v.size != 0 && !v.core.jitEnabled) {
         throw StateError('Compiled backend unavailable');
+      }
     }
-    for (var f = 1; f <= warm; f++) {
-      for (final v in variants) frame(v, f);
-      if (f % 300 == 0) stderr.writeln('warmup $f/$warm');
-    }
-    check();
-    final hz = int.parse(
-        (Process.runSync('getconf', ['CLK_TCK']).stdout as String).trim());
-    lock = await Process.start('flock', [
-      '/tmp/claude-1000/fnesemu-bench.lock',
-      'sh',
-      '-c',
-      'echo locked; read release'
-    ]);
-    await lock.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .first;
-    for (var part = 0; part < frames ~/ batch; part++) {
-      // Rotate and reverse order, so no variant always follows the same one.
-      final order = part.isEven ? variants : variants.reversed.toList();
-      for (var n = 0; n < variants.length; n++) {
-        final v = order[(n + part ~/ 2) % variants.length];
+    late int hz;
+    await runComparison(
+      variants: variants,
+      warmupFrames: warm,
+      frames: frames,
+      batchFrames: batch,
+      warmupFrame: frame,
+      afterWarmupFrame: (f) {
+        if (f % 300 == 0) stderr.writeln('warmup $f/$warm');
+      },
+      afterWarmup: () {
+        check();
+        hz = int.parse(
+            (Process.runSync('getconf', ['CLK_TCK']).stdout as String).trim());
+      },
+      measureBatch: (v, interval) {
         final start = v.watch.elapsedMicroseconds, cpu = _ticks();
         v.watch.start();
-        for (var f = 1; f <= batch; f++) frame(v, warm + part * batch + f);
+        for (var f = interval.firstFrame; f <= interval.lastFrame; f++) {
+          frame(v, f);
+        }
         v.watch.stop();
         final spent = _ticks() - cpu;
         v.cpuTicks += spent;
         v.batches.add({
-          'from': warm + part * batch + 1,
+          'from': interval.firstFrame,
           'us': v.watch.elapsedMicroseconds - start,
           'cpuTicks': spent
         });
-      }
-      if ((part + 1) * batch % 100 == 0) {
-        check();
-        stderr.writeln('measured ${(part + 1) * batch}/$frames; states match');
-      }
-    }
-    check();
-    print(jsonEncode([
-      for (final v in variants)
-        {
-          'name': v.name,
-          'blockLimit': v.size,
-          'frames': frames,
-          'us': v.watch.elapsedMicroseconds,
-          'msPerFrame': v.watch.elapsedMicroseconds / frames / 1000,
-          'cpuMsPerFrame': v.cpuTicks * 1000 / hz / frames,
-          'jitClocks': v.core.jitClocks,
-          'clocks': v.core.cpu.clocks,
-          'blockEnds': v.core.jit?.blockEnds,
-          'samples': v.samples,
-          'audioHash': v.audioHash,
-          'blockSizes': {
-            for (final e in (v.core.jit?.blockSizes ?? <int, int>{}).entries)
-              e.key.toString(): e.value
-          },
-          'batches': v.batches,
+      },
+      afterBatch: (interval) {
+        final measured = interval.lastFrame - warm;
+        if (measured % 100 == 0) {
+          check();
+          stderr.writeln('measured $measured/$frames; states match');
         }
-    ]));
+      },
+      afterMeasurements: () {
+        check();
+        print(jsonEncode([
+          for (final v in variants)
+            {
+              'name': v.name,
+              'blockLimit': v.size,
+              'frames': frames,
+              'us': v.watch.elapsedMicroseconds,
+              'msPerFrame': v.watch.elapsedMicroseconds / frames / 1000,
+              'cpuMsPerFrame': v.cpuTicks * 1000 / hz / frames,
+              'jitClocks': v.core.jitClocks,
+              'clocks': v.core.cpu.clocks,
+              'blockEnds': v.core.jit?.blockEnds,
+              'samples': v.samples,
+              'audioHash': v.audioHash,
+              'blockSizes': {
+                for (final e
+                    in (v.core.jit?.blockSizes ?? <int, int>{}).entries)
+                  e.key.toString(): e.value
+              },
+              'batches': v.batches,
+            }
+        ]));
+      },
+    );
   } finally {
-    await lock?.stdin.close();
-    await lock?.exitCode;
-    for (final v in variants) v.core.dispose();
+    for (final v in variants) {
+      v.core.dispose();
+    }
   }
 }
