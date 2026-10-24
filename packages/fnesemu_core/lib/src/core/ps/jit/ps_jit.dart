@@ -18,8 +18,9 @@ import 'r3000_translator.dart';
 /// still in its delay is carried as the block tag, see [R3000Translator].
 final class PsJit {
   final JitRuntime rt;
-  late final diagnostics = JitDiagnostics(rt,
-      instructionBytes: 4, byteOrder: Endian.little);
+  late final diagnostics =
+      JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little)
+        ..memoryRegion = _memoryRegion;
 
   /// Whether this runtime executes compiled host code rather than reference IR.
   final bool native;
@@ -108,6 +109,7 @@ final class PsJit {
   void attach(R3000 cpu, Bus bus) {
     this.cpu = cpu;
     this.bus = bus;
+    diagnostics.bindExecutionStats((stats) => cpu.executionStats = stats);
 
     // Bit 29 distinguishes uncached aliases in the runtime's address mask.
     for (final alias in [0, 0x20000000]) {
@@ -147,6 +149,15 @@ final class PsJit {
         return 0;
       }),
     );
+  }
+
+  static String _memoryRegion(int address) {
+    final p = address & 0x1fffffff;
+    if (p < 0x800000) return 'ram';
+    if (p >= 0x1f800000 && p < 0x1f800400) return 'scratchpad';
+    if (p >= 0x1fc00000 && p < 0x1fe00000) return 'rom';
+    if (p >= 0x1f801000 && p < 0x1f803000) return 'device';
+    return 'unmapped';
   }
 
   /// the code word at [pc] without protecting it, or null outside the ram

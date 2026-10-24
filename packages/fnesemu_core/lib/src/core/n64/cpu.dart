@@ -1,3 +1,5 @@
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../state.dart';
 import '../../util/int.dart';
 
@@ -10,6 +12,7 @@ import 'registers.dart';
 /// Unsupported operations stop explicitly instead of behaving as NOPs.
 class Vr4300 {
   final N64Bus bus;
+  JitExecutionStats? executionStats;
   final N64Fpu fpu;
   bool _delay = false;
   int? _idleAddress;
@@ -198,6 +201,41 @@ class Vr4300 {
   }
 
   void step() {
+    final stats = executionStats;
+    if (stats == null) return _step();
+    if (stopReason != null) return;
+    final at = pc, before = clocks;
+    final opcode = stats.opcodeAt(at);
+    stats.beginCpuStep();
+    try {
+      _step();
+    } finally {
+      stats.endCpuStep();
+      stats.recordCpuStep(at, opcode, clocks - before);
+    }
+  }
+
+  int _read(int address, int size) {
+    executionStats?.recordMemory(address, size);
+    return bus.read(address, size);
+  }
+
+  int _read8(int address) {
+    executionStats?.recordMemory(address, 1);
+    return bus.read8(address);
+  }
+
+  void _write(int address, int value, int size) {
+    executionStats?.recordMemory(address, size, write: true);
+    bus.write(address, value, size);
+  }
+
+  void _write8(int address, int value) {
+    executionStats?.recordMemory(address, 1, write: true);
+    bus.write8(address, value);
+  }
+
+  void _step() {
     if (stopReason != null) return;
     _pollInterrupts();
     if (cop0[12].mask3 == 1 && cop0[12] & cop0[13] & 0xff00 != 0 && !_delay) {
@@ -210,6 +248,7 @@ class Vr4300 {
     _delay = false;
     try {
       aligned(pc, 4);
+      executionStats?.recordMemory(pc, 4, fetch: true);
       final op = bus.fetch(pc);
       pc = nextPc;
       nextPc = (nextPc + 4).mask32;
@@ -244,22 +283,22 @@ class Vr4300 {
           );
       int load64() {
         aligned(a, 8);
-        return bus.read(a, 4) << 32 | bus.read(a + 4, 4);
+        return _read(a, 4) << 32 | _read(a + 4, 4);
       }
 
       void loadWord(int size, bool signed) {
         aligned(a, size);
-        final value = bus.read(a, size);
+        final value = _read(a, size);
         putWord(t, signed ? value.toSigned(size * 8) : value);
       }
 
       void store(int size) {
         aligned(a, size);
         if (size <= 4) {
-          bus.write(a, lowWord(t), size);
+          _write(a, lowWord(t), size);
         } else {
-          bus.write(a, r[t] >>> 32, 4);
-          bus.write(a + 4, lowWord(t), 4);
+          _write(a, r[t] >>> 32, 4);
+          _write(a + 4, lowWord(t), 4);
         }
       }
 
@@ -527,11 +566,11 @@ class Vr4300 {
               size, (i) => (r[t] >>> (size - 1 - i) * 8).mask8);
           if (left) {
             for (var i = offset; i < size; i++) {
-              bytes[i - offset] = bus.read8(base + i);
+              bytes[i - offset] = _read8(base + i);
             }
           } else {
             for (var i = 0; i <= offset; i++) {
-              bytes[size - 1 - offset + i] = bus.read8(base + i);
+              bytes[size - 1 - offset + i] = _read8(base + i);
             }
           }
           var value = 0;
@@ -567,7 +606,7 @@ class Vr4300 {
           loadWord(2, false);
         case 39:
           aligned(a, 4);
-          put(t, bus.read(a, 4).mask32);
+          put(t, _read(a, 4).mask32);
         case 42:
         case 46:
         case 44:
@@ -578,7 +617,7 @@ class Vr4300 {
           final base = a - offset;
           for (var i = left ? offset : 0; i < (left ? size : offset + 1); i++) {
             final index = left ? i - offset : size - 1 - offset + i;
-            bus.write8(base + i, (r[t] >>> (size - 1 - index) * 8).mask8);
+            _write8(base + i, (r[t] >>> (size - 1 - index) * 8).mask8);
           }
         case 48:
           loadWord(4, true);
@@ -595,16 +634,16 @@ class Vr4300 {
           _ll = false;
         case 49:
           aligned(a, 4);
-          fpu.setWord(t, bus.read(a, 4));
+          fpu.setWord(t, _read(a, 4));
         case 53:
           fpu.setLong(t, load64());
         case 57:
           aligned(a, 4);
-          bus.write(a, fpu.word(t), 4);
+          _write(a, fpu.word(t), 4);
         case 61:
           aligned(a, 8);
           for (var i = 0; i < 8; i++) {
-            bus.write8(a + i, (fpu.long(t) >>> (7 - i) * 8).mask8);
+            _write8(a + i, (fpu.long(t) >>> (7 - i) * 8).mask8);
           }
         case 40:
           store(1);

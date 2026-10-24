@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../../components/sh2/jit/jit.dart';
 import '../../../state.dart';
 import '../../../util/disasm.dart';
@@ -12,6 +14,7 @@ import 'onchip.dart';
 // SH-2 address space: cache areas and on-chip modules in front of the external bus
 class _Sh2Memory implements SsCpuBus {
   final SsCpuBus ext;
+  JitExecutionStats? executionStats;
   final Sh2OnChip onchip;
 
   /// number of writes, used for idle loop detection
@@ -35,6 +38,7 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   int read8(int a) {
+    executionStats?.recordMemory(a & 0xffffffff, 1);
     a &= 0xffffffff;
     if (_fastWram && _isWram(a)) return _wram[a & 0xfffff];
     switch (a >>> 29) {
@@ -53,6 +57,7 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   int read16(int a) {
+    executionStats?.recordMemory(a & 0xffffffff, 2);
     a &= 0xfffffffe;
     if (_fastWram && _isWram(a)) return _wramData.getUint16(a & 0xffffe);
     switch (a >>> 29) {
@@ -72,6 +77,7 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   int read32(int a) {
+    executionStats?.recordMemory(a & 0xffffffff, 4);
     a &= 0xfffffffc;
     if (_fastWram && _isWram(a)) return _wramData.getUint32(a & 0xffffc);
     switch (a >>> 29) {
@@ -90,6 +96,7 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   void write8(int a, int d) {
+    executionStats?.recordMemory(a & 0xffffffff, 1, write: true);
     writes++;
     a &= 0xffffffff;
     if (_fastWram && _isWram(a)) {
@@ -112,6 +119,7 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   void write16(int a, int d) {
+    executionStats?.recordMemory(a & 0xffffffff, 2, write: true);
     writes++;
     a &= 0xfffffffe;
     if (_fastWram && _isWram(a)) {
@@ -135,6 +143,7 @@ class _Sh2Memory implements SsCpuBus {
 
   @override
   void write32(int a, int d) {
+    executionStats?.recordMemory(a & 0xffffffff, 4, write: true);
     writes++;
     a &= 0xfffffffc;
     if (_fastWram && _isWram(a)) {
@@ -163,6 +172,7 @@ class _Sh2Memory implements SsCpuBus {
 /// Unsupported instructions stop execution instead of acting as NOPs.
 class Sh2 extends SsCpu {
   late final SsCpuBus bus;
+  JitExecutionStats? executionStats;
   final Sh2OnChip onchip;
 
   Sh2(SsCpuBus ext, {bool master = true, Sh2Jit? jit, bool jitFtcsr = true})
@@ -179,6 +189,13 @@ class Sh2 extends SsCpu {
     _mem = _Sh2Memory(ext, onchip);
     bus = _mem;
     onchip.bus = bus;
+    if (jit != null) {
+      jit.diagnostics.memoryRegion = _memoryRegion;
+      jit.diagnostics.bindExecutionStats((stats) {
+        executionStats = stats;
+        _mem.executionStats = stats;
+      });
+    }
   }
 
   late final _Sh2Memory _mem;
@@ -382,7 +399,10 @@ class Sh2 extends SsCpu {
         if (idleSkip && jit!.idleDetected) {
           _idlePc = -1;
           // A compiled block may already have overshot the target.
-          if (clocks < targetClocks) clocks = targetClocks;
+          if (clocks < targetClocks) {
+            executionStats?.recordIdle(targetClocks - clocks);
+            clocks = targetClocks;
+          }
           break;
         }
       } else if (!exec()) {
@@ -396,7 +416,10 @@ class Sh2 extends SsCpu {
                   (pc < idleFrom || (compiled != null && pc == idleFrom)) &&
                   idleFrom - pc <= Sh2Jit.idleBranchDistance &&
                   _isIdle()))) {
-        if (clocks < targetClocks) clocks = targetClocks;
+        if (clocks < targetClocks) {
+          executionStats?.recordIdle(targetClocks - clocks);
+          clocks = targetClocks;
+        }
         break;
       }
     }
@@ -492,6 +515,49 @@ class Sh2 extends SsCpu {
 
   @pragma('vm:prefer-inline')
   bool exec() {
+    final stats = executionStats;
+    if (stats == null) return _exec();
+    final at = pc, before = clocks, wasSleeping = sleeping;
+    final opcode = stats.opcodeAt(at);
+    stats.beginCpuStep();
+    try {
+      return _exec();
+    } finally {
+      stats.endCpuStep();
+      if (wasSleeping && sleeping) {
+        stats.recordIdle(clocks - before);
+      } else {
+        stats.recordCpuStep(at, opcode, clocks - before);
+      }
+    }
+  }
+
+  static String _memoryRegion(int address) {
+    final a = address & 0xffffffff, area = (address & 0xffffffff) >>> 29;
+    if (area == 6) return 'cacheData';
+    if (area == 7) return 'onchip';
+    if (area > 1) return 'cacheControl';
+    final p = a & 0x07ffffff;
+    if (p >= 0x06000000) return 'workRamHigh';
+    if (p >= 0x00200000 && p < 0x00300000) return 'workRamLow';
+    if (p < 0x00100000) return 'bios';
+    return 'device';
+  }
+
+  int _fetchInstruction(int address) {
+    final stats = executionStats;
+    if (stats == null) return _fetch(address);
+    stats.fetching = true;
+    stats.recordMemory(address, 2, fetch: true);
+    try {
+      return _fetch(address);
+    } finally {
+      stats.fetching = false;
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  bool _exec() {
     final target = _delayTarget;
     final restore = _restoreSr;
     if (target < 0 && _interruptRequested && _acceptInterrupt()) {
@@ -506,7 +572,7 @@ class Sh2 extends SsCpu {
       return true;
     }
     final address = pc;
-    lastOpcode = _fetch(address);
+    lastOpcode = _fetchInstruction(address);
     pc = (pc + 2).mask32;
     _delayTarget = _restoreSr = -1;
     _inDelay = target >= 0;

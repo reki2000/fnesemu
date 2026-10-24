@@ -26,6 +26,8 @@ bench <core> <media...> [options]: times the frames after a warmup
   --sync DIR         instead of --lock: write DIR/ready.<pid> before the first
                      block and wait for DIR/go (a runner times two builds side by side)
   --profile-blocks   diagnostic executed-block cycle histogram; timing is perturbed
+  --profile-cpu      CPU dispatch, idle clocks and CPU-side bus requests;
+                     requires --jit on|off and an available compiled backend
   --profile-exits    diagnostic return reasons, budgets and hot PCs; timing is perturbed
   --checksum         also print fnv-1a hashes of the frame images and the audio
   --hashes FILE      write the image hash of every frame to FILE
@@ -57,7 +59,8 @@ Future<void> bench(List<String> args) async {
     ...mediaFlags,
     "--checksum",
     "--profile-blocks",
-    "--profile-exits"
+    "--profile-exits",
+    "--profile-cpu"
   }, aliases: {
     ...mediaAliases,
     "-o": "--out",
@@ -96,6 +99,10 @@ Future<void> bench(List<String> args) async {
   if (o.flag("--profile-blocks") && (!core.jitEnabled || runtimes.isEmpty)) {
     throw UsageError("--profile-blocks requires native JIT");
   }
+  final cpuStats = <JitExecutionStats>[];
+  if (o.flag('--profile-cpu') && core.jitDiagnostics.isEmpty) {
+    throw UsageError('--profile-cpu requires an available compiled backend');
+  }
   final exitStats = <NativeExitStats>[];
   if (o.flag('--profile-exits') &&
       (!core.jitEnabled || jitRuntimes(core).isEmpty)) {
@@ -126,6 +133,14 @@ Future<void> bench(List<String> args) async {
           core.jitSuspended = o["--jit"] == "off";
         }
         if (saveState != null && s.frame == warmup) s.saveState(saveState);
+        if (o.flag('--profile-cpu') && cpuStats.isEmpty) {
+          for (final diagnostics in core.jitDiagnostics) {
+            cpuStats.add(diagnostics.enableExecutionStats());
+          }
+        }
+        for (final stats in cpuStats) {
+          stats.clear();
+        }
         if (o.flag('--profile-exits') && exitStats.isEmpty) {
           for (final diagnostics in core.jitDiagnostics) {
             exitStats.add(NativeExitStats(diagnostics));
@@ -189,14 +204,19 @@ Future<void> bench(List<String> args) async {
           final cycles = exitStats.fold(0, (n, s) => n + s.total.cycles);
           if (entries != counters['nativeEntries'] ||
               cycles != counters['jitClocks']) {
-            throw StateError('Native return profile disagrees with interval counters');
+            throw StateError(
+                'Native return profile disagrees with interval counters');
           }
         }
         stdout.writeln(jsonEncode({
           "core": name,
           "frameRunner": s.frameRunner,
           "jitEnabled": core.jitEnabled && !core.jitSuspended,
-          "profiled": runtimes.isNotEmpty || exitStats.isNotEmpty,
+          "profiled": runtimes.isNotEmpty ||
+              exitStats.isNotEmpty ||
+              cpuStats.isNotEmpty,
+          if (cpuStats.isNotEmpty)
+            'cpuProfiles': [for (final stats in cpuStats) stats.report()],
           if (exitStats.isNotEmpty)
             'nativeExits': [for (final stats in exitStats) stats.report()],
           if (core is N64 && core.jit?.cpuFallbackOps != null)
@@ -231,6 +251,11 @@ Future<void> bench(List<String> args) async {
       }
     }
   } finally {
+    if (o.flag('--profile-cpu')) {
+      for (final diagnostics in core.jitDiagnostics) {
+        diagnostics.disableExecutionStats();
+      }
+    }
     // releases the lock also when the core stops or a file cannot be written
     await _release(lock);
   }

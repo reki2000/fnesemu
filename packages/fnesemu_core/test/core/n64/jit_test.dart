@@ -88,6 +88,29 @@ final class _Machine {
 }
 
 void main() {
+  test('CPU profiling preserves faults, registers, memory and clocks', () {
+    final expected = _Machine(null);
+    final actual = _Machine(N64Jit.create(native: false, compileThreshold: 100000)!);
+    addTearDown(actual.dispose);
+    for (final machine in [expected, actual]) {
+      machine.load([_i(9, 0, 1, 42), _i(0x2b, 28, 1, 0),
+        _i(0x23, 28, 2, 0), _i(0x23, 28, 3, 1)]);
+    }
+    final stats = actual.jit!.diagnostics.enableExecutionStats();
+    for (var i = 0; i < 4; i++) {
+      actual.cpu.step();
+      expected.cpu.step();
+    }
+    actual.matches(expected);
+    expect(stats.cpuClocks, actual.cpu.clocks);
+    expect(stats.cpuDispatches, 4);
+    expect((stats.report()['memory'] as List).map((e) => e['kind']),
+        containsAll(['fetch', 'read', 'write']));
+    actual.jit!.recordIdle(7);
+    expect(stats.idleClocks, 7);
+    actual.jit!.diagnostics.disableExecutionStats();
+    expect(actual.cpu.executionStats, isNull);
+  });
   test('direct jump inlining guards non-contiguous code and bounds loops', () {
     final code = <int, int>{
       _pc: 0x08000800,

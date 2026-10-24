@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'execution_stats.dart';
 import 'ir.dart';
 import 'runtime.dart';
 
@@ -10,9 +11,39 @@ final class JitDiagnostics {
   final int instructionBytes;
   final Endian byteOrder;
   final String? Function(int pc, int reason)? guestExit;
+  String Function(int address)? memoryRegion;
+  JitExecutionStats? _executionStats;
+  JitExecutionStats? get executionStats => _executionStats;
+  void Function(JitExecutionStats?)? _bindExecutionStats;
 
-  JitDiagnostics(this.rt,
-      {required this.instructionBytes, required this.byteOrder, this.guestExit}) {
+  /// Connects one CPU adapter and immediately supplies the current recorder.
+  void bindExecutionStats(void Function(JitExecutionStats?) bind) {
+    _bindExecutionStats = bind;
+    bind(_executionStats);
+  }
+
+  JitExecutionStats enableExecutionStats({int capacity = 4096}) {
+    final stats = JitExecutionStats(
+      opcodeAt: opcodeAt,
+      regionAt: (address) => memoryRegion?.call(address) ?? 'unknown',
+      capacity: capacity,
+    );
+    _executionStats = stats;
+    _bindExecutionStats?.call(stats);
+    return stats;
+  }
+
+  void disableExecutionStats() {
+    _executionStats = null;
+    _bindExecutionStats?.call(null);
+  }
+
+  JitDiagnostics(
+    this.rt, {
+    required this.instructionBytes,
+    required this.byteOrder,
+    this.guestExit,
+  }) {
     if (instructionBytes != 2 && instructionBytes != 4) {
       throw ArgumentError.value(instructionBytes, 'instructionBytes');
     }
@@ -22,7 +53,8 @@ final class JitDiagnostics {
     final address = pc & rt.addrMask;
     final offset = address & (rt.pageBytes - 1);
     final page = rt.readPages[address >>> rt.pageShift];
-    if (page == null || address & (instructionBytes - 1) != 0 ||
+    if (page == null ||
+        address & (instructionBytes - 1) != 0 ||
         offset + instructionBytes > rt.pageBytes) {
       return null;
     }
@@ -62,13 +94,26 @@ final class NativeExitStats {
     rt.onNativeExit = record;
   }
 
-  void record(int entryPc, int exitPc, int reason, int budget, int cycles,
-      int stop, int? fault) {
+  void record(
+    int entryPc,
+    int exitPc,
+    int reason,
+    int budget,
+    int cycles,
+    int stop,
+    int? fault,
+  ) {
     final kind = diagnostics.classify(exitPc, reason, stop, fault);
     total.add(budget, cycles);
     (reasons[kind] ??= _ExitCounts()).add(budget, cycles);
     final faultPage = fault == null ? null : fault & ~(rt.pageBytes - 1);
-    final key = (entryPc, exitPc, kind, faultPage, diagnostics.opcodeAt(exitPc));
+    final key = (
+      entryPc,
+      exitPc,
+      kind,
+      faultPage,
+      diagnostics.opcodeAt(exitPc),
+    );
     final counts = sites[key];
     if (counts != null) {
       counts.add(budget, cycles, address: fault);
@@ -102,7 +147,7 @@ final class NativeExitStats {
             'faultPage': e.key.$4,
             'exitOpcode': e.key.$5,
             ...e.value.report(),
-          }
+          },
       ],
     };
   }
@@ -129,12 +174,12 @@ final class _ExitCounts {
   }
 
   Map<String, Object?> report() => {
-        if (firstFaultAddress != null) 'firstFaultAddress': firstFaultAddress,
-        if (firstFaultAddress != null) 'varyingAddressBits': varyingAddressBits,
-        'count': count,
-        'cycles': cycles,
-        'zeroWork': zero,
-        'meanCycles': count > 0 ? cycles / count : null,
-        'meanEntryBudget': count > 0 ? budgets / count : null,
-      };
+    if (firstFaultAddress != null) 'firstFaultAddress': firstFaultAddress,
+    if (firstFaultAddress != null) 'varyingAddressBits': varyingAddressBits,
+    'count': count,
+    'cycles': cycles,
+    'zeroWork': zero,
+    'meanCycles': count > 0 ? cycles / count : null,
+    'meanEntryBudget': count > 0 ? budgets / count : null,
+  };
 }

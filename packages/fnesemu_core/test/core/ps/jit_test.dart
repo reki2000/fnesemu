@@ -228,6 +228,32 @@ final class _Generator {
 }
 
 void main() {
+  test('CPU profiling preserves load delays, registers, memory and clocks', () {
+    final expected = _Machine.interpreter();
+    final actual = _Machine.jit(PsJit.create(native: false)!);
+    addTearDown(actual.jit!.dispose);
+    for (final machine in [expected, actual]) {
+      machine.load([_i(9, 0, 1, 42), _i(0x2b, 28, 1, 0),
+        _i(0x23, 28, 2, 0), 0, _j(_code + 16), 0],
+        Uint8List(0x80000), Uint8List(8192));
+      machine.cpu.r[28] = _data;
+    }
+    final stats = actual.jit!.diagnostics.enableExecutionStats();
+    for (var i = 0; i < 4; i++) {
+      actual.cpu.step();
+      expected.cpu.step();
+    }
+    expect(actual.state, expected.state);
+    expect(actual.cpu.pc, expected.cpu.pc);
+    expect(actual.cpu.clocks, expected.cpu.clocks);
+    expect(actual.bus.mem, expected.bus.mem);
+    expect(stats.cpuClocks, actual.cpu.clocks);
+    expect(stats.cpuDispatches, 4);
+    expect((stats.report()['memory'] as List).map((e) => e['kind']),
+        containsAll(['fetch', 'read', 'write']));
+    actual.jit!.diagnostics.disableExecutionStats();
+    expect(actual.cpu.executionStats, isNull);
+  });
   for (final native in [false, true]) {
     final name = native ? 'native' : 'interpreted';
     test('$name clock counter excludes CPU and IR interpreter execution', () {

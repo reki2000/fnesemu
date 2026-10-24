@@ -12,8 +12,9 @@ import 'vr4300_translator.dart';
 /// interpreter. Memory faults and unsupported instructions exit before effects.
 final class N64Jit {
   final JitRuntime rt;
-  late final diagnostics = JitDiagnostics(rt,
-      instructionBytes: 4, byteOrder: Endian.big);
+  late final diagnostics =
+      JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.big)
+        ..memoryRegion = _memoryRegion;
   final bool native;
   final int compileThreshold;
   final int maxBlockInstructions;
@@ -60,6 +61,7 @@ final class N64Jit {
 
   void recordIdle(int clocks) {
     if (cpuFallbackOps != null) idleClocks += clocks;
+    diagnostics.executionStats?.recordIdle(clocks);
   }
 
   N64Jit._(
@@ -119,6 +121,7 @@ final class N64Jit {
   void attach(Vr4300 cpu, N64Bus bus) {
     this.cpu = cpu;
     this.bus = bus;
+    diagnostics.bindExecutionStats((stats) => cpu.executionStats = stats);
     _code.map(0, ram.length, ram);
     final fp = rt.addHelper((op, _, __) {
       fpu.control = rt.ctx[Vr4300Translator.ctxFpuControl];
@@ -172,6 +175,16 @@ final class N64Jit {
     if (blockSizes case final sizes?) {
       sizes[block.cost] = (sizes[block.cost] ?? 0) + 1;
     }
+  }
+
+  String _memoryRegion(int address) {
+    if (address & 0xc0000000 != 0x80000000) return 'tlb';
+    final p = address & 0x1fffffff;
+    if (p < ram.length) return 'ram';
+    if (p >= 0x04000000 && p < 0x04002000) return 'spMemory';
+    if (p >= 0x10000000 && p < 0x1fc00000) return 'rom';
+    if (p >= 0x04000000 && p < 0x10000000) return 'device';
+    return 'unmapped';
   }
 
   int? _fetch(int pc) {

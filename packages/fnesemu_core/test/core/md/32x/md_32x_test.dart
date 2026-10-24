@@ -39,6 +39,55 @@ void main() {
   final probe = Sh2Jit.create();
   final native = probe != null;
   probe?.dispose();
+  test('CPU profiling excludes native execution and preserves CPU state', () {
+    final expected = adapter(), actual = adapter();
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final machine in [expected, actual]) {
+      final bytes = ByteData.sublistView(machine.ram);
+      bytes.setUint16(0x200, 0x7101);
+      bytes.setUint16(0x202, 0xaffd);
+      bytes.setUint16(0x204, 9);
+      machine.cpus[0].pc = 0x06000200;
+    }
+    final cpu = actual.cpus[0];
+    final stats = cpu.jit!.diagnostics.enableExecutionStats();
+    expect(cpu.run(400), isTrue);
+    expect(expected.cpus[0].run(400), isTrue);
+    expect(cpu.dump(), expected.cpus[0].dump());
+    expect(cpu.clocks, expected.cpus[0].clocks);
+    expect(actual.ram, expected.ram);
+    expect(cpu.jit!.compiledClocks, greaterThan(0));
+    expect(stats.cpuClocks + cpu.jit!.compiledClocks, cpu.clocks);
+    expect(stats.cpuDispatches, greaterThan(0));
+    cpu.jit!.diagnostics.disableExecutionStats();
+    expect(cpu.executionStats, isNull);
+  }, skip: !native);
+  test('sleeping CPU clocks remain separate when an interrupt wakes it', () {
+    final machine = adapter();
+    addTearDown(machine.dispose);
+    final cpu = machine.cpus[0];
+    final bytes = ByteData.sublistView(machine.ram);
+    bytes.setUint16(0x200, 0x001b);
+    bytes.setUint32(0x1100, 0x06000202);
+    cpu.pc = 0x06000200;
+    cpu.vbr = 0x06001000;
+    cpu.sr = 0;
+    final stats = cpu.jit!.diagnostics.enableExecutionStats();
+    expect(cpu.exec(), isTrue);
+    expect(stats.cpuDispatches, 1);
+    expect(cpu.exec(), isTrue);
+    expect(stats.idleClocks, 1);
+    expect(stats.cpuDispatches, 1);
+    cpu.setInterrupt(2, 64);
+    expect(cpu.exec(), isTrue);
+    expect(stats.cpuDispatches, 2);
+    expect(stats.idleClocks, 1);
+    expect(stats.cpuClocks + stats.idleClocks, cpu.clocks);
+    expect(cpu.pc, 0x06000202);
+    expect((stats.report()['memory'] as List).map((e) => e['kind']),
+        containsAll(['fetch', 'read', 'write']));
+  }, skip: !native);
   test('unaligned SH-2 memory replays the original bus access', () {
     final expected = Md32x(jit: false),
         actual = Md32x(jit: true, sliceClocks: 1);

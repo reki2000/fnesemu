@@ -122,7 +122,11 @@ class Session {
     }
     // bench --warmup-jit on builds the compiled backend even when the timed
     // part uses the interpreter.
-    final enabled = mode == "on" || o["--warmup-jit"] == "on";
+    final profileCpu = o.flag('--profile-cpu');
+    if (profileCpu && mode == null) {
+      throw UsageError('--profile-cpu requires --jit on|off');
+    }
+    final enabled = mode == "on" || o["--warmup-jit"] == "on" || profileCpu;
     final cop1 = o["--jit-cop1"] ?? "native";
     if (!const ['off', 'transfers', 'native', 'helpers'].contains(cop1)) {
       throw UsageError('--jit-cop1 takes off, transfers, native or helpers');
@@ -162,6 +166,7 @@ class Session {
                 sh2SliceClocks: expansionSlice),
             _ => throw UsageError("--jit supports ps, n64, ss and 32x"),
           };
+    if (profileCpu && mode == 'off') core.jitSuspended = true;
     final buttons = buttonNames(core);
     final pad = PadPlayer(readPresses(o["--input"], buttons), buttons.length);
     core.setSram(Sram());

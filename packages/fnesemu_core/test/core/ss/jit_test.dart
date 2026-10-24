@@ -75,6 +75,52 @@ final class _Machine {
 }
 
 void main() {
+  test('CPU profiling preserves registers, memory and clocks', () {
+    final expected = _Machine(null);
+    final actual = _Machine(Sh2Jit.create(native: false, compileThreshold: 100000)!);
+    addTearDown(actual.dispose);
+    for (final machine in [expected, actual]) {
+      machine.load([0x6212, 0x7201, 0x2122, 0xaffb, 9]);
+      machine.cpu.r[1] = _base + 0x100;
+      machine.bus.write32(_base + 0x100, 42);
+    }
+    final stats = actual.jit!.diagnostics.enableExecutionStats();
+    expect(actual.cpu.run(120), isTrue);
+    expect(expected.cpu.run(120), isTrue);
+    actual.matches(expected);
+    expect(stats.cpuClocks, actual.cpu.clocks);
+    expect(stats.cpuDispatches, greaterThan(0));
+    final requests = stats.report()['memory'] as List;
+    expect(requests.map((e) => e['kind']), containsAll(['fetch', 'read', 'write']));
+    final before = stats.report();
+    actual.bus.read32(_base);
+    expect(stats.report(), before);
+    actual.jit!.diagnostics.disableExecutionStats();
+    expect(actual.cpu.executionStats, isNull);
+    actual.cpu.exec();
+    expect(stats.report(), before);
+  });
+  test('sleep fast-forward and interrupt service have separate clock totals', () {
+    final machine = _Machine(Sh2Jit.create(native: false)!);
+    addTearDown(machine.dispose);
+    machine.load([0x001b, 9]);
+    machine.cpu.idleSkip = true;
+    machine.cpu.r[15] = _base + 0x2000;
+    machine.bus.write32(11 * 4, _base + 2);
+    final stats = machine.jit!.diagnostics.enableExecutionStats();
+    expect(machine.cpu.run(100), isTrue);
+    expect(stats.cpuDispatches, 1);
+    expect(stats.cpuClocks, greaterThan(0));
+    expect(stats.cpuClocks + stats.idleClocks, 100);
+    final idle = stats.idleClocks, dispatches = stats.cpuDispatches;
+    machine.cpu.nmi();
+    expect(machine.cpu.exec(), isTrue);
+    expect(stats.cpuDispatches, dispatches + 1);
+    expect(stats.idleClocks, idle);
+    expect(stats.cpuClocks + stats.idleClocks, machine.cpu.clocks);
+    expect((stats.report()['memory'] as List).map((e) => e['kind']),
+        containsAll(['fetch', 'read', 'write']));
+  });
   test('one-pass base specialization removes repeated address checks', () {
     const code = [0x6142, 0x5241, 0x5342, 0x5543];
     IrBlock translate(Map<int, int> bases) => optimizeIrBlock(Sh2Translator(

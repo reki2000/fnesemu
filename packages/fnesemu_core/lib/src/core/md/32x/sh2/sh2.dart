@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../../../components/sh2/jit/jit.dart';
 import '../../../../util/int.dart';
 import '../../../../util/register_dump.dart';
@@ -32,12 +34,20 @@ class Sh2 {
         (address) => _jitCodeAddress(address) ? ext.read16(address) : null);
     bus = _OnChipBus(ext, onchip);
     onchip.bus = ext;
+    if (jit != null) {
+      jit.diagnostics.memoryRegion = _memoryRegion;
+      jit.diagnostics.bindExecutionStats((stats) {
+        executionStats = stats;
+        (bus as _OnChipBus).executionStats = stats;
+      });
+    }
   }
   // Only even SDRAM addresses and their P1 aliases can be compiled here.
   static bool _jitCodeAddress(int address) =>
       (address & 0xdffc0001) == 0x06000000;
 
   final Sh2Jit? jit;
+  JitExecutionStats? executionStats;
   late final Uint32List r, _state;
   int pc = 0;
   int get sr => _state[0];
@@ -146,6 +156,51 @@ class Sh2 {
   }
 
   bool _execOne(bool compiled, [int budget = 1]) {
+    final stats = executionStats;
+    if (stats == null) return _execOneUnprofiled(compiled, budget);
+    final at = pc, before = clocks, wasSleeping = sleeping;
+    final opcode = stats.opcodeAt(at);
+    stats.beginCpuStep();
+    try {
+      return _execOneUnprofiled(compiled, budget);
+    } finally {
+      final interpreted = stats.cpuActive;
+      stats.endCpuStep();
+      if (interpreted) {
+        if (wasSleeping && sleeping) {
+          stats.recordIdle(clocks - before);
+        } else {
+          stats.recordCpuStep(at, opcode, clocks - before);
+        }
+      }
+    }
+  }
+
+  static String _memoryRegion(int address) {
+    final a = address & 0xffffffff;
+    if (a >= 0xfffffe00) return 'onchip';
+    if (a & 0xe0000000 == 0xc0000000) return 'cacheData';
+    final p = a & 0x1fffffff;
+    if (p >= 0x06000000 && p < 0x06040000) return 'ram';
+    if (p >= 0x02000000 && p < 0x02400000) return 'rom';
+    if (p >= 0x04000000 && p < 0x04060000) return 'framebuffer';
+    if (p < 0x4000) return 'bios';
+    return 'device';
+  }
+
+  int _fetchInstruction(int address) {
+    final stats = executionStats;
+    if (stats == null) return bus.read16(address);
+    stats.fetching = true;
+    stats.recordMemory(address, 2, fetch: true);
+    try {
+      return bus.read16(address);
+    } finally {
+      stats.fetching = false;
+    }
+  }
+
+  bool _execOneUnprofiled(bool compiled, int budget) {
     final target = _delayTarget;
     final restore = _restoreSr;
     if (target == null) {
@@ -168,6 +223,7 @@ class Sh2 {
         target == null &&
         !sleeping &&
         _jitCodeAddress(pc)) {
+      executionStats?.pauseCpuStep();
       final result = jit!.run(pc, budget);
       if (result != null) {
         pc = result.$1;
@@ -175,6 +231,7 @@ class Sh2 {
         return true;
       }
     }
+    executionStats?.resumeCpuStep();
     if (sleeping) {
       clocks++;
       return true;
@@ -184,7 +241,7 @@ class Sh2 {
       return true;
     }
     final address = pc;
-    lastOpcode = bus.read16(address);
+    lastOpcode = _fetchInstruction(address);
     pc = (pc + 2).mask32;
     _delayTarget = _restoreSr = null;
     _inDelay = target != null;
@@ -710,24 +767,45 @@ class Sh2 {
 
 class _OnChipBus implements Sh2Bus {
   final Sh2Bus ext;
+  JitExecutionStats? executionStats;
   final Sh2OnChip onchip;
   _OnChipBus(this.ext, this.onchip);
 
   // effective addresses (register + register) may exceed 32 bits
   static bool _on(int a) => a.mask32 >= 0xfffffe00;
   @override
-  int read8(int a) => _on(a) ? onchip.read8(a) : ext.read8(a.mask32);
+  int read8(int a) {
+    executionStats?.recordMemory(a.mask32, 1);
+    return _on(a) ? onchip.read8(a) : ext.read8(a.mask32);
+  }
+
   @override
-  int read16(int a) => _on(a) ? onchip.read16(a) : ext.read16(a.mask32);
+  int read16(int a) {
+    executionStats?.recordMemory(a.mask32, 2);
+    return _on(a) ? onchip.read16(a) : ext.read16(a.mask32);
+  }
+
   @override
-  int read32(int a) => _on(a) ? onchip.read32(a) : ext.read32(a.mask32);
+  int read32(int a) {
+    executionStats?.recordMemory(a.mask32, 4);
+    return _on(a) ? onchip.read32(a) : ext.read32(a.mask32);
+  }
+
   @override
-  void write8(int a, int v) =>
-      _on(a) ? onchip.write8(a, v) : ext.write8(a.mask32, v);
+  void write8(int a, int v) {
+    executionStats?.recordMemory(a.mask32, 1, write: true);
+    _on(a) ? onchip.write8(a, v) : ext.write8(a.mask32, v);
+  }
+
   @override
-  void write16(int a, int v) =>
-      _on(a) ? onchip.write16(a, v) : ext.write16(a.mask32, v);
+  void write16(int a, int v) {
+    executionStats?.recordMemory(a.mask32, 2, write: true);
+    _on(a) ? onchip.write16(a, v) : ext.write16(a.mask32, v);
+  }
+
   @override
-  void write32(int a, int v) =>
-      _on(a) ? onchip.write32(a, v) : ext.write32(a.mask32, v);
+  void write32(int a, int v) {
+    executionStats?.recordMemory(a.mask32, 4, write: true);
+    _on(a) ? onchip.write32(a, v) : ext.write32(a.mask32, v);
+  }
 }
