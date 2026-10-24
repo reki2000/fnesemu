@@ -470,10 +470,8 @@ class Ss extends Core {
   @override
   void setRom(Uint8List body) {
     bus.bios.fillRange(0, bus.bios.length, 0);
-    final length = body.length < bus.bios.length ? body.length : bus.bios.length;
-    for (var i = 0; i < length; i++) {
-      bus.bios[i] = body[i];
-    }
+    bus.bios.setRange(
+        0, body.length < bus.bios.length ? body.length : bus.bios.length, body);
 
     _sram.init("ss_bram", Bus.blankBram);
     bus.bramRead = _sram.read8;

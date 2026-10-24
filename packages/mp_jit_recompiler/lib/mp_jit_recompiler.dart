@@ -2,6 +2,7 @@
 /// interpreter for other hosts and differential tests.
 library;
 
+export 'src/bytes.dart';
 export 'src/code_memory.dart';
 export 'src/compilation_stats.dart';
 export 'src/diagnostics.dart';

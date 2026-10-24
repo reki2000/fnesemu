@@ -94,10 +94,7 @@ class N64Audio {
     if (load) {
       memory.setRange(dmem, dmem + bytes, bus.ram, ram);
     } else {
-      // Avoid materializing the unused DMEM tail for shared Wasm RAM.
-      for (var i = 0; i < bytes; i++) {
-        bus.ram[ram + i] = memory[dmem + i];
-      }
+      bus.ram.setRange(ram, ram + bytes, memory, dmem);
     }
   }
 
