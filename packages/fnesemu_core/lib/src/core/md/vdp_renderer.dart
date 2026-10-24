@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 
 import 'vdp.dart';
@@ -183,6 +184,60 @@ class VdpLineState {
   final a = _Plane();
   final b = _Plane();
   final window = _Plane();
+
+  List<Int32List> get _sprites => [
+        spX, spY, spPattern, spAttr, spFlags, spWidth, spDrawWidth, //
+        spHeight, spVCells
+      ];
+
+  void saveState(StateWriter w) {
+    w.section('md-vdp-line');
+    w.ints([
+      bitsBgWidth, maskBgWidth, maskScrollH, maskScrollV, maskTileYOffset, //
+      bitsTileV, y, yy, spriteBufIndex
+    ]);
+    w.boolean(spriteDotOverflow);
+    _sprites.forEach(w.ints);
+    w.ints(spLine);
+    for (final p in [a, b, window]) {
+      w.ints([
+        p.nameAddrBase, p.hScroll, p.yOffsetInTile, p.tileY, p.pattern, //
+        p.attr, p.hFlipXor, p.fetchedHHigh
+      ]);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-vdp-line');
+    final v = s.ints();
+    if (v.length != 9) throw const StateMismatch('md vdp line state layout');
+    bitsBgWidth = v[0];
+    maskBgWidth = v[1];
+    maskScrollH = v[2];
+    maskScrollV = v[3];
+    maskTileYOffset = v[4];
+    bitsTileV = v[5];
+    y = v[6];
+    yy = v[7];
+    spriteBufIndex = v[8];
+    spriteDotOverflow = s.boolean();
+    for (final list in _sprites) {
+      s.intsInto(list);
+    }
+    s.intsInto(spLine);
+    for (final p in [a, b, window]) {
+      final c = s.ints();
+      if (c.length != 8) throw const StateMismatch('md vdp plane state layout');
+      p.nameAddrBase = c[0];
+      p.hScroll = c[1];
+      p.yOffsetInTile = c[2];
+      p.tileY = c[3];
+      p.pattern = c[4];
+      p.attr = c[5];
+      p.hFlipXor = c[6];
+      p.fetchedHHigh = c[7];
+    }
+  }
 }
 
 extension VdpRenderer on Vdp {

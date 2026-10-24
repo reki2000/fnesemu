@@ -24,7 +24,7 @@ import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Pce implements Core {
+class Pce extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -215,6 +215,9 @@ class Pce implements Core {
       bus.sram.init('pce-cd-bram', Uint8List(0x800));
     }
   }
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) => bus.sram = sram;

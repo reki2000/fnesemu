@@ -5,6 +5,7 @@ import '../../components/sn76489/sn76489.dart';
 import '../../components/z80/bus.dart';
 import '../../components/z80/z80.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus_m68.dart';
 import 'ym2612.dart';
 
@@ -34,6 +35,22 @@ class BusZ80 implements Z80Bus {
       cpu.reset(keepCycles: true); // reset when resetReq becomes up
     }
     _reset = value;
+  }
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('md-z80-bus');
+    w.bytes(ram);
+    w.int64(bank);
+    w.boolean(_reset);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('md-z80-bus');
+    s.bytesInto(ram);
+    bank = s.int64();
+    _reset = s.boolean();
   }
 
   void onReset() {

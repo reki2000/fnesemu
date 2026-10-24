@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../state.dart';
 import '../../types.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
@@ -83,6 +84,42 @@ class Vdp2 {
 
   ImageBuffer get imageBuffer => ImageBuffer(_fbWidth, _fbHeight, _frameBuffer,
       displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth);
+
+  /// Saves VRAM, CRAM, registers, timing flags and the current output.
+  /// Decoded colors and cell caches are rebuilt on load.
+  void saveState(StateWriter w) {
+    w.section('vdp2');
+    w.bytes(vram);
+    w.bytes(cram);
+    w.ints(regs);
+    w.ints([line, frame, _fbWidth, _fbHeight]);
+    for (final b in [vblank, hblank, oddField]) {
+      w.boolean(b);
+    }
+    w.bytes(_frameBuffer.buffer
+        .asUint8List(_frameBuffer.offsetInBytes, _frameBuffer.lengthInBytes));
+  }
+
+  void loadState(StateReader s) {
+    s.section('vdp2');
+    s.bytesInto(vram);
+    s.bytesInto(cram);
+    s.intsInto(regs);
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('vdp2 state layout');
+    line = v[0];
+    frame = v[1];
+    _fbWidth = v[2];
+    _fbHeight = v[3];
+    vblank = s.boolean();
+    hblank = s.boolean();
+    oddField = s.boolean();
+    _frameBuffer = Uint32List(_fbWidth * _fbHeight);
+    s.bytesInto(_frameBuffer.buffer.asUint8List());
+    _cramMask = cramMode == 1 ? 0x7ff : 0x3ff;
+    _rebuildColors();
+    _lastCellKey = -1;
+  }
 
   void reset() {
     regs.fillRange(0, regs.length, 0);

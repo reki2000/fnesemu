@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
+import '../../state.dart';
 import '../../util/int.dart';
 
 /// 68000 bus of the sound subsystem
@@ -103,6 +104,60 @@ class Scsp {
   }
 
   bool cpuEnabled = false;
+
+  /// Saves registers, sound RAM, slots, timers, output state and the 68000
+  /// through its shared component.
+  void saveState(StateWriter w) {
+    w.section('scsp');
+    w.bytes(ram);
+    w.ints(_regs);
+    for (final s in _slots) {
+      w.ints([s.pos, s.eg, s.egFrac, s.egState, s.lfsr]);
+      w.boolean(s.active);
+      w.boolean(s.keyOn);
+    }
+    w.ints(_timer);
+    w.ints(_timerSub);
+    w.ints([_cpuClocks, _ringPtr]);
+    w.ints(_ring);
+    w.floats([_outL, _outR]);
+    w.boolean(cpuEnabled);
+    w.boolean(_prevMainIrq);
+    cpu.saveState(w);
+  }
+
+  void loadState(StateReader r) {
+    r.section('scsp');
+    r.bytesInto(ram);
+    r.intsInto(_regs);
+    for (final s in _slots) {
+      final v = r.ints();
+      if (v.length != 5) throw const StateMismatch('scsp slot state layout');
+      s.pos = v[0];
+      s.eg = v[1];
+      s.egFrac = v[2];
+      s.egState = v[3];
+      s.lfsr = v[4];
+      s.active = r.boolean();
+      s.keyOn = r.boolean();
+    }
+    r.intsInto(_timer);
+    r.intsInto(_timerSub);
+    final v = r.ints();
+    if (v.length != 2) throw const StateMismatch('scsp state layout');
+    _cpuClocks = v[0];
+    _ringPtr = v[1];
+    r.intsInto(_ring);
+    final out = r.floats();
+    if (out.length != 2) {
+      throw const StateMismatch('scsp output state layout');
+    }
+    _outL = out[0];
+    _outR = out[1];
+    cpuEnabled = r.boolean();
+    _prevMainIrq = r.boolean();
+    cpu.loadState(r);
+  }
 
   void reset() {
     ram.fillRange(0, ram.length, 0);

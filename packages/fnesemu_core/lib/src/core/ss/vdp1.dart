@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../state.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
 
@@ -48,6 +49,76 @@ class Vdp1 {
   int _userX1 = 0, _userY1 = 0, _userX2 = 0, _userY2 = 0;
 
   int _pixels = 0;
+
+  List<int> get _scalars => [
+        tvmr, fbcr, ptmr, ewdr, ewlr, ewrr,
+        edsr, lopr, copr, _drawIndex, _drawEndWait, _localX,
+        _localY, _sysClipX, _sysClipY, _userX1, _userY1, _userX2,
+        _userY2, _pixels, _pmod, _colr, _srca, _texW,
+        _texH, _dir, _endCodes, _gr, _gg, _gb
+      ];
+
+  static Uint8List _bytes(TypedData d) =>
+      d.buffer.asUint8List(d.offsetInBytes, d.lengthInBytes);
+
+  /// Saves VRAM, both frame buffers, registers and drawing latches.
+  void saveState(StateWriter w) {
+    w.section('vdp1');
+    w.bytes(vram);
+    for (final fb in _fb) {
+      w.bytes(_bytes(fb));
+    }
+    w.ints(_scalars);
+    w.ints(_grd);
+    w.boolean(_manualChange);
+    w.boolean(_manualErase);
+  }
+
+  void loadState(StateReader s) {
+    s.section('vdp1');
+    s.bytesInto(vram);
+    for (final fb in _fb) {
+      s.bytesInto(_bytes(fb));
+    }
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('vdp1 state layout');
+    }
+    var i = 0;
+    tvmr = v[i++];
+    fbcr = v[i++];
+    ptmr = v[i++];
+    ewdr = v[i++];
+    ewlr = v[i++];
+    ewrr = v[i++];
+    edsr = v[i++];
+    lopr = v[i++];
+    copr = v[i++];
+    _drawIndex = v[i++];
+    _drawEndWait = v[i++];
+    _localX = v[i++];
+    _localY = v[i++];
+    _sysClipX = v[i++];
+    _sysClipY = v[i++];
+    _userX1 = v[i++];
+    _userY1 = v[i++];
+    _userX2 = v[i++];
+    _userY2 = v[i++];
+    _pixels = v[i++];
+    _pmod = v[i++];
+    _colr = v[i++];
+    _srca = v[i++];
+    _texW = v[i++];
+    _texH = v[i++];
+    _dir = v[i++];
+    _endCodes = v[i++];
+    _gr = v[i++];
+    _gg = v[i++];
+    _gb = v[i++];
+    s.intsInto(_grd);
+    _manualChange = s.boolean();
+    _manualErase = s.boolean();
+  }
 
   void reset() {
     tvmr = 0;

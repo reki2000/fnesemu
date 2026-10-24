@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../cdrom.dart';
+import '../../state.dart';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 
@@ -151,6 +152,116 @@ class CdBlock {
   final cdda = Int16List(588 * 2 * 16);
   int cddaWrite = 0;
   int cddaRead = 0;
+
+  List<int> get _scalars => [
+        hirq, hirqMask, _status, _cdConn, _lastDest, _getLength,
+        _fad, _playStart, _playEnd, _repeat, _sectorWait, _periodicWait,
+        _xferPos, _lastXferWords, _actualSize, _rootFad, _rootSize, cddaWrite,
+        cddaRead
+      ];
+
+  List<bool> get _flags => [
+        _started, _responseRead, _playing, _readingFile, _standardSpeed,
+        _xferActive, _retryCommand, _rootPending
+      ];
+
+  /// Saves the host interface, play and transfer state, buffered sectors,
+  /// filters, the directory and CD-DA. The drive is not part of the state;
+  /// the loading core must hold the same disc.
+  void saveState(StateWriter w) {
+    w.section('cdblock');
+    w.ints(cr);
+    w.ints(_cmd);
+    w.ints(_scalars);
+    _flags.forEach(w.boolean);
+    for (final part in _partitions) {
+      w.int32(part.length);
+      for (final b in part) {
+        w.int64(b.fad);
+        w.bytes(b.raw);
+      }
+    }
+    for (final f in _filters) {
+      w.ints([f.fad, f.range, f.mode, f.fn, f.cn, f.smMask, f.smVal, //
+        f.ciMask, f.ciVal, f.trueConn, f.falseConn]);
+    }
+    w.bytes(_xfer);
+    w.int32(_dirEntries.length);
+    for (final e in _dirEntries) {
+      w.ints([e.fad, e.size, e.unitSize, e.gapSize, e.fileNo, e.attr]);
+      w.string(e.name);
+    }
+    w.ints(cdda);
+  }
+
+  void loadState(StateReader s) {
+    s.section('cdblock');
+    s.intsInto(cr);
+    s.intsInto(_cmd);
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('cd block state layout');
+    }
+    var i = 0;
+    hirq = v[i++];
+    hirqMask = v[i++];
+    _status = v[i++];
+    _cdConn = v[i++];
+    _lastDest = v[i++];
+    _getLength = v[i++];
+    _fad = v[i++];
+    _playStart = v[i++];
+    _playEnd = v[i++];
+    _repeat = v[i++];
+    _sectorWait = v[i++];
+    _periodicWait = v[i++];
+    _xferPos = v[i++];
+    _lastXferWords = v[i++];
+    _actualSize = v[i++];
+    _rootFad = v[i++];
+    _rootSize = v[i++];
+    cddaWrite = v[i++];
+    cddaRead = v[i++];
+    _started = s.boolean();
+    _responseRead = s.boolean();
+    _playing = s.boolean();
+    _readingFile = s.boolean();
+    _standardSpeed = s.boolean();
+    _xferActive = s.boolean();
+    _retryCommand = s.boolean();
+    _rootPending = s.boolean();
+    for (final part in _partitions) {
+      part.clear();
+      for (var n = s.int32(); n > 0; n--) {
+        final fad = s.int64();
+        part.add(_Block(Uint8List.fromList(s.bytes()), fad));
+      }
+    }
+    for (final f in _filters) {
+      final c = s.ints();
+      if (c.length != 11) throw const StateMismatch('cd filter state layout');
+      f.fad = c[0];
+      f.range = c[1];
+      f.mode = c[2];
+      f.fn = c[3];
+      f.cn = c[4];
+      f.smMask = c[5];
+      f.smVal = c[6];
+      f.ciMask = c[7];
+      f.ciVal = c[8];
+      f.trueConn = c[9];
+      f.falseConn = c[10];
+    }
+    _xfer = Uint8List.fromList(s.bytes());
+    _dirEntries.clear();
+    for (var n = s.int32(); n > 0; n--) {
+      final e = s.ints();
+      if (e.length != 6) throw const StateMismatch('cd file state layout');
+      _dirEntries
+          .add(_FileEntry(e[0], e[1], e[2], e[3], e[4], e[5], s.string()));
+    }
+    s.intsInto(cdda);
+  }
 
   void reset() {
     hirq = _cmok | _dchg | _esel | _ehst | _ecpy | _efls;

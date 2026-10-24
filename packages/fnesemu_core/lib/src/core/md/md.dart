@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../components/m68k/cpu.dart';
 import '../../components/m68k/disasm.dart';
@@ -15,6 +17,7 @@ import '../../util/debug.dart';
 import '../../util/disasm.dart';
 import '../../util/double.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import '32x/bus_m68.dart';
 import '32x/md_32x.dart';
@@ -33,7 +36,7 @@ final _log = DebugLog('md');
 // signature bytes, as character codes
 const mdBootSignature = '\x53\x45\x47\x41\x20\x42\x4f\x4f\x54';
 
-class Md implements Core {
+class Md extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -63,6 +66,37 @@ class Md implements Core {
   MdCdrom? get cdrom => busM68.cdrom;
   final bool cdBoot;
   final bool expansionBoot;
+  final bool sh2Jit;
+  final int sh2SliceClocks;
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics sync* {
+    for (final cpu in expansion?.cpus ?? const []) {
+      if (cpu.jit != null) yield cpu.jit!.diagnostics;
+    }
+  }
+
+  @override
+  bool get jitEnabled =>
+      expansion?.cpus.any((cpu) => cpu.jit?.native == true) ?? false;
+  @override
+  bool get jitSuspended =>
+      expansion?.cpus.any((cpu) => cpu.jit?.suspended ?? false) ?? false;
+  @override
+  set jitSuspended(bool value) {
+    for (final cpu in expansion?.cpus ?? const []) {
+      cpu.jit?.suspended = value;
+    }
+  }
+
+  @override
+  int get cpuClocks =>
+      expansion?.cpus.fold<int>(0, (sum, cpu) => sum + cpu.clocks) ?? 0;
+  @override
+  int get jitClocks =>
+      expansion?.cpus
+          .fold<int>(0, (sum, cpu) => sum + (cpu.jit?.compiledClocks ?? 0)) ??
+      0;
+
   Md32x? get expansion =>
       busM68 is Md32xBus ? (busM68 as Md32xBus).adapter : null;
   int get _shCpuBase => cdrom == null ? 2 : 3;
@@ -120,9 +154,20 @@ class Md implements Core {
         if (expansion != null) CpuInfo(_shCpuBase + 1, "SH-2 slave", 32),
       ];
 
-  Md({this.cdBoot = false, this.expansionBoot = false}) {
+  Md(
+      {this.cdBoot = false,
+      this.expansionBoot = false,
+      this.sh2Jit =
+          const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
+      this.sh2SliceClocks = 32}) {
+    if (sh2SliceClocks <= 0) {
+      throw RangeError.value(sh2SliceClocks, 'sh2SliceClocks');
+    }
     busM68 = BusM68();
-    if (expansionBoot) busM68 = Md32xBus(Md32x(), busM68);
+    if (expansionBoot) {
+      busM68 =
+          Md32xBus(Md32x(jit: sh2Jit, sliceClocks: sh2SliceClocks), busM68);
+    }
     busZ80 = BusZ80();
 
     cpuM68 = M68(busM68);
@@ -145,7 +190,8 @@ class Md implements Core {
 
   void _attach32x() {
     if (expansion != null) return;
-    final adapter = Md32x()..setRom(busM68.rom.rom);
+    final adapter = Md32x(jit: sh2Jit, sliceClocks: sh2SliceClocks)
+      ..setRom(busM68.rom.rom);
     _replaceMainBus(Md32xBus(adapter, busM68));
   }
 
@@ -406,9 +452,100 @@ class Md implements Core {
   }
 
   @override
+  void dispose() => expansion?.dispose();
+
+  @override
   void setSram(Sram sram) {
     _sram = sram;
     cdrom?.setSram(sram);
+  }
+
+  static const _stateVersion = 1;
+
+  void _checkStateSupport() {
+    if (cdrom != null) {
+      throw UnsupportedError('MD CD state is not implemented');
+    }
+  }
+
+  String get _stateCore => expansion == null ? 'md' : '32x';
+
+  int get _stateMedia {
+    final w = StateWriter('md-media', 1, stateMediaHash(busM68.rom.rom));
+    final adapter = expansion;
+    w.boolean(adapter != null);
+    if (adapter != null) {
+      w.bytes(adapter.mainBoot);
+      w.bytes(adapter.masterBoot);
+      w.bytes(adapter.slaveBoot);
+      w.boolean(adapter.biosLoaded);
+      w.int64(sh2SliceClocks);
+    }
+    return stateMediaHash(w.take());
+  }
+
+  @override
+  Uint8List saveState() {
+    _checkStateSupport();
+    final w = StateWriter(_stateCore, _stateVersion, _stateMedia);
+    w.section('md');
+    w.ints([
+      _clocks,
+      _nextScanClock,
+      _fmBufferIndex,
+      _psgBufferIndex,
+      _z80DueCycles
+    ]);
+    w.boolean(_waitHBlank);
+    w.float64(_z80DueClock);
+    w.floats(_fmBuffer);
+    w.floats(_psgBuffer);
+    busM68.saveState(w);
+    busZ80.saveState(w);
+    cpuM68.saveState(w);
+    cpuZ80.saveState(w);
+    vdp.saveState(w);
+    fm.saveState(w);
+    psg.saveState(w);
+    expansion?.saveState(w);
+    return w.take();
+  }
+
+  /// A failure after header validation leaves a partially restored core;
+  /// reset it before running again.
+  @override
+  void loadState(Uint8List state) {
+    _checkStateSupport();
+    final s = StateReader(state, _stateCore, _stateVersion, _stateMedia);
+    s.section('md');
+    final clocks = List<int>.filled(5, 0);
+    s.intsInto(clocks);
+    _clocks = clocks[0];
+    _nextScanClock = clocks[1];
+    _fmBufferIndex = clocks[2];
+    _psgBufferIndex = clocks[3];
+    _z80DueCycles = clocks[4];
+    _waitHBlank = s.boolean();
+    _z80DueClock = s.float64();
+    void floatsInto(Float32List target) {
+      final values = s.floats();
+      if (values.length != target.length) {
+        throw const StateMismatch('different MD audio buffer length');
+      }
+      target.setAll(0, values);
+    }
+
+    floatsInto(_fmBuffer);
+    floatsInto(_psgBuffer);
+    busM68.loadState(s);
+    busZ80.loadState(s);
+    cpuM68.loadState(s);
+    cpuZ80.loadState(s);
+    vdp.loadState(s);
+    fm.loadState(s);
+    psg.loadState(s);
+    expansion?.loadState(s);
+    s.end();
   }
 
   /// handles reset button events

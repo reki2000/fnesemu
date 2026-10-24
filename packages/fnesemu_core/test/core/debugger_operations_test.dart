@@ -99,6 +99,22 @@ void main() {
     registerCoreModules(createInstalledCoreModules());
   });
 
+  test('normal execution caps fast cores at 60 frames per second', () async {
+    var frames = 0;
+    var measuring = false;
+    controller = CoreController((_) {}, (_) {}, (_) {
+      if (!measuring) return;
+      if (++frames == 8) unawaited(controller.stop());
+    }, Sram());
+    await controller.init('test', rom: Uint8List(1));
+    final watch = Stopwatch()..start();
+    measuring = true;
+    await controller.run();
+    watch.stop();
+    expect(frames, 8);
+    expect(watch.elapsedMicroseconds, greaterThanOrEqualTo(8 * 16667));
+  });
+
   test(
       'step waits for the advertised CPU identity and clears its temporary stop',
       () async {

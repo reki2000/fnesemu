@@ -9,10 +9,12 @@ import 'session.dart';
 
 const runUsage = """
 run <core> <media...> [options]: runs the core and writes the screen and the audio
-  -f, --frames N     frames to run (default: 600)
+  -f, --frames N     stop at absolute frame N (default: 600)
   -e, --every N      save frame_NNNNN.png every N frames (default: 60)
   -s, --start N      save the pngs only from frame N on (default: 0)
   -o, --out DIR      output directory (default: /tmp/core_headless)
+      --load-state FILE  restore state before running; continue from its frame
+      --save-state FILE  save state after the last frame
   -w, --wav          also write audio.wav (16bit pcm)
   -v, --vram         ps: also write vram.png (the whole 1024x512 VRAM)
   -t, --tty          ps: also write tty.txt (what the program writes to the tty)
@@ -22,20 +24,31 @@ run <core> <media...> [options]: runs the core and writes the screen and the aud
   writes state.txt (the core dump) at the end""";
 
 Future<void> run(List<String> args) async {
-  final o = Options.parse(args,
-      valued: {...mediaValued, "--frames", "--every", "--start", "--out"},
-      flags: {...mediaFlags, "--wav", "--vram", "--tty", "--debug"},
-      aliases: {
-        ...mediaAliases,
-        "-f": "--frames",
-        "-e": "--every",
-        "-s": "--start",
-        "-o": "--out",
-        "-w": "--wav",
-        "-v": "--vram",
-        "-t": "--tty",
-        "-d": "--debug",
-      });
+  final o = Options.parse(args, valued: {
+    ...mediaValued,
+    "--frames",
+    "--every",
+    "--start",
+    "--out",
+    "--load-state",
+    "--save-state",
+  }, flags: {
+    ...mediaFlags,
+    "--wav",
+    "--vram",
+    "--tty",
+    "--debug"
+  }, aliases: {
+    ...mediaAliases,
+    "-f": "--frames",
+    "-e": "--every",
+    "-s": "--start",
+    "-o": "--out",
+    "-w": "--wav",
+    "-v": "--vram",
+    "-t": "--tty",
+    "-d": "--debug",
+  });
   final (name, files) = coreAndFiles(o);
   final frames = o.integer("--frames", 600);
   final every = o.integer("--every", 60);
@@ -43,10 +56,16 @@ Future<void> run(List<String> args) async {
   final outDir = o["--out"] ?? "/tmp/core_headless";
 
   final s = await Session.open(name, files, o);
+  final loadState = o["--load-state"];
+  if (loadState != null) {
+    s.loadState(loadState);
+    stderr.writeln("loaded the state of frame ${s.frame}");
+  }
   final core = s.core;
   Directory(outDir).createSync(recursive: true);
   final tty = StringBuffer();
   if (core is Ps) core.cpu.onTtyLine = tty.writeln;
+  final firstFrame = s.frame;
   final sw = Stopwatch()..start();
 
   while (s.frame < frames) {
@@ -59,11 +78,14 @@ Future<void> run(List<String> args) async {
       final path = framePath(outDir, s.frame);
       savePng(core.imageBuffer(), path);
       stdout.writeln("frame ${s.frame} "
-          "(${(sw.elapsedMilliseconds / s.frame).toStringAsFixed(1)} ms/frame) "
+          "(${(sw.elapsedMilliseconds / (s.frame - firstFrame)).toStringAsFixed(1)} ms/frame) "
           "pc:${core.programCounter(0).toRadixString(16)} audio-peak:"
           "${s.peak.toStringAsFixed(3)} -> $path");
     }
   }
+
+  final saveState = o["--save-state"];
+  if (saveState != null) s.saveState(saveState);
 
   if (o.flag("--wav") && s.pcm.length > 0) {
     File("$outDir/audio.wav").writeAsBytesSync(s.wav());

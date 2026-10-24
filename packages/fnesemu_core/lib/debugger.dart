@@ -10,6 +10,10 @@ import 'src/video_debug.dart';
 /// Immutable settings and display data delivered to debugger clients.
 class DebugState {
   final bool running;
+  final bool jitEnabled;
+
+  /// Fraction of guest CPU clocks executed by compiled code in the last window.
+  final double? jitUsage;
   final bool showDebugView, showVdc, showDisasm, showMem, log;
   final int memAddress, breakPoint, breakClock, targetCpuNo;
   final String text;
@@ -28,6 +32,8 @@ class DebugState {
 
   DebugState({
     this.running = false,
+    this.jitEnabled = false,
+    this.jitUsage,
     required this.showDebugView,
     required this.showVdc,
     required this.showDisasm,
@@ -113,6 +119,7 @@ class Debugger {
     _paletteCount = paletteCount;
     _vramBits = vramBits;
     _core = core;
+    _resetJitUsage();
     _targetCpuNo = core.cpuInfos.isEmpty ? 0 : core.cpuInfos.first.no;
     _disasmAddress = List.filled(core.cpuInfos.length, 0);
     _resetTrace();
@@ -125,6 +132,7 @@ class Debugger {
   /// Controller integration: resets transient execution and tracing state.
   void reset() {
     cancelExecution();
+    _resetJitUsage();
     _breakClockEnabled = _breakClock > 0;
     _resetTrace();
     refreshVideo();
@@ -392,6 +400,7 @@ class Debugger {
 
   /// Controller integration: called when the execution loop starts.
   void executionStarted() {
+    _resetJitUsage();
     _running = true;
     pushStream();
   }
@@ -466,6 +475,29 @@ class Debugger {
     }
   }
 
+  double? _jitUsage;
+  int _lastCpuClocks = 0, _lastJitClocks = 0;
+
+  void _resetJitUsage() {
+    _jitUsage = null;
+    _lastCpuClocks = _core.cpuClocks;
+    _lastJitClocks = _core.jitClocks;
+  }
+
+  /// Controller integration: sample at the end of each FPS measurement window.
+  void sampleJitUsage() {
+    if (!_core.jitEnabled) return;
+    final cpuClocks = _core.cpuClocks, jitClocks = _core.jitClocks;
+    final total = cpuClocks - _lastCpuClocks;
+    final compiled = jitClocks - _lastJitClocks;
+    _jitUsage = total > 0 && compiled >= 0 && compiled <= total
+        ? compiled / total
+        : null;
+    _lastCpuClocks = cpuClocks;
+    _lastJitClocks = jitClocks;
+    pushStream();
+  }
+
   /// Controller integration: publish a fresh immutable display snapshot.
   void pushStream({bool frameRendered = false}) {
     if (frameRendered &&
@@ -485,6 +517,8 @@ class Debugger {
     }
     _state = DebugState(
       running: _running,
+      jitEnabled: _core.jitEnabled,
+      jitUsage: _jitUsage,
       showDebugView: _showDebugView,
       showVdc: _showVdc,
       showDisasm: _showDisasm,

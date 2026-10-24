@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus_m68.dart';
 import 'bus_z80.dart';
 import 'vdp_renderer.dart';
@@ -94,6 +95,63 @@ class Vdp {
   int hCounter = 0;
 
   int hIntCounter = 0;
+
+  /// Saves memories, registers, access and DMA state, counters, the line
+  /// renderer state and the current output, in place.
+  void saveState(StateWriter w) {
+    w.section('md-vdp');
+    w.bytes(vram);
+    w.ints(cram);
+    w.ints(vsram);
+    w.ints(reg);
+    w.ints([
+      ram, ramSize, status, interlaceMode, width, vCounter, hCounter, //
+      hIntCounter, _ctrl, _addr, _dmaMode, _dmaSrc, _dmaLength, _dmaFillValue
+    ]);
+    for (final b in [h32, ntsc, pal30, _is1st, trackOpacity, _opaque != null]) {
+      w.boolean(b);
+    }
+    w.ints(buffer);
+    if (_opaque case final opaque?) w.bytes(opaque);
+    line.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-vdp');
+    s.bytesInto(vram);
+    s.intsInto(cram);
+    s.intsInto(vsram);
+    s.intsInto(reg);
+    final v = s.ints();
+    if (v.length != 14) throw const StateMismatch('md vdp state layout');
+    ram = v[0];
+    ramSize = v[1];
+    status = v[2];
+    interlaceMode = v[3];
+    width = v[4];
+    vCounter = v[5];
+    hCounter = v[6];
+    hIntCounter = v[7];
+    _ctrl = v[8];
+    _addr = v[9];
+    _dmaMode = v[10];
+    _dmaSrc = v[11];
+    _dmaLength = v[12];
+    _dmaFillValue = v[13];
+    h32 = s.boolean();
+    ntsc = s.boolean();
+    pal30 = s.boolean();
+    _is1st = s.boolean();
+    trackOpacity = s.boolean();
+    final hasOpaque = s.boolean();
+    s.intsInto(buffer);
+    if (hasOpaque) {
+      s.bytesInto(opaque);
+    } else {
+      _opaque = null;
+    }
+    line.loadState(s);
+  }
 
   // reset
   void reset() {

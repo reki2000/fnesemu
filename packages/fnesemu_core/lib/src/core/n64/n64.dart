@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../state.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
@@ -16,9 +19,10 @@ import 'bus.dart';
 import 'cpu.dart';
 import 'disasm.dart';
 import 'graphics.dart';
+import 'jit/n64_jit.dart';
 import 'rom.dart';
 
-/// Independent N64 core with a VR4300 interpreter and GBI/audio task HLE.
+/// N64 core with recompilation, CPU fallback and graphics/audio HLE.
 class N64 extends Core {
   @override
   List<DebugVideoLayer> get videoLayers => [
@@ -54,11 +58,51 @@ class N64 extends Core {
     return canvas.raster();
   }
 
-  final bus = N64Bus();
-  late final cpu = Vr4300(bus);
+  final N64Bus bus;
+  late final Vr4300 cpu;
+  final N64Jit? jit;
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics => jit == null ? const [] : [jit!.diagnostics];
+
+  @override
+  bool get jitEnabled => jit?.native ?? false;
+  @override
+  bool get jitSuspended => jit?.suspended ?? false;
+  @override
+  set jitSuspended(bool value) => jit?.suspended = value;
+  @override
+  int get cpuClocks => cpu.clocks;
+  @override
+  int get jitClocks => jit?.compiledClocks ?? 0;
   late final graphics = N64Graphics(bus);
   late final audio = N64Audio(bus);
-  N64() {
+  N64(
+      {bool jit = const bool.fromEnvironment('JIT', defaultValue: true),
+      bool jitStatistics = const bool.fromEnvironment('N64_JIT_STATS'),
+      int? compileThreshold,
+      int? maxBlockInstructions,
+      bool jitCop1 =
+          const bool.fromEnvironment('N64_JIT_COP1', defaultValue: true),
+      bool jitNativeFpu =
+          const bool.fromEnvironment('N64_JIT_NATIVE_FPU', defaultValue: true),
+      bool jitFpu =
+          const bool.fromEnvironment('N64_JIT_FPU', defaultValue: false),
+      bool inlineJumps = const bool.fromEnvironment('N64_JIT_INLINE_JUMPS',
+          defaultValue: false)})
+      : this._(jit
+            ? N64Jit.create(
+                compileThreshold: compileThreshold,
+                statistics: jitStatistics,
+                maxBlockInstructions: maxBlockInstructions,
+                fpuHelpers: jitFpu,
+                cop1: jitCop1,
+                nativeFpu: jitCop1 && jitNativeFpu,
+                inlineJumps: inlineJumps)
+            : null);
+
+  N64._(this.jit) : bus = N64Bus(ram: jit?.ram) {
+    cpu = Vr4300(bus, registers: jit?.regs, fpu: jit?.fpu);
+    jit?.attach(cpu, bus);
     bus.onDp = (start, end) => graphics.commands(start, end);
     bus.onTask = () {
       final task = ByteData.sublistView(bus.sp, 0xfc0);
@@ -91,6 +135,7 @@ class N64 extends Core {
   void setRom(Uint8List body) {
     final rom = N64Rom(body);
     _rom = rom;
+    _mediaHash = null;
     bus.rom = rom.bytes;
     bus.sram?.init(
         'n64_${rom.bytes.sublist(0x10, 0x18).map((v) => v.x2).join()}',
@@ -101,6 +146,7 @@ class N64 extends Core {
   void reset() {
     final rom = _rom;
     if (rom == null) throw StateError('N64 ROM not loaded');
+    jit?.reset();
     bus.reset();
     graphics.reset();
     audio.reset();
@@ -138,7 +184,7 @@ class N64 extends Core {
   ExecResult runFrame(int scanlines) {
     var line = false;
     while (scanlines > 0) {
-      line = _advance(false);
+      line = _advance(false, compiled: true);
       if (cpu.stopReason != null) break;
       if (line) scanlines--;
     }
@@ -147,12 +193,20 @@ class N64 extends Core {
   }
 
   @pragma('vm:prefer-inline')
-  bool _advance(bool step) {
+  bool _advance(bool step, {bool compiled = false}) {
     final before = cpu.clocks;
     if (!step && cpu.idleLoop) {
       cpu.idle(_nextLine - cpu.clocks);
-    } else {
+      jit?.recordIdle(cpu.clocks - before);
+    } else if (step || !compiled || jit == null || jit!.suspended) {
       cpu.step();
+    } else {
+      var budget = math.min(_nextLine - cpu.clocks, cpu.clocksUntilCompare);
+      if (bus.audioCycles > 0) budget = math.min(budget, bus.audioCycles);
+      if (!jit!.run(budget)) {
+        jit!.recordCpuFallback();
+        cpu.step();
+      }
     }
     bus.tick(cpu.clocks - before);
     var line = false;
@@ -177,6 +231,47 @@ class N64 extends Core {
     _result.elapsedClocks = cpu.clocks;
     _result.stopped = cpu.stopReason != null;
     _result.scanlineRendered = line;
+  }
+
+  @override
+  void dispose() => jit?.dispose();
+
+  static const _stateVersion = 1;
+  int? _mediaHash;
+  int get _media {
+    final rom = _rom;
+    if (rom == null) throw StateError('N64 ROM not loaded');
+    return _mediaHash ??= stateMediaHash(rom.bytes);
+  }
+
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('n64', _stateVersion, _media);
+    w.section('n64');
+    w.int64(_nextLine);
+    w.int64(_frame);
+    cpu.saveState(w);
+    bus.saveState(w);
+    graphics.saveState(w);
+    audio.saveState(w);
+    return w.take();
+  }
+
+  /// A state that fails after its header leaves the core partly loaded;
+  /// reset it before running.
+  @override
+  void loadState(Uint8List state) {
+    final s = StateReader(state, 'n64', _stateVersion, _media);
+    // Compiled blocks and code protection belong to the replaced memory.
+    jit?.reset();
+    s.section('n64');
+    _nextLine = s.int64();
+    _frame = s.int64();
+    cpu.loadState(s);
+    bus.loadState(s);
+    graphics.loadState(s);
+    audio.loadState(s);
+    s.end();
   }
 
   @override

@@ -21,6 +21,16 @@ class _TestCpu extends NullCpu {
   void nmi() => nmiCount++;
 }
 
+class _SliceCpu extends _TestCpu {
+  _SliceCpu(super.bus, {super.master});
+  final budgets = <int>[];
+  @override
+  bool run(int targetClocks) {
+    budgets.add(targetClocks - clocks);
+    return super.run(targetClocks);
+  }
+}
+
 Ss _newSs() {
   final ss = Ss(cpuFactory: (bus, master) => _TestCpu(bus, master: master))
     ..setSram(Sram())
@@ -96,6 +106,38 @@ class _TestDisc {
 }
 
 void main() {
+  test('default CPU quantum is 64 clocks', () {
+    final ss = Ss(cpuFactory: (bus, master) => _SliceCpu(bus, master: master))
+      ..setSram(Sram())
+      ..setRom(Uint8List(0x80000))
+      ..reset();
+    ss.exec(false);
+    expect((ss.master as _SliceCpu).budgets.first, 64);
+    ss.dispose();
+  });
+  test('CPU quanta stop at scanlines and stepping remains one instruction', () {
+    for (final quantum in [32, 64, 128]) {
+      final ss = Ss(
+          sliceClocks: quantum,
+          cpuFactory: (bus, master) => _SliceCpu(bus, master: master))
+        ..setSram(Sram())
+        ..setRom(Uint8List(0x80000))
+        ..reset();
+      final cpu = ss.master as _SliceCpu;
+      ss.exec(false);
+      expect(cpu.clocks, ss.clocksInScanline);
+      expect(cpu.budgets.first, quantum);
+      expect(cpu.budgets.every((v) => v > 0 && v <= quantum), isTrue);
+      expect(
+          cpu.budgets.length, (ss.clocksInScanline + quantum - 1) ~/ quantum);
+      final before = cpu.clocks, calls = cpu.budgets.length;
+      ss.exec(true);
+      expect(cpu.clocks - before, 1);
+      expect(cpu.budgets.length, calls);
+      ss.dispose();
+    }
+  });
+
   group('scu', () {
     test('interrupt level and acknowledge', () {
       final ss = _newSs();

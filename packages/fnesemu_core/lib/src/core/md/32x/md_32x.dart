@@ -1,7 +1,9 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import '../../../components/sh2/jit/jit.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'pwm.dart';
 import 'sh2/sh2.dart';
 import 'video.dart';
@@ -10,7 +12,7 @@ import 'video.dart';
 class Md32x {
   static const clockHz = 53693175 * 3 ~/ 7;
   Uint8List rom = Uint8List(0);
-  final ram = Uint8List(0x40000);
+  late final Uint8List ram;
   final mainBoot = Uint8List(0x100);
   final masterBoot = Uint8List(0x800);
   final slaveBoot = Uint8List(0x400);
@@ -24,6 +26,7 @@ class Md32x {
   final _masks = [0, 0], _pending = [0, 0];
   final _fifo = Queue<int>();
   int control = 0, _bank = 0, _cycles = 0, _hcount = 0;
+  final int sliceClocks;
   bool biosLoaded = false;
   String? stoppedReason;
   bool get enabled => control.bit0;
@@ -31,11 +34,111 @@ class Md32x {
   bool get shOwnsVideo => control.bit15;
   bool get romToVram => registers[7].bit0;
 
-  Md32x() {
+  Md32x(
+      {bool jit = const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
+      this.sliceClocks = 32,
+      bool jitRegisterReads = const bool.fromEnvironment(
+          'SH2_JIT_32X_REGISTER_READS',
+          defaultValue: true)}) {
+    if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
+    final owner = jit
+        ? Sh2Jit.create(
+            maxInstructions: sliceClocks == 1 ? 1 : 24,
+            addrMask: 0x1fffffff,
+            alignMemory: false,
+            stopOnNoStore: sliceClocks == 1)
+        : null;
+    final other = owner == null
+        ? null
+        : Sh2Jit.create(
+            maxInstructions: sliceClocks == 1 ? 1 : 24,
+            addrMask: 0x1fffffff,
+            alignMemory: false,
+            stopOnNoStore: sliceClocks == 1);
+    ram = owner?.rt.alloc(0x40000) ?? Uint8List(0x40000);
+    for (final compiler in [owner, other]) {
+      compiler?.map(0x6000000, ram.length, ram, owner: owner!.rt);
+    }
     buses = [ExpansionBus(this, 0), ExpansionBus(this, 1)];
-    cpus = [Sh2(buses[0]), Sh2(buses[1], master: false)];
+    cpus = [
+      Sh2(buses[0], jit: owner),
+      Sh2(buses[1], master: false, jit: other)
+    ];
+    if (jitRegisterReads) {
+      for (var cpu = 0; cpu < cpus.length; cpu++) {
+        final index = cpu;
+        cpus[cpu].jit?.addReadHelper((address, size) {
+          final offset = address & 0x1fffffff;
+          // Communication words are plain shared storage with no read effects.
+          // Control, FIFO, video and PWM reads retain their ordinary CPU exits.
+          return address < 0x40000000 &&
+              offset >= 0x4020 &&
+              offset + size <= 0x4030;
+        },
+            (address, size) => switch (size) {
+                  1 => readSh8(address, index),
+                  2 => readSh16(address, index),
+                  _ => buses[index].read32(address),
+                },
+            guardedLiterals: true);
+      }
+    }
     pwm = ExpansionPwm(() => _raise(0));
     reset();
+  }
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('32x-adapter');
+    w.bytes(ram);
+    w.bytes(cacheData[0]);
+    w.bytes(cacheData[1]);
+    w.bytes(registers);
+    w.ints(_masks);
+    w.ints(_pending);
+    w.int64(control);
+    w.int64(_bank);
+    w.int64(_cycles);
+    w.int64(_hcount);
+    w.boolean(biosLoaded);
+    w.boolean(stoppedReason != null);
+    if (stoppedReason != null) w.string(stoppedReason!);
+    w.ints(_fifo.toList());
+    video.saveState(w);
+    pwm.saveState(w);
+    for (final cpu in cpus) {
+      cpu.saveState(w);
+    }
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('32x-adapter');
+    s.bytesInto(ram);
+    s.bytesInto(cacheData[0]);
+    s.bytesInto(cacheData[1]);
+    s.bytesInto(registers);
+    s.intsInto(_masks);
+    s.intsInto(_pending);
+    control = s.int64();
+    _bank = s.int64();
+    _cycles = s.int64();
+    _hcount = s.int64();
+    biosLoaded = s.boolean();
+    stoppedReason = s.boolean() ? s.string() : null;
+    _fifo
+      ..clear()
+      ..addAll(s.ints());
+    video.loadState(s);
+    pwm.loadState(s);
+    for (final cpu in cpus) {
+      cpu.loadState(s);
+    }
+  }
+
+  void dispose() {
+    cpus[1].jit?.dispose();
+    cpus[0].jit?.dispose();
   }
 
   void setRom(Uint8List bytes) => rom = Uint8List.fromList(bytes);
@@ -152,11 +255,17 @@ class Md32x {
       return (false, false, false);
     }
     final executed = [false, false];
-    // Alternate instructions so communication polling observes both CPUs.
+    // Bound CPU interleaving by both the quantum and the main CPU deadline.
+    // Quantum 1 retains legacy instruction alternation for comparisons.
     while (cpus.any((cpu) => cpu.clocks <= target)) {
       for (int i = 0; i < 2; i++) {
         if (cpus[i].clocks > target || (step && executed[i])) continue;
-        if (!cpus[i].exec()) {
+        final cpu = cpus[i];
+        final sliceEnd = cpu.clocks + sliceClocks;
+        final ok = step || sliceClocks == 1
+            ? cpu.exec(compiled: !step)
+            : cpu.run(sliceEnd < target + 1 ? sliceEnd : target + 1);
+        if (!ok) {
           stoppedReason =
               'SH-2 $i unsupported opcode ${cpus[i].lastOpcode.toRadixString(16)} at ${cpus[i].pc.toRadixString(16)}';
           return (false, executed[0], executed[1]);

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../state.dart';
 import '../../util/int.dart';
 
 import 'scu.dart';
@@ -29,6 +30,60 @@ class ScuDsp {
   int _loopPc = -1;
 
   int _dataAddr = 0;
+
+  List<bool> get _flags => [s, z, c, v, e, t0, executing];
+
+  void saveState(StateWriter w) {
+    w.section('scu-dsp');
+    w.ints(prog);
+    data.forEach(w.ints);
+    w.ints(ct);
+    w.ints([pc, rx, ry, p, a, alu, ra0, wa0, lop, top]);
+    w.ints([_jumpTarget, _jumpDelay, _loopPc, _dataAddr]);
+    for (final b in [..._flags, ..._inc, ..._ctWritten]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader r) {
+    r.section('scu-dsp');
+    r.intsInto(prog);
+    for (final bank in data) {
+      r.intsInto(bank);
+    }
+    r.intsInto(ct);
+    final v = r.ints(), j = r.ints();
+    if (v.length != 10 || j.length != 4) {
+      throw const StateMismatch('scu dsp state layout');
+    }
+    pc = v[0];
+    rx = v[1];
+    ry = v[2];
+    p = v[3];
+    a = v[4];
+    alu = v[5];
+    ra0 = v[6];
+    wa0 = v[7];
+    lop = v[8];
+    top = v[9];
+    _jumpTarget = j[0];
+    _jumpDelay = j[1];
+    _loopPc = j[2];
+    _dataAddr = j[3];
+    s = r.boolean();
+    z = r.boolean();
+    c = r.boolean();
+    this.v = r.boolean();
+    e = r.boolean();
+    t0 = r.boolean();
+    executing = r.boolean();
+    for (var i = 0; i < 4; i++) {
+      _inc[i] = r.boolean();
+    }
+    for (var i = 0; i < 4; i++) {
+      _ctWritten[i] = r.boolean();
+    }
+  }
 
   void reset() {
     pc = 0;

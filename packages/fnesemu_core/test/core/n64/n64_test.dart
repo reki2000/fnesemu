@@ -163,6 +163,7 @@ void main() {
 
   test('direct boot runs a ROM that configures VI and draws a red pixel', () {
     final core = N64();
+    addTearDown(core.dispose);
     core.setRom(
       cartridge([
         0x3c08a440, // lui t0, VI

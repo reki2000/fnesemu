@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 final _volumeTable = [
   32767, 26028, 20675, 16422, 13045, 10362, 8231, 6568, //
@@ -240,6 +241,64 @@ class Sn76489 {
       out[offset + i * 2] = l / 4;
       out[offset + i * 2 + 1] = r / 4;
     }
+  }
+
+  /// Saves logical PSG state; the owner saves any surrounding audio wiring.
+  void saveState(StateWriter w) {
+    w.section('sn76489');
+    w.int32(sampleHz);
+    w.int32(tones.length);
+    for (final tone in tones) {
+      w.int32(tone.freq);
+      w.int32(tone.vol);
+      w.int32(tone._counter);
+      w.boolean(tone._high);
+      w.float64(tone._vol);
+    }
+    w.int32(noise.vol);
+    w.boolean(noise.periodic);
+    w.boolean(noise.lfsr15);
+    w.int32(noise._tone2freq);
+    w.int32(noise._shift);
+    w.int32(noise._counter);
+    w.boolean(noise._high);
+    w.int32(noise._lfsr);
+    w.int32(noise._freq);
+    w.float64(noise._vol);
+    w.int32(_latch);
+    w.int32(stereo);
+    w.int64(elapsedSamples);
+  }
+
+  /// Restores into the existing PSG and preserves its Tone/Noise instances.
+  void loadState(StateReader s) {
+    s.section('sn76489');
+    final savedSampleHz = s.int32();
+    final toneCount = s.int32();
+    if (toneCount != tones.length) {
+      throw StateMismatch('tone count $toneCount, expected ${tones.length}');
+    }
+    sampleHz = savedSampleHz;
+    for (final tone in tones) {
+      tone.freq = s.int32();
+      tone.vol = s.int32();
+      tone._counter = s.int32();
+      tone._high = s.boolean();
+      tone._vol = s.float64();
+    }
+    noise.vol = s.int32();
+    noise.periodic = s.boolean();
+    noise.lfsr15 = s.boolean();
+    noise._tone2freq = s.int32();
+    noise._shift = s.int32();
+    noise._counter = s.int32();
+    noise._high = s.boolean();
+    noise._lfsr = s.int32();
+    noise._freq = s.int32();
+    noise._vol = s.float64();
+    _latch = s.int32();
+    stereo = s.int32();
+    elapsedSamples = s.int64();
   }
 
   String dump() {

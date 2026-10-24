@@ -1,8 +1,8 @@
 import 'package:fnesemu_core/src/core/snes/component/cpu.dart';
-import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/core/snes/component/ppu.dart';
 import 'package:fnesemu_core/src/core/snes/rom/snes_file.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
+import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 

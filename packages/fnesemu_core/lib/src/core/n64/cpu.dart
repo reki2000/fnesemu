@@ -1,3 +1,6 @@
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
+import '../../state.dart';
 import '../../util/int.dart';
 
 import 'bus.dart';
@@ -9,7 +12,8 @@ import 'registers.dart';
 /// Unsupported operations stop explicitly instead of behaving as NOPs.
 class Vr4300 {
   final N64Bus bus;
-  final fpu = N64Fpu();
+  JitExecutionStats? executionStats;
+  final N64Fpu fpu;
   bool _delay = false;
   int? _idleAddress;
   bool get idleLoop =>
@@ -25,16 +29,20 @@ class Vr4300 {
 
   bool _ll = false;
   int _countOffset = 0;
-  // the timer interrupt is raised when count changes to compare
+  // The timer interrupt is raised when count passes compare. Compiled
+  // blocks may overshoot a deadline, so polls check the whole range of
+  // counts since the previous poll rather than only the current count.
   int _lastCount = 0;
   bool _timerIrq = false;
-  final r = N64Registers();
+  final N64Registers r;
   final cop0 = List<int>.filled(32, 0);
   int pc = 0, nextPc = 4, clocks = 0;
   int hi = 0, lo = 0;
   String? stopReason;
 
-  Vr4300(this.bus);
+  Vr4300(this.bus, {N64Registers? registers, N64Fpu? fpu})
+      : r = registers ?? N64Registers(),
+        fpu = fpu ?? N64Fpu();
 
   void reset(int entry) {
     r.fillRange(0, 32, 0);
@@ -126,17 +134,110 @@ class Vr4300 {
     _ll = false;
   }
 
+  void saveState(StateWriter w) {
+    w.section('vr4300');
+    w.ints(r);
+    w.ints(cop0);
+    for (final v in [pc, nextPc, clocks, hi, lo, _countOffset, _lastCount]) {
+      w.int64(v);
+    }
+    w.int64(_idleAddress ?? -1);
+    for (final b in [_delay, _ll, _timerIrq, stopReason != null]) {
+      w.boolean(b);
+    }
+    w.string(stopReason ?? '');
+    fpu.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('vr4300');
+    final registers = s.ints();
+    for (var i = 0; i < 32; i++) {
+      r[i] = registers[i];
+    }
+    s.intsInto(cop0);
+    pc = s.int64();
+    nextPc = s.int64();
+    clocks = s.int64();
+    hi = s.int64();
+    lo = s.int64();
+    _countOffset = s.int64();
+    _lastCount = s.int64();
+    final idle = s.int64();
+    _idleAddress = idle < 0 ? null : idle;
+    _delay = s.boolean();
+    _ll = s.boolean();
+    _timerIrq = s.boolean();
+    final stopped = s.boolean();
+    final reason = s.string();
+    stopReason = stopped ? reason : null;
+    fpu.loadState(s);
+  }
+
   int get count => (clocks ~/ 2 + _countOffset).mask32;
-  void step() {
-    if (stopReason != null) return;
+  // A deadline for compiled execution; a block may run past it.
+  int get clocksUntilCompare {
+    final delta = (cop0[11] - count).mask32;
+    return delta == 0 ? 0x200000000 : delta * 2 - (clocks & 1);
+  }
+
+  bool prepareCompiled() {
+    if (stopReason != null || _delay || nextPc != (pc + 4).mask32) return false;
+    _pollInterrupts();
+    return !(cop0[12].mask3 == 1 && cop0[12] & cop0[13] & 0xff00 != 0);
+  }
+
+  void _pollInterrupts() {
     final c = count;
     if (c != _lastCount) {
-      if (c == cop0[11]) _timerIrq = true;
+      final passed = (c - _lastCount).mask32;
+      final untilCompare = (cop0[11] - _lastCount).mask32;
+      if (untilCompare != 0 && untilCompare <= passed) _timerIrq = true;
       _lastCount = c;
     }
     cop0[13] = (cop0[13] & ~0x8400) |
         (bus.interruptPending ? 0x400 : 0) |
         (_timerIrq ? 0x8000 : 0);
+  }
+
+  void step() {
+    final stats = executionStats;
+    if (stats == null) return _step();
+    if (stopReason != null) return;
+    final at = pc, before = clocks;
+    final opcode = stats.opcodeAt(at);
+    stats.beginCpuStep();
+    try {
+      _step();
+    } finally {
+      stats.endCpuStep();
+      stats.recordCpuStep(at, opcode, clocks - before);
+    }
+  }
+
+  int _read(int address, int size) {
+    executionStats?.recordMemory(address, size);
+    return bus.read(address, size);
+  }
+
+  int _read8(int address) {
+    executionStats?.recordMemory(address, 1);
+    return bus.read8(address);
+  }
+
+  void _write(int address, int value, int size) {
+    executionStats?.recordMemory(address, size, write: true);
+    bus.write(address, value, size);
+  }
+
+  void _write8(int address, int value) {
+    executionStats?.recordMemory(address, 1, write: true);
+    bus.write8(address, value);
+  }
+
+  void _step() {
+    if (stopReason != null) return;
+    _pollInterrupts();
     if (cop0[12].mask3 == 1 && cop0[12] & cop0[13] & 0xff00 != 0 && !_delay) {
       exception(0, pc, false);
       clocks++;
@@ -147,6 +248,7 @@ class Vr4300 {
     _delay = false;
     try {
       aligned(pc, 4);
+      executionStats?.recordMemory(pc, 4, fetch: true);
       final op = bus.fetch(pc);
       pc = nextPc;
       nextPc = (nextPc + 4).mask32;
@@ -181,22 +283,22 @@ class Vr4300 {
           );
       int load64() {
         aligned(a, 8);
-        return bus.read(a, 4) << 32 | bus.read(a + 4, 4);
+        return _read(a, 4) << 32 | _read(a + 4, 4);
       }
 
       void loadWord(int size, bool signed) {
         aligned(a, size);
-        final value = bus.read(a, size);
+        final value = _read(a, size);
         putWord(t, signed ? value.toSigned(size * 8) : value);
       }
 
       void store(int size) {
         aligned(a, size);
         if (size <= 4) {
-          bus.write(a, lowWord(t), size);
+          _write(a, lowWord(t), size);
         } else {
-          bus.write(a, r[t] >>> 32, 4);
-          bus.write(a + 4, lowWord(t), 4);
+          _write(a, r[t] >>> 32, 4);
+          _write(a + 4, lowWord(t), 4);
         }
       }
 
@@ -396,7 +498,12 @@ class Vr4300 {
             putWord(t, d == 9 ? count : cop0[d]);
           } else if (s == 4 || s == 5) {
             final v = lowWord(t).mask32;
-            if (d == 9) _countOffset = v - clocks ~/ 2;
+            if (d == 9) {
+              _countOffset = v - clocks ~/ 2;
+              // A write is not an increment: the next range starts at the
+              // written count, which still matches compare when equal to it.
+              _lastCount = (v - 1).mask32;
+            }
             if (d == 11) _timerIrq = false;
             if (d == 13) {
               cop0[d] = (cop0[d] & ~0x300) | (v & 0x300);
@@ -459,11 +566,11 @@ class Vr4300 {
               size, (i) => (r[t] >>> (size - 1 - i) * 8).mask8);
           if (left) {
             for (var i = offset; i < size; i++) {
-              bytes[i - offset] = bus.read8(base + i);
+              bytes[i - offset] = _read8(base + i);
             }
           } else {
             for (var i = 0; i <= offset; i++) {
-              bytes[size - 1 - offset + i] = bus.read8(base + i);
+              bytes[size - 1 - offset + i] = _read8(base + i);
             }
           }
           var value = 0;
@@ -499,7 +606,7 @@ class Vr4300 {
           loadWord(2, false);
         case 39:
           aligned(a, 4);
-          put(t, bus.read(a, 4).mask32);
+          put(t, _read(a, 4).mask32);
         case 42:
         case 46:
         case 44:
@@ -510,7 +617,7 @@ class Vr4300 {
           final base = a - offset;
           for (var i = left ? offset : 0; i < (left ? size : offset + 1); i++) {
             final index = left ? i - offset : size - 1 - offset + i;
-            bus.write8(base + i, (r[t] >>> (size - 1 - index) * 8).mask8);
+            _write8(base + i, (r[t] >>> (size - 1 - index) * 8).mask8);
           }
         case 48:
           loadWord(4, true);
@@ -527,16 +634,16 @@ class Vr4300 {
           _ll = false;
         case 49:
           aligned(a, 4);
-          fpu.setWord(t, bus.read(a, 4));
+          fpu.setWord(t, _read(a, 4));
         case 53:
           fpu.setLong(t, load64());
         case 57:
           aligned(a, 4);
-          bus.write(a, fpu.word(t), 4);
+          _write(a, fpu.word(t), 4);
         case 61:
           aligned(a, 8);
           for (var i = 0; i < 8; i++) {
-            bus.write8(a + i, (fpu.long(t) >>> (7 - i) * 8).mask8);
+            _write8(a + i, (fpu.long(t) >>> (7 - i) * 8).mask8);
           }
         case 40:
           store(1);

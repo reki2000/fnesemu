@@ -1,4 +1,5 @@
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 import 'bus.dart';
 
@@ -409,6 +410,44 @@ class M68 {
     _assertedIntLevel = 0;
     _pendingIntLevels = 0;
     _halt = false;
+  }
+
+  /// Saves logical CPU state; the owning adapter saves its bus and memory.
+  void saveState(StateWriter w) {
+    w.section('m68k');
+    w.ints(d);
+    w.ints(a.a);
+    w.int64(a.ssp);
+    w.int64(a.usp);
+    w.boolean(a.sf);
+    w.int64(_pc);
+    w.int64(pc0);
+    w.int64(op0);
+    w.int64(addr0);
+    w.int32(_sr);
+    w.int64(clocks);
+    w.int32(_assertedIntLevel);
+    w.int32(_pendingIntLevels);
+    w.boolean(_halt);
+  }
+
+  /// Restores into the existing CPU and keeps the adapter's bus reference.
+  void loadState(StateReader s) {
+    s.section('m68k');
+    s.intsInto(d);
+    s.intsInto(a.a);
+    a.ssp = s.int64();
+    a.usp = s.int64();
+    a.sf = s.boolean();
+    _pc = s.int64();
+    pc0 = s.int64();
+    op0 = s.int64();
+    addr0 = s.int64();
+    _sr = s.int32();
+    clocks = s.int64();
+    _assertedIntLevel = s.int32();
+    _pendingIntLevels = s.int32();
+    _halt = s.boolean();
   }
 
   String dump() {

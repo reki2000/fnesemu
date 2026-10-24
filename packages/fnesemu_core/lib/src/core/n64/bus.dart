@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../state.dart';
 import '../../types.dart';
 import '../../util/int.dart';
 
@@ -19,7 +20,9 @@ class N64AddressFault implements Exception {
 
 /// RDRAM and RCP register bus with synchronous bounded DMA transfers.
 class N64Bus {
-  final ram = Uint8List(0x800000);
+  final Uint8List ram;
+
+  N64Bus({Uint8List? ram}) : ram = ram ?? Uint8List(0x800000);
   final sp = Uint8List(0x2000);
   late final ramData = ByteData.sublistView(ram);
   late final spData = ByteData.sublistView(sp);
@@ -53,6 +56,59 @@ class N64Bus {
   void Function(int, int)? onDp;
   void Function(AudioBuffer)? onAudio;
   bool get interruptPending => (mi[2] & mi[3]) != 0;
+
+  List<List<int>> get _registerFiles =>
+      [vi, pi, ai, ri, rdram, si, spRegs, dp, mi, _spNext];
+
+  /// Saves memory, registers and backup data; the ROM is not part of it.
+  void saveState(StateWriter w) {
+    w.section('bus');
+    w.bytes(ram);
+    w.bytes(sp);
+    w.bytes(pif);
+    _registerFiles.forEach(w.ints);
+    for (final entry in tlb) {
+      w.ints(entry);
+    }
+    for (final keys in held) {
+      w.int32(keys.length);
+      keys.forEach(w.string);
+    }
+    w.bytes(sram?.data ?? const <int>[]);
+    w.bytes(cartSram);
+    w.int64(scanline);
+    w.int64(spPc);
+    w.int64(audioCycles);
+  }
+
+  void loadState(StateReader s) {
+    s.section('bus');
+    s.bytesInto(ram);
+    s.bytesInto(sp);
+    s.bytesInto(pif);
+    for (final file in _registerFiles) {
+      s.intsInto(file);
+    }
+    for (final entry in tlb) {
+      s.intsInto(entry);
+    }
+    for (final keys in held) {
+      keys
+        ..clear()
+        ..addAll([for (var n = s.int32(); n > 0; n--) s.string()]);
+    }
+    final backup = s.bytes();
+    if (sram case final sram?) {
+      if (backup.length != sram.data.length) {
+        throw const StateMismatch('different backup memory size');
+      }
+      sram.data.setAll(0, backup);
+    }
+    s.bytesInto(cartSram);
+    scanline = s.int64();
+    spPc = s.int64();
+    audioCycles = s.int64();
+  }
   void interrupt(int mask) => mi[2] |= mask;
 
   void writeTlb(int index, List<int> cp) {

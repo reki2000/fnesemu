@@ -80,6 +80,15 @@ class PadPlayer {
 
   PadPlayer(this.presses, int buttons) : _held = List.filled(buttons, false);
 
+  /// sets the held buttons to those of [frame] without reporting changes,
+  /// for a core restored to the state after that frame
+  void seek(int frame) {
+    _held.fillRange(0, _held.length, false);
+    for (final (f, b, n) in presses) {
+      if (frame >= f && frame < f + n) _held[b] = true;
+    }
+  }
+
   /// calls [change] for each button that goes down or up at [frame]
   void step(int frame, void Function(int button, bool down) change) {
     final down = List<bool>.filled(_held.length, false);

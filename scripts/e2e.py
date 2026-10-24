@@ -325,26 +325,31 @@ def update(case: Case, out: Path, say):
 def source_hash() -> str:
     """A hash of the sources that the compiled runner depends on."""
     h = hashlib.sha256()
+    h.update(b"cli-native-assets-v1")
     files = [CORE_PKG / "pubspec.lock"] + sorted((CORE_PKG / "lib").rglob("*.dart")) + sorted((CORE_PKG / "tool").rglob("*.dart"))
+    for package in ("mp_jit_recompiler", "cdrom_image", "mp_pixel_image"):
+        root = CORE_PKG.parent / package
+        files += [root / "pubspec.yaml"]
+        for directory, suffix in (("lib", "*.dart"), ("hook", "*.dart"), ("src", "*.c")):
+            files += sorted((root / directory).rglob(suffix))
     for f in files:
-        h.update(str(f.relative_to(CORE_PKG)).encode())
+        h.update(str(f.relative_to(CORE_PKG.parent)).encode())
         h.update(f.read_bytes())
     return h.hexdigest()[:16]
 
 
 def compile_headless() -> Path:
-    """Compiles tool/core_headless.dart once (AOT), and caches the executable by the source hash.
+    """Builds tool/core_headless.dart with its native assets and caches the bundle by the source hash.
 
     Starting a compiled runner takes milliseconds, while dart run loads and compiles the sources for each case.
     """
     cache = OUT / "bin"
     cache.mkdir(parents=True, exist_ok=True)
-    exe = cache / f"core_headless-{source_hash()}"
+    bundle = cache / f"core_headless-{source_hash()}"
+    exe = bundle / "bundle" / "bin" / "core_headless"
     if not exe.exists():
-        for old in cache.glob("*-*"):
-            old.unlink()
         print("compiling tool/core_headless.dart...", flush=True)
-        r = subprocess.run(["dart", "compile", "exe", "tool/core_headless.dart", "-o", str(exe)],
+        r = subprocess.run(["dart", "build", "cli", "-t", "tool/core_headless.dart", "-o", str(bundle)],
                            cwd=CORE_PKG, capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit(f"cannot compile tool/core_headless.dart:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")

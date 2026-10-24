@@ -20,7 +20,7 @@ import 'ppu.dart';
 /// Stage 1: integrates ARM7TDMI + memory bus into the Core abstraction and
 /// produces a (blank) 240x160 frame. CPU decode, PPU and APU are added in
 /// later stages.
-class Gba implements Core {
+class Gba extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -201,6 +201,9 @@ class Gba implements Core {
 
   @override
   void setCdromDrive(CdromDrive drive) {}
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) => _sram = sram;

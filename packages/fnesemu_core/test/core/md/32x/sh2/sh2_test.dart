@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/src/components/sh2/jit/jit.dart';
 import 'package:fnesemu_core/src/core/md/32x/sh2/sh2.dart';
 import 'package:test/test.dart';
 
 class MemoryBus implements Sh2Bus {
-  final ram = Uint8List(0x10000);
+  final Uint8List ram;
+  MemoryBus([Uint8List? ram]) : ram = ram ?? Uint8List(0x10000);
   late final bytes = ByteData.sublistView(ram);
   @override
   int read8(int address) => ram[address & 0xffff];
@@ -29,6 +31,67 @@ class MemoryBus implements Sh2Bus {
 }
 
 void main() {
+  final probe = Sh2Jit.create();
+  final nativeSupported = probe != null;
+  probe?.dispose();
+  for (final native in [false, true]) {
+    test('compiled arithmetic division and PR stack agree with CPU ($native)',
+        () {
+      const base = 0x06000000;
+      final jit = Sh2Jit.create(native: native, compileThreshold: 1)!;
+      addTearDown(jit.dispose);
+      final actualBus = MemoryBus(jit.rt.alloc(0x10000));
+      jit.map(base, 0x10000, actualBus.ram);
+      final expectedBus = MemoryBus();
+      final actual = Sh2(actualBus, jit: jit);
+      final expected = Sh2(expectedBus);
+      const code = [
+        0x312e,
+        0x312a,
+        0x612a,
+        0x312f,
+        0x312b,
+        0x2127,
+        0x3124,
+        0x3114,
+        0x4f22,
+        0x402a,
+        0x4f26,
+        0xffff
+      ];
+      actualBus.code(code, address: base);
+      expectedBus.code(code, address: base);
+      for (final cpu in [expected, actual]) {
+        cpu.pc = base;
+        cpu.r[0] = 0;
+        cpu.r[1] = 0xffffffff;
+        cpu.r[2] = 0x80000001;
+        cpu.r[15] = base + 0x1004;
+        cpu.sr = 0x3f3;
+        cpu.pr = 0x12345678;
+      }
+      expect(actual.run(code.length - 1), isTrue);
+      expect(expected.run(actual.clocks), isTrue);
+      expect(actual.r, expected.r);
+      expect((
+        actual.pc,
+        actual.clocks,
+        actual.sr,
+        actual.pr,
+        actual.lastOpcode
+      ), (
+        expected.pc,
+        expected.clocks,
+        expected.sr,
+        expected.pr,
+        expected.lastOpcode
+      ));
+      expect(actualBus.ram, expectedBus.ram);
+      expect(actual.r[15], base + 0x1004);
+      expect(actual.pr, 0x12345678);
+      if (native) expect(jit.compiledClocks, code.length - 1);
+    }, skip: native && !nativeSupported ? 'No native backend' : false);
+  }
   late MemoryBus bus;
   late Sh2 cpu;
   setUp(() {

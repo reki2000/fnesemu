@@ -116,18 +116,29 @@ class Dma {
 
   /// false when no channel is enabled and running, [exec] has nothing to do
   bool _active = true;
+  bool get active => _active;
+
+  /// Called when register writes wake an idle controller.
+  void Function()? onActivate;
+
+  void _activate() {
+    if (!_active) {
+      _active = true;
+      onActivate?.call();
+    }
+  }
 
   /// writes the channel control register of [ch], which may start it
   void setChannelCtrl(int ch, int value) {
     channels[ch].channelCtrl = value;
-    _active = true;
+    _activate();
   }
 
   int _control = 0;
   int get control => _control;
   set control(int value) {
     _control = value;
-    _active = true;
+    _activate();
     for (var ch = 0; ch < 7; ch++) {
       channels[ch].enabled = value.bit3;
       channels[ch].priority = value.mask3;

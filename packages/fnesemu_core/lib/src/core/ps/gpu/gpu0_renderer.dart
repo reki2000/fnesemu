@@ -145,12 +145,16 @@ extension Gp0Renderer on Gpu {
     }
     final c15 = c24.c15; // flat polygons are not dithered
     final semi = status.shr5.mask2;
+    final x1 = drawingX1 - drawingOffsetX;
+    final y1 = drawingY1 - drawingOffsetY;
+    final x2 = drawingX2 - drawingOffsetX;
+    final y2 = drawingY2 - drawingOffsetY;
 
-    for (int y = p0.y; y < p2.y; y++) {
+    for (int y = p0.y.max(y1), endY = p2.y.min(y2 + 1); y < endY; y++) {
       _span(p0, p1, p2, y, false);
       final x012 = _e0.x, x02 = _e1.x;
       final (left, right) = x012 > x02 ? (x02, x012) : (x012, x02);
-      for (int x = left; x < right; x++) {
+      for (int x = left.max(x1), endX = right.min(x2 + 1); x < endX; x++) {
         _plot(x, y, c15, transparent, semi);
       }
     }
@@ -167,9 +171,13 @@ extension Gp0Renderer on Gpu {
       return false;
     }
     final semi = status.shr5.mask2;
+    final x1 = drawingX1 - drawingOffsetX;
+    final y1 = drawingY1 - drawingOffsetY;
+    final x2 = drawingX2 - drawingOffsetX;
+    final y2 = drawingY2 - drawingOffsetY;
     final dithering = status.bit9;
 
-    for (int y = p0.y; y < p2.y; y++) {
+    for (int y = p0.y.max(y1), endY = p2.y.min(y2 + 1); y < endY; y++) {
       _span(p0, p1, p2, y, true);
       final swap = _e0.x > _e1.x;
       final left = swap ? _e1 : _e0;
@@ -179,7 +187,7 @@ extension Gp0Renderer on Gpu {
       final rr = right.r, rg = right.g, rb = right.b;
       final width = rx - lx;
       final half = width ~/ 2;
-      for (int x = lx; x < rx; x++) {
+      for (int x = lx.max(x1), endX = rx.min(x2 + 1); x < endX; x++) {
         // same as left.c.mix(right.c, part, width) then dither()
         final part = x - lx;
         final rest = width - part;
@@ -288,7 +296,7 @@ extension Gp0Renderer on Gpu {
     final dithering = status.bit9;
     final mr = modulateColor.r, mg = modulateColor.g, mb = modulateColor.b;
 
-    for (int y = p0.y; y < p2.y; y++) {
+    for (int y = p0.y.max(y1), endY = p2.y.min(y2 + 1); y < endY; y++) {
       _span(p0, p1, p2, y, true);
       final swap = _e0.x > _e1.x;
       final left = swap ? _e1 : _e0;
@@ -301,7 +309,7 @@ extension Gp0Renderer on Gpu {
       final half = width ~/ 2;
       final dy = y.mask2.shl2;
 
-      for (int x = lx; x < rx; x++) {
+      for (int x = lx.max(x1), endX = rx.min(x2 + 1); x < endX; x++) {
         final part = x - lx;
         final rest = width - part;
         final u = (lu * rest + ru * part) ~/ width;
