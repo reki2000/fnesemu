@@ -26,7 +26,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    uses: reki2000/mp-build-tools/.github/workflows/release.yaml@bd51435580251801bc3e439ba9b3702c913d4027
+    uses: reki2000/mp-build-tools/.github/workflows/release.yaml@db444f537148131a2c0a76e9957a8151bb179b0d
     with:
       tag: ${{ inputs.tag || github.ref_name }}
       artifact-name: fnesemu
