@@ -42,7 +42,7 @@ class N64Bus {
   static const flashOffset = 512 + 0x8000;
   bool _flashActive = false;
   int _flashMode = 0, _flashPage = 0;
-  int _flashStatus = 0;
+  int _flashStatusHigh = 0, _flashStatusLow = 0;
   int _flashRead(int i) =>
       sram != null ? sram!.read8(flashOffset + i) : flash[i];
   void _flashWrite(int i, int value) {
@@ -69,7 +69,8 @@ class N64Bus {
           for (var i = start; i < start + length; i++) {
             _flashWrite(i, 255);
           }
-          _flashStatus = 0x1111800800c2001e;
+          _flashStatusHigh = 0x11118008;
+          _flashStatusLow = 0x00c2001e;
         }
         _flashMode = 0xd2;
       case 0xa5:
@@ -78,7 +79,8 @@ class N64Bus {
           final address = _flashPage * 128 + i;
           _flashWrite(address, _flashRead(address) & _flashBuffer[i]);
         }
-        _flashStatus = 0x1111800400c2001e;
+        _flashStatusHigh = 0x11118004;
+        _flashStatusLow = 0x00c2001e;
         _flashMode = 0xd2;
       case 0xb4:
         _flashMode = 0xb4;
@@ -89,6 +91,14 @@ class N64Bus {
       case 0xd2:
         _flashMode = 0xd2;
     }
+  }
+
+  int _flashStatusByte(int offset) {
+    final high = offset & 4 == 0;
+    final word = _flashMode == 0xe1
+        ? (high ? 0x11118001 : 0x00c2001e)
+        : (high ? _flashStatusHigh : _flashStatusLow);
+    return (word >>> ((3 - (offset & 3)) * 8)) & 255;
   }
 
   static const sramOffset = 512;
@@ -135,7 +145,9 @@ class N64Bus {
     w.boolean(_flashActive);
     w.int32(_flashMode);
     w.int32(_flashPage);
-    w.int64(_flashStatus);
+    // Preserve the original little-endian 64-bit field without wide JS ints.
+    w.int32(_flashStatusLow);
+    w.int32(_flashStatusHigh);
     w.int64(scanline);
     w.int64(spPc);
     w.int64(audioCycles);
@@ -170,7 +182,8 @@ class N64Bus {
     _flashActive = s.boolean();
     _flashMode = s.int32();
     _flashPage = s.int32();
-    _flashStatus = s.int64();
+    _flashStatusLow = s.int32().mask32;
+    _flashStatusHigh = s.int32().mask32;
     scanline = s.int64();
     spPc = s.int64();
     audioCycles = s.int64();
@@ -241,9 +254,7 @@ class N64Bus {
     if (_flashActive && a >= 0x08000000 && a < 0x08020000) {
       return _flashMode == 0xf0
           ? _flashRead((a - 0x08000000) & 0x1ffff)
-          : ((_flashMode == 0xe1 ? 0x1111800100c2001e : _flashStatus) >>>
-                  ((7 - (a & 7)) * 8)) &
-              255;
+          : _flashStatusByte(a);
     }
     if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
       return _sramRead(a - 0x08000000);
@@ -381,7 +392,7 @@ class N64Bus {
       return;
     }
     if (_flashActive && size == 4 && a == 0x08000000 && _flashMode == 0xd2) {
-      _flashStatus = 0;
+      _flashStatusHigh = _flashStatusLow = 0;
       return;
     }
     if (size == 4 && a == 0x08010000) {
@@ -543,9 +554,7 @@ class N64Bus {
         if (intoRam) {
           ram[dram + i] = _flashMode == 0xf0
               ? _flashRead(((cart - 0x08000000) * 2 + i) & 0x1ffff)
-              : ((_flashMode == 0xe1 ? 0x1111800100c2001e : _flashStatus) >>>
-                      ((7 - (i & 7)) * 8)) &
-                  255;
+              : _flashStatusByte(i);
         } else if (_flashMode == 0xb4 && i < 128) {
           _flashBuffer[i] = ram[dram + i];
         }
@@ -729,7 +738,7 @@ class N64Bus {
   void reset() {
     _flashActive = false;
     _flashMode = _flashPage = 0;
-    _flashStatus = 0;
+    _flashStatusHigh = _flashStatusLow = 0;
     _flashBuffer.fillRange(0, 128, 0);
     ram.fillRange(0, ram.length, 0);
     sp.fillRange(0, sp.length, 0);

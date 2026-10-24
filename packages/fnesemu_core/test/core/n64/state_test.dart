@@ -95,6 +95,21 @@ void main() {
     expect(restored.saveState(), core.saveState());
   });
 
+  test('FlashRAM status retains the version-2 little-endian field', () {
+    final core = _core(false);
+    core.bus.write(0xa8010000, 0xa5000000, 4);
+    final writer = StateWriter('n64', 2, 0);
+    core.bus.saveState(writer);
+    final bytes = writer.take();
+    // The status is the 64-bit field before the three saved bus clocks.
+    expect(bytes.sublist(bytes.length - 32, bytes.length - 24),
+        [0x1e, 0x00, 0xc2, 0x00, 0x04, 0x80, 0x11, 0x11]);
+    final restored = _core(false)..loadState(core.saveState());
+    expect(restored.bus.read(0xa8000000, 4), 0x11118004);
+    expect(restored.bus.read(0xa8000004, 4), 0x00c2001e);
+    expect(restored.saveState(), core.saveState());
+  });
+
   test('a restored audio task retains its configured FIR filter', () {
     final core = _core(false);
     core.bus.ramWrite(0x4000, 0x4000, 2);

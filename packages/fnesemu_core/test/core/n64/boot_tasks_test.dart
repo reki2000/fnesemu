@@ -44,6 +44,13 @@ void main() {
     _dma(bus, 0x08000000, 0x1000, 8);
     expect(bus.ramRead(0x1000, 4), 0x11118001);
     expect(bus.ramRead(0x1004, 4), 0x00c2001e);
+    expect([for (var i = 0; i < 8; i++) bus.read8(0xa8000000 + i)],
+        [0x11, 0x11, 0x80, 0x01, 0x00, 0xc2, 0x00, 0x1e]);
+    _dma(bus, 0x08000000, 0x1100, 16);
+    expect(bus.ram.sublist(0x1100, 0x1110), [
+      ...bus.ram.sublist(0x1000, 0x1008),
+      ...bus.ram.sublist(0x1000, 0x1008)
+    ]);
     bus.ram.fillRange(0x2000, 0x2080, 0x5a);
     command(0xb4000000);
     _dma(bus, 0x08000000, 0x2000, 128, read: false);
