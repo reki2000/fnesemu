@@ -1,7 +1,19 @@
 part of 'cpu.dart';
 
 extension Op on M68 {
+  /// executes one instruction; an opcode that the 68000 does not define raises
+  /// the illegal instruction exception
   bool exec() {
+    try {
+      if (_execOp()) return true;
+    } on IllegalInstruction {
+      // falls through
+    }
+    illegalInstruction();
+    return true;
+  }
+
+  bool _execOp() {
     if (_halt) {
       if (0 < _assertedIntLevel) {
         _halt = false;

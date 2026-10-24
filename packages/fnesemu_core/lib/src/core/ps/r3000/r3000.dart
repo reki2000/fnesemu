@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
@@ -31,14 +33,16 @@ typedef RegNo = int;
 /// A minimal MIPS R3000 emulator in Dart.
 class R3000 {
   final BusR3000 bus;
+  JitExecutionStats? executionStats;
   late final Cop2 cop2;
 
-  R3000(this.bus) {
+  /// [regs] places the registers in memory shared with a recompiler
+  R3000(this.bus, {Uint32List? regs}) : r = regs ?? Uint32List(32) {
     cop2 = Cop2(this);
   }
 
   /// 32 general-purpose registers. Note: r0 is always 0.
-  final r = Uint32List(32);
+  final Uint32List r;
 
   int pc = 0; // the PC (actually the next instruction during execution)
   int nextPc = 0; // the PC to be executed next, reflects branch delay slot
@@ -59,9 +63,16 @@ class R3000 {
   int immediateReg = 0, immediateVal = 0;
   bool inBranchTaken = false;
   bool inBranchDelay = false;
+  // the current instruction is in the delay slot of a branch (taken or not)
+  bool inDelaySlot = false;
+  bool delaySlotTaken = false;
 
   // bios putchar() hacking
   final console = StringBuffer();
+
+  /// called with each line that the program writes to the tty (bios putchar
+  /// and write to stdout / stderr), without the line feed
+  void Function(String line)? onTtyLine;
 
   // ps-exe bianry to be sideloaded
   Uint8List exe = Uint8List(0);
@@ -77,6 +88,8 @@ class R3000 {
 
     inBranchTaken = false;
     inBranchDelay = false;
+    inDelaySlot = false;
+    delaySlotTaken = false;
 
     r.fillRange(0, 32, 0);
     hi = 0;
@@ -96,36 +109,54 @@ class R3000 {
 
   bool get _cacheIsolated => sr.bit16;
 
-  int read8(int addr) => bus.read8(addr.mask32).mask8;
+  int read8(int addr) {
+    executionStats?.recordMemory(addr.mask32, 1);
+    return bus.read8(addr.mask32).mask8;
+  }
 
   // int read16(int addr) => (addr & 0x01 != 0)
   //     ? throw ReadMisalignException(addr)
   //     : bus.read16(addr & 0xfffffffe).mask16;
-  int read16(int addr) => bus.read16(addr & 0xfffffffe).mask16;
+  int read16(int addr) {
+    executionStats?.recordMemory(addr & 0xfffffffe, 2);
+    return bus.read16(addr & 0xfffffffe).mask16;
+  }
 
   // int read32(int addr) => (addr & 0x03 != 0)
   //     ? throw ReadMisalignException(addr)
   //     : bus.read32(addr & 0xfffffffc);
-  int read32(int addr) => bus.read32(addr & 0xfffffffc);
+  int read32(int addr, {bool instruction = false}) {
+    executionStats?.recordMemory(addr & 0xfffffffc, 4, fetch: instruction);
+    return bus.read32(addr & 0xfffffffc);
+  }
 
-  void write8(int addr, int value) =>
-      _cacheIsolated ? 0 : bus.write8(addr.mask32, value.mask8);
+  void write8(int addr, int value) {
+    if (_cacheIsolated) return;
+    executionStats?.recordMemory(addr.mask32, 1, write: true);
+    bus.write8(addr.mask32, value.mask8);
+  }
 
   // void write16(int addr, int value) => (addr & 0x01 != 0)
   //     ? throw WriteMisalignException(addr)
   //     : _cacheIsolated
   //         ? 0
   //         : bus.write16(addr & 0xfffffffe, value.mask16);
-  void write16(int addr, int value) =>
-      _cacheIsolated ? 0 : bus.write16(addr & 0xfffffffe, value.mask16);
+  void write16(int addr, int value) {
+    if (_cacheIsolated) return;
+    executionStats?.recordMemory(addr & 0xfffffffe, 2, write: true);
+    bus.write16(addr & 0xfffffffe, value.mask16);
+  }
 
   // void write32(int addr, int value) => (addr & 0x03 != 0)
   //     ? throw WriteMisalignException(addr)
   //     : _cacheIsolated
   //         ? 0
   //         : bus.write32(addr & 0xfffffffc, value.mask32);
-  void write32(int addr, int value) =>
-      _cacheIsolated ? 0 : bus.write32(addr & 0xfffffffc, value.mask32);
+  void write32(int addr, int value) {
+    if (_cacheIsolated) return;
+    executionStats?.recordMemory(addr & 0xfffffffc, 4, write: true);
+    bus.write32(addr & 0xfffffffc, value.mask32);
+  }
 
   void setInterruptPending(bool onoff) =>
       cause = cause.setBit(10, onoff); // set cop0.cuase.ip2 on
@@ -135,6 +166,21 @@ class R3000 {
   /// fixed 32-entry register file; keep that invariant with bounds checks off.
   @pragma('vm:unsafe:no-bounds-checks')
   bool step() {
+    final stats = executionStats;
+    if (stats == null) return _step();
+    final at = pc, before = clocks;
+    final opcode = stats.opcodeAt(at);
+    stats.beginCpuStep();
+    try {
+      return _step();
+    } finally {
+      stats.endCpuStep();
+      stats.recordCpuStep(at, opcode, clocks - before);
+    }
+  }
+
+  @pragma('vm:unsafe:no-bounds-checks')
+  bool _step() {
     hook();
 
     instPc = pc; // points the current instruction.
@@ -148,14 +194,19 @@ class R3000 {
     immediateReg = 0;
     immediateVal = 0;
 
-    if ((cause & sr & 0xff00 != 0) && sr.bit0 && read32(instPc).shr26 != 0x12) {
+    inDelaySlot = inBranchDelay;
+    delaySlotTaken = inBranchTaken;
+    inBranchTaken = false;
+    inBranchDelay = false;
+
+    if ((cause & sr & 0xff00 != 0) &&
+        sr.bit0 &&
+        read32(instPc, instruction: true).shr26 != 0x12) {
       // delay excaption if the current instruction is cop2
       exception(Exception.interrupt);
     } else {
       // try {
-      inBranchTaken = false;
-      inBranchDelay = false;
-      exec(read32(instPc));
+      exec(read32(instPc, instruction: true));
       // } catch (e) {
       //   if (e is ReadMisalignException) {
       //     exception(Exception.readalign, badvaddr: e.addr);
@@ -213,9 +264,9 @@ class R3000 {
       this.badvaddr = badvaddr;
     }
 
-    if (inBranchDelay) {
+    if (inDelaySlot) {
       epc = instPc.dec4.mask32;
-      cause |= 0x80000000.setBit(30, inBranchTaken);
+      cause |= 0x80000000.setBit(30, delaySlotTaken);
       tar = pc;
     } else {
       epc = instPc;
@@ -413,6 +464,8 @@ class R3000 {
 
   void jal(bool cond, RegNo rd, int addr) {
     immediate(rd, pc.inc4.mask32);
+    // The next instruction is in the delay slot even if not taken.
+    inBranchDelay = true;
 
     if (cond) {
       jump(addr);

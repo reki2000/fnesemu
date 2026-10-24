@@ -1,3 +1,7 @@
+// Reads source files to check component dependencies.
+@TestOn('vm')
+library;
+
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -45,11 +49,16 @@ void main() {
     }
   });
 
-  test('shared 68000 and ss do not depend on console implementations', () {
+  test('shared components and their users do not depend on md', () {
     final pending = [
       File('lib/src/components/m68k/cpu.dart'),
       File('lib/src/components/m68k/disasm.dart'),
+      File('lib/src/components/z80/z80.dart'),
+      File('lib/src/components/z80/z80_disasm.dart'),
+      File('lib/src/components/sn76489/sn76489.dart'),
+      File('lib/src/components/ym2413/opll.dart'),
       File('lib/src/core/ss/module.dart'),
+      File('lib/src/core/sms/module.dart'),
     ];
     final visited = <String>{};
     while (pending.isNotEmpty) {

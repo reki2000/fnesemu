@@ -61,8 +61,7 @@ extension GpuDebugger on Gpu {
         buf[index] = GpuRenderer.c15ToAbgr32[frameBuffer16[index].mask15];
       }
     }
-    final bg =
-        ImageBuffer(1024, 512, buf.buffer.asUint8List(), displayWidth_: 1024);
+    final bg = ImageBuffer(1024, 512, buf, displayWidth_: 1024);
     return bg;
   }
 }

@@ -1,19 +1,28 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../state.dart';
 import '../../types.dart';
 import '../../util/int.dart';
 
+/// a TLB exception: refill when no entry matches, modified when a valid
+/// entry is not writable, invalid otherwise
 class N64AddressFault implements Exception {
   final int address;
   final bool write;
-  const N64AddressFault(this.address, this.write);
+  final bool refill;
+  final bool modified;
+  const N64AddressFault(this.address, this.write,
+      {this.refill = false, this.modified = false});
 }
 
 /// RDRAM and RCP register bus with synchronous bounded DMA transfers.
 class N64Bus {
-  final ram = Uint8List(0x800000);
+  final Uint8List ram;
+
+  N64Bus({Uint8List? ram}) : ram = ram ?? Uint8List(0x800000);
   final sp = Uint8List(0x2000);
   late final ramData = ByteData.sublistView(ram);
   late final spData = ByteData.sublistView(sp);
@@ -40,11 +49,66 @@ class N64Bus {
   }
 
   int scanline = 0, spPc = 0;
+  // SP DMA addresses written last
+  final _spNext = Uint32List(2);
   int audioCycles = 0;
   void Function()? onTask;
   void Function(int, int)? onDp;
   void Function(AudioBuffer)? onAudio;
   bool get interruptPending => (mi[2] & mi[3]) != 0;
+
+  List<List<int>> get _registerFiles =>
+      [vi, pi, ai, ri, rdram, si, spRegs, dp, mi, _spNext];
+
+  /// Saves memory, registers and backup data; the ROM is not part of it.
+  void saveState(StateWriter w) {
+    w.section('bus');
+    w.bytes(ram);
+    w.bytes(sp);
+    w.bytes(pif);
+    _registerFiles.forEach(w.ints);
+    for (final entry in tlb) {
+      w.ints(entry);
+    }
+    for (final keys in held) {
+      w.int32(keys.length);
+      keys.forEach(w.string);
+    }
+    w.bytes(sram?.data ?? const <int>[]);
+    w.bytes(cartSram);
+    w.int64(scanline);
+    w.int64(spPc);
+    w.int64(audioCycles);
+  }
+
+  void loadState(StateReader s) {
+    s.section('bus');
+    s.bytesInto(ram);
+    s.bytesInto(sp);
+    s.bytesInto(pif);
+    for (final file in _registerFiles) {
+      s.intsInto(file);
+    }
+    for (final entry in tlb) {
+      s.intsInto(entry);
+    }
+    for (final keys in held) {
+      keys
+        ..clear()
+        ..addAll([for (var n = s.int32(); n > 0; n--) s.string()]);
+    }
+    final backup = s.bytes();
+    if (sram case final sram?) {
+      if (backup.length != sram.data.length) {
+        throw const StateMismatch('different backup memory size');
+      }
+      sram.data.setAll(0, backup);
+    }
+    s.bytesInto(cartSram);
+    scanline = s.int64();
+    spPc = s.int64();
+    audioCycles = s.int64();
+  }
   void interrupt(int mask) => mi[2] |= mask;
 
   void writeTlb(int index, List<int> cp) {
@@ -73,19 +137,17 @@ class N64Bus {
   int physical(int address, {bool write = false}) {
     final a = address.mask32;
     if (a >= 0x80000000 && a < 0xc0000000) return a & 0x1fffffff;
-    // User KUSEG is mapped; physical debugger access uses ram directly.
+    // the other segments are mapped by the TLB
     for (final e in tlb) {
       final mask = e[3] | 0x1fff;
       if ((a & ~mask) != (e[0] & ~mask)) continue;
       final page = (mask + 1) ~/ 2;
       final lo = (a & page) != 0 ? e[2] : e[1];
-      if (!lo.bit1 || (write && !lo.bit2)) break;
+      if (!lo.bit1) throw N64AddressFault(a, write);
+      if (write && !lo.bit2) throw N64AddressFault(a, write, modified: true);
       return lo.shr6.shl12 & ~(page - 1) | a & (page - 1);
     }
-    // Existing small test ROMs address low physical RAM directly.
-    if (a < ram.length) return a;
-    if (a >= 0x04000000 && a < 0x20000000) return a;
-    throw N64AddressFault(a, write);
+    throw N64AddressFault(a, write, refill: true);
   }
 
   Uint32List? registers(int a) => switch (a & 0xfff00000) {
@@ -125,6 +187,8 @@ class N64Bus {
     if (regs != null && index < regs.length) {
       var value = regs[index];
       if (regs == vi && index == 4) value = scanline * 2;
+      // PI_STATUS bit 3: the PI interrupt is pending
+      if (regs == pi && index == 4) value = (mi[2] & 16) != 0 ? 8 : 0;
       if (regs == spRegs && index == 7) {
         value = spRegs[7];
         spRegs[7] = 1;
@@ -160,6 +224,7 @@ class N64Bus {
       final regs = registers(a), index = registerIndex(a);
       if (regs != null && index < regs.length) {
         if (regs == vi && index == 4) return scanline * 2;
+        if (regs == pi && index == 4) return (mi[2] & 16) != 0 ? 8 : 0;
         if (regs == spRegs && index == 7) {
           final old = spRegs[7];
           spRegs[7] = 1;
@@ -310,11 +375,25 @@ class N64Bus {
           }
           return;
         }
+        // the SP DMA starts from the written addresses, while the registers
+        // read the current addresses, which only a DMA changes
+        if (regs == spRegs && index < 2) {
+          _spNext[index] = value;
+          return;
+        }
         regs[index] = value;
         if (regs == spRegs && (index == 2 || index == 3)) {
           _spDma(value, index == 2);
         }
-        if (regs == pi && (index == 2 || index == 3)) _piDma(value, index == 3);
+        if (regs == pi) {
+          // bit 0 of the addresses is fixed to 0, the lengths read as 0x7f
+          if (index == 0) pi[0] = value & 0xfffffe;
+          if (index == 1) pi[1] = value & 0xfffffffe;
+          if (index == 2 || index == 3) {
+            _piDma(value, index == 3);
+            pi[2] = pi[3] = 0x7f;
+          }
+        }
         if (regs == si && (index == 1 || index == 4)) {
           final dram = si[0] & 0x7fffff;
           if (dram + 64 > ram.length) throw StateError('SI DMA outside RDRAM');
@@ -344,8 +423,9 @@ class N64Bus {
 
   void _spDma(int value, bool intoSp) {
     final length = (value.mask12 | 7) + 1, count = value.shr12.mask8 + 1;
-    final skip = value.shr20.mask12;
-    var mem = spRegs[0] & 0x1ff8, dram = spRegs[1] & 0x7ffff8;
+    // RAM is accessed in 8 bytes, so the skip ignores its low 3 bits
+    final skip = value.shr20.mask12 & ~7;
+    var mem = _spNext[0] & 0x1ff8, dram = _spNext[1] & 0x7ffff8;
     final bank = mem & 0x1000;
     for (var row = 0; row < count; row++) {
       for (var i = 0; i < length; i++) {
@@ -362,6 +442,8 @@ class N64Bus {
     }
     spRegs[0] = mem;
     spRegs[1] = dram - skip;
+    // the length counts down past 0 and the count reaches 0
+    spRegs[2] = spRegs[3] = skip.shl20 | 0xff8;
   }
 
   void _piDma(int value, bool intoRam) {
@@ -371,7 +453,9 @@ class N64Bus {
     if (cart >= 0x10000000 &&
         intoRam &&
         cart - 0x10000000 + length <= rom.length) {
-      ram.setRange(dram, dram + length, rom, cart - 0x10000000);
+      _piRomDma(dram, cart, length);
+      interrupt(16);
+      return;
     } else if (cart >= 0x08000000 &&
         cart - 0x08000000 + length <= cartSram.length) {
       // cartridge SRAM (32KiB, domain 2)
@@ -393,6 +477,41 @@ class N64Bus {
     pi[1] = cart + length;
     pi[4] = 0;
     interrupt(16);
+  }
+
+  // ROM to RAM in blocks of up to 128 bytes, which do not cross a 2KiB RAM
+  // page. The first block counts its length from the 8-byte aligned RAM
+  // address, so a misaligned destination loses as many bytes at its end, and
+  // the RAM address is rounded up to 8 bytes after it. The PI bus reads
+  // halfwords, so the later blocks of odd length write one more byte.
+  void _piRomDma(int dram, int cart, int length) {
+    void copy(int to, int from, int n) {
+      final end = min(n, rom.length - from);
+      if (end > 0) ram.setRange(to, to + end, rom, from);
+    }
+
+    var rom0 = cart - 0x10000000;
+    final misalign = dram & 7;
+    final fill = min(length, min(128 - misalign, 0x800 - dram.mask11));
+    if (fill > misalign) copy(dram, rom0, fill - misalign);
+    rom0 += fill;
+    var rest = length - fill;
+    var to = (dram - misalign + fill + 7) & ~7;
+    var odd = fill.isOdd;
+
+    while (rest > 0) {
+      final block = min(rest, min(128, 0x800 - to.mask11));
+      final n = min((block + 1) & ~1, ram.length - to);
+      copy(to, rom0, n);
+      to += block.isOdd ? block + 1 : block;
+      rom0 += block;
+      rest -= block;
+      odd = block.isOdd;
+    }
+
+    pi[0] = to & 0xfffffe;
+    pi[1] = (0x10000000 + rom0 + (odd ? 1 : 0)) & 0xfffffffe;
+    pi[4] = 0;
   }
 
   void _audio(int length) {
@@ -457,6 +576,10 @@ class N64Bus {
             'B': 0x4000,
             'Z': 0x2000,
             'Start': 0x1000,
+            'D-up': 0x800,
+            'D-down': 0x400,
+            'D-left': 0x200,
+            'D-right': 0x100,
             'L': 0x20,
             'R': 0x10,
             'C-up': 8,
@@ -516,17 +639,22 @@ class N64Bus {
     for (final regs in [vi, pi, ai, ri, rdram, si, spRegs, dp, mi]) {
       regs.fillRange(0, regs.length, 0);
     }
-    for (final e in tlb) {
-      e.fillRange(0, 4, 0);
+    // the entries point to an unmapped segment, so that no address matches
+    // them until software writes the TLB
+    for (var i = 0; i < tlb.length; i++) {
+      tlb[i].fillRange(0, 4, 0);
+      tlb[i][0] = 0x80000000 + i * 0x2000;
     }
     for (final keys in held) {
       keys.clear();
     }
     scanline = 0;
     spPc = 0;
+    _spNext.fillRange(0, 2, 0);
     audioCycles = 0;
     mi[1] = 0x02020102;
     spRegs[4] = 1;
+    pi[2] = pi[3] = 0x7f;
   }
 
   /// VI raw framebuffer scanout, without filtering or interlacing.
@@ -545,26 +673,26 @@ class N64Bus {
         height <= 0 ||
         width > 640 ||
         height > 576) {
-      return ImageBuffer(320, 240, Uint8List(320 * 240 * 4));
+      return ImageBuffer(320, 240, Uint32List(320 * 240));
     }
-    final output = Uint8List(width * height * 4);
+    final output = Uint32List(width * height);
     final origin = vi[1].mask24;
     final size = mode == 2 ? 2 : 4;
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
         final source = origin + (y * stride + x) * size;
-        final target = (y * width + x) * 4;
         if (x >= stride || source + size > ram.length) continue;
+        var abgr = 0xff000000;
         if (size == 2) {
           final color = ram[source].shl8 | ram[source + 1];
           for (var c = 0; c < 3; c++) {
             final v = color.shr(11 - c * 5).mask5;
-            output[target + c] = v.shl3 | v.shr2;
+            abgr |= (v.shl3 | v.shr2) << (c * 8);
           }
         } else {
-          output.setRange(target, target + 3, ram, source);
+          abgr |= ram[source] | ram[source + 1] << 8 | ram[source + 2] << 16;
         }
-        output[target + 3] = 255;
+        output[y * width + x] = abgr;
       }
     }
     return ImageBuffer(width, height, output);

@@ -3,12 +3,13 @@ import 'dart:typed_data';
 
 import '../../components/m68k/bus.dart';
 import '../../components/m68k/cpu.dart';
+import '../../components/sn76489/sn76489.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus_z80.dart';
 import 'cd/md_cdrom.dart';
 import 'pad.dart';
 import 'rom.dart';
-import 'sn76489.dart';
 import 'vdp.dart';
 import 'ym2612.dart';
 
@@ -31,6 +32,24 @@ class BusM68 implements M68Bus {
   int region = 0x00;
 
   final Pad pad;
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('md-main-bus');
+    w.bytes(ram);
+    w.int32(region);
+    rom.saveState(w);
+    pad.saveState(w);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('md-main-bus');
+    s.bytesInto(ram);
+    region = s.int32();
+    rom.loadState(s);
+    pad.loadState(s);
+  }
 
   void onReset() {
     cpu.reset();
@@ -239,7 +258,10 @@ class BusM68 implements M68Bus {
     return switch (addr & 0xfffe) {
       0x00 =>
         region | (cdrom == null ? 0x20 : 0), // region, ntsc, no fdd, version 0
-      0x02 || 0x04 || 0x06 => pad.readData(addr.shr1.mask2.dec), // data
+      0x02 ||
+      0x04 ||
+      0x06 =>
+        pad.readData(addr.shr1.mask2.dec, cpu.clocks), // data
       0x08 || 0x0a || 0x0c => 0x00, // ctrl 1 (ctrl1)
       0x0e => 0x00, // txdata 1
       0x10 => 0x00, // rxdata 1
@@ -264,7 +286,7 @@ class BusM68 implements M68Bus {
       0x02 ||
       0x04 ||
       0x06 =>
-        pad.writeData(addr.shr1.mask2.dec, data), // data 1 (ctrl1)
+        pad.writeData(addr.shr1.mask2.dec, data, cpu.clocks), // data 1 (ctrl1)
       0x08 ||
       0x0a ||
       0x0c =>

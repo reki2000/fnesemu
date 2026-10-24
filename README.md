@@ -1,6 +1,6 @@
 # fnesemu
 
-A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64 Emulator Built with Flutter
+A Cross-Platform NES/PCE/MD/PS1/SS/GB/GBA/SNES/N64/SMS/WS Emulator Built with Flutter
 
 This project is experimental.
 
@@ -9,7 +9,7 @@ This project is experimental.
 
 # How to use 
 
-1. Visit [the demo site](https://fnesemu.codemagic.app) or access [the latest version](https://reki2000.github.io/fnesemu/) directly
+1. Visit the [stable version](https://reki2000.github.io/fnesemu/) or the [develop version](https://reki2000.github.io/fnesemu/develop/)
 1. Open the menu, choose 'CD / ROM', and select a ROM directory
 1. Choose a ROM in the list to start emulation. The menu button or Escape pauses/resumes it
 
@@ -21,17 +21,24 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-| key | Z | X | C | A | S | Q | W | E | R | D | arrows |
+| key | Z | X | C | A | S | D | Q | W | E | R | arrows |
 |-----|---|---|---|---|---|---|---|---|---|---|--------|
 | NES | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
 | PCE | II | I |  | Select | Run |  |  |  |  |  | up / down / left / right |
-| MD | A | B | C | X | Y | Mode | | Start |  | Z | up / down / left / right |
-| PS1 | # | x | o | Select | ^ | L1 | Start | R1 |  |  | up / down / left / right |
+| MD | A | B | C | X | Y | Z | Mode | | Start |  | up / down / left / right |
+| PS1 | # | x | o | Select | ^ |  | L1 | Start | R1 |  | up / down / left / right |
 | GB | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
-| GBA | A | B | L | Select | Start | R |  |  |  |  | up / down / left / right |
-| SNES | Select |  | Start | Y | B | L | X | R |  | A | up / down / left / right |
-| SS | A | B | C | L | Start | X | Y | Z | R |  | up / down / left / right |
-| N64 | B | A | Z | C-left | C-down | L | C-up | R | Start | C-right | up / down / left / right |
+| GBA | A | B | L | Select | Start |  | R |  |  |  | up / down / left / right |
+| SNES | Select |  | Start | Y | B | A | L | X | R |  | up / down / left / right |
+| SS | A | B | C | L | Start |  | X | Y | Z | R | up / down / left / right |
+| N64 | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start | up / down / left / right |
+| SMS | 1 | 2 |  |  | Pause (Start on the portable console) |  |  |  |  |  | up / down / left / right |
+| WS | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate | X1 / X3 / X4 / X2 |
+| WS (vertical) | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate | Y2 / Y4 / Y1 / Y3 |
+
+On N64, the arrows move the analog stick. The D-pad buttons (D-up, D-down, D-left, D-right) have no key and are used by the end-to-end tests.
+
+On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. Q cycles the emulated speaker volume.
 
 # How to develop
 
@@ -61,6 +68,12 @@ submodule reference here. Restore the recorded revisions with
 See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
 dependency rules.
 
+### PS1 recompiler
+
+The PS1 CPU uses `packages/mp_jit_recompiler` by default, translating R3000 code to x86-64 on Linux, Android and Windows x64 hosts, or to WebAssembly on the Web. For example, `flutter build web --wasm` includes the Web backend. WebAssembly is also used when the app itself is compiled to JavaScript. Build or run with `--dart-define=JIT=false` to use the interpreter explicitly. Other hosts, browser policies that prohibit compiling Wasm, and `PS_TRACE=true` builds keep the interpreter automatically. Linux and Windows x64 CI exercise the native backend, and browser tests exercise Wasm. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+
+Device accesses and writes to translated RAM pages return to the interpreter before the instruction executes, preserving device clocks, interrupts and self-modifying code. Ordinary RAM accesses remain native. A debugger step that stops at a branch delay slot completes that slot before entering compiled code.
+
 ### Adding or removing a core
 
 After changing core modules, regenerate the registration list:
@@ -69,50 +82,86 @@ After changing core modules, regenerate the registration list:
 cd packages/fnesemu_core && dart run tool/generate_core_registry.dart
 ```
 
-## To test 6502 emulation
+## Binary builds and releases
 
-The 6502 emulator core used in fnesemu has been validated using the Nestest ROM by comparing register and flag values against the Nestest log.
+The **Build binaries** GitHub Actions workflow tests PRs and builds Web; merges to `main` and manual runs build all supported platforms. Download its artifacts for internal verification, then tag that exact successful full-build commit to publish the same binaries to GitHub Releases without rebuilding. See [BINARY-DISTRIBUTION.md](BINARY-DISTRIBUTION.md) for the release process and optional signing secrets.
 
-To test the 6502 emulation, run the following command:
+# Tests
 
-```
-$ curl https://raw.githubusercontent.com/christopherpow/nes-test-roms/master/other/nestest.log > assets/nestest.log
-$ curl https://raw.githubusercontent.com/christopherpow/nes-test-roms/master/other/nestest.nes > assets/rom/nestest.nes
-$ make test-6502
-running fnesemu cpu test...
-loading: File: 'assets/rom/nestest.nes'
-cpu test completed successfully.
-```
+| Kind | Setup | Command | Needs |
+|---|---|---|---|
+| Unit tests | | `make test` | Dart and Flutter |
+| CPU tests | `make test-cpu-setup` | `make test-cpu` | Python 3.11+, Git |
+| End-to-end tests | `make test-e2e-setup` | `make test-e2e` | Python 3.11+, Git, Pillow, numpy (Docker for media built from source) |
+| Quick regression | | `make regress` | Dart and Flutter |
 
-## To test z80 emulation
+The setup targets fetch (or build) public test data into `.build/` directories, which Git ignores. Run them once, and again after the pinned data changes. The tests do not run the setup, and skip a test whose data is missing.
 
-get `tests.in` and `tests.expected` from [Fuse](https://fuse-emulator.sourceforge.net/), store these file to `assets`
+## Unit tests
 
-```
-$ make test-z80
-```
+Unit tests use synthesized ROMs and in-memory discs, so they need no ROM files. Core tests are in `packages/fnesemu_core/test/core/<core>/`, one file per component.
 
-## To test M68000 emulation
-
-```
-$ cd assets && git clone https://github.com/SingleStepTests/680x0.git
-$ cd ..
-$ make test-m68
+```sh
+make test                                                # all packages and the app
+cd packages/fnesemu_core && dart test                    # the cores only
+cd packages/fnesemu_core && dart test test/core/nes/     # one core
 ```
 
-## To Test R3000 emulation
+## CPU tests
+
+The CPU cores are checked instruction by instruction against public test data. Each test has a `setup.py` in `packages/fnesemu_core/test/cpu/<name>/` that fetches the data, pinned by commit or sha256; `make test-cpu-setup` runs them all.
+
+| Target | CPU | Data |
+|---|---|---|
+| `make test-6502` | 6502 (NES) | `nestest.nes` and its log from [nes-test-roms](https://github.com/christopherpow/nes-test-roms) |
+| `make test-z80` | Z80 | `tests.in` and `tests.expected` from the [Fuse](https://fuse-emulator.sourceforge.net/) 1.6.0 release |
+| `make test-m68` | 68000 | [SingleStepTests/680x0](https://github.com/SingleStepTests/680x0) (`68000/v1`, about 200MB; skips the ASR cases that disagree with hardware) |
+| `make test-r3000` | R3000 (PS1) | [SingleStepTests/r3000](https://github.com/SingleStepTests/r3000) (`v1`; registers, delay slots and memory writes, not cycles; skips misaligned loads and stores, whose address errors are not emulated) |
+| `make test-huc6280` | HuC6280 (PCE) | [SingleStepTests/huc6280](https://github.com/SingleStepTests/huc6280) (`v1`; registers, MPRs and memory, not cycles; skips ST0/ST1/ST2, which write the VDC) |
+
+`make test-cpu` runs all of them.
+
+## End-to-end tests
+
+An end-to-end case runs a core headless (`packages/fnesemu_core/tool/core_headless.dart run`) with public test media and an input, and compares its screens, audio and other outputs with expected data. The tools of the cores are listed in `packages/fnesemu_core/tool/README.md`.
 
 ```
-$ cd assets && git clone https://github.com/mshockwave/MIPS-R3000-CPU-Simulator.git
-$ cd ..
-$ make test-r3000
+packages/fnesemu_core/test/e2e/<core>/
+  e2e.toml             the cases of the core
+  <dir>/setup.py       fetches (or builds) the media and their upstream data into <dir>/.build/
+  <dir>/expected/      the expected data kept in the repository
 ```
 
-## To Test PS1 GTE emulation
+- A check compares a frame with an image under `expected/` (the current behavior) or with a reference image that the project of the media publishes (under `.build/`).
+- A PS1 test EXE that prints its results is checked by its TTY output (`tty`, compared with `expected/`); `tty_fail` is the pattern of the lines with which the test reports a failure, which count like a failing upstream reference.
+- A case whose media reports a failure records the reason in `known_failure`. Its output must still match `expected/`, so a change of behavior is detected.
+- Media that have no prebuilt release are built in a Docker image (`packages/fnesemu_core/test/docker/Dockerfile`) when the tools are not installed.
 
-```
-$ cd assets && git clone https://github.com/JaCzekanski/ps1-tests.git
-$ cd ..
-$ make test-gte 
+```sh
+make test-e2e-setup                              # fetch or build the media (python3 scripts/e2e.py setup [target...])
+make test-e2e                                    # all cases
+python3 scripts/e2e.py run nes -j 4              # one core, 4 cases in parallel
+python3 scripts/e2e.py run gb/dmg-acid2          # one case
+python3 scripts/e2e.py run nes --update          # record the outputs as expected/ after checking them
+python3 scripts/e2e.py list                      # the cases
+python3 scripts/e2e.py lint                      # paths stay in the tree, expected/ stays small
 ```
 
+Covered cores: NES, PCE, SNES, MD, SMS, GB, GBA (with a replacement BIOS), N64, WS and PS1 (test EXEs on OpenBIOS). Cases marked `slow = true` (minutes long) run only with `--slow`.
+
+`scripts/e2e.py` also helps to write a case: it tries inputs, tiles the screenshots and records the chosen frames in `e2e.toml`. An input is one line such as `@60 Start _40 ( right:300 | [A _20]*10 )`; the syntax is in `packages/fnesemu_core/tool/input_sequence.dart` and `e2e.py --help`. Every core has the button `Reset` after its own buttons, which resets the core and keeps the SRAM, for media that ask to turn the power off and on.
+
+```sh
+python3 scripts/e2e.py buttons md/vcounter       # the button names of the case
+python3 scripts/e2e.py shoot md/vcounter 360 --every 60 --input "@60 Start"   # run with an input, tile a shot every 60 frames
+python3 scripts/e2e.py session start md/vcounter # run the case frame by frame in the background, then:
+python3 scripts/e2e.py session step 300 --every 30   # advance 300 frames and tile the shots
+python3 scripts/e2e.py session press "Start _40 C"   # add presses from the next frame (logged in press.log)
+python3 scripts/e2e.py session input             # the input of the logged presses
+python3 scripts/e2e.py session stop
+python3 scripts/e2e.py set md/vcounter --frames 360 --shots 40,120,240,360 --input "@60 Start @150 C"
+```
+
+## Quick regression
+
+`make regress` runs the unit test suites of the disc image package, the cores and the app within a total time budget of 55 seconds, and fails when the budget runs out.

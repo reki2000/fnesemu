@@ -19,7 +19,7 @@ import 'ppu.dart';
 import 'video_debug.dart';
 
 /// main class of the gb core. integrates cpu/ppu/apu/timer/cartridge
-class Gb implements Core {
+class Gb extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -112,6 +112,9 @@ class Gb implements Core {
 
   @override
   void setBiosFiles(List<Uint8List> files) {}
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) {

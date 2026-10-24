@@ -8,12 +8,22 @@ import '../../../util/int.dart';
  * 384kB: bank 0x00-0x3f (0x30-0x3f is mirrored to 0x00-0x0f)
  * 512kB: bank 0x00-0x3f (0x40 * 0x2000 = 0x80000 = 512kB)
  * sf2: each 512kB = 8kB x 64banks(0x40) is mapped to bank 0x40-0x7f
+ * cartridge ram: 32kB of ram at bank 0x40-0x43
  */
+
+/// the HuCards with 32kB of RAM at the banks 0x40-0x43, by the CRC32 of the
+/// ROM without a copier header
+const ramCartridgeCrcs = {'083c956a'};
+
 class Rom {
   final List<Uint8List> banks;
 
+  /// the cartridge ram, null for the cartridges without it
+  final Uint8List? ram;
+
   // constructor to set rom data
-  Rom(this.banks) {
+  Rom(this.banks, {bool cartridgeRam = false})
+      : ram = cartridgeRam ? Uint8List(0x8000) : null {
     _updateMap();
   }
 
@@ -37,6 +47,11 @@ class Rom {
   }
 
   Uint8List? _bankOf(int bank) {
+    final ram = this.ram;
+    if (ram != null && bank >= 0x40 && bank <= 0x43) {
+      return Uint8List.sublistView(
+          ram, (bank - 0x40) * 0x2000, (bank - 0x3f) * 0x2000);
+    }
     if (bank >= banks.length) {
       return switch (banks.length) {
         0x30 => banks[bank.mask4 | 0x20], // 368kB
@@ -74,6 +89,12 @@ class Rom {
   }
 
   void write(int addr, int data) {
+    final ram = this.ram;
+    final bank = addr.shr13;
+    if (ram != null && bank >= 0x40 && bank <= 0x43) {
+      ram[(bank - 0x40) * 0x2000 + addr.mask13] = data;
+      return;
+    }
     // SF2 mapper: each 512kB = 8kB x 64banks(0x40) is mapped to bank 0x40-0x7f
     if (0x1ff0 <= addr && addr <= 0x1fff) {
       upperBankOffset = addr.mask4.shl6;

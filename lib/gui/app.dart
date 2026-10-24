@@ -161,6 +161,9 @@ class MainPageState extends State<MainPage> {
 
     _restoreDiscFolder();
 
+    _cdromWaitTimer = Timer.periodic(
+        const Duration(milliseconds: 300), (_) => _tickCdromWait());
+
     _log.infoc(() => "initialized: ${widget.config.dump()}");
   }
 
@@ -188,6 +191,8 @@ class MainPageState extends State<MainPage> {
     _padInput.dispose();
     _sramSavedTimer?.cancel();
     _sramSaved.dispose();
+    _cdromWaitTimer.cancel();
+    _cdromWaitDots.dispose();
     _mPlayer.dispose();
     _imageContainer.dispose();
     _storage.dispose();
@@ -295,8 +300,9 @@ class MainPageState extends State<MainPage> {
   Future<void> _openRomFile(RomFile item) async {
     final scan = _scan;
     if (scan == null) return;
-    if (await _isDiscImage(item, scan)) {
-      await _insertItem(item);
+    final (isDisc, system) = await _discSystemOf(item, scan);
+    if (isDisc) {
+      await _insertItem(item, system: system);
       return;
     }
     final file = scan.folder.open(item.path);
@@ -318,23 +324,28 @@ class MainPageState extends State<MainPage> {
         rom: rom, name: name, folder: _folderHistoryKey(scan), path: item.path);
   }
 
-  /// whether [item] is a disc image. a file which can be either a disc or a
-  /// ROM by its name is read to find a core which takes it as a disc.
-  Future<bool> _isDiscImage(RomFile item, ScanResult scan) async {
+  /// whether [item] is a disc image, with its system if it is already known.
+  /// a file which can be either a disc or a ROM by its name is read to find a
+  /// core which takes it as a disc, and the system found is reused to start
+  /// the disc without identifying it again.
+  Future<(bool, CoreSystem?)> _discSystemOf(
+      RomFile item, ScanResult scan) async {
     switch (DiscFileKind.of(item.path)) {
       case DiscFileKind.image:
-        return true;
+        return (true, null);
       case DiscFileKind.maybeImage:
         final drive = AsyncCdromDrive();
         try {
           await drive.insert(scan.sourceOf(item));
-          return drive.status.isReady &&
-              await CoreFactory.systemOfDisc(drive) != null;
+          final system = drive.status.isReady
+              ? await CoreFactory.systemOfDisc(drive)
+              : null;
+          return (system != null, system);
         } finally {
           await drive.eject();
         }
       default:
-        return false;
+        return (false, null);
     }
   }
 
@@ -345,7 +356,10 @@ class MainPageState extends State<MainPage> {
       required String name,
       String? folder,
       String? path}) async {
+    final watch = Stopwatch()..start();
     final bios = await _storage.bios(system.id);
+    _log.infoc(() => "loaded the BIOS of ${system.id} "
+        "in ${watch.elapsedMilliseconds}ms");
     if (!mounted) return false;
     if (system.biosRequired && bios.isEmpty) {
       AppSnackBar.show("set the BIOS of ${system.name} from Core setup");
@@ -353,7 +367,10 @@ class MainPageState extends State<MainPage> {
       return false;
     }
 
+    watch.reset();
     await _controller.init(system.id, rom: rom, bios: bios, drive: _drive);
+    _log.infoc(() => "initialized ${system.id} "
+        "in ${watch.elapsedMilliseconds}ms");
 
     _keyHandler.init();
     _romName = name;
@@ -418,8 +435,11 @@ class MainPageState extends State<MainPage> {
   /// plays the disc in the drive. the running system keeps running if it
   /// plays the disc (the disc is changed as on the real console), otherwise
   /// the system of the disc boots.
-  Future<bool> _startDisc(String name) async {
-    final system = await CoreFactory.systemOfDisc(_drive);
+  Future<bool> _startDisc(String name, {CoreSystem? system}) async {
+    final watch = Stopwatch()..start();
+    system ??= await CoreFactory.systemOfDisc(_drive);
+    _log.infoc(() => "identified $name as ${system?.id} "
+        "in ${watch.elapsedMilliseconds}ms");
     if (system == null) {
       AppSnackBar.show("unknown disc: $name");
       return false;
@@ -578,7 +598,8 @@ class MainPageState extends State<MainPage> {
   }
 
   /// inserts the image selected from the list and starts it
-  _insertItem(RomFile item, {ScanResult? sourceScan}) async {
+  _insertItem(RomFile item,
+      {ScanResult? sourceScan, CoreSystem? system}) async {
     final scan = sourceScan ?? _scan;
     if (scan == null) return;
 
@@ -588,7 +609,7 @@ class MainPageState extends State<MainPage> {
       return;
     }
 
-    if (await _startDisc(item.path)) {
+    if (await _startDisc(item.path, system: system)) {
       await _storage.recordRecent(_controller.system, item.path,
           folder: _folderHistoryKey(scan));
     }
@@ -799,6 +820,15 @@ class MainPageState extends State<MainPage> {
         const Duration(milliseconds: 1500), () => _sramSaved.value = false);
   }
 
+  // 1 to 3 while the core waits for the cdrom drive, 0 otherwise. the number
+  // of the dots changes to show that the emulation is not frozen.
+  final _cdromWaitDots = ValueNotifier<int>(0);
+  late final Timer _cdromWaitTimer;
+
+  void _tickCdromWait() {
+    _cdromWaitDots.value = _drive.isWaiting ? _cdromWaitDots.value % 3 + 1 : 0;
+  }
+
   // the same look as the fps indicator
   static Widget _badge(Widget child, {Key? key}) => DecoratedBox(
         key: key,
@@ -825,10 +855,40 @@ class MainPageState extends State<MainPage> {
           ),
         ),
         const SizedBox(width: 6),
+        ValueListenableBuilder<int>(
+          valueListenable: _cdromWaitDots,
+          builder: (context, dots, _) => dots == 0
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _badge(
+                      Text('loading${'.' * dots}',
+                          style: const TextStyle(color: Colors.white)),
+                      key: const ValueKey('cdrom-loading')),
+                ),
+        ),
+        StreamBuilder<DebugState>(
+          stream: _controller.debugger.debugStream.distinct((a, b) =>
+              a.jitEnabled == b.jitEnabled && a.jitUsage == b.jitUsage),
+          initialData: _controller.debugger.state,
+          builder: (context, snapshot) => snapshot.data?.jitEnabled == true
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _badge(
+                      Text(
+                          snapshot.data?.jitUsage == null
+                              ? 'JIT'
+                              : 'JIT${(snapshot.data!.jitUsage! * 100).toStringAsFixed(0).padLeft(3)}%',
+                          style: const TextStyle(color: Colors.white)),
+                      key: const ValueKey('jit-indicator')),
+                )
+              : const SizedBox.shrink(),
+        ),
         StreamBuilder<double>(
           stream: _controller.fpsStream,
           builder: (context, snapshot) => _badge(
-              Text('${(snapshot.data ?? 0.0).toStringAsFixed(1)} fps',
+              Text(
+                  '${(snapshot.data ?? 0.0).toStringAsFixed(1).padLeft(4)} fps',
                   style: const TextStyle(color: Colors.white)),
               key: const ValueKey('fps-indicator')),
         ),

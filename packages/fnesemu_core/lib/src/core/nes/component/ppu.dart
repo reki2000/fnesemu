@@ -164,15 +164,18 @@ class Ppu {
           // v: <...all bits...> <- t: <...all bits...>
           tmpVramAddr = (tmpVramAddr & 0xff00) | val;
           vramAddr = tmpVramAddr;
+          bus.mapper.ppuAddressBus(vramAddr.mask14);
           first = true;
         }
         break;
 
       case 0x2007: // vram access
         bus.mapper.fetchPhase = Mapper.fetchCpu;
+        bus.mapper.ppuAddressBus(vramAddr.mask14);
         writeVram(vramAddr.mask14, val);
         bus.mapper.fetchPhase = Mapper.fetchBg;
         vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)).mask15;
+        bus.mapper.ppuAddressBus(vramAddr.mask14);
         break;
 
       default:
@@ -195,6 +198,7 @@ class Ppu {
       case 0x2007:
         final addr = vramAddr.mask14;
         bus.mapper.fetchPhase = Mapper.fetchCpu;
+        bus.mapper.ppuAddressBus(addr);
         var data = readVram(addr);
         if (addr < 0x3f00) {
           final swap = vramBuffer;
@@ -206,6 +210,7 @@ class Ppu {
         }
         bus.mapper.fetchPhase = Mapper.fetchBg;
         vramAddr = (vramAddr + (vramIncrement() ? 32 : 1)).mask15;
+        bus.mapper.ppuAddressBus(vramAddr.mask14);
         return data;
 
       default:
@@ -247,6 +252,13 @@ class Ppu {
       return;
     }
 
+    // renderLine() fetches the sprites of the previous line, so the sprite
+    // fetches at dot 257-320 of line 239 are done here. mappers like MMC3
+    // count the A12 edges.
+    if (scanLine == 240 && (showBg() || showSprite())) {
+      readVram(objTable() || objSize16() ? 0x1000 : 0x0000);
+    }
+
     scanLine++;
 
     if (scanLine == 241) {
@@ -257,6 +269,11 @@ class Ppu {
     } else if (scanLine == hardware.scanlinesInFrame - 1) {
       detectObj0 = false;
       isVBlank = false;
+
+      // dot 1-256 of the pre-render line: background fetches
+      if (showBg() || showSprite()) {
+        readVram(bgTable() ? 0x1000 : 0x0000);
+      }
     } else if (scanLine == hardware.scanlinesInFrame) {
       scanLine = 0;
     }

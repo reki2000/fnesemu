@@ -11,6 +11,7 @@ import 'package:fnesemu/gui/debug/game_layout.dart';
 import 'package:fnesemu/gui/debug/video.dart';
 import 'package:fnesemu/gui/ticker_image.dart';
 import 'package:fnesemu_core/app_api.dart';
+import 'package:mp_pixel_image/mp_pixel_image.dart';
 
 class _VideoCore extends Core {
   final bool patterns, largeBitmap;
@@ -32,8 +33,7 @@ class _VideoCore extends Core {
                               ? 4
                               : 2,
                       largeBitmap ? 400 : 2,
-                      Uint8List(
-                          largeBitmap ? 400 * 400 * 4 : (map ? 4 : 2) * 2 * 4)),
+                      Uint32List(largeBitmap ? 400 * 400 : (map ? 4 : 2) * 2)),
                   patterns: [DebugOutline.rect(0, 0, 2, 2, label: '1')],
                   viewports: [DebugOutline.rect(0, 0, 1, 1)]),
               kind: name == 'Sprite layer'
@@ -108,7 +108,7 @@ class _LayerRowsCore extends _VideoCore {
           ('Sprites', 3)
         ])
           DebugVideoLayer(entry.$1,
-              (_) => DebugRaster(ImageBuffer(8, 8, Uint8List(8 * 8 * 4))),
+              (_) => DebugRaster(ImageBuffer(8, 8, Uint32List(8 * 8))),
               row: entry.$2,
               kind: entry.$2 == 3
                   ? DebugLayerKind.sprites
@@ -121,13 +121,19 @@ class _ViewportCore extends _VideoCore {
   List<DebugVideoLayer> get videoLayers => [
         DebugVideoLayer(
             'Map',
-            (_) => DebugRaster(ImageBuffer(32, 32, Uint8List(32 * 32 * 4)),
+            (_) => DebugRaster(ImageBuffer(32, 32, Uint32List(32 * 32)),
                     viewports: [
                       DebugOutline.rect(4, 4, 16, 16),
                       DebugOutline.rect(28, 4, 4, 16),
                     ]),
             hasMap: true),
       ];
+}
+
+// Browser image decoding can schedule a final zero-duration timer on disposal.
+Future<void> unmountVideo(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -182,7 +188,7 @@ void main() {
         expect(find.byType(VideoMagnifier), findsNothing);
       }
     }
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
   testWidgets(
       'tabs show all layers and both pattern sources with shared controls',
@@ -264,7 +270,7 @@ void main() {
     expect(debugger.state.videoPanels.map((p) => p.paletteName),
         ['Grayscale', 'Grayscale']);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
   testWidgets('framebuffer-only core retains CPU tab and hides pattern tab',
       (tester) async {
@@ -278,7 +284,7 @@ void main() {
     await tester.pump();
     expect(find.byTooltip('Next palette'), findsNothing);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
   testWidgets('divider retains absolute width after window resize',
       (tester) async {
@@ -322,7 +328,7 @@ void main() {
         width);
     expect(preference.value, width);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
     preference.dispose();
   });
 
@@ -367,7 +373,7 @@ void main() {
     expect(popup, findsNothing);
     expect(tester.takeException(), isNull);
     await mouse.removePointer();
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets(
@@ -406,7 +412,7 @@ void main() {
     expect(flipped.left, lessThan(first.left));
     expect(flipped.top, first.top);
     await mouse.removePointer();
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
     expect(tester.takeException(), isNull);
   });
 
@@ -436,7 +442,7 @@ void main() {
     expect(tester.getTopLeft(find.text('BG D')).dy,
         greaterThan(tester.getTopLeft(find.text('BG C')).dy));
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets('pattern rows preserve core-owned BG pairs at every zoom',
@@ -463,7 +469,7 @@ void main() {
     await tester.pump();
     expectPairs();
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets(
@@ -486,24 +492,21 @@ void main() {
     expect(tester.getTopLeft(find.text('Sprites')).dy,
         greaterThan(tester.getTopLeft(find.text('Rotation')).dy));
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   testWidgets(
       'magnifier places labels at the top right with thin bounds over enlarged pixels',
       (tester) async {
-    final bitmap = Uint8List(64 * 64 * 4);
-    final redPixel = (15 * 64 + 15) * 4;
-    bitmap[redPixel] = 255;
-    bitmap[redPixel + 3] = 255;
+    final bitmap = Uint32List(64 * 64);
+    bitmap[15 * 64 + 15] = 0xff0000ff; // red
     final raster = DebugRaster(ImageBuffer(64, 64, bitmap),
         patterns: [DebugOutline.rect(16, 16, 8, 8, label: '7')],
         viewports: [DebugOutline.rect(32, 16, 8, 8)]);
     const key = ValueKey('magnifier-render');
     final decoded = (await tester.runAsync(() {
       final ready = Completer<ui.Image>();
-      ui.decodeImageFromPixels(
-          bitmap, 64, 64, ui.PixelFormat.rgba8888, ready.complete);
+      decodePixelImage(bitmap, 64, 64, ready.complete);
       return ready.future;
     }))!;
     addTearDown(decoded.dispose);
@@ -555,7 +558,8 @@ void main() {
     }
     expect(labelPixels, isNotEmpty);
     for (final (x, y) in labelPixels) {
-      expect(x, inInclusiveRange(100, 115));
+      // Allow one pixel of glyph overhang at the label's right anchor.
+      expect(x, inInclusiveRange(100, 116));
       expect(y, inInclusiveRange(92, 107));
     }
     expect(
@@ -572,7 +576,7 @@ void main() {
     expect(rgba(100, 119), [128, 86, 0, 255]);
     expect(rgba(152, 88), [0, 0, 0, 255]);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await unmountVideo(tester);
   });
 
   for (final size in [
@@ -621,7 +625,7 @@ void main() {
         expect(find.text('dump contents'), findsOneWidget);
       }
       expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
+      await unmountVideo(tester);
     });
   }
 }

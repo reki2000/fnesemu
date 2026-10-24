@@ -7,6 +7,10 @@ publish_to: none
 environment:
   sdk: ">=3.0.0 <4.0.0"
 
+dependencies:
+  mp_jit_recompiler:
+    path: ../mp_jit_recompiler
+
 dev_dependencies:
   archive: ^4.4.0
   cdrom_image: # tool/ and the tests of the cd cores

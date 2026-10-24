@@ -1,4 +1,4 @@
-// the local files given to the cdrom_image package, for the harnesses and the tests
+// the local files given to the cdrom_image package, for the headless runner and the tests
 import 'dart:io';
 import 'dart:typed_data';
 

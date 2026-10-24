@@ -27,18 +27,25 @@ class Bus implements BusR3000 {
   late final Dma dma;
   late final InterruptController interrupt;
 
-  final mem = Uint8List(2 * 1024 * 1024);
-  late final Uint32List mem32 = mem.buffer.asUint32List();
-  late final Uint16List mem16 = mem.buffer.asUint16List();
+  /// [mem], [rom] and [scratchPad] place the memory in buffers shared with
+  /// a recompiler; [scratchPad] may be longer than its 1KiB
+  Bus({Uint8List? mem, Uint8List? rom, Uint8List? scratchPad})
+      : mem = mem ?? Uint8List(2 * 1024 * 1024),
+        rom = rom ?? Uint8List(1024 * 512),
+        scratchPad = scratchPad ?? Uint8List(1024);
+
+  final Uint8List mem;
+  late final Uint32List mem32 = Uint32List.sublistView(mem);
+  late final Uint16List mem16 = Uint16List.sublistView(mem);
   static const mem32Mask = 0x7ffff;
 
-  final rom = Uint8List(1024 * 512);
-  late final Uint32List rom32 = rom.buffer.asUint32List();
+  final Uint8List rom;
+  late final Uint32List rom32 = Uint32List.sublistView(rom);
   static const rom32Mask = 0x1ffff;
 
-  final scratchPad = Uint8List(1024);
-  late final Uint32List scratchPad32 = scratchPad.buffer.asUint32List();
-  late final Uint16List scratchPad16 = scratchPad.buffer.asUint16List();
+  final Uint8List scratchPad;
+  late final Uint32List scratchPad32 = Uint32List.sublistView(scratchPad);
+  late final Uint16List scratchPad16 = Uint16List.sublistView(scratchPad);
   static const scratchPad32Mask = 0x3ff;
   bool useScratchPad = false;
 
@@ -64,7 +71,7 @@ class Bus implements BusR3000 {
   int read8(int addr) {
     final offset = addr & 0x1fffffff;
     return switch (offset) {
-      < 0x8000000 => mem[offset & 0x1fffff],
+      < 0x800000 => mem[offset & 0x1fffff],
       >= 0x1fc00000 && < 0x1fe00000 => rom[(offset - 0x1fc00000) & 0x7ffff],
       _ => _read8Full(addr),
     };
@@ -75,14 +82,14 @@ class Bus implements BusR3000 {
     const sig = "read8";
 
     if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
+      // Within this range, bit 29 identifies the unsupported KSEG1 alias.
+      if (addr.bit29) return _unimpl(sig, "scratchpad alias", addr);
       return useScratchPad ? scratchPad[offset - _scratchPadStart] : 0xff;
     }
 
     return switch (offset & ~0x03) {
       >= 0x1f000000 && < 0x1f000100 =>
         _unimpl(sig, "expansion rom header", addr),
-      >= 0x1f800000 && < 0x1f800400 =>
-        useScratchPad ? scratchPad[offset - 0x1f800000] : 0xff,
       >= 0x1f000400 && < 0x1f008000 => _unimpl(sig, "expansion 1", addr),
       0x1f801000 => 0x1f000000.byteAt(offset),
       0x1f801004 => 0x1f002000.byteAt(offset),
@@ -156,11 +163,12 @@ class Bus implements BusR3000 {
   int read16(int addr) {
     if (!addr.bit0) {
       final offset = addr & 0x1fffffff;
-      if (offset < 0x8000000) {
+      if (offset < 0x800000) {
         return mem16[(offset & 0x1fffff).shr1];
       }
       final offset2 = addr & segMask[addr.shr29.mask3];
       if (offset2 >= _scratchPadStart && offset2 < _scratchPadEnd) {
+        if (addr.bit29) return _unimpl("read16", "scratchpad alias", addr);
         return useScratchPad
             ? scratchPad16[(offset2 - _scratchPadStart).shr1]
             : 0xffff;
@@ -175,7 +183,7 @@ class Bus implements BusR3000 {
   int read32(int addr) {
     final offset = addr & 0x1fffffff;
     return switch (offset) {
-      < 0x8000000 => mem32[offset.shr2 & mem32Mask],
+      < 0x800000 => mem32[offset.shr2 & mem32Mask],
       >= 0x1fc00000 && < 0x1fe00000 =>
         rom32[(offset - 0x1fc00000).shr2 & rom32Mask],
       _ => _read32Full(addr),
@@ -186,12 +194,13 @@ class Bus implements BusR3000 {
     final offset = addr & segMask[addr.shr29];
     const sig = "read32";
 
-    if (offset >= _scratchPadStart &&
-        offset < _scratchPadEnd &&
-        offset.mask2 == 0) {
-      return useScratchPad
-          ? scratchPad32[(offset - _scratchPadStart).shr2]
-          : 0xffffffff;
+    if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
+      if (addr.bit29) return _unimpl(sig, "scratchpad alias", addr);
+      if (offset.mask2 == 0) {
+        return useScratchPad
+            ? scratchPad32[(offset - _scratchPadStart).shr2]
+            : 0xffffffff;
+      }
     }
 
     return switch (offset) {
@@ -220,8 +229,11 @@ class Bus implements BusR3000 {
       >= 0x00000000 && < 0x00800000 => mem[addr & 0x1fffff] = v,
       >= 0x1f000000 && < 0x1f008000 =>
         _unimpl(sig, "expansion 1", addr, value: v),
-      >= 0x1f800000 && < 0x1f800400 =>
-        useScratchPad ? scratchPad[offset - 0x1f800000] = v : 0,
+      >= _scratchPadStart && < _scratchPadEnd => addr.bit29
+          ? _unimpl(sig, "scratchpad alias", addr, value: v)
+          : useScratchPad
+              ? scratchPad[offset - _scratchPadStart] = v
+              : 0,
       >= 0x1f801000 && < 0x1f802000 => switch (offset & 0x1ffc) {
           >= 0x1000 && < 0x1040 => 0, // memory control
           0x1040 => serial.writeData(v),
@@ -256,6 +268,10 @@ class Bus implements BusR3000 {
         return;
       }
       if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
+        if (addr.bit29) {
+          _unimpl(sig, "scratchpad alias", addr, value: v);
+          return;
+        }
         if (useScratchPad) {
           scratchPad16[(offset - _scratchPadStart).shr1] = v;
         }
@@ -335,7 +351,7 @@ class Bus implements BusR3000 {
     //   _log.debugc(() => "write32 to ${debugLogAddr.x8}: ${v.x8}");
     // }
     final offset = addr & 0x1fffffff;
-    if (offset < 0x8000000) {
+    if (offset < 0x800000) {
       mem32[offset.shr2 & mem32Mask] = v;
       return;
     }
@@ -348,13 +364,17 @@ class Bus implements BusR3000 {
     const sig = "write32";
 
     // fast path of the write16/write8 below
-    if (offset >= _scratchPadStart &&
-        offset < _scratchPadEnd &&
-        offset.mask2 == 0) {
-      if (useScratchPad) {
-        scratchPad32[(offset - _scratchPadStart).shr2] = v;
+    if (offset >= _scratchPadStart && offset < _scratchPadEnd) {
+      if (addr.bit29) {
+        _unimpl(sig, "scratchpad alias", addr, value: v);
+        return;
       }
-      return;
+      if (offset.mask2 == 0) {
+        if (useScratchPad) {
+          scratchPad32[(offset - _scratchPadStart).shr2] = v;
+        }
+        return;
+      }
     }
 
     return switch (offset) {

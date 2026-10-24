@@ -60,7 +60,7 @@ extension PpuVideoDebug on Ppu {
     final screen = canvas.raster().cropWrapped(sx, sy, 256, 240);
     if (clipLeftEdgeBg()) {
       for (var y = 0; y < 240; y++) {
-        screen.image.buffer.fillRange(y * 256 * 4, (y * 256 + 8) * 4, 0);
+        screen.image.buffer.fillRange(y * 256, y * 256 + 8, 0);
       }
     }
     return screen;

@@ -1,5 +1,9 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
+import '../../../components/sh2/jit/jit.dart';
+import '../../../state.dart';
 import '../../../util/disasm.dart';
 import '../../../util/int.dart';
 import '../../../util/register_dump.dart';
@@ -155,30 +159,111 @@ class _Sh2Memory implements SsCpuBus {
   }
 }
 
+/// Records each CPU data request, then forwards it to the memory.
+/// Installed only while execution statistics are bound, so the CPU data path
+/// has no per-access check when statistics are off.
+class _ObservedBus implements SsCpuBus {
+  final SsCpuBus inner;
+  final JitExecutionStats stats;
+
+  _ObservedBus(this.inner, this.stats);
+
+  @override
+  int read8(int a) {
+    stats.recordMemory(a & 0xffffffff, 1);
+    return inner.read8(a);
+  }
+
+  @override
+  int read16(int a) {
+    stats.recordMemory(a & 0xffffffff, 2);
+    return inner.read16(a);
+  }
+
+  @override
+  int read32(int a) {
+    stats.recordMemory(a & 0xffffffff, 4);
+    return inner.read32(a);
+  }
+
+  @override
+  void write8(int a, int d) {
+    stats.recordMemory(a & 0xffffffff, 1, write: true);
+    inner.write8(a, d);
+  }
+
+  @override
+  void write16(int a, int d) {
+    stats.recordMemory(a & 0xffffffff, 2, write: true);
+    inner.write16(a, d);
+  }
+
+  @override
+  void write32(int a, int d) {
+    stats.recordMemory(a & 0xffffffff, 4, write: true);
+    inner.write32(a, d);
+  }
+}
+
 /// Integer SH-2 (SH7604) interpreter for SS.
 /// Derived from another SH-2 core of this project, extended with DIV1 / MAC,
 /// on-chip peripherals, cache areas, NMI and vectored external interrupts.
 /// Unsupported instructions stop execution instead of acting as NOPs.
 class Sh2 extends SsCpu {
-  late final SsCpuBus bus;
+  /// CPU data bus: the memory, or the memory behind _ObservedBus while bound
+  late SsCpuBus bus;
+  JitExecutionStats? executionStats;
   final Sh2OnChip onchip;
 
-  Sh2(SsCpuBus ext, {bool master = true}) : onchip = Sh2OnChip(master) {
+  Sh2(SsCpuBus ext, {bool master = true, Sh2Jit? jit, bool jitFtcsr = true})
+      : jit = jit,
+        onchip = Sh2OnChip(master) {
+    r = jit?.regs ?? Uint32List(16);
+    _state = jit?.state ?? Uint32List(8);
+    sr = 0xf0;
+    _jitFtcsr = jitFtcsr
+        ? jit?.addReadRegister(
+            (address, size) => address == 0xfffffe11 && size == 1)
+        : null;
+    jit?.attach(_jitFetch);
     _mem = _Sh2Memory(ext, onchip);
     bus = _mem;
     onchip.bus = bus;
+    if (jit != null) {
+      jit.diagnostics.memoryRegion = _memoryRegion;
+      // called at once with the current recorder, and again when it changes
+      jit.diagnostics.bindExecutionStats((stats) {
+        executionStats = stats;
+        bus = stats == null ? _mem : _ObservedBus(_mem, stats);
+        onchip.bus = bus;
+      });
+    }
   }
 
   late final _Sh2Memory _mem;
+  late final Uint32List? _jitFtcsr;
 
   // stores wrap to 32 bits, and typed data keeps the values unboxed
-  final r = Uint32List(16);
+  final Sh2Jit? jit;
+  late final Uint32List r, _state;
   @override
   int pc = 0;
-  int sr = 0xf0, gbr = 0, vbr = 0, pr = 0, mach = 0, macl = 0;
+  int get sr => _state[0];
+  set sr(int value) => _state[0] = value;
+  int get gbr => _state[1];
+  set gbr(int value) => _state[1] = value;
+  int get vbr => _state[2];
+  set vbr(int value) => _state[2] = value;
+  int get pr => _state[3];
+  set pr(int value) => _state[3] = value;
+  int get mach => _state[4];
+  set mach(int value) => _state[4] = value;
+  int get macl => _state[5];
+  set macl(int value) => _state[5] = value;
   @override
   int clocks = 0;
-  int lastOpcode = 0;
+  int get lastOpcode => _state[6];
+  set lastOpcode(int value) => _state[6] = value;
   int _irl = 0;
   bool _nmi = false;
   // -1: none (avoids boxing of nullable ints)
@@ -221,6 +306,16 @@ class Sh2 extends SsCpu {
         .asUint8List(_fetchWram.offsetInBytes, _fetchWram.lengthInBytes);
   }
 
+  int? _jitFetch(int address) {
+    if (address & 0xc0000001 != 0) return null;
+    final physical = address & 0x07ffffff;
+    if (physical < 0x100000 ||
+        physical >= 0x6000000 ||
+        (physical >= 0x200000 && physical < 0x300000))
+      return _mem.read16(address);
+    return null;
+  }
+
   @pragma('vm:prefer-inline')
   int _fetch(int a) {
     // 0x06000000-0x07ffffff in cache / cache-through area
@@ -233,11 +328,15 @@ class Sh2 extends SsCpu {
       final m = _fetchRomBytes, i = a & 0x7fffe;
       return m[i].shl8 | m[i + 1];
     }
-    return bus.read16(a);
+    // instruction fetches bypass the bus wrapper; see _execObserved
+    return _mem.read16(a);
   }
 
   @override
   void reset() {
+    jit?.reset();
+    _state[7] = 0;
+    _idlePc = _idleWrites = -1;
     onchip.reset();
     r.fillRange(0, 16, 0);
     pc = bus.read32(0);
@@ -248,6 +347,89 @@ class Sh2 extends SsCpu {
     _nmi = false;
     _delayTarget = _restoreSr = -1;
     sleeping = _inDelay = false;
+  }
+
+  /// Saves registers, delay and idle-detector state and the on-chip
+  /// modules. Register views shared with the JIT context are written in
+  /// place on load, after resetting compiled code.
+  void saveState(StateWriter w) {
+    w.section(onchip.master ? 'sh2-master' : 'sh2-slave');
+    w.ints(r);
+    // Native and interpreted writes are counted apart and only their sum
+    // matters; the split depends on which code happened to be compiled.
+    w.ints([..._state.sublist(0, 7), 0]);
+    final writes = _mem.writes + _state[7];
+    w.ints([pc, clocks, _irl, _delayTarget, _restoreSr, writes]);
+    w.ints([_idlePc, _idleWrites, _idleSr, _idleGbr, _idleMach]);
+    w.ints([_idleMacl, _idlePr]);
+    w.ints([
+      _s0,
+      _s1,
+      _s2,
+      _s3,
+      _s4,
+      _s5,
+      _s6,
+      _s7,
+      _s8,
+      _s9,
+      _s10,
+      _s11,
+      _s12,
+      _s13,
+      _s14,
+      _s15
+    ]);
+    for (final b in [_nmi, sleeping, _inDelay]) {
+      w.boolean(b);
+    }
+    onchip.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section(onchip.master ? 'sh2-master' : 'sh2-slave');
+    jit?.reset();
+    s.intsInto(r);
+    s.intsInto(_state);
+    final v = s.ints(), idle = s.ints(), idle2 = s.ints();
+    if (v.length != 6 || idle.length != 5 || idle2.length != 2) {
+      throw const StateMismatch('sh2 state layout');
+    }
+    pc = v[0];
+    clocks = v[1];
+    _irl = v[2];
+    _delayTarget = v[3];
+    _restoreSr = v[4];
+    _mem.writes = v[5];
+    _idlePc = idle[0];
+    _idleWrites = idle[1];
+    _idleSr = idle[2];
+    _idleGbr = idle[3];
+    _idleMach = idle[4];
+    _idleMacl = idle2[0];
+    _idlePr = idle2[1];
+    final snap = Uint32List(16);
+    s.intsInto(snap);
+    _s0 = snap[0];
+    _s1 = snap[1];
+    _s2 = snap[2];
+    _s3 = snap[3];
+    _s4 = snap[4];
+    _s5 = snap[5];
+    _s6 = snap[6];
+    _s7 = snap[7];
+    _s8 = snap[8];
+    _s9 = snap[9];
+    _s10 = snap[10];
+    _s11 = snap[11];
+    _s12 = snap[12];
+    _s13 = snap[13];
+    _s14 = snap[14];
+    _s15 = snap[15];
+    _nmi = s.boolean();
+    sleeping = s.boolean();
+    _inDelay = s.boolean();
+    onchip.loadState(s);
   }
 
   @override
@@ -273,16 +455,48 @@ class Sh2 extends SsCpu {
   @override
   bool run(int targetClocks) {
     final before = clocks;
+    final jit = this.jit, status = _jitFtcsr;
     bool ok = true;
     while (clocks < targetClocks) {
       final prev = pc;
-      if (!exec()) {
+      (int, int)? compiled;
+      if (jit != null &&
+          !jit.suspended &&
+          _delayTarget < 0 &&
+          !sleeping &&
+          !_interruptRequested) {
+        // On-chip time advances at the run boundary.
+        // Refresh after CPU instructions too, including FTCSR writes and input capture.
+        if (status != null) status[0] = onchip.ftcsr;
+        compiled = jit.run(pc, targetClocks - clocks);
+      }
+      if (compiled != null) {
+        pc = compiled.$1;
+        clocks += compiled.$2;
+        if (idleSkip && jit!.idleDetected) {
+          _idlePc = -1;
+          // A compiled block may already have overshot the target.
+          if (clocks < targetClocks) {
+            executionStats?.recordIdle(targetClocks - clocks);
+            clocks = targetClocks;
+          }
+          break;
+        }
+      } else if (!exec()) {
         ok = false;
         break;
       }
+      final idleFrom = compiled == null ? prev : jit!.idleCheckPc;
       if (idleSkip &&
-          (sleeping || (pc < prev && prev - pc <= 32 && _isIdle()))) {
-        clocks = targetClocks;
+          (sleeping ||
+              (idleFrom != null &&
+                  (pc < idleFrom || (compiled != null && pc == idleFrom)) &&
+                  idleFrom - pc <= Sh2Jit.idleBranchDistance &&
+                  _isIdle()))) {
+        if (clocks < targetClocks) {
+          executionStats?.recordIdle(targetClocks - clocks);
+          clocks = targetClocks;
+        }
         break;
       }
     }
@@ -295,33 +509,73 @@ class Sh2 extends SsCpu {
   // registers and without any memory write: it repeats until the target.
   int _idlePc = -1;
   int _idleWrites = -1;
-  final _idleRegs = Uint32List(16);
   int _idleSr = 0, _idleGbr = 0, _idleMach = 0, _idleMacl = 0, _idlePr = 0;
 
+  // snapshot of the registers at the last branch (r0 to r15)
+  int _s0 = 0;
+  int _s1 = 0;
+  int _s2 = 0;
+  int _s3 = 0;
+  int _s4 = 0;
+  int _s5 = 0;
+  int _s6 = 0;
+  int _s7 = 0;
+  int _s8 = 0;
+  int _s9 = 0;
+  int _s10 = 0;
+  int _s11 = 0;
+  int _s12 = 0;
+  int _s13 = 0;
+  int _s14 = 0;
+  int _s15 = 0;
+
   bool _isIdle() {
-    final writes = _mem.writes;
-    // compares the registers and keeps them as the next snapshot at once
-    final regs = r, idle = _idleRegs;
-    bool same = true;
-    for (int i = 0; i < 16; i++) {
-      final v = regs[i];
-      if (v != idle[i]) {
-        same = false;
-        idle[i] = v;
-      }
-    }
-    if (same &&
-        pc == _idlePc &&
+    final writes = _mem.writes + _state[7];
+    // most branches differ in pc or writes, so the registers are compared
+    // only for a repeat of the same branch, and stop at the first difference
+    if (pc == _idlePc &&
         writes == _idleWrites &&
         sr == _idleSr &&
         gbr == _idleGbr &&
         mach == _idleMach &&
         macl == _idleMacl &&
-        pr == _idlePr) {
+        pr == _idlePr &&
+        r[0] == _s0 &&
+        r[1] == _s1 &&
+        r[2] == _s2 &&
+        r[3] == _s3 &&
+        r[4] == _s4 &&
+        r[5] == _s5 &&
+        r[6] == _s6 &&
+        r[7] == _s7 &&
+        r[8] == _s8 &&
+        r[9] == _s9 &&
+        r[10] == _s10 &&
+        r[11] == _s11 &&
+        r[12] == _s12 &&
+        r[13] == _s13 &&
+        r[14] == _s14 &&
+        r[15] == _s15) {
       _idlePc = -1;
       return true;
     }
-
+    // keeps this branch as the snapshot for the next one
+    _s0 = r[0];
+    _s1 = r[1];
+    _s2 = r[2];
+    _s3 = r[3];
+    _s4 = r[4];
+    _s5 = r[5];
+    _s6 = r[6];
+    _s7 = r[7];
+    _s8 = r[8];
+    _s9 = r[9];
+    _s10 = r[10];
+    _s11 = r[11];
+    _s12 = r[12];
+    _s13 = r[13];
+    _s14 = r[14];
+    _s15 = r[15];
     _idlePc = pc;
     _idleWrites = writes;
     _idleSr = sr;
@@ -378,6 +632,43 @@ class Sh2 extends SsCpu {
 
   @pragma('vm:prefer-inline')
   bool exec() {
+    final stats = executionStats;
+    return stats == null ? _exec() : _execObserved(stats);
+  }
+
+  // the instruction fetch is counted for each step that is not sleeping,
+  // so an accepted interrupt or an address error also counts one fetch
+  bool _execObserved(JitExecutionStats stats) {
+    final at = pc, before = clocks, wasSleeping = sleeping;
+    final opcode = stats.opcodeAt(at);
+    stats.beginCpuStep();
+    if (!sleeping) stats.recordMemory(at, 2, fetch: true);
+    try {
+      return _exec();
+    } finally {
+      stats.endCpuStep();
+      if (wasSleeping && sleeping) {
+        stats.recordIdle(clocks - before);
+      } else {
+        stats.recordCpuStep(at, opcode, clocks - before);
+      }
+    }
+  }
+
+  static String _memoryRegion(int address) {
+    final a = address & 0xffffffff, area = (address & 0xffffffff) >>> 29;
+    if (area == 6) return 'cacheData';
+    if (area == 7) return 'onchip';
+    if (area > 1) return 'cacheControl';
+    final p = a & 0x07ffffff;
+    if (p >= 0x06000000) return 'workRamHigh';
+    if (p >= 0x00200000 && p < 0x00300000) return 'workRamLow';
+    if (p < 0x00100000) return 'bios';
+    return 'device';
+  }
+
+  @pragma('vm:prefer-inline')
+  bool _exec() {
     final target = _delayTarget;
     final restore = _restoreSr;
     if (target < 0 && _interruptRequested && _acceptInterrupt()) {
@@ -392,11 +683,13 @@ class Sh2 extends SsCpu {
       return true;
     }
     final address = pc;
-    lastOpcode = _fetch(address);
+    final op = _fetch(address);
+    // the lastOpcode slot, also read by the JIT context and saved states
+    _state[6] = op;
     pc = (pc + 2).mask32;
     _delayTarget = _restoreSr = -1;
     _inDelay = target >= 0;
-    if (!_execute(lastOpcode, address)) {
+    if (!_execute(op, address)) {
       pc = address;
       _delayTarget = target;
       _restoreSr = restore;

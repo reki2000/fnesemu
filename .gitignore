@@ -4,6 +4,7 @@ assets/tests.*
 assets/680x0
 assets/MIPS-R3000-CPU-Simulator
 assets/ps1-tests
+packages/fnesemu_core/test/**/.build/
 docs/*
 .tool-versions
 log.txt
@@ -19,6 +20,7 @@ run*.cmd
 *.class
 *.log
 *.pyc
+__pycache__/
 *.swp
 .DS_Store
 .atom/
@@ -69,3 +71,5 @@ run*.cmd
 .claude/settings.local.json
 .claude/worktrees
 .worktrees/
+/release-assets/
+/ci-artifacts/

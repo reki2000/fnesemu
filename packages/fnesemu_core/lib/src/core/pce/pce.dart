@@ -24,7 +24,7 @@ import 'mapper/rom.dart';
 import 'rom/pce_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Pce implements Core {
+class Pce extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -172,8 +172,7 @@ class Pce implements Core {
   @override
   ImageBuffer imageBuffer() {
     vpc.render(vdc, vdc2);
-    return ImageBuffer(
-        vdc.hSize, vdc.vSize, vpc.frameBuffer.buffer.asUint8List());
+    return ImageBuffer(vdc.hSize, vdc.vSize, vpc.frameBuffer);
   }
 
   void Function(AudioBuffer) _onAudio = (_) {};
@@ -200,7 +199,7 @@ class Pce implements Core {
   void padUp(int controllerId, PadButton k) =>
       bus.joypad.keyUp(controllerId, k);
 
-  // the cdrom system card is a rom of the card slot
+  // the CD BIOS is a rom of the card slot
   @override
   void setBiosFiles(List<Uint8List> files) {
     if (files.isNotEmpty) {
@@ -210,11 +209,15 @@ class Pce implements Core {
 
   @override
   void setCdromDrive(CdromDrive drive) {
+    bus.arcadeCardEnabled = !drive.isEmpty;
     bus.cdrom.setDisc(drive);
     if (!drive.isEmpty && bus.sram.data.length != 0x800) {
       bus.sram.init('pce-cd-bram', Uint8List(0x800));
     }
   }
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) => bus.sram = sram;
@@ -233,7 +236,9 @@ class Pce implements Core {
     file.load(body);
     crc = file.crc;
 
-    bus.rom = Rom(file.banks);
+    bus.rom =
+        Rom(file.banks, cartridgeRam: ramCartridgeCrcs.contains(file.bodyCrc));
+    bus.arcadeCard.powerOn();
 
     reset();
   }
@@ -291,7 +296,7 @@ class Pce implements Core {
     // sgx: VDC1's vram on top, VDC2's below
     final buf2 = vdc2.renderVram(useSecondBgColor, paletteNo);
     return ImageBuffer(buf.width, buf.height + buf2.height,
-        Uint8List.fromList([...buf.buffer, ...buf2.buffer]));
+        Uint32List.fromList([...buf.buffer, ...buf2.buffer]));
   }
 
   @override

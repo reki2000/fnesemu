@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/cdrom_drive.dart';
 import 'package:fnesemu_core/src/core/md/module.dart';
+import 'package:fnesemu_core/src/core/pce/module.dart';
+import 'package:fnesemu_core/src/core/ps/module.dart';
+import 'package:fnesemu_core/src/core/ss/module.dart';
 import 'package:test/test.dart';
 
 /// a ready drive whose sectors are filled with zero except [sectors]
@@ -42,19 +45,17 @@ void main() {
             List<CdromTrack> tracks, Map<int, String> sectors) async =>
         (await CoreFactory.systemOfDisc(_Drive(tracks, sectors)))?.id;
 
-    expect(await of([data], {0: "SEGADISCSYSTEM  "}), "mdcd");
-    expect(await of([data], {0: "SEGA SEGASATURN "}), "ss");
-    expect(
-        await of([data], {4: "Licensed  by Sony Computer Entertainment Inc."}),
-        "ps");
-    expect(await of([data], {16: "\x01CD001\x01\x00PLAYSTATION"}), "ps");
+    expect(await of([data], {0: mdCdSignature}), "mdcd");
+    expect(await of([data], {0: ssSignature}), "ss");
+    expect(await of([data], {4: psLicenseSignature}), "ps");
+    expect(await of([data], {16: '\x01CD001\x01\x00$psSignature'}), "ps");
     // the data track follows an audio track
     expect(
         await of([
           const CdromTrack(1, true, 0, 1000),
           const CdromTrack(2, false, 1000, 50000)
         ], {
-          1001: "PC Engine CD-ROM SYSTEM"
+          1001: pceCdSignature
         }),
         "pcecd");
     expect(await of([data], {}), isNull);

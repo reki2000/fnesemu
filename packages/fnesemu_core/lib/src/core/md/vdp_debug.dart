@@ -35,13 +35,13 @@ extension VdpDebug on Vdp {
     return ImageBuffer(
       width,
       height,
-      buf.buffer.asUint8List(),
+      buf,
     );
   }
 
   ImageBuffer renderVram(bool useGlayscale, int paletteNo) {
     if (vram.length < 0x8000) {
-      return ImageBuffer(0, 0, Uint8List(0));
+      return ImageBuffer(0, 0, Uint32List(0));
     }
 
     int tileSize = 8;
@@ -84,7 +84,7 @@ extension VdpDebug on Vdp {
     return ImageBuffer(
       width,
       height,
-      buf.buffer.asUint8List(),
+      buf,
     );
   }
 
@@ -209,6 +209,6 @@ extension VdpDebug on Vdp {
       }
     }
 
-    return ImageBuffer(imageWidth, imageHeight, buf.buffer.asUint8List());
+    return ImageBuffer(imageWidth, imageHeight, buf);
   }
 }

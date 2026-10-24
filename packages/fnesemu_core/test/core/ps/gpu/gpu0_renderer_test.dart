@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math';
 
 import 'package:fnesemu_core/src/core/ps/bus.dart';
@@ -65,7 +64,7 @@ void main() {
     );
 
     stopwatch.stop();
-    stdout.writeln(
-        'renderTexturedGouraudPolygon: 10000 calls in ${stopwatch.elapsedMilliseconds} ms');
+    print(
+        'renderTexturedGouraudPolygon: 2000 calls in ${stopwatch.elapsedMilliseconds} ms');
   });
 }

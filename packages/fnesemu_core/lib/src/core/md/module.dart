@@ -8,6 +8,10 @@ import 'md.dart';
 
 CoreModule createModule() => MdModule();
 
+// signature bytes, as character codes
+const mdCdSignature = '\x53\x45\x47\x41\x44\x49\x53\x43\x53\x59\x53\x54'
+    '\x45\x4d';
+
 class MdModule extends CoreModule {
   static const cartridge = CoreSystem('md', 'md',
       debugPaletteCount: 4, extensions: ['gen', 'md', 'bin']);
@@ -47,7 +51,7 @@ class MdModule extends CoreModule {
   Future<CoreSystem?> identifyDisc(CdromDrive drive) async {
     final start = drive.firstDataLba;
     return start != null &&
-            sectorContains(await drive.readWhenReady(start), 'SEGADISCSYSTEM')
+            sectorContains(await drive.readWhenReady(start), mdCdSignature)
         ? cd
         : null;
   }

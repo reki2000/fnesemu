@@ -69,12 +69,17 @@ extension Cpu6280 on Cpu {
 
       // TMA
       case 0x43:
+        // with more than one bit set, A gets the OR of the selected MPRs
         int reg = immediate();
-        for (int i = 0; i < 8; i++) {
-          if (reg.mask1 == 1) {
-            regs.a = regs.mpr[i];
+        if (reg != 0) {
+          int value = 0;
+          for (int i = 0; i < 8; i++) {
+            if (reg.mask1 == 1) {
+              value |= regs.mpr[i];
+            }
+            reg >>= 1;
           }
-          reg >>= 1;
+          regs.a = value;
         }
         cycle += 5;
         break;
@@ -94,6 +99,7 @@ extension Cpu6280 on Cpu {
 
       // TII
       case 0x73:
+        _saveRegs();
         int from = absolute();
         int to = absolute();
         int count = absolute();
@@ -106,6 +112,7 @@ extension Cpu6280 on Cpu {
           write(to++, read(from++));
           cycle += 6;
         }
+        _restoreRegs();
         cycle += 17;
         break;
 
@@ -122,13 +129,15 @@ extension Cpu6280 on Cpu {
           0xb3 => absoluteXY(regs.x),
           _ => 0, // never reach
         };
-        final a = n & read(addr);
-        regs.p = (a & 0xc0) | ((a == 0) ? Flags.Z : 0) | (regs.p & 0x3d);
+        final m = read(addr);
+        // N and V come from the memory, Z from the immediate AND the memory
+        regs.p = (m & 0xc0) | ((n & m == 0) ? Flags.Z : 0) | (regs.p & 0x3d);
         cycle += 6;
         break;
 
       // TDD
       case 0xc3:
+        _saveRegs();
         int from = absolute();
         int to = absolute();
         int count = absolute();
@@ -141,11 +150,13 @@ extension Cpu6280 on Cpu {
           write(to--, read(from--));
           cycle += 6;
         }
+        _restoreRegs();
         cycle += 17;
         break;
 
       // TIN
       case 0xd3:
+        _saveRegs();
         int from = absolute();
         int to = absolute();
         int count = absolute();
@@ -157,11 +168,13 @@ extension Cpu6280 on Cpu {
           write(to, read(from++));
           cycle += 6;
         }
+        _restoreRegs();
         cycle += 17;
         break;
 
       // TIA
       case 0xe3:
+        _saveRegs();
         int from = absolute();
         int to = absolute();
         int count = absolute();
@@ -175,11 +188,13 @@ extension Cpu6280 on Cpu {
           alt ^= 1;
           cycle += 6;
         }
+        _restoreRegs();
         cycle += 17;
         break;
 
       // TAI
       case 0xf3:
+        _saveRegs();
         int from = absolute();
         int to = absolute();
         int count = absolute();
@@ -193,6 +208,7 @@ extension Cpu6280 on Cpu {
           alt ^= 1;
           cycle += 6;
         }
+        _restoreRegs();
         cycle += 17;
         break;
 
@@ -229,5 +245,19 @@ extension Cpu6280 on Cpu {
     }
 
     return true;
+  }
+
+  // the block transfers save Y, A and X on the stack before they read the
+  // operands, and restore them at the end
+  void _saveRegs() {
+    push(regs.y);
+    push(regs.a);
+    push(regs.x);
+  }
+
+  void _restoreRegs() {
+    regs.x = pop();
+    regs.a = pop();
+    regs.y = pop();
   }
 }

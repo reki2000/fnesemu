@@ -37,13 +37,18 @@ class Bus implements SsCpuBus {
   late SsCpu master;
   late SsCpu slave;
 
-  final bios = Uint8List(512 * 1024);
+  Bus({Uint8List Function(int)? allocate})
+      : bios = (allocate ?? Uint8List.new)(512 * 1024),
+        wramL = (allocate ?? Uint8List.new)(1024 * 1024),
+        wramH = (allocate ?? Uint8List.new)(1024 * 1024);
+
+  final Uint8List bios;
   late final biosData = ByteData.sublistView(bios);
 
-  final wramL = Uint8List(1024 * 1024);
+  final Uint8List wramL;
   late final wramLData = ByteData.sublistView(wramL);
 
-  final wramH = Uint8List(1024 * 1024);
+  final Uint8List wramH;
   late final wramHData = ByteData.sublistView(wramH);
 
   // backup RAM: 32KB, accessed at odd addresses

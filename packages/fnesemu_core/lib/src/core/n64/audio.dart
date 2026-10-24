@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../state.dart';
 import '../../util/int.dart';
 
 import 'bus.dart';
@@ -17,6 +18,54 @@ class N64Audio {
   int reverb = 0, reverbRamp = 0, leftRamp = 0, rightRamp = 0;
   bool shindou = false;
   N64Audio(this.bus);
+
+  List<int> get _scalars => [
+        input, output, count, loop, tasks, wetLeft, wetRight, dryRight, //
+        leftVol, rightVol, dryVol, wetVol, leftTarget, rightTarget, //
+        leftRate, rightRate, reverb, reverbRamp, leftRamp, rightRamp
+      ];
+
+  void saveState(StateWriter w) {
+    w.section('audio');
+    w.bytes(memory);
+    w.ints(book);
+    w.ints(segments);
+    w.ints(_scalars);
+    w.boolean(shindou);
+  }
+
+  void loadState(StateReader s) {
+    s.section('audio');
+    s.bytesInto(memory);
+    s.intsInto(book);
+    s.intsInto(segments);
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('audio state layout');
+    }
+    var i = 0;
+    input = v[i++];
+    output = v[i++];
+    count = v[i++];
+    loop = v[i++];
+    tasks = v[i++];
+    wetLeft = v[i++];
+    wetRight = v[i++];
+    dryRight = v[i++];
+    leftVol = v[i++];
+    rightVol = v[i++];
+    dryVol = v[i++];
+    wetVol = v[i++];
+    leftTarget = v[i++];
+    rightTarget = v[i++];
+    leftRate = v[i++];
+    rightRate = v[i++];
+    reverb = v[i++];
+    reverbRamp = v[i++];
+    leftRamp = v[i++];
+    rightRamp = v[i++];
+    shindou = s.boolean();
+  }
   void reset() {
     memory.fillRange(0, memory.length, 0);
     book.fillRange(0, book.length, 0);

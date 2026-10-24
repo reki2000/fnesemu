@@ -1,10 +1,14 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../components/m68k/disasm.dart';
+import '../../components/sh2/jit/jit.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
+import '../../state.dart';
 import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
@@ -34,8 +38,38 @@ class Ss extends Core {
   @override
   List<DebugPatternTable> get patternTables => vdp2.debugPatternTables;
 
-  final bus = Bus();
+  late final Bus bus;
   final pad = Pad();
+
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics sync* {
+    for (final cpu in [master, slave]) {
+      if (cpu is Sh2 && cpu.jit != null) yield cpu.jit!.diagnostics;
+    }
+  }
+
+  @override
+  bool get jitEnabled => master is Sh2 && (master as Sh2).jit?.native == true;
+  @override
+  bool get jitSuspended =>
+      master is Sh2 && ((master as Sh2).jit?.suspended ?? false);
+  @override
+  set jitSuspended(bool value) {
+    for (final cpu in [master, slave]) {
+      if (cpu is Sh2) cpu.jit?.suspended = value;
+    }
+  }
+  @override
+  int get cpuClocks => master.clocks + slave.clocks;
+  @override
+  int get jitClocks =>
+      (master is Sh2 ? (master as Sh2).jit?.compiledClocks ?? 0 : 0) +
+      (slave is Sh2 ? (slave as Sh2).jit?.compiledClocks ?? 0 : 0);
+  @override
+  void dispose() {
+    if (slave is Sh2) (slave as Sh2).jit?.dispose();
+    if (master is Sh2) (master as Sh2).jit?.dispose();
+  }
 
   late final SsCpu master;
   late final SsCpu slave;
@@ -52,8 +86,46 @@ class Ss extends Core {
   static const _masterClockHz = 28636360; // 352 dot mode, NTSC
   static const _soundClockHz = Scsp.cpuClockHz;
 
-  Ss({SsCpu Function(SsCpuBus bus, bool master)? cpuFactory}) {
-    final factory = cpuFactory ?? (b, m) => Sh2(b, master: m);
+  Ss(
+      {SsCpu Function(SsCpuBus bus, bool master)? cpuFactory,
+      bool jit = const bool.fromEnvironment('JIT', defaultValue: false),
+      bool jitMacLong = true,
+      bool jitMacWord = true,
+      bool jitFtcsr = true,
+      bool jitIdleGuards = true,
+      int sliceClocks = 64})
+      : _sliceClocks = sliceClocks {
+    if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
+    final owner = cpuFactory == null && jit
+        ? Sh2Jit.create(
+            macLong: jitMacLong,
+            macWord: jitMacWord,
+            idleGuards: jitIdleGuards)
+        : null;
+    bus = Bus(allocate: owner?.rt.alloc);
+    final factory = cpuFactory ??
+        (b, m) {
+          final compiler = m
+              ? owner
+              : owner == null
+                  ? null
+                  : Sh2Jit.create(
+                      macLong: jitMacLong,
+                      macWord: jitMacWord,
+                      idleGuards: jitIdleGuards);
+          if (compiler != null) {
+            final rt = owner!.rt;
+            compiler.map(0, bus.bios.length, bus.bios,
+                writable: false, owner: rt);
+            compiler.map(0x80000, bus.bios.length, bus.bios,
+                writable: false, owner: rt);
+            compiler.map(0x200000, bus.wramL.length, bus.wramL, owner: rt);
+            for (var at = 0x6000000; at < 0x8000000; at += bus.wramH.length) {
+              compiler.map(at, bus.wramH.length, bus.wramH, owner: rt);
+            }
+          }
+          return Sh2(b, master: m, jit: compiler, jitFtcsr: jitFtcsr);
+        };
     master = factory(bus, true);
     slave = factory(bus, false);
 
@@ -123,7 +195,7 @@ class Ss extends Core {
   final _result = ExecResult(0, false, false);
 
   // master clocks executed at once before the other processors catch up
-  static const _sliceClocks = 32;
+  final int _sliceClocks;
 
   @override
   ExecResult exec(bool step) {
@@ -294,6 +366,102 @@ class Ss extends Core {
 
   @override
   void onAudio(void Function(AudioBuffer) onAudio) => _onAudio = onAudio;
+
+  // ---- state ----
+
+  /// Saves everything but the media, which the caller identifies. Work RAM
+  /// is written in place on load because compiled code may share it.
+  void saveDeviceState(StateWriter w) {
+    w.section('ss');
+    w.ints([_lastClocks, _nextLineClock, _line, _soundClockRemainder]);
+    w.boolean(_slaveEnabled);
+    w.floats(_audioBuffer.sublist(0, _audioIndex));
+    w.bytes(bus.wramL);
+    w.bytes(bus.wramH);
+    w.bytes(_sram.data);
+    pad.saveState(w);
+    smpc.saveState(w);
+    scu.saveState(w);
+    vdp1.saveState(w);
+    vdp2.saveState(w);
+    scsp.saveState(w);
+    cdblock.saveState(w);
+    for (final cpu in [master, slave]) {
+      if (cpu is! Sh2) throw UnsupportedError('state of a non-SH-2 CPU');
+      cpu.saveState(w);
+    }
+  }
+
+  void loadDeviceState(StateReader s) {
+    s.section('ss');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('ss scheduler state layout');
+    _lastClocks = v[0];
+    _nextLineClock = v[1];
+    _line = v[2];
+    _soundClockRemainder = v[3];
+    _slaveEnabled = s.boolean();
+    final audio = s.floats();
+    _audioBuffer.setAll(0, audio);
+    _audioIndex = audio.length;
+    s.bytesInto(bus.wramL);
+    s.bytesInto(bus.wramH);
+    final backup = s.bytes();
+    if (backup.length != _sram.data.length) {
+      throw const StateMismatch('different backup memory size');
+    }
+    _sram.data.setAll(0, backup);
+    pad.loadState(s);
+    smpc.loadState(s);
+    scu.loadState(s);
+    vdp1.loadState(s);
+    vdp2.loadState(s);
+    scsp.loadState(s);
+    cdblock.loadState(s);
+    for (final cpu in [master, slave]) {
+      if (cpu is! Sh2) throw UnsupportedError('state of a non-SH-2 CPU');
+      cpu.loadState(s);
+    }
+  }
+
+  static const _stateVersion = 1;
+
+  /// The BIOS bytes and the disc TOC. Disc contents beyond the TOC are not
+  /// compared, so a state is only meaningful for the disc it was saved
+  /// with. The drive's sector cache is not saved: a restored run may wait
+  /// for sectors that the original run had cached.
+  int get _media {
+    var h = stateMediaHash(bus.bios);
+    final toc = cdblock.disc.status.toc;
+    for (final v in [
+      toc.totalSectors,
+      for (final t in toc.tracks) ...[
+        t.number,
+        t.isAudio ? 1 : 0,
+        t.startLba,
+        t.sectors
+      ],
+    ]) {
+      h = (h ^ v) * 0x100000001b3;
+    }
+    return h;
+  }
+
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('ss', _stateVersion, _media);
+    saveDeviceState(w);
+    return w.take();
+  }
+
+  /// A state that fails after its header leaves the core partly loaded;
+  /// reset it before running.
+  @override
+  void loadState(Uint8List state) {
+    final s = StateReader(state, 'ss', _stateVersion, _media);
+    loadDeviceState(s);
+    s.end();
+  }
 
   // ---- media ----
 

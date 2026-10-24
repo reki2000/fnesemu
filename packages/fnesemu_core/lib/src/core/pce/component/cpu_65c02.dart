@@ -16,9 +16,12 @@ extension Cpu65c02 on Cpu {
       case 0x04:
       case 0x0c:
         final addr = (op == 0x04) ? zeropage() : absolute();
-        final a = read(addr) | regs.a;
-        regs.p = ((a == 0) ? Flags.Z : 0) | (regs.p & ~Flags.Z);
-        write(addr, a);
+        final m = read(addr);
+        // N and V come from the memory, Z from A AND the memory
+        regs.p = (m & 0xc0) |
+            ((m & regs.a == 0) ? Flags.Z : 0) |
+            (regs.p & ~(Flags.N | Flags.V | Flags.Z));
+        write(addr, m | regs.a);
         cycle += 5;
         break;
 
@@ -26,9 +29,12 @@ extension Cpu65c02 on Cpu {
       case 0x14:
       case 0x1c:
         final addr = (op == 0x14) ? zeropage() : absolute();
-        final a = read(addr) & ~regs.a;
-        regs.p = ((a == 0) ? Flags.Z : 0) | (regs.p & ~Flags.Z);
-        write(addr, a);
+        final m = read(addr);
+        // N and V come from the memory, Z from A AND the memory
+        regs.p = (m & 0xc0) |
+            ((m & regs.a == 0) ? Flags.Z : 0) |
+            (regs.p & ~(Flags.N | Flags.V | Flags.Z));
+        write(addr, m & ~regs.a);
         cycle += 5;
         break;
 
@@ -116,7 +122,7 @@ extension Cpu65c02 on Cpu {
       // PLY
       case 0x7a:
         regs.y = pop();
-        flagsNZ(regs.x);
+        flagsNZ(regs.y);
         cycle += 4;
         break;
 

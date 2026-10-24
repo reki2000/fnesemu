@@ -2,7 +2,10 @@
 import 'dart:typed_data';
 
 import 'package:cdrom_image/filesystem_api.dart';
+import 'package:fnesemu_core/app_api.dart';
 import 'package:mp_bigfile_picker/api.dart';
+
+final _log = DebugLog('app.disc');
 
 class PickedDiscFile extends DiscFile {
   @override
@@ -23,11 +26,14 @@ class PickedDiscFile extends DiscFile {
 
   @override
   Future<Uint8List> read(int offset, int length) async {
+    final watch = Stopwatch()..start();
     final file = _file();
     try {
       return await file.read(offset, length);
     } finally {
       await file.close();
+      _log.debugc(() => "read $path $offset+$length "
+          "in ${watch.elapsedMilliseconds}ms");
     }
   }
 }

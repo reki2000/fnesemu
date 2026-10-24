@@ -22,8 +22,8 @@ import 'superfx.dart';
 /// PPU's register file (see ppu.dart), $4300-$437F + $420B/$420C route to
 /// the DMA/HDMA controller (see dma.dart), and $2140-2143 route to the
 /// audio unit (see apu.dart). $4200-$42FF models NMI, the DMA triggers,
-/// auto-joypad 1, H/V timer IRQ, and the multiply/divide unit; programmable
-/// I/O and manual joypad are still scratch stubs.
+/// auto-joypad 1, the manual read of pad 1 ($4016), H/V timer IRQ, and the
+/// multiply/divide unit; programmable I/O is still a scratch stub.
 class Bus implements CpuBus {
   @override
   late final Cpu cpu;
@@ -258,14 +258,17 @@ class Bus implements CpuBus {
         final v = wram[_wramAddr];
         _wramAddr = (_wramAddr + 1) & 0x1ffff;
         return v;
+      // the unused bits of RDNMI and TIMEUP are open bus. They hold the last
+      // byte on the data bus, which is the high byte $42 of the address for
+      // the usual absolute access (LDA / BIT $4210).
       case 0x4210: // RDNMI: bit7 = vblank nmi flag (read-clears)
         {
-          final v = _nmiFlag ? 0x82 : 0x02;
+          final v = (_nmiFlag ? 0x80 : 0) | (0x42 & 0x70) | 0x02;
           _nmiFlag = false;
           return v;
         }
       case 0x4211: // TIMEUP: reading acknowledges the timer IRQ
-        final v = _irqFlag ? 0x80 : 0;
+        final v = (_irqFlag ? 0x80 : 0) | (0x42 & 0x7f);
         _irqFlag = false;
         cpu.releaseIrq();
         return v;
@@ -279,6 +282,12 @@ class Bus implements CpuBus {
         return _mulResult.mask8;
       case 0x4217: // RDMPYH
         return _mulResult.shr8;
+      // the unused bits of JOYSER0/1 are open bus ($40); bits 2-4 of JOYSER1
+      // are 1, and pad 2 is not connected
+      case 0x4016: // JOYSER0
+        return 0x40 | pad.readSerial1();
+      case 0x4017: // JOYSER1
+        return 0x40 | 0x1c;
       case 0x4218: // JOY1L
         return pad.state1.mask8;
       case 0x4219: // JOY1H
@@ -343,6 +352,7 @@ class Bus implements CpuBus {
         _mulResult = dividend % data;
       }
     }
+    if (page == 0x4016) pad.writeLatch(data);
     if (page == 0x420b) dma.runDma(data); // MDMAEN: trigger general DMA now
     if (page == 0x420c) dma.hdmaEnableMask = data; // HDMAEN
     _mmio[page.mask10] = data;
@@ -380,6 +390,7 @@ class Bus implements CpuBus {
 
   void enterVBlank() {
     _hvbjoy |= 0x80;
+    if (_mmio[0x4200 & 0x3ff].bit0) pad.autoRead();
     _nmiFlag = true;
     if (_nmiEnabled) cpu.onNmi();
   }

@@ -1,4 +1,5 @@
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 import 'bus.dart';
 
@@ -169,7 +170,7 @@ class M68 {
       1 => read8(addr),
       2 => read16(addr),
       4 => read32(addr),
-      _ => throw ("unreachable"),
+      _ => throw const IllegalInstruction(),
     };
   }
 
@@ -185,7 +186,7 @@ class M68 {
         write32(addr, data);
         return;
       default:
-        throw ("unreachable");
+        throw const IllegalInstruction();
     }
   }
 
@@ -207,7 +208,7 @@ class M68 {
         1 => pc16().mask8,
         2 => pc16(),
         4 => pc32(),
-        _ => throw ("unreachable"),
+        _ => throw const IllegalInstruction(),
       };
 
   // addressing modes
@@ -223,9 +224,9 @@ class M68 {
           1 => pc32(),
           2 => pc + pc16().rel16,
           3 => pc + addressingEx(mode),
-          _ => throw ("unreachable reg:$reg")
+          _ => throw const IllegalInstruction()
         },
-      _ => throw ("unreachable mode:$mode"),
+      _ => throw const IllegalInstruction(),
     };
   }
 
@@ -363,6 +364,15 @@ class M68 {
     clocks += 8; // 2 prefetch : 44
   }
 
+  /// the illegal instruction exception: line A and line F opcodes have their
+  /// own vectors. The pushed PC is the address of the instruction.
+  void illegalInstruction() {
+    final vector = switch (op0.shr12) { 0xa => 0x28, 0xf => 0x2c, _ => 0x10 };
+    _pc = pc0;
+    trap(vector, sr);
+    clocks += 26;
+  }
+
   void trap(int vector, int newSr) {
     // debug(
     //     "trap vector:${vector.x8} pc:${pc.x8} sr:${sr.x4} a7:${a[7].x8} ssp:${_ssp.x8} usp:${_usp.x8}");
@@ -402,6 +412,44 @@ class M68 {
     _halt = false;
   }
 
+  /// Saves logical CPU state; the owning adapter saves its bus and memory.
+  void saveState(StateWriter w) {
+    w.section('m68k');
+    w.ints(d);
+    w.ints(a.a);
+    w.int64(a.ssp);
+    w.int64(a.usp);
+    w.boolean(a.sf);
+    w.int64(_pc);
+    w.int64(pc0);
+    w.int64(op0);
+    w.int64(addr0);
+    w.int32(_sr);
+    w.int64(clocks);
+    w.int32(_assertedIntLevel);
+    w.int32(_pendingIntLevels);
+    w.boolean(_halt);
+  }
+
+  /// Restores into the existing CPU and keeps the adapter's bus reference.
+  void loadState(StateReader s) {
+    s.section('m68k');
+    s.intsInto(d);
+    s.intsInto(a.a);
+    a.ssp = s.int64();
+    a.usp = s.int64();
+    a.sf = s.boolean();
+    _pc = s.int64();
+    pc0 = s.int64();
+    op0 = s.int64();
+    addr0 = s.int64();
+    _sr = s.int32();
+    clocks = s.int64();
+    _assertedIntLevel = s.int32();
+    _pendingIntLevels = s.int32();
+    _halt = s.boolean();
+  }
+
   String dump() {
     final rega = [for (var i = 0; i < 8; i++) 'a$i:${a[i].x8}'].join(' ');
     final regd = [for (var i = 0; i < 8; i++) 'd$i:${d[i].x8}'].join(' ');
@@ -414,4 +462,9 @@ class M68 {
             (sr << i & (1 << f.length - 1) != 0) ? i : f.length + i]).join();
     return '$regd\n$rega\n$flags $regs';
   }
+}
+
+/// thrown while decoding an opcode with an invalid size or addressing mode
+class IllegalInstruction implements Exception {
+  const IllegalInstruction();
 }

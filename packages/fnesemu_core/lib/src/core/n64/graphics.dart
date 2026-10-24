@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../state.dart';
 import '../../util/int.dart';
 
 import 'bus.dart';
@@ -74,6 +75,135 @@ class N64Graphics {
   bool rasterize =
       true; // Optional headless fast-forward; normal execution renders every task.
   N64Graphics(this.bus);
+
+  List<int> get _scalars => [
+        geometry, numLights, colorImage, colorSize, width, zImage, //
+        textureImage, textureSize, textureWidth, textureFormat, activeTile,
+        otherHigh, otherLow, combine0, combine1, fillColor, //
+        scLeft, scTop, scRight, scBottom, tasks, triangles, geometry2
+      ];
+
+  /// Saves the decoder state between tasks; [rasterize] is configuration.
+  void saveState(StateWriter w) {
+    w.section('graphics');
+    w.ints(segments);
+    for (final v in vertices) {
+      w.boolean(v != null);
+      if (v == null) continue;
+      w.floats(v.clip);
+      w.floats(v.color);
+      w.float64(v.s);
+      w.float64(v.t);
+    }
+    for (final t in tiles) {
+      w.ints([
+        t.format, t.size, t.line, t.tmem, t.palette, t.sMode, t.tMode, //
+        t.sMask, t.tMask, t.sShift, t.tShift
+      ]);
+      w.floats([t.left, t.top, t.right, t.bottom]);
+    }
+    w.bytes(tmem);
+    lights.forEach(w.floats);
+    w.floats(model);
+    w.floats(projection);
+    w.int32(stack.length);
+    stack.forEach(w.floats);
+    for (final v in [scale, translate, primitive, environment, fog]) {
+      w.floats(v);
+    }
+    w.ints(_scalars);
+    w.floats([textureS, textureT]);
+    for (final b in [textureOn, extended, f3dex2]) {
+      w.boolean(b);
+    }
+    w.int32(depths.length);
+    for (final MapEntry(:key, :value) in depths.entries) {
+      w.int64(key);
+      w.floats(value);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('graphics');
+    s.intsInto(segments);
+    for (var i = 0; i < vertices.length; i++) {
+      vertices[i] = s.boolean()
+          ? N64Vertex(s.floats(), s.floats(), s.float64(), s.float64())
+          : null;
+    }
+    for (final t in tiles) {
+      final v = s.ints(), f = s.floats();
+      var i = 0;
+      t.format = v[i++];
+      t.size = v[i++];
+      t.line = v[i++];
+      t.tmem = v[i++];
+      t.palette = v[i++];
+      t.sMode = v[i++];
+      t.tMode = v[i++];
+      t.sMask = v[i++];
+      t.tMask = v[i++];
+      t.sShift = v[i++];
+      t.tShift = v[i++];
+      t.left = f[0];
+      t.top = f[1];
+      t.right = f[2];
+      t.bottom = f[3];
+    }
+    s.bytesInto(tmem);
+    for (final light in lights) {
+      light.setAll(0, s.floats());
+    }
+    model = s.floats();
+    projection = s.floats();
+    stack
+      ..clear()
+      ..addAll([for (var n = s.int32(); n > 0; n--) s.floats()]);
+    scale = s.floats();
+    translate = s.floats();
+    primitive = s.floats();
+    environment = s.floats();
+    fog = s.floats();
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('graphics state layout');
+    }
+    var i = 0;
+    geometry = v[i++];
+    numLights = v[i++];
+    colorImage = v[i++];
+    colorSize = v[i++];
+    width = v[i++];
+    zImage = v[i++];
+    textureImage = v[i++];
+    textureSize = v[i++];
+    textureWidth = v[i++];
+    textureFormat = v[i++];
+    activeTile = v[i++];
+    otherHigh = v[i++];
+    otherLow = v[i++];
+    combine0 = v[i++];
+    combine1 = v[i++];
+    fillColor = v[i++];
+    scLeft = v[i++];
+    scTop = v[i++];
+    scRight = v[i++];
+    scBottom = v[i++];
+    tasks = v[i++];
+    triangles = v[i++];
+    geometry2 = v[i++];
+    final f = s.floats();
+    textureS = f[0];
+    textureT = f[1];
+    textureOn = s.boolean();
+    extended = s.boolean();
+    f3dex2 = s.boolean();
+    depths.clear();
+    for (var n = s.int32(); n > 0; n--) {
+      final key = s.int64();
+      depths[key] = Float64List.fromList(s.floats());
+    }
+  }
   static List<double> identity() =>
       [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   void reset() {
@@ -227,8 +357,11 @@ class N64Graphics {
           case 0xdf:
             if (returns.isEmpty) return;
             pc = returns.removeLast();
-          case 0xdd || 0xe0 || 0xe1:
-            break; // LOAD_UCODE, SPNOOP, RDPHALF_1
+          case 0xd6 || 0xdd || 0xe0 || 0xe1:
+            // DMA_IO, LOAD_UCODE, SPNOOP, RDPHALF_1. DMA_IO moves data
+            // between the DMEM of the microcode and RDRAM, which this HLE
+            // does not have.
+            break;
           case 0xe2 || 0xe3:
             // the field is addressed from the top bit: shift = 32 - ofs - len
             final length = w0.mask8 + 1, shift = 32 - w0.shr8.mask8 - length;

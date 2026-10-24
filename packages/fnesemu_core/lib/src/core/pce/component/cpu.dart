@@ -206,13 +206,19 @@ class Cpu {
     final pushAddr = brk ? regs.pc + 1 : regs.pc;
     push(pushAddr.shr8);
     push(pushAddr.mask8);
-    push(regs.p);
+    // the B flag is set in the pushed flags only by BRK. regs.p still holds
+    // the T flag of the instruction that has just run; only a SET just before
+    // leaves T set for the instruction to return to.
+    push(brk
+        ? (regs.p | Flags.B) & ~Flags.T
+        : (regs.p & ~(Flags.B | Flags.T)) | (tFlagOn ? Flags.T : 0));
     // the handler starts in binary mode, and a SET just before does not
     // apply to its first instruction
-    regs.p = (regs.p & ~(Flags.B | Flags.D)) | (brk ? Flags.B : 0) | Flags.I;
+    regs.p = (regs.p & ~(Flags.D | Flags.T)) | Flags.I;
     tFlagOn = false;
 
-    final addr = irq2
+    // BRK shares the vector of IRQ2
+    final addr = irq2 || brk
         ? 0xfff6
         : irq1
             ? 0xfff8
@@ -222,6 +228,12 @@ class Cpu {
                     ? 0xfffc
                     : 0xfffe;
     regs.pc = read(addr) | read(addr + 1).shl8;
+  }
+
+  /// PLP and RTI: the B flag is not kept, and a pulled T flag stays set for the next instruction.
+  void pullFlags(int p) {
+    regs.p = p & ~Flags.B;
+    tFlagOn = p & Flags.T != 0;
   }
 
   void reset() {

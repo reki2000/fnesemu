@@ -1,0 +1,31 @@
+PS-X Realtime Kernel OpenBios - build id 64e85417612d69e56d010404fc354960f9aa402c.
+Copyright (C) 2019-2026 PCSX-Redux authors.
+KERNEL SETUP!
+
+Configuration : EvCB	0x10		TCB	0x04
+ResetGraph:itb=80012280,ehk=800122b0
+ResetGraph:SR=40000000
+ResetGraph:Interrupt hooks enabled.
+ResetGraph:About to init interrupts.
+ResetGraph:Interrupts enabled!
+
+mdec/4bit (single 8x8 block decode in 4-bit mode)
+mdec_reset (MDEC_CTRL <- 0x80000000)... ok
+mdec_quantTable(addr=0x80012080, color=1)... ok
+mdec_idctTable(addr=0x80012100)... ok
+mdec_enableDma (MDEC_CTRL <- 0x60000000)... ok
+8x8 block in 4bit mode:
+mdec_decodeDma(addr=0x80012000, lengthInBytes=0x80, colorDepth=0, outputSigned=0, setBit15=0)... ok
+mdec_readDecodedDma(addr=0x801ffd78, bytes=0x20, [blockSize=0x20])... mdec_readDecodedDma timeout, CH_BASE_ADDR: 0x001ffd78, CH_BLOCK_ADDR: 0x00000018, CH_CONTROL_ADDR: 0x01000200
+ ok
+   0: f0 0f ff 00 
+   4: ec ee fe 0f 
+   8: dd ef ef 0f 
+   c: eb ef fe 0e 
+  10: f0 ef ff 00 
+  14: 00 ff 1f 01 
+  18: 21 f2 21 02 
+  1c: 30 23 32 01 
+mdec_reset (MDEC_CTRL <- 0x80000000)... ok
+
+Done

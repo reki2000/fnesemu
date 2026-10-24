@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../state.dart';
 import '../../util/int.dart';
 import '../../video_debug.dart';
 
@@ -15,6 +16,10 @@ class Vdp1 {
 
   final _fb = [Uint16List(fbWidth * fbHeight), Uint16List(fbWidth * fbHeight)];
   int _drawIndex = 0;
+
+  /// TVMR bit 0: the frame buffer holds 8-bit pixels, 1024 x 256, two
+  /// pixels to a word with the even pixel in the upper byte
+  bool get eightBit => tvmr.bit0;
 
   Uint16List get displayFb => _fb[_drawIndex ^ 1];
   Uint16List get drawFb => _fb[_drawIndex];
@@ -44,6 +49,76 @@ class Vdp1 {
   int _userX1 = 0, _userY1 = 0, _userX2 = 0, _userY2 = 0;
 
   int _pixels = 0;
+
+  List<int> get _scalars => [
+        tvmr, fbcr, ptmr, ewdr, ewlr, ewrr,
+        edsr, lopr, copr, _drawIndex, _drawEndWait, _localX,
+        _localY, _sysClipX, _sysClipY, _userX1, _userY1, _userX2,
+        _userY2, _pixels, _pmod, _colr, _srca, _texW,
+        _texH, _dir, _endCodes, _gr, _gg, _gb
+      ];
+
+  static Uint8List _bytes(TypedData d) =>
+      d.buffer.asUint8List(d.offsetInBytes, d.lengthInBytes);
+
+  /// Saves VRAM, both frame buffers, registers and drawing latches.
+  void saveState(StateWriter w) {
+    w.section('vdp1');
+    w.bytes(vram);
+    for (final fb in _fb) {
+      w.bytes(_bytes(fb));
+    }
+    w.ints(_scalars);
+    w.ints(_grd);
+    w.boolean(_manualChange);
+    w.boolean(_manualErase);
+  }
+
+  void loadState(StateReader s) {
+    s.section('vdp1');
+    s.bytesInto(vram);
+    for (final fb in _fb) {
+      s.bytesInto(_bytes(fb));
+    }
+    final v = s.ints();
+    if (v.length != _scalars.length) {
+      throw const StateMismatch('vdp1 state layout');
+    }
+    var i = 0;
+    tvmr = v[i++];
+    fbcr = v[i++];
+    ptmr = v[i++];
+    ewdr = v[i++];
+    ewlr = v[i++];
+    ewrr = v[i++];
+    edsr = v[i++];
+    lopr = v[i++];
+    copr = v[i++];
+    _drawIndex = v[i++];
+    _drawEndWait = v[i++];
+    _localX = v[i++];
+    _localY = v[i++];
+    _sysClipX = v[i++];
+    _sysClipY = v[i++];
+    _userX1 = v[i++];
+    _userY1 = v[i++];
+    _userX2 = v[i++];
+    _userY2 = v[i++];
+    _pixels = v[i++];
+    _pmod = v[i++];
+    _colr = v[i++];
+    _srca = v[i++];
+    _texW = v[i++];
+    _texH = v[i++];
+    _dir = v[i++];
+    _endCodes = v[i++];
+    _gr = v[i++];
+    _gg = v[i++];
+    _gb = v[i++];
+    s.intsInto(_grd);
+    _manualChange = s.boolean();
+    _manualErase = s.boolean();
+  }
 
   void reset() {
     tvmr = 0;
@@ -399,7 +474,8 @@ class Vdp1 {
     if (x < 0 || y < 0 || x > _sysClipX || y > _sysClipY) {
       return true;
     }
-    if (x >= fbWidth || y >= fbHeight) {
+    if (x >= (eightBit ? fbWidth * 2 : fbWidth) ||
+        (fbcr.bit3 ? y.shr1 : y) >= fbHeight) {
       return true;
     }
     if (_pmod.bit10) {
@@ -425,9 +501,23 @@ class Vdp1 {
     if (_pmod.bit8 && (x ^ y).bit0) {
       return; // mesh
     }
+    // FBCR DIE: the lines are of the 448-line screen, and the frame buffer
+    // holds the lines of the field that DIL selects
+    if (fbcr.bit3) {
+      if (y.bit0 != fbcr.bit2) return;
+      y = y.shr1;
+    }
 
     _pixels++;
     final fb = drawFb;
+    if (eightBit) {
+      // no color calculation on 8-bit pixels
+      final i = y * fbWidth + x.shr1;
+      fb[i] = x.bit0
+          ? fb[i] & 0xff00 | color.mask8
+          : fb[i].mask8 | color.mask8.shl8;
+      return;
+    }
     final i = y * fbWidth + x;
 
     if (_pmod.bit15) {

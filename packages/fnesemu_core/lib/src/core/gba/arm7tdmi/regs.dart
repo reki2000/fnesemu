@@ -157,8 +157,10 @@ class Regs {
     }
   }
 
-  /// copy current SPSR back into CPSR (used on exception return).
+  /// copy current SPSR back into CPSR (used on exception return). User and
+  /// system modes have no SPSR, so the CPSR is left as it is.
   void restoreCpsr() {
+    if (_bankOf(mode) == 0) return;
     final target = spsr;
     switchMode(target.mask5);
     cpsr = target;

@@ -1,3 +1,4 @@
+import '../../state.dart';
 import '../../util/int.dart';
 
 import 'bus.dart';
@@ -66,6 +67,46 @@ class Scu {
   int _timer0Counter = 0;
 
   int asr0 = 0, asr1 = 0, aref = 0, rsel = 0;
+
+  void saveState(StateWriter w) {
+    w.section('scu');
+    w.ints([ist, ims, t0c, t1s, t1md, _timer0Counter, asr0, asr1, aref, rsel]);
+    w.boolean(_slaveVBlank);
+    w.boolean(_slaveHBlank);
+    for (final d in dma) {
+      w.ints([d.readAddr, d.writeAddr, d.count, d.add, d.en, d.md]);
+    }
+    dsp.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('scu');
+    final v = s.ints();
+    if (v.length != 10) throw const StateMismatch('scu state layout');
+    ist = v[0];
+    ims = v[1];
+    t0c = v[2];
+    t1s = v[3];
+    t1md = v[4];
+    _timer0Counter = v[5];
+    asr0 = v[6];
+    asr1 = v[7];
+    aref = v[8];
+    rsel = v[9];
+    _slaveVBlank = s.boolean();
+    _slaveHBlank = s.boolean();
+    for (final d in dma) {
+      final c = s.ints();
+      if (c.length != 6) throw const StateMismatch('scu dma state layout');
+      d.readAddr = c[0];
+      d.writeAddr = c[1];
+      d.count = c[2];
+      d.add = c[3];
+      d.en = c[4];
+      d.md = c[5];
+    }
+    dsp.loadState(s);
+  }
 
   void reset() {
     ist = 0;

@@ -1,4 +1,5 @@
 import '../../pad_button.dart';
+import '../../state.dart';
 
 /// SS standard digital pad
 ///
@@ -43,6 +44,18 @@ class Pad {
   }
 
   (int, int) data(int id) => (_state[id][0], _state[id][1] | 0x07);
+
+  void saveState(StateWriter w) {
+    w.section('pad');
+    _state.forEach(w.ints);
+  }
+
+  void loadState(StateReader s) {
+    s.section('pad');
+    for (final state in _state) {
+      s.intsInto(state);
+    }
+  }
 
   void reset() {
     for (final s in _state) {

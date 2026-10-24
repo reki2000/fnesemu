@@ -66,9 +66,11 @@ class CoreController {
     final sramId = _sram.id;
     final sramData = Uint8List.fromList(_sram.data);
 
+    Core? created;
     final Core core;
     try {
-      core = CoreFactory.of(system)
+      core = created = CoreFactory.of(system);
+      core
         ..setSram(_sram)
         ..onAudio(_onAudio)
         ..setBiosFiles(bios);
@@ -77,6 +79,7 @@ class CoreController {
         core.setRom(rom);
       }
     } catch (_) {
+      created?.dispose();
       _restoreSram(sramId, sramData);
       if (wasRunning) {
         run();
@@ -88,6 +91,7 @@ class CoreController {
       core.setCdromDrive(drive);
     }
 
+    _core.dispose();
     _core = core;
     _system = system;
     final metadata = CoreFactory.system(system);
@@ -116,8 +120,10 @@ class CoreController {
 
   bool _stopRequested = false;
 
-  // minimum time given to the UI after each frame
-  static const minYieldUs = 4000;
+  // Fixed event-loop yield; the remaining frame time also caps output at 60 FPS.
+  static const frameYieldUs =
+      int.fromEnvironment('FRAME_YIELD_US', defaultValue: 2000);
+  static const _minFrameUs = 16667;
 
   /// runs emulation continuously
   Future<void> run() {
@@ -130,8 +136,8 @@ class CoreController {
       return;
     }
 
-    final fpsCounter = FrameCounter(
-        duration: const Duration(milliseconds: 500)); // shortlife counter
+    final fpsCounter =
+        FrameCounter(duration: const Duration(milliseconds: 500));
 
     // the emulation proceeds by the real time elapsed. when the core is slower
     // than the real time, the clocks behind are dropped instead of being
@@ -140,6 +146,7 @@ class CoreController {
     final clocksPerUs = _core.systemClockHz / 1000000;
     final watch = Stopwatch()..start();
     int lastUs = 0;
+    int frameDeadlineUs = 0;
     double targetClocks = _currentCpuClocks.toDouble();
 
     _state.running = true;
@@ -157,14 +164,21 @@ class CoreController {
           continue;
         }
 
-        _fps = fpsCounter.fps(DateTime.now());
         _runFrame();
         fpsCounter.count();
+        final fps = fpsCounter.fps(DateTime.now());
+        if (fps != null) {
+          _fps = fps;
+          debugger.sampleJitUsage();
+          _fpsStream.add(fps);
+        }
 
-        // gives the UI a quarter of the time at least
-        final frameUs = watch.elapsedMicroseconds - nowUs;
-        await Future.delayed(
-            Duration(microseconds: max(minYieldUs, frameUs ~/ 3)));
+        // Yield even when behind, and limit fast cores to 60 frames per second.
+        final frameEndUs = watch.elapsedMicroseconds;
+        frameDeadlineUs =
+            max(frameDeadlineUs + _minFrameUs, frameEndUs + frameYieldUs);
+        await Future.delayed(Duration(
+            milliseconds: (frameDeadlineUs - frameEndUs + 999) ~/ 1000));
 
         // keeps up to 1 frame behind
         final behind = targetClocks - _currentCpuClocks;
@@ -200,6 +214,7 @@ class CoreController {
     final wasRunning = _state.running;
     await stop();
     _fps = 0.0;
+    _fpsStream.add(_fps);
     _currentCpuClocks = _scanline = 0;
     _core.reset();
     debugger.reset();
@@ -276,7 +291,6 @@ class CoreController {
   void _renderAll() {
     _onImage(_core.imageBuffer());
     debugger.pushStream(frameRendered: true);
-    _fpsStream.add(_fps);
   }
 
   // calculated fps

@@ -28,7 +28,7 @@ import 'mapper/mirror.dart';
 import 'rom/nes_file.dart';
 
 /// main class for NES emulation. integrates cpu/ppu/apu/bus/pad control
-class Nes implements Core {
+class Nes extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -155,8 +155,7 @@ class Nes implements Core {
   /// returns screen buffer as 250 240 argb
   @override
   ImageBuffer imageBuffer() {
-    return ImageBuffer(
-        imageWidth, imageHeight, ppu.buffer.buffer.asUint8List());
+    return ImageBuffer(imageWidth, imageHeight, ppu.buffer);
   }
 
   @override
@@ -254,6 +253,9 @@ class Nes implements Core {
   }
 
   @override
+  void dispose() {}
+
+  @override
   void setSram(Sram sram) {
     _sram = sram;
   }
@@ -348,11 +350,11 @@ class Nes implements Core {
 
   @override
   ImageBuffer renderVram(bool useSecondBgColor, int paletteNo) =>
-      ImageBuffer(0, 0, Uint8List(0));
+      ImageBuffer(0, 0, Uint32List(0));
 
   @override
   ImageBuffer renderColorTable(int paletteNo) =>
-      ImageBuffer(0, 0, Uint8List(0));
+      ImageBuffer(0, 0, Uint32List(0));
 
   @override
   List<String> spriteInfo() => List.empty();

@@ -3,7 +3,9 @@ import 'dart:typed_data';
 class ImageBuffer {
   final int width;
   final int height;
-  final Uint8List buffer;
+
+  /// one pixel per element, with bytes in memory order R, G, B, A
+  final Uint32List buffer;
   final int displayWidth;
 
   // null: use the pixel height; cores may declare a different display aspect
@@ -13,7 +15,11 @@ class ImageBuffer {
       {int? displayWidth_, this.displayHeight})
       : displayWidth = displayWidth_ ?? width;
 
-  factory ImageBuffer.empty() => ImageBuffer(0, 0, Uint8List(0));
+  factory ImageBuffer.empty() => ImageBuffer(0, 0, Uint32List(0));
+
+  /// the pixels as RGBA bytes, without copying
+  Uint8List get bytes =>
+      buffer.buffer.asUint8List(buffer.offsetInBytes, buffer.lengthInBytes);
 }
 
 class AudioBuffer {

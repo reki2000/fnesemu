@@ -1,5 +1,7 @@
 import 'dart:typed_data';
+
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// MD 32x double-buffered bitmap VDP. All bus storage is big-endian.
 class ExpansionVideo {
@@ -11,6 +13,42 @@ class ExpansionVideo {
   bool vblank = true, hblank = true;
   bool get busy => _fillClocks > 0;
   Uint8List get accessFrame => frames[displayBank ^ 1];
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('32x-video');
+    w.bytes(frames[0]);
+    w.bytes(frames[1]);
+    w.ints(palette);
+    w.ints(output);
+    w.int64(mode);
+    w.int64(shift);
+    w.int64(fillLength);
+    w.int64(fillAddress);
+    w.int64(displayBank);
+    w.int64(_requestedBank);
+    w.int64(_fillClocks);
+    w.boolean(vblank);
+    w.boolean(hblank);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('32x-video');
+    s.bytesInto(frames[0]);
+    s.bytesInto(frames[1]);
+    s.intsInto(palette);
+    s.intsInto(output);
+    mode = s.int64();
+    shift = s.int64();
+    fillLength = s.int64();
+    fillAddress = s.int64();
+    displayBank = s.int64();
+    _requestedBank = s.int64();
+    _fillClocks = s.int64();
+    vblank = s.boolean();
+    hblank = s.boolean();
+  }
 
   void reset() {
     mode = shift = fillLength =

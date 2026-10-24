@@ -1,3 +1,7 @@
+// Exercises file-backed memory cards and snapshots.
+@TestOn('vm')
+library;
+
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -31,6 +35,7 @@ void main() {
   test('PS accepts memory card contents without doing file I/O', () {
     final bytes = Uint8List.fromList(MemoryCard.blankImage)..[128] = 0x76;
     final core = Ps(memoryCard2Image: bytes);
+    addTearDown(core.dispose);
     expect(readCardByte(core.memoryCard2, 1), 0x76);
     bytes[128] = 0x89;
     expect(readCardByte(core.memoryCard2, 1), 0x89);
@@ -52,6 +57,7 @@ void main() {
     final directory = await Directory.systemTemp.createTemp('fnesemu-ps-png');
     addTearDown(() => directory.delete(recursive: true));
     final core = Ps();
+    addTearDown(core.dispose);
     core.gpu.frameBuffer16[0] = 0x001f;
     core.gpu.frameBuffer16[1] = 0x7c00;
     core.gpu.debugCmdLog = 'fixture command';

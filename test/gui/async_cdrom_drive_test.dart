@@ -84,6 +84,21 @@ FILE "a.bin" BINARY
     expect(drive.read(4), isEmpty);
   });
 
+  test('the drive is waiting until the read sector is available', () async {
+    final drive = AsyncCdromDrive();
+    await drive.insert(
+        memoryDisc("a.bin", {"a.bin": MemoryDiscFile("a.bin", makeBin(4))}));
+    expect(drive.isWaiting, false);
+    expect(drive.read(1), isNull);
+    expect(drive.isWaiting, true);
+    await drive.settle();
+    expect(drive.isWaiting, false);
+    drive.seek(2);
+    expect(drive.isWaiting, false); // already read ahead
+    await drive.eject();
+    expect(drive.isWaiting, false);
+  });
+
   test('the status is converted only when it changes', () async {
     final drive = AsyncCdromDrive();
     expect(identical(drive.status, drive.status), true);
@@ -136,22 +151,23 @@ FILE "a.bin" BINARY
 
       expect(drive.read(10)![0], 10);
       expect(drive.read(10)!.length, size);
-      expect(fileReads, [(10, AsyncCdromDrive.readAheadSectors + 1)]);
-      expect(drive.cachedSectors, 76);
+      // the requested sectors first, then the read-ahead separately
+      expect(fileReads, [(10, AsyncCdromDrive.firstReadSectors), (18, 75)]);
+      expect(drive.cachedSectors, 83);
 
       // following sectors are read from the cache
-      for (int s = 11; s < 40; s++) {
+      for (int s = 11; s < 56; s++) {
         expect(drive.read(s)![0], s);
       }
-      expect(fileReads.length, 1);
+      expect(fileReads.length, 2);
 
       // read ahead when the half of the window is consumed
-      expect(drive.read(50)![0], 50);
-      expect(fileReads.length, 2);
-      expect(fileReads[1], (86, 75));
-      expect(drive.read(86), isNull);
+      expect(drive.read(56)![0], 56);
+      expect(fileReads.length, 3);
+      expect(fileReads[2], (93, 75));
+      expect(drive.read(93), isNull);
       await pump();
-      expect(drive.read(86)![0], 86);
+      expect(drive.read(93)![0], 93);
     });
 
     test('repeated reads share the same file access', () async {
@@ -161,23 +177,23 @@ FILE "a.bin" BINARY
       await pump();
       expect(drive.read(0), isNotNull);
       expect(drive.read(1), isNotNull);
-      expect(fileReads.length, 1);
+      expect(fileReads.length, 2); // the first sectors and the read-ahead
     });
 
     test('cache expires after 60 seconds', () async {
       drive.read(0);
       await pump();
-      expect(fileReads.length, 1);
+      expect(fileReads.length, 2);
 
       now = now.add(const Duration(seconds: 59));
       expect(drive.read(1), isNotNull);
-      expect(fileReads.length, 1);
+      expect(fileReads.length, 2);
 
       now = now.add(const Duration(seconds: 2));
       expect(drive.read(2), isNull);
       await pump();
-      expect(fileReads.length, 2);
-      expect(fileReads[1].$1, 2);
+      expect(fileReads.length, 4);
+      expect(fileReads[2].$1, 2);
       expect(drive.read(2)![0], 2);
     });
 

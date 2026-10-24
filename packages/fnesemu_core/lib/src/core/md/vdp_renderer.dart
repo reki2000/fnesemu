@@ -1,6 +1,8 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 
 import 'vdp.dart';
@@ -134,16 +136,21 @@ class VdpLineState {
   // Parallel arrays share one sprite slot; only [0, spriteBufIndex) is valid.
   // storeSprite writes every attribute together before the slot becomes valid.
   // sprites on the line: x, y, pattern address, palette | priority,
-  // flags (bit0: hflip, bit1: vflip), width, height, vertical cells
+  // flags (bit0: hflip, bit1: vflip), width, drawn width (cut at the dot
+  // limit of the line), height, vertical cells
   final spX = Int32List(20);
   final spY = Int32List(20);
   final spPattern = Int32List(20);
   final spAttr = Int32List(20);
   final spFlags = Int32List(20);
   final spWidth = Int32List(20);
+  final spDrawWidth = Int32List(20);
   final spHeight = Int32List(20);
   final spVCells = Int32List(20);
   int spriteBufIndex = 0;
+
+  // the previous line used more sprite dots than the limit
+  bool spriteDotOverflow = false;
 
   // Store every parallel-array attribute together; the renderer advances its
   // valid slot count only after this write. No sprite object is allocated.
@@ -156,6 +163,7 @@ class VdpLineState {
     required int attributes,
     required int flags,
     required int width,
+    required int drawWidth,
     required int height,
     required int verticalCells,
   }) {
@@ -165,6 +173,7 @@ class VdpLineState {
     spAttr[slot] = attributes;
     spFlags[slot] = flags;
     spWidth[slot] = width;
+    spDrawWidth[slot] = drawWidth;
     spHeight[slot] = height;
     spVCells[slot] = verticalCells;
   }
@@ -175,6 +184,60 @@ class VdpLineState {
   final a = _Plane();
   final b = _Plane();
   final window = _Plane();
+
+  List<Int32List> get _sprites => [
+        spX, spY, spPattern, spAttr, spFlags, spWidth, spDrawWidth, //
+        spHeight, spVCells
+      ];
+
+  void saveState(StateWriter w) {
+    w.section('md-vdp-line');
+    w.ints([
+      bitsBgWidth, maskBgWidth, maskScrollH, maskScrollV, maskTileYOffset, //
+      bitsTileV, y, yy, spriteBufIndex
+    ]);
+    w.boolean(spriteDotOverflow);
+    _sprites.forEach(w.ints);
+    w.ints(spLine);
+    for (final p in [a, b, window]) {
+      w.ints([
+        p.nameAddrBase, p.hScroll, p.yOffsetInTile, p.tileY, p.pattern, //
+        p.attr, p.hFlipXor, p.fetchedHHigh
+      ]);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('md-vdp-line');
+    final v = s.ints();
+    if (v.length != 9) throw const StateMismatch('md vdp line state layout');
+    bitsBgWidth = v[0];
+    maskBgWidth = v[1];
+    maskScrollH = v[2];
+    maskScrollV = v[3];
+    maskTileYOffset = v[4];
+    bitsTileV = v[5];
+    y = v[6];
+    yy = v[7];
+    spriteBufIndex = v[8];
+    spriteDotOverflow = s.boolean();
+    for (final list in _sprites) {
+      s.intsInto(list);
+    }
+    s.intsInto(spLine);
+    for (final p in [a, b, window]) {
+      final c = s.ints();
+      if (c.length != 8) throw const StateMismatch('md vdp plane state layout');
+      p.nameAddrBase = c[0];
+      p.hScroll = c[1];
+      p.yOffsetInTile = c[2];
+      p.tileY = c[3];
+      p.pattern = c[4];
+      p.attr = c[5];
+      p.hFlipXor = c[6];
+      p.fetchedHHigh = c[7];
+    }
+  }
 }
 
 extension VdpRenderer on Vdp {
@@ -192,7 +255,14 @@ extension VdpRenderer on Vdp {
     final baseAddr = reg[5].shl9 & (h32 ? 0xfe00 : 0xfc00);
     int spriteNo = 0;
     int pixelsPerLine = 0;
-    int n = 0;
+    int count = 0; // sprites on the line
+    int n = 0; // sprites to draw
+
+    // a sprite at x = 0 masks the following sprites, once a sprite at
+    // another x is found or the previous line overflowed the dot limit
+    bool canMask = s.spriteDotOverflow;
+    bool masked = false;
+    s.spriteDotOverflow = false;
 
     for (int i = 0; i < displayCount; i++) {
       final base = baseAddr + spriteNo * 8;
@@ -216,28 +286,42 @@ extension VdpRenderer on Vdp {
           : (spY - 128 <= y && y < spY - 128 + height);
 
       if (isTarget) {
-        if (n == overflowCount) {
+        if (count == overflowCount) {
           spriteOverflow = true;
           break;
         }
+        count++;
 
-        pixelsPerLine += width;
-        if (pixelsPerLine >= pixelCount) {
-          break;
+        final x = d3.mask9;
+        if (x == 0) {
+          masked |= canMask;
+        } else {
+          canMask = true;
         }
 
-        s.storeSprite(n,
-            x: d3.mask9,
-            y: spY,
-            pattern: d2.shl5 & 0xffe0,
-            attributes: d2.shr9 & _pixelPaletteMask |
-                (d2.bit15 ? _pixelPriorityFlag : 0),
-            flags: (d2.bit11 ? _spriteHFlipFlag : 0) |
-                (d2.bit12 ? _spriteVFlipFlag : 0),
-            width: width,
-            height: height,
-            verticalCells: vCells);
-        n++;
+        final drawWidth = min(width, pixelCount - pixelsPerLine);
+        pixelsPerLine += width;
+
+        if (!masked && x != 0) {
+          s.storeSprite(n,
+              x: x,
+              y: spY,
+              pattern: d2.shl5 & 0xffe0,
+              attributes: d2.shr9 & _pixelPaletteMask |
+                  (d2.bit15 ? _pixelPriorityFlag : 0),
+              flags: (d2.bit11 ? _spriteHFlipFlag : 0) |
+                  (d2.bit12 ? _spriteVFlipFlag : 0),
+              width: width,
+              drawWidth: drawWidth,
+              height: height,
+              verticalCells: vCells);
+          n++;
+        }
+
+        if (pixelsPerLine >= pixelCount) {
+          s.spriteDotOverflow = true;
+          break;
+        }
       }
 
       if (next == 0) {
@@ -266,6 +350,7 @@ extension VdpRenderer on Vdp {
     for (int i = s.spriteBufIndex - 1; i >= 0; i--) {
       final spX = s.spX[i];
       final spW = s.spWidth[i];
+      final drawW = s.spDrawWidth[i];
       final hFlip = s.spFlags[i] & _spriteHFlipFlag != 0;
       final vFlip = s.spFlags[i] & _spriteVFlipFlag != 0;
       final attr = s.spAttr[i];
@@ -288,7 +373,7 @@ extension VdpRenderer on Vdp {
         px = 0;
       }
 
-      for (; hh < spW && px < width; hh++, px++) {
+      for (; hh < drawW && px < width; hh++, px++) {
         final flippedX = hFlip ? spW - hh - 1 : hh;
         final x1 = flippedX.mask3;
         final x2 = flippedX.shr3;

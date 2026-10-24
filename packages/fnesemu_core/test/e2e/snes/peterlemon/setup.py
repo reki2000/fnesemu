@@ -1,0 +1,30 @@
+"""Checks out the prebuilt test ROMs of PeterLemon/SNES that e2e.toml uses into .build/."""
+
+import sys
+import tomllib
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from setuplib import build_dir, git_checkout, require_files, run  # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+PREFIX = ".build/SNES/"
+
+
+def roms():
+    cases = tomllib.loads((HERE.parent / "e2e.toml").read_text())["case"]
+    return sorted({f[len(PREFIX):] for c in cases if c.get("dir") == HERE.name for f in c["files"]})
+
+
+def setup():
+    files = roms()
+    repo = git_checkout(
+        "https://github.com/PeterLemon/SNES.git",
+        "350b394e86ec5d62f600b5cbf64cdce3721bb6ef",
+        build_dir(__file__) / "SNES",
+        sparse=[f"/{f}" for f in files],
+    )
+    require_files(*(repo / f for f in files))
+
+
+run(setup)

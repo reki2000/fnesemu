@@ -1,5 +1,4 @@
 // import '../../../util/debug.dart';
-import 'dart:math';
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
@@ -27,13 +26,11 @@ class Vdc {
   }
 
   reset() {
-    final rand = Random(0); // fixed seed: deterministic power-on garbage
-    vram.setRange(0, vram.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
-    colorTable.setRange(0, colorTable.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x200)));
-    sat.setRange(0, sat.length,
-        Iterable.generate(0x10000, (i) => rand.nextInt(0x10000)));
+    // the power-on contents are undefined; clear them, so that software
+    // which does not set up the sprite table shows no garbage sprites
+    vram.fillRange(0, vram.length, 0);
+    colorTable.fillRange(0, colorTable.length, 0);
+    sat.fillRange(0, sat.length, 0);
 
     reg = 0;
 
@@ -66,6 +63,8 @@ class Vdc {
 
     vramDotWidth = 0;
     hSize = 256;
+    pendingHSize = 256;
+    hdrWidth = 256;
     vSize = 242;
 
     bgWidthBits = 5;
@@ -93,6 +92,8 @@ class Vdc {
   int scanX = 0; // horizontal counter
 
   int hSize = 256; // rendered image width
+  int pendingHSize = 256; // the widest HDR of this frame, from the next frame
+  int hdrWidth = 256; // the width that HDR sets now
   int vSize = 242; // rendered image height
 
   int reg = 0;
@@ -267,10 +268,13 @@ class Vdc {
       case 0x0a:
         break;
       // Horizontal Display Register
+      // the width takes effect at the next frame, so that a change in the
+      // middle of a frame keeps the lines already rendered. a frame that
+      // changes it is as wide as the widest setting.
       case 0x0b:
-        final oldHSize = hSize;
-        hSize = (val.mask6 + 1).shl3;
-        if (oldHSize != hSize) indexBuffer = Uint16List(hSize * vSize);
+        final w = (val.mask6 + 1).shl3;
+        hdrWidth = w;
+        if (w > pendingHSize) pendingHSize = w;
         break;
       // Vertical Sync Register
       case 0x0c:

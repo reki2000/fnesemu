@@ -9,7 +9,8 @@ void main() {
   bool sourcesAvailable(File file, Set<String> visited) {
     if (!file.existsSync()) return false;
     if (!visited.add(file.absolute.path)) return true;
-    final directives = RegExp(r'(?:import|export|part)\s+(?!of\b)[^;]*;');
+    final directives =
+        RegExp(r'^(?:import|export|part)\s+(?!of\b)[^;]*;', multiLine: true);
     final uris = RegExp(r'''['"]([^'"]+)['"]''');
     for (final directive in directives.allMatches(file.readAsStringSync())) {
       for (final match in uris.allMatches(directive.group(0)!)) {

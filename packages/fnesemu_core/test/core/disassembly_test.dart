@@ -37,7 +37,8 @@ void main() {
 
   test('N64 exposes assembler text and full-width register rows', () {
     final core = N64();
-    core.bus.write(0, 0x2402ffff, 4);
+    addTearDown(core.dispose);
+    core.bus.write(0xa0000000, 0x2402ffff, 4);
     expect(core.disasm(0, 0x80000000).$1, contains('addiu r2, r0, -1'));
     expect(core.disasm(0, 0x80000000).$2, 4);
     core.cpu.r[8] = -1;
@@ -61,6 +62,7 @@ void main() {
 
   test('ss sound CPU disassembly, trace and all CPU register dumps', () {
     final core = Ss();
+    addTearDown(core.dispose);
     core.scsp.ram
         .setAll(0x100, [0x4e, 0x71, 0x20, 0x3c, 0x12, 0x34, 0x56, 0x78]);
     expect(core.disasm(2, 0x100).$1.toLowerCase(), contains('nop'));

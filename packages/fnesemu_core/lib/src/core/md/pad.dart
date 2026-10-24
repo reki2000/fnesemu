@@ -1,6 +1,7 @@
 // import '../../util/debug.dart';
 import '../../pad_button.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 // final _log = DebugLog('md.pad');
 
@@ -12,6 +13,32 @@ class Pad {
   Pad() {
     isPressed =
         List.generate(controllerNum, (_) => {for (var e in _hw) e.name: false});
+  }
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('md-pad');
+    w.ints(counter);
+    w.ints(_lastEdge);
+    for (var i = 0; i < controllerNum; i++) {
+      w.boolean(th[i]);
+      for (final button in _hw) {
+        w.boolean(isPressed[i][button.name]!);
+      }
+    }
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('md-pad');
+    s.intsInto(counter);
+    s.intsInto(_lastEdge);
+    for (var i = 0; i < controllerNum; i++) {
+      th[i] = s.boolean();
+      for (final button in _hw) {
+        isPressed[i][button.name] = s.boolean();
+      }
+    }
   }
 
   void keyDown(int id, PadButton d) {
@@ -71,15 +98,17 @@ class Pad {
         _z,
       ];
 
+  /// the buttons read at each TH edge of the 6 button pad (bit 5 to 0): -1
+  /// reads 1, -2 reads 0. TH high and low alternate from the first high.
   static const buttonIndice = [
-    [8, 7, 3, 2, 1, 0],
-    [5, 6, -2, -2, 1, 0],
-    [8, 7, 3, 2, 1, 0],
-    [5, 6, -2, -2, -2, -2],
-    [8, 7, 4, 9, 10, 11],
-    [5, 6, -1, -1, -1, -1],
-    [8, 7, 3, 2, 1, 0],
-    [5, 6, -2, -2, 1, 0],
+    [8, 7, 3, 2, 1, 0], // 1st high: C B R L D U
+    [5, 6, -2, -2, 1, 0], // 1st low: S A 0 0 D U
+    [8, 7, 3, 2, 1, 0], // 2nd high: C B R L D U
+    [5, 6, -2, -2, 1, 0], // 2nd low: S A 0 0 D U
+    [8, 7, 3, 2, 1, 0], // 3rd high: C B R L D U
+    [5, 6, -2, -2, -2, -2], // 3rd low: S A 0 0 0 0
+    [8, 7, 4, 9, 10, 11], // 4th high: C B M X Y Z
+    [5, 6, -1, -1, -1, -1], // 4th low: S A 1 1 1 1
   ];
 
   List<int> counter = [0, 0, 0];
@@ -88,8 +117,23 @@ class Pad {
   int buttonValue(int id, int index, int bit) =>
       !isPressed[id][_hw[index].name]! ? bit : 0;
 
-  void writeData(int id, int val) {
+  /// m68 clocks without a TH edge after which the pad returns to its first
+  /// state (about 1.5 ms)
+  static const timeoutClocks = 11500;
+
+  final List<int> _lastEdge = [0, 0, 0];
+
+  // returns to the first state of the current TH level when the timeout passed
+  void _expire(int id, int clocks) {
+    if (clocks - _lastEdge[id] > timeoutClocks || clocks < _lastEdge[id]) {
+      counter[id] = th[id] ? 0 : 1;
+    }
+  }
+
+  void writeData(int id, int val, int clocks) {
     if (th[id] != val.bit6) {
+      _expire(id, clocks);
+      _lastEdge[id] = clocks;
       th[id] = !th[id];
       counter[id]++;
       if (counter[id] == 8) {
@@ -99,7 +143,8 @@ class Pad {
     // _log.debugc(() => "$id writeData ${val.x2} th:${th[id]} counter:${counter[id]}");
   }
 
-  int readData(int id) {
+  int readData(int id, int clocks) {
+    _expire(id, clocks);
     final val = buttonIndice[counter[id]].fold(
         0,
         (prev, idx) =>

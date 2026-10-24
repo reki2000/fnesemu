@@ -24,7 +24,7 @@ import 'rom/snes_file.dart';
 /// simplified echo). Mode 5/6 hi-res is a documented approximation - see
 /// ppu.dart/dsp.dart class docs for exact gaps (Gaussian interpolation,
 /// FIR filter, EXTBG, direct color, vertical mosaic).
-class Snes implements Core {
+class Snes extends Core {
   @override
   bool get hasPatternTables => true;
 
@@ -147,6 +147,7 @@ class Snes implements Core {
       rendered = true;
 
       if (_scanline == 225) {
+        ppu.onVBlank();
         bus.enterVBlank();
       } else if (_scanline >= scanlinesInFrame_) {
         _scanline = 0;
@@ -161,9 +162,8 @@ class Snes implements Core {
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
   /// other modes show backdrop only - see Ppu's class doc)
   @override
-  ImageBuffer imageBuffer() =>
-      ImageBuffer(ppu.width, Ppu.height, ppu.buffer.buffer.asUint8List(),
-          displayWidth_: Ppu.widthNormal);
+  ImageBuffer imageBuffer() => ImageBuffer(ppu.width, Ppu.height, ppu.buffer,
+      displayWidth_: Ppu.widthNormal);
 
   @override
   onAudio(void Function(AudioBuffer) onAudio) {
@@ -196,6 +196,9 @@ class Snes implements Core {
 
   @override
   void setBiosFiles(List<Uint8List> files) {}
+
+  @override
+  void dispose() {}
 
   @override
   void setSram(Sram sram) {

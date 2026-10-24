@@ -1,0 +1,37 @@
+# End-to-end cases of this core, run by scripts/e2e.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the result that the media reports is a failure; the outputs must still match expected/.
+# slow = true marks the cases that take minutes; they run only with --slow.
+
+[[case]]
+name = "cpu"
+dir = "ws-tests"
+files = [".build/WSCpuTest.wsc"]
+core = "wsc"
+args = ["-r"]
+frames = 12000
+input = "@60 A"
+description = "WSCpuTest: V30MZ instructions and flags (A selects Test All). The whole run takes more than 300000 frames, so the case compares the progress at frame 12000."
+checks = [{ frame = 12000, expected = "expected/cpu_12000.png" }]
+
+[[case]]
+name = "hw"
+dir = "ws-tests"
+files = [".build/WSHWTest.wsc"]
+core = "wsc"
+args = ["-r"]
+frames = 1200
+input = ":6 @60 down @120 A"
+description = "WSHWTest: interrupts, timers and I/O ports. The menu starts at Show Registers, so down and A select Test All. The test stops at the first failure."
+known_failure = "IO Registers: 28:07 Failed! (the timer tests before it are Ok)"
+checks = [{ frame = 1200, expected = "expected/hw_01200.png" }]
+
+[[case]]
+name = "timing"
+dir = "ws-tests"
+files = [".build/WSTimingTest.ws"]
+args = ["-r"]
+frames = 600
+description = "WSTimingTest: V30MZ instruction timing, the correct and the measured cycles."
+known_failure = "x (mismatch) on most rows"
+checks = [{ frame = 600, expected = "expected/timing_00600.png" }]

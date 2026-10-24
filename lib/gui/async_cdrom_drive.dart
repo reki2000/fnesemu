@@ -16,10 +16,14 @@ class _CacheEntry {
 /// [DiscImage] of cdrom_image in the background.
 ///
 /// - the TOC is read when a disc is inserted by [insert], and kept on memory
-/// - each read also reads ahead [readAheadSectors] sectors
+/// - a missing sector is read with the [firstReadSectors] sectors from it
+///   first, then [readAheadSectors] sectors are read ahead separately
 /// - read sectors are cached for [cacheLifetime]
 class AsyncCdromDrive implements CdromDrive {
   static const readAheadSectors = 75;
+
+  /// a CD hunk of a CHD file has 8 sectors
+  static const firstReadSectors = 8;
   static const cacheLifetime = Duration(seconds: 60);
 
   final DateTime Function() _now;
@@ -32,6 +36,9 @@ class AsyncCdromDrive implements CdromDrive {
   int _seekLba = 0;
   bool _seekRequested = false;
 
+  /// the sector of the last [read] which returned null
+  int? _waitLba;
+
   /// incremented on each disc change to discard the results of the old disc
   int _discId = 0;
   final _events = CdromDriveEvents();
@@ -42,6 +49,14 @@ class AsyncCdromDrive implements CdromDrive {
 
   /// for tests and debugging
   int get cachedSectors => _cache.length;
+
+  /// true while the core waits for the drive: the TOC is being read, or the
+  /// sector of the last seek or read is not available yet
+  bool get isWaiting {
+    if (_state == CdromDriveState.loading || _status.isSeeking) return true;
+    final lba = _waitLba;
+    return lba != null && _image != null && !_cache.containsKey(lba);
+  }
 
   /// rebuilt on each change, as the core polls it on each exec
   CdromDriveStatus _status = CdromDriveStatus.empty;
@@ -117,6 +132,7 @@ class AsyncCdromDrive implements CdromDrive {
     }
     final loadingId = _changeDisc(CdromDriveState.loading);
 
+    final watch = Stopwatch()..start();
     try {
       final (image, _) = await DiscImage.parse(next.$1, files: next.$2);
       if (loadingId != _discId) {
@@ -128,7 +144,8 @@ class AsyncCdromDrive implements CdromDrive {
           CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
       ], image.totalSectors);
       _log.infoc(() => "inserted ${next.$1.path}: "
-          "${image.toc.tracks.length} track(s) ${image.totalSectors} sectors");
+          "${image.toc.tracks.length} track(s) ${image.totalSectors} sectors "
+          "in ${watch.elapsedMilliseconds}ms");
       for (final t in image.toc.tracks) {
         _log.infoc(() => "$t");
       }
@@ -154,6 +171,7 @@ class AsyncCdromDrive implements CdromDrive {
     _inflight.clear();
     _seekLba = 0;
     _seekRequested = false;
+    _waitLba = null;
     _updateStatus();
     return _discId;
   }
@@ -173,11 +191,14 @@ class AsyncCdromDrive implements CdromDrive {
   Uint8List? read(int lba) {
     final image = _image;
     if (image == null || !image.isReadable(lba)) {
+      _waitLba = null;
       return Uint8List(0);
     }
 
     _ensureLoaded(lba);
-    return _cache[lba]?.data;
+    final data = _cache[lba]?.data;
+    _waitLba = data == null ? lba : null;
+    return data;
   }
 
   bool _isCached(int lba) {
@@ -192,7 +213,7 @@ class AsyncCdromDrive implements CdromDrive {
     if (!_isCached(lba)) {
       _cache.remove(lba);
       if (!_inflight.containsKey(lba)) {
-        _load(lba, readAheadSectors + 1);
+        _load(lba, firstReadSectors);
       }
     }
 
@@ -228,8 +249,11 @@ class AsyncCdromDrive implements CdromDrive {
       }
     }
 
+    final watch = Stopwatch()..start();
     late final Future<void> future;
     future = image.readSectors(lba, end - lba).then((sectors) {
+      _log.debugc(
+          () => "read $lba-${end - 1} in ${watch.elapsedMilliseconds}ms");
       if (discId != _discId) return;
       final now = _now();
       for (int i = 0; i < sectors.length; i++) {

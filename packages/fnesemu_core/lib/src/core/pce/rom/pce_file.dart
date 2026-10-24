@@ -6,6 +6,9 @@ class PceFile {
   final banks = List<Uint8List>.filled(0, Uint8List(0), growable: true);
   late final String crc;
 
+  /// CRC32 of the ROM without the copier header
+  late final String bodyCrc;
+
   /// throws exception when load failed
   void load(Uint8List body) {
     // caclurate CRC32 of entire file
@@ -17,6 +20,7 @@ class PceFile {
     // dumps have non zero bytes in it), so detect it by the file size
     final hasHeader = body.length % bankSize == 0x200;
     body = body.sublist(hasHeader ? 0x200 : 0); // skip header
+    bodyCrc = crc32Hex(body);
 
     int offset = 0;
     while (offset + bankSize < body.length) {

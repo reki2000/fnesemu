@@ -56,7 +56,8 @@ class Backup {
         storage.init(id, Uint8List(0));
         break;
       case BackupType.sram:
-        storage.init(id, Uint8List(0x8000)); // 32KB
+        // 32KB; a blank part reads 0xFF
+        storage.init(id, Uint8List(0x8000)..fillRange(0, 0x8000, 0xff));
         break;
       case BackupType.flash512:
         storage.init("$id.fl", Uint8List(0x10000)..fillRange(0, 0x10000, 0xff));

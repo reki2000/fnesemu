@@ -1,0 +1,565 @@
+# End-to-end cases of this core, run by scripts/e2e.py; one [[case]] table per case.
+# Paths are relative to <dir>/ (the case name when dir is absent); .build/ holds what <dir>/setup.py prepares.
+# known_failure records why the result that the media reports is a failure; the outputs must still match expected/.
+
+[[case]]
+name = "official_only"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/instr_test-v5/official_only.nes"]
+frames = 3600
+checks = [{ frame = 3600, expected = "expected/official_only_03600.png" }]
+
+[[case]]
+name = "instr_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/instr_timing/instr_timing.nes"]
+frames = 120
+known_failure = "Failed #5 in 1-instr_timing"
+checks = [{ frame = 120, expected = "expected/instr_timing_00120.png" }]
+
+[[case]]
+name = "instr_misc"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/instr_misc/instr_misc.nes"]
+frames = 120
+known_failure = "Failed #3 in 03-dummy_reads (LDA abs,x)"
+checks = [{ frame = 120, expected = "expected/instr_misc_00120.png" }]
+
+[[case]]
+name = "cpu_timing_test6-cpu_timing_test"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_timing_test6/cpu_timing_test.nes"]
+frames = 120
+known_failure = "BASIC TIMING WRONG"
+checks = [{ frame = 120, expected = "expected/cpu_timing_test6-cpu_timing_test_00120.png" }]
+
+[[case]]
+name = "branch_timing_tests-1_branch_basics"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/branch_timing_tests/1.Branch_Basics.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/branch_timing_tests-1_branch_basics_00120.png" }]
+
+[[case]]
+name = "branch_timing_tests-2_backward_branch"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/branch_timing_tests/2.Backward_Branch.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/branch_timing_tests-2_backward_branch_00120.png" }]
+
+[[case]]
+name = "branch_timing_tests-3_forward_branch"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/branch_timing_tests/3.Forward_Branch.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/branch_timing_tests-3_forward_branch_00120.png" }]
+
+[[case]]
+name = "cpu_interrupts"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_interrupts_v2/cpu_interrupts.nes"]
+frames = 120
+known_failure = "Failed #11 in 1-cli_latency"
+checks = [{ frame = 120, expected = "expected/cpu_interrupts_00120.png" }]
+
+[[case]]
+name = "cpu_dummy_reads"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_dummy_reads/cpu_dummy_reads.nes"]
+frames = 120
+known_failure = "Error 3 (LDA abs,x)"
+checks = [{ frame = 120, expected = "expected/cpu_dummy_reads_00120.png" }]
+
+[[case]]
+name = "cpu_dummy_writes-cpu_dummy_writes_oam"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_dummy_writes/cpu_dummy_writes_oam.nes"]
+frames = 420
+known_failure = "Failed #5 (42 opcodes failed)"
+checks = [{ frame = 420, expected = "expected/cpu_dummy_writes-cpu_dummy_writes_oam_00420.png" }]
+
+[[case]]
+name = "cpu_dummy_writes-cpu_dummy_writes_ppumem"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_dummy_writes/cpu_dummy_writes_ppumem.nes"]
+frames = 300
+known_failure = "Failed #9 (open bus, 42 opcodes failed)"
+checks = [{ frame = 300, expected = "expected/cpu_dummy_writes-cpu_dummy_writes_ppumem_00300.png" }]
+
+[[case]]
+name = "cpu_exec_space-test_cpu_exec_space_apu"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_exec_space/test_cpu_exec_space_apu.nes"]
+frames = 120
+known_failure = "Failed #2 (landed at $0234)"
+checks = [{ frame = 120, expected = "expected/cpu_exec_space-test_cpu_exec_space_apu_00120.png" }]
+
+[[case]]
+name = "cpu_exec_space-test_cpu_exec_space_ppuio"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/cpu_exec_space/test_cpu_exec_space_ppuio.nes"]
+frames = 120
+known_failure = "Failed #3 (PPU open bus)"
+checks = [{ frame = 120, expected = "expected/cpu_exec_space-test_cpu_exec_space_ppuio_00120.png" }]
+
+[[case]]
+name = "blargg_nes_cpu_test5-official"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_nes_cpu_test5/official.nes"]
+frames = 720
+checks = [{ frame = 720, expected = "expected/blargg_nes_cpu_test5-official_00720.png" }]
+
+[[case]]
+name = "ppu_vbl_nmi"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/ppu_vbl_nmi/ppu_vbl_nmi.nes"]
+frames = 240
+known_failure = "Failed #8 in 01-vbl_basics"
+checks = [{ frame = 240, expected = "expected/ppu_vbl_nmi_00240.png" }]
+
+[[case]]
+name = "ppu_open_bus"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/ppu_open_bus/ppu_open_bus.nes"]
+frames = 120
+known_failure = "Failed #2"
+checks = [{ frame = 120, expected = "expected/ppu_open_bus_00120.png" }]
+
+[[case]]
+name = "ppu_read_buffer-test_ppu_read_buffer"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/ppu_read_buffer/test_ppu_read_buffer.nes"]
+frames = 1380
+known_failure = "Failed #17 (open bus)"
+checks = [{ frame = 1380, expected = "expected/ppu_read_buffer-test_ppu_read_buffer_01380.png" }]
+
+[[case]]
+name = "blargg_ppu_tests_2005_09_15b-palette_ram"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_ppu_tests_2005.09.15b/palette_ram.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/blargg_ppu_tests_2005_09_15b-palette_ram_00120.png" }]
+
+[[case]]
+name = "blargg_ppu_tests_2005_09_15b-power_up_palette"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_ppu_tests_2005.09.15b/power_up_palette.nes"]
+frames = 120
+known_failure = "result $02"
+checks = [{ frame = 120, expected = "expected/blargg_ppu_tests_2005_09_15b-power_up_palette_00120.png" }]
+
+[[case]]
+name = "blargg_ppu_tests_2005_09_15b-sprite_ram"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_ppu_tests_2005.09.15b/sprite_ram.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/blargg_ppu_tests_2005_09_15b-sprite_ram_00120.png" }]
+
+[[case]]
+name = "blargg_ppu_tests_2005_09_15b-vbl_clear_time"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes"]
+frames = 120
+known_failure = "result $02"
+checks = [{ frame = 120, expected = "expected/blargg_ppu_tests_2005_09_15b-vbl_clear_time_00120.png" }]
+
+[[case]]
+name = "blargg_ppu_tests_2005_09_15b-vram_access"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_ppu_tests_2005.09.15b/vram_access.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/blargg_ppu_tests_2005_09_15b-vram_access_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-01_basics"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/01.basics.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-01_basics_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-02_alignment"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/02.alignment.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-02_alignment_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-03_corners"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/03.corners.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-03_corners_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-04_flip"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/04.flip.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-04_flip_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-05_left_clip"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/05.left_clip.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-05_left_clip_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-06_right_edge"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/06.right_edge.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-06_right_edge_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-07_screen_bottom"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/07.screen_bottom.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-07_screen_bottom_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-08_double_height"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/08.double_height.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-08_double_height_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-09_timing_basics"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/09.timing_basics.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-09_timing_basics_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-10_timing_order"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/10.timing_order.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-10_timing_order_00120.png" }]
+
+[[case]]
+name = "sprite_hit_tests_2005_10_05-11_edge_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_hit_tests_2005.10.05/11.edge_timing.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_hit_tests_2005_10_05-11_edge_timing_00120.png" }]
+
+[[case]]
+name = "sprite_overflow_tests-1_basics"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_overflow_tests/1.Basics.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_overflow_tests-1_basics_00120.png" }]
+
+[[case]]
+name = "sprite_overflow_tests-2_details"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_overflow_tests/2.Details.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_overflow_tests-2_details_00120.png" }]
+
+[[case]]
+name = "sprite_overflow_tests-3_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_overflow_tests/3.Timing.nes"]
+frames = 120
+known_failure = "FAILED #3"
+checks = [{ frame = 120, expected = "expected/sprite_overflow_tests-3_timing_00120.png" }]
+
+[[case]]
+name = "sprite_overflow_tests-4_obscure"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_overflow_tests/4.Obscure.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_overflow_tests-4_obscure_00120.png" }]
+
+[[case]]
+name = "sprite_overflow_tests-5_emulator"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprite_overflow_tests/5.Emulator.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/sprite_overflow_tests-5_emulator_00120.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-1_frame_basics"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/1.frame_basics.nes"]
+frames = 180
+known_failure = "FAILED #5"
+checks = [{ frame = 180, expected = "expected/vbl_nmi_timing-1_frame_basics_00180.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-2_vbl_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/2.vbl_timing.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/vbl_nmi_timing-2_vbl_timing_00120.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-3_even_odd_frames"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/3.even_odd_frames.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/vbl_nmi_timing-3_even_odd_frames_00120.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-4_vbl_clear_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/4.vbl_clear_timing.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/vbl_nmi_timing-4_vbl_clear_timing_00120.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-5_nmi_suppression"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/5.nmi_suppression.nes"]
+frames = 120
+known_failure = "FAILED #3"
+checks = [{ frame = 120, expected = "expected/vbl_nmi_timing-5_nmi_suppression_00120.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-6_nmi_disable"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/6.nmi_disable.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/vbl_nmi_timing-6_nmi_disable_00120.png" }]
+
+[[case]]
+name = "vbl_nmi_timing-7_nmi_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/vbl_nmi_timing/7.nmi_timing.nes"]
+frames = 120
+known_failure = "FAILED #2"
+checks = [{ frame = 120, expected = "expected/vbl_nmi_timing-7_nmi_timing_00120.png" }]
+
+[[case]]
+name = "oam_read"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/oam_read/oam_read.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/oam_read_00120.png" }]
+
+[[case]]
+name = "oam_stress"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/oam_stress/oam_stress.nes"]
+frames = 120
+known_failure = "Failed"
+checks = [{ frame = 120, expected = "expected/oam_stress_00120.png" }]
+
+[[case]]
+name = "apu_test"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/apu_test/apu_test.nes"]
+frames = 120
+known_failure = "Failed #2 in 4-jitter (the frame IRQ is set too soon)"
+checks = [{ frame = 120, expected = "expected/apu_test_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-01_len_ctr"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/01.len_ctr.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-01_len_ctr_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-02_len_table"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/02.len_table.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-02_len_table_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-03_irq_flag"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/03.irq_flag.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-03_irq_flag_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-04_clock_jitter"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/04.clock_jitter.nes"]
+frames = 120
+known_failure = "result $03"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-04_clock_jitter_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-05_len_timing_mode0"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/05.len_timing_mode0.nes"]
+frames = 120
+known_failure = "result $04"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-05_len_timing_mode0_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-06_len_timing_mode1"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/06.len_timing_mode1.nes"]
+frames = 120
+known_failure = "result $02"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-06_len_timing_mode1_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-07_irq_flag_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/07.irq_flag_timing.nes"]
+frames = 120
+known_failure = "result $03"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-07_irq_flag_timing_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-08_irq_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/08.irq_timing.nes"]
+frames = 120
+known_failure = "result $03"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-08_irq_timing_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-09_reset_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/09.reset_timing.nes"]
+frames = 120
+known_failure = "result $04"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-09_reset_timing_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-10_len_halt_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/10.len_halt_timing.nes"]
+frames = 120
+known_failure = "result $02"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-10_len_halt_timing_00120.png" }]
+
+[[case]]
+name = "blargg_apu_2005_07_30-11_len_reload_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/blargg_apu_2005.07.30/11.len_reload_timing.nes"]
+frames = 120
+known_failure = "result $02"
+checks = [{ frame = 120, expected = "expected/blargg_apu_2005_07_30-11_len_reload_timing_00120.png" }]
+
+[[case]]
+name = "dmc_dma_during_read4-dma_2007_read"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/dmc_dma_during_read4/dma_2007_read.nes"]
+frames = 420
+known_failure = "no Passed line (CRC 498C5C5F)"
+checks = [{ frame = 420, expected = "expected/dmc_dma_during_read4-dma_2007_read_00420.png" }]
+
+[[case]]
+name = "dmc_dma_during_read4-dma_2007_write"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/dmc_dma_during_read4/dma_2007_write.nes"]
+frames = 420
+checks = [{ frame = 420, expected = "expected/dmc_dma_during_read4-dma_2007_write_00420.png" }]
+
+[[case]]
+name = "dmc_dma_during_read4-dma_4016_read"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/dmc_dma_during_read4/dma_4016_read.nes"]
+frames = 120
+known_failure = "the screen stays black"
+checks = [{ frame = 120, expected = "expected/dmc_dma_during_read4-dma_4016_read_00120.png" }]
+
+[[case]]
+name = "dmc_dma_during_read4-double_2007_read"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/dmc_dma_during_read4/double_2007_read.nes"]
+frames = 120
+known_failure = "no Passed line (CRC F018C287)"
+checks = [{ frame = 120, expected = "expected/dmc_dma_during_read4-double_2007_read_00120.png" }]
+
+[[case]]
+name = "dmc_dma_during_read4-read_write_2007"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/dmc_dma_during_read4/read_write_2007.nes"]
+frames = 120
+known_failure = "Failed"
+checks = [{ frame = 120, expected = "expected/dmc_dma_during_read4-read_write_2007_00120.png" }]
+
+[[case]]
+name = "sprdma_and_dmc_dma-sprdma_and_dmc_dma"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes"]
+frames = 480
+known_failure = "Failed"
+checks = [{ frame = 480, expected = "expected/sprdma_and_dmc_dma-sprdma_and_dmc_dma_00480.png" }]
+
+[[case]]
+name = "mmc3_test-1-clocking"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc3_test/1-clocking.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/mmc3_test-1-clocking_00120.png" }]
+
+[[case]]
+name = "mmc3_test-2-details"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc3_test/2-details.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/mmc3_test-2-details_00120.png" }]
+
+[[case]]
+name = "mmc3_test-3-a12_clocking"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc3_test/3-A12_clocking.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/mmc3_test-3-a12_clocking_00120.png" }]
+
+[[case]]
+name = "mmc3_test-4-scanline_timing"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc3_test/4-scanline_timing.nes"]
+frames = 1980
+known_failure = "#2, the IRQ fires at the line granularity, not at the dot of the A12 edge"
+checks = [{ frame = 1980, expected = "expected/mmc3_test-4-scanline_timing_01980.png" }]
+
+[[case]]
+name = "mmc3_test-5-mmc3"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc3_test/5-MMC3.nes"]
+frames = 120
+checks = [{ frame = 120, expected = "expected/mmc3_test-5-mmc3_00120.png" }]
+
+[[case]]
+name = "mmc3_test-6-mmc6"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc3_test/6-MMC6.nes"]
+frames = 120
+known_failure = "#3; this test is for the MMC6 chip"
+checks = [{ frame = 120, expected = "expected/mmc3_test-6-mmc6_00120.png" }]
+
+[[case]]
+name = "exram-mmc5exram"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/exram/mmc5exram.nes"]
+frames = 600
+note = "a demo without a result"
+checks = [{ frame = 600, expected = "expected/exram-mmc5exram_00600.png" }]
+
+[[case]]
+name = "mmc5test_v2-mmc5test"
+dir = "nes-test-roms"
+files = [".build/nes-test-roms/mmc5test_v2/mmc5test.nes"]
+frames = 120
+note = "an interactive test without a result"
+checks = [{ frame = 120, expected = "expected/mmc5test_v2-mmc5test_00120.png" }]

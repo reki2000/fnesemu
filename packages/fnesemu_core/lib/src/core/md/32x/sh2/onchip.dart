@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../../util/int.dart';
-
+import '../../../../util/state.dart';
 import 'sh2.dart';
 
 /// SH7604 on-chip peripheral modules (copy of the ss one, 32x adapted)
@@ -64,6 +64,106 @@ class Sh2OnChip {
   // cache
   int ccr = 0;
   final cacheData = Uint8List(0x1000);
+
+  /// Saves logical state while the owning core identifies external media.
+  void saveState(StateWriter w) {
+    w.section('32x-onchip');
+    w.bytes(_raw);
+    w.bytes(cacheData);
+    w.int64(ipra);
+    w.int64(iprb);
+    w.int64(vcra);
+    w.int64(vcrb);
+    w.int64(vcrc);
+    w.int64(vcrd);
+    w.int64(vcrwdt);
+    w.int64(icr);
+    w.int64(tier);
+    w.int64(ftcsr);
+    w.int64(frc);
+    w.int64(ocra);
+    w.int64(ocrb);
+    w.int64(tcr);
+    w.int64(tocr);
+    w.int64(icrFrt);
+    w.int64(_frtTemp);
+    w.int64(_frtSub);
+    w.int64(wtcsr);
+    w.int64(wtcnt);
+    w.int64(rstcsr);
+    w.int64(_wdtSub);
+    w.int64(dvsr);
+    w.int64(dvcr);
+    w.int64(vcrdiv);
+    w.int64(dvdnth);
+    w.int64(dvdntl);
+    w.int64(dmaor);
+    w.int64(bcr1);
+    w.int64(bcr2);
+    w.int64(wcr);
+    w.int64(mcr);
+    w.int64(rtcsr);
+    w.int64(rtcnt);
+    w.int64(rtcor);
+    w.int64(ccr);
+    w.ints(sar);
+    w.ints(dar);
+    w.ints(tcrDma);
+    w.ints(chcr);
+    w.ints(vcrdma);
+    w.ints(drcr);
+    w.boolean(anyPending);
+  }
+
+  /// Restores existing buffers and keeps callback and bus wiring.
+  void loadState(StateReader s) {
+    s.section('32x-onchip');
+    s.bytesInto(_raw);
+    s.bytesInto(cacheData);
+    ipra = s.int64();
+    iprb = s.int64();
+    vcra = s.int64();
+    vcrb = s.int64();
+    vcrc = s.int64();
+    vcrd = s.int64();
+    vcrwdt = s.int64();
+    icr = s.int64();
+    tier = s.int64();
+    ftcsr = s.int64();
+    frc = s.int64();
+    ocra = s.int64();
+    ocrb = s.int64();
+    tcr = s.int64();
+    tocr = s.int64();
+    icrFrt = s.int64();
+    _frtTemp = s.int64();
+    _frtSub = s.int64();
+    wtcsr = s.int64();
+    wtcnt = s.int64();
+    rstcsr = s.int64();
+    _wdtSub = s.int64();
+    dvsr = s.int64();
+    dvcr = s.int64();
+    vcrdiv = s.int64();
+    dvdnth = s.int64();
+    dvdntl = s.int64();
+    dmaor = s.int64();
+    bcr1 = s.int64();
+    bcr2 = s.int64();
+    wcr = s.int64();
+    mcr = s.int64();
+    rtcsr = s.int64();
+    rtcnt = s.int64();
+    rtcor = s.int64();
+    ccr = s.int64();
+    s.intsInto(sar);
+    s.intsInto(dar);
+    s.intsInto(tcrDma);
+    s.intsInto(chcr);
+    s.intsInto(vcrdma);
+    s.intsInto(drcr);
+    anyPending = s.boolean();
+  }
 
   void reset() {
     _raw.fillRange(0, _raw.length, 0);

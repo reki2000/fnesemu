@@ -37,9 +37,8 @@ class Gpu {
   Uint32List buffer = Uint32List(320 * 240);
 
   // 480i doubles the pixel rows, not the physical height of the TV picture.
-  ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, buffer.buffer.asUint8List(),
-          displayWidth_: 320, displayHeight: 240);
+  ImageBuffer get imageBuffer => ImageBuffer(width, height, buffer,
+      displayWidth_: 320, displayHeight: 240);
 
   static const scanlinesInFrame = 262; // ntsc
 

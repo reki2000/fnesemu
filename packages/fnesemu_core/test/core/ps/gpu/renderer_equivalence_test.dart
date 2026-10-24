@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:fnesemu_core/src/core/ps/gpu/gpu.dart';
@@ -150,6 +151,65 @@ extension _Reference on Gpu {
 }
 
 void main() {
+  test('rectangle clipping preserves texture coordinates and drawing offsets',
+      () {
+    final full = Gpu(Bus());
+    final clipped = Gpu(Bus());
+    final initial = Uint16List(full.frameBuffer16.length);
+    for (int y = 0; y < 256; y++) {
+      for (int x = 0; x < 256; x++) {
+        initial[y * 1024 + 512 + x] = 1 + (x + y * 256) % 0x7fff;
+      }
+    }
+
+    for (final offset in [-20, 0, 20]) {
+      for (final (x1, y1, x2, y2) in [
+        (0, 0, 1023, 511),
+        (45, 45, 50, 50),
+        (48, 48, 48, 48),
+        (20, 60, 25, 65),
+        (60, 20, 65, 25),
+        (0, 0, 10, 10),
+        (60, 60, 50, 50),
+      ]) {
+        for (final g in [full, clipped]) {
+          g.frameBuffer16.setAll(0, initial);
+          g.status = 0x108; // Direct color texture at x=512.
+          g.drawingX1 = 0;
+          g.drawingY1 = 0;
+          g.drawingX2 = 1023;
+          g.drawingY2 = 511;
+          g.drawingOffsetX = offset;
+          g.drawingOffsetY = -offset;
+        }
+        clipped.drawingX1 = x1;
+        clipped.drawingY1 = y1;
+        clipped.drawingX2 = x2;
+        clipped.drawingY2 = y2;
+        for (final g in [full, clipped]) {
+          for (final word in [
+            0x65000000,
+            40 | (40 << 16),
+            3 | (5 << 8),
+            32 | (32 << 16)
+          ]) {
+            g.writeGp0(word);
+          }
+        }
+        expect(full.frameBuffer16[(40 - offset) * 1024 + 40 + offset],
+            isNot(0));
+        final expected = Uint16List.fromList(initial);
+        for (int y = y1; y <= y2; y++) {
+          for (int x = x1; x <= x2; x++) {
+            expected[y * 1024 + x] = full.frameBuffer16[y * 1024 + x];
+          }
+        }
+        expect(clipped.frameBuffer16, orderedEquals(expected),
+            reason: 'offset=$offset area=($x1,$y1)-($x2,$y2)');
+      }
+    }
+  });
+
   test('optimized polygon renderer matches the reference', () {
     final random = Random(1);
     final a = Gpu(Bus());
