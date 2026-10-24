@@ -8,6 +8,7 @@ import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -48,6 +49,63 @@ void main() {
     expect(b.sp.sublist(0xff8, 0x1000), List.generate(8, (i) => i));
     expect(b.sp.sublist(0, 8), List.generate(8, (i) => 16 + i));
     expect(b.sp.sublist(0x1000, 0x1008), List.filled(8, 0));
+  });
+  test('PI DMA copies large cartridges into runtime RAM across page boundaries',
+      () {
+    final rt = JitRuntime.native(
+        ctxWords: 32,
+        addrMask: 0x1fffffff,
+        read: (_, __) => 0,
+        write: (_, __, ___) {});
+    if (rt == null) {
+      markTestSkipped('no compiled runtime on this host');
+      return;
+    }
+    addTearDown(rt.dispose);
+    final bus = N64Bus(ram: rt.alloc(0x800000));
+    final rom = Uint8List(0x800000);
+    for (var i = 0; i < rom.length; i++) {
+      rom[i] = i ^ (i >> 8) ^ (i >> 16);
+    }
+    bus.rom = rom;
+    const from = 0x10000, to = 0x1000, length = 0x400000;
+    bus.ram[to - 1] = bus.ram[to + length] = 0xa5;
+    bus.write(0xa4600000, to, 4);
+    bus.write(0xa4600004, 0x10000000 + from, 4);
+    bus.write(0xa460000c, length - 1, 4);
+    expect(Uint8List.sublistView(bus.ram, to, to + length),
+        orderedEquals(Uint8List.sublistView(rom, from, from + length)));
+    expect(bus.ram[to - 1], 0xa5);
+    expect(bus.ram[to + length], 0xa5);
+    expect(bus.pi[0], to + length);
+    expect(bus.pi[1], 0x10000000 + from + length);
+    expect(bus.read(0xa4600010, 4), 8);
+  });
+  test('audio DMA preserves offsets and neighbouring bytes in runtime RAM', () {
+    final rt = JitRuntime.native(
+        ctxWords: 32,
+        addrMask: 0x1fffffff,
+        read: (_, __) => 0,
+        write: (_, __, ___) {});
+    if (rt == null) {
+      markTestSkipped('no compiled runtime on this host');
+      return;
+    }
+    addTearDown(rt.dispose);
+    final bus = N64Bus(ram: rt.alloc(0x800000));
+    final audio = N64Audio(bus);
+    audio.memory.fillRange(0, audio.memory.length, 0xa5);
+    final samples = List.generate(32, (i) => i * 7);
+    bus.ram.setRange(0x1000, 0x1020, samples);
+    audio.dma(0x1000, 0x180, 32, true);
+    expect(audio.memory.sublist(0x180, 0x1a0), samples);
+    expect(audio.memory[0x17f], 0xa5);
+    expect(audio.memory[0x1a0], 0xa5);
+    bus.ram.fillRange(0x2000, 0x2040, 0x5a);
+    audio.dma(0x2010, 0x180, 32, false);
+    expect(bus.ram.sublist(0x2010, 0x2030), samples);
+    expect(bus.ram[0x200f], 0x5a);
+    expect(bus.ram[0x2030], 0x5a);
   });
   test('SI delivers controller buttons and analog stick through PIF packets',
       () {

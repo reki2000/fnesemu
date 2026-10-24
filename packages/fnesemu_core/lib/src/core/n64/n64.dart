@@ -156,7 +156,10 @@ class N64 extends Core {
       0x100000,
       math.min(rom.bytes.length - 0x1000, bus.ram.length - destination),
     );
-    bus.ram.setRange(destination, destination + length, rom.bytes, 0x1000);
+    // Copy only the boot payload, including when RAM is backed by Wasm.
+    for (var i = 0; i < length; i++) {
+      bus.ram[destination + i] = rom.bytes[0x1000 + i];
+    }
     cpu.reset(rom.entryPoint);
     bus.ramWrite(0x318, 0x800000, 4);
     bus.ramWrite(0x300, 1, 4); // osTvType: NTSC

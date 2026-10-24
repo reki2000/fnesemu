@@ -75,7 +75,11 @@ final class _LinearMemory {
       } else {
         _free[i] = (offset + size, free - size);
       }
-      buffer.asUint8List(offset, size).fillRange(0, size, 0);
+      // Fill in JavaScript rather than crossing interop for each byte.
+      buffer
+          .asUint8List(offset, size)
+          .toJS
+          .callMethod<JSAny?>('fill'.toJS, 0.toJS);
       return offset;
     }
     throw StateError('Wasm JIT linear memory exhausted');
@@ -359,8 +363,9 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     }
     _blocks.clear();
     _keys.clear();
-    _slotWords.fillRange(0, _slotCount, 0);
-    _dynWords.fillRange(0, _dynWords.length, 0);
+    _slotWords.toJS.callMethod<JSAny?>(
+        'fill'.toJS, 0.toJS, 0.toJS, _slotCount.toJS);
+    _dynWords.toJS.callMethod<JSAny?>('fill'.toJS, 0.toJS);
     _slotCount = 1;
   }
 

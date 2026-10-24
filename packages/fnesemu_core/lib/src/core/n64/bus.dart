@@ -487,7 +487,11 @@ class N64Bus {
   void _piRomDma(int dram, int cart, int length) {
     void copy(int to, int from, int n) {
       final end = min(n, rom.length - from);
-      if (end > 0) ram.setRange(to, to + end, rom, from);
+      // Shared Wasm RAM can materialize the entire remaining source in
+      // setRange. Keep each DMA block bounded to the bytes it transfers.
+      for (var i = 0; i < end; i++) {
+        ram[to + i] = rom[from + i];
+      }
     }
 
     var rom0 = cart - 0x10000000;

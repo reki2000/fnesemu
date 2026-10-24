@@ -47,6 +47,24 @@ void main() {
     expect(words[1], 0xfedcba98);
   });
 
+  test('allocation and cache zeroing preserve neighbouring guest memory', () {
+    final first = rt.alloc(4096);
+    first.fillRange(0, first.length, 0xa5);
+    final second = rt.alloc(4096);
+    expect(second, everyElement(0));
+    second.fillRange(0, second.length, 0x5a);
+    rt.ctx[8] = 0x12345678;
+    final b = IrBuilder(0x100);
+    rt.install(b.finish(const IrJump(0x104), cost: 1));
+    rt.clear();
+    expect(first, everyElement(0xa5));
+    expect(second, everyElement(0x5a));
+    expect(rt.ctx[8], 0x12345678);
+    expect(rt.alloc(1), [0]);
+    expect(first, everyElement(0xa5));
+    expect(second, everyElement(0x5a));
+  });
+
   test('table growth preserves static links and helpers preserve unsigned bits',
       () {
     final helper = rt.addHelper((a, b, c) {
