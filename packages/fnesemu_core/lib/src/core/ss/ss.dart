@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../components/m68k/disasm.dart';
 import '../../components/sh2/jit/jit.dart';
@@ -38,6 +40,13 @@ class Ss extends Core {
 
   late final Bus bus;
   final pad = Pad();
+
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics sync* {
+    for (final cpu in [master, slave]) {
+      if (cpu is Sh2 && cpu.jit != null) yield cpu.jit!.diagnostics;
+    }
+  }
 
   @override
   bool get jitEnabled => master is Sh2 && (master as Sh2).jit?.native == true;

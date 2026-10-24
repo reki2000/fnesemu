@@ -10,6 +10,22 @@ import 'translator.dart';
 final class Sh2Jit {
   static const idleBranchDistance = Sh2Translator.idleBranchDistance;
   final JitRuntime rt;
+  late final diagnostics = JitDiagnostics(rt,
+      instructionBytes: 2, byteOrder: Endian.big, guestExit: _diagnosticExit);
+
+  String? _diagnosticExit(int pc, int reason) {
+    if (reason == Sh2Translator.profileMiss) return 'profileGuard';
+    if (reason == Sh2Translator.idleDetected) return 'idleSkip';
+    if (reason == Sh2Translator.interpret) {
+      final opcode = diagnostics.opcodeAt(pc);
+      if (opcode != null &&
+          !Sh2Translator.supported(opcode, macLong: macLong, macWord: macWord)) {
+        return 'unsupportedInstructionOrSlot';
+      }
+    }
+    return null;
+  }
+
   final bool native;
 
   /// Number of cold-entry samples required before compilation.

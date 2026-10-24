@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
@@ -59,6 +61,9 @@ class N64 extends Core {
   final N64Bus bus;
   late final Vr4300 cpu;
   final N64Jit? jit;
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics => jit == null ? const [] : [jit!.diagnostics];
+
   @override
   bool get jitEnabled => jit?.native ?? false;
   @override

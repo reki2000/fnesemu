@@ -12,6 +12,8 @@ import 'vr4300_translator.dart';
 /// interpreter. Memory faults and unsupported instructions exit before effects.
 final class N64Jit {
   final JitRuntime rt;
+  late final diagnostics = JitDiagnostics(rt,
+      instructionBytes: 4, byteOrder: Endian.big);
   final bool native;
   final int compileThreshold;
   final int maxBlockInstructions;

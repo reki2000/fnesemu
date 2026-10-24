@@ -18,6 +18,8 @@ import 'r3000_translator.dart';
 /// still in its delay is carried as the block tag, see [R3000Translator].
 final class PsJit {
   final JitRuntime rt;
+  late final diagnostics = JitDiagnostics(rt,
+      instructionBytes: 4, byteOrder: Endian.little);
 
   /// Whether this runtime executes compiled host code rather than reference IR.
   final bool native;

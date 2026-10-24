@@ -1,9 +1,14 @@
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import 'types.dart';
 import 'video_debug.dart';
 
 /// Debugging data supplied by a core, independent of execution and media I/O.
 /// Unsupported inspection features default to empty output.
 class CoreDebug {
+  /// Available runtime diagnostics in CPU order; empty without recompilation.
+  Iterable<JitDiagnostics> get jitDiagnostics => const [];
+
   /// Whether the loaded core uses an available JIT backend.
   bool get jitEnabled => false;
 

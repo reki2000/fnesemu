@@ -127,8 +127,8 @@ Future<void> bench(List<String> args) async {
         }
         if (saveState != null && s.frame == warmup) s.saveState(saveState);
         if (o.flag('--profile-exits') && exitStats.isEmpty) {
-          for (final rt in jitRuntimes(core)) {
-            exitStats.add(NativeExitStats(rt, core: core));
+          for (final diagnostics in core.jitDiagnostics) {
+            exitStats.add(NativeExitStats(diagnostics));
           }
         }
         for (final stats in exitStats) {

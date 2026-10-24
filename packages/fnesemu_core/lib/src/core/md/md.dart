@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../components/m68k/cpu.dart';
 import '../../components/m68k/disasm.dart';
@@ -66,6 +68,13 @@ class Md extends Core {
   final bool expansionBoot;
   final bool sh2Jit;
   final int sh2SliceClocks;
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics sync* {
+    for (final cpu in expansion?.cpus ?? const []) {
+      if (cpu.jit != null) yield cpu.jit!.diagnostics;
+    }
+  }
+
   @override
   bool get jitEnabled =>
       expansion?.cpus.any((cpu) => cpu.jit?.native == true) ?? false;

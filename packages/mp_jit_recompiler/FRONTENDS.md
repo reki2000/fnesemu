@@ -33,6 +33,12 @@ A driver can receive its runtime's `JitCodeMemory`. `reset` then drops runtime b
 
 The adapter still selects deadlines, prepares guest state and mode tags, synchronizes registers and PC after a batch, handles precise exits and exceptions, and decides which instructions the CPU executes. SH-2 specialization and idle exit reasons remain frontend/adapter policy. This consolidation does not change block costs, budget overshoot or CPU scheduling.
 
+## Diagnostics
+
+Each frontend supplies a `JitDiagnostics` descriptor with its runtime, instruction width, byte order and optional custom exit classification. Core adapters enumerate these descriptors through `CoreDebug.jitDiagnostics`; collection tools need no concrete-core type tests. `NativeExitStats` applies shared runtime/mapping classification and bounded site aggregation. Instruction inspection uses existing read mappings only, respects buffer offsets and alignment, and never invokes bus callbacks.
+
+Frontend exit classification must use the active translation options. An instruction enabled by an optional lowering must not be reported as unsupported merely because the decoder's default settings disable it. Diagnostics remain optional and separate from throughput measurements.
+
 ## Validation
 
 Exercise CPU interpretation, reference IR and native execution, including unsupported capability paths, both widths and byte orders, callbacks under register pressure, precise exits, code/literal writes and aliases. Keep the CPU interpreter as an oracle and unsupported-instruction path until a replacement independently demonstrates equivalent behavior. See the [measurement and acceptance protocol](OPTIMIZATION.md#measurement-and-acceptance) and the [synthetic x64 measurements](PERFORMANCE.md), [N64 configuration](../fnesemu_core/tool/n64_jit_bench.md) and [SH-2 configuration](../fnesemu_core/tool/sh2_jit_bench.md).

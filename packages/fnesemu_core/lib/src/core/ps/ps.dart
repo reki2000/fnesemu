@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
@@ -57,6 +59,9 @@ class Ps extends Core {
   /// the recompiler, or null when the interpreter runs every instruction;
   /// it is off while tracing, which hooks every BIOS call
   final PsJit? jit;
+
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics => jit == null ? const [] : [jit!.diagnostics];
 
   @override
   bool get jitEnabled => jit?.native ?? false;
