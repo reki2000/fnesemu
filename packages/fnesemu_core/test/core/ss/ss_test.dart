@@ -377,7 +377,7 @@ void main() {
       expect(b.read8(0x20100061) & 0x20, 0x20); // SR: more data
       expect(ss.scu.ist & (1 << 7), isNot(0));
 
-      ss.padDown(0, ss.buttons[5]); // start
+      ss.padDown(0, ss.buttons[10]); // start
       b.write8(0x20100001, 0x80); // continue
       expect(b.read8(0x20100021), 0xf1);
       expect(b.read8(0x20100023), 0x02);
