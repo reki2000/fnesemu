@@ -15,7 +15,7 @@ final class JitEntryProfiles<T extends Object> {
 
   /// A changed token discards the previous observation before it can be reused.
   T? lookup(int pc, int tag, Object? version) {
-    final key = (pc, tag), entry = _entries[(pc, tag)];
+    final key = (pc, tag), entry = _entries[key];
     if (entry == null) return null;
     if (entry.$1 != version) {
       _entries.remove(key);

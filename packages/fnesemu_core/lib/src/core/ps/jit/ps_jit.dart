@@ -25,10 +25,11 @@ final class PsJit {
   /// Whether this runtime executes compiled host code rather than reference IR.
   final bool native;
 
-  /// Guest clocks executed by compiled code, excluding interpreter fallbacks.
   /// Runs the CPU interpreter instead while keeping compiled blocks and the
   /// shared guest state, for tools that warm up with compiled code.
   bool suspended = false;
+
+  /// Guest clocks executed by compiled code, excluding interpreter fallbacks.
   int get compiledClocks => native ? _driver.executedClocks : 0;
   late final R3000 cpu;
   late final Bus bus;
@@ -58,7 +59,7 @@ final class PsJit {
   late final Uint32List regs = Uint32List.sublistView(rt.ctx, ctxRegs, ctxHi);
 
   /// RAM pages with translated code, whose writes leave the blocks; a page
-  /// which blocks keep writing is released, see [_release]
+  /// which blocks keep writing is released, see [JitCodeMemory.release]
   late final _code = JitCodeMemory(rt);
   final _codeStores = <int, int>{};
   (int, int) _translating = (0, 0);
@@ -232,13 +233,7 @@ final class PsJit {
     _scratchPadMapped = enabled;
   }
 
-  /// Stops protecting a code page which blocks keep writing, such as data
-  /// next to code or code replaced by data. Its blocks are translated
-  /// again to end after each store, so that the guards of the next block
-  /// see an instruction changed by the store.
-  void _release(int address) => _code.release(address);
-
-  /// whether a store at [pc] ends its block, see [_release]
+  /// Stores in released RAM pages end their block so the next block's guards observe code changes.
   bool _endsAfterStore(int pc) =>
       (pc & 0x1fffffff) < 0x800000 && _code.isReleased(pc);
 
@@ -299,7 +294,7 @@ final class PsJit {
             _code.isProtected(address) &&
             (_codeStores[page] = (_codeStores[page] ?? 0) + 1) >=
                 _maxCodeStores) {
-          _release(address);
+          _code.release(address);
         }
       }
       if (reason == JitReason.miss) {

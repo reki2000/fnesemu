@@ -34,9 +34,9 @@ void main() {
     for (int i = 0; i < 3; i++) {
       rt.alloc(1024 * 1024);
       rt.clear();
-      expect(rt.blockCost(0x100, 0), isNull);
+      expect(rt.contains(0x100, 0), isFalse);
       rt.install(block);
-      expect(rt.blockCost(0x100, 0), 1);
+      expect(rt.contains(0x100, 0), isTrue);
       rt.ctx[9] = 0xfedcba98;
       rt.ctx[JitCtx.budget] = 100;
       expect(rt.run(0x100, 0), JitReason.user);

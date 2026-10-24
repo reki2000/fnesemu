@@ -132,7 +132,7 @@ final class N64Jit {
     });
     _translator = Vr4300Translator(
         fetch: _fetch,
-        protect: _protect,
+        protect: _code.protect,
         maxInstructions: maxBlockInstructions,
         fpuHelper: fpuHelpers ? fp : null,
         cop1: cop1,
@@ -187,13 +187,13 @@ final class N64Jit {
     return 'unmapped';
   }
 
-  int? _fetch(int pc) {
-    if ((pc & 0xc0000000) != 0x80000000 || pc & 3 != 0) return null;
-    final offset = pc & 0x1fffffff;
-    return offset + 4 <= ram.length ? bus.ramData.getUint32(offset) : null;
-  }
+  bool _canFetch(int pc) =>
+      (pc & 0xc0000000) == 0x80000000 &&
+      pc & 3 == 0 &&
+      (pc & 0x1fffffff) + 4 <= ram.length;
 
-  void _protect(int pc) => _code.protect(pc);
+  int? _fetch(int pc) =>
+      _canFetch(pc) ? bus.ramData.getUint32(pc & 0x1fffffff) : null;
 
   void reset() {
     _driver.reset();
@@ -209,11 +209,7 @@ final class N64Jit {
   bool run(int budget) {
     if (budget <= 0) return false;
     final originalPc = cpu.pc;
-    if ((originalPc & 0xc0000000) != 0x80000000 ||
-        originalPc & 3 != 0 ||
-        (originalPc & 0x1fffffff) + 4 > ram.length) {
-      return false;
-    }
+    if (!_canFetch(originalPc)) return false;
     final tag = cop1
         ? (fpu.wide ? 1 : 0) | ((cpu.cop0[12] & (1 << 29)) != 0 ? 2 : 0)
         : 0;

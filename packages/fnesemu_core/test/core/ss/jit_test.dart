@@ -684,7 +684,7 @@ void main() {
         expect(jit.run(_base, 1), (_base + 8, 4));
         expect(m.cpu.r[1], 10);
         jit.rt.clear();
-        expect(jit.rt.blockCost(_base, 0), isNull);
+        expect(jit.rt.contains(_base, 0), isFalse);
         expect(jit.run(_base, 4), (_base + 8, 4));
         expect(m.cpu.r[1], 10);
       });
