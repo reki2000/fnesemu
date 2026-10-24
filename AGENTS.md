@@ -33,6 +33,5 @@ Follow `ARCHITECTURE.md` for component responsibilities, dependency directions, 
 
 - Releases go from `develop` to `main`. Before opening the PR, set `version:` in the root `pubspec.yaml` on `develop` to the release version (`X.Y.Z+0`). The tag must match this version.
 - Open a PR from `develop` into `main` and merge it.
-- Wait until the `Build binaries` workflow succeeds for the merge commit on `main`. Its full build produces the verified binaries.
-- Tag the merge commit on `main` with `vX.Y.Z`. The tag starts the `Release verified binaries` workflow (`.github/workflows/release.yaml`). It checks that the tag matches `pubspec.yaml`, attaches the verified binaries of the tagged commit to a draft GitHub Release, and then publishes it.
+- Tag the merge commit on `main` with `vX.Y.Z`. The tag starts the `Release verified binaries` workflow (`.github/workflows/release.yaml`). It waits for the `Build binaries` run of the tagged commit to succeed, checks that the tag matches `pubspec.yaml`, attaches the verified binaries to a draft GitHub Release, and then publishes it.
 - The workflow leaves an already published GitHub Release unchanged.
