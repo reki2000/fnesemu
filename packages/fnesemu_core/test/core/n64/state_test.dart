@@ -76,6 +76,42 @@ void main() {
     });
   }
 
+  test('a restored FlashRAM task retains its pending write buffer', () {
+    final core = _core(false);
+    core.bus.ram.fillRange(0x4000, 0x4080, 0x69);
+    core.bus.write(0xa8010000, 0xb4000000, 4);
+    core.bus.write(0xa4600000, 0x4000, 4);
+    core.bus.write(0xa4600004, 0x08000000, 4);
+    core.bus.write(0xa4600008, 127, 4);
+    final restored = _core(false)..loadState(core.saveState());
+    for (final n in [core, restored]) {
+      n.bus.write(0xa8010000, 0xa5000101, 4);
+      n.bus.write(0xa8010000, 0xf0000000, 4);
+      n.bus.write(0xa4600000, 0x5000, 4);
+      n.bus.write(0xa4600004, 0x08004040, 4);
+      n.bus.write(0xa460000c, 127, 4);
+      expect(n.bus.ram.sublist(0x5000, 0x5080), List.filled(128, 0x69));
+    }
+    expect(restored.saveState(), core.saveState());
+  });
+
+  test('a restored audio task retains its configured FIR filter', () {
+    final core = _core(false);
+    core.bus.ramWrite(0x4000, 0x4000, 2);
+    core.bus.ramWrite(0x10000, 0x07020010, 4);
+    core.bus.ramWrite(0x10004, 0x4000, 4);
+    core.audio.task(0x10000, 8, newer: true);
+    final restored = _core(false)..loadState(core.saveState());
+    for (final n in [core, restored]) {
+      n.audio.write(0x100, 16384);
+      n.bus.ramWrite(0x10000, 0x07010100, 4);
+      n.bus.ramWrite(0x10004, 0x5000, 4);
+      n.audio.task(0x10000, 8, newer: true);
+      expect(n.audio.read(0x100), 4096);
+    }
+    expect(restored.saveState(), core.saveState());
+  });
+
   test('saving a restored state reproduces it, including HLE state', () {
     final core = _core(false);
     _frames(core, 2);
@@ -100,8 +136,7 @@ void main() {
     expect(() => _core(false, salt: 1).loadState(state),
         throwsA(isA<StateMismatch>()));
     final other = StateWriter('ss', 1, 0).take();
-    expect(() => _core(false).loadState(other),
-        throwsA(isA<StateMismatch>()));
+    expect(() => _core(false).loadState(other), throwsA(isA<StateMismatch>()));
     expect(() => _core(false).loadState(Uint8List(3)),
         throwsA(isA<StateMismatch>()));
   });
