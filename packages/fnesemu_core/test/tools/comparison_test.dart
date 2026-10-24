@@ -137,7 +137,7 @@ void main() {
       }
       expect(await contender(), 0);
     }
-  }, testOn: 'linux');
+  }, testOn: 'vm && linux');
 
   test('external synchronization signals readiness without acquiring flock',
       () async {
@@ -148,5 +148,5 @@ void main() {
     File('${dir.path}/go').writeAsStringSync('');
     expect(await pending, isNull);
     await releaseBenchmarkLock(null);
-  });
+  }, testOn: 'vm');
 }
