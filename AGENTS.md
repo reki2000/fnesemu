@@ -28,3 +28,9 @@ Follow `ARCHITECTURE.md` for component responsibilities, dependency directions, 
 # Worktrees
 
 - Create working Git worktrees under the repository's `.worktrees/` directory. This directory is ignored by Git.
+
+# Release
+
+- Releases go from `develop` to `main`. Open a PR from `develop` into `main`.
+- After the PR is merged, tag the merge commit on `main` with the version (`vX.Y.Z`).
+- The tag starts the `Release verified binaries` workflow (`.github/workflows/release.yaml`). It uses the artifacts from the verified build of the tagged commit and updates the GitHub Release with them.
