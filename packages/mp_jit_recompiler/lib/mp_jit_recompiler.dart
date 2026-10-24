@@ -1,5 +1,4 @@
-/// Runs a small block IR as x86-64 or WebAssembly code, with a reference
-/// interpreter for other hosts and differential tests.
+/// Runs block IR as x86-64, ARM64 or WebAssembly code, with a reference interpreter for differential tests.
 library;
 
 export 'src/code_memory.dart';

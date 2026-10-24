@@ -33,9 +33,6 @@ final class IrInterpreterRuntime extends JitRuntime {
   bool contains(int pc, int tag) => _blocks.containsKey((pc, tag));
 
   @override
-  int? blockCost(int pc, int tag) => _blocks[(pc, tag)]?.cost;
-
-  @override
   int installBlock(IrBlock block) {
     checkBlock(block);
     _blocks[(block.pc, block.tag)] = block;

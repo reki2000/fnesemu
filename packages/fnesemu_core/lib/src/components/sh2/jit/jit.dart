@@ -144,7 +144,7 @@ final class Sh2Jit {
     };
     _translator = Sh2Translator(
         fetch: _fetch,
-        protect: _protect,
+        protect: _code.protect,
         maxInstructions: maxInstructions,
         alignMemory: alignMemory,
         stopOnNoStore: stopOnNoStore,
@@ -194,8 +194,6 @@ final class Sh2Jit {
     }
     return null;
   }
-
-  void _protect(int address) => _code.protect(address);
 
   void map(int at, int size, Uint8List buffer,
       {int offset = 0, bool writable = true, JitRuntime? owner}) {
