@@ -204,6 +204,7 @@ class N64Graphics {
       depths[key] = Float64List.fromList(s.floats());
     }
   }
+
   static List<double> identity() =>
       [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   void reset() {
@@ -649,12 +650,11 @@ class N64Graphics {
         if (geometry.bit0 && otherLow.bit4 && dz > depthBuffer[at]) {
           continue;
         }
-        if (geometry.bit0 && otherLow.bit5) depthBuffer[at] = dz;
         _shade[0] = red;
         _shade[1] = green;
         _shade[2] = blue;
         _shade[3] = alpha;
-        pixel(
+        final written = pixel(
             px,
             py,
             _combine(
@@ -662,6 +662,8 @@ class N64Graphics {
                 textureOn
                     ? _texel(activeTile, ss / divisor, tt / divisor)
                     : _white));
+        // Rejected transparent texels must not occlude later geometry.
+        if (written && geometry.bit0 && otherLow.bit5) depthBuffer[at] = dz;
       }
     }
   }
@@ -806,7 +808,7 @@ class N64Graphics {
         _ => 0
       };
 
-  void pixel(int x, int y, List<double> color) {
+  bool pixel(int x, int y, List<double> color) {
     if (x < scLeft ||
         x >= scRight ||
         x < 0 ||
@@ -815,12 +817,12 @@ class N64Graphics {
         y >= scBottom ||
         y < 0 ||
         y >= 576) {
-      return;
+      return false;
     }
-    if (color[3] < 1) return;
+    if (color[3] < 1) return false;
     final size = colorSize == 3 ? 4 : 2,
         at = colorImage + (y * width + x) * size;
-    if (at + size > bus.ram.length) return;
+    if (at + size > bus.ram.length) return false;
     var redValue = color[0], greenValue = color[1], blueValue = color[2];
     if (otherLow.bit14 && color[3] < 255) {
       final old = u(at, size), alpha = color[3] / 255, inverse = 1 - alpha;
@@ -844,6 +846,7 @@ class N64Graphics {
             ? red.shl24 | green.shl16 | blue.shl8 | 255
             : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1,
         size);
+    return true;
   }
 
   void textureRect(int w0, int w1, int st, int delta, bool flip) {
