@@ -180,7 +180,12 @@ class StateReader {
 
 /// FNV-1a over [bytes], used as the media identity of a state.
 int stateMediaHash(List<int> bytes) {
-  var h = 0xcbf29ce484222325;
+  // Parse the signed offset so JavaScript fallback compilation has no inexact literal.
+  final offset = BigInt.parse('cbf29ce484222325', radix: 16).toSigned(64);
+  var h = offset.toInt();
+  if (BigInt.from(h) != offset) {
+    throw UnsupportedError('State media hashes require exact 64-bit integers');
+  }
   for (final b in bytes) {
     h = (h ^ b) * 0x100000001b3;
   }

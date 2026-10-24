@@ -18,11 +18,15 @@ Uint8List boot(int length, int instruction) {
   return bytes;
 }
 
-Md32x adapter() => Md32x()
-  ..setBootRoms(
+Md32x adapter() {
+  final machine = Md32x();
+  addTearDown(machine.dispose);
+  machine.setBootRoms(
       main: Uint8List(256),
       master: boot(2048, 0xe12a),
       slave: boot(1024, 0xe207));
+  return machine;
+}
 
 Uint8List cartridge() {
   final bytes = Uint8List(0x400);
@@ -41,8 +45,6 @@ void main() {
   probe?.dispose();
   test('CPU profiling excludes native execution and preserves CPU state', () {
     final expected = adapter(), actual = adapter();
-    addTearDown(expected.dispose);
-    addTearDown(actual.dispose);
     for (final machine in [expected, actual]) {
       final bytes = ByteData.sublistView(machine.ram);
       bytes.setUint16(0x200, 0x7101);
@@ -65,7 +67,6 @@ void main() {
   }, skip: !native);
   test('sleeping CPU clocks remain separate when an interrupt wakes it', () {
     final machine = adapter();
-    addTearDown(machine.dispose);
     final cpu = machine.cpus[0];
     final bytes = ByteData.sublistView(machine.ram);
     bytes.setUint16(0x200, 0x001b);
@@ -327,6 +328,7 @@ void main() {
   test('.32x selection enables the adapter without a 32X cartridge header', () {
     final rom = cartridge()..setAll(0x100, 'CARTRIDGE       '.codeUnits);
     final md = (CoreFactory.of('32x') as Md)..setRom(rom);
+    addTearDown(md.dispose);
     expect(md.expansion, isNotNull);
     expect(md.expansion!.rom.length, rom.length);
   });
@@ -336,6 +338,7 @@ void main() {
     rom.setAll(0x100, 'CARTRIDGE       '.codeUnits);
     ByteData.sublistView(rom).setUint32(4, 0x300);
     final md = Md()..setRom(rom);
+    addTearDown(md.dispose);
     for (int i = 0; i < 100; i++) {
       expect(md.exec(false).stopped, isFalse);
     }
@@ -344,6 +347,7 @@ void main() {
   });
   test('loading an ordinary cartridge removes the adapter bus', () {
     final md = Md()..setRom(cartridge());
+    addTearDown(md.dispose);
     expect(md.expansion, isNotNull);
     final ram = md.busM68.ram;
     final normal = cartridge()..setAll(0x100, 'CARTRIDGE       '.codeUnits);
@@ -380,6 +384,7 @@ void main() {
   });
   test('released adapter requires boot ROMs', () {
     final a = Md32x()..writeMain16(0xa15100, 3);
+    addTearDown(a.dispose);
     expect(a.advance(1, Md32x.clockHz).$1, isFalse);
     expect(a.stoppedReason, contains('boot ROMs'));
   });
@@ -473,6 +478,7 @@ void main() {
           master: boot(2048, 0xe12a),
           slave: boot(1024, 0xe207))
       ..setRom(cartridge());
+    addTearDown(md.dispose);
     md.busM68.write16(0xa15100, 3);
     for (int i = 0; i < 100; i++) {
       expect(md.exec(false).stopped, isFalse);
