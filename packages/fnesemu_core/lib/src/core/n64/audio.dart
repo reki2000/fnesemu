@@ -5,7 +5,7 @@ import '../../util/int.dart';
 
 import 'bus.dart';
 
-/// Scalar audio command interpreter for the original and Shindou SM64 ABIs.
+/// Scalar audio command interpreter for the original and extended ABIs.
 class N64Audio {
   final N64Bus bus;
   final memory = Uint8List(65536);
@@ -16,7 +16,9 @@ class N64Audio {
   int leftVol = 0, rightVol = 0, dryVol = 32767, wetVol = 0;
   int leftTarget = 0, rightTarget = 0, leftRate = 0, rightRate = 0;
   int reverb = 0, reverbRamp = 0, leftRamp = 0, rightRamp = 0;
-  bool shindou = false;
+  bool extendedAbi = false;
+  final _filterCoefficients = Int16List(8);
+  int _filterCount = 0;
   N64Audio(this.bus);
 
   List<int> get _scalars => [
@@ -31,7 +33,9 @@ class N64Audio {
     w.ints(book);
     w.ints(segments);
     w.ints(_scalars);
-    w.boolean(shindou);
+    w.boolean(extendedAbi);
+    w.ints(_filterCoefficients);
+    w.int32(_filterCount);
   }
 
   void loadState(StateReader s) {
@@ -64,10 +68,16 @@ class N64Audio {
     reverbRamp = v[i++];
     leftRamp = v[i++];
     rightRamp = v[i++];
-    shindou = s.boolean();
+    extendedAbi = s.boolean();
+    s.intsInto(_filterCoefficients);
+    _filterCount = s.int32();
   }
+
   void reset() {
     memory.fillRange(0, memory.length, 0);
+    _filterCoefficients.fillRange(0, 8, 0);
+    _filterCount = 0;
+    extendedAbi = false;
     book.fillRange(0, book.length, 0);
     tasks = 0;
     input = output = count = loop = 0;
@@ -98,8 +108,13 @@ class N64Audio {
     }
   }
 
-  void task(int start, int length, {required bool newer}) {
-    shindou = newer;
+  void task(int start, int length, {bool newer = false, int? ucodeData}) {
+    // The extended microcode starts with vector constants 1, 0x2ffff.
+    // Cartridge revision bytes do not identify the RSP audio command ABI.
+    extendedAbi = newer ||
+        (ucodeData != null &&
+            bus.ramRead(ucodeData, 4) == 1 &&
+            bus.ramRead(ucodeData + 4, 4) == 0x0002ffff);
     tasks++;
     for (var at = start; at < start + length; at += 8) {
       final w0 = bus.ramRead(at, 4),
@@ -119,7 +134,7 @@ class N64Audio {
           }
           memory.fillRange(start, end, 0);
         case 3:
-          if (shindou) throw UnsupportedError('Shindou audio opcode 3');
+          if (extendedAbi) throw UnsupportedError('Extended audio opcode 3');
           for (var i = 0; i < count; i += 2) {
             final s = read(input + i),
                 l = s * leftVol ~/ 32768,
@@ -136,7 +151,7 @@ class N64Audio {
             bus.ramWrite(addr(w1) + i * 2, 0, 2);
           }
         case 4:
-          if (!shindou) {
+          if (!extendedAbi) {
             dma(addr(w1), input, count, true);
           } else {
             mix(high, low, flags * 16, 32767);
@@ -144,16 +159,19 @@ class N64Audio {
         case 5:
           resample(w0, w1, false);
         case 6:
-          if (!shindou) {
+          if (!extendedAbi) {
             dma(addr(w1), output, count, false);
           } else {
             resample(w0, w1, true);
           }
         case 7:
-          if (shindou) throw UnsupportedError('Shindou audio opcode 7');
-          segments[w1.shr24.mask4] = w1.mask24;
+          if (extendedAbi) {
+            filter(w0, w1);
+          } else {
+            segments[w1.shr24.mask4] = w1.mask24;
+          }
         case 8:
-          if (!flags.bit3 || shindou) {
+          if (!flags.bit3 || extendedAbi) {
             input = w0.mask16;
             output = high;
             count = low;
@@ -163,8 +181,9 @@ class N64Audio {
             wetRight = low;
           }
         case 9:
-          if (shindou) throw UnsupportedError('Shindou audio opcode 9');
-          if (flags.bit3) {
+          if (extendedAbi) {
+            duplicate(w0, w1);
+          } else if (flags.bit3) {
             dryVol = w0.rel16;
             wetVol = low.rel16;
           } else if (flags.bit2) {
@@ -193,10 +212,10 @@ class N64Audio {
             book[i] = bus.ramRead(addr(w1) + i * 2, 2).rel16;
           }
         case 12:
-          mix(high, low, shindou ? flags * 16 : count, w0.rel16);
+          mix(high, low, extendedAbi ? flags * 16 : count, w0.rel16);
         case 13:
-          final dest = shindou ? w0.mask16 : output,
-              bytes = shindou ? flags * 16 : count;
+          final dest = extendedAbi ? w0.mask16 : output,
+              bytes = extendedAbi ? flags * 16 : count;
           for (var i = 0; i < bytes; i += 2) {
             write(dest + i * 2, read(high + i));
             write(dest + i * 2 + 2, read(low + i));
@@ -223,25 +242,24 @@ class N64Audio {
           leftRamp = high.rel16;
           rightRamp = low.rel16;
         case 19:
-          final source = flags.shl4, n = (w0.shr8.mask8 + 15) & ~15;
+          final source = flags.shl4, n = (w0.shr8.mask8 + 7) & ~7;
           final dl = w1.shr24.mask8.shl4,
               dr = w1.shr16.mask8.shl4,
               wl = w1.shr8.mask8.shl4,
               wr = w1.mask8.shl4;
           for (var i = 0; i < n; i++) {
             final sample = read(source + i * 2);
-            var l = (sample * leftVol).shr16, r = (sample * rightVol).shr16;
-            if (w0.bit1) l = -l;
-            if (w0.bit0) r = -r;
-            write(dl + i * 2, read(dl + i * 2) + l);
-            write(dr + i * 2, read(dr + i * 2) + r);
-            if (w0.bit2) {
-              final swap = l;
-              l = r;
-              r = swap;
+            final l = (sample * leftVol).shr16, r = (sample * rightVol).shr16;
+            var wetL = (l * reverb).shr16, wetR = (r * reverb).shr16;
+            if (w0.bit4) {
+              final swap = wetL;
+              wetL = wetR;
+              wetR = swap;
             }
-            write(wl + i * 2, read(wl + i * 2) + (l * reverb).shr16);
-            write(wr + i * 2, read(wr + i * 2) + (r * reverb).shr16);
+            write(dl + i * 2, read(dl + i * 2) + (w0.bit3 ? ~l : l));
+            write(dr + i * 2, read(dr + i * 2) + (w0.bit2 ? ~r : r));
+            write(wl + i * 2, read(wl + i * 2) + (w0.bit1 ? ~wetL : wetL));
+            write(wr + i * 2, read(wr + i * 2) + (w0.bit0 ? ~wetR : wetR));
             if (i % 8 == 7) {
               leftVol = (leftVol + leftRamp).mask16;
               rightVol = (rightVol + rightRamp).mask16;
@@ -262,14 +280,52 @@ class N64Audio {
             write(high + i, (read(high + i) * flags).shr4);
           }
         case 26:
-          final source = w0.mask16,
-              block = Uint8List.fromList(memory.sublist(source, source + 128));
-          for (var i = 0; i < flags; i++) {
-            memory.setRange(high + i * 128, high + (i + 1) * 128, block);
-          }
+          duplicate(w0, w1);
         default:
           throw UnsupportedError('Audio command opcode $op');
       }
+    }
+  }
+
+  void duplicate(int w0, int w1) {
+    final source = w0.mask16, dest = w1.shr16.mask16;
+    final block = Uint8List.fromList(memory.sublist(source, source + 128));
+    for (var i = 0; i < w0.shr16.mask8; i++) {
+      memory.setRange(dest + i * 128, dest + (i + 1) * 128, block);
+    }
+  }
+
+  // Eight-tap signed Q15 FIR. The task supplies a target coefficient vector;
+  // each application averages it with the coefficients in its saved state.
+  void filter(int w0, int w1) {
+    final flags = w0.shr16.mask8, state = addr(w1);
+    if (flags > 1) {
+      _filterCount = w0.mask16;
+      for (var i = 0; i < 8; i++) {
+        _filterCoefficients[i] = bus.ramRead(state + i * 2, 2).rel16;
+      }
+      return;
+    }
+    final history = List<int>.generate(
+        8, (i) => flags.bit0 ? 0 : bus.ramRead(state + i * 2, 2).rel16);
+    for (var i = 0; i < 8; i++) {
+      final old = flags.bit0 ? 0 : bus.ramRead(state + 16 + i * 2, 2).rel16;
+      _filterCoefficients[i] = (_filterCoefficients[i] + old + 1) >> 1;
+      bus.ramWrite(state + 16 + i * 2, _filterCoefficients[i], 2);
+    }
+    final buffer = w0.mask16;
+    for (var i = 0; i < _filterCount; i += 2) {
+      final sample = read(buffer + i);
+      history.removeAt(0);
+      history.add(sample);
+      var sum = 0x4000;
+      for (var k = 0; k < 8; k++) {
+        sum += history[7 - k] * _filterCoefficients[k];
+      }
+      write(buffer + i, sum >> 15);
+    }
+    for (var i = 0; i < 8; i++) {
+      bus.ramWrite(state + i * 2, history[i], 2);
     }
   }
 
@@ -306,12 +362,16 @@ class N64Audio {
       if (predictor + 16 > book.length) {
         throw StateError('ADPCM predictor out of bounds');
       }
+      final bits = extendedAbi && flags.bit2 ? 2 : 4;
+      final samplesPerByte = 8 ~/ bits;
       final residual = List<int>.generate(16, (i) {
-        final nibble =
-            i.isEven ? memory[src + i ~/ 2].shr4 : memory[src + i ~/ 2].mask4;
-        return nibble.rel4.shl(scale.clamp(0, 12));
+        final packed = memory[src + i ~/ samplesPerByte];
+        final shift = 8 - bits * (i % samplesPerByte + 1);
+        return ((packed >> shift) & ((1 << bits) - 1))
+            .toSigned(bits)
+            .shl(scale.clamp(0, 16 - bits));
       });
-      src += 8;
+      src += bits * 2;
       for (var group = 0; group < 2; group++) {
         final prev1 = history[15],
             prev2 = history[14],
@@ -324,7 +384,7 @@ class N64Audio {
                 book[predictor + 8 + i - j - 1] * residual[group * 8 + j];
           }
           samples[i] =
-              residual[group * 8 + i] + prediction.shr11.clamp(-32768, 32767);
+              (residual[group * 8 + i] + prediction.shr11).clamp(-32768, 32767);
           write(dst, samples[i]);
           dst += 2;
         }

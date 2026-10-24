@@ -39,6 +39,70 @@ class N64Bus {
   // cartridge backup ram (SRAM games). the first 512 bytes of [sram] are the
   // EEPROM, the 32KiB after them hold this SRAM so that it is persisted too
   final cartSram = Uint8List(0x8000);
+  final flash = Uint8List(0x20000)..fillRange(0, 0x20000, 255);
+  final _flashBuffer = Uint8List(128);
+  static const flashOffset = 512 + 0x8000;
+  bool _flashActive = false;
+  int _flashMode = 0, _flashPage = 0;
+  int _flashStatusHigh = 0, _flashStatusLow = 0;
+  int _flashRead(int i) =>
+      sram != null ? sram!.read8(flashOffset + i) : flash[i];
+  void _flashWrite(int i, int value) {
+    if (sram != null) {
+      sram!.write8(flashOffset + i, value);
+    } else {
+      flash[i] = value;
+    }
+  }
+
+  // Flash operations complete synchronously, like the PI DMA that serves them.
+  void _flashCommand(int value) {
+    _flashActive = true;
+    switch (value >>> 24) {
+      case 0x3c:
+        _flashMode = 0x3c;
+      case 0x4b:
+        _flashPage = value & 0x3ff;
+        _flashMode = 0x4b;
+      case 0x78:
+        if (_flashMode == 0x4b || _flashMode == 0x3c) {
+          final start = _flashMode == 0x3c ? 0 : (_flashPage & ~0x7f) * 128;
+          final length = _flashMode == 0x3c ? flash.length : 0x4000;
+          for (var i = start; i < start + length; i++) {
+            _flashWrite(i, 255);
+          }
+          _flashStatusHigh = 0x11118008;
+          _flashStatusLow = 0x00c2001e;
+        }
+        _flashMode = 0xd2;
+      case 0xa5:
+        _flashPage = value & 0x3ff;
+        for (var i = 0; i < 128; i++) {
+          final address = _flashPage * 128 + i;
+          _flashWrite(address, _flashRead(address) & _flashBuffer[i]);
+        }
+        _flashStatusHigh = 0x11118004;
+        _flashStatusLow = 0x00c2001e;
+        _flashMode = 0xd2;
+      case 0xb4:
+        _flashMode = 0xb4;
+      case 0xe1:
+        _flashMode = 0xe1;
+      case 0xf0:
+        _flashMode = 0xf0;
+      case 0xd2:
+        _flashMode = 0xd2;
+    }
+  }
+
+  int _flashStatusByte(int offset) {
+    final high = offset & 4 == 0;
+    final word = _flashMode == 0xe1
+        ? (high ? 0x11118001 : 0x00c2001e)
+        : (high ? _flashStatusHigh : _flashStatusLow);
+    return (word >>> ((3 - (offset & 3)) * 8)) & 255;
+  }
+
   static const sramOffset = 512;
   int _sramRead(int i) =>
       sram != null ? sram!.read8(sramOffset + i) : cartSram[i];
@@ -78,6 +142,14 @@ class N64Bus {
     }
     w.bytes(sram?.data ?? const <int>[]);
     w.bytes(cartSram);
+    w.bytes(flash);
+    w.bytes(_flashBuffer);
+    w.boolean(_flashActive);
+    w.int32(_flashMode);
+    w.int32(_flashPage);
+    // Preserve the original little-endian 64-bit field without wide JS ints.
+    w.int32(_flashStatusLow);
+    w.int32(_flashStatusHigh);
     w.int64(scanline);
     w.int64(spPc);
     w.int64(audioCycles);
@@ -107,10 +179,18 @@ class N64Bus {
       sram.data.setAll(0, backup);
     }
     s.bytesInto(cartSram);
+    s.bytesInto(flash);
+    s.bytesInto(_flashBuffer);
+    _flashActive = s.boolean();
+    _flashMode = s.int32();
+    _flashPage = s.int32();
+    _flashStatusLow = s.int32().mask32;
+    _flashStatusHigh = s.int32().mask32;
     scanline = s.int64();
     spPc = s.int64();
     audioCycles = s.int64();
   }
+
   void interrupt(int mask) => mi[2] |= mask;
 
   void writeTlb(int index, List<int> cp) {
@@ -172,6 +252,11 @@ class N64Bus {
     if (a >= 0x1fc007c0 && a < 0x1fc00800) return pif[a - 0x1fc007c0];
     if (a >= 0x10000000 && a - 0x10000000 < rom.length) {
       return rom[a - 0x10000000];
+    }
+    if (_flashActive && a >= 0x08000000 && a < 0x08020000) {
+      return _flashMode == 0xf0
+          ? _flashRead((a - 0x08000000) & 0x1ffff)
+          : _flashStatusByte(a);
     }
     if (a >= 0x08000000 && a - 0x08000000 < cartSram.length) {
       return _sramRead(a - 0x08000000);
@@ -306,6 +391,14 @@ class N64Bus {
       for (var i = 0; i < size; i++) {
         sp[a - 0x04000000 + i] = value.shr((size - i - 1) * 8);
       }
+      return;
+    }
+    if (_flashActive && size == 4 && a == 0x08000000 && _flashMode == 0xd2) {
+      _flashStatusHigh = _flashStatusLow = 0;
+      return;
+    }
+    if (size == 4 && a == 0x08010000) {
+      _flashCommand(value);
       return;
     }
     if (size == 4 && a % 4 == 0) {
@@ -458,6 +551,16 @@ class N64Bus {
       _piRomDma(dram, cart, length);
       interrupt(16);
       return;
+    } else if (_flashActive && cart >= 0x08000000 && cart < 0x08020000) {
+      for (var i = 0; i < length; i++) {
+        if (intoRam) {
+          ram[dram + i] = _flashMode == 0xf0
+              ? _flashRead(((cart - 0x08000000) * 2 + i) & 0x1ffff)
+              : _flashStatusByte(i);
+        } else if (_flashMode == 0xb4 && i < 128) {
+          _flashBuffer[i] = ram[dram + i];
+        }
+      }
     } else if (cart >= 0x08000000 &&
         cart - 0x08000000 + length <= cartSram.length) {
       // cartridge SRAM (32KiB, domain 2)
@@ -636,6 +739,10 @@ class N64Bus {
   }
 
   void reset() {
+    _flashActive = false;
+    _flashMode = _flashPage = 0;
+    _flashStatusHigh = _flashStatusLow = 0;
+    _flashBuffer.fillRange(0, 128, 0);
     ram.fillRange(0, ram.length, 0);
     sp.fillRange(0, sp.length, 0);
     pif.fillRange(0, 64, 0);
