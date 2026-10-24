@@ -57,7 +57,7 @@ final class Sh2Jit {
       codeWord: (pc) => _fetch(pc),
       codeMemory: _code,
       threshold: compileThreshold,
-      capacity: 4096,
+      capacity: _profiles.capacity,
       prepareFirst: true,
       maxDispatches: 64,
       continueAfterExit: (reason) =>
@@ -65,19 +65,18 @@ final class Sh2Jit {
           reason == JitReason.miss &&
               rt.ctx[JitCtx.stop] == 0 &&
               rt.ctx[JitCtx.budget].toSigned(32) > 0)
-    ..onObserve = (pc, _) {
-      _profiles
-          .putIfAbsent(pc, () => _EntryProfile())
+    ..onObserve = (pc, tag) {
+      _profiles.obtain(pc, tag, _fetch(pc), () => JitEntrySamples(16))
           .observe(profileMemory ? regs : null);
     }
     ..onInstall = (block) {
-      _profiles.remove(block.pc);
+      _profiles.remove(block.pc, block.tag);
     }
-    ..onInvalidate = (pc, _) {
-      _profiles.remove(pc);
+    ..onInvalidate = (pc, tag) {
+      _profiles.remove(pc, tag);
     }
     ..onClear = _profiles.clear;
-  final _profiles = <int, _EntryProfile>{};
+  final _profiles = JitEntryProfiles<JitEntrySamples>();
   final _readHelpers = <(bool Function(int, int), int)>[];
   bool _foldHelperLiterals = false;
 
@@ -225,9 +224,8 @@ final class Sh2Jit {
       // Native links carry the failed block's entry PC in the exit tag.
       final at = rt.exitTag;
       _driver.invalidate(at, 0, warm: true);
-      _profiles[at] = _EntryProfile()
-        ..stable = 0
-        ..samples = compileThreshold;
+      _profiles.obtain(at, 0, _fetch(at), () => JitEntrySamples(16))
+          .disableSpecialization();
     }
     final elapsed = _driver.lastClocks;
     if (elapsed == 0) return null;
@@ -235,13 +233,13 @@ final class Sh2Jit {
   }
 
   IrBlock? _translate(int pc, int tag) {
-    final profile = _profiles[pc]!;
+    final profile = _profiles.lookup(pc, tag, _fetch(pc));
     final constants = <int, int>{};
     // Observations select candidates, never permission to bypass a guard.
-    if (profileMemory && profile.samples >= 2) {
+    if (profileMemory && profile != null && profile.samples >= 2) {
       for (var n = 0; n < 16; n++) {
-        final value = profile.first![n];
-        if (profile.stable & (1 << n) != 0 &&
+        final value = profile.stableValue(n);
+        if (value != null &&
             ((value <= 0x3fffffff &&
                     (rt.readPages[(value & rt.addrMask) >>> rt.pageShift] !=
                             null ||
@@ -256,22 +254,4 @@ final class Sh2Jit {
   }
 
   void dispose() => rt.dispose();
-}
-
-/// Cold-entry observations are bounded and stop once a block is installed.
-final class _EntryProfile {
-  int samples = 0, stable = 0xffff;
-  Uint32List? first;
-
-  void observe(Uint32List? regs) {
-    samples++;
-    if (regs == null) return;
-    if (first == null) {
-      first = Uint32List.fromList(regs);
-      return;
-    }
-    for (var n = 0; n < 16; n++) {
-      if (first![n] != regs[n]) stable &= ~(1 << n);
-    }
-  }
 }

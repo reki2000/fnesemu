@@ -104,7 +104,7 @@ The [recompiler performance guide](packages/mp_jit_recompiler/OPTIMIZATION.md) d
 
 - `src/core/<system>/` contains independent core modules; modules use shared contracts, components, and utilities, and never import other modules.
 - `src/*.dart` contains shared contracts and helpers; these files do not import modules, components, or `internal/`, and individual cores do not import `internal/` or public entry points.
-- `src/components/<chip>/` contains reusable hardware components that depend only on their own files and `util/`; the shared SH-2 JIT component also depends on `mp_jit_recompiler` for IR/runtime contracts. Document intentional divergent interpreter copies.
+- `src/components/<chip>/` contains reusable hardware components that depend only on their own files and `util/`; the shared SH-2 JIT component also depends on `mp_jit_recompiler` for IR/runtime contracts. Shared `JitEntryProfiles` and `JitEntrySamples` manage bounded versioned observations; frontends retain specialization policy and guards. Document intentional divergent interpreter copies.
 - `src/internal/` contains registration and app support such as tracing, FPS counting, and stream notifications; it depends on contracts and utilities, and accesses modules only through the generated registry.
 - `src/internal/core_registry_generated.dart` is the only file that imports module entry points; each `module.dart` declares systems, BIOS setup, and media identification for the factory.
 - Before implementing a core, inspect and understand the existing methods and extensions under `packages/fnesemu_core/lib/src/util/`, then reuse them where appropriate.
