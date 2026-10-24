@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../state.dart';
@@ -487,7 +489,8 @@ class N64Bus {
   void _piRomDma(int dram, int cart, int length) {
     void copy(int to, int from, int n) {
       final end = min(n, rom.length - from);
-      if (end > 0) ram.setRange(to, to + end, rom, from);
+      // setRange is slow for wasm_allocated arrays.
+      if (end > 0) ram.setBytes(to, rom, from, end);
     }
 
     var rom0 = cart - 0x10000000;
