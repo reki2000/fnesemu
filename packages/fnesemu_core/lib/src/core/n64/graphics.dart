@@ -536,20 +536,89 @@ class N64Graphics {
     final scaleY = scaled ? u(address + 30, 2) / 1024 : 1.0;
     final flip = u(address + 26, 2).bit0;
     final bytes = size == 3 ? 4 : 2;
-    for (var y = math.max(scTop, math.max(0, y0.ceil()));
-        y < math.min(scBottom, y0 + frameHeight);
-        y++) {
+    final yEnd = math.min(math.min(scBottom, 576), y0 + frameHeight),
+        xBegin = math.max(scLeft, math.max(0, x0.ceil())),
+        xEnd = math.min(math.min(scRight, width), x0 + frameWidth);
+    // The source column of every x is the same for each row.
+    final columns = <int>[
+      for (var x = xBegin; x < xEnd; x++)
+        (imageX + (flip ? frameWidth - 1 - (x - x0) : x - x0) * scaleX)
+                .floor() %
+            imageWidth
+    ];
+    final destSize = colorSize == 3 ? 4 : 2, ramLength = bus.ram.length;
+    final cache = size == 2;
+    if (cache) _backgroundCache();
+    final ramData = bus.ramData;
+    for (var y = math.max(scTop, math.max(0, y0.ceil())); y < yEnd; y++) {
       final sy = (imageY + (y - y0) * scaleY).floor() % imageHeight;
-      for (var x = math.max(scLeft, math.max(0, x0.ceil()));
-          x < math.min(math.min(scRight, width), x0 + frameWidth);
-          x++) {
-        final dx = flip ? frameWidth - 1 - (x - x0) : x - x0;
-        final sx = (imageX + dx * scaleX).floor() % imageWidth;
-        final value = u(source + (sy * imageWidth + sx) * bytes, bytes);
-        final color = size == 2 ? _texture16(value) : rgba(value);
+      final rowBase = source + sy * imageWidth * bytes;
+      for (var x = xBegin; x < xEnd; x++) {
+        final value = u(rowBase + columns[x - xBegin] * bytes, bytes);
+        if (cache) {
+          var state = _lutState[value];
+          if (state == 0) {
+            final combined = _combine(_white, _texture16(value));
+            if (combined[3] < 1) {
+              state = 2;
+            } else if (otherLow.bit14 && combined[3] < 255) {
+              state = 3;
+            } else {
+              state = 1;
+              _lutColor[value] =
+                  _pack(combined[0], combined[1], combined[2], destSize);
+            }
+            _lutState[value] = state;
+          }
+          if (state == 2) continue;
+          if (state == 1) {
+            final at = colorImage + (y * width + x) * destSize;
+            if (at + destSize > ramLength) continue;
+            if (destSize == 4) {
+              ramData.setUint32(at & 0x7fffff, _lutColor[value]);
+            } else {
+              ramData.setUint16(at & 0x7fffff, _lutColor[value]);
+            }
+            continue;
+          }
+        }
+        final color = size == 2
+            ? _texture16(value)
+            : _textureRgba(
+                value.shr24.mask8.toDouble(),
+                value.shr16.mask8.toDouble(),
+                value.shr8.mask8.toDouble(),
+                value.mask8.toDouble());
         pixel(x, y, _combine(_white, color));
       }
     }
+  }
+
+  // Memo of 16-bit texel -> packed output of a background, valid while the
+  // blender and combiner state stays the same. States: 0 unknown, 1 plain
+  // write, 2 rejected, 3 blended with the framebuffer (not memoized).
+  final _lutState = Uint8List(65536), _lutColor = Uint32List(65536);
+  final _lutKey = Float64List(13)..fillRange(0, 13, -1);
+
+  /// Resets the memo when the state it depends on changed.
+  void _backgroundCache() {
+    final key = [
+      combine0.toDouble(),
+      combine1.toDouble(),
+      otherHigh.toDouble(),
+      otherLow.bit14 ? 1.0 : 0.0,
+      colorSize.toDouble(),
+      ...primitive,
+      ...environment,
+    ];
+    var same = true;
+    for (var i = 0; i < key.length; i++) {
+      if (_lutKey[i] != key[i]) {
+        same = false;
+        _lutKey[i] = key[i];
+      }
+    }
+    if (!same) _lutState.fillRange(0, 65536, 0);
   }
 
   void _loadVertices(int addr, int first, int count) {
@@ -673,9 +742,36 @@ class N64Graphics {
     final sStep = delta(sa, sb, sc),
         tStep = delta(ta, tb, tc),
         inverseStep = delta(inverse[0], inverse[1], inverse[2]);
+    final depthTest = geometry.bit0 && otherLow.bit4,
+        depthWrite = geometry.bit0 && otherLow.bit5;
     for (var py = minY; py <= maxY; py++) {
-      var wa = edge(x[1], y[1], x[2], y[2], minX + 0.5, py + 0.5) / area,
-          wb = edge(x[2], y[2], x[0], y[0], minX + 0.5, py + 0.5) / area;
+      // Narrow the row to the pixels that can be covered (a weight w + step * k
+      // must reach zero within the edge tolerance), with a margin of one pixel;
+      // the per-pixel coverage test below stays authoritative.
+      final wa0 = edge(x[1], y[1], x[2], y[2], minX + 0.5, py + 0.5) / area,
+          wb0 = edge(x[2], y[2], x[0], y[0], minX + 0.5, py + 0.5) / area;
+      var first = 0, last = maxX - minX;
+      for (final (w, step) in [
+        (wa0, waStep),
+        (wb0, wbStep),
+        (1 - wa0 - wb0, wcStep)
+      ]) {
+        if (step > 0) {
+          first = math.max(first, ((-1e-9 - w) / step).floor() - 1);
+        } else if (step < 0) {
+          last = math.min(last, ((w + 1e-9) / -step).ceil() + 1);
+        } else if (w < -1e-9) {
+          last = -1;
+        }
+      }
+      if (first > last) continue;
+      final startX = minX + first, endX = minX + last;
+      var wa = first == 0
+              ? wa0
+              : edge(x[1], y[1], x[2], y[2], startX + 0.5, py + 0.5) / area,
+          wb = first == 0
+              ? wb0
+              : edge(x[2], y[2], x[0], y[0], startX + 0.5, py + 0.5) / area;
       final wc = 1 - wa - wb;
       var dz = wa * z[0] + wb * z[1] + wc * z[2],
           red = wa * a.color[0] + wb * b.color[0] + wc * c.color[0],
@@ -685,8 +781,8 @@ class N64Graphics {
           ss = wa * sa + wb * sb + wc * sc,
           tt = wa * ta + wb * tb + wc * tc,
           divisor = wa * inverse[0] + wb * inverse[1] + wc * inverse[2];
-      for (var px = minX;
-          px <= maxX;
+      for (var px = startX;
+          px <= endX;
           px++,
           wa += waStep,
           wb += wbStep,
@@ -711,7 +807,7 @@ class N64Graphics {
         }
         if (!inside) continue;
         final at = py * width + px;
-        if (geometry.bit0 && otherLow.bit4 && dz > depthBuffer[at]) {
+        if (depthTest && dz > depthBuffer[at]) {
           continue;
         }
         _shade[0] = red;
@@ -727,7 +823,7 @@ class N64Graphics {
                     ? _texel(activeTile, ss / divisor, tt / divisor)
                     : _white));
         // Rejected transparent texels must not occlude later geometry.
-        if (written && geometry.bit0 && otherLow.bit5) depthBuffer[at] = dz;
+        if (written && depthWrite) depthBuffer[at] = dz;
       }
     }
   }
@@ -747,27 +843,29 @@ class N64Graphics {
   List<double> combine(List<double> shade, List<double> texture) =>
       List<double>.of(_combine(shade, texture));
 
+  static int _coordinate(
+      double value, double low, double high, int shift, int mode, int mask) {
+    if (shift != 0) {
+      value = shift <= 10 ? value / (1 << shift) : value * (1 << (16 - shift));
+    }
+    var coord = (value - low).floor(), extent = (high - low).floor();
+    if (mode.bit1) coord = coord.clamp(0, math.max(0, extent));
+    if (mask != 0) {
+      final period = 1 << mask;
+      if (mode.bit0 && coord & period != 0) {
+        coord = period - 1 - (coord & (period - 1));
+      } else {
+        coord &= period - 1;
+      }
+    }
+    return coord;
+  }
+
   List<double> _texel(int index, double s, double t) {
     final tile = tiles[index];
-    int coordinate(
-        double value, double low, double high, int shift, int mode, int mask) {
-      value = shift <= 10 ? value / (1 << shift) : value * (1 << (16 - shift));
-      var coord = (value - low).floor(), extent = (high - low).floor();
-      if (mode.bit1) coord = coord.clamp(0, math.max(0, extent));
-      if (mask != 0) {
-        final period = 1 << mask;
-        if (mode.bit0 && coord & period != 0) {
-          coord = period - 1 - (coord & (period - 1));
-        } else {
-          coord &= period - 1;
-        }
-      }
-      return coord;
-    }
-
-    final x = coordinate(
+    final x = _coordinate(
             s, tile.left, tile.right, tile.sShift, tile.sMode, tile.sMask),
-        y = coordinate(
+        y = _coordinate(
             t, tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
     final row = tile.line * 8;
     final offset = (tile.tmem * 8 + y * row + x * (4 << tile.size) ~/ 8).mask12;
@@ -807,70 +905,130 @@ class N64Graphics {
   // RGB equation: (A - B) * C / 255 + D. C has additional alpha selectors.
   static const _rgbInputA = 0, _rgbInputB = 1, _rgbInputC = 2, _rgbInputD = 3;
 
-  List<double> _combine(List<double> shade, List<double> texture) {
-    if (otherHigh.shr20.mask2 == 2) return texture;
-    final combined = _combined..fillRange(0, 4, 0);
-    for (var cycle = 0; cycle < (otherHigh.shr20.mask2 == 1 ? 2 : 1); cycle++) {
+  // The combiner inputs are decoded once per register value into offsets of
+  // [_regs]. A constant input points at the zero / 255 rows. The alpha
+  // selectors of the C input read channel 3 whatever the colour channel is,
+  // which is a step of 0.
+  static const _regCombined = 0,
+      _regTexture = 4,
+      _regPrimitive = 8,
+      _regShade = 12,
+      _regEnvironment = 16,
+      _regZero = 20,
+      _regFull = 24;
+  final _regs = Float64List(28)..fillRange(24, 28, 255);
+  // Per cycle: rgb A, B, C, D offsets, C step, and alpha A, B, C, D offsets.
+  final _plan = Int32List(2 * 9);
+  int _planKey0 = -1, _planKey1 = -1, _planCycles = 0;
+
+  static const _rgbSource = [
+    _regCombined, _regTexture, _regTexture, _regPrimitive, //
+    _regShade, _regEnvironment
+  ];
+
+  static int _rgbOffset(int selector, int slot) {
+    if (selector < 6) return _rgbSource[selector];
+    if (selector == 6 && (slot == _rgbInputA || slot == _rgbInputD)) {
+      return _regFull;
+    }
+    return _regZero;
+  }
+
+  static int _alphaOffset(int selector) => switch (selector) {
+        0 => _regCombined + 3,
+        1 || 2 => _regTexture + 3,
+        3 => _regPrimitive + 3,
+        4 => _regShade + 3,
+        5 => _regEnvironment + 3,
+        6 => _regFull,
+        _ => _regZero
+      };
+
+  void _decodeCombiner(int cycles) {
+    for (var cycle = 0; cycle < cycles; cycle++) {
       final a = cycle == 0 ? combine0.shr20.mask4 : combine0.shr5.mask4;
       final b = cycle == 0 ? combine1.shr28.mask4 : combine1.shr24.mask4;
       final cc = cycle == 0 ? combine0.shr15.mask5 : combine0.mask5;
       final d = cycle == 0 ? combine1.shr15.mask3 : combine1.shr6.mask3;
-      final aa = cycle == 0 ? combine0.shr12.mask3 : combine1.shr21.mask3;
-      final ab = cycle == 0 ? combine1.shr12.mask3 : combine1.shr3.mask3;
-      final ac = cycle == 0 ? combine0.shr9.mask3 : combine1.shr18.mask3;
-      final ad = cycle == 0 ? combine1.shr9.mask3 : combine1.mask3;
-      for (var i = 0; i < 3; i++) {
-        combined[i] = ((_combineRgb(a, i, _rgbInputA, shade, texture) -
-                        _combineRgb(b, i, _rgbInputB, shade, texture)) *
-                    _combineRgb(cc, i, _rgbInputC, shade, texture) /
-                    255 +
-                _combineRgb(d, i, _rgbInputD, shade, texture))
-            .clamp(0, 255)
-            .toDouble();
+      final base = cycle * 9;
+      _plan[base] = _rgbOffset(a, _rgbInputA);
+      _plan[base + 1] = _rgbOffset(b, _rgbInputB);
+      _plan[base + 3] = _rgbOffset(d, _rgbInputD);
+      if (cc >= 7) {
+        _plan[base + 4] = 0;
+        _plan[base + 2] = switch (cc) {
+          7 => _regCombined + 3,
+          8 || 9 => _regTexture + 3,
+          10 => _regPrimitive + 3,
+          11 => _regShade + 3,
+          12 => _regEnvironment + 3,
+          _ => _regZero
+        };
+      } else {
+        _plan[base + 4] = 1;
+        _plan[base + 2] = _rgbOffset(cc, _rgbInputC);
       }
-      combined[3] = ((_combineAlpha(aa, shade, texture) -
-                      _combineAlpha(ab, shade, texture)) *
-                  _combineAlpha(ac, shade, texture) /
-                  255 +
-              _combineAlpha(ad, shade, texture))
-          .clamp(0, 255)
-          .toDouble();
+      _plan[base + 5] = _alphaOffset(
+          cycle == 0 ? combine0.shr12.mask3 : combine1.shr21.mask3);
+      _plan[base + 6] =
+          _alphaOffset(cycle == 0 ? combine1.shr12.mask3 : combine1.shr3.mask3);
+      _plan[base + 7] =
+          _alphaOffset(cycle == 0 ? combine0.shr9.mask3 : combine1.shr18.mask3);
+      _plan[base + 8] =
+          _alphaOffset(cycle == 0 ? combine1.shr9.mask3 : combine1.mask3);
+    }
+    _planKey0 = combine0;
+    _planKey1 = combine1;
+    _planCycles = cycles;
+  }
+
+  List<double> _combine(List<double> shade, List<double> texture) {
+    final mode = otherHigh.shr20.mask2;
+    if (mode == 2) return texture;
+    final cycles = mode == 1 ? 2 : 1;
+    if (_planKey0 != combine0 ||
+        _planKey1 != combine1 ||
+        _planCycles < cycles) {
+      _decodeCombiner(cycles);
+    }
+    final regs = _regs, plan = _plan, combined = _combined;
+    for (var i = 0; i < 4; i++) {
+      combined[i] = 0;
+      regs[_regCombined + i] = 0;
+      regs[_regTexture + i] = texture[i];
+      regs[_regPrimitive + i] = primitive[i];
+      regs[_regShade + i] = shade[i];
+      regs[_regEnvironment + i] = environment[i];
+    }
+    for (var cycle = 0; cycle < cycles; cycle++) {
+      final base = cycle * 9;
+      final oa = plan[base],
+          ob = plan[base + 1],
+          oc = plan[base + 2],
+          od = plan[base + 3],
+          stepC = plan[base + 4];
+      for (var i = 0; i < 3; i++) {
+        final v = (regs[oa + i] - regs[ob + i]) * regs[oc + i * stepC] / 255 +
+            regs[od + i];
+        combined[i] = v < 0 ? 0 : (v > 255 ? 255 : v);
+      }
+      final v = (regs[plan[base + 5]] - regs[plan[base + 6]]) *
+              regs[plan[base + 7]] /
+              255 +
+          regs[plan[base + 8]];
+      combined[3] = v < 0 ? 0 : (v > 255 ? 255 : v);
+      // The next cycle reads this cycle's result.
+      for (var i = 0; i < 4; i++) {
+        regs[_regCombined + i] = combined[i];
+      }
     }
     return combined;
   }
 
-  @pragma('vm:prefer-inline')
-  double _combineRgb(int selector, int channel, int slot, List<double> shade,
-      List<double> texture) {
-    if (slot == _rgbInputC && selector >= 7) {
-      if (selector == 7) return _combined[3];
-      if (selector == 8 || selector == 9) return texture[3];
-      if (selector == 10) return primitive[3];
-      if (selector == 11) return shade[3];
-      if (selector == 12) return environment[3];
-      return 0;
-    }
-    if (selector == 0) return _combined[channel];
-    if (selector == 1 || selector == 2) return texture[channel];
-    if (selector == 3) return primitive[channel];
-    if (selector == 4) return shade[channel];
-    if (selector == 5) return environment[channel];
-    if (selector == 6 && (slot == _rgbInputA || slot == _rgbInputD)) return 255;
-    return 0;
+  static int _byte(double v) {
+    final r = v.round();
+    return r < 0 ? 0 : (r > 255 ? 255 : r);
   }
-
-  @pragma('vm:prefer-inline')
-  double _combineAlpha(
-          int selector, List<double> shade, List<double> texture) =>
-      switch (selector) {
-        0 => _combined[3],
-        1 || 2 => texture[3],
-        3 => primitive[3],
-        4 => shade[3],
-        5 => environment[3],
-        6 => 255,
-        _ => 0
-      };
 
   bool pixel(int x, int y, List<double> color) {
     if (x < scLeft ||
@@ -901,16 +1059,18 @@ class N64Graphics {
       greenValue = greenValue * alpha + oldGreen * inverse;
       blueValue = blueValue * alpha + oldBlue * inverse;
     }
-    final red = redValue.round().clamp(0, 255),
-        green = greenValue.round().clamp(0, 255),
-        blue = blueValue.round().clamp(0, 255);
-    bus.ramWrite(
-        at,
-        size == 4
-            ? red.shl24 | green.shl16 | blue.shl8 | 255
-            : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1,
-        size);
+    bus.ramWrite(at, _pack(redValue, greenValue, blueValue, size), size);
     return true;
+  }
+
+  static int _pack(
+      double redValue, double greenValue, double blueValue, int size) {
+    final red = _byte(redValue),
+        green = _byte(greenValue),
+        blue = _byte(blueValue);
+    return size == 4
+        ? red.shl24 | green.shl16 | blue.shl8 | 255
+        : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1;
   }
 
   void textureRect(int w0, int w1, int st, int delta, bool flip) {
@@ -973,25 +1133,34 @@ class N64Graphics {
           depth.fillRange(0, depth.length, double.infinity);
           break;
         }
-        for (var y = math.max(scTop, y0 ~/ 4);
-            y <= math.min(scBottom - 1, y1 ~/ 4);
-            y++) {
-          for (var x = math.max(scLeft, x0 ~/ 4);
-              x <= math.min(math.min(scRight, width) - 1, x1 ~/ 4);
-              x++) {
-            if (otherHigh.shr20.mask2 == 3) {
-              final size = colorSize == 3 ? 4 : 2,
-                  at = colorImage + (y * width + x) * size;
-              if (at + size <= bus.ram.length) {
-                bus.ramWrite(
-                    at,
-                    size == 4
-                        ? fillColor
-                        : (x.isEven ? fillColor.shr16 : fillColor.mask16),
-                    size);
+        final xStart = math.max(scLeft, x0 ~/ 4),
+            xEnd = math.min(math.min(scRight, width) - 1, x1 ~/ 4);
+        if (otherHigh.shr20.mask2 == 3) {
+          final size = colorSize == 3 ? 4 : 2, ramData = bus.ramData;
+          final ramLength = bus.ram.length;
+          for (var y = math.max(scTop, y0 ~/ 4);
+              y <= math.min(scBottom - 1, y1 ~/ 4);
+              y++) {
+            for (var x = xStart; x <= xEnd; x++) {
+              final at = colorImage + (y * width + x) * size;
+              if (at + size > ramLength) continue;
+              if (size == 4) {
+                ramData.setUint32(at & 0x7fffff, fillColor);
+              } else {
+                ramData.setUint16(at & 0x7fffff,
+                    x.isEven ? fillColor.shr16 : fillColor.mask16);
               }
-            } else {
-              pixel(x, y, _combine(_white, _white));
+            }
+          }
+        } else {
+          // The inputs are constant, so the combined colour is the same for
+          // every pixel of the rectangle.
+          final color = _combine(_white, _white);
+          for (var y = math.max(scTop, y0 ~/ 4);
+              y <= math.min(scBottom - 1, y1 ~/ 4);
+              y++) {
+            for (var x = xStart; x <= xEnd; x++) {
+              pixel(x, y, color);
             }
           }
         }
