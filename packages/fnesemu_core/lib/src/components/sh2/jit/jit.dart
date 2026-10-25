@@ -57,7 +57,6 @@ final class Sh2Jit {
       codeWord: (pc) => _fetch(pc),
       codeMemory: _code,
       threshold: compileThreshold,
-      capacity: _profiles.capacity,
       prepareFirst: true,
       maxDispatches: 64,
       continueAfterExit: (reason) =>
@@ -76,7 +75,7 @@ final class Sh2Jit {
       _profiles.remove(pc, tag);
     }
     ..onClear = _profiles.clear;
-  final _profiles = JitEntryProfiles<JitEntrySamples>();
+  final _profiles = JitEntryProfiles<JitEntrySamples>(capacity: 1 << 14);
   final _readHelpers = <(bool Function(int, int), int)>[];
   bool _foldHelperLiterals = false;
 

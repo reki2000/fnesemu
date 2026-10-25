@@ -254,27 +254,34 @@ class Md32x {
       stoppedReason = 'MD 32x boot ROMs are required';
       return (false, false, false);
     }
-    final executed = [false, false];
+    var executed0 = false, executed1 = false;
+    final cpu0 = cpus[0], cpu1 = cpus[1];
     // Bound CPU interleaving by both the quantum and the main CPU deadline.
     // Quantum 1 retains legacy instruction alternation for comparisons.
-    while (cpus.any((cpu) => cpu.clocks <= target)) {
+    while (cpu0.clocks <= target || cpu1.clocks <= target) {
       for (int i = 0; i < 2; i++) {
-        if (cpus[i].clocks > target || (step && executed[i])) continue;
-        final cpu = cpus[i];
+        final cpu = i == 0 ? cpu0 : cpu1;
+        if (cpu.clocks > target || (step && (i == 0 ? executed0 : executed1))) {
+          continue;
+        }
         final sliceEnd = cpu.clocks + sliceClocks;
         final ok = step || sliceClocks == 1
             ? cpu.exec(compiled: !step)
             : cpu.run(sliceEnd < target + 1 ? sliceEnd : target + 1);
         if (!ok) {
           stoppedReason =
-              'SH-2 $i unsupported opcode ${cpus[i].lastOpcode.toRadixString(16)} at ${cpus[i].pc.toRadixString(16)}';
-          return (false, executed[0], executed[1]);
+              'SH-2 $i unsupported opcode ${cpu.lastOpcode.toRadixString(16)} at ${cpu.pc.toRadixString(16)}';
+          return (false, executed0, executed1);
         }
-        executed[i] = true;
+        if (i == 0) {
+          executed0 = true;
+        } else {
+          executed1 = true;
+        }
       }
       if (step) break;
     }
-    return (true, executed[0], executed[1]);
+    return (true, executed0, executed1);
   }
 
   bool mapsMain(int address) =>
@@ -454,6 +461,11 @@ class Md32x {
     // associative cache purge area, not another alias of SDRAM.
     if (address >= 0x40000000) return 0xff;
     address &= 0x1fffffff;
+    // the registers are the most polled area and exclusive with the others
+    if (address >= 0x4000 && address < 0x4400) {
+      final word = readSh16(address & ~1, cpu);
+      return address.isEven ? word.shr8 : word.mask8;
+    }
     final boot = cpu == 0 ? masterBoot : slaveBoot;
     if (address < boot.length) return biosLoaded ? boot[address] : 0xff;
     if (address >= 0x02000000 && address < 0x02400000) {
@@ -465,14 +477,33 @@ class Md32x {
     if (address >= 0x04000000 && address < 0x04040000) {
       return shOwnsVideo ? video.readFrame8(address) : 0xff;
     }
-    if (address >= 0x4000 && address < 0x4400) {
-      final word = readSh16(address & ~1, cpu);
-      return address.isEven ? word.shr8 : word.mask8;
-    }
     return 0xff;
   }
 
   int readSh16(int address, int cpu) {
+    // the SDRAM and the cartridge ROM are read directly when both bytes are
+    // inside the area; the other cases take the byte reads below
+    if (address < 0x40000000) {
+      final a = address & 0x1fffffff;
+      if (a >= 0x06000000) {
+        final i = a & 0x3ffff;
+        if (a < 0x06040000 && i < 0x3ffff) {
+          final ram = this.ram;
+          return ram[i] << 8 | ram[i + 1];
+        }
+      } else if (a < 0x800) {
+        final boot = cpu == 0 ? masterBoot : slaveBoot;
+        if (a + 1 < boot.length) {
+          return biosLoaded ? boot[a] << 8 | boot[a + 1] : 0xffff;
+        }
+      } else if (a >= 0x02000000) {
+        final i = a - 0x02000000;
+        final rom = this.rom;
+        if (i + 1 < rom.length && a < 0x02400000 && !romToVram) {
+          return rom[i] << 8 | rom[i + 1];
+        }
+      }
+    }
     if ((address & 0xfffff000) == 0xc0000000) {
       return readSh8(address, cpu).shl8 | readSh8(address + 1, cpu);
     }
@@ -489,6 +520,45 @@ class Md32x {
     }
     if (address >= 0x4000 && address < 0x4400) return 0xffff;
     return readSh8(address, cpu).shl8 | readSh8(address + 1, cpu);
+  }
+
+  int readSh32(int address, int cpu) {
+    if (address < 0x40000000) {
+      final a = address & 0x1fffffff;
+      if (a >= 0x06000000) {
+        final i = a & 0x3ffff;
+        if (a < 0x06040000 && i < 0x3fffd) {
+          final ram = this.ram;
+          return ram[i] << 24 | ram[i + 1] << 16 | ram[i + 2] << 8 | ram[i + 3];
+        }
+      } else if (a >= 0x02000000) {
+        final i = a - 0x02000000;
+        final rom = this.rom;
+        if (i + 3 < rom.length && a < 0x02400000 && !romToVram) {
+          return rom[i] << 24 | rom[i + 1] << 16 | rom[i + 2] << 8 | rom[i + 3];
+        }
+      }
+    }
+    return readSh16(address, cpu).shl16 | readSh16(address + 2, cpu);
+  }
+
+  void writeSh32(int address, int value, int cpu) {
+    if (address < 0x40000000) {
+      final a = address & 0x1fffffff;
+      if (a >= 0x06000000) {
+        final i = a & 0x3ffff;
+        if (a < 0x06040000 && i < 0x3fffd) {
+          final ram = this.ram;
+          ram[i] = value >> 24;
+          ram[i + 1] = value >> 16;
+          ram[i + 2] = value >> 8;
+          ram[i + 3] = value;
+          return;
+        }
+      }
+    }
+    writeSh16(address, value.shr16, cpu);
+    writeSh16(address + 2, value, cpu);
   }
 
   void writeSh8(int address, int value, int cpu) {
@@ -522,6 +592,18 @@ class Md32x {
   }
 
   void writeSh16(int address, int value, int cpu) {
+    if (address < 0x40000000) {
+      final a = address & 0x1fffffff;
+      if (a >= 0x06000000) {
+        final i = a & 0x3ffff;
+        if (a < 0x06040000 && i < 0x3ffff) {
+          final ram = this.ram;
+          ram[i] = value >> 8;
+          ram[i + 1] = value;
+          return;
+        }
+      }
+    }
     if ((address & 0xfffff000) == 0xc0000000) {
       writeSh8(address, value.shr8, cpu);
       writeSh8(address + 1, value, cpu);
@@ -556,7 +638,7 @@ class ExpansionBus implements Sh2Bus {
   @override
   int read16(int address) => expansion.readSh16(address, cpu);
   @override
-  int read32(int address) => read16(address).shl16 | read16(address + 2);
+  int read32(int address) => expansion.readSh32(address, cpu);
   @override
   void write8(int address, int value) =>
       expansion.writeSh8(address, value, cpu);
@@ -564,8 +646,6 @@ class ExpansionBus implements Sh2Bus {
   void write16(int address, int value) =>
       expansion.writeSh16(address, value, cpu);
   @override
-  void write32(int address, int value) {
-    write16(address, value.shr16);
-    write16(address + 2, value);
-  }
+  void write32(int address, int value) =>
+      expansion.writeSh32(address, value, cpu);
 }
