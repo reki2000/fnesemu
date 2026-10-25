@@ -232,8 +232,8 @@ void main() {
         g.width = g.scRight = g.scBottom = 4;
         g.colorImage = 0x1000;
         g.colorSize = size;
-        g.scale = Vec3(2, 2, 1);
-        g.translate = Vec3(2, 2, 1);
+        g.scale = [2, 2, 1];
+        g.translate = [2, 2, 1];
         g.geometry = 1;
         // AA_ZB_TEX_EDGE: depth compare/update and alpha-derived coverage.
         g.otherLow = 0x00003078;
@@ -250,9 +250,9 @@ void main() {
               (7 << 12) |
               ((textured ? 7 : 6) << 9);
           g.triangle(
-              N64Vertex(Vec4(-1, -1, z, 1), Rgba(255, 0, 0, 255), 0, 0),
-              N64Vertex(Vec4(1, -1, z, 1), Rgba(255, 0, 0, 255), 4, 0),
-              N64Vertex(Vec4(-1, 1, z, 1), Rgba(255, 0, 0, 255), 0, 0));
+              N64Vertex([-1, -1, z, 1], [255, 0, 0, 255], 0, 0),
+              N64Vertex([1, -1, z, 1], [255, 0, 0, 255], 4, 0),
+              N64Vertex([-1, 1, z, 1], [255, 0, 0, 255], 0, 0));
         }
 
         if (reverse) draw(0.5, false);
@@ -276,13 +276,13 @@ void main() {
     g.width = 4;
     g.colorImage = 0x1000;
     g.scRight = g.scBottom = 4;
-    g.scale = Vec3(2, 2, 1);
-    g.translate = Vec3(2, 2, 1);
+    g.scale = [2, 2, 1];
+    g.translate = [2, 2, 1];
     g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
     g.triangle(
-        N64Vertex(Vec4(-1, -1, 0, 1), Rgba(255, 0, 0, 255), 0, 0),
-        N64Vertex(Vec4(1, -1, 0, 1), Rgba(255, 0, 0, 255), 0, 0),
-        N64Vertex(Vec4(0, 1, 0, 1), Rgba(255, 0, 0, 255), 0, 0));
+        const N64Vertex([-1, -1, 0, 1], [255, 0, 0, 255], 0, 0),
+        const N64Vertex([1, -1, 0, 1], [255, 0, 0, 255], 0, 0),
+        const N64Vertex([0, 1, 0, 1], [255, 0, 0, 255], 0, 0));
     expect(b.ramRead(0x1000, 2), 0);
     expect(b.ramRead(0x1000 + (1 * 4 + 1) * 2, 2), 0xf801);
   });

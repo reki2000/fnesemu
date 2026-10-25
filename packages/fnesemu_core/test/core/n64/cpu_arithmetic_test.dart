@@ -189,8 +189,8 @@ void main() {
       () {
     final g = N64Graphics(N64Bus());
     g.otherHigh = 1 << 20;
-    g.primitive.set(90, 140, 200, 80);
-    g.environment.set(5, 30, 20, 40);
+    g.primitive = [90, 140, 200, 80];
+    g.environment = [5, 30, 20, 40];
     g.combine0 = (4 << 20) | (3 << 15) | (4 << 12) | (3 << 9) | 7;
     g.combine1 = (5 << 28) |
         (5 << 24) |
@@ -200,46 +200,37 @@ void main() {
         (1 << 6) |
         (5 << 3) |
         3;
-    final shade = Rgba(20, 70, 100, 120), texture = Rgba(30, 40, 60, 100);
-    final alpha0 = shade.a * g.primitive.a / 255 + texture.a;
-    double channel(double shade, double texture, double environment,
-            double primitive) =>
-        (((shade - environment) * primitive / 255 + texture - environment) *
+    final shade = <double>[20, 70, 100, 120],
+        texture = <double>[30, 40, 60, 100];
+    final alpha0 = shade[3] * g.primitive[3] / 255 + texture[3];
+    final expected = [
+      for (var c = 0; c < 3; c++)
+        (((shade[c] - g.environment[c]) * g.primitive[c] / 255 +
+                        texture[c] -
+                        g.environment[c]) *
                     alpha0 /
                     255 +
-                texture)
-            .clamp(0, 255)
-            .toDouble();
-    final expected = Rgba(
-        channel(shade.r, texture.r, g.environment.r, g.primitive.r),
-        channel(shade.g, texture.g, g.environment.g, g.primitive.g),
-        channel(shade.b, texture.b, g.environment.b, g.primitive.b),
-        ((alpha0 - g.environment.a) * texture.a / 255 + g.primitive.a)
-            .clamp(0, 255)
-            .toDouble());
-    void expectCombined(Rgba actual) {
-      expect(actual.r, closeTo(expected.r, 1e-10));
-      expect(actual.g, closeTo(expected.g, 1e-10));
-      expect(actual.b, closeTo(expected.b, 1e-10));
-      expect(actual.a, closeTo(expected.a, 1e-10));
-    }
-
+                texture[c])
+            .clamp(0, 255),
+      ((alpha0 - g.environment[3]) * texture[3] / 255 + g.primitive[3])
+          .clamp(0, 255)
+    ];
     final first = g.combine(shade, texture);
-    expectCombined(first);
-    g.combine(Rgba(255, 255, 255, 255), Rgba());
-    expectCombined(first);
+    for (var c = 0; c < 4; c++) {
+      expect(first[c], closeTo(expected[c], 1e-10));
+    }
+    g.combine([255, 255, 255, 255], [0, 0, 0, 0]);
+    for (var c = 0; c < 4; c++) {
+      expect(first[c], closeTo(expected[c], 1e-10));
+    }
     final tile = g.tiles[0]
       ..size = 2
       ..line = 1;
     tile.right = 3;
     g.tmem.setRange(0, 4, [0xf8, 1, 7, 0xc1]);
     final red = g.texel(0, 0, 0);
-    void expectColor(Rgba actual, double r, double g, double b, double a) {
-      expect([actual.r, actual.g, actual.b, actual.a], [r, g, b, a]);
-    }
-
-    expectColor(g.texel(0, 1, 0), 0, 255, 0, 255);
-    expectColor(red, 255, 0, 0, 255);
+    expect(g.texel(0, 1, 0), [0, 255, 0, 255]);
+    expect(red, [255, 0, 0, 255]);
   });
 
   test(
@@ -248,8 +239,8 @@ void main() {
     for (final textured in [false, true]) {
       final g = N64Graphics(N64Bus());
       g.width = g.scRight = g.scBottom = 64;
-      g.scale = Vec3(32, 32, 511);
-      g.translate = Vec3(32, 32, 511);
+      g.scale = [32, 32, 511];
+      g.translate = [32, 32, 511];
       g.colorImage = 0x10000;
       g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
       g.textureOn = textured;
@@ -270,15 +261,13 @@ void main() {
         }
       }
       final vertices = [
-        N64Vertex(
-            Vec4(-0.83, -0.77, 0, 1), Rgba(233, 17, 31, 255), 0.113, 0.217),
-        N64Vertex(Vec4(0.71 * 0.75, -0.68 * 0.75, 0, 0.75),
-            Rgba(19, 241, 13, 255), 7.313, 0.419),
-        N64Vertex(Vec4(-0.13 * 2, 0.89 * 2, 0, 2), Rgba(11, 23, 227, 255),
-            0.619, 7.713)
+        N64Vertex([-0.83, -0.77, 0, 1], [233, 17, 31, 255], 0.113, 0.217),
+        N64Vertex([0.71 * 0.75, -0.68 * 0.75, 0, 0.75], [19, 241, 13, 255],
+            7.313, 0.419),
+        N64Vertex([-0.13 * 2, 0.89 * 2, 0, 2], [11, 23, 227, 255], 0.619, 7.713)
       ];
-      final xs = vertices.map((v) => v.clip.x / v.clip.w * 32 + 32).toList();
-      final ys = vertices.map((v) => -v.clip.y / v.clip.w * 32 + 32).toList();
+      final xs = vertices.map((v) => v.clip[0] / v.clip[3] * 32 + 32).toList();
+      final ys = vertices.map((v) => -v.clip[1] / v.clip[3] * 32 + 32).toList();
       double edge(int a, int b, double x, double y) =>
           (x - xs[a]) * (ys[b] - ys[a]) - (y - ys[a]) * (xs[b] - xs[a]);
       final area = edge(0, 1, xs[2], ys[2]);
@@ -297,7 +286,7 @@ void main() {
             final weights = [a, b, c];
             var divisor = 0.0, s = 0.0, t = 0.0;
             for (var i = 0; i < 3; i++) {
-              final weight = weights[i] / vertices[i].clip.w;
+              final weight = weights[i] / vertices[i].clip[3];
               divisor += weight;
               s += weight * vertices[i].s;
               t += weight * vertices[i].t;
@@ -309,12 +298,10 @@ void main() {
             expect(actual, expected, reason: 'texture $x,$y');
           } else {
             expect(actual.mask1, 1);
-            double channel(Rgba v, int ch) =>
-                switch (ch) { 0 => v.r, 1 => v.g, _ => v.b };
             for (var ch = 0; ch < 3; ch++) {
-              final expected = (a * channel(vertices[0].color, ch) +
-                          b * channel(vertices[1].color, ch) +
-                          c * channel(vertices[2].color, ch))
+              final expected = (a * vertices[0].color[ch] +
+                          b * vertices[1].color[ch] +
+                          c * vertices[2].color[ch])
                       .round() >>
                   3;
               // At exact quantization thresholds, floating-point reassociation
