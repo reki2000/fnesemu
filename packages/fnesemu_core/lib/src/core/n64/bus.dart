@@ -767,6 +767,10 @@ class N64Bus {
     pi[2] = pi[3] = 0x7f;
   }
 
+  // 5-bit to 8-bit expansion: v << 3 | v >> 2.
+  static final _expand5 =
+      Uint8List.fromList([for (var v = 0; v < 32; v++) v << 3 | v >> 2]);
+
   /// VI raw framebuffer scanout, without filtering or interlacing.
   ImageBuffer image() {
     final mode = vi[0].mask2;
@@ -788,21 +792,32 @@ class N64Bus {
     final output = Uint32List(width * height);
     final origin = vi[1].mask24;
     final size = mode == 2 ? 2 : 4;
+    final ram = this.ram, expand = _expand5, limit = ram.length - size;
+    // x is visible while it is inside the stride and the pixel is in RDRAM.
     for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        final source = origin + (y * stride + x) * size;
-        if (x >= stride || source + size > ram.length) continue;
-        var abgr = 0xff000000;
-        if (size == 2) {
-          final color = ram[source].shl8 | ram[source + 1];
-          for (var c = 0; c < 3; c++) {
-            final v = color.shr(11 - c * 5).mask5;
-            abgr |= (v.shl3 | v.shr2) << (c * 8);
-          }
-        } else {
-          abgr |= ram[source] | ram[source + 1] << 8 | ram[source + 2] << 16;
+      final row = origin + y * stride * size, out = y * width;
+      var end = width < stride ? width : stride;
+      final room = limit - row;
+      if (room < 0) {
+        end = 0;
+      } else if ((end - 1) * size > room) {
+        end = room ~/ size + 1;
+      }
+      if (size == 2) {
+        for (var x = 0, source = row; x < end; x++, source += 2) {
+          final color = ram[source] << 8 | ram[source + 1];
+          output[out + x] = 0xff000000 |
+              expand[color >> 11 & 31] |
+              expand[color >> 6 & 31] << 8 |
+              expand[color >> 1 & 31] << 16;
         }
-        output[y * width + x] = abgr;
+      } else {
+        for (var x = 0, source = row; x < end; x++, source += 4) {
+          output[out + x] = 0xff000000 |
+              ram[source] |
+              ram[source + 1] << 8 |
+              ram[source + 2] << 16;
+        }
       }
     }
     return ImageBuffer(width, height, output);

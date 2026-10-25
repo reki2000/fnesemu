@@ -132,7 +132,7 @@ void main() {
     _frames(core, 2);
     core.graphics.segments[3] = 0x123456;
     core.graphics.depths[0x100000] = Float64List.fromList([1.5, -2]);
-    core.graphics.stack.add(List<double>.filled(16, 0.25));
+    core.graphics.stack.add(Float64List(16)..fillRange(0, 16, 0.25));
     core.graphics.tiles[2].sMask = 5;
     core.audio.memory[100] = 7;
     core.audio.reverb = -9;
