@@ -22,7 +22,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The reusable release job needs a finished full build, so wait for the
+  # push build of the tagged commit on main. A given build run skips the wait.
+  wait-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    permissions:
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - name: Wait for the full build of the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          if [[ -n "$BUILD_RUN_ID" ]]; then
+            echo "Using the given build run $BUILD_RUN_ID."
+            exit 0
+          fi
+          commit=$(git rev-parse HEAD)
+          for _ in $(seq 120); do
+            read -r status conclusion < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-binaries.yaml/runs?branch=main&event=push&head_sha=$commit&per_page=1" --jq '.workflow_runs[0] | "\(.status // "") \(.conclusion // "")"')
+            if [[ "$status" == completed ]]; then
+              if [[ "$conclusion" == success ]]; then
+                exit 0
+              fi
+              echo "The build of $commit concluded with: $conclusion" >&2
+              exit 1
+            fi
+            echo "Waiting for the build of $commit (status: ${status:-none})."
+            sleep 60
+          done
+          echo "Timed out waiting for the build of $commit." >&2
+          exit 1
+
   release:
+    needs: wait-build
     permissions:
       actions: read
       contents: write
