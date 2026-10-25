@@ -309,31 +309,38 @@ final class IrBlock {
 
   /// Checks SSA operands and widths; runtimes also check context bounds.
   void verify({int? ctxWords}) {
-    void check(bool ok, String message) {
-      if (!ok) throw StateError('IrBlock ${pc.toRadixString(16)}: $message');
+    // Messages are built only on failure: verify runs on every installed block.
+    void fail(String message) {
+      throw StateError('IrBlock ${pc.toRadixString(16)}: $message');
     }
 
-    void value(int v, int at) => check(
-        v >= 0 && v < at && irHasResult(insts[v].op),
-        'v$at uses an invalid value v$v');
+    void value(int v, int at) {
+      if (!(v >= 0 && v < at && irHasResult(insts[v].op))) {
+        fail('v$at uses an invalid value v$v');
+      }
+    }
+
     IrType type(int v) => insts[v].type;
-    check(cost >= 0, 'negative block cost');
+    if (!(cost >= 0)) {
+      fail('negative block cost');
+    }
     void exitStores(int at, IrExit e) {
       for (final (word, v) in e.stores) {
         value(v.index, at);
-        check(
-            word >= 0 &&
-                (ctxWords == null ||
-                    word + insts[v.index].type.bytes ~/ 4 <= ctxWords),
-            'an exit of v$at has an invalid store');
+        if (!(word >= 0 && (ctxWords == null || word + insts[v.index].type.bytes ~/ 4 <= ctxWords))) {
+          fail('an exit of v$at has an invalid store');
+        }
       }
     }
 
     void exitAt(int i, int e) {
-      check(e >= 0 && e < exits.length, 'v$i has an invalid exit');
+      if (!(e >= 0 && e < exits.length)) {
+        fail('v$i has an invalid exit');
+      }
       final spent = exits[e].spent;
-      check(spent == null || (spent >= 0 && spent <= cost),
-          'v$i spends more than the cost');
+      if (!(spent == null || (spent >= 0 && spent <= cost))) {
+        fail('v$i spends more than the cost');
+      }
       exitStores(i, exits[e]);
     }
 
@@ -343,50 +350,60 @@ final class IrBlock {
       if (n > 0) {
         value(inst.a, i);
       } else {
-        check(inst.a == -1, 'v$i has an extra operand');
+        if (!(inst.a == -1)) {
+          fail('v$i has an extra operand');
+        }
       }
       if (n > 1) {
         value(inst.b, i);
       } else {
-        check(inst.b == -1, 'v$i has an extra operand');
+        if (!(inst.b == -1)) {
+          fail('v$i has an extra operand');
+        }
       }
       if (n > 2) {
         value(inst.c, i);
       } else {
-        check(inst.c == -1, 'v$i has an extra operand');
+        if (!(inst.c == -1)) {
+          fail('v$i has an extra operand');
+        }
       }
-      void width(bool ok) =>
-          check(ok, 'v$i has incompatible operand/result widths');
-      check(
-          inst.op == IrOp.load ||
-              inst.op == IrOp.store ||
-              inst.endian == IrEndian.little,
-          'v$i assigns byte order to a non-memory operation');
-      check(inst.op == IrOp.constant || inst.immHi == 0,
-          'v$i has an extra constant word');
-      check(inst.op == IrOp.load || inst.op == IrOp.store || inst.exit == -1,
-          'v$i has an unmapped exit on a non-memory operation');
+      void width(bool ok) {
+        if (!(ok)) {
+          fail('v$i has incompatible operand/result widths');
+        }
+      }
+      if (!(inst.op == IrOp.load || inst.op == IrOp.store || inst.endian == IrEndian.little)) {
+        fail('v$i assigns byte order to a non-memory operation');
+      }
+      if (!(inst.op == IrOp.constant || inst.immHi == 0)) {
+        fail('v$i has an extra constant word');
+      }
+      if (!(inst.op == IrOp.load || inst.op == IrOp.store || inst.exit == -1)) {
+        fail('v$i has an unmapped exit on a non-memory operation');
+      }
       switch (inst.op) {
         case IrOp.constant:
-          check(inst.type == IrType.i64 || inst.immHi == 0,
-              'i32 constant has an upper word');
+          if (!(inst.type == IrType.i64 || inst.immHi == 0)) {
+            fail('i32 constant has an upper word');
+          }
         case IrOp.ctxLoad || IrOp.ctxStore:
-          check(
-              inst.imm >= 0 &&
-                  (ctxWords == null ||
-                      inst.imm + inst.type.bytes ~/ 4 <= ctxWords),
-              'v$i has an out-of-bounds context access');
+          if (!(inst.imm >= 0 && (ctxWords == null || inst.imm + inst.type.bytes ~/ 4 <= ctxWords))) {
+            fail('v$i has an out-of-bounds context access');
+          }
           if (inst.op == IrOp.ctxStore) width(type(inst.a) == inst.type);
         case IrOp.load || IrOp.store:
-          check([1, 2, 4, 8].contains(inst.imm) && inst.imm <= inst.type.bytes,
-              'v$i has an invalid access size ${inst.imm}');
+          if (!([1, 2, 4, 8].contains(inst.imm) && inst.imm <= inst.type.bytes)) {
+            fail('v$i has an invalid access size ${inst.imm}');
+          }
           width(type(inst.a) == IrType.i32);
           if (inst.exit >= 0) exitAt(i, inst.exit);
           if (inst.op == IrOp.store) {
             width(type(inst.b) == inst.type);
           } else {
-            check(inst.aux == 0 || inst.aux == 1,
-                'v$i has invalid sign extension');
+            if (!(inst.aux == 0 || inst.aux == 1)) {
+              fail('v$i has invalid sign extension');
+            }
           }
         case IrOp.call:
           width(inst.type == IrType.i32 &&
@@ -395,8 +412,9 @@ final class IrBlock {
           width(inst.type == IrType.i32 && type(inst.a) == IrType.i32);
           exitAt(i, inst.aux);
           if (inst.op == IrOp.guardMapped) {
-            check(inst.imm == 0 || inst.imm == 1,
-                'v$i has an invalid mapping access mode');
+            if (!(inst.imm == 0 || inst.imm == 1)) {
+              fail('v$i has an invalid mapping access mode');
+            }
           }
         case IrOp.eq || IrOp.ne || IrOp.ltS || IrOp.ltU:
           width(inst.type == IrType.i32 && type(inst.a) == type(inst.b));
@@ -414,8 +432,9 @@ final class IrBlock {
           width(type(inst.a) != inst.type);
         case IrOp.floatToInt:
           width(inst.type == IrType.i32);
-          check(inst.imm == 0 || inst.imm == 1,
-              'v$i has an invalid rounding mode');
+          if (!(inst.imm == 0 || inst.imm == 1)) {
+            fail('v$i has an invalid rounding mode');
+          }
         case IrOp.sext8 || IrOp.sext16 || IrOp.zext8 || IrOp.zext16:
           // These conversions may extend a narrow value to either width.
           break;
@@ -428,10 +447,14 @@ final class IrBlock {
         exitStores(insts.length, exit);
       case IrBranch(:final cond):
         value(cond.index, insts.length);
-        check(type(cond.index) == IrType.i32, 'branch condition must be i32');
+        if (!(type(cond.index) == IrType.i32)) {
+          fail('branch condition must be i32');
+        }
       case IrJumpDyn(pc: final v):
         value(v.index, insts.length);
-        check(type(v.index) == IrType.i32, 'guest addresses must be i32');
+        if (!(type(v.index) == IrType.i32)) {
+          fail('guest addresses must be i32');
+        }
       default:
     }
   }

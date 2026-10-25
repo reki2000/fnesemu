@@ -59,8 +59,8 @@ final class JitDriver {
   void Function(int pc, int tag)? onInvalidate;
   void Function()? onClear;
 
-  final _misses = <(int, int), int>{};
-  final _fallbacks = <(int, int), int>{};
+  final _misses = <int, int>{};
+  final _fallbacks = <int, int>{};
 
   JitDriver(
     this.rt, {
@@ -104,7 +104,7 @@ final class JitDriver {
 
   /// Whether (pc, tag) failed to translate with its current code word.
   bool isFallback(int pc, int tag) {
-    final word = _fallbacks[(pc, tag)];
+    final word = _fallbacks[jitKey(pc, tag)];
     final hit = word != null && word == codeWord(pc);
     if (hit) rt.compilationStats?.fallbackCacheHits++;
     return hit;
@@ -156,7 +156,7 @@ final class JitDriver {
         stats.measureTranslation(pc, tag, () => translate(pc, tag));
     if (block == null) {
       final word = codeWord(pc);
-      if (word != null) _fallbacks[(pc, tag)] = word;
+      if (word != null) _fallbacks[jitKey(pc, tag)] = word;
       return false;
     }
     rt.install(block);
@@ -167,7 +167,7 @@ final class JitDriver {
   /// Invalidates a block and its observations. [warm] makes its next miss hot.
   void invalidate(int pc, int tag, {bool warm = false}) {
     rt.invalidate(pc, tag);
-    final key = (pc, tag);
+    final key = jitKey(pc, tag);
     _misses.remove(key);
     _fallbacks.remove(key);
     if (warm) _misses[key] = threshold - 1;
@@ -176,7 +176,7 @@ final class JitDriver {
 
   /// Counts a miss of (pc, tag); true once it should be translated.
   bool _hot(int pc, int tag) {
-    final key = (pc, tag);
+    final key = jitKey(pc, tag);
     final word = codeWord(pc);
     if (word == null) return false;
     if (_fallbacks[key] == word) {
