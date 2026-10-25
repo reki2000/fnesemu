@@ -66,7 +66,7 @@ objdump -d -M intel --no-show-raw-insn \
 
 ## Ideas to consider
 
-- Give fixed-size groups of doubles a purpose-built type instead of a `Float64List` of length 4. `Rgba` (fields `r`, `g`, `b`, `a`) replaced the color buffers of the N64 combiner. The combiner has no bounds check and no table lookup any more, and the code is about half the size (769 bytes against 1,429). Selectors resolve to references to the source colors when the combiner registers change, and a field read replaces an index read. The frame rate did not change measurably, because the checks were cheap and predictable. Check that the type does not box its double fields: the listing showed no allocation. Apply the same to the vertex position and color if a profile shows the setup.
+- Give fixed-size groups of doubles a purpose-built type instead of a `Float64List` or `List<double>`. The N64 graphics code now uses `Rgba`, `Vec3`, `Vec4` and `Light`. Field access has no bounds check, a wrong index cannot happen, and the code says what each value is. The combiner resolves its input colors to references when its registers change, so it reads fields only, and its code is about half the size (769 bytes against 1,429). The frame rate did not change measurably, because the checks were cheap and predictable, so do this for clarity and expect little speed. The listing showed no allocation for the double fields. Keep a list where the data is an array by nature, such as a 4x4 matrix indexed by arithmetic, and convert only at the boundary of a codec.
 - In a hot spot, pass arguments and return values through shared variables (fields of the owner) instead of creating a list or a record per call. The scratch colors `_shade` and `_textureColor` do this. A trial that kept the interpolants `s`, `t`, `1/w` and depth in a shared buffer across the calls of the pixel loop, to cut the live doubles, gave no gain. The loads from the stack were cheap next to the work of the calls.
 - A loop with calls keeps its doubles on the stack, because Dart has no callee-saved floating-point registers. Reduce the number of live doubles across a call, for example by moving the per-pixel state into fields or by splitting the loop at the call.
 
@@ -80,6 +80,18 @@ The listing of the triangle loop, the texel fetch and the pixel write showed the
 - `floor()` is `roundsd` plus `cvttsd2si`, with a CPU feature check and an overflow fallback call. Calling it twice per texel coordinate is acceptable.
 - Local functions that capture variables allocate closures per call of the enclosing function. Use static helpers for the per-triangle math.
 - `ListBase.map`, `reduce` and `toList` on three-element lists were calls and allocations for each triangle.
+
+## Measuring
+
+- The host load changes the frame rate by 10% or more from run to run, and sometimes by 2x between sessions. Build the compared versions into separate bundles and run them alternately, several rounds each. Compare medians of the process CPU frame rate (`cpuFps`), and never compare numbers from different sessions.
+- Check the hashes of the frame images and of the audio (`--checksum`) in every round. A rewrite that keeps the arithmetic order keeps the hashes equal.
+- Measure the path the application runs (`--frame-runner`) as well as the plain exec loop. They can differ by 2x.
+- A change that the profile does not explain, and that gains less than the noise, is not worth keeping for speed. Keep it only if it makes the code clearer.
+
+## Practical notes
+
+- `dart format` takes the language version of the package. A file formatted by an older style shows hundreds of changed lines when it is formatted again by a package of a newer language version. Format a copy inside the same package with `--output=none` to see whether the file is clean before running the formatter, and do not format a package that is not clean.
+- To disassemble code of a package with a build hook, copy the package to a scratch directory and cut the hook and the calls that need it. Call the function with the same types and values as the application.
 
 ## Result: N64 `_combine`
 
