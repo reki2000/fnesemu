@@ -96,7 +96,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   late final int _readFn, _writeFn;
 
   /// installed entries by key
-  final _blocks = <(int, int), (int entry, int cost)>{};
+  final _blocks = <(int, int), int>{};
 
   /// the link slots of each target key
   final _slotsOf = <(int, int), List<int>>{};
@@ -263,7 +263,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     if (_slotCount == _maxSlots) throw _Full();
     final s = _slotCount++;
     (_slotsOf[(pc, tag)] ??= []).add(s);
-    _slotView[s] = _blocks[(pc, tag)]?.$1 ?? 0;
+    _slotView[s] = _blocks[(pc, tag)] ?? 0;
     return s;
   }
 
@@ -271,9 +271,6 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
 
   @override
   bool contains(int pc, int tag) => _blocks.containsKey((pc, tag));
-
-  @override
-  int? blockCost(int pc, int tag) => _blocks[(pc, tag)]?.$2;
 
   @override
   int installBlock(IrBlock block) {
@@ -307,7 +304,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
 
     final key = (block.pc, block.tag);
     final entry = _code + at;
-    _blocks[key] = (entry, block.cost);
+    _blocks[key] = entry;
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = entry;
     }
@@ -343,7 +340,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   @override
   int run(int pc, int tag) {
     _checkAlive();
-    final entry = _blocks[(pc, tag)]?.$1;
+    final entry = _blocks[(pc, tag)];
     if (entry == null) {
       _ctx[JitCtx.exitReason] = JitReason.miss;
       _ctx[JitCtx.exitPc] = pc;
@@ -384,7 +381,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   // A native miss to an installed block refreshes it without compilation.
   void _refreshExitTarget() {
     final pc = exitPc, tag = exitTag;
-    final entry = _blocks[(pc, tag)]?.$1;
+    final entry = _blocks[(pc, tag)];
     if (entry == null) return;
     final d = X64Backend.dynIndex(pc, tag) * 2;
     _dynView[d] = pc | tag << 32;

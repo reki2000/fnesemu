@@ -70,7 +70,8 @@ class N64Graphics {
   final depths = <int, Float64List>{};
   bool extended = false;
   // F3DEX2 / F3DZEX use a different opcode layout and geometry mode bits
-  bool f3dex2 = false;
+  bool f3dex2 = false, _s2dex = false;
+  int _half1 = 0;
   int geometry2 = 0;
   bool rasterize =
       true; // Optional headless fast-forward; normal execution renders every task.
@@ -116,6 +117,8 @@ class N64Graphics {
     for (final b in [textureOn, extended, f3dex2]) {
       w.boolean(b);
     }
+    w.boolean(_s2dex);
+    w.int32(_half1);
     w.int32(depths.length);
     for (final MapEntry(:key, :value) in depths.entries) {
       w.int64(key);
@@ -198,12 +201,15 @@ class N64Graphics {
     textureOn = s.boolean();
     extended = s.boolean();
     f3dex2 = s.boolean();
+    _s2dex = s.boolean();
+    _half1 = s.int32();
     depths.clear();
     for (var n = s.int32(); n > 0; n--) {
       final key = s.int64();
       depths[key] = Float64List.fromList(s.floats());
     }
   }
+
   static List<double> identity() =>
       [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   void reset() {
@@ -240,7 +246,8 @@ class N64Graphics {
     scRight = 320;
     scBottom = 240;
     extended = false;
-    f3dex2 = false;
+    f3dex2 = _s2dex = false;
+    _half1 = 0;
     geometry2 = 0;
   }
 
@@ -262,8 +269,17 @@ class N64Graphics {
       (i) =>
           List.generate(4, (k) => v[k] * m[k * 4 + i]).reduce((a, b) => a + b));
   void task(int address, int size, int ucodeData, int ucodeSize) {
+    _selectMicrocode(ucodeData, ucodeSize);
+    tasks++;
+    displayList(address);
+  }
+
+  void _selectMicrocode(int ucodeData, int ucodeSize) {
     final end = math.min(bus.ram.length, ucodeData + math.min(ucodeSize, 2048));
-    final name = String.fromCharCodes(bus.ram.sublist(ucodeData, end.toInt()));
+    final text = String.fromCharCodes(bus.ram.sublist(ucodeData, end.toInt()));
+    final start = text.indexOf('RSP Gfx ucode');
+    final name = start < 0 ? text : text.substring(start).split('\x00').first;
+    _s2dex = name.contains('S2DEX');
     // F3DEX2 microcodes are named F3DEX2 / F3DZEX, or "RSP Gfx ucode <name>
     // ... 2.xx" (F3DEX, F3DLX, F3DFLX, L3DEX, ...)
     final version =
@@ -273,8 +289,6 @@ class N64Graphics {
         name.contains('F3DLX2') ||
         version?.group(1) == '2';
     extended = f3dex2 || name.contains('F3DEX') || name.contains('F3DLP');
-    tasks++;
-    displayList(address);
   }
 
   void displayList(int address) {
@@ -283,6 +297,14 @@ class N64Graphics {
     for (var commands = 0; commands < 100000; commands++) {
       final w0 = u(pc, 4), w1 = u(pc + 4, 4), op = w0.shr24;
       pc += 8;
+      if (_s2dex && (op == 0x09 || op == 0x0a)) {
+        _background(resolve(w1), scaled: op == 0x09);
+        continue;
+      }
+      if (_s2dex && op == 0x0b) {
+        // Object render flags affect sprites; backgrounds use the RDP modes.
+        continue;
+      }
       if (f3dex2) {
         var handled = true;
         switch (op) {
@@ -357,8 +379,12 @@ class N64Graphics {
           case 0xdf:
             if (returns.isEmpty) return;
             pc = returns.removeLast();
-          case 0xd6 || 0xdd || 0xe0 || 0xe1:
-            // DMA_IO, LOAD_UCODE, SPNOOP, RDPHALF_1. DMA_IO moves data
+          case 0xe1:
+            _half1 = w1;
+          case 0xdd:
+            _selectMicrocode(resolve(_half1), w0.mask16 + 1);
+          case 0xd6 || 0xe0:
+            // DMA_IO, SPNOOP. DMA_IO moves data
             // between the DMEM of the microcode and RDRAM, which this HLE
             // does not have.
             break;
@@ -480,11 +506,50 @@ class N64Graphics {
           if (op >= 0xe6) {
             rdp(w0, w1);
           } else {
-            throw UnsupportedError('RSP GBI opcode 0x${op.hex}');
+            throw UnsupportedError(
+                'RSP GBI opcode 0x${op.hex} at 0x${(pc - 8).hex}: ${w0.hex} ${w1.hex}');
           }
       }
     }
     throw StateError('RSP display list exceeded command budget');
+  }
+
+  // S2DEX backgrounds sample a DRAM image directly, bypassing the small TMEM
+  // strips emitted by the microcode. Coordinates follow uObj[Scale]Bg.
+  void _background(int address, {required bool scaled}) {
+    if (!rasterize) return;
+    final imageWidth = u(address + 2, 2) >> 2;
+    final imageHeight = u(address + 10, 2) >> 2;
+    if (imageWidth == 0 || imageHeight == 0) return;
+    final format = u(address + 22, 1), size = u(address + 23, 1);
+    if (format != 0 || (size != 2 && size != 3)) {
+      throw UnsupportedError('S2DEX background format $format/$size');
+    }
+    final source = resolve(u(address + 16, 4));
+    final x0 = signed(address + 4, 2) / 4;
+    final y0 = signed(address + 12, 2) / 4;
+    final frameWidth = u(address + 6, 2) / 4;
+    final frameHeight = u(address + 14, 2) / 4;
+    final imageX = u(address, 2) / 32;
+    final imageY = u(address + 8, 2) / 32;
+    final scaleX = scaled ? u(address + 28, 2) / 1024 : 1.0;
+    final scaleY = scaled ? u(address + 30, 2) / 1024 : 1.0;
+    final flip = u(address + 26, 2).bit0;
+    final bytes = size == 3 ? 4 : 2;
+    for (var y = math.max(scTop, math.max(0, y0.ceil()));
+        y < math.min(scBottom, y0 + frameHeight);
+        y++) {
+      final sy = (imageY + (y - y0) * scaleY).floor() % imageHeight;
+      for (var x = math.max(scLeft, math.max(0, x0.ceil()));
+          x < math.min(math.min(scRight, width), x0 + frameWidth);
+          x++) {
+        final dx = flip ? frameWidth - 1 - (x - x0) : x - x0;
+        final sx = (imageX + dx * scaleX).floor() % imageWidth;
+        final value = u(source + (sy * imageWidth + sx) * bytes, bytes);
+        final color = size == 2 ? _texture16(value) : rgba(value);
+        pixel(x, y, _combine(_white, color));
+      }
+    }
   }
 
   void _loadVertices(int addr, int first, int count) {

@@ -75,7 +75,11 @@ final class _LinearMemory {
       } else {
         _free[i] = (offset + size, free - size);
       }
-      buffer.asUint8List(offset, size).fillRange(0, size, 0);
+      // Fill in JavaScript rather than crossing interop for each byte.
+      buffer
+          .asUint8List(offset, size)
+          .toJS
+          .callMethod<JSAny?>('fill'.toJS, 0.toJS);
       return offset;
     }
     throw StateError('Wasm JIT linear memory exhausted');
@@ -124,7 +128,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   });
   final _hostOffsets = Map<Uint8List, int>.identity();
   final _keys = <(int, int), int>{};
-  final _blocks = <(int, int), (int slot, int cost)>{};
+  final _blocks = <(int, int), int>{};
   final _helpers = <JSFunction>[];
   late final JSFunction _readFn, _writeFn, _enter;
   late final Uint32List _ctx, _reads, _writes, _slotWords, _dynWords;
@@ -270,9 +274,6 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   bool contains(int pc, int tag) => _blocks.containsKey((pc, tag));
 
   @override
-  int? blockCost(int pc, int tag) => _blocks[(pc, tag)]?.$2;
-
-  @override
   int installBlock(IrBlock block) {
     _checkAlive();
     checkBlock(block);
@@ -283,7 +284,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     final function = _instantiate(bytes);
     _table.set(slot, function);
     _slotWords[slot] = slot;
-    _blocks[(block.pc, block.tag)] = (slot, block.cost);
+    _blocks[(block.pc, block.tag)] = slot;
     final d = WasmBackend.dynIndex(block.pc, block.tag) * 3;
     _dynWords[d] = block.pc;
     _dynWords[d + 1] = block.tag;
@@ -294,7 +295,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   @override
   void invalidate(int pc, int tag) {
     _checkAlive();
-    final slot = _blocks.remove((pc, tag))?.$1;
+    final slot = _blocks.remove((pc, tag));
     if (slot == null) return;
     compilationStats?.recordInvalidation(pc, tag);
     _slotWords[slot] = 0;
@@ -306,7 +307,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   @override
   int run(int pc, int tag) {
     _checkAlive();
-    final slot = _blocks[(pc, tag)]?.$1;
+    final slot = _blocks[(pc, tag)];
     if (slot == null) {
       _ctx[JitCtx.exitPc] = pc;
       _ctx[JitCtx.exitTag] = tag;
@@ -342,7 +343,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   // A miss to an installed block refreshes it without compilation.
   void _refreshExitTarget() {
     final pc = exitPc, tag = exitTag;
-    final target = _blocks[(pc, tag)]?.$1;
+    final target = _blocks[(pc, tag)];
     if (target == null) return;
     final d = WasmBackend.dynIndex(pc, tag) * 3;
     _dynWords[d] = pc;
@@ -355,12 +356,13 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     _checkAlive();
     compilationStats?.recordCacheClear(_blocks.length);
     for (final slot in _blocks.values) {
-      _table.set(slot.$1, null);
+      _table.set(slot, null);
     }
     _blocks.clear();
     _keys.clear();
-    _slotWords.fillRange(0, _slotCount, 0);
-    _dynWords.fillRange(0, _dynWords.length, 0);
+    _slotWords.toJS.callMethod<JSAny?>(
+        'fill'.toJS, 0.toJS, 0.toJS, _slotCount.toJS);
+    _dynWords.toJS.callMethod<JSAny?>('fill'.toJS, 0.toJS);
     _slotCount = 1;
   }
 

@@ -172,10 +172,6 @@ abstract class JitRuntime {
 
   bool contains(int pc, int tag);
 
-  /// Declared guest-cycle cost, or null when the block is not installed.
-  /// Adapters choose whether insufficient budgets should avoid native entry.
-  int? blockCost(int pc, int tag);
-
   /// compiles [block], replacing the block with the same key
   void install(IrBlock block) {
     final stats = compilationStats;

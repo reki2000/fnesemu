@@ -7,7 +7,7 @@ CoreModule createModule() => GbModule();
 
 class GbModule extends CoreModule {
   static const system =
-      CoreSystem('gb', 'gb', debugPaletteCount: 4, extensions: ['gb']);
+      CoreSystem('gb', 'gb', debugPaletteCount: 4, extensions: ['gb', 'gbc']);
   @override
   List<CoreSystem> get systems => [system];
   @override

@@ -1,0 +1,79 @@
+name: Open release PR
+
+on:
+  push:
+    branches: [develop]
+    paths: [pubspec.yaml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: false
+
+jobs:
+  open:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect a new release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          read_version() {
+            git show "$1:pubspec.yaml" | awk '$1 == "version:" {sub(/\+.*/, "", $2); print $2; exit}'
+          }
+          before=$BEFORE
+          if [[ "$before" =~ ^0+$ ]]; then
+            before=HEAD~1
+          fi
+          current=$(read_version HEAD)
+          previous=$(read_version "$before" || true)
+          echo "Version: $previous -> $current"
+          if [[ "$current" == "$previous" ]]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$current" > /dev/null 2>&1; then
+            echo "Tag v$current already exists; no release PR."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$current" >> "$GITHUB_OUTPUT"
+          echo "release=true" >> "$GITHUB_OUTPUT"
+      - name: Open the release PR
+        if: steps.version.outputs.release == 'true'
+        env:
+          # A PR opened with the GitHub Actions token does not start pull_request workflows,
+          # so the PR uses a fine-grained token that is stored as a secret.
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "The RELEASE_PR_TOKEN secret is not set." >&2
+            exit 1
+          fi
+          open=$(gh pr list --base main --head develop --state open --json number --jq '.[].number')
+          if [[ -n "$open" ]]; then
+            echo "Open release PR #$open already exists."
+            exit 0
+          fi
+          body="Release v$VERSION from develop.
+
+          - Merge this PR with a merge commit.
+          - Tag the merge commit on main with \`v$VERSION\`. The tag starts the \`Release verified binaries\` workflow.
+
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+          gh pr create --base main --head develop --title "Release v$VERSION" --body "$body"

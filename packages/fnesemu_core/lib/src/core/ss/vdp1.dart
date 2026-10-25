@@ -40,6 +40,9 @@ class Vdp1 {
   bool _manualChange = false;
   bool _manualErase = false;
 
+  // the manual erase of the field being displayed, done when the field ends
+  bool _eraseDisplay = false;
+
   // pending draw end notification in SH-2 clocks
   int _drawEndWait = -1;
 
@@ -72,6 +75,7 @@ class Vdp1 {
     w.ints(_grd);
     w.boolean(_manualChange);
     w.boolean(_manualErase);
+    w.boolean(_eraseDisplay);
   }
 
   void loadState(StateReader s) {
@@ -118,6 +122,7 @@ class Vdp1 {
     s.intsInto(_grd);
     _manualChange = s.boolean();
     _manualErase = s.boolean();
+    _eraseDisplay = s.boolean();
   }
 
   void reset() {
@@ -132,6 +137,7 @@ class Vdp1 {
     copr = 0;
     _manualChange = false;
     _manualErase = false;
+    _eraseDisplay = false;
     _drawEndWait = -1;
     for (final fb in _fb) {
       fb.fillRange(0, fb.length, 0);
@@ -209,8 +215,14 @@ class Vdp1 {
 
   /// called at the start of vertical blank
   void onVBlankIn() {
-    if (_manualErase) {
+    // the erase follows the scan of the field it was requested for, so that field
+    // still shows the picture and the buffer is clear when the frame changes
+    if (_eraseDisplay) {
       _erase(displayFb);
+      _eraseDisplay = false;
+    }
+    if (_manualErase) {
+      _eraseDisplay = true;
       _manualErase = false;
     }
 

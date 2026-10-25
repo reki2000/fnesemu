@@ -266,6 +266,7 @@ class Vdp2 {
 
     // front to back: sprite, RBG0, NBG0-3 (tie-break order of equal priority)
     if (_renderSprite(y, w, _lines[_layerSprite])) {
+      _applyWindow(reg(0xd4) >> 8, y, w, _lines[_layerSprite]);
       _active[_activeCount++] = _layerSprite;
     }
 
@@ -273,6 +274,7 @@ class Vdp2 {
       final buf = _lines[_layerRbg0];
       buf.fillRange(0, w, 0);
       _renderRbg0(y, w, buf);
+      _applyWindow(reg(0xd4), y, w, buf);
       _active[_activeCount++] = _layerRbg0;
     }
 
@@ -280,12 +282,68 @@ class Vdp2 {
       if (bgon & (1 << n) != 0 && !(n == 0 && bgon.bit5)) {
         final buf = _lines[_layerNbg0 + n];
         if (_renderNbg(n, y, w, buf)) {
+          _applyWindow(reg(0xd0 + (n >> 1) * 2) >> ((n & 1) * 8), y, w, buf);
           _active[_activeCount++] = _layerNbg0 + n;
         }
       }
     }
 
     _compose(y, w, out);
+  }
+
+  /// clears the dots of a layer outside of its window area (WCTL byte `ctl`)
+  void _applyWindow(int ctl, int y, int w, Int32List buf) {
+    final w0 = ctl.bit1, w1 = ctl.bit3;
+    if (!w0 && !w1) {
+      return;
+    }
+
+    final and = ctl.bit7;
+    // window area: true when the dots inside of the window are displayed
+    final a0 = ctl.bit0, a1 = ctl.bit2;
+    final in0 = w0 && _windowLine(0, y, w);
+    final s0 = _winStart, e0 = _winEnd;
+    final in1 = w1 && _windowLine(1, y, w);
+    final s1 = _winStart, e1 = _winEnd;
+
+    for (int x = 0; x < w; x++) {
+      final f0 = (in0 && x >= s0 && x <= e0) == a0;
+      final f1 = (in1 && x >= s1 && x <= e1) == a1;
+      final bool show;
+      if (w0 && w1) {
+        show = and ? f0 && f1 : f0 || f1;
+      } else {
+        show = w0 ? f0 : f1;
+      }
+      if (!show) {
+        buf[x] = 0;
+      }
+    }
+  }
+
+  int _winStart = 0, _winEnd = 0;
+
+  /// the horizontal range of window `n` at line `y`, false when the line is out of it
+  bool _windowLine(int n, int y, int w) {
+    final base = 0xc0 + n * 8;
+    if (y < reg(base + 2).mask10 || y > reg(base + 6).mask10) {
+      return false;
+    }
+
+    // x coordinates are in 2-dot units except in the high resolution modes
+    final xs = w >= 640 ? 0 : 1;
+    final lwta = reg(0xd8 + n * 4);
+    if (lwta.bit15) {
+      // line window table: a start and an end x for each line
+      final a = ((lwta.mask3.shl16 | reg(0xda + n * 4) & 0xfffe).shl1 + y * 4) &
+          0x7fffc;
+      _winStart = vramData.getUint16(a).mask10 >> xs;
+      _winEnd = vramData.getUint16(a + 2).mask10 >> xs;
+    } else {
+      _winStart = reg(base).mask10 >> xs;
+      _winEnd = reg(base + 4).mask10 >> xs;
+    }
+    return true;
   }
 
   final _active = Int32List(6);
@@ -415,7 +473,9 @@ class Vdp2 {
 
     if (cfg.bitmap) {
       for (int x = 0; x < w; x++) {
-        buf[x] = _bitmapDot(cfg, (sx + x * dx).shr8, py);
+        // the scroll position is an 11-bit signed value
+        final bx = ((sx + x * dx).shr8 + 0x400 & 0x7ff) - 0x400;
+        buf[x] = _bitmapDot(cfg, bx, py);
       }
       return true;
     }
@@ -559,7 +619,8 @@ class Vdp2 {
 
   @pragma('vm:prefer-inline')
   int _bitmapDot(_MapCfg cfg, int x, int y) {
-    x &= cfg.bitmapW - 1;
+    // x is not wrapped: the dot address is linear, so a line scrolled past the right edge
+    // continues in the next row (games pack a narrow picture and re-align it by line scroll)
     y &= cfg.bitmapH - 1;
     return _dot(cfg, cfg.bitmapAddr, x, y, cfg.bitmapW, cfg.bitmapPalette.shl4,
         cfg.priority);

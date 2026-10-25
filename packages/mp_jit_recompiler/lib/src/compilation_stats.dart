@@ -21,7 +21,7 @@ final class JitCompilationStats {
   }
 
   _CompilationSite? _site(int pc, int tag) {
-    final key = (pc, tag), existing = _sites[(pc, tag)];
+    final key = (pc, tag), existing = _sites[key];
     if (existing != null) return existing;
     if (_sites.length >= capacity) {
       suppressedSiteEvents++;

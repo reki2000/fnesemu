@@ -372,21 +372,24 @@ void main() {
         expect(rt.nativeEntries, 3);
       });
 
-      test('block costs follow installation, replacement and invalidation', () {
+      test('installed blocks can be replaced, invalidated and cleared', () {
         if (factory == null) return;
         final rt = env.rt;
-        expect(rt.blockCost(0x100, 0), isNull);
+        expect(rt.contains(0x100, 0), isFalse);
         final b = IrBuilder(0x100);
         rt.install(b.finish(const IrJump(0x200), cost: 7));
-        expect(rt.blockCost(0x100, 0), 7);
-        expect(rt.blockCost(0x100, 1), isNull);
+        expect(rt.contains(0x100, 0), isTrue);
+        run(0x100, budget: 10);
+        expect(rt.ctx[JitCtx.budget], 3);
+        expect(rt.contains(0x100, 1), isFalse);
         rt.install(b.finish(const IrJump(0x200), cost: 3));
-        expect(rt.blockCost(0x100, 0), 3);
+        run(0x100, budget: 10);
+        expect(rt.ctx[JitCtx.budget], 7);
         rt.invalidate(0x100, 0);
-        expect(rt.blockCost(0x100, 0), isNull);
+        expect(rt.contains(0x100, 0), isFalse);
         rt.install(b.finish(const IrJump(0x200), cost: 4));
         rt.clear();
-        expect(rt.blockCost(0x100, 0), isNull);
+        expect(rt.contains(0x100, 0), isFalse);
       });
 
       test('a missing link is filled by a later install', () {
