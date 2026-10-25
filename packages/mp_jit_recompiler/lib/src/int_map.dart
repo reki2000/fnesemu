@@ -1,26 +1,21 @@
-import 'dart:typed_data';
-
 /// A map from non-negative int keys to non-negative int values, for hot
 /// dispatch tables.
 ///
-/// It uses open addressing with linear probing over two typed arrays, so a
+/// It uses open addressing with linear probing over two fixed-length lists, so a
 /// lookup neither hashes through a generic map nor allocates. [get] returns
 /// [absent] for a missing key.
 final class IntMap {
   static const absent = -1;
 
-  Int64List _keys;
-  Int64List _values;
+  List<int> _keys;
+  List<int> _values;
   int _mask;
-  int _shift;
   int _length = 0;
 
   IntMap([int capacity = 64])
-    : _keys = Int64List(_powerOfTwo(capacity))
-        ..fillRange(0, _powerOfTwo(capacity), -1),
-      _values = Int64List(_powerOfTwo(capacity)),
-      _mask = _powerOfTwo(capacity) - 1,
-      _shift = 64 - _bits(_powerOfTwo(capacity));
+    : _keys = List<int>.filled(_powerOfTwo(capacity), -1),
+      _values = List<int>.filled(_powerOfTwo(capacity), 0),
+      _mask = _powerOfTwo(capacity) - 1;
 
   static int _powerOfTwo(int n) {
     var size = 8;
@@ -30,14 +25,21 @@ final class IntMap {
     return size;
   }
 
-  static int _bits(int size) => size.bitLength - 1;
-
   int get length => _length;
   bool get isEmpty => _length == 0;
   bool get isNotEmpty => _length != 0;
 
+  // the products stay below 2^53, so that the table also works where an int
+  // is a JavaScript number
   @pragma('vm:prefer-inline')
-  int _home(int key) => (key * 0x9E3779B97F4A7C15) >>> _shift;
+  int _home(int key) {
+    var h = (key ^ key >> 32) & 0xffffffff;
+    h = (h * 0x9e37) & 0xffffffff;
+    h ^= h >> 15;
+    h = (h * 0x9e37) & 0xffffffff;
+    h ^= h >> 13;
+    return h & _mask;
+  }
 
   /// The value of [key], or [absent].
   int get(int key) {
@@ -110,10 +112,9 @@ final class IntMap {
   void _grow() {
     final oldKeys = _keys, oldValues = _values;
     final size = oldKeys.length * 2;
-    _keys = Int64List(size)..fillRange(0, size, -1);
-    _values = Int64List(size);
+    _keys = List<int>.filled(size, -1);
+    _values = List<int>.filled(size, 0);
     _mask = size - 1;
-    _shift = 64 - _bits(size);
     _length = 0;
     for (var i = 0; i < oldKeys.length; i++) {
       if (oldKeys[i] != -1) put(oldKeys[i], oldValues[i]);
