@@ -1,6 +1,6 @@
 # Dart AOT performance notes
 
-Findings from profiling hot paths and reading their x64 AOT output. The N64 color combiner (`_combine`) and rasterizer were the subjects.
+Findings from profiling hot paths and reading their x64 AOT output. The N64 color combiner (`_combine`) and rasterizer were the first subjects. The SH-2 interpreter, the JIT dispatch tables and the Saturn VDPs followed.
 
 ## Profiling
 
@@ -87,6 +87,40 @@ The listing of the triangle loop, the texel fetch and the pixel write showed the
 - Check the hashes of the frame images and of the audio (`--checksum`) in every round. A rewrite that keeps the arithmetic order keeps the hashes equal.
 - Measure the path the application runs (`--frame-runner`) as well as the plain exec loop. They can differ by 2x.
 - A change that the profile does not explain, and that gains less than the noise, is not worth keeping for speed. Keep it only if it makes the code clearer.
+
+## Where to profile
+
+- Profile a scene of the real workload, not the boot. A state saved after the warmup (`--save-state`, then `--load-state` with the same `--warmup`) gives the same scene for every run, for the sampler and for the A/B runs. In the boot and the BIOS wait loops of two cores, the interpreter and the BIOS reads dominated. In the game scene the hot spots were the JIT dispatch bookkeeping and the VDP2 renderer, which the boot profile did not show at all.
+- Check the scene on a screenshot (`--out`) before trusting a profile.
+- Hash files of the frames from two runs of the same build can differ in the first frames. Compare the frames after them and the audio hash.
+- Start the profiled process from a script and kill it by its pid. `pkill -f <name>` also kills the shell whose command line contains the name.
+
+## Result: interpreter, JIT dispatch and VDP
+
+| Finding | Fix |
+|---|---|
+| A `(int, int)` record returned or built per instruction is allocated even for the constant `(0, 0)` branch, and its fields are read as `dynamic`. | Return through two fields of the owner. |
+| A loop of 16 `r[i] &= 0xffffffff` per instruction on a `Uint32List` that already truncates on store. | Remove it. |
+| A `late final` field read is a call when the function is large (`Sh2.r` was called 171 times in one function), and a `late final` view needs an initialization check. | Build the buffers and views in the initializer list through a private constructor. |
+| Small getters and setters (`sr`, `pr`, `t`) were calls inside a 22 KB switch function, although the callee is tiny. | `@pragma('vm:prefer-inline')` on them. The caller shrank from 1,590 to 1,162 bytes, and the frame rate rose by about 10%. |
+| A 16-bit or 32-bit read built from byte reads walks the whole region chain twice or four times. | A direct path for the common areas at the top of the 16-bit and 32-bit accessors, taken only when all bytes are inside the area. |
+| `Map<int, int>` lookups (and `containsKey`) on the dispatch path, and records as keys of the profile map. | `IntMap`, an open-addressing table over `Int64List`, and packed int keys. The direct-mapped table that the native code searches answers first. |
+| The driver tables were cleared at 4,096 entries together with the profile table, so the miss counters and the fallback entries were lost several times per frame and the same blocks were counted and translated again. | Give the driver its own capacity (65,536). This was the largest gain of the Saturn game scene, about 30%. |
+| A list and a closure allocated per scheduling step (`[false, false]`, `cpus.any(...)`). | Locals. |
+
+The profile of a JIT run shows the time inside the native code under the callback entry (`ffiClosure0`). Read it as the cost of the compiled code plus the callbacks, and count the callbacks (read helpers and exits) before trying to speed it up.
+
+Code that runs from an area the JIT does not map (the on-chip cache data array, the boot ROM) goes through the interpreter, so the interpreter and the bus stay on the profile of such a scene.
+
+## Result: Saturn VDP2
+
+In a game scene the VDP2 renderer took about half of the frame. The hot functions were the rotation dot (`_rotDot`), the dot fetch (`_dot`), the cell setup and the layer composition.
+
+- Per dot, `_rotDot` does two `floor` calls (`roundsd`, `cvttsd2si` and an overflow branch each), loads about eight `double` fields and, with a coefficient table, one more `divsd`. `_dot` switches on the color mode for every dot, reads 16-bit and 32-bit words through the big-endian `ByteData` getters (a byte swap each) and bounds checks every array access.
+- `late final` views in the renderer cost an initialization check on every read. They are built with the buffers now. The frame rate did not change measurably, so this is for the shape of the code.
+- The divisions by the plane size in the cell setup are shifts, because a plane is 1 or 2 pages of 512 dots. The result is the same. The gain is small and within the noise of some runs.
+- Splitting the composition by layer (a loop per layer that keeps the top and the second dot of every x in line arrays) is slower by about 8%, although the image hash is the same. The inner loop of the one-pass version spills many values, but the extra reads and writes of six line arrays cost more. Measure such a split before keeping it.
+- Ideas not tried: a loop per color mode with the per-line constants hoisted, and fixed-point rotation. The second changes the output and needs a check of the images.
 
 ## Practical notes
 
