@@ -53,4 +53,4 @@ dart build cli -t tool/core_headless.dart -o /tmp/core-headless
 | SS | disabled | Optional JIT; default CPU quantum 64 clocks |
 | 32X | enabled on supported hosts | Default CPU quantum 32 clocks |
 
-See [frame comparison](jit_frame_bench.md), [continuation and returns](jit_return_followup.md), [N64](n64_jit_bench.md), [SH-2](sh2_jit_bench.md), [SS execution](ss64_jit_bench.md), [CPU profiling](cpu_profile_notes.md) and the shared [performance guide](../../mp_jit_recompiler/OPTIMIZATION.md).
+See [frame comparison](jit_frame_bench.md), [continuation and returns](jit_return_followup.md), [N64](n64_jit_bench.md), [SH-2](sh2_jit_bench.md), [SS execution](ss64_jit_bench.md), [CPU profiling](cpu_profile_notes.md), [Dart AOT performance notes](dart_aot_tips.md) and the shared [performance guide](../../mp_jit_recompiler/OPTIMIZATION.md).
