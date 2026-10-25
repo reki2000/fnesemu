@@ -705,91 +705,105 @@ class N64Graphics {
 
   Float64List get depth => depths.putIfAbsent(zImage,
       () => Float64List(640 * 576)..fillRange(0, 640 * 576, double.infinity));
+  static double _edge(
+          double ax, double ay, double bx, double by, double px, double py) =>
+      (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+
   void triangle(N64Vertex a, N64Vertex b, N64Vertex c) {
     if (!rasterize) return;
-    if ([a, b, c].any((v) => v.clip[3].abs() < 1e-9)) return;
-    final vs = [a, b, c];
-    final x =
-        vs.map((v) => v.clip[0] / v.clip[3] * scale[0] + translate[0]).toList();
-    final y = vs
-        .map((v) => -v.clip[1] / v.clip[3] * scale[1] + translate[1])
-        .toList();
-    final z =
-        vs.map((v) => v.clip[2] / v.clip[3] * scale[2] + translate[2]).toList();
-    double edge(
-            double ax, double ay, double bx, double by, double px, double py) =>
-        (px - ax) * (by - ay) - (py - ay) * (bx - ax);
-    final area = edge(x[0], y[0], x[1], y[1], x[2], y[2]);
+    final ca = a.clip, cb = b.clip, cc = c.clip;
+    final wA = ca[3], wB = cb[3], wC = cc[3];
+    if (wA.abs() < 1e-9 || wB.abs() < 1e-9 || wC.abs() < 1e-9) return;
+    final sx = scale[0], sy = scale[1], sz = scale[2];
+    final tx = translate[0], ty = translate[1], tz = translate[2];
+    final x0 = ca[0] / wA * sx + tx,
+        x1 = cb[0] / wB * sx + tx,
+        x2 = cc[0] / wC * sx + tx;
+    final y0 = -ca[1] / wA * sy + ty,
+        y1 = -cb[1] / wB * sy + ty,
+        y2 = -cc[1] / wC * sy + ty;
+    final z0 = ca[2] / wA * sz + tz,
+        z1 = cb[2] / wB * sz + tz,
+        z2 = cc[2] / wC * sz + tz;
+    final area = _edge(x0, y0, x1, y1, x2, y2);
     if (area.abs() < 1e-8) return;
     if ((geometry.bit13 && area < 0) || (geometry.bit12 && area > 0)) {
       return;
     }
     triangles++;
-    final minX = math.max(scLeft, x.reduce(math.min).floor()),
-        maxX =
-            math.min(math.min(scRight, width) - 1, x.reduce(math.max).ceil());
-    final minY = math.max(scTop, y.reduce(math.min).floor()),
-        maxY = math.min(math.min(scBottom, 576) - 1, y.reduce(math.max).ceil());
-    final inverse = vs.map((v) => 1 / v.clip[3]).toList();
+    final minX = math.max(scLeft, math.min(x0, math.min(x1, x2)).floor()),
+        maxX = math.min(math.min(scRight, width) - 1,
+            math.max(x0, math.max(x1, x2)).ceil());
+    final minY = math.max(scTop, math.min(y0, math.min(y1, y2)).floor()),
+        maxY = math.min(
+            math.min(scBottom, 576) - 1, math.max(y0, math.max(y1, y2)).ceil());
+    final i0 = 1 / wA, i1 = 1 / wB, i2 = 1 / wC;
     final depthBuffer = depth;
-    final waStep = (y[2] - y[1]) / area,
-        wbStep = (y[0] - y[2]) / area,
+    final waStep = (y2 - y1) / area,
+        wbStep = (y0 - y2) / area,
         wcStep = -waStep - wbStep;
-    double delta(double va, double vb, double vc) =>
-        waStep * va + wbStep * vb + wcStep * vc;
-    final zStep = delta(z[0], z[1], z[2]);
-    final redStep = delta(a.color[0], b.color[0], c.color[0]),
-        greenStep = delta(a.color[1], b.color[1], c.color[1]),
-        blueStep = delta(a.color[2], b.color[2], c.color[2]),
-        alphaStep = delta(a.color[3], b.color[3], c.color[3]);
-    final sa = a.s * inverse[0],
-        sb = b.s * inverse[1],
-        sc = c.s * inverse[2],
-        ta = a.t * inverse[0],
-        tb = b.t * inverse[1],
-        tc = c.t * inverse[2];
-    final sStep = delta(sa, sb, sc),
-        tStep = delta(ta, tb, tc),
-        inverseStep = delta(inverse[0], inverse[1], inverse[2]);
+    final colorA = a.color, colorB = b.color, colorC = c.color;
+    final r0 = colorA[0], g0 = colorA[1], b0 = colorA[2], a0 = colorA[3];
+    final r1 = colorB[0], g1 = colorB[1], b1 = colorB[2], a1 = colorB[3];
+    final r2 = colorC[0], g2 = colorC[1], b2 = colorC[2], a2 = colorC[3];
+    final zStep = waStep * z0 + wbStep * z1 + wcStep * z2;
+    final redStep = waStep * r0 + wbStep * r1 + wcStep * r2,
+        greenStep = waStep * g0 + wbStep * g1 + wcStep * g2,
+        blueStep = waStep * b0 + wbStep * b1 + wcStep * b2,
+        alphaStep = waStep * a0 + wbStep * a1 + wcStep * a2;
+    final sa = a.s * i0, sb = b.s * i1, sc = c.s * i2;
+    final ta = a.t * i0, tb = b.t * i1, tc = c.t * i2;
+    final sStep = waStep * sa + wbStep * sb + wcStep * sc,
+        tStep = waStep * ta + wbStep * tb + wcStep * tc,
+        inverseStep = waStep * i0 + wbStep * i1 + wcStep * i2;
     final depthTest = geometry.bit0 && otherLow.bit4,
         depthWrite = geometry.bit0 && otherLow.bit5;
     for (var py = minY; py <= maxY; py++) {
       // Narrow the row to the pixels that can be covered (a weight w + step * k
       // must reach zero within the edge tolerance), with a margin of one pixel;
       // the per-pixel coverage test below stays authoritative.
-      final wa0 = edge(x[1], y[1], x[2], y[2], minX + 0.5, py + 0.5) / area,
-          wb0 = edge(x[2], y[2], x[0], y[0], minX + 0.5, py + 0.5) / area;
+      final wa0 = _edge(x1, y1, x2, y2, minX + 0.5, py + 0.5) / area,
+          wb0 = _edge(x2, y2, x0, y0, minX + 0.5, py + 0.5) / area;
       var first = 0, last = maxX - minX;
-      for (final (w, step) in [
-        (wa0, waStep),
-        (wb0, wbStep),
-        (1 - wa0 - wb0, wcStep)
-      ]) {
-        if (step > 0) {
-          first = math.max(first, ((-1e-9 - w) / step).floor() - 1);
-        } else if (step < 0) {
-          last = math.min(last, ((w + 1e-9) / -step).ceil() + 1);
-        } else if (w < -1e-9) {
-          last = -1;
-        }
+      if (waStep > 0) {
+        first = math.max(first, ((-1e-9 - wa0) / waStep).floor() - 1);
+      } else if (waStep < 0) {
+        last = math.min(last, ((wa0 + 1e-9) / -waStep).ceil() + 1);
+      } else if (wa0 < -1e-9) {
+        last = -1;
+      }
+      if (wbStep > 0) {
+        first = math.max(first, ((-1e-9 - wb0) / wbStep).floor() - 1);
+      } else if (wbStep < 0) {
+        last = math.min(last, ((wb0 + 1e-9) / -wbStep).ceil() + 1);
+      } else if (wb0 < -1e-9) {
+        last = -1;
+      }
+      final wc0 = 1 - wa0 - wb0;
+      if (wcStep > 0) {
+        first = math.max(first, ((-1e-9 - wc0) / wcStep).floor() - 1);
+      } else if (wcStep < 0) {
+        last = math.min(last, ((wc0 + 1e-9) / -wcStep).ceil() + 1);
+      } else if (wc0 < -1e-9) {
+        last = -1;
       }
       if (first > last) continue;
       final startX = minX + first, endX = minX + last;
       var wa = first == 0
               ? wa0
-              : edge(x[1], y[1], x[2], y[2], startX + 0.5, py + 0.5) / area,
+              : _edge(x1, y1, x2, y2, startX + 0.5, py + 0.5) / area,
           wb = first == 0
               ? wb0
-              : edge(x[2], y[2], x[0], y[0], startX + 0.5, py + 0.5) / area;
+              : _edge(x2, y2, x0, y0, startX + 0.5, py + 0.5) / area;
       final wc = 1 - wa - wb;
-      var dz = wa * z[0] + wb * z[1] + wc * z[2],
-          red = wa * a.color[0] + wb * b.color[0] + wc * c.color[0],
-          green = wa * a.color[1] + wb * b.color[1] + wc * c.color[1],
-          blue = wa * a.color[2] + wb * b.color[2] + wc * c.color[2],
-          alpha = wa * a.color[3] + wb * b.color[3] + wc * c.color[3],
+      var dz = wa * z0 + wb * z1 + wc * z2,
+          red = wa * r0 + wb * r1 + wc * r2,
+          green = wa * g0 + wb * g1 + wc * g2,
+          blue = wa * b0 + wb * b1 + wc * b2,
+          alpha = wa * a0 + wb * a1 + wc * a2,
           ss = wa * sa + wb * sb + wc * sc,
           tt = wa * ta + wb * tb + wc * tc,
-          divisor = wa * inverse[0] + wb * inverse[1] + wc * inverse[2];
+          divisor = wa * i0 + wb * i1 + wc * i2;
       for (var px = startX;
           px <= endX;
           px++,
@@ -809,9 +823,8 @@ class N64Graphics {
         if (wa.abs() < 1e-10 ||
             wb.abs() < 1e-10 ||
             (1 - wa - wb).abs() < 1e-10) {
-          final exactA =
-                  edge(x[1], y[1], x[2], y[2], px + 0.5, py + 0.5) / area,
-              exactB = edge(x[2], y[2], x[0], y[0], px + 0.5, py + 0.5) / area;
+          final exactA = _edge(x1, y1, x2, y2, px + 0.5, py + 0.5) / area,
+              exactB = _edge(x2, y2, x0, y0, px + 0.5, py + 0.5) / area;
           inside = exactA >= 0 && exactB >= 0 && 1 - exactA - exactB >= 0;
         }
         if (!inside) continue;
