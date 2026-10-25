@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
 import '../../state.dart';
 import '../../util/int.dart';
 
@@ -563,8 +565,8 @@ class N64Graphics {
           var state = _lutState[value];
           if (state == 0) {
             _texture16(value);
-            _combine(_whiteColor, _tex);
-            final r = _out.r, g = _out.g, b = _out.b, a = _out.a;
+            final c = _combine(_whiteColor, _tex);
+            final r = c.r, g = c.g, b = c.b, a = c.a;
             if (a < 1) {
               state = 2;
             } else if (otherLow.bit14 && a < 255) {
@@ -596,8 +598,7 @@ class N64Graphics {
               value.shr8.mask8.toDouble(),
               value.mask8.toDouble());
         }
-        _combine(_whiteColor, _tex);
-        _put(x, y, _out);
+        _put(x, y, _combine(_whiteColor, _tex));
       }
     }
   }
@@ -824,8 +825,8 @@ class N64Graphics {
           ..b = blue
           ..a = alpha;
         if (textureOn) _texel(activeTile, ss / divisor, tt / divisor);
-        _combine(_shade, textureOn ? _tex : _whiteColor);
-        final written = _put(px, py, _out);
+        final written =
+            _put(px, py, _combine(_shade, textureOn ? _tex : _whiteColor));
         // Rejected transparent texels must not occlude later geometry.
         if (written && depthWrite) depthBuffer[at] = dz;
       }
@@ -841,16 +842,18 @@ class N64Graphics {
         v.mask1 * 255.0
       ];
 
-  /// Public inspection returns a snapshot; the rasterizer uses private scratch.
+  /// Test inspection returns a snapshot; the rasterizer uses private scratch.
+  @visibleForTesting
   List<double> texel(int index, double s, double t) {
     _texel(index, s, t);
     return [_tex.r, _tex.g, _tex.b, _tex.a];
   }
 
+  @visibleForTesting
   List<double> combine(List<double> shade, List<double> texture) {
-    _combine(_Rgba(shade[0], shade[1], shade[2], shade[3]),
+    final out = _combine(_Rgba(shade[0], shade[1], shade[2], shade[3]),
         _Rgba(texture[0], texture[1], texture[2], texture[3]));
-    return [_out.r, _out.g, _out.b, _out.a];
+    return [out.r, out.g, out.b, out.a];
   }
 
   static int _coordinate(
@@ -998,16 +1001,18 @@ class N64Graphics {
     _planCycles = cycles;
   }
 
-  /// Runs the colour combiner and returns the red, green, blue and alpha.
-  void _combine(_Rgba shade, _Rgba texture) {
+  /// Runs the colour combiner. The result is the shared [_out], which the next
+  /// call overwrites.
+  _Rgba _combine(_Rgba shade, _Rgba texture) {
+    final out = _out;
     final mode = otherHigh.shr20.mask2;
     if (mode == 2) {
-      _out
+      out
         ..r = texture.r
         ..g = texture.g
         ..b = texture.b
         ..a = texture.a;
-      return;
+      return out;
     }
     final cycles = mode == 1 ? 2 : 1;
     if (_planKey0 != combine0 ||
@@ -1054,11 +1059,12 @@ class N64Graphics {
       regs[_regCombined + 2] = b;
       regs[_regCombined + 3] = a;
     }
-    _out
+    out
       ..r = r
       ..g = g
       ..b = b
       ..a = a;
+    return out;
   }
 
   static int _byte(double v) {
@@ -1133,8 +1139,7 @@ class N64Graphics {
           x++) {
         _texel(tile, s + (flip ? y - top : x - left) * ds,
             t + (flip ? x - left : y - top) * dt);
-        _combine(_whiteColor, _tex);
-        _put(x, y, _out);
+        _put(x, y, _combine(_whiteColor, _tex));
       }
     }
   }
@@ -1196,12 +1201,12 @@ class N64Graphics {
         } else {
           // The inputs are constant, so the combined colour is the same for
           // every pixel of the rectangle.
-          _combine(_whiteColor, _whiteColor);
+          final color = _combine(_whiteColor, _whiteColor);
           for (var y = math.max(scTop, y0 ~/ 4);
               y <= math.min(scBottom - 1, y1 ~/ 4);
               y++) {
             for (var x = xStart; x <= xEnd; x++) {
-              _put(x, y, _out);
+              _put(x, y, color);
             }
           }
         }
