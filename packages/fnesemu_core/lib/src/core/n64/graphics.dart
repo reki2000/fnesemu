@@ -536,17 +536,28 @@ class N64Graphics {
     final scaleY = scaled ? u(address + 30, 2) / 1024 : 1.0;
     final flip = u(address + 26, 2).bit0;
     final bytes = size == 3 ? 4 : 2;
-    for (var y = math.max(scTop, math.max(0, y0.ceil()));
-        y < math.min(scBottom, y0 + frameHeight);
-        y++) {
+    final yEnd = math.min(scBottom, y0 + frameHeight),
+        xBegin = math.max(scLeft, math.max(0, x0.ceil())),
+        xEnd = math.min(math.min(scRight, width), x0 + frameWidth);
+    // The source column of every x is the same for each row.
+    final columns = <int>[
+      for (var x = xBegin; x < xEnd; x++)
+        (imageX + (flip ? frameWidth - 1 - (x - x0) : x - x0) * scaleX)
+                .floor() %
+            imageWidth
+    ];
+    for (var y = math.max(scTop, math.max(0, y0.ceil())); y < yEnd; y++) {
       final sy = (imageY + (y - y0) * scaleY).floor() % imageHeight;
-      for (var x = math.max(scLeft, math.max(0, x0.ceil()));
-          x < math.min(math.min(scRight, width), x0 + frameWidth);
-          x++) {
-        final dx = flip ? frameWidth - 1 - (x - x0) : x - x0;
-        final sx = (imageX + dx * scaleX).floor() % imageWidth;
-        final value = u(source + (sy * imageWidth + sx) * bytes, bytes);
-        final color = size == 2 ? _texture16(value) : rgba(value);
+      final rowBase = source + sy * imageWidth * bytes;
+      for (var x = xBegin; x < xEnd; x++) {
+        final value = u(rowBase + columns[x - xBegin] * bytes, bytes);
+        final color = size == 2
+            ? _texture16(value)
+            : _textureRgba(
+                value.shr24.mask8.toDouble(),
+                value.shr16.mask8.toDouble(),
+                value.shr8.mask8.toDouble(),
+                value.mask8.toDouble());
         pixel(x, y, _combine(_white, color));
       }
     }
@@ -1062,25 +1073,34 @@ class N64Graphics {
           depth.fillRange(0, depth.length, double.infinity);
           break;
         }
-        for (var y = math.max(scTop, y0 ~/ 4);
-            y <= math.min(scBottom - 1, y1 ~/ 4);
-            y++) {
-          for (var x = math.max(scLeft, x0 ~/ 4);
-              x <= math.min(math.min(scRight, width) - 1, x1 ~/ 4);
-              x++) {
-            if (otherHigh.shr20.mask2 == 3) {
-              final size = colorSize == 3 ? 4 : 2,
-                  at = colorImage + (y * width + x) * size;
-              if (at + size <= bus.ram.length) {
-                bus.ramWrite(
-                    at,
-                    size == 4
-                        ? fillColor
-                        : (x.isEven ? fillColor.shr16 : fillColor.mask16),
-                    size);
+        final xStart = math.max(scLeft, x0 ~/ 4),
+            xEnd = math.min(math.min(scRight, width) - 1, x1 ~/ 4);
+        if (otherHigh.shr20.mask2 == 3) {
+          final size = colorSize == 3 ? 4 : 2, ramData = bus.ramData;
+          final ramLength = bus.ram.length;
+          for (var y = math.max(scTop, y0 ~/ 4);
+              y <= math.min(scBottom - 1, y1 ~/ 4);
+              y++) {
+            for (var x = xStart; x <= xEnd; x++) {
+              final at = colorImage + (y * width + x) * size;
+              if (at + size > ramLength) continue;
+              if (size == 4) {
+                ramData.setUint32(at & 0x7fffff, fillColor);
+              } else {
+                ramData.setUint16(at & 0x7fffff,
+                    x.isEven ? fillColor.shr16 : fillColor.mask16);
               }
-            } else {
-              pixel(x, y, _combine(_white, _white));
+            }
+          }
+        } else {
+          // The inputs are constant, so the combined colour is the same for
+          // every pixel of the rectangle.
+          final color = _combine(_white, _white);
+          for (var y = math.max(scTop, y0 ~/ 4);
+              y <= math.min(scBottom - 1, y1 ~/ 4);
+              y++) {
+            for (var x = xStart; x <= xEnd; x++) {
+              pixel(x, y, color);
             }
           }
         }
