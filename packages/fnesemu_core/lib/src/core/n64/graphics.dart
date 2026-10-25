@@ -8,10 +8,70 @@ import '../../util/int.dart';
 
 import 'bus.dart';
 
-/// A mutable colour, used as a scratch value on the pixel path.
-class _Rgba {
-  double r = 0, g = 0, b = 0, a = 0;
-  _Rgba([this.r = 0, this.g = 0, this.b = 0, this.a = 0]);
+/// A colour with named channels. Field access needs no bounds check, unlike
+/// an index into a list.
+final class Rgba {
+  double r, g, b, a;
+  Rgba([this.r = 0, this.g = 0, this.b = 0, this.a = 0]);
+
+  /// Unpacks 0xRRGGBBAA.
+  factory Rgba.fromWord(int v) => Rgba(v.shr24.mask8.toDouble(),
+      v.shr16.mask8.toDouble(), v.shr8.mask8.toDouble(), v.mask8.toDouble());
+  factory Rgba.read(StateReader s) {
+    final v = s.floats();
+    return Rgba(v[0], v[1], v[2], v[3]);
+  }
+
+  @pragma('vm:prefer-inline')
+  void set(double red, double green, double blue, double alpha) {
+    r = red;
+    g = green;
+    b = blue;
+    a = alpha;
+  }
+
+  @pragma('vm:prefer-inline')
+  void copy(Rgba o) => set(o.r, o.g, o.b, o.a);
+  void write(StateWriter w) => w.floats([r, g, b, a]);
+}
+
+/// A position or scale of three components.
+final class Vec3 {
+  double x, y, z;
+  Vec3(this.x, this.y, this.z);
+  factory Vec3.read(StateReader s) {
+    final v = s.floats();
+    return Vec3(v[0], v[1], v[2]);
+  }
+  void write(StateWriter w) => w.floats([x, y, z]);
+}
+
+/// A homogeneous clip-space position.
+final class Vec4 {
+  double x, y, z, w;
+  Vec4(this.x, this.y, this.z, this.w);
+  factory Vec4.read(StateReader s) {
+    final v = s.floats();
+    return Vec4(v[0], v[1], v[2], v[3]);
+  }
+  void write(StateWriter w) => w.floats([x, y, z, this.w]);
+}
+
+/// A directional light: the colour and the direction.
+final class Light {
+  double r = 0, g = 0, b = 0, dx = 0, dy = 0, dz = 0;
+
+  void read(StateReader s) {
+    final v = s.floats();
+    r = v[0];
+    g = v[1];
+    b = v[2];
+    dx = v[3];
+    dy = v[4];
+    dz = v[5];
+  }
+
+  void write(StateWriter w) => w.floats([r, g, b, dx, dy, dz]);
 }
 
 class N64Tile {
@@ -21,12 +81,18 @@ class N64Tile {
 }
 
 class N64Vertex {
-  final List<double> clip, color;
+  final Vec4 clip;
+  final Rgba color;
   final double s, t;
-  const N64Vertex(this.clip, this.color, this.s, this.t);
+  N64Vertex(this.clip, this.color, this.s, this.t);
   N64Vertex mix(N64Vertex b, double f) => N64Vertex(
-      List.generate(4, (i) => clip[i] + (b.clip[i] - clip[i]) * f),
-      List.generate(4, (i) => color[i] + (b.color[i] - color[i]) * f),
+      Vec4(clip.x + (b.clip.x - clip.x) * f, clip.y + (b.clip.y - clip.y) * f,
+          clip.z + (b.clip.z - clip.z) * f, clip.w + (b.clip.w - clip.w) * f),
+      Rgba(
+          color.r + (b.color.r - color.r) * f,
+          color.g + (b.color.g - color.g) * f,
+          color.b + (b.color.b - color.b) * f,
+          color.a + (b.color.a - color.a) * f),
       s + (b.s - s) * f,
       t + (b.t - t) * f);
 }
@@ -40,9 +106,18 @@ class N64Graphics {
   final tiles = List.generate(8, (_) => N64Tile());
   final tmem = Uint8List(4096);
   // Pixel scratch colours are consumed synchronously, never retained.
-  final _shade = _Rgba(), _tex = _Rgba(), _out = _Rgba();
-  final _whiteColor = _Rgba(255, 255, 255, 255);
-  static final _fiveBit = List<double>.generate(32, (v) => v * 255 / 31);
+  final _shade = Rgba(), _tex = Rgba(), _out = Rgba();
+  final _whiteColor = Rgba(255, 255, 255, 255);
+  // Instance tables: a static final field is lazily initialized and checked on
+  // every read, and int.toDouble() in a hot path can be a call.
+  final _fiveBit =
+      Float64List.fromList([for (var v = 0; v < 32; v++) v * 255 / 31]);
+  final _byte = Float64List.fromList([for (var v = 0; v < 256; v++) v * 1.0]);
+  // Multipliers of the tile coordinate shifts; powers of two, so exact.
+  final _shiftScale = Float64List.fromList([
+    for (var shift = 0; shift < 16; shift++)
+      shift <= 10 ? 1 / (1 << shift) : (1 << (16 - shift)) * 1.0
+  ]);
   void _textureRgba(double red, double green, double blue, double alpha) {
     _tex
       ..r = red
@@ -57,10 +132,10 @@ class N64Graphics {
       _fiveBit[value.shr1.mask5],
       value.mask1 * 255.0);
 
-  final lights = List.generate(8, (_) => List<double>.filled(6, 0));
-  List<double> model = identity(), projection = identity();
-  final stack = <List<double>>[];
-  List<double> scale = [160, 120, 511], translate = [160, 120, 511];
+  final lights = List.generate(8, (_) => Light());
+  Float64List model = identity(), projection = identity();
+  final stack = <Float64List>[];
+  Vec3 scale = Vec3(160, 120, 511), translate = Vec3(160, 120, 511);
   int geometry = 0, numLights = 1;
   int colorImage = 0, colorSize = 2, width = 320, zImage = 0;
   int textureImage = 0, textureSize = 2, textureWidth = 1, textureFormat = 0;
@@ -68,9 +143,9 @@ class N64Graphics {
   double textureS = 1, textureT = 1;
   bool textureOn = false;
   int otherHigh = 0, otherLow = 0, combine0 = 0, combine1 = 0, fillColor = 0;
-  List<double> primitive = [255, 255, 255, 255],
-      environment = [255, 255, 255, 255],
-      fog = [0, 0, 0, 0];
+  final primitive = Rgba(255, 255, 255, 255),
+      environment = Rgba(255, 255, 255, 255),
+      fog = Rgba();
   int scLeft = 0, scTop = 0, scRight = 320, scBottom = 240;
   int tasks = 0, triangles = 0;
   final depths = <int, Float64List>{};
@@ -97,8 +172,8 @@ class N64Graphics {
     for (final v in vertices) {
       w.boolean(v != null);
       if (v == null) continue;
-      w.floats(v.clip);
-      w.floats(v.color);
+      v.clip.write(w);
+      v.color.write(w);
       w.float64(v.s);
       w.float64(v.t);
     }
@@ -110,13 +185,17 @@ class N64Graphics {
       w.floats([t.left, t.top, t.right, t.bottom]);
     }
     w.bytes(tmem);
-    lights.forEach(w.floats);
+    for (final light in lights) {
+      light.write(w);
+    }
     w.floats(model);
     w.floats(projection);
     w.int32(stack.length);
     stack.forEach(w.floats);
-    for (final v in [scale, translate, primitive, environment, fog]) {
-      w.floats(v);
+    scale.write(w);
+    translate.write(w);
+    for (final v in [primitive, environment, fog]) {
+      v.write(w);
     }
     w.ints(_scalars);
     w.floats([textureS, textureT]);
@@ -137,7 +216,7 @@ class N64Graphics {
     s.intsInto(segments);
     for (var i = 0; i < vertices.length; i++) {
       vertices[i] = s.boolean()
-          ? N64Vertex(s.floats(), s.floats(), s.float64(), s.float64())
+          ? N64Vertex(Vec4.read(s), Rgba.read(s), s.float64(), s.float64())
           : null;
     }
     for (final t in tiles) {
@@ -161,18 +240,20 @@ class N64Graphics {
     }
     s.bytesInto(tmem);
     for (final light in lights) {
-      light.setAll(0, s.floats());
+      light.read(s);
     }
-    model = s.floats();
-    projection = s.floats();
+    model = Float64List.fromList(s.floats());
+    projection = Float64List.fromList(s.floats());
     stack
       ..clear()
-      ..addAll([for (var n = s.int32(); n > 0; n--) s.floats()]);
-    scale = s.floats();
-    translate = s.floats();
-    primitive = s.floats();
-    environment = s.floats();
-    fog = s.floats();
+      ..addAll([
+        for (var n = s.int32(); n > 0; n--) Float64List.fromList(s.floats())
+      ]);
+    scale = Vec3.read(s);
+    translate = Vec3.read(s);
+    primitive.copy(Rgba.read(s));
+    environment.copy(Rgba.read(s));
+    fog.copy(Rgba.read(s));
     final v = s.ints();
     if (v.length != _scalars.length) {
       throw const StateMismatch('graphics state layout');
@@ -216,8 +297,8 @@ class N64Graphics {
     }
   }
 
-  static List<double> identity() =>
-      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  static Float64List identity() =>
+      Float64List.fromList([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   void reset() {
     tasks = triangles = 0;
     segments.fillRange(0, 16, 0);
@@ -231,10 +312,16 @@ class N64Graphics {
       tiles[i] = N64Tile();
     }
     for (final light in lights) {
-      light.fillRange(0, light.length, 0);
+      light
+        ..r = 0
+        ..g = 0
+        ..b = 0
+        ..dx = 0
+        ..dy = 0
+        ..dz = 0;
     }
-    scale = [160, 120, 511];
-    translate = [160, 120, 511];
+    scale = Vec3(160, 120, 511);
+    translate = Vec3(160, 120, 511);
     geometry = 0;
     numLights = 1;
     colorImage = zImage = textureImage = 0;
@@ -245,9 +332,9 @@ class N64Graphics {
     textureS = textureT = 1;
     textureOn = false;
     otherHigh = otherLow = combine0 = combine1 = fillColor = 0;
-    primitive = [255, 255, 255, 255];
-    environment = [255, 255, 255, 255];
-    fog = [0, 0, 0, 0];
+    primitive.set(255, 255, 255, 255);
+    environment.set(255, 255, 255, 255);
+    fog.set(0, 0, 0, 0);
     scLeft = scTop = 0;
     scRight = 320;
     scBottom = 240;
@@ -262,18 +349,51 @@ class N64Graphics {
   int u(int addr, int size) => bus.ramRead(addr, size);
   double signed(int addr, int size) =>
       u(addr, size).toSigned(size * 8).toDouble();
-  List<double> matrix(int addr) => List.generate(
-      16, (i) => signed(addr + i * 2, 2) + u(addr + 32 + i * 2, 2) / 65536);
-  List<double> multiply(List<double> a, List<double> b) =>
-      List.generate(16, (i) {
-        final row = i ~/ 4, col = i % 4;
-        return List.generate(4, (k) => a[row * 4 + k] * b[k * 4 + col])
-            .reduce((x, y) => x + y);
-      });
-  List<double> transform(List<double> v, List<double> m) => List.generate(
-      4,
-      (i) =>
-          List.generate(4, (k) => v[k] * m[k * 4 + i]).reduce((a, b) => a + b));
+  Float64List matrix(int addr) {
+    final m = Float64List(16);
+    for (var i = 0; i < 16; i++) {
+      m[i] = signed(addr + i * 2, 2) + u(addr + 32 + i * 2, 2) / 65536;
+    }
+    return m;
+  }
+
+  // Sums run left to right, as a reduce over the four products would.
+  Float64List multiply(Float64List a, Float64List b) {
+    final m = Float64List(16);
+    for (var row = 0; row < 4; row++) {
+      final r = row * 4;
+      for (var col = 0; col < 4; col++) {
+        m[r + col] = a[r] * b[col] +
+            a[r + 1] * b[4 + col] +
+            a[r + 2] * b[8 + col] +
+            a[r + 3] * b[12 + col];
+      }
+    }
+    return m;
+  }
+
+  Vec4 transform(double x, double y, double z, double w, Float64List m) => Vec4(
+      x * m[0] + y * m[4] + z * m[8] + w * m[12],
+      x * m[1] + y * m[5] + z * m[9] + w * m[13],
+      x * m[2] + y * m[6] + z * m[10] + w * m[14],
+      x * m[3] + y * m[7] + z * m[11] + w * m[15]);
+
+  void _viewport(int addr) {
+    scale = Vec3(
+        signed(addr, 2) / 4, signed(addr + 2, 2) / 4, signed(addr + 4, 2) / 4);
+    translate = Vec3(signed(addr + 8, 2) / 4, signed(addr + 10, 2) / 4,
+        signed(addr + 12, 2) / 4);
+  }
+
+  void _light(Light l, int addr) {
+    l.r = u(addr, 1).toDouble();
+    l.g = u(addr + 1, 1).toDouble();
+    l.b = u(addr + 2, 1).toDouble();
+    l.dx = signed(addr + 8, 1) / 127;
+    l.dy = signed(addr + 9, 1) / 127;
+    l.dz = signed(addr + 10, 1) / 127;
+  }
+
   void task(int address, int size, int ucodeData, int ucodeSize) {
     _selectMicrocode(ucodeData, ucodeSize);
     tasks++;
@@ -349,7 +469,7 @@ class N64Graphics {
                 if (stack.length >= 32) {
                   throw StateError('RSP matrix stack overflow');
                 }
-                stack.add(List.of(model));
+                stack.add(Float64List.fromList(model));
               }
               model = flags.bit1 ? m : multiply(m, model);
             }
@@ -364,15 +484,9 @@ class N64Graphics {
             final index = w0.mask8, offset = w0.shr8.mask8 * 8;
             final addr = resolve(w1);
             if (index == 8) {
-              scale = List.generate(3, (i) => signed(addr + i * 2, 2) / 4);
-              translate =
-                  List.generate(3, (i) => signed(addr + 8 + i * 2, 2) / 4);
+              _viewport(addr);
             } else if (index == 10) {
-              final l = lights[(offset ~/ 24 - 2).clamp(0, 7)];
-              for (var i = 0; i < 3; i++) {
-                l[i] = u(addr + i, 1).toDouble();
-                l[i + 3] = signed(addr + 8 + i, 1) / 127;
-              }
+              _light(lights[(offset ~/ 24 - 2).clamp(0, 7)], addr);
             }
           case 0xde:
             if (w0.shr16.mask8 == 0) {
@@ -420,22 +534,16 @@ class N64Graphics {
               if (stack.length >= 32) {
                 throw StateError('RSP matrix stack overflow');
               }
-              stack.add(List.of(model));
+              stack.add(Float64List.fromList(model));
             }
             model = flags.bit1 ? m : multiply(m, model);
           }
         case 3:
           final index = w0.shr16.mask8, addr = resolve(w1);
           if (index == 0x80) {
-            scale = List.generate(3, (i) => signed(addr + i * 2, 2) / 4);
-            translate =
-                List.generate(3, (i) => signed(addr + 8 + i * 2, 2) / 4);
+            _viewport(addr);
           } else if (index >= 0x86 && index <= 0x94) {
-            final l = lights[(index - 0x86) ~/ 2];
-            for (var i = 0; i < 3; i++) {
-              l[i] = u(addr + i, 1).toDouble();
-              l[i + 3] = signed(addr + 8 + i, 1) / 127;
-            }
+            _light(lights[(index - 0x86) ~/ 2], addr);
           } else if (index != 0x82 && index != 0x84) {
             throw UnsupportedError('RSP MOVEMEM $index');
           }
@@ -464,9 +572,9 @@ class N64Graphics {
             numLights = extended ? w1 ~/ 24 : ((w1 & 0x7fffffff) ~/ 32 - 1);
           } else if (index == 10) {
             final l = lights[(offset ~/ 32).clamp(0, 7)];
-            for (var i = 0; i < 3; i++) {
-              l[i] = w1.shr((3 - i) * 8).mask8.toDouble();
-            }
+            l.r = w1.shr24.mask8.toDouble();
+            l.g = w1.shr16.mask8.toDouble();
+            l.b = w1.shr8.mask8.toDouble();
           } else if (![0, 4, 8, 14].contains(index)) {
             throw UnsupportedError('RSP MOVEWORD $index');
           }
@@ -501,7 +609,7 @@ class N64Graphics {
         case 0xb2:
           final index = (w0.mask16 ~/ 2).clamp(0, 79), v = vertices[index];
           if (v != null && w0.shr16.mask8 == 0x10) {
-            vertices[index] = N64Vertex(v.clip, rgba(w1), v.s, v.t);
+            vertices[index] = N64Vertex(v.clip, Rgba.fromWord(w1), v.s, v.t);
           }
         case 0xe4:
         case 0xe5:
@@ -617,8 +725,14 @@ class N64Graphics {
       otherHigh.toDouble(),
       otherLow.bit14 ? 1.0 : 0.0,
       colorSize.toDouble(),
-      ...primitive,
-      ...environment,
+      primitive.r,
+      primitive.g,
+      primitive.b,
+      primitive.a,
+      environment.r,
+      environment.g,
+      environment.b,
+      environment.a,
     ];
     var same = true;
     for (var i = 0; i < key.length; i++) {
@@ -635,41 +749,39 @@ class N64Graphics {
     if (first + count > vertices.length) {
       throw StateError('RSP vertex buffer overflow');
     }
+    final lightCount = numLights.clamp(0, 7);
     for (var i = 0; i < count; i++) {
       final p = addr + i * 16;
       final clip = transform(
-          [signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1], combined);
-      final color = List.generate(4, (c) => u(p + 12 + c, 1).toDouble());
+          signed(p, 2), signed(p + 2, 2), signed(p + 4, 2), 1, combined);
+      final color = Rgba(u(p + 12, 1).toDouble(), u(p + 13, 1).toDouble(),
+          u(p + 14, 1).toDouble(), u(p + 15, 1).toDouble());
       if (geometry.bit17) {
-        final normal = [
-          signed(p + 12, 1) / 127,
-          signed(p + 13, 1) / 127,
-          signed(p + 14, 1) / 127
-        ];
-        final n = List.generate(
-            3,
-            (c) =>
-                normal[0] * model[c] +
-                normal[1] * model[4 + c] +
-                normal[2] * model[8 + c]);
-        final length = math.sqrt(n.fold(0.0, (v, x) => v + x * x));
+        final nx = signed(p + 12, 1) / 127,
+            ny = signed(p + 13, 1) / 127,
+            nz = signed(p + 14, 1) / 127;
+        var x = nx * model[0] + ny * model[4] + nz * model[8],
+            y = nx * model[1] + ny * model[5] + nz * model[9],
+            z = nx * model[2] + ny * model[6] + nz * model[10];
+        final length = math.sqrt(((0.0 + x * x) + y * y) + z * z);
         if (length > 0) {
-          for (var c = 0; c < 3; c++) {
-            n[c] /= length;
-          }
+          x /= length;
+          y /= length;
+          z /= length;
         }
-        final ambient = lights[numLights.clamp(0, 7)];
-        for (var c = 0; c < 3; c++) {
-          color[c] = ambient[c];
-        }
-        for (var l = 0; l < numLights.clamp(0, 7); l++) {
+        final ambient = lights[lightCount];
+        var red = ambient.r, green = ambient.g, blue = ambient.b;
+        for (var l = 0; l < lightCount; l++) {
           final light = lights[l];
-          final dot = math.max(
-              0.0, n[0] * light[3] + n[1] * light[4] + n[2] * light[5]);
-          for (var c = 0; c < 3; c++) {
-            color[c] += light[c] * dot;
-          }
+          final dot = math.max(0.0, x * light.dx + y * light.dy + z * light.dz);
+          red += light.r * dot;
+          green += light.g * dot;
+          blue += light.b * dot;
         }
+        color
+          ..r = red
+          ..g = green
+          ..b = blue;
       }
       vertices[first + i] = N64Vertex(clip, color,
           signed(p + 8, 2) / 32 * textureS, signed(p + 10, 2) / 32 * textureT);
@@ -686,8 +798,12 @@ class N64Graphics {
     }
     var polygon = indices.map((i) => vertices[i]!).toList();
     for (var plane = 0; plane < 6; plane++) {
-      double distance(N64Vertex v) =>
-          v.clip[3] + (plane.isEven ? v.clip[plane ~/ 2] : -v.clip[plane ~/ 2]);
+      double distance(N64Vertex v) {
+        final c = v.clip;
+        final axis = switch (plane ~/ 2) { 0 => c.x, 1 => c.y, _ => c.z };
+        return c.w + (plane.isEven ? axis : -axis);
+      }
+
       final output = <N64Vertex>[];
       for (var i = 0; i < polygon.length; i++) {
         final a = polygon[i], b = polygon[(i + 1) % polygon.length];
@@ -712,19 +828,19 @@ class N64Graphics {
   void triangle(N64Vertex a, N64Vertex b, N64Vertex c) {
     if (!rasterize) return;
     final ca = a.clip, cb = b.clip, cc = c.clip;
-    final wA = ca[3], wB = cb[3], wC = cc[3];
+    final wA = ca.w, wB = cb.w, wC = cc.w;
     if (wA.abs() < 1e-9 || wB.abs() < 1e-9 || wC.abs() < 1e-9) return;
-    final sx = scale[0], sy = scale[1], sz = scale[2];
-    final tx = translate[0], ty = translate[1], tz = translate[2];
-    final x0 = ca[0] / wA * sx + tx,
-        x1 = cb[0] / wB * sx + tx,
-        x2 = cc[0] / wC * sx + tx;
-    final y0 = -ca[1] / wA * sy + ty,
-        y1 = -cb[1] / wB * sy + ty,
-        y2 = -cc[1] / wC * sy + ty;
-    final z0 = ca[2] / wA * sz + tz,
-        z1 = cb[2] / wB * sz + tz,
-        z2 = cc[2] / wC * sz + tz;
+    final sx = scale.x, sy = scale.y, sz = scale.z;
+    final tx = translate.x, ty = translate.y, tz = translate.z;
+    final x0 = ca.x / wA * sx + tx,
+        x1 = cb.x / wB * sx + tx,
+        x2 = cc.x / wC * sx + tx;
+    final y0 = -ca.y / wA * sy + ty,
+        y1 = -cb.y / wB * sy + ty,
+        y2 = -cc.y / wC * sy + ty;
+    final z0 = ca.z / wA * sz + tz,
+        z1 = cb.z / wB * sz + tz,
+        z2 = cc.z / wC * sz + tz;
     final area = _edge(x0, y0, x1, y1, x2, y2);
     if (area.abs() < 1e-8) return;
     if ((geometry.bit13 && area < 0) || (geometry.bit12 && area > 0)) {
@@ -743,9 +859,9 @@ class N64Graphics {
         wbStep = (y0 - y2) / area,
         wcStep = -waStep - wbStep;
     final colorA = a.color, colorB = b.color, colorC = c.color;
-    final r0 = colorA[0], g0 = colorA[1], b0 = colorA[2], a0 = colorA[3];
-    final r1 = colorB[0], g1 = colorB[1], b1 = colorB[2], a1 = colorB[3];
-    final r2 = colorC[0], g2 = colorC[1], b2 = colorC[2], a2 = colorC[3];
+    final r0 = colorA.r, g0 = colorA.g, b0 = colorA.b, a0 = colorA.a;
+    final r1 = colorB.r, g1 = colorB.g, b1 = colorB.b, a1 = colorB.a;
+    final r2 = colorC.r, g2 = colorC.g, b2 = colorC.b, a2 = colorC.a;
     final zStep = waStep * z0 + wbStep * z1 + wcStep * z2;
     final redStep = waStep * r0 + wbStep * r1 + wcStep * r2,
         greenStep = waStep * g0 + wbStep * g1 + wcStep * g2,
@@ -846,36 +962,24 @@ class N64Graphics {
     }
   }
 
-  List<double> rgba(int v) =>
-      List.generate(4, (i) => v.shr((3 - i) * 8).mask8.toDouble());
-  List<double> rgba16(int v) => [
-        v.shr11.mask5 * 255 / 31,
-        v.shr6.mask5 * 255 / 31,
-        v.shr1.mask5 * 255 / 31,
-        v.mask1 * 255.0
-      ];
-
   /// Test inspection returns a snapshot; the rasterizer uses private scratch.
   @visibleForTesting
-  List<double> texel(int index, double s, double t) {
+  Rgba texel(int index, double s, double t) {
     _texel(index, s, t);
-    return [_tex.r, _tex.g, _tex.b, _tex.a];
+    return Rgba()..copy(_tex);
   }
 
   @visibleForTesting
-  List<double> combine(List<double> shade, List<double> texture) {
-    final out = _combine(_Rgba(shade[0], shade[1], shade[2], shade[3]),
-        _Rgba(texture[0], texture[1], texture[2], texture[3]));
-    return [out.r, out.g, out.b, out.a];
-  }
+  Rgba combine(Rgba shade, Rgba texture) =>
+      Rgba()..copy(_combine(shade, texture));
 
-  static int _coordinate(
+  int _coordinate(
       double value, double low, double high, int shift, int mode, int mask) {
-    if (shift != 0) {
-      value = shift <= 10 ? value / (1 << shift) : value * (1 << (16 - shift));
+    var coord = (value * _shiftScale[shift] - low).floor();
+    if (mode.bit1) {
+      final extent = (high - low).floor(), limit = extent > 0 ? extent : 0;
+      coord = coord < 0 ? 0 : (coord > limit ? limit : coord);
     }
-    var coord = (value - low).floor(), extent = (high - low).floor();
-    if (mode.bit1) coord = coord.clamp(0, math.max(0, extent));
     if (mask != 0) {
       final period = 1 << mask;
       if (mode.bit0 && coord & period != 0) {
@@ -904,8 +1008,8 @@ class N64Graphics {
     }
     if (tile.format == 0) {
       if (tile.size == 3) {
-        _textureRgba(v.shr24.mask8.toDouble(), v.shr16.mask8.toDouble(),
-            v.shr8.mask8.toDouble(), v.mask8.toDouble());
+        _textureRgba(_byte[v.shr24.mask8], _byte[v.shr16.mask8],
+            _byte[v.shr8.mask8], _byte[v.mask8]);
       } else {
         _texture16(v);
       }
@@ -919,8 +1023,8 @@ class N64Graphics {
     }
     if (tile.format == 3) {
       if (tile.size == 2) {
-        final intensity = v.shr8.toDouble();
-        _textureRgba(intensity, intensity, intensity, v.mask8.toDouble());
+        final intensity = _byte[v.shr8.mask8];
+        _textureRgba(intensity, intensity, intensity, _byte[v.mask8]);
         return;
       }
       final intensity = tile.size == 1 ? v.shr4 * 17 : v.shr1.mask3 * 255 / 7,
@@ -1016,7 +1120,7 @@ class N64Graphics {
 
   /// Runs the colour combiner. The result is the shared [_out], which the next
   /// call overwrites.
-  _Rgba _combine(_Rgba shade, _Rgba texture) {
+  Rgba _combine(Rgba shade, Rgba texture) {
     final out = _out;
     final mode = otherHigh.shr20.mask2;
     if (mode == 2) {
@@ -1034,11 +1138,18 @@ class N64Graphics {
       _decodeCombiner(cycles);
     }
     final regs = _regs, plan = _plan;
-    for (var i = 0; i < 4; i++) {
-      regs[_regCombined + i] = 0;
-      regs[_regPrimitive + i] = primitive[i];
-      regs[_regEnvironment + i] = environment[i];
-    }
+    regs[_regCombined] = 0;
+    regs[_regCombined + 1] = 0;
+    regs[_regCombined + 2] = 0;
+    regs[_regCombined + 3] = 0;
+    regs[_regPrimitive] = primitive.r;
+    regs[_regPrimitive + 1] = primitive.g;
+    regs[_regPrimitive + 2] = primitive.b;
+    regs[_regPrimitive + 3] = primitive.a;
+    regs[_regEnvironment] = environment.r;
+    regs[_regEnvironment + 1] = environment.g;
+    regs[_regEnvironment + 2] = environment.b;
+    regs[_regEnvironment + 3] = environment.a;
     regs[_regTexture] = texture.r;
     regs[_regTexture + 1] = texture.g;
     regs[_regTexture + 2] = texture.b;
@@ -1080,15 +1191,15 @@ class N64Graphics {
     return out;
   }
 
-  static int _byte(double v) {
-    final r = v.round();
-    return r < 0 ? 0 : (r > 255 ? 255 : r);
-  }
+  // Same as v.round().clamp(0, 255) for finite v, without the round() stub call.
+  @pragma('vm:prefer-inline')
+  static int _toByte(double v) =>
+      v < 0 ? 0 : (v >= 255 ? 255 : (v + 0.5).toInt());
 
-  bool pixel(int x, int y, List<double> color) =>
-      _put(x, y, _Rgba(color[0], color[1], color[2], color[3]));
+  @visibleForTesting
+  bool pixel(int x, int y, Rgba color) => _put(x, y, color);
 
-  bool _put(int x, int y, _Rgba color) {
+  bool _put(int x, int y, Rgba color) {
     if (x < scLeft ||
         x >= scRight ||
         x < 0 ||
@@ -1107,13 +1218,12 @@ class N64Graphics {
     var redValue = r, greenValue = g, blueValue = b;
     if (otherLow.bit14 && a < 255) {
       final old = u(at, size), alpha = a / 255, inverse = 1 - alpha;
-      final oldRed = size == 4
-              ? old.shr24.mask8.toDouble()
-              : _fiveBit[old.shr11.mask5],
+      final oldRed =
+              size == 4 ? _byte[old.shr24.mask8] : _fiveBit[old.shr11.mask5],
           oldGreen =
-              size == 4 ? old.shr16.mask8.toDouble() : _fiveBit[old.shr6.mask5],
+              size == 4 ? _byte[old.shr16.mask8] : _fiveBit[old.shr6.mask5],
           oldBlue =
-              size == 4 ? old.shr8.mask8.toDouble() : _fiveBit[old.shr1.mask5];
+              size == 4 ? _byte[old.shr8.mask8] : _fiveBit[old.shr1.mask5];
       redValue = redValue * alpha + oldRed * inverse;
       greenValue = greenValue * alpha + oldGreen * inverse;
       blueValue = blueValue * alpha + oldBlue * inverse;
@@ -1124,9 +1234,9 @@ class N64Graphics {
 
   static int _pack(
       double redValue, double greenValue, double blueValue, int size) {
-    final red = _byte(redValue),
-        green = _byte(greenValue),
-        blue = _byte(blueValue);
+    final red = _toByte(redValue),
+        green = _toByte(greenValue),
+        blue = _toByte(blueValue);
     return size == 4
         ? red.shl24 | green.shl16 | blue.shl8 | 255
         : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1;
@@ -1175,11 +1285,11 @@ class N64Graphics {
         combine0 = w0.mask24;
         combine1 = w1;
       case 0xfa:
-        primitive = rgba(w1);
+        primitive.copy(Rgba.fromWord(w1));
       case 0xfb:
-        environment = rgba(w1);
+        environment.copy(Rgba.fromWord(w1));
       case 0xf8:
-        fog = rgba(w1);
+        fog.copy(Rgba.fromWord(w1));
       case 0xf7:
         fillColor = w1;
       case 0xf6:
