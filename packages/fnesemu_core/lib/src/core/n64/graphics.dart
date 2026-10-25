@@ -536,7 +536,7 @@ class N64Graphics {
     final scaleY = scaled ? u(address + 30, 2) / 1024 : 1.0;
     final flip = u(address + 26, 2).bit0;
     final bytes = size == 3 ? 4 : 2;
-    final yEnd = math.min(scBottom, y0 + frameHeight),
+    final yEnd = math.min(math.min(scBottom, 576), y0 + frameHeight),
         xBegin = math.max(scLeft, math.max(0, x0.ceil())),
         xEnd = math.min(math.min(scRight, width), x0 + frameWidth);
     // The source column of every x is the same for each row.
@@ -546,11 +546,42 @@ class N64Graphics {
                 .floor() %
             imageWidth
     ];
+    final destSize = colorSize == 3 ? 4 : 2, ramLength = bus.ram.length;
+    final cache = size == 2;
+    if (cache) _backgroundCache();
+    final ramData = bus.ramData;
     for (var y = math.max(scTop, math.max(0, y0.ceil())); y < yEnd; y++) {
       final sy = (imageY + (y - y0) * scaleY).floor() % imageHeight;
       final rowBase = source + sy * imageWidth * bytes;
       for (var x = xBegin; x < xEnd; x++) {
         final value = u(rowBase + columns[x - xBegin] * bytes, bytes);
+        if (cache) {
+          var state = _lutState[value];
+          if (state == 0) {
+            final combined = _combine(_white, _texture16(value));
+            if (combined[3] < 1) {
+              state = 2;
+            } else if (otherLow.bit14 && combined[3] < 255) {
+              state = 3;
+            } else {
+              state = 1;
+              _lutColor[value] =
+                  _pack(combined[0], combined[1], combined[2], destSize);
+            }
+            _lutState[value] = state;
+          }
+          if (state == 2) continue;
+          if (state == 1) {
+            final at = colorImage + (y * width + x) * destSize;
+            if (at + destSize > ramLength) continue;
+            if (destSize == 4) {
+              ramData.setUint32(at & 0x7fffff, _lutColor[value]);
+            } else {
+              ramData.setUint16(at & 0x7fffff, _lutColor[value]);
+            }
+            continue;
+          }
+        }
         final color = size == 2
             ? _texture16(value)
             : _textureRgba(
@@ -561,6 +592,33 @@ class N64Graphics {
         pixel(x, y, _combine(_white, color));
       }
     }
+  }
+
+  // Memo of 16-bit texel -> packed output of a background, valid while the
+  // blender and combiner state stays the same. States: 0 unknown, 1 plain
+  // write, 2 rejected, 3 blended with the framebuffer (not memoized).
+  final _lutState = Uint8List(65536), _lutColor = Uint32List(65536);
+  final _lutKey = Float64List(13)..fillRange(0, 13, -1);
+
+  /// Resets the memo when the state it depends on changed.
+  void _backgroundCache() {
+    final key = [
+      combine0.toDouble(),
+      combine1.toDouble(),
+      otherHigh.toDouble(),
+      otherLow.bit14 ? 1.0 : 0.0,
+      colorSize.toDouble(),
+      ...primitive,
+      ...environment,
+    ];
+    var same = true;
+    for (var i = 0; i < key.length; i++) {
+      if (_lutKey[i] != key[i]) {
+        same = false;
+        _lutKey[i] = key[i];
+      }
+    }
+    if (!same) _lutState.fillRange(0, 65536, 0);
   }
 
   void _loadVertices(int addr, int first, int count) {
@@ -1001,16 +1059,18 @@ class N64Graphics {
       greenValue = greenValue * alpha + oldGreen * inverse;
       blueValue = blueValue * alpha + oldBlue * inverse;
     }
+    bus.ramWrite(at, _pack(redValue, greenValue, blueValue, size), size);
+    return true;
+  }
+
+  static int _pack(
+      double redValue, double greenValue, double blueValue, int size) {
     final red = _byte(redValue),
         green = _byte(greenValue),
         blue = _byte(blueValue);
-    bus.ramWrite(
-        at,
-        size == 4
-            ? red.shl24 | green.shl16 | blue.shl8 | 255
-            : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1,
-        size);
-    return true;
+    return size == 4
+        ? red.shl24 | green.shl16 | blue.shl8 | 255
+        : red.shr3.shl11 | green.shr3.shl6 | blue.shr3.shl1 | 1;
   }
 
   void textureRect(int w0, int w1, int st, int delta, bool flip) {
