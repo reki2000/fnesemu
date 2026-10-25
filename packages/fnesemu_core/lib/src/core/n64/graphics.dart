@@ -1,10 +1,18 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
 import '../../state.dart';
 import '../../util/int.dart';
 
 import 'bus.dart';
+
+/// A mutable colour, used as a scratch value on the pixel path.
+class _Rgba {
+  double r = 0, g = 0, b = 0, a = 0;
+  _Rgba([this.r = 0, this.g = 0, this.b = 0, this.a = 0]);
+}
 
 class N64Tile {
   int format = 0, size = 0, line = 0, tmem = 0, palette = 0;
@@ -31,21 +39,19 @@ class N64Graphics {
   final vertices = List<N64Vertex?>.filled(80, null);
   final tiles = List.generate(8, (_) => N64Tile());
   final tmem = Uint8List(4096);
-  final _textureColor = Float64List(4), _combined = Float64List(4);
-  final _shade = Float64List(4);
-  static const _white = <double>[255, 255, 255, 255];
+  // Pixel scratch colours are consumed synchronously, never retained.
+  final _shade = _Rgba(), _tex = _Rgba(), _out = _Rgba();
+  final _whiteColor = _Rgba(255, 255, 255, 255);
   static final _fiveBit = List<double>.generate(32, (v) => v * 255 / 31);
-  // Pixel scratch buffers are consumed synchronously, never retained by vertices.
-  List<double> _textureRgba(
-      double red, double green, double blue, double alpha) {
-    _textureColor[0] = red;
-    _textureColor[1] = green;
-    _textureColor[2] = blue;
-    _textureColor[3] = alpha;
-    return _textureColor;
+  void _textureRgba(double red, double green, double blue, double alpha) {
+    _tex
+      ..r = red
+      ..g = green
+      ..b = blue
+      ..a = alpha;
   }
 
-  List<double> _texture16(int value) => _textureRgba(
+  void _texture16(int value) => _textureRgba(
       _fiveBit[value.shr11.mask5],
       _fiveBit[value.shr6.mask5],
       _fiveBit[value.shr1.mask5],
@@ -558,15 +564,16 @@ class N64Graphics {
         if (cache) {
           var state = _lutState[value];
           if (state == 0) {
-            final combined = _combine(_white, _texture16(value));
-            if (combined[3] < 1) {
+            _texture16(value);
+            final c = _combine(_whiteColor, _tex);
+            final r = c.r, g = c.g, b = c.b, a = c.a;
+            if (a < 1) {
               state = 2;
-            } else if (otherLow.bit14 && combined[3] < 255) {
+            } else if (otherLow.bit14 && a < 255) {
               state = 3;
             } else {
               state = 1;
-              _lutColor[value] =
-                  _pack(combined[0], combined[1], combined[2], destSize);
+              _lutColor[value] = _pack(r, g, b, destSize);
             }
             _lutState[value] = state;
           }
@@ -582,14 +589,16 @@ class N64Graphics {
             continue;
           }
         }
-        final color = size == 2
-            ? _texture16(value)
-            : _textureRgba(
-                value.shr24.mask8.toDouble(),
-                value.shr16.mask8.toDouble(),
-                value.shr8.mask8.toDouble(),
-                value.mask8.toDouble());
-        pixel(x, y, _combine(_white, color));
+        if (size == 2) {
+          _texture16(value);
+        } else {
+          _textureRgba(
+              value.shr24.mask8.toDouble(),
+              value.shr16.mask8.toDouble(),
+              value.shr8.mask8.toDouble(),
+              value.mask8.toDouble());
+        }
+        _put(x, y, _combine(_whiteColor, _tex));
       }
     }
   }
@@ -810,18 +819,14 @@ class N64Graphics {
         if (depthTest && dz > depthBuffer[at]) {
           continue;
         }
-        _shade[0] = red;
-        _shade[1] = green;
-        _shade[2] = blue;
-        _shade[3] = alpha;
-        final written = pixel(
-            px,
-            py,
-            _combine(
-                _shade,
-                textureOn
-                    ? _texel(activeTile, ss / divisor, tt / divisor)
-                    : _white));
+        _shade
+          ..r = red
+          ..g = green
+          ..b = blue
+          ..a = alpha;
+        if (textureOn) _texel(activeTile, ss / divisor, tt / divisor);
+        final written =
+            _put(px, py, _combine(_shade, textureOn ? _tex : _whiteColor));
         // Rejected transparent texels must not occlude later geometry.
         if (written && depthWrite) depthBuffer[at] = dz;
       }
@@ -837,11 +842,19 @@ class N64Graphics {
         v.mask1 * 255.0
       ];
 
-  /// Public inspection returns a snapshot; the rasterizer uses private scratch.
-  List<double> texel(int index, double s, double t) =>
-      List<double>.of(_texel(index, s, t));
-  List<double> combine(List<double> shade, List<double> texture) =>
-      List<double>.of(_combine(shade, texture));
+  /// Test inspection returns a snapshot; the rasterizer uses private scratch.
+  @visibleForTesting
+  List<double> texel(int index, double s, double t) {
+    _texel(index, s, t);
+    return [_tex.r, _tex.g, _tex.b, _tex.a];
+  }
+
+  @visibleForTesting
+  List<double> combine(List<double> shade, List<double> texture) {
+    final out = _combine(_Rgba(shade[0], shade[1], shade[2], shade[3]),
+        _Rgba(texture[0], texture[1], texture[2], texture[3]));
+    return [out.r, out.g, out.b, out.a];
+  }
 
   static int _coordinate(
       double value, double low, double high, int shift, int mode, int mask) {
@@ -861,7 +874,8 @@ class N64Graphics {
     return coord;
   }
 
-  List<double> _texel(int index, double s, double t) {
+  /// Writes the texel into [_tex].
+  void _texel(int index, double s, double t) {
     final tile = tiles[index];
     final x = _coordinate(
             s, tile.left, tile.right, tile.sShift, tile.sMode, tile.sMask),
@@ -876,29 +890,34 @@ class N64Graphics {
       v = v.shl16 | tmem[(offset + 2).mask12].shl8 | tmem[(offset + 3).mask12];
     }
     if (tile.format == 0) {
-      return tile.size == 3
-          ? _textureRgba(v.shr24.mask8.toDouble(), v.shr16.mask8.toDouble(),
-              v.shr8.mask8.toDouble(), v.mask8.toDouble())
-          : _texture16(v);
+      if (tile.size == 3) {
+        _textureRgba(v.shr24.mask8.toDouble(), v.shr16.mask8.toDouble(),
+            v.shr8.mask8.toDouble(), v.mask8.toDouble());
+      } else {
+        _texture16(v);
+      }
+      return;
     }
     if (tile.format == 2) {
       final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
       final p = (2048 + paletteIndex * 8).mask12;
-      return _texture16(tmem[p].shl8 | tmem[p + 1]);
+      _texture16(tmem[p].shl8 | tmem[p + 1]);
+      return;
     }
     if (tile.format == 3) {
       if (tile.size == 2) {
         final intensity = v.shr8.toDouble();
-        return _textureRgba(
-            intensity, intensity, intensity, v.mask8.toDouble());
+        _textureRgba(intensity, intensity, intensity, v.mask8.toDouble());
+        return;
       }
       final intensity = tile.size == 1 ? v.shr4 * 17 : v.shr1.mask3 * 255 / 7,
           alpha = tile.size == 1 ? v.mask4 * 17 : v.mask1 * 255;
-      return _textureRgba(intensity.toDouble(), intensity.toDouble(),
+      _textureRgba(intensity.toDouble(), intensity.toDouble(),
           intensity.toDouble(), alpha.toDouble());
+      return;
     }
     final intensity = tile.size == 0 ? v * 17 : v;
-    return _textureRgba(intensity.toDouble(), intensity.toDouble(),
+    _textureRgba(intensity.toDouble(), intensity.toDouble(),
         intensity.toDouble(), intensity.toDouble());
   }
 
@@ -982,24 +1001,40 @@ class N64Graphics {
     _planCycles = cycles;
   }
 
-  List<double> _combine(List<double> shade, List<double> texture) {
+  /// Runs the colour combiner. The result is the shared [_out], which the next
+  /// call overwrites.
+  _Rgba _combine(_Rgba shade, _Rgba texture) {
+    final out = _out;
     final mode = otherHigh.shr20.mask2;
-    if (mode == 2) return texture;
+    if (mode == 2) {
+      out
+        ..r = texture.r
+        ..g = texture.g
+        ..b = texture.b
+        ..a = texture.a;
+      return out;
+    }
     final cycles = mode == 1 ? 2 : 1;
     if (_planKey0 != combine0 ||
         _planKey1 != combine1 ||
         _planCycles < cycles) {
       _decodeCombiner(cycles);
     }
-    final regs = _regs, plan = _plan, combined = _combined;
+    final regs = _regs, plan = _plan;
     for (var i = 0; i < 4; i++) {
-      combined[i] = 0;
       regs[_regCombined + i] = 0;
-      regs[_regTexture + i] = texture[i];
       regs[_regPrimitive + i] = primitive[i];
-      regs[_regShade + i] = shade[i];
       regs[_regEnvironment + i] = environment[i];
     }
+    regs[_regTexture] = texture.r;
+    regs[_regTexture + 1] = texture.g;
+    regs[_regTexture + 2] = texture.b;
+    regs[_regTexture + 3] = texture.a;
+    regs[_regShade] = shade.r;
+    regs[_regShade + 1] = shade.g;
+    regs[_regShade + 2] = shade.b;
+    regs[_regShade + 3] = shade.a;
+    var r = 0.0, g = 0.0, b = 0.0, a = 0.0;
     for (var cycle = 0; cycle < cycles; cycle++) {
       final base = cycle * 9;
       final oa = plan[base],
@@ -1007,22 +1042,29 @@ class N64Graphics {
           oc = plan[base + 2],
           od = plan[base + 3],
           stepC = plan[base + 4];
-      for (var i = 0; i < 3; i++) {
-        final v = (regs[oa + i] - regs[ob + i]) * regs[oc + i * stepC] / 255 +
-            regs[od + i];
-        combined[i] = v < 0 ? 0 : (v > 255 ? 255 : v);
-      }
-      final v = (regs[plan[base + 5]] - regs[plan[base + 6]]) *
+      var v = (regs[oa] - regs[ob]) * regs[oc] / 255 + regs[od];
+      r = v < 0 ? 0 : (v > 255 ? 255 : v);
+      v = (regs[oa + 1] - regs[ob + 1]) * regs[oc + stepC] / 255 + regs[od + 1];
+      g = v < 0 ? 0 : (v > 255 ? 255 : v);
+      v = (regs[oa + 2] - regs[ob + 2]) * regs[oc + 2 * stepC] / 255 +
+          regs[od + 2];
+      b = v < 0 ? 0 : (v > 255 ? 255 : v);
+      v = (regs[plan[base + 5]] - regs[plan[base + 6]]) *
               regs[plan[base + 7]] /
               255 +
           regs[plan[base + 8]];
-      combined[3] = v < 0 ? 0 : (v > 255 ? 255 : v);
-      // The next cycle reads this cycle's result.
-      for (var i = 0; i < 4; i++) {
-        regs[_regCombined + i] = combined[i];
-      }
+      a = v < 0 ? 0 : (v > 255 ? 255 : v);
+      regs[_regCombined] = r;
+      regs[_regCombined + 1] = g;
+      regs[_regCombined + 2] = b;
+      regs[_regCombined + 3] = a;
     }
-    return combined;
+    out
+      ..r = r
+      ..g = g
+      ..b = b
+      ..a = a;
+    return out;
   }
 
   static int _byte(double v) {
@@ -1030,7 +1072,10 @@ class N64Graphics {
     return r < 0 ? 0 : (r > 255 ? 255 : r);
   }
 
-  bool pixel(int x, int y, List<double> color) {
+  bool pixel(int x, int y, List<double> color) =>
+      _put(x, y, _Rgba(color[0], color[1], color[2], color[3]));
+
+  bool _put(int x, int y, _Rgba color) {
     if (x < scLeft ||
         x >= scRight ||
         x < 0 ||
@@ -1041,13 +1086,14 @@ class N64Graphics {
         y >= 576) {
       return false;
     }
-    if (color[3] < 1) return false;
+    final r = color.r, g = color.g, b = color.b, a = color.a;
+    if (a < 1) return false;
     final size = colorSize == 3 ? 4 : 2,
         at = colorImage + (y * width + x) * size;
     if (at + size > bus.ram.length) return false;
-    var redValue = color[0], greenValue = color[1], blueValue = color[2];
-    if (otherLow.bit14 && color[3] < 255) {
-      final old = u(at, size), alpha = color[3] / 255, inverse = 1 - alpha;
+    var redValue = r, greenValue = g, blueValue = b;
+    if (otherLow.bit14 && a < 255) {
+      final old = u(at, size), alpha = a / 255, inverse = 1 - alpha;
       final oldRed = size == 4
               ? old.shr24.mask8.toDouble()
               : _fiveBit[old.shr11.mask5],
@@ -1091,9 +1137,9 @@ class N64Graphics {
       for (var x = math.max(scLeft, left.ceil());
           x < math.min(scRight, right.ceil());
           x++) {
-        final tex = _texel(tile, s + (flip ? y - top : x - left) * ds,
+        _texel(tile, s + (flip ? y - top : x - left) * ds,
             t + (flip ? x - left : y - top) * dt);
-        pixel(x, y, _combine(_white, tex));
+        _put(x, y, _combine(_whiteColor, _tex));
       }
     }
   }
@@ -1155,12 +1201,12 @@ class N64Graphics {
         } else {
           // The inputs are constant, so the combined colour is the same for
           // every pixel of the rectangle.
-          final color = _combine(_white, _white);
+          final color = _combine(_whiteColor, _whiteColor);
           for (var y = math.max(scTop, y0 ~/ 4);
               y <= math.min(scBottom - 1, y1 ~/ 4);
               y++) {
             for (var x = xStart; x <= xEnd; x++) {
-              pixel(x, y, color);
+              _put(x, y, color);
             }
           }
         }

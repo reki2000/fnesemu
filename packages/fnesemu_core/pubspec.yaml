@@ -8,6 +8,7 @@ environment:
   sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
+  meta: ^1.16.0
   mp_jit_recompiler:
     path: ../mp_jit_recompiler
 
