@@ -518,10 +518,10 @@ final class Sh2Translator {
       final imm = op & 255;
       if (n < 3) {
         final size = 1 << n;
-        write(add(get(gbr), imm * size), r(0), size);
+        write(add(base(gbr - regs), imm * size), r(0), size);
       } else if (n >= 4 && n <= 6) {
         final size = 1 << (n - 4);
-        setR(0, read(add(get(gbr), imm * size), size));
+        setR(0, read(add(base(gbr - regs), imm * size), size));
       } else if (n == 7) {
         setR(0, c(((at + 4) & ~3) + imm * 4));
       } else if (n == 8) {

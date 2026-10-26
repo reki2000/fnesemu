@@ -51,6 +51,9 @@ final class Sh2Jit {
   final bool releaseCodePages;
   late final regs = Uint32List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.regs * 4, 16);
+  // The registers, SR and GBR, which entries are profiled for stable values.
+  late final _observed = Uint32List.view(
+      rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.regs * 4, 18);
   late final state = Uint32List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.sr * 4, 8);
   late Sh2Translator _translator;
@@ -69,8 +72,8 @@ final class Sh2Jit {
               rt.ctx[JitCtx.stop] == 0 &&
               rt.ctx[JitCtx.budget].toSigned(32) > 0)
     ..onObserve = (pc, tag) {
-      _profiles.obtain(pc, tag, _fetch(pc), () => JitEntrySamples(16))
-          .observe(profileMemory ? regs : null);
+      _profiles.obtain(pc, tag, _fetch(pc), () => JitEntrySamples(18))
+          .observe(profileMemory ? _observed : null);
     }
     ..onInstall = (block) {
       _profiles.remove(block.pc, block.tag);
@@ -237,7 +240,7 @@ final class Sh2Jit {
       // Native links carry the failed block's entry PC in the exit tag.
       final at = rt.exitTag;
       _driver.invalidate(at, 0, warm: true);
-      _profiles.obtain(at, 0, _fetch(at), () => JitEntrySamples(16))
+      _profiles.obtain(at, 0, _fetch(at), () => JitEntrySamples(18))
           .disableSpecialization();
     }
     final elapsed = _driver.lastClocks;
@@ -250,7 +253,8 @@ final class Sh2Jit {
     final constants = <int, int>{};
     // Observations select candidates, never permission to bypass a guard.
     if (profileMemory && profile != null && profile.samples >= 2) {
-      for (var n = 0; n < 16; n++) {
+      for (var n = 0; n < 18; n++) {
+        if (n == 16) continue;
         final value = profile.stableValue(n);
         if (value != null &&
             ((value <= 0x3fffffff &&

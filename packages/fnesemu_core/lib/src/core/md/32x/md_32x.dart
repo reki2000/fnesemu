@@ -51,6 +51,8 @@ class Md32x {
             addrMask: _jitAddrMask,
             highMemory: true,
             releaseCodePages: true,
+            macLong: true,
+            macWord: true,
             alignMemory: false,
             stopOnNoStore: sliceClocks == 1)
         : null;
@@ -61,6 +63,8 @@ class Md32x {
             addrMask: _jitAddrMask,
             highMemory: true,
             releaseCodePages: true,
+            macLong: true,
+            macWord: true,
             alignMemory: false,
             stopOnNoStore: sliceClocks == 1);
     ram = owner?.rt.alloc(0x40000) ?? Uint8List(0x40000);
@@ -85,11 +89,13 @@ class Md32x {
         final index = cpu;
         cpus[cpu].jit?.addReadHelper((address, size) {
           final offset = address & 0x1fffffff;
-          // Communication words are plain shared storage with no read effects.
-          // Control, FIFO, video and PWM reads retain their ordinary CPU exits.
+          // Communication words, the H count register and the video registers
+          // are plain state with no read effects. Control, FIFO, palette and
+          // PWM reads retain their ordinary CPU exits.
           return address < 0x40000000 &&
-              offset >= 0x4020 &&
-              offset + size <= 0x4030;
+              (offset >= 0x4020 && offset + size <= 0x4030 ||
+                  offset >= 0x4004 && offset + size <= 0x4006 ||
+                  offset >= 0x4100 && offset + size <= 0x4110);
         },
             (address, size) => switch (size) {
                   1 => readSh8(address, index),

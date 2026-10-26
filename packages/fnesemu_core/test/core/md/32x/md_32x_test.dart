@@ -112,6 +112,38 @@ void main() {
     expect(actual.cpus[0].jit!.compiledClocks, 0);
   }, skip: native ? false : 'No big-endian native backend');
 
+  test('MAC.W and MAC.L match the interpreter with and without saturation', () {
+    for (final saturate in [false, true]) {
+      final expected = Md32x(jit: false), actual = Md32x(jit: true);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      for (final a in [expected, actual]) {
+        final bytes = ByteData.sublistView(a.ram);
+        bytes.setUint16(0, 0x021f); // mac.l @r1+,@r2+
+        bytes.setUint16(2, 0x421f); // mac.w @r1+,@r2+
+        bytes.setUint16(4, 0x4310); // dt r3
+        bytes.setUint16(6, 0x8bfb); // bf 0x06000000
+        bytes.setUint16(8, 0xaffe); // bra 0x06000008
+        bytes.setUint16(10, 9); // nop
+        var seed = 12345;
+        for (var i = 0x100; i < 0x400; i += 4) {
+          seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+          bytes.setUint32(i, seed ^ (seed << 15) & 0xffffffff);
+        }
+        final cpu = a.cpus[0];
+        cpu.pc = 0x06000000;
+        cpu.r[1] = 0x06000100;
+        cpu.r[2] = 0x06000200;
+        cpu.r[3] = 40;
+        cpu.sr = saturate ? 0xf2 : 0xf0;
+        expect(cpu.run(2000), isTrue);
+      }
+      expect(actual.cpus[0].dump(), expected.cpus[0].dump(),
+          reason: 'saturate $saturate');
+      expect(actual.cpus[0].jit!.compiledClocks, greaterThan(0));
+    }
+  }, skip: native ? false : 'No big-endian native backend');
+
   test('stores next to compiled cache code match the interpreter', () {
     final expected = Md32x(jit: false), actual = Md32x(jit: true);
     addTearDown(expected.dispose);
