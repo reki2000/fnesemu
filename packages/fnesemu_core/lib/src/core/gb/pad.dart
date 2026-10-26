@@ -1,4 +1,5 @@
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../util/int.dart';
 import 'bus.dart';
 
@@ -22,53 +23,44 @@ class Pad {
     a,
   ];
 
-  // active low bits: right left up down / a b select start
-  int _directions = 0x0f;
-  int _actions = 0x0f;
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
+
   int _select = 0x30;
+
+  // the levels last seen by [poll]: directions in bits 7-4, actions in 3-0
+  int _sampled = 0xff;
 
   Pad(this._bus);
 
   void reset() {
-    _directions = 0x0f;
-    _actions = 0x0f;
     _select = 0x30;
+    _sampled = _levels();
   }
 
-  static int _dirBit(PadButton k) => switch (k.name) {
-        "right" => 0x01,
-        "left" => 0x02,
-        "up" => 0x04,
-        "down" => 0x08,
-        _ => 0,
-      };
+  // active low bits: right left up down / a b select start
+  int get _directions => _levels() >> 4;
+  int get _actions => _levels() & 0x0f;
 
-  static int _actBit(PadButton k) => switch (k.name) {
-        "A" => 0x01,
-        "B" => 0x02,
-        "Select" => 0x04,
-        "Start" => 0x08,
-        _ => 0,
-      };
-
-  void keyDown(int controllerId, PadButton k) {
-    if (controllerId != 0) {
-      return;
-    }
-    final before = _directions.shl4 | _actions;
-    _directions &= ~_dirBit(k);
-    _actions &= ~_actBit(k);
-    if (before != (_directions.shl4 | _actions)) {
-      _bus.requestInterrupt(Bus.intJoypad);
-    }
+  int _levels() {
+    var v = 0xff;
+    if (source.isPressed(0, PadButton.right)) v &= ~0x10;
+    if (source.isPressed(0, PadButton.left)) v &= ~0x20;
+    if (source.isPressed(0, PadButton.up)) v &= ~0x40;
+    if (source.isPressed(0, PadButton.down)) v &= ~0x80;
+    if (source.isPressed(0, a)) v &= ~0x01;
+    if (source.isPressed(0, b)) v &= ~0x02;
+    if (source.isPressed(0, select)) v &= ~0x04;
+    if (source.isPressed(0, start)) v &= ~0x08;
+    return v;
   }
 
-  void keyUp(int controllerId, PadButton k) {
-    if (controllerId != 0) {
-      return;
-    }
-    _directions |= _dirBit(k);
-    _actions |= _actBit(k);
+  /// samples the buttons, and requests the joypad interrupt when one of them
+  /// went down since the last sample. the core calls it once per scanline.
+  void poll() {
+    final levels = _levels();
+    if (_sampled & ~levels != 0) _bus.requestInterrupt(Bus.intJoypad);
+    _sampled = levels;
   }
 
   int read() {

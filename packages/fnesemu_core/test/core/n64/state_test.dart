@@ -61,7 +61,6 @@ void main() {
       _frames(original, 3);
       // The handler has rearmed Compare, so timer interrupts were taken.
       expect(original.cpu.cop0[11], isNot(5000));
-      original.padDown(0, original.buttons.first);
       final state = original.saveState();
       _frames(original, 4);
 
@@ -71,7 +70,6 @@ void main() {
       expect(restored.dump(), original.dump());
       expect(restored.bus.ram, original.bus.ram);
       expect(restored.bus.mi, original.bus.mi);
-      expect(restored.bus.held, original.bus.held);
       expect(restored.saveState(), original.saveState());
     });
   }
@@ -138,7 +136,6 @@ void main() {
     core.audio.reverb = -9;
     core.cpu.fpu.wide = true;
     core.cpu.fpu.control = 0x800001;
-    core.padDown(0, core.buttons.last);
     final state = core.saveState();
     final copy = _core(false)..loadState(state);
     expect(copy.saveState(), state);

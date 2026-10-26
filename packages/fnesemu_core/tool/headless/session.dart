@@ -10,6 +10,7 @@ import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
@@ -97,6 +98,9 @@ class Session {
   final PadPlayer pad;
   final List<String> buttons;
   final List<PadButton> _pads;
+
+  /// the controller state that the core reads
+  final input = PadState();
   final bool frameRunner;
 
   /// the frames run so far
@@ -110,7 +114,9 @@ class Session {
 
   Session._(this.name, this.core, this.drive, this.pad, this.buttons,
       this.frameRunner)
-      : _pads = core.buttons;
+      : _pads = core.buttons {
+    core.input = input;
+  }
 
   /// loads the media of [o] into the core of [name]; with [recordAudio],
   /// keeps the audio output in [pcm]
@@ -263,7 +269,7 @@ class Session {
       if (b == _pads.length) {
         if (down) core.reset();
       } else {
-        down ? core.padDown(0, _pads[b]) : core.padUp(0, _pads[b]);
+        down ? input.press(0, _pads[b]) : input.release(0, _pads[b]);
       }
     });
   }

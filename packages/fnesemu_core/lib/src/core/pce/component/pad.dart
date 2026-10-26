@@ -1,4 +1,5 @@
 import '../../../pad_button.dart';
+import '../../../pad_source.dart';
 import '../../../util/int.dart';
 
 class Pad {
@@ -15,30 +16,12 @@ class Pad {
 
   static const controllerNum = 5;
 
-  Pad() {
-    isPressed = List.generate(
-      controllerNum,
-      (_) => {for (var e in buttons) e.name: false},
-    );
-  }
-
-  late List<Map<String, bool>> isPressed;
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
 
   bool selectLRDU = false; // else RunSelect12
   bool clear = false;
   int counter = 0;
-
-  void keyDown(int controllerId, PadButton d) {
-    if (0 <= controllerId && controllerId < controllerNum) {
-      isPressed[controllerId][d.name] = true;
-    }
-  }
-
-  void keyUp(int controllerId, PadButton d) {
-    if (0 <= controllerId && controllerId < controllerNum) {
-      isPressed[controllerId][d.name] = false;
-    }
-  }
 
   reset() {
     selectLRDU = false;
@@ -61,7 +44,7 @@ class Pad {
   }
 
   int buttonValue(int id, int bit) =>
-      !isPressed[counter][buttons[id].name]! ? bit : 0;
+      !source.isPressed(counter, buttons[id]) ? bit : 0;
 
   int get port => counter >= controllerNum
       ? 0
@@ -77,7 +60,7 @@ class Pad {
 
   String dump() {
     final joys = buttons.map(
-      (j) => "${j.name}:${isPressed[0][j.name]! ? "*" : "-"}",
+      (j) => "${j.name}:${source.isPressed(0, j) ? "*" : "-"}",
     );
     return "$joys";
   }

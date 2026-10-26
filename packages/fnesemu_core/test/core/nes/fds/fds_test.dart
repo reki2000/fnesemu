@@ -8,6 +8,7 @@ import 'package:fnesemu_core/src/core/nes/nes.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:test/test.dart';
+import '../../pad_helper.dart';
 
 Uint8List disk({int sides = 1, bool header = true}) {
   final result = Uint8List((header ? 16 : 0) + 65500 * sides);
@@ -348,19 +349,24 @@ void main() {
     final mapper = core.bus.mapper as FdsMapper;
     expect(core.buttons[12], Nes.flipDisk);
     expect(core.buttons.sublist(8, 12), everyElement(PadButton.none));
+    // the key is sampled once a frame
+    void frame(Nes nes) => nes.runFrame(nes.scanlinesInFrame);
     core.padDown(0, Nes.flipDisk);
+    frame(core);
     expect(mapper.selectedSide, 1);
-    expect(core.bus.joypad.isPressed.containsKey(Nes.flipDisk), isFalse);
-    core.padDown(0, Nes.flipDisk);
+    frame(core);
     expect(mapper.selectedSide, 1);
     core.padUp(0, Nes.flipDisk);
+    frame(core);
     core.padDown(0, Nes.flipDisk);
+    frame(core);
     expect(mapper.selectedSide, 0);
     core.padUp(0, Nes.flipDisk);
     final single = Nes(diskSystem: true)
       ..setBiosFiles([bios()])
       ..setRom(disk());
     single.padDown(0, Nes.flipDisk);
+    frame(single);
     expect((single.bus.mapper as FdsMapper).selectedSide, 0);
     expect(Nes().buttons, isNot(contains(Nes.flipDisk)));
   });

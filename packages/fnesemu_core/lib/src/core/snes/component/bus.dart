@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../pad_source.dart';
 import '../../../util/int.dart';
 
 import '../rom/snes_file.dart';
@@ -31,7 +32,9 @@ class Bus implements CpuBus {
   late final Dma dma;
   late final Apu apu;
 
-  final pad = SnesPad();
+  final SnesPad pad;
+
+  Bus([PadSource input = const NoPadSource()]) : pad = SnesPad(input);
 
   /// the S-DD1 chip of the cartridge, if any
   Sdd1? sdd1;

@@ -7,6 +7,7 @@ import 'package:fnesemu_core/src/core/sms/sms.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:test/test.dart';
+import '../pad_helper.dart';
 
 // builds a rom image from the code blocks placed at their addresses
 Uint8List _rom(Map<int, List<int>> blocks, {int size = 0x8000}) {

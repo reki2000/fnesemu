@@ -34,7 +34,7 @@ class Snes extends Core {
   List<DebugPatternTable> get patternTables => ppu.debugPatternTables;
 
   Snes() {
-    bus = Bus();
+    bus = Bus(padPort);
     cpu = Cpu(bus);
     ppu = Ppu();
     dma = Dma(bus);
@@ -182,11 +182,6 @@ class Snes extends Core {
     apu.reset();
     bus.onReset();
   }
-
-  @override
-  void padDown(int id, PadButton k) => bus.pad.keyDown(id, k);
-  @override
-  void padUp(int id, PadButton k) => bus.pad.keyUp(id, k);
 
   @override
   List<PadButton> get buttons => SnesPad.buttons;
