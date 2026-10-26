@@ -56,7 +56,7 @@ const mediaUsage = """
   --fast-boot        ps: skip the logo animation of the BIOS
   --fixed-clock      ss: the real time clock always reads 2000-01-01
   --log-cd           ss: log the commands of the CD block
-  --32x-slice-clocks N  32x: CPU quantum (default 32; 1 selects legacy; requires --jit)
+  --32x-slice-clocks N  32x: CPU quantum (default 64; 1 selects legacy; requires --jit)
   --ss-slice-clocks N  ss: experimental CPU quantum (default 64; requires --jit)
   --jit on|off      select native compilation for ps, n64, ss or 32x
   -r, --frame-runner run whole frames inside the core instead of exec()""";
@@ -143,7 +143,7 @@ class Session {
       throw UsageError(
           '--ss-slice-clocks requires ss --jit on|off and a positive value');
     }
-    final expansionSlice = o.integer('--32x-slice-clocks', 32);
+    final expansionSlice = o.integer('--32x-slice-clocks', 64);
     if (o['--32x-slice-clocks'] != null &&
         (name != '32x' || mode == null || expansionSlice <= 0)) {
       throw UsageError(

@@ -40,7 +40,7 @@ class Md32x {
 
   Md32x(
       {bool jit = const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
-      this.sliceClocks = 32,
+      this.sliceClocks = 64,
       bool jitRegisterReads = const bool.fromEnvironment(
           'SH2_JIT_32X_REGISTER_READS',
           defaultValue: true)}) {
@@ -270,7 +270,7 @@ class Md32x {
     _cycles = target;
     if (!enabled || !released) {
       for (final cpu in cpus) {
-        cpu.clocks = target;
+        cpu.setClocks(target);
       }
       return (true, false, false);
     }
@@ -417,7 +417,7 @@ class Md32x {
         if (released && !wasReleased) {
           for (final sh in cpus) {
             sh.reset();
-            sh.clocks = _cycles;
+            sh.setClocks(_cycles);
           }
           _updateInterrupts();
         }

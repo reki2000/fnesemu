@@ -267,8 +267,23 @@ class Sh2OnChip {
     final frtDiv = _frtDivs[tcr.mask2];
     if (frtDiv != 0) {
       _frtSub += clocks;
-      while (_frtSub >= frtDiv) {
-        _frtSub -= frtDiv;
+      var steps = _frtSub ~/ frtDiv;
+      _frtSub -= steps * frtDiv;
+      // Counts up to the next wrap or compare match in one step; the step
+      // that reaches it goes through _frcIncrement.
+      while (steps > 0) {
+        var next = 0x10000 - frc;
+        var toA = (ocra - frc) & 0xffff, toB = (ocrb - frc) & 0xffff;
+        if (toA == 0) toA = 0x10000;
+        if (toB == 0) toB = 0x10000;
+        if (toA < next) next = toA;
+        if (toB < next) next = toB;
+        if (steps < next) {
+          frc += steps;
+          break;
+        }
+        frc += next - 1;
+        steps -= next;
         _frcIncrement();
       }
     }

@@ -159,7 +159,7 @@ class Md extends Core {
       this.expansionBoot = false,
       this.sh2Jit =
           const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
-      this.sh2SliceClocks = 32}) {
+      this.sh2SliceClocks = 64}) {
     if (sh2SliceClocks <= 0) {
       throw RangeError.value(sh2SliceClocks, 'sh2SliceClocks');
     }
