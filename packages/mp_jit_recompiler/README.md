@@ -35,7 +35,7 @@ Run `dart test` for the host backend, `dart test -p chrome --compiler dart2wasm`
 | Document | Owns |
 | --- | --- |
 | [Architecture](../../ARCHITECTURE.md) | Component responsibilities and core state/timing boundaries |
-| [Frontend contracts](FRONTENDS.md) | State, lowering, register allocation and implemented specialization rules |
+| [Japanese hands-on tutorial](TUTORIAL_JA.md) | IR, execution, memory, exits, optimizations and runnable labs |\n| [Frontend contracts](FRONTENDS.md) | State, lowering, register allocation and implemented specialization rules |
 | [Performance guide](OPTIMIZATION.md) | Improvement workflow, metric definitions, diagnostics and acceptance |
 | [ARM64](ARM64.md) | Platform ABI/publication contracts and correctness evidence |
 | [x64 report](PERFORMANCE.md) | Historical backend experiments and results |
