@@ -70,6 +70,41 @@ objdump -d -M intel --no-show-raw-insn \
 - In a hot spot, pass arguments and return values through shared variables (fields of the owner) instead of creating a list or a record per call. The scratch colors `_shade` and `_textureColor` do this. A trial that kept the interpolants `s`, `t`, `1/w` and depth in a shared buffer across the calls of the pixel loop, to cut the live doubles, gave no gain. The loads from the stack were cheap next to the work of the calls.
 - A loop with calls keeps its doubles on the stack, because Dart has no callee-saved floating-point registers. Reduce the number of live doubles across a call, for example by moving the per-pixel state into fields or by splitting the loop at the call.
 
+## SIMD types
+
+`dart:typed_data` has `Int32x4` and `Float64x2`. `Float32x4` rounds to float32, so it changes the output of code that computes in `double` (see the N64 result below). A probe built with `dart compile aot-snapshot` on x64 showed this.
+
+- `Float64x2` operations compile to packed instructions (`subpd`, `mulpd`, `divpd`, `addpd`, `maxpd`, `minpd`). The lane rounding is the same as the scalar IEEE double operation, so a rewrite keeps the hashes equal when the order of operations is kept. Locals stay in registers and nothing is allocated inside a loop.
+- `Int32x4` operations compile to `andps`, `orps` and `paddd`. A value that is returned from a function that is not inlined is allocated (`AllocateInt32x4`).
+- Building a `Float64x2` from two list elements costs two scalar loads and two bounds checks. Store the data in a `Float64x2List` so that one element is one 16-byte load.
+- `Int32x4` has no multiply, no shift, no `splat` and no compare. `Float64x2` has no compare, no `floor` and no conversion to integer. Pixel code that multiplies, shifts by a variable or compares per lane gets no help.
+- There is no gather. Palette and table lookups (`cram`, `rgba[...]`, `_color(index)`) stay scalar.
+- The types do not exist on every target. Check the web build before using them in `fnesemu_core`.
+- A `Float64x2` field of an object is stored inline and unboxed. Assigning it is one 16-byte store, with no allocation.
+- Measured on the N64 in-race scene: `Rgba` held as two `Float64x2` fields (red and green, blue and alpha), the combiner register file as a `Float64x2List`, and the triangle interpolants (color, s and t, depth and 1/w) as four vectors passed to the combiner and `_texel`. The frame time went from about 23.9 ms to 19.6 ms (about 20% less) over three alternating rounds, and the image and audio hashes stayed equal. Passing the data as vectors matters. Packing and unpacking lanes around scalar code would cost the gain.
+- The same N64 change with one `Float32x4` for the color and one for s, t, depth and 1/w was not faster than the `Float64x2` version, although it has half the vectors. Over five alternating rounds it ran at about 24 to 25 ms against 20 to 23 ms. The image hash changed and the screen looked the same, and one test of the combiner that compares with a tolerance of 1e-10 failed. The scalar code around the vectors (lane reads, `withW` for the alpha selectors, the `double` edge weights and the `double` depth buffer) pays for the conversions between float32 and double. A variant that also kept the depth buffer as a `Float32List`, the edge weights as a `Float32x4` and the lookup tables as `Float32List` (the whole per-pixel path in float32) gave the same image hash as the `Float32x4` variant and ran at about 24 to 25 ms, again slower than `Float64x2`. Scalar `double` code cannot be float32 in Dart, so each load and store of a float32 value still converts. Prefer `Float64x2` for code that is written in `double`.
+- Fixed point was tried on the same path and was slower. The colour interpolated in 16.16 integers, the texel, the combiner and the pixel write used 8-bit integers (`Int32List` registers, `(a - b) * c * 257 + 0x8000 >> 16` for the divide by 255), and the coordinates and edges stayed `double`. It ran at a median of 21.4 ms against 18.9 ms for `Float64x2` over six alternating rounds. The screen looked the same and the image hash changed. The integer combiner reads and writes about 30 list elements per pixel, each with a bounds check, where the vector code does a handful of loads and packed operations, and the double to integer conversions of the coordinates stayed. A profile of the `Float64x2` build put 68% of the samples under `triangle`, with `_texel` and `_coordinate` (the `floor`) at 26% and `_put` at 14%.
+- Not measured: the other candidates below.
+
+### Candidates
+
+| Core | Place | Type | Note |
+|---|---|---|---|
+| N64 | `_combine` (`(a - b) * c / 255 + d`, clamp) | `Float64x2` | Four channels are two vectors. The `divpd` keeps the rounding of `/ 255`. Needs the register file as a `Float64x2List`, and the alpha selectors may differ from the color selectors. |
+| N64 | `multiply`, `transform` | `Float64x2` | Vectorize across the output columns and keep the left-to-right sum, so the result is bit-identical. Needs the matrices as a `Float64x2List`. |
+| N64 | Interpolants in `triangle` (`red`, `green`, `blue`, `alpha`, `ss`, `tt`, `divisor`, `dz`) | `Float64x2` | Pairs with their steps halve the live registers of the pixel loop, which the notes above show spilled. `wa` and `wb` and the coverage tests stay scalar. |
+| N64 | `Rgba`, `Vec4` fields | `Float64x2` | Only if the combiner and the interpolation take the vectors. A conversion at every use costs more than it saves. |
+| Saturn | VDP1 `_half`, `_avg` and VDP2 `_add` (saturating add per channel) | scalar SWAR on `int` first | The shift and the compare are missing in `Int32x4`. Several 16-bit or 8-bit fields in one 64-bit `int` with mask and add do the same work without a SIMD type, and the saturation can use the carry bits. Do not use this on a target where `int` is a JavaScript number. |
+| Saturn | VDP2 `_blend`, VDP1 `_gouraud` | none | Multiply by a variable ratio and clamp per channel. Keep scalar. |
+| Saturn | VDP2 rotation (`_rotDot`) | `Float64x2` | The pairs `(xp, yp)` and `(dX, dY)` step together. The `floor` and the conversion to an integer stay scalar per lane, so the gain is small. |
+| 32X | `ExpansionVideo.renderLine`, `color` | none | A lookup in the palette, a switch on the bitmap mode and the priority test per pixel. The 5-bit to 8-bit expansion needs shifts. |
+| MD | `vdp_renderer` pixel loop | none | Priority selection and lookups in `cram`. No arithmetic to vectorize. |
+| PS1 | `Color.mix`, `_span`, textured and Gouraud pixel loops | none | Integer multiply and `~/ width` per channel. Replace the divide by a per-span step (fixed-point stepping) first. That changes the rounding and needs a check of the images. |
+| Audio (N64 RSP audio, SCSP, YM2612) | Mixing and filter loops | none | Gain multiply and clamp per sample. |
+| SH-2, M68000, Z80 and the JIT | Interpreters and dispatch | none | Scalar integer control flow. |
+
+N64 `_combine` and `triangle` are the only places where the type matches the data. Try them first, one at a time, with the checks under "Measuring".
+
 ## Reading the hot spots of the rasterizer
 
 The listing of the triangle loop, the texel fetch and the pixel write showed these points. Several are fixed in the source.

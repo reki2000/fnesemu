@@ -8,11 +8,13 @@ import '../../util/int.dart';
 
 import 'bus.dart';
 
-/// A colour with named channels. Field access needs no bounds check, unlike
-/// an index into a list.
+/// A colour with named channels, held as two vectors: red and green, then
+/// blue and alpha. The combiner and the interpolation pass the vectors.
 final class Rgba {
-  double r, g, b, a;
-  Rgba([this.r = 0, this.g = 0, this.b = 0, this.a = 0]);
+  Float64x2 rg, ba;
+  Rgba([double r = 0, double g = 0, double b = 0, double a = 0])
+      : rg = Float64x2(r, g),
+        ba = Float64x2(b, a);
 
   /// Unpacks 0xRRGGBBAA.
   factory Rgba.fromWord(int v) => Rgba(v.shr24.mask8.toDouble(),
@@ -22,20 +24,30 @@ final class Rgba {
     return Rgba(v[0], v[1], v[2], v[3]);
   }
 
+  double get r => rg.x;
+  double get g => rg.y;
+  double get b => ba.x;
+  double get a => ba.y;
+  set r(double v) => rg = rg.withX(v);
+  set g(double v) => rg = rg.withY(v);
+  set b(double v) => ba = ba.withX(v);
+  set a(double v) => ba = ba.withY(v);
+
   @pragma('vm:prefer-inline')
   void set(double red, double green, double blue, double alpha) {
-    r = red;
-    g = green;
-    b = blue;
-    a = alpha;
+    rg = Float64x2(red, green);
+    ba = Float64x2(blue, alpha);
   }
 
   @pragma('vm:prefer-inline')
-  void copy(Rgba o) => set(o.r, o.g, o.b, o.a);
+  void copy(Rgba o) {
+    rg = o.rg;
+    ba = o.ba;
+  }
+
   void write(StateWriter w) => w.floats([r, g, b, a]);
 }
 
-/// A position or scale of three components.
 final class Vec3 {
   double x, y, z;
   Vec3(this.x, this.y, this.z);
@@ -119,11 +131,7 @@ class N64Graphics {
       shift <= 10 ? 1 / (1 << shift) : (1 << (16 - shift)) * 1.0
   ]);
   void _textureRgba(double red, double green, double blue, double alpha) {
-    _tex
-      ..r = red
-      ..g = green
-      ..b = blue
-      ..a = alpha;
+    _tex.set(red, green, blue, alpha);
   }
 
   void _texture16(int value) => _textureRgba(
@@ -858,20 +866,23 @@ class N64Graphics {
     final waStep = (y2 - y1) / area,
         wbStep = (y0 - y2) / area,
         wcStep = -waStep - wbStep;
-    final colorA = a.color, colorB = b.color, colorC = c.color;
-    final r0 = colorA.r, g0 = colorA.g, b0 = colorA.b, a0 = colorA.a;
-    final r1 = colorB.r, g1 = colorB.g, b1 = colorB.b, a1 = colorB.a;
-    final r2 = colorC.r, g2 = colorC.g, b2 = colorC.b, a2 = colorC.a;
-    final zStep = waStep * z0 + wbStep * z1 + wcStep * z2;
-    final redStep = waStep * r0 + wbStep * r1 + wcStep * r2,
-        greenStep = waStep * g0 + wbStep * g1 + wcStep * g2,
-        blueStep = waStep * b0 + wbStep * b1 + wcStep * b2,
-        alphaStep = waStep * a0 + wbStep * a1 + wcStep * a2;
-    final sa = a.s * i0, sb = b.s * i1, sc = c.s * i2;
-    final ta = a.t * i0, tb = b.t * i1, tc = c.t * i2;
-    final sStep = waStep * sa + wbStep * sb + wcStep * sc,
-        tStep = waStep * ta + wbStep * tb + wcStep * tc,
-        inverseStep = waStep * i0 + wbStep * i1 + wcStep * i2;
+    // The interpolants travel as four vectors: red and green, blue and alpha,
+    // s and t, depth and 1/w.
+    final rg0 = a.color.rg, rg1 = b.color.rg, rg2 = c.color.rg;
+    final ba0 = a.color.ba, ba1 = b.color.ba, ba2 = c.color.ba;
+    final st0 = Float64x2(a.s * i0, a.t * i0),
+        st1 = Float64x2(b.s * i1, b.t * i1),
+        st2 = Float64x2(c.s * i2, c.t * i2);
+    final zi0 = Float64x2(z0, i0),
+        zi1 = Float64x2(z1, i1),
+        zi2 = Float64x2(z2, i2);
+    final vaStep = Float64x2.splat(waStep),
+        vbStep = Float64x2.splat(wbStep),
+        vcStep = Float64x2.splat(wcStep);
+    final rgStep = vaStep * rg0 + vbStep * rg1 + vcStep * rg2,
+        baStep = vaStep * ba0 + vbStep * ba1 + vcStep * ba2,
+        stStep = vaStep * st0 + vbStep * st1 + vcStep * st2,
+        ziStep = vaStep * zi0 + vbStep * zi1 + vcStep * zi2;
     final depthTest = geometry.bit0 && otherLow.bit4,
         depthWrite = geometry.bit0 && otherLow.bit5;
     for (var py = minY; py <= maxY; py++) {
@@ -912,27 +923,22 @@ class N64Graphics {
               ? wb0
               : _edge(x2, y2, x0, y0, startX + 0.5, py + 0.5) / area;
       final wc = 1 - wa - wb;
-      var dz = wa * z0 + wb * z1 + wc * z2,
-          red = wa * r0 + wb * r1 + wc * r2,
-          green = wa * g0 + wb * g1 + wc * g2,
-          blue = wa * b0 + wb * b1 + wc * b2,
-          alpha = wa * a0 + wb * a1 + wc * a2,
-          ss = wa * sa + wb * sb + wc * sc,
-          tt = wa * ta + wb * tb + wc * tc,
-          divisor = wa * i0 + wb * i1 + wc * i2;
+      final va = Float64x2.splat(wa),
+          vb = Float64x2.splat(wb),
+          vc = Float64x2.splat(wc);
+      var rg = va * rg0 + vb * rg1 + vc * rg2,
+          ba = va * ba0 + vb * ba1 + vc * ba2,
+          st = va * st0 + vb * st1 + vc * st2,
+          zi = va * zi0 + vb * zi1 + vc * zi2;
       for (var px = startX;
           px <= endX;
           px++,
           wa += waStep,
           wb += wbStep,
-          dz += zStep,
-          red += redStep,
-          green += greenStep,
-          blue += blueStep,
-          alpha += alphaStep,
-          ss += sStep,
-          tt += tStep,
-          divisor += inverseStep) {
+          rg += rgStep,
+          ba += baStep,
+          st += stStep,
+          zi += ziStep) {
         // Re-evaluate coverage near an edge: accumulated roundoff must not
         // introduce cracks in adjacent triangles sharing that edge.
         var inside = wa >= 0 && wb >= 0 && 1 - wa - wb >= 0;
@@ -945,19 +951,17 @@ class N64Graphics {
         }
         if (!inside) continue;
         final at = py * width + px;
-        if (depthTest && dz > depthBuffer[at]) {
+        if (depthTest && zi.x > depthBuffer[at]) {
           continue;
         }
         _shade
-          ..r = red
-          ..g = green
-          ..b = blue
-          ..a = alpha;
-        if (textureOn) _texel(activeTile, ss / divisor, tt / divisor);
+          ..rg = rg
+          ..ba = ba;
+        if (textureOn) _texel(activeTile, st / Float64x2.splat(zi.y));
         final written =
             _put(px, py, _combine(_shade, textureOn ? _tex : _whiteColor));
         // Rejected transparent texels must not occlude later geometry.
-        if (written && depthWrite) depthBuffer[at] = dz;
+        if (written && depthWrite) depthBuffer[at] = zi.x;
       }
     }
   }
@@ -965,7 +969,7 @@ class N64Graphics {
   /// Test inspection returns a snapshot; the rasterizer uses private scratch.
   @visibleForTesting
   Rgba texel(int index, double s, double t) {
-    _texel(index, s, t);
+    _texel(index, Float64x2(s, t));
     return Rgba()..copy(_tex);
   }
 
@@ -992,12 +996,12 @@ class N64Graphics {
   }
 
   /// Writes the texel into [_tex].
-  void _texel(int index, double s, double t) {
+  void _texel(int index, Float64x2 st) {
     final tile = tiles[index];
     final x = _coordinate(
-            s, tile.left, tile.right, tile.sShift, tile.sMode, tile.sMask),
+            st.x, tile.left, tile.right, tile.sShift, tile.sMode, tile.sMask),
         y = _coordinate(
-            t, tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
+            st.y, tile.top, tile.bottom, tile.tShift, tile.tMode, tile.tMask);
     final row = tile.line * 8;
     final offset = (tile.tmem * 8 + y * row + x * (4 << tile.size) ~/ 8).mask12;
     var v = tmem[offset];
@@ -1043,16 +1047,19 @@ class N64Graphics {
 
   // The combiner inputs are decoded once per register value into offsets of
   // [_regs]. A constant input points at the zero / 255 rows. The alpha
-  // selectors of the C input read channel 3 whatever the colour channel is,
-  // which is a step of 0.
+  // selectors of the C input read the alpha lane whatever the colour channel
+  // is, which is a step of 0.
+  // A register is two vectors: red and green, then blue and alpha.
   static const _regCombined = 0,
-      _regTexture = 4,
-      _regPrimitive = 8,
-      _regShade = 12,
-      _regEnvironment = 16,
-      _regZero = 20,
-      _regFull = 24;
-  final _regs = Float64List(28)..fillRange(24, 28, 255);
+      _regTexture = 2,
+      _regPrimitive = 4,
+      _regShade = 6,
+      _regEnvironment = 8,
+      _regZero = 10,
+      _regFull = 12;
+  final _regs = Float64x2List(14)
+    ..[_regFull] = Float64x2.splat(255)
+    ..[_regFull + 1] = Float64x2.splat(255);
   // Per cycle: rgb A, B, C, D offsets, C step, and alpha A, B, C, D offsets.
   final _plan = Int32List(2 * 9);
   int _planKey0 = -1, _planKey1 = -1, _planCycles = 0;
@@ -1071,13 +1078,13 @@ class N64Graphics {
   }
 
   static int _alphaOffset(int selector) => switch (selector) {
-        0 => _regCombined + 3,
-        1 || 2 => _regTexture + 3,
-        3 => _regPrimitive + 3,
-        4 => _regShade + 3,
-        5 => _regEnvironment + 3,
-        6 => _regFull,
-        _ => _regZero
+        0 => _regCombined + 1,
+        1 || 2 => _regTexture + 1,
+        3 => _regPrimitive + 1,
+        4 => _regShade + 1,
+        5 => _regEnvironment + 1,
+        6 => _regFull + 1,
+        _ => _regZero + 1
       };
 
   void _decodeCombiner(int cycles) {
@@ -1093,12 +1100,12 @@ class N64Graphics {
       if (cc >= 7) {
         _plan[base + 4] = 0;
         _plan[base + 2] = switch (cc) {
-          7 => _regCombined + 3,
-          8 || 9 => _regTexture + 3,
-          10 => _regPrimitive + 3,
-          11 => _regShade + 3,
-          12 => _regEnvironment + 3,
-          _ => _regZero
+          7 => _regCombined + 1,
+          8 || 9 => _regTexture + 1,
+          10 => _regPrimitive + 1,
+          11 => _regShade + 1,
+          12 => _regEnvironment + 1,
+          _ => _regZero + 1
         };
       } else {
         _plan[base + 4] = 1;
@@ -1125,10 +1132,8 @@ class N64Graphics {
     final mode = otherHigh.shr20.mask2;
     if (mode == 2) {
       out
-        ..r = texture.r
-        ..g = texture.g
-        ..b = texture.b
-        ..a = texture.a;
+        ..rg = texture.rg
+        ..ba = texture.ba;
       return out;
     }
     final cycles = mode == 1 ? 2 : 1;
@@ -1138,56 +1143,45 @@ class N64Graphics {
       _decodeCombiner(cycles);
     }
     final regs = _regs, plan = _plan;
-    regs[_regCombined] = 0;
-    regs[_regCombined + 1] = 0;
-    regs[_regCombined + 2] = 0;
-    regs[_regCombined + 3] = 0;
-    regs[_regPrimitive] = primitive.r;
-    regs[_regPrimitive + 1] = primitive.g;
-    regs[_regPrimitive + 2] = primitive.b;
-    regs[_regPrimitive + 3] = primitive.a;
-    regs[_regEnvironment] = environment.r;
-    regs[_regEnvironment + 1] = environment.g;
-    regs[_regEnvironment + 2] = environment.b;
-    regs[_regEnvironment + 3] = environment.a;
-    regs[_regTexture] = texture.r;
-    regs[_regTexture + 1] = texture.g;
-    regs[_regTexture + 2] = texture.b;
-    regs[_regTexture + 3] = texture.a;
-    regs[_regShade] = shade.r;
-    regs[_regShade + 1] = shade.g;
-    regs[_regShade + 2] = shade.b;
-    regs[_regShade + 3] = shade.a;
-    var r = 0.0, g = 0.0, b = 0.0, a = 0.0;
+    final zero = Float64x2.zero(), full = Float64x2.splat(255);
+    regs[_regCombined] = zero;
+    regs[_regCombined + 1] = zero;
+    regs[_regPrimitive] = primitive.rg;
+    regs[_regPrimitive + 1] = primitive.ba;
+    regs[_regEnvironment] = environment.rg;
+    regs[_regEnvironment + 1] = environment.ba;
+    regs[_regTexture] = texture.rg;
+    regs[_regTexture + 1] = texture.ba;
+    regs[_regShade] = shade.rg;
+    regs[_regShade + 1] = shade.ba;
+    var rg = zero, ba = zero;
     for (var cycle = 0; cycle < cycles; cycle++) {
       final base = cycle * 9;
       final oa = plan[base],
           ob = plan[base + 1],
           oc = plan[base + 2],
-          od = plan[base + 3],
-          stepC = plan[base + 4];
-      var v = (regs[oa] - regs[ob]) * regs[oc] / 255 + regs[od];
-      r = v < 0 ? 0 : (v > 255 ? 255 : v);
-      v = (regs[oa + 1] - regs[ob + 1]) * regs[oc + stepC] / 255 + regs[od + 1];
-      g = v < 0 ? 0 : (v > 255 ? 255 : v);
-      v = (regs[oa + 2] - regs[ob + 2]) * regs[oc + 2 * stepC] / 255 +
-          regs[od + 2];
-      b = v < 0 ? 0 : (v > 255 ? 255 : v);
-      v = (regs[plan[base + 5]] - regs[plan[base + 6]]) *
-              regs[plan[base + 7]] /
-              255 +
-          regs[plan[base + 8]];
-      a = v < 0 ? 0 : (v > 255 ? 255 : v);
-      regs[_regCombined] = r;
-      regs[_regCombined + 1] = g;
-      regs[_regCombined + 2] = b;
-      regs[_regCombined + 3] = a;
+          od = plan[base + 3];
+      final Float64x2 c;
+      final double cb;
+      if (plan[base + 4] != 0) {
+        c = regs[oc];
+        cb = regs[oc + 1].x;
+      } else {
+        cb = regs[oc].y;
+        c = Float64x2.splat(cb);
+      }
+      rg = ((regs[oa] - regs[ob]) * c / full + regs[od]).max(zero).min(full);
+      final a1 = Float64x2(regs[oa + 1].x, regs[plan[base + 5]].y),
+          b1 = Float64x2(regs[ob + 1].x, regs[plan[base + 6]].y),
+          c1 = Float64x2(cb, regs[plan[base + 7]].y),
+          d1 = Float64x2(regs[od + 1].x, regs[plan[base + 8]].y);
+      ba = ((a1 - b1) * c1 / full + d1).max(zero).min(full);
+      regs[_regCombined] = rg;
+      regs[_regCombined + 1] = ba;
     }
     out
-      ..r = r
-      ..g = g
-      ..b = b
-      ..a = a;
+      ..rg = rg
+      ..ba = ba;
     return out;
   }
 
@@ -1260,8 +1254,10 @@ class N64Graphics {
       for (var x = math.max(scLeft, left.ceil());
           x < math.min(scRight, right.ceil());
           x++) {
-        _texel(tile, s + (flip ? y - top : x - left) * ds,
-            t + (flip ? x - left : y - top) * dt);
+        _texel(
+            tile,
+            Float64x2(s + (flip ? y - top : x - left) * ds,
+                t + (flip ? x - left : y - top) * dt));
         _put(x, y, _combine(_whiteColor, _tex));
       }
     }
