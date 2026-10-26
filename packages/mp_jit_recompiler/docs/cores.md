@@ -29,6 +29,10 @@ PS1 enables recompilation by default. The RAM mapping mirrors 2MiB over the firs
 
 N64 blocks use native i64 values, big-endian memory, and register and FPU views shared with the CPU interpreter. Entry tags distinguish the FPU register layout and COP1 availability. Aligned ordinary-memory accesses can remain compiled. Device and TLB accesses, faults and unsupported operations return before effects.
 
+### Integer coverage
+
+Besides the integer ALU, shifts, branches and aligned memory access, the frontend translates MULT, MULTU, MFHI, MFLO, MTHI and MTLO. HI and LO live in the register storage that the interpreter shares (`N64Registers`), so exits and the interpreter see them without copying. The divides, the 64-bit multiplies and the COP0 moves still use the CPU fallback.
+
 ### COP1 coverage
 
 The default native path supports transfers, aligned memory access, branches, ADD/SUB/MUL, finite C.EQ/C.LT/C.LE comparisons, supported word rounding and conversion, CVT.S from double and CVT.D from single. Nonfinite operands, out-of-range word conversions and unsupported rounding modes use CPU fallback. Additional architectural floating-point exceptions and rounding modes are not implemented.
