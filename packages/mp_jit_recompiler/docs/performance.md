@@ -10,6 +10,8 @@ Optimize representative `runFrame` execution on the target native host. The usef
 4. For specialization, observe cold execution before compiling. Repeated observations select likely constants or regions, and guards and invalidation establish safety. Keep a generic path for unstable sites and bound profile storage and variants.
 5. Compare uninstrumented variants over equivalent frames, check execution and media output, and report both elapsed time and native execution metrics. Keep the change only if the reproducible benefit justifies its code, compilation and maintenance costs.
 
+A native entry is cheap: removing a third of them by translating more instructions did not change host time measurably on a 3D scene. Translation and installation work, by contrast, showed up directly, so check `repeatInstallsAtRetainedSites` in the compilation statistics before looking at generated code.
+
 Increasing a translation limit cannot remove MMIO, unsupported-slot or scheduler exits. A target such as 20-50 guest instructions per block is a hypothesis, not a correctness rule or a substitute for measuring useful work per native invocation. Native links can amortize many short blocks within one invocation without enlarging each block.
 
 ## Observe first, specialize with guards

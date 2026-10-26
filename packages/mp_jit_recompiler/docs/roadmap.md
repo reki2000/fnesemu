@@ -2,7 +2,14 @@
 
 This document records queued proposals, not authorization to change scheduling. Measure each behavior change separately from structural refactoring. The implemented behavior is described in the other documents of this package. Select the next change from measurements rather than from the order of this list, and apply the [acceptance protocol](performance.md#measurement-and-acceptance) to each one. Avoid generic API surface solely for a speculative optimization.
 
-The proposals below are grouped by the part of the execution path they change. Section "Candidates by expected benefit" ranks them. The ranking is an estimate from reading the generated code, not a measurement, and the measurement that decides each candidate is listed with it.
+The proposals below are grouped by the part of the execution path they change. Section "Candidates by expected benefit" ranks them. The ranking is an estimate from reading the generated code, and the measurement that decides each candidate is listed with it.
+
+## What measurements changed
+
+- A dispatch-table miss on an installed block used to translate the block again and replace it. This was the largest avoidable cost found on N64 and is fixed; see [Diagnostics](diagnostics.md#compilation-statistics) for the signature.
+- Cutting native entries by about a third, by translating the N64 multiplies and HI/LO moves, left host time within the noise. A host round trip costs well under a microsecond, so removing round trips is worth little unless there are millions of them per second.
+- On a 3D scene the compiled code covered a small share of the guest clocks and the host time was dominated by work outside the CPU core. The block-level candidates below (1 to 3, 6) can only gain a fraction of that small share. Take a host profile of the target scene before starting them.
+- Dynamic-table conflicts caused about a tenth of the misses on a scene that was measured, which is too few to matter. Candidate 7 is therefore low priority until a workload shows more.
 
 ## Current cost structure
 
@@ -26,10 +33,10 @@ The following facts about the x86-64 code generator bound what a candidate can g
 | 4 | Direct patched links (Dispatch) | Removes the slot load and indirect jump per chained block | Medium; invalidation must unpatch, and the macOS write-protection toggle applies | Link-slot share of block entry cost |
 | 5 | Cheaper block entry (Dispatch) | Fewer memory compares per block; matters for short blocks | Medium; stop and budget semantics are shared by all runtimes | Mean executed block cycles from the block profile |
 | 6 | Wider code guards (Memory access) | One compare for two or four code words | Low; x86-64 and ARM64 only | Guard count per block |
-| 7 | Inline cache for dynamic jumps (Dispatch) | Fewer table searches and host exits for returns and indirect calls | Medium; adds per-site state | `linkMiss` and dynamic-table miss counts from the exit profile |
+| 7 | Inline cache and a less conflicting table for dynamic jumps (Dispatch) | Fewer table searches and host exits for returns and indirect calls | Medium; adds per-site state | Dynamic-table miss counts; about a tenth of the misses on a measured N64 scene |
 | 8 | ARM64 register allocation (Backends) | Likely the largest ARM64 gain | High; a second allocator | A native ARM64 host baseline |
 | 9 | Wasm block batching (Backends) | Fewer module instantiations and dispatcher round trips | High | Compile-time and cache-clear counts on the Web |
-| 10 | Frontend coverage (Frontends) | Fewer CPU fallbacks | Per instruction | Exit profile by opcode |
+| 10 | Frontend coverage (Frontends) | Fewer CPU fallbacks, which pays only when round trips are frequent | Per instruction | Exit profile by opcode, then host time |
 | 11 | Typed host accessors for the hot context words (Dispatch) | Fewer virtual calls and bounds checks per batch, one place for the signed budget | Low; host side only | Host time per batch outside the native call |
 
 Candidates 1 to 3 change only generated code for a block, so they carry the least risk to scheduling. Candidates 4 to 7 change the dispatch contract and need the full acceptance protocol.
