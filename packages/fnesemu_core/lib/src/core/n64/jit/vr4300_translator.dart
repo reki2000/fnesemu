@@ -3,8 +3,7 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// Each GPR is one i64 SSA value; word results are truncated and
 /// sign-extended explicitly.
 final class Vr4300Translator {
-  static const defaultMaxInstructions =
-      int.fromEnvironment('N64_JIT_BLOCK_SIZE', defaultValue: 24);
+  static const defaultMaxInstructions = 24;
   static const ctxRegs = JitCtx.user;
   static const interpret = JitReason.user;
   static const ctxFpu = ctxRegs + 64;
@@ -60,9 +59,11 @@ final class Vr4300Translator {
 
   IrExit _snapshot(int pc, int spent,
           {int reason = interpret, bool link = false}) =>
-      IrExit(reason, pc, tag: _tag, spent: spent, link: link, stores: [
-        for (final r in _dirty) (ctxRegs + r * 2, _wideRegs[r]!)
-      ]);
+      IrExit(reason, pc,
+          tag: _tag,
+          spent: spent,
+          link: link,
+          stores: [for (final r in _dirty) (ctxRegs + r * 2, _wideRegs[r]!)]);
   void _flush() {
     for (final r in _dirty) {
       b.ctxStore(ctxRegs + r * 2, _wideRegs[r]!);
@@ -434,8 +435,7 @@ final class Vr4300Translator {
         case 1:
           _put64(t, b.ctxLoad(at, type: IrType.i64));
         case 2:
-          _word(t,
-              d == 31 ? b.ctxLoad(ctxFpuControl) : _c(0x511));
+          _word(t, d == 31 ? b.ctxLoad(ctxFpuControl) : _c(0x511));
         case 4:
           b.ctxStore(at, _low(t));
         case 5:

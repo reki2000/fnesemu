@@ -82,14 +82,10 @@ class N64 extends Core {
       bool jitStatistics = const bool.fromEnvironment('N64_JIT_STATS'),
       int? compileThreshold,
       int? maxBlockInstructions,
-      bool jitCop1 =
-          const bool.fromEnvironment('N64_JIT_COP1', defaultValue: true),
-      bool jitNativeFpu =
-          const bool.fromEnvironment('N64_JIT_NATIVE_FPU', defaultValue: true),
-      bool jitFpu =
-          const bool.fromEnvironment('N64_JIT_FPU', defaultValue: false),
-      bool inlineJumps = const bool.fromEnvironment('N64_JIT_INLINE_JUMPS',
-          defaultValue: false)})
+      bool jitCop1 = true,
+      bool jitNativeFpu = true,
+      bool jitFpu = false,
+      bool inlineJumps = false})
       : this._(jit
             ? N64Jit.create(
                 compileThreshold: compileThreshold,

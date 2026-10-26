@@ -41,9 +41,7 @@ class Md32x {
   Md32x(
       {bool jit = const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
       this.sliceClocks = 64,
-      bool jitRegisterReads = const bool.fromEnvironment(
-          'SH2_JIT_32X_REGISTER_READS',
-          defaultValue: true)}) {
+      bool jitRegisterReads = true}) {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
     final owner = jit
         ? Sh2Jit.create(

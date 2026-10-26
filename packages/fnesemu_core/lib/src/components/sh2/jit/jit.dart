@@ -19,7 +19,8 @@ final class Sh2Jit {
     if (reason == Sh2Translator.interpret) {
       final opcode = diagnostics.opcodeAt(pc);
       if (opcode != null &&
-          !Sh2Translator.supported(opcode, macLong: macLong, macWord: macWord)) {
+          !Sh2Translator.supported(opcode,
+              macLong: macLong, macWord: macWord)) {
         return 'unsupportedInstructionOrSlot';
       }
     }
@@ -110,8 +111,7 @@ final class Sh2Jit {
       int maxInstructions = 24,
       int addrMask = 0x07ffffff,
       bool alignMemory = true,
-      bool profileMemory = const bool.fromEnvironment('SH2_JIT_PROFILE_MEMORY',
-          defaultValue: true),
+      bool profileMemory = true,
       bool macLong = false,
       bool macWord = false,
       bool idleGuards = false,
@@ -133,11 +133,7 @@ final class Sh2Jit {
     return Sh2Jit._(
         rt,
         native,
-        compileThreshold ??
-            (native
-                ? const int.fromEnvironment('SH2_JIT_COMPILE_THRESHOLD',
-                    defaultValue: 10)
-                : 1),
+        compileThreshold ?? (native ? 10 : 1),
         maxInstructions,
         alignMemory,
         stopOnNoStore,
