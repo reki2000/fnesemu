@@ -946,13 +946,17 @@ class N64Graphics {
           zi += ziStep) {
         // Re-evaluate coverage near an edge: accumulated roundoff must not
         // introduce cracks in adjacent triangles sharing that edge.
-        var inside = wa >= 0 && wb >= 0 && 1 - wa - wb >= 0;
-        if (wa.abs() < 1e-10 ||
-            wb.abs() < 1e-10 ||
-            (1 - wa - wb).abs() < 1e-10) {
-          final exactA = _edge(x1, y1, x2, y2, px + 0.5, py + 0.5) * invArea,
-              exactB = _edge(x2, y2, x0, y0, px + 0.5, py + 0.5) * invArea;
-          inside = exactA >= 0 && exactB >= 0 && 1 - exactA - exactB >= 0;
+        // Clearly inside needs no exact test. This is the whole path except
+        // within 1e-10 of an edge, and gives the same answer as the full test.
+        final wc = 1 - wa - wb;
+        var inside = true;
+        if (!(wa > 1e-10 && wb > 1e-10 && wc > 1e-10)) {
+          inside = wa >= 0 && wb >= 0 && wc >= 0;
+          if (wa.abs() < 1e-10 || wb.abs() < 1e-10 || wc.abs() < 1e-10) {
+            final exactA = _edge(x1, y1, x2, y2, px + 0.5, py + 0.5) * invArea,
+                exactB = _edge(x2, y2, x0, y0, px + 0.5, py + 0.5) * invArea;
+            inside = exactA >= 0 && exactB >= 0 && 1 - exactA - exactB >= 0;
+          }
         }
         if (!inside) continue;
         final at = py * width + px;
