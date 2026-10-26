@@ -838,17 +838,18 @@ class N64Graphics {
     final ca = a.clip, cb = b.clip, cc = c.clip;
     final wA = ca.w, wB = cb.w, wC = cc.w;
     if (wA.abs() < 1e-9 || wB.abs() < 1e-9 || wC.abs() < 1e-9) return;
+    final i0 = 1 / wA, i1 = 1 / wB, i2 = 1 / wC;
     final sx = scale.x, sy = scale.y, sz = scale.z;
     final tx = translate.x, ty = translate.y, tz = translate.z;
-    final x0 = ca.x / wA * sx + tx,
-        x1 = cb.x / wB * sx + tx,
-        x2 = cc.x / wC * sx + tx;
-    final y0 = -ca.y / wA * sy + ty,
-        y1 = -cb.y / wB * sy + ty,
-        y2 = -cc.y / wC * sy + ty;
-    final z0 = ca.z / wA * sz + tz,
-        z1 = cb.z / wB * sz + tz,
-        z2 = cc.z / wC * sz + tz;
+    final x0 = ca.x * i0 * sx + tx,
+        x1 = cb.x * i1 * sx + tx,
+        x2 = cc.x * i2 * sx + tx;
+    final y0 = -ca.y * i0 * sy + ty,
+        y1 = -cb.y * i1 * sy + ty,
+        y2 = -cc.y * i2 * sy + ty;
+    final z0 = ca.z * i0 * sz + tz,
+        z1 = cb.z * i1 * sz + tz,
+        z2 = cc.z * i2 * sz + tz;
     final area = _edge(x0, y0, x1, y1, x2, y2);
     if (area.abs() < 1e-8) return;
     if ((geometry.bit13 && area < 0) || (geometry.bit12 && area > 0)) {
@@ -861,11 +862,15 @@ class N64Graphics {
     final minY = math.max(scTop, math.min(y0, math.min(y1, y2)).floor()),
         maxY = math.min(
             math.min(scBottom, 576) - 1, math.max(y0, math.max(y1, y2)).ceil());
-    final i0 = 1 / wA, i1 = 1 / wB, i2 = 1 / wC;
     final depthBuffer = depth;
-    final waStep = (y2 - y1) / area,
-        wbStep = (y0 - y2) / area,
+    final invArea = 1 / area;
+    final waStep = (y2 - y1) * invArea,
+        wbStep = (y0 - y2) * invArea,
         wcStep = -waStep - wbStep;
+    // Infinite for a zero step, which the row narrowing does not read.
+    final invWaStep = 1 / waStep,
+        invWbStep = 1 / wbStep,
+        invWcStep = 1 / wcStep;
     // The interpolants travel as four vectors: red and green, blue and alpha,
     // s and t, depth and 1/w.
     final rg0 = a.color.rg, rg1 = b.color.rg, rg2 = c.color.rg;
@@ -889,28 +894,28 @@ class N64Graphics {
       // Narrow the row to the pixels that can be covered (a weight w + step * k
       // must reach zero within the edge tolerance), with a margin of one pixel;
       // the per-pixel coverage test below stays authoritative.
-      final wa0 = _edge(x1, y1, x2, y2, minX + 0.5, py + 0.5) / area,
-          wb0 = _edge(x2, y2, x0, y0, minX + 0.5, py + 0.5) / area;
+      final wa0 = _edge(x1, y1, x2, y2, minX + 0.5, py + 0.5) * invArea,
+          wb0 = _edge(x2, y2, x0, y0, minX + 0.5, py + 0.5) * invArea;
       var first = 0, last = maxX - minX;
       if (waStep > 0) {
-        first = math.max(first, ((-1e-9 - wa0) / waStep).floor() - 1);
+        first = math.max(first, ((-1e-9 - wa0) * invWaStep).floor() - 1);
       } else if (waStep < 0) {
-        last = math.min(last, ((wa0 + 1e-9) / -waStep).ceil() + 1);
+        last = math.min(last, ((wa0 + 1e-9) * -invWaStep).ceil() + 1);
       } else if (wa0 < -1e-9) {
         last = -1;
       }
       if (wbStep > 0) {
-        first = math.max(first, ((-1e-9 - wb0) / wbStep).floor() - 1);
+        first = math.max(first, ((-1e-9 - wb0) * invWbStep).floor() - 1);
       } else if (wbStep < 0) {
-        last = math.min(last, ((wb0 + 1e-9) / -wbStep).ceil() + 1);
+        last = math.min(last, ((wb0 + 1e-9) * -invWbStep).ceil() + 1);
       } else if (wb0 < -1e-9) {
         last = -1;
       }
       final wc0 = 1 - wa0 - wb0;
       if (wcStep > 0) {
-        first = math.max(first, ((-1e-9 - wc0) / wcStep).floor() - 1);
+        first = math.max(first, ((-1e-9 - wc0) * invWcStep).floor() - 1);
       } else if (wcStep < 0) {
-        last = math.min(last, ((wc0 + 1e-9) / -wcStep).ceil() + 1);
+        last = math.min(last, ((wc0 + 1e-9) * -invWcStep).ceil() + 1);
       } else if (wc0 < -1e-9) {
         last = -1;
       }
@@ -918,10 +923,10 @@ class N64Graphics {
       final startX = minX + first, endX = minX + last;
       var wa = first == 0
               ? wa0
-              : _edge(x1, y1, x2, y2, startX + 0.5, py + 0.5) / area,
+              : _edge(x1, y1, x2, y2, startX + 0.5, py + 0.5) * invArea,
           wb = first == 0
               ? wb0
-              : _edge(x2, y2, x0, y0, startX + 0.5, py + 0.5) / area;
+              : _edge(x2, y2, x0, y0, startX + 0.5, py + 0.5) * invArea;
       final wc = 1 - wa - wb;
       final va = Float64x2.splat(wa),
           vb = Float64x2.splat(wb),
@@ -945,8 +950,8 @@ class N64Graphics {
         if (wa.abs() < 1e-10 ||
             wb.abs() < 1e-10 ||
             (1 - wa - wb).abs() < 1e-10) {
-          final exactA = _edge(x1, y1, x2, y2, px + 0.5, py + 0.5) / area,
-              exactB = _edge(x2, y2, x0, y0, px + 0.5, py + 0.5) / area;
+          final exactA = _edge(x1, y1, x2, y2, px + 0.5, py + 0.5) * invArea,
+              exactB = _edge(x2, y2, x0, y0, px + 0.5, py + 0.5) * invArea;
           inside = exactA >= 0 && exactB >= 0 && 1 - exactA - exactB >= 0;
         }
         if (!inside) continue;
@@ -1042,7 +1047,9 @@ class N64Graphics {
         intensity.toDouble(), intensity.toDouble());
   }
 
-  // RGB equation: (A - B) * C / 255 + D. C has additional alpha selectors.
+  static const _inv255 = 1 / 255;
+
+  // RGB equation: (A - B) * C * (1 / 255) + D. C has alpha selectors too.
   static const _rgbInputA = 0, _rgbInputB = 1, _rgbInputC = 2, _rgbInputD = 3;
 
   // The combiner inputs are decoded once per register value into offsets of
@@ -1143,7 +1150,9 @@ class N64Graphics {
       _decodeCombiner(cycles);
     }
     final regs = _regs, plan = _plan;
-    final zero = Float64x2.zero(), full = Float64x2.splat(255);
+    final zero = Float64x2.zero(),
+        full = Float64x2.splat(255),
+        inv255 = Float64x2.splat(_inv255);
     regs[_regCombined] = zero;
     regs[_regCombined + 1] = zero;
     regs[_regPrimitive] = primitive.rg;
@@ -1170,12 +1179,12 @@ class N64Graphics {
         cb = regs[oc].y;
         c = Float64x2.splat(cb);
       }
-      rg = ((regs[oa] - regs[ob]) * c / full + regs[od]).max(zero).min(full);
+      rg = ((regs[oa] - regs[ob]) * c * inv255 + regs[od]).max(zero).min(full);
       final a1 = Float64x2(regs[oa + 1].x, regs[plan[base + 5]].y),
           b1 = Float64x2(regs[ob + 1].x, regs[plan[base + 6]].y),
           c1 = Float64x2(cb, regs[plan[base + 7]].y),
           d1 = Float64x2(regs[od + 1].x, regs[plan[base + 8]].y);
-      ba = ((a1 - b1) * c1 / full + d1).max(zero).min(full);
+      ba = ((a1 - b1) * c1 * inv255 + d1).max(zero).min(full);
       regs[_regCombined] = rg;
       regs[_regCombined + 1] = ba;
     }
@@ -1211,7 +1220,7 @@ class N64Graphics {
     if (at + size > bus.ram.length) return false;
     var redValue = r, greenValue = g, blueValue = b;
     if (otherLow.bit14 && a < 255) {
-      final old = u(at, size), alpha = a / 255, inverse = 1 - alpha;
+      final old = u(at, size), alpha = a * _inv255, inverse = 1 - alpha;
       final oldRed =
               size == 4 ? _byte[old.shr24.mask8] : _fiveBit[old.shr11.mask5],
           oldGreen =

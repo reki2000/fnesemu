@@ -44,6 +44,7 @@ objdump -d -M intel --no-show-raw-insn \
 6. Each loop back-edge has a stack overflow check. Values live across calls are spilled to the stack.
 7. `setAll` and `fillRange` are not inlined and cost a call. Assign small fixed counts by hand.
 8. `x / 255` stays a `divsd`. Replacing it with `* (1 / 255)` changes rounding, so the compiler does not do it.
+   The project allows the changed rounding, so write the reciprocal by hand: a `static const _inv255 = 1 / 255` in the combiner, `1 / area` and `1 / w` once per triangle, and the reciprocals of the edge steps once per triangle for the row narrowing. On the N64 scene this gave no gain above the noise (a median of 18.9 ms against 19.8 ms in one run, the reverse order in an earlier run) and the image and audio hashes stayed equal. A division by a power of two is already exact as a multiply. Keep one division of `s, t` by `1/w` per pixel, because `divpd` on two lanes costs about the same as the scalar divide that a reciprocal needs.
 
 ## Guidelines
 
