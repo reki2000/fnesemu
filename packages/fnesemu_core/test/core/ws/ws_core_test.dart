@@ -6,6 +6,7 @@ import 'package:fnesemu_core/src/core/ws/ws.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:test/test.dart';
+import '../pad_helper.dart';
 
 // builds a 64KB rom with [code] at F000:0000, entered from FFFF:0000
 Uint8List _rom(List<int> code, {bool color = false, int saveType = 0}) {
@@ -62,6 +63,14 @@ Ws _run(Uint8List rom, {required bool color, int frames = 3}) {
 
 int _pixel(ImageBuffer image, int x, int y) =>
     image.buffer[y * image.width + x];
+
+/// presses and releases [button], and lets the core sample both
+void tap(Ws ws, PadButton button) {
+  ws.padDown(0, button);
+  ws.runFrame(1);
+  ws.padUp(0, button);
+  ws.runFrame(1);
+}
 
 void main() {
   test('mono tiles use the shade pool and vblank interrupts are counted', () {
@@ -127,6 +136,7 @@ void main() {
     ws.bus.output8(0xb2, 0x02);
     ws.padDown(0, PadButton.up);
     ws.padDown(0, Pad.a);
+    ws.runFrame(1); // the keys are sampled once a line
     ws.bus.output8(0xb5, 0x20);
     expect(ws.bus.input8(0xb5), 0x21);
     ws.bus.output8(0xb5, 0x40);
@@ -137,9 +147,20 @@ void main() {
   test('keyboard slots match the horizontal WS layout', () {
     final buttons = Ws(color: false).buttons;
     expect(buttons, [
-      PadButton.up, PadButton.down, PadButton.left, PadButton.right,
-      Pad.y4, Pad.y3, Pad.b, Pad.a, PadButton.none, Pad.sound,
-      Pad.y1, Pad.start, Ws.rotate, Pad.y2,
+      PadButton.up,
+      PadButton.down,
+      PadButton.left,
+      PadButton.right,
+      Pad.y4,
+      Pad.y3,
+      Pad.b,
+      Pad.a,
+      PadButton.none,
+      Pad.sound,
+      Pad.y1,
+      Pad.start,
+      Ws.rotate,
+      Pad.y2,
     ]);
   });
 
@@ -148,7 +169,7 @@ void main() {
     ws.bus.output8(0xb5, 0x70);
     expect(ws.speakerVolume, 3);
     for (final level in [2, 1, 0, 3]) {
-      ws.padDown(0, Pad.sound);
+      tap(ws, Pad.sound);
       expect(ws.speakerVolume, level);
       expect(ws.bus.input8(0xb5), 0x70);
     }
@@ -178,8 +199,7 @@ void main() {
 
   test('vertical arrows use Y and WASD uses the rotated X group', () {
     final ws = Ws(color: false)..setRom(_rom([]));
-    ws.padDown(0, Ws.rotate);
-    ws.padUp(0, Ws.rotate);
+    tap(ws, Ws.rotate);
 
     final cases = [
       (PadButton.up, 0x10, 2),
@@ -208,8 +228,7 @@ void main() {
     ws.bus.output8(0xb5, 0x30);
     expect(ws.bus.input8(0xb5), 0x31);
 
-    ws.padDown(0, Ws.rotate);
-    ws.padUp(0, Ws.rotate);
+    tap(ws, Ws.rotate);
     // Arrow Up now uses Y2 and W now uses X2.
     expect(ws.bus.input8(0xb5), 0x32);
 
@@ -225,8 +244,7 @@ void main() {
     ws.padDown(0, Pad.y4);
     ws.bus.output8(0xb5, 0x30);
     expect(ws.bus.input8(0xb5), 0x31);
-    ws.padDown(0, Ws.rotate);
-    ws.padUp(0, Ws.rotate);
+    tap(ws, Ws.rotate);
     expect(ws.bus.input8(0xb5), 0x38);
     ws.padUp(0, PadButton.left);
     ws.padUp(0, Pad.y4);
@@ -252,7 +270,7 @@ void main() {
 
     // The console SOUND key mutes the emulated speaker output.
     for (var i = 0; i < 3; i++) {
-      ws.padDown(0, Pad.sound);
+      tap(ws, Pad.sound);
     }
     buffers.clear();
     ws.runFrame(159);
@@ -268,8 +286,7 @@ void main() {
     flat.buffer[0] = 0x12345678;
     expect(ws.buttons[12], Ws.rotate);
 
-    ws.padDown(0, Ws.rotate);
-    ws.padUp(0, Ws.rotate);
+    tap(ws, Ws.rotate);
     final turned = ws.imageBuffer();
     expect((turned.width, turned.height), (flat.height, flat.width));
     // turned to the left: the top-left corner goes to the bottom-left
@@ -284,6 +301,7 @@ void main() {
 
     // Turning back moves a held direction into the horizontal X group.
     ws.padDown(0, Ws.rotate);
+    ws.runFrame(1);
     expect(ws.bus.pad.read(0x10) & 0x0f, 0);
     expect(ws.bus.pad.read(0x20) & 0x0f, 8);
     ws.padUp(0, PadButton.left);

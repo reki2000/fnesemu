@@ -102,6 +102,7 @@ class N64 extends Core {
             : null);
 
   N64._(this.jit) : bus = N64Bus(ram: jit?.ram) {
+    bus.pad = padPort;
     cpu = Vr4300(bus, registers: jit?.regs, fpu: jit?.fpu);
     jit?.attach(cpu, bus);
     bus.onDp = (start, end) => graphics.commands(start, end);
@@ -271,7 +272,7 @@ class N64 extends Core {
   @override
   void dispose() => jit?.dispose();
 
-  static const _stateVersion = 2;
+  static const _stateVersion = 3;
   int? _mediaHash;
   int get _media {
     final rom = _rom;
@@ -321,8 +322,8 @@ class N64 extends Core {
     bus.sram = sram;
   }
 
-  // Arrow buttons drive the analog stick; the remaining buttons use PIF bits.
-  // The D-pad follows the buttons of the keys.
+  // The arrows are the D-pad. W A S D are the C buttons, Z X C are B A Z and
+  // Q R E are L Start R.
   @override
   List<PadButton> get buttons => [
         PadButton.up,
@@ -339,15 +340,15 @@ class N64 extends Core {
         const PadButton('R'), // keyE
         const PadButton('Start'), // keyR
         const PadButton('C-right'), // keyD
-        const PadButton('D-up'),
-        const PadButton('D-down'),
-        const PadButton('D-left'),
-        const PadButton('D-right'),
       ];
   @override
-  void padDown(int controllerId, PadButton k) => bus.pad(controllerId, k, true);
-  @override
-  void padUp(int controllerId, PadButton k) => bus.pad(controllerId, k, false);
+  // either stick drives the analog stick of the controller
+  List<PadAxis> get axes => const [
+        PadAxis.leftX,
+        PadAxis.leftY,
+        PadAxis.rightX,
+        PadAxis.rightY,
+      ];
   @override
   int programCounter(int cpuNo) => cpu.pc;
   @override

@@ -30,6 +30,10 @@ class Gb extends Core {
 
   final bus = Bus();
 
+  Gb() {
+    bus.pad.source = padPort;
+  }
+
   Cpu get cpu => bus.cpu;
   Ppu get ppu => bus.ppu;
   Apu get apu => bus.apu;
@@ -88,6 +92,7 @@ class Gb extends Core {
     var rendered = false;
     if (bus.dotClocks >= _nextScanlineClocks) {
       _nextScanlineClocks += Ppu.clocksInLine;
+      bus.pad.poll();
       rendered = true;
     }
 
@@ -127,13 +132,6 @@ class Gb extends Core {
     bus.reset();
     _nextScanlineClocks = Ppu.clocksInLine;
   }
-
-  @override
-  void padDown(int controllerId, PadButton k) =>
-      bus.pad.keyDown(controllerId, k);
-
-  @override
-  void padUp(int controllerId, PadButton k) => bus.pad.keyUp(controllerId, k);
 
   @override
   List<PadButton> get buttons => bus.pad.buttons;

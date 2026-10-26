@@ -7,6 +7,7 @@ import 'package:fnesemu_core/src/sram.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
+import '../pad_helper.dart';
 
 class _TestCpu extends NullCpu {
   _TestCpu(super.bus, {super.master});

@@ -39,7 +39,7 @@ class Nes extends Core {
 
   final bool diskSystem;
   Nes({this.diskSystem = false}) {
-    bus = Bus();
+    bus = Bus(padPort);
     cpu = Cpu(bus);
     ppu = Ppu(bus);
     apu = Apu(bus);
@@ -121,6 +121,7 @@ class Nes extends Core {
       final apuBuf = apu.exec(cpuCyclesInScanline * 16);
       final auxBuf = bus.mapper.handleApu(cpuCyclesInScanline * 16);
       _nextApuCycle += cpuCyclesInScanline * 16;
+      if (diskSystem) _pollFlipDisk();
 
       _pushApuBuffer(apuBuf, auxBuf);
     }
@@ -172,30 +173,19 @@ class Nes extends Core {
     bus.onReset();
   }
 
-  /// handles pad down/up events
-  @override
-  void padDown(int id, PadButton k) {
-    if (diskSystem && k == flipDisk) {
-      if (!_flipDiskHeld) {
-        _flipDiskHeld = true;
-        final mapper = _diskMapper;
-        final side = mapper?.selectedSide;
-        if (mapper != null && side != null && (side ^ 1) < mapper.sideCount) {
-          mapper.selectSide(side ^ 1);
-        }
-      }
-      return;
-    }
-    bus.joypad.keyDown(id, k);
-  }
-
-  @override
-  void padUp(int id, PadButton k) {
-    if (diskSystem && k == flipDisk) {
+  // Flips the disk side once per press of the flip key, sampled once a frame.
+  void _pollFlipDisk() {
+    if (!padPort.isPressed(0, flipDisk)) {
       _flipDiskHeld = false;
       return;
     }
-    bus.joypad.keyUp(id, k);
+    if (_flipDiskHeld) return;
+    _flipDiskHeld = true;
+    final mapper = _diskMapper;
+    final side = mapper?.selectedSide;
+    if (mapper != null && side != null && (side ^ 1) < mapper.sideCount) {
+      mapper.selectSide(side ^ 1);
+    }
   }
 
   @override

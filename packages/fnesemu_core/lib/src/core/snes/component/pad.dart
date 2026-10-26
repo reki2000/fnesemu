@@ -1,4 +1,5 @@
 import '../../../pad_button.dart';
+import '../../../pad_source.dart';
 import '../../../util/int.dart';
 
 /// SNES standard pad. bit layout of the auto-joypad word ($4219$4218):
@@ -46,7 +47,18 @@ class SnesPad {
     _r: 4,
   };
 
-  int state1 = 0;
+  PadSource source;
+
+  SnesPad([this.source = const NoPadSource()]);
+
+  /// the held buttons of pad 1 as the auto-joypad word
+  int get state1 {
+    var word = 0;
+    for (final e in _bit.entries) {
+      if (source.isPressed(0, e.key)) word |= 1 << e.value;
+    }
+    return word;
+  }
 
   // the serial shift register of pad 1, read through $4016. It shifts in 1s,
   // so a standard pad reads 1 after its 16 bits.
@@ -70,15 +82,5 @@ class SnesPad {
   /// the auto-joypad read at vblank shifts out all 16 bits
   void autoRead() {
     _shift1 = 0xffff;
-  }
-
-  void keyDown(int id, PadButton k) {
-    final b = _bit[k];
-    if (b != null && id == 0) state1 = state1.setBit(b, true);
-  }
-
-  void keyUp(int id, PadButton k) {
-    final b = _bit[k];
-    if (b != null && id == 0) state1 = state1.setBit(b, false);
   }
 }

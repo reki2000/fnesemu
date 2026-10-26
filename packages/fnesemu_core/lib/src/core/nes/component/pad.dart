@@ -1,8 +1,9 @@
 import '../../../pad_button.dart';
+import '../../../pad_source.dart';
 import '../../../util/int.dart';
 
 class Joypad {
-  late Map<PadButton, bool> isPressed;
+  final PadSource pad;
 
   final buttons = [
     PadButton.left,
@@ -31,17 +32,7 @@ class Joypad {
   // the strobe (bit 0 of $4016) holds the shift register at the first button
   bool _strobe = false;
 
-  Joypad() {
-    isPressed = {for (var e in buttons) e: false};
-  }
-
-  void keyDown(int controllerId, PadButton d) {
-    isPressed[d] = true;
-  }
-
-  void keyUp(int controllerID, PadButton d) {
-    isPressed[d] = false;
-  }
+  Joypad([this.pad = const NoPadSource()]);
 
   void write(int addr, int data) {
     if (addr != 0x4016) return;
@@ -63,7 +54,7 @@ class Joypad {
   // a standard pad reads 1 after its 8 buttons
   int _read1() {
     if (counter >= 8) return 0x41;
-    final result = isPressed[buttons[scanOrder[counter]]]! ? 0x41 : 0x40;
+    final result = pad.isPressed(0, buttons[scanOrder[counter]]) ? 0x41 : 0x40;
     if (!_strobe) counter++;
     return result;
   }
@@ -73,7 +64,8 @@ class Joypad {
   }
 
   String dump() {
-    final joys = buttons.map((j) => "${j.name}:${isPressed[j]! ? "*" : "-"}");
+    final joys =
+        buttons.map((j) => "${j.name}:${pad.isPressed(0, j) ? "*" : "-"}");
     return "$joys";
   }
 }

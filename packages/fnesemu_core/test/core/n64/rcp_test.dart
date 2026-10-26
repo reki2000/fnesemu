@@ -6,6 +6,7 @@ import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/fpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
@@ -110,23 +111,54 @@ void main() {
   test('SI delivers controller buttons and analog stick through PIF packets',
       () {
     final b = N64Bus()..reset();
-    b.pad(0, const PadButton('A'), true);
-    b.pad(0, PadButton.left, true);
-    b.pad(0, PadButton.up, true);
+    final state = PadState()
+      ..press(0, const PadButton('A'))
+      ..press(0, PadButton.left)
+      ..setAxis(0, PadAxis.leftX, -1)
+      ..setAxis(0, PadAxis.leftY, -1);
+    b.pad = state;
     b.ram.setRange(0x100, 0x109, [1, 4, 1, 0, 0, 0, 0, 0xfe, 0]);
     b.ram[0x13f] = 1;
     b.write(0xa4800000, 0x100, 4);
     b.write(0xa4800010, 0x1fc007c0, 4);
     b.write(0xa4800000, 0x200, 4);
     b.write(0xa4800004, 0x1fc007c0, 4);
-    expect(b.ram.sublist(0x203, 0x207), [0x80, 0, 176, 80]);
-    b.pad(0, const PadButton('A'), false);
-    b.pad(0, PadButton.left, false);
+    expect(b.ram.sublist(0x203, 0x207), [0x82, 0, 176, 80]);
+    state
+      ..release(0, const PadButton('A'))
+      ..release(0, PadButton.left)
+      ..setAxis(0, PadAxis.leftX, 0)
+      ..setAxis(0, PadAxis.leftY, 0.5);
     b.write(0xa4800004, 0x1fc007c0, 4);
-    expect(b.ram.sublist(0x203, 0x207), [0, 0, 0, 80]);
+    expect(b.ram.sublist(0x203, 0x207), [0, 0, 0, 216]);
     expect(b.mi[2] & 2, 2);
     b.write(0xa4800018, 0, 4);
     expect(b.mi[2] & 2, 0);
+  });
+  test('either stick drives the analog stick and the left one wins', () {
+    final b = N64Bus()..reset();
+    final state = PadState();
+    b.pad = state;
+    List<int> stick() {
+      b.ram.setRange(0x100, 0x109, [1, 4, 1, 0, 0, 0, 0, 0xfe, 0]);
+      b.ram[0x13f] = 1;
+      b.write(0xa4800000, 0x100, 4);
+      b.write(0xa4800010, 0x1fc007c0, 4);
+      b.write(0xa4800000, 0x200, 4);
+      b.write(0xa4800004, 0x1fc007c0, 4);
+      return b.ram.sublist(0x205, 0x207);
+    }
+
+    state.setAxis(0, PadAxis.rightX, 1);
+    expect(stick(), [80, 0]);
+    state
+      ..setAxis(0, PadAxis.leftX, -0.5)
+      ..setAxis(0, PadAxis.leftY, -1);
+    expect(stick(), [216, 80]);
+    state
+      ..setAxis(0, PadAxis.leftX, 0)
+      ..setAxis(0, PadAxis.leftY, 0);
+    expect(stick(), [80, 0]);
   });
   test('EEPROM write/read uses persistent Sram, independently of reset', () {
     final b = N64Bus()..reset();

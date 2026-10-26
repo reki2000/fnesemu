@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'package:fnesemu_core/app_api.dart';
+import 'analog_stick.dart';
 import 'direction_pad.dart';
 import 'pad_input.dart';
 import 'ticker_image.dart';
@@ -30,14 +31,20 @@ class CoreView extends StatefulWidget {
 }
 
 class _CoreViewState extends State<CoreView> {
-  late final PadInput _input = widget.input ??
-      PadInput(
-          onDown: (button) => widget.controller.padDown(0, button),
-          onUp: (button) => widget.controller.padUp(0, button));
+  late final PadInput _input = widget.input ?? PadInput();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.input == null) widget.controller.input = _input;
+  }
 
   @override
   void dispose() {
-    if (widget.input == null) _input.dispose();
+    if (widget.input == null) {
+      widget.controller.input = const NoPadSource();
+      _input.dispose();
+    }
     super.dispose();
   }
 
@@ -45,6 +52,13 @@ class _CoreViewState extends State<CoreView> {
   Widget build(BuildContext context) => RepaintBoundary(
         child: LayoutBuilder(builder: (context, constraints) {
           const inset = 12.0;
+          const stickGap = 12.0;
+          final axes = widget.controller.axes;
+          final hasLeftStick =
+              axes.contains(PadAxis.leftX) && axes.contains(PadAxis.leftY);
+          final hasRightStick =
+              axes.contains(PadAxis.rightX) && axes.contains(PadAxis.rightY);
+          final hasStick = hasLeftStick || hasRightStick;
           const headerHeight = 64.0;
           final portrait =
               widget.portrait ?? constraints.maxHeight > constraints.maxWidth;
@@ -71,6 +85,9 @@ class _CoreViewState extends State<CoreView> {
                                 gameConstraints.maxHeight - gameHeight >=
                                     headerHeight +
                                         DirectionPad.diameter +
+                                        (hasStick
+                                            ? AnalogStick.diameter + stickGap
+                                            : 0) +
                                         inset * 2;
                             return Padding(
                                 padding: EdgeInsets.only(
@@ -97,7 +114,19 @@ class _CoreViewState extends State<CoreView> {
                       widthFactor: 1,
                       heightFactor: 1,
                       alignment: Alignment.centerLeft,
-                      child: DirectionPad(input: _input))),
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          spacing: stickGap,
+                          children: [
+                            if (hasLeftStick)
+                              AnalogStick(
+                                  key: const ValueKey('left-stick'),
+                                  input: _input,
+                                  axisX: PadAxis.leftX,
+                                  axisY: PadAxis.leftY,
+                                  label: 'Left analog stick'),
+                            DirectionPad(input: _input),
+                          ]))),
             if (widget.showPad)
               Positioned(
                   right: inset,
@@ -107,8 +136,21 @@ class _CoreViewState extends State<CoreView> {
                       widthFactor: 1,
                       heightFactor: 1,
                       alignment: Alignment.centerRight,
-                      child: VirtualPadWidget(
-                          controller: widget.controller, input: _input))),
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          spacing: stickGap,
+                          children: [
+                            if (hasRightStick)
+                              AnalogStick(
+                                  key: const ValueKey('right-stick'),
+                                  input: _input,
+                                  axisX: PadAxis.rightX,
+                                  axisY: PadAxis.rightY,
+                                  label: 'Right analog stick'),
+                            VirtualPadWidget(
+                                controller: widget.controller, input: _input),
+                          ]))),
           ]);
         }),
       );

@@ -4,7 +4,6 @@ library;
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/md/md.dart';
-import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/util/state.dart';
 import 'package:test/test.dart';
 
@@ -47,7 +46,6 @@ Md _system({bool expansion = false, bool jit = false, int slice = 32}) {
 void main() {
   test('MD restores into a fresh instance and continues frames and PCM', () {
     final original = _system();
-    original.padDown(0, const PadButton('X'));
     original.busM68.pad.writeData(0, 0x40, 100);
     original.busZ80.bank = 0x8000;
     original.busM68.ram[0x123] = 0x81;

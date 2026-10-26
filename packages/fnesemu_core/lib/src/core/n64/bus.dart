@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../sram.dart';
 import '../../state.dart';
 import '../../types.dart';
@@ -34,7 +35,8 @@ class N64Bus {
   final ri = Uint32List(8), rdram = Uint32List(10), si = Uint32List(7);
   final spRegs = Uint32List(8), dp = Uint32List(8), mi = Uint32List(4);
   final tlb = List.generate(32, (_) => List<int>.filled(4, 0));
-  final held = List.generate(4, (_) => <String>{});
+  // where the held buttons and axes are read from, set by the core
+  PadSource pad = const NoPadSource();
   Sram? sram;
   // cartridge backup ram (SRAM games). the first 512 bytes of [sram] are the
   // EEPROM, the 32KiB after them hold this SRAM so that it is persisted too
@@ -136,10 +138,6 @@ class N64Bus {
     for (final entry in tlb) {
       w.ints(entry);
     }
-    for (final keys in held) {
-      w.int32(keys.length);
-      keys.forEach(w.string);
-    }
     w.bytes(sram?.data ?? const <int>[]);
     w.bytes(cartSram);
     w.bytes(flash);
@@ -165,11 +163,6 @@ class N64Bus {
     }
     for (final entry in tlb) {
       s.intsInto(entry);
-    }
-    for (final keys in held) {
-      keys
-        ..clear()
-        ..addAll([for (var n = s.int32(); n > 0; n--) s.string()]);
     }
     final backup = s.bytes();
     if (sram case final sram?) {
@@ -675,33 +668,22 @@ class N64Bus {
           pif[response + 1] = 0;
           pif[response + 2] = 0;
         } else if (command == 1 && rx >= 4) {
-          final keys = held[channel];
           var bits = 0;
-          const buttons = {
-            'A': 0x8000,
-            'B': 0x4000,
-            'Z': 0x2000,
-            'Start': 0x1000,
-            'D-up': 0x800,
-            'D-down': 0x400,
-            'D-left': 0x200,
-            'D-right': 0x100,
-            'L': 0x20,
-            'R': 0x10,
-            'C-up': 8,
-            'C-down': 4,
-            'C-left': 2,
-            'C-right': 1
-          };
-          for (final e in buttons.entries) {
-            if (keys.contains(e.key)) bits |= e.value;
+          for (final (button, bit) in _padBits) {
+            if (pad.isPressed(channel, button)) bits |= bit;
           }
           pif[response] = bits.shr8;
           pif[response + 1] = bits;
-          pif[response + 2] = (keys.contains('right') ? 80 : 0) -
-              (keys.contains('left') ? 80 : 0);
-          pif[response + 3] =
-              (keys.contains('up') ? 80 : 0) - (keys.contains('down') ? 80 : 0);
+          // the stick reports +x to the right and +y upwards, within +-80.
+          // either stick of the GUI drives it, and the left one has priority
+          var x = pad.axis(channel, PadAxis.leftX);
+          var y = pad.axis(channel, PadAxis.leftY);
+          if (x == 0 && y == 0) {
+            x = pad.axis(channel, PadAxis.rightX);
+            y = pad.axis(channel, PadAxis.rightY);
+          }
+          pif[response + 2] = (x * 80).round();
+          pif[response + 3] = (-y * 80).round();
         }
       } else if (channel == 4 && sram != null) {
         connected = true;
@@ -729,14 +711,23 @@ class N64Bus {
     pif[63] = 0;
   }
 
-  void pad(int id, PadButton key, bool down) {
-    if (id < 0 || id >= 4) return;
-    if (down) {
-      held[id].add(key.name);
-    } else {
-      held[id].remove(key.name);
-    }
-  }
+  // the buttons in the bits of the controller status word
+  static const _padBits = [
+    (PadButton('A'), 0x8000),
+    (PadButton('B'), 0x4000),
+    (PadButton('Z'), 0x2000),
+    (PadButton('Start'), 0x1000),
+    (PadButton.up, 0x800),
+    (PadButton.down, 0x400),
+    (PadButton.left, 0x200),
+    (PadButton.right, 0x100),
+    (PadButton('L'), 0x20),
+    (PadButton('R'), 0x10),
+    (PadButton('C-up'), 8),
+    (PadButton('C-down'), 4),
+    (PadButton('C-left'), 2),
+    (PadButton('C-right'), 1),
+  ];
 
   void reset() {
     _flashActive = false;
@@ -754,9 +745,6 @@ class N64Bus {
     for (var i = 0; i < tlb.length; i++) {
       tlb[i].fillRange(0, 4, 0);
       tlb[i][0] = 0x80000000 + i * 0x2000;
-    }
-    for (final keys in held) {
-      keys.clear();
     }
     scanline = 0;
     spPc = 0;

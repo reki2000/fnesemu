@@ -82,12 +82,14 @@ Future<void> runControllerBench(List<String> args,
   }
   var measured = 0, imageHash = 0x811c9dc5, audioHash = 0x811c9dc5;
   var timing = false;
+  final pad = PadState();
+  core.input = pad;
   void applyInputs(int frame) {
     for (final (at, name) in presses) {
       final button = core.buttons
           .firstWhere((b) => b.name.toLowerCase() == name.toLowerCase());
-      if (frame == at) core.padDown(0, button);
-      if (frame == at + 12) core.padUp(0, button);
+      if (frame == at) pad.press(0, button);
+      if (frame == at + 12) pad.release(0, button);
     }
   }
 
