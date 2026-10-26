@@ -2,9 +2,13 @@
 
 Findings from profiling hot paths and reading their x64 AOT output. The N64 color combiner (`_combine`) and rasterizer were the first subjects. The SH-2 interpreter, the JIT dispatch tables and the Saturn VDPs followed.
 
+## Rule: decide speed in the AOT build
+
+The application ships as an AOT build. The JIT VM, which runs `core_headless.dart bench` and the sampler below, inlines, unboxes and guards differently, so its frame times and its profile do not tell whether a change is faster in the application. A speed result from a JIT run is not evidence. Use the JIT run to find hot functions, then confirm every change in the AOT build twice: by the x64 listing (instruction counts, packed or scalar operations, allocations, calls) and by the time of a probe that is compiled with `dart compile exe`. See "AOT probe". The sections below that report frame rates or frame times from `core_headless.dart bench` are JIT numbers, unless a line says AOT. Treat them as hints and recheck a result in the AOT build before building on it.
+
 ## Profiling
 
-perf is not required. The Dart VM sampler works on a JIT run of the tool and needs the VM service.
+perf is not required. The Dart VM sampler works on a JIT run of the tool and needs the VM service. It finds hot functions. It does not rank changes by speed (see the rule above).
 
 ```sh
 dart --profiler --profile-period=250 --enable-vm-service=8181 \
@@ -34,6 +38,16 @@ objdump -d -M intel --no-show-raw-insn \
 - `dart compile` refuses packages with build hooks such as `mp_jit_recompiler`. Remove that dependency from the probe copy.
 - Type flow analysis narrows field values and concrete types using only reachable writes. A probe simpler than the real program can fold fields to constants or make calls look monomorphic. Call the function with the same types and value kinds as the real program.
 
+## AOT probe
+
+`dart compile exe` rejects a package with a build hook, so a probe takes a copy of the pure Dart files it needs, not the package.
+
+- Copy `lib/src/util`, `lib/src/state.dart` and the files of the component, give the copy a `pubspec.yaml` with `meta`, and replace a bus that imports `mp_jit_recompiler` by a small stub with the members that the component calls.
+- For a component that needs a real scene (the Saturn VDP2), write a temporary tool in `tool/` that loads a saved bench state through `Session`, saves the component with its own `saveState` into a `StateWriter` and writes the bytes to a file. The probe reads the file with `StateReader`, calls `loadState` and times the real entry point (`renderLine` for every line) over several rounds. Delete the temporary tool afterwards.
+- For a component that takes calls (the N64 `triangle`), the probe feeds vertices and a state that reaches the pixel write. Check that the output hash of the probe is not that of an empty buffer. A probe whose alpha is zero rejects every pixel early and measures a different loop.
+- Build the compared versions as separate executables, run them alternately several times and compare the minimum and the median. Compare the output hashes first.
+- Read the listing of the changed function with `nm -n -S` and `objdump` as in "Getting the assembly". Count the instructions by name.
+
 ## Compiler behavior
 
 1. `double.clamp(a, b)` returns `num`. It allocates a boxed double, calls `compareTo` twice and converts back with a dynamic dispatch. One clamp costs over 30 instructions plus an allocation.
@@ -45,7 +59,7 @@ objdump -d -M intel --no-show-raw-insn \
 7. `setAll` and `fillRange` are not inlined and cost a call. Assign small fixed counts by hand.
 8. `x / 255` stays a `divsd`. Replacing it with `* (1 / 255)` changes rounding, so the compiler does not do it.
    The project allows the changed rounding, so write the reciprocal by hand: a `static const _inv255 = 1 / 255` in the combiner, `1 / area` and `1 / w` once per triangle, and the reciprocals of the edge steps once per triangle for the row narrowing. A division by a power of two is already exact as a multiply.
-   - The x64 listing of the N64 triangle loop shows what changes. `_combine` goes from 2 `divpd` to none, and `triangle` from 26 `divsd` to 7, with the instruction counts about equal (1,769 to 1,789 and 326 to 328). A `divpd` costs about 4 to 5 cycles of throughput against 1 or less for a `mulpd`, so the saving is about 8 to 10 cycles per pixel, or 3% to 5% of the frame. The measured gain was about 4% in one run and below the noise in another, so confirm such a change in the listing and not only in the frame time.
+   - The x64 listing of the N64 triangle loop shows what changes. `_combine` goes from 2 `divpd` to none, and `triangle` from 26 `divsd` to 7, with the instruction counts about equal (1,769 to 1,789 and 326 to 328). A `divpd` costs about 4 to 5 cycles of throughput against 1 or less for a `mulpd`, so the saving is about 8 to 10 cycles per pixel, or 3% to 5% of the frame. The JIT frame times gave about 4% in one run and below the noise in another. Confirm such a change in the AOT listing and the AOT probe.
    - One division per pixel stays. The interpolated `st` is `(s / w, t / w)` and the interpolated `zi.y` is `1 / w`, so `st / zi.y` gives the perspective-correct `(s, t)`. The `w` of the pixel is `1 / zi.y`, which needs the same division, so there is nothing to precompute. Only an approximation (an exact divide every few pixels and a linear step between them) would remove it, and that changes the output.
 
 ## Guidelines
@@ -84,9 +98,10 @@ objdump -d -M intel --no-show-raw-insn \
 - There is no gather. Palette and table lookups (`cram`, `rgba[...]`, `_color(index)`) stay scalar.
 - The types do not exist on every target. Check the web build before using them in `fnesemu_core`.
 - A `Float64x2` field of an object is stored inline and unboxed. Assigning it is one 16-byte store, with no allocation.
-- Measured on the N64 in-race scene: `Rgba` held as two `Float64x2` fields (red and green, blue and alpha), the combiner register file as a `Float64x2List`, and the triangle interpolants (color, s and t, depth and 1/w) as four vectors passed to the combiner and `_texel`. The frame time went from about 23.9 ms to 19.6 ms (about 20% less) over three alternating rounds, and the image and audio hashes stayed equal. Passing the data as vectors matters. Packing and unpacking lanes around scalar code would cost the gain.
-- The same N64 change with one `Float32x4` for the color and one for s, t, depth and 1/w was not faster than the `Float64x2` version, although it has half the vectors. Over five alternating rounds it ran at about 24 to 25 ms against 20 to 23 ms. The image hash changed and the screen looked the same, and one test of the combiner that compares with a tolerance of 1e-10 failed. The scalar code around the vectors (lane reads, `withW` for the alpha selectors, the `double` edge weights and the `double` depth buffer) pays for the conversions between float32 and double. A variant that also kept the depth buffer as a `Float32List`, the edge weights as a `Float32x4` and the lookup tables as `Float32List` (the whole per-pixel path in float32) gave the same image hash as the `Float32x4` variant and ran at about 24 to 25 ms, again slower than `Float64x2`. Scalar `double` code cannot be float32 in Dart, so each load and store of a float32 value still converts. Prefer `Float64x2` for code that is written in `double`.
-- Fixed point was tried on the same path and was slower. The colour interpolated in 16.16 integers, the texel, the combiner and the pixel write used 8-bit integers (`Int32List` registers, `(a - b) * c * 257 + 0x8000 >> 16` for the divide by 255), and the coordinates and edges stayed `double`. It ran at a median of 21.4 ms against 18.9 ms for `Float64x2` over six alternating rounds. The screen looked the same and the image hash changed. The integer combiner reads and writes about 30 list elements per pixel, each with a bounds check, where the vector code does a handful of loads and packed operations, and the double to integer conversions of the coordinates stayed. A profile of the `Float64x2` build put 68% of the samples under `triangle`, with `_texel` and `_coordinate` (the `floor`) at 26% and `_put` at 14%.
+- N64 triangle loop with the colour, the combiner registers and the interpolants as `Float64x2` (`Rgba` as two fields, the register file as a `Float64x2List`, s and t, depth and 1/w as vectors passed to the combiner and `_texel`), and the divisions written as reciprocal multiplies. The x64 listing of the combiner shows `subpd`, `mulpd`, `addpd`, `maxpd` and `minpd` and no allocation. The AOT probe, 150 large triangles with a texture, the combiner and pixel writes, the output hash equal to the scalar code: 18.0 to 18.7 ms per run for the scalar code and 17.4 to 18.0 ms for the vectors (the minimum of five alternating runs), a gain of 3% to 4%. A probe whose pixels were all rejected early (alpha zero, so the loop is the interpolation, the texel and the combiner only) ran at 55 to 58 ms against 46 to 54 ms, 10% to 15%. The JIT bench of a real scene gave 23.9 ms against 19.6 ms (20%), which is not evidence by the rule above. Passing the data as vectors matters. Packing and unpacking lanes around scalar code would cost the gain.
+- Saturn VDP2 rotation (`_rotDot`) with `(xsp, ysp)`, `(dX, dY)`, `(kx, ky)` and `(xp, yp)` as `Float64x2` and one expression `kk * (sp + dd * x) + pp`. The output was equal. In the listing of the AOT build the two multiplies and two adds of the main path become 2 `mulpd` and 2 `addpd`, but the function grows from 1,165 to 1,179 instructions (more `movups` and `shufpd`), because the time of `_rotDot` is in the two `floor` conversions and the cell lookup. The AOT probe of a rotation scene (`renderLine` of all 448 lines, 704 wide) gave 14.0 to 14.8 ms per frame for the scalar code and 14.3 to 14.7 ms for the vectors: no gain. Do not do this one.
+- The same N64 change with one `Float32x4` for the color and one for s, t, depth and 1/w was not faster than the `Float64x2` version in the JIT bench (about 24 to 25 ms against 20 to 23 ms), although it has half the vectors. The image hash changed, and one test of the combiner that compares with a tolerance of 1e-10 failed. Not rechecked in the AOT build. The scalar code around the vectors (lane reads, `withW` for the alpha selectors, the `double` edge weights and the `double` depth buffer) is the likely cost, as each float32 value converts to `double` when scalar code reads it. A variant with the depth buffer as a `Float32List`, the edge weights as a `Float32x4` and the lookup tables as `Float32List` gave the same image hash and the same JIT time. Prefer `Float64x2` for code that is written in `double`.
+- Fixed point was tried on the same path, in the JIT bench, and was slower (a median of 21.4 ms against 18.9 ms for `Float64x2` over six alternating rounds). The colour interpolated in 16.16 integers, the texel, the combiner and the pixel write used 8-bit integers (`Int32List` registers, `(a - b) * c * 257 + 0x8000 >> 16` for the divide by 255), and the coordinates and edges stayed `double`. Not rechecked in the AOT build. The integer combiner reads and writes about 30 list elements per pixel, each with a bounds check, where the vector code does a handful of loads and packed operations. A JIT profile of the `Float64x2` build put 68% of the samples under `triangle`, with `_texel` and `_coordinate` (the `floor`) at 26% and `_put` at 14%.
 - Not measured: the other candidates below.
 
 ### Candidates
@@ -99,7 +114,7 @@ objdump -d -M intel --no-show-raw-insn \
 | N64 | `Rgba`, `Vec4` fields | `Float64x2` | Only if the combiner and the interpolation take the vectors. A conversion at every use costs more than it saves. |
 | Saturn | VDP1 `_half`, `_avg` and VDP2 `_add` (saturating add per channel) | scalar SWAR on `int` first | The shift and the compare are missing in `Int32x4`. Several 16-bit or 8-bit fields in one 64-bit `int` with mask and add do the same work without a SIMD type, and the saturation can use the carry bits. Do not use this on a target where `int` is a JavaScript number. |
 | Saturn | VDP2 `_blend`, VDP1 `_gouraud` | none | Multiply by a variable ratio and clamp per channel. Keep scalar. |
-| Saturn | VDP2 rotation (`_rotDot`) | `Float64x2` | The pairs `(xp, yp)` and `(dX, dY)` step together. The `floor` and the conversion to an integer stay scalar per lane, so the gain is small. |
+| Saturn | VDP2 rotation (`_rotDot`) | `Float64x2` | Tried: no gain in the AOT probe. The time is in the `floor` and the cell lookup, not in the six floating point operations. |
 | 32X | `ExpansionVideo.renderLine`, `color` | none | A lookup in the palette, a switch on the bitmap mode and the priority test per pixel. The 5-bit to 8-bit expansion needs shifts. |
 | MD | `vdp_renderer` pixel loop | none | Priority selection and lookups in `cram`. No arithmetic to vectorize. |
 | PS1 | `Color.mix`, `_span`, textured and Gouraud pixel loops | none | Integer multiply and `~/ width` per channel. Replace the divide by a per-span step (fixed-point stepping) first. That changes the rounding and needs a check of the images. |
@@ -121,6 +136,7 @@ The listing of the triangle loop, the texel fetch and the pixel write showed the
 
 ## Measuring
 
+- Frame rates from `core_headless.dart bench` are JIT numbers. Use them to check that the output hashes are equal and that the application still runs, and decide the speed in the AOT probe.
 - The host load changes the frame rate by 10% or more from run to run, and sometimes by 2x between sessions. Build the compared versions into separate bundles and run them alternately, several rounds each. Compare medians of the process CPU frame rate (`cpuFps`), and never compare numbers from different sessions.
 - Check the hashes of the frame images and of the audio (`--checksum`) in every round. A rewrite that keeps the arithmetic order keeps the hashes equal.
 - Measure the path the application runs (`--frame-runner`) as well as the plain exec loop. They can differ by 2x.
