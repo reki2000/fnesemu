@@ -144,6 +144,32 @@ void main() {
     }
   }, skip: native ? false : 'No big-endian native backend');
 
+  test('a polling loop waits for the deadline and wakes on a write', () {
+    for (final jit in [false, true]) {
+      final a = Md32x(jit: jit);
+      addTearDown(a.dispose);
+      final bytes = ByteData.sublistView(a.ram);
+      bytes.setUint16(0, 0x6012); // mov.l @r1,r0
+      bytes.setUint16(2, 0x2008); // tst r0,r0
+      bytes.setUint16(4, 0x89fc); // bt 0x06000000
+      bytes.setUint16(6, 0xaffe); // bra 0x06000006
+      bytes.setUint16(8, 9); // nop
+      final cpu = a.cpus[0];
+      cpu.pc = 0x06000000;
+      cpu.r[1] = 0x06000100;
+      // Long enough for the detector to compare two passes and to compile.
+      for (var target = 200; target <= 2000; target += 200) {
+        expect(cpu.run(target), isTrue);
+        expect(cpu.clocks, target, reason: 'jit $jit skips to the deadline');
+        expect(cpu.pc, lessThan(0x06000006));
+      }
+      bytes.setUint32(0x100, 1);
+      expect(cpu.run(2200), isTrue);
+      expect(cpu.r[0], 1, reason: 'jit $jit');
+      expect(cpu.pc, greaterThanOrEqualTo(0x06000006));
+    }
+  }, skip: native ? false : 'No big-endian native backend');
+
   test('stores next to compiled cache code match the interpreter', () {
     final expected = Md32x(jit: false), actual = Md32x(jit: true);
     addTearDown(expected.dispose);

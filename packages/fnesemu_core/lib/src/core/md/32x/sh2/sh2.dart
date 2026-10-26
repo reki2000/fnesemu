@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../../components/sh2/jit/idle.dart';
 import '../../../../components/sh2/jit/jit.dart';
 import '../../../../util/int.dart';
 import '../../../../util/register_dump.dart';
@@ -132,6 +133,7 @@ class Sh2 {
 
   void reset() {
     jit?.reset();
+    _idle.reset();
     r.fillRange(0, 16, 0);
     pc = _bus.read32(0);
     r[15] = _bus.read32(4);
@@ -167,16 +169,43 @@ class Sh2 {
     return ok;
   }
 
+  /// fast-forwards idle loops (see _isIdle)
+  bool idleSkip = true;
+
+  /// whether the last [_execOneUnprofiled] ran compiled code
+  bool _nativeStep = false;
+
   /// Runs to the adapter deadline, retaining instruction-based debug stepping.
+  /// A loop that repeats without effect waits for the deadline at once, because
+  /// the other devices advance only between runs.
   bool run(int targetClocks, {bool compiled = true}) {
+    final skip = idleSkip && compiled;
     while (clocks < targetClocks) {
-      final before = clocks;
+      final before = clocks, prev = pc;
+      _nativeStep = false;
       final ok = _execOne(compiled, targetClocks - clocks);
+      if (ok && skip && _idleAfterStep(prev)) {
+        if (clocks < targetClocks) {
+          executionStats?.recordIdle(targetClocks - clocks);
+          clocks = targetClocks;
+        }
+      }
       onchip.tick(clocks - before);
       if (!ok) return false;
     }
     return true;
   }
+
+  bool _idleAfterStep(int prev) {
+    if (sleeping) return true;
+    final from = _nativeStep ? jit!.idleCheckPc : prev;
+    return jit != null && _nativeStep && jit!.idleDetected ||
+        from != null &&
+            Sh2IdleDetector.isBackEdge(pc, from, compiled: _nativeStep) &&
+            _idle.check(pc, _bus.writes + _state[7]);
+  }
+
+  late final _idle = Sh2IdleDetector(r, _state, keepSnapshot: true);
 
   bool _execOne(bool compiled, [int budget = 1]) {
     final stats = executionStats;
@@ -253,6 +282,7 @@ class Sh2 {
       executionStats?.pauseCpuStep();
       final result = jit!.run(pc, budget);
       if (result != null) {
+        _nativeStep = true;
         pc = result.$1;
         clocks += result.$2;
         return true;
@@ -796,6 +826,9 @@ class _OnChipBus implements Sh2Bus {
   final Sh2OnChip onchip;
   _OnChipBus(this.ext, this.onchip);
 
+  /// writes issued by the interpreter, for idle loop detection
+  int writes = 0;
+
   // effective addresses (register + register) may exceed 32 bits
   static bool _on(int a) => a.mask32 >= 0xfffffe00;
   @override
@@ -818,18 +851,21 @@ class _OnChipBus implements Sh2Bus {
 
   @override
   void write8(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 1, write: true);
     _on(a) ? onchip.write8(a, v) : ext.write8(a.mask32, v);
   }
 
   @override
   void write16(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 2, write: true);
     _on(a) ? onchip.write16(a, v) : ext.write16(a.mask32, v);
   }
 
   @override
   void write32(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 4, write: true);
     _on(a) ? onchip.write32(a, v) : ext.write32(a.mask32, v);
   }

@@ -54,7 +54,8 @@ class Md32x {
             macLong: true,
             macWord: true,
             alignMemory: false,
-            stopOnNoStore: sliceClocks == 1)
+            idleGuards: sliceClocks != 1,
+            stopOnNoStore: true)
         : null;
     final other = owner == null
         ? null
@@ -66,7 +67,8 @@ class Md32x {
             macLong: true,
             macWord: true,
             alignMemory: false,
-            stopOnNoStore: sliceClocks == 1);
+            idleGuards: sliceClocks != 1,
+            stopOnNoStore: true);
     ram = owner?.rt.alloc(0x40000) ?? Uint8List(0x40000);
     for (final compiler in [owner, other]) {
       compiler?.map(0x6000000, ram.length, ram, owner: owner!.rt);
