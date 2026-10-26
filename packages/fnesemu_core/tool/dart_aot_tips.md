@@ -159,6 +159,10 @@ In a game scene the VDP2 renderer took about half of the frame. The hot function
 
 ## Practical notes
 
+- A new worktree has empty submodule directories. Run `git submodule update --init` for the submodules the package needs (`cdrom_image`, `mp_bigfile_picker`), then `dart pub get` in `packages/fnesemu_core`. Without them the tools fail on `package:image` or on a missing path dependency.
+- To sample a bench run, start it with `--enable-vm-service`, wait until the state is loaded (about 8 seconds), then call `getVM`, `clearCpuSamples` and `getCpuSamples` over the web socket and read `exclusiveTicks` and `inclusiveTicks` of each function from the result. A window of 20 seconds on a run of 2,500 frames was enough. Start the bench as a background job, keep its pid and stop it with `kill <pid>`.
+- Compare builds by the median of several alternating rounds of `msPerFrame` from `--load-state`. The first rounds after a build are often 1.5x to 2x slower than the rest, so a round count under four can show the wrong order.
+- Keep the build under test and the reference as two copies of one file and swap them between rounds. This is cheaper than two checkouts, and both builds run on the same tool code.
 - `dart format` takes the language version of the package. A file formatted by an older style shows hundreds of changed lines when it is formatted again by a package of a newer language version. Format a copy inside the same package with `--output=none` to see whether the file is clean before running the formatter, and do not format a package that is not clean.
 - To disassemble code of a package with a build hook, copy the package to a scratch directory and cut the hook and the calls that need it. Call the function with the same types and values as the application.
 
