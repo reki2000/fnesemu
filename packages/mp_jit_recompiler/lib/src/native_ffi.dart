@@ -180,8 +180,14 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     return c.nativeFunction.address;
   }
 
+  /// staging area for the bytes of a block, kept for the next install
+  static const _stagingSize = 64 << 10;
+  int _staging = 0;
+
   void _write(int offset, List<int> bytes) {
-    final buffer = _os.alloc(bytes.length);
+    final shared = bytes.length <= _stagingSize;
+    if (shared && _staging == 0) _staging = _alloc(_stagingSize);
+    final buffer = shared ? _staging : _os.alloc(bytes.length);
     if (buffer == 0) throw StateError('cannot allocate code staging buffer');
     try {
       Pointer<Uint8>.fromAddress(
@@ -196,7 +202,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
         throw StateError('cannot publish JIT code');
       }
     } finally {
-      _os.free(buffer, bytes.length);
+      if (!shared) _os.free(buffer, bytes.length);
     }
   }
 

@@ -17,7 +17,7 @@ class Md32x {
   final masterBoot = Uint8List(0x800);
   final slaveBoot = Uint8List(0x400);
   // Each SH-2 exposes its own 4 KiB cache data array in the P4 area.
-  final cacheData = [Uint8List(0x1000), Uint8List(0x1000)];
+  late final List<Uint8List> cacheData;
   final registers = Uint8List(0x40);
   final video = ExpansionVideo();
   late final ExpansionPwm pwm;
@@ -34,9 +34,13 @@ class Md32x {
   bool get shOwnsVideo => control.bit15;
   bool get romToVram => registers[7].bit0;
 
+  // Drops bits 29 and 30, so the cache-through alias (0x2xxxxxxx) shares the
+  // pages of the cached address, and keeps bit 31 for the cache data array.
+  static const _jitAddrMask = 0x9fffffff;
+
   Md32x(
       {bool jit = const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
-      this.sliceClocks = 32,
+      this.sliceClocks = 64,
       bool jitRegisterReads = const bool.fromEnvironment(
           'SH2_JIT_32X_REGISTER_READS',
           defaultValue: true)}) {
@@ -44,20 +48,38 @@ class Md32x {
     final owner = jit
         ? Sh2Jit.create(
             maxInstructions: sliceClocks == 1 ? 1 : 24,
-            addrMask: 0x1fffffff,
+            addrMask: _jitAddrMask,
+            highMemory: true,
+            releaseCodePages: true,
+            macLong: true,
+            macWord: true,
             alignMemory: false,
-            stopOnNoStore: sliceClocks == 1)
+            idleGuards: sliceClocks != 1,
+            stopOnNoStore: true)
         : null;
     final other = owner == null
         ? null
         : Sh2Jit.create(
             maxInstructions: sliceClocks == 1 ? 1 : 24,
-            addrMask: 0x1fffffff,
+            addrMask: _jitAddrMask,
+            highMemory: true,
+            releaseCodePages: true,
+            macLong: true,
+            macWord: true,
             alignMemory: false,
-            stopOnNoStore: sliceClocks == 1);
+            idleGuards: sliceClocks != 1,
+            stopOnNoStore: true);
     ram = owner?.rt.alloc(0x40000) ?? Uint8List(0x40000);
     for (final compiler in [owner, other]) {
       compiler?.map(0x6000000, ram.length, ram, owner: owner!.rt);
+    }
+    // The mask keeps bit 31, so the P4 cache data array has its own page.
+    cacheData = [
+      for (final compiler in [owner, other])
+        compiler?.rt.alloc(0x1000) ?? Uint8List(0x1000)
+    ];
+    for (final (i, compiler) in [owner, other].indexed) {
+      compiler?.map(0xc0000000, 0x1000, cacheData[i]);
     }
     buses = [ExpansionBus(this, 0), ExpansionBus(this, 1)];
     cpus = [
@@ -69,11 +91,13 @@ class Md32x {
         final index = cpu;
         cpus[cpu].jit?.addReadHelper((address, size) {
           final offset = address & 0x1fffffff;
-          // Communication words are plain shared storage with no read effects.
-          // Control, FIFO, video and PWM reads retain their ordinary CPU exits.
+          // Communication words, the H count register and the video registers
+          // are plain state with no read effects. Control, FIFO, palette and
+          // PWM reads retain their ordinary CPU exits.
           return address < 0x40000000 &&
-              offset >= 0x4020 &&
-              offset + size <= 0x4030;
+              (offset >= 0x4020 && offset + size <= 0x4030 ||
+                  offset >= 0x4004 && offset + size <= 0x4006 ||
+                  offset >= 0x4100 && offset + size <= 0x4110);
         },
             (address, size) => switch (size) {
                   1 => readSh8(address, index),
@@ -246,7 +270,7 @@ class Md32x {
     _cycles = target;
     if (!enabled || !released) {
       for (final cpu in cpus) {
-        cpu.clocks = target;
+        cpu.setClocks(target);
       }
       return (true, false, false);
     }
@@ -393,7 +417,7 @@ class Md32x {
         if (released && !wasReleased) {
           for (final sh in cpus) {
             sh.reset();
-            sh.clocks = _cycles;
+            sh.setClocks(_cycles);
           }
           _updateInterrupts();
         }

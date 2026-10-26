@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../../components/sh2/jit/idle.dart';
 import '../../../../components/sh2/jit/jit.dart';
 import '../../../../util/int.dart';
 import '../../../../util/register_dump.dart';
@@ -37,6 +38,9 @@ class Sh2 {
     sr = 0xf0;
     jit?.attach(
         (address) => _jitCodeAddress(address) ? ext.read16(address) : null);
+    _jitFtcsr = jit?.addReadRegister(
+        (address, size) => address == 0xfffffe11 && size == 1);
+    _bus.sync = _syncOnchip;
     onchip.bus = ext;
     if (jit != null) {
       jit.diagnostics.memoryRegion = _memoryRegion;
@@ -46,11 +50,14 @@ class Sh2 {
       });
     }
   }
-  // Only even SDRAM addresses and their P1 aliases can be compiled here.
+  // Only even SDRAM addresses with their P1 aliases and the cache data array
+  // can be compiled here.
   static bool _jitCodeAddress(int address) =>
-      (address & 0xdffc0001) == 0x06000000;
+      (address & 0xdffc0001) == 0x06000000 ||
+      (address & 0xfffff001) == 0xc0000000;
 
   final Sh2Jit? jit;
+  late final Uint32List? _jitFtcsr;
   JitExecutionStats? executionStats;
   final Uint32List r, _state;
   int pc = 0;
@@ -118,7 +125,7 @@ class Sh2 {
     s.intsInto(r);
     s.intsInto(_state);
     pc = s.int64();
-    clocks = s.int64();
+    clocks = _tickedAt = s.int64();
     _irqLevel = s.int64();
     _irqVector = s.int64();
     _delayTarget = s.boolean() ? s.int64() : null;
@@ -130,11 +137,12 @@ class Sh2 {
 
   void reset() {
     jit?.reset();
+    _idle.reset();
     r.fillRange(0, 16, 0);
     pc = _bus.read32(0);
     r[15] = _bus.read32(4);
     sr = 0xf0;
-    gbr = vbr = pr = mach = macl = clocks = lastOpcode = 0;
+    gbr = vbr = pr = mach = macl = clocks = _tickedAt = lastOpcode = 0;
     _irqLevel = _irqVector = 0;
     _delayTarget = _restoreSr = null;
     sleeping = _inDelay = false;
@@ -158,23 +166,68 @@ class Sh2 {
     clocks += 5;
   }
 
+  /// the clock up to which the on-chip modules have advanced
+  int _tickedAt = 0;
+
+  /// Advances the on-chip modules to [clocks]. Runs do it at their end and
+  /// before an access to a module register, so a register read sees the time
+  /// of the instruction; interrupts of the modules reach the CPU at the next
+  /// run.
+  void _syncOnchip() {
+    final elapsed = clocks - _tickedAt;
+    _tickedAt = clocks;
+    if (elapsed != 0) onchip.tick(elapsed);
+  }
+
+  /// Moves the CPU clock without advancing the on-chip modules.
+  void setClocks(int value) {
+    clocks = _tickedAt = value;
+  }
+
   bool exec({bool compiled = true}) {
-    final before = clocks;
     final ok = _execOne(compiled);
-    onchip.tick(clocks - before);
+    _syncOnchip();
     return ok;
   }
 
+  /// fast-forwards idle loops (see _isIdle)
+  bool idleSkip = true;
+
+  /// whether the last [_execOneUnprofiled] ran compiled code
+  bool _nativeStep = false;
+
   /// Runs to the adapter deadline, retaining instruction-based debug stepping.
+  /// A loop that repeats without effect waits for the deadline at once, because
+  /// the other devices advance only between runs.
   bool run(int targetClocks, {bool compiled = true}) {
+    final skip = idleSkip && compiled;
+    final status = _jitFtcsr;
+    var ok = true;
     while (clocks < targetClocks) {
-      final before = clocks;
-      final ok = _execOne(compiled, targetClocks - clocks);
-      onchip.tick(clocks - before);
-      if (!ok) return false;
+      final prev = pc;
+      if (status != null) status[0] = onchip.ftcsr;
+      _nativeStep = false;
+      ok = _execOne(compiled, targetClocks - clocks);
+      if (!ok) break;
+      if (skip && _idleAfterStep(prev) && clocks < targetClocks) {
+        executionStats?.recordIdle(targetClocks - clocks);
+        clocks = targetClocks;
+      }
     }
-    return true;
+    _syncOnchip();
+    return ok;
   }
+
+  bool _idleAfterStep(int prev) {
+    if (sleeping) return true;
+    final from = _nativeStep ? jit!.idleCheckPc : prev;
+    return jit != null && _nativeStep && jit!.idleDetected ||
+        from != null &&
+            Sh2IdleDetector.isBackEdge(pc, from, compiled: _nativeStep) &&
+            _idle.check(pc, _bus.writes + _state[7]);
+  }
+
+  late final _idle = Sh2IdleDetector(r, _state, keepSnapshot: true);
 
   bool _execOne(bool compiled, [int budget = 1]) {
     final stats = executionStats;
@@ -251,6 +304,7 @@ class Sh2 {
       executionStats?.pauseCpuStep();
       final result = jit!.run(pc, budget);
       if (result != null) {
+        _nativeStep = true;
         pc = result.$1;
         clocks += result.$2;
         return true;
@@ -794,41 +848,77 @@ class _OnChipBus implements Sh2Bus {
   final Sh2OnChip onchip;
   _OnChipBus(this.ext, this.onchip);
 
+  /// advances the module clocks before a module register is accessed
+  void Function()? sync;
+
+  /// writes issued by the interpreter, for idle loop detection
+  int writes = 0;
+
   // effective addresses (register + register) may exceed 32 bits
   static bool _on(int a) => a.mask32 >= 0xfffffe00;
   @override
   int read8(int a) {
     executionStats?.recordMemory(a.mask32, 1);
-    return _on(a) ? onchip.read8(a) : ext.read8(a.mask32);
+    if (_on(a)) {
+      sync?.call();
+      return onchip.read8(a);
+    }
+    return ext.read8(a.mask32);
   }
 
   @override
   int read16(int a) {
     executionStats?.recordMemory(a.mask32, 2);
-    return _on(a) ? onchip.read16(a) : ext.read16(a.mask32);
+    if (_on(a)) {
+      sync?.call();
+      return onchip.read16(a);
+    }
+    return ext.read16(a.mask32);
   }
 
   @override
   int read32(int a) {
     executionStats?.recordMemory(a.mask32, 4);
-    return _on(a) ? onchip.read32(a) : ext.read32(a.mask32);
+    if (_on(a)) {
+      sync?.call();
+      return onchip.read32(a);
+    }
+    return ext.read32(a.mask32);
   }
 
   @override
   void write8(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 1, write: true);
-    _on(a) ? onchip.write8(a, v) : ext.write8(a.mask32, v);
+    if (_on(a)) {
+      sync?.call();
+      onchip.write8(a, v);
+    } else {
+      ext.write8(a.mask32, v);
+    }
   }
 
   @override
   void write16(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 2, write: true);
-    _on(a) ? onchip.write16(a, v) : ext.write16(a.mask32, v);
+    if (_on(a)) {
+      sync?.call();
+      onchip.write16(a, v);
+    } else {
+      ext.write16(a.mask32, v);
+    }
   }
 
   @override
   void write32(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 4, write: true);
-    _on(a) ? onchip.write32(a, v) : ext.write32(a.mask32, v);
+    if (_on(a)) {
+      sync?.call();
+      onchip.write32(a, v);
+    } else {
+      ext.write32(a.mask32, v);
+    }
   }
 }

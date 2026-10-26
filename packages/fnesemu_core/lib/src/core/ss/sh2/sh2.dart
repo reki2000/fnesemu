@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../components/sh2/jit/idle.dart';
 import '../../../components/sh2/jit/jit.dart';
 import '../../../state.dart';
 import '../../../util/disasm.dart';
@@ -336,7 +337,7 @@ class Sh2 extends SsCpu {
   void reset() {
     jit?.reset();
     _state[7] = 0;
-    _idlePc = _idleWrites = -1;
+    _idle.reset();
     onchip.reset();
     r.fillRange(0, 16, 0);
     pc = bus.read32(0);
@@ -360,26 +361,10 @@ class Sh2 extends SsCpu {
     w.ints([..._state.sublist(0, 7), 0]);
     final writes = _mem.writes + _state[7];
     w.ints([pc, clocks, _irl, _delayTarget, _restoreSr, writes]);
-    w.ints([_idlePc, _idleWrites, _idleSr, _idleGbr, _idleMach]);
-    w.ints([_idleMacl, _idlePr]);
-    w.ints([
-      _s0,
-      _s1,
-      _s2,
-      _s3,
-      _s4,
-      _s5,
-      _s6,
-      _s7,
-      _s8,
-      _s9,
-      _s10,
-      _s11,
-      _s12,
-      _s13,
-      _s14,
-      _s15
-    ]);
+    final snap = _idle.snapshot;
+    w.ints([_idle.pc, _idle.writes, snap[16], snap[17], snap[20]]);
+    w.ints([snap[21], snap[19]]);
+    w.ints(snap.sublist(0, 16));
     for (final b in [_nmi, sleeping, _inDelay]) {
       w.boolean(b);
     }
@@ -401,31 +386,17 @@ class Sh2 extends SsCpu {
     _delayTarget = v[3];
     _restoreSr = v[4];
     _mem.writes = v[5];
-    _idlePc = idle[0];
-    _idleWrites = idle[1];
-    _idleSr = idle[2];
-    _idleGbr = idle[3];
-    _idleMach = idle[4];
-    _idleMacl = idle2[0];
-    _idlePr = idle2[1];
-    final snap = Uint32List(16);
-    s.intsInto(snap);
-    _s0 = snap[0];
-    _s1 = snap[1];
-    _s2 = snap[2];
-    _s3 = snap[3];
-    _s4 = snap[4];
-    _s5 = snap[5];
-    _s6 = snap[6];
-    _s7 = snap[7];
-    _s8 = snap[8];
-    _s9 = snap[9];
-    _s10 = snap[10];
-    _s11 = snap[11];
-    _s12 = snap[12];
-    _s13 = snap[13];
-    _s14 = snap[14];
-    _s15 = snap[15];
+    final snap = _idle.snapshot;
+    _idle.pc = idle[0];
+    _idle.writes = idle[1];
+    snap[16] = idle[2];
+    snap[17] = idle[3];
+    snap[20] = idle[4];
+    snap[21] = idle2[0];
+    snap[19] = idle2[1];
+    final regs = Uint32List(16);
+    s.intsInto(regs);
+    snap.setRange(0, 16, regs);
     _nmi = s.boolean();
     sleeping = s.boolean();
     _inDelay = s.boolean();
@@ -474,7 +445,7 @@ class Sh2 extends SsCpu {
         pc = compiled.$1;
         clocks += compiled.$2;
         if (idleSkip && jit!.idleDetected) {
-          _idlePc = -1;
+          _idle.reset();
           // A compiled block may already have overshot the target.
           if (clocks < targetClocks) {
             executionStats?.recordIdle(targetClocks - clocks);
@@ -490,9 +461,9 @@ class Sh2 extends SsCpu {
       if (idleSkip &&
           (sleeping ||
               (idleFrom != null &&
-                  (pc < idleFrom || (compiled != null && pc == idleFrom)) &&
-                  idleFrom - pc <= Sh2Jit.idleBranchDistance &&
-                  _isIdle()))) {
+                  Sh2IdleDetector.isBackEdge(pc, idleFrom,
+                      compiled: compiled != null) &&
+                  _idle.check(pc, _mem.writes + _state[7])))) {
         if (clocks < targetClocks) {
           executionStats?.recordIdle(targetClocks - clocks);
           clocks = targetClocks;
@@ -504,87 +475,7 @@ class Sh2 extends SsCpu {
     return ok;
   }
 
-  // Other devices do not advance while this CPU runs to the target clocks.
-  // So a loop is idle when it comes back to the same place with the same
-  // registers and without any memory write: it repeats until the target.
-  int _idlePc = -1;
-  int _idleWrites = -1;
-  int _idleSr = 0, _idleGbr = 0, _idleMach = 0, _idleMacl = 0, _idlePr = 0;
-
-  // snapshot of the registers at the last branch (r0 to r15)
-  int _s0 = 0;
-  int _s1 = 0;
-  int _s2 = 0;
-  int _s3 = 0;
-  int _s4 = 0;
-  int _s5 = 0;
-  int _s6 = 0;
-  int _s7 = 0;
-  int _s8 = 0;
-  int _s9 = 0;
-  int _s10 = 0;
-  int _s11 = 0;
-  int _s12 = 0;
-  int _s13 = 0;
-  int _s14 = 0;
-  int _s15 = 0;
-
-  bool _isIdle() {
-    final writes = _mem.writes + _state[7];
-    // most branches differ in pc or writes, so the registers are compared
-    // only for a repeat of the same branch, and stop at the first difference
-    if (pc == _idlePc &&
-        writes == _idleWrites &&
-        sr == _idleSr &&
-        gbr == _idleGbr &&
-        mach == _idleMach &&
-        macl == _idleMacl &&
-        pr == _idlePr &&
-        r[0] == _s0 &&
-        r[1] == _s1 &&
-        r[2] == _s2 &&
-        r[3] == _s3 &&
-        r[4] == _s4 &&
-        r[5] == _s5 &&
-        r[6] == _s6 &&
-        r[7] == _s7 &&
-        r[8] == _s8 &&
-        r[9] == _s9 &&
-        r[10] == _s10 &&
-        r[11] == _s11 &&
-        r[12] == _s12 &&
-        r[13] == _s13 &&
-        r[14] == _s14 &&
-        r[15] == _s15) {
-      _idlePc = -1;
-      return true;
-    }
-    // keeps this branch as the snapshot for the next one
-    _s0 = r[0];
-    _s1 = r[1];
-    _s2 = r[2];
-    _s3 = r[3];
-    _s4 = r[4];
-    _s5 = r[5];
-    _s6 = r[6];
-    _s7 = r[7];
-    _s8 = r[8];
-    _s9 = r[9];
-    _s10 = r[10];
-    _s11 = r[11];
-    _s12 = r[12];
-    _s13 = r[13];
-    _s14 = r[14];
-    _s15 = r[15];
-    _idlePc = pc;
-    _idleWrites = writes;
-    _idleSr = sr;
-    _idleGbr = gbr;
-    _idleMach = mach;
-    _idleMacl = macl;
-    _idlePr = pr;
-    return false;
-  }
+  late final _idle = Sh2IdleDetector(r, _state);
 
   // cheap check whether any interrupt may be accepted now
   @pragma('vm:prefer-inline')
