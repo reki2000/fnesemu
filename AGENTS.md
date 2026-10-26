@@ -14,6 +14,10 @@ Follow `ARCHITECTURE.md` for component responsibilities, dependency directions, 
 
 - After adding or removing a core module, run `dart run tool/generate_core_registry.dart` in `packages/fnesemu_core`. Do not modify the app or GUI to accommodate the module change.
 
+# Performance
+
+Before changing Dart code for speed, read `packages/fnesemu_core/tool/dart_aot_tips.md`. It covers profiling, the compiler behavior seen in the x64 output, the measurement rules and the guidelines.
+
 # Reference policy
 
 - Do not consult, copy, translate, or adapt source code or implementation details from other emulators when implementing or debugging fnesemu.

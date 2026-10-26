@@ -21,20 +21,20 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-| key | Z | X | C | A | S | D | Q | W | E | R | arrows |
-|-----|---|---|---|---|---|---|---|---|---|---|--------|
-| NES | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
-| PCE | II | I |  | Select | Run |  |  |  |  |  | up / down / left / right |
-| MD | A | B | C | X | Y | Z | Mode | | Start |  | up / down / left / right |
-| PS1 | # | x | o | Select | ^ |  | L1 | Start | R1 |  | up / down / left / right |
-| GB | B | A |  | Select | Start |  |  |  |  |  | up / down / left / right |
-| GBA | A | B | L | Select | Start |  | R |  |  |  | up / down / left / right |
-| SNES | Select |  | Start | Y | B | A | L | X | R |  | up / down / left / right |
-| SS | A | B | C | L | Start |  | X | Y | Z | R | up / down / left / right |
-| N64 | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start | up / down / left / right |
-| SMS | 1 | 2 |  |  | Pause (Start on the portable console) |  |  |  |  |  | up / down / left / right |
-| WS | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate | X1 / X3 / X4 / X2 |
-| WS (vertical) | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate | Y2 / Y4 / Y1 / Y3 |
+| key | arrows | Z | X | C | A | S | D | Q | W | E | R |
+|-----|--------|---|---|---|---|---|---|---|---|---|---|
+| NES | up / down / left / right | B | A |  | Select | Start |  |  |  |  |  |
+| PCE | up / down / left / right | II | I |  | Select | Run |  |  |  |  |  |
+| MD | up / down / left / right | A | B | C | X | Y | Z | Mode | | Start |  |
+| PS1 | up / down / left / right | # | x | o | Select | ^ |  | L1 | Start | R1 |  |
+| GB | up / down / left / right | B | A |  | Select | Start |  |  |  |  |  |
+| GBA | up / down / left / right | A | B | L | Select | Start |  | R |  |  |  |
+| SNES | up / down / left / right | Select |  | Start | Y | B | A | L | X | R |  |
+| SS | up / down / left / right | A | B | C | L | Start |  | X | Y | Z | R |
+| N64 | up / down / left / right | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start |
+| SMS | up / down / left / right | 1 | 2 |  |  | Pause / Start |  |  |  |  |  |
+| WS | X1 / X3 / X4 / X2 | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate |
+| WS (vertical) | Y2 / Y4 / Y1 / Y3 | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate |
 
 On N64, the arrows move the analog stick. The D-pad buttons (D-up, D-down, D-left, D-right) have no key and are used by the end-to-end tests.
 

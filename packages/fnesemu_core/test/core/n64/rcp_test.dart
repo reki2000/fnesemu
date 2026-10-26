@@ -6,6 +6,7 @@ import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/fpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
@@ -110,23 +111,54 @@ void main() {
   test('SI delivers controller buttons and analog stick through PIF packets',
       () {
     final b = N64Bus()..reset();
-    b.pad(0, const PadButton('A'), true);
-    b.pad(0, PadButton.left, true);
-    b.pad(0, PadButton.up, true);
+    final state = PadState()
+      ..press(0, const PadButton('A'))
+      ..press(0, PadButton.left)
+      ..setAxis(0, PadAxis.leftX, -1)
+      ..setAxis(0, PadAxis.leftY, -1);
+    b.pad = state;
     b.ram.setRange(0x100, 0x109, [1, 4, 1, 0, 0, 0, 0, 0xfe, 0]);
     b.ram[0x13f] = 1;
     b.write(0xa4800000, 0x100, 4);
     b.write(0xa4800010, 0x1fc007c0, 4);
     b.write(0xa4800000, 0x200, 4);
     b.write(0xa4800004, 0x1fc007c0, 4);
-    expect(b.ram.sublist(0x203, 0x207), [0x80, 0, 176, 80]);
-    b.pad(0, const PadButton('A'), false);
-    b.pad(0, PadButton.left, false);
+    expect(b.ram.sublist(0x203, 0x207), [0x82, 0, 176, 80]);
+    state
+      ..release(0, const PadButton('A'))
+      ..release(0, PadButton.left)
+      ..setAxis(0, PadAxis.leftX, 0)
+      ..setAxis(0, PadAxis.leftY, 0.5);
     b.write(0xa4800004, 0x1fc007c0, 4);
-    expect(b.ram.sublist(0x203, 0x207), [0, 0, 0, 80]);
+    expect(b.ram.sublist(0x203, 0x207), [0, 0, 0, 216]);
     expect(b.mi[2] & 2, 2);
     b.write(0xa4800018, 0, 4);
     expect(b.mi[2] & 2, 0);
+  });
+  test('either stick drives the analog stick and the left one wins', () {
+    final b = N64Bus()..reset();
+    final state = PadState();
+    b.pad = state;
+    List<int> stick() {
+      b.ram.setRange(0x100, 0x109, [1, 4, 1, 0, 0, 0, 0, 0xfe, 0]);
+      b.ram[0x13f] = 1;
+      b.write(0xa4800000, 0x100, 4);
+      b.write(0xa4800010, 0x1fc007c0, 4);
+      b.write(0xa4800000, 0x200, 4);
+      b.write(0xa4800004, 0x1fc007c0, 4);
+      return b.ram.sublist(0x205, 0x207);
+    }
+
+    state.setAxis(0, PadAxis.rightX, 1);
+    expect(stick(), [80, 0]);
+    state
+      ..setAxis(0, PadAxis.leftX, -0.5)
+      ..setAxis(0, PadAxis.leftY, -1);
+    expect(stick(), [216, 80]);
+    state
+      ..setAxis(0, PadAxis.leftX, 0)
+      ..setAxis(0, PadAxis.leftY, 0);
+    expect(stick(), [80, 0]);
   });
   test('EEPROM write/read uses persistent Sram, independently of reset', () {
     final b = N64Bus()..reset();
@@ -225,18 +257,64 @@ void main() {
     expect(c.cop0[13].shr2.mask5, 11);
     expect(c.cop0[13].shr28.mask2, 1);
   });
+  test('transparent texture holes do not occlude later geometry', () {
+    for (final size in [2, 3]) {
+      for (final reverse in [false, true]) {
+        final b = N64Bus()..reset(), g = N64Graphics(b);
+        g.width = g.scRight = g.scBottom = 4;
+        g.colorImage = 0x1000;
+        g.colorSize = size;
+        g.scale = Vec3(2, 2, 1);
+        g.translate = Vec3(2, 2, 1);
+        g.geometry = 1;
+        // AA_ZB_TEX_EDGE: depth compare/update and alpha-derived coverage.
+        g.otherLow = 0x00003078;
+        g.tiles[0]
+          ..size = 2
+          ..line = 1;
+        // Yellow texels have identical RGB but opposite one-bit alpha.
+        g.tmem.setRange(0, 4, [0xff, 0xc0, 0xff, 0xc1]);
+        void draw(double z, bool textured) {
+          g.textureOn = textured;
+          g.combine0 = textured ? (1 << 12) | (6 << 9) : 0;
+          g.combine1 = (7 << 28) |
+              ((textured ? 1 : 4) << 15) |
+              (7 << 12) |
+              ((textured ? 7 : 6) << 9);
+          g.triangle(
+              N64Vertex(Vec4(-1, -1, z, 1), Rgba(255, 0, 0, 255), 0, 0),
+              N64Vertex(Vec4(1, -1, z, 1), Rgba(255, 0, 0, 255), 4, 0),
+              N64Vertex(Vec4(-1, 1, z, 1), Rgba(255, 0, 0, 255), 0, 0));
+        }
+
+        if (reverse) draw(0.5, false);
+        draw(0, true);
+        expect(g.depth[2 * 4], reverse ? 1.5 : double.infinity);
+        expect(g.depth[2 * 4 + 1], 1);
+        if (!reverse) draw(0.5, false);
+        final bytes = size == 3 ? 4 : 2;
+        expect(b.ramRead(0x1000 + 2 * 4 * bytes, bytes),
+            size == 3 ? 0xff0000ff : 0xf801);
+        expect(b.ramRead(0x1000 + (2 * 4 + 1) * bytes, bytes),
+            size == 3 ? 0xffff00ff : 0xffc1);
+        expect(g.depth[2 * 4], 1.5);
+        expect(g.depth[2 * 4 + 1], 1);
+      }
+    }
+  });
+
   test('GBI viewport flips clip Y into screen coordinates', () {
     final b = N64Bus()..reset(), g = N64Graphics(b);
     g.width = 4;
     g.colorImage = 0x1000;
     g.scRight = g.scBottom = 4;
-    g.scale = [2, 2, 1];
-    g.translate = [2, 2, 1];
+    g.scale = Vec3(2, 2, 1);
+    g.translate = Vec3(2, 2, 1);
     g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
     g.triangle(
-        const N64Vertex([-1, -1, 0, 1], [255, 0, 0, 255], 0, 0),
-        const N64Vertex([1, -1, 0, 1], [255, 0, 0, 255], 0, 0),
-        const N64Vertex([0, 1, 0, 1], [255, 0, 0, 255], 0, 0));
+        N64Vertex(Vec4(-1, -1, 0, 1), Rgba(255, 0, 0, 255), 0, 0),
+        N64Vertex(Vec4(1, -1, 0, 1), Rgba(255, 0, 0, 255), 0, 0),
+        N64Vertex(Vec4(0, 1, 0, 1), Rgba(255, 0, 0, 255), 0, 0));
     expect(b.ramRead(0x1000, 2), 0);
     expect(b.ramRead(0x1000 + (1 * 4 + 1) * 2, 2), 0xf801);
   });

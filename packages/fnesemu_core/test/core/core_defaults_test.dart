@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/app_api.dart';
 import 'package:test/test.dart';
+import 'pad_helper.dart';
 
 class _InstructionCore extends Core {
   final List<ExecResult> instructions;

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/sram.dart';
 
 import 'headless/comparison.dart';
@@ -14,6 +15,7 @@ final class _Variant {
   final int size;
   final String name;
   final N64 core;
+  final pad = PadState();
   final watch = Stopwatch();
   int cpuTicks = 0, audioHash = 0x811c9dc5, samples = 0;
   final batches = <Map<String, int>>[];
@@ -31,6 +33,7 @@ final class _Variant {
             inlineJumps: inline,
             maxBlockInstructions: size == 0 ? null : size) {
     core.setSram(Sram());
+    core.input = pad;
     core.onAudio((audio) {
       samples += audio.buffer.length;
       final words = Uint32List.view(
@@ -134,8 +137,8 @@ Future<void> main(List<String> args) async {
     for (final (at, name) in inputs) {
       final button = v.core.buttons
           .firstWhere((b) => b.name.toLowerCase() == name.toLowerCase());
-      if (index == at) v.core.padDown(0, button);
-      if (index == at + hold) v.core.padUp(0, button);
+      if (index == at) v.pad.press(0, button);
+      if (index == at + hold) v.pad.release(0, button);
     }
   }
 

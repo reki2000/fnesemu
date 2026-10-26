@@ -1,11 +1,13 @@
 import 'dart:typed_data';
 
+import 'runtime.dart';
+
 /// Bounded cold-entry data keyed by PC, mode tag and a frontend version token.
 /// Tokens must have stable equality; the frontend chooses their code coverage.
 /// A full table drops observations, never installed code or runtime state.
 final class JitEntryProfiles<T extends Object> {
   final int capacity;
-  final _entries = <(int, int), (Object?, T)>{};
+  final _entries = <int, (Object?, T)>{};
 
   JitEntryProfiles({this.capacity = 4096}) {
     if (capacity <= 0) throw ArgumentError.value(capacity, 'capacity');
@@ -15,7 +17,7 @@ final class JitEntryProfiles<T extends Object> {
 
   /// A changed token discards the previous observation before it can be reused.
   T? lookup(int pc, int tag, Object? version) {
-    final key = (pc, tag), entry = _entries[key];
+    final key = jitKey(pc, tag), entry = _entries[key];
     if (entry == null) return null;
     if (entry.$1 != version) {
       _entries.remove(key);
@@ -29,11 +31,11 @@ final class JitEntryProfiles<T extends Object> {
     if (existing != null) return existing;
     if (_entries.length >= capacity) clear();
     final value = create();
-    _entries[(pc, tag)] = (version, value);
+    _entries[jitKey(pc, tag)] = (version, value);
     return value;
   }
 
-  void remove(int pc, int tag) => _entries.remove((pc, tag));
+  void remove(int pc, int tag) => _entries.remove(jitKey(pc, tag));
   void clear() => _entries.clear();
 }
 

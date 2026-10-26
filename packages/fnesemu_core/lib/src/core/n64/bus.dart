@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../sram.dart';
 import '../../state.dart';
 import '../../types.dart';
@@ -34,7 +35,8 @@ class N64Bus {
   final ri = Uint32List(8), rdram = Uint32List(10), si = Uint32List(7);
   final spRegs = Uint32List(8), dp = Uint32List(8), mi = Uint32List(4);
   final tlb = List.generate(32, (_) => List<int>.filled(4, 0));
-  final held = List.generate(4, (_) => <String>{});
+  // where the held buttons and axes are read from, set by the core
+  PadSource pad = const NoPadSource();
   Sram? sram;
   // cartridge backup ram (SRAM games). the first 512 bytes of [sram] are the
   // EEPROM, the 32KiB after them hold this SRAM so that it is persisted too
@@ -136,10 +138,6 @@ class N64Bus {
     for (final entry in tlb) {
       w.ints(entry);
     }
-    for (final keys in held) {
-      w.int32(keys.length);
-      keys.forEach(w.string);
-    }
     w.bytes(sram?.data ?? const <int>[]);
     w.bytes(cartSram);
     w.bytes(flash);
@@ -165,11 +163,6 @@ class N64Bus {
     }
     for (final entry in tlb) {
       s.intsInto(entry);
-    }
-    for (final keys in held) {
-      keys
-        ..clear()
-        ..addAll([for (var n = s.int32(); n > 0; n--) s.string()]);
     }
     final backup = s.bytes();
     if (sram case final sram?) {
@@ -675,33 +668,22 @@ class N64Bus {
           pif[response + 1] = 0;
           pif[response + 2] = 0;
         } else if (command == 1 && rx >= 4) {
-          final keys = held[channel];
           var bits = 0;
-          const buttons = {
-            'A': 0x8000,
-            'B': 0x4000,
-            'Z': 0x2000,
-            'Start': 0x1000,
-            'D-up': 0x800,
-            'D-down': 0x400,
-            'D-left': 0x200,
-            'D-right': 0x100,
-            'L': 0x20,
-            'R': 0x10,
-            'C-up': 8,
-            'C-down': 4,
-            'C-left': 2,
-            'C-right': 1
-          };
-          for (final e in buttons.entries) {
-            if (keys.contains(e.key)) bits |= e.value;
+          for (final (button, bit) in _padBits) {
+            if (pad.isPressed(channel, button)) bits |= bit;
           }
           pif[response] = bits.shr8;
           pif[response + 1] = bits;
-          pif[response + 2] = (keys.contains('right') ? 80 : 0) -
-              (keys.contains('left') ? 80 : 0);
-          pif[response + 3] =
-              (keys.contains('up') ? 80 : 0) - (keys.contains('down') ? 80 : 0);
+          // the stick reports +x to the right and +y upwards, within +-80.
+          // either stick of the GUI drives it, and the left one has priority
+          var x = pad.axis(channel, PadAxis.leftX);
+          var y = pad.axis(channel, PadAxis.leftY);
+          if (x == 0 && y == 0) {
+            x = pad.axis(channel, PadAxis.rightX);
+            y = pad.axis(channel, PadAxis.rightY);
+          }
+          pif[response + 2] = (x * 80).round();
+          pif[response + 3] = (-y * 80).round();
         }
       } else if (channel == 4 && sram != null) {
         connected = true;
@@ -729,14 +711,23 @@ class N64Bus {
     pif[63] = 0;
   }
 
-  void pad(int id, PadButton key, bool down) {
-    if (id < 0 || id >= 4) return;
-    if (down) {
-      held[id].add(key.name);
-    } else {
-      held[id].remove(key.name);
-    }
-  }
+  // the buttons in the bits of the controller status word
+  static const _padBits = [
+    (PadButton('A'), 0x8000),
+    (PadButton('B'), 0x4000),
+    (PadButton('Z'), 0x2000),
+    (PadButton('Start'), 0x1000),
+    (PadButton.up, 0x800),
+    (PadButton.down, 0x400),
+    (PadButton.left, 0x200),
+    (PadButton.right, 0x100),
+    (PadButton('L'), 0x20),
+    (PadButton('R'), 0x10),
+    (PadButton('C-up'), 8),
+    (PadButton('C-down'), 4),
+    (PadButton('C-left'), 2),
+    (PadButton('C-right'), 1),
+  ];
 
   void reset() {
     _flashActive = false;
@@ -755,9 +746,6 @@ class N64Bus {
       tlb[i].fillRange(0, 4, 0);
       tlb[i][0] = 0x80000000 + i * 0x2000;
     }
-    for (final keys in held) {
-      keys.clear();
-    }
     scanline = 0;
     spPc = 0;
     _spNext.fillRange(0, 2, 0);
@@ -766,6 +754,10 @@ class N64Bus {
     spRegs[4] = 1;
     pi[2] = pi[3] = 0x7f;
   }
+
+  // 5-bit to 8-bit expansion: v << 3 | v >> 2.
+  static final _expand5 =
+      Uint8List.fromList([for (var v = 0; v < 32; v++) v << 3 | v >> 2]);
 
   /// VI raw framebuffer scanout, without filtering or interlacing.
   ImageBuffer image() {
@@ -788,21 +780,32 @@ class N64Bus {
     final output = Uint32List(width * height);
     final origin = vi[1].mask24;
     final size = mode == 2 ? 2 : 4;
+    final ram = this.ram, expand = _expand5, limit = ram.length - size;
+    // x is visible while it is inside the stride and the pixel is in RDRAM.
     for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        final source = origin + (y * stride + x) * size;
-        if (x >= stride || source + size > ram.length) continue;
-        var abgr = 0xff000000;
-        if (size == 2) {
-          final color = ram[source].shl8 | ram[source + 1];
-          for (var c = 0; c < 3; c++) {
-            final v = color.shr(11 - c * 5).mask5;
-            abgr |= (v.shl3 | v.shr2) << (c * 8);
-          }
-        } else {
-          abgr |= ram[source] | ram[source + 1] << 8 | ram[source + 2] << 16;
+      final row = origin + y * stride * size, out = y * width;
+      var end = width < stride ? width : stride;
+      final room = limit - row;
+      if (room < 0) {
+        end = 0;
+      } else if ((end - 1) * size > room) {
+        end = room ~/ size + 1;
+      }
+      if (size == 2) {
+        for (var x = 0, source = row; x < end; x++, source += 2) {
+          final color = ram[source] << 8 | ram[source + 1];
+          output[out + x] = 0xff000000 |
+              expand[color >> 11 & 31] |
+              expand[color >> 6 & 31] << 8 |
+              expand[color >> 1 & 31] << 16;
         }
-        output[y * width + x] = abgr;
+      } else {
+        for (var x = 0, source = row; x < end; x++, source += 4) {
+          output[out + x] = 0xff000000 |
+              ram[source] |
+              ram[source + 1] << 8 |
+              ram[source + 2] << 16;
+        }
       }
     }
     return ImageBuffer(width, height, output);

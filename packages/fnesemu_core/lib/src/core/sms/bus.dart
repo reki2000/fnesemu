@@ -83,7 +83,6 @@ class Bus implements Z80Bus {
 
   // the portable console: the start button, the region of the cartridge
   // and the link port registers 0x01-0x05
-  bool ggStart = false;
   bool ggDomestic = false;
   final linkPort = Uint8List(6);
 
@@ -216,7 +215,7 @@ class Bus implements Z80Bus {
     if (model == SmsModel.gg && !compatible && port < 7) {
       return switch (port) {
         // start (active low), export region, NTSC
-        0 => (ggStart ? 0 : 0x80) | (ggDomestic ? 0 : 0x40),
+        0 => (pad.startPressed ? 0 : 0x80) | (ggDomestic ? 0 : 0x40),
         // the link port: nothing is connected
         4 => 0xff,
         5 => linkPort[5] & 0xf8 | 0x02, // the send buffer is empty

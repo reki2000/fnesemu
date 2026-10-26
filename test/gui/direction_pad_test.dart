@@ -29,21 +29,18 @@ void main() {
 
   test('sources combine, transitions preserve held keys and clear releases all',
       () {
-    final changes = <String>[];
-    final input = PadInput(
-        onDown: (b) => changes.add('+${b.name}'),
-        onUp: (b) => changes.add('-${b.name}'));
+    final input = PadInput();
     addTearDown(input.dispose);
     input.setSource('touch', {PadButton.up});
     input.setSource('touch', {PadButton.up, PadButton.right});
-    expect(changes, ['+up', '+right']);
+    expect(input.pressed, {PadButton.up, PadButton.right});
+    expect(input.isPressed(0, PadButton.right), isTrue);
+    expect(input.isPressed(1, PadButton.right), isFalse);
     input.setSource('keyboard', {PadButton.up});
     input.setSource('touch', {});
     expect(input.pressed, {PadButton.up});
-    expect(changes, ['+up', '+right', '-right']);
     input.clear();
     expect(input.pressed, isEmpty);
-    expect(changes.last, '-up');
     input.enabled = false;
     input.setSource('touch', {PadButton.right});
     expect(input.pressed, isEmpty);
@@ -52,7 +49,7 @@ void main() {
   testWidgets(
       'drag, cancel and keyboard combinations update the highlighted sector',
       (tester) async {
-    final input = PadInput(onDown: (_) {}, onUp: (_) {});
+    final input = PadInput();
     addTearDown(input.dispose);
     final controller = CoreController((_) {}, (_) {}, (_) {}, Sram());
     final keys = KeyHandler(controller: controller, input: input);

@@ -43,6 +43,24 @@ void main() {
         expect(code.protect(0xe000), isFalse);
       });
 
+      test('store exits release a protected page at the limit', () {
+        final ram = rt.alloc(0x2000);
+        code.map(0x1000, ram.length, ram);
+        code.map(0x5000, ram.length, ram);
+        expect(code.noteStoreExit(0x2000), isFalse, reason: 'unprotected');
+        code.protect(0x1000);
+        for (var i = 1; i < 4; i++) {
+          expect(code.noteStoreExit(0x5004, limit: 4), isFalse);
+        }
+        expect(code.noteStoreExit(0x1008, limit: 4), isTrue);
+        expect(code.isReleased(0x5000), isTrue);
+        expect(rt.writePages[page(0x1000)], isNotNull);
+        expect(code.noteStoreExit(0x1000, limit: 4), isFalse);
+        code.protect(0x2000);
+        expect(code.noteStoreExit(0x2000, limit: 4), isFalse,
+            reason: 'the count of another page starts again');
+      });
+
       test('a compiled store to a protected alias leaves the block', () {
         final ram = rt.alloc(0x1000);
         code.map(0x1000, ram.length, ram);

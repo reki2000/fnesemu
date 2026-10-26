@@ -9,6 +9,7 @@ import 'src/cdrom_drive.dart';
 import 'src/core.dart';
 import 'src/internal/frame_counter.dart';
 import 'src/pad_button.dart';
+import 'src/pad_source.dart';
 import 'src/sram.dart';
 import 'src/types.dart';
 import 'src/util/debug.dart';
@@ -92,7 +93,7 @@ class CoreController {
     }
 
     _core.dispose();
-    _core = core;
+    _core = core..input = _input;
     _system = system;
     final metadata = CoreFactory.system(system);
     debugger.setCore(_core,
@@ -302,16 +303,18 @@ class CoreController {
   // provides fps value
   Stream<double> get fpsStream => _fpsStream.stream;
 
-  // UI invokes this when a button of the pad is down
-  void padDown(int controlerId, PadButton k) {
-    _core.padDown(controlerId, k);
-  }
+  PadSource _input = const NoPadSource();
 
-  // UI invokes this when a button of the pad is up
-  void padUp(int controlerId, PadButton k) {
-    _core.padUp(controlerId, k);
+  /// the cores read the controllers from this source
+  PadSource get input => _input;
+  set input(PadSource source) {
+    _input = source;
+    _core.input = source;
   }
 
   // returns a list of core's buttons
   List<PadButton> get buttons => _core.buttons;
+
+  // returns a list of core's analog axes
+  List<PadAxis> get axes => _core.axes;
 }

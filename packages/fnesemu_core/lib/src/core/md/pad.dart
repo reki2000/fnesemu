@@ -1,19 +1,16 @@
 // import '../../util/debug.dart';
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../util/int.dart';
 import '../../util/state.dart';
 
 // final _log = DebugLog('md.pad');
 
 class Pad {
-  late List<Map<String, bool>> isPressed;
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
 
   static const controllerNum = 3;
-
-  Pad() {
-    isPressed =
-        List.generate(controllerNum, (_) => {for (var e in _hw) e.name: false});
-  }
 
   /// Saves logical state while the owning core identifies external media.
   void saveState(StateWriter w) {
@@ -22,9 +19,6 @@ class Pad {
     w.ints(_lastEdge);
     for (var i = 0; i < controllerNum; i++) {
       w.boolean(th[i]);
-      for (final button in _hw) {
-        w.boolean(isPressed[i][button.name]!);
-      }
     }
   }
 
@@ -35,24 +29,7 @@ class Pad {
     s.intsInto(_lastEdge);
     for (var i = 0; i < controllerNum; i++) {
       th[i] = s.boolean();
-      for (final button in _hw) {
-        isPressed[i][button.name] = s.boolean();
-      }
     }
-  }
-
-  void keyDown(int id, PadButton d) {
-    if (0 <= id && id < controllerNum && d != PadButton.none) {
-      isPressed[id][d.name] = true;
-    }
-    // _log.debugc(() => "kwydown pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
-  }
-
-  void keyUp(int id, PadButton d) {
-    if (0 <= id && id < controllerNum && d != PadButton.none) {
-      isPressed[id][d.name] = false;
-    }
-    // _log.debugc(() => "keyup pad:$id counter:${counter[id]} isPressed:${isPressed[id]}");
   }
 
   static const _mode = PadButton("Mode");
@@ -115,7 +92,7 @@ class Pad {
   List<bool> th = [false, false, false];
 
   int buttonValue(int id, int index, int bit) =>
-      !isPressed[id][_hw[index].name]! ? bit : 0;
+      !source.isPressed(id, _hw[index]) ? bit : 0;
 
   /// m68 clocks without a TH edge after which the pad returns to its first
   /// state (about 1.5 ms)
@@ -151,7 +128,7 @@ class Pad {
             prev.shl1 |
             (idx == -2
                 ? 0
-                : (idx == -1 || !isPressed[id][_hw[idx].name]!)
+                : (idx == -1 || !source.isPressed(id, _hw[idx]))
                     ? 1
                     : 0));
     // _log.debugc(() =>

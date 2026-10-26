@@ -5,6 +5,7 @@ import 'package:fnesemu_core/src/core/gb/cpu.dart';
 import 'package:fnesemu_core/src/core/gb/gb.dart';
 import 'package:fnesemu_core/src/core/gb/pad.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:test/test.dart';
 
 // builds a rom image with the program placed at the entry point 0x0100
@@ -87,9 +88,12 @@ void main() {
 
   test('joypad register reflects the selected button group', () {
     final bus = Bus()..reset();
-    final pad = bus.pad;
-    pad.keyDown(0, Pad.start);
-    pad.keyDown(0, PadButton.left);
+    final state = PadState();
+    final pad = bus.pad..source = state;
+    state
+      ..press(0, Pad.start)
+      ..press(0, PadButton.left);
+    pad.poll();
 
     bus.write(0xff00, 0x20); // directions
     expect(bus.read(0xff00) & 0x0f, 0x0d);
