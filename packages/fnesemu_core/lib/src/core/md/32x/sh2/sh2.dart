@@ -46,9 +46,11 @@ class Sh2 {
       });
     }
   }
-  // Only even SDRAM addresses and their P1 aliases can be compiled here.
+  // Only even SDRAM addresses with their P1 aliases and the cache data array
+  // can be compiled here.
   static bool _jitCodeAddress(int address) =>
-      (address & 0xdffc0001) == 0x06000000;
+      (address & 0xdffc0001) == 0x06000000 ||
+      (address & 0xfffff001) == 0xc0000000;
 
   final Sh2Jit? jit;
   JitExecutionStats? executionStats;

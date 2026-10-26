@@ -45,6 +45,10 @@ final class Sh2Jit {
 
   /// Yield short back edges without stores to an adapter's idle detector.
   final bool stopOnNoStore;
+  final bool highMemory;
+
+  /// Releases a code page from write protection after repeated stores to it.
+  final bool releaseCodePages;
   late final regs = Uint32List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.regs * 4, 16);
   late final state = Uint32List.view(
@@ -90,6 +94,8 @@ final class Sh2Jit {
       this.maxInstructions,
       this.alignMemory,
       this.stopOnNoStore,
+      this.highMemory,
+      this.releaseCodePages,
       this.profileMemory,
       this.macLong,
       this.macWord,
@@ -106,6 +112,8 @@ final class Sh2Jit {
       bool macLong = false,
       bool macWord = false,
       bool idleGuards = false,
+      bool highMemory = false,
+      bool releaseCodePages = false,
       bool stopOnNoStore = true}) {
     final rt = native
         ? JitRuntime.native(
@@ -130,6 +138,8 @@ final class Sh2Jit {
         maxInstructions,
         alignMemory,
         stopOnNoStore,
+        highMemory,
+        releaseCodePages,
         profileMemory,
         macLong,
         macWord,
@@ -147,6 +157,8 @@ final class Sh2Jit {
         maxInstructions: maxInstructions,
         alignMemory: alignMemory,
         stopOnNoStore: stopOnNoStore,
+        highMemory: highMemory,
+        endsAfterStore: releaseCodePages ? _code.isReleased : null,
         macLong: macLong,
         macWord: macWord,
         idleGuards: idleGuards,
@@ -214,7 +226,11 @@ final class Sh2Jit {
     idleDetected = false;
     if (budget <= 0 || pc.isOdd) return null;
     if (_driver.isFallback(pc, 0)) return null;
+    if (releaseCodePages) rt.ctx[JitCtx.faultAddr] = 0xffffffff;
     final reason = _driver.runBudgeted(pc, 0, budget);
+    if (releaseCodePages && reason == Sh2Translator.interpret) {
+      _code.noteStoreExit(rt.ctx[JitCtx.faultAddr]);
+    }
     if (reason == Sh2Translator.idleDetected) {
       idleDetected = true;
     } else if (reason == Sh2Translator.profileMiss) {

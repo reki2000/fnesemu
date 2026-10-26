@@ -22,6 +22,12 @@ final class JitCodeMemory {
   final _protected = Map<Uint8List, Map<int, Set<(int, int)>>>.identity();
   final _released = Map<Uint8List, Set<int>>.identity();
 
+  /// native exits at stores into each protected host page
+  final _storeExits = Map<Uint8List, Map<int, int>>.identity();
+
+  /// store exits into one protected page before [noteStoreExit] releases it
+  static const storeExitLimit = 16;
+
   JitCodeMemory(this.rt);
 
   /// Maps [size] bytes of guest memory at [guestAddr] to [host] from
@@ -82,6 +88,27 @@ final class JitCodeMemory {
     (_released[host] ??= {}).add(offset);
   }
 
+  /// Counts a native exit at a store into the protected page holding
+  /// [guestAddr], and releases the page at the [limit]th one: data stored next
+  /// to code no longer leaves native code. The caller ends the blocks that
+  /// store into a released page ([isReleased]) so that the next block guards
+  /// its code words. Returns whether the page was released by this call.
+  bool noteStoreExit(int guestAddr, {int limit = storeExitLimit}) {
+    final page = _hostPage(guestAddr);
+    if (page == null) return false;
+    final (host, offset) = page;
+    if (!(_protected[host]?.containsKey(offset) ?? false)) return false;
+    final counts = _storeExits[host] ??= {};
+    final count = (counts[offset] ?? 0) + 1;
+    if (count < limit) {
+      counts[offset] = count;
+      return false;
+    }
+    counts.remove(offset);
+    release(guestAddr);
+    return true;
+  }
+
   /// Restores every write mapping and forgets protection and releases, for
   /// a runtime whose blocks were cleared.
   void reset() {
@@ -92,6 +119,7 @@ final class JitCodeMemory {
     }
     _protected.clear();
     _released.clear();
+    _storeExits.clear();
   }
 
   void _setWrites(Uint8List host, int offset, bool writable) {

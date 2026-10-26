@@ -111,6 +111,48 @@ void main() {
     }
     expect(actual.cpus[0].jit!.compiledClocks, 0);
   }, skip: native ? false : 'No big-endian native backend');
+
+  test('stores next to compiled cache code match the interpreter', () {
+    final expected = Md32x(jit: false), actual = Md32x(jit: true);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      final bytes = ByteData.sublistView(a.cacheData[0]);
+      bytes.setUint16(0x100, 0x7101); // add #1,r1
+      bytes.setUint16(0x102, 0x2212); // mov.l r1,@r2
+      bytes.setUint16(0x104, 0xaffc); // bra 0xc0000100
+      bytes.setUint16(0x106, 9); // nop
+      a.cpus[0].pc = 0xc0000100;
+      a.cpus[0].r[2] = 0xc0000800;
+      a.cpus[0].r[15] = 0xc0000ffc;
+      expect(a.cpus[0].run(4000), isTrue);
+    }
+    expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+    expect(actual.cpus[0].clocks, expected.cpus[0].clocks);
+    expect(actual.cacheData[0], expected.cacheData[0]);
+    expect(actual.cpus[0].jit!.compiledClocks, greaterThan(0));
+  }, skip: native ? false : 'No big-endian native backend');
+
+  test('code that rewrites its own cache page runs like the interpreter', () {
+    final expected = Md32x(jit: false), actual = Md32x(jit: true);
+    addTearDown(expected.dispose);
+    addTearDown(actual.dispose);
+    for (final a in [expected, actual]) {
+      final bytes = ByteData.sublistView(a.cacheData[0]);
+      bytes.setUint16(0x100, 0x7101); // add #1,r1
+      bytes.setUint16(0x102, 0x2121); // mov.w r2,@r1
+      bytes.setUint16(0x104, 0x7001); // add #1,r0 (rewritten by the store)
+      bytes.setUint16(0x106, 0xaffb); // bra 0xc0000100
+      bytes.setUint16(0x108, 9); // nop
+      a.cpus[0].pc = 0xc0000100;
+      a.cpus[0].r[1] = 0xc00000ff;
+      a.cpus[0].r[2] = 0x7002; // add #2,r0
+      expect(a.cpus[0].run(40), isTrue);
+    }
+    expect(actual.cpus[0].dump(), expected.cpus[0].dump());
+    expect(actual.cpus[0].clocks, expected.cpus[0].clocks);
+    expect(actual.cacheData[0], expected.cacheData[0]);
+  }, skip: native ? false : 'No big-endian native backend');
   test('optional SH-2 recompilation preserves instruction alternation', () {
     final expected = Md32x(jit: false),
         actual = Md32x(jit: true, sliceClocks: 1);
@@ -243,7 +285,7 @@ void main() {
     expect(actual.cpus[0].r[2], 0x102);
   }, skip: native ? false : 'No native backend');
 
-  test('private cache code remains interpreted with native JIT enabled', () {
+  test('private cache code runs compiled and matches the interpreter', () {
     final expected = Md32x(jit: false), actual = Md32x(jit: true);
     addTearDown(expected.dispose);
     addTearDown(actual.dispose);
@@ -258,7 +300,7 @@ void main() {
     expect(actual.cpus[0].dump(), expected.cpus[0].dump());
     expect(actual.cpus[0].clocks, expected.cpus[0].clocks);
     expect(actual.cpus[0].r[1], 50);
-    expect(actual.cpus[0].jit!.compiledClocks, 0);
+    expect(actual.cpus[0].jit!.compiledClocks, greaterThan(0));
   }, skip: native ? false : 'No big-endian native backend');
 
   test('idle yielding is optional for adapters without an idle detector', () {
