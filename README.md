@@ -95,6 +95,8 @@ The **Build binaries** GitHub Actions workflow tests PRs and builds Web; merges 
 | End-to-end tests | `make test-e2e-setup` | `make test-e2e` | Python 3.11+, Git, Pillow, numpy (Docker for media built from source) |
 | Quick regression | | `make regress` | Dart and Flutter |
 
+Install the Python packages of the end-to-end tests with `pip install -r scripts/requirements.txt`, preferably in a virtual environment.
+
 The setup targets fetch (or build) public test data into `.build/` directories, which Git ignores. Run them once, and again after the pinned data changes. The tests do not run the setup, and skip a test whose data is missing.
 
 ## Unit tests
