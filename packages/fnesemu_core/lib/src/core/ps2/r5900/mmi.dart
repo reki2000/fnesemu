@@ -1,0 +1,485 @@
+import 'dart:typed_data';
+
+import 'r5900.dart';
+
+/// The multimedia instructions (opcode 28).
+///
+/// Lanes are read straight from the register file, so the host must be
+/// little endian, as `Int64List` word `n` then holds bytes `8n..8n+7`.
+///
+/// Not implemented: PMADDH, PHMADH, PMSUBH, PHMSBH, PMULTH, PDIVBW, PEXT5,
+/// PPAC5, QFSRV, PMTHL and
+/// the LH/SH variants of PMFHL. They report as unimplemented.
+extension R5900Mmi on R5900 {
+  static final _out = ByteData(16);
+
+  ByteData get _regs => ByteData.sublistView(gpr);
+
+  int _lane(int reg, int width, int index, bool signed) {
+    final offset = reg * 16 + index * width;
+    final v = _regs;
+    return switch (width) {
+      1 => signed ? v.getInt8(offset) : v.getUint8(offset),
+      2 => signed
+          ? v.getInt16(offset, Endian.little)
+          : v.getUint16(offset, Endian.little),
+      _ => signed
+          ? v.getInt32(offset, Endian.little)
+          : v.getUint32(offset, Endian.little),
+    };
+  }
+
+  void _setOut(int width, int index, int value) {
+    switch (width) {
+      case 1:
+        _out.setUint8(index, value & 0xff);
+      case 2:
+        _out.setUint16(index * 2, value & 0xffff, Endian.little);
+      default:
+        _out.setUint32(index * 4, value & 0xffffffff, Endian.little);
+    }
+  }
+
+  void _commit(int rd) {
+    gpr[rd * 2] = _out.getInt64(0, Endian.little);
+    gpr[rd * 2 + 1] = _out.getInt64(8, Endian.little);
+  }
+
+  /// rd lane i = f(rs lane i, rt lane i)
+  void _map(int rs, int rt, int rd, int width, bool signed,
+      int Function(int, int) f) {
+    for (var i = 0; i < 16 ~/ width; i++) {
+      _setOut(width, i,
+          f(_lane(rs, width, i, signed), _lane(rt, width, i, signed)));
+    }
+    _commit(rd);
+  }
+
+  /// rd lane i = f(rt lane i, amount)
+  void _shift(int rt, int rd, int width, bool signed, int amount,
+      int Function(int, int) f) {
+    for (var i = 0; i < 16 ~/ width; i++) {
+      _setOut(width, i, f(_lane(rt, width, i, signed), amount));
+    }
+    _commit(rd);
+  }
+
+  static int _clamp(int v, int min, int max) =>
+      v < min ? min : (v > max ? max : v);
+
+  void _set128(int rd, int low, int high) {
+    gpr[rd * 2] = low;
+    gpr[rd * 2 + 1] = high;
+  }
+
+  /// interleave: rd lane 2i = rt lane (base + i), rd lane 2i + 1 = rs lane (base + i)
+  void _interleave(int rs, int rt, int rd, int width, int base) {
+    final count = 8 ~/ width;
+    for (var i = 0; i < count; i++) {
+      _setOut(width, 2 * i, _lane(rt, width, base + i, false));
+      _setOut(width, 2 * i + 1, _lane(rs, width, base + i, false));
+    }
+    _commit(rd);
+  }
+
+  /// rd takes the even lanes of rt, then the even lanes of rs
+  void _pack(int rs, int rt, int rd, int width) {
+    final count = 8 ~/ width;
+    for (var i = 0; i < count; i++) {
+      _setOut(width, i, _lane(rt, width, 2 * i, false));
+      _setOut(width, count + i, _lane(rs, width, 2 * i, false));
+    }
+    _commit(rd);
+  }
+
+  /// rd = rt with its lanes taken in the order given by [order]
+  void _reorder(int rt, int rd, int width, List<int> order) {
+    for (var i = 0; i < order.length; i++) {
+      _setOut(width, i, _lane(rt, width, order[i], false));
+    }
+    _commit(rd);
+  }
+
+  bool executeMmi(int ir, int at) {
+    final rs = (ir >>> 21) & 31, rt = (ir >>> 16) & 31, rd = (ir >>> 11) & 31;
+    final sa = (ir >>> 6) & 31;
+    switch (ir & 63) {
+      case 0x00:
+        _madd(rs, rt, rd, true, false);
+      case 0x01:
+        _madd(rs, rt, rd, false, false);
+      case 0x04: // PLZCW
+        final w0 = _lane(rs, 4, 0, true), w1 = _lane(rs, 4, 1, true);
+        setReg(rd, (_leadingSigns(w1) << 32) | _leadingSigns(w0));
+      case 0x08:
+        return _mmi0(sa, rs, rt, rd);
+      case 0x09:
+        return _mmi2(sa, rs, rt, rd);
+      case 0x10:
+        setReg(rd, hi1);
+      case 0x11:
+        hi1 = reg(rs);
+      case 0x12:
+        setReg(rd, lo1);
+      case 0x13:
+        lo1 = reg(rs);
+      case 0x18:
+        _mult1(rs, rt, rd, true);
+      case 0x19:
+        _mult1(rs, rt, rd, false);
+      case 0x1a:
+        _div1(reg(rs), reg(rt), true);
+      case 0x1b:
+        _div1(reg(rs), reg(rt), false);
+      case 0x20:
+        _madd(rs, rt, rd, true, true);
+      case 0x21:
+        _madd(rs, rt, rd, false, true);
+      case 0x28:
+        return _mmi1(sa, rs, rt, rd);
+      case 0x29:
+        return _mmi3(sa, rs, rt, rd);
+      case 0x30:
+        return _pmfhl(sa, rd);
+      case 0x34:
+        _shift(rt, rd, 2, false, sa & 15, (v, n) => v << n);
+      case 0x36:
+        _shift(rt, rd, 2, false, sa & 15, (v, n) => v >>> n);
+      case 0x37:
+        _shift(rt, rd, 2, true, sa & 15, (v, n) => v >> n);
+      case 0x3c:
+        _shift(rt, rd, 4, false, sa, (v, n) => v << n);
+      case 0x3e:
+        _shift(rt, rd, 4, false, sa, (v, n) => v >>> n);
+      case 0x3f:
+        _shift(rt, rd, 4, true, sa, (v, n) => v >> n);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  /// number of bits after the sign bit that equal it
+  int _leadingSigns(int w) {
+    var v = (w < 0 ? ~w : w) & 0x7fffffff;
+    var n = 0;
+    for (var bit = 30; bit >= 0 && (v >> bit) & 1 == 0; bit--) {
+      n++;
+    }
+    return n;
+  }
+
+  void _madd(int rs, int rt, int rd, bool signed, bool pipe1) {
+    final a = signed ? reg(rs).toSigned(32) : reg(rs) & 0xffffffff;
+    final b = signed ? reg(rt).toSigned(32) : reg(rt) & 0xffffffff;
+    final h = pipe1 ? hi1 : hi, l = pipe1 ? lo1 : lo;
+    final acc = (h << 32) | (l & 0xffffffff);
+    final r = acc + a * b;
+    final nl = r.toSigned(32), nh = (r >> 32).toSigned(32);
+    if (pipe1) {
+      lo1 = nl;
+      hi1 = nh;
+    } else {
+      lo = nl;
+      hi = nh;
+    }
+    setReg(rd, nl);
+  }
+
+  void _mult1(int rs, int rt, int rd, bool signed) {
+    final a = signed ? reg(rs).toSigned(32) : reg(rs) & 0xffffffff;
+    final b = signed ? reg(rt).toSigned(32) : reg(rt) & 0xffffffff;
+    final p = a * b;
+    lo1 = p.toSigned(32);
+    hi1 = (p >> 32).toSigned(32);
+    setReg(rd, lo1);
+  }
+
+  void _div1(int a, int b, bool signed) {
+    if (signed) {
+      final n = a.toSigned(32), d = b.toSigned(32);
+      if (d == 0) {
+        lo1 = n < 0 ? 1 : -1;
+        hi1 = n;
+      } else if (n == -0x80000000 && d == -1) {
+        lo1 = n;
+        hi1 = 0;
+      } else {
+        lo1 = n ~/ d;
+        hi1 = n.remainder(d);
+      }
+    } else {
+      final n = a & 0xffffffff, d = b & 0xffffffff;
+      if (d == 0) {
+        lo1 = -1;
+        hi1 = n.toSigned(32);
+      } else {
+        lo1 = (n ~/ d).toSigned(32);
+        hi1 = (n % d).toSigned(32);
+      }
+    }
+  }
+
+  bool _pmfhl(int variant, int rd) {
+    switch (variant) {
+      case 0: // LW
+        _set128(rd, (hi.toSigned(32) << 32) | (lo & 0xffffffff),
+            (hi1.toSigned(32) << 32) | (lo1 & 0xffffffff));
+      case 1: // UW
+        _set128(rd, ((hi >> 32) << 32) | ((lo >> 32) & 0xffffffff),
+            ((hi1 >> 32) << 32) | ((lo1 >> 32) & 0xffffffff));
+      case 2: // SLW
+        int saturate(int h, int l) {
+          final acc = (h << 32) | (l & 0xffffffff);
+          return _clamp(acc, -0x80000000, 0x7fffffff);
+        }
+        _set128(rd, saturate(hi, lo), saturate(hi1, lo1));
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  bool _mmi0(int sa, int rs, int rt, int rd) {
+    switch (sa) {
+      case 0x00:
+        _map(rs, rt, rd, 4, false, (a, b) => a + b);
+      case 0x01:
+        _map(rs, rt, rd, 4, false, (a, b) => a - b);
+      case 0x02:
+        _map(rs, rt, rd, 4, true, (a, b) => a > b ? -1 : 0);
+      case 0x03:
+        _map(rs, rt, rd, 4, true, (a, b) => a > b ? a : b);
+      case 0x04:
+        _map(rs, rt, rd, 2, false, (a, b) => a + b);
+      case 0x05:
+        _map(rs, rt, rd, 2, false, (a, b) => a - b);
+      case 0x06:
+        _map(rs, rt, rd, 2, true, (a, b) => a > b ? -1 : 0);
+      case 0x07:
+        _map(rs, rt, rd, 2, true, (a, b) => a > b ? a : b);
+      case 0x08:
+        _map(rs, rt, rd, 1, false, (a, b) => a + b);
+      case 0x09:
+        _map(rs, rt, rd, 1, false, (a, b) => a - b);
+      case 0x0a:
+        _map(rs, rt, rd, 1, true, (a, b) => a > b ? -1 : 0);
+      case 0x10:
+        _map(rs, rt, rd, 4, true,
+            (a, b) => _clamp(a + b, -0x80000000, 0x7fffffff));
+      case 0x11:
+        _map(rs, rt, rd, 4, true,
+            (a, b) => _clamp(a - b, -0x80000000, 0x7fffffff));
+      case 0x12:
+        _interleave(rs, rt, rd, 4, 0);
+      case 0x13:
+        _pack(rs, rt, rd, 4);
+      case 0x14:
+        _map(rs, rt, rd, 2, true, (a, b) => _clamp(a + b, -0x8000, 0x7fff));
+      case 0x15:
+        _map(rs, rt, rd, 2, true, (a, b) => _clamp(a - b, -0x8000, 0x7fff));
+      case 0x16:
+        _interleave(rs, rt, rd, 2, 0);
+      case 0x17:
+        _pack(rs, rt, rd, 2);
+      case 0x18:
+        _map(rs, rt, rd, 1, true, (a, b) => _clamp(a + b, -0x80, 0x7f));
+      case 0x19:
+        _map(rs, rt, rd, 1, true, (a, b) => _clamp(a - b, -0x80, 0x7f));
+      case 0x1a:
+        _interleave(rs, rt, rd, 1, 0);
+      case 0x1b:
+        _pack(rs, rt, rd, 1);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  bool _mmi1(int sa, int rs, int rt, int rd) {
+    switch (sa) {
+      case 0x01:
+        _shift(rt, rd, 4, true, 0,
+            (v, _) => v == -0x80000000 ? 0x7fffffff : v.abs());
+      case 0x02:
+        _map(rs, rt, rd, 4, false, (a, b) => a == b ? -1 : 0);
+      case 0x03:
+        _map(rs, rt, rd, 4, true, (a, b) => a < b ? a : b);
+      case 0x04: // PADSBH
+        for (var i = 0; i < 8; i++) {
+          final a = _lane(rs, 2, i, false), b = _lane(rt, 2, i, false);
+          _setOut(2, i, i < 4 ? a - b : a + b);
+        }
+        _commit(rd);
+      case 0x05:
+        _shift(rt, rd, 2, true, 0, (v, _) => v == -0x8000 ? 0x7fff : v.abs());
+      case 0x06:
+        _map(rs, rt, rd, 2, false, (a, b) => a == b ? -1 : 0);
+      case 0x07:
+        _map(rs, rt, rd, 2, true, (a, b) => a < b ? a : b);
+      case 0x0a:
+        _map(rs, rt, rd, 1, false, (a, b) => a == b ? -1 : 0);
+      case 0x10:
+        _map(rs, rt, rd, 4, false, (a, b) => _clamp(a + b, 0, 0xffffffff));
+      case 0x11:
+        _map(rs, rt, rd, 4, false, (a, b) => _clamp(a - b, 0, 0xffffffff));
+      case 0x12:
+        _interleave(rs, rt, rd, 4, 2);
+      case 0x14:
+        _map(rs, rt, rd, 2, false, (a, b) => _clamp(a + b, 0, 0xffff));
+      case 0x15:
+        _map(rs, rt, rd, 2, false, (a, b) => _clamp(a - b, 0, 0xffff));
+      case 0x16:
+        _interleave(rs, rt, rd, 2, 4);
+      case 0x18:
+        _map(rs, rt, rd, 1, false, (a, b) => _clamp(a + b, 0, 0xff));
+      case 0x19:
+        _map(rs, rt, rd, 1, false, (a, b) => _clamp(a - b, 0, 0xff));
+      case 0x1a:
+        _interleave(rs, rt, rd, 1, 8);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  bool _mmi2(int sa, int rs, int rt, int rd) {
+    switch (sa) {
+      case 0x00:
+        _pmadd(rs, rt, rd, true, 1);
+      case 0x02: // PSLLVW
+        _variableShift(rs, rt, rd, (v, n) => v << n);
+      case 0x03: // PSRLVW
+        _variableShift(rs, rt, rd, (v, n) => (v & 0xffffffff) >>> n);
+      case 0x04:
+        _pmadd(rs, rt, rd, true, -1);
+      case 0x08: // PMFHI
+        _set128(rd, hi, hi1);
+      case 0x09: // PMFLO
+        _set128(rd, lo, lo1);
+      case 0x0a: // PINTH
+        for (var i = 0; i < 4; i++) {
+          _setOut(2, 2 * i, _lane(rt, 2, i, false));
+          _setOut(2, 2 * i + 1, _lane(rs, 2, 4 + i, false));
+        }
+        _commit(rd);
+      case 0x0c:
+        _pmult(rs, rt, rd, true);
+      case 0x0d:
+        _pdiv(rs, rt, true);
+      case 0x0e: // PCPYLD
+        _set128(rd, reg(rt), reg(rs));
+      case 0x12:
+        _set128(rd, reg(rs) & reg(rt), gpr[rs * 2 + 1] & gpr[rt * 2 + 1]);
+      case 0x13:
+        _set128(rd, reg(rs) ^ reg(rt), gpr[rs * 2 + 1] ^ gpr[rt * 2 + 1]);
+      case 0x1a: // PEXEH
+        _reorder(rt, rd, 2, const [2, 1, 0, 3, 6, 5, 4, 7]);
+      case 0x1b: // PREVH
+        _reorder(rt, rd, 2, const [3, 2, 1, 0, 7, 6, 5, 4]);
+      case 0x1e: // PEXEW
+        _reorder(rt, rd, 4, const [2, 1, 0, 3]);
+      case 0x1f: // PROT3W
+        _reorder(rt, rd, 4, const [1, 2, 0, 3]);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  bool _mmi3(int sa, int rs, int rt, int rd) {
+    switch (sa) {
+      case 0x00:
+        _pmadd(rs, rt, rd, false, 1);
+      case 0x03: // PSRAVW
+        _variableShift(rs, rt, rd, (v, n) => v.toSigned(32) >> n);
+      case 0x08: // PMTHI
+        hi = reg(rs);
+        hi1 = gpr[rs * 2 + 1];
+      case 0x09: // PMTLO
+        lo = reg(rs);
+        lo1 = gpr[rs * 2 + 1];
+      case 0x0a: // PINTEH
+        for (var i = 0; i < 4; i++) {
+          _setOut(2, 2 * i, _lane(rt, 2, 2 * i, false));
+          _setOut(2, 2 * i + 1, _lane(rs, 2, 2 * i, false));
+        }
+        _commit(rd);
+      case 0x0c:
+        _pmult(rs, rt, rd, false);
+      case 0x0d:
+        _pdiv(rs, rt, false);
+      case 0x0e: // PCPYUD
+        _set128(rd, gpr[rs * 2 + 1], gpr[rt * 2 + 1]);
+      case 0x12:
+        _set128(rd, reg(rs) | reg(rt), gpr[rs * 2 + 1] | gpr[rt * 2 + 1]);
+      case 0x13:
+        _set128(rd, ~(reg(rs) | reg(rt)), ~(gpr[rs * 2 + 1] | gpr[rt * 2 + 1]));
+      case 0x1a: // PEXCH
+        _reorder(rt, rd, 2, const [0, 2, 1, 3, 4, 6, 5, 7]);
+      case 0x1b: // PCPYH
+        _reorder(rt, rd, 2, const [0, 0, 0, 0, 4, 4, 4, 4]);
+      case 0x1e: // PEXCW
+        _reorder(rt, rd, 4, const [0, 2, 1, 3]);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  /// rd double word i = f(rt word 2i, rs word 2i), as a sign extended word
+  void _variableShift(int rs, int rt, int rd, int Function(int, int) f) {
+    int one(int i) =>
+        f(_lane(rt, 4, 2 * i, true), _lane(rs, 4, 2 * i, false) & 31)
+            .toSigned(32);
+    _set128(rd, one(0), one(1));
+  }
+
+  /// the two products of PMULTW / PMULTUW also fill HI, LO, HI1 and LO1
+  void _pmult(int rs, int rt, int rd, bool signed) {
+    final p0 = _product(rs, rt, 0, signed), p1 = _product(rs, rt, 1, signed);
+    lo = p0.toSigned(32);
+    hi = (p0 >> 32).toSigned(32);
+    lo1 = p1.toSigned(32);
+    hi1 = (p1 >> 32).toSigned(32);
+    _set128(rd, p0, p1);
+  }
+
+  int _product(int rs, int rt, int i, bool signed) => signed
+      ? _lane(rs, 4, 2 * i, true) * _lane(rt, 4, 2 * i, true)
+      : _lane(rs, 4, 2 * i, false) * _lane(rt, 4, 2 * i, false);
+
+  /// PMADDW / PMADDUW ([sign] 1) and PMSUBW ([sign] -1)
+  void _pmadd(int rs, int rt, int rd, bool signed, int sign) {
+    final a0 =
+        ((hi << 32) | (lo & 0xffffffff)) + sign * _product(rs, rt, 0, signed);
+    final a1 =
+        ((hi1 << 32) | (lo1 & 0xffffffff)) + sign * _product(rs, rt, 1, signed);
+    lo = a0.toSigned(32);
+    hi = (a0 >> 32).toSigned(32);
+    lo1 = a1.toSigned(32);
+    hi1 = (a1 >> 32).toSigned(32);
+    _set128(rd, a0, a1);
+  }
+
+  void _pdiv(int rs, int rt, bool signed) {
+    (int, int) divide(int i) {
+      if (signed) {
+        final n = _lane(rs, 4, 2 * i, true), d = _lane(rt, 4, 2 * i, true);
+        if (d == 0) return (n < 0 ? 1 : -1, n);
+        if (n == -0x80000000 && d == -1) return (n, 0);
+        return (n ~/ d, n.remainder(d));
+      }
+      final n = _lane(rs, 4, 2 * i, false), d = _lane(rt, 4, 2 * i, false);
+      if (d == 0) return (-1, n.toSigned(32));
+      return ((n ~/ d).toSigned(32), (n % d).toSigned(32));
+    }
+
+    final (q0, r0) = divide(0);
+    final (q1, r1) = divide(1);
+    lo = q0;
+    hi = r0;
+    lo1 = q1;
+    hi1 = r1;
+  }
+}
