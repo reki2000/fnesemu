@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
@@ -102,6 +103,14 @@ class Ps2 extends Core {
   @override
   ImageBuffer imageBuffer() => io.gs.image();
 
+  CdromDrive? _drive;
+
+  @override
+  void setCdromDrive(CdromDrive drive) {
+    _drive = drive;
+    iopIo.cdvd.drive = drive;
+  }
+
   @override
   void reset() {
     cpu.reset();
@@ -109,6 +118,7 @@ class Ps2 extends Core {
     iop.reset();
     iopMemory.ram.fillRange(0, iopMemory.ram.length, 0);
     iopIo = IopIo(iopMemory, io.sif);
+    iopIo.cdvd.drive = _drive;
     _iopFraction = 0;
     final start = entry;
     if (start != null) cpu.jumpTo(start);

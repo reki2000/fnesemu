@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import '../../../cdrom_drive.dart';
+
 /// The CDVD drive controller registers as seen by the IOP (0x1f402000..).
 ///
 /// Only the handshake the BIOS polls is modelled: N command status, the S
@@ -16,6 +18,10 @@ class Cdvd {
   static const noDisc = 0x00;
   static const _ready = 0x40;
   static const _sResultEmpty = 0x40;
+
+  /// the inserted disc, or null. Sector reads are not implemented yet, so the
+  /// tray still reports empty.
+  CdromDrive? drive;
 
   /// the disc type byte; 0 reports an empty tray
   int discType = noDisc;
