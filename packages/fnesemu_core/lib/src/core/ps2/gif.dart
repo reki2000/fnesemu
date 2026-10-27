@@ -1,7 +1,6 @@
-import 'dart:typed_data';
-
 import 'dmac.dart';
 import 'gs/gs.dart';
+import 'quad_fifo.dart';
 
 /// One input path of the GIF (PATH1 from VU1, PATH2 from VIF1, PATH3 from
 /// the DMA channel). Each path parses its own stream of GIF tags and writes
@@ -21,6 +20,9 @@ class GifPath extends DmaEndpoint {
 
   /// true while the path is inside the data of a tag
   bool get busy => _dataLeft > 0;
+
+  /// the EOP bit of the last tag
+  bool lastEop = false;
 
   void reset() {
     _dataLeft = 0;
@@ -46,6 +48,7 @@ class GifPath extends DmaEndpoint {
 
   void _tag(int low, int high) {
     _loops = low & 0x7fff;
+    lastEop = (low >> 15) & 1 != 0;
     _flg = (low >> 58) & 3;
     _nreg = (low >> 60) & 15;
     if (_nreg == 0) _nreg = 16;
@@ -134,24 +137,13 @@ class Gif {
     };
   }
 
-  /// Quadword being assembled from two 64-bit writes to the FIFO window.
-  final _fifo = Int64List(2);
+  final _fifo = QuadFifo();
 
   /// returns true when [address] belongs to the GIF
   bool write(int address, int size, int value) {
     if (address >= 0x10006000) {
-      if (size >= 16) return true;
-      if (size == 4) {
-        // a word write: collect four of them
-        final w = (address >> 2) & 3;
-        final shift = (w & 1) * 32;
-        final lane = w >> 1;
-        _fifo[lane] = (_fifo[lane] & ~(0xffffffff << shift)) |
-            ((value & 0xffffffff) << shift);
-        if (w == 3) path3.put(_fifo[0], _fifo[1]);
-      } else {
-        _fifo[(address >> 3) & 1] = value;
-        if (address & 8 != 0) path3.put(_fifo[0], _fifo[1]);
+      if (_fifo.write(address, size, value)) {
+        path3.put(_fifo.low, _fifo.high);
       }
       return true;
     }

@@ -37,6 +37,7 @@ class Ps2 extends Core {
   EeIo _newIo() {
     final io = EeIo(bus);
     bus.io = io;
+    cpu.vu0 = io.vu0;
     return io;
   }
 

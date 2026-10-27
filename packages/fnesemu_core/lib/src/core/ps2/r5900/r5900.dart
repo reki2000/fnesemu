@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import '../bus.dart';
+import '../vu.dart';
+import 'cop2.dart';
 import 'fpu.dart';
 import 'mmi.dart';
 import 'tlb.dart';
@@ -9,7 +11,7 @@ import 'tlb.dart';
 /// adjacent 64-bit words: register `n` occupies `gpr[2n]` (bits 63..0) and
 /// `gpr[2n + 1]` (bits 127..64). Most instructions touch only the low word.
 ///
-/// Not implemented yet: COP2, the scratchpad mapping bit of the TLB, the
+/// Not implemented yet: the scratchpad mapping bit of the TLB, the
 /// user and supervisor modes, and timing beyond one clock per instruction.
 class R5900 {
   static const resetVector = 0xbfc00000;
@@ -38,6 +40,9 @@ class R5900 {
 
   final Ps2Bus bus;
   final Tlb tlb = Tlb();
+
+  /// VU0, which COP2 instructions operate on
+  Vu? vu0;
   final Int64List gpr = Int64List(64);
   int hi = 0, lo = 0, hi1 = 0, lo1 = 0;
   int sa = 0;
@@ -287,6 +292,28 @@ class R5900 {
           break;
         }
         return executeCop1(ir);
+      case 18:
+        if (rs == 8) {
+          final c = vu0?.running ?? false;
+          switch (rt) {
+            case 0:
+              _branch(!c, at, imm);
+            case 1:
+              _branch(c, at, imm);
+            case 2:
+              _branchLikely(!c, at, imm);
+            case 3:
+              _branchLikely(c, at, imm);
+            default:
+              return false;
+          }
+          break;
+        }
+        return executeCop2(ir);
+      case 54: // LQC2
+        loadQuadToVf(rt, _ea(rs, simm, 15, false));
+      case 62: // SQC2
+        storeQuadFromVf(rt, _ea(rs, simm, 15, true));
       case 49: // LWC1
         fpr[rt] = bus.read32(_ea(rs, simm, 3, false));
       case 57: // SWC1

@@ -183,8 +183,11 @@ class Dmac {
     dirty = true;
   }
 
-  bool _fromMemory(int ch) =>
-      ch == vif0 || ch == vif1 || ch == gif || ch == toIpu || ch == sif1;
+  /// true when the channel reads memory (VIF1 can also read from the GS)
+  bool _fromMemory(int ch) {
+    if (ch == vif1) return channels[ch].chcr & 1 != 0;
+    return ch == vif0 || ch == gif || ch == toIpu || ch == sif1;
+  }
 
   /// transfers one quadword in the direction of the channel; [spr] is the
   /// scratchpad address of the channel for the SPR channels

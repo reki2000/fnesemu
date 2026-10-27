@@ -20,10 +20,10 @@ import 'r5900.dart';
 extension R5900Fpu on R5900 {
   static const _maxMagnitude = 0x7fffffff;
   static const _flagI = 1 << 17, _flagD = 1 << 16;
-  static const _flagO = 1 << 15, _flagU = 1 << 14;
+  static const flagOverflow = 1 << 15, flagUnderflow = 1 << 14;
   static const _stickyI = 1 << 6, _stickyD = 1 << 5;
   static const _stickyO = 1 << 4, _stickyU = 1 << 3;
-  static const _causeMask = _flagI | _flagD | _flagO | _flagU;
+  static const _causeMask = _flagI | _flagD | flagOverflow | flagUnderflow;
   static const conditionBit = 1 << 23;
 
   static final _bits = ByteData(8);
@@ -48,15 +48,19 @@ extension R5900Fpu on R5900 {
     final sign = raw < 0 ? 0x80000000 : 0;
     final exp = ((raw >>> 52) & 0x7ff) - 1023 + 127;
     if (exp <= 0) {
-      flags[0] |= _flagU;
+      flags[0] |= flagUnderflow;
       return sign;
     }
     if (exp >= 256) {
-      flags[0] |= _flagO;
+      flags[0] |= flagOverflow;
       return sign | _maxMagnitude;
     }
     return sign | (exp << 23) | ((raw >>> 29) & 0x7fffff);
   }
+
+  /// the sign bit of a quotient of [a] and [b] for a division by zero
+  static int encodeSign(double a, double b) =>
+      a.isNegative != b.isNegative ? 0x80000000 : 0;
 
   static final _flags = <int>[0];
 
@@ -72,8 +76,8 @@ extension R5900Fpu on R5900 {
     var v = fcr31 | cause;
     if (cause & _flagI != 0) v |= _stickyI;
     if (cause & _flagD != 0) v |= _stickyD;
-    if (cause & _flagO != 0) v |= _stickyO;
-    if (cause & _flagU != 0) v |= _stickyU;
+    if (cause & flagOverflow != 0) v |= _stickyO;
+    if (cause & flagUnderflow != 0) v |= _stickyU;
     fcr31 = v;
   }
 
