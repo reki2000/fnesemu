@@ -190,7 +190,7 @@ void main() {
 
   test('Q register: DIV then MULq', () {
     final vu = _vu([
-      (_loSpecial(0xc, 2, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
+      (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
       (_lowerNop, _upperNop),
       (_lowerNop, _up(0x1c, _xyzw, 3, 1, 0)), // MULq vf3 = vf1 * q
       _endPair,
@@ -205,7 +205,7 @@ void main() {
 
   test('division by zero clamps Q and sets the D flag', () {
     final vu = _vu([
-      (_loSpecial(0xc, 2, fs: 1, it: 2, fsf: 0, ftf: 0), _upperNop),
+      (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 0), _upperNop),
       _endPair,
       _end,
     ]);
@@ -218,7 +218,7 @@ void main() {
 
   test('SQRT and RSQRT', () {
     final vu = _vu([
-      (_loSpecial(0xd, 2, it: 1, ftf: 0), _upperNop), // SQRT q, vf1.x
+      (_loSpecial(0xe, 1, it: 1, ftf: 0), _upperNop), // SQRT q, vf1.x
       (_lowerNop, _upperNop),
       (_lowerNop, _up(0x1c, _x, 3, 2, 0)), // MULq vf3.x = vf2.x * q
       _endPair,
@@ -329,7 +329,7 @@ void main() {
       ), // ILW vi6 <- [5].y
       (_lo(0x05, dest: _w, it: 6, is_: 1, imm: 2), _upperNop), // ISW [6].w
       (
-        _loSpecial(0xc, 1, dest: _xyzw, it: 7, fs: 1),
+        _loSpecial(0xd, 0, dest: _xyzw, it: 7, fs: 1),
         _upperNop
       ), // LQI vf7, (vi1++)
       (
@@ -378,7 +378,7 @@ void main() {
   test('MOVE and MR32 copy and rotate lanes', () {
     final vu = _vu([
       (_loSpecial(0xc, 0, dest: _xyzw, it: 2, fs: 1), _upperNop), // MOVE
-      (_loSpecial(0xd, 0, dest: _xyzw, it: 3, fs: 1), _upperNop), // MR32
+      (_loSpecial(0xc, 1, dest: _xyzw, it: 3, fs: 1), _upperNop), // MR32
       _endPair,
       _end,
     ]);
@@ -390,9 +390,9 @@ void main() {
 
   test('MTIR, MFIR and the flag instructions', () {
     final vu = _vu([
-      (_loSpecial(0xc, 3, it: 1, fs: 2, fsf: 1), _upperNop), // MTIR vi1 = vf2.y
+      (_loSpecial(0xf, 0, it: 1, fs: 2, fsf: 1), _upperNop), // MTIR vi1 = vf2.y
       (
-        _loSpecial(0xd, 3, dest: _xyzw, it: 4, fs: 1),
+        _loSpecial(0xf, 1, dest: _xyzw, it: 4, fs: 1),
         _upperNop
       ), // MFIR vf4 = vi1
       (_lo(0x11) | 0x123, _upperNop), // FCSET 0x123

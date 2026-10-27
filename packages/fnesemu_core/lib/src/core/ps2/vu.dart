@@ -568,14 +568,14 @@ class Vu {
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) vf[it * 4 + c] = vf[fs * 4 + c];
         }
-      case const (0x0c << 2 | 1): // LQI
+      case const (0x0d << 2 | 0): // LQI
         _loadQuad(it, mask, vi[isIdx] & (dataQuads - 1));
         vi[isIdx] = vi[isIdx] + 1;
-      case const (0x0c << 2 | 2): // DIV
+      case const (0x0e << 2 | 0): // DIV
         _div(_d(_lane(fs, fsf)), _d(_lane(it, ftf)));
-      case const (0x0c << 2 | 3): // MTIR
+      case const (0x0f << 2 | 0): // MTIR
         vi[it & 15] = _lane(fs, fsf) & 0xffff;
-      case const (0x0d << 2 | 0): // MR32
+      case const (0x0c << 2 | 1): // MR32
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) {
             vf[it * 4 + c] = vf[fs * 4 + (c + 1) % 4];
@@ -584,9 +584,9 @@ class Vu {
       case const (0x0d << 2 | 1): // SQI
         _storeQuad(fs, mask, vi[it & 15] & (dataQuads - 1));
         vi[it & 15] = vi[it & 15] + 1;
-      case const (0x0d << 2 | 2): // SQRT
+      case const (0x0e << 2 | 1): // SQRT
         _sqrt(_d(_lane(it, ftf)));
-      case const (0x0d << 2 | 3): // MFIR
+      case const (0x0f << 2 | 1): // MFIR
         if (it != 0) {
           for (var c = 0; c < 4; c++) {
             if (mask & (8 >> c) != 0) {
@@ -594,18 +594,18 @@ class Vu {
             }
           }
         }
-      case const (0x0e << 2 | 1): // LQD
+      case const (0x0d << 2 | 2): // LQD
         vi[isIdx] = vi[isIdx] - 1;
         _loadQuad(it, mask, vi[isIdx] & (dataQuads - 1));
       case const (0x0e << 2 | 2): // RSQRT
         _rsqrt(_d(_lane(fs, fsf)), _d(_lane(it, ftf)));
-      case const (0x0e << 2 | 3): // ILWR
+      case const (0x0f << 2 | 2): // ILWR
         vi[it & 15] =
             data[(vi[isIdx] & (dataQuads - 1)) * 4 + _maskLane(mask)] & 0xffff;
-      case const (0x0f << 2 | 1): // SQD
+      case const (0x0d << 2 | 3): // SQD
         vi[it & 15] = vi[it & 15] - 1;
         _storeQuad(fs, mask, vi[it & 15] & (dataQuads - 1));
-      case const (0x0f << 2 | 2): // WAITQ
+      case const (0x0e << 2 | 3): // WAITQ
         break;
       case const (0x0f << 2 | 3): // ISWR
         final base = (vi[isIdx] & (dataQuads - 1)) * 4;
