@@ -16,11 +16,18 @@ class R5900 {
   static const _signBit = -0x8000000000000000;
 
   // COP0 registers and bits
-  static const cop0Count = 9, cop0Status = 12, cop0Cause = 13, cop0Epc = 14;
+  static const cop0Count = 9,
+      cop0Compare = 11,
+      cop0Status = 12,
+      cop0Cause = 13,
+      cop0Epc = 14;
   static const cop0ErrorEpc = 30;
   static const _statusExl = 1 << 1, _statusErl = 1 << 2, _statusBev = 1 << 22;
   static const _statusEie = 1 << 16;
   static const _causeBd = 1 << 31;
+
+  /// Cause.IP2 and IP3 carry the INTC and DMAC interrupts, IP7 the timer
+  static const ipIntc = 1 << 10, ipDmac = 1 << 11, ipTimer = 1 << 15;
 
   // exception codes
   static const excInterrupt = 0, excOverflow = 12, excSyscall = 8;
@@ -59,6 +66,7 @@ class R5900 {
     pc = resetVector;
     nextPc = resetVector + 4;
     cop0.fillRange(0, 32, 0);
+    cop0[15] = 0x2e20; // PRId
     fpr.fillRange(0, 32, 0);
     facc = fcr31 = 0;
     cop0[cop0Status] = _statusBev | _statusErl | 0x70000000;
@@ -83,6 +91,10 @@ class R5900 {
   /// Runs one instruction. Returns false when it is not implemented; the
   /// state then still points at it.
   bool step() {
+    if (_interruptReady()) {
+      _inDelaySlot = _branchPending;
+      _exception(excInterrupt, pc);
+    }
     final at = pc;
     final ir = bus.read32(at);
     _inDelaySlot = _branchPending;
@@ -90,7 +102,7 @@ class R5900 {
     pc = nextPc;
     nextPc = pc + 4;
     clocks++;
-    cop0[cop0Count]++;
+    if (++cop0[cop0Count] == cop0[cop0Compare]) cop0[cop0Cause] |= ipTimer;
     final ok = _execute(ir, at);
     gpr[0] = 0;
     gpr[1] = 0;
@@ -105,6 +117,21 @@ class R5900 {
     return ok;
   }
 
+  /// Sets or clears a Cause.IP bit that follows an external interrupt line.
+  void setInterruptLine(int ipBit, bool asserted) {
+    if (asserted) {
+      cop0[cop0Cause] |= ipBit;
+    } else {
+      cop0[cop0Cause] &= ~ipBit;
+    }
+  }
+
+  bool _interruptReady() {
+    final status = cop0[cop0Status];
+    return status & 0x10007 == 0x10001 &&
+        cop0[cop0Cause] & status & 0xff00 != 0;
+  }
+
   void _exception(int code, int at) {
     final status = cop0[cop0Status];
     var cause = cop0[cop0Cause] & ~(0x1f << 2) & ~_causeBd;
@@ -115,7 +142,9 @@ class R5900 {
     }
     cop0[cop0Cause] = cause;
     cop0[cop0Status] = status | _statusExl;
-    jumpTo(status & _statusBev != 0 ? 0xbfc00380 : 0x80000180);
+    final offset = code == excInterrupt ? 0x200 : 0x180;
+    jumpTo(
+        status & _statusBev != 0 ? 0xbfc00200 + offset : 0x80000000 + offset);
     _branchPending = false;
   }
 
@@ -482,7 +511,7 @@ class R5900 {
       case 0:
         setReg(rt, _signExtend32(cop0[rd]));
       case 4:
-        cop0[rd] = reg(rt);
+        _writeCop0(rd, reg(rt));
       case 16:
         switch (ir & 63) {
           case 0x18: // ERET
@@ -505,6 +534,21 @@ class R5900 {
         return false;
     }
     return true;
+  }
+
+  void _writeCop0(int rd, int value) {
+    switch (rd) {
+      case cop0Compare:
+        cop0[rd] = value;
+        cop0[cop0Cause] &= ~ipTimer;
+      case cop0Cause:
+        // only the software interrupt bits are writable
+        cop0[rd] = (cop0[rd] & ~0x300) | (value & 0x300);
+      case 15: // PRId
+        break;
+      default:
+        cop0[rd] = value;
+    }
   }
 
   /// LDL/LDR/LWL/LWR: merges the bytes from [addr] to the end of its aligned

@@ -1,0 +1,36 @@
+/// The EE interrupt controller. Its pending interrupt drives INT0 of the CPU.
+class Intc {
+  static const gs = 0, sbus = 1, vblankStart = 2, vblankEnd = 3;
+  static const vif0 = 4, vif1 = 5, vu0 = 6, vu1 = 7, ipu = 8;
+  static const timer0 = 9, sfifo = 13, vu0Watchdog = 14;
+
+  static const statAddress = 0x1000f000, maskAddress = 0x1000f010;
+
+  int stat = 0;
+  int mask = 0;
+
+  /// true when a register changed the output since it was last read
+  bool dirty = false;
+
+  bool get asserted => stat & mask != 0;
+
+  void raise(int line) {
+    stat |= 1 << line;
+    dirty = true;
+  }
+
+  int read(int address) =>
+      address == statAddress ? stat : (address == maskAddress ? mask : 0);
+
+  /// Writing 1 to a I_STAT bit clears it; writing 1 to a I_MASK bit toggles it.
+  void write(int address, int value) {
+    if (address == statAddress) {
+      stat &= ~value;
+    } else if (address == maskAddress) {
+      mask = (mask ^ value) & 0x7fff;
+    } else {
+      return;
+    }
+    dirty = true;
+  }
+}

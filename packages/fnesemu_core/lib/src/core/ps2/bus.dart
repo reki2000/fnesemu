@@ -1,5 +1,16 @@
 import 'dart:typed_data';
 
+/// Device registers in the 0x10000000..0x1fffffff range.
+abstract class IoPort {
+  bool handles(int address);
+
+  /// reads a register of [size] bytes (4 for the usual word access)
+  int read(int address, int size);
+
+  /// returns false for an address without a register
+  bool write(int address, int size, int value);
+}
+
 /// Physical memory map of the EE as seen by the R5900.
 ///
 /// Only main memory, the scratchpad and the boot ROM are mapped. The TLB is
@@ -18,6 +29,8 @@ class Ps2Bus {
   final Uint8List scratch;
   final ByteData _ram, _bios, _scratch;
 
+  IoPort? io;
+
   int unmappedAccesses = 0;
   int lastUnmappedAddress = 0;
 
@@ -33,6 +46,7 @@ class Ps2Bus {
   /// offset inside it; null means no device is mapped there.
   ByteData? _region(int vaddr, bool write) {
     final a = vaddr & 0xffffffff;
+    _ioAddress = -1;
     if (a >= scratchBase && a < scratchBase + scratchSize) {
       _offset = a - scratchBase;
       return _scratch;
@@ -46,42 +60,87 @@ class Ps2Bus {
       _offset = phys - biosBase;
       return _bios;
     }
-    unmappedAccesses++;
-    lastUnmappedAddress = a;
+    if (phys >= 0x10000000 && phys < 0x20000000) {
+      _ioAddress = phys;
+      return null;
+    }
+    _unmapped(a);
     return null;
   }
 
+  void _unmapped(int a) {
+    unmappedAccesses++;
+    lastUnmappedAddress = a;
+  }
+
   int _offset = 0;
+  int _ioAddress = -1;
+
+  int _readIo(int size) {
+    final a = _ioAddress;
+    _ioAddress = -1;
+    final port = io;
+    if (a < 0) return 0;
+    if (port == null || !port.handles(a)) {
+      _unmapped(a);
+      return 0;
+    }
+    return port.read(a, size);
+  }
+
+  void _writeIo(int size, int value) {
+    final a = _ioAddress;
+    _ioAddress = -1;
+    final port = io;
+    if (a < 0) return;
+    if (port == null || !port.write(a, size, value)) _unmapped(a);
+  }
 
   int read8(int addr) {
     final r = _region(addr, false);
-    return r == null ? 0 : r.getUint8(_offset);
+    return r == null ? _readIo(1) & 0xff : r.getUint8(_offset);
   }
 
   int read16(int addr) {
     final r = _region(addr, false);
-    return r == null ? 0 : r.getUint16(_offset, Endian.little);
+    return r == null
+        ? _readIo(2) & 0xffff
+        : r.getUint16(_offset, Endian.little);
   }
 
   int read32(int addr) {
     final r = _region(addr, false);
-    return r == null ? 0 : r.getUint32(_offset, Endian.little);
+    return r == null
+        ? _readIo(4) & 0xffffffff
+        : r.getUint32(_offset, Endian.little);
   }
 
   int read64(int addr) {
     final r = _region(addr, false);
-    return r == null ? 0 : r.getInt64(_offset, Endian.little);
+    return r == null ? _readIo(8) : r.getInt64(_offset, Endian.little);
   }
 
-  void write8(int addr, int value) =>
-      _region(addr, true)?.setUint8(_offset, value);
+  void write8(int addr, int value) {
+    final r = _region(addr, true);
+    r == null ? _writeIo(1, value & 0xff) : r.setUint8(_offset, value);
+  }
 
-  void write16(int addr, int value) =>
-      _region(addr, true)?.setUint16(_offset, value, Endian.little);
+  void write16(int addr, int value) {
+    final r = _region(addr, true);
+    r == null
+        ? _writeIo(2, value & 0xffff)
+        : r.setUint16(_offset, value, Endian.little);
+  }
 
-  void write32(int addr, int value) =>
-      _region(addr, true)?.setUint32(_offset, value, Endian.little);
+  void write32(int addr, int value) {
+    final r = _region(addr, true);
+    r == null
+        ? _writeIo(4, value & 0xffffffff)
+        : r.setUint32(_offset, value, Endian.little);
+  }
 
-  void write64(int addr, int value) =>
-      _region(addr, true)?.setInt64(_offset, value, Endian.little);
+  void write64(int addr, int value) {
+    final r = _region(addr, true);
+    r == null ? _writeIo(8, value) : r.setInt64(_offset, value, Endian.little);
+  }
 }
