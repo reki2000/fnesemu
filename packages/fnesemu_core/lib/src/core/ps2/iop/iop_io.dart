@@ -123,7 +123,6 @@ class IopIo implements IopPort {
 
   @override
   void write(int address, int size, int value) {
-        'W ${address.toRadixString(16)}/$size ${value.toRadixString(16)}');
     if (address >= 0x1d000000 && address < 0x1d000100) {
       sif.iopWrite(address & 0xff, value);
       return;
