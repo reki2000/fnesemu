@@ -149,6 +149,7 @@ class Ps2 extends Core {
 
   void _endOfScanline() {
     io.timers.hblank();
+    if (biosLoaded) iopIo.hblank();
     _line++;
     if (_line == _vblankLine) {
       io.intc.raise(Intc.vblankStart);

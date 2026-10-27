@@ -67,8 +67,10 @@ class IopIo implements IopPort {
 
   // ---- registers ----
 
+  static void Function(String)? dbg;
   @override
   int read(int address, int size) {
+    dbg?.call('R ${address.toRadixString(16)}/$size');
     if (address >= 0x1d000000 && address < 0x1d000100) {
       return sif.iopRead(address & 0xff);
     }
@@ -117,6 +119,7 @@ class IopIo implements IopPort {
 
   @override
   void write(int address, int size, int value) {
+    dbg?.call('W ${address.toRadixString(16)}/$size ${value.toRadixString(16)}');
     if (address >= 0x1d000000 && address < 0x1d000100) {
       sif.iopWrite(address & 0xff, value);
       return;
@@ -381,32 +384,43 @@ class IopIo implements IopPort {
     }
   }
 
-  /// advances the timers by [clocks] IOP clocks. Only the system clock source
-  /// (and its /8 divider on timer 2) is modelled.
+  /// advances the timers by [clocks] IOP clocks. Timer 1 with clock source
+  /// bit 8 counts scanlines instead (see [hblank]); timer 0 with bit 8 would
+  /// count the dot clock, which is not modelled and counts system clocks.
   void advanceTimers(int clocks) {
     for (var t = 0; t < 6; t++) {
       final mode = _timerMode[t];
+      if (t == 1 && (mode >> 8) & 1 != 0) continue;
       var divisor = 1;
       if (t == 2 && (mode >> 9) & 1 != 0) divisor = 8;
       _timerFraction[t] += clocks;
       final ticks = _timerFraction[t] ~/ divisor;
       _timerFraction[t] -= ticks * divisor;
-      if (ticks == 0) continue;
-      final limit = _is32(t) ? 0x100000000 : 0x10000;
-      var count = _timerCount[t] + ticks;
-      final target = _timerTarget[t];
-      final passedTarget = _timerCount[t] < target && count >= target;
-      if (passedTarget) {
-        _timerMode[t] |= 0x800;
-        if (mode & 0x10 != 0) raise(_timerIrq[t]);
-        if (mode & 8 != 0) count = count - target;
-      }
-      if (count >= limit) {
-        count %= limit;
-        _timerMode[t] |= 0x1000;
-        if (mode & 0x20 != 0) raise(_timerIrq[t]);
-      }
-      _timerCount[t] = count;
+      if (ticks != 0) _tick(t, ticks);
     }
+  }
+
+  /// the end of a scanline
+  void hblank() {
+    if ((_timerMode[1] >> 8) & 1 != 0) _tick(1, 1);
+  }
+
+  void _tick(int t, int ticks) {
+    final mode = _timerMode[t];
+    final limit = _is32(t) ? 0x100000000 : 0x10000;
+    var count = _timerCount[t] + ticks;
+    final target = _timerTarget[t];
+    final passedTarget = _timerCount[t] < target && count >= target;
+    if (passedTarget) {
+      _timerMode[t] |= 0x800;
+      if (mode & 0x10 != 0) raise(_timerIrq[t]);
+      if (mode & 8 != 0) count = count - target;
+    }
+    if (count >= limit) {
+      count %= limit;
+      _timerMode[t] |= 0x1000;
+      if (mode & 0x20 != 0) raise(_timerIrq[t]);
+    }
+    _timerCount[t] = count;
   }
 }
