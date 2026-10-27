@@ -61,7 +61,8 @@ class Ps extends Core {
   final PsJit? jit;
 
   @override
-  Iterable<JitDiagnostics> get jitDiagnostics => jit == null ? const [] : [jit!.diagnostics];
+  Iterable<JitDiagnostics> get jitDiagnostics =>
+      jit == null ? const [] : [jit!.diagnostics];
 
   @override
   bool get jitEnabled => jit?.native ?? false;

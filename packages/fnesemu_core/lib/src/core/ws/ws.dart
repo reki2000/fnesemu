@@ -89,8 +89,8 @@ class Ws extends Core {
 
   void _flushAudio() {
     if (sound.samples == 0) return;
-    final audio = Float32List.fromList(
-        sound.buffer.sublist(0, sound.samples * 2));
+    final audio =
+        Float32List.fromList(sound.buffer.sublist(0, sound.samples * 2));
     // The SOUND button controls the console speaker independently of games.
     const gains = [0.0, 0.25, 0.5, 1.0];
     final gain = gains[speakerVolume];
@@ -166,8 +166,7 @@ class Ws extends Core {
       if (!next.containsKey(entry.key)) bus.pad.keyUp(entry.value);
     }
     for (final entry in next.entries) {
-      if (!_mappedKeys.containsKey(entry.key) &&
-          bus.pad.keyDown(entry.value)) {
+      if (!_mappedKeys.containsKey(entry.key) && bus.pad.keyDown(entry.value)) {
         bus.interrupt(Bus.intKey);
       }
     }

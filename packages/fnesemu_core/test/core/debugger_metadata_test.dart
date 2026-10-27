@@ -32,7 +32,8 @@ void main() {
     expect(snapshot.jitEnabled, isTrue);
   });
 
-  test('JIT usage samples window deltas and remains stable between samples', () {
+  test('JIT usage samples window deltas and remains stable between samples',
+      () {
     final core = _DebugCore()
       ..jitEnabled = true
       ..cpuClocks = 100
@@ -62,7 +63,8 @@ void main() {
     expect(debugger.state.jitUsage, 1.0);
   });
 
-  test('JIT usage handles empty windows, clock resets and core replacement', () {
+  test('JIT usage handles empty windows, clock resets and core replacement',
+      () {
     final core = _DebugCore()..jitEnabled = true;
     final debugger = Debugger(core);
     debugger.sampleJitUsage();

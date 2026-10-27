@@ -7,6 +7,9 @@ import 'bus.dart';
 import 'ee_io.dart';
 import 'elf.dart';
 import 'intc.dart';
+import 'iop/iop.dart';
+import 'iop/iop_io.dart';
+import 'iop/iop_memory.dart';
 import 'r5900/r5900.dart';
 
 final _log = DebugLog('ps2');
@@ -24,6 +27,13 @@ class Ps2 extends Core {
   late final R5900 cpu = R5900(bus);
   late EeIo io = _newIo();
 
+  late final IopMemory iopMemory = IopMemory(bus.bios);
+  late final Iop iop = Iop(iopMemory);
+  late IopIo iopIo = IopIo(iopMemory, io.sif);
+
+  /// the IOP only runs when a BIOS provides its program
+  bool biosLoaded = false;
+
   /// entry point of the loaded ELF, or null while no executable is loaded
   int? entry;
 
@@ -31,8 +41,23 @@ class Ps2 extends Core {
   int _lastDeviceClock = 0;
   int _nextDeviceClock = _deviceQuantum;
   int _busRemainder = 0;
+  int _iopFraction = 0;
   int _line = 0;
   final _result = ExecResult(0, false, false);
+
+  @override
+  void setBiosFiles(List<Uint8List> files) {
+    if (files.isEmpty) return;
+    final bios = files.first;
+    bus.bios.fillRange(0, bus.bios.length, 0);
+    bus.bios.setAll(
+        0,
+        bios.length > bus.bios.length
+            ? bios.sublist(0, bus.bios.length)
+            : bios);
+    biosLoaded = true;
+    reset();
+  }
 
   EeIo _newIo() {
     final io = EeIo(bus);
@@ -80,6 +105,10 @@ class Ps2 extends Core {
   void reset() {
     cpu.reset();
     io = _newIo();
+    iop.reset();
+    iopMemory.ram.fillRange(0, iopMemory.ram.length, 0);
+    iopIo = IopIo(iopMemory, io.sif);
+    _iopFraction = 0;
     final start = entry;
     if (start != null) cpu.jumpTo(start);
     _nextScanlineClock = clocksInScanline;
@@ -95,8 +124,26 @@ class Ps2 extends Core {
     final elapsed = cpu.clocks - _lastDeviceClock + _busRemainder;
     _busRemainder = elapsed & 1;
     io.timers.advance(elapsed >> 1);
+    io.dmac.service();
+    if (biosLoaded) _advanceIop(cpu.clocks - _lastDeviceClock);
     _lastDeviceClock = cpu.clocks;
     _nextDeviceClock = cpu.clocks + _deviceQuantum;
+  }
+
+  /// the IOP runs at 1/8 of the EE clock
+  void _advanceIop(int eeClocks) {
+    _iopFraction += eeClocks;
+    final steps = _iopFraction >> 3;
+    _iopFraction &= 7;
+    for (var i = 0; i < steps; i++) {
+      iop.step();
+    }
+    iopIo.advanceTimers(steps);
+    iopIo.service();
+    if (iopIo.dirty) {
+      iopIo.dirty = false;
+      iop.setInterrupt(iopIo.asserted);
+    }
   }
 
   void _endOfScanline() {

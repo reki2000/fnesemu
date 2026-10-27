@@ -4,6 +4,9 @@ import 'bus.dart';
 
 /// A device on the other end of a DMA channel.
 class DmaEndpoint {
+  /// false while a source has nothing to give yet (the transfer waits)
+  bool get hasData => true;
+
   /// receives one quadword from memory
   void put(int low, int high) {}
 
@@ -22,9 +25,10 @@ class DmaChannel {
 ///
 /// A transfer runs to completion when its channel is started, without bus
 /// timing. Supported: normal mode, interleave mode for the scratchpad
-/// channels, and source chain mode (tag IDs 0..7). Destination chain mode,
-/// the tag transfer enable bit, memory FIFO and stall control are not
-/// implemented.
+/// channels, and source chain mode (tag IDs 0..7)
+/// with the tag transfer enable bit. Memory FIFO and stall control are not
+/// implemented. SIF0 also supports destination chain mode, and waits for
+/// its source to supply data (see [service]).
 class Dmac {
   static const channelCount = 10;
   static const vif0 = 0, vif1 = 1, gif = 2, fromIpu = 3, toIpu = 4;
@@ -34,7 +38,7 @@ class Dmac {
     0x8000, 0x9000, 0xa000, 0xb000, 0xb400, //
     0xc000, 0xc400, 0xc800, 0xd000, 0xd400
   ];
-  static const _str = 1 << 8, _tie = 1 << 7;
+  static const _str = 1 << 8, _tie = 1 << 7, _tte = 1 << 6;
   static const _dmaEnable = 1;
 
   final Ps2Bus bus;
@@ -48,6 +52,10 @@ class Dmac {
   bool dirty = false;
 
   final _quad = Int64List(2);
+
+  /// the SIF0 end tag was received and the channel finishes after its data
+  bool _sif0End = false;
+  bool _sif0Irq = false;
 
   Dmac(this.bus);
 
@@ -135,6 +143,7 @@ class Dmac {
     switch (address & 0xf0) {
       case 0x00:
         c.chcr = value;
+        if (ch == sif0) _sif0End = _sif0Irq = false;
         if (value & _str != 0 && ctrl & _dmaEnable != 0) _run(ch);
       case 0x10:
         c.madr = value;
@@ -168,13 +177,23 @@ class Dmac {
     bus.writePhysical64(a + 8, high);
   }
 
+  /// resumes a channel that is waiting for data from the IOP
+  void service() {
+    final c = channels[sif0];
+    if (c.chcr & _str != 0 && ctrl & _dmaEnable != 0) _run(sif0);
+  }
+
   void _run(int ch) {
     final c = channels[ch];
     switch ((c.chcr >> 2) & 3) {
       case 0:
-        _normal(ch, c);
+        if (!_normal(ch, c)) return;
       case 1:
-        _chain(ch, c);
+        if (ch == sif0) {
+          if (!_destChain(ch, c)) return;
+        } else {
+          _chain(ch, c);
+        }
       case 2:
         _interleave(ch, c);
     }
@@ -214,12 +233,40 @@ class Dmac {
     }
   }
 
-  void _normal(int ch, DmaChannel c) {
+  /// returns false when the transfer waits for its source
+  bool _normal(int ch, DmaChannel c) {
     // a zero count transfers 0x10000 quadwords on hardware; treat it as none
     while (c.qwc > 0) {
+      if (ch == sif0 && endpoints[ch]?.hasData == false) return false;
       _move(ch, c, c.madr);
       c.madr += 16;
       c.qwc--;
+    }
+    return true;
+  }
+
+  /// SIF0 destination chain: every packet starts with a tag from the source
+  bool _destChain(int ch, DmaChannel c) {
+    final e = endpoints[ch];
+    if (e == null) return true;
+    while (true) {
+      if (c.qwc == 0 && !_sif0End) {
+        if (!e.hasData) return false;
+        e.get(_quad);
+        final tag = _quad[0];
+        c.chcr = (c.chcr & 0xffff) | (tag & 0xffff0000);
+        c.qwc = tag & 0xffff;
+        c.madr = (tag >>> 32) & 0x7ffffff0;
+        final id = (tag >>> 28) & 7;
+        _sif0End = id == 7;
+        _sif0Irq = (tag >>> 31) & 1 != 0;
+      }
+      if (!_normal(ch, c)) return false;
+      if (_sif0End || (_sif0Irq && c.chcr & _tie != 0)) {
+        _sif0End = _sif0Irq = false;
+        return true;
+      }
+      _sif0Irq = false;
     }
   }
 
@@ -242,6 +289,9 @@ class Dmac {
     for (var packets = 0; packets < 0x100000; packets++) {
       _read(c.tadr);
       final tag = _quad[0];
+      if (c.chcr & _tte != 0 && ch != fromSpr) {
+        endpoints[ch]?.put(_quad[0], _quad[1]);
+      }
       final qwc = tag & 0xffff;
       final id = (tag >>> 28) & 7;
       final irq = (tag >>> 31) & 1 != 0;

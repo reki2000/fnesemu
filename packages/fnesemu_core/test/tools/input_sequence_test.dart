@@ -62,8 +62,8 @@ void main() {
   });
 
   test('a quoted name may have reserved characters', () {
-    expect(presses('"Flip Disk" "a+b":3'),
-        [(0, 'Flip Disk', 10), (10, 'a+b', 3)]);
+    expect(
+        presses('"Flip Disk" "a+b":3'), [(0, 'Flip Disk', 10), (10, 'a+b', 3)]);
   });
 
   test('broken sequences are errors', () {
@@ -79,8 +79,7 @@ void main() {
       '"A',
       'A::2',
     ]) {
-      expect(() => parseInput(text), throwsA(isA<InputError>()),
-          reason: text);
+      expect(() => parseInput(text), throwsA(isA<InputError>()), reason: text);
     }
   });
 

@@ -123,7 +123,6 @@ void main() {
     expect(() => StateReader(state, 'ss-devices', 2, 0),
         throwsA(isA<StateMismatch>()));
     final truncated = Uint8List.sublistView(state, 0, state.length - 100);
-    expect(() => _load(_ss(false), truncated),
-        throwsA(isA<StateMismatch>()));
+    expect(() => _load(_ss(false), truncated), throwsA(isA<StateMismatch>()));
   });
 }

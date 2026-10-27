@@ -137,9 +137,20 @@ void main() {
   test('keyboard slots match the horizontal WS layout', () {
     final buttons = Ws(color: false).buttons;
     expect(buttons, [
-      PadButton.up, PadButton.down, PadButton.left, PadButton.right,
-      Pad.y4, Pad.y3, Pad.b, Pad.a, PadButton.none, Pad.sound,
-      Pad.y1, Pad.start, Ws.rotate, Pad.y2,
+      PadButton.up,
+      PadButton.down,
+      PadButton.left,
+      PadButton.right,
+      Pad.y4,
+      Pad.y3,
+      Pad.b,
+      Pad.a,
+      PadButton.none,
+      Pad.sound,
+      Pad.y1,
+      Pad.start,
+      Ws.rotate,
+      Pad.y2,
     ]);
   });
 

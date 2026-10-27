@@ -59,6 +59,7 @@ class Ss extends Core {
       if (cpu is Sh2) cpu.jit?.suspended = value;
     }
   }
+
   @override
   int get cpuClocks => master.clocks + slave.clocks;
   @override
@@ -98,9 +99,7 @@ class Ss extends Core {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
     final owner = cpuFactory == null && jit
         ? Sh2Jit.create(
-            macLong: jitMacLong,
-            macWord: jitMacWord,
-            idleGuards: jitIdleGuards)
+            macLong: jitMacLong, macWord: jitMacWord, idleGuards: jitIdleGuards)
         : null;
     bus = Bus(allocate: owner?.rt.alloc);
     final factory = cpuFactory ??

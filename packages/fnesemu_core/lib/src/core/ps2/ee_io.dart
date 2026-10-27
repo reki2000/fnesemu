@@ -6,6 +6,7 @@ import 'gif.dart';
 import 'gs/gs.dart';
 import 'intc.dart';
 import 'quad_fifo.dart';
+import 'sif.dart';
 import 'timer.dart';
 import 'vif.dart';
 import 'vu.dart';
@@ -17,6 +18,7 @@ class EeIo implements IoPort {
   final Dmac dmac;
   final Gs gs = Gs();
   late final Gif gif = Gif(gs);
+  final Sif sif = Sif();
   final Vu vu0 = Vu(0), vu1 = Vu(1);
   late final Vif vif0 = Vif(0, vu0);
   late final Vif vif1 = Vif(1, vu1, path2: gif.path2, gs: gs);
@@ -26,6 +28,8 @@ class EeIo implements IoPort {
     dmac.endpoints[Dmac.gif] = gif.path3;
     dmac.endpoints[Dmac.vif0] = vif0;
     dmac.endpoints[Dmac.vif1] = vif1;
+    dmac.endpoints[Dmac.sif0] = sif.sif0;
+    dmac.endpoints[Dmac.sif1] = sif.sif1;
     vu1.onXgkick = _xgkick;
     vu0.onCmsar1 = vu1.start;
   }
@@ -44,6 +48,8 @@ class EeIo implements IoPort {
     }
   }
 
+  static bool _isSif(int address) =>
+      address >= 0x1000f200 && address < 0x1000f280;
   static bool _isVif(int address) =>
       address >= 0x10003800 && address < 0x10004000;
   static bool _isVifFifo(int address) =>
@@ -81,6 +87,7 @@ class EeIo implements IoPort {
     if (_isVif(address)) {
       return (address < 0x10003c00 ? vif0 : vif1).read(address & 0x3ff);
     }
+    if (_isSif(address)) return sif.eeRead(address & 0xff);
     if (_isVuMemory(address)) {
       final m = _vuMemory(address);
       if (m == null) return 0;
@@ -104,6 +111,8 @@ class EeIo implements IoPort {
       gs.writePrivileged(address, value);
     } else if (Gif.handles(address)) {
       gif.write(address, size, value);
+    } else if (_isSif(address)) {
+      sif.eeWrite(address & 0xff, value);
     } else if (_isVif(address)) {
       (address < 0x10003c00 ? vif0 : vif1).write(address & 0x3ff, value);
     } else if (_isVifFifo(address)) {
@@ -131,6 +140,7 @@ class EeIo implements IoPort {
       Dmac.handles(address) ||
       _isGs(address) ||
       Gif.handles(address) ||
+      _isSif(address) ||
       _isVif(address) ||
       _isVifFifo(address) ||
       (_isVuMemory(address) && _vuMemory(address) != null);

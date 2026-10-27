@@ -69,8 +69,7 @@ class Core extends CoreDebug {
   /// Restores a state from [saveState]; throws a StateMismatch for another
   /// core, media or format version. Callbacks, media and configuration of
   /// this instance are kept.
-  void loadState(Uint8List state) =>
-      throw UnsupportedError('Core.loadState');
+  void loadState(Uint8List state) => throw UnsupportedError('Core.loadState');
 
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');

@@ -197,7 +197,8 @@ void main() {
     expect(actual.cpus[0].dump(), expected.cpus[0].dump());
   }, skip: native ? false : 'No native backend');
 
-  test('guarded literal pointers update after host writes and exclude FIFO', () {
+  test('guarded literal pointers update after host writes and exclude FIFO',
+      () {
     final expected = Md32x(jit: false), actual = Md32x(jit: true);
     addTearDown(expected.dispose);
     addTearDown(actual.dispose);
@@ -217,6 +218,7 @@ void main() {
       }
       expect(actual.cpus[0].dump(), expected.cpus[0].dump());
     }
+
     for (var warm = 0; warm < 12; warm++) {
       pass();
     }
