@@ -9,7 +9,7 @@ This document records what each core currently does with the recompiler: default
 | PS1 | R3000 (`core/ps/jit`) | enabled on supported hosts | Shared CPU state, memory aliases and precise CPU fallback |
 | N64 | VR4300 (`core/n64/jit`) | enabled on supported hosts | Native integer and supported COP1 execution |
 | SS | SH-2 (`components/sh2/jit`) | disabled | Optional JIT, default CPU quantum 64 clocks |
-| 32X | SH-2 (`components/sh2/jit`) | enabled on supported hosts | Default CPU quantum 32 clocks |
+| 32X | SH-2 (`components/sh2/jit`) | enabled on supported hosts | Default CPU quantum 64 clocks |
 
 A host without an available compiled backend uses the interpreter. `JIT=false` selects the interpreter for PS1 and N64, and `JIT=true` enables SS recompilation. `SH2_JIT_32X=false` selects the 32X interpreter. `PS_TRACE=true` disables PS1 recompilation.
 
@@ -57,7 +57,7 @@ The specialization mechanism is described in the [frontend guide](frontends.md#g
 
 ### CPU quantum
 
-SS uses a default 64-clock quantum. 32X alternates the CPUs in bounded 32-clock quanta clipped to the main CPU deadline, and quantum 1 selects instruction alternation with one-instruction compilation. Changing a quantum changes CPU and device interleaving and requires independent synchronization checks. The options are `--ss-slice-clocks` and `--32x-slice-clocks`.
+SS uses a default 64-clock quantum. 32X alternates the CPUs in bounded 64-clock quanta clipped to the main CPU deadline, and quantum 1 selects instruction alternation with one-instruction compilation. Changing a quantum changes CPU and device interleaving and requires independent synchronization checks. The options are `--ss-slice-clocks` and `--32x-slice-clocks`.
 
 `sh2_slice_compare.dart --case FILE --warmup N --frames N [--out DIR]` compares the supported quantum and interpreter or JIT variants in one AOT process. The case JSON contains media and input arguments without mode or quantum options. `ss_slice_compare.dart` is a compatibility entry point. Output capture includes periodic PNGs and continuous audio.
 
@@ -72,8 +72,9 @@ SS uses a default 64-clock quantum. 32X alternates the CPUs in bounded 32-clock 
 
 ### 32X
 
-- Native recompilation is enabled by default. SDRAM code is compiled. Private-cache code and other excluded regions stay on the CPU path, and banked ROM compilation needs a separate mapping and invalidation contract. The adapter shares one masked code-address predicate between fetch and dispatch so private-cache and ROM PCs do not repeatedly probe the SDRAM-only JIT.
-- The CPU keeps MAC.L and MAC.W where its timing differs. There is no idle detector, so the idle yields are disabled.
+- Native recompilation is enabled by default. SDRAM code is compiled, and each CPU's 4KiB cache data array at 0xc0000000 is mapped for native loads and stores (`highMemory`). The runtime address mask is 0x9fffffff, so the cache-through alias shares the pages of the cached address while bit 31 keeps the array apart. Private-cache code and other excluded regions stay on the CPU path, and banked ROM compilation needs a separate mapping and invalidation contract. The adapter shares one masked code-address predicate between fetch and dispatch so private-cache and ROM PCs do not repeatedly probe the SDRAM-only JIT.
+- MAC.L and MAC.W are translated, and with a quantum above 1 `idleGuards` checks unchanged native self-loops. The interpreter and the compiled path share the SH-2 idle detector (`components/sh2/jit/idle.dart`), which compares registers at a repeated short backward branch with no write between.
+- Data stored next to code in one protected page would make every such store leave native code. After 16 store exits into a page (`JitCodeMemory.noteStoreExit`), the page is released from write protection (`releaseCodePages`), and a block ends after a store into a released page so that the next block guards its own code words.
 - Communication-register reads with no side effects may continue within the same budget through adapter-approved read helpers (the `jitRegisterReads` parameter, default true). FIFO, control, video and PWM accesses keep CPU exits. Such a return does not itself switch CPUs, so shared-RAM communication still depends on the quantum.
 - On-chip ticks follow each native batch or CPU instruction. Debugger steps still execute one instruction.
 - Interpreter and JIT instances can exchange checkpoints with the same CPU quantum.

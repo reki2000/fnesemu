@@ -43,7 +43,9 @@ The SH-2 frontend marks short backward edges of up to 32 bytes, including a comp
 
 With `idleGuards`, the frontend captures the entry values of the guest words it replaces. A store-free self-loop with unchanged guest state can return `idleDetected`. Callbacks exclude that proof, and ordinary mapped reads and context registers require the adapter's stability contract. Self-loops whose state changes continue through native links instead of returning for a futile idle check. Multi-block loops keep the adapter's detector.
 
-## SH-2 read registers and MAC
+## SH-2 address space, read registers and MAC
+
+`highMemory` lets accesses at 0xc0000000 and above reach the runtime pages when the adapter keeps bit 31 in the runtime mask; the range check biases the address by 0x40000000 so that one unsigned compare allows 0xc0000000 to 0x3fffffff. `endsAfterStore` lets the adapter end a block after a store into a page that was released from write protection.
 
 `Sh2Jit.addReadRegister` allocates one of four context words and associates it with an adapter-supplied address and width predicate. The adapter updates the returned view before native execution and after CPU-side effects. A guarded stable base or guarded pointer literal may select a context load; all other addresses and widths keep ordinary memory and CPU handling. No hardware address appears in the shared runtime.
 

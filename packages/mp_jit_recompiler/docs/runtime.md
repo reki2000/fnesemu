@@ -15,6 +15,7 @@ Guards compare code words at block entry to detect modified code. `JitCodeMemory
 - A core declares its guest mappings with `map`.
 - `protect` removes the write mappings of every writable alias of the same host page and records the blocks translated from it. A store to an upcoming instruction then leaves the block before changing it. The core must protect every writable alias of those pages.
 - `release` drops those blocks and stops protecting a page that compiled code keeps writing.
+- `noteStoreExit` counts native exits at stores into a protected page and releases the page at the 16th. The caller ends the blocks that store into a released page (`isReleased`), so the next block guards its code words. PS1 and the SH-2 component use it.
 - `reset` restores all write mappings.
 
 Writes outside compiled code are still detected by block guards. Entry guards cannot repair a write that already changed the active native block. PS1, N64 and the SH-2 component use `JitCodeMemory`.
