@@ -95,7 +95,7 @@ class Iop {
     pc = vector;
     nextPc = vector + 4;
     _inDelaySlot = _isBranch = false;
-    _loadReg = _flightReg = 0;
+    _loadReg = 0;
   }
 
   void _setReg(int n, int v) {
@@ -119,7 +119,10 @@ class Iop {
     _currentPc = at;
     _inDelaySlot = _isBranch;
     if (sr & 1 != 0 && (ip & sr & 0xff00) != 0) {
-      // the interrupted instruction is not executed; EPC points at it
+      // the interrupted instruction is not executed; EPC points at it. The
+      // load of the previous instruction still completes.
+      if (_loadReg != 0) r[_loadReg] = _loadValue;
+      r[0] = 0;
       _exception(excInterrupt);
       return;
     }

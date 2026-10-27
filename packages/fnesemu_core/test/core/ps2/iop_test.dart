@@ -167,4 +167,22 @@ void main() {
     expect(cpu.r[2], 0);
     expect((cpu.cop0[Iop.cop0Cause] >> 2) & 31, Iop.excOverflow);
   });
+
+  test('an interrupt does not drop the load of the previous instruction', () {
+    final ram = _Ram()..write32(0x2000, 0x1234);
+    final code = [
+      _i(35, 0, 1, 0x2000), // LW r1, 0x2000(r0)
+      _r(0, 0, 0, 0),
+    ];
+    for (var i = 0; i < code.length; i++) {
+      ram.write32(0x1000 + i * 4, code[i]);
+    }
+    final cpu = Iop(ram)..jump(0x1000);
+    cpu.cop0[Iop.cop0Status] = 0x401;
+    cpu.step();
+    cpu.setInterrupt(true);
+    cpu.step(); // the interrupt is taken before the NOP
+    expect(cpu.cop0[Iop.cop0Epc], 0x1004);
+    expect(cpu.r[1], 0x1234);
+  });
 }
