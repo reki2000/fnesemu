@@ -156,16 +156,16 @@ class Dmac {
     final a = address & 0x80000000 != 0
         ? Ps2Bus.scratchBase + (address & 0x3ff0)
         : address & 0x7ffffff0;
-    _quad[0] = bus.read64(a);
-    _quad[1] = bus.read64(a + 8);
+    _quad[0] = bus.readPhysical64(a);
+    _quad[1] = bus.readPhysical64(a + 8);
   }
 
   void _write(int address, int low, int high) {
     final a = address & 0x80000000 != 0
         ? Ps2Bus.scratchBase + (address & 0x3ff0)
         : address & 0x7ffffff0;
-    bus.write64(a, low);
-    bus.write64(a + 8, high);
+    bus.writePhysical64(a, low);
+    bus.writePhysical64(a + 8, high);
   }
 
   void _run(int ch) {

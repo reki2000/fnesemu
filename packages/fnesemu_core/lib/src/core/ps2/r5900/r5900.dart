@@ -3,19 +3,22 @@ import 'dart:typed_data';
 import '../bus.dart';
 import 'fpu.dart';
 import 'mmi.dart';
+import 'tlb.dart';
 
 /// The EE core. General registers are 128 bits wide and are stored as two
 /// adjacent 64-bit words: register `n` occupies `gpr[2n]` (bits 63..0) and
 /// `gpr[2n + 1]` (bits 127..64). Most instructions touch only the low word.
 ///
-/// Not implemented yet: TLB, COP2, address and trap exceptions
-/// other than arithmetic overflow, and timing beyond one clock per
-/// instruction.
+/// Not implemented yet: COP2, the scratchpad mapping bit of the TLB, the
+/// user and supervisor modes, and timing beyond one clock per instruction.
 class R5900 {
   static const resetVector = 0xbfc00000;
   static const _signBit = -0x8000000000000000;
 
   // COP0 registers and bits
+  static const cop0Index = 0, cop0Random = 1, cop0EntryLo0 = 2;
+  static const cop0EntryLo1 = 3, cop0Context = 4, cop0PageMask = 5;
+  static const cop0Wired = 6, cop0BadVAddr = 8, cop0EntryHi = 10;
   static const cop0Count = 9,
       cop0Compare = 11,
       cop0Status = 12,
@@ -31,9 +34,10 @@ class R5900 {
 
   // exception codes
   static const excInterrupt = 0, excOverflow = 12, excSyscall = 8;
-  static const excBreak = 9;
+  static const excBreak = 9, excTrap = 13;
 
   final Ps2Bus bus;
+  final Tlb tlb = Tlb();
   final Int64List gpr = Int64List(64);
   int hi = 0, lo = 0, hi1 = 0, lo1 = 0;
   int sa = 0;
@@ -57,6 +61,7 @@ class R5900 {
   bool _inDelaySlot = false;
 
   R5900(this.bus) {
+    bus.tlb = tlb;
     reset();
   }
 
@@ -67,6 +72,14 @@ class R5900 {
     nextPc = resetVector + 4;
     cop0.fillRange(0, 32, 0);
     cop0[15] = 0x2e20; // PRId
+    cop0[16] = 0x440; // Config
+    cop0[cop0Random] = Tlb.entryCount - 1;
+    tlb.active = false;
+    tlb.setAsid(0);
+    for (final e in tlb.entries) {
+      e.mask = e.vpn2 = e.asid = e.lo0 = e.lo1 = 0;
+      e.global = false;
+    }
     fpr.fillRange(0, 32, 0);
     facc = fcr31 = 0;
     cop0[cop0Status] = _statusBev | _statusErl | 0x70000000;
@@ -91,13 +104,38 @@ class R5900 {
   /// Runs one instruction. Returns false when it is not implemented; the
   /// state then still points at it.
   bool step() {
+    try {
+      return _step();
+    } on Ps2Fault catch (fault) {
+      _fault(fault);
+      return true;
+    }
+  }
+
+  int _faultPc = 0;
+
+  /// Raises the COP0 exception for an address fault of the running
+  /// instruction. Nothing of the instruction has taken effect.
+  void _fault(Ps2Fault fault) {
+    final at = _faultPc;
+    cop0[cop0BadVAddr] = fault.address;
+    cop0[cop0EntryHi] =
+        (cop0[cop0EntryHi] & 0xff) | (fault.address & 0xffffe000);
+    cop0[cop0Context] = (cop0[cop0Context] & 0xff800000) |
+        (((fault.address >> 13) & 0x7ffff) << 4);
+    final exl = cop0[cop0Status] & _statusExl != 0;
+    _exception(fault.code, at, vector: fault.refill && !exl ? 0 : 0x180);
+  }
+
+  bool _step() {
     if (_interruptReady()) {
       _inDelaySlot = _branchPending;
       _exception(excInterrupt, pc);
     }
     final at = pc;
-    final ir = bus.read32(at);
+    _faultPc = at;
     _inDelaySlot = _branchPending;
+    final ir = bus.read32(at);
     _branchPending = false;
     pc = nextPc;
     nextPc = pc + 4;
@@ -132,7 +170,7 @@ class R5900 {
         cop0[cop0Cause] & status & 0xff00 != 0;
   }
 
-  void _exception(int code, int at) {
+  void _exception(int code, int at, {int? vector}) {
     final status = cop0[cop0Status];
     var cause = cop0[cop0Cause] & ~(0x1f << 2) & ~_causeBd;
     cause |= code << 2;
@@ -142,7 +180,7 @@ class R5900 {
     }
     cop0[cop0Cause] = cause;
     cop0[cop0Status] = status | _statusExl;
-    final offset = code == excInterrupt ? 0x200 : 0x180;
+    final offset = vector ?? (code == excInterrupt ? 0x200 : 0x180);
     jumpTo(
         status & _statusBev != 0 ? 0xbfc00200 + offset : 0x80000000 + offset);
     _branchPending = false;
@@ -161,6 +199,20 @@ class R5900 {
       pc = nextPc;
       nextPc = pc + 4;
     }
+  }
+
+  /// the effective address of an access that must be aligned by [mask]
+  int _ea(int rs, int offset, int mask, bool store) {
+    final address = reg(rs) + offset;
+    if (address & mask != 0) {
+      throw Ps2Fault(store ? Ps2Fault.addressStore : Ps2Fault.addressLoad,
+          address & 0xffffffff);
+    }
+    return address;
+  }
+
+  void _trap(bool condition, int at) {
+    if (condition) _exception(excTrap, at);
   }
 
   bool _lessUnsigned(int a, int b) => (a ^ _signBit) < (b ^ _signBit);
@@ -236,9 +288,9 @@ class R5900 {
         }
         return executeCop1(ir);
       case 49: // LWC1
-        fpr[rt] = bus.read32(reg(rs) + simm);
+        fpr[rt] = bus.read32(_ea(rs, simm, 3, false));
       case 57: // SWC1
-        bus.write32(reg(rs) + simm, fpr[rt]);
+        bus.write32(_ea(rs, simm, 3, true), fpr[rt]);
       case 20:
         _branchLikely(reg(rs) == reg(rt), at, imm);
       case 21:
@@ -263,16 +315,16 @@ class R5900 {
       case 32:
         setReg(rt, bus.read8(reg(rs) + simm).toSigned(8));
       case 33:
-        setReg(rt, bus.read16(reg(rs) + simm).toSigned(16));
+        setReg(rt, bus.read16(_ea(rs, simm, 1, false)).toSigned(16));
       case 34:
         setReg(rt,
             _signExtend32(_loadLeftRight(reg(rs) + simm, 4, true, reg(rt))));
       case 35:
-        setReg(rt, _signExtend32(bus.read32(reg(rs) + simm)));
+        setReg(rt, _signExtend32(bus.read32(_ea(rs, simm, 3, false))));
       case 36:
         setReg(rt, bus.read8(reg(rs) + simm));
       case 37:
-        setReg(rt, bus.read16(reg(rs) + simm));
+        setReg(rt, bus.read16(_ea(rs, simm, 1, false)));
       case 38:
         final addr = reg(rs) + simm;
         final v = _loadLeftRight(addr, 4, false, reg(rt));
@@ -282,15 +334,15 @@ class R5900 {
                 ? _signExtend32(v)
                 : (reg(rt) & ~0xffffffff) | (v & 0xffffffff));
       case 39:
-        setReg(rt, bus.read32(reg(rs) + simm));
+        setReg(rt, bus.read32(_ea(rs, simm, 3, false)));
       case 40:
         bus.write8(reg(rs) + simm, reg(rt));
       case 41:
-        bus.write16(reg(rs) + simm, reg(rt));
+        bus.write16(_ea(rs, simm, 1, true), reg(rt));
       case 42:
         _storeLeftRight(reg(rs) + simm, 4, true, reg(rt));
       case 43:
-        bus.write32(reg(rs) + simm, reg(rt));
+        bus.write32(_ea(rs, simm, 3, true), reg(rt));
       case 44:
         _storeLeftRight(reg(rs) + simm, 8, true, reg(rt));
       case 45:
@@ -310,9 +362,9 @@ class R5900 {
         bus.write64(addr, reg(rt));
         bus.write64(addr + 8, gpr[rt * 2 + 1]);
       case 55:
-        setReg(rt, bus.read64(reg(rs) + simm));
+        setReg(rt, bus.read64(_ea(rs, simm, 7, false)));
       case 63:
-        bus.write64(reg(rs) + simm, reg(rt));
+        bus.write64(_ea(rs, simm, 7, true), reg(rt));
       default:
         return false;
     }
@@ -434,6 +486,18 @@ class R5900 {
         }
       case 47:
         setReg(rd, a - b);
+      case 48:
+        _trap(a >= b, at);
+      case 49:
+        _trap(!_lessUnsigned(a, b), at);
+      case 50:
+        _trap(a < b, at);
+      case 51:
+        _trap(_lessUnsigned(a, b), at);
+      case 52:
+        _trap(a == b, at);
+      case 54:
+        _trap(a != b, at);
       case 56:
         setReg(rd, b << shift);
       case 58:
@@ -479,7 +543,20 @@ class R5900 {
 
   bool _regimm(int at, int rs, int rt, int imm) {
     final a = reg(rs);
+    final simm = imm.toSigned(16);
     switch (rt) {
+      case 8:
+        _trap(a >= simm, at);
+      case 9:
+        _trap(!_lessUnsigned(a, simm), at);
+      case 10:
+        _trap(a < simm, at);
+      case 11:
+        _trap(_lessUnsigned(a, simm), at);
+      case 12:
+        _trap(a == simm, at);
+      case 14:
+        _trap(a != simm, at);
       case 0:
         _branch(a < 0, at, imm);
       case 1:
@@ -509,7 +586,7 @@ class R5900 {
   bool _cop0(int ir, int at, int rs, int rt, int rd) {
     switch (rs) {
       case 0:
-        setReg(rt, _signExtend32(cop0[rd]));
+        setReg(rt, _signExtend32(_readCop0(rd)));
       case 4:
         _writeCop0(rd, reg(rt));
       case 16:
@@ -523,6 +600,19 @@ class R5900 {
               cop0[cop0Status] = status & ~_statusExl;
               jumpTo(cop0[cop0Epc]);
             }
+          case 0x01: // TLBR
+            final e = tlb.entries[cop0[cop0Index] % Tlb.entryCount];
+            cop0[cop0PageMask] = e.mask;
+            cop0[cop0EntryHi] = e.vpn2 | e.asid;
+            cop0[cop0EntryLo0] = (e.lo0 & ~1) | (e.global ? 1 : 0);
+            cop0[cop0EntryLo1] = (e.lo1 & ~1) | (e.global ? 1 : 0);
+          case 0x02: // TLBWI
+            _writeTlb(cop0[cop0Index] & 0x3f);
+          case 0x06: // TLBWR
+            _writeTlb(_readCop0(cop0Random));
+          case 0x08: // TLBP
+            final found = tlb.probe(cop0[cop0EntryHi]);
+            cop0[cop0Index] = found < 0 ? 0x80000000 : found;
           case 0x38: // EI
             cop0[cop0Status] |= _statusEie;
           case 0x39: // DI
@@ -536,8 +626,33 @@ class R5900 {
     return true;
   }
 
+  int _readCop0(int rd) {
+    if (rd == cop0Random) {
+      final wired = cop0[cop0Wired];
+      return Tlb.entryCount - 1 - clocks % (Tlb.entryCount - wired);
+    }
+    return cop0[rd];
+  }
+
+  void _writeTlb(int index) {
+    if (index >= Tlb.entryCount) return;
+    tlb.write(index, cop0[cop0PageMask], cop0[cop0EntryHi], cop0[cop0EntryLo0],
+        cop0[cop0EntryLo1]);
+  }
+
   void _writeCop0(int rd, int value) {
     switch (rd) {
+      case cop0Index:
+        cop0[rd] = value & 0x8000003f;
+      case cop0Wired:
+        cop0[rd] = value & 0x3f;
+      case cop0PageMask:
+        cop0[rd] = value & 0x1ffe000;
+      case cop0EntryHi:
+        cop0[rd] = value;
+        tlb.setAsid(value);
+      case cop0BadVAddr || cop0Random:
+        break;
       case cop0Compare:
         cop0[rd] = value;
         cop0[cop0Cause] &= ~ipTimer;

@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'r5900/tlb.dart';
+
 /// Device registers in the 0x10000000..0x1fffffff range.
 abstract class IoPort {
   bool handles(int address);
@@ -31,6 +33,9 @@ class Ps2Bus {
 
   IoPort? io;
 
+  /// the TLB used for mapped segments, or null to map them to themselves
+  Tlb? tlb;
+
   int unmappedAccesses = 0;
   int lastUnmappedAddress = 0;
 
@@ -51,7 +56,13 @@ class Ps2Bus {
       _offset = a - scratchBase;
       return _scratch;
     }
-    final phys = a >= 0x80000000 && a < 0xc0000000 ? a & 0x1fffffff : a;
+    int phys;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      phys = a & 0x1fffffff;
+    } else {
+      final t = _physical ? null : tlb;
+      phys = t != null && t.active ? t.translate(a, write) : a;
+    }
     if (phys < ramSize) {
       _offset = phys;
       return _ram;
@@ -75,6 +86,22 @@ class Ps2Bus {
 
   int _offset = 0;
   int _ioAddress = -1;
+  bool _physical = false;
+
+  /// reads or writes a quadword half at a physical address (DMA), bypassing
+  /// the TLB
+  int readPhysical64(int addr) {
+    _physical = true;
+    final v = read64(addr);
+    _physical = false;
+    return v;
+  }
+
+  void writePhysical64(int addr, int value) {
+    _physical = true;
+    write64(addr, value);
+    _physical = false;
+  }
 
   int _readIo(int size) {
     final a = _ioAddress;
