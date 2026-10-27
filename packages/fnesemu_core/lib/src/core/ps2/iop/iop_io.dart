@@ -1,4 +1,5 @@
 import '../sif.dart';
+import 'cdvd.dart';
 import 'iop_memory.dart';
 
 /// IOP interrupt numbers
@@ -25,6 +26,7 @@ class IopIo implements IopPort {
 
   final IopMemory memory;
   final Sif sif;
+  final cdvd = Cdvd();
 
   int stat = 0, mask = 0, ctrl = 0;
   final channels = List.generate(_channelCount, (_) => IopDmaChannel());
@@ -66,6 +68,7 @@ class IopIo implements IopPort {
     if (address >= 0x1d000000 && address < 0x1d000100) {
       return sif.iopRead(address & 0xff);
     }
+    if (Cdvd.handles(address)) return cdvd.read(address);
     switch (address) {
       case 0x1f801070:
         return stat;
@@ -105,6 +108,10 @@ class IopIo implements IopPort {
   void write(int address, int size, int value) {
     if (address >= 0x1d000000 && address < 0x1d000100) {
       sif.iopWrite(address & 0xff, value);
+      return;
+    }
+    if (Cdvd.handles(address)) {
+      cdvd.write(address, value);
       return;
     }
     switch (address) {

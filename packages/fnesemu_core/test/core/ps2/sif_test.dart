@@ -26,6 +26,7 @@ class _System {
 }
 
 void main() {
+  cdvdTests();
   test('SIF1 delivers an EE packet to IOP memory', () {
     final s = _System();
     // EE packet at 0x1000: tag quad [cnt qwc=2][iop addr 0x4000, end, 6 words]
@@ -104,5 +105,17 @@ void main() {
     s.iop.advanceTimers(150);
     expect(s.iop.stat & (1 << IopIrq.timer0), isNot(0));
     expect(s.iop.read(0x1f801100, 4), 50);
+  });
+}
+
+void cdvdTests() {
+  test('CDVD reports ready and answers S commands', () {
+    final s = _System();
+    expect(s.iop.read(0x1f402005, 1), 0x40);
+    expect(s.iop.read(0x1f402017, 1), 0x40);
+    s.iop.write(0x1f402016, 1, 0x03);
+    expect(s.iop.read(0x1f402017, 1), 0);
+    expect(s.iop.read(0x1f402018, 1), 0);
+    expect(s.iop.read(0x1f402017, 1), 0x40);
   });
 }
