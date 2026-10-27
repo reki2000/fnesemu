@@ -122,7 +122,9 @@ final class JitDriver {
       dispatch++
     ) {
       final stats = rt.compilationStats;
-      final present = prepareFirst || stats != null ? rt.contains(pc, tag) : false;
+      final present = prepareFirst || stats != null
+          ? rt.contains(pc, tag)
+          : false;
       stats?.recordLookup(present);
       if (prepareFirst && !present) {
         rt.ctx[JitCtx.exitPc] = pc;
@@ -141,7 +143,9 @@ final class JitDriver {
         if (!recompileInvalid && !_hot(pc, tag)) return reason;
       } else if (reason != JitReason.miss) {
         return reason;
-      } else if (prepareFirst) {
+      } else if (prepareFirst || rt.contains(pc, tag)) {
+        // An installed target that the dispatch table lacked is already
+        // refreshed by the runtime, so run it instead of translating it again.
         continue;
       } else if (!_hot(pc, tag)) {
         return reason;
@@ -153,8 +157,9 @@ final class JitDriver {
 
   bool _compile(int pc, int tag) {
     final stats = rt.compilationStats;
-    final block = stats == null ? translate(pc, tag) :
-        stats.measureTranslation(pc, tag, () => translate(pc, tag));
+    final block = stats == null
+        ? translate(pc, tag)
+        : stats.measureTranslation(pc, tag, () => translate(pc, tag));
     if (block == null) {
       final word = codeWord(pc);
       if (word != null) _fallbacks.put(jitKey(pc, tag), word);

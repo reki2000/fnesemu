@@ -290,4 +290,36 @@ void main() {
       expect(rt.ctx[21], 6);
     },
   );
+
+  test('a miss on an installed block runs it instead of translating again', () {
+    final native = JitRuntime.native(
+      ctxWords: 32,
+      addrMask: 0xffff,
+      read: (_, __) => 0,
+      write: (_, __, ___) {},
+    );
+    if (native == null) return;
+    addTearDown(native.dispose);
+    // The two blocks jump to each other through the dynamic table and share
+    // one of its entries, so the native code misses on every transfer.
+    const a = 0x1000, b = 0x5000;
+    final seen = <int>[];
+    IrBlock translateLoop(int pc, int tag) {
+      seen.add(pc);
+      final bld = IrBuilder(pc, tag: tag);
+      return bld.finish(IrJumpDyn(bld.c32(pc == a ? b : a)), cost: 1);
+    }
+
+    final d = JitDriver(
+      native,
+      translate: translateLoop,
+      codeWord: (pc) => 1,
+      threshold: 1,
+      capacity: 1 << 16,
+    );
+    native.ctx[JitCtx.budget] = 1000;
+    expect(d.run(a, 0), JitReason.budget);
+    expect(seen, [a, b]);
+    expect(native.contains(a, 0), isTrue);
+  });
 }

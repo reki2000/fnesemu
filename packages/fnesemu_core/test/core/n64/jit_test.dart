@@ -90,11 +90,16 @@ final class _Machine {
 void main() {
   test('CPU profiling preserves faults, registers, memory and clocks', () {
     final expected = _Machine(null);
-    final actual = _Machine(N64Jit.create(native: false, compileThreshold: 100000)!);
+    final actual =
+        _Machine(N64Jit.create(native: false, compileThreshold: 100000)!);
     addTearDown(actual.dispose);
     for (final machine in [expected, actual]) {
-      machine.load([_i(9, 0, 1, 42), _i(0x2b, 28, 1, 0),
-        _i(0x23, 28, 2, 0), _i(0x23, 28, 3, 1)]);
+      machine.load([
+        _i(9, 0, 1, 42),
+        _i(0x2b, 28, 1, 0),
+        _i(0x23, 28, 2, 0),
+        _i(0x23, 28, 3, 1)
+      ]);
     }
     final stats = actual.jit!.diagnostics.enableExecutionStats();
     for (var i = 0; i < 4; i++) {
@@ -175,9 +180,7 @@ void main() {
         const immediates = [9, 10, 11, 12, 13, 14, 15, 25];
         for (var trial = 0; trial < 100; trial++) {
           final code = List.generate(80, (_) {
-            final s = rnd.nextInt(28),
-                t = rnd.nextInt(28),
-                d = rnd.nextInt(28);
+            final s = rnd.nextInt(28), t = rnd.nextInt(28), d = rnd.nextInt(28);
             return rnd.nextBool()
                 ? _r(s, t, d, functions[rnd.nextInt(functions.length)],
                     rnd.nextInt(32))
@@ -236,8 +239,7 @@ void main() {
         }
       });
 
-      test('direct jumps and calls preserve links across inlined targets',
-          () {
+      test('direct jumps and calls preserve links across inlined targets', () {
         final code = [
           _i(9, 0, 1, 7),
           3 << 26 | ((_pc + 20) >> 2) & 0x3ffffff,
@@ -293,8 +295,7 @@ void main() {
         expect(actual.cpu.stopReason, contains('Unaligned'));
       });
 
-      test('stores to translated instructions leave before modifying code',
-          () {
+      test('stores to translated instructions leave before modifying code', () {
         final replacement = _i(9, 0, 2, 99);
         final code = [_i(43, 28, 1, 0), 0, _i(9, 0, 2, 1), 0];
         for (final m in [reference, actual]) {
@@ -414,12 +415,7 @@ void main() {
                 ]) {
                   final fp =
                       17 << 26 | fmt << 21 | 4 << 16 | 2 << 11 | 6 << 6 | fn;
-                  final code = [
-                    _i(9, 0, 1, 9),
-                    fp,
-                    0x44023000,
-                    _i(9, 1, 3, 2)
-                  ];
+                  final code = [_i(9, 0, 1, 9), fp, 0x44023000, _i(9, 1, 3, 2)];
                   for (final m in [reference, actual]) {
                     m.load(code);
                     m.cpu.fpu.wide = wide;
@@ -440,8 +436,7 @@ void main() {
         }
       });
 
-      test(
-          'native FP slot exits restore branch links and prior integer state',
+      test('native FP slot exits restore branch links and prior integer state',
           () {
         actual.dispose();
         actual = _Machine(N64Jit.create(
@@ -585,8 +580,10 @@ void main() {
           123456.75, -98765.5, 2147483520.0, -2147483648.0, 3e9, -3e9,
           1e300, double.infinity, double.nan,
         ];
-        const ops = [(16, 12), (17, 12), (16, 13), (17, 13), (16, 36), //
-          (17, 36), (17, 32), (16, 33)];
+        const ops = [
+          (16, 12), (17, 12), (16, 13), (17, 13), (16, 36), //
+          (17, 36), (17, 32), (16, 33)
+        ];
         for (final wide in [false, true]) {
           for (final (fmt, fn) in ops) {
             for (final control in [0, 1, 3]) {
@@ -644,13 +641,10 @@ void main() {
         }
       });
 
-      test('untaken likely branches chain without returning through Dart',
-          () {
+      test('untaken likely branches chain without returning through Dart', () {
         actual.dispose();
         actual = _Machine(N64Jit.create(
-            native: native,
-            statistics: true,
-            compileThreshold: 1)!);
+            native: native, statistics: true, compileThreshold: 1)!);
         final code = [
           _i(20, 1, 2, 3),
           _i(9, 0, 3, 7),
@@ -672,8 +666,7 @@ void main() {
         expect(actual.jit!.runtimeExits!.values.fold(0, (a, b) => a + b), 1);
       });
 
-      test('integer likely branches and link slots preserve exact budgets',
-          () {
+      test('integer likely branches and link slots preserve exact budgets', () {
         for (final opcode in [1, 20, 21, 22, 23]) {
           for (final taken in [false, true]) {
             for (final limit in [1, 2, 3, 5]) {
@@ -696,8 +689,51 @@ void main() {
         }
       });
 
-      test('FP helpers preserve special values and live integer operands',
-          () {
+      test('HI/LO moves and 32-bit multiplies match the CPU', () {
+        const values = [
+          0, 1, -1, 2, 0x7fffffff, 0x80000000, 0xffffffff, 0x12345678, //
+          0x80000001, 0x0000ffff, 0x00010000, 0xdeadbeef,
+        ];
+        for (final overflow in [false, true]) {
+          final code = [
+            _r(1, 2, 0, 24), // MULT
+            _r(0, 0, 3, 18), // MFLO
+            _r(0, 0, 4, 16), // MFHI
+            _r(1, 2, 0, 25), // MULTU
+            _r(0, 0, 5, 18),
+            _r(0, 0, 6, 16),
+            _r(1, 0, 0, 17), // MTHI
+            _r(2, 0, 0, 19), // MTLO
+            _r(0, 0, 7, 16),
+            _r(0, 0, 8, 18),
+            if (overflow) _r(10, 10, 9, 32), // ADD traps before the end
+            _r(1, 2, 0, 24),
+          ];
+          for (final x in values) {
+            for (final y in values) {
+              for (final upper in [0, 0x1234abcd]) {
+                for (final m in [reference, actual]) {
+                  m.load(code);
+                  m.cpu.r[1] = x | upper << 32;
+                  m.cpu.r[2] = y | (upper ^ 0x7fff0001) << 32;
+                  m.cpu.r[10] = 0x40000000;
+                  m.cpu.hi = 0x1111222233334444;
+                  m.cpu.lo = -0x5555666677778888;
+                }
+                actual.run(code.length);
+                reference.run(max(code.length, actual.cpu.clocks));
+                actual.matches(reference,
+                    reason: 'overflow=$overflow $x $y $upper');
+                if (native && !overflow) {
+                  expect(actual.jit!.compiledClocks, code.length);
+                }
+              }
+            }
+          }
+        }
+      });
+
+      test('FP helpers preserve special values and live integer operands', () {
         for (final fmt in [16, 17]) {
           for (final value in [
             double.nan,
@@ -734,8 +770,7 @@ void main() {
               52,
               54
             ]) {
-              code.add(
-                  17 << 26 | fmt << 21 | 2 << 16 | 1 << 11 | 4 << 6 | fn);
+              code.add(17 << 26 | fmt << 21 | 2 << 16 | 1 << 11 | 4 << 6 | fn);
             }
             code.add(_r(3, 1, 5, 45));
             for (final m in [reference, actual]) {
