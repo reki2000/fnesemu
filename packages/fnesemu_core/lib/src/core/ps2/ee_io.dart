@@ -1,5 +1,7 @@
 import 'bus.dart';
 import 'dmac.dart';
+import 'gif.dart';
+import 'gs/gs.dart';
 import 'intc.dart';
 import 'timer.dart';
 
@@ -8,8 +10,16 @@ class EeIo implements IoPort {
   final Intc intc = Intc();
   late final EeTimers timers = EeTimers(intc);
   final Dmac dmac;
+  final Gs gs = Gs();
+  late final Gif gif = Gif(gs);
 
-  EeIo(Ps2Bus bus) : dmac = Dmac(bus);
+  EeIo(Ps2Bus bus) : dmac = Dmac(bus) {
+    gs.onInterrupt = () => intc.raise(Intc.gs);
+    dmac.endpoints[Dmac.gif] = gif.path3;
+  }
+
+  static bool _isGs(int address) =>
+      address >= 0x12000000 && address < 0x12002000;
 
   @override
   int read(int address, int size) {
@@ -18,6 +28,8 @@ class EeIo implements IoPort {
       return intc.read(address);
     }
     if (Dmac.handles(address)) return dmac.read(address);
+    if (_isGs(address)) return gs.readPrivileged(address);
+    if (Gif.handles(address)) return gif.read(address);
     return 0;
   }
 
@@ -29,6 +41,10 @@ class EeIo implements IoPort {
       intc.write(address, value);
     } else if (Dmac.handles(address)) {
       dmac.write(address, value);
+    } else if (_isGs(address)) {
+      gs.writePrivileged(address, value);
+    } else if (Gif.handles(address)) {
+      gif.write(address, size, value);
     } else {
       return false;
     }
@@ -40,5 +56,7 @@ class EeIo implements IoPort {
       EeTimers.handles(address) ||
       address == Intc.statAddress ||
       address == Intc.maskAddress ||
-      Dmac.handles(address);
+      Dmac.handles(address) ||
+      _isGs(address) ||
+      Gif.handles(address);
 }

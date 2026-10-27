@@ -1,0 +1,522 @@
+import 'dart:math' as math;
+
+import 'gs.dart';
+import 'gs_memory.dart';
+
+/// Draws primitives into the GS local memory.
+///
+/// Not implemented: antialiasing (AA1), dithering, mipmapping (the magnify
+/// filter is used for every texture), the Z buffer alpha-test modes beyond
+/// the four AFAIL cases, and the destination alpha test for 24-bit frames.
+class GsRaster {
+  final Gs gs;
+
+  GsRaster(this.gs);
+
+  // ---- state decoded at the start of a primitive ----
+  late GsContext _ctx;
+  int _fbp = 0, _fbw = 0, _fpsm = 0, _fbmsk = 0, _fba = 0;
+  int _zbp = 0, _zpsm = 0;
+  bool _zmsk = false;
+  int _ofx = 0, _ofy = 0;
+  int _sx0 = 0, _sx1 = 0, _sy0 = 0, _sy1 = 0;
+  bool _ate = false, _date = false, _datm = false, _zte = true;
+  int _atst = 0, _aref = 0, _afail = 0, _ztst = 0;
+  bool _tme = false, _fge = false, _abe = false, _fst = false, _iip = false;
+  int _blendA = 0, _blendB = 0, _blendC = 0, _blendD = 0, _fix = 0;
+
+  // texture
+  int _tbp = 0, _tbw = 0, _tpsm = 0, _tw = 0, _th = 0, _tcc = 0, _tfx = 0;
+  int _cbp = 0, _cpsm = 0, _csm = 0, _csa = 0;
+  int _wms = 0, _wmt = 0, _minu = 0, _maxu = 0, _minv = 0, _maxv = 0;
+  bool _linear = false;
+  int _ta0 = 0, _ta1 = 0;
+  bool _aem = false;
+
+  // per-pixel scratch
+  int _tr = 0, _tg = 0, _tb = 0, _ta = 0;
+  int _dr = 0, _dg = 0, _db = 0, _da = 0;
+
+  void _setup(int ctxIndex, int attrs) {
+    _ctx = gs.contexts[ctxIndex];
+    final frame = _ctx.frame;
+    _fbp = (frame & 0x1ff) * 32;
+    _fbw = (frame >> 16) & 0x3f;
+    _fpsm = (frame >> 24) & 0x3f;
+    _fbmsk = (frame >> 32) & 0xffffffff;
+    _fba = _ctx.fba;
+    final zbuf = _ctx.zbuf;
+    _zbp = (zbuf & 0x1ff) * 32;
+    _zpsm = 0x30 | ((zbuf >> 24) & 0xf);
+    _zmsk = (zbuf >> 32) & 1 != 0;
+    _ofx = _ctx.xyoffset & 0xffff;
+    _ofy = (_ctx.xyoffset >> 32) & 0xffff;
+    final sc = _ctx.scissor;
+    _sx0 = sc & 0x7ff;
+    _sx1 = (sc >> 16) & 0x7ff;
+    _sy0 = (sc >> 32) & 0x7ff;
+    _sy1 = (sc >> 48) & 0x7ff;
+    final test = _ctx.test;
+    _ate = test & 1 != 0;
+    _atst = (test >> 1) & 7;
+    _aref = (test >> 4) & 0xff;
+    _afail = (test >> 12) & 3;
+    _date = (test >> 14) & 1 != 0;
+    _datm = (test >> 15) & 1 != 0;
+    _zte = (test >> 16) & 1 != 0;
+    _ztst = (test >> 17) & 3;
+    _tme = attrs & 0x10 != 0;
+    _fge = attrs & 0x20 != 0;
+    _abe = attrs & 0x40 != 0;
+    _fst = attrs & 0x100 != 0;
+    _iip = attrs & 0x08 != 0;
+    final alpha = _ctx.alpha;
+    _blendA = alpha & 3;
+    _blendB = (alpha >> 2) & 3;
+    _blendC = (alpha >> 4) & 3;
+    _blendD = (alpha >> 6) & 3;
+    _fix = (alpha >> 32) & 0xff;
+    if (_tme) {
+      final t0 = _ctx.tex0;
+      _tbp = t0 & 0x3fff;
+      _tbw = (t0 >> 14) & 0x3f;
+      _tpsm = (t0 >> 20) & 0x3f;
+      _tw = (t0 >> 26) & 15;
+      _th = (t0 >> 30) & 15;
+      _tcc = (t0 >> 34) & 1;
+      _tfx = (t0 >> 35) & 3;
+      _cbp = (t0 >> 37) & 0x3fff;
+      _cpsm = (t0 >> 51) & 15;
+      _csm = (t0 >> 55) & 1;
+      _csa = (t0 >> 56) & 31;
+      final c = _ctx.clamp;
+      _wms = c & 3;
+      _wmt = (c >> 2) & 3;
+      _minu = (c >> 4) & 0x3ff;
+      _maxu = (c >> 14) & 0x3ff;
+      _minv = (c >> 24) & 0x3ff;
+      _maxv = (c >> 34) & 0x3ff;
+      _linear = (_ctx.tex1 >> 5) & 1 != 0;
+      final texa = gs.texa;
+      _ta0 = texa & 0xff;
+      _aem = (texa >> 15) & 1 != 0;
+      _ta1 = (texa >> 32) & 0xff;
+    }
+  }
+
+  /// Draws one primitive. [type] is a Gs.prim* value, [attrs] the PRIM
+  /// attribute bits in effect.
+  void draw(Gs gs, int type, int attrs, GsVertex a, GsVertex b, GsVertex c) {
+    _setup((attrs >> 9) & 1, attrs);
+    switch (type) {
+      case Gs.primPoint:
+        _point(a, attrs);
+      case Gs.primLine:
+        _line(a, b);
+      case Gs.primTriangle:
+        _triangle(a, b, c);
+      case Gs.primSprite:
+        _sprite(a, b);
+    }
+  }
+
+  // ---- primitives ----
+
+  void _point(GsVertex v, int attrs) {
+    final x = (v.x - _ofx) >> 4, y = (v.y - _ofy) >> 4;
+    if (x < _sx0 || x > _sx1 || y < _sy0 || y > _sy1) return;
+    _s = v.s;
+    _t = v.t;
+    _q = v.q;
+    _uu = v.u / 16;
+    _vv = v.v / 16;
+    _pixel(x, y, v.z, v.r, v.g, v.b, v.a, v.f);
+  }
+
+  void _line(GsVertex a, GsVertex b) {
+    final x0 = (a.x - _ofx) / 16, y0 = (a.y - _ofy) / 16;
+    final x1 = (b.x - _ofx) / 16, y1 = (b.y - _ofy) / 16;
+    final dx = x1 - x0, dy = y1 - y0;
+    final steps = math.max(dx.abs(), dy.abs()).ceil();
+    if (steps == 0) return;
+    for (var i = 0; i < steps; i++) {
+      final t = i / steps;
+      final x = (x0 + dx * t).floor(), y = (y0 + dy * t).floor();
+      if (x < _sx0 || x > _sx1 || y < _sy0 || y > _sy1) continue;
+      _lerp(a, b, t);
+      _pixel(x, y, (a.z + (b.z - a.z) * t).round(), _cr, _cg, _cb, _ca, _cf);
+    }
+  }
+
+  int _cr = 0, _cg = 0, _cb = 0, _ca = 0, _cf = 0;
+
+  void _lerp(GsVertex a, GsVertex b, double t) {
+    if (_iip) {
+      _cr = (a.r + (b.r - a.r) * t).round();
+      _cg = (a.g + (b.g - a.g) * t).round();
+      _cb = (a.b + (b.b - a.b) * t).round();
+      _ca = (a.a + (b.a - a.a) * t).round();
+    } else {
+      _cr = b.r;
+      _cg = b.g;
+      _cb = b.b;
+      _ca = b.a;
+    }
+    _cf = (a.f + (b.f - a.f) * t).round();
+    _s = a.s + (b.s - a.s) * t;
+    _t = a.t + (b.t - a.t) * t;
+    _q = a.q + (b.q - a.q) * t;
+    _uu = (a.u + (b.u - a.u) * t) / 16;
+    _vv = (a.v + (b.v - a.v) * t) / 16;
+  }
+
+  void _sprite(GsVertex a, GsVertex b) {
+    // a is the upper left corner and b the lower right one
+    final x0 = a.x - _ofx, y0 = a.y - _ofy, x1 = b.x - _ofx, y1 = b.y - _ofy;
+    final left = math.min(x0, x1), right = math.max(x0, x1);
+    final top = math.min(y0, y1), bottom = math.max(y0, y1);
+    final width = right - left, height = bottom - top;
+    if (width == 0 || height == 0) return;
+    var px0 = ((left - 8 + 15) >> 4);
+    var py0 = ((top - 8 + 15) >> 4);
+    if (px0 < _sx0) px0 = _sx0;
+    if (py0 < _sy0) py0 = _sy0;
+    for (var py = py0; py <= _sy1 && py * 16 + 8 < bottom; py++) {
+      final ty = (py * 16 + 8 - top) / height;
+      for (var px = px0; px <= _sx1 && px * 16 + 8 < right; px++) {
+        final tx = (px * 16 + 8 - left) / width;
+        _s = a.s + (b.s - a.s) * tx;
+        _t = a.t + (b.t - a.t) * ty;
+        _q = b.q;
+        _uu = (a.u + (b.u - a.u) * tx) / 16;
+        _vv = (a.v + (b.v - a.v) * ty) / 16;
+        _pixel(px, py, b.z, b.r, b.g, b.b, b.a, b.f);
+      }
+    }
+  }
+
+  void _triangle(GsVertex a, GsVertex b, GsVertex c) {
+    var ax = a.x - _ofx, ay = a.y - _ofy;
+    var bx = b.x - _ofx, by = b.y - _ofy;
+    var cx = c.x - _ofx, cy = c.y - _ofy;
+    var area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if (area == 0) return;
+    GsVertex va = a, vb = b, vc = c;
+    if (area < 0) {
+      // make the orientation positive by swapping b and c
+      (bx, cx) = (cx, bx);
+      (by, cy) = (cy, by);
+      vb = c;
+      vc = b;
+      area = -area;
+    }
+    final minX = math.max(math.min(ax, math.min(bx, cx)) >> 4, _sx0);
+    final maxX = math.min((math.max(ax, math.max(bx, cx)) + 15) >> 4, _sx1);
+    final minY = math.max(math.min(ay, math.min(by, cy)) >> 4, _sy0);
+    final maxY = math.min((math.max(ay, math.max(by, cy)) + 15) >> 4, _sy1);
+    // edge setup: E(p) = (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0)
+    final topLeftAb = _topLeft(bx - ax, by - ay);
+    final topLeftBc = _topLeft(cx - bx, cy - by);
+    final topLeftCa = _topLeft(ax - cx, ay - cy);
+    final inv = 1.0 / area;
+    for (var py = minY; py <= maxY; py++) {
+      final qy = py * 16 + 8;
+      for (var px = minX; px <= maxX; px++) {
+        final qx = px * 16 + 8;
+        final eab = (bx - ax) * (qy - ay) - (by - ay) * (qx - ax);
+        final ebc = (cx - bx) * (qy - by) - (cy - by) * (qx - bx);
+        final eca = (ax - cx) * (qy - cy) - (ay - cy) * (qx - cx);
+        if (eab < 0 || ebc < 0 || eca < 0) continue;
+        if ((eab == 0 && !topLeftAb) ||
+            (ebc == 0 && !topLeftBc) ||
+            (eca == 0 && !topLeftCa)) {
+          continue;
+        }
+        final wa = ebc * inv, wb = eca * inv, wc = eab * inv;
+        final z = (va.z * wa + vb.z * wb + vc.z * wc).round();
+        if (_iip) {
+          _cr = (va.r * wa + vb.r * wb + vc.r * wc).round();
+          _cg = (va.g * wa + vb.g * wb + vc.g * wc).round();
+          _cb = (va.b * wa + vb.b * wb + vc.b * wc).round();
+          _ca = (va.a * wa + vb.a * wb + vc.a * wc).round();
+        } else {
+          _cr = c.r;
+          _cg = c.g;
+          _cb = c.b;
+          _ca = c.a;
+        }
+        _cf = (va.f * wa + vb.f * wb + vc.f * wc).round();
+        _s = va.s * wa + vb.s * wb + vc.s * wc;
+        _t = va.t * wa + vb.t * wb + vc.t * wc;
+        _q = va.q * wa + vb.q * wb + vc.q * wc;
+        _uu = (va.u * wa + vb.u * wb + vc.u * wc) / 16;
+        _vv = (va.v * wa + vb.v * wb + vc.v * wc) / 16;
+        _pixel(px, py, z, _cr, _cg, _cb, _ca, _cf);
+      }
+    }
+  }
+
+  static bool _topLeft(int dx, int dy) => (dy == 0 && dx > 0) || dy < 0;
+
+  // ---- pixel pipeline ----
+
+  double _s = 0, _t = 0, _q = 1, _uu = 0, _vv = 0;
+
+  static int _clamp8(int v) => v < 0 ? 0 : (v > 255 ? 255 : v);
+
+  void _pixel(int x, int y, int z, int r, int g, int b, int a, int f) {
+    if (_tme) {
+      _texture(r, g, b, a);
+      r = _tr;
+      g = _tg;
+      b = _tb;
+      a = _ta;
+    }
+    if (_fge) {
+      final fc = gs.fogcol;
+      r = (f * r + (255 - f) * (fc & 0xff)) >> 8;
+      g = (f * g + (255 - f) * ((fc >> 8) & 0xff)) >> 8;
+      b = (f * b + (255 - f) * ((fc >> 16) & 0xff)) >> 8;
+    }
+    var writeColor = true, writeZ = !_zmsk;
+    if (_ate && !_alphaPasses(a)) {
+      switch (_afail) {
+        case 0:
+          return;
+        case 1:
+          writeZ = false;
+        case 2:
+          writeColor = false;
+        default:
+          writeZ = false;
+      }
+    }
+    final fraw = gs.mem.read(_fpsm, _fbp, _fbw, x, y);
+    if (_date) {
+      final bit = switch (_fpsm) {
+        GsPsm.ct32 => (fraw >> 31) & 1,
+        GsPsm.ct16 || GsPsm.ct16s => (fraw >> 15) & 1,
+        _ => 0,
+      };
+      if ((bit != 0) != _datm) return;
+    }
+    final zmax = switch (_zpsm) {
+      GsPsm.z24 => 0xffffff,
+      GsPsm.z16 || GsPsm.z16s => 0xffff,
+      _ => 0xffffffff,
+    };
+    if (z < 0) z = 0;
+    if (z > zmax) z = zmax;
+    if (_zte) {
+      final zold = gs.mem.read(_zpsm, _zbp, _fbw, x, y);
+      final pass = switch (_ztst) {
+        0 => false,
+        1 => true,
+        2 => z >= zold,
+        _ => z > zold,
+      };
+      if (!pass) return;
+    }
+    if (writeZ) gs.mem.write(_zpsm, _zbp, _fbw, x, y, z);
+    if (!writeColor) return;
+    if (_abe && (gs.pabe == 0 || a & 0x80 != 0)) {
+      _decodeFrame(fraw);
+      final cs = [r, g, b], cd = [_dr, _dg, _db];
+      final coef = _blendC == 0 ? a : (_blendC == 1 ? _da : _fix);
+      for (var i = 0; i < 3; i++) {
+        final pa = _blendA == 0 ? cs[i] : (_blendA == 1 ? cd[i] : 0);
+        final pb = _blendB == 0 ? cs[i] : (_blendB == 1 ? cd[i] : 0);
+        final pd = _blendD == 0 ? cs[i] : (_blendD == 1 ? cd[i] : 0);
+        final v = (((pa - pb) * coef) >> 7) + pd;
+        cs[i] = gs.colclamp != 0 ? _clamp8(v) : v & 0xff;
+      }
+      r = cs[0];
+      g = cs[1];
+      b = cs[2];
+    }
+    _writeFrame(x, y, fraw, r & 0xff, g & 0xff, b & 0xff, a & 0xff);
+  }
+
+  bool _alphaPasses(int a) => switch (_atst) {
+        0 => false,
+        1 => true,
+        2 => a < _aref,
+        3 => a <= _aref,
+        4 => a == _aref,
+        5 => a >= _aref,
+        6 => a > _aref,
+        _ => a != _aref,
+      };
+
+  void _decodeFrame(int raw) {
+    switch (_fpsm) {
+      case GsPsm.ct16 || GsPsm.ct16s:
+        _dr = (raw & 31) << 3;
+        _dg = ((raw >> 5) & 31) << 3;
+        _db = ((raw >> 10) & 31) << 3;
+        _da = (raw >> 15) & 1 != 0 ? 0x80 : 0;
+      case GsPsm.ct24:
+        _dr = raw & 0xff;
+        _dg = (raw >> 8) & 0xff;
+        _db = (raw >> 16) & 0xff;
+        _da = 0x80;
+      default:
+        _dr = raw & 0xff;
+        _dg = (raw >> 8) & 0xff;
+        _db = (raw >> 16) & 0xff;
+        _da = (raw >> 24) & 0xff;
+    }
+  }
+
+  void _writeFrame(int x, int y, int old, int r, int g, int b, int a) {
+    int packed;
+    int mask;
+    switch (_fpsm) {
+      case GsPsm.ct16 || GsPsm.ct16s:
+        packed =
+            (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10) | ((a >> 7) << 15);
+        if (_fba != 0) packed |= 0x8000;
+        mask = _fbmsk & 0xffff;
+      case GsPsm.ct24:
+        packed = r | (g << 8) | (b << 16);
+        mask = _fbmsk & 0xffffff;
+      default:
+        packed = r | (g << 8) | (b << 16) | (a << 24);
+        if (_fba != 0) packed |= 0x80000000;
+        mask = _fbmsk;
+    }
+    gs.mem.write(_fpsm, _fbp, _fbw, x, y, (old & mask) | (packed & ~mask));
+  }
+
+  // ---- texturing ----
+
+  void _texture(int r, int g, int b, int a) {
+    final size = 1 << _tw, height = 1 << _th;
+    double u, v;
+    if (_fst) {
+      u = _uu;
+      v = _vv;
+    } else {
+      final q = _q == 0 ? 1.0 : _q;
+      u = _s / q * size;
+      v = _t / q * height;
+    }
+    if (_linear) {
+      final u0 = (u - 0.5).floor(), v0 = (v - 0.5).floor();
+      final fu = u - 0.5 - u0, fv = v - 0.5 - v0;
+      _fetch(u0, v0);
+      final r00 = _tr, g00 = _tg, b00 = _tb, a00 = _ta;
+      _fetch(u0 + 1, v0);
+      final r10 = _tr, g10 = _tg, b10 = _tb, a10 = _ta;
+      _fetch(u0, v0 + 1);
+      final r01 = _tr, g01 = _tg, b01 = _tb, a01 = _ta;
+      _fetch(u0 + 1, v0 + 1);
+      double mix(int c00, int c10, int c01, int c11) =>
+          (c00 * (1 - fu) + c10 * fu) * (1 - fv) +
+          (c01 * (1 - fu) + c11 * fu) * fv;
+      _tr = mix(r00, r10, r01, _tr).round();
+      _tg = mix(g00, g10, g01, _tg).round();
+      _tb = mix(b00, b10, b01, _tb).round();
+      _ta = mix(a00, a10, a01, _ta).round();
+    } else {
+      _fetch(u.floor(), v.floor());
+    }
+    final tr = _tr, tg = _tg, tb = _tb, ta = _ta;
+    switch (_tfx) {
+      case 0:
+        _tr = _clamp8((tr * r) >> 7);
+        _tg = _clamp8((tg * g) >> 7);
+        _tb = _clamp8((tb * b) >> 7);
+        _ta = _tcc != 0 ? _clamp8((ta * a) >> 7) : a;
+      case 1:
+        _ta = _tcc != 0 ? ta : a;
+      case 2:
+        _tr = _clamp8(((tr * r) >> 7) + a);
+        _tg = _clamp8(((tg * g) >> 7) + a);
+        _tb = _clamp8(((tb * b) >> 7) + a);
+        _ta = _tcc != 0 ? _clamp8(ta + a) : a;
+      default:
+        _tr = _clamp8(((tr * r) >> 7) + a);
+        _tg = _clamp8(((tg * g) >> 7) + a);
+        _tb = _clamp8(((tb * b) >> 7) + a);
+        _ta = _tcc != 0 ? ta : a;
+    }
+  }
+
+  static int _wrap(int c, int mode, int size, int minv, int maxv) {
+    switch (mode) {
+      case 0:
+        return c & (size - 1);
+      case 1:
+        return c < 0 ? 0 : (c > size - 1 ? size - 1 : c);
+      case 2:
+        return c < minv ? minv : (c > maxv ? maxv : c);
+      default:
+        return (c & minv) | maxv;
+    }
+  }
+
+  /// loads the texel at (u, v) into _tr.._ta
+  void _fetch(int u, int v) {
+    u = _wrap(u, _wms, 1 << _tw, _minu, _maxu);
+    v = _wrap(v, _wmt, 1 << _th, _minv, _maxv);
+    final raw = gs.mem.read(_tpsm, _tbp, _tbw, u, v);
+    switch (_tpsm) {
+      case GsPsm.t8 || GsPsm.t8h:
+        _clut(raw, 8);
+      case GsPsm.t4 || GsPsm.t4hl || GsPsm.t4hh:
+        _clut(raw, 4);
+      default:
+        _color(_tpsm, raw);
+    }
+  }
+
+  /// decodes a texel or CLUT entry of format [psm] into _tr.._ta
+  void _color(int psm, int raw) {
+    switch (psm) {
+      case GsPsm.ct32:
+        _tr = raw & 0xff;
+        _tg = (raw >> 8) & 0xff;
+        _tb = (raw >> 16) & 0xff;
+        _ta = (raw >> 24) & 0xff;
+      case GsPsm.ct24:
+        _tr = raw & 0xff;
+        _tg = (raw >> 8) & 0xff;
+        _tb = (raw >> 16) & 0xff;
+        _ta = _aem && raw & 0xffffff == 0 ? 0 : _ta0;
+      default:
+        _tr = (raw & 31) << 3;
+        _tg = ((raw >> 5) & 31) << 3;
+        _tb = ((raw >> 10) & 31) << 3;
+        _ta = _aem && raw & 0x7fff == 0 ? 0 : (raw & 0x8000 != 0 ? _ta1 : _ta0);
+    }
+  }
+
+  void _clut(int index, int bits) {
+    final cpsm = switch (_cpsm) {
+      0 => GsPsm.ct32,
+      1 => GsPsm.ct24,
+      0xa => GsPsm.ct16s,
+      _ => GsPsm.ct16,
+    };
+    // CSA selects one of the 16-entry groups for the 4-bit formats
+    final entry = bits == 4 ? _csa * 16 + index : index;
+    int raw;
+    if (_csm == 0) {
+      // CSM1: entries follow each other in the raw memory of the buffer
+      if (cpsm == GsPsm.ct32 || cpsm == GsPsm.ct24) {
+        raw = gs.mem.word(_cbp * 64 + entry);
+      } else {
+        final h = _cbp * 128 + entry;
+        raw = (gs.mem.word(h >> 1) >> ((h & 1) * 16)) & 0xffff;
+      }
+    } else {
+      // CSM2: entries are pixels of a row in the CLUT buffer
+      final cbw = gs.texclut & 0x3f;
+      final cou = ((gs.texclut >> 6) & 0x3f) * 16;
+      final cov = (gs.texclut >> 12) & 0x3ff;
+      raw = gs.mem.read(cpsm, _cbp, cbw, cou + entry, cov);
+    }
+    _color(cpsm, raw);
+  }
+}

@@ -1,0 +1,171 @@
+import 'dart:typed_data';
+
+import 'dmac.dart';
+import 'gs/gs.dart';
+
+/// One input path of the GIF (PATH1 from VU1, PATH2 from VIF1, PATH3 from
+/// the DMA channel). Each path parses its own stream of GIF tags and writes
+/// to the GS. The paths are not arbitrated: data of a path is processed as
+/// soon as it arrives.
+class GifPath extends DmaEndpoint {
+  static const _packed = 0, _reglist = 1;
+
+  final Gs gs;
+
+  int _loops = 0; // NLOOP of the current tag
+  int _flg = 0, _nreg = 0, _regs = 0;
+  int _index = 0; // register inside the iteration
+  int _dataLeft = 0; // quadwords or register values left in the tag
+
+  GifPath(this.gs);
+
+  /// true while the path is inside the data of a tag
+  bool get busy => _dataLeft > 0;
+
+  void reset() {
+    _dataLeft = 0;
+  }
+
+  @override
+  void put(int low, int high) {
+    if (_dataLeft == 0) {
+      _tag(low, high);
+      return;
+    }
+    switch (_flg) {
+      case _packed:
+        _packedQuad(low, high);
+      case _reglist:
+        _regValue(low);
+        if (_dataLeft > 0) _regValue(high);
+      default:
+        gs.hostQuad(low, high);
+        _dataLeft--;
+    }
+  }
+
+  void _tag(int low, int high) {
+    _loops = low & 0x7fff;
+    _flg = (low >> 58) & 3;
+    _nreg = (low >> 60) & 15;
+    if (_nreg == 0) _nreg = 16;
+    _regs = high;
+    _index = 0;
+    if (_flg <= _reglist && (low >> 46) & 1 != 0) {
+      gs.writeRegister(0, (low >> 47) & 0x7ff);
+    }
+    _dataLeft = switch (_flg) {
+      _packed => _loops * _nreg,
+      _reglist => _loops * _nreg,
+      _ => _loops,
+    };
+  }
+
+  void _packedQuad(int low, int high) {
+    final desc = (_regs >> (_index * 4)) & 15;
+    if (++_index == _nreg) _index = 0;
+    _dataLeft--;
+    switch (desc) {
+      case 0:
+        gs.writeRegister(0, low & 0x7ff);
+      case 1:
+        gs.writeRegister(
+            1,
+            (low & 0xff) |
+                (((low >> 32) & 0xff) << 8) |
+                ((high & 0xff) << 16) |
+                (((high >> 32) & 0xff) << 24) |
+                (gs.qBits << 32));
+      case 2:
+        gs.writeRegister(2, low);
+        gs.setQ(high);
+      case 3:
+        gs.writeRegister(3, (low & 0x3fff) | (((low >> 32) & 0x3fff) << 16));
+      case 4 || 12:
+        final adc = (high >> 47) & 1 != 0;
+        final data = (low & 0xffff) |
+            (((low >> 32) & 0xffff) << 16) |
+            ((high & 0xffffff) << 32) |
+            (((high >> 36) & 0xff) << 56);
+        gs.writeRegister(desc == 12 || adc ? 0x0c : 0x04, data);
+      case 5 || 13:
+        final adc = (high >> 47) & 1 != 0;
+        final data = (low & 0xffff) |
+            (((low >> 32) & 0xffff) << 16) |
+            ((high & 0xffffffff) << 32);
+        gs.writeRegister(desc == 13 || adc ? 0x0d : 0x05, data);
+      case 6 || 7 || 8 || 9:
+        gs.writeRegister(desc, low);
+      case 10:
+        gs.writeRegister(0x0a, ((high >> 36) & 0xff) << 56);
+      case 14:
+        gs.writeRegister(high & 0xff, low);
+    }
+  }
+
+  void _regValue(int value) {
+    final desc = (_regs >> (_index * 4)) & 15;
+    if (++_index == _nreg) _index = 0;
+    _dataLeft--;
+    if (desc <= 0x0d && desc != 0x0b) gs.writeRegister(desc, value);
+  }
+}
+
+/// The GIF registers and the three paths.
+class Gif {
+  final Gs gs;
+  late final path1 = GifPath(gs);
+  late final path2 = GifPath(gs);
+  late final path3 = GifPath(gs);
+
+  int ctrl = 0, mode = 0;
+
+  Gif(this.gs);
+
+  static bool handles(int address) =>
+      address >= 0x10003000 && address < 0x10003100 ||
+      address >= 0x10006000 && address < 0x10008000;
+
+  int read(int address) {
+    return switch (address & 0xfff0) {
+      0x3010 => mode,
+      0x3020 => 0, // GIF_STAT: idle
+      _ => 0,
+    };
+  }
+
+  /// Quadword being assembled from two 64-bit writes to the FIFO window.
+  final _fifo = Int64List(2);
+
+  /// returns true when [address] belongs to the GIF
+  bool write(int address, int size, int value) {
+    if (address >= 0x10006000) {
+      if (size >= 16) return true;
+      if (size == 4) {
+        // a word write: collect four of them
+        final w = (address >> 2) & 3;
+        final shift = (w & 1) * 32;
+        final lane = w >> 1;
+        _fifo[lane] = (_fifo[lane] & ~(0xffffffff << shift)) |
+            ((value & 0xffffffff) << shift);
+        if (w == 3) path3.put(_fifo[0], _fifo[1]);
+      } else {
+        _fifo[(address >> 3) & 1] = value;
+        if (address & 8 != 0) path3.put(_fifo[0], _fifo[1]);
+      }
+      return true;
+    }
+    switch (address & 0xfff0) {
+      case 0x3000:
+        ctrl = value;
+        if (value & 1 != 0) {
+          path1.reset();
+          path2.reset();
+          path3.reset();
+        }
+      case 0x3010:
+        mode = value;
+    }
+    return true;
+  }
+}

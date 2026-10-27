@@ -73,6 +73,9 @@ class Ps2 extends Core {
   }
 
   @override
+  ImageBuffer imageBuffer() => io.gs.image();
+
+  @override
   void reset() {
     cpu.reset();
     io = _newIo();
@@ -100,6 +103,7 @@ class Ps2 extends Core {
     _line++;
     if (_line == _vblankLine) {
       io.intc.raise(Intc.vblankStart);
+      io.gs.vblank();
     } else if (_line == _scanlines) {
       _line = 0;
       io.intc.raise(Intc.vblankEnd);
