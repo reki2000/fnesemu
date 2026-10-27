@@ -162,15 +162,34 @@ class Pad extends SioDevice {
       case 0x46: // constants, selected by the first parameter
       case 0x47:
       case 0x4c:
-        return configMode ? Uint8List(6) : null;
+        return configMode ? _constants(command, 0) : null;
     }
     return null;
+  }
+
+  // payload of the constant commands for the parameter [select]. games poll
+  // them and stay in the configuration mode until the values match.
+  Uint8List _constants(int command, int select) {
+    final List<int> v;
+    switch (command) {
+      case 0x46:
+        v = select == 0
+            ? [0x00, 0x00, 0x01, 0x02, 0x00, 0x0a]
+            : [0x00, 0x00, 0x01, 0x01, 0x01, 0x14];
+      case 0x47:
+        v = [0x00, 0x00, 0x02, 0x00, 0x01, 0x00];
+      default: // 0x4c
+        v = [0x00, 0x00, 0x00, select == 0 ? 0x04 : 0x06, 0x00, 0x00];
+    }
+    return Uint8List.fromList(v);
   }
 
   // handles a parameter byte sent by the console at payload position [pos]
   void _receive(int pos, int txData) {
     if (pos != 0) return;
-    if (_command == 0x43) {
+    if (_command == 0x46 || _command == 0x47 || _command == 0x4c) {
+      _reply = _constants(_command, txData);
+    } else if (_command == 0x43) {
       configMode = txData == 1;
     } else if (_command == 0x44 && configMode) {
       analogMode = txData == 1;
