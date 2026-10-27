@@ -38,4 +38,20 @@ void main() {
     pad.reset();
     expect(transfer(pad, [0x01, 0x42, 0, 0, 0])[1], 0x41);
   });
+
+  test('configuration commands answer the constants of the controller', () {
+    final pad = Pad();
+    transfer(pad, [0x01, 0x43, 0, 1, 0]);
+    expect(transfer(pad, [0x01, 0x46, 0, 0, 0, 0, 0, 0, 0]),
+        [0xff, 0xf3, 0x5a, 0, 0, 1, 2, 0, 0x0a]);
+    expect(transfer(pad, [0x01, 0x46, 0, 1, 0, 0, 0, 0, 0]),
+        [0xff, 0xf3, 0x5a, 0, 0, 1, 1, 1, 0x14]);
+    expect(transfer(pad, [0x01, 0x47, 0, 0, 0, 0, 0, 0, 0]),
+        [0xff, 0xf3, 0x5a, 0, 0, 2, 0, 1, 0]);
+    expect(transfer(pad, [0x01, 0x4c, 0, 0, 0, 0, 0, 0, 0]),
+        [0xff, 0xf3, 0x5a, 0, 0, 0, 4, 0, 0]);
+    expect(transfer(pad, [0x01, 0x4c, 0, 1, 0, 0, 0, 0, 0]),
+        [0xff, 0xf3, 0x5a, 0, 0, 0, 6, 0, 0]);
+    expect(pad.padStep, Pad.waitAddr);
+  });
 }
