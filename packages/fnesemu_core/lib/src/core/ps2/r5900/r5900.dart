@@ -1,13 +1,14 @@
 import 'dart:typed_data';
 
 import '../bus.dart';
+import 'fpu.dart';
 import 'mmi.dart';
 
 /// The EE core. General registers are 128 bits wide and are stored as two
 /// adjacent 64-bit words: register `n` occupies `gpr[2n]` (bits 63..0) and
 /// `gpr[2n + 1]` (bits 127..64). Most instructions touch only the low word.
 ///
-/// Not implemented yet: TLB, COP1, COP2, address and trap exceptions
+/// Not implemented yet: TLB, COP2, address and trap exceptions
 /// other than arithmetic overflow, and timing beyond one clock per
 /// instruction.
 class R5900 {
@@ -33,6 +34,11 @@ class R5900 {
   int nextPc = resetVector + 4;
   final Uint32List cop0 = Uint32List(32);
 
+  /// COP1 registers: 32 single precision images, the accumulator and FCR31
+  final Uint32List fpr = Uint32List(32);
+  int facc = 0;
+  int fcr31 = 0;
+
   /// elapsed clocks
   int clocks = 0;
 
@@ -53,6 +59,8 @@ class R5900 {
     pc = resetVector;
     nextPc = resetVector + 4;
     cop0.fillRange(0, 32, 0);
+    fpr.fillRange(0, 32, 0);
+    facc = fcr31 = 0;
     cop0[cop0Status] = _statusBev | _statusErl | 0x70000000;
     clocks = 0;
     _branchPending = _inDelaySlot = false;
@@ -180,6 +188,28 @@ class R5900 {
         return _cop0(ir, at, rs, rt, rd);
       case 28:
         return executeMmi(ir, at);
+      case 17:
+        if (rs == 8) {
+          final c = fcr31 & R5900Fpu.conditionBit != 0;
+          switch (rt) {
+            case 0:
+              _branch(!c, at, imm);
+            case 1:
+              _branch(c, at, imm);
+            case 2:
+              _branchLikely(!c, at, imm);
+            case 3:
+              _branchLikely(c, at, imm);
+            default:
+              return false;
+          }
+          break;
+        }
+        return executeCop1(ir);
+      case 49: // LWC1
+        fpr[rt] = bus.read32(reg(rs) + simm);
+      case 57: // SWC1
+        bus.write32(reg(rs) + simm, fpr[rt]);
       case 20:
         _branchLikely(reg(rs) == reg(rt), at, imm);
       case 21:
