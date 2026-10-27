@@ -28,6 +28,7 @@ class EeIo implements IoPort {
     dmac.endpoints[Dmac.gif] = gif.path3;
     dmac.endpoints[Dmac.vif0] = vif0;
     dmac.endpoints[Dmac.vif1] = vif1;
+    sif.onEeInterrupt = () => intc.raise(Intc.sbus);
     dmac.endpoints[Dmac.sif0] = sif.sif0;
     dmac.endpoints[Dmac.sif1] = sif.sif1;
     vu1.onXgkick = _xgkick;
@@ -45,6 +46,77 @@ class EeIo implements IoPort {
           vu1.data[w + 2] | (vu1.data[w + 3] << 32));
       q = (q + 1) & (vu1.dataQuads - 1);
       if (!path.busy && path.lastEop) break;
+    }
+  }
+
+  /// system registers (SIO, memory controller, ...): read back as written
+  static bool _isSys(int address) =>
+      address >= 0x1000f000 && address < 0x10010000 ||
+      address >= 0x10002000 && address < 0x10002100 || // IPU
+      address >= 0x1a000000 && address < 0x1a010000 || // DEV9
+      address >= 0x1f801400 && address < 0x1f801500 ||
+      address >= 0x1f803800 && address < 0x1f803900;
+
+  /// IOP RAM, which the EE sees at 0x1c000000
+  Uint8List? iopRam;
+
+  bool _isIopRam(int address) =>
+      iopRam != null && address >= 0x1c000000 && address < 0x1c200000;
+
+  int _iopRamRead(int address, int size) {
+    final ram = iopRam!;
+    final o = address - 0x1c000000;
+    var v = 0;
+    for (var i = size - 1; i >= 0; i--) {
+      v = (v << 8) | ram[o + i];
+    }
+    return v;
+  }
+
+  void _iopRamWrite(int address, int size, int value) {
+    final ram = iopRam!;
+    final o = address - 0x1c000000;
+    for (var i = 0; i < size; i++) {
+      ram[o + i] = value & 0xff;
+      value >>>= 8;
+    }
+  }
+
+  final _sys = <int, int>{};
+
+  int _sysRead(int address) {
+    final v = _sys[address] ?? 0;
+    // the memory controller command registers finish at once: busy bit 31
+    // reads back clear
+    return address == 0x1000f430 || address == 0x1000f410 ? v & 0x7fffffff : v;
+  }
+
+  /// RDRAM devices behind MCH_RICM/MCH_DRD. Each holds registers keyed by
+  /// the register number of the command; register 0x21 (INIT) low 6 bits are
+  /// the device id, 0x1f before an id is assigned. A command whose low 6 bits
+  /// match a device id reaches the first such device in the chain, and any
+  /// other value is broadcast. This is an unverified model of the init
+  /// sequence the BIOS performs.
+  static const _rdramDevices = 2;
+  final _rdram = List.generate(_rdramDevices, (_) => <int, int>{0x21: 0x1f});
+
+  void _sysWrite(int address, int value) {
+    _sys[address] = value;
+    if (address != 0x1000f430) return;
+    final reg = (value >> 16) & 0xfff;
+    final target = value & 0x3f;
+    final matches = [
+      for (final d in _rdram)
+        if ((d[0x21]! & 0x3f) == target) d
+    ];
+    final reach = matches.isEmpty ? _rdram : [matches.first];
+    final isRead = value >>> 28 == 0xb;
+    if (isRead) {
+      _sys[0x1000f440] = matches.isEmpty ? 0 : (matches.first[reg] ?? 0);
+    } else {
+      for (final d in reach) {
+        d[reg] = _sys[0x1000f440] ?? 0;
+      }
     }
   }
 
@@ -96,6 +168,8 @@ class EeIo implements IoPort {
       if (size == 8) return words[i] | (words[i + 1] << 32);
       return words[i];
     }
+    if (_isIopRam(address)) return _iopRamRead(address, size);
+    if (_isSys(address)) return _sysRead(address);
     return 0;
   }
 
@@ -126,6 +200,10 @@ class EeIo implements IoPort {
       final i = offset >> 2;
       words[i] = value;
       if (size == 8) words[i + 1] = value >>> 32;
+    } else if (_isIopRam(address)) {
+      _iopRamWrite(address, size, value);
+    } else if (_isSys(address)) {
+      _sysWrite(address, value);
     } else {
       return false;
     }
@@ -141,6 +219,8 @@ class EeIo implements IoPort {
       _isGs(address) ||
       Gif.handles(address) ||
       _isSif(address) ||
+      _isSys(address) ||
+      _isIopRam(address) ||
       _isVif(address) ||
       _isVifFifo(address) ||
       (_isVuMemory(address) && _vuMemory(address) != null);

@@ -29,22 +29,19 @@ void main() {
   cdvdTests();
   test('SIF1 delivers an EE packet to IOP memory', () {
     final s = _System();
-    // EE packet at 0x1000: tag quad [cnt qwc=2][iop addr 0x4000, end, 6 words]
-    //                      then two quads of data
+    // EE chain tag at 0x1000: end tag with 3 quads. The first is the IOP tag
+    // (address 0x4000, end, 6 words), followed by two quads of data.
     final b = s.bus;
-    b.write64(0x1000, 2 | (7 << 28));
-    b.write64(0x1008, 0x4000 | (1 << 31) | (6 << 32));
+    b.write64(0x1000, 3 | (7 << 28) | (0x1010 << 32));
+    b.write64(0x1010, 0x4000 | (1 << 31) | (6 << 32));
     for (var i = 0; i < 8; i++) {
-      b.write32(0x1010 + i * 4, 0x100 + i);
+      b.write32(0x1020 + i * 4, 0x100 + i);
     }
-    // tag: cnt with qwc 2 ... the chain tag is the first quad itself
-    b.write64(0x1000, 2 | (7 << 28));
     b.write32(_sif1 + 0x30, 0x1000);
-    b.write32(_sif1, 0x145); // from memory, chain, TTE, start
-    expect(s.ee.sif.sif1Fifo.length, 4 + 8);
+    b.write32(_sif1, 0x104); // chain mode, start
+    expect(s.ee.sif.sif1Fifo.length, 12);
 
-    s.iop.write(0x1f801500 + 0x10 * 3, 4, 0); // ch10 madr (unused in chain)
-    s.iop.write(0x1f801500 + 0x10 * 3 + 8, 4, (1 << 24) | (1 << 10) | 0);
+    s.iop.write(0x1f801500 + 0x10 * 3 + 8, 4, (1 << 24) | (1 << 30) | 0x200);
     for (var i = 0; i < 6; i++) {
       expect(s.iopMem.read32(0x4000 + i * 4), 0x100 + i);
     }

@@ -14,6 +14,9 @@ class Sif {
   final sif0Fifo = ListQueue<int>();
   final sif1Fifo = ListQueue<int>();
 
+  /// called when the IOP writes SMCOM or SMFLG (EE INTC SBUS)
+  void Function()? onEeInterrupt;
+
   late final DmaEndpoint sif0 = _Sif0(this);
   late final DmaEndpoint sif1 = _Sif1(this);
 
@@ -59,10 +62,12 @@ class Sif {
         mscom = value;
       case 0x10:
         smcom = value;
+        onEeInterrupt?.call();
       case 0x20:
         msflg &= ~value; // the IOP clears MSFLG bits
       case 0x30:
         smflg |= value; // and sets SMFLG bits
+        onEeInterrupt?.call();
       case 0x40:
         control = value;
     }

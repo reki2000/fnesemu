@@ -24,6 +24,10 @@ class IopIo implements IopPort {
   static const _start = 1 << 24;
   static const _chain = 1 << 10;
 
+  /// CHCR bit 30 on the SIF channels: the data starts with a tag (observed
+  /// from BIOS use; unverified)
+  static const _tagMode = 1 << 30;
+
   final IopMemory memory;
   final Sif sif;
   final cdvd = Cdvd();
@@ -86,7 +90,7 @@ class IopIo implements IopPort {
       case 0x1f801570:
         return dpcr2;
       case 0x1f801574:
-        return _dicrValue(dicr2);
+        return _dicrValue(dicr2, second: true);
     }
     final ch = _channelOf(address);
     if (ch >= 0) {
@@ -101,7 +105,14 @@ class IopIo implements IopPort {
     }
     final t = _timerOf(address);
     if (t >= 0) return _timerRead(t, address & 0xf);
-    return _backing[address & ~3] ?? 0;
+    // SPU2: STATX of both cores reports ready (bit 7); other registers read
+    // back as written
+    if (address == 0x1f900344 || address == 0x1f900744) return 0x80;
+    var v = 0;
+    for (var i = size - 1; i >= 0; i--) {
+      v = (v << 8) | (_backing[address + i] ?? 0);
+    }
+    return v;
   }
 
   @override
@@ -165,7 +176,9 @@ class IopIo implements IopPort {
       _timerWrite(t, address & 0xf, value);
       return;
     }
-    _backing[address & ~3] = value;
+    for (var i = 0; i < size; i++) {
+      _backing[address + i] = (value >> (8 * i)) & 0xff;
+    }
   }
 
   // ---- DMA ----
@@ -186,10 +199,13 @@ class IopIo implements IopPort {
 
   /// DICR: bit 15 forces the flag, 16.. are enables, 23 master enable,
   /// 24.. are the flags (write 1 to clear), bit 31 the master flag
-  int _dicrValue(int v) {
+  int _dicrValue(int v, {bool second = false}) {
     final flags = (v >> 24) & 0x7f, enables = (v >> 16) & 0x7f;
+    // the master enable of DICR2 is bit 10 (observed from BIOS writes;
+    // unverified)
+    final masterEnable = second ? (v >> 10) & 1 != 0 : (v >> 23) & 1 != 0;
     final master =
-        (v >> 15) & 1 != 0 || ((v >> 23) & 1 != 0 && (flags & enables) != 0);
+        (v >> 15) & 1 != 0 || (masterEnable && (flags & enables) != 0);
     return (v & 0x7fffffff) | (master ? 0x80000000 : 0);
   }
 
@@ -210,7 +226,7 @@ class IopIo implements IopPort {
     } else {
       dicr2 = next;
     }
-    if (_dicrValue(next) & 0x80000000 != 0) raise(IopIrq.dma);
+    if (_dicrValue(next, second: ch >= 7) & 0x80000000 != 0) raise(IopIrq.dma);
   }
 
   void _runChannel(int ch) {
@@ -232,16 +248,16 @@ class IopIo implements IopPort {
     return c.chcr & 0x600 == 0x200 ? size * (count == 0 ? 1 : count) : size;
   }
 
-  // The SIF packet formats below follow the description that each packet
-  // starts with a 128-bit tag: an EE DMA tag in the low half and an IOP tag
-  // (address | flags, word count) in the high half. This is unverified.
+  // SIF packets start with a quadword whose first two words are the IOP
+  // tag: address | flags (bit 31 end, bit 30 interrupt) and a word count.
+  // The data follows, padded to quadwords. Unverified.
   int _sif1Left = 0, _sif1Address = 0, _sif1Pad = 0;
   bool _sif1End = false;
 
   /// SIF1: EE to IOP
   bool _sif1(IopDmaChannel c) {
     final f = sif.sif1Fifo;
-    if (c.chcr & _chain == 0) {
+    if (c.chcr & (_chain | _tagMode) == 0) {
       var left = _words(c);
       while (left > 0 && f.isNotEmpty) {
         memory.write32(c.madr, f.removeFirst());
@@ -254,13 +270,13 @@ class IopIo implements IopPort {
     while (true) {
       if (_sif1Left == 0 && !_sif1End) {
         if (f.length < 4) return false;
+        final w0 = f.removeFirst(), w1 = f.removeFirst();
         f.removeFirst();
         f.removeFirst();
-        final w2 = f.removeFirst(), w3 = f.removeFirst();
-        _sif1Address = w2 & 0xffffff;
-        _sif1End = (w2 >>> 31) & 1 != 0;
-        _sif1Left = w3;
-        _sif1Pad = (4 - (w3 & 3)) & 3;
+        _sif1Address = w0 & 0xffffff;
+        _sif1End = (w0 >>> 31) & 1 != 0;
+        _sif1Left = w1;
+        _sif1Pad = (4 - (w1 & 3)) & 3;
       }
       while (_sif1Left > 0) {
         // data is padded to quadwords
@@ -294,7 +310,7 @@ class IopIo implements IopPort {
       }
     }
 
-    if (c.chcr & _chain == 0) {
+    if (c.chcr & (_chain | _tagMode) == 0) {
       pushWords(c.madr, _words(c));
       return true;
     }

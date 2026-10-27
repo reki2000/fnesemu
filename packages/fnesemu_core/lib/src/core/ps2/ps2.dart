@@ -63,6 +63,7 @@ class Ps2 extends Core {
     final io = EeIo(bus);
     bus.io = io;
     cpu.vu0 = io.vu0;
+    io.iopRam = iopMemory.ram;
     return io;
   }
 
@@ -152,9 +153,11 @@ class Ps2 extends Core {
     if (_line == _vblankLine) {
       io.intc.raise(Intc.vblankStart);
       io.gs.vblank();
+      iopIo.raise(IopIrq.vblankStart);
     } else if (_line == _scanlines) {
       _line = 0;
       io.intc.raise(Intc.vblankEnd);
+      iopIo.raise(IopIrq.vblankEnd);
     }
   }
 
