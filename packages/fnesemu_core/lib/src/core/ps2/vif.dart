@@ -59,6 +59,14 @@ class Vif extends DmaEndpoint {
     _word(high >>> 32);
   }
 
+  /// the tag transfer sends only the upper half of the tag quadword, which
+  /// holds two VIF codes
+  @override
+  void putTag(int low, int high) {
+    _word(high & 0xffffffff);
+    _word(high >>> 32);
+  }
+
   @override
   void get(Int64List out) {
     if (index == 1 && fdr && gs != null) {

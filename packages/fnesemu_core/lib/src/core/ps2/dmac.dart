@@ -10,6 +10,9 @@ class DmaEndpoint {
   /// receives one quadword from memory
   void put(int low, int high) {}
 
+  /// receives the tag quadword when the tag transfer enable bit is set
+  void putTag(int low, int high) => put(low, high);
+
   /// supplies one quadword for memory
   void get(Int64List out) {
     out[0] = 0;
@@ -290,7 +293,7 @@ class Dmac {
       _read(c.tadr);
       final tag = _quad[0];
       if (c.chcr & _tte != 0 && ch != fromSpr) {
-        endpoints[ch]?.put(_quad[0], _quad[1]);
+        endpoints[ch]?.putTag(_quad[0], _quad[1]);
       }
       final qwc = tag & 0xffff;
       final id = (tag >>> 28) & 7;
