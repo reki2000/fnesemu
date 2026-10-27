@@ -1,5 +1,6 @@
 import '../sif.dart';
 import 'cdvd.dart';
+import 'sio2.dart';
 import 'iop_memory.dart';
 
 /// IOP interrupt numbers
@@ -31,6 +32,7 @@ class IopIo implements IopPort {
   final IopMemory memory;
   final Sif sif;
   final cdvd = Cdvd();
+  final sio2 = Sio2();
 
   int stat = 0, mask = 0, ctrl = 0;
   final channels = List.generate(_channelCount, (_) => IopDmaChannel());
@@ -54,6 +56,9 @@ class IopIo implements IopPort {
 
   IopIo(this.memory, this.sif) {
     memory.port = this;
+    sio2.onInterrupt = () => raise(IopIrq.sio2);
+    dmaHandlers[11] = _sio2In;
+    dmaHandlers[12] = _sio2Out;
     dmaHandlers[9] = _sif0;
     dmaHandlers[10] = _sif1;
   }
@@ -75,6 +80,7 @@ class IopIo implements IopPort {
       return sif.iopRead(address & 0xff);
     }
     if (Cdvd.handles(address)) return cdvd.read(address);
+    if (Sio2.handles(address)) return sio2.read(address, size);
     switch (address) {
       case 0x1f801070:
         return stat;
@@ -119,13 +125,18 @@ class IopIo implements IopPort {
 
   @override
   void write(int address, int size, int value) {
-    dbg?.call('W ${address.toRadixString(16)}/$size ${value.toRadixString(16)}');
+    dbg?.call(
+        'W ${address.toRadixString(16)}/$size ${value.toRadixString(16)}');
     if (address >= 0x1d000000 && address < 0x1d000100) {
       sif.iopWrite(address & 0xff, value);
       return;
     }
     if (Cdvd.handles(address)) {
       cdvd.write(address, value);
+      return;
+    }
+    if (Sio2.handles(address)) {
+      sio2.write(address, size, value);
       return;
     }
     switch (address) {
@@ -327,6 +338,21 @@ class IopIo implements IopPort {
       pushWords(w0 & 0xffffff, w1);
       c.tadr += 16;
       if ((w0 >>> 31) & 1 != 0) break;
+    }
+    return true;
+  }
+
+  /// SIO2 DMA: channel 11 sends command bytes, channel 12 receives replies
+  bool _sio2In(IopDmaChannel c) {
+    for (var i = 0; i < _words(c) * 4; i++) {
+      sio2.send(memory.read8(c.madr + i));
+    }
+    return true;
+  }
+
+  bool _sio2Out(IopDmaChannel c) {
+    for (var i = 0; i < _words(c) * 4; i++) {
+      memory.write8(c.madr + i, sio2.receive());
     }
     return true;
   }
