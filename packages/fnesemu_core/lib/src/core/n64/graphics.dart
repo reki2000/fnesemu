@@ -660,6 +660,10 @@ class N64Graphics {
     double delta(double va, double vb, double vc) =>
         waStep * va + wbStep * vb + wcStep * vc;
     final zStep = delta(z[0], z[1], z[2]);
+    final zStepY =
+        (-(x[2] - x[1]) * z[0] - (x[0] - x[2]) * z[1] - (x[1] - x[0]) * z[2]) /
+            area;
+    final decalTolerance = 1 + zStep.abs() + zStepY.abs();
     final redStep = delta(a.color[0], b.color[0], c.color[0]),
         greenStep = delta(a.color[1], b.color[1], c.color[1]),
         blueStep = delta(a.color[2], b.color[2], c.color[2]),
@@ -711,8 +715,15 @@ class N64Graphics {
         }
         if (!inside) continue;
         final at = py * width + px;
-        if (geometry.bit0 && otherLow.bit4 && dz > depthBuffer[at]) {
-          continue;
+        if (geometry.bit0 && otherLow.bit4) {
+          final stored = depthBuffer[at];
+          // Decal (z mode 3) passes only within the surface's own depth slope
+          // of the stored value, so a decal on a surface does not z-fight.
+          if (otherLow.shr10.mask2 == 3
+              ? (dz - stored).abs() > decalTolerance
+              : dz > stored) {
+            continue;
+          }
         }
         _shade[0] = red;
         _shade[1] = green;
@@ -786,7 +797,14 @@ class N64Graphics {
     if (tile.format == 2) {
       final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
       final p = (2048 + paletteIndex * 8).mask12;
-      return _texture16(tmem[p].shl8 | tmem[p + 1]);
+      final entry = tmem[p].shl8 | tmem[p + 1];
+      // otherHigh bits 15..14 select the palette format: 3 is IA16
+      if (otherHigh.shr14.mask2 == 3) {
+        final intensity = entry.shr8.toDouble();
+        return _textureRgba(
+            intensity, intensity, intensity, entry.mask8.toDouble());
+      }
+      return _texture16(entry);
     }
     if (tile.format == 3) {
       if (tile.size == 2) {
