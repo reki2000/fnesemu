@@ -73,7 +73,8 @@ final class Sh2Jit {
               rt.ctx[JitCtx.stop] == 0 &&
               rt.ctx[JitCtx.budget].toSigned(32) > 0)
     ..onObserve = (pc, tag) {
-      _profiles.obtain(pc, tag, _fetch(pc), () => JitEntrySamples(18))
+      _profiles
+          .obtain(pc, tag, _fetch(pc), () => JitEntrySamples(18))
           .observe(profileMemory ? _observed : null);
     }
     ..onInstall = (block) {
@@ -236,7 +237,8 @@ final class Sh2Jit {
       // Native links carry the failed block's entry PC in the exit tag.
       final at = rt.exitTag;
       _driver.invalidate(at, 0, warm: true);
-      _profiles.obtain(at, 0, _fetch(at), () => JitEntrySamples(18))
+      _profiles
+          .obtain(at, 0, _fetch(at), () => JitEntrySamples(18))
           .disableSpecialization();
     }
     final elapsed = _driver.lastClocks;
