@@ -1,7 +1,7 @@
 import '../sif.dart';
 import 'cdvd.dart';
-import 'sio2.dart';
 import 'iop_memory.dart';
+import 'sio2.dart';
 
 /// IOP interrupt numbers
 class IopIrq {
@@ -72,10 +72,8 @@ class IopIo implements IopPort {
 
   // ---- registers ----
 
-  static void Function(String)? dbg;
   @override
   int read(int address, int size) {
-    dbg?.call('R ${address.toRadixString(16)}/$size');
     if (address >= 0x1d000000 && address < 0x1d000100) {
       return sif.iopRead(address & 0xff);
     }
@@ -125,7 +123,6 @@ class IopIo implements IopPort {
 
   @override
   void write(int address, int size, int value) {
-    dbg?.call(
         'W ${address.toRadixString(16)}/$size ${value.toRadixString(16)}');
     if (address >= 0x1d000000 && address < 0x1d000100) {
       sif.iopWrite(address & 0xff, value);

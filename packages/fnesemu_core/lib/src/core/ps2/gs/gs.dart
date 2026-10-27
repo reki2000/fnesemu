@@ -524,9 +524,13 @@ class Gs {
     final dbx = (fb >> 32) & 0x7ff, dby = (fb >> 43) & 0x7ff;
     final out = Uint32List(width * height);
     if (!GsPsm.isValid(psm)) return ImageBuffer(width, height, out);
+    // field mode (SMODE2 INT=1, FFMD=0): the frame buffer holds one field,
+    // whose lines are shown twice in the full frame
+    final fieldMode = smode2 & 3 == 1;
     for (var y = 0; y < height; y++) {
+      final sy = fieldMode ? y >> 1 : y;
       for (var x = 0; x < width; x++) {
-        final raw = mem.read(psm, bp, bw, dbx + x, dby + y);
+        final raw = mem.read(psm, bp, bw, dbx + x, dby + sy);
         out[y * width + x] = _displayColor(psm, raw);
       }
     }
