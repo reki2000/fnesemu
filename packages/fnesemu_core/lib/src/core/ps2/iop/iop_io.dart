@@ -400,6 +400,7 @@ class IopIo implements IopPort {
   bool _is32(int t) => t >= 3;
 
   int _timerRead(int t, int offset) {
+    _flushTimers();
     switch (offset) {
       case 0:
         return _timerCount[t];
@@ -414,6 +415,7 @@ class IopIo implements IopPort {
   }
 
   void _timerWrite(int t, int offset, int value) {
+    _flushTimers();
     switch (offset) {
       case 0:
         _timerCount[t] = value & (_is32(t) ? 0xffffffff : 0xffff);
@@ -424,27 +426,62 @@ class IopIo implements IopPort {
       case 8:
         _timerTarget[t] = value & (_is32(t) ? 0xffffffff : 0xffff);
     }
+    _quietClocks = _timerQuiet();
   }
+
+  // The timers take the clocks lazily. [_pendingClocks] collects them until
+  // they reach [_quietClocks], the clocks before the first timer could reach
+  // its target or overflow, or until a timer register is accessed. The
+  // counts and the interrupts are the same as with an update on every call.
+  int _pendingClocks = 0, _quietClocks = 0;
 
   /// advances the timers by [clocks] IOP clocks. Timer 1 with clock source
   /// bit 8 counts scanlines instead (see [hblank]); timer 0 with bit 8 would
   /// count the dot clock, which is not modelled and counts system clocks.
   void advanceTimers(int clocks) {
     cdvd.advance(clocks);
+    _pendingClocks += clocks;
+    if (_pendingClocks >= _quietClocks) _flushTimers();
+  }
+
+  void _flushTimers() {
+    final clocks = _pendingClocks;
+    _pendingClocks = 0;
+    if (clocks != 0) {
+      for (var t = 0; t < 6; t++) {
+        final mode = _timerMode[t];
+        if (t == 1 && (mode >> 8) & 1 != 0) continue;
+        var divisor = 1;
+        if (t == 2 && (mode >> 9) & 1 != 0) divisor = 8;
+        _timerFraction[t] += clocks;
+        final ticks = _timerFraction[t] ~/ divisor;
+        _timerFraction[t] -= ticks * divisor;
+        if (ticks != 0) _tick(t, ticks);
+      }
+    }
+    _quietClocks = _timerQuiet();
+  }
+
+  /// the clocks before the first timer that counts clocks reaches its target
+  /// or overflows
+  int _timerQuiet() {
+    var quiet = 1 << 40;
     for (var t = 0; t < 6; t++) {
       final mode = _timerMode[t];
       if (t == 1 && (mode >> 8) & 1 != 0) continue;
-      var divisor = 1;
-      if (t == 2 && (mode >> 9) & 1 != 0) divisor = 8;
-      _timerFraction[t] += clocks;
-      final ticks = _timerFraction[t] ~/ divisor;
-      _timerFraction[t] -= ticks * divisor;
-      if (ticks != 0) _tick(t, ticks);
+      final divisor = t == 2 && (mode >> 9) & 1 != 0 ? 8 : 1;
+      final count = _timerCount[t], target = _timerTarget[t];
+      var ticks = (_is32(t) ? 0x100000000 : 0x10000) - count;
+      if (count < target && target - count < ticks) ticks = target - count;
+      final clocks = ticks * divisor - _timerFraction[t];
+      if (clocks < quiet) quiet = clocks;
     }
+    return quiet;
   }
 
   /// the end of a scanline
   void hblank() {
+    // the clock timers leave out timer 1 in this mode
     if ((_timerMode[1] >> 8) & 1 != 0) _tick(1, 1);
   }
 

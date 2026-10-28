@@ -15,79 +15,112 @@ class IopMemory implements IopBus {
   static const scratchBase = 0x1f800000, scratchSize = 1024;
   static const biosBase = 0x1fc00000;
 
-  final Uint8List ram = Uint8List(ramSize);
-  final Uint8List scratch = Uint8List(scratchSize);
+  final Uint8List ram;
+  final Uint8List scratch;
   final Uint8List bios;
-  late final ByteData _ram = ByteData.view(ram.buffer);
-  late final ByteData _scratch = ByteData.view(scratch.buffer);
-  late final ByteData _bios = ByteData.view(bios.buffer);
+  final ByteData _ram, _scratch, _bios;
 
   IopPort? port;
 
-  IopMemory(this.bios);
+  IopMemory(Uint8List bios)
+      : this._(Uint8List(ramSize), Uint8List(scratchSize), bios);
 
-  /// the memory a physical address falls in, and the offset inside it
-  (ByteData, int)? _locate(int address, bool write) {
-    final phys = address & 0x1fffffff;
-    if (phys < 0x00800000) return (_ram, phys & (ramSize - 1));
+  IopMemory._(this.ram, this.scratch, this.bios)
+      : _ram = ByteData.sublistView(ram),
+        _scratch = ByteData.sublistView(scratch),
+        _bios = ByteData.sublistView(bios);
+
+  /// the offset inside the memory that [_locate] returned
+  int _offset = 0;
+
+  /// the memory outside RAM that a physical address falls in; the offset
+  /// inside it goes to [_offset]
+  ByteData? _locate(int phys, bool write) {
     if (phys >= biosBase) {
       if (write) return null;
-      return (_bios, (phys - biosBase) & (bios.length - 1));
+      _offset = (phys - biosBase) & (bios.length - 1);
+      return _bios;
     }
     if (phys >= scratchBase && phys < scratchBase + scratchSize) {
-      return (_scratch, phys - scratchBase);
+      _offset = phys - scratchBase;
+      return _scratch;
     }
     return null;
   }
 
   @override
   int read8(int a) {
-    final m = _locate(a, false);
-    if (m != null) return m.$1.getUint8(m.$2);
-    return port?.read(a & 0x1fffffff, 1) ?? 0;
+    final phys = a & 0x1fffffff;
+    if (phys < 0x00800000) return ram[phys & (ramSize - 1)];
+    final m = _locate(phys, false);
+    if (m != null) return m.getUint8(_offset);
+    return port?.read(phys, 1) ?? 0;
   }
 
   @override
   int read16(int a) {
-    final m = _locate(a, false);
-    if (m != null) return m.$1.getUint16(m.$2, Endian.little);
-    return port?.read(a & 0x1fffffff, 2) ?? 0;
+    final phys = a & 0x1fffffff;
+    if (phys < 0x00800000) {
+      return _ram.getUint16(phys & (ramSize - 1), Endian.little);
+    }
+    final m = _locate(phys, false);
+    if (m != null) return m.getUint16(_offset, Endian.little);
+    return port?.read(phys, 2) ?? 0;
   }
 
   @override
   int read32(int a) {
-    final m = _locate(a, false);
-    if (m != null) return m.$1.getUint32(m.$2, Endian.little);
-    return port?.read(a & 0x1fffffff, 4) ?? 0;
+    final phys = a & 0x1fffffff;
+    if (phys < 0x00800000) {
+      return _ram.getUint32(phys & (ramSize - 1), Endian.little);
+    }
+    final m = _locate(phys, false);
+    if (m != null) return m.getUint32(_offset, Endian.little);
+    return port?.read(phys, 4) ?? 0;
   }
 
   @override
   void write8(int a, int v) {
-    final m = _locate(a, true);
+    final phys = a & 0x1fffffff;
+    if (phys < 0x00800000) {
+      ram[phys & (ramSize - 1)] = v;
+      return;
+    }
+    final m = _locate(phys, true);
     if (m != null) {
-      m.$1.setUint8(m.$2, v);
+      m.setUint8(_offset, v);
     } else {
-      port?.write(a & 0x1fffffff, 1, v & 0xff);
+      port?.write(phys, 1, v & 0xff);
     }
   }
 
   @override
   void write16(int a, int v) {
-    final m = _locate(a, true);
+    final phys = a & 0x1fffffff;
+    if (phys < 0x00800000) {
+      _ram.setUint16(phys & (ramSize - 1), v, Endian.little);
+      return;
+    }
+    final m = _locate(phys, true);
     if (m != null) {
-      m.$1.setUint16(m.$2, v, Endian.little);
+      m.setUint16(_offset, v, Endian.little);
     } else {
-      port?.write(a & 0x1fffffff, 2, v & 0xffff);
+      port?.write(phys, 2, v & 0xffff);
     }
   }
 
   @override
   void write32(int a, int v) {
-    final m = _locate(a, true);
+    final phys = a & 0x1fffffff;
+    if (phys < 0x00800000) {
+      _ram.setUint32(phys & (ramSize - 1), v, Endian.little);
+      return;
+    }
+    final m = _locate(phys, true);
     if (m != null) {
-      m.$1.setUint32(m.$2, v, Endian.little);
+      m.setUint32(_offset, v, Endian.little);
     } else {
-      port?.write(a & 0x1fffffff, 4, v & 0xffffffff);
+      port?.write(phys, 4, v & 0xffffffff);
     }
   }
 }
