@@ -434,24 +434,26 @@ class GsRaster {
       u = _s / q * size;
       v = _t / q * height;
     }
+    int texel;
     if (_linear) {
       final u0 = (u - 0.5).floor(), v0 = (v - 0.5).floor();
       final fu = u - 0.5 - u0, fv = v - 0.5 - v0;
-      _fetch(u0, v0);
-      final r00 = _tr, g00 = _tg, b00 = _tb, a00 = _ta;
-      _fetch(u0 + 1, v0);
-      final r10 = _tr, g10 = _tg, b10 = _tb, a10 = _ta;
-      _fetch(u0, v0 + 1);
-      final r01 = _tr, g01 = _tg, b01 = _tb, a01 = _ta;
-      _fetch(u0 + 1, v0 + 1);
-      _tr = _round(_mix(r00, r10, r01, _tr, fu, fv));
-      _tg = _round(_mix(g00, g10, g01, _tg, fu, fv));
-      _tb = _round(_mix(b00, b10, b01, _tb, fu, fv));
-      _ta = _round(_mix(a00, a10, a01, _ta, fu, fv));
+      final ua = _wrap(u0, _wms, size, _minu, _maxu);
+      final ub = _wrap(u0 + 1, _wms, size, _minu, _maxu);
+      final va = _wrap(v0, _wmt, height, _minv, _maxv);
+      final vb = _wrap(v0 + 1, _wmt, height, _minv, _maxv);
+      final c00 = _texel(ua, va), c10 = _texel(ub, va);
+      final c01 = _texel(ua, vb), c11 = _texel(ub, vb);
+      // equal texels mix to the same texel within the rounding
+      texel = c00 == c10 && c00 == c01 && c00 == c11
+          ? c00
+          : _bilinear(c00, c10, c01, c11, fu, fv);
     } else {
-      _fetch(u.floor(), v.floor());
+      texel = _texel(_wrap(u.floor(), _wms, size, _minu, _maxu),
+          _wrap(v.floor(), _wmt, height, _minv, _maxv));
     }
-    final tr = _tr, tg = _tg, tb = _tb, ta = _ta;
+    final tr = texel & 0xff, tg = (texel >> 8) & 0xff;
+    final tb = (texel >> 16) & 0xff, ta = (texel >> 24) & 0xff;
     switch (_tfx) {
       case 0:
         _tr = _clamp8((tr * r) >> 7);
@@ -459,6 +461,9 @@ class GsRaster {
         _tb = _clamp8((tb * b) >> 7);
         _ta = _tcc != 0 ? _clamp8((ta * a) >> 7) : a;
       case 1:
+        _tr = tr;
+        _tg = tg;
+        _tb = tb;
         _ta = _tcc != 0 ? ta : a;
       case 2:
         _tr = _clamp8(((tr * r) >> 7) + a);
@@ -471,6 +476,20 @@ class GsRaster {
         _tb = _clamp8(((tb * b) >> 7) + a);
         _ta = _tcc != 0 ? ta : a;
     }
+  }
+
+  /// the bilinear mix of four texels in the RGBA8888 layout of [_texel]
+  static int _bilinear(
+      int c00, int c10, int c01, int c11, double fu, double fv) {
+    final r =
+        _round(_mix(c00 & 0xff, c10 & 0xff, c01 & 0xff, c11 & 0xff, fu, fv));
+    final g = _round(_mix((c00 >> 8) & 0xff, (c10 >> 8) & 0xff,
+        (c01 >> 8) & 0xff, (c11 >> 8) & 0xff, fu, fv));
+    final b = _round(_mix((c00 >> 16) & 0xff, (c10 >> 16) & 0xff,
+        (c01 >> 16) & 0xff, (c11 >> 16) & 0xff, fu, fv));
+    final a = _round(_mix((c00 >> 24) & 0xff, (c10 >> 24) & 0xff,
+        (c01 >> 24) & 0xff, (c11 >> 24) & 0xff, fu, fv));
+    return r | g << 8 | b << 16 | a << 24;
   }
 
   /// rounds a value that is not negative, as round() does
@@ -493,44 +512,41 @@ class GsRaster {
     }
   }
 
-  /// loads the texel at (u, v) into _tr.._ta
-  void _fetch(int u, int v) {
-    u = _wrap(u, _wms, 1 << _tw, _minu, _maxu);
-    v = _wrap(v, _wmt, 1 << _th, _minv, _maxv);
+  /// the texel at the wrapped coordinates (u, v) in RGBA8888
+  int _texel(int u, int v) {
     final mem = gs.mem;
-    final raw = mem.readAt(_tpsm, _texLayout.index(_tbp, _texPages, u, v));
+    final i = _texLayout.index(_tbp, _texPages, u, v);
     switch (_tpsm) {
+      case GsPsm.ct32:
+        return mem.word(i);
       case GsPsm.t8 || GsPsm.t8h:
-        _clut(raw, 8);
+        return _clut(mem.readAt(_tpsm, i), 8);
       case GsPsm.t4 || GsPsm.t4hl || GsPsm.t4hh:
-        _clut(raw, 4);
+        return _clut(mem.readAt(_tpsm, i), 4);
       default:
-        _color(_tpsm, raw);
+        return _color(_tpsm, mem.readAt(_tpsm, i));
     }
   }
 
-  /// decodes a texel or CLUT entry of format [psm] into _tr.._ta
-  void _color(int psm, int raw) {
+  /// decodes a texel or CLUT entry of format [psm] into RGBA8888
+  int _color(int psm, int raw) {
     switch (psm) {
       case GsPsm.ct32:
-        _tr = raw & 0xff;
-        _tg = (raw >> 8) & 0xff;
-        _tb = (raw >> 16) & 0xff;
-        _ta = (raw >> 24) & 0xff;
+        return raw & 0xffffffff;
       case GsPsm.ct24:
-        _tr = raw & 0xff;
-        _tg = (raw >> 8) & 0xff;
-        _tb = (raw >> 16) & 0xff;
-        _ta = _aem && raw & 0xffffff == 0 ? 0 : _ta0;
+        final rgb = raw & 0xffffff;
+        return rgb | (_aem && rgb == 0 ? 0 : _ta0) << 24;
       default:
-        _tr = (raw & 31) << 3;
-        _tg = ((raw >> 5) & 31) << 3;
-        _tb = ((raw >> 10) & 31) << 3;
-        _ta = _aem && raw & 0x7fff == 0 ? 0 : (raw & 0x8000 != 0 ? _ta1 : _ta0);
+        final alpha =
+            _aem && raw & 0x7fff == 0 ? 0 : (raw & 0x8000 != 0 ? _ta1 : _ta0);
+        return (raw & 31) << 3 |
+            ((raw >> 5) & 31) << 11 |
+            ((raw >> 10) & 31) << 19 |
+            alpha << 24;
     }
   }
 
-  void _clut(int index, int bits) {
+  int _clut(int index, int bits) {
     final cpsm = _clutPsm;
     // CSA selects one of the 16-entry groups for the 4-bit formats
     final entry = bits == 4 ? _csa * 16 + index : index;
@@ -550,6 +566,6 @@ class GsRaster {
       final cov = (gs.texclut >> 12) & 0x3ff;
       raw = gs.mem.read(cpsm, _cbp, cbw, cou + entry, cov);
     }
-    _color(cpsm, raw);
+    return _color(cpsm, raw);
   }
 }
