@@ -49,9 +49,30 @@ class Tlb {
     _tag.fillRange(0, _cacheSize, -1);
   }
 
-  void _flush() => _tag.fillRange(0, _cacheSize, -1);
+  /// called when earlier translations may no longer hold
+  void Function()? onChange;
 
-  void setAsid(int value) => asid = value & 0xff;
+  void _flush() {
+    _tag.fillRange(0, _cacheSize, -1);
+    onChange?.call();
+  }
+
+  void setAsid(int value) {
+    if (value & 0xff == asid) return;
+    asid = value & 0xff;
+    onChange?.call();
+  }
+
+  /// empties the TLB and switches translation off
+  void clear() {
+    for (final e in entries) {
+      e.mask = e.vpn2 = e.asid = e.lo0 = e.lo1 = 0;
+      e.global = false;
+    }
+    active = false;
+    asid = 0;
+    _flush();
+  }
 
   void write(int index, int mask, int entryHi, int lo0, int lo1) {
     final e = entries[index];

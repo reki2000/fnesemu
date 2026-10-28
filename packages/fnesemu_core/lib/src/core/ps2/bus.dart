@@ -34,7 +34,71 @@ class Ps2Bus {
   IoPort? io;
 
   /// the TLB used for mapped segments, or null to map them to themselves
-  Tlb? tlb;
+  Tlb? _tlb;
+
+  Tlb? get tlb => _tlb;
+
+  set tlb(Tlb? value) {
+    _tlb = value;
+    value?.onChange = _clearPages;
+    _clearPages();
+  }
+
+  // Direct tables of the 4 KiB virtual pages that reach memory, for reads
+  // and for writes. An entry is 0 when the page takes the full path, else
+  // 1 + the offset of the page in [_ram], or in [_scratch] or [_bios] when
+  // [_scratchPages] or [_biosPages] is added. They hold the result of the
+  // TLB, so a TLB change clears them.
+  static const _pageCount = 1 << 20;
+  static const _scratchPages = 0x10000000, _biosPages = 0x20000000;
+  final _readPages = Int32List(_pageCount);
+  final _writePages = Int32List(_pageCount);
+  final _filled = Int32List(4096);
+  int _filledCount = 0;
+
+  void _clearPages() {
+    if (_filledCount > _filled.length) {
+      _readPages.fillRange(0, _pageCount, 0);
+      _writePages.fillRange(0, _pageCount, 0);
+    } else {
+      for (var i = 0; i < _filledCount; i++) {
+        final page = _filled[i];
+        _readPages[page] = 0;
+        _writePages[page] = 0;
+      }
+    }
+    _filledCount = 0;
+  }
+
+  /// records the page of [vaddr] after the full path found [region]
+  void _remember(int vaddr, ByteData region, bool write) {
+    final page = (vaddr >> 12) & (_pageCount - 1);
+    final base = _offset & ~0xfff;
+    final entry = 1 +
+        (identical(region, _ram)
+            ? base
+            : identical(region, _scratch)
+                ? _scratchPages + base
+                : _biosPages + base);
+    (write ? _writePages : _readPages)[page] = entry;
+    if (_filledCount < _filled.length) _filled[_filledCount] = page;
+    _filledCount++;
+  }
+
+  /// the memory of a page entry, with [_offset] set for [vaddr]
+  ByteData _paged(int entry, int vaddr) {
+    final o = entry - 1;
+    if (o < _scratchPages) {
+      _offset = o + (vaddr & 0xfff);
+      return _ram;
+    }
+    if (o < _biosPages) {
+      _offset = o - _scratchPages + (vaddr & 0xfff);
+      return _scratch;
+    }
+    _offset = o - _biosPages + (vaddr & 0xfff);
+    return _bios;
+  }
 
   int unmappedAccesses = 0;
   int lastUnmappedAddress = 0;
@@ -50,6 +114,15 @@ class Ps2Bus {
   /// Selects the memory a virtual address refers to. [offset] receives the
   /// offset inside it; null means no device is mapped there.
   ByteData? _region(int vaddr, bool write) {
+    final entry =
+        (write ? _writePages : _readPages)[(vaddr >> 12) & (_pageCount - 1)];
+    if (entry != 0 && !_physical) return _paged(entry, vaddr);
+    final r = _fullRegion(vaddr, write);
+    if (r != null && !_physical) _remember(vaddr, r, write);
+    return r;
+  }
+
+  ByteData? _fullRegion(int vaddr, bool write) {
     final a = vaddr & 0xffffffff;
     _ioAddress = -1;
     if (a >= scratchBase && a < scratchBase + scratchSize) {

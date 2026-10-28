@@ -200,6 +200,49 @@ class Ps2 extends Core {
     }
   }
 
+  /// The same as calling [exec] until [scanlines] scanlines are rendered,
+  /// with the checks of the scanline and device clocks done once per batch
+  /// of instructions up to the nearer of them.
+  @override
+  ExecResult runFrame(int scanlines) {
+    final cpu = this.cpu;
+    var rendered = 0;
+    while (rendered < scanlines) {
+      final limit = _nextScanlineClock < _nextDeviceClock
+          ? _nextScanlineClock
+          : _nextDeviceClock;
+      while (cpu.clocks < limit) {
+        final before = cpu.clocks;
+        if (!cpu.step()) {
+          _result
+            ..stopped = true
+            ..elapsedClocks = 0
+            ..scanlineRendered = false;
+          return _result;
+        }
+        _result.elapsedClocks = cpu.clocks - before;
+        if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+      }
+      if (cpu.clocks >= _nextScanlineClock) {
+        _nextScanlineClock += clocksInScanline;
+        _endOfScanline();
+        rendered++;
+      }
+      if (cpu.clocks >= _nextDeviceClock) _advanceDevices();
+      if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+    }
+    _result
+      ..stopped = false
+      ..scanlineRendered = true;
+    return _result;
+  }
+
+  void _updateInterruptLines() {
+    io.intc.dirty = io.dmac.dirty = false;
+    cpu.setInterruptLine(R5900.ipIntc, io.intc.asserted);
+    cpu.setInterruptLine(R5900.ipDmac, io.dmac.asserted);
+  }
+
   @override
   ExecResult exec(bool step) {
     final before = cpu.clocks;
@@ -213,11 +256,7 @@ class Ps2 extends Core {
       _endOfScanline();
     }
     if (cpu.clocks >= _nextDeviceClock) _advanceDevices();
-    if (io.intc.dirty || io.dmac.dirty) {
-      io.intc.dirty = io.dmac.dirty = false;
-      cpu.setInterruptLine(R5900.ipIntc, io.intc.asserted);
-      cpu.setInterruptLine(R5900.ipDmac, io.dmac.asserted);
-    }
+    if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
     return _result;
   }
 }

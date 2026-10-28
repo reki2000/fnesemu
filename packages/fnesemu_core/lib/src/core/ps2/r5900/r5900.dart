@@ -79,12 +79,7 @@ class R5900 {
     cop0[15] = 0x2e20; // PRId
     cop0[16] = 0x440; // Config
     cop0[cop0Random] = Tlb.entryCount - 1;
-    tlb.active = false;
-    tlb.setAsid(0);
-    for (final e in tlb.entries) {
-      e.mask = e.vpn2 = e.asid = e.lo0 = e.lo1 = 0;
-      e.global = false;
-    }
+    tlb.clear();
     fpr.fillRange(0, 32, 0);
     facc = fcr31 = 0;
     cop0[cop0Status] = _statusBev | _statusErl | 0x70000000;
