@@ -221,8 +221,11 @@ class GsMemory {
       ((index >> 1) & _wordMask) * 4 + (index & 1) * 2, value, Endian.little);
 
   /// the raw pixel value of the format at (x, y)
-  int read(int psm, int bp, int bw, int x, int y) {
-    final i = index(psm, bp, bw, x, y);
+  int read(int psm, int bp, int bw, int x, int y) =>
+      readAt(psm, index(psm, bp, bw, x, y));
+
+  /// the raw pixel value of the format at unit [i] from [index]
+  int readAt(int psm, int i) {
     switch (psm) {
       case GsPsm.ct32 || GsPsm.z32:
         return word(i);
@@ -244,8 +247,11 @@ class GsMemory {
     }
   }
 
-  void write(int psm, int bp, int bw, int x, int y, int value) {
-    final i = index(psm, bp, bw, x, y);
+  void write(int psm, int bp, int bw, int x, int y, int value) =>
+      writeAt(psm, index(psm, bp, bw, x, y), value);
+
+  /// writes the pixel at unit [i] from [index]
+  void writeAt(int psm, int i, int value) {
     switch (psm) {
       case GsPsm.ct32 || GsPsm.z32:
         setWord(i, value);

@@ -291,7 +291,9 @@ class GsRaster {
           writeZ = false;
       }
     }
-    final fraw = gs.mem.read(_fpsm, _fbp, _fbw, x, y);
+    final mem = gs.mem;
+    final fi = mem.index(_fpsm, _fbp, _fbw, x, y);
+    final fraw = mem.readAt(_fpsm, fi);
     if (_date) {
       final bit = switch (_fpsm) {
         GsPsm.ct32 => (fraw >> 31) & 1,
@@ -307,8 +309,9 @@ class GsRaster {
     };
     if (z < 0) z = 0;
     if (z > zmax) z = zmax;
+    final zi = mem.index(_zpsm, _zbp, _fbw, x, y);
     if (_zte) {
-      final zold = gs.mem.read(_zpsm, _zbp, _fbw, x, y);
+      final zold = mem.readAt(_zpsm, zi);
       final pass = switch (_ztst) {
         0 => false,
         1 => true,
@@ -317,7 +320,7 @@ class GsRaster {
       };
       if (!pass) return;
     }
-    if (writeZ) gs.mem.write(_zpsm, _zbp, _fbw, x, y, z);
+    if (writeZ) mem.writeAt(_zpsm, zi, z);
     if (!writeColor) return;
     if (_abe && (gs.pabe == 0 || a & 0x80 != 0)) {
       _decodeFrame(fraw);
@@ -327,7 +330,7 @@ class GsRaster {
       g = _blend(g, _dg, coef, clamp);
       b = _blend(b, _db, coef, clamp);
     }
-    _writeFrame(x, y, fraw, r & 0xff, g & 0xff, b & 0xff, a & 0xff);
+    _writeFrame(fi, fraw, r & 0xff, g & 0xff, b & 0xff, a & 0xff);
   }
 
   /// one channel of (A - B) * C >> 7 + D from source [cs] and destination
@@ -371,7 +374,7 @@ class GsRaster {
     }
   }
 
-  void _writeFrame(int x, int y, int old, int r, int g, int b, int a) {
+  void _writeFrame(int fi, int old, int r, int g, int b, int a) {
     int packed;
     int mask;
     switch (_fpsm) {
@@ -388,7 +391,7 @@ class GsRaster {
         if (_fba != 0) packed |= 0x80000000;
         mask = _fbmsk;
     }
-    gs.mem.write(_fpsm, _fbp, _fbw, x, y, (old & mask) | (packed & ~mask));
+    gs.mem.writeAt(_fpsm, fi, (old & mask) | (packed & ~mask));
   }
 
   // ---- texturing ----
@@ -414,10 +417,10 @@ class GsRaster {
       _fetch(u0, v0 + 1);
       final r01 = _tr, g01 = _tg, b01 = _tb, a01 = _ta;
       _fetch(u0 + 1, v0 + 1);
-      _tr = _mix(r00, r10, r01, _tr, fu, fv).round();
-      _tg = _mix(g00, g10, g01, _tg, fu, fv).round();
-      _tb = _mix(b00, b10, b01, _tb, fu, fv).round();
-      _ta = _mix(a00, a10, a01, _ta, fu, fv).round();
+      _tr = _round(_mix(r00, r10, r01, _tr, fu, fv));
+      _tg = _round(_mix(g00, g10, g01, _tg, fu, fv));
+      _tb = _round(_mix(b00, b10, b01, _tb, fu, fv));
+      _ta = _round(_mix(a00, a10, a01, _ta, fu, fv));
     } else {
       _fetch(u.floor(), v.floor());
     }
@@ -442,6 +445,9 @@ class GsRaster {
         _ta = _tcc != 0 ? ta : a;
     }
   }
+
+  /// rounds a value that is not negative, as round() does
+  static int _round(double v) => (v + 0.5).toInt();
 
   static double _mix(
           int c00, int c10, int c01, int c11, double fu, double fv) =>
