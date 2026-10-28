@@ -5,6 +5,7 @@ import 'dmac.dart';
 import 'gif.dart';
 import 'gs/gs.dart';
 import 'intc.dart';
+import 'iop/cdvd.dart';
 import 'quad_fifo.dart';
 import 'sif.dart';
 import 'timer.dart';
@@ -59,6 +60,12 @@ class EeIo implements IoPort {
 
   /// IOP RAM, which the EE sees at 0x1c000000
   Uint8List? iopRam;
+
+  /// the CDVD controller, whose registers the EE also sees at 0x1f402000.
+  /// The BIOS browser reads the disc type there.
+  Cdvd? cdvd;
+
+  bool _isCdvd(int address) => cdvd != null && Cdvd.handles(address);
 
   bool _isIopRam(int address) =>
       iopRam != null && address >= 0x1c000000 && address < 0x1c200000;
@@ -169,6 +176,7 @@ class EeIo implements IoPort {
       return words[i];
     }
     if (_isIopRam(address)) return _iopRamRead(address, size);
+    if (_isCdvd(address)) return cdvd!.read(address);
     if (_isSys(address)) return _sysRead(address);
     return 0;
   }
@@ -202,6 +210,8 @@ class EeIo implements IoPort {
       if (size == 8) words[i + 1] = value >>> 32;
     } else if (_isIopRam(address)) {
       _iopRamWrite(address, size, value);
+    } else if (_isCdvd(address)) {
+      cdvd!.write(address, value);
     } else if (_isSys(address)) {
       _sysWrite(address, value);
     } else {
@@ -221,6 +231,7 @@ class EeIo implements IoPort {
       _isSif(address) ||
       _isSys(address) ||
       _isIopRam(address) ||
+      _isCdvd(address) ||
       _isVif(address) ||
       _isVifFifo(address) ||
       (_isVuMemory(address) && _vuMemory(address) != null);

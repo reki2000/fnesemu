@@ -34,9 +34,13 @@ class Ps2 extends Core {
   late final Iop iop = Iop(iopMemory);
   late IopIo iopIo = _newIopIo();
 
-  IopIo _newIopIo() => IopIo(iopMemory, io.sif)
-    ..sio2.pad = _pad
-    ..cdvd.drive = _drive;
+  IopIo _newIopIo() {
+    final iopIo = IopIo(iopMemory, io.sif)
+      ..sio2.pad = _pad
+      ..cdvd.drive = _drive;
+    io.cdvd = iopIo.cdvd;
+    return iopIo;
+  }
 
   /// the IOP only runs when a BIOS provides its program
   bool biosLoaded = false;

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/iop/cdvd.dart';
+import 'package:fnesemu_core/src/core/ps2/ps2.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -61,5 +62,14 @@ void main() {
     expect(cdvd.discType, Cdvd.noDisc);
     _write(cdvd, 0x06, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     expect(cdvd.read(0x1f402006), 1);
+  });
+
+  test('the EE reads the disc type through its own CDVD window', () {
+    final ps2 = Ps2();
+    expect(ps2.bus.read8(0xbf40200f), Cdvd.noDisc);
+    ps2.setCdromDrive(FakeCdromDrive([_sector(0)]));
+    expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
+    ps2.reset();
+    expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
   });
 }
