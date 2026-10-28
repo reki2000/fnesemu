@@ -88,7 +88,7 @@ class GifPath extends DmaEndpoint {
         final adc = (high >> 47) & 1 != 0;
         final data = (low & 0xffff) |
             (((low >> 32) & 0xffff) << 16) |
-            ((high & 0xffffff) << 32) |
+            (((high >> 4) & 0xffffff) << 32) |
             (((high >> 36) & 0xff) << 56);
         gs.writeRegister(desc == 12 || adc ? 0x0c : 0x04, data);
       case 5 || 13:
