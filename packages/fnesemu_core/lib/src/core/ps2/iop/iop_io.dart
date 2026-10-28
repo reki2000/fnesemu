@@ -57,6 +57,8 @@ class IopIo implements IopPort {
   IopIo(this.memory, this.sif) {
     memory.port = this;
     sio2.onInterrupt = () => raise(IopIrq.sio2);
+    cdvd.onInterrupt = () => raise(IopIrq.cdvd);
+    dmaHandlers[3] = _cdvdIn;
     dmaHandlers[11] = _sio2In;
     dmaHandlers[12] = _sio2Out;
     dmaHandlers[9] = _sif0;
@@ -338,6 +340,24 @@ class IopIo implements IopPort {
     return true;
   }
 
+  int _cdvdLeft = -1; // bytes left in the transfer, or -1 when none started
+
+  /// CDVD DMA: channel 3 moves the sectors read by the drive to memory
+  bool _cdvdIn(IopDmaChannel c) {
+    if (_cdvdLeft < 0) _cdvdLeft = _words(c) * 4;
+    while (_cdvdLeft > 0 && cdvd.dataAvailable) {
+      final bytes = cdvd.takeData(_cdvdLeft);
+      for (var i = 0; i < bytes.length; i++) {
+        memory.write8(c.madr + i, bytes[i]);
+      }
+      c.madr += bytes.length;
+      _cdvdLeft -= bytes.length;
+    }
+    if (_cdvdLeft > 0) return false;
+    _cdvdLeft = -1;
+    return true;
+  }
+
   /// SIO2 DMA: channel 11 sends command bytes, channel 12 receives replies
   bool _sio2In(IopDmaChannel c) {
     for (var i = 0; i < _words(c) * 4; i++) {
@@ -410,6 +430,7 @@ class IopIo implements IopPort {
   /// bit 8 counts scanlines instead (see [hblank]); timer 0 with bit 8 would
   /// count the dot clock, which is not modelled and counts system clocks.
   void advanceTimers(int clocks) {
+    cdvd.advance(clocks);
     for (var t = 0; t < 6; t++) {
       final mode = _timerMode[t];
       if (t == 1 && (mode >> 8) & 1 != 0) continue;
