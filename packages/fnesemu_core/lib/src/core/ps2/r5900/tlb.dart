@@ -71,6 +71,7 @@ class Tlb {
     }
     active = false;
     asid = 0;
+    userIdentity = true;
     _flush();
   }
 
@@ -83,7 +84,27 @@ class Tlb {
     e.lo0 = lo0;
     e.lo1 = lo1;
     active = true;
+    _updateIdentity();
     _flush();
+  }
+
+  /// Whether every entry for user addresses below 0x30000000 maps them to
+  /// the physical address that compiled code uses: the address without its
+  /// top three bits. Compiled code accesses those addresses without the
+  /// TLB while this holds.
+  bool userIdentity = true;
+
+  void _updateIdentity() {
+    userIdentity = entries.every((e) {
+      if (e.vpn2 >= 0x30000000) return true;
+      final pageSize = (e.mask >> 1) + 0x1000;
+      for (final (lo, offset) in [(e.lo0, 0), (e.lo1, pageSize)]) {
+        if (lo & 2 == 0) continue;
+        final phys = ((lo >> 6) << 12) & 0xffffffff;
+        if (phys != (e.vpn2 + offset) & 0x1fffffff) return false;
+      }
+      return true;
+    });
   }
 
   /// the index of the entry that matches [entryHi], or -1

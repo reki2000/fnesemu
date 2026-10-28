@@ -43,7 +43,7 @@ class R5900 {
 
   /// VU0, which COP2 instructions operate on
   Vu? vu0;
-  final Int64List gpr = Int64List(64);
+  final Int64List gpr;
   int hi = 0, lo = 0, hi1 = 0, lo1 = 0;
   int sa = 0;
   int pc = resetVector;
@@ -65,7 +65,9 @@ class R5900 {
   bool _branchPending = false;
   bool _inDelaySlot = false;
 
-  R5900(this.bus) {
+  /// [gpr] gives the register storage, such as a view shared with compiled
+  /// code; it must hold 64 words
+  R5900(this.bus, {Int64List? gpr}) : gpr = gpr ?? Int64List(64) {
     bus.tlb = tlb;
     reset();
   }
@@ -155,6 +157,27 @@ class R5900 {
     return ok;
   }
 
+  /// Whether compiled code may run from [pc]: no delay slot is pending and
+  /// no interrupt is ready to be taken.
+  bool prepareCompiled() =>
+      !_branchPending && nextPc == pc + 4 && !_interruptReady();
+
+  /// the instructions left before Count reaches Compare, or 0 when that is
+  /// a full turn of the counter away
+  int get instructionsUntilCompare =>
+      (cop0[cop0Compare] - cop0[cop0Count]) & 0xffffffff;
+
+  /// Accounts [spent] instructions that compiled code ran, and continues at
+  /// [address].
+  void finishCompiled(int spent, int address) {
+    final until = instructionsUntilCompare;
+    clocks += spent;
+    cop0[cop0Count] += spent;
+    if (until != 0 && spent >= until) cop0[cop0Cause] |= ipTimer;
+    pc = address;
+    nextPc = (address + 4) & 0xffffffff;
+  }
+
   /// Sets or clears a Cause.IP bit that follows an external interrupt line.
   void setInterruptLine(int ipBit, bool asserted) {
     if (asserted) {
@@ -233,7 +256,7 @@ class R5900 {
         _branchPending = true;
         nextPc = (at & 0xf0000000) | ((ir & 0x3ffffff) << 2);
       case 3:
-        setReg(31, at + 8);
+        setReg(31, _signExtend32(at + 8));
         _branchPending = true;
         nextPc = (at & 0xf0000000) | ((ir & 0x3ffffff) << 2);
       case 4:
@@ -415,7 +438,7 @@ class R5900 {
         nextPc = a & 0xffffffff;
       case 9:
         final target = a & 0xffffffff;
-        setReg(rd, at + 8);
+        setReg(rd, _signExtend32(at + 8));
         _branchPending = true;
         nextPc = target;
       case 10:
@@ -588,16 +611,16 @@ class R5900 {
       case 3:
         _branchLikely(a >= 0, at, imm);
       case 16:
-        setReg(31, at + 8);
+        setReg(31, _signExtend32(at + 8));
         _branch(a < 0, at, imm);
       case 17:
-        setReg(31, at + 8);
+        setReg(31, _signExtend32(at + 8));
         _branch(a >= 0, at, imm);
       case 18:
-        setReg(31, at + 8);
+        setReg(31, _signExtend32(at + 8));
         _branchLikely(a < 0, at, imm);
       case 19:
-        setReg(31, at + 8);
+        setReg(31, _signExtend32(at + 8));
         _branchLikely(a >= 0, at, imm);
       case 24: // MTSAB: SA in bytes, as MTSA stores it
         sa = (a ^ imm) & 15;

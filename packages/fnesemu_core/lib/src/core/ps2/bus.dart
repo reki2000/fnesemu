@@ -103,13 +103,16 @@ class Ps2Bus {
   int unmappedAccesses = 0;
   int lastUnmappedAddress = 0;
 
-  Ps2Bus()
-      : this._(Uint8List(ramSize), Uint8List(biosSize), Uint8List(scratchSize));
+  /// [ram] gives the main memory, such as a buffer shared with compiled
+  /// code; it must hold [ramSize] bytes
+  Ps2Bus({Uint8List? ram})
+      : this._(ram ?? Uint8List(ramSize), Uint8List(biosSize),
+            Uint8List(scratchSize));
 
   Ps2Bus._(this.ram, this.bios, this.scratch)
-      : _ram = ByteData.view(ram.buffer),
-        _bios = ByteData.view(bios.buffer),
-        _scratch = ByteData.view(scratch.buffer);
+      : _ram = ByteData.sublistView(ram),
+        _bios = ByteData.sublistView(bios),
+        _scratch = ByteData.sublistView(scratch);
 
   /// Selects the memory a virtual address refers to. [offset] receives the
   /// offset inside it; null means no device is mapped there.

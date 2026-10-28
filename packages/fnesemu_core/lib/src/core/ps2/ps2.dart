@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
@@ -14,6 +16,7 @@ import 'iop/iop_io.dart';
 import 'iop/iop_memory.dart';
 import 'iop/pad.dart';
 import 'iso9660.dart';
+import 'jit/ps2_jit.dart';
 import 'r5900/r5900.dart';
 
 final _log = DebugLog('ps2');
@@ -27,9 +30,37 @@ class Ps2 extends Core {
   static const _deviceQuantum = 32;
   static const _vblankLine = 240;
 
-  final bus = Ps2Bus();
-  late final R5900 cpu = R5900(bus);
+  /// the EE recompiler, or null when the interpreter runs alone
+  final Ps2Jit? jit;
+  final Ps2Bus bus;
+  late final R5900 cpu = R5900(bus, gpr: jit?.gpr);
   late EeIo io = _newIo();
+
+  Ps2({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
+      : this._(jit ? Ps2Jit.create() : null);
+
+  Ps2._(this.jit) : bus = Ps2Bus(ram: jit?.ram) {
+    jit?.attach(cpu);
+  }
+
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics =>
+      jit == null ? const [] : [jit!.diagnostics];
+
+  @override
+  bool get jitEnabled => jit?.native ?? false;
+
+  @override
+  bool get jitSuspended => jit?.suspended ?? false;
+
+  @override
+  set jitSuspended(bool value) => jit?.suspended = value;
+
+  @override
+  int get jitClocks => jit?.compiledClocks ?? 0;
+
+  @override
+  void dispose() => jit?.dispose();
 
   late final IopMemory iopMemory = IopMemory(bus.bios);
   late final Iop iop = Iop(iopMemory);
@@ -142,6 +173,7 @@ class Ps2 extends Core {
 
   @override
   void reset() {
+    jit?.reset();
     cpu.reset();
     io = _newIo();
     iop.reset();
@@ -211,8 +243,14 @@ class Ps2 extends Core {
       final limit = _nextScanlineClock < _nextDeviceClock
           ? _nextScanlineClock
           : _nextDeviceClock;
+      final jit = this.jit;
       while (cpu.clocks < limit) {
         final before = cpu.clocks;
+        if (jit != null && jit.run(limit - before)) {
+          _result.elapsedClocks = cpu.clocks - before;
+          if (io.intc.dirty || io.dmac.dirty) _updateInterruptLines();
+          continue;
+        }
         if (!cpu.step()) {
           _result
             ..stopped = true
