@@ -217,4 +217,16 @@ void main() {
     expect(cpu.pc, _base);
     expect(cpu.unimplementedInstruction, 0x70000709);
   });
+
+  test('MTSAB and MTSAH set the funnel shift amount', () {
+    final cpu = _run([
+      _i(9, 0, 4, 0x13), // addiu a0, zero, 0x13
+      _i(1, 4, 0x18, 0x01), // mtsab a0, 1
+      _r(40, rd: 5), // mfsa a1
+      _i(1, 4, 0x19, 0x01), // mtsah a0, 1
+      _r(40, rd: 6), // mfsa a2
+    ]);
+    expect(cpu.reg(5), 2);
+    expect(cpu.reg(6), 4);
+  });
 }

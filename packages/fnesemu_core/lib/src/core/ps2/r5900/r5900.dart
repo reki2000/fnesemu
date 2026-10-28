@@ -604,6 +604,10 @@ class R5900 {
       case 19:
         setReg(31, at + 8);
         _branchLikely(a >= 0, at, imm);
+      case 24: // MTSAB: SA in bytes, as MTSA stores it
+        sa = (a ^ imm) & 15;
+      case 25: // MTSAH: a halfword count
+        sa = ((a ^ imm) & 7) * 2;
       default:
         return false;
     }
