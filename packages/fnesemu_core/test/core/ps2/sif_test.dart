@@ -108,7 +108,7 @@ void main() {
 void cdvdTests() {
   test('CDVD reports ready and answers S commands', () {
     final s = _System();
-    expect(s.iop.read(0x1f402005, 1), 0x40);
+    expect(s.iop.read(0x1f402005, 1), 0x4e);
     expect(s.iop.read(0x1f402017, 1), 0x40);
     s.iop.write(0x1f402016, 1, 0x03);
     expect(s.iop.read(0x1f402017, 1), 0);

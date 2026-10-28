@@ -24,7 +24,9 @@ class Cdvd {
   static const noDisc = 0x00;
   static const ps2Cd = 0x12;
 
-  static const _ready = 0x40, _busy = 0x80;
+  /// the idle value 0x4e is what the BIOS driver waits for at start; bit 3
+  /// is not described by the documentation I found
+  static const _ready = 0x4e, _busy = 0xce;
   static const _sResultEmpty = 0x40;
 
   static const _statusSpinning = 0x02,
