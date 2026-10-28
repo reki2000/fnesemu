@@ -7,9 +7,10 @@ import 'r5900.dart';
 /// Lanes are read straight from the register file, so the host must be
 /// little endian, as `Int64List` word `n` then holds bytes `8n..8n+7`.
 ///
-/// Not implemented: PMADDH, PHMADH, PMSUBH, PHMSBH, PMULTH, PDIVBW, PEXT5,
-/// PPAC5, QFSRV, PMTHL and
-/// the LH/SH variants of PMFHL. They report as unimplemented.
+/// HI and LO are 128 bits wide: [R5900.hi] and [R5900.lo] hold words 0-1
+/// and [R5900.hi1] and [R5900.lo1] words 2-3. The halfword multiplies
+/// PHMADH and PHMSBH leave words 1 and 3 of HI and LO unchanged, as does
+/// PMTHL; the manual does not describe them.
 extension R5900Mmi on R5900 {
   static final _out = ByteData(16);
 
@@ -141,6 +142,12 @@ extension R5900Mmi on R5900 {
         return _mmi3(sa, rs, rt, rd);
       case 0x30:
         return _pmfhl(sa, rd);
+      case 0x31:
+        if (sa != 0) return false;
+        // PMTHL.LW
+        _setHiLo(_lane(rs, 4, 0, true), _lane(rs, 4, 1, true),
+            _lane(rs, 4, 2, true), _lane(rs, 4, 3, true),
+            keepOdd: true);
       case 0x34:
         _shift(rt, rd, 2, false, sa & 15, (v, n) => v << n);
       case 0x36:
@@ -234,10 +241,105 @@ extension R5900Mmi on R5900 {
           return _clamp(acc, -0x80000000, 0x7fffffff);
         }
         _set128(rd, saturate(hi, lo), saturate(hi1, lo1));
+      case 3: // LH
+        _set128(
+            rd,
+            lo & 0xffff |
+                (lo >> 32 & 0xffff) << 16 |
+                (hi & 0xffff) << 32 |
+                (hi >> 32 & 0xffff) << 48,
+            lo1 & 0xffff |
+                (lo1 >> 32 & 0xffff) << 16 |
+                (hi1 & 0xffff) << 32 |
+                (hi1 >> 32 & 0xffff) << 48);
+      case 4: // SH
+        int sat(int v) => _clamp(v.toSigned(32), -0x8000, 0x7fff) & 0xffff;
+        _set128(
+            rd,
+            sat(lo) | sat(lo >> 32) << 16 | sat(hi) << 32 | sat(hi >> 32) << 48,
+            sat(lo1) |
+                sat(lo1 >> 32) << 16 |
+                sat(hi1) << 32 |
+                sat(hi1 >> 32) << 48);
       default:
         return false;
     }
     return true;
+  }
+
+  int _word(int v, int i) => (i == 0 ? v : v >> 32).toSigned(32);
+
+  /// sets words 0 and 2 of LO and HI to [lo0], [hi0], [lo2] and [hi2].
+  /// Words 1 and 3 become [lo1w], [hi1w], [lo3w] and [hi3w] unless
+  /// [keepOdd] is set.
+  void _setHiLo(int lo0, int hi0, int lo2, int hi2,
+      {int lo1w = 0,
+      int hi1w = 0,
+      int lo3w = 0,
+      int hi3w = 0,
+      bool keepOdd = false}) {
+    int pair(int even, int odd, int old) =>
+        (keepOdd ? old >> 32 : odd) << 32 | (even & 0xffffffff);
+    lo = pair(lo0, lo1w, lo);
+    hi = pair(hi0, hi1w, hi);
+    lo1 = pair(lo2, lo3w, lo1);
+    hi1 = pair(hi2, hi3w, hi1);
+  }
+
+  /// PMULTH ([sign] 0), PMADDH (1) and PMSUBH (-1). Products 0-7 of the
+  /// signed halfwords go to LO0, LO1, HI0, HI1, LO2, LO3, HI2 and HI3, and
+  /// rd takes LO0, HI0, LO2 and HI2.
+  void _halfMultiply(int rs, int rt, int rd, int sign) {
+    final old = [
+      _word(lo, 0), _word(lo, 1), _word(hi, 0), _word(hi, 1), //
+      _word(lo1, 0), _word(lo1, 1), _word(hi1, 0), _word(hi1, 1),
+    ];
+    final r = List<int>.generate(8, (i) {
+      final p = _lane(rs, 2, i, true) * _lane(rt, 2, i, true);
+      return (sign == 0 ? p : old[i] + sign * p).toSigned(32);
+    });
+    _setHiLo(r[0], r[2], r[4], r[6],
+        lo1w: r[1], hi1w: r[3], lo3w: r[5], hi3w: r[7]);
+    for (var i = 0; i < 4; i++) {
+      _setOut(4, i, r[2 * i]);
+    }
+    _commit(rd);
+  }
+
+  /// PHMADH ([sign] 1) and PHMSBH (-1): word i of rd, and LO0, HI0, LO2 and
+  /// HI2 in turn, are product 2i + 1 plus or minus product 2i
+  void _halfPairs(int rs, int rt, int rd, int sign) {
+    int p(int i) => _lane(rs, 2, i, true) * _lane(rt, 2, i, true);
+    final r = [
+      for (var i = 0; i < 4; i++) (p(2 * i + 1) + sign * p(2 * i)).toSigned(32)
+    ];
+    _setHiLo(r[0], r[1], r[2], r[3], keepOdd: true);
+    for (var i = 0; i < 4; i++) {
+      _setOut(4, i, r[i]);
+    }
+    _commit(rd);
+  }
+
+  /// PDIVBW: the four words of rs divided by halfword 0 of rt. Quotients go
+  /// to LO0-LO3 and remainders to HI0-HI3.
+  void _pdivbw(int rs, int rt) {
+    final d = _lane(rt, 2, 0, true);
+    final q = <int>[], r = <int>[];
+    for (var i = 0; i < 4; i++) {
+      final n = _lane(rs, 4, i, true);
+      if (d == 0) {
+        q.add(n < 0 ? 1 : -1);
+        r.add(n);
+      } else if (n == -0x80000000 && d == -1) {
+        q.add(n);
+        r.add(0);
+      } else {
+        q.add((n ~/ d).toSigned(32));
+        r.add(n.remainder(d).toSigned(32));
+      }
+    }
+    _setHiLo(q[0], r[0], q[2], r[2],
+        lo1w: q[1], hi1w: r[1], lo3w: q[3], hi3w: r[3]);
   }
 
   bool _mmi0(int sa, int rs, int rt, int rd) {
@@ -290,6 +392,30 @@ extension R5900Mmi on R5900 {
         _interleave(rs, rt, rd, 1, 0);
       case 0x1b:
         _pack(rs, rt, rd, 1);
+      case 0x1e: // PEXT5
+        for (var i = 0; i < 4; i++) {
+          final v = _lane(rt, 4, i, false);
+          _setOut(
+              4,
+              i,
+              (v & 0x1f) << 3 |
+                  (v >> 5 & 0x1f) << 11 |
+                  (v >> 10 & 0x1f) << 19 |
+                  (v >> 15 & 1) << 31);
+        }
+        _commit(rd);
+      case 0x1f: // PPAC5
+        for (var i = 0; i < 4; i++) {
+          final v = _lane(rt, 4, i, false);
+          _setOut(
+              4,
+              i,
+              v >> 3 & 0x1f |
+                  (v >> 11 & 0x1f) << 5 |
+                  (v >> 19 & 0x1f) << 10 |
+                  (v >> 31 & 1) << 15);
+        }
+        _commit(rd);
       default:
         return false;
     }
@@ -337,6 +463,16 @@ extension R5900Mmi on R5900 {
         _map(rs, rt, rd, 1, false, (a, b) => _clamp(a - b, 0, 0xff));
       case 0x1a:
         _interleave(rs, rt, rd, 1, 8);
+      case 0x1b: // QFSRV: rs:rt shifted right by the SA bytes
+        final bytes = Uint8List(32);
+        final view = ByteData.sublistView(bytes)
+          ..setInt64(0, gpr[rt * 2], Endian.little)
+          ..setInt64(8, gpr[rt * 2 + 1], Endian.little)
+          ..setInt64(16, gpr[rs * 2], Endian.little)
+          ..setInt64(24, gpr[rs * 2 + 1], Endian.little);
+        final shift = this.sa & 15;
+        _set128(rd, view.getInt64(shift, Endian.little),
+            view.getInt64(shift + 8, Endian.little));
       default:
         return false;
     }
@@ -369,6 +505,18 @@ extension R5900Mmi on R5900 {
         _pdiv(rs, rt, true);
       case 0x0e: // PCPYLD
         _set128(rd, reg(rt), reg(rs));
+      case 0x10: // PMADDH
+        _halfMultiply(rs, rt, rd, 1);
+      case 0x11: // PHMADH
+        _halfPairs(rs, rt, rd, 1);
+      case 0x14: // PMSUBH
+        _halfMultiply(rs, rt, rd, -1);
+      case 0x15: // PHMSBH
+        _halfPairs(rs, rt, rd, -1);
+      case 0x1c: // PMULTH
+        _halfMultiply(rs, rt, rd, 0);
+      case 0x1d: // PDIVBW
+        _pdivbw(rs, rt);
       case 0x12:
         _set128(rd, reg(rs) & reg(rt), gpr[rs * 2 + 1] & gpr[rt * 2 + 1]);
       case 0x13:

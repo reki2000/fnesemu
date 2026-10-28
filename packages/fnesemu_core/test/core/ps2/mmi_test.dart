@@ -18,8 +18,10 @@ int _mmi3(int sub, int rs, int rt, int rd) =>
     ((w1 << 32) | w0, (w3 << 32) | w2);
 
 /// runs one instruction with r1 = [a] and r2 = [b]; the result is r3
-R5900 _run(int ir, {(int, int)? a, (int, int)? b}) {
+R5900 _run(int ir,
+    {(int, int)? a, (int, int)? b, void Function(R5900)? setup}) {
   final cpu = R5900(Ps2Bus());
+  setup?.call(cpu);
   cpu.bus.write32(0x100000, ir);
   cpu.jumpTo(0x100000);
   if (a != null) {
@@ -33,6 +35,18 @@ R5900 _run(int ir, {(int, int)? a, (int, int)? b}) {
   expect(cpu.step(), isTrue);
   return cpu;
 }
+
+/// halfwords as 16-bit lanes, lowest first
+(int, int) _h(List<int> h) {
+  var low = 0, high = 0;
+  for (var i = 0; i < 4; i++) {
+    low |= (h[i] & 0xffff) << (16 * i);
+    high |= (h[i + 4] & 0xffff) << (16 * i);
+  }
+  return (low, high);
+}
+
+int _pair(int w0, int w1) => (w1 << 32) | (w0 & 0xffffffff);
 
 (int, int) _r3(R5900 cpu) => (cpu.gpr[6], cpu.gpr[7]);
 
@@ -201,8 +215,72 @@ void main() {
 
   test('instructions without an implementation are reported', () {
     final cpu = R5900(Ps2Bus());
-    cpu.bus.write32(0x100000, _mmi(0x09, sub: 0x1c)); // PMULTH
+    cpu.bus.write32(0x100000, _mmi(0x08, sub: 0x0b)); // undefined in MMI0
     cpu.jumpTo(0x100000);
     expect(cpu.step(), isFalse);
+  });
+
+  test('QFSRV funnel shifts rs:rt right by the SA bytes', () {
+    final cpu = _run(_mmi1(0x1b, 1, 2, 3),
+        a: _w(0x11111111, 0x22222222, 0x33333333, 0x44444444),
+        b: _w(0xaaaaaaaa, 0xbbbbbbbb, 0xcccccccc, 0xdddddddd),
+        setup: (cpu) => cpu.sa = 4);
+    expect(_r3(cpu), _w(0xbbbbbbbb, 0xcccccccc, 0xdddddddd, 0x11111111));
+  });
+
+  final ha = _h([1, 2, 3, 4, 5, 6, 7, -1]);
+  final hb = _h([10, 10, 10, 10, 10, 10, 10, 10]);
+
+  test('PMULTH spreads the halfword products over LO and HI', () {
+    final cpu = _run(_mmi2(0x1c, 1, 2, 3), a: ha, b: hb);
+    expect(_r3(cpu), _w(10, 30, 50, 70));
+    expect(cpu.lo, _pair(10, 20));
+    expect(cpu.hi, _pair(30, 40));
+    expect(cpu.lo1, _pair(50, 60));
+    expect(cpu.hi1, _pair(70, -10));
+  });
+
+  test('PMADDH accumulates and PHMADH adds product pairs', () {
+    final madd = _run(_mmi2(0x10, 1, 2, 3), a: ha, b: hb, setup: (cpu) {
+      cpu.lo = _pair(1, 2);
+      cpu.hi1 = _pair(3, 4);
+    });
+    expect(_r3(madd), _w(11, 30, 50, 73));
+    expect(madd.hi1, _pair(73, -6));
+    expect(_r3(_run(_mmi2(0x11, 1, 2, 3), a: ha, b: hb)), _w(30, 70, 110, 60));
+  });
+
+  test('PEXT5 and PPAC5 convert between 1-5-5-5 and 8-8-8-8 colors', () {
+    final packed = _w(0x801f, 0x7c00, 0x03e0, 0);
+    final wide = _w(0x800000f8, 0x00f80000, 0x0000f800, 0);
+    expect(_r3(_run(_mmi0(0x1e, 0, 2, 3), b: packed)), wide);
+    expect(_r3(_run(_mmi0(0x1f, 0, 2, 3), b: wide)), packed);
+  });
+
+  test('PMFHL.LH and PMTHL move between halves of LO/HI and a register', () {
+    final lh = _run(_mmi(0x30, sub: 3, rd: 3), setup: (cpu) {
+      cpu.lo = _pair(0x11110001, 0x22220002);
+      cpu.hi = _pair(0x33330003, 0x44440004);
+      cpu.lo1 = _pair(5, 6);
+      cpu.hi1 = _pair(7, 8);
+    });
+    expect(_r3(lh), _h([1, 2, 3, 4, 5, 6, 7, 8]));
+
+    final mthl = _run(_mmi(0x31, rs: 1), a: _w(1, 2, 3, 4), setup: (cpu) {
+      cpu.lo = _pair(0, 9);
+    });
+    expect(mthl.lo, _pair(1, 9));
+    expect(mthl.hi & 0xffffffff, 2);
+    expect(mthl.lo1 & 0xffffffff, 3);
+    expect(mthl.hi1 & 0xffffffff, 4);
+  });
+
+  test('PDIVBW divides each word by a halfword', () {
+    final cpu = _run(_mmi2(0x1d, 1, 2, 0),
+        a: _w(100, -7 & 0xffffffff, 9, 0), b: _h([3, 0, 0, 0, 0, 0, 0, 0]));
+    expect(cpu.lo, _pair(33, -2));
+    expect(cpu.hi, _pair(1, -1));
+    expect(cpu.lo1, _pair(3, 0));
+    expect(cpu.hi1, _pair(0, 0));
   });
 }

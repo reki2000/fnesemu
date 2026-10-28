@@ -212,10 +212,10 @@ void main() {
   test('unimplemented instructions are reported without advancing', () {
     final cpu = R5900(Ps2Bus());
     cpu.jumpTo(_base);
-    cpu.bus.write32(_base, 0x70000709); // PMULTH, not implemented yet
+    cpu.bus.write32(_base, 0x700002c8); // undefined in MMI0
     expect(cpu.step(), isFalse);
     expect(cpu.pc, _base);
-    expect(cpu.unimplementedInstruction, 0x70000709);
+    expect(cpu.unimplementedInstruction, 0x700002c8);
   });
 
   test('MTSAB and MTSAH set the funnel shift amount', () {
