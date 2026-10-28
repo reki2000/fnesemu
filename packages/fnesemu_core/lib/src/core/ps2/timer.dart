@@ -25,8 +25,45 @@ class EeTimers {
   static bool handles(int address) =>
       address >= baseAddress && address < baseAddress + 0x2000;
 
+  // The timers take the clocks lazily. [_pendingClocks] collects them until
+  // they reach [_quietClocks], the bus clocks before the first timer could
+  // reach its compare value or overflow, or until a register is accessed.
+  // The counts and the interrupts are the same as with an update on every
+  // call.
+  int _pendingClocks = 0, _quietClocks = 0;
+
   /// advances the timers by [busClocks] bus clock cycles
   void advance(int busClocks) {
+    _pendingClocks += busClocks;
+    if (_pendingClocks >= _quietClocks) _flush();
+  }
+
+  void _flush() {
+    final busClocks = _pendingClocks;
+    _pendingClocks = 0;
+    if (busClocks != 0) _advance(busClocks);
+    _quietClocks = _quiet();
+  }
+
+  /// the bus clocks before the first timer that counts them reaches its
+  /// compare value or overflows
+  int _quiet() {
+    var quiet = 1 << 40;
+    for (var t = 0; t < 4; t++) {
+      final m = mode[t];
+      if (m & _enable == 0) continue;
+      final select = m & 3;
+      if (select == 3) continue;
+      final c = count[t], comp = compare[t];
+      var ticks = 0x10000 - c;
+      if (comp > c && comp - c < ticks) ticks = comp - c;
+      final clocks = ticks * _divisors[select] - _prescale[t];
+      if (clocks < quiet) quiet = clocks;
+    }
+    return quiet;
+  }
+
+  void _advance(int busClocks) {
     for (var t = 0; t < 4; t++) {
       final m = mode[t];
       if (m & _enable == 0) continue;
@@ -78,6 +115,7 @@ class EeTimers {
   }
 
   int read(int address) {
+    _flush();
     final t = (address >> 11) & 3;
     switch ((address >> 4) & 15) {
       case 0:
@@ -93,6 +131,7 @@ class EeTimers {
   }
 
   void write(int address, int value) {
+    _flush();
     final t = (address >> 11) & 3;
     switch ((address >> 4) & 15) {
       case 0:
@@ -104,5 +143,6 @@ class EeTimers {
       case 2:
         compare[t] = value & 0xffff;
     }
+    _quietClocks = _quiet();
   }
 }
