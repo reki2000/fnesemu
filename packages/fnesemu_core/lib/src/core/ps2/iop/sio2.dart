@@ -1,14 +1,15 @@
 import 'dart:collection';
 
+import 'memory_card.dart';
 import 'pad.dart';
 
 /// The serial controller for pads and memory cards (SIO2), 0x1f808200..
 ///
 /// A transfer is described by up to 16 port control words (SEND3). Every
 /// word gives the port in bits 0..1 and the length of the command in bits
-/// 18..24; bits 8..16 hold a length that SIO2 ignores. Port 0 has a pad and
-/// other ports read as 0xff. RECV1 reports 0x1100 when the pad answered a
-/// command of the transfer and 0x1d100 otherwise. What RECV1 reports for a
+/// 18..26; bits 8..16 hold a length that SIO2 ignores. Port 0 has a pad,
+/// port 2 a memory card, and other ports read as 0xff. RECV1 reports 0x1100
+/// when a device answered a command of the transfer and 0x1d100 otherwise. What RECV1 reports for a
 /// transfer to several ports is unverified; the pad driver polls both pad
 /// ports in one transfer and takes the replies only when it reads 0x1100.
 class Sio2 {
@@ -23,6 +24,14 @@ class Sio2 {
   final _out = ListQueue<int>();
   final _in = ListQueue<int>();
   Ps2Pad pad = Ps2Pad();
+
+  /// the card in the first memory card slot, or null when it is empty
+  Ps2MemoryCard? card;
+
+  // the command blocks of DMA channel 11 and the replies of the last
+  // transfer, one per command
+  final _blocks = <List<int>>[];
+  final replies = <List<int>>[];
   int control = 0, stat6c = 0;
 
   /// The replies of the last transfer wait in the receive FIFO. The driver
@@ -36,12 +45,24 @@ class Sio2 {
     _send3.fillRange(0, 16, 0);
     _out.clear();
     _in.clear();
+    _blocks.clear();
+    replies.clear();
     control = stat6c = 0;
     replyReady = false;
   }
 
-  /// bytes that the CPU or DMA channel 11 sends are queued here
+  /// bytes that the CPU sends are queued here
   void send(int byte) => _out.add(byte & 0xff);
+
+  /// a block of DMA channel 11
+  void sendBlock(List<int> block) => _blocks.add(block);
+
+  /// the DMA took the replies
+  void clearReplies() {
+    replies.clear();
+    _in.clear();
+    replyReady = false;
+  }
 
   /// the next received byte
   int receive() {
@@ -91,25 +112,43 @@ class Sio2 {
 
   void _transfer() {
     _in.clear();
-    var answered = false;
-    for (final word in _send3) {
-      if (word == 0) break;
-      final port = word & 3;
-      final length = (word >> 18) & 0x7f;
-      final sent = [
-        for (var i = 0; i < length && _out.isNotEmpty; i++) _out.removeFirst(),
-      ];
-      // a pad is selected by the address byte 0x01
-      final present = port == 0 && sent.isNotEmpty && sent.first == 1;
-      answered |= present;
-      if (present) {
-        _in.addAll(pad.transfer(sent, length));
-      } else {
-        for (var i = 0; i < length; i++) {
-          _in.add(0xff);
-        }
+    replies.clear();
+    var commands = 0;
+    while (commands < 16 && _send3[commands] != 0) {
+      commands++;
+    }
+    // the DMA blocks hold one command each; otherwise they feed the queue
+    final perBlock = _blocks.length == commands;
+    if (!perBlock) {
+      for (final block in _blocks) {
+        _out.addAll(block);
       }
     }
+    var answered = false;
+    for (var k = 0; k < commands; k++) {
+      final word = _send3[k];
+      final port = word & 3;
+      final length = (word >> 18) & 0x1ff;
+      final sent = perBlock
+          ? _blocks[k].take(length).toList()
+          : [
+              for (var i = 0; i < length && _out.isNotEmpty; i++)
+                _out.removeFirst(),
+            ];
+      final card = this.card;
+      List<int>? reply;
+      // a pad is selected by the address byte 0x01 and a card by 0x81
+      if (port == 0 && sent.isNotEmpty && sent.first == 1) {
+        reply = pad.transfer(sent, length);
+      } else if (port == 2 && card != null && sent.isNotEmpty) {
+        if (sent.first == 0x81) reply = card.transfer(sent, length);
+      }
+      answered |= reply != null;
+      reply ??= List<int>.filled(length, 0xff);
+      replies.add(reply);
+      _in.addAll(reply);
+    }
+    _blocks.clear();
     _out.clear();
     stat6c = answered ? 0x1100 : 0x1d100;
     replyReady = _in.isNotEmpty;

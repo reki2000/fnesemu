@@ -5,6 +5,7 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
+import '../../sram.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
 import 'bus.dart';
@@ -14,6 +15,7 @@ import 'intc.dart';
 import 'iop/iop.dart';
 import 'iop/iop_io.dart';
 import 'iop/iop_memory.dart';
+import 'iop/memory_card.dart';
 import 'iop/pad.dart';
 import 'iop/spu2.dart';
 import 'iso9660.dart';
@@ -70,6 +72,7 @@ class Ps2 extends Core {
   IopIo _newIopIo() {
     final iopIo = IopIo(iopMemory, io.sif)
       ..sio2.pad = _pad
+      ..sio2.card = _card
       ..cdvd.drive = _drive
       ..cdvd.discId = _discId
       ..spu2.onAudio =
@@ -82,6 +85,18 @@ class Ps2 extends Core {
 
   @override
   void onAudio(void Function(AudioBuffer) onAudio) => _onAudio = onAudio;
+
+  /// The memory card in the first slot. It keeps its own memory until
+  /// [setSram] gives it a store.
+  Ps2MemoryCard _card = Ps2MemoryCard.blank();
+
+  @override
+  void setSram(Sram sram) {
+    sram.init(StorageKey.of('ps2', StorageKey.sram, 'memcard1'),
+        Ps2MemoryCard.blankImage());
+    _card = Ps2MemoryCard(sram.read8, sram.write8);
+    iopIo.sio2.card = _card;
+  }
 
   /// the IOP only runs when a BIOS provides its program
   bool biosLoaded = false;
@@ -189,6 +204,7 @@ class Ps2 extends Core {
     io = _newIo();
     iop.reset();
     _pad.reset();
+    _card.reset();
     iopMemory.ram.fillRange(0, iopMemory.ram.length, 0);
     iopIo = _newIopIo();
     _iopFraction = 0;

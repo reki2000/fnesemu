@@ -295,6 +295,9 @@ class Cdvd {
         }
       case 0x05: // update the sticky drive status
         _sticky = _driveStatusValue;
+      case 0x84: // card authentication: the mechacon's challenges
+      case 0x85:
+        _results.addAll(List.filled(12, 0));
       case 0x41: // read configuration block: 15 more bytes
         _results.addAll(List.filled(15, 0));
       case 0x08: // read clock: second, minute, hour, pad, day, month, year

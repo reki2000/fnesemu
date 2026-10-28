@@ -369,16 +369,33 @@ class IopIo implements IopPort {
     return true;
   }
 
-  /// SIO2 DMA: channel 11 sends command bytes, channel 12 receives replies
+  /// SIO2 DMA: channel 11 sends command bytes, channel 12 receives replies.
+  /// Every block holds one command or its reply, at the start of the block
+  /// (as the memory card driver lays out its buffers).
   bool _sio2In(IopDmaChannel c) {
-    for (var i = 0; i < _words(c) * 4; i++) {
-      sio2.send(memory.read8(c.madr + i));
+    final size = (c.bcr & 0xffff) * 4, count = (c.bcr >>> 16) & 0xffff;
+    for (var b = 0; b < (count == 0 ? 1 : count); b++) {
+      sio2.sendBlock([
+        for (var i = 0; i < size; i++) memory.read8(c.madr + b * size + i),
+      ]);
     }
     return true;
   }
 
   bool _sio2Out(IopDmaChannel c) {
     if (!sio2.replyReady) return false;
+    final size = (c.bcr & 0xffff) * 4, count = (c.bcr >>> 16) & 0xffff;
+    final replies = sio2.replies;
+    if (count > 1 && replies.length == count) {
+      for (var b = 0; b < count; b++) {
+        final reply = replies[b];
+        for (var i = 0; i < reply.length && i < size; i++) {
+          memory.write8(c.madr + b * size + i, reply[i]);
+        }
+      }
+      sio2.clearReplies();
+      return true;
+    }
     sio2.replyReady = false;
     for (var i = 0; i < _words(c) * 4; i++) {
       memory.write8(c.madr + i, sio2.receive());
