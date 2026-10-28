@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
+
+import '../../cdrom.dart';
 
 /// Reads the ISO 9660 directory structure of a disc to find a file. Sectors
 /// come from [readUser], which returns the 2048 user data bytes of a sector.
@@ -46,4 +49,31 @@ class Iso9660 {
     }
     return Uint8List.sublistView(out.toBytes(), 0, file.size);
   }
+}
+
+/// The 2048 bytes of user data in a raw sector (mode 1 or mode 2 form 1).
+Uint8List userData(Uint8List raw) {
+  if (raw.length < 2352) return Uint8List(0);
+  final offset = raw[15] == 2 ? 24 : 16;
+  return Uint8List.sublistView(raw, offset, offset + 2048);
+}
+
+/// The text of SYSTEM.CNF at the root of the disc in [drive], or null
+Future<String?> readSystemCnf(CdromDrive drive) async {
+  final start = drive.firstDataLba;
+  if (start == null) return null;
+  final iso =
+      Iso9660((lba) async => userData(await drive.readWhenReady(start + lba)));
+  final file = await iso.findRootFile('SYSTEM.CNF');
+  if (file == null) return null;
+  return utf8.decode(await iso.readFile(file), allowMalformed: true);
+}
+
+/// The file name of the BOOT2 line in SYSTEM.CNF without the directory and
+/// the version, such as `ABCD_123.45`, or null
+String? bootFileName(String systemCnf) {
+  final match =
+      RegExp(r'^\s*BOOT2\s*=\s*(\S+)', multiLine: true).firstMatch(systemCnf);
+  if (match == null) return null;
+  return match[1]!.split(RegExp(r'[:\\/]')).last.split(';').first;
 }

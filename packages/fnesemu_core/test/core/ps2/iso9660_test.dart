@@ -30,4 +30,10 @@ void main() {
     expect(ascii.decode(await iso.readFile(file!)), 'BOOT2');
     expect(await iso.findRootFile('MISSING'), isNull);
   });
+
+  test('takes the BOOT2 file name from SYSTEM.CNF', () {
+    expect(bootFileName('BOOT2 = cdrom0:\\ABCD_123.45;1\r\nVER = 1.00\r\n'),
+        'ABCD_123.45');
+    expect(bootFileName('VMODE = NTSC\n'), isNull);
+  });
 }

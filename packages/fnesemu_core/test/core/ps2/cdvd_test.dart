@@ -72,4 +72,26 @@ void main() {
     ps2.reset();
     expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
   });
+
+  test('ReadKey encodes the game ID the way the BIOS browser decodes it', () {
+    final cdvd = Cdvd()
+      ..drive = FakeCdromDrive([_sector(0)])
+      ..discId = 'ABCD_123.45';
+    _write(cdvd, 0x0c, [0, 0, 0, 0x4b, 0, 0, 0]);
+    cdvd.advance(1000000);
+    expect(cdvd.read(0x1f402038), 7);
+    final k = [
+      for (final a in [0x20, 0x28, 0x30])
+        for (var i = 0; i < 5; i++) cdvd.read(0x1f402000 + a + i)
+    ];
+    final letters = [
+      k[3] >> 4 | (k[4] & 7) << 4,
+      k[2] >> 5 | (k[3] & 15) << 3,
+      k[1] >> 6 | (k[2] & 31) << 2,
+      k[0] >> 7 | (k[1] & 63) << 1,
+    ];
+    final number = k[4] >> 3 | (k[14] >> 3) << 5 | (k[0] & 127) << 10;
+    expect(String.fromCharCodes(letters), 'ABCD');
+    expect(number, 12345);
+  });
 }

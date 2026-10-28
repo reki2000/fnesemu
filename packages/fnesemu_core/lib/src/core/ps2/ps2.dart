@@ -13,6 +13,7 @@ import 'iop/iop.dart';
 import 'iop/iop_io.dart';
 import 'iop/iop_memory.dart';
 import 'iop/pad.dart';
+import 'iso9660.dart';
 import 'r5900/r5900.dart';
 
 final _log = DebugLog('ps2');
@@ -37,7 +38,8 @@ class Ps2 extends Core {
   IopIo _newIopIo() {
     final iopIo = IopIo(iopMemory, io.sif)
       ..sio2.pad = _pad
-      ..cdvd.drive = _drive;
+      ..cdvd.drive = _drive
+      ..cdvd.discId = _discId;
     io.cdvd = iopIo.cdvd;
     return iopIo;
   }
@@ -125,11 +127,23 @@ class Ps2 extends Core {
   void padUp(int controllerId, PadButton k) => _pad.keyUp(controllerId, k);
 
   CdromDrive? _drive;
+  String? _discId;
 
+  /// Inserts [drive] and looks up the game ID in its SYSTEM.CNF in the
+  /// background. The CDVD disc key carries this ID. The ID of a disc
+  /// inserted later through the tray is not looked up.
   @override
   void setCdromDrive(CdromDrive drive) {
     _drive = drive;
-    iopIo.cdvd.drive = drive;
+    _discId = null;
+    iopIo.cdvd
+      ..drive = drive
+      ..discId = null;
+    readSystemCnf(drive).then((text) {
+      if (_drive != drive || text == null) return;
+      _discId = bootFileName(text);
+      iopIo.cdvd.discId = _discId;
+    });
   }
 
   @override

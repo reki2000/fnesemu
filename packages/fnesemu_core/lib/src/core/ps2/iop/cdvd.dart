@@ -11,7 +11,7 @@ import '../../../cdrom_drive.dart';
 /// BIOS handshake that precedes a disc boot is not fully known. The format of
 /// a sector delivered by ReadCd for block sizes other than 2048 is a guess.
 class Cdvd {
-  static const base = 0x1f402000, end = 0x1f402030;
+  static const base = 0x1f402000, end = 0x1f402040;
 
   static const _nCommand = 0x1f402004, _nStatus = 0x1f402005;
   static const _error = 0x1f402006, _break = 0x1f402007;
@@ -20,6 +20,7 @@ class Cdvd {
   static const _discType = 0x1f40200f;
   static const _sCommand = 0x1f402016, _sStatus = 0x1f402017;
   static const _sResult = 0x1f402018;
+  static const _key = 0x1f402020, _keyFlags = 0x1f402038, _keyXor = 0x1f402039;
 
   static const noDisc = 0x00;
   static const ps2Cd = 0x12;
@@ -43,6 +44,14 @@ class Cdvd {
   CdromDrive? drive;
 
   int istat = 0;
+
+  /// the game ID of the inserted disc, such as `ABCD_123.45`, taken from the
+  /// BOOT2 line of SYSTEM.CNF. ReadKey encodes it into the disc key.
+  String? discId;
+
+  /// the disc key bytes 0-14 and the flags of the valid key groups
+  final _keyBytes = Uint8List(15);
+  int _keyValid = 0;
 
   final _nParams = <int>[];
   final _sParams = <int>[];
@@ -107,6 +116,15 @@ class Cdvd {
         return _results.isEmpty ? 0 : _results.removeFirst();
       case _sCommand:
         return _lastCommand;
+      case _keyFlags:
+        return _keyValid;
+      case _keyXor:
+        return 0;
+    }
+    if (address >= _key && address < _keyFlags) {
+      final o = address - _key;
+      // three groups of five bytes at 0x20, 0x28 and 0x30
+      if ((o & 7) < 5) return _keyBytes[(o >> 3) * 5 + (o & 7)];
     }
     return 0;
   }
@@ -169,9 +187,40 @@ class Cdvd {
       case 0x05: // Seek
         _lba = _int32(params, 0);
         _busyCycles = _seekCycles;
+      case 0x0c: // ReadKey
+        _readKey();
+        _busyCycles = _seekCycles;
       default: // NOP, NOPsync, Standby, Stop, Pause and the unknown ones
         _busyCycles = 1000;
     }
+  }
+
+  /// Fills the disc key from [discId].
+  ///
+  /// The real drive reads the key from the disc. Its encoding is not
+  /// documented, so this produces the bytes that the BIOS browser decodes
+  /// back into the game ID: four 7-bit letters packed from bit 7 of byte 0
+  /// to bit 2 of byte 4, and a 17-bit number made of byte 4 bits 3-7 (bits
+  /// 0-4), byte 14 bits 3-7 (bits 5-9) and byte 0 bits 0-6 (bits 10-16). The
+  /// browser compares the ID with the BOOT2 file name before it starts the
+  /// game.
+  void _readKey() {
+    _keyBytes.fillRange(0, _keyBytes.length, 0);
+    _keyValid = 0;
+    final id = discId;
+    if (id == null) return;
+    final match = RegExp(r'^([A-Z]{4})_(\d{3})\.(\d{2})').firstMatch(id);
+    if (match == null) return;
+    final c = match[1]!.codeUnits;
+    final n = int.parse('${match[2]}${match[3]}');
+    _keyBytes
+      ..[0] = (n >> 10) & 0x7f | (c[3] & 1) << 7
+      ..[1] = (c[3] >> 1) & 0x3f | (c[2] & 3) << 6
+      ..[2] = (c[2] >> 2) & 0x1f | (c[1] & 7) << 5
+      ..[3] = (c[1] >> 3) & 0x0f | (c[0] & 0xf) << 4
+      ..[4] = (c[0] >> 4) & 0x07 | (n & 0x1f) << 3
+      ..[14] = ((n >> 5) & 0x1f) << 3;
+    _keyValid = 7;
   }
 
   void _complete() {
