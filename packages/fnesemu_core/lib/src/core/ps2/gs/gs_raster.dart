@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'gs.dart';
 import 'gs_memory.dart';
@@ -102,6 +103,10 @@ class GsRaster {
       _cpsm = (t0 >> 51) & 15;
       _csm = (t0 >> 55) & 1;
       _csa = (t0 >> 56) & 31;
+      if (++_clutStamp == 0x7fffffff) {
+        _clutStamps.fillRange(0, _clutStamps.length, 0);
+        _clutStamp = 1;
+      }
       _clutPsm = switch (_cpsm) {
         0 => GsPsm.ct32,
         1 => GsPsm.ct24,
@@ -546,10 +551,25 @@ class GsRaster {
     }
   }
 
+  // The CLUT entries decoded during the current primitive. An entry is valid
+  // when its stamp equals [_clutStamp], which changes with every textured
+  // primitive.
+  final _clutColors = Uint32List(512);
+  final _clutStamps = Int32List(512);
+  int _clutStamp = 0;
+
   int _clut(int index, int bits) {
-    final cpsm = _clutPsm;
     // CSA selects one of the 16-entry groups for the 4-bit formats
-    final entry = bits == 4 ? _csa * 16 + index : index;
+    final entry = (bits == 4 ? _csa * 16 + index : index) & 511;
+    if (_clutStamps[entry] == _clutStamp) return _clutColors[entry];
+    final color = _clutEntry(entry);
+    _clutStamps[entry] = _clutStamp;
+    _clutColors[entry] = color;
+    return color;
+  }
+
+  int _clutEntry(int entry) {
+    final cpsm = _clutPsm;
     int raw;
     if (_csm == 0) {
       // CSM1: entries follow each other in the raw memory of the buffer
