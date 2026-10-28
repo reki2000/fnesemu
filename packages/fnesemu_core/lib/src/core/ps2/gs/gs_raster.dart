@@ -16,7 +16,9 @@ class GsRaster {
   // ---- state decoded at the start of a primitive ----
   late GsContext _ctx;
   int _fbp = 0, _fbw = 0, _fpsm = 0, _fbmsk = 0, _fba = 0;
-  int _zbp = 0, _zpsm = 0;
+  int _zbp = 0, _zpsm = 0, _zmax = 0;
+  late GsLayout _frameLayout, _zLayout, _texLayout;
+  int _framePages = 0, _zPages = 0, _texPages = 0;
   bool _zmsk = false;
   int _ofx = 0, _ofy = 0;
   int _sx0 = 0, _sx1 = 0, _sy0 = 0, _sy1 = 0;
@@ -27,7 +29,7 @@ class GsRaster {
 
   // texture
   int _tbp = 0, _tbw = 0, _tpsm = 0, _tw = 0, _th = 0, _tcc = 0, _tfx = 0;
-  int _cbp = 0, _cpsm = 0, _csm = 0, _csa = 0;
+  int _cbp = 0, _cpsm = 0, _csm = 0, _csa = 0, _clutPsm = 0;
   int _wms = 0, _wmt = 0, _minu = 0, _maxu = 0, _minv = 0, _maxv = 0;
   bool _linear = false;
   int _ta0 = 0, _ta1 = 0;
@@ -49,6 +51,17 @@ class GsRaster {
     _zbp = (zbuf & 0x1ff) * 32;
     _zpsm = 0x30 | ((zbuf >> 24) & 0xf);
     _zmsk = (zbuf >> 32) & 1 != 0;
+    _zmax = switch (_zpsm) {
+      GsPsm.z24 => 0xffffff,
+      GsPsm.z16 || GsPsm.z16s => 0xffff,
+      _ => 0xffffffff,
+    };
+    final mem = gs.mem;
+    _frameLayout = mem.layout(_fpsm);
+    _framePages = _frameLayout.pagesInRow(_fbw);
+    _zLayout = mem.layout(_zpsm);
+    // the Z buffer has the width of the frame buffer
+    _zPages = _zLayout.pagesInRow(_fbw);
     _ofx = _ctx.xyoffset & 0xffff;
     _ofy = (_ctx.xyoffset >> 32) & 0xffff;
     final sc = _ctx.scissor;
@@ -89,6 +102,14 @@ class GsRaster {
       _cpsm = (t0 >> 51) & 15;
       _csm = (t0 >> 55) & 1;
       _csa = (t0 >> 56) & 31;
+      _clutPsm = switch (_cpsm) {
+        0 => GsPsm.ct32,
+        1 => GsPsm.ct24,
+        0xa => GsPsm.ct16s,
+        _ => GsPsm.ct16,
+      };
+      _texLayout = mem.layout(_tpsm);
+      _texPages = _texLayout.pagesInRow(_tbw);
       final c = _ctx.clamp;
       _wms = c & 3;
       _wmt = (c >> 2) & 3;
@@ -219,38 +240,49 @@ class GsRaster {
     final topLeftBc = _topLeft(cx - bx, cy - by);
     final topLeftCa = _topLeft(ax - cx, ay - cy);
     final inv = 1.0 / area;
+    // the edge values step by a multiple of 16 per pixel
+    final dAbX = -(by - ay) * 16,
+        dBcX = -(cy - by) * 16,
+        dCaX = -(ay - cy) * 16;
+    final needColor = _iip, needFog = _fge;
+    final needStq = _tme && !_fst, needUv = _tme && _fst;
     for (var py = minY; py <= maxY; py++) {
-      final qy = py * 16 + 8;
-      for (var px = minX; px <= maxX; px++) {
-        final qx = px * 16 + 8;
-        final eab = (bx - ax) * (qy - ay) - (by - ay) * (qx - ax);
-        final ebc = (cx - bx) * (qy - by) - (cy - by) * (qx - bx);
-        final eca = (ax - cx) * (qy - cy) - (ay - cy) * (qx - cx);
+      final qy = py * 16 + 8, qx = minX * 16 + 8;
+      var eab = (bx - ax) * (qy - ay) - (by - ay) * (qx - ax);
+      var ebc = (cx - bx) * (qy - by) - (cy - by) * (qx - bx);
+      var eca = (ax - cx) * (qy - cy) - (ay - cy) * (qx - cx);
+      for (var px = minX;
+          px <= maxX;
+          px++, eab += dAbX, ebc += dBcX, eca += dCaX) {
         if (eab < 0 || ebc < 0 || eca < 0) continue;
         if ((eab == 0 && !topLeftAb) ||
             (ebc == 0 && !topLeftBc) ||
             (eca == 0 && !topLeftCa)) {
           continue;
         }
+        // the weights are not negative, so _round rounds as round() does
         final wa = ebc * inv, wb = eca * inv, wc = eab * inv;
-        final z = (va.z * wa + vb.z * wb + vc.z * wc).round();
-        if (_iip) {
-          _cr = (va.r * wa + vb.r * wb + vc.r * wc).round();
-          _cg = (va.g * wa + vb.g * wb + vc.g * wc).round();
-          _cb = (va.b * wa + vb.b * wb + vc.b * wc).round();
-          _ca = (va.a * wa + vb.a * wb + vc.a * wc).round();
+        final z = _round(va.z * wa + vb.z * wb + vc.z * wc);
+        if (needColor) {
+          _cr = _round(va.r * wa + vb.r * wb + vc.r * wc);
+          _cg = _round(va.g * wa + vb.g * wb + vc.g * wc);
+          _cb = _round(va.b * wa + vb.b * wb + vc.b * wc);
+          _ca = _round(va.a * wa + vb.a * wb + vc.a * wc);
         } else {
           _cr = c.r;
           _cg = c.g;
           _cb = c.b;
           _ca = c.a;
         }
-        _cf = (va.f * wa + vb.f * wb + vc.f * wc).round();
-        _s = va.s * wa + vb.s * wb + vc.s * wc;
-        _t = va.t * wa + vb.t * wb + vc.t * wc;
-        _q = va.q * wa + vb.q * wb + vc.q * wc;
-        _uu = (va.u * wa + vb.u * wb + vc.u * wc) / 16;
-        _vv = (va.v * wa + vb.v * wb + vc.v * wc) / 16;
+        if (needFog) _cf = _round(va.f * wa + vb.f * wb + vc.f * wc);
+        if (needStq) {
+          _s = va.s * wa + vb.s * wb + vc.s * wc;
+          _t = va.t * wa + vb.t * wb + vc.t * wc;
+          _q = va.q * wa + vb.q * wb + vc.q * wc;
+        } else if (needUv) {
+          _uu = (va.u * wa + vb.u * wb + vc.u * wc) / 16;
+          _vv = (va.v * wa + vb.v * wb + vc.v * wc) / 16;
+        }
         _pixel(px, py, z, _cr, _cg, _cb, _ca, _cf);
       }
     }
@@ -292,7 +324,7 @@ class GsRaster {
       }
     }
     final mem = gs.mem;
-    final fi = mem.index(_fpsm, _fbp, _fbw, x, y);
+    final fi = _frameLayout.index(_fbp, _framePages, x, y);
     final fraw = mem.readAt(_fpsm, fi);
     if (_date) {
       final bit = switch (_fpsm) {
@@ -302,14 +334,9 @@ class GsRaster {
       };
       if ((bit != 0) != _datm) return;
     }
-    final zmax = switch (_zpsm) {
-      GsPsm.z24 => 0xffffff,
-      GsPsm.z16 || GsPsm.z16s => 0xffff,
-      _ => 0xffffffff,
-    };
     if (z < 0) z = 0;
-    if (z > zmax) z = zmax;
-    final zi = mem.index(_zpsm, _zbp, _fbw, x, y);
+    if (z > _zmax) z = _zmax;
+    final zi = _zLayout.index(_zbp, _zPages, x, y);
     if (_zte) {
       final zold = mem.readAt(_zpsm, zi);
       final pass = switch (_ztst) {
@@ -470,7 +497,8 @@ class GsRaster {
   void _fetch(int u, int v) {
     u = _wrap(u, _wms, 1 << _tw, _minu, _maxu);
     v = _wrap(v, _wmt, 1 << _th, _minv, _maxv);
-    final raw = gs.mem.read(_tpsm, _tbp, _tbw, u, v);
+    final mem = gs.mem;
+    final raw = mem.readAt(_tpsm, _texLayout.index(_tbp, _texPages, u, v));
     switch (_tpsm) {
       case GsPsm.t8 || GsPsm.t8h:
         _clut(raw, 8);
@@ -503,12 +531,7 @@ class GsRaster {
   }
 
   void _clut(int index, int bits) {
-    final cpsm = switch (_cpsm) {
-      0 => GsPsm.ct32,
-      1 => GsPsm.ct24,
-      0xa => GsPsm.ct16s,
-      _ => GsPsm.ct16,
-    };
+    final cpsm = _clutPsm;
     // CSA selects one of the 16-entry groups for the 4-bit formats
     final entry = bits == 4 ? _csa * 16 + index : index;
     int raw;

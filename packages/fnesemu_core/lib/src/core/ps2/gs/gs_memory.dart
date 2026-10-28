@@ -50,64 +50,98 @@ class GsPsm {
 /// handling of them, are written from memory of the layout diagrams and are
 /// not yet checked against hardware captures. The tests only verify that
 /// every pixel of a page maps to its own storage unit.
+/// The page layout of a group of pixel formats. The storage unit of a pixel
+/// is the base of its page plus an entry of [table], which holds the unit
+/// index inside the page of every pixel of a page, by row.
+final class GsLayout {
+  final Int32List table;
+
+  /// log2 of the page width and height in pixels
+  final int xBits, yBits;
+
+  /// log2 of the storage units in a 32-bit word
+  final int unitShift;
+
+  /// pages of the 8-bit and 4-bit formats are 128 pixels wide, so a row of
+  /// the buffer holds half as many of them
+  final bool wide;
+
+  final int _xMask, _yMask;
+
+  GsLayout._(int psm, this.xBits, this.yBits, this.unitShift)
+      : table = Int32List(1 << (xBits + yBits)),
+        wide = xBits == 7,
+        _xMask = (1 << xBits) - 1,
+        _yMask = (1 << yBits) - 1 {
+    for (var y = 0; y <= _yMask; y++) {
+      for (var x = 0; x <= _xMask; x++) {
+        table[y << xBits | x] = GsMemory.unitIndex(psm, 0, 1, x, y);
+      }
+    }
+  }
+
+  /// the pages in a row of a buffer [bw] units of 64 pixels wide
+  int pagesInRow(int bw) => wide ? (bw + 1) >> 1 : bw;
+
+  /// [GsMemory.unitIndex] for a buffer of [pagesInRow] pages per row
+  @pragma('vm:prefer-inline')
+  int index(int bp, int pages, int x, int y) =>
+      ((bp * 64 + ((y >> yBits) * pages + (x >> xBits)) * 2048) << unitShift) +
+      table[(y & _yMask) << xBits | (x & _xMask)];
+}
+
+/// The 4 MiB of GS local memory with the page, block and column layout of
+/// each pixel format.
+///
+/// Memory is organised in 8 KiB pages of 32 blocks of 256 bytes, and a block
+/// in four columns of 64 bytes. `bp` is a block pointer (256 byte units) and
+/// `bw` a buffer width in units of 64 pixels.
+///
+/// The column layouts of the 8-bit and 4-bit formats, and the odd-column
+/// handling of them, are written from memory of the layout diagrams and are
+/// not yet checked against hardware captures. The tests only verify that
+/// every pixel of a page maps to its own storage unit.
 class GsMemory {
   static const size = 4 * 1024 * 1024;
   static const _wordMask = size ~/ 4 - 1;
+  static const _halfMask = size ~/ 2 - 1;
 
   final Uint8List bytes;
-  final ByteData _view;
+  final Uint32List _words;
+  final Uint16List _halves;
+
+  /// the layout of every PSM value; the invalid ones use the 32-bit layout
+  final List<GsLayout> _layouts;
 
   GsMemory() : this._(Uint8List(size));
 
   GsMemory._(this.bytes)
-      : _view = ByteData.sublistView(bytes),
-        _page32 = _pageTable(GsPsm.ct32, 64, 32),
-        _pageZ32 = _pageTable(GsPsm.z32, 64, 32),
-        _page16 = _pageTable(GsPsm.ct16, 64, 64),
-        _page16s = _pageTable(GsPsm.ct16s, 64, 64),
-        _pageZ16 = _pageTable(GsPsm.z16, 64, 64),
-        _pageZ16s = _pageTable(GsPsm.z16s, 64, 64),
-        _page8 = _pageTable(GsPsm.t8, 128, 64),
-        _page4 = _pageTable(GsPsm.t4, 128, 128);
+      : _words = Uint32List.view(bytes.buffer, bytes.offsetInBytes),
+        _halves = Uint16List.view(bytes.buffer, bytes.offsetInBytes),
+        _layouts = _buildLayouts();
 
-  // the unit index inside its page of every pixel of a page, by row
-  final Int32List _page32, _pageZ32, _page16, _page16s, _pageZ16, _pageZ16s;
-  final Int32List _page8, _page4;
-
-  static Int32List _pageTable(int psm, int width, int height) {
-    final table = Int32List(width * height);
-    for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        table[y * width + x] = unitIndex(psm, 0, 1, x, y);
-      }
+  static List<GsLayout> _buildLayouts() {
+    final ct32 = GsLayout._(GsPsm.ct32, 6, 5, 0);
+    final z32 = GsLayout._(GsPsm.z32, 6, 5, 0);
+    final layouts = List.filled(64, ct32);
+    for (final psm in [GsPsm.z32, GsPsm.z24]) {
+      layouts[psm] = z32;
     }
-    return table;
+    for (final psm in [GsPsm.ct16, GsPsm.ct16s, GsPsm.z16, GsPsm.z16s]) {
+      layouts[psm] = GsLayout._(psm, 6, 6, 1);
+    }
+    layouts[GsPsm.t8] = GsLayout._(GsPsm.t8, 7, 6, 2);
+    layouts[GsPsm.t4] = GsLayout._(GsPsm.t4, 7, 7, 3);
+    return layouts;
   }
+
+  /// the layout of format [psm]
+  GsLayout layout(int psm) => _layouts[psm & 63];
 
   /// [unitIndex] through the page tables
   int index(int psm, int bp, int bw, int x, int y) {
-    switch (psm) {
-      case GsPsm.ct16 || GsPsm.ct16s || GsPsm.z16 || GsPsm.z16s:
-        final table = switch (psm) {
-          GsPsm.ct16 => _page16,
-          GsPsm.ct16s => _page16s,
-          GsPsm.z16 => _pageZ16,
-          _ => _pageZ16s,
-        };
-        final page = (y >> 6) * bw + (x >> 6);
-        return (bp * 64 + page * 2048) * 2 + table[(y & 63) << 6 | (x & 63)];
-      case GsPsm.t8:
-        final page = (y >> 6) * ((bw + 1) >> 1) + (x >> 7);
-        return (bp * 64 + page * 2048) * 4 + _page8[(y & 63) << 7 | (x & 127)];
-      case GsPsm.t4:
-        final page = (y >> 7) * ((bw + 1) >> 1) + (x >> 7);
-        return (bp * 64 + page * 2048) * 8 + _page4[(y & 127) << 7 | (x & 127)];
-      default:
-        final page = (y >> 5) * bw + (x >> 6);
-        return bp * 64 +
-            page * 2048 +
-            (_isZ(psm) ? _pageZ32 : _page32)[(y & 31) << 6 | (x & 63)];
-    }
+    final layout = _layouts[psm & 63];
+    return layout.index(bp, layout.pagesInRow(bw), x, y);
   }
 
   static const _col32 = [0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15];
@@ -208,17 +242,14 @@ class GsMemory {
     }
   }
 
-  int word(int index) =>
-      _view.getUint32((index & _wordMask) * 4, Endian.little);
+  // the word and halfword views assume a little-endian host
+  int word(int index) => _words[index & _wordMask];
 
-  void setWord(int index, int value) => _view.setUint32(
-      (index & _wordMask) * 4, value & 0xffffffff, Endian.little);
+  void setWord(int index, int value) => _words[index & _wordMask] = value;
 
-  int _half(int index) => _view.getUint16(
-      ((index >> 1) & _wordMask) * 4 + (index & 1) * 2, Endian.little);
+  int _half(int index) => _halves[index & _halfMask];
 
-  void _setHalf(int index, int value) => _view.setUint16(
-      ((index >> 1) & _wordMask) * 4 + (index & 1) * 2, value, Endian.little);
+  void _setHalf(int index, int value) => _halves[index & _halfMask] = value;
 
   /// the raw pixel value of the format at (x, y)
   int read(int psm, int bp, int bw, int x, int y) =>
