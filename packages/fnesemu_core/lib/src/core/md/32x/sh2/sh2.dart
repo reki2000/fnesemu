@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../../components/sh2/jit/idle.dart';
 import '../../../../components/sh2/jit/jit.dart';
 import '../../../../util/int.dart';
 import '../../../../util/register_dump.dart';
@@ -22,54 +23,81 @@ abstract class Sh2Bus {
 class Sh2 {
   /// the bus seen by the instructions: the on-chip registers
   /// (0xfffffe00-0xffffffff) are served inside the cpu
-  late final Sh2Bus bus;
+  final _OnChipBus _bus;
+  Sh2Bus get bus => _bus;
   final Sh2OnChip onchip;
   Sh2(Sh2Bus ext, {bool master = true, Sh2Jit? jit})
+      : this._(ext, jit, Sh2OnChip(master));
+
+  Sh2._(Sh2Bus ext, Sh2Jit? jit, Sh2OnChip onchip)
       : jit = jit,
-        onchip = Sh2OnChip(master) {
-    r = jit?.regs ?? Uint32List(16);
-    _state = jit?.state ?? Uint32List(8);
+        onchip = onchip,
+        _bus = _OnChipBus(ext, onchip),
+        r = jit?.regs ?? Uint32List(16),
+        _state = jit?.state ?? Uint32List(8) {
     sr = 0xf0;
     jit?.attach(
         (address) => _jitCodeAddress(address) ? ext.read16(address) : null);
-    bus = _OnChipBus(ext, onchip);
+    _jitFtcsr = jit?.addReadRegister(
+        (address, size) => address == 0xfffffe11 && size == 1);
+    _bus.sync = _syncOnchip;
     onchip.bus = ext;
     if (jit != null) {
       jit.diagnostics.memoryRegion = _memoryRegion;
       jit.diagnostics.bindExecutionStats((stats) {
         executionStats = stats;
-        (bus as _OnChipBus).executionStats = stats;
+        _bus.executionStats = stats;
       });
     }
   }
-  // Only even SDRAM addresses and their P1 aliases can be compiled here.
+  // Only even SDRAM addresses with their P1 aliases and the cache data array
+  // can be compiled here.
   static bool _jitCodeAddress(int address) =>
-      (address & 0xdffc0001) == 0x06000000;
+      (address & 0xdffc0001) == 0x06000000 ||
+      (address & 0xfffff001) == 0xc0000000;
 
   final Sh2Jit? jit;
+  late final Uint32List? _jitFtcsr;
   JitExecutionStats? executionStats;
-  late final Uint32List r, _state;
+  final Uint32List r, _state;
   int pc = 0;
+  @pragma('vm:prefer-inline')
   int get sr => _state[0];
+  @pragma('vm:prefer-inline')
   set sr(int value) => _state[0] = value;
+  @pragma('vm:prefer-inline')
   int get gbr => _state[1];
+  @pragma('vm:prefer-inline')
   set gbr(int value) => _state[1] = value;
+  @pragma('vm:prefer-inline')
   int get vbr => _state[2];
+  @pragma('vm:prefer-inline')
   set vbr(int value) => _state[2] = value;
+  @pragma('vm:prefer-inline')
   int get pr => _state[3];
+  @pragma('vm:prefer-inline')
   set pr(int value) => _state[3] = value;
+  @pragma('vm:prefer-inline')
   int get mach => _state[4];
+  @pragma('vm:prefer-inline')
   set mach(int value) => _state[4] = value;
+  @pragma('vm:prefer-inline')
   int get macl => _state[5];
+  @pragma('vm:prefer-inline')
   set macl(int value) => _state[5] = value;
   int clocks = 0;
+  @pragma('vm:prefer-inline')
   int get lastOpcode => _state[6];
+  @pragma('vm:prefer-inline')
   set lastOpcode(int value) => _state[6] = value;
   int _irqLevel = 0, _irqVector = 0;
   int? _delayTarget, _restoreSr;
   bool sleeping = false, _inDelay = false;
+  @pragma('vm:prefer-inline')
   bool get t => sr.bit0;
+  @pragma('vm:prefer-inline')
   set t(bool value) => sr = (sr & ~1) | (value ? 1 : 0);
+  @pragma('vm:prefer-inline')
   int get interruptMask => sr.shr4.mask4;
 
   /// Saves logical state while the owning core identifies external media.
@@ -97,7 +125,7 @@ class Sh2 {
     s.intsInto(r);
     s.intsInto(_state);
     pc = s.int64();
-    clocks = s.int64();
+    clocks = _tickedAt = s.int64();
     _irqLevel = s.int64();
     _irqVector = s.int64();
     _delayTarget = s.boolean() ? s.int64() : null;
@@ -109,11 +137,12 @@ class Sh2 {
 
   void reset() {
     jit?.reset();
+    _idle.reset();
     r.fillRange(0, 16, 0);
-    pc = bus.read32(0);
-    r[15] = bus.read32(4);
+    pc = _bus.read32(0);
+    r[15] = _bus.read32(4);
     sr = 0xf0;
-    gbr = vbr = pr = mach = macl = clocks = lastOpcode = 0;
+    gbr = vbr = pr = mach = macl = clocks = _tickedAt = lastOpcode = 0;
     _irqLevel = _irqVector = 0;
     _delayTarget = _restoreSr = null;
     sleeping = _inDelay = false;
@@ -127,33 +156,78 @@ class Sh2 {
 
   void _exception(int vector, int savedPc, {int? level}) {
     r[15] = (r[15] - 4).mask32;
-    bus.write32(r[15], sr);
+    _bus.write32(r[15], sr);
     r[15] = (r[15] - 4).mask32;
-    bus.write32(r[15], savedPc);
+    _bus.write32(r[15], savedPc);
     if (level != null) sr = (sr & ~0xf0) | level.shl4;
-    pc = bus.read32((vbr + vector * 4).mask32);
+    pc = _bus.read32((vbr + vector * 4).mask32);
     _delayTarget = _restoreSr = null;
     sleeping = false;
     clocks += 5;
   }
 
+  /// the clock up to which the on-chip modules have advanced
+  int _tickedAt = 0;
+
+  /// Advances the on-chip modules to [clocks]. Runs do it at their end and
+  /// before an access to a module register, so a register read sees the time
+  /// of the instruction; interrupts of the modules reach the CPU at the next
+  /// run.
+  void _syncOnchip() {
+    final elapsed = clocks - _tickedAt;
+    _tickedAt = clocks;
+    if (elapsed != 0) onchip.tick(elapsed);
+  }
+
+  /// Moves the CPU clock without advancing the on-chip modules.
+  void setClocks(int value) {
+    clocks = _tickedAt = value;
+  }
+
   bool exec({bool compiled = true}) {
-    final before = clocks;
     final ok = _execOne(compiled);
-    onchip.tick(clocks - before);
+    _syncOnchip();
     return ok;
   }
 
+  /// fast-forwards idle loops (see _isIdle)
+  bool idleSkip = true;
+
+  /// whether the last [_execOneUnprofiled] ran compiled code
+  bool _nativeStep = false;
+
   /// Runs to the adapter deadline, retaining instruction-based debug stepping.
+  /// A loop that repeats without effect waits for the deadline at once, because
+  /// the other devices advance only between runs.
   bool run(int targetClocks, {bool compiled = true}) {
+    final skip = idleSkip && compiled;
+    final status = _jitFtcsr;
+    var ok = true;
     while (clocks < targetClocks) {
-      final before = clocks;
-      final ok = _execOne(compiled, targetClocks - clocks);
-      onchip.tick(clocks - before);
-      if (!ok) return false;
+      final prev = pc;
+      if (status != null) status[0] = onchip.ftcsr;
+      _nativeStep = false;
+      ok = _execOne(compiled, targetClocks - clocks);
+      if (!ok) break;
+      if (skip && _idleAfterStep(prev) && clocks < targetClocks) {
+        executionStats?.recordIdle(targetClocks - clocks);
+        clocks = targetClocks;
+      }
     }
-    return true;
+    _syncOnchip();
+    return ok;
   }
+
+  bool _idleAfterStep(int prev) {
+    if (sleeping) return true;
+    final from = _nativeStep ? jit!.idleCheckPc : prev;
+    return jit != null && _nativeStep && jit!.idleDetected ||
+        from != null &&
+            Sh2IdleDetector.isBackEdge(pc, from, compiled: _nativeStep) &&
+            _idle.check(pc, _bus.writes + _state[7]);
+  }
+
+  late final _idle = Sh2IdleDetector(r, _state, keepSnapshot: true);
 
   bool _execOne(bool compiled, [int budget = 1]) {
     final stats = executionStats;
@@ -190,11 +264,11 @@ class Sh2 {
 
   int _fetchInstruction(int address) {
     final stats = executionStats;
-    if (stats == null) return bus.read16(address);
+    if (stats == null) return _bus.read16(address);
     stats.fetching = true;
     stats.recordMemory(address, 2, fetch: true);
     try {
-      return bus.read16(address);
+      return _bus.read16(address);
     } finally {
       stats.fetching = false;
     }
@@ -206,14 +280,18 @@ class Sh2 {
     if (target == null) {
       // the external interrupt (the 32x system) and the on-chip ones (DIVU,
       // DMAC, FRT, WDT): the higher level wins
-      final (onchipLevel, onchipVector) =
-          onchip.anyPending ? onchip.pendingInterrupt() : (0, 0);
-      if (_irqLevel > interruptMask && _irqLevel >= onchipLevel) {
+      var onchipLevel = 0;
+      if (onchip.anyPending) {
+        onchip.updatePendingInterrupt();
+        onchipLevel = onchip.pendingLevel;
+      }
+      final mask = interruptMask;
+      if (_irqLevel > mask && _irqLevel >= onchipLevel) {
         _exception(_irqVector, pc, level: _irqLevel);
         return true;
       }
-      if (onchipLevel > interruptMask) {
-        _exception(onchipVector, pc, level: onchipLevel);
+      if (onchipLevel > mask) {
+        _exception(onchip.pendingVector, pc, level: onchipLevel);
         return true;
       }
     }
@@ -226,6 +304,7 @@ class Sh2 {
       executionStats?.pauseCpuStep();
       final result = jit!.run(pc, budget);
       if (result != null) {
+        _nativeStep = true;
         pc = result.$1;
         clocks += result.$2;
         return true;
@@ -251,9 +330,6 @@ class Sh2 {
       _restoreSr = restore;
       return false;
     }
-    for (int i = 0; i < 16; i++) {
-      r[i] &= 0xffffffff;
-    }
     sr &= 0x3f3;
     clocks++;
     if (target != null) {
@@ -263,6 +339,7 @@ class Sh2 {
     return true;
   }
 
+  @pragma('vm:prefer-inline')
   bool _branch(int target, {bool delay = true}) {
     if (_inDelay) return false;
     if (delay) {
@@ -284,16 +361,16 @@ class Sh2 {
         r[n] += op.rel8;
         return true;
       case 9:
-        r[n] = bus.read16(address + 4 + op.mask8 * 2).rel16;
+        r[n] = _bus.read16(address + 4 + op.mask8 * 2).rel16;
         return true;
       case 0xd:
-        r[n] = bus.read32(((address + 4) & ~3) + op.mask8 * 4);
+        r[n] = _bus.read32(((address + 4) & ~3) + op.mask8 * 4);
         return true;
       case 1:
-        bus.write32(r[n] + low * 4, r[m]);
+        _bus.write32(r[n] + low * 4, r[m]);
         return true;
       case 5:
-        r[n] = bus.read32(r[m] + low * 4);
+        r[n] = _bus.read32(r[m] + low * 4);
         return true;
       case 0xa:
         return _branch(address + 4 + op.rel12 * 2);
@@ -305,21 +382,21 @@ class Sh2 {
         final value = r[m];
         switch (low) {
           case 0:
-            r[n] = bus.read8(value).rel8;
+            r[n] = _bus.read8(value).rel8;
           case 1:
-            r[n] = bus.read16(value).rel16;
+            r[n] = _bus.read16(value).rel16;
           case 2:
-            r[n] = bus.read32(value);
+            r[n] = _bus.read32(value);
           case 3:
             r[n] = value;
           case 4:
-            r[n] = bus.read8(value).rel8;
+            r[n] = _bus.read8(value).rel8;
             if (n != m) r[m] += 1;
           case 5:
-            r[n] = bus.read16(value).rel16;
+            r[n] = _bus.read16(value).rel16;
             if (n != m) r[m] += 2;
           case 6:
-            r[n] = bus.read32(value);
+            r[n] = _bus.read32(value);
             if (n != m) r[m] += 4;
           case 7:
             r[n] = ~value;
@@ -347,20 +424,20 @@ class Sh2 {
         final value = r[m];
         switch (low) {
           case 0:
-            bus.write8(r[n], value);
+            _bus.write8(r[n], value);
           case 1:
-            bus.write16(r[n], value);
+            _bus.write16(r[n], value);
           case 2:
-            bus.write32(r[n], value);
+            _bus.write32(r[n], value);
           case 4:
             r[n] -= 1;
-            bus.write8(r[n], value);
+            _bus.write8(r[n], value);
           case 5:
             r[n] -= 2;
-            bus.write16(r[n], value);
+            _bus.write16(r[n], value);
           case 6:
             r[n] -= 4;
-            bus.write32(r[n], value);
+            _bus.write32(r[n], value);
           case 7:
             final q = r[n].shr31.mask1, mb = value.shr31.mask1;
             sr = (sr & ~0x301) | q.shl8 | mb.shl9 | (q ^ mb);
@@ -446,13 +523,13 @@ class Sh2 {
         final displacement = op.rel8 * 2;
         switch (op.shr8.mask4) {
           case 0:
-            bus.write8(r[m] + low, r[0]);
+            _bus.write8(r[m] + low, r[0]);
           case 1:
-            bus.write16(r[m] + low * 2, r[0]);
+            _bus.write16(r[m] + low * 2, r[0]);
           case 4:
-            r[0] = bus.read8(r[m] + low).rel8;
+            r[0] = _bus.read8(r[m] + low).rel8;
           case 5:
-            r[0] = bus.read16(r[m] + low * 2).rel16;
+            r[0] = _bus.read16(r[m] + low * 2).rel16;
           case 8:
             t = r[0] == op.rel8.mask32;
           case 9 || 11 || 13 || 15:
@@ -469,20 +546,20 @@ class Sh2 {
         final imm = op.mask8;
         switch (n) {
           case 0:
-            bus.write8(gbr + imm, r[0]);
+            _bus.write8(gbr + imm, r[0]);
           case 1:
-            bus.write16(gbr + imm * 2, r[0]);
+            _bus.write16(gbr + imm * 2, r[0]);
           case 2:
-            bus.write32(gbr + imm * 4, r[0]);
+            _bus.write32(gbr + imm * 4, r[0]);
           case 3:
             if (_inDelay) return false;
             _exception(imm, pc);
           case 4:
-            r[0] = bus.read8(gbr + imm).rel8;
+            r[0] = _bus.read8(gbr + imm).rel8;
           case 5:
-            r[0] = bus.read16(gbr + imm * 2).rel16;
+            r[0] = _bus.read16(gbr + imm * 2).rel16;
           case 6:
-            r[0] = bus.read32(gbr + imm * 4);
+            r[0] = _bus.read32(gbr + imm * 4);
           case 7:
             r[0] = ((address + 4) & ~3) + imm * 4;
           case 8:
@@ -494,45 +571,45 @@ class Sh2 {
           case 11:
             r[0] |= imm;
           case 12:
-            t = (bus.read8(gbr + r[0]) & imm) == 0;
+            t = (_bus.read8(gbr + r[0]) & imm) == 0;
           case 13:
-            bus.write8(gbr + r[0], bus.read8(gbr + r[0]) & imm);
+            _bus.write8(gbr + r[0], _bus.read8(gbr + r[0]) & imm);
           case 14:
-            bus.write8(gbr + r[0], bus.read8(gbr + r[0]) ^ imm);
+            _bus.write8(gbr + r[0], _bus.read8(gbr + r[0]) ^ imm);
           case 15:
-            bus.write8(gbr + r[0], bus.read8(gbr + r[0]) | imm);
+            _bus.write8(gbr + r[0], _bus.read8(gbr + r[0]) | imm);
         }
         return true;
     }
     if (op.shr12 == 0) {
       switch (low) {
         case 4:
-          bus.write8(r[n] + r[0], r[m]);
+          _bus.write8(r[n] + r[0], r[m]);
           return true;
         case 5:
-          bus.write16(r[n] + r[0], r[m]);
+          _bus.write16(r[n] + r[0], r[m]);
           return true;
         case 6:
-          bus.write32(r[n] + r[0], r[m]);
+          _bus.write32(r[n] + r[0], r[m]);
           return true;
         case 7:
           macl = (r[n] * r[m]).mask32;
           return true;
         case 12:
-          r[n] = bus.read8(r[m] + r[0]).rel8;
+          r[n] = _bus.read8(r[m] + r[0]).rel8;
           return true;
         case 13:
-          r[n] = bus.read16(r[m] + r[0]).rel16;
+          r[n] = _bus.read16(r[m] + r[0]).rel16;
           return true;
         case 14:
-          r[n] = bus.read32(r[m] + r[0]);
+          r[n] = _bus.read32(r[m] + r[0]);
           return true;
         case 15:
           // MAC.L reads each operand before incrementing its address register.
           // When m == n, the two reads therefore use consecutive longwords.
-          final left = bus.read32(r[n]).rel32;
+          final left = _bus.read32(r[n]).rel32;
           r[n] = (r[n] + 4).mask32;
-          final right = bus.read32(r[m]).rel32;
+          final right = _bus.read32(r[m]).rel32;
           r[m] = (r[m] + 4).mask32;
           final product = left * right;
           final low = macl + product.mask32;
@@ -604,8 +681,8 @@ class Sh2 {
           return true;
         case 0x002b:
           if (_inDelay) return false;
-          final next = bus.read32(r[15]);
-          final status = bus.read32(r[15] + 4);
+          final next = _bus.read32(r[15]);
+          final status = _bus.read32(r[15] + 4);
           r[15] += 8;
           _restoreSr = status;
           return _branch(next);
@@ -613,9 +690,9 @@ class Sh2 {
     }
     if (op.shr12 == 4) {
       if (low == 15) {
-        final left = bus.read16(r[n]).rel16;
+        final left = _bus.read16(r[n]).rel16;
         r[n] = (r[n] + 2).mask32;
-        final right = bus.read16(r[m]).rel16;
+        final right = _bus.read16(r[m]).rel16;
         r[m] = (r[m] + 2).mask32;
         final product = left * right;
         if (sr.bit1) {
@@ -686,9 +763,9 @@ class Sh2 {
         case 0x2b:
           return _branch(r[n]);
         case 0x1b:
-          final value = bus.read8(r[n]);
+          final value = _bus.read8(r[n]);
           t = value == 0;
-          bus.write8(r[n], value | 0x80);
+          _bus.write8(r[n], value | 0x80);
         case 0x0e:
           sr = r[n] & 0x3f3;
         case 0x1e:
@@ -711,9 +788,9 @@ class Sh2 {
             _ => vbr
           };
           r[n] -= 4;
-          bus.write32(r[n], value);
+          _bus.write32(r[n], value);
         case 0x06 || 0x16 || 0x26 || 0x07 || 0x17 || 0x27:
-          final value = bus.read32(r[n]);
+          final value = _bus.read32(r[n]);
           r[n] += 4;
           switch (op.mask8) {
             case 6:
@@ -771,41 +848,77 @@ class _OnChipBus implements Sh2Bus {
   final Sh2OnChip onchip;
   _OnChipBus(this.ext, this.onchip);
 
+  /// advances the module clocks before a module register is accessed
+  void Function()? sync;
+
+  /// writes issued by the interpreter, for idle loop detection
+  int writes = 0;
+
   // effective addresses (register + register) may exceed 32 bits
   static bool _on(int a) => a.mask32 >= 0xfffffe00;
   @override
   int read8(int a) {
     executionStats?.recordMemory(a.mask32, 1);
-    return _on(a) ? onchip.read8(a) : ext.read8(a.mask32);
+    if (_on(a)) {
+      sync?.call();
+      return onchip.read8(a);
+    }
+    return ext.read8(a.mask32);
   }
 
   @override
   int read16(int a) {
     executionStats?.recordMemory(a.mask32, 2);
-    return _on(a) ? onchip.read16(a) : ext.read16(a.mask32);
+    if (_on(a)) {
+      sync?.call();
+      return onchip.read16(a);
+    }
+    return ext.read16(a.mask32);
   }
 
   @override
   int read32(int a) {
     executionStats?.recordMemory(a.mask32, 4);
-    return _on(a) ? onchip.read32(a) : ext.read32(a.mask32);
+    if (_on(a)) {
+      sync?.call();
+      return onchip.read32(a);
+    }
+    return ext.read32(a.mask32);
   }
 
   @override
   void write8(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 1, write: true);
-    _on(a) ? onchip.write8(a, v) : ext.write8(a.mask32, v);
+    if (_on(a)) {
+      sync?.call();
+      onchip.write8(a, v);
+    } else {
+      ext.write8(a.mask32, v);
+    }
   }
 
   @override
   void write16(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 2, write: true);
-    _on(a) ? onchip.write16(a, v) : ext.write16(a.mask32, v);
+    if (_on(a)) {
+      sync?.call();
+      onchip.write16(a, v);
+    } else {
+      ext.write16(a.mask32, v);
+    }
   }
 
   @override
   void write32(int a, int v) {
+    writes++;
     executionStats?.recordMemory(a.mask32, 4, write: true);
-    _on(a) ? onchip.write32(a, v) : ext.write32(a.mask32, v);
+    if (_on(a)) {
+      sync?.call();
+      onchip.write32(a, v);
+    } else {
+      ext.write32(a.mask32, v);
+    }
   }
 }

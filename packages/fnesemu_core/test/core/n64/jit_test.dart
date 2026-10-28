@@ -689,6 +689,50 @@ void main() {
         }
       });
 
+      test('HI/LO moves and 32-bit multiplies match the CPU', () {
+        const values = [
+          0, 1, -1, 2, 0x7fffffff, 0x80000000, 0xffffffff, 0x12345678, //
+          0x80000001, 0x0000ffff, 0x00010000, 0xdeadbeef,
+        ];
+        for (final overflow in [false, true]) {
+          final code = [
+            _r(1, 2, 0, 24), // MULT
+            _r(0, 0, 3, 18), // MFLO
+            _r(0, 0, 4, 16), // MFHI
+            _r(1, 2, 0, 25), // MULTU
+            _r(0, 0, 5, 18),
+            _r(0, 0, 6, 16),
+            _r(1, 0, 0, 17), // MTHI
+            _r(2, 0, 0, 19), // MTLO
+            _r(0, 0, 7, 16),
+            _r(0, 0, 8, 18),
+            if (overflow) _r(10, 10, 9, 32), // ADD traps before the end
+            _r(1, 2, 0, 24),
+          ];
+          for (final x in values) {
+            for (final y in values) {
+              for (final upper in [0, 0x1234abcd]) {
+                for (final m in [reference, actual]) {
+                  m.load(code);
+                  m.cpu.r[1] = x | upper << 32;
+                  m.cpu.r[2] = y | (upper ^ 0x7fff0001) << 32;
+                  m.cpu.r[10] = 0x40000000;
+                  m.cpu.hi = 0x1111222233334444;
+                  m.cpu.lo = -0x5555666677778888;
+                }
+                actual.run(code.length);
+                reference.run(max(code.length, actual.cpu.clocks));
+                actual.matches(reference,
+                    reason: 'overflow=$overflow $x $y $upper');
+                if (native && !overflow) {
+                  expect(actual.jit!.compiledClocks, code.length);
+                }
+              }
+            }
+          }
+        }
+      });
+
       test('FP helpers preserve special values and live integer operands', () {
         for (final fmt in [16, 17]) {
           for (final value in [

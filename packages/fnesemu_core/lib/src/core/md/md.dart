@@ -159,11 +159,12 @@ class Md extends Core {
       this.expansionBoot = false,
       this.sh2Jit =
           const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
-      this.sh2SliceClocks = 32}) {
+      this.sh2SliceClocks = 64}) {
     if (sh2SliceClocks <= 0) {
       throw RangeError.value(sh2SliceClocks, 'sh2SliceClocks');
     }
     busM68 = BusM68();
+    busM68.pad.source = padPort;
     if (expansionBoot) {
       busM68 =
           Md32xBus(Md32x(jit: sh2Jit, sliceClocks: sh2SliceClocks), busM68);
@@ -460,7 +461,7 @@ class Md extends Core {
     cdrom?.setSram(sram);
   }
 
-  static const _stateVersion = 1;
+  static const _stateVersion = 2;
 
   void _checkStateSupport() {
     if (cdrom != null) {
@@ -560,14 +561,6 @@ class Md extends Core {
     _waitHBlank = false;
     _fmBufferIndex = _psgBufferIndex = 0;
   }
-
-  /// handles pad down/up events
-  @override
-  void padDown(int controllerId, PadButton k) =>
-      busM68.pad.keyDown(controllerId, k);
-  @override
-  void padUp(int controllerId, PadButton k) =>
-      busM68.pad.keyUp(controllerId, k);
 
   @override
   List<PadButton> get buttons => busM68.pad.buttons;

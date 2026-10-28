@@ -1,4 +1,5 @@
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../util/int.dart';
 
 /// GBA keypad. Produces the KEYINPUT register value where a 0 bit = pressed.
@@ -25,33 +26,30 @@ class Pad {
     _btnR, // 9  (keyQ)
   ];
 
-  // KEYINPUT bit position per button name
-  static const _bit = {
-    "A": 0,
-    "B": 1,
-    "Select": 2,
-    "Start": 3,
-    "right": 4,
-    "left": 5,
-    "up": 6,
-    "down": 7,
-    "R": 8,
-    "L": 9,
-  };
+  // KEYINPUT bit position per button
+  static const _bits = [
+    (_btnA, 0),
+    (_btnB, 1),
+    (_btnSelect, 2),
+    (_btnStart, 3),
+    (PadButton.right, 4),
+    (PadButton.left, 5),
+    (PadButton.up, 6),
+    (PadButton.down, 7),
+    (_btnR, 8),
+    (_btnL, 9),
+  ];
 
-  int _pressed = 0; // 1 bit = currently pressed
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
 
   /// KEYINPUT: bits 0..9, 0=pressed. unused high bits read as 0.
-  int get keyInput => (~_pressed).mask10;
-
-  void keyDown(int id, PadButton b) {
-    final n = _bit[b.name];
-    if (n != null) _pressed |= (1 << n);
-  }
-
-  void keyUp(int id, PadButton b) {
-    final n = _bit[b.name];
-    if (n != null) _pressed &= ~(1 << n);
+  int get keyInput {
+    var pressed = 0;
+    for (final (button, bit) in _bits) {
+      if (source.isPressed(0, button)) pressed |= 1 << bit;
+    }
+    return (~pressed).mask10;
   }
 
   List<PadButton> get buttons => buttonList;

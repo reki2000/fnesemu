@@ -18,7 +18,9 @@ class Ws extends Core {
   final bool color;
   final Bus bus;
 
-  Ws({required this.color}) : bus = Bus(color: color);
+  Ws({required this.color}) : bus = Bus(color: color) {
+    bus.pad.source = padPort;
+  }
 
   V30mz get cpu => bus.cpu;
   Display get display => bus.display;
@@ -76,6 +78,7 @@ class Ws extends Core {
     if (cpu.cycles < _nextLineCycles) return _stepContinues;
 
     _nextLineCycles += clocksInLine;
+    _pollPad();
     final elapsed = cpu.cycles - _soundCycles;
     _soundCycles = cpu.cycles;
     bus.runSoundDma(elapsed);
@@ -112,7 +115,8 @@ class Ws extends Core {
 
   /// the console held vertically: the frame is shown turned 90 degrees to
   /// the left, and the directions are turned with it
-  bool vertical = false;
+  bool get vertical => bus.pad.vertical;
+  set vertical(bool value) => bus.pad.vertical = value;
   Uint32List _turned = Uint32List(0);
 
   static const rotate = PadButton("Rotate");
@@ -137,42 +141,19 @@ class Ws extends Core {
     return ImageBuffer(h, w, dst);
   }
 
-  // A rotated display uses the Y group for arrows and the X group for
-  // WASD, with both directions corrected for the display rotation.
-  static PadButton _turn(PadButton k) => switch (k.name) {
-        "up" => Pad.y2,
-        "right" => Pad.y3,
-        "down" => Pad.y4,
-        "left" => Pad.y1,
-        "Y1" => Pad.x2,
-        "Y2" => Pad.x3,
-        "Y3" => Pad.x4,
-        "Y4" => Pad.x1,
-        _ => k,
-      };
+  bool _soundHeld = false;
+  bool _rotateHeld = false;
 
-  // Keep input identities across rotation so held keys can be released
-  // and rebound without sticking to their previous orientation.
-  final _heldKeys = <String, PadButton>{};
-  final _mappedKeys = <String, PadButton>{};
-
-  void _syncPad() {
-    final next = <String, PadButton>{};
-    for (final key in _heldKeys.values) {
-      final mapped = vertical ? _turn(key) : key;
-      next[mapped.name] = mapped;
-    }
-    for (final entry in _mappedKeys.entries) {
-      if (!next.containsKey(entry.key)) bus.pad.keyUp(entry.value);
-    }
-    for (final entry in next.entries) {
-      if (!_mappedKeys.containsKey(entry.key) && bus.pad.keyDown(entry.value)) {
-        bus.interrupt(Bus.intKey);
-      }
-    }
-    _mappedKeys
-      ..clear()
-      ..addAll(next);
+  // Samples the pad once a line: the keys raise the key interrupt when newly
+  // pressed, and the sound and rotate controls act once per press.
+  void _pollPad() {
+    if (bus.pad.poll()) bus.interrupt(Bus.intKey);
+    final sound = padPort.isPressed(0, Pad.sound);
+    if (sound && !_soundHeld) speakerVolume = (speakerVolume + 3) % 4;
+    _soundHeld = sound;
+    final turn = padPort.isPressed(0, rotate);
+    if (turn && !_rotateHeld) vertical = !vertical;
+    _rotateHeld = turn;
   }
 
   @override
@@ -183,37 +164,12 @@ class Ws extends Core {
   @override
   void reset() {
     bus.reset();
-    _heldKeys.clear();
-    _mappedKeys.clear();
     // starts the cartridge at its entry point FFFF:0000
     cpu.s[V30mz.cs] = 0xffff;
     cpu.ip = 0;
     _nextLineCycles = cpu.cycles + clocksInLine;
     _soundCycles = cpu.cycles;
     frames = 0;
-  }
-
-  @override
-  void padDown(int controllerId, PadButton k) {
-    if (controllerId != 0) return;
-    if (k == Pad.sound) {
-      speakerVolume = (speakerVolume + 3) % 4;
-      return;
-    }
-    if (k == rotate) {
-      vertical = !vertical;
-      _syncPad();
-      return;
-    }
-    _heldKeys[k.name] = k;
-    _syncPad();
-  }
-
-  @override
-  void padUp(int controllerId, PadButton k) {
-    if (controllerId != 0 || k == rotate || k == Pad.sound) return;
-    _heldKeys.remove(k.name);
-    _syncPad();
   }
 
   /// the buttons in the order of the keys A S Z X C Q W E R D

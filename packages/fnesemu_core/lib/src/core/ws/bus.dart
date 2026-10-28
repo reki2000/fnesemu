@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../sram.dart';
 import '../../util/int.dart';
 import 'display.dart';
@@ -95,9 +96,16 @@ class Pad {
   static const a = PadButton("A");
   static const b = PadButton("B");
 
-  int _x = 0, _y = 0, _buttons = 0;
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
 
-  void reset() => _x = _y = _buttons = 0;
+  /// the console held vertically: the arrows and the X group are turned with
+  /// the display
+  bool vertical = false;
+
+  int _sampled = 0;
+
+  void reset() => _sampled = 0;
 
   // the X keys are mapped to the directions
   static (int, int) _key(PadButton k) => switch (k.name) {
@@ -115,39 +123,61 @@ class Pad {
         _ => (-1, 0),
       };
 
-  /// returns true when the key is newly pressed
-  bool keyDown(PadButton k) {
-    final (group, bit) = _key(k);
-    final before = _x | _y << 4 | _buttons << 8;
-    switch (group) {
-      case 0:
-        _x |= bit;
-      case 1:
-        _y |= bit;
-      case 2:
-        _buttons |= bit;
+  // A rotated display uses the Y group for arrows and the X group for
+  // WASD, with both directions corrected for the display rotation.
+  static PadButton _turn(PadButton k) => switch (k.name) {
+        "up" => y2,
+        "right" => y3,
+        "down" => y4,
+        "left" => y1,
+        "Y1" => x2,
+        "Y2" => x3,
+        "Y3" => x4,
+        "Y4" => x1,
+        _ => k,
+      };
+
+  static const _keys = [
+    PadButton.up,
+    PadButton.right,
+    PadButton.down,
+    PadButton.left,
+    y1,
+    y2,
+    y3,
+    y4,
+    start,
+    a,
+    b,
+  ];
+
+  // the groups of the held keys: X in bits 3-0, Y in 7-4, buttons in 11-8
+  int _held() {
+    var held = 0;
+    for (final key in _keys) {
+      if (!source.isPressed(0, key)) continue;
+      final (group, bit) = _key(vertical ? _turn(key) : key);
+      held |= bit << group * 4;
     }
-    return before != (_x | _y << 4 | _buttons << 8);
+    return held;
   }
 
-  void keyUp(PadButton k) {
-    final (group, bit) = _key(k);
-    switch (group) {
-      case 0:
-        _x &= ~bit;
-      case 1:
-        _y &= ~bit;
-      case 2:
-        _buttons &= ~bit;
-    }
+  /// samples the keys and returns true when one of them was newly pressed
+  bool poll() {
+    final held = _held();
+    final pressed = held & ~_sampled != 0;
+    _sampled = held;
+    return pressed;
   }
 
   /// the port 0xb5 with the groups selected by the bits 4-6
-  int read(int select) =>
-      select & 0x70 |
-      (select.bit4 ? _y : 0) |
-      (select.bit5 ? _x : 0) |
-      (select.bit6 ? _buttons : 0);
+  int read(int select) {
+    final held = _held();
+    return select & 0x70 |
+        (select.bit4 ? held >> 4 & 0xf : 0) |
+        (select.bit5 ? held & 0xf : 0) |
+        (select.bit6 ? held >> 8 & 0xf : 0);
+  }
 }
 
 /// memory map, I/O ports, interrupts, timers and DMA of the ws core

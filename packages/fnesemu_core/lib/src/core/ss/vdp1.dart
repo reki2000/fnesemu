@@ -8,8 +8,14 @@ part 'vdp1_debug.dart';
 
 /// VDP1: sprite / polygon renderer drawing into double-buffered frame buffers
 class Vdp1 {
-  final vram = Uint8List(0x80000);
-  late final vramData = ByteData.sublistView(vram);
+  Vdp1() : this._(Uint8List(0x80000));
+
+  // the view is built with the buffer, so that reading it needs no
+  // initialization check
+  Vdp1._(this.vram) : vramData = ByteData.sublistView(vram);
+
+  final Uint8List vram;
+  final ByteData vramData;
 
   static const fbWidth = 512;
   static const fbHeight = 256;

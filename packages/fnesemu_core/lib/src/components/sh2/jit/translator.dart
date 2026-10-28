@@ -19,6 +19,14 @@ final class Sh2Translator {
   final int maxInstructions;
   final bool alignMemory;
   final bool stopOnNoStore;
+
+  /// Lets accesses at 0xc0000000 and above reach the runtime pages. The
+  /// runtime mask must keep bit 31 for them to stay apart from the low pages.
+  final bool highMemory;
+
+  /// Whether a store from [at] must end its block, because the code page was
+  /// released from write protection. The next block guards its own words.
+  final bool Function(int at)? endsAfterStore;
   final bool macLong;
   // Enables MAC.W (0x400F) translation. The SS interpreter is the reference.
   final bool macWord;
@@ -32,6 +40,8 @@ final class Sh2Translator {
       this.maxInstructions = 24,
       this.alignMemory = true,
       this.stopOnNoStore = true,
+      this.highMemory = false,
+      this.endsAfterStore,
       this.macLong = false,
       this.macWord = false,
       this.idleGuards = false,
@@ -42,7 +52,7 @@ final class Sh2Translator {
   final values = <int, IrValue>{};
   final _entry = <int, IrValue>{};
   int spent = 0, last = 0;
-  bool _hasHelper = false;
+  bool _hasHelper = false, _stored = false;
   final _guarded = <int>{};
   Map<int, int> _memoryBases = const {};
   final _constants = <int, int>{};
@@ -110,6 +120,7 @@ final class Sh2Translator {
     _constants.clear();
     _guarded.clear();
     _hasHelper = false;
+    var endedByStore = false;
     spent = 0;
     last = 0;
     b = IrBuilder(pc);
@@ -168,16 +179,22 @@ final class Sh2Translator {
         return b.finish(term, cost: spent);
       }
       if (!supports(op) || !guard(at)) break;
+      _stored = false;
       emit(op, at, snapshot(at, spent));
       spent++;
       last = op;
+      final stored = _stored && endsAfterStore?.call(at) == true;
       at = (at + 2) & 0xffffffff;
+      if (stored) {
+        endedByStore = true;
+        break;
+      }
     }
     if (spent == 0) return null;
     flush(destination: c(at));
     // A translation-size boundary is not an unsupported guest instruction.
     return b.finish(
-        count == maxInstructions
+        count == maxInstructions || endedByStore
             ? IrJump(at)
             : IrExitTerm(IrExit(interpret, at)),
         cost: spent);
@@ -273,7 +290,13 @@ final class Sh2Translator {
     }
 
     IrValue address(IrValue value, int size) {
-      b.exitIf(b.ltU(c(0x3fffffff), value), exit);
+      // Biasing by 0x40000000 turns the allowed 0xc0000000..0x3fffffff into
+      // 0..0x7fffffff, one unsigned compare.
+      b.exitIf(
+          highMemory
+              ? b.ltU(c(0x7fffffff), b.add(value, c(0x40000000)))
+              : b.ltU(c(0x3fffffff), value),
+          exit);
       if (!alignMemory && size > 1) {
         b.exitIf(b.and(value, c(size - 1)), exit);
         return value;
@@ -311,6 +334,7 @@ final class Sh2Translator {
     }
 
     void write(IrValue a, IrValue v, int size) {
+      _stored = true;
       b.store(size, address(a, size), v, endian: IrEndian.big, unmapped: exit);
       put(writes, add(get(writes), 1));
     }
@@ -494,10 +518,10 @@ final class Sh2Translator {
       final imm = op & 255;
       if (n < 3) {
         final size = 1 << n;
-        write(add(get(gbr), imm * size), r(0), size);
+        write(add(base(gbr - regs), imm * size), r(0), size);
       } else if (n >= 4 && n <= 6) {
         final size = 1 << (n - 4);
-        setR(0, read(add(get(gbr), imm * size), size));
+        setR(0, read(add(base(gbr - regs), imm * size), size));
       } else if (n == 7) {
         setR(0, c(((at + 4) & ~3) + imm * 4));
       } else if (n == 8) {

@@ -83,7 +83,7 @@ class Ps extends Core {
       : bus = Bus(mem: jit?.ram, rom: jit?.rom, scratchPad: jit?.scratchPad) {
     cpu = R3000(bus, regs: jit?.regs);
     gpu = Gpu(bus);
-    pad = Pad();
+    pad = Pad()..source = padPort;
     memoryCard = MemoryCard();
 
     memoryCard2 = MemoryCard();
@@ -361,10 +361,7 @@ class Ps extends Core {
   List<PadButton> get buttons => pad.buttons;
 
   @override
-  void padDown(int id, PadButton k) => pad.keyDown(id, k);
-
-  @override
-  void padUp(int id, PadButton k) => pad.keyUp(id, k);
+  List<PadAxis> get axes => Pad.axes;
 
   @override
   int programCounter(int _) => cpu.pc;

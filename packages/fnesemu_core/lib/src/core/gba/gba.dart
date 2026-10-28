@@ -44,6 +44,7 @@ class Gba extends Core {
 
   Gba() {
     bus = Bus();
+    bus.pad.source = padPort;
     cpu = Arm7(bus);
     ppu = Ppu(bus);
   }
@@ -224,12 +225,6 @@ class Gba extends Core {
     _inHblank = false;
     _scanline = 0;
   }
-
-  @override
-  void padDown(int controllerId, PadButton k) =>
-      bus.pad.keyDown(controllerId, k);
-  @override
-  void padUp(int controllerId, PadButton k) => bus.pad.keyUp(controllerId, k);
 
   @override
   List<PadButton> get buttons => bus.pad.buttons;

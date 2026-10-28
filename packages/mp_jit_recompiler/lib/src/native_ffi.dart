@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'arm64/backend.dart';
+import 'int_map.dart';
 import 'ir.dart';
 import 'native_env.dart';
 import 'native_memory.dart';
@@ -96,10 +97,10 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   late final int _readFn, _writeFn;
 
   /// installed entries by key
-  final _blocks = <(int, int), int>{};
+  final _blocks = IntMap();
 
   /// the link slots of each target key
-  final _slotsOf = <(int, int), List<int>>{};
+  final _slotsOf = <int, List<int>>{};
   int _slotCount = 0;
 
   @override
@@ -179,8 +180,14 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     return c.nativeFunction.address;
   }
 
+  /// staging area for the bytes of a block, kept for the next install
+  static const _stagingSize = 64 << 10;
+  int _staging = 0;
+
   void _write(int offset, List<int> bytes) {
-    final buffer = _os.alloc(bytes.length);
+    final shared = bytes.length <= _stagingSize;
+    if (shared && _staging == 0) _staging = _alloc(_stagingSize);
+    final buffer = shared ? _staging : _os.alloc(bytes.length);
     if (buffer == 0) throw StateError('cannot allocate code staging buffer');
     try {
       Pointer<Uint8>.fromAddress(
@@ -195,7 +202,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
         throw StateError('cannot publish JIT code');
       }
     } finally {
-      _os.free(buffer, bytes.length);
+      if (!shared) _os.free(buffer, bytes.length);
     }
   }
 
@@ -262,15 +269,27 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   int slotFor(int pc, int tag) {
     if (_slotCount == _maxSlots) throw _Full();
     final s = _slotCount++;
-    (_slotsOf[(pc, tag)] ??= []).add(s);
-    _slotView[s] = _blocks[(pc, tag)] ?? 0;
+    (_slotsOf[jitKey(pc, tag)] ??= []).add(s);
+    final entry = _blocks.get(jitKey(pc, tag));
+    _slotView[s] = entry == IntMap.absent ? 0 : entry;
     return s;
   }
 
   // JitRuntime
 
   @override
-  bool contains(int pc, int tag) => _blocks.containsKey((pc, tag));
+  bool contains(int pc, int tag) => _entryOf(pc, tag) != IntMap.absent;
+
+  /// The entry of the installed block, or [IntMap.absent]. The direct-mapped
+  /// table that the native code searches answers first.
+  int _entryOf(int pc, int tag) {
+    final d = X64Backend.dynIndex(pc, tag) * 2;
+    if (_dynView[d] == (pc | tag << 32)) {
+      final entry = _dynView[d + 1];
+      if (entry != 0) return entry;
+    }
+    return _blocks.get(jitKey(pc, tag));
+  }
 
   @override
   int installBlock(IrBlock block) {
@@ -302,9 +321,9 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     }
     _codeEnd = (at + bytes.length + 15) & ~15;
 
-    final key = (block.pc, block.tag);
+    final key = jitKey(block.pc, block.tag);
     final entry = _code + at;
-    _blocks[key] = entry;
+    _blocks.put(key, entry);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = entry;
     }
@@ -316,8 +335,8 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
 
   @override
   void invalidate(int pc, int tag) {
-    final key = (pc, tag);
-    if (_blocks.remove(key) == null) return;
+    final key = jitKey(pc, tag);
+    if (!_blocks.remove(key)) return;
     compilationStats?.recordInvalidation(pc, tag);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = 0;
@@ -340,8 +359,8 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   @override
   int run(int pc, int tag) {
     _checkAlive();
-    final entry = _blocks[(pc, tag)];
-    if (entry == null) {
+    final entry = _entryOf(pc, tag);
+    if (entry == IntMap.absent) {
       _ctx[JitCtx.exitReason] = JitReason.miss;
       _ctx[JitCtx.exitPc] = pc;
       _ctx[JitCtx.exitTag] = tag;
@@ -381,8 +400,8 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   // A native miss to an installed block refreshes it without compilation.
   void _refreshExitTarget() {
     final pc = exitPc, tag = exitTag;
-    final entry = _blocks[(pc, tag)];
-    if (entry == null) return;
+    final entry = _blocks.get(jitKey(pc, tag));
+    if (entry == IntMap.absent) return;
     final d = X64Backend.dynIndex(pc, tag) * 2;
     _dynView[d] = pc | tag << 32;
     _dynView[d + 1] = entry;

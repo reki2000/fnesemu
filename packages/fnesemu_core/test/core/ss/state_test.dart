@@ -63,7 +63,6 @@ void main() {
       }
       final original = _ss(jit);
       _frames(original, 3);
-      original.padDown(0, original.buttons.first);
       final state = _save(original);
       _frames(original, 3);
 

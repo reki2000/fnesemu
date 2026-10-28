@@ -46,8 +46,15 @@ final class Sh2Jit {
 
   /// Yield short back edges without stores to an adapter's idle detector.
   final bool stopOnNoStore;
+  final bool highMemory;
+
+  /// Releases a code page from write protection after repeated stores to it.
+  final bool releaseCodePages;
   late final regs = Uint32List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.regs * 4, 16);
+  // The registers, SR and GBR, which entries are profiled for stable values.
+  late final _observed = Uint32List.view(
+      rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.regs * 4, 18);
   late final state = Uint32List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + Sh2Translator.sr * 4, 8);
   late Sh2Translator _translator;
@@ -58,7 +65,6 @@ final class Sh2Jit {
       codeWord: (pc) => _fetch(pc),
       codeMemory: _code,
       threshold: compileThreshold,
-      capacity: _profiles.capacity,
       prepareFirst: true,
       maxDispatches: 64,
       continueAfterExit: (reason) =>
@@ -68,8 +74,8 @@ final class Sh2Jit {
               rt.ctx[JitCtx.budget].toSigned(32) > 0)
     ..onObserve = (pc, tag) {
       _profiles
-          .obtain(pc, tag, _fetch(pc), () => JitEntrySamples(16))
-          .observe(profileMemory ? regs : null);
+          .obtain(pc, tag, _fetch(pc), () => JitEntrySamples(18))
+          .observe(profileMemory ? _observed : null);
     }
     ..onInstall = (block) {
       _profiles.remove(block.pc, block.tag);
@@ -78,7 +84,7 @@ final class Sh2Jit {
       _profiles.remove(pc, tag);
     }
     ..onClear = _profiles.clear;
-  final _profiles = JitEntryProfiles<JitEntrySamples>();
+  final _profiles = JitEntryProfiles<JitEntrySamples>(capacity: 1 << 14);
   final _readHelpers = <(bool Function(int, int), int)>[];
   bool _foldHelperLiterals = false;
 
@@ -93,6 +99,8 @@ final class Sh2Jit {
       this.maxInstructions,
       this.alignMemory,
       this.stopOnNoStore,
+      this.highMemory,
+      this.releaseCodePages,
       this.profileMemory,
       this.macLong,
       this.macWord,
@@ -104,11 +112,12 @@ final class Sh2Jit {
       int maxInstructions = 24,
       int addrMask = 0x07ffffff,
       bool alignMemory = true,
-      bool profileMemory = const bool.fromEnvironment('SH2_JIT_PROFILE_MEMORY',
-          defaultValue: true),
+      bool profileMemory = true,
       bool macLong = false,
       bool macWord = false,
       bool idleGuards = false,
+      bool highMemory = false,
+      bool releaseCodePages = false,
       bool stopOnNoStore = true}) {
     final rt = native
         ? JitRuntime.native(
@@ -125,14 +134,12 @@ final class Sh2Jit {
     return Sh2Jit._(
         rt,
         native,
-        compileThreshold ??
-            (native
-                ? const int.fromEnvironment('SH2_JIT_COMPILE_THRESHOLD',
-                    defaultValue: 10)
-                : 1),
+        compileThreshold ?? (native ? 10 : 1),
         maxInstructions,
         alignMemory,
         stopOnNoStore,
+        highMemory,
+        releaseCodePages,
         profileMemory,
         macLong,
         macWord,
@@ -150,6 +157,8 @@ final class Sh2Jit {
         maxInstructions: maxInstructions,
         alignMemory: alignMemory,
         stopOnNoStore: stopOnNoStore,
+        highMemory: highMemory,
+        endsAfterStore: releaseCodePages ? _code.isReleased : null,
         macLong: macLong,
         macWord: macWord,
         idleGuards: idleGuards,
@@ -217,7 +226,11 @@ final class Sh2Jit {
     idleDetected = false;
     if (budget <= 0 || pc.isOdd) return null;
     if (_driver.isFallback(pc, 0)) return null;
+    if (releaseCodePages) rt.ctx[JitCtx.faultAddr] = 0xffffffff;
     final reason = _driver.runBudgeted(pc, 0, budget);
+    if (releaseCodePages && reason == Sh2Translator.interpret) {
+      _code.noteStoreExit(rt.ctx[JitCtx.faultAddr]);
+    }
     if (reason == Sh2Translator.idleDetected) {
       idleDetected = true;
     } else if (reason == Sh2Translator.profileMiss) {
@@ -225,7 +238,7 @@ final class Sh2Jit {
       final at = rt.exitTag;
       _driver.invalidate(at, 0, warm: true);
       _profiles
-          .obtain(at, 0, _fetch(at), () => JitEntrySamples(16))
+          .obtain(at, 0, _fetch(at), () => JitEntrySamples(18))
           .disableSpecialization();
     }
     final elapsed = _driver.lastClocks;
@@ -238,7 +251,8 @@ final class Sh2Jit {
     final constants = <int, int>{};
     // Observations select candidates, never permission to bypass a guard.
     if (profileMemory && profile != null && profile.samples >= 2) {
-      for (var n = 0; n < 16; n++) {
+      for (var n = 0; n < 18; n++) {
+        if (n == 16) continue;
         final value = profile.stableValue(n);
         if (value != null &&
             ((value <= 0x3fffffff &&

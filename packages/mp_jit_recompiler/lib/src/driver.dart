@@ -1,4 +1,5 @@
 import 'code_memory.dart';
+import 'int_map.dart';
 import 'ir.dart';
 import 'runtime.dart';
 
@@ -59,8 +60,8 @@ final class JitDriver {
   void Function(int pc, int tag)? onInvalidate;
   void Function()? onClear;
 
-  final _misses = <(int, int), int>{};
-  final _fallbacks = <(int, int), int>{};
+  final _misses = IntMap();
+  final _fallbacks = IntMap();
 
   JitDriver(
     this.rt, {
@@ -104,8 +105,8 @@ final class JitDriver {
 
   /// Whether (pc, tag) failed to translate with its current code word.
   bool isFallback(int pc, int tag) {
-    final word = _fallbacks[(pc, tag)];
-    final hit = word != null && word == codeWord(pc);
+    final word = _fallbacks.get(jitKey(pc, tag));
+    final hit = word != IntMap.absent && word == codeWord(pc);
     if (hit) rt.compilationStats?.fallbackCacheHits++;
     return hit;
   }
@@ -121,7 +122,9 @@ final class JitDriver {
       dispatch++
     ) {
       final stats = rt.compilationStats;
-      final present = prepareFirst || stats != null ? rt.contains(pc, tag) : false;
+      final present = prepareFirst || stats != null
+          ? rt.contains(pc, tag)
+          : false;
       stats?.recordLookup(present);
       if (prepareFirst && !present) {
         rt.ctx[JitCtx.exitPc] = pc;
@@ -140,7 +143,9 @@ final class JitDriver {
         if (!recompileInvalid && !_hot(pc, tag)) return reason;
       } else if (reason != JitReason.miss) {
         return reason;
-      } else if (prepareFirst) {
+      } else if (prepareFirst || rt.contains(pc, tag)) {
+        // An installed target that the dispatch table lacked is already
+        // refreshed by the runtime, so run it instead of translating it again.
         continue;
       } else if (!_hot(pc, tag)) {
         return reason;
@@ -152,11 +157,12 @@ final class JitDriver {
 
   bool _compile(int pc, int tag) {
     final stats = rt.compilationStats;
-    final block = stats == null ? translate(pc, tag) :
-        stats.measureTranslation(pc, tag, () => translate(pc, tag));
+    final block = stats == null
+        ? translate(pc, tag)
+        : stats.measureTranslation(pc, tag, () => translate(pc, tag));
     if (block == null) {
       final word = codeWord(pc);
-      if (word != null) _fallbacks[(pc, tag)] = word;
+      if (word != null) _fallbacks.put(jitKey(pc, tag), word);
       return false;
     }
     rt.install(block);
@@ -167,19 +173,19 @@ final class JitDriver {
   /// Invalidates a block and its observations. [warm] makes its next miss hot.
   void invalidate(int pc, int tag, {bool warm = false}) {
     rt.invalidate(pc, tag);
-    final key = (pc, tag);
+    final key = jitKey(pc, tag);
     _misses.remove(key);
     _fallbacks.remove(key);
-    if (warm) _misses[key] = threshold - 1;
+    if (warm) _misses.put(key, threshold - 1);
     onInvalidate?.call(pc, tag);
   }
 
   /// Counts a miss of (pc, tag); true once it should be translated.
   bool _hot(int pc, int tag) {
-    final key = (pc, tag);
+    final key = jitKey(pc, tag);
     final word = codeWord(pc);
     if (word == null) return false;
-    if (_fallbacks[key] == word) {
+    if (_fallbacks.get(key) == word) {
       rt.compilationStats?.fallbackCacheHits++;
       return false;
     }
@@ -187,9 +193,10 @@ final class JitDriver {
       clear();
     }
     onObserve?.call(pc, tag);
-    final seen = (_misses[key] ?? 0) + 1;
+    final before = _misses.get(key);
+    final seen = (before == IntMap.absent ? 0 : before) + 1;
     if (seen < threshold) {
-      _misses[key] = seen;
+      _misses.put(key, seen);
       return false;
     }
     _misses.remove(key);
