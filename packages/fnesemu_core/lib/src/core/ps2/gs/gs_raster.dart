@@ -321,20 +321,23 @@ class GsRaster {
     if (!writeColor) return;
     if (_abe && (gs.pabe == 0 || a & 0x80 != 0)) {
       _decodeFrame(fraw);
-      final cs = [r, g, b], cd = [_dr, _dg, _db];
       final coef = _blendC == 0 ? a : (_blendC == 1 ? _da : _fix);
-      for (var i = 0; i < 3; i++) {
-        final pa = _blendA == 0 ? cs[i] : (_blendA == 1 ? cd[i] : 0);
-        final pb = _blendB == 0 ? cs[i] : (_blendB == 1 ? cd[i] : 0);
-        final pd = _blendD == 0 ? cs[i] : (_blendD == 1 ? cd[i] : 0);
-        final v = (((pa - pb) * coef) >> 7) + pd;
-        cs[i] = gs.colclamp != 0 ? _clamp8(v) : v & 0xff;
-      }
-      r = cs[0];
-      g = cs[1];
-      b = cs[2];
+      final clamp = gs.colclamp != 0;
+      r = _blend(r, _dr, coef, clamp);
+      g = _blend(g, _dg, coef, clamp);
+      b = _blend(b, _db, coef, clamp);
     }
     _writeFrame(x, y, fraw, r & 0xff, g & 0xff, b & 0xff, a & 0xff);
+  }
+
+  /// one channel of (A - B) * C >> 7 + D from source [cs] and destination
+  /// [cd]
+  int _blend(int cs, int cd, int coef, bool clamp) {
+    final pa = _blendA == 0 ? cs : (_blendA == 1 ? cd : 0);
+    final pb = _blendB == 0 ? cs : (_blendB == 1 ? cd : 0);
+    final pd = _blendD == 0 ? cs : (_blendD == 1 ? cd : 0);
+    final v = (((pa - pb) * coef) >> 7) + pd;
+    return clamp ? _clamp8(v) : v & 0xff;
   }
 
   bool _alphaPasses(int a) => switch (_atst) {
@@ -411,13 +414,10 @@ class GsRaster {
       _fetch(u0, v0 + 1);
       final r01 = _tr, g01 = _tg, b01 = _tb, a01 = _ta;
       _fetch(u0 + 1, v0 + 1);
-      double mix(int c00, int c10, int c01, int c11) =>
-          (c00 * (1 - fu) + c10 * fu) * (1 - fv) +
-          (c01 * (1 - fu) + c11 * fu) * fv;
-      _tr = mix(r00, r10, r01, _tr).round();
-      _tg = mix(g00, g10, g01, _tg).round();
-      _tb = mix(b00, b10, b01, _tb).round();
-      _ta = mix(a00, a10, a01, _ta).round();
+      _tr = _mix(r00, r10, r01, _tr, fu, fv).round();
+      _tg = _mix(g00, g10, g01, _tg, fu, fv).round();
+      _tb = _mix(b00, b10, b01, _tb, fu, fv).round();
+      _ta = _mix(a00, a10, a01, _ta, fu, fv).round();
     } else {
       _fetch(u.floor(), v.floor());
     }
@@ -442,6 +442,10 @@ class GsRaster {
         _ta = _tcc != 0 ? ta : a;
     }
   }
+
+  static double _mix(
+          int c00, int c10, int c01, int c11, double fu, double fv) =>
+      (c00 * (1 - fu) + c10 * fu) * (1 - fv) + (c01 * (1 - fu) + c11 * fu) * fv;
 
   static int _wrap(int c, int mode, int size, int minv, int maxv) {
     switch (mode) {

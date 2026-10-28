@@ -59,7 +59,56 @@ class GsMemory {
 
   GsMemory() : this._(Uint8List(size));
 
-  GsMemory._(this.bytes) : _view = ByteData.sublistView(bytes);
+  GsMemory._(this.bytes)
+      : _view = ByteData.sublistView(bytes),
+        _page32 = _pageTable(GsPsm.ct32, 64, 32),
+        _pageZ32 = _pageTable(GsPsm.z32, 64, 32),
+        _page16 = _pageTable(GsPsm.ct16, 64, 64),
+        _page16s = _pageTable(GsPsm.ct16s, 64, 64),
+        _pageZ16 = _pageTable(GsPsm.z16, 64, 64),
+        _pageZ16s = _pageTable(GsPsm.z16s, 64, 64),
+        _page8 = _pageTable(GsPsm.t8, 128, 64),
+        _page4 = _pageTable(GsPsm.t4, 128, 128);
+
+  // the unit index inside its page of every pixel of a page, by row
+  final Int32List _page32, _pageZ32, _page16, _page16s, _pageZ16, _pageZ16s;
+  final Int32List _page8, _page4;
+
+  static Int32List _pageTable(int psm, int width, int height) {
+    final table = Int32List(width * height);
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        table[y * width + x] = unitIndex(psm, 0, 1, x, y);
+      }
+    }
+    return table;
+  }
+
+  /// [unitIndex] through the page tables
+  int index(int psm, int bp, int bw, int x, int y) {
+    switch (psm) {
+      case GsPsm.ct16 || GsPsm.ct16s || GsPsm.z16 || GsPsm.z16s:
+        final table = switch (psm) {
+          GsPsm.ct16 => _page16,
+          GsPsm.ct16s => _page16s,
+          GsPsm.z16 => _pageZ16,
+          _ => _pageZ16s,
+        };
+        final page = (y >> 6) * bw + (x >> 6);
+        return (bp * 64 + page * 2048) * 2 + table[(y & 63) << 6 | (x & 63)];
+      case GsPsm.t8:
+        final page = (y >> 6) * ((bw + 1) >> 1) + (x >> 7);
+        return (bp * 64 + page * 2048) * 4 + _page8[(y & 63) << 7 | (x & 127)];
+      case GsPsm.t4:
+        final page = (y >> 7) * ((bw + 1) >> 1) + (x >> 7);
+        return (bp * 64 + page * 2048) * 8 + _page4[(y & 127) << 7 | (x & 127)];
+      default:
+        final page = (y >> 5) * bw + (x >> 6);
+        return bp * 64 +
+            page * 2048 +
+            (_isZ(psm) ? _pageZ32 : _page32)[(y & 31) << 6 | (x & 63)];
+    }
+  }
 
   static const _col32 = [0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15];
   static const _blk32 = [
@@ -173,7 +222,7 @@ class GsMemory {
 
   /// the raw pixel value of the format at (x, y)
   int read(int psm, int bp, int bw, int x, int y) {
-    final i = unitIndex(psm, bp, bw, x, y);
+    final i = index(psm, bp, bw, x, y);
     switch (psm) {
       case GsPsm.ct32 || GsPsm.z32:
         return word(i);
@@ -196,7 +245,7 @@ class GsMemory {
   }
 
   void write(int psm, int bp, int bw, int x, int y, int value) {
-    final i = unitIndex(psm, bp, bw, x, y);
+    final i = index(psm, bp, bw, x, y);
     switch (psm) {
       case GsPsm.ct32 || GsPsm.z32:
         setWord(i, value);

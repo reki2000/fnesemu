@@ -80,4 +80,19 @@ void main() {
     mem.write(GsPsm.ct24, 0, 1, 5, 3, 0xffffff);
     expect(mem.read(GsPsm.ct32, 0, 1, 5, 3), 0x79ffffff);
   });
+
+  test('the page tables give the same index as the layout', () {
+    final mem = GsMemory();
+    for (final psm in [..._pages.keys, GsPsm.ct24, GsPsm.z24, GsPsm.t4hh]) {
+      for (final (bp, bw) in [(0, 1), (37, 3), (512, 10)]) {
+        for (var y = 0; y < 300; y += 7) {
+          for (var x = 0; x < 700; x += 5) {
+            expect(mem.index(psm, bp, bw, x, y),
+                GsMemory.unitIndex(psm, bp, bw, x, y),
+                reason: 'psm $psm bp $bp bw $bw ($x,$y)');
+          }
+        }
+      }
+    }
+  });
 }
