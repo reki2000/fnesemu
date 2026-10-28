@@ -1,4 +1,5 @@
 import '../../../pad_button.dart';
+import '../../../pad_source.dart';
 
 /// A digital pad on port 1. The button word is active low. Button bits and
 /// names follow the PS1 pad so key maps carry over. The bit layout is from
@@ -19,20 +20,18 @@ class Ps2Pad {
     (PadButton("R1"), 11),
   ];
 
-  int value = 0xffff;
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
 
   List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
 
-  void keyDown(int id, PadButton button) => _set(id, button, false);
-
-  void keyUp(int id, PadButton button) => _set(id, button, true);
-
-  void _set(int id, PadButton button, bool released) {
-    if (id != 0) return;
-    for (final (candidate, bit) in _buttons) {
-      if (candidate != button) continue;
-      value = released ? value | (1 << bit) : value & ~(1 << bit);
+  /// the buttons as the 16-bit status word, 0 = pressed
+  int get value {
+    var value = 0xffff;
+    for (final (button, bit) in _buttons) {
+      if (source.isPressed(0, button)) value &= ~(1 << bit);
     }
+    return value;
   }
 
   /// The reply to a poll: 0xff, the digital pad ID, 0x5a, then the buttons.

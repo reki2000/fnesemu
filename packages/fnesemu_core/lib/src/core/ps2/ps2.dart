@@ -115,16 +115,10 @@ class Ps2 extends Core {
   @override
   ImageBuffer imageBuffer() => io.gs.image();
 
-  late final _pad = Ps2Pad();
+  late final _pad = Ps2Pad()..source = padPort;
 
   @override
   List<PadButton> get buttons => _pad.buttons;
-
-  @override
-  void padDown(int controllerId, PadButton k) => _pad.keyDown(controllerId, k);
-
-  @override
-  void padUp(int controllerId, PadButton k) => _pad.keyUp(controllerId, k);
 
   CdromDrive? _drive;
   String? _discId;

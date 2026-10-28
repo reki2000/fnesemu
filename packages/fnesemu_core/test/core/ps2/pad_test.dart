@@ -1,12 +1,14 @@
 import 'package:fnesemu_core/src/core/ps2/iop/sio2.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:test/test.dart';
 
 void main() {
   test('a poll of port 0 returns the pad buttons', () {
-    final sio2 = Sio2();
-    sio2.pad.keyDown(0, PadButton.up);
-    sio2.pad.keyDown(0, const PadButton('x'));
+    final pad = PadState()
+      ..press(0, PadButton.up)
+      ..press(0, const PadButton('x'));
+    final sio2 = Sio2()..pad.source = pad;
     sio2.write(Sio2.base, 4, (5 << 18) | (5 << 8));
     for (final byte in [0x01, 0x42, 0, 0, 0]) {
       sio2.send(byte);
