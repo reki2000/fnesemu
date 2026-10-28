@@ -5,7 +5,8 @@ import '../../../cdrom_drive.dart';
 /// The CDVD drive controller registers as seen by the IOP (0x1f402000..).
 ///
 /// Only the handshake the BIOS polls is modelled: N command status, the S
-/// command interface with a result FIFO, and an empty tray. Register
+/// command interface with a result FIFO (configuration and clock reads answer
+/// with plausible data), and an empty tray. Register
 /// meanings are from memory and unverified. Disc reads are not implemented.
 class Cdvd {
   static const base = 0x1f402000, end = 0x1f402030;
@@ -28,6 +29,7 @@ class Cdvd {
 
   final _results = ListQueue<int>();
   int _lastCommand = 0;
+  int _tick = 0;
 
   static bool handles(int address) => address >= base && address < end;
 
@@ -60,6 +62,21 @@ class Cdvd {
       _results
         ..clear()
         ..add(0); // every S command answers with a zero status byte
+      switch (_lastCommand) {
+        case 0x41: // read configuration block: 15 more bytes
+          _results.addAll(List.filled(15, 0));
+        case 0x08: // read clock: second, minute, hour, pad, day, month, year
+          final second = (_tick++ ~/ 3) % 60;
+          _results.addAll([
+            second ~/ 10 << 4 | second % 10,
+            0x00,
+            0x12,
+            0x00,
+            0x01,
+            0x01,
+            0x24
+          ]);
+      }
     }
   }
 }

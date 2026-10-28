@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../cdrom_drive.dart';
 import '../../core.dart';
+import '../../pad_button.dart';
 import '../../types.dart';
 import '../../util/debug.dart';
 import 'bus.dart';
@@ -11,6 +12,7 @@ import 'intc.dart';
 import 'iop/iop.dart';
 import 'iop/iop_io.dart';
 import 'iop/iop_memory.dart';
+import 'iop/pad.dart';
 import 'r5900/r5900.dart';
 
 final _log = DebugLog('ps2');
@@ -30,7 +32,11 @@ class Ps2 extends Core {
 
   late final IopMemory iopMemory = IopMemory(bus.bios);
   late final Iop iop = Iop(iopMemory);
-  late IopIo iopIo = IopIo(iopMemory, io.sif);
+  late IopIo iopIo = _newIopIo();
+
+  IopIo _newIopIo() => IopIo(iopMemory, io.sif)
+    ..sio2.pad = _pad
+    ..cdvd.drive = _drive;
 
   /// the IOP only runs when a BIOS provides its program
   bool biosLoaded = false;
@@ -103,6 +109,17 @@ class Ps2 extends Core {
   @override
   ImageBuffer imageBuffer() => io.gs.image();
 
+  late final _pad = Ps2Pad();
+
+  @override
+  List<PadButton> get buttons => _pad.buttons;
+
+  @override
+  void padDown(int controllerId, PadButton k) => _pad.keyDown(controllerId, k);
+
+  @override
+  void padUp(int controllerId, PadButton k) => _pad.keyUp(controllerId, k);
+
   CdromDrive? _drive;
 
   @override
@@ -117,8 +134,7 @@ class Ps2 extends Core {
     io = _newIo();
     iop.reset();
     iopMemory.ram.fillRange(0, iopMemory.ram.length, 0);
-    iopIo = IopIo(iopMemory, io.sif);
-    iopIo.cdvd.drive = _drive;
+    iopIo = _newIopIo();
     _iopFraction = 0;
     final start = entry;
     if (start != null) cpu.jumpTo(start);

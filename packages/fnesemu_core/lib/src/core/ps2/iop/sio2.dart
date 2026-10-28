@@ -1,11 +1,13 @@
 import 'dart:collection';
 
+import 'pad.dart';
+
 /// The serial controller for pads and memory cards (SIO2), 0x1f808200..
 ///
 /// A transfer is described by up to 16 port control words (SEND3). Every
-/// word gives the byte counts sent to and received from one port. No device
-/// is connected, so each received byte reads as 0xff. The register layout
-/// is from memory and unverified.
+/// word gives the byte counts sent to and received from one port. Port 0 has
+/// a pad and other ports read as 0xff. The register layout is from memory and
+/// unverified.
 class Sio2 {
   static const base = 0x1f808200, end = 0x1f808300;
 
@@ -17,6 +19,7 @@ class Sio2 {
   final _send2 = List<int>.filled(4, 0);
   final _out = ListQueue<int>();
   final _in = ListQueue<int>();
+  Ps2Pad pad = Ps2Pad();
   int control = 0, stat6c = 0;
   final _regs = <int, int>{};
 
@@ -72,9 +75,16 @@ class Sio2 {
   void _transfer() {
     for (final word in _send3) {
       if (word == 0) break;
+      final port = word & 3;
+      final sent = (word >> 8) & 0x1ff;
       final received = (word >> 18) & 0x1ff;
+      // a pad is selected by the address byte 0x01
+      final isPad = port == 0 && sent > 0 && _out.isNotEmpty && _out.first == 1;
+      for (var i = 0; i < sent && _out.isNotEmpty; i++) {
+        _out.removeFirst();
+      }
       for (var i = 0; i < received; i++) {
-        _in.add(0xff);
+        _in.add(isPad ? pad.reply(i) : 0xff);
       }
     }
     _out.clear();
