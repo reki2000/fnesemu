@@ -7,16 +7,23 @@ import 'r5900/fpu.dart';
 /// registers, micro memory of 64-bit instruction pairs and data memory of
 /// quadwords.
 ///
-/// Every pair executes in one step and a micro program runs to its end when
-/// it is started, without cycle accounting for the FMAC and division
-/// pipelines (so Q, flags and VF results are visible to the next pair).
-/// Upper instructions read their operands before the lower instruction of
-/// the same pair writes.
+/// A micro program runs to its end when it is started. Every pair takes one
+/// cycle. A pair that reads a VF register written by an FMAC or a load
+/// within the last four cycles stalls until the value is ready, as the
+/// hardware interlocks it. DIV and SQRT update Q seven cycles after they
+/// issue and RSQRT thirteen; Q is not interlocked, so the pairs before that
+/// read the old value. The elementary function unit (EFU) updates P in the
+/// same way, after the latency of each function. WAITQ and WAITP, and a new
+/// operation of the same unit, wait for the pending result.
+/// The MAC, status and clip flags are visible to the next pair. Upper
+/// instructions read their operands before the lower instruction of the
+/// same pair writes. Macro mode applies every result at once.
 ///
 /// The encoding of the lower special instructions and the bit positions of
 /// the MAC flag are written from memory of the manuals and are not yet
-/// checked against hardware. Not implemented: the elementary function unit
-/// (ESIN, EATAN, ...), the P register, and the T and D debug bits.
+/// checked against hardware. The EFU computes in double precision and
+/// rounds to the VU format, so its last bit may differ from the hardware
+/// approximations. Not implemented: the T and D debug bits.
 class Vu {
   final int index;
   final int microWords; // 32-bit words of micro memory
@@ -28,7 +35,7 @@ class Vu {
   final Uint16List vi = Uint16List(16);
   final Uint32List acc = Uint32List(4);
 
-  int i = 0, q = 0x3f800000, r = 0x3f800000;
+  int i = 0, q = 0x3f800000, r = 0x3f800000, p = 0;
   int mac = 0, status = 0, clip = 0;
   int pc = 0;
   int cmsar0 = 0;
@@ -49,6 +56,22 @@ class Vu {
 
   int _pending = -1;
   bool _ending = false;
+
+  /// true while a micro program runs, so that Q and VF results are delayed
+  bool _micro = false;
+
+  // the division unit: the value Q takes at cycle [_qReady]
+  bool _qBusy = false;
+  int _qValue = 0, _qReady = 0;
+
+  // the EFU: the value P takes at cycle [_pReady]
+  bool _pBusy = false;
+  int _pValue = 0, _pReady = 0;
+
+  /// the cycle at which each VF register holds its newest value
+  final _vfReady = Int64List(32);
+
+  static const _fmacLatency = 4;
 
   Vu(this.index)
       : microWords = index == 0 ? 1024 : 4096,
@@ -72,6 +95,9 @@ class Vu {
     running = false;
     _pending = -1;
     _ending = false;
+    p = 0;
+    _qBusy = _pBusy = false;
+    _vfReady.fillRange(0, 32, 0);
   }
 
   /// starts the program at pair [address] and runs it to its end
@@ -80,11 +106,15 @@ class Vu {
     running = true;
     _pending = -1;
     _ending = false;
+    _micro = true;
     var n = 0;
     while (running && n++ < maxPairs) {
       step();
     }
     if (running) running = false;
+    _micro = false;
+    _finishDivision();
+    _finishEfu();
     onEnd?.call();
   }
 
@@ -142,6 +172,7 @@ class Vu {
         i = value;
       case 22:
         q = value;
+        _qBusy = false;
       case 27:
         cmsar0 = value & 0xffff;
       case 28:
@@ -184,9 +215,12 @@ class Vu {
     final delayTarget = _pending;
     _pending = -1;
     final wasEnding = _ending;
-    cycles++;
-
     final iBit = highWord >>> 31 != 0;
+    _stall(highWord, iBit ? 0 : lowWord);
+    if (_qBusy && cycles >= _qReady) _finishDivision();
+    if (_pBusy && cycles >= _pReady) _finishEfu();
+    final issued = cycles++;
+
     if (highWord & 0x40000000 != 0) _ending = true;
 
     // the upper instruction reads before the lower one writes
@@ -199,7 +233,10 @@ class Vu {
     } else {
       _lower(lowWord);
     }
-    if (hasWrite) _setVf(upperReg, upperMask, savedResult);
+    if (hasWrite) {
+      _setVf(upperReg, upperMask, savedResult);
+      if (upperReg != 0) _vfReady[upperReg] = issued + _fmacLatency;
+    }
     if (_flagsPending) {
       mac = savedFlags.$1;
       status = savedFlags.$2;
@@ -213,6 +250,144 @@ class Vu {
       pc = (pc + 1) & (microWords ~/ 2 - 1);
     }
     if (wasEnding) running = false;
+  }
+
+  /// Waits for the VF registers that the pair reads, and for Q before a
+  /// WAITQ. The upper fields fs and ft count as read even when an
+  /// instruction ignores them, which only delays such a pair.
+  void _stall(int upper, int lower) {
+    final ready = _vfReady;
+    var t = cycles;
+    final fs = ready[(upper >> 11) & 31], ft = ready[(upper >> 16) & 31];
+    if (fs > t) t = fs;
+    if (ft > t) t = ft;
+    final op = lower >>> 25;
+    if (op == 0x01) {
+      final r = ready[(lower >> 11) & 31]; // SQ
+      if (r > t) t = r;
+    } else if (op == 0x40 && lower & 0x3c == 0x3c) {
+      var readsFs = false, readsFt = false;
+      switch (((lower >> 6) & 31) << 2 | (lower & 3)) {
+        // MOVE, MR32, SQI, SQD, MTIR, RINIT, RXOR
+        case const (0x0c << 2 | 0) ||
+              const (0x0c << 2 | 1) ||
+              const (0x0d << 2 | 1) ||
+              const (0x0d << 2 | 3) ||
+              const (0x0f << 2 | 0) ||
+              const (0x10 << 2 | 2) ||
+              const (0x10 << 2 | 3):
+          readsFs = true;
+        // DIV, RSQRT
+        case const (0x0e << 2 | 0) || const (0x0e << 2 | 2):
+          readsFs = readsFt = true;
+        // SQRT
+        case const (0x0e << 2 | 1):
+          readsFt = true;
+        // WAITQ
+        case const (0x0e << 2 | 3):
+          if (_qBusy && _qReady > t) t = _qReady;
+        // WAITP
+        case const (0x1e << 2 | 3):
+          if (_pBusy && _pReady > t) t = _pReady;
+        // the other EFU operations
+        case >= 0x70: // sub-opcode 0x1c and above
+          readsFs = true;
+      }
+      if (readsFs) {
+        final r = ready[(lower >> 11) & 31];
+        if (r > t) t = r;
+      }
+      if (readsFt) {
+        final r = ready[(lower >> 16) & 31];
+        if (r > t) t = r;
+      }
+    }
+    cycles = t;
+  }
+
+  /// a VF register written by a lower instruction
+  void _loweredVf(int reg) {
+    // VF0 is constant; the lower NOP is a MOVE to it
+    if (reg != 0) _vfReady[reg] = cycles - 1 + _fmacLatency;
+  }
+
+  void _finishDivision() {
+    if (!_qBusy) return;
+    q = _qValue;
+    _qBusy = false;
+  }
+
+  void _finishEfu() {
+    if (!_pBusy) return;
+    p = _pValue;
+    _pBusy = false;
+  }
+
+  /// starts an EFU operation that sets P to [value] after [latency] cycles
+  void _setP(double value, int latency) {
+    final bits = _enc(value);
+    if (!_micro) {
+      p = bits;
+      return;
+    }
+    if (_pBusy) {
+      if (_pReady > cycles) cycles = _pReady;
+      _finishEfu();
+    }
+    _pBusy = true;
+    _pValue = bits;
+    _pReady = cycles - 1 + latency;
+  }
+
+  /// the elementary function unit: [code] is the sub-opcode and column
+  void _efu(int code, int fs, int fsf) {
+    final x = _d(_lane(fs, 0)), y = _d(_lane(fs, 1)), z = _d(_lane(fs, 2));
+    final s = _d(_lane(fs, fsf));
+    final squares = x * x + y * y + z * z;
+    switch (code) {
+      case const (0x1c << 2 | 0): // ESADD
+        _setP(squares, 11);
+      case const (0x1c << 2 | 1): // ERSADD
+        _setP(1 / squares, 18);
+      case const (0x1c << 2 | 2): // ELENG
+        _setP(math.sqrt(squares), 18);
+      case const (0x1c << 2 | 3): // ERLENG
+        _setP(1 / math.sqrt(squares), 24);
+      case const (0x1d << 2 | 0): // EATANxy
+        _setP(math.atan(y / x), 54);
+      case const (0x1d << 2 | 1): // EATANxz
+        _setP(math.atan(z / x), 54);
+      case const (0x1d << 2 | 2): // ESUM
+        _setP(x + y + z + _d(_lane(fs, 3)), 12);
+      case const (0x1e << 2 | 0): // ESQRT
+        _setP(math.sqrt(s.abs()), 12);
+      case const (0x1e << 2 | 1): // ERSQRT
+        _setP(1 / math.sqrt(s.abs()), 18);
+      case const (0x1e << 2 | 2): // ERCPR
+        _setP(1 / s, 12);
+      case const (0x1f << 2 | 0): // ESIN
+        _setP(math.sin(s), 29);
+      case const (0x1f << 2 | 1): // EATAN
+        _setP(math.atan(s), 54);
+      case const (0x1f << 2 | 2): // EEXP
+        _setP(math.exp(-s), 44);
+    }
+  }
+
+  /// starts a division that sets Q to [value] after [latency] cycles
+  void _setQ(int value, int latency) {
+    if (!_micro) {
+      q = value;
+      return;
+    }
+    if (_qBusy) {
+      // a new division waits for the pending one
+      if (_qReady > cycles) cycles = _qReady;
+      _finishDivision();
+    }
+    _qBusy = true;
+    _qValue = value;
+    _qReady = cycles - 1 + latency;
   }
 
   int _upperReg = 0, _upperMask = 0;
@@ -444,6 +619,7 @@ class Vu {
 
   void _loadQuad(int reg, int mask, int addr) {
     if (reg == 0) return;
+    _loweredVf(reg);
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) vf[reg * 4 + c] = data[addr * 4 + c];
     }
@@ -565,6 +741,7 @@ class Vu {
     final fsf = (ir >> 21) & 3, ftf = (ir >> 23) & 3;
     switch ((sub << 2) | col) {
       case const (0x0c << 2 | 0): // MOVE
+        _loweredVf(it);
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) vf[it * 4 + c] = vf[fs * 4 + c];
         }
@@ -576,6 +753,7 @@ class Vu {
       case const (0x0f << 2 | 0): // MTIR
         vi[it & 15] = _lane(fs, fsf) & 0xffff;
       case const (0x0c << 2 | 1): // MR32
+        _loweredVf(it);
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) {
             vf[it * 4 + c] = vf[fs * 4 + (c + 1) % 4];
@@ -606,7 +784,7 @@ class Vu {
         vi[it & 15] = vi[it & 15] - 1;
         _storeQuad(fs, mask, vi[it & 15] & (dataQuads - 1));
       case const (0x0e << 2 | 3): // WAITQ
-        break;
+        break; // [_stall] waited for Q
       case const (0x0f << 2 | 3): // ISWR
         final base = (vi[isIdx] & (dataQuads - 1)) * 4;
         for (var c = 0; c < 4; c++) {
@@ -621,8 +799,12 @@ class Vu {
         r = 0x3f800000 | (_lane(fs, fsf) & 0x7fffff);
       case const (0x10 << 2 | 3): // RXOR
         r = 0x3f800000 | ((r ^ _lane(fs, fsf)) & 0x7fffff);
-      case const (0x19 << 2 | 2): // MFP (the P register is not implemented)
-        _writeScalarVf(it, mask, 0);
+      case const (0x19 << 2 | 0): // MFP
+        _writeScalarVf(it, mask, p);
+      case const (0x1e << 2 | 3): // WAITP
+        break; // [_stall] waited for P
+      case >= 0x70: // sub-opcode 0x1c and above
+        _efu((sub << 2) | col, fs, fsf);
       case const (0x1a << 2 | 0): // XTOP
         vi[it & 15] = top();
       case const (0x1a << 2 | 1): // XITOP
@@ -634,6 +816,7 @@ class Vu {
 
   void _writeScalarVf(int reg, int mask, int value) {
     if (reg == 0) return;
+    _loweredVf(reg);
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) vf[reg * 4 + c] = value;
     }
@@ -649,16 +832,16 @@ class Vu {
     status &= ~0x30;
     if (b == 0.0) {
       status |= a == 0.0 ? 0x10 : 0x20;
-      q = (R5900Fpu.encodeSign(a, b)) | 0x7fffffff;
+      _setQ(R5900Fpu.encodeSign(a, b) | 0x7fffffff, 7);
       return;
     }
-    q = _enc(a / b);
+    _setQ(_enc(a / b), 7);
   }
 
   void _sqrt(double b) {
     status &= ~0x30;
     if (b < 0) status |= 0x10;
-    q = _enc(math.sqrt(b.abs()));
+    _setQ(_enc(math.sqrt(b.abs())), 7);
   }
 
   void _rsqrt(double a, double b) {
@@ -667,9 +850,9 @@ class Vu {
     final root = math.sqrt(b.abs());
     if (root == 0.0) {
       status |= a == 0.0 ? 0x10 : 0x20;
-      q = (a.isNegative ? 0x80000000 : 0) | 0x7fffffff;
+      _setQ((a.isNegative ? 0x80000000 : 0) | 0x7fffffff, 13);
       return;
     }
-    q = _enc(a / root);
+    _setQ(_enc(a / root), 13);
   }
 }

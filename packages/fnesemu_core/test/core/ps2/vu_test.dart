@@ -188,10 +188,10 @@ void main() {
     expect(vu.vf[19], 0x7fffffff);
   });
 
-  test('Q register: DIV then MULq', () {
+  test('Q register: DIV then WAITQ and MULq', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
-      (_lowerNop, _upperNop),
+      (_loSpecial(0xe, 3), _upperNop), // WAITQ
       (_lowerNop, _up(0x1c, _xyzw, 3, 1, 0)), // MULq vf3 = vf1 * q
       _endPair,
       _end,
@@ -201,6 +201,41 @@ void main() {
     vu.start(0);
     expect(_val(vu.q), 3);
     expect(_getVf(vu, 3), [18, 6, 9, 12]);
+  });
+
+  test('Q keeps its old value until the division finishes', () {
+    final vu = _vu([
+      (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
+      (_lowerNop, _up(0x1c, _x, 3, 1, 0)), // MULq, 1 cycle later: old Q
+      (_lowerNop, _upperNop),
+      (_lowerNop, _upperNop),
+      (_lowerNop, _upperNop),
+      (_lowerNop, _upperNop),
+      (_lowerNop, _upperNop),
+      (_lowerNop, _up(0x1c, _x, 4, 1, 0)), // MULq, 7 cycles later: new Q
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [6, 2, 3, 4]);
+    _setVf(vu, 2, [0, 2, 0, 0]);
+    vu.writeControl(22, _bits(10));
+    vu.start(0);
+    expect(_val(vu.vf[12]), 60);
+    expect(_val(vu.vf[16]), 18);
+  });
+
+  test('a pair waits for the FMAC result it reads', () {
+    final vu = _vu([
+      (_lowerNop, _up(0x28, _xyzw, 3, 1, 1)), // ADD vf3 = vf1 + vf1
+      (_lowerNop, _up(0x28, _xyzw, 4, 3, 3)), // ADD vf4 = vf3 + vf3
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [1, 2, 3, 4]);
+    vu.start(0);
+    expect(_getVf(vu, 4), [4, 8, 12, 16]);
+    // the second ADD waits three cycles for vf3
+    expect(vu.cycles, 4 + 3);
   });
 
   test('division by zero clamps Q and sets the D flag', () {
@@ -219,7 +254,7 @@ void main() {
   test('SQRT and RSQRT', () {
     final vu = _vu([
       (_loSpecial(0xe, 1, it: 1, ftf: 0), _upperNop), // SQRT q, vf1.x
-      (_lowerNop, _upperNop),
+      (_loSpecial(0xe, 3), _upperNop), // WAITQ
       (_lowerNop, _up(0x1c, _x, 3, 2, 0)), // MULq vf3.x = vf2.x * q
       _endPair,
       _end,
@@ -229,6 +264,24 @@ void main() {
     vu.start(0);
     expect(_val(vu.q), 4);
     expect(_val(vu.vf[12]), 20);
+  });
+
+  test('ERCPR sets P after its latency and MFP reads it', () {
+    final vu = _vu([
+      (_loSpecial(0x1e, 2, fs: 1, fsf: 3), _upperNop), // ERCPR P, vf1.w
+      (_loSpecial(0x19, 0, dest: _x, it: 2), _upperNop), // MFP vf2.x: old P
+      (_loSpecial(0x1e, 3), _upperNop), // WAITP
+      (_loSpecial(0x19, 0, dest: _y, it: 2), _upperNop), // MFP vf2.y
+      (_loSpecial(0x1c, 0, fs: 3), _upperNop), // ESADD P = |vf3|^2
+      (_loSpecial(0x1e, 3), _upperNop), // WAITP
+      (_loSpecial(0x19, 0, dest: _z, it: 2), _upperNop), // MFP vf2.z
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [0, 0, 0, 4]);
+    _setVf(vu, 3, [1, 2, 3, 9]);
+    vu.start(0);
+    expect(_getVf(vu, 2).sublist(0, 3), [0, 0.25, 14]);
   });
 
   test('the I bit loads a float into I for MULi', () {
