@@ -2,6 +2,7 @@ import '../sif.dart';
 import 'cdvd.dart';
 import 'iop_memory.dart';
 import 'sio2.dart';
+import 'spu2.dart';
 
 /// IOP interrupt numbers
 class IopIrq {
@@ -33,6 +34,7 @@ class IopIo implements IopPort {
   final Sif sif;
   final cdvd = Cdvd();
   final sio2 = Sio2();
+  final spu2 = Spu2();
 
   int stat = 0, mask = 0, ctrl = 0;
   final channels = List.generate(_channelCount, (_) => IopDmaChannel());
@@ -62,6 +64,9 @@ class IopIo implements IopPort {
       raise(IopIrq.sio2);
     };
     cdvd.onInterrupt = () => raise(IopIrq.cdvd);
+    spu2.onInterrupt = () => raise(IopIrq.spu2);
+    dmaHandlers[4] = (c) => _spu2Dma(0, c);
+    dmaHandlers[7] = (c) => _spu2Dma(1, c);
     dmaHandlers[3] = _cdvdIn;
     dmaHandlers[11] = _sio2In;
     dmaHandlers[12] = _sio2Out;
@@ -85,6 +90,7 @@ class IopIo implements IopPort {
     }
     if (Cdvd.handles(address)) return cdvd.read(address);
     if (Sio2.handles(address)) return sio2.read(address, size);
+    if (Spu2.handles(address)) return spu2.read(address, size);
     switch (address) {
       case 0x1f801070:
         return stat;
@@ -117,9 +123,6 @@ class IopIo implements IopPort {
     }
     final t = _timerOf(address);
     if (t >= 0) return _timerRead(t, address & 0xf);
-    // SPU2: STATX of both cores reports ready (bit 7); other registers read
-    // back as written
-    if (address == 0x1f900344 || address == 0x1f900744) return 0x80;
     var v = 0;
     for (var i = size - 1; i >= 0; i--) {
       v = (v << 8) | (_backing[address + i] ?? 0);
@@ -139,6 +142,10 @@ class IopIo implements IopPort {
     }
     if (Sio2.handles(address)) {
       sio2.write(address, size, value);
+      return;
+    }
+    if (Spu2.handles(address)) {
+      spu2.write(address, size, value);
       return;
     }
     switch (address) {
@@ -379,6 +386,39 @@ class IopIo implements IopPort {
     return true;
   }
 
+  final _spu2Left = [-1, -1]; // halfwords left in an AutoDMA transfer
+
+  /// SPU2 DMA: channel 4 serves core 0 and channel 7 core 1. CHCR bit 0 set
+  /// writes to the SPU2. With AutoDMA the blocks of 512 halfwords go to the
+  /// input buffer as fast as the core plays them.
+  bool _spu2Dma(int core, IopDmaChannel c) {
+    if (c.chcr & 1 == 0) {
+      for (var i = 0; i < _words(c) * 2; i++) {
+        memory.write16(c.madr, spu2.readTransfer(core));
+        c.madr += 2;
+      }
+      return true;
+    }
+    if (!spu2.autoDma(core)) {
+      for (var i = 0; i < _words(c) * 2; i++) {
+        spu2.writeTransfer(core, memory.read16(c.madr));
+        c.madr += 2;
+      }
+      return true;
+    }
+    if (_spu2Left[core] < 0) _spu2Left[core] = _words(c) * 2;
+    while (_spu2Left[core] >= 512 && spu2.admaWants(core)) {
+      spu2.admaBlock(core, [
+        for (var i = 0; i < 512; i++) memory.read16(c.madr + i * 2),
+      ]);
+      c.madr += 1024;
+      _spu2Left[core] -= 512;
+    }
+    if (_spu2Left[core] >= 512) return false;
+    _spu2Left[core] = -1;
+    return true;
+  }
+
   // ---- timers ----
 
   static const _timerBases = [
@@ -446,6 +486,7 @@ class IopIo implements IopPort {
   /// count the dot clock, which is not modelled and counts system clocks.
   void advanceTimers(int clocks) {
     cdvd.advance(clocks);
+    spu2.advance(clocks);
     _pendingClocks += clocks;
     if (_pendingClocks >= _quietClocks) _flushTimers();
   }

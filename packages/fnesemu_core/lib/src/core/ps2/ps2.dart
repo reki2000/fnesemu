@@ -15,6 +15,7 @@ import 'iop/iop.dart';
 import 'iop/iop_io.dart';
 import 'iop/iop_memory.dart';
 import 'iop/pad.dart';
+import 'iop/spu2.dart';
 import 'iso9660.dart';
 import 'jit/ps2_jit.dart';
 import 'r5900/r5900.dart';
@@ -70,10 +71,17 @@ class Ps2 extends Core {
     final iopIo = IopIo(iopMemory, io.sif)
       ..sio2.pad = _pad
       ..cdvd.drive = _drive
-      ..cdvd.discId = _discId;
+      ..cdvd.discId = _discId
+      ..spu2.onAudio =
+          (samples) => _onAudio(AudioBuffer(Spu2.sampleHz, 2, samples));
     io.cdvd = iopIo.cdvd;
     return iopIo;
   }
+
+  void Function(AudioBuffer) _onAudio = (_) {};
+
+  @override
+  void onAudio(void Function(AudioBuffer) onAudio) => _onAudio = onAudio;
 
   /// the IOP only runs when a BIOS provides its program
   bool biosLoaded = false;
