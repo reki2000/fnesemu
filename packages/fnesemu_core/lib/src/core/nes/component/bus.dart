@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../pad_source.dart';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../mapper/mapper.dart';
@@ -20,7 +21,9 @@ class Bus {
   Mapper mapper = MapperFactory.of(0)
     ..setRom(Uint8List(0x4000), Uint8List(0x4000));
 
-  final joypad = Joypad();
+  final Joypad joypad;
+
+  Bus([PadSource pad = const NoPadSource()]) : joypad = Joypad(pad);
 
   final vram = List<int>.filled(1024 * 2, 0);
 

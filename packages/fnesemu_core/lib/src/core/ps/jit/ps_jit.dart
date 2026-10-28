@@ -47,9 +47,6 @@ final class PsJit {
   /// translated code, which the interpreter runs
   static const reasonStore = JitReason.user + 1;
 
-  /// stores to a code page after which it is no longer protected
-  static const _maxCodeStores = 16;
-
   late final Uint8List ram = rt.alloc(2 * 1024 * 1024);
   late final Uint8List rom = rt.alloc(512 * 1024);
 
@@ -61,7 +58,6 @@ final class PsJit {
   /// RAM pages with translated code, whose writes leave the blocks; a page
   /// which blocks keep writing is released, see [JitCodeMemory.release]
   late final _code = JitCodeMemory(rt);
-  final _codeStores = <int, int>{};
   (int, int) _translating = (0, 0);
 
   /// blocks are translated once they would have run this often; until
@@ -240,7 +236,6 @@ final class PsJit {
   /// drops every block, after the rom or the whole memory changes
   void reset() {
     _driver.reset();
-    _codeStores.clear();
   }
 
   /// frees the runtime with the memory; nothing runs afterwards
@@ -287,15 +282,7 @@ final class PsJit {
       cpu.lo = ctx[ctxLo];
 
       if (reason == reasonStore) {
-        final address = ctx[JitCtx.faultAddr];
-        final offset = address & 0x1fffffff;
-        final page = offset & (ram.length - rt.pageBytes);
-        if (offset < 0x800000 &&
-            _code.isProtected(address) &&
-            (_codeStores[page] = (_codeStores[page] ?? 0) + 1) >=
-                _maxCodeStores) {
-          _code.release(address);
-        }
+        _code.noteStoreExit(ctx[JitCtx.faultAddr]);
       }
       if (reason == JitReason.miss) {
         _interpretBlock();

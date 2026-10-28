@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'cdrom_drive.dart';
 import 'core_debug.dart';
 import 'pad_button.dart';
+import 'pad_source.dart';
 import 'sram.dart';
 import 'types.dart';
 import 'video_debug.dart';
@@ -69,18 +70,22 @@ class Core extends CoreDebug {
   /// Restores a state from [saveState]; throws a StateMismatch for another
   /// core, media or format version. Callbacks, media and configuration of
   /// this instance are kept.
-  void loadState(Uint8List state) =>
-      throw UnsupportedError('Core.loadState');
+  void loadState(Uint8List state) => throw UnsupportedError('Core.loadState');
 
   /// handles reset button events
   void reset() => throw UnimplementedError('Core.reset');
 
-  /// handles pad down/up events
-  void padDown(int controllerId, PadButton k) {}
-  void padUp(int controllerId, PadButton k) {}
+  /// the controllers of the core are read through this port
+  final padPort = PadPort();
+
+  /// sets where the core reads the controllers from
+  set input(PadSource source) => padPort.source = source;
 
   /// returns list of buttons
   List<PadButton> get buttons => const [];
+
+  /// returns list of analog axes, empty for a core without analog input
+  List<PadAxis> get axes => const [];
 
   // loads an rom file.
   // throws exception if the mapper type of the rom file is not supported.

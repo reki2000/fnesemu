@@ -55,11 +55,14 @@ class _MapCfg {
 class Vdp2 {
   late Vdp1 vdp1;
 
-  final vram = Uint8List(0x80000);
-  late final vramData = ByteData.sublistView(vram);
-
-  final cram = Uint8List(0x1000);
-  late final cramData = ByteData.sublistView(cram);
+  Vdp2() : this._(Uint8List(0x80000), Uint8List(0x1000));
+  Vdp2._(this.vram, this.cram)
+      : vramData = ByteData.sublistView(vram),
+        cramData = ByteData.sublistView(cram);
+  final Uint8List vram;
+  final ByteData vramData;
+  final Uint8List cram;
+  final ByteData cramData;
 
   final regs = Uint16List(0x100);
 
@@ -581,7 +584,9 @@ class Vdp2 {
   void _setupCell(_MapCfg cfg, int x, int y) {
     final planeW = cfg.planeDotsW;
     final planeH = cfg.planeDotsH;
-    final plane = (y ~/ planeH) * cfg.mapW + (x ~/ planeW);
+    // a plane is 1 or 2 pages of 512 dots on each axis, so the divisions
+    // are shifts of the non-negative coordinates
+    final plane = (y >> (8 + cfg.planeH)) * cfg.mapW + (x >> (8 + cfg.planeW));
     final px = x & (planeW - 1);
     final py = y & (planeH - 1);
     final page = py.shr9 * cfg.planeW + px.shr9;

@@ -6,6 +6,7 @@ import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/fpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
@@ -110,23 +111,54 @@ void main() {
   test('SI delivers controller buttons and analog stick through PIF packets',
       () {
     final b = N64Bus()..reset();
-    b.pad(0, const PadButton('A'), true);
-    b.pad(0, PadButton.left, true);
-    b.pad(0, PadButton.up, true);
+    final state = PadState()
+      ..press(0, const PadButton('A'))
+      ..press(0, PadButton.left)
+      ..setAxis(0, PadAxis.leftX, -1)
+      ..setAxis(0, PadAxis.leftY, -1);
+    b.pad = state;
     b.ram.setRange(0x100, 0x109, [1, 4, 1, 0, 0, 0, 0, 0xfe, 0]);
     b.ram[0x13f] = 1;
     b.write(0xa4800000, 0x100, 4);
     b.write(0xa4800010, 0x1fc007c0, 4);
     b.write(0xa4800000, 0x200, 4);
     b.write(0xa4800004, 0x1fc007c0, 4);
-    expect(b.ram.sublist(0x203, 0x207), [0x80, 0, 176, 80]);
-    b.pad(0, const PadButton('A'), false);
-    b.pad(0, PadButton.left, false);
+    expect(b.ram.sublist(0x203, 0x207), [0x82, 0, 176, 80]);
+    state
+      ..release(0, const PadButton('A'))
+      ..release(0, PadButton.left)
+      ..setAxis(0, PadAxis.leftX, 0)
+      ..setAxis(0, PadAxis.leftY, 0.5);
     b.write(0xa4800004, 0x1fc007c0, 4);
-    expect(b.ram.sublist(0x203, 0x207), [0, 0, 0, 80]);
+    expect(b.ram.sublist(0x203, 0x207), [0, 0, 0, 216]);
     expect(b.mi[2] & 2, 2);
     b.write(0xa4800018, 0, 4);
     expect(b.mi[2] & 2, 0);
+  });
+  test('either stick drives the analog stick and the left one wins', () {
+    final b = N64Bus()..reset();
+    final state = PadState();
+    b.pad = state;
+    List<int> stick() {
+      b.ram.setRange(0x100, 0x109, [1, 4, 1, 0, 0, 0, 0, 0xfe, 0]);
+      b.ram[0x13f] = 1;
+      b.write(0xa4800000, 0x100, 4);
+      b.write(0xa4800010, 0x1fc007c0, 4);
+      b.write(0xa4800000, 0x200, 4);
+      b.write(0xa4800004, 0x1fc007c0, 4);
+      return b.ram.sublist(0x205, 0x207);
+    }
+
+    state.setAxis(0, PadAxis.rightX, 1);
+    expect(stick(), [80, 0]);
+    state
+      ..setAxis(0, PadAxis.leftX, -0.5)
+      ..setAxis(0, PadAxis.leftY, -1);
+    expect(stick(), [216, 80]);
+    state
+      ..setAxis(0, PadAxis.leftX, 0)
+      ..setAxis(0, PadAxis.leftY, 0);
+    expect(stick(), [80, 0]);
   });
   test('EEPROM write/read uses persistent Sram, independently of reset', () {
     final b = N64Bus()..reset();
@@ -232,8 +264,8 @@ void main() {
         g.width = g.scRight = g.scBottom = 4;
         g.colorImage = 0x1000;
         g.colorSize = size;
-        g.scale = [2, 2, 1];
-        g.translate = [2, 2, 1];
+        g.scale = Vec3(2, 2, 1);
+        g.translate = Vec3(2, 2, 1);
         g.geometry = 1;
         // AA_ZB_TEX_EDGE: depth compare/update and alpha-derived coverage.
         g.otherLow = 0x00003078;
@@ -250,9 +282,9 @@ void main() {
               (7 << 12) |
               ((textured ? 7 : 6) << 9);
           g.triangle(
-              N64Vertex([-1, -1, z, 1], [255, 0, 0, 255], 0, 0),
-              N64Vertex([1, -1, z, 1], [255, 0, 0, 255], 4, 0),
-              N64Vertex([-1, 1, z, 1], [255, 0, 0, 255], 0, 0));
+              N64Vertex(Vec4(-1, -1, z, 1), Rgba(255, 0, 0, 255), 0, 0),
+              N64Vertex(Vec4(1, -1, z, 1), Rgba(255, 0, 0, 255), 4, 0),
+              N64Vertex(Vec4(-1, 1, z, 1), Rgba(255, 0, 0, 255), 0, 0));
         }
 
         if (reverse) draw(0.5, false);
@@ -280,29 +312,30 @@ void main() {
     g.tmem[0] = 0x10; // index 1 in the high nibble, index 0 in the low one
     g.tmem.setRange(2048 + 8, 2048 + 10, [0x80, 0x40]);
     g.otherHigh = 3 << 14;
-    expect(g.texel(0, 0, 0), [128, 128, 128, 64]);
+    final t = g.texel(0, 0, 0);
+    expect([t.r, t.g, t.b, t.a], [128, 128, 128, 64]);
     g.otherHigh = 0;
-    expect(g.texel(0, 0, 0)[3], 0);
+    expect(g.texel(0, 0, 0).a, 0);
   });
 
   test('decal depth mode passes only near the stored depth', () {
     final b = N64Bus()..reset(), g = N64Graphics(b);
     g.width = g.scRight = g.scBottom = 4;
     g.colorImage = 0x1000;
-    g.scale = [2, 2, 1];
-    g.translate = [2, 2, 1];
+    g.scale = Vec3(2, 2, 1);
+    g.translate = Vec3(2, 2, 1);
     g.geometry = 1;
     g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
-    void draw(double z, List<double> color) => g.triangle(
-        N64Vertex([-1, -1, z, 1], color, 0, 0),
-        N64Vertex([1, -1, z, 1], color, 0, 0),
-        N64Vertex([-1, 1, z, 1], color, 0, 0));
+    void draw(double z, Rgba color) => g.triangle(
+        N64Vertex(Vec4(-1, -1, z, 1), color, 0, 0),
+        N64Vertex(Vec4(1, -1, z, 1), color, 0, 0),
+        N64Vertex(Vec4(-1, 1, z, 1), color, 0, 0));
     g.otherLow = 0x00003078 | 0x10; // opaque, compare and update
-    draw(0, [255, 0, 0, 255]);
+    draw(0, Rgba(255, 0, 0, 255));
     g.otherLow = 0x00000c10; // decal, compare only
-    draw(0.5, [0, 255, 0, 255]); // within tolerance: drawn
+    draw(0.5, Rgba(0, 255, 0, 255)); // within tolerance: drawn
     expect(b.ramRead(0x1000 + (2 * 4 + 1) * 2, 2), 0x07c1);
-    draw(100, [0, 0, 255, 255]); // far behind: rejected
+    draw(100, Rgba(0, 0, 255, 255)); // far behind: rejected
     expect(b.ramRead(0x1000 + (2 * 4 + 1) * 2, 2), 0x07c1);
   });
 
@@ -311,13 +344,13 @@ void main() {
     g.width = 4;
     g.colorImage = 0x1000;
     g.scRight = g.scBottom = 4;
-    g.scale = [2, 2, 1];
-    g.translate = [2, 2, 1];
+    g.scale = Vec3(2, 2, 1);
+    g.translate = Vec3(2, 2, 1);
     g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
     g.triangle(
-        const N64Vertex([-1, -1, 0, 1], [255, 0, 0, 255], 0, 0),
-        const N64Vertex([1, -1, 0, 1], [255, 0, 0, 255], 0, 0),
-        const N64Vertex([0, 1, 0, 1], [255, 0, 0, 255], 0, 0));
+        N64Vertex(Vec4(-1, -1, 0, 1), Rgba(255, 0, 0, 255), 0, 0),
+        N64Vertex(Vec4(1, -1, 0, 1), Rgba(255, 0, 0, 255), 0, 0),
+        N64Vertex(Vec4(0, 1, 0, 1), Rgba(255, 0, 0, 255), 0, 0));
     expect(b.ramRead(0x1000, 2), 0);
     expect(b.ramRead(0x1000 + (1 * 4 + 1) * 2, 2), 0xf801);
   });

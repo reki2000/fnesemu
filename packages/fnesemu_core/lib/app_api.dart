@@ -9,6 +9,7 @@ export 'src/core.dart';
 export 'src/core_debug.dart';
 export 'src/core_module.dart' show BiosFile, BiosSetup, BiosUpdates, CoreSystem;
 export 'src/pad_button.dart';
+export 'src/pad_source.dart';
 export 'src/sram.dart';
 export 'src/types.dart';
 export 'src/util/debug.dart'

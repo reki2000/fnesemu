@@ -26,6 +26,11 @@ typedef JitWrite = void Function(int addr, int size, int value);
 typedef JitNativeExit = void Function(int entryPc, int exitPc, int reason,
     int budget, int cycles, int stop, int? faultAddress);
 
+/// The map key of a block entry. The pc and the tag are 32-bit context words.
+/// An int key avoids allocating and hashing a record on every dispatch.
+@pragma('vm:prefer-inline')
+int jitKey(int pc, int tag) => tag << 32 | pc & 0xffffffff;
+
 /// Runs [IrBlock]s on guest state shared with the host.
 ///
 /// The host owns the guest state through views returned by [ctx] and

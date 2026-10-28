@@ -3,11 +3,12 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// Each GPR is one i64 SSA value; word results are truncated and
 /// sign-extended explicitly.
 final class Vr4300Translator {
-  static const defaultMaxInstructions =
-      int.fromEnvironment('N64_JIT_BLOCK_SIZE', defaultValue: 24);
+  static const defaultMaxInstructions = 24;
   static const ctxRegs = JitCtx.user;
   static const interpret = JitReason.user;
-  static const ctxFpu = ctxRegs + 64;
+  static const ctxHi = ctxRegs + 64;
+  static const ctxLo = ctxRegs + 66;
+  static const ctxFpu = ctxRegs + 68;
   static const ctxFpuControl = ctxFpu + 64;
   final int? fpuHelper;
   final bool cop1;
@@ -24,6 +25,8 @@ final class Vr4300Translator {
   final _lowRegs = List<IrValue?>.filled(32, null);
   final _wideRegs = List<IrValue?>.filled(32, null);
   final _dirty = <int>{};
+  IrValue? _hi, _lo;
+  bool _hiDirty = false, _loDirty = false;
 
   Vr4300Translator(
       {required this.fetch,
@@ -61,12 +64,28 @@ final class Vr4300Translator {
   IrExit _snapshot(int pc, int spent,
           {int reason = interpret, bool link = false}) =>
       IrExit(reason, pc, tag: _tag, spent: spent, link: link, stores: [
-        for (final r in _dirty) (ctxRegs + r * 2, _wideRegs[r]!)
+        for (final r in _dirty) (ctxRegs + r * 2, _wideRegs[r]!),
+        if (_hiDirty) (ctxHi, _hi!),
+        if (_loDirty) (ctxLo, _lo!),
       ]);
   void _flush() {
     for (final r in _dirty) {
       b.ctxStore(ctxRegs + r * 2, _wideRegs[r]!);
     }
+    if (_hiDirty) b.ctxStore(ctxHi, _hi!);
+    if (_loDirty) b.ctxStore(ctxLo, _lo!);
+  }
+
+  IrValue _getHi() => _hi ??= b.ctxLoad(ctxHi, type: IrType.i64);
+  IrValue _getLo() => _lo ??= b.ctxLoad(ctxLo, type: IrType.i64);
+  void _putHi(IrValue value) {
+    _hi = value;
+    _hiDirty = true;
+  }
+
+  void _putLo(IrValue value) {
+    _lo = value;
+    _loDirty = true;
   }
 
   bool _memory(int op) => const [
@@ -118,6 +137,12 @@ final class Vr4300Translator {
         6,
         7,
         15,
+        16,
+        17,
+        18,
+        19,
+        24,
+        25,
         32,
         33,
         34,
@@ -268,6 +293,8 @@ final class Vr4300Translator {
     b = IrBuilder(pc, tag: tag);
     _resetRegisters();
     _dirty.clear();
+    _hi = _lo = null;
+    _hiDirty = _loDirty = false;
     var spent = 0, at = pc;
     final visited = <int>{};
     IrBlock? end() => spent == 0
@@ -388,6 +415,23 @@ final class Vr4300Translator {
           _word(d, b.shrU(_low(t), _low(s)));
         case 7:
           _word(d, b.shrS(_low(t), _low(s)));
+        case 16:
+          _put64(d, _getHi());
+        case 17:
+          _putHi(_get64(s));
+        case 18:
+          _put64(d, _getLo());
+        case 19:
+          _putLo(_get64(s));
+        case 24 || 25:
+          // The 32-bit operands are extended, so the low 64 bits of the
+          // product are exact.
+          final unsigned = fn == 25;
+          final x = unsigned ? b.zext32(_low(s)) : b.sext32(_low(s));
+          final y = unsigned ? b.zext32(_low(t)) : b.sext32(_low(t));
+          final product = b.mul(x, y);
+          _putLo(b.sext32(b.trunc32(product)));
+          _putHi(b.sext32(b.trunc32(b.shrU(product, _c(32)))));
         case 32:
           _word(d, _checkedWord(_low(s), _low(t), sideExit!));
         case 34:
@@ -434,8 +478,7 @@ final class Vr4300Translator {
         case 1:
           _put64(t, b.ctxLoad(at, type: IrType.i64));
         case 2:
-          _word(t,
-              d == 31 ? b.ctxLoad(ctxFpuControl) : _c(0x511));
+          _word(t, d == 31 ? b.ctxLoad(ctxFpuControl) : _c(0x511));
         case 4:
           b.ctxStore(at, _low(t));
         case 5:

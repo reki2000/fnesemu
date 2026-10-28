@@ -3,6 +3,7 @@ import 'package:fnesemu_core/src/core/snes/component/ppu.dart';
 import 'package:fnesemu_core/src/core/snes/rom/snes_file.dart';
 import 'package:fnesemu_core/src/core/snes/snes.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/util/int.dart';
 import 'package:test/test.dart';
 
@@ -30,7 +31,7 @@ void main() {
 
     test('pad 1 reads serially through \$4016', () {
       final bus = busWith(loRom());
-      bus.pad.keyDown(0, PadButton.up); // bit 11
+      bus.pad.source = PadState()..press(0, PadButton.up); // bit 11
       bus.write(0x4016, 1);
       bus.write(0x4016, 0);
       final bits = [for (var i = 0; i < 17; i++) bus.read(0x4016) & 1];

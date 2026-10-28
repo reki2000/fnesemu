@@ -37,7 +37,10 @@ class Vr4300 {
   final N64Registers r;
   final cop0 = List<int>.filled(32, 0);
   int pc = 0, nextPc = 4, clocks = 0;
-  int hi = 0, lo = 0;
+  int get hi => r.hi;
+  set hi(int value) => r.hi = value;
+  int get lo => r.lo;
+  set lo(int value) => r.lo = value;
   String? stopReason;
 
   Vr4300(this.bus, {N64Registers? registers, N64Fpu? fpu})

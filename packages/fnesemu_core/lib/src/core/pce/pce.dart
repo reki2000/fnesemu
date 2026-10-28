@@ -69,6 +69,7 @@ class Pce extends Core {
 
   Pce() {
     bus = Bus();
+    bus.joypad.source = padPort;
     cpu = Cpu2(bus);
     vdc = bus.vdc = Vdc(bus, 0);
     vdc2 = bus.vdc2 = Vdc(bus, 1);
@@ -190,14 +191,6 @@ class Pce extends Core {
     _vdc2Synced = false;
     bus.onReset();
   }
-
-  /// handles pad down/up events
-  @override
-  void padDown(int controllerId, PadButton k) =>
-      bus.joypad.keyDown(controllerId, k);
-  @override
-  void padUp(int controllerId, PadButton k) =>
-      bus.joypad.keyUp(controllerId, k);
 
   // the CD BIOS is a rom of the card slot
   @override
