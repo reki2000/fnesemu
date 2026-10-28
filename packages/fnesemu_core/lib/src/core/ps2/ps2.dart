@@ -151,6 +151,9 @@ class Ps2 extends Core {
   @override
   List<PadButton> get buttons => _pad.buttons;
 
+  @override
+  List<PadAxis> get axes => Ps2Pad.axes;
+
   CdromDrive? _drive;
   String? _discId;
 
@@ -177,6 +180,7 @@ class Ps2 extends Core {
     cpu.reset();
     io = _newIo();
     iop.reset();
+    _pad.reset();
     iopMemory.ram.fillRange(0, iopMemory.ram.length, 0);
     iopIo = _newIopIo();
     _iopFraction = 0;

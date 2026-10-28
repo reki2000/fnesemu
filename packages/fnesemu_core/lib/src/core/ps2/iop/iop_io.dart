@@ -56,7 +56,11 @@ class IopIo implements IopPort {
 
   IopIo(this.memory, this.sif) {
     memory.port = this;
-    sio2.onInterrupt = () => raise(IopIrq.sio2);
+    sio2.onInterrupt = () {
+      // the receive DMA that waits for the replies ends before the interrupt
+      if (channels[12].chcr & _start != 0) _runChannel(12);
+      raise(IopIrq.sio2);
+    };
     cdvd.onInterrupt = () => raise(IopIrq.cdvd);
     dmaHandlers[3] = _cdvdIn;
     dmaHandlers[11] = _sio2In;
@@ -367,6 +371,8 @@ class IopIo implements IopPort {
   }
 
   bool _sio2Out(IopDmaChannel c) {
+    if (!sio2.replyReady) return false;
+    sio2.replyReady = false;
     for (var i = 0; i < _words(c) * 4; i++) {
       memory.write8(c.madr + i, sio2.receive());
     }
