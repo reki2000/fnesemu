@@ -890,6 +890,10 @@ class N64Graphics {
         ziStep = vaStep * zi0 + vbStep * zi1 + vcStep * zi2;
     final depthTest = geometry.bit0 && otherLow.bit4,
         depthWrite = geometry.bit0 && otherLow.bit5;
+    // Depth slope across the triangle. The decal test uses it to accept a
+    // pixel within the surface's own depth slope of the stored value.
+    final zStepY = (-(x2 - x1) * z0 - (x0 - x2) * z1 - (x1 - x0) * z2) / area;
+    final decalTolerance = 1 + ziStep.x.abs() + zStepY.abs();
     for (var py = minY; py <= maxY; py++) {
       // Narrow the row to the pixels that can be covered (a weight w + step * k
       // must reach zero within the edge tolerance), with a margin of one pixel;
@@ -960,8 +964,15 @@ class N64Graphics {
         }
         if (!inside) continue;
         final at = py * width + px;
-        if (depthTest && zi.x > depthBuffer[at]) {
-          continue;
+        if (depthTest) {
+          final stored = depthBuffer[at];
+          // Decal (z mode 3) passes only within the surface's own depth slope
+          // of the stored value, so a decal on a surface does not z-fight.
+          if (otherLow.shr10.mask2 == 3
+              ? (zi.x - stored).abs() > decalTolerance
+              : zi.x > stored) {
+            continue;
+          }
         }
         _shade
           ..rg = rg
@@ -1031,7 +1042,14 @@ class N64Graphics {
     if (tile.format == 2) {
       final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
       final p = (2048 + paletteIndex * 8).mask12;
-      _texture16(tmem[p].shl8 | tmem[p + 1]);
+      final entry = tmem[p].shl8 | tmem[p + 1];
+      // otherHigh bits 15..14 select the palette format: 3 is IA16
+      if (otherHigh.shr14.mask2 == 3) {
+        final intensity = _byte[entry.shr8.mask8];
+        _textureRgba(intensity, intensity, intensity, _byte[entry.mask8]);
+        return;
+      }
+      _texture16(entry);
       return;
     }
     if (tile.format == 3) {

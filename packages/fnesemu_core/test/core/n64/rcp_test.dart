@@ -303,6 +303,42 @@ void main() {
     }
   });
 
+  test('CI texels use the IA16 palette format selected by TLUT type', () {
+    final g = N64Graphics(N64Bus()..reset());
+    g.tiles[0]
+      ..format = 2
+      ..size = 0
+      ..line = 1;
+    g.tmem[0] = 0x10; // index 1 in the high nibble, index 0 in the low one
+    g.tmem.setRange(2048 + 8, 2048 + 10, [0x80, 0x40]);
+    g.otherHigh = 3 << 14;
+    final t = g.texel(0, 0, 0);
+    expect([t.r, t.g, t.b, t.a], [128, 128, 128, 64]);
+    g.otherHigh = 0;
+    expect(g.texel(0, 0, 0).a, 0);
+  });
+
+  test('decal depth mode passes only near the stored depth', () {
+    final b = N64Bus()..reset(), g = N64Graphics(b);
+    g.width = g.scRight = g.scBottom = 4;
+    g.colorImage = 0x1000;
+    g.scale = Vec3(2, 2, 1);
+    g.translate = Vec3(2, 2, 1);
+    g.geometry = 1;
+    g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
+    void draw(double z, Rgba color) => g.triangle(
+        N64Vertex(Vec4(-1, -1, z, 1), color, 0, 0),
+        N64Vertex(Vec4(1, -1, z, 1), color, 0, 0),
+        N64Vertex(Vec4(-1, 1, z, 1), color, 0, 0));
+    g.otherLow = 0x00003078 | 0x10; // opaque, compare and update
+    draw(0, Rgba(255, 0, 0, 255));
+    g.otherLow = 0x00000c10; // decal, compare only
+    draw(0.5, Rgba(0, 255, 0, 255)); // within tolerance: drawn
+    expect(b.ramRead(0x1000 + (2 * 4 + 1) * 2, 2), 0x07c1);
+    draw(100, Rgba(0, 0, 255, 255)); // far behind: rejected
+    expect(b.ramRead(0x1000 + (2 * 4 + 1) * 2, 2), 0x07c1);
+  });
+
   test('GBI viewport flips clip Y into screen coordinates', () {
     final b = N64Bus()..reset(), g = N64Graphics(b);
     g.width = 4;
