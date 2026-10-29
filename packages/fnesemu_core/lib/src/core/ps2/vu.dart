@@ -15,13 +15,15 @@ import 'r5900/fpu.dart';
 /// read the old value. The elementary function unit (EFU) updates P in the
 /// same way, after the latency of each function. WAITQ and WAITP, and a new
 /// operation of the same unit, wait for the pending result.
-/// The MAC, status and clip flags are visible to the next pair. Upper
-/// instructions read their operands before the lower instruction of the
-/// same pair writes. Macro mode applies every result at once.
+/// The MAC, status and clip flags that an FMAC operation or CLIP sets come
+/// out of the pipeline with its result, so the flag instructions of a pair
+/// see them four cycles after the operation issues. MAX, MINI, ABS, FTOI and
+/// ITOF leave the flags alone. Upper instructions read their operands before
+/// the lower instruction of the same pair writes. Macro mode applies every
+/// result at once.
 ///
-/// The encoding of the lower special instructions and the bit positions of
-/// the MAC flag are written from memory of the manuals and are not yet
-/// checked against hardware. The EFU computes in double precision and
+/// The encoding of the lower special instructions is written from memory of
+/// the manuals and is not yet checked against hardware. The EFU computes in double precision and
 /// rounds to the VU format, so its last bit may differ from the hardware
 /// approximations. Not implemented: the T and D debug bits.
 class Vu {
@@ -73,6 +75,15 @@ class Vu {
 
   static const _fmacLatency = 4;
 
+  // The flag results in the FMAC pipeline, in issue order: the cycle at which
+  // each one becomes visible, the MAC flag bits (or -1) and the clip
+  // judgement bits (or -1).
+  static const _flagSlots = 16;
+  final _flagReady = Int64List(_flagSlots);
+  final _flagMac = Int32List(_flagSlots);
+  final _flagClip = Int32List(_flagSlots);
+  int _flagHead = 0, _flagCount = 0;
+
   Vu(this.index)
       : microWords = index == 0 ? 1024 : 4096,
         dataQuads = index == 0 ? 256 : 1024,
@@ -98,6 +109,7 @@ class Vu {
     p = 0;
     _qBusy = _pBusy = false;
     _vfReady.fillRange(0, 32, 0);
+    _flagCount = 0;
   }
 
   /// starts the program at pair [address] and runs it to its end
@@ -113,6 +125,7 @@ class Vu {
     }
     if (running) running = false;
     _micro = false;
+    _commitFlags(null);
     _finishDivision();
     _finishEfu();
     onEnd?.call();
@@ -139,11 +152,10 @@ class Vu {
       return;
     }
     if (_upper(ir)) _setVf(_upperReg, _upperMask, _result);
-    if (_flagsPending) {
-      mac = _upperMac;
-      status = _upperStatus;
-      _flagsPending = false;
-    }
+    if (_flagsPending) _applyFlags(_upperMac, -1);
+    if (_clipPending >= 0) _applyFlags(-1, _clipPending);
+    _flagsPending = false;
+    _clipPending = -1;
   }
 
   int readControl(int n) => switch (n) {
@@ -221,6 +233,7 @@ class Vu {
     _stall(highWord, iBit ? 0 : lowWord);
     if (_qBusy && cycles >= _qReady) _finishDivision();
     if (_pBusy && cycles >= _pReady) _finishEfu();
+    if (_flagCount > 0) _commitFlags(cycles);
     final issued = cycles++;
 
     if (highWord & 0x40000000 != 0) _ending = true;
@@ -229,7 +242,10 @@ class Vu {
     final hasWrite = _upper(highWord);
     final savedResult = hasWrite ? List<int>.of(_result) : const <int>[];
     final upperReg = _upperReg, upperMask = _upperMask;
-    final savedFlags = (_upperMac, _upperStatus);
+    final upperMac = _flagsPending ? _upperMac : -1;
+    final upperClip = _clipPending;
+    _flagsPending = false;
+    _clipPending = -1;
     if (iBit) {
       i = lowWord;
     } else {
@@ -239,10 +255,8 @@ class Vu {
       _setVf(upperReg, upperMask, savedResult);
       if (upperReg != 0) _vfReady[upperReg] = issued + _fmacLatency;
     }
-    if (_flagsPending) {
-      mac = savedFlags.$1;
-      status = savedFlags.$2;
-      _flagsPending = false;
+    if (upperMac >= 0 || upperClip >= 0) {
+      _queueFlags(issued + _fmacLatency, upperMac, upperClip);
     }
     vi[0] = 0;
 
@@ -394,7 +408,46 @@ class Vu {
 
   int _upperReg = 0, _upperMask = 0;
   bool _flagsPending = false;
-  int _upperMac = 0, _upperStatus = 0;
+  int _upperMac = 0;
+
+  /// the clip judgement bits of a CLIP in the upper instruction, or -1
+  int _clipPending = -1;
+
+  void _queueFlags(int ready, int macBits, int clipBits) {
+    if (_flagCount == _flagSlots) _commitFlags(null);
+    final k = (_flagHead + _flagCount) % _flagSlots;
+    _flagReady[k] = ready;
+    _flagMac[k] = macBits;
+    _flagClip[k] = clipBits;
+    _flagCount++;
+  }
+
+  /// applies the queued flag results that are visible at cycle [now], or all
+  /// of them when [now] is null
+  void _commitFlags(int? now) {
+    while (_flagCount > 0) {
+      final k = _flagHead;
+      if (now != null && _flagReady[k] > now) return;
+      _applyFlags(_flagMac[k], _flagClip[k]);
+      _flagHead = (k + 1) % _flagSlots;
+      _flagCount--;
+    }
+  }
+
+  /// sets the MAC flag and the status bits it derives, and shifts the clip
+  /// judgement into the clip flag; -1 leaves a flag alone
+  void _applyFlags(int macBits, int clipBits) {
+    if (macBits >= 0) {
+      mac = macBits;
+      var st = status & 0xff0;
+      if (macBits & 0x000f != 0) st |= 1 | 0x40; // Z
+      if (macBits & 0x00f0 != 0) st |= 2 | 0x80; // S
+      if (macBits & 0x0f00 != 0) st |= 4 | 0x100; // U
+      if (macBits & 0xf000 != 0) st |= 8 | 0x200; // O
+      status = st;
+    }
+    if (clipBits >= 0) clip = ((clip << 6) | clipBits) & 0xffffff;
+  }
 
   /// Executes the upper instruction. The VF result, when there is one, is
   /// left in [_result] for destination [_upperReg] under mask [_upperMask]
@@ -451,10 +504,8 @@ class Vu {
       switch (kind) {
         case 4:
           out = _d(a) >= _d(bBits) ? a : bBits;
-          if (enabled) macBits |= _macBits(c, out, 0);
         case 5:
           out = _d(a) <= _d(bBits) ? a : bBits;
-          if (enabled) macBits |= _macBits(c, out, 0);
         default:
           final x = _d(a), y = _d(bBits);
           final accValue = _d(acc[c]);
@@ -470,17 +521,12 @@ class Vu {
       }
       _result[c] = out;
     }
+    if (kind == 4 || kind == 5) return; // MAX and MINI set no flags
     _finish(macBits, mask, toAcc);
   }
 
   void _finish(int macBits, int mask, bool toAcc) {
     _upperMac = macBits;
-    var st = status & 0xff0;
-    if (macBits & 0xf000 != 0) st |= 1 | 0x40; // Z
-    if (macBits & 0x0f00 != 0) st |= 2 | 0x80; // S
-    if (macBits & 0x00f0 != 0) st |= 4 | 0x100; // U
-    if (macBits & 0x000f != 0) st |= 8 | 0x200; // O
-    _upperStatus = st;
     _flagsPending = true;
     if (toAcc) {
       for (var c = 0; c < 4; c++) {
@@ -489,15 +535,15 @@ class Vu {
     }
   }
 
-  /// MAC flag bits of lane [c]: zero 15..12, sign 11..8, underflow 7..4,
-  /// overflow 3..0, with x in the highest bit of each group
+  /// MAC flag bits of lane [c]: overflow 15..12, underflow 11..8, sign
+  /// 7..4, zero 3..0, with x in the highest bit of each group
   int _macBits(int c, int bits, int flags) {
     var m = 0;
     final shift = 3 - c;
-    if (bits & 0x7fffffff == 0) m |= 1 << (12 + shift);
-    if (bits & 0x80000000 != 0) m |= 1 << (8 + shift);
-    if (flags & R5900Fpu.flagUnderflow != 0) m |= 1 << (4 + shift);
-    if (flags & R5900Fpu.flagOverflow != 0) m |= 1 << shift;
+    if (bits & 0x7fffffff == 0) m |= 1 << shift;
+    if (bits & 0x80000000 != 0) m |= 1 << (4 + shift);
+    if (flags & R5900Fpu.flagUnderflow != 0) m |= 1 << (8 + shift);
+    if (flags & R5900Fpu.flagOverflow != 0) m |= 1 << (12 + shift);
     return m;
   }
 
@@ -531,7 +577,6 @@ class Vu {
       _upperReg = ft; // the destination of ITOF and FTOI is ft
       const shifts = [0, 4, 12, 15];
       final n = shifts[col];
-      var macBits = 0;
       for (var c = 0; c < 4; c++) {
         if (sub == 4) {
           _result[c] = _enc(_lane(fs, c).toSigned(32) / (1 << n));
@@ -543,7 +588,6 @@ class Vu {
         }
       }
       _upperMask = mask;
-      _upperMac = macBits;
       return true;
     }
     switch ((sub << 2) | col) {
@@ -612,7 +656,7 @@ class Vu {
       if (v > w) bits |= 1 << (c * 2);
       if (v < -w) bits |= 2 << (c * 2);
     }
-    clip = ((clip << 6) | bits) & 0xffffff;
+    _clipPending = bits;
   }
 
   // ---- lower instructions ----

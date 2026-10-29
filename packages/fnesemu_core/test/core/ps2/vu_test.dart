@@ -163,10 +163,48 @@ void main() {
     _setVf(vu, 2, [1, 5, 3, 1]);
     vu.start(0);
     // lane x and z are zero; lane y is negative
-    expect(vu.mac & 0xf000, (8 | 2) << 12);
-    expect(vu.mac & 0x0f00, 4 << 8);
+    expect(vu.mac & 0x000f, 8 | 2);
+    expect(vu.mac & 0x00f0, 4 << 4);
+    expect(vu.mac & 0xff00, 0);
     expect(vu.status & 3, 3);
     expect(vu.status & 0xc0, 0xc0, reason: 'sticky Z and S');
+  });
+
+  test('flag instructions see FMAC flags four cycles after the issue', () {
+    final vu = _vu([
+      (_lowerNop, _up(0x2c, _xyzw, 3, 1, 2)), // SUB: y is negative
+      (_lo(0x1a, it: 4, is_: 2), _upperNop), // FMAND one cycle later
+      (_lowerNop, _up(0x2b, _xyzw, 6, 1, 2)), // MAX sets no flags
+      (_lowerNop, _upperNop),
+      (_lo(0x1a, it: 5, is_: 2), _upperNop), // FMAND four cycles later
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [1, 2, 3, 4]);
+    _setVf(vu, 2, [1, 5, 3, 1]);
+    vu.vi[2] = 0xffff;
+    vu.start(0);
+    expect(vu.vi[4], 0);
+    expect(vu.vi[5], 0x4a);
+  });
+
+  test('CLIP shifts its judgement into the clip flag four cycles later', () {
+    final vu = _vu([
+      (_lowerNop, _upSpecial(7, 3, _xyzw, 1, 2)), // CLIP vf1, vf2.w
+      (_lo(0x1c, it: 3), _upperNop), // FCGET one cycle later
+      (_lowerNop, _upperNop),
+      (_lowerNop, _upperNop),
+      (_lo(0x1c, it: 4), _upperNop), // FCGET four cycles later
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [2, -3, 0.5, 1]);
+    _setVf(vu, 2, [0, 0, 0, 1]);
+    vu.writeControl(18, 0x3);
+    vu.start(0);
+    expect(vu.vi[3], 0x3);
+    // +x and -y in the new judgement, the old one shifted up
+    expect(vu.vi[4], 0x3 << 6 | 0x1 | 0x8);
   });
 
   test('ITOF and FTOI convert with fixed point scaling', () {
