@@ -267,8 +267,8 @@ class R5900 {
         _branch(reg(rs) <= 0, at, imm);
       case 7:
         _branch(reg(rs) > 0, at, imm);
-      case 8: // ADDI
-        final r = reg(rs) + simm;
+      case 8: // ADDI: on the low word, as ADD
+        final r = _signExtend32(reg(rs)) + simm;
         if (r != r.toSigned(32)) {
           _exception(excOverflow, at);
         } else {

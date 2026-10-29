@@ -60,6 +60,14 @@ void main() {
     expect(cpu.pc, 0xbfc00380);
   });
 
+  test('ADDI adds to the low word of a 64-bit register', () {
+    final cpu = _run([
+      _i(8, 1, 2, 1), // addi r2, r1, 1
+    ], setup: (c) => c.setReg(1, 0x123456789));
+    expect(cpu.reg(2), 0x2345678a);
+    expect(cpu.pc, _base + 4);
+  });
+
   test('SLTU compares as unsigned', () {
     final cpu = _run([
       _i(9, 0, 1, -1),
