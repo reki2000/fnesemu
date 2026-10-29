@@ -360,7 +360,19 @@ class Gs {
       vertices[2].copyFrom(incoming);
       if (_vertexCount < 3) _vertexCount++;
     }
-    if (!drawing) return;
+    if (!drawing) {
+      // a vertex without the drawing kick still completes the vertices of
+      // a primitive of a list, so the next vertex starts a new primitive
+      switch (type) {
+        case primPoint:
+          _vertexCount = 0;
+        case primLine || primSprite:
+          if (_vertexCount >= 2) _vertexCount = 0;
+        case primTriangle:
+          if (_vertexCount >= 3) _vertexCount = 0;
+      }
+      return;
+    }
     final attrs = prmodecont != 0 ? prim : prmode;
     switch (type) {
       case primPoint:

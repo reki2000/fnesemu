@@ -152,6 +152,22 @@ void main() {
       expect(doubled, 0, reason: 'the shared edge must not be drawn twice');
     });
 
+    test('a list triangle ends at its third vertex even without a kick', () {
+      final gs = _gs();
+      gs.writeRegister(0x01, _rgba(0x20, 0x20, 0x20));
+      gs.writeRegister(0x00, 3);
+      // the first triangle is culled: its last vertex goes to XYZ3
+      gs.writeRegister(0x05, _xyz(0, 0));
+      gs.writeRegister(0x05, _xyz(20, 0));
+      gs.writeRegister(0x0d, _xyz(0, 20));
+      gs.writeRegister(0x05, _xyz(25, 5));
+      gs.writeRegister(0x05, _xyz(30, 25));
+      expect(_px(gs, 18, 6), 0, reason: 'no triangle mixes the two');
+      gs.writeRegister(0x05, _xyz(5, 25));
+      expect(_px(gs, 20, 20), _rgba(0x20, 0x20, 0x20));
+      expect(_px(gs, 2, 2), 0);
+    });
+
     test('Gouraud shading interpolates colours', () {
       final gs = _gs();
       gs.writeRegister(0x00, 3 | 0x08);
