@@ -77,7 +77,6 @@ class Cdvd {
   Uint8List _data = Uint8List(0);
   int _dataPos = 0;
 
-
   static bool handles(int address) => address >= base && address < end;
 
   /// true if the drive has a disc to read
