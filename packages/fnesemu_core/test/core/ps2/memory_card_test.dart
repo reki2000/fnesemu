@@ -36,6 +36,35 @@ void main() {
         List.filled(128, 0xff));
   });
 
+  test('the ECC of a chunk follows the bit and byte parities', () {
+    expect(Ps2MemoryCard.ecc(List.filled(128, 0)), [0x77, 0x7f, 0x7f]);
+    expect(Ps2MemoryCard.ecc(List.filled(128, 0xff)), [0x77, 0x7f, 0x7f]);
+    // one set bit 0 in byte 5 flips the masks with bit 0 and the indices
+    final one = List.filled(128, 0)..[5] = 1;
+    expect(Ps2MemoryCard.ecc(one), [0x77 ^ 0x07, 0x7f ^ (~5 & 0x7f), 0x7f ^ 5]);
+  });
+
+  test('a formatted card holds the superblock and an empty root', () {
+    final image = Ps2MemoryCard.formattedImage();
+    expect(String.fromCharCodes(image.sublist(0, 28)),
+        'Sony PS2 Memory Card Format ');
+    expect(image.sublist(0x30, 0x3c),
+        [0, 0x20, 0, 0, 41, 0, 0, 0, 0xc7, 0x1f, 0, 0]);
+    expect(image.sublist(512, 515), Ps2MemoryCard.ecc(image.sublist(0, 128)));
+    // the indirect FAT cluster 8 points at the FAT clusters 9 to 40
+    final ifc = 16 * Ps2MemoryCard.pageBytes;
+    expect(image.sublist(ifc, ifc + 8), [9, 0, 0, 0, 10, 0, 0, 0]);
+    // the first FAT entry marks the root cluster as the end of its chain
+    final fat = 18 * Ps2MemoryCard.pageBytes;
+    expect(image.sublist(fat, fat + 8),
+        [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+    final root = 82 * Ps2MemoryCard.pageBytes;
+    expect(
+        [image[root], image[root + 1], image[root + 0x40]], [0x27, 0x84, 0x2e]);
+    // the backup blocks stay erased
+    expect(image[1022 * 16 * Ps2MemoryCard.pageBytes], 0xff);
+  });
+
   test('the authentication commands are acknowledged', () {
     final card = Ps2MemoryCard.blank();
     final read = _send(card, [0x81, 0xf0, 0x01], 14);

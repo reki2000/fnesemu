@@ -38,7 +38,120 @@ class Ps2MemoryCard {
     return Ps2MemoryCard((a) => data[a], (a, v) => data[a] = v);
   }
 
+  /// a card on its own memory, formatted with an empty root directory
+  factory Ps2MemoryCard.formatted() {
+    final data = formattedImage();
+    return Ps2MemoryCard((a) => data[a], (a, v) => data[a] = v);
+  }
+
   static Uint8List blankImage() => Uint8List(size)..fillRange(0, size, 0xff);
+
+  /// An empty card in the file system layout of the ps2mcfs notes: the
+  /// superblock in cluster 0, the indirect FAT cluster 8, the FAT in
+  /// clusters 9 to 40 and the root directory in the first allocatable
+  /// cluster. The last two blocks are the erase backup blocks.
+  static Uint8List formattedImage() {
+    const clusterPages = 2, clusterSize = clusterPages * pageSize;
+    const clusters = pages ~/ clusterPages;
+    const ifc = 8, fatFirst = 9;
+    const fatClusters = clusters * 4 ~/ clusterSize;
+    const allocOffset = fatFirst + fatClusters;
+    const backup1 = pages ~/ pagesPerBlock - 1, backup2 = backup1 - 1;
+    const allocEnd = clusters - allocOffset - 2 * pagesPerBlock ~/ clusterPages;
+
+    final image = blankImage();
+    final cluster = Uint8List(clusterSize);
+    final view = ByteData.sublistView(cluster);
+    void store(int index) {
+      for (var p = 0; p < clusterPages; p++) {
+        _storePage(image, index * clusterPages + p,
+            cluster.sublist(p * pageSize, (p + 1) * pageSize));
+      }
+      cluster.fillRange(0, clusterSize, 0);
+    }
+
+    void ascii(int offset, String s) => cluster.setAll(offset, s.codeUnits);
+
+    ascii(0x00, 'Sony PS2 Memory Card Format ');
+    ascii(0x1c, '1.2.0.0');
+    view
+      ..setUint16(0x28, pageSize, Endian.little)
+      ..setUint16(0x2a, clusterPages, Endian.little)
+      ..setUint16(0x2c, pagesPerBlock, Endian.little)
+      ..setUint16(0x2e, 0xff00, Endian.little)
+      ..setUint32(0x30, clusters, Endian.little)
+      ..setUint32(0x34, allocOffset, Endian.little)
+      ..setUint32(0x38, allocEnd, Endian.little)
+      ..setUint32(0x3c, 0, Endian.little) // root directory cluster
+      ..setUint32(0x40, backup1, Endian.little)
+      ..setUint32(0x44, backup2, Endian.little)
+      ..setUint32(0x50, ifc, Endian.little);
+    cluster.fillRange(0xd0, 0x150, 0xff); // no bad blocks
+    cluster[0x150] = 2; // PS2 card
+    cluster[0x151] = _flags;
+    store(0);
+
+    for (var i = 0; i < fatClusters; i++) {
+      view.setUint32(i * 4, fatFirst + i, Endian.little);
+    }
+    store(ifc);
+
+    // a free entry is 0x7fffffff; the root directory is one cluster in use
+    for (var i = 0; i < fatClusters; i++) {
+      for (var e = 0; e < clusterSize ~/ 4; e++) {
+        final n = i * clusterSize ~/ 4 + e;
+        view.setUint32(e * 4, n == 0 ? 0xffffffff : 0x7fffffff, Endian.little);
+      }
+      store(fatFirst + i);
+    }
+
+    // the root directory: "." and ".."
+    view
+      ..setUint16(0x000, 0x8427, Endian.little) // directory, rwx
+      ..setUint32(0x004, 2, Endian.little) // entries
+      ..setUint16(0x200, 0xa426, Endian.little); // hidden directory, rw
+    ascii(0x040, '.');
+    ascii(0x240, '..');
+    store(allocOffset);
+    return image;
+  }
+
+  /// writes [data] to [page] with the ECC of each 128-byte chunk
+  static void _storePage(Uint8List image, int page, Uint8List data) {
+    final base = page * pageBytes;
+    image.setAll(base, data);
+    image.fillRange(base + pageSize, base + pageBytes, 0);
+    for (var c = 0; c < pageSize ~/ 128; c++) {
+      image.setAll(
+          base + pageSize + c * 3, ecc(data.sublist(c * 128, c * 128 + 128)));
+    }
+  }
+
+  /// The 3-byte Hamming code of a 128-byte chunk: the column parity of 7
+  /// bit masks, then the line parity of the inverted and plain indices of
+  /// the bytes with odd parity.
+  static List<int> ecc(List<int> chunk) {
+    const masks = [0x55, 0x33, 0x0f, 0x00, 0xaa, 0xcc, 0xf0];
+    int parity(int v) {
+      v ^= v >> 4;
+      v ^= v >> 2;
+      v ^= v >> 1;
+      return v & 1;
+    }
+
+    var column = 0x77, line0 = 0x7f, line1 = 0x7f;
+    for (var i = 0; i < chunk.length; i++) {
+      final v = chunk[i];
+      for (var b = 0; b < masks.length; b++) {
+        column ^= parity(v & masks[b]) << b;
+      }
+      if (parity(v) != 0) {
+        line0 ^= ~i;
+        line1 ^= i;
+      }
+    }
+    return [column, line0 & 0x7f, line1];
+  }
 
   void reset() {
     _terminator = 0x55;

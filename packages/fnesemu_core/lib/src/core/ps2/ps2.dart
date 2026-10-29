@@ -89,12 +89,12 @@ class Ps2 extends Core {
 
   /// The memory card in the first slot. It keeps its own memory until
   /// [setSram] gives it a store.
-  Ps2MemoryCard _card = Ps2MemoryCard.blank();
+  Ps2MemoryCard _card = Ps2MemoryCard.formatted();
 
   @override
   void setSram(Sram sram) {
     sram.init(StorageKey.of('ps2', StorageKey.sram, 'memcard1'),
-        Ps2MemoryCard.blankImage());
+        Ps2MemoryCard.formattedImage());
     _card = Ps2MemoryCard(sram.read8, sram.write8);
     iopIo.sio2.card = _card;
   }
