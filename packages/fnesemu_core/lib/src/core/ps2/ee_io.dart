@@ -31,6 +31,11 @@ class EeIo implements IoPort {
     dmac.endpoints[Dmac.gif] = gif.path3;
     dmac.endpoints[Dmac.vif0] = vif0;
     dmac.endpoints[Dmac.vif1] = vif1;
+    vif1.path3Busy = () => dmac.path3Busy;
+    dmac.onPath3Idle = () {
+      vif1.resume();
+      dmac.serviceVif1();
+    };
     sif.onEeInterrupt = () => intc.raise(Intc.sbus);
     dmac.endpoints[Dmac.sif0] = sif.sif0;
     dmac.endpoints[Dmac.sif1] = sif.sif1;

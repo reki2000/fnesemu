@@ -41,6 +41,10 @@ class DmaChannel {
 /// implemented. SIF0 also supports destination chain mode, and waits for
 /// its source to supply data (see [service]). The IPU channels wait for the
 /// IPU FIFOs, and a source chain to the IPU resumes in its packet.
+///
+/// The GIF channel moves its data at once but finishes one bus clock per
+/// quadword later, so that PATH3 stays busy while the GS would still take
+/// the data (see [path3Busy]).
 class Dmac {
   static const channelCount = 10;
   static const vif0 = 0, vif1 = 1, gif = 2, fromIpu = 3, toIpu = 4;
@@ -68,6 +72,16 @@ class Dmac {
   /// the SIF0 end tag was received and the channel finishes after its data
   bool _sif0End = false;
   bool _sif0Irq = false;
+
+  /// quadwords moved by the GIF transfer that runs now
+  int _moved = 0;
+
+  /// bus clocks until the GIF channel finishes its moved data
+  int _gifLeft = 0;
+  bool _gifFinishing = false;
+
+  /// called when the GIF channel finishes; VIF1 waits for this at FLUSHA
+  void Function()? onPath3Idle;
 
   Dmac(this.bus);
 
@@ -204,8 +218,28 @@ class Dmac {
     if (channels[fromIpu].chcr & _str != 0) _run(fromIpu);
   }
 
+  /// true while the GIF channel transfers
+  bool get path3Busy => _gifFinishing;
+
+  /// advances the GIF channel by [busClocks]
+  void advance(int busClocks) {
+    if (!_gifFinishing) return;
+    _gifLeft -= busClocks;
+    if (_gifLeft > 0) return;
+    _gifFinishing = false;
+    _finish(gif);
+    onPath3Idle?.call();
+  }
+
+  /// resumes VIF1 when it waits for its destination
+  void serviceVif1() {
+    if (ctrl & _dmaEnable == 0) return;
+    if (channels[vif1].chcr & _str != 0) _run(vif1);
+  }
+
   void _run(int ch) {
     final c = channels[ch];
+    if (ch == gif) _moved = 0;
     switch ((c.chcr >> 2) & 3) {
       case 0:
         if (!_normal(ch, c)) return;
@@ -218,7 +252,16 @@ class Dmac {
       case 2:
         _interleave(ch, c);
     }
-    c.chcr &= ~_str;
+    if (ch == gif && _moved > 0) {
+      _gifLeft = _moved;
+      _gifFinishing = true;
+      return;
+    }
+    _finish(ch);
+  }
+
+  void _finish(int ch) {
+    channels[ch].chcr &= ~_str;
     stat |= 1 << ch;
     dirty = true;
   }
@@ -261,8 +304,9 @@ class Dmac {
       if ((ch == sif0 || ch == fromIpu) && endpoints[ch]?.hasData == false) {
         return false;
       }
-      if (ch == toIpu && endpoints[ch]?.canPut == false) return false;
+      if (endpoints[ch]?.canPut == false) return false;
       _move(ch, c, c.madr);
+      if (ch == gif) _moved++;
       c.madr += 16;
       c.qwc--;
     }
@@ -310,7 +354,7 @@ class Dmac {
 
   /// returns false when the transfer waits for its destination
   bool _chain(int ch, DmaChannel c) {
-    if (!_fromMemory(ch) && ch != fromSpr) return true;
+    if (!_fromMemory(ch) && ch != fromSpr && ch != toSpr) return true;
     for (var packets = 0; packets < 0x100000; packets++) {
       if (c.inPacket) {
         if (!_normal(ch, c)) return false;
@@ -321,7 +365,11 @@ class Dmac {
       }
       _read(c.tadr);
       final tag = _quad[0];
-      if (c.chcr & _tte != 0 && ch != fromSpr) {
+      if (c.chcr & _tte != 0 && ch == toSpr) {
+        // the scratchpad takes the whole tag quadword
+        _write(0x80000000 | c.sadr, _quad[0], _quad[1]);
+        c.sadr = (c.sadr + 16) & 0x3ff0;
+      } else if (c.chcr & _tte != 0 && ch != fromSpr) {
         endpoints[ch]?.putTag(_quad[0], _quad[1]);
       }
       final qwc = tag & 0xffff;

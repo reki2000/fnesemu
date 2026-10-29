@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'dmac.dart';
@@ -11,7 +12,8 @@ import 'vu.dart';
 ///
 /// Not implemented: interrupts and stalls (the IRQ bit of a code), the
 /// FLUSH family (micro programs finish when started), MSKPATH3, error
-/// detection, and the write-cycle filling of UNPACK with CL < WL.
+/// detection, and the write-cycle filling of UNPACK with CL < WL. VIF1
+/// waits at FLUSHA while PATH3 transfers (see [path3Busy]).
 class Vif extends DmaEndpoint {
   static const _mpg = 0x4a, _direct = 0x50, _directHl = 0x51;
 
@@ -37,12 +39,21 @@ class Vif extends DmaEndpoint {
 
   final fifo = QuadFifo();
 
+  /// true while PATH3 transfers; FLUSHA waits until it is false
+  bool Function()? path3Busy;
+
+  // words that arrived while the VIF waits at FLUSHA
+  final _held = ListQueue<int>();
+  bool _waiting = false;
+
   Vif(this.index, this.vu, {this.path2, this.gs}) {
     vu.top = () => top;
     vu.itop = () => itop;
   }
 
   void reset() {
+    _held.clear();
+    _waiting = false;
     _wordsLeft = 0;
     _count = 0;
     _quadCount = 0;
@@ -76,7 +87,27 @@ class Vif extends DmaEndpoint {
     }
   }
 
+  @override
+  bool get canPut => !_waiting;
+
+  /// continues after FLUSHA when PATH3 is idle
+  void resume() {
+    if (!_waiting || (path3Busy?.call() ?? false)) return;
+    _waiting = false;
+    while (!_waiting && _held.isNotEmpty) {
+      _process(_held.removeFirst());
+    }
+  }
+
   void _word(int w) {
+    if (_waiting || _held.isNotEmpty) {
+      _held.add(w);
+      return;
+    }
+    _process(w);
+  }
+
+  void _process(int w) {
     if (_wordsLeft == 0) {
       _decode(w);
       return;
@@ -125,6 +156,8 @@ class Vif extends DmaEndpoint {
         _startProgram(_imm);
       case 0x17:
         _startProgram(vu.pc);
+      case 0x13: // FLUSHA
+        _waiting = path3Busy?.call() ?? false;
       case 0x20:
         _expect(1);
       case 0x30 || 0x31:

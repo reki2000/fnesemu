@@ -143,8 +143,57 @@ void main() {
       bus.write32(0x1000a030, 0x1000); // TADR of the GIF channel
       bus.write32(0x1000a000, 0x104); // STR, chain mode
       expect(received, [0xa1, 0xb1, 0xc1]);
+      // the channel finishes one bus clock per quadword later
+      io.dmac.advance(2);
+      expect(bus.read32(0x1000a000) & 0x100, isNonZero);
+      io.dmac.advance(1);
       expect(bus.read32(0x1000a000) & 0x100, 0);
       expect(bus.read32(_dmaStat) & 4, isNonZero);
+    });
+
+    test('a source chain to the scratchpad transfers the tags with TTE', () {
+      final (bus, _) = _setup();
+      enable(bus);
+      bus.write64(0x1000, _tag(1, 3, 0x3000)); // ref
+      bus.write64(0x3000, 0xb1);
+      bus.write64(0x1010, _tag(1, 0, 0x3010)); // refe
+      bus.write64(0x3010, 0xb2);
+      bus.write32(0x1000d480, 0x100); // SADR
+      bus.write32(0x1000d430, 0x1000); // TADR
+      bus.write32(0x1000d400, 0x104); // STR, chain mode
+      expect(bus.read64(0x70000100), 0xb1);
+      expect(bus.read64(0x70000110), 0xb2);
+      bus.write32(0x1000d480, 0x200);
+      bus.write32(0x1000d430, 0x1000);
+      bus.write32(0x1000d400, 0x144); // with TTE
+      expect(bus.read64(0x70000200), _tag(1, 3, 0x3000));
+      expect(bus.read64(0x70000210), 0xb1);
+      expect(bus.read64(0x70000220), _tag(1, 0, 0x3010));
+      expect(bus.read64(0x70000230), 0xb2);
+    });
+
+    test('VIF1 waits at FLUSHA until PATH3 finishes', () {
+      final (bus, io) = _setup();
+      enable(bus);
+      // PATH3: one GIF packet of 2 quadwords
+      bus.write64(0x2000, 1 | (1 << 15) | (1 << 60));
+      bus.write64(0x2008, 0xe);
+      bus.write64(0x2010, 0x123);
+      bus.write64(0x2018, 0x3f); // TEXFLUSH
+      bus.write32(0x1000a010, 0x2000);
+      bus.write32(0x1000a020, 2);
+      bus.write32(0x1000a000, 0x100);
+      // VIF1: FLUSHA, then MARK 5
+      bus.write32(0x3000, 0x13000000);
+      bus.write32(0x3004, 0x07000005);
+      bus.write32(0x3008, 0);
+      bus.write32(0x300c, 0);
+      bus.write32(0x10009010, 0x3000);
+      bus.write32(0x10009020, 1);
+      bus.write32(0x10009000, 0x101);
+      expect(io.vif1.mark, 0);
+      io.dmac.advance(2);
+      expect(io.vif1.mark, 5);
     });
 
     test('call and ret use the address stack', () {
