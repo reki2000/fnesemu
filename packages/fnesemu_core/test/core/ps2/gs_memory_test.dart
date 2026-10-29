@@ -32,6 +32,31 @@ void main() {
     });
   }
 
+  // The 8-bit and 4-bit pixels of a page, written as 32-bit pixels: the
+  // position of each one follows the published texture conversion code.
+  test('PSMT8 and PSMT4 pixels sit in the bytes of PSMCT32 pixels', () {
+    for (var y = 0; y < 128; y++) {
+      final swap = ((y + 2) >> 2) & 1 == 0 ? 0 : 4;
+      final row = (((y & ~3) >> 1) + (y & 1)) & 7;
+      for (var x = 0; x < 128; x++) {
+        if (y < 64) {
+          final cx = (x & ~15) ~/ 2 + ((x + swap) & 7);
+          final cy = (y & ~15) ~/ 2 + row;
+          final byte = ((y >> 1) & 1) + ((x >> 2) & 2);
+          expect(GsMemory.unitIndex(GsPsm.t8, 0, 2, x, y),
+              GsMemory.unitIndex(GsPsm.ct32, 0, 1, cx, cy) * 4 + byte);
+        }
+        final cx = (y & ~15) ~/ 2 + ((x + swap) & 7);
+        final cy = (x & ~31) ~/ 4 + row;
+        final byte = (x >> 3) & 3;
+        expect(
+            GsMemory.unitIndex(GsPsm.t4, 0, 2, x, y),
+            (GsMemory.unitIndex(GsPsm.ct32, 0, 1, cx, cy) * 4 + byte) * 2 +
+                ((y >> 1) & 1));
+      }
+    }
+  });
+
   test('pages follow the buffer width', () {
     // PSMCT32: the second page of a row is 2048 words after the first
     expect(GsMemory.unitIndex(GsPsm.ct32, 0, 2, 64, 0), 2048);

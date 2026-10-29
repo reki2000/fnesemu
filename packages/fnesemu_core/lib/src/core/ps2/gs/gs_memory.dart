@@ -39,17 +39,6 @@ class GsPsm {
       psm == z16s;
 }
 
-/// The 4 MiB of GS local memory with the page, block and column layout of
-/// each pixel format.
-///
-/// Memory is organised in 8 KiB pages of 32 blocks of 256 bytes, and a block
-/// in four columns of 64 bytes. `bp` is a block pointer (256 byte units) and
-/// `bw` a buffer width in units of 64 pixels.
-///
-/// The column layouts of the 8-bit and 4-bit formats, and the odd-column
-/// handling of them, are written from memory of the layout diagrams and are
-/// not yet checked against hardware captures. The tests only verify that
-/// every pixel of a page maps to its own storage unit.
 /// The page layout of a group of pixel formats. The storage unit of a pixel
 /// is the base of its page plus an entry of [table], which holds the unit
 /// index inside the page of every pixel of a page, by row.
@@ -97,10 +86,10 @@ final class GsLayout {
 /// in four columns of 64 bytes. `bp` is a block pointer (256 byte units) and
 /// `bw` a buffer width in units of 64 pixels.
 ///
-/// The column layouts of the 8-bit and 4-bit formats, and the odd-column
-/// handling of them, are written from memory of the layout diagrams and are
-/// not yet checked against hardware captures. The tests only verify that
-/// every pixel of a page maps to its own storage unit.
+/// The 8-bit and 4-bit layouts are checked against the conversion from
+/// 8-bit and 4-bit textures to 32-bit uploads that PS2 Linux developers
+/// published ("Sparky's swizzle code"): a texture written in one format reads
+/// back in the other.
 class GsMemory {
   static const size = 4 * 1024 * 1024;
   static const _wordMask = size ~/ 4 - 1;
@@ -181,26 +170,6 @@ class GsMemory {
     33, 37, 49, 53, 1, 5, 17, 21, 35, 39, 51, 55, 3, 7, 19, 23,
     41, 45, 57, 61, 9, 13, 25, 29, 43, 47, 59, 63, 11, 15, 27, 31,
   ];
-  static const _col4 = [
-    0, 8, 32, 40, 64, 72, 96, 104, 2, 10, 34, 42, 66, 74, 98, 106, //
-    4, 12, 36, 44, 68, 76, 100, 108, 6, 14, 38, 46, 70, 78, 102, 110,
-    16, 24, 48, 56, 80, 88, 112, 120, 18, 26, 50, 58, 82, 90, 114, 122,
-    20, 28, 52, 60, 84, 92, 116, 124, 22, 30, 54, 62, 86, 94, 118, 126,
-    65, 73, 97, 105, 1, 9, 33, 41, 67, 75, 99, 107, 3, 11, 35, 43,
-    69, 77, 101, 109, 5, 13, 37, 45, 71, 79, 103, 111, 7, 15, 39, 47,
-    81, 89, 113, 121, 17, 25, 49, 57, 83, 91, 115, 123, 19, 27, 51, 59,
-    85, 93, 117, 125, 21, 29, 53, 61, 87, 95, 119, 127, 23, 31, 55, 63,
-  ];
-  static const _blk4 = [
-    0, 2, 8, 10, //
-    1, 3, 9, 11,
-    4, 6, 12, 14,
-    5, 7, 13, 15,
-    16, 18, 24, 26,
-    17, 19, 25, 27,
-    20, 22, 28, 30,
-    21, 23, 29, 31,
-  ];
 
   static bool _isZ(int psm) => psm >= 0x30;
 
@@ -224,12 +193,18 @@ class GsMemory {
         final word = bp * 64 + page * 2048 + block * 64;
         return word * 4 + column * 64 + _col8[(y & 3) * 16 + cx];
       case GsPsm.t4:
+        // a 128x128 page of 4-bit pixels covers a 64x32 page of 32-bit
+        // pixels: a block of 32x16 pixels takes the 8x8 block of the 32-bit
+        // page with its x and y swapped, and a pixel takes a nibble of a
+        // byte of a 32-bit pixel of that block
         final page = (y >> 7) * ((bw + 1) >> 1) + (x >> 7);
-        final block = _blk4[((y >> 4) & 7) * 4 + ((x >> 5) & 3)];
-        final column = (y >> 2) & 3;
-        final cx = column & 1 == 0 ? x & 31 : (x & 31) ^ 8;
-        final word = bp * 64 + page * 2048 + block * 64;
-        return word * 8 + column * 128 + _col4[(y & 3) * 32 + cx];
+        final lx = x & 127, ly = y & 127;
+        final swap = ((ly + 2) >> 2) & 1 == 0 ? 0 : 4;
+        final cx = (ly & ~15) >> 1 | ((lx + swap) & 7);
+        final cy = (lx & ~31) >> 2 | ((((ly & ~3) >> 1) + (ly & 1)) & 7);
+        final word =
+            bp * 64 + page * 2048 + unitIndex(GsPsm.ct32, 0, 1, cx, cy);
+        return (word * 4 + ((lx >> 3) & 3)) * 2 + ((ly >> 1) & 1);
       default:
         final page = (y >> 5) * bw + (x >> 6);
         var block = _blk32[((y >> 3) & 3) * 8 + ((x >> 3) & 7)];
