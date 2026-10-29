@@ -496,4 +496,17 @@ void main() {
     expect(b, inInclusiveRange(1.0, 2.0));
     expect(a, isNot(b));
   });
+
+  test('macro integer instructions run on VU0', () {
+    final vu = Vu(0)
+      ..vi[1] = 5
+      ..vi[2] = 7;
+    // COP2 macro words: VIADD vi3, vi1, vi2 and VIADDI vi4, vi1, -2
+    vu.macro(0x4a000000 | 2 << 16 | 1 << 11 | 3 << 6 | 0x30);
+    vu.macro(0x4a000000 | 4 << 16 | 1 << 11 | (-2 & 31) << 6 | 0x32);
+    vu.macro(0x4a000000 | 2 << 16 | 1 << 11 | 5 << 6 | 0x34); // VIAND
+    expect(vu.vi[3], 12);
+    expect(vu.vi[4], 3);
+    expect(vu.vi[5], 5);
+  });
 }

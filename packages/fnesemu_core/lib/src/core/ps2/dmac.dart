@@ -74,6 +74,10 @@ class Dmac {
   /// true when a register or a transfer changed the interrupt output
   bool dirty = false;
 
+  /// the COP0 condition the EE tests with BC0F and BC0T: every channel
+  /// selected in the low bits of D_PCR has its D_STAT interrupt bit set
+  bool get cpCond0 => (~pcr | stat) & 0x3ff == 0x3ff;
+
   final _quad = Int64List(2);
 
   /// the SIF0 end tag was received and the channel finishes after its data

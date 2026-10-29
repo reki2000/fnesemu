@@ -130,7 +130,9 @@ class Ps2 extends Core {
   EeIo _newIo() {
     final io = EeIo(bus);
     bus.io = io;
-    cpu.vu0 = io.vu0;
+    cpu
+      ..vu0 = io.vu0
+      ..cpCond0 = () => io.dmac.cpCond0;
     io.iopRam = iopMemory.ram;
     return io;
   }

@@ -131,7 +131,9 @@ class Vu {
       start(cmsar0); // VCALLMSR
       return;
     }
-    if (funct >= 0x3c && ((ir >> 6) & 31) >= 0x0c) {
+    // VIADD, VISUB, VIADDI, VIAND, VIOR and the lower special2 codes
+    if ((funct >= 0x30 && funct < 0x36) ||
+        (funct >= 0x3c && ((ir >> 6) & 31) >= 0x0c)) {
       _lowerSpecial(ir, (ir >> 21) & 15, (ir >> 16) & 31, (ir >> 11) & 31);
       vi[0] = 0;
       return;

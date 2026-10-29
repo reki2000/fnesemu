@@ -43,6 +43,9 @@ class R5900 {
 
   /// VU0, which COP2 instructions operate on
   Vu? vu0;
+
+  /// the COP0 condition line, which the DMAC drives
+  bool Function()? cpCond0;
   final Int64List gpr;
   int hi = 0, lo = 0, hi1 = 0, lo1 = 0;
   int sa = 0;
@@ -638,6 +641,21 @@ class R5900 {
         setReg(rt, _signExtend32(_readCop0(rd)));
       case 4:
         _writeCop0(rd, reg(rt));
+      case 8:
+        final c = cpCond0?.call() ?? true;
+        final imm = ir & 0xffff;
+        switch (rt) {
+          case 0:
+            _branch(!c, at, imm);
+          case 1:
+            _branch(c, at, imm);
+          case 2:
+            _branchLikely(!c, at, imm);
+          case 3:
+            _branchLikely(c, at, imm);
+          default:
+            return false;
+        }
       case 16:
         switch (ir & 63) {
           case 0x18: // ERET

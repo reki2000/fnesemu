@@ -1,4 +1,5 @@
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
+import 'package:fnesemu_core/src/core/ps2/dmac.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:test/test.dart';
 
@@ -66,6 +67,24 @@ void main() {
     ], setup: (c) => c.setReg(1, 0x123456789));
     expect(cpu.reg(2), 0x2345678a);
     expect(cpu.pc, _base + 4);
+  });
+
+  test('BC0F and BC0T branch on the COP0 condition', () {
+    for (final cond in [false, true]) {
+      final cpu = _run([
+        _i(16, 8, 0, 2), // bc0f +2
+        0,
+        _i(9, 0, 1, 1), // skipped when taken
+        _i(9, 0, 2, 2),
+      ], count: 3, setup: (c) => c.cpCond0 = () => cond);
+      expect(cpu.reg(1), cond ? 1 : 0);
+      expect(cpu.reg(2), cond ? 0 : 2);
+    }
+    final dmac = Dmac(Ps2Bus())..pcr = 0x5;
+    dmac.stat = 0x1;
+    expect(dmac.cpCond0, isFalse);
+    dmac.stat = 0x5;
+    expect(dmac.cpCond0, isTrue);
   });
 
   test('SLTU compares as unsigned', () {
