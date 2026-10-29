@@ -227,6 +227,8 @@ class IopIo implements IopPort {
           c.bcr = value;
         case 0x8:
           c.chcr = value;
+          // a new CDVD transfer takes its size from the new BCR
+          if (ch == 3 && value & _start != 0) _cdvdLeft = -1;
           if (value & _start != 0) _runChannel(ch);
         case 0xc:
           c.tadr = value & 0xffffff;

@@ -35,7 +35,8 @@ class Cdvd {
       _statusPaused = 0x08,
       _statusSeeking = 0x10;
 
-  static const _dvdBlockSize = 2064;
+  static const _dvdBlockSize = 2064, _rawBlockSize = 2352;
+  static const _cdTocSize = 1024;
 
   static const _seekCycles = 200000, _sectorCycles = 20000;
 
@@ -195,6 +196,20 @@ class Cdvd {
         _sectorsLeft = _int32(params, 4);
         _blockSize = _dvdBlockSize;
         _startRead();
+      case 0x07: // ReadCdda: sector, count; raw blocks of 2352 bytes
+        if (!hasDisc) {
+          _error6 = 1;
+          _complete();
+          return;
+        }
+        _lba = _int32(params, 0);
+        _sectorsLeft = _int32(params, 4);
+        _blockSize = _rawBlockSize;
+        _startRead();
+      case 0x09: // GetToc
+        _data = dvd ? _dvdToc() : Uint8List(_cdTocSize);
+        _dataPos = 0;
+        _busyCycles = _seekCycles;
       case 0x05: // Seek
         _lba = _int32(params, 0);
         _busyCycles = _seekCycles;
@@ -283,6 +298,7 @@ class Cdvd {
 
   Uint8List _userBytes(Uint8List raw) {
     if (_blockSize == _dvdBlockSize) return _dvdBlock(raw);
+    if (_blockSize == _rawBlockSize) return Uint8List.sublistView(raw, 0, 2352);
     final start = switch (_blockSize) {
       2328 => 24,
       2340 => 12,
@@ -304,6 +320,25 @@ class Cdvd {
       ..[2] = sector >> 8
       ..[3] = sector
       ..setRange(12, 12 + 2048, raw, offset);
+  }
+
+  /// The GetToc block of a DVD: 2064 bytes that start with the physical
+  /// format information of the disc (ECMA-267): book type, disc size, one
+  /// layer, and the first and last physical sector numbers of the data area.
+  /// Where the drive places this structure in the block is not documented;
+  /// this assumes offset 0. The TOC block of a CD is 1024 bytes of zero, as
+  /// its layout is not documented either.
+  Uint8List _dvdToc() {
+    final sectors = drive?.status.toc.totalSectors ?? 0;
+    final last = 0x30000 + (sectors > 0 ? sectors - 1 : 0);
+    return Uint8List(_dvdBlockSize)
+      ..[0] = 0x01 // DVD-ROM, part version 1
+      ..[1] = 0x02 // 120 mm, maximum rate 10.08 Mbps
+      ..[2] = 0x01 // one layer, parallel track path, embossed
+      ..[5] = 0x03 // first data sector 0x030000
+      ..[9] = last >> 16
+      ..[10] = last >> 8
+      ..[11] = last;
   }
 
   /// takes up to [count] bytes of sector data

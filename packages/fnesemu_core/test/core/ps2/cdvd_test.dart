@@ -63,6 +63,33 @@ void main() {
     expect(data[2060], 0);
   });
 
+  test('GetToc delivers the physical format of a DVD', () {
+    final cdvd = Cdvd()
+      ..drive = FakeCdromDrive([_sector(1), _sector(2)])
+      ..dvd = true;
+    _write(cdvd, 0x09, [0]);
+    final toc = cdvd.takeData(4096);
+    expect(toc.length, 2064);
+    expect(toc.sublist(4, 12), [0, 3, 0, 0, 0, 3, 0, 1]);
+    for (var i = 0; i < 10 && cdvd.istat & 2 == 0; i++) {
+      cdvd.advance(50000);
+    }
+    expect(cdvd.istat & 2, 2);
+  });
+
+  test('ReadCdda delivers raw sectors', () {
+    final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(1), _sector(2)]);
+    _write(cdvd, 0x07, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    final data = <int>[];
+    for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
+      cdvd.advance(50000);
+      data.addAll(cdvd.takeData(4096));
+    }
+    expect(data.length, 2352);
+    expect(data[15], 1);
+    expect(data[16], 2);
+  });
+
   test('S commands answer with config, clock and sticky status', () {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
     cdvd.write(0x1f402016, 0x41);
