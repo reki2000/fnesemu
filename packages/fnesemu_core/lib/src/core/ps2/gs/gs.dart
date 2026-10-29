@@ -337,8 +337,10 @@ class Gs {
         _event(csrSignal);
       case 0x61:
         _event(csrFinish);
-      case 0x62:
-        siglblid = (siglblid & 0xffffffff00000000) | (data & 0xffffffff);
+      case 0x62: // LABEL: the masked bits of LBLID, in the upper half
+        final mask = data >>> 32;
+        final id = (siglblid >>> 32 & ~mask) | (data & mask);
+        siglblid = (siglblid & 0xffffffff) | (id & 0xffffffff) << 32;
     }
   }
 

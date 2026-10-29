@@ -50,6 +50,17 @@ void main() {
     expect(io.dmac.stat, 0x40001);
   });
 
+  test('LABEL sets the masked bits of LBLID, read as the upper word', () {
+    final (bus, io) = _setup();
+    io.gs.writeRegister(0x60, 0x0000ffff00001234); // SIGNAL
+    io.gs.writeRegister(0x62, 0x000000ff00000056); // LABEL
+    io.gs.writeRegister(0x62, 0x0000ff0000003400); // LABEL
+    expect(bus.read32(0x12001080), 0x1234);
+    expect(bus.read32(0x12001084), 0x3456);
+    bus.write32(0x12001084, 0x99);
+    expect(io.gs.siglblid, 0x0000009900001234);
+  });
+
   group('timers', () {
     test('count at the bus clock only while enabled', () {
       final (bus, io) = _setup();

@@ -188,6 +188,9 @@ class EeIo implements IoPort {
     if (address & 3 != 0 && size < 4 && _isWordRegister(address)) {
       return _readRegister(address & ~3) >>> ((address & 3) * 8);
     }
+    if (_isGs(address) && address & 7 != 0) {
+      return gs.readPrivileged(address & ~7) >>> ((address & 7) * 8);
+    }
     return _readRegister(address, size);
   }
 
@@ -228,6 +231,15 @@ class EeIo implements IoPort {
       final old = _isClearOnWrite(aligned) ? 0 : _readRegister(aligned);
       return _writeRegister(
           aligned, 4, (old & ~mask) | ((value << shift) & mask));
+    }
+    if (_isGs(address) && size < 8) {
+      // the privileged registers are 64 bits wide; CSR bits clear on a 1
+      final aligned = address & ~7;
+      final shift = (address & 7) * 8;
+      final mask = (size == 4 ? 0xffffffff : (1 << size * 8) - 1) << shift;
+      final old = aligned & 0x1fff == 0x1000 ? 0 : gs.readPrivileged(aligned);
+      gs.writePrivileged(aligned, (old & ~mask) | ((value << shift) & mask));
+      return true;
     }
     return _writeRegister(address, size, value);
   }
