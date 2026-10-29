@@ -246,10 +246,9 @@ class Gs {
         _vertex(data, true, true);
       case 0x05:
         _vertex(data, false, true);
-      case 0x06:
-        _ctx(0).tex0 = data;
-      case 0x07:
-        _ctx(1).tex0 = data;
+      case 0x06 || 0x07:
+        _ctx(reg - 0x06).tex0 = data;
+        raster.loadClut(data);
       case 0x08:
         _ctx(0).clamp = data;
       case 0x09:
@@ -264,10 +263,10 @@ class Gs {
         _ctx(0).tex1 = data;
       case 0x15:
         _ctx(1).tex1 = data;
-      case 0x16:
-        _ctx(0).tex0 = (_ctx(0).tex0 & ~_tex2Mask) | (data & _tex2Mask);
-      case 0x17:
-        _ctx(1).tex0 = (_ctx(1).tex0 & ~_tex2Mask) | (data & _tex2Mask);
+      case 0x16 || 0x17:
+        final c = _ctx(reg - 0x16);
+        c.tex0 = (c.tex0 & ~_tex2Mask) | (data & _tex2Mask);
+        raster.loadClut(c.tex0);
       case 0x18:
         _ctx(0).xyoffset = data;
       case 0x19:

@@ -234,7 +234,8 @@ void main() {
             int tcc = 1,
             int cbp = 0,
             int cpsm = 0,
-            int csa = 0}) =>
+            int csa = 0,
+            int cld = 1}) =>
         bp |
         (bw << 14) |
         (psm << 20) |
@@ -244,7 +245,8 @@ void main() {
         (tfx << 35) |
         (cbp << 37) |
         (cpsm << 51) |
-        (csa << 56);
+        (csa << 56) |
+        (cld << 61);
 
     test('a decal sprite maps texels one to one', () {
       final gs = _gs();
@@ -289,18 +291,47 @@ void main() {
 
     test('an indexed texture reads its palette', () {
       final gs = _gs();
-      // palette at block 200: entry 3 = red, entry 4 = blue (CSM1, CT32)
-      gs.mem.setWord(200 * 64 + 3, _rgba(255, 0, 0, 0xff));
-      gs.mem.setWord(200 * 64 + 4, _rgba(0, 0, 255, 0xff));
-      upload(gs, 300, GsPsm.t8, 4, 1, [0x00040300]);
+      // a 16x16 CSM1 palette at block 200 in CT32, where the image position
+      // of an entry swaps bits 3 and 4 of the index
+      final palette = List.filled(256, 0);
+      int at(int entry) =>
+          (entry & ~0x18) | (entry & 8) << 1 | (entry & 16) >> 1;
+      palette[at(3)] = _rgba(255, 0, 0, 0xff);
+      palette[at(4)] = _rgba(0, 0, 255, 0xff);
+      palette[at(8)] = _rgba(0, 255, 0, 0xff);
+      palette[at(16)] = _rgba(255, 255, 255, 0xff);
+      upload(gs, 200, GsPsm.ct32, 16, 16, palette);
+      upload(gs, 300, GsPsm.t8, 4, 1, [0x10080403]);
       gs.writeRegister(0x06, tex0(300, 1, GsPsm.t8, 2, 0, cbp: 200));
       gs.writeRegister(0x00, 6 | 0x10 | 0x100);
       gs.writeRegister(0x03, 0);
       gs.writeRegister(0x05, _xyz(0, 0));
       gs.writeRegister(0x03, (4 * 16) | (1 * 16 << 16));
       gs.writeRegister(0x05, _xyz(4, 1));
-      expect(_px(gs, 1, 0) & 0xffffff, 0x0000ff);
-      expect(_px(gs, 2, 0) & 0xffffff, 0xff0000);
+      expect(_px(gs, 0, 0) & 0xffffff, 0x0000ff);
+      expect(_px(gs, 1, 0) & 0xffffff, 0xff0000);
+      expect(_px(gs, 2, 0) & 0xffffff, 0x00ff00);
+      expect(_px(gs, 3, 0) & 0xffffff, 0xffffff);
+    });
+
+    test('a 4-bit texture reads 16 palette entries at CSA', () {
+      final gs = _gs();
+      // an 8x2 CSM1 palette in CT16: entry 1 = red, entry 9 = blue
+      upload(gs, 200, GsPsm.ct16, 8, 2,
+          [0x001f << 16, 0, 0, 0, 0x7c00 << 16, 0, 0, 0]);
+      upload(gs, 300, GsPsm.t4, 2, 1, [0x91]);
+      gs.writeRegister(
+          0x06, tex0(300, 1, GsPsm.t4, 1, 0, cbp: 200, cpsm: 2, csa: 2));
+      // CLD 0 keeps the loaded entries although CBP changes
+      gs.writeRegister(0x06,
+          tex0(300, 1, GsPsm.t4, 1, 0, cbp: 900, cpsm: 2, csa: 2, cld: 0));
+      gs.writeRegister(0x00, 6 | 0x10 | 0x100);
+      gs.writeRegister(0x03, 0);
+      gs.writeRegister(0x05, _xyz(0, 0));
+      gs.writeRegister(0x03, (2 * 16) | (1 * 16 << 16));
+      gs.writeRegister(0x05, _xyz(2, 1));
+      expect(_px(gs, 0, 0) & 0xffffff, 0x0000f8);
+      expect(_px(gs, 1, 0) & 0xffffff, 0xf80000);
     });
 
     test('modulate scales the texel by the vertex colour', () {

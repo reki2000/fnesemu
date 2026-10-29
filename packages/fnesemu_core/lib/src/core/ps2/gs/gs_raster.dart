@@ -30,7 +30,7 @@ class GsRaster {
 
   // texture
   int _tbp = 0, _tbw = 0, _tpsm = 0, _tw = 0, _th = 0, _tcc = 0, _tfx = 0;
-  int _cbp = 0, _cpsm = 0, _csm = 0, _csa = 0, _clutPsm = 0;
+  int _clutPsm = 0, _clutOffset = 0;
   int _wms = 0, _wmt = 0, _minu = 0, _maxu = 0, _minv = 0, _maxv = 0;
   bool _linear = false;
   int _ta0 = 0, _ta1 = 0;
@@ -99,20 +99,8 @@ class GsRaster {
       _th = (t0 >> 30) & 15;
       _tcc = (t0 >> 34) & 1;
       _tfx = (t0 >> 35) & 3;
-      _cbp = (t0 >> 37) & 0x3fff;
-      _cpsm = (t0 >> 51) & 15;
-      _csm = (t0 >> 55) & 1;
-      _csa = (t0 >> 56) & 31;
-      if (++_clutStamp == 0x7fffffff) {
-        _clutStamps.fillRange(0, _clutStamps.length, 0);
-        _clutStamp = 1;
-      }
-      _clutPsm = switch (_cpsm) {
-        0 => GsPsm.ct32,
-        1 => GsPsm.ct24,
-        0xa => GsPsm.ct16s,
-        _ => GsPsm.ct16,
-      };
+      _clutPsm = _clutFormat(t0);
+      _clutOffset = _clutStart(t0, _clutPsm);
       _texLayout = mem.layout(_tpsm);
       _texPages = _texLayout.pagesInRow(_tbw);
       final c = _ctx.clamp;
@@ -531,9 +519,9 @@ class GsRaster {
       case GsPsm.ct32:
         return mem.word(i);
       case GsPsm.t8 || GsPsm.t8h:
-        return _clut(mem.readAt(_tpsm, i), 8);
+        return _clut(mem.readAt(_tpsm, i));
       case GsPsm.t4 || GsPsm.t4hl || GsPsm.t4hh:
-        return _clut(mem.readAt(_tpsm, i), 4);
+        return _clut(mem.readAt(_tpsm, i));
       default:
         return _color(_tpsm, mem.readAt(_tpsm, i));
     }
@@ -557,41 +545,82 @@ class GsRaster {
     }
   }
 
-  // The CLUT entries decoded during the current primitive. An entry is valid
-  // when its stamp equals [_clutStamp], which changes with every textured
-  // primitive.
-  final _clutColors = Uint32List(512);
-  final _clutStamps = Int32List(512);
-  int _clutStamp = 0;
+  // ---- CLUT buffer ----
 
-  int _clut(int index, int bits) {
-    // CSA selects one of the 16-entry groups for the 4-bit formats
-    final entry = (bits == 4 ? _csa * 16 + index : index) & 511;
-    if (_clutStamps[entry] == _clutStamp) return _clutColors[entry];
-    final color = _clutEntry(entry);
-    _clutStamps[entry] = _clutStamp;
-    _clutColors[entry] = color;
-    return color;
+  // The CLUT buffer holds 256 entries of a 32-bit format or 512 entries of a
+  // 16-bit format, as raw values.
+  final _clutBuffer = Uint32List(512);
+  int _cbp0 = 0, _cbp1 = 0;
+
+  static int _clutFormat(int tex0) => switch ((tex0 >> 51) & 15) {
+        0 => GsPsm.ct32,
+        1 => GsPsm.ct24,
+        0xa => GsPsm.ct16s,
+        _ => GsPsm.ct16,
+      };
+
+  static bool _isIndexed(int psm) =>
+      psm == GsPsm.t8 ||
+      psm == GsPsm.t8h ||
+      psm == GsPsm.t4 ||
+      psm == GsPsm.t4hl ||
+      psm == GsPsm.t4hh;
+
+  /// the first buffer entry of the texture: CSA selects a group of 16
+  /// entries for the 4-bit formats and for the 16-bit CLUT formats
+  static int _clutStart(int tex0, int clutPsm) {
+    final csa = (tex0 >> 56) & 31;
+    if (GsPsm.bits(clutPsm) == 16) return csa * 16;
+    return GsPsm.pixelBits((tex0 >> 20) & 0x3f) == 4 ? (csa & 15) * 16 : 0;
   }
 
-  int _clutEntry(int entry) {
-    final cpsm = _clutPsm;
-    int raw;
-    if (_csm == 0) {
-      // CSM1: entries follow each other in the raw memory of the buffer
-      if (cpsm == GsPsm.ct32 || cpsm == GsPsm.ct24) {
-        raw = gs.mem.word(_cbp * 64 + entry);
-      } else {
-        final h = _cbp * 128 + entry;
-        raw = (gs.mem.word(h >> 1) >> ((h & 1) * 16)) & 0xffff;
+  /// Loads the CLUT buffer from local memory when CLD of a TEX0 or TEX2
+  /// write asks for it. The load is done for the indexed formats only.
+  void loadClut(int tex0) {
+    final psm = (tex0 >> 20) & 0x3f;
+    if (!_isIndexed(psm)) return;
+    final cbp = (tex0 >> 37) & 0x3fff;
+    switch ((tex0 >> 61) & 7) {
+      case 1:
+        break;
+      case 2:
+        _cbp0 = cbp;
+      case 3:
+        _cbp1 = cbp;
+      case 4:
+        if (cbp == _cbp0) return;
+        _cbp0 = cbp;
+      case 5:
+        if (cbp == _cbp1) return;
+        _cbp1 = cbp;
+      default:
+        return;
+    }
+    final cpsm = _clutFormat(tex0);
+    final start = _clutStart(tex0, cpsm);
+    final eight = GsPsm.pixelBits(psm) == 8;
+    final count = eight ? 256 : 16;
+    final mem = gs.mem;
+    if ((tex0 >> 55) & 1 == 0) {
+      // CSM1: the entries are pixels of a 16x16 image for the 8-bit formats
+      // and of an 8x2 image for the 4-bit ones. In the 16x16 image, the
+      // position of an entry swaps bits 3 and 4 of its index.
+      for (var i = 0; i < count; i++) {
+        final x = eight ? (i & 7) | (i & 0x10) >> 1 : i & 7;
+        final y = eight ? (i & 0xe0) >> 4 | (i & 8) >> 3 : i >> 3;
+        _clutBuffer[(start + i) & 511] = mem.read(cpsm, cbp, 1, x, y);
       }
     } else {
-      // CSM2: entries are pixels of a row in the CLUT buffer
+      // CSM2: the entries are pixels of a row of the CLUT buffer image
       final cbw = gs.texclut & 0x3f;
       final cou = ((gs.texclut >> 6) & 0x3f) * 16;
       final cov = (gs.texclut >> 12) & 0x3ff;
-      raw = gs.mem.read(cpsm, _cbp, cbw, cou + entry, cov);
+      for (var i = 0; i < count; i++) {
+        _clutBuffer[(start + i) & 511] = mem.read(cpsm, cbp, cbw, cou + i, cov);
+      }
     }
-    return _color(cpsm, raw);
   }
+
+  int _clut(int index) =>
+      _color(_clutPsm, _clutBuffer[(_clutOffset + index) & 511]);
 }
