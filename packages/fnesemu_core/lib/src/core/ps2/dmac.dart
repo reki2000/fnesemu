@@ -37,8 +37,15 @@ class DmaChannel {
 /// A transfer runs to completion when its channel is started, without bus
 /// timing. Supported: normal mode, interleave mode for the scratchpad
 /// channels, and source chain mode (tag IDs 0..7)
-/// with the tag transfer enable bit. Memory FIFO and stall control are not
-/// implemented. SIF0 also supports destination chain mode, and waits for
+/// with the tag transfer enable bit. Stall control is not implemented.
+///
+/// The memory FIFO (MFIFO) is a ring buffer in memory at D_RBOR, of the size
+/// D_RBSR + 16. fromSPR writes into it, wrapping its MADR at the end, and the
+/// drain channel (VIF1 or GIF, chosen by D_CTRL) reads its chain from it.
+/// The drain waits when its TADR reaches the MADR of fromSPR (the ring is
+/// empty), raising the MFIFO empty interrupt, and fromSPR resumes it.
+///
+/// SIF0 also supports destination chain mode, and waits for
 /// its source to supply data (see [service]). The IPU channels wait for the
 /// IPU FIFOs, and a source chain to the IPU resumes in its packet.
 ///
@@ -90,8 +97,20 @@ class Dmac {
       address == 0x1000f520 ||
       address == 0x1000f590;
 
-  /// INT1 of the CPU
-  bool get asserted => (stat & (stat >>> 16) & 0x3ff) != 0;
+  /// the MFIFO empty bit of D_STAT
+  static const _mfifoEmpty = 1 << 14;
+
+  /// INT1 of the CPU: the channels and the MFIFO empty interrupt
+  bool get asserted => (stat & (stat >>> 16) & (0x3ff | _mfifoEmpty)) != 0;
+
+  /// the drain channel of the MFIFO, or -1 if it is off
+  int get _drain => switch ((ctrl >> 2) & 3) { 2 => vif1, 3 => gif, _ => -1 };
+
+  /// [address] wrapped into the MFIFO ring
+  int _ring(int address) => rbor | (address & rbsr);
+
+  /// true if the MADR of [ch] runs through the MFIFO ring
+  bool _inRing(int ch) => ch == fromSpr ? _drain >= 0 : ch == _drain;
 
   int _channelOf(int address) {
     final base = address & 0xfc00;
@@ -240,6 +259,7 @@ class Dmac {
   void _run(int ch) {
     final c = channels[ch];
     if (ch == gif) _moved = 0;
+    if (ch == fromSpr && _drain >= 0) c.madr = _ring(c.madr);
     switch ((c.chcr >> 2) & 3) {
       case 0:
         if (!_normal(ch, c)) return;
@@ -251,6 +271,12 @@ class Dmac {
         }
       case 2:
         _interleave(ch, c);
+    }
+    if (ch == fromSpr && _drain >= 0) {
+      _finish(ch);
+      // the drain may wait for this data
+      if (channels[_drain].chcr & _str != 0) _run(_drain);
+      return;
     }
     if (ch == gif && _moved > 0) {
       _gifLeft = _moved;
@@ -308,6 +334,8 @@ class Dmac {
       _move(ch, c, c.madr);
       if (ch == gif) _moved++;
       c.madr += 16;
+      // the end of the ring; a REF packet elsewhere does not reach it
+      if (c.madr == rbor + rbsr + 16 && _inRing(ch)) c.madr = rbor;
       c.qwc--;
     }
     return true;
@@ -363,6 +391,14 @@ class Dmac {
         if (c.packetEnds) return true;
         continue;
       }
+      if (ch == _drain) {
+        c.tadr = _ring(c.tadr);
+        if (c.tadr == channels[fromSpr].madr) {
+          stat |= _mfifoEmpty;
+          dirty = true;
+          return false;
+        }
+      }
       _read(c.tadr);
       final tag = _quad[0];
       if (c.chcr & _tte != 0 && ch == toSpr) {
@@ -416,6 +452,10 @@ class Dmac {
         default: // end
           c.madr = c.tadr + 16;
           end = true;
+      }
+      // the data after the tag is in the ring too
+      if (ch == _drain && id != 0 && id != 3 && id != 4) {
+        c.madr = _ring(c.madr);
       }
       if (!_normal(ch, c)) {
         c

@@ -196,6 +196,39 @@ void main() {
       expect(io.vif1.mark, 5);
     });
 
+    test('the MFIFO drain follows fromSPR through the ring', () {
+      final (bus, io) = _setup();
+      final received = <int>[];
+      io.dmac.endpoints[Dmac.gif] = _Collector(received);
+      bus.write32(_dmaCtrl, 1 | 3 << 2); // GIF drains the MFIFO
+      bus.write32(0x1000e050, 0x10000); // RBOR
+      bus.write32(0x1000e040, 0x30); // RBSR: 4 quadwords
+      bus.write32(0x1000d010, 0x10000); // fromSPR MADR
+      bus.write32(0x1000a030, 0x10000);
+      bus.write32(0x1000a000, 0x104); // the ring is empty
+      expect(received, isEmpty);
+      expect(bus.read32(_dmaStat) & 1 << 14, isNonZero);
+
+      void fromSpr(int sadr, List<int> quads) {
+        for (var i = 0; i < quads.length; i++) {
+          bus.write64(0x70000000 + sadr + i * 16, quads[i]);
+        }
+        bus.write32(0x1000d080, sadr);
+        bus.write32(0x1000d020, quads.length);
+        bus.write32(0x1000d000, 0x100);
+      }
+
+      fromSpr(0, [_tag(1, 1, 0), 0xa1]);
+      expect(received, [0xa1]);
+      // the packet wraps at the end of the ring
+      fromSpr(0x20, [_tag(2, 1, 0), 0xb1, 0xb2]);
+      expect(received, [0xa1, 0xb1, 0xb2]);
+      expect(bus.read64(0x10000), 0xb2);
+      expect(io.dmac.channels[Dmac.fromSpr].madr, 0x10010);
+      expect(io.dmac.channels[Dmac.gif].tadr, 0x10010);
+      expect(bus.read32(0x1000a000) & 0x100, isNonZero);
+    });
+
     test('call and ret use the address stack', () {
       final (bus, io) = _setup();
       enable(bus);

@@ -436,8 +436,8 @@ class GsRaster {
       v = _vv;
     } else {
       final q = _q == 0 ? 1.0 : _q;
-      u = _s / q * size;
-      v = _t / q * height;
+      u = _finite(_s / q * size);
+      v = _finite(_t / q * height);
     }
     int texel;
     if (_linear) {
@@ -496,6 +496,12 @@ class GsRaster {
         (c01 >> 24) & 0xff, (c11 >> 24) & 0xff, fu, fv));
     return r | g << 8 | b << 16 | a << 24;
   }
+
+  /// [v] limited to the range of the texel coordinates; NaN gives 0. S, T
+  /// and Q are floats that may hold anything, while the GS works on fixed
+  /// point coordinates.
+  static double _finite(double v) =>
+      v.isNaN ? 0 : (v < -32768.0 ? -32768.0 : (v > 32768.0 ? 32768.0 : v));
 
   /// rounds a value that is not negative, as round() does
   static int _round(double v) => (v + 0.5).toInt();

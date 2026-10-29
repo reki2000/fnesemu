@@ -23,7 +23,7 @@ class Cdvd {
   static const _key = 0x1f402020, _keyFlags = 0x1f402038, _keyXor = 0x1f402039;
 
   static const noDisc = 0x00;
-  static const ps2Cd = 0x12;
+  static const ps2Cd = 0x12, ps2Dvd = 0x14;
 
   /// the idle value 0x4e is what the BIOS driver waits for at start; bit 3
   /// is not described by the documentation I found
@@ -34,6 +34,8 @@ class Cdvd {
       _statusReading = 0x04,
       _statusPaused = 0x08,
       _statusSeeking = 0x10;
+
+  static const _dvdBlockSize = 2064;
 
   static const _seekCycles = 200000, _sectorCycles = 20000;
 
@@ -48,6 +50,9 @@ class Cdvd {
   /// the game ID of the inserted disc, such as `ABCD_123.45`, taken from the
   /// BOOT2 line of SYSTEM.CNF. ReadKey encodes it into the disc key.
   String? discId;
+
+  /// true if the inserted disc is a DVD
+  bool dvd = false;
 
   /// the disc key bytes 0-14 and the flags of the valid key groups
   final _keyBytes = Uint8List(15);
@@ -72,14 +77,15 @@ class Cdvd {
   Uint8List _data = Uint8List(0);
   int _dataPos = 0;
 
+
   static bool handles(int address) => address >= base && address < end;
 
   /// true if the drive has a disc to read
   bool get hasDisc => drive?.status.isReady ?? false;
 
   /// the disc type byte; 0 reports an empty tray. A disc handed to this core
-  /// is a PS2 CD.
-  int get discType => hasDisc ? ps2Cd : noDisc;
+  /// is a PS2 CD or a PS2 DVD.
+  int get discType => hasDisc ? (dvd ? ps2Dvd : ps2Cd) : noDisc;
 
   /// true while sector bytes are waiting for the DMA channel
   bool get dataAvailable => _dataPos < _data.length;
@@ -179,11 +185,17 @@ class Cdvd {
         _sectorsLeft = _int32(params, 4);
         final selector = params.length > 10 ? params[10] : 0;
         _blockSize = switch (selector) { 1 => 2328, 2 => 2340, _ => 2048 };
-        _data = Uint8List(0);
-        _dataPos = 0;
-        _busyCycles = _seekCycles;
-        _reading = true;
-        _wait = 0;
+        _startRead();
+      case 0x08: // ReadDvd: sector, count; blocks of 2064 bytes
+        if (!hasDisc) {
+          _error6 = 1;
+          _complete();
+          return;
+        }
+        _lba = _int32(params, 0);
+        _sectorsLeft = _int32(params, 4);
+        _blockSize = _dvdBlockSize;
+        _startRead();
       case 0x05: // Seek
         _lba = _int32(params, 0);
         _busyCycles = _seekCycles;
@@ -193,6 +205,14 @@ class Cdvd {
       default: // NOP, NOPsync, Standby, Stop, Pause and the unknown ones
         _busyCycles = 1000;
     }
+  }
+
+  void _startRead() {
+    _data = Uint8List(0);
+    _dataPos = 0;
+    _busyCycles = _seekCycles;
+    _reading = true;
+    _wait = 0;
   }
 
   /// Fills the disc key from [discId].
@@ -263,12 +283,28 @@ class Cdvd {
   }
 
   Uint8List _userBytes(Uint8List raw) {
+    if (_blockSize == _dvdBlockSize) return _dvdBlock(raw);
     final start = switch (_blockSize) {
       2328 => 24,
       2340 => 12,
       _ => raw[15] == 2 ? 24 : 16,
     };
     return Uint8List.sublistView(raw, start, start + _blockSize);
+  }
+
+  /// a ReadDvd block: the layer number plus 0x20, the sector number plus
+  /// 0x30000 (big endian), 8 bytes of zero, the user data and 4 bytes of
+  /// zero. The zero fields hold the error detection and copy protection
+  /// bytes of a real DVD sector; their values are not documented.
+  Uint8List _dvdBlock(Uint8List raw) {
+    final sector = _lba + 0x30000;
+    final offset = raw[15] == 2 ? 24 : 16;
+    return Uint8List(_dvdBlockSize)
+      ..[0] = 0x20
+      ..[1] = sector >> 16
+      ..[2] = sector >> 8
+      ..[3] = sector
+      ..setRange(12, 12 + 2048, raw, offset);
   }
 
   /// takes up to [count] bytes of sector data

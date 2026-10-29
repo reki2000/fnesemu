@@ -45,6 +45,24 @@ void main() {
     expect(cdvd.istat, 0);
   });
 
+  test('ReadDvd delivers blocks with the sector ID of a DVD', () {
+    final cdvd = Cdvd()
+      ..drive = FakeCdromDrive([_sector(1), _sector(2)])
+      ..dvd = true;
+    expect(cdvd.discType, Cdvd.ps2Dvd);
+    _write(cdvd, 0x08, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    final data = <int>[];
+    for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
+      cdvd.advance(50000);
+      data.addAll(cdvd.takeData(4096));
+    }
+    expect(data.length, 2064);
+    expect(data.sublist(0, 4), [0x20, 0x03, 0x00, 0x01]);
+    expect(data[12], 2);
+    expect(data[2059], 2);
+    expect(data[2060], 0);
+  });
+
   test('S commands answer with config, clock and sticky status', () {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
     cdvd.write(0x1f402016, 0x41);

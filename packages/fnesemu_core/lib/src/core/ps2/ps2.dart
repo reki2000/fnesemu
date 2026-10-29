@@ -75,6 +75,7 @@ class Ps2 extends Core {
       ..sio2.card = _card
       ..cdvd.drive = _drive
       ..cdvd.discId = _discId
+      ..cdvd.dvd = _dvd
       ..spu2.onAudio =
           (samples) => _onAudio(AudioBuffer(Spu2.sampleHz, 2, samples));
     io.cdvd = iopIo.cdvd;
@@ -179,17 +180,25 @@ class Ps2 extends Core {
 
   CdromDrive? _drive;
   String? _discId;
+  bool _dvd = false;
 
-  /// Inserts [drive] and looks up the game ID in its SYSTEM.CNF in the
-  /// background. The CDVD disc key carries this ID. The ID of a disc
-  /// inserted later through the tray is not looked up.
+  /// Inserts [drive] and looks up the game ID in its SYSTEM.CNF and the
+  /// media type in the background. The CDVD disc key carries this ID. The ID
+  /// of a disc inserted later through the tray is not looked up.
   @override
   void setCdromDrive(CdromDrive drive) {
     _drive = drive;
     _discId = null;
+    _dvd = false;
     iopIo.cdvd
       ..drive = drive
-      ..discId = null;
+      ..discId = null
+      ..dvd = false;
+    isDvd(drive).then((dvd) {
+      if (_drive != drive) return;
+      _dvd = dvd;
+      iopIo.cdvd.dvd = dvd;
+    });
     readSystemCnf(drive).then((text) {
       if (_drive != drive || text == null) return;
       _discId = bootFileName(text);

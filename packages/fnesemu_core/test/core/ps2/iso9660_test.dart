@@ -4,6 +4,13 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/ps2/iso9660.dart';
 import 'package:test/test.dart';
 
+import '../../support/fake_cdrom_drive.dart';
+
+/// a raw mode 1 sector whose user data starts with a volume descriptor [id]
+Uint8List _descriptor(String id) => Uint8List(2352)
+  ..[15] = 1
+  ..setRange(17, 22, ascii.encode(id));
+
 void main() {
   test('finds and reads a file in the root directory', () async {
     final sectors = <int, Uint8List>{};
@@ -35,5 +42,12 @@ void main() {
     expect(bootFileName('BOOT2 = cdrom0:\\ABCD_123.45;1\r\nVER = 1.00\r\n'),
         'ABCD_123.45');
     expect(bootFileName('VMODE = NTSC\n'), isNull);
+  });
+
+  test('a UDF bridge disc is a DVD', () async {
+    List<Uint8List> disc(List<String> ids) =>
+        [for (var i = 0; i < 16; i++) Uint8List(2352), ...ids.map(_descriptor)];
+    expect(await isDvd(FakeCdromDrive(disc(['CD001', 'BEA01']))), isTrue);
+    expect(await isDvd(FakeCdromDrive(disc(['CD001', 'CD001']))), isFalse);
   });
 }
