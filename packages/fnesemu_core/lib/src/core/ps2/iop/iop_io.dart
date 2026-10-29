@@ -1,6 +1,7 @@
 import '../sif.dart';
 import 'cdvd.dart';
 import 'iop_memory.dart';
+import 'ohci.dart';
 import 'sio2.dart';
 import 'spu2.dart';
 
@@ -17,7 +18,8 @@ class IopDmaChannel {
 }
 
 /// The IOP internal registers: interrupt controller, DMA controller, timers
-/// and the SIF mailbox. Other addresses read back what was written.
+/// and the SIF mailbox, and the devices on the IOP bus. Other addresses read
+/// back what was written.
 ///
 /// Uncertain details (to be checked against hardware tests): the DICR2 bit
 /// layout, which timer clock sources exist, and the SIF packet tags.
@@ -35,6 +37,7 @@ class IopIo implements IopPort {
   final cdvd = Cdvd();
   final sio2 = Sio2();
   final spu2 = Spu2();
+  final ohci = Ohci();
 
   int stat = 0, mask = 0, ctrl = 0;
   final channels = List.generate(_channelCount, (_) => IopDmaChannel());
@@ -111,6 +114,7 @@ class IopIo implements IopPort {
     if (Cdvd.handles(address)) return cdvd.read(address);
     if (Sio2.handles(address)) return sio2.read(address, size);
     if (Spu2.handles(address)) return spu2.read(address, size);
+    if (Ohci.handles(address)) return ohci.read(address);
     switch (address) {
       case 0x1f801070:
         return stat;
@@ -185,6 +189,10 @@ class IopIo implements IopPort {
     }
     if (Spu2.handles(address)) {
       spu2.write(address, size, value);
+      return;
+    }
+    if (Ohci.handles(address)) {
+      ohci.write(address, value);
       return;
     }
     switch (address) {
