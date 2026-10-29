@@ -33,6 +33,23 @@ void main() {
     });
   });
 
+  test('byte accesses reach a part of a 32-bit register', () {
+    final (bus, io) = _setup();
+    bus.write32(0x1000a000, 0x0001); // D2_CHCR without STR
+    bus.write32(0x1000e020, 0x12345678); // D_PCR
+    expect(bus.read8(0x1000a001), 0);
+    expect(bus.read8(0x1000e022), 0x34);
+    expect(bus.read16(0x1000e022), 0x1234);
+    bus.write8(0x1000e021, 0xab);
+    expect(io.dmac.pcr, 0x1234ab78);
+    // the bytes a narrow write to D_STAT does not cover are left alone
+    io.dmac.stat = 0x5;
+    bus.write8(0x1000e010, 0x4);
+    expect(io.dmac.stat, 0x1);
+    bus.write8(0x1000e012, 0x4);
+    expect(io.dmac.stat, 0x40001);
+  });
+
   group('timers', () {
     test('count at the bus clock only while enabled', () {
       final (bus, io) = _setup();

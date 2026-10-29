@@ -83,8 +83,28 @@ class IopIo implements IopPort {
 
   // ---- registers ----
 
+  /// true for the 32-bit registers that byte and halfword accesses reach
+  /// as a part of the aligned word
+  static bool _isWordRegister(int address) {
+    final a = address & ~3;
+    return a == 0x1f801070 ||
+        a == 0x1f801074 ||
+        a == 0x1f8010f0 ||
+        a == 0x1f8010f4 ||
+        a == 0x1f801570 ||
+        a == 0x1f801574 ||
+        _channelOf(a) >= 0;
+  }
+
   @override
   int read(int address, int size) {
+    if (address & 3 != 0 && size < 4 && _isWordRegister(address)) {
+      return _readRegister(address & ~3, 4) >>> ((address & 3) * 8);
+    }
+    return _readRegister(address, size);
+  }
+
+  int _readRegister(int address, int size) {
     if (address >= 0x1d000000 && address < 0x1d000100) {
       return sif.iopRead(address & 0xff);
     }
@@ -132,6 +152,25 @@ class IopIo implements IopPort {
 
   @override
   void write(int address, int size, int value) {
+    if (size < 4 && _isWordRegister(address)) {
+      final aligned = address & ~3;
+      final shift = (address & 3) * 8;
+      final mask = (size == 1 ? 0xff : 0xffff) << shift;
+      // the bytes not written keep their value: ones for the acknowledge of
+      // I_STAT and zeros for the flags of DICR, which a written 1 clears
+      final old = switch (aligned) {
+        0x1f801070 => 0xffffffff,
+        0x1f8010f4 => dicr & 0x00ffffff,
+        0x1f801574 => dicr2 & 0x00ffffff,
+        _ => _readRegister(aligned, 4),
+      };
+      _writeRegister(aligned, 4, (old & ~mask) | ((value << shift) & mask));
+      return;
+    }
+    _writeRegister(address, size, value);
+  }
+
+  void _writeRegister(int address, int size, int value) {
     if (address >= 0x1d000000 && address < 0x1d000100) {
       sif.iopWrite(address & 0xff, value);
       return;
@@ -185,9 +224,7 @@ class IopIo implements IopPort {
         case 0x0:
           c.madr = value & 0xffffff;
         case 0x4:
-          c.bcr = size == 2 ? (c.bcr & ~0xffff) | (value & 0xffff) : value;
-        case 0x6:
-          c.bcr = (c.bcr & 0xffff) | (value & 0xffff) << 16;
+          c.bcr = value;
         case 0x8:
           c.chcr = value;
           if (value & _start != 0) _runChannel(ch);

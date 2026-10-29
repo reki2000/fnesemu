@@ -165,8 +165,33 @@ class EeIo implements IoPort {
   static bool _isGs(int address) =>
       address >= 0x12000000 && address < 0x12002000;
 
+  /// true for the 32-bit registers that byte and halfword accesses reach
+  /// as a part of the aligned word
+  static bool _isWordRegister(int address) =>
+      EeTimers.handles(address) ||
+      address & ~3 == Intc.statAddress ||
+      address & ~3 == Intc.maskAddress ||
+      Dmac.handles(address & ~3) ||
+      address >= 0x10003000 && address < 0x10003100 ||
+      _isVif(address) ||
+      _isSif(address);
+
+  /// registers where a written 1 clears or toggles a bit, so the bytes that
+  /// a narrow write does not cover are written as zeros
+  static bool _isClearOnWrite(int address) =>
+      address == Intc.statAddress ||
+      address == Intc.maskAddress ||
+      address == 0x1000e010;
+
   @override
   int read(int address, int size) {
+    if (address & 3 != 0 && size < 4 && _isWordRegister(address)) {
+      return _readRegister(address & ~3) >>> ((address & 3) * 8);
+    }
+    return _readRegister(address, size);
+  }
+
+  int _readRegister(int address, [int size = 4]) {
     if (EeTimers.handles(address)) return timers.read(address);
     if (address == Intc.statAddress || address == Intc.maskAddress) {
       return intc.read(address);
@@ -196,6 +221,18 @@ class EeIo implements IoPort {
 
   @override
   bool write(int address, int size, int value) {
+    if (size < 4 && _isWordRegister(address)) {
+      final aligned = address & ~3;
+      final shift = (address & 3) * 8;
+      final mask = (size == 1 ? 0xff : 0xffff) << shift;
+      final old = _isClearOnWrite(aligned) ? 0 : _readRegister(aligned);
+      return _writeRegister(
+          aligned, 4, (old & ~mask) | ((value << shift) & mask));
+    }
+    return _writeRegister(address, size, value);
+  }
+
+  bool _writeRegister(int address, int size, int value) {
     if (EeTimers.handles(address)) {
       timers.write(address, value);
     } else if (address == Intc.statAddress || address == Intc.maskAddress) {

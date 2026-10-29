@@ -83,6 +83,21 @@ void main() {
     expect(s.iop.read(0x1d000020, 4), 0);
   });
 
+  test('byte and halfword accesses reach a part of an IOP register', () {
+    final s = _System();
+    final iop = s.iop;
+    iop.write(0x1f8010f4, 4, 0x00ff0000); // DICR enables
+    iop.dicr |= 0x05000000; // two flags
+    expect(iop.read(0x1f8010f7, 1), 0x85);
+    // a byte write to the flags clears only the flags written as 1
+    iop.write(0x1f8010f7, 1, 0x01);
+    expect(iop.dicr, 0x04ff0000);
+    iop.write(0x1f8010a6, 2, 3); // BCR count of channel 2
+    iop.write(0x1f8010a4, 2, 0x10); // BCR size
+    expect(iop.read(0x1f8010a4, 4), 0x30010);
+    expect(iop.read(0x1f8010a6, 2), 3);
+  });
+
   test('IOP interrupts need I_MASK and I_CTRL', () {
     final s = _System();
     s.iop.raise(IopIrq.dma);
