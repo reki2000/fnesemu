@@ -185,7 +185,9 @@ class IopIo implements IopPort {
         case 0x0:
           c.madr = value & 0xffffff;
         case 0x4:
-          c.bcr = value;
+          c.bcr = size == 2 ? (c.bcr & ~0xffff) | (value & 0xffff) : value;
+        case 0x6:
+          c.bcr = (c.bcr & 0xffff) | (value & 0xffff) << 16;
         case 0x8:
           c.chcr = value;
           if (value & _start != 0) _runChannel(ch);

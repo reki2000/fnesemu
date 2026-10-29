@@ -7,6 +7,9 @@ class DmaEndpoint {
   /// false while a source has nothing to give yet (the transfer waits)
   bool get hasData => true;
 
+  /// false while a destination cannot take more (the transfer waits)
+  bool get canPut => true;
+
   /// receives one quadword from memory
   void put(int low, int high) {}
 
@@ -22,6 +25,11 @@ class DmaEndpoint {
 
 class DmaChannel {
   int chcr = 0, madr = 0, qwc = 0, tadr = 0, asr0 = 0, asr1 = 0, sadr = 0;
+
+  // a chain transfer that waits in the middle of a packet resumes with
+  // these: the next tag address and whether the packet ends the chain
+  bool inPacket = false, packetEnds = false;
+  int nextTag = 0;
 }
 
 /// The EE DMA controller.
@@ -31,7 +39,8 @@ class DmaChannel {
 /// channels, and source chain mode (tag IDs 0..7)
 /// with the tag transfer enable bit. Memory FIFO and stall control are not
 /// implemented. SIF0 also supports destination chain mode, and waits for
-/// its source to supply data (see [service]).
+/// its source to supply data (see [service]). The IPU channels wait for the
+/// IPU FIFOs, and a source chain to the IPU resumes in its packet.
 class Dmac {
   static const channelCount = 10;
   static const vif0 = 0, vif1 = 1, gif = 2, fromIpu = 3, toIpu = 4;
@@ -147,6 +156,7 @@ class Dmac {
       case 0x00:
         c.chcr = value;
         if (ch == sif0) _sif0End = _sif0Irq = false;
+        if (value & _str != 0) c.inPacket = false;
         if (value & _str != 0 && ctrl & _dmaEnable != 0) _run(ch);
       case 0x10:
         c.madr = value;
@@ -184,6 +194,14 @@ class Dmac {
   void service() {
     final c = channels[sif0];
     if (c.chcr & _str != 0 && ctrl & _dmaEnable != 0) _run(sif0);
+    serviceIpu();
+  }
+
+  /// resumes the IPU channels that wait for the IPU FIFOs
+  void serviceIpu() {
+    if (ctrl & _dmaEnable == 0) return;
+    if (channels[toIpu].chcr & _str != 0) _run(toIpu);
+    if (channels[fromIpu].chcr & _str != 0) _run(fromIpu);
   }
 
   void _run(int ch) {
@@ -194,8 +212,8 @@ class Dmac {
       case 1:
         if (ch == sif0) {
           if (!_destChain(ch, c)) return;
-        } else {
-          _chain(ch, c);
+        } else if (!_chain(ch, c)) {
+          return;
         }
       case 2:
         _interleave(ch, c);
@@ -240,7 +258,10 @@ class Dmac {
   bool _normal(int ch, DmaChannel c) {
     // a zero count transfers 0x10000 quadwords on hardware; treat it as none
     while (c.qwc > 0) {
-      if (ch == sif0 && endpoints[ch]?.hasData == false) return false;
+      if ((ch == sif0 || ch == fromIpu) && endpoints[ch]?.hasData == false) {
+        return false;
+      }
+      if (ch == toIpu && endpoints[ch]?.canPut == false) return false;
       _move(ch, c, c.madr);
       c.madr += 16;
       c.qwc--;
@@ -287,9 +308,17 @@ class Dmac {
     }
   }
 
-  void _chain(int ch, DmaChannel c) {
-    if (!_fromMemory(ch) && ch != fromSpr) return;
+  /// returns false when the transfer waits for its destination
+  bool _chain(int ch, DmaChannel c) {
+    if (!_fromMemory(ch) && ch != fromSpr) return true;
     for (var packets = 0; packets < 0x100000; packets++) {
+      if (c.inPacket) {
+        if (!_normal(ch, c)) return false;
+        c.inPacket = false;
+        c.tadr = c.nextTag;
+        if (c.packetEnds) return true;
+        continue;
+      }
       _read(c.tadr);
       final tag = _quad[0];
       if (c.chcr & _tte != 0 && ch != fromSpr) {
@@ -318,7 +347,7 @@ class Dmac {
         case 5: // call
           c.madr = c.tadr + 16;
           final asp = (c.chcr >> 4) & 3;
-          if (asp >= 2) return;
+          if (asp >= 2) return true;
           final back = c.madr + qwc * 16;
           if (asp == 0) {
             c.asr0 = back;
@@ -340,9 +369,16 @@ class Dmac {
           c.madr = c.tadr + 16;
           end = true;
       }
-      _normal(ch, c);
+      if (!_normal(ch, c)) {
+        c
+          ..inPacket = true
+          ..nextTag = next
+          ..packetEnds = end || (irq && c.chcr & _tie != 0);
+        return false;
+      }
       c.tadr = next;
-      if (end || (irq && c.chcr & _tie != 0)) return;
+      if (end || (irq && c.chcr & _tie != 0)) return true;
     }
+    return true;
   }
 }

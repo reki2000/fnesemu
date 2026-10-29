@@ -224,6 +224,7 @@ class Ps2 extends Core {
     _busRemainder = elapsed & 1;
     io.timers.advance(elapsed >> 1);
     io.dmac.service();
+    io.ipu.service();
     if (biosLoaded) _advanceIop(cpu.clocks - _lastDeviceClock);
     _lastDeviceClock = cpu.clocks;
     _nextDeviceClock = cpu.clocks + _deviceQuantum;

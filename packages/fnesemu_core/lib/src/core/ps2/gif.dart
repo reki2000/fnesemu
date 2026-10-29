@@ -127,7 +127,7 @@ class Gif {
 
   static bool handles(int address) =>
       address >= 0x10003000 && address < 0x10003100 ||
-      address >= 0x10006000 && address < 0x10008000;
+      address >= 0x10006000 && address < 0x10007000;
 
   int read(int address) {
     return switch (address & 0xfff0) {

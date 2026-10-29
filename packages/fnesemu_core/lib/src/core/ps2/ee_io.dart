@@ -6,6 +6,7 @@ import 'gif.dart';
 import 'gs/gs.dart';
 import 'intc.dart';
 import 'iop/cdvd.dart';
+import 'ipu/ipu.dart';
 import 'quad_fifo.dart';
 import 'sif.dart';
 import 'timer.dart';
@@ -18,6 +19,7 @@ class EeIo implements IoPort {
   late final EeTimers timers = EeTimers(intc);
   final Dmac dmac;
   final Gs gs = Gs();
+  final Ipu ipu = Ipu();
   late final Gif gif = Gif(gs);
   final Sif sif = Sif();
   final Vu vu0 = Vu(0), vu1 = Vu(1);
@@ -32,6 +34,11 @@ class EeIo implements IoPort {
     sif.onEeInterrupt = () => intc.raise(Intc.sbus);
     dmac.endpoints[Dmac.sif0] = sif.sif0;
     dmac.endpoints[Dmac.sif1] = sif.sif1;
+    ipu
+      ..onInterrupt = (() => intc.raise(Intc.ipu))
+      ..onDma = dmac.serviceIpu;
+    dmac.endpoints[Dmac.toIpu] = ipu.toIpu;
+    dmac.endpoints[Dmac.fromIpu] = ipu.fromIpu;
     vu1.onXgkick = _xgkick;
     vu0.onCmsar1 = vu1.start;
   }
@@ -53,7 +60,6 @@ class EeIo implements IoPort {
   /// system registers (SIO, memory controller, ...): read back as written
   static bool _isSys(int address) =>
       address >= 0x1000f000 && address < 0x10010000 ||
-      address >= 0x10002000 && address < 0x10002100 || // IPU
       address >= 0x1a000000 && address < 0x1a010000 || // DEV9
       address >= 0x1f801400 && address < 0x1f801500 ||
       address >= 0x1f803800 && address < 0x1f803900;
@@ -167,6 +173,8 @@ class EeIo implements IoPort {
       return (address < 0x10003c00 ? vif0 : vif1).read(address & 0x3ff);
     }
     if (_isSif(address)) return sif.eeRead(address & 0xff);
+    if (Ipu.handlesRegister(address)) return ipu.read(address, size);
+    if (Ipu.handlesFifo(address)) return ipu.readFifo(address, size);
     if (_isVuMemory(address)) {
       final m = _vuMemory(address);
       if (m == null) return 0;
@@ -195,6 +203,10 @@ class EeIo implements IoPort {
       gif.write(address, size, value);
     } else if (_isSif(address)) {
       sif.eeWrite(address & 0xff, value);
+    } else if (Ipu.handlesRegister(address)) {
+      ipu.write(address, size, value);
+    } else if (Ipu.handlesFifo(address)) {
+      ipu.writeFifo(address, size, value);
     } else if (_isVif(address)) {
       (address < 0x10003c00 ? vif0 : vif1).write(address & 0x3ff, value);
     } else if (_isVifFifo(address)) {
@@ -229,6 +241,8 @@ class EeIo implements IoPort {
       _isGs(address) ||
       Gif.handles(address) ||
       _isSif(address) ||
+      Ipu.handlesRegister(address) ||
+      Ipu.handlesFifo(address) ||
       _isSys(address) ||
       _isIopRam(address) ||
       _isCdvd(address) ||
