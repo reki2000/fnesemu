@@ -8,9 +8,10 @@ import 'r5900/fpu.dart';
 /// quadwords.
 ///
 /// A micro program runs to its end when it is started. Every pair takes one
-/// cycle. A pair that reads a VF register written by an FMAC or a load
-/// within the last four cycles stalls until the value is ready, as the
-/// hardware interlocks it. DIV and SQRT update Q seven cycles after they
+/// cycle. A pair that reads a field of a VF register written by an FMAC or a
+/// load within the last four cycles stalls until the value is ready, as the
+/// hardware interlocks it. The check is done per field (x, y, z, w), so a
+/// write to one field does not stall a read of another. DIV and SQRT update Q seven cycles after they
 /// issue and RSQRT thirteen; Q is not interlocked, so the pairs before that
 /// read the old value. The elementary function unit (EFU) updates P in the
 /// same way, after the latency of each function. WAITQ and WAITP, and a new
@@ -70,8 +71,9 @@ class Vu {
   bool _pBusy = false;
   int _pValue = 0, _pReady = 0;
 
-  /// the cycle at which each VF register holds its newest value
-  final _vfReady = Int64List(32);
+  /// the cycle at which each field of a VF register holds its newest value,
+  /// indexed by register * 4 + field
+  final _vfReady = Int64List(128);
 
   static const _fmacLatency = 4;
 
@@ -108,7 +110,7 @@ class Vu {
     _ending = false;
     p = 0;
     _qBusy = _pBusy = false;
-    _vfReady.fillRange(0, 32, 0);
+    _vfReady.fillRange(0, 128, 0);
     _flagCount = 0;
   }
 
@@ -253,7 +255,7 @@ class Vu {
     }
     if (hasWrite) {
       _setVf(upperReg, upperMask, savedResult);
-      if (upperReg != 0) _vfReady[upperReg] = issued + _fmacLatency;
+      if (upperReg != 0) _setReady(upperReg, upperMask, issued + _fmacLatency);
     }
     if (upperMac >= 0 || upperClip >= 0) {
       _queueFlags(issued + _fmacLatency, upperMac, upperClip);
@@ -268,63 +270,108 @@ class Vu {
     if (wasEnding) running = false;
   }
 
-  /// Waits for the VF registers that the pair reads, and for Q before a
-  /// WAITQ. The upper fields fs and ft count as read even when an
-  /// instruction ignores them, which only delays such a pair.
+  void _setReady(int reg, int fields, int cycle) {
+    for (var c = 0; c < 4; c++) {
+      if (fields & (8 >> c) != 0) _vfReady[reg * 4 + c] = cycle;
+    }
+  }
+
+  /// the cycle at which the [fields] of [reg] are ready, at least [t]
+  int _readyAt(int reg, int fields, int t) {
+    if (reg == 0) return t;
+    for (var c = 0; c < 4; c++) {
+      if (fields & (8 >> c) != 0) {
+        final r = _vfReady[reg * 4 + c];
+        if (r > t) t = r;
+      }
+    }
+    return t;
+  }
+
+  /// Waits for the VF fields that the pair reads, and for Q before a WAITQ
+  /// or P before a WAITP.
   void _stall(int upper, int lower) {
-    final ready = _vfReady;
     var t = cycles;
-    final fs = ready[(upper >> 11) & 31], ft = ready[(upper >> 16) & 31];
-    if (fs > t) t = fs;
-    if (ft > t) t = ft;
+    final (fsFields, ftFields) = _upperReads(upper);
+    if (fsFields != 0) t = _readyAt((upper >> 11) & 31, fsFields, t);
+    if (ftFields != 0) t = _readyAt((upper >> 16) & 31, ftFields, t);
     final op = lower >>> 25;
+    final mask = (lower >> 21) & 15;
+    final fs = (lower >> 11) & 31, ft = (lower >> 16) & 31;
     if (op == 0x01) {
-      final r = ready[(lower >> 11) & 31]; // SQ
-      if (r > t) t = r;
+      t = _readyAt(fs, mask, t); // SQ
     } else if (op == 0x40 && lower & 0x3c == 0x3c) {
-      var readsFs = false, readsFt = false;
-      switch (((lower >> 6) & 31) << 2 | (lower & 3)) {
-        // MOVE, MR32, SQI, SQD, MTIR, RINIT, RXOR
+      final fsf = 8 >> ((lower >> 21) & 3), ftf = 8 >> ((lower >> 23) & 3);
+      final code = ((lower >> 6) & 31) << 2 | (lower & 3);
+      switch (code) {
+        // MOVE, SQI, SQD
         case const (0x0c << 2 | 0) ||
-              const (0x0c << 2 | 1) ||
               const (0x0d << 2 | 1) ||
-              const (0x0d << 2 | 3) ||
-              const (0x0f << 2 | 0) ||
+              const (0x0d << 2 | 3):
+          t = _readyAt(fs, mask, t);
+        // MR32 reads the field after each written one
+        case const (0x0c << 2 | 1):
+          t = _readyAt(fs, (mask >> 1 | mask << 3) & 15, t);
+        // MTIR, RINIT, RXOR
+        case const (0x0f << 2 | 0) ||
               const (0x10 << 2 | 2) ||
               const (0x10 << 2 | 3):
-          readsFs = true;
+          t = _readyAt(fs, fsf, t);
         // DIV, RSQRT
         case const (0x0e << 2 | 0) || const (0x0e << 2 | 2):
-          readsFs = readsFt = true;
+          t = _readyAt(ft, ftf, _readyAt(fs, fsf, t));
         // SQRT
         case const (0x0e << 2 | 1):
-          readsFt = true;
+          t = _readyAt(ft, ftf, t);
         // WAITQ
         case const (0x0e << 2 | 3):
           if (_qBusy && _qReady > t) t = _qReady;
         // WAITP
         case const (0x1e << 2 | 3):
           if (_pBusy && _pReady > t) t = _pReady;
-        // the other EFU operations
-        case >= 0x70: // sub-opcode 0x1c and above
-          readsFs = true;
-      }
-      if (readsFs) {
-        final r = ready[(lower >> 11) & 31];
-        if (r > t) t = r;
-      }
-      if (readsFt) {
-        final r = ready[(lower >> 16) & 31];
-        if (r > t) t = r;
+        // ESADD, ERSADD, ELENG, ERLENG, EATANxy, EATANxz
+        case >= 0x70 && < 0x76:
+          t = _readyAt(fs, 14, t);
+        // ESUM
+        case const (0x1d << 2 | 2):
+          t = _readyAt(fs, 15, t);
+        // the EFU operations of one field
+        case >= 0x78:
+          t = _readyAt(fs, fsf, t);
       }
     }
     cycles = t;
   }
 
-  /// a VF register written by a lower instruction
-  void _loweredVf(int reg) {
+  /// the fields of fs and ft that the upper instruction [ir] reads
+  static (int, int) _upperReads(int ir) {
+    final op = ir & 63;
+    final mask = (ir >> 21) & 15;
+    if (op < 0x1c) return (mask, 8 >> (op & 3)); // broadcast
+    if (op < 0x28) return (mask, 0); // Q or I
+    if (op == 0x2e) return (14, 14); // OPMSUB
+    if (op < 0x30) return (mask, mask);
+    if (op < 0x3c) return (0, 0);
+    final sub = (ir >> 6) & 31, col = op & 3;
+    switch (sub) {
+      case < 4 || 6: // the accumulator forms with a broadcast lane
+        return (mask, 8 >> col);
+      case 4 || 5 || 8 || 9: // ITOF, FTOI, and the Q and I forms
+        return (mask, 0);
+      case 7:
+        return col == 3 ? (14, 1) : (mask, 0); // CLIP reads ft.w
+      case 10:
+        return (mask, col == 3 ? 0 : mask);
+      case 11:
+        return switch (col) { 2 => (14, 14), 3 => (0, 0), _ => (mask, mask) };
+    }
+    return (0, 0);
+  }
+
+  /// the fields [mask] of a VF register written by a lower instruction
+  void _loweredVf(int reg, int mask) {
     // VF0 is constant; the lower NOP is a MOVE to it
-    if (reg != 0) _vfReady[reg] = cycles - 1 + _fmacLatency;
+    if (reg != 0) _setReady(reg, mask, cycles - 1 + _fmacLatency);
   }
 
   void _finishDivision() {
@@ -665,7 +712,7 @@ class Vu {
 
   void _loadQuad(int reg, int mask, int addr) {
     if (reg == 0) return;
-    _loweredVf(reg);
+    _loweredVf(reg, mask);
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) vf[reg * 4 + c] = data[addr * 4 + c];
     }
@@ -787,7 +834,7 @@ class Vu {
     final fsf = (ir >> 21) & 3, ftf = (ir >> 23) & 3;
     switch ((sub << 2) | col) {
       case const (0x0c << 2 | 0): // MOVE
-        _loweredVf(it);
+        _loweredVf(it, mask);
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) vf[it * 4 + c] = vf[fs * 4 + c];
         }
@@ -799,7 +846,7 @@ class Vu {
       case const (0x0f << 2 | 0): // MTIR
         vi[it & 15] = _lane(fs, fsf) & 0xffff;
       case const (0x0c << 2 | 1): // MR32
-        _loweredVf(it);
+        _loweredVf(it, mask);
         for (var c = 0; c < 4; c++) {
           if (mask & (8 >> c) != 0 && it != 0) {
             vf[it * 4 + c] = vf[fs * 4 + (c + 1) % 4];
@@ -862,7 +909,7 @@ class Vu {
 
   void _writeScalarVf(int reg, int mask, int value) {
     if (reg == 0) return;
-    _loweredVf(reg);
+    _loweredVf(reg, mask);
     for (var c = 0; c < 4; c++) {
       if (mask & (8 >> c) != 0) vf[reg * 4 + c] = value;
     }

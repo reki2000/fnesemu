@@ -276,6 +276,23 @@ void main() {
     expect(vu.cycles, 4 + 3);
   });
 
+  test('a pair does not wait for a field it does not read', () {
+    final vu = _vu([
+      (_lowerNop, _up(0x28, _y, 3, 1, 1)), // ADD vf3.y = vf1 + vf1
+      (_lowerNop, _up(0x28, _x, 4, 3, 3)), // ADD vf4.x = vf3 + vf3
+      (_lowerNop, _up(0x01, _z, 5, 1, 3)), // ADDy vf5.z = vf1 + vf3.y
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [1, 2, 3, 4]);
+    _setVf(vu, 3, [5, 0, 0, 0]);
+    vu.start(0);
+    expect(_getVf(vu, 4)[0], 10);
+    expect(_getVf(vu, 5)[2], 7);
+    // only the ADDy waits, for two cycles
+    expect(vu.cycles, 5 + 2);
+  });
+
   test('division by zero clamps Q and sets the D flag', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 0), _upperNop),
