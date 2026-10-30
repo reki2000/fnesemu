@@ -246,6 +246,11 @@ class DcSpg {
     }
   }
 
+  int _nearerEdge(int edge, int advance) =>
+      edge > _h && edge < pixelsPerLine && edge - _h < advance
+          ? edge - _h
+          : advance;
+
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
     if (!running || clocks == 0) return;
@@ -260,11 +265,9 @@ class DcSpg {
         advance = compare - _h;
       }
       // Blank transitions are observable even when no IRQ is scheduled there.
-      for (final edge in [hblank & 1023, (hblank >> 16) & 1023, displayX]) {
-        if (edge > _h && edge < pixelsPerLine && edge - _h < advance) {
-          advance = edge - _h;
-        }
-      }
+      advance = _nearerEdge(hblank & 1023, advance);
+      advance = _nearerEdge((hblank >> 16) & 1023, advance);
+      advance = _nearerEdge(displayX, advance);
       if (pixels < advance) {
         _h += pixels;
         return;

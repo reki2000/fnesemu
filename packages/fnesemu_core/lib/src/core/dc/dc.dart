@@ -46,6 +46,7 @@ class Dc extends Core {
   int _pendingClocks = 0;
   // Device clocks deferred by runFrame; flushed before device-visible accesses.
   int _batchedClocks = 0, _batchDeadline = 0;
+  int _pinsEpoch = -1;
   static const _batchLimit = 256;
   String? stopReason;
   CdromDrive? _discDrive;
@@ -400,7 +401,11 @@ class Dc extends Core {
       stopReason = 'No DC BIOS or diagnostic program loaded';
       return (0, _executionStopped);
     }
-    if (bootBringUp) _driveBringUpPins();
+    // GPIO control and data change only through device-visible accesses.
+    if (bootBringUp && _pinsEpoch != bus.deviceEpoch) {
+      _driveBringUpPins();
+      _pinsEpoch = bus.deviceEpoch;
+    }
     final previousClocks = _clocks;
     final previousLines = bus.gpu.spg.completedLines;
     final wasVideoRunning = bus.gpu.spg.running;
