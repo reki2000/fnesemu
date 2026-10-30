@@ -87,9 +87,13 @@ class _DiscIdentity {
     return little == big ? little : null;
   }
 
-  static (int, int)? _extent(Uint8List record, int volumeBlocks) {
-    final block = _both(record, 2, 4), size = _both(record, 10, 4);
+  // Records address absolute disc LBAs; [base] is the volume's track LBA.
+  // The result is relative to the track.
+  static (int, int)? _extent(Uint8List record, int volumeBlocks, int base) {
+    final lba = _both(record, 2, 4), size = _both(record, 10, 4);
+    final block = lba == null ? null : lba - base;
     if (block == null ||
+        block < 0 ||
         size == null ||
         record[1] != 0 ||
         record[26] != 0 ||
@@ -139,7 +143,7 @@ class _DiscIdentity {
         root[33] != 0) {
       return false;
     }
-    final location = _extent(root, volumeBlocks);
+    final location = _extent(root, volumeBlocks, track.startLba);
     if (location == null) return false;
     final (rootBlock, rootSize) = location;
     if (rootSize > _maxDirectoryBlocks * _blockSize) return false;
@@ -164,7 +168,7 @@ class _DiscIdentity {
         }
         final name = String.fromCharCodes(record.sublist(33, 33 + nameSize));
         if (name == 'IP.BIN;1' || name == 'IP0000.BIN;1') {
-          final file = _extent(record, volumeBlocks);
+          final file = _extent(record, volumeBlocks, track.startLba);
           if (file != null &&
               file.$2 >= 256 &&
               record[25] & 0x86 == 0 &&

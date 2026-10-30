@@ -94,7 +94,10 @@ Future<DcBootstrap> loadDcBootstrap(CdromDrive drive,
     throw const FormatException('ISO volume exceeds data track');
   }
 
-  Future<Uint8List> extent(int start, int size) async {
+  // Directory records address absolute disc LBAs, so a volume in a later
+  // session starts at its track's LBA rather than at zero.
+  Future<Uint8List> extent(int lba, int size) async {
+    final start = lba - track.startLba;
     if (start < 0 || size < 1 || start + (size + 2047) ~/ 2048 > volumeBlocks) {
       throw const FormatException('ISO extent exceeds volume');
     }
@@ -148,7 +151,7 @@ Future<DcBootstrap> loadDcBootstrap(CdromDrive drive,
       data.length >= 256 &&
       String.fromCharCodes(data.sublist(0, dcDiscSignature.length)) ==
           dcDiscSignature;
-  var ip = await extent(0, 32768);
+  var ip = await extent(track.startLba, 32768);
   final bootAreaPresent = header(ip);
   if (!bootAreaPresent) {
     final entry = entries['IP.BIN'];
@@ -165,7 +168,7 @@ Future<DcBootstrap> loadDcBootstrap(CdromDrive drive,
     throw FormatException('Missing or oversized boot program: $name');
   }
   return DcBootstrap(
-      ip, await extent(entry.$1, entry.$2), name, track.startLba + entry.$1,
+      ip, await extent(entry.$1, entry.$2), name, entry.$1,
       bootAreaPresent: bootAreaPresent);
 }
 

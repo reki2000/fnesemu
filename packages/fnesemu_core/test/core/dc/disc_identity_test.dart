@@ -46,7 +46,9 @@ Uint8List record(List<int> name, int extent, int size, {int flags = 0}) {
   return bytes;
 }
 
-Map<int, Uint8List> iso({String name = 'IP.BIN;1', int rootSize = 2048}) {
+// Directory records hold absolute LBAs: [base] is the track's start.
+Map<int, Uint8List> iso(
+    {String name = 'IP.BIN;1', int rootSize = 2048, int base = 0}) {
   final pvd = Uint8List(2048);
   pvd[0] = 1;
   pvd.setAll(1, 'CD001'.codeUnits);
@@ -55,12 +57,12 @@ Map<int, Uint8List> iso({String name = 'IP.BIN;1', int rootSize = 2048}) {
   both(pvd, 120, 1, 2);
   both(pvd, 124, 1, 2);
   both(pvd, 128, 2048, 2);
-  pvd.setAll(156, record([0], 20, rootSize, flags: 2));
+  pvd.setAll(156, record([0], base + 20, rootSize, flags: 2));
   pvd[881] = 1;
   final root = Uint8List(2048);
-  root.setAll(0, record([0], 20, rootSize, flags: 2));
-  root.setAll(34, record([1], 20, rootSize, flags: 2));
-  root.setAll(68, record(name.codeUnits, 30, 32768));
+  root.setAll(0, record([0], base + 20, rootSize, flags: 2));
+  root.setAll(34, record([1], base + 20, rootSize, flags: 2));
+  root.setAll(68, record(name.codeUnits, base + 30, 32768));
   return {0: Uint8List(2048), 16: pvd, 20: root, 30: metadata()};
 }
 
@@ -213,7 +215,7 @@ void main() {
     for (final start in [0, 200]) {
       test('ISO root $name identifies metadata with volume start $start',
           () async {
-        final drive = cooked(iso(name: name), start: start);
+        final drive = cooked(iso(name: name, base: start), start: start);
         expect((await DcModule().identifyDisc(drive))?.id, 'dc');
         expect(drive.reads, [start, start + 16, start + 20, start + 30]);
       });
