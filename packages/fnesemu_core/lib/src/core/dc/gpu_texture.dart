@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'fault.dart';
+import 'gpu_math.dart';
 import 'gpu_palette.dart';
 
 /// RGB/palette/YUV/bump texture view, including square RGB and non-MIP palette VQ blocks, from System Architecture §§3.6.2–3.6.3, 3.7.9.
@@ -151,8 +152,7 @@ class DcGpuTexture {
     if (weight == 1) return color;
     var output = 0;
     for (var shift = 0; shift < 32; shift += 8) {
-      output |=
-          (((color >> shift) & 255) * weight).round().clamp(0, 255) << shift;
+      output |= roundByte(((color >> shift) & 255) * weight) << shift;
     }
     return output & 0xffffffff;
   }
@@ -322,7 +322,7 @@ class DcGpuTexture {
       for (var i = 0; i < 4; i++) {
         channel += ((colors[i] >> shift) & 255) * weights[i];
       }
-      color |= channel.round().clamp(0, 255) << shift;
+      color |= roundByte(channel) << shift;
     }
     return color & 0xffffffff;
   }

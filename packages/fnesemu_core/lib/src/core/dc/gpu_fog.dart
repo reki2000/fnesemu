@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../state.dart';
 import 'fault.dart';
+import 'gpu_math.dart';
 
 /// Functional color clamp and fog, System Architecture §§3.4.8, 3.7.9.2, 8.4.2.
 /// Interpolation precision and rounding still require hardware measurements.
@@ -125,10 +126,9 @@ class DcGpuFog {
     var result = color & 0xff000000;
     for (var shift = 0; shift < 24; shift += 8) {
       final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
-      result |= ((input * (255 - coefficient) + fog * coefficient) / 255)
-              .round()
-              .clamp(0, 255) <<
-          shift;
+      result |=
+          roundByte((input * (255 - coefficient) + fog * coefficient) / 255) <<
+              shift;
     }
     return result & 0xffffffff;
   }

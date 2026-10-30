@@ -4,6 +4,7 @@ import '../../state.dart';
 import '../../util/uint8list.dart';
 import 'fault.dart';
 import 'gpu_fog.dart';
+import 'gpu_math.dart';
 import 'gpu_modifier.dart';
 import 'gpu_palette.dart';
 import 'gpu_texture.dart';
@@ -1205,11 +1206,10 @@ class DcGpuRender {
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
     var result = 0;
     for (var shift = 0; shift < 32; shift += 8) {
-      final channel = (((ca >> shift) & 255) * pa +
+      result |= roundByte(((ca >> shift) & 255) * pa +
               ((cb >> shift) & 255) * pb +
-              ((cc >> shift) & 255) * pc)
-          .round();
-      result |= (channel < 0 ? 0 : (channel > 255 ? 255 : channel)) << shift;
+              ((cc >> shift) & 255) * pc) <<
+          shift;
     }
     return result & 0xffffffff;
   }
@@ -1276,11 +1276,11 @@ class DcGpuRender {
     var color = 0;
     for (var shift = 0; shift < 32; shift += 8) {
       final src = (source >> shift) & 255, dst = (destination >> shift) & 255;
-      final value = ((src * factor(tsp >> 29, dst) +
-                  dst * factor((tsp >> 26) & 7, src) +
-                  127) ~/
-              255)
-          .clamp(0, 255);
+      final sum = (src * factor(tsp >> 29, dst) +
+              dst * factor((tsp >> 26) & 7, src) +
+              127) ~/
+          255;
+      final value = sum < 0 ? 0 : (sum > 255 ? 255 : sum);
       color |= value << shift;
     }
     return color & 0xffffffff;
