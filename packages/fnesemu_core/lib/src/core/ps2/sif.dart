@@ -8,9 +8,11 @@ import 'state.dart';
 ///
 /// SIF0 carries data from the IOP to the EE and SIF1 the other way. Both are
 /// word FIFOs filled and drained by the DMA channels of the two processors.
+///
+/// Only the EE writes MSCOM and only the IOP writes SMCOM (ps2tek). BD6 at offset 0x60 holds what either side writes; its purpose is not documented.
 class Sif {
-  /// registers, written by both sides (see [eeWrite] and [iopWrite])
-  int mscom = 0, smcom = 0, msflg = 0, smflg = 0, control = 0;
+  /// registers (see [eeWrite] and [iopWrite])
+  int mscom = 0, smcom = 0, msflg = 0, smflg = 0, control = 0, bd6 = 0;
 
   final sif0Fifo = ListQueue<int>();
   final sif1Fifo = ListQueue<int>();
@@ -22,19 +24,20 @@ class Sif {
   late final DmaEndpoint sif1 = _Sif1(this);
 
   void reset() {
-    mscom = smcom = msflg = smflg = control = 0;
+    mscom = smcom = msflg = smflg = control = bd6 = 0;
     sif0Fifo.clear();
     sif1Fifo.clear();
   }
 
   void saveState(StateWriter w) {
-    w.ints([mscom, smcom, msflg, smflg, control]);
+    w.ints([mscom, smcom, msflg, smflg, control, bd6]);
     w.ints(sif0Fifo.toList());
     w.ints(sif1Fifo.toList());
   }
 
   void loadState(StateReader s) {
-    final v = s.fields(5, 'sif');
+    final v = s.fields(6, 'sif');
+    bd6 = v[5];
     mscom = v[0];
     smcom = v[1];
     msflg = v[2];
@@ -55,6 +58,7 @@ class Sif {
         0x20 => msflg,
         0x30 => smflg,
         0x40 => control,
+        0x60 => bd6,
         _ => 0,
       };
 
@@ -63,14 +67,14 @@ class Sif {
     switch (offset) {
       case 0x00:
         mscom = value;
-      case 0x10:
-        smcom = value;
       case 0x20:
         msflg |= value; // the EE sets MSFLG bits
       case 0x30:
         smflg &= ~value; // and clears SMFLG bits
       case 0x40:
         control = value;
+      case 0x60:
+        bd6 = value;
     }
   }
 
@@ -80,8 +84,6 @@ class Sif {
   void iopWrite(int offset, int value) {
     value &= 0xffffffff;
     switch (offset) {
-      case 0x00:
-        mscom = value;
       case 0x10:
         smcom = value;
         onEeInterrupt?.call();
@@ -92,6 +94,8 @@ class Sif {
         onEeInterrupt?.call();
       case 0x40:
         control = value;
+      case 0x60:
+        bd6 = value;
     }
   }
 }

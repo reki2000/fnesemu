@@ -118,6 +118,16 @@ void main() {
     expect(iop.read(0x1f8014a0, 4), 4);
   });
 
+  test('only the EE writes MSCOM and only the IOP writes SMCOM', () {
+    final s = _System();
+    s.bus.write32(0x1000f200, 0x11);
+    s.iop.write(0x1d000000, 4, 0x22);
+    expect(s.iop.read(0x1d000000, 4), 0x11);
+    s.iop.write(0x1d000010, 4, 0x33);
+    s.bus.write32(0x1000f210, 0x44);
+    expect(s.bus.read32(0x1000f210), 0x33);
+  });
+
   test('byte and halfword accesses reach a part of an IOP register', () {
     final s = _System();
     final iop = s.iop;
