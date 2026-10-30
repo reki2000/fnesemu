@@ -286,7 +286,54 @@ void main() {
       bus.write32(0x1000a000, 0x104 | 0x80);
       expect(received, [9]);
     });
+
+    test('a chain started with QWC transfers it before the tag at TADR', () {
+      final (bus, io) = _setup();
+      enable(bus);
+      final received = <int>[];
+      final gate = _Gate(received)..room = 1;
+      io.dmac.endpoints[Dmac.toIpu] = gate;
+      bus.write64(0x1000, _tag(3, 3, 0x3000)); // ref
+      bus.write64(0x1010, _tag(1, 7, 0)); // end
+      bus.write64(0x1020, 0xc1);
+      for (var i = 0; i < 3; i++) {
+        bus.write64(0x3000 + i * 16, 0xa1 + i);
+      }
+      bus.write32(0x1000b430, 0x1000);
+      bus.write32(0x1000b400, 0x105);
+      expect(received, [0xa1]);
+      // the tag was read: TADR points past it
+      expect(bus.read32(0x1000b430), 0x1010);
+      expect(bus.read32(0x1000b410), 0x3010);
+
+      // stop and start again from the saved registers
+      final chcr = bus.read32(0x1000b400);
+      final qwc = bus.read32(0x1000b420);
+      bus.write32(0x1000b400, chcr & ~0x100);
+      bus.write32(0x1000b410, 0x3010);
+      bus.write32(0x1000b420, qwc);
+      gate.room = 10;
+      bus.write32(0x1000b400, chcr);
+      expect(received, [0xa1, 0xa2, 0xa3, 0xc1]);
+      expect(bus.read32(0x1000b400) & 0x100, 0);
+    });
   });
+}
+
+/// takes [room] quadwords, then waits
+class _Gate extends DmaEndpoint {
+  final List<int> received;
+  int room = 0;
+  _Gate(this.received);
+
+  @override
+  bool get canPut => room > 0;
+
+  @override
+  void put(int low, int high) {
+    received.add(low);
+    room--;
+  }
 }
 
 class _Collector extends DmaEndpoint {

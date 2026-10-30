@@ -27,19 +27,18 @@ class DmaEndpoint {
 class DmaChannel {
   int chcr = 0, madr = 0, qwc = 0, tadr = 0, asr0 = 0, asr1 = 0, sadr = 0;
 
-  // a chain transfer that waits in the middle of a packet resumes with
-  // these: the next tag address and whether the packet ends the chain
+  // a chain transfer that is in the middle of a packet transfers the rest
+  // before it reads the tag at TADR; the packet may end the chain
   bool inPacket = false, packetEnds = false;
-  int nextTag = 0;
 
   void saveState(StateWriter w) {
-    w.ints([chcr, madr, qwc, tadr, asr0, asr1, sadr, nextTag]);
+    w.ints([chcr, madr, qwc, tadr, asr0, asr1, sadr]);
     w.boolean(inPacket);
     w.boolean(packetEnds);
   }
 
   void loadState(StateReader s) {
-    final v = s.fields(8, 'dma channel');
+    final v = s.fields(7, 'dma channel');
     chcr = v[0];
     madr = v[1];
     qwc = v[2];
@@ -47,7 +46,6 @@ class DmaChannel {
     asr0 = v[4];
     asr1 = v[5];
     sadr = v[6];
-    nextTag = v[7];
     inPacket = s.boolean();
     packetEnds = s.boolean();
   }
@@ -250,7 +248,7 @@ class Dmac {
       case 0x00:
         c.chcr = value;
         if (ch == sif0) _sif0End = _sif0Irq = false;
-        if (value & _str != 0) c.inPacket = false;
+        if (value & _str != 0) _resume(c);
         if (value & _str != 0 && ctrl & _dmaEnable != 0) _run(ch);
       case 0x10:
         c.madr = value;
@@ -265,6 +263,23 @@ class Dmac {
       case 0x80:
         c.sadr = value;
     }
+  }
+
+  /// A source chain started with a nonzero QWC takes the TAG field of CHCR
+  /// as the last tag read: it transfers QWC quadwords from MADR first, and
+  /// stops after them for REFE and END (ps2tek, DMA resuming). A program
+  /// that suspends a transfer and starts it again relies on this.
+  void _resume(DmaChannel c) {
+    final chcr = c.chcr;
+    if ((chcr >> 2) & 3 != 1 || c.qwc == 0) {
+      c.inPacket = false;
+      return;
+    }
+    final id = (chcr >>> 28) & 7;
+    c
+      ..inPacket = true
+      ..packetEnds =
+          id == 0 || id == 7 || (chcr & (1 << 31) != 0 && chcr & _tie != 0);
   }
 
   /// reads a quadword; bit 31 of [address] selects the scratchpad
@@ -448,7 +463,6 @@ class Dmac {
       if (c.inPacket) {
         if (!_normal(ch, c)) return false;
         c.inPacket = false;
-        c.tadr = c.nextTag;
         if (c.packetEnds) return true;
         continue;
       }
@@ -518,14 +532,15 @@ class Dmac {
       if (ch == _drain && id != 0 && id != 3 && id != 4) {
         c.madr = _ring(c.madr);
       }
+      // TADR moves on when the tag is read (the source chain table of
+      // ps2tek), so a suspended transfer shows where it continues
+      c.tadr = next;
       if (!_normal(ch, c)) {
         c
           ..inPacket = true
-          ..nextTag = next
           ..packetEnds = end || (irq && c.chcr & _tie != 0);
         return false;
       }
-      c.tadr = next;
       if (end || (irq && c.chcr & _tie != 0)) return true;
     }
     return true;
