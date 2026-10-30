@@ -28,8 +28,9 @@ final _log = DebugLog('ps2');
 class Ps2 extends Core {
   static const _systemClockHz = 294912000; // EE clock, 294.912MHz
 
-  // Placeholder video timing until the GS exists: 60 frames of 262 lines
-  static const _scanlines = 262;
+  // NTSC timing: 262 lines of 9370 bus clocks, with the vertical blank from
+  // line 240 (ps2tek)
+  static const _scanlines = 262, _busClocksInScanline = 9370;
 
   static const _deviceQuantum = 32;
   static const _vblankLine = 240;
@@ -151,7 +152,7 @@ class Ps2 extends Core {
   int get scanlinesInFrame => _scanlines;
 
   @override
-  int get clocksInScanline => _systemClockHz ~/ 60 ~/ _scanlines;
+  int get clocksInScanline => _busClocksInScanline * 2;
 
   @override
   int get cpuClocks => cpu.clocks;
@@ -354,11 +355,13 @@ class Ps2 extends Core {
     if (biosLoaded) iopIo.hblank();
     _line++;
     if (_line == _vblankLine) {
+      io.timers.vblank(true);
       io.intc.raise(Intc.vblankStart);
       io.gs.vblank();
       iopIo.raise(IopIrq.vblankStart);
     } else if (_line == _scanlines) {
       _line = 0;
+      io.timers.vblank(false);
       io.intc.raise(Intc.vblankEnd);
       iopIo.raise(IopIrq.vblankEnd);
     }

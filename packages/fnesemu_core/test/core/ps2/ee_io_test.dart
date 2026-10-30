@@ -102,6 +102,46 @@ void main() {
       expect(io.intc.stat & (1 << Intc.timer0), isNonZero);
     });
 
+    test('a flag that is already set does not interrupt again', () {
+      final (bus, io) = _setup();
+      bus.write32(_timer0 + 0x20, 10);
+      bus.write32(_timer0 + 0x10, 0x80 | 0x40 | 0x100);
+      io.timers.advance(10);
+      expect(io.intc.stat & (1 << Intc.timer0), isNonZero);
+      bus.write32(0x1000f000, 1 << Intc.timer0); // acknowledge INTC only
+      io.timers.advance(10);
+      expect(io.intc.stat & (1 << Intc.timer0), 0);
+    });
+
+    test('a VBLANK gate in mode 0 stops the count during the blank', () {
+      final (bus, io) = _setup();
+      bus.write32(_timer0 + 0x10, 0x80 | 0x04 | 0x08);
+      io.timers.advance(10);
+      io.timers.vblank(true);
+      io.timers.advance(10);
+      expect(bus.read32(_timer0), 10);
+      io.timers.vblank(false);
+      io.timers.advance(5);
+      expect(bus.read32(_timer0), 15);
+    });
+
+    test('a VBLANK gate in mode 1 resets the count when the blank starts', () {
+      final (bus, io) = _setup();
+      bus.write32(_timer0 + 0x10, 0x80 | 0x04 | 0x08 | 0x10);
+      io.timers.advance(10);
+      io.timers.vblank(true);
+      io.timers.advance(3);
+      expect(bus.read32(_timer0), 3);
+    });
+
+    test('an SBUS interrupt latches T0 and T1 into HOLD', () {
+      final (bus, io) = _setup();
+      bus.write32(_timer0 + 0x10, 0x80);
+      io.timers.advance(7);
+      io.sif.onEeInterrupt!();
+      expect(bus.read32(_timer0 + 0x30), 7);
+    });
+
     test('hblank clocked timers count scanlines', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x83);

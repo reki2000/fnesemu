@@ -4,8 +4,9 @@ import 'state.dart';
 /// The four EE timers. Counters are 16 bits wide and tick at the bus clock
 /// (half the CPU clock) divided by 1, 16 or 256, or at each horizontal blank.
 ///
-/// Gate control (MODE bits 2..5) is not implemented: a timer with the gate
-/// enabled counts as if it were open.
+/// The gate (MODE bits 2-5) follows the horizontal or the vertical blank. Gate mode 0 stops the count during the vertical blank. Modes 1-3 reset the count when the blank starts, ends or both. The horizontal blank is an instant here, so gate mode 0 on it never stops the count, and modes 1-3 all reset at each line.
+///
+/// The interrupts are edge triggered: a timer interrupts only when a flag goes from 0 to 1 (ps2tek). T0 and T1 latch their count into HOLD on an SBUS interrupt.
 class EeTimers {
   static const baseAddress = 0x10000000;
 
@@ -13,6 +14,7 @@ class EeTimers {
   static const _compareInterrupt = 1 << 8, _overflowInterrupt = 1 << 9;
   static const _compareFlag = 1 << 10, _overflowFlag = 1 << 11;
   static const _divisors = [1, 16, 256];
+  static const _gateEnable = 1 << 2, _gateVblank = 1 << 3;
 
   final Intc intc;
   final count = List<int>.filled(4, 0);
@@ -33,20 +35,23 @@ class EeTimers {
   // call.
   int _pendingClocks = 0, _quietClocks = 0;
 
+  bool _vblank = false;
+
   void saveState(StateWriter w) {
     for (final list in [count, mode, compare, hold, _prescale]) {
       w.ints(list);
     }
-    w.ints([_pendingClocks, _quietClocks]);
+    w.ints([_pendingClocks, _quietClocks, _vblank ? 1 : 0]);
   }
 
   void loadState(StateReader s) {
     for (final list in [count, mode, compare, hold, _prescale]) {
       s.intsInto(list);
     }
-    final v = s.fields(2, 'timer');
+    final v = s.fields(3, 'timer');
     _pendingClocks = v[0];
     _quietClocks = v[1];
+    _vblank = v[2] != 0;
   }
 
   /// advances the timers by [busClocks] bus clock cycles
@@ -62,13 +67,20 @@ class EeTimers {
     _quietClocks = _quiet();
   }
 
+  /// true when timer [t] counts now: it is enabled and its gate is open
+  bool _counting(int t) {
+    final m = mode[t];
+    if (m & _enable == 0) return false;
+    return !(_vblank && m & 0x3c == _gateEnable | _gateVblank);
+  }
+
   /// the bus clocks before the first timer that counts them reaches its
   /// compare value or overflows
   int _quiet() {
     var quiet = 1 << 40;
     for (var t = 0; t < 4; t++) {
       final m = mode[t];
-      if (m & _enable == 0) continue;
+      if (!_counting(t)) continue;
       final select = m & 3;
       if (select == 3) continue;
       final c = count[t], comp = compare[t];
@@ -83,7 +95,7 @@ class EeTimers {
   void _advance(int busClocks) {
     for (var t = 0; t < 4; t++) {
       final m = mode[t];
-      if (m & _enable == 0) continue;
+      if (!_counting(t)) continue;
       final select = m & 3;
       if (select == 3) continue;
       final divisor = _divisors[select];
@@ -94,11 +106,40 @@ class EeTimers {
     }
   }
 
-  /// counts one horizontal blank for the timers that use it as their clock
+  /// counts one horizontal blank for the timers that use it as their clock,
+  /// and resets the timers that its gate resets
   void hblank() {
+    _flush();
     for (var t = 0; t < 4; t++) {
-      if (mode[t] & _enable != 0 && mode[t] & 3 == 3) _tick(t, 1);
+      final m = mode[t];
+      if (m & _enable == 0) continue;
+      if (m & 3 == 3) _tick(t, 1);
+      if (m & (_gateEnable | _gateVblank) == _gateEnable && m & 0x30 != 0) {
+        count[t] = 0;
+      }
     }
+    _quietClocks = _quiet();
+  }
+
+  /// the vertical blank starts or ends ([active]) for the gates
+  void vblank(bool active) {
+    _flush();
+    _vblank = active;
+    // gate mode 1 resets at the start, 2 at the end and 3 at both
+    final edge = active ? 0x10 : 0x20;
+    for (var t = 0; t < 4; t++) {
+      final m = mode[t];
+      if (m & _enable == 0 || m & 0xc == 0) continue;
+      if (m & 0xc == _gateEnable | _gateVblank && m & edge != 0) count[t] = 0;
+    }
+    _quietClocks = _quiet();
+  }
+
+  /// latches the counts of T0 and T1 into HOLD on an SBUS interrupt
+  void latchHold() {
+    _flush();
+    hold[0] = count[0];
+    hold[1] = count[1];
   }
 
   void _tick(int t, int ticks) {
@@ -127,8 +168,9 @@ class EeTimers {
   }
 
   void _event(int t, int flag, int enableBit) {
+    final rising = mode[t] & flag == 0;
     mode[t] |= flag;
-    if (mode[t] & enableBit != 0) intc.raise(Intc.timer0 + t);
+    if (rising && mode[t] & enableBit != 0) intc.raise(Intc.timer0 + t);
   }
 
   int read(int address) {
