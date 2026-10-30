@@ -159,6 +159,39 @@ class DcCache {
     return _instruction[offset] | (_instruction[offset + 1] << 8);
   }
 
+  static int _load(Uint8List bytes, int offset, int size) => switch (size) {
+        1 => bytes[offset],
+        2 => bytes[offset] | (bytes[offset + 1] << 8),
+        _ => bytes[offset] |
+            (bytes[offset + 1] << 8) |
+            (bytes[offset + 2] << 16) |
+            (bytes[offset + 3] << 24),
+      };
+
+  /// An untranslated aligned operand read that hits the operand cache, or -1.
+  int operandHit(int address, int size) {
+    if (_ccr & 1 == 0 || !_cacheable(address)) return -1;
+    final index = _index(address, false);
+    if (!_hit(address, index, false)) return -1;
+    return _load(_operand, index * 32 + (address & 31), size);
+  }
+
+  /// Writes an untranslated aligned operand into a hit copy-back line.
+  /// Returns false when the full path must decide.
+  bool operandWriteHit(int address, int size, int value) {
+    if (_ccr & 1 == 0 || !_cacheable(address)) return false;
+    final through = address >= 0x80000000 ? _ccr & 4 == 0 : _ccr & 2 != 0;
+    if (through) return false;
+    final index = _index(address, false);
+    if (!_hit(address, index, false)) return false;
+    final offset = index * 32 + (address & 31);
+    for (var i = 0; i < size; i++) {
+      _operand[offset + i] = value >> (i * 8);
+    }
+    _operandTags[index] |= 2;
+    return true;
+  }
+
   (Uint8List, int) readLocation(int address, int size,
       {bool instruction = false,
       bool fill = true,

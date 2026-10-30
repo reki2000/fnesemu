@@ -310,6 +310,12 @@ class DcBus {
     sync();
   }
 
+  /// Main RAM addressed without translation (MMU off, or P1/P2).
+  bool _directRam(int address) {
+    address = address.mask32;
+    return _ordinaryRam(address) && (address >= 0x80000000 || !mmu.enabled);
+  }
+
   /// Fetches an aligned instruction word. Untranslated fetches that hit the
   /// instruction cache or read uncached main RAM skip the general path; both
   /// have no side effects.
@@ -330,6 +336,24 @@ class DcBus {
 
   int cpuRead(int address, int size,
       {bool privileged = true, bool instruction = false, bool peek = false}) {
+    if (!instruction &&
+        !peek &&
+        address & (size - 1) == 0 &&
+        _directRam(address)) {
+      final hit = cache.operandHit(address, size);
+      if (hit >= 0) return hit;
+      if (address >= 0xa0000000 || cache.ccr & 1 == 0) {
+        final offset = address & (ramSize - 1);
+        return switch (size) {
+          1 => ram[offset],
+          2 => ram[offset] | (ram[offset + 1] << 8),
+          _ => ram[offset] |
+              (ram[offset + 1] << 8) |
+              (ram[offset + 2] << 16) |
+              (ram[offset + 3] << 24),
+        };
+      }
+    }
     final mapping = translateCpu(address,
         privileged: privileged, instruction: instruction, touch: !peek);
     if (!peek) _syncFor(address, mapping, fetch: instruction);
@@ -350,6 +374,16 @@ class DcBus {
 
   void cpuWrite(int address, int size, int value,
       {bool privileged = true, bool allocate = false}) {
+    if (!allocate && address & (size - 1) == 0 && _directRam(address)) {
+      if (cache.operandWriteHit(address, size, value)) return;
+      if (address >= 0xa0000000 || cache.ccr & 1 == 0) {
+        final offset = address & (ramSize - 1);
+        for (var i = 0; i < size; i++) {
+          ram[offset + i] = value >> (i * 8);
+        }
+        return;
+      }
+    }
     var mapping = translateCpu(address, write: true, privileged: privileged);
     // A queue store validates its translation but writes on-chip queue storage.
     if (isStoreQueue(address)) {

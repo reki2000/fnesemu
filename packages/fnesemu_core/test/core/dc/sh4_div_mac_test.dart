@@ -2,7 +2,6 @@ import 'dart:math';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/fault.dart';
-import 'package:fnesemu_core/src/core/dc/mmu.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
@@ -11,15 +10,11 @@ const _code = 0x0c010000, _left = 0x0c020000, _right = 0x0c030000;
 class _RecordingBus extends DcBus {
   final reads = <int>[];
   @override
-  int read16(int address, {DcTranslation? mapping, bool peek = false}) {
-    if (address != _code) reads.add(address);
-    return super.read16(address, mapping: mapping, peek: peek);
-  }
-
-  @override
-  int read32(int address, {DcTranslation? mapping, bool peek = false}) {
-    reads.add(address);
-    return super.read32(address, mapping: mapping, peek: peek);
+  int cpuRead(int address, int size,
+      {bool privileged = true, bool instruction = false, bool peek = false}) {
+    if (!instruction && !peek) reads.add(address);
+    return super.cpuRead(address, size,
+        privileged: privileged, instruction: instruction, peek: peek);
   }
 }
 
