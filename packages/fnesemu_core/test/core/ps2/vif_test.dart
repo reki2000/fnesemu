@@ -75,6 +75,50 @@ void main() {
     expect(bus.read32(0x10003c00) & 0xc00, 0);
   });
 
+  test('STP stalls after the current code and FBK at once', () {
+    final (bus, io) = _setup();
+    bus.write32(0x10003c10, 4); // STP while idle
+    _send(bus, fifo1, [0x07000001]);
+    expect(io.vif1.mark, 0);
+    expect(bus.read32(0x10003c00) & 0x300, 0x100);
+    bus.write32(0x10003c10, 8);
+    expect(io.vif1.mark, 1);
+    bus.write32(0x10003c10, 2); // FBK
+    _send(bus, fifo1, [0x07000002]);
+    expect(io.vif1.mark, 1);
+    expect(bus.read32(0x10003c00) & 0x300, 0x200);
+    bus.write32(0x10003c10, 8);
+    expect(io.vif1.mark, 2);
+  });
+
+  test('an undefined code stalls with ER1 unless ME1 is set', () {
+    final (bus, io) = _setup();
+    _send(bus, fifo1, [0x08000000, 0x07000003]);
+    expect(io.vif1.mark, 0);
+    expect(bus.read32(0x10003c00) & (1 << 13), isNonZero);
+    bus.write32(0x10003c10, 8);
+    expect(io.vif1.mark, 3);
+    bus.write32(0x10003c20, 4); // ME1
+    _send(bus, fifo1, [0x08000000, 0x07000004]);
+    expect(io.vif1.mark, 4);
+  });
+
+  test('MARK sets MRK and a write to the MARK register clears it', () {
+    final (bus, io) = _setup();
+    _send(bus, fifo1, [0x07000009]);
+    expect(bus.read32(0x10003c00) & 0x40, 0x40);
+    bus.write32(0x10003c30, 0);
+    expect(bus.read32(0x10003c00) & 0x40, 0);
+  });
+
+  test('MSKPATH3 sets the PATH3 mask of the GIF', () {
+    final (bus, io) = _setup();
+    _send(bus, fifo1, [0x06008000]);
+    expect(bus.read32(0x10003020) & 2, 2);
+    _send(bus, fifo1, [0x06000000]);
+    expect(bus.read32(0x10003020) & 2, 0);
+  });
+
   test('ERR.MII disables the interrupt bit', () {
     final (bus, io) = _setup();
     bus.write32(0x10003c20, 1);

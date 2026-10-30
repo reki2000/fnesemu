@@ -11,7 +11,9 @@ import 'vu.dart';
 /// A VPU interface (VIF0 for VU0, VIF1 for VU1). It decodes the VIFcode
 /// stream that arrives through DMA or the FIFO window.
 ///
-/// A code with the interrupt bit raises the VIF interrupt after it executes, and the VIF stalls on the next code other than MARK until STC is written to FBRST (ps2tek). Bit 0 of ERR (MII) disables both. VIF1 waits at FLUSHA while PATH3 transfers (see [path3Busy]). Not implemented: the FLUSH family (micro programs finish when started), MSKPATH3 and error detection.
+/// A code with the interrupt bit raises the VIF interrupt after it executes, and the VIF stalls on the next code other than MARK until STC is written to FBRST (ps2tek). Bit 0 of ERR (MII) disables both. STP of FBRST stalls the VIF after the current code and FBK stalls it at once. An undefined code is skipped, and it stalls the VIF with ER1 unless bit 2 of ERR (ME1) is set. VIF0 skips the codes of VIF1 without an error. Whether an error raises the interrupt is not documented, so it does not. The DMA tag mismatch error (ER0) is not detected.
+///
+/// VIF1 waits at FLUSHA while PATH3 transfers (see [path3Busy]). The other waits of the FLUSH and MSCAL family are met at once, because a micro program runs to its end when it starts. DIRECTHL does not wait for an IMAGE transfer of PATH3, because the GIF paths are not arbitrated.
 ///
 /// UNPACK with CL < WL (filling write) reads data for the first CL vectors of each WL and fills the rest. A filled vector takes the ROW or COL value its mask selects. The fields that would take data are left unchanged, which is unverified.
 class Vif extends DmaEndpoint {
@@ -19,6 +21,8 @@ class Vif extends DmaEndpoint {
 
   // STAT: VIS (stalled on an interrupt bit) and INT (interrupt bit seen)
   static const _vis = 1 << 10, _int = 1 << 11;
+  static const _mrk = 1 << 6, _vss = 1 << 8, _vfs = 1 << 9, _er1 = 1 << 13;
+  static const _stalls = _vss | _vfs | _vis | _er1;
 
   final int index;
   final Vu vu;
@@ -51,9 +55,18 @@ class Vif extends DmaEndpoint {
   /// called when a stall ends, so that DMA can send more data
   void Function()? onResume;
 
+  /// VIF1 only: called by MSKPATH3 with the new mask
+  void Function(bool on)? onMaskPath3;
+
   // words that arrived while the VIF waits at FLUSHA
   final _held = ListQueue<int>();
   bool _waiting = false;
+
+  // STP was written and the VIF stalls after the current code
+  bool _stop = false;
+
+  // the double buffer flag: TOPS is BASE + OFST
+  bool _dbf = false;
 
   Vif(this.index, this.vu, {this.path2, this.gs}) {
     vu.top = () => top;
@@ -63,6 +76,7 @@ class Vif extends DmaEndpoint {
   void reset() {
     _held.clear();
     _waiting = false;
+    _stop = false;
     _wordsLeft = 0;
     _count = 0;
     _quadCount = 0;
@@ -80,6 +94,8 @@ class Vif extends DmaEndpoint {
     ]);
     w.boolean(fdr);
     w.boolean(_waiting);
+    w.boolean(_stop);
+    w.boolean(_dbf);
     for (final list in [row, col, _buf, _quadWords]) {
       w.typed(list);
     }
@@ -114,6 +130,8 @@ class Vif extends DmaEndpoint {
     _bitsPerVector = v[21];
     fdr = s.boolean();
     _waiting = s.boolean();
+    _stop = s.boolean();
+    _dbf = s.boolean();
     for (final list in [row, col, _buf, _quadWords]) {
       s.typed(list);
     }
@@ -151,7 +169,7 @@ class Vif extends DmaEndpoint {
   @override
   bool get canPut => !_waiting && !_stalled;
 
-  bool get _stalled => stat & _vis != 0;
+  bool get _stalled => stat & _stalls != 0;
 
   /// continues after FLUSHA when PATH3 is idle
   void resume() {
@@ -203,8 +221,13 @@ class Vif extends DmaEndpoint {
     }
   }
 
-  /// raises the interrupt of a code with the interrupt bit once it executed
+  /// ends a code: raises the interrupt of the interrupt bit and stalls for
+  /// a STP that was written while the code ran
   void _done() {
+    if (_stop) {
+      _stop = false;
+      stat |= _vss;
+    }
     if (code >>> 31 == 0 || err & 1 != 0) return;
     stat |= _int;
     onInterrupt?.call();
@@ -222,43 +245,77 @@ class Vif extends DmaEndpoint {
     _num = (w >> 16) & 0xff;
     _cmd = (w >> 24) & 0x7f;
     switch (_cmd) {
+      case 0x00 || 0x10:
+        break;
       case 0x01:
         cl = _imm & 0xff;
         wl = (_imm >> 8) & 0xff;
-      case 0x02:
-        ofst = _imm & 0x3ff;
-        tops = base;
-      case 0x03:
-        base = _imm & 0x3ff;
       case 0x04:
         itops = _imm & 0x3ff;
       case 0x05:
         mode = _imm & 3;
       case 0x07:
         mark = _imm;
-      case 0x14 || 0x15:
+        stat |= _mrk;
+      case 0x14:
         _startProgram(_imm);
       case 0x17:
         _startProgram(vu.pc);
-      case 0x13: // FLUSHA
+      case 0x02 when index == 1:
+        ofst = _imm & 0x3ff;
+        _dbf = false;
+        tops = base;
+      case 0x03 when index == 1:
+        base = _imm & 0x3ff;
+      case 0x06 when index == 1:
+        onMaskPath3?.call((_imm >> 15) & 1 != 0);
+      case 0x11 when index == 1:
+        break;
+      case 0x13 when index == 1: // FLUSHA
         _waiting = path3Busy?.call() ?? false;
+      case 0x15 when index == 1:
+        _startProgram(_imm);
       case 0x20:
         _expect(1);
       case 0x30 || 0x31:
         _expect(4);
       case _mpg:
         _expect((_num == 0 ? 256 : _num) * 2);
-      case _direct || _directHl:
+      case _direct || _directHl when index == 1:
         _expect((_imm == 0 ? 65536 : _imm) * 4);
       default:
-        if (_cmd & 0x60 == 0x60) _beginUnpack();
+        // UNPACK formats 3, 7 and 11 are undefined
+        if (_cmd & 0x60 == 0x60 &&
+            _cmd & 0xf != 3 &&
+            _cmd & 0xf != 7 &&
+            _cmd & 0xf != 11) {
+          _beginUnpack();
+        } else if (err & 4 == 0 && !(index == 0 && _vif1Only(_cmd))) {
+          stat |= _er1;
+        }
     }
   }
+
+  /// the codes that only VIF1 defines; what VIF0 does with them is not
+  /// documented, so it skips them without an error
+  static bool _vif1Only(int cmd) => switch (cmd) {
+        0x02 ||
+        0x03 ||
+        0x06 ||
+        0x11 ||
+        0x13 ||
+        0x15 ||
+        _direct ||
+        _directHl =>
+          true,
+        _ => false,
+      };
 
   void _startProgram(int address) {
     if (index == 1) {
       top = tops;
-      tops = tops == base ? base + ofst : base;
+      _dbf = !_dbf;
+      tops = _dbf ? base + ofst : base;
     }
     itop = itops;
     vu.start(address);
@@ -388,10 +445,26 @@ class Vif extends DmaEndpoint {
 
   // ---- registers ----
 
+  /// the NUM register: the vectors or doublewords that UNPACK or MPG has not
+  /// received yet
+  int get _numLeft {
+    if (_wordsLeft == 0) return 0;
+    if (_cmd == _mpg) return ((_wordsLeft + 1) >> 1) & 0xff;
+    if (_cmd & 0x60 != 0x60 || _bitsPerVector == 0) return 0;
+    return ((_wordsLeft * 32 + _bitsPerVector - 1) ~/ _bitsPerVector) & 0xff;
+  }
+
   int read(int offset) {
     switch (offset & 0xff0) {
       case 0x000:
-        return stat | (fdr ? 1 << 23 : 0);
+        final fifoQuads = (_held.length + 3) >> 2;
+        final limit = index == 0 ? 8 : 16;
+        return stat |
+            (_wordsLeft > 0 ? 1 : 0) |
+            (_waiting ? 1 << 3 : 0) |
+            (_dbf ? 1 << 7 : 0) |
+            (fdr ? 1 << 23 : 0) |
+            ((fifoQuads < limit ? fifoQuads : limit) << 24);
       case 0x010:
         return 0;
       case 0x020:
@@ -403,7 +476,7 @@ class Vif extends DmaEndpoint {
       case 0x050:
         return mode;
       case 0x060:
-        return 0;
+        return _numLeft;
       case 0x070:
         return mask;
       case 0x080:
@@ -435,9 +508,18 @@ class Vif extends DmaEndpoint {
       case 0x010:
         if (value & 1 != 0) reset();
         fbrst = value;
+        if (value & 2 != 0) stat |= _vfs;
+        if (value & 4 != 0) {
+          if (_wordsLeft == 0) {
+            stat |= _vss;
+          } else {
+            _stop = true;
+          }
+        }
         if (value & 8 != 0) {
           // STC clears VSS, VFS, VIS, INT, ER0 and ER1
           stat &= ~0x3f00;
+          _stop = false;
           _drain();
           onResume?.call();
         }
@@ -445,6 +527,7 @@ class Vif extends DmaEndpoint {
         err = value & 7;
       case 0x030:
         mark = value & 0xffff;
+        stat &= ~_mrk;
       case 0x100 || 0x110 || 0x120 || 0x130:
         row[(offset >> 4) & 3] = value;
       case 0x200 || 0x210 || 0x220 || 0x230:

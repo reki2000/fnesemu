@@ -200,6 +200,27 @@ void main() {
       expect(bus.read64(0x70000230), 0xb2);
     });
 
+    test('a masked PATH3 keeps 16 quadwords in the GIF FIFO', () {
+      final (bus, io) = _setup();
+      enable(bus);
+      // one packet: a tag that writes PRIM 5, then 19 NOP quadwords
+      bus.write64(0x2000, 19 | (1 << 15) | (1 << 46) | (5 << 47) | (1 << 60));
+      bus.write64(0x2008, 0xf);
+      bus.write32(0x10003010, 1); // GIF_MODE: mask PATH3
+      bus.write32(0x1000a010, 0x2000);
+      bus.write32(0x1000a020, 20);
+      bus.write32(0x1000a000, 0x100);
+      io.dmac.advance(100);
+      expect(io.gs.prim, 0);
+      expect(bus.read32(0x10003020) >> 24, 16);
+      expect(bus.read32(0x1000a000) & 0x100, isNonZero);
+      bus.write32(0x10003010, 0);
+      io.dmac.advance(100);
+      expect(io.gs.prim, 5);
+      expect(bus.read32(0x10003020) >> 24, 0);
+      expect(bus.read32(0x1000a000) & 0x100, 0);
+    });
+
     test('VIF1 waits at FLUSHA until PATH3 finishes', () {
       final (bus, io) = _setup();
       enable(bus);
