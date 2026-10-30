@@ -45,6 +45,13 @@ class GifPath extends DmaEndpoint {
     lastEop = s.boolean();
   }
 
+  /// With the tag transfer enable bit, only bits 64-127 of a DMA tag are
+  /// transferred (ps2tek). The GIF takes whole quadwords, and what it does
+  /// with that half is not documented. The DMA tag itself is never a GIF
+  /// tag, so the path drops it.
+  @override
+  void putTag(int low, int high) {}
+
   @override
   void put(int low, int high) {
     if (_dataLeft == 0) {

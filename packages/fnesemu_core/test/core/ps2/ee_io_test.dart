@@ -298,33 +298,37 @@ class _Collector extends DmaEndpoint {
 }
 
 void gsDmaTests() {
-  test('a DMA chain through the GIF draws into local memory', () {
-    final (bus, io) = _setup();
-    bus.write32(_dmaCtrl, 1);
-    // GS setup through A+D: FRAME_1 and XYOFFSET_1
-    var a = 0x2000;
-    void qw(int lo, int hi) {
-      bus.write64(a, lo);
-      bus.write64(a + 8, hi);
-      a += 16;
-    }
+  for (final tte in [false, true]) {
+    test(
+        'a DMA chain through the GIF draws into local memory'
+        '${tte ? ' and skips the tags with TTE' : ''}', () {
+      final (bus, io) = _setup();
+      bus.write32(_dmaCtrl, 1);
+      // GS setup through A+D: FRAME_1 and XYOFFSET_1
+      var a = 0x2000;
+      void qw(int lo, int hi) {
+        bus.write64(a, lo);
+        bus.write64(a + 8, hi);
+        a += 16;
+      }
 
-    // DMA tag: cnt, 5 quadwords follow
-    qw(6 | (1 << 28), 0);
-    qw(2 | (1 << 15) | (1 << 60), 0xe); // GIF tag: A+D
-    qw(0 | (1 << 16) | (0 << 24), 0x4c); // FRAME_1: FBW 1
-    qw((63 << 16) | (63 << 48), 0x40); // SCISSOR_1
-    // second GIF packet: sprite via PACKED PRIM(PRE) + RGBAQ + XYZ2 x2
-    qw(1 | (1 << 15) | (1 << 46) | (6 << 47) | (3 << 60), 0x551);
-    qw(0x40 | (0x50 << 32), 0x60 | (0x80 << 32));
-    qw(0, 0);
-    // DMA tag: end, 1 quadword for the last vertex
-    qw(1 | (7 << 28), 0);
-    qw((2 * 16) | ((2 * 16) << 32), 0); // XYZ2 (offset still zero)
-    bus.write32(0x1000a030, 0x2000);
-    bus.write32(0x1000a000, 0x104);
-    expect(io.gs.contexts[0].frame & 0xffffffff, 1 << 16);
-    expect(io.gs.mem.read(0, 0, 1, 1, 1), 0x80605040);
-    expect(io.gs.mem.read(0, 0, 1, 2, 2), 0);
-  });
+      // DMA tag: cnt, 5 quadwords follow
+      qw(6 | (1 << 28), 0);
+      qw(2 | (1 << 15) | (1 << 60), 0xe); // GIF tag: A+D
+      qw(0 | (1 << 16) | (0 << 24), 0x4c); // FRAME_1: FBW 1
+      qw((63 << 16) | (63 << 48), 0x40); // SCISSOR_1
+      // second GIF packet: sprite via PACKED PRIM(PRE) + RGBAQ + XYZ2 x2
+      qw(1 | (1 << 15) | (1 << 46) | (6 << 47) | (3 << 60), 0x551);
+      qw(0x40 | (0x50 << 32), 0x60 | (0x80 << 32));
+      qw(0, 0);
+      // DMA tag: end, 1 quadword for the last vertex
+      qw(1 | (7 << 28), 0);
+      qw((2 * 16) | ((2 * 16) << 32), 0); // XYZ2 (offset still zero)
+      bus.write32(0x1000a030, 0x2000);
+      bus.write32(0x1000a000, tte ? 0x144 : 0x104);
+      expect(io.gs.contexts[0].frame & 0xffffffff, 1 << 16);
+      expect(io.gs.mem.read(0, 0, 1, 1, 1), 0x80605040);
+      expect(io.gs.mem.read(0, 0, 1, 2, 2), 0);
+    });
+  }
 }
