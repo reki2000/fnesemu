@@ -147,6 +147,18 @@ class DcCache {
         (address & 0x1ffffc00) | 1;
   }
 
+  /// An untranslated 16-bit instruction fetch that hits the instruction cache,
+  /// or -1 when the full path must decide.
+  int instructionHit(int address) {
+    if (_ccr & 0x100 == 0 || !_cacheable(address) || isRamArea(address)) {
+      return -1;
+    }
+    final index = _index(address, true);
+    if (!_hit(address, index, true)) return -1;
+    final offset = index * 32 + (address & 31);
+    return _instruction[offset] | (_instruction[offset + 1] << 8);
+  }
+
   (Uint8List, int) readLocation(int address, int size,
       {bool instruction = false,
       bool fill = true,

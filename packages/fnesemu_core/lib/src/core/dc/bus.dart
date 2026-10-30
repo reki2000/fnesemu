@@ -310,6 +310,24 @@ class DcBus {
     sync();
   }
 
+  /// Fetches an aligned instruction word. Untranslated fetches that hit the
+  /// instruction cache or read uncached main RAM skip the general path; both
+  /// have no side effects.
+  int fetchInstruction(int address, {required bool privileged}) {
+    address = address.mask32;
+    if (address < 0xe0000000 &&
+        (!mmu.enabled || (address >= 0x80000000 && address < 0xc0000000))) {
+      final hit = cache.instructionHit(address);
+      if (hit >= 0) return hit;
+      if (_ordinaryRam(address) &&
+          (address >= 0xa0000000 || cache.ccr & 0x100 == 0)) {
+        final offset = address & (ramSize - 1);
+        return ram[offset] | (ram[offset + 1] << 8);
+      }
+    }
+    return cpuRead(address, 2, privileged: privileged, instruction: true);
+  }
+
   int cpuRead(int address, int size,
       {bool privileged = true, bool instruction = false, bool peek = false}) {
     final mapping = translateCpu(address,

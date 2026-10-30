@@ -291,8 +291,8 @@ class Sh4 {
   Never _illegal() => throw DcCpuException(inDelaySlot ? 0x1a0 : 0x180);
 
   void _step() {
-    final op = bus.cpuRead(pc, 2,
-        instruction: true, privileged: _slotFetchPrivileged ?? privileged);
+    final op = bus.fetchInstruction(pc,
+        privileged: _slotFetchPrivileged ?? privileged);
     final n = (op >> 8) & 15, m = (op >> 4) & 15;
     final imm = op & 255;
     final target = _delayedTarget;
