@@ -56,7 +56,13 @@ class DmaChannel {
 /// A transfer runs to completion when its channel is started, without bus
 /// timing. Supported: normal mode, interleave mode for the scratchpad
 /// channels, and source chain mode (tag IDs 0..7)
-/// with the tag transfer enable bit. Stall control is not implemented.
+/// with the tag transfer enable bit.
+///
+/// Stall control: the stall source channel chosen by D_CTRL writes its MADR
+/// to D_STADR as it moves data, and the stall drain channel waits in a REFS
+/// packet while its MADR is at or after D_STADR, raising the stall interrupt.
+/// A program without a source channel moves D_STADR itself. Whether a drain
+/// in normal mode also waits is not documented, so it does not.
 ///
 /// The memory FIFO (MFIFO) is a ring buffer in memory at D_RBOR, of the size
 /// D_RBSR + 16. fromSPR writes into it, wrapping its MADR at the end, and the
@@ -159,8 +165,41 @@ class Dmac {
   /// the MFIFO empty bit of D_STAT
   static const _mfifoEmpty = 1 << 14;
 
-  /// INT1 of the CPU: the channels and the MFIFO empty interrupt
-  bool get asserted => (stat & (stat >>> 16) & (0x3ff | _mfifoEmpty)) != 0;
+  /// the stall bit of D_STAT
+  static const _stall = 1 << 13;
+
+  /// INT1 of the CPU: the channels, the stall and the MFIFO empty interrupt
+  bool get asserted =>
+      (stat & (stat >>> 16) & (0x3ff | _stall | _mfifoEmpty)) != 0;
+
+  /// the stall source channel, or -1 if it is off
+  int get _stallSource => switch ((ctrl >> 4) & 3) {
+        1 => sif0,
+        2 => fromSpr,
+        3 => fromIpu,
+        _ => -1
+      };
+
+  /// the stall drain channel, or -1 if it is off
+  int get _stallDrain =>
+      switch ((ctrl >> 6) & 3) { 1 => vif1, 2 => gif, 3 => sif1, _ => -1 };
+
+  /// true when [c] of channel [ch] is in a REFS packet (the last tag in
+  /// CHCR) that may not read at D_STADR yet
+  bool _stalled(int ch, DmaChannel c) =>
+      ch == _stallDrain &&
+      (c.chcr >> 2) & 3 == 1 &&
+      (c.chcr >>> 28) & 7 == 4 &&
+      c.madr >= stadr;
+
+  /// moves D_STADR to [address] and resumes the drain waiting for it
+  void _setStadr(int address) {
+    stadr = address;
+    final d = _stallDrain;
+    if (d >= 0 && channels[d].chcr & _str != 0 && ctrl & _dmaEnable != 0) {
+      _run(d);
+    }
+  }
 
   /// the drain channel of the MFIFO, or -1 if it is off
   int get _drain => switch ((ctrl >> 2) & 3) { 2 => vif1, 3 => gif, _ => -1 };
@@ -237,7 +276,7 @@ class Dmac {
         case 0x50:
           rbor = value;
         case 0x60:
-          stadr = value;
+          _setStadr(value);
       }
       return;
     }
@@ -401,12 +440,25 @@ class Dmac {
 
   /// returns false when the transfer waits for its source
   bool _normal(int ch, DmaChannel c) {
+    final source = ch == _stallSource;
+    final start = c.madr;
+    final done = _moveAll(ch, c);
+    if (source && c.madr != start) _setStadr(c.madr);
+    return done;
+  }
+
+  bool _moveAll(int ch, DmaChannel c) {
     // a zero count transfers 0x10000 quadwords on hardware; treat it as none
     while (c.qwc > 0) {
       if ((ch == sif0 || ch == fromIpu) && endpoints[ch]?.hasData == false) {
         return false;
       }
       if (endpoints[ch]?.canPut == false) return false;
+      if (_stalled(ch, c)) {
+        stat |= _stall;
+        dirty = true;
+        return false;
+      }
       _move(ch, c, c.madr);
       if (ch == gif) _moved++;
       c.madr += 16;

@@ -273,6 +273,49 @@ void main() {
       expect(received, [1, 2, 3]);
     });
 
+    test('a REFS packet of the stall drain waits for D_STADR', () {
+      final (bus, io) = _setup();
+      bus.write32(_dmaCtrl, 1 | 2 << 6); // GIF is the stall drain
+      final received = <int>[];
+      io.dmac.endpoints[Dmac.gif] = _Collector(received);
+      bus.write64(0x1000, _tag(1, 4, 0x2000)); // refs 0x2000
+      bus.write64(0x1010, _tag(1, 4, 0x2010)); // refs 0x2010
+      bus.write64(0x1020, _tag(0, 7, 0)); // end
+      bus.write64(0x2000, 1);
+      bus.write64(0x2010, 2);
+      bus.write32(0x1000e060, 0x2000); // D_STADR
+      bus.write32(0x1000a030, 0x1000);
+      bus.write32(0x1000a000, 0x104);
+      expect(received, isEmpty);
+      expect(bus.read32(_dmaStat) & 1 << 13, isNonZero);
+      bus.write32(0x1000e060, 0x2010);
+      expect(received, [1]);
+      expect(bus.read32(0x1000a000) & 0x100, isNonZero);
+      bus.write32(0x1000e060, 0x2020);
+      expect(received, [1, 2]);
+      io.dmac.advance(16);
+      expect(bus.read32(0x1000a000) & 0x100, 0);
+    });
+
+    test('the stall source moves D_STADR', () {
+      final (bus, io) = _setup();
+      bus.write32(_dmaCtrl, 1 | 2 << 4 | 2 << 6); // fromSPR to GIF
+      final received = <int>[];
+      io.dmac.endpoints[Dmac.gif] = _Collector(received);
+      bus.write64(0x1000, _tag(1, 4, 0x2000)); // refs 0x2000
+      bus.write64(0x1010, _tag(0, 7, 0));
+      bus.write32(0x1000e060, 0x2000);
+      bus.write32(0x1000a030, 0x1000);
+      bus.write32(0x1000a000, 0x104);
+      expect(received, isEmpty);
+      bus.write64(0x70000000, 7);
+      bus.write32(0x1000d010, 0x2000); // fromSPR MADR
+      bus.write32(0x1000d020, 1);
+      bus.write32(0x1000d000, 0x100);
+      expect(bus.read32(0x1000e060), 0x2010);
+      expect(received, [7]);
+    });
+
     test('a tag with IRQ stops a chain when TIE is set', () {
       final (bus, io) = _setup();
       enable(bus);
