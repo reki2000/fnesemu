@@ -9,7 +9,13 @@ class DcGpuPalette {
   final words = Uint32List(1024);
   int _control = 0;
   int get control => _control;
-  set control(int value) => _control = value & 3;
+  set control(int value) {
+    _control = value & 3;
+    version++;
+  }
+
+  /// Changes with palette contents or format; texture caches compare it.
+  int version = 0;
 
   void saveState(StateWriter writer) {
     writer.section('dc.gpu.palette');
@@ -28,10 +34,12 @@ class DcGpuPalette {
     }
     _control = control;
     words.setAll(0, values);
+    version++;
   }
 
   void reset({bool clearMemory = false}) {
     _control = 0;
+    version++;
     if (clearMemory) words.fillRange(0, words.length, 0);
   }
 
@@ -49,6 +57,7 @@ class DcGpuPalette {
   void write(int offset, int size, int value) {
     _validate(offset, size);
     words[offset ~/ 4] = value & (_control == 3 ? 0xffffffff : 0xffff);
+    version++;
   }
 
   int color(int index) {

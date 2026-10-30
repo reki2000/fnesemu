@@ -2,12 +2,14 @@ import 'dart:typed_data';
 
 import '../../state.dart';
 import 'fault.dart';
+import 'vram_pages.dart';
 
 /// Functional YUV420/422 macroblock input, System Architecture §§3.8.1 and 8.4.3.
 /// Half-block commits are synchronous; FIFO occupancy and physical latency are pending.
 class DcGpuYuv {
   DcGpuYuv(this.memory, {required this.onNormal});
   final Uint8List memory;
+  late final _pages = DcVramPages.of(memory);
   final void Function(int) onNormal;
   final _input = Uint8List(512);
   int _base = 0, _control = 0, _count = 0, _position = 0;
@@ -148,6 +150,7 @@ class DcGpuYuv {
     }
     // Validate the complete half before committing any of its VRAM bytes.
     for (final (address, value) in writes) {
+      _pages.mark(address);
       memory[address] = value;
     }
   }

@@ -78,6 +78,7 @@ class DcGpuTexture {
       flipU = false,
       flipV = false;
   int _maxLevel = 0;
+  int get maxLevel => _maxLevel;
   double _adjust = 0;
   static const _rgbOffsets = [
     6,
@@ -211,8 +212,22 @@ class DcGpuTexture {
       level,
       bumpParameters);
 
+  /// Decoded texels kept by the renderer for this texture's contents.
+  DcTextureCache? cache;
+
   /// Reads a texel at coordinates already wrapped, clamped or mirrored.
   int _texelAt(int x, int y, int level, int bumpParameters) {
+    final cache = this.cache;
+    if (cache == null) return _decodeTexel(x, y, level, bumpParameters);
+    final index = cache.levelOffsets[level] + y * (width >> level) + x;
+    if (cache.stamps[index] == cache.generation) return cache.texels[index];
+    final texel = _decodeTexel(x, y, level, bumpParameters);
+    cache.texels[index] = texel;
+    cache.stamps[index] = cache.generation;
+    return texel;
+  }
+
+  int _decodeTexel(int x, int y, int level, int bumpParameters) {
     final w = width >> level, h = height >> level, exponent = _maxLevel - level;
     final index = _index(x, y, w, h);
     final paletteOffset = mipMapped ? _paletteOffsets[exponent] : 0;
@@ -395,5 +410,26 @@ class DcGpuTexture {
     };
     final sum = channel + offset;
     return sum > 255 ? 255 : sum;
+  }
+}
+
+/// Texels of one texture decoded on first use. A texel is valid while its
+/// stamp equals [generation], so invalidation is a counter increment.
+class DcTextureCache {
+  DcTextureCache(int size, this.levelOffsets)
+      : texels = Uint32List(size),
+        stamps = Uint32List(size);
+  final Uint32List texels, stamps;
+  final Int32List levelOffsets;
+  int generation = 1;
+
+  /// VRAM page clock and palette version when the contents were validated.
+  int checked = 0, paletteVersion = -1;
+
+  void invalidate() {
+    if (++generation == 0xffffffff) {
+      stamps.fillRange(0, stamps.length, 0);
+      generation = 1;
+    }
   }
 }

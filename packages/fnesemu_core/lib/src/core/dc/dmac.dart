@@ -184,6 +184,7 @@ class DcDmac {
     }
     return false;
   }
+
   bool interruptPending(int channel) => _control[channel] & 6 == 6;
 
   bool get hasAutoMemoryTransfers {

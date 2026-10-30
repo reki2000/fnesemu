@@ -9,6 +9,7 @@ import 'gpu_render.dart';
 import 'gpu_yuv.dart';
 import 'spg.dart';
 import 'ta.dart';
+import 'vram_pages.dart';
 
 /// GPU texture memory addressing and functional framebuffer readout.
 /// SPG supplies field timing; TA and CORE share the physical VRAM display lists.
@@ -134,6 +135,7 @@ class DcGpu {
     }
     _loadComponents(reader);
     vram.setAll(0, memory);
+    DcVramPages.of(vram).markAll();
     _linearModes.setAll(0, modes);
     _reset = v[0];
     _border = v[1];
@@ -160,6 +162,7 @@ class DcGpu {
     _loadComponents(components);
     components.end();
     vram.setAll(0, staged.vram);
+    DcVramPages.of(vram).markAll();
     _linearModes.setAll(0, staged._linearModes);
     _memoryTiming.setAll(0, staged._memoryTiming);
     _reset = staged._reset;
@@ -311,8 +314,11 @@ class DcGpu {
 
   void writeMemory(int address, Uint8List values) {
     validateTransfer(values.length);
+    final pages = DcVramPages.of(vram);
     for (var i = 0; i < values.length; i++) {
-      vram[vramOffset(address + i)!] = values[i];
+      final offset = vramOffset(address + i)!;
+      pages.mark(offset);
+      vram[offset] = values[i];
     }
   }
 
@@ -332,7 +338,10 @@ class DcGpu {
     _border = _readControl = _sof1 = _sof2 = _size = 0;
     _videoControl = 0x108;
     _memoryTiming.setAll(0, [0x20, 0, 0x15f28997, 0x90639]);
-    if (clearMemory) vram.fillRange(0, vramSize, 0);
+    if (clearMemory) {
+      vram.fillRange(0, vramSize, 0);
+      DcVramPages.of(vram).markAll();
+    }
   }
 
   int read(int offset, int size) {

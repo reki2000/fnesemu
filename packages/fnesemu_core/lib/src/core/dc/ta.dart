@@ -4,12 +4,14 @@ import 'dart:typed_data';
 import '../../state.dart';
 import '../../util/uint8list.dart';
 import 'fault.dart';
+import 'vram_pages.dart';
 
 /// Functional HOLLY2 parameter conversion and object lists, System Architecture §3.7.
 /// Input and VRAM writes complete synchronously; FIFO and cache timing are pending.
 class DcTa {
   DcTa(this.memory, {required this.onNormal, required this.onError});
   final Uint8List memory;
+  late final _pages = DcVramPages.of(memory);
   final void Function(int) onNormal, onError;
   int objectBase = 0, parameterBase = 0, objectLimit = 0, parameterLimit = 0;
   int nextObject = 0, currentParameter = 0, globalClip = 0, allocation = 0;
@@ -310,6 +312,7 @@ class DcTa {
         for (var tile = 0; tile < _width * _height; tile++) {
           _checkObject(address, words * 4);
           // Allocated lists must already be empty before any polygons arrive.
+          _pages.markRange(address, 4);
           memory.setUint32LE(address, 0xf0000000);
           entries.add(_Block(address, words));
           address += words * 4;
@@ -716,6 +719,7 @@ class DcTa {
         data.addAll(vertex);
       }
       for (final (i, word) in data.indexed) {
+        _pages.markRange(currentParameter + i * 4, 4);
         memory.setUint32LE(currentParameter + i * 4, word);
       }
       final pointer = (modifier
@@ -753,12 +757,15 @@ class DcTa {
     if (block.used == block.words - 1) {
       final address = nextObject, bytes = block.words * 4;
       _checkObject(address, bytes);
+      _pages.markRange(block.address + block.used * 4, 4);
       memory.setUint32LE(block.address + block.used * 4, 0xe0000000 | address);
       nextObject += _activeAllocation & 0x100000 == 0 ? bytes : -bytes;
       block.address = address;
       block.used = 0;
     }
-    memory.setUint32LE(block.address + block.used++ * 4, pointer);
+    final slot = block.address + block.used++ * 4;
+    _pages.markRange(slot, 4);
+    memory.setUint32LE(slot, pointer);
   }
 
   void _endList() {
@@ -767,6 +774,7 @@ class DcTa {
       _illegal('end before the last vertex ends its strip');
     }
     for (final block in _blocks[_list]) {
+      _pages.markRange(block.address + block.used * 4, 4);
       memory.setUint32LE(block.address + block.used * 4, 0xf0000000);
     }
     final list = _list;

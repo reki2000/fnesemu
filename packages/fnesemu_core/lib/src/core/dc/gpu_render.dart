@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../../state.dart';
@@ -8,12 +9,14 @@ import 'gpu_math.dart';
 import 'gpu_modifier.dart';
 import 'gpu_palette.dart';
 import 'gpu_texture.dart';
+import 'vram_pages.dart';
 
 /// Functional CORE display-list reader; raster precision and physical timing are pending.
 /// Data structures and register fields follow System Architecture §§3.7.7–3.7.9, 8.4.2.
 class DcGpuRender {
   DcGpuRender(this.memory, this.palette, {required this.onNormal});
   final Uint8List memory;
+  late final _pages = DcVramPages.of(memory);
   final DcGpuPalette palette;
   final fog = DcGpuFog();
   final void Function(int) onNormal;
@@ -399,6 +402,11 @@ class DcGpuRender {
         _remaining = 2;
         return;
       }
+      // Writers outside the tracked paths, such as tests, may have changed
+      // VRAM or the palette since the previous render.
+      for (final cache in _textureCaches.values) {
+        cache.invalidate();
+      }
       _region = read(0x2c);
       _stripLines = stripLines;
       _stripProduced = _stripConsumed = -1;
@@ -744,6 +752,51 @@ class DcGpuRender {
     _fragmentWrite[f] = writeDepth ? 1 : 0;
   }
 
+  final _textureCaches = <int, DcTextureCache>{};
+
+  /// Builds a texture view with decoded texels shared across tiles and frames.
+  /// The cache is revalidated against VRAM page stamps and the palette version.
+  DcGpuTexture _cachedTexture(int tcw, int tsp) {
+    final control = read(0xe4);
+    final texture = DcGpuTexture(memory,
+        tcw: tcw, tsp: tsp, control: control, palette: palette);
+    // Bump texels depend on per-pixel parameters and are not cached.
+    if (texture.format == 4) return texture;
+    final width = texture.width, height = texture.height;
+    final levels = texture.mipMapped ? texture.maxLevel + 1 : 1;
+    final offsets = Int32List(levels);
+    var size = 0;
+    for (var level = 0; level < levels; level++) {
+      offsets[level] = size;
+      final w = width >> level, h = height >> level;
+      size += (w < 1 ? 1 : w) * (h < 1 ? 1 : h);
+    }
+    if (size > 1 << 19) return texture;
+    final key =
+        (tcw & 0xffffffff) | ((tsp & 0x3f) << 32) | ((control & 31) << 38);
+    var cache = _textureCaches[key];
+    if (cache == null) {
+      if (_textureCaches.length >= 128) _textureCaches.clear();
+      cache = _textureCaches[key] = DcTextureCache(size, offsets);
+    }
+    // A conservative byte span in the 64-bit texture space, mapped to both
+    // storage banks.
+    final base = texture.base;
+    final end = base + (texture.compressed ? 0x800 : 8) + size * 2;
+    final low = (base >> 1) & 0x3ffffc, high = ((end >> 1) & 0x3ffffc) + 4;
+    final written = high > low
+        ? math.max(_pages.newest(low, high),
+            _pages.newest(low + 0x400000, high + 0x400000))
+        : _pages.clock;
+    if (written > cache.checked || cache.paletteVersion != palette.version) {
+      cache.invalidate();
+    }
+    cache.checked = _pages.clock;
+    cache.paletteVersion = palette.version;
+    texture.cache = cache;
+    return texture;
+  }
+
   void _objects(int address, int x, int y) {
     final visited = <int>{};
     for (;; address += 4) {
@@ -786,11 +839,7 @@ class DcGpuRender {
       final tsp = _word(parameter + 4 + slot * 8);
       final sourceSecondary = tsp & 0x02000000 != 0;
       final texture = textured && !sourceSecondary
-          ? DcGpuTexture(memory,
-              tcw: _word(parameter + 8 + slot * 8),
-              tsp: tsp,
-              control: read(0xe4),
-              palette: palette)
+          ? _cachedTexture(_word(parameter + 8 + slot * 8), tsp)
           : null;
       if (texture?.format == 4 && (!hasOffset || isp & 0x00800000 != 0)) {
         throw const DcUnsupported(
@@ -987,11 +1036,7 @@ class DcGpuRender {
             'CORE background shading plane is degenerate');
       }
       final texture = textured
-          ? DcGpuTexture(memory,
-              tcw: _word(parameter + 8 + slot * 8),
-              tsp: tsp,
-              control: read(0xe4),
-              palette: palette)
+          ? _cachedTexture(_word(parameter + 8 + slot * 8), tsp)
           : null;
       if (texture?.format == 4 && (isp & 0x01000000 == 0 || gouraud)) {
         throw const DcUnsupported(
@@ -1635,6 +1680,7 @@ class DcGpuRender {
               : (address & 3) |
                   ((address >> 1) & 0x3ffffc) |
                   ((address & 4) << 20);
+          _pages.mark(offset);
           memory[offset] = (value >> (8 * i)) & 255;
         }
       }
