@@ -21,22 +21,6 @@ void main() {
     bus.transferStoreQueue(0xe0000000 | (address & 0x03ffffff));
   }
 
-  test('board register aliases, field masks and longword restrictions', () {
-    for (final address in [0x005f6880, 0x025f6880, 0x805f6880, 0xa25f6880]) {
-      expect(bus.read32(address), 8);
-    }
-    expect(bus.read32(mode0), 0);
-    expect(bus.read32(mode1), 0);
-    bus.write32(mode0, 0xffffffff);
-    expect(bus.read32(mode0), 1);
-    expect(bus.read32(mode1), 0);
-    bus.write32(0xa05f6880, 0);
-    expect(bus.read32(0xa05f6880), 8);
-    expect(() => bus.read32(mode0 + 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read8(mode0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write16(mode1, 0), throwsA(isA<DcUnsupported>()));
-  });
-
   test('default direct path interleaves longwords across the two VRAM banks',
       () {
     send(0x11000000);

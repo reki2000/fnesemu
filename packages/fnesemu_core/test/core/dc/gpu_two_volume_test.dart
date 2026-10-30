@@ -35,6 +35,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 0x11111),
@@ -73,9 +74,16 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depths?[i] ?? depth),
-        bits(coordinate),
-        bits(coordinate),
-        colors?[i] ?? color
+        // Non-textured packed color uses word 4; textured polygons keep U/V first.
+        if (texture == null) ...[
+          colors?[i] ?? color,
+          0,
+          0
+        ] else ...[
+          bits(coordinate),
+          bits(coordinate),
+          colors?[i] ?? color
+        ]
       ]);
     }
   }
@@ -92,7 +100,7 @@ void main() {
       bool presort = false,
       bool? globalPresort,
       int reference = 255}) {
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -634,7 +642,7 @@ void main() {
     triangle(color0: 0xff0000ff, color1: 0xffffff00);
     end();
     volume();
-    put(object, [0x83280000, 0xf0000000]);
+    put(object, [0x83200000, 0xf0000000]);
     draw();
     expect(pixel(1, 1), 0xffffff00);
     expect(pixel(20, 1), 0xff0000ff);
@@ -665,7 +673,7 @@ void main() {
       0x7fc00000,
       0x7fc00000
     ]);
-    put(object, [0xa1284000, 0xf0000000]);
+    put(object, [0xa1204000, 0xf0000000]);
     draw();
     expect(pixel(1, 1), 0xff00ff00);
     expect(pixel(31, 31), 0xff00ff00);

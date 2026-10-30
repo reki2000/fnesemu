@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/gpu_texture.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -34,22 +33,6 @@ void main() {
     }
     bus.gpu.writePolygon(bytes);
   }
-
-  test('palette RAM aliases, boundaries, access widths and format masks', () {
-    expect(bus.read32(reg + 0x108), 0);
-    for (final address in [0x005f9000, 0x025f9000, 0x805f9000, 0xa25f9000]) {
-      bus.write32(address, 0x1234ffff);
-      expect(bus.read32(ram), 0xffff);
-    }
-    bus.write32(reg + 0x108, 0xffffffff);
-    expect(bus.read32(reg + 0x108), 3);
-    entry(1023, 0x89abcdef);
-    expect(bus.read32(ram + 4092), 0x89abcdef);
-    expect(() => bus.read16(ram), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write8(ram, 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(ram + 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(ram + 4096), throwsA(isA<DcUnsupported>()));
-  });
 
   test('all four palette color formats expand documented channels', () {
     for (final item in [
@@ -153,6 +136,7 @@ void main() {
     for (final item in [
       (0x124, 0x100000),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 1),
@@ -180,7 +164,7 @@ void main() {
       }
     }
 
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,

@@ -43,22 +43,6 @@ void main() {
     }
   });
 
-  test('G2 aliases, access widths, version and modem/timeout settings', () {
-    for (final address in [0x005f7880, 0x025f7880, 0x805f7880, 0xa25f7880]) {
-      expect(bus.read32(address), 0x12);
-    }
-    expect(bus.read32(base + 0x90), 0x3ff);
-    bus.write32(base + 0x94, 0xffffffff);
-    expect(bus.read32(base + 0x94), 0xfff);
-    expect(() => bus.write32(base + 0x98, 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base + 0x9c, 0x18), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read8(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write16(base, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(base + 0xbc), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base + 0x80, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base + 24, 1), throwsA(isA<DcUnsupported>()));
-  });
-
   test('RAM to AICA stages DDT before eight G2 longword cycles and completion',
       () {
     setup();

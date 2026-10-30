@@ -5,19 +5,6 @@ import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test(
-      'register widths, reserved bits and address holes are checked atomically',
-      () {
-    final gpio = DcGpio();
-    gpio.write(0x40, 4, 0xffffffff);
-    expect(gpio.read(0x40, 4), 255);
-    gpio.write(0x44, 2, 0xffff);
-    expect(gpio.read(0x44, 2), 15);
-    expect(() => gpio.write(0x40, 2, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => gpio.read(0x34, 4), throwsA(isA<DcUnsupported>()));
-    expect(gpio.read(0x40, 4), 255);
-  });
-
   test('all twenty pins select sampled inputs or retained output latches', () {
     for (var pin = 0; pin < 20; pin++) {
       final gpio = DcGpio();

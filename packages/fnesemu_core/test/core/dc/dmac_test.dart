@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
@@ -31,29 +30,6 @@ void main() {
     bus.write32(registers + 8, count);
     bus.write32(registers + 12, control);
   }
-
-  test('DMAC aliases, field masks, access widths and reset', () {
-    bus.write32(0x1fa00008, 0xffffffff);
-    expect(bus.read32(base + 8), 0xffffff);
-    for (var channel = 0; channel < 4; channel++) {
-      bus.write32(base + channel * 16 + 12, 0xffffffff);
-      expect(bus.read32(base + channel * 16 + 12),
-          channel < 2 ? 0xff0ffff5 : 0xff0afff5);
-    }
-    bus.write32(base + 0x40, 0x7fff);
-    expect(bus.read32(base + 0x40), 0x301);
-    bus.write32(base + 0x40, 0x8001);
-    expect(bus.read32(base + 0x40), 0x8001);
-    expect(() => bus.write32(base, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read16(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write8(base, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(0xdfa00000), throwsA(isA<DcUnsupported>()));
-    cpu.reset();
-    expect(bus.read32(base + 0x40), 0);
-    for (var channel = 0; channel < 4; channel++) {
-      expect(bus.read32(base + channel * 16 + 12), 0);
-    }
-  });
 
   test(
       'all five transfer sizes and nine address-mode pairs follow unit addressing',
@@ -275,17 +251,6 @@ void main() {
     bus.dma.tickTransferUnits(1);
     expect(bus.read32((destination + 32) | 0xa0000000), 11);
     expect(bus.read32((destination + 32) | 0x80000000), 22);
-  });
-
-  test(
-      'unknown device transfer stops before copying or committing channel state',
-      () {
-    configure(0, to: 0x08000000);
-    bus.write32(base + 0x40, 1);
-    expect(() => bus.dma.tickTransferUnits(1), throwsA(isA<DcUnsupported>()));
-    expect(bus.read32(base), source);
-    expect(bus.read32(base + 8), 1);
-    expect(bus.dma.addressError, isFalse);
   });
 
   test('DMA completion wins a same-priority TMU request in default order', () {

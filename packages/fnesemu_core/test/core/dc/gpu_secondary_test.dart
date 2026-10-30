@@ -35,6 +35,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, 0x20000),
+      (0x20, 0x20000),
       (0x12c, 0x10ffe0),
       (0x130, 0x2fffc),
       (0x140, 0x10101),
@@ -90,7 +91,7 @@ void main() {
       bool presort = false,
       bool? globalPresort,
       int reference = 255}) {
-    put(0x8000, [
+    put(0x20000 + 0x8000, [
       0xe0000000,
       copy,
       0,

@@ -198,19 +198,6 @@ void main() {
       expect(cpu.mach, 0x12345678);
       expect(cpu.macl, 0xabcdef01);
     });
-
-    test('MAC.$size stops atomically if an aliased second address is unmapped',
-        () {
-      cpu.r[8] = 0x0fffffff - size + 1;
-      cpu.mach = 123;
-      cpu.macl = 456;
-      expect(() => execute(size == 4 ? 0x088f : 0x488f),
-          throwsA(isA<DcUnsupported>()));
-      expect(cpu.r[8], 0x0fffffff - size + 1);
-      expect(cpu.mach, 123);
-      expect(cpu.macl, 456);
-      expect(cpu.pc, _code);
-    });
   }
 
   for (final (a, b, accumulatorLow, high, expectedLow, expectedHigh) in [

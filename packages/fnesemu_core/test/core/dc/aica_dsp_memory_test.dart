@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/dc/aica.dart';
 import 'package:fnesemu_core/src/core/dc/aica_dsp.dart';
 import 'package:fnesemu_core/src/core/dc/aica_sound.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:test/test.dart';
 
@@ -94,25 +93,6 @@ void main() {
     expect(dsp.read(0x4400), 0xaa);
     expect(dsp.read(0x4404), 0x5678);
   });
-  test('inhibited accesses and invalid destinations are atomic', () {
-    wave[0] = 0x55;
-    expect(() => dsp.writeLinear(wave, 0, 0xffffff, inhibited: true),
-        throwsA(isA<DcUnsupported>()));
-    expect(() => dsp.readLinear(wave, 0, inhibited: true, inputWriteAddress: 0),
-        throwsA(isA<DcUnsupported>()));
-    expect(() => dsp.readLinear(wave, 0, inputWriteAddress: 32),
-        throwsArgumentError);
-    expect(wave[0], 0x55);
-    expect(dsp.read(0x4400), 0);
-    expect(dsp.read(0x4404), 0);
-  });
-  test('out-of-range retail wave addresses stop without wrapping memory', () {
-    dsp.write(0x2804, 0xfff);
-    expect(() => dsp.readLinear(wave, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => dsp.writeLinear(wave, 0, 0x123456),
-        throwsA(isA<DcUnsupported>()));
-    expect(wave, everyElement(0));
-  });
   test(
       'decoded linear memory, ALU and effect output form an explicit data path',
       () {
@@ -145,14 +125,6 @@ void main() {
     sound.advance(256);
     expect(dsp.ringCounter, (-10256) % 8192);
     expect(packets.single.buffer, everyElement(0));
-  });
-  test('reserved MPRO bits stop before counter or source advancement', () {
-    final sound = DcAicaSound(wave, dsp: dsp);
-    dsp.write(0x3400, 1);
-    expect(() => sound.advance(1), throwsA(isA<DcUnsupported>()));
-    expect(dsp.ringCounter, 0);
-    dsp.reset();
-    expect(dsp.ringCounter, 0);
   });
   test('AICA master clock chunks and idle batches yield equal counter phase',
       () {

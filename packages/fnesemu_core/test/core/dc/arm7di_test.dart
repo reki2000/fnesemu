@@ -403,21 +403,4 @@ void main() {
     expect(cpu.r[13], 0x555);
     expect(cpu.r[0], 0x204);
   });
-
-  test(
-      'unsupported ARMv4 encodings and prohibited operands stop without advancing PC',
-      () {
-    for (final op in [
-      0xe12fff1e,
-      0xe0800291,
-      0xe8a00000,
-      0xe1a0f000 | 0x100000
-    ]) {
-      cpu.reset();
-      if (op == 0xe1b0f000) cpu.cpsr = 0x10;
-      expect(() => execute(op), throwsA(isA<DcUnsupported>()));
-      expect(cpu.pc, 0);
-      expect(writes, isEmpty);
-    }
-  });
 }

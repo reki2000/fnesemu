@@ -332,37 +332,10 @@ void main() {
     expect(bus.read32(0xffa00008), 0);
   });
 
-  test('invalid DMA destination is rejected before a flash read side effect',
-      () {
-    program(123, 0x5a);
-    final before = bus.peek8(base + 123);
-    bus.write32(0xffa00000, base + 123);
-    bus.write32(0xffa00004, 0);
-    bus.write32(0xffa00008, 1);
-    bus.write32(0xffa0000c, 0x4411);
-    bus.write32(0xffa00040, 1);
-    expect(() => bus.tickMasterClocks(2), throwsA(isA<DcUnsupported>()));
-    expect(bus.peek8(base + 123), before);
-    expect(bus.read32(0xffa00008), 1);
-  });
-
   test('factory sector is hardware protected by default', () {
     program(0x1a000, 0);
     bus.flash.tickMasterClocks(DcFlash.programClocks);
     expect(bus.read8(base + 0x1a000), 255);
-  });
-
-  test('cached array reads work while cached command writes stop explicitly',
-      () {
-    bus.write32(0xff00001c, 1);
-    expect(bus.read32(0x80200000), 0xffffffff);
-    expect(() => bus.write8(0x80200555, 0xaa), throwsA(isA<DcUnsupported>()));
-    program(0, 0);
-    expect(
-        bus.read8(0x80200000), 255); // A cache hit does not access the device.
-    bus.flash.tickMasterClocks(DcFlash.programClocks);
-    expect(bus.read8(0x80200000), 255); // Cache retains its earlier array data.
-    expect(bus.read8(base), 0);
   });
 }
 

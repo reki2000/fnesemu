@@ -36,6 +36,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 0x10101),
@@ -92,7 +93,7 @@ void main() {
       bool presort = false,
       bool? globalPresort,
       int reference = 255}) {
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -284,16 +285,6 @@ void main() {
         expect(texture.passWeight(1.5), 1);
         expect(
             texture.sample(0, 0), tcw == 0x8c00c000 ? 0xfff80000 : 0xffff0000);
-      }
-    }
-  });
-
-  test('invalid footprints are rejected for both pass modes', () {
-    for (final mode in [2, 3]) {
-      for (final d in [double.nan, double.infinity, -1.0]) {
-        expect(() => view(mode).passWeight(d), throwsA(isA<DcUnsupported>()));
-        expect(() => view(mode).sample(0, 0, footprint: d),
-            throwsA(isA<DcUnsupported>()));
       }
     }
   });

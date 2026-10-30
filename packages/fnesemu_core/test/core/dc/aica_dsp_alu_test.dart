@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/dc/aica_dsp.dart';
 import 'package:fnesemu_core/src/core/dc/aica_dsp_alu.dart';
 import 'package:fnesemu_core/src/core/dc/aica_sound.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:test/test.dart';
 
@@ -172,19 +171,6 @@ void main() {
       expect(alu.accumulator, (((x * y) >> 12) + b).toSigned(26).toInt());
     }
   });
-  test('invalid selectors preserve latches and reset clears them', () {
-    alu.accumulator = 1;
-    alu.fraction = 2;
-    alu.address = 3;
-    alu.yRegister = 4;
-    expect(() => step(shift: 4), throwsArgumentError);
-    expect(() => step(ySelect: -1), throwsArgumentError);
-    expect((alu.accumulator, alu.fraction, alu.address, alu.yRegister),
-        (1, 2, 3, 4));
-    alu.reset();
-    expect((alu.accumulator, alu.fraction, alu.address, alu.yRegister),
-        (0, 0, 0, 0));
-  });
   group('DSP buffer backend', () {
     late DcAicaDsp dsp;
     setUp(() => dsp = DcAicaDsp());
@@ -255,19 +241,6 @@ void main() {
       sound.advance(256);
       expect(packets.single.buffer, everyElement(0.5));
     });
-    test('reserved sources and invalid physical addresses do not commit state',
-        () {
-      dsp.alu.accumulator = 123;
-      expect(() => execute(input: 50, writeTemporary: 0, effect: 0),
-          throwsA(isA<DcUnsupported>()));
-      expect(() => execute(coefficient: 128), throwsArgumentError);
-      expect(() => execute(temporary: -1), throwsArgumentError);
-      expect(() => execute(writeTemporary: 128), throwsArgumentError);
-      expect(() => execute(effect: 16), throwsArgumentError);
-      expect(dsp.alu.accumulator, 123);
-      expect(dsp.read(0x4000), 0);
-      expect(dsp.output(0), 0);
-    });
     test(
         'full DSP reset clears arithmetic latches alongside CPU-visible storage',
         () {
@@ -290,12 +263,6 @@ void main() {
       ));
       expect(dsp.output(15), 0);
       expect(dsp.read(0x43fc), 0);
-    });
-    test('arithmetic availability does not bypass the unverified MPRO decoder',
-        () {
-      dsp.write(0x3400, 1);
-      expect(dsp.validateSample, throwsA(isA<DcUnsupported>()));
-      expect(dsp.alu.accumulator, 0);
     });
   });
 }

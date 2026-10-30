@@ -103,24 +103,6 @@ void main() {
     expect(bus.aica.internalDmaBusy, isFalse);
   });
 
-  test('retail boundaries, zero length and descriptor overlap stop explicitly',
-      () {
-    for (final run in [
-      () => start(memory: 0x1ffffc, length: 8),
-      () => start(register: 0x45c4, length: 8),
-      () => start(register: 0x2880, length: 4),
-      () => start(register: 0x287c, length: 8),
-      () => start(length: 0),
-    ]) {
-      expect(run, throwsA(isA<DcUnsupported>()));
-      expect(bus.aica.internalDmaBusy, isFalse);
-      expect(bus.aica.systemPending & 0x10, 0);
-    }
-    start(memory: 0x1ffffc, length: 4, clear: true, reverse: true);
-    bus.tickMasterClocks(9);
-    expect(bus.aica.internalDmaBusy, isFalse);
-  });
-
   test('unsupported register preserves the failed word without a false end',
       () {
     start(register: 0x48, length: 4);

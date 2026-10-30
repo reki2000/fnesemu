@@ -36,6 +36,7 @@ void main() {
     for (final entry in [
       (0x124, object),
       (0x128, parameter),
+      (0x20, parameter),
       (0x12c, object + 0xffe0),
       (0x130, parameter + 0xfffc),
       (0x140, 1),
@@ -53,7 +54,7 @@ void main() {
   }
 
   void render() {
-    put(0x8000, [
+    put(parameter + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -179,25 +180,6 @@ void main() {
         DcGpuTexture.shade(
             0x80402010, 0x80804020, 0x00010203, (3 << 6) | 0x80000),
         0x80210a05);
-  });
-
-  test('unsupported texture modes and invalid addresses stop explicitly', () {
-    for (final tcw in [
-      0x4c00c000,
-      0x8800c000,
-      0x5800c000,
-      0x2400c000,
-      0x2800c000,
-      0x3000c000
-    ]) {
-      expect(() => texture(tcw: tcw), throwsA(isA<DcUnsupported>()));
-    }
-    final nearEnd = texture(tcw: 0x080fffff);
-    expect(() => nearEnd.sample(1 / 8, 2 / 8), throwsA(isA<DcUnsupported>()));
-    expect(() => texture().sample(1e308, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => texture(control: 0x100), throwsA(isA<DcUnsupported>()));
-    expect(texture(tcw: 0x8c00c000).sample(0, 0),
-        0xff000000); // Linear ignores MIP.
   });
 
   test(

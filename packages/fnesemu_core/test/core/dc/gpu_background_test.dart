@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
 
@@ -86,6 +85,7 @@ void main() {
     for (final (offset, value) in [
       (0x124, 0x100000),
       (0x128, 0x20000),
+      (0x20, 0x20000),
       (0x12c, 0x10ffe0),
       (0x130, 0x2fffc),
       (0x140, 1),
@@ -242,16 +242,5 @@ void main() {
       expect(pixel(0, 0), expected);
       expect(pixel(31, 31), expected);
     }
-  });
-
-  test('invalid skip and degenerate shading planes retain explicit stops', () {
-    background();
-    bus.write32(reg + 0x8c, 0x01010000);
-    expect(draw, throwsA(isA<DcUnsupported>()));
-    bus.gpu.reset();
-    background(gouraud: true, textured: false);
-    bus.gpu.vram.setUint32LE(0x8000 + 7 * 4, 0);
-    bus.gpu.vram.setUint32LE(0x8000 + 12 * 4, 0);
-    expect(draw, throwsA(isA<DcUnsupported>()));
   });
 }

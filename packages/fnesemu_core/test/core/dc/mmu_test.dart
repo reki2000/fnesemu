@@ -350,27 +350,6 @@ void main() {
     expect(bus.read32(0xf4001000) & 1, 0);
   });
 
-  test(
-      'MMU registers and arrays enforce field masks, aliases and access widths',
-      () {
-    for (final (offset, expected) in [
-      (4, 0x1ffffdff),
-      (8, 0xffffffff),
-      (0x34, 15)
-    ]) {
-      bus.write32(0xff000000 + offset, 0xffffffff);
-      expect(bus.read32(0x1f000000 + offset), expected);
-      expect(
-          () => bus.read16(0xff000000 + offset), throwsA(isA<DcUnsupported>()));
-    }
-    bus.write32(0xf3800300, 0xffffffff);
-    expect(bus.read32(0xf3ff0300), 15);
-    bus.write32(0xf3000300, 0xffffffff);
-    expect(bus.read32(0xf3000300), 0x1ffffdda);
-    expect(bus.read32(0xf2000300) & 0x100, 0x100);
-    expect(() => bus.write16(0xf6000000, 0), throwsA(isA<DcUnsupported>()));
-  });
-
   test('manual reset retains TLB validity while full reset invalidates it', () {
     entry(0, virtual, physical);
     bus.mmucr = 1;

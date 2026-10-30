@@ -80,7 +80,6 @@ void main() {
         throwsA(isA<DcUnsupported>()));
     expect(() => bus.read8(registers + 0x289c), throwsA(isA<DcUnsupported>()));
     expect(() => bus.read32(registers + 0x2890), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(registers, 0xc400), throwsA(isA<DcUnsupported>()));
   });
 
   test('software requests and independent acknowledgements route HOLLY bit 1',

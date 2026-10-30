@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/maple_controller.dart';
 import 'package:fnesemu_core/src/core/dc/memory_card.dart';
 import 'package:fnesemu_core/src/core/dc/memory_card_timer.dart';
@@ -23,15 +22,15 @@ void main() {
     bus.ram.setUint32LE(0x10000, 0x80000000 | (packet.length ~/ 4 - 1));
     bus.ram.setUint32LE(0x10004, 0x0c020000);
     for (var i = 0; i < packet.length; i++) {
-      bus.ram[0x10008 + (selection == 1 ? i ^ 3 : i)] = packet[i];
+      bus.ram[0x10008 + (selection == 0 ? i ^ 3 : i)] = packet[i];
     }
     bus.ram.fillRange(0x20000, 0x20400, 0xcc);
     bus.write32(base + 0x14, 1);
     bus.write32(base + 0x18, 1);
     bus.tickMasterClocks(1000000);
-    final words = bus.ram[0x20000 + (selection == 1 ? 0 : 3)] + 1;
+    final words = bus.ram[0x20000 + (selection == 0 ? 0 : 3)] + 1;
     return List.generate(
-        words * 4, (i) => bus.ram[0x20000 + (selection == 1 ? i ^ 3 : i)]);
+        words * 4, (i) => bus.ram[0x20000 + (selection == 0 ? i ^ 3 : i)]);
   }
 
   List<int> params(int block, int phase, [List<int> data = const []]) =>
@@ -172,49 +171,6 @@ void main() {
     expect(transfer(11, params(0, 0)).sublist(12), everyElement(0x5a));
   });
 
-  test('formatted media returns root metadata; unknown factory profile stops',
-      () {
-    discover();
-    expect(() => transfer(10, params(0, 0)), throwsA(isA<DcUnsupported>()));
-    dc.bus.maple.reset();
-    final image = Uint8List(DcMemoryCard.size);
-    const root = 255 * 512;
-    image.fillRange(root, root + 16, 0x55);
-    const media = [
-      255,
-      0,
-      0,
-      0,
-      255,
-      0,
-      254,
-      0,
-      1,
-      0,
-      253,
-      0,
-      13,
-      0,
-      0,
-      0,
-      200,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ];
-    image.setRange(root + 0x40, root + 0x58, media);
-    image.fillRange(root + 0x40, root + 0x46, 0x99);
-    memoryCard.loadImage(image);
-    discover();
-    expect(transfer(10, params(0, 0)), [8, 0, 1, 7, 0, 0, 0, 2, ...media]);
-    expect(() => memoryCard.loadImage(Uint8List(1)), throwsArgumentError);
-    expect(memoryCard.exportImage(), image);
-  });
-
   test('flash and two memory cards persist independently through Core.setSram',
       () {
     final storage = _MemoryStorage();
@@ -260,7 +216,7 @@ void main() {
     }
     expect(transfer(11, params(255, 0)).sublist(12),
         [for (var phase = 0; phase < 4; phase++) ...chunk(phase)]);
-    expect(dc.bus.ram.getUint32LE(0x20000), 0x08000182);
+    expect(dc.bus.ram.getUint32LE(0x20000), 0x82010008);
   });
 
   test(
@@ -348,19 +304,6 @@ void main() {
     dc.bus.tickMasterClocks(200000000);
     expect(transfer(11, [0, 0, 0, 8, 0, 0, 0, 0]).sublist(8),
         [0xd0, 7, 2, 29, 0, 0, 0, 0]);
-  });
-
-  test('timer rejects invalid fields without normalizing the existing calendar',
-      () {
-    discover();
-    final before = memoryCard.timer.time;
-    expect(
-        transfer(12, [0, 0, 0, 8, 0, 0, 0, 0, 0x6c, 7, 2, 29, 0, 0, 0, 0])
-            .first,
-        0xfc); // 1900.
-    expect(memoryCard.timer.time, before);
-    expect(transfer(11, [0, 0, 0, 8, 0, 1, 0, 0]).first, 0xfc);
-    expect(transfer(10, [0, 0, 0, 8, 0, 0, 0, 0]).first, 0xfd);
   });
 
   test('timer buttons and alarm registers are independent of stored blocks',

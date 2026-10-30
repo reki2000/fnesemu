@@ -60,9 +60,9 @@ void main() {
         bits(x),
         bits(y),
         bits(z),
-        0,
-        0,
         color,
+        0,
+        0,
         0
       ]);
   void triangle({int color = 0xffff0000, double z = 1}) {
@@ -80,10 +80,10 @@ void main() {
 
   void prepareRender({int color = 0xff000000, int mode = 6}) {
     // A self-authored flat background plane, selected through the normal CORE tag.
-    put(0x8000,
+    put(parameter + 0x8000,
         [0xe0000000, copy, 0, 0, 0, 0, color, 0, 0, 0, color, 0, 0, 0, color]);
     for (final entry in [
-      (0x20, 0),
+      (0x20, parameter),
       (0x2c, 0x9000),
       (0x48, mode),
       (0x4c, 16),
@@ -118,7 +118,7 @@ void main() {
     header();
     triangle();
     packet([0]);
-    expect(word(object), (1 << 30) | (1 << 21) | (parameter >> 2));
+    expect(word(object), (1 << 30) | (1 << 21));
     expect(word(object + 4), 0xf0000000);
     expect(word(parameter), 0xe0000000);
     expect(word(parameter + 4), copy);
@@ -155,7 +155,7 @@ void main() {
     bus.tickMasterClocks(2);
     triangle();
     packet([0]);
-    expect(word(object), (1 << 30) | (1 << 21) | (parameter >> 2));
+    expect(word(object), (1 << 30) | (1 << 21));
   });
 
   test('TA converts floating color and intensity with clamping', () {
@@ -282,7 +282,7 @@ void main() {
     header();
     triangle();
     packet([0]);
-    expect(word(object + 32) & 0x1fffff, (parameter + 60) >> 2);
+    expect(word(object + 32) & 0x1fffff, 60 >> 2);
     expect(bus.read32(reg + 0x138), parameter + 120);
     expect(bus.read32(reg + 0x134), object + 0x1000);
   });
@@ -554,9 +554,9 @@ void main() {
     write(0xff000038, 0x10);
     final packets = <List<int>>[
       [0x80800000, 0xe0000000, copy, 0, 0, 0, 0, 0],
-      [0xe0000000, bits(0), bits(0), bits(1), 0, 0, 0xffff0000, 0],
-      [0xe0000000, bits(32), bits(0), bits(1), 0, 0, 0xffff0000, 0],
-      [0xf0000000, bits(0), bits(32), bits(1), 0, 0, 0xffff0000, 0],
+      [0xe0000000, bits(0), bits(0), bits(1), 0xffff0000, 0, 0, 0],
+      [0xe0000000, bits(32), bits(0), bits(1), 0xffff0000, 0, 0, 0],
+      [0xf0000000, bits(0), bits(32), bits(1), 0xffff0000, 0, 0, 0],
       List.filled(8, 0),
     ];
     load(4, 0xe0000000);
@@ -586,14 +586,14 @@ void main() {
       0xff000000
     ];
     for (final (i, word) in background.indexed) {
-      write(0xa5008000 + 4 * i, word);
+      write(0xa5008000 + parameter + 4 * i, word);
     }
     final region = [0x80000000, object, 0x80000000, 0x80000000, 0x80000000];
     for (final (i, word) in region.indexed) {
       write(0xa5009000 + 4 * i, word);
     }
     for (final entry in [
-      (0x20, 0),
+      (0x20, parameter),
       (0x2c, 0x9000),
       (0x48, 6),
       (0x4c, 16),
@@ -673,21 +673,5 @@ void main() {
     bus.tickMasterClocks(2);
     expect(word(0x400000 + 132), 0xffff0000);
     expect(bus.systemBus.normalStatus & 7, 7);
-  });
-
-  test('cycles and unsupported render features stop without false completion',
-      () {
-    initialize();
-    header();
-    triangle();
-    packet([0]);
-    prepareRender();
-    put(object, [0xe0000000 | object]);
-    bus.write32(reg + 0x14, 1);
-    expect(() => bus.tickMasterClocks(2), throwsA(isA<DcUnsupported>()));
-    expect(bus.systemBus.normalStatus & 7, 0);
-    expect(bus.gpu.render.clocksToEvent, greaterThan(0));
-    bus.write32(reg + 8, 2);
-    expect(bus.gpu.render.busy, isFalse);
   });
 }

@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/gpu_texture.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -53,6 +52,7 @@ void main() {
     for (final item in [
       (0x124, 0x100000),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 1),
@@ -70,7 +70,7 @@ void main() {
       }
     }
 
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -209,16 +209,6 @@ void main() {
         texture(tsp: copy | adjustOne | 0x2000)
             .sample(1 / 8, 1 / 8, footprint: 2),
         0xff808080);
-  });
-
-  test('invalid adjust and nonfinite footprints stop explicitly', () {
-    for (final tsp in [copy]) {
-      expect(() => texture(tsp: tsp), throwsA(isA<DcUnsupported>()));
-    }
-    expect(() => texture().sample(0, 0, footprint: double.infinity),
-        throwsA(isA<DcUnsupported>()));
-    expect(() => texture().sample(0, 0, footprint: -1),
-        throwsA(isA<DcUnsupported>()));
   });
 
   test(

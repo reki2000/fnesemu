@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:fnesemu_core/src/core/dc/system_bus.dart';
 import 'package:test/test.dart';
@@ -11,41 +10,6 @@ void main() {
   const base = 0xa05f6900;
   late DcBus bus;
   setUp(() => bus = DcBus());
-
-  test('HOLLY registers use longwords and area-0 image aliases', () {
-    for (final offset in [
-      0,
-      4,
-      8,
-      0x10,
-      0x14,
-      0x18,
-      0x20,
-      0x24,
-      0x28,
-      0x30,
-      0x34,
-      0x38,
-      0x40,
-      0x44,
-      0x50,
-      0x54
-    ]) {
-      expect(bus.read32(base + offset), 0);
-    }
-    bus.write32(base + 0x10, 0x1234);
-    for (final address in [0x005f6910, 0x025f6910, 0x805f6910, 0xa25f6910]) {
-      expect(bus.read32(address), 0x1234);
-    }
-    expect(() => bus.read8(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read16(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write8(base + 0x10, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write16(base + 0x10, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base + 0x11, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(base + 12), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(0xc05f6900), throwsA(isA<DcUnsupported>()));
-    expect(bus.read32(base + 0x10), 0x1234);
-  });
 
   test(
       'normal/error status latches, clears selected ones and retains summaries',

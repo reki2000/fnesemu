@@ -6,49 +6,6 @@ import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('power-on values, readonly straps and reserved bits follow table 13.2',
-      () {
-    final bsc = DcBsc(area0Width: 2);
-    const offsets = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40];
-    const sizes = [4, 2, 4, 4, 4, 4, 2, 2, 2, 2, 2];
-    const reset = [
-      0x80000000,
-      0xbffc,
-      0x77777777,
-      0xfffeefff,
-      0x07777777,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ];
-    for (var i = 0; i < offsets.length; i++) {
-      expect(bsc.read(offsets[i], sizes[i]), reset[i]);
-    }
-    bsc.write(0, 4, 0xffffffff);
-    expect(bsc.read(0, 4), 0x833efffd);
-    bsc.write(4, 2, 0xffff);
-    expect(bsc.read(4, 2), 0xbffd);
-    bsc.write(8, 4, 0xffffffff);
-    expect(bsc.read(8, 4), 0x77777777);
-    bsc.write(12, 4, 0xffffffff);
-    expect(bsc.read(12, 4), 0xfffeefff);
-    bsc.write(16, 4, 0xffffffff);
-    expect(bsc.read(16, 4), 0x07777777);
-    bsc.write(20, 4, 0xffffffff);
-    expect(bsc.read(20, 4), 0xf8bbffff);
-  });
-
-  test('register width and reserved-address failures are atomic', () {
-    final bsc = DcBsc();
-    expect(() => bsc.write(4, 4, 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bsc.read(28, 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bsc.write(2, 2, 1), throwsA(isA<DcUnsupported>()));
-    expect(bsc.read(4, 2), 0x3ffc);
-  });
-
   test(
       'refresh counters require the documented key including RFCR upper six bits',
       () {

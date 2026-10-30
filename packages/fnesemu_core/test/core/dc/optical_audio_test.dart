@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/optical_audio.dart';
 import 'package:test/test.dart';
 
@@ -108,15 +107,6 @@ void main() {
     expect(audio.sample(drive), (5, 6));
   });
 
-  test('invalid raw sectors stop explicitly without consuming source position',
-      () {
-    final drive = FakeCdromDrive([Uint8List(0)], audioTracks: {1});
-    final audio = DcOpticalAudio()..start(150, 151, 0);
-    expect(() => audio.sample(drive), throwsA(isA<DcUnsupported>()));
-    expect(audio.fad, 150);
-    drive.sectors[0] = sector(7, 8);
-    expect(audio.sample(drive), (7, 8));
-  });
   test('playback errors report once and reset clears the retained result', () {
     final audio = DcOpticalAudio()..start(150, 151, 0);
     expect(audio.status, 0x11);

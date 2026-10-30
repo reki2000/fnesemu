@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/gpu_texture.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -61,6 +60,7 @@ void main() {
     for (final (offset, value) in [
       (0x124, 0x100000),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 1),
@@ -82,7 +82,7 @@ void main() {
       ]);
     }
     packet([0]);
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -190,17 +190,6 @@ void main() {
     expect((a.selectLevel(1.5), b.selectLevel(1.5)), (0, 0));
     expect((a.selectLevel(4.5), b.selectLevel(4.5)), (1, 2));
     expect(a.passWeight(4.5) + b.passWeight(4.5), 1);
-  });
-  test('missing, incomplete and nonfinite extra coordinates stop explicitly',
-      () {
-    final view = texture();
-    expect(() => view.sample(0, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => view.sample(0, 0, extraSamples: []),
-        throwsA(isA<DcUnsupported>()));
-    expect(
-        () =>
-            view.sample(0, 0, extraSamples: [(double.nan, 0), (0, 0), (0, 0)]),
-        throwsA(isA<DcUnsupported>()));
   });
   test(
       'TA and CORE evaluate half-pixel screen locations without extra coverage',

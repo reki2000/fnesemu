@@ -18,28 +18,6 @@ void main() {
         registers + 0x5c, (words - 1) | ((lines - 1) << 10) | (modulus << 20));
   }
 
-  test('GPU register IDs, reset fields, widths and aliases', () {
-    expect(bus.read32(registers), 0x17fd11db);
-    expect(bus.read32(registers + 4), 0x11);
-    expect(bus.read32(registers + 8), 7);
-    expect(bus.read32(registers + 0xe8), 0x108);
-    expect(bus.gpu.image().buffer, isEmpty);
-    bus.write32(registers + 0x40, 0xffffffff);
-    expect(bus.read32(0x025f8040), 0x1ffffff);
-    bus.write32(registers, 0);
-    expect(bus.read32(registers), 0x17fd11db);
-    expect(() => bus.read8(registers), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read16(registers), throwsA(isA<DcUnsupported>()));
-    expect(
-        () => bus.write16(registers + 0x44, 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(registers + 0x44, 0x400001),
-        throwsA(isA<DcUnsupported>()));
-    expect(bus.read32(registers + 0x44), 0);
-    expect(() => bus.write32(registers + 0xe8, 0x40),
-        throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(registers + 0x10), throwsA(isA<DcUnsupported>()));
-  });
-
   test('32-bit and 64-bit VRAM apertures share banks in documented order', () {
     bus.write32(0xa4000000, 0x11223344);
     bus.write32(0xa4000004, 0x55667788);

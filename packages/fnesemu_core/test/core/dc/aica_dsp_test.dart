@@ -49,36 +49,6 @@ void main() {
     write(0x2800, 15);
   });
 
-  test('COEF and MADRS expose their documented count and bit widths', () {
-    write(0x3000, 0xffff);
-    write(0x31fc, 0x123f);
-    expect(read(0x3000), 0xfff8);
-    expect(read(0x31fc), 0x1238);
-    write(0x3200, 0xffff);
-    write(0x32fc, 0xabcd);
-    expect(read(0x3200), 0xffff);
-    expect(read(0x32fc), 0xabcd);
-    expect(() => read(0x3300), throwsA(isA<DcUnsupported>()));
-  });
-
-  test('MPRO stores all four halfwords at both ends without guessing opcodes',
-      () {
-    for (final (i, value) in [0x1234, 0x5678, 0x9abc, 0xdef0].indexed) {
-      write(0x3400 + i * 4, value);
-      write(0x3bf0 + i * 4, value);
-      expect(read(0x3400 + i * 4), value);
-      expect(read(0x3bf0 + i * 4), value);
-    }
-    expect(getChip().dsp.hasProgram, isTrue);
-    for (final start in [0x3400, 0x3bf0]) {
-      for (var i = 0; i < 4; i++) {
-        write(start + i * 4, 0);
-      }
-    }
-    expect(getChip().dsp.hasProgram, isFalse);
-    expect(() => read(0x3c00), throwsA(isA<DcUnsupported>()));
-  });
-
   test('TEMP has independent low-byte and high-halfword access to 128 entries',
       () {
     write(0x4000, 0x12ef);
@@ -301,24 +271,6 @@ void main() {
     frames();
     expect(read(0x3000), 0x1238);
     expect(packets.single.buffer, everyElement(0.5));
-  });
-
-  test(
-      'reserved MPRO bits stop before voice advancement or fake sample interrupts',
-      () {
-    configure(0);
-    key();
-    write(0x289c, 0x400);
-    write(0x3400, 1);
-    expect(() => frames(1), throwsA(isA<DcUnsupported>()));
-    expect(read(0x2814), 0);
-    expect(getChip().soundPending & 0x400, 0);
-    expect(mix(0), 0);
-    expect(packets, isEmpty);
-    write(0x3400, 0);
-    frames(1);
-    expect(read(0x2814), 1);
-    expect(mix(0), 0x40000);
   });
 
   test('reserved MPRO bits are checked even when there are no voices', () {

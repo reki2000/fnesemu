@@ -24,6 +24,7 @@ void main() {
   void start({bool enableDdt = true}) {
     if (enableDdt) bus.write32(dmac + 0x40, 0x8201);
     bus.write32(maple + 0x8c, 0x6155407f);
+    bus.write32(maple + 0xe8, 0);
     bus.write32(maple + 4, 0x0c010000);
     bus.write32(maple + 0x14, 1);
     bus.write32(maple + 0x18, 1);

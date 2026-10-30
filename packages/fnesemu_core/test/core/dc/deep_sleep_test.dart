@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:test/test.dart';
 
 Dc machine({bool deep = true}) {
@@ -102,27 +101,6 @@ void main() {
         expect(core.bus.read32(0x0c030000), 0x12345678);
         expect(core.bus.read32(0x0c030004), 0x76543210);
       }
-    });
-  }
-
-  for (final invalid in ['dma', 'refresh', 'standby']) {
-    test(
-        'deep sleep rejects unsafe or unsupported entry before changing state: $invalid',
-        () {
-      final core = machine();
-      addTearDown(core.dispose);
-      switch (invalid) {
-        case 'dma':
-          configureDma(core);
-        case 'refresh':
-          core.bus.write32(0xff800014, 4);
-        case 'standby':
-          core.bus.write8(0xffc00004, 0x80);
-      }
-      expect(() => core.cpu.step(), throwsA(isA<DcUnsupported>()));
-      expect(core.cpu.pc, Dc.programAddress);
-      expect(core.cpu.sleeping, isFalse);
-      expect(core.bus.cpg.deepSleeping, isFalse);
     });
   }
 

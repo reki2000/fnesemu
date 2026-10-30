@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/cpg.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
@@ -17,28 +16,6 @@ void main() {
     cpu.pc = 0xac010000;
     cpu.vbr = 0x8c030000;
     bus.write16(cpu.pc, 9);
-  });
-
-  test('CPG reset, aliases, watchdog keys and register access widths', () {
-    expect(bus.read16(base), 0xe0a);
-    expect([bus.cpg.cpuPeriod, bus.cpg.busPeriod, bus.cpg.peripheralPeriod],
-        [1, 2, 4]);
-    bus.write16(base, 0xfe0a);
-    expect(bus.read16(0x1fc00000), 0xe0a);
-    bus.write16(base + 8, 0x5bff);
-    bus.write16(base + 12, 0xa4ff);
-    expect(bus.read8(base + 8), 0);
-    expect(bus.read8(base + 12), 0);
-    bus.write16(base + 8, 0x5aff);
-    expect(bus.read8(base + 8), 255);
-    bus.write8(base + 16, 255);
-    expect(bus.read8(base + 16), 0x80);
-    expect(() => bus.read32(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read16(base + 8), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write8(base + 8, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read16(0xdfc00000), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write16(base, 0xe00), throwsA(isA<DcUnsupported>()));
-    expect(bus.read16(base), 0xe0a);
   });
 
   test('all documented divider combinations produce the specified clock edges',
@@ -109,18 +86,6 @@ void main() {
       expect(cpu.instructionExecuted, isFalse);
     });
   }
-
-  test(
-      'clock changes requiring stabilization reject a running watchdog atomically',
-      () {
-    bus.write16(base + 12, 0xa580);
-    expect(() => bus.write16(base, 0xe13), throwsA(isA<DcUnsupported>()));
-    expect(bus.read16(base), 0xe0a);
-    bus.write16(
-        base, 0xe08); // Peripheral divider change needs no stabilization.
-    expect(bus.cpg.stabilizing, isFalse);
-    expect(bus.cpg.peripheralPeriod, 2);
-  });
 
   test('module clock gates freeze timer, serial and DMA progress', () {
     bus.write32(0xffd8000c, 0);

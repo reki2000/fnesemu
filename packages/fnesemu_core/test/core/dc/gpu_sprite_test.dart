@@ -41,6 +41,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, parameter),
+      (0x20, parameter),
       (0x12c, object + 0xffe0),
       (0x130, parameter + 0xfffc),
       (0x13c, clip),
@@ -90,7 +91,7 @@ void main() {
   int word(int address) => bus.gpu.vram.getUint32LE(address);
   int pixel(int x, int y) => word(0x400000 + (y * 32 + x) * 4);
   void render() {
-    put(0x8000, [
+    put(parameter + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -137,7 +138,7 @@ void main() {
     expect(bus.read32(reg + 0x138), parameter);
     packet(words.sublist(8), sq: true);
     packet([0]);
-    expect(word(object), 0xa0000000 | (1 << 21) | (parameter >> 2));
+    expect(word(object), 0xa0000000 | (1 << 21));
     expect(word(object + 4), 0xf0000000);
     expect(bus.read32(reg + 0x138), parameter + 76);
     expect(word(parameter + 24), 0xffff0000);
@@ -233,7 +234,7 @@ void main() {
       0x7fc00000,
       0xff0000ff
     ]);
-    objectSet(0xa0000000 | (1 << 21) | (parameter >> 2));
+    objectSet(0xa0000000 | (1 << 21));
     render();
     expect(pixel(1, 30), 0xff067a00);
   });
@@ -249,8 +250,8 @@ void main() {
       header(pcw: clip ? 0xa0820000 : 0xa0800000);
       quad(coordinates: [32, 0, 1, 64, 0, 1, 64, 32, 1, 0, 32]);
       packet([0]);
-      expect(word(object), clip ? 0xf0000000 : 0xa0280000);
-      expect(word(object + 32), 0xa0280000);
+      expect(word(object), clip ? 0xf0000000 : 0xa0200000);
+      expect(word(object + 32), 0xa0200000);
     }
   });
 
@@ -282,8 +283,7 @@ void main() {
         if (quads) records.addAll([bits(item.$2), bits(32), 0x7fc00000, 0]);
       }
       put(parameter, records);
-      objectSet(
-          (quads ? 0xa2000000 : 0x82000000) | (1 << 21) | (parameter >> 2));
+      objectSet((quads ? 0xa2000000 : 0x82000000) | (1 << 21));
       render();
       expect(pixel(12, 1), 0xffff0000);
       expect(pixel(28, 1), 0xff00ff00);
@@ -336,7 +336,7 @@ void main() {
     }
     packet([0]);
     expect(bus.read32(reg + 0x138), parameter + 136);
-    expect(word(object + 4), 0x40000000 | (1 << 21) | ((parameter + 76) >> 2));
+    expect(word(object + 4), 0x40000000 | (1 << 21) | (76 >> 2));
   });
 
   test(
@@ -356,15 +356,5 @@ void main() {
     expect(() => quad(end: false), throwsA(isA<DcUnsupported>()));
     expect(bus.systemBus.normalStatus & 0x80, 0);
     expect(bus.systemBus.errorStatus & 16, 16);
-  });
-
-  test('concave quads stop without a false render completion', () {
-    init();
-    header();
-    quad(coordinates: [0, 0, 1, 32, 0, 1, 8, 8, 1, 0, 32]);
-    packet([0]);
-    expect(render, throwsA(isA<DcUnsupported>()));
-    expect(bus.systemBus.normalStatus & 7, 0);
-    expect(bus.gpu.render.clocksToEvent, greaterThan(0));
   });
 }

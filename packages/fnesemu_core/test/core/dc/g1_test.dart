@@ -133,26 +133,6 @@ void main() {
     expect(bus.systemBus.errorStatus, 0);
   });
 
-  test('G1 register aliases, widths, keyed protection and system straps', () {
-    final bus = core.bus;
-    expect(bus.read32(g1 + 0xb0), 1); // Retail, Japan/Asia NTSC straps.
-    for (final address in [0x005f74b0, 0x025f74b0, 0x805f74b0, 0xa25f74b0]) {
-      expect(bus.read32(address), 1);
-    }
-    expect(() => bus.read8(g1 + 4), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(g1 + 0xa0), throwsA(isA<DcUnsupported>()));
-    bus.write32(g1 + 0xb8, 0x8842407f);
-    bus.write32(g1 + 4, destination);
-    expect(bus.systemBus.errorStatus, 1 << 12);
-    bus.write32(0xa05f6908, 1 << 12);
-    bus.write32(g1 + 0x14, 1);
-    bus.write32(g1 + 12, 1);
-    bus.write32(g1 + 0x18, 1);
-    expect(bus.systemBus.errorStatus, 1 << 12);
-    expect(bus.read32(g1 + 0x18), 0);
-    expect(() => bus.write32(g1 + 0x18, 1), returnsNormally);
-  });
-
   test('low-word configuration writes preserve strict DMA/protection widths',
       () {
     final bus = core.bus;

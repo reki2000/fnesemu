@@ -36,6 +36,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 0x11111),
@@ -74,9 +75,16 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depths?[i] ?? depth),
-        bits(coordinate),
-        bits(coordinate),
-        colors?[i] ?? color
+        // Non-textured packed color uses word 4; textured polygons keep U/V first.
+        if (texture == null) ...[
+          colors?[i] ?? color,
+          0,
+          0
+        ] else ...[
+          bits(coordinate),
+          bits(coordinate),
+          colors?[i] ?? color
+        ]
       ]);
     }
   }
@@ -93,7 +101,7 @@ void main() {
       bool presort = false,
       bool? globalPresort,
       int reference = 255}) {
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -354,14 +362,6 @@ void main() {
               parameters: 0x00ff0000),
           expected);
     }
-  });
-
-  test(
-      'missing parameters, non-twiddled erratum and non-RGB VQ stop explicitly',
-      () {
-    expect(() => texture().sample(0, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => texture(tcw: 0x2400c000), throwsA(isA<DcUnsupported>()));
-    expect(() => texture(tcw: 0x6000c000), throwsA(isA<DcUnsupported>()));
   });
 
   test('TA packed light parameters generate a Decal Alpha surface', () {

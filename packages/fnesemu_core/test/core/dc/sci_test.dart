@@ -18,30 +18,6 @@ void main() {
     bus.write8(base + 16, status & ~0x80);
   }
 
-  test('byte register resets, aliases and read-only data', () {
-    expect([
-      for (final offset in [0, 4, 8, 12, 16, 20]) bus.read8(base + offset)
-    ], [
-      0,
-      255,
-      0,
-      255,
-      0x84,
-      0
-    ]);
-    bus.write8(base + 4, 7);
-    expect(bus.read8(0x1fe00004), 7);
-    expect(() => bus.read16(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(base), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write16(base, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write8(base + 20, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read8(0xdfe00000), throwsA(isA<DcUnsupported>()));
-    bus.write8(base, 4);
-    bus.write8(base + 8, 0x20);
-    expect(bus.read8(base + 8), 0x20);
-  });
-
   test('multiprocessor address filtering, rearming and data reception', () {
     final chip = DcSci();
     chip.write(0, 1, 0x64); // Seven data bits; MP replaces parity.

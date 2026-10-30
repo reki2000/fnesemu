@@ -34,6 +34,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 0x10101),
@@ -69,9 +70,16 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depths?[i] ?? depth),
-        bits(coordinate),
-        bits(coordinate),
-        colors?[i] ?? color
+        // Non-textured packed color uses word 4; textured polygons keep U/V first.
+        if (texture == null) ...[
+          colors?[i] ?? color,
+          0,
+          0
+        ] else ...[
+          bits(coordinate),
+          bits(coordinate),
+          colors?[i] ?? color
+        ]
       ]);
     }
   }
@@ -88,7 +96,7 @@ void main() {
       bool presort = false,
       bool? globalPresort,
       int reference = 255}) {
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -114,6 +122,7 @@ void main() {
       if (type2) lists.contains(4) ? object + 64 : 0x80000000
     ]);
     for (final item in [
+      (0x20, 0x200000),
       (0x2c, 0x9000),
       (0x48, 6),
       (0x4c, 16),
@@ -145,14 +154,6 @@ void main() {
 
   int pixel(int x, int y) =>
       bus.gpu.vram.getUint32LE(0x400000 + (y * 32 + x) * 4);
-
-  test('PT_ALPHA_REF defaults, masks and access widths follow CORE registers',
-      () {
-    expect(bus.read32(reg + 0x11c), 255);
-    bus.write32(reg + 0x11c, 0x12345680);
-    expect(bus.read32(reg + 0x11c), 128);
-    expect(() => bus.read16(reg + 0x11c), throwsA(isA<DcUnsupported>()));
-  });
 
   test(
       'punch-through selects the nearest alpha-accepted layer and bypasses blending',

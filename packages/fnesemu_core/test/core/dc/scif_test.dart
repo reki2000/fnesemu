@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/scif.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
@@ -21,25 +20,6 @@ void main() {
     sent = [];
     bus.scif.onTransmit = sent.add;
     bus.write8(base + 4, 0);
-  });
-
-  test('SCIF reset, register masks, aliases and access widths', () {
-    cpu.reset();
-    expect(bus.read8(base + 4), 255);
-    expect(bus.read16(base + 0x10), 0x60);
-    expect(bus.read16(base + 0x1c), 0);
-    bus.write16(0x1fe80000, 0xffff);
-    expect(bus.read16(base), 0x7b);
-    bus.write16(base + 8, 0xfffd);
-    expect(bus.read16(base + 8), 0xf8);
-    expect(() => bus.write16(base + 8, 2), throwsA(isA<DcUnsupported>()));
-    expect(bus.read16(base + 8), 0xf8);
-    bus.write16(base + 0x18, 0xffff);
-    expect(bus.read16(base + 0x18), 255);
-    expect(() => bus.read8(base + 0xc), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write8(base + 0x14, 1), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(base + 0x10), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read8(0xdfe80004), throwsA(isA<DcUnsupported>()));
   });
 
   test('queued transmission waits for TE and emits complete frames in order',

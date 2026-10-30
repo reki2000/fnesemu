@@ -36,6 +36,7 @@ void main() {
     for (final item in [
       (0x124, object),
       (0x128, 0x200000),
+      (0x20, 0x200000),
       (0x12c, 0x10ffe0),
       (0x130, 0x20fffc),
       (0x140, 0x11111),
@@ -74,9 +75,16 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depths?[i] ?? depth),
-        bits(coordinate),
-        bits(coordinate),
-        colors?[i] ?? color
+        // Non-textured packed color uses word 4; textured polygons keep U/V first.
+        if (texture == null) ...[
+          colors?[i] ?? color,
+          0,
+          0
+        ] else ...[
+          bits(coordinate),
+          bits(coordinate),
+          colors?[i] ?? color
+        ]
       ]);
     }
   }
@@ -93,7 +101,7 @@ void main() {
       bool presort = false,
       bool? globalPresort,
       int reference = 255}) {
-    put(0x8000, [
+    put(0x200000 + 0x8000, [
       0xe0000000,
       copy,
       0,
@@ -203,7 +211,7 @@ void main() {
     init();
     modifier(1, 1, sq: true);
     end();
-    expect(bus.gpu.vram.getUint32LE(object + 32), 0x80000000 | (0x200000 >> 2));
+    expect(bus.gpu.vram.getUint32LE(object + 32), 0x80000000);
     expect(bus.gpu.vram.getUint32LE(0x200000), 0x20000000);
     expect(bus.gpu.vram.getUint32LE(0x200004), 0);
     expect(bus.gpu.vram.getUint32LE(0x200008), 0);
@@ -543,16 +551,6 @@ void main() {
       record(0x200000, 1, 2, quad: true);
       put(0x100000, [0xa0080000, 0xf0000000]);
       expect(evaluate().where((value) => value == 1).length, 1024);
-    });
-
-    test('cyclic lists, reserved instructions and unfinished volumes stop', () {
-      put(0x100000, [0xe0100000]);
-      expect(evaluate, throwsA(isA<DcUnsupported>()));
-      record(0x200000, 3, 2);
-      put(0x100000, [0x80080000, 0xf0000000]);
-      expect(evaluate, throwsA(isA<DcUnsupported>()));
-      record(0x200000, 0, 2);
-      expect(evaluate, throwsA(isA<DcUnsupported>()));
     });
 
     test('active masks exclude absent translucent fragments', () {

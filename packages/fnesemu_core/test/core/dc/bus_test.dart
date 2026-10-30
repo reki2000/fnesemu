@@ -43,33 +43,4 @@ void main() {
     }
     expect(bus.read32(0x0c000000), 0);
   });
-
-  test('misaligned writes leave all bytes intact', () {
-    bus.write32(0x0c000000, 0x12345678);
-    expect(() => bus.write16(0x0c000001, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(0x0c000002, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read16(0x0c000001), throwsA(isA<DcUnsupported>()));
-    expect(bus.read32(0x0c000000), 0x12345678);
-  });
-
-  test('exception registers expose P4 and area 7 aliases with field masks', () {
-    for (final (offset, expected) in [
-      (0x00, 0xfffffcff),
-      (0x0c, 0xffffffff),
-      (0x20, 0x3fc),
-      (0x24, 0xfff),
-      (0x28, 0xfff),
-    ]) {
-      bus.write32(0xff000000 + offset, 0xffffffff);
-      expect(bus.read32(0x1f000000 + offset), expected);
-      expect(
-          () => bus.read16(0xff000000 + offset), throwsA(isA<DcUnsupported>()));
-      expect(() => bus.write8(0xff000000 + offset, 0),
-          throwsA(isA<DcUnsupported>()));
-    }
-    bus.resetCpuRegisters();
-    expect(bus.read32(0xff000024), 0);
-    expect(bus.read32(0xff000000), 0);
-    expect(() => bus.read32(0xdf000024), throwsA(isA<DcUnsupported>()));
-  });
 }

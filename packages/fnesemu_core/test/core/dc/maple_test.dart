@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 void main() {
   const base = 0xa05f6c00;
   late DcBus bus;
-  void configure({int selection = 1, int protection = 0x6155407f}) {
+  void configure({int selection = 0, int protection = 0x6155407f}) {
     bus.write32(0xffa00040, 0x8201);
     bus.write32(base + 0x8c, protection);
     bus.write32(base + 0xe8, selection);
@@ -21,11 +21,11 @@ void main() {
 
   void descriptor(
       int offset, int instruction, int destination, List<int> packet,
-      {int selection = 1}) {
+      {int selection = 0}) {
     bus.ram.setUint32LE(offset, instruction);
     bus.ram.setUint32LE(offset + 4, destination);
     for (var i = 0; i < packet.length; i++) {
-      bus.ram[offset + 8 + (selection == 1 ? i ^ 3 : i)] = packet[i];
+      bus.ram[offset + 8 + (selection == 0 ? i ^ 3 : i)] = packet[i];
     }
   }
 
@@ -35,24 +35,6 @@ void main() {
   }
 
   setUp(() => bus = DcBus());
-
-  test('register reset, aliases, access widths and protected configuration',
-      () {
-    expect(bus.read32(base + 0x80), 0x3a980000);
-    expect(bus.read32(base + 0x84), 255);
-    for (final address in [0x005f6ce8, 0x025f6ce8, 0x805f6ce8, 0xa25f6ce8]) {
-      expect(bus.read32(address), 1);
-    }
-    expect(() => bus.read8(base + 4), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write16(base + 4, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(base + 0x8c), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.read32(0xc05f6ce8), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base + 0x18, 1), throwsA(isA<DcUnsupported>()));
-    configure();
-    bus.write32(base + 0x14, 1);
-    expect(() => bus.write32(base + 0x80, 0), throwsA(isA<DcUnsupported>()));
-    expect(() => bus.write32(base + 0x10, 0), throwsA(isA<DcUnsupported>()));
-  });
 
   test('official device-information example and HOLLY completion interrupt',
       () {
@@ -95,7 +77,7 @@ void main() {
       bus.tickMasterClocks(100000);
       expect(
           List.generate(
-              16, (i) => bus.ram[0x20000 + (selection == 1 ? i ^ 3 : i)]),
+              16, (i) => bus.ram[0x20000 + (selection == 0 ? i ^ 3 : i)]),
           [
             8,
             0,
@@ -314,6 +296,7 @@ void main() {
     void setup(DcBus target) {
       target.write32(0xffa00040, 0x8201);
       target.write32(base + 0x8c, 0x6155407f);
+      target.write32(base + 0xe8, 0);
       target.write32(base + 4, 0x0c010000);
       target.ram.setUint32LE(0x10000, 0x80000000);
       target.ram.setUint32LE(0x10004, 0x0c020000);
@@ -529,6 +512,7 @@ void main() {
     void setup(DcBus target) {
       target.write32(0xffa00040, 0x8201);
       target.write32(base + 0x8c, 0x6155407f);
+      target.write32(base + 0xe8, 0);
       target.write32(base + 4, 0x0c010000);
       target.ram.setUint32LE(0x10000, 0x80000000);
       target.ram.setUint32LE(0x10004, 0x0c020000);

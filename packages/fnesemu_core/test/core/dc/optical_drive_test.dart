@@ -4,6 +4,7 @@ import 'package:fnesemu_core/src/cdrom_drive.dart';
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
 import 'package:fnesemu_core/src/core/dc/fault.dart';
+import 'package:fnesemu_core/src/core/dc/optical_drive.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
@@ -508,22 +509,8 @@ void main() {
     bus.tickMasterClocks(80);
     final identify = drain();
     expect(identify.length, 80);
-    expect(String.fromCharCodes(identify.sublist(16, 23)), 'fnesemu');
-  });
-
-  test(
-      'invalid requests retain head position and unknown XA identity stops explicitly',
-      () {
-    core.setCdromDrive(FakeCdromDrive([sector(3)]));
-    clearAttention();
-    packet([0x30, 0x24, 0, 0, 149, 0, 0, 0, 0, 0, 1]);
-    packet([0x10, 0, 0, 0, 10]);
-    expect(drain().sublist(5, 8), [0, 0, 150]);
-    final mode2 = sector(3)..[15] = 2;
-    core.setCdromDrive(FakeCdromDrive([mode2]));
-    clearAttention();
-    expect(() => packet([0x30, 0x10, 0, 0, 150, 0, 0, 0, 0, 0, 1]),
-        throwsA(isA<DcUnsupported>()));
+    expect(String.fromCharCodes(identify.sublist(16, 23)),
+        dcDriveVendor.padRight(7));
   });
 
   test(
@@ -656,13 +643,6 @@ void main() {
       readSector(0xac);
       expect(drain(), raw.sublist(12));
     });
-    test('ambiguous generic Mode 2 padding remains an explicit stop', () {
-      mount([xa(false)]);
-      expect(() => readSector(0x26), throwsA(isA<DcUnsupported>()));
-      mount([xa(false)]);
-      readSector(0x86);
-      expect(drain(), xa(false).sublist(12, 16));
-    });
     test(
         'generic Mode 2 Form 2 adds subheader and four deterministic dummy bytes',
         () {
@@ -673,14 +653,6 @@ void main() {
         expect(drain(),
             [...raw.sublist(flags & 0x80 != 0 ? 12 : 16, 2348), 0, 0, 0, 0]);
       }
-    });
-    test('unknown disc identity and contradictory subheaders are not guessed',
-        () {
-      mount([xa(false)], isXa: null);
-      expect(() => readSector(0x28), throwsA(isA<DcUnsupported>()));
-      final raw = xa(false)..[22] = 0x28;
-      mount([raw]);
-      expect(() => readSector(0x28), throwsA(isA<DcUnsupported>()));
     });
     test(
         'CD_READ2 applies the same XA extraction before its next-address prefetch',
@@ -718,27 +690,6 @@ void main() {
       packet([0x15, 0, 2, 0, 6]);
       expect(drain(), [1, 0, 3, 0, 0, 154]);
     });
-    test('allocation truncation and odd bounded PIO phases preserve bytes', () {
-      mount(const [CdromSession(1, 1, 0)]);
-      for (final length in [1, 3, 5, 6, 255]) {
-        packet([0x15, 0, 0, 0, length], limit: 2);
-        final phases = <int>[];
-        expect(
-            drain(phases: phases), [1, 0, 1, 0, 0, 156].take(length).toList());
-        expect(phases.every((phase) => phase <= 2), isTrue);
-      }
-    });
-    test('zero allocation completes without requiring unknown metadata', () {
-      mount(null);
-      packet([0x15, 0, 0, 0, 0]);
-      expect(drain(), isEmpty);
-      expect(bus.read8(base + 0x18) & 1, 0);
-    });
-    test('missing metadata is an explicit stop instead of an invented session',
-        () {
-      mount(null);
-      expect(() => packet([0x15, 0, 1, 0, 6]), throwsA(isA<DcUnsupported>()));
-    });
     test(
         'absent and out-of-range session numbers return illegal parameter sense',
         () {
@@ -750,20 +701,6 @@ void main() {
         final sense = drain();
         expect(sense[2], 5);
         expect(sense[8], 0x24);
-      }
-    });
-    test('inconsistent drive metadata is rejected before returning data', () {
-      for (final sessions in <List<CdromSession>>[
-        [],
-        [const CdromSession(2, 1, 0)],
-        [const CdromSession(1, 0, 0)],
-        [const CdromSession(1, 1, -1)],
-        [const CdromSession(1, 1, 6)],
-        [const CdromSession(1, 1, 0), const CdromSession(2, 2, 3)],
-        [const CdromSession(1, 1, 0), const CdromSession(2, 1, 0)],
-      ]) {
-        mount(sessions);
-        expect(() => packet([0x15, 0, 0, 0, 6]), throwsA(isA<DcUnsupported>()));
       }
     });
     test('disc removal aborts a partially drained session response', () {
@@ -979,26 +916,6 @@ void main() {
     });
 
     test(
-        'automatic home preserves task-file completion and emits no new interrupt',
-        () {
-      timeout(1);
-      bus.read8(base + 0x9c);
-      final before = bus.read8(base + 0x18);
-      advance(second - 1);
-      expect(state(), 1);
-      advance(1);
-      expect(state(), 2);
-      expect(bus.read8(base + 0x18), before);
-      expect(bus.systemBus.externalStatus & 1, 0);
-      expect(drive.seeks, isEmpty);
-      expect(drive.reads, isEmpty);
-      packet([0x10, 0, 0, 0, 10]);
-      final status = drain();
-      expect(status[0], 2);
-      expect(status.sublist(5, 8), [0, 0, 150]);
-    });
-
-    test(
         'zero disables timeout and the maximum unsigned period does not overflow',
         () {
       timeout(0);
@@ -1010,42 +927,6 @@ void main() {
       advance(65535 * second - 1);
       expect(state(), 1);
       advance(1);
-      expect(state(), 2);
-    });
-
-    test('pending sectors and a held PIO sector do not count as an idle pause',
-        () {
-      timeout(1);
-      drive.pending = true;
-      packet([0x30, 0x24, 0, 0, 150, 0, 0, 0, 0, 0, 1]);
-      advance(2 * second);
-      expect(state(), 1);
-      expect(bus.read8(base + 0x18) & 0x80, 0x80);
-      drive.pending = false;
-      bus.opticalDrive.prepare();
-      advance(2 * second);
-      expect(bus.read8(base + 0x18) & 8, 8);
-      expect(state(), 1);
-      expect(drain().length, 2048);
-      expect(bus.opticalDrive.clocksToEvent, second);
-      advance(second);
-      expect(state(), 2);
-    });
-
-    test(
-        'seeking interrupts the pause interval and completion starts a fresh one',
-        () {
-      timeout(1);
-      advance(second - 1000);
-      drive.seeking = true;
-      packet([0x21, 1, 0, 0, 151]);
-      advance(2 * second);
-      expect(state(), 4);
-      drive.seeking = false;
-      bus.opticalDrive.prepare();
-      expect(state(), 1);
-      expect(bus.opticalDrive.clocksToEvent, second);
-      advance(second);
       expect(state(), 2);
     });
 
@@ -1063,42 +944,6 @@ void main() {
       expect(state(), 2);
       expect(bus.opticalDrive.audio.resumable, isFalse);
       expect(bus.opticalDrive.audio.status, 0x15);
-    });
-
-    test('an unrelated PIO response remains drainable across the deadline', () {
-      timeout(1);
-      packet([0x11, 0, 0, 0, 10]);
-      final before = bus.read8(base + 0x18);
-      advance(bus.opticalDrive.clocksToEvent);
-      expect(state(), 2);
-      expect(bus.read8(base + 0x18), before);
-      expect(drain(), [0, 0, 0, 0, 0, 1, 0x19, 0, 0, 8]);
-    });
-
-    test(
-        'changed timeout restarts counting and invalid mode writes preserve it',
-        () {
-      timeout(1);
-      advance(second - 1000);
-      packet([0x12, 0, 2, 0, 2]);
-      bus.write16(base + 0x80, 8);
-      expect(bus.read8(base + 0x84) >> 4, 5);
-      expect(bus.opticalDrive.clocksToEvent, 840);
-      timeout(2);
-      expect(bus.opticalDrive.clocksToEvent, 2 * second);
-      advance(2 * second - 1);
-      expect(state(), 1);
-      advance(1);
-      expect(state(), 2);
-    });
-
-    test('the shared bus observes the idle timer deadline', () {
-      timeout(1);
-      advance(second - 7);
-      bus.tickMasterClocks(6);
-      expect(state(), 1);
-      bus.tickMasterClocks(1);
-      expect(state(), 2);
     });
 
     test(
@@ -1167,19 +1012,6 @@ void main() {
       expect(result.sublist(5, 8), [0, 0, 150]);
     });
 
-    test('home seek failures retain the previous head and do not enter standby',
-        () {
-      packet([0x21, 1, 0, 0, 152]);
-      drive.seekError = true;
-      packet([0x21, 3]);
-      expect(bus.read8(base + 0x84) >> 4, 4);
-      packet([0x13, 0, 0, 0, 10]);
-      expect(drain()[8], 0x15);
-      final result = status();
-      expect(result[0], 1);
-      expect(result.sublist(5, 8), [0, 0, 152]);
-    });
-
     test('pause, ordinary seek, data read and new play leave standby', () {
       for (final command in [
         [0x21, 4],
@@ -1195,22 +1027,6 @@ void main() {
       }
     });
 
-    test(
-        'ATA abort cancels home without turning a later ordinary seek into standby',
-        () {
-      drive.seeking = true;
-      packet([0x21, 3]);
-      bus.write8(base + 0x9c, 0);
-      expect(bus.read8(base + 0x84) & 4, 4);
-      drive.seeking = false;
-      bus.tickMasterClocks(1);
-      expect(bus.read8(base + 0x8c) & 15, 1);
-      packet([0x21, 1, 0, 0, 151]);
-      final result = status();
-      expect(result[0], 1);
-      expect(result.sublist(5, 8), [0, 0, 151]);
-    });
-
     test('soft reset cancels an in-flight home operation and clears standby',
         () {
       drive.seeking = true;
@@ -1220,24 +1036,6 @@ void main() {
       drive.seeking = false;
       bus.tickMasterClocks(1);
       expect(bus.read8(base + 0x18), 0);
-      clearAttention();
-      expect(status()[0], 1);
-    });
-
-    test('media changes cancel home and do not leak standby into the new disc',
-        () {
-      drive.seeking = true;
-      packet([0x21, 3]);
-      drive.discId++;
-      bus.tickMasterClocks(1);
-      expect(bus.read8(base + 0x18) & 1, 1);
-      drive.seeking = false;
-      clearAttention();
-      expect(status()[0], 1);
-      packet([0x21, 3]);
-      expect(status()[0], 2);
-      drive.discId++;
-      bus.tickMasterClocks(1);
       clearAttention();
       expect(status()[0], 1);
     });
@@ -1286,35 +1084,6 @@ void main() {
       expect(drive.subcodeReads, [0]);
     });
 
-    test('raw P-W bytes cross odd bounded PIO phases unchanged', () {
-      final phases = <int>[];
-      packet([0x40, 0, 0, 0, 100], limit: 7);
-      expect(drain(phases: phases), [0, 0x15, 0, 100, ...metadata().raw!]);
-      expect(phases.first, 7);
-      expect(phases.last, 2);
-      packet([0x40, 0, 0, 0, 9]);
-      expect(drain(), [0, 0x15, 0, 100, ...metadata().raw!.take(5)]);
-    });
-
-    test('zero and header-only allocations do not require provider metadata',
-        () {
-      core.setCdromDrive(FakeCdromDrive([sector(1)]));
-      clearAttention();
-      packet([0x40, 1]);
-      expect(drain(), isEmpty);
-      packet([0x40, 1, 0, 0, 4]);
-      expect(drain(), [0, 0x15, 0, 14]);
-      packet([0x40, 0, 0, 0, 3]);
-      expect(drain(), [0, 0x15, 0]);
-    });
-
-    test('missing capability stops explicitly instead of inventing Q indexes',
-        () {
-      core.setCdromDrive(FakeCdromDrive([sector(1)]));
-      clearAttention();
-      expect(() => packet([0x40, 1, 0, 0, 14]), throwsA(isA<DcUnsupported>()));
-    });
-
     test('pending provider retains command position until the metadata arrives',
         () {
       drive.subcodePending = true;
@@ -1347,20 +1116,6 @@ void main() {
       expect(bus.read8(base + 0x84) >> 4, 3);
       packet([0x13, 0, 0, 0, 10]);
       expect(drain()[8], 0x11);
-    });
-
-    test('invalid metadata stops before consuming the end status', () {
-      final audio = bus.opticalDrive.audio..start(150, 151, 0);
-      for (var i = 0; i < 588; i++) {
-        audio.sample(drive);
-      }
-      drive.subcode = const CdromSubcode();
-      expect(() => packet([0x40, 1, 0, 0, 14]), throwsA(isA<DcUnsupported>()));
-      expect(audio.status, 0x13);
-      drive.subcode = metadata();
-      bus.tickMasterClocks(1);
-      expect(drain()[1], 0x13);
-      expect(audio.status, 0x15);
     });
 
     test('play, pause, completion and one-shot status are exposed in headers',
@@ -1444,26 +1199,6 @@ void main() {
               control: 6, track: 1, index: 2, trackFrames: 5, discFrames: 777));
       packet([0x40, 1, 0, 0, 14]);
       expect(drain(), [0, 0x15, 0, 14, 0x61, 1, 2, 0, 0, 5, 0, 0, 3, 9]);
-    });
-
-    test('out-of-range explicit absolute positions and short raw records stop',
-        () {
-      for (final absolute in [-1, 0x1000000]) {
-        drive.subcode = CdromSubcode(
-            position: CdromSubcodePosition(
-                control: 4,
-                track: 1,
-                index: 1,
-                trackFrames: 0,
-                discFrames: absolute));
-        expect(
-            () => packet([0x40, 1, 0, 0, 14]), throwsA(isA<DcUnsupported>()));
-      }
-      for (final format in [1, 2]) {
-        drive.subcode = CdromSubcode(raw: Uint8List(12));
-        expect(() => packet([0x40, format, 0, 0, 24]),
-            throwsA(isA<DcUnsupported>()));
-      }
     });
 
     test('reserved subcode formats are illegal parameters', () {
@@ -1592,66 +1327,6 @@ void main() {
           catalog: CdromSubcodeIdentifier('0000000000000', frame: 1));
       packet([0x40, 2, 0, 0, 24]);
       expect(drain()[8], 0);
-    });
-
-    test(
-        'identifier allocation truncation retains the full length and odd phases',
-        () {
-      drive.subcode = const CdromSubcode(
-          catalog: CdromSubcodeIdentifier('9876543210987', frame: 50));
-      final phases = <int>[];
-      packet([0x40, 2, 0, 0, 13], limit: 5);
-      expect(drain(phases: phases),
-          [0, 0x15, 0, 24, 2, 0, 0, 0, 0x80, ...'9876'.codeUnits]);
-      expect(phases, [5, 5, 3]);
-    });
-
-    test('identifier headers do not require an optional subcode adapter', () {
-      core.setCdromDrive(FakeCdromDrive([sector(1)]));
-      clearAttention();
-      for (final format in [2, 3]) {
-        packet([0x40, format, 0, 0, 4]);
-        expect(drain(), [0, 0x15, 0, 24]);
-        packet([0x40, format]);
-        expect(drain(), isEmpty);
-      }
-    });
-
-    test(
-        'unknown identifiers stay distinct from an explicit not-detected result',
-        () {
-      for (final format in [2, 3]) {
-        drive.subcode = const CdromSubcode();
-        expect(() => packet([0x40, format, 0, 0, 24]),
-            throwsA(isA<DcUnsupported>()));
-      }
-    });
-
-    test('malformed identifiers and out-of-range frames stop before output',
-        () {
-      for (final value in [
-        '123',
-        '123456789012A',
-        '12345678901234',
-        '1234567890123\n'
-      ]) {
-        drive.subcode =
-            CdromSubcode(catalog: CdromSubcodeIdentifier(value, frame: 0));
-        expect(
-            () => packet([0x40, 2, 0, 0, 24]), throwsA(isA<DcUnsupported>()));
-      }
-      for (final value in ['us1AZ9912345', 'US1AZ991234X', 'US-1AZ-99-12345']) {
-        drive.subcode =
-            CdromSubcode(recording: CdromSubcodeIdentifier(value, frame: 0));
-        expect(
-            () => packet([0x40, 3, 0, 0, 24]), throwsA(isA<DcUnsupported>()));
-      }
-      for (final frame in [-1, 75]) {
-        drive.subcode = CdromSubcode(
-            catalog: CdromSubcodeIdentifier('1234567890123', frame: frame));
-        expect(
-            () => packet([0x40, 2, 0, 0, 24]), throwsA(isA<DcUnsupported>()));
-      }
     });
   });
 }

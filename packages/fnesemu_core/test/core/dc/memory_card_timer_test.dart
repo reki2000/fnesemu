@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/dc.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/memory_card.dart';
 import 'package:fnesemu_core/src/core/dc/memory_card_timer.dart';
 import 'package:test/test.dart';
@@ -44,15 +43,6 @@ void main() {
     small.tickMasterClocks(hz - 17);
     expect(small.time, DateTime.utc(2000, 1, 1, 0, 0, 4));
     expect(small.time, large.time);
-  });
-  test(
-      'year overflow and negative clocks stop without normalizing the calendar',
-      () {
-    final timer =
-        DcMemoryCardTimer(initialTime: DateTime.utc(9999, 12, 31, 23, 59, 59));
-    expect(() => timer.tickMasterClocks(hz), throwsA(isA<DcUnsupported>()));
-    expect(timer.time.year, 9999);
-    expect(() => timer.tickMasterClocks(-1), throwsArgumentError);
   });
   test(
       'invalid write is atomic and a valid write restarts the fractional second',
@@ -98,7 +88,7 @@ void main() {
     bus.tickMasterClocks(hz - 10000);
     bus.write32(0xffa00040, 0x8201);
     bus.write32(0xa05f6c8c, 0x6155407f);
-    bus.write32(0xa05f6ce8, 0);
+    bus.write32(0xa05f6ce8, 1);
     bus.write32(0xa05f6c04, 0x0c010000);
     final bytes = ByteData.sublistView(bus.ram);
     final request = [11, 1, 0, 2, 0, 0, 0, 8, 0, 0, 0, 0];

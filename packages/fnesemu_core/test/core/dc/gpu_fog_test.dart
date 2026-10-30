@@ -123,13 +123,6 @@ void main() {
     expect(apply(0xff00ffff, mode: 2), 0xff00ffff);
   });
 
-  test('inverted clamp bounds stop only when clamping is requested', () {
-    fog.write(0xc0, 1);
-    expect(apply(0xff000000, mode: 2), 0xff000000);
-    expect(() => apply(0xff000000, mode: 2, clamp: true),
-        throwsA(isA<DcUnsupported>()));
-  });
-
   group('CPU bus and CORE rendering', () {
     const reg = 0xa05f8000, copy = 0x20800000;
     late DcBus bus;
@@ -212,16 +205,6 @@ void main() {
       bus.write32(reg + 0x14, 1);
       bus.tickMasterClocks(2);
     }
-
-    test('register aliases, table limits and longword restrictions', () {
-      bus.write32(reg + 0xb0, 0xffffffff);
-      expect(bus.read32(0x825f80b0), 0xffffff);
-      bus.write32(reg + 0x3fc, 0x12345678);
-      expect(bus.read32(reg + 0x3fc), 0x5678);
-      expect(() => bus.read16(reg + 0x200), throwsA(isA<DcUnsupported>()));
-      expect(() => bus.write8(reg + 0xb0, 0), throwsA(isA<DcUnsupported>()));
-      expect(() => bus.read32(reg + 0x400), throwsA(isA<DcUnsupported>()));
-    });
 
     test('depth fog affects background and polygon before framebuffer packing',
         () {

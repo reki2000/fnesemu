@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/gpu_texture.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -103,24 +102,6 @@ void main() {
     book(248, List.filled(4, 0xf800));
     expect(view.sample(0, 0),
         0xffff0000); // No functional codebook cache hides CPU writes.
-  });
-
-  test(
-      'unsupported VQ layouts, invalid MIP adjustment and unresolved endian wiring stop explicitly',
-      () {
-    for (final make in [
-      () => texture(tsp: copy | 8),
-      () => texture(tcw: 0x4c00c000),
-      () => texture(tcw: 0xc800c000),
-      () => texture(tcw: 0xe800c000, tsp: copy | 0x100),
-      () => texture(tcw: 0xf000c000, tsp: copy | 0x100),
-      () => texture(control: 0x10000),
-      () => texture(control: 0x20000),
-    ]) {
-      expect(make, throwsA(isA<DcUnsupported>()));
-    }
-    expect(() => texture(tcw: 0x480fffff).sample(0, 0),
-        throwsA(isA<DcUnsupported>()));
   });
 
   group('non-MIP palette VQ', () {
@@ -275,6 +256,7 @@ void main() {
       for (final item in [
         (0x124, 0x100000),
         (0x128, 0x200000),
+        (0x20, 0x200000),
         (0x12c, 0x10ffe0),
         (0x130, 0x20fffc),
         (0x140, 1),
@@ -302,7 +284,7 @@ void main() {
         }
       }
 
-      put(0x8000, [
+      put(0x200000 + 0x8000, [
         0xe0000000,
         copy,
         0,

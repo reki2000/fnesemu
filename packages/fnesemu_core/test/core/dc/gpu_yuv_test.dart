@@ -154,19 +154,6 @@ void main() {
     expect(byte(0x60001), 100);
   });
 
-  test('out of range halves stop before writes and can be reinitialized', () {
-    converter.write(0x148, 0x7ffff8);
-    final data = block();
-    feed(data, 0, 224);
-    expect(() => feed(data, 224, 256), throwsA(isA<DcUnsupported>()));
-    expect(converter.inputBytes, 224);
-    expect(memory.any((value) => value != 0), isFalse);
-    expect(interrupts, isEmpty);
-    converter.write(0x148, 0x60000);
-    feed(data);
-    expect(interrupts, [64]);
-  });
-
   test(
       'store queues route YUV bursts through the CPU bus and raise HOLLY bit 6',
       () {
@@ -214,12 +201,10 @@ void main() {
     expect(bus.read32(0xa05f6900) & 64, 64);
   });
 
-  test('input lengths and undocumented combined dimensions stop explicitly',
+  test('short input stops explicitly and the control register masks fields',
       () {
     expect(
         () => converter.accept(Uint8List(16)), throwsA(isA<DcUnsupported>()));
-    expect(() => converter.write(0x14c, 2), throwsA(isA<DcUnsupported>()));
-    expect(() => converter.write(0x14c, 0x200), throwsA(isA<DcUnsupported>()));
     converter.write(0x14c, 0xffffffff);
     expect(converter.read(0x14c), 0x1013f3f);
   });

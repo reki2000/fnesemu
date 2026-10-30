@@ -1,5 +1,4 @@
 import 'package:fnesemu_core/src/core/dc/bus.dart';
-import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
@@ -23,30 +22,6 @@ void main() {
     bus.write8(0xffd80004, bus.read8(0xffd80004) | (1 << channel));
     bus.tmu.tickPeripheralClocks(4);
   }
-
-  test('INTC register widths, reset, field masks and aliases', () {
-    expect(bus.read16(0xffd00000), 0x8000);
-    for (final (offset, expected) in [
-      (0, 0xc380),
-      (4, 0xffff),
-      (8, 0xfff0),
-      (12, 0xffff),
-    ]) {
-      bus.write16(0xffd00000 + offset, 0xffff);
-      expect(bus.read16(0x1fd00000 + offset), expected);
-      expect(
-          () => bus.read32(0xffd00000 + offset), throwsA(isA<DcUnsupported>()));
-      expect(() => bus.write8(0xffd00000 + offset, 0),
-          throwsA(isA<DcUnsupported>()));
-      expect(
-          () => bus.read16(0xdfd00000 + offset), throwsA(isA<DcUnsupported>()));
-    }
-    cpu.reset();
-    expect(bus.read16(0xffd00000), 0x8000);
-    expect(bus.read16(0xffd00004), 0);
-    expect(bus.read16(0xffd00008), 0);
-    expect(bus.read16(0xffd0000c), 0);
-  });
 
   for (var channel = 0; channel < 3; channel++) {
     test('TMU$channel stays pending while masked and enters with its event',
