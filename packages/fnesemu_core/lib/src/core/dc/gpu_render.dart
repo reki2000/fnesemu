@@ -69,6 +69,13 @@ class DcGpuRender {
   late final _candidates = List<_Fragment?>.filled(1024, null);
   late final _lastDepth = Float64List(1024);
   late final _lastOrder = Int32List(1024);
+  // Translucent fragments collected in one pass, linked per pixel.
+  final _fragmentHead = Int32List(1024);
+  var _fragmentCount = 0;
+  var _fragmentNext = Int32List(1024), _fragmentOrder = Int32List(1024);
+  var _fragmentColor = Uint32List(1024), _fragmentTsp = Uint32List(1024);
+  var _fragmentDepth = Float64List(1024);
+  var _fragmentWrite = Uint8List(1024), _fragmentSorted = Int32List(1024);
   bool get busy => _remaining != 0;
   int? get clocksToEvent => busy && !_stripWaiting ? _remaining : null;
   static const offsets = [
@@ -613,6 +620,10 @@ class DcGpuRender {
       {required bool punch, int? modifierList}) {
     _sortMode = punch ? 2 : 1;
     try {
+      if (!punch && modifierList == null) {
+        _sortTranslucent(address, x, y);
+        return;
+      }
       if (!punch) {
         _lastDepth.fillRange(0, 1024, double.negativeInfinity);
         _lastOrder.fillRange(0, 1024, -1);
@@ -665,6 +676,63 @@ class DcGpuRender {
       _sortMode = 0;
       _candidates.fillRange(0, 1024, null);
     }
+  }
+
+  /// Auto-sort without modifiers: rasterize once, then composite each pixel's
+  /// fragments in ascending (depth, input order). This gives the same order as
+  /// peeling one layer per pass, since depth writes only grow along that order.
+  void _sortTranslucent(int address, int x, int y) {
+    _sortMode = 3;
+    _fragmentHead.fillRange(0, 1024, -1);
+    _fragmentCount = 0;
+    _primitiveOrder = 0;
+    _objects(address, x, y);
+    if (_fragmentCount == 0) return;
+    if (_fragmentSorted.length < _fragmentCount) {
+      _fragmentSorted = Int32List(_fragmentNext.length);
+    }
+    final sorted = _fragmentSorted, depth = _fragmentDepth;
+    final order = _fragmentOrder;
+    for (var i = 0; i < 1024; i++) {
+      var count = 0;
+      for (var f = _fragmentHead[i]; f >= 0; f = _fragmentNext[f]) {
+        final z = depth[f], o = order[f];
+        var j = count++;
+        while (j > 0) {
+          final g = sorted[j - 1], zg = depth[g];
+          if (zg < z || (zg == z && order[g] < o)) break;
+          sorted[j] = g;
+          j--;
+        }
+        sorted[j] = f;
+      }
+      for (var k = 0; k < count; k++) {
+        final f = sorted[k];
+        _composite(i, _fragmentColor[f], _fragmentTsp[f]);
+        if (_fragmentWrite[f] != 0) _depth[i] = depth[f];
+      }
+    }
+  }
+
+  void _addFragment(
+      int index, double z, int color, int tsp, bool writeDepth, int order) {
+    final f = _fragmentCount++;
+    if (f == _fragmentNext.length) {
+      final size = f * 2;
+      _fragmentNext = Int32List(size)..setAll(0, _fragmentNext);
+      _fragmentOrder = Int32List(size)..setAll(0, _fragmentOrder);
+      _fragmentColor = Uint32List(size)..setAll(0, _fragmentColor);
+      _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
+      _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
+      _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
+    }
+    _fragmentNext[f] = _fragmentHead[index];
+    _fragmentHead[index] = f;
+    _fragmentOrder[f] = order;
+    _fragmentColor[f] = color;
+    _fragmentTsp[f] = tsp;
+    _fragmentDepth[f] = z;
+    _fragmentWrite[f] = writeDepth ? 1 : 0;
   }
 
   void _objects(int address, int x, int y) {
@@ -1030,6 +1098,21 @@ class DcGpuRender {
     final right = _tileCeiling(maxX - originX - offset);
     final top = _tileFloor(minY - originY - offset);
     final bottom = _tileCeiling(maxY - originY - offset);
+    final inverseArea = 1 / area, inverseShade = 1 / shadeArea;
+    // Shading-plane weights as linear functions of the sample position.
+    final ax = (sb.y - sc.y) * inverseShade,
+        ay = (sc.x - sb.x) * inverseShade,
+        a0 = ((sc.y - sb.y) * sb.x - (sc.x - sb.x) * sb.y) * inverseShade;
+    final bx = (sc.y - sa.y) * inverseShade,
+        by = (sa.x - sc.x) * inverseShade,
+        b0 = ((sa.y - sc.y) * sc.x - (sa.x - sc.x) * sc.y) * inverseShade;
+    final cx = (sa.y - sb.y) * inverseShade,
+        cy = (sb.x - sa.x) * inverseShade,
+        c0 = ((sb.y - sa.y) * sa.x - (sb.x - sa.x) * sa.y) * inverseShade;
+    final za = sa.z, zb = sb.z, zc = sc.z;
+    final uza = sa.u * za, uzb = sb.u * zb, uzc = sc.u * zc;
+    final vza = sa.v * za, vzb = sb.v * zb, vzc = sc.v * zc;
+    final sameTexture = texOffset == pixelOffset;
     for (var y = top; y < bottom; y++) {
       for (var x = left; x < right; x++) {
         final px = originX + x + offset, py = originY + y + offset;
@@ -1044,13 +1127,10 @@ class DcGpuRender {
             (e2 == 0 && !tl2)) {
           continue;
         }
-        final ia =
-            plane == null ? e0 / area : _edge(sb, sc, px, py) / shadeArea;
-        final ib =
-            plane == null ? e1 / area : _edge(sc, sa, px, py) / shadeArea;
-        final ic =
-            plane == null ? e2 / area : _edge(sa, sb, px, py) / shadeArea;
-        final ispDepth = sa.z * ia + sb.z * ib + sc.z * ic;
+        final ia = plane == null ? e0 * inverseArea : ax * px + ay * py + a0;
+        final ib = plane == null ? e1 * inverseArea : bx * px + by * py + b0;
+        final ic = plane == null ? e2 * inverseArea : cx * px + cy * py + c0;
+        final ispDepth = za * ia + zb * ib + zc * ic;
         final z = backgroundDepth ?? ispDepth;
         if (!z.isFinite) {
           throw const DcUnsupported('CORE nonfinite interpolated depth');
@@ -1086,11 +1166,11 @@ class DcGpuRender {
         }
         // HALF_OFFSET independently selects ISP coverage/depth and TSP shading.
         final sx = originX + x + pixelOffset, sy = originY + y + pixelOffset;
-        final wa = samePosition ? ia : _edge(sb, sc, sx, sy) / shadeArea;
-        final wb = samePosition ? ib : _edge(sc, sa, sx, sy) / shadeArea;
-        final wc = samePosition ? ic : _edge(sa, sb, sx, sy) / shadeArea;
+        final wa = samePosition ? ia : ax * sx + ay * sy + a0;
+        final wb = samePosition ? ib : bx * sx + by * sy + b0;
+        final wc = samePosition ? ic : cx * sx + cy * sy + c0;
         final shadeDepth =
-            samePosition ? ispDepth : sa.z * wa + sb.z * wb + sc.z * wc;
+            samePosition ? ispDepth : za * wa + zb * wb + zc * wc;
         if (!shadeDepth.isFinite) {
           throw const DcUnsupported('CORE nonfinite shading depth');
         }
@@ -1102,9 +1182,10 @@ class DcGpuRender {
               throw const DcUnsupported(
                   'CORE shading perspective denominator is zero');
             }
-            final pa = wa * sa.z / shadeDepth,
-                pb = wb * sb.z / shadeDepth,
-                pc = wc * sc.z / shadeDepth;
+            final inverseDepth = 1 / shadeDepth;
+            final pa = wa * za * inverseDepth,
+                pb = wb * zb * inverseDepth,
+                pc = wc * zc * inverseDepth;
             color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
             off = _gouraud(
                 sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
@@ -1124,42 +1205,40 @@ class DcGpuRender {
           var footprint = 1.0;
           if (texture != null) {
             final tx = originX + x + texOffset, ty = originY + y + texOffset;
-            final ta = _edge(sb, sc, tx, ty) / shadeArea,
-                tb = _edge(sc, sa, tx, ty) / shadeArea;
-            final tc = _edge(sa, sb, tx, ty) / shadeArea;
-            final denominator = sa.z * ta + sb.z * tb + sc.z * tc;
+            final ta = sameTexture ? wa : ax * tx + ay * ty + a0,
+                tb = sameTexture ? wb : bx * tx + by * ty + b0,
+                tc = sameTexture ? wc : cx * tx + cy * ty + c0;
+            final denominator = za * ta + zb * tb + zc * tc;
             if (denominator == 0) {
               throw const DcUnsupported(
                   'CORE perspective UV denominator is zero');
             }
-            final u = (sa.u * sa.z * ta + sb.u * sb.z * tb + sc.u * sc.z * tc) /
-                denominator;
-            final v = (sa.v * sa.z * ta + sb.v * sb.z * tb + sc.v * sc.z * tc) /
-                denominator;
+            final inverse = 1 / denominator;
+            final u = (uza * ta + uzb * tb + uzc * tc) * inverse;
+            final v = (vza * ta + vzb * tb + vzc * tc) * inverse;
             if (mipNumerators != null) {
-              final square = denominator * denominator;
+              final square = inverse * inverse;
               footprint = texture.footprint(
-                  mipNumerators[0] / square,
-                  mipNumerators[1] / square,
-                  mipNumerators[2] / square,
-                  mipNumerators[3] / square);
+                  mipNumerators[0] * square,
+                  mipNumerators[1] * square,
+                  mipNumerators[2] * square,
+                  mipNumerators[3] * square);
             }
             List<(double, double)>? extraSamples;
             if (texture.superSample) {
               (double, double) coordinate(double dx, double dy) {
-                final aa = _edge(sb, sc, tx + dx, ty + dy) / shadeArea;
-                final bb = _edge(sc, sa, tx + dx, ty + dy) / shadeArea;
-                final cc = _edge(sa, sb, tx + dx, ty + dy) / shadeArea;
-                final divisor = sa.z * aa + sb.z * bb + sc.z * cc;
+                final qx = tx + dx, qy = ty + dy;
+                final aa = ax * qx + ay * qy + a0;
+                final bb = bx * qx + by * qy + b0;
+                final cc = cx * qx + cy * qy + c0;
+                final divisor = za * aa + zb * bb + zc * cc;
                 if (divisor == 0) {
                   throw const DcUnsupported(
                       'CORE supersample perspective denominator is zero');
                 }
                 return (
-                  (sa.u * sa.z * aa + sb.u * sb.z * bb + sc.u * sc.z * cc) /
-                      divisor,
-                  (sa.v * sa.z * aa + sb.v * sb.z * bb + sc.v * sc.z * cc) /
-                      divisor
+                  (uza * aa + uzb * bb + uzc * cc) / divisor,
+                  (vza * aa + vzb * bb + vzc * cc) / divisor
                 );
               }
 
@@ -1191,7 +1270,9 @@ class DcGpuRender {
             _sourceColor(index, color, tsp) >> 24 < alphaReference) {
           continue;
         }
-        if (_sortMode != 0) {
+        if (_sortMode == 3) {
+          _addFragment(index, z, color, tsp, isp & 0x04000000 == 0, order);
+        } else if (_sortMode != 0) {
           _candidates[index] =
               _Fragment(z, color, tsp, isp & 0x04000000 == 0, order);
         } else {
