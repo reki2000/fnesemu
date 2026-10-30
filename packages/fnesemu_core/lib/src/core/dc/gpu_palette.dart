@@ -58,8 +58,22 @@ class DcGpuPalette {
     return decode(words[index], _control, repeat: true);
   }
 
+  static final _decoded = List<Uint32List?>.filled(6, null);
+
+  /// Decodes a 16-bit texel or palette entry through a per-format table.
   static int decode(int value, int format, {required bool repeat}) {
     if (format == 3) return value & 0xffffffff;
+    if (value >> 16 == 0 && format < 3) {
+      final slot = format * 2 + (repeat ? 1 : 0);
+      final table = _decoded[slot] ??= Uint32List.fromList([
+        for (var i = 0; i < 0x10000; i++) _decode(i, format, repeat: repeat)
+      ]);
+      return table[value];
+    }
+    return _decode(value, format, repeat: repeat);
+  }
+
+  static int _decode(int value, int format, {required bool repeat}) {
     int expand(int component, int bits) {
       final shifted = component << (8 - bits);
       return bits == 1

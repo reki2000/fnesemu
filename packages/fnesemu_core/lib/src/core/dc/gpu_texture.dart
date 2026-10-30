@@ -161,24 +161,25 @@ class DcGpuTexture {
       math.sqrt(math.max(math.pow(duDx * width, 2) + math.pow(dvDx * height, 2),
           math.pow(duDy * width, 2) + math.pow(dvDy * height, 2)));
 
+  /// Bit `i` of the index moves to bit `2i`.
+  static final _spread = Uint32List.fromList([
+    for (var i = 0; i < 1024; i++)
+      [for (var bit = 0; bit < 10; bit++) ((i >> bit) & 1) << (bit * 2)]
+          .fold(0, (a, b) => a | b)
+  ]);
+
   int _index(int x, int y, int levelWidth, int levelHeight) {
-    var index = y * stride + x;
-    if (twiddled) {
-      index = 0;
-      var u = x, v = y, w = levelWidth, h = levelHeight, place = 1;
-      while (w > 1 && h > 1) {
-        index |= (v & 1) * place;
-        place *= 2;
-        index |= (u & 1) * place;
-        place *= 2;
-        u >>= 1;
-        v >>= 1;
-        w >>= 1;
-        h >>= 1;
-      }
-      index |= (u | v) * place;
-    }
-    return index;
+    if (!twiddled) return y * stride + x;
+    // Interleave the low bits common to both sizes (V in even bits, U in odd
+    // bits), then append the remaining bits of the longer side.
+    final widthBits = levelWidth.bitLength - 1,
+        heightBits = levelHeight.bitLength - 1;
+    final bits = widthBits < heightBits ? widthBits : heightBits;
+    if (bits < 0) return x | y;
+    final mask = (1 << bits) - 1;
+    return _spread[y & mask] |
+        (_spread[x & mask] << 1) |
+        (((x | y) >> bits) << (bits * 2));
   }
 
   int _byte(int address) {
@@ -190,8 +191,8 @@ class DcGpuTexture {
     return memory[offset];
   }
 
-  int _coordinate(int value, int size, bool clamp, bool flip) {
-    if (clamp) return value.clamp(0, size - 1);
+  static int _coordinate(int value, int size, bool clamp, bool flip) {
+    if (clamp) return value < 0 ? 0 : (value >= size ? size - 1 : value);
     value %= flip ? size * 2 : size;
     return value >= size ? size * 2 - value - 1 : value;
   }
@@ -288,43 +289,41 @@ class DcGpuTexture {
     if (!u.isFinite || !v.isFinite) {
       throw const DcUnsupported('CORE nonfinite texture coordinate');
     }
-    double position(double value, int size, bool clamp, bool flip) {
-      value *= size;
-      if (!value.isFinite) {
-        throw const DcUnsupported('CORE texture coordinate overflow');
-      }
-      return clamp
-          ? value.clamp(0.0, (size - 1).toDouble())
-          : value % (flip ? size * 2 : size);
-    }
-
     final level = mipMapped ? selectLevel(footprint) : 0;
-    final x = position(u, width >> level, clampU, flipU),
-        y = position(v, height >> level, clampV, flipV);
+    final x = _position(u, width >> level, clampU, flipU),
+        y = _position(v, height >> level, clampV, flipV);
     final left = x.floor(), top = y.floor();
     if (!bilinear) return _texel(left, top, level, parameters);
     final tx = x - left, ty = y - top;
-    final colors = [
-      _texel(left, top, level, parameters),
-      _texel(left + 1, top, level, parameters),
-      _texel(left, top + 1, level, parameters),
-      _texel(left + 1, top + 1, level, parameters)
-    ];
-    final weights = [
-      (1 - tx) * (1 - ty),
-      tx * (1 - ty),
-      (1 - tx) * ty,
-      tx * ty
-    ];
+    final c0 = _texel(left, top, level, parameters),
+        c1 = _texel(left + 1, top, level, parameters),
+        c2 = _texel(left, top + 1, level, parameters),
+        c3 = _texel(left + 1, top + 1, level, parameters);
+    final w0 = (1 - tx) * (1 - ty),
+        w1 = tx * (1 - ty),
+        w2 = (1 - tx) * ty,
+        w3 = tx * ty;
     var color = 0;
     for (var shift = 0; shift < 32; shift += 8) {
-      var channel = 0.0;
-      for (var i = 0; i < 4; i++) {
-        channel += ((colors[i] >> shift) & 255) * weights[i];
-      }
-      color |= roundByte(channel) << shift;
+      color |= roundByte(((c0 >> shift) & 255) * w0 +
+              ((c1 >> shift) & 255) * w1 +
+              ((c2 >> shift) & 255) * w2 +
+              ((c3 >> shift) & 255) * w3) <<
+          shift;
     }
     return color & 0xffffffff;
+  }
+
+  static double _position(double value, int size, bool clamp, bool flip) {
+    value *= size;
+    if (!value.isFinite) {
+      throw const DcUnsupported('CORE texture coordinate overflow');
+    }
+    if (clamp) {
+      final last = (size - 1).toDouble();
+      return value < 0 ? 0.0 : (value > last ? last : value);
+    }
+    return value % (flip ? size * 2 : size);
   }
 
   /// System Architecture sections 3.4.7.3.1 and 3.6.1.3, with host-double trig/rounding.

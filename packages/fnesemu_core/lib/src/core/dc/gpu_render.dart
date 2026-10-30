@@ -1285,6 +1285,8 @@ class DcGpuRender {
 
   /// Perspective-weighted color channels, rounded and saturated per byte.
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
+    // Equal vertex colors interpolate to themselves.
+    if (ca == cb && cb == cc) return ca;
     var result = 0;
     for (var shift = 0; shift < 32; shift += 8) {
       result |= roundByte(((ca >> shift) & 255) * pa +

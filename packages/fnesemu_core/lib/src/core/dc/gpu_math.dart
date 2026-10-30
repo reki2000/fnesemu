@@ -1,10 +1,8 @@
-/// Rounds half away from zero like `double.round` and clamps to a byte.
+/// Rounds a channel half up and clamps it to a byte.
 ///
 /// `double.round` and `int.clamp` are calls in the AOT build; this stays inline.
+/// Negative ties round toward zero, which the clamp hides.
 int roundByte(double value) {
-  final whole = value.toInt();
-  final fraction = value - whole;
-  final rounded =
-      fraction >= 0.5 ? whole + 1 : (fraction <= -0.5 ? whole - 1 : whole);
+  final rounded = (value + 0.5).toInt();
   return rounded < 0 ? 0 : (rounded > 255 ? 255 : rounded);
 }
