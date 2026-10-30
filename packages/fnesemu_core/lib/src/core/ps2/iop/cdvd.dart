@@ -8,9 +8,11 @@ import '../state.dart';
 ///
 /// N commands run asynchronously and signal completion through I_STAT and
 /// the CDVD interrupt. S commands answer through a result FIFO. Register
-/// layouts follow public hardware documentation. Timing is coarse, and the
-/// BIOS handshake that precedes a disc boot is not fully known. The format of
-/// a sector delivered by ReadCd for block sizes other than 2048 is a guess.
+/// layouts follow public hardware documentation. The BIOS handshake that precedes a disc boot is not fully known. The format of a sector delivered by ReadCd for block sizes other than 2048 is a guess.
+///
+/// Timing follows ps2tek. A sector takes IOP_CLOCK * block size / read speed, with 24 * 153600 bytes per second for a CD and 4 * 1382400 for a DVD. A seek from a stopped drive spins it up in 333 ms. Otherwise a seek shorter than 4371 sectors on a CD or 14764 on a DVD takes 30 ms and a longer one 100 ms. The drive reads through a gap whose sectors pass in less time than a fast seek; ps2tek does not give this bound. Stop takes 166 ms and stops the drive.
+///
+/// The sticky drive status ORs every drive status since S command 5 copied the current one. The clock keeps the time that S command 9 writes and counts seconds of IOP clocks from it.
 class Cdvd {
   static const base = 0x1f402000, end = 0x1f402040;
 
@@ -39,7 +41,15 @@ class Cdvd {
   static const _dvdBlockSize = 2064, _rawBlockSize = 2352;
   static const _cdTocSize = 1024;
 
-  static const _seekCycles = 200000, _sectorCycles = 20000;
+  static const _iopClock = 36864000;
+  static const _spinUpCycles = _iopClock * 333 ~/ 1000;
+  static const _fastSeekCycles = _iopClock * 30 ~/ 1000;
+  static const _fullSeekCycles = _iopClock * 100 ~/ 1000;
+  static const _stopCycles = _iopClock * 166 ~/ 1000;
+
+  /// the clock at reset: 2024-01-01 12:00:00
+  static final _rtcStart =
+      DateTime.utc(2024, 1, 1, 12).difference(DateTime.utc(2000)).inSeconds;
 
   /// the sectors at the start of a PS2 disc that hold the boot logo
   static const _logoSectors = 12;
@@ -67,7 +77,13 @@ class Cdvd {
   final _sParams = <int>[];
   final _results = ListQueue<int>();
   int _lastCommand = 0;
-  int _tick = 0;
+
+  // the clock: seconds since 2000-01-01 and the IOP clocks of the second
+  int _rtcSeconds = _rtcStart, _rtcCycles = 0;
+
+  // the sector under the head and whether the disc spins
+  int _pos = 0;
+  bool _spinning = false;
 
   int _drive = 0, _sticky = 0;
   int _error6 = 0;
@@ -99,10 +115,12 @@ class Cdvd {
   void saveState(StateWriter w) {
     w.section('cdvd');
     w.ints([
-      istat, _keyValid, _lastCommand, _tick, _drive, _sticky, _error6, //
-      _busyCycles, _lba, _sectorsLeft, _blockSize, _wait, _dataPos,
+      istat, _keyValid, _lastCommand, _rtcSeconds, _drive, _sticky, _error6, //
+      _busyCycles, _lba, _sectorsLeft, _blockSize, _wait, _dataPos, _rtcCycles,
+      _pos,
     ]);
     w.boolean(_reading);
+    w.boolean(_spinning);
     w.bytes(_keyBytes);
     w.ints(_nParams);
     w.ints(_sParams);
@@ -112,11 +130,11 @@ class Cdvd {
 
   void loadState(StateReader s) {
     s.section('cdvd');
-    final v = s.fields(13, 'cdvd');
+    final v = s.fields(15, 'cdvd');
     istat = v[0];
     _keyValid = v[1];
     _lastCommand = v[2];
-    _tick = v[3];
+    _rtcSeconds = v[3];
     _drive = v[4];
     _sticky = v[5];
     _error6 = v[6];
@@ -126,7 +144,10 @@ class Cdvd {
     _blockSize = v[10];
     _wait = v[11];
     _dataPos = v[12];
+    _rtcCycles = v[13];
+    _pos = v[14];
     _reading = s.boolean();
+    _spinning = s.boolean();
     s.bytesInto(_keyBytes);
     _nParams
       ..clear()
@@ -149,7 +170,8 @@ class Cdvd {
     _reading = false;
     _data = Uint8List(0);
     _dataPos = 0;
-    _drive = _sticky = 0;
+    _drive = _sticky = _pos = 0;
+    _spinning = false;
   }
 
   int read(int address) {
@@ -163,7 +185,7 @@ class Cdvd {
       case _driveStatus:
         return _driveStatusValue;
       case _stickyStatus:
-        return _sticky;
+        return _sticky |= _driveStatusValue;
       case _discType:
         return discType;
       case _sStatus:
@@ -187,9 +209,28 @@ class Cdvd {
 
   int get _driveStatusValue {
     if (!hasDisc) return _drive;
+    if (!_spinning) return 0;
     if (_busyCycles > 0) return _statusSpinning | _statusSeeking;
     if (_reading) return _statusSpinning | _statusReading;
     return _statusSpinning | _statusPaused;
+  }
+
+  /// the IOP clocks to read one block of [size] bytes
+  int _blockCycles(int size) =>
+      _iopClock * size ~/ (dvd ? 4 * 1382400 : 24 * 153600);
+
+  /// the IOP clocks to move the head to [target], at least 1; the drive
+  /// spins up first when it is stopped
+  int _seekTo(int target, int blockSize) {
+    final delta = (target - _pos).abs();
+    _pos = target;
+    if (!_spinning) {
+      _spinning = true;
+      return _spinUpCycles;
+    }
+    final through = delta * _blockCycles(blockSize);
+    if (through < _fastSeekCycles) return through < 1 ? 1 : through;
+    return delta < (dvd ? 14764 : 4371) ? _fastSeekCycles : _fullSeekCycles;
   }
 
   void write(int address, int value) {
@@ -259,14 +300,20 @@ class Cdvd {
       case 0x09: // GetToc
         _data = dvd ? _dvdToc() : Uint8List(_cdTocSize);
         _dataPos = 0;
-        _busyCycles = _seekCycles;
+        _busyCycles = _seekTo(0, _dvdBlockSize);
       case 0x05: // Seek
         _lba = _int32(params, 0);
-        _busyCycles = _seekCycles;
+        _busyCycles = _seekTo(_lba, dvd ? _dvdBlockSize : 2048);
+      case 0x02: // Standby: back to sector 0, paused
+        _busyCycles = _seekTo(0, dvd ? _dvdBlockSize : 2048);
+      case 0x03: // Stop: back to sector 0, stopped
+        _pos = 0;
+        _spinning = false;
+        _busyCycles = _stopCycles;
       case 0x0c: // ReadKey
         _readKey();
-        _busyCycles = _seekCycles;
-      default: // NOP, NOPsync, Standby, Stop, Pause and the unknown ones
+        _busyCycles = _fastSeekCycles;
+      default: // NOP, NOPsync, Pause and the unknown ones
         _busyCycles = 1000;
     }
   }
@@ -274,7 +321,7 @@ class Cdvd {
   void _startRead() {
     _data = Uint8List(0);
     _dataPos = 0;
-    _busyCycles = _seekCycles;
+    _busyCycles = _seekTo(_lba, _blockSize);
     _reading = true;
     _wait = 0;
   }
@@ -314,6 +361,12 @@ class Cdvd {
 
   /// advances the drive by [cycles] IOP clocks
   void advance(int cycles) {
+    _rtcCycles += cycles;
+    if (_rtcCycles >= _iopClock) {
+      _rtcSeconds += _rtcCycles ~/ _iopClock;
+      _rtcCycles %= _iopClock;
+    }
+    _sticky |= _driveStatusValue;
     if (_busyCycles > 0) {
       _busyCycles -= cycles;
       if (_busyCycles > 0) return;
@@ -330,7 +383,7 @@ class Cdvd {
       return;
     }
     _wait += cycles;
-    if (_wait < _sectorCycles) return;
+    if (_wait < _blockCycles(_blockSize)) return;
     final raw = drive?.read(_lba);
     if (raw == null) return; // not read by the drive yet
     final first = _lba < _logoSectors ? drive?.read(0) : null;
@@ -348,6 +401,7 @@ class Cdvd {
     }
     _dataPos = 0;
     _lba++;
+    _pos = _lba;
     _sectorsLeft--;
   }
 
@@ -428,6 +482,10 @@ class Cdvd {
     return out;
   }
 
+  static int _bcd(int v) => (v ~/ 10) << 4 | v % 10;
+
+  static int _fromBcd(int v) => (v >> 4) * 10 + (v & 15);
+
   void _sCommandWrite(int command) {
     _lastCommand = command;
     final params = List<int>.of(_sParams);
@@ -450,16 +508,16 @@ class Cdvd {
       case 0x41: // read configuration block: 15 more bytes
         _results.addAll(List.filled(15, 0));
       case 0x08: // read clock: second, minute, hour, pad, day, month, year
-        final second = (_tick++ ~/ 3) % 60;
+        final t = DateTime.utc(2000).add(Duration(seconds: _rtcSeconds));
         _results.addAll([
-          second ~/ 10 << 4 | second % 10,
-          0x00,
-          0x12,
-          0x00,
-          0x01,
-          0x01,
-          0x24
+          _bcd(t.second), _bcd(t.minute), _bcd(t.hour), 0, //
+          _bcd(t.day), _bcd(t.month), _bcd(t.year % 100),
         ]);
+      case 0x09: // write clock, in the layout of the read
+        int at(int i) => i < params.length ? _fromBcd(params[i]) : 0;
+        final t = DateTime.utc(2000 + at(7), at(6), at(5), at(3), at(2), at(1));
+        _rtcSeconds = t.difference(DateTime.utc(2000)).inSeconds;
+        _rtcCycles = 0;
     }
   }
 }

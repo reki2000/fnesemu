@@ -35,7 +35,7 @@ void main() {
     _write(cdvd, 0x06, [12, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]);
     expect(cdvd.read(0x1f402005) & 0x80, 0x80);
     final data = <int>[];
-    for (var i = 0; i < 200 && irqs == 0; i++) {
+    for (var i = 0; i < 1000 && irqs == 0; i++) {
       cdvd.advance(50000);
       data.addAll(cdvd.takeData(4096));
     }
@@ -60,7 +60,7 @@ void main() {
     expect(cdvd.discType, Cdvd.ps2Dvd);
     _write(cdvd, 0x08, [12, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     final data = <int>[];
-    for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
+    for (var i = 0; i < 1000 && cdvd.istat & 2 == 0; i++) {
       cdvd.advance(50000);
       data.addAll(cdvd.takeData(4096));
     }
@@ -80,7 +80,7 @@ void main() {
       ..drive = FakeCdromDrive([first, _sector(stored(0x81)), _sector(7)]);
     _write(cdvd, 0x06, [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]);
     final data = <int>[];
-    for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
+    for (var i = 0; i < 1000 && cdvd.istat & 2 == 0; i++) {
       cdvd.advance(50000);
       data.addAll(cdvd.takeData(4096));
     }
@@ -97,7 +97,7 @@ void main() {
     final toc = cdvd.takeData(4096);
     expect(toc.length, 2064);
     expect(toc.sublist(4, 12), [0, 3, 0, 0, 0, 3, 0, 1]);
-    for (var i = 0; i < 10 && cdvd.istat & 2 == 0; i++) {
+    for (var i = 0; i < 1000 && cdvd.istat & 2 == 0; i++) {
       cdvd.advance(50000);
     }
     expect(cdvd.istat & 2, 2);
@@ -107,7 +107,7 @@ void main() {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(1), _sector(2)]);
     _write(cdvd, 0x07, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     final data = <int>[];
-    for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
+    for (var i = 0; i < 1000 && cdvd.istat & 2 == 0; i++) {
       cdvd.advance(50000);
       data.addAll(cdvd.takeData(4096));
     }
@@ -142,6 +142,54 @@ void main() {
     expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
     ps2.reset();
     expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);
+  });
+
+  /// the IOP clocks until the N command finishes
+  int busyClocks(Cdvd cdvd) {
+    var clocks = 0;
+    while (cdvd.read(0x1f402005) & 0x80 != 0) {
+      cdvd.advance(1000);
+      cdvd.takeData(1 << 20);
+      clocks += 1000;
+    }
+    return clocks;
+  }
+
+  test('a seek spins the drive up, then nearby seeks are short', () {
+    final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
+    expect(cdvd.read(0x1f40200a), 0);
+    _write(cdvd, 0x05, [100, 0, 0, 0]);
+    expect(busyClocks(cdvd), closeTo(36864000 * 0.333, 1000));
+    expect(cdvd.read(0x1f40200a), 0x0a); // spinning, paused
+    _write(cdvd, 0x05, [110, 0, 0, 0]);
+    expect(busyClocks(cdvd), lessThan(36864000 * 0.01));
+    _write(cdvd, 0x05, [0, 0x10, 0, 0]); // 4096 sectors away
+    expect(busyClocks(cdvd), closeTo(36864000 * 0.03, 1000));
+    _write(cdvd, 0x05, [0, 0, 1, 0]); // 65536
+    expect(busyClocks(cdvd), closeTo(36864000 * 0.1, 1000));
+  });
+
+  test('Stop stops the drive and the sticky status keeps the spinning bit',
+      () {
+    final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
+    _write(cdvd, 0x05, [1, 0, 0, 0]);
+    busyClocks(cdvd);
+    _write(cdvd, 0x03, []);
+    busyClocks(cdvd);
+    expect(cdvd.read(0x1f40200a), 0);
+    expect(cdvd.read(0x1f40200b) & 2, 2);
+  });
+
+  test('the clock keeps a written time and counts seconds', () {
+    final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
+    for (final p in [0, 0x59, 0x59, 0x23, 0, 0x31, 0x12, 0x25]) {
+      cdvd.write(0x1f402017, p);
+    }
+    cdvd.write(0x1f402016, 0x09);
+    cdvd.advance(36864000);
+    cdvd.write(0x1f402016, 0x08);
+    final result = [for (var i = 0; i < 8; i++) cdvd.read(0x1f402018)];
+    expect(result, [0, 0x00, 0x00, 0x00, 0, 0x01, 0x01, 0x26]);
   });
 
   test('ReadKey encodes the game ID the way the BIOS browser decodes it', () {
