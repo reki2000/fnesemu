@@ -80,6 +80,25 @@ void main() {
     expect(ends, 2);
   });
 
+  test('a read of I_STAT ends after a vblank that comes during it', () {
+    final ps2 = _ps2();
+    var seen = -1;
+    for (var i = 0; seen < 0; i++) {
+      expect(i, lessThan(ps2.scanlinesInFrame * ps2.clocksInScanline));
+      final read = ps2.bus.read32(Intc.statAddress);
+      if (read & (1 << Intc.vblankStart) != 0) seen = i;
+      ps2.exec(false);
+    }
+    expect(ps2.io.intc.stat & (1 << Intc.vblankStart), 0,
+        reason: 'the read saw the bit before the line raised it');
+    var raised = 0;
+    while (ps2.io.intc.stat & (1 << Intc.vblankStart) == 0) {
+      ps2.exec(false);
+      raised++;
+    }
+    expect(raised, inInclusiveRange(1, 32));
+  });
+
   test('timer interrupt reaches the CPU through the INTC', () {
     final ps2 = _ps2();
     final cpu = ps2.cpu;

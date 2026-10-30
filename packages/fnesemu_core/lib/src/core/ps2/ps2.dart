@@ -34,6 +34,11 @@ class Ps2 extends Core {
   static const _deviceQuantum = 32;
   static const _vblankLine = 240;
 
+  /// The EE clocks of an uncached read of an EE register, as seen by
+  /// [Intc.upcoming]. The exact bus timing is not documented. It only has
+  /// to cover a polling loop of a few instructions.
+  static const _registerReadClocks = 32;
+
   /// the EE recompiler, or null when the interpreter runs alone
   final Ps2Jit? jit;
   final Ps2Bus bus;
@@ -135,6 +140,7 @@ class Ps2 extends Core {
       ..vu0 = io.vu0
       ..cpCond0 = () => io.dmac.cpCond0;
     io.iopRam = iopMemory.ram;
+    io.intc.upcoming = _upcomingIntc;
     return io;
   }
 
@@ -331,6 +337,16 @@ class Ps2 extends Core {
       iopIo.dirty = false;
       iop.setInterrupt(iopIo.asserted);
     }
+  }
+
+  /// the vblank bit that the next scanline raises when it comes within an
+  /// EE register read
+  int _upcomingIntc() {
+    if (_nextScanlineClock - cpu.clocks > _registerReadClocks) return 0;
+    final next = _line + 1;
+    if (next == _vblankLine) return 1 << Intc.vblankStart;
+    if (next == _scanlines) return 1 << Intc.vblankEnd;
+    return 0;
   }
 
   void _endOfScanline() {

@@ -16,6 +16,16 @@ class Intc {
 
   bool get asserted => stat & mask != 0;
 
+  /// The I_STAT bits that are raised before a read of I_STAT ends. An
+  /// uncached read of an EE register takes several bus cycles, and the
+  /// value is taken at the end. A VSync wait that polls I_STAT with the
+  /// vblank interrupt enabled relies on this. The read sees the bit, and
+  /// the interrupt is taken after the read, so the kernel handler still
+  /// clears the bit afterwards.
+  int Function() upcoming = _none;
+
+  static int _none() => 0;
+
   void saveState(StateWriter w) => w.ints([stat, mask]);
 
   void loadState(StateReader s) {
@@ -30,8 +40,9 @@ class Intc {
     dirty = true;
   }
 
-  int read(int address) =>
-      address == statAddress ? stat : (address == maskAddress ? mask : 0);
+  int read(int address) => address == statAddress
+      ? stat | upcoming()
+      : (address == maskAddress ? mask : 0);
 
   /// Writing 1 to a I_STAT bit clears it; writing 1 to a I_MASK bit toggles it.
   void write(int address, int value) {
