@@ -25,6 +25,7 @@ import 'storage.dart';
 /// Experimental DC bring-up core with functional framebuffer readout.
 class Dc extends Core {
   Dc({this.bootBringUp = const bool.fromEnvironment('DC_BOOT_BRINGUP')}) {
+    bus.onDeviceAccess = _syncDevices;
     if (bootBringUp) {
       bus.g1.bypassBiosVerification = true;
       bus.aica.dsp.diagnosticBypassUnsupportedProgram = true;
@@ -43,6 +44,9 @@ class Dc extends Core {
   Sram? _storage;
   int _clocks = 0;
   int _pendingClocks = 0;
+  // Device clocks deferred by runFrame; flushed before device-visible accesses.
+  int _batchedClocks = 0, _batchDeadline = 0;
+  static const _batchLimit = 256;
   String? stopReason;
   CdromDrive? _discDrive;
   int _bootstrapEpoch = 0;
@@ -230,6 +234,7 @@ class Dc extends Core {
     bus.intc.nmiHigh = true;
     _clocks = 0;
     _pendingClocks = 0;
+    _batchedClocks = 0;
     stopReason = null;
     final program = _program;
     if (program != null) {
@@ -324,6 +329,7 @@ class Dc extends Core {
     cpuReader.end();
     _clocks = clocks[0];
     _pendingClocks = clocks[1];
+    _batchedClocks = 0;
     stopReason = reason;
     bus.opticalDrive.rebindDriveAfterLoad();
   }
@@ -358,12 +364,35 @@ class Dc extends Core {
 
   @override
   ExecResult exec(bool step) {
+    if (!_flushDevices()) return _executionResult(0, _executionStopped);
     final (elapsed, flags) = _execute(step);
     return _executionResult(elapsed, flags);
   }
 
+  /// Ticks the devices by the deferred clocks. Returns false when stopped.
+  bool _flushDevices() {
+    final clocks = _batchedClocks;
+    if (clocks == 0) return true;
+    _batchedClocks = 0;
+    try {
+      bus.tickMasterClocks(clocks);
+    } on DcUnsupported catch (error) {
+      stopReason = error.toString();
+      return false;
+    }
+    return true;
+  }
+
+  void _syncDevices() {
+    final clocks = _batchedClocks;
+    if (clocks == 0) return;
+    _batchedClocks = 0;
+    bus.tickMasterClocks(clocks);
+  }
+
   /// Returns elapsed clocks and packed status for the instruction loop.
-  (int, int) _execute(bool step) {
+  /// With [batch], device clocks are deferred up to the next line boundary.
+  (int, int) _execute(bool step, {bool batch = false}) {
     if (stopReason != null) {
       return (0, _executionStopped);
     }
@@ -400,11 +429,21 @@ class Dc extends Core {
     // CPU steps stand in for clocks until the timing model exists.
     _clocks += elapsed;
     var stopped = false;
-    try {
-      bus.tickMasterClocks(elapsed);
-    } on DcUnsupported catch (error) {
-      stopReason = error.toString();
-      stopped = true;
+    if (batch) {
+      if (_batchedClocks == 0) {
+        final line = bus.gpu.spg.clocksToNextLine;
+        _batchDeadline =
+            line != null && line < _batchLimit ? line : _batchLimit;
+      }
+      _batchedClocks += elapsed;
+      if (_batchedClocks >= _batchDeadline) stopped = !_flushDevices();
+    } else {
+      try {
+        bus.tickMasterClocks(elapsed);
+      } on DcUnsupported catch (error) {
+        stopReason = error.toString();
+        stopped = true;
+      }
     }
     final rendered = wasVideoRunning || bus.gpu.spg.running
         ? bus.gpu.spg.completedLines != previousLines
@@ -426,7 +465,7 @@ class Dc extends Core {
     while (scanlines > 0) {
       final previousLines = bus.gpu.spg.completedLines;
       final wasVideoRunning = bus.gpu.spg.running;
-      (elapsed, flags) = _execute(false);
+      (elapsed, flags) = _execute(false, batch: true);
       if (flags & _executionStopped != 0) break;
       if (wasVideoRunning || bus.gpu.spg.running) {
         scanlines -= bus.gpu.spg.completedLines - previousLines;
@@ -434,6 +473,7 @@ class Dc extends Core {
         scanlines--;
       }
     }
+    if (!_flushDevices()) flags |= _executionStopped;
     return _executionResult(elapsed, flags);
   }
 

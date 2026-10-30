@@ -99,6 +99,13 @@ class DcSpg {
     return (((pixels * _denominator - _phase + 26) ~/ 27)).clamp(1, 0x7fffffff);
   }
 
+  /// Clocks until the current line completes.
+  int? get clocksToNextLine {
+    if (!running) return null;
+    final clocks = ((pixelsPerLine - _h) * _denominator - _phase + 26) ~/ 27;
+    return clocks < 1 ? 1 : clocks;
+  }
+
   /// Physical blank edges are independent of the programmable IRQ comparisons.
   int? get clocksToVerticalBlankOut => _clocksToLine((vblank >> 16) & 1023);
   int? get clocksToVerticalBlankIn => _clocksToLine(vblank & 1023);

@@ -351,6 +351,7 @@ class Sh4 {
       _checkAccess(r[n], 4, true);
       bus.cpuWrite(r[n], 4, r[0], allocate: true, privileged: privileged);
     } else if (op == 0x001b) {
+      bus.onDeviceAccess?.call();
       if (bus.cpg.standby & 0x80 != 0) {
         throw DcUnsupported('SH7750 standby entry is unimplemented');
       }

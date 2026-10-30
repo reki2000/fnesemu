@@ -298,10 +298,23 @@ class DcBus {
               DcCache.isRamArea(address) &&
               cache.ccr & 0x21 == 0x21);
 
+  /// Brings deferred device clocks up to the current CPU time.
+  void Function()? onDeviceAccess;
+
+  /// Main RAM holds no device state, so its accesses need no device sync.
+  /// Other data accesses, and root-bus fetches while G1 DMA runs, sync first.
+  void _syncFor(int address, DcTranslation? mapping, {bool fetch = false}) {
+    final sync = onDeviceAccess;
+    if (sync == null || _ordinaryRam(mapping?.physical ?? address)) return;
+    if (fetch && !g1.busy) return;
+    sync();
+  }
+
   int cpuRead(int address, int size,
       {bool privileged = true, bool instruction = false, bool peek = false}) {
     final mapping = translateCpu(address,
         privileged: privileged, instruction: instruction, touch: !peek);
+    if (!peek) _syncFor(address, mapping, fetch: instruction);
     if (instruction) {
       final (bytes, offset) = cache.readLocation(address, size,
           instruction: true,
@@ -321,7 +334,11 @@ class DcBus {
       {bool privileged = true, bool allocate = false}) {
     var mapping = translateCpu(address, write: true, privileged: privileged);
     // A queue store validates its translation but writes on-chip queue storage.
-    if (isStoreQueue(address)) mapping = null;
+    if (isStoreQueue(address)) {
+      mapping = null;
+    } else {
+      _syncFor(address, mapping);
+    }
     switch (size) {
       case 1:
         write8(address, value, mapping: mapping);
@@ -332,13 +349,20 @@ class DcBus {
     }
   }
 
-  (int, int) cpuReadPair(int address, {bool privileged = true}) =>
-      readPair(address, mapping: translateCpu(address, privileged: privileged));
+  (int, int) cpuReadPair(int address, {bool privileged = true}) {
+    final mapping = translateCpu(address, privileged: privileged);
+    _syncFor(address, mapping);
+    return readPair(address, mapping: mapping);
+  }
 
   void cpuWritePair(int address, int first, int second,
       {bool privileged = true}) {
     var mapping = translateCpu(address, write: true, privileged: privileged);
-    if (isStoreQueue(address)) mapping = null;
+    if (isStoreQueue(address)) {
+      mapping = null;
+    } else {
+      _syncFor(address, mapping);
+    }
     writePair(address, first, second, mapping: mapping);
   }
 
@@ -361,6 +385,7 @@ class DcBus {
 
   /// Synchronous burst model; bus arbitration and transfer latency are pending.
   void transferStoreQueue(int address, {bool privileged = true}) {
+    onDeviceAccess?.call();
     address = address.mask32;
     final queue = (address >> 5) & 1;
     final translated = translateCpu(address, privileged: privileged);
