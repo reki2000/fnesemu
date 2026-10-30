@@ -59,6 +59,9 @@ class DcGpuRender {
   final _secondary = Uint32List(1024);
   final _secondaryValid = Uint8List(1024);
   final _depth = Float64List(1024);
+  // Constant sources for clearing the tile buffers with a block copy.
+  static final _zeroBytes = Uint8List(1024), _zeroWords = Uint32List(1024);
+  static final _noFragments = Int32List(1024)..fillRange(0, 1024, -1);
   final _scalerTiles = <int, Uint32List>{};
   Uint8List _shadowMask = Uint8List(1024);
   bool _shadowObject = false;
@@ -345,10 +348,10 @@ class DcGpuRender {
     _stripQueued = false;
     _scalerTiles.clear();
     fog.reset();
-    _shadowMask.fillRange(0, 1024, 0);
+    _shadowMask.setRange(0, 1024, _zeroBytes);
     _shadowObject = false;
     _materialArea = -1;
-    _secondaryValid.fillRange(0, 1024, 0);
+    _secondaryValid.setRange(0, 1024, _zeroBytes);
     _registers
       ..clear()
       ..addAll(
@@ -525,7 +528,7 @@ class DcGpuRender {
     final type2 = read(0x7c) & 0x200000 != 0;
     final backgroundShadow =
         control & 0x40000000 == 0 && read(0x8c) & 0x08000000 != 0;
-    _shadowMask.fillRange(0, 1024, 0);
+    _shadowMask.setRange(0, 1024, _zeroBytes);
     if (control & 0x40000000 == 0) {
       _background(x * 32, y * 32);
     } else if (x != _x || y != _y) {
@@ -571,7 +574,7 @@ class DcGpuRender {
       _shadowMask = mask;
     }
     _opaqueLists(opaque, punch, x * 32, y * 32);
-    _shadowMask.fillRange(0, 1024, 0);
+    _shadowMask.setRange(0, 1024, _zeroBytes);
     if (translucent & 0x80000000 == 0) {
       final presort = type2 ? control & 0x20000000 != 0 : read(0x98) & 1 != 0;
       if (presort) {
@@ -618,12 +621,18 @@ class DcGpuRender {
 
   void _sortedObjects(int address, int x, int y,
       {required bool punch, int? modifierList}) {
+    if (!punch && modifierList == null) {
+      // Collected fragments never use the candidate buffer.
+      _sortMode = 1;
+      try {
+        _sortTranslucent(address, x, y);
+      } finally {
+        _sortMode = 0;
+      }
+      return;
+    }
     _sortMode = punch ? 2 : 1;
     try {
-      if (!punch && modifierList == null) {
-        _sortTranslucent(address, x, y);
-        return;
-      }
       if (!punch) {
         _lastDepth.fillRange(0, 1024, double.negativeInfinity);
         _lastOrder.fillRange(0, 1024, -1);
@@ -632,7 +641,7 @@ class DcGpuRender {
       while (more) {
         _candidates.fillRange(0, 1024, null);
         _primitiveOrder = 0;
-        if (modifierList != null) _shadowMask.fillRange(0, 1024, 0);
+        if (modifierList != null) _shadowMask.setRange(0, 1024, _zeroBytes);
         _objects(address, x, y);
         if (modifierList != null && _candidates.any((value) => value != null)) {
           final surfaces = Float64List(1024), active = Uint8List(1024);
@@ -683,7 +692,7 @@ class DcGpuRender {
   /// peeling one layer per pass, since depth writes only grow along that order.
   void _sortTranslucent(int address, int x, int y) {
     _sortMode = 3;
-    _fragmentHead.fillRange(0, 1024, -1);
+    _fragmentHead.setRange(0, 1024, _noFragments);
     _fragmentCount = 0;
     _primitiveOrder = 0;
     _objects(address, x, y);
@@ -924,11 +933,13 @@ class DcGpuRender {
     final header = twoVolumes ? 5 : 3;
     final stride = 3 + skip * (twoVolumes ? 2 : 1);
     _shadowObject = shadow;
-    _secondaryValid.fillRange(0, 1024, 0);
-    _depth.fillRange(0, 1024, depth);
+    _secondaryValid.setRange(0, 1024, _zeroBytes);
+    for (var i = 0; i < 1024; i++) {
+      _depth[i] = depth;
+    }
     // Primary pixels not initialized by the background are provisionally transparent black.
     // The physical initial contents when only the secondary buffer is written are unknown.
-    _colors.fillRange(0, 1024, 0);
+    _colors.setRange(0, 1024, _zeroWords);
 
     void material(int slot) {
       final tsp = _word(parameter + 4 + slot * 8);
@@ -950,7 +961,9 @@ class DcGpuRender {
           shaded = fog.apply(shaded, depth, 0, tsp, hasOffset: false);
         }
         if (!shadow && tsp & 0x01000000 == 0) {
-          _colors.fillRange(0, 1024, color);
+          for (var i = 0; i < 1024; i++) {
+            _colors[i] = color;
+          }
           return;
         }
         for (var i = 0; i < 1024; i++) {
@@ -1492,7 +1505,7 @@ class DcGpuRender {
           return false;
         }
         for (var tx = minX ~/ 32; tx <= maxX ~/ 32; tx++) {
-          _colors.fillRange(0, 1024, 0);
+          _colors.setRange(0, 1024, _zeroWords);
           for (var y = 0; y < 32; y++) {
             final py = ty * 32 + y;
             if (py < first || py >= end) continue;
