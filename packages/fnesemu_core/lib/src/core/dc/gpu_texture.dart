@@ -63,19 +63,22 @@ class DcGpuTexture {
   }
   final Uint8List memory;
   final DcGpuPalette? palette;
-  late final int width, height, stride, format, base, selector, filterMode;
+  // Set once by the constructor. Plain fields avoid the late-initialization
+  // check on every texel read.
+  int width = 0, height = 0, stride = 0, format = 0, base = 0, selector = 0;
+  int filterMode = 0;
   bool get trilinear => mipMapped && filterMode >= 2;
-  late final bool superSample,
-      twiddled,
-      compressed,
-      mipMapped,
-      bilinear,
-      clampU,
-      clampV,
-      flipU,
-      flipV;
-  late final int _maxLevel;
-  late final double _adjust;
+  bool superSample = false,
+      twiddled = false,
+      compressed = false,
+      mipMapped = false,
+      bilinear = false,
+      clampU = false,
+      clampV = false,
+      flipU = false,
+      flipV = false;
+  int _maxLevel = 0;
+  double _adjust = 0;
   static const _rgbOffsets = [
     6,
     8,
@@ -193,14 +196,24 @@ class DcGpuTexture {
 
   static int _coordinate(int value, int size, bool clamp, bool flip) {
     if (clamp) return value < 0 ? 0 : (value >= size ? size - 1 : value);
-    value %= flip ? size * 2 : size;
+    if (size & (size - 1) == 0) {
+      if (!flip) return value & (size - 1);
+      value &= size * 2 - 1;
+    } else {
+      value %= flip ? size * 2 : size;
+    }
     return value >= size ? size * 2 - value - 1 : value;
   }
 
-  int _texel(int x, int y, int level, int bumpParameters) {
+  int _texel(int x, int y, int level, int bumpParameters) => _texelAt(
+      _coordinate(x, width >> level, clampU, flipU),
+      _coordinate(y, height >> level, clampV, flipV),
+      level,
+      bumpParameters);
+
+  /// Reads a texel at coordinates already wrapped, clamped or mirrored.
+  int _texelAt(int x, int y, int level, int bumpParameters) {
     final w = width >> level, h = height >> level, exponent = _maxLevel - level;
-    x = _coordinate(x, w, clampU, flipU);
-    y = _coordinate(y, h, clampV, flipV);
     final index = _index(x, y, w, h);
     final paletteOffset = mipMapped ? _paletteOffsets[exponent] : 0;
     if (compressed && (format == 5 || format == 6)) {
@@ -290,15 +303,21 @@ class DcGpuTexture {
       throw const DcUnsupported('CORE nonfinite texture coordinate');
     }
     final level = mipMapped ? selectLevel(footprint) : 0;
-    final x = _position(u, width >> level, clampU, flipU),
-        y = _position(v, height >> level, clampV, flipV);
-    final left = x.floor(), top = y.floor();
+    final w = width >> level, h = height >> level;
+    final x = _position(u, w, clampU, flipU),
+        y = _position(v, h, clampV, flipV);
+    // Positions are nonnegative, so truncation is the floor.
+    final left = x.toInt(), top = y.toInt();
     if (!bilinear) return _texel(left, top, level, parameters);
     final tx = x - left, ty = y - top;
-    final c0 = _texel(left, top, level, parameters),
-        c1 = _texel(left + 1, top, level, parameters),
-        c2 = _texel(left, top + 1, level, parameters),
-        c3 = _texel(left + 1, top + 1, level, parameters);
+    final x0 = _coordinate(left, w, clampU, flipU),
+        x1 = _coordinate(left + 1, w, clampU, flipU),
+        y0 = _coordinate(top, h, clampV, flipV),
+        y1 = _coordinate(top + 1, h, clampV, flipV);
+    final c0 = _texelAt(x0, y0, level, parameters),
+        c1 = _texelAt(x1, y0, level, parameters),
+        c2 = _texelAt(x0, y1, level, parameters),
+        c3 = _texelAt(x1, y1, level, parameters);
     final w0 = (1 - tx) * (1 - ty),
         w1 = tx * (1 - ty),
         w2 = (1 - tx) * ty,
