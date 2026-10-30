@@ -1,4 +1,5 @@
 import '../sif.dart';
+import '../state.dart';
 import 'cdvd.dart';
 import 'iop_memory.dart';
 import 'ohci.dart';
@@ -78,6 +79,77 @@ class IopIo implements IopPort {
   }
 
   bool get asserted => ctrl != 0 && (stat & mask) != 0;
+
+  /// Saves the registers and the devices on the IOP bus. The SIF belongs to
+  /// the EE side.
+  void saveState(StateWriter w) {
+    w.section('iop io');
+    w.ints([
+      stat, mask, ctrl, dpcr, dicr, dpcr2, dicr2, _sif1Left, _sif1Address, //
+      _sif1Pad, _cdvdLeft, _pendingClocks, _quietClocks, ..._spu2Left,
+    ]);
+    w.boolean(_sif1End);
+    for (final c in channels) {
+      w.ints([c.madr, c.bcr, c.chcr, c.tadr]);
+    }
+    for (final list in [
+      _timerCount, _timerMode, _timerTarget, //
+      _timerFraction
+    ]) {
+      w.ints(list);
+    }
+    w.ints([
+      for (final e in _backing.entries) ...[e.key, e.value]
+    ]);
+    cdvd.saveState(w);
+    sio2.saveState(w);
+    spu2.saveState(w);
+    ohci.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('iop io');
+    final v = s.fields(15, 'iop io');
+    stat = v[0];
+    mask = v[1];
+    ctrl = v[2];
+    dpcr = v[3];
+    dicr = v[4];
+    dpcr2 = v[5];
+    dicr2 = v[6];
+    _sif1Left = v[7];
+    _sif1Address = v[8];
+    _sif1Pad = v[9];
+    _cdvdLeft = v[10];
+    _pendingClocks = v[11];
+    _quietClocks = v[12];
+    _spu2Left[0] = v[13];
+    _spu2Left[1] = v[14];
+    _sif1End = s.boolean();
+    for (final c in channels) {
+      final r = s.fields(4, 'iop dma channel');
+      c.madr = r[0];
+      c.bcr = r[1];
+      c.chcr = r[2];
+      c.tadr = r[3];
+    }
+    for (final list in [
+      _timerCount, _timerMode, _timerTarget, //
+      _timerFraction
+    ]) {
+      s.intsInto(list);
+    }
+    final b = s.ints();
+    _backing.clear();
+    for (var i = 0; i + 1 < b.length; i += 2) {
+      _backing[b[i]] = b[i + 1];
+    }
+    cdvd.loadState(s);
+    sio2.loadState(s);
+    spu2.loadState(s);
+    ohci.loadState(s);
+    dirty = true;
+  }
 
   void raise(int irq) {
     stat |= 1 << irq;

@@ -1,4 +1,5 @@
 import 'intc.dart';
+import 'state.dart';
 
 /// The four EE timers. Counters are 16 bits wide and tick at the bus clock
 /// (half the CPU clock) divided by 1, 16 or 256, or at each horizontal blank.
@@ -31,6 +32,22 @@ class EeTimers {
   // The counts and the interrupts are the same as with an update on every
   // call.
   int _pendingClocks = 0, _quietClocks = 0;
+
+  void saveState(StateWriter w) {
+    for (final list in [count, mode, compare, hold, _prescale]) {
+      w.ints(list);
+    }
+    w.ints([_pendingClocks, _quietClocks]);
+  }
+
+  void loadState(StateReader s) {
+    for (final list in [count, mode, compare, hold, _prescale]) {
+      s.intsInto(list);
+    }
+    final v = s.fields(2, 'timer');
+    _pendingClocks = v[0];
+    _quietClocks = v[1];
+  }
 
   /// advances the timers by [busClocks] bus clock cycles
   void advance(int busClocks) {

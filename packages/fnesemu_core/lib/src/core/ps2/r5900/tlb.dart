@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../state.dart';
+
 /// An address exception raised while translating or accessing an address.
 /// The CPU turns it into the matching COP0 exception.
 class Ps2Fault implements Exception {
@@ -55,6 +57,31 @@ class Tlb {
   void _flush() {
     _tag.fillRange(0, _cacheSize, -1);
     onChange?.call();
+  }
+
+  void saveState(StateWriter w) {
+    for (final e in entries) {
+      w.ints([e.mask, e.vpn2, e.asid, e.lo0, e.lo1]);
+      w.boolean(e.global);
+    }
+    w.boolean(active);
+    w.int64(asid);
+  }
+
+  void loadState(StateReader s) {
+    for (final e in entries) {
+      final v = s.fields(5, 'tlb entry');
+      e.mask = v[0];
+      e.vpn2 = v[1];
+      e.asid = v[2];
+      e.lo0 = v[3];
+      e.lo1 = v[4];
+      e.global = s.boolean();
+    }
+    active = s.boolean();
+    asid = s.int64();
+    _updateIdentity();
+    _flush();
   }
 
   void setAsid(int value) {

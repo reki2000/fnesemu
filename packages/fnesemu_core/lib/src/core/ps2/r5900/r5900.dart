@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../bus.dart';
+import '../state.dart';
 import '../vu.dart';
 import 'cop2.dart';
 import 'fpu.dart';
@@ -91,6 +92,39 @@ class R5900 {
     clocks = 0;
     _branchPending = _inDelaySlot = false;
     unimplementedInstruction = null;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('r5900');
+    w.typed(gpr);
+    w.typed(cop0);
+    w.typed(fpr);
+    w.ints([hi, lo, hi1, lo1, sa, pc, nextPc, facc, fcr31, clocks]);
+    w.boolean(_branchPending);
+    w.boolean(_inDelaySlot);
+    tlb.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('r5900');
+    s.typed(gpr);
+    s.typed(cop0);
+    s.typed(fpr);
+    final v = s.fields(10, 'r5900');
+    hi = v[0];
+    lo = v[1];
+    hi1 = v[2];
+    lo1 = v[3];
+    sa = v[4];
+    pc = v[5];
+    nextPc = v[6];
+    facc = v[7];
+    fcr31 = v[8];
+    clocks = v[9];
+    _branchPending = s.boolean();
+    _inDelaySlot = s.boolean();
+    unimplementedInstruction = null;
+    tlb.loadState(s);
   }
 
   /// the low 64 bits of register [n]

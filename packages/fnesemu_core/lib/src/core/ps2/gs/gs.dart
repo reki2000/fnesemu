@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../types.dart';
+import '../state.dart';
 import 'gs_memory.dart';
 import 'gs_raster.dart';
 
@@ -31,12 +32,52 @@ class GsVertex {
     u = o.u;
     v = o.v;
   }
+
+  void saveState(StateWriter w) {
+    w.ints([x, y, z, r, g, b, a, f, u, v]);
+    w.floats([s, t, q]);
+  }
+
+  void loadState(StateReader st) {
+    final i = st.fields(10, 'gs vertex');
+    x = i[0];
+    y = i[1];
+    z = i[2];
+    r = i[3];
+    g = i[4];
+    b = i[5];
+    a = i[6];
+    f = i[7];
+    u = i[8];
+    v = i[9];
+    final d = st.floats();
+    s = d[0];
+    t = d[1];
+    q = d[2];
+  }
 }
 
 /// The registers that exist once per drawing context.
 class GsContext {
   int tex0 = 0, tex1 = 0, clamp = 0, xyoffset = 0, scissor = 0;
   int alpha = 0, test = 0, fba = 0, frame = 0, zbuf = 0;
+
+  void saveState(StateWriter w) => w.ints(
+      [tex0, tex1, clamp, xyoffset, scissor, alpha, test, fba, frame, zbuf]);
+
+  void loadState(StateReader s) {
+    final v = s.fields(10, 'gs context');
+    tex0 = v[0];
+    tex1 = v[1];
+    clamp = v[2];
+    xyoffset = v[3];
+    scissor = v[4];
+    alpha = v[5];
+    test = v[6];
+    fba = v[7];
+    frame = v[8];
+    zbuf = v[9];
+  }
 }
 
 /// The Graphics Synthesizer: registers, transfers between host and local
@@ -86,6 +127,95 @@ class Gs {
   // host <-> local transfer
   int _trxX = 0, _trxY = 0, _trxLeft = 0;
   int _acc = 0, _accBits = 0;
+
+  void saveState(StateWriter w) {
+    w.section('gs');
+    w.ints([
+      pmode, smode1, smode2, srfsh, synch1, synch2, syncv, dispfb1, //
+      display1, dispfb2, display2, extbuf, extdata, extwrite, bgcolor, csr,
+      imr, busdir, siglblid, _field, _pendingInterrupts, prim, prmode,
+      prmodecont, texclut, scanmsk, texa, fogcol, dimx, dthe, colclamp, pabe,
+      miptbp, bitbltbuf, trxpos, trxreg, trxdir, _r, _g, _b, _a, _u, _v,
+      _fog, _vertexCount, _trxX, _trxY, _trxLeft, _acc, _accBits,
+    ]);
+    w.floats([_q, _s, _t]);
+    for (final c in contexts) {
+      c.saveState(w);
+    }
+    for (final v in [...vertices, _incoming]) {
+      v.saveState(w);
+    }
+    w.typed(mem.bytes);
+    raster.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gs');
+    final v = s.fields(50, 'gs');
+    var k = 0;
+    pmode = v[k++];
+    smode1 = v[k++];
+    smode2 = v[k++];
+    srfsh = v[k++];
+    synch1 = v[k++];
+    synch2 = v[k++];
+    syncv = v[k++];
+    dispfb1 = v[k++];
+    display1 = v[k++];
+    dispfb2 = v[k++];
+    display2 = v[k++];
+    extbuf = v[k++];
+    extdata = v[k++];
+    extwrite = v[k++];
+    bgcolor = v[k++];
+    csr = v[k++];
+    imr = v[k++];
+    busdir = v[k++];
+    siglblid = v[k++];
+    _field = v[k++];
+    _pendingInterrupts = v[k++];
+    prim = v[k++];
+    prmode = v[k++];
+    prmodecont = v[k++];
+    texclut = v[k++];
+    scanmsk = v[k++];
+    texa = v[k++];
+    fogcol = v[k++];
+    dimx = v[k++];
+    dthe = v[k++];
+    colclamp = v[k++];
+    pabe = v[k++];
+    miptbp = v[k++];
+    bitbltbuf = v[k++];
+    trxpos = v[k++];
+    trxreg = v[k++];
+    trxdir = v[k++];
+    _r = v[k++];
+    _g = v[k++];
+    _b = v[k++];
+    _a = v[k++];
+    _u = v[k++];
+    _v = v[k++];
+    _fog = v[k++];
+    _vertexCount = v[k++];
+    _trxX = v[k++];
+    _trxY = v[k++];
+    _trxLeft = v[k++];
+    _acc = v[k++];
+    _accBits = v[k++];
+    final d = s.floats();
+    _q = d[0];
+    _s = d[1];
+    _t = d[2];
+    for (final c in contexts) {
+      c.loadState(s);
+    }
+    for (final v in [...vertices, _incoming]) {
+      v.loadState(s);
+    }
+    s.typed(mem.bytes);
+    raster.loadState(s);
+  }
 
   void reset() {
     csr = 0;

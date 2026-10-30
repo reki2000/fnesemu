@@ -5,6 +5,7 @@ import 'dmac.dart';
 import 'gif.dart';
 import 'gs/gs.dart';
 import 'quad_fifo.dart';
+import 'state.dart';
 import 'vu.dart';
 
 /// A VPU interface (VIF0 for VU0, VIF1 for VU1). It decodes the VIFcode
@@ -60,6 +61,58 @@ class Vif extends DmaEndpoint {
     stat = 0;
     cl = wl = 1;
     mode = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('vif$index');
+    w.ints([
+      stat, fbrst, err, mark, code, cl, wl, mode, mask, itops, base, ofst, //
+      tops, itop, top, _wordsLeft, _cmd, _num, _imm, _count, _quadCount,
+      _bitsPerVector,
+    ]);
+    w.boolean(fdr);
+    w.boolean(_waiting);
+    for (final list in [row, col, _buf, _quadWords]) {
+      w.typed(list);
+    }
+    fifo.saveState(w);
+    w.ints(_held.toList());
+  }
+
+  void loadState(StateReader s) {
+    s.section('vif$index');
+    final v = s.fields(22, 'vif');
+    stat = v[0];
+    fbrst = v[1];
+    err = v[2];
+    mark = v[3];
+    code = v[4];
+    cl = v[5];
+    wl = v[6];
+    mode = v[7];
+    mask = v[8];
+    itops = v[9];
+    base = v[10];
+    ofst = v[11];
+    tops = v[12];
+    itop = v[13];
+    top = v[14];
+    _wordsLeft = v[15];
+    _cmd = v[16];
+    _num = v[17];
+    _imm = v[18];
+    _count = v[19];
+    _quadCount = v[20];
+    _bitsPerVector = v[21];
+    fdr = s.boolean();
+    _waiting = s.boolean();
+    for (final list in [row, col, _buf, _quadWords]) {
+      s.typed(list);
+    }
+    fifo.loadState(s);
+    _held
+      ..clear()
+      ..addAll(s.ints());
   }
 
   @override

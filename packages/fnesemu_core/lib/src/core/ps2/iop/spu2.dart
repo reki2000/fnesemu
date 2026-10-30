@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../state.dart';
+
 /// The sound processor (SPU2) at 0x1f900000..0x1f9007ff: two cores of 24
 /// voices that share 2MB of sound memory.
 ///
@@ -38,6 +40,31 @@ class Spu2 {
   /// bit 2 + core: the core reached its interrupt address
   int irqInfo = 0;
   final _common = Uint16List(0x50);
+
+  void saveState(StateWriter w) {
+    w.section('spu2');
+    w.typed(ram);
+    w.typed(_common);
+    w.typed(output);
+    w.ints([irqInfo, _outputIndex, _clocks]);
+    for (final c in cores) {
+      c.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('spu2');
+    s.typed(ram);
+    s.typed(_common);
+    s.typed(output);
+    final v = s.fields(3, 'spu2');
+    irqInfo = v[0];
+    _outputIndex = v[1];
+    _clocks = v[2];
+    for (final c in cores) {
+      c.loadState(s);
+    }
+  }
 
   void reset() {
     ram.fillRange(0, ram.length, 0);
@@ -337,6 +364,41 @@ class Spu2Core {
 
   Spu2Core(this.index);
 
+  void saveState(StateWriter w) {
+    w.typed(regs);
+    w.ints([
+      attr, irqa, tsa, admaCtrl, endx, pmon, vmixl, vmixr, mvolxL, //
+      mvolxR, admaPos, admaPlayHalf, admaWriteHalf, admaFree
+    ]);
+    w.boolean(admaActive);
+    for (final v in voices) {
+      v.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.typed(regs);
+    final v = s.fields(14, 'spu2 core');
+    attr = v[0];
+    irqa = v[1];
+    tsa = v[2];
+    admaCtrl = v[3];
+    endx = v[4];
+    pmon = v[5];
+    vmixl = v[6];
+    vmixr = v[7];
+    mvolxL = v[8];
+    mvolxR = v[9];
+    admaPos = v[10];
+    admaPlayHalf = v[11];
+    admaWriteHalf = v[12];
+    admaFree = v[13];
+    admaActive = s.boolean();
+    for (final voice in voices) {
+      voice.loadState(s);
+    }
+  }
+
   void reset() {
     for (final v in voices) {
       v.reset();
@@ -386,6 +448,43 @@ class Spu2Voice {
 
   // 4 samples of the previous block, then the 28 samples of this block
   final _samples = Int32List(32);
+
+  void saveState(StateWriter w) {
+    w.ints([
+      volL, volR, pitch, adsr1, adsr2, envx, volxL, volxR, ssa, lsa, //
+      nax, phase, _envCycles, _counter, _index, _hist1, _hist2, _flags
+    ]);
+    for (final b in [lsaSet, endReached, _pendingDecode]) {
+      w.boolean(b);
+    }
+    w.typed(_samples);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(18, 'spu2 voice');
+    volL = v[0];
+    volR = v[1];
+    pitch = v[2];
+    adsr1 = v[3];
+    adsr2 = v[4];
+    envx = v[5];
+    volxL = v[6];
+    volxR = v[7];
+    ssa = v[8];
+    lsa = v[9];
+    nax = v[10];
+    phase = v[11];
+    _envCycles = v[12];
+    _counter = v[13];
+    _index = v[14];
+    _hist1 = v[15];
+    _hist2 = v[16];
+    _flags = v[17];
+    lsaSet = s.boolean();
+    endReached = s.boolean();
+    _pendingDecode = s.boolean();
+    s.typed(_samples);
+  }
 
   void reset() {
     volL = volR = pitch = adsr1 = adsr2 = envx = volxL = volxR = 0;

@@ -21,6 +21,7 @@ import 'iop/spu2.dart';
 import 'iso9660.dart';
 import 'jit/ps2_jit.dart';
 import 'r5900/r5900.dart';
+import 'state.dart';
 
 final _log = DebugLog('ps2');
 
@@ -226,6 +227,79 @@ class Ps2 extends Core {
     _nextDeviceClock = _deviceQuantum;
     _busRemainder = 0;
     _line = 0;
+  }
+
+  // ---- state ----
+
+  static const _stateVersion = 1;
+
+  /// The BIOS bytes and the disc TOC. The disc contents beyond the TOC are
+  /// not compared, so a state only fits the disc it was saved with.
+  int get _media {
+    var h = stateMediaHash(bus.bios);
+    final toc = _drive?.status.toc;
+    if (toc != null) {
+      for (final t in toc.tracks) {
+        h = (h ^ t.startLba) * 0x100000001b3;
+        h = (h ^ t.sectors) * 0x100000001b3;
+      }
+      h = (h ^ toc.totalSectors) * 0x100000001b3;
+    }
+    return h;
+  }
+
+  /// Saves the state at a frame boundary. The drive's sector cache is not
+  /// saved, so a restored run may wait for sectors that the original run
+  /// had cached.
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('ps2', _stateVersion, _media);
+    w.section('ps2');
+    w.ints([
+      _nextScanlineClock, _lastDeviceClock, _nextDeviceClock, _busRemainder, //
+      _iopFraction, _line, entry ?? -1,
+    ]);
+    w.boolean(biosLoaded);
+    w.typed(bus.ram);
+    w.typed(bus.scratch);
+    w.typed(iopMemory.ram);
+    w.typed(iopMemory.scratch);
+    cpu.saveState(w);
+    io.saveState(w);
+    iop.saveState(w);
+    iopIo.saveState(w);
+    return w.take();
+  }
+
+  /// A state that fails after its header leaves the core partly loaded;
+  /// reset it before running.
+  @override
+  void loadState(Uint8List state) {
+    final s = StateReader(state, 'ps2', _stateVersion, _media);
+    s.section('ps2');
+    final v = s.fields(7, 'ps2');
+    _nextScanlineClock = v[0];
+    _lastDeviceClock = v[1];
+    _nextDeviceClock = v[2];
+    _busRemainder = v[3];
+    _iopFraction = v[4];
+    _line = v[5];
+    entry = v[6] < 0 ? null : v[6];
+    biosLoaded = s.boolean();
+    s.typed(bus.ram);
+    s.typed(bus.scratch);
+    s.typed(iopMemory.ram);
+    s.typed(iopMemory.scratch);
+    cpu.loadState(s);
+    io.loadState(s);
+    iop.loadState(s);
+    iopIo.loadState(s);
+    s.end();
+    // compiled code may hold the old memory
+    jit?.reset();
+    io.intc.dirty = io.dmac.dirty = true;
+    _updateInterruptLines();
+    iop.setInterrupt(iopIo.asserted);
   }
 
   /// advances the timers by the CPU clocks since the last call; the bus runs

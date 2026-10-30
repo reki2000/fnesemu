@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'r5900/fpu.dart';
+import 'state.dart';
 
 /// A vector unit (VU0 or VU1): 32 four-lane float registers, 16 integer
 /// registers, micro memory of 64-bit instruction pairs and data memory of
@@ -112,6 +113,59 @@ class Vu {
     _qBusy = _pBusy = false;
     _vfReady.fillRange(0, 128, 0);
     _flagCount = 0;
+  }
+
+  /// Saves the registers and memories. A micro program runs to its end
+  /// when it starts, so no program is running between frames, but the
+  /// pending division, EFU and flag results are kept for macro mode.
+  void saveState(StateWriter w) {
+    w.section('vu$index');
+    for (final list in [
+      micro, data, vf, vi, acc, _vfReady, _flagReady, //
+      _flagMac, _flagClip
+    ]) {
+      w.typed(list);
+    }
+    w.ints([
+      i, q, r, p, mac, status, clip, pc, cmsar0, cycles, _pending, _qValue, //
+      _qReady, _pValue, _pReady, _flagHead, _flagCount,
+    ]);
+    for (final b in [running, _ending, _micro, _qBusy, _pBusy]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('vu$index');
+    for (final list in [
+      micro, data, vf, vi, acc, _vfReady, _flagReady, //
+      _flagMac, _flagClip
+    ]) {
+      s.typed(list);
+    }
+    final v = s.fields(17, 'vu');
+    i = v[0];
+    q = v[1];
+    r = v[2];
+    p = v[3];
+    mac = v[4];
+    status = v[5];
+    clip = v[6];
+    pc = v[7];
+    cmsar0 = v[8];
+    cycles = v[9];
+    _pending = v[10];
+    _qValue = v[11];
+    _qReady = v[12];
+    _pValue = v[13];
+    _pReady = v[14];
+    _flagHead = v[15];
+    _flagCount = v[16];
+    running = s.boolean();
+    _ending = s.boolean();
+    _micro = s.boolean();
+    _qBusy = s.boolean();
+    _pBusy = s.boolean();
   }
 
   /// starts the program at pair [address] and runs it to its end

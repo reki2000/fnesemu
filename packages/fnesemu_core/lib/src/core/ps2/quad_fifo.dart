@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'state.dart';
+
 /// Assembles a quadword from the 32-bit or 64-bit writes the CPU makes to
 /// a FIFO window (a 128-bit store arrives as two 64-bit writes).
 class QuadFifo {
@@ -7,6 +9,10 @@ class QuadFifo {
 
   int get low => _q[0];
   int get high => _q[1];
+
+  void saveState(StateWriter w) => w.typed(_q);
+
+  void loadState(StateReader s) => s.typed(_q);
 
   /// Returns true when the write completed a quadword.
   bool write(int address, int size, int value) {

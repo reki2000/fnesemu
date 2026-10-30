@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../state.dart';
+
 /// An 8MB memory card on SIO2.
 ///
 /// The card holds 16384 pages of 512 data bytes and 16 spare (ECC) bytes,
@@ -151,6 +153,26 @@ class Ps2MemoryCard {
       }
     }
     return [column, line0 & 0x7f, line1];
+  }
+
+  /// Saves the position of the card and its contents.
+  void saveState(StateWriter w) {
+    w.ints([_terminator, _page, _offset]);
+    w.bytes(Uint8List(size)..setAll(0, Iterable.generate(size, read8)));
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(3, 'memory card');
+    _terminator = v[0];
+    _page = v[1];
+    _offset = v[2];
+    final image = s.bytes();
+    if (image.length != size) {
+      throw const StateMismatch('different memory card size');
+    }
+    for (var a = 0; a < size; a++) {
+      if (read8(a) != image[a]) write8(a, image[a]);
+    }
   }
 
   void reset() {

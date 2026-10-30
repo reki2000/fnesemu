@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:typed_data';
 
 import 'dmac.dart';
+import 'state.dart';
 
 /// The EE <-> IOP interface: the mailbox registers and the two DMA paths.
 ///
@@ -24,6 +25,27 @@ class Sif {
     mscom = smcom = msflg = smflg = control = 0;
     sif0Fifo.clear();
     sif1Fifo.clear();
+  }
+
+  void saveState(StateWriter w) {
+    w.ints([mscom, smcom, msflg, smflg, control]);
+    w.ints(sif0Fifo.toList());
+    w.ints(sif1Fifo.toList());
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(5, 'sif');
+    mscom = v[0];
+    smcom = v[1];
+    msflg = v[2];
+    smflg = v[3];
+    control = v[4];
+    sif0Fifo
+      ..clear()
+      ..addAll(s.ints());
+    sif1Fifo
+      ..clear()
+      ..addAll(s.ints());
   }
 
   /// EE side register offsets 0x1000f200..0x1000f260

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'bus.dart';
+import 'state.dart';
 
 /// A device on the other end of a DMA channel.
 class DmaEndpoint {
@@ -30,6 +31,26 @@ class DmaChannel {
   // these: the next tag address and whether the packet ends the chain
   bool inPacket = false, packetEnds = false;
   int nextTag = 0;
+
+  void saveState(StateWriter w) {
+    w.ints([chcr, madr, qwc, tadr, asr0, asr1, sadr, nextTag]);
+    w.boolean(inPacket);
+    w.boolean(packetEnds);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(8, 'dma channel');
+    chcr = v[0];
+    madr = v[1];
+    qwc = v[2];
+    tadr = v[3];
+    asr0 = v[4];
+    asr1 = v[5];
+    sadr = v[6];
+    nextTag = v[7];
+    inPacket = s.boolean();
+    packetEnds = s.boolean();
+  }
 }
 
 /// The EE DMA controller.
@@ -95,6 +116,42 @@ class Dmac {
   void Function()? onPath3Idle;
 
   Dmac(this.bus);
+
+  void saveState(StateWriter w) {
+    w.section('dmac');
+    for (final c in channels) {
+      c.saveState(w);
+    }
+    w.ints(
+        [ctrl, stat, pcr, sqwc, rbsr, rbor, stadr, enabler, _moved, _gifLeft]);
+    w.typed(_quad);
+    for (final b in [_sif0End, _sif0Irq, _gifFinishing]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('dmac');
+    for (final c in channels) {
+      c.loadState(s);
+    }
+    final v = s.fields(10, 'dmac');
+    ctrl = v[0];
+    stat = v[1];
+    pcr = v[2];
+    sqwc = v[3];
+    rbsr = v[4];
+    rbor = v[5];
+    stadr = v[6];
+    enabler = v[7];
+    _moved = v[8];
+    _gifLeft = v[9];
+    s.typed(_quad);
+    _sif0End = s.boolean();
+    _sif0Irq = s.boolean();
+    _gifFinishing = s.boolean();
+    dirty = true;
+  }
 
   static bool handles(int address) =>
       address >= 0x10008000 && address < 0x1000f000 ||

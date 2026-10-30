@@ -1,5 +1,6 @@
 import '../../../pad_button.dart';
 import '../../../pad_source.dart';
+import '../state.dart';
 
 /// A DualShock 2 on port 1.
 ///
@@ -52,6 +53,20 @@ class Ps2Pad {
   final _rumble = List<int>.filled(6, 0xff);
 
   List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
+
+  void saveState(StateWriter w) {
+    w.boolean(analogMode);
+    w.boolean(configMode);
+    w.ints([responseMask, ..._rumble]);
+  }
+
+  void loadState(StateReader s) {
+    analogMode = s.boolean();
+    configMode = s.boolean();
+    final v = s.fields(7, 'pad');
+    responseMask = v[0];
+    _rumble.setAll(0, v.sublist(1));
+  }
 
   void reset() {
     analogMode = configMode = false;

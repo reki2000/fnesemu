@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../state.dart';
 import 'gs.dart';
 import 'gs_memory.dart';
 
@@ -551,6 +552,19 @@ class GsRaster {
   // 16-bit format, as raw values.
   final _clutBuffer = Uint32List(512);
   int _cbp0 = 0, _cbp1 = 0;
+
+  /// The CLUT buffer is the only state kept between primitives.
+  void saveState(StateWriter w) {
+    w.typed(_clutBuffer);
+    w.ints([_cbp0, _cbp1]);
+  }
+
+  void loadState(StateReader s) {
+    s.typed(_clutBuffer);
+    final v = s.fields(2, 'gs clut');
+    _cbp0 = v[0];
+    _cbp1 = v[1];
+  }
 
   static int _clutFormat(int tex0) => switch ((tex0 >> 51) & 15) {
         0 => GsPsm.ct32,

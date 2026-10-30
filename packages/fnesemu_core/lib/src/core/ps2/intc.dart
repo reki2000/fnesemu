@@ -1,3 +1,5 @@
+import 'state.dart';
+
 /// The EE interrupt controller. Its pending interrupt drives INT0 of the CPU.
 class Intc {
   static const gs = 0, sbus = 1, vblankStart = 2, vblankEnd = 3;
@@ -13,6 +15,15 @@ class Intc {
   bool dirty = false;
 
   bool get asserted => stat & mask != 0;
+
+  void saveState(StateWriter w) => w.ints([stat, mask]);
+
+  void loadState(StateReader s) {
+    final v = s.fields(2, 'intc');
+    stat = v[0];
+    mask = v[1];
+    dirty = true;
+  }
 
   void raise(int line) {
     stat |= 1 << line;

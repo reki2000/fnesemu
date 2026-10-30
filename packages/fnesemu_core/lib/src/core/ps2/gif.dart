@@ -1,6 +1,7 @@
 import 'dmac.dart';
 import 'gs/gs.dart';
 import 'quad_fifo.dart';
+import 'state.dart';
 
 /// One input path of the GIF (PATH1 from VU1, PATH2 from VIF1, PATH3 from
 /// the DMA channel). Each path parses its own stream of GIF tags and writes
@@ -26,6 +27,22 @@ class GifPath extends DmaEndpoint {
 
   void reset() {
     _dataLeft = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.ints([_loops, _flg, _nreg, _regs, _index, _dataLeft]);
+    w.boolean(lastEop);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(6, 'gif path');
+    _loops = v[0];
+    _flg = v[1];
+    _nreg = v[2];
+    _regs = v[3];
+    _index = v[4];
+    _dataLeft = v[5];
+    lastEop = s.boolean();
   }
 
   @override
@@ -138,6 +155,26 @@ class Gif {
   }
 
   final _fifo = QuadFifo();
+
+  void saveState(StateWriter w) {
+    w.section('gif');
+    w.ints([ctrl, mode]);
+    for (final p in [path1, path2, path3]) {
+      p.saveState(w);
+    }
+    _fifo.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gif');
+    final v = s.fields(2, 'gif');
+    ctrl = v[0];
+    mode = v[1];
+    for (final p in [path1, path2, path3]) {
+      p.loadState(s);
+    }
+    _fifo.loadState(s);
+  }
 
   /// returns true when [address] belongs to the GIF
   bool write(int address, int size, int value) {

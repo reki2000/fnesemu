@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:typed_data';
 
 import '../../../cdrom_drive.dart';
+import '../state.dart';
 
 /// The CDVD drive controller registers as seen by the IOP (0x1f402000..).
 ///
@@ -89,6 +90,52 @@ class Cdvd {
 
   /// true while sector bytes are waiting for the DMA channel
   bool get dataAvailable => _dataPos < _data.length;
+
+  /// Saves the controller. The disc, its ID and its type come from the
+  /// media.
+  void saveState(StateWriter w) {
+    w.section('cdvd');
+    w.ints([
+      istat, _keyValid, _lastCommand, _tick, _drive, _sticky, _error6, //
+      _busyCycles, _lba, _sectorsLeft, _blockSize, _wait, _dataPos,
+    ]);
+    w.boolean(_reading);
+    w.bytes(_keyBytes);
+    w.ints(_nParams);
+    w.ints(_sParams);
+    w.ints(_results.toList());
+    w.bytes(_data);
+  }
+
+  void loadState(StateReader s) {
+    s.section('cdvd');
+    final v = s.fields(13, 'cdvd');
+    istat = v[0];
+    _keyValid = v[1];
+    _lastCommand = v[2];
+    _tick = v[3];
+    _drive = v[4];
+    _sticky = v[5];
+    _error6 = v[6];
+    _busyCycles = v[7];
+    _lba = v[8];
+    _sectorsLeft = v[9];
+    _blockSize = v[10];
+    _wait = v[11];
+    _dataPos = v[12];
+    _reading = s.boolean();
+    s.bytesInto(_keyBytes);
+    _nParams
+      ..clear()
+      ..addAll(s.ints());
+    _sParams
+      ..clear()
+      ..addAll(s.ints());
+    _results
+      ..clear()
+      ..addAll(s.ints());
+    _data = s.bytes();
+  }
 
   void reset() {
     _results.clear();

@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import '../state.dart';
 import 'memory_card.dart';
 import 'pad.dart';
 
@@ -40,6 +41,61 @@ class Sio2 {
   final _regs = <int, int>{};
 
   static bool handles(int address) => address >= base && address < end;
+
+  /// Saves the registers, the queues, the pad and the card.
+  void saveState(StateWriter w) {
+    w.section('sio2');
+    for (final list in [_send3, _send1, _send2]) {
+      w.ints(list);
+    }
+    w.ints(_out.toList());
+    w.ints(_in.toList());
+    w.int32(_blocks.length);
+    _blocks.forEach(w.ints);
+    w.int32(replies.length);
+    replies.forEach(w.ints);
+    w.ints([control, stat6c]);
+    w.boolean(replyReady);
+    w.ints([
+      for (final e in _regs.entries) ...[e.key, e.value]
+    ]);
+    pad.saveState(w);
+    w.boolean(card != null);
+    card?.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('sio2');
+    for (final list in [_send3, _send1, _send2]) {
+      s.intsInto(list);
+    }
+    _out
+      ..clear()
+      ..addAll(s.ints());
+    _in
+      ..clear()
+      ..addAll(s.ints());
+    _blocks
+      ..clear()
+      ..addAll(List.generate(s.int32(), (_) => s.ints()));
+    replies
+      ..clear()
+      ..addAll(List.generate(s.int32(), (_) => s.ints()));
+    final v = s.fields(2, 'sio2');
+    control = v[0];
+    stat6c = v[1];
+    replyReady = s.boolean();
+    final r = s.ints();
+    _regs.clear();
+    for (var i = 0; i + 1 < r.length; i += 2) {
+      _regs[r[i]] = r[i + 1];
+    }
+    pad.loadState(s);
+    if (s.boolean() != (card != null)) {
+      throw const StateMismatch('memory card inserted or removed');
+    }
+    card?.loadState(s);
+  }
 
   void reset() {
     _send3.fillRange(0, 16, 0);

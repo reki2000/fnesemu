@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../state.dart';
+
 /// Memory interface of the IOP.
 abstract class IopBus {
   int read8(int address);
@@ -62,6 +64,39 @@ class Iop {
     _inDelaySlot = _isBranch = false;
     _loadReg = _flightReg = 0;
     _hwInterrupt = false;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('iop');
+    w.typed(r);
+    w.typed(cop0);
+    w.ints([
+      pc, nextPc, hi, lo, clocks, _loadReg, _loadValue, _flightReg, //
+      _flightValue, _currentPc
+    ]);
+    for (final b in [_inDelaySlot, _isBranch, _hwInterrupt]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('iop');
+    s.typed(r);
+    s.typed(cop0);
+    final v = s.fields(10, 'iop');
+    pc = v[0];
+    nextPc = v[1];
+    hi = v[2];
+    lo = v[3];
+    clocks = v[4];
+    _loadReg = v[5];
+    _loadValue = v[6];
+    _flightReg = v[7];
+    _flightValue = v[8];
+    _currentPc = v[9];
+    _inDelaySlot = s.boolean();
+    _isBranch = s.boolean();
+    _hwInterrupt = s.boolean();
   }
 
   /// the interrupt line, seen as Cause.IP2

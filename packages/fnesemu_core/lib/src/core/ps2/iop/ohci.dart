@@ -1,3 +1,5 @@
+import '../state.dart';
+
 /// The USB host controller of the IOP at 0x1f801600, an OpenHCI controller
 /// (OpenHCI specification 1.0a) with nothing connected to its ports.
 ///
@@ -27,6 +29,10 @@ class Ohci {
   Ohci() {
     reset();
   }
+
+  void saveState(StateWriter w) => w.ints(_regs);
+
+  void loadState(StateReader s) => s.intsInto(_regs);
 
   /// the reset values of the specification
   void reset() {

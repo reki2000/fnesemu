@@ -9,6 +9,7 @@ import 'iop/cdvd.dart';
 import 'ipu/ipu.dart';
 import 'quad_fifo.dart';
 import 'sif.dart';
+import 'state.dart';
 import 'timer.dart';
 import 'vif.dart';
 import 'vu.dart';
@@ -46,6 +47,57 @@ class EeIo implements IoPort {
     dmac.endpoints[Dmac.fromIpu] = ipu.fromIpu;
     vu1.onXgkick = _xgkick;
     vu0.onCmsar1 = vu1.start;
+  }
+
+  /// Saves the EE devices. The CDVD and the IOP RAM belong to the IOP side.
+  void saveState(StateWriter w) {
+    w.section('ee io');
+    intc.saveState(w);
+    timers.saveState(w);
+    dmac.saveState(w);
+    gs.saveState(w);
+    ipu.saveState(w);
+    gif.saveState(w);
+    sif.saveState(w);
+    vu0.saveState(w);
+    vu1.saveState(w);
+    vif0.saveState(w);
+    vif1.saveState(w);
+    _vifFifo.saveState(w);
+    w.ints([
+      for (final e in _sys.entries) ...[e.key, e.value]
+    ]);
+    for (final d in _rdram) {
+      w.ints([
+        for (final e in d.entries) ...[e.key, e.value]
+      ]);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ee io');
+    intc.loadState(s);
+    timers.loadState(s);
+    dmac.loadState(s);
+    gs.loadState(s);
+    ipu.loadState(s);
+    gif.loadState(s);
+    sif.loadState(s);
+    vu0.loadState(s);
+    vu1.loadState(s);
+    vif0.loadState(s);
+    vif1.loadState(s);
+    _vifFifo.loadState(s);
+    void map(Map<int, int> m) {
+      final v = s.ints();
+      m.clear();
+      for (var i = 0; i + 1 < v.length; i += 2) {
+        m[v[i]] = v[i + 1];
+      }
+    }
+
+    map(_sys);
+    _rdram.forEach(map);
   }
 
   /// Sends the packet at [quad] of VU1 data memory to the GIF (PATH1) up to

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../dmac.dart';
 import '../quad_fifo.dart';
+import '../state.dart';
 import 'idct.dart';
 import 'vlc.dart';
 
@@ -90,6 +91,70 @@ class Ipu {
   // macroblocks left in a CSC or PACK command, and the quantiser scale code
   // of an IDEC command
   int _left = 0, _qsc = 0;
+
+  void saveState(StateWriter w) {
+    w.section('ipu');
+    w.ints([
+      _idp, _cbp, _pictureType, _command, _option, _result, _inLen, _bit, //
+      _stepBit, _wantQuads, _readHigh, _th0, _th1, _left, _qsc,
+    ]);
+    for (final b in [
+      _alternateScan, _intraVlc1, _nonlinearQ, _mpeg1, _ecd, //
+      _scd, _busy, _running, _idle, _skipPending
+    ]) {
+      w.boolean(b);
+    }
+    w.bytes(_in.sublist(0, _inLen));
+    w.ints(_out.toList());
+    w.ints(_pending);
+    _inFifo.saveState(w);
+    for (final list in [_dc, _intraQ, _nonIntraQ, _vq, _block, _mb]) {
+      w.typed(list);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ipu');
+    final v = s.fields(15, 'ipu');
+    _idp = v[0];
+    _cbp = v[1];
+    _pictureType = v[2];
+    _command = v[3];
+    _option = v[4];
+    _result = v[5];
+    _inLen = v[6];
+    _bit = v[7];
+    _stepBit = v[8];
+    _wantQuads = v[9];
+    _readHigh = v[10];
+    _th0 = v[11];
+    _th1 = v[12];
+    _left = v[13];
+    _qsc = v[14];
+    _alternateScan = s.boolean();
+    _intraVlc1 = s.boolean();
+    _nonlinearQ = s.boolean();
+    _mpeg1 = s.boolean();
+    _ecd = s.boolean();
+    _scd = s.boolean();
+    _busy = s.boolean();
+    _running = s.boolean();
+    _idle = s.boolean();
+    _skipPending = s.boolean();
+    final input = s.bytes();
+    _in = Uint8List(input.length > 4096 ? input.length : 4096)
+      ..setAll(0, input);
+    _out
+      ..clear()
+      ..addAll(s.ints());
+    _pending
+      ..clear()
+      ..addAll(s.ints());
+    _inFifo.loadState(s);
+    for (final list in [_dc, _intraQ, _nonIntraQ, _vq, _block, _mb]) {
+      s.typed(list);
+    }
+  }
 
   void reset() {
     _clearInput();
