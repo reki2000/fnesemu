@@ -42,6 +42,23 @@ void main() {
     expect(io.vu1.data.sublist(16, 20), List.filled(4, 0xffffffff));
   });
 
+  test('a filling write reads CL of WL vectors and fills the rest', () {
+    final (bus, io) = _setup();
+    _send(bus, fifo1, [
+      0x30000000, 9, 9, 9, 9, // STROW 9
+      0x20000000, 0x5500, // STMASK: the second vector of a cycle takes ROW
+      0x01000201, // STCYCL CL 1, WL 2
+      0x7c040000, // UNPACK V4-32 with mask, num 4, address 0
+      1, 2, 3, 4, 5, 6, 7, 8,
+      0x07000003, // MARK 3 follows the two data vectors
+    ]);
+    expect(io.vu1.data.sublist(0, 16), [
+      1, 2, 3, 4, 9, 9, 9, 9, //
+      5, 6, 7, 8, 9, 9, 9, 9,
+    ]);
+    expect(io.vif1.mark, 3);
+  });
+
   test('an interrupt bit raises VIF1 and stalls the next code until STC', () {
     final (bus, io) = _setup();
     _send(bus, fifo1, [

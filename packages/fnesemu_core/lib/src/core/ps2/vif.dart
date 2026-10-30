@@ -11,9 +11,9 @@ import 'vu.dart';
 /// A VPU interface (VIF0 for VU0, VIF1 for VU1). It decodes the VIFcode
 /// stream that arrives through DMA or the FIFO window.
 ///
-/// A code with the interrupt bit raises the VIF interrupt after it executes, and the VIF stalls on the next code other than MARK until STC is written to FBRST (ps2tek). Bit 0 of ERR (MII) disables both. Not implemented: the FLUSH family (micro programs finish when started), MSKPATH3, error
-/// detection, and the write-cycle filling of UNPACK with CL < WL. VIF1
-/// waits at FLUSHA while PATH3 transfers (see [path3Busy]).
+/// A code with the interrupt bit raises the VIF interrupt after it executes, and the VIF stalls on the next code other than MARK until STC is written to FBRST (ps2tek). Bit 0 of ERR (MII) disables both. VIF1 waits at FLUSHA while PATH3 transfers (see [path3Busy]). Not implemented: the FLUSH family (micro programs finish when started), MSKPATH3 and error detection.
+///
+/// UNPACK with CL < WL (filling write) reads data for the first CL vectors of each WL and fills the rest. A filled vector takes the ROW or COL value its mask selects. The fields that would take data are left unchanged, which is unverified.
 class Vif extends DmaEndpoint {
   static const _mpg = 0x4a, _direct = 0x50, _directHl = 0x51, _mark = 0x07;
 
@@ -273,8 +273,16 @@ class Vif extends DmaEndpoint {
     final comps = ((fmt >> 2) & 3) + 1;
     final size = fmt & 3;
     _bitsPerVector = size == 3 ? 16 : comps * (32 >> size);
+    _expect((_dataVectors() * _bitsPerVector + 31) >> 5);
+  }
+
+  /// the number of vectors that read data; a filling write reads only the
+  /// first CL vectors of each WL
+  int _dataVectors() {
     final vectors = _num == 0 ? 256 : _num;
-    _expect((vectors * _bitsPerVector + 31) >> 5);
+    if (cl >= wl) return vectors;
+    final full = vectors ~/ wl, rest = vectors % wl;
+    return full * cl + (rest < cl ? rest : cl);
   }
 
   int _element(int vector, int j, int bits) {
@@ -297,10 +305,24 @@ class Vif extends DmaEndpoint {
     final writeCycle = wl == 0 ? 1 : wl;
     final cycle = cl < writeCycle ? writeCycle : cl;
     final elementBits = size == 3 ? 16 : 32 >> size;
+    final filling = cl < writeCycle;
     final x = List<int>.filled(4, 0);
+    var k = 0;
     for (var i = 0; i < vectors; i++) {
+      final slot = i % writeCycle;
+      final dest = addr + (i ~/ writeCycle) * cycle + slot;
+      final j = slot > 3 ? 3 : slot;
+      if (filling && slot >= cl) {
+        for (var c = 0; c < 4; c++) {
+          final field = maskEnabled ? (mask >> (2 * (j * 4 + c))) & 3 : 0;
+          final v = switch (field) { 1 => row[c], 2 => col[j], _ => null };
+          if (v != null) vu.data[((dest & (vu.dataQuads - 1)) * 4) + c] = v;
+        }
+        continue;
+      }
+      final n = k++;
       final e = List<int>.generate(comps, (j) {
-        final raw = _element(i, j, elementBits);
+        final raw = _element(n, j, elementBits);
         if (size == 0) return raw;
         if (unsigned) return raw;
         return raw.toSigned(elementBits) & 0xffffffff;
@@ -318,9 +340,6 @@ class Vif extends DmaEndpoint {
           x[c] = c < comps ? e[c] : 0;
         }
       }
-      final slot = i % writeCycle;
-      final dest = addr + (i ~/ writeCycle) * cycle + slot;
-      final j = slot > 3 ? 3 : slot;
       for (var c = 0; c < 4; c++) {
         final field = maskEnabled ? (mask >> (2 * (j * 4 + c))) & 3 : 0;
         int v;
