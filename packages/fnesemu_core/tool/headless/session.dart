@@ -32,6 +32,7 @@ const mediaValued = {
   "--ss-slice-clocks",
   "--dc-profile",
   "--dc-drive-format",
+  "--dc-boot-disc",
   "--32x-slice-clocks"
 };
 const mediaFlags = {
@@ -63,6 +64,11 @@ const mediaUsage = """
   --ss-slice-clocks N  ss: experimental CPU quantum (default 64; requires --jit)
   --dc-profile diagnostic  dc: legacy probe timing/pins with provisional audio
   --dc-drive-format HEX  dc: explicit diagnostic drive-format override
+  --dc-boot-disc N   dc: after frame N, inserts the disc, loads its unscrambled
+                     program and enters it through the original IP.BIN bootstrap
+                     (a diagnostic boot from a bios state saved without a disc;
+                     the drive format defaults to 80; resume later states
+                     without this option)
   --jit on|off      select native compilation for ps, n64, ss or 32x
   -r, --frame-runner run whole frames inside the core instead of exec()""";
 
@@ -103,6 +109,9 @@ class Session {
   final List<String> buttons;
   final List<PadButton> _pads;
   final bool frameRunner;
+
+  /// dc: the frame after which the disc program is booted
+  int? dcBootFrame;
 
   /// the frames run so far
   int frame = 0;
@@ -168,6 +177,12 @@ class Session {
             driveFormat > 255)) {
       throw UsageError('--dc-drive-format requires dc and a hexadecimal byte');
     }
+    final dcBoot = o['--dc-boot-disc'];
+    final dcBootFrame = dcBoot == null ? null : int.tryParse(dcBoot);
+    if (dcBoot != null &&
+        (name != 'dc' || dcBootFrame == null || dcBootFrame < 0)) {
+      throw UsageError('--dc-boot-disc requires dc and a frame number');
+    }
     final core = mode == null
         ? dcProfile == 'diagnostic'
             ? (Dc(bootBringUp: false)
@@ -192,7 +207,10 @@ class Session {
             _ => throw UsageError("--jit supports ps, n64, ss and 32x"),
           };
     if (profileCpu && mode == 'off') core.jitSuspended = true;
-    if (core is Dc) core.bus.opticalDrive.diagnosticFormatOverride = driveFormat;
+    if (core is Dc) {
+      core.bus.opticalDrive.diagnosticFormatOverride =
+          driveFormat ?? (dcBootFrame != null ? 0x80 : null);
+    }
     final buttons = buttonNames(core);
     final pad = PadPlayer(readPresses(o["--input"], buttons), buttons.length);
     core.setSram(Sram());
@@ -240,7 +258,10 @@ class Session {
       if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
       core.setRom(loadRom(files[0]));
     }
-    if (name != "mdcd" && drive != null) core.setCdromDrive(drive);
+    // a boot after a disc-less bios state attaches the disc at the boot
+    if (name != "mdcd" && drive != null && dcBootFrame == null) {
+      core.setCdromDrive(drive);
+    }
     // gba boots from setRom; a reset afterwards drops the boot state
     if (name != "gba" && name != "mdcd" && name != "32x") core.reset();
     if (core is Ss) {
@@ -253,7 +274,11 @@ class Session {
     if (exe != null) core.setRom(File(exe).readAsBytesSync());
 
     final session =
-        Session._(name, core, drive, pad, buttons, o.flag("--frame-runner"));
+        Session._(name, core, drive, pad, buttons, o.flag("--frame-runner"))
+          ..dcBootFrame = dcBootFrame;
+    if (dcBootFrame != null && drive == null) {
+      throw UsageError('--dc-boot-disc requires a disc');
+    }
     if (recordAudio) core.onAudio(session.record);
     if (enabled && !core.jitEnabled) {
       core.dispose();
@@ -298,6 +323,13 @@ class Session {
     // sectors are read in the background: wait for them at each frame so
     // that the result does not depend on the speed of the disc
     await drive?.settle();
+    final core = this.core;
+    if (core is Dc && frame == dcBootFrame) {
+      core.setCdromDrive(drive!);
+      final boot = await core.bootUnscrambledDisc(waitForSector: drive!.settle);
+      stderr.writeln("booted ${boot.name} (${boot.program.length} bytes) "
+          "after frame $frame");
+    }
     pad.step(frame, (b, down) {
       if (b == _pads.length) {
         if (down) core.reset();
