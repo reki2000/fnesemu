@@ -536,6 +536,20 @@ void main() {
     expect(vu.vi[3], 5);
   });
 
+  test('the GIF reads an XGKICK packet after the pair that follows', () {
+    var first = -1;
+    final vu = _vu([
+      (_lo(0x08, it: 1, is_: 0, imm: 9), _upperNop),
+      (_loSpecial(0x1b, 0, fs: 1), _upperNop | (1 << 30)), // XGKICK vi1, E
+      (_lo(0x01, dest: _xyzw, it: 0, is_: 5, imm: 9), _upperNop), // SQ vf5
+      _end,
+    ]);
+    vu.onXgkick = (a) => first = vu.data[a * 4];
+    vu.vf[20] = 0x1234;
+    vu.start(0);
+    expect(first, 0x1234);
+  });
+
   test('R register random numbers stay in the 1.0 to 2.0 range', () {
     final vu = _vu([
       (_loSpecial(0x10, 2, fs: 1, fsf: 0), _upperNop), // RINIT r = vf1.x

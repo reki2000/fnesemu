@@ -61,6 +61,9 @@ class Vu {
   int _pending = -1;
   bool _ending = false;
 
+  /// the address of an XGKICK that goes to the GIF after the next pair, or -1
+  int _kick = -1;
+
   /// true while a micro program runs, so that Q and VF results are delayed
   bool _micro = false;
 
@@ -109,6 +112,7 @@ class Vu {
     running = false;
     _pending = -1;
     _ending = false;
+    _kick = -1;
     p = 0;
     _qBusy = _pBusy = false;
     _vfReady.fillRange(0, 128, 0);
@@ -180,6 +184,7 @@ class Vu {
       step();
     }
     if (running) running = false;
+    _sendKick();
     _micro = false;
     _commitFlags(null);
     _finishDivision();
@@ -284,6 +289,10 @@ class Vu {
     final lowWord = micro[pc * 2], highWord = micro[pc * 2 + 1];
     final delayTarget = _pending;
     _pending = -1;
+    // the GIF reads the packet of an XGKICK while the program goes on, so the
+    // pair after the XGKICK can still store the last quadword of the packet
+    final kick = _kick;
+    _kick = -1;
     final wasEnding = _ending;
     final iBit = highWord >>> 31 != 0;
     _stall(highWord, iBit ? 0 : lowWord);
@@ -322,6 +331,13 @@ class Vu {
       pc = (pc + 1) & (microWords ~/ 2 - 1);
     }
     if (wasEnding) running = false;
+    if (kick >= 0) onXgkick?.call(kick);
+  }
+
+  void _sendKick() {
+    final kick = _kick;
+    _kick = -1;
+    if (kick >= 0) onXgkick?.call(kick);
   }
 
   void _setReady(int reg, int fields, int cycle) {
@@ -957,7 +973,8 @@ class Vu {
       case const (0x1a << 2 | 1): // XITOP
         vi[it & 15] = itop() & 0x3ff;
       case const (0x1b << 2 | 0): // XGKICK
-        onXgkick?.call(vi[isIdx] & (dataQuads - 1));
+        _sendKick();
+        _kick = vi[isIdx] & (dataQuads - 1);
     }
   }
 
