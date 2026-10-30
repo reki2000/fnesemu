@@ -300,21 +300,27 @@ class IopIo implements IopPort {
         service();
         return;
       case 0x1f8010f4:
+        final was = _dmaMaster;
         dicr = _dicrWrite(dicr, value, 0x7f);
+        _masterRose(was);
         return;
       case 0x1f801570:
         dpcr2 = value;
         service();
         return;
       case 0x1f801574:
+        final was = _dmaMaster;
         dicr2 = _dicrWrite(dicr2, value, 0x3f);
+        _masterRose(was);
         return;
       case 0x1f801578:
         dmacen = value & 1;
         service();
         return;
       case 0x1f80157c:
+        final was = _dmaMaster;
         dmacinten = value & 3;
+        _masterRose(was);
         return;
     }
     final ch = _channelOf(address);
@@ -377,6 +383,12 @@ class IopIo implements IopPort {
     final next = (v & 0x00ffffff) | (flags << 24);
     dirty = true;
     return next;
+  }
+
+  /// raises IRQ 3 when a register write set the master flag of DICR, so
+  /// that a flag that rose while the interrupt was disabled is delivered
+  void _masterRose(bool was) {
+    if (!was && _dmaMaster && dmacinten & 2 == 0) raise(IopIrq.dma);
   }
 
   /// sets the DICR or DICR2 flag of channel [ch] and raises IRQ 3 when the
