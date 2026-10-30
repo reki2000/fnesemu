@@ -11,12 +11,14 @@ import 'vu.dart';
 /// A VPU interface (VIF0 for VU0, VIF1 for VU1). It decodes the VIFcode
 /// stream that arrives through DMA or the FIFO window.
 ///
-/// Not implemented: interrupts and stalls (the IRQ bit of a code), the
-/// FLUSH family (micro programs finish when started), MSKPATH3, error
+/// A code with the interrupt bit raises the VIF interrupt after it executes, and the VIF stalls on the next code other than MARK until STC is written to FBRST (ps2tek). Bit 0 of ERR (MII) disables both. Not implemented: the FLUSH family (micro programs finish when started), MSKPATH3, error
 /// detection, and the write-cycle filling of UNPACK with CL < WL. VIF1
 /// waits at FLUSHA while PATH3 transfers (see [path3Busy]).
 class Vif extends DmaEndpoint {
-  static const _mpg = 0x4a, _direct = 0x50, _directHl = 0x51;
+  static const _mpg = 0x4a, _direct = 0x50, _directHl = 0x51, _mark = 0x07;
+
+  // STAT: VIS (stalled on an interrupt bit) and INT (interrupt bit seen)
+  static const _vis = 1 << 10, _int = 1 << 11;
 
   final int index;
   final Vu vu;
@@ -42,6 +44,12 @@ class Vif extends DmaEndpoint {
 
   /// true while PATH3 transfers; FLUSHA waits until it is false
   bool Function()? path3Busy;
+
+  /// raised by the interrupt bit of a code
+  void Function()? onInterrupt;
+
+  /// called when a stall ends, so that DMA can send more data
+  void Function()? onResume;
 
   // words that arrived while the VIF waits at FLUSHA
   final _held = ListQueue<int>();
@@ -141,19 +149,25 @@ class Vif extends DmaEndpoint {
   }
 
   @override
-  bool get canPut => !_waiting;
+  bool get canPut => !_waiting && !_stalled;
+
+  bool get _stalled => stat & _vis != 0;
 
   /// continues after FLUSHA when PATH3 is idle
   void resume() {
     if (!_waiting || (path3Busy?.call() ?? false)) return;
     _waiting = false;
-    while (!_waiting && _held.isNotEmpty) {
+    _drain();
+  }
+
+  void _drain() {
+    while (!_waiting && !_stalled && _held.isNotEmpty) {
       _process(_held.removeFirst());
     }
   }
 
   void _word(int w) {
-    if (_waiting || _held.isNotEmpty) {
+    if (_waiting || _stalled || _held.isNotEmpty) {
       _held.add(w);
       return;
     }
@@ -162,7 +176,14 @@ class Vif extends DmaEndpoint {
 
   void _process(int w) {
     if (_wordsLeft == 0) {
+      if (stat & _int != 0 && (w >> 24) & 0x7f != _mark) {
+        // the code after an interrupt bit waits for STC
+        stat |= _vis;
+        _held.addFirst(w);
+        return;
+      }
       _decode(w);
+      if (_wordsLeft == 0) _done();
       return;
     }
     switch (_cmd) {
@@ -176,7 +197,17 @@ class Vif extends DmaEndpoint {
       default:
         _buf[_count++] = w;
     }
-    if (--_wordsLeft == 0) _finish();
+    if (--_wordsLeft == 0) {
+      _finish();
+      _done();
+    }
+  }
+
+  /// raises the interrupt of a code with the interrupt bit once it executed
+  void _done() {
+    if (code >>> 31 == 0 || err & 1 != 0) return;
+    stat |= _int;
+    onInterrupt?.call();
   }
 
   void _expect(int words) {
@@ -385,6 +416,14 @@ class Vif extends DmaEndpoint {
       case 0x010:
         if (value & 1 != 0) reset();
         fbrst = value;
+        if (value & 8 != 0) {
+          // STC clears VSS, VFS, VIS, INT, ER0 and ER1
+          stat &= ~0x3f00;
+          _drain();
+          onResume?.call();
+        }
+      case 0x020:
+        err = value & 7;
       case 0x030:
         mark = value & 0xffff;
       case 0x100 || 0x110 || 0x120 || 0x130:

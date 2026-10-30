@@ -42,6 +42,30 @@ void main() {
     expect(io.vu1.data.sublist(16, 20), List.filled(4, 0xffffffff));
   });
 
+  test('an interrupt bit raises VIF1 and stalls the next code until STC', () {
+    final (bus, io) = _setup();
+    _send(bus, fifo1, [
+      0x81000101, // STCYCL 1, 1 with the interrupt bit
+      0x07000005, // MARK 5 runs during the stall
+      0x01000404, // STCYCL 4, 4 waits
+    ]);
+    expect(io.intc.stat & (1 << 5), isNot(0));
+    expect(io.vif1.mark, 5);
+    expect(io.vif1.cl, 1);
+    expect(bus.read32(0x10003c00) & 0xc00, 0xc00);
+    bus.write32(0x10003c10, 8); // FBRST: STC
+    expect(io.vif1.cl, 4);
+    expect(bus.read32(0x10003c00) & 0xc00, 0);
+  });
+
+  test('ERR.MII disables the interrupt bit', () {
+    final (bus, io) = _setup();
+    bus.write32(0x10003c20, 1);
+    _send(bus, fifo1, [0x81000101, 0x01000404]);
+    expect(io.intc.stat & (1 << 5), 0);
+    expect(io.vif1.cl, 4);
+  });
+
   test('MPG loads microcode and MSCAL runs it', () {
     final (bus, io) = _setup();
     // program: ADDx vf1 = vf0 + vf0 (upper, E bit) is overkill; use a plain

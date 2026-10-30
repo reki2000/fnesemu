@@ -365,10 +365,10 @@ class Dmac {
     onPath3Idle?.call();
   }
 
-  /// resumes VIF1 when it waits for its destination
-  void serviceVif1() {
+  /// resumes the VIF channel [ch] when it waits for its destination
+  void serviceVif(int ch) {
     if (ctrl & _dmaEnable == 0) return;
-    if (channels[vif1].chcr & _str != 0) _run(vif1);
+    if (channels[ch].chcr & _str != 0) _run(ch);
   }
 
   void _run(int ch) {
