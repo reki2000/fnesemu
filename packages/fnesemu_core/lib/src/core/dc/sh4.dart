@@ -48,7 +48,13 @@ class Sh4 {
   set irlPins(int value) {
     if (value < 0 || value > 15) throw RangeError.range(value, 0, 15);
     _irlPins = value;
+    bus.deviceEpoch++;
   }
+
+  /// Reuse the interrupt scan while [DcBus.deviceEpoch] is unchanged. Only
+  /// the frame loop enables this; direct callers may change devices freely.
+  bool cacheInterrupts = false;
+  int _interruptEpoch = -1, _pendingPriority = 0, _pendingEvent = 0;
 
   bool sleeping = false;
   bool _instructionExecuted = false;
@@ -234,13 +240,19 @@ class Sh4 {
   }
 
   bool _acceptInterrupt() {
-    final (priority, event) = bus.intc.pending(irlPins, bus.tmu,
-        dma: bus.dma,
-        scif: bus.scif,
-        cpg: bus.cpg,
-        sci: bus.sci,
-        bsc: bus.bsc,
-        gpio: bus.gpio);
+    if (!cacheInterrupts || _interruptEpoch != bus.deviceEpoch) {
+      final (priority, event) = bus.intc.pending(irlPins, bus.tmu,
+          dma: bus.dma,
+          scif: bus.scif,
+          cpg: bus.cpg,
+          sci: bus.sci,
+          bsc: bus.bsc,
+          gpio: bus.gpio);
+      _pendingPriority = priority;
+      _pendingEvent = event;
+      _interruptEpoch = bus.deviceEpoch;
+    }
+    final priority = _pendingPriority, event = _pendingEvent;
     if (inDelaySlot ||
         (sr.bit28 &&
             !sleeping &&
@@ -255,6 +267,7 @@ class Sh4 {
     sgr = r[15];
     bus.intevt = event;
     if (priority == 16) bus.intc.acknowledgeNmi();
+    _interruptEpoch = -1;
     sr |= 0x70000000;
     pc = (vbr + 0x600).mask32;
     return true;
@@ -351,7 +364,7 @@ class Sh4 {
       _checkAccess(r[n], 4, true);
       bus.cpuWrite(r[n], 4, r[0], allocate: true, privileged: privileged);
     } else if (op == 0x001b) {
-      bus.onDeviceAccess?.call();
+      bus.syncDevices();
       if (bus.cpg.standby & 0x80 != 0) {
         throw DcUnsupported('SH7750 standby entry is unimplemented');
       }

@@ -462,18 +462,24 @@ class Dc extends Core {
   @override
   ExecResult runFrame(int scanlines) {
     var elapsed = 0, flags = _executionSh4;
-    while (scanlines > 0) {
-      final previousLines = bus.gpu.spg.completedLines;
-      final wasVideoRunning = bus.gpu.spg.running;
-      (elapsed, flags) = _execute(false, batch: true);
-      if (flags & _executionStopped != 0) break;
-      if (wasVideoRunning || bus.gpu.spg.running) {
-        scanlines -= bus.gpu.spg.completedLines - previousLines;
-      } else if (flags & _executionScanline != 0) {
-        scanlines--;
+    cpu.cacheInterrupts = true;
+    bus.deviceEpoch++;
+    try {
+      while (scanlines > 0) {
+        final previousLines = bus.gpu.spg.completedLines;
+        final wasVideoRunning = bus.gpu.spg.running;
+        (elapsed, flags) = _execute(false, batch: true);
+        if (flags & _executionStopped != 0) break;
+        if (wasVideoRunning || bus.gpu.spg.running) {
+          scanlines -= bus.gpu.spg.completedLines - previousLines;
+        } else if (flags & _executionScanline != 0) {
+          scanlines--;
+        }
       }
+      if (!_flushDevices()) flags |= _executionStopped;
+    } finally {
+      cpu.cacheInterrupts = false;
     }
-    if (!_flushDevices()) flags |= _executionStopped;
     return _executionResult(elapsed, flags);
   }
 

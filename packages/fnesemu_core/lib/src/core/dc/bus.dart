@@ -301,13 +301,22 @@ class DcBus {
   /// Brings deferred device clocks up to the current CPU time.
   void Function()? onDeviceAccess;
 
+  /// Changes whenever device state may have changed: on ticks and on CPU
+  /// accesses outside main RAM. The CPU reuses its interrupt scan in between.
+  int deviceEpoch = 0;
+
+  /// Synchronizes the devices before a CPU operation that observes them.
+  void syncDevices() {
+    deviceEpoch++;
+    onDeviceAccess?.call();
+  }
+
   /// Main RAM holds no device state, so its accesses need no device sync.
   /// Other data accesses, and root-bus fetches while G1 DMA runs, sync first.
   void _syncFor(int address, DcTranslation? mapping, {bool fetch = false}) {
-    final sync = onDeviceAccess;
-    if (sync == null || _ordinaryRam(mapping?.physical ?? address)) return;
+    if (_ordinaryRam(mapping?.physical ?? address)) return;
     if (fetch && !g1.busy) return;
-    sync();
+    syncDevices();
   }
 
   /// Main RAM addressed without translation (MMU off, or P1/P2).
@@ -437,7 +446,7 @@ class DcBus {
 
   /// Synchronous burst model; bus arbitration and transfer latency are pending.
   void transferStoreQueue(int address, {bool privileged = true}) {
-    onDeviceAccess?.call();
+    syncDevices();
     address = address.mask32;
     final queue = (address >> 5) & 1;
     final translated = translateCpu(address, privileged: privileged);
@@ -565,6 +574,7 @@ class DcBus {
 
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
+    deviceEpoch++;
     while (clocks > 0) {
       opticalDrive.prepare();
       g1.prepare();
