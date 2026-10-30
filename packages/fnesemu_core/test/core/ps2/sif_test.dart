@@ -83,6 +83,41 @@ void main() {
     expect(s.iop.read(0x1d000020, 4), 0);
   });
 
+  test('a DICR2 flag sets the DICR master flag only with DICR.23', () {
+    final s = _System();
+    final iop = s.iop;
+    iop.write(0x1f801574, 4, 1 << 16); // mask of channel 7
+    iop.write(0x1f801508, 4, 1 << 24); // start channel 7 (no device)
+    expect(iop.read(0x1f801574, 4) >> 24, 1);
+    expect(iop.read(0x1f8010f4, 4) >>> 31, 0);
+    iop.write(0x1f8010f4, 4, 1 << 23);
+    expect(iop.read(0x1f8010f4, 4) >>> 31, 1);
+  });
+
+  test('IOP timers interrupt once unless repeat is set', () {
+    final s = _System();
+    final iop = s.iop;
+    iop.write(0x1f801108, 4, 10); // target
+    iop.write(0x1f801104, 4, 0x18); // compare IRQ, zero return
+    iop.advanceTimers(10);
+    expect(iop.stat & (1 << IopIrq.timer0), isNonZero);
+    iop.stat = 0;
+    iop.advanceTimers(10);
+    expect(iop.stat & (1 << IopIrq.timer0), 0);
+    iop.write(0x1f801104, 4, 0x58); // repeat
+    iop.advanceTimers(20);
+    expect(iop.stat & (1 << IopIrq.timer0), isNonZero);
+    expect(iop.read(0x1f801104, 4) & 0x400, 0x400);
+  });
+
+  test('timers 4 and 5 divide by their prescaler', () {
+    final s = _System();
+    final iop = s.iop;
+    iop.write(0x1f8014a4, 4, 2 << 13); // timer 5, 1/16
+    iop.advanceTimers(64);
+    expect(iop.read(0x1f8014a0, 4), 4);
+  });
+
   test('byte and halfword accesses reach a part of an IOP register', () {
     final s = _System();
     final iop = s.iop;

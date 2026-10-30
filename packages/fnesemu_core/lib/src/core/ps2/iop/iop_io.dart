@@ -22,8 +22,11 @@ class IopDmaChannel {
 /// and the SIF mailbox, and the devices on the IOP bus. Other addresses read
 /// back what was written.
 ///
-/// Uncertain details (to be checked against hardware tests): the DICR2 bit
-/// layout, which timer clock sources exist, and the SIF packet tags.
+/// DMA interrupts follow ps2tek. A channel flag rises only when its mask bit is set, and DICR.31 is DICR.15 or DICR.23 with any flag of DICR or DICR2. An IRQ tag of the SIF channels sets their DICR2 flag when bit 9 or 10 of DICR2 is set, whatever the mask. DMACEN disables every channel, and DMACINTEN disables the channel interrupts (bit 0 clear) or IRQ 3 (bit 1 set). Their reset values are not documented; they start enabled. DPCR starts at 0x07777777.
+///
+/// Timers follow ps2tek: an interrupt needs mode bit 10, which a non-repeating timer clears when it interrupts and a repeating one in LEVL mode toggles. Bit 8 selects the 13.5 MHz pixel clock for timer 0 and the horizontal blank for timers 1 and 3. Timer 2 divides by 8, and timers 4 and 5 by 8, 16 or 256. The gates (mode bits 0-2) are not implemented.
+///
+/// Uncertain details (to be checked against hardware tests): the SIF packet tags.
 class IopIo implements IopPort {
   static const _channelCount = 14;
   static const _start = 1 << 24;
@@ -42,7 +45,8 @@ class IopIo implements IopPort {
 
   int stat = 0, mask = 0, ctrl = 0;
   final channels = List.generate(_channelCount, (_) => IopDmaChannel());
-  int dpcr = 0, dicr = 0, dpcr2 = 0, dicr2 = 0;
+  int dpcr = 0x07777777, dicr = 0, dpcr2 = 0, dicr2 = 0;
+  int dmacen = 1, dmacinten = 1;
 
   /// Device hooks per DMA channel. A handler transfers the channel and returns
   /// true when done, or false to be retried later. Without a handler a channel
@@ -87,8 +91,10 @@ class IopIo implements IopPort {
     w.ints([
       stat, mask, ctrl, dpcr, dicr, dpcr2, dicr2, _sif1Left, _sif1Address, //
       _sif1Pad, _cdvdLeft, _pendingClocks, _quietClocks, ..._spu2Left,
+      dmacen, dmacinten,
     ]);
     w.boolean(_sif1End);
+    w.boolean(_sif1Irq);
     for (final c in channels) {
       w.ints([c.madr, c.bcr, c.chcr, c.tadr]);
     }
@@ -109,7 +115,9 @@ class IopIo implements IopPort {
 
   void loadState(StateReader s) {
     s.section('iop io');
-    final v = s.fields(15, 'iop io');
+    final v = s.fields(17, 'iop io');
+    dmacen = v[15];
+    dmacinten = v[16];
     stat = v[0];
     mask = v[1];
     ctrl = v[2];
@@ -126,6 +134,7 @@ class IopIo implements IopPort {
     _spu2Left[0] = v[13];
     _spu2Left[1] = v[14];
     _sif1End = s.boolean();
+    _sif1Irq = s.boolean();
     for (final c in channels) {
       final r = s.fields(4, 'iop dma channel');
       c.madr = r[0];
@@ -168,6 +177,8 @@ class IopIo implements IopPort {
         a == 0x1f8010f4 ||
         a == 0x1f801570 ||
         a == 0x1f801574 ||
+        a == 0x1f801578 ||
+        a == 0x1f80157c ||
         _channelOf(a) >= 0;
   }
 
@@ -200,11 +211,15 @@ class IopIo implements IopPort {
       case 0x1f8010f0:
         return dpcr;
       case 0x1f8010f4:
-        return _dicrValue(dicr);
+        return (dicr & 0x7fffffff) | (_dmaMaster ? 0x80000000 : 0);
       case 0x1f801570:
         return dpcr2;
       case 0x1f801574:
-        return _dicrValue(dicr2, second: true);
+        return dicr2;
+      case 0x1f801578:
+        return dmacen;
+      case 0x1f80157c:
+        return dmacinten;
     }
     final ch = _channelOf(address);
     if (ch >= 0) {
@@ -285,16 +300,21 @@ class IopIo implements IopPort {
         service();
         return;
       case 0x1f8010f4:
-        dicr = _dicrWrite(dicr, value);
-        dirty = true;
+        dicr = _dicrWrite(dicr, value, 0x7f);
         return;
       case 0x1f801570:
         dpcr2 = value;
         service();
         return;
       case 0x1f801574:
-        dicr2 = _dicrWrite(dicr2, value);
-        dirty = true;
+        dicr2 = _dicrWrite(dicr2, value, 0x3f);
+        return;
+      case 0x1f801578:
+        dmacen = value & 1;
+        service();
+        return;
+      case 0x1f80157c:
+        dmacinten = value & 3;
         return;
     }
     final ch = _channelOf(address);
@@ -337,40 +357,51 @@ class IopIo implements IopPort {
     return -1;
   }
 
-  bool _enabled(int ch) => ch < 7
-      ? (dpcr >> (ch * 4 + 3)) & 1 != 0
-      : (dpcr2 >> ((ch - 7) * 4 + 3)) & 1 != 0;
+  bool _enabled(int ch) =>
+      dmacen & 1 != 0 &&
+      (ch < 7
+          ? (dpcr >> (ch * 4 + 3)) & 1 != 0
+          : (dpcr2 >> ((ch - 7) * 4 + 3)) & 1 != 0);
 
-  /// DICR: bit 15 forces the flag, 16.. are enables, 23 master enable,
-  /// 24.. are the flags (write 1 to clear), bit 31 the master flag
-  int _dicrValue(int v, {bool second = false}) {
-    final flags = (v >> 24) & 0x7f, enables = (v >> 16) & 0x7f;
-    // the master enable of DICR2 is bit 10 (observed from BIOS writes;
-    // unverified)
-    final masterEnable = second ? (v >> 10) & 1 != 0 : (v >> 23) & 1 != 0;
-    final master =
-        (v >> 15) & 1 != 0 || (masterEnable && (flags & enables) != 0);
-    return (v & 0x7fffffff) | (master ? 0x80000000 : 0);
+  /// DICR.31: the bus error flag, or the master enable with any channel
+  /// flag of DICR or DICR2; DMACINTEN bit 0 leaves only the bus error
+  bool get _dmaMaster {
+    if (dicr & 0x8000 != 0) return true;
+    if (dmacinten & 1 == 0 || dicr & (1 << 23) == 0) return false;
+    return (dicr >> 24) & 0x7f != 0 || (dicr2 >> 24) & 0x3f != 0;
   }
 
-  int _dicrWrite(int old, int v) {
-    final flags = (old >> 24) & 0x7f & ~((v >> 24) & 0x7f);
-    return (v & 0x00ffffff) | (flags << 24);
+  /// writes DICR or DICR2: a 1 clears a flag of [flagMask]
+  int _dicrWrite(int old, int v, int flagMask) {
+    final flags = (old >> 24) & flagMask & ~((v >> 24) & flagMask);
+    final next = (v & 0x00ffffff) | (flags << 24);
+    dirty = true;
+    return next;
+  }
+
+  /// sets the DICR or DICR2 flag of channel [ch] and raises IRQ 3 when the
+  /// master flag is set
+  void _flag(int ch) {
+    if (ch < 7) {
+      dicr |= 1 << (24 + ch);
+    } else {
+      dicr2 |= 1 << (24 + ch - 7);
+    }
+    if (_dmaMaster && dmacinten & 2 == 0) raise(IopIrq.dma);
+  }
+
+  /// an IRQ tag of channel [ch] finished; DICR2 bits 0-12 enable it
+  void _tagIrq(int ch) {
+    if ((dicr2 >> ch) & 1 != 0) _flag(ch);
   }
 
   void _complete(int ch) {
     final c = channels[ch];
     c.chcr &= ~_start;
-    final index = ch < 7 ? ch : ch - 7;
-    final reg = ch < 7 ? dicr : dicr2;
-    var next = reg;
-    if ((reg >> (16 + index)) & 1 != 0) next |= 1 << (24 + index);
-    if (ch < 7) {
-      dicr = next;
-    } else {
-      dicr2 = next;
-    }
-    if (_dicrValue(next, second: ch >= 7) & 0x80000000 != 0) raise(IopIrq.dma);
+    final enabled = ch < 7
+        ? (dicr >> (16 + ch)) & 1 != 0
+        : (dicr2 >> (16 + ch - 7)) & 1 != 0;
+    if (enabled) _flag(ch);
   }
 
   void _runChannel(int ch) {
@@ -396,7 +427,7 @@ class IopIo implements IopPort {
   // tag: address | flags (bit 31 end, bit 30 interrupt) and a word count.
   // The data follows, padded to quadwords. Unverified.
   int _sif1Left = 0, _sif1Address = 0, _sif1Pad = 0;
-  bool _sif1End = false;
+  bool _sif1End = false, _sif1Irq = false;
 
   /// SIF1: EE to IOP
   bool _sif1(IopDmaChannel c) {
@@ -419,6 +450,7 @@ class IopIo implements IopPort {
         f.removeFirst();
         _sif1Address = w0 & 0xffffff;
         _sif1End = (w0 >>> 31) & 1 != 0;
+        _sif1Irq = (w0 >>> 30) & 1 != 0;
         _sif1Left = w1;
         _sif1Pad = (4 - (w1 & 3)) & 3;
       }
@@ -433,6 +465,10 @@ class IopIo implements IopPort {
             f.removeFirst();
           }
         }
+      }
+      if (_sif1Irq) {
+        _sif1Irq = false;
+        _tagIrq(10);
       }
       if (_sif1End) {
         _sif1End = false;
@@ -467,6 +503,7 @@ class IopIo implements IopPort {
         ..add(0);
       pushWords(w0 & 0xffffff, w1);
       c.tadr += 16;
+      if ((w0 >>> 30) & 1 != 0) _tagIrq(9);
       if ((w0 >>> 31) & 1 != 0) break;
     }
     return true;
@@ -604,11 +641,13 @@ class IopIo implements IopPort {
       case 0:
         _timerCount[t] = value & (_is32(t) ? 0xffffffff : 0xffff);
       case 4:
-        _timerMode[t] = (value & 0x3ff) | 0x400; // bit 10: no interrupt
+        // a write enables the interrupt (bit 10) and resets the count
+        _timerMode[t] = (value & (t >= 4 ? 0x63ff : 0x3ff)) | 0x400;
         _timerCount[t] = 0;
         _timerFraction[t] = 0;
       case 8:
         _timerTarget[t] = value & (_is32(t) ? 0xffffffff : 0xffff);
+        if (_timerMode[t] & 0x80 == 0) _timerMode[t] |= 0x400;
     }
     _quietClocks = _timerQuiet();
   }
@@ -619,9 +658,23 @@ class IopIo implements IopPort {
   // counts and the interrupts are the same as with an update on every call.
   int _pendingClocks = 0, _quietClocks = 0;
 
-  /// advances the timers by [clocks] IOP clocks. Timer 1 with clock source
-  /// bit 8 counts scanlines instead (see [hblank]); timer 0 with bit 8 would
-  /// count the dot clock, which is not modelled and counts system clocks.
+  /// true when timer [t] counts horizontal blanks instead of clocks
+  bool _countsLines(int t) =>
+      (t == 1 || t == 3) && (_timerMode[t] >> 8) & 1 != 0;
+
+  /// The rate of timer [t] as ticks per IOP clock, numerator and
+  /// denominator. Timer 0 with bit 8 counts the 13.5 MHz pixel clock
+  /// (1125 / 3072 of the 36.864 MHz IOP clock).
+  (int, int) _rate(int t) {
+    final mode = _timerMode[t];
+    if (t == 0 && (mode >> 8) & 1 != 0) return (1125, 3072);
+    if (t == 2 && (mode >> 9) & 1 != 0) return (1, 8);
+    if (t >= 4) return (1, const [1, 8, 16, 256][(mode >> 13) & 3]);
+    return (1, 1);
+  }
+
+  /// advances the timers by [clocks] IOP clocks. Timers 1 and 3 with clock
+  /// source bit 8 count scanlines instead (see [hblank]).
   void advanceTimers(int clocks) {
     cdvd.advance(clocks);
     spu2.advance(clocks);
@@ -634,13 +687,11 @@ class IopIo implements IopPort {
     _pendingClocks = 0;
     if (clocks != 0) {
       for (var t = 0; t < 6; t++) {
-        final mode = _timerMode[t];
-        if (t == 1 && (mode >> 8) & 1 != 0) continue;
-        var divisor = 1;
-        if (t == 2 && (mode >> 9) & 1 != 0) divisor = 8;
-        _timerFraction[t] += clocks;
-        final ticks = _timerFraction[t] ~/ divisor;
-        _timerFraction[t] -= ticks * divisor;
+        if (_countsLines(t)) continue;
+        final (num, den) = _rate(t);
+        _timerFraction[t] += clocks * num;
+        final ticks = _timerFraction[t] ~/ den;
+        _timerFraction[t] -= ticks * den;
         if (ticks != 0) _tick(t, ticks);
       }
     }
@@ -652,13 +703,12 @@ class IopIo implements IopPort {
   int _timerQuiet() {
     var quiet = 1 << 40;
     for (var t = 0; t < 6; t++) {
-      final mode = _timerMode[t];
-      if (t == 1 && (mode >> 8) & 1 != 0) continue;
-      final divisor = t == 2 && (mode >> 9) & 1 != 0 ? 8 : 1;
+      if (_countsLines(t)) continue;
+      final (num, den) = _rate(t);
       final count = _timerCount[t], target = _timerTarget[t];
       var ticks = (_is32(t) ? 0x100000000 : 0x10000) - count;
       if (count < target && target - count < ticks) ticks = target - count;
-      final clocks = ticks * divisor - _timerFraction[t];
+      final clocks = (ticks * den - _timerFraction[t] + num - 1) ~/ num;
       if (clocks < quiet) quiet = clocks;
     }
     return quiet;
@@ -666,8 +716,9 @@ class IopIo implements IopPort {
 
   /// the end of a scanline
   void hblank() {
-    // the clock timers leave out timer 1 in this mode
-    if ((_timerMode[1] >> 8) & 1 != 0) _tick(1, 1);
+    // the clock timers leave out timers 1 and 3 in this mode
+    if (_countsLines(1)) _tick(1, 1);
+    if (_countsLines(3)) _tick(3, 1);
   }
 
   void _tick(int t, int ticks) {
@@ -677,15 +728,30 @@ class IopIo implements IopPort {
     final target = _timerTarget[t];
     final passedTarget = _timerCount[t] < target && count >= target;
     if (passedTarget) {
-      _timerMode[t] |= 0x800;
-      if (mode & 0x10 != 0) raise(_timerIrq[t]);
+      _timerEvent(t, 0x800, mode & 0x10 != 0);
       if (mode & 8 != 0) count = count - target;
     }
     if (count >= limit) {
       count %= limit;
-      _timerMode[t] |= 0x1000;
-      if (mode & 0x20 != 0) raise(_timerIrq[t]);
+      _timerEvent(t, 0x1000, mode & 0x20 != 0);
     }
     _timerCount[t] = count;
+  }
+
+  /// Sets the reached [flag] of timer [t] and interrupts when [enabled] and
+  /// mode bit 10 allow it. Without repeat (bit 6) the interrupt clears bit
+  /// 10. With repeat and LEVL (bit 7) every event toggles bit 10, so every
+  /// other event interrupts.
+  void _timerEvent(int t, int flag, bool enabled) {
+    _timerMode[t] |= flag;
+    final mode = _timerMode[t];
+    if (!enabled) return;
+    final on = mode & 0x400 != 0;
+    if (mode & 0xc0 == 0xc0) {
+      _timerMode[t] ^= 0x400;
+    } else if (on && mode & 0x40 == 0) {
+      _timerMode[t] &= ~0x400;
+    }
+    if (on) raise(_timerIrq[t]);
   }
 }
