@@ -202,7 +202,12 @@ class Ipu {
       case 0x00:
         _startCommand(value & 0xffffffff);
       case 0x10:
-        if (value & 0x40000000 != 0) reset();
+        if (value & 0x40000000 != 0) {
+          // a reset during a command raises the interrupt (ps2tek)
+          final wasBusy = _busy;
+          reset();
+          if (wasBusy) onInterrupt?.call();
+        }
         _idp = (value >> 16) & 3;
         _alternateScan = value & (1 << 20) != 0;
         _intraVlc1 = value & (1 << 21) != 0;

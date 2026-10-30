@@ -79,6 +79,17 @@ void main() {
     expect(ipu.read(_cmd, 4), 0x80000000);
   });
 
+  test('a reset during a command raises the interrupt', () {
+    var raised = 0;
+    final ipu = Ipu()..onInterrupt = () => raised++;
+    ipu.write(_cmd, 4, 0x40000000);
+    ipu.write(_ctrl, 4, 0x40000000);
+    expect(raised, 1);
+    expect(ipu.read(_ctrl, 4) >>> 31, 0);
+    ipu.write(_ctrl, 4, 0x40000000);
+    expect(raised, 1);
+  });
+
   test('BDEC of an intra macroblock with only DC coefficients', () {
     final ipu = Ipu();
     // luminance: DC size 0, end of block; chrominance: the same
