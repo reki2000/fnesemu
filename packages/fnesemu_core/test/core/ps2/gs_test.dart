@@ -457,5 +457,15 @@ void main() {
       expect(image.buffer[0], 0xff000000 | (7 << 16) | (8 << 8) | 9);
       expect(image.buffer[63], 0xff000000);
     });
+
+    test('a display taller than the visible lines is cut', () {
+      final gs = _gs();
+      gs.writePrivileged(0x12000000, 1);
+      gs.writePrivileged(0x12000070, 1 << 9);
+      gs.writePrivileged(0x12000080, (63 << 32) | (831 << 44));
+      expect(gs.image().height, 240);
+      gs.writePrivileged(0x12000020, 3); // SMODE2: interlaced
+      expect(gs.image().height, 480);
+    });
   });
 }

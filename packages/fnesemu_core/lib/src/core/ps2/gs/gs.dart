@@ -648,6 +648,8 @@ class Gs {
 
   // ---- output ----
 
+  static const _visibleLines = 240;
+
   /// The picture the CRT would show: the read circuit that is enabled (2
   /// before 1) at the size of its display rectangle. Frame/field handling,
   /// merge circuits and the background colour are not applied.
@@ -658,7 +660,11 @@ class Gs {
     final disp = useCircuit2 ? display2 : display1;
     final magh = (disp >> 23) & 15, magv = (disp >> 27) & 3;
     final width = (((disp >> 32) & 0xfff) + 1) ~/ (magh + 1);
-    final height = (((disp >> 44) & 0x7ff) + 1) ~/ (magv + 1);
+    // the CRT shows at most the visible lines of an NTSC frame, so a taller
+    // display rectangle is cut (the video timing here is NTSC only)
+    final visible = smode2 & 1 != 0 ? _visibleLines * 2 : _visibleLines;
+    final lines = ((disp >> 44) & 0x7ff) + 1;
+    final height = (lines < visible ? lines : visible) ~/ (magv + 1);
     if (width <= 0 || height <= 0 || width > 2048 || height > 2048) {
       return ImageBuffer.empty();
     }
