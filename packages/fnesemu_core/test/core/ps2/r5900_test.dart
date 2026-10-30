@@ -61,6 +61,22 @@ void main() {
     expect(cpu.pc, 0xbfc00380);
   });
 
+  test('a COP1 instruction with CU1 clear raises Coprocessor Unusable', () {
+    final cpu = _run([
+      0x44800000, // mtc1 r0, f0
+    ], setup: (c) => c.cop0[R5900.cop0Status] = 0x00400000 | (2 << 3));
+    expect((cpu.cop0[R5900.cop0Cause] >> 2) & 31, R5900.excUnusable);
+    expect((cpu.cop0[R5900.cop0Cause] >> 28) & 3, 1);
+    expect(cpu.cop0[R5900.cop0Epc], _base);
+  });
+
+  test('COP0 is usable in kernel mode without CU0', () {
+    final cpu = _run([
+      0x40026000, // mfc0 r2, Status
+    ], setup: (c) => c.cop0[R5900.cop0Status] = 0x00400000);
+    expect(cpu.reg(2), 0x00400000);
+  });
+
   test('ADDI adds to the low word of a 64-bit register', () {
     final cpu = _run([
       _i(8, 1, 2, 1), // addi r2, r1, 1

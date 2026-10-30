@@ -37,7 +37,7 @@ class R5900 {
 
   // exception codes
   static const excInterrupt = 0, excOverflow = 12, excSyscall = 8;
-  static const excBreak = 9, excTrap = 13;
+  static const excBreak = 9, excTrap = 13, excUnusable = 11;
 
   final Ps2Bus bus;
   final Tlb tlb = Tlb();
@@ -279,8 +279,28 @@ class R5900 {
 
   int _signExtend32(int v) => v.toSigned(32);
 
+  /// Raises Coprocessor Unusable when the instruction [op] belongs to a
+  /// coprocessor whose CU bit of Status is clear. COP0 is also usable in
+  /// kernel mode.
+  bool _unusable(int op, int at) {
+    final unit = switch (op) {
+      16 => 0,
+      17 || 49 || 57 => 1,
+      18 || 54 || 62 => 2,
+      _ => -1,
+    };
+    if (unit < 0) return false;
+    final status = cop0[cop0Status];
+    if (status & (1 << (28 + unit)) != 0) return false;
+    if (unit == 0 && (status & 0x6 != 0 || status & 0x18 == 0)) return false;
+    _exception(excUnusable, at);
+    cop0[cop0Cause] = (cop0[cop0Cause] & ~(3 << 28)) | (unit << 28);
+    return true;
+  }
+
   bool _execute(int ir, int at) {
     final op = ir >>> 26;
+    if (op >= 16 && _unusable(op, at)) return true;
     final rs = (ir >>> 21) & 31, rt = (ir >>> 16) & 31, rd = (ir >>> 11) & 31;
     final imm = ir & 0xffff;
     final simm = imm.toSigned(16);
