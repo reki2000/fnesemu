@@ -41,6 +41,9 @@ class Cdvd {
 
   static const _seekCycles = 200000, _sectorCycles = 20000;
 
+  /// the sectors at the start of a PS2 disc that hold the boot logo
+  static const _logoSectors = 12;
+
   /// called when the CDVD interrupt is raised
   void Function()? onInterrupt;
 
@@ -330,6 +333,8 @@ class Cdvd {
     if (_wait < _sectorCycles) return;
     final raw = drive?.read(_lba);
     if (raw == null) return; // not read by the drive yet
+    final first = _lba < _logoSectors ? drive?.read(0) : null;
+    if (_lba < _logoSectors && first == null) return;
     _wait = 0;
     if (raw.length < 2352) {
       _reading = false;
@@ -338,9 +343,36 @@ class Cdvd {
       return;
     }
     _data = _userBytes(raw);
+    if (first != null && first.length >= 2352) {
+      _data = _decryptLogo(_data, first[first[15] == 2 ? 24 : 16]);
+    }
     _dataPos = 0;
     _lba++;
     _sectorsLeft--;
+  }
+
+  /// The user data of [block] with the logo bytes decrypted: each byte is
+  /// XORed with [key] and rotated left by 3. The disc stores the boot logo
+  /// in sectors 0 to 11 in this form, and the BIOS shows what the drive
+  /// returns as is, so the drive is taken to decrypt it. The key is not
+  /// documented; the logo starts with a black pixel, so the first stored
+  /// byte is the key. Blocks other than the 2048-byte and DVD reads are
+  /// left alone.
+  Uint8List _decryptLogo(Uint8List block, int key) {
+    final int start;
+    if (_blockSize == _dvdBlockSize) {
+      start = 12;
+    } else if (_blockSize == 2048) {
+      start = 0;
+    } else {
+      return block;
+    }
+    final out = Uint8List.fromList(block);
+    for (var i = start; i < start + 2048; i++) {
+      final v = out[i] ^ key;
+      out[i] = (v << 3 | v >> 5) & 0xff;
+    }
+    return out;
   }
 
   Uint8List _userBytes(Uint8List raw) {

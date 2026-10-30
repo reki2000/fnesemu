@@ -22,12 +22,17 @@ void _write(Cdvd cdvd, int command, List<int> params) {
 
 void main() {
   test('ReadCd delivers sectors and raises the interrupt when done', () {
-    final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(1), _sector(2)]);
+    final cdvd = Cdvd()
+      ..drive = FakeCdromDrive([
+        for (var i = 0; i < 12; i++) _sector(0),
+        _sector(1),
+        _sector(2),
+      ]);
     var irqs = 0;
     cdvd.onInterrupt = () => irqs++;
     expect(cdvd.discType, Cdvd.ps2Cd);
 
-    _write(cdvd, 0x06, [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]);
+    _write(cdvd, 0x06, [12, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]);
     expect(cdvd.read(0x1f402005) & 0x80, 0x80);
     final data = <int>[];
     for (var i = 0; i < 200 && irqs == 0; i++) {
@@ -47,20 +52,41 @@ void main() {
 
   test('ReadDvd delivers blocks with the sector ID of a DVD', () {
     final cdvd = Cdvd()
-      ..drive = FakeCdromDrive([_sector(1), _sector(2)])
+      ..drive = FakeCdromDrive([
+        for (var i = 0; i < 12; i++) _sector(1),
+        _sector(2),
+      ])
       ..dvd = true;
     expect(cdvd.discType, Cdvd.ps2Dvd);
-    _write(cdvd, 0x08, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    _write(cdvd, 0x08, [12, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     final data = <int>[];
     for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
       cdvd.advance(50000);
       data.addAll(cdvd.takeData(4096));
     }
     expect(data.length, 2064);
-    expect(data.sublist(0, 4), [0x20, 0x03, 0x00, 0x01]);
+    expect(data.sublist(0, 4), [0x20, 0x03, 0x00, 0x0c]);
     expect(data[12], 2);
     expect(data[2059], 2);
     expect(data[2060], 0);
+  });
+
+  test('the logo sectors are delivered decrypted', () {
+    // a logo of black pixels then 0x81, stored as ROR3(byte) ^ key
+    const key = 0x5a;
+    int stored(int v) => ((v >> 3 | v << 5) & 0xff) ^ key;
+    final first = _sector(stored(0))..[16 + 1] = stored(0x81);
+    final cdvd = Cdvd()
+      ..drive = FakeCdromDrive([first, _sector(stored(0x81)), _sector(7)]);
+    _write(cdvd, 0x06, [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]);
+    final data = <int>[];
+    for (var i = 0; i < 200 && cdvd.istat & 2 == 0; i++) {
+      cdvd.advance(50000);
+      data.addAll(cdvd.takeData(4096));
+    }
+    expect(data.length, 4096);
+    expect(data.sublist(0, 3), [0, 0x81, 0]);
+    expect(data[2048], 0x81);
   });
 
   test('GetToc delivers the physical format of a DVD', () {
