@@ -241,6 +241,25 @@ void main() {
     expect(_getVf(vu, 3), [18, 6, 9, 12]);
   });
 
+  test('a pair with a new DIV waits, so its upper reads the new Q', () {
+    final vu = _vu([
+      (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV
+      // DIV again with MULq vf3.x = vf1.x * q in the same pair
+      (
+        _loSpecial(0xe, 0, fs: 1, it: 2, fsf: 1, ftf: 1),
+        _up(0x1c, _x, 3, 1, 0)
+      ),
+      _endPair,
+      _end,
+    ]);
+    _setVf(vu, 1, [6, 2, 3, 4]);
+    _setVf(vu, 2, [0, 2, 0, 0]);
+    vu.writeControl(22, _bits(10));
+    vu.start(0);
+    expect(_val(vu.vf[12]), 18);
+    expect(_val(vu.q), 1);
+  });
+
   test('Q keeps its old value until the division finishes', () {
     final vu = _vu([
       (_loSpecial(0xe, 0, fs: 1, it: 2, fsf: 0, ftf: 1), _upperNop), // DIV

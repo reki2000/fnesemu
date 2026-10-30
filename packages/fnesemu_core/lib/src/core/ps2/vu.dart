@@ -359,7 +359,7 @@ class Vu {
   }
 
   /// Waits for the VF fields that the pair reads, and for Q before a WAITQ
-  /// or P before a WAITP.
+  /// or P before a WAITP. A pair with a new division waits for the pending one as a whole, so its upper instruction reads the new Q.
   void _stall(int upper, int lower) {
     var t = cycles;
     final (fsFields, ftFields) = _upperReads(upper);
@@ -390,9 +390,11 @@ class Vu {
         // DIV, RSQRT
         case const (0x0e << 2 | 0) || const (0x0e << 2 | 2):
           t = _readyAt(ft, ftf, _readyAt(fs, fsf, t));
+          if (_qBusy && _qReady > t) t = _qReady;
         // SQRT
         case const (0x0e << 2 | 1):
           t = _readyAt(ft, ftf, t);
+          if (_qBusy && _qReady > t) t = _qReady;
         // WAITQ
         case const (0x0e << 2 | 3):
           if (_qBusy && _qReady > t) t = _qReady;
