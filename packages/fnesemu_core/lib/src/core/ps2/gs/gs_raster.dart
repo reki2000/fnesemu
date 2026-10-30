@@ -18,6 +18,9 @@ class GsRaster {
   // ---- state decoded at the start of a primitive ----
   late GsContext _ctx;
   int _fbp = 0, _fbw = 0, _fpsm = 0, _fbmsk = 0, _fba = 0;
+
+  /// the color format of the frame and texture bits (Z formats as colors)
+  int _fcolor = 0, _tcolor = 0;
   int _zbp = 0, _zpsm = 0, _zmax = 0;
   late GsLayout _frameLayout, _zLayout, _texLayout;
   int _framePages = 0, _zPages = 0, _texPages = 0;
@@ -47,6 +50,7 @@ class GsRaster {
     _fbp = (frame & 0x1ff) * 32;
     _fbw = (frame >> 16) & 0x3f;
     _fpsm = (frame >> 24) & 0x3f;
+    _fcolor = GsPsm.colorFormat(_fpsm);
     _fbmsk = (frame >> 32) & 0xffffffff;
     _fba = _ctx.fba;
     final zbuf = _ctx.zbuf;
@@ -96,6 +100,7 @@ class GsRaster {
       _tbp = t0 & 0x3fff;
       _tbw = (t0 >> 14) & 0x3f;
       _tpsm = (t0 >> 20) & 0x3f;
+      _tcolor = GsPsm.colorFormat(_tpsm);
       _tw = (t0 >> 26) & 15;
       _th = (t0 >> 30) & 15;
       _tcc = (t0 >> 34) & 1;
@@ -321,7 +326,7 @@ class GsRaster {
     final fi = _frameLayout.index(_fbp, _framePages, x, y);
     final fraw = mem.readAt(_fpsm, fi);
     if (_date) {
-      final bit = switch (_fpsm) {
+      final bit = switch (_fcolor) {
         GsPsm.ct32 => (fraw >> 31) & 1,
         GsPsm.ct16 || GsPsm.ct16s => (fraw >> 15) & 1,
         _ => 0,
@@ -376,7 +381,7 @@ class GsRaster {
       };
 
   void _decodeFrame(int raw) {
-    switch (_fpsm) {
+    switch (_fcolor) {
       case GsPsm.ct16 || GsPsm.ct16s:
         _dr = (raw & 31) << 3;
         _dg = ((raw >> 5) & 31) << 3;
@@ -398,7 +403,7 @@ class GsRaster {
   void _writeFrame(int fi, int old, int r, int g, int b, int a) {
     int packed;
     int mask;
-    switch (_fpsm) {
+    switch (_fcolor) {
       case GsPsm.ct16 || GsPsm.ct16s:
         packed =
             (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10) | ((a >> 7) << 15);
@@ -524,7 +529,7 @@ class GsRaster {
       case GsPsm.t4 || GsPsm.t4hl || GsPsm.t4hh:
         return _clut(mem.readAt(_tpsm, i));
       default:
-        return _color(_tpsm, mem.readAt(_tpsm, i));
+        return _color(_tcolor, mem.readAt(_tpsm, i));
     }
   }
 

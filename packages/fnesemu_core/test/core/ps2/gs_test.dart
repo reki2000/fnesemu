@@ -283,6 +283,29 @@ void main() {
       }
     });
 
+    test('a Z buffer read as a texture and drawn as a frame keeps its value',
+        () {
+      final gs = _gs();
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          gs.mem.write(GsPsm.z24, 100, 1, x, y, 0x123456 + y * 4 + x);
+        }
+      }
+      gs.writeRegister(0x4c, _frame(6, 1, GsPsm.z24));
+      gs.writeRegister(0x06, tex0(100, 1, GsPsm.z24, 2, 2));
+      gs.writeRegister(0x00, 6 | 0x10 | 0x100); // TME, FST
+      gs.writeRegister(0x03, 0);
+      gs.writeRegister(0x05, _xyz(0, 0));
+      gs.writeRegister(0x03, (4 * 16) | ((4 * 16) << 16));
+      gs.writeRegister(0x05, _xyz(4, 4));
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          expect(gs.mem.read(GsPsm.z24, 6 * 32, 1, x, y), 0x123456 + y * 4 + x,
+              reason: '($x,$y)');
+        }
+      }
+    });
+
     test('ST coordinates are divided by Q', () {
       final gs = _gs();
       upload(gs, 100, GsPsm.ct32, 2, 2,

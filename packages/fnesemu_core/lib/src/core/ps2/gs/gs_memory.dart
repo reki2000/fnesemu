@@ -23,6 +23,11 @@ class GsPsm {
         _ => 4,
       };
 
+  /// The color format with the bits of [psm]. A Z format used as a frame
+  /// buffer or a texture holds its value in the bits of the color format of
+  /// the same size; only the page layout differs.
+  static int colorFormat(int psm) => psm >= z32 ? psm & 0xf : psm;
+
   static bool isValid(int psm) =>
       psm == ct32 ||
       psm == ct24 ||
