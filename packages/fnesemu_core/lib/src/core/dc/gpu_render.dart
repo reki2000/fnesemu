@@ -1011,9 +1011,14 @@ class DcGpuRender {
         dot(dy, 1) * rz - dot(dy, 2) * rv
       ];
     }
-    final offset = read(0x80) & 1 != 0 ? 0.5 : 0.0;
-    final pixelOffset = read(0x80) & 2 != 0 ? 0.5 : 0.0;
+    final control = read(0x80);
+    final offset = control & 1 != 0 ? 0.5 : 0.0;
+    final pixelOffset = control & 2 != 0 ? 0.5 : 0.0;
+    final texOffset = control & 4 != 0 ? 0.5 : 0.0;
     final samePosition = offset == pixelOffset;
+    final shadowIntensity = read(0x74) & 0x100 != 0;
+    final alphaReference = _sortMode == 2 ? read(0x11c) : 0;
+    final gouraud = isp & 0x00800000 != 0;
     final tl0 = _topLeft(b, c), tl1 = _topLeft(c, a), tl2 = _topLeft(a, b);
     final minX = (a.x < b.x ? a.x : b.x) < c.x ? (a.x < b.x ? a.x : b.x) : c.x;
     final maxX = (a.x > b.x ? a.x : b.x) > c.x ? (a.x > b.x ? a.x : b.x) : c.x;
@@ -1088,34 +1093,25 @@ class DcGpuRender {
         if (!shadeDepth.isFinite) {
           throw const DcUnsupported('CORE nonfinite shading depth');
         }
-        int interpolate(int ca, int cb, int cc) {
-          if (isp & 0x00800000 == 0) return cc;
-          if (shadeDepth == 0) {
-            throw const DcUnsupported(
-                'CORE shading perspective denominator is zero');
-          }
-          final pa = wa * sa.z / shadeDepth,
-              pb = wb * sb.z / shadeDepth,
-              pc = wc * sc.z / shadeDepth;
-          var result = 0;
-          for (var shift = 0; shift < 32; shift += 8) {
-            final channel = (((ca >> shift) & 255) * pa +
-                    ((cb >> shift) & 255) * pb +
-                    ((cc >> shift) & 255) * pc)
-                .round()
-                .clamp(0, 255);
-            result |= channel << shift;
-          }
-          return result & 0xffffffff;
-        }
-
         var color = 0;
         if (tsp & 0x02000000 == 0) {
-          color = interpolate(sa.color, sb.color, sc.color);
-          var off = interpolate(sa.offsetColor, sb.offsetColor, sc.offsetColor);
-          if (_shadowObject &&
-              read(0x74) & 0x100 != 0 &&
-              _shadowMask[index] != 0) {
+          int off;
+          if (gouraud) {
+            if (shadeDepth == 0) {
+              throw const DcUnsupported(
+                  'CORE shading perspective denominator is zero');
+            }
+            final pa = wa * sa.z / shadeDepth,
+                pb = wb * sb.z / shadeDepth,
+                pc = wc * sc.z / shadeDepth;
+            color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+            off = _gouraud(
+                sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+          } else {
+            color = sc.color;
+            off = sc.offsetColor;
+          }
+          if (_shadowObject && shadowIntensity && _shadowMask[index] != 0) {
             if (_sortMode == 2 && tsp & 0x100000 != 0) {
               throw const DcUnsupported(
                   'CORE punch-through shadow alpha needs validation');
@@ -1126,7 +1122,6 @@ class DcGpuRender {
           if (tsp & 0x100000 == 0) color |= 0xff000000;
           var footprint = 1.0;
           if (texture != null) {
-            final texOffset = read(0x80) & 4 != 0 ? 0.5 : 0.0;
             final tx = originX + x + texOffset, ty = originY + y + texOffset;
             final ta = _edge(sb, sc, tx, ty) / shadeArea,
                 tb = _edge(sc, sa, tx, ty) / shadeArea;
@@ -1192,7 +1187,7 @@ class DcGpuRender {
           continue;
         }
         if (_sortMode == 2 &&
-            _sourceColor(index, color, tsp) >> 24 < read(0x11c)) {
+            _sourceColor(index, color, tsp) >> 24 < alphaReference) {
           continue;
         }
         if (_sortMode != 0) {
@@ -1204,6 +1199,19 @@ class DcGpuRender {
         }
       }
     }
+  }
+
+  /// Perspective-weighted color channels, rounded and saturated per byte.
+  static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
+    var result = 0;
+    for (var shift = 0; shift < 32; shift += 8) {
+      final channel = (((ca >> shift) & 255) * pa +
+              ((cb >> shift) & 255) * pb +
+              ((cc >> shift) & 255) * pc)
+          .round();
+      result |= (channel < 0 ? 0 : (channel > 255 ? 255 : channel)) << shift;
+    }
+    return result & 0xffffffff;
   }
 
   int _shadowColor(int color) {
@@ -1234,7 +1242,7 @@ class DcGpuRender {
       final sourceFactor = (tsp >> 29) & 7;
       final destinationFactor = (tsp >> 26) & 7;
       final needsDestination =
-          destinationFactor != 0 || const [2, 3, 6, 7].contains(sourceFactor);
+          destinationFactor != 0 || (0xcc >> sourceFactor) & 1 != 0;
       if (needsDestination && _secondaryValid[index] == 0) {
         throw const DcUnsupported(
             'CORE secondary destination pixel is uninitialized');
