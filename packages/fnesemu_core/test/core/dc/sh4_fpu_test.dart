@@ -386,5 +386,38 @@ void main() {
           cpu.fpscr, control | (expected.flags << 12) | (expected.flags << 2),
           reason: reason);
     }
+    // FIPR and FTRV round the exact sum of four products once.
+    int near() =>
+        (random.nextBool() ? 0x80000000 : 0) |
+        ((124 + random.nextInt(6)) << 23) |
+        random.nextInt(0x800000);
+    List<BigInt> big(Iterable<int> values) => [...values.map(BigInt.from)];
+    for (var i = 0; i < 20000; i++) {
+      final control = random.nextInt(2);
+      final value = i % 4 < 2 ? near : single;
+      final vector = [for (var j = 0; j < 4; j++) value()];
+      final matrix = [for (var j = 0; j < 16; j++) value()];
+      final fipr = i.isOdd;
+      cpu.fpscr = control;
+      cpu.fr.setAll(0, [...vector, ...matrix.take(4)]);
+      cpu.xf.setAll(0, matrix);
+      execute(fipr ? 0xf1ed : 0xf1fd);
+      final rows = fipr
+          ? [format.innerProduct(big(vector), big(matrix.take(4)), control)]
+          : [
+              for (var row = 0; row < 4; row++)
+                format.innerProduct(
+                    big(vector),
+                    big([for (var c = 0; c < 4; c++) matrix[row + 4 * c]]),
+                    control)
+            ];
+      final flags = rows.fold(0, (flags, row) => flags | row.flags);
+      if (flags & DcFloat.invalid != 0) continue;
+      final reason = 'vector $vector matrix $matrix RM $control';
+      expect(fipr ? cpu.fr.sublist(3, 4) : cpu.fr.sublist(0, 4),
+          [for (final row in rows) row.bits.toInt()],
+          reason: reason);
+      expect(cpu.fpscr, control | (flags << 12) | (flags << 2), reason: reason);
+    }
   });
 }

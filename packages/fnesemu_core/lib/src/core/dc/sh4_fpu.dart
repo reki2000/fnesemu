@@ -45,6 +45,59 @@ extension _Sh4Fpu on Sh4 {
     _fpscr = ((fpscr & ~0x3f000) | (flags << 12) | (flags << 2)) & 0x003fffff;
   }
 
+  /// FIPR/FTRV row: the exact sum of four single products, rounded once.
+  /// Sums in a 64-bit integer when the product exponents are close; returns -1
+  /// for special operands, a wide exponent spread or a non-normal result.
+  int _fastInnerProduct(int base, List<int> right, int start, int stride) {
+    var minimum = 1 << 30, maximum = -(1 << 30);
+    var allNegativeZero = true, nonzero = false;
+    for (var i = 0; i < 4; i++) {
+      final a = fr[base + i], b = right[start + i * stride];
+      final fa = (a >> 23) & 255, fb = (b >> 23) & 255;
+      if (fa == 255 || fb == 255) return -1;
+      final zero =
+          (fa == 0 && a & 0x7fffff == 0) || (fb == 0 && b & 0x7fffff == 0);
+      if (!zero && (fa == 0 || fb == 0)) return -1;
+      allNegativeZero &= (a ^ b) & 0x80000000 != 0 && zero;
+      if (zero) continue;
+      nonzero = true;
+      final exponent = fa + fb;
+      if (exponent < minimum) minimum = exponent;
+      if (exponent > maximum) maximum = exponent;
+    }
+    if (!nonzero) return allNegativeZero ? 0x80000000 : 0;
+    // 48-bit products, a 12-bit alignment and two carry bits fit in 62 bits.
+    if (maximum - minimum > 12) return -1;
+    var sum = 0;
+    for (var i = 0; i < 4; i++) {
+      final a = fr[base + i], b = right[start + i * stride];
+      final fa = (a >> 23) & 255, fb = (b >> 23) & 255;
+      if (fa == 0 || fb == 0) continue;
+      final product = ((a & 0x7fffff) | 0x800000) * ((b & 0x7fffff) | 0x800000);
+      final term = product << (fa + fb - minimum);
+      sum += (a ^ b) & 0x80000000 != 0 ? -term : term;
+    }
+    if (sum == 0) return 0;
+    final negative = sum < 0, magnitude = negative ? -sum : sum;
+    // value = magnitude * 2^(minimum - 254 - 46).
+    final length = magnitude.bitLength;
+    var field = length - 1 + minimum - 300 + 127;
+    if (field < 1 || field > 254) return -1;
+    final shift = length - 24;
+    var mantissa = shift > 0 ? magnitude >> shift : magnitude << -shift;
+    if (shift > 0 && fpscr & 1 == 0) {
+      final remainder = magnitude & ((1 << shift) - 1), half = 1 << (shift - 1);
+      if (remainder > half || (remainder == half && mantissa.isOdd)) {
+        mantissa++;
+        if (mantissa == 0x1000000) {
+          mantissa >>= 1;
+          if (++field > 254) return -1;
+        }
+      }
+    }
+    return (negative ? 0x80000000 : 0) | (field << 23) | (mantissa & 0x7fffff);
+  }
+
   /// Fast single-precision arithmetic for normal operands while no FPU
   /// exception is enabled. Returns false when the exact path must decide.
   bool _fastSingle(int low, int n, int m) {
@@ -199,6 +252,29 @@ extension _Sh4Fpu on Sh4 {
     if (code == 0xf0ed || op & 0xf3ff == 0xf1fd) {
       if (fpscr.bit19) _illegal();
       final destination = (op >> 10 & 3) * 4;
+      if (fpscr & 0xf80 == 0) {
+        if (code == 0xf0ed) {
+          final bits = _fastInnerProduct(destination, fr, (op >> 8 & 3) * 4, 1);
+          if (bits >= 0) {
+            _setFloatFlags(DcFloat.inexact);
+            fr[destination + 3] = bits;
+            return true;
+          }
+        } else {
+          final r0 = _fastInnerProduct(destination, xf, 0, 4),
+              r1 = _fastInnerProduct(destination, xf, 1, 4),
+              r2 = _fastInnerProduct(destination, xf, 2, 4),
+              r3 = _fastInnerProduct(destination, xf, 3, 4);
+          if (r0 >= 0 && r1 >= 0 && r2 >= 0 && r3 >= 0) {
+            _setFloatFlags(DcFloat.inexact);
+            fr[destination] = r0;
+            fr[destination + 1] = r1;
+            fr[destination + 2] = r2;
+            fr[destination + 3] = r3;
+            return true;
+          }
+        }
+      }
       final vector = [
         for (var i = 0; i < 4; i++) BigInt.from(fr[destination + i])
       ];
