@@ -7,9 +7,11 @@ import 'gs_memory.dart';
 
 /// Draws primitives into the GS local memory.
 ///
-/// Not implemented: antialiasing (AA1), dithering, mipmapping (the magnify
-/// filter is used for every texture), the Z buffer alpha-test modes beyond
-/// the four AFAIL cases, and the destination alpha test for 24-bit frames.
+/// Mipmapping follows TEX1: the LOD is K, or log2(1/|Q|) << L plus K, per pixel. A LOD of 0 or less uses the magnify filter on level 0, and a larger LOD the minify filter MMIN on up to MXL levels. MTBA computes the base pointers of levels 1-3 from the size of the level before, which halves the buffer width; this is unverified. The region clamp of a level uses the bounds shifted by the level, which is also unverified.
+///
+/// Dithering adds the DIMX entry of the pixel to RGB before a 16-bit frame stores it. AFAIL 3 keeps the alpha bits of the frame. The destination alpha test passes every pixel of a 24-bit frame (ps2tek).
+///
+/// Not implemented: antialiasing (AA1) and the texture cache, so a draw that reads its own frame as a texture sees the pixels it already wrote.
 class GsRaster {
   final Gs gs;
 
@@ -38,6 +40,14 @@ class GsRaster {
   int _wms = 0, _wmt = 0, _minu = 0, _maxu = 0, _minv = 0, _maxv = 0;
   bool _linear = false;
   int _ta0 = 0, _ta1 = 0;
+
+  // mipmapping: TEX1 fields and the base pointer, layout pages, width and
+  // height exponents of each level
+  bool _lcm = false, _mipmap = false;
+  int _mxl = 0, _mmin = 0, _l = 0;
+  double _k = 0;
+  final _mipTbp = Int32List(7), _mipPages = Int32List(7);
+  final _mipTw = Int32List(7), _mipTh = Int32List(7);
   bool _aem = false;
 
   // per-pixel scratch
@@ -101,8 +111,9 @@ class GsRaster {
       _tbw = (t0 >> 14) & 0x3f;
       _tpsm = (t0 >> 20) & 0x3f;
       _tcolor = GsPsm.colorFormat(_tpsm);
-      _tw = (t0 >> 26) & 15;
-      _th = (t0 >> 30) & 15;
+      // the size is at most 1024 (ps2tek)
+      _tw = math.min((t0 >> 26) & 15, 10);
+      _th = math.min((t0 >> 30) & 15, 10);
       _tcc = (t0 >> 34) & 1;
       _tfx = (t0 >> 35) & 3;
       _clutPsm = _clutFormat(t0);
@@ -116,7 +127,7 @@ class GsRaster {
       _maxu = (c >> 14) & 0x3ff;
       _minv = (c >> 24) & 0x3ff;
       _maxv = (c >> 34) & 0x3ff;
-      _linear = (_ctx.tex1 >> 5) & 1 != 0;
+      _setupMipmap();
       final texa = gs.texa;
       _ta0 = texa & 0xff;
       _aem = (texa >> 15) & 1 != 0;
@@ -309,7 +320,7 @@ class GsRaster {
       g = (f * g + (255 - f) * ((fc >> 8) & 0xff)) >> 8;
       b = (f * b + (255 - f) * ((fc >> 16) & 0xff)) >> 8;
     }
-    var writeColor = true, writeZ = !_zmsk;
+    var writeColor = true, writeZ = !_zmsk, keepAlpha = false;
     if (_ate && !_alphaPasses(a)) {
       switch (_afail) {
         case 0:
@@ -320,17 +331,14 @@ class GsRaster {
           writeColor = false;
         default:
           writeZ = false;
+          keepAlpha = true;
       }
     }
     final mem = gs.mem;
     final fi = _frameLayout.index(_fbp, _framePages, x, y);
     final fraw = mem.readAt(_fpsm, fi);
-    if (_date) {
-      final bit = switch (_fcolor) {
-        GsPsm.ct32 => (fraw >> 31) & 1,
-        GsPsm.ct16 || GsPsm.ct16s => (fraw >> 15) & 1,
-        _ => 0,
-      };
+    if (_date && _fcolor != GsPsm.ct24) {
+      final bit = _fcolor == GsPsm.ct32 ? (fraw >> 31) & 1 : (fraw >> 15) & 1;
       if ((bit != 0) != _datm) return;
     }
     if (z < 0) z = 0;
@@ -356,7 +364,14 @@ class GsRaster {
       g = _blend(g, _dg, coef, clamp);
       b = _blend(b, _db, coef, clamp);
     }
-    _writeFrame(fi, fraw, r & 0xff, g & 0xff, b & 0xff, a & 0xff);
+    if (gs.dthe & 1 != 0 && (_fcolor == GsPsm.ct16 || _fcolor == GsPsm.ct16s)) {
+      final d = ((gs.dimx >> ((y & 3) * 16 + (x & 3) * 4)) & 7).toSigned(3);
+      final clamp = gs.colclamp != 0;
+      r = clamp ? _clamp8(r + d) : (r + d) & 0xff;
+      g = clamp ? _clamp8(g + d) : (g + d) & 0xff;
+      b = clamp ? _clamp8(b + d) : (b + d) & 0xff;
+    }
+    _writeFrame(fi, fraw, r & 0xff, g & 0xff, b & 0xff, a & 0xff, keepAlpha);
   }
 
   /// one channel of (A - B) * C >> 7 + D from source [cs] and destination
@@ -400,7 +415,8 @@ class GsRaster {
     }
   }
 
-  void _writeFrame(int fi, int old, int r, int g, int b, int a) {
+  void _writeFrame(int fi, int old, int r, int g, int b, int a,
+      [bool keepAlpha = false]) {
     int packed;
     int mask;
     switch (_fcolor) {
@@ -417,10 +433,54 @@ class GsRaster {
         if (_fba != 0) packed |= 0x80000000;
         mask = _fbmsk;
     }
+    if (keepAlpha) {
+      mask |= switch (_fcolor) {
+        GsPsm.ct16 || GsPsm.ct16s => 0x8000,
+        GsPsm.ct24 => 0,
+        _ => 0xff000000,
+      };
+    }
     gs.mem.writeAt(_fpsm, fi, (old & mask) | (packed & ~mask));
   }
 
   // ---- texturing ----
+
+  /// decodes TEX1 and the base pointers of the mipmap levels
+  void _setupMipmap() {
+    final t1 = _ctx.tex1;
+    _lcm = t1 & 1 != 0;
+    _mxl = math.min((t1 >> 2) & 7, 6);
+    _linear = (t1 >> 5) & 1 != 0;
+    _mmin = (t1 >> 6) & 7;
+    _l = (t1 >> 19) & 3;
+    _k = ((t1 >> 32) & 0xfff).toSigned(12) / 16;
+    final minLinear = _mmin == 1 || _mmin >= 4;
+    // the LOD matters when it changes the filter or the level
+    _mipmap = minLinear != _linear || _mxl > 0 && _mmin >= 2;
+    _mipTbp[0] = _tbp;
+    _mipPages[0] = _texPages;
+    _mipTw[0] = _tw;
+    _mipTh[0] = _th;
+    if (!_mipmap || _mxl == 0) return;
+    final auto = (t1 >> 9) & 1 != 0;
+    var tbw = _tbw;
+    for (var n = 1; n <= _mxl; n++) {
+      _mipTw[n] = math.max(_tw - n, 0);
+      _mipTh[n] = math.max(_th - n, 0);
+      if (auto && n <= 3) {
+        final bits = GsPsm.bits(_tpsm);
+        final words = ((1 << _mipTw[n - 1]) * (1 << _mipTh[n - 1]) * bits) >> 5;
+        _mipTbp[n] = (_mipTbp[n - 1] + (words >> 6)) & 0x3fff;
+        tbw = math.max(tbw >> 1, 1);
+      } else {
+        final reg = n <= 3 ? _ctx.miptbp1 : _ctx.miptbp2;
+        final f = reg >> (((n - 1) % 3) * 20);
+        _mipTbp[n] = f & 0x3fff;
+        tbw = (f >> 14) & 0x3f;
+      }
+      _mipPages[n] = _texLayout.pagesInRow(tbw);
+    }
+  }
 
   void _texture(int r, int g, int b, int a) {
     final size = 1 << _tw, height = 1 << _th;
@@ -434,22 +494,10 @@ class GsRaster {
       v = _finite(_t / q * height);
     }
     int texel;
-    if (_linear) {
-      final u0 = (u - 0.5).floor(), v0 = (v - 0.5).floor();
-      final fu = u - 0.5 - u0, fv = v - 0.5 - v0;
-      final ua = _wrap(u0, _wms, size, _minu, _maxu);
-      final ub = _wrap(u0 + 1, _wms, size, _minu, _maxu);
-      final va = _wrap(v0, _wmt, height, _minv, _maxv);
-      final vb = _wrap(v0 + 1, _wmt, height, _minv, _maxv);
-      final c00 = _texel(ua, va), c10 = _texel(ub, va);
-      final c01 = _texel(ua, vb), c11 = _texel(ub, vb);
-      // equal texels mix to the same texel within the rounding
-      texel = c00 == c10 && c00 == c01 && c00 == c11
-          ? c00
-          : _bilinear(c00, c10, c01, c11, fu, fv);
+    if (!_mipmap) {
+      texel = _sample(u, v, _linear);
     } else {
-      texel = _texel(_wrap(u.floor(), _wms, size, _minu, _maxu),
-          _wrap(v.floor(), _wmt, height, _minv, _maxv));
+      texel = _sampleMipmap(u, v);
     }
     final tr = texel & 0xff, tg = (texel >> 8) & 0xff;
     final tb = (texel >> 16) & 0xff, ta = (texel >> 24) & 0xff;
@@ -475,6 +523,81 @@ class GsRaster {
         _tb = _clamp8(((tb * b) >> 7) + a);
         _ta = _tcc != 0 ? ta : a;
     }
+  }
+
+  /// the texel at (u, v) of the level the texture fields point to
+  int _sample(double u, double v, bool linear) {
+    final size = 1 << _tw, height = 1 << _th;
+    if (!linear) {
+      return _texel(_wrap(u.floor(), _wms, size, _minu, _maxu),
+          _wrap(v.floor(), _wmt, height, _minv, _maxv));
+    }
+    final u0 = (u - 0.5).floor(), v0 = (v - 0.5).floor();
+    final fu = u - 0.5 - u0, fv = v - 0.5 - v0;
+    final ua = _wrap(u0, _wms, size, _minu, _maxu);
+    final ub = _wrap(u0 + 1, _wms, size, _minu, _maxu);
+    final va = _wrap(v0, _wmt, height, _minv, _maxv);
+    final vb = _wrap(v0 + 1, _wmt, height, _minv, _maxv);
+    final c00 = _texel(ua, va), c10 = _texel(ub, va);
+    final c01 = _texel(ua, vb), c11 = _texel(ub, vb);
+    // equal texels mix to the same texel within the rounding
+    return c00 == c10 && c00 == c01 && c00 == c11
+        ? c00
+        : _bilinear(c00, c10, c01, c11, fu, fv);
+  }
+
+  /// the texel at (u, v) of level 0 coordinates with the LOD of TEX1
+  int _sampleMipmap(double u, double v) {
+    double lod;
+    if (_lcm) {
+      lod = _k;
+    } else {
+      // UV coordinates carry no Q, so their LOD is K
+      final q = _fst ? 1.0 : _q.abs();
+      lod = q == 0 ? _k : -math.log(q) / math.ln2 * (1 << _l) + _k;
+    }
+    if (lod <= 0) return _sample(u, v, _linear);
+    final linear = _mmin == 1 || _mmin >= 4;
+    if (_mmin < 2 || _mxl == 0) return _sample(u, v, linear);
+    final blend = _mmin == 3 || _mmin == 5;
+    final top = lod > _mxl ? _mxl.toDouble() : lod;
+    if (!blend) return _sampleLevel((top + 0.5).floor(), u, v, linear);
+    final n = top.floor();
+    final c0 = _sampleLevel(n, u, v, linear);
+    final frac = top - n;
+    if (frac == 0 || n >= _mxl) return c0;
+    final c1 = _sampleLevel(n + 1, u, v, linear);
+    return _bilinear(c0, c1, c0, c1, frac, 0);
+  }
+
+  /// samples level [n] at level 0 coordinates (u, v)
+  int _sampleLevel(int n, double u, double v, bool linear) {
+    if (n == 0) return _sample(u, v, linear);
+    final tbp = _tbp, pages = _texPages, tw = _tw, th = _th;
+    final minu = _minu, maxu = _maxu, minv = _minv, maxv = _maxv;
+    _tbp = _mipTbp[n];
+    _texPages = _mipPages[n];
+    _tw = _mipTw[n];
+    _th = _mipTh[n];
+    if (_wms == 2) {
+      _minu >>= n;
+      _maxu >>= n;
+    }
+    if (_wmt == 2) {
+      _minv >>= n;
+      _maxv >>= n;
+    }
+    final scale = 1.0 / (1 << n);
+    final texel = _sample(u * scale, v * scale, linear);
+    _tbp = tbp;
+    _texPages = pages;
+    _tw = tw;
+    _th = th;
+    _minu = minu;
+    _maxu = maxu;
+    _minv = minv;
+    _maxv = maxv;
+    return texel;
   }
 
   /// the bilinear mix of four texels in the RGBA8888 layout of [_texel]

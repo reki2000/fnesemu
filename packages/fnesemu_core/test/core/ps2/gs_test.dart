@@ -100,6 +100,19 @@ void main() {
       gs.writeRegister(0x53, 2);
       expect(gs.mem.read(GsPsm.ct32, 32, 1, 4, 5), 0xabcdef01);
     });
+
+    test('a local copy follows the transmission order of TRXPOS', () {
+      final gs = _gs();
+      for (var x = 0; x < 4; x++) {
+        gs.mem.write(GsPsm.ct32, 0, 1, x, 0, x + 1);
+      }
+      gs.writeRegister(0x50, (1 << 16) | (1 << 48));
+      // right to left, so the copy one pixel to the right does not smear
+      gs.writeRegister(0x51, (1 << 32) | (2 << 59));
+      gs.writeRegister(0x52, 4 | (1 << 32));
+      gs.writeRegister(0x53, 2);
+      expect([for (var x = 0; x < 5; x++) _px(gs, x, 0)], [1, 1, 2, 3, 4]);
+    });
   });
 
   group('drawing', () {
@@ -209,6 +222,22 @@ void main() {
       expect((p >> 16) & 0xff, 100);
     });
 
+    test('dithering adds the DIMX entry to a 16-bit frame', () {
+      final gs = _gs(psm: GsPsm.ct16);
+      gs.writeRegister(0x44, 3); // +3 at (0, 0)
+      gs.writeRegister(0x45, 1);
+      _sprite(gs, 0, 0, 2, 2, _rgba(5, 0, 0));
+      expect(_px(gs, 0, 0, GsPsm.ct16) & 31, 1);
+      expect(_px(gs, 1, 0, GsPsm.ct16) & 31, 0);
+    });
+
+    test('the destination alpha test passes every pixel of a 24-bit frame', () {
+      final gs = _gs(psm: GsPsm.ct24);
+      gs.writeRegister(0x47, (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17));
+      _sprite(gs, 0, 0, 2, 2, _rgba(0x12, 0x34, 0x56));
+      expect(_px(gs, 0, 0, GsPsm.ct24), 0x563412);
+    });
+
     test('frame mask keeps masked bits', () {
       final gs = _gs();
       _sprite(gs, 0, 0, 2, 2, _rgba(0xff, 0xff, 0xff, 0xff));
@@ -263,6 +292,27 @@ void main() {
         (cpsm << 51) |
         (csa << 56) |
         (cld << 61);
+
+    test('a LOD above 0 samples the mipmap level that MIPTBP1 points to', () {
+      final gs = _gs();
+      upload(gs, 100, GsPsm.ct32, 4, 4, List.filled(16, _rgba(10, 0, 0)));
+      upload(gs, 200, GsPsm.ct32, 2, 2, List.filled(4, _rgba(20, 0, 0)));
+      gs.writeRegister(0x06, tex0(100, 1, GsPsm.ct32, 2, 2));
+      // TEX1: LCM (fixed K), MXL 1, MMIN nearest mipmap nearest, K 1.0
+      gs.writeRegister(0x14, 1 | (1 << 2) | (2 << 6) | (16 << 32));
+      gs.writeRegister(0x34, 200 | (1 << 14));
+      gs.writeRegister(0x00, 6 | 0x10 | 0x100);
+      gs.writeRegister(0x03, 0);
+      gs.writeRegister(0x05, _xyz(10, 10));
+      gs.writeRegister(0x03, (4 * 16) | ((4 * 16) << 16));
+      gs.writeRegister(0x05, _xyz(14, 14));
+      expect(_px(gs, 11, 11) & 0xff, 20);
+      // K 0 uses level 0
+      gs.writeRegister(0x14, 1 | (1 << 2) | (2 << 6));
+      gs.writeRegister(0x05, _xyz(10, 10));
+      gs.writeRegister(0x05, _xyz(14, 14));
+      expect(_px(gs, 11, 11) & 0xff, 10);
+    });
 
     test('a decal sprite maps texels one to one', () {
       final gs = _gs();
@@ -408,6 +458,16 @@ void main() {
       expect(gs.contexts[0].frame, _frame(5, 2, 0));
       expect(gs.bitbltbuf, 0x1234);
       expect(path.busy, isFalse);
+    });
+
+    test('a tag sets Q to 1.0 and NLOOP 0 ignores PRIM', () {
+      final gs = _gs();
+      final path = GifPath(gs);
+      gs.writeRegister(0x00, 3);
+      gs.setQ(0x40000000);
+      path.put(tag(0, 0, 1, 0xe, prim: 6), 0xe);
+      expect(gs.prim, 3);
+      expect(gs.qBits, 0x3f800000);
     });
 
     test('packed RGBAQ and XYZ2 draw a sprite', () {

@@ -61,12 +61,17 @@ class GsVertex {
 class GsContext {
   int tex0 = 0, tex1 = 0, clamp = 0, xyoffset = 0, scissor = 0;
   int alpha = 0, test = 0, fba = 0, frame = 0, zbuf = 0;
+  int miptbp1 = 0, miptbp2 = 0;
 
-  void saveState(StateWriter w) => w.ints(
-      [tex0, tex1, clamp, xyoffset, scissor, alpha, test, fba, frame, zbuf]);
+  void saveState(StateWriter w) => w.ints([
+        tex0, tex1, clamp, xyoffset, scissor, alpha, test, fba, frame, zbuf, //
+        miptbp1, miptbp2,
+      ]);
 
   void loadState(StateReader s) {
-    final v = s.fields(10, 'gs context');
+    final v = s.fields(12, 'gs context');
+    miptbp1 = v[10];
+    miptbp2 = v[11];
     tex0 = v[0];
     tex1 = v[1];
     clamp = v[2];
@@ -112,7 +117,7 @@ class Gs {
   // general registers
   int prim = 0, prmode = 0, prmodecont = 1;
   int texclut = 0, scanmsk = 0, texa = 0, fogcol = 0;
-  int dimx = 0, dthe = 0, colclamp = 1, pabe = 0, miptbp = 0;
+  int dimx = 0, dthe = 0, colclamp = 1, pabe = 0;
   int bitbltbuf = 0, trxpos = 0, trxreg = 0, trxdir = 3;
   final contexts = [GsContext(), GsContext()];
 
@@ -135,7 +140,7 @@ class Gs {
       display1, dispfb2, display2, extbuf, extdata, extwrite, bgcolor, csr,
       imr, busdir, siglblid, _field, _pendingInterrupts, prim, prmode,
       prmodecont, texclut, scanmsk, texa, fogcol, dimx, dthe, colclamp, pabe,
-      miptbp, bitbltbuf, trxpos, trxreg, trxdir, _r, _g, _b, _a, _u, _v,
+      bitbltbuf, trxpos, trxreg, trxdir, _r, _g, _b, _a, _u, _v,
       _fog, _vertexCount, _trxX, _trxY, _trxLeft, _acc, _accBits,
     ]);
     w.floats([_q, _s, _t]);
@@ -151,7 +156,7 @@ class Gs {
 
   void loadState(StateReader s) {
     s.section('gs');
-    final v = s.fields(50, 'gs');
+    final v = s.fields(49, 'gs');
     var k = 0;
     pmode = v[k++];
     smode1 = v[k++];
@@ -185,7 +190,6 @@ class Gs {
     dthe = v[k++];
     colclamp = v[k++];
     pabe = v[k++];
-    miptbp = v[k++];
     bitbltbuf = v[k++];
     trxpos = v[k++];
     trxreg = v[k++];
@@ -410,7 +414,9 @@ class Gs {
       case 0x22:
         scanmsk = data;
       case 0x34 || 0x35:
-        miptbp = data;
+        _ctx(reg - 0x34).miptbp1 = data;
+      case 0x36 || 0x37:
+        _ctx(reg - 0x36).miptbp2 = data;
       case 0x3b:
         texa = data;
       case 0x3d:
@@ -570,12 +576,17 @@ class Gs {
     }
   }
 
+  /// Copies the rectangle in the order of DIR of TRXPOS, which matters when
+  /// the source and the destination overlap.
   void _localToLocal() {
     final sx = trxpos & 0x7ff, sy = (trxpos >> 16) & 0x7ff;
     final dx = (trxpos >> 32) & 0x7ff, dy = (trxpos >> 48) & 0x7ff;
+    final dir = (trxpos >> 59) & 3;
     final w = _rrw, h = _rrh;
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
+    for (var j = 0; j < h; j++) {
+      final y = dir & 1 != 0 ? h - 1 - j : j;
+      for (var i = 0; i < w; i++) {
+        final x = dir & 2 != 0 ? w - 1 - i : i;
         final v =
             mem.read(_spsm, _sbp, _sbw, (sx + x) & 0x7ff, (sy + y) & 0x7ff);
         mem.write(_dpsm, _dbp, _dbw, (dx + x) & 0x7ff, (dy + y) & 0x7ff, v);
