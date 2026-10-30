@@ -24,6 +24,8 @@ class SimpleCdromDrive implements CdromDrive {
   final _sectors = <int, Uint8List>{}; // empty if failed to read
   final _inflight = <int, Future<void>>{};
 
+  bool get hasPendingReads => _inflight.isNotEmpty;
+
   CdromDriveStatus _status = CdromDriveStatus.empty;
 
   @override
@@ -79,7 +81,14 @@ class SimpleCdromDrive implements CdromDrive {
       _toc = CdromToc([
         for (final t in image.toc.tracks)
           CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
-      ], image.totalSectors);
+      ], image.totalSectors,
+          sessions: image.toc.sessions == null
+              ? null
+              : [
+                  for (final session in image.toc.sessions!)
+                    CdromSession(
+                        session.number, session.firstTrack, session.startLba)
+                ]);
       _change(CdromDriveState.ready);
     } catch (e) {
       if (discId == _discId) _change(CdromDriveState.error);

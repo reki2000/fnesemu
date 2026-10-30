@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cdrom_image/cdrom_image.dart';
@@ -5,6 +6,9 @@ import 'package:cdrom_image/memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/async_cdrom_drive.dart';
 import 'package:fnesemu_core/app_api.dart';
+
+import '../support/cdi_fixture.dart';
+import '../support/subcode_chd_fixture.dart';
 
 const size = DiscImage.sectorSize;
 
@@ -24,6 +28,230 @@ Future<void> pump() async {
 }
 
 void main() {
+  test('CDI sessions and cooked/raw sectors cross the generic drive adapter',
+      () async {
+    final drive = AsyncCdromDrive();
+    final file = MemoryDiscFile('authored.cdi', cdiSessionsFixture());
+    await drive.insert((file, [file]));
+    expect(drive.status.isReady, isTrue);
+    expect(
+        drive.status.toc.sessions!
+            .map((s) => (s.number, s.firstTrack, s.startLba)),
+        [(1, 1, 0), (2, 3, 45000)]);
+    expect(drive.status.toc.isXa, isNull);
+    expect(drive.read(45000), isNull);
+    await drive.settle();
+    final raw = drive.read(45000)!;
+    expect(raw[15], 2);
+    expect(raw.sublist(16),
+        List.generate(2336, (i) => (47 + 2 * 17 + i * 3) & 255));
+    await drive.eject();
+    expect(drive.status.toc.sessions, isNull);
+  });
+
+  group('raw subchannel capability', () {
+    late AsyncCdromDrive drive;
+    late MemoryDiscFile file;
+    late DateTime now;
+    setUp(() async {
+      now = DateTime(2026);
+      drive = AsyncCdromDrive(now: () => now);
+      file = MemoryDiscFile('sub.chd', subcodeChd());
+      await drive.insert((file, [file]));
+    });
+
+    test('raw image symbols become CRC-validated position metadata', () async {
+      expect(drive.readSubcode(0), isNull);
+      expect(drive.isWaiting, isTrue);
+      await drive.settle();
+      expect(drive.isWaiting, isFalse);
+      final result = drive.readSubcode(0)!;
+      expect(result.readable, isTrue);
+      expect(result.raw!.length, 96);
+      expect(result.position!.control, 6);
+      expect(result.position!.track, 1);
+      expect(result.position!.index, 3);
+      expect(result.position!.trackFrames, 934);
+      expect(result.position!.discFrames, 6270);
+    });
+
+    test(
+        'requests coalesce and sector/subcode reads share the image hunk cache',
+        () async {
+      var reads = 0;
+      file.onRead = (offset, _) {
+        if (offset >= 9792) reads++;
+      };
+      expect(drive.readSubcode(0), isNull);
+      expect(drive.readSubcode(0), isNull);
+      expect(drive.read(0), isNull);
+      await drive.settle();
+      expect(reads, 1);
+      expect(drive.readSubcode(0)!.position, isNotNull);
+      expect(drive.read(0)!.first, 5);
+      expect(drive.status.seekError, isFalse);
+    });
+
+    test(
+        'guest SPI commands read Q data from a CHD through the public core API',
+        () async {
+      final core = CoreFactory.of('dc');
+      try {
+        core.setRom(subcodeGuestProgram());
+        core.setCdromDrive(drive);
+        for (var instruction = 0;
+            instruction < 10000 && core.read(0, 0x8c020100) == 0;
+            instruction++) {
+          expect(core.exec(false).stopped, isFalse, reason: core.dump());
+          if (drive.isWaiting) await drive.settle();
+        }
+        expect(core.read(0, 0x8c020100), 1);
+        expect(List.generate(14, (offset) => core.read(0, 0x8c020000 + offset)),
+            [0, 0x15, 0, 14, 0x61, 1, 3, 0, 3, 166, 0, 0, 24, 126]);
+      } finally {
+        core.dispose();
+      }
+    },
+        skip: CoreFactory.systemOrNull('dc') == null
+            ? 'DC module is not installed'
+            : false);
+
+    test('raw ISRC from the CHD is decoded and returned to a guest SPI command',
+        () async {
+      // Original bit-packed ISRC with an independently computed CRC.
+      final recordingFile = MemoryDiscFile(
+          'isrc.chd',
+          subcodeChd(qRecord: [
+            3,
+            0x96,
+            0x30,
+            0x51,
+            0xa8,
+            0x99,
+            0x12,
+            0x34,
+            0x50,
+            0x56,
+            0x55,
+            0x64
+          ]));
+      await drive.insert((recordingFile, [recordingFile]));
+      expect(drive.readSubcode(0), isNull);
+      await drive.settle();
+      expect(drive.readSubcode(0)!.recording!.value, 'US1AZ9912345');
+      expect(drive.readSubcode(0)!.recording!.frame, 56);
+      final core = CoreFactory.of('dc');
+      try {
+        core.setRom(subcodeGuestProgram(format: 3, responseBytes: 24));
+        core.setCdromDrive(drive);
+        for (var instruction = 0;
+            instruction < 10000 && core.read(0, 0x8c020100) == 0;
+            instruction++) {
+          expect(core.exec(false).stopped, isFalse, reason: core.dump());
+          if (drive.isWaiting) await drive.settle();
+        }
+        expect(core.read(0, 0x8c020100), 1);
+        expect(
+            List.generate(24, (offset) => core.read(0, 0x8c020000 + offset)), [
+          0,
+          0x15,
+          0,
+          24,
+          3,
+          0,
+          0,
+          0,
+          0x80,
+          ...'US1AZ9912345'.codeUnits,
+          0,
+          56,
+          0
+        ]);
+      } finally {
+        core.dispose();
+      }
+    },
+        skip: CoreFactory.systemOrNull('dc') == null
+            ? 'DC module is not installed'
+            : false);
+
+    test('metadata cache expires and is refetched after sixty seconds',
+        () async {
+      drive.readSubcode(0);
+      await drive.settle();
+      now = now.add(const Duration(seconds: 59));
+      expect(drive.readSubcode(0), isNotNull);
+      now = now.add(const Duration(seconds: 2));
+      expect(drive.readSubcode(0), isNull);
+      expect(drive.isWaiting, isTrue);
+      await drive.settle();
+      expect(drive.readSubcode(0)!.position, isNotNull);
+    });
+
+    test(
+        'missing subchannels remain unknown instead of a fabricated zero record',
+        () async {
+      final noSubcode = MemoryDiscFile('none.chd', subcodeChd(subtype: 'NONE'));
+      await drive.insert((noSubcode, [noSubcode]));
+      expect(drive.readSubcode(0), isNull);
+      await drive.settle();
+      final result = drive.readSubcode(0)!;
+      expect(result.readable, isTrue);
+      expect(result.raw, isNull);
+      expect(result.position, isNull);
+      final bin = MemoryDiscFile('plain.bin', makeBin(4));
+      await drive.insert((bin, [bin]));
+      expect(drive.readSubcode(0)!.raw, isNull);
+      expect(drive.isWaiting, isFalse);
+    });
+
+    test(
+        'subcode failures are cached separately from sector seek status and retried',
+        () async {
+      file.onRead = (offset, _) {
+        if (offset >= 9792) throw StateError('broken');
+      };
+      expect(drive.readSubcode(0), isNull);
+      await drive.settle();
+      expect(drive.readSubcode(0)!.readable, isFalse);
+      expect(drive.status.seekError, isFalse);
+      file.onRead = null;
+      now = now.add(const Duration(seconds: 61));
+      expect(drive.readSubcode(0), isNull);
+      await drive.settle();
+      expect(drive.readSubcode(0)!.readable, isTrue);
+    });
+
+    test('out-of-range and ejected reads return unreadable without a host wait',
+        () async {
+      expect(drive.readSubcode(-1)!.readable, isFalse);
+      expect(drive.readSubcode(4)!.readable, isFalse);
+      await drive.eject();
+      expect(drive.readSubcode(0)!.readable, isFalse);
+      expect(drive.isWaiting, isFalse);
+    });
+
+    test(
+        'a previous disc generation cannot overwrite a replacement subcode cache',
+        () async {
+      final gate = Completer<void>();
+      final blocked = _SubcodeBlockingFile(subcodeChd(), gate.future);
+      await drive.insert((blocked, [blocked]));
+      expect(drive.readSubcode(0), isNull);
+      await pump();
+      await drive.eject();
+      final replacement = MemoryDiscFile('new.chd', subcodeChd(pHigh: true));
+      await drive.insert((replacement, [replacement]));
+      expect(drive.readSubcode(0), isNull);
+      await drive.settle();
+      expect(drive.readSubcode(0)!.raw![0] & 0x80, 0x80);
+      gate.complete();
+      await pump();
+      expect(drive.readSubcode(0)!.raw![0] & 0x80, 0x80);
+      expect(drive.isWaiting, isFalse);
+    });
+  });
+
   test('paused swaps queue physical events separately from TOC completion',
       () async {
     final drive = AsyncCdromDrive();
@@ -285,4 +513,20 @@ FILE "a.bin" BINARY
       expect(drive.read(160)![0], 11);
     });
   });
+}
+
+class _SubcodeBlockingFile extends DiscFile {
+  _SubcodeBlockingFile(this.data, this.gate);
+  final Uint8List data;
+  final Future<void> gate;
+  @override
+  String get path => 'blocked.chd';
+  @override
+  Future<int> length() async => data.length;
+  @override
+  Future<Uint8List> read(int offset, int length) async {
+    if (offset >= 9792) await gate;
+    return Uint8List.fromList(
+        data.sublist(offset, (offset + length).clamp(0, data.length)));
+  }
 }

@@ -9,10 +9,37 @@ Command-line tools of the cores. Run them with `dart run tool/<name>.dart` in `p
 | `disasm.dart` | Disassembles one 68000 or Z80 instruction |
 | `microbench.dart` | Synthetic benchmarks that need no ROM (`vr4300`, `video-debug`) |
 | `generate_core_registry.dart` | Writes the registry of the core modules |
+| `dc_probe.dart` | Runs supplied DC BIOS/flash images, captures frames and PCM, and supports explicit diagnostic CDI startup |
+| `dc_disc_probe.dart` | Inspects DC disc metadata without running guest code |
 
 `input_sequence.dart` holds the syntax of the button presses, which `core_headless`, its server and `scripts/e2e.py` share.
 
 The standalone bundle includes the JIT memory helper as a native asset. Keep `bundle/lib` alongside `bundle/bin`; `dart compile exe` alone does not package this dependency. The e2e runner caches complete bundles and invalidates them when local runtime or native-helper sources change.
+
+## DC startup
+
+The normal `dc` factory requests a 2 MiB BIOS and 128 KiB flash image and enables the provisional boot profile without GUI-specific setup.
+Use the probe to capture that profile with the original user-supplied files:
+
+```sh
+dart run tool/dc_probe.dart --core-bring-up --capture=/tmp/dc-boot BOOT_ROM FLASH 150000000
+```
+
+The profile bypasses the unknown BIOS verification, uses provisional GPIO wiring and instruction timing, and bypasses AICA DSP effects; it does not establish hardware accuracy.
+`DC_BOOT_BRINGUP=false` selects strict operation through the normal factory.
+An ISO containing IP.BIN is not necessarily self-bootable; the probe's explicit program loader is a separate diagnostic path.
+See the [DC implementation notes](../lib/src/core/dc/README.md) for the native bootstrap options, supported output and remaining limitations.
+
+The existing headless benchmark also accepts DC boot ROM, flash and disc media:
+
+```sh
+dart run tool/core_headless.dart bench dc BOOT_ROM DISC --bios FLASH \
+  --load-state CHECKPOINT --frame-runner --warmup 2 --measure 5 --checksum
+```
+
+Use an AOT executable for speed comparisons. DC checkpoints must match the loaded BIOS, media and boot profile. `--dc-profile diagnostic` selects the legacy probe's one-clock CPU timing and explicit provisional audio/verification policies, without the normal factory's automatic GPIO wiring or eight-clock timing. `--dc-drive-format HEX` explicitly overrides the reported drive format for diagnostic runs. Omit both options when measuring the normal factory profile. These options do not establish native BIOS authentication or hardware timing accuracy; do not compare FPS across different profiles as an optimization result.
+
+See the [DC performance notes](../lib/src/core/dc/OPTIMIZATION.md) for scenes, results and remaining candidates.
 
 ## Benchmarks
 

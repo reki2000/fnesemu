@@ -13,6 +13,25 @@ import '../../tool/cdrom_drive.dart';
 import '../../tool/local_disc.dart';
 
 void main() {
+  test('native CDI adapter retains explicit sessions and mixed-sector payloads',
+      () async {
+    final drive = SimpleCdromDrive();
+    await drive
+        .insert(localDisc('../cdrom_image/test/fixtures/cdi_sessions.cdi'));
+    expect(drive.status.isReady, isTrue);
+    expect(
+        drive.status.toc.sessions!
+            .map((s) => (s.number, s.firstTrack, s.startLba)),
+        [(1, 1, 0), (2, 3, 45000)]);
+    expect(drive.read(5), isNull);
+    await drive.settle();
+    final raw = drive.read(5)!;
+    expect(raw[15], 1);
+    expect(raw.sublist(16, 2064),
+        List.generate(2048, (i) => (29 + 17 + i * 3) & 255));
+    await drive.eject();
+  });
+
   late Directory dir;
 
   setUp(() => dir = Directory.systemTemp.createTempSync('cdrom_io_test_'));
