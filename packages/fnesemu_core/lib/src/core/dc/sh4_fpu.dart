@@ -1,6 +1,91 @@
 part of 'sh4.dart';
 
 extension _Sh4Fpu on Sh4 {
+  static final _single = Float32List(1);
+  static final _singleBits = Uint32List.view(_single.buffer);
+
+  static double _toSingle(int bits) {
+    _singleBits[0] = bits;
+    return _single[0];
+  }
+
+  static bool _normalSingle(int bits) {
+    final field = (bits >> 23) & 255;
+    return field != 0 && field != 255;
+  }
+
+  /// Rounds `value + error`, an exactly known result, to single precision
+  /// with the FPSCR rounding mode. Nearest rounding of a double is exact
+  /// for one add, sub, mul or div of singles; round-to-zero steps one unit back
+  /// when that overshoots the magnitude. Returns -1 when the result is not
+  /// normal or nearest rounding would round twice.
+  int _roundSingle(double value, double error, bool overshoot) {
+    _single[0] = value;
+    var bits = _singleBits[0];
+    if (!_normalSingle(bits)) return -1;
+    final rounded = _single[0];
+    final inexact = error != 0 || overshoot || rounded != value;
+    if (fpscr & 1 != 0) {
+      final beyond = overshoot ||
+          (value > 0
+              ? rounded > value || (rounded == value && error < 0)
+              : rounded < value || (rounded == value && error > 0));
+      if (beyond) {
+        bits--;
+        if (!_normalSingle(bits)) return -1;
+      }
+    } else if (error != 0) {
+      return -1;
+    }
+    _setFloatFlags(inexact ? DcFloat.inexact : 0);
+    return bits;
+  }
+
+  void _setFloatFlags(int flags) {
+    _fpscr = ((fpscr & ~0x3f000) | (flags << 12) | (flags << 2)) & 0x003fffff;
+  }
+
+  /// Fast single-precision arithmetic for normal operands while no FPU
+  /// exception is enabled. Returns false when the exact path must decide.
+  bool _fastSingle(int low, int n, int m) {
+    if (fpscr & 0x80f82 != 0) return false;
+    final a = fr[n], b = fr[m];
+    if (!_normalSingle(a) || !_normalSingle(b)) return false;
+    final x = _toSingle(a), y = _toSingle(b);
+    int bits;
+    switch (low) {
+      case 0:
+      case 1:
+        final z = low == 0 ? y : -y;
+        final sum = x + z, virtual = sum - x;
+        bits = _roundSingle(sum, (x - (sum - virtual)) + (z - virtual), false);
+      case 2:
+        bits = _roundSingle(x * y, 0, false);
+      case 3:
+        // The float32 rounding of the double quotient is correctly rounded;
+        // the exact product of the result and the divisor tells the side.
+        _single[0] = x / y;
+        bits = _singleBits[0];
+        if (!_normalSingle(bits)) return false;
+        final product = _single[0] * y;
+        if (fpscr & 1 != 0 && product.abs() > x.abs()) {
+          bits--;
+          if (!_normalSingle(bits)) return false;
+        }
+        _setFloatFlags(product != x ? DcFloat.inexact : 0);
+      default:
+        // FMAC: FR0 * FRm + FRn with one rounding.
+        final f0 = fr[0];
+        if (!_normalSingle(f0)) return false;
+        final p = _toSingle(f0) * y;
+        final sum = p + x, virtual = sum - p;
+        bits = _roundSingle(sum, (p - (sum - virtual)) + (x - virtual), false);
+    }
+    if (bits < 0) return false;
+    fr[n] = bits;
+    return true;
+  }
+
   DcFloat get _floatFormat =>
       fpscr.bit19 ? DcFloat.doublePrecision : DcFloat.single;
 
@@ -162,6 +247,17 @@ extension _Sh4Fpu on Sh4 {
       fr[n + 1] = scratch.getUint32(0);
       return true;
     }
+    if (low <= 3 && _fastSingle(low, n, m)) return true;
+    if ((low == 4 || low == 5) && fpscr & 0x80000 == 0) {
+      final a = fr[n], b = fr[m];
+      if ((_normalSingle(a) || a & 0x7fffffff == 0) &&
+          (_normalSingle(b) || b & 0x7fffffff == 0)) {
+        final x = _toSingle(a), y = _toSingle(b);
+        t = low == 4 ? x == y : x > y;
+        _setFloatFlags(0);
+        return true;
+      }
+    }
     if (low <= 5) {
       final a = _floatingBits(n), b = _floatingBits(m);
       if (low == 4 || low == 5) {
@@ -177,6 +273,7 @@ extension _Sh4Fpu on Sh4 {
     }
     if (low == 14) {
       if (fpscr.bit19) _illegal();
+      if (_fastSingle(14, n, m)) return true;
       final result = DcFloat.single.multiplyAdd(
           BigInt.from(fr[0]), BigInt.from(fr[m]), BigInt.from(fr[n]), fpscr);
       _setFloatingBits(n, _finishFloat(result));
@@ -184,12 +281,31 @@ extension _Sh4Fpu on Sh4 {
     }
     switch (code) {
       case 0xf02d: // FLOAT.
+        if (!fpscr.bit19 && fpscr & 0xf82 == 0) {
+          final value = fpul.rel32;
+          final bits =
+              value == 0 ? 0 : _roundSingle(value.toDouble(), 0, false);
+          if (bits >= 0) {
+            if (value == 0) _setFloatFlags(0);
+            fr[n] = bits;
+            return true;
+          }
+        }
         if (fpscr.bit19) _doubleRegister(n);
         _setFloatingBits(
             n,
             _finishFloat(format.fromInteger(fpul.rel32, fpscr),
                 possible: fpscr.bit19 ? 0 : 1));
       case 0xf03d: // FTRC.
+        if (!fpscr.bit19) {
+          final bits = fr[n], field = (bits >> 23) & 255;
+          if (field < 158) {
+            // Below 2^31 in magnitude, including zero and denormals.
+            fpul = (field == 0 ? 0 : _toSingle(bits).toInt()) & 0xffffffff;
+            _setFloatFlags(0);
+            return true;
+          }
+        }
         fpul =
             _finishFloat(format.toInteger(_floatingBits(n), fpscr), possible: 0)
                 .toInt();

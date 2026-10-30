@@ -1,4 +1,7 @@
+import 'dart:math';
+
 import 'package:fnesemu_core/src/core/dc/bus.dart';
+import 'package:fnesemu_core/src/core/dc/float.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
@@ -326,5 +329,62 @@ void main() {
     expect(
         cpu.fr.sublist(4, 8), [0x42b40000, 0x42c80000, 0x42dc0000, 0x42f00000]);
     expect(cpu.xf, integers);
+  });
+
+  test(
+      'host single-precision paths match the exact model in both rounding modes',
+      () {
+    final random = Random(1);
+    int single() {
+      final kind = random.nextInt(16);
+      final sign = random.nextBool() ? 0x80000000 : 0;
+      if (kind == 0) return sign;
+      final exponent =
+          kind < 8 ? 120 + random.nextInt(16) : 1 + random.nextInt(254);
+      // Near-all-zero or all-one fractions exercise carries and ties.
+      final fraction = kind < 4
+          ? (random.nextBool() ? 0 : 0x7fffff) ^ random.nextInt(4)
+          : random.nextInt(0x800000);
+      return sign | (exponent << 23) | fraction;
+    }
+
+    const format = DcFloat.single;
+    for (var i = 0; i < 50000; i++) {
+      final control = random.nextInt(2);
+      final low = const [0, 1, 2, 3, 4, 5, 14, 0x2d, 0x3d][random.nextInt(9)];
+      final a = single(), b = single(), f0 = single();
+      final integer = random.nextInt(1 << 32).toSigned(32);
+      final x = BigInt.from(a), y = BigInt.from(b);
+      final expected = switch (low) {
+        < 4 => format.binary(['add', 'sub', 'mul', 'div'][low], x, y, control),
+        4 || 5 => format.compare(x, y, control, greater: low == 5),
+        14 => format.multiplyAdd(BigInt.from(f0), y, x, control),
+        0x2d => format.fromInteger(integer, control),
+        _ => format.toInteger(x, control),
+      };
+      if (expected.flags & (DcFloat.error | DcFloat.invalid) != 0) continue;
+      cpu
+        ..fpscr = control
+        ..fpul = integer & 0xffffffff;
+      cpu.fr
+        ..[0] = f0
+        ..[1] = a
+        ..[2] = b;
+      execute(low == 0x2d
+          ? 0xf12d
+          : low == 0x3d
+              ? 0xf13d
+              : 0xf120 | low);
+      final reason = 'op $low: ${[a, b, f0, integer]}, RM $control';
+      expect(
+          low == 4 || low == 5
+              ? (cpu.t ? 1 : 0)
+              : (low == 0x3d ? cpu.fpul : cpu.fr[1]),
+          expected.bits.toInt(),
+          reason: reason);
+      expect(
+          cpu.fpscr, control | (expected.flags << 12) | (expected.flags << 2),
+          reason: reason);
+    }
   });
 }
