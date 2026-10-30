@@ -352,22 +352,29 @@ class DcGpuTexture {
 
   static int shade(int color, int texel, int offset, int tsp) {
     if (tsp & 0x80000 != 0) texel |= 0xff000000;
-    final alpha = texel >> 24, mode = (tsp >> 6) & 3;
-    var output = 0;
-    for (var shift = 0; shift < 24; shift += 8) {
-      final col = (color >> shift) & 255, tex = (texel >> shift) & 255;
-      final channel = switch (mode) {
-        0 => tex,
-        1 || 3 => (col * tex + 127) ~/ 255,
-        _ => (tex * alpha + col * (255 - alpha) + 127) ~/ 255,
-      };
-      output |= (channel + ((offset >> shift) & 255)).clamp(0, 255) << shift;
-    }
+    final alpha = (texel >> 24) & 255, mode = (tsp >> 6) & 3;
     final a = switch (mode) {
       0 || 1 => alpha,
-      2 => color >> 24,
-      _ => ((color >> 24) * alpha + 127) ~/ 255,
+      2 => (color >> 24) & 255,
+      _ => (((color >> 24) & 255) * alpha + 127) ~/ 255,
     };
-    return (output | (a << 24)) & 0xffffffff;
+    return _shadeChannel(color & 255, texel & 255, offset & 255, alpha, mode) |
+        (_shadeChannel((color >> 8) & 255, (texel >> 8) & 255,
+                (offset >> 8) & 255, alpha, mode) <<
+            8) |
+        (_shadeChannel((color >> 16) & 255, (texel >> 16) & 255,
+                (offset >> 16) & 255, alpha, mode) <<
+            16) |
+        (a << 24);
+  }
+
+  static int _shadeChannel(int col, int tex, int offset, int alpha, int mode) {
+    final channel = switch (mode) {
+      0 => tex,
+      1 || 3 => (col * tex + 127) ~/ 255,
+      _ => (tex * alpha + col * (255 - alpha) + 127) ~/ 255,
+    };
+    final sum = channel + offset;
+    return sum > 255 ? 255 : sum;
   }
 }

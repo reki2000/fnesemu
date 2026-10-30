@@ -66,9 +66,9 @@ class DcGpuRender {
   late final modifier = DcGpuModifier(readWord: _word, culled: _culled);
   int _region = 0, _x = -1, _y = -1, _remaining = 0;
   int _sortMode = 0, _primitiveOrder = 0;
-  late final _candidates = List<_Fragment?>.filled(1024, null);
-  late final _lastDepth = Float64List(1024);
-  late final _lastOrder = Int32List(1024);
+  final _candidates = List<_Fragment?>.filled(1024, null);
+  final _lastDepth = Float64List(1024);
+  final _lastOrder = Int32List(1024);
   // Translucent fragments collected in one pass, linked per pixel.
   final _fragmentHead = Int32List(1024);
   var _fragmentCount = 0;
@@ -1018,7 +1018,10 @@ class DcGpuRender {
   void _triangle(List<_Vertex> vertices, int isp, int tsp,
       DcGpuTexture? texture, int originX, int originY,
       {List<_Vertex>? plane, double? backgroundDepth}) {
-    final order = backgroundDepth == null ? _primitiveOrder++ : -1;
+    // Keep the per-pixel depth unboxed: never merge it with a nullable double.
+    final background = backgroundDepth != null;
+    final backgroundZ = backgroundDepth ?? 0.0;
+    final order = background ? -1 : _primitiveOrder++;
     var a = vertices[0], b = vertices[1];
     final c = vertices[2];
     var area = _edge(a, b, c.x, c.y);
@@ -1114,8 +1117,30 @@ class DcGpuRender {
     final vza = sa.v * za, vzb = sb.v * zb, vzc = sc.v * zc;
     final sameTexture = texOffset == pixelOffset;
     for (var y = top; y < bottom; y++) {
-      for (var x = left; x < right; x++) {
-        final px = originX + x + offset, py = originY + y + offset;
+      // Narrow the row to the columns each edge can accept, with a one-pixel
+      // margin; the exact edge tests below still decide coverage.
+      final rowY = originY + y + offset, base = originX + offset;
+      var rowLeft = left, rowRight = right;
+      for (var edge = 0; edge < 3; edge++) {
+        final p = edge == 0 ? b : (edge == 1 ? c : a);
+        final q = edge == 0 ? c : (edge == 1 ? a : b);
+        final slope = q.y - p.y;
+        if (slope == 0) continue;
+        final limit = p.x + (q.x - p.x) * (rowY - p.y) / slope - base;
+        if (slope > 0) {
+          final bound = limit + 2;
+          if (bound < rowRight) {
+            rowRight = bound < rowLeft ? rowLeft : bound.toInt();
+          }
+        } else {
+          final bound = limit - 1;
+          if (bound > rowLeft) {
+            rowLeft = bound > rowRight ? rowRight : bound.toInt();
+          }
+        }
+      }
+      for (var x = rowLeft; x < rowRight; x++) {
+        final px = originX + x + offset, py = rowY;
         final e0 = _edge(b, c, px, py),
             e1 = _edge(c, a, px, py),
             e2 = _edge(a, b, px, py);
@@ -1131,13 +1156,13 @@ class DcGpuRender {
         final ib = plane == null ? e1 * inverseArea : bx * px + by * py + b0;
         final ic = plane == null ? e2 * inverseArea : cx * px + cy * py + c0;
         final ispDepth = za * ia + zb * ib + zc * ic;
-        final z = backgroundDepth ?? ispDepth;
+        final z = background ? backgroundZ : ispDepth;
         if (!z.isFinite) {
           throw const DcUnsupported('CORE nonfinite interpolated depth');
         }
         final index = y * 32 + x, previous = _depth[index];
         if (_materialArea >= 0 && _shadowMask[index] != _materialArea) continue;
-        final pass = backgroundDepth != null ||
+        final pass = background ||
             (_sortMode != 0
                 ? z >= previous
                 : switch (isp >> 29) {
@@ -1256,13 +1281,14 @@ class DcGpuRender {
             color = DcGpuTexture.shade(
                 color, texel, texture.format == 4 ? 0 : off, tsp);
           }
-          color = fog.apply(color, backgroundDepth ?? shadeDepth, off, tsp,
+          color = fog.apply(
+              color, background ? backgroundZ : shadeDepth, off, tsp,
               hasOffset: texture != null && isp & 0x01000000 != 0);
           if (texture?.trilinear == true) {
             color = texture!.applyPassWeight(color, footprint);
           }
         }
-        if (backgroundDepth != null) {
+        if (background) {
           _storeColor(index, color, tsp);
           continue;
         }
@@ -1287,14 +1313,16 @@ class DcGpuRender {
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
     // Equal vertex colors interpolate to themselves.
     if (ca == cb && cb == cc) return ca;
-    var result = 0;
-    for (var shift = 0; shift < 32; shift += 8) {
-      result |= roundByte(((ca >> shift) & 255) * pa +
-              ((cb >> shift) & 255) * pb +
-              ((cc >> shift) & 255) * pc) <<
-          shift;
-    }
-    return result & 0xffffffff;
+    return roundByte((ca & 255) * pa + (cb & 255) * pb + (cc & 255) * pc) |
+        (roundByte(((ca >> 8) & 255) * pa +
+                ((cb >> 8) & 255) * pb +
+                ((cc >> 8) & 255) * pc) <<
+            8) |
+        (roundByte(((ca >> 16) & 255) * pa +
+                ((cb >> 16) & 255) * pb +
+                ((cc >> 16) & 255) * pc) <<
+            16) |
+        (roundByte((ca >> 24) * pa + (cb >> 24) * pb + (cc >> 24) * pc) << 24);
   }
 
   int _shadowColor(int color) {
@@ -1345,28 +1373,46 @@ class DcGpuRender {
     }
   }
 
-  int _blend(int source, int destination, int tsp) {
-    int factor(int instruction, int other) => switch (instruction) {
-          0 => 0,
-          1 => 255,
-          2 => other,
-          3 => 255 - other,
-          4 => source >> 24,
-          5 => 255 - (source >> 24),
-          6 => destination >> 24,
-          _ => 255 - (destination >> 24),
-        };
-    var color = 0;
-    for (var shift = 0; shift < 32; shift += 8) {
-      final src = (source >> shift) & 255, dst = (destination >> shift) & 255;
-      final sum = (src * factor(tsp >> 29, dst) +
-              dst * factor((tsp >> 26) & 7, src) +
-              127) ~/
-          255;
-      final value = sum < 0 ? 0 : (sum > 255 ? 255 : sum);
-      color |= value << shift;
-    }
-    return color & 0xffffffff;
+  static int _factor(
+          int instruction, int other, int sourceAlpha, int destinationAlpha) =>
+      switch (instruction) {
+        0 => 0,
+        1 => 255,
+        2 => other,
+        3 => 255 - other,
+        4 => sourceAlpha,
+        5 => 255 - sourceAlpha,
+        6 => destinationAlpha,
+        _ => 255 - destinationAlpha,
+      };
+
+  static int _blendChannel(int src, int dst, int sourceInstruction,
+      int destinationInstruction, int sourceAlpha, int destinationAlpha) {
+    final sum =
+        (src * _factor(sourceInstruction, dst, sourceAlpha, destinationAlpha) +
+                dst *
+                    _factor(destinationInstruction, src, sourceAlpha,
+                        destinationAlpha) +
+                127) ~/
+            255;
+    return sum > 255 ? 255 : sum;
+  }
+
+  static int _blend(int source, int destination, int tsp) {
+    final sourceInstruction = (tsp >> 29) & 7;
+    final destinationInstruction = (tsp >> 26) & 7;
+    final sa = (source >> 24) & 255, da = (destination >> 24) & 255;
+    return _blendChannel(source & 255, destination & 255, sourceInstruction,
+            destinationInstruction, sa, da) |
+        (_blendChannel((source >> 8) & 255, (destination >> 8) & 255,
+                sourceInstruction, destinationInstruction, sa, da) <<
+            8) |
+        (_blendChannel((source >> 16) & 255, (destination >> 16) & 255,
+                sourceInstruction, destinationInstruction, sa, da) <<
+            16) |
+        (_blendChannel(
+                sa, da, sourceInstruction, destinationInstruction, sa, da) <<
+            24);
   }
 
   bool _flushVerticalScale({bool finalSource = true}) {
