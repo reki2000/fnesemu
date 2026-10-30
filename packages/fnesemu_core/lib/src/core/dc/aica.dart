@@ -595,12 +595,22 @@ class DcAica {
 
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
+    // Short advances stay within one second or one sample; skip the divisions then.
     final rtcClocks = _rtcPhase + clocks;
-    _rtc = (_rtc + rtcClocks ~/ masterHz) & 0xffffffff;
-    _rtcPhase = rtcClocks % masterHz;
+    if (rtcClocks < masterHz) {
+      _rtcPhase = rtcClocks;
+    } else {
+      _rtc = (_rtc + rtcClocks ~/ masterHz) & 0xffffffff;
+      _rtcPhase = rtcClocks % masterHz;
+    }
     final sampleClocks = _samplePhase + clocks * sampleHz;
-    final samples = sampleClocks ~/ masterHz;
-    _samplePhase = sampleClocks % masterHz;
+    var samples = 0;
+    if (sampleClocks < masterHz) {
+      _samplePhase = sampleClocks;
+    } else {
+      samples = sampleClocks ~/ masterHz;
+      _samplePhase = sampleClocks % masterHz;
+    }
     if (samples != 0) {
       if (memoryInhibit & 2 != 0 && sound.readsWaveMemory) {
         throw const DcUnsupported(
@@ -628,8 +638,12 @@ class DcAica {
     _tickDma(clocks);
     if (armReset) return;
     final armClocks = _armPhase + clocks * armHz;
-    _armPhase = armClocks % masterHz;
-    _armRemaining -= armClocks ~/ masterHz;
+    if (armClocks < masterHz) {
+      _armPhase = armClocks;
+    } else {
+      _armPhase = armClocks % masterHz;
+      _armRemaining -= armClocks ~/ masterHz;
+    }
     if (memoryInhibit & 4 != 0) {
       if (_armRemaining < 1) _armRemaining = 1;
       return;

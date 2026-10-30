@@ -177,13 +177,23 @@ class DcDmac {
   bool get addressError => _operation & 4 != 0;
 
   /// Enabled unfinished channels must be terminated before deep sleep entry.
-  bool get hasEnabledTransfers =>
-      _operation & 1 != 0 && _control.any((control) => control & 3 == 1);
+  bool get hasEnabledTransfers {
+    if (_operation & 1 == 0) return false;
+    for (var channel = 0; channel < 4; channel++) {
+      if (_control[channel] & 3 == 1) return true;
+    }
+    return false;
+  }
   bool interruptPending(int channel) => _control[channel] & 6 == 6;
 
-  bool get hasAutoMemoryTransfers =>
-      _operation & 7 == 1 &&
-      _control.any((control) => control & 3 == 1 && (control >> 8) & 15 == 4);
+  bool get hasAutoMemoryTransfers {
+    if (_operation & 7 != 1) return false;
+    for (var channel = 0; channel < 4; channel++) {
+      final control = _control[channel];
+      if (control & 3 == 1 && (control >> 8) & 15 == 4) return true;
+    }
+    return false;
+  }
 
   /// Device-visible writes need individual bus edges even when unrelated devices are idle.
   bool hasAutoMemoryTransferTo(bool Function(int) matches) {
@@ -200,11 +210,17 @@ class DcDmac {
     return false;
   }
 
-  bool get hasPeripheralTransfers =>
-      _operation & 7 == 1 &&
-      _control.any((control) =>
-          control & 3 == 1 &&
-          [5, 6, 8, 9, 10, 11, 13, 14].contains((control >> 8) & 15));
+  /// Resource selections 5, 6, 8-11, 13 and 14 are peripheral requests.
+  bool get hasPeripheralTransfers {
+    if (_operation & 7 != 1) return false;
+    for (var channel = 0; channel < 4; channel++) {
+      final control = _control[channel];
+      if (control & 3 == 1 && (0x6f60 >> ((control >> 8) & 15)) & 1 != 0) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   void nmi() {
     _operation |= 2;

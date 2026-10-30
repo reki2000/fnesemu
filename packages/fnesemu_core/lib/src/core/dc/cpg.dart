@@ -211,13 +211,31 @@ class DcCpg {
       _stabilizations--;
       _counter = stabilizing ? _preset : 0;
     }
-    final peripheral = (_peripheralPhase + clocks) ~/ peripheralPeriod;
-    final bus = (_busPhase + clocks) ~/ busPeriod;
-    _peripheralPhase = (_peripheralPhase + clocks) % peripheralPeriod;
-    _busPhase = (_busPhase + clocks) % busPeriod;
-    final watchdogTotal = _watchdogPhase + clocks;
-    final ticks = watchdogTotal ~/ watchdogPeriod;
-    _watchdogPhase = watchdogTotal % watchdogPeriod;
+    // Short advances stay below one period; skip the variable divisions then.
+    var peripheral = 0, bus = 0, ticks = 0;
+    final peripheralTotal = _peripheralPhase + clocks,
+        peripheralLength = peripheralPeriod;
+    if (peripheralTotal < peripheralLength) {
+      _peripheralPhase = peripheralTotal;
+    } else {
+      peripheral = peripheralTotal ~/ peripheralLength;
+      _peripheralPhase = peripheralTotal % peripheralLength;
+    }
+    final busTotal = _busPhase + clocks, busLength = busPeriod;
+    if (busTotal < busLength) {
+      _busPhase = busTotal;
+    } else {
+      bus = busTotal ~/ busLength;
+      _busPhase = busTotal % busLength;
+    }
+    final watchdogTotal = _watchdogPhase + clocks,
+        watchdogLength = watchdogPeriod;
+    if (watchdogTotal < watchdogLength) {
+      _watchdogPhase = watchdogTotal;
+    } else {
+      ticks = watchdogTotal ~/ watchdogLength;
+      _watchdogPhase = watchdogTotal % watchdogLength;
+    }
     if (_watchdog & 0x80 != 0) {
       final next = _counter + ticks;
       _counter = next & 255;
