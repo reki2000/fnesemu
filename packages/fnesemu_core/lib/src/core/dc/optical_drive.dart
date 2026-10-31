@@ -414,6 +414,14 @@ class DcOpticalDrive {
     reset();
   }
 
+  /// Consumes a pending media-change report, as a completed BIOS disc boot
+  /// leaves the drive before it enters the disc program.
+  void acknowledgeMediaChange() {
+    _unitAttention = false;
+    _sense.fillRange(0, 10, 0);
+    _sense[0] = 0xf0;
+  }
+
   void _signal(bool value) {
     _irq = value;
     onInterrupt(interrupt);

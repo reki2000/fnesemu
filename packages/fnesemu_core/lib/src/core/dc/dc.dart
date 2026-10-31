@@ -206,6 +206,8 @@ class Dc extends Core {
       bus.systemBus.write(0x10, 4, 1 << 3);
     }
     bus.cache.reset();
+    // The BIOS boot has already read the drive's media-change report.
+    bus.opticalDrive.acknowledgeMediaChange();
     bus.ram.setRange(0x8000, 0x10000, ip);
     bus.ram.setRange(programOffset, programOffset + program.length, program);
     cpu

@@ -339,6 +339,15 @@ void main() {
     expect(drain()[8], 0x3a);
   });
 
+  test('an acknowledged media change leaves TEST UNIT READY ready', () {
+    core.setCdromDrive(FakeCdromDrive([sector(1)]));
+    bus.opticalDrive.acknowledgeMediaChange();
+    packet([0]);
+    expect(bus.read8(base + 0x84), 0);
+    packet([0x13, 0, 0, 0, 10]);
+    expect(drain()[2], 0);
+  });
+
   test('GET_TOC returns primary-spec entries and leaves absent tracks all ones',
       () {
     core.setCdromDrive(FakeCdromDrive([sector(1), sector(2), sector(3)],
