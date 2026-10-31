@@ -170,14 +170,14 @@ void main() {
 
   test('fixed-point bilinear samples match floating-point positions', () {
     for (var i = 0; i < 64; i++) {
-      texel(i, i * 0x1357);
+      texel(i, (i ^ i >> 1) & 1 == 0 ? 0 : 0xffff); // A checkerboard.
     }
     final tex = texture(tsp: copy | 0x2000);
     final size = tex.width * tex.height;
     tex.cache = DcTextureCache(size, Int32List(1));
     expect(tex.sampleBilinearFixed(0x8000, 0x8000), -1);
     tex.decodeAll();
-    for (final (su, sv) in [(0x18000, 0x24000), (0x6ff7f, 0x10081), (0, 0)]) {
+    for (final (su, sv) in [(0x18000, 0x24000), (0x6ff80, 0x10080), (0, 0)]) {
       expect(tex.sampleBilinearFixed(su, sv),
           tex.sampleBilinear(su / (tex.width << 16), sv / (tex.height << 16)));
     }
