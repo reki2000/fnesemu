@@ -17,7 +17,8 @@ final class Sh4Jit {
   late final _translator = Sh4Translator(
       fetch: _fetch,
       protect: _code.protect,
-      fpuHelper: rt.addHelper(_floatingPoint));
+      fpuHelper: rt.addHelper(_floatingPoint),
+      prefetchHelper: rt.addHelper(_prefetch));
   late final _driver = JitDriver(rt,
       translate: _translator.translate,
       codeWord: _fetch,
@@ -105,6 +106,18 @@ final class Sh4Jit {
       if (fault != 0 && _code.isProtected(fault)) _code.release(fault);
     }
     return steps;
+  }
+
+  int _prefetch(int address, int _, int __) {
+    if (!DcBus.isStoreQueue(address)) return 0;
+    try {
+      _cpu.bus.transferStoreQueue(address);
+    } on DcCpuException {
+      return 1;
+    } on DcUnsupported {
+      return 1;
+    }
+    return 0;
   }
 
   int _floatingPoint(int op, int pc, int _) {

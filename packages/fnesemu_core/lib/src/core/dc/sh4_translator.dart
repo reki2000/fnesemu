@@ -28,11 +28,16 @@ final class Sh4Translator {
   /// Helper id for FPU arithmetic, called with the opcode and its PC. It
   /// returns 0 on completion or nonzero when the CPU must interpret it.
   final int fpuHelper;
+
+  /// Helper id for PREF, called with the address. It transfers a store
+  /// queue and returns 0, or nonzero when the CPU must interpret it.
+  final int prefetchHelper;
   final int maxInstructions;
   Sh4Translator(
       {required this.fetch,
       required this.protect,
       required this.fpuHelper,
+      required this.prefetchHelper,
       this.maxInstructions = 32});
 
   late IrBuilder b;
@@ -498,9 +503,12 @@ final class Sh4Translator {
           setR(n, t);
           return;
         case 0x0083:
-          // A store-queue burst writes external memory through the CPU.
-          final queue = b.ltU(b.sub(r(n), c(0xe0000000)), c(0x04000000));
-          b.exitIf(queue, exit);
+          // A store-queue burst writes external memory through the bus,
+          // which may tick the devices; values go to the context first.
+          final address = r(n);
+          flush();
+          values.clear();
+          b.exitIf(b.call(prefetchHelper, address), exit);
           return;
         case 0x0093 || 0x00a3 || 0x00b3:
           // A coherent cache holds no operand lines to operate on.
