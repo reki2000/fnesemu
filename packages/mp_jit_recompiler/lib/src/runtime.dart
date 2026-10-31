@@ -111,7 +111,7 @@ abstract class JitRuntime {
 
   /// Validate before compiling or publishing links to a block. Every
   /// executor supports the complete IR on every platform.
-  void checkBlock(IrBlock block) => block.verify(ctxWords: ctx.length);
+  void checkBlock(IrBlock block) => block.checkContext(ctx.length);
 
   /// zeroed memory which can be mapped with [mapPages]
   Uint8List alloc(int size);

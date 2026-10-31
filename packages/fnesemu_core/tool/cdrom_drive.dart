@@ -9,8 +9,8 @@ import 'package:fnesemu_core/src/cdrom_drive.dart';
 /// [CdromDrive] which starts reading [chunkSectors] sectors when the core asks
 /// for a sector not read yet, and keeps all the sectors read. [settle] waits
 /// for the reads, to give the same result regardless of the speed of the
-/// files.
-class SimpleCdromDrive implements CdromDrive {
+/// files. Subchannels come from images that retain them, as in the app.
+class SimpleCdromDrive implements CdromDrive, CdromSubcodeDrive {
   static const chunkSectors = 75;
 
   CdromDriveState _state = CdromDriveState.empty;
@@ -23,6 +23,11 @@ class SimpleCdromDrive implements CdromDrive {
 
   final _sectors = <int, Uint8List>{}; // empty if failed to read
   final _inflight = <int, Future<void>>{};
+  final _subcodes = <int, CdromSubcode>{};
+  final _subcodeInflight = <int, Future<void>>{};
+
+  bool get hasPendingReads =>
+      _inflight.isNotEmpty || _subcodeInflight.isNotEmpty;
 
   CdromDriveStatus _status = CdromDriveStatus.empty;
 
@@ -49,8 +54,8 @@ class SimpleCdromDrive implements CdromDrive {
 
   /// completes when all the reads in progress are done
   Future<void> settle() async {
-    while (_inflight.isNotEmpty) {
-      await Future.wait(_inflight.values.toSet());
+    while (hasPendingReads) {
+      await Future.wait({..._inflight.values, ..._subcodeInflight.values});
     }
   }
 
@@ -79,7 +84,14 @@ class SimpleCdromDrive implements CdromDrive {
       _toc = CdromToc([
         for (final t in image.toc.tracks)
           CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
-      ], image.totalSectors);
+      ], image.totalSectors,
+          sessions: image.toc.sessions == null
+              ? null
+              : [
+                  for (final session in image.toc.sessions!)
+                    CdromSession(
+                        session.number, session.firstTrack, session.startLba)
+                ]);
       _change(CdromDriveState.ready);
     } catch (e) {
       if (discId == _discId) _change(CdromDriveState.error);
@@ -97,6 +109,8 @@ class SimpleCdromDrive implements CdromDrive {
     }
     _sectors.clear();
     _inflight.clear();
+    _subcodes.clear();
+    _subcodeInflight.clear();
     _seekLba = 0;
     _seekRequested = false;
     _updateStatus();
@@ -117,6 +131,33 @@ class SimpleCdromDrive implements CdromDrive {
     final data = _sectors[lba];
     if (data == null) _load(lba);
     return data;
+  }
+
+  @override
+  CdromSubcode? readSubcode(int lba) {
+    final image = _image;
+    if (image == null || !_isReadable(lba)) {
+      return const CdromSubcode(readable: false);
+    }
+    if (image is! DiscSubcodeImage) return const CdromSubcode();
+    final data = _subcodes[lba];
+    if (data != null || _subcodeInflight.containsKey(lba)) return data;
+    final discId = _discId;
+    late final Future<void> future;
+    future = (image as DiscSubcodeImage).readSubcode(lba).then((raw) {
+      if (discId != _discId) return;
+      _subcodes[lba] =
+          raw == null ? const CdromSubcode() : CdromSubcode.fromRaw(raw);
+    }, onError: (_) {
+      if (discId != _discId) return;
+      _subcodes[lba] = const CdromSubcode(readable: false);
+    }).whenComplete(() {
+      if (discId == _discId && identical(_subcodeInflight[lba], future)) {
+        _subcodeInflight.remove(lba);
+      }
+    });
+    _subcodeInflight[lba] = future;
+    return null;
   }
 
   /// starts reading from [lba] up to [chunkSectors] sectors, if not read yet
