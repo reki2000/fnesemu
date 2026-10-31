@@ -439,34 +439,20 @@ class DcGpuTexture {
   static int _filter(int c0, int c1, int c2, int c3, double tx, double ty) {
     // Weights in 1/256 steps; the filter fraction precision is unverified.
     final fx = (tx * 256 + 0.5).toInt(), fy = (ty * 256 + 0.5).toInt();
-    final w0 = (256 - fx) * (256 - fy),
-        w1 = fx * (256 - fy),
-        w2 = (256 - fx) * fy,
-        w3 = fx * fy;
-    // Two channels per 64-bit lane pair; each lane sum stays below 2^24.
-    final even = _even(c0) * w0 +
-        _even(c1) * w1 +
-        _even(c2) * w2 +
-        _even(c3) * w3 +
-        0x0000800000008000;
-    final odd = _odd(c0) * w0 +
-        _odd(c1) * w1 +
-        _odd(c2) * w2 +
-        _odd(c3) * w3 +
-        0x0000800000008000;
-    return ((even >> 16) & 0xff) |
-        ((odd >> 8) & 0xff00) |
-        ((even >> 32) & 0xff0000) |
-        ((odd >> 24) & 0xff000000);
+    // All four channels in 16-bit lanes: a horizontal then a vertical
+    // blend, each lane staying below 2^16 before its rounding shift.
+    const lanes = 0x00ff00ff00ff00ff, half = 0x0080008000800080;
+    final gx = 256 - fx;
+    final top = ((_lanes(c0) * gx + _lanes(c1) * fx + half) >>> 8) & lanes;
+    final bottom = ((_lanes(c2) * gx + _lanes(c3) * fx + half) >>> 8) & lanes;
+    final mixed = ((top * (256 - fy) + bottom * fy + half) >>> 8) & lanes;
+    return (mixed & 0xff00ff) | ((mixed >>> 24) & 0xff00ff00);
   }
 
-  /// Channels 0 and 2 of a color at bits 0 and 32.
+  /// The channels of a color at bits 0, 16, 32 and 48, in the order
+  /// 0, 2, 1, 3.
   @pragma('vm:prefer-inline')
-  static int _even(int c) => (c & 0xff) | ((c & 0xff0000) << 16);
-
-  /// Channels 1 and 3 of a color at bits 0 and 32.
-  @pragma('vm:prefer-inline')
-  static int _odd(int c) => ((c >> 8) & 0xff) | ((c & 0xff000000) << 8);
+  static int _lanes(int c) => (c & 0xff00ff) | ((c & 0xff00ff00) << 24);
 
   @pragma('vm:prefer-inline')
   static double _position(double value, int size, bool clamp, bool flip) {
