@@ -1,14 +1,14 @@
 part of 'sh4.dart';
 
 extension _Sh4Fpu on Sh4 {
-  static final _single = Float32List(1);
-  static final _singleBits = Uint32List.view(_single.buffer);
-  static final _double = Float64List(1);
-  static final _doubleBits = Uint64List.view(_double.buffer);
+  // Bit reinterpretation goes through ByteData: aliased typed-list views
+  // of one buffer do not read back reliably on every host.
+  static final _singleData = ByteData(4);
+  static final _doubleData = ByteData(8);
 
   static double _toSingle(int bits) {
-    _singleBits[0] = bits;
-    return _single[0];
+    _singleData.setUint32(0, bits);
+    return _singleData.getFloat32(0);
   }
 
   static bool _normalSingle(int bits) {
@@ -23,14 +23,14 @@ extension _Sh4Fpu on Sh4 {
   /// back when that overshoots the magnitude. Returns -1 when the result is
   /// neither normal nor an exact zero.
   int _roundSingle(double value, double error, bool overshoot) {
-    _single[0] = value;
-    var bits = _singleBits[0];
+    _singleData.setFloat32(0, value);
+    var bits = _singleData.getUint32(0);
     if (value == 0 && error == 0 && !overshoot) {
       _setFloatFlags(0);
       return bits;
     }
     if (!_normalSingle(bits)) return -1;
-    final rounded = _single[0];
+    final rounded = _singleData.getFloat32(0);
     final inexact = error != 0 || overshoot || rounded != value;
     if (fpscr & 1 != 0) {
       final beyond = overshoot ||
@@ -42,8 +42,8 @@ extension _Sh4Fpu on Sh4 {
         if (!_normalSingle(bits)) return -1;
       }
     } else if (error != 0) {
-      _double[0] = value;
-      if (_doubleBits[0] & 0x1fffffff == 0x10000000) {
+      _doubleData.setFloat64(0, value);
+      if (_doubleData.getUint64(0) & 0x1fffffff == 0x10000000) {
         final away = (error > 0) == (value > 0);
         if (away != (rounded.abs() > value.abs())) {
           bits += away ? 1 : -1;
@@ -164,10 +164,10 @@ extension _Sh4Fpu on Sh4 {
           fr[n] = (a ^ b) & 0x80000000;
           return true;
         }
-        _single[0] = x / y;
-        bits = _singleBits[0];
+        _singleData.setFloat32(0, x / y);
+        bits = _singleData.getUint32(0);
         if (!_normalSingle(bits)) return false;
-        final product = _single[0] * y;
+        final product = _singleData.getFloat32(0) * y;
         if (fpscr & 1 != 0 && product.abs() > x.abs()) {
           bits--;
           if (!_normalSingle(bits)) return false;
