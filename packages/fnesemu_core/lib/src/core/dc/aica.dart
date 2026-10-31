@@ -645,21 +645,26 @@ class DcAica {
     var elapsed = span;
     _armBatch = true;
     try {
-      while (_armRemaining <= last) {
+      while (_armRemaining <= last && !_deviceChanged) {
         if (_armRemaining > before && _batchSynced < span) {
           _advanceDevices(span - _batchSynced);
           _batchSynced = span;
         }
-        _instructionDue = _armRemaining;
+        // The interrupt line changes only with the devices or a register
+        // access, which ends the span.
         _armRearm = false;
         _captureArmInterrupt();
         arm.fiq = _armInterruptLevel != 0;
-        _armRemaining += arm.step();
-        if (arm.instructionExecuted) executedInstructions++;
-        if (_deviceChanged) {
-          elapsed = _armTime(_instructionDue);
-          break;
-        }
+        final limit = _batchSynced < span ? before : last;
+        do {
+          _instructionDue = _armRemaining;
+          _armRemaining += arm.step();
+          if (arm.instructionExecuted) executedInstructions++;
+          if (_deviceChanged) {
+            elapsed = _armTime(_instructionDue);
+            break;
+          }
+        } while (_armRemaining <= limit);
       }
     } on DcUnsupported {
       // A development stop must not leave a zero/negative scheduler deadline.
