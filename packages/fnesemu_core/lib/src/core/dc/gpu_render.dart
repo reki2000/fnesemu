@@ -1280,6 +1280,7 @@ class DcGpuRender {
     final fogOffset = isp & 0x01000000 != 0;
     final vbx = b.x, vcx = c.x, vax = a.x;
     final depthBuffer = _depth, colorBuffer = _colors;
+    if (quickRows) texture.decodeAll();
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.

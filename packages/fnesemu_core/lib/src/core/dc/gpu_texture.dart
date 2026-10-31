@@ -228,6 +228,19 @@ class DcGpuTexture {
     return texel;
   }
 
+  /// Decodes every level-0 texel once per cache generation, so that
+  /// [sampleBilinear] can skip the per-texel stamps.
+  void decodeAll() {
+    final cache = this.cache!;
+    if (cache.complete == cache.generation) return;
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        _texelAt(x, y, 0, 0);
+      }
+    }
+    cache.complete = cache.generation;
+  }
+
   int _decodeTexel(int x, int y, int level, int bumpParameters) {
     final w = width >> level, h = height >> level, exponent = _maxLevel - level;
     final index = _index(x, y, w, h);
@@ -376,10 +389,11 @@ class DcGpuTexture {
       final left = su.toInt(), top = sv.toInt();
       final row0 = cache.levelOffsets[0] + top * w + left, row1 = row0 + w;
       final stamps = cache.stamps, generation = cache.generation;
-      if (stamps[row0] == generation &&
-          stamps[row0 + 1] == generation &&
-          stamps[row1] == generation &&
-          stamps[row1 + 1] == generation) {
+      if (cache.complete == generation ||
+          stamps[row0] == generation &&
+              stamps[row0 + 1] == generation &&
+              stamps[row1] == generation &&
+              stamps[row1 + 1] == generation) {
         final texels = cache.texels;
         return _filter(texels[row0], texels[row0 + 1], texels[row1],
             texels[row1 + 1], su - left, sv - top);
@@ -542,6 +556,9 @@ class DcTextureCache {
   final Int32List levelOffsets;
   int generation = 1;
 
+  /// The generation in which every level-0 texel was decoded.
+  int complete = 0;
+
   /// VRAM page clock and palette version when the contents were validated.
   int checked = 0, paletteVersion = -1;
 
@@ -549,6 +566,7 @@ class DcTextureCache {
     if (++generation == 0xffffffff) {
       stamps.fillRange(0, stamps.length, 0);
       generation = 1;
+      complete = 0;
     }
   }
 }
