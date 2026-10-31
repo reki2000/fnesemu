@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../../state.dart';
+import '../../util/uint32list.dart';
 import '../../util/uint8list.dart';
 import 'fault.dart';
 import 'gpu_fog.dart';
@@ -1261,10 +1262,10 @@ class DcGpuRender {
     if (background && flat && _visibility == 0 && _materialArea < 0) {
       // The background coverage triangle contains the whole tile.
       if (tsp & 0x01000000 != 0) {
-        _secondary.fillRange(0, 1024, flatColor);
+        _secondary.fill(0, 1024, flatColor);
         _secondaryValid.fillRange(0, 1024, 1);
       } else {
-        _colors.fillRange(0, 1024, flatColor);
+        _colors.fill(0, 1024, flatColor);
       }
       return;
     }

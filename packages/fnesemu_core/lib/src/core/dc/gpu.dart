@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../../state.dart';
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/uint32list.dart';
 import 'fault.dart';
 import 'gpu_palette.dart';
 import 'gpu_render.dart';
@@ -507,7 +508,7 @@ class DcGpu {
         sourceWidth,
         sourceHeight * lineRepeat,
         Uint32List(sourceWidth * sourceHeight * lineRepeat)
-          ..fillRange(0, sourceWidth * sourceHeight * lineRepeat, border),
+          ..fill(0, sourceWidth * sourceHeight * lineRepeat, border),
         displayWidth_: sourceWidth * pixelRepeat,
         displayHeight: sourceHeight * lineRepeat);
     final frame = _scanning!;
@@ -569,7 +570,7 @@ class DcGpu {
     for (final edge in edges) {
       if (edge <= x) continue;
       if (!visible(x)) {
-        buffer.fillRange(base + x, base + edge, border);
+        buffer.fill(base + x, base + edge, border);
       } else if (!direct) {
         for (; x < edge; x++) {
           buffer[base + x] = _pixel(start + x * bytesPerPixel, depth, concat);
