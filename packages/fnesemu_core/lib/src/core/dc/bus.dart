@@ -325,9 +325,20 @@ class DcBus {
 
   /// Main RAM holds no device state, so its accesses need no device sync.
   /// Other data accesses, and root-bus fetches while G1 DMA runs, sync first.
-  void _syncFor(int address, DcTranslation? mapping, {bool fetch = false}) {
+  void _syncFor(int address, DcTranslation? mapping,
+      {bool fetch = false, bool write = false}) {
     if (_ordinaryRam(mapping?.physical ?? address)) return;
     if (fetch && !g1.busy) return;
+    address = address.mask32;
+    // CCN registers do not depend on device time, nor do G2 DMA registers
+    // while no channel can run, except for writes that may start one.
+    if (address >= 0xff000000 && address < 0xff000040) return;
+    final physical = (mapping?.physical ?? address) & 0x1fffffff;
+    if (physical & 0x1fffff00 == 0x005f7800 &&
+        (!write || physical & 0x1f == 0x1c) &&
+        g2.idle) {
+      return;
+    }
     syncDevices();
   }
 
@@ -410,7 +421,7 @@ class DcBus {
     if (isStoreQueue(address)) {
       mapping = null;
     } else {
-      _syncFor(address, mapping);
+      _syncFor(address, mapping, write: true);
     }
     switch (size) {
       case 1:
@@ -434,7 +445,7 @@ class DcBus {
     if (isStoreQueue(address)) {
       mapping = null;
     } else {
-      _syncFor(address, mapping);
+      _syncFor(address, mapping, write: true);
     }
     writePair(address, first, second, mapping: mapping);
   }
