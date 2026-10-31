@@ -20,6 +20,7 @@ class DcArm7di {
   final Uint8List _memory;
   final ByteData _words;
 
+  @pragma('vm:prefer-inline')
   int _read(int address, int size) {
     if (address >= 0 && address + size <= _memory.length) {
       return size == 1
@@ -153,37 +154,26 @@ class DcArm7di {
   }
 
   // Bit f of entry c is set when condition c passes with NZCV flags f.
-  static final _conditions = Uint16List.fromList([
-    for (var condition = 0; condition < 16; condition++)
-      [
-        for (var flags = 0; flags < 16; flags++)
-          _passes(condition, flags) ? 1 << flags : 0
-      ].fold(0, (mask, bit) => mask | bit)
-  ]);
+  static const _conditions = <int>[
+    0xf0f0,
+    0x0f0f,
+    0xcccc,
+    0x3333,
+    0xff00,
+    0x00ff,
+    0xaaaa,
+    0x5555,
+    0x0c0c,
+    0xf3f3,
+    0xaa55,
+    0x55aa,
+    0x0a05,
+    0xf5fa,
+    0xffff,
+    0x0000
+  ];
 
-  static bool _passes(int condition, int flags) {
-    final n = flags & 8 != 0, z = flags & 4 != 0;
-    final c = flags & 2 != 0, v = flags & 1 != 0;
-    return switch (condition) {
-      0 => z,
-      1 => !z,
-      2 => c,
-      3 => !c,
-      4 => n,
-      5 => !n,
-      6 => v,
-      7 => !v,
-      8 => c && !z,
-      9 => !c || z,
-      10 => n == v,
-      11 => n != v,
-      12 => !z && n == v,
-      13 => z || n != v,
-      14 => true,
-      _ => false,
-    };
-  }
-
+  @pragma('vm:prefer-inline')
   bool _condition(int value) => (_conditions[value] >> (_cpsr >>> 28)) & 1 != 0;
 
   int _reg(int index, {int ahead = 8}) =>
@@ -241,15 +231,6 @@ class DcArm7di {
     return _shift(_reg(op & 15, ahead: byRegister ? 12 : 8), (op >> 5) & 3,
         byRegister ? _reg((op >> 8) & 15) & 255 : (op >> 7) & 31,
         immediate: !byRegister);
-  }
-
-  (int, bool, bool) _add(int a, int b, int carry) {
-    final sum = a + b + carry, result = (a + b + carry).mask32;
-    return (
-      result,
-      sum > 0xffffffff,
-      a.rel32 + b.rel32 + carry != result.rel32
-    );
   }
 
   void _flags(int value, bool carry, {bool? overflow}) {
@@ -374,22 +355,41 @@ class DcArm7di {
       if (mode != 0x10) cpsr = spsr;
       return registerShift ? 2 : 1;
     }
-    final a = _reg((op >> 16) & 15, ahead: registerShift ? 12 : 8);
-    final (b, carry) = _operand(op);
-    var result = 0, c = carry;
-    bool? overflow;
+    final rn = (op >> 16) & 15;
+    final a = rn == 15 ? (pc + (registerShift ? 12 : 8)).mask32 : r[rn];
+    final flagC = _cpsr & 0x20000000 != 0;
+    int b;
+    bool c;
+    if (op & 0x02000000 != 0) {
+      final rotate = ((op >> 8) & 15) * 2;
+      b = _ror(op & 255, rotate);
+      c = rotate == 0 ? flagC : b & 0x80000000 != 0;
+    } else if (op & 0xff0 == 0) {
+      // A register operand without shift.
+      b = _reg(op & 15);
+      c = flagC;
+    } else {
+      (b, c) = _operand(op);
+    }
+    int result;
     // Codes 2-7, 10 and 11: SUB, RSB, ADD, ADC, SBC, RSC, CMP and CMN.
-    if ((0xcfc >> code) & 1 != 0) {
-      final cin = _cpsr & 0x20000000 != 0 ? 1 : 0;
-      final arithmetic = switch (code) {
-        2 || 10 => _add(a, (~b).mask32, 1),
-        3 => _add(b, (~a).mask32, 1),
-        4 || 11 => _add(a, b, 0),
-        5 => _add(a, b, cin),
-        6 => _add(a, (~b).mask32, cin),
-        _ => _add(b, (~a).mask32, cin),
-      };
-      (result, c, overflow) = arithmetic;
+    final arithmetic = (0xcfc >> code) & 1 != 0;
+    var overflow = false;
+    if (arithmetic) {
+      // Reverse forms swap the operands; subtractions add the complement.
+      final reverse = code == 3 || code == 7;
+      final x = reverse ? b : a, other = reverse ? a : b;
+      final y =
+          code == 4 || code == 5 || code == 11 ? other : other ^ 0xffffffff;
+      final carryIn = code >= 5 && code <= 7
+          ? (flagC ? 1 : 0)
+          : code == 4 || code == 11
+              ? 0
+              : 1;
+      final sum = x + y + carryIn;
+      result = sum.mask32;
+      c = sum > 0xffffffff;
+      overflow = (x ^ result) & (y ^ result) & 0x80000000 != 0;
     } else {
       result = switch (code) {
         0 || 8 => a & b,
@@ -405,7 +405,13 @@ class DcArm7di {
       if (set) cpsr = spsr;
       _nextPc = result & 0xfffffffc;
     } else {
-      if (set) _flags(result, c, overflow: overflow);
+      if (set) {
+        _cpsr = (_cpsr & (arithmetic ? 0x0fffffff : 0x1fffffff)) |
+            (result & 0x80000000) |
+            (result == 0 ? 0x40000000 : 0) |
+            (c ? 0x20000000 : 0) |
+            (overflow ? 0x10000000 : 0);
+      }
       if (!test) r[rd] = result;
     }
     return (registerShift ? 2 : 1) + (!test && rd == 15 ? 2 : 0);
