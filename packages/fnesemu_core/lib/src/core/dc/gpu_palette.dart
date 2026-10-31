@@ -11,11 +11,28 @@ class DcGpuPalette {
   int get control => _control;
   set control(int value) {
     _control = value & 3;
-    version++;
+    _changeAll();
   }
 
-  /// Changes with palette contents or format; texture caches compare it.
+  /// Changes with palette contents or format.
   int version = 0;
+
+  // The version of the last format or whole-palette change, and of the last
+  // change in each block of 16 entries.
+  int _allVersion = 0;
+  final _blockVersions = Uint32List(64);
+
+  void _changeAll() => _allVersion = ++version;
+
+  /// The latest [version] that changed the [count] entries from [first].
+  int versionOf(int first, int count) {
+    var result = _allVersion;
+    for (var block = first >> 4; block < (first + count + 15) >> 4; block++) {
+      final changed = _blockVersions[block & 63];
+      if (changed > result) result = changed;
+    }
+    return result;
+  }
 
   void saveState(StateWriter writer) {
     writer.section('dc.gpu.palette');
@@ -34,12 +51,12 @@ class DcGpuPalette {
     }
     _control = control;
     words.setAll(0, values);
-    version++;
+    _changeAll();
   }
 
   void reset({bool clearMemory = false}) {
     _control = 0;
-    version++;
+    _changeAll();
     if (clearMemory) words.fillRange(0, words.length, 0);
   }
 
@@ -56,8 +73,11 @@ class DcGpuPalette {
 
   void write(int offset, int size, int value) {
     _validate(offset, size);
-    words[offset ~/ 4] = value & (_control == 3 ? 0xffffffff : 0xffff);
-    version++;
+    final index = offset ~/ 4;
+    value &= _control == 3 ? 0xffffffff : 0xffff;
+    if (words[index] == value) return;
+    words[index] = value;
+    _blockVersions[index >> 4] = ++version;
   }
 
   int color(int index) {

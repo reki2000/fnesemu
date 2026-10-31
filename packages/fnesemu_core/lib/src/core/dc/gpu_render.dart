@@ -814,6 +814,7 @@ class DcGpuRender {
   }
 
   final _textureCaches = <int, DcTextureCache>{};
+  int _textureCacheTexels = 0;
 
   /// Builds a texture view with decoded texels shared across tiles and frames.
   /// The cache is revalidated against VRAM page stamps and the palette version.
@@ -832,28 +833,39 @@ class DcGpuRender {
       final w = width >> level, h = height >> level;
       size += (w < 1 ? 1 : w) * (h < 1 ? 1 : h);
     }
-    if (size > 1 << 19) return texture;
+    if (size > 1 << 20) return texture;
     final key =
         (tcw & 0xffffffff) | ((tsp & 0x3f) << 32) | ((control & 31) << 38);
     var cache = _textureCaches[key];
     if (cache == null) {
-      if (_textureCaches.length >= 128) _textureCaches.clear();
+      // At most 128 caches and 8M texels, or 64 MiB of texels and stamps.
+      if (_textureCaches.length >= 128 ||
+          _textureCacheTexels + size > 1 << 23) {
+        _textureCaches.clear();
+        _textureCacheTexels = 0;
+      }
       cache = _textureCaches[key] = DcTextureCache(size, offsets);
+      _textureCacheTexels += size;
     }
     // A conservative byte span in the 64-bit texture space, mapped to both
-    // storage banks.
+    // storage banks. Texels past the end of VRAM are never read.
     final base = texture.base;
-    final end = base + (texture.compressed ? 0x800 : 8) + size * 2;
-    final low = (base >> 1) & 0x3ffffc, high = ((end >> 1) & 0x3ffffc) + 4;
+    final end = math.min(
+        base + (texture.compressed ? 0x800 : 8) + size * 2, memory.length);
+    final low = (base >> 1) & 0x3ffffc, high = ((end - 1) >> 1) + 4;
     final written = high > low
         ? math.max(_pages.newest(low, high),
             _pages.newest(low + 0x400000, high + 0x400000))
         : _pages.clock;
-    if (written > cache.checked || cache.paletteVersion != palette.version) {
+    // Only indexed textures depend on the palette entries they select.
+    final paletteVersion = texture.format == 5 || texture.format == 6
+        ? palette.versionOf(texture.selector, texture.format == 5 ? 16 : 256)
+        : 0;
+    if (written > cache.checked || cache.paletteVersion != paletteVersion) {
       cache.invalidate();
     }
     cache.checked = _pages.clock;
-    cache.paletteVersion = palette.version;
+    cache.paletteVersion = paletteVersion;
     texture.cache = cache;
     return texture;
   }

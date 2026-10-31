@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/fault.dart';
+import 'package:fnesemu_core/src/core/dc/gpu_palette.dart';
 import 'package:fnesemu_core/src/core/dc/gpu_texture.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -166,6 +167,19 @@ void main() {
     expect(view.sample(15 / 16, 0), 0xffff8080);
     expect(texture(tsp: copy | 0x12000).sample(15 / 16, 0), 0xffffffff);
     expect(texture(tsp: copy | 0x4000).sample(1 / 16, 1 / 16), 0xffff0000);
+  });
+
+  test('palette versions track the entries a texture selects', () {
+    final palette = DcGpuPalette()..write(0x40, 4, 0x1234);
+    final low = palette.versionOf(0, 16), high = palette.versionOf(16, 16);
+    expect(high, greaterThan(low));
+    palette.write(0x40, 4, 0x1234);
+    expect(palette.versionOf(16, 16), high);
+    palette.write(0x400, 4, 1);
+    expect(palette.versionOf(0, 16), low);
+    expect(palette.versionOf(0, 256), greaterThan(high));
+    palette.control = 1;
+    expect(palette.versionOf(0, 16), greaterThan(low));
   });
 
   test('fixed-point bilinear samples match floating-point positions', () {
