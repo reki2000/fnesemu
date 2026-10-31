@@ -600,9 +600,9 @@ class DcAica {
             : timerEvent;
   }
 
-  /// Advances in steps that end at each event, including ARM instructions.
-  /// The device event holds until a sample or an ARM register access may
-  /// move it.
+  /// Advances to each device event. Between events the ARM runs alone;
+  /// an ARM register access first brings the devices to its own time and
+  /// then ends the span, since it may move the next event.
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
     do {
@@ -612,25 +612,109 @@ class DcAica {
           : event < 1
               ? 1
               : event;
-      var done = 0;
-      _deviceChanged = false;
-      do {
-        var step = span - done;
-        if (!armReset && memoryInhibit & 4 == 0) {
-          final armEvent =
-              (_armRemaining * masterHz - _armPhase + armHz - 1) ~/ armHz;
-          if (armEvent < step) step = armEvent < 1 ? 1 : armEvent;
-        }
-        _advance(step);
-        done += step;
-      } while (done < span && !_deviceChanged);
-      clocks -= done;
+      if (armReset || memoryInhibit & 4 != 0) {
+        _advance(span);
+        clocks -= span;
+      } else {
+        clocks -= _runArm(span);
+      }
     } while (clocks > 0);
   }
 
   bool _deviceChanged = false;
 
+  // Within [_runArm]: the ARM phase at the span start, the master clocks
+  // the devices have reached, and the cycle count at which the current
+  // instruction became due.
+  bool _armBatch = false;
+  int _batchPhase = 0, _batchSynced = 0, _instructionDue = 0;
+
+  /// Master clocks from the span start until [due] ARM cycles have passed.
+  int _armTime(int due) =>
+      due <= 0 ? 0 : (due * masterHz - _batchPhase + armHz - 1) ~/ armHz;
+
+  /// Runs the ARM instructions due within [span], then brings the devices
+  /// to the end of the span or to the register access that ended it. The
+  /// devices reach the end before the instructions due exactly there.
+  int _runArm(int span) {
+    final phase = _batchPhase = _armPhase;
+    final before = (phase + (span - 1) * armHz) ~/ masterHz;
+    final last = (phase + span * armHz) ~/ masterHz;
+    _batchSynced = 0;
+    _deviceChanged = false;
+    var elapsed = span;
+    _armBatch = true;
+    try {
+      while (_armRemaining <= last) {
+        if (_armRemaining > before && _batchSynced < span) {
+          _advanceDevices(span - _batchSynced);
+          _batchSynced = span;
+        }
+        _instructionDue = _armRemaining;
+        _armRearm = false;
+        _captureArmInterrupt();
+        arm.fiq = _armInterruptLevel != 0;
+        _armRemaining += arm.step();
+        if (arm.instructionExecuted) executedInstructions++;
+        if (_deviceChanged) {
+          elapsed = _armTime(_instructionDue);
+          break;
+        }
+      }
+    } on DcUnsupported {
+      // A development stop must not leave a zero/negative scheduler deadline.
+      _armRemaining = 1;
+      rethrow;
+    } finally {
+      _armBatch = false;
+    }
+    _advanceDevices(elapsed - _batchSynced);
+    final armClocks = phase + elapsed * armHz;
+    _armPhase = armClocks % masterHz;
+    _armRemaining -= armClocks ~/ masterHz;
+    return elapsed;
+  }
+
+  /// Brings the devices to the time of the running ARM instruction.
+  void _syncArm() {
+    if (_armBatch) {
+      final time = _armTime(_instructionDue);
+      _advanceDevices(time - _batchSynced);
+      _batchSynced = time;
+    }
+    _deviceChanged = true;
+  }
+
   void _advance(int clocks) {
+    _advanceDevices(clocks);
+    if (armReset) return;
+    final armClocks = _armPhase + clocks * armHz;
+    if (armClocks < masterHz) {
+      _armPhase = armClocks;
+    } else {
+      _armPhase = armClocks % masterHz;
+      _armRemaining -= armClocks ~/ masterHz;
+    }
+    if (memoryInhibit & 4 != 0) {
+      if (_armRemaining < 1) _armRemaining = 1;
+      return;
+    }
+    while (_armRemaining <= 0) {
+      try {
+        _armRearm = false;
+        _captureArmInterrupt();
+        arm.fiq = _armInterruptLevel != 0;
+        _armRemaining += arm.step();
+        if (arm.instructionExecuted) executedInstructions++;
+      } on DcUnsupported {
+        // A development stop must not leave a zero/negative scheduler deadline.
+        _armRemaining = 1;
+        rethrow;
+      }
+    }
+  }
+
+  void _advanceDevices(int clocks) {
     // Short advances stay within one second or one sample; skip the divisions then.
     final rtcClocks = _rtcPhase + clocks;
     if (rtcClocks < masterHz) {
@@ -673,31 +757,6 @@ class DcAica {
       _signal();
     }
     _tickDma(clocks);
-    if (armReset) return;
-    final armClocks = _armPhase + clocks * armHz;
-    if (armClocks < masterHz) {
-      _armPhase = armClocks;
-    } else {
-      _armPhase = armClocks % masterHz;
-      _armRemaining -= armClocks ~/ masterHz;
-    }
-    if (memoryInhibit & 4 != 0) {
-      if (_armRemaining < 1) _armRemaining = 1;
-      return;
-    }
-    while (_armRemaining <= 0) {
-      try {
-        _armRearm = false;
-        _captureArmInterrupt();
-        arm.fiq = _armInterruptLevel != 0;
-        _armRemaining += arm.step();
-        if (arm.instructionExecuted) executedInstructions++;
-      } on DcUnsupported {
-        // A development stop must not leave a zero/negative scheduler deadline.
-        _armRemaining = 1;
-        rethrow;
-      }
-    }
   }
 
   void _requireDmaIdle() {
@@ -771,7 +830,7 @@ class DcAica {
       return size == 1 ? memory[address] : memory.getUint32LE(address);
     }
     if (address >= 0x800000 && address < 0x808000 && address != 0x802c00) {
-      _deviceChanged = true;
+      _syncArm();
       return read(address - 0x800000, size, fromArm: true);
     }
     throw DcUnsupported('AICA ARM memory read at $address ($size bytes)');
@@ -803,7 +862,7 @@ class DcAica {
       return;
     }
     if (address >= 0x800000 && address < 0x808000 && address != 0x802c00) {
-      _deviceChanged = true;
+      _syncArm();
       write(address - 0x800000, size, value, fromArm: true);
       return;
     }
