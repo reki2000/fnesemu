@@ -1294,6 +1294,11 @@ class DcGpuRender {
         _visibility == 0;
     final compare = isp >> 29, writeDepth = isp & 0x04000000 == 0;
     final quickColor = sc.color | opaqueAlpha, quickOffset = sc.offsetColor;
+    final shadeMode = (tsp >> 6) & 3, quickGray = quickColor & 255;
+    final gray =
+        (shadeMode == 1 || shadeMode == 3 && quickColor >>> 24 == 255) &&
+            quickColor & 0xffffff == quickGray * 0x10101;
+    final ignoredAlpha = tsp & 0x80000 != 0 ? 0xff000000 : 0;
     final fogOffset = isp & 0x01000000 != 0;
     final vbx = b.x, vcx = c.x, vax = a.x;
     final depthBuffer = _depth, colorBuffer = _colors;
@@ -1372,7 +1377,10 @@ class DcGpuRender {
           if (!pass || z == 0) continue;
           final inverse = 1 / z;
           final texel = texture.sampleBilinear(uz * inverse, vz * inverse);
-          var shaded = DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
+          var shaded = gray
+              ? DcGpuTexture.shadeGray(
+                  texel, quickGray, quickOffset, ignoredAlpha)
+              : DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
           if (quickFog) {
             shaded =
                 fog.apply(shaded, z, quickOffset, tsp, hasOffset: fogOffset);

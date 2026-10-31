@@ -180,6 +180,17 @@ void main() {
         DcGpuTexture.shade(
             0x80402010, 0x80804020, 0x00010203, (3 << 6) | 0x80000),
         0x80210a05);
+    // The gray fast path matches modulation with equal RGB channels.
+    for (final (texel, gray, offset, tsp) in [
+      (0x80ff7f01, 0xe0, 0xff060606, 3 << 6),
+      (0x12fe0080, 0xff, 0x00fcfdfe, 1 << 6),
+      (0x00345678, 0x01, 0x00000000, (3 << 6) | 0x80000),
+    ]) {
+      expect(
+          DcGpuTexture.shadeGray(
+              texel, gray, offset, tsp & 0x80000 != 0 ? 0xff000000 : 0),
+          DcGpuTexture.shade(0xff000000 | gray * 0x10101, texel, offset, tsp));
+    }
   });
 
   test(
