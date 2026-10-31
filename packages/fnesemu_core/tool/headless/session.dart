@@ -11,6 +11,7 @@ import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/sram.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:image/image.dart' as img;
@@ -60,7 +61,7 @@ const mediaUsage = """
   --fast-boot        ps: skip the logo animation of the BIOS
   --fixed-clock      ss: the real time clock always reads 2000-01-01
   --log-cd           ss: log the commands of the CD block
-  --32x-slice-clocks N  32x: CPU quantum (default 32; 1 selects legacy; requires --jit)
+  --32x-slice-clocks N  32x: CPU quantum (default 64; 1 selects legacy; requires --jit)
   --ss-slice-clocks N  ss: experimental CPU quantum (default 64; requires --jit)
   --dc-profile diagnostic  dc: legacy probe timing/pins with provisional audio
   --dc-drive-format HEX  dc: explicit diagnostic drive-format override
@@ -108,6 +109,9 @@ class Session {
   final PadPlayer pad;
   final List<String> buttons;
   final List<PadButton> _pads;
+
+  /// the controller state that the core reads
+  final input = PadState();
   final bool frameRunner;
 
   /// dc: the frame after which the disc program is booted
@@ -124,7 +128,9 @@ class Session {
 
   Session._(this.name, this.core, this.drive, this.pad, this.buttons,
       this.frameRunner)
-      : _pads = core.buttons;
+      : _pads = core.buttons {
+    core.input = input;
+  }
 
   /// loads the media of [o] into the core of [name]; with [recordAudio],
   /// keeps the audio output in [pcm]
@@ -157,7 +163,7 @@ class Session {
       throw UsageError(
           '--ss-slice-clocks requires ss --jit on|off and a positive value');
     }
-    final expansionSlice = o.integer('--32x-slice-clocks', 32);
+    final expansionSlice = o.integer('--32x-slice-clocks', 64);
     if (o['--32x-slice-clocks'] != null &&
         (name != '32x' || mode == null || expansionSlice <= 0)) {
       throw UsageError(
@@ -338,7 +344,7 @@ class Session {
       if (b == _pads.length) {
         if (down) core.reset();
       } else {
-        down ? core.padDown(0, _pads[b]) : core.padUp(0, _pads[b]);
+        down ? input.press(0, _pads[b]) : input.release(0, _pads[b]);
       }
     });
   }
