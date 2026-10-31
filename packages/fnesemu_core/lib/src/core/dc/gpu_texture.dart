@@ -355,23 +355,36 @@ class DcGpuTexture {
           ? texels[row1 + x1]
           : _texelAt(x1, y1, level, parameters);
     }
-    final w0 = (1 - tx) * (1 - ty),
-        w1 = tx * (1 - ty),
-        w2 = (1 - tx) * ty,
-        w3 = tx * ty;
-    return _blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 0) |
-        (_blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 8) << 8) |
-        (_blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 16) << 16) |
-        (_blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 24) << 24);
+    // Weights in 1/256 steps; the filter fraction precision is unverified.
+    final fx = (tx * 256 + 0.5).toInt(), fy = (ty * 256 + 0.5).toInt();
+    final w0 = (256 - fx) * (256 - fy),
+        w1 = fx * (256 - fy),
+        w2 = (256 - fx) * fy,
+        w3 = fx * fy;
+    // Two channels per 64-bit lane pair; each lane sum stays below 2^24.
+    final even = _even(c0) * w0 +
+        _even(c1) * w1 +
+        _even(c2) * w2 +
+        _even(c3) * w3 +
+        0x0000800000008000;
+    final odd = _odd(c0) * w0 +
+        _odd(c1) * w1 +
+        _odd(c2) * w2 +
+        _odd(c3) * w3 +
+        0x0000800000008000;
+    return ((even >> 16) & 0xff) |
+        ((odd >> 8) & 0xff00) |
+        ((even >> 32) & 0xff0000) |
+        ((odd >> 24) & 0xff000000);
   }
 
+  /// Channels 0 and 2 of a color at bits 0 and 32.
   @pragma('vm:prefer-inline')
-  static int _blendTap(int c0, int c1, int c2, int c3, double w0, double w1,
-          double w2, double w3, int shift) =>
-      roundByte(((c0 >> shift) & 255) * w0 +
-          ((c1 >> shift) & 255) * w1 +
-          ((c2 >> shift) & 255) * w2 +
-          ((c3 >> shift) & 255) * w3);
+  static int _even(int c) => (c & 0xff) | ((c & 0xff0000) << 16);
+
+  /// Channels 1 and 3 of a color at bits 0 and 32.
+  @pragma('vm:prefer-inline')
+  static int _odd(int c) => ((c >> 8) & 0xff) | ((c & 0xff000000) << 8);
 
   static double _position(double value, int size, bool clamp, bool flip) {
     value *= size;

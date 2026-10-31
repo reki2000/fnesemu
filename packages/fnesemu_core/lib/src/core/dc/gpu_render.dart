@@ -1711,6 +1711,18 @@ class DcGpuRender {
       final memoryRow = _stripLines == 0 ? py : py % _stripLines;
       final rowAddress = (start & 0x7fffff) + memoryRow * stride;
       final interleaved = start & 0x1000000 != 0;
+      final first = rowAddress + originX * 2;
+      if (bytes == 2 &&
+          !halfWidth &&
+          !interleaved &&
+          originX >= (xClip & 2047) &&
+          originX + 31 <= (xClip >> 16) &&
+          first >= 0 &&
+          first + 64 <= memory.length) {
+        _writeRow16(first, y, py, mode, kval, threshold,
+            ranks == null ? null : (py & 3) * 4, rgbShift, greenShift);
+        continue;
+      }
       // One stamp per run of bytes on the same page keeps the newest stamp.
       var markedPage = -1;
       for (var x = 0; x < 32; x += step) {
@@ -1788,6 +1800,46 @@ class DcGpuRender {
           memory[offset] = (value >> (8 * i)) & 255;
         }
       }
+    }
+  }
+}
+
+extension on DcGpuRender {
+  /// One unclipped tile row of 16-bit pixels in linear VRAM; the same
+  /// conversion as the general [DcGpuRender._writeTile] loop.
+  void _writeRow16(int first, int y, int py, int mode, int kval, int threshold,
+      int? rankRow, int rgbShift, int greenShift) {
+    const ranks = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    final colors = _colors, memory = this.memory;
+    _pages.mark(first);
+    _pages.mark(first + 63);
+    for (var x = 0; x < 32; x++) {
+      final color = colors[y * 32 + x];
+      var r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255;
+      if (rankRow != null) {
+        final rank = ranks[rankRow + (x & 3)];
+        final rgb = (rank << rgbShift) >> 4, green = (rank << greenShift) >> 4;
+        r += rgb;
+        b += rgb;
+        g += green;
+        if (r > 255) r = 255;
+        if (g > 255) g = 255;
+        if (b > 255) b = 255;
+      }
+      final value = switch (mode) {
+        0 =>
+          ((kval & 128) << 8) | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3),
+        1 => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3),
+        2 =>
+          ((color >> 28) << 12) | ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4),
+        _ => ((color >> 24 >= threshold ? 1 : 0) << 15) |
+            ((r >> 3) << 10) |
+            ((g >> 3) << 5) |
+            (b >> 3),
+      };
+      final offset = first + x * 2;
+      memory[offset] = value & 255;
+      memory[offset + 1] = value >> 8;
     }
   }
 }
