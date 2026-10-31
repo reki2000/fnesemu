@@ -208,28 +208,46 @@ class Sh2OnChip {
         wtcsr & 0xc0 == 0x80;
   }
 
-  /// returns (level, vector) of the highest pending on-chip interrupt
-  (int, int) pendingInterrupt() {
-    int level = 0, vector = 0;
+  /// the level and the vector of the highest pending on-chip interrupt, set by
+  /// [updatePendingInterrupt]
+  int pendingLevel = 0, pendingVector = 0;
 
-    void check(bool pending, int l, int v) {
-      if (pending && l > level) {
-        level = l;
-        vector = v;
+  /// finds the highest pending on-chip interrupt; the first source wins a tie
+  void updatePendingInterrupt() {
+    int level = 0, vector = 0;
+    final ipra = this.ipra, iprb = this.iprb;
+    if (dvcr.mask2 == 3 && ipra.shr12.mask4 > 0) {
+      level = ipra.shr12.mask4;
+      vector = vcrdiv.mask7;
+    }
+    if (chcr[0] & 6 == 6 && ipra.shr8.mask4 > level) {
+      level = ipra.shr8.mask4;
+      vector = vcrdma[0].mask7;
+    }
+    if (chcr[1] & 6 == 6 && ipra.shr8.mask4 > level) {
+      level = ipra.shr8.mask4;
+      vector = vcrdma[1].mask7;
+    }
+    if (wtcsr & 0xc0 == 0x80 && ipra.shr4.mask4 > level) {
+      level = ipra.shr4.mask4;
+      vector = vcrwdt.shr8.mask7;
+    }
+    final frtLevel = iprb.shr8.mask4;
+    final frt = ftcsr & tier;
+    if (frtLevel > level) {
+      if (frt.bit7) {
+        level = frtLevel;
+        vector = vcrc.shr8.mask7;
+      } else if (frt & 0x0c != 0) {
+        level = frtLevel;
+        vector = vcrc.mask7;
+      } else if (frt.bit1) {
+        level = frtLevel;
+        vector = vcrd.shr8.mask7;
       }
     }
-
-    check(dvcr.mask2 == 3, ipra.shr12.mask4, vcrdiv.mask7);
-    check(chcr[0] & 6 == 6, ipra.shr8.mask4, vcrdma[0].mask7);
-    check(chcr[1] & 6 == 6, ipra.shr8.mask4, vcrdma[1].mask7);
-    check(wtcsr & 0xc0 == 0x80, ipra.shr4.mask4, vcrwdt.shr8.mask7);
-
-    final frtLevel = iprb.shr8.mask4;
-    check((ftcsr & tier).bit7, frtLevel, vcrc.shr8.mask7);
-    check(ftcsr & tier & 0x0c != 0, frtLevel, vcrc.mask7);
-    check((ftcsr & tier).bit1, frtLevel, vcrd.shr8.mask7);
-
-    return (level, vector);
+    pendingLevel = level;
+    pendingVector = vector;
   }
 
   /// true when external interrupts use vectors supplied from outside (VECMD)
@@ -249,8 +267,23 @@ class Sh2OnChip {
     final frtDiv = _frtDivs[tcr.mask2];
     if (frtDiv != 0) {
       _frtSub += clocks;
-      while (_frtSub >= frtDiv) {
-        _frtSub -= frtDiv;
+      var steps = _frtSub ~/ frtDiv;
+      _frtSub -= steps * frtDiv;
+      // Counts up to the next wrap or compare match in one step; the step
+      // that reaches it goes through _frcIncrement.
+      while (steps > 0) {
+        var next = 0x10000 - frc;
+        var toA = (ocra - frc) & 0xffff, toB = (ocrb - frc) & 0xffff;
+        if (toA == 0) toA = 0x10000;
+        if (toB == 0) toB = 0x10000;
+        if (toA < next) next = toA;
+        if (toB < next) next = toB;
+        if (steps < next) {
+          frc += steps;
+          break;
+        }
+        frc += next - 1;
+        steps -= next;
         _frcIncrement();
       }
     }
