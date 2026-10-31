@@ -282,6 +282,7 @@ class DcGpu {
 
   static const vramSize = 0x800000;
   final vram = Uint8List(vramSize);
+  late final _vram16 = Uint16List.view(vram.buffer);
   int _reset = 7, _border = 0, _readControl = 0;
   int _sof1 = 0, _sof2 = 0, _size = 0, _videoControl = 0x108;
 
@@ -576,6 +577,17 @@ class DcGpu {
           buffer[base + x] = _pixel(start + x * bytesPerPixel, depth, concat);
         }
       } else if (table != null) {
+        final first = (start + x * 2) & mask, count = edge - x;
+        if (first & 1 == 0 && first + count * 2 <= vramSize) {
+          // Aligned and without wrap: one 16-bit load per pixel.
+          final words = _vram16;
+          final from = first >> 1, at = base + x - from;
+          for (var i = from; i < from + count; i++) {
+            buffer[at + i] = table[words[i]];
+          }
+          x = edge;
+          continue;
+        }
         for (var address = start + x * 2; x < edge; x++, address += 2) {
           buffer[base + x] =
               table[vram[address & mask] | (vram[(address + 1) & mask] << 8)];
