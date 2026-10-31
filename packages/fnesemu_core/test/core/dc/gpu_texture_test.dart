@@ -168,6 +168,23 @@ void main() {
     expect(texture(tsp: copy | 0x4000).sample(1 / 16, 1 / 16), 0xffff0000);
   });
 
+  test('fixed-point bilinear samples match floating-point positions', () {
+    for (var i = 0; i < 64; i++) {
+      texel(i, i * 0x1357);
+    }
+    final tex = texture(tsp: copy | 0x2000);
+    final size = tex.width * tex.height;
+    tex.cache = DcTextureCache(size, Int32List(1));
+    expect(tex.sampleBilinearFixed(0x8000, 0x8000), -1);
+    tex.decodeAll();
+    for (final (su, sv) in [(0x18000, 0x24000), (0x6ff7f, 0x10081), (0, 0)]) {
+      expect(tex.sampleBilinearFixed(su, sv),
+          tex.sampleBilinear(su / (tex.width << 16), sv / (tex.height << 16)));
+    }
+    expect(tex.sampleBilinearFixed((tex.width - 1) << 16, 0), -1);
+    expect(tex.sampleBilinearFixed(-1, 0), -1);
+  });
+
   test(
       'all four shading instructions and ignore-alpha use checked integer results',
       () {
