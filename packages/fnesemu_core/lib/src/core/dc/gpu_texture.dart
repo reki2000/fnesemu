@@ -492,32 +492,43 @@ class DcGpuTexture {
     return (0xff000000 | (r << 16) | (g << 8) | b) & 0xffffffff;
   }
 
+  @pragma('vm:prefer-inline')
   static int shade(int color, int texel, int offset, int tsp) {
     if (tsp & 0x80000 != 0) texel |= 0xff000000;
     final alpha = (texel >> 24) & 255, mode = (tsp >> 6) & 3;
-    final a = switch (mode) {
-      0 || 1 => alpha,
-      2 => (color >> 24) & 255,
-      _ => div255(((color >> 24) & 255) * alpha + 127),
-    };
-    return _shadeChannel(color & 255, texel & 255, offset & 255, alpha, mode) |
-        (_shadeChannel((color >> 8) & 255, (texel >> 8) & 255,
-                (offset >> 8) & 255, alpha, mode) <<
-            8) |
-        (_shadeChannel((color >> 16) & 255, (texel >> 16) & 255,
-                (offset >> 16) & 255, alpha, mode) <<
-            16) |
-        (a << 24);
-  }
-
-  static int _shadeChannel(int col, int tex, int offset, int alpha, int mode) {
-    final channel = switch (mode) {
-      0 => tex,
-      1 || 3 => div255(col * tex + 127),
-      _ => div255(tex * alpha + col * (255 - alpha) + 127),
-    };
-    final sum = channel + offset;
-    return sum > 255 ? 255 : sum;
+    final tr = (texel >> 16) & 255, tg = (texel >> 8) & 255, tb = texel & 255;
+    int r, g, b, a;
+    if (mode == 0) {
+      r = tr;
+      g = tg;
+      b = tb;
+      a = alpha;
+    } else {
+      final cr = (color >> 16) & 255, cg = (color >> 8) & 255;
+      final cb = color & 255, ca = (color >> 24) & 255;
+      if (mode == 2) {
+        final inverse = 255 - alpha;
+        r = div255(tr * alpha + cr * inverse + 127);
+        g = div255(tg * alpha + cg * inverse + 127);
+        b = div255(tb * alpha + cb * inverse + 127);
+        a = ca;
+      } else {
+        r = div255(cr * tr + 127);
+        g = div255(cg * tg + 127);
+        b = div255(cb * tb + 127);
+        a = mode == 1 ? alpha : div255(ca * alpha + 127);
+      }
+    }
+    // Add the offset in 10-bit lanes; a carry out of a lane saturates it.
+    var lanes = ((r << 20) | (g << 10) | b) +
+        (((offset & 0xff0000) << 4) |
+            ((offset & 0xff00) << 2) |
+            (offset & 255));
+    lanes |= ((lanes >> 8) & 0x100401) * 255;
+    return (a << 24) |
+        ((lanes >> 4) & 0xff0000) |
+        ((lanes >> 2) & 0xff00) |
+        (lanes & 0xff);
   }
 }
 
