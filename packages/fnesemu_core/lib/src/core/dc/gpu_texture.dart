@@ -493,27 +493,54 @@ class DcGpuTexture {
     return lanes < 0 ? -1 : packLanes(lanes);
   }
 
+  /// Whether [sampleLanesInRange] serves every position on the line from
+  /// (su0, sv0) to (su1, sv1).
+  bool fixedSpanReady(int su0, int sv0, int su1, int sv1) {
+    final cache = this.cache!, uEnd = (width - 1) << 16;
+    final vEnd = (height - 1) << 16;
+    return cache.complete == cache.generation &&
+        su0 >= 0 &&
+        su0 < uEnd &&
+        su1 >= 0 &&
+        su1 < uEnd &&
+        sv0 >= 0 &&
+        sv0 < vEnd &&
+        sv1 >= 0 &&
+        sv1 < vEnd;
+  }
+
   /// [sampleBilinearFixed] with the channels in [_lanes] order, or -1.
   @pragma('vm:prefer-inline')
-  @pragma('vm:unsafe:no-bounds-checks')
   int sampleLanesFixed(int su, int sv) {
-    final w = width, cache = this.cache!;
+    final cache = this.cache!;
     if (su < 0 ||
-        su >= (w - 1) << 16 ||
+        su >= (width - 1) << 16 ||
         sv < 0 ||
         sv >= (height - 1) << 16 ||
         cache.complete != cache.generation) {
       return -1;
     }
+    return sampleLanesInRange(su, sv);
+  }
+
+  /// [sampleLanesFixed] at a position known to be in range of a complete
+  /// cache.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int sampleLanesInRange(int su, int sv) {
+    final w = width, cache = this.cache!;
     final row0 = cache.levelOffsets[0] + (sv >> 16) * w + (su >> 16);
     final row1 = row0 + w, texels = cache.texels;
+    final fx = ((su & 0xffff) + 128) >> 8, fy = ((sv & 0xffff) + 128) >> 8;
+    // A zero weight leaves an axis unblended, as in magnified textures
+    // sampled on texel centers.
+    if (fy == 0) {
+      return fx == 0
+          ? _lanes(texels[row0])
+          : _blend2Lanes(texels[row0], texels[row0 + 1], fx);
+    }
     return _blend4Lanes(
-        texels[row0],
-        texels[row0 + 1],
-        texels[row1],
-        texels[row1 + 1],
-        ((su & 0xffff) + 128) >> 8,
-        ((sv & 0xffff) + 128) >> 8);
+        texels[row0], texels[row0 + 1], texels[row1], texels[row1 + 1], fx, fy);
   }
 
   int _sampleBilinearSlow(double u, double v) {
@@ -563,6 +590,11 @@ class DcGpuTexture {
   @pragma('vm:prefer-inline')
   static int packLanes(int lanes) =>
       (lanes & 0xff00ff) | ((lanes >>> 24) & 0xff00ff00);
+
+  @pragma('vm:prefer-inline')
+  static int _blend2Lanes(int c0, int c1, int fx) =>
+      ((_lanes(c0) * (256 - fx) + _lanes(c1) * fx + 0x0080008000800080) >>> 8) &
+      0x00ff00ff00ff00ff;
 
   @pragma('vm:prefer-inline')
   static int _blend4Lanes(int c0, int c1, int c2, int c3, int fx, int fy) {

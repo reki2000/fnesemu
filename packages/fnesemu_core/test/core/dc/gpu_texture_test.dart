@@ -54,7 +54,7 @@ void main() {
     }
   }
 
-  void render() {
+  void render({bool twice = false}) {
     put(parameter + 0x8000, [
       0xe0000000,
       copy,
@@ -72,7 +72,11 @@ void main() {
       0,
       0xff000000
     ]);
-    put(0x9000, [0x80000000, object, 0x80000000, 0x80000000, 0x80000000]);
+    put(0x9000, [
+      // A repeated tile renders without the first tile's visibility pass.
+      if (twice) ...[0, object, 0x80000000, 0x80000000, 0x80000000],
+      0x80000000, object, 0x80000000, 0x80000000, 0x80000000
+    ]);
     for (final entry in [
       (0x2c, 0x9000),
       (0x48, 6),
@@ -86,6 +90,7 @@ void main() {
       bus.write32(reg + entry.$1, entry.$2);
     }
     bus.tickMasterClocks(2);
+    if (twice) bus.tickMasterClocks(2);
   }
 
   int pixel(int x, int y) =>
@@ -230,12 +235,20 @@ void main() {
     tex.cache = DcTextureCache(size, Int32List(1));
     expect(tex.sampleBilinearFixed(0x8000, 0x8000), -1);
     tex.decodeAll();
-    for (final (su, sv) in [(0x18000, 0x24000), (0x6ff80, 0x10080), (0, 0)]) {
+    for (final (su, sv) in [
+      (0x18000, 0x24000),
+      (0x6ff80, 0x10080),
+      (0, 0),
+      (0x28000, 0x30000),
+      (0x30000, 0x28000)
+    ]) {
       expect(tex.sampleBilinearFixed(su, sv),
           tex.sampleBilinear(su / (tex.width << 16), sv / (tex.height << 16)));
     }
     expect(tex.sampleBilinearFixed((tex.width - 1) << 16, 0), -1);
     expect(tex.sampleBilinearFixed(-1, 0), -1);
+    expect(tex.fixedSpanReady(0, 0, (tex.width - 2) << 16, 0x10000), isTrue);
+    expect(tex.fixedSpanReady(0, 0, (tex.width - 1) << 16, 0), isFalse);
   });
 
   test(
@@ -385,6 +398,29 @@ void main() {
     packet([0]);
     render();
     expect(pixel(1, 1), 0xff7f3f00);
+  });
+
+  test('affine bilinear texels modulated by a gray color', () {
+    init();
+    for (var i = 0; i < 64; i++) {
+      texel(i, 0xf800);
+    }
+    packet([0x80800008, 0xe0000000, copy | 0x2040, 0x0800c000]);
+    for (final (i, (x, y)) in [(0.0, 0.0), (32.0, 0.0), (0.0, 32.0)].indexed) {
+      packet([
+        i == 2 ? 0xf0000000 : 0xe0000000,
+        bits(x),
+        bits(y),
+        bits(1),
+        bits(x / 64),
+        bits(y / 64),
+        0xff808080
+      ]);
+    }
+    packet([0]);
+    render(twice: true);
+    expect(pixel(4, 4), 0xff800000);
+    expect(pixel(20, 2), 0xff800000);
   });
 
   test('perspective division uses reciprocal depth rather than affine UV', () {

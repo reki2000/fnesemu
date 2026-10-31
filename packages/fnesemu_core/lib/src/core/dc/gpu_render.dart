@@ -1341,6 +1341,7 @@ class DcGpuRender {
         (shadeMode == 1 || shadeMode == 3 && quickColor >>> 24 == 255) &&
             quickColor & 0xffffff == quickGray * 0x10101;
     final ignoredAlpha = tsp & 0x80000 != 0 ? 0xff000000 : 0;
+    final grayRows = gray && replace && !quickFog;
     final fogOffset = isp & 0x01000000 != 0;
     final vbx = b.x, vcx = c.x, vax = a.x;
     final depthBuffer = _depth, colorBuffer = _colors;
@@ -1397,6 +1398,38 @@ class DcGpuRender {
         final fu = uz * uScale, fv = vz * vScale;
         final fixed = affine && fu.abs() < 1 << 40 && fv.abs() < 1 << 40;
         var su = fixed ? fu.toInt() : 0, sv = fixed ? fv.toInt() : 0;
+        final count = rowRight - rowLeft;
+        if (grayRows &&
+            fixed &&
+            count > 0 &&
+            texture.fixedSpanReady(
+                su, sv, su + dsu * (count - 1), sv + dsv * (count - 1))) {
+          _grayRow(
+              texture,
+              y * 32 + rowLeft,
+              count,
+              e0,
+              e1,
+              e2,
+              e0y,
+              e1y,
+              e2y,
+              tl0,
+              tl1,
+              tl2,
+              z,
+              dz,
+              compare,
+              writeDepth,
+              su,
+              sv,
+              dsu,
+              dsv,
+              quickGray,
+              quickOffset,
+              ignoredAlpha);
+          continue;
+        }
         for (var x = rowLeft;
             x < rowRight;
             x++,
@@ -1791,6 +1824,71 @@ class DcGpuRender {
       return _secondary[index];
     }
     return color;
+  }
+
+  /// The quick row loop of fixed point texels in range, shaded by a gray
+  /// color and replacing the color buffer.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _grayRow(
+      DcGpuTexture texture,
+      int index,
+      int count,
+      double e0,
+      double e1,
+      double e2,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double z,
+      double dz,
+      int compare,
+      bool writeDepth,
+      int su,
+      int sv,
+      int dsu,
+      int dsv,
+      int gray,
+      int offset,
+      int alpha) {
+    final depthBuffer = _depth, colorBuffer = _colors;
+    for (final end = index + count;
+        index < end;
+        index++,
+        e0 -= e0y,
+        e1 -= e1y,
+        e2 -= e2y,
+        z += dz,
+        su += dsu,
+        sv += dsv) {
+      if (e0 < 0 ||
+          e1 < 0 ||
+          e2 < 0 ||
+          (e0 == 0 && !tl0) ||
+          (e1 == 0 && !tl1) ||
+          (e2 == 0 && !tl2)) {
+        continue;
+      }
+      if (!z.isFinite) {
+        throw const DcUnsupported('CORE nonfinite interpolated depth');
+      }
+      final previous = depthBuffer[index];
+      if (compare &
+                  (z < previous
+                      ? 1
+                      : z == previous
+                          ? 2
+                          : 4) ==
+              0 ||
+          z == 0) {
+        continue;
+      }
+      colorBuffer[index] = DcGpuTexture.shadeGrayLanes(
+          texture.sampleLanesInRange(su, sv), gray, offset, alpha);
+      if (writeDepth) depthBuffer[index] = z;
+    }
   }
 
   void _composite(int index, int color, int tsp) {
