@@ -307,6 +307,14 @@ final class IrBlock {
 
   late final bool usesI64 = insts.any((i) => i.type == IrType.i64);
 
+  /// One past the last context word that the block accesses.
+  int _ctxEnd = 0;
+
+  /// Checks context bounds; construction verified the rest.
+  void checkContext(int ctxWords) {
+    if (_ctxEnd > ctxWords) verify(ctxWords: ctxWords);
+  }
+
   /// Checks SSA operands and widths; runtimes also check context bounds.
   void verify({int? ctxWords}) {
     // Messages are built only on failure; verification runs per block.
@@ -323,9 +331,12 @@ final class IrBlock {
     if (!(cost >= 0)) {
       fail('negative block cost');
     }
+    var ctxEnd = 0;
     void exitStores(int at, IrExit e) {
       for (final (word, v) in e.stores) {
         value(v.index, at);
+        final end = word + insts[v.index].type.bytes ~/ 4;
+        if (end > ctxEnd) ctxEnd = end;
         if (!(word >= 0 &&
             (ctxWords == null ||
                 word + insts[v.index].type.bytes ~/ 4 <= ctxWords))) {
@@ -390,6 +401,8 @@ final class IrBlock {
             fail('i32 constant has an upper word');
           }
         case IrOp.ctxLoad || IrOp.ctxStore:
+          final end = inst.imm + inst.type.bytes ~/ 4;
+          if (end > ctxEnd) ctxEnd = end;
           if (!(inst.imm >= 0 &&
               (ctxWords == null ||
                   inst.imm + inst.type.bytes ~/ 4 <= ctxWords))) {
@@ -466,6 +479,7 @@ final class IrBlock {
         }
       default:
     }
+    _ctxEnd = ctxEnd;
   }
 
   @override
