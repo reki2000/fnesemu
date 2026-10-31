@@ -59,6 +59,7 @@ class Ss extends Core {
       if (cpu is Sh2) cpu.jit?.suspended = value;
     }
   }
+
   @override
   int get cpuClocks => master.clocks + slave.clocks;
   @override
@@ -96,11 +97,10 @@ class Ss extends Core {
       int sliceClocks = 64})
       : _sliceClocks = sliceClocks {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
+    pad.source = padPort;
     final owner = cpuFactory == null && jit
         ? Sh2Jit.create(
-            macLong: jitMacLong,
-            macWord: jitMacWord,
-            idleGuards: jitIdleGuards)
+            macLong: jitMacLong, macWord: jitMacWord, idleGuards: jitIdleGuards)
         : null;
     bus = Bus(allocate: owner?.rt.alloc);
     final factory = cpuFactory ??
@@ -379,7 +379,6 @@ class Ss extends Core {
     w.bytes(bus.wramL);
     w.bytes(bus.wramH);
     w.bytes(_sram.data);
-    pad.saveState(w);
     smpc.saveState(w);
     scu.saveState(w);
     vdp1.saveState(w);
@@ -411,7 +410,6 @@ class Ss extends Core {
       throw const StateMismatch('different backup memory size');
     }
     _sram.data.setAll(0, backup);
-    pad.loadState(s);
     smpc.loadState(s);
     scu.loadState(s);
     vdp1.loadState(s);
@@ -424,7 +422,7 @@ class Ss extends Core {
     }
   }
 
-  static const _stateVersion = 1;
+  static const _stateVersion = 2;
 
   /// The BIOS bytes and the disc TOC. Disc contents beyond the TOC are not
   /// compared, so a state is only meaningful for the disc it was saved
@@ -500,7 +498,6 @@ class Ss extends Core {
     vdp2.reset();
     scsp.reset();
     cdblock.reset();
-    pad.reset();
 
     master.reset();
     slave.reset();
@@ -515,12 +512,6 @@ class Ss extends Core {
 
   @override
   ImageBuffer imageBuffer() => vdp2.imageBuffer;
-
-  @override
-  void padDown(int controllerId, PadButton k) => pad.keyDown(controllerId, k);
-
-  @override
-  void padUp(int controllerId, PadButton k) => pad.keyUp(controllerId, k);
 
   @override
   List<PadButton> get buttons => pad.buttons;

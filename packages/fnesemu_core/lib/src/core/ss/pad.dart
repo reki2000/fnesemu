@@ -1,5 +1,5 @@
 import '../../pad_button.dart';
-import '../../state.dart';
+import '../../pad_source.dart';
 
 /// SS standard digital pad
 ///
@@ -27,43 +27,24 @@ class Pad {
     (PadButton("Z"), 1, 0x10),
   ];
 
-  final _state = List.generate(controllerNum, (_) => [0xff, 0xff]);
+  /// where the held buttons are read from, set by the core
+  PadSource source = const NoPadSource();
 
   List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
 
-  void keyDown(int id, PadButton k) => _set(id, k, false);
-  void keyUp(int id, PadButton k) => _set(id, k, true);
-
-  void _set(int id, PadButton k, bool released) {
-    if (id < 0 || id >= controllerNum) {
-      return;
-    }
-    for (final (button, byte, bit) in _buttons) {
-      if (button == k) {
-        _state[id][byte] =
-            released ? _state[id][byte] | bit : _state[id][byte] & ~bit;
+  /// the two data bytes of the controller [id], active low
+  (int, int) data(int id) {
+    var d0 = 0xff, d1 = 0xff;
+    if (id >= 0 && id < controllerNum) {
+      for (final (button, byte, bit) in _buttons) {
+        if (bit == 0 || !source.isPressed(id, button)) continue;
+        if (byte == 0) {
+          d0 &= ~bit;
+        } else {
+          d1 &= ~bit;
+        }
       }
     }
-  }
-
-  (int, int) data(int id) => (_state[id][0], _state[id][1] | 0x07);
-
-  void saveState(StateWriter w) {
-    w.section('pad');
-    _state.forEach(w.ints);
-  }
-
-  void loadState(StateReader s) {
-    s.section('pad');
-    for (final state in _state) {
-      s.intsInto(state);
-    }
-  }
-
-  void reset() {
-    for (final s in _state) {
-      s[0] = 0xff;
-      s[1] = 0xff;
-    }
+    return (d0, d1 | 0x07);
   }
 }
