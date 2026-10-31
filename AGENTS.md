@@ -14,6 +14,10 @@ Follow `ARCHITECTURE.md` for component responsibilities, dependency directions, 
 
 - After adding or removing a core module, run `dart run tool/generate_core_registry.dart` in `packages/fnesemu_core`. Do not modify the app or GUI to accommodate the module change.
 
+# Performance
+
+Before changing Dart code for speed, read `packages/fnesemu_core/tool/dart_aot_tips.md`. It covers profiling, the compiler behavior seen in the x64 output, the measurement rules and the guidelines.
+
 # Reference policy
 
 - Do not consult, copy, translate, or adapt source code or implementation details from other emulators when implementing or debugging fnesemu.
@@ -28,3 +32,10 @@ Follow `ARCHITECTURE.md` for component responsibilities, dependency directions, 
 # Worktrees
 
 - Create working Git worktrees under the repository's `.worktrees/` directory. This directory is ignored by Git.
+
+# Release
+
+- Releases go from `develop` to `main`. Before opening the PR, set `version:` in the root `pubspec.yaml` on `develop` to the release version (`X.Y.Z+0`). The tag must match this version.
+- Pushing a new version to `develop` opens the `develop` → `main` PR automatically (`.github/workflows/release-pr.yaml`). It skips the PR when the tag already exists or a release PR is already open. It opens the PR with the `RELEASE_PR_TOKEN` secret, a fine-grained token with Pull requests write access. Merge that PR.
+- Tag the merge commit on `main` with `vX.Y.Z`. The tag starts the `Release verified binaries` workflow (`.github/workflows/release.yaml`). It waits for the `Build binaries` run of the tagged commit to succeed, checks that the tag matches `pubspec.yaml`, attaches the verified binaries to a draft GitHub Release, and then publishes it.
+- The workflow leaves an already published GitHub Release unchanged.
