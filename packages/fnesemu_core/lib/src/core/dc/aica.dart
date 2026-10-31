@@ -7,6 +7,7 @@ import 'aica_midi.dart';
 import 'aica_sound.dart';
 import 'arm7di.dart';
 import 'arm_jit.dart';
+import 'arm_translator.dart';
 import 'fault.dart';
 
 /// Retail AICA memory, RTC and timer/interrupt subset from System Architecture.
@@ -182,7 +183,8 @@ class DcAica {
     if (values.length != 20 || values.any((value) => value < 0)) {
       throw const StateMismatch('AICA controller layout');
     }
-    // The longest current ARM7DI instruction is a 20-cycle LDM including PC.
+    // A run ends at most one compiled block, or the longest current ARM7DI
+    // instruction, a 20-cycle LDM including PC, past its limit.
     bool fits(int index, int mask) => values[index] & ~mask == 0;
     if ([0, 1, 10, 18].any((index) => values[index] >= masterHz) ||
         !fits(2, 0xffffffff) ||
@@ -191,7 +193,7 @@ class DcAica {
         values[8] > 7 ||
         !fits(9, 0xfe0f) ||
         values[11] < 1 ||
-        values[11] > 20 ||
+        values[11] > 20 + DcArmTranslator.maxBlockCycles ||
         [12, 13, 14].any((index) => !fits(index, 0xfffc)) ||
         values[15] > memorySize ||
         values[16] > 0x45c8 ||

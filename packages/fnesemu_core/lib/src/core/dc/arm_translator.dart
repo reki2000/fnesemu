@@ -14,8 +14,12 @@ final class DcArmTranslator {
   static const cpsr = regs + 16, ctxWords = cpsr + 1;
   static const interpret = JitReason.user;
 
+  /// The most cycles one block takes: [maxInstructions] loads into the PC.
+  static const maxBlockCycles = 64 * 5;
+
   DcArmTranslator(
-      {required this.fetch, required this.protect, this.maxInstructions = 64});
+      {required this.fetch, required this.protect, this.maxInstructions = 64})
+      : assert(maxInstructions * 5 <= maxBlockCycles);
 
   final int? Function(int pc) fetch;
   final void Function(int) protect;
