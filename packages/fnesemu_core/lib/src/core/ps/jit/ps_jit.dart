@@ -79,6 +79,7 @@ final class PsJit {
   /// interprets the blocks instead, for tests. [compileThreshold] replaces
   /// the estimate of the runtime
   static PsJit? create({bool native = true, int? compileThreshold}) {
+    if (native) JitRuntime.resetPool();
     late final PsJit jit;
     int read(int addr, int size) => jit._read(addr, size);
     void write(int addr, int size, int value) => jit._write(addr, size, value);

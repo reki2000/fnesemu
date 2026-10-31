@@ -92,6 +92,7 @@ final class N64Jit {
       bool nativeFpu = false,
       bool inlineJumps = false}) {
     if (Endian.host != Endian.little) return null;
+    if (native) JitRuntime.resetPool();
     int read(int a, int s) => throw StateError('Unmapped compiled read');
     void write(int a, int s, int v) =>
         throw StateError('Unmapped compiled write');

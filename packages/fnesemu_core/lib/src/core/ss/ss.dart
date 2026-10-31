@@ -98,6 +98,8 @@ class Ss extends Core {
       : _sliceClocks = sliceClocks {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
     pad.source = padPort;
+    // Both SH-2 runtimes below share the pool this core claims here.
+    if (cpuFactory == null && jit) JitRuntime.resetPool();
     final owner = cpuFactory == null && jit
         ? Sh2Jit.create(
             macLong: jitMacLong, macWord: jitMacWord, idleGuards: jitIdleGuards)

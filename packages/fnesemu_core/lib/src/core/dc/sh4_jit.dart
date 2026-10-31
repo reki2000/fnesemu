@@ -44,6 +44,9 @@ final class Sh4Jit {
   bool suspended = false;
 
   static Sh4Jit? create({int compileThreshold = 4}) {
+    // Dc creates its SH-4 runtime first when it initializes, so claiming
+    // the shared pool here covers the ARM runtime it creates next.
+    JitRuntime.resetPool();
     final rt = JitRuntime.native(
         ctxWords: Sh4Translator.ctxWords,
         addrMask: 0x1fffffff,

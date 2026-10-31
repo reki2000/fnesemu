@@ -46,6 +46,7 @@ final class Ps2Jit {
 
   static Ps2Jit? create({bool native = true, int? compileThreshold}) {
     if (Endian.host != Endian.little) return null;
+    if (native) JitRuntime.resetPool();
     int read(int a, int s) => throw StateError('Unmapped compiled read');
     void write(int a, int s, int v) =>
         throw StateError('Unmapped compiled write');

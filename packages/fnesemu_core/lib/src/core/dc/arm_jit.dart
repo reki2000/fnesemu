@@ -39,6 +39,8 @@ final class DcArmJit {
         read: (_, __) => throw StateError('Unmapped ARM read'),
         write: (_, __, ___) => throw StateError('Unmapped ARM write'));
     if (rt == null) return null;
+    // No pool claim here: Dc initializes its SH-4 runtime first, which
+    // claims the shared pool for the whole core (see Sh4Jit.create).
     final jit = DcArmJit._(rt, rt.alloc(memorySize));
     jit._code.map(0, memorySize, jit.memory);
     return jit;

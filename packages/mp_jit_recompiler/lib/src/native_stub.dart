@@ -5,3 +5,5 @@ bool get supported => false;
 JitRuntime? create(int ctxWords, int addrMask, JitRead read, JitWrite write,
         int pageShift) =>
     null;
+
+void resetPool() {}

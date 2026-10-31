@@ -44,6 +44,20 @@ JitRuntime? create(int ctxWords, int addrMask, JitRead read, JitWrite write,
         int pageShift) =>
     supported ? _WasmRuntime(ctxWords, addrMask, read, write, pageShift) : null;
 
+/// The runtimes currently sharing the linear memory.
+final _liveRuntimes = <_WasmRuntime>{};
+
+/// Retires every live runtime and returns the shared linear memory to its
+/// initial state; see [JitRuntime.resetPool].
+void resetPool() {
+  if (!supported) return;
+  for (final runtime in _liveRuntimes) {
+    runtime._retire();
+  }
+  _liveRuntimes.clear();
+  _linear.reset();
+}
+
 /// One fixed linear memory holds every Wasm runtime, so runtimes can map
 /// each other's guest buffers as native runtimes do. It never grows, which
 /// keeps every Dart view valid; growing would detach existing views.
@@ -83,6 +97,14 @@ final class _LinearMemory {
       return offset;
     }
     throw StateError('Wasm JIT linear memory exhausted');
+  }
+
+  /// Reclaims every allocation at once. Offsets handed out so far must not
+  /// be released afterwards; [resetPool] retires their runtimes first.
+  void reset() {
+    _free
+      ..clear()
+      ..add((JitRuntime.pageSize, bytes - JitRuntime.pageSize));
   }
 
   void release(int offset, int size) {
@@ -168,6 +190,7 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
 
   _WasmRuntime(
       int ctxWords, super.addrMask, super.read, super.write, super.pageShift) {
+    _liveRuntimes.add(this);
     _finalizer.attach(this, _allocations, detach: this);
     ctxOffset = _allocate(ctxWords * 4);
     _ctx = _buffer.asUint32List(ctxOffset, ctxWords);
@@ -373,11 +396,22 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     _helpers.clear();
     _hostOffsets.clear();
     _finalizer.detach(this);
+    _liveRuntimes.remove(this);
     for (final (offset, size) in _allocations) {
       _linear.release(offset, size);
     }
     _allocations.clear();
     _disposed = true;
+  }
+
+  /// Marks this runtime disposed without returning its allocations; the
+  /// pool reset that retires it reclaims every allocation at once.
+  void _retire() {
+    _disposed = true;
+    _finalizer.detach(this);
+    _allocations.clear();
+    _hostOffsets.clear();
+    _helpers.clear();
   }
 
   void _checkAlive() {
