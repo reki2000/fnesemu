@@ -271,7 +271,28 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   // JitRuntime
 
   @override
-  bool contains(int pc, int tag) => _blocks.containsKey(pc | tag << 32);
+  bool contains(int pc, int tag) => _entry(pc, tag) != null;
+
+  /// The block entry, looked up in a direct-mapped cache first.
+  int? _entry(int pc, int tag) {
+    final key = pc | tag << 32;
+    final i = _entryIndex(pc, tag);
+    if (_entryKeys[i] == key) {
+      final entry = _entryValues[i];
+      if (entry != 0) return entry;
+    }
+    final entry = _blocks[key];
+    if (entry != null) {
+      _entryKeys[i] = key;
+      _entryValues[i] = entry;
+    }
+    return entry;
+  }
+
+  // Keyed like [_blocks]; a zero value is empty.
+  final _entryKeys = Int64List(8192), _entryValues = Int64List(8192);
+  static int _entryIndex(int pc, int tag) =>
+      ((pc >>> 1) ^ (pc >>> 14) ^ tag * 0x9e37) & 8191;
 
   @override
   int installBlock(IrBlock block) {
@@ -306,6 +327,9 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     final key = (block.pc, block.tag);
     final entry = _code + at;
     _blocks[block.pc | block.tag << 32] = entry;
+    final i = _entryIndex(block.pc, block.tag);
+    _entryKeys[i] = block.pc | block.tag << 32;
+    _entryValues[i] = entry;
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = entry;
     }
@@ -319,6 +343,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   void invalidate(int pc, int tag) {
     final key = (pc, tag);
     if (_blocks.remove(pc | tag << 32) == null) return;
+    _entryValues[_entryIndex(pc, tag)] = 0;
     compilationStats?.recordInvalidation(pc, tag);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = 0;
@@ -331,6 +356,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   void clear() {
     compilationStats?.recordCacheClear(_blocks.length);
     _blocks.clear();
+    _entryValues.fillRange(0, _entryValues.length, 0);
     _slotsOf.clear();
     _slotView.fillRange(0, _slotCount, 0);
     _slotCount = 0;
@@ -341,7 +367,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   @override
   int run(int pc, int tag) {
     _checkAlive();
-    final entry = _blocks[pc | tag << 32];
+    final entry = _entry(pc, tag);
     if (entry == null) {
       _ctx[JitCtx.exitReason] = JitReason.miss;
       _ctx[JitCtx.exitPc] = pc;
