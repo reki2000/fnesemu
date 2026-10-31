@@ -62,7 +62,8 @@ class N64 extends Core {
   late final Vr4300 cpu;
   final N64Jit? jit;
   @override
-  Iterable<JitDiagnostics> get jitDiagnostics => jit == null ? const [] : [jit!.diagnostics];
+  Iterable<JitDiagnostics> get jitDiagnostics =>
+      jit == null ? const [] : [jit!.diagnostics];
 
   @override
   bool get jitEnabled => jit?.native ?? false;
@@ -81,14 +82,10 @@ class N64 extends Core {
       bool jitStatistics = const bool.fromEnvironment('N64_JIT_STATS'),
       int? compileThreshold,
       int? maxBlockInstructions,
-      bool jitCop1 =
-          const bool.fromEnvironment('N64_JIT_COP1', defaultValue: true),
-      bool jitNativeFpu =
-          const bool.fromEnvironment('N64_JIT_NATIVE_FPU', defaultValue: true),
-      bool jitFpu =
-          const bool.fromEnvironment('N64_JIT_FPU', defaultValue: false),
-      bool inlineJumps = const bool.fromEnvironment('N64_JIT_INLINE_JUMPS',
-          defaultValue: false)})
+      bool jitCop1 = true,
+      bool jitNativeFpu = true,
+      bool jitFpu = false,
+      bool inlineJumps = false})
       : this._(jit
             ? N64Jit.create(
                 compileThreshold: compileThreshold,
@@ -101,6 +98,7 @@ class N64 extends Core {
             : null);
 
   N64._(this.jit) : bus = N64Bus(ram: jit?.ram) {
+    bus.pad = padPort;
     cpu = Vr4300(bus, registers: jit?.regs, fpu: jit?.fpu);
     jit?.attach(cpu, bus);
     bus.onDp = (start, end) => graphics.commands(start, end);
@@ -112,12 +110,37 @@ class N64 extends Core {
             task.getUint32(24) & 0x7fffff, task.getUint32(28));
       } else if (type == 2) {
         audio.task(task.getUint32(48) & 0x7fffff, task.getUint32(52),
-            newer: _rom?.bytes[0x3f] == 3);
+            ucodeData: task.getUint32(24) & 0x7fffff);
+      } else if (type == 4 && _initializationTask(task)) {
+        // The recognized task has completed without a display or audio list.
       } else {
         throw UnsupportedError('RSP task type $type');
       }
     };
   }
+  // This tiny startup microcode stores v12[0..7] to DMEM+8, sets SIG2,
+  // then BREAKs. HLE has no vector register state; use zero for the cold
+  // register contents. Match instructions rather than treating JPEG tasks
+  // (which also use type 4) as empty tasks.
+  bool _initializationTask(ByteData task) {
+    final code = task.getUint32(16) & 0x1fffffff;
+    final data = task.getUint32(24) & 0x1fffffff;
+    if (task.getUint32(20) != 0x20 ||
+        task.getUint32(28) != 8 ||
+        task.getUint32(52) != 0 ||
+        code + 32 > bus.ram.length ||
+        data + 8 > bus.ram.length) {
+      return false;
+    }
+    const instructions = [0xe80c2001, 0x34014000, 0x40812000, 0x0000000d];
+    for (var i = 0; i < instructions.length; i++) {
+      if (bus.ramRead(code + i * 4, 4) != instructions[i]) return false;
+    }
+    bus.sp.setRange(0, 8, bus.ram, data);
+    bus.sp.fillRange(8, 16, 0);
+    return true;
+  }
+
   N64Rom? _rom;
   int _nextLine = 0, _frame = 0;
   final _result = ExecResult(0, false, false);
@@ -139,7 +162,15 @@ class N64 extends Core {
     bus.rom = rom.bytes;
     bus.sram?.init(
         'n64_${rom.bytes.sublist(0x10, 0x18).map((v) => v.x2).join()}',
-        Uint8List(512 + 0x8000)..fillRange(0, 512, 255)); // EEPROM + SRAM
+        Uint8List(N64Bus.flashOffset + 0x20000)
+          ..fillRange(0, 512, 255)
+          ..fillRange(N64Bus.flashOffset, N64Bus.flashOffset + 0x20000,
+              255)); // EEPROM, SRAM and FlashRAM
+    // Older backups contain only EEPROM and SRAM. Preserve their prefix.
+    final backup = bus.sram?.data;
+    if (backup != null && backup.length == N64Bus.flashOffset) {
+      backup.addAll(List.filled(0x20000, 255));
+    }
   }
 
   @override
@@ -237,7 +268,7 @@ class N64 extends Core {
   @override
   void dispose() => jit?.dispose();
 
-  static const _stateVersion = 1;
+  static const _stateVersion = 3;
   int? _mediaHash;
   int get _media {
     final rom = _rom;
@@ -287,8 +318,8 @@ class N64 extends Core {
     bus.sram = sram;
   }
 
-  // Arrow buttons drive the analog stick; the remaining buttons use PIF bits.
-  // The D-pad follows the buttons of the keys.
+  // The arrows are the D-pad. W A S D are the C buttons, Z X C are B A Z and
+  // Q R E are L Start R.
   @override
   List<PadButton> get buttons => [
         PadButton.up,
@@ -305,15 +336,15 @@ class N64 extends Core {
         const PadButton('R'), // keyE
         const PadButton('Start'), // keyR
         const PadButton('C-right'), // keyD
-        const PadButton('D-up'),
-        const PadButton('D-down'),
-        const PadButton('D-left'),
-        const PadButton('D-right'),
       ];
   @override
-  void padDown(int controllerId, PadButton k) => bus.pad(controllerId, k, true);
-  @override
-  void padUp(int controllerId, PadButton k) => bus.pad(controllerId, k, false);
+  // either stick drives the analog stick of the controller
+  List<PadAxis> get axes => const [
+        PadAxis.leftX,
+        PadAxis.leftY,
+        PadAxis.rightX,
+        PadAxis.rightY,
+      ];
   @override
   int programCounter(int cpuNo) => cpu.pc;
   @override
