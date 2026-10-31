@@ -655,30 +655,26 @@ class DcGpuTexture {
     return (0xff000000 | (r << 16) | (g << 8) | b) & 0xffffffff;
   }
 
-  @pragma('vm:prefer-inline')
-
   /// [shade] in mode 1, or mode 3 with an opaque color, where the color
   /// has the same [gray] value in each RGB channel. [alpha] is ORed into
   /// the texel.
   @pragma('vm:prefer-inline')
   static int shadeGray(int texel, int gray, int offset, int alpha) =>
-      shadeGrayLanes(_lanes(texel), gray, offset, alpha);
+      shadeGrayLanes(_lanes(texel), gray, _lanes(offset & 0xffffff), alpha);
 
-  /// [shadeGray] of a texel with its channels in [_lanes] order.
+  /// [shadeGray] of a texel and an RGB offset with their channels in
+  /// [_lanes] order.
   @pragma('vm:prefer-inline')
   static int shadeGrayLanes(int texel, int gray, int offset, int alpha) {
     const lanes = 0x00ff00ff00ff00ff;
     // div255 of each lane's product plus 127, exact for byte operands.
     final x = texel * gray + 0x007f007f007f007f;
-    final m = ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes;
-    var rgb = ((m & 0xff0000) << 4) | ((m >>> 22) & 0x3fc00) | (m & 255);
-    rgb +=
-        ((offset & 0xff0000) << 4) | ((offset & 0xff00) << 2) | (offset & 255);
-    rgb |= ((rgb >> 8) & 0x100401) * 255;
-    return (((texel >>> 24) | alpha) & 0xff000000) |
-        ((rgb >> 4) & 0xff0000) |
-        ((rgb >> 2) & 0xff00) |
-        (rgb & 0xff);
+    var m = ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes;
+    // The RGB lanes add the offset and saturate; alpha stays the texel's.
+    m = (m & 0x0000ffffffffffff) + offset;
+    m |= ((m >>> 8) & 0x0000000100010001) * 255;
+    return packLanes((m & 0x000000ff00ff00ff) | (texel & 0x00ff000000000000)) |
+        alpha;
   }
 
   @pragma('vm:prefer-inline')

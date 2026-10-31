@@ -1342,6 +1342,7 @@ class DcGpuRender {
             quickColor & 0xffffff == quickGray * 0x10101;
     final ignoredAlpha = tsp & 0x80000 != 0 ? 0xff000000 : 0;
     final grayRows = gray && replace && !quickFog;
+    final offsetLanes = DcGpuTexture.toLanes(quickOffset & 0xffffff);
     final fogOffset = isp & 0x01000000 != 0;
     final vbx = b.x, vcx = c.x, vax = a.x;
     final depthBuffer = _depth, colorBuffer = _colors;
@@ -1426,7 +1427,7 @@ class DcGpuRender {
               dsu,
               dsv,
               quickGray,
-              quickOffset,
+              offsetLanes,
               ignoredAlpha);
           continue;
         }
@@ -1467,7 +1468,7 @@ class DcGpuRender {
           int shaded;
           if (lanes >= 0 && gray) {
             shaded = DcGpuTexture.shadeGrayLanes(
-                lanes, quickGray, quickOffset, ignoredAlpha);
+                lanes, quickGray, offsetLanes, ignoredAlpha);
           } else {
             final texel = lanes >= 0
                 ? DcGpuTexture.packLanes(lanes)
