@@ -636,7 +636,7 @@ class DcBus {
       if (renderEvent != null && renderEvent < quantum) quantum = renderEvent;
       final stripEvent = gpu.clocksToStripScan;
       if (stripEvent != null && stripEvent < quantum) quantum = stripEvent;
-      final soundEvent = aica.clocksToEvent;
+      final soundEvent = aica.clocksToDeviceEvent;
       if (soundEvent != null && soundEvent < quantum) quantum = soundEvent;
       if (maple.hardwareEnabled) {
         final edge = gpu.spg.clocksToVerticalBlankOut;

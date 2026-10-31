@@ -564,8 +564,21 @@ class DcAica {
     };
   }
 
-  /// Next enabled, unlatched request, avoiding per-sample idle polling.
+  /// Next enabled, unlatched request, avoiding per-sample idle polling,
+  /// or the next ARM instruction.
   int? get clocksToEvent {
+    final deviceEvent = clocksToDeviceEvent;
+    if (armReset || memoryInhibit & 4 != 0) return deviceEvent;
+    final armEvent =
+        (_armRemaining * masterHz - _armPhase + armHz - 1) ~/ armHz;
+    return deviceEvent == null || armEvent < deviceEvent
+        ? armEvent
+        : deviceEvent;
+  }
+
+  /// [clocksToEvent] without ARM instructions, which [tickMasterClocks]
+  /// interleaves with the other AICA events by itself.
+  int? get clocksToDeviceEvent {
     final needed = (_scEnable & ~_scPending) | (_mcEnable & ~_mcPending);
     int? samples = needed & 0x400 != 0 ? 1 : null;
     if (needsSampleClock) samples = 1;
@@ -580,21 +593,29 @@ class DcAica {
         : (samples * masterHz - _samplePhase + sampleHz - 1) ~/ sampleHz;
     final dmaEvent =
         internalDmaBusy ? (masterHz - _dmaPhase + armHz - 1) ~/ armHz : null;
-    final deviceEvent = dmaEvent == null
+    return dmaEvent == null
         ? timerEvent
         : timerEvent == null || dmaEvent < timerEvent
             ? dmaEvent
             : timerEvent;
-    if (armReset || memoryInhibit & 4 != 0) return deviceEvent;
-    final armEvent =
-        (_armRemaining * masterHz - _armPhase + armHz - 1) ~/ armHz;
-    return deviceEvent == null || armEvent < deviceEvent
-        ? armEvent
-        : deviceEvent;
   }
 
+  /// Advances in steps that end at each event, including ARM instructions.
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
+    do {
+      final event = clocksToEvent;
+      final step = event == null || event >= clocks
+          ? clocks
+          : event < 1
+              ? 1
+              : event;
+      _advance(step);
+      clocks -= step;
+    } while (clocks > 0);
+  }
+
+  void _advance(int clocks) {
     // Short advances stay within one second or one sample; skip the divisions then.
     final rtcClocks = _rtcPhase + clocks;
     if (rtcClocks < masterHz) {
