@@ -607,13 +607,11 @@ final class Sh4Translator {
     if (op >>> 12 != 15 || tag & (tagDouble | tagFpuDisabled) != 0) {
       return false;
     }
+    if (low == 13) return _nativeConversion(op, n, exit);
     if (!(low <= 2 || low == 4 || low == 5 || low == 14)) return false;
     IrValue magnitude(IrValue x) => b.and(x, c(0x7fffffff));
     IrValue zero(IrValue x) => b.eq(magnitude(x), c(0));
-    // Field 0 or 255 without being zero: denormal, infinity or NaN.
-    IrValue special(IrValue x) => b.and(
-        b.ltU(c(253), b.sub(b.and(b.shrU(x, c(23)), c(255)), c(1))),
-        b.eq(zero(x), c(0)));
+    final special = _special;
     final x = get(fr + n), y = get(fr + m);
     var bad = b.or(special(x), special(y));
     if (low == 4 || low == 5) {
@@ -683,6 +681,93 @@ final class Sh4Translator {
     put(fr + n, result);
     put(fpscr,
         b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
+    return true;
+  }
+
+  /// Denormal, infinity or NaN: field 0 or 255 without being zero.
+  IrValue _special(IrValue x) => b.and(
+      b.ltU(c(253), b.sub(b.and(b.shrU(x, c(23)), c(255)), c(1))),
+      b.ne(b.and(x, c(0x7fffffff)), c(0)));
+
+  /// FLOAT, FTRC, FIPR and FTRV on host doubles. Inner products sum the
+  /// exact products in double precision and round once more to single,
+  /// where the exact model rounds the exact sum once.
+  bool _nativeConversion(int op, int n, IrExit exit) {
+    final code = op & 0xf0ff;
+    final transform = op & 0xf3ff == 0xf1fd;
+    if (code != 0xf02d && code != 0xf03d && code != 0xf0ed && !transform) {
+      return false;
+    }
+    final status = get(fpscr);
+    if (code == 0xf03d) {
+      // From 2^31 in magnitude, and for NaN, the exact model saturates.
+      final x = get(fr + n);
+      b.exitIf(b.ltU(c(157), b.and(b.shrU(x, c(23)), c(255))), exit);
+      put(fpul, b.floatToInt(x, truncate: true));
+      put(fpscr, b.and(status, c(~0x3f000)));
+      return true;
+    }
+    // Enabled exceptions and round-to-zero stay with the exact model.
+    var bad = b.ne(b.and(status, c(0xf83)), c(0));
+    if (code == 0xf02d) {
+      b.exitIf(bad, exit);
+      // The word biased into a double mantissa at 2^52, minus the bias.
+      final wide = b.floatBinary(
+          IrOp.floatSub,
+          b.or(b.zext32(b.xor(get(fpul), c(0x80000000))),
+              b.c64Parts(0, 0x43300000)),
+          b.c64Parts(0x80000000, 0x43300000));
+      final result = b.floatConvert(wide);
+      final inexact = b.ne(b.floatConvert(result), wide);
+      put(fr + n, result);
+      put(fpscr,
+          b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
+      return true;
+    }
+    final destination = (op >> 10 & 3) * 4;
+    final vector = [for (var i = 0; i < 4; i++) get(fr + destination + i)];
+    for (final x in vector) {
+      bad = b.or(bad, _special(x));
+    }
+    final wideVector = [for (final x in vector) b.floatConvert(x)];
+    IrValue product(List<IrValue> row) {
+      for (final x in row) {
+        bad = b.or(bad, _special(x));
+      }
+      var sum =
+          b.floatBinary(IrOp.floatMul, wideVector[0], b.floatConvert(row[0]));
+      for (var i = 1; i < 4; i++) {
+        sum = b.floatBinary(
+            IrOp.floatAdd,
+            sum,
+            b.floatBinary(
+                IrOp.floatMul, wideVector[i], b.floatConvert(row[i])));
+      }
+      return b.floatConvert(sum);
+    }
+
+    final List<IrValue> results;
+    if (transform) {
+      results = [
+        for (var row = 0; row < 4; row++)
+          product([for (var i = 0; i < 4; i++) get(xf + row + 4 * i)])
+      ];
+    } else {
+      final source = (op >> 8 & 3) * 4;
+      results = [
+        product([for (var i = 0; i < 4; i++) get(fr + source + i)])
+      ];
+    }
+    // Overflowed or denormal results take the exact path.
+    for (final result in results) {
+      bad = b.or(bad, _special(result));
+    }
+    b.exitIf(bad, exit);
+    for (var i = 0; i < results.length; i++) {
+      put(fr + destination + (transform ? i : 3), results[i]);
+    }
+    // The exact model reports these products as inexact.
+    put(fpscr, b.or(b.and(status, c(~0x3f000)), c(0x1004)));
     return true;
   }
 
