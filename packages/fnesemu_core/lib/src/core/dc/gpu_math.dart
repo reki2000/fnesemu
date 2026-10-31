@@ -1,3 +1,6 @@
+/// `value ~/ 255` for `0 <= value <= 2 * 255 * 255 + 127`, without a division.
+int div255(int value) => (value * 0x20203) >> 25;
+
 /// Rounds a channel half up and clamps it to a byte.
 ///
 /// `double.round` and `int.clamp` are calls in the AOT build; this stays inline.

@@ -329,27 +329,54 @@ class DcGpuTexture {
         x1 = _coordinate(left + 1, w, clampU, flipU),
         y0 = _coordinate(top, h, clampV, flipV),
         y1 = _coordinate(top + 1, h, clampV, flipV);
-    final c0 = _texelAt(x0, y0, level, parameters),
-        c1 = _texelAt(x1, y0, level, parameters),
-        c2 = _texelAt(x0, y1, level, parameters),
-        c3 = _texelAt(x1, y1, level, parameters);
+    final int c0, c1, c2, c3;
+    final cache = this.cache;
+    if (cache == null) {
+      c0 = _decodeTexel(x0, y0, level, parameters);
+      c1 = _decodeTexel(x1, y0, level, parameters);
+      c2 = _decodeTexel(x0, y1, level, parameters);
+      c3 = _decodeTexel(x1, y1, level, parameters);
+    } else {
+      // The cache lookup of [_texelAt], inlined for the four taps.
+      final texels = cache.texels, stamps = cache.stamps;
+      final generation = cache.generation;
+      final row0 = cache.levelOffsets[level] + y0 * w,
+          row1 = cache.levelOffsets[level] + y1 * w;
+      c0 = stamps[row0 + x0] == generation
+          ? texels[row0 + x0]
+          : _texelAt(x0, y0, level, parameters);
+      c1 = stamps[row0 + x1] == generation
+          ? texels[row0 + x1]
+          : _texelAt(x1, y0, level, parameters);
+      c2 = stamps[row1 + x0] == generation
+          ? texels[row1 + x0]
+          : _texelAt(x0, y1, level, parameters);
+      c3 = stamps[row1 + x1] == generation
+          ? texels[row1 + x1]
+          : _texelAt(x1, y1, level, parameters);
+    }
     final w0 = (1 - tx) * (1 - ty),
         w1 = tx * (1 - ty),
         w2 = (1 - tx) * ty,
         w3 = tx * ty;
-    var color = 0;
-    for (var shift = 0; shift < 32; shift += 8) {
-      color |= roundByte(((c0 >> shift) & 255) * w0 +
-              ((c1 >> shift) & 255) * w1 +
-              ((c2 >> shift) & 255) * w2 +
-              ((c3 >> shift) & 255) * w3) <<
-          shift;
-    }
-    return color & 0xffffffff;
+    return _blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 0) |
+        (_blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 8) << 8) |
+        (_blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 16) << 16) |
+        (_blendTap(c0, c1, c2, c3, w0, w1, w2, w3, 24) << 24);
   }
+
+  @pragma('vm:prefer-inline')
+  static int _blendTap(int c0, int c1, int c2, int c3, double w0, double w1,
+          double w2, double w3, int shift) =>
+      roundByte(((c0 >> shift) & 255) * w0 +
+          ((c1 >> shift) & 255) * w1 +
+          ((c2 >> shift) & 255) * w2 +
+          ((c3 >> shift) & 255) * w3);
 
   static double _position(double value, int size, bool clamp, bool flip) {
     value *= size;
+    // In-range positions are their own wrap, mirror and clamp results.
+    if (value >= 0 && value < size - 1) return value;
     if (!value.isFinite) {
       throw const DcUnsupported('CORE texture coordinate overflow');
     }
@@ -390,7 +417,7 @@ class DcGpuTexture {
     final a = switch (mode) {
       0 || 1 => alpha,
       2 => (color >> 24) & 255,
-      _ => (((color >> 24) & 255) * alpha + 127) ~/ 255,
+      _ => div255(((color >> 24) & 255) * alpha + 127),
     };
     return _shadeChannel(color & 255, texel & 255, offset & 255, alpha, mode) |
         (_shadeChannel((color >> 8) & 255, (texel >> 8) & 255,
@@ -405,8 +432,8 @@ class DcGpuTexture {
   static int _shadeChannel(int col, int tex, int offset, int alpha, int mode) {
     final channel = switch (mode) {
       0 => tex,
-      1 || 3 => (col * tex + 127) ~/ 255,
-      _ => (tex * alpha + col * (255 - alpha) + 127) ~/ 255,
+      1 || 3 => div255(col * tex + 127),
+      _ => div255(tex * alpha + col * (255 - alpha) + 127),
     };
     final sum = channel + offset;
     return sum > 255 ? 255 : sum;

@@ -1174,6 +1174,10 @@ class DcGpuRender {
     final uza = sa.u * za, uzb = sb.u * zb, uzc = sc.u * zc;
     final vza = sa.v * za, vzb = sb.v * zb, vzc = sc.v * zc;
     final sameTexture = texOffset == pixelOffset;
+    // Edge-function factors, evaluated in the same order as [_edge].
+    final e0x = c.x - b.x, e0y = c.y - b.y;
+    final e1x = a.x - c.x, e1y = a.y - c.y;
+    final e2x = b.x - a.x, e2y = b.y - a.y;
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1197,11 +1201,15 @@ class DcGpuRender {
           }
         }
       }
+      final py = rowY;
+      final row0 = e0x * (py - b.y),
+          row1 = e1x * (py - c.y),
+          row2 = e2x * (py - a.y);
       for (var x = rowLeft; x < rowRight; x++) {
-        final px = originX + x + offset, py = rowY;
-        final e0 = _edge(b, c, px, py),
-            e1 = _edge(c, a, px, py),
-            e2 = _edge(a, b, px, py);
+        final px = originX + x + offset;
+        final e0 = row0 - e0y * (px - b.x),
+            e1 = row1 - e1y * (px - c.x),
+            e2 = row2 - e2y * (px - a.x);
         if (e0 < 0 ||
             e1 < 0 ||
             e2 < 0 ||
@@ -1446,19 +1454,22 @@ class DcGpuRender {
 
   static int _blendChannel(int src, int dst, int sourceInstruction,
       int destinationInstruction, int sourceAlpha, int destinationAlpha) {
-    final sum =
-        (src * _factor(sourceInstruction, dst, sourceAlpha, destinationAlpha) +
-                dst *
-                    _factor(destinationInstruction, src, sourceAlpha,
-                        destinationAlpha) +
-                127) ~/
-            255;
+    final sum = div255(src *
+            _factor(sourceInstruction, dst, sourceAlpha, destinationAlpha) +
+        dst *
+            _factor(
+                destinationInstruction, src, sourceAlpha, destinationAlpha) +
+        127);
     return sum > 255 ? 255 : sum;
   }
 
   static int _blend(int source, int destination, int tsp) {
     final sourceInstruction = (tsp >> 29) & 7;
     final destinationInstruction = (tsp >> 26) & 7;
+    // ONE/ZERO: (s * 255 + 127) ~/ 255 is s for every channel.
+    if (sourceInstruction == 1 && destinationInstruction == 0) {
+      return source & 0xffffffff;
+    }
     final sa = (source >> 24) & 255, da = (destination >> 24) & 255;
     return _blendChannel(source & 255, destination & 255, sourceInstruction,
             destinationInstruction, sa, da) |
@@ -1622,13 +1633,22 @@ class DcGpuRender {
     final stride = read(0x4c) * 8;
     final halfWidth = read(0xf4) & 0x10000 != 0;
     if (stride == 0) throw const DcUnsupported('CORE zero framebuffer stride');
+    final ranks = dither
+        ? const [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+        : null;
+    final rgbShift = mode == 2 ? 4 : 3, greenShift = mode == 1 ? 2 : rgbShift;
+    final step = halfWidth ? 2 : 1;
     for (var y = 0; y < 32; y++) {
       final py = originY + y;
+      if (py < (yClip & 1023) || py > (yClip >> 16)) continue;
       final start =
           read(_stripLines != 0 && (py ~/ _stripLines).isOdd ? 0x64 : 0x60);
       final memoryRow = _stripLines == 0 ? py : py % _stripLines;
-      if (py < (yClip & 1023) || py > (yClip >> 16)) continue;
-      for (var x = 0; x < 32; x += halfWidth ? 2 : 1) {
+      final rowAddress = (start & 0x7fffff) + memoryRow * stride;
+      final interleaved = start & 0x1000000 != 0;
+      // One stamp per run of bytes on the same page keeps the newest stamp.
+      var markedPage = -1;
+      for (var x = 0; x < 32; x += step) {
         final px = halfWidth ? (originX + x) ~/ 2 : originX + x;
         if (px < (xClip & 2047) || px > (xClip >> 16)) continue;
         var color = _colors[y * 32 + x];
@@ -1646,14 +1666,11 @@ class DcGpuRender {
         }
         final a = color >> 24;
         var r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255;
-        if (dither) {
+        if (ranks != null) {
           // Provisional ordered pattern; the manual specifies enable/formats, not the matrix.
-          const ranks = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
           final rank = ranks[(py & 3) * 4 + (px & 3)];
-          final rgbShift = mode == 2 ? 4 : 3;
           r = (r + ((rank << rgbShift) >> 4)).clamp(0, 255);
           b = (b + ((rank << rgbShift) >> 4)).clamp(0, 255);
-          final greenShift = mode == 1 ? 2 : rgbShift;
           g = (g + ((rank << greenShift) >> 4)).clamp(0, 255);
         }
         final value = switch (mode) {
@@ -1668,19 +1685,41 @@ class DcGpuRender {
           5 => (kval << 24) | (color & 0xffffff),
           _ => color,
         };
-        for (var i = 0; i < bytes; i++) {
-          final address =
-              (start & 0x7fffff) + memoryRow * stride + px * bytes + i;
-          if (address < 0 || address >= memory.length) {
-            throw const DcUnsupported(
-                'CORE framebuffer write outside retail VRAM');
-          }
-          final offset = start & 0x1000000 == 0
-              ? address
-              : (address & 3) |
+        final address = rowAddress + px * bytes;
+        if (address < 0 || address + bytes > memory.length) {
+          throw const DcUnsupported(
+              'CORE framebuffer write outside retail VRAM');
+        }
+        if ((address & 3) + bytes <= 4) {
+          // Within one 4-byte group the bytes stay consecutive and on one page.
+          final offset = interleaved
+              ? (address & 3) |
                   ((address >> 1) & 0x3ffffc) |
-                  ((address & 4) << 20);
-          _pages.mark(offset);
+                  ((address & 4) << 20)
+              : address;
+          if (offset >> 12 != markedPage) {
+            markedPage = offset >> 12;
+            _pages.mark(offset);
+          }
+          memory[offset] = value & 255;
+          memory[offset + 1] = (value >> 8) & 255;
+          if (bytes == 4) {
+            memory[offset + 2] = (value >> 16) & 255;
+            memory[offset + 3] = (value >> 24) & 255;
+          } else if (bytes == 3) {
+            memory[offset + 2] = (value >> 16) & 255;
+          }
+          continue;
+        }
+        for (var i = 0; i < bytes; i++) {
+          final byte = address + i;
+          final offset = interleaved
+              ? (byte & 3) | ((byte >> 1) & 0x3ffffc) | ((byte & 4) << 20)
+              : byte;
+          if (offset >> 12 != markedPage) {
+            markedPage = offset >> 12;
+            _pages.mark(offset);
+          }
           memory[offset] = (value >> (8 * i)) & 255;
         }
       }
