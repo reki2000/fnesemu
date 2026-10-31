@@ -31,6 +31,7 @@ class DcG2 {
   int? _serial;
   int? get serialTicket => _serial == null ? null : _epoch;
   int get clocksToEvent => _serial == null ? 0 : _serialClocks;
+
   /// No channel is running or waiting for a hardware request.
   bool get idle => _busyMask == 0 && _hardwareMask == 0 && _serial == null;
   bool get needsHardwareTrigger => _hardwareMask & ~_busyMask != 0;
