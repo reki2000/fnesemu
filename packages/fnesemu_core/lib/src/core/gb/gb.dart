@@ -30,6 +30,10 @@ class Gb extends Core {
 
   final bus = Bus();
 
+  Gb() {
+    bus.pad.source = padPort;
+  }
+
   Cpu get cpu => bus.cpu;
   Ppu get ppu => bus.ppu;
   Apu get apu => bus.apu;
@@ -48,6 +52,7 @@ class Gb extends Core {
   @override
   get cpuInfos => [const CpuInfo(0, "SM83", 16)];
 
+  // scanline boundary in system clocks, which stay at 4.19MHz in GBC double speed
   int _nextScanlineClocks = 0;
 
   Sram? _sram;
@@ -85,8 +90,9 @@ class Gb extends Core {
     if (!cpu.exec()) return _stepStopped;
 
     var rendered = false;
-    if (bus.clocks >= _nextScanlineClocks) {
+    if (bus.dotClocks >= _nextScanlineClocks) {
       _nextScanlineClocks += Ppu.clocksInLine;
+      bus.pad.poll();
       rendered = true;
     }
 
@@ -128,27 +134,19 @@ class Gb extends Core {
   }
 
   @override
-  void padDown(int controllerId, PadButton k) =>
-      bus.pad.keyDown(controllerId, k);
-
-  @override
-  void padUp(int controllerId, PadButton k) => bus.pad.keyUp(controllerId, k);
-
-  @override
   List<PadButton> get buttons => bus.pad.buttons;
 
   /// loads a rom image. throws when the cartridge type is not supported.
+  /// GBC-flagged images run in GBC mode, others in DMG mode.
   @override
   void setRom(Uint8List body) {
     final cart = Cartridge.of(body);
-    if (cart.header.gbcOnly) {
-      throw Exception("GBC-only cartridges are not supported");
-    }
 
     crc = crc32Hex(body);
     cart.attachRam(_sram, "gb-$crc");
 
     bus.cart = cart;
+    bus.gbc = cart.header.gbc;
     reset();
   }
 
@@ -209,8 +207,9 @@ class Gb extends Core {
           operand: bus.read((cpu.pc + 1) & 0xffff) |
               bus.read((cpu.pc + 2) & 0xffff) << 8));
 
+  // debug: bank 0 only
   @override
-  List<int> get vram => ppu.vram;
+  List<int> get vram => ppu.vram.sublist(0, Ppu.vramBankSize);
 
   @override
   int read(int cpuNo, int addr) => bus.read(addr.mask16);

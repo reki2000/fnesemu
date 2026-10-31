@@ -53,10 +53,17 @@ class Cpu {
 
   /// sets the register state which the boot program leaves
   void reset() {
-    af = 0x01b0;
-    bc = 0x0013;
-    de = 0x00d8;
-    hl = 0x014d;
+    if (bus.gbc) {
+      af = 0x1180;
+      bc = 0x0000;
+      de = 0xff56;
+      hl = 0x000d;
+    } else {
+      af = 0x01b0;
+      bc = 0x0013;
+      de = 0x00d8;
+      hl = 0x014d;
+    }
     sp = 0xfffe;
     pc = 0x0100;
     ime = false;
@@ -465,7 +472,9 @@ class Cpu {
 
       case 0x10: // STOP
         _fetch();
-        bus.timer.writeDiv();
+        if (!bus.switchSpeed()) {
+          bus.timer.writeDiv();
+        }
 
       case 0x18: // JR r8
         final e8 = _fetch();

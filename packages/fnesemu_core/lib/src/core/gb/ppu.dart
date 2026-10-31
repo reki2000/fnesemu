@@ -17,9 +17,12 @@ class Ppu {
   // RGBA (little endian) of the 4 shades
   static const colors = [0xffd0f8e0, 0xff70c088, 0xff566834, 0xff201808];
 
+  static const vramBankSize = 0x2000;
+
   final Bus _bus;
 
-  final vram = Uint8List(0x2000);
+  // GBC has two VRAM banks. Bank 1 holds the BG map attributes at the map addresses.
+  final vram = Uint8List(vramBankSize * 2);
   final oam = Uint8List(0xa0);
 
   int lcdc = 0x91;
@@ -28,6 +31,18 @@ class Ppu {
   int ly = 0, lyc = 0;
   int bgp = 0xfc, obp0 = 0xff, obp1 = 0xff;
   int wy = 0, wx = 0;
+
+  // GBC registers: VBK, BCPS/OCPS, OPRI
+  int vramBank = 0;
+  int _bcps = 0, _ocps = 0;
+  int _opri = 0;
+
+  // GBC palette RAM: 8 palettes of 4 colors, little endian RGB555
+  final _bgPalette = Uint8List(64);
+  final _objPalette = Uint8List(64);
+  // the same palettes converted to RGBA for rendering
+  final _bgColors = Uint32List(32);
+  final _objColors = Uint32List(32);
 
   int mode = 0;
   int _dot = 0;
@@ -43,11 +58,14 @@ class Ppu {
   int frames = 0;
 
   final _bgIndex = Uint8List(width); // bg/window color index for priority
+  final _bgAttr = Uint8List(width); // bg/window map attributes (GBC)
   final _spriteOwned = Uint8List(width);
 
   Ppu(this._bus);
 
   bool get lcdOn => lcdc.bit7;
+
+  bool get _gbc => _bus.gbc;
 
   void reset() {
     lcdc = 0x91;
@@ -57,6 +75,13 @@ class Ppu {
     bgp = 0xfc;
     obp0 = obp1 = 0xff;
     wy = wx = 0;
+    vramBank = 0;
+    _bcps = _ocps = 0;
+    _opri = 0;
+    _bgPalette.fillRange(0, _bgPalette.length, 0xff);
+    _objPalette.fillRange(0, _objPalette.length, 0xff);
+    _convertPalette(_bgPalette, _bgColors);
+    _convertPalette(_objPalette, _objColors);
     mode = 2;
     _dot = 0;
     _windowLine = 0;
@@ -85,13 +110,13 @@ class Ppu {
     _statLine = line;
   }
 
-  /// one machine cycle
-  void tick() {
+  /// advances by system clocks (dots): 4 per machine cycle, 2 in GBC double speed
+  void tick(int dots) {
     if (!lcdOn) {
       return;
     }
 
-    _dot += 4;
+    _dot += dots;
 
     if (ly < height) {
       if (mode == 2 && _dot >= _mode2Clocks) {
@@ -101,6 +126,7 @@ class Ppu {
         _renderLine();
         mode = 0;
         _updateStat();
+        _bus.hblank();
       }
     }
 
@@ -145,11 +171,43 @@ class Ppu {
         0xff49 => obp1,
         0xff4a => wy,
         0xff4b => wx,
+        0xff4f => _gbc ? 0xfe | vramBank : 0xff,
+        0xff68 => _gbc ? _bcps | 0x40 : 0xff,
+        0xff69 => _gbc ? _bgPalette[_bcps & 0x3f] : 0xff,
+        0xff6a => _gbc ? _ocps | 0x40 : 0xff,
+        0xff6b => _gbc ? _objPalette[_ocps & 0x3f] : 0xff,
+        0xff6c => _gbc ? 0xfe | _opri : 0xff,
         _ => 0xff,
       };
 
   void write(int addr, int data) {
     switch (addr) {
+      case 0xff4f:
+        if (_gbc) {
+          vramBank = data & 1;
+        }
+      case 0xff68:
+        if (_gbc) {
+          _bcps = data & 0xbf;
+        }
+      case 0xff69:
+        if (_gbc) {
+          _writePalette(_bgPalette, _bgColors, _bcps & 0x3f, data);
+          _bcps = _nextPaletteIndex(_bcps);
+        }
+      case 0xff6a:
+        if (_gbc) {
+          _ocps = data & 0xbf;
+        }
+      case 0xff6b:
+        if (_gbc) {
+          _writePalette(_objPalette, _objColors, _ocps & 0x3f, data);
+          _ocps = _nextPaletteIndex(_ocps);
+        }
+      case 0xff6c:
+        if (_gbc) {
+          _opri = data & 1;
+        }
       case 0xff40:
         final wasOn = lcdOn;
         lcdc = data;
@@ -194,6 +252,33 @@ class Ppu {
     }
   }
 
+  // GBC palette RAM: BCPS/OCPS bit 7 increments the index after each data write
+  static int _nextPaletteIndex(int spec) =>
+      spec.bit7 ? 0x80 | ((spec + 1) & 0x3f) : spec;
+
+  void _writePalette(Uint8List ram, Uint32List colors, int index, int data) {
+    ram[index] = data;
+    final n = index >> 1;
+    colors[n] = _rgba(ram[n * 2], ram[n * 2 + 1]);
+  }
+
+  static void _convertPalette(Uint8List ram, Uint32List colors) {
+    for (int n = 0; n < colors.length; n++) {
+      colors[n] = _rgba(ram[n * 2], ram[n * 2 + 1]);
+    }
+  }
+
+  // RGB555 (little endian) to RGBA, expanding each 5bit channel to 8bit
+  static int _rgba(int lo, int hi) {
+    final v = lo | hi << 8;
+    int channel(int shift) {
+      final c = (v >> shift) & 31;
+      return c << 3 | c >> 2;
+    }
+
+    return 0xff000000 | channel(10) << 16 | channel(5) << 8 | channel(0);
+  }
+
   // returns 2bit color index of the pixel in the tile
   @pragma('vm:prefer-inline')
   int _tilePixel(int tileAddr, int row, int col) {
@@ -215,7 +300,8 @@ class Ppu {
       _windowTriggered = true;
     }
 
-    if (lcdc.bit0) {
+    // GBC keeps drawing the BG when LCDC bit 0 is clear; it only drops BG priority
+    if (lcdc.bit0 || _gbc) {
       // background
       final mapBase = lcdc.bit3 ? 0x1c00 : 0x1800;
       final y = (scy + ly).mask8;
@@ -224,8 +310,7 @@ class Ppu {
 
       for (int x = 0; x < width; x++) {
         final sx = (scx + x).mask8;
-        final tileAddr = _bgTileAddr(vram[rowBase + sx.shr3]);
-        _bgIndex[x] = _tilePixel(tileAddr, fineY, sx.mask3);
+        _setBgPixel(x, rowBase + sx.shr3, fineY, sx.mask3);
       }
 
       // window
@@ -237,18 +322,20 @@ class Ppu {
 
         for (int x = startX < 0 ? 0 : startX; x < width; x++) {
           final wxp = x - startX;
-          final tileAddr = _bgTileAddr(vram[winRow + wxp.shr3]);
-          _bgIndex[x] = _tilePixel(tileAddr, winFineY, wxp.mask3);
+          _setBgPixel(x, winRow + wxp.shr3, winFineY, wxp.mask3);
         }
         _windowLine++;
       }
 
       for (int x = 0; x < width; x++) {
-        _back[base + x] = colors[(bgp >> (_bgIndex[x] * 2)).mask2];
+        _back[base + x] = _gbc
+            ? _bgColors[(_bgAttr[x] & 7) * 4 + _bgIndex[x]]
+            : colors[(bgp >> (_bgIndex[x] * 2)).mask2];
       }
     } else {
       for (int x = 0; x < width; x++) {
         _bgIndex[x] = 0;
+        _bgAttr[x] = 0;
         _back[base + x] = colors[0];
       }
     }
@@ -256,6 +343,17 @@ class Ppu {
     if (lcdc.bit1) {
       _renderSprites(base);
     }
+  }
+
+  // stores the color index and map attributes of a bg/window pixel
+  @pragma('vm:prefer-inline')
+  void _setBgPixel(int x, int mapIndex, int row, int col) {
+    final attr = _gbc ? vram[vramBankSize + mapIndex] : 0;
+    final tileAddr =
+        _bgTileAddr(vram[mapIndex]) + (attr.bit3 ? vramBankSize : 0);
+    _bgIndex[x] = _tilePixel(
+        tileAddr, attr.bit6 ? 7 - row : row, attr.bit5 ? 7 - col : col);
+    _bgAttr[x] = attr;
   }
 
   final _lineSprites = List<int>.filled(10, 0);
@@ -276,8 +374,10 @@ class Ppu {
       return;
     }
 
-    // priority: smaller x first, then smaller OAM index (stable insertion sort)
-    for (int i = 1; i < count; i++) {
+    // DMG priority: smaller x first, then smaller OAM index (stable insertion sort).
+    // GBC uses OAM order unless OPRI selects the DMG order.
+    final sortByX = !_gbc || _opri != 0;
+    for (int i = 1; sortByX && i < count; i++) {
       final s = _lineSprites[i];
       final sx = oam[s * 4 + 1];
       var j = i - 1;
@@ -306,7 +406,9 @@ class Ppu {
         row &= 7;
       }
 
-      final palette = attr.bit4 ? obp1 : obp0;
+      // GBC: palette index from bits 0-2 and tile bank from bit 3
+      final palette = _gbc ? attr & 7 : (attr.bit4 ? obp1 : obp0);
+      final bank = _gbc && attr.bit3 ? vramBankSize : 0;
       final behindBg = attr.bit7;
       final xFlip = attr.bit5;
 
@@ -316,18 +418,25 @@ class Ppu {
           continue;
         }
 
-        final color = _tilePixel(tile * 16, row, xFlip ? 7 - col : col);
+        final color = _tilePixel(tile * 16 + bank, row, xFlip ? 7 - col : col);
         if (color == 0) {
           continue;
         }
 
         _spriteOwned[px] = 1;
 
-        if (behindBg && _bgIndex[px] != 0) {
+        // BG wins over the sprite on a non-zero BG pixel. The GBC BG attribute
+        // can also set this priority. LCDC bit 0 clear makes sprites always win.
+        final bgWins = lcdc.bit0 &&
+            _bgIndex[px] != 0 &&
+            (behindBg || _gbc && _bgAttr[px].bit7);
+        if (bgWins) {
           continue;
         }
 
-        _back[base + px] = colors[(palette >> (color * 2)).mask2];
+        _back[base + px] = _gbc
+            ? _objColors[palette * 4 + color]
+            : colors[(palette >> (color * 2)).mask2];
       }
     }
   }

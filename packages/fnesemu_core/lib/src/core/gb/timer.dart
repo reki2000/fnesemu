@@ -42,8 +42,10 @@ class Timer {
       _incTima();
     }
 
-    // frame sequencer of the sound unit is clocked by bit 12 falling edge
-    if (old.bit12 && !counter.bit12) {
+    // frame sequencer of the sound unit is clocked by a 512Hz falling edge:
+    // bit 12 of the divider at normal speed, bit 13 in GBC double speed
+    final frameBit = _bus.doubleSpeed ? 1 << 13 : 1 << 12;
+    if (old & frameBit != 0 && counter & frameBit == 0) {
       _bus.apu.clockFrameSequencer();
     }
   }
