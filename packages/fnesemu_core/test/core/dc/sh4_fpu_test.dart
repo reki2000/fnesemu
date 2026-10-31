@@ -351,8 +351,15 @@ void main() {
     const format = DcFloat.single;
     for (var i = 0; i < 50000; i++) {
       final control = random.nextInt(2);
-      final low = const [0, 1, 2, 3, 4, 5, 14, 0x2d, 0x3d][random.nextInt(9)];
-      final a = single(), b = single(), f0 = single();
+      // The first cases put the double FMAC sum on a single midpoint, so a
+      // tiny addend decides the side.
+      final midpoint = i < 8;
+      final low = midpoint
+          ? 14
+          : const [0, 1, 2, 3, 4, 5, 14, 0x2d, 0x3d][random.nextInt(9)];
+      final a = midpoint ? (i & 2) << 30 | 0x21800000 : single(),
+          b = midpoint ? 0x3f800001 : single(),
+          f0 = midpoint ? (i & 1) << 31 | 0x3fc00000 : single();
       final integer = random.nextInt(1 << 32).toSigned(32);
       final x = BigInt.from(a), y = BigInt.from(b);
       final expected = switch (low) {
@@ -391,10 +398,15 @@ void main() {
         (random.nextBool() ? 0x80000000 : 0) |
         ((124 + random.nextInt(6)) << 23) |
         random.nextInt(0x800000);
+    // Exponent spreads beyond the exact 64-bit window.
+    int spread() =>
+        (random.nextBool() ? 0x80000000 : 0) |
+        ((110 + random.nextInt(30)) << 23) |
+        random.nextInt(0x800000);
     List<BigInt> big(Iterable<int> values) => [...values.map(BigInt.from)];
     for (var i = 0; i < 20000; i++) {
       final control = random.nextInt(2);
-      final value = i % 4 < 2 ? near : single;
+      final value = i % 4 < 2 ? near : (i % 8 < 6 ? spread : single);
       final vector = [for (var j = 0; j < 4; j++) value()];
       final matrix = [for (var j = 0; j < 16; j++) value()];
       final fipr = i.isOdd;

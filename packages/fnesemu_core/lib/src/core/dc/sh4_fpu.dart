@@ -3,6 +3,8 @@ part of 'sh4.dart';
 extension _Sh4Fpu on Sh4 {
   static final _single = Float32List(1);
   static final _singleBits = Uint32List.view(_single.buffer);
+  static final _double = Float64List(1);
+  static final _doubleBits = Uint64List.view(_double.buffer);
 
   static double _toSingle(int bits) {
     _singleBits[0] = bits;
@@ -16,12 +18,17 @@ extension _Sh4Fpu on Sh4 {
 
   /// Rounds `value + error`, an exactly known result, to single precision
   /// with the FPSCR rounding mode. Nearest rounding of a double is exact
-  /// for one add, sub, mul or div of singles; round-to-zero steps one unit back
-  /// when that overshoots the magnitude. Returns -1 when the result is not
-  /// normal or nearest rounding would round twice.
+  /// for one add, sub, mul or div of singles; a double that is a single
+  /// midpoint takes the side of a nonzero error. Round-to-zero steps one unit
+  /// back when that overshoots the magnitude. Returns -1 when the result is
+  /// neither normal nor an exact zero.
   int _roundSingle(double value, double error, bool overshoot) {
     _single[0] = value;
     var bits = _singleBits[0];
+    if (value == 0 && error == 0 && !overshoot) {
+      _setFloatFlags(0);
+      return bits;
+    }
     if (!_normalSingle(bits)) return -1;
     final rounded = _single[0];
     final inexact = error != 0 || overshoot || rounded != value;
@@ -35,11 +42,21 @@ extension _Sh4Fpu on Sh4 {
         if (!_normalSingle(bits)) return -1;
       }
     } else if (error != 0) {
-      return -1;
+      _double[0] = value;
+      if (_doubleBits[0] & 0x1fffffff == 0x10000000) {
+        final away = (error > 0) == (value > 0);
+        if (away != (rounded.abs() > value.abs())) {
+          bits += away ? 1 : -1;
+          if (!_normalSingle(bits)) return -1;
+        }
+      }
     }
     _setFloatFlags(inexact ? DcFloat.inexact : 0);
     return bits;
   }
+
+  static bool _normalOrZero(int bits) =>
+      _normalSingle(bits) || bits & 0x7fffffff == 0;
 
   void _setFloatFlags(int flags) {
     _fpscr = ((fpscr & ~0x3f000) | (flags << 12) | (flags << 2)) & 0x003fffff;
@@ -48,11 +65,11 @@ extension _Sh4Fpu on Sh4 {
   /// FIPR/FTRV row: the exact sum of four single products, rounded once.
   /// Sums in a 64-bit integer when the product exponents are close; returns -1
   /// for special operands, a wide exponent spread or a non-normal result.
-  int _fastInnerProduct(int base, List<int> right, int start, int stride) {
+  int _fastInnerProduct(int left, List<int> right, int start, int stride) {
     var minimum = 1 << 30, maximum = -(1 << 30);
     var allNegativeZero = true, nonzero = false;
     for (var i = 0; i < 4; i++) {
-      final a = fr[base + i], b = right[start + i * stride];
+      final a = fr[left + i], b = right[start + i * stride];
       final fa = (a >> 23) & 255, fb = (b >> 23) & 255;
       if (fa == 255 || fb == 255) return -1;
       final zero =
@@ -67,43 +84,67 @@ extension _Sh4Fpu on Sh4 {
     }
     if (!nonzero) return allNegativeZero ? 0x80000000 : 0;
     // 48-bit products, a 12-bit alignment and two carry bits fit in 62 bits.
-    if (maximum - minimum > 12) return -1;
-    var sum = 0;
+    // Products further below are floored into that window, so the exact sum
+    // lies in (sum, sum + dropped) when any of their bits were dropped.
+    final base = maximum - minimum > 12 ? maximum - 12 : minimum;
+    var sum = 0, dropped = 0;
     for (var i = 0; i < 4; i++) {
-      final a = fr[base + i], b = right[start + i * stride];
+      final a = fr[left + i], b = right[start + i * stride];
       final fa = (a >> 23) & 255, fb = (b >> 23) & 255;
       if (fa == 0 || fb == 0) continue;
       final product = ((a & 0x7fffff) | 0x800000) * ((b & 0x7fffff) | 0x800000);
-      final term = product << (fa + fb - minimum);
-      sum += (a ^ b) & 0x80000000 != 0 ? -term : term;
+      final term = (a ^ b) & 0x80000000 != 0 ? -product : product;
+      final shift = fa + fb - base;
+      if (shift >= 0) {
+        sum += term << shift;
+      } else {
+        if (-shift > 48 || term & ((1 << -shift) - 1) != 0) dropped++;
+        sum += term >> -shift;
+      }
     }
-    if (sum == 0) return 0;
-    final negative = sum < 0, magnitude = negative ? -sum : sum;
-    // value = magnitude * 2^(minimum - 254 - 46).
-    final length = magnitude.bitLength;
-    var field = length - 1 + minimum - 300 + 127;
+    if (sum == 0 && dropped == 0) return 0;
+    // The exact magnitude lies in [low, low] or in the open (low, high).
+    final negative = sum < 0;
+    if (negative && sum + dropped > 0) return -1;
+    final low = negative ? -sum - dropped : sum, high = low + dropped;
+    if (low <= 0) return -1;
+    // value = magnitude * 2^(base - 254 - 46).
+    final length = low.bitLength;
+    var field = length - 1 + base - 300 + 127;
     if (field < 1 || field > 254) return -1;
     final shift = length - 24;
-    var mantissa = shift > 0 ? magnitude >> shift : magnitude << -shift;
-    if (shift > 0 && fpscr & 1 == 0) {
-      final remainder = magnitude & ((1 << shift) - 1), half = 1 << (shift - 1);
-      if (remainder > half || (remainder == half && mantissa.isOdd)) {
-        mantissa++;
-        if (mantissa == 0x1000000) {
-          mantissa >>= 1;
-          if (++field > 254) return -1;
-        }
+    var mantissa = shift > 0 ? low >> shift : low << -shift;
+    bool up;
+    if (dropped == 0) {
+      if (shift <= 0) {
+        up = false;
+      } else {
+        final remainder = low & ((1 << shift) - 1), half = 1 << (shift - 1);
+        up = remainder > half || (remainder == half && mantissa.isOdd);
+      }
+    } else {
+      // No rounding boundary may lie inside the interval.
+      if (shift < 2 || low >> (shift - 1) != (high - 1) >> (shift - 1)) {
+        return -1;
+      }
+      up = (low >> (shift - 1)).isOdd;
+    }
+    if (up && fpscr & 1 == 0) {
+      mantissa++;
+      if (mantissa == 0x1000000) {
+        mantissa >>= 1;
+        if (++field > 254) return -1;
       }
     }
     return (negative ? 0x80000000 : 0) | (field << 23) | (mantissa & 0x7fffff);
   }
 
-  /// Fast single-precision arithmetic for normal operands while no FPU
-  /// exception is enabled. Returns false when the exact path must decide.
+  /// Fast single-precision arithmetic for normal or zero operands while no
+  /// FPU exception is enabled. Returns false when the exact path must decide.
   bool _fastSingle(int low, int n, int m) {
     if (fpscr & 0x80f82 != 0) return false;
     final a = fr[n], b = fr[m];
-    if (!_normalSingle(a) || !_normalSingle(b)) return false;
+    if (!_normalOrZero(a) || !_normalOrZero(b)) return false;
     final x = _toSingle(a), y = _toSingle(b);
     int bits;
     switch (low) {
@@ -117,6 +158,12 @@ extension _Sh4Fpu on Sh4 {
       case 3:
         // The float32 rounding of the double quotient is correctly rounded;
         // the exact product of the result and the divisor tells the side.
+        if (b & 0x7fffffff == 0) return false;
+        if (a & 0x7fffffff == 0) {
+          _setFloatFlags(0);
+          fr[n] = (a ^ b) & 0x80000000;
+          return true;
+        }
         _single[0] = x / y;
         bits = _singleBits[0];
         if (!_normalSingle(bits)) return false;
@@ -129,8 +176,10 @@ extension _Sh4Fpu on Sh4 {
       default:
         // FMAC: FR0 * FRm + FRn with one rounding.
         final f0 = fr[0];
-        if (!_normalSingle(f0)) return false;
+        if (!_normalOrZero(f0)) return false;
         final p = _toSingle(f0) * y;
+        // The exact path owns the sign of a zero sum of zeros.
+        if (p == 0 && x == 0) return false;
         final sum = p + x, virtual = sum - p;
         bits = _roundSingle(sum, (p - (sum - virtual)) + (x - virtual), false);
     }
