@@ -498,6 +498,10 @@ class DcGpuTexture {
   @pragma('vm:prefer-inline')
   static int _lanes(int c) => (c & 0xff00ff) | ((c & 0xff00ff00) << 24);
 
+  /// [_lanes] for other units.
+  @pragma('vm:prefer-inline')
+  static int toLanes(int c) => _lanes(c);
+
   @pragma('vm:prefer-inline')
   static double _position(double value, int size, bool clamp, bool flip) {
     value *= size;

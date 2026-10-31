@@ -1743,6 +1743,21 @@ class DcGpuRender {
       return source & 0xffffffff;
     }
     final sa = (source >> 24) & 255, da = (destination >> 24) & 255;
+    if (sourceInstruction & 6 != 2 && destinationInstruction & 6 != 2) {
+      // Alpha and constant factors are the same for every channel; with a
+      // factor sum up to 255 no channel saturates and 16-bit lanes suffice.
+      final sf = _factor(sourceInstruction, 0, sa, da),
+          df = _factor(destinationInstruction, 0, sa, da);
+      if (sf + df <= 255) {
+        const lanes = 0x00ff00ff00ff00ff;
+        final x = DcGpuTexture.toLanes(source) * sf +
+            DcGpuTexture.toLanes(destination) * df +
+            0x007f007f007f007f;
+        // div255 of each lane, exact below 2^16.
+        return DcGpuTexture.packLanes(
+            ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes);
+      }
+    }
     return _blendChannel(source & 255, destination & 255, sourceInstruction,
             destinationInstruction, sa, da) |
         (_blendChannel((source >> 8) & 255, (destination >> 8) & 255,
