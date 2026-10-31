@@ -464,9 +464,11 @@ class DcBus {
     final destination = translated == null
         ? (address & 0x03ffffe0) | ((_qacr[queue] & 0x1c) << 24)
         : translated.physical & ~31;
-    // The polygon FIFO does not depend on device time; leaving the devices
-    // behind there keeps geometry bursts from ticking every device.
-    if (destination & 0x1f800000 == 0x10000000) {
+    // Main RAM and the polygon FIFO do not depend on device time, as with
+    // compiled RAM stores; leaving the devices behind there keeps bursts
+    // from ticking every device.
+    if (destination & 0x1c000000 == 0x0c000000 ||
+        destination & 0x1f800000 == 0x10000000) {
       deviceEpoch++;
     } else {
       syncDevices();
