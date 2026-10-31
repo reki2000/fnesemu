@@ -454,13 +454,19 @@ class DcBus {
 
   /// Synchronous burst model; bus arbitration and transfer latency are pending.
   void transferStoreQueue(int address, {bool privileged = true}) {
-    syncDevices();
     address = address.mask32;
     final queue = (address >> 5) & 1;
     final translated = translateCpu(address, privileged: privileged);
     final destination = translated == null
         ? (address & 0x03ffffe0) | ((_qacr[queue] & 0x1c) << 24)
         : translated.physical & ~31;
+    // The polygon FIFO does not depend on device time; leaving the devices
+    // behind there keeps geometry bursts from ticking every device.
+    if (destination & 0x1f800000 == 0x10000000) {
+      deviceEpoch++;
+    } else {
+      syncDevices();
+    }
     // Validate the whole burst before committing any external bytes.
     _writeExternal(destination,
         Uint8List.fromList(_storeQueues.sublist(queue * 32, queue * 32 + 32)));

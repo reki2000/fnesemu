@@ -58,7 +58,7 @@ class Dc extends Core {
   int _batchedClocks = 0, _batchDeadline = 0;
   int _pinsEpoch = -1;
   // Compiled code runs whole blocks, so it uses longer device batches.
-  int get _batchLimit => _jit == null ? 256 : 2048;
+  int get _batchLimit => _jit == null ? 256 : 8192;
   String? stopReason;
   CdromDrive? _discDrive;
   int _bootstrapEpoch = 0;
