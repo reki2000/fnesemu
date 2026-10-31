@@ -179,18 +179,13 @@ class DcMapleController implements DcMapleDevice {
         if (ByteData.sublistView(request).getUint32(4) != 1) return reply(0xfe);
         // The condition is sampled where the hardware samples it: the
         // buttons are active low, the triggers report their digital
-        // endpoints, and either stick of the host drives the analog
-        // stick, the left one with priority.
+        // endpoints, and the host's left stick drives the analog stick.
         var keys = 0xffff;
         for (final (button, bit) in _digital) {
           if (source.isPressed(port, button)) keys &= ~bit;
         }
-        var x = source.axis(port, PadAxis.leftX);
-        var y = source.axis(port, PadAxis.leftY);
-        if (x == 0 && y == 0) {
-          x = source.axis(port, PadAxis.rightX);
-          y = source.axis(port, PadAxis.rightY);
-        }
+        final x = source.axis(port, PadAxis.leftX);
+        final y = source.axis(port, PadAxis.leftY);
         int stick(double axis) => (128 + axis * 127).round().clamp(0, 255);
         return reply(8, [
           0,

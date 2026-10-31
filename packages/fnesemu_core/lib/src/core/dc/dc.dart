@@ -590,8 +590,6 @@ class Dc extends Core {
   List<PadAxis> get axes => const [
         PadAxis.leftX,
         PadAxis.leftY,
-        PadAxis.rightX,
-        PadAxis.rightY,
       ];
 
   @override
