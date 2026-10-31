@@ -16,9 +16,12 @@ import 'vram_pages.dart';
 /// Data structures and register fields follow System Architecture §§3.7.7–3.7.9, 8.4.2.
 class DcGpuRender {
   DcGpuRender(this.memory, this.palette, {required this.onNormal})
-      : _vramWords = ByteData.sublistView(memory);
+      : _vramWords = ByteData.sublistView(memory),
+        _vramHalves = Uint16List.view(
+            memory.buffer, memory.offsetInBytes, memory.length ~/ 2);
   final Uint8List memory;
   final ByteData _vramWords;
+  final Uint16List _vramHalves;
   late final _pages = DcVramPages.of(memory);
   final DcGpuPalette palette;
   final fog = DcGpuFog();
@@ -1947,6 +1950,17 @@ class DcGpuRender {
 extension on DcGpuRender {
   /// One unclipped tile row of 16-bit pixels in linear VRAM; the same
   /// conversion as the general [DcGpuRender._writeTile] loop.
+  @pragma('vm:prefer-inline')
+  static int _pack565(int color, int add) {
+    var lanes =
+        (((color & 0xff0000) << 4) | ((color & 0xff00) << 2) | (color & 0xff)) +
+            add;
+    lanes |= ((lanes >> 8) & 0x100401) * 255;
+    return ((lanes >> 12) & 0xf800) |
+        ((lanes >> 7) & 0x7e0) |
+        ((lanes >> 3) & 0x1f);
+  }
+
   @pragma('vm:unsafe:no-bounds-checks')
   void _writeRow16(int first, int y, int py, int mode, int kval, int threshold,
       int? rankRow, int rgbShift, int greenShift) {
@@ -1955,30 +1969,28 @@ extension on DcGpuRender {
     _pages.mark(first);
     _pages.mark(first + 63);
     final row = y * 32;
-    if (mode == 1) {
+    if (mode == 1 && first & 1 == 0) {
       // R, G and B in 10-bit lanes: one add applies the dither, and the
       // carry out of each lane saturates it.
-      final adds = Int64List(4);
+      var a0 = 0, a1 = 0, a2 = 0, a3 = 0;
       if (rankRow != null) {
-        for (var i = 0; i < 4; i++) {
-          final rank = ranks[rankRow + i];
+        int lanes(int rank) {
           final rgb = (rank << 3) >> 4, green = (rank << 2) >> 4;
-          adds[i] = (rgb << 20) | (green << 10) | rgb;
+          return (rgb << 20) | (green << 10) | rgb;
         }
+
+        a0 = lanes(ranks[rankRow]);
+        a1 = lanes(ranks[rankRow + 1]);
+        a2 = lanes(ranks[rankRow + 2]);
+        a3 = lanes(ranks[rankRow + 3]);
       }
-      for (var x = 0; x < 32; x++) {
-        final color = colors[row + x];
-        var lanes = (((color & 0xff0000) << 4) |
-                ((color & 0xff00) << 2) |
-                (color & 0xff)) +
-            adds[x & 3];
-        lanes |= ((lanes >> 8) & 0x100401) * 255;
-        words.setUint16(
-            first + x * 2,
-            ((lanes >> 12) & 0xf800) |
-                ((lanes >> 7) & 0x7e0) |
-                ((lanes >> 3) & 0x1f),
-            Endian.little);
+      final halves = _vramHalves;
+      final at = first >> 1;
+      for (var x = 0; x < 32; x += 4) {
+        halves[at + x] = _pack565(colors[row + x], a0);
+        halves[at + x + 1] = _pack565(colors[row + x + 1], a1);
+        halves[at + x + 2] = _pack565(colors[row + x + 2], a2);
+        halves[at + x + 3] = _pack565(colors[row + x + 3], a3);
       }
       return;
     }
