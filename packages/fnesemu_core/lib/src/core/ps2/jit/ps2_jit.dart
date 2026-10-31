@@ -22,7 +22,7 @@ final class Ps2Jit {
         ..memoryRegion = _memoryRegion;
   final bool native;
   final int compileThreshold;
-  late final Uint8List ram = rt.alloc(Ps2Bus.ramSize);
+  final Uint8List ram;
   late final ByteData _ram = ByteData.sublistView(ram);
   late final Int64List gpr = Int64List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + R5900Translator.ctxRegs * 4, 64);
@@ -41,7 +41,7 @@ final class Ps2Jit {
 
   int get compiledClocks => native ? _driver.executedClocks : 0;
 
-  Ps2Jit._(this.rt, this.native, int? threshold)
+  Ps2Jit._(this.rt, this.native, int? threshold, this.ram)
       : compileThreshold = threshold ?? rt.compileThreshold;
 
   static Ps2Jit? create({bool native = true, int? compileThreshold}) {
@@ -60,7 +60,20 @@ final class Ps2Jit {
             addrMask: 0x1fffffff,
             read: read,
             write: write);
-    return runtime == null ? null : Ps2Jit._(runtime, native, compileThreshold);
+    if (runtime == null) return null;
+    // The guest memory comes out of the runtime's memory pool, which the
+    // Wasm runtime shares between every live runtime. A pool with no room
+    // for it leaves this host without a recompiler, as a runtime that
+    // cannot be created does, instead of failing the construction of the
+    // core when the memory is first touched.
+    final Uint8List ram;
+    try {
+      ram = runtime.alloc(Ps2Bus.ramSize);
+    } on StateError {
+      runtime.dispose();
+      return null;
+    }
+    return Ps2Jit._(runtime, native, compileThreshold, ram);
   }
 
   void attach(R5900 cpu) {
