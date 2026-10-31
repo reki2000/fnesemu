@@ -63,6 +63,8 @@ class DcGpuRender {
   }
 
   final _registers = <int, int>{};
+  // [_registers] below 0x800 by word, for reads during rendering.
+  final _registerWords = Uint32List(0x200);
   final _float = ByteData(4);
   final _colors = Uint32List(1024);
   final _secondary = Uint32List(1024);
@@ -344,6 +346,7 @@ class DcGpuRender {
     _registers
       ..clear()
       ..addAll(registers);
+    _mirrorRegisters();
     _colors.setAll(0, colors);
     _secondary.setAll(0, secondary);
     _secondaryValid.setAll(0, valid);
@@ -374,6 +377,7 @@ class DcGpuRender {
       ..clear()
       ..addAll(
           {0x7c: 0x7df77, 0x80: 7, 0x98: 0x402000, 0xf4: 0x400, 0x11c: 0xff});
+    _mirrorRegisters();
     _remaining = _sortMode = _primitiveOrder = 0;
     _x = _y = -1;
   }
@@ -381,7 +385,15 @@ class DcGpuRender {
   int read(int offset) {
     if (DcGpuFog.handles(offset)) return fog.read(offset);
     if (offset == 0x14) throw const DcUnsupported('STARTRENDER is write-only');
+    if (offset < 0x800 && offset & 3 == 0) return _registerWords[offset >> 2];
     return _registers[offset] ?? 0;
+  }
+
+  void _mirrorRegisters() {
+    _registerWords.fillRange(0, _registerWords.length, 0);
+    for (final MapEntry(:key, :value) in _registers.entries) {
+      if (key < 0x800 && key & 3 == 0) _registerWords[key >> 2] = value;
+    }
   }
 
   void write(int offset, int value) {
@@ -435,7 +447,8 @@ class DcGpuRender {
       throw const DcUnsupported('CORE registers changed during rendering');
     }
     if (DcGpuFog.handles(offset)) return fog.write(offset, value);
-    _registers[offset] = value & _registerMask(offset);
+    final masked = _registers[offset] = value & _registerMask(offset);
+    if (offset < 0x800 && offset & 3 == 0) _registerWords[offset >> 2] = masked;
   }
 
   static int _registerMask(int offset) => switch (offset) {
