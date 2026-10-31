@@ -21,7 +21,7 @@ void main() {
   testWidgets(
       'staggered rows, uniform single-letter widths and inside key labels',
       (tester) async {
-    final input = PadInput(onDown: (_) {}, onUp: (_) {});
+    final input = PadInput();
     addTearDown(input.dispose);
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
