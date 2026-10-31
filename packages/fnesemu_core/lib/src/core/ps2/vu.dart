@@ -283,6 +283,11 @@ class Vu {
 
   final _result = List<int>.filled(4, 0);
 
+  /// the snapshot of [_result] that [step] applies after the lower
+  /// instruction of the pair has run; a reused buffer, so that a pair
+  /// allocates nothing
+  final _upperResult = List<int>.filled(4, 0);
+
   // ---- execution of one pair ----
 
   void step() {
@@ -305,7 +310,11 @@ class Vu {
 
     // the upper instruction reads before the lower one writes
     final hasWrite = _upper(highWord);
-    final savedResult = hasWrite ? List<int>.of(_result) : const <int>[];
+    if (hasWrite) {
+      for (var c = 0; c < 4; c++) {
+        _upperResult[c] = _result[c];
+      }
+    }
     final upperReg = _upperReg, upperMask = _upperMask;
     final upperMac = _flagsPending ? _upperMac : -1;
     final upperClip = _clipPending;
@@ -317,7 +326,7 @@ class Vu {
       _lower(lowWord);
     }
     if (hasWrite) {
-      _setVf(upperReg, upperMask, savedResult);
+      _setVf(upperReg, upperMask, _upperResult);
       if (upperReg != 0) _setReady(upperReg, upperMask, issued + _fmacLatency);
     }
     if (upperMac >= 0 || upperClip >= 0) {
@@ -362,7 +371,8 @@ class Vu {
   /// or P before a WAITP. A pair with a new division waits for the pending one as a whole, so its upper instruction reads the new Q.
   void _stall(int upper, int lower) {
     var t = cycles;
-    final (fsFields, ftFields) = _upperReads(upper);
+    _upperReads(upper);
+    final fsFields = _readFsFields, ftFields = _readFtFields;
     if (fsFields != 0) t = _readyAt((upper >> 11) & 31, fsFields, t);
     if (ftFields != 0) t = _readyAt((upper >> 16) & 31, ftFields, t);
     final op = lower >>> 25;
@@ -415,29 +425,76 @@ class Vu {
     cycles = t;
   }
 
-  /// the fields of fs and ft that the upper instruction [ir] reads
-  static (int, int) _upperReads(int ir) {
+  /// the fields of fs and ft that the upper instruction reads, left in
+  /// [_readFsFields] and [_readFtFields] by [_upperReads] (fields, not a
+  /// returned record, so that a pair allocates nothing)
+  int _readFsFields = 0, _readFtFields = 0;
+
+  void _upperReads(int ir) {
     final op = ir & 63;
     final mask = (ir >> 21) & 15;
-    if (op < 0x1c) return (mask, 8 >> (op & 3)); // broadcast
-    if (op < 0x28) return (mask, 0); // Q or I
-    if (op == 0x2e) return (14, 14); // OPMSUB
-    if (op < 0x30) return (mask, mask);
-    if (op < 0x3c) return (0, 0);
+    if (op < 0x1c) {
+      // broadcast
+      _readFsFields = mask;
+      _readFtFields = 8 >> (op & 3);
+      return;
+    }
+    if (op < 0x28) {
+      // Q or I
+      _readFsFields = mask;
+      _readFtFields = 0;
+      return;
+    }
+    if (op == 0x2e) {
+      // OPMSUB
+      _readFsFields = 14;
+      _readFtFields = 14;
+      return;
+    }
+    if (op < 0x30) {
+      _readFsFields = mask;
+      _readFtFields = mask;
+      return;
+    }
+    if (op < 0x3c) {
+      _readFsFields = 0;
+      _readFtFields = 0;
+      return;
+    }
     final sub = (ir >> 6) & 31, col = op & 3;
     switch (sub) {
       case < 4 || 6: // the accumulator forms with a broadcast lane
-        return (mask, 8 >> col);
+        _readFsFields = mask;
+        _readFtFields = 8 >> col;
+        return;
       case 4 || 5 || 8 || 9: // ITOF, FTOI, and the Q and I forms
-        return (mask, 0);
-      case 7:
-        return col == 3 ? (14, 1) : (mask, 0); // CLIP reads ft.w
+        _readFsFields = mask;
+        _readFtFields = 0;
+        return;
+      case 7: // CLIP reads ft.w
+        _readFsFields = col == 3 ? 14 : mask;
+        _readFtFields = col == 3 ? 1 : 0;
+        return;
       case 10:
-        return (mask, col == 3 ? 0 : mask);
+        _readFsFields = mask;
+        _readFtFields = col == 3 ? 0 : mask;
+        return;
       case 11:
-        return switch (col) { 2 => (14, 14), 3 => (0, 0), _ => (mask, mask) };
+        switch (col) {
+          case 2:
+            _readFsFields = 14;
+            _readFtFields = 14;
+          case 3:
+            _readFsFields = 0;
+            _readFtFields = 0;
+          default:
+            _readFsFields = mask;
+            _readFtFields = mask;
+        }
+        return;
     }
-    return (0, 0);
+    _readFsFields = 0;
+    _readFtFields = 0;
   }
 
   /// the fields [mask] of a VF register written by a lower instruction
@@ -627,12 +684,12 @@ class Vu {
           out = _d(a) <= _d(bBits) ? a : bBits;
         default:
           final x = _d(a), y = _d(bBits);
-          final accValue = _d(acc[c]);
+          // the accumulator is decoded only by the kinds that use it
           final v = switch (kind) {
             0 => x + y,
             1 => x - y,
-            2 => accValue + x * y,
-            3 => accValue - x * y,
+            2 => _d(acc[c]) + x * y,
+            3 => _d(acc[c]) - x * y,
             _ => x * y,
           };
           out = _enc(v);
@@ -668,11 +725,11 @@ class Vu {
 
   void _opmsub(int fs, int ft, int fd) {
     // fd.x = ACC.x - fs.y * ft.z, fd.y = ACC.y - fs.z * ft.x,
-    // fd.z = ACC.z - fs.x * ft.y; w is untouched
-    final pairs = [(1, 2), (2, 0), (0, 1)];
+    // fd.z = ACC.z - fs.x * ft.y; w is untouched. Lane c reads fs lane
+    // (c + 1) % 3 and ft lane (c + 2) % 3.
     var macBits = 0;
     for (var c = 0; c < 3; c++) {
-      final (a, b) = pairs[c];
+      final a = c == 2 ? 0 : c + 1, b = c == 0 ? 2 : c - 1;
       _result[c] = _enc(_d(acc[c]) - _d(_lane(fs, a)) * _d(_lane(ft, b)));
       macBits |= _macBits(c, _result[c], _lastFlags);
     }
@@ -757,10 +814,10 @@ class Vu {
   }
 
   void _opmula(int fs, int ft) {
-    final pairs = [(1, 2), (2, 0), (0, 1)];
+    // lane c reads fs lane (c + 1) % 3 and ft lane (c + 2) % 3, as _opmsub
     var macBits = 0;
     for (var c = 0; c < 3; c++) {
-      final (a, b) = pairs[c];
+      final a = c == 2 ? 0 : c + 1, b = c == 0 ? 2 : c - 1;
       acc[c] = _enc(_d(_lane(fs, a)) * _d(_lane(ft, b)));
       macBits |= _macBits(c, acc[c], _lastFlags);
     }

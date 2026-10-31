@@ -336,7 +336,11 @@ class GsRaster {
     }
     final mem = gs.mem;
     final fi = _frameLayout.index(_fbp, _framePages, x, y);
-    final fraw = mem.readAt(_fpsm, fi);
+    // the 32-bit formats read as a plain word, without the format switch
+    // of readAt on the per-pixel path
+    final fraw = _fpsm == GsPsm.ct32 || _fpsm == GsPsm.z32
+        ? mem.word(fi)
+        : mem.readAt(_fpsm, fi);
     if (_date && _fcolor != GsPsm.ct24) {
       final bit = _fcolor == GsPsm.ct32 ? (fraw >> 31) & 1 : (fraw >> 15) & 1;
       if ((bit != 0) != _datm) return;
@@ -345,7 +349,7 @@ class GsRaster {
     if (z > _zmax) z = _zmax;
     final zi = _zLayout.index(_zbp, _zPages, x, y);
     if (_zte) {
-      final zold = mem.readAt(_zpsm, zi);
+      final zold = _zpsm == GsPsm.z32 ? mem.word(zi) : mem.readAt(_zpsm, zi);
       final pass = switch (_ztst) {
         0 => false,
         1 => true,
@@ -354,7 +358,13 @@ class GsRaster {
       };
       if (!pass) return;
     }
-    if (writeZ) mem.writeAt(_zpsm, zi, z);
+    if (writeZ) {
+      if (_zpsm == GsPsm.z32) {
+        mem.setWord(zi, z);
+      } else {
+        mem.writeAt(_zpsm, zi, z);
+      }
+    }
     if (!writeColor) return;
     if (_abe && (gs.pabe == 0 || a & 0x80 != 0)) {
       _decodeFrame(fraw);
@@ -644,9 +654,8 @@ class GsRaster {
   int _texel(int u, int v) {
     final mem = gs.mem;
     final i = _texLayout.index(_tbp, _texPages, u, v);
+    if (_tpsm == GsPsm.ct32) return mem.word(i);
     switch (_tpsm) {
-      case GsPsm.ct32:
-        return mem.word(i);
       case GsPsm.t8 || GsPsm.t8h:
         return _clut(mem.readAt(_tpsm, i));
       case GsPsm.t4 || GsPsm.t4hl || GsPsm.t4hh:
