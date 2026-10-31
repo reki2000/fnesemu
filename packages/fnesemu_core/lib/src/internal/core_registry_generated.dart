@@ -6,10 +6,11 @@ import '../core/n64/module.dart' as module3;
 import '../core/nes/module.dart' as module4;
 import '../core/pce/module.dart' as module5;
 import '../core/ps/module.dart' as module6;
-import '../core/sms/module.dart' as module7;
-import '../core/snes/module.dart' as module8;
-import '../core/ss/module.dart' as module9;
-import '../core/ws/module.dart' as module10;
+import '../core/ps2/module.dart' as module7;
+import '../core/sms/module.dart' as module8;
+import '../core/snes/module.dart' as module9;
+import '../core/ss/module.dart' as module10;
+import '../core/ws/module.dart' as module11;
 import '../core_module.dart';
 
 List<CoreModule> createInstalledCoreModules() => [
@@ -24,4 +25,5 @@ List<CoreModule> createInstalledCoreModules() => [
       module8.createModule(),
       module9.createModule(),
       module10.createModule(),
+      module11.createModule(),
     ];

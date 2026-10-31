@@ -154,15 +154,36 @@ class CdBlock {
   int cddaRead = 0;
 
   List<int> get _scalars => [
-        hirq, hirqMask, _status, _cdConn, _lastDest, _getLength,
-        _fad, _playStart, _playEnd, _repeat, _sectorWait, _periodicWait,
-        _xferPos, _lastXferWords, _actualSize, _rootFad, _rootSize, cddaWrite,
+        hirq,
+        hirqMask,
+        _status,
+        _cdConn,
+        _lastDest,
+        _getLength,
+        _fad,
+        _playStart,
+        _playEnd,
+        _repeat,
+        _sectorWait,
+        _periodicWait,
+        _xferPos,
+        _lastXferWords,
+        _actualSize,
+        _rootFad,
+        _rootSize,
+        cddaWrite,
         cddaRead
       ];
 
   List<bool> get _flags => [
-        _started, _responseRead, _playing, _readingFile, _standardSpeed,
-        _xferActive, _retryCommand, _rootPending
+        _started,
+        _responseRead,
+        _playing,
+        _readingFile,
+        _standardSpeed,
+        _xferActive,
+        _retryCommand,
+        _rootPending
       ];
 
   /// Saves the host interface, play and transfer state, buffered sectors,
@@ -182,8 +203,10 @@ class CdBlock {
       }
     }
     for (final f in _filters) {
-      w.ints([f.fad, f.range, f.mode, f.fn, f.cn, f.smMask, f.smVal, //
-        f.ciMask, f.ciVal, f.trueConn, f.falseConn]);
+      w.ints([
+        f.fad, f.range, f.mode, f.fn, f.cn, f.smMask, f.smVal, //
+        f.ciMask, f.ciVal, f.trueConn, f.falseConn
+      ]);
     }
     w.bytes(_xfer);
     w.int32(_dirEntries.length);

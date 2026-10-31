@@ -171,8 +171,8 @@ class ArcadeCard {
     } else if (reg >= 0xe0) {
       if (reg <= 0xe3) {
         final shift = (reg & 3) * 8;
-        _shiftData = ((_shiftData & ~(0xff << shift)) | (value << shift)) &
-            _longMask;
+        _shiftData =
+            ((_shiftData & ~(0xff << shift)) | (value << shift)) & _longMask;
       } else if (reg == 0xe4) {
         _shiftAmount = value;
         final bits = value & 0x0f;
@@ -187,9 +187,8 @@ class ArcadeCard {
         if (bits != 0) {
           final left = bits < 8 ? bits : bits - 16;
           final shift = left < 0 ? left + 32 : left;
-          _shiftData =
-              ((_shiftData << shift) | (_shiftData >> (32 - shift))) &
-                  _longMask;
+          _shiftData = ((_shiftData << shift) | (_shiftData >> (32 - shift))) &
+              _longMask;
         }
       }
     }
