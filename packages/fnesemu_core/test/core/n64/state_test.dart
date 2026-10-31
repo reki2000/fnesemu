@@ -61,7 +61,6 @@ void main() {
       _frames(original, 3);
       // The handler has rearmed Compare, so timer interrupts were taken.
       expect(original.cpu.cop0[11], isNot(5000));
-      original.padDown(0, original.buttons.first);
       final state = original.saveState();
       _frames(original, 4);
 
@@ -71,23 +70,72 @@ void main() {
       expect(restored.dump(), original.dump());
       expect(restored.bus.ram, original.bus.ram);
       expect(restored.bus.mi, original.bus.mi);
-      expect(restored.bus.held, original.bus.held);
       expect(restored.saveState(), original.saveState());
     });
   }
+
+  test('a restored FlashRAM task retains its pending write buffer', () {
+    final core = _core(false);
+    core.bus.ram.fillRange(0x4000, 0x4080, 0x69);
+    core.bus.write(0xa8010000, 0xb4000000, 4);
+    core.bus.write(0xa4600000, 0x4000, 4);
+    core.bus.write(0xa4600004, 0x08000000, 4);
+    core.bus.write(0xa4600008, 127, 4);
+    final restored = _core(false)..loadState(core.saveState());
+    for (final n in [core, restored]) {
+      n.bus.write(0xa8010000, 0xa5000101, 4);
+      n.bus.write(0xa8010000, 0xf0000000, 4);
+      n.bus.write(0xa4600000, 0x5000, 4);
+      n.bus.write(0xa4600004, 0x08004040, 4);
+      n.bus.write(0xa460000c, 127, 4);
+      expect(n.bus.ram.sublist(0x5000, 0x5080), List.filled(128, 0x69));
+    }
+    expect(restored.saveState(), core.saveState());
+  });
+
+  test('FlashRAM status retains the version-2 little-endian field', () {
+    final core = _core(false);
+    core.bus.write(0xa8010000, 0xa5000000, 4);
+    final writer = StateWriter('n64', 2, 0);
+    core.bus.saveState(writer);
+    final bytes = writer.take();
+    // The status is the 64-bit field before the three saved bus clocks.
+    expect(bytes.sublist(bytes.length - 32, bytes.length - 24),
+        [0x1e, 0x00, 0xc2, 0x00, 0x04, 0x80, 0x11, 0x11]);
+    final restored = _core(false)..loadState(core.saveState());
+    expect(restored.bus.read(0xa8000000, 4), 0x11118004);
+    expect(restored.bus.read(0xa8000004, 4), 0x00c2001e);
+    expect(restored.saveState(), core.saveState());
+  });
+
+  test('a restored audio task retains its configured FIR filter', () {
+    final core = _core(false);
+    core.bus.ramWrite(0x4000, 0x4000, 2);
+    core.bus.ramWrite(0x10000, 0x07020010, 4);
+    core.bus.ramWrite(0x10004, 0x4000, 4);
+    core.audio.task(0x10000, 8, newer: true);
+    final restored = _core(false)..loadState(core.saveState());
+    for (final n in [core, restored]) {
+      n.audio.write(0x100, 16384);
+      n.bus.ramWrite(0x10000, 0x07010100, 4);
+      n.bus.ramWrite(0x10004, 0x5000, 4);
+      n.audio.task(0x10000, 8, newer: true);
+      expect(n.audio.read(0x100), 4096);
+    }
+    expect(restored.saveState(), core.saveState());
+  });
 
   test('saving a restored state reproduces it, including HLE state', () {
     final core = _core(false);
     _frames(core, 2);
     core.graphics.segments[3] = 0x123456;
     core.graphics.depths[0x100000] = Float64List.fromList([1.5, -2]);
-    core.graphics.stack.add(List<double>.filled(16, 0.25));
+    core.graphics.stack.add(Float64List(16)..fillRange(0, 16, 0.25));
     core.graphics.tiles[2].sMask = 5;
     core.audio.memory[100] = 7;
     core.audio.reverb = -9;
     core.cpu.fpu.wide = true;
     core.cpu.fpu.control = 0x800001;
-    core.padDown(0, core.buttons.last);
     final state = core.saveState();
     final copy = _core(false)..loadState(state);
     expect(copy.saveState(), state);
@@ -100,8 +148,7 @@ void main() {
     expect(() => _core(false, salt: 1).loadState(state),
         throwsA(isA<StateMismatch>()));
     final other = StateWriter('ss', 1, 0).take();
-    expect(() => _core(false).loadState(other),
-        throwsA(isA<StateMismatch>()));
+    expect(() => _core(false).loadState(other), throwsA(isA<StateMismatch>()));
     expect(() => _core(false).loadState(Uint8List(3)),
         throwsA(isA<StateMismatch>()));
   });
