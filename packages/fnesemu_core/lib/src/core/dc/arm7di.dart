@@ -251,6 +251,25 @@ class DcArm7di {
     return 3;
   }
 
+  /// Instructions executed, without interrupt entries; not saved.
+  int executed = 0;
+
+  /// [cycles] at the start of the instruction that [run] executes.
+  int instructionStart = 0;
+
+  /// Makes [run] return after the current instruction.
+  bool stop = false;
+
+  /// Steps while [cycles] is below [end] and nothing sets [stop].
+  void run(int end) {
+    stop = false;
+    while (cycles < end) {
+      instructionStart = cycles;
+      step();
+      if (stop) return;
+    }
+  }
+
   /// Executes one instruction, or accepts one interrupt before fetching.
   int step() {
     instructionExecuted = false;
@@ -307,12 +326,14 @@ class DcArm7di {
     pc = _nextPc;
     cycles += cost;
     instructionExecuted = true;
+    executed++;
     return cost;
   }
 
   int _trap(int vector, int targetMode) {
     final cost = _exception(vector, targetMode, pc + 4);
     instructionExecuted = true;
+    executed++;
     return cost;
   }
 

@@ -624,10 +624,10 @@ class DcAica {
   bool _deviceChanged = false;
 
   // Within [_runArm]: the ARM phase at the span start, the master clocks
-  // the devices have reached, and the cycle count at which the current
-  // instruction became due.
+  // the devices have reached, and the ARM cycle count less the remaining
+  // cycles.
   bool _armBatch = false;
-  int _batchPhase = 0, _batchSynced = 0, _instructionDue = 0;
+  int _batchPhase = 0, _batchSynced = 0, _cycleBase = 0;
 
   /// Master clocks from the span start until [due] ARM cycles have passed.
   int _armTime(int due) =>
@@ -656,15 +656,14 @@ class DcAica {
         _captureArmInterrupt();
         arm.fiq = _armInterruptLevel != 0;
         final limit = _batchSynced < span ? before : last;
-        do {
-          _instructionDue = _armRemaining;
-          _armRemaining += arm.step();
-          if (arm.instructionExecuted) executedInstructions++;
-          if (_deviceChanged) {
-            elapsed = _armTime(_instructionDue);
-            break;
-          }
-        } while (_armRemaining <= limit);
+        // ARM cycles minus this base are the remaining-cycle count.
+        final base = _cycleBase = arm.cycles - _armRemaining;
+        final executed = arm.executed;
+        arm.run(limit + base + 1);
+        executedInstructions += arm.executed - executed;
+        _armRemaining = arm.cycles - base;
+        // A register access ends the span at its instruction.
+        if (arm.stop) elapsed = _armTime(arm.instructionStart - base);
       }
     } on DcUnsupported {
       // A development stop must not leave a zero/negative scheduler deadline.
@@ -683,11 +682,12 @@ class DcAica {
   /// Brings the devices to the time of the running ARM instruction.
   void _syncArm() {
     if (_armBatch) {
-      final time = _armTime(_instructionDue);
+      final time = _armTime(arm.instructionStart - _cycleBase);
       _advanceDevices(time - _batchSynced);
       _batchSynced = time;
     }
     _deviceChanged = true;
+    arm.stop = true;
   }
 
   void _advance(int clocks) {
