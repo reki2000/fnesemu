@@ -28,16 +28,34 @@ extension R5900Fpu on R5900 {
 
   static final _bits = ByteData(8);
 
+  /// 2^(e - 150) for every exponent field e: the value of a normal image
+  /// is (2^23 + fraction) * 2^(exp - 127 - 23), and both the integer and
+  /// the power of two are exact, so the product is the exact value. An
+  /// exponent field of 255 is an ordinary number here, so it needs no
+  /// special case.
+  static final _decodeScale = _buildDecodeScale();
+
+  static Float64List _buildDecodeScale() {
+    final scale = Float64List(256);
+    var v = 1.0;
+    for (var e = 150; e < 256; e++) {
+      scale[e] = v;
+      v *= 2;
+    }
+    v = 0.5;
+    for (var e = 149; e > 0; e--) {
+      scale[e] = v;
+      v /= 2;
+    }
+    return scale;
+  }
+
   /// the value of a single precision register image
   static double decode(int bits) {
     final exp = (bits >>> 23) & 0xff;
     if (exp == 0) return 0.0;
-    _bits.setInt64(
-        0,
-        ((bits & 0x80000000) << 32) |
-            ((exp - 127 + 1023) << 52) |
-            ((bits & 0x7fffff) << 29));
-    return _bits.getFloat64(0);
+    final v = ((bits & 0x7fffff) | 0x800000) * _decodeScale[exp];
+    return bits & 0x80000000 != 0 ? -v : v;
   }
 
   /// Truncates [value] to a register image; [flags] receives the cause bits.

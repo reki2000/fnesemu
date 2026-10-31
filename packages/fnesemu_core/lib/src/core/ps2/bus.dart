@@ -31,6 +31,14 @@ class Ps2Bus {
   final Uint8List scratch;
   final ByteData _ram, _bios, _scratch;
 
+  // Aligned views of the three memories. The accessors below read and
+  // write through them when the page tables resolve the address and the
+  // address is aligned, which is much cheaper than the ByteData getters
+  // and setters of the full path (see tool/dart_aot_tips.md).
+  final Uint16List _ram16, _bios16, _scratch16;
+  final Uint32List _ram32, _bios32, _scratch32;
+  final Int64List _ram64, _bios64, _scratch64;
+
   IoPort? io;
 
   /// the TLB used for mapped segments, or null to map them to themselves
@@ -112,7 +120,16 @@ class Ps2Bus {
   Ps2Bus._(this.ram, this.bios, this.scratch)
       : _ram = ByteData.sublistView(ram),
         _bios = ByteData.sublistView(bios),
-        _scratch = ByteData.sublistView(scratch);
+        _scratch = ByteData.sublistView(scratch),
+        _ram16 = Uint16List.view(ram.buffer, ram.offsetInBytes),
+        _bios16 = Uint16List.view(bios.buffer, bios.offsetInBytes),
+        _scratch16 = Uint16List.view(scratch.buffer, scratch.offsetInBytes),
+        _ram32 = Uint32List.view(ram.buffer, ram.offsetInBytes),
+        _bios32 = Uint32List.view(bios.buffer, bios.offsetInBytes),
+        _scratch32 = Uint32List.view(scratch.buffer, scratch.offsetInBytes),
+        _ram64 = Int64List.view(ram.buffer, ram.offsetInBytes),
+        _bios64 = Int64List.view(bios.buffer, bios.offsetInBytes),
+        _scratch64 = Int64List.view(scratch.buffer, scratch.offsetInBytes);
 
   /// Selects the memory a virtual address refers to. [offset] receives the
   /// offset inside it; null means no device is mapped there.
@@ -164,9 +181,41 @@ class Ps2Bus {
   int _ioAddress = -1;
   bool _physical = false;
 
+  /// the region an aligned access resolved to through the page tables:
+  /// 0 RAM, 1 scratchpad, 2 BIOS
+  int _fastRegion = -1;
+
+  /// When the page tables resolve [addr] without the TLB, sets [_offset]
+  /// and [_fastRegion] and returns true. The caller checks the alignment
+  /// of its access size, which also keeps the access inside the page.
+  @pragma('vm:prefer-inline')
+  bool _fastPaged(int addr, bool write) {
+    if (_physical) return false;
+    final entry =
+        (write ? _writePages : _readPages)[(addr >> 12) & (_pageCount - 1)];
+    if (entry == 0) return false;
+    final o = entry - 1;
+    if (o < _scratchPages) {
+      _fastRegion = 0;
+      _offset = o + (addr & 0xfff);
+    } else if (o < _biosPages) {
+      _fastRegion = 1;
+      _offset = o - _scratchPages + (addr & 0xfff);
+    } else {
+      _fastRegion = 2;
+      _offset = o - _biosPages + (addr & 0xfff);
+    }
+    return true;
+  }
+
   /// reads or writes a quadword half at a physical address (DMA), bypassing
   /// the TLB
   int readPhysical64(int addr) {
+    if (addr & 7 == 0) {
+      if (addr >= 0 && addr + 8 <= ramSize) return _ram64[addr >> 3];
+      final s = addr - scratchBase;
+      if (s >= 0 && s + 8 <= scratchSize) return _scratch64[s >> 3];
+    }
     _physical = true;
     final v = read64(addr);
     _physical = false;
@@ -174,6 +223,17 @@ class Ps2Bus {
   }
 
   void writePhysical64(int addr, int value) {
+    if (addr & 7 == 0) {
+      if (addr >= 0 && addr + 8 <= ramSize) {
+        _ram64[addr >> 3] = value;
+        return;
+      }
+      final s = addr - scratchBase;
+      if (s >= 0 && s + 8 <= scratchSize) {
+        _scratch64[s >> 3] = value;
+        return;
+      }
+    }
     _physical = true;
     write64(addr, value);
     _physical = false;
@@ -200,11 +260,25 @@ class Ps2Bus {
   }
 
   int read8(int addr) {
+    if (_fastPaged(addr, false)) {
+      return switch (_fastRegion) {
+        0 => ram[_offset],
+        1 => scratch[_offset],
+        _ => bios[_offset],
+      };
+    }
     final r = _region(addr, false);
     return r == null ? _readIo(1) & 0xff : r.getUint8(_offset);
   }
 
   int read16(int addr) {
+    if ((addr & 1) == 0 && _fastPaged(addr, false)) {
+      return switch (_fastRegion) {
+        0 => _ram16[_offset >> 1],
+        1 => _scratch16[_offset >> 1],
+        _ => _bios16[_offset >> 1],
+      };
+    }
     final r = _region(addr, false);
     return r == null
         ? _readIo(2) & 0xffff
@@ -212,6 +286,13 @@ class Ps2Bus {
   }
 
   int read32(int addr) {
+    if ((addr & 3) == 0 && _fastPaged(addr, false)) {
+      return switch (_fastRegion) {
+        0 => _ram32[_offset >> 2],
+        1 => _scratch32[_offset >> 2],
+        _ => _bios32[_offset >> 2],
+      };
+    }
     final r = _region(addr, false);
     return r == null
         ? _readIo(4) & 0xffffffff
@@ -219,16 +300,45 @@ class Ps2Bus {
   }
 
   int read64(int addr) {
+    if ((addr & 7) == 0 && _fastPaged(addr, false)) {
+      return switch (_fastRegion) {
+        0 => _ram64[_offset >> 3],
+        1 => _scratch64[_offset >> 3],
+        _ => _bios64[_offset >> 3],
+      };
+    }
     final r = _region(addr, false);
     return r == null ? _readIo(8) : r.getInt64(_offset, Endian.little);
   }
 
   void write8(int addr, int value) {
+    if (_fastPaged(addr, true)) {
+      switch (_fastRegion) {
+        case 0:
+          ram[_offset] = value;
+        case 1:
+          scratch[_offset] = value;
+        default:
+          bios[_offset] = value;
+      }
+      return;
+    }
     final r = _region(addr, true);
     r == null ? _writeIo(1, value & 0xff) : r.setUint8(_offset, value);
   }
 
   void write16(int addr, int value) {
+    if ((addr & 1) == 0 && _fastPaged(addr, true)) {
+      switch (_fastRegion) {
+        case 0:
+          _ram16[_offset >> 1] = value;
+        case 1:
+          _scratch16[_offset >> 1] = value;
+        default:
+          _bios16[_offset >> 1] = value;
+      }
+      return;
+    }
     final r = _region(addr, true);
     r == null
         ? _writeIo(2, value & 0xffff)
@@ -236,6 +346,17 @@ class Ps2Bus {
   }
 
   void write32(int addr, int value) {
+    if ((addr & 3) == 0 && _fastPaged(addr, true)) {
+      switch (_fastRegion) {
+        case 0:
+          _ram32[_offset >> 2] = value;
+        case 1:
+          _scratch32[_offset >> 2] = value;
+        default:
+          _bios32[_offset >> 2] = value;
+      }
+      return;
+    }
     final r = _region(addr, true);
     r == null
         ? _writeIo(4, value & 0xffffffff)
@@ -243,6 +364,17 @@ class Ps2Bus {
   }
 
   void write64(int addr, int value) {
+    if ((addr & 7) == 0 && _fastPaged(addr, true)) {
+      switch (_fastRegion) {
+        case 0:
+          _ram64[_offset >> 3] = value;
+        case 1:
+          _scratch64[_offset >> 3] = value;
+        default:
+          _bios64[_offset >> 3] = value;
+      }
+      return;
+    }
     final r = _region(addr, true);
     r == null ? _writeIo(8, value) : r.setInt64(_offset, value, Endian.little);
   }
