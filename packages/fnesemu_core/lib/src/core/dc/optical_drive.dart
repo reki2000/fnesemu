@@ -1173,11 +1173,14 @@ class DcOpticalDrive {
   }
 
   void _loadSubcode() {
-    final result = (_drive as CdromSubcodeDrive).readSubcode(_subcodeFad - 150);
+    var result = (_drive as CdromSubcodeDrive).readSubcode(_subcodeFad - 150);
     if (result == null) return;
     if (!result.readable) {
       _finish(key: 3, asc: 0x11);
       return;
+    }
+    if (_subcodeFormat < 2 && result.raw == null && result.position == null) {
+      result = _positionSubcode(_subcodeFad - 150) ?? result;
     }
     if (result.raw != null && result.raw!.length != 96) {
       throw const DcUnsupported('Optical drive invalid raw P-W subcode length');
@@ -1230,6 +1233,46 @@ class DcOpticalDrive {
       (absolute >> 8) & 255,
       absolute & 255,
     ]);
+  }
+
+  /// Builds the P-W symbols a drive reads in the program area of an image
+  /// without stored subchannels: an ADR=1 Q position record from the TOC
+  /// (ECMA-130 section 22) and empty P and R-W channels. Pregap index 0
+  /// records are not modeled, so a pregap reports its preceding track.
+  CdromSubcode? _positionSubcode(int lba) {
+    final toc = _drive.status.toc;
+    CdromTrack? track;
+    for (final t in toc.tracks) {
+      if (t.startLba <= lba) track = t;
+    }
+    if (track == null || lba >= toc.totalSectors) return null;
+    int bcd(int value) => (value ~/ 10) << 4 | value % 10;
+    final q = Uint8List(12);
+    void time(int offset, int frames) {
+      q[offset] = bcd(frames ~/ 4500);
+      q[offset + 1] = bcd(frames ~/ 75 % 60);
+      q[offset + 2] = bcd(frames % 75);
+    }
+
+    q[0] = (track.isAudio ? 0 : 0x40) | 1;
+    q[1] = bcd(track.number);
+    q[2] = 1;
+    time(3, lba - track.startLba);
+    time(7, lba + 150);
+    var crc = 0;
+    for (var i = 0; i < 10; i++) {
+      crc ^= q[i] << 8;
+      for (var bit = 0; bit < 8; bit++) {
+        crc = ((crc << 1) ^ (crc & 0x8000 != 0 ? 0x1021 : 0)) & 0xffff;
+      }
+    }
+    q[10] = (~crc >> 8) & 255;
+    q[11] = ~crc & 255;
+    final raw = Uint8List(96);
+    for (var bit = 0; bit < 96; bit++) {
+      raw[bit] = ((q[bit >> 3] >> (7 - (bit & 7))) & 1) << 6;
+    }
+    return CdromSubcode.fromRaw(raw);
   }
 
   void _sendIdentifier(CdromSubcode subcode) {

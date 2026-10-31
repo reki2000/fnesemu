@@ -1191,6 +1191,15 @@ void main() {
       ]);
     });
 
+    test('images without subchannels report a TOC position', () {
+      drive.subcode = const CdromSubcode();
+      packet([0x40, 1, 0, 0, 14]);
+      expect(drain().sublist(4), [0x41, 1, 1, 0, 0, 0, 0, 0, 0, 150]);
+      packet([0x40, 0, 0, 0, 100]);
+      final raw = Uint8List.fromList(drain().sublist(4));
+      expect(CdromSubcode.fromRaw(raw).position?.discFrames, 150);
+    });
+
     test('bad Q CRC preserves raw data but cannot fabricate a position', () {
       final raw = packedSubcode([0x41, 1, 1, 0, 0, 0, 0, 0, 2, 0])
         ..[95] ^= 0x40;
