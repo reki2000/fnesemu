@@ -403,6 +403,30 @@ class DcGpuTexture {
     return _sampleBilinearSlow(u, v);
   }
 
+  /// [sampleBilinear] at texel positions in 16.16 fixed point, or -1 when
+  /// a tap needs wrapping or decoding.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int sampleBilinearFixed(int su, int sv) {
+    final w = width, cache = this.cache!;
+    if (su < 0 ||
+        su >= (w - 1) << 16 ||
+        sv < 0 ||
+        sv >= (height - 1) << 16 ||
+        cache.complete != cache.generation) {
+      return -1;
+    }
+    final row0 = cache.levelOffsets[0] + (sv >> 16) * w + (su >> 16);
+    final row1 = row0 + w, texels = cache.texels;
+    return _blend4(
+        texels[row0],
+        texels[row0 + 1],
+        texels[row1],
+        texels[row1 + 1],
+        ((su & 0xffff) + 128) >> 8,
+        ((sv & 0xffff) + 128) >> 8);
+  }
+
   int _sampleBilinearSlow(double u, double v) {
     if (!u.isFinite || !v.isFinite) {
       throw const DcUnsupported('CORE nonfinite texture coordinate');
@@ -438,7 +462,12 @@ class DcGpuTexture {
   @pragma('vm:prefer-inline')
   static int _filter(int c0, int c1, int c2, int c3, double tx, double ty) {
     // Weights in 1/256 steps; the filter fraction precision is unverified.
-    final fx = (tx * 256 + 0.5).toInt(), fy = (ty * 256 + 0.5).toInt();
+    return _blend4(
+        c0, c1, c2, c3, (tx * 256 + 0.5).toInt(), (ty * 256 + 0.5).toInt());
+  }
+
+  @pragma('vm:prefer-inline')
+  static int _blend4(int c0, int c1, int c2, int c3, int fx, int fy) {
     // All four channels in 16-bit lanes: a horizontal then a vertical
     // blend, each lane staying below 2^16 before its rounding shift.
     const lanes = 0x00ff00ff00ff00ff, half = 0x0080008000800080;

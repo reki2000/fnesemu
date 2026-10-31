@@ -1306,6 +1306,16 @@ class DcGpuRender {
     final dz = -(za * e0y + zb * e1y + zc * e2y) * inverseArea,
         duz = -(uza * e0y + uzb * e1y + uzc * e2y) * inverseArea,
         dvz = -(vza * e0y + vzb * e1y + vzc * e2y) * inverseArea;
+    // With one depth, texel positions step linearly in 16.16 fixed point.
+    final uScale = quickRows ? 65536 * texture.width / za : 0.0,
+        vScale = quickRows ? 65536 * texture.height / za : 0.0;
+    final affine = quickRows &&
+        za == zb &&
+        zb == zc &&
+        (duz * uScale).abs() < 1 << 40 &&
+        (dvz * vScale).abs() < 1 << 40;
+    final dsu = affine ? (duz * uScale).toInt() : 0,
+        dsv = affine ? (dvz * vScale).toInt() : 0;
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1342,6 +1352,9 @@ class DcGpuRender {
         var z = (za * e0 + zb * e1 + zc * e2) * inverseArea,
             uz = (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
             vz = (vza * e0 + vzb * e1 + vzc * e2) * inverseArea;
+        final fu = uz * uScale, fv = vz * vScale;
+        final fixed = affine && fu.abs() < 1 << 40 && fv.abs() < 1 << 40;
+        var su = fixed ? fu.toInt() : 0, sv = fixed ? fv.toInt() : 0;
         for (var x = rowLeft;
             x < rowRight;
             x++,
@@ -1350,7 +1363,9 @@ class DcGpuRender {
             e2 -= e2y,
             z += dz,
             uz += duz,
-            vz += dvz) {
+            vz += dvz,
+            su += dsu,
+            sv += dsv) {
           if (e0 < 0 ||
               e1 < 0 ||
               e2 < 0 ||
@@ -1375,8 +1390,11 @@ class DcGpuRender {
                           compare == 5 && z != previous;
           // A zero depth has no perspective; such fragments are dropped.
           if (!pass || z == 0) continue;
-          final inverse = 1 / z;
-          final texel = texture.sampleBilinear(uz * inverse, vz * inverse);
+          var texel = fixed ? texture.sampleBilinearFixed(su, sv) : -1;
+          if (texel < 0) {
+            final inverse = 1 / z;
+            texel = texture.sampleBilinear(uz * inverse, vz * inverse);
+          }
           var shaded = gray
               ? DcGpuTexture.shadeGray(
                   texel, quickGray, quickOffset, ignoredAlpha)
