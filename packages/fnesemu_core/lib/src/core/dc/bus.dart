@@ -5,6 +5,7 @@ import '../../state.dart';
 import '../../util/int.dart';
 import '../../util/uint8list.dart';
 import 'aica.dart';
+import 'arm_jit.dart';
 import 'bsc.dart';
 import 'cache.dart';
 import 'cpg.dart';
@@ -32,8 +33,9 @@ import 'tmu.dart';
 class DcBus {
   /// [ram] and [storeQueues] replace the main RAM and the 64-byte store
   /// queue buffers, for compiled code sharing them.
-  DcBus({Uint8List? ram, Uint8List? storeQueues})
-      : ram = ram ?? Uint8List(ramSize),
+  DcBus({Uint8List? ram, Uint8List? storeQueues, DcArmJit? armJit})
+      : _armJit = armJit,
+        ram = ram ?? Uint8List(ramSize),
         _storeQueues = storeQueues ?? Uint8List(64) {
     if (this.ram.length != ramSize) throw ArgumentError.value(ram, 'ram');
     if (_storeQueues.length != 64) {
@@ -92,7 +94,9 @@ class DcBus {
   final flash = DcFlash();
   final systemBus = DcSystemBus();
   final gpu = DcGpu();
+  final DcArmJit? _armJit;
   late final aica = DcAica(
+      jit: _armJit,
       externalActive: () => opticalDrive.audio.playing,
       externalSample: () => opticalDrive.sampleAudio(),
       onInterrupt: (level) => systemBus

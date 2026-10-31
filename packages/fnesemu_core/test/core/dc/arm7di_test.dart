@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/arm7di.dart';
+import 'package:fnesemu_core/src/core/dc/arm_jit.dart';
 import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -402,5 +403,47 @@ void main() {
     expect(cpu.cpsr, 0x60000010);
     expect(cpu.r[13], 0x555);
     expect(cpu.r[0], 0x204);
+  });
+  test('compiled ARM code matches the interpreter', () {
+    final jit = DcArmJit.create(0x10000);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    DcArm7di make(Uint8List memory, {DcArmJit? jit}) => DcArm7di(
+        read: (address, size) =>
+            size == 1 ? memory[address] : memory.getUint32LE(address),
+        write: (address, size, value) => size == 1
+            ? memory[address] = value
+            : memory.setUint32LE(address, value),
+        registers: jit?.registers)
+      ..compiled = jit?.run;
+    const program = [
+      0xe3a00c02, 0xe3a01014, 0xe3e02000, 0xe3a03000, // r0-r3 setup
+      0xe0933002, 0xe0b44183, 0xe1b05061, 0xe1b06022, // ADDS ADCS RRX LSR#32
+      0xe1b07042, 0xe0478001, 0xe2d99007, 0xe0f59004, // ASR#32 SUB SBCS RSCS
+      0xc28aa001, 0xd1a0b0e1, 0xe5a03004, 0xe4c04001, // ADDGT MOVLE STR! STRB
+      0xe590c002, 0xe7d0e101, 0xeb000003, 0xe2511001, // LDR LDRB BL SUBS
+      0x1affffee, 0xeafffffe, 0xe1a00000, 0xe1340003, // BNE B. NOP TEQ
+      0x01a0f00e, 0xe1a0f00e, // MOVEQ PC,LR; MOV PC,LR
+    ];
+    final memories = [Uint8List(0x10000), jit.memory];
+    final cpus = [make(memories[0]), make(memories[1], jit: jit)];
+    for (final memory in memories) {
+      for (var i = 0; i < program.length; i++) {
+        memory.setUint32LE(i * 4, program[i]);
+      }
+      for (var i = 0; i < 256; i++) {
+        memory[0x200 + i] = i * 37;
+      }
+    }
+    for (final cpu in cpus) {
+      for (var n = 0; n < 1000 && cpu.pc != 0x54; n++) {
+        cpu.run(cpu.cycles + 16);
+      }
+      expect(cpu.pc, 0x54);
+    }
+    expect(cpus[1].r, cpus[0].r);
+    expect(cpus[1].cpsr, cpus[0].cpsr);
+    expect(
+        memories[1].sublist(0x200, 0x300), memories[0].sublist(0x200, 0x300));
   });
 }

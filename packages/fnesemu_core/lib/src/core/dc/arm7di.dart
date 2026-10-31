@@ -10,9 +10,16 @@ import 'fault.dart';
 class DcArm7di {
   /// [memory] is accessed directly; other addresses go through [read]
   /// and [write].
-  DcArm7di({required this.read, required this.write, Uint8List? memory})
+  /// [registers], when given, holds r0-r15, for example in compiled code's
+  /// context.
+  DcArm7di(
+      {required this.read,
+      required this.write,
+      Uint8List? memory,
+      Uint32List? registers})
       : _memory = memory ?? Uint8List(0),
-        _words = ByteData.sublistView(memory ?? Uint8List(0)) {
+        _words = ByteData.sublistView(memory ?? Uint8List(0)),
+        r = registers ?? Uint32List(16) {
     reset();
   }
   final int Function(int address, int size) read;
@@ -42,7 +49,7 @@ class DcArm7di {
     write(address, size, value);
   }
 
-  final r = Uint32List(16);
+  final Uint32List r;
   final _userHigh = Uint32List(5), _fiqHigh = Uint32List(5);
   final _spLr = List.generate(6, (_) => Uint32List(2));
   final _saved = Uint32List(6);
@@ -53,6 +60,9 @@ class DcArm7di {
   int get pc => r[15];
   set pc(int value) => r[15] = value & 0xfffffffc;
   int get cpsr => _cpsr;
+
+  /// Sets the condition flags of the CPSR.
+  set flags(int value) => _cpsr = (_cpsr & 0x0fffffff) | (value & 0xf0000000);
   int get mode => _cpsr & 31;
 
   int _bank(int value) => switch (value & 31) {
@@ -260,10 +270,26 @@ class DcArm7di {
   /// Makes [run] return after the current instruction.
   bool stop = false;
 
+  /// Runs compiled code for up to the given cycles and returns the cycles
+  /// it took. Interrupts are accepted by [step] before it is called.
+  int Function(DcArm7di arm, int budget)? compiled;
+
   /// Steps while [cycles] is below [end] and nothing sets [stop].
   void run(int end) {
     stop = false;
+    final compiled = this.compiled;
     while (cycles < end) {
+      if (compiled != null &&
+          !(fiq && _cpsr & 0x40 == 0) &&
+          !(irq && _cpsr & 0x80 == 0)) {
+        final spent = compiled(this, end - cycles);
+        if (spent > 0) {
+          cycles += spent;
+          executed++;
+          if (cycles >= end) return;
+        }
+      }
+      // The instruction compiled code left, or one not yet compiled.
       instructionStart = cycles;
       step();
       if (stop) return;

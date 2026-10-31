@@ -6,12 +6,21 @@ import 'aica_dsp.dart';
 import 'aica_midi.dart';
 import 'aica_sound.dart';
 import 'arm7di.dart';
+import 'arm_jit.dart';
 import 'fault.dart';
 
 /// Retail AICA memory, RTC and timer/interrupt subset from System Architecture.
 /// Sound interrupts use a functional number/end handshake; physical queue timing is pending.
 class DcAica {
-  DcAica({required this.onInterrupt, this.externalActive, this.externalSample});
+  /// With [jit], the ARM runs compiled code and sound RAM is its buffer.
+  DcAica(
+      {required this.onInterrupt,
+      this.externalActive,
+      this.externalSample,
+      DcArmJit? jit})
+      : _jit = jit,
+        memory = jit?.memory ?? Uint8List(memorySize);
+  final DcArmJit? _jit;
   final bool Function()? externalActive;
   final (int, int) Function()? externalSample;
   bool _externalLatched = false;
@@ -31,11 +40,16 @@ class DcAica {
   static const sampleHz = 44100;
   static const armHz = 22579200;
   final void Function(bool) onInterrupt;
-  final memory = Uint8List(memorySize);
+  final Uint8List memory;
   final dsp = DcAicaDsp();
   final _midi = DcAicaMidi();
   late final sound = DcAicaSound(memory, dsp: dsp);
-  late final arm = DcArm7di(read: _armRead, write: _armWrite, memory: memory);
+  late final arm = DcArm7di(
+      read: _armRead,
+      write: _armWrite,
+      memory: memory,
+      registers: _jit?.registers)
+    ..compiled = _jit?.run;
   final _timers = Uint16List(3), _timerPhase = Uint8List(3);
   final _levels = Uint8List(3);
   int _samplePhase = 0, _rtcPhase = 0, _rtc = 0;

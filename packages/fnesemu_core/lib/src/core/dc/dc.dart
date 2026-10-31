@@ -12,7 +12,9 @@ import '../../util/disasm.dart';
 import '../../util/int.dart';
 import '../../util/register_dump.dart';
 import '../../video_debug.dart';
+import 'aica.dart';
 import 'arm7di_disasm.dart';
+import 'arm_jit.dart';
 import 'bus.dart';
 import 'disc.dart';
 import 'disc_bootstrap.dart';
@@ -30,7 +32,8 @@ class Dc extends Core {
   Dc(
       {this.bootBringUp = const bool.fromEnvironment('DC_BOOT_BRINGUP'),
       bool jit = const bool.fromEnvironment('DC_JIT', defaultValue: true)})
-      : _jit = jit ? Sh4Jit.create() : null {
+      : _jit = jit ? Sh4Jit.create() : null,
+        _armJit = jit ? DcArmJit.create(DcAica.memorySize) : null {
     bus.onDeviceAccess = _syncDevices;
     // Compiled code reads and writes main RAM directly.
     if (_jit != null) bus.cache.coherent = true;
@@ -46,7 +49,9 @@ class Dc extends Core {
   /// This does not authenticate media or establish hardware-matched DSP effects.
   final bool bootBringUp;
   final Sh4Jit? _jit;
-  late final bus = DcBus(ram: _jit?.ram, storeQueues: _jit?.storeQueues);
+  final DcArmJit? _armJit;
+  late final bus =
+      DcBus(ram: _jit?.ram, storeQueues: _jit?.storeQueues, armJit: _armJit);
   late final cpu = Sh4(bus, jit: _jit);
   int _compiledClocks = 0;
   Uint8List? _program;
@@ -244,6 +249,7 @@ class Dc extends Core {
     bus.opticalDrive.reset();
     bus.ram.fillRange(0, bus.ram.length, 0);
     _jit?.reset();
+    _armJit?.reset();
     cpu.reset();
     cpu.irlPins = 15;
     bus.intc.nmiHigh = true;
@@ -535,7 +541,10 @@ class Dc extends Core {
   @override
   int get jitClocks => _compiledClocks;
   @override
-  void dispose() => _jit?.dispose();
+  void dispose() {
+    _jit?.dispose();
+    _armJit?.dispose();
+  }
 
   @override
   ExecResult runFrame(int scanlines) {
