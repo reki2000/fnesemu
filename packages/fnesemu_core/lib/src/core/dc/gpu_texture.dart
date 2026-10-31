@@ -406,8 +406,15 @@ class DcGpuTexture {
   /// [sampleBilinear] at texel positions in 16.16 fixed point, or -1 when
   /// a tap needs wrapping or decoding.
   @pragma('vm:prefer-inline')
-  @pragma('vm:unsafe:no-bounds-checks')
   int sampleBilinearFixed(int su, int sv) {
+    final lanes = sampleLanesFixed(su, sv);
+    return lanes < 0 ? -1 : packLanes(lanes);
+  }
+
+  /// [sampleBilinearFixed] with the channels in [_lanes] order, or -1.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int sampleLanesFixed(int su, int sv) {
     final w = width, cache = this.cache!;
     if (su < 0 ||
         su >= (w - 1) << 16 ||
@@ -418,7 +425,7 @@ class DcGpuTexture {
     }
     final row0 = cache.levelOffsets[0] + (sv >> 16) * w + (su >> 16);
     final row1 = row0 + w, texels = cache.texels;
-    return _blend4(
+    return _blend4Lanes(
         texels[row0],
         texels[row0 + 1],
         texels[row1],
@@ -467,15 +474,23 @@ class DcGpuTexture {
   }
 
   @pragma('vm:prefer-inline')
-  static int _blend4(int c0, int c1, int c2, int c3, int fx, int fy) {
+  static int _blend4(int c0, int c1, int c2, int c3, int fx, int fy) =>
+      packLanes(_blend4Lanes(c0, c1, c2, c3, fx, fy));
+
+  /// A color from its channels in [_lanes] order.
+  @pragma('vm:prefer-inline')
+  static int packLanes(int lanes) =>
+      (lanes & 0xff00ff) | ((lanes >>> 24) & 0xff00ff00);
+
+  @pragma('vm:prefer-inline')
+  static int _blend4Lanes(int c0, int c1, int c2, int c3, int fx, int fy) {
     // All four channels in 16-bit lanes: a horizontal then a vertical
     // blend, each lane staying below 2^16 before its rounding shift.
     const lanes = 0x00ff00ff00ff00ff, half = 0x0080008000800080;
     final gx = 256 - fx;
     final top = ((_lanes(c0) * gx + _lanes(c1) * fx + half) >>> 8) & lanes;
     final bottom = ((_lanes(c2) * gx + _lanes(c3) * fx + half) >>> 8) & lanes;
-    final mixed = ((top * (256 - fy) + bottom * fy + half) >>> 8) & lanes;
-    return (mixed & 0xff00ff) | ((mixed >>> 24) & 0xff00ff00);
+    return ((top * (256 - fy) + bottom * fy + half) >>> 8) & lanes;
   }
 
   /// The channels of a color at bits 0, 16, 32 and 48, in the order
@@ -528,16 +543,21 @@ class DcGpuTexture {
   /// has the same [gray] value in each RGB channel. [alpha] is ORed into
   /// the texel.
   @pragma('vm:prefer-inline')
-  static int shadeGray(int texel, int gray, int offset, int alpha) {
+  static int shadeGray(int texel, int gray, int offset, int alpha) =>
+      shadeGrayLanes(_lanes(texel), gray, offset, alpha);
+
+  /// [shadeGray] of a texel with its channels in [_lanes] order.
+  @pragma('vm:prefer-inline')
+  static int shadeGrayLanes(int texel, int gray, int offset, int alpha) {
     const lanes = 0x00ff00ff00ff00ff;
     // div255 of each lane's product plus 127, exact for byte operands.
-    final x = _lanes(texel) * gray + 0x007f007f007f007f;
+    final x = texel * gray + 0x007f007f007f007f;
     final m = ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes;
     var rgb = ((m & 0xff0000) << 4) | ((m >>> 22) & 0x3fc00) | (m & 255);
     rgb +=
         ((offset & 0xff0000) << 4) | ((offset & 0xff00) << 2) | (offset & 255);
     rgb |= ((rgb >> 8) & 0x100401) * 255;
-    return ((texel | alpha) & 0xff000000) |
+    return (((texel >>> 24) | alpha) & 0xff000000) |
         ((rgb >> 4) & 0xff0000) |
         ((rgb >> 2) & 0xff00) |
         (rgb & 0xff);

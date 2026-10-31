@@ -1378,27 +1378,30 @@ class DcGpuRender {
             throw const DcUnsupported('CORE nonfinite interpolated depth');
           }
           final index = y * 32 + x, previous = depthBuffer[index];
-          final pass = compare == 1
-              ? z < previous
-              : compare == 6
-                  ? z >= previous
-                  : compare == 3
-                      ? z <= previous
-                      : compare == 7 ||
-                          compare == 2 && z == previous ||
-                          compare == 4 && z > previous ||
-                          compare == 5 && z != previous;
+          // Compare modes are masks of less (1), equal (2) and greater (4).
+          final pass = compare &
+                  (z < previous
+                      ? 1
+                      : z == previous
+                          ? 2
+                          : 4) !=
+              0;
           // A zero depth has no perspective; such fragments are dropped.
           if (!pass || z == 0) continue;
-          var texel = fixed ? texture.sampleBilinearFixed(su, sv) : -1;
-          if (texel < 0) {
-            final inverse = 1 / z;
-            texel = texture.sampleBilinear(uz * inverse, vz * inverse);
+          final lanes = fixed ? texture.sampleLanesFixed(su, sv) : -1;
+          int shaded;
+          if (lanes >= 0 && gray) {
+            shaded = DcGpuTexture.shadeGrayLanes(
+                lanes, quickGray, quickOffset, ignoredAlpha);
+          } else {
+            final texel = lanes >= 0
+                ? DcGpuTexture.packLanes(lanes)
+                : texture.sampleBilinear(uz * (1 / z), vz * (1 / z));
+            shaded = gray
+                ? DcGpuTexture.shadeGray(
+                    texel, quickGray, quickOffset, ignoredAlpha)
+                : DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
           }
-          var shaded = gray
-              ? DcGpuTexture.shadeGray(
-                  texel, quickGray, quickOffset, ignoredAlpha)
-              : DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
           if (quickFog) {
             shaded =
                 fog.apply(shaded, z, quickOffset, tsp, hasOffset: fogOffset);
