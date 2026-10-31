@@ -356,9 +356,14 @@ class DcTa {
       throw const DcUnsupported('TA input requires a 32-byte burst');
     }
     if (!_initialized) _illegal('parameter before list initialization');
-    var words = [for (var i = 0; i < 32; i += 4) bytes.getUint32LE(i)];
-    if (_pendingPacket != null) {
-      words = [..._pendingPacket!, ...words];
+    var words = List<int>.filled(8, 0);
+    for (var i = 0; i < 8; i++) {
+      words[i] = bytes.getUint32LE(i * 4);
+    }
+    if (_pendingPacket case final first?) {
+      words = List<int>.filled(16, 0)
+        ..setRange(0, 8, first)
+        ..setRange(8, 16, words);
       _pendingPacket = null;
     } else {
       final type = words[0] >> 29;
