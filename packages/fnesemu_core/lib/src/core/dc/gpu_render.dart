@@ -14,8 +14,10 @@ import 'vram_pages.dart';
 /// Functional CORE display-list reader; raster precision and physical timing are pending.
 /// Data structures and register fields follow System Architecture §§3.7.7–3.7.9, 8.4.2.
 class DcGpuRender {
-  DcGpuRender(this.memory, this.palette, {required this.onNormal});
+  DcGpuRender(this.memory, this.palette, {required this.onNormal})
+      : _vramWords = ByteData.sublistView(memory);
   final Uint8List memory;
+  final ByteData _vramWords;
   late final _pages = DcVramPages.of(memory);
   final DcGpuPalette palette;
   final fog = DcGpuFog();
@@ -1945,11 +1947,39 @@ extension on DcGpuRender {
   void _writeRow16(int first, int y, int py, int mode, int kval, int threshold,
       int? rankRow, int rgbShift, int greenShift) {
     const ranks = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-    final colors = _colors, memory = this.memory;
+    final colors = _colors, words = _vramWords;
     _pages.mark(first);
     _pages.mark(first + 63);
+    final row = y * 32;
+    if (mode == 1) {
+      // R, G and B in 10-bit lanes: one add applies the dither, and the
+      // carry out of each lane saturates it.
+      final adds = Int64List(4);
+      if (rankRow != null) {
+        for (var i = 0; i < 4; i++) {
+          final rank = ranks[rankRow + i];
+          final rgb = (rank << 3) >> 4, green = (rank << 2) >> 4;
+          adds[i] = (rgb << 20) | (green << 10) | rgb;
+        }
+      }
+      for (var x = 0; x < 32; x++) {
+        final color = colors[row + x];
+        var lanes = (((color & 0xff0000) << 4) |
+                ((color & 0xff00) << 2) |
+                (color & 0xff)) +
+            adds[x & 3];
+        lanes |= ((lanes >> 8) & 0x100401) * 255;
+        words.setUint16(
+            first + x * 2,
+            ((lanes >> 12) & 0xf800) |
+                ((lanes >> 7) & 0x7e0) |
+                ((lanes >> 3) & 0x1f),
+            Endian.little);
+      }
+      return;
+    }
     for (var x = 0; x < 32; x++) {
-      final color = colors[y * 32 + x];
+      final color = colors[row + x];
       var r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255;
       if (rankRow != null) {
         final rank = ranks[rankRow + (x & 3)];
@@ -1972,9 +2002,7 @@ extension on DcGpuRender {
             ((g >> 3) << 5) |
             (b >> 3),
       };
-      final offset = first + x * 2;
-      memory[offset] = value & 255;
-      memory[offset + 1] = value >> 8;
+      words.setUint16(first + x * 2, value, Endian.little);
     }
   }
 }
