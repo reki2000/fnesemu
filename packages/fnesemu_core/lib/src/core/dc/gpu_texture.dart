@@ -195,6 +195,7 @@ class DcGpuTexture {
     return memory[offset];
   }
 
+  @pragma('vm:prefer-inline')
   static int _coordinate(int value, int size, bool clamp, bool flip) {
     if (clamp) return value < 0 ? 0 : (value >= size ? size - 1 : value);
     if (size & (size - 1) == 0) {
@@ -355,6 +356,67 @@ class DcGpuTexture {
           ? texels[row1 + x1]
           : _texelAt(x1, y1, level, parameters);
     }
+    return _filter(c0, c1, c2, c3, tx, ty);
+  }
+
+  /// Whether [sampleBilinear] applies: a cached bilinear texture without
+  /// MIP maps, bump mapping or supersampling.
+  bool get plainBilinear =>
+      bilinear && !mipMapped && format != 4 && !superSample && cache != null;
+
+  /// [sample] of a [plainBilinear] texture.
+  int sampleBilinear(double u, double v) {
+    if (!u.isFinite || !v.isFinite) {
+      throw const DcUnsupported('CORE nonfinite texture coordinate');
+    }
+    final w = width, h = height;
+    final cache = this.cache!;
+    final texels = cache.texels, stamps = cache.stamps;
+    final generation = cache.generation;
+    final su = u * w, sv = v * h;
+    if (su >= 0 && su < w - 1 && sv >= 0 && sv < h - 1) {
+      // Both taps of each axis lie inside: no wrap, mirror or clamp.
+      final left = su.toInt(), top = sv.toInt();
+      final row0 = cache.levelOffsets[0] + top * w + left, row1 = row0 + w;
+      final c0 =
+          stamps[row0] == generation ? texels[row0] : _texelAt(left, top, 0, 0);
+      final c1 = stamps[row0 + 1] == generation
+          ? texels[row0 + 1]
+          : _texelAt(left + 1, top, 0, 0);
+      final c2 = stamps[row1] == generation
+          ? texels[row1]
+          : _texelAt(left, top + 1, 0, 0);
+      final c3 = stamps[row1 + 1] == generation
+          ? texels[row1 + 1]
+          : _texelAt(left + 1, top + 1, 0, 0);
+      return _filter(c0, c1, c2, c3, su - left, sv - top);
+    }
+    final x = _position(u, w, clampU, flipU),
+        y = _position(v, h, clampV, flipV);
+    final left = x.toInt(), top = y.toInt();
+    final x0 = _coordinate(left, w, clampU, flipU),
+        x1 = _coordinate(left + 1, w, clampU, flipU),
+        y0 = _coordinate(top, h, clampV, flipV),
+        y1 = _coordinate(top + 1, h, clampV, flipV);
+    final row0 = cache.levelOffsets[0] + y0 * w,
+        row1 = cache.levelOffsets[0] + y1 * w;
+    final c0 = stamps[row0 + x0] == generation
+        ? texels[row0 + x0]
+        : _texelAt(x0, y0, 0, 0);
+    final c1 = stamps[row0 + x1] == generation
+        ? texels[row0 + x1]
+        : _texelAt(x1, y0, 0, 0);
+    final c2 = stamps[row1 + x0] == generation
+        ? texels[row1 + x0]
+        : _texelAt(x0, y1, 0, 0);
+    final c3 = stamps[row1 + x1] == generation
+        ? texels[row1 + x1]
+        : _texelAt(x1, y1, 0, 0);
+    return _filter(c0, c1, c2, c3, x - left, y - top);
+  }
+
+  @pragma('vm:prefer-inline')
+  static int _filter(int c0, int c1, int c2, int c3, double tx, double ty) {
     // Weights in 1/256 steps; the filter fraction precision is unverified.
     final fx = (tx * 256 + 0.5).toInt(), fy = (ty * 256 + 0.5).toInt();
     final w0 = (256 - fx) * (256 - fy),
@@ -386,6 +448,7 @@ class DcGpuTexture {
   @pragma('vm:prefer-inline')
   static int _odd(int c) => ((c >> 8) & 0xff) | ((c & 0xff000000) << 8);
 
+  @pragma('vm:prefer-inline')
   static double _position(double value, int size, bool clamp, bool flip) {
     value *= size;
     // In-range positions are their own wrap, mirror and clamp results.

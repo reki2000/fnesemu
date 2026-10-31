@@ -1238,6 +1238,23 @@ class DcGpuRender {
                 sa.offsetColor == sb.offsetColor &&
                 sb.offsetColor == sc.offsetColor));
     var flatColor = 0;
+    // Opaque bilinear fragments sampled and shaded where they are rasterized.
+    final quick = texture != null &&
+        texture.plainBilinear &&
+        plane == null &&
+        !background &&
+        samePosition &&
+        sameTexture &&
+        _sortMode == 0 &&
+        tsp & 0x02000000 == 0 &&
+        !(_shadowObject && shadowIntensity);
+    final quickFog = (tsp >> 22) & 3 != 2 || tsp & 0x200000 != 0;
+    final replace = tsp & 0xff000000 == 0x20000000;
+    final sameColors =
+        !gouraud || (sa.color == sb.color && sb.color == sc.color);
+    final sameOffsets = !gouraud ||
+        (sa.offsetColor == sb.offsetColor && sb.offsetColor == sc.offsetColor);
+    final opaqueAlpha = tsp & 0x100000 == 0 ? 0xff000000 : 0;
     if (flat && tsp & 0x02000000 == 0) {
       flatColor = sc.color;
       if (tsp & 0x100000 == 0) flatColor |= 0xff000000;
@@ -1351,6 +1368,35 @@ class DcGpuRender {
         }
         var color = flatColor;
         if (!flat) {
+          if (quick && ispDepth != 0) {
+            final inverse = 1 / ispDepth;
+            final pa = ia * za * inverse,
+                pb = ib * zb * inverse,
+                pc = ic * zc * inverse;
+            final color = (sameColors
+                    ? sc.color
+                    : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc)) |
+                opaqueAlpha;
+            final off = sameOffsets
+                ? sc.offsetColor
+                : _gouraud(
+                    sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+            final texel = texture.sampleBilinear(
+                (uza * ia + uzb * ib + uzc * ic) * inverse,
+                (vza * ia + vzb * ib + vzc * ic) * inverse);
+            var shaded = DcGpuTexture.shade(color, texel, off, tsp);
+            if (quickFog) {
+              shaded = fog.apply(shaded, ispDepth, off, tsp,
+                  hasOffset: isp & 0x01000000 != 0);
+            }
+            if (replace) {
+              _colors[index] = shaded;
+            } else {
+              _composite(index, shaded, tsp);
+            }
+            if (isp & 0x04000000 == 0) _depth[index] = z;
+            continue;
+          }
           // HALF_OFFSET independently selects ISP coverage/depth and TSP shading.
           final sx = originX + x + pixelOffset, sy = originY + y + pixelOffset;
           final wa = samePosition ? ia : ax * sx + ay * sy + a0;
