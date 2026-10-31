@@ -1285,6 +1285,9 @@ class DcGpuRender {
     final vbx = b.x, vcx = c.x, vax = a.x;
     final depthBuffer = _depth, colorBuffer = _colors;
     if (quickRows) texture.decodeAll();
+    final dz = -(za * e0y + zb * e1y + zc * e2y) * inverseArea,
+        duz = -(uza * e0y + uzb * e1y + uzc * e2y) * inverseArea,
+        dvz = -(vza * e0y + vzb * e1y + vzc * e2y) * inverseArea;
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1313,11 +1316,23 @@ class DcGpuRender {
           row1 = e1x * (py - c.y),
           row2 = e2x * (py - a.y);
       if (quickRows) {
-        for (var x = rowLeft; x < rowRight; x++) {
-          final px = originX + x + offset;
-          final e0 = row0 - e0y * (px - vbx),
-              e1 = row1 - e1y * (px - vcx),
-              e2 = row2 - e2y * (px - vax);
+        // Edge and plane values step linearly along the row.
+        final x0 = originX + rowLeft + offset;
+        var e0 = row0 - e0y * (x0 - vbx),
+            e1 = row1 - e1y * (x0 - vcx),
+            e2 = row2 - e2y * (x0 - vax);
+        var z = (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            uz = (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            vz = (vza * e0 + vzb * e1 + vzc * e2) * inverseArea;
+        for (var x = rowLeft;
+            x < rowRight;
+            x++,
+            e0 -= e0y,
+            e1 -= e1y,
+            e2 -= e2y,
+            z += dz,
+            uz += duz,
+            vz += dvz) {
           if (e0 < 0 ||
               e1 < 0 ||
               e2 < 0 ||
@@ -1326,9 +1341,6 @@ class DcGpuRender {
               (e2 == 0 && !tl2)) {
             continue;
           }
-          final ia = e0 * inverseArea, ib = e1 * inverseArea;
-          final ic = e2 * inverseArea;
-          final z = za * ia + zb * ib + zc * ic;
           if (!z.isFinite) {
             throw const DcUnsupported('CORE nonfinite interpolated depth');
           }
@@ -1346,9 +1358,7 @@ class DcGpuRender {
           // A zero depth has no perspective; such fragments are dropped.
           if (!pass || z == 0) continue;
           final inverse = 1 / z;
-          final texel = texture.sampleBilinear(
-              (uza * ia + uzb * ib + uzc * ic) * inverse,
-              (vza * ia + vzb * ib + vzc * ic) * inverse);
+          final texel = texture.sampleBilinear(uz * inverse, vz * inverse);
           var shaded = DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
           if (quickFog) {
             shaded =
