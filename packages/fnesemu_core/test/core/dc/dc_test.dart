@@ -239,7 +239,7 @@ void main() {
       0x481e,
       0xc202,
       0xb004,
-      0x0009,
+      0xf3fd, // FSCHG in the BSR slot.
       0x4a10,
       0x8bcf,
       0xaffe,

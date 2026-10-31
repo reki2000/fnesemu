@@ -125,12 +125,14 @@ final class Sh4Translator {
         spent += delayed ? 2 : 1;
         flush();
         final next = (at + (delayed ? 4 : 2)) & 0xffffffff;
+        // FSCHG in the slot changes the transfer size for both successors.
+        final after = delayed && slot == 0xf3fd ? tag ^ tagSize : tag;
         final IrTerm term = dynamicTarget != null
-            ? IrJumpDyn(dynamicTarget, tag: tag)
+            ? IrJumpDyn(dynamicTarget, tag: after)
             : condition == null
-                ? IrJump(target!, tag: tag)
+                ? IrJump(target!, tag: after)
                 : IrBranch(condition, target!, next,
-                    tagTrue: tag, tagFalse: tag);
+                    tagTrue: after, tagFalse: after);
         return b.finish(term, cost: spent);
       }
       if (!supported(op, tag) || !guard(at)) break;
@@ -184,12 +186,18 @@ final class Sh4Translator {
     if (top == 15) {
       if (!fpu) return false;
       if (low >= 6 && low <= 12) return true;
-      if (helperOp(op, tag)) return !slot;
       final code = op & 0xf0ff, double = tag & tagDouble != 0;
+      // Single arithmetic and comparisons run natively, exiting like loads.
+      if (helperOp(op, tag)) {
+        return !slot ||
+            !double && (low <= 2 || low == 4 || low == 5 || low == 14);
+      }
       if (code == 0xf00d || code == 0xf01d) return true;
       if (code == 0xf04d || code == 0xf05d) return !double || n.isEven;
       if (code == 0xf08d || code == 0xf09d) return !double;
-      return (op == 0xfbfd || op == 0xf3fd) && !double && !slot;
+      return (op == 0xfbfd || op == 0xf3fd) &&
+          !double &&
+          (!slot || op == 0xf3fd);
     }
     if (top == 0) {
       if (const [4, 5, 6, 7, 12, 13, 14].contains(low)) return true;
