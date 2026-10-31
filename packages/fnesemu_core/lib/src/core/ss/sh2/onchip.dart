@@ -66,10 +66,42 @@ class Sh2OnChip {
   final cacheData = Uint8List(0x1000);
 
   List<int> get _scalars => [
-        ipra, iprb, vcra, vcrb, vcrc, vcrd, vcrwdt, icr, tier, ftcsr, frc,
-        ocra, ocrb, tcr, tocr, icrFrt, _frtTemp, _frtSub, wtcsr, wtcnt,
-        rstcsr, _wdtSub, dvsr, dvcr, vcrdiv, dvdnth, dvdntl, dmaor, bcr1,
-        bcr2, wcr, mcr, rtcsr, rtcnt, rtcor, ccr
+        ipra,
+        iprb,
+        vcra,
+        vcrb,
+        vcrc,
+        vcrd,
+        vcrwdt,
+        icr,
+        tier,
+        ftcsr,
+        frc,
+        ocra,
+        ocrb,
+        tcr,
+        tocr,
+        icrFrt,
+        _frtTemp,
+        _frtSub,
+        wtcsr,
+        wtcnt,
+        rstcsr,
+        _wdtSub,
+        dvsr,
+        dvcr,
+        vcrdiv,
+        dvdnth,
+        dvdntl,
+        dmaor,
+        bcr1,
+        bcr2,
+        wcr,
+        mcr,
+        rtcsr,
+        rtcnt,
+        rtcor,
+        ccr
       ];
 
   void saveState(StateWriter w) {

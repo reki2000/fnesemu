@@ -60,11 +60,36 @@ class Vdp1 {
   int _pixels = 0;
 
   List<int> get _scalars => [
-        tvmr, fbcr, ptmr, ewdr, ewlr, ewrr,
-        edsr, lopr, copr, _drawIndex, _drawEndWait, _localX,
-        _localY, _sysClipX, _sysClipY, _userX1, _userY1, _userX2,
-        _userY2, _pixels, _pmod, _colr, _srca, _texW,
-        _texH, _dir, _endCodes, _gr, _gg, _gb
+        tvmr,
+        fbcr,
+        ptmr,
+        ewdr,
+        ewlr,
+        ewrr,
+        edsr,
+        lopr,
+        copr,
+        _drawIndex,
+        _drawEndWait,
+        _localX,
+        _localY,
+        _sysClipX,
+        _sysClipY,
+        _userX1,
+        _userY1,
+        _userX2,
+        _userY2,
+        _pixels,
+        _pmod,
+        _colr,
+        _srca,
+        _texW,
+        _texH,
+        _dir,
+        _endCodes,
+        _gr,
+        _gg,
+        _gb
       ];
 
   static Uint8List _bytes(TypedData d) =>

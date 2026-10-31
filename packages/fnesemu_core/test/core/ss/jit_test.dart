@@ -77,7 +77,8 @@ final class _Machine {
 void main() {
   test('CPU profiling preserves registers, memory and clocks', () {
     final expected = _Machine(null);
-    final actual = _Machine(Sh2Jit.create(native: false, compileThreshold: 100000)!);
+    final actual =
+        _Machine(Sh2Jit.create(native: false, compileThreshold: 100000)!);
     addTearDown(actual.dispose);
     for (final machine in [expected, actual]) {
       machine.load([0x6212, 0x7201, 0x2122, 0xaffb, 9]);
@@ -91,7 +92,8 @@ void main() {
     expect(stats.cpuClocks, actual.cpu.clocks);
     expect(stats.cpuDispatches, greaterThan(0));
     final requests = stats.report()['memory'] as List;
-    expect(requests.map((e) => e['kind']), containsAll(['fetch', 'read', 'write']));
+    expect(requests.map((e) => e['kind']),
+        containsAll(['fetch', 'read', 'write']));
     final before = stats.report();
     actual.bus.read32(_base);
     expect(stats.report(), before);
@@ -100,7 +102,8 @@ void main() {
     actual.cpu.exec();
     expect(stats.report(), before);
   });
-  test('sleep fast-forward and interrupt service have separate clock totals', () {
+  test('sleep fast-forward and interrupt service have separate clock totals',
+      () {
     final machine = _Machine(Sh2Jit.create(native: false)!);
     addTearDown(machine.dispose);
     machine.load([0x001b, 9]);
@@ -432,14 +435,21 @@ void main() {
           expect(m.jit!.compiledClocks, native ? 1 : 0);
         }
       });
-      test('MAC.W matches the interpreter for saturation, MACH bit 0 and aliasing',
+      test(
+          'MAC.W matches the interpreter for saturation, MACH bit 0 and aliasing',
           () {
         final reference = _Machine(null);
-        final jitted =
-            _Machine(Sh2Jit.create(native: native, compileThreshold: 1, macWord: true)!);
+        final jitted = _Machine(
+            Sh2Jit.create(native: native, compileThreshold: 1, macWord: true)!);
         addTearDown(jitted.dispose);
         const words = [0, 1, 0x7fff, 0x8000, 0xffff, 0x100];
-        const accumulators = [0, 0x7fffffff, 0x80000000, 0xffffffff, 0x7ffffff0];
+        const accumulators = [
+          0,
+          0x7fffffff,
+          0x80000000,
+          0xffffffff,
+          0x7ffffff0
+        ];
         for (final instruction in [0x412f, 0x411f]) {
           // 0x411f reads consecutive words from one address register.
           final aliased = instruction == 0x411f;
@@ -457,7 +467,8 @@ void main() {
                       machine.cpu.pc = _base;
                       machine.cpu.clocks = 0;
                       machine.cpu.r[1] = _base + 0x1000;
-                      machine.cpu.r[2] = aliased ? _base + 0x1000 : _base + 0x1100;
+                      machine.cpu.r[2] =
+                          aliased ? _base + 0x1000 : _base + 0x1100;
                       machine.cpu.sr = 0x3f0 | sat;
                       machine.cpu.mach = mach;
                       machine.cpu.macl = macl;

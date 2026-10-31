@@ -10,8 +10,9 @@ This document records what each core currently does with the recompiler: default
 | N64 | VR4300 (`core/n64/jit`) | enabled on supported hosts | Native integer and supported COP1 execution |
 | SS | SH-2 (`components/sh2/jit`) | disabled | Optional JIT, default CPU quantum 64 clocks |
 | 32X | SH-2 (`components/sh2/jit`) | enabled on supported hosts | Default CPU quantum 64 clocks |
+| PS2 | R5900 (`core/ps2/jit`) | enabled on supported hosts | EE integer subset, shared registers and main memory |
 
-A host without an available compiled backend uses the interpreter. `JIT=false` selects the interpreter for PS1 and N64, and `JIT=true` enables SS recompilation. `SH2_JIT_32X=false` selects the 32X interpreter. `PS_TRACE=true` disables PS1 recompilation.
+A host without an available compiled backend uses the interpreter. `JIT=false` selects the interpreter for PS1, N64 and PS2, and `JIT=true` enables SS recompilation. `SH2_JIT_32X=false` selects the 32X interpreter. `PS_TRACE=true` disables PS1 recompilation.
 
 Changing a default needs the evidence described in the [performance guide](performance.md#changing-a-default), and this table must then be updated.
 
@@ -48,6 +49,14 @@ The translation limit is 24 instructions, and the `inlineJumps` constructor para
 `tool/n64_jit_compare.dart` compares variants. Build it with `dart build cli` and retain its bundled native library. Pass a case JSON containing shared media and input arguments, plus `--warmup` and `--frames` to select the interval. Use `--cop1 --fpu` when comparing floating-point variants.
 
 Differential tests compare CPU, reference IR and compiled execution for full-width integer values, FPU layouts and control, finite and special operands, delay slots, traps, precise memory faults, host writes and aliases. ARM64 QEMU checks exercise float arithmetic, conversion and N64 translation with compiled availability asserted and skipped tests rejected.
+
+## PS2
+
+The EE blocks share the 128-bit general registers and the 32MiB main memory with the R5900 interpreter. A register takes four context words, and the frontend keeps the low 64 bits in SSA values; LQ and SQ also access the high half. Main memory is mapped at guest address 0 with the address mask 0x1fffffff, so the unmapped kernel segments and the user addresses below 0x20000000 reach it. The frontend exits for any other segment, a misaligned address and pages outside main memory, such as the scratchpad and the device registers.
+
+The adapter runs compiled code only while every TLB entry for user addresses below 0x30000000 maps them to the masked physical address (`Tlb.userIdentity`), and only outside a delay slot with no interrupt ready. It limits the budget to the instructions left before Count reaches Compare and updates Count after a batch. The CPU quantum is the 32-clock device step of the core, so blocks are short.
+
+The frontend translates the integer ALU, the shifts, MOVZ/MOVN, the branches and jumps, and the aligned loads and stores up to 128 bits. HI and LO, COP0, COP1, COP2, the multimedia instructions, the unaligned accesses, SYSCALL and BREAK end a block. Overflowing ADD, ADDI and SUB exit before effects so that the interpreter raises the exception. `test/core/ps2/jit_test.dart` compares compiled and reference IR execution with the interpreter.
 
 ## SH-2 (SS and 32X)
 

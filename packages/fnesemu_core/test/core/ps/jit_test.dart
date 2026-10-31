@@ -233,9 +233,14 @@ void main() {
     final actual = _Machine.jit(PsJit.create(native: false)!);
     addTearDown(actual.jit!.dispose);
     for (final machine in [expected, actual]) {
-      machine.load([_i(9, 0, 1, 42), _i(0x2b, 28, 1, 0),
-        _i(0x23, 28, 2, 0), 0, _j(_code + 16), 0],
-        Uint8List(0x80000), Uint8List(8192));
+      machine.load([
+        _i(9, 0, 1, 42),
+        _i(0x2b, 28, 1, 0),
+        _i(0x23, 28, 2, 0),
+        0,
+        _j(_code + 16),
+        0
+      ], Uint8List(0x80000), Uint8List(8192));
       machine.cpu.r[28] = _data;
     }
     final stats = actual.jit!.diagnostics.enableExecutionStats();
@@ -265,8 +270,8 @@ void main() {
       addTearDown(jit.dispose);
       expect(jit.native, native);
       final m = _Machine.jit(jit);
-      m.load([_i(0x09, 1, 1, 1), _j(_code), 0],
-          Uint8List(512 * 1024), Uint8List(0));
+      m.load([_i(0x09, 1, 1, 1), _j(_code), 0], Uint8List(512 * 1024),
+          Uint8List(0));
       jit.run(100);
       expect(jit.compiledClocks, native ? m.cpu.clocks : 0);
       final compiled = jit.compiledClocks;
@@ -277,8 +282,7 @@ void main() {
       expect(jit.compiledClocks, compiled);
       m.cpu.sr &= ~0x10000;
       jit.run(m.cpu.clocks + 100);
-      expect(jit.compiledClocks,
-          native ? greaterThan(compiled) : equals(0));
+      expect(jit.compiledClocks, native ? greaterThan(compiled) : equals(0));
       jit.reset();
       expect(jit.compiledClocks, 0);
     });

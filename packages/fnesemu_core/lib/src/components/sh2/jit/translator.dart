@@ -624,21 +624,15 @@ final class Sh2Translator {
         final minimum = b.c64Parts(0x80000000, 0xffffffff);
         final over = b.ltS(maximum, sum);
         final under = b.ltS(sum, minimum);
-        final clipped = b.select(
-            over, maximum, b.select(under, minimum, sum));
-        final satMach =
-            b.or(get(mach), b.and(b.or(over, under), c(1)));
+        final clipped = b.select(over, maximum, b.select(under, minimum, sum));
+        final satMach = b.or(get(mach), b.and(b.or(over, under), c(1)));
         // S = 0: 64-bit accumulate into MACH:MACL.
         final wide = b.add(
             b.or(b.shl(b.zext32(get(mach)), shift32), b.zext32(get(macl))),
             product);
-        put(
-            mach,
-            b.select(saturated, satMach,
-                b.trunc32(b.shrU(wide, shift32))));
-        put(
-            macl,
-            b.select(saturated, b.trunc32(clipped), b.trunc32(wide)));
+        put(mach,
+            b.select(saturated, satMach, b.trunc32(b.shrU(wide, shift32))));
+        put(macl, b.select(saturated, b.trunc32(clipped), b.trunc32(wide)));
         return;
       }
       final kind = op & 255;

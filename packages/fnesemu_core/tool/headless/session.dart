@@ -9,6 +9,7 @@ import 'package:fnesemu_core/src/core/gba/gba.dart';
 import 'package:fnesemu_core/src/core/md/md.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
+import 'package:fnesemu_core/src/core/ps2/ps2.dart';
 import 'package:fnesemu_core/src/core/ss/ss.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/pad_source.dart';
@@ -52,7 +53,7 @@ const mediaAliases = {
 };
 
 const mediaUsage = """
-  <core> <rom|bios> [disc]   the core (nes fds pce md mdcd 32x ps ss snes gb gba n64
+  <core> <rom|bios> [disc]   the core (nes fds pce md mdcd 32x ps ps2 ss snes gb gba n64
                              sms mk3 smstms gg ws wsc dc) and its media
   -i, --input SEQ    the button presses, in the syntax of tool/input_sequence.dart
   -b, --bios FILE    gba / fds: BIOS; dc: flash image (positional media is boot ROM)
@@ -263,6 +264,9 @@ class Session {
       }
     } else if (core is Ps) {
       core.fastBoot = o.flag("--fast-boot"); // patches the bios when it is set
+      core.setBiosFiles([loadRom(files[0])]);
+    } else if (core is Ps2) {
+      if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
       core.setBiosFiles([loadRom(files[0])]);
     } else {
       if (o.flag("--fast-boot")) throw UsageError("--fast-boot is for ps");
