@@ -185,7 +185,7 @@ void main() {
   });
 
   test('compiled SH-4 code matches the interpreter', () {
-    // A loop mixing ALU, memory, GBR, store-queue, FPU-mode and call forms.
+    // A loop mixing ALU, memory, GBR, store-queue, FPU and call forms.
     final words = <int>[
       0xd81d,
       0xd91e,
@@ -221,7 +221,7 @@ void main() {
       0x0429,
       0x2217,
       0x3214,
-      0x3214,
+      0xf31e,
       0x405a,
       0xf12d,
       0xf210,
@@ -261,6 +261,8 @@ void main() {
         ..setRom(Uint8List.fromList([
           for (final w in words) ...[w & 255, w >> 8]
         ]));
+      // Round to nearest, so the compiled FPU arithmetic runs natively.
+      core.cpu.fpscr = 0x40000;
       core.runFrame(8);
       return core;
     }

@@ -600,6 +600,92 @@ final class Sh4Translator {
     }
   }
 
+  /// Single FADD, FSUB, FMUL, FMAC, FCMP/EQ and FCMP/GT on host doubles.
+  /// Operands must be normal or zero; anything that could round twice,
+  /// leave the normal range or raise an exception exits to the CPU.
+  bool _nativeFloat(int op, int n, int m, int low, IrExit exit) {
+    if (op >>> 12 != 15 || tag & (tagDouble | tagFpuDisabled) != 0) {
+      return false;
+    }
+    if (!(low <= 2 || low == 4 || low == 5 || low == 14)) return false;
+    IrValue magnitude(IrValue x) => b.and(x, c(0x7fffffff));
+    IrValue zero(IrValue x) => b.eq(magnitude(x), c(0));
+    // Field 0 or 255 without being zero: denormal, infinity or NaN.
+    IrValue special(IrValue x) => b.and(
+        b.ltU(c(253), b.sub(b.and(b.shrU(x, c(23)), c(255)), c(1))),
+        b.eq(zero(x), c(0)));
+    final x = get(fr + n), y = get(fr + m);
+    var bad = b.or(special(x), special(y));
+    if (low == 4 || low == 5) {
+      b.exitIf(bad, exit);
+      final IrValue result;
+      if (low == 4) {
+        result = b.or(b.eq(x, y), b.and(zero(x), zero(y)));
+      } else {
+        IrValue order(IrValue v) =>
+            b.select(b.shrU(v, c(31)), b.sub(c(0), magnitude(v)), magnitude(v));
+        result = b.ltS(order(y), order(x));
+      }
+      setT(result);
+      put(fpscr, b.and(get(fpscr), c(~0x3f000)));
+      return true;
+    }
+    final status = get(fpscr);
+    // Enabled exceptions and round-to-zero stay with the exact model.
+    bad = b.or(bad, b.and(status, c(0xf83)));
+    final f0 = low == 14 ? get(fr) : null;
+    if (f0 != null) {
+      // The exact model owns the sign of a zero sum of zeros.
+      bad = b.or(bad, special(f0));
+      bad = b.or(bad, b.and(b.or(zero(f0), zero(y)), zero(x)));
+    }
+    b.exitIf(bad, exit);
+    final wx = b.floatConvert(x), wy = b.floatConvert(y);
+    final IrValue sum, error;
+    if (low == 2) {
+      // A product of two singles is exact in a double.
+      sum = b.floatBinary(IrOp.floatMul, wx, wy);
+      error = c(0);
+    } else {
+      final IrValue left, right;
+      if (f0 != null) {
+        left = b.floatBinary(IrOp.floatMul, b.floatConvert(f0), wy);
+        right = wx;
+      } else {
+        left = wx;
+        right = low == 0 ? wy : b.xor(wy, b.c64Parts(0, 0x80000000));
+      }
+      // Two-sum: the exact sum is sum + error.
+      sum = b.floatBinary(IrOp.floatAdd, left, right);
+      final virtual = b.floatBinary(IrOp.floatSub, sum, left);
+      final residual = b.floatBinary(
+          IrOp.floatAdd,
+          b.floatBinary(
+              IrOp.floatSub, left, b.floatBinary(IrOp.floatSub, sum, virtual)),
+          b.floatBinary(IrOp.floatSub, right, virtual));
+      error =
+          b.ne(b.and(residual, b.c64Parts(-1, 0x7fffffff)), b.c64Parts(0, 0));
+    }
+    final result = b.floatConvert(sum);
+    final inexact = b.or(b.ne(b.floatConvert(result), sum), error);
+    // Denormal, infinite or underflowed-to-zero results, and a double on a
+    // single midpoint with a nonzero error, take the exact path.
+    var unusual = b.or(
+        special(result),
+        b.and(zero(result),
+            b.ne(b.and(sum, b.c64Parts(-1, 0x7fffffff)), b.c64Parts(0, 0))));
+    if (low != 2) {
+      final midpoint = b.eq(
+          b.and(sum, b.c64Parts(0x1fffffff, 0)), b.c64Parts(0x10000000, 0));
+      unusual = b.or(unusual, b.and(midpoint, error));
+    }
+    b.exitIf(unusual, exit);
+    put(fr + n, result);
+    put(fpscr,
+        b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
+    return true;
+  }
+
   void _float(
       int op,
       int at,
@@ -609,6 +695,7 @@ final class Sh4Translator {
       IrExit exit,
       IrValue Function(IrValue, int) address,
       IrValue Function(IrValue, int) storeAddress) {
+    if (_nativeFloat(op, n, m, low, exit)) return;
     if (helperOp(op, tag)) {
       // The helper works on the context, so every pending value goes there.
       flush();
