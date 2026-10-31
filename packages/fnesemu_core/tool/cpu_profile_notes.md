@@ -14,4 +14,4 @@ Amdahl's law estimates overall speedup from a measured component fraction and a 
 - VR4300 translation must preserve full-width integer values, COP1 control/layout, precise exits and device deadlines.
 - Other frontends need explicit mode, bank and device synchronization contracts before increasing execution batches.
 
-Use the [performance guide](../../mp_jit_recompiler/OPTIMIZATION.md) for metric definitions and the [roadmap](../../mp_jit_recompiler/ROADMAP.md) for pending implementation work.
+Use the [diagnostics guide](../../mp_jit_recompiler/docs/diagnostics.md) for metric definitions, the [performance guide](../../mp_jit_recompiler/docs/performance.md) for the workflow and the [roadmap](../../mp_jit_recompiler/docs/roadmap.md) for pending implementation work.
