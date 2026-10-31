@@ -365,7 +365,30 @@ class DcGpuTexture {
       bilinear && !mipMapped && format != 4 && !superSample && cache != null;
 
   /// [sample] of a [plainBilinear] texture.
+  @pragma('vm:prefer-inline')
   int sampleBilinear(double u, double v) {
+    final w = width, h = height;
+    final cache = this.cache!;
+    final su = u * w, sv = v * h;
+    // NaN fails these tests and is rejected on the general path.
+    if (su >= 0 && su < w - 1 && sv >= 0 && sv < h - 1) {
+      // Both taps of each axis lie inside: no wrap, mirror or clamp.
+      final left = su.toInt(), top = sv.toInt();
+      final row0 = cache.levelOffsets[0] + top * w + left, row1 = row0 + w;
+      final stamps = cache.stamps, generation = cache.generation;
+      if (stamps[row0] == generation &&
+          stamps[row0 + 1] == generation &&
+          stamps[row1] == generation &&
+          stamps[row1 + 1] == generation) {
+        final texels = cache.texels;
+        return _filter(texels[row0], texels[row0 + 1], texels[row1],
+            texels[row1 + 1], su - left, sv - top);
+      }
+    }
+    return _sampleBilinearSlow(u, v);
+  }
+
+  int _sampleBilinearSlow(double u, double v) {
     if (!u.isFinite || !v.isFinite) {
       throw const DcUnsupported('CORE nonfinite texture coordinate');
     }
@@ -373,24 +396,6 @@ class DcGpuTexture {
     final cache = this.cache!;
     final texels = cache.texels, stamps = cache.stamps;
     final generation = cache.generation;
-    final su = u * w, sv = v * h;
-    if (su >= 0 && su < w - 1 && sv >= 0 && sv < h - 1) {
-      // Both taps of each axis lie inside: no wrap, mirror or clamp.
-      final left = su.toInt(), top = sv.toInt();
-      final row0 = cache.levelOffsets[0] + top * w + left, row1 = row0 + w;
-      final c0 =
-          stamps[row0] == generation ? texels[row0] : _texelAt(left, top, 0, 0);
-      final c1 = stamps[row0 + 1] == generation
-          ? texels[row0 + 1]
-          : _texelAt(left + 1, top, 0, 0);
-      final c2 = stamps[row1] == generation
-          ? texels[row1]
-          : _texelAt(left, top + 1, 0, 0);
-      final c3 = stamps[row1 + 1] == generation
-          ? texels[row1 + 1]
-          : _texelAt(left + 1, top + 1, 0, 0);
-      return _filter(c0, c1, c2, c3, su - left, sv - top);
-    }
     final x = _position(u, w, clampU, flipU),
         y = _position(v, h, clampV, flipV);
     final left = x.toInt(), top = y.toInt();

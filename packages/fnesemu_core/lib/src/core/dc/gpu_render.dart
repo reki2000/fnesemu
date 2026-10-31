@@ -411,11 +411,6 @@ class DcGpuRender {
         _remaining = 2;
         return;
       }
-      // Writers outside the tracked paths, such as tests, may have changed
-      // VRAM or the palette since the previous render.
-      for (final cache in _textureCaches.values) {
-        cache.invalidate();
-      }
       _region = read(0x2c);
       _tileCount = _hiddenFragments = _shownFragments = 0;
       _stripLines = stripLines;
@@ -1271,6 +1266,17 @@ class DcGpuRender {
       }
       return;
     }
+    // The common case of [quick] with loop-invariant tests hoisted.
+    final quickRows = quick &&
+        sameColors &&
+        sameOffsets &&
+        _materialArea < 0 &&
+        _visibility == 0;
+    final compare = isp >> 29, writeDepth = isp & 0x04000000 == 0;
+    final quickColor = sc.color | opaqueAlpha, quickOffset = sc.offsetColor;
+    final fogOffset = isp & 0x01000000 != 0;
+    final vbx = b.x, vcx = c.x, vax = a.x;
+    final depthBuffer = _depth, colorBuffer = _colors;
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1298,6 +1304,57 @@ class DcGpuRender {
       final row0 = e0x * (py - b.y),
           row1 = e1x * (py - c.y),
           row2 = e2x * (py - a.y);
+      if (quickRows) {
+        for (var x = rowLeft; x < rowRight; x++) {
+          final px = originX + x + offset;
+          final e0 = row0 - e0y * (px - vbx),
+              e1 = row1 - e1y * (px - vcx),
+              e2 = row2 - e2y * (px - vax);
+          if (e0 < 0 ||
+              e1 < 0 ||
+              e2 < 0 ||
+              (e0 == 0 && !tl0) ||
+              (e1 == 0 && !tl1) ||
+              (e2 == 0 && !tl2)) {
+            continue;
+          }
+          final ia = e0 * inverseArea, ib = e1 * inverseArea;
+          final ic = e2 * inverseArea;
+          final z = za * ia + zb * ib + zc * ic;
+          if (!z.isFinite) {
+            throw const DcUnsupported('CORE nonfinite interpolated depth');
+          }
+          final index = y * 32 + x, previous = depthBuffer[index];
+          final pass = compare == 1
+              ? z < previous
+              : compare == 6
+                  ? z >= previous
+                  : compare == 3
+                      ? z <= previous
+                      : compare == 7 ||
+                          compare == 2 && z == previous ||
+                          compare == 4 && z > previous ||
+                          compare == 5 && z != previous;
+          // A zero depth has no perspective; such fragments are dropped.
+          if (!pass || z == 0) continue;
+          final inverse = 1 / z;
+          final texel = texture.sampleBilinear(
+              (uza * ia + uzb * ib + uzc * ic) * inverse,
+              (vza * ia + vzb * ib + vzc * ic) * inverse);
+          var shaded = DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
+          if (quickFog) {
+            shaded =
+                fog.apply(shaded, z, quickOffset, tsp, hasOffset: fogOffset);
+          }
+          if (replace) {
+            colorBuffer[index] = shaded;
+          } else {
+            _composite(index, shaded, tsp);
+          }
+          if (writeDepth) depthBuffer[index] = z;
+        }
+        continue;
+      }
       for (var x = rowLeft; x < rowRight; x++) {
         final px = originX + x + offset;
         final e0 = row0 - e0y * (px - b.x),
