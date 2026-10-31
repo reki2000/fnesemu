@@ -35,7 +35,7 @@ void main() {
   }
 
   setUp(() {
-    core = Dc();
+    core = Dc(jit: false);
     bus = core.bus;
     for (var i = 0; i < 256; i++) {
       bus.ram[0x20000 + i] = (i * 3 + 7) & 255;

@@ -10,7 +10,7 @@ void main() {
   test(
       'debug inspection observes cached instructions without allocating or evicting',
       () {
-    final core = Dc()..setRom(Uint8List.fromList([0x09, 0x00]));
+    final core = Dc(jit: false)..setRom(Uint8List.fromList([0x09, 0x00]));
     core.bus.write32(0xff00001c, 0x105);
     core.exec(true);
     core.bus.write16(0xac010000, 0xe12a);
@@ -171,7 +171,8 @@ void main() {
 
   test('runFrame is bounded and debugger can inspect mapped/unmapped code', () {
     // BRA to self; NOP. No devices or real video timing are required.
-    final core = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 0x09, 0x00]));
+    final core = Dc(jit: false)
+      ..setRom(Uint8List.fromList([0xfe, 0xaf, 0x09, 0x00]));
     expect(core.runFrame(0).elapsedClocks, 0);
     final result = core.runFrame(1);
     expect(result.stopped, isFalse);
@@ -181,5 +182,104 @@ void main() {
     expect(core.disasm(0, 0xff000000).$1, contains('<unmapped>'));
     expect(core.trace(0).state, hasLength(74));
     expect(core.imageBuffer().buffer, isEmpty);
+  });
+
+  test('compiled SH-4 code matches the interpreter', () {
+    // A loop mixing ALU, memory, GBR, store-queue, FPU-mode and call forms.
+    final words = <int>[
+      0xd81d,
+      0xd91e,
+      0xdb1e,
+      0xdc1f,
+      0xed0c,
+      0x2cd2,
+      0xea14,
+      0x30ac,
+      0x6107,
+      0x0018,
+      0x310e,
+      0x321f,
+      0x332a,
+      0x643a,
+      0x314d,
+      0x050a,
+      0x3215,
+      0x061a,
+      0xe7fd,
+      0x457c,
+      0x467d,
+      0x265c,
+      0x0729,
+      0x221d,
+      0x6328,
+      0xf3fd,
+      0xf82b,
+      0xf3fd,
+      0x2806,
+      0x6395,
+      0x481b,
+      0x0429,
+      0x2217,
+      0x3214,
+      0x3214,
+      0x405a,
+      0xf12d,
+      0xf210,
+      0xf32c,
+      0xf312,
+      0xf33d,
+      0x0c5a,
+      0xfbfd,
+      0xf82b,
+      0xfbfd,
+      0x2b02,
+      0x0b83,
+      0x18c1,
+      0x5d81,
+      0x481e,
+      0xc202,
+      0xb004,
+      0x0009,
+      0x4a10,
+      0x8bcf,
+      0xaffe,
+      0x0009,
+      0x000b,
+      0x7e01,
+      0x0009,
+      0x0000,
+      0x8c20,
+      0x0000,
+      0x8c18,
+      0x0000,
+      0xe010,
+      0x0038,
+      0xff00,
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit)
+        ..setRom(Uint8List.fromList([
+          for (final w in words) ...[w & 255, w >> 8]
+        ]));
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    expect(compiled.jitClocks, greaterThan(0));
+    expect(compiled.stopReason, isNull);
+    expect(interpreted.stopReason, isNull);
+    for (final (a, b) in [
+      (compiled.cpu.r, interpreted.cpu.r),
+      (compiled.cpu.fr, interpreted.cpu.fr),
+      (compiled.cpu.xf, interpreted.cpu.xf),
+      (compiled.bus.ram, interpreted.bus.ram),
+    ]) {
+      expect(a, b);
+    }
+    expect([compiled.cpu.sr, compiled.cpu.fpscr, compiled.cpu.gbr],
+        [interpreted.cpu.sr, interpreted.cpu.fpscr, interpreted.cpu.gbr]);
+    expect([compiled.cpu.mach, compiled.cpu.macl, compiled.cpu.fpul],
+        [interpreted.cpu.mach, interpreted.cpu.macl, interpreted.cpu.fpul]);
   });
 }

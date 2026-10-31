@@ -1,30 +1,40 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../state.dart';
 import '../../util/int.dart';
 import 'bus.dart';
 import 'cache.dart';
 import 'fault.dart';
 import 'float.dart';
+import 'sh4_translator.dart';
 
 part 'sh4_integer.dart';
 part 'sh4_fpu.dart';
+part 'sh4_jit.dart';
 
 /// SH-4 bring-up interpreter.
 /// One step executes an instruction, a separately stepped delay slot, or an interrupt entry.
 /// Timing is not modeled; unsupported operations remain development stops rather than guest illegal instructions.
 class Sh4 {
-  Sh4(this.bus) {
+  /// With [jit], general and floating-point registers live in its context.
+  Sh4(this.bus, {this.jit})
+      : r = jit?._view(Sh4Translator.regs) ?? Uint32List(16),
+        fr = jit?._view(Sh4Translator.fr) ?? Uint32List(16),
+        xf = jit?._view(Sh4Translator.xf) ?? Uint32List(16) {
+    jit?._cpu = this;
     reset();
   }
 
   final DcBus bus;
-  final r = Uint32List(16);
+  final Sh4Jit? jit;
+  final Uint32List r;
   final bank = Uint32List(8);
   int pc = 0, pr = 0, vbr = 0, gbr = 0, ssr = 0, spc = 0, sgr = 0, dbr = 0;
   int mach = 0, macl = 0;
-  final fr = Uint32List(16), xf = Uint32List(16);
+  final Uint32List fr, xf;
   int fpul = 0;
   int _fpscr = 0;
   int get fpscr => _fpscr;
@@ -239,7 +249,8 @@ class Sh4 {
     }
   }
 
-  bool _acceptInterrupt() {
+  /// Whether an interrupt is accepted before the next instruction.
+  bool _interruptDue() {
     if (!cacheInterrupts || _interruptEpoch != bus.deviceEpoch) {
       final (priority, event) = bus.intc.pending(irlPins, bus.tmu,
           dma: bus.dma,
@@ -252,14 +263,17 @@ class Sh4 {
       _pendingEvent = event;
       _interruptEpoch = bus.deviceEpoch;
     }
-    final priority = _pendingPriority, event = _pendingEvent;
-    if (inDelaySlot ||
+    final priority = _pendingPriority;
+    return !(inDelaySlot ||
         (sr.bit28 &&
             !sleeping &&
             !(priority == 16 && bus.intc.nmiIgnoresBlock)) ||
-        priority <= ((sr >> 4) & 15)) {
-      return false;
-    }
+        priority <= ((sr >> 4) & 15));
+  }
+
+  bool _acceptInterrupt() {
+    if (!_interruptDue()) return false;
+    final priority = _pendingPriority, event = _pendingEvent;
     sleeping = false;
     bus.cpg.deepSleeping = false;
     ssr = sr;
@@ -271,6 +285,27 @@ class Sh4 {
     sr |= 0x70000000;
     pc = (vbr + 0x600).mask32;
     return true;
+  }
+
+  /// Runs compiled code for up to [budget] instructions when the next step
+  /// is an ordinary privileged instruction with the MMU off. Returns the
+  /// executed instruction count; 0 leaves the next step to [step].
+  int runCompiled(int budget) {
+    final compiled = jit;
+    if (compiled == null ||
+        compiled.suspended ||
+        inDelaySlot ||
+        sleeping ||
+        !privileged ||
+        bus.mmu.enabled ||
+        bus.cpg.stabilizing ||
+        bus.cpg.resetPending ||
+        _interruptDue()) {
+      return 0;
+    }
+    final steps = compiled._run(budget);
+    _instructionExecuted = steps != 0;
+    return steps;
   }
 
   void _checkAccess(int address, int size, bool write,

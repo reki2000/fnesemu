@@ -28,6 +28,23 @@ class DcCache {
   int _ccr = 0;
   int get ccr => _ccr;
 
+  /// Keeps external memory current for compiled code that accesses it
+  /// directly: operand and instruction lines are never allocated, and
+  /// enabling writes back and invalidates every line. Cache RAM still works.
+  bool get coherent => _coherent;
+  bool _coherent = false;
+  set coherent(bool value) {
+    _coherent = value;
+    if (!value) return;
+    for (var i = 0; i < 512; i++) {
+      _writeBack(i);
+      _operandTags[i] &= ~3;
+    }
+    for (var i = 0; i < 256; i++) {
+      _instructionTags[i] &= ~1;
+    }
+  }
+
   set ccr(int value) {
     if (value & 8 != 0) {
       for (var i = 0; i < 512; i++) {
@@ -85,8 +102,8 @@ class DcCache {
     _ccr = control;
   }
 
-  static bool _cacheable(int address) =>
-      address < 0xa0000000 && (address & 0x1fffffff) < 0x1c000000;
+  bool _cacheable(int address) =>
+      !_coherent && address < 0xa0000000 && (address & 0x1fffffff) < 0x1c000000;
 
   static bool isRamArea(int address) =>
       address >= 0x7c000000 && address < 0x80000000;
@@ -216,6 +233,7 @@ class DcCache {
       (rawBytes, rawOffset) = external(physical ?? address, size, false);
     }
     if (!(cacheable ?? _cacheable(address)) ||
+        _coherent ||
         _ccr & (instruction ? 0x100 : 1) == 0) {
       if (instructionReader != null) {
         return instructionReader(physical ?? address, size, fill);
@@ -247,7 +265,7 @@ class DcCache {
       return;
     }
     final (raw, rawOffset) = external(physical ?? address, size, true);
-    if (!(cacheable ?? _cacheable(address)) || _ccr & 1 == 0) {
+    if (!(cacheable ?? _cacheable(address)) || _coherent || _ccr & 1 == 0) {
       if (writeExternal != null) {
         writeExternal!(physical ?? address, values);
       } else {
@@ -279,6 +297,7 @@ class DcCache {
   void operate(int address, int operation, {int? physical, bool? cacheable}) {
     address = address.mask32;
     if (!(cacheable ?? _cacheable(address)) ||
+        _coherent ||
         _ccr & 1 == 0 ||
         _ramOffset(address) != null) {
       return;
@@ -292,6 +311,7 @@ class DcCache {
   void prefetch(int address, {int? physical, bool? cacheable}) {
     address = address.mask32;
     if (!(cacheable ?? _cacheable(address)) ||
+        _coherent ||
         _ccr & 1 == 0 ||
         isRamArea(address)) {
       return;

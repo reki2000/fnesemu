@@ -11,7 +11,7 @@ void main() {
   const base = 0xa0700000, wave = 0xa0800000;
   late Dc core;
   setUp(() {
-    core = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
+    core = Dc(jit: false)..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
   });
 
   Uint8List firmware(

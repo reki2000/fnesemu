@@ -116,6 +116,9 @@ class DcCpg {
     deepSleeping = deepSleep;
   }
 
+  /// Whether a watchdog reset waits for the next CPU step.
+  bool get resetPending => _resetRequest != null;
+
   bool? takeReset() {
     final request = _resetRequest;
     _resetRequest = null;

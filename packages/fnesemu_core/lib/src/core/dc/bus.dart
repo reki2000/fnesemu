@@ -30,7 +30,15 @@ import 'tmu.dart';
 /// Little-endian physical bus with explicit CPU translation and cache access.
 /// Unimplemented devices stop explicitly.
 class DcBus {
-  DcBus() {
+  /// [ram] and [storeQueues] replace the main RAM and the 64-byte store
+  /// queue buffers, for compiled code sharing them.
+  DcBus({Uint8List? ram, Uint8List? storeQueues})
+      : ram = ram ?? Uint8List(ramSize),
+        _storeQueues = storeQueues ?? Uint8List(64) {
+    if (this.ram.length != ramSize) throw ArgumentError.value(ram, 'ram');
+    if (_storeQueues.length != 64) {
+      throw ArgumentError.value(storeQueues, 'storeQueues');
+    }
     systemBus.gpuDma.bind(dma, _gpuDmaTransfer);
     systemBus.sortDma.bind(dma, (address) {
       final (bytes, offset) = _readExternal(address, 32, true);
@@ -49,8 +57,8 @@ class DcBus {
   static const biosSize = 2 * 1024 * 1024;
   static const ramSize = 16 * 1024 * 1024;
   final bios = Uint8List(biosSize);
-  final ram = Uint8List(ramSize);
-  final _storeQueues = Uint8List(64);
+  final Uint8List ram;
+  final Uint8List _storeQueues;
   final _qacr = Uint32List(2);
   final bsc = DcBsc();
   final gpio = DcGpio();
@@ -335,7 +343,7 @@ class DcBus {
       final hit = cache.instructionHit(address);
       if (hit >= 0) return hit;
       if (_ordinaryRam(address) &&
-          (address >= 0xa0000000 || cache.ccr & 0x100 == 0)) {
+          (address >= 0xa0000000 || cache.ccr & 0x100 == 0 || cache.coherent)) {
         final offset = address & (ramSize - 1);
         return ram[offset] | (ram[offset + 1] << 8);
       }
@@ -351,7 +359,7 @@ class DcBus {
         _directRam(address)) {
       final hit = cache.operandHit(address, size);
       if (hit >= 0) return hit;
-      if (address >= 0xa0000000 || cache.ccr & 1 == 0) {
+      if (address >= 0xa0000000 || cache.ccr & 1 == 0 || cache.coherent) {
         final offset = address & (ramSize - 1);
         return switch (size) {
           1 => ram[offset],
@@ -385,7 +393,7 @@ class DcBus {
       {bool privileged = true, bool allocate = false}) {
     if (!allocate && address & (size - 1) == 0 && _directRam(address)) {
       if (cache.operandWriteHit(address, size, value)) return;
-      if (address >= 0xa0000000 || cache.ccr & 1 == 0) {
+      if (address >= 0xa0000000 || cache.ccr & 1 == 0 || cache.coherent) {
         final offset = address & (ramSize - 1);
         for (var i = 0; i < size; i++) {
           ram[offset + i] = value >> (i * 8);

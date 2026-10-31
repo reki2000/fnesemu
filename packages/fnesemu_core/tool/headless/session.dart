@@ -69,7 +69,7 @@ const mediaUsage = """
                      (a diagnostic boot from a bios state saved without a disc;
                      the drive format defaults to 80; resume later states
                      without this option)
-  --jit on|off      select native compilation for ps, n64, ss or 32x
+  --jit on|off      select native compilation for ps, n64, ss, 32x or dc
   -r, --frame-runner run whole frames inside the core instead of exec()""";
 
 /// the core name and the media files of the positional arguments
@@ -204,7 +204,11 @@ class Session {
                 expansionBoot: true,
                 sh2Jit: enabled,
                 sh2SliceClocks: expansionSlice),
-            _ => throw UsageError("--jit supports ps, n64, ss and 32x"),
+            "dc" when dcProfile == null => Dc(
+                bootBringUp: const bool.fromEnvironment('DC_BOOT_BRINGUP',
+                    defaultValue: true),
+                jit: enabled),
+            _ => throw UsageError("--jit supports ps, n64, ss, 32x and dc"),
           };
     if (profileCpu && mode == 'off') core.jitSuspended = true;
     if (core is Dc) {

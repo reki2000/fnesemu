@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
@@ -24,8 +26,14 @@ import 'storage.dart';
 
 /// Experimental DC bring-up core with functional framebuffer readout.
 class Dc extends Core {
-  Dc({this.bootBringUp = const bool.fromEnvironment('DC_BOOT_BRINGUP')}) {
+  /// [jit] compiles SH-4 code when the host supports it.
+  Dc(
+      {this.bootBringUp = const bool.fromEnvironment('DC_BOOT_BRINGUP'),
+      bool jit = const bool.fromEnvironment('DC_JIT', defaultValue: true)})
+      : _jit = jit ? Sh4Jit.create() : null {
     bus.onDeviceAccess = _syncDevices;
+    // Compiled code reads and writes main RAM directly.
+    if (_jit != null) bus.cache.coherent = true;
     if (bootBringUp) {
       bus.g1.bypassBiosVerification = true;
       bus.aica.dsp.diagnosticBypassUnsupportedProgram = true;
@@ -37,8 +45,10 @@ class Dc extends Core {
   /// Explicit experimental board, timing and audio policies used by BIOS bring-up.
   /// This does not authenticate media or establish hardware-matched DSP effects.
   final bool bootBringUp;
-  final bus = DcBus();
-  late final cpu = Sh4(bus);
+  final Sh4Jit? _jit;
+  late final bus = DcBus(ram: _jit?.ram, storeQueues: _jit?.storeQueues);
+  late final cpu = Sh4(bus, jit: _jit);
+  int _compiledClocks = 0;
   Uint8List? _program;
   bool _hasBios = false;
   Sram? _storage;
@@ -47,7 +57,8 @@ class Dc extends Core {
   // Device clocks deferred by runFrame; flushed before device-visible accesses.
   int _batchedClocks = 0, _batchDeadline = 0;
   int _pinsEpoch = -1;
-  static const _batchLimit = 256;
+  // Compiled code runs whole blocks, so it uses longer device batches.
+  int get _batchLimit => _jit == null ? 256 : 2048;
   String? stopReason;
   CdromDrive? _discDrive;
   int _bootstrapEpoch = 0;
@@ -232,6 +243,7 @@ class Dc extends Core {
     bus.g2.setTransferRequest(0, true);
     bus.opticalDrive.reset();
     bus.ram.fillRange(0, bus.ram.length, 0);
+    _jit?.reset();
     cpu.reset();
     cpu.irlPins = 15;
     bus.intc.nmiHigh = true;
@@ -335,6 +347,12 @@ class Dc extends Core {
     _batchedClocks = 0;
     stopReason = reason;
     bus.opticalDrive.rebindDriveAfterLoad();
+    final jit = _jit;
+    if (jit != null) {
+      // Restored dirty lines go to RAM before compiled code reads it.
+      bus.cache.coherent = true;
+      jit.reset();
+    }
   }
 
   void _driveBringUpPins() {
@@ -466,6 +484,59 @@ class Dc extends Core {
     );
   }
 
+  /// Runs compiled SH-4 code up to the device batch deadline. Returns null
+  /// when the interpreter takes the next step.
+  (int, int)? _executeCompiled() {
+    if (_pendingClocks != 0 || stopReason != null) return null;
+    if (bootBringUp && _pinsEpoch != bus.deviceEpoch) {
+      _driveBringUpPins();
+      _pinsEpoch = bus.deviceEpoch;
+    }
+    if (_batchedClocks == 0) {
+      final line = bus.gpu.spg.clocksToNextLine;
+      _batchDeadline = line != null && line < _batchLimit ? line : _batchLimit;
+    }
+    final period = bus.cpg.cpuPeriod * (bootBringUp ? 8 : 1);
+    final previousClocks = _clocks;
+    final previousLines = bus.gpu.spg.completedLines;
+    final wasVideoRunning = bus.gpu.spg.running;
+    final previousArmInstructions = bus.aica.executedInstructions;
+    final steps = cpu
+        .runCompiled((_batchDeadline - _batchedClocks + period - 1) ~/ period);
+    if (steps == 0) return null;
+    final elapsed = steps * period;
+    _clocks += elapsed;
+    _compiledClocks += elapsed;
+    _batchedClocks += elapsed;
+    final stopped = _batchedClocks >= _batchDeadline && !_flushDevices();
+    final rendered = wasVideoRunning || bus.gpu.spg.running
+        ? bus.gpu.spg.completedLines != previousLines
+        : _clocks ~/ clocksInScanline != previousClocks ~/ clocksInScanline;
+    return (
+      elapsed,
+      _executionSh4 |
+          (stopped ? _executionStopped : 0) |
+          (rendered ? _executionScanline : 0) |
+          (bus.aica.executedInstructions != previousArmInstructions
+              ? _executionArm
+              : 0)
+    );
+  }
+
+  @override
+  Iterable<JitDiagnostics> get jitDiagnostics =>
+      [if (_jit case final jit?) jit.diagnostics];
+  @override
+  bool get jitEnabled => _jit != null;
+  @override
+  bool get jitSuspended => _jit?.suspended ?? false;
+  @override
+  set jitSuspended(bool value) => _jit?.suspended = value;
+  @override
+  int get jitClocks => _compiledClocks;
+  @override
+  void dispose() => _jit?.dispose();
+
   @override
   ExecResult runFrame(int scanlines) {
     var elapsed = 0, flags = _executionSh4;
@@ -475,7 +546,7 @@ class Dc extends Core {
       while (scanlines > 0) {
         final previousLines = bus.gpu.spg.completedLines;
         final wasVideoRunning = bus.gpu.spg.running;
-        (elapsed, flags) = _execute(false, batch: true);
+        (elapsed, flags) = _executeCompiled() ?? _execute(false, batch: true);
         if (flags & _executionStopped != 0) break;
         if (wasVideoRunning || bus.gpu.spg.running) {
           scanlines -= bus.gpu.spg.completedLines - previousLines;

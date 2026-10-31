@@ -71,7 +71,7 @@ void main() {
   }
 
   setUp(() {
-    core = Dc();
+    core = Dc(jit: false);
   });
 
   test('aggregate Form 2 reaches G1 DMA with subheader and dummy bytes', () {

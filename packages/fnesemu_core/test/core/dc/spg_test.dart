@@ -123,7 +123,7 @@ void main() {
 
   test('Core reports actual line crossings and uses configured field length',
       () {
-    final core = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
+    final core = Dc(jit: false)..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
     tiny(core.bus);
     core.bus.write32(base + 0x44, 0x80000d);
     core.bus.write32(base + 0xe8, 0);
