@@ -96,7 +96,8 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   late final int _readFn, _writeFn;
 
   /// installed entries by key
-  final _blocks = <(int, int), int>{};
+  // Keyed by pc | tag << 32, like the dynamic-jump table.
+  final _blocks = <int, int>{};
 
   /// the link slots of each target key
   final _slotsOf = <(int, int), List<int>>{};
@@ -263,14 +264,14 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     if (_slotCount == _maxSlots) throw _Full();
     final s = _slotCount++;
     (_slotsOf[(pc, tag)] ??= []).add(s);
-    _slotView[s] = _blocks[(pc, tag)] ?? 0;
+    _slotView[s] = _blocks[pc | tag << 32] ?? 0;
     return s;
   }
 
   // JitRuntime
 
   @override
-  bool contains(int pc, int tag) => _blocks.containsKey((pc, tag));
+  bool contains(int pc, int tag) => _blocks.containsKey(pc | tag << 32);
 
   @override
   int installBlock(IrBlock block) {
@@ -304,7 +305,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
 
     final key = (block.pc, block.tag);
     final entry = _code + at;
-    _blocks[key] = entry;
+    _blocks[block.pc | block.tag << 32] = entry;
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = entry;
     }
@@ -317,7 +318,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   @override
   void invalidate(int pc, int tag) {
     final key = (pc, tag);
-    if (_blocks.remove(key) == null) return;
+    if (_blocks.remove(pc | tag << 32) == null) return;
     compilationStats?.recordInvalidation(pc, tag);
     for (final s in _slotsOf[key] ?? const <int>[]) {
       _slotView[s] = 0;
@@ -340,7 +341,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   @override
   int run(int pc, int tag) {
     _checkAlive();
-    final entry = _blocks[(pc, tag)];
+    final entry = _blocks[pc | tag << 32];
     if (entry == null) {
       _ctx[JitCtx.exitReason] = JitReason.miss;
       _ctx[JitCtx.exitPc] = pc;
@@ -381,7 +382,7 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   // A native miss to an installed block refreshes it without compilation.
   void _refreshExitTarget() {
     final pc = exitPc, tag = exitTag;
-    final entry = _blocks[(pc, tag)];
+    final entry = _blocks[pc | tag << 32];
     if (entry == null) return;
     final d = X64Backend.dynIndex(pc, tag) * 2;
     _dynView[d] = pc | tag << 32;
