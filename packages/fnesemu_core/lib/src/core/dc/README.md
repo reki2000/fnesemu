@@ -723,9 +723,9 @@ dart test test/core/dc test/core/core_layers_test.dart
 
 The Maple host supports software/VBlank-started descriptor chains on ports A–D, keyed RAM protection, both `SB_MMSEL` byte orders, normal controller packets, NOP delays, timeout markers, padded response blocks, completion/error interrupts and deferred software aborts.
 A standard controller is attached to port A by default; the other ports are disconnected and can be populated through the core-owned controller list.
-`Core.padDown` and `Core.padUp` address ports with IDs 0–3 and expose the directional pad, A/B/X/Y, Start and digital endpoints for L/R triggers.
-The controller also accepts explicit unsigned eight-bit analog values through its headless interface.
-A device reset preserves physical input and returns condition reads to discovery standby; a full core reset clears input and retains port attachments.
+Input is pulled: a controller samples the core's `PadSource` when a Get Condition is answered, addressing ports with IDs 0–3 and exposing the directional pad, A/B/X/Y, Start and digital endpoints for L/R triggers; either host stick drives the analog stick.
+Held input is owned by the host and is not part of a saved state.
+A device reset returns condition reads to discovery standby; a full core reset retains port attachments.
 Device Request enables condition reads; Device Kill acknowledges once and refuses further packets until an electrical reset.
 The headless `resetDevice` endpoint, full core reset and host RESET control pattern provide functional electrical reset as described below.
 The host samples controller state when it consumes the descriptor.

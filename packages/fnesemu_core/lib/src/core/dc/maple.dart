@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../pad_source.dart';
 import '../../state.dart';
 import '../../util/uint8list.dart';
 import 'dmac.dart';
@@ -22,6 +23,11 @@ class DcMaple {
     null,
     null
   ];
+
+  /// where the controllers read their held buttons and axes from, set by
+  /// the core; handed to a controller whenever it exchanges, so a
+  /// controller attached later reads from the same source
+  PadSource source = const NoPadSource();
   int _start = 0, _trigger = 0, _enable = 0, _system = 0x3a980000;
   int _top = 0xff00000, _bottom = 0x80fffff, _selection = 1;
   int _cursor = 0, _tx = 0, _rx = 0, _rxBase = 0, _remaining = 0;
@@ -257,7 +263,6 @@ class DcMaple {
     _resetPort = -1;
     for (final controller in controllers) {
       controller?.resetDevice();
-      controller?.resetInput();
     }
   }
 
@@ -478,7 +483,9 @@ class DcMaple {
         packet[i] = _byte(_cursor + 8 + (_selection == 0 ? i ^ 3 : i));
       }
       // Keep the transport descriptor replayable if a device has a development stop.
-      final response = controllers[port]?.exchange(packet, port);
+      final controller = controllers[port];
+      if (controller != null) controller.source = source;
+      final response = controller?.exchange(packet, port);
       _rxBase = _word(_cursor + 4) & 0x1fffffe0;
       _rx = _rxBase;
       _cursor += length + 8;

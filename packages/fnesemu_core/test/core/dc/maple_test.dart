@@ -6,8 +6,11 @@ import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/core/dc/maple_controller.dart';
 import 'package:fnesemu_core/src/core/dc/maple_device.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
+
+import '../pad_helper.dart';
 
 void main() {
   const base = 0xa05f6c00;
@@ -67,10 +70,13 @@ void main() {
       configure(selection: selection);
       final controller = bus.maple.controllers[0]!;
       controller.exchange(Uint8List.fromList([1, 32, 0, 0]), 0);
-      controller.setButton(DcMapleController.a, true);
-      controller.setButton(DcMapleController.y, true);
-      controller.setButton(PadButton.left, true);
-      controller.setAnalog(right: 0x11, left: 0x22, stickX: 0x33, stickY: 0x44);
+      bus.maple.source = PadState()
+        ..press(0, DcMapleController.a)
+        ..press(0, DcMapleController.y)
+        ..press(0, PadButton.left)
+        ..press(0, DcMapleController.rightTrigger)
+        ..setAxis(0, PadAxis.leftX, (0x33 - 128) / 127)
+        ..setAxis(0, PadAxis.leftY, (0x44 - 128) / 127);
       descriptor(0x10000, 0x80000001, 0x0c020000, [9, 0x20, 0, 1, 0, 0, 0, 1],
           selection: selection);
       start();
@@ -89,8 +95,8 @@ void main() {
             1,
             0xbb,
             0xfd,
-            0x11,
-            0x22,
+            0xff,
+            0,
             0x33,
             0x44,
             128,
@@ -220,7 +226,7 @@ void main() {
     expect(bus.ram.getUint32LE(0), 0);
   });
 
-  test('Core pad API routes ports and reset retains attachments', () {
+  test('core input routes ports and reset retains attachments', () {
     final dc = Dc();
     final controller = DcMapleController();
     dc.bus.maple.controllers[2] = controller;
@@ -238,6 +244,7 @@ void main() {
     expect(controller.exchange(request, 2)![9], 251);
     dc.padUp(2, DcMapleController.x);
     expect(controller.exchange(request, 2)![9], 255);
+    dc.padUp(2, DcMapleController.rightTrigger);
     dc.reset();
     expect(dc.bus.maple.controllers[2], same(controller));
     controller.exchange(identify, 2);
@@ -547,7 +554,7 @@ void main() {
     final condition = Uint8List.fromList([9, 32, 0, 1, 0, 0, 0, 1]);
     expect(controller.exchange(condition, 0), isNull);
     expect(controller.exchange(identify, 0)![0], 5);
-    controller.setButton(DcMapleController.a, true);
+    controller.source = PadState()..press(0, DcMapleController.a);
     expect(controller.exchange(condition, 0)![8] & 4, 0);
     expect(controller.exchange(Uint8List.fromList([4, 32, 0, 0]), 0)![0], 7);
     expect(controller.exchange(identify, 0), isNull);
@@ -588,7 +595,7 @@ void main() {
     test('electrical reset retains held input while requiring discovery again',
         () {
       final device = bus.maple.controllers[0]!;
-      device.setButton(DcMapleController.a, true);
+      device.source = PadState()..press(0, DcMapleController.a);
       device.exchange(identify(0), 0);
       resetPattern();
       bus.tickMasterClocks(2802);
@@ -677,9 +684,6 @@ void main() {
         controller.exchange(Uint8List.fromList([0x7f, 32, 0, 0]), 0)![0], 0xfd);
     expect(controller.exchange(Uint8List.fromList([1, 33, 0, 0]), 0), isNull);
     expect(controller.exchange(Uint8List.fromList([9, 32, 0, 1]), 0), isNull);
-    expect(
-        () => controller.setAnalog(right: 256, left: 0, stickX: 0, stickY: 0),
-        throwsRangeError);
     expect(() => controller.exchange(Uint8List.fromList([2, 32, 0, 0]), 0),
         throwsA(isA<DcUnsupported>()));
   });

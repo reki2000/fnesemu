@@ -5,6 +5,7 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../sram.dart';
 import '../../state.dart';
 import '../../types.dart';
@@ -35,6 +36,7 @@ class Dc extends Core {
       : _jit = jit ? Sh4Jit.create() : null,
         _armJit = jit ? DcArmJit.create(DcAica.memorySize) : null {
     bus.onDeviceAccess = _syncDevices;
+    bus.maple.source = padPort;
     // Compiled code reads and writes main RAM directly.
     if (_jit != null) bus.cache.coherent = true;
     if (bootBringUp) {
@@ -570,19 +572,27 @@ class Dc extends Core {
     return _executionResult(elapsed, flags);
   }
 
+  /// Controllers attached before the input is connected read through
+  /// [padPort] from here; the bus hands it to controllers attached
+  /// later when they exchange.
+  @override
+  set input(PadSource source) {
+    super.input = source;
+    for (final controller in bus.maple.controllers) {
+      controller?.source = padPort;
+    }
+  }
+
   @override
   List<PadButton> get buttons => DcMapleController.buttons;
 
   @override
-  void padDown(int controllerId, PadButton k) => _setPad(controllerId, k, true);
-
-  @override
-  void padUp(int controllerId, PadButton k) => _setPad(controllerId, k, false);
-
-  void _setPad(int id, PadButton button, bool pressed) {
-    if (id < 0 || id >= bus.maple.controllers.length) return;
-    bus.maple.controllers[id]?.setButton(button, pressed);
-  }
+  List<PadAxis> get axes => const [
+        PadAxis.leftX,
+        PadAxis.leftY,
+        PadAxis.rightX,
+        PadAxis.rightY,
+      ];
 
   @override
   List<DebugVideoLayer> get videoLayers {

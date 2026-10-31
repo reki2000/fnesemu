@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
 import 'package:fnesemu_core/src/core/dc/disc_bootstrap.dart';
 import 'package:fnesemu_core/src/core/dc/fault.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 
 import 'cdrom_drive.dart';
 import 'headless/session.dart' show savePng, wavBytes;
@@ -157,6 +158,8 @@ Future<void> main(List<String> args) async {
   final limit = args.length >= 3 ? int.parse(args[2]) : 1000000;
   if (limit < 1) throw ArgumentError.value(limit, 'instructions');
   final core = Dc(bootBringUp: coreBringUp);
+  final padState = PadState();
+  core.input = padState;
   final pressedButtons = [
     for (final name in pressName?.split(',') ?? <String>[])
       core.buttons.firstWhere(
@@ -284,9 +287,9 @@ Future<void> main(List<String> args) async {
       final buttonIndex = executed ~/ 2000000;
       if (buttonIndex < pressedButtons.length) {
         if (executed % 2000000 == 0) {
-          core.padDown(0, pressedButtons[buttonIndex]);
+          padState.press(0, pressedButtons[buttonIndex]);
         } else if (executed % 2000000 == 1000000) {
-          core.padUp(0, pressedButtons[buttonIndex]);
+          padState.release(0, pressedButtons[buttonIndex]);
         }
       }
       if (gpioLink != 0) {
@@ -464,7 +467,7 @@ Future<void> main(List<String> args) async {
       }
     }
     for (final button in pressedButtons) {
-      core.padUp(0, button);
+      padState.release(0, button);
     }
     stdout.writeln(jsonEncode({
       'instructions': executed,

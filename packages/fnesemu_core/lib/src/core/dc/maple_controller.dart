@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../pad_button.dart';
+import '../../pad_source.dart';
 import '../../state.dart';
 import 'fault.dart';
 import 'maple_device.dart';
@@ -14,6 +15,11 @@ const dcControllerProductName = '\x44\x72\x65\x61\x6d\x63\x61\x73\x74\x20\x43'
 /// Controller Peripheral Hardware Specifications, Rev. 1.00.
 class DcMapleController implements DcMapleDevice {
   final expansions = List<DcMapleDevice?>.filled(2, null);
+
+  /// where the held buttons and axes are read from, set by the bus when
+  /// the controller exchanges with the host; the condition is sampled
+  /// from it on every Get Condition, so held input is not device state
+  PadSource source = const NoPadSource();
   static const a = PadButton('A');
   static const b = PadButton('B');
   static const x = PadButton('X');
@@ -46,7 +52,6 @@ class DcMapleController implements DcMapleDevice {
     (y, 0x200),
   ];
   bool _identified = false, _killed = false;
-  int _keys = 0xffff;
 
   void validateStateTarget() {
     for (final child in expansions) {
@@ -60,7 +65,6 @@ class DcMapleController implements DcMapleDevice {
   void saveState(StateWriter writer) {
     validateStateTarget();
     writer.section('dc.maple.controller');
-    writer.ints([_keys, _right, _left, _stickX, _stickY]);
     writer.boolean(_identified);
     writer.boolean(_killed);
     for (final child in expansions) {
@@ -72,14 +76,7 @@ class DcMapleController implements DcMapleDevice {
   void loadState(StateReader reader) {
     validateStateTarget();
     reader.section('dc.maple.controller');
-    final values = reader.ints();
     final identified = reader.boolean(), killed = reader.boolean();
-    if (values.length != 5 ||
-        values.any((value) => value < 0) ||
-        values[0] > 0xffff ||
-        values.skip(1).any((value) => value > 255)) {
-      throw const StateMismatch('Maple controller input state');
-    }
     final restored = <DcMemoryCard?>[];
     for (final child in expansions) {
       final kind = reader.string();
@@ -103,11 +100,6 @@ class DcMapleController implements DcMapleDevice {
       (expansions[slot] as DcMemoryCard).loadState(childReader);
       childReader.end();
     }
-    _keys = values[0];
-    _right = values[1];
-    _left = values[2];
-    _stickX = values[3];
-    _stickY = values[4];
     _identified = identified;
     _killed = killed;
   }
@@ -126,37 +118,6 @@ class DcMapleController implements DcMapleDevice {
     for (final child in expansions) {
       child?.tickMasterClocks(clocks);
     }
-  }
-
-  int _right = 0, _left = 0, _stickX = 128, _stickY = 128;
-
-  void resetInput() {
-    _keys = 0xffff;
-    _right = _left = 0;
-    _stickX = _stickY = 128;
-  }
-
-  void setButton(PadButton button, bool pressed) {
-    for (final (key, bit) in _digital) {
-      if (button == key) _keys = pressed ? _keys & ~bit : _keys | bit;
-    }
-    if (button == rightTrigger) _right = pressed ? 255 : 0;
-    if (button == leftTrigger) _left = pressed ? 255 : 0;
-  }
-
-  /// Host analog values use the controller's unsigned eight-bit range.
-  void setAnalog(
-      {required int right,
-      required int left,
-      required int stickX,
-      required int stickY}) {
-    for (final value in [right, left, stickX, stickY]) {
-      RangeError.checkValueInInterval(value, 0, 255);
-    }
-    _right = right;
-    _left = left;
-    _stickX = stickX;
-    _stickY = stickY;
   }
 
   static Uint8List _info() {
@@ -216,17 +177,32 @@ class DcMapleController implements DcMapleDevice {
         if (!_identified) return null;
         if (request.length != 8) return null;
         if (ByteData.sublistView(request).getUint32(4) != 1) return reply(0xfe);
+        // The condition is sampled where the hardware samples it: the
+        // buttons are active low, the triggers report their digital
+        // endpoints, and either stick of the host drives the analog
+        // stick, the left one with priority.
+        var keys = 0xffff;
+        for (final (button, bit) in _digital) {
+          if (source.isPressed(port, button)) keys &= ~bit;
+        }
+        var x = source.axis(port, PadAxis.leftX);
+        var y = source.axis(port, PadAxis.leftY);
+        if (x == 0 && y == 0) {
+          x = source.axis(port, PadAxis.rightX);
+          y = source.axis(port, PadAxis.rightY);
+        }
+        int stick(double axis) => (128 + axis * 127).round().clamp(0, 255);
         return reply(8, [
           0,
           0,
           0,
           1,
-          _keys & 255,
-          _keys >> 8,
-          _right,
-          _left,
-          _stickX,
-          _stickY,
+          keys & 255,
+          keys >> 8,
+          source.isPressed(port, rightTrigger) ? 255 : 0,
+          source.isPressed(port, leftTrigger) ? 255 : 0,
+          stick(x),
+          stick(y),
           128,
           128
         ]);

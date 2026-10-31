@@ -10,6 +10,8 @@ import 'package:fnesemu_core/src/state.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
 
+import '../pad_helper.dart';
+
 Dc diagnostic({int add = 1}) =>
     Dc()..setRom(Uint8List.fromList([add, 0x70, 0xfd, 0xaf, 9, 0]));
 void equalBytes(Uint8List actual, Uint8List expected) {
@@ -75,7 +77,7 @@ void main() {
   });
 
   test(
-      'public DC state retains presented video, controller input and memory card identity',
+      'public DC state retains presented video and memory card identity, not held input',
       () {
     final source = diagnostic(), target = diagnostic();
     source.attachMemoryCard(0, 0, DcMemoryCard());
@@ -113,6 +115,9 @@ void main() {
             destinationMemoryCard),
         isTrue);
     final request = Uint8List.fromList([9, 32, 0, 1, 0, 0, 0, 1]);
+    // Held input belongs to each core's own pad source, not to the state.
+    expect(target.bus.maple.controllers[0]!.exchange(request, 0)![8], 0xff);
+    target.padDown(0, DcMapleController.a);
     expect(target.bus.maple.controllers[0]!.exchange(request, 0)![8], 0xfb);
     advance(source, target, 503);
     expect(target.imageBuffer().buffer, source.imageBuffer().buffer);
