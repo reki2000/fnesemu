@@ -1565,9 +1565,13 @@ class DcGpuRender {
               final pa = wa * za * inverseDepth,
                   pb = wb * zb * inverseDepth,
                   pc = wc * zc * inverseDepth;
-              color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
-              off = _gouraud(
-                  sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+              color = sameColors
+                  ? sc.color
+                  : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+              off = sameOffsets
+                  ? sc.offsetColor
+                  : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor,
+                      pa, pb, pc);
             } else {
               color = sc.color;
               off = sc.offsetColor;

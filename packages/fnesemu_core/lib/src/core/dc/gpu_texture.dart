@@ -122,23 +122,31 @@ class DcGpuTexture {
 
   /// Functional binary-footprint model; the manual's D encoding needs physical validation.
   (int, double) _resolution(double footprint) {
+    final level = _level(footprint);
+    if (level == _maxLevel) return (level, 0);
+    // Interpolate across each binary interval, keeping both pass boundaries continuous.
+    // This normalized-mantissa policy is inferred, not a measured hardware D decoder.
+    final fraction = footprint * _adjust / (1 << level) - 1;
+    return (level, fraction < 0 ? 0 : (fraction > 1 ? 1 : fraction));
+  }
+
+  /// The level of [_resolution].
+  int _level(double footprint) {
     if (!footprint.isFinite || footprint < 0) {
       throw const DcUnsupported('CORE invalid MIP footprint');
     }
-    if (!mipMapped) return (0, 0);
+    if (!mipMapped) return 0;
     var value = footprint * _adjust, level = 0;
-    if (value >= width) return (_maxLevel, 0);
+    if (value >= width) return _maxLevel;
     while (value >= 2 && level < _maxLevel) {
       value /= 2;
       level++;
     }
-    // Interpolate across each binary interval, keeping both pass boundaries continuous.
-    // This normalized-mantissa policy is inferred, not a measured hardware D decoder.
-    return (level, level == _maxLevel ? 0 : (value - 1).clamp(0.0, 1.0));
+    return level;
   }
 
   int selectLevel(double footprint) {
-    final (level, _) = _resolution(footprint);
+    final level = _level(footprint);
     final selected =
         trilinear && filterMode == 3 ? math.min(level + 1, _maxLevel) : level;
     return superSample ? math.max(0, selected - 1) : selected;
@@ -161,9 +169,12 @@ class DcGpuTexture {
     return output & 0xffffffff;
   }
 
-  double footprint(double duDx, double dvDx, double duDy, double dvDy) =>
-      math.sqrt(math.max(math.pow(duDx * width, 2) + math.pow(dvDx * height, 2),
-          math.pow(duDy * width, 2) + math.pow(dvDy * height, 2)));
+  double footprint(double duDx, double dvDx, double duDy, double dvDy) {
+    final ux = duDx * width, vx = dvDx * height;
+    final uy = duDy * width, vy = dvDy * height;
+    final x = ux * ux + vx * vx, y = uy * uy + vy * vy;
+    return math.sqrt(x > y ? x : y);
+  }
 
   /// Bit `i` of the index moves to bit `2i`.
   static final _spread = Uint32List.fromList([
