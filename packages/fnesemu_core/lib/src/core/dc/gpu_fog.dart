@@ -41,7 +41,7 @@ class DcGpuFog {
   }
 
   static bool handles(int offset) =>
-      const [0xb0, 0xb4, 0xb8, 0xbc, 0xc0].contains(offset) ||
+      (offset >= 0xb0 && offset <= 0xc0 && offset & 3 == 0) ||
       (offset >= 0x200 && offset < 0x400 && offset & 3 == 0);
 
   void reset() {

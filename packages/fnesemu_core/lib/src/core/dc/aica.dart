@@ -601,19 +601,34 @@ class DcAica {
   }
 
   /// Advances in steps that end at each event, including ARM instructions.
+  /// The device event holds until a sample or an ARM register access may
+  /// move it.
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
     do {
-      final event = clocksToEvent;
-      final step = event == null || event >= clocks
+      final event = clocksToDeviceEvent;
+      final span = event == null || event >= clocks
           ? clocks
           : event < 1
               ? 1
               : event;
-      _advance(step);
-      clocks -= step;
+      var done = 0;
+      _deviceChanged = false;
+      do {
+        var step = span - done;
+        if (!armReset && memoryInhibit & 4 == 0) {
+          final armEvent =
+              (_armRemaining * masterHz - _armPhase + armHz - 1) ~/ armHz;
+          if (armEvent < step) step = armEvent < 1 ? 1 : armEvent;
+        }
+        _advance(step);
+        done += step;
+      } while (done < span && !_deviceChanged);
+      clocks -= done;
     } while (clocks > 0);
   }
+
+  bool _deviceChanged = false;
 
   void _advance(int clocks) {
     // Short advances stay within one second or one sample; skip the divisions then.
@@ -633,6 +648,7 @@ class DcAica {
       _samplePhase = sampleClocks % masterHz;
     }
     if (samples != 0) {
+      _deviceChanged = true;
       if (memoryInhibit & 2 != 0 && sound.readsWaveMemory) {
         throw const DcUnsupported(
             'AICA sound-source memory reads are inhibited');
@@ -755,6 +771,7 @@ class DcAica {
       return size == 1 ? memory[address] : memory.getUint32LE(address);
     }
     if (address >= 0x800000 && address < 0x808000 && address != 0x802c00) {
+      _deviceChanged = true;
       return read(address - 0x800000, size, fromArm: true);
     }
     throw DcUnsupported('AICA ARM memory read at $address ($size bytes)');
@@ -786,6 +803,7 @@ class DcAica {
       return;
     }
     if (address >= 0x800000 && address < 0x808000 && address != 0x802c00) {
+      _deviceChanged = true;
       write(address - 0x800000, size, value, fromArm: true);
       return;
     }

@@ -261,7 +261,7 @@ class DcArm7di {
         cost = _multiply(op);
       } else if (op & 0x0fb00ff0 == 0x01000090) {
         final rn = (op >> 16) & 15, rd = (op >> 12) & 15, rm = op & 15;
-        if ([rn, rd, rm].contains(15)) {
+        if (rn == 15 || rd == 15 || rm == 15) {
           throw const DcUnsupported('ARM7DI SWP PC');
         }
         final address = r[rn], source = r[rm], byte = op & 0x400000 != 0;
@@ -339,7 +339,8 @@ class DcArm7di {
     final (b, carry) = _operand(op);
     var result = 0, c = carry;
     bool? overflow;
-    if ([2, 3, 4, 5, 6, 7, 10, 11].contains(code)) {
+    // Codes 2-7, 10 and 11: SUB, RSB, ADD, ADC, SBC, RSC, CMP and CMN.
+    if ((0xcfc >> code) & 1 != 0) {
       final cin = _cpsr & 0x20000000 != 0 ? 1 : 0;
       final arithmetic = switch (code) {
         2 || 10 => _add(a, (~b).mask32, 1),
@@ -374,7 +375,11 @@ class DcArm7di {
   int _multiply(int op) {
     final rd = (op >> 16) & 15, rn = (op >> 12) & 15;
     final rs = (op >> 8) & 15, rm = op & 15, accumulate = op & 0x200000 != 0;
-    if ([rd, rn, rs, rm].contains(15) || (accumulate && rd == rm)) {
+    if (rd == 15 ||
+        rn == 15 ||
+        rs == 15 ||
+        rm == 15 ||
+        (accumulate && rd == rm)) {
       throw const DcUnsupported(
           'ARM7DI prohibited multiply register combination');
     }
