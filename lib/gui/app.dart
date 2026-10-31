@@ -149,10 +149,8 @@ class MainPageState extends State<MainPage> {
 
     _debugRequested = widget.config.debug;
 
-    _padInput = PadInput(
-        onDown: (button) => _controller.padDown(0, button),
-        onUp: (button) => _controller.padUp(0, button))
-      ..enabled = false;
+    _padInput = PadInput()..enabled = false;
+    _controller.input = _padInput;
     _keyHandler = KeyHandler(controller: _controller, input: _padInput);
     _inputLifecycle = AppLifecycleListener(
         onInactive: _padInput.clear,
