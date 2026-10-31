@@ -289,17 +289,40 @@ class DcAicaSound {
 
   int get currentAddress => _slots[(monitor >> 8) & 63].phase ~/ fraction;
 
-  static double _send(int value) =>
-      value == 0 ? 0 : math.pow(10, -3 * (15 - value) / 20).toDouble();
-  static double _pan(int value) =>
-      value == 15 ? 0 : math.pow(10, -3 * value / 20).toDouble();
-  static double _level(int value) {
+  static final _sends = Float64List.fromList([
+    for (var value = 0; value < 16; value++)
+      value == 0 ? 0 : math.pow(10, -3 * (15 - value) / 20).toDouble()
+  ]);
+  static final _pans = Float64List.fromList([
+    for (var value = 0; value < 16; value++)
+      value == 15 ? 0 : math.pow(10, -3 * value / 20).toDouble()
+  ]);
+  static final _levels = Float64List.fromList(
+      [for (var value = 0; value < 256; value++) _levelGain(value)]);
+
+  /// Envelope gains at whole attenuation steps, with one entry past the end
+  /// for interpolation.
+  static final _envelopeGains = Float64List.fromList([
+    for (var step = 0; step <= 1024; step++)
+      math.pow(10, -96 * step / (1023 * 20)).toDouble()
+  ]);
+
+  static double _send(int value) => _sends[value];
+  static double _pan(int value) => _pans[value];
+  static double _level(int value) => _levels[value];
+  static double _levelGain(int value) {
     const weights = [0.4, 0.8, 1.5, 3.0, 6.0, 12.0, 24.0, 48.0];
     var db = 0.0;
     for (var bit = 0; bit < 8; bit++) {
       if (value & (1 << bit) != 0) db += weights[bit];
     }
     return math.pow(10, -db / 20).toDouble();
+  }
+
+  /// The gain of an attenuation in 0 to 1023, interpolated between steps.
+  static double envelopeGain(double attenuation) {
+    final step = attenuation.toInt(), low = _envelopeGains[step];
+    return low + (_envelopeGains[step + 1] - low) * (attenuation - step);
   }
 
   void advance(int samples,
@@ -353,7 +376,7 @@ class DcAicaSound {
             : raw;
         final source = filtered /
             32768 *
-            math.pow(10, -96 * voice.attenuation / (1023 * 20)) *
+            envelopeGain(voice.attenuation) *
             _level(regs[10] >> 8) *
             DcAicaLfo.amplitudeGain(regs[7] & 7, amplitudeLfo);
         _dspMix[regs[8] & 15] += source * _send((regs[8] >> 4) & 15);

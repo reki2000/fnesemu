@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/aica.dart';
@@ -64,6 +65,13 @@ void main() {
     }
     expect(core.bus.aica.sound.active, isFalse);
     expect(core.bus.read32(base + 0x2814), 255);
+  });
+
+  test('envelope gain falls 96 dB over the attenuation range', () {
+    for (final attenuation in [0.0, 1.0, 100.25, 511.5, 1022.75, 1023.0]) {
+      final gain = math.pow(10, -96 * attenuation / (1023 * 20));
+      expect(DcAicaSound.envelopeGain(attenuation), closeTo(gain, gain * 1e-4));
+    }
   });
 
   test('PCM8 sign extension and pan endpoints preserve the unattenuated side',
