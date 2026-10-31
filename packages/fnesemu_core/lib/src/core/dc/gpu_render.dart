@@ -72,6 +72,15 @@ class DcGpuRender {
   late final modifier = DcGpuModifier(readWord: _word, culled: _culled);
   int _region = 0, _x = -1, _y = -1, _remaining = 0;
   int _sortMode = 0, _primitiveOrder = 0;
+  // Opaque passes: 0 shades every passing fragment, 1 only resolves depth and
+  // records in [_firstShaded] the last fragment that replaces the color, and
+  // 2 shades only that fragment and the ones after it.
+  int _visibility = 0;
+  final _firstShaded = Int32List(1024);
+  // The prepass pays off only when it hides textured fragments; every 16th
+  // tile of a render samples that, and the others follow the sample.
+  int _tileCount = 0, _hiddenFragments = 0, _shownFragments = 0;
+  final _savedDepth = Float64List(1024);
   final _candidates = List<_Fragment?>.filled(1024, null);
   final _lastDepth = Float64List(1024);
   final _lastOrder = Int32List(1024);
@@ -408,6 +417,7 @@ class DcGpuRender {
         cache.invalidate();
       }
       _region = read(0x2c);
+      _tileCount = _hiddenFragments = _shownFragments = 0;
       _stripLines = stripLines;
       _stripProduced = _stripConsumed = -1;
       _stripScaleRow = stripLines != 0 && factor != 1024 ? 0 : -1;
@@ -537,9 +547,8 @@ class DcGpuRender {
     final backgroundShadow =
         control & 0x40000000 == 0 && read(0x8c) & 0x08000000 != 0;
     _shadowMask.setRange(0, 1024, _zeroBytes);
-    if (control & 0x40000000 == 0) {
-      _background(x * 32, y * 32);
-    } else if (x != _x || y != _y) {
+    final drawsBackground = control & 0x40000000 == 0;
+    if (!drawsBackground && (x != _x || y != _y)) {
       throw const DcUnsupported('CORE retained tile is not the preceding tile');
     }
     final opaque = _word(_region + 4), opaqueModifier = _word(_region + 8);
@@ -547,6 +556,7 @@ class DcGpuRender {
         translucentModifier = _word(_region + 16);
     final punch = type2 ? _word(_region + 20) : 0x80000000;
     if (opaqueModifier & 0x80000000 == 0) {
+      if (drawsBackground) _background(x * 32, y * 32);
       // Resolve visible surface depths first, then shade the same tile with its area mask.
       // This replay is a functional implementation, not the hardware ISP/TSP scheduling.
       final colors = Uint32List.fromList(_colors),
@@ -556,7 +566,7 @@ class DcGpuRender {
       Uint8List mask;
       Uint8List? backgroundMask;
       try {
-        _opaqueLists(opaque, punch, x * 32, y * 32);
+        _opaqueLists(opaque, punch, x * 32, y * 32, depthOnly: true);
         mask = modifier.evaluate(opaqueModifier & 0xfffffc, read(0x20), x * 32,
             y * 32, _depth, read(0x80) & 1 != 0 ? 0.5 : 0.0);
         if (backgroundShadow) {
@@ -580,8 +590,10 @@ class DcGpuRender {
         _background(x * 32, y * 32);
       }
       _shadowMask = mask;
+      _opaqueLists(opaque, punch, x * 32, y * 32);
+    } else {
+      _opaqueLists(opaque, punch, x * 32, y * 32, background: drawsBackground);
     }
-    _opaqueLists(opaque, punch, x * 32, y * 32);
     _shadowMask.setRange(0, 1024, _zeroBytes);
     if (translucent & 0x80000000 == 0) {
       final presort = type2 ? control & 0x20000000 != 0 : read(0x98) & 1 != 0;
@@ -620,8 +632,43 @@ class DcGpuRender {
     return control & 0x80000000 != 0;
   }
 
-  void _opaqueLists(int opaque, int punch, int x, int y) {
-    if (opaque & 0x80000000 == 0) _objects(opaque & 0xfffffc, x, y);
+  /// [depthOnly] resolves the opaque list depths without shading it.
+  /// [background] draws the background first, shading only the pixels that
+  /// the opaque list leaves visible.
+  void _opaqueLists(int opaque, int punch, int x, int y,
+      {bool depthOnly = false, bool background = false}) {
+    final prepass = depthOnly ||
+        _tileCount++ & 15 == 0 ||
+        _hiddenFragments * 8 > _shownFragments;
+    if (opaque & 0x80000000 == 0 && prepass) {
+      final order = _primitiveOrder;
+      try {
+        _visibility = 1;
+        if (!depthOnly) {
+          // Hidden fragments are shaded for nothing; find the visible ones first.
+          _firstShaded.fillRange(0, 1024, -1);
+          if (background) {
+            _depth.fillRange(0, 1024, _value(read(0x88)));
+          } else {
+            _savedDepth.setAll(0, _depth);
+          }
+          _objects(opaque & 0xfffffc, x, y);
+          _primitiveOrder = order;
+          _visibility = 2;
+          if (background) {
+            _background(x, y);
+          } else {
+            _depth.setAll(0, _savedDepth);
+          }
+        }
+        _objects(opaque & 0xfffffc, x, y);
+      } finally {
+        _visibility = 0;
+      }
+    } else {
+      if (background) _background(x, y);
+      if (opaque & 0x80000000 == 0) _objects(opaque & 0xfffffc, x, y);
+    }
     if (punch & 0x80000000 == 0) {
       _sortedObjects(punch & 0xfffffc, x, y, punch: true);
     }
@@ -1254,6 +1301,24 @@ class DcGpuRender {
         } else if (_sortMode == 2) {
           final current = _candidates[index];
           if (current != null && z < current.depth) continue;
+        } else if (_visibility != 0) {
+          final hidden = _visibility == 1 ||
+              (background
+                  // A replacing opaque fragment hides the primary background.
+                  ? _firstShaded[index] >= 0 && tsp & 0x01000000 == 0
+                  : order < _firstShaded[index]);
+          if (!hidden) {
+            _shownFragments++;
+          } else if (background) {
+            if (texture != null) _hiddenFragments++;
+            continue;
+          } else {
+            if (_visibility == 2 && texture != null) _hiddenFragments++;
+            // ONE/ZERO blending into the primary buffer hides earlier fragments.
+            if (tsp & 0xff000000 == 0x20000000) _firstShaded[index] = order;
+            if (isp & 0x04000000 == 0) _depth[index] = z;
+            continue;
+          }
         }
         // HALF_OFFSET independently selects ISP coverage/depth and TSP shading.
         final sx = originX + x + pixelOffset, sy = originY + y + pixelOffset;

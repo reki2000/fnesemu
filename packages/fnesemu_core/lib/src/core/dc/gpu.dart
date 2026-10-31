@@ -528,24 +528,68 @@ class DcGpu {
       render.stripHazard();
       onError?.call(1 << 1);
     }
-    for (var x = 0; x < frame.width; x++) {
-      final clock = spg.displayX + x * pixelRepeat;
-      var horizontalBlank = spg.horizontalBlank, latestEdge = -1;
-      if (blankStart >= spg.displayX && blankStart <= clock) {
+    final buffer = frame.buffer, base = row * frame.width;
+    final displayX = spg.displayX, pixelsPerLine = spg.pixelsPerLine;
+    final lineBlank = spg.horizontalBlank;
+    // Strip buffers interleave banks; other lines read VRAM directly.
+    final direct = stripLines == 0;
+    final table = depth < 2 ? _pixelTable(depth, concat) : null;
+    const mask = vramSize - 1;
+    bool visible(int x) {
+      final clock = displayX + x * pixelRepeat;
+      var horizontalBlank = lineBlank, latestEdge = -1;
+      if (blankStart >= displayX && blankStart <= clock) {
         horizontalBlank = true;
         latestEdge = blankStart;
       }
-      if (blankEnd >= spg.displayX &&
-          blankEnd <= clock &&
-          blankEnd >= latestEdge) {
+      if (blankEnd >= displayX && blankEnd <= clock && blankEnd >= latestEdge) {
         horizontalBlank = false;
       }
-      frame.buffer[row * frame.width + x] = blank ||
-              horizontalBlank ||
-              x >= sourceWidth ||
-              clock >= spg.pixelsPerLine
-          ? border
-          : _pixel(start + x * bytesPerPixel, depth, concat);
+      return !blank &&
+          !horizontalBlank &&
+          x < sourceWidth &&
+          clock < pixelsPerLine;
+    }
+
+    // Visibility changes only where the clock crosses a blanking edge or
+    // a line limit, so each span between those columns is filled at once.
+    int column(int clock) {
+      final x = (clock - displayX + pixelRepeat - 1) ~/ pixelRepeat;
+      return x < 0 ? 0 : (x > frame.width ? frame.width : x);
+    }
+
+    final edges = [
+      column(blankStart),
+      column(blankEnd),
+      column(pixelsPerLine),
+      sourceWidth < frame.width ? sourceWidth : frame.width,
+      frame.width,
+    ]..sort();
+    var x = 0;
+    for (final edge in edges) {
+      if (edge <= x) continue;
+      if (!visible(x)) {
+        buffer.fillRange(base + x, base + edge, border);
+      } else if (!direct) {
+        for (; x < edge; x++) {
+          buffer[base + x] = _pixel(start + x * bytesPerPixel, depth, concat);
+        }
+      } else if (table != null) {
+        for (var address = start + x * 2; x < edge; x++, address += 2) {
+          buffer[base + x] =
+              table[vram[address & mask] | (vram[(address + 1) & mask] << 8)];
+        }
+      } else {
+        for (var address = start + x * bytesPerPixel;
+            x < edge;
+            x++, address += bytesPerPixel) {
+          buffer[base + x] = 0xff000000 |
+              (vram[address & mask] << 16) |
+              (vram[(address + 1) & mask] << 8) |
+              vram[(address + 2) & mask];
+        }
+      }
+      x = edge;
     }
     if (!blank &&
         stripLines != 0 &&
@@ -563,17 +607,35 @@ class DcGpu {
   int get _borderColor =>
       _color((_border >> 16) & 255, (_border >> 8) & 255, _border & 255);
 
-  int _pixel(int address, int depth, int concat) {
-    if (depth >= 2) {
-      return _color(_byte(address + 2), _byte(address + 1), _byte(address));
+  Uint32List? _table;
+  int _tableKey = -1;
+
+  /// Colors of every 16-bit pixel for one depth and concatenation value.
+  Uint32List _pixelTable(int depth, int concat) {
+    final key = depth << 3 | concat;
+    if (key == _tableKey) return _table!;
+    final table = _table ??= Uint32List(0x10000);
+    for (var value = 0; value < 0x10000; value++) {
+      table[value] = _color16(value, depth, concat);
     }
-    final value = _byte(address) | (_byte(address + 1) << 8);
+    _tableKey = key;
+    return table;
+  }
+
+  int _color16(int value, int depth, int concat) {
     final red = (((value >> (depth == 0 ? 10 : 11)) & 31) << 3) | concat;
     final green = depth == 0
         ? (((value >> 5) & 31) << 3) | concat
         : (((value >> 5) & 63) << 2) | (concat & 3);
     final blue = ((value & 31) << 3) | concat;
     return _color(red, green, blue);
+  }
+
+  int _pixel(int address, int depth, int concat) {
+    if (depth >= 2) {
+      return _color(_byte(address + 2), _byte(address + 1), _byte(address));
+    }
+    return _color16(_byte(address) | (_byte(address + 1) << 8), depth, concat);
   }
 
   int _byte(int address) {
