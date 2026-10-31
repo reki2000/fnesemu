@@ -394,17 +394,17 @@ class Apu {
     _frameStep = (_frameStep + 1).mask3;
   }
 
-  /// one machine cycle
-  void tick() {
+  /// advances by system clocks: 4 per machine cycle, 2 in GBC double speed
+  void tick(int clocks) {
     if (_power) {
-      _ch1.step(4);
-      _ch2.step(4);
-      _ch3.step(4);
-      _ch4.step(4);
+      _ch1.step(clocks);
+      _ch2.step(clocks);
+      _ch3.step(clocks);
+      _ch4.step(clocks);
       _mix();
     }
 
-    _sampleClocks += 4;
+    _sampleClocks += clocks;
     if (_sampleClocks >= _clocksPerSample) {
       _sampleClocks -= _clocksPerSample;
       _emitSample();
