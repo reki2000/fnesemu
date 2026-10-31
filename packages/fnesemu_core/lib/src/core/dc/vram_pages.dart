@@ -15,6 +15,9 @@ class DcVramPages {
   int _clock = 1;
   int get clock => _clock;
 
+  /// The stamp of the page holding [offset].
+  int at(int offset) => _pages[offset >> 12];
+
   void mark(int offset) => _pages[offset >> 12] = ++_clock;
 
   void markRange(int offset, int length) {

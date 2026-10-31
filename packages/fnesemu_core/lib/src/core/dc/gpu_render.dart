@@ -847,11 +847,15 @@ class DcGpuRender {
       cache = _textureCaches[key] = DcTextureCache(size, offsets);
       _textureCacheTexels += size;
     }
-    // A conservative byte span in the 64-bit texture space, mapped to both
+    // A byte span in the 64-bit texture space, mapped to both
     // storage banks. Texels past the end of VRAM are never read.
     final base = texture.base;
-    final end = math.min(
-        base + (texture.compressed ? 0x800 : 8) + size * 2, memory.length);
+    final format = texture.format;
+    // VQ indices cover 2x2 texels, or 4x4 and 4x2 for 4 and 8 bpp palettes.
+    final bytes = texture.compressed
+        ? 0x808 + (size >> (format == 5 ? 4 : (format == 6 ? 3 : 2)))
+        : 8 + (format == 5 ? size >> 1 : (format == 6 ? size : size * 2));
+    final end = math.min(base + bytes, memory.length);
     final low = (base >> 1) & 0x3ffffc, high = ((end - 1) >> 1) + 4;
     final written = high > low
         ? math.max(_pages.newest(low, high),
@@ -861,12 +865,25 @@ class DcGpuRender {
     final paletteVersion = texture.format == 5 || texture.format == 6
         ? palette.versionOf(texture.selector, texture.format == 5 ? 16 : 256)
         : 0;
-    if (written > cache.checked || cache.paletteVersion != paletteVersion) {
+    texture.cache = cache;
+    if (cache.paletteVersion != paletteVersion) {
       cache.invalidate();
+    } else if (written > cache.checked) {
+      if (texture.partialInvalidation && high > low) {
+        // Drop only texels in the 8 KiB spans of written pages.
+        for (var span = base & ~8191; span < end; span += 8192) {
+          final page = (span >> 1) & 0x3ff000;
+          if (_pages.at(page) > cache.checked ||
+              _pages.at(page + 0x400000) > cache.checked) {
+            texture.invalidateSpan(span, span + 8192);
+          }
+        }
+      } else {
+        cache.invalidate();
+      }
     }
     cache.checked = _pages.clock;
     cache.paletteVersion = paletteVersion;
-    texture.cache = cache;
     return texture;
   }
 
@@ -1610,10 +1627,12 @@ class DcGpuRender {
                   coordinate(0.5, 0.5)
                 ];
               }
-              final texel = texture.sample(u, v,
-                  footprint: footprint,
-                  extraSamples: extraSamples,
-                  bumpParameters: texture.format == 4 ? off : null);
+              final texel = texture.plainBilinear
+                  ? texture.sampleBilinear(u, v)
+                  : texture.sample(u, v,
+                      footprint: footprint,
+                      extraSamples: extraSamples,
+                      bumpParameters: texture.format == 4 ? off : null);
               // K1K2K3Q replaces Offset Color; its RGB bytes are not additive color.
               color = DcGpuTexture.shade(
                   color, texel, texture.format == 4 ? 0 : off, tsp);

@@ -186,6 +186,45 @@ class DcGpuTexture {
         (((x | y) >> bits) << (bits * 2));
   }
 
+  /// Whether [invalidateSpan] can drop single texels of this layout.
+  bool get partialInvalidation =>
+      !compressed &&
+      !mipMapped &&
+      format <= 2 &&
+      (!twiddled || width == height);
+
+  /// Drops the cached texels stored in the texture-space bytes [start, end)
+  /// of a [partialInvalidation] layout.
+  void invalidateSpan(int start, int end) {
+    final cache = this.cache!, stamps = cache.stamps;
+    final count = twiddled ? width * height : stride * height;
+    var first = (start - base) >> 1, last = (end - base + 1) >> 1;
+    if (first < 0) first = 0;
+    if (last > count) last = count;
+    for (var i = first; i < last; i++) {
+      final int x, y;
+      if (twiddled) {
+        // V is in the even bits of a twiddled index and U in the odd bits.
+        y = _compact(i);
+        x = _compact(i >> 1);
+      } else {
+        y = i ~/ stride;
+        x = i - y * stride;
+        if (x >= width) continue;
+      }
+      stamps[y * width + x] = 0;
+    }
+    cache.complete = 0;
+  }
+
+  static int _compact(int v) {
+    v &= 0x55555555;
+    v = (v | (v >> 1)) & 0x33333333;
+    v = (v | (v >> 2)) & 0x0f0f0f0f;
+    v = (v | (v >> 4)) & 0x00ff00ff;
+    return (v | (v >> 8)) & 0xffff;
+  }
+
   int _byte(int address) {
     if (address < 0 || address >= memory.length) {
       throw const DcUnsupported('CORE texture read outside retail VRAM');

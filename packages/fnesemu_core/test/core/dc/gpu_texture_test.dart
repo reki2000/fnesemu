@@ -169,6 +169,19 @@ void main() {
     expect(texture(tsp: copy | 0x4000).sample(1 / 16, 1 / 16), 0xffff0000);
   });
 
+  test('span invalidation drops only the twiddled texels stored there', () {
+    final tex = texture();
+    tex.cache = DcTextureCache(tex.width * tex.height, Int32List(1));
+    tex.decodeAll();
+    final stamps = tex.cache!.stamps, generation = tex.cache!.generation;
+    // Twiddled index 6 holds V bits 0b10 and U bits 0b1.
+    tex.invalidateSpan(tex.base + 12, tex.base + 14);
+    for (var i = 0; i < stamps.length; i++) {
+      expect(stamps[i], i == 2 * tex.width + 1 ? 0 : generation);
+    }
+    expect(tex.cache!.complete, isNot(generation));
+  });
+
   test('palette versions track the entries a texture selects', () {
     final palette = DcGpuPalette()..write(0x40, 4, 0x1234);
     final low = palette.versionOf(0, 16), high = palette.versionOf(16, 16);
