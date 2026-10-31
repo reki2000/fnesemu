@@ -1,12 +1,14 @@
 import 'package:fnesemu_core/src/core/pce/component/pad.dart';
 import 'package:fnesemu_core/src/core/pce/pce.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
+import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:test/test.dart';
 
 void main() {
   test('controller buttons are independent', () {
-    final pad = Pad();
-    pad.keyDown(0, pad.buttons[7]);
+    final state = PadState();
+    final pad = Pad()..source = state;
+    state.press(0, pad.buttons[7]);
     pad.counter = 1;
     expect(pad.port, 0x0f);
   });
@@ -14,7 +16,7 @@ void main() {
   test('the buttons are read in the order of the hardware', () {
     int read(String name, {required bool sel}) {
       final pad = Pad()
-        ..keyDown(0, pad0Button(name))
+        ..source = (PadState()..press(0, pad0Button(name)))
         ..port = 3 // clear: the first controller
         ..port = sel ? 1 : 0;
       return ~pad.port & 0x0f;
@@ -62,8 +64,9 @@ void main() {
   });
 
   test('all five controllers can be read through a port scan', () {
-    final pad = Pad();
-    pad.keyDown(2, pad.buttons[7]);
+    final state = PadState();
+    final pad = Pad()..source = state;
+    state.press(2, pad.buttons[7]);
     pad.port = 3;
     for (var i = 0; i < Pad.controllerNum; i++) {
       pad.port = 0;
