@@ -1,7 +1,10 @@
 // Synthetic benchmarks of the PS2 core that need no BIOS or disc.
 //
-// usage: dart compile exe tool/ps2_bench.dart -o /tmp/ps2-bench
-//        /tmp/ps2-bench <ee|ee-fpu|jit|vu|gs-sprite|gs-tri> [rounds]
+// usage: dart build cli -t tool/ps2_bench.dart -o /tmp/ps2-bench
+//        /tmp/ps2-bench/bundle/bin/ps2_bench
+//            <ee|ee-fpu|jit|vu|dma|gs-sprite|gs-tri> [rounds]
+//        (the jit workload needs the native library that dart build cli
+//        bundles; an executable from dart compile exe cannot load it)
 //        (dart run tool/ps2_bench.dart ... also works, but its times are
 //        JIT VM times; build the AOT executable to decide speed, as in
 //        tool/dart_aot_tips.md)

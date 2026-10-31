@@ -656,8 +656,6 @@ class GsRaster {
     final i = _texLayout.index(_tbp, _texPages, u, v);
     if (_tpsm == GsPsm.ct32) return mem.word(i);
     switch (_tpsm) {
-      case GsPsm.ct32:
-        return mem.word(i);
       case GsPsm.t8 || GsPsm.t8h:
         return _clut(mem.readAt(_tpsm, i));
       case GsPsm.t4 || GsPsm.t4hl || GsPsm.t4hh:
