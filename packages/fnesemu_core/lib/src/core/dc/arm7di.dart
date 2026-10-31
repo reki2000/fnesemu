@@ -271,6 +271,7 @@ class DcArm7di {
   }
 
   /// Executes one instruction, or accepts one interrupt before fetching.
+  @pragma('vm:unsafe:no-bounds-checks')
   int step() {
     instructionExecuted = false;
     if (fiq && _cpsr & 0x40 == 0) {
@@ -363,6 +364,7 @@ class DcArm7di {
     }
   }
 
+  @pragma('vm:unsafe:no-bounds-checks')
   int _data(int op) {
     final code = (op >> 21) & 15, rd = (op >> 12) & 15;
     final set = op & 0x100000 != 0, test = code >= 8 && code <= 11;
@@ -472,6 +474,7 @@ class DcArm7di {
     return _ror(_read(address & 0xfffffffc, 4).mask32, (address & 3) * 8);
   }
 
+  @pragma('vm:unsafe:no-bounds-checks')
   int _transfer(int op) {
     final rn = (op >> 16) & 15, rd = (op >> 12) & 15;
     final pre = op & 0x1000000 != 0, up = op & 0x800000 != 0;

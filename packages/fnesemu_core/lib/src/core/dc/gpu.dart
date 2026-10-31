@@ -483,6 +483,7 @@ class DcGpu {
         _ => field2
       };
 
+  @pragma('vm:unsafe:no-bounds-checks')
   void _scanLine(int line, bool field2) {
     if (_readControl & 1 == 0 && _scanning == null) return;
     final second = _selectSecond(field2);

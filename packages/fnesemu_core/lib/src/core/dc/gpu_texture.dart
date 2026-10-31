@@ -379,6 +379,7 @@ class DcGpuTexture {
 
   /// [sample] of a [plainBilinear] texture.
   @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
   int sampleBilinear(double u, double v) {
     final w = width, h = height;
     final cache = this.cache!;

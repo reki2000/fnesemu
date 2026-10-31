@@ -1118,6 +1118,7 @@ class DcGpuRender {
   static int _tileCeiling(double value) =>
       value < 0 ? 0 : (value >= 31 ? 32 : value.ceil() + 1);
 
+  @pragma('vm:unsafe:no-bounds-checks')
   void _triangle(List<_Vertex> vertices, int isp, int tsp,
       DcGpuTexture? texture, int originX, int originY,
       {List<_Vertex>? plane, double? backgroundDepth}) {
@@ -1946,6 +1947,7 @@ class DcGpuRender {
 extension on DcGpuRender {
   /// One unclipped tile row of 16-bit pixels in linear VRAM; the same
   /// conversion as the general [DcGpuRender._writeTile] loop.
+  @pragma('vm:unsafe:no-bounds-checks')
   void _writeRow16(int first, int y, int py, int mode, int kval, int threshold,
       int? rankRow, int rgbShift, int greenShift) {
     const ranks = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
