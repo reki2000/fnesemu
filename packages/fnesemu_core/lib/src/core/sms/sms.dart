@@ -20,7 +20,9 @@ class Sms extends Core {
   final SmsModel model;
   final Bus bus;
 
-  Sms(this.model) : bus = Bus(model);
+  Sms(this.model) : bus = Bus(model) {
+    bus.pad.source = padPort;
+  }
 
   Z80 get cpu => bus.cpu;
   Vdp get vdp => bus.vdp;
@@ -91,6 +93,7 @@ class Sms extends Core {
     bus.lineStartCycles = _nextLineCycles;
     _nextLineCycles += clocksInLine;
     vdp.runLine();
+    _pollPause();
     _renderAudio();
     if (vdp.frames != _frames) {
       _frames = vdp.frames;
@@ -182,35 +185,21 @@ class Sms extends Core {
   @override
   void reset() {
     bus.reset();
-    bus.pad.reset();
+    _pausePressed = false;
     _nextLineCycles = clocksInLine;
     _frames = 0;
     _psgFrames = _audioFrames = 0;
   }
 
-  @override
-  void padDown(int controllerId, PadButton k) {
-    if (k == Pad.pause) {
-      cpu.triggerNmi();
-    } else if (k == Pad.start) {
-      // the compatible mode turns the start button into the pause button
-      if (bus.compatible) {
-        cpu.triggerNmi();
-      } else {
-        bus.ggStart = true;
-      }
-    } else {
-      bus.pad.keyDown(controllerId, k);
-    }
-  }
+  bool _pausePressed = false;
 
-  @override
-  void padUp(int controllerId, PadButton k) {
-    if (k == Pad.start) {
-      bus.ggStart = false;
-    } else {
-      bus.pad.keyUp(controllerId, k);
-    }
+  // The pause button, and the start button of the compatible mode, raise an
+  // NMI once per press. They are sampled once a line.
+  void _pollPause() {
+    final pressed = padPort.isPressed(0, Pad.pause) ||
+        (bus.compatible && padPort.isPressed(0, Pad.start));
+    if (pressed && !_pausePressed) cpu.triggerNmi();
+    _pausePressed = pressed;
   }
 
   /// the buttons in the order of the keys A S Z X
