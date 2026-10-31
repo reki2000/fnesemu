@@ -1225,6 +1225,35 @@ class DcGpuRender {
     final e0x = c.x - b.x, e0y = c.y - b.y;
     final e1x = a.x - c.x, e1y = a.y - c.y;
     final e2x = b.x - a.x, e2y = b.y - a.y;
+    // Untextured fragments with equal vertex colors, no shadow and
+    // depth-independent fog all share one color.
+    final fogMode = (tsp >> 22) & 3;
+    final flat = texture == null &&
+        !(_shadowObject && shadowIntensity) &&
+        (fogMode == 1 || fogMode == 2) &&
+        (tsp & 0x02000000 != 0 ||
+            !gouraud ||
+            (sa.color == sb.color &&
+                sb.color == sc.color &&
+                sa.offsetColor == sb.offsetColor &&
+                sb.offsetColor == sc.offsetColor));
+    var flatColor = 0;
+    if (flat && tsp & 0x02000000 == 0) {
+      flatColor = sc.color;
+      if (tsp & 0x100000 == 0) flatColor |= 0xff000000;
+      flatColor =
+          fog.apply(flatColor, 0, sc.offsetColor, tsp, hasOffset: false);
+    }
+    if (background && flat && _visibility == 0 && _materialArea < 0) {
+      // The background coverage triangle contains the whole tile.
+      if (tsp & 0x01000000 != 0) {
+        _secondary.fillRange(0, 1024, flatColor);
+        _secondaryValid.fillRange(0, 1024, 1);
+      } else {
+        _colors.fillRange(0, 1024, flatColor);
+      }
+      return;
+    }
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1320,103 +1349,106 @@ class DcGpuRender {
             continue;
           }
         }
-        // HALF_OFFSET independently selects ISP coverage/depth and TSP shading.
-        final sx = originX + x + pixelOffset, sy = originY + y + pixelOffset;
-        final wa = samePosition ? ia : ax * sx + ay * sy + a0;
-        final wb = samePosition ? ib : bx * sx + by * sy + b0;
-        final wc = samePosition ? ic : cx * sx + cy * sy + c0;
-        final shadeDepth =
-            samePosition ? ispDepth : za * wa + zb * wb + zc * wc;
-        if (!shadeDepth.isFinite) {
-          throw const DcUnsupported('CORE nonfinite shading depth');
-        }
-        var color = 0;
-        if (tsp & 0x02000000 == 0) {
-          int off;
-          if (gouraud) {
-            if (shadeDepth == 0) {
-              throw const DcUnsupported(
-                  'CORE shading perspective denominator is zero');
-            }
-            final inverseDepth = 1 / shadeDepth;
-            final pa = wa * za * inverseDepth,
-                pb = wb * zb * inverseDepth,
-                pc = wc * zc * inverseDepth;
-            color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
-            off = _gouraud(
-                sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
-          } else {
-            color = sc.color;
-            off = sc.offsetColor;
+        var color = flatColor;
+        if (!flat) {
+          // HALF_OFFSET independently selects ISP coverage/depth and TSP shading.
+          final sx = originX + x + pixelOffset, sy = originY + y + pixelOffset;
+          final wa = samePosition ? ia : ax * sx + ay * sy + a0;
+          final wb = samePosition ? ib : bx * sx + by * sy + b0;
+          final wc = samePosition ? ic : cx * sx + cy * sy + c0;
+          final shadeDepth =
+              samePosition ? ispDepth : za * wa + zb * wb + zc * wc;
+          if (!shadeDepth.isFinite) {
+            throw const DcUnsupported('CORE nonfinite shading depth');
           }
-          if (_shadowObject && shadowIntensity && _shadowMask[index] != 0) {
-            if (_sortMode == 2 && tsp & 0x100000 != 0) {
-              throw const DcUnsupported(
-                  'CORE punch-through shadow alpha needs validation');
-            }
-            color = _shadowColor(color);
-            off = _shadowColor(off);
-          }
-          if (tsp & 0x100000 == 0) color |= 0xff000000;
-          var footprint = 1.0;
-          if (texture != null) {
-            final tx = originX + x + texOffset, ty = originY + y + texOffset;
-            final ta = sameTexture ? wa : ax * tx + ay * ty + a0,
-                tb = sameTexture ? wb : bx * tx + by * ty + b0,
-                tc = sameTexture ? wc : cx * tx + cy * ty + c0;
-            final denominator = za * ta + zb * tb + zc * tc;
-            if (denominator == 0) {
-              throw const DcUnsupported(
-                  'CORE perspective UV denominator is zero');
-            }
-            final inverse = 1 / denominator;
-            final u = (uza * ta + uzb * tb + uzc * tc) * inverse;
-            final v = (vza * ta + vzb * tb + vzc * tc) * inverse;
-            if (mipNumerators != null) {
-              final square = inverse * inverse;
-              footprint = texture.footprint(
-                  mipNumerators[0] * square,
-                  mipNumerators[1] * square,
-                  mipNumerators[2] * square,
-                  mipNumerators[3] * square);
-            }
-            List<(double, double)>? extraSamples;
-            if (texture.superSample) {
-              (double, double) coordinate(double dx, double dy) {
-                final qx = tx + dx, qy = ty + dy;
-                final aa = ax * qx + ay * qy + a0;
-                final bb = bx * qx + by * qy + b0;
-                final cc = cx * qx + cy * qy + c0;
-                final divisor = za * aa + zb * bb + zc * cc;
-                if (divisor == 0) {
-                  throw const DcUnsupported(
-                      'CORE supersample perspective denominator is zero');
-                }
-                return (
-                  (uza * aa + uzb * bb + uzc * cc) / divisor,
-                  (vza * aa + vzb * bb + vzc * cc) / divisor
-                );
+          color = 0;
+          if (tsp & 0x02000000 == 0) {
+            int off;
+            if (gouraud) {
+              if (shadeDepth == 0) {
+                throw const DcUnsupported(
+                    'CORE shading perspective denominator is zero');
               }
-
-              extraSamples = [
-                coordinate(0.5, 0),
-                coordinate(0, 0.5),
-                coordinate(0.5, 0.5)
-              ];
+              final inverseDepth = 1 / shadeDepth;
+              final pa = wa * za * inverseDepth,
+                  pb = wb * zb * inverseDepth,
+                  pc = wc * zc * inverseDepth;
+              color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+              off = _gouraud(
+                  sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+            } else {
+              color = sc.color;
+              off = sc.offsetColor;
             }
-            final texel = texture.sample(u, v,
-                footprint: footprint,
-                extraSamples: extraSamples,
-                bumpParameters: texture.format == 4 ? off : null);
-            // K1K2K3Q replaces Offset Color; its RGB bytes are not additive color.
-            color = DcGpuTexture.shade(
-                color, texel, texture.format == 4 ? 0 : off, tsp);
-          }
-          color = fog.apply(
-              color, background ? backgroundZ : shadeDepth, off, tsp,
-              hasOffset: texture != null && isp & 0x01000000 != 0);
-          if (texture?.trilinear == true) {
-            color = texture!.applyPassWeight(color, footprint);
+            if (_shadowObject && shadowIntensity && _shadowMask[index] != 0) {
+              if (_sortMode == 2 && tsp & 0x100000 != 0) {
+                throw const DcUnsupported(
+                    'CORE punch-through shadow alpha needs validation');
+              }
+              color = _shadowColor(color);
+              off = _shadowColor(off);
+            }
+            if (tsp & 0x100000 == 0) color |= 0xff000000;
+            var footprint = 1.0;
+            if (texture != null) {
+              final tx = originX + x + texOffset, ty = originY + y + texOffset;
+              final ta = sameTexture ? wa : ax * tx + ay * ty + a0,
+                  tb = sameTexture ? wb : bx * tx + by * ty + b0,
+                  tc = sameTexture ? wc : cx * tx + cy * ty + c0;
+              final denominator = za * ta + zb * tb + zc * tc;
+              if (denominator == 0) {
+                throw const DcUnsupported(
+                    'CORE perspective UV denominator is zero');
+              }
+              final inverse = 1 / denominator;
+              final u = (uza * ta + uzb * tb + uzc * tc) * inverse;
+              final v = (vza * ta + vzb * tb + vzc * tc) * inverse;
+              if (mipNumerators != null) {
+                final square = inverse * inverse;
+                footprint = texture.footprint(
+                    mipNumerators[0] * square,
+                    mipNumerators[1] * square,
+                    mipNumerators[2] * square,
+                    mipNumerators[3] * square);
+              }
+              List<(double, double)>? extraSamples;
+              if (texture.superSample) {
+                (double, double) coordinate(double dx, double dy) {
+                  final qx = tx + dx, qy = ty + dy;
+                  final aa = ax * qx + ay * qy + a0;
+                  final bb = bx * qx + by * qy + b0;
+                  final cc = cx * qx + cy * qy + c0;
+                  final divisor = za * aa + zb * bb + zc * cc;
+                  if (divisor == 0) {
+                    throw const DcUnsupported(
+                        'CORE supersample perspective denominator is zero');
+                  }
+                  return (
+                    (uza * aa + uzb * bb + uzc * cc) / divisor,
+                    (vza * aa + vzb * bb + vzc * cc) / divisor
+                  );
+                }
+
+                extraSamples = [
+                  coordinate(0.5, 0),
+                  coordinate(0, 0.5),
+                  coordinate(0.5, 0.5)
+                ];
+              }
+              final texel = texture.sample(u, v,
+                  footprint: footprint,
+                  extraSamples: extraSamples,
+                  bumpParameters: texture.format == 4 ? off : null);
+              // K1K2K3Q replaces Offset Color; its RGB bytes are not additive color.
+              color = DcGpuTexture.shade(
+                  color, texel, texture.format == 4 ? 0 : off, tsp);
+            }
+            color = fog.apply(
+                color, background ? backgroundZ : shadeDepth, off, tsp,
+                hasOffset: texture != null && isp & 0x01000000 != 0);
+            if (texture?.trilinear == true) {
+              color = texture!.applyPassWeight(color, footprint);
+            }
           }
         }
         if (background) {
