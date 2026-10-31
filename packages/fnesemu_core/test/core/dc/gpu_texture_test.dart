@@ -175,7 +175,7 @@ void main() {
     expect(high, greaterThan(low));
     palette.write(0x40, 4, 0x1234);
     expect(palette.versionOf(16, 16), high);
-    palette.write(0x400, 4, 1);
+    palette.write(0x3fc, 4, 1);
     expect(palette.versionOf(0, 16), low);
     expect(palette.versionOf(0, 256), greaterThan(high));
     palette.control = 1;
