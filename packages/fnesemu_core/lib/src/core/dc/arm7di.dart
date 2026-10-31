@@ -8,11 +8,39 @@ import 'fault.dart';
 /// Kept independent of the GBA ARMv4T core: no Thumb or ARMv4 extensions.
 /// Cycle totals assume one clock for each S/N/I cycle and no external waits.
 class DcArm7di {
-  DcArm7di({required this.read, required this.write}) {
+  /// [memory] is accessed directly; other addresses go through [read]
+  /// and [write].
+  DcArm7di({required this.read, required this.write, Uint8List? memory})
+      : _memory = memory ?? Uint8List(0),
+        _words = ByteData.sublistView(memory ?? Uint8List(0)) {
     reset();
   }
   final int Function(int address, int size) read;
   final void Function(int address, int size, int value) write;
+  final Uint8List _memory;
+  final ByteData _words;
+
+  int _read(int address, int size) {
+    if (address >= 0 && address + size <= _memory.length) {
+      return size == 1
+          ? _memory[address]
+          : _words.getUint32(address, Endian.little);
+    }
+    return read(address, size);
+  }
+
+  void _write(int address, int size, int value) {
+    if (address >= 0 && address + size <= _memory.length) {
+      if (size == 1) {
+        _memory[address] = value;
+      } else {
+        _words.setUint32(address, value & 0xffffffff, Endian.little);
+      }
+      return;
+    }
+    write(address, size, value);
+  }
+
   final r = Uint32List(16);
   final _userHigh = Uint32List(5), _fiqHigh = Uint32List(5);
   final _spLr = List.generate(6, (_) => Uint32List(2));
@@ -124,10 +152,19 @@ class DcArm7di {
     fiq = fiqLevel;
   }
 
-  bool _condition(int value) {
-    final n = _cpsr & 0x80000000 != 0, z = _cpsr & 0x40000000 != 0;
-    final c = _cpsr & 0x20000000 != 0, v = _cpsr & 0x10000000 != 0;
-    return switch (value) {
+  // Bit f of entry c is set when condition c passes with NZCV flags f.
+  static final _conditions = Uint16List.fromList([
+    for (var condition = 0; condition < 16; condition++)
+      [
+        for (var flags = 0; flags < 16; flags++)
+          _passes(condition, flags) ? 1 << flags : 0
+      ].fold(0, (mask, bit) => mask | bit)
+  ]);
+
+  static bool _passes(int condition, int flags) {
+    final n = flags & 8 != 0, z = flags & 4 != 0;
+    final c = flags & 2 != 0, v = flags & 1 != 0;
+    return switch (condition) {
       0 => z,
       1 => !z,
       2 => c,
@@ -146,6 +183,8 @@ class DcArm7di {
       _ => false,
     };
   }
+
+  bool _condition(int value) => (_conditions[value] >> (_cpsr >>> 28)) & 1 != 0;
 
   int _reg(int index, {int ahead = 8}) =>
       index == 15 ? (pc + ahead).mask32 : r[index];
@@ -238,7 +277,7 @@ class DcArm7di {
       return _exception(0x1c, 0x11, pc + 4, fast: true);
     }
     if (irq && _cpsr & 0x80 == 0) return _exception(0x18, 0x12, pc + 4);
-    final op = read(pc, 4).mask32;
+    final op = _read(pc, 4).mask32;
     _nextPc = (pc + 4).mask32;
     var cost = 1;
     if (_condition(op >>> 28)) {
@@ -266,7 +305,7 @@ class DcArm7di {
         }
         final address = r[rn], source = r[rm], byte = op & 0x400000 != 0;
         final value = _load(address, byte);
-        write(byte ? address : address & 0xfffffffc, byte ? 1 : 4, source);
+        _write(byte ? address : address & 0xfffffffc, byte ? 1 : 4, source);
         r[rd] = value;
         cost = 4;
       } else if (op & 0x0e000000 == 0x08000000) {
@@ -402,8 +441,8 @@ class DcArm7di {
   }
 
   int _load(int address, bool byte) {
-    if (byte) return read(address, 1) & 255;
-    return _ror(read(address & 0xfffffffc, 4).mask32, (address & 3) * 8);
+    if (byte) return _read(address, 1) & 255;
+    return _ror(_read(address & 0xfffffffc, 4).mask32, (address & 3) * 8);
   }
 
   int _transfer(int op) {
@@ -438,7 +477,7 @@ class DcArm7di {
         r[rd] = value;
       }
     } else {
-      write(byte ? address : address & 0xfffffffc, byte ? 1 : 4,
+      _write(byte ? address : address & 0xfffffffc, byte ? 1 : 4,
           _reg(rd, ahead: 12));
       if (back) r[rn] = modified;
     }
@@ -485,7 +524,7 @@ class DcArm7di {
         (up ? base + (pre ? 4 : 0) : base - bytes + (pre ? 0 : 4)).mask32;
     for (final index in list) {
       if (load) {
-        final value = read(address & 0xfffffffc, 4).mask32;
+        final value = _read(address & 0xfffffffc, 4).mask32;
         if (index == 15) {
           _nextPc = value & 0xfffffffc;
         } else if (user) {
@@ -499,7 +538,7 @@ class DcArm7di {
             : back && index == rn && index != list.first
                 ? modified
                 : _reg(index, ahead: 12);
-        write(address & 0xfffffffc, 4, value);
+        _write(address & 0xfffffffc, 4, value);
       }
       address = (address + 4).mask32;
     }

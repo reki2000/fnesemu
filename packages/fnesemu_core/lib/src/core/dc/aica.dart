@@ -35,7 +35,7 @@ class DcAica {
   final dsp = DcAicaDsp();
   final _midi = DcAicaMidi();
   late final sound = DcAicaSound(memory, dsp: dsp);
-  late final arm = DcArm7di(read: _armRead, write: _armWrite);
+  late final arm = DcArm7di(read: _armRead, write: _armWrite, memory: memory);
   final _timers = Uint16List(3), _timerPhase = Uint8List(3);
   final _levels = Uint8List(3);
   int _samplePhase = 0, _rtcPhase = 0, _rtc = 0;
