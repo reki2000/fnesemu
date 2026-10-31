@@ -169,6 +169,32 @@ void main() {
     expect(texture(tsp: copy | 0x4000).sample(1 / 16, 1 / 16), 0xffff0000);
   });
 
+  test('MIP bilinear fast samples match the general sampler', () {
+    for (var i = 0; i < 128; i++) {
+      texel(i, (i * 0x9e37) & 0xffff);
+    }
+    // MIP-mapped, bilinear, D-adjust 1.0.
+    final tex = texture(tcw: 0x8800c000, tsp: copy | 0x2000 | 0x400);
+    var size = 0;
+    final offsets = Int32List(tex.maxLevel + 1);
+    for (var level = 0; level <= tex.maxLevel; level++) {
+      offsets[level] = size;
+      size += (tex.width >> level) * (tex.height >> level);
+    }
+    tex.cache = DcTextureCache(size, offsets);
+    expect(tex.mipBilinear, isTrue);
+    // Level 0 decoded up front must not stand in for smaller levels.
+    tex.decodeAll();
+    for (final footprint in [0.5, 1.5, 3.0]) {
+      for (final (u, v) in [(0.3, 0.6), (0.07, 0.81), (0.5, 0.5)]) {
+        // The second call reads the texels the first one decoded.
+        final expected = tex.sample(u, v, footprint: footprint);
+        expect(tex.sampleMip(u, v, footprint), expected);
+        expect(tex.sampleMip(u, v, footprint), expected);
+      }
+    }
+  });
+
   test('span invalidation drops only the twiddled texels stored there', () {
     final tex = texture();
     tex.cache = DcTextureCache(tex.width * tex.height, Int32List(1));

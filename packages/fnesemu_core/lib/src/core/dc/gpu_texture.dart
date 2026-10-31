@@ -427,6 +427,38 @@ class DcGpuTexture {
   bool get plainBilinear =>
       bilinear && !mipMapped && format != 4 && !superSample && cache != null;
 
+  /// Whether [sampleMip] applies: a cached bilinear MIP-mapped texture
+  /// without trilinear passes, bump mapping or supersampling.
+  bool get mipBilinear =>
+      bilinear &&
+      mipMapped &&
+      !trilinear &&
+      format != 4 &&
+      !superSample &&
+      cache != null;
+
+  /// [sample] of a [mipBilinear] texture.
+  @pragma('vm:unsafe:no-bounds-checks')
+  int sampleMip(double u, double v, double footprint) {
+    final level = selectLevel(footprint);
+    final w = width >> level, h = height >> level, cache = this.cache!;
+    final su = u * w, sv = v * h;
+    if (su >= 0 && su < w - 1 && sv >= 0 && sv < h - 1) {
+      final left = su.toInt(), top = sv.toInt();
+      final row0 = cache.levelOffsets[level] + top * w + left, row1 = row0 + w;
+      final stamps = cache.stamps, generation = cache.generation;
+      if (stamps[row0] == generation &&
+          stamps[row0 + 1] == generation &&
+          stamps[row1] == generation &&
+          stamps[row1 + 1] == generation) {
+        final texels = cache.texels;
+        return _filter(texels[row0], texels[row0 + 1], texels[row1],
+            texels[row1 + 1], su - left, sv - top);
+      }
+    }
+    return _sample(u, v, footprint: footprint);
+  }
+
   /// [sample] of a [plainBilinear] texture.
   @pragma('vm:prefer-inline')
   @pragma('vm:unsafe:no-bounds-checks')

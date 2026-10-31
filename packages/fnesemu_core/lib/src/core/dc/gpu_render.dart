@@ -1570,8 +1570,8 @@ class DcGpuRender {
                   : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
               off = sameOffsets
                   ? sc.offsetColor
-                  : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor,
-                      pa, pb, pc);
+                  : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor, pa,
+                      pb, pc);
             } else {
               color = sc.color;
               off = sc.offsetColor;
@@ -1633,10 +1633,12 @@ class DcGpuRender {
               }
               final texel = texture.plainBilinear
                   ? texture.sampleBilinear(u, v)
-                  : texture.sample(u, v,
-                      footprint: footprint,
-                      extraSamples: extraSamples,
-                      bumpParameters: texture.format == 4 ? off : null);
+                  : texture.mipBilinear
+                      ? texture.sampleMip(u, v, footprint)
+                      : texture.sample(u, v,
+                          footprint: footprint,
+                          extraSamples: extraSamples,
+                          bumpParameters: texture.format == 4 ? off : null);
               // K1K2K3Q replaces Offset Color; its RGB bytes are not additive color.
               color = DcGpuTexture.shade(
                   color, texel, texture.format == 4 ? 0 : off, tsp);
