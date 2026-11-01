@@ -27,7 +27,7 @@ final class R3000Translator {
 
   /// whether the block ends after a store at pc, for code next to data
   final bool Function(int pc) endsAfterStore;
-  final int mfc0, cop2Cmd, mfc2, cfc2, mtc2, ctc2, div;
+  final int mfc0, cop2Cmd, mfc2, cfc2, mtc2, ctc2;
 
   static const maxInstructions = 64;
   static const _clocksPerInstruction = 2;
@@ -40,8 +40,7 @@ final class R3000Translator {
       required this.mfc2,
       required this.cfc2,
       required this.mtc2,
-      required this.ctc2,
-      required this.div});
+      required this.ctc2});
 
   /// the addresses where [R3000.step] calls its hook first
   static bool isHook(int pc) {
