@@ -5,15 +5,19 @@ import '../../state.dart';
 import '../../util/uint8list.dart';
 import 'fault.dart';
 
-/// FT3 calendar, setting buttons and alarm registers on the nominal master clock.
-/// The memory card peripheral specification Rev. 1.00 and FT3 Rev. 0.80; no host wall-clock dependency.
+/// FT3 battery-backed calendar, setting buttons and alarm registers.
+/// The RTC follows the host wall clock even while emulation is suspended.
+/// The memory card peripheral specification Rev. 1.00 and FT3 Rev. 0.80.
 class DcMemoryCardTimer {
-  DcMemoryCardTimer({DateTime? initialTime})
-      : _time = initialTime == null
-            ? DateTime.utc(2000, 1, 1)
-            : DateTime.utc(initialTime.year, initialTime.month, initialTime.day,
-                initialTime.hour, initialTime.minute, initialTime.second) {
-    RangeError.checkValueInInterval(_time.year, 0, 9999, 'year');
+  DcMemoryCardTimer({DateTime? initialTime, DateTime Function()? clock}) {
+    this.clock = clock ?? DateTime.now;
+    if (initialTime != null) {
+      RangeError.checkValueInInterval(initialTime.year, 0, 9999, 'year');
+      final start = DateTime.utc(initialTime.year, initialTime.month,
+          initialTime.day, initialTime.hour, initialTime.minute,
+          initialTime.second);
+      _offsetMilliseconds = start.millisecondsSinceEpoch - _hostMilliseconds;
+    }
   }
   static const clocksPerSecond = 200000000;
   static const a = PadButton('A'), b = PadButton('B');
@@ -25,55 +29,48 @@ class DcMemoryCardTimer {
     (a, 16, 0),
     (b, 32, 0),
   ];
-  DateTime _time;
-  int _fraction = 0, _keys = 255;
+  /// Replaceable host clock for deterministic tests.
+  late DateTime Function() clock;
+  int _offsetMilliseconds = 0, _keys = 255;
   int alarmPeriod = 0, alarmDuty = 0;
-  DateTime get time => _time;
+
+  // VMU calendar fields do not carry a timezone; use host local civil time.
+  int get _hostMilliseconds {
+    final now = clock();
+    return DateTime.utc(now.year, now.month, now.day, now.hour, now.minute,
+            now.second, now.millisecond)
+        .millisecondsSinceEpoch;
+  }
+
+  DateTime get time => DateTime.fromMillisecondsSinceEpoch(
+      _hostMilliseconds + _offsetMilliseconds, isUtc: true);
 
   void saveState(StateWriter writer) {
     writer.section('dc.memory_card.timer');
-    writer.ints([
-      _time.year,
-      _time.month,
-      _time.day,
-      _time.hour,
-      _time.minute,
-      _time.second,
-      _fraction,
-      _keys,
-      alarmPeriod,
-      alarmDuty
-    ]);
+    writer.ints([_offsetMilliseconds, _keys, alarmPeriod, alarmDuty]);
   }
 
   void loadState(StateReader reader) {
     reader.section('dc.memory_card.timer');
     final v = reader.ints();
-    if (v.length != 10 ||
-        v.any((value) => value < 0) ||
-        v[0] > 9999 ||
-        v[1] < 1 ||
-        v[1] > 12 ||
-        v[2] < 1 ||
-        v[2] > 31 ||
-        v[3] > 23 ||
-        v[4] > 59 ||
-        v[5] > 59 ||
-        v[6] >= clocksPerSecond ||
-        v[7] > 255 ||
-        v[8] > 255 ||
-        v[9] > v[8]) {
+    if (v.length != 4 ||
+        v[1] < 0 ||
+        v[1] > 255 ||
+        v[2] < 0 ||
+        v[2] > 255 ||
+        v[3] < 0 ||
+        v[3] > v[2]) {
       throw const StateMismatch('Memory card timer state');
     }
-    final time = DateTime.utc(v[0], v[1], v[2], v[3], v[4], v[5]);
-    if (time.month != v[1] || time.day != v[2]) {
+    final restored = DateTime.fromMillisecondsSinceEpoch(
+        _hostMilliseconds + v[0], isUtc: true);
+    if (restored.year < 0 || restored.year > 9999) {
       throw const StateMismatch('Memory card calendar date');
     }
-    _time = time;
-    _fraction = v[6];
-    _keys = v[7];
-    alarmPeriod = v[8];
-    alarmDuty = v[9];
+    _offsetMilliseconds = v[0];
+    _keys = v[1];
+    alarmPeriod = v[2];
+    alarmDuty = v[3];
   }
 
   void setButton(PadButton button, bool pressed) {
@@ -91,16 +88,7 @@ class DcMemoryCardTimer {
 
   void tickMasterClocks(int clocks) {
     if (clocks < 0) throw ArgumentError.value(clocks, 'clocks');
-    final total = _fraction + clocks;
-    final seconds = total ~/ clocksPerSecond;
-    if (seconds != 0) {
-      final next = _time.add(Duration(seconds: seconds));
-      if (next.year > 9999) {
-        throw const DcUnsupported('Memory card calendar year overflow');
-      }
-      _time = next;
-    }
-    _fraction = total % clocksPerSecond;
+    // The independent battery-backed RTC is not driven by emulated clocks.
   }
 
   (int, List<int>) command(int code, Uint8List request) {
@@ -129,6 +117,10 @@ class DcMemoryCardTimer {
       return retry;
     }
     if (code == 11) {
+      final current = time; // Capture one instant for the whole reply.
+      if (current.year < 0 || current.year > 9999) {
+        throw const DcUnsupported('Memory card calendar year overflow');
+      }
       return (
         8,
         [
@@ -136,13 +128,13 @@ class DcMemoryCardTimer {
           0,
           0,
           8,
-          _time.year & 255,
-          _time.year >> 8,
-          _time.month,
-          _time.day,
-          _time.hour,
-          _time.minute,
-          _time.second,
+          current.year & 255,
+          current.year >> 8,
+          current.month,
+          current.day,
+          current.hour,
+          current.minute,
+          current.second,
           0
         ]
       );
@@ -163,8 +155,7 @@ class DcMemoryCardTimer {
     }
     final next = DateTime.utc(year, month, day, hour, minute, second);
     if (next.month != month || next.day != day) return retry;
-    _time = next;
-    _fraction = 0;
+    _offsetMilliseconds = next.millisecondsSinceEpoch - _hostMilliseconds;
     // TR/TW exclude weekday; writes to unavailable time fields are ignored.
     return (7, const []);
   }

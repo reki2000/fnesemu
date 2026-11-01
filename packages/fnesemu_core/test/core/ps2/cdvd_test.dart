@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/iop/cdvd.dart';
 import 'package:fnesemu_core/src/core/ps2/ps2.dart';
+import 'package:fnesemu_core/src/state.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -181,16 +182,47 @@ void main() {
     expect(cdvd.read(0x1f40200b) & 2, 2);
   });
 
-  test('the clock keeps a written time and counts seconds', () {
-    final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
+  test('the PS2 RTC follows host time in JST, independent of host time zone',
+      () {
+    var now = DateTime.utc(2026, 11, 1, 0, 34, 56);
+    final cdvd = Cdvd()..clock = () => now;
+
+    List<int> readClock() {
+      cdvd.write(0x1f402016, 0x08);
+      return [for (var i = 0; i < 8; i++) cdvd.read(0x1f402018)];
+    }
+
+    expect(readClock(), [0, 0x56, 0x34, 0x09, 0, 0x01, 0x11, 0x26]);
+    cdvd.advance(36864000 * 3);
+    expect(readClock(), [0, 0x56, 0x34, 0x09, 0, 0x01, 0x11, 0x26]);
+    now = now.add(const Duration(seconds: 4));
+    expect(readClock(), [0, 0x00, 0x35, 0x09, 0, 0x01, 0x11, 0x26]);
+  });
+
+  test('guest RTC writes remain as a wall-clock offset across reset and save',
+      () {
+    var now = DateTime.utc(2026, 1, 1);
+    final cdvd = Cdvd()..clock = () => now;
     for (final p in [0, 0x59, 0x59, 0x23, 0, 0x31, 0x12, 0x25]) {
       cdvd.write(0x1f402017, p);
     }
     cdvd.write(0x1f402016, 0x09);
     cdvd.advance(36864000);
     cdvd.write(0x1f402016, 0x08);
-    final result = [for (var i = 0; i < 8; i++) cdvd.read(0x1f402018)];
-    expect(result, [0, 0x00, 0x00, 0x00, 0, 0x01, 0x01, 0x26]);
+    expect([for (var i = 0; i < 8; i++) cdvd.read(0x1f402018)],
+        [0, 0x59, 0x59, 0x23, 0, 0x31, 0x12, 0x25]);
+
+    final writer = StateWriter('rtc', 1, 0);
+    cdvd.saveState(writer);
+    final restored = Cdvd()..clock = () => now;
+    restored.loadState(StateReader(writer.take(), 'rtc', 1, 0));
+    cdvd.reset();
+    now = now.add(const Duration(seconds: 1));
+    for (final device in [cdvd, restored]) {
+      device.write(0x1f402016, 0x08);
+      expect([for (var i = 0; i < 8; i++) device.read(0x1f402018)],
+          [0, 0, 0, 0, 0, 1, 1, 0x26]);
+    }
   });
 
   test('ReadKey encodes the game ID the way the BIOS browser decodes it', () {

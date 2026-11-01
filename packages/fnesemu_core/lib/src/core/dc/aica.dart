@@ -67,6 +67,33 @@ class DcAica {
   int executedInstructions = 0;
   bool _rtcWritable = false;
 
+  /// Host clock used by the battery-backed AICA RTC (replaceable in tests).
+  DateTime Function() clock = DateTime.now;
+  static const _unixToAicaSeconds = 631152000; // 1950-01-01 to 1970-01-01
+
+  // The Dreamcast RTC has no timezone register. Its contents represent
+  // local wall time, rather than UTC (unlike Unix timestamps).
+  int _hostWallMilliseconds() {
+    final now = clock();
+    return now.millisecondsSinceEpoch + now.timeZoneOffset.inMilliseconds;
+  }
+
+  int get _rtcCounter =>
+      ((_hostWallMilliseconds() - _rtcPhase) ~/ 1000 +
+              _unixToAicaSeconds +
+              _rtc) &
+      0xffffffff;
+
+  void _setRtcCounter(int seconds, {bool resetFraction = false}) {
+    // Low-half writes restart the subsecond fraction from the host instant.
+    final milliseconds = _hostWallMilliseconds();
+    if (resetFraction) _rtcPhase = milliseconds % 1000;
+    _rtc = (seconds -
+            (milliseconds - _rtcPhase) ~/ 1000 -
+            _unixToAicaSeconds) &
+        0xffffffff;
+  }
+
   bool get armReset => _resetControl & 1 != 0;
   int get soundPending => _scPending;
   int get systemPending => _mcPending;
@@ -131,7 +158,7 @@ class DcAica {
     }
   }
 
-  /// Full system reset retains the separately powered RTC and its fraction.
+  /// Full system reset retains the battery-backed RTC offset.
   void reset({bool clearMemory = false}) {
     _externalLatched = false;
     if (clearMemory) memory.fillRange(0, memory.length, 0);
@@ -186,7 +213,8 @@ class DcAica {
     // A run ends at most one compiled block, or the longest current ARM7DI
     // instruction, a 20-cycle LDM including PC, past its limit.
     bool fits(int index, int mask) => values[index] & ~mask == 0;
-    if ([0, 1, 10, 18].any((index) => values[index] >= masterHz) ||
+    if ([0, 10, 18].any((index) => values[index] >= masterHz) ||
+        values[1] >= 1000 ||
         !fits(2, 0xffffffff) ||
         [3, 4, 5, 6].any((index) => !fits(index, 0x7ff)) ||
         !fits(7, 0x301) ||
@@ -361,9 +389,10 @@ class DcAica {
 
   int readRtc(int offset, int size) {
     _validateRegister(offset, size);
+    final seconds = _rtcCounter;
     return switch (offset) {
-      0 => _rtc >> 16,
-      4 => _rtc & 0xffff,
+      0 => seconds >> 16,
+      4 => seconds & 0xffff,
       _ => throw const DcUnsupported('AICA RTC write-enable is write-only'),
     };
   }
@@ -376,11 +405,11 @@ class DcAica {
         _rtcWritable = value & 1 != 0;
       case 4:
         if (!_rtcWritable) return;
-        _rtc = (_rtc & 0xffff0000) | value;
-        _rtcPhase = 0;
+        _setRtcCounter((_rtcCounter & 0xffff0000) | value,
+            resetFraction: true);
       case 0:
         if (!_rtcWritable) return;
-        _rtc = ((value << 16) | (_rtc & 0xffff)) & 0xffffffff;
+        _setRtcCounter((value << 16) | (_rtcCounter & 0xffff));
         _rtcWritable = false;
       default:
         throw const DcUnsupported('unimplemented AICA RTC register');
@@ -736,14 +765,7 @@ class DcAica {
   }
 
   void _advanceDevices(int clocks) {
-    // Short advances stay within one second or one sample; skip the divisions then.
-    final rtcClocks = _rtcPhase + clocks;
-    if (rtcClocks < masterHz) {
-      _rtcPhase = rtcClocks;
-    } else {
-      _rtc = (_rtc + rtcClocks ~/ masterHz) & 0xffffffff;
-      _rtcPhase = rtcClocks % masterHz;
-    }
+    // The battery-backed RTC follows the host clock, not emulated cycles.
     final sampleClocks = _samplePhase + clocks * sampleHz;
     var samples = 0;
     if (sampleClocks < masterHz) {
