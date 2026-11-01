@@ -12,6 +12,12 @@ class _CacheEntry {
   _CacheEntry(this.data, this.loadedAt);
 }
 
+class _SubcodeCacheEntry {
+  final CdromSubcode data;
+  final DateTime loadedAt;
+  _SubcodeCacheEntry(this.data, this.loadedAt);
+}
+
 /// [CdromDrive] of the cores, which reads only the required sectors of a
 /// [DiscImage] of cdrom_image in the background.
 ///
@@ -19,7 +25,7 @@ class _CacheEntry {
 /// - a missing sector is read with the [firstReadSectors] sectors from it
 ///   first, then [readAheadSectors] sectors are read ahead separately
 /// - read sectors are cached for [cacheLifetime]
-class AsyncCdromDrive implements CdromDrive {
+class AsyncCdromDrive implements CdromDrive, CdromSubcodeDrive {
   static const readAheadSectors = 75;
 
   /// a CD hunk of a CHD file has 8 sectors
@@ -37,7 +43,7 @@ class AsyncCdromDrive implements CdromDrive {
   bool _seekRequested = false;
 
   /// the sector of the last [read] which returned null
-  int? _waitLba;
+  int? _waitLba, _waitSubcodeLba;
 
   /// incremented on each disc change to discard the results of the old disc
   int _discId = 0;
@@ -45,6 +51,8 @@ class AsyncCdromDrive implements CdromDrive {
 
   final _cache = <int, _CacheEntry>{};
   final _inflight = <int, Future<void>>{};
+  final _subcodeCache = <int, _SubcodeCacheEntry>{};
+  final _subcodeInflight = <int, Future<void>>{};
   DateTime _lastSweep = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// for tests and debugging
@@ -54,8 +62,10 @@ class AsyncCdromDrive implements CdromDrive {
   /// sector of the last seek or read is not available yet
   bool get isWaiting {
     if (_state == CdromDriveState.loading || _status.isSeeking) return true;
-    final lba = _waitLba;
-    return lba != null && _image != null && !_cache.containsKey(lba);
+    final lba = _waitLba, subcodeLba = _waitSubcodeLba;
+    return _image != null &&
+        ((lba != null && !_cache.containsKey(lba)) ||
+            (subcodeLba != null && !_subcodeCache.containsKey(subcodeLba)));
   }
 
   /// rebuilt on each change, as the core polls it on each exec
@@ -90,8 +100,8 @@ class AsyncCdromDrive implements CdromDrive {
   /// and tests which need the same result regardless of the speed of the
   /// files.
   Future<void> settle() async {
-    while (_inflight.isNotEmpty) {
-      await Future.wait(_inflight.values.toSet());
+    while (_inflight.isNotEmpty || _subcodeInflight.isNotEmpty) {
+      await Future.wait({..._inflight.values, ..._subcodeInflight.values});
     }
   }
 
@@ -142,7 +152,14 @@ class AsyncCdromDrive implements CdromDrive {
       _toc = CdromToc([
         for (final t in image.toc.tracks)
           CdromTrack(t.number, t.isAudio, t.startLba, t.sectors)
-      ], image.totalSectors);
+      ], image.totalSectors,
+          sessions: image.toc.sessions == null
+              ? null
+              : [
+                  for (final session in image.toc.sessions!)
+                    CdromSession(
+                        session.number, session.firstTrack, session.startLba)
+                ]);
       _log.infoc(() => "inserted ${next.$1.path}: "
           "${image.toc.tracks.length} track(s) ${image.totalSectors} sectors "
           "in ${watch.elapsedMilliseconds}ms");
@@ -169,6 +186,9 @@ class AsyncCdromDrive implements CdromDrive {
     }
     _cache.clear();
     _inflight.clear();
+    _subcodeCache.clear();
+    _subcodeInflight.clear();
+    _waitSubcodeLba = null;
     _seekLba = 0;
     _seekRequested = false;
     _waitLba = null;
@@ -199,6 +219,49 @@ class AsyncCdromDrive implements CdromDrive {
     final data = _cache[lba]?.data;
     _waitLba = data == null ? lba : null;
     return data;
+  }
+
+  @override
+  CdromSubcode? readSubcode(int lba) {
+    final image = _image;
+    if (image == null || !image.isReadable(lba)) {
+      _waitSubcodeLba = null;
+      return const CdromSubcode(readable: false);
+    }
+    if (image is! DiscSubcodeImage) {
+      _waitSubcodeLba = null;
+      return const CdromSubcode();
+    }
+    _sweep();
+    final cached = _subcodeCache[lba];
+    if (cached != null && _now().difference(cached.loadedAt) < cacheLifetime) {
+      _waitSubcodeLba = null;
+      return cached.data;
+    }
+    _subcodeCache.remove(lba);
+    _waitSubcodeLba = lba;
+    if (!_subcodeInflight.containsKey(lba)) {
+      final discId = _discId;
+      late final Future<void> future;
+      future = Future<Uint8List?>.sync(
+          () => (image as DiscSubcodeImage).readSubcode(lba)).then((raw) {
+        if (discId != _discId) return;
+        final data =
+            raw == null ? const CdromSubcode() : CdromSubcode.fromRaw(raw);
+        _subcodeCache[lba] = _SubcodeCacheEntry(data, _now());
+      }).catchError((Object error) {
+        if (discId != _discId) return;
+        _log.warnc(() => 'subcode read error at $lba: $error');
+        _subcodeCache[lba] =
+            _SubcodeCacheEntry(const CdromSubcode(readable: false), _now());
+      }).whenComplete(() {
+        if (discId == _discId && identical(_subcodeInflight[lba], future)) {
+          _subcodeInflight.remove(lba);
+        }
+      });
+      _subcodeInflight[lba] = future;
+    }
+    return null;
   }
 
   bool _isCached(int lba) {
@@ -290,5 +353,7 @@ class AsyncCdromDrive implements CdromDrive {
     }
     _lastSweep = now;
     _cache.removeWhere((_, e) => now.difference(e.loadedAt) >= cacheLifetime);
+    _subcodeCache
+        .removeWhere((_, e) => now.difference(e.loadedAt) >= cacheLifetime);
   }
 }

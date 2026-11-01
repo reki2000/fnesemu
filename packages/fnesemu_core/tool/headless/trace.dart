@@ -13,6 +13,7 @@ const traceUsage = """
 trace <core> <media...> [options]: records the instructions of each cpu through the
   tracer of the debugger
   --warmup N         frames to run before recording (default: 0)
+  --load-state FILE  restore a state saved by run or bench before the warmup
   --from-pc HEX      after the warmup, start recording when the pc of cpu 0 is HEX
   --steps N          debugger steps to record (default: 30000)
   -o, --out DIR      output directory (default: /tmp/core_headless_trace)
@@ -22,7 +23,7 @@ trace <core> <media...> [options]: records the instructions of each cpu through 
 
 Future<void> trace(List<String> args) async {
   final o = Options.parse(args,
-      valued: {...mediaValued, "--warmup", "--from-pc", "--steps", "--out"},
+      valued: {...mediaValued, "--warmup", "--load-state", "--from-pc", "--steps", "--out"},
       flags: mediaFlags,
       aliases: {...mediaAliases, "-o": "--out"});
   final (name, files) = coreAndFiles(o);
@@ -37,6 +38,8 @@ Future<void> trace(List<String> args) async {
 
   final s = await Session.open(name, files, o, recordAudio: false);
   final core = s.core;
+  final loadState = o["--load-state"];
+  if (loadState != null) s.loadState(loadState);
   while (s.frame < warmup) {
     if (!await s.stepFrame()) throw StateError("stopped during the warmup");
   }

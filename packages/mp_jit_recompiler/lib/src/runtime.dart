@@ -85,6 +85,14 @@ abstract class JitRuntime {
   /// Whether [native] can compile blocks on this host.
   static bool get nativeSupported => host.supported;
 
+  /// Claims the host's shared guest memory pool for a new core, on hosts
+  /// that have one: every live runtime is retired and the pool returns to
+  /// its initial state, so the core's runtimes allocate from an empty pool
+  /// instead of competing with a previous core's allocations until they
+  /// run out. Hosts whose runtimes own their memory do nothing. A core
+  /// calls this once when it initializes, before creating its runtimes.
+  static void resetPool() => host.resetPool();
+
   final int addrMask;
   final JitRead read;
   final JitWrite write;
@@ -111,7 +119,7 @@ abstract class JitRuntime {
 
   /// Validate before compiling or publishing links to a block. Every
   /// executor supports the complete IR on every platform.
-  void checkBlock(IrBlock block) => block.verify(ctxWords: ctx.length);
+  void checkBlock(IrBlock block) => block.checkContext(ctx.length);
 
   /// zeroed memory which can be mapped with [mapPages]
   Uint8List alloc(int size);

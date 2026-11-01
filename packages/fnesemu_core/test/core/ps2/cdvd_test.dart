@@ -137,6 +137,7 @@ void main() {
 
   test('the EE reads the disc type through its own CDVD window', () {
     final ps2 = Ps2();
+    addTearDown(ps2.dispose);
     expect(ps2.bus.read8(0xbf40200f), Cdvd.noDisc);
     ps2.setCdromDrive(FakeCdromDrive([_sector(0)]));
     expect(ps2.bus.read8(0xbf40200f), Cdvd.ps2Cd);

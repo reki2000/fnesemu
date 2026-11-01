@@ -2,6 +2,8 @@
 /// 64-bit pointer moves, and rel32 jumps to labels.
 library;
 
+import 'dart:typed_data';
+
 /// General purpose registers by their encoding number.
 abstract final class R {
   static const rax = 0, rcx = 1, rdx = 2, rbx = 3, rsp = 4, rbp = 5;
@@ -41,21 +43,34 @@ final class Label {
 }
 
 final class Assembler {
-  final _b = <int>[];
+  var _b = Uint8List(4096);
+  int _length = 0;
 
-  int get offset => _b.length;
-  List<int> get bytes => _b;
+  int get offset => _length;
+  Uint8List get bytes => Uint8List.sublistView(_b, 0, _length);
 
-  void u8(int v) => _b.add(v & 0xff);
+  void _grow() {
+    final next = Uint8List(_b.length * 2);
+    next.setRange(0, _length, _b);
+    _b = next;
+  }
+
+  void u8(int v) {
+    if (_length == _b.length) _grow();
+    _b[_length++] = v;
+  }
+
   void u32(int v) {
+    if (_length + 4 > _b.length) _grow();
     for (int i = 0; i < 4; i++) {
-      _b.add((v >> (8 * i)) & 0xff);
+      _b[_length++] = v >> (8 * i);
     }
   }
 
   void u64(int v) {
+    if (_length + 8 > _b.length) _grow();
     for (int i = 0; i < 8; i++) {
-      _b.add((v >> (8 * i)) & 0xff);
+      _b[_length++] = v >> (8 * i);
     }
   }
 
@@ -350,7 +365,7 @@ final class Assembler {
       for (final use in l._uses) {
         final rel = l.offset - (use + 4);
         for (int i = 0; i < 4; i++) {
-          _b[use + i] = (rel >> (8 * i)) & 0xff;
+          _b[use + i] = rel >> (8 * i);
         }
       }
     }

@@ -283,6 +283,26 @@ void main() {
     expect(debugger.state.traceLog, hasLength(1));
   });
 
+  test(
+      'trace refreshes after an interrupt-only PC change and preserves idle capture',
+      () {
+    debugger.setLogEnabled(true);
+    debugger.recordTrace();
+    expect(core.traceCalls, 1);
+    final idle = ExecResult(1, false, false)..executed0 = false;
+    debugger.completeTrace(idle);
+    expect(core.traceCalls, 1);
+    core.pc = 0x100;
+    debugger.completeTrace(idle);
+    expect(core.traceCalls, 2);
+    core.pc += 4;
+    debugger.completeTrace(ExecResult(1, false, false)..setExecuted(7, true));
+    debugger.executionStopped();
+    final text = debugger.traceText();
+    expect(text, contains('pc:256'));
+    expect(text, isNot(contains('pc:0 ')));
+  });
+
   test('hiding debug view stops logging and drops all capture state', () async {
     debugger.setDebugView(true);
     debugger.startTrace();

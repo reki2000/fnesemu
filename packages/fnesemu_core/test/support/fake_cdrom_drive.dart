@@ -16,7 +16,10 @@ class FakeCdromDrive implements CdromDrive {
   late final CdromToc toc;
 
   FakeCdromDrive(this.sectors,
-      {this.starts = const [0], this.audioTracks = const {}}) {
+      {this.starts = const [0],
+      this.audioTracks = const {},
+      List<CdromSession>? sessions,
+      bool? isXa}) {
     toc = CdromToc([
       for (int i = 0; i < starts.length; i++)
         CdromTrack(
@@ -25,7 +28,7 @@ class FakeCdromDrive implements CdromDrive {
             starts[i],
             (i + 1 < starts.length ? starts[i + 1] : sectors.length) -
                 starts[i])
-    ], sectors.length);
+    ], sectors.length, sessions: sessions, isXa: isXa);
   }
 
   @override

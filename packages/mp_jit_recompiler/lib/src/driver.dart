@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'code_memory.dart';
 import 'int_map.dart';
 import 'ir.dart';
@@ -62,6 +64,9 @@ final class JitDriver {
 
   final _misses = IntMap();
   final _fallbacks = IntMap();
+  // Set for every hash of a fallback key, so most lookups skip [_fallbacks].
+  final _fallbackHashes = Uint8List(4096);
+  static int _hash(int pc, int tag) => ((pc >>> 1) ^ tag) & 4095;
 
   JitDriver(
     this.rt, {
@@ -105,6 +110,7 @@ final class JitDriver {
 
   /// Whether (pc, tag) failed to translate with its current code word.
   bool isFallback(int pc, int tag) {
+    if (_fallbackHashes[_hash(pc, tag)] == 0) return false;
     final word = _fallbacks.get(jitKey(pc, tag));
     final hit = word != IntMap.absent && word == codeWord(pc);
     if (hit) rt.compilationStats?.fallbackCacheHits++;
@@ -162,7 +168,10 @@ final class JitDriver {
         : stats.measureTranslation(pc, tag, () => translate(pc, tag));
     if (block == null) {
       final word = codeWord(pc);
-      if (word != null) _fallbacks.put(jitKey(pc, tag), word);
+      if (word != null) {
+        _fallbacks.put(jitKey(pc, tag), word);
+        _fallbackHashes[_hash(pc, tag)] = 1;
+      }
       return false;
     }
     rt.install(block);
@@ -185,7 +194,7 @@ final class JitDriver {
     final key = jitKey(pc, tag);
     final word = codeWord(pc);
     if (word == null) return false;
-    if (_fallbacks.get(key) == word) {
+    if (_fallbackHashes[_hash(pc, tag)] != 0 && _fallbacks.get(key) == word) {
       rt.compilationStats?.fallbackCacheHits++;
       return false;
     }
@@ -208,6 +217,7 @@ final class JitDriver {
     rt.compilationStats?.dispatchProfileClears++;
     _misses.clear();
     _fallbacks.clear();
+    _fallbackHashes.fillRange(0, _fallbackHashes.length, 0);
     onClear?.call();
   }
 }
