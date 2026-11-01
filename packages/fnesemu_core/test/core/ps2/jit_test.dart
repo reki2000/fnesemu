@@ -138,6 +138,87 @@ void main() {
     _compare(jit, 'reference');
   });
 
+  for (final native in [false, true]) {
+    test('${native ? 'native' : 'reference'} EE DIV/DIVU and MMI DIV1/DIVU1 preserve HI/LO', () {
+      final jit = Ps2Jit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        markTestSkipped('Native JIT unsupported on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final (expected, expectedBus) = _load(null);
+      final (actual, actualBus) = _load(jit);
+
+      // Include zero divisors, signed MIN/-1, unsigned word operands,
+      // negative operands, and upper halves of 64-bit GPR values.
+      final pairs = [
+        (0, 0),
+        (1, 0),
+        (-1, 0),
+        (-7, 3),
+        (7, -3),
+        (-0x80000000, -1),
+        (0x80000000, 2),
+        (0xffffffff, 3),
+        (0x7fffffff00000009, -0x100000001),
+        (-0x8000000000000000, 0),
+      ];
+      for (final signed in [true, false]) {
+        for (final (x, y) in pairs) {
+          const mmi = 28 << 26;
+          final instructions = [
+            _r(17, rs: 1), // MTHI
+            _r(19, rs: 2), // MTLO
+            mmi | _r(0x11, rs: 2), // MTHI1
+            mmi | _r(0x13, rs: 1), // MTLO1
+            _r(signed ? 26 : 27, rs: 1, rt: 2), // DIV/DIVU
+            _r(18, rd: 3), // MFLO
+            _r(16, rd: 4), // MFHI
+            mmi | _r(signed ? 0x1a : 0x1b, rs: 1, rt: 2),
+            mmi | _r(0x12, rd: 5), // MFLO1
+            mmi | _r(0x10, rd: 6), // MFHI1
+            _r(17, rs: 3), // MTHI (tests writeback across JIT boundaries)
+            _r(19, rs: 4), // MTLO
+            mmi | _r(0x11, rs: 5),
+            mmi | _r(0x13, rs: 6),
+          ];
+          jit.reset();
+          for (final (cpu, bus) in [(expected, expectedBus), (actual, actualBus)]) {
+            cpu.reset();
+            for (final (index, instruction) in instructions.indexed) {
+              bus.write32(_base + index * 4, instruction);
+            }
+            cpu.setReg(1, x);
+            cpu.setReg(2, y);
+            cpu.jumpTo(_base);
+          }
+          for (var i = 0; i < instructions.length; i++) {
+            expected.step();
+          }
+          var compiled = 0;
+          for (var guard = 0; actual.clocks < instructions.length && guard < 100; guard++) {
+            final before = actual.clocks;
+            if (jit.run(instructions.length - actual.clocks)) {
+              compiled += actual.clocks - before;
+            } else {
+              actual.step();
+            }
+          }
+          expect(actual.clocks, instructions.length, reason: '$signed $x / $y');
+          for (var i = 0; i < 64; i++) {
+            expect(actual.gpr[i], expected.gpr[i],
+                reason: 'gpr[$i] signed=$signed $x / $y');
+          }
+          expect((actual.hi, actual.lo, actual.hi1, actual.lo1),
+              (expected.hi, expected.lo, expected.hi1, expected.lo1),
+              reason: 'HI/LO signed=$signed $x / $y');
+          expect(compiled, greaterThan(0),
+              reason: 'DIV instructions were not compiled: $signed $x / $y');
+        }
+      }
+    });
+  }
+
   test('unmapped LW skips repeated empty native entries but still reads IO',
       () {
     final jit = Ps2Jit.create(compileThreshold: 1);
