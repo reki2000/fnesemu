@@ -179,11 +179,14 @@ List<int> irFusedCompareConsumers(IrBlock block) {
       break;
   }
   for (var i = 0; i < n; i++) {
+    // AND used only as a condition can branch on the masked value's
+    // zero flag directly. This covers T-bit tests in the SH family.
     if (uses[i] != 1 ||
         !(block.insts[i].op == IrOp.eq ||
           block.insts[i].op == IrOp.ne ||
           block.insts[i].op == IrOp.ltS ||
-          block.insts[i].op == IrOp.ltU)) {
+          block.insts[i].op == IrOp.ltU ||
+          block.insts[i].op == IrOp.and)) {
       consumers[i] = -1;
     }
   }
