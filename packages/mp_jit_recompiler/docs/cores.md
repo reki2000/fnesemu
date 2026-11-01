@@ -58,6 +58,8 @@ The adapter runs compiled code only while every TLB entry for user addresses bel
 
 The frontend translates the integer ALU, the shifts, MOVZ/MOVN, the branches and jumps, and the aligned loads and stores up to 128 bits. HI and LO, COP0, COP1, COP2, the multimedia instructions, the unaligned accesses, SYSCALL and BREAK end a block. Overflowing ADD, ADDI and SUB exit before effects so that the interpreter raises the exception. `test/core/ps2/jit_test.dart` compares compiled and reference IR execution with the interpreter.
 
+The adapter remembers a recent LW that returned without executing because its address was outside mapped main memory. On a later entry it rechecks the instruction and the effective address before going directly to the interpreter; a load that changes to a RAM address can still run natively. Reset clears the hint. The synthetic [PS2 JIT MMIO benchmark](../../fnesemu_core/tool/ps2_jit_mmio_bench.dart) measures repeated device reads and checks their side effects, guest clocks and results without requiring media.
+
 ## SH-2 (SS and 32X)
 
 SS and 32X use the common integer frontend under `components/sh2/jit`, with register views and ordinary memory shared with their CPU interpreters. `JitDriver` handles dispatch, cold-entry observations, fallback, batch accounting and reset. The adapters keep memory maps, interrupt handling, on-chip ticks, CPU ordering and device deadlines. Read faults and unsupported delay slots exit before effects so the CPU can replay the branch precisely.

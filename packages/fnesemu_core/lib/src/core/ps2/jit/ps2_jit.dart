@@ -39,6 +39,13 @@ final class Ps2Jit {
   /// shared state.
   bool suspended = false;
 
+  // A recent LW that exited before executing because its address was outside
+  // the JIT's RAM mapping. The base register and instruction are rechecked
+  // on every hit: the same instruction can later address RAM, and code can
+  // be modified without going through the JIT.
+  int _unmappedLoadPc = -1, _unmappedLoadWord = 0;
+  int _unmappedLoadBase = 0, _unmappedLoadOffset = 0;
+
   int get compiledClocks => native ? _driver.executedClocks : 0;
 
   Ps2Jit._(this.rt, this.native, int? threshold, this.ram)
@@ -99,7 +106,25 @@ final class Ps2Jit {
   int? _fetch(int pc) =>
       _canFetch(pc) ? _ram.getUint32(pc & 0x1fffffff, Endian.little) : null;
 
-  void reset() => _driver.reset();
+  void reset() {
+    _unmappedLoadPc = -1;
+    _driver.reset();
+  }
+
+  bool _outsideRam(int base, int offset) =>
+      ((cpu.reg(base) + offset) & 0x1fffffff) >= ram.length;
+
+  void _rememberUnmappedLoad(int pc) {
+    final word = _fetch(pc);
+    if (word == null || word >>> 26 != 35) return; // LW
+    final base = (word >>> 21) & 31;
+    final offset = (word & 0xffff).toSigned(16);
+    if (!_outsideRam(base, offset)) return;
+    _unmappedLoadPc = pc;
+    _unmappedLoadWord = word;
+    _unmappedLoadBase = base;
+    _unmappedLoadOffset = offset;
+  }
 
   /// Runs compiled code for about [budget] clocks. Returns false when the
   /// next instruction is left to the interpreter.
@@ -109,13 +134,23 @@ final class Ps2Jit {
     final pc = cpu.pc;
     if (!_canFetch(pc)) return false;
     if (!cpu.bus.tlb!.userIdentity) return false;
+    if (pc == _unmappedLoadPc &&
+        _ram.getUint32(pc & 0x1fffffff, Endian.little) == _unmappedLoadWord &&
+        _outsideRam(_unmappedLoadBase, _unmappedLoadOffset)) {
+      return false;
+    }
     if (_driver.isFallback(pc, 0)) return false;
     if (!cpu.prepareCompiled()) return false;
     final untilCompare = cpu.instructionsUntilCompare;
     if (untilCompare != 0 && untilCompare < budget) budget = untilCompare;
-    _driver.runBudgeted(pc, 0, budget);
+    final reason = _driver.runBudgeted(pc, 0, budget);
     final spent = _driver.lastClocks;
-    if (spent == 0) return false;
+    if (spent == 0) {
+      if (reason == R5900Translator.interpret && rt.exitPc == pc) {
+        _rememberUnmappedLoad(pc);
+      }
+      return false;
+    }
     cpu.finishCompiled(spent, rt.exitPc);
     return true;
   }
