@@ -32,7 +32,7 @@ N64 blocks use native i64 values, big-endian memory, and register and FPU views 
 
 ### Integer coverage
 
-Besides the integer ALU, shifts, branches and aligned memory access, the frontend translates MULT, MULTU, MFHI, MFLO, MTHI and MTLO. HI and LO live in the register storage that the interpreter shares (`N64Registers`), so exits and the interpreter see them without copying. The divides, the 64-bit multiplies and the COP0 moves still use the CPU fallback.
+Besides the integer ALU, shifts, branches and aligned memory access, the frontend translates MULT, MULTU, MFHI, MFLO, MTHI and MTLO. HI and LO live in the register storage that the interpreter shares (`N64Registers`), so exits and the interpreter see them without copying. The divides (now available in the shared IR), the 64-bit multiplies and the COP0 moves still use the CPU fallback.
 
 ### COP1 coverage
 
