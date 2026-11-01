@@ -41,8 +41,10 @@ class Pad extends SioDevice {
     (PadButton("x"), 14), // 8
     (PadButton("o"), 13), // 7
     (PadButton("L1"), 10), // 10
-    (PadButton("Start"), 3), // 5
+    (PadButton("L2"), 8),
     (PadButton("R1"), 11), // 11
+    (PadButton("R2"), 9),
+    (PadButton("Start"), 3), // 5
   ];
 
   // set by the game: command 0x44 selects the analog mode (ID 0x73), command
