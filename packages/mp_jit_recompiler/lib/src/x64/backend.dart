@@ -378,6 +378,42 @@ abstract final class X64Backend {
               a.imulRM(dst, _slot(inst.b), w: w);
             }
           });
+        case IrOp.divS || IrOp.divU || IrOp.remS || IrOp.remU:
+          final signed = inst.op == IrOp.divS || inst.op == IrOp.remS;
+          final remainder = inst.op == IrOp.remS || inst.op == IrOp.remU;
+          final zeroDivisor = label(), normal = label(), done = label();
+          load(R.rcx, inst.b);
+          load(R.rax, inst.a);
+          a.aluRI(Alu.cmp, R.rcx, 0, w: w);
+          a.jcc(Cc.e, zeroDivisor);
+          if (signed) {
+            // x86 IDIV also traps on MIN / -1. That guest-visible result
+            // wraps to MIN with a zero remainder under our IR contract.
+            a.aluRI(Alu.cmp, R.rcx, -1, w: w);
+            a.jcc(Cc.ne, normal);
+            if (w) {
+              a.movRI64(R.rdx, -0x8000000000000000);
+              a.aluRR(Alu.cmp, R.rax, R.rdx, w: true);
+            } else {
+              a.aluRI(Alu.cmp, R.rax, 0x80000000);
+            }
+            a.jcc(Cc.ne, normal);
+            a.movRI(R.rdx, 0);
+            a.jmp(done);
+          }
+          a.bind(normal);
+          if (signed) {
+            a.signExtendDiv(w: w);
+          } else {
+            a.movRI(R.rdx, 0);
+          }
+          a.divR(R.rcx, signed: signed, w: w);
+          a.jmp(done);
+          a.bind(zeroDivisor);
+          a.movRI(R.rax, 0);
+          a.movRI(R.rdx, 0);
+          a.bind(done);
+          save(i, remainder ? R.rdx : R.rax);
         case IrOp.mulHiS || IrOp.mulHiU:
           load(R.rax, inst.a);
           if (registers[inst.b] >= 0 || constant(inst.b) != null) {
