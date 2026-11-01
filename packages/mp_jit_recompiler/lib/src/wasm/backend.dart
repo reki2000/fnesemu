@@ -291,6 +291,47 @@ abstract final class WasmBackend {
           binary(0x6b, 0x7d);
         case IrOp.mul:
           binary(0x6c, 0x7e);
+        case IrOp.divS || IrOp.divU || IrOp.remS || IrOp.remU:
+          // WebAssembly traps on zero divisors and signed MIN / -1, unlike
+          // our IR. Guard both paths before emitting the hardware operation.
+          final signed = inst.op == IrOp.divS || inst.op == IrOp.remS;
+          final remainder = inst.op == IrOp.remS || inst.op == IrOp.remU;
+          final blockType = w ? 0x7e : 0x7f;
+          void zero() => w ? c.i64(0) : c.i32(0);
+          b();
+          c.op(w ? 0x50 : 0x45); // i64/i32.eqz
+          c.op(0x04, blockType);
+          zero();
+          c.op(0x05);
+          if (signed) {
+            a();
+            if (w) {
+              c.i64(0, 0x80000000);
+            } else {
+              c.i32(-0x80000000);
+            }
+            c.op(w ? 0x51 : 0x46);
+            b();
+            w ? c.i64(-1, -1) : c.i32(-1);
+            c.op(w ? 0x51 : 0x46, 0x71);
+            c.op(0x04, blockType);
+            if (remainder) {
+              zero();
+            } else {
+              a(); // signed MIN / -1 = MIN after wrapping
+            }
+            c.op(0x05);
+          }
+          a();
+          b();
+          c.op(switch (inst.op) {
+            IrOp.divS => w ? 0x7f : 0x6d,
+            IrOp.divU => w ? 0x80 : 0x6e,
+            IrOp.remS => w ? 0x81 : 0x6f,
+            _ => w ? 0x82 : 0x70,
+          });
+          if (signed) c.op(0x0b);
+          c.op(0x0b);
         case IrOp.mulHiS || IrOp.mulHiU when !w:
           final extend = inst.op == IrOp.mulHiS ? 0xac : 0xad;
           a();
