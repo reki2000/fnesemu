@@ -202,7 +202,8 @@ class Sms extends Core {
     _pausePressed = pressed;
   }
 
-  /// the buttons in the order of the keys A S Z X
+  /// The buttons in the unified key order: the X key is button 1, the C
+  /// key is button 2 and Enter is Pause (Start on the handheld model).
   @override
   List<PadButton> get buttons => [
         PadButton.up,
@@ -210,9 +211,21 @@ class Sms extends Core {
         PadButton.left,
         PadButton.right,
         PadButton.none,
-        model == SmsModel.gg ? Pad.start : Pad.pause,
+        PadButton.none,
         Pad.button1,
         Pad.button2,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        model == SmsModel.gg ? Pad.start : Pad.pause,
+        PadButton.none,
       ];
 
   @override

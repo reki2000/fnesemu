@@ -27,18 +27,31 @@ class DcMapleController implements DcMapleDevice {
   static const start = PadButton('Start');
   static const leftTrigger = PadButton('L');
   static const rightTrigger = PadButton('R');
+
+  /// The buttons in the unified key order: S is Y, Z is X, X is A, C is
+  /// B, Q and E are the L and R triggers (read as analog endpoints) and
+  /// Enter is Start. The stick is an axis (IJKL).
   static const buttons = [
     PadButton.up,
     PadButton.down,
     PadButton.left,
     PadButton.right,
+    y,
+    x,
     a,
     b,
-    x,
-    y,
-    start,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
     leftTrigger,
     rightTrigger,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    start,
+    PadButton.none,
   ];
   static const _digital = [
     (PadButton.right, 0x80),

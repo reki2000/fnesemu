@@ -4,12 +4,19 @@ import 'package:fnesemu_core/app_api.dart';
 import 'pad_input.dart';
 
 /// Floating action keys in the same staggered rows as a physical keyboard.
+/// The buttons of a core are in the unified key order: the slots after the
+/// directions are S Z X C / A D W / Q E / 1 2 3 4 / R, then the start slot
+/// (Enter) and the select slot (Shift), shown as a row of their own.
 class VirtualPadWidget extends StatelessWidget {
   final CoreController controller;
   final PadInput input;
   const VirtualPadWidget(
       {super.key, required this.controller, required this.input});
-  static const keys = 'ASZXCQWERD';
+  static const keys = 'SZXC'
+      'ADW'
+      'QE'
+      '1234'
+      'R';
   static const keyWidth = 36.4;
   static const keyHeight = 57.2;
   static const gap = 12.0;
@@ -18,16 +25,11 @@ class VirtualPadWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final buttons = controller.buttons.skip(4).toList();
     final colors = Theme.of(context).colorScheme;
-    Widget key(String letter) {
-      final index = keys.indexOf(letter);
-      if (index >= buttons.length || buttons[index] == PadButton.none) {
-        return const SizedBox(width: keyWidth, height: keyHeight);
-      }
-      final button = buttons[index];
+    Widget padKey(String caption, PadButton button) {
       return ListenableBuilder(
           listenable: input,
           builder: (_, __) => Tooltip(
-                message: '$letter: ${button.name}',
+                message: '$caption: ${button.name}',
                 child: Material(
                   color: input.pressed.contains(button)
                       ? colors.primary
@@ -42,7 +44,7 @@ class VirtualPadWidget extends StatelessWidget {
                     onPointerCancel: (event) =>
                         input.setSource((button, event.pointer), {}),
                     child: Container(
-                        key: ValueKey('action-key-$letter'),
+                        key: ValueKey('action-key-$caption'),
                         constraints: const BoxConstraints(minWidth: keyWidth),
                         width: button.name.length == 1 ? keyWidth : null,
                         height: keyHeight,
@@ -57,7 +59,7 @@ class VirtualPadWidget extends StatelessWidget {
                           Positioned(
                               top: 2,
                               left: 0,
-                              child: Text(letter,
+                              child: Text(caption,
                                   style: TextStyle(
                                       fontSize: 11.7,
                                       color: input.pressed.contains(button)
@@ -69,21 +71,42 @@ class VirtualPadWidget extends StatelessWidget {
               ));
     }
 
+    Widget key(String letter) {
+      final index = keys.indexOf(letter);
+      if (index >= buttons.length || buttons[index] == PadButton.none) {
+        return const SizedBox(width: keyWidth, height: keyHeight);
+      }
+      return padKey(letter, buttons[index]);
+    }
+
+    // The start and select slots, after the letter and digit slots.
+    Widget systemKey(String caption, int index) {
+      if (index >= buttons.length || buttons[index] == PadButton.none) {
+        return const SizedBox.shrink();
+      }
+      return padKey(caption, buttons[index]);
+    }
+
     return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: ['QWER', 'ASD', 'ZXC']
-            .asMap()
-            .entries
-            .map((row) => Padding(
+        children: [
+          ...['1234', 'QWER', 'ASD', 'ZXC'].asMap().entries.map((row) =>
+              Padding(
                   padding: EdgeInsets.only(
                       left: row.key * keyWidth / 2,
                       top: row.key == 0 ? 0 : gap),
                   child: Row(
                       mainAxisSize: MainAxisSize.min,
                       spacing: gap,
-                      children: row.value.split('').map(key).toList()),
-                ))
-            .toList());
+                      children: row.value.split('').map(key).toList()))),
+          Padding(
+              padding: const EdgeInsets.only(top: gap),
+              child:
+                  Row(mainAxisSize: MainAxisSize.min, spacing: gap, children: [
+                systemKey('Shift', 15),
+                systemKey('Enter', 14),
+              ])),
+        ]);
   }
 }

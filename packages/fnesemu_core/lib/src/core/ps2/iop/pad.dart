@@ -52,7 +52,31 @@ class Ps2Pad {
   int responseMask = 0x3f;
   final _rumble = List<int>.filled(6, 0xff);
 
-  List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
+  /// The buttons in the unified key order: S is ^, Z is #, X is x, C is
+  /// o, Q is L1, E is R1, the digit keys 1 2 3 4 are L2 L3 R2 R3, Enter
+  /// is Start and Shift is Select.
+  List<PadButton> get buttons => const [
+        PadButton.up,
+        PadButton.down,
+        PadButton.left,
+        PadButton.right,
+        PadButton("^"),
+        PadButton("#"),
+        PadButton("x"),
+        PadButton("o"),
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton("L1"),
+        PadButton("R1"),
+        PadButton("L2"),
+        PadButton("L3"),
+        PadButton("R2"),
+        PadButton("R3"),
+        PadButton.none,
+        PadButton("Start"),
+        PadButton("Select"),
+      ];
 
   void saveState(StateWriter w) {
     w.boolean(analogMode);

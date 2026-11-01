@@ -19,12 +19,17 @@ class AnalogStick extends StatefulWidget {
   final PadAxis axisY;
   final String label;
 
+  /// The keyboard keys driving this stick, in up, left, down, right order,
+  /// drawn inside the rim so the assignment is shown on the stick itself.
+  final String keyLetters;
+
   const AnalogStick(
       {super.key,
       required this.input,
       required this.axisX,
       required this.axisY,
-      this.label = 'Analog stick'});
+      this.label = 'Analog stick',
+      this.keyLetters = ''});
 
   /// Returns the touch position clamped into the circle, relative to the
   /// center.
@@ -113,7 +118,9 @@ class _AnalogStickState extends State<AnalogStick> {
             },
             child: CustomPaint(
               painter: AnalogStickPainter(
-                  colors: Theme.of(context).colorScheme, dot: _dot),
+                  colors: Theme.of(context).colorScheme,
+                  dot: _dot,
+                  keyLetters: widget.keyLetters),
             ),
           ),
         ),
@@ -125,7 +132,11 @@ class AnalogStickPainter extends CustomPainter {
 
   /// The touched position relative to the center, null while not touched.
   final Offset? dot;
-  const AnalogStickPainter({required this.colors, required this.dot});
+
+  /// The keyboard keys driving this stick, in up, left, down, right order.
+  final String keyLetters;
+  const AnalogStickPainter(
+      {required this.colors, required this.dot, this.keyLetters = ''});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -139,6 +150,24 @@ class AnalogStickPainter extends CustomPainter {
     canvas.drawCircle(center, AnalogStick.radius, outline);
     canvas.drawCircle(center, AnalogStick.radius * AnalogStick.deadZone,
         outline..color = colors.outline.withValues(alpha: 0.5));
+    if (keyLetters.length == 4) {
+      final style = TextStyle(color: colors.onSurfaceVariant, fontSize: 11.7);
+      final at = AnalogStick.radius * 0.74;
+      final spots = [
+        Offset(center.dx, center.dy - at),
+        Offset(center.dx - at, center.dy),
+        Offset(center.dx, center.dy + at),
+        Offset(center.dx + at, center.dy),
+      ];
+      for (var i = 0; i < 4; i++) {
+        final painter = TextPainter(
+            text: TextSpan(text: keyLetters[i], style: style),
+            textDirection: TextDirection.ltr)
+          ..layout();
+        painter.paint(
+            canvas, spots[i] - Offset(painter.width / 2, painter.height / 2));
+      }
+    }
     final touched = dot;
     if (touched != null) {
       canvas.drawCircle(center + touched, AnalogStick.dotRadius,
@@ -148,5 +177,7 @@ class AnalogStickPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(AnalogStickPainter oldDelegate) =>
-      dot != oldDelegate.dot || colors != oldDelegate.colors;
+      dot != oldDelegate.dot ||
+      colors != oldDelegate.colors ||
+      keyLetters != oldDelegate.keyLetters;
 }

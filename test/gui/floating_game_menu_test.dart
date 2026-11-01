@@ -215,8 +215,8 @@ void main() {
         expect(actions.bottom, size.height - 12);
         expect(rect.top, size.height == 640 ? 64 : 0);
       } else {
-        expect(pad.center.dy, size.height / 2);
-        expect(actions.center.dy, size.height / 2);
+        expect(pad.center.dy, moreOrLessEquals(size.height / 2));
+        expect(actions.center.dy, moreOrLessEquals(size.height / 2));
         expect(rect.top, 0);
       }
       expect(rect.width == size.width || rect.height == size.height, isTrue);

@@ -3,8 +3,8 @@ import '../../pad_source.dart';
 import '../../util/int.dart';
 
 /// GBA keypad. Produces the KEYINPUT register value where a 0 bit = pressed.
-/// Button order is chosen so the existing key_handler maps keys A/S/Z/X/C/Q
-/// (buttons[4..9]) onto Select/Start/A/B/L/R naturally.
+/// The button list is in the unified key order: the X key is B, the C key
+/// is A, Q is L, E is R, Enter is Start and Shift is Select.
 class Pad {
   static const _btnA = PadButton("A");
   static const _btnB = PadButton("B");
@@ -14,16 +14,26 @@ class Pad {
   static const _btnR = PadButton("R");
 
   static const buttonList = [
-    PadButton.up, // 0
-    PadButton.down, // 1
-    PadButton.left, // 2
-    PadButton.right, // 3
-    _btnSelect, // 4  (keyA)
-    _btnStart, // 5  (keyS)
-    _btnA, // 6  (keyZ)
-    _btnB, // 7  (keyX)
-    _btnL, // 8  (keyC)
-    _btnR, // 9  (keyQ)
+    PadButton.up,
+    PadButton.down,
+    PadButton.left,
+    PadButton.right,
+    PadButton.none, // S
+    PadButton.none, // Z
+    _btnB, // X
+    _btnA, // C
+    PadButton.none, // A
+    PadButton.none, // D
+    PadButton.none, // W
+    _btnL, // Q
+    _btnR, // E
+    PadButton.none, // 1
+    PadButton.none, // 2
+    PadButton.none, // 3
+    PadButton.none, // 4
+    PadButton.none, // R
+    _btnStart, // Enter
+    _btnSelect, // Shift
   ];
 
   // KEYINPUT bit position per button

@@ -318,24 +318,31 @@ class N64 extends Core {
     bus.sram = sram;
   }
 
-  // The arrows are the D-pad. W A S D are the C buttons, Z X C are B A Z and
-  // Q R E are L Start R.
+  // The unified key order: the arrows are the D-pad, S Z X C are the C
+  // buttons (up, left, down, right), the A key is A, the D key is B, W is
+  // Z, Q is L, E is R and Enter is Start. The stick is an axis (IJKL).
   @override
   List<PadButton> get buttons => [
         PadButton.up,
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        const PadButton('C-left'), // keyA
-        const PadButton('C-down'), // keyS
-        const PadButton('B'), // keyZ
-        const PadButton('A'), // keyX
-        const PadButton('Z'), // keyC
-        const PadButton('L'), // keyQ
-        const PadButton('C-up'), // keyW
-        const PadButton('R'), // keyE
-        const PadButton('Start'), // keyR
-        const PadButton('C-right'), // keyD
+        const PadButton('C-up'), // S
+        const PadButton('C-left'), // Z
+        const PadButton('C-down'), // X
+        const PadButton('C-right'), // C
+        const PadButton('A'), // A
+        const PadButton('B'), // D
+        const PadButton('Z'), // W
+        const PadButton('L'), // Q
+        const PadButton('R'), // E
+        PadButton.none, // 1
+        PadButton.none, // 2
+        PadButton.none, // 3
+        PadButton.none, // 4
+        PadButton.none, // R
+        const PadButton('Start'), // Enter
+        PadButton.none, // Shift
       ];
   @override
   // either stick drives the analog stick of the controller
