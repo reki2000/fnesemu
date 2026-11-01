@@ -144,13 +144,14 @@ abstract final class X64Backend {
       if (fused[v] >= 0) {
         final cmp = insts[v];
         load(R.rax, cmp.a);
-        aluValue(Alu.cmp, R.rax, cmp.b, w: wide(cmp.a));
+        aluValue(cmp.op == IrOp.and ? Alu.and : Alu.cmp,
+            R.rax, cmp.b, w: wide(cmp.a));
         cc = switch (cmp.op) {
           IrOp.eq => Cc.e,
-          IrOp.ne => Cc.ne,
+          IrOp.ne || IrOp.and => Cc.ne,
           IrOp.ltS => Cc.l,
           IrOp.ltU => Cc.b,
-          _ => throw StateError('not a fused comparison'),
+          _ => throw StateError('not a fused condition'),
         };
       } else {
         compareZero(v);
