@@ -7,6 +7,7 @@ This document defines the value model that every executor implements: the refere
 The reference executor uses `BigInt` for exact i64 semantics on every Dart compiler. x86-64, ARM64 and Wasm use native 64-bit integer operations. Wasm i64 values stay inside generated code and linear memory, so no 64-bit value crosses the JavaScript boundary.
 
 - Arithmetic wraps at its declared width. Comparisons return i32. Shift counts, conditions, guest addresses, block PCs and tags remain i32 independently of register width.
+- Integer `divS`, `divU`, `remS` and `remU` use truncating quotient and dividend-signed remainder at i32/i64 width. The divisor-zero result is zero for both quotient and remainder; signed MIN / -1 wraps to MIN with remainder zero. Frontends needing different guest-specific zero-divisor behavior select their own special result (for example PS1 HI/LO). Native x64 and Wasm lowerings guard all hardware-trapping cases.
 - `sext32`, `zext32` and `trunc32` make word-to-register conversions explicit. For example, an N64 word result can use `b.sext32(b.add(b.trunc32(register), b.c32(1)))` before storing to an i64 register.
 - Context indices count 32-bit words. An i64 load or store occupies two consecutive words, low word first, independently of guest memory byte order. Runtime installation checks the whole access against the context size.
 - `c64(BigInt)` and `c64Parts(low, high)` preserve exact constants without converting a 64-bit value through a JavaScript number.
@@ -24,7 +25,7 @@ The reference executor uses `BigInt` for exact i64 semantics on every Dart compi
 
 ## Optimizer
 
-Compiled backends run `optimizeIrBlock` before emission. It folds i32 constants and algebraic identities and discards unused pure values. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks keep their i64 operations while the safe i32 simplifications and dead-value removal still apply.
+Compiled backends run `optimizeIrBlock` before emission. It folds i32 constants (including safe division), algebraic identities and discards unused pure values. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks keep their i64 operations while the safe i32 simplifications and dead-value removal still apply. The native and Wasm backends fuse a comparison into a branch or conditional exit when the comparison has exactly one consumer, preserving operands through intervening operations.
 
 A block has at most 4,096 values on the x86-64 and ARM64 backends; a longer block is rejected.
 
