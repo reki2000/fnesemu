@@ -47,7 +47,7 @@ jobs:
     if: needs.changes.outputs.build == 'true'
     permissions:
       contents: write
-    uses: reki2000/mp-build-tools/.github/workflows/build.yaml@cf88dd4d4ac9cf2a048ab4141439de12e5b63412
+    uses: reki2000/mp-build-tools/.github/workflows/build.yaml@addf6d6009455e11efadb27c6df77da6486464ac
     with:
       artifact-name: fnesemu
       exclude: '["web-js"]'
