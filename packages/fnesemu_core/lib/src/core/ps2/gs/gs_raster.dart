@@ -212,15 +212,26 @@ class GsRaster {
     var py0 = ((top - 8 + 15) >> 4);
     if (px0 < _sx0) px0 = _sx0;
     if (py0 < _sy0) py0 = _sy0;
+    final textured = _tme, fixed = _fst;
     for (var py = py0; py <= _sy1 && py * 16 + 8 < bottom; py++) {
-      final ty = (py * 16 + 8 - top) / height;
+      if (textured) {
+        final ty = (py * 16 + 8 - top) / height;
+        if (fixed) {
+          _vv = (a.v + (b.v - a.v) * ty) / 16;
+        } else {
+          _t = a.t + (b.t - a.t) * ty;
+          _q = b.q;
+        }
+      }
       for (var px = px0; px <= _sx1 && px * 16 + 8 < right; px++) {
-        final tx = (px * 16 + 8 - left) / width;
-        _s = a.s + (b.s - a.s) * tx;
-        _t = a.t + (b.t - a.t) * ty;
-        _q = b.q;
-        _uu = (a.u + (b.u - a.u) * tx) / 16;
-        _vv = (a.v + (b.v - a.v) * ty) / 16;
+        if (textured) {
+          final tx = (px * 16 + 8 - left) / width;
+          if (fixed) {
+            _uu = (a.u + (b.u - a.u) * tx) / 16;
+          } else {
+            _s = a.s + (b.s - a.s) * tx;
+          }
+        }
         _pixel(px, py, b.z, b.r, b.g, b.b, b.a, b.f);
       }
     }
@@ -307,6 +318,21 @@ class GsRaster {
   static int _clamp8(int v) => v < 0 ? 0 : (v > 255 ? 255 : v);
 
   void _pixel(int x, int y, int z, int r, int g, int b, int a, int f) {
+    final mem = gs.mem;
+    if (z < 0) z = 0;
+    if (z > _zmax) z = _zmax;
+    // Texture and destination reads have no side effects, so a failed depth
+    // test can reject the pixel before sampling. Writes still follow the
+    // alpha and destination tests.
+    var zi = -1;
+    if (_zte) {
+      if (_ztst == 0) return;
+      if (_ztst >= 2) {
+        zi = _zLayout.index(_zbp, _zPages, x, y);
+        final zold = _zpsm == GsPsm.z32 ? mem.word(zi) : mem.readAt(_zpsm, zi);
+        if (_ztst == 2 ? z < zold : z <= zold) return;
+      }
+    }
     if (_tme) {
       _texture(r, g, b, a);
       r = _tr;
@@ -334,7 +360,6 @@ class GsRaster {
           keepAlpha = true;
       }
     }
-    final mem = gs.mem;
     final fi = _frameLayout.index(_fbp, _framePages, x, y);
     // the 32-bit formats read as a plain word, without the format switch
     // of readAt on the per-pixel path
@@ -345,20 +370,8 @@ class GsRaster {
       final bit = _fcolor == GsPsm.ct32 ? (fraw >> 31) & 1 : (fraw >> 15) & 1;
       if ((bit != 0) != _datm) return;
     }
-    if (z < 0) z = 0;
-    if (z > _zmax) z = _zmax;
-    final zi = _zLayout.index(_zbp, _zPages, x, y);
-    if (_zte) {
-      final zold = _zpsm == GsPsm.z32 ? mem.word(zi) : mem.readAt(_zpsm, zi);
-      final pass = switch (_ztst) {
-        0 => false,
-        1 => true,
-        2 => z >= zold,
-        _ => z > zold,
-      };
-      if (!pass) return;
-    }
     if (writeZ) {
+      if (zi < 0) zi = _zLayout.index(_zbp, _zPages, x, y);
       if (_zpsm == GsPsm.z32) {
         mem.setWord(zi, z);
       } else {

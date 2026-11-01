@@ -8,6 +8,7 @@ Command-line tools of the cores. Run them with `dart run tool/<name>.dart` in `p
 | `cpu_test.dart` | Runs the instruction tests of a CPU (`nestest`, `z80`, `v30`, `m68k`, `r3000`, `huc6280`), used by `make test-cpu` |
 | `disasm.dart` | Disassembles one 68000 or Z80 instruction |
 | `microbench.dart` | Synthetic benchmarks that need no ROM (`vr4300`, `video-debug`) |
+| `ps2_bench.dart` | Synthetic PS2 CPU, VU, DMA and GS workloads, including depth-occluded sprites |
 | `generate_core_registry.dart` | Writes the registry of the core modules |
 
 `input_sequence.dart` holds the syntax of the button presses, which `core_headless`, its server and `scripts/e2e.py` share.

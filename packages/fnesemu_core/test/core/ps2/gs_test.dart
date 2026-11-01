@@ -207,6 +207,56 @@ void main() {
       expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, 1, 1), 1500);
     });
 
+    test('depth comparisons and masked writes work for every Z format', () {
+      for (final psm in [GsPsm.z32, GsPsm.z24, GsPsm.z16, GsPsm.z16s]) {
+        final gs = _gs();
+        for (final enabled in [false, true]) {
+          for (var test = 0; test < 4; test++) {
+            for (final masked in [false, true]) {
+              for (final z in [250, 500, 750]) {
+                final pass = !enabled ||
+                    test == 1 ||
+                    test == 2 && z >= 500 ||
+                    test == 3 && z > 500;
+                gs.writeRegister(
+                    0x4e, 64 | ((psm - 0x30) << 24) | (masked ? 1 << 32 : 0));
+                gs.writeRegister(0x47, (enabled ? 1 << 16 : 0) | (test << 17));
+                gs.mem.write(GsPsm.ct32, 0, 1, 0, 0, 0x10203040);
+                gs.mem.write(psm, 64 * 32, 1, 0, 0, 500);
+                _sprite(gs, 0, 0, 1, 1, _rgba(1, 2, 3), z: z);
+                final reason = 'psm=$psm enabled=$enabled test=$test '
+                    'masked=$masked z=$z';
+                expect(_px(gs, 0, 0), pass ? _rgba(1, 2, 3) : 0x10203040,
+                    reason: reason);
+                expect(gs.mem.read(psm, 64 * 32, 1, 0, 0),
+                    pass && !masked ? z : 500,
+                    reason: reason);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    test('alpha and destination tests still control depth writes', () {
+      final gs = _gs();
+      gs.writeRegister(0x4e, 64); // Z32 at block 2048
+      gs.mem.write(GsPsm.ct32, 0, 1, 0, 0, 0x00112233);
+      gs.mem.write(GsPsm.z32, 64 * 32, 1, 0, 0, 500);
+      // Alpha NEVER, ZB_ONLY on failure, depth GEQUAL.
+      gs.writeRegister(0x47, 1 | (2 << 12) | (1 << 16) | (2 << 17));
+      _sprite(gs, 0, 0, 1, 1, _rgba(1, 2, 3), z: 750);
+      expect(_px(gs, 0, 0), 0x00112233);
+      expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, 0, 0), 750);
+      _sprite(gs, 0, 0, 1, 1, _rgba(4, 5, 6), z: 600);
+      expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, 0, 0), 750);
+      // Destination alpha must be set, so both writes are rejected.
+      gs.writeRegister(0x47, (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17));
+      _sprite(gs, 0, 0, 1, 1, _rgba(7, 8, 9), z: 900);
+      expect(_px(gs, 0, 0), 0x00112233);
+      expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, 0, 0), 750);
+    });
+
     test('alpha blending mixes with the destination', () {
       final gs = _gs();
       _sprite(gs, 0, 0, 4, 4, _rgba(200, 100, 0, 0xff));
@@ -330,6 +380,41 @@ void main() {
           expect(_px(gs, 10 + x, 10 + y) & 0xff, (y * 4 + x) * 10,
               reason: '($x,$y)');
         }
+      }
+    });
+
+    test('textured pixels keep alpha-failure and depth-write behavior', () {
+      final gs = _gs();
+      upload(gs, 100, GsPsm.ct32, 2, 1,
+          [_rgba(1, 2, 3, 0x40), _rgba(4, 5, 6, 0x80)]);
+      gs.writeRegister(0x06, tex0(100, 1, GsPsm.ct32, 1, 0));
+      gs.writeRegister(0x4e, 64); // Z32 at block 2048
+      for (var x = 10; x < 12; x++) {
+        gs.mem.write(GsPsm.ct32, 0, 1, x, 10, 0x11223344);
+        gs.mem.write(GsPsm.z32, 64 * 32, 1, x, 10, 500);
+      }
+      // Alpha GREATER 0x60, ZB_ONLY on failure, depth GEQUAL.
+      gs.writeRegister(
+          0x47, 1 | (6 << 1) | (0x60 << 4) | (2 << 12) | (1 << 16) | (2 << 17));
+      void draw(int depth) {
+        gs.writeRegister(0x00, 6 | 0x10 | 0x100);
+        gs.writeRegister(0x03, 0);
+        gs.writeRegister(0x05, _xyz(10, 10, depth));
+        gs.writeRegister(0x03, (2 * 16) | (16 << 16));
+        gs.writeRegister(0x05, _xyz(12, 11, depth));
+      }
+
+      draw(750);
+      expect(_px(gs, 10, 10), 0x11223344);
+      expect(_px(gs, 11, 10), _rgba(4, 5, 6, 0x80));
+      for (var x = 10; x < 12; x++) {
+        expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, x, 10), 750);
+      }
+      draw(600);
+      expect(_px(gs, 10, 10), 0x11223344);
+      expect(_px(gs, 11, 10), _rgba(4, 5, 6, 0x80));
+      for (var x = 10; x < 12; x++) {
+        expect(gs.mem.read(GsPsm.z32, 64 * 32, 1, x, 10), 750);
       }
     });
 

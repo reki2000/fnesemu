@@ -2,7 +2,7 @@
 //
 // usage: dart build cli -t tool/ps2_bench.dart -o /tmp/ps2-bench
 //        /tmp/ps2-bench/bundle/bin/ps2_bench
-//            <ee|ee-fpu|jit|vu|dma|gs-sprite|gs-tri> [rounds]
+//            <ee|ee-fpu|jit|vu|dma|gs-sprite|gs-tri|gs-occlusion> [rounds]
 //        (the jit workload needs the native library that dart build cli
 //        bundles; an executable from dart compile exe cannot load it)
 //        (dart run tool/ps2_bench.dart ... also works, but its times are
@@ -233,6 +233,36 @@ int _gsHash(Gs gs) {
   return (() => _gsHash(gs), sprites * 256 * 256);
 }
 
+// Textured sprites behind an opaque foreground exercise depth rejection.
+(int Function(), int) _runGsOcclusion() {
+  final gs = _gsScene();
+  gs.writeRegister(0x47, (1 << 16) | (2 << 17)); // ZTE, GEQUAL
+  gs.writeRegister(0x00, 6);
+  gs.writeRegister(0x01, 0x80604020);
+  gs.writeRegister(0x05, _xyz(0, 0, 1000));
+  gs.writeRegister(0x05, _xyz(256, 256, 1000));
+  const sprites = 30;
+  for (var n = 0; n < sprites; n++) {
+    gs.writeRegister(0x00, 6 | 0x10 | 0x100); // sprite, TME, FST
+    gs.writeRegister(0x03, 0);
+    gs.writeRegister(0x05, _xyz(0, 0, 500));
+    gs.writeRegister(0x03, (128 * 16) | ((128 * 16) << 16));
+    gs.writeRegister(0x05, _xyz(256, 256, 500));
+  }
+  int checksum() {
+    // Verify that the foreground was drawn and the sprites stayed behind it.
+    for (final p in [0, 127, 255]) {
+      if (gs.mem.read(GsPsm.ct32, 0, 4, p, p) != 0x80604020 ||
+          gs.mem.read(GsPsm.z32, 2000 * 32, 4, p, p) != 1000) {
+        throw StateError('occlusion scene did not produce the foreground');
+      }
+    }
+    return _gsHash(gs);
+  }
+
+  return (checksum, sprites * 256 * 256);
+}
+
 (int Function(), int) _runGsTri() {
   final gs = _gsScene();
   const tris = 300;
@@ -269,6 +299,7 @@ void main(List<String> args) {
     'dma' => (_runDma, 'quadword halves'),
     'gs-sprite' => (_runGsSprite, 'pixels'),
     'gs-tri' => (_runGsTri, 'triangles'),
+    'gs-occlusion' => (_runGsOcclusion, 'pixels'),
     _ => throw ArgumentError('unknown workload: $name'),
   };
   int? checksum;
