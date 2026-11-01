@@ -267,8 +267,11 @@ final class _Block {
         return (tag) => IrJumpDyn(target, tag: tag);
       case 0x01:
         // bltz, bgez, and bltzal and bgezal which link even if not taken
-        final lt = b.ltS(_get(rs), b.c32(0));
-        final c = rt.bit0 ? b.xor(lt, b.c32(1)) : lt;
+        // Match the branch polarity with a single signed comparison.
+        final value = _get(rs);
+        final c = rt.bit0
+            ? b.ltS(b.c32(-1), value)
+            : b.ltS(value, b.c32(0));
         if (rt == 0x10 || rt == 0x11) {
           _commit(imm: (31, b.c32(next)));
           return (tag) => IrBranch(c, rel, next, tagTrue: tag, tagFalse: tag);
@@ -287,7 +290,7 @@ final class _Block {
       case 0x05:
         return cond(b.ne(_get(rs), _get(rt)));
       case 0x06:
-        return cond(b.xor(b.ltS(b.c32(0), _get(rs)), b.c32(1)));
+        return cond(b.ltS(_get(rs), b.c32(1)));
       default: // 0x07
         return cond(b.ltS(b.c32(0), _get(rs)));
     }
