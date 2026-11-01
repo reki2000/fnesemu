@@ -21,24 +21,31 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-| key | arrows | Z | X | C | A | S | D | Q | W | E | R |
-|-----|--------|---|---|---|---|---|---|---|---|---|---|
-| NES | up / down / left / right | B | A |  | Select | Start |  |  |  |  |  |
-| PCE | up / down / left / right | II | I |  | Select | Run |  |  |  |  |  |
-| MD | up / down / left / right | A | B | C | X | Y | Z | Mode | | Start |  |
-| PS1 | up / down / left / right | # | x | o | Select | ^ |  | L1 | Start | R1 |  |
-| GB | up / down / left / right | B | A |  | Select | Start |  |  |  |  |  |
-| GBA | up / down / left / right | A | B | L | Select | Start |  | R |  |  |  |
-| SNES | up / down / left / right | Select |  | Start | Y | B | A | L | X | R |  |
-| SS | up / down / left / right | A | B | C | L | Start |  | X | Y | Z | R |
-| N64 | up / down / left / right | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start |
-| SMS | up / down / left / right | 1 | 2 |  |  | Pause / Start |  |  |  |  |  |
-| WS | X1 / X3 / X4 / X2 | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate |
-| WS (vertical) | Y2 / Y4 / Y1 / Y3 | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate |
+All cores share one key order. The arrow keys are the directional pad, Enter is the start button and Shift is the select button of each controller. The analog sticks are on the IJKL keys (left stick) and the TFGH keys (right stick), shown on the stick widgets themselves; a core with one stick uses IJKL. The R key is a core-specific action. An empty cell means the key has no button on that core.
 
-On N64, the arrows move the analog stick. The D-pad buttons (D-up, D-down, D-left, D-right) have no key and are used by the end-to-end tests.
+| system | arrows | S | Z | X | C | A | D | W | Q | E | 1 | 2 | 3 | 4 | R | Enter | Shift |
+|--------|--------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| NES | up / down / left / right |  |  | B | A |  |  |  |  |  |  |  |  |  |  | Start | Select |
+| PCE | up / down / left / right |  |  | II | I |  |  |  |  |  |  |  |  |  |  | Run | Select |
+| MD | up / down / left / right | Y | A | B | C | X | Z |  |  |  |  |  |  |  |  | Start | Mode |
+| PS | up / down / left / right | ^ | # | x | o |  |  |  | L1 | R1 | L2 | L3 | R2 | R3 |  | Start | Select |
+| PS2 | up / down / left / right | ^ | # | x | o |  |  |  | L1 | R1 | L2 | L3 | R2 | R3 |  | Start | Select |
+| GB | up / down / left / right |  |  | B | A |  |  |  |  |  |  |  |  |  |  | Start | Select |
+| GBA | up / down / left / right |  |  | B | A |  |  |  | L | R |  |  |  |  |  | Start | Select |
+| SNES | up / down / left / right | X | Y | B | A |  |  |  | L | R |  |  |  |  |  | Start | Select |
+| SS | up / down / left / right | Y | A | B | C | X | Z |  | L | R |  |  |  |  |  | Start |  |
+| N64 | up / down / left / right | C-up | C-left | C-down | C-right | A | B | Z | L | R |  |  |  |  |  | Start |  |
+| SMS | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Pause |  |
+| GG | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Start |  |
+| DC | up / down / left / right | Y | X | A | B |  |  |  | L | R |  |  |  |  |  | Start |  |
+| WS | X1 / X3 / X4 / X2 | Y1 | Y4 | Y3 | Y2 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
+| WS (vertical) | Y2 / Y4 / Y1 / Y3 | X2 | X1 | X4 | X3 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 
-On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. Q cycles the emulated speaker volume.
+The MD row is the 6-button pad; a 3-button pad has no Y, X, Z and Mode. The SMS assignment also applies to the sg system. On the DC core, Q and E are the analog triggers, read at their digital endpoints. L3 and R3 exist only on the analog PS and PS2 controllers.
+
+With a disk (FDS), R flips the disk side.
+
+On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. W (Sound) cycles the emulated speaker volume.
 
 # How to develop
 

@@ -347,8 +347,8 @@ void main() {
       ..setBiosFiles([bios()])
       ..setRom(disk(sides: 2));
     final mapper = core.bus.mapper as FdsMapper;
-    expect(core.buttons[12], Nes.flipDisk);
-    expect(core.buttons.sublist(8, 12), everyElement(PadButton.none));
+    expect(core.buttons[17], Nes.flipDisk);
+    expect(core.buttons.sublist(8, 17), everyElement(PadButton.none));
     // the key is sampled once a frame
     void frame(Nes nes) => nes.runFrame(nes.scanlinesInFrame);
     core.padDown(0, Nes.flipDisk);

@@ -19,17 +19,24 @@ class SnesPad {
     PadButton.down,
     PadButton.left,
     PadButton.right,
-    // in the order of the keys A S Z X C Q W E R D
+    // in the unified key order: S is X, Z is Y, X is B, C is A, Q is L,
+    // E is R, Enter is Start and Shift is Select
+    _x,
     _y,
     _b,
-    _select,
+    _a,
     PadButton.none,
-    _start,
+    PadButton.none,
+    PadButton.none,
     _l,
-    _x,
     _r,
     PadButton.none,
-    _a,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    _start,
+    _select,
   ];
 
   static const _bit = {

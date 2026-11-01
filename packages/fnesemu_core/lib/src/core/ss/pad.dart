@@ -8,23 +8,29 @@ import '../../pad_source.dart';
 class Pad {
   static const controllerNum = 2;
 
-  /// The order is the key slots of the keyboard and the touch keys
-  /// (`VirtualPadWidget`): the slot of R stays empty.
+  /// The order is the unified key order: S is Y, Z is A, X is B, C is C,
+  /// the A key is X, the D key is Z, Q is L, E is R and Enter is Start.
   static const _buttons = [
     (PadButton.up, 0, 0x10),
     (PadButton.down, 0, 0x20),
     (PadButton.left, 0, 0x40),
     (PadButton.right, 0, 0x80),
-    (PadButton("X"), 1, 0x40),
     (PadButton("Y"), 1, 0x20),
     (PadButton("A"), 0, 0x04),
     (PadButton("B"), 0, 0x01),
     (PadButton("C"), 0, 0x02),
-    (PadButton("L"), 1, 0x08),
-    (PadButton("Start"), 0, 0x08),
-    (PadButton("R"), 1, 0x80),
-    (PadButton.none, 0, 0), // no bit: the key slot is empty
+    (PadButton("X"), 1, 0x40),
     (PadButton("Z"), 1, 0x10),
+    (PadButton.none, 0, 0), // no bit: the key slot is empty
+    (PadButton("L"), 1, 0x08),
+    (PadButton("R"), 1, 0x80),
+    (PadButton.none, 0, 0),
+    (PadButton.none, 0, 0),
+    (PadButton.none, 0, 0),
+    (PadButton.none, 0, 0),
+    (PadButton.none, 0, 0),
+    (PadButton("Start"), 0, 0x08),
+    (PadButton.none, 0, 0),
   ];
 
   /// where the held buttons are read from, set by the core

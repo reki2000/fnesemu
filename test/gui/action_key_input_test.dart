@@ -9,16 +9,18 @@ import 'package:fnesemu_core/app_api.dart';
 // what the core does with the button is tested in the core (fds_test)
 const flipDisk = PadButton('Flip Disk');
 
-/// a core whose R key slot is [flipDisk], and the C, Q, W, E slots are unused
+/// a core whose R key slot is [flipDisk], and the C slot is unused
 class _Controller extends CoreController {
   _Controller() : super((_) {}, (_) {}, (_) {}, Sram());
   @override
   List<PadButton> get buttons => [
         PadButton.up, PadButton.down, PadButton.left, PadButton.right, //
-        const PadButton('A'), const PadButton('B'),
-        const PadButton('Select'), const PadButton('Start'),
+        PadButton.none, PadButton.none, PadButton.none, PadButton.none,
+        const PadButton('A'), const PadButton('B'), PadButton.none,
+        PadButton.none, PadButton.none,
         PadButton.none, PadButton.none, PadButton.none, PadButton.none,
         flipDisk,
+        const PadButton('Start'), const PadButton('Select'),
       ];
 }
 

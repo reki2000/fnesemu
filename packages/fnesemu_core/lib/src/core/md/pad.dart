@@ -57,22 +57,30 @@ class Pad {
     _z, // 11
   ];
 
-  /// the buttons in the order of the keys A S Z X C Q W E R D
+  /// The buttons in the unified key order: S is Y, Z is A, X is B, C is
+  /// C, the A key is X, the D key is Z, Enter is Start and Shift is Mode.
+  /// A 3-button pad simply never reports X, Y, Z and Mode.
   List<PadButton> get buttons => const [
         PadButton.up,
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        _x,
         _y,
         _a,
         _b,
         _c,
-        _mode,
+        _x,
+        _z,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
         PadButton.none,
         _start,
-        PadButton.none,
-        _z,
+        _mode,
       ];
 
   /// the buttons read at each TH edge of the 6 button pad (bit 5 to 0): -1

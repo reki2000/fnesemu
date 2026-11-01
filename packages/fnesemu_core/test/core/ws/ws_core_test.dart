@@ -151,16 +151,22 @@ void main() {
       PadButton.down,
       PadButton.left,
       PadButton.right,
+      Pad.y1,
       Pad.y4,
       Pad.y3,
-      Pad.b,
-      Pad.a,
-      PadButton.none,
-      Pad.sound,
-      Pad.y1,
-      Pad.start,
-      Ws.rotate,
       Pad.y2,
+      Pad.a,
+      Pad.b,
+      Pad.sound,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      Ws.rotate,
+      Pad.start,
+      PadButton.none,
     ]);
   });
 
@@ -284,7 +290,7 @@ void main() {
     final flat = ws.imageBuffer();
     // mark the top-left pixel to follow it through the turn
     flat.buffer[0] = 0x12345678;
-    expect(ws.buttons[12], Ws.rotate);
+    expect(ws.buttons[17], Ws.rotate);
 
     tap(ws, Ws.rotate);
     final turned = ws.imageBuffer();

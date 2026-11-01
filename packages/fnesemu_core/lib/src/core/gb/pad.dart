@@ -12,15 +12,29 @@ class Pad {
   static const b = PadButton("B");
   static const a = PadButton("A");
 
+  // In the unified key order: the X key is B, the C key is A, Enter is
+  // Start and Shift is Select; the other slots are empty.
   final buttons = const [
     PadButton.up,
     PadButton.down,
     PadButton.left,
     PadButton.right,
-    select,
-    start,
+    PadButton.none,
+    PadButton.none,
     b,
     a,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    start,
+    select,
   ];
 
   /// where the held buttons are read from, set by the core

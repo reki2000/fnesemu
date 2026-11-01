@@ -12,8 +12,11 @@ class _Controller extends CoreController {
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        ...['Select', 'Start', 'B', 'A', 'C', 'L', 'Y', 'R', 'X', 'D']
-            .map(PadButton.new)
+        // the key slots S Z X C / A D W / Q E / 1 2 3 4 / R / Enter Shift
+        ...[
+          'B', 'Y', 'A', 'C', 'Select', 'D', 'W', 'L', 'R', //
+          '1', '2', '3', '4', 'X', 'Start', 'Shift'
+        ].map(PadButton.new)
       ];
 }
 
@@ -30,15 +33,32 @@ void main() {
                     controller: _Controller(), input: input)))));
     Rect button(String key) =>
         tester.getRect(find.byKey(ValueKey('action-key-$key')));
+    expect(button('Q').left - button('1').left,
+        moreOrLessEquals(VirtualPadWidget.keyWidth / 2));
     expect(button('A').left - button('Q').left,
         moreOrLessEquals(VirtualPadWidget.keyWidth / 2));
     expect(button('Z').left - button('A').left,
         moreOrLessEquals(VirtualPadWidget.keyWidth / 2));
+    expect(button('Q').top - button('1').top,
+        moreOrLessEquals(VirtualPadWidget.keyHeight + VirtualPadWidget.gap));
     expect(button('A').top - button('Q').top,
         moreOrLessEquals(VirtualPadWidget.keyHeight + VirtualPadWidget.gap));
     expect(button('Z').top - button('A').top,
         moreOrLessEquals(VirtualPadWidget.keyHeight + VirtualPadWidget.gap));
-    for (final key in ['Q', 'W', 'E', 'R', 'D', 'Z', 'X', 'C']) {
+    for (final key in [
+      'Q',
+      'W',
+      'E',
+      'R',
+      'D',
+      'Z',
+      'X',
+      'C',
+      '1',
+      '2',
+      '3',
+      '4'
+    ]) {
       expect(button(key).width, moreOrLessEquals(VirtualPadWidget.keyWidth));
       final label = find.descendant(
           of: find.byKey(ValueKey('action-key-$key')),

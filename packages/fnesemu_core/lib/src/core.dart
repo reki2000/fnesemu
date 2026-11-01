@@ -81,7 +81,13 @@ class Core extends CoreDebug {
   /// sets where the core reads the controllers from
   set input(PadSource source) => padPort.source = source;
 
-  /// returns list of buttons
+  /// returns the buttons of the controller in the unified key order: the
+  /// four directions, then the key slots S, Z, X, C, A, D, W, Q, E, 1, 2, 3,
+  /// 4 and R (the core-specific action), then the start slot (the Enter key)
+  /// and the select slot (the Shift key). A slot the controller does not
+  /// have is [PadButton.none]. The GUI binds the keyboard and the touch pad
+  /// by these positions, and the analog sticks are not buttons: they are
+  /// [axes], driven by the IJKL and TFGH keys.
   List<PadButton> get buttons => const [];
 
   /// returns list of analog axes, empty for a core without analog input

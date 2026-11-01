@@ -124,7 +124,8 @@ class _CoreViewState extends State<CoreView> {
                                   input: _input,
                                   axisX: PadAxis.leftX,
                                   axisY: PadAxis.leftY,
-                                  label: 'Left analog stick'),
+                                  label: 'Left analog stick',
+                                  keyLetters: 'IJKL'),
                             DirectionPad(input: _input),
                           ]))),
             if (widget.showPad)
@@ -147,7 +148,8 @@ class _CoreViewState extends State<CoreView> {
                                   input: _input,
                                   axisX: PadAxis.rightX,
                                   axisY: PadAxis.rightY,
-                                  label: 'Right analog stick'),
+                                  label: 'Right analog stick',
+                                  keyLetters: 'TFGH'),
                             VirtualPadWidget(
                                 controller: widget.controller, input: _input),
                           ]))),
