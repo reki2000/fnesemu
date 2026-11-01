@@ -377,9 +377,9 @@ class Sh4 {
       sr = ssr;
     } else if (op == 0x0038) {
       bus.mmu.load();
-    } else if (_controlOp(op, n)) {
+    } else if (_controlCandidate(op) && _controlOp(op, n)) {
       // The control transfer has already completed.
-    } else if (_fpuOp(op, n, m)) {
+    } else if (_fpuCandidate(op) && _fpuOp(op, n, m)) {
       // Floating-point instructions share the ordinary delay-slot exit path.
     } else if (op & 0xf0ff == 0x0083) {
       if (DcBus.isStoreQueue(r[n])) {
@@ -514,6 +514,16 @@ class Sh4 {
       default:
         bank[index - 8] = value;
     }
+  }
+
+  /// Whether [op] can be a control register load or store, so that the
+  /// step dispatch can skip the classification in [_controlOp] for the
+  /// rest: every encoding it accepts has top nibble 0 or 4 and bit 1 set.
+  /// [_controlOp] matches the exact encodings itself, so this test only
+  /// has to cover them.
+  bool _controlCandidate(int op) {
+    final top = op >> 12;
+    return (top == 0 || top == 4) && op & 2 != 0;
   }
 
   bool _controlOp(int op, int n) {
