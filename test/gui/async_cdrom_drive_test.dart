@@ -60,6 +60,21 @@ void main() {
       await drive.insert((file, [file]));
     });
 
+    test('core switch forgets pending subcode wait but keeps the disc',
+        () async {
+      expect(drive.readSubcode(0), isNull);
+      expect(drive.isWaiting, isTrue);
+      final discId = drive.status.discId;
+
+      drive.clearPendingWait();
+      expect(drive.isWaiting, isFalse);
+      expect(drive.status.isReady, isTrue);
+      expect(drive.status.discId, discId);
+
+      await drive.settle();
+      expect(drive.readSubcode(0), isNotNull);
+    });
+
     test('raw image symbols become CRC-validated position metadata', () async {
       expect(drive.readSubcode(0), isNull);
       expect(drive.isWaiting, isTrue);
@@ -325,6 +340,36 @@ FILE "a.bin" BINARY
     expect(drive.isWaiting, false); // already read ahead
     await drive.eject();
     expect(drive.isWaiting, false);
+  });
+
+  test('core switch clears stale seek and sector waits without ejecting',
+      () async {
+    final drive = AsyncCdromDrive();
+    await drive.insert(memoryDisc('disc.bin', {
+      'disc.bin': MemoryDiscFile('disc.bin', makeBin(200)),
+    }));
+    final discId = drive.status.discId;
+    drive.seek(150);
+    expect(drive.status.isSeeking, isTrue);
+    expect(drive.read(160), isNull);
+    expect(drive.isWaiting, isTrue);
+
+    drive.clearPendingWait();
+    expect(drive.isWaiting, isFalse);
+    expect(drive.status.isSeeking, isFalse);
+    expect(drive.status.isReady, isTrue);
+    expect(drive.status.discId, discId);
+    expect(drive.status.toc.totalSectors, 200);
+
+    // Old reads may complete in the background and still populate the cache.
+    await drive.settle();
+    expect(drive.read(160), isNotNull);
+
+    // The new core can issue its own seek and the indicator becomes active.
+    drive.seek(1);
+    expect(drive.isWaiting, isTrue);
+    await drive.settle();
+    expect(drive.isWaiting, isFalse);
   });
 
   test('the status is converted only when it changes', () async {
