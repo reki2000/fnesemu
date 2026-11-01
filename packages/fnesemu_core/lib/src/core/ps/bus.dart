@@ -217,16 +217,24 @@ class Bus implements BusR3000 {
   }
 
   @override
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
   void write8(int addr, int v) {
     // if (addr == debugLogAddr) {
     //   _log.debugc(() => "write8 to ${debugLogAddr.x8}: ${v.x2}");
     // }
-
     final offset = addr & segMask[addr.shr29];
+    if (offset < 0x00800000) {
+      mem[offset & 0x1fffff] = v;
+      return;
+    }
+    _write8Full(addr, offset, v);
+  }
+
+  void _write8Full(int addr, int offset, int v) {
     const sig = "write8";
 
     return switch (offset) {
-      >= 0x00000000 && < 0x00800000 => mem[addr & 0x1fffff] = v,
       >= 0x1f000000 && < 0x1f008000 =>
         _unimpl(sig, "expansion 1", addr, value: v),
       >= _scratchPadStart && < _scratchPadEnd => addr.bit29
