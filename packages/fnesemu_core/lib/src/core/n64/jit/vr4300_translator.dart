@@ -389,11 +389,11 @@ final class Vr4300Translator {
     if (code >= 20 && code <= 23) code -= 16;
     final a = _get64(s), zero = _c64(0);
     final condition = switch (code) {
-      1 => t.isEven ? b.ltS(a, zero) : b.eq(b.ltS(a, zero), _c(0)),
+      1 => t.isEven ? b.ltS(a, zero) : b.ltS(_c64(-1), a),
       4 => b.eq(a, _get64(t)),
       5 => b.ne(a, _get64(t)),
-      6 => b.or(b.ltS(a, zero), b.eq(a, zero)),
-      _ => b.eq(b.or(b.ltS(a, zero), b.eq(a, zero)), _c(0)),
+      6 => b.ltS(a, _c64(1)),
+      _ => b.ltS(zero, a),
     };
     if (code == 1 && t >= 16) _word(31, _c(next));
     return IrBranch(condition, target, next, tagTrue: _tag, tagFalse: _tag);
