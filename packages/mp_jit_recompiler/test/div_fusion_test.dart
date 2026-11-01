@@ -2,13 +2,20 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
 
 JitRuntime _runtime(bool native) {
-  final create = native ? JitRuntime.native : JitRuntime.interpreter;
-  return create(
+  if (native) {
+    return JitRuntime.native(
+      ctxWords: 64,
+      addrMask: 0xffff,
+      read: (_, __) => 0,
+      write: (_, __, ___) {},
+    )!;
+  }
+  return JitRuntime.interpreter(
     ctxWords: 64,
     addrMask: 0xffff,
     read: (_, __) => 0,
     write: (_, __, ___) {},
-  )!;
+  );
 }
 
 BigInt _read64(JitRuntime runtime, int index) =>
