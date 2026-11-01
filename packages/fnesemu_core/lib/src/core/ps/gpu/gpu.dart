@@ -350,6 +350,25 @@ class Gpu {
     frameBuffer16[index] = c16 | (status.bit11 ? 0x8000 : 0);
   }
 
+  /// same as _plot for a pixel the caller has already clipped to the drawing
+  /// area: [index] is its frame buffer offset with the drawing offsets applied
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _plotFast(int index, int c16, bool blend, int semi) {
+    final old = frameBuffer16[index];
+
+    // write protected
+    if (status.bit12 && old.bit15) {
+      return;
+    }
+
+    if (blend) {
+      c16 = c16 & 0x8000 | _blend(old, c16, semi);
+    }
+
+    frameBuffer16[index] = c16 | (status.bit11 ? 0x8000 : 0);
+  }
+
   /// semi-transparency of the 15bit colors: back [b] and front [f]
   @pragma('vm:prefer-inline')
   static int _blend(int b, int f, int mode) {
