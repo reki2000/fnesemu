@@ -166,10 +166,28 @@ void main() {
     }
   });
 
-  test('RTC protection, split writes, upper-bit masks and wraparound', () {
+  test('AICA RTC starts from host time with the 1950 epoch', () {
+    var now = DateTime.utc(2026, 11, 1, 12, 34, 56);
     final bus = DcBus();
+    bus.aica.clock = () => now;
+    final expected = now.difference(DateTime.utc(1950)).inSeconds;
+    expect(bus.read32(rtc), expected >> 16);
+    expect(bus.read32(rtc + 4), expected & 0xffff);
+
+    // The RTC follows elapsed wall time, not the emulated CPU clock.
+    bus.aica.tickMasterClocks(DcAica.masterHz * 3);
+    expect(bus.read32(rtc + 4), expected & 0xffff);
+    now = now.add(const Duration(seconds: 1));
+    expect(bus.read32(rtc + 4), (expected + 1) & 0xffff);
+  });
+
+  test('RTC protection, split writes, upper-bit masks and wraparound', () {
+    var now = DateTime.utc(2026);
+    final bus = DcBus();
+    bus.aica.clock = () => now;
+    final previous = bus.read32(rtc + 4);
     bus.write32(rtc + 4, 0x1234);
-    expect(bus.read32(rtc + 4), 0);
+    expect(bus.read32(rtc + 4), previous);
     bus.write32(rtc + 8, 1);
     bus.write32(rtc + 4, 0xffffffff);
     bus.write32(rtc, 0xffffffff);
@@ -177,23 +195,26 @@ void main() {
     expect(bus.read32(rtc + 4), 0xffff);
     bus.write32(rtc + 4, 0);
     expect(bus.read32(rtc + 4), 0xffff);
-    bus.aica.tickMasterClocks(DcAica.masterHz);
+    now = now.add(const Duration(seconds: 1));
     expect(bus.read32(rtc), 0);
     expect(bus.read32(rtc + 4), 0);
     expect(() => bus.read32(rtc + 8), throwsA(isA<DcUnsupported>()));
     expect(() => bus.write16(rtc, 0), throwsA(isA<DcUnsupported>()));
   });
 
-  test('RTC low write resets subsecond phase, high write locks without reset',
+  test('RTC write offset follows wall time and persists through write lock',
       () {
+    var now = DateTime.utc(2026);
     final bus = DcBus();
-    bus.aica.tickMasterClocks(150000000);
+    bus.aica.clock = () => now;
     bus.write32(rtc + 8, 1);
     bus.write32(rtc + 4, 7);
     bus.aica.tickMasterClocks(150000000);
     expect(bus.read32(rtc + 4), 7);
     bus.write32(rtc, 2);
-    bus.aica.tickMasterClocks(50000000);
+    bus.write32(rtc + 4, 0);
+    expect(bus.read32(rtc + 4), 7);
+    now = now.add(const Duration(seconds: 1));
     expect(bus.read32(rtc + 4), 8);
     expect(bus.read32(rtc), 2);
   });
@@ -202,7 +223,9 @@ void main() {
       () {
     final core = Dc(), bus = DcBus();
     addTearDown(core.dispose);
+    var now = DateTime.utc(2026);
     for (final target in [core.bus, bus]) {
+      target.aica.clock = () => now;
       target.write32(wave, 0x12345678);
       target.write32(registers + 0x28b8, 0x20);
       target.write32(registers + 0x28b4, 0x20);
@@ -218,7 +241,7 @@ void main() {
     core.reset();
     expect(core.bus.read32(wave), 0);
     expect(core.bus.read32(registers + 0x28b8), 0);
-    core.bus.aica.tickMasterClocks(50000000);
+    now = now.add(const Duration(seconds: 1));
     expect(core.bus.read32(rtc + 4), 43);
   });
 
