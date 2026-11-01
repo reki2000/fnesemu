@@ -188,6 +188,9 @@ void main() {
             for (final (index, instruction) in instructions.indexed) {
               bus.write32(_base + index * 4, instruction);
             }
+            // End translation before the next fixture instruction so that
+            // JIT execution cannot run past the comparison boundary.
+            bus.write32(_base + instructions.length * 4, _r(12)); // SYSCALL
             cpu.setReg(1, x);
             cpu.setReg(2, y);
             cpu.jumpTo(_base);
