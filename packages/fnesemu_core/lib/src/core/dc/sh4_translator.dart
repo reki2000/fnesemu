@@ -105,10 +105,14 @@ final class Sh4Translator {
         if (!guard(at) || (delayed && !guard((at + 2) & 0xffffffff))) break;
         final before = snapshot(at, spent);
         IrValue? condition;
+        var branchOnT = true;
         IrValue? dynamicTarget;
         int? target;
         if (kind == 8) {
-          condition = (n == 9 || n == 13) ? t : b.eq(t, c(0));
+          // BT/BF use the same masked T bit. Swap the branch targets for
+          // BF instead of materializing an inverted boolean.
+          branchOnT = n == 9 || n == 13;
+          condition = t;
           target = (at + 4 + (op & 255).toSigned(8) * 2) & 0xffffffff;
         } else if (kind == 10 || kind == 11) {
           target = (at + 4 + (op & 4095).toSigned(12) * 2) & 0xffffffff;
@@ -131,8 +135,12 @@ final class Sh4Translator {
             ? IrJumpDyn(dynamicTarget, tag: after)
             : condition == null
                 ? IrJump(target!, tag: after)
-                : IrBranch(condition, target!, next,
-                    tagTrue: after, tagFalse: after);
+                : IrBranch(
+                    condition,
+                    branchOnT ? target! : next,
+                    branchOnT ? next : target!,
+                    tagTrue: after,
+                    tagFalse: after);
         return b.finish(term, cost: spent);
       }
       if (!supported(op, tag) || !guard(at)) break;
