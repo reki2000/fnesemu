@@ -318,7 +318,13 @@ abstract final class WasmBackend {
           final signed = inst.op == IrOp.divS || inst.op == IrOp.remS;
           final remainder = inst.op == IrOp.remS || inst.op == IrOp.remU;
           final blockType = w ? 0x7e : 0x7f;
-          void zero() => w ? c.i64(0) : c.i32(0);
+          void zero() {
+            if (w) {
+              c.i64(0);
+            } else {
+              c.i32(0);
+            }
+          }
           b();
           c.op(w ? 0x50 : 0x45); // i64/i32.eqz
           c.op(0x04, blockType);
@@ -333,7 +339,11 @@ abstract final class WasmBackend {
             }
             c.op(w ? 0x51 : 0x46);
             b();
-            w ? c.i64(-1, -1) : c.i32(-1);
+            if (w) {
+              c.i64(-1, -1);
+            } else {
+              c.i32(-1);
+            }
             c.op(w ? 0x51 : 0x46, 0x71);
             c.op(0x04, blockType);
             if (remainder) {
