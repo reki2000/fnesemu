@@ -68,6 +68,18 @@ class AsyncCdromDrive implements CdromDrive, CdromSubcodeDrive {
             (subcodeLba != null && !_subcodeCache.containsKey(subcodeLba)));
   }
 
+  /// Discard outstanding requests from the previous core without ejecting
+  /// the shared disc or losing sectors already loaded into the cache.
+  ///
+  /// In-flight reads may finish and populate the cache, but the new core must
+  /// explicitly request a seek or sector before showing a waiting indicator.
+  void clearPendingWait() {
+    _seekRequested = false;
+    _waitLba = null;
+    _waitSubcodeLba = null;
+    _updateStatus();
+  }
+
   /// rebuilt on each change, as the core polls it on each exec
   CdromDriveStatus _status = CdromDriveStatus.empty;
 
