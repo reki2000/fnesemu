@@ -7,16 +7,18 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// half is one i64 SSA value; word results are truncated and sign extended
 /// explicitly. Only LQ and SQ touch the high halves.
 ///
-/// The translated subset is the integer ALU, the shifts, the branches and
-/// jumps, MOVZ/MOVN and the aligned loads and stores up to 128 bits. HI and
-/// LO, the coprocessors, the multimedia instructions, the unaligned
-/// accesses and the exceptions are left to the interpreter: a block ends
-/// before them, and a load or store, a trapping add or a misaligned address
-/// exits before its effects.
+/// HI/LO and HI1/LO1 live in four extra 64-bit context slots synchronized
+/// by Ps2Jit at compiled/interpreter boundaries. Integer DIV/DIVU and
+/// MMI DIV1/DIVU1 preserve zero-divisor/overflow semantics. Other multimedia,
+/// coprocessor and exception instructions remain interpreter fallbacks.
 final class R5900Translator {
   static const defaultMaxInstructions = 32;
   static const ctxRegs = JitCtx.user;
-  static const ctxWords = ctxRegs + 32 * 4;
+  static const ctxHi = ctxRegs + 32 * 4;
+  static const ctxLo = ctxHi + 2;
+  static const ctxHi1 = ctxLo + 2;
+  static const ctxLo1 = ctxHi1 + 2;
+  static const ctxWords = ctxLo1 + 2;
   static const interpret = JitReason.user;
 
   final int maxInstructions;
@@ -26,6 +28,8 @@ final class R5900Translator {
   final _lowRegs = List<IrValue?>.filled(32, null);
   final _wideRegs = List<IrValue?>.filled(32, null);
   final _dirty = <int>{};
+  final _specialRegs = <int, IrValue>{};
+  final _specialDirty = <int>{};
 
   R5900Translator(
       {required this.fetch,
@@ -37,6 +41,26 @@ final class R5900Translator {
 
   IrValue _c(int value) => b.c32(value);
   IrValue _c64(int value) => b.c64Parts(value, value >> 32);
+  IrValue _specialReg(int word) =>
+      _specialRegs[word] ??= b.ctxLoad(word, type: IrType.i64);
+  void _setSpecial(int word, IrValue value) {
+    _specialRegs[word] = value;
+    _specialDirty.add(word);
+  }
+
+  void _divide(int s, int t, {bool signed = true, bool pipe1 = false}) {
+    final x = _low(s), y = _low(t), zero = _c(0);
+    final byZero = b.eq(y, zero);
+    final quotient = signed ? b.divS(x, y) : b.divU(x, y);
+    final remainder = signed ? b.remS(x, y) : b.remU(x, y);
+    final zeroQuotient = signed
+        ? b.select(b.ltS(x, zero), _c(1), _c(-1))
+        : _c(-1);
+    _setSpecial(pipe1 ? ctxLo1 : ctxLo,
+        b.sext32(b.select(byZero, zeroQuotient, quotient)));
+    _setSpecial(pipe1 ? ctxHi1 : ctxHi,
+        b.sext32(b.select(byZero, x, remainder)));
+  }
 
   IrValue _get64(int r) => r == 0
       ? _c64(0)
@@ -61,11 +85,15 @@ final class R5900Translator {
           {int reason = interpret, bool link = false}) =>
       IrExit(reason, pc, spent: spent, link: link, stores: [
         for (final r in _dirty) (_ctxLow(r), _wideRegs[r]!),
+        for (final word in _specialDirty) (word, _specialRegs[word]!),
       ]);
 
   void _flush() {
     for (final r in _dirty) {
       b.ctxStore(_ctxLow(r), _wideRegs[r]!);
+    }
+    for (final word in _specialDirty) {
+      b.ctxStore(word, _specialRegs[word]!);
     }
   }
 
@@ -88,7 +116,8 @@ final class R5900Translator {
   }
 
   static const _special = [
-    0, 2, 3, 4, 6, 7, 10, 11, 15, 20, 22, 23, 32, 33, 34, 35, 36, 37, 38, //
+    0, 2, 3, 4, 6, 7, 10, 11, 15, 16, 17, 18, 19, 20, 22, 23,
+    26, 27, 32, 33, 34, 35, 36, 37, 38, //
     39, 42, 43, 45, 47, 56, 58, 59, 60, 62, 63,
   ];
   static const _immediate = [8, 9, 10, 11, 12, 13, 14, 15, 25, 47, 51];
@@ -96,6 +125,10 @@ final class R5900Translator {
   static bool _supported(int op) {
     final code = op >>> 26;
     if (code == 0) return _special.contains(op & 63);
+    if (code == 28) {
+      return const [0x10, 0x11, 0x12, 0x13, 0x1a, 0x1b]
+          .contains(op & 63);
+    }
     return _immediate.contains(code) || _memory(op);
   }
 
@@ -118,6 +151,8 @@ final class R5900Translator {
     _wideRegs.fillRange(0, 32, null);
     _lowRegs.fillRange(0, 32, null);
     _dirty.clear();
+    _specialRegs.clear();
+    _specialDirty.clear();
     var spent = 0, at = pc;
     IrBlock? end() => spent == 0
         ? null
@@ -212,6 +247,16 @@ final class R5900Translator {
               fn == 10
                   ? b.select(zero, _get64(s), _get64(d))
                   : b.select(zero, _get64(d), _get64(s)));
+        case 16: // MFHI
+          _put64(d, _specialReg(ctxHi));
+        case 17: // MTHI
+          _setSpecial(ctxHi, _get64(s));
+        case 18: // MFLO
+          _put64(d, _specialReg(ctxLo));
+        case 19: // MTLO
+          _setSpecial(ctxLo, _get64(s));
+        case 26 || 27: // DIV, DIVU
+          _divide(s, t, signed: fn == 26);
         case 20 || 22 || 23: // DSLLV, DSRLV, DSRAV
           final shift = b.and(_low(s), _c(63));
           final value = _get64(t);
@@ -260,6 +305,19 @@ final class R5900Translator {
       return;
     }
     switch (code) {
+      case 28: // MMI HI1/LO1 transfers and second integer divider
+        switch (op & 63) {
+          case 0x10:
+            _put64(d, _specialReg(ctxHi1));
+          case 0x11:
+            _setSpecial(ctxHi1, _get64(s));
+          case 0x12:
+            _put64(d, _specialReg(ctxLo1));
+          case 0x13:
+            _setSpecial(ctxLo1, _get64(s));
+          case 0x1a || 0x1b:
+            _divide(s, t, signed: (op & 63) == 0x1a, pipe1: true);
+        }
       case 8:
         _word(t, _checkedWord(_low(s), _c(imm), sideExit!));
       case 9:
