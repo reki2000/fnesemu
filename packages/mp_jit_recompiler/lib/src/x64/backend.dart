@@ -383,7 +383,7 @@ abstract final class X64Backend {
         case IrOp.sub:
           alu(Alu.sub);
         case IrOp.and:
-          alu(Alu.and);
+          if (fused[i] < 0) alu(Alu.and);
         case IrOp.or:
           alu(Alu.or);
         case IrOp.xor:
