@@ -373,7 +373,7 @@ abstract final class Arm64Backend {
           swap(0, i.imm, i.endian);
           a.memory(false, 0, 5, 0, size: i.imm);
           a.bind(done);
-        case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul:
+        case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
           load(0, i.a);
           load(1, i.b);
           a.emit(w ? 0x9e670000 : 0x1e270000);
@@ -387,8 +387,18 @@ abstract final class Arm64Backend {
                 ? 0x1e612800
                 : i.op == IrOp.floatSub
                 ? 0x1e613800
-                : 0x1e610800,
+                : i.op == IrOp.floatMul
+                ? 0x1e610800
+                : 0x1e611800,
           );
+          if (!w) a.emit(0x1e624000);
+          a.emit(w ? 0x9e660000 : 0x1e260000);
+          save(0, v);
+        case IrOp.floatSqrt:
+          load(0, i.a);
+          a.emit(w ? 0x9e670000 : 0x1e270000);
+          if (!w) a.emit(0x1e22c000);
+          a.emit(0x1e61c000);
           if (!w) a.emit(0x1e624000);
           a.emit(w ? 0x9e660000 : 0x1e260000);
           save(0, v);

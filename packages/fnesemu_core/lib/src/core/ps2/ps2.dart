@@ -19,6 +19,7 @@ import 'iop/memory_card.dart';
 import 'iop/pad.dart';
 import 'iop/spu2.dart';
 import 'iso9660.dart';
+import 'jit/iop_jit.dart';
 import 'jit/ps2_jit.dart';
 import 'r5900/r5900.dart';
 import 'state.dart';
@@ -42,15 +43,19 @@ class Ps2 extends Core {
 
   /// the EE recompiler, or null when the interpreter runs alone
   final Ps2Jit? jit;
+
+  /// the IOP recompiler, created with the EE one
+  final IopJit? iopJit;
   final Ps2Bus bus;
-  late final R5900 cpu = R5900(bus, gpr: jit?.gpr);
+  late final R5900 cpu = R5900(bus, gpr: jit?.gpr, fpr: jit?.fpr);
   late EeIo io = _newIo();
 
   Ps2({bool jit = const bool.fromEnvironment('JIT', defaultValue: true)})
-      : this._(jit ? Ps2Jit.create() : null);
+      : this._(jit ? Ps2Jit.create() : null, jit ? IopJit.create() : null);
 
-  Ps2._(this.jit) : bus = Ps2Bus(ram: jit?.ram) {
+  Ps2._(this.jit, this.iopJit) : bus = Ps2Bus(ram: jit?.ram) {
     jit?.attach(cpu);
+    iopJit?.attach(iop, iopMemory);
   }
 
   @override
@@ -70,10 +75,13 @@ class Ps2 extends Core {
   int get jitClocks => jit?.compiledClocks ?? 0;
 
   @override
-  void dispose() => jit?.dispose();
+  void dispose() {
+    jit?.dispose();
+    iopJit?.dispose();
+  }
 
-  late final IopMemory iopMemory = IopMemory(bus.bios);
-  late final Iop iop = Iop(iopMemory);
+  late final IopMemory iopMemory = IopMemory(bus.bios, ram: iopJit?.ram);
+  late final Iop iop = Iop(iopMemory, regs: iopJit?.regs);
   late IopIo iopIo = _newIopIo();
 
   IopIo _newIopIo() {
@@ -219,6 +227,7 @@ class Ps2 extends Core {
   @override
   void reset() {
     jit?.reset();
+    iopJit?.reset();
     cpu.reset();
     io = _newIo();
     iop.reset();
@@ -304,6 +313,7 @@ class Ps2 extends Core {
     s.end();
     // compiled code may hold the old memory
     jit?.reset();
+    iopJit?.reset();
     io.intc.dirty = io.dmac.dirty = true;
     _updateInterruptLines();
     iop.setInterrupt(iopIo.asserted);
@@ -329,8 +339,15 @@ class Ps2 extends Core {
     _iopFraction += eeClocks;
     final steps = _iopFraction >> 3;
     _iopFraction &= 7;
-    for (var i = 0; i < steps; i++) {
-      iop.step();
+    var remaining = steps;
+    while (remaining > 0) {
+      final ran = iopJit?.run(remaining) ?? 0;
+      if (ran > 0) {
+        remaining -= ran;
+      } else {
+        iop.step();
+        remaining--;
+      }
     }
     iopIo.advanceTimers(steps);
     iopIo.service();

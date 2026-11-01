@@ -42,6 +42,10 @@ enum IrOp {
   floatAdd,
   floatSub,
   floatMul,
+  floatDiv,
+
+  /// the square root of a; IEEE bit patterns as for the binary operations
+  floatSqrt,
 
   /// Converts IEEE bits between binary32 (i32) and binary64 (i64); widening
   /// is exact and narrowing rounds to nearest even.
@@ -124,6 +128,7 @@ int irOperandCount(IrOp op) => switch (op) {
   IrOp.trunc32 ||
   IrOp.floatConvert ||
   IrOp.floatToInt ||
+  IrOp.floatSqrt ||
   IrOp.load ||
   IrOp.exitIf ||
   IrOp.guardMapped => 1,
@@ -466,6 +471,8 @@ final class IrBlock {
           width(type(inst.a) == IrType.i32 && inst.type == IrType.i64);
         case IrOp.trunc32:
           width(type(inst.a) == IrType.i64 && inst.type == IrType.i32);
+        case IrOp.floatSqrt:
+          width(inst.type == type(inst.a));
         case IrOp.floatConvert:
           width(type(inst.a) != inst.type);
         case IrOp.floatToInt:
@@ -642,11 +649,19 @@ final class IrBuilder {
   );
 
   IrValue floatBinary(IrOp op, IrValue a, IrValue value) {
-    if (!const [IrOp.floatAdd, IrOp.floatSub, IrOp.floatMul].contains(op)) {
+    if (!const [
+      IrOp.floatAdd,
+      IrOp.floatSub,
+      IrOp.floatMul,
+      IrOp.floatDiv,
+    ].contains(op)) {
       throw ArgumentError.value(op);
     }
     return _emit(IrInst(op, a: a.index, b: value.index, type: typeOf(a)));
   }
+
+  IrValue floatSqrt(IrValue a) =>
+      _emit(IrInst(IrOp.floatSqrt, a: a.index, type: typeOf(a)));
 
   /// binary32 (i32) to binary64 (i64) exactly, or back rounding to nearest
   IrValue floatConvert(IrValue a) => _emit(

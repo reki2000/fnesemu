@@ -497,7 +497,7 @@ abstract final class X64Backend {
               a.movMR(m, R.rax, w: true);
           }
           a.bind(done);
-        case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul:
+        case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
           load(R.rax, inst.a);
           load(R.rcx, inst.b);
           a.floatBinary(
@@ -505,9 +505,15 @@ abstract final class X64Backend {
                 ? 0x58
                 : inst.op == IrOp.floatSub
                 ? 0x5c
-                : 0x59,
+                : inst.op == IrOp.floatMul
+                ? 0x59
+                : 0x5e,
             wide: wide(i),
           );
+          save(i, R.rax);
+        case IrOp.floatSqrt:
+          load(R.rax, inst.a);
+          a.floatSqrt(wide: wide(i));
           save(i, R.rax);
         case IrOp.floatConvert:
           load(R.rax, inst.a);

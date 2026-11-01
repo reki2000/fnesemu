@@ -26,6 +26,8 @@ final class Ps2Jit {
   late final ByteData _ram = ByteData.sublistView(ram);
   late final Int64List gpr = Int64List.view(
       rt.ctx.buffer, rt.ctx.offsetInBytes + R5900Translator.ctxRegs * 4, 64);
+  late final Uint32List fpr = Uint32List.view(rt.ctx.buffer,
+      rt.ctx.offsetInBytes + R5900Translator.ctxFpr * 4, 32);
   late final R5900 cpu;
   late final R5900Translator _translator;
   late final _code = JitCodeMemory(rt);
@@ -140,11 +142,20 @@ final class Ps2Jit {
         _outsideRam(_unmappedLoadBase, _unmappedLoadOffset)) {
       return false;
     }
-    if (_driver.isFallback(pc, 0)) return false;
+    // The tag records whether COP1 is usable: blocks compiled with it
+    // clear translate no COP1 instructions, so a usable exception is
+    // never skipped, and blocks compiled with it set keep working when
+    // the bit later clears.
+    final tag = cpu.cop1Usable ? 1 : 0;
+    if (_driver.isFallback(pc, tag)) return false;
     if (!cpu.prepareCompiled()) return false;
     final untilCompare = cpu.instructionsUntilCompare;
     if (untilCompare != 0 && untilCompare < budget) budget = untilCompare;
-    final reason = _driver.runBudgeted(pc, 0, budget);
+    rt.ctx[R5900Translator.ctxFacc] = cpu.facc;
+    rt.ctx[R5900Translator.ctxFcr31] = cpu.fcr31;
+    final reason = _driver.runBudgeted(pc, tag, budget);
+    cpu.facc = rt.ctx[R5900Translator.ctxFacc];
+    cpu.fcr31 = rt.ctx[R5900Translator.ctxFcr31];
     final spent = _driver.lastClocks;
     if (spent == 0) {
       if (reason == R5900Translator.interpret && rt.exitPc == pc) {
