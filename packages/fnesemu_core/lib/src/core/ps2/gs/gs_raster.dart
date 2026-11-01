@@ -361,11 +361,20 @@ class GsRaster {
       }
     }
     final fi = _frameLayout.index(_fbp, _framePages, x, y);
-    // the 32-bit formats read as a plain word, without the format switch
-    // of readAt on the per-pixel path
-    final fraw = _fpsm == GsPsm.ct32 || _fpsm == GsPsm.z32
-        ? mem.word(fi)
-        : mem.readAt(_fpsm, fi);
+    // The old frame word feeds only the DATE test, blending and the write
+    // mask merge, so read it only when one of them applies; the read stays
+    // ahead of the depth write below, as the frame and depth buffers can
+    // share memory. The 32-bit formats read as a plain word, without the
+    // format switch of readAt on the per-pixel path.
+    final needFraw = (_date && _fcolor != GsPsm.ct24) ||
+        (_abe && (gs.pabe == 0 || a & 0x80 != 0)) ||
+        _fbmsk != 0 ||
+        keepAlpha;
+    final fraw = !needFraw
+        ? 0
+        : _fpsm == GsPsm.ct32 || _fpsm == GsPsm.z32
+            ? mem.word(fi)
+            : mem.readAt(_fpsm, fi);
     if (_date && _fcolor != GsPsm.ct24) {
       final bit = _fcolor == GsPsm.ct32 ? (fraw >> 31) & 1 : (fraw >> 15) & 1;
       if ((bit != 0) != _datm) return;
@@ -463,7 +472,14 @@ class GsRaster {
         _ => 0xff000000,
       };
     }
-    gs.mem.writeAt(_fpsm, fi, (old & mask) | (packed & ~mask));
+    final merged = (old & mask) | (packed & ~mask);
+    // the 32-bit formats store as a plain word, without the format switch
+    // of writeAt on the per-pixel path
+    if (_fpsm == GsPsm.ct32 || _fpsm == GsPsm.z32) {
+      gs.mem.setWord(fi, merged);
+    } else {
+      gs.mem.writeAt(_fpsm, fi, merged);
+    }
   }
 
   // ---- texturing ----

@@ -2,7 +2,8 @@
 //
 // usage: dart build cli -t tool/ps2_bench.dart -o /tmp/ps2-bench
 //        /tmp/ps2-bench/bundle/bin/ps2_bench
-//            <ee|ee-fpu|jit|vu|dma|gs-sprite|gs-tri|gs-occlusion> [rounds]
+//            <ee|ee-fpu|jit|vu|dma|gs-sprite|gs-tri|gs-occlusion|iop|spu2>
+//            [rounds]
 //        (the jit workload needs the native library that dart build cli
 //        bundles; an executable from dart compile exe cannot load it)
 //        (dart run tool/ps2_bench.dart ... also works, but its times are
@@ -15,6 +16,8 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/gs/gs.dart';
 import 'package:fnesemu_core/src/core/ps2/gs/gs_memory.dart';
+import 'package:fnesemu_core/src/core/ps2/iop/iop.dart';
+import 'package:fnesemu_core/src/core/ps2/iop/spu2.dart';
 import 'package:fnesemu_core/src/core/ps2/jit/ps2_jit.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:fnesemu_core/src/core/ps2/vu.dart';
@@ -288,6 +291,119 @@ int _gsHash(Gs gs) {
   return (() => _gsHash(gs), tris);
 }
 
+// ---- IOP: the EE checksum loop on the MIPS I core, load-delay safe ----
+
+class _IopRam implements IopBus {
+  final data = ByteData(0x10000);
+
+  int _a(int a) => a & 0xffff;
+  @override
+  int read8(int a) => data.getUint8(_a(a));
+  @override
+  int read16(int a) => data.getUint16(_a(a), Endian.little);
+  @override
+  int read32(int a) => data.getUint32(_a(a), Endian.little);
+  @override
+  void write8(int a, int v) => data.setUint8(_a(a), v);
+  @override
+  void write16(int a, int v) => data.setUint16(_a(a), v, Endian.little);
+  @override
+  void write32(int a, int v) => data.setUint32(_a(a), v, Endian.little);
+}
+
+const _iopCode = 0x1000, _iopData = 0x4000;
+const _iopOuter = int.fromEnvironment('BENCH_LOOPS', defaultValue: 2000);
+final _iopProgram = [
+  _i(0x09, 0, 8, _iopData), // addiu t0, r0, data
+  _i(0x09, 0, 16, _iopOuter), // addiu s0, r0, outer
+  _i(0x09, 8, 9, 0), // outer: addiu t1, t0, 0
+  _i(0x09, 0, 10, 1024), // addiu t2, r0, 1024
+  _i(0x23, 9, 11, 0), // inner: lw t3, 0(t1)
+  0, // nop (the load is invisible to the next instruction)
+  _i(0x09, 10, 10, -1), // addiu t2, t2, -1
+  _r(11, 12, 12, 0x21), // addu t4, t3, t4
+  _r(0, 12, 13, 0x00, 3), // sll t5, t4, 3
+  _r(13, 12, 12, 0x26), // xor t4, t5, t4
+  _i(0x2b, 9, 12, 0x1000), // sw t4, 0x1000(t1)
+  _i(0x05, 10, 0, -8), // bne t2, r0, inner
+  _i(0x09, 9, 9, 4), // addiu t1, t1, 4 (delay slot)
+  _i(0x09, 16, 16, -1), // addiu s0, s0, -1
+  _i(0x05, 16, 0, -13), // bne s0, r0, outer
+  0, // nop (delay slot)
+  _i(0x02, 0, 0, 0) | (_iopCode + 4 * 16) >> 2, // end: j end
+  0,
+];
+const _iopEnd = _iopCode + 4 * 16;
+
+(int Function(), int) _runIop() {
+  final bus = _IopRam();
+  final cpu = Iop(bus);
+  for (var i = 0; i < 1024; i++) {
+    bus.write32(_iopData + 4 * i, i * 2654435761 & 0xffffffff);
+  }
+  for (final (i, inst) in _iopProgram.indexed) {
+    bus.write32(_iopCode + 4 * i, inst);
+  }
+  cpu.jump(_iopCode);
+  cpu.cop0[Iop.cop0Status] = 0;
+  while (cpu.pc != _iopEnd) {
+    cpu.step();
+  }
+  final checksum = cpu.r[12];
+  return (() => checksum, cpu.clocks);
+}
+
+// ---- SPU2: sixteen looping voices on core 0, two seconds of samples ----
+
+(int Function(), int) _runSpu2() {
+  final s = Spu2();
+  void w(int offset, int value) => s.write(Spu2.base + offset, 2, value);
+  const voices = 16, blocks = 16;
+  for (var v = 0; v < voices; v++) {
+    final at = 0x10000 + v * 0x800;
+    for (var b = 0; b < blocks; b++) {
+      // the first block starts the loop, the last one ends and repeats it
+      final flags = b == 0 ? 4 : (b == blocks - 1 ? 3 : 0);
+      s.ram[at + b * 8] = flags << 8 | (b % 5 << 4) | b % 3;
+      for (var i = 1; i < 8; i++) {
+        s.ram[at + b * 8 + i] = ((v + b + i) & 0xf) * 0x1111;
+      }
+    }
+    w(v * 0x10, 0x3fff); // VOLL
+    w(v * 0x10 + 2, 0x3fff); // VOLR
+    w(v * 0x10 + 4, 0x1000); // pitch 1.0
+    w(v * 0x10 + 6, 0x00ff); // attack as fast as possible, sustain level max
+    w(v * 0x10 + 8, 0x0000);
+    w(0x1c0 + v * 12, at >> 16); // SSA high
+    w(0x1c0 + v * 12 + 2, at & 0xffff); // SSA low
+  }
+  w(0x188, 0xffff); // VMIXL voices 0-15
+  w(0x190, 0xffff); // VMIXR voices 0-15
+  w(0x760, 0x3fff); // core 0 MVOLL
+  w(0x762, 0x3fff); // core 0 MVOLR
+  w(0x788, 0x3fff); // core 1 MVOLL: core 0 mixes into core 1
+  w(0x78a, 0x3fff); // core 1 MVOLR
+  var hash = 0;
+  s.onAudio = (buf) {
+    for (var i = 0; i < buf.length; i++) {
+      hash = (hash * 31 + (buf[i] * 32768).toInt()) & 0x3fffffffffffffff;
+    }
+  };
+  w(0x1a0, 0xffff); // KON voices 0-15
+  const samples = 96000;
+  s.advance(Spu2.clocksPerSample * samples);
+  int checksum() {
+    var h = hash;
+    for (var v = 0; v < voices; v++) {
+      h = (h * 31 + s.read(Spu2.base + v * 0x10 + 0xa, 2)) &
+          0x3fffffffffffffff;
+    }
+    return h;
+  }
+
+  return (checksum, samples);
+}
+
 void main(List<String> args) {
   final name = args.isEmpty ? 'ee' : args[0];
   final rounds = args.length > 1 ? int.parse(args[1]) : 5;
@@ -300,6 +416,8 @@ void main(List<String> args) {
     'gs-sprite' => (_runGsSprite, 'pixels'),
     'gs-tri' => (_runGsTri, 'triangles'),
     'gs-occlusion' => (_runGsOcclusion, 'pixels'),
+    'iop' => (_runIop, 'instructions'),
+    'spu2' => (_runSpu2, 'samples'),
     _ => throw ArgumentError('unknown workload: $name'),
   };
   int? checksum;

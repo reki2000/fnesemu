@@ -227,6 +227,7 @@ class Spu2 {
     for (var i = 0; i < 24; i++) {
       if (bits & (1 << i) != 0) {
         core.voices[i].keyOn();
+        core.voicesIdle = false;
         core.endx &= ~(1 << i);
       }
     }
@@ -303,7 +304,13 @@ class Spu2 {
     for (final c in cores) {
       var l = left, r = right;
       left = right = 0;
+      if (c.voicesIdle && !c.admaActive) {
+        left = l * c.mvolxL >> 15;
+        right = r * c.mvolxR >> 15;
+        continue;
+      }
       var prev = 0;
+      var sounding = 0;
       final voices = c.voices;
       for (var i = 0; i < 24; i++) {
         final v = voices[i];
@@ -312,6 +319,7 @@ class Spu2 {
           continue;
         }
         final s = v.clock(this, c.pmon & (1 << i) != 0 && i > 0, prev);
+        if (v.phase != Spu2Voice.off) sounding++;
         if (v.endReached) {
           v.endReached = false;
           c.endx |= 1 << i;
@@ -320,6 +328,7 @@ class Spu2 {
         if (c.vmixl & (1 << i) != 0) l += s * v.volxL >> 15;
         if (c.vmixr & (1 << i) != 0) r += s * v.volxR >> 15;
       }
+      if (sounding == 0) c.voicesIdle = true;
       if (c.admaActive) {
         final at = 0x2000 + c.index * 0x400 + c.admaPlayHalf * 0x100;
         l += ram[at + c.admaPos].toSigned(16);
@@ -356,6 +365,10 @@ class Spu2Core {
   int attr = 0, irqa = 0, tsa = 0, admaCtrl = 0, endx = 0;
   int pmon = 0, vmixl = 0, vmixr = 0;
   int mvolxL = 0, mvolxR = 0;
+
+  /// whether every voice is off, kept by the key-on path and by the
+  /// sample loop, so an idle core costs only its master volume scaling
+  bool voicesIdle = true;
 
   // the AutoDMA input: two halves of 256 samples per side, one plays while
   // the DMA fills the other
@@ -397,6 +410,7 @@ class Spu2Core {
     for (final voice in voices) {
       voice.loadState(s);
     }
+    voicesIdle = voices.every((v) => v.phase == Spu2Voice.off);
   }
 
   void reset() {
@@ -406,6 +420,7 @@ class Spu2Core {
     regs.fillRange(0, regs.length, 0);
     attr = irqa = tsa = admaCtrl = endx = 0;
     pmon = vmixl = vmixr = mvolxL = mvolxR = 0;
+    voicesIdle = true;
     setAdmaCtrl(0);
   }
 

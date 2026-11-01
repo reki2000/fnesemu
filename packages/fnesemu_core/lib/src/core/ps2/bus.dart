@@ -64,7 +64,14 @@ class Ps2Bus {
   final _filled = Int32List(4096);
   int _filledCount = 0;
 
+  int _fetchEpoch = 0;
+
+  /// bumped whenever the page tables are cleared, so a code page cached
+  /// by the CPU can tell that it went stale
+  int get fetchEpoch => _fetchEpoch;
+
   void _clearPages() {
+    _fetchEpoch++;
     if (_filledCount > _filled.length) {
       _readPages.fillRange(0, _pageCount, 0);
       _writePages.fillRange(0, _pageCount, 0);
@@ -283,6 +290,21 @@ class Ps2Bus {
     return r == null
         ? _readIo(2) & 0xffff
         : r.getUint16(_offset, Endian.little);
+  }
+
+  /// The word view and the word index of the page start for the code page
+  /// holding [addr], resolved through the read page tables as [read32]
+  /// resolves it, or null when the page does not resolve that way. A page
+  /// entry never changes target without clearing the tables, which bumps
+  /// [fetchEpoch], so a caller may cache the result against that epoch.
+  (Uint32List, int)? fetchPage(int addr) {
+    if ((addr & 3) != 0 || !_fastPaged(addr, false)) return null;
+    final base = (_offset - (addr & 0xfff)) >> 2;
+    return switch (_fastRegion) {
+      0 => (_ram32, base),
+      1 => (_scratch32, base),
+      _ => (_bios32, base),
+    };
   }
 
   int read32(int addr) {
