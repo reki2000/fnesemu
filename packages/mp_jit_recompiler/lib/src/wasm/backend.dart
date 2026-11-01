@@ -86,7 +86,8 @@ abstract final class WasmBackend {
         IrOp.ne => wide(cmp.a) ? 0x52 : 0x47,
         IrOp.ltS => wide(cmp.a) ? 0x53 : 0x48,
         IrOp.ltU => wide(cmp.a) ? 0x54 : 0x49,
-        _ => throw StateError('not a fused comparison'),
+        IrOp.and => wide(cmp.a) ? 0x83 : 0x71,
+        _ => throw StateError('not a fused condition'),
       });
     }
 
