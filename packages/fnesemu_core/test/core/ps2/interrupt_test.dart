@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 // lui-free program: every instruction is a NOP (sll r0, r0, 0)
 Ps2 _ps2() {
   final ps2 = Ps2();
+  addTearDown(ps2.dispose);
   ps2.reset();
   ps2.cpu.jumpTo(0x100000);
   return ps2;

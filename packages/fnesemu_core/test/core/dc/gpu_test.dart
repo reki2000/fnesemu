@@ -166,6 +166,7 @@ void main() {
     expect(bus.read32(0xa5000000), 0x11223344);
     expect(bus.read32(registers + 8), 7);
     final core = Dc();
+    addTearDown(core.dispose);
     core.bus.write32(0xa5000000, 42);
     core.reset();
     expect(core.bus.read32(0xa5000000), 0);
@@ -194,6 +195,7 @@ void main() {
     bytes.setUint16(30, 0xaffe, Endian.little);
     bytes.setUint16(32, 9, Endian.little);
     final core = Dc()..setRom(program);
+    addTearDown(core.dispose);
     expect(core.imageBuffer().buffer, isEmpty);
     for (var i = 0; i < writes.length * 3; i++) {
       expect(core.exec(true).stopped, isFalse);

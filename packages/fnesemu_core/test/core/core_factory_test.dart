@@ -77,7 +77,9 @@ void main() {
 
   test('every system has its core', () {
     for (final s in CoreFactory.systems) {
-      expect(CoreFactory.of(s.id), isNotNull, reason: s.id);
+      final core = CoreFactory.of(s.id);
+      addTearDown(core.dispose);
+      expect(core, isNotNull, reason: s.id);
     }
   });
 

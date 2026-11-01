@@ -201,6 +201,7 @@ void main() {
   test('manual CPU reset retains AICA, full reset clears RAM but retains RTC',
       () {
     final core = Dc(), bus = DcBus();
+    addTearDown(core.dispose);
     for (final target in [core.bus, bus]) {
       target.write32(wave, 0x12345678);
       target.write32(registers + 0x28b8, 0x20);
@@ -223,6 +224,7 @@ void main() {
 
   test('guest SH4 program writes and reads AICA wave RAM', () {
     final core = Dc();
+    addTearDown(core.dispose);
     final program = Uint8List(6);
     // MOV.L R0,@R1; MOV.L @R1,R2; MOV.L R2,@R3.
     for (final (index, opcode) in [0x2102, 0x6212, 0x2322].indexed) {
@@ -267,6 +269,7 @@ void main() {
 
   test('guest SH4 handler acknowledges the AICA timer and returns', () {
     final core = Dc()..setRom(Uint8List.fromList([0x2a, 0xe9, 9, 0]));
+    addTearDown(core.dispose);
     final bus = core.bus;
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c030000;
@@ -318,6 +321,7 @@ void main() {
 
   test('SH4 starts an ARM diagnostic and both CPUs continue running', () {
     final core = Dc()..setRom(Uint8List.fromList([2, 0x21, 0xfe, 0xaf, 9, 0]));
+    addTearDown(core.dispose);
     core.cpu.r[0] = 0;
     core.cpu.r[1] = registers + 0x2c00;
     for (final (i, op)

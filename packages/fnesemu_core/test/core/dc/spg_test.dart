@@ -111,6 +111,7 @@ void main() {
   test('HOLLY receives SPG sources and SH4 accepts a configured VBlank IRQ',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
+    addTearDown(core.dispose);
     tiny(core.bus);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c030000;
@@ -253,6 +254,7 @@ void main() {
 
   test('video continues while CPG pauses SH4 clocks for PLL stabilization', () {
     final core = Dc()..setRom(Uint8List.fromList([9, 0]));
+    addTearDown(core.dispose);
     tiny(core.bus);
     core.bus.write16(0xffc00008, 0x5af0);
     core.bus.write16(0xffc00000, 0xe13);

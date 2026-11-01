@@ -159,6 +159,7 @@ void main() {
   test('Core waits for clock stabilization without executing an instruction',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0x2a, 0xe9]));
+    addTearDown(core.dispose);
     core.bus.write16(base + 8, 0x5aff);
     core.bus.write16(base, 0xe13);
     final waiting = core.exec(true);
@@ -173,6 +174,7 @@ void main() {
   test('Core accounts divided CPU cycles and detects crossed slice deadlines',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
+    addTearDown(core.dispose);
     core.bus.write16(base + 8, 0x5aff);
     core.bus.write16(base, 0xeec);
     core.exec(true);
@@ -190,6 +192,7 @@ void main() {
       'SLEEP leaves peripherals running and a timer handler resumes the next instruction',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0x1b, 0, 0x2a, 0xe9]));
+    addTearDown(core.dispose);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c030000;
     core.cpu.r[10] = 0x20;

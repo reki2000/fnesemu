@@ -44,6 +44,7 @@ void main() {
   void frames([int count = 256]) => core.bus.tickMasterClocks(clocks(count));
   setUp(() {
     core = Dc();
+    addTearDown(core.dispose);
     packets = [];
     core.onAudio(packets.add);
     write(0x2800, 15);
@@ -174,6 +175,7 @@ void main() {
       'MIXS clears on the sample after the last voice even without an audio sink',
       () {
     core = Dc();
+    addTearDown(core.dispose);
     write(0x2800, 15);
     configure(0, end: 0);
     key();
@@ -236,6 +238,7 @@ void main() {
   test('direct and effect sums clip only at the selected DAC boundary', () {
     for (final mode in [0, 0x100]) {
       core = Dc();
+      addTearDown(core.dispose);
       packets.clear();
       core.onAudio(packets.add);
       write(0x2800, 15 | mode);

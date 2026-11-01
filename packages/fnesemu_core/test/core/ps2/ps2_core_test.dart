@@ -31,6 +31,7 @@ Uint8List _loopElf() {
 void main() {
   test('an ELF program draws a sprite that shows up in the image buffer', () {
     final ps2 = Ps2()..setRom(_loopElf());
+    addTearDown(ps2.dispose);
     final bus = ps2.bus;
     expect(ps2.imageBuffer().width, 0);
 

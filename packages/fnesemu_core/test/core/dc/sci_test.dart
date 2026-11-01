@@ -315,6 +315,7 @@ void main() {
   test('Core executes a guest SCI output program', () {
     final core = Dc()
       ..setRom(Uint8List.fromList([0x00, 0x21, 0xfe, 0xaf, 9, 0]));
+    addTearDown(core.dispose);
     final output = <int>[];
     core.bus.sci.onTransmit = output.add;
     core.bus.write8(base + 4, 0);

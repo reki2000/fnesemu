@@ -92,7 +92,9 @@ void main() {
 
   test('every button of every core can be written', () {
     for (final system in CoreFactory.systems) {
-      final names = CoreFactory.of(system.id).buttons.map((b) => b.name);
+      final core = CoreFactory.of(system.id);
+      addTearDown(core.dispose);
+      final names = core.buttons.map((b) => b.name);
       for (final name in names.where((n) => n.isNotEmpty)) {
         expect(presses(quoteButton(name)), [(0, name, 10)],
             reason: '${system.id}: $name');

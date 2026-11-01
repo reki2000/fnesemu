@@ -41,6 +41,7 @@ void main() {
           0x8000 | (on ? 0x4000 : 0) | (format << 7) | (loop ? 0x200 : 0));
   setUp(() {
     core = Dc();
+    addTearDown(core.dispose);
     packets = [];
     core.onAudio(packets.add);
     core.bus.write32(base + 0x2800, 15);
@@ -236,6 +237,7 @@ void main() {
 
   test('batched audio matches individual clocks with shared wave-RAM DMA', () {
     final single = Dc();
+    addTearDown(single.dispose);
     final singlePackets = <AudioBuffer>[];
     single.onAudio(singlePackets.add);
     configure(0, loop: true, end: 2);

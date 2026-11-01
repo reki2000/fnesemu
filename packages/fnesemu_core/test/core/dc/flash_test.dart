@@ -217,6 +217,7 @@ void main() {
     cpu.reset();
     expect(bus.read8(base + 1), 0xb0);
     final core = Dc()..setRom(Uint8List.fromList([9, 0]));
+    addTearDown(core.dispose);
     core.bus.flash.loadImage(Uint8List(DcFlash.size));
     core.reset();
     expect(core.bus.read8(base), 0);
@@ -226,11 +227,13 @@ void main() {
       () {
     final storage = _PersistentSram();
     final first = Dc()..setSram(storage);
+    addTearDown(first.dispose);
     first.bus.flash.loadImage(Uint8List(DcFlash.size));
     first.setRom(Uint8List.fromList([9, 0]));
     first.reset();
     expect(storage.id, 'dc/sram/system_flash');
     final second = Dc()..setSram(storage);
+    addTearDown(second.dispose);
     expect(second.bus.read8(base), 0);
     second.bus.write8(base + 0x555, 0xaa);
     second.bus.write8(base + 0x2aa, 0x55);
@@ -264,6 +267,7 @@ void main() {
     final core = Dc()
       ..setSram(storage)
       ..setRom(program);
+    addTearDown(core.dispose);
     core.cpu.r[1] = base + 0x555;
     core.cpu.r[2] = base + 0x2aa;
     core.cpu.r[3] = base + 123;
@@ -273,6 +277,7 @@ void main() {
     expect(core.bus.read8(base + 123), 0x5a);
     expect(storage.read8(123), 0x5a);
     final restored = Dc()..setSram(storage);
+    addTearDown(restored.dispose);
     expect(restored.bus.read8(base + 123), 0x5a);
     expect(restored.bus.read8(base + 124), 255);
   });

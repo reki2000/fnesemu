@@ -193,6 +193,7 @@ void main() {
         (read(slot * 0x80) & ~0x4000) | 0x8000 | (on ? 0x4000 : 0));
     setUp(() {
       core = Dc();
+      addTearDown(core.dispose);
       packets = [];
       core.onAudio(packets.add);
       write(0x2800, 15);
@@ -272,6 +273,7 @@ void main() {
     test('PCM8 and ADPCM sources both pass through amplitude modulation', () {
       for (final format in [1, 2]) {
         core = Dc();
+        addTearDown(core.dispose);
         packets.clear();
         core.onAudio(packets.add);
         write(0x2800, 15);
@@ -326,6 +328,7 @@ void main() {
         'inactive oscillators advance lazily without requiring an audio callback',
         () {
       core = Dc();
+      addTearDown(core.dispose);
       write(0x2800, 15);
       configure(0, loop: true, end: 1);
       write(0x1c, fast | 7);
@@ -396,6 +399,7 @@ void main() {
       final expected = packets.single.buffer.toList();
       final address = read(0x2814);
       core = Dc();
+      addTearDown(core.dispose);
       packets.clear();
       core.onAudio(packets.add);
       write(0x2800, 15);

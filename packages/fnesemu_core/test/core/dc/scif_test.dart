@@ -278,6 +278,7 @@ void main() {
       () {
     final core = Dc()
       ..setRom(Uint8List.fromList([0x10, 0x22, 0xfe, 0xaf, 9, 0]));
+    addTearDown(core.dispose);
     core.cpu.r[1] = 65;
     core.cpu.r[2] = base + 0xc;
     core.bus.scif.onTransmit = sent.add;

@@ -49,6 +49,7 @@ void main() {
   setUp(() {
     selection = 0;
     dc = Dc();
+    addTearDown(dc.dispose);
     memoryCard = DcMemoryCard();
     dc.attachMemoryCard(0, 0, memoryCard);
     dc.bus.write32(base + 0x8c, 0x6155407f);
@@ -186,6 +187,7 @@ void main() {
     }
     expect(transfer(11, params(22, 0), 2).sublist(12), everyElement(0x42));
     final next = Dc();
+    addTearDown(next.dispose);
     next.attachMemoryCard(0, 0, DcMemoryCard());
     next.attachMemoryCard(0, 1, DcMemoryCard(unit: 2));
     next.setSram(storage);
@@ -224,11 +226,13 @@ void main() {
       () {
     final storage = _MemoryStorage();
     dc = Dc()..setSram(storage);
+    addTearDown(dc.dispose);
     dc.attachMemoryCard(0, 0, memoryCard);
     final image = Uint8List(DcMemoryCard.size)..[1234] = 0x67;
     memoryCard.loadImage(image);
     expect(dc.bus.flash.exportImage(), everyElement(255));
     final next = Dc()..setSram(storage);
+    addTearDown(next.dispose);
     final restored = DcMemoryCard();
     next.attachMemoryCard(0, 0, restored);
     expect(restored.exportImage()[1234], 0x67);

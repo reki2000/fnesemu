@@ -273,6 +273,7 @@ void main() {
       'Core DMA handler acknowledges completion and returns to interrupted code',
       () {
     final core = Dc()..setRom(Uint8List.fromList([9, 0, 9, 0, 9, 0]));
+    addTearDown(core.dispose);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c040000;
     core.cpu.r[10] = base + 12;
@@ -304,6 +305,7 @@ void main() {
   test('Core schedules DMA and preserves a completed CPU step on a device stop',
       () {
     final core = Dc()..setRom(Uint8List.fromList([9, 0, 9, 0, 9, 0]));
+    addTearDown(core.dispose);
     core.bus.write32(base, source);
     core.bus.write32(base + 4, 0x08000000);
     core.bus.write32(base + 8, 1);

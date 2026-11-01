@@ -9,6 +9,7 @@ void main() {
   const wave = 0xa0800000, reset = 0xa0702c00;
   setUp(() {
     core = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
+    addTearDown(core.dispose);
     for (final (i, op) in [0xe3a00001, 0xe2800001, 0xeafffffd].indexed) {
       core.bus.write32(wave + 4 * i, op);
     }
@@ -163,6 +164,7 @@ void main() {
 
   test('debug slices preserve the same CPU timeline as normal execution', () {
     final coarse = Dc()..setRom(Uint8List.fromList([0xfe, 0xaf, 9, 0]));
+    addTearDown(coarse.dispose);
     for (var i = 0; i < 3; i++) {
       coarse.bus.write32(wave + 4 * i, core.bus.read32(wave + 4 * i));
     }

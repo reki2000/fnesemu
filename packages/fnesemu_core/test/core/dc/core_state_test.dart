@@ -12,8 +12,11 @@ import 'package:test/test.dart';
 
 import '../pad_helper.dart';
 
-Dc diagnostic({int add = 1}) =>
-    Dc()..setRom(Uint8List.fromList([add, 0x70, 0xfd, 0xaf, 9, 0]));
+Dc diagnostic({int add = 1}) {
+  final core = Dc()..setRom(Uint8List.fromList([add, 0x70, 0xfd, 0xaf, 9, 0]));
+  addTearDown(core.dispose);
+  return core;
+}
 void equalBytes(Uint8List actual, Uint8List expected) {
   expect(actual.length, expected.length);
   for (var i = 0; i < actual.length; i++) {

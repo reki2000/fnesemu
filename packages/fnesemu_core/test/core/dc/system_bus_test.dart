@@ -128,6 +128,7 @@ void main() {
   test('guest HOLLY handler acknowledges the event and resumes through RTE',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0x2a, 0xe9, 9, 0]));
+    addTearDown(core.dispose);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c030000;
     core.cpu.r[10] = 8;

@@ -228,6 +228,7 @@ void main() {
 
   test('core input routes ports and reset retains attachments', () {
     final dc = Dc();
+    addTearDown(dc.dispose);
     final controller = DcMapleController();
     dc.bus.maple.controllers[2] = controller;
     dc.padDown(2, DcMapleController.x);

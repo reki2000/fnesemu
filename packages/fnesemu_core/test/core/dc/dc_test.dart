@@ -31,6 +31,7 @@ void main() {
     final core = Dc()
       ..setRom(Uint8List.fromList(
           List.generate(40, (index) => index.isEven ? 0x09 : 0x00)));
+    addTearDown(core.dispose);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c020000;
     core.bus.write16(0xffd00004, 0xf000);
@@ -55,7 +56,9 @@ void main() {
   });
 
   test('generated registry exposes dc and its BIOS metadata', () {
-    expect(CoreFactory.of('dc'), isA<Dc>());
+    final created = CoreFactory.of('dc');
+    addTearDown(created.dispose);
+    expect(created, isA<Dc>());
     expect(CoreFactory.system('dc').biosFiles, 2);
     expect(CoreFactory.systemOfFile('diagnostic.DC', Uint8List(2)).id, 'dc');
     expect(DcModule().identifyRom('1ST_READ.BIN', Uint8List(2)), isNull);
@@ -64,6 +67,7 @@ void main() {
 
   test('empty core stops without executing', () {
     final core = Dc();
+    addTearDown(core.dispose);
     final result = core.exec(false);
     expect(result.stopped, isTrue);
     expect(result.executed(0), isFalse);
@@ -73,6 +77,7 @@ void main() {
 
   test('boot ROM starts at reset vector; invalid replacement is atomic', () {
     final core = Dc();
+    addTearDown(core.dispose);
     final bios = Uint8List(DcBus.biosSize)
       ..[0] = 0x2a
       ..[1] = 0xe1;
@@ -89,6 +94,7 @@ void main() {
 
   test('raw diagnostic is copied, reset reloads it, unsupported op stops', () {
     final core = Dc();
+    addTearDown(core.dispose);
     final program = Uint8List.fromList([0x2a, 0xe1, 0xff, 0xff]);
     core.setRom(program);
     program[0] = 0;
@@ -114,6 +120,7 @@ void main() {
 
   test('BIOS replacement retains loaded diagnostic priority', () {
     final core = Dc()..setRom(Uint8List.fromList([0x09, 0x00]));
+    addTearDown(core.dispose);
     core.setBiosFiles([Uint8List(DcBus.biosSize)]);
     expect(core.cpu.pc, Dc.programAddress);
     expect(core.exec(true).stopped, isFalse);
@@ -123,6 +130,7 @@ void main() {
       'guest trap handler returns through Core.exec without a development stop',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0x01, 0xc3, 0x2a, 0xe9]));
+    addTearDown(core.dispose);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c020000;
     core.bus.write16(0x8c020100, 0x002b); // RTE.
@@ -138,6 +146,7 @@ void main() {
 
   test('diagnostic size is validated before replacing media', () {
     final core = Dc()..setRom(Uint8List.fromList([0x09, 0x00]));
+    addTearDown(core.dispose);
     expect(() => core.setRom(Uint8List(0)), throwsArgumentError);
     expect(() => core.setRom(Uint8List(DcBus.ramSize)), throwsArgumentError);
     expect(core.exec(true).stopped, isFalse);
@@ -146,6 +155,7 @@ void main() {
   test('interrupt entry consumes a CPU step without reporting an instruction',
       () {
     final core = Dc()..setRom(Uint8List.fromList([0x2a, 0xe9]));
+    addTearDown(core.dispose);
     core.cpu.sr = 0x40000000;
     core.cpu.vbr = 0x8c020000;
     core.cpu.irlPins = 0;
@@ -257,10 +267,11 @@ void main() {
       0xff00,
     ];
     Dc run(bool jit) {
-      final core = Dc(jit: jit)
-        ..setRom(Uint8List.fromList([
-          for (final w in words) ...[w & 255, w >> 8]
-        ]));
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in words) ...[w & 255, w >> 8]
+      ]));
       // Round to nearest, so the compiled FPU arithmetic runs natively.
       core.cpu.fpscr = 0x40000;
       core.runFrame(8);

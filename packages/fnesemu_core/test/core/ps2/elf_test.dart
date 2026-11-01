@@ -53,6 +53,7 @@ void main() {
 
   test('Ps2 copies segments to main memory and zero fills the rest', () {
     final ps2 = Ps2();
+    addTearDown(ps2.dispose);
     ps2.bus.ram.fillRange(0x100000, 0x100008, 0xff);
     ps2.setRom(_elf());
     expect(ps2.entry, 0x100000);
@@ -60,12 +61,15 @@ void main() {
   });
 
   test('Ps2 rejects segments outside main memory', () {
-    expect(() => Ps2().setRom(_elf(address: Ps2Bus.ramSize - 4)),
+    final ps2 = Ps2();
+    addTearDown(ps2.dispose);
+    expect(() => ps2.setRom(_elf(address: Ps2Bus.ramSize - 4)),
         throwsRangeError);
   });
 
   test('Ps2 runs the loaded ELF from its entry', () {
     final ps2 = Ps2();
+    addTearDown(ps2.dispose);
     ps2.setRom(_elf(payload: [0x05, 0x00, 0x01, 0x24])); // addiu r1, r0, 5
     final result = ps2.exec(true);
     expect(result.stopped, isFalse);

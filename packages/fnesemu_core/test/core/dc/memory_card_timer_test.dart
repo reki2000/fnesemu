@@ -66,6 +66,7 @@ void main() {
       'attached memory card clock runs with host DMA disabled and through device kill',
       () {
     final dc = Dc(), memoryCard = DcMemoryCard();
+    addTearDown(dc.dispose);
     dc.attachMemoryCard(0, 0, memoryCard);
     dc.bus.tickMasterClocks(3 * hz);
     expect(memoryCard.timer.time.second, 3);
@@ -80,6 +81,7 @@ void main() {
   test('descriptor chain samples each RTC read at its own request boundary',
       () {
     final dc = Dc(), memoryCard = DcMemoryCard();
+    addTearDown(dc.dispose);
     dc.attachMemoryCard(0, 0, memoryCard);
     final bus = dc.bus;
     final parent = bus.maple.controllers[0]!;

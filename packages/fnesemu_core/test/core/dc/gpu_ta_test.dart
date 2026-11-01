@@ -617,6 +617,7 @@ void main() {
       rom.setUint16LE(i * 2, opcode);
     }
     final core = Dc()..setRom(rom);
+    addTearDown(core.dispose);
     var steps = 0;
     while (core.bus.ram.getUint32LE(0x30000) == 0 && steps++ < 3000) {
       expect(core.exec(false).stopped, isFalse, reason: core.stopReason);

@@ -341,6 +341,7 @@ void main() {
     read();
     start(length: 64);
     final other = Dc();
+    addTearDown(other.dispose);
     core = other;
     initialize(FakeCdromDrive([sector(49)]));
     read();
@@ -370,6 +371,7 @@ void main() {
     read();
     start(length: 64);
     final other = Dc(), b = _PendingDrive([sector(53)]);
+    addTearDown(other.dispose);
     core = other;
     initialize(b);
     read();

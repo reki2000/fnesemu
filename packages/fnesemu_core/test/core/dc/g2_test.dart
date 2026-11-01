@@ -379,6 +379,7 @@ void main() {
 
   test('G2 writes and active sound reads preserve sample-edge ordering', () {
     final single = Dc();
+    addTearDown(single.dispose);
     final batchAudio = <double>[], singleAudio = <double>[];
     core.onAudio((packet) => batchAudio.addAll(packet.buffer));
     single.onAudio((packet) => singleAudio.addAll(packet.buffer));

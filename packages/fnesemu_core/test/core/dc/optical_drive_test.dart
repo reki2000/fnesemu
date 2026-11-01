@@ -74,6 +74,7 @@ void main() {
 
   setUp(() {
     core = Dc();
+    addTearDown(core.dispose);
     bus = core.bus;
   });
 

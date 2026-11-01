@@ -312,6 +312,7 @@ void main() {
       'batched FIQ delivery agrees with individual clocks through guest timer reloads',
       () {
     final single = Dc();
+    addTearDown(single.dispose);
     final program = firmware(clear: 0x40, timer: true);
     for (final target in [core, single]) {
       final bus = target.bus;
