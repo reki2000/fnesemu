@@ -181,6 +181,18 @@ void main() {
     expect(bus.read32(rtc + 4), (expected + 1) & 0xffff);
   });
 
+  test('AICA RTC interprets host local time without a timezone register', () {
+    final now = DateTime(2026, 11, 1, 12, 34, 56);
+    final bus = DcBus();
+    bus.aica.clock = () => now;
+    final localSeconds = DateTime.utc(
+            now.year, now.month, now.day, now.hour, now.minute, now.second)
+        .difference(DateTime.utc(1950))
+        .inSeconds;
+    expect(bus.read32(rtc), localSeconds >> 16);
+    expect(bus.read32(rtc + 4), localSeconds & 0xffff);
+  });
+
   test('RTC protection, split writes, upper-bit masks and wraparound', () {
     var now = DateTime.utc(2026);
     final bus = DcBus();
