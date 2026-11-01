@@ -299,13 +299,17 @@ void main() {
 
   test('timer calendar read/write uses little-endian year and ignores weekday',
       () {
+    var now = DateTime.utc(2026);
+    memoryCard.timer.clock = () => now;
     discover();
     final time = [0xd0, 7, 2, 28, 23, 59, 59, 255]; // 2000, leap year.
     expect(transfer(12, [0, 0, 0, 8, 0, 0, 0, 0, ...time]), [7, 0, 1, 0]);
     expect(transfer(11, [0, 0, 0, 8, 0, 0, 0, 0]),
         [8, 0, 1, 3, 0, 0, 0, 8, ...time.take(7), 0]);
     dc.bus.write32(base + 0x14, 0);
-    dc.bus.tickMasterClocks(200000000);
+    now = now.add(const Duration(seconds: 1));
+    // VMU calendar follows elapsed host time, not emulated cycles.
+    dc.bus.tickMasterClocks(100000);
     expect(transfer(11, [0, 0, 0, 8, 0, 0, 0, 0]).sublist(8),
         [0xd0, 7, 2, 29, 0, 0, 0, 0]);
   });
@@ -325,7 +329,10 @@ void main() {
     expect((memoryCard.timer.alarmPeriod, memoryCard.timer.alarmDuty), (10, 5));
     final date = memoryCard.timer.time;
     expect(transfer(3).first, 7);
-    expect(memoryCard.timer.time, date);
+    final after = memoryCard.timer.time;
+    expect((after.year, after.month, after.day, after.hour, after.minute,
+        after.second),
+        (date.year, date.month, date.day, date.hour, date.minute, date.second));
     expect((memoryCard.timer.alarmPeriod, memoryCard.timer.alarmDuty), (0, 0));
     transfer(1);
     expect(transfer(9, [0, 0, 0, 8])[8], 0xed);
