@@ -772,14 +772,14 @@ Attached LCDs appear as core-owned memory card A1–D2 debug layers through the 
 Physical mounting orientation, icon segments and display timing still need hardware validation.
 Protocol reset clears the LCD to deterministic white; malformed-length writes return an error and retain panel data as a development policy until their partially displayed hardware result is known.
 
-The FT3 calendar uses a nominal 200 MHz master clock, Gregorian month/leap-year rules, little-endian years and hexadecimal fields.
-The initial date is deterministically 2000-01-01 00:00:00 until the guest sets it; this is not a claim about factory RTC contents.
+The FT3 calendar uses the host wall clock with Gregorian month/leap-year rules, little-endian years and hexadecimal fields; the nominal 200 MHz master clock no longer advances calendar time.
+A newly attached VMU begins at the host local civil time. Guest RTC writes adjust an offset from host time, retained across core resets and save/load.
 Calendar writes validate the whole date without normalization, reset the fractional-second phase and ignore the unavailable weekday field according to the TR/TW command description.
 The FT3 manual states year 0–9999 but prints an inconsistent hexadecimal upper bound; the decimal range is used, and overflow beyond 9999 stops explicitly pending hardware evidence.
-Protocol/core resets preserve calendar time and fractional phase while clearing alarm settings; buttons remain physical input, with the most recently pressed opposing direction winning.
+Protocol/core resets preserve the calendar offset while clearing alarm settings; buttons remain physical input, with the most recently pressed opposing direction winning.
 The timer continues with Maple DMA disabled or its device killed, and descriptor chains sample it at each request boundary.
 The one-alarm period/duty registers enforce duty ≤ period and reject the unsupported second alarm; buzzer waveform/audio output and its clock source are pending.
-RTC elapsed wall time while detached or between sessions, calendar persistence and standalone memory card CPU/firmware execution are not implemented.
+The RTC follows host time while detached or between sessions. Persisting a guest-set calendar offset across a new application session without a save state and standalone memory card CPU/firmware execution are not implemented.
 
 `DcStorageRegion` selects independent keys through the existing `Sram` contract; switching a key invokes the adapter's existing `init` flush/load path.
 The console flash keeps `dc/sram/system_flash`; memory cards use `dc/sram/memory_card_<port>_<slot>` with zero-based port/slot numbers.
@@ -970,9 +970,9 @@ Timer controls and counts are write-only in the original register descriptions, 
 The separately powered RTC has a wrapping 32-bit seconds counter, split 16-bit fields and a write-only enable latch.
 Writing the low half clears the subsecond fraction; writing the high half restores write protection without clearing that fraction.
 RTC register accesses are longword-only and use the lower 16 bits.
-Full core reset clears wave RAM and functional audio-register state while retaining RTC seconds/fraction; CPU-only reset retains the external AICA state.
-A new instance starts at synthetic counter zero, with no wall-clock seeding, battery-backed persistence or detached-time advancement yet.
-RTC and audio clocks use rational advancement against the fixed nominal master clock and do not depend on SH4 peripheral module gates.
+Full core reset clears wave RAM and functional audio-register state while retaining the host RTC offset; CPU-only reset retains the external AICA state.
+A new instance reads host local civil time relative to the AICA 1950 epoch. Guest clock writes set an offset retained through core reset and save/load; a separately persisted battery-backed offset is not implemented.
+AICA audio clocks follow the fixed nominal master clock, while the RTC is advanced by host wall time and does not depend on SH4 peripheral module gates.
 Hardware-matched envelopes, filters/LFO/noise, ADPCM long-stream timing, DSP processing, MIDI hardware matching, internal-DMA arbitration, G2 FIFO/pin timing and real BIOS sound-driver validation remain required for stage 8.
 
 ### AICA memory controls and ARM register lanes
@@ -984,7 +984,7 @@ This byte-access behavior follows Lars Olsson's independent hardware notes; the 
 The ARM cannot access SH4 reset/VREG controls, and SH4 cannot access ARM-only L/M.
 
 MRWINH stores the four requester inhibition bits; only SH4 can change the ARM-memory inhibition bit.
-ARM-memory inhibition pauses functional instruction dispatch without accumulating instructions to execute after release; timers and RTC continue advancing.
+ARM-memory inhibition pauses functional instruction dispatch without accumulating instructions to execute after release; timers keep advancing on emulated cycles and the RTC follows host time.
 System inhibition blocks actual SH4/G2 wave-memory reads and writes, and ARM-only RP additionally blocks system reads while permitting writes.
 Cache hits and side-effect-free debugger inspection do not issue these external bus cycles; fills, writebacks and DMA use the protected physical path.
 Inhibited system cycles and active sound-source reads currently stop explicitly instead of modeling physical bus waits or lockup.
@@ -2104,7 +2104,7 @@ These component sections are integrated into the complete native DC save/load pa
 ## Memory card component state
 
 `DcMemoryCard` saves the visible 128 KiB image, the pending 512-byte write group, ordered-write phase and error history, protocol discovery/kill state, LCD pixels and timer state.
-The timer includes the calendar, fractional master clocks, held buttons and alarm configuration.
+The timer includes the host-backed calendar offset, held buttons and alarm configuration.
 Loading validates isolated LCD/timer data and storage/protocol fields before committing and preserves the destination LCD/timer objects, storage binding and key.
 The attached storage is the authoritative visible image when present; restoring uses its existing `write8` path so region activation and host dirty tracking remain active without protocol resets.
 
@@ -2247,7 +2247,7 @@ These component sections are integrated into the complete native DC save/load pa
 
 `Dc.saveState()` and `loadState()` now exchange the complete logical state of the current functional interpreter machine through the shared tagged format, version 4.
 Version 2 added the sampled SCI transmit multiprocessor bit; version 3 adds the CPG deep-sleep latch.
-Version 4 includes the retained G1 verification request, SH7750 RTC initialization registers, HOLLY setup registers and GPU SDRAM controls.
+Version 4 includes the retained G1 verification request, SH7750 RTC initialization registers, HOLLY setup registers and GPU SDRAM controls. Version 5 changes the AICA RTC to a host-clock offset; version 6 changes the VMU timer state to a host-clock offset.
 Earlier states are rejected rather than misreading subsequent device sections.
 The core owns SH-4 state, master-clock count, the remaining CPU observation slice and the persistent development-stop reason; the bus owns memory and device sections.
 Loading validates the header, CPU, complete bus graph, pending drive operations and the end of the file before committing any live CPU or RAM state.
