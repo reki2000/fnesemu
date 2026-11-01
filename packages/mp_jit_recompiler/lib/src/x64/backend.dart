@@ -136,6 +136,29 @@ abstract final class X64Backend {
       return l;
     }
 
+    final fused = irFusedCompareConsumers(block);
+    // A single-use comparison can branch directly on flags instead of
+    // producing a boolean with SETcc/MOVZX followed by CMP against zero.
+    void jumpOnCondition(int v, Label target, {required bool whenTrue}) {
+      int cc;
+      if (fused[v] >= 0) {
+        final cmp = insts[v];
+        load(R.rax, cmp.a);
+        aluValue(Alu.cmp, R.rax, cmp.b, w: wide(cmp.a));
+        cc = switch (cmp.op) {
+          IrOp.eq => Cc.e,
+          IrOp.ne => Cc.ne,
+          IrOp.ltS => Cc.l,
+          IrOp.ltU => Cc.b,
+          _ => throw StateError('not a fused comparison'),
+        };
+      } else {
+        compareZero(v);
+        cc = Cc.ne;
+      }
+      a.jcc(whenTrue ? cc : cc ^ 1, target);
+    }
+
     final stubs = <void Function()>[];
     final win64 = env.win64;
     final arg0 = win64 ? R.rcx : R.rdi;
@@ -434,13 +457,13 @@ abstract final class X64Backend {
         case IrOp.shrS:
           shift(Shift.sar);
         case IrOp.eq:
-          compare(Cc.e);
+          if (fused[i] < 0) compare(Cc.e);
         case IrOp.ne:
-          compare(Cc.ne);
+          if (fused[i] < 0) compare(Cc.ne);
         case IrOp.ltS:
-          compare(Cc.l);
+          if (fused[i] < 0) compare(Cc.l);
         case IrOp.ltU:
-          compare(Cc.b);
+          if (fused[i] < 0) compare(Cc.b);
         case IrOp.select:
           load(R.rax, inst.b);
           load(R.rcx, inst.c);
@@ -572,8 +595,7 @@ abstract final class X64Backend {
               linked: e.link,
             ),
           );
-          compareZero(inst.a);
-          a.jcc(Cc.ne, l);
+          jumpOnCondition(inst.a, l, whenTrue: true);
         case IrOp.guardMapped:
           final l = unmappedExit(block.exits[inst.aux]);
           load(R.rax, inst.a);
@@ -590,8 +612,7 @@ abstract final class X64Backend {
         linkTo(pc, tag);
       case IrBranch t:
         final notTaken = label();
-        compareZero(t.cond.index);
-        a.jcc(Cc.e, notTaken);
+        jumpOnCondition(t.cond.index, notTaken, whenTrue: false);
         linkTo(t.pcTrue, t.tagTrue);
         a.bind(notTaken);
         linkTo(t.pcFalse, t.tagFalse);
