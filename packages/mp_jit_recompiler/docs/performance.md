@@ -61,3 +61,31 @@ Checksums and emulated clocks match between versions. Slice lengths change block
 A 31-instruction IR fixture that chains eight add, xor and shift triples reduces to 29 IR instructions, and its x64 code shrinks from 470 to 202 bytes. This is one fixture, not an aggregate code size. Median generation time rose from 3.3 to 17.4 microseconds per block, so the demonstrated benefit is faster repeated execution and smaller code. Revisit this tradeoff for workloads dominated by cold or frequently replaced code.
 
 Later changes sped up the compile path and replaced generic maps in the driver and native block table with `IntMap`; see `packages/fnesemu_core/tool/jit_compile_bench.dart` for the compile-path benchmark.
+
+## JIT comparison/branch fusion: pre- and post-PR #175
+
+A reproducible native AOT **synthetic hot-loop** measurement uses the same
+`tool/jit_branch_fusion_bench.dart` fixture in both implementations and runs it
+from the workflow `.github/workflows/jit-branch-fusion-bench.yaml`. The pre-fusion
+commit is `bba4eee776ccf886d0a7d8171c1b0feef43cff8d`; the merged implementation is
+`bed93f7a061ac0b09ebc9ba9e835fac0af865bf4`. GitHub Actions ran both with
+Dart 3.13.7 AOT, on one Ubuntu x64 AMD EPYC 7763 runner. The workflow builds both
+outside the timed region and alternates four processes per variant, with two
+warm-up executions and seven measured iterations in each process. Each measured
+iteration executes two million guest loop operations; the figures below are the
+medians of the four per-process medians. Guest counters and exit reasons matched.
+
+| IR condition | Before time (ms) | After time (ms) | Time reduction | Emitted code before → after |
+| --- | ---: | ---: | ---: | ---: |
+| Unsigned less-than branch | 2.498 | 2.198 | 12.0% | 166 → 157 B |
+| Signed less-than branch | 2.493 | 2.189 | 12.2% | 166 → 157 B |
+| Masked bit-test branch | 1.989 | 1.953 | 1.8% | 153 → 151 B |
+| Compare with conditional side exit | 2.493 | 2.177 | 12.7% | 151 → 142 B |
+
+Source run: https://github.com/reki2000/fnesemu/actions/runs/41319513791
+
+These numbers cover **only** tight native JIT loops. In particular, the 1.8%
+bit-test change is small enough to warrant further repetitions on another host.
+No PS1/N64/PS2/SS/32X/DC whole-frame or GUI measurements were performed, and these
+figures must **not** be reported as expected emulator FPS improvements. The AOT
+bench also does not isolate all compilation-cost changes from PR #175.
