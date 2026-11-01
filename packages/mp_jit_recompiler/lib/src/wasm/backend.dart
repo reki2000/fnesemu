@@ -50,6 +50,7 @@ abstract final class WasmBackend {
   static Uint8List compile(IrBlock block, WasmEnv env) {
     final c = _Code();
     final insts = block.insts;
+    final fused = irFusedCompareConsumers(block);
     bool wide(int v) => insts[v].type == IrType.i64;
 
     // SSA values occupy locals of their own width: i32 values and i32
@@ -69,6 +70,26 @@ abstract final class WasmBackend {
     final mulLow = swap64 + 2, mulMiddle = swap64 + 3;
     final locals64 = count64 + 4;
     void get(int v) => c.get(local[v]);
+
+    // Emit a single-use comparison directly onto the Wasm if condition
+    // stack instead of materializing it in a local and loading it again.
+    void emitCondition(int v) {
+      if (fused[v] < 0) {
+        get(v);
+        return;
+      }
+      final cmp = insts[v];
+      get(cmp.a);
+      get(cmp.b);
+      c.op(switch (cmp.op) {
+        IrOp.eq => wide(cmp.a) ? 0x51 : 0x46,
+        IrOp.ne => wide(cmp.a) ? 0x52 : 0x47,
+        IrOp.ltS => wide(cmp.a) ? 0x53 : 0x48,
+        IrOp.ltU => wide(cmp.a) ? 0x54 : 0x49,
+        IrOp.and => wide(cmp.a) ? 0x83 : 0x71,
+        _ => throw StateError('not a fused condition'),
+      });
+    }
 
     void ctxLoad(int word, {bool wide = false}) {
       c.i32(env.ctxOffset + 4 * word);
@@ -256,6 +277,7 @@ abstract final class WasmBackend {
     });
 
     for (final (i, inst) in insts.indexed) {
+      if (fused[i] >= 0) continue;
       final w = inst.type == IrType.i64;
       void a() => get(inst.a);
       void b() => get(inst.b);
@@ -291,6 +313,57 @@ abstract final class WasmBackend {
           binary(0x6b, 0x7d);
         case IrOp.mul:
           binary(0x6c, 0x7e);
+        case IrOp.divS || IrOp.divU || IrOp.remS || IrOp.remU:
+          // WebAssembly traps on zero divisors and signed MIN / -1, unlike
+          // our IR. Guard both paths before emitting the hardware operation.
+          final signed = inst.op == IrOp.divS || inst.op == IrOp.remS;
+          final remainder = inst.op == IrOp.remS || inst.op == IrOp.remU;
+          final blockType = w ? 0x7e : 0x7f;
+          void zero() {
+            if (w) {
+              c.i64(0);
+            } else {
+              c.i32(0);
+            }
+          }
+          b();
+          c.op(w ? 0x50 : 0x45); // i64/i32.eqz
+          c.op(0x04, blockType);
+          zero();
+          c.op(0x05);
+          if (signed) {
+            a();
+            if (w) {
+              c.i64(0, 0x80000000);
+            } else {
+              c.i32(-0x80000000);
+            }
+            c.op(w ? 0x51 : 0x46);
+            b();
+            if (w) {
+              c.i64(-1, -1);
+            } else {
+              c.i32(-1);
+            }
+            c.op(w ? 0x51 : 0x46, 0x71);
+            c.op(0x04, blockType);
+            if (remainder) {
+              zero();
+            } else {
+              a(); // signed MIN / -1 = MIN after wrapping
+            }
+            c.op(0x05);
+          }
+          a();
+          b();
+          c.op(switch (inst.op) {
+            IrOp.divS => w ? 0x7f : 0x6d,
+            IrOp.divU => w ? 0x80 : 0x6e,
+            IrOp.remS => w ? 0x81 : 0x6f,
+            _ => w ? 0x82 : 0x70,
+          });
+          if (signed) c.op(0x0b);
+          c.op(0x0b);
         case IrOp.mulHiS || IrOp.mulHiU when !w:
           final extend = inst.op == IrOp.mulHiS ? 0xac : 0xad;
           a();
@@ -546,7 +619,7 @@ abstract final class WasmBackend {
           get(inst.c);
           c.call(2 + inst.imm);
         case IrOp.exitIf:
-          a();
+          emitCondition(inst.a);
           c.op(0x04, 0x40);
           sideExit(block.exits[inst.aux]);
           c.op(0x0b);
@@ -563,7 +636,7 @@ abstract final class WasmBackend {
       case IrJump(:final pc, :final tag):
         link(pc, tag);
       case IrBranch t:
-        get(t.cond.index);
+        emitCondition(t.cond.index);
         c.op(0x04, 0x40);
         link(t.pcTrue, t.tagTrue);
         c.op(0x05);

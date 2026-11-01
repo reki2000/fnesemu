@@ -140,12 +140,6 @@ final class PsJit {
         cop2.writeCtrl(reg, value);
         return 0;
       }),
-      div: rt.addHelper((a, b, signed) {
-        signed != 0 ? cpu.div(a, b) : cpu.divu(a, b);
-        rt.ctx[ctxHi] = cpu.hi;
-        rt.ctx[ctxLo] = cpu.lo;
-        return 0;
-      }),
     );
   }
 

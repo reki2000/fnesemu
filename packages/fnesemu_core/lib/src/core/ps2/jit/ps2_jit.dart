@@ -90,6 +90,32 @@ final class Ps2Jit {
     _translator = R5900Translator(fetch: _fetch, protect: _code.protect);
   }
 
+  // The GPRs already share the runtime's context storage. The independent
+  // HI/LO pipelines remain CPU fields for save states, resets, the MMI
+  // interpreter and other interpreter-only instructions. Copy their four
+  // 64-bit values at each JIT/interpreter boundary.
+  void _writeSpecial(int at, int value) {
+    rt.ctx[at] = value.toUnsigned(32);
+    rt.ctx[at + 1] = (value >> 32).toUnsigned(32);
+  }
+
+  int _readSpecial(int at) =>
+      (rt.ctx[at] | rt.ctx[at + 1] << 32).toSigned(64);
+
+  void _syncSpecialToJit() {
+    _writeSpecial(R5900Translator.ctxHi, cpu.hi);
+    _writeSpecial(R5900Translator.ctxLo, cpu.lo);
+    _writeSpecial(R5900Translator.ctxHi1, cpu.hi1);
+    _writeSpecial(R5900Translator.ctxLo1, cpu.lo1);
+  }
+
+  void _syncSpecialFromJit() {
+    cpu.hi = _readSpecial(R5900Translator.ctxHi);
+    cpu.lo = _readSpecial(R5900Translator.ctxLo);
+    cpu.hi1 = _readSpecial(R5900Translator.ctxHi1);
+    cpu.lo1 = _readSpecial(R5900Translator.ctxLo1);
+  }
+
   String _memoryRegion(int address) {
     if (!_compiledSegment(address)) return 'tlb';
     return address & 0x1fffffff < ram.length ? 'ram' : 'unmapped';
@@ -142,6 +168,7 @@ final class Ps2Jit {
     }
     if (_driver.isFallback(pc, 0)) return false;
     if (!cpu.prepareCompiled()) return false;
+    _syncSpecialToJit();
     final untilCompare = cpu.instructionsUntilCompare;
     if (untilCompare != 0 && untilCompare < budget) budget = untilCompare;
     final reason = _driver.runBudgeted(pc, 0, budget);
@@ -152,6 +179,7 @@ final class Ps2Jit {
       }
       return false;
     }
+    _syncSpecialFromJit();
     cpu.finishCompiled(spent, rt.exitPc);
     return true;
   }
