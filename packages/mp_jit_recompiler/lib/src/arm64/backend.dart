@@ -86,13 +86,18 @@ abstract final class Arm64Backend {
         final cmp = block.insts[v];
         load(0, cmp.a);
         load(1, cmp.b);
-        a.cmp(0, 1, wide: wide(cmp.a));
+        if (cmp.op == IrOp.and) {
+          // ANDS zero-register, lhs, rhs is a TST that sets NZCV.
+          a.alu(0x6a000000, 31, 0, 1, wide: wide(cmp.a));
+        } else {
+          a.cmp(0, 1, wide: wide(cmp.a));
+        }
         cc = switch (cmp.op) {
           IrOp.eq => 0,
-          IrOp.ne => 1,
+          IrOp.ne || IrOp.and => 1,
           IrOp.ltS => 11,
           IrOp.ltU => 3,
-          _ => throw StateError('not a fused comparison'),
+          _ => throw StateError('not a fused condition'),
         };
       } else {
         load(0, v);
