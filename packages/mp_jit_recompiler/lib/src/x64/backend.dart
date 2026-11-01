@@ -136,6 +136,30 @@ abstract final class X64Backend {
       return l;
     }
 
+    final fused = irFusedCompareConsumers(block);
+    // A single-use comparison can branch directly on flags instead of
+    // producing a boolean with SETcc/MOVZX followed by CMP against zero.
+    void jumpOnCondition(int v, Label target, {required bool whenTrue}) {
+      int cc;
+      if (fused[v] >= 0) {
+        final cmp = insts[v];
+        load(R.rax, cmp.a);
+        aluValue(cmp.op == IrOp.and ? Alu.and : Alu.cmp,
+            R.rax, cmp.b, w: wide(cmp.a));
+        cc = switch (cmp.op) {
+          IrOp.eq => Cc.e,
+          IrOp.ne || IrOp.and => Cc.ne,
+          IrOp.ltS => Cc.l,
+          IrOp.ltU => Cc.b,
+          _ => throw StateError('not a fused condition'),
+        };
+      } else {
+        compareZero(v);
+        cc = Cc.ne;
+      }
+      a.jcc(whenTrue ? cc : cc ^ 1, target);
+    }
+
     final stubs = <void Function()>[];
     final win64 = env.win64;
     final arg0 = win64 ? R.rcx : R.rdi;
@@ -359,7 +383,7 @@ abstract final class X64Backend {
         case IrOp.sub:
           alu(Alu.sub);
         case IrOp.and:
-          alu(Alu.and);
+          if (fused[i] < 0) alu(Alu.and);
         case IrOp.or:
           alu(Alu.or);
         case IrOp.xor:
@@ -378,6 +402,42 @@ abstract final class X64Backend {
               a.imulRM(dst, _slot(inst.b), w: w);
             }
           });
+        case IrOp.divS || IrOp.divU || IrOp.remS || IrOp.remU:
+          final signed = inst.op == IrOp.divS || inst.op == IrOp.remS;
+          final remainder = inst.op == IrOp.remS || inst.op == IrOp.remU;
+          final zeroDivisor = label(), normal = label(), done = label();
+          load(R.rcx, inst.b);
+          load(R.rax, inst.a);
+          a.aluRI(Alu.cmp, R.rcx, 0, w: w);
+          a.jcc(Cc.e, zeroDivisor);
+          if (signed) {
+            // x86 IDIV also traps on MIN / -1. That guest-visible result
+            // wraps to MIN with a zero remainder under our IR contract.
+            a.aluRI(Alu.cmp, R.rcx, -1, w: w);
+            a.jcc(Cc.ne, normal);
+            if (w) {
+              a.movRI64(R.rdx, -0x8000000000000000);
+              a.aluRR(Alu.cmp, R.rax, R.rdx, w: true);
+            } else {
+              a.aluRI(Alu.cmp, R.rax, 0x80000000);
+            }
+            a.jcc(Cc.ne, normal);
+            a.movRI(R.rdx, 0);
+            a.jmp(done);
+          }
+          a.bind(normal);
+          if (signed) {
+            a.signExtendDiv(w: w);
+          } else {
+            a.movRI(R.rdx, 0);
+          }
+          a.divR(R.rcx, signed: signed, w: w);
+          a.jmp(done);
+          a.bind(zeroDivisor);
+          a.movRI(R.rax, 0);
+          a.movRI(R.rdx, 0);
+          a.bind(done);
+          save(i, remainder ? R.rdx : R.rax);
         case IrOp.mulHiS || IrOp.mulHiU:
           load(R.rax, inst.a);
           if (registers[inst.b] >= 0 || constant(inst.b) != null) {
@@ -398,13 +458,13 @@ abstract final class X64Backend {
         case IrOp.shrS:
           shift(Shift.sar);
         case IrOp.eq:
-          compare(Cc.e);
+          if (fused[i] < 0) compare(Cc.e);
         case IrOp.ne:
-          compare(Cc.ne);
+          if (fused[i] < 0) compare(Cc.ne);
         case IrOp.ltS:
-          compare(Cc.l);
+          if (fused[i] < 0) compare(Cc.l);
         case IrOp.ltU:
-          compare(Cc.b);
+          if (fused[i] < 0) compare(Cc.b);
         case IrOp.select:
           load(R.rax, inst.b);
           load(R.rcx, inst.c);
@@ -542,8 +602,7 @@ abstract final class X64Backend {
               linked: e.link,
             ),
           );
-          compareZero(inst.a);
-          a.jcc(Cc.ne, l);
+          jumpOnCondition(inst.a, l, whenTrue: true);
         case IrOp.guardMapped:
           final l = unmappedExit(block.exits[inst.aux]);
           load(R.rax, inst.a);
@@ -560,8 +619,7 @@ abstract final class X64Backend {
         linkTo(pc, tag);
       case IrBranch t:
         final notTaken = label();
-        compareZero(t.cond.index);
-        a.jcc(Cc.e, notTaken);
+        jumpOnCondition(t.cond.index, notTaken, whenTrue: false);
         linkTo(t.pcTrue, t.tagTrue);
         a.bind(notTaken);
         linkTo(t.pcFalse, t.tagFalse);

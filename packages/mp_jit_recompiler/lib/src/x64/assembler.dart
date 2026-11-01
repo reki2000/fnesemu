@@ -314,6 +314,16 @@ final class Assembler {
   void imul1R(int src, {bool w = false}) => _opReg([0xf7], 5, src, w: w);
   void mul1R(int src, {bool w = false}) => _opReg([0xf7], 4, src, w: w);
 
+  /// Sign-extend EAX into EDX:EAX or RAX into RDX:RAX before signed division.
+  void signExtendDiv({bool w = false}) {
+    if (w) u8(0x48);
+    u8(0x99); // CDQ / CQO
+  }
+
+  /// Divide EDX:EAX or RDX:RAX by src (quotient in AX, remainder in DX).
+  void divR(int src, {required bool signed, bool w = false}) =>
+      _opReg([0xf7], signed ? 7 : 6, src, w: w);
+
   void imulRM(int dst, Mem m, {bool w = false}) =>
       _opMem([0x0f, 0xaf], dst, m, w: w);
 

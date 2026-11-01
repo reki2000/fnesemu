@@ -240,6 +240,12 @@ final class IrInterpreterRuntime extends JitRuntime {
         IrOp.add => a() + b(),
         IrOp.sub => a() - b(),
         IrOp.mul => _mulLo(a(), b()),
+        IrOp.divS => b() == 0 ? 0 : a().toSigned(32) ~/ b().toSigned(32),
+        IrOp.divU => b() == 0 ? 0 : a() ~/ b(),
+        IrOp.remS => b() == 0
+            ? 0
+            : a().toSigned(32).remainder(b().toSigned(32)),
+        IrOp.remU => b() == 0 ? 0 : a() % b(),
         IrOp.floatAdd ||
         IrOp.floatSub ||
         IrOp.floatMul ||
@@ -313,6 +319,12 @@ final class IrInterpreterRuntime extends JitRuntime {
         IrOp.add => a() + b(),
         IrOp.sub => a() - b(),
         IrOp.mul => _mulLo(a(), b()),
+        IrOp.divS => b() == 0 ? 0 : a().toSigned(32) ~/ b().toSigned(32),
+        IrOp.divU => b() == 0 ? 0 : a() ~/ b(),
+        IrOp.remS => b() == 0
+            ? 0
+            : a().toSigned(32).remainder(b().toSigned(32)),
+        IrOp.remU => b() == 0 ? 0 : a() % b(),
         IrOp.floatAdd ||
         IrOp.floatSub ||
         IrOp.floatMul ||

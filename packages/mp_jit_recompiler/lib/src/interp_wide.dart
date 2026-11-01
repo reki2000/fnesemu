@@ -36,6 +36,18 @@ extension _Wide on IrInterpreterRuntime {
         return result(a() - b());
       case IrOp.mul:
         return result(a() * b());
+      case IrOp.divS:
+        return result(b() == BigInt.zero
+            ? BigInt.zero
+            : a().toSigned(64) ~/ b().toSigned(64));
+      case IrOp.divU:
+        return result(b() == BigInt.zero ? BigInt.zero : a() ~/ b());
+      case IrOp.remS:
+        return result(b() == BigInt.zero
+            ? BigInt.zero
+            : a().toSigned(64).remainder(b().toSigned(64)));
+      case IrOp.remU:
+        return result(b() == BigInt.zero ? BigInt.zero : a() % b());
       case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
         _floatData.setUint32(0, _word(a()), Endian.little);
         _floatData.setUint32(4, _word(a() >> 32), Endian.little);

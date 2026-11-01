@@ -8,24 +8,32 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// explicitly. Only LQ and SQ touch the high halves.
 ///
 /// The translated subset is the integer ALU, the shifts, the branches and
-/// jumps, MOVZ/MOVN, the aligned loads and stores up to 128 bits, and COP1:
-/// the register moves, LWC1 and SWC1, the single precision arithmetic, the
-/// compares and CVT.W.S. The COP1 register images follow the general
-/// registers in the context; the accumulator and FCR31 take one word each
-/// after them, and the adapter copies those two in and out around a run
-/// because the interpreter keeps them in plain fields. EE floating point
-/// semantics are rebuilt with integer operations around the binary64 IR
-/// operations: decode and encode are exact bit constructions (see
-/// [_fdecode] and [_fencode]), so compiled results match the interpreter
-/// bit for bit. HI and LO, COP0 and COP2, BC1, CVT.S.W (the IR has no
-/// integer to float conversion), the multimedia instructions, the
-/// unaligned accesses and the exceptions are left to the interpreter: a
-/// block ends before them, and a load or store, a trapping add or a
-/// misaligned address exits before its effects.
+/// jumps, MOVZ/MOVN, the aligned loads and stores up to 128 bits, integer
+/// DIV/DIVU and the MMI DIV1/DIVU1, and COP1: the register moves, LWC1 and
+/// SWC1, the single precision arithmetic, the compares and CVT.W.S. HI/LO
+/// and HI1/LO1 live in four extra 64-bit context slots synchronized by
+/// Ps2Jit at compiled/interpreter boundaries, and the division forms
+/// preserve the zero-divisor and overflow semantics. The COP1 register
+/// images follow the HI/LO slots in the context; the accumulator and
+/// FCR31 take one word each after them, and the adapter copies those two
+/// in and out around a run because the interpreter keeps them in plain
+/// fields. EE floating point semantics are rebuilt with integer
+/// operations around the binary64 IR operations: decode and encode are
+/// exact bit constructions (see [_fdecode] and [_fencode]), so compiled
+/// results match the interpreter bit for bit. COP0 and COP2, BC1,
+/// CVT.S.W (the IR has no integer to float conversion), the other
+/// multimedia instructions, the unaligned accesses and the exceptions
+/// are left to the interpreter: a block ends before them, and a load or
+/// store, a trapping add or a misaligned address exits before its
+/// effects.
 final class R5900Translator {
   static const defaultMaxInstructions = 32;
   static const ctxRegs = JitCtx.user;
-  static const ctxFpr = ctxRegs + 32 * 4;
+  static const ctxHi = ctxRegs + 32 * 4;
+  static const ctxLo = ctxHi + 2;
+  static const ctxHi1 = ctxLo + 2;
+  static const ctxLo1 = ctxHi1 + 2;
+  static const ctxFpr = ctxLo1 + 2;
   static const ctxFacc = ctxFpr + 32;
   static const ctxFcr31 = ctxFacc + 1;
   static const ctxWords = ctxFcr31 + 1;
@@ -51,6 +59,8 @@ final class R5900Translator {
   bool _faccDirty = false;
   IrValue? _fcr;
   bool _fcrDirty = false;
+  final _specialRegs = <int, IrValue>{};
+  final _specialDirty = <int>{};
 
   R5900Translator(
       {required this.fetch,
@@ -62,6 +72,26 @@ final class R5900Translator {
 
   IrValue _c(int value) => b.c32(value);
   IrValue _c64(int value) => b.c64Parts(value, value >> 32);
+  IrValue _specialReg(int word) =>
+      _specialRegs[word] ??= b.ctxLoad(word, type: IrType.i64);
+  void _setSpecial(int word, IrValue value) {
+    _specialRegs[word] = value;
+    _specialDirty.add(word);
+  }
+
+  void _divide(int s, int t, {bool signed = true, bool pipe1 = false}) {
+    final x = _low(s), y = _low(t), zero = _c(0);
+    final byZero = b.eq(y, zero);
+    final quotient = signed ? b.divS(x, y) : b.divU(x, y);
+    final remainder = signed ? b.remS(x, y) : b.remU(x, y);
+    final zeroQuotient = signed
+        ? b.select(b.ltS(x, zero), _c(1), _c(-1))
+        : _c(-1);
+    _setSpecial(pipe1 ? ctxLo1 : ctxLo,
+        b.sext32(b.select(byZero, zeroQuotient, quotient)));
+    _setSpecial(pipe1 ? ctxHi1 : ctxHi,
+        b.sext32(b.select(byZero, x, remainder)));
+  }
 
   IrValue _get64(int r) => r == 0
       ? _c64(0)
@@ -89,6 +119,7 @@ final class R5900Translator {
       for (final r in _fdirty) (ctxFpr + r, _fregs[r]!),
       if (_faccDirty) (ctxFacc, _facc!),
       if (_fcrDirty) (ctxFcr31, _fcr!),
+      for (final word in _specialDirty) (word, _specialRegs[word]!),
     ]);
   }
 
@@ -102,6 +133,9 @@ final class R5900Translator {
     }
     if (_faccDirty) b.ctxStore(ctxFacc, _facc!);
     if (_fcrDirty) b.ctxStore(ctxFcr31, _fcr!);
+    for (final word in _specialDirty) {
+      b.ctxStore(word, _specialRegs[word]!);
+    }
   }
 
   static const _loads = [30, 32, 33, 35, 36, 37, 39, 49, 55];
@@ -123,7 +157,8 @@ final class R5900Translator {
   }
 
   static const _special = [
-    0, 2, 3, 4, 6, 7, 10, 11, 15, 20, 22, 23, 32, 33, 34, 35, 36, 37, 38, //
+    0, 2, 3, 4, 6, 7, 10, 11, 15, 16, 17, 18, 19, 20, 22, 23,
+    26, 27, 32, 33, 34, 35, 36, 37, 38, //
     39, 42, 43, 45, 47, 56, 58, 59, 60, 62, 63,
   ];
   static const _immediate = [8, 9, 10, 11, 12, 13, 14, 15, 25, 47, 51];
@@ -137,6 +172,10 @@ final class R5900Translator {
     if (code == 0) return _special.contains(op & 63);
     if (code == 17) return _cop1Usable && _cop1Supported(op);
     if (code == 49 || code == 57) return _cop1Usable;
+    if (code == 28) {
+      return const [0x10, 0x11, 0x12, 0x13, 0x1a, 0x1b]
+          .contains(op & 63);
+    }
     return _immediate.contains(code) || _memory(op);
   }
 
@@ -184,6 +223,8 @@ final class R5900Translator {
     _fcrBase = null;
     _lastCause = null;
     _stickyAcc = null;
+    _specialRegs.clear();
+    _specialDirty.clear();
     var spent = 0, at = pc;
     IrBlock? end() => spent == 0
         ? null
@@ -241,11 +282,11 @@ final class R5900Translator {
     if (code >= 20 && code <= 23) code -= 16;
     final a = _get64(s), zero = _c64(0);
     final condition = switch (code) {
-      1 => t.isEven ? b.ltS(a, zero) : b.eq(b.ltS(a, zero), _c(0)),
+      1 => t.isEven ? b.ltS(a, zero) : b.ltS(_c64(-1), a),
       4 => b.eq(a, _get64(t)),
       5 => b.ne(a, _get64(t)),
-      6 => b.or(b.ltS(a, zero), b.eq(a, zero)),
-      _ => b.eq(b.or(b.ltS(a, zero), b.eq(a, zero)), _c(0)),
+      6 => b.ltS(a, _c64(1)),
+      _ => b.ltS(zero, a),
     };
     if (code == 1 && t >= 16) _word(31, _c(next));
     return IrBranch(condition, target, next);
@@ -278,6 +319,16 @@ final class R5900Translator {
               fn == 10
                   ? b.select(zero, _get64(s), _get64(d))
                   : b.select(zero, _get64(d), _get64(s)));
+        case 16: // MFHI
+          _put64(d, _specialReg(ctxHi));
+        case 17: // MTHI
+          _setSpecial(ctxHi, _get64(s));
+        case 18: // MFLO
+          _put64(d, _specialReg(ctxLo));
+        case 19: // MTLO
+          _setSpecial(ctxLo, _get64(s));
+        case 26 || 27: // DIV, DIVU
+          _divide(s, t, signed: fn == 26);
         case 20 || 22 || 23: // DSLLV, DSRLV, DSRAV
           final shift = b.and(_low(s), _c(63));
           final value = _get64(t);
@@ -326,6 +377,19 @@ final class R5900Translator {
       return;
     }
     switch (code) {
+      case 28: // MMI HI1/LO1 transfers and second integer divider
+        switch (op & 63) {
+          case 0x10:
+            _put64(d, _specialReg(ctxHi1));
+          case 0x11:
+            _setSpecial(ctxHi1, _get64(s));
+          case 0x12:
+            _put64(d, _specialReg(ctxLo1));
+          case 0x13:
+            _setSpecial(ctxLo1, _get64(s));
+          case 0x1a || 0x1b:
+            _divide(s, t, signed: (op & 63) == 0x1a, pipe1: true);
+        }
       case 8:
         _word(t, _checkedWord(_low(s), _c(imm), sideExit!));
       case 9:
