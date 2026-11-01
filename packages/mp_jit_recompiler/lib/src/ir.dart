@@ -139,6 +139,57 @@ int irOperandCount(IrOp op) => switch (op) {
   _ => 2,
 };
 
+/// The index of the exit/terminal consuming each single-use comparison,
+/// or -1 when its boolean result must be materialized. Side-exit snapshots,
+/// calls and all other consumers count as uses; only an exitIf or terminator
+/// may fuse. Backends emit the comparison at that consumer, not at its IR
+/// definition, so intervening flag-clobbering instructions are harmless.
+List<int> irFusedCompareConsumers(IrBlock block) {
+  final n = block.insts.length;
+  final uses = List<int>.filled(n, 0);
+  final consumers = List<int>.filled(n, -1);
+  void use(int v) {
+    if (v >= 0) uses[v]++;
+  }
+  void exitUses(IrExit exit) {
+    for (final (_, v) in exit.stores) {
+      use(v.index);
+    }
+  }
+  for (var at = 0; at < n; at++) {
+    final i = block.insts[at];
+    use(i.a);
+    use(i.b);
+    use(i.c);
+    if (i.exit >= 0) exitUses(block.exits[i.exit]);
+    if (i.op == IrOp.exitIf || i.op == IrOp.guardMapped) {
+      exitUses(block.exits[i.aux]);
+    }
+    if (i.op == IrOp.exitIf) consumers[i.a] = at;
+  }
+  switch (block.term) {
+    case IrBranch t:
+      use(t.cond.index);
+      consumers[t.cond.index] = n;
+    case IrJumpDyn t:
+      use(t.pc.index);
+    case IrExitTerm t:
+      exitUses(t.exit);
+    default:
+      break;
+  }
+  for (var i = 0; i < n; i++) {
+    if (uses[i] != 1 ||
+        !(block.insts[i].op == IrOp.eq ||
+          block.insts[i].op == IrOp.ne ||
+          block.insts[i].op == IrOp.ltS ||
+          block.insts[i].op == IrOp.ltU)) {
+      consumers[i] = -1;
+    }
+  }
+  return consumers;
+}
+
 /// Whether an [IrOp] produces a value.
 bool irHasResult(IrOp op) =>
     op != IrOp.ctxStore &&
