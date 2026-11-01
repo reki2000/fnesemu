@@ -165,6 +165,38 @@ void main() {
       });
     }
 
+    test('${native ? 'native' : 'reference'} wide compare fuses into a jump',
+        () {
+      if (native && !JitRuntime.nativeSupported) {
+        markTestSkipped('No compiled backend');
+        return;
+      }
+      final rt = _runtime(native);
+      addTearDown(rt.dispose);
+      for (final (x, y) in [
+        (BigInt.from(-3), BigInt.from(2)),
+        (BigInt.from(2), BigInt.from(-3)),
+        (BigInt.from(7), BigInt.from(7))
+      ]) {
+        rt.clear();
+        _write64(rt, 8, x);
+        _write64(rt, 10, y);
+        final b = IrBuilder(0x100);
+        final a = b.ctxLoad(8, type: IrType.i64);
+        final c = b.ctxLoad(10, type: IrType.i64);
+        final cond = b.ltS(a, c);
+        b.ctxStore(12, b.add(a, c)); // Clobber flags between compare/jump.
+        final block = b.finish(
+            IrBranch(cond, 0x200, 0x300), cost: 2);
+        expect(irFusedCompareConsumers(block)[cond.index], block.insts.length);
+        rt.ctx[JitCtx.budget] = 100;
+        rt.install(block);
+        expect(rt.run(0x100, 0), JitReason.miss);
+        expect(rt.ctx[JitCtx.exitPc],
+            x.toSigned(64) < y.toSigned(64) ? 0x200 : 0x300);
+      }
+    });
+
     test('${native ? 'native' : 'reference'} reused compare is not fused',
         () {
       if (native && !JitRuntime.nativeSupported) {
