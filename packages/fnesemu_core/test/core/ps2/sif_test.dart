@@ -27,6 +27,49 @@ class _System {
 
 void main() {
   cdvdTests();
+  test('IOP DMA retries all waiting channels in order', () {
+    final iop = _System().iop;
+    final seen = <int>[];
+    for (var ch = 0; ch < iop.channels.length; ch++) {
+      iop.dmaHandlers[ch] = (_) {
+        seen.add(ch);
+        return false;
+      };
+      iop.channels[ch].chcr = 1 << 24;
+    }
+    iop.service();
+    expect(seen, List.generate(iop.channels.length, (i) => i));
+    expect(iop.channels.every((c) => c.chcr & (1 << 24) != 0), isTrue);
+    seen.clear();
+    iop.service();
+    expect(seen, List.generate(iop.channels.length, (i) => i));
+  });
+
+  test('IOP DMA retries observe changes to later channels immediately', () {
+    final iop = _System().iop;
+    final seen = <int>[];
+    iop.dmaHandlers[1] = (_) {
+      seen.add(1);
+      return false;
+    };
+    iop.dmaHandlers[2] = (_) {
+      seen.add(2);
+      iop.channels[1].chcr = 1 << 24;
+      iop.channels[6].chcr = 1 << 24;
+      return false;
+    };
+    iop.dmaHandlers[6] = (_) {
+      seen.add(6);
+      return false;
+    };
+    iop.channels[2].chcr = 1 << 24;
+    iop.service();
+    expect(seen, [2, 6]);
+    seen.clear();
+    iop.service();
+    expect(seen, [1, 2, 6]);
+  });
+
   test('SIF1 delivers an EE packet to IOP memory', () {
     final s = _System();
     // EE chain tag at 0x1000: end tag with 3 quads. The first is the IOP tag

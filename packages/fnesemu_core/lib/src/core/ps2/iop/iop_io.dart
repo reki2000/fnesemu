@@ -422,11 +422,26 @@ class IopIo implements IopPort {
     if (handler == null || handler(channels[ch])) _complete(ch);
   }
 
-  /// retries the channels that are waiting
+  /// Retries the channels that are waiting, in channel order. A handler can
+  /// change a later channel, so each start bit must be read at its turn.
   void service() {
-    for (var ch = 0; ch < _channelCount; ch++) {
-      if (channels[ch].chcr & _start != 0) _runChannel(ch);
-    }
+    // Unroll the fixed channel scan: this runs once per device quantum.
+    // Keep the scan in sync with _channelCount.
+    final channels = this.channels;
+    if (channels[0].chcr & _start != 0) _runChannel(0);
+    if (channels[1].chcr & _start != 0) _runChannel(1);
+    if (channels[2].chcr & _start != 0) _runChannel(2);
+    if (channels[3].chcr & _start != 0) _runChannel(3);
+    if (channels[4].chcr & _start != 0) _runChannel(4);
+    if (channels[5].chcr & _start != 0) _runChannel(5);
+    if (channels[6].chcr & _start != 0) _runChannel(6);
+    if (channels[7].chcr & _start != 0) _runChannel(7);
+    if (channels[8].chcr & _start != 0) _runChannel(8);
+    if (channels[9].chcr & _start != 0) _runChannel(9);
+    if (channels[10].chcr & _start != 0) _runChannel(10);
+    if (channels[11].chcr & _start != 0) _runChannel(11);
+    if (channels[12].chcr & _start != 0) _runChannel(12);
+    if (channels[13].chcr & _start != 0) _runChannel(13);
   }
 
   /// words of a non-chain transfer
