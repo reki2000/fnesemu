@@ -351,9 +351,23 @@ final class _Block {
             _set(_hi, b.mulHiU(x, y));
             _commit();
           case 0x1a || 0x1b:
-            b.call(t.div, s(), u(), b.c32(inst.mask6 == 0x1a ? 1 : 0));
-            // the helper writes hi and lo to the context
-            _regs[_hi] = _regs[_lo] = null;
+            final dividend = s(), divisor = u();
+            final zero = b.eq(divisor, b.c32(0));
+            final signed = inst.mask6 == 0x1a;
+            final quotient = signed
+                ? b.divS(dividend, divisor)
+                : b.divU(dividend, divisor);
+            final remainder = signed
+                ? b.remS(dividend, divisor)
+                : b.remU(dividend, divisor);
+            // MIPS defines special HI/LO results for division by zero.
+            final zeroQuotient = signed
+                ? b.select(
+                    b.ltS(dividend, b.c32(0)), b.c32(1), b.c32(-1))
+                : b.c32(-1);
+            _set(_lo, b.select(zero, zeroQuotient, quotient));
+            _set(_hi, b.select(zero, dividend, remainder));
+            _commit();
             _dirty[_hi] = _dirty[_lo] = false;
             _commit();
           case 0x20:
