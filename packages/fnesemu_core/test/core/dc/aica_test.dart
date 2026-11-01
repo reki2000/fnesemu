@@ -175,7 +175,7 @@ void main() {
     expect(bus.read32(rtc + 4), expected & 0xffff);
 
     // The RTC follows elapsed wall time, not the emulated CPU clock.
-    bus.aica.tickMasterClocks(DcAica.masterHz * 3);
+    bus.aica.tickMasterClocks(DcAica.masterHz);
     expect(bus.read32(rtc + 4), expected & 0xffff);
     now = now.add(const Duration(seconds: 1));
     expect(bus.read32(rtc + 4), (expected + 1) & 0xffff);
