@@ -255,7 +255,7 @@ abstract final class Arm64Backend {
         case IrOp.sub:
           binary(0x4b000000);
         case IrOp.and:
-          binary(0x0a000000);
+          if (fused[v] < 0) binary(0x0a000000);
         case IrOp.or:
           binary(0x2a000000);
         case IrOp.xor:
