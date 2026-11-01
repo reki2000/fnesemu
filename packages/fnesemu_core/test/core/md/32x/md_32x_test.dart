@@ -44,21 +44,30 @@ void main() {
   final native = probe != null;
   probe?.dispose();
   test('CPU profiling excludes native execution and preserves CPU state', () {
-    final expected = adapter(), actual = adapter();
-    for (final machine in [expected, actual]) {
+    // On Wasm hosts a core initialization reinitializes the shared JIT pool.
+    // The reference machine therefore runs before the measured one is created, and only its results are kept for the comparison.
+    void seed(Md32x machine) {
       final bytes = ByteData.sublistView(machine.ram);
       bytes.setUint16(0x200, 0x7101);
       bytes.setUint16(0x202, 0xaffd);
       bytes.setUint16(0x204, 9);
       machine.cpus[0].pc = 0x06000200;
     }
+
+    final expected = adapter();
+    seed(expected);
+    expect(expected.cpus[0].run(400), isTrue);
+    final expectedDump = expected.cpus[0].dump(),
+        expectedClocks = expected.cpus[0].clocks,
+        expectedRam = Uint8List.fromList(expected.ram);
+    final actual = adapter();
+    seed(actual);
     final cpu = actual.cpus[0];
     final stats = cpu.jit!.diagnostics.enableExecutionStats();
     expect(cpu.run(400), isTrue);
-    expect(expected.cpus[0].run(400), isTrue);
-    expect(cpu.dump(), expected.cpus[0].dump());
-    expect(cpu.clocks, expected.cpus[0].clocks);
-    expect(actual.ram, expected.ram);
+    expect(cpu.dump(), expectedDump);
+    expect(cpu.clocks, expectedClocks);
+    expect(actual.ram, expectedRam);
     expect(cpu.jit!.compiledClocks, greaterThan(0));
     expect(stats.cpuClocks + cpu.jit!.compiledClocks, cpu.clocks);
     expect(stats.cpuDispatches, greaterThan(0));
