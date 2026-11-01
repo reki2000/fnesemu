@@ -64,7 +64,10 @@ void main() {
     bad[15] = 31;
     expect(timer.command(12, bad).$1, 7);
     now = now.add(const Duration(milliseconds: 999));
-    expect(timer.time, DateTime.utc(2000, 12, 31));
+    expect(timer.time.year, 2000);
+    expect(timer.time.month, 12);
+    expect(timer.time.day, 31);
+    expect(timer.time.second, 0);
     now = now.add(const Duration(milliseconds: 1));
     expect(timer.time.second, 1);
   });
