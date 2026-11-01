@@ -37,6 +37,14 @@ enum IrOp {
   sub,
   mul,
 
+  /// Truncating quotient/remainder in the width of the operands.
+  /// A zero divisor returns zero. Signed MIN / -1 returns MIN (wrapped)
+  /// and a zero remainder, without trapping on any backend.
+  divS,
+  divU,
+  remS,
+  remU,
+
   /// IEEE bit patterns: evaluate in binary64, then round to the result width.
   /// Frontends requiring specific NaN payload behavior must guard operands.
   floatAdd,
@@ -563,6 +571,10 @@ final class IrBuilder {
   IrValue add(IrValue a, IrValue b) => _bin(IrOp.add, a, b);
   IrValue sub(IrValue a, IrValue b) => _bin(IrOp.sub, a, b);
   IrValue mul(IrValue a, IrValue b) => _bin(IrOp.mul, a, b);
+  IrValue divS(IrValue a, IrValue b) => _bin(IrOp.divS, a, b);
+  IrValue divU(IrValue a, IrValue b) => _bin(IrOp.divU, a, b);
+  IrValue remS(IrValue a, IrValue b) => _bin(IrOp.remS, a, b);
+  IrValue remU(IrValue a, IrValue b) => _bin(IrOp.remU, a, b);
   IrValue mulHiS(IrValue a, IrValue b) => _bin(IrOp.mulHiS, a, b);
   IrValue mulHiU(IrValue a, IrValue b) => _bin(IrOp.mulHiU, a, b);
   IrValue and(IrValue a, IrValue b) => _bin(IrOp.and, a, b);
