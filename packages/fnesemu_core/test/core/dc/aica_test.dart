@@ -219,6 +219,19 @@ void main() {
     expect(bus.read32(rtc), 2);
   });
 
+  test('RTC low write restarts the subsecond fraction', () {
+    var now = DateTime.utc(2026).add(const Duration(milliseconds: 750));
+    final bus = DcBus();
+    bus.aica.clock = () => now;
+    bus.write32(rtc + 8, 1);
+    bus.write32(rtc + 4, 7);
+    bus.write32(rtc, 2);
+    now = now.add(const Duration(milliseconds: 250));
+    expect(bus.read32(rtc + 4), 7);
+    now = now.add(const Duration(milliseconds: 750));
+    expect(bus.read32(rtc + 4), 8);
+  });
+
   test('manual CPU reset retains AICA, full reset clears RAM but retains RTC',
       () {
     final core = Dc(), bus = DcBus();
