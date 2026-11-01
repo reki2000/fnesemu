@@ -1,0 +1,89 @@
+name: Measure JIT branch fusion (AOT)
+
+on:
+  pull_request:
+    paths:
+      - 'packages/mp_jit_recompiler/tool/jit_branch_fusion_bench.dart'
+      - '.github/workflows/jit-branch-fusion-bench.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+      - name: Checkout pre-fusion implementation
+        uses: actions/checkout@v4
+        with:
+          ref: bba4eee776ccf886d0a7d8171c1b0feef43cff8d
+          path: before
+          persist-credentials: false
+      - name: Checkout merged implementation
+        uses: actions/checkout@v4
+        with:
+          ref: bed93f7a061ac0b09ebc9ba9e835fac0af865bf4
+          path: after
+          persist-credentials: false
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies and compile both versions with the same AOT compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart --version
+          uname -a
+          lscpu | grep -E 'Model name|CPU\(s\)|Architecture' || true
+          for variant in before after; do
+            mkdir -p "$variant/packages/mp_jit_recompiler/tool"
+            cp harness/packages/mp_jit_recompiler/tool/jit_branch_fusion_bench.dart \
+              "$variant/packages/mp_jit_recompiler/tool/"
+            (cd "$variant/packages/mp_jit_recompiler" && dart pub get)
+            (cd "$variant/packages/mp_jit_recompiler" && \
+              dart build cli -t tool/jit_branch_fusion_bench.dart \
+                -o "$RUNNER_TEMP/jit-branch-$variant")
+          done
+      - name: Execute alternating identical AOT runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/jit-branch-results.txt"
+          for variant in before after after before before after after before; do
+            echo "VARIANT $variant" | tee -a "$RUNNER_TEMP/jit-branch-results.txt"
+            "$RUNNER_TEMP/jit-branch-$variant/bundle/bin/jit_branch_fusion_bench" 2000000 \
+              | tee -a "$RUNNER_TEMP/jit-branch-results.txt"
+          done
+          python3 - "$RUNNER_TEMP/jit-branch-results.txt" <<'PY'
+          import collections, json, statistics, sys
+          groups = collections.defaultdict(list)
+          variant = None
+          for line in open(sys.argv[1]):
+              if line.startswith("VARIANT "):
+                  variant = line.split()[1]
+              elif line.startswith("BENCH_JSON "):
+                  d = json.loads(line[len("BENCH_JSON "):])
+                  groups[(variant,d["kind"])].append(d)
+          for kind in ("unsigned", "signed", "bit", "exit"):
+              old = groups["before",kind]
+              new = groups["after",kind]
+              assert len(old)==len(new)==4,(kind,len(old),len(new))
+              before = statistics.median(x["medianMicros"] for x in old)
+              after = statistics.median(x["medianMicros"] for x in new)
+              oldbytes = {x["codeBytes"] for x in old}
+              newbytes = {x["codeBytes"] for x in new}
+              assert len(oldbytes)==len(newbytes)==1
+              assert {x["checksum"] for x in old} == {x["checksum"] for x in new}
+              print(f"BENCH_RESULT kind={kind} before_us={before:.1f} after_us={after:.1f} "
+                    f"speedup_pct={(before/after-1)*100:+.2f} "
+                    f"time_reduction_pct={(1-after/before)*100:+.2f} "
+                    f"old_bytes={next(iter(oldbytes))} new_bytes={next(iter(newbytes))} "
+                    f"count=2000000 runs_per_version=4")
+          PY
