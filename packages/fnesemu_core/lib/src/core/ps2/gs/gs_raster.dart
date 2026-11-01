@@ -41,6 +41,10 @@ class GsRaster {
   bool _linear = false;
   int _ta0 = 0, _ta1 = 0;
 
+  /// whether _pixel samples the texture through the direct path of
+  /// [_sampleFast] instead of the general [_texture]
+  bool _texFast = false;
+
   // mipmapping: TEX1 fields and the base pointer, layout pages, width and
   // height exponents of each level
   bool _lcm = false, _mipmap = false;
@@ -128,6 +132,12 @@ class GsRaster {
       _minv = (c >> 24) & 0x3ff;
       _maxv = (c >> 34) & 0x3ff;
       _setupMipmap();
+      _texFast = !_mipmap &&
+          !_linear &&
+          _tpsm == GsPsm.ct32 &&
+          _tfx <= 1 &&
+          _wms <= 1 &&
+          _wmt <= 1;
       final texa = gs.texa;
       _ta0 = texa & 0xff;
       _aem = (texa >> 15) & 1 != 0;
@@ -334,11 +344,28 @@ class GsRaster {
       }
     }
     if (_tme) {
-      _texture(r, g, b, a);
-      r = _tr;
-      g = _tg;
-      b = _tb;
-      a = _ta;
+      if (_texFast) {
+        final texel = _sampleFast(mem);
+        final tr = texel & 0xff, tg = (texel >> 8) & 0xff;
+        final tb = (texel >> 16) & 0xff, ta = (texel >> 24) & 0xff;
+        if (_tfx == 0) {
+          r = _clamp8((tr * r) >> 7);
+          g = _clamp8((tg * g) >> 7);
+          b = _clamp8((tb * b) >> 7);
+          a = _tcc != 0 ? _clamp8((ta * a) >> 7) : a;
+        } else {
+          r = tr;
+          g = tg;
+          b = tb;
+          a = _tcc != 0 ? ta : a;
+        }
+      } else {
+        _texture(r, g, b, a);
+        r = _tr;
+        g = _tg;
+        b = _tb;
+        a = _ta;
+      }
     }
     if (_fge) {
       final fc = gs.fogcol;
@@ -562,6 +589,31 @@ class GsRaster {
         _tb = _clamp8(((tb * b) >> 7) + a);
         _ta = _tcc != 0 ? ta : a;
     }
+  }
+
+  /// The texel of the configuration [_texFast] covers: no mipmapping,
+  /// nearest filtering, a 32-bit texture and repeat or clamp wrapping.
+  /// The coordinate and wrap arithmetic is [_texture]'s, [_sample]'s and
+  /// [_texel]'s, in the same order.
+  int _sampleFast(GsMemory mem) {
+    final size = 1 << _tw, height = 1 << _th;
+    double u, v;
+    if (_fst) {
+      u = _uu;
+      v = _vv;
+    } else {
+      final q = _q == 0 ? 1.0 : _q;
+      u = _finite(_s / q * size);
+      v = _finite(_t / q * height);
+    }
+    final ui = u.floor(), vi = v.floor();
+    final x = _wms == 0
+        ? ui & (size - 1)
+        : (ui < 0 ? 0 : (ui > size - 1 ? size - 1 : ui));
+    final y = _wmt == 0
+        ? vi & (height - 1)
+        : (vi < 0 ? 0 : (vi > height - 1 ? height - 1 : vi));
+    return mem.word(_texLayout.index(_tbp, _texPages, x, y));
   }
 
   /// the texel at (u, v) of the level the texture fields point to

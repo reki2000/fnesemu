@@ -26,7 +26,10 @@ extension R5900Fpu on R5900 {
   static const _causeMask = _flagI | _flagD | flagOverflow | flagUnderflow;
   static const conditionBit = 1 << 23;
 
-  static final _bits = ByteData(8);
+  /// the double under [_f64] read as its raw bits through [_i64]; a
+  /// ByteData round trip per operation measurably costs more
+  static final _f64 = Float64List(1);
+  static final _i64 = Int64List.view(_f64.buffer);
 
   /// 2^(e - 150) for every exponent field e: the value of a normal image
   /// is (2^23 + fraction) * 2^(exp - 127 - 23), and both the integer and
@@ -61,8 +64,8 @@ extension R5900Fpu on R5900 {
   /// Truncates [value] to a register image; [flags] receives the cause bits.
   static int encode(double value, List<int> flags) {
     if (value == 0.0) return value.isNegative ? 0x80000000 : 0;
-    _bits.setFloat64(0, value);
-    final raw = _bits.getInt64(0);
+    _f64[0] = value;
+    final raw = _i64[0];
     final sign = raw < 0 ? 0x80000000 : 0;
     final exp = ((raw >>> 52) & 0x7ff) - 1023 + 127;
     if (exp <= 0) {
