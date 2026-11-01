@@ -367,8 +367,6 @@ final class _Block {
             _set(_lo, b.select(zero, zeroQuotient, quotient));
             _set(_hi, b.select(zero, dividend, remainder));
             _commit();
-            _dirty[_hi] = _dirty[_lo] = false;
-            _commit();
           case 0x20:
             _overflowing(rd, s(), u(), addr, add: true);
           case 0x21:
