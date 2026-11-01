@@ -72,12 +72,17 @@ class DcAica {
   static const _unixToAicaSeconds = 631152000; // 1950-01-01 to 1970-01-01
 
   int get _rtcCounter =>
-      (clock().millisecondsSinceEpoch ~/ 1000 + _unixToAicaSeconds + _rtc) &
+      ((clock().millisecondsSinceEpoch - _rtcPhase) ~/ 1000 +
+              _unixToAicaSeconds +
+              _rtc) &
       0xffffffff;
 
-  void _setRtcCounter(int seconds) {
-    // Preserve a guest clock setting as an offset, not as emulated CPU time.
-    _rtc = (seconds - clock().millisecondsSinceEpoch ~/ 1000 -
+  void _setRtcCounter(int seconds, {bool resetFraction = false}) {
+    // Low-half writes restart the subsecond fraction from the host instant.
+    final milliseconds = clock().millisecondsSinceEpoch;
+    if (resetFraction) _rtcPhase = milliseconds % 1000;
+    _rtc = (seconds -
+            (milliseconds - _rtcPhase) ~/ 1000 -
             _unixToAicaSeconds) &
         0xffffffff;
   }
@@ -201,7 +206,8 @@ class DcAica {
     // A run ends at most one compiled block, or the longest current ARM7DI
     // instruction, a 20-cycle LDM including PC, past its limit.
     bool fits(int index, int mask) => values[index] & ~mask == 0;
-    if ([0, 1, 10, 18].any((index) => values[index] >= masterHz) ||
+    if ([0, 10, 18].any((index) => values[index] >= masterHz) ||
+        values[1] >= 1000 ||
         !fits(2, 0xffffffff) ||
         [3, 4, 5, 6].any((index) => !fits(index, 0x7ff)) ||
         !fits(7, 0x301) ||
@@ -392,8 +398,8 @@ class DcAica {
         _rtcWritable = value & 1 != 0;
       case 4:
         if (!_rtcWritable) return;
-        _setRtcCounter((_rtcCounter & 0xffff0000) | value);
-        _rtcPhase = 0;
+        _setRtcCounter((_rtcCounter & 0xffff0000) | value,
+            resetFraction: true);
       case 0:
         if (!_rtcWritable) return;
         _setRtcCounter((value << 16) | (_rtcCounter & 0xffff));
@@ -752,13 +758,7 @@ class DcAica {
   }
 
   void _advanceDevices(int clocks) {
-    // Short advances stay within one second or one sample; skip the divisions then.
-    final rtcClocks = _rtcPhase + clocks;
-    if (rtcClocks < masterHz) {
-      _rtcPhase = rtcClocks;
-    } else {
-      _rtcPhase = rtcClocks % masterHz;
-    }
+    // The battery-backed RTC follows the host clock, not emulated cycles.
     final sampleClocks = _samplePhase + clocks * sampleHz;
     var samples = 0;
     if (sampleClocks < masterHz) {
