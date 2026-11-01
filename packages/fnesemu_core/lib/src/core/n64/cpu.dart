@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../state.dart';
@@ -37,10 +39,10 @@ class Vr4300 {
   final N64Registers r;
   final cop0 = List<int>.filled(32, 0);
   int pc = 0, nextPc = 4, clocks = 0;
-  int get hi => r.hi;
-  set hi(int value) => r.hi = value;
-  int get lo => r.lo;
-  set lo(int value) => r.lo = value;
+  int get hi => _values[32];
+  set hi(int value) => _values[32] = value;
+  int get lo => _values[33];
+  set lo(int value) => _values[33] = value;
   String? stopReason;
 
   Vr4300(this.bus, {N64Registers? registers, N64Fpu? fpu})
@@ -73,15 +75,25 @@ class Vr4300 {
     r[29] = 0x807ffff0.rel32;
   }
 
-  void put(int index, int value) => r[index] = value;
-  int lowWord(int index) => r.word(index);
-  void putWord(int index, int value) => r.setWord(index, value);
+  /// the register storage behind [r]; the interpreter's hot path works on
+  /// it directly and keeps the r0 rule by hand
+  late final Int64List _values = r.values;
 
-  bool equal(int s, int t) => r[s] == r[t];
-  bool negative(int s) => r[s] < 0;
-  bool nonpositive(int s) => r[s] <= 0;
-  bool lessSigned(int s, int t) => r[s] < r[t];
-  bool lessUnsigned(int s, int t) => ltu(r[s], r[t]);
+  void put(int index, int value) {
+    if (index != 0) _values[index] = value;
+  }
+
+  int lowWord(int index) => _values[index].rel32;
+
+  void putWord(int index, int value) {
+    if (index != 0) _values[index] = value.rel32;
+  }
+
+  bool equal(int s, int t) => _values[s] == _values[t];
+  bool negative(int s) => _values[s] < 0;
+  bool nonpositive(int s) => _values[s] <= 0;
+  bool lessSigned(int s, int t) => _values[s] < _values[t];
+  bool lessUnsigned(int s, int t) => ltu(_values[s], _values[t]);
   int addWord(int s, int value, {bool subtract = false}) {
     final result = subtract ? lowWord(s) - value : lowWord(s) + value;
     if (result < -2147483648 || result > 2147483647) {
@@ -91,15 +103,18 @@ class Vr4300 {
   }
 
   void logic(int d, int s, int t, int fn) {
-    final a = r[s], b = r[t];
+    final a = _values[s], b = _values[t];
     put(d,
         switch (fn) { 36 => a & b, 37 => a | b, 38 => a ^ b, _ => ~(a | b) });
   }
 
   int address(int value) => value.mask32;
 
+  /// [size] is always a power of two at the call sites
   void aligned(int address, int size) {
-    if (address % size != 0) throw UnsupportedError('Unaligned N64 access');
+    if (address & (size - 1) != 0) {
+      throw UnsupportedError('Unaligned N64 access');
+    }
   }
 
   void exception(int code, int at, bool delay,
@@ -238,6 +253,67 @@ class Vr4300 {
     bus.write8(address, value);
   }
 
+  int _read64(int address) {
+    // with stats on, the access records as the two 4-byte halves it replaces
+    if (executionStats != null) {
+      return _read(address, 4) << 32 | _read(address + 4, 4);
+    }
+    return bus.read64(address);
+  }
+
+  void _write64(int address, int value) {
+    if (executionStats != null) {
+      _write(address, value >>> 32, 4);
+      _write(address + 4, value.rel32, 4);
+      return;
+    }
+    bus.write64(address, value);
+  }
+
+  void _branch(int at, int immediate, bool condition, {bool likely = false}) {
+    _delay = true;
+    if (condition) {
+      nextPc = (at + 4 + immediate * 4).mask32;
+    } else if (likely) {
+      _delay = false;
+      pc = nextPc;
+      nextPc = (nextPc + 4).mask32;
+    }
+  }
+
+  Never _unsupported(int op) => throw UnsupportedError(
+        'VR4300 instruction 0x${op.x8}',
+      );
+
+  int _load64(int a) {
+    aligned(a, 8);
+    return _read64(a);
+  }
+
+  void _loadWord(int a, int t, int size, bool signed) {
+    aligned(a, size);
+    final value = _read(a, size);
+    putWord(t, signed ? value.toSigned(size * 8) : value);
+  }
+
+  void _store(int a, int t, int size) {
+    aligned(a, size);
+    if (size <= 4) {
+      _write(a, lowWord(t), size);
+    } else {
+      _write64(a, _values[t]);
+    }
+  }
+
+  /// 64-bit add/sub trapping on signed overflow (DADD/DADDI/DSUB)
+  int _addTrap(int x, int y, {bool subtract = false}) {
+    final result = subtract ? x - y : x + y;
+    final overflow =
+        subtract ? (x ^ y) & (x ^ result) : (x ^ result) & (y ^ result);
+    if (overflow < 0) throw const CpuFault(12);
+    return result;
+  }
+
   void _step() {
     if (stopReason != null) return;
     _pollInterrupts();
@@ -270,49 +346,6 @@ class Vr4300 {
       final d = op.shr11.mask5, shift = op.shr6.mask5;
       final immediate = op.rel16;
       late final a = (lowWord(s) + immediate).mask32;
-      void branch(bool condition, {bool likely = false}) {
-        _delay = true;
-        if (condition) {
-          nextPc = (at + 4 + immediate * 4).mask32;
-        } else if (likely) {
-          _delay = false;
-          pc = nextPc;
-          nextPc = (nextPc + 4).mask32;
-        }
-      }
-
-      void unsupported() => throw UnsupportedError(
-            'VR4300 instruction 0x${op.x8}',
-          );
-      int load64() {
-        aligned(a, 8);
-        return _read(a, 4) << 32 | _read(a + 4, 4);
-      }
-
-      void loadWord(int size, bool signed) {
-        aligned(a, size);
-        final value = _read(a, size);
-        putWord(t, signed ? value.toSigned(size * 8) : value);
-      }
-
-      void store(int size) {
-        aligned(a, size);
-        if (size <= 4) {
-          _write(a, lowWord(t), size);
-        } else {
-          _write(a, r[t] >>> 32, 4);
-          _write(a + 4, lowWord(t), 4);
-        }
-      }
-
-      /// 64-bit add/sub trapping on signed overflow (DADD/DADDI/DSUB)
-      int add(int x, int y, {bool subtract = false}) {
-        final result = subtract ? x - y : x + y;
-        final overflow =
-            subtract ? (x ^ y) & (x ^ result) : (x ^ result) & (y ^ result);
-        if (overflow < 0) throw const CpuFault(12);
-        return result;
-      }
 
       if ((code == 17 ||
               code == 49 ||
@@ -433,11 +466,11 @@ class Vr4300 {
             case 43:
               putWord(d, lessUnsigned(s, t) ? 1 : 0);
             case 44:
-              put(d, add(r[s], r[t]));
+              put(d, _addTrap(r[s], r[t]));
             case 45:
               put(d, r[s] + r[t]);
             case 46:
-              put(d, add(r[s], r[t], subtract: true));
+              put(d, _addTrap(r[s], r[t], subtract: true));
             case 47:
               put(d, r[s] - r[t]);
             case 56:
@@ -453,15 +486,14 @@ class Vr4300 {
             case 63:
               put(d, r[t] >> (shift + 32));
             default:
-              unsupported();
+              _unsupported(op);
           }
         case 1:
           if (!const [0, 1, 2, 3, 16, 17, 18, 19].contains(t)) {
-            unsupported();
-            break;
+            _unsupported(op);
           }
           if (t >= 16) putWord(31, (at + 8).mask32);
-          branch(
+          _branch(at, immediate, 
             !t.bit0 ? negative(s) : !negative(s),
             likely: t.bit1,
           );
@@ -473,13 +505,13 @@ class Vr4300 {
           }
           nextPc = (at + 4) & 0xf0000000 | op.mask26.shl2;
         case 4:
-          branch(equal(s, t));
+          _branch(at, immediate, equal(s, t));
         case 5:
-          branch(!equal(s, t));
+          _branch(at, immediate, !equal(s, t));
         case 6:
-          branch(nonpositive(s));
+          _branch(at, immediate, nonpositive(s));
         case 7:
-          branch(!nonpositive(s));
+          _branch(at, immediate, !nonpositive(s));
         case 8:
           putWord(t, addWord(s, immediate));
         case 9:
@@ -532,10 +564,10 @@ class Vr4300 {
               case 1:
                 bus.readTlb(cop0[0].mask5, cop0);
               default:
-                unsupported();
+                _unsupported(op);
             }
           } else {
-            unsupported();
+            _unsupported(op);
           }
         case 17:
           final fs = d, fd = shift;
@@ -553,7 +585,7 @@ class Vr4300 {
             case 6:
               if (fs == 31) fpu.control = lowWord(t).mask32;
             case 8:
-              branch(t.bit0 ? fpu.condition : !fpu.condition, likely: t.bit1);
+              _branch(at, immediate, t.bit0 ? fpu.condition : !fpu.condition, likely: t.bit1);
             default:
               fpu.execute(s, t, fs, fd, op.mask6);
           }
@@ -586,27 +618,27 @@ class Vr4300 {
             put(t, value);
           }
         case 20:
-          branch(equal(s, t), likely: true);
+          _branch(at, immediate, equal(s, t), likely: true);
         case 21:
-          branch(!equal(s, t), likely: true);
+          _branch(at, immediate, !equal(s, t), likely: true);
         case 22:
-          branch(nonpositive(s), likely: true);
+          _branch(at, immediate, nonpositive(s), likely: true);
         case 23:
-          branch(!nonpositive(s), likely: true);
+          _branch(at, immediate, !nonpositive(s), likely: true);
         case 24:
-          put(t, add(r[s], immediate));
+          put(t, _addTrap(r[s], immediate));
         case 25:
           put(t, r[s] + immediate);
         case 32:
-          loadWord(1, true);
+          _loadWord(a, t, 1, true);
         case 33:
-          loadWord(2, true);
+          _loadWord(a, t, 2, true);
         case 35:
-          loadWord(4, true);
+          _loadWord(a, t, 4, true);
         case 36:
-          loadWord(1, false);
+          _loadWord(a, t, 1, false);
         case 37:
-          loadWord(2, false);
+          _loadWord(a, t, 2, false);
         case 39:
           aligned(a, 4);
           put(t, _read(a, 4).mask32);
@@ -623,23 +655,23 @@ class Vr4300 {
             _write8(base + i, (r[t] >>> (size - 1 - index) * 8).mask8);
           }
         case 48:
-          loadWord(4, true);
+          _loadWord(a, t, 4, true);
           _ll = true;
           cop0[17] = bus.physical(a) >> 4; // LLAddr
         case 52:
-          put(t, load64());
+          put(t, _load64(a));
           _ll = true;
           cop0[17] = bus.physical(a) >> 4;
         case 56:
         case 60:
-          if (_ll) store(code == 56 ? 4 : 8);
+          if (_ll) _store(a, t, code == 56 ? 4 : 8);
           putWord(t, _ll ? 1 : 0);
           _ll = false;
         case 49:
           aligned(a, 4);
           fpu.setWord(t, _read(a, 4));
         case 53:
-          fpu.setLong(t, load64());
+          fpu.setLong(t, _load64(a));
         case 57:
           aligned(a, 4);
           _write(a, fpu.word(t), 4);
@@ -649,19 +681,19 @@ class Vr4300 {
             _write8(a + i, (fpu.long(t) >>> (7 - i) * 8).mask8);
           }
         case 40:
-          store(1);
+          _store(a, t, 1);
         case 41:
-          store(2);
+          _store(a, t, 2);
         case 43:
-          store(4);
+          _store(a, t, 4);
         case 47:
           break; // CACHE: bus has no caches.
         case 55:
-          put(t, load64());
+          put(t, _load64(a));
         case 63:
-          store(8);
+          _store(a, t, 8);
         default:
-          unsupported();
+          _unsupported(op);
       }
       clocks += 1; // Instruction timing is approximate.
     } on CpuFault catch (fault) {
