@@ -62,6 +62,7 @@ abstract final class Arm64Backend {
     if (block.insts.length > maxValues) throw StateError('block too long');
     final a = Arm64Assembler()..emit(0xd503249f);
     final stubs = <void Function()>[];
+    final fused = irFusedCompareConsumers(block);
     bool wide(int v) => block.insts[v].type == IrType.i64;
     void load(int reg, int value) {
       final i = block.insts[value];
@@ -78,6 +79,28 @@ abstract final class Arm64Backend {
 
     void save(int reg, int value) =>
         a.memory(false, reg, 31, 16 + 8 * value, size: wide(value) ? 8 : 4);
+
+    void branchOnCondition(int v, Arm64Label dest, {required bool whenTrue}) {
+      int cc;
+      if (fused[v] >= 0) {
+        final cmp = block.insts[v];
+        load(0, cmp.a);
+        load(1, cmp.b);
+        a.cmp(0, 1, wide: wide(cmp.a));
+        cc = switch (cmp.op) {
+          IrOp.eq => 0,
+          IrOp.ne => 1,
+          IrOp.ltS => 11,
+          IrOp.ltU => 3,
+          _ => throw StateError('not a fused comparison'),
+        };
+      } else {
+        load(0, v);
+        a.cmp(0, 31);
+        cc = 1;
+      }
+      a.branch(dest, whenTrue ? cc : cc ^ 1);
+    }
     void budget(int delta) {
       a.memory(true, 0, 19, 4 * JitCtx.budget, size: 4);
       a.constant(1, delta);
@@ -282,13 +305,13 @@ abstract final class Arm64Backend {
           }
           save(0, v);
         case IrOp.eq:
-          compare(0);
+          if (fused[v] < 0) compare(0);
         case IrOp.ne:
-          compare(1);
+          if (fused[v] < 0) compare(1);
         case IrOp.ltS:
-          compare(11);
+          if (fused[v] < 0) compare(11);
         case IrOp.ltU:
-          compare(3);
+          if (fused[v] < 0) compare(3);
         case IrOp.select:
           load(0, i.a);
           load(1, i.b);
@@ -450,9 +473,7 @@ abstract final class Arm64Backend {
               linked: e.link,
             ),
           );
-          load(0, i.a);
-          a.cmp(0, 31);
-          a.branch(dest, 1);
+          branchOnCondition(i.a, dest, whenTrue: true);
         case IrOp.guardMapped:
           load(0, i.a);
           lookup(i.imm != 0);
@@ -466,9 +487,7 @@ abstract final class Arm64Backend {
         link(pc, tag);
       case IrBranch t:
         final no = Arm64Label();
-        load(0, t.cond.index);
-        a.cmp(0, 31);
-        a.branch(no, 0);
+        branchOnCondition(t.cond.index, no, whenTrue: false);
         link(t.pcTrue, t.tagTrue);
         a.bind(no);
         link(t.pcFalse, t.tagFalse);
