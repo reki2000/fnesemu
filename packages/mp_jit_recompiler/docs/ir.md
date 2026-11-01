@@ -25,7 +25,7 @@ The reference executor uses `BigInt` for exact i64 semantics on every Dart compi
 
 ## Optimizer
 
-Compiled backends run `optimizeIrBlock` before emission. It folds i32 constants (including safe division), algebraic identities and discards unused pure values. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks keep their i64 operations while the safe i32 simplifications and dead-value removal still apply. The native and Wasm backends fuse a comparison into a branch or conditional exit when the comparison has exactly one consumer, preserving operands through intervening operations.
+Compiled backends run `optimizeIrBlock` before emission. It folds i32 constants (including safe division), algebraic identities and discards unused pure values. Loads, calls, guards, side-exit snapshots and guest clock costs remain intact. Mixed-width blocks keep their i64 operations while the safe i32 simplifications and dead-value removal still apply. The native and Wasm backends fuse a comparison or masked bit test (`and`) into a branch or conditional exit when its result has exactly one consumer, preserving operands through intervening operations. On x64 the bit test becomes an AND that sets flags, on ARM64 an ANDS to the zero register, and on Wasm an inline `and` feeding `if`.
 
 A block has at most 4,096 values on the x86-64 and ARM64 backends; a longer block is rejected.
 
