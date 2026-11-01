@@ -234,6 +234,24 @@ abstract final class Arm64Backend {
           binary(0x4a000000);
         case IrOp.mul:
           binary(0x1b007c00);
+        case IrOp.divS || IrOp.divU || IrOp.remS || IrOp.remU:
+          // AArch64 SDIV/UDIV do not trap: zero divisors yield a zero
+          // quotient, and MIN / -1 wraps. Explicitly zero the remainder for
+          // a zero divisor to match the common IR contract.
+          load(0, i.a);
+          load(1, i.b);
+          final signed = i.op == IrOp.divS || i.op == IrOp.remS;
+          a.alu(signed ? 0x1ac00c00 : 0x1ac00800, 2, 0, 1, wide: w);
+          if (i.op == IrOp.remS || i.op == IrOp.remU) {
+            // MSUB: dividend - quotient * divisor (modulo operand width).
+            a.emit((w ? 0x9b008000 : 0x1b008000) |
+                (1 << 16) | (2 << 5));
+            a.cmp(1, 31, wide: w);
+            a.select(0, 0, 31, 1, wide: w); // divisor != 0
+            save(0, v);
+          } else {
+            save(2, v);
+          }
         case IrOp.shl:
           binary(0x1ac02000);
         case IrOp.shrU:
