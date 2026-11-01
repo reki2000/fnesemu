@@ -151,6 +151,31 @@ class R5900 {
     }
   }
 
+  // The code page the recent fetches came from: the bus word view and the
+  // word index of its page start, valid while the bus fetch epoch holds.
+  // The view is the bus memory itself, so writes to the page are seen.
+  Uint32List? _codePage;
+  int _codePageBase = 0;
+  int _codePageAddr = 0;
+  int _codeEpoch = -1;
+
+  int _fetch(int at) {
+    final page = _codePage;
+    if (page != null &&
+        at & 3 == 0 &&
+        _codeEpoch == bus.fetchEpoch &&
+        (at & ~0xfff) == _codePageAddr) {
+      return page[_codePageBase + ((at & 0xfff) >> 2)];
+    }
+    final resolved = bus.fetchPage(at);
+    if (resolved == null) return bus.read32(at);
+    _codePage = resolved.$1;
+    _codePageBase = resolved.$2;
+    _codePageAddr = at & ~0xfff;
+    _codeEpoch = bus.fetchEpoch;
+    return resolved.$1[resolved.$2 + ((at & 0xfff) >> 2)];
+  }
+
   int _faultPc = 0;
 
   /// Raises the COP0 exception for an address fault of the running
@@ -174,7 +199,7 @@ class R5900 {
     final at = pc;
     _faultPc = at;
     _inDelaySlot = _branchPending;
-    final ir = bus.read32(at);
+    final ir = _fetch(at);
     _branchPending = false;
     pc = nextPc;
     nextPc = pc + 4;
@@ -300,7 +325,6 @@ class R5900 {
 
   bool _execute(int ir, int at) {
     final op = ir >>> 26;
-    if (op >= 16 && _unusable(op, at)) return true;
     final rs = (ir >>> 21) & 31, rt = (ir >>> 16) & 31, rd = (ir >>> 11) & 31;
     final imm = ir & 0xffff;
     final simm = imm.toSigned(16);
@@ -346,10 +370,12 @@ class R5900 {
       case 15:
         setReg(rt, _signExtend32(imm << 16));
       case 16:
+        if (_unusable(op, at)) return true;
         return _cop0(ir, at, rs, rt, rd);
       case 28:
         return executeMmi(ir, at);
       case 17:
+        if (_unusable(op, at)) return true;
         if (rs == 8) {
           final c = fcr31 & R5900Fpu.conditionBit != 0;
           switch (rt) {
@@ -368,6 +394,7 @@ class R5900 {
         }
         return executeCop1(ir);
       case 18:
+        if (_unusable(op, at)) return true;
         if (rs == 8) {
           final c = vu0?.running ?? false;
           switch (rt) {
@@ -386,12 +413,16 @@ class R5900 {
         }
         return executeCop2(ir);
       case 54: // LQC2
+        if (_unusable(op, at)) return true;
         loadQuadToVf(rt, _ea(rs, simm, 15, false));
       case 62: // SQC2
+        if (_unusable(op, at)) return true;
         storeQuadFromVf(rt, _ea(rs, simm, 15, true));
       case 49: // LWC1
+        if (_unusable(op, at)) return true;
         fpr[rt] = bus.read32(_ea(rs, simm, 3, false));
       case 57: // SWC1
+        if (_unusable(op, at)) return true;
         bus.write32(_ea(rs, simm, 3, true), fpr[rt]);
       case 20:
         _branchLikely(reg(rs) == reg(rt), at, imm);
