@@ -320,6 +320,35 @@ class N64Bus {
     return v;
   }
 
+  /// an 8-byte read; direct-mapped RDRAM takes the same fast path as fetch,
+  /// anything else reads as the two 4-byte halves
+  int read64(int address) {
+    final a = address.mask32;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      final p = a & 0x1fffffff;
+      if (p + 8 <= ram.length) {
+        return ramData.getUint32(p) << 32 | ramData.getUint32(p + 4);
+      }
+    }
+    return read(address, 4) << 32 | read(address + 4, 4);
+  }
+
+  /// an 8-byte write; direct-mapped RDRAM takes a fast path, anything else
+  /// writes as the two 4-byte halves
+  void write64(int address, int value) {
+    final a = address.mask32;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      final p = a & 0x1fffffff;
+      if (p + 8 <= ram.length) {
+        ramData.setUint32(p, value >>> 32);
+        ramData.setUint32(p + 4, value & 0xffffffff);
+        return;
+      }
+    }
+    write(address, value >>> 32, 4);
+    write(address + 4, value.rel32, 4);
+  }
+
   int ramRead(int address, int size) {
     final a = address & 0x7fffff;
     if (size == 4) return ramData.getUint32(a);

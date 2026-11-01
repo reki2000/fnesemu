@@ -19,6 +19,10 @@ class N64Registers extends ListBase<int> {
   int get lo => _values[33];
   set lo(int value) => _values[33] = value;
 
+  /// the register storage itself, for the interpreter's hot path; writes
+  /// through it must keep the r0 rule of []= by hand
+  Int64List get values => _values;
+
   @override
   int get length => 32;
   @override
