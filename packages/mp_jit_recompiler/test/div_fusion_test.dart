@@ -197,6 +197,56 @@ void main() {
       }
     });
 
+    test('${native ? 'native' : 'reference'} bit test fuses into branch',
+        () {
+      if (native && !JitRuntime.nativeSupported) {
+        markTestSkipped('No compiled backend');
+        return;
+      }
+      final rt = _runtime(native);
+      addTearDown(rt.dispose);
+      for (final mask in [1, 0x80000000]) {
+        for (final x in [0, 1, -1, 0x80000000, 0x7fffffff]) {
+          rt.clear();
+          rt.ctx[8] = x.toUnsigned(32);
+          final b = IrBuilder(0x100);
+          final condition = b.and(b.ctxLoad(8), b.c32(mask));
+          final block = b.finish(IrBranch(condition, 0x200, 0x300),
+              cost: 1);
+          expect(irFusedCompareConsumers(block)[condition.index],
+              block.insts.length);
+          rt.ctx[JitCtx.budget] = 100;
+          rt.install(block);
+          expect(rt.run(0x100, 0), JitReason.miss);
+          expect(rt.ctx[JitCtx.exitPc],
+              (x & mask) != 0 ? 0x200 : 0x300,
+              reason: 'bit test x=$x mask=$mask');
+        }
+      }
+    });
+
+    test('${native ? 'native' : 'reference'} bit test reused in snapshot is not fused',
+        () {
+      if (native && !JitRuntime.nativeSupported) {
+        markTestSkipped('No compiled backend');
+        return;
+      }
+      final rt = _runtime(native);
+      addTearDown(rt.dispose);
+      rt.ctx[8] = 5;
+      final b = IrBuilder(0x100);
+      final condition = b.and(b.ctxLoad(8), b.c32(1));
+      b.ctxStore(9, condition);
+      final block = b.finish(IrBranch(condition, 0x200, 0x300),
+          cost: 1);
+      expect(irFusedCompareConsumers(block)[condition.index], -1);
+      rt.ctx[JitCtx.budget] = 100;
+      rt.install(block);
+      expect(rt.run(0x100, 0), JitReason.miss);
+      expect(rt.ctx[9], 1);
+      expect(rt.ctx[JitCtx.exitPc], 0x200);
+    });
+
     test('${native ? 'native' : 'reference'} reused compare is not fused',
         () {
       if (native && !JitRuntime.nativeSupported) {
