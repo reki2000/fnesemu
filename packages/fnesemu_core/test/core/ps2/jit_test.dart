@@ -10,6 +10,22 @@ int _i(int op, int rs, int rt, int imm) =>
 
 const _base = 0x100000, _data = 0x200000;
 
+class _CountingIo implements IoPort {
+  int reads = 0;
+
+  @override
+  bool handles(int address) => address == 0x1000f000;
+
+  @override
+  int read(int address, int size) {
+    reads++;
+    return 0x81234567;
+  }
+
+  @override
+  bool write(int address, int size, int value) => false;
+}
+
 /// A program that touches the translated instructions and ends in a loop
 /// on itself. r1 holds the data address.
 final _program = [
@@ -120,6 +136,210 @@ void main() {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     _compare(jit, 'reference');
+  });
+
+  test('unmapped LW skips repeated empty native entries but still reads IO',
+      () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final io = _CountingIo();
+    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(35, 3, 2, -4)); // lw r2, -4(r3)
+    cpu.setReg(3, 0xb000f004); // uncached alias of the IO register
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    final entries = jit.rt.nativeEntries;
+    expect(entries, greaterThan(0));
+    expect(cpu.step(), isTrue);
+    expect(io.reads, 1);
+    expect(cpu.reg(2), 0x81234567.toSigned(32));
+
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(jit.rt.nativeEntries, entries);
+    expect(cpu.step(), isTrue);
+    expect(io.reads, 2);
+    expect(cpu.reg(2), 0x81234567.toSigned(32));
+
+    // The same load can address RAM without recompiling its instruction.
+    bus.write32(_data, 0x76543210);
+    cpu.setReg(3, 0x80000000 + _data + 4);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isTrue);
+    expect(jit.rt.nativeEntries, greaterThan(entries));
+    expect(cpu.reg(2), 0x76543210);
+  });
+
+  test('reference IR preserves IO reads and a later RAM load', () {
+    final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
+    addTearDown(jit.dispose);
+    final io = _CountingIo();
+    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    for (var i = 0; i < 2; i++) {
+      cpu.jumpTo(_base);
+      expect(jit.run(1), isFalse);
+      expect(cpu.step(), isTrue);
+      expect(io.reads, i + 1);
+      expect(cpu.reg(2), 0x81234567.toSigned(32));
+    }
+
+    bus.write32(_data, 0x76543210);
+    cpu.setReg(3, 0x80000000 + _data + 4);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isTrue);
+    expect(cpu.reg(2), 0x76543210);
+  });
+
+  test('rewritten code invalidates the unmapped LW fast path', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final bus = Ps2Bus(ram: jit.ram)..io = _CountingIo();
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+
+    final entries = jit.rt.nativeEntries;
+    bus.write32(_base, _i(9, 0, 2, 123)); // replace LW with ADDIU
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isTrue);
+    expect(jit.rt.nativeEntries, greaterThan(entries));
+    expect(cpu.reg(2), 123);
+  });
+
+  test('an interrupt is taken before a cached unmapped load', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final io = _CountingIo();
+    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+    expect(io.reads, 1);
+
+    cpu.jumpTo(_base);
+    cpu.cop0[R5900.cop0Status] = (1 << 16) | 1 | R5900.ipIntc;
+    cpu.setInterruptLine(R5900.ipIntc, true);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+    expect(cpu.cop0[R5900.cop0Epc], _base);
+    expect(cpu.pc, 0x80000204);
+    expect(io.reads, 1);
+  });
+
+  test('a cached unmapped load still executes as a branch delay slot', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final io = _CountingIo();
+    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(4, 0, 0, 2)); // beq r0, r0, target
+    bus.write32(_base + 4, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    cpu.jumpTo(_base + 4);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+
+    cpu.jumpTo(_base);
+    expect(cpu.step(), isTrue);
+    expect(cpu.pc, _base + 4);
+    final entries = jit.rt.nativeEntries;
+    expect(jit.run(1), isFalse);
+    expect(jit.rt.nativeEntries, entries);
+    expect(cpu.step(), isTrue);
+    expect(cpu.pc, _base + 12);
+    expect(io.reads, 2);
+  });
+
+  test('a remapped TLB address uses the interpreter and the new mapping', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final io = _CountingIo();
+    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    const code = 0x80000000 + _base;
+    bus.write32(code, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    cpu.jumpTo(code);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+    expect(io.reads, 1);
+
+    bus.write32(_data, 0x76543210);
+    // The odd page at 0x1000f000 now maps to main memory.
+    cpu.tlb.write(0, 0, 0x1000e000, 1, ((_data >> 12) << 6) | 7);
+    expect(cpu.tlb.userIdentity, isFalse);
+    cpu.setReg(3, 0x1000f004);
+    cpu.jumpTo(code);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+    expect(cpu.reg(2), 0x76543210);
+    expect(io.reads, 1);
+  });
+
+  test('a misaligned cached load still raises an address exception', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final io = _CountingIo();
+    final bus = Ps2Bus(ram: jit.ram)..io = io;
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+
+    cpu.cop0[R5900.cop0Status] = 0;
+    cpu.setReg(3, 0xb000f005);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+    expect(cpu.cop0[R5900.cop0BadVAddr], 0xb000f001);
+    expect(cpu.cop0[R5900.cop0Epc], _base);
+    expect(cpu.pc, 0x80000180);
+    expect(io.reads, 1);
+  });
+
+  test('reset clears the cached unmapped load', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    final bus = Ps2Bus(ram: jit.ram)..io = _CountingIo();
+    final cpu = R5900(bus, gpr: jit.gpr);
+    jit.attach(cpu);
+    bus.write32(_base, _i(35, 3, 2, -4));
+    cpu.setReg(3, 0xb000f004);
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(cpu.step(), isTrue);
+
+    final entries = jit.rt.nativeEntries;
+    jit.reset();
+    cpu.jumpTo(_base);
+    expect(jit.run(1), isFalse);
+    expect(jit.rt.nativeEntries, greaterThan(entries));
   });
 
   test('an overflowing ADD leaves to the interpreter for the exception', () {
