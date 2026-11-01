@@ -71,15 +71,22 @@ class DcAica {
   DateTime Function() clock = DateTime.now;
   static const _unixToAicaSeconds = 631152000; // 1950-01-01 to 1970-01-01
 
+  // The Dreamcast RTC has no timezone register. Its contents represent
+  // local wall time, rather than UTC (unlike Unix timestamps).
+  int _hostWallMilliseconds() {
+    final now = clock();
+    return now.millisecondsSinceEpoch + now.timeZoneOffset.inMilliseconds;
+  }
+
   int get _rtcCounter =>
-      ((clock().millisecondsSinceEpoch - _rtcPhase) ~/ 1000 +
+      ((_hostWallMilliseconds() - _rtcPhase) ~/ 1000 +
               _unixToAicaSeconds +
               _rtc) &
       0xffffffff;
 
   void _setRtcCounter(int seconds, {bool resetFraction = false}) {
     // Low-half writes restart the subsecond fraction from the host instant.
-    final milliseconds = clock().millisecondsSinceEpoch;
+    final milliseconds = _hostWallMilliseconds();
     if (resetFraction) _rtcPhase = milliseconds % 1000;
     _rtc = (seconds -
             (milliseconds - _rtcPhase) ~/ 1000 -
