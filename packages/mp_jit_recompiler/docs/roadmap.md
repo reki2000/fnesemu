@@ -96,7 +96,7 @@ Keep code-version validity separate from data-region stability. Entry guards rem
 
 ## IR extensions
 
-1. Implemented in shared IR: `divS`, `divU`, `remS`, `remU` for i32/i64 with guarded zero and signed-overflow semantics in the reference, x86-64, ARM64 and Wasm backends. The PS1 frontend replaces its division helper and the N64 frontend translates DIV/DIVU/DDIV/DDIVU, both retaining MIPS HI/LO zero-divisor behavior. SH-2 coverage is still a follow-up candidate, to be justified with measured fallback counts.
+1. Implemented in shared IR: `divS`, `divU`, `remS`, `remU` for i32/i64 with guarded zero and signed-overflow semantics in the reference, x86-64, ARM64 and Wasm backends. The PS1 frontend replaces its division helper, N64 translates DIV/DIVU/DDIV/DDIVU, and PS2 EE translates DIV/DIVU and MMI DIV1/DIVU1 with synchronized HI/LO pipelines. SH-2 and SH-4 already translate the iterative DIV1 and setup operations; their memory-mapped division peripherals and instruction-specific flags are not simple replacements with the quotient/remainder IR.
 2. Add a typed 64-bit helper ABI and further floating-point operations when a frontend needs them.
 
 ## Core adapter candidates
