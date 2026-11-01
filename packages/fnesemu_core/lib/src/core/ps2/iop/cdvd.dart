@@ -12,7 +12,7 @@ import '../state.dart';
 ///
 /// Timing follows ps2tek. A sector takes IOP_CLOCK * block size / read speed, with 24 * 153600 bytes per second for a CD and 4 * 1382400 for a DVD. A seek from a stopped drive spins it up in 333 ms. Otherwise a seek shorter than 4371 sectors on a CD or 14764 on a DVD takes 30 ms and a longer one 100 ms. The drive reads through a gap whose sectors pass in less time than a fast seek; ps2tek does not give this bound. Stop takes 166 ms and stops the drive.
 ///
-/// The sticky drive status ORs every drive status since S command 5 copied the current one. The clock keeps the time that S command 9 writes and counts seconds of IOP clocks from it.
+/// The sticky drive status ORs every drive status since S command 5 copied the current one. The battery-backed RTC follows the host clock; S command 9 adjusts its offset.
 class Cdvd {
   static const base = 0x1f402000, end = 0x1f402040;
 
@@ -47,9 +47,13 @@ class Cdvd {
   static const _fullSeekCycles = _iopClock * 100 ~/ 1000;
   static const _stopCycles = _iopClock * 166 ~/ 1000;
 
-  /// the clock at reset: 2024-01-01 12:00:00
-  static final _rtcStart =
-      DateTime.utc(2024, 1, 1, 12).difference(DateTime.utc(2000)).inSeconds;
+  /// PS2 RTC values are JST regardless of the host's local time zone.
+  static const _unixTo2000Seconds = 946684800;
+  static const _jstSeconds = 9 * 3600;
+  DateTime Function() clock = DateTime.now;
+  int get _hostRtcSeconds =>
+      clock().millisecondsSinceEpoch ~/ 1000 - _unixTo2000Seconds +
+      _jstSeconds;
 
   /// the sectors at the start of a PS2 disc that hold the boot logo
   static const _logoSectors = 12;
@@ -78,8 +82,8 @@ class Cdvd {
   final _results = ListQueue<int>();
   int _lastCommand = 0;
 
-  // the clock: seconds since 2000-01-01 and the IOP clocks of the second
-  int _rtcSeconds = _rtcStart, _rtcCycles = 0;
+  // Offset in seconds from the host's current JST clock.
+  int _rtcSeconds = 0;
 
   // the sector under the head and whether the disc spins
   int _pos = 0;
@@ -116,8 +120,7 @@ class Cdvd {
     w.section('cdvd');
     w.ints([
       istat, _keyValid, _lastCommand, _rtcSeconds, _drive, _sticky, _error6, //
-      _busyCycles, _lba, _sectorsLeft, _blockSize, _wait, _dataPos, _rtcCycles,
-      _pos,
+      _busyCycles, _lba, _sectorsLeft, _blockSize, _wait, _dataPos, _pos,
     ]);
     w.boolean(_reading);
     w.boolean(_spinning);
@@ -130,7 +133,7 @@ class Cdvd {
 
   void loadState(StateReader s) {
     s.section('cdvd');
-    final v = s.fields(15, 'cdvd');
+    final v = s.fields(14, 'cdvd');
     istat = v[0];
     _keyValid = v[1];
     _lastCommand = v[2];
@@ -144,8 +147,7 @@ class Cdvd {
     _blockSize = v[10];
     _wait = v[11];
     _dataPos = v[12];
-    _rtcCycles = v[13];
-    _pos = v[14];
+    _pos = v[13];
     _reading = s.boolean();
     _spinning = s.boolean();
     s.bytesInto(_keyBytes);
@@ -361,11 +363,6 @@ class Cdvd {
 
   /// advances the drive by [cycles] IOP clocks
   void advance(int cycles) {
-    _rtcCycles += cycles;
-    if (_rtcCycles >= _iopClock) {
-      _rtcSeconds += _rtcCycles ~/ _iopClock;
-      _rtcCycles %= _iopClock;
-    }
     _sticky |= _driveStatusValue;
     if (_busyCycles > 0) {
       _busyCycles -= cycles;
@@ -508,7 +505,8 @@ class Cdvd {
       case 0x41: // read configuration block: 15 more bytes
         _results.addAll(List.filled(15, 0));
       case 0x08: // read clock: second, minute, hour, pad, day, month, year
-        final t = DateTime.utc(2000).add(Duration(seconds: _rtcSeconds));
+        final t = DateTime.utc(2000)
+            .add(Duration(seconds: _hostRtcSeconds + _rtcSeconds));
         _results.addAll([
           _bcd(t.second), _bcd(t.minute), _bcd(t.hour), 0, //
           _bcd(t.day), _bcd(t.month), _bcd(t.year % 100),
@@ -516,8 +514,8 @@ class Cdvd {
       case 0x09: // write clock, in the layout of the read
         int at(int i) => i < params.length ? _fromBcd(params[i]) : 0;
         final t = DateTime.utc(2000 + at(7), at(6), at(5), at(3), at(2), at(1));
-        _rtcSeconds = t.difference(DateTime.utc(2000)).inSeconds;
-        _rtcCycles = 0;
+        _rtcSeconds =
+            t.difference(DateTime.utc(2000)).inSeconds - _hostRtcSeconds;
     }
   }
 }
