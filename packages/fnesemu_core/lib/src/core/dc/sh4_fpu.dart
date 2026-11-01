@@ -1,6 +1,20 @@
 part of 'sh4.dart';
 
 extension _Sh4Fpu on Sh4 {
+  /// Whether [op] can be a floating-point instruction, so that the step
+  /// dispatch can skip the classification in [_fpuOp] for the rest: the
+  /// arithmetic and move encodings sit under top nibble 15, and the
+  /// FPSCR and FPUL system encodings have top nibble 0 or 4, a bits 7-4
+  /// field of 5 or 6 and a low nibble ending in 2. [_fpuOp] matches the
+  /// exact system codes itself, so this test only has to cover them.
+  bool _fpuCandidate(int op) {
+    final top = op >> 12;
+    if (top == 15) return true;
+    if (top != 0 && top != 4) return false;
+    final mid = (op >> 4) & 15;
+    return (mid == 5 || mid == 6) && op & 3 == 2;
+  }
+
   // Bit reinterpretation goes through ByteData: aliased typed-list views
   // of one buffer do not read back reliably on every host.
   static final _singleData = ByteData(4);

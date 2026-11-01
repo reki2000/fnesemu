@@ -54,6 +54,10 @@ class DcAicaSound {
       _slots.any((voice) => voice.active && !voice.noiseSelected);
 
   static const sampleRate = 44100, fraction = 1 << 18, packetFrames = 256;
+
+  /// 1 / [fraction] as an exact power of two: scaling by it is the same
+  /// operation as dividing by [fraction], without the division.
+  static const inverseFraction = 1.0 / fraction;
   final Uint8List memory;
   final _slots = List.generate(64, (index) => _Voice(index));
   int control = 0, monitor = 0;
@@ -346,7 +350,7 @@ class DcAicaSound {
         }
         final regs = voice.regs;
         voice.feg.advance(regs);
-        final index = voice.phase ~/ fraction;
+        final index = voice.phase >> 18;
         if (index > regs[3]) {
           throw const DcUnsupported(
               'AICA live end-address change crossed source position');
@@ -370,7 +374,8 @@ class DcAicaSound {
           amplitudeLfo = values.$1;
           pitchLfo = values.$2;
         }
-        final raw = a + (b - a) * (voice.phase % fraction) / fraction;
+        final raw =
+            a + (b - a) * (voice.phase & (fraction - 1)) * inverseFraction;
         final filtered = diagnosticFilterApproximation
             ? voice.filter.process(raw, voice.feg.level, regs[10] & 31)
             : raw;
@@ -386,7 +391,7 @@ class DcAicaSound {
         right += value * (pan >= 16 ? _pan(pan & 15) : 1);
         voice.phase +=
             DcAicaLfo.pitchStep(regs[6], (regs[7] >> 5) & 7, pitchLfo);
-        if (voice.phase ~/ fraction > regs[3]) {
+        if (voice.phase >> 18 > regs[3]) {
           if (voice.loop) {
             final period = regs[3] - regs[2];
             voice.streamBase += ((voice.phase - (regs[3] + 1) * fraction) ~/

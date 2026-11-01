@@ -57,10 +57,23 @@ class DcCache {
       }
     }
     _ccr = value & 0x81a7;
+    _deriveIndexModes();
+  }
+
+  // The CCR index-mode bits, derived once per CCR write instead of on
+  // every cache index computation.
+  bool _instructionIndexMode = false, _operandIndexMode = false;
+  bool _operandIndexFold = false;
+
+  void _deriveIndexModes() {
+    _instructionIndexMode = _ccr & 0x8000 != 0;
+    _operandIndexMode = _ccr & 0x80 != 0;
+    _operandIndexFold = _ccr & 0x20 != 0;
   }
 
   void reset({bool manual = false}) {
     _ccr = 0;
+    _deriveIndexModes();
     if (!manual) {
       for (var i = 0; i < 512; i++) {
         _operandTags[i] &= ~3;
@@ -100,6 +113,7 @@ class DcCache {
     _operandTags.setAll(0, operandTags);
     _instructionTags.setAll(0, instructionTags);
     _ccr = control;
+    _deriveIndexModes();
   }
 
   bool _cacheable(int address) =>
@@ -110,17 +124,18 @@ class DcCache {
 
   int? _ramOffset(int address) {
     if (!isRamArea(address) || _ccr & 0x21 != 0x21) return null;
-    final bank = _ccr & 0x80 == 0 ? (address >> 13) & 1 : (address >> 25) & 1;
+    final bank = _operandIndexMode ? (address >> 25) & 1 : (address >> 13) & 1;
     return 0x1000 | (bank << 13) | (address & 0xfff);
   }
 
   int _index(int address, bool instruction) {
-    final indexMode = _ccr & (instruction ? 0x8000 : 0x80) != 0;
+    final indexMode =
+        instruction ? _instructionIndexMode : _operandIndexMode;
     var result = indexMode
         ? ((address >> 5) & (instruction ? 127 : 255)) |
             (((address >> 25) & 1) << (instruction ? 7 : 8))
         : (address >> 5) & (instruction ? 255 : 511);
-    if (!instruction && _ccr & 0x20 != 0) result &= ~128;
+    if (!instruction && _operandIndexFold) result &= ~128;
     return result;
   }
 
