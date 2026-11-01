@@ -67,6 +67,21 @@ class DcAica {
   int executedInstructions = 0;
   bool _rtcWritable = false;
 
+  /// Host clock used by the battery-backed AICA RTC (replaceable in tests).
+  DateTime Function() clock = DateTime.now;
+  static const _unixToAicaSeconds = 631152000; // 1950-01-01 to 1970-01-01
+
+  int get _rtcCounter =>
+      (clock().millisecondsSinceEpoch ~/ 1000 + _unixToAicaSeconds + _rtc) &
+      0xffffffff;
+
+  void _setRtcCounter(int seconds) {
+    // Preserve a guest clock setting as an offset, not as emulated CPU time.
+    _rtc = (seconds - clock().millisecondsSinceEpoch ~/ 1000 -
+            _unixToAicaSeconds) &
+        0xffffffff;
+  }
+
   bool get armReset => _resetControl & 1 != 0;
   int get soundPending => _scPending;
   int get systemPending => _mcPending;
@@ -131,7 +146,7 @@ class DcAica {
     }
   }
 
-  /// Full system reset retains the separately powered RTC and its fraction.
+  /// Full system reset retains the battery-backed RTC offset.
   void reset({bool clearMemory = false}) {
     _externalLatched = false;
     if (clearMemory) memory.fillRange(0, memory.length, 0);
@@ -361,9 +376,10 @@ class DcAica {
 
   int readRtc(int offset, int size) {
     _validateRegister(offset, size);
+    final seconds = _rtcCounter;
     return switch (offset) {
-      0 => _rtc >> 16,
-      4 => _rtc & 0xffff,
+      0 => seconds >> 16,
+      4 => seconds & 0xffff,
       _ => throw const DcUnsupported('AICA RTC write-enable is write-only'),
     };
   }
@@ -376,11 +392,11 @@ class DcAica {
         _rtcWritable = value & 1 != 0;
       case 4:
         if (!_rtcWritable) return;
-        _rtc = (_rtc & 0xffff0000) | value;
+        _setRtcCounter((_rtcCounter & 0xffff0000) | value);
         _rtcPhase = 0;
       case 0:
         if (!_rtcWritable) return;
-        _rtc = ((value << 16) | (_rtc & 0xffff)) & 0xffffffff;
+        _setRtcCounter((value << 16) | (_rtcCounter & 0xffff));
         _rtcWritable = false;
       default:
         throw const DcUnsupported('unimplemented AICA RTC register');
@@ -741,7 +757,6 @@ class DcAica {
     if (rtcClocks < masterHz) {
       _rtcPhase = rtcClocks;
     } else {
-      _rtc = (_rtc + rtcClocks ~/ masterHz) & 0xffffffff;
       _rtcPhase = rtcClocks % masterHz;
     }
     final sampleClocks = _samplePhase + clocks * sampleHz;
