@@ -4,6 +4,7 @@ import 'package:fnesemu_core/core_factory.dart';
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
 import 'package:fnesemu_core/src/core/dc/module.dart';
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -279,7 +280,7 @@ void main() {
     }
 
     final compiled = run(true), interpreted = run(false);
-    expect(compiled.jitClocks, greaterThan(0));
+    if (JitRuntime.nativeSupported) expect(compiled.jitClocks, greaterThan(0));
     expect(compiled.stopReason, isNull);
     expect(interpreted.stopReason, isNull);
     for (final (a, b) in [
