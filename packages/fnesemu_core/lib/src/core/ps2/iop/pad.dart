@@ -27,10 +27,10 @@ class Ps2Pad {
     (PadButton("x"), 14, 6),
     (PadButton("o"), 13, 5),
     (PadButton("L1"), 10, 8),
-    (PadButton("Start"), 3, -1),
-    (PadButton("R1"), 11, 9),
     (PadButton("L2"), 8, 10),
+    (PadButton("R1"), 11, 9),
     (PadButton("R2"), 9, 11),
+    (PadButton("Start"), 3, -1),
     (PadButton("L3"), 1, -1),
     (PadButton("R3"), 2, -1),
   ];
