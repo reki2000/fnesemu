@@ -47,10 +47,11 @@ jobs:
     if: needs.changes.outputs.build == 'true'
     permissions:
       contents: write
-    uses: reki2000/mp-build-tools/.github/workflows/build.yaml@836e0e173019d65871bca8229dd4bdedbb17a329
+    uses: reki2000/mp-build-tools/.github/workflows/build.yaml@e55dcdea091271e330104f6ad2a68bac8d90fe54
     with:
       artifact-name: fnesemu
       exclude: '["web-js"]'
+      release-only: '["windows-arm64", "linux-arm64"]'
     secrets:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
