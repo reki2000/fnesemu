@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fnesemu/gui/rom_archive.dart';
 
@@ -12,6 +13,26 @@ void main() {
     final (data, name) = unpackRom(zip, 'game.zip');
     expect(name, 'game.gb');
     expect(data, rom);
+  });
+
+  test('a compressed ROM crossing deflate windows preserves every byte', () {
+    final (data, name) = unpackRom(zipFixture('windowed'), 'game.zip');
+    expect(name, 'game.ws');
+    expect(data.length, 131072);
+    expect(data, Uint8List.fromList(List.generate(
+        131072, (i) => (i * 17 + (i >> 5) + (i >> 11)) & 255)));
+  });
+
+  test('an entry with an incorrect CRC is rejected before it can be loaded', () {
+    final zip = zipFixture('windowed');
+    final bytes = ByteData.sublistView(zip);
+    for (var i = 0; i + 20 <= zip.length; i++) {
+      if (bytes.getUint32(i, Endian.little) == 0x02014b50) {
+        bytes.setUint32(i + 16, bytes.getUint32(i + 16, Endian.little) ^ 1, Endian.little);
+        break;
+      }
+    }
+    expect(() => unpackRom(zip, 'game.zip'), throwsA(isA<ArchiveChecksumException>()));
   });
 
   test('a file other than a zip is given as it is', () {
