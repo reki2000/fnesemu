@@ -21,8 +21,6 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-All cores share one key order. The arrow keys are the directional pad, Enter is the start button and Shift is the select button of each controller. The analog sticks are on the IJKL keys (left stick) and the TFGH keys (right stick), shown on the stick widgets themselves; a core with one stick uses IJKL. The R key is a core-specific action. An empty cell means the key has no button on that core.
-
 | system | arrows | S | Z | X | C | A | D | W | Q | E | 1 | 2 | 3 | 4 | R | Enter | Shift |
 |--------|--------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | NES | up / down / left / right |  |  | B | A |  |  |  |  |  |  |  |  |  |  | Start | Select |
@@ -40,12 +38,6 @@ All cores share one key order. The arrow keys are the directional pad, Enter is 
 | DC | up / down / left / right | Y | X | A | B |  |  |  | L | R |  |  |  |  |  | Start |  |
 | WS | X1 / X3 / X4 / X2 | Y1 | Y4 | Y3 | Y2 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 | WS (vertical) | Y2 / Y4 / Y1 / Y3 | X2 | X1 | X4 | X3 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
-
-The MD row is the 6-button pad; a 3-button pad has no Y, X, Z and Mode. The SMS assignment also applies to the sg system. On the DC core, Q and E are the analog triggers, read at their digital endpoints. L3 and R3 exist only on the analog PS and PS2 controllers.
-
-With a disk (FDS), R flips the disk side.
-
-On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. W (Sound) cycles the emulated speaker volume.
 
 # How to develop
 
@@ -75,9 +67,9 @@ submodule reference here. Restore the recorded revisions with
 See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
 dependency rules.
 
-### PS1 recompiler
+### Recompiler
 
-The PS1 CPU uses `packages/mp_jit_recompiler` by default, translating R3000 code to x86-64 on Linux, Android and Windows x64 hosts, or to WebAssembly on the Web. For example, `flutter build web --wasm` includes the Web backend. WebAssembly is also used when the app itself is compiled to JavaScript. Build or run with `--dart-define=JIT=false` to use the interpreter explicitly. Other hosts, browser policies that prohibit compiling Wasm, and `PS_TRACE=true` builds keep the interpreter automatically. Linux and Windows x64 CI exercise the native backend, and browser tests exercise Wasm. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+Some CPUs use `packages/mp_jit_recompiler` by default, translating the CPU's code to x86-64 on Linux, Android and Windows x64 hosts, or to WebAssembly on the Web. For example, `flutter build web --wasm` includes the Web backend. WebAssembly is also used when the app itself is compiled to JavaScript. Build or run with `--dart-define=JIT=false` to use the interpreter explicitly. Other hosts, browser policies that prohibit compiling Wasm, and `PS_TRACE=true` builds keep the interpreter automatically. Linux and Windows x64 CI exercise the native backend, and browser tests exercise Wasm. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
 
 Device accesses and writes to translated RAM pages return to the interpreter before the instruction executes, preserving device clocks, interrupts and self-modifying code. Ordinary RAM accesses remain native. A debugger step that stops at a branch delay slot completes that slot before entering compiled code.
 
