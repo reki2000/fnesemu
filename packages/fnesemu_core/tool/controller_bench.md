@@ -1,6 +1,8 @@
 # Controller pacing benchmark
 
-The controller uses a fixed event-loop yield of 2ms by default and limits output to 60 FPS. `FRAME_YIELD_US=1000` selects a 1ms yield at build time. Each frame advances a deadline by 16,667 microseconds. If execution overruns the deadline, the next deadline becomes the completion time plus the fixed yield. Timer waits round up to milliseconds, and deadline accumulation prevents that rounding from adding an extra delay every frame. Existing emulated-clock pacing still limits slower systems.
+The controller uses a fixed event-loop yield of 2ms by default and paces output at the core's frame rate. `FRAME_YIELD_US=1000` selects a 1ms yield at build time. Each core declares `Core.clocksPerFrame` in the same clock domain as `Core.systemClockHz`; their ratio gives the frame duration in seconds. The declarations describe the current execution models, including their existing timing approximations, and follow video mode changes. This allows systems above 60Hz to supply audio continuously.
+
+Frame deadlines accumulate fractional microseconds using integer arithmetic, including when the clock frequency changes. If execution overruns the deadline, the next deadline becomes the completion time plus the fixed yield and fractional time starts afresh. Timer waits round up to milliseconds, and deadline accumulation prevents that rounding from adding an extra delay every frame. Existing emulated-clock pacing still limits slower systems.
 
 ## Running
 

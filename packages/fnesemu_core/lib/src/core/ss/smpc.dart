@@ -89,6 +89,7 @@ class Smpc {
     _commandWait = 0;
     _intbackPeripheralPending = false;
     resetDisabled = true;
+    is352 = false;
   }
 
   // register index = (address >> 1) & 0x3f

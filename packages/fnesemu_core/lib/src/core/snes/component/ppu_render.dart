@@ -360,7 +360,8 @@ extension PpuRenderer on Ppu {
       final w = large ? sizes[2] : sizes[0];
       final h = large ? sizes[3] : sizes[1];
 
-      final dy = (y - oy).mask8;
+      final fieldY = (y - oy).mask8;
+      final dy = setini.bit1 ? fieldY * 2 + (oddField ? 1 : 0) : fieldY;
       if (dy >= h) continue;
       // fully off-screen (OBJ is always 256px)
       if (x <= -w || x >= Ppu.widthNormal) continue;
@@ -619,17 +620,16 @@ extension PpuRenderer on Ppu {
   /// row vofs+1), while OBJ are evaluated against `line - 1`: a sprite at
   /// OAM y=0 starts on the first visible line, one row below the BG.
   void renderScanline(int line) {
-    if (line < 1 || line > Ppu.height) return;
+    if (line < 1 || line > displayLines) return;
     windowLineReady = 0;
     final y = line - 1; // output row and OBJ line
-    final bgY = line;
+    final bgY = interlaced && (bgMode == 5 || bgMode == 6)
+        ? line * 2 + (oddField ? 1 : 0)
+        : line;
 
-    if (bgMode == 5 || bgMode == 6) {
-      width = Ppu.widthHires;
-    } else {
-      width = Ppu.widthNormal;
-    }
-    final row = y * width;
+    resizeOutput();
+    final outputY = interlaced ? y * 2 + (oddField ? 1 : 0) : y;
+    final row = outputY * width;
 
     if (forcedBlank) {
       buffer.fillRange(row, row + width, 0xff000000);

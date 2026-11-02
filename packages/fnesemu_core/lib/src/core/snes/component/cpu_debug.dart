@@ -21,12 +21,12 @@ extension CpuDebugger on Cpu {
         "P:$n$v$m$x$d$i$z$c $e";
   }
 
-  TraceLog trace() {
+  TraceLog trace({int? clock}) {
     final addr = regs.pbr.shl16 | regs.pc;
     final (asm, length) = _disasmAt(addr);
     return TraceLog(
       addr,
-      cycle,
+      clock ?? cycle,
       _formattedDisasm(addr, asm, length),
       _regStr().toUpperCase(),
       [regs.a, regs.x, regs.y, regs.s, regs.p, regs.e ? 1 : 0],

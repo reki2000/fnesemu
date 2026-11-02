@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../field_output.dart';
 import '../../../types.dart';
 import '../state.dart';
 import 'gs_memory.dart';
@@ -112,6 +113,7 @@ class Gs {
   int extbuf = 0, extdata = 0, extwrite = 0, bgcolor = 0;
   int csr = 0, imr = 0xff00, busdir = 0, siglblid = 0;
   int _field = 0;
+  final _fields = FieldOutput();
   int _pendingInterrupts = 0;
 
   // general registers
@@ -152,6 +154,7 @@ class Gs {
     }
     w.typed(mem.bytes);
     raster.saveState(w);
+    _fields.saveState(w);
   }
 
   void loadState(StateReader s) {
@@ -219,9 +222,12 @@ class Gs {
     }
     s.typed(mem.bytes);
     raster.loadState(s);
+    _fields.loadState(s);
   }
 
   void reset() {
+    _field = 0;
+    _fields.reset();
     csr = 0;
     imr = 0xff00;
     _pendingInterrupts = 0;
@@ -283,6 +289,7 @@ class Gs {
       case 0x0010:
         smode1 = value;
       case 0x0020:
+        if ((smode2 ^ value) & 3 != 0) _fields.reset();
         smode2 = value;
       case 0x0030:
         srfsh = value;
@@ -336,6 +343,7 @@ class Gs {
 
   /// called at the start of the vertical blank
   void vblank() {
+    if (smode2 & 1 != 0) _readImage();
     _field ^= 1;
     _event(csrVsint);
   }
@@ -662,40 +670,58 @@ class Gs {
   static const _visibleLines = 240;
 
   /// The picture the CRT would show: the read circuit that is enabled (2
-  /// before 1) at the size of its display rectangle. Frame/field handling,
-  /// merge circuits and the background colour are not applied.
-  ImageBuffer image() {
+  /// before 1) at the size of its display rectangle. Completed interlaced
+  /// fields retain the other parity; merge circuits remain unimplemented.
+  ImageBuffer image() => smode2 & 1 != 0 && _fields.image != null
+      ? _fields.image!
+      : _readImage();
+
+  ImageBuffer _readImage() {
+    final interlaced = smode2 & 1 != 0;
     final useCircuit2 = pmode & 2 != 0;
-    if (pmode & 3 == 0) return ImageBuffer.empty();
+    if (pmode & 3 == 0) {
+      _fields.reset();
+      return ImageBuffer.empty();
+    }
     final fb = useCircuit2 ? dispfb2 : dispfb1;
     final disp = useCircuit2 ? display2 : display1;
     final magh = (disp >> 23) & 15, magv = (disp >> 27) & 3;
     final width = (((disp >> 32) & 0xfff) + 1) ~/ (magh + 1);
     // the CRT shows at most the visible lines of an NTSC frame, so a taller
     // display rectangle is cut (the video timing here is NTSC only)
-    final visible = smode2 & 1 != 0 ? _visibleLines * 2 : _visibleLines;
+    final visible = interlaced ? _visibleLines * 2 : _visibleLines;
     final lines = ((disp >> 44) & 0x7ff) + 1;
-    final height = (lines < visible ? lines : visible) ~/ (magv + 1);
+    final displayLines = lines < visible ? lines : visible;
+    final height = interlaced
+        ? (displayLines + 1) ~/ 2
+        : displayLines ~/ (magv + 1);
     if (width <= 0 || height <= 0 || width > 2048 || height > 2048) {
+      _fields.reset();
       return ImageBuffer.empty();
     }
     final psm = (fb >> 15) & 0x1f;
     final bp = (fb & 0x1ff) * 32, bw = (fb >> 9) & 0x3f;
     final dbx = (fb >> 32) & 0x7ff, dby = (fb >> 43) & 0x7ff;
     final out = Uint32List(width * height);
-    if (!GsPsm.isValid(psm)) return ImageBuffer(width, height, out);
-    // INT=1 with FFMD=1: both fields read the same lines, so the frame
-    // buffer holds one field whose lines are shown twice in the full frame.
-    // The BIOS uses this with 640x224 buffers (observed, unverified)
-    final fieldMode = smode2 & 3 == 3;
+    if (!GsPsm.isValid(psm)) {
+      _fields.reset();
+      return ImageBuffer(width, height, out);
+    }
+    // FFMD=0 reads alternating source rows; FFMD=1 reads consecutive rows.
+    final consecutive = smode2 & 2 != 0;
     for (var y = 0; y < height; y++) {
-      final sy = fieldMode ? y >> 1 : y;
+      final sourceY = interlaced && !consecutive ? y * 2 + _field : y;
+      final sy = interlaced ? sourceY ~/ (magv + 1) : sourceY;
       for (var x = 0; x < width; x++) {
         final raw = mem.read(psm, bp, bw, dbx + x, dby + sy);
         out[y * width + x] = _displayColor(psm, raw);
       }
     }
-    return ImageBuffer(width, height, out);
+    final field = ImageBuffer(width, height, out,
+        displayWidth_: 320, displayHeight: height);
+    if (interlaced) return _fields.writeField(field, _field);
+    _fields.reset();
+    return field;
   }
 
   static int _displayColor(int psm, int raw) {

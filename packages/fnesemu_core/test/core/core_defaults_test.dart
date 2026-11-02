@@ -65,6 +65,7 @@ void main() {
       () => core.systemClockHz,
       () => core.scanlinesInFrame,
       () => core.clocksInScanline,
+      () => core.clocksPerFrame,
       () => core.exec(false),
       () => core.runFrame(1),
       () => core.setRom(Uint8List(1)),

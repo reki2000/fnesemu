@@ -12,6 +12,18 @@ Gb _core({int gbcFlag = 0x80}) {
 }
 
 void main() {
+  test('normal and double speed report the same dot-clock frame duration', () {
+    for (final fast in [false, true]) {
+      final gb = _core();
+      gb.bus.doubleSpeed = fast;
+      final result = gb.runFrame(gb.scanlinesInFrame);
+      expect(result.elapsedClocks, gb.clocksPerFrame);
+      expect(gb.trace(0).cycle, result.elapsedClocks);
+      expect(gb.bus.clocks, gb.clocksPerFrame * (fast ? 2 : 1));
+      expect(gb.systemClockHz, 4194304);
+    }
+  });
+
   group('mode selection', () {
     test('GBC-flagged images start with the GBC register state', () {
       final gb = _core();

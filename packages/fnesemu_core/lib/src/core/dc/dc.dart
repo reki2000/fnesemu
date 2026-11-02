@@ -76,6 +76,9 @@ class Dc extends Core {
   static const programOffset = 0x10000;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => 200000000;
 
   // Inactive/external SPG uses bounded diagnostic slices.

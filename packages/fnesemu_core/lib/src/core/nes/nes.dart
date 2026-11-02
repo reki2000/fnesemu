@@ -68,6 +68,9 @@ class Nes extends Core {
   int get clocksInScanline => cpuCyclesInScanline;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => cpuClock;
 
   @override

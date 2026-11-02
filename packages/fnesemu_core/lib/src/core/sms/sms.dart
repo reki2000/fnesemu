@@ -36,6 +36,9 @@ class Sms extends Core {
   static const sampleRate = clockHz ~/ (_psgClocks * _decimation);
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => clockHz;
 
   @override

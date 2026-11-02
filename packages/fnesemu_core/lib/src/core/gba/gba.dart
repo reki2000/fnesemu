@@ -59,6 +59,9 @@ class Gba extends Core {
   }
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => _clockHz;
 
   @override

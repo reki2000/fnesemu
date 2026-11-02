@@ -284,6 +284,13 @@ void main() {
     expect(buffers.expand((b) => b.buffer).every((v) => v == 0), isTrue);
   });
 
+  test('frame clocks follow changes to the color line count', () {
+    final ws = Ws(color: true)..setRom(_rom([0xeb, 0xfe], color: true));
+    expect(ws.clocksPerFrame, 256 * 159);
+    ws.bus.output8(0x16, 198);
+    expect(ws.clocksPerFrame, 256 * 199);
+  });
+
   test('the vertical console turns the frame and the directions', () {
     final ws = Ws(color: false)..setRom(_rom([0xeb, 0xfe]));
     ws.runFrame(159);

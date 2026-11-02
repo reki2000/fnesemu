@@ -14,9 +14,13 @@ class _Core extends Core {
   int traceCalls = 0;
   bool otherCpuFirst = false;
   void Function()? afterInstruction;
+  int clockHz = 1000000;
 
   @override
-  int get systemClockHz => 1000000;
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
+  int get systemClockHz => clockHz;
   @override
   int get scanlinesInFrame => 3;
   @override
@@ -99,20 +103,44 @@ void main() {
     registerCoreModules(createInstalledCoreModules());
   });
 
-  test('normal execution caps fast cores at 60 frames per second', () async {
+  for (final rate in [50, 75]) {
+    test('normal execution follows the core frame rate of $rate Hz', () async {
+      var frames = 0;
+      var measuring = false;
+      controller = CoreController((_) {}, (_) {}, (_) {
+        if (!measuring) return;
+        if (++frames == 60) unawaited(controller.stop());
+      }, Sram());
+      await controller.init('test', rom: Uint8List(1));
+      core.clockHz = rate * core.scanlinesInFrame * core.clocksInScanline;
+      final watch = Stopwatch()..start();
+      measuring = true;
+      await controller.run();
+      watch.stop();
+      expect(frames, 60);
+      final expectedUs = 60 * 1000000 ~/ rate;
+      expect(watch.elapsedMicroseconds,
+          inInclusiveRange(expectedUs - 20000, expectedUs + 150000));
+    });
+  }
+
+  test('execution follows a clock change while running', () async {
     var frames = 0;
     var measuring = false;
     controller = CoreController((_) {}, (_) {}, (_) {
       if (!measuring) return;
-      if (++frames == 8) unawaited(controller.stop());
+      frames++;
+      if (frames == 30) core.clockHz = 75 * core.clocksPerFrame;
+      if (frames == 60) unawaited(controller.stop());
     }, Sram());
     await controller.init('test', rom: Uint8List(1));
+    core.clockHz = 50 * core.clocksPerFrame;
     final watch = Stopwatch()..start();
     measuring = true;
     await controller.run();
     watch.stop();
-    expect(frames, 8);
-    expect(watch.elapsedMicroseconds, greaterThanOrEqualTo(8 * 16667));
+    expect(frames, 60);
+    expect(watch.elapsedMicroseconds, inInclusiveRange(970000, 1150000));
   });
 
   test(

@@ -53,6 +53,9 @@ class Pce extends Core {
   static const systemClockHz_ = hardware.systemClockHz;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => systemClockHz_;
 
   @override
