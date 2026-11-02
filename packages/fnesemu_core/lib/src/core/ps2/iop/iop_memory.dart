@@ -22,8 +22,10 @@ class IopMemory implements IopBus {
 
   IopPort? port;
 
-  IopMemory(Uint8List bios)
-      : this._(Uint8List(ramSize), Uint8List(scratchSize), bios);
+  /// [ram] gives the RAM storage, such as a buffer shared with compiled
+  /// code; it must hold [ramSize] bytes
+  IopMemory(Uint8List bios, {Uint8List? ram})
+      : this._(ram ?? Uint8List(ramSize), Uint8List(scratchSize), bios);
 
   IopMemory._(this.ram, this.scratch, this.bios)
       : _ram = ByteData.sublistView(ram),

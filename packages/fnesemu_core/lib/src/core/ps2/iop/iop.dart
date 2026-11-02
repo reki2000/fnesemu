@@ -24,7 +24,10 @@ class Iop {
   static const excOverflow = 12;
 
   final IopBus bus;
-  final r = Uint32List(32);
+
+  /// the general registers; [regs] gives the storage, such as a view
+  /// shared with compiled code
+  final Uint32List r;
   int pc = resetVector;
   int nextPc = resetVector + 4;
   int hi = 0, lo = 0;
@@ -49,8 +52,35 @@ class Iop {
 
   bool _hwInterrupt = false;
 
-  Iop(this.bus) {
+  Iop(this.bus, {Uint32List? regs}) : r = regs ?? Uint32List(32) {
     reset();
+  }
+
+  /// Whether compiled code may run from [pc]: the next instruction is
+  /// not a branch delay slot, no interrupt is ready to be taken under
+  /// the same test [step] applies, and the cache is not isolated.
+  bool prepareCompiled() =>
+      !_isBranch && nextPc == pc + 4 && !_isolated && !_interruptPending();
+
+  bool _interruptPending() {
+    final sr = cop0[cop0Status];
+    if (sr & 1 == 0) return false;
+    final ip = (cop0[cop0Cause] & 0x300) | (_hwInterrupt ? 0x400 : 0);
+    return ip & sr & 0xff00 != 0;
+  }
+
+  /// the interrupt line, as [step] mirrors it into Cause.IP2
+  bool get interruptAsserted => _hwInterrupt;
+
+  /// The load still in its delay, for the compiled code adapter: the
+  /// register it writes and its value. Between instructions the
+  /// in-flight load is always zero, so this is the whole state a block
+  /// hands over.
+  (int, int) pendingLoad() => (_loadReg, _loadValue);
+
+  void setPendingLoad(int reg, int value) {
+    _loadReg = reg;
+    _loadValue = value;
   }
 
   void reset() {
@@ -147,8 +177,10 @@ class Iop {
   void step() {
     clocks++;
     final cause = cop0[cop0Cause];
-    final ip = (cause & 0x300) | (_hwInterrupt ? 0x400 : 0);
-    cop0[cop0Cause] = (cause & ~0x400) | (_hwInterrupt ? 0x400 : 0);
+    final hwBit = _hwInterrupt ? 0x400 : 0;
+    final ip = (cause & 0x300) | hwBit;
+    // Cause.IP2 mirrors the interrupt line; write it only when it changes.
+    if ((cause & 0x400) != hwBit) cop0[cop0Cause] = (cause & ~0x400) | hwBit;
     final sr = cop0[cop0Status];
     final at = pc;
     _currentPc = at;

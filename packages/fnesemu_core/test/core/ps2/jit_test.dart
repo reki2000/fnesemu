@@ -85,26 +85,34 @@ List<int> _words() {
   return words;
 }
 
-(R5900, Ps2Bus) _load(Ps2Jit? jit) {
+(R5900, Ps2Bus) _load(Ps2Jit? jit,
+    [List<int>? words, List<int>? data]) {
   final bus = Ps2Bus(ram: jit?.ram);
-  final cpu = R5900(bus, gpr: jit?.gpr);
+  final cpu = R5900(bus, gpr: jit?.gpr, fpr: jit?.fpr);
   jit?.attach(cpu);
-  final words = _words();
-  for (var i = 0; i < words.length; i++) {
-    bus.write32(_base + i * 4, words[i]);
+  final program = words ?? _words();
+  for (var i = 0; i < program.length; i++) {
+    bus.write32(_base + i * 4, program[i]);
   }
-  bus.write64(_data, 0x0123456789abcdef);
-  bus.write64(_data + 8, -0x0123456789abcdf0);
+  if (data == null) {
+    bus.write64(_data, 0x0123456789abcdef);
+    bus.write64(_data + 8, -0x0123456789abcdf0);
+  } else {
+    for (var i = 0; i < data.length; i++) {
+      bus.write32(_data + i * 4, data[i]);
+    }
+  }
   cpu.jumpTo(_base);
   return (cpu, bus);
 }
 
-void _compare(Ps2Jit? jit, String name) {
-  final (expected, expectedBus) = _load(null);
+void _compare(Ps2Jit? jit, String name,
+    [List<int>? words, List<int>? data]) {
+  final (expected, expectedBus) = _load(null, words, data);
   while (expected.clocks < 400) {
     expected.step();
   }
-  final (cpu, bus) = _load(jit);
+  final (cpu, bus) = _load(jit, words, data);
   var compiled = 0;
   for (var guard = 0; cpu.clocks < 400 && guard < 10000; guard++) {
     final before = cpu.clocks;
@@ -119,10 +127,95 @@ void _compare(Ps2Jit? jit, String name) {
   for (var r = 0; r < 64; r++) {
     expect(cpu.gpr[r], expected.gpr[r], reason: '$name gpr[$r]');
   }
+  for (var r = 0; r < 32; r++) {
+    expect(cpu.fpr[r], expected.fpr[r], reason: '$name fpr[$r]');
+  }
+  expect(cpu.facc, expected.facc, reason: '$name facc');
+  expect(cpu.fcr31, expected.fcr31, reason: '$name fcr31');
   for (var a = _data; a < _data + 48; a += 8) {
     expect(bus.read64(a), expectedBus.read64(a), reason: '$name 0x$a');
   }
 }
+
+int _cop1(int fmt, {int ft = 0, int fs = 0, int fd = 0, int fn = 0}) =>
+    17 << 26 | fmt << 21 | ft << 16 | fs << 11 | fd << 6 | fn;
+int _s(int fn, {int ft = 0, int fs = 0, int fd = 0}) =>
+    _cop1(16, ft: ft, fs: fs, fd: fd, fn: fn);
+
+final _cop1Data = [
+  0x3fc00000, // 1.5
+  0x40100000, // 2.25
+  0x7f800000, // exponent field 255: 2^128
+  0x00000001, // a denormal image
+  0x00800000, // 2^-126
+  0xc0000000, // -2.0
+  0x4f000000, // 2^31
+  0x00000000, // 0
+];
+
+/// A COP1 program: every translated form, the flag paths (divide by zero,
+/// invalid, overflow, underflow), the accumulator forms, a load that
+/// leaves the compiled memory mapping between two FPU operations (the
+/// side exit snapshot path), and an FPU operation in a branch delay slot.
+final _cop1Program = [
+  _i(15, 0, 1, _data >> 16), // lui r1, data
+  _i(49, 1, 1, 0), // lwc1 f1, 0(r1)
+  _i(49, 1, 2, 4), // lwc1 f2, 4(r1)
+  _i(49, 1, 4, 8), // lwc1 f4, 8(r1)
+  _i(49, 1, 5, 12), // lwc1 f5, 12(r1)
+  _i(49, 1, 6, 16), // lwc1 f6, 16(r1)
+  _i(49, 1, 7, 20), // lwc1 f7, 20(r1)
+  _i(49, 1, 8, 24), // lwc1 f8, 24(r1)
+  _i(49, 1, 0, 28), // lwc1 f0, 28(r1)
+  _s(0x00, fs: 1, ft: 2, fd: 3), // add.s f3, f1, f2
+  _s(0x01, fs: 1, ft: 2, fd: 10), // sub.s f10, f1, f2
+  _s(0x02, fs: 1, ft: 2, fd: 11), // mul.s f11, f1, f2
+  _s(0x03, fs: 2, ft: 1, fd: 12), // div.s f12, f2, f1
+  _s(0x03, fs: 1, ft: 0, fd: 13), // div.s f13, f1, f0
+  _s(0x03, fs: 0, ft: 0, fd: 14), // div.s f14, f0, f0
+  _s(0x04, ft: 2, fd: 15), // sqrt.s f15, f2
+  _s(0x04, ft: 7, fd: 16), // sqrt.s f16, f7
+  _s(0x16, fs: 1, ft: 2, fd: 17), // rsqrt.s f17, f1, f2
+  _s(0x05, fs: 7, fd: 18), // abs.s f18, f7
+  _s(0x07, fs: 1, fd: 19), // neg.s f19, f1
+  _s(0x06, fs: 2, fd: 20), // mov.s f20, f2
+  _s(0x00, fs: 4, ft: 4, fd: 21), // add.s f21, f4, f4
+  _s(0x00, fs: 5, ft: 1, fd: 22), // add.s f22, f5, f1
+  _s(0x02, fs: 6, ft: 6, fd: 23), // mul.s f23, f6, f6
+  _s(0x18, fs: 1, ft: 2), // adda.s f1, f2
+  _s(0x1c, fs: 1, ft: 2, fd: 24), // madd.s f24, f1, f2
+  _s(0x1d, fs: 1, ft: 2, fd: 25), // msub.s f25, f1, f2
+  _s(0x1e, fs: 1, ft: 2), // madda.s f1, f2
+  _s(0x1f, fs: 1, ft: 2), // msuba.s f1, f2
+  _s(0x24, fs: 2, fd: 26), // cvt.w.s f26, f2
+  _s(0x24, fs: 8, fd: 27), // cvt.w.s f27, f8
+  _s(0x28, fs: 1, ft: 7, fd: 28), // max.s f28, f1, f7
+  _s(0x29, fs: 1, ft: 7, fd: 29), // min.s f29, f1, f7
+  _s(0x32, fs: 1, ft: 2), // c.eq.s f1, f2
+  _s(0x34, fs: 1, ft: 2), // c.lt.s f1, f2
+  _cop1(2, ft: 5, fs: 31), // cfc1 r5, 31
+  _s(0x30), // c.f.s
+  _cop1(2, ft: 6, fs: 31), // cfc1 r6, 31
+  _cop1(0, ft: 7, fs: 3), // mfc1 r7, f3
+  _cop1(4, ft: 7, fs: 30), // mtc1 r7, f30
+  _i(57, 1, 3, 32), // swc1 f3, 32(r1)
+  _i(57, 1, 13, 36), // swc1 f13, 36(r1)
+  _i(57, 1, 24, 40), // swc1 f24, 40(r1)
+  _i(43, 1, 5, 44), // sw r5, 44(r1)
+  _s(0x02, fs: 1, ft: 2, fd: 9), // mul.s f9, f1, f2
+  _i(15, 0, 8, 0x1f80), // lui r8, 0x1f80
+  _i(35, 8, 10, 0), // lw r10, 0(r8): the scratchpad, outside the mapping
+  _s(0x00, fs: 9, ft: 1, fd: 9), // add.s f9, f9, f1
+  _i(13, 0, 11, 0xffff), // ori r11, zero, 0xffff
+  _cop1(6, ft: 11, fs: 31), // ctc1 r11, 31
+  _s(0x00, fs: 1, ft: 2, fd: 31), // add.s f31, f1, f2
+  _cop1(2, ft: 12, fs: 31), // cfc1 r12, 31
+  _i(4, 0, 0, 2), // beq zero, zero, +2
+  _s(0x00, fs: 1, ft: 2, fd: 31), // add.s f31, f1, f2 (delay slot)
+  _i(9, 0, 30, 1), // addiu r30, zero, 1 (skipped)
+  _i(4, 0, 0, -1), // end: beq zero, zero, end
+  _r(0), // nop
+];
 
 void main() {
   test('compiled code matches the interpreter', () {
@@ -137,6 +230,20 @@ void main() {
     addTearDown(jit.dispose);
     _compare(jit, 'reference');
   });
+
+  test('compiled COP1 matches the interpreter', () {
+    final jit = Ps2Jit.create(compileThreshold: 1);
+    if (jit == null) return; // no little-endian host
+    addTearDown(jit.dispose);
+    _compare(jit, 'native cop1', _cop1Program, _cop1Data);
+  });
+
+  test('reference IR COP1 matches the interpreter', () {
+    final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
+    addTearDown(jit.dispose);
+    _compare(jit, 'reference cop1', _cop1Program, _cop1Data);
+  });
+
 
   for (final native in [false, true]) {
     test('${native ? 'native' : 'reference'} EE DIV/DIVU and MMI DIV1/DIVU1 preserve HI/LO', () {

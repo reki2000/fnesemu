@@ -588,7 +588,7 @@ abstract final class WasmBackend {
             c.op(0x1a);
           }
           c.op(0x0b);
-        case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul:
+        case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
           // binary32 widens to binary64 before the operation and rounds back.
           for (final v in [a, b]) {
             v();
@@ -598,8 +598,16 @@ abstract final class WasmBackend {
           c.op(switch (inst.op) {
             IrOp.floatAdd => 0xa0,
             IrOp.floatSub => 0xa1,
-            _ => 0xa2,
+            IrOp.floatMul => 0xa2,
+            _ => 0xa3,
           });
+          c.op(w ? 0xbd : 0xb6); // i64.reinterpret_f64 / f32.demote_f64
+          if (!w) c.op(0xbc); // i32.reinterpret_f32
+        case IrOp.floatSqrt:
+          a();
+          c.op(w ? 0xbf : 0xbe); // reinterpret as f64 / f32
+          if (!w) c.op(0xbb); // f64.promote_f32
+          c.op(0x9f); // f64.sqrt
           c.op(w ? 0xbd : 0xb6); // i64.reinterpret_f64 / f32.demote_f64
           if (!w) c.op(0xbc); // i32.reinterpret_f32
         case IrOp.floatConvert:

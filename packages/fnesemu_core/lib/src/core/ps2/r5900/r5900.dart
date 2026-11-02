@@ -55,7 +55,7 @@ class R5900 {
   final Uint32List cop0 = Uint32List(32);
 
   /// COP1 registers: 32 single precision images, the accumulator and FCR31
-  final Uint32List fpr = Uint32List(32);
+  final Uint32List fpr;
   int facc = 0;
   int fcr31 = 0;
 
@@ -70,8 +70,11 @@ class R5900 {
   bool _inDelaySlot = false;
 
   /// [gpr] gives the register storage, such as a view shared with compiled
-  /// code; it must hold 64 words
-  R5900(this.bus, {Int64List? gpr}) : gpr = gpr ?? Int64List(64) {
+  /// code; it must hold 64 words. [fpr] does the same for the COP1 register
+  /// images and must hold 32 words.
+  R5900(this.bus, {Int64List? gpr, Uint32List? fpr})
+      : gpr = gpr ?? Int64List(64),
+        fpr = fpr ?? Uint32List(32) {
     bus.tlb = tlb;
     reset();
   }
@@ -223,6 +226,12 @@ class R5900 {
   /// no interrupt is ready to be taken.
   bool prepareCompiled() =>
       !_branchPending && nextPc == pc + 4 && !_interruptReady();
+
+  /// Whether COP1 is usable (Status.CU1). The JIT keys its blocks on
+  /// this: a block translated while it is clear contains no COP1
+  /// instructions, so the coprocessor unusable exception is never
+  /// skipped.
+  bool get cop1Usable => cop0[cop0Status] & (1 << 29) != 0;
 
   /// the instructions left before Count reaches Compare, or 0 when that is
   /// a full turn of the counter away

@@ -148,6 +148,25 @@ final class Assembler {
     _opReg([0x0f, 0x7e], 0, R.rax, w: wide);
   }
 
+  /// The square root of the bits in RAX, through binary64 as in
+  /// [floatBinary], using only XMM0.
+  void floatSqrt({required bool wide}) {
+    u8(0x66);
+    _opReg([0x0f, 0x6e], 0, R.rax, w: wide);
+    if (!wide) {
+      u8(0xf3);
+      _opReg([0x0f, 0x5a], 0, 0);
+    }
+    u8(0xf2);
+    _opReg([0x0f, 0x51], 0, 0);
+    if (!wide) {
+      u8(0xf2);
+      _opReg([0x0f, 0x5a], 0, 0);
+    }
+    u8(0x66);
+    _opReg([0x0f, 0x7e], 0, R.rax, w: wide);
+  }
+
   /// Converts the binary32 or binary64 bits in RAX to the other width,
   /// using XMM0; narrowing rounds by MXCSR, which hosts keep at nearest.
   void floatConvert({required bool fromWide}) {

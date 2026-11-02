@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'ir.dart';
@@ -67,8 +68,16 @@ final class IrInterpreterRuntime extends JitRuntime {
         ? x + y
         : op == IrOp.floatSub
         ? x - y
-        : x * y;
+        : op == IrOp.floatMul
+        ? x * y
+        : x / y;
     _floatData.setFloat32(0, result, Endian.little);
+    return _floatData.getUint32(0, Endian.little);
+  }
+
+  int _float32Sqrt(int a) {
+    final x = _float32Value(a);
+    _floatData.setFloat32(0, math.sqrt(x), Endian.little);
     return _floatData.getUint32(0, Endian.little);
   }
 
@@ -239,7 +248,9 @@ final class IrInterpreterRuntime extends JitRuntime {
         IrOp.remU => b() == 0 ? 0 : a() % b(),
         IrOp.floatAdd ||
         IrOp.floatSub ||
-        IrOp.floatMul => _float32Binary(inst.op, a(), b()),
+        IrOp.floatMul ||
+        IrOp.floatDiv => _float32Binary(inst.op, a(), b()),
+        IrOp.floatSqrt => _float32Sqrt(a()),
         IrOp.mulHiS => _mulHiU(a(), b()) -
             (a() >= 0x80000000 ? b() : 0) -
             (b() >= 0x80000000 ? a() : 0),
@@ -316,7 +327,9 @@ final class IrInterpreterRuntime extends JitRuntime {
         IrOp.remU => b() == 0 ? 0 : a() % b(),
         IrOp.floatAdd ||
         IrOp.floatSub ||
-        IrOp.floatMul => _float32Binary(inst.op, a(), b()),
+        IrOp.floatMul ||
+        IrOp.floatDiv => _float32Binary(inst.op, a(), b()),
+        IrOp.floatSqrt => _float32Sqrt(a()),
         IrOp.mulHiS => _mulHiU(a(), b()) -
             (a() >= 0x80000000 ? b() : 0) -
             (b() >= 0x80000000 ? a() : 0),
