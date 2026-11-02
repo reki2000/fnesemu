@@ -60,9 +60,9 @@ void main() {
         bits(x),
         bits(y),
         bits(z),
+        0x12345678,
+        0,
         color,
-        0,
-        0,
         0
       ]);
   void triangle({int color = 0xffff0000, double z = 1}) {
@@ -116,14 +116,14 @@ void main() {
       () {
     initialize();
     header();
-    triangle();
+    triangle(color: 0x80402010);
     packet([0]);
     expect(word(object), (1 << 30) | (1 << 21));
     expect(word(object + 4), 0xf0000000);
     expect(word(parameter), 0xe0000000);
     expect(word(parameter + 4), copy);
     expect(word(parameter + 12), bits(0));
-    expect(word(parameter + 24), 0xffff0000);
+    expect(word(parameter + 24), 0x80402010);
     expect(bus.read32(reg + 0x138), parameter + 60);
     expect(bus.systemBus.normalStatus & 0x80, 0x80);
   });
@@ -398,10 +398,31 @@ void main() {
       triangle();
     }
     packet([0]);
-    expect(word(object + 28), 0xe0000000 | (object + 0x1000));
-    expect(word(object + 0x101c), 0xe0000000 | (object + 0xfe0));
-    expect(word(object + 0xfe4), 0xf0000000);
+    expect(word(object + 28), 0xe0000000 | (object + 0xfe0));
+    expect(word(object + 0xffc), 0xe0000000 | (object + 0xfc0));
+    expect(word(object + 0xfc4), 0xf0000000);
     expect(bus.read32(reg + 0x134), object + 0xfc0);
+  });
+
+  test('descending growth below the initial OPBs preserves earlier lists', () {
+    initialize(allocation: 0x120001, limit: object - 0x1000, next: object);
+    header();
+    for (var i = 0; i < 8; i++) {
+      triangle();
+    }
+    packet([0]);
+    final first = word(object);
+    expect(first & 0x80000000, 0);
+    expect(word(object + 28), 0xe0000000 | (object - 32));
+    header(pcw: 0x84800000);
+    for (var i = 0; i < 16; i++) {
+      triangle();
+    }
+    packet([0]);
+    expect(word(object), first);
+    // The second overflow has a 64-byte block, rather than the preceding 32.
+    expect(word(object + 32 + 60), 0xe0000000 | (object - 96));
+    expect(bus.read32(reg + 0x134), object - 96);
   });
 
   test('illegal sequences raise the parameter error without a false list end',
@@ -554,9 +575,9 @@ void main() {
     write(0xff000038, 0x10);
     final packets = <List<int>>[
       [0x80800000, 0xe0000000, copy, 0, 0, 0, 0, 0],
-      [0xe0000000, bits(0), bits(0), bits(1), 0xffff0000, 0, 0, 0],
-      [0xe0000000, bits(32), bits(0), bits(1), 0xffff0000, 0, 0, 0],
-      [0xf0000000, bits(0), bits(32), bits(1), 0xffff0000, 0, 0, 0],
+      [0xe0000000, bits(0), bits(0), bits(1), 0, 0, 0xffff0000, 0],
+      [0xe0000000, bits(32), bits(0), bits(1), 0, 0, 0xffff0000, 0],
+      [0xf0000000, bits(0), bits(32), bits(1), 0, 0, 0xffff0000, 0],
       List.filled(8, 0),
     ];
     load(4, 0xe0000000);

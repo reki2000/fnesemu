@@ -75,11 +75,10 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depths?[i] ?? depth),
-        // Non-textured packed color uses word 4; textured polygons keep U/V first.
         if (texture == null) ...[
-          colors?[i] ?? color,
           0,
-          0
+          0,
+          colors?[i] ?? color
         ] else ...[
           bits(coordinate),
           bits(coordinate),

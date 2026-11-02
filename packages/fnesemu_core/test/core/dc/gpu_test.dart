@@ -172,6 +172,22 @@ void main() {
     expect(core.bus.read32(0xa5000000), 0);
   });
 
+  test('pipeline reset preserves region format, frame targets and fog registers', () {
+    const settings = {0x7c: 0x27df77, 0x98: 0x800408, 0x60: 0x200000,
+      0xb0: 0x123456};
+    for (final entry in settings.entries) {
+      bus.write32(registers + entry.key, entry.value);
+    }
+    bus.write32(registers + 8, 2);
+    bus.write32(registers + 8, 0);
+    for (final entry in settings.entries) {
+      expect(bus.read32(registers + entry.key), entry.value);
+    }
+    bus.gpu.reset();
+    expect(bus.read32(registers + 0x7c), 0x7df77);
+    expect(bus.read32(registers + 0xb0), 0);
+  });
+
   test('self-authored SH4 program draws a framebuffer through Core.exec', () {
     final writes = [
       (registers + 8, 0),

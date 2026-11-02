@@ -419,12 +419,21 @@ class DcTa {
     _modifier = _list == 1 || _list == 3;
     if (_modifier) {
       if (sprite || _pcw & 0x80 != 0) _illegal('reserved modifier format');
-      final instruction = words[1] >> 29;
-      if (instruction > 2 || ((_pcw & 0x40 != 0) != (instruction != 0))) {
-        _illegal('modifier last flag and volume instruction disagree');
+      final last = _pcw & 0x40 != 0;
+      var instruction = last ? words[1] >> 29 : 0;
+      // Some input streams place the terminal opcode in bits 25:24. Convert
+      // that form to the documented CORE opcode. This compatibility encoding
+      // is not established by the available hardware parameter tables.
+      if (last && instruction == 0) instruction = (words[1] >> 24) & 3;
+      if (last && (instruction == 0 || instruction > 2)) {
+        _illegal('modifier last flag and volume instruction disagree '
+            '(PCW=${_pcw.toRadixString(16)}, ISP=${words[1].toRadixString(16)})');
       }
       _sprite = false;
-      _isp = words[1] & 0xf8000000;
+      // The PCW marks volume termination. For continuation headers, normalize
+      // unused instruction bits to accumulation; behavior of contradictory
+      // input fields is a functional tolerance, not hardware-verified.
+      _isp = (words[1] & 0x18000000) | (instruction << 29);
       _tsp = _texture = 0;
       _group();
       _header = true;
@@ -525,8 +534,7 @@ class DcTa {
     }
 
     final color = switch (colorType) {
-      // HOLLY2 moves non-textured packed color to word 4 (Architecture §8.6).
-      0 => words[textured ? 6 : 4],
+      0 => words[6],
       1 => floatingColor(textured ? 8 : 4),
       _ => intensityColor(_face, 6),
     };
@@ -760,11 +768,15 @@ class DcTa {
     if (_blocks[_list].isEmpty) return;
     final block = _blocks[_list][tile];
     if (block.used == block.words - 1) {
-      final address = nextObject, bytes = block.words * 4;
+      final bytes = block.words * 4;
+      final descending = _activeAllocation & 0x100000 != 0;
+      // In descending mode the cursor is the upper boundary of the new block.
+      // Subtract this list's block size before linking it (Fig. 3-78).
+      final address = descending ? nextObject - bytes : nextObject;
       _checkObject(address, bytes);
       _pages.markRange(block.address + block.used * 4, 4);
       memory.setUint32LE(block.address + block.used * 4, 0xe0000000 | address);
-      nextObject += _activeAllocation & 0x100000 == 0 ? bytes : -bytes;
+      nextObject = descending ? address : address + bytes;
       block.address = address;
       block.used = 0;
     }

@@ -84,8 +84,13 @@ The modeled drive now reports the vendor, Rev 6.43 and 990408 identity from an i
 This is a compatibility identity profile, not execution of the original drive firmware.
 The explicit BIOS verification bypass also provisionally accepts undocumented packets `0x70/0x71`; packet `0x71` supplies a minimal length-delimited pass record in a 1024-byte data phase, without implementing drive authentication.
 Normal CD-ROM reporting still causes the supplied game to return to BIOS after initialization.
-The probe can explicitly select `--drive-format=80`; only that diagnostic virtual profile maps the high-density TOC request to the unchanged source data-track TOC.
-This virtual mapping is not a claim about physical optical drive geometry or the source CDI's format, and the override must be repeated when resuming a probe state.
+The boot bring-up profile supports a DC-only compatibility area after the guest successfully reads a matching boot signature at the start of the data session in an explicit two-session audio/data layout.
+An ensuing high-density GET_TOC selects a virtual area containing the source data track, reports format 0x80, and retains the original track number, sector addresses and end position.
+The low-density TOC then exposes the source audio tracks; its end follows the last audio track extent supplied by the adapter, which may include session padding.
+This is synthesized compatibility metadata, not a recovered physical high-density TOC; sector payloads and filesystem addresses are not relocated.
+Activation survives drive resets and save/load, and is cleared on attachment or media-change events.
+Strict operation and unverified media reject a high-density request with illegal-parameter sense data.
+The probe-only `--drive-format=80` override remains available for explicit diagnostics and must be repeated on resume.
 With that profile and the original second bootstrap, the game reads actual ISO/filesystem sectors from the CDI and completes a 36 KiB native drive DMA transfer after requesting 28 distinct sectors.
 Further execution loads additional game assets, starts the native ARM sound driver and programs the AICA DSP.
 The explicit probe option `--bypass-aica-dsp` retains the uploaded DSP program but suppresses its effect output while preserving direct channel mixing; it must be repeated on resume and does not implement DSP execution.
@@ -856,8 +861,8 @@ The shared TOC optionally exposes explicit session boundaries; existing drive pr
 XA disc identity is an optional explicit TOC field; current production providers do not supply it.
 Density regions remain unavailable; optional explicit subchannel metadata is described below.
 Track addresses/data-vs-audio identity and total sectors are used; audio copy/pre-emphasis flags require an explicit subchannel provider.
-The frontend must not label a normal `CdromDrive` CD snapshot as a high-density disc or invent sessions.
-REQ_SES supports explicitly supplied session metadata as described below; unknown metadata and high-density TOC remain explicit development stops.
+The generic disc interface retains the source CD layout; the DC-only boot compatibility area described above is synthesized inside the optical device and does not modify shared media metadata.
+REQ_SES supports explicitly supplied session metadata as described below; unknown session metadata remains unsupported, while unavailable high-density TOC requests receive illegal-parameter sense data.
 DMA writes to the device, remaining Mode 2 aggregate behavior and high-density media formats remain pending and stop explicitly where recognized.
 Review the disc/TOC contract before implementing high-density addressing and track-sheet image support; no app/GUI changes are part of this increment.
 
@@ -881,7 +886,7 @@ G1 end-of-DMA is raised only after the destination write succeeds, independently
 Disabling G1 withdraws an uncommitted DDT request; a CPU/on-chip reset clears DDT while retaining external G1 state, which can reissue after software reenables DMAOR.
 DME/NMI/address-error gates stall RAM DDT without discarding its staged bytes.
 Media generation changes invalidate staged transfers without a false DMA completion; this external-abort mapping is a functional policy pending hardware validation.
-G1 access protection reports illegal start, overrun and root-bus ROM/flash/drive access during drive DMA.
+G1 access protection reports illegal start, overrun and root-bus ROM/flash access during drive DMA.
 CPU cache hits and debugger peeks do not perform a G1 bus access, and DMA writes do not snoop CPU cache contents.
 
 GDSTAR table ranges are used, including the documented 0C/0E RAM banks and VRAM apertures; 0D/0F RAM banks are rejected because the drive register tables mark them unsupported even though a broader interrupt footnote includes them.
@@ -1195,7 +1200,9 @@ Tests use analytically chosen footprints and self-authored TA scenes to check bo
 
 TA accepts the 32-byte modifier global and 64-byte independent-triangle vertex formats in System Architecture §§3.7.5.2–3.
 The two vertex bursts stage together before allocation; only the nine XYZ coordinates are decoded, and the trailing padding and irrelevant color/texture fields are ignored.
-The PCW last-volume flag must agree with the ISP Volume Instruction, and the reserved modifier Shadow flag is rejected.
+The PCW last-volume flag controls accumulation versus termination, and the reserved modifier Shadow flag is rejected.
+Continuation headers normalize stale instruction bits to accumulation; terminal headers additionally accept opcodes 1 or 2 in bits 25:24 when the documented instruction field is zero.
+This alternate input encoding and contradictory-field tolerance are compatibility behavior inferred from input streams, not behavior established by the hardware parameter tables.
 Both modifier lists retain the existing tile clipping, OPB allocation, parameter bounds, End Of List and HOLLY transfer-interrupt contracts.
 Normal polygon Shadow bits propagate to object-pointer bit 24 independently of vertex skip.
 
@@ -1445,8 +1452,10 @@ This does not establish high-density regions, session parsing from media, physic
 CD_READ and CD_READ2 now share Mode 2 extraction based on SPI Specifications §8.2 (pages 66–71) and the sector layouts in [ECMA-168, Annex C.2.1](https://ecma-international.org/wp-content/uploads/ECMA-168_2nd_edition_december_1994.pdf).
 The XA form is read from submode bit 5, consistent with the original CXD1199AQ data sheet's SHDR description (page 30; [public transcription](https://dtsheet.com/model/1330684)).
 The core TOC has optional isXa identity; null means unknown and does not authorize guessing from sector mode or matching subheader bytes.
-Original SPI rules distinguish disc identity from sector form, so the functional path requires explicit identity for Mode 2/non-XA requests.
-Current production providers do not populate that identity; image/drive adapter propagation remains required.
+Original SPI rules distinguish disc identity from sector form.
+When identity is unknown, a two-session layout with audio tracks followed by one data track is treated as an enhanced disc with XA data for format reporting and Mode 2 reads.
+This is an approximation because the TOC does not expose the lead-in format; explicit identity takes precedence.
+Other Mode 2/non-XA requests still require explicit identity.
 
 Expected Form 1 transfers 2048 user bytes at raw offsets 24–2071, and expected Form 2 transfers 2324 bytes at offsets 24–2347.
 Continuous selections may include the four-byte header and/or eight-byte subheader; a header-plus-data selection that omits the intervening subheader reports invalid-parameter sense.
@@ -2658,3 +2667,10 @@ An original factory-created PCM scene confirms supported MPRO output, silence wh
 The supplied game continues one million instructions without stopping, produces a 640-by-480 image and 14,328 nonzero audio samples, while reporting unsupported floating conversion at step 3 as the fallback reason.
 This does not establish execution of that game's DSP effect program or hardware accuracy; partial program-upload/start timing also remains unverified.
 No unit-test case was added, and the retained 30 DSP/public-state scenarios pass.
+
+## Optional expansion devices and pipeline reset
+
+No optional G2 network adapter is attached. Byte identification reads at 0x00600000/0x00600004 and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
+The electrical value of an unconnected bus remains unverified; writes and other unimplemented peripheral registers retain explicit unsupported behavior.
+A pipeline-only GPU reset aborts pipeline work while preserving drawing and fog configuration; a full device reset restores register defaults.
+Descending additional OPB allocation subtracts the new list block's size before storing it, allowing the cursor to begin at the lower boundary of the initial OPBs without overwriting them.

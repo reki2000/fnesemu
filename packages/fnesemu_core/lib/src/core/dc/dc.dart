@@ -36,6 +36,7 @@ class Dc extends Core {
       : _jit = jit ? Sh4Jit.create() : null,
         _armJit = jit ? DcArmJit.create(DcAica.memorySize) : null {
     bus.onDeviceAccess = _syncDevices;
+    bus.systemBus.onSystemReset = () => _systemResetRequested = true;
     bus.maple.source = padPort;
     // Compiled code reads and writes main RAM directly.
     if (_jit != null) bus.cache.coherent = true;
@@ -69,6 +70,7 @@ class Dc extends Core {
   String? stopReason;
   CdromDrive? _discDrive;
   int _bootstrapEpoch = 0;
+  bool _systemResetRequested = false;
 
   static const programAddress = 0x8c010000;
   static const programOffset = 0x10000;
@@ -238,18 +240,23 @@ class Dc extends Core {
   }
 
   @override
-  void reset() {
+  void reset() => _resetSystem(preserveMemory: false);
+
+  void _resetSystem({required bool preserveMemory}) {
+    _systemResetRequested = false;
     _bootstrapEpoch++;
-    bus.gpu.reset(clearMemory: true);
+    bus.deviceEpoch++;
+    _pinsEpoch = -1;
+    bus.gpu.reset(clearMemory: !preserveMemory);
     bus.maple.reset();
     bus.flash.reset();
     bus.systemBus.reset(clearExternal: true);
-    bus.aica.reset(clearMemory: true);
+    bus.aica.reset(clearMemory: !preserveMemory);
     bus.g1.reset();
     bus.g2.reset(clearPins: true);
     bus.g2.setTransferRequest(0, true);
     bus.opticalDrive.reset();
-    bus.ram.fillRange(0, bus.ram.length, 0);
+    if (!preserveMemory) bus.ram.fillRange(0, bus.ram.length, 0);
     _jit?.reset();
     _armJit?.reset();
     cpu.reset();
@@ -267,7 +274,7 @@ class Dc extends Core {
     }
   }
 
-  static const _stateVersion = 6;
+  static const _stateVersion = 7;
 
   // The drive interface supplies TOC/capabilities, not a whole-disc content hash.
   int get _stateMedia {
@@ -306,6 +313,9 @@ class Dc extends Core {
 
   @override
   Uint8List saveState() {
+    if (_systemResetRequested) {
+      throw const StateMismatch('DC system reset awaits execution boundary');
+    }
     if (!_hasBios && _program == null) {
       throw const StateMismatch(
           'DC state requires a BIOS or diagnostic program');
@@ -348,6 +358,7 @@ class Dc extends Core {
     final processor = cpu;
     _bootstrapEpoch++;
     bus.applyState(stagedBus);
+    _systemResetRequested = false;
     processor.loadState(cpuReader);
     cpuReader.end();
     _clocks = clocks[0];
@@ -422,6 +433,10 @@ class Dc extends Core {
   /// Returns elapsed clocks and packed status for the instruction loop.
   /// With [batch], device clocks are deferred up to the next line boundary.
   (int, int) _execute(bool step, {bool batch = false}) {
+    if (_systemResetRequested) {
+      _resetSystem(preserveMemory: true);
+      return (0, _executionSh4);
+    }
     if (stopReason != null) {
       return (0, _executionStopped);
     }
@@ -447,6 +462,12 @@ class Dc extends Core {
       } on DcUnsupported catch (error) {
         stopReason = error.toString();
         return (0, _executionStopped);
+      }
+      if (_systemResetRequested) {
+        // Apply the request after the instruction has completed, never inside
+        // the memory write. Exact volatile-memory retention is not established.
+        _resetSystem(preserveMemory: true);
+        return (0, _executionSh4);
       }
       sh4Executed = cpu.instructionExecuted;
       _pendingClocks = duration * (bootBringUp ? 8 : 1);
@@ -495,7 +516,9 @@ class Dc extends Core {
   /// Runs compiled SH-4 code up to the device batch deadline. Returns null
   /// when the interpreter takes the next step.
   (int, int)? _executeCompiled() {
-    if (_pendingClocks != 0 || stopReason != null) return null;
+    if (_pendingClocks != 0 || stopReason != null || _systemResetRequested) {
+      return null;
+    }
     if (bootBringUp && _pinsEpoch != bus.deviceEpoch) {
       _driveBringUpPins();
       _pinsEpoch = bus.deviceEpoch;
@@ -555,10 +578,12 @@ class Dc extends Core {
     bus.deviceEpoch++;
     try {
       while (scanlines > 0) {
+        final epoch = _bootstrapEpoch;
         final previousLines = bus.gpu.spg.completedLines;
         final wasVideoRunning = bus.gpu.spg.running;
         (elapsed, flags) = _executeCompiled() ?? _execute(false, batch: true);
         if (flags & _executionStopped != 0) break;
+        if (epoch != _bootstrapEpoch) continue;
         if (wasVideoRunning || bus.gpu.spg.running) {
           scanlines -= bus.gpu.spg.completedLines - previousLines;
         } else if (flags & _executionScanline != 0) {

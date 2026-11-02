@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../cdrom_drive.dart';
 import '../../state.dart';
+import 'disc.dart';
 import 'fault.dart';
 import 'optical_audio.dart';
 
@@ -129,6 +130,8 @@ class DcOpticalDrive {
   int pioTransferMode = 0, dmaTransferMode = 0;
   bool _dmaRequested = false, _dmaActive = false;
   bool _standby = false, _seekHome = false, _reading = false;
+  // 0: unverified, 1: boot header read, 2: virtual data area selected.
+  int _compatibilityArea = 0;
   int _pauseClocks = 0;
   static const masterHz = 200000000;
 
@@ -238,7 +241,8 @@ class DcOpticalDrive {
       dmaTransferMode,
       _pauseClocks,
       dmaEpoch,
-      _mediaState.index
+      _mediaState.index,
+      _compatibilityArea
     ]);
     for (final flag in [
       _dmaRequested,
@@ -301,7 +305,7 @@ class DcOpticalDrive {
     if (packet.length != 12 ||
         sense.length != 10 ||
         mode.length != 32 ||
-        v.length != 31) {
+        v.length != 32) {
       throw const StateMismatch('Optical drive component layout');
     }
     for (final i in [0, 1, 2, 3, 4, 6, 15, 18, 21, 26, 27]) {
@@ -342,7 +346,9 @@ class DcOpticalDrive {
         v[28] < 0 ||
         v[29] < 0 ||
         v[30] < 0 ||
-        v[30] >= CdromDriveState.values.length) {
+        v[30] >= CdromDriveState.values.length ||
+        v[31] < 0 ||
+        v[31] > 2) {
       throw const StateMismatch('Optical drive command state');
     }
     // Audio has already been validated in isolation; retain its object identity.
@@ -388,6 +394,7 @@ class DcOpticalDrive {
     _pauseClocks = v[28];
     dmaEpoch = v[29];
     _mediaState = CdromDriveState.values[v[30]];
+    _compatibilityArea = v[31];
     _dmaRequested = flags[0];
     _dmaActive = flags[1];
     _standby = flags[2];
@@ -409,6 +416,7 @@ class DcOpticalDrive {
   }
 
   void attach(CdromDrive drive) {
+    _compatibilityArea = 0;
     _drive = drive;
     _driveBound = true;
     reset();
@@ -428,6 +436,9 @@ class DcOpticalDrive {
   }
 
   void reset() {
+    if (_discId != _drive.status.discId || _mediaState != _drive.status.state) {
+      _compatibilityArea = 0;
+    }
     audio.reset();
     _standby = _seekHome = _reading = false;
     _pauseClocks = 0;
@@ -498,12 +509,40 @@ class DcOpticalDrive {
           CdromDriveState.loading => 0,
           CdromDriveState.error => 9,
         };
-  int get _format => _opening
-      ? 0
-      : diagnosticFormatOverride ??
-          (_drive.status.toc.tracks.any((t) => !t.isAudio)
-              ? (_drive.status.toc.isXa == true ? 0x20 : 0x10)
-              : 0);
+  // A two-session audio/data layout is treated as CD Extra for bring-up.
+  // The source TOC does not retain the lead-in disc type, so this is a
+  // topology-based approximation rather than an authenticated format.
+  bool get _audioDataSessions {
+    final toc = _drive.status.toc, sessions = _drive.status.toc.sessions;
+    if (toc.isXa == false ||
+        sessions == null ||
+        sessions.length != 2 ||
+        toc.tracks.isEmpty) {
+      return false;
+    }
+    final first = sessions[0], second = sessions[1];
+    if (first.number != 1 ||
+        second.number != 2 ||
+        second.firstTrack <= first.firstTrack ||
+        first.firstTrack != toc.tracks.first.number ||
+        first.startLba != toc.tracks.first.startLba ||
+        second.firstTrack != toc.tracks.last.number ||
+        !toc.tracks.any((t) =>
+            t.number == second.firstTrack && t.startLba == second.startLba)) {
+      return false;
+    }
+    return toc.tracks
+        .every((t) => t.number < second.firstTrack ? t.isAudio : !t.isAudio);
+  }
+
+  int get _format {
+    if (_opening) return 0;
+    if (diagnosticFormatOverride case final format?) return format;
+    if (_compatibilityArea == 2) return 0x80;
+    final toc = _drive.status.toc;
+    if (!toc.tracks.any((t) => !t.isAudio)) return 0;
+    return toc.isXa == true || _audioDataSessions ? 0x20 : 0x10;
+  }
 
   void _schedule(int action) {
     _action = action;
@@ -574,6 +613,7 @@ class DcOpticalDrive {
       }
     }
     if (!changed) return;
+    _compatibilityArea = 0;
     final opened = _opening && media.isTrayOpen;
     _restoredAudioFailure = false;
     _standby = _seekHome = false;
@@ -940,15 +980,26 @@ class DcOpticalDrive {
         _slice(_sense, 0, _packet[4]);
       case 0x14:
         if (!_ready()) return;
-        if (_packet[1] & 1 != 0) {
+        final allocation = (_packet[3] << 8) | _packet[4];
+        if (allocation > 408) {
+          _finish(key: 5, asc: 0x24);
+          return;
+        }
+        final highDensity = _packet[1] & 1 != 0;
+        if (highDensity) {
           if (diagnosticFormatOverride != 0x80) {
-            throw const DcUnsupported('Optical drive high-density TOC');
+            if (_compatibilityArea == 0 ||
+                !(bypassBootChecks?.call() ?? false)) {
+              _finish(key: 5, asc: 0x24);
+              return;
+            }
+            _compatibilityArea = 2;
           }
           // Explicit virtual area backed by the unchanged source data tracks.
           // No claim is made about a physical optical drive high-density layout.
           onTrace?.call('virtual-data-area', [1]);
         }
-        _slice(_toc(), 0, (_packet[3] << 8) | _packet[4]);
+        _slice(_toc(highDensity: highDensity), 0, allocation);
       case 0x15:
         if (!_ready()) return;
         if (_packet[2] > 99) {
@@ -1359,10 +1410,14 @@ class DcOpticalDrive {
     return null;
   }
 
-  Uint8List _toc() {
+  Uint8List _toc({bool highDensity = false}) {
     final toc = _drive.status.toc;
+    // Compatibility areas retain source LBAs; they are not physical geometry.
+    final tracks = _compatibilityArea == 2
+        ? toc.tracks.where((t) => highDensity ? !t.isAudio : t.isAudio).toList()
+        : toc.tracks;
     final bytes = Uint8List(408)..fillRange(0, 408, 255);
-    for (final track in toc.tracks) {
+    for (final track in tracks) {
       if (track.number < 1 || track.number > 99) {
         throw const DcUnsupported('Optical drive invalid track number');
       }
@@ -1372,8 +1427,8 @@ class DcOpticalDrive {
       bytes[offset + 2] = (fad >> 8) & 255;
       bytes[offset + 3] = fad & 255;
     }
-    if (toc.tracks.isEmpty) return bytes;
-    final first = toc.tracks.first, last = toc.tracks.last;
+    if (tracks.isEmpty) return bytes;
+    final first = tracks.first, last = tracks.last;
     bytes.setRange(396, 404, [
       first.isAudio ? 1 : 0x41,
       first.number,
@@ -1384,7 +1439,10 @@ class DcOpticalDrive {
       0,
       0
     ]);
-    final end = toc.totalSectors + 150;
+    final end = (_compatibilityArea == 2 && !highDensity
+            ? last.startLba + last.sectors
+            : toc.totalSectors) +
+        150;
     bytes.setRange(404, 408, [
       last.isAudio ? 1 : 0x41,
       (end >> 16) & 255,
@@ -1411,6 +1469,16 @@ class DcOpticalDrive {
     }
     final output = _sectorData(raw, audio: _track(lba)?.isAudio ?? false);
     if (output == null) return;
+    if (_compatibilityArea == 0 &&
+        (bypassBootChecks?.call() ?? false) &&
+        _audioDataSessions &&
+        lba == _drive.status.toc.tracks.last.startLba) {
+      final offset = raw[15] == 1 ? 16 : 24;
+      if ((raw[15] == 1 || (raw[15] == 2 && raw[18] & 0x20 == 0)) &&
+          _hasBootSignature(raw, offset)) {
+        _compatibilityArea = 1;
+      }
+    }
     _readCount--;
     _seekComplete = true;
     _fad = _readFad++;
@@ -1421,6 +1489,13 @@ class DcOpticalDrive {
       // The speculative result is checked only by a later explicit read.
       _drive.read(next - 150);
     }
+  }
+
+  bool _hasBootSignature(Uint8List raw, int offset) {
+    for (var i = 0; i < dcDiscSignature.length; i++) {
+      if (raw[offset + i] != dcDiscSignature.codeUnitAt(i)) return false;
+    }
+    return true;
   }
 
   List<int>? _sectorData(Uint8List raw, {required bool audio}) {
@@ -1439,7 +1514,7 @@ class DcOpticalDrive {
     if (audio) return raw;
     final nonXa = type == 6;
     if (nonXa || raw[15] == 2) {
-      final isXa = _drive.status.toc.isXa;
+      final isXa = _drive.status.toc.isXa ?? (_audioDataSessions ? true : null);
       if (isXa == null) {
         throw const DcUnsupported(
             'Optical drive does not expose XA disc identity');
