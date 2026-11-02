@@ -187,7 +187,7 @@ class Pce extends Core {
   @override
   void reset() {
     _nextVdcClocks = _clocksInScanline;
-    _prevPsgClocks = _clocksInScanline;
+    _prevPsgClocks = 0;
     _vdc2Synced = false;
     bus.onReset();
   }
