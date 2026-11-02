@@ -991,10 +991,24 @@ class DcBus {
         '${write ? "write" : "read"} at ${address.x8} ($size bytes)');
   }
 
+  int? _absentG2Read(int address, int size) {
+    if (address >= 0xc0000000) return null;
+    final physical = address & 0x1dffffff;
+    // Optional adapters are absent. All-ones reads in the external expansion
+    // window extend the existing ID policy; electrical open-bus behavior is
+    // not established. Writes still require an implemented device.
+    if ((size == 1 && (physical == 0x00600000 || physical == 0x00600004)) ||
+        (physical >= 0x01000000 && physical + size <= 0x02000000 &&
+            physical & (size - 1) == 0)) {
+      return (1 << (size * 8)) - 1;
+    }
+    return null;
+  }
+
   int read8(int address, {DcTranslation? mapping, bool peek = false}) {
     final decoded = mapping?.physical ?? address;
-    // No optional G2 modem is attached; return an absent-device ID.
-    if (decoded < 0xc0000000 && decoded & 0x1dffffff == 0x00600004) return 0xff;
+    final absent = _absentG2Read(decoded, 1);
+    if (absent != null) return absent;
     final fifoRegister = _fifoRegister(decoded);
     if (fifoRegister != null) return gpu.readFifoRegister(fifoRegister, 1);
     final g2Register = _g2Offset(decoded);
@@ -1054,6 +1068,8 @@ class DcBus {
 
   int read16(int address, {DcTranslation? mapping, bool peek = false}) {
     final decoded = mapping?.physical ?? address;
+    final absent = _absentG2Read(decoded, 2);
+    if (absent != null) return absent;
     if (_ordinaryRead(decoded)) {
       final (bytes, offset) = cache.readLocation(address, 2,
           physical: mapping?.physical,
@@ -1132,6 +1148,8 @@ class DcBus {
 
   int read32(int address, {DcTranslation? mapping, bool peek = false}) {
     final decoded = mapping?.physical ?? address;
+    final absent = _absentG2Read(decoded, 4);
+    if (absent != null) return absent;
     if (_ordinaryRead(decoded)) {
       final (bytes, offset) = cache.readLocation(address, 4,
           physical: mapping?.physical,

@@ -101,9 +101,9 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depth),
+        0,
+        0,
         0xffabcdef,
-        0,
-        0,
         0
       ]);
     }

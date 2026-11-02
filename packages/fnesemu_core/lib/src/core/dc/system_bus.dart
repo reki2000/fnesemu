@@ -21,6 +21,7 @@ class DcSystemBus {
   late final gpuDma = DcGpuDma(onNormal: raiseNormal, onError: raiseError);
   late final sortDma = DcSortDma(onNormal: raiseNormal, onError: raiseError);
   void Function()? onG2Trigger;
+  void Function()? onSystemReset;
   bool dmaTriggersEnabled = true;
 
   void saveState(StateWriter writer) {
@@ -223,7 +224,7 @@ class DcSystemBus {
       if ((register == 0xa4 || register == 0xac) && value == 0) return;
       if (register == 0x90) {
         if (value & 0xffff == 0x7611) {
-          throw const DcUnsupported('HOLLY full-system software reset');
+          onSystemReset?.call();
         }
         return;
       }
