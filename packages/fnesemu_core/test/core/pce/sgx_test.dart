@@ -91,6 +91,19 @@ void main() {
     expect(VdcRenderer.frames, 1);
   });
 
+  test('stray accesses to the VPC and VDC2 mirrors do not latch sgx mode', () {
+    final pce = machine();
+    pce.bus.write(hardware + 0x29, 0);
+    pce.bus.write(hardware + 0x32, 7);
+    pce.bus.read(hardware + 0x28);
+    expect(pce.vpc.enabled, false);
+    expect(pce.vpc.priority1, 0x11);
+    expect(pce.vdc2.reg, 0);
+    pce.bus.write(hardware + 0x09, 0x22);
+    expect(pce.vpc.enabled, true);
+    expect(pce.vpc.priority1, 0x22);
+  });
+
   test('VDC ports mirror within their eight-byte register blocks', () {
     final pce = machine();
     pce.bus.write(hardware + 4, 5);

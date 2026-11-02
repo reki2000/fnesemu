@@ -36,7 +36,19 @@ extension _Wide on IrInterpreterRuntime {
         return result(a() - b());
       case IrOp.mul:
         return result(a() * b());
-      case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul:
+      case IrOp.divS:
+        return result(b() == BigInt.zero
+            ? BigInt.zero
+            : a().toSigned(64) ~/ b().toSigned(64));
+      case IrOp.divU:
+        return result(b() == BigInt.zero ? BigInt.zero : a() ~/ b());
+      case IrOp.remS:
+        return result(b() == BigInt.zero
+            ? BigInt.zero
+            : a().toSigned(64).remainder(b().toSigned(64)));
+      case IrOp.remU:
+        return result(b() == BigInt.zero ? BigInt.zero : a() % b());
+      case IrOp.floatAdd || IrOp.floatSub || IrOp.floatMul || IrOp.floatDiv:
         _floatData.setUint32(0, _word(a()), Endian.little);
         _floatData.setUint32(4, _word(a() >> 32), Endian.little);
         _floatData.setUint32(8, _word(b()), Endian.little);
@@ -49,9 +61,17 @@ extension _Wide on IrInterpreterRuntime {
               ? x + y
               : inst.op == IrOp.floatSub
               ? x - y
-              : x * y,
+              : inst.op == IrOp.floatMul
+              ? x * y
+              : x / y,
           Endian.little,
         );
+        return result(
+          BigInt.from(_floatData.getUint32(0, Endian.little)) |
+              BigInt.from(_floatData.getUint32(4, Endian.little)) << 32,
+        );
+      case IrOp.floatSqrt:
+        _floatData.setFloat64(0, math.sqrt(_double(a())), Endian.little);
         return result(
           BigInt.from(_floatData.getUint32(0, Endian.little)) |
               BigInt.from(_floatData.getUint32(4, Endian.little)) << 32,

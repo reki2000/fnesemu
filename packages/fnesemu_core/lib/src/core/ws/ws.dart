@@ -30,6 +30,9 @@ class Ws extends Core {
   static const clocksInLine = 256;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => clockHz;
 
   @override
@@ -172,23 +175,31 @@ class Ws extends Core {
     frames = 0;
   }
 
-  /// the buttons in the order of the keys A S Z X C Q W E R D
+  /// The buttons in the unified key order: S is Y1, Z is Y4, X is Y3, C
+  /// is Y2, the A key is A, the D key is B, W is Sound, R rotates the
+  /// display and Enter is Start. The arrow keys are the X group.
   @override
   List<PadButton> get buttons => const [
         PadButton.up,
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        Pad.y4, // A
-        Pad.y3, // S
-        Pad.b, // Z
-        Pad.a, // X
-        PadButton.none, // C
-        Pad.sound, // Q
-        Pad.y1, // W
-        Pad.start, // E
+        Pad.y1, // S
+        Pad.y4, // Z
+        Pad.y3, // X
+        Pad.y2, // C
+        Pad.a, // A
+        Pad.b, // D
+        Pad.sound, // W
+        PadButton.none, // Q
+        PadButton.none, // E
+        PadButton.none, // 1
+        PadButton.none, // 2
+        PadButton.none, // 3
+        PadButton.none, // 4
         rotate, // R
-        Pad.y2, // D
+        Pad.start, // Enter
+        PadButton.none, // Shift
       ];
 
   @override

@@ -68,6 +68,9 @@ class Nes extends Core {
   int get clocksInScanline => cpuCyclesInScanline;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => cpuClock;
 
   @override
@@ -205,11 +208,9 @@ class Nes extends Core {
   FdsMapper? _diskMapper;
   static const flipDisk = PadButton('Flip Disk');
   bool _flipDiskHeld = false;
-  late final _diskButtons = <PadButton>[
-    ...bus.joypad.buttons,
-    // Existing key slots: C, Q, W, E are unused; R flips the disk.
-    PadButton.none, PadButton.none, PadButton.none, PadButton.none, flipDisk,
-  ];
+  // The joypad buttons with the R slot (index 17) replaced: R flips the
+  // disk.
+  late final _diskButtons = List.of(bus.joypad.buttons)..[17] = flipDisk;
 
   void _configureDisk(Uint8List? image) {
     final bios = _bios;

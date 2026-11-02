@@ -41,6 +41,9 @@ class Gb extends Core {
   static const clockHz = 4194304;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => clockHz;
 
   @override
@@ -69,7 +72,7 @@ class Gb extends Core {
   ExecResult exec(bool step) {
     final status = _advance();
     return ExecResult(
-        bus.clocks, status == _stepStopped, status == _stepRenderedLine);
+        bus.dotClocks, status == _stepStopped, status == _stepRenderedLine);
   }
 
   @override
@@ -77,11 +80,11 @@ class Gb extends Core {
     var rendered = false;
     while (scanlines > 0) {
       final status = _advance();
-      if (status == _stepStopped) return ExecResult(bus.clocks, true, false);
+      if (status == _stepStopped) return ExecResult(bus.dotClocks, true, false);
       rendered = status == _stepRenderedLine;
       if (rendered) scanlines--;
     }
-    return ExecResult(bus.clocks, false, rendered);
+    return ExecResult(bus.dotClocks, false, rendered);
   }
 
   // Returns one of the _step* codes without allocating an instruction result.
@@ -196,7 +199,7 @@ class Gb extends Core {
   @override
   TraceLog trace(int cpuNo) => TraceLog(
       cpu.pc,
-      bus.clocks,
+      bus.dotClocks,
       disasm(0, cpu.pc).$1.padRight(36),
       cpu.dump(),
       [cpu.af, cpu.bc, cpu.de, cpu.hl, cpu.sp],

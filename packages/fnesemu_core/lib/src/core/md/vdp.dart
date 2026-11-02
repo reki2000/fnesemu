@@ -70,12 +70,12 @@ class Vdp {
 
   bool trackOpacity = false;
   Uint8List? _opaque;
-  Uint8List get opaque => _opaque ??= Uint8List(320 * 224);
+  Uint8List get opaque => _opaque ??= Uint8List(320 * outputHeight);
 
   Uint32List buffer = Uint32List(320 * 224);
 
   ImageBuffer get imageBuffer =>
-      ImageBuffer(width, height, buffer, displayWidth_: 320);
+      ImageBuffer(width, outputHeight, buffer, displayWidth_: 320, displayHeight: height);
 
   bool h32 = true;
   bool ntsc = true; // false: pal
@@ -83,6 +83,16 @@ class Vdp {
   int interlaceMode = 0;
 
   bool get isInterlaced => interlaceMode == 3;
+  bool get interlacedOutput => interlaceMode == 1 || interlaceMode == 3;
+  int get outputHeight => height * (interlacedOutput ? 2 : 1);
+
+  void resizeOutput() {
+    final length = 320 * outputHeight;
+    if (buffer.length != length) {
+      buffer = Uint32List(length);
+      _opaque = null;
+    }
+  }
 
   // work buffers of the line renderer
   final line = VdpLineState();
@@ -144,6 +154,7 @@ class Vdp {
     _is1st = s.boolean();
     trackOpacity = s.boolean();
     final hasOpaque = s.boolean();
+    resizeOutput();
     s.intsInto(buffer);
     if (hasOpaque) {
       s.bytesInto(opaque);
@@ -173,6 +184,9 @@ class Vdp {
 
     h32 = true;
     width = 256;
+    interlaceMode = 0;
+    resizeOutput();
+    buffer.fillRange(0, buffer.length, 0xff000000);
 
     vCounter = 0;
     trackOpacity = false;
@@ -295,6 +309,7 @@ class Vdp {
           h32 = value & 0x81 != 0x81;
           width = h32 ? 256 : 320;
           interlaceMode = value.shr1.mask2;
+          resizeOutput();
           break;
         case 0x17:
           if (!reg[0x17].bit7) {

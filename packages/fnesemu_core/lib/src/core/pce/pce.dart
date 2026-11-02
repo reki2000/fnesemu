@@ -53,6 +53,9 @@ class Pce extends Core {
   static const systemClockHz_ = hardware.systemClockHz;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => systemClockHz_;
 
   @override
@@ -187,7 +190,7 @@ class Pce extends Core {
   @override
   void reset() {
     _nextVdcClocks = _clocksInScanline;
-    _prevPsgClocks = _clocksInScanline;
+    _prevPsgClocks = 0;
     _vdc2Synced = false;
     bus.onReset();
   }

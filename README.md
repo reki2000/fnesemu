@@ -21,24 +21,23 @@ This project is experimental.
 
 ## Joypad-Keyboard assignment
 
-| key | arrows | Z | X | C | A | S | D | Q | W | E | R |
-|-----|--------|---|---|---|---|---|---|---|---|---|---|
-| NES | up / down / left / right | B | A |  | Select | Start |  |  |  |  |  |
-| PCE | up / down / left / right | II | I |  | Select | Run |  |  |  |  |  |
-| MD | up / down / left / right | A | B | C | X | Y | Z | Mode | | Start |  |
-| PS1 | up / down / left / right | # | x | o | Select | ^ |  | L1 | Start | R1 |  |
-| GB | up / down / left / right | B | A |  | Select | Start |  |  |  |  |  |
-| GBA | up / down / left / right | A | B | L | Select | Start |  | R |  |  |  |
-| SNES | up / down / left / right | Select |  | Start | Y | B | A | L | X | R |  |
-| SS | up / down / left / right | A | B | C | L | Start |  | X | Y | Z | R |
-| N64 | up / down / left / right | B | A | Z | C-left | C-down | C-right | L | C-up | R | Start |
-| SMS | up / down / left / right | 1 | 2 |  |  | Pause / Start |  |  |  |  |  |
-| WS | X1 / X3 / X4 / X2 | B | A |  | Y4 | Y3 | Y2 | Sound | Y1 | Start | Rotate |
-| WS (vertical) | Y2 / Y4 / Y1 / Y3 | B | A |  | X1 | X4 | X3 | Sound | X2 | Start | Rotate |
-
-On N64, the arrows move the analog stick. The D-pad buttons (D-up, D-down, D-left, D-right) have no key and are used by the end-to-end tests.
-
-On WS, R rotates the display and changes the direction groups as shown above. The arrow column lists up / down / left / right. Q cycles the emulated speaker volume.
+| system | arrows | S | Z | X | C | A | D | W | Q | E | 1 | 2 | 3 | 4 | R | Enter | Shift |
+|--------|--------|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| NES | up / down / left / right |  |  | B | A |  |  |  |  |  |  |  |  |  |  | Start | Select |
+| PCE | up / down / left / right |  |  | II | I |  |  |  |  |  |  |  |  |  |  | Run | Select |
+| MD | up / down / left / right | Y | A | B | C | X | Z |  |  |  |  |  |  |  |  | Start | Mode |
+| PS | up / down / left / right | ^ | # | x | o |  |  |  | L1 | R1 | L2 | L3 | R2 | R3 |  | Start | Select |
+| PS2 | up / down / left / right | ^ | # | x | o |  |  |  | L1 | R1 | L2 | L3 | R2 | R3 |  | Start | Select |
+| GB | up / down / left / right |  |  | B | A |  |  |  |  |  |  |  |  |  |  | Start | Select |
+| GBA | up / down / left / right |  |  | B | A |  |  |  | L | R |  |  |  |  |  | Start | Select |
+| SNES | up / down / left / right | X | Y | B | A |  |  |  | L | R |  |  |  |  |  | Start | Select |
+| SS | up / down / left / right | Y | A | B | C | X | Z |  | L | R |  |  |  |  |  | Start |  |
+| N64 | up / down / left / right | C-up | C-left | C-down | C-right | A | B | Z | L | R |  |  |  |  |  | Start |  |
+| SMS | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Pause |  |
+| GG | up / down / left / right |  |  | 1 | 2 |  |  |  |  |  |  |  |  |  |  | Start |  |
+| DC | up / down / left / right | Y | X | A | B |  |  |  | L | R |  |  |  |  |  | Start |  |
+| WS | X1 / X3 / X4 / X2 | Y1 | Y4 | Y3 | Y2 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
+| WS (vertical) | Y2 / Y4 / Y1 / Y3 | X2 | X1 | X4 | X3 | A | B | Sound |  |  |  |  |  |  | Rotate | Start |  |
 
 # How to develop
 
@@ -68,9 +67,9 @@ submodule reference here. Restore the recorded revisions with
 See [ARCHITECTURE.md](ARCHITECTURE.md) for package responsibilities and
 dependency rules.
 
-### PS1 recompiler
+### Recompiler
 
-The PS1 CPU uses `packages/mp_jit_recompiler` by default, translating R3000 code to x86-64 on Linux, Android and Windows x64 hosts, or to WebAssembly on the Web. For example, `flutter build web --wasm` includes the Web backend. WebAssembly is also used when the app itself is compiled to JavaScript. Build or run with `--dart-define=JIT=false` to use the interpreter explicitly. Other hosts, browser policies that prohibit compiling Wasm, and `PS_TRACE=true` builds keep the interpreter automatically. Linux and Windows x64 CI exercise the native backend, and browser tests exercise Wasm. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
+Some CPUs use `packages/mp_jit_recompiler` by default, translating the CPU's code to x86-64 on Linux, Android and Windows x64 hosts, or to WebAssembly on the Web. For example, `flutter build web --wasm` includes the Web backend. WebAssembly is also used when the app itself is compiled to JavaScript. Build or run with `--dart-define=JIT=false` to use the interpreter explicitly. Other hosts, browser policies that prohibit compiling Wasm, and `PS_TRACE=true` builds keep the interpreter automatically. Linux and Windows x64 CI exercise the native backend, and browser tests exercise Wasm. `packages/fnesemu_core/tool/ps_jit_bench.dart` compares the interpreter with the recompiler.
 
 Device accesses and writes to translated RAM pages return to the interpreter before the instruction executes, preserving device clocks, interrupts and self-modifying code. Ordinary RAM accesses remain native. A debugger step that stops at a branch delay slot completes that slot before entering compiled code.
 
@@ -94,6 +93,8 @@ The **Build binaries** GitHub Actions workflow tests PRs and builds Web; merges 
 | CPU tests | `make test-cpu-setup` | `make test-cpu` | Python 3.11+, Git |
 | End-to-end tests | `make test-e2e-setup` | `make test-e2e` | Python 3.11+, Git, Pillow, numpy (Docker for media built from source) |
 | Quick regression | | `make regress` | Dart and Flutter |
+
+Install the Python packages of the end-to-end tests with `pip install -r scripts/requirements.txt`, preferably in a virtual environment.
 
 The setup targets fetch (or build) public test data into `.build/` directories, which Git ignores. Run them once, and again after the pinned data changes. The tests do not run the setup, and skip a test whose data is missing.
 

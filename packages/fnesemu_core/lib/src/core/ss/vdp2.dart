@@ -86,7 +86,8 @@ class Vdp2 {
   int _fbHeight = 224;
 
   ImageBuffer get imageBuffer => ImageBuffer(_fbWidth, _fbHeight, _frameBuffer,
-      displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth);
+      displayWidth_: _fbWidth >= 640 ? _fbWidth ~/ 2 : _fbWidth,
+      displayHeight: displayLines);
 
   /// Saves VRAM, CRAM, registers, timing flags and the current output.
   /// Decoded colors and cell caches are rebuilt on load.
@@ -130,6 +131,10 @@ class Vdp2 {
     vblank = false;
     hblank = false;
     frame = 0;
+    oddField = false;
+    _fbWidth = 320;
+    _fbHeight = 224;
+    _frameBuffer = Uint32List(_fbWidth * _fbHeight);
   }
 
   // register accessors
@@ -153,11 +158,14 @@ class Vdp2 {
         _ => 256,
       };
 
-  /// double-density interlace (LSMD = 3): both fields are rendered at once
+  /// Both single- and double-density modes produce alternating output fields.
+  bool get interlaced => tvmd.shr6.mask2 == 1 || doubleDensity;
+
+  /// Double-density mode samples distinct logical rows in each field.
   bool get doubleDensity => tvmd.shr6.mask2 == 3;
 
   /// height of the output image
-  int get height => doubleDensity ? displayLines * 2 : displayLines;
+  int get height => interlaced ? displayLines * 2 : displayLines;
 
   int get cramMode => regs[0x0e >> 1].shr12.mask2;
 
@@ -258,6 +266,8 @@ class Vdp2 {
     }
 
     final out = y * w;
+    // Single-density fields sample the same logical rows at alternating positions.
+    if (interlaced && !doubleDensity) y >>= 1;
 
     if (!displayOn) {
       _frameBuffer.fillRange(out, out + w, 0xff000000);

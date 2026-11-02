@@ -732,12 +732,10 @@ class Ym2612 {
     }
   }
 
-  // TIMERA_period = 9us x (1024 -TIMER)
-  // TIMERB_period = 9us x 16 x (256 -TIMER)
-  // 18.773us ~= 1_000_000ms / (m68clock / 144); where m68clock / 144 = 1 sample
+  // One sample spans 144 input clocks: one timer A tick or 1/16 timer B tick.
   countTimer(int samples) {
     if (_enableTimerA) {
-      _timerCountA -= samples * 2;
+      _timerCountA -= samples;
 
       if (_timerCountA <= 0) {
         while (_timerCountA <= 0) {
@@ -757,7 +755,7 @@ class Ym2612 {
     }
 
     if (_enableTimerB) {
-      _timerCountB -= samples * 2;
+      _timerCountB -= samples;
 
       if (_timerCountB <= 0) {
         while (_timerCountB <= 0) {

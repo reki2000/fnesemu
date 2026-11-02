@@ -58,9 +58,9 @@ void main() {
   final g = N64Graphics(N64Bus());
   g.colorImage = 0x100000;
   g.combine1 = (7 << 28) | (4 << 15) | (7 << 12) | (6 << 9);
-  final a = N64Vertex([-0.9, -0.8, 0, 1], [240, 10, 30, 255], 0, 0);
-  final b = N64Vertex([0.8, -0.7, 0, 1], [20, 240, 10, 255], 0, 0);
-  final c = N64Vertex([-0.2, 0.9, 0, 1], [10, 20, 240, 255], 0, 0);
+  final a = N64Vertex(Vec4(-0.9, -0.8, 0, 1), Rgba(240, 10, 30, 255), 0, 0);
+  final b = N64Vertex(Vec4(0.8, -0.7, 0, 1), Rgba(20, 240, 10, 255), 0, 0);
+  final c = N64Vertex(Vec4(-0.2, 0.9, 0, 1), Rgba(10, 20, 240, 255), 0, 0);
   for (var i = 0; i < 10; i++) {
     g.triangle(a, b, c);
   }

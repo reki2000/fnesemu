@@ -2,6 +2,8 @@
 /// 64-bit pointer moves, and rel32 jumps to labels.
 library;
 
+import 'dart:typed_data';
+
 /// General purpose registers by their encoding number.
 abstract final class R {
   static const rax = 0, rcx = 1, rdx = 2, rbx = 3, rsp = 4, rbp = 5;
@@ -41,21 +43,34 @@ final class Label {
 }
 
 final class Assembler {
-  final _b = <int>[];
+  var _b = Uint8List(4096);
+  int _length = 0;
 
-  int get offset => _b.length;
-  List<int> get bytes => _b;
+  int get offset => _length;
+  Uint8List get bytes => Uint8List.sublistView(_b, 0, _length);
 
-  void u8(int v) => _b.add(v & 0xff);
+  void _grow() {
+    final next = Uint8List(_b.length * 2);
+    next.setRange(0, _length, _b);
+    _b = next;
+  }
+
+  void u8(int v) {
+    if (_length == _b.length) _grow();
+    _b[_length++] = v;
+  }
+
   void u32(int v) {
+    if (_length + 4 > _b.length) _grow();
     for (int i = 0; i < 4; i++) {
-      _b.add((v >> (8 * i)) & 0xff);
+      _b[_length++] = v >> (8 * i);
     }
   }
 
   void u64(int v) {
+    if (_length + 8 > _b.length) _grow();
     for (int i = 0; i < 8; i++) {
-      _b.add((v >> (8 * i)) & 0xff);
+      _b[_length++] = v >> (8 * i);
     }
   }
 
@@ -125,6 +140,25 @@ final class Assembler {
     }
     u8(0xf2);
     _opReg([0x0f, opcode], 0, 1);
+    if (!wide) {
+      u8(0xf2);
+      _opReg([0x0f, 0x5a], 0, 0);
+    }
+    u8(0x66);
+    _opReg([0x0f, 0x7e], 0, R.rax, w: wide);
+  }
+
+  /// The square root of the bits in RAX, through binary64 as in
+  /// [floatBinary], using only XMM0.
+  void floatSqrt({required bool wide}) {
+    u8(0x66);
+    _opReg([0x0f, 0x6e], 0, R.rax, w: wide);
+    if (!wide) {
+      u8(0xf3);
+      _opReg([0x0f, 0x5a], 0, 0);
+    }
+    u8(0xf2);
+    _opReg([0x0f, 0x51], 0, 0);
     if (!wide) {
       u8(0xf2);
       _opReg([0x0f, 0x5a], 0, 0);
@@ -280,6 +314,16 @@ final class Assembler {
   void imul1R(int src, {bool w = false}) => _opReg([0xf7], 5, src, w: w);
   void mul1R(int src, {bool w = false}) => _opReg([0xf7], 4, src, w: w);
 
+  /// Sign-extend EAX into EDX:EAX or RAX into RDX:RAX before signed division.
+  void signExtendDiv({bool w = false}) {
+    if (w) u8(0x48);
+    u8(0x99); // CDQ / CQO
+  }
+
+  /// Divide EDX:EAX or RDX:RAX by src (quotient in AX, remainder in DX).
+  void divR(int src, {required bool signed, bool w = false}) =>
+      _opReg([0xf7], signed ? 7 : 6, src, w: w);
+
   void imulRM(int dst, Mem m, {bool w = false}) =>
       _opMem([0x0f, 0xaf], dst, m, w: w);
 
@@ -350,7 +394,7 @@ final class Assembler {
       for (final use in l._uses) {
         final rel = l.offset - (use + 4);
         for (int i = 0; i < 4; i++) {
-          _b[use + i] = (rel >> (8 * i)) & 0xff;
+          _b[use + i] = rel >> (8 * i);
         }
       }
     }

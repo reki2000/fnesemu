@@ -151,16 +151,22 @@ void main() {
       PadButton.down,
       PadButton.left,
       PadButton.right,
+      Pad.y1,
       Pad.y4,
       Pad.y3,
-      Pad.b,
-      Pad.a,
-      PadButton.none,
-      Pad.sound,
-      Pad.y1,
-      Pad.start,
-      Ws.rotate,
       Pad.y2,
+      Pad.a,
+      Pad.b,
+      Pad.sound,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      PadButton.none,
+      Ws.rotate,
+      Pad.start,
+      PadButton.none,
     ]);
   });
 
@@ -278,13 +284,20 @@ void main() {
     expect(buffers.expand((b) => b.buffer).every((v) => v == 0), isTrue);
   });
 
+  test('frame clocks follow changes to the color line count', () {
+    final ws = Ws(color: true)..setRom(_rom([0xeb, 0xfe], color: true));
+    expect(ws.clocksPerFrame, 256 * 159);
+    ws.bus.output8(0x16, 198);
+    expect(ws.clocksPerFrame, 256 * 199);
+  });
+
   test('the vertical console turns the frame and the directions', () {
     final ws = Ws(color: false)..setRom(_rom([0xeb, 0xfe]));
     ws.runFrame(159);
     final flat = ws.imageBuffer();
     // mark the top-left pixel to follow it through the turn
     flat.buffer[0] = 0x12345678;
-    expect(ws.buttons[12], Ws.rotate);
+    expect(ws.buttons[17], Ws.rotate);
 
     tap(ws, Ws.rotate);
     final turned = ws.imageBuffer();

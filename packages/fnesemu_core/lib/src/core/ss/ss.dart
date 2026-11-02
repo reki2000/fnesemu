@@ -84,7 +84,10 @@ class Ss extends Core {
 
   bool _slaveEnabled = false;
 
-  static const _masterClockHz = 28636360; // 352 dot mode, NTSC
+  // Nominal NTSC rates from the SMPC manual, selected by CKCHG320/352.
+  static const clock320Hz = 26874100;
+  static const clock352Hz = 28636360;
+  int _masterClockHz = clock320Hz;
   static const _soundClockHz = Scsp.cpuClockHz;
 
   Ss(
@@ -98,6 +101,8 @@ class Ss extends Core {
       : _sliceClocks = sliceClocks {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
     pad.source = padPort;
+    // Both SH-2 runtimes below share the pool this core claims here.
+    if (cpuFactory == null && jit) JitRuntime.resetPool();
     final owner = cpuFactory == null && jit
         ? Sh2Jit.create(
             macLong: jitMacLong, macWord: jitMacWord, idleGuards: jitIdleGuards)
@@ -167,8 +172,24 @@ class Ss extends Core {
     smpc.onSoundCpu = scsp.setCpuEnabled;
     smpc.onNmi = master.nmi;
     smpc.onSystemReset = reset;
-    smpc.onClockChange = (_) {};
+    smpc.onClockChange = _changeClock;
   }
+
+  void _changeClock(bool is352) {
+    final next = is352 ? clock352Hz : clock320Hz;
+    final previous = _masterClockHz;
+    if (next == previous) return;
+    final remaining = _nextLineClock - master.clocks;
+    if (remaining > 0) {
+      _nextLineClock = master.clocks + (remaining * next + previous - 1) ~/ previous;
+    }
+    _soundClockRemainder = _soundClockRemainder * next ~/ previous;
+    _cdClockRemainder = _cdClockRemainder * next ~/ previous;
+    _masterClockHz = next;
+  }
+
+  @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
 
   @override
   int get systemClockHz => _masterClockHz;
@@ -191,6 +212,7 @@ class Ss extends Core {
   int _nextLineClock = 0;
   int _line = 0;
   int _soundClockRemainder = 0;
+  int _cdClockRemainder = 0;
 
   final _result = ExecResult(0, false, false);
 
@@ -280,13 +302,16 @@ class Ss extends Core {
     _lastClocks = clocks;
 
     if (elapsed > 0) {
-      smpc.exec(elapsed);
       vdp1.exec(elapsed);
-      cdblock.exec(elapsed);
+      final cdTotal = elapsed * CdBlock.clockHz + _cdClockRemainder;
+      cdblock.exec(cdTotal ~/ _masterClockHz);
+      _cdClockRemainder = cdTotal % _masterClockHz;
       if (scu.dsp.executing) {
         scu.dsp.exec(elapsed.shr1);
       }
       _execSound(elapsed);
+      // Clock changes take effect after devices consume the elapsed slice.
+      smpc.exec(elapsed);
     }
 
     if (clocks >= _nextLineClock) {
@@ -308,7 +333,7 @@ class Ss extends Core {
     vdp2.hblank = false;
 
     if (_line < h) {
-      if (vdp2.doubleDensity) {
+      if (vdp2.interlaced) {
         // one field per frame, the other field keeps the previous lines
         vdp2.renderLine(_line * 2 + (vdp2.oddField ? 1 : 0));
       } else {
@@ -373,7 +398,7 @@ class Ss extends Core {
   /// is written in place on load because compiled code may share it.
   void saveDeviceState(StateWriter w) {
     w.section('ss');
-    w.ints([_lastClocks, _nextLineClock, _line, _soundClockRemainder]);
+    w.ints([_lastClocks, _nextLineClock, _line, _soundClockRemainder, _cdClockRemainder]);
     w.boolean(_slaveEnabled);
     w.floats(_audioBuffer.sublist(0, _audioIndex));
     w.bytes(bus.wramL);
@@ -394,11 +419,12 @@ class Ss extends Core {
   void loadDeviceState(StateReader s) {
     s.section('ss');
     final v = s.ints();
-    if (v.length != 4) throw const StateMismatch('ss scheduler state layout');
+    if (v.length != 5) throw const StateMismatch('ss scheduler state layout');
     _lastClocks = v[0];
     _nextLineClock = v[1];
     _line = v[2];
     _soundClockRemainder = v[3];
+    _cdClockRemainder = v[4];
     _slaveEnabled = s.boolean();
     final audio = s.floats();
     _audioBuffer.setAll(0, audio);
@@ -411,6 +437,7 @@ class Ss extends Core {
     }
     _sram.data.setAll(0, backup);
     smpc.loadState(s);
+    _masterClockHz = smpc.is352 ? clock352Hz : clock320Hz;
     scu.loadState(s);
     vdp1.loadState(s);
     vdp2.loadState(s);
@@ -422,7 +449,7 @@ class Ss extends Core {
     }
   }
 
-  static const _stateVersion = 2;
+  static const _stateVersion = 3;
 
   /// The BIOS bytes and the disc TOC. Disc contents beyond the TOC are not
   /// compared, so a state is only meaningful for the disc it was saved
@@ -493,6 +520,7 @@ class Ss extends Core {
   void reset() {
     bus.reset();
     smpc.reset();
+    _masterClockHz = clock320Hz;
     scu.reset();
     vdp1.reset();
     vdp2.reset();
@@ -507,6 +535,7 @@ class Ss extends Core {
     _nextLineClock = master.clocks + clocksInScanline;
     _line = 0;
     _soundClockRemainder = 0;
+    _cdClockRemainder = 0;
     _audioIndex = 0;
   }
 

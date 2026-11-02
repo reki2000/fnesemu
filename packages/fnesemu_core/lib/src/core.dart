@@ -18,13 +18,18 @@ class Core extends CoreDebug {
             kind: DebugLayerKind.framebuffer),
       ];
 
+  /// Frequency of the clock domain used by execution results and frame timing.
+  /// May change when software selects a different clock mode.
   int get systemClockHz => throw UnimplementedError('Core.systemClockHz');
 
   int get scanlinesInFrame => throw UnimplementedError('Core.scanlinesInFrame');
   int get clocksInScanline => throw UnimplementedError('Core.clocksInScanline');
 
+  /// System clocks per frame in the current execution model and video mode.
+  int get clocksPerFrame => throw UnimplementedError('Core.clocksPerFrame');
+
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
-  /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
+  /// returns current elapsed system clocks and bool - false when unimplemented instruction is found
   ExecResult exec(bool step) => throw UnimplementedError('Core.exec');
 
   /// Executes until [scanlines] scanlines have been rendered, or execution
@@ -81,7 +86,13 @@ class Core extends CoreDebug {
   /// sets where the core reads the controllers from
   set input(PadSource source) => padPort.source = source;
 
-  /// returns list of buttons
+  /// returns the buttons of the controller in the unified key order: the
+  /// four directions, then the key slots S, Z, X, C, A, D, W, Q, E, 1, 2, 3,
+  /// 4 and R (the core-specific action), then the start slot (the Enter key)
+  /// and the select slot (the Shift key). A slot the controller does not
+  /// have is [PadButton.none]. The GUI binds the keyboard and the touch pad
+  /// by these positions, and the analog sticks are not buttons: they are
+  /// [axes], driven by the IJKL and TFGH keys.
   List<PadButton> get buttons => const [];
 
   /// returns list of analog axes, empty for a core without analog input

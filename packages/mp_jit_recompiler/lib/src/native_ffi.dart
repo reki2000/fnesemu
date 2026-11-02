@@ -45,6 +45,9 @@ JitRuntime? create(
       : _NativeRuntime(os, ctxWords, addrMask, read, write, pageShift);
 }
 
+/// Native runtimes own their memory; there is no shared pool to reset.
+void resetPool() {}
+
 typedef _HelperC = Uint32 Function(Uint32, Uint32, Uint32);
 typedef _EnterC = Uint32 Function(IntPtr);
 typedef _Enter = int Function(int);

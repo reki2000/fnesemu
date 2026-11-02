@@ -48,6 +48,7 @@ void main() {
     final bytes = Uint8List.fromList(MemoryCard.blankImage)..[128] = 0x54;
     await file.writeAsBytes(bytes);
     final core = createPsForTools(memoryCardPath: file.path);
+    addTearDown(core.dispose);
     expect(readCardByte(core.memoryCard2, 1), 0x54);
   });
 

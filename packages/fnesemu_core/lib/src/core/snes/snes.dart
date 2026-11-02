@@ -57,9 +57,9 @@ class Snes extends Core {
   late final Dma dma;
   late final Apu apu;
 
-  // approximate NTSC SNES master clock / cpu clock (fast-rom not modeled yet)
+  // Nominal NTSC master clock. The CPU currently uses fixed six-clock cycles.
   static const masterClock = 21477270;
-  static const cpuClock = masterClock ~/ 6; // ~3.58MHz slow-rom
+  static const cpuClock = masterClock ~/ 6; // Fixed CPU scheduling unit; memory wait states are not modeled.
 
   static const scanlinesInFrame_ = 262;
   static const cpuCyclesInScanline = cpuClock ~/ 60 ~/ scanlinesInFrame_;
@@ -68,13 +68,16 @@ class Snes extends Core {
   static const _cpuCyclesInHBlank = cpuCyclesInScanline * 67 ~/ 341;
 
   @override
-  int get systemClockHz => cpuClock;
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
+  int get systemClockHz => masterClock;
 
   @override
   int get scanlinesInFrame => scanlinesInFrame_;
 
   @override
-  int get clocksInScanline => cpuCyclesInScanline;
+  int get clocksInScanline => cpuCyclesInScanline * 6;
 
   @override
   List<CpuInfo> get cpuInfos => [CpuInfo.ofM68(0, "65816")];
@@ -98,7 +101,7 @@ class Snes extends Core {
   ExecResult exec(bool _) {
     final status = _advance();
     return ExecResult(
-        cpu.cycle, status == _stepStopped, status == _stepRenderedLine);
+        cpu.cycle * 6, status == _stepStopped, status == _stepRenderedLine);
   }
 
   @override
@@ -106,11 +109,11 @@ class Snes extends Core {
     var rendered = false;
     while (scanlines > 0) {
       final status = _advance();
-      if (status == _stepStopped) return ExecResult(cpu.cycle, true, false);
+      if (status == _stepStopped) return ExecResult(cpu.cycle * 6, true, false);
       rendered = status == _stepRenderedLine;
       if (rendered) scanlines--;
     }
-    return ExecResult(cpu.cycle, false, rendered);
+    return ExecResult(cpu.cycle * 6, false, rendered);
   }
 
   // Returns one of the _step* codes without allocating an instruction result.
@@ -140,17 +143,18 @@ class Snes extends Core {
       if (_scanline == 0) dma.hdmaInit();
       ppu.renderScanline(_scanline);
       // HDMA runs in this line's hblank, so it affects the following line
-      if (_scanline <= Ppu.height) dma.hdmaScanline();
+      if (_scanline <= ppu.displayLines) dma.hdmaScanline();
       _scanline++;
       _timerFiredThisLine = false;
       _nextScanlineCycle += cpuCyclesInScanline;
       rendered = true;
 
-      if (_scanline == 225) {
+      if (_scanline == ppu.displayLines + 1) {
         ppu.onVBlank();
         bus.enterVBlank();
       } else if (_scanline >= scanlinesInFrame_) {
         _scanline = 0;
+        ppu.oddField = !ppu.oddField;
         bus.leaveVBlank();
         if (++_frames % 60 == 0) bus.spc7110?.tickSecond();
       }
@@ -162,8 +166,8 @@ class Snes extends Core {
   /// returns screen buffer as 256x224 rgba (modes 0/1/3 + sprites render;
   /// other modes show backdrop only - see Ppu's class doc)
   @override
-  ImageBuffer imageBuffer() => ImageBuffer(ppu.width, Ppu.height, ppu.buffer,
-      displayWidth_: Ppu.widthNormal);
+  ImageBuffer imageBuffer() => ImageBuffer(ppu.width, ppu.outputHeight, ppu.buffer,
+      displayWidth_: Ppu.widthNormal, displayHeight: ppu.displayLines);
 
   @override
   onAudio(void Function(AudioBuffer) onAudio) {
@@ -239,7 +243,7 @@ class Snes extends Core {
   int stackPointer(int cpuNo) => cpu.regs.s;
 
   @override
-  TraceLog trace(int cpuNo) => cpu.trace();
+  TraceLog trace(int cpuNo) => cpu.trace(clock: cpu.cycle * 6);
 
   @override
   List<int> get vram => const [];

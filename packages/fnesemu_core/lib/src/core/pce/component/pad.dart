@@ -3,15 +3,34 @@ import '../../../pad_source.dart';
 import '../../../util/int.dart';
 
 class Pad {
+  static const select = PadButton("Select");
+  static const run = PadButton("Run");
+  static const ii = PadButton("II");
+  static const i = PadButton("I");
+
+  // In the unified key order: the X key is II, the C key is I, Enter is
+  // Run and Shift is Select; the other slots are empty.
   final buttons = [
-    PadButton.up, // 0
-    PadButton.down, // 1
-    PadButton.left, // 2
-    PadButton.right, // 3
-    const PadButton("Select"), // 4
-    const PadButton("Run"), // 5
-    const PadButton("II"), // 6
-    const PadButton("I"), // 7
+    PadButton.up,
+    PadButton.down,
+    PadButton.left,
+    PadButton.right,
+    PadButton.none,
+    PadButton.none,
+    ii,
+    i,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    run,
+    select,
   ];
 
   static const controllerNum = 5;
@@ -43,20 +62,20 @@ class Pad {
     clear = newClear;
   }
 
-  int buttonValue(int id, int bit) =>
-      !source.isPressed(counter, buttons[id]) ? bit : 0;
+  int buttonValue(PadButton button, int bit) =>
+      !source.isPressed(counter, button) ? bit : 0;
 
   int get port => counter >= controllerNum
       ? 0
       : selectLRDU
-          ? buttonValue(2, 0x08) |
-              buttonValue(1, 0x04) |
-              buttonValue(3, 0x02) |
-              buttonValue(0, 0x01)
-          : buttonValue(5, 0x08) | // Run
-              buttonValue(4, 0x04) | // Select
-              buttonValue(6, 0x02) | // II
-              buttonValue(7, 0x01); // I
+          ? buttonValue(PadButton.left, 0x08) |
+              buttonValue(PadButton.down, 0x04) |
+              buttonValue(PadButton.right, 0x02) |
+              buttonValue(PadButton.up, 0x01)
+          : buttonValue(run, 0x08) |
+              buttonValue(select, 0x04) |
+              buttonValue(ii, 0x02) |
+              buttonValue(i, 0x01);
 
   String dump() {
     final joys = buttons.map(

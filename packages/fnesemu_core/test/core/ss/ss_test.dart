@@ -107,6 +107,25 @@ class _TestDisc {
 }
 
 void main() {
+  test('sound output follows real time in both clock modes', () {
+    for (final command in [0x0f, 0x0e]) {
+      final ss = _newSs();
+      addTearDown(ss.dispose);
+      ss.smpc.write(0x0f, command);
+      ss.smpc.exec(200);
+      var samples = 0;
+      ss.onAudio((b) => samples += b.buffer.length ~/ b.channels);
+      final before = ss.master.clocks;
+      for (var frame = 0; frame < 6; frame++) {
+        expect(ss.runFrame(ss.scanlinesInFrame).stopped, isFalse);
+      }
+      final expected = (ss.master.clocks - before) * 44100 ~/ ss.systemClockHz;
+      // The final partial output buffer is retained for the next callback.
+      expect(samples, inInclusiveRange(expected - 2048, expected));
+      expect(expected, inInclusiveRange(4400, 4410));
+    }
+  });
+
   test('default CPU quantum is 64 clocks', () {
     final ss = Ss(cpuFactory: (bus, master) => _SliceCpu(bus, master: master))
       ..setSram(Sram())
@@ -378,7 +397,7 @@ void main() {
       expect(b.read8(0x20100061) & 0x20, 0x20); // SR: more data
       expect(ss.scu.ist & (1 << 7), isNot(0));
 
-      ss.padDown(0, ss.buttons[10]); // start
+      ss.padDown(0, ss.buttons[18]); // start
       b.write8(0x20100001, 0x80); // continue
       expect(b.read8(0x20100021), 0xf1);
       expect(b.read8(0x20100023), 0x02);

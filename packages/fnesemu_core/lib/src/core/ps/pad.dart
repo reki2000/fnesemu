@@ -35,14 +35,18 @@ class Pad extends SioDevice {
     (PadButton.down, 6),
     (PadButton.left, 7),
     (PadButton.right, 5),
-    (PadButton("Select"), 0), // 4
-    (PadButton("^"), 12), // 6
-    (PadButton("#"), 15), // 9
-    (PadButton("x"), 14), // 8
-    (PadButton("o"), 13), // 7
-    (PadButton("L1"), 10), // 10
-    (PadButton("Start"), 3), // 5
-    (PadButton("R1"), 11), // 11
+    (PadButton("Select"), 0),
+    (PadButton("L3"), 1),
+    (PadButton("R3"), 2),
+    (PadButton("Start"), 3),
+    (PadButton("L2"), 8),
+    (PadButton("R2"), 9),
+    (PadButton("L1"), 10),
+    (PadButton("R1"), 11),
+    (PadButton("^"), 12),
+    (PadButton("o"), 13),
+    (PadButton("x"), 14),
+    (PadButton("#"), 15),
   ];
 
   // set by the game: command 0x44 selects the analog mode (ID 0x73), command
@@ -56,7 +60,32 @@ class Pad extends SioDevice {
   int _replyPos = 0;
   static final _emptyReply = Uint8List(0);
 
-  List<PadButton> get buttons => _buttons.map((b) => b.$1).toList();
+  /// The buttons in the unified key order: S is ^, Z is #, X is x, C is
+  /// o, Q is L1, E is R1, the digit keys 1 2 3 4 are L2 L3 R2 R3, Enter
+  /// is Start and Shift is Select. L3 and R3 exist only on the analog
+  /// controller; on a digital one they are never reported.
+  List<PadButton> get buttons => const [
+        PadButton.up,
+        PadButton.down,
+        PadButton.left,
+        PadButton.right,
+        PadButton("^"),
+        PadButton("#"),
+        PadButton("x"),
+        PadButton("o"),
+        PadButton.none,
+        PadButton.none,
+        PadButton.none,
+        PadButton("L1"),
+        PadButton("R1"),
+        PadButton("L2"),
+        PadButton("L3"),
+        PadButton("R2"),
+        PadButton("R3"),
+        PadButton.none,
+        PadButton("Start"),
+        PadButton("Select"),
+      ];
 
   static const axes = [
     PadAxis.leftX,
@@ -162,15 +191,34 @@ class Pad extends SioDevice {
       case 0x46: // constants, selected by the first parameter
       case 0x47:
       case 0x4c:
-        return configMode ? Uint8List(6) : null;
+        return configMode ? _constants(command, 0) : null;
     }
     return null;
+  }
+
+  // payload of the constant commands for the parameter [select]. games poll
+  // them and stay in the configuration mode until the values match.
+  Uint8List _constants(int command, int select) {
+    final List<int> v;
+    switch (command) {
+      case 0x46:
+        v = select == 0
+            ? [0x00, 0x00, 0x01, 0x02, 0x00, 0x0a]
+            : [0x00, 0x00, 0x01, 0x01, 0x01, 0x14];
+      case 0x47:
+        v = [0x00, 0x00, 0x02, 0x00, 0x01, 0x00];
+      default: // 0x4c
+        v = [0x00, 0x00, 0x00, select == 0 ? 0x04 : 0x06, 0x00, 0x00];
+    }
+    return Uint8List.fromList(v);
   }
 
   // handles a parameter byte sent by the console at payload position [pos]
   void _receive(int pos, int txData) {
     if (pos != 0) return;
-    if (_command == 0x43) {
+    if (_command == 0x46 || _command == 0x47 || _command == 0x4c) {
+      _reply = _constants(_command, txData);
+    } else if (_command == 0x43) {
       configMode = txData == 1;
     } else if (_command == 0x44 && configMode) {
       analogMode = txData == 1;

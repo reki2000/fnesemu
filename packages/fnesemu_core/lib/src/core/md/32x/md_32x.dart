@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
 import '../../../components/sh2/jit/jit.dart';
 import '../../../util/int.dart';
 import '../../../util/state.dart';
@@ -41,10 +43,10 @@ class Md32x {
   Md32x(
       {bool jit = const bool.fromEnvironment('SH2_JIT_32X', defaultValue: true),
       this.sliceClocks = 64,
-      bool jitRegisterReads = const bool.fromEnvironment(
-          'SH2_JIT_32X_REGISTER_READS',
-          defaultValue: true)}) {
+      bool jitRegisterReads = true}) {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
+    // Both SH-2 runtimes below share the pool this core claims here.
+    if (jit) JitRuntime.resetPool();
     final owner = jit
         ? Sh2Jit.create(
             maxInstructions: sliceClocks == 1 ? 1 : 24,

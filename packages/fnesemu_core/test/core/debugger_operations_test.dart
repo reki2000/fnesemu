@@ -14,9 +14,13 @@ class _Core extends Core {
   int traceCalls = 0;
   bool otherCpuFirst = false;
   void Function()? afterInstruction;
+  int clockHz = 1000000;
 
   @override
-  int get systemClockHz => 1000000;
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
+  int get systemClockHz => clockHz;
   @override
   int get scanlinesInFrame => 3;
   @override
@@ -99,20 +103,44 @@ void main() {
     registerCoreModules(createInstalledCoreModules());
   });
 
-  test('normal execution caps fast cores at 60 frames per second', () async {
+  for (final rate in [50, 75]) {
+    test('normal execution follows the core frame rate of $rate Hz', () async {
+      var frames = 0;
+      var measuring = false;
+      controller = CoreController((_) {}, (_) {}, (_) {
+        if (!measuring) return;
+        if (++frames == 60) unawaited(controller.stop());
+      }, Sram());
+      await controller.init('test', rom: Uint8List(1));
+      core.clockHz = rate * core.scanlinesInFrame * core.clocksInScanline;
+      final watch = Stopwatch()..start();
+      measuring = true;
+      await controller.run();
+      watch.stop();
+      expect(frames, 60);
+      final expectedUs = 60 * 1000000 ~/ rate;
+      expect(watch.elapsedMicroseconds,
+          inInclusiveRange(expectedUs - 20000, expectedUs + 150000));
+    });
+  }
+
+  test('execution follows a clock change while running', () async {
     var frames = 0;
     var measuring = false;
     controller = CoreController((_) {}, (_) {}, (_) {
       if (!measuring) return;
-      if (++frames == 8) unawaited(controller.stop());
+      frames++;
+      if (frames == 30) core.clockHz = 75 * core.clocksPerFrame;
+      if (frames == 60) unawaited(controller.stop());
     }, Sram());
     await controller.init('test', rom: Uint8List(1));
+    core.clockHz = 50 * core.clocksPerFrame;
     final watch = Stopwatch()..start();
     measuring = true;
     await controller.run();
     watch.stop();
-    expect(frames, 8);
-    expect(watch.elapsedMicroseconds, greaterThanOrEqualTo(8 * 16667));
+    expect(frames, 60);
+    expect(watch.elapsedMicroseconds, inInclusiveRange(970000, 1150000));
   });
 
   test(
@@ -281,6 +309,26 @@ void main() {
     await debugger.step();
     expect(core.traceCalls, traceCalls + 1);
     expect(debugger.state.traceLog, hasLength(1));
+  });
+
+  test(
+      'trace refreshes after an interrupt-only PC change and preserves idle capture',
+      () {
+    debugger.setLogEnabled(true);
+    debugger.recordTrace();
+    expect(core.traceCalls, 1);
+    final idle = ExecResult(1, false, false)..executed0 = false;
+    debugger.completeTrace(idle);
+    expect(core.traceCalls, 1);
+    core.pc = 0x100;
+    debugger.completeTrace(idle);
+    expect(core.traceCalls, 2);
+    core.pc += 4;
+    debugger.completeTrace(ExecResult(1, false, false)..setExecuted(7, true));
+    debugger.executionStopped();
+    final text = debugger.traceText();
+    expect(text, contains('pc:256'));
+    expect(text, isNot(contains('pc:0 ')));
   });
 
   test('hiding debug view stops logging and drops all capture state', () async {

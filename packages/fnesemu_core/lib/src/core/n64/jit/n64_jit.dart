@@ -24,8 +24,10 @@ final class N64Jit {
   final bool inlineJumps;
   late final Uint8List ram = rt.alloc(0x800000);
   late final regs = N64Registers(
-      values: Int64List.view(rt.ctx.buffer,
-          rt.ctx.offsetInBytes + Vr4300Translator.ctxRegs * 4, 32));
+      values: Int64List.view(
+          rt.ctx.buffer,
+          rt.ctx.offsetInBytes + Vr4300Translator.ctxRegs * 4,
+          N64Registers.storage));
   late final fpu = N64Fpu(
       data: ByteData.view(rt.ctx.buffer,
           rt.ctx.offsetInBytes + Vr4300Translator.ctxFpu * 4, 256));
@@ -90,6 +92,7 @@ final class N64Jit {
       bool nativeFpu = false,
       bool inlineJumps = false}) {
     if (Endian.host != Endian.little) return null;
+    if (native) JitRuntime.resetPool();
     int read(int a, int s) => throw StateError('Unmapped compiled read');
     void write(int a, int s, int v) =>
         throw StateError('Unmapped compiled write');

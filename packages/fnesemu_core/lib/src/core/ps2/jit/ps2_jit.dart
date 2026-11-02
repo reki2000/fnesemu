@@ -1,0 +1,199 @@
+import 'dart:typed_data';
+
+import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
+
+import '../bus.dart';
+import '../r5900/r5900.dart';
+import 'r5900_translator.dart';
+
+/// Runs EE code compiled by [R5900Translator].
+///
+/// Compiled blocks share main memory and the general registers with the
+/// interpreter. Main memory is mapped at 0 with the top three address bits
+/// masked off, so the unmapped kernel segments and the user addresses below
+/// 0x20000000 reach it; [R5900Translator] lets only those through. The
+/// adapter runs compiled code only while the TLB maps the user addresses
+/// one to one ([Tlb.userIdentity]). Accesses outside main memory, such as
+/// the scratchpad and the device registers, exit to the interpreter.
+final class Ps2Jit {
+  final JitRuntime rt;
+  late final diagnostics =
+      JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little)
+        ..memoryRegion = _memoryRegion;
+  final bool native;
+  final int compileThreshold;
+  final Uint8List ram;
+  late final ByteData _ram = ByteData.sublistView(ram);
+  late final Int64List gpr = Int64List.view(
+      rt.ctx.buffer, rt.ctx.offsetInBytes + R5900Translator.ctxRegs * 4, 64);
+  late final Uint32List fpr = Uint32List.view(rt.ctx.buffer,
+      rt.ctx.offsetInBytes + R5900Translator.ctxFpr * 4, 32);
+  late final R5900 cpu;
+  late final R5900Translator _translator;
+  late final _code = JitCodeMemory(rt);
+  late final _driver = JitDriver(rt,
+      translate: (pc, tag) => _translator.translate(pc, tag: tag),
+      codeWord: _fetch,
+      codeMemory: _code,
+      threshold: compileThreshold);
+
+  /// Runs the interpreter instead while keeping the compiled blocks and the
+  /// shared state.
+  bool suspended = false;
+
+  // A recent LW that exited before executing because its address was outside
+  // the JIT's RAM mapping. The base register and instruction are rechecked
+  // on every hit: the same instruction can later address RAM, and code can
+  // be modified without going through the JIT.
+  int _unmappedLoadPc = -1, _unmappedLoadWord = 0;
+  int _unmappedLoadBase = 0, _unmappedLoadOffset = 0;
+
+  int get compiledClocks => native ? _driver.executedClocks : 0;
+
+  Ps2Jit._(this.rt, this.native, int? threshold, this.ram)
+      : compileThreshold = threshold ?? rt.compileThreshold;
+
+  static Ps2Jit? create({bool native = true, int? compileThreshold}) {
+    if (Endian.host != Endian.little) return null;
+    if (native) JitRuntime.resetPool();
+    int read(int a, int s) => throw StateError('Unmapped compiled read');
+    void write(int a, int s, int v) =>
+        throw StateError('Unmapped compiled write');
+    final runtime = native
+        ? JitRuntime.native(
+            ctxWords: R5900Translator.ctxWords,
+            addrMask: 0x1fffffff,
+            read: read,
+            write: write)
+        : JitRuntime.interpreter(
+            ctxWords: R5900Translator.ctxWords,
+            addrMask: 0x1fffffff,
+            read: read,
+            write: write);
+    if (runtime == null) return null;
+    // The guest memory comes out of the runtime's memory pool, which the
+    // Wasm runtime shares between every live runtime. A pool with no room
+    // for it leaves this host without a recompiler, as a runtime that
+    // cannot be created does, instead of failing the construction of the
+    // core when the memory is first touched.
+    final Uint8List ram;
+    try {
+      ram = runtime.alloc(Ps2Bus.ramSize);
+    } on StateError {
+      runtime.dispose();
+      return null;
+    }
+    return Ps2Jit._(runtime, native, compileThreshold, ram);
+  }
+
+  void attach(R5900 cpu) {
+    this.cpu = cpu;
+    _code.map(0, ram.length, ram);
+    _translator = R5900Translator(fetch: _fetch, protect: _code.protect);
+  }
+
+  // The GPRs already share the runtime's context storage. The independent
+  // HI/LO pipelines remain CPU fields for save states, resets, the MMI
+  // interpreter and other interpreter-only instructions. Copy their four
+  // 64-bit values at each JIT/interpreter boundary.
+  void _writeSpecial(int at, int value) {
+    rt.ctx[at] = value.toUnsigned(32);
+    rt.ctx[at + 1] = (value >> 32).toUnsigned(32);
+  }
+
+  int _readSpecial(int at) =>
+      (rt.ctx[at] | rt.ctx[at + 1] << 32).toSigned(64);
+
+  void _syncSpecialToJit() {
+    _writeSpecial(R5900Translator.ctxHi, cpu.hi);
+    _writeSpecial(R5900Translator.ctxLo, cpu.lo);
+    _writeSpecial(R5900Translator.ctxHi1, cpu.hi1);
+    _writeSpecial(R5900Translator.ctxLo1, cpu.lo1);
+  }
+
+  void _syncSpecialFromJit() {
+    cpu.hi = _readSpecial(R5900Translator.ctxHi);
+    cpu.lo = _readSpecial(R5900Translator.ctxLo);
+    cpu.hi1 = _readSpecial(R5900Translator.ctxHi1);
+    cpu.lo1 = _readSpecial(R5900Translator.ctxLo1);
+  }
+
+  String _memoryRegion(int address) {
+    if (!_compiledSegment(address)) return 'tlb';
+    return address & 0x1fffffff < ram.length ? 'ram' : 'unmapped';
+  }
+
+  /// the segments that compiled code reaches without the TLB
+  static bool _compiledSegment(int address) =>
+      (0x33 >> ((address & 0xffffffff) >>> 29)) & 1 != 0;
+
+  bool _canFetch(int pc) =>
+      _compiledSegment(pc) &&
+      pc & 3 == 0 &&
+      (pc & 0x1fffffff) + 4 <= ram.length;
+
+  int? _fetch(int pc) =>
+      _canFetch(pc) ? _ram.getUint32(pc & 0x1fffffff, Endian.little) : null;
+
+  void reset() {
+    _unmappedLoadPc = -1;
+    _driver.reset();
+  }
+
+  bool _outsideRam(int base, int offset) =>
+      ((cpu.reg(base) + offset) & 0x1fffffff) >= ram.length;
+
+  void _rememberUnmappedLoad(int pc) {
+    final word = _fetch(pc);
+    if (word == null || word >>> 26 != 35) return; // LW
+    final base = (word >>> 21) & 31;
+    final offset = (word & 0xffff).toSigned(16);
+    if (!_outsideRam(base, offset)) return;
+    _unmappedLoadPc = pc;
+    _unmappedLoadWord = word;
+    _unmappedLoadBase = base;
+    _unmappedLoadOffset = offset;
+  }
+
+  /// Runs compiled code for about [budget] clocks. Returns false when the
+  /// next instruction is left to the interpreter.
+  bool run(int budget) {
+    if (budget <= 0 || suspended) return false;
+    final cpu = this.cpu;
+    final pc = cpu.pc;
+    if (!_canFetch(pc)) return false;
+    if (!cpu.bus.tlb!.userIdentity) return false;
+    if (pc == _unmappedLoadPc &&
+        _ram.getUint32(pc & 0x1fffffff, Endian.little) == _unmappedLoadWord &&
+        _outsideRam(_unmappedLoadBase, _unmappedLoadOffset)) {
+      return false;
+    }
+    // The tag records whether COP1 is usable: blocks compiled with it
+    // clear translate no COP1 instructions, so a usable exception is
+    // never skipped, and blocks compiled with it set keep working when
+    // the bit later clears.
+    final tag = cpu.cop1Usable ? 1 : 0;
+    if (_driver.isFallback(pc, tag)) return false;
+    if (!cpu.prepareCompiled()) return false;
+    _syncSpecialToJit();
+    final untilCompare = cpu.instructionsUntilCompare;
+    if (untilCompare != 0 && untilCompare < budget) budget = untilCompare;
+    rt.ctx[R5900Translator.ctxFacc] = cpu.facc;
+    rt.ctx[R5900Translator.ctxFcr31] = cpu.fcr31;
+    final reason = _driver.runBudgeted(pc, tag, budget);
+    cpu.facc = rt.ctx[R5900Translator.ctxFacc];
+    cpu.fcr31 = rt.ctx[R5900Translator.ctxFcr31];
+    final spent = _driver.lastClocks;
+    if (spent == 0) {
+      if (reason == R5900Translator.interpret && rt.exitPc == pc) {
+        _rememberUnmappedLoad(pc);
+      }
+      return false;
+    }
+    _syncSpecialFromJit();
+    cpu.finishCompiled(spent, rt.exitPc);
+    return true;
+  }
+
+  void dispose() => rt.dispose();
+}

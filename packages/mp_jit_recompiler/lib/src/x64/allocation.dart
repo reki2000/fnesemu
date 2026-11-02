@@ -46,6 +46,14 @@ final class X64Allocation {
       default:
         break;
     }
+    // When the comparison is emitted at the branch/exit, its operands must
+    // remain live until then, even across helpers and later register writes.
+    final fusion = irFusedCompareConsumers(block);
+    for (var i = 0; i < n; i++) {
+      if (fusion[i] < 0) continue;
+      use(block.insts[i].a, fusion[i]);
+      use(block.insts[i].b, fusion[i]);
+    }
     const pool = [R.r9, R.r10, R.r11, R.r8, R.rbp, R.rsi, R.rdi];
     final active = <int>[];
     for (int i = 0; i < n; i++) {

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../field_output.dart';
 import '../../pad_button.dart';
 import '../../pad_source.dart';
 import '../../sram.dart';
@@ -117,6 +118,8 @@ class N64Bus {
   }
 
   int scanline = 0, spPc = 0;
+  int _viField = 0;
+  final _fields = FieldOutput();
   // SP DMA addresses written last
   final _spNext = Uint32List(2);
   int audioCycles = 0;
@@ -145,6 +148,8 @@ class N64Bus {
     w.boolean(_flashActive);
     w.int32(_flashMode);
     w.int32(_flashPage);
+    w.int32(_viField);
+    _fields.saveState(w);
     // Preserve the original little-endian 64-bit field without wide JS ints.
     w.int32(_flashStatusLow);
     w.int32(_flashStatusHigh);
@@ -177,6 +182,8 @@ class N64Bus {
     _flashActive = s.boolean();
     _flashMode = s.int32();
     _flashPage = s.int32();
+    _viField = s.int32();
+    _fields.loadState(s);
     _flashStatusLow = s.int32().mask32;
     _flashStatusHigh = s.int32().mask32;
     scanline = s.int64();
@@ -266,7 +273,7 @@ class N64Bus {
     final regs = registers(a), index = registerIndex(a);
     if (regs != null && index < regs.length) {
       var value = regs[index];
-      if (regs == vi && index == 4) value = scanline * 2;
+      if (regs == vi && index == 4) value = (scanline * 2) | (vi[0] & 0x40 != 0 ? _viField : 0);
       // PI_STATUS bit 3: the PI interrupt is pending
       if (regs == pi && index == 4) value = (mi[2] & 16) != 0 ? 8 : 0;
       if (regs == spRegs && index == 7) {
@@ -303,7 +310,7 @@ class N64Bus {
     if (size == 4 && a.mask2 == 0 && a >= 0x04040000) {
       final regs = registers(a), index = registerIndex(a);
       if (regs != null && index < regs.length) {
-        if (regs == vi && index == 4) return scanline * 2;
+        if (regs == vi && index == 4) return (scanline * 2) | (vi[0] & 0x40 != 0 ? _viField : 0);
         if (regs == pi && index == 4) return (mi[2] & 16) != 0 ? 8 : 0;
         if (regs == spRegs && index == 7) {
           final old = spRegs[7];
@@ -318,6 +325,35 @@ class N64Bus {
       v = v.shl8 | read8(address + i);
     }
     return v;
+  }
+
+  /// an 8-byte read; direct-mapped RDRAM takes the same fast path as fetch,
+  /// anything else reads as the two 4-byte halves
+  int read64(int address) {
+    final a = address.mask32;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      final p = a & 0x1fffffff;
+      if (p + 8 <= ram.length) {
+        return ramData.getUint32(p) << 32 | ramData.getUint32(p + 4);
+      }
+    }
+    return read(address, 4) << 32 | read(address + 4, 4);
+  }
+
+  /// an 8-byte write; direct-mapped RDRAM takes a fast path, anything else
+  /// writes as the two 4-byte halves
+  void write64(int address, int value) {
+    final a = address.mask32;
+    if (a >= 0x80000000 && a < 0xc0000000) {
+      final p = a & 0x1fffffff;
+      if (p + 8 <= ram.length) {
+        ramData.setUint32(p, value >>> 32);
+        ramData.setUint32(p + 4, value & 0xffffffff);
+        return;
+      }
+    }
+    write(address, value >>> 32, 4);
+    write(address + 4, value.rel32, 4);
   }
 
   int ramRead(int address, int size) {
@@ -468,6 +504,9 @@ class N64Bus {
         if (regs == spRegs && index < 2) {
           _spNext[index] = value;
           return;
+        }
+        if (regs == vi && index == 0 && (regs[index] ^ value) & 0x43 != 0) {
+          _fields.reset();
         }
         regs[index] = value;
         if (regs == spRegs && (index == 2 || index == 3)) {
@@ -747,6 +786,8 @@ class N64Bus {
       tlb[i][0] = 0x80000000 + i * 0x2000;
     }
     scanline = 0;
+    _viField = 0;
+    _fields.reset();
     spPc = 0;
     _spNext.fillRange(0, 2, 0);
     audioCycles = 0;
@@ -759,8 +800,24 @@ class N64Bus {
   static final _expand5 =
       Uint8List.fromList([for (var v = 0; v < 32; v++) v << 3 | v >> 2]);
 
-  /// VI raw framebuffer scanout, without filtering or interlacing.
-  ImageBuffer image() {
+  /// Latches the completed field before the next field changes VI registers.
+  void finishVideoField() {
+    if (vi[0] & 0x40 != 0) {
+      _readImage();
+      _viField ^= 1;
+    } else {
+      _viField = 0;
+      _fields.reset();
+    }
+  }
+
+  /// VI raw scanout, with alternating fields but without video filtering.
+  ImageBuffer image() => vi[0] & 0x40 != 0 && _fields.image != null
+      ? _fields.image!
+      : _readImage();
+
+  ImageBuffer _readImage() {
+    final interlaced = vi[0] & 0x40 != 0;
     final mode = vi[0].mask2;
     final stride = vi[2].mask12;
     final hStart = vi[9].shr16.mask10;
@@ -768,13 +825,16 @@ class N64Bus {
     final vStart = vi[10].shr16.mask10;
     final vEnd = vi[10].mask10;
     final width = (hEnd - hStart) * vi[12].mask12 ~/ 1024;
-    final height = (vEnd - vStart) * vi[13].mask12 ~/ 2048;
+    final height = interlaced
+        ? (vEnd - vStart) ~/ 2
+        : (vEnd - vStart) * vi[13].mask12 ~/ 2048;
     if (mode < 2 ||
         stride == 0 ||
         width <= 0 ||
         height <= 0 ||
         width > 640 ||
         height > 576) {
+      _fields.reset();
       return ImageBuffer(320, 240, Uint32List(320 * 240));
     }
     final output = Uint32List(width * height);
@@ -783,7 +843,10 @@ class N64Bus {
     final ram = this.ram, expand = _expand5, limit = ram.length - size;
     // x is visible while it is inside the stride and the pixel is in RDRAM.
     for (var y = 0; y < height; y++) {
-      final row = origin + y * stride * size, out = y * width;
+      final sourceY = interlaced
+          ? (y * vi[13].mask12 + (vi[13] >> 16 & 0xfff)) ~/ 1024
+          : y;
+      final row = origin + sourceY * stride * size, out = y * width;
       var end = width < stride ? width : stride;
       final room = limit - row;
       if (room < 0) {
@@ -808,6 +871,12 @@ class N64Bus {
         }
       }
     }
-    return ImageBuffer(width, height, output);
+    if (!interlaced) {
+      _fields.reset();
+      return ImageBuffer(width, height, output);
+    }
+    final displayWidth = ((hEnd - hStart) ~/ 2).clamp(1, 4096);
+    return _fields.writeField(ImageBuffer(width, height, output,
+        displayWidth_: displayWidth, displayHeight: height), _viField);
   }
 }

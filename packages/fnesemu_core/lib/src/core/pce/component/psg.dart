@@ -29,6 +29,8 @@ class Wave {
   bool noise = false;
   int noiseFreq = 0;
   int noiseIndex = 0;
+  int noiseCounter = 0;
+  int noiseValue = 0;
   final random = math.Random(0); // fixed seed: deterministic noise
 
   int currentL = 0;
@@ -55,6 +57,8 @@ class Wave {
     noise = false;
     noiseFreq = 0;
     noiseIndex = 0;
+    noiseCounter = 0;
+    noiseValue = 0;
 
     currentL = 0;
     currentR = 0;
@@ -87,33 +91,20 @@ class Wave {
     return out;
   }
 
-  // the counter counts down by 1 per step (12 bit) and reloads when it
-  // reaches 1. instead of stepping it [Psg.divider] times per sample, the
-  // steps up to the next reload are skipped at once: (counter - 2) & 0xfff
-  // steps are taken before the step that reaches 1.
-
   List<int> synthNoise(List<int> out) {
+    // The noise clock divides the PSG clock by 64 times the inverted R7
+    // value. A zero divisor is undocumented; use the shortest period.
+    final period = 64 * (noiseFreq > 0 ? noiseFreq : 1);
     for (int i = 0; i < out.length; i += 2) {
-      int steps = Psg.divider;
-      while (true) {
-        final toReload = (counter - 2).mask12 + 1;
-        if (toReload > steps) {
-          counter = (counter - steps).mask12;
-          break;
-        }
-        steps -= toReload;
-
-        counter = noiseFreq;
+      noiseCounter -= Psg.divider;
+      while (noiseCounter <= 0) {
+        noiseCounter += period;
         noiseIndex = (noiseIndex + 1).mask6;
-
-        if (noiseIndex == 0 || noiseIndex == 0x10) {
-          // volume: 5bit volumeLR: 4bit = 9bit
-          final out = (random.nextDouble() > 0.5) ? 31 : 0;
-          currentL = out * (volumeL + 1) ~/ 32;
-          currentR = out * (volumeR + 1) ~/ 32;
-        }
+        noiseValue = random.nextDouble() > 0.5 ? 15 : -16;
       }
-
+      final level = volume == 0 ? 0 : noiseValue * (volume + 1);
+      currentL = level * (volumeL + 1) ~/ (32 * 16);
+      currentR = level * (volumeR + 1) ~/ (32 * 16);
       out[i + 0] += currentL;
       out[i + 1] += currentR;
     }
@@ -121,6 +112,8 @@ class Wave {
     return out;
   }
 
+  // The 12-bit wave counter reloads when it reaches 1. Skip the steps
+  // before that reload instead of stepping Psg.divider times per sample.
   List<int> synthWave(List<int> out) {
     for (int i = 0; i < out.length; i += 2) {
       int steps = Psg.divider;
@@ -277,7 +270,9 @@ class Psg {
 
   /// Generates the output with the duration against given elapsed clocks
   Float32List exec(int elapsedClocks) {
-    final cycles = elapsedClocks ~/ 6 ~/ divider; // 3.579545MHz / 8(sample)
+    cycle += elapsedClocks;
+    final cycles = cycle ~/ (6 * divider);
+    cycle %= 6 * divider;
 
     if (_out.length != cycles * 2) {
       _out = Int32List(cycles * 2);

@@ -367,6 +367,10 @@ class MainPageState extends State<MainPage> {
 
     watch.reset();
     await _controller.init(system.id, rom: rom, bios: bios, drive: _drive);
+    // The drive survives core changes; the previous core's pending reads and
+    // seeks must not keep the loading indicator visible on the new core.
+    _drive.clearPendingWait();
+    _cdromWaitDots.value = 0;
     _log.infoc(() => "initialized ${system.id} "
         "in ${watch.elapsedMilliseconds}ms");
 
@@ -824,7 +828,11 @@ class MainPageState extends State<MainPage> {
   late final Timer _cdromWaitTimer;
 
   void _tickCdromWait() {
-    _cdromWaitDots.value = _drive.isWaiting ? _cdromWaitDots.value % 3 + 1 : 0;
+    // A shared drive can have outstanding I/O from a previous core. Only
+    // disc-capable cores should display the drive's waiting state.
+    final usesDisc = CoreFactory.systemOrNull(_controller.system)?.disc != null;
+    _cdromWaitDots.value =
+        usesDisc && _drive.isWaiting ? _cdromWaitDots.value % 3 + 1 : 0;
   }
 
   // the same look as the fps indicator

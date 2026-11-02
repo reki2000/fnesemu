@@ -137,6 +137,9 @@ class Md extends Core {
   static const _regionOverseaPal = 0xc0;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => m68ClockHz;
 
   @override
@@ -461,7 +464,7 @@ class Md extends Core {
     cdrom?.setSram(sram);
   }
 
-  static const _stateVersion = 2;
+  static const _stateVersion = 3;
 
   void _checkStateSupport() {
     if (cdrom != null) {

@@ -890,6 +890,10 @@ class N64Graphics {
         ziStep = vaStep * zi0 + vbStep * zi1 + vcStep * zi2;
     final depthTest = geometry.bit0 && otherLow.bit4,
         depthWrite = geometry.bit0 && otherLow.bit5;
+    // Depth slope across the triangle. The decal test uses it to accept a
+    // pixel within the surface's own depth slope of the stored value.
+    final zStepY = (-(x2 - x1) * z0 - (x0 - x2) * z1 - (x1 - x0) * z2) / area;
+    final decalTolerance = 1 + ziStep.x.abs() + zStepY.abs();
     for (var py = minY; py <= maxY; py++) {
       // Narrow the row to the pixels that can be covered (a weight w + step * k
       // must reach zero within the edge tolerance), with a margin of one pixel;
@@ -960,15 +964,22 @@ class N64Graphics {
         }
         if (!inside) continue;
         final at = py * width + px;
-        if (depthTest && zi.x > depthBuffer[at]) {
-          continue;
+        if (depthTest) {
+          final stored = depthBuffer[at];
+          // Decal (z mode 3) passes only within the surface's own depth slope
+          // of the stored value, so a decal on a surface does not z-fight.
+          if (otherLow.shr10.mask2 == 3
+              ? (zi.x - stored).abs() > decalTolerance
+              : zi.x > stored) {
+            continue;
+          }
         }
         _shade
           ..rg = rg
           ..ba = ba;
-        if (textureOn) _texel(activeTile, st / Float64x2.splat(zi.y));
+        if (textureOn) _texel(activeTile, Float64x2(st.x / zi.y, st.y / zi.y));
         final written =
-            _put(px, py, _combine(_shade, textureOn ? _tex : _whiteColor));
+            _putFast(px, py, _combine(_shade, textureOn ? _tex : _whiteColor));
         // Rejected transparent texels must not occlude later geometry.
         if (written && depthWrite) depthBuffer[at] = zi.x;
       }
@@ -1031,7 +1042,14 @@ class N64Graphics {
     if (tile.format == 2) {
       final paletteIndex = tile.size == 0 ? tile.palette * 16 + v : v;
       final p = (2048 + paletteIndex * 8).mask12;
-      _texture16(tmem[p].shl8 | tmem[p + 1]);
+      final entry = tmem[p].shl8 | tmem[p + 1];
+      // otherHigh bits 15..14 select the palette format: 3 is IA16
+      if (otherHigh.shr14.mask2 == 3) {
+        final intensity = _byte[entry.shr8.mask8];
+        _textureRgba(intensity, intensity, intensity, _byte[entry.mask8]);
+        return;
+      }
+      _texture16(entry);
       return;
     }
     if (tile.format == 3) {
@@ -1052,6 +1070,11 @@ class N64Graphics {
   }
 
   static const _inv255 = 1 / 255;
+
+  // the combiner's constant vectors, shared instead of splatted per pixel
+  static final _zero2 = Float64x2.zero();
+  static final _full2 = Float64x2.splat(255);
+  static final _inv255x2 = Float64x2.splat(_inv255);
 
   // RGB equation: (A - B) * C * (1 / 255) + D. C has alpha selectors too.
   static const _rgbInputA = 0, _rgbInputB = 1, _rgbInputC = 2, _rgbInputD = 3;
@@ -1154,9 +1177,7 @@ class N64Graphics {
       _decodeCombiner(cycles);
     }
     final regs = _regs, plan = _plan;
-    final zero = Float64x2.zero(),
-        full = Float64x2.splat(255),
-        inv255 = Float64x2.splat(_inv255);
+    final zero = _zero2, full = _full2, inv255 = _inv255x2;
     regs[_regCombined] = zero;
     regs[_regCombined + 1] = zero;
     regs[_regPrimitive] = primitive.rg;
@@ -1236,6 +1257,38 @@ class N64Graphics {
       blueValue = blueValue * alpha + oldBlue * inverse;
     }
     bus.ramWrite(at, _pack(redValue, greenValue, blueValue, size), size);
+    return true;
+  }
+
+  /// _put for a pixel the caller has already clipped to the scissor and the
+  /// frame (the triangle rasterizer clamps its spans): the bounds tests of
+  /// _put are skipped and the write goes straight to the frame buffer, the
+  /// rest is identical
+  bool _putFast(int x, int y, Rgba color) {
+    final r = color.r, g = color.g, b = color.b, a = color.a;
+    if (a < 1) return false;
+    final size = colorSize == 3 ? 4 : 2,
+        at = colorImage + (y * width + x) * size;
+    if (at + size > bus.ram.length) return false;
+    var redValue = r, greenValue = g, blueValue = b;
+    if (otherLow.bit14 && a < 255) {
+      final old = u(at, size), alpha = a * _inv255, inverse = 1 - alpha;
+      final oldRed =
+              size == 4 ? _byte[old.shr24.mask8] : _fiveBit[old.shr11.mask5],
+          oldGreen =
+              size == 4 ? _byte[old.shr16.mask8] : _fiveBit[old.shr6.mask5],
+          oldBlue =
+              size == 4 ? _byte[old.shr8.mask8] : _fiveBit[old.shr1.mask5];
+      redValue = redValue * alpha + oldRed * inverse;
+      greenValue = greenValue * alpha + oldGreen * inverse;
+      blueValue = blueValue * alpha + oldBlue * inverse;
+    }
+    final packed = _pack(redValue, greenValue, blueValue, size);
+    if (size == 4) {
+      bus.ramData.setUint32(at & 0x7fffff, packed);
+    } else {
+      bus.ramData.setUint16(at & 0x7fffff, packed);
+    }
     return true;
   }
 

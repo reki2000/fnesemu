@@ -54,6 +54,30 @@ void _load(Ss ss, Uint8List state) {
 }
 
 void main() {
+  test('clock selection survives state restoration and resets to 320 mode', () {
+    final ss = _ss(false);
+    expect(ss.systemClockHz, Ss.clock320Hz);
+    // This fixture has no NMI handler; the clock transition is tested separately.
+    ss.smpc.onNmi = () {};
+    ss.smpc.write(0x0f, 0x0e);
+    ss.smpc.exec(200);
+    expect(ss.systemClockHz, Ss.clock352Hz);
+    _frames(ss, 1);
+    final state = _save(ss);
+    final copy = _ss(false);
+    _load(copy, state);
+    expect(copy.systemClockHz, Ss.clock352Hz);
+    _frames(ss, 1);
+    _frames(copy, 1);
+    expect(_save(copy), _save(ss));
+    copy.smpc.write(0x0f, 0x0f);
+    copy.smpc.exec(200);
+    expect(copy.systemClockHz, Ss.clock320Hz);
+    ss.reset();
+    expect(ss.systemClockHz, Ss.clock320Hz);
+    expect(ss.smpc.is352, isFalse);
+  });
+
   for (final jit in [false, true]) {
     test('a restored ${jit ? 'JIT' : 'CPU'} SS continues like the original',
         () {

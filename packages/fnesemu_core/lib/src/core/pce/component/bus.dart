@@ -307,6 +307,13 @@ class Bus {
   // Each VDC has four ports mirrored across its eight-byte block.
   int _vdcPort(int offset) {
     final port = offset.mask5;
+    if (port < 0x08) return port & ~0x04;
+    // VPC ($08-$0E) and VDC2 ($10-$17) are decoded only at their own
+    // addresses. A stray access to a mirror ($28-$3F, ...) must not latch sgx
+    // mode: a plain pce has nothing there, and some HuCards touch it by
+    // accident (a null pointer store to $0029 blanked the screen).
+    // Whether sgx hardware mirrors these ports is not documented here.
+    if (offset >= 0x20) return -1;
     return !port.bit3 ? port & ~0x04 : port;
   }
 

@@ -15,7 +15,13 @@ import '../tool/headless/jit_metrics.dart';
 
 void main() {
   test('cores without a compiler expose no diagnostic runtimes', () {
-    for (final core in [Core(), Ps(jit: false), N64(jit: false), Ss(jit: false), Md(sh2Jit: false)]) {
+    for (final core in [
+      Core(),
+      Ps(jit: false),
+      N64(jit: false),
+      Ss(jit: false),
+      Md(sh2Jit: false)
+    ]) {
       addTearDown(core.dispose);
       expect(core.jitDiagnostics, isEmpty);
       expect(jitRuntimes(core), isEmpty);
@@ -30,8 +36,10 @@ void main() {
     }
     expect(jitRuntimes(ps).toList(), [ps.jit!.rt]);
     expect(jitRuntimes(n64).toList(), [n64.jit!.rt]);
-    expect(jitRuntimes(ss).toList(), [(ss.master as Sh2).jit!.rt, (ss.slave as Sh2).jit!.rt]);
-    expect(jitRuntimes(md).toList(), md.expansion!.cpus.map((cpu) => cpu.jit!.rt).toList());
+    expect(jitRuntimes(ss).toList(),
+        [(ss.master as Sh2).jit!.rt, (ss.slave as Sh2).jit!.rt]);
+    expect(jitRuntimes(md).toList(),
+        md.expansion!.cpus.map((cpu) => cpu.jit!.rt).toList());
     expect(ps.jitDiagnostics.single.byteOrder, Endian.little);
     expect(n64.jitDiagnostics.single.byteOrder, Endian.big);
     expect(ss.jitDiagnostics.first.instructionBytes, 2);
@@ -40,7 +48,8 @@ void main() {
 
   for (final enabled in [false, true]) {
     test('SH-2 diagnostic decoding honors MAC options: $enabled', () {
-      final jit = Sh2Jit.create(native: false, macLong: enabled, macWord: enabled)!;
+      final jit =
+          Sh2Jit.create(native: false, macLong: enabled, macWord: enabled)!;
       addTearDown(jit.dispose);
       final ram = jit.rt.alloc(0x1000);
       jit.map(0, ram.length, ram);
@@ -51,9 +60,12 @@ void main() {
         expect(jit.diagnostics.classify(pc, Sh2Translator.interpret, 0, null),
             enabled ? 'guestExit' : 'unsupportedInstructionOrSlot');
       }
-      expect(jit.diagnostics.classify(0, Sh2Translator.profileMiss, 0, null), 'profileGuard');
-      expect(jit.diagnostics.classify(0, Sh2Translator.idleDetected, 1, null), 'idleSkip');
-      expect(jit.diagnostics.classify(0x1000, Sh2Translator.interpret, 0, null), 'guestExit');
+      expect(jit.diagnostics.classify(0, Sh2Translator.profileMiss, 0, null),
+          'profileGuard');
+      expect(jit.diagnostics.classify(0, Sh2Translator.idleDetected, 1, null),
+          'idleSkip');
+      expect(jit.diagnostics.classify(0x1000, Sh2Translator.interpret, 0, null),
+          'guestExit');
     });
   }
 }

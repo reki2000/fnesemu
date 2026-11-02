@@ -82,14 +82,10 @@ class N64 extends Core {
       bool jitStatistics = const bool.fromEnvironment('N64_JIT_STATS'),
       int? compileThreshold,
       int? maxBlockInstructions,
-      bool jitCop1 =
-          const bool.fromEnvironment('N64_JIT_COP1', defaultValue: true),
-      bool jitNativeFpu =
-          const bool.fromEnvironment('N64_JIT_NATIVE_FPU', defaultValue: true),
-      bool jitFpu =
-          const bool.fromEnvironment('N64_JIT_FPU', defaultValue: false),
-      bool inlineJumps = const bool.fromEnvironment('N64_JIT_INLINE_JUMPS',
-          defaultValue: false)})
+      bool jitCop1 = true,
+      bool jitNativeFpu = true,
+      bool jitFpu = false,
+      bool inlineJumps = false})
       : this._(jit
             ? N64Jit.create(
                 compileThreshold: compileThreshold,
@@ -148,6 +144,9 @@ class N64 extends Core {
   N64Rom? _rom;
   int _nextLine = 0, _frame = 0;
   final _result = ExecResult(0, false, false);
+
+  @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
 
   @override
   int get systemClockHz => 93750000;
@@ -250,6 +249,7 @@ class N64 extends Core {
       _nextLine += clocksInScanline;
       bus.scanline++;
       if (bus.scanline == scanlinesInFrame) {
+        bus.finishVideoField();
         bus.scanline = 0;
         _frame++;
       }
@@ -272,7 +272,7 @@ class N64 extends Core {
   @override
   void dispose() => jit?.dispose();
 
-  static const _stateVersion = 3;
+  static const _stateVersion = 4;
   int? _mediaHash;
   int get _media {
     final rom = _rom;
@@ -322,24 +322,31 @@ class N64 extends Core {
     bus.sram = sram;
   }
 
-  // The arrows are the D-pad. W A S D are the C buttons, Z X C are B A Z and
-  // Q R E are L Start R.
+  // The unified key order: the arrows are the D-pad, S Z X C are the C
+  // buttons (up, left, down, right), the A key is A, the D key is B, W is
+  // Z, Q is L, E is R and Enter is Start. The stick is an axis (IJKL).
   @override
   List<PadButton> get buttons => [
         PadButton.up,
         PadButton.down,
         PadButton.left,
         PadButton.right,
-        const PadButton('C-left'), // keyA
-        const PadButton('C-down'), // keyS
-        const PadButton('B'), // keyZ
-        const PadButton('A'), // keyX
-        const PadButton('Z'), // keyC
-        const PadButton('L'), // keyQ
-        const PadButton('C-up'), // keyW
-        const PadButton('R'), // keyE
-        const PadButton('Start'), // keyR
-        const PadButton('C-right'), // keyD
+        const PadButton('C-up'), // S
+        const PadButton('C-left'), // Z
+        const PadButton('C-down'), // X
+        const PadButton('C-right'), // C
+        const PadButton('A'), // A
+        const PadButton('B'), // D
+        const PadButton('Z'), // W
+        const PadButton('L'), // Q
+        const PadButton('R'), // E
+        PadButton.none, // 1
+        PadButton.none, // 2
+        PadButton.none, // 3
+        PadButton.none, // 4
+        PadButton.none, // R
+        const PadButton('Start'), // Enter
+        PadButton.none, // Shift
       ];
   @override
   // either stick drives the analog stick of the controller

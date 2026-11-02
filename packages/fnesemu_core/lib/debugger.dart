@@ -463,7 +463,16 @@ class Debugger {
   /// Commit only after the selected CPU executes; other CPUs may run first.
   void completeTrace(ExecResult result) {
     final pending = _pendingTrace;
-    if (!_logging || pending == null || !result.executed(_targetCpuNo)) return;
+    if (!_logging || pending == null) return;
+    if (!result.executed(_targetCpuNo)) {
+      if (!result.stopped && _core.programCounter(_targetCpuNo) != pending.pc) {
+        // Exception/interrupt entry can change PC without completing an instruction.
+        // Capture the handler instead of retaining stale code.
+        _pendingTrace = null;
+        recordTrace();
+      }
+      return;
+    }
     _pendingTrace = null;
     _tracer?.addTraceLog(pending,
         nextPc: result.stopped ? null : _core.programCounter(_targetCpuNo));

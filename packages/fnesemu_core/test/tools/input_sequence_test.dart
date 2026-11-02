@@ -62,8 +62,8 @@ void main() {
   });
 
   test('a quoted name may have reserved characters', () {
-    expect(presses('"Flip Disk" "a+b":3'),
-        [(0, 'Flip Disk', 10), (10, 'a+b', 3)]);
+    expect(
+        presses('"Flip Disk" "a+b":3'), [(0, 'Flip Disk', 10), (10, 'a+b', 3)]);
   });
 
   test('broken sequences are errors', () {
@@ -79,8 +79,7 @@ void main() {
       '"A',
       'A::2',
     ]) {
-      expect(() => parseInput(text), throwsA(isA<InputError>()),
-          reason: text);
+      expect(() => parseInput(text), throwsA(isA<InputError>()), reason: text);
     }
   });
 
@@ -93,7 +92,9 @@ void main() {
 
   test('every button of every core can be written', () {
     for (final system in CoreFactory.systems) {
-      final names = CoreFactory.of(system.id).buttons.map((b) => b.name);
+      final core = CoreFactory.of(system.id);
+      addTearDown(core.dispose);
+      final names = core.buttons.map((b) => b.name);
       for (final name in names.where((n) => n.isNotEmpty)) {
         expect(presses(quoteButton(name)), [(0, name, 10)],
             reason: '${system.id}: $name');

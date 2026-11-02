@@ -154,8 +154,9 @@ extension Gp0Renderer on Gpu {
       _span(p0, p1, p2, y, false);
       final x012 = _e0.x, x02 = _e1.x;
       final (left, right) = x012 > x02 ? (x02, x012) : (x012, x02);
+      final row = (y + drawingOffsetY) * 1024 + drawingOffsetX;
       for (int x = left.max(x1), endX = right.min(x2 + 1); x < endX; x++) {
-        _plot(x, y, c15, transparent, semi);
+        _plotFast(row + x, c15, transparent, semi);
       }
     }
 
@@ -187,6 +188,7 @@ extension Gp0Renderer on Gpu {
       final rr = right.r, rg = right.g, rb = right.b;
       final width = rx - lx;
       final half = width ~/ 2;
+      final row = (y + drawingOffsetY) * 1024 + drawingOffsetX;
       for (int x = lx.max(x1), endX = rx.min(x2 + 1); x < endX; x++) {
         // same as left.c.mix(right.c, part, width) then dither()
         final part = x - lx;
@@ -203,7 +205,7 @@ extension Gp0Renderer on Gpu {
               Gpu._c8toC5(g + d).shl5 |
               Gpu._c8toC5(b + d).shl10;
         }
-        _plot(x, y, c15, transparent, semi);
+        _plotFast(row + x, c15, transparent, semi);
       }
     }
 
@@ -308,6 +310,7 @@ extension Gp0Renderer on Gpu {
       final width = rx - lx;
       final half = width ~/ 2;
       final dy = y.mask2.shl2;
+      final row = (y + drawingOffsetY) * 1024 + drawingOffsetX;
 
       for (int x = lx.max(x1), endX = rx.min(x2 + 1); x < endX; x++) {
         final part = x - lx;
@@ -336,7 +339,8 @@ extension Gp0Renderer on Gpu {
                 Gpu._c8toC5((texColor.shr10.mask5 * b).shr4 + d).shl10 |
                 texColor & 0x8000;
           }
-          _plot(x, y, c16, transparent && texColor.bit15, semiTransparent);
+          _plotFast(
+              row + x, c16, transparent && texColor.bit15, semiTransparent);
         }
       }
     }

@@ -79,6 +79,7 @@ final class PsJit {
   /// interprets the blocks instead, for tests. [compileThreshold] replaces
   /// the estimate of the runtime
   static PsJit? create({bool native = true, int? compileThreshold}) {
+    if (native) JitRuntime.resetPool();
     late final PsJit jit;
     int read(int addr, int size) => jit._read(addr, size);
     void write(int addr, int size, int value) => jit._write(addr, size, value);
@@ -137,12 +138,6 @@ final class PsJit {
       }),
       ctc2: rt.addHelper((reg, value, _) {
         cop2.writeCtrl(reg, value);
-        return 0;
-      }),
-      div: rt.addHelper((a, b, signed) {
-        signed != 0 ? cpu.div(a, b) : cpu.divu(a, b);
-        rt.ctx[ctxHi] = cpu.hi;
-        rt.ctx[ctxLo] = cpu.lo;
         return 0;
       }),
     );

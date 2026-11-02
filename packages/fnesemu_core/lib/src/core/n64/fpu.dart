@@ -21,10 +21,12 @@ class N64Fpu {
 
   void loadState(StateReader s) {
     s.section('fpu');
-    s.bytesInto(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+    s.bytesInto(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
     wide = s.boolean();
     control = s.int64();
   }
+
   int offset(int r) => wide ? r * 8 : r * 4;
   int word(int r) => data.getUint32(offset(r), Endian.little);
   void setWord(int r, int v) => data.setUint32(offset(r), v, Endian.little);

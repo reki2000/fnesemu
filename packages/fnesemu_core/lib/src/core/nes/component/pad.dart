@@ -5,22 +5,36 @@ import '../../../util/int.dart';
 class Joypad {
   final PadSource pad;
 
+  // In the unified key order: the X key is B, the C key is A, Enter is
+  // Start and Shift is Select; the other slots are empty.
   final buttons = [
     PadButton.left,
     PadButton.right,
     PadButton.up,
     PadButton.down,
-    const PadButton("Select"),
-    const PadButton("Start"),
+    PadButton.none,
+    PadButton.none,
     const PadButton("B"),
     const PadButton("A"),
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    PadButton.none,
+    const PadButton("Start"),
+    const PadButton("Select"),
   ];
 
   final scanOrder = [
     7, // A
     6, // B
-    4, // select
-    5, // start
+    19, // select
+    18, // start
     2, // up
     3, // down
     0, // left

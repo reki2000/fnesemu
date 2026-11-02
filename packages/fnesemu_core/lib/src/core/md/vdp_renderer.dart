@@ -530,7 +530,9 @@ extension VdpRenderer on Vdp {
     final windowV1 = r12.bit7 ? r12.shl3 & 0xf8 : Vdp.height;
 
     final vInWindow = windowV0 <= y && y < windowV1;
-    final bufferOffset = y * width;
+    resizeOutput();
+    final outputY = interlacedOutput ? y * 2 + (oddFrame ? 1 : 0) : y;
+    final bufferOffset = outputY * width;
     final bg = reg[7].mask6;
 
     if (!enableDisplay) {

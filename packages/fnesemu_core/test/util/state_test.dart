@@ -4,12 +4,14 @@ import 'package:fnesemu_core/src/util/state.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('media hash preserves signed 64-bit identities on exact integer hosts', () {
+  test('media hash preserves signed 64-bit identities on exact integer hosts',
+      () {
     final offset = BigInt.parse('cbf29ce484222325', radix: 16).toSigned(64);
     final exactIntegers = BigInt.from(offset.toInt()) == offset;
     if (!exactIntegers) {
       expect(() => stateMediaHash([]), throwsUnsupportedError);
-      expect(() => stateMediaHash(utf8.encode('foobar')), throwsUnsupportedError);
+      expect(
+          () => stateMediaHash(utf8.encode('foobar')), throwsUnsupportedError);
       return;
     }
     for (final (input, expected) in [
