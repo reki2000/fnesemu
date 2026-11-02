@@ -61,7 +61,7 @@ Future<List<String>> zipEntryNames(
 /// recognizes, or the file itself
 (Uint8List, String) unpackRom(Uint8List bytes, String name) {
   if (!isZip(name)) return (bytes, name);
-  final archive = ZipDecoder().decodeBytes(bytes);
+  final archive = ZipDecoder().decodeBytes(bytes, verify: true);
   if (hasDiscImage(archive.map((entry) => entry.name))) {
     throw FormatException('CD-ROM images in a zip are not supported: $name');
   }
