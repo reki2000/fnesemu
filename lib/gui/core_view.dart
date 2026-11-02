@@ -130,6 +130,7 @@ class _CoreViewState extends State<CoreView> {
                           ]))),
             if (widget.showPad)
               Positioned(
+                  left: inset + DirectionPad.diameter + stickGap,
                   right: inset,
                   top: portrait ? null : 0,
                   bottom: portrait ? inset : 0,

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:fnesemu_core/app_api.dart';
@@ -6,7 +8,7 @@ import 'pad_input.dart';
 /// Floating action keys in the same staggered rows as a physical keyboard.
 /// The buttons of a core are in the unified key order: the slots after the
 /// directions are S Z X C / A D W / Q E / 1 2 3 4 / R, then the start slot
-/// (Enter) and the select slot (Shift), shown as a row of their own.
+/// (Enter) and the select slot (Shift), shown to the left of Z when space allows.
 class VirtualPadWidget extends StatelessWidget {
   final CoreController controller;
   final PadInput input;
@@ -87,26 +89,90 @@ class VirtualPadWidget extends StatelessWidget {
       return padKey(caption, buttons[index]);
     }
 
+    final systemKeys = <Widget>[
+      if (buttons.length > 15 && buttons[15] != PadButton.none)
+        systemKey('Shift', 15),
+      if (buttons.length > 14 && buttons[14] != PadButton.none)
+        systemKey('Enter', 14),
+    ];
+    // Keep the Z row aligned with the staggered rows even when a core uses
+    // a multi-letter action label that widens one of the upper rows.
+    double rowWidth(String letters, int row) {
+      var width = row * keyWidth / 2 + (letters.length - 1) * gap;
+      for (final letter in letters.split('')) {
+        final index = keys.indexOf(letter);
+        final name = index < buttons.length ? buttons[index].name : '';
+        if (name.length <= 1 ||
+            (index < buttons.length && buttons[index] == PadButton.none)) {
+          width += keyWidth;
+        } else {
+          final painter = TextPainter(
+              text: TextSpan(
+                  text: name,
+                  style: DefaultTextStyle.of(context)
+                      .style
+                      .copyWith(fontSize: 15.6)),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context))
+            ..layout();
+          width += math.max(keyWidth, painter.width + 8);
+          painter.dispose();
+        }
+      }
+      return width;
+    }
+
+    final upperWidth = [
+      rowWidth('1234', 0),
+      rowWidth('QWER', 1),
+      rowWidth('ASD', 2)
+    ].reduce(math.max);
+    final bottomInset = math.max(0.0, upperWidth - rowWidth('ZXC', 3));
     return Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          ...['1234', 'QWER', 'ASD', 'ZXC'].asMap().entries.map((row) =>
-              Padding(
-                  padding: EdgeInsets.only(
-                      left: row.key * keyWidth / 2,
-                      top: row.key == 0 ? 0 : gap),
-                  child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      spacing: gap,
-                      children: row.value.split('').map(key).toList()))),
+          FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...[
+                      '1234',
+                      'QWER',
+                      'ASD'
+                    ].asMap().entries.map((row) => Padding(
+                        padding: EdgeInsets.only(
+                            left: row.key * keyWidth / 2,
+                            top: row.key == 0 ? 0 : gap),
+                        child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            spacing: gap,
+                            children: row.value.split('').map(key).toList()))),
+                  ])),
           Padding(
-              padding: const EdgeInsets.only(top: gap),
-              child:
-                  Row(mainAxisSize: MainAxisSize.min, spacing: gap, children: [
-                systemKey('Shift', 15),
-                systemKey('Enter', 14),
-              ])),
+              padding: EdgeInsets.only(top: gap, right: bottomInset),
+              child: Wrap(
+                  textDirection: TextDirection.rtl,
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            spacing: gap,
+                            children: 'ZXC'.split('').map(key).toList())),
+                    if (systemKeys.isNotEmpty)
+                      FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              spacing: gap,
+                              children: systemKeys)),
+                  ])),
         ]);
   }
 }

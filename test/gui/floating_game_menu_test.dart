@@ -197,6 +197,7 @@ void main() {
           onToggle: () => expanded.value = !open,
           onResume: () => expanded.value = false,
           toolbar: Wrap(
+              key: const ValueKey('test-toolbar'),
               children: List.generate(
                   9,
                   (i) => IconButton(
@@ -230,7 +231,8 @@ void main() {
       await tester.pump();
       expect(tester.getRect(find.byKey(const ValueKey('game-viewport'))), rect);
       expect(tester.getRect(find.text('60.0 fps')), fpsRect);
-      final toolbarRect = tester.getRect(find.byType(Wrap));
+      final toolbarRect =
+          tester.getRect(find.byKey(const ValueKey('test-toolbar')));
       expect(toolbarRect.right, lessThan(fpsRect.left));
       expect(tester.takeException(), isNull);
 
