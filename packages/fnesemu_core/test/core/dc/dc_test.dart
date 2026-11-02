@@ -8,6 +8,42 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('system reset request is applied at the execution boundary', () {
+    final bios = Uint8List(DcBus.biosSize)..[0] = 0x09;
+    final core = Dc(jit: false)..setBiosFiles([bios]);
+    addTearDown(core.dispose);
+    core.cpu.pc = 0x8c000100;
+    core.bus.write16(0x8c000100, 0x0009);
+    core.bus.write32(0xa05f6890, 0x1234);
+    core.exec(true);
+    expect(core.cpu.pc, 0x8c000102);
+    core.bus.write32(0xa05f6890, 0x7611);
+    expect(core.cpu.pc, 0x8c000102);
+    expect(() => core.saveState(), throwsA(isA<Exception>()));
+    expect(core.exec(true).stopped, isFalse);
+    expect(core.cpu.pc, 0xa0000000);
+    expect(core.bus.bios[0], 0x09);
+    expect(core.bus.read16(0x8c000100), 0x0009);
+    final saved = core.saveState();
+    core.bus.write32(0xa05f6890, 0x7611);
+    core.loadState(saved);
+    core.exec(true);
+    expect(core.cpu.pc, 0xa0000002);
+  });
+
+  test('guest reset write completes before restarting the BIOS', () {
+    final bios = Uint8List(DcBus.biosSize)
+      ..[0] = 0x12
+      ..[1] = 0x20;
+    final core = Dc(jit: false)..setBiosFiles([bios]);
+    addTearDown(core.dispose);
+    core.cpu.r[0] = 0xa05f6890;
+    core.cpu.r[1] = 0x7611;
+    expect(core.exec(true).stopped, isFalse);
+    expect(core.cpu.pc, 0xa0000000);
+    expect(core.cpu.r[0], 0);
+  });
+
   test(
       'debug inspection observes cached instructions without allocating or evicting',
       () {

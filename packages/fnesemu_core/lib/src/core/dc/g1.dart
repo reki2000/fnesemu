@@ -226,8 +226,7 @@ class DcG1 {
       _requireBiosVerification();
     }
     if (!_busy) return;
-    if (physical < 0x220000 ||
-        (physical >= 0x005f7000 && physical < 0x005f70a0)) {
+    if (physical < 0x220000) {
       onError(1 << 14);
       throw const DcUnsupported('root-bus G1 access during drive DMA');
     }

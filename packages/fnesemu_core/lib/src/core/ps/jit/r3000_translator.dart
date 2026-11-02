@@ -27,7 +27,7 @@ final class R3000Translator {
 
   /// whether the block ends after a store at pc, for code next to data
   final bool Function(int pc) endsAfterStore;
-  final int mfc0, cop2Cmd, mfc2, cfc2, mtc2, ctc2, div;
+  final int mfc0, cop2Cmd, mfc2, cfc2, mtc2, ctc2;
 
   static const maxInstructions = 64;
   static const _clocksPerInstruction = 2;
@@ -40,8 +40,7 @@ final class R3000Translator {
       required this.mfc2,
       required this.cfc2,
       required this.mtc2,
-      required this.ctc2,
-      required this.div});
+      required this.ctc2});
 
   /// the addresses where [R3000.step] calls its hook first
   static bool isHook(int pc) {
@@ -268,8 +267,11 @@ final class _Block {
         return (tag) => IrJumpDyn(target, tag: tag);
       case 0x01:
         // bltz, bgez, and bltzal and bgezal which link even if not taken
-        final lt = b.ltS(_get(rs), b.c32(0));
-        final c = rt.bit0 ? b.xor(lt, b.c32(1)) : lt;
+        // Match the branch polarity with a single signed comparison.
+        final value = _get(rs);
+        final c = rt.bit0
+            ? b.ltS(b.c32(-1), value)
+            : b.ltS(value, b.c32(0));
         if (rt == 0x10 || rt == 0x11) {
           _commit(imm: (31, b.c32(next)));
           return (tag) => IrBranch(c, rel, next, tagTrue: tag, tagFalse: tag);
@@ -288,7 +290,7 @@ final class _Block {
       case 0x05:
         return cond(b.ne(_get(rs), _get(rt)));
       case 0x06:
-        return cond(b.xor(b.ltS(b.c32(0), _get(rs)), b.c32(1)));
+        return cond(b.ltS(_get(rs), b.c32(1)));
       default: // 0x07
         return cond(b.ltS(b.c32(0), _get(rs)));
     }
@@ -351,10 +353,22 @@ final class _Block {
             _set(_hi, b.mulHiU(x, y));
             _commit();
           case 0x1a || 0x1b:
-            b.call(t.div, s(), u(), b.c32(inst.mask6 == 0x1a ? 1 : 0));
-            // the helper writes hi and lo to the context
-            _regs[_hi] = _regs[_lo] = null;
-            _dirty[_hi] = _dirty[_lo] = false;
+            final dividend = s(), divisor = u();
+            final zero = b.eq(divisor, b.c32(0));
+            final signed = inst.mask6 == 0x1a;
+            final quotient = signed
+                ? b.divS(dividend, divisor)
+                : b.divU(dividend, divisor);
+            final remainder = signed
+                ? b.remS(dividend, divisor)
+                : b.remU(dividend, divisor);
+            // MIPS defines special HI/LO results for division by zero.
+            final zeroQuotient = signed
+                ? b.select(
+                    b.ltS(dividend, b.c32(0)), b.c32(1), b.c32(-1))
+                : b.c32(-1);
+            _set(_lo, b.select(zero, zeroQuotient, quotient));
+            _set(_hi, b.select(zero, dividend, remainder));
             _commit();
           case 0x20:
             _overflowing(rd, s(), u(), addr, add: true);

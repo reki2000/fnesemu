@@ -75,11 +75,10 @@ void main() {
         bits(xy.$1),
         bits(xy.$2),
         bits(depths?[i] ?? depth),
-        // Non-textured packed color uses word 4; textured polygons keep U/V first.
         if (texture == null) ...[
-          colors?[i] ?? color,
           0,
-          0
+          0,
+          colors?[i] ?? color
         ] else ...[
           bits(coordinate),
           bits(coordinate),
@@ -258,7 +257,6 @@ void main() {
       'invalid modifier last flags and reserved shadow bits report parameter errors',
       () {
     for (final words in [
-      [0x81800000, 0x20000000],
       [0x81800040, 0],
       [0x81800040, 0x60000000],
       [0x818000c0, 0x20000000]
@@ -268,6 +266,30 @@ void main() {
       init();
       expect(() => packet(words), throwsA(isA<DcUnsupported>()));
       expect(bus.systemBus.errorStatus & 16, 16);
+    }
+  });
+
+  test('continuation modifier headers accumulate despite stale instruction bits', () {
+    for (final instruction in [0, 1, 2, 4, 7]) {
+      bus = DcBus();
+      bus.write32(reg + 8, 0);
+      init();
+      packet([0x81800000, (instruction << 29) | 0x08000000]);
+      packet([0xf0000000, 0, 0, bits(2), bits(32), 0, bits(2), 0]);
+      packet([bits(32), bits(2), 0, 0, 0, 0, 0, 0]);
+      expect(bus.gpu.vram.getUint32LE(0x200000), 0x08000000);
+    }
+  });
+
+  test('alternate terminal modifier opcodes convert to CORE instructions', () {
+    for (final instruction in [1, 2]) {
+      bus = DcBus();
+      bus.write32(reg + 8, 0);
+      init();
+      packet([0x81800040, instruction << 24]);
+      packet([0xf0000000, 0, 0, bits(2), bits(32), 0, bits(2), 0]);
+      packet([bits(32), bits(2), 0, 0, 0, 0, 0, 0]);
+      expect(bus.gpu.vram.getUint32LE(0x200000), instruction << 29);
     }
   });
 

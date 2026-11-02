@@ -427,7 +427,7 @@ class DcGpu {
           ta.reset(registers: false);
           yuv.reset();
         }
-        if (value & 2 != 0) render.reset();
+        if (value & 2 != 0) render.reset(registers: false);
       case 0x40:
         _border = value & 0x1ffffff;
       case 0x44:

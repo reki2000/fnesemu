@@ -143,6 +143,10 @@ final class Vr4300Translator {
         19,
         24,
         25,
+        26,
+        27,
+        30,
+        31,
         32,
         33,
         34,
@@ -385,11 +389,11 @@ final class Vr4300Translator {
     if (code >= 20 && code <= 23) code -= 16;
     final a = _get64(s), zero = _c64(0);
     final condition = switch (code) {
-      1 => t.isEven ? b.ltS(a, zero) : b.eq(b.ltS(a, zero), _c(0)),
+      1 => t.isEven ? b.ltS(a, zero) : b.ltS(_c64(-1), a),
       4 => b.eq(a, _get64(t)),
       5 => b.ne(a, _get64(t)),
-      6 => b.or(b.ltS(a, zero), b.eq(a, zero)),
-      _ => b.eq(b.or(b.ltS(a, zero), b.eq(a, zero)), _c(0)),
+      6 => b.ltS(a, _c64(1)),
+      _ => b.ltS(zero, a),
     };
     if (code == 1 && t >= 16) _word(31, _c(next));
     return IrBranch(condition, target, next, tagTrue: _tag, tagFalse: _tag);
@@ -432,6 +436,28 @@ final class Vr4300Translator {
           final product = b.mul(x, y);
           _putLo(b.sext32(b.trunc32(product)));
           _putHi(b.sext32(b.trunc32(b.shrU(product, _c(32)))));
+        case 26 || 27:
+          final unsigned = fn == 27;
+          final x = _low(s), y = _low(t);
+          final zero = b.eq(y, _c(0));
+          final quotient = unsigned ? b.divU(x, y) : b.divS(x, y);
+          final remainder = unsigned ? b.remU(x, y) : b.remS(x, y);
+          final onZero = unsigned
+              ? _c(-1)
+              : b.select(b.ltS(x, _c(0)), _c(1), _c(-1));
+          _putLo(b.sext32(b.select(zero, onZero, quotient)));
+          _putHi(b.sext32(b.select(zero, x, remainder)));
+        case 30 || 31:
+          final unsigned = fn == 31;
+          final x = _get64(s), y = _get64(t);
+          final zero = b.eq(y, _c64(0));
+          final quotient = unsigned ? b.divU(x, y) : b.divS(x, y);
+          final remainder = unsigned ? b.remU(x, y) : b.remS(x, y);
+          final onZero = unsigned
+              ? _c64(-1)
+              : b.select(b.ltS(x, _c64(0)), _c64(1), _c64(-1));
+          _putLo(b.select(zero, onZero, quotient));
+          _putHi(b.select(zero, x, remainder));
         case 32:
           _word(d, _checkedWord(_low(s), _low(t), sideExit!));
         case 34:

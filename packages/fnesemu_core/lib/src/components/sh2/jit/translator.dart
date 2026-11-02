@@ -140,10 +140,12 @@ final class Sh2Translator {
         if (!guard(at) || (delayed && !guard((at + 2) & 0xffffffff))) break;
         final before = snapshot(at, spent);
         IrValue? condition;
+        var branchOnT = true;
         IrValue? dynamicTarget;
         int? target;
         if (kind == 8) {
-          condition = (n == 9 || n == 13) ? t : b.eq(t, c(0));
+          branchOnT = n == 9 || n == 13;
+          condition = t;
           target = (at + 4 + (op & 255).toSigned(8) * 2) & 0xffffffff;
         } else if (kind == 10 || kind == 11) {
           target = (at + 4 + (op & 4095).toSigned(12) * 2) & 0xffffffff;
@@ -160,22 +162,29 @@ final class Sh2Translator {
         // A taken branch costs one more clock; a delayed branch executes its slot.
         spent += delayed ? 3 : 2;
         if (condition != null) {
-          b.ctxStore(JitCtx.budget,
-              b.add(b.ctxLoad(JitCtx.budget), b.select(condition, c(0), c(1))));
+          b.ctxStore(
+              JitCtx.budget,
+              b.add(
+                  b.ctxLoad(JitCtx.budget),
+                  b.select(condition, c(branchOnT ? 0 : 1),
+                      c(branchOnT ? 1 : 0))));
         }
         last = delayed ? slot! : op;
+        final next = (at + (delayed ? 4 : 2)) & 0xffffffff;
         final destination = dynamicTarget ??
             (condition == null
                 ? c(target!)
-                : b.select(condition, c(target!),
-                    c((at + (delayed ? 4 : 2)) & 0xffffffff)));
+                : b.select(condition, c(branchOnT ? target! : next),
+                    c(branchOnT ? next : target!)));
         flush(destination: destination);
         final IrTerm term = dynamicTarget != null
             ? IrJumpDyn(dynamicTarget)
             : condition == null
                 ? IrJump(target!)
                 : IrBranch(
-                    condition, target!, (at + (delayed ? 4 : 2)) & 0xffffffff);
+                    condition,
+                    branchOnT ? target! : next,
+                    branchOnT ? next : target!);
         return b.finish(term, cost: spent);
       }
       if (!supports(op) || !guard(at)) break;

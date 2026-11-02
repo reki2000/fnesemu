@@ -360,7 +360,7 @@ class DcGpuRender {
       ..addAll(scalerTiles);
   }
 
-  void reset() {
+  void reset({bool registers = true}) {
     _scaleSourceEnded = _stripDrainPending = false;
     _stripLines = 0;
     _stripScaleRow = -1;
@@ -368,16 +368,18 @@ class DcGpuRender {
     _stripWaiting = _stripWatching = false;
     _stripQueued = false;
     _scalerTiles.clear();
-    fog.reset();
+    if (registers) fog.reset();
     _shadowMask.setRange(0, 1024, _zeroBytes);
     _shadowObject = false;
     _materialArea = -1;
     _secondaryValid.setRange(0, 1024, _zeroBytes);
-    _registers
-      ..clear()
-      ..addAll(
-          {0x7c: 0x7df77, 0x80: 7, 0x98: 0x402000, 0xf4: 0x400, 0x11c: 0xff});
-    _mirrorRegisters();
+    if (registers) {
+      _registers
+        ..clear()
+        ..addAll(
+            {0x7c: 0x7df77, 0x80: 7, 0x98: 0x402000, 0xf4: 0x400, 0x11c: 0xff});
+      _mirrorRegisters();
+    }
     _remaining = _sortMode = _primitiveOrder = 0;
     _x = _y = -1;
   }
@@ -920,8 +922,9 @@ class DcGpuRender {
     final attributes = 1 +
         (textured ? (isp & 0x00400000 != 0 ? 1 : 2) + (hasOffset ? 1 : 0) : 0);
     if (((pointer >> 21) & 7) != attributes) {
-      throw const DcUnsupported(
-          'CORE object skip does not match its parameters');
+      throw DcUnsupported('CORE object skip does not match its parameters '
+          '(pointer=${pointer.toRadixString(16)}, ISP=${isp.toRadixString(16)}, '
+          'parameter=${parameter.toRadixString(16)})');
     }
     final stride = 3 + attributes * (twoVolumes ? 2 : 1);
     final header = twoVolumes ? 5 : 3;

@@ -733,6 +733,44 @@ void main() {
         }
       });
 
+      test('word and doubleword division preserve HI/LO edge semantics', () {
+        const operands = [
+          0, 1, -1, 7, -7, 0x7fffffff, -0x80000000,
+          0x100000001, -0x100000001, 0x7fffffffffffffff,
+          -0x8000000000000000,
+        ];
+        const divisors = [
+          0, 1, -1, 2, -3, 0x7fffffff, 0x100000001,
+          -0x8000000000000000,
+        ];
+        for (final fn in [26, 27, 30, 31]) {
+          final code = [
+            _r(1, 2, 0, fn),
+            _r(0, 0, 3, 18), // MFLO
+            _r(0, 0, 4, 16), // MFHI
+            _r(1, 2, 0, fn),
+          ];
+          for (final x in operands) {
+            for (final y in divisors) {
+              for (final machine in [reference, actual]) {
+                machine.load(code);
+                machine.cpu.r[1] = x;
+                machine.cpu.r[2] = y;
+                machine.cpu.hi = 0x1111222233334444;
+                machine.cpu.lo = -0x5555666677778888;
+              }
+              actual.run(code.length);
+              reference.run(max(code.length, actual.cpu.clocks));
+              actual.matches(reference, reason: 'DIV fn=$fn $x / $y');
+              if (native) {
+                expect(actual.jit!.compiledClocks, code.length,
+                    reason: 'DIV should stay in JIT fn=$fn $x / $y');
+              }
+            }
+          }
+        }
+      });
+
       test('FP helpers preserve special values and live integer operands', () {
         for (final fmt in [16, 17]) {
           for (final value in [

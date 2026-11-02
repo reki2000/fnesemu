@@ -452,8 +452,9 @@ void main() {
     expect(() => bus.read32(0x80000020), throwsA(isA<DcUnsupported>()));
     expect(bus.systemBus.errorStatus, 1 << 14);
     bus.write32(0xa05f6908, 1 << 14);
-    expect(() => bus.read8(driveBase + 0x9c), throwsA(isA<DcUnsupported>()));
-    expect(bus.systemBus.errorStatus, 1 << 14);
+    final status = bus.peek8(driveBase + 0x9c);
+    expect(bus.read8(driveBase + 0x9c), status);
+    expect(bus.systemBus.errorStatus, 0);
   });
 }
 

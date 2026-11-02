@@ -18,7 +18,7 @@ The following facts about the x86-64 code generator bound what a candidate can g
 - **Block entry.** Each block compares the stop word and the budget in the context, runs one `cmp [mem], imm` per guarded code word, and subtracts its cost from the budget in memory.
 - **Links.** A static link loads the target from a link slot, tests it and jumps through a register. The target is not patched into the jump. A dynamic jump searches a direct-mapped table of 4,096 entries and exits to the host on a miss. Two hot targets that share an entry miss on every transfer, and each miss costs a host round trip even though the driver now runs the installed block instead of translating it again.
 - **Memory access.** Every load and store masks the address, indexes the page table and tests the entry. Two accesses to the same page repeat the lookup.
-- **Comparisons.** A comparison used by a branch or exit is materialized with `setcc` and `movzx`, then compared with zero again.
+- **Comparisons.** Single-use comparisons and masked bit tests consumed by a branch or exit fuse directly in native and Wasm backends. PS1/N64/PS2 signed branches use a single comparison; SH-4 BT/BF test T directly. SH-2 BT/BF still shares T across clock accounting, idle checks and branch destination, so its masked value remains materialized.
 - **Registers.** Values live in seven host registers within one block and in stack slots across helper calls. Nothing survives a block boundary. The ARM64 backend keeps every value in a stack slot.
 - **Optimizer.** It folds i32 constants and identities and removes dead pure values. It has no common-subexpression elimination, no context load forwarding and no dead context store removal.
 - **Compile path.** Median emission was 17 microseconds per block in the last synthetic measurement, and the Wasm backend instantiates one module per block.
@@ -27,7 +27,7 @@ The following facts about the x86-64 code generator bound what a candidate can g
 
 | # | Candidate | Expected effect | Cost and risk | Measure first |
 | --- | --- | --- | --- | --- |
-| 1 | Compare and branch fusion (Optimizer and code generation) | Fewer instructions on every conditional exit and branch in every block | Low; local to the backends | Count `setcc` plus zero-compare pairs in generated code of a hot block |
+| 1 | Compare and branch fusion (Implemented) | Single-use comparisons branch directly without a materialized boolean | Low; local to the backends | Validate emitted code and compare representative branch-heavy workloads |
 | 2 | Page-lookup sharing within a block (Memory access) | Fewer table loads in blocks that touch one page repeatedly | Medium; must keep unmapped exits and precise snapshots | Share of memory operations whose base value and page match an earlier one |
 | 3 | Context load forwarding and dead context store removal (Optimizer) | Fewer memory operations in blocks that keep guest state in the context | Medium; exits and snapshots observe stores | Count redundant context accesses per block in the frontends' output |
 | 4 | Direct patched links (Dispatch) | Removes the slot load and indirect jump per chained block | Medium; invalidation must unpatch, and the macOS write-protection toggle applies | Link-slot share of block entry cost |
@@ -43,7 +43,7 @@ Candidates 1 to 3 change only generated code for a block, so they carry the leas
 
 ## Optimizer
 
-1. Fuse a comparison with the branch or exit that consumes it. The backends would emit `cmp` and a conditional jump when the comparison result has no other use, instead of materializing a 0 or 1 value.
+1. Implemented: comparisons used only by an exit or conditional branch emit their comparison at the consumer. Other consumers, including side-exit snapshots, retain materialized results.
 2. Add local common-subexpression elimination for pure values. Frontends that expand the same address arithmetic several times, such as an effective address used by both a check and an access, would benefit.
 3. Forward a stored context word to a later load of the same word, and share repeated context loads, between barriers. A call, a guard or an exit that carries a snapshot is a barrier unless the pass proves that it does not read the word. Remove a context store that a later store overwrites before any barrier. Side exits snapshot registers through their `stores`, so a store that an exit does not cover must stay visible to it.
 4. Fold a constant addend of an address into the displacement of the access. The backends can then skip an add and keep one value fewer live.
@@ -81,9 +81,9 @@ Candidates 1 to 3 change only generated code for a block, so they carry the leas
 
 ## CPU frontend candidates
 
-- PS1: the divide and the coprocessor 2 commands run through helper calls. Count their share in the exit profile before translating them. The divide follows the IR division proposal below.
-- N64: prioritize the remaining hot floating-point conversions and comparisons, preserving rounding and control state and nonfinite behavior. Divide with HI/LO (the multiplies and the HI/LO moves are translated, but the divides wait for the IR division proposal), 64-bit multiplies, COP0 moves, unaligned merge accesses and other floating-point operations remain workload-dependent candidates. Batch adjacent CPU fallback instructions where safe, preserving interpreter idle skipping, interrupts and device deadlines. Profile demanding scenes before attributing the remaining host time to HLE.
-- SH-2: expand the measured hot coverage, such as procedure-register stack operations, carry arithmetic, divide steps and full multiply and MAC operations, keeping exact exceptions, memory order and clock accounting.
+- PS1: DIV/DIVU now lower through the shared IR; coprocessor 2 commands still use helper calls. Measure the impact of removing division helper round trips in targeted scenes.
+- N64: prioritize the remaining hot floating-point conversions and comparisons, preserving rounding and control state and nonfinite behavior. DIV/DIVU/DDIV/DDIVU now lower to shared IR. 64-bit multiplies, COP0 moves, unaligned merge accesses and other floating-point operations remain workload-dependent candidates. Batch adjacent CPU fallback instructions where safe, preserving interpreter idle skipping, interrupts and device deadlines. Profile demanding scenes before attributing the remaining host time to HLE.
+- SH-2: DIV1 and its setup instructions are already translated one bit per guest instruction in the shared SH-2 frontend; the on-chip DIVU peripheral is accessed through MMIO and retains interpreter/device timing. Expand remaining measured hot instruction coverage while preserving exact exceptions, memory order and clock accounting.
 - Idle recognition: express register and state comparisons and exits in IR while retaining multi-block loop detection. The adapter must establish that observed memory and devices stay stable and that reads have no relevant side effects during the proposed skip.
 - Specialization: frontend-owned mode and register tags or guarded literals can enable base-register and PC-relative constant folding. Mapping stability and literal and code invalidation remain explicit dependencies.
 - Larger traces: frontend-owned fall-through chaining and limited branch or function inlining must preserve CPU-specific delay slots and snapshots. Establish entry amortization and scheduler capacity before targeting a nominal instruction count. The N64 direct-jump continuation exists but is off by default, and the SH-2 limit is 24 instructions.
@@ -96,7 +96,7 @@ Keep code-version validity separate from data-region stability. Entry guards rem
 
 ## IR extensions
 
-1. Add integer division and remainder to the IR, for both widths and in signed and unsigned forms. The IR has `add`, `sub`, `mul`, `mulHiS` and `mulHiU` at both widths but no division, so the PS1 frontend divides through an i32 helper call, while the N64 and SH-2 frontends leave divide instructions to the CPU fallback. Decide the result for a zero divisor and for the signed overflow case (`INT_MIN / -1`) in the IR contract, or make the operation exit before effects so that the frontend keeps the guest-specific result. The x86-64 `div` instruction faults on both cases, so a backend needs an explicit check. The change is complete only when the reference executor and the x86-64, ARM64 and Wasm backends implement it. Start from measured hot divide sites rather than from instruction coverage alone.
+1. Implemented in shared IR: `divS`, `divU`, `remS`, `remU` for i32/i64 with guarded zero and signed-overflow semantics in the reference, x86-64, ARM64 and Wasm backends. The PS1 frontend replaces its division helper, N64 translates DIV/DIVU/DDIV/DDIVU, and PS2 EE translates DIV/DIVU and MMI DIV1/DIVU1 with synchronized HI/LO pipelines. SH-2 and SH-4 already translate the iterative DIV1 and setup operations; their memory-mapped division peripherals and instruction-specific flags are not simple replacements with the quotient/remainder IR.
 2. Add a typed 64-bit helper ABI and further floating-point operations when a frontend needs them.
 
 ## Core adapter candidates
