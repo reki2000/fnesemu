@@ -80,6 +80,9 @@ void main() {
       final core = CoreFactory.of(s.id);
       addTearDown(core.dispose);
       expect(core, isNotNull, reason: s.id);
+      expect(core.clocksPerFrame, greaterThan(0), reason: s.id);
+      expect(core.clocksPerFrame, core.clocksInScanline * core.scanlinesInFrame,
+          reason: s.id);
     }
   });
 

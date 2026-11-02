@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:core';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'core_factory.dart';
@@ -8,6 +7,7 @@ import 'debugger.dart';
 import 'src/cdrom_drive.dart';
 import 'src/core.dart';
 import 'src/internal/frame_counter.dart';
+import 'src/internal/frame_pacer.dart';
 import 'src/pad_button.dart';
 import 'src/pad_source.dart';
 import 'src/sram.dart';
@@ -121,10 +121,9 @@ class CoreController {
 
   bool _stopRequested = false;
 
-  // Fixed event-loop yield; the remaining frame time also caps output at 60 FPS.
+  // Fixed event-loop yield within the core's frame period.
   static const frameYieldUs =
       int.fromEnvironment('FRAME_YIELD_US', defaultValue: 2000);
-  static const _minFrameUs = 16667;
 
   /// runs emulation continuously
   Future<void> run() {
@@ -143,11 +142,9 @@ class CoreController {
     // the emulation proceeds by the real time elapsed. when the core is slower
     // than the real time, the clocks behind are dropped instead of being
     // caught up later: the emulation slows down and the UI keeps running.
-    final clocksInFrame = _core.clocksInScanline * _core.scanlinesInFrame;
-    final clocksPerUs = _core.systemClockHz / 1000000;
     final watch = Stopwatch()..start();
     int lastUs = 0;
-    int frameDeadlineUs = 0;
+    final framePacer = FramePacer();
     double targetClocks = _currentCpuClocks.toDouble();
 
     _state.running = true;
@@ -156,6 +153,7 @@ class CoreController {
     try {
       while (!_stopRequested) {
         final nowUs = watch.elapsedMicroseconds;
+        final clocksPerUs = _core.systemClockHz / 1000000;
         targetClocks += (nowUs - lastUs) * clocksPerUs;
         lastUs = nowUs;
 
@@ -174,10 +172,14 @@ class CoreController {
           _fpsStream.add(fps);
         }
 
-        // Yield even when behind, and limit fast cores to 60 frames per second.
+        // Follow the core's frame period so audio keeps up with playback.
+        // Read it again because software can change video timing.
+        final clocksInFrame = _core.clocksPerFrame;
         final frameEndUs = watch.elapsedMicroseconds;
-        frameDeadlineUs =
-            max(frameDeadlineUs + _minFrameUs, frameEndUs + frameYieldUs);
+        final frameDeadlineUs = framePacer.advance(
+            clocksPerFrame: clocksInFrame,
+            clockHz: _core.systemClockHz,
+            minimumDeadlineUs: frameEndUs + frameYieldUs);
         await Future.delayed(Duration(
             milliseconds: (frameDeadlineUs - frameEndUs + 999) ~/ 1000));
 

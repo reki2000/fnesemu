@@ -30,6 +30,9 @@ class Ws extends Core {
   static const clocksInLine = 256;
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => clockHz;
 
   @override

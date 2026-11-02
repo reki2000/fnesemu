@@ -18,13 +18,18 @@ class Core extends CoreDebug {
             kind: DebugLayerKind.framebuffer),
       ];
 
+  /// Frequency of the clock domain used by execution results and frame timing.
+  /// May change when software selects a different clock mode.
   int get systemClockHz => throw UnimplementedError('Core.systemClockHz');
 
   int get scanlinesInFrame => throw UnimplementedError('Core.scanlinesInFrame');
   int get clocksInScanline => throw UnimplementedError('Core.clocksInScanline');
 
+  /// System clocks per frame in the current execution model and video mode.
+  int get clocksPerFrame => throw UnimplementedError('Core.clocksPerFrame');
+
   /// exec 1 cpu instruction and render image/audio if it passed enough cycles
-  /// returns current elapsed CPU cycles(clocks) and bool - false when unimplemented instruction is found
+  /// returns current elapsed system clocks and bool - false when unimplemented instruction is found
   ExecResult exec(bool step) => throw UnimplementedError('Core.exec');
 
   /// Executes until [scanlines] scanlines have been rendered, or execution

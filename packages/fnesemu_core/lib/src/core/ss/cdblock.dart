@@ -131,7 +131,8 @@ class CdBlock {
   int _sectorWait = 0;
   bool _standardSpeed = false;
 
-  static const _clockHz = 28636360;
+  static const clockHz = 28636360;
+  static const _clockHz = clockHz;
   static const _periodicClocks = _clockHz ~/ 60;
   int _periodicWait = _periodicClocks;
 

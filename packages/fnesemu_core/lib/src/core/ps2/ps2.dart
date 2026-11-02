@@ -154,6 +154,9 @@ class Ps2 extends Core {
   }
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => _systemClockHz;
 
   @override
@@ -247,7 +250,7 @@ class Ps2 extends Core {
 
   // ---- state ----
 
-  static const _stateVersion = 2;
+  static const _stateVersion = 3;
 
   /// The BIOS bytes and the disc TOC. The disc contents beyond the TOC are
   /// not compared, so a state only fits the disc it was saved with.

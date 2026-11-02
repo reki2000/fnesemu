@@ -261,20 +261,21 @@ class DcGpu {
     if (!spg.interlaced || field.buffer.isEmpty) {
       _presented = field;
     } else {
-      final pixels = Uint32List(field.width * field.height * 2)
-        ..fillRange(0, field.width * field.height * 2, 0xff000000);
-      if (_presented.width == field.width &&
-          _presented.height == field.height * 2) {
-        pixels.setAll(0, _presented.buffer);
+      final width = field.width, height = field.height * 2;
+      final displayHeight = field.displayHeight ?? field.height;
+      if (_presented.width != width ||
+          _presented.height != height ||
+          _presented.displayWidth != field.displayWidth ||
+          _presented.displayHeight != displayHeight) {
+        _presented = ImageBuffer(width, height,
+            Uint32List(width * height)..fillRange(0, width * height, 0xff000000),
+            displayWidth_: field.displayWidth, displayHeight: displayHeight);
       }
+      final pixels = _presented.buffer;
       for (var y = 0; y < field.height; y++) {
-        final target = (y * 2 + (field2 ? 1 : 0)) * field.width;
-        pixels.setRange(
-            target, target + field.width, field.buffer, y * field.width);
+        final target = (y * 2 + (field2 ? 1 : 0)) * width;
+        pixels.setRange(target, target + width, field.buffer, y * width);
       }
-      _presented = ImageBuffer(field.width, field.height * 2, pixels,
-          displayWidth_: field.displayWidth,
-          displayHeight: (field.displayHeight ?? field.height) * 2);
     }
     _activeSof1 = _sof1;
     _activeSof2 = _sof2;

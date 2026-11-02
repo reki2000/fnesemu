@@ -146,6 +146,9 @@ class N64 extends Core {
   final _result = ExecResult(0, false, false);
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => 93750000;
   @override
   int get scanlinesInFrame => 262;
@@ -246,6 +249,7 @@ class N64 extends Core {
       _nextLine += clocksInScanline;
       bus.scanline++;
       if (bus.scanline == scanlinesInFrame) {
+        bus.finishVideoField();
         bus.scanline = 0;
         _frame++;
       }
@@ -268,7 +272,7 @@ class N64 extends Core {
   @override
   void dispose() => jit?.dispose();
 
-  static const _stateVersion = 3;
+  static const _stateVersion = 4;
   int? _mediaHash;
   int get _media {
     final rom = _rom;

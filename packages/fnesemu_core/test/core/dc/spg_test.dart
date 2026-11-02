@@ -180,10 +180,13 @@ void main() {
     expect(bus.gpu.spg.field2, isTrue);
     expect(bus.read32(base + 0x10c) & 0x400, 0x400);
     expect(bus.gpu.presentedImage.buffer, [0xff332211, 0xff000000]);
+    final pixels = bus.gpu.presentedImage.buffer;
     bus.tickMasterClocks(200);
     expect(bus.gpu.spg.field2, isFalse);
+    expect(bus.gpu.presentedImage.buffer, same(pixels));
     expect(bus.gpu.presentedImage.buffer, [0xff332211, 0xff665544]);
     expect(bus.gpu.presentedImage.height, 2);
+    expect(bus.gpu.presentedImage.displayHeight, 1);
   });
 
   test('batched clocks preserve all counter/IRQ state and rational remainder',

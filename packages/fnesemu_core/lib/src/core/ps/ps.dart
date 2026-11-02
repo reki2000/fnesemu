@@ -119,6 +119,9 @@ class Ps extends Core {
   static const _systemClockHz = 33868800; // 33.8688MHz
 
   @override
+  int get clocksPerFrame => clocksInScanline * scanlinesInFrame;
+
+  @override
   int get systemClockHz => _systemClockHz;
 
   @override

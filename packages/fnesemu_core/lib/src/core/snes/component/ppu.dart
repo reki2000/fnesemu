@@ -29,11 +29,24 @@ class Ppu {
   static const height = 224;
 
   /// current scanline-buffer width: 256 normally, 512 in BG modes 5/6.
-  /// `buffer` is always allocated at the max size; only the first
-  /// `width * height` entries are meaningful after a frame renders.
+  /// The output buffer holds both fields in interlaced modes.
   int width = widthNormal;
 
-  final buffer = Uint32List(widthHires * height);
+  Uint32List buffer = Uint32List(widthNormal * height);
+  int setini = 0;
+  bool oddField = false;
+  bool get interlaced => setini.bit0;
+  int get displayLines => setini.bit2 ? 239 : height;
+  int get outputHeight => displayLines * (interlaced ? 2 : 1);
+
+  void resizeOutput() {
+    final nextWidth = bgMode == 5 || bgMode == 6 ? widthHires : widthNormal;
+    final length = nextWidth * outputHeight;
+    if (width != nextWidth || buffer.length != length) {
+      width = nextWidth;
+      buffer = Uint32List(length)..fillRange(0, length, 0xff000000);
+    }
+  }
 
   // Reused sprite row scratch space; renderer resets it before evaluation.
   final objLineColor = Int16List(widthNormal);
@@ -64,6 +77,9 @@ class Ppu {
 
   void reset() {
     width = widthNormal;
+    setini = 0;
+    oddField = false;
+    buffer = Uint32List(widthNormal * height);
     buffer.fillRange(0, buffer.length, 0xff000000);
     brightness = 0;
     forcedBlank = true;
@@ -481,6 +497,10 @@ class Ppu {
       case 0x2131: // CGADSUB
         cgadsub = val;
         break;
+      case 0x2133: // SETINI
+        setini = val;
+        resizeOutput();
+        break;
       case 0x2132: // COLDATA
         {
           final c = val.mask5;
@@ -542,7 +562,7 @@ class Ppu {
       case 0x213e: // STAT77
         return (rangeOver ? 0x40 : 0) | (timeOver ? 0x80 : 0) | 0x01;
       case 0x213f: // STAT78: version=1, NTSC; resets the OPHCT/OPVCT order
-        final v = (_latched ? 0x40 : 0) | 0x01;
+        final v = (oddField ? 0x80 : 0) | (_latched ? 0x40 : 0) | 0x01;
         _latched = _dotHigh = _lineHigh = false;
         return v;
       default:
