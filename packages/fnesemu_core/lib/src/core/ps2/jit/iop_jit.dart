@@ -2,12 +2,12 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../components/r3000/jit/r3000_translator.dart';
 import '../../../util/jit_adapter.dart';
 import '../iop/iop.dart';
 import '../iop/iop_memory.dart';
-import 'iop_translator.dart';
 
-/// Runs IOP code compiled by [IopTranslator].
+/// Runs IOP code compiled by [R3000Translator].
 ///
 /// Compiled blocks share RAM and the registers with the interpreter:
 /// the RAM is the runtime's buffer, mapped at its physical address, and
@@ -28,7 +28,7 @@ final class IopJit extends JitAdapter {
       Uint32List.sublistView(rt.ctx, ctxRegs, ctxRegs + 32);
   late final Iop cpu;
   late final IopMemory memory;
-  late final IopTranslator _translator;
+  late final R3000Translator _translator;
   late final _code = JitCodeMemory(rt);
   late final _driver = JitDriver(rt,
       translate: (pc, tag) {
@@ -41,12 +41,12 @@ final class IopJit extends JitAdapter {
       recompileInvalid: true);
   (int, int) _translating = (0, 0);
 
-  static const ctxRegs = JitCtx.user;
-  static const ctxHi = ctxRegs + 32, ctxLo = ctxHi + 1;
-  static const ctxPendingValue = ctxLo + 1;
+  static const ctxRegs = R3000Translator.ctxRegs;
+  static const ctxHi = R3000Translator.ctxHi, ctxLo = R3000Translator.ctxLo;
+  static const ctxPendingValue = R3000Translator.ctxPendingValue;
   static const _ctxWords = ctxPendingValue + 1;
-  static const reasonInterpret = JitReason.user;
-  static const reasonStore = JitReason.user + 1;
+  static const reasonInterpret = R3000Translator.reasonInterpret;
+  static const reasonStore = R3000Translator.reasonStore;
 
   IopJit._(super.rt, super.native, int? threshold, this.ram)
       : super(compileThreshold: threshold);
@@ -83,7 +83,7 @@ final class IopJit extends JitAdapter {
     this.cpu = cpu;
     this.memory = memory;
     _code.map(0, ram.length, ram);
-    _translator = IopTranslator(
+    _translator = R3000Translator(
       fetch: _fetch,
       endsAfterStore: _endsAfterStore,
       mfc0: rt.addHelper((reg, _, __) {
@@ -101,6 +101,9 @@ final class IopJit extends JitAdapter {
         rt.ctx[ctxLo] = lo;
         return 0;
       }),
+      ramSize: IopMemory.ramSize,
+      maxInstructions: 32,
+      clocksPerInstruction: 1,
     );
   }
 

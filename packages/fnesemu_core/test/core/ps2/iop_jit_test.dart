@@ -226,6 +226,34 @@ void main() {
     }
   });
 
+  aggCase('a write in the load delay slot wins over the load', () {
+    for (final jit in [
+      IopJit.create(compileThreshold: 1),
+      IopJit.create(native: false, compileThreshold: 1),
+    ]) {
+      if (jit == null) return;
+      addTearDown(jit.dispose);
+      final words = [
+        _i(9, 0, 1, 7), // addiu r1, zero, 7
+        _i(35, 0, 1, _data), // lw r1, data(zero): in flight at the addiu
+        _i(9, 1, 1, 1), // addiu r1, r1, 1: reads the old value, wins over the load
+        (2 << 26) | ((_base + 12) >> 2), // j self
+        0, // delay slot
+      ];
+      final (expected, _) = _load(null, words);
+      for (var i = 0; i < 4; i++) {
+        expected.step();
+      }
+      expect(expected.r[1], 8);
+      final (cpu, _) = _load(jit, words);
+      for (var guard = 0; cpu.pc != _base + 12 && guard < 100; guard++) {
+        if (jit.run(1) == 0) cpu.step();
+      }
+      expect(cpu.pc, _base + 12);
+      expect(cpu.r[1], 8);
+    }
+  });
+
   aggCase('a misaligned load hands its state to the interpreter', () {
     final jit = IopJit.create(compileThreshold: 1);
     if (jit == null) return;

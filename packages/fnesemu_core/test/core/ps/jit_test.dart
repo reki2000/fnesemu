@@ -603,6 +603,35 @@ void main() {
       expect(m.bus.read32(0x1f800000), 0x5678);
     });
 
+    aggCase('$name variable shifts mask the amount to five bits', () {
+      final jit = PsJit.create(native: native, compileThreshold: 1);
+      if (jit == null) {
+        aggSkipCase('no native recompiler on this host');
+        return;
+      }
+      addTearDown(jit.dispose);
+      final m = _Machine.jit(jit);
+      final program = [
+        _i(0x0f, 0, 2, 0x8001), // lui r2, 0x8001
+        _i(0x09, 0, 3, 33), // addiu r3, r0, 33
+        _r(0, 3, 2, 4, 0, 0x04), // sllv r4, r2, r3
+        _r(0, 3, 2, 5, 0, 0x06), // srlv r5, r2, r3
+        _r(0, 3, 2, 6, 0, 0x07), // srav r6, r2, r3
+        _i(0x09, 0, 3, 32), // addiu r3, r0, 32
+        _r(0, 3, 2, 7, 0, 0x04), // sllv r7, r2, r3
+        _r(0, 3, 2, 8, 0, 0x06), // srlv r8, r2, r3
+        _j(_code + 4 * 9),
+        0,
+      ];
+      m.load(program, Uint8List(512 * 1024), Uint8List(0));
+      m.run(_code + 4 * 9, Random(1));
+      expect(m.cpu.r[4], 0x00020000);
+      expect(m.cpu.r[5], 0x40008000);
+      expect(m.cpu.r[6], 0xc0008000);
+      expect(m.cpu.r[7], 0x80010000);
+      expect(m.cpu.r[8], 0x80010000);
+    });
+
     aggCase('$name blocks see code written by the program', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
