@@ -1,18 +1,8 @@
-// Synthetic benchmarks of the N64 core that need no ROM image on disc.
+// The N64 workloads of tool/bench.dart: synthetic benchmarks of the N64 core that need no ROM image on disc.
 //
-// usage: dart build cli -t tool/n64_bench.dart -o /tmp/n64-bench
-//        /tmp/n64-bench/bundle/bin/n64_bench
-//            <cpu|jit|frame|rdp-shaded|rdp-textured|rsp-audio> [rounds]
-//        (the jit workload needs the native library that dart build cli
-//        bundles; an executable from dart compile exe cannot load it)
-//        (dart run tool/n64_bench.dart ... also works, but its times are
-//        JIT VM times; build the AOT executable to decide speed, as in
-//        tool/dart_aot_tips.md)
+// The fixed integer loops of tool/n64_jit_bench.dart remain the targeted JIT comparison; the workloads here cover the wider hot paths of the core.
 //
-// The fixed integer loops of tool/n64_jit_bench.dart remain the targeted
-// JIT comparison; the workloads here cover the wider hot paths of the core.
-//
-// Every workload prints a checksum that a faster version must keep equal.
+// Every workload returns a checksum that a faster version must keep equal.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/n64/audio.dart';
@@ -21,6 +11,7 @@ import 'package:fnesemu_core/src/core/n64/cpu.dart';
 import 'package:fnesemu_core/src/core/n64/graphics.dart';
 import 'package:fnesemu_core/src/core/n64/jit/n64_jit.dart';
 import 'package:fnesemu_core/src/core/n64/n64.dart';
+import 'workload.dart';
 
 int _r(int rs, int rt, int rd, int funct, [int shift = 0]) =>
     rs << 21 | rt << 16 | rd << 11 | shift << 6 | funct;
@@ -290,33 +281,13 @@ void _drawTriangles(N64Graphics g, int count, _Lcg rng, bool textured) {
   return (checksum, tasks * 1024);
 }
 
-void main(List<String> args) {
-  final name = args.isEmpty ? 'cpu' : args[0];
-  final rounds = args.length > 1 ? int.parse(args[1]) : 5;
-  final (run, unit) = switch (name) {
-    'cpu' => (_runCpu, 'instructions'),
-    'jit' => (_runJit, 'instructions'),
-    'frame' => (_runFrame, 'frames'),
-    'rdp-shaded' => (_runRdpShaded, 'triangles'),
-    'rdp-textured' => (_runRdpTextured, 'triangles'),
-    'rsp-audio' => (_runRspAudio, 'samples'),
-    _ => throw ArgumentError('unknown workload: $name'),
-  };
-  int? checksum;
-  var best = double.infinity;
-  for (var round = 0; round < rounds; round++) {
-    final sw = Stopwatch()..start();
-    final (hashOf, count) = run();
-    sw.stop();
-    final hash = hashOf();
-    checksum ??= hash;
-    if (hash != checksum) {
-      throw StateError('checksum changed between rounds: $hash');
-    }
-    final ms = sw.elapsedMicroseconds / 1000;
-    if (ms < best) best = ms;
-    print('round $round: ${ms.toStringAsFixed(1)} ms '
-        '(${(count / (ms / 1000)).toStringAsFixed(0)} $unit/s)');
-  }
-  print('$name: best ${best.toStringAsFixed(1)} ms, checksum $checksum');
-}
+// The workloads of this core, by name.
+// The first entry is the default workload of the core.
+final n64Workloads = <String, BenchWorkload>{
+  'cpu': (run: _runCpu, unit: 'instructions'),
+  'jit': (run: _runJit, unit: 'instructions'),
+  'frame': (run: _runFrame, unit: 'frames'),
+  'rdp-shaded': (run: _runRdpShaded, unit: 'triangles'),
+  'rdp-textured': (run: _runRdpTextured, unit: 'triangles'),
+  'rsp-audio': (run: _runRspAudio, unit: 'samples'),
+};

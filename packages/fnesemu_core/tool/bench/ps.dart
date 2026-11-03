@@ -1,20 +1,12 @@
-// Synthetic benchmarks of the PS1 core that need no BIOS or disc.
+// The PS workloads of tool/bench.dart: synthetic benchmarks of the PS1 core that need no BIOS or disc.
 //
-// usage: dart build cli -t tool/ps_bench.dart -o /tmp/ps-bench
-//        /tmp/ps-bench/bundle/bin/ps_bench
-//            <cpu|jit|gte|gpu-gouraud|gpu-textured|spu> [rounds]
-//        (the jit workload needs the native library that dart build cli
-//        bundles; an executable from dart compile exe cannot load it)
-//        (dart run tool/ps_bench.dart ... also works, but its times are
-//        JIT VM times; build the AOT executable to decide speed, as in
-//        tool/dart_aot_tips.md)
-//
-// Every workload prints a checksum that a faster version must keep equal.
+// Every workload returns a checksum that a faster version must keep equal.
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:fnesemu_core/src/core/ps/gpu/gpu.dart';
 import 'package:fnesemu_core/src/core/ps/jit/ps_jit.dart';
 import 'package:fnesemu_core/src/core/ps/ps.dart';
 import 'package:fnesemu_core/src/core/ps/r3000/r3000.dart';
+import 'workload.dart';
 
 int _r(int rs, int rt, int rd, int funct, [int shift = 0]) =>
     rs << 21 | rt << 16 | rd << 11 | shift << 6 | funct;
@@ -273,33 +265,13 @@ class _Lcg {
   return (() => checksum, samples);
 }
 
-void main(List<String> args) {
-  final name = args.isEmpty ? 'cpu' : args[0];
-  final rounds = args.length > 1 ? int.parse(args[1]) : 5;
-  final (run, unit) = switch (name) {
-    'cpu' => (_runCpu, 'instructions'),
-    'jit' => (_runJit, 'instructions'),
-    'gte' => (_runGte, 'commands'),
-    'gpu-gouraud' => (_runGpuGouraud, 'triangles'),
-    'gpu-textured' => (_runGpuTextured, 'triangles'),
-    'spu' => (_runSpu, 'samples'),
-    _ => throw ArgumentError('unknown workload: $name'),
-  };
-  int? checksum;
-  var best = double.infinity;
-  for (var round = 0; round < rounds; round++) {
-    final sw = Stopwatch()..start();
-    final (hashOf, count) = run();
-    sw.stop();
-    final hash = hashOf();
-    checksum ??= hash;
-    if (hash != checksum) {
-      throw StateError('checksum changed between rounds: $hash');
-    }
-    final ms = sw.elapsedMicroseconds / 1000;
-    if (ms < best) best = ms;
-    print('round $round: ${ms.toStringAsFixed(1)} ms '
-        '(${(count / (ms / 1000)).toStringAsFixed(0)} $unit/s)');
-  }
-  print('$name: best ${best.toStringAsFixed(1)} ms, checksum $checksum');
-}
+// The workloads of this core, by name.
+// The first entry is the default workload of the core.
+final psWorkloads = <String, BenchWorkload>{
+  'cpu': (run: _runCpu, unit: 'instructions'),
+  'jit': (run: _runJit, unit: 'instructions'),
+  'gte': (run: _runGte, unit: 'commands'),
+  'gpu-gouraud': (run: _runGpuGouraud, unit: 'triangles'),
+  'gpu-textured': (run: _runGpuTextured, unit: 'triangles'),
+  'spu': (run: _runSpu, unit: 'samples'),
+};

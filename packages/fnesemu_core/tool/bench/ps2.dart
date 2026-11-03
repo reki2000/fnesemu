@@ -1,16 +1,6 @@
-// Synthetic benchmarks of the PS2 core that need no BIOS or disc.
+// The PS2 workloads of tool/bench.dart: synthetic benchmarks of the PS2 core that need no BIOS or disc.
 //
-// usage: dart build cli -t tool/ps2_bench.dart -o /tmp/ps2-bench
-//        /tmp/ps2-bench/bundle/bin/ps2_bench
-//            <ee|ee-fpu|jit|vu|dma|gs-sprite|gs-tri|gs-occlusion|iop|spu2>
-//            [rounds]
-//        (the jit workload needs the native library that dart build cli
-//        bundles; an executable from dart compile exe cannot load it)
-//        (dart run tool/ps2_bench.dart ... also works, but its times are
-//        JIT VM times; build the AOT executable to decide speed, as in
-//        tool/dart_aot_tips.md)
-//
-// Every workload prints a checksum that a faster version must keep equal.
+// Every workload returns a checksum that a faster version must keep equal.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
@@ -21,6 +11,7 @@ import 'package:fnesemu_core/src/core/ps2/iop/spu2.dart';
 import 'package:fnesemu_core/src/core/ps2/jit/ps2_jit.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:fnesemu_core/src/core/ps2/vu.dart';
+import 'workload.dart';
 
 int _r(int rs, int rt, int rd, int funct, [int shift = 0]) =>
     rs << 21 | rt << 16 | rd << 11 | shift << 6 | funct;
@@ -404,37 +395,17 @@ const _iopEnd = _iopCode + 4 * 16;
   return (checksum, samples);
 }
 
-void main(List<String> args) {
-  final name = args.isEmpty ? 'ee' : args[0];
-  final rounds = args.length > 1 ? int.parse(args[1]) : 5;
-  final (run, unit) = switch (name) {
-    'ee' => (_runEe, 'instructions'),
-    'ee-fpu' => (_runFpu, 'instructions'),
-    'jit' => (_runJit, 'instructions'),
-    'vu' => (_runVu, 'pairs'),
-    'dma' => (_runDma, 'quadword halves'),
-    'gs-sprite' => (_runGsSprite, 'pixels'),
-    'gs-tri' => (_runGsTri, 'triangles'),
-    'gs-occlusion' => (_runGsOcclusion, 'pixels'),
-    'iop' => (_runIop, 'instructions'),
-    'spu2' => (_runSpu2, 'samples'),
-    _ => throw ArgumentError('unknown workload: $name'),
-  };
-  int? checksum;
-  var best = double.infinity;
-  for (var round = 0; round < rounds; round++) {
-    final sw = Stopwatch()..start();
-    final (hashOf, count) = run();
-    sw.stop();
-    final hash = hashOf();
-    checksum ??= hash;
-    if (hash != checksum) {
-      throw StateError('checksum changed between rounds: $hash');
-    }
-    final ms = sw.elapsedMicroseconds / 1000;
-    if (ms < best) best = ms;
-    print('round $round: ${ms.toStringAsFixed(1)} ms '
-        '(${(count / (ms / 1000)).toStringAsFixed(0)} $unit/s)');
-  }
-  print('$name: best ${best.toStringAsFixed(1)} ms, checksum $checksum');
-}
+// The workloads of this core, by name.
+// The first entry is the default workload of the core.
+final ps2Workloads = <String, BenchWorkload>{
+  'ee': (run: _runEe, unit: 'instructions'),
+  'ee-fpu': (run: _runFpu, unit: 'instructions'),
+  'jit': (run: _runJit, unit: 'instructions'),
+  'vu': (run: _runVu, unit: 'pairs'),
+  'dma': (run: _runDma, unit: 'quadword halves'),
+  'gs-sprite': (run: _runGsSprite, unit: 'pixels'),
+  'gs-tri': (run: _runGsTri, unit: 'triangles'),
+  'gs-occlusion': (run: _runGsOcclusion, unit: 'pixels'),
+  'iop': (run: _runIop, unit: 'instructions'),
+  'spu2': (run: _runSpu2, unit: 'samples'),
+};

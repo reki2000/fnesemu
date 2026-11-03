@@ -1,15 +1,6 @@
-// Synthetic benchmarks of the DC core that need no BIOS or disc.
+// The DC workloads of tool/bench.dart: synthetic benchmarks of the DC core that need no BIOS or disc.
 //
-// usage: dart build cli -t tool/dc_bench.dart -o /tmp/dc-bench
-//        /tmp/dc-bench/bundle/bin/dc_bench
-//            <cpu|jit|fpu|frame|gpu|aica> [rounds]
-//        (the jit workload needs the native library that dart build cli
-//        bundles; an executable from dart compile exe cannot load it)
-//        (dart run tool/dc_bench.dart ... also works, but its times are
-//        JIT VM times; build the AOT executable to decide speed, as in
-//        tool/dart_aot_tips.md)
-//
-// Every workload prints a checksum that a faster version must keep equal.
+// Every workload returns a checksum that a faster version must keep equal.
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/dc/bus.dart';
@@ -17,6 +8,7 @@ import 'package:fnesemu_core/src/core/dc/dc.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
+import 'workload.dart';
 
 const _code = 0x8c010000, _data = 0x8c020000;
 
@@ -349,33 +341,13 @@ int _floatBits(double value) {
   return result;
 }
 
-void main(List<String> args) {
-  final name = args.isEmpty ? 'cpu' : args[0];
-  final rounds = args.length > 1 ? int.parse(args[1]) : 5;
-  final (run, unit) = switch (name) {
-    'cpu' => (_runCpu, 'instructions'),
-    'jit' => (_runJit, 'instructions'),
-    'fpu' => (_runFpu, 'instructions'),
-    'frame' => (_runFrame, 'clocks'),
-    'gpu' => (_runGpu, 'triangles'),
-    'aica' => (_runAica, 'samples'),
-    _ => throw ArgumentError('unknown workload: $name'),
-  };
-  int? checksum;
-  var best = double.infinity;
-  for (var round = 0; round < rounds; round++) {
-    final sw = Stopwatch()..start();
-    final (hashOf, count) = run();
-    sw.stop();
-    final hash = hashOf();
-    checksum ??= hash;
-    if (hash != checksum) {
-      throw StateError('checksum changed between rounds: $hash');
-    }
-    final ms = sw.elapsedMicroseconds / 1000;
-    if (ms < best) best = ms;
-    print('round $round: ${ms.toStringAsFixed(1)} ms '
-        '(${(count / (ms / 1000)).toStringAsFixed(0)} $unit/s)');
-  }
-  print('$name: best ${best.toStringAsFixed(1)} ms, checksum $checksum');
-}
+// The workloads of this core, by name.
+// The first entry is the default workload of the core.
+final dcWorkloads = <String, BenchWorkload>{
+  'cpu': (run: _runCpu, unit: 'instructions'),
+  'jit': (run: _runJit, unit: 'instructions'),
+  'fpu': (run: _runFpu, unit: 'instructions'),
+  'frame': (run: _runFrame, unit: 'clocks'),
+  'gpu': (run: _runGpu, unit: 'triangles'),
+  'aica': (run: _runAica, unit: 'samples'),
+};
