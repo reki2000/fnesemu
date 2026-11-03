@@ -178,6 +178,17 @@ class StateReader {
   }
 }
 
+/// Continues an FNV-1a hash [h] over single integer [values], one step of
+/// `(h ^ value) * prime` per value; the values are not masked, matching the
+/// steps cores used to fold media fields such as TOC entries into a hash
+/// started by [stateMediaHash].
+int stateMediaHashAll(int h, Iterable<int> values) {
+  for (final v in values) {
+    h = (h ^ v) * 0x100000001b3;
+  }
+  return h;
+}
+
 /// FNV-1a over [bytes], used as the media identity of a state.
 int stateMediaHash(List<int> bytes) {
   // Parse the signed offset so JavaScript fallback compilation has no inexact literal.
@@ -186,8 +197,5 @@ int stateMediaHash(List<int> bytes) {
   if (BigInt.from(h) != offset) {
     throw UnsupportedError('State media hashes require exact 64-bit integers');
   }
-  for (final b in bytes) {
-    h = (h ^ b) * 0x100000001b3;
-  }
-  return h;
+  return stateMediaHashAll(h, bytes);
 }

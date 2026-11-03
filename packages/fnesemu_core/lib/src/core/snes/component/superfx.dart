@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'bus.dart';
 
 /// Super FX (GSU): a cartridge risc cpu which draws polygons into its own
@@ -56,6 +57,69 @@ class SuperFx {
   final _cacheValid = List<bool>.filled(32, false);
 
   int _clock = 0; // master clocks run
+
+  /// Saves the GSU RAM, the registers and flags, the pipeline, the code cache and the clock.
+  void saveState(StateWriter w) {
+    w.section('snes-superfx');
+    w.bytes(ram);
+    w.bytes(_cache);
+    w.ints(r);
+    w.ints([
+      _pipeline, _il, _ih, _sreg, _dreg, _pbr, _rombr, _rambr, _cbr, _scbr,
+      _scmr, _cfgr, _clsr, _colr, _por, _romdr, _ramaddr, _clock,
+    ]);
+    for (final flag in [
+      _r15Modified, _z, _cy, _s, _ov, _g, _alt1, _alt2, _b, _irq,
+      ..._cacheValid,
+    ]) {
+      w.boolean(flag);
+    }
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-superfx');
+    s.bytesInto(ram);
+    s.bytesInto(_cache);
+    final regs = s.ints();
+    if (regs.length != 16) {
+      throw const StateMismatch('snes superfx state layout');
+    }
+    r.setAll(0, regs);
+    final v = s.ints();
+    if (v.length != 18) throw const StateMismatch('snes superfx state layout');
+    _pipeline = v[0];
+    _il = v[1];
+    _ih = v[2];
+    _sreg = v[3];
+    _dreg = v[4];
+    _pbr = v[5];
+    _rombr = v[6];
+    _rambr = v[7];
+    _cbr = v[8];
+    _scbr = v[9];
+    _scmr = v[10];
+    _cfgr = v[11];
+    _clsr = v[12];
+    _colr = v[13];
+    _por = v[14];
+    _romdr = v[15];
+    _ramaddr = v[16];
+    _clock = v[17];
+    _r15Modified = s.boolean();
+    _z = s.boolean();
+    _cy = s.boolean();
+    _s = s.boolean();
+    _ov = s.boolean();
+    _g = s.boolean();
+    _alt1 = s.boolean();
+    _alt2 = s.boolean();
+    _b = s.boolean();
+    _irq = s.boolean();
+    for (var i = 0; i < _cacheValid.length; i++) {
+      _cacheValid[i] = s.boolean();
+    }
+  }
 
   void reset() {
     r.fillRange(0, 16, 0);

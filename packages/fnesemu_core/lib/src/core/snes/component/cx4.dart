@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// Cx4 (manufacturer HG51B169): a cartridge risc cpu which runs 16-bit opcodes
 /// from the cartridge rom, with 3KB of ram, a 1024 x 24-bit data rom of math
@@ -40,6 +41,52 @@ class Cx4 {
   bool _n = false, _z = false, _c = false;
   final _stack = <int>[];
   final _r = List<int>.filled(16, 0);
+
+  /// Saves the RAM, the I/O registers, the CPU registers and flags, the return stack and the program base.
+  void saveState(StateWriter w) {
+    w.section('snes-cx4');
+    w.bytes(ram);
+    w.bytes(_io);
+    w.ints([
+      _a, _mh, _ml, _extDta, _extPtr, _romDta, _ramDta, _ramPtr, _page, _pc,
+      _prgPage, _programBase,
+    ]);
+    w.boolean(_n);
+    w.boolean(_z);
+    w.boolean(_c);
+    w.ints(_r);
+    w.ints(_stack);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-cx4');
+    s.bytesInto(ram);
+    s.bytesInto(_io);
+    final v = s.ints();
+    if (v.length != 12) throw const StateMismatch('snes cx4 state layout');
+    _a = v[0];
+    _mh = v[1];
+    _ml = v[2];
+    _extDta = v[3];
+    _extPtr = v[4];
+    _romDta = v[5];
+    _ramDta = v[6];
+    _ramPtr = v[7];
+    _page = v[8];
+    _pc = v[9];
+    _prgPage = v[10];
+    _programBase = v[11];
+    _n = s.boolean();
+    _z = s.boolean();
+    _c = s.boolean();
+    final r = s.ints();
+    if (r.length != 16) throw const StateMismatch('snes cx4 state layout');
+    _r.setAll(0, r);
+    _stack
+      ..clear()
+      ..addAll(s.ints());
+  }
 
   static final dataRom = _buildDataRom();
 

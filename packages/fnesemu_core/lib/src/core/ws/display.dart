@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// the LCD controller of the mono and color consoles: two tile
 /// layers and sprites, rendered one line at a time
@@ -37,6 +38,27 @@ class Display {
     _spriteCount = 0;
     _back.fillRange(0, _back.length, 0xffffffff);
     _front.fillRange(0, _front.length, 0xffffffff);
+  }
+
+  // Typed arrays are saved as their raw bytes, in host byte order.
+  void saveState(StateWriter w) {
+    w.section('ws-display');
+    w.bytes(_sprites);
+    w.int32(_spriteCount);
+    w.bytes(
+        _front.buffer.asUint8List(_front.offsetInBytes, _front.lengthInBytes));
+    w.bytes(
+        _back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
+  }
+
+  void loadState(StateReader s) {
+    s.section('ws-display');
+    s.bytesInto(_sprites);
+    _spriteCount = s.int32();
+    s.bytesInto(
+        _front.buffer.asUint8List(_front.offsetInBytes, _front.lengthInBytes));
+    s.bytesInto(
+        _back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
   }
 
   bool get colorMode => color && io[0x60].bit7;

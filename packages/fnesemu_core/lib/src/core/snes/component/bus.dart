@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../pad_source.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import '../rom/snes_file.dart';
 import 'apu.dart';
@@ -401,6 +402,49 @@ class Bus implements CpuBus {
   void leaveVBlank() {
     _hvbjoy &= ~0x80;
     _nmiFlag = false; // RDNMI is also cleared when vblank ends
+  }
+
+  /// Saves the work RAM, the cartridge RAM contents (read and written through the cartridge's backing hooks so battery-backed RAM round-trips), the MMIO scratch and the console interrupt and multiply/divide registers.
+  void saveState(StateWriter w) {
+    w.section('snes-bus');
+    w.bytes(wram);
+    w.bytes(_mmio);
+    final sramBytes = Uint8List(sram.length);
+    for (var i = 0; i < sramBytes.length; i++) {
+      sramBytes[i] = sramRead(i);
+    }
+    w.bytes(sramBytes);
+    w.ints([_irqMode, _hTime, _vTime, _hvbjoy, _wramAddr, _mulResult, _divResult]);
+    w.boolean(_nmiFlag);
+    w.boolean(_nmiEnabled);
+    w.boolean(_irqFlag);
+    pad.saveState(w);
+    dma.saveState(w);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-bus');
+    s.bytesInto(wram);
+    s.bytesInto(_mmio);
+    final sramBytes = s.bytes();
+    for (var i = 0; i < sramBytes.length; i++) {
+      sramWrite(i, sramBytes[i]);
+    }
+    final v = s.ints();
+    if (v.length != 7) throw const StateMismatch('snes bus state layout');
+    _irqMode = v[0];
+    _hTime = v[1];
+    _vTime = v[2];
+    _hvbjoy = v[3];
+    _wramAddr = v[4];
+    _mulResult = v[5];
+    _divResult = v[6];
+    _nmiFlag = s.boolean();
+    _nmiEnabled = s.boolean();
+    _irqFlag = s.boolean();
+    pad.loadState(s);
+    dma.loadState(s);
   }
 
   void onReset() {

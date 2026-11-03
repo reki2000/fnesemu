@@ -456,9 +456,8 @@ class Ss extends Core {
   /// with. The drive's sector cache is not saved: a restored run may wait
   /// for sectors that the original run had cached.
   int get _media {
-    var h = stateMediaHash(bus.bios);
     final toc = cdblock.disc.status.toc;
-    for (final v in [
+    return stateMediaHashAll(stateMediaHash(bus.bios), [
       toc.totalSectors,
       for (final t in toc.tracks) ...[
         t.number,
@@ -466,10 +465,7 @@ class Ss extends Core {
         t.startLba,
         t.sectors
       ],
-    ]) {
-      h = (h ^ v) * 0x100000001b3;
-    }
-    return h;
+    ]);
   }
 
   @override

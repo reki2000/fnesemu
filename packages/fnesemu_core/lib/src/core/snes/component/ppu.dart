@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// per-BG register group (BG1-4 share the same register shapes).
 class BgRegs {
@@ -320,6 +321,130 @@ class Ppu {
   int _latchedDot = 0, _latchedLine = 0;
   bool _dotHigh = false, _lineHigh = false, _latched = false;
   bool timeOver = false; // >34 tiles on a scanline
+
+  /// Saves VRAM, CGRAM and OAM, every register and write latch, the per-BG register groups and the rendered image; the per-scanline renderer caches are rebuilt from the registers on the next line and are not saved.
+  void saveState(StateWriter w) {
+    w.section('snes-ppu');
+    w.ints([
+      width, setini, brightness, objSizeSel, objGap, objBase, oamAddr,
+      _oamByte, _oamLowByte, bgMode, _bgOfsLatch, _hofsLatch, vramAddr,
+      vramIncAmount, _vramReadBuf, cgramAddr, _cgramLowByte, mainScreenEnable,
+      subScreenEnable, w12sel, w34sel, wobjsel, w1Left, w1Right, w2Left,
+      w2Right, wbglog, wobjlog, tmw, tsw, cgwsel, cgadsub, fixedColorR,
+      fixedColorG, fixedColorB, mosaicSize, mosaicEnable, m7sel, m7a, m7b,
+      m7c, m7d, m7x, m7y, m7hofs, m7vofs, _m7Latch, _m7bByte, mpyResult,
+      _latchedDot, _latchedLine,
+    ]);
+    w.boolean(oddField);
+    w.boolean(forcedBlank);
+    w.boolean(bg3Priority);
+    w.boolean(vramIncHigh);
+    w.boolean(cgramLatchHigh);
+    w.boolean(rangeOver);
+    w.boolean(timeOver);
+    w.boolean(_dotHigh);
+    w.boolean(_lineHigh);
+    w.boolean(_latched);
+    for (final bg in bgs) {
+      w.ints([bg.tilemapAddr, bg.charBase, bg.hofs, bg.vofs]);
+      w.boolean(bg.wideX);
+      w.boolean(bg.wideY);
+      w.boolean(bg.bigChar);
+    }
+    w.bytes(vram);
+    w.bytes(cgram);
+    w.bytes(oam);
+    w.bytes(Uint8List.view(buffer.buffer, 0, buffer.lengthInBytes));
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-ppu');
+    final v = s.ints();
+    if (v.length != 51) throw const StateMismatch('snes ppu state layout');
+    width = v[0];
+    setini = v[1];
+    brightness = v[2];
+    objSizeSel = v[3];
+    objGap = v[4];
+    objBase = v[5];
+    oamAddr = v[6];
+    _oamByte = v[7];
+    _oamLowByte = v[8];
+    bgMode = v[9];
+    _bgOfsLatch = v[10];
+    _hofsLatch = v[11];
+    vramAddr = v[12];
+    vramIncAmount = v[13];
+    _vramReadBuf = v[14];
+    cgramAddr = v[15];
+    _cgramLowByte = v[16];
+    mainScreenEnable = v[17];
+    subScreenEnable = v[18];
+    w12sel = v[19];
+    w34sel = v[20];
+    wobjsel = v[21];
+    w1Left = v[22];
+    w1Right = v[23];
+    w2Left = v[24];
+    w2Right = v[25];
+    wbglog = v[26];
+    wobjlog = v[27];
+    tmw = v[28];
+    tsw = v[29];
+    cgwsel = v[30];
+    cgadsub = v[31];
+    fixedColorR = v[32];
+    fixedColorG = v[33];
+    fixedColorB = v[34];
+    mosaicSize = v[35];
+    mosaicEnable = v[36];
+    m7sel = v[37];
+    m7a = v[38];
+    m7b = v[39];
+    m7c = v[40];
+    m7d = v[41];
+    m7x = v[42];
+    m7y = v[43];
+    m7hofs = v[44];
+    m7vofs = v[45];
+    _m7Latch = v[46];
+    _m7bByte = v[47];
+    mpyResult = v[48];
+    _latchedDot = v[49];
+    _latchedLine = v[50];
+    oddField = s.boolean();
+    forcedBlank = s.boolean();
+    bg3Priority = s.boolean();
+    vramIncHigh = s.boolean();
+    cgramLatchHigh = s.boolean();
+    rangeOver = s.boolean();
+    timeOver = s.boolean();
+    _dotHigh = s.boolean();
+    _lineHigh = s.boolean();
+    _latched = s.boolean();
+    for (final bg in bgs) {
+      final bv = s.ints();
+      if (bv.length != 4) throw const StateMismatch('snes ppu state layout');
+      bg.tilemapAddr = bv[0];
+      bg.charBase = bv[1];
+      bg.hofs = bv[2];
+      bg.vofs = bv[3];
+      bg.wideX = s.boolean();
+      bg.wideY = s.boolean();
+      bg.bigChar = s.boolean();
+    }
+    s.bytesInto(vram);
+    s.bytesInto(cgram);
+    s.bytesInto(oam);
+    final image = s.bytes();
+    if (image.length == buffer.lengthInBytes) {
+      Uint8List.view(buffer.buffer, 0, buffer.lengthInBytes).setAll(0, image);
+    } else {
+      buffer = Uint32List(image.length ~/ 4);
+      Uint8List.view(buffer.buffer).setAll(0, image);
+    }
+  }
 
   // -------------------------------------------------------------- ports
   /// handles a CPU write to a PPU register in $2100-$213F.

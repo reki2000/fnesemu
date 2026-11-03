@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'dsp.dart';
 
@@ -58,6 +61,48 @@ class Spc700 {
   final timerOut = List<int>.filled(3, 0); // $FD-FF, 4-bit, read-clears
   final _timerEnabled = List<bool>.filled(3, false);
   final _timerDiv = List<int>.filled(3, 0); // stage-1 prescaler counter
+
+  /// Saves the 64KB RAM, the registers, the CPU ports, the timers and the DSP state.
+  void saveState(StateWriter w) {
+    w.section('snes-spc');
+    w.bytes(Uint8List.fromList(ram));
+    w.ints([
+      a, x, y, sp, psw, pc, cycle, test, control, dspAddr, ...portIn,
+      ...portOut, ...timerTarget, ...timerOut, ..._timerDiv, ..._stage2,
+    ]);
+    for (final enabled in _timerEnabled) {
+      w.boolean(enabled);
+    }
+    dsp.saveState(w);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-spc');
+    ram.setAll(0, s.bytes());
+    final v = s.ints();
+    if (v.length != 30) throw const StateMismatch('snes spc state layout');
+    a = v[0];
+    x = v[1];
+    y = v[2];
+    sp = v[3];
+    psw = v[4];
+    pc = v[5];
+    cycle = v[6];
+    test = v[7];
+    control = v[8];
+    dspAddr = v[9];
+    portIn.setAll(0, v.sublist(10, 14));
+    portOut.setAll(0, v.sublist(14, 18));
+    timerTarget.setAll(0, v.sublist(18, 21));
+    timerOut.setAll(0, v.sublist(21, 24));
+    _timerDiv.setAll(0, v.sublist(24, 27));
+    _stage2.setAll(0, v.sublist(27, 30));
+    for (var i = 0; i < _timerEnabled.length; i++) {
+      _timerEnabled[i] = s.boolean();
+    }
+    dsp.loadState(s);
+  }
 
   void reset() {
     a = 0;

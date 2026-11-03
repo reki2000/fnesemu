@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fnesemu_core/src/components/sh2/bus.dart';
 import 'package:fnesemu_core/src/components/sh2/jit/jit.dart';
 import 'package:fnesemu_core/src/core/md/32x/sh2/sh2.dart';
 import 'package:test/test.dart';

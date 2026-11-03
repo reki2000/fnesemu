@@ -59,20 +59,28 @@ class Ps2 extends Core {
   }
 
   @override
-  Iterable<JitDiagnostics> get jitDiagnostics =>
-      jit == null ? const [] : [jit!.diagnostics];
+  Iterable<JitDiagnostics> get jitDiagnostics => [
+        if (jit != null) jit!.diagnostics,
+        if (iopJit != null) iopJit!.diagnostics,
+      ];
 
   @override
-  bool get jitEnabled => jit?.native ?? false;
+  bool get jitEnabled =>
+      (jit?.native ?? false) || (iopJit?.native ?? false);
 
   @override
-  bool get jitSuspended => jit?.suspended ?? false;
+  bool get jitSuspended =>
+      (jit?.suspended ?? false) || (iopJit?.suspended ?? false);
 
   @override
-  set jitSuspended(bool value) => jit?.suspended = value;
+  set jitSuspended(bool value) {
+    jit?.suspended = value;
+    iopJit?.suspended = value;
+  }
 
   @override
-  int get jitClocks => jit?.compiledClocks ?? 0;
+  int get jitClocks =>
+      (jit?.compiledClocks ?? 0) + (iopJit?.compiledClocks ?? 0);
 
   @override
   void dispose() {
@@ -255,16 +263,13 @@ class Ps2 extends Core {
   /// The BIOS bytes and the disc TOC. The disc contents beyond the TOC are
   /// not compared, so a state only fits the disc it was saved with.
   int get _media {
-    var h = stateMediaHash(bus.bios);
     final toc = _drive?.status.toc;
-    if (toc != null) {
-      for (final t in toc.tracks) {
-        h = (h ^ t.startLba) * 0x100000001b3;
-        h = (h ^ t.sectors) * 0x100000001b3;
-      }
-      h = (h ^ toc.totalSectors) * 0x100000001b3;
-    }
-    return h;
+    return stateMediaHashAll(stateMediaHash(bus.bios), [
+      if (toc != null) ...[
+        for (final t in toc.tracks) ...[t.startLba, t.sectors],
+        toc.totalSectors,
+      ],
+    ]);
   }
 
   /// Saves the state at a frame boundary. The drive's sector cache is not

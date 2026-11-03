@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'spc700.dart';
 
@@ -57,6 +58,79 @@ class Dsp {
   int _noiseLfsr = 0x4000; // 15-bit, must stay non-zero
   int _noiseTick = 0;
   int _noiseSampleValue = 0;
+
+  /// Saves the global registers, the noise generator and echo position, the unimplemented-register scratch and every voice's playback and envelope state.
+  void saveState(StateWriter w) {
+    w.section('snes-dsp');
+    w.ints([
+      mainVolL, mainVolR, dir, flg, endx, nonMask, eonMask, efb, evolL, evolR,
+      esa, edl, _noiseLfsr, _noiseTick, _noiseSampleValue, _echoPos,
+    ]);
+    w.ints(_scratch);
+    for (final v in voices) {
+      w.ints([
+        v.volL, v.volR, v.pitch, v.srcn, v.adsr1, v.adsr2, v.gain, v.envx,
+        v.outx, v.brrAddr, v.nibbleIndex, v.pitchCounter, v.hist1, v.hist2,
+        v.env, v.envTick, v.envMode.index, ...v.decoded,
+      ]);
+      w.boolean(v.keyOn);
+      w.boolean(v.blockEnd);
+      w.boolean(v.blockLoop);
+    }
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-dsp');
+    final g = s.ints();
+    if (g.length != 16) throw const StateMismatch('snes dsp state layout');
+    mainVolL = g[0];
+    mainVolR = g[1];
+    dir = g[2];
+    flg = g[3];
+    endx = g[4];
+    nonMask = g[5];
+    eonMask = g[6];
+    efb = g[7];
+    evolL = g[8];
+    evolR = g[9];
+    esa = g[10];
+    edl = g[11];
+    _noiseLfsr = g[12];
+    _noiseTick = g[13];
+    _noiseSampleValue = g[14];
+    _echoPos = g[15];
+    final scratch = s.ints();
+    if (scratch.length != _scratch.length) {
+      throw const StateMismatch('snes dsp state layout');
+    }
+    _scratch.setAll(0, scratch);
+    for (final v in voices) {
+      final t = s.ints();
+      if (t.length != 33) throw const StateMismatch('snes dsp state layout');
+      v.volL = t[0];
+      v.volR = t[1];
+      v.pitch = t[2];
+      v.srcn = t[3];
+      v.adsr1 = t[4];
+      v.adsr2 = t[5];
+      v.gain = t[6];
+      v.envx = t[7];
+      v.outx = t[8];
+      v.brrAddr = t[9];
+      v.nibbleIndex = t[10];
+      v.pitchCounter = t[11];
+      v.hist1 = t[12];
+      v.hist2 = t[13];
+      v.env = t[14];
+      v.envTick = t[15];
+      v.envMode = EnvMode.values[t[16]];
+      v.decoded.setAll(0, t.sublist(17));
+      v.keyOn = s.boolean();
+      v.blockEnd = s.boolean();
+      v.blockLoop = s.boolean();
+    }
+  }
 
   int _echoPos = 0; // byte offset within the echo buffer
 

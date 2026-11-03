@@ -212,3 +212,62 @@ abstract class JitRuntime {
 
   void dispose();
 }
+
+/// Lifecycle helpers shared by the compiled runtimes (native and Wasm), which enter generated code, profile block entries and report native exits the same way; the interpreter does not use them.
+mixin CompiledRuntimeHelpers on JitRuntime {
+  int? _profileBudget;
+
+  /// Starts profiling a block entry: the entry first closes the previous block's profile, then records the budget it starts from.
+  void beginProfileBlock() {
+    finishProfileBlock();
+    _profileBudget = ctx[JitCtx.budget].toSigned(32);
+  }
+
+  /// Closes the current block's profile, recording the guest cycles it spent.
+  void finishProfileBlock() {
+    final before = _profileBudget;
+    _profileBudget = null;
+    if (before == null) return;
+    final spent = before - ctx[JitCtx.budget].toSigned(32);
+    // Refunded entries which execute no guest work are not executed blocks.
+    if (spent > 0) {
+      executedBlockCycles.update(spent, (n) => n + 1, ifAbsent: () => 1);
+    }
+  }
+
+  /// Refreshes the direct-mapped dynamic table entry for the current exit target, which a miss may have evicted, through the runtime's own table accessors.
+  void refreshExitTarget(int? Function(int pc, int tag) lookup,
+      void Function(int pc, int tag, int target) write) {
+    final pc = exitPc, tag = exitTag;
+    final target = lookup(pc, tag);
+    if (target == null) return;
+    write(pc, tag, target);
+  }
+
+  /// Enters compiled code for (pc, tag) through [enter], refreshes the dynamic table on a miss through [refresh], reports the exit to [onNativeExit] when one is registered, and closes the block profile when [profiled].
+  int enterCompiled(int pc, int Function() enter, void Function() refresh,
+      {required bool profiled}) {
+    final observe = onNativeExit;
+    final budget = ctx[JitCtx.budget].toSigned(32);
+    if (observe != null) ctx[JitCtx.faultAddr] = 0xffffffff;
+    try {
+      final reason = enter();
+      if (reason == JitReason.miss) refresh();
+      if (observe != null) {
+        final fault = ctx[JitCtx.faultAddr];
+        observe(
+          pc,
+          exitPc,
+          reason,
+          budget,
+          budget - ctx[JitCtx.budget].toSigned(32),
+          ctx[JitCtx.stop],
+          fault == 0xffffffff ? null : fault,
+        );
+      }
+      return reason;
+    } finally {
+      if (profiled) finishProfileBlock();
+    }
+  }
+}

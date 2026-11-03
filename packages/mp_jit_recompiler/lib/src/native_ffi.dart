@@ -52,7 +52,9 @@ typedef _HelperC = Uint32 Function(Uint32, Uint32, Uint32);
 typedef _EnterC = Uint32 Function(IntPtr);
 typedef _Enter = int Function(int);
 
-final class _NativeRuntime extends JitRuntime implements NativeEnv {
+final class _NativeRuntime extends JitRuntime
+    with CompiledRuntimeHelpers
+    implements NativeEnv {
   final _Os _os;
   final _allocs = <(int, int)>[];
   final _hostAddr = Map<Uint8List, int>.identity();
@@ -70,7 +72,6 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
   bool _failed = false;
   @override
   int blockEntryFn = 0;
-  int? _profileBudget;
 
   @override
   void enableBlockProfiling() {
@@ -78,21 +79,9 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
     if (_blocks.isNotEmpty) throw StateError('Clear blocks before profiling');
     if (blockEntryFn != 0) return;
     blockEntryFn = _callable((_, __, ___) {
-      _finishProfileBlock();
-      _profileBudget = _ctx[JitCtx.budget].toSigned(32);
+      beginProfileBlock();
       return 0;
     });
-  }
-
-  void _finishProfileBlock() {
-    final before = _profileBudget;
-    _profileBudget = null;
-    if (before == null) return;
-    final spent = before - _ctx[JitCtx.budget].toSigned(32);
-    // Refunded entries which execute no guest work are not executed blocks.
-    if (spent > 0) {
-      executedBlockCycles.update(spent, (n) => n + 1, ifAbsent: () => 1);
-    }
   }
 
   final _callables = <NativeCallable<_HelperC>>[];
@@ -376,39 +365,23 @@ final class _NativeRuntime extends JitRuntime implements NativeEnv {
       if (reason == JitReason.miss) _refreshExitTarget();
       return reason;
     }
-    final budget = _ctx[JitCtx.budget].toSigned(32);
-    if (observe != null) _ctx[JitCtx.faultAddr] = 0xffffffff;
-    try {
-      final reason = _enter(entry);
-      if (reason == JitReason.miss) _refreshExitTarget();
-      if (observe != null) {
-        final fault = _ctx[JitCtx.faultAddr];
-        observe(
-          pc,
-          exitPc,
-          reason,
-          budget,
-          budget - _ctx[JitCtx.budget].toSigned(32),
-          _ctx[JitCtx.stop],
-          fault == 0xffffffff ? null : fault,
-        );
-      }
-      return reason;
-    } finally {
-      if (blockEntryFn != 0) _finishProfileBlock();
-    }
+    return enterCompiled(pc, () => _enter(entry), _refreshExitTarget,
+        profiled: blockEntryFn != 0);
   }
 
   // A cold installation may evict a hot indirect target from the direct-mapped table.
   // A native miss to an installed block refreshes it without compilation.
-  void _refreshExitTarget() {
-    final pc = exitPc, tag = exitTag;
-    final entry = _blocks.get(jitKey(pc, tag));
-    if (entry == IntMap.absent) return;
-    final d = X64Backend.dynIndex(pc, tag) * 2;
-    _dynView[d] = pc | tag << 32;
-    _dynView[d + 1] = entry;
-  }
+  void _refreshExitTarget() => refreshExitTarget(
+        (pc, tag) {
+          final entry = _blocks.get(jitKey(pc, tag));
+          return entry == IntMap.absent ? null : entry;
+        },
+        (pc, tag, entry) {
+          final d = X64Backend.dynIndex(pc, tag) * 2;
+          _dynView[d] = pc | tag << 32;
+          _dynView[d + 1] = entry;
+        },
+      );
 
   void _checkAlive() {
     if (_disposed) throw StateError('JIT runtime is disposed');

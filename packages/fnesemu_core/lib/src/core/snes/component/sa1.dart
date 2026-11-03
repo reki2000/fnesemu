@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'bus.dart';
 import 'cpu.dart';
 import 'cpu_bus.dart';
@@ -100,6 +101,100 @@ class Sa1 {
   // variable-length bit reader
   bool _hl = false;
   int _vb = 16, _va = 0, _vbit = 0;
+
+  /// Saves the SA-1 CPU, the I-RAM, the message and vector registers, the interrupt enables and flags, the timer, the bank maps, the DMA and character conversion state, the arithmetic unit and the variable-length bit reader.
+  void saveState(StateWriter w) {
+    w.section('snes-sa1');
+    cpu.saveState(w);
+    w.bytes(iram);
+    w.bytes(_brf);
+    w.ints([
+      _smeg, _cmeg, _crv, _cnv, _civ, _snv, _siv, _tmc, _hcnt, _vcnt, _hClock,
+      _v, _hcr, _vcr, _sbm, _cbm, _siwp, _ciwp, _sd, _dd, _dmaSize, _dmaCb,
+      _sda, _dda, _dtc, _cc2Line, _ma, _mb, _mr, _vb, _va, _vbit,
+      ..._romBank,
+    ]);
+    for (final flag in [
+      _rdyb, _resb, _ivsw, _nvsw, _cpuIrqEn, _chdmaIrqEn, _cpuIrqFl,
+      _chdmaIrqFl, _sa1IrqEn, _timerIrqEn, _dmaIrqEn, _nmiEn, _sa1IrqFl,
+      _timerIrqFl, _dmaIrqFl, _nmiFl, _sw46, _bbf, _dmaEn, _cdEn, _cdSel,
+      _cc1Active, _acm, _md, _overflow, _hl, ..._romBankMode,
+    ]) {
+      w.boolean(flag);
+    }
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-sa1');
+    cpu.loadState(s);
+    s.bytesInto(iram);
+    s.bytesInto(_brf);
+    final v = s.ints();
+    if (v.length != 36) throw const StateMismatch('snes sa1 state layout');
+    _smeg = v[0];
+    _cmeg = v[1];
+    _crv = v[2];
+    _cnv = v[3];
+    _civ = v[4];
+    _snv = v[5];
+    _siv = v[6];
+    _tmc = v[7];
+    _hcnt = v[8];
+    _vcnt = v[9];
+    _hClock = v[10];
+    _v = v[11];
+    _hcr = v[12];
+    _vcr = v[13];
+    _sbm = v[14];
+    _cbm = v[15];
+    _siwp = v[16];
+    _ciwp = v[17];
+    _sd = v[18];
+    _dd = v[19];
+    _dmaSize = v[20];
+    _dmaCb = v[21];
+    _sda = v[22];
+    _dda = v[23];
+    _dtc = v[24];
+    _cc2Line = v[25];
+    _ma = v[26];
+    _mb = v[27];
+    _mr = v[28];
+    _vb = v[29];
+    _va = v[30];
+    _vbit = v[31];
+    _romBank.setAll(0, v.sublist(32));
+    _rdyb = s.boolean();
+    _resb = s.boolean();
+    _ivsw = s.boolean();
+    _nvsw = s.boolean();
+    _cpuIrqEn = s.boolean();
+    _chdmaIrqEn = s.boolean();
+    _cpuIrqFl = s.boolean();
+    _chdmaIrqFl = s.boolean();
+    _sa1IrqEn = s.boolean();
+    _timerIrqEn = s.boolean();
+    _dmaIrqEn = s.boolean();
+    _nmiEn = s.boolean();
+    _sa1IrqFl = s.boolean();
+    _timerIrqFl = s.boolean();
+    _dmaIrqFl = s.boolean();
+    _nmiFl = s.boolean();
+    _sw46 = s.boolean();
+    _bbf = s.boolean();
+    _dmaEn = s.boolean();
+    _cdEn = s.boolean();
+    _cdSel = s.boolean();
+    _cc1Active = s.boolean();
+    _acm = s.boolean();
+    _md = s.boolean();
+    _overflow = s.boolean();
+    _hl = s.boolean();
+    for (var i = 0; i < _romBankMode.length; i++) {
+      _romBankMode[i] = s.boolean();
+    }
+  }
 
   void reset() {
     iram.fillRange(0, iram.length, 0);

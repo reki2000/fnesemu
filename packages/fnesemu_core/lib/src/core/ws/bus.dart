@@ -4,6 +4,7 @@ import '../../pad_button.dart';
 import '../../pad_source.dart';
 import '../../sram.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'display.dart';
 import 'io_masks.dart';
 import 'sound.dart';
@@ -48,6 +49,19 @@ class Eeprom {
   int address = 0;
 
   Eeprom(this._data, this.size);
+
+  void saveState(StateWriter w) {
+    w.section('ws-eeprom');
+    w.ints([data, address]);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ws-eeprom');
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('ws eeprom state layout');
+    data = v[0];
+    address = v[1];
+  }
 
   int readPort(int offset) => switch (offset) {
         0 => data.mask8,
@@ -106,6 +120,18 @@ class Pad {
   int _sampled = 0;
 
   void reset() => _sampled = 0;
+
+  void saveState(StateWriter w) {
+    w.section('ws-pad');
+    w.int32(_sampled);
+    w.boolean(vertical);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ws-pad');
+    _sampled = s.int32();
+    vertical = s.boolean();
+  }
 
   // the X keys are mapped to the directions
   static (int, int) _key(PadButton k) => switch (k.name) {
@@ -260,6 +286,53 @@ class Bus implements V30Bus {
     cpu.s[V30mz.ss] = 0;
     cpu.r[V30mz.sp] = 0x2000;
     _updateIrq();
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ws-bus');
+    w.bytes(io);
+    w.bytes(ram);
+    w.ints(
+        [_romBankMask, _sramMask, _hblankCounter, _vblankCounter, _soundDmaClocks, _line]);
+    w.bytes(_sram.data);
+    // the internal EEPROM has its own storage, unlike the cartridge one
+    w.bytes(internalEeprom._data.data);
+    cartEeprom.saveState(w);
+    internalEeprom.saveState(w);
+    cpu.saveState(w);
+    display.saveState(w);
+    sound.saveState(w);
+    pad.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ws-bus');
+    s.bytesInto(io);
+    s.bytesInto(ram);
+    final v = s.ints();
+    if (v.length != 6) throw const StateMismatch('ws bus state layout');
+    _romBankMask = v[0];
+    _sramMask = v[1];
+    _hblankCounter = v[2];
+    _vblankCounter = v[3];
+    _soundDmaClocks = v[4];
+    _line = v[5];
+    final storage = s.bytes();
+    if (storage.length != _sram.data.length) {
+      throw const StateMismatch('ws save data state layout');
+    }
+    _sram.data.setAll(0, storage);
+    final internal = s.bytes();
+    if (internal.length != internalEeprom._data.data.length) {
+      throw const StateMismatch('ws internal eeprom state layout');
+    }
+    internalEeprom._data.data.setAll(0, internal);
+    cartEeprom.loadState(s);
+    internalEeprom.loadState(s);
+    cpu.loadState(s);
+    display.loadState(s);
+    sound.loadState(s);
+    pad.loadState(s);
   }
 
   int get linesInFrame => (color ? io[0x16] : 158) + 1;

@@ -13,6 +13,10 @@ final class IrInterpreterRuntime extends JitRuntime {
   final Uint32List ctx;
   final _helpers = <JitHelper>[];
   final _blocks = <(int, int), IrBlock>{};
+  bool _disposed = false;
+
+  /// The block map clears itself at this many blocks, as the Wasm runtime's does, so a long-lived interpreter cannot grow it without bound; a cleared block is simply retranslated on demand.
+  static const _maxBlocks = 4096;
 
   IrInterpreterRuntime(
       int ctxWords, super.addrMask, super.read, super.write, super.pageShift)
@@ -35,7 +39,9 @@ final class IrInterpreterRuntime extends JitRuntime {
 
   @override
   int installBlock(IrBlock block) {
+    _checkAlive();
     checkBlock(block);
+    if (_blocks.length >= _maxBlocks) clear();
     _blocks[(block.pc, block.tag)] = block;
     return 0;
   }
@@ -54,7 +60,15 @@ final class IrInterpreterRuntime extends JitRuntime {
   }
 
   @override
-  void dispose() => clear();
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    clear();
+  }
+
+  void _checkAlive() {
+    if (_disposed) throw StateError('JIT runtime is disposed');
+  }
 
   final _floatData = ByteData(16);
   int _float32Binary(IrOp op, int a, int b) {
@@ -148,6 +162,7 @@ final class IrInterpreterRuntime extends JitRuntime {
 
   @override
   int run(int pc, int tag) {
+    _checkAlive();
     final ctx = this.ctx;
     for (;;) {
       final block = _blocks[(pc, tag)];
@@ -163,7 +178,7 @@ final class IrInterpreterRuntime extends JitRuntime {
       }
       ctx[JitCtx.budget] -= block.cost;
 
-      final next = block.usesI64 ? _executeWide(block) : _execute(block);
+      final next = _execute(block);
       if (next.exit) return next.$1;
       (pc, tag) = (next.$1.toUnsigned(32), next.$2);
     }
@@ -220,93 +235,22 @@ final class IrInterpreterRuntime extends JitRuntime {
     }
   }
 
-  /// runs an i32 block with unboxed values
+  /// Runs a block, parameterized only by whether the block uses i64 values: in a block that does, an instruction whose result or first operand is i64 is routed to [_wide] and its value is a BigInt, and every other value is an unsigned 32-bit int.
   (int, int, {bool exit}) _execute(IrBlock block) {
     final ctx = this.ctx;
     final insts = block.insts;
-    final values = Uint32List(insts.length);
+    final wide = block.usesI64;
+    final values = List<Object>.filled(insts.length, 0);
     for (int i = 0; i < insts.length; i++) {
       final inst = insts[i];
-      int a() => values[inst.a];
-      int b() => values[inst.b];
-      if (inst.exit >= 0 && _unmapped(inst, a())) {
-        final e = block.exits[inst.exit];
-        return _leave(block, e, (v) => values[v.index]);
-      }
-      final int v = switch (inst.op) {
-        IrOp.constant => inst.imm,
-        IrOp.ctxLoad => ctx[inst.imm],
-        IrOp.ctxStore => ctx[inst.imm] = a(),
-        IrOp.add => a() + b(),
-        IrOp.sub => a() - b(),
-        IrOp.mul => _mulLo(a(), b()),
-        IrOp.divS => b() == 0 ? 0 : a().toSigned(32) ~/ b().toSigned(32),
-        IrOp.divU => b() == 0 ? 0 : a() ~/ b(),
-        IrOp.remS => b() == 0
-            ? 0
-            : a().toSigned(32).remainder(b().toSigned(32)),
-        IrOp.remU => b() == 0 ? 0 : a() % b(),
-        IrOp.floatAdd ||
-        IrOp.floatSub ||
-        IrOp.floatMul ||
-        IrOp.floatDiv => _float32Binary(inst.op, a(), b()),
-        IrOp.floatSqrt => _float32Sqrt(a()),
-        IrOp.mulHiS => _mulHiU(a(), b()) -
-            (a() >= 0x80000000 ? b() : 0) -
-            (b() >= 0x80000000 ? a() : 0),
-        IrOp.mulHiU => _mulHiU(a(), b()),
-        IrOp.and => a() & b(),
-        IrOp.or => a() | b(),
-        IrOp.xor => a() ^ b(),
-        IrOp.shl => a() << (b() & 31),
-        IrOp.shrU => a() >>> (b() & 31),
-        IrOp.shrS => a().toSigned(32) >> (b() & 31),
-        IrOp.eq => a() == b() ? 1 : 0,
-        IrOp.ne => a() != b() ? 1 : 0,
-        IrOp.ltS => a().toSigned(32) < b().toSigned(32) ? 1 : 0,
-        IrOp.ltU => a() < b() ? 1 : 0,
-        IrOp.select => a() != 0 ? b() : values[inst.c],
-        IrOp.sext8 => a().toSigned(8),
-        IrOp.sext16 => a().toSigned(16),
-        IrOp.zext8 => a() & 0xff,
-        IrOp.zext16 => a() & 0xffff,
-        IrOp.load => _load(a(), inst.imm, inst.aux != 0, inst.endian),
-        IrOp.store => () {
-            _store(a(), inst.imm, b(), inst.endian);
-            return 0;
-          }(),
-        IrOp.call => _helpers[inst.imm](a(), b(), values[inst.c]),
-        IrOp.floatToInt => _floatToInt(_float32Value(a()), inst.imm),
-        IrOp.sext32 ||
-        IrOp.zext32 ||
-        IrOp.trunc32 ||
-        IrOp.floatConvert =>
-          throw StateError('wide conversion in an i32 block'),
-        IrOp.exitIf => a(),
-        IrOp.guardMapped => _unmapped(inst, a()) ? 1 : 0,
-      };
-      values[i] = v;
-      if ((inst.op == IrOp.exitIf || inst.op == IrOp.guardMapped) && v != 0) {
-        final e = block.exits[inst.aux];
-        return _leave(block, e, (v) => values[v.index]);
-      }
-    }
-    return _next(block, (v) => values[v.index]);
-  }
-
-  /// runs a block with i64 values, which are BigInts
-  (int, int, {bool exit}) _executeWide(IrBlock block) {
-    final ctx = this.ctx;
-    final values = List<Object>.filled(block.insts.length, 0);
-    for (int i = 0; i < block.insts.length; i++) {
-      final inst = block.insts[i];
       // addresses are i32 at every value width
       if (inst.exit >= 0 && _unmapped(inst, values[inst.a] as int)) {
         final e = block.exits[inst.exit];
         return _leave(block, e, (v) => values[v.index]);
       }
-      if (inst.type == IrType.i64 ||
-          (inst.a >= 0 && block.insts[inst.a].type == IrType.i64)) {
+      if (wide &&
+          (inst.type == IrType.i64 ||
+              (inst.a >= 0 && insts[inst.a].type == IrType.i64))) {
         values[i] = _wide(inst, values);
         continue;
       }
@@ -360,7 +304,7 @@ final class IrInterpreterRuntime extends JitRuntime {
         IrOp.zext32 ||
         IrOp.trunc32 ||
         IrOp.floatConvert =>
-          throw StateError('wide conversion in i32 execution path'),
+          throw StateError('wide conversion in an i32 block'),
         IrOp.exitIf => a(),
         IrOp.guardMapped => _unmapped(inst, a()) ? 1 : 0,
       };

@@ -1,3 +1,4 @@
+import '../dyn_table.dart';
 import '../ir.dart';
 import '../native_env.dart';
 import 'assembler.dart';
@@ -515,13 +516,13 @@ abstract final class Arm64Backend {
           a.jump(env.exitStub);
         });
         load(0, t.pc.index);
-        a.constant(1, 2);
+        a.constant(1, DynTable.pcShift);
         a.alu(0x1ac02400, 1, 0, 1);
         a.constant(2, t.tag);
         a.alu(0x4a000000, 1, 1, 2);
-        a.constant(2, 4095);
+        a.constant(2, DynTable.entries - 1);
         a.alu(0x0a000000, 1, 1, 2);
-        a.constant(2, 4);
+        a.constant(2, DynTable.entryBits);
         a.alu(0x1ac02000, 1, 1, 2);
         a.alu(0x0b000000, 1, 23, 1, wide: true);
         a.memory(true, 2, 1, 0, size: 4);
