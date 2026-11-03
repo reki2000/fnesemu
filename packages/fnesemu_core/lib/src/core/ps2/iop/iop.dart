@@ -193,18 +193,19 @@ class Iop extends R3000Core {
     inBranchDelay = false;
 
     // The load issued by the previous instruction lands after this one reads
-    // its operands, so it is applied once this instruction is done.
+    // its operands and before this instruction's own write lands, as in the
+    // PS step: a write to the loaded register wins over the load.
     delayReg = nextDelayReg;
     delayVal = nextDelayVal;
     nextDelayReg = 0;
     immediateReg = 0;
     immediateVal = 0;
     exec(ir);
-    if (immediateReg != 0) r[immediateReg] = immediateVal;
     if (delayReg != 0 && nextDelayReg != delayReg) {
       r[delayReg] = delayVal;
     }
     delayReg = 0;
+    if (immediateReg != 0) r[immediateReg] = immediateVal;
     r[0] = 0;
   }
 }
