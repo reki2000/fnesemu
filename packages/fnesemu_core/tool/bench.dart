@@ -2,7 +2,7 @@
 //
 // usage: dart build cli -t tool/bench.dart -o /tmp/bench
 //        /tmp/bench/bundle/bin/bench <core|all> [workload|all] [rounds]
-//        cores: ps, n64, ps2, dc
+//        cores: ps, n64, ps2, dc, gba
 //        (with no workload the default workload of the core runs: ps cpu, n64 cpu, ps2 ee, dc cpu; the default rounds is 5)
 //        (the jit workloads need the native library that dart build cli bundles; an executable from dart compile exe cannot load it)
 //        (dart run tool/bench.dart ... also works, but its times are JIT VM times; build the AOT executable to decide speed, as in tool/dart_aot_tips.md)

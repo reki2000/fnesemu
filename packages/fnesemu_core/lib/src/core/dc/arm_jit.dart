@@ -2,9 +2,9 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../components/arm7/jit/translator.dart';
 import '../../util/jit_adapter.dart';
 import 'arm7di.dart';
-import 'arm_translator.dart';
 
 /// Compiled AICA ARM execution over sound RAM, which this runtime owns.
 /// Registers live in the runtime context and the interpreter shares them.
@@ -19,8 +19,8 @@ final class DcArmJit extends JitAdapter {
   late final diagnostics =
       JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little);
   late final _code = JitCodeMemory(rt);
-  late final _translator =
-      DcArmTranslator(fetch: _fetch, protect: _code.protect);
+  late final _translator = ArmTranslator(
+      fetch: _fetch, protect: _code.protect, policy: ArmTranslatorPolicy.dc);
   late final _driver = JitDriver(rt,
       translate: (pc, tag) => _translator.translate(pc, tag: tag),
       codeWord: _fetch,
@@ -36,11 +36,11 @@ final class DcArmJit extends JitAdapter {
 
   /// The ARM registers, shared with the interpreter.
   late final Uint32List registers = Uint32List.view(
-      rt.ctx.buffer, rt.ctx.offsetInBytes + DcArmTranslator.regs * 4, 16);
+      rt.ctx.buffer, rt.ctx.offsetInBytes + ArmTranslator.regs * 4, 16);
 
   static DcArmJit? create(int memorySize) {
     final rt = JitRuntime.native(
-        ctxWords: DcArmTranslator.ctxWords,
+        ctxWords: ArmTranslator.ctxWords,
         addrMask: 0x00ffffff,
         read: (_, __) => throw StateError('Unmapped ARM read'),
         write: (_, __, ___) => throw StateError('Unmapped ARM write'));
@@ -73,15 +73,15 @@ final class DcArmJit extends JitAdapter {
     if (suspended) return 0;
     final ctx = rt.ctx;
     if (_driver.isFallback(arm.pc, 0)) return 0;
-    ctx[DcArmTranslator.cpsr] = arm.cpsr;
+    ctx[ArmTranslator.cpsr] = arm.cpsr;
     ctx[JitCtx.faultAddr] = 0;
     final reason = _driver.runBudgeted(arm.pc, 0, budget);
     final cycles = _driver.lastClocks;
     if (cycles > 0) {
-      arm.flags = ctx[DcArmTranslator.cpsr];
+      arm.flags = ctx[ArmTranslator.cpsr];
       arm.pc = rt.exitPc;
     }
-    if (reason == DcArmTranslator.interpret) {
+    if (reason == ArmTranslator.interpret) {
       // A store into a code page: leave later stores to the entry guards.
       final fault = ctx[JitCtx.faultAddr];
       if (fault != 0 && _code.isProtected(fault)) _code.release(fault);

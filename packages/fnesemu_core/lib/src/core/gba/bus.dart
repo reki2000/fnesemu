@@ -21,7 +21,12 @@ class Bus {
   late final Dma dma;
   late final Apu apu;
 
-  Bus() {
+  /// The work RAM buffers can be supplied by the caller (the JIT
+  /// adapter allocates them so the runtime can map them); the bus
+  /// allocates its own otherwise.
+  Bus({Uint8List? ewram, Uint8List? iwram})
+      : ewram = ewram ?? Uint8List(0x40000),
+        iwram = iwram ?? Uint8List(0x8000) {
     irq = Irq();
     timers = Timers(irq);
     dma = Dma(this, irq);
@@ -31,8 +36,8 @@ class Bus {
 
   // on-chip memory
   final bios = Uint8List(0x4000); // 16KB BIOS (loaded externally; HLE later)
-  final ewram = Uint8List(0x40000); // 256KB external work RAM
-  final iwram = Uint8List(0x8000); // 32KB internal work RAM
+  final Uint8List ewram; // 256KB external work RAM
+  final Uint8List iwram; // 32KB internal work RAM
   final paletteRam = Uint8List(0x400); // 1KB
   final vram = Uint8List(0x18000); // 96KB
   final oam = Uint8List(0x400); // 1KB
