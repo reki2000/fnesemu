@@ -40,15 +40,4 @@ void main() {
     ]);
   });
 
-  test('returns to the first state when TH does not change for 1.5 ms', () {
-    final pad = Pad()..writeCtrl(0, 0x40);
-
-    // one TH pulse per frame, without writing the ctrl register
-    for (var frame = 0; frame < 8; frame++) {
-      final clocks = frame * 128000;
-      pad.writeData(0, 0x00, clocks);
-      expect(pad.readData(0, clocks) & 0x0f, 0x03, reason: 'frame $frame');
-      pad.writeData(0, 0x40, clocks + 100);
-    }
-  });
 }

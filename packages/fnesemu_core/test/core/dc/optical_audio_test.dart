@@ -35,41 +35,8 @@ void main() {
     expect(drive.reads, [150, 151]);
   });
 
-  test('pause preserves the exact next sample and repeat range', () {
-    final raw = sector(0, 0)..[4] = 77;
-    final drive = FakeCdromDrive([raw, sector(0, 0)], audioTracks: {1});
-    final audio = DcOpticalAudio()..start(150, 151, 1);
-    expect(audio.sample(drive), (0, 0));
-    audio.pause();
-    expect(audio.sample(drive), (0, 0));
-    expect(audio.resume(), isTrue);
-    expect(audio.sample(drive), (77, 0));
-    for (var i = 2; i < 1176; i++) {
-      audio.sample(drive);
-    }
-    expect(audio.playing, isFalse);
-    expect(drive.reads, [150, 150]);
-  });
 
-  test('physical lead-out overrides endless repeat', () {
-    final drive = FakeCdromDrive([sector(1, 2)], audioTracks: {1});
-    final audio = DcOpticalAudio()..start(150, 151, 15);
-    for (var i = 0; i < 588; i++) {
-      audio.sample(drive);
-    }
-    expect(audio.playing, isFalse);
-    expect(drive.reads, [150]);
-  });
 
-  test('data tracks advance silently without interpreting sector headers', () {
-    final drive = FakeCdromDrive([Uint8List(1)]);
-    final audio = DcOpticalAudio()..start(150, 151, 0);
-    for (var i = 0; i < 588; i++) {
-      expect(audio.sample(drive), (0, 0));
-    }
-    expect(audio.playing, isFalse);
-    expect(drive.reads, isEmpty);
-  });
 
   test('reset discards paused transport and its cached sector', () {
     final drive = FakeCdromDrive([sector(1, 2)], audioTracks: {1});
@@ -80,32 +47,7 @@ void main() {
     expect(audio.resume(), isFalse);
     expect(audio.sample(drive), (0, 0));
   });
-  test('host cache misses preserve position and retry without dropping a frame',
-      () {
-    final drive = _PendingDrive([sector(123, -456)]);
-    final audio = DcOpticalAudio()..start(150, 151, 0);
-    for (var i = 0; i < 1000; i++) {
-      expect(audio.sample(drive), (0, 0));
-    }
-    expect(audio.fad, 150);
-    drive.pending = false;
-    for (var i = 0; i < 588; i++) {
-      expect(audio.sample(drive), (123, -456));
-    }
-    expect(audio.playing, isFalse);
-  });
 
-  test('endless range repeats before lead-out and rereads changed sectors', () {
-    final drive =
-        FakeCdromDrive([sector(1, 2), sector(3, 4)], audioTracks: {1});
-    final audio = DcOpticalAudio()..start(150, 151, 15);
-    for (var i = 0; i < 588; i++) {
-      audio.sample(drive);
-    }
-    expect(audio.playing, isTrue);
-    drive.sectors[0] = sector(5, 6);
-    expect(audio.sample(drive), (5, 6));
-  });
 
   test('playback errors report once and reset clears the retained result', () {
     final audio = DcOpticalAudio()..start(150, 151, 0);

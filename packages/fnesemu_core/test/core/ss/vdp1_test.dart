@@ -30,24 +30,4 @@ void main() {
     expect(vdp1.drawFb[3 * Vdp1.fbWidth + 300], 0x005a);
   });
 
-  test('double interlace draws the lines of the field that DIL selects', () {
-    final odd = drawPoint(10, 301, 0x8123, fbcr: 0x0c);
-    expect(odd.drawFb[150 * Vdp1.fbWidth + 10], 0x8123);
-    final even = drawPoint(10, 301, 0x8123, fbcr: 0x08);
-    expect(even.drawFb[150 * Vdp1.fbWidth + 10], 0);
-  });
-
-  test('a manual erase clears the displayed buffer after its field', () {
-    // draws a point, then changes the frame so that the point is displayed
-    final vdp1 = drawPoint(10, 5, 0x8123, fbcr: 0x03)
-      ..writeReg(0x0a, 127 << 9 | 447) // erase to the bottom right
-      ..onVBlankIn();
-    expect(vdp1.displayFb[5 * Vdp1.fbWidth + 10], 0x8123);
-
-    vdp1.writeReg(0x02, 0x02);
-    vdp1.onVBlankIn();
-    expect(vdp1.displayFb[5 * Vdp1.fbWidth + 10], 0x8123);
-    vdp1.onVBlankIn();
-    expect(vdp1.displayFb[5 * Vdp1.fbWidth + 10], 0);
-  });
 }

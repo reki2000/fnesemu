@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:fnesemu_core/src/core/ps/interrupt.dart';
 import 'package:fnesemu_core/src/core/ps/jit/ps_jit.dart';
@@ -36,6 +37,15 @@ class _Bus extends Bus {
   }
 }
 
+final _liveMachines = <_Machine>[];
+
+void _disposeLiveMachines() {
+  for (final m in _liveMachines) {
+    m.jit?.dispose();
+  }
+  _liveMachines.clear();
+}
+
 final class _Machine {
   final PsJit? jit;
   late final _Bus bus;
@@ -60,7 +70,7 @@ final class _Machine {
     final end = _code + 4 * program.length;
     bus.write32(end, _j(end));
     bus.write32(end + 4, 0);
-    addTearDown(() => jit?.dispose());
+    _liveMachines.add(this);
   }
 
   void run() {
@@ -76,18 +86,48 @@ final class _Machine {
   }
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggGroup(String name, void Function() body, {Object? skip}) {
+    if (skip == null || skip == false) body();
+  }
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+        _disposeLiveMachines();
+      }
+    }
+  }
+
   for (final native in <bool?>[null, false, true]) {
     final name = native == null
         ? 'CPU'
         : native
             ? 'native'
             : 'IR';
-    group(name, () {
+    aggGroup(name, () {
       for (final (op, taken) in [(0x05, false), (0x04, true)]) {
-        test(
-            'compiled delay slots clear interpreter branch state before interrupts ($taken)',
-            () {
+        aggCase('compiled delay slots clear interpreter branch state before interrupts ($taken)', () {
           // Both branches leave nextPc sequential, so JIT can run the slot after cpu.step().
           final m = _Machine(native, [
             _i(op, 0, 0, 1),
@@ -117,7 +157,7 @@ void main() {
         });
       }
 
-      test('resumes a branch stepped by the debugger', () {
+      aggCase('resumes a branch stepped by the debugger', () {
         final m = _Machine(native, [
           _j(_code + 16),
           _i(9, 0, 2, 7),
@@ -139,7 +179,7 @@ void main() {
         (0x2a, 7, _i(9, 0, 1, 2)), // swl: all four bytes
         (0x2e, 4, _i(9, 0, 1, 2)), // swr: all four bytes
       ]) {
-        test('store $op sees upcoming code changed through a RAM alias', () {
+        aggCase('store $op sees upcoming code changed through a RAM alias', () {
           final m = _Machine(native, [
             _i(op, 2, 3, offset),
             _i(9, 0, 1, 1),
@@ -151,7 +191,7 @@ void main() {
         });
       }
 
-      test('a code page written by a loop still sees changed code', () {
+      aggCase('a code page written by a loop still sees changed code', () {
         // the loop stores data next to its code more often than a code page
         // stays protected, then changes the instruction after a store
         final m = _Machine(native, [
@@ -172,7 +212,7 @@ void main() {
         expect(m.cpu.r[1], 2);
       });
 
-      test('timer reads observe elapsed instructions', () {
+      aggCase('timer reads observe elapsed instructions', () {
         final m = _Machine(native, [
           _i(0x25, 2, 1, 0),
           0,
@@ -187,7 +227,7 @@ void main() {
         expect(m.cpu.r[3], 8);
       });
 
-      test('timer writes reset at their instruction clock', () {
+      aggCase('timer writes reset at their instruction clock', () {
         final m = _Machine(native, [
           0,
           0,
@@ -204,7 +244,7 @@ void main() {
         expect(m.cpu.r[3], 6);
       });
 
-      test('a device write takes an interrupt before a following ack', () {
+      aggCase('a device write takes an interrupt before a following ack', () {
         final m = _Machine(native, [
           _i(0x29, 2, 1, 4), // enable I_MASK
           _i(0x29, 2, 0, 0), // acknowledge I_STAT
@@ -221,7 +261,7 @@ void main() {
       });
 
       for (final (op, offset) in [(0x2a, 3), (0x2e, 0)]) {
-        test('store $op does not read a fully overwritten device word', () {
+        aggCase('store $op does not read a fully overwritten device word', () {
           final m = _Machine(native, [_i(op, 2, 1, offset)]);
           m.cpu.r[2] = _device;
           m.cpu.r[1] = 99;
@@ -230,7 +270,7 @@ void main() {
         });
       }
 
-      test('a delay-slot device access observes a pending load', () {
+      aggCase('a delay-slot device access observes a pending load', () {
         final m = _Machine(native, [
           _i(0x23, 4, 2, 0),
           _j(_code + 16),
@@ -246,7 +286,7 @@ void main() {
         expect(m.cpu.r[3], 0);
       });
 
-      test('a delay-slot address observes the branch link register', () {
+      aggCase('a delay-slot address observes the branch link register', () {
         final m = _Machine(native, [
           3 << 26 | ((_code + 16) >> 2) & 0x3ffffff, // jal
           _i(0x2b, 31, 1, 0),
@@ -262,7 +302,7 @@ void main() {
         expect(m.cpu.r[3], 9);
       });
 
-      test('a device load in a delay slot retains its load delay', () {
+      aggCase('a device load in a delay slot retains its load delay', () {
         final m = _Machine(native, [
           _j(_code + 12),
           _i(0x23, 2, 1, 0),
@@ -282,5 +322,16 @@ void main() {
         skip: native == true && !JitRuntime.nativeSupported
             ? 'no native recompiler on this host'
             : false);
+  }
+
+  const chunkCount = 6;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
   }
 }

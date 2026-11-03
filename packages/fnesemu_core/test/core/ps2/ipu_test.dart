@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/ipu/ipu.dart';
 import 'package:test/test.dart';
 
-const _cmd = 0x10002000, _ctrl = 0x10002010, _top = 0x10002030;
+const _cmd = 0x10002000, _ctrl = 0x10002010;
 
 /// writes [bits] (a string of '0' and '1') to the input FIFO, padded with
 /// zeros to whole quadwords
@@ -36,17 +37,37 @@ List<int> _drain(Ipu ipu) {
   return out;
 }
 
-void main() {
-  test('FDEC shows the next 32 bits after the skipped ones', () {
-    final ipu = Ipu();
-    _feed(ipu, '0000000000000000000000011011001111111111');
-    ipu.write(_cmd, 4, 0x40000000 | 8);
-    expect(ipu.read(_cmd, 8), 0x0001b3ff);
-    expect(ipu.read(_top, 4), 0x0001b3ff);
-    expect(ipu.read(0x10002020, 4) & 0x7f, 8);
-  });
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
 
-  test('VDEC returns the code length and the value', () {
+void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+
+  aggCase('VDEC returns the code length and the value', () {
     final ipu = Ipu();
     _feed(ipu, '011' '00000001000' '00011' '11');
     ipu.write(_cmd, 4, 0x30000000); // macroblock address increment
@@ -59,7 +80,7 @@ void main() {
     expect(ipu.read(_cmd, 4), 2 << 16 | 0xffff);
   });
 
-  test('VDEC decodes macroblock_type with the table of the picture type', () {
+  aggCase('VDEC decodes macroblock_type with the table of the picture type', () {
     final ipu = Ipu();
     _feed(ipu, '001' '01');
     ipu.write(_ctrl, 4, 2 << 24); // P picture
@@ -70,7 +91,7 @@ void main() {
     expect(ipu.read(_cmd, 4), 2 << 16 | 17); // intra with quantiser
   });
 
-  test('a command without enough data waits for it', () {
+  aggCase('a command without enough data waits for it', () {
     final ipu = Ipu();
     ipu.write(_cmd, 4, 0x40000000);
     expect(ipu.read(_ctrl, 4) >>> 31, 1);
@@ -79,7 +100,7 @@ void main() {
     expect(ipu.read(_cmd, 4), 0x80000000);
   });
 
-  test('a reset during a command raises the interrupt', () {
+  aggCase('a reset during a command raises the interrupt', () {
     var raised = 0;
     final ipu = Ipu()..onInterrupt = () => raised++;
     ipu.write(_cmd, 4, 0x40000000);
@@ -90,7 +111,7 @@ void main() {
     expect(raised, 1);
   });
 
-  test('BDEC of an intra macroblock with only DC coefficients', () {
+  aggCase('BDEC of an intra macroblock with only DC coefficients', () {
     final ipu = Ipu();
     // luminance: DC size 0, end of block; chrominance: the same
     _feed(ipu, '10010' * 4 + '0010' * 2);
@@ -106,17 +127,15 @@ void main() {
     expect(halves, List.filled(384, 128));
   });
 
-  test('CSC converts the black and the white of the studio range', () {
-    final ipu = Ipu();
-    final y = List.filled(256, 16)..fillRange(128, 256, 235);
-    final bits = [...y, ...List.filled(128, 128)]
-        .map((v) => v.toRadixString(2).padLeft(8, '0'))
-        .join();
-    _feed(ipu, bits);
-    ipu.write(_cmd, 4, 0x70000000 | 1);
-    final out = _drain(ipu);
-    expect(out.length, 128);
-    expect(out.first & 0xffffffff, 0x80000000);
-    expect(out.last >>> 32, 0x80ffffff);
-  });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

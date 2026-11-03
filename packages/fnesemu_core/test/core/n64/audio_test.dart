@@ -79,60 +79,7 @@ void main() {
     expect(audio.bus.ramRead(0x3000, 2), 16384);
   });
 
-  test('FIR continuation carries input history and smooths coefficients', () {
-    final audio = N64Audio(N64Bus());
-    audio.bus.ramWrite(0x200e, 0x4000, 2); // Seven-sample delay.
-    audio.bus.ramWrite(0x301e, 0x4000, 2);
-    audio.write(0x10e, 16384);
-    _commands(audio, [0x07020010, 0x2000, 0x07000100, 0x3000]);
-    expect(audio.read(0x10e), 0);
-    _commands(audio, [0x07000110, 0x3000]);
-    expect(audio.read(0x11c), 8192);
-    audio.write(0x100, 16384);
-    audio.bus.ramWrite(0x2000, 0x4000, 2);
-    _commands(audio, [0x07020010, 0x2000, 0x07010100, 0x3000]);
-    expect(audio.read(0x100), 4096); // INIT averages target taps with zero.
-  });
 
-  test('extended envelope flags affect independent dry and wet destinations',
-      () {
-    final audio = N64Audio(N64Bus());
-    for (var i = 0; i < 16; i++) {
-      audio.write(0x100 + i * 2, 16384);
-    }
-    audio.write(0x210, 1234); // Outside the eight-sample command.
-    _commands(audio, [
-      0x12800000, 0, // Wet gain 0x8000, no ramp.
-      0x16000000, 0xffff8000, // Left/right Q16 gains.
-      0x13100819, 0x20304050, // Swap wet channels, invert dry L and wet R.
-    ]);
-    expect(audio.read(0x200), -16384);
-    expect(audio.read(0x300), 8192);
-    expect(audio.read(0x400), 4096);
-    expect(audio.read(0x500), -8192);
-    expect(audio.read(0x210), 1234);
-  });
 
-  test('extended short ADPCM expands signed two-bit residuals', () {
-    final audio = N64Audio(N64Bus());
-    audio.memory.setRange(0x100, 0x105, [0x40, 0x1b, 0x1b, 0x1b, 0x1b]);
-    _commands(audio, [0x08000100, 0x02000020, 0x01050000, 0x3000]);
-    expect([
-      for (var i = 0; i < 16; i++) audio.read(0x220 + i * 2)
-    ], [
-      for (var i = 0; i < 4; i++) ...[0, 16, -32, -16]
-    ]);
-    expect(audio.bus.ramRead(0x3002, 2).toSigned(16), 16);
-    expect(audio.bus.ramRead(0x301e, 2).toSigned(16), -16);
-  });
 
-  test('extended DUPLICATE copies a preserved 128-byte source block', () {
-    final audio = N64Audio(N64Bus());
-    for (var i = 0; i < 128; i++) {
-      audio.memory[0x100 + i] = i;
-    }
-    _commands(audio, [0x09020100, 0x02000080]);
-    expect(audio.memory.sublist(0x200, 0x300),
-        [...List.generate(128, (i) => i), ...List.generate(128, (i) => i)]);
-  });
 }

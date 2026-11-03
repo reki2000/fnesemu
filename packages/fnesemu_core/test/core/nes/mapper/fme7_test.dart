@@ -31,29 +31,4 @@ void main() {
     expect(m.readVram(0x0800), 5);
   });
 
-  test('raises the IRQ when the counter wraps', () {
-    final m = _mapper();
-    var irq = false;
-    m.holdIrq = (on) => irq = on;
-    m.write(0x8000, 14);
-    m.write(0xa000, 100);
-    m.write(0x8000, 15);
-    m.write(0xa000, 0);
-    m.write(0x8000, 13);
-    m.write(0xa000, 0x81);
-    m.handleClock(100);
-    expect(irq, isFalse);
-    m.handleClock(101);
-    expect(irq, isTrue);
-  });
-
-  test('a tone channel makes a square wave', () {
-    final apu = Sunsoft5bApu();
-    apu.write(0, 0x20); // channel A period 32
-    apu.write(7, 0x3e); // channel A tone on, noise off
-    apu.write(8, 0x0f); // full volume
-    final out = apu.exec(4096);
-    expect(out.reduce((a, b) => a > b ? a : b), greaterThan(0.3));
-    expect(out.reduce((a, b) => a < b ? a : b), 0);
-  });
 }

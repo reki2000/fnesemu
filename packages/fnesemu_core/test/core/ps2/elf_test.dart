@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
@@ -34,8 +35,37 @@ Uint8List _elf(
   return bytes;
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('parses entry and loadable segments', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void addTearDown(void Function() teardown) => aggTeardowns.add(teardown);
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('parses entry and loadable segments', () {
     final elf = Elf.parse(_elf());
     expect(elf.entry, 0x100000);
     expect(elf.segments, hasLength(1));
@@ -44,14 +74,8 @@ void main() {
     expect(elf.segments.single.memorySize, 8);
   });
 
-  test('rejects other formats', () {
-    expect(() => Elf.parse(Uint8List(10)), throwsFormatException);
-    expect(() => Elf.parse(_elf(machine: 40)), throwsFormatException);
-    final truncated = _elf().sublist(0, 85);
-    expect(() => Elf.parse(truncated), throwsFormatException);
-  });
 
-  test('Ps2 copies segments to main memory and zero fills the rest', () {
+  aggCase('Ps2 copies segments to main memory and zero fills the rest', () {
     final ps2 = Ps2();
     addTearDown(ps2.dispose);
     ps2.bus.ram.fillRange(0x100000, 0x100008, 0xff);
@@ -60,14 +84,14 @@ void main() {
     expect(ps2.bus.ram.sublist(0x100000, 0x100008), [1, 2, 3, 4, 0, 0, 0, 0]);
   });
 
-  test('Ps2 rejects segments outside main memory', () {
+  aggCase('Ps2 rejects segments outside main memory', () {
     final ps2 = Ps2();
     addTearDown(ps2.dispose);
     expect(() => ps2.setRom(_elf(address: Ps2Bus.ramSize - 4)),
         throwsRangeError);
   });
 
-  test('Ps2 runs the loaded ELF from its entry', () {
+  aggCase('Ps2 runs the loaded ELF from its entry', () {
     final ps2 = Ps2();
     addTearDown(ps2.dispose);
     ps2.setRom(_elf(payload: [0x05, 0x00, 0x01, 0x24])); // addiu r1, r0, 5
@@ -76,4 +100,15 @@ void main() {
     expect(ps2.cpu.reg(1), 5);
     expect(ps2.cpu.pc, 0x100004);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

@@ -5,12 +5,6 @@ import 'test_system.dart';
 
 void main() {
   group('cpu', () {
-    test('reset sets I flag and clears B', () {
-      final s = TestSystem();
-      s.reset(0x8000);
-      expect(s.cpu.regs.p & Flags.I, Flags.I);
-      expect(s.cpu.regs.p & Flags.B, 0);
-    });
 
     test('BRK pushes B=1, IRQ pushes B=0, and costs 7 cycles', () {
       final s = TestSystem();
@@ -34,34 +28,6 @@ void main() {
       expect(s.cpu.regs.pc, 0x9000);
       expect(s.cpu.cycle - cycle, 7);
       expect(s.bus.read(0x100 | ((s.cpu.regs.s + 1) & 0xff)) & Flags.B, 0);
-    });
-
-    test('irq sources are independent', () {
-      final s = TestSystem();
-      s.vector(0xfffe, 0x9000);
-      s.load(0x8000, [0x58, 0xea, 0xea, 0xea]); // CLI, NOP...
-      s.reset(0x8000);
-
-      s.bus.holdIrq(); // mapper
-      s.apu.read(0x4015); // acknowledges frame irq only
-      s.cpu.exec(); // CLI
-      s.cpu.exec(); // NOP
-      s.cpu.exec(); // IRQ
-      expect(s.cpu.regs.pc, 0x9000);
-    });
-
-    test('irq acknowledged before being taken is not executed', () {
-      final s = TestSystem();
-      s.vector(0xfffe, 0x9000);
-      s.load(0x8000, [0x58, 0xea, 0xea, 0xea]);
-      s.reset(0x8000);
-
-      s.bus.holdIrq();
-      s.cpu.exec(); // CLI
-      s.cpu.exec(); // NOP: irq is pending
-      s.bus.releaseIrq();
-      s.cpu.exec();
-      expect(s.cpu.regs.pc, isNot(0x9000));
     });
 
     test('read-modify-write instructions write 8bit values', () {

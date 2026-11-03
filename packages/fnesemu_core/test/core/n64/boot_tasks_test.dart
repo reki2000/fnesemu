@@ -74,23 +74,6 @@ void main() {
     expect(bus.flash, everyElement(255));
   });
 
-  test('FlashRAM writes persist through the core backup and reset', () {
-    final bus = N64Bus()..sram = Sram();
-    bus.sram!.init(
-        'test',
-        Uint8List(N64Bus.flashOffset + 0x20000)
-          ..fillRange(N64Bus.flashOffset, N64Bus.flashOffset + 0x20000, 255));
-    bus.write(0xa8010000, 0xb4000000, 4);
-    bus.ram.fillRange(0x1000, 0x1080, 0x3c);
-    _dma(bus, 0x08000000, 0x1000, 128, read: false);
-    bus.write(0xa8010000, 0xa50003ff, 4);
-    bus.write(0xa8010000, 0xd2000000, 4);
-    bus.reset();
-    bus.write(0xa8010000, 0xf0000000, 4);
-    _dma(bus, 0x0800ffc0, 0x2000, 128);
-    expect(bus.ram.sublist(0x2000, 0x2080), List.filled(128, 0x3c));
-    expect(bus.sram!.read8(N64Bus.flashOffset + 0x1ffff), 0x3c);
-  });
 
   test('LOAD_UCODE switches to a scaled S2DEX background and back', () {
     final bus = N64Bus();

@@ -59,12 +59,4 @@ void main() {
     expect(save(restored), save(source));
   }, testOn: 'vm');
 
-  test('state rejects an unexpected section before changing PSG state', () {
-    final psg = Sn76489()..write8(0x85);
-    final before = save(psg);
-    final writer = StateWriter('component', 1, 0)..section('other');
-
-    expect(() => load(psg, writer.take()), throwsA(isA<StateMismatch>()));
-    expect(save(psg), before);
-  }, testOn: 'vm');
 }

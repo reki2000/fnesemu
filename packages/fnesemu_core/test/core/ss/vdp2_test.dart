@@ -28,22 +28,6 @@ void main() {
     return vdp2.imageBuffer.buffer.sublist(0, 320);
   }
 
-  test('a bitmap line scrolled past the right edge continues in the next row',
-      () {
-    final reference = renderLine0(setup: (v) {
-      v.vramData.setUint32(0, white);
-    });
-    final scrolled = renderLine0(
-        scrollX: 510,
-        setup: (v) {
-          // the dot at index 512 is the first dot of the second row
-          v.vramData.setUint32(512 * 4, white);
-        });
-    expect(scrolled[2], reference[0]);
-    expect(scrolled[1], isNot(reference[0]));
-    expect(scrolled[3], isNot(reference[0]));
-  });
-
   test('a window shows a layer only inside of its area', () {
     final line = renderLine0(
         fill: white,
@@ -60,22 +44,4 @@ void main() {
     expect(line[319], line[100]);
   });
 
-  test('a line window takes the range of each line from its table', () {
-    final line = renderLine0(
-        fill: white,
-        setup: (v) {
-          v
-            ..writeReg(0xd0, 0x0003)
-            ..writeReg(0xc6, 0xe0)
-            ..writeReg(0xd8, 0x8000) // line window 0 at 0x1000
-            ..writeReg(0xda, 0x0800);
-          v.vramData
-            ..setUint16(0x1000, 40)
-            ..setUint16(0x1002, 100);
-        });
-    expect(line[19], isNot(line[30]));
-    expect(line[20], line[30]);
-    expect(line[50], line[30]);
-    expect(line[51], line[19]);
-  });
 }

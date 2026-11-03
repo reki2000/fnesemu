@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/iop/iop.dart';
@@ -39,8 +40,36 @@ Iop _run(List<int> code, {int steps = -1}) {
   return cpu;
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('arithmetic and logic', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('arithmetic and logic', () {
     final cpu = _run([
       _i(9, 0, 1, 5), // ADDIU r1, r0, 5
       _i(9, 0, 2, -3), // ADDIU r2, r0, -3
@@ -55,7 +84,7 @@ void main() {
     expect(cpu.r[6], 0);
   });
 
-  test('multiply and divide', () {
+  aggCase('multiply and divide', () {
     final cpu = _run([
       _i(15, 0, 1, 0x8000), // LUI r1, 0x8000
       _i(9, 0, 2, 4),
@@ -74,7 +103,7 @@ void main() {
     expect(cpu.r[8], 3);
   });
 
-  test('a branch executes its delay slot', () {
+  aggCase('a branch executes its delay slot', () {
     final cpu = _run([
       _i(4, 0, 0, 2), // BEQ r0, r0, +2 (target = after the next two)
       _i(9, 0, 1, 1), // delay slot
@@ -86,7 +115,7 @@ void main() {
     expect(cpu.r[3], 3);
   });
 
-  test('the instruction after a load sees the old value', () {
+  aggCase('the instruction after a load sees the old value', () {
     final ram = _Ram()..write32(0x2000, 0x1234);
     final code = [
       _i(9, 0, 1, 0x77),
@@ -107,7 +136,7 @@ void main() {
     expect(cpu.r[3], 0x1234);
   });
 
-  test('unaligned loads and stores merge with LWL/LWR/SWL/SWR', () {
+  aggCase('unaligned loads and stores merge with LWL/LWR/SWL/SWR', () {
     final ram = _Ram()..write32(0x2000, 0x44332211);
     final code = [
       _i(15, 0, 4, 0),
@@ -131,7 +160,7 @@ void main() {
     expect(ram.read32(0x2004), 0x44332211);
   });
 
-  test('SYSCALL in a delay slot sets BD and EPC at the branch', () {
+  aggCase('SYSCALL in a delay slot sets BD and EPC at the branch', () {
     final cpu = _run([
       _r(8, 31, 0, 0), // JR r31 (r31 = 0 -> jumps to 0)
       _r(12, 0, 0, 0), // SYSCALL in the delay slot
@@ -142,8 +171,7 @@ void main() {
     expect(cpu.pc, 0x80000080);
   });
 
-  test('hardware interrupt is taken when enabled and RFE restores the mode',
-      () {
+  aggCase('hardware interrupt is taken when enabled and RFE restores the mode', () {
     final ram = _Ram();
     for (var i = 0; i < 4; i++) {
       ram.write32(0x1000 + i * 4, 0);
@@ -158,7 +186,7 @@ void main() {
     expect((cpu.cop0[Iop.cop0Status] >> 2) & 1, 1);
   });
 
-  test('ADD overflows', () {
+  aggCase('ADD overflows', () {
     final cpu = _run([
       _i(15, 0, 1, 0x7fff),
       _i(13, 1, 1, 0xffff), // r1 = 0x7fffffff
@@ -168,7 +196,7 @@ void main() {
     expect((cpu.cop0[Iop.cop0Cause] >> 2) & 31, Iop.excOverflow);
   });
 
-  test('an interrupt does not drop the load of the previous instruction', () {
+  aggCase('an interrupt does not drop the load of the previous instruction', () {
     final ram = _Ram()..write32(0x2000, 0x1234);
     final code = [
       _i(35, 0, 1, 0x2000), // LW r1, 0x2000(r0)
@@ -185,4 +213,15 @@ void main() {
     expect(cpu.cop0[Iop.cop0Epc], 0x1004);
     expect(cpu.r[1], 0x1234);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

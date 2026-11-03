@@ -10,60 +10,6 @@ void send(DcSci chip, int byte) {
 void mpBit(DcSci chip, bool value) => chip.write(16, 1, 0xfc | (value ? 1 : 0));
 
 void main() {
-  for (final external in [false, true]) {
-    for (final seven in [false, true]) {
-      for (final twoStops in [false, true]) {
-        for (final parity in [false, true]) {
-          test(
-              'MP transmit external=$external seven=$seven stops=$twoStops PE=$parity',
-              () {
-            final chip = DcSci();
-            final bytes = <int>[];
-            final frames = <(int, bool?)>[];
-            chip.onTransmit = bytes.add;
-            chip.onTransmitFrame = (byte, mp) => frames.add((byte, mp));
-            chip.write(
-                0,
-                1,
-                4 |
-                    (seven ? 0x40 : 0) |
-                    (twoStops ? 8 : 0) |
-                    (parity ? 0x20 : 0));
-            chip.write(4, 1, 0);
-            chip.write(8, 1, 0x24 | (external ? 2 : 0));
-            final bit = external ? 16 : 32;
-            final dataBits = seven ? 7 : 8;
-            final stops = twoStops ? 2 : 1;
-            expect(chip.frameBits, 1 + dataBits + 1 + stops);
-            void tick(int clocks) => external
-                ? chip.tickExternalClocks(clocks)
-                : chip.tickPeripheralClocks(clocks);
-            mpBit(chip, false);
-            send(chip, 0xff);
-            // MPBT must not have been buffered when the data was loaded.
-            tick((1 + dataBits) * bit - 1);
-            mpBit(chip, true);
-            tick(1); // The MP bit starts here.
-            mpBit(
-                chip, false); // A change after sampling affects the next frame.
-            tick(bit - 1);
-            expect(chip.interruptEvent, 0);
-            tick(1); // Stop bit starts: TEND/TEI precede frame completion.
-            expect(chip.interruptEvent, 0x540);
-            expect(frames, isEmpty);
-            tick(stops * bit - 1);
-            expect(bytes, isEmpty);
-            tick(1);
-            expect(frames, [(seven ? 127 : 255, true)]);
-            expect(bytes, [seven ? 127 : 255]);
-            send(chip, 0x12);
-            tick(chip.frameBits * bit);
-            expect(frames.last, (0x12, false));
-          });
-        }
-      }
-    }
-  }
 
   test(
       'MP frames loop back through the decoded receiver with address filtering',

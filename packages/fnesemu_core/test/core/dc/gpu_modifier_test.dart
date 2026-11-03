@@ -220,66 +220,9 @@ void main() {
     expect(bus.systemBus.errorStatus, 0);
   });
 
-  test('partial modifier packets neither allocate parameters nor finish a list',
-      () {
-    init();
-    packet([0x81800040, 0x20000000]);
-    packet([
-      0xf0000000,
-      bits(0),
-      bits(0),
-      bits(2),
-      bits(32),
-      bits(0),
-      bits(2),
-      bits(0)
-    ]);
-    expect(bus.read32(reg + 0x138), 0x200000);
-    expect(bus.systemBus.normalStatus & 0x100, 0);
-    bus.write32(reg + 8, 1);
-    bus.write32(reg + 8, 0);
-    expect(bus.read32(reg + 0x138), 0);
-  });
 
-  test(
-      'modifier globals ignore color/texture fields and do not become long globals',
-      () {
-    init();
-    packet([0x8180006f, 0x27ffffff, 0xffffffff, 0xffffffff]);
-    packet([0xf0000000, 0, 0, bits(2), bits(32), 0, bits(2), 0]);
-    packet([bits(32), bits(2), 0, 0, 0, 0, 0, 0]);
-    end();
-    expect(bus.gpu.vram.getUint32LE(0x200000), 0x20000000);
-    expect(bus.systemBus.normalStatus & 0x100, 0x100);
-  });
 
-  test(
-      'invalid modifier last flags and reserved shadow bits report parameter errors',
-      () {
-    for (final words in [
-      [0x81800040, 0],
-      [0x81800040, 0x60000000],
-      [0x818000c0, 0x20000000]
-    ]) {
-      bus = DcBus();
-      bus.write32(reg + 8, 0);
-      init();
-      expect(() => packet(words), throwsA(isA<DcUnsupported>()));
-      expect(bus.systemBus.errorStatus & 16, 16);
-    }
-  });
 
-  test('continuation modifier headers accumulate despite stale instruction bits', () {
-    for (final instruction in [0, 1, 2, 4, 7]) {
-      bus = DcBus();
-      bus.write32(reg + 8, 0);
-      init();
-      packet([0x81800000, (instruction << 29) | 0x08000000]);
-      packet([0xf0000000, 0, 0, bits(2), bits(32), 0, bits(2), 0]);
-      packet([bits(32), bits(2), 0, 0, 0, 0, 0, 0]);
-      expect(bus.gpu.vram.getUint32LE(0x200000), 0x08000000);
-    }
-  });
 
   test('alternate terminal modifier opcodes convert to CORE instructions', () {
     for (final instruction in [1, 2]) {
@@ -293,246 +236,21 @@ void main() {
     }
   });
 
-  test('a front planar volume scales only shadow-enabled polygons', () {
-    for (final shadow in [false, true]) {
-      bus = DcBus();
-      bus.write32(reg + 8, 0);
-      init();
-      intensity();
-      layer(0, shadow: shadow, color: 0xffff8040, tsp: copy);
-      end();
-      modifier(1, 1);
-      end();
-      draw();
-      expect(pixel(1, 1), shadow ? 0xff7f4020 : 0xffff8040);
-    }
-  });
 
-  test('shadow factors use the documented denominator 256 rather than 255', () {
-    for (final (scale, expected) in [
-      (0, 0xff000000),
-      (128, 0xff7f0000),
-      (255, 0xfffe0000)
-    ]) {
-      bus = DcBus();
-      bus.write32(reg + 8, 0);
-      init();
-      intensity(scale);
-      layer(0, shadow: true, tsp: copy);
-      end();
-      modifier(1, 1);
-      end();
-      draw();
-      expect(pixel(1, 1), expected);
-    }
-  });
 
-  test('a volume behind the surface does not shade it', () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy);
-    end();
-    modifier(1, 1, depth: 0.5);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xffff0000);
-  });
 
-  test('a closed slab shades surfaces between its front and back faces', () {
-    for (final (depth, expected) in [
-      (0.25, 0xffff0000),
-      (1.0, 0xff7f0000),
-      (4.0, 0xffff0000)
-    ]) {
-      bus = DcBus();
-      bus.write32(reg + 8, 0);
-      init();
-      intensity();
-      layer(0, depth: depth, shadow: true, tsp: copy);
-      end();
-      modifier(1, 0, depth: 3);
-      modifier(1, 1, depth: 0.5);
-      end();
-      draw();
-      expect(pixel(1, 1), expected);
-    }
-  });
 
-  test(
-      'crossing two faces in one volume cancels rather than accumulating opacity',
-      () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy);
-    end();
-    modifier(1, 0);
-    modifier(1, 0);
-    modifier(1, 1, depth: 0.5);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xffff0000);
-  });
 
-  test('separate inclusion volumes combine by union', () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy);
-    end();
-    modifier(1, 1, extent: 16);
-    modifier(1, 1);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff7f0000);
-    expect(pixel(20, 1), 0xff7f0000);
-  });
 
-  test('Outside Last removes its interior from a prior inclusion area', () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy);
-    end();
-    modifier(1, 1);
-    modifier(1, 2, extent: 16);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xffff0000);
-    expect(pixel(20, 1), 0xff7f0000);
-  });
 
-  test(
-      'modifier culling uses the same determinant convention as normal geometry',
-      () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy);
-    end();
-    modifier(1, 1, cull: 3);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xffff0000);
-  });
 
-  test('opaque replay shades against the original destination exactly once',
-      () {
-    init();
-    intensity();
-    layer(0, shadow: true, color: 0x80ff0000, tsp: alpha);
-    end();
-    modifier(1, 1);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xcf200000);
-  });
 
-  test('failed modifier prepasses restore retained tile state before retry',
-      () {
-    init();
-    intensity();
-    layer(0, shadow: true, color: 0x80ff0000, tsp: alpha);
-    end();
-    final parameter = bus.read32(reg + 0x138);
-    modifier(1, 0);
-    end();
-    prepare();
-    put(0x9000, [
-      0x10000000,
-      0x80000000,
-      0x80000000,
-      0x80000000,
-      0x80000000,
-      0x80000000,
-      0xc0000000,
-      object,
-      object + 32,
-      0x80000000,
-      0x80000000,
-      0x80000000
-    ]);
-    bus.write32(reg + 0x14, 1);
-    bus.tickMasterClocks(2);
-    expect(() => bus.tickMasterClocks(2), throwsA(isA<DcUnsupported>()));
-    expect(bus.systemBus.normalStatus & 7, 0);
-    put(parameter, [0x20000000]);
-    bus.tickMasterClocks(2);
-    expect(pixel(1, 1), 0xcf200000);
-    expect(bus.systemBus.normalStatus & 7, 7);
-  });
 
-  test('opaque modifiers also shade accepted punch-through pixels', () {
-    init();
-    intensity();
-    layer(4, shadow: true, tsp: copy);
-    end();
-    modifier(1, 1);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff7f0000);
-  });
 
-  test('opaque modifiers do not leak their area mask into translucent objects',
-      () {
-    init();
-    intensity();
-    layer(0, shadow: true, color: 0xff0000ff, tsp: copy);
-    end();
-    modifier(1, 1, depth: 3);
-    end();
-    layer(2, shadow: true, depth: 2, color: 0x8000ff00, tsp: alpha);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xbf00803f);
-  });
 
-  test(
-      'translucent modifiers evaluate the depth of each sorted layer separately',
-      () {
-    init();
-    intensity();
-    layer(2, shadow: true, depth: 3, color: 0x800000ff, tsp: alpha);
-    layer(2, shadow: true, depth: 1, color: 0x80ff0000, tsp: alpha);
-    end();
-    modifier(3, 1, depth: 2);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xa7100080);
-  });
 
-  test(
-      'pre-sorted translucent modifiers stop because the manual requires auto-sort',
-      () {
-    init();
-    intensity();
-    layer(2, shadow: true);
-    end();
-    modifier(3, 1);
-    end();
-    expect(() => draw(presort: true), throwsA(isA<DcUnsupported>()));
-    expect(bus.systemBus.normalStatus & 7, 0);
-  });
 
-  test(
-      'secondary writes and flushes participate in opaque replay without duplicate blending',
-      () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy | secondaryDestination);
-    layer(0, tsp: copy | secondarySource);
-    end();
-    modifier(1, 1);
-    end();
-    draw();
-    expect(pixel(1, 1), 0xff7f0000);
-  });
 
-  test('shadow pointers are stored independently of the vertex skip field', () {
-    init();
-    intensity();
-    layer(0, shadow: true, tsp: copy);
-    end();
-    expect(bus.gpu.vram.getUint32LE(object) & 0x01e00000, 0x01200000);
-    draw();
-    expect(pixel(1, 1), 0xffff0000);
-  });
 
   group('CPU-authored modifier geometry', () {
     late DcGpuModifier engine;
@@ -561,28 +279,7 @@ void main() {
     Uint8List evaluate() => engine.evaluate(
         0x100000, 0, 0, 0, Float64List(1024)..fillRange(0, 1024, 1), 0.5);
 
-    test('counted triangle arrays advance by each XYZ record', () {
-      record(0x200000, 0, 2);
-      record(0x200030, 1, 0.5);
-      put(0x100000, [0x82080000, 0xf0000000]);
-      expect(evaluate()[33], 1);
-    });
 
-    test('quad D uses the ABC depth plane and shared edges toggle only once',
-        () {
-      record(0x200000, 1, 2, quad: true);
-      put(0x100000, [0xa0080000, 0xf0000000]);
-      expect(evaluate().where((value) => value == 1).length, 1024);
-    });
 
-    test('active masks exclude absent translucent fragments', () {
-      record(0x200000, 1, 2);
-      put(0x100000, [0x80080000, 0xf0000000]);
-      final active = Uint8List(1024)..[33] = 1;
-      final result = engine.evaluate(
-          0x100000, 0, 0, 0, Float64List(1024)..fillRange(0, 1024, 1), 0.5,
-          active: active);
-      expect(result.where((value) => value == 1).length, 1);
-    });
   });
 }

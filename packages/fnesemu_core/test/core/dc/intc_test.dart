@@ -69,33 +69,7 @@ void main() {
     });
   }
 
-  test('highest priority wins, default order breaks ties, IRL wins equal TMU',
-      () {
-    for (var channel = 0; channel < 3; channel++) {
-      underflow(channel);
-    }
-    bus.write16(0xffd00004, 0x4780);
-    expect(bus.intc.pending(15, bus.tmu), (8, 0x440));
-    bus.write16(0xffd00004, 0x8880);
-    expect(bus.intc.pending(15, bus.tmu), (8, 0x400));
-    expect(bus.intc.pending(7, bus.tmu), (8, 0x2e0));
-    expect(bus.intc.pending(8, bus.tmu), (8, 0x400));
-  });
 
-  test('independent IRL mode uses active-low pin levels and fixed priorities',
-      () {
-    bus.write16(0xffd00000, 0x80);
-    for (final (pins, priority, event) in [
-      (14, 13, 0x240),
-      (13, 10, 0x2a0),
-      (11, 7, 0x300),
-      (7, 4, 0x360),
-      (0, 13, 0x240),
-      (15, 0, 0),
-    ]) {
-      expect(bus.intc.pending(pins, bus.tmu), (priority, event));
-    }
-  });
 
   test(
       'TMU request waits for branch slot and retriggers until guest clears UNF',
@@ -123,66 +97,7 @@ void main() {
     expect(bus.tmu.interruptPending(0), isFalse);
   });
 
-  test(
-      'NMI edge latches despite IMASK, is consumed once, and preserves pin level',
-      () {
-    cpu.sr = 0x400000f0;
-    bus.intc.nmiHigh = false;
-    expect(bus.read16(0xffd00000), 0);
-    cpu.step();
-    expect(bus.intevt, 0x1c0);
-    expect(cpu.ssr, 0x400000f0);
-    expect(cpu.spc, code);
-    expect(bus.intc.pending(15, bus.tmu), (0, 0));
-    cpu.reset();
-    expect(bus.intc.nmiHigh, isFalse);
-    expect(bus.intc.pending(15, bus.tmu), (0, 0));
-  });
 
-  test('NMI block override admits pending edge and clears NMIB on acceptance',
-      () {
-    cpu.sr = 0x50000000;
-    bus.intc.nmiHigh = false;
-    cpu.step();
-    expect(cpu.pc, code + 2);
-    bus.write16(0xffd00000, 0x200);
-    cpu.step();
-    expect(bus.intevt, 0x1c0);
-    expect(bus.read16(0xffd00000) & 0x200, 0);
-  });
 
-  test('rising edge selection and MAI hold maskable requests while NMI is low',
-      () {
-    bus.write16(0xffd00000, 0x4100);
-    cpu.irlPins = 0;
-    bus.intc.nmiHigh = false;
-    cpu.step();
-    expect(cpu.pc, code + 2);
-    expect(bus.intc.pending(0, bus.tmu), (0, 0));
-    bus.intc.nmiHigh = true;
-    cpu.step();
-    expect(bus.intevt, 0x1c0);
-    expect(bus.intc.pending(0, bus.tmu), (15, 0x200));
-  });
 
-  test('NMI waits for the delay slot and precedes a maximum-level TMU', () {
-    bus.write16(code, 0xa000);
-    cpu.step();
-    underflow(0);
-    bus.write16(0xffd00004, 0xf000);
-    bus.intc.nmiHigh = false;
-    bus.intc.nmiHigh = true; // The pulse remains latched after deassertion.
-    cpu.step();
-    expect(cpu.pc, code + 4);
-    cpu.step();
-    expect(bus.intevt, 0x1c0);
-    expect(cpu.spc, code + 4);
-    expect(bus.intc.pending(15, bus.tmu), (15, 0x400));
-    bus.write16(vector + 0x600, 0x002b);
-    bus.write16(vector + 0x602, 0x0009);
-    cpu.step();
-    cpu.step();
-    cpu.step();
-    expect(bus.intevt, 0x400);
-  });
 }

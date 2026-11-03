@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/jit/ps2_jit.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
@@ -217,28 +218,58 @@ final _cop1Program = [
   _r(0), // nop
 ];
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('compiled code matches the interpreter', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void addTearDown(void Function() teardown) => aggTeardowns.add(teardown);
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggSkipCase(String reason) => throw const _CaseSkip();
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('compiled code matches the interpreter', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return; // no little-endian host
     addTearDown(jit.dispose);
     _compare(jit, 'native');
   });
 
-  test('the reference IR matches the interpreter', () {
+  aggCase('the reference IR matches the interpreter', () {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     _compare(jit, 'reference');
   });
 
-  test('compiled COP1 matches the interpreter', () {
+  aggCase('compiled COP1 matches the interpreter', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return; // no little-endian host
     addTearDown(jit.dispose);
     _compare(jit, 'native cop1', _cop1Program, _cop1Data);
   });
 
-  test('reference IR COP1 matches the interpreter', () {
+  aggCase('reference IR COP1 matches the interpreter', () {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     _compare(jit, 'reference cop1', _cop1Program, _cop1Data);
@@ -246,10 +277,10 @@ void main() {
 
 
   for (final native in [false, true]) {
-    test('${native ? 'native' : 'reference'} EE DIV/DIVU and MMI DIV1/DIVU1 preserve HI/LO', () {
+    aggCase('${native ? 'native' : 'reference'} EE DIV/DIVU and MMI DIV1/DIVU1 preserve HI/LO', () {
       final jit = Ps2Jit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('Native JIT unsupported on this host');
+        aggSkipCase('Native JIT unsupported on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -329,8 +360,7 @@ void main() {
     });
   }
 
-  test('unmapped LW skips repeated empty native entries but still reads IO',
-      () {
+  aggCase('unmapped LW skips repeated empty native entries but still reads IO', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -364,7 +394,7 @@ void main() {
     expect(cpu.reg(2), 0x76543210);
   });
 
-  test('reference IR preserves IO reads and a later RAM load', () {
+  aggCase('reference IR preserves IO reads and a later RAM load', () {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     final io = _CountingIo();
@@ -388,7 +418,7 @@ void main() {
     expect(cpu.reg(2), 0x76543210);
   });
 
-  test('rewritten code invalidates the unmapped LW fast path', () {
+  aggCase('rewritten code invalidates the unmapped LW fast path', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -409,7 +439,7 @@ void main() {
     expect(cpu.reg(2), 123);
   });
 
-  test('an interrupt is taken before a cached unmapped load', () {
+  aggCase('an interrupt is taken before a cached unmapped load', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -434,7 +464,7 @@ void main() {
     expect(io.reads, 1);
   });
 
-  test('a cached unmapped load still executes as a branch delay slot', () {
+  aggCase('a cached unmapped load still executes as a branch delay slot', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -460,7 +490,7 @@ void main() {
     expect(io.reads, 2);
   });
 
-  test('a remapped TLB address uses the interpreter and the new mapping', () {
+  aggCase('a remapped TLB address uses the interpreter and the new mapping', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -488,7 +518,7 @@ void main() {
     expect(io.reads, 1);
   });
 
-  test('a misaligned cached load still raises an address exception', () {
+  aggCase('a misaligned cached load still raises an address exception', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -513,7 +543,7 @@ void main() {
     expect(io.reads, 1);
   });
 
-  test('reset clears the cached unmapped load', () {
+  aggCase('reset clears the cached unmapped load', () {
     final jit = Ps2Jit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -533,7 +563,7 @@ void main() {
     expect(jit.rt.nativeEntries, greaterThan(entries));
   });
 
-  test('an overflowing ADD leaves to the interpreter for the exception', () {
+  aggCase('an overflowing ADD leaves to the interpreter for the exception', () {
     final jit = Ps2Jit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     final bus = Ps2Bus(ram: jit.ram);
@@ -557,4 +587,15 @@ void main() {
     expect(cpu.pc, 0x80000180);
     expect(cpu.reg(2), 0);
   });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

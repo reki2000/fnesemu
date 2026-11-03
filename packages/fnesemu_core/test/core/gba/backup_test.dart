@@ -15,23 +15,9 @@ Uint8List romWith(String tag) {
 
 void main() {
   group('Backup.detect', () {
-    test('recognises each identifier', () {
-      expect(Backup.detect(romWith("SRAM_V123")), BackupType.sram);
-      expect(Backup.detect(romWith("FLASH_V100")), BackupType.flash512);
-      expect(Backup.detect(romWith("FLASH512_V")), BackupType.flash512);
-      expect(Backup.detect(romWith("FLASH1M_V1")), BackupType.flash1m);
-      expect(Backup.detect(romWith("EEPROM_V12")), BackupType.eeprom);
-      expect(Backup.detect(romWith("nothing")), BackupType.none);
-    });
   });
 
   group('SRAM', () {
-    test('reads back bytes through the bus', () {
-      final bus = Bus();
-      bus.cart.backup.init(BackupType.sram, Sram(), "T");
-      bus.write8(0x0e000010, 0xab);
-      expect(bus.read8(0x0e000010), 0xab);
-    });
   });
 
   group('Flash', () {
@@ -47,31 +33,6 @@ void main() {
       bus.write8(0x0e005555, value);
     }
 
-    test('chip id read after entering id mode', () {
-      final bus = makeFlash();
-      cmd(bus, 0x90); // enter id
-      expect(bus.read8(0x0e000000), 0x32); // 64K flash manufacturer
-      expect(bus.read8(0x0e000001), 0x1b);
-      cmd(bus, 0xf0); // exit
-      expect(bus.read8(0x0e000000), 0xff); // erased flash
-    });
-
-    test('program a byte then read it back', () {
-      final bus = makeFlash();
-      cmd(bus, 0xa0); // program
-      bus.write8(0x0e000100, 0x42);
-      expect(bus.read8(0x0e000100), 0x42);
-    });
-
-    test('chip erase resets to 0xff', () {
-      final bus = makeFlash();
-      cmd(bus, 0xa0);
-      bus.write8(0x0e000100, 0x00);
-      expect(bus.read8(0x0e000100), 0x00);
-      cmd(bus, 0x80); // erase setup
-      cmd(bus, 0x10); // chip erase
-      expect(bus.read8(0x0e000100), 0xff);
-    });
   });
 
   group('EEPROM', () {

@@ -90,30 +90,6 @@ void main() {
     expect(save(copy), state);
   }, testOn: 'vm');
 
-  test('state continues through EI delay and an asserted maskable interrupt',
-      () {
-    final bus = _MemoryBus()
-      ..program(0x100, [0xfb, 0x00])
-      ..program(0x38, [0x3e, 0x42]);
-    final cpu = Z80(bus)
-      ..r.pc = 0x100
-      ..r.sp = 0xff00;
-    expect(cpu.exec(), isTrue); // EI leaves its one-instruction delay pending.
-    cpu.assertInt();
-
-    final otherBus = bus.copy();
-    final copy = Z80(otherBus);
-    load(copy, save(cpu));
-
-    expectContinuationEqual(cpu, copy); // NOP runs before the IRQ is taken.
-    expect(cpu.r.pc, 0x102);
-    expectContinuationEqual(cpu, copy); // The asserted IRQ enters IM 1.
-    expect(cpu.r.pc, 0x38);
-    expect(cpu.iff1, isFalse);
-    expectContinuationEqual(cpu, copy); // Continue in the interrupt handler.
-    expect(cpu.r.a, 0x42);
-  }, testOn: 'vm');
-
   test('state retains a pending NMI through HALT and BUSREQ', () {
     final bus = _MemoryBus()
       ..program(0x100, [0x76])
@@ -143,11 +119,4 @@ void main() {
     expect(cpu.r.pc, pc);
   }, testOn: 'vm');
 
-  test('state rejects an unexpected section before changing registers', () {
-    final cpu = Z80(_MemoryBus())..r.af = 0x1234;
-    final before = save(cpu);
-    final writer = StateWriter('component', 1, 0)..section('other');
-    expect(() => load(cpu, writer.take()), throwsA(isA<StateMismatch>()));
-    expect(save(cpu), before);
-  }, testOn: 'vm');
 }

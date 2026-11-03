@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -227,8 +228,38 @@ final class _Generator {
   }
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('CPU profiling preserves load delays, registers, memory and clocks', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void addTearDown(void Function() teardown) => aggTeardowns.add(teardown);
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggSkipCase(String reason) => throw const _CaseSkip();
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('CPU profiling preserves load delays, registers, memory and clocks', () {
     final expected = _Machine.interpreter();
     final actual = _Machine.jit(PsJit.create(native: false)!);
     addTearDown(actual.jit!.dispose);
@@ -261,10 +292,10 @@ void main() {
   });
   for (final native in [false, true]) {
     final name = native ? 'native' : 'interpreted';
-    test('$name clock counter excludes CPU and IR interpreter execution', () {
+    aggCase('$name clock counter excludes CPU and IR interpreter execution', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -287,10 +318,10 @@ void main() {
       expect(jit.compiledClocks, 0);
     });
 
-    test('$name cold CPU blocks do not count as compiled execution', () {
+    aggCase('$name cold CPU blocks do not count as compiled execution', () {
       final jit = PsJit.create(native: native, compileThreshold: 1000);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -303,17 +334,16 @@ void main() {
 
     // 1 translates every block; the default interprets cold blocks first
     for (final threshold in [1, null]) {
-      test(
-          '$name blocks run random programs like the interpreter'
+      aggCase('$name blocks run random programs like the interpreter'
           '${threshold == null ? ' after warming up' : ''}', () {
         if (identical(0, 0.0)) {
           // R3000.mult and multu lose the upper bits with the numbers of JS
-          markTestSkipped('the interpreter multiplies inexactly on dart2js');
+          aggSkipCase('the interpreter multiplies inexactly on dart2js');
           return;
         }
         final jit = PsJit.create(native: native, compileThreshold: threshold);
         if (jit == null) {
-          markTestSkipped('no native recompiler on this host');
+          aggSkipCase('no native recompiler on this host');
           return;
         }
         addTearDown(jit.dispose);
@@ -341,10 +371,10 @@ void main() {
       });
     }
 
-    test('$name blocks keep the load delay of the interpreter', () {
+    aggCase('$name blocks keep the load delay of the interpreter', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -384,10 +414,10 @@ void main() {
       }
     });
 
-    test('$name COP0 reads preserve load delays and branch slots', () {
+    aggCase('$name COP0 reads preserve load delays and branch slots', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -422,10 +452,10 @@ void main() {
       }
     });
 
-    test('$name compiled low vectors retain BIOS hooks', () {
+    aggCase('$name compiled low vectors retain BIOS hooks', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -448,10 +478,10 @@ void main() {
       expect(m.cpu.console.toString(), 'X');
     });
 
-    test('$name scratchpad loads and stores stay in compiled blocks', () {
+    aggCase('$name scratchpad loads and stores stay in compiled blocks', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -481,10 +511,10 @@ void main() {
               'scratchpad accesses must not leave through memory side exits');
     });
 
-    test('$name scratchpad excludes invalid virtual aliases', () {
+    aggCase('$name scratchpad excludes invalid virtual aliases', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -508,10 +538,10 @@ void main() {
       }
     });
 
-    test('$name scratchpad mapping follows cache control changes', () {
+    aggCase('$name scratchpad mapping follows cache control changes', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -539,10 +569,10 @@ void main() {
       expect(m.bus.read32(0x1f800000), 0x1234);
     });
 
-    test('$name blocks respect unmapped memory ranges', () {
+    aggCase('$name blocks respect unmapped memory ranges', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -573,10 +603,10 @@ void main() {
       expect(m.bus.read32(0x1f800000), 0x5678);
     });
 
-    test('$name blocks see code written by the program', () {
+    aggCase('$name blocks see code written by the program', () {
       final jit = PsJit.create(native: native, compileThreshold: 1);
       if (jit == null) {
-        markTestSkipped('no native recompiler on this host');
+        aggSkipCase('no native recompiler on this host');
         return;
       }
       addTearDown(jit.dispose);
@@ -609,5 +639,16 @@ void main() {
       m.run(_code + 4 * 9, Random(1));
       expect(m.cpu.r[1], 10 + 5 + 6);
     });
+  }
+
+  const chunkCount = 4;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
   }
 }

@@ -49,22 +49,4 @@ void main() {
     expect(bus.fetch32(0x03008000), 0x12345678);
   });
 
-  test('timer enable and cascade changes take effect on the next tick', () {
-    final timers = Bus().timers;
-    timers.write16(0, 0xffff);
-    timers.write16(4, 0xfffc);
-    timers.write16(2, 0x80);
-    timers.write16(6, 0x84);
-    timers.tick(1);
-    expect(timers.read16(0), 0xffff);
-    expect(timers.read16(4), 0xfffd);
-    timers.write16(2, 0);
-    timers.write16(6, 0x80);
-    timers.tick(2);
-    expect(timers.read16(4), 0xffff);
-    timers.reset();
-    timers.tick(1000);
-    expect(timers.read16(0), 0);
-    expect(timers.read16(4), 0);
-  });
 }

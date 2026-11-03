@@ -1,11 +1,39 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps/bus.dart';
 import 'package:test/test.dart';
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('scratchpad widths and aliases preserve enable state and boundaries',
-      () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('scratchpad widths and aliases preserve enable state and boundaries', () {
     final bus = Bus();
     for (final enabled in [false, true]) {
       bus.useScratchPad = enabled;
@@ -31,7 +59,7 @@ void main() {
     }
   });
 
-  test('invalid scratchpad aliases and the following gap stay unmapped', () {
+  aggCase('invalid scratchpad aliases and the following gap stay unmapped', () {
     final bus = Bus();
     for (final enabled in [false, true]) {
       bus.useScratchPad = enabled;
@@ -64,7 +92,7 @@ void main() {
     }
   });
 
-  test('RAM, ROM and scratchpad views respect their buffer offsets', () {
+  aggCase('RAM, ROM and scratchpad views respect their buffer offsets', () {
     final backing = Uint8List(4 * 1024 * 1024);
     final ram = Uint8List.sublistView(backing, 4096, 4096 + 2 * 1024 * 1024);
     final rom = Uint8List.sublistView(
@@ -87,4 +115,15 @@ void main() {
     expect(bus.read32(0xbfc00000), 0xfedcba98);
     expect(backing.sublist(0, 8), List.filled(8, 0));
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

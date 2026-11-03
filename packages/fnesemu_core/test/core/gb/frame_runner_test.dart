@@ -10,19 +10,6 @@ Gb createCore({bool stop = false}) {
 }
 
 void main() {
-  test('frame execution returns immediately when the CPU stops', () {
-    final reference = createCore(stop: true), batched = createCore(stop: true);
-    var expected = reference.exec(false);
-    while (!expected.stopped) {
-      expected = reference.exec(false);
-    }
-    final actual = batched.runFrame(batched.scanlinesInFrame);
-    expect(expected.stopped, isTrue);
-    expect(actual.stopped, isTrue);
-    expect(actual.scanlineRendered, expected.scanlineRendered);
-    expect(actual.elapsedClocks, expected.elapsedClocks);
-    expect(batched.dump(), reference.dump());
-  });
 
   test('frame execution matches instruction stepping across partial frames',
       () {

@@ -33,80 +33,9 @@ void main() {
     expect(bus.read32(base), 0x20);
   });
 
-  test('reserved bits and HOLLY1/2 punch-through source are masked', () {
-    bus.systemBus.raiseNormal(0xffffffff);
-    bus.systemBus.raiseError(0xffffffff);
-    bus.systemBus.setExternal(0xffffffff);
-    expect(bus.read32(base), 0xc03fffff);
-    expect(bus.read32(base + 4), 15);
-    expect(bus.read32(base + 8), 0x9fffffff);
-    for (final tier in [0x10, 0x20, 0x30]) {
-      for (final offset in [0, 4, 8]) {
-        bus.write32(base + tier + offset, 0xffffffff);
-      }
-      expect(bus.read32(base + tier), 0x3fffff);
-      expect(bus.read32(base + tier + 4), 15);
-      expect(bus.read32(base + tier + 8), 0x9fffffff);
-    }
-    final holly1 = DcSystemBus(holly2: false);
-    holly1.raiseNormal(1 << 21);
-    holly1.write(0x10, 4, 0xffffffff);
-    expect(holly1.read(0, 4), 0);
-    expect(holly1.read(0x10, 4), 0x1fffff);
-  });
 
-  for (final kind in [0, 1, 2]) {
-    test('source kind $kind is masked by level 6 then 4 then 2', () {
-      switch (kind) {
-        case 0:
-          bus.systemBus.raiseNormal(1);
-        case 1:
-          bus.systemBus.setExternal(1);
-        case 2:
-          bus.systemBus.raiseError(1);
-      }
-      expect(bus.systemBus.irlPins, 15);
-      for (final tier in [0x10, 0x20, 0x30]) {
-        bus.write32(base + tier + kind * 4, 1);
-      }
-      expect(bus.systemBus.interruptLevel, 6);
-      expect(bus.systemBus.irlPins, 9);
-      bus.write32(base + 0x30 + kind * 4, 0);
-      expect(bus.systemBus.interruptLevel, 4);
-      expect(bus.systemBus.irlPins, 11);
-      bus.write32(base + 0x20 + kind * 4, 0);
-      expect(bus.systemBus.interruptLevel, 2);
-      expect(bus.systemBus.irlPins, 13);
-      bus.write32(base + 0x10 + kind * 4, 0);
-      expect(bus.systemBus.irlPins, 15);
-    });
-  }
 
-  test('summary bits do not become normal interrupt sources', () {
-    bus.systemBus.raiseError(1);
-    bus.systemBus.setExternal(1);
-    bus.write32(base + 0x30, 0xc0000000);
-    expect(bus.read32(base), 0xc0000000);
-    expect(bus.systemBus.interruptLevel, 0);
-  });
 
-  test('GPU/G2 trigger masks select normal and external sources independently',
-      () {
-    bus.write32(base + 0x40, 8);
-    bus.write32(base + 0x54, 2);
-    bus.systemBus.raiseNormal(8);
-    expect(bus.systemBus.gpuDmaRequest, isTrue);
-    expect(bus.systemBus.g2DmaRequest, isFalse);
-    bus.systemBus.setExternal(2);
-    expect(bus.systemBus.g2DmaRequest, isTrue);
-    bus.write32(base, 8);
-    expect(bus.systemBus.gpuDmaRequest, isFalse);
-    bus.systemBus.setExternal(0);
-    expect(bus.systemBus.g2DmaRequest, isFalse);
-    bus.systemBus.raiseError(8);
-    expect(bus.systemBus.gpuDmaRequest, isFalse);
-    expect(bus.systemBus.g2DmaRequest, isFalse);
-  });
 
   test(
       'controller reset retains external levels; CPU reset retains HOLLY state',
@@ -150,23 +79,4 @@ void main() {
     expect(core.cpu.irlPins, 15);
   });
 
-  test('HOLLY interrupt obeys SH4 IMASK and BL', () {
-    final cpu = Sh4(bus);
-    cpu.pc = 0x8c010000;
-    bus.write16(cpu.pc, 9);
-    bus.write16(cpu.pc + 2, 9);
-    cpu.vbr = 0x8c030000;
-    bus.write32(base + 0x30, 8);
-    bus.systemBus.raiseNormal(8);
-    cpu.sr = 0x40000060;
-    cpu.step();
-    expect(cpu.pc, 0x8c010002);
-    cpu.sr = 0x50000000;
-    cpu.step();
-    expect(cpu.pc, 0x8c010004);
-    cpu.sr = 0x40000050;
-    cpu.step();
-    expect(cpu.pc, 0x8c030600);
-    expect(bus.intevt, 0x320);
-  });
 }

@@ -1,19 +1,58 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/intc.dart';
 import 'package:fnesemu_core/src/core/ps2/ps2.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:test/test.dart';
 
 // lui-free program: every instruction is a NOP (sll r0, r0, 0)
+final _livePs2 = <Ps2>[];
+
+void _disposeLivePs2() {
+  for (final ps2 in _livePs2) {
+    ps2.dispose();
+  }
+  _livePs2.clear();
+}
+
 Ps2 _ps2() {
   final ps2 = Ps2();
-  addTearDown(ps2.dispose);
+  _livePs2.add(ps2);
   ps2.reset();
   ps2.cpu.jumpTo(0x100000);
   return ps2;
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('INTC interrupt is taken when IE, EIE and the mask allow it', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+        _disposeLivePs2();
+      }
+    }
+  }
+
+  aggCase('INTC interrupt is taken when IE, EIE and the mask allow it', () {
     final ps2 = _ps2();
     final cpu = ps2.cpu;
     // BEV and ERL cleared, IE and EIE set, IM2 set
@@ -28,7 +67,7 @@ void main() {
     expect((cpu.cop0[R5900.cop0Cause] >> 2) & 31, 0);
   });
 
-  test('a masked interrupt is not taken', () {
+  aggCase('a masked interrupt is not taken', () {
     final ps2 = _ps2();
     final cpu = ps2.cpu;
     cpu.cop0[R5900.cop0Status] = (1 << 16) | 1 | (1 << 10);
@@ -37,7 +76,7 @@ void main() {
     expect(cpu.pc, 0x100004);
   });
 
-  test('EXL blocks interrupts', () {
+  aggCase('EXL blocks interrupts', () {
     final ps2 = _ps2();
     final cpu = ps2.cpu;
     cpu.cop0[R5900.cop0Status] = (1 << 16) | 1 | 2 | (1 << 10);
@@ -47,7 +86,7 @@ void main() {
     expect(cpu.pc, 0x100004);
   });
 
-  test('Count reaching Compare raises IP7 and writing Compare clears it', () {
+  aggCase('Count reaching Compare raises IP7 and writing Compare clears it', () {
     final ps2 = _ps2();
     final cpu = ps2.cpu;
     cpu.cop0[R5900.cop0Compare] = 3;
@@ -61,7 +100,7 @@ void main() {
     expect(cpu.cop0[R5900.cop0Cause] & R5900.ipTimer, 0);
   });
 
-  test('vblank raises the INTC lines over a frame', () {
+  aggCase('vblank raises the INTC lines over a frame', () {
     final ps2 = _ps2();
     var starts = 0, ends = 0;
     ps2.io.intc.mask = 0;
@@ -81,7 +120,7 @@ void main() {
     expect(ends, 2);
   });
 
-  test('a read of I_STAT ends after a vblank that comes during it', () {
+  aggCase('a read of I_STAT ends after a vblank that comes during it', () {
     final ps2 = _ps2();
     var seen = -1;
     for (var i = 0; seen < 0; i++) {
@@ -100,7 +139,7 @@ void main() {
     expect(raised, inInclusiveRange(1, 32));
   });
 
-  test('timer interrupt reaches the CPU through the INTC', () {
+  aggCase('timer interrupt reaches the CPU through the INTC', () {
     final ps2 = _ps2();
     final cpu = ps2.cpu;
     cpu.cop0[R5900.cop0Status] = (1 << 16) | 1 | (1 << 10);
@@ -114,4 +153,15 @@ void main() {
     }
     expect(taken, isTrue);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

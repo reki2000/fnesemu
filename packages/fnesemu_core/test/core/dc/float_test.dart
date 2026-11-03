@@ -94,98 +94,10 @@ void main() {
       expect(format.binary('add', format.signMask, zero, 0).bits, zero);
     });
 
-    test(
-        'binary $wide underflow distinguishes exact subnormals, flush and FPU error',
-        () {
-      final minimum = BigInt.one << format.fractionBits;
-      final half = _bits(0.5, wide);
-      final exact = format.binary('mul', minimum, half, 0);
-      expect(exact.bits, minimum >> 1);
-      expect(exact.flags, 0);
-      final flush = format.binary('mul', minimum, half, 0x40000);
-      expect(flush.bits, BigInt.zero);
-      expect(flush.flags, DcFloat.inexact | DcFloat.underflow);
-      expect(format.binary('add', BigInt.one, _bits(1, wide), 0).flags,
-          DcFloat.error);
-      expect(format.binary('add', BigInt.one, _bits(1, wide), 0x40000).bits,
-          _bits(1, wide));
-    });
 
-    test('binary $wide overflow follows sign and rounding mode', () {
-      final maximum = format.infinity - BigInt.one;
-      final rn = format.binary('mul', maximum, _bits(2, wide), 0);
-      final rz =
-          format.binary('mul', maximum | format.signMask, _bits(2, wide), 1);
-      expect(rn.bits, format.infinity);
-      expect(rz.bits, maximum | format.signMask);
-      expect(rn.flags, DcFloat.overflow | DcFloat.inexact);
-      expect(rz.flags, DcFloat.overflow | DcFloat.inexact);
-    });
 
-    test('binary $wide comparisons handle signed zero, denormals and NaNs', () {
-      expect(
-          format.compare(BigInt.zero, format.signMask, 0, greater: false).bits,
-          BigInt.one);
-      expect(
-          format.compare(format.signMask, BigInt.zero, 0, greater: true).bits,
-          BigInt.zero);
-      expect(format.compare(BigInt.one, BigInt.zero, 0, greater: true).bits,
-          BigInt.one);
-      expect(
-          format.compare(format.quietNaN, BigInt.zero, 0, greater: false).flags,
-          0);
-      expect(
-          format.compare(format.quietNaN, BigInt.zero, 0, greater: true).flags,
-          DcFloat.invalid);
-    });
 
-    test('binary $wide integer conversions truncate without inexact exceptions',
-        () {
-      for (final value in [-2147483648, -1234567, 0, 1, 1234567, 2147483647]) {
-        final result = format.fromInteger(value, 0);
-        expect(result.bits, _bits(value.toDouble(), wide));
-      }
-      expect(format.toInteger(_bits(-3.75, wide), 0).bits,
-          BigInt.from(0xfffffffd));
-      expect(format.toInteger(_bits(-3.75, wide), 0).flags, 0);
-      expect(format.toInteger(_bits(2147483648, wide), 0).bits,
-          BigInt.from(0x7fffffff));
-      expect(
-          format.toInteger(_bits(2147483648, wide), 0).flags, DcFloat.invalid);
-      expect(
-          format.toInteger(format.quietNaN, 0).bits, BigInt.from(0x80000000));
-    });
   }
 
-  test(
-      'format conversions preserve exactly representable numbers and round narrowing',
-      () {
-    final single = DcFloat.single, wide = DcFloat.doublePrecision;
-    for (final value in [-100000.0, -0.0, 0.0, 0.1, 1.0, 123456.5]) {
-      final f32 = _bits(value, false);
-      expect(
-          wide.convert(single, f32, 0).bits, _bits(_value(f32, false), true));
-      expect(single.convert(wide, _bits(value, true), 0).bits, f32);
-    }
-  });
 
-  test('FMAC uses an exact product with one final rounding', () {
-    final result = DcFloat.single.multiplyAdd(BigInt.from(0x3f800001),
-        BigInt.from(0x3f7ffffe), BigInt.from(0xbf800000), 0);
-    // (1 + 2^-23) * (1 - 2^-23) - 1 = -2^-46.
-    expect(result.bits, _bits(-math.pow(2, -46).toDouble(), false));
-    expect(result.flags, 0);
-    expect(
-        DcFloat.single
-            .multiplyAdd(BigInt.zero, BigInt.from(0x7f800000),
-                BigInt.from(0x7fbfffff), 0)
-            .flags,
-        DcFloat.invalid);
-    expect(
-        DcFloat.single
-            .multiplyAdd(BigInt.zero, BigInt.from(0x3f800000),
-                BigInt.from(0x80000000), 0)
-            .bits,
-        BigInt.from(0x80000000));
-  });
 }

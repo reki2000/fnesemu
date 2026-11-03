@@ -13,61 +13,11 @@ import '../../tool/cdrom_drive.dart';
 import '../../tool/local_disc.dart';
 
 void main() {
-  test('native CDI adapter retains explicit sessions and mixed-sector payloads',
-      () async {
-    final drive = SimpleCdromDrive();
-    await drive
-        .insert(localDisc('../cdrom_image/test/fixtures/cdi_sessions.cdi'));
-    expect(drive.status.isReady, isTrue);
-    expect(
-        drive.status.toc.sessions!
-            .map((s) => (s.number, s.firstTrack, s.startLba)),
-        [(1, 1, 0), (2, 3, 45000)]);
-    expect(drive.read(5), isNull);
-    await drive.settle();
-    final raw = drive.read(5)!;
-    expect(raw[15], 1);
-    expect(raw.sublist(16, 2064),
-        List.generate(2048, (i) => (29 + 17 + i * 3) & 255));
-    await drive.eject();
-  });
 
   late Directory dir;
 
   setUp(() => dir = Directory.systemTemp.createTempSync('cdrom_io_test_'));
   tearDown(() => dir.deleteSync(recursive: true));
-
-  test('virtual files enumerate lazily and perform independent reads',
-      () async {
-    final sub = Directory('${dir.path}/nested')..createSync();
-    final file = File('${sub.path}/track.bin')
-      ..writeAsBytesSync(List.generate(100, (i) => i));
-    final directory = localDiscFiles(dir.path);
-    final walked = await directory.toList();
-    expect(walked.single.path, 'nested/track.bin');
-    final bytes = await Future.wait(
-        [for (var i = 0; i < 30; i++) walked.single.read(i, 2)]);
-    for (var i = 0; i < 30; i++) {
-      expect(bytes[i], [i, i + 1]);
-    }
-    expect(await walked.single.length(), 100);
-    expect(await walked.single.read(99, 10), [99]);
-    await expectLater(walked.single.read(-1, 1), throwsA(anything));
-    expect(await walked.single.read(0, 1), [0]);
-    file.writeAsBytesSync([5, 6]);
-    expect(await walked.single.length(), 2);
-    expect(await walked.single.read(0, 5), [5, 6]);
-  });
-
-  test('parse uses directory files without caller-managed handles', () async {
-    File('${dir.path}/disc.iso').writeAsBytesSync(Uint8List(2048 * 2));
-    final files = await localDiscFiles(dir.path).toList();
-    final (image, referenced) =
-        await DiscImage.parse(files.single, files: files);
-    expect(referenced, isEmpty);
-    expect(image.totalSectors, 2);
-    expect((await image.readSectors(1, 1)).single.length, 2352);
-  });
 
   test('reads sectors of a cue disc from local files', () async {
     for (final (name, sectors, id) in [

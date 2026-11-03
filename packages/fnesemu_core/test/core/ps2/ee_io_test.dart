@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/dmac.dart';
 import 'package:fnesemu_core/src/core/ps2/ee_io.dart';
@@ -17,10 +18,41 @@ const _dmaCtrl = 0x1000e000, _dmaStat = 0x1000e010;
 int _tag(int qwc, int id, int addr, {bool irq = false}) =>
     qwc | (id << 28) | (irq ? 1 << 31 : 0) | (addr << 32);
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggGroup(String name, void Function() body, {Object? skip}) {
+    if (skip == null || skip == false) body();
+  }
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
   gsDmaTests();
-  group('INTC', () {
-    test('I_STAT clears and I_MASK toggles on write', () {
+  aggGroup('INTC', () {
+    aggCase('I_STAT clears and I_MASK toggles on write', () {
       final (bus, io) = _setup();
       io.intc.raise(Intc.vblankStart);
       expect(bus.read32(0x1000f000), 1 << 2);
@@ -33,7 +65,7 @@ void main() {
     });
   });
 
-  test('byte accesses reach a part of a 32-bit register', () {
+  aggCase('byte accesses reach a part of a 32-bit register', () {
     final (bus, io) = _setup();
     bus.write32(0x1000a000, 0x0001); // D2_CHCR without STR
     bus.write32(0x1000e020, 0x12345678); // D_PCR
@@ -50,7 +82,7 @@ void main() {
     expect(io.dmac.stat, 0x40001);
   });
 
-  test('LABEL sets the masked bits of LBLID, read as the upper word', () {
+  aggCase('LABEL sets the masked bits of LBLID, read as the upper word', () {
     final (bus, io) = _setup();
     io.gs.writeRegister(0x60, 0x0000ffff00001234); // SIGNAL
     io.gs.writeRegister(0x62, 0x000000ff00000056); // LABEL
@@ -61,8 +93,8 @@ void main() {
     expect(io.gs.siglblid, 0x0000009900001234);
   });
 
-  group('timers', () {
-    test('count at the bus clock only while enabled', () {
+  aggGroup('timers', () {
+    aggCase('count at the bus clock only while enabled', () {
       final (bus, io) = _setup();
       io.timers.advance(10);
       expect(bus.read32(_timer0), 0);
@@ -71,7 +103,7 @@ void main() {
       expect(bus.read32(_timer0), 10);
     });
 
-    test('prescalers divide the bus clock', () {
+    aggCase('prescalers divide the bus clock', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x81); // bus / 16
       io.timers.advance(40);
@@ -80,7 +112,7 @@ void main() {
       expect(bus.read32(_timer0), 3);
     });
 
-    test('compare raises its interrupt and zero return clears the count', () {
+    aggCase('compare raises its interrupt and zero return clears the count', () {
       final (bus, io) = _setup();
       bus.write32(_timer1 + 0x20, 100);
       bus.write32(_timer1 + 0x10, 0x80 | 0x40 | 0x100);
@@ -92,7 +124,7 @@ void main() {
       expect(bus.read32(_timer1 + 0x10) & (1 << 10), 0);
     });
 
-    test('overflow is detected in a large step', () {
+    aggCase('overflow is detected in a large step', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x80 | 0x200);
       bus.write32(_timer0, 0xfff0);
@@ -102,7 +134,7 @@ void main() {
       expect(io.intc.stat & (1 << Intc.timer0), isNonZero);
     });
 
-    test('a flag that is already set does not interrupt again', () {
+    aggCase('a flag that is already set does not interrupt again', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x20, 10);
       bus.write32(_timer0 + 0x10, 0x80 | 0x40 | 0x100);
@@ -113,7 +145,7 @@ void main() {
       expect(io.intc.stat & (1 << Intc.timer0), 0);
     });
 
-    test('a VBLANK gate in mode 0 stops the count during the blank', () {
+    aggCase('a VBLANK gate in mode 0 stops the count during the blank', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x80 | 0x04 | 0x08);
       io.timers.advance(10);
@@ -125,7 +157,7 @@ void main() {
       expect(bus.read32(_timer0), 15);
     });
 
-    test('a VBLANK gate in mode 1 resets the count when the blank starts', () {
+    aggCase('a VBLANK gate in mode 1 resets the count when the blank starts', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x80 | 0x04 | 0x08 | 0x10);
       io.timers.advance(10);
@@ -134,7 +166,7 @@ void main() {
       expect(bus.read32(_timer0), 3);
     });
 
-    test('an SBUS interrupt latches T0 and T1 into HOLD', () {
+    aggCase('an SBUS interrupt latches T0 and T1 into HOLD', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x80);
       io.timers.advance(7);
@@ -142,7 +174,7 @@ void main() {
       expect(bus.read32(_timer0 + 0x30), 7);
     });
 
-    test('hblank clocked timers count scanlines', () {
+    aggCase('hblank clocked timers count scanlines', () {
       final (bus, io) = _setup();
       bus.write32(_timer0 + 0x10, 0x83);
       io.timers.advance(1000);
@@ -152,10 +184,10 @@ void main() {
     });
   });
 
-  group('DMAC', () {
+  aggGroup('DMAC', () {
     void enable(Ps2Bus bus) => bus.write32(_dmaCtrl, 1);
 
-    test('normal mode copies memory to the scratchpad', () {
+    aggCase('normal mode copies memory to the scratchpad', () {
       final (bus, io) = _setup();
       enable(bus);
       for (var i = 0; i < 4; i++) {
@@ -172,7 +204,7 @@ void main() {
       expect(bus.read32(_dmaStat) & (1 << 9), isNonZero);
     });
 
-    test('a transfer does not start while DMAE is clear', () {
+    aggCase('a transfer does not start while DMAE is clear', () {
       final (bus, _) = _setup();
       bus.write32(0x1000d410, 0x2000);
       bus.write32(0x1000d420, 1);
@@ -181,7 +213,7 @@ void main() {
       expect(bus.read64(0x70000000), 0);
     });
 
-    test('the interrupt follows CIS and CIM', () {
+    aggCase('the interrupt follows CIS and CIM', () {
       final (bus, io) = _setup();
       enable(bus);
       bus.write32(0x1000d410, 0x2000);
@@ -194,7 +226,7 @@ void main() {
       expect(io.dmac.asserted, isFalse);
     });
 
-    test('source chain follows cnt, ref and end tags to a device', () {
+    aggCase('source chain follows cnt, ref and end tags to a device', () {
       final (bus, io) = _setup();
       enable(bus);
       final received = <int>[];
@@ -219,7 +251,7 @@ void main() {
       expect(bus.read32(_dmaStat) & 4, isNonZero);
     });
 
-    test('a source chain to the scratchpad transfers the tags with TTE', () {
+    aggCase('a source chain to the scratchpad transfers the tags with TTE', () {
       final (bus, _) = _setup();
       enable(bus);
       bus.write64(0x1000, _tag(1, 3, 0x3000)); // ref
@@ -240,7 +272,7 @@ void main() {
       expect(bus.read64(0x70000230), 0xb2);
     });
 
-    test('a masked PATH3 keeps 16 quadwords in the GIF FIFO', () {
+    aggCase('a masked PATH3 keeps 16 quadwords in the GIF FIFO', () {
       final (bus, io) = _setup();
       enable(bus);
       // one packet: a tag that writes PRIM 5, then 19 NOP quadwords
@@ -261,7 +293,7 @@ void main() {
       expect(bus.read32(0x1000a000) & 0x100, 0);
     });
 
-    test('VIF1 waits at FLUSHA until PATH3 finishes', () {
+    aggCase('VIF1 waits at FLUSHA until PATH3 finishes', () {
       final (bus, io) = _setup();
       enable(bus);
       // PATH3: one GIF packet of 2 quadwords
@@ -285,7 +317,7 @@ void main() {
       expect(io.vif1.mark, 5);
     });
 
-    test('the MFIFO drain follows fromSPR through the ring', () {
+    aggCase('the MFIFO drain follows fromSPR through the ring', () {
       final (bus, io) = _setup();
       final received = <int>[];
       io.dmac.endpoints[Dmac.gif] = _Collector(received);
@@ -318,7 +350,7 @@ void main() {
       expect(bus.read32(0x1000a000) & 0x100, isNonZero);
     });
 
-    test('call and ret use the address stack', () {
+    aggCase('call and ret use the address stack', () {
       final (bus, io) = _setup();
       enable(bus);
       final received = <int>[];
@@ -334,7 +366,7 @@ void main() {
       expect(received, [1, 2, 3]);
     });
 
-    test('a REFS packet of the stall drain waits for D_STADR', () {
+    aggCase('a REFS packet of the stall drain waits for D_STADR', () {
       final (bus, io) = _setup();
       bus.write32(_dmaCtrl, 1 | 2 << 6); // GIF is the stall drain
       final received = <int>[];
@@ -358,7 +390,7 @@ void main() {
       expect(bus.read32(0x1000a000) & 0x100, 0);
     });
 
-    test('the stall source moves D_STADR', () {
+    aggCase('the stall source moves D_STADR', () {
       final (bus, io) = _setup();
       bus.write32(_dmaCtrl, 1 | 2 << 4 | 2 << 6); // fromSPR to GIF
       final received = <int>[];
@@ -377,7 +409,7 @@ void main() {
       expect(received, [7]);
     });
 
-    test('a tag with IRQ stops a chain when TIE is set', () {
+    aggCase('a tag with IRQ stops a chain when TIE is set', () {
       final (bus, io) = _setup();
       enable(bus);
       final received = <int>[];
@@ -391,7 +423,7 @@ void main() {
       expect(received, [9]);
     });
 
-    test('a chain started with QWC transfers it before the tag at TADR', () {
+    aggCase('a chain started with QWC transfers it before the tag at TADR', () {
       final (bus, io) = _setup();
       enable(bus);
       final received = <int>[];
@@ -422,6 +454,17 @@ void main() {
       expect(bus.read32(0x1000b400) & 0x100, 0);
     });
   });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }
 
 /// takes [room] quadwords, then waits

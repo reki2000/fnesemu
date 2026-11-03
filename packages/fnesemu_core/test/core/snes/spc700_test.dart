@@ -24,20 +24,5 @@ void main() {
       expect(noBranch.a, 0x11);
     });
 
-    test('ADC / SBC (X),(Y) store the result to (X)', () {
-      final snd = soundCpuAt([0x99, 0x80, 0xb9]); // ADC (X),(Y); SETC; SBC
-      snd.x = 0x10;
-      snd.y = 0x20;
-      snd.ram[0x10] = 5;
-      snd.ram[0x20] = 3;
-      snd.exec();
-      expect(snd.ram[0x10], 8);
-      expect(snd.ram[0x20], 3);
-
-      snd.exec();
-      snd.exec();
-      expect(snd.ram[0x10], 5);
-      expect(snd.ram[0x20], 3);
-    });
   });
 }

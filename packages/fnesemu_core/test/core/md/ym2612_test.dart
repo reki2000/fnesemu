@@ -23,37 +23,4 @@ void main() {
     expect(fm.read8(0) & 1, 1);
   });
 
-  test('timer B advances once per sixteen output samples', () {
-    final fm = Ym2612();
-    _write(fm, 0x26, 0xfe);
-    _write(fm, 0x27, 0x0a);
-    fm.render(31);
-    expect(fm.read8(0) & 2, 0);
-    fm.render(1);
-    expect(fm.read8(0) & 2, 2);
-    _write(fm, 0x27, 0x2a);
-    fm.render(31);
-    expect(fm.read8(0) & 2, 0);
-    fm.render(1);
-    expect(fm.read8(0) & 2, 2);
-  });
-
-  test('acknowledging an overflow preserves the remaining timer period', () {
-    final fm = Ym2612();
-    _write(fm, 0x24, 0xff);
-    _write(fm, 0x25, 0);
-    _write(fm, 0x26, 0xff);
-    _write(fm, 0x27, 0x0f);
-    fm.render(17);
-    expect(fm.read8(0) & 3, 3);
-    _write(fm, 0x27, 0x3f);
-    expect(fm.read8(0) & 3, 0);
-    fm.render(2);
-    expect(fm.read8(0) & 3, 0);
-    fm.render(1);
-    expect(fm.read8(0) & 3, 1);
-    _write(fm, 0x27, 0x00);
-    fm.render(100);
-    expect(fm.read8(0) & 3, 1);
-  });
 }

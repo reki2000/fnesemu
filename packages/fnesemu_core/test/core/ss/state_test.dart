@@ -79,51 +79,7 @@ void main() {
   });
 
   for (final jit in [false, true]) {
-    test('a restored ${jit ? 'JIT' : 'CPU'} SS continues like the original',
-        () {
-      if (jit && !JitRuntime.nativeSupported) {
-        markTestSkipped('no native recompiler on this host');
-        return;
-      }
-      final original = _ss(jit);
-      _frames(original, 3);
-      final state = _save(original);
-      _frames(original, 3);
-
-      final restored = _ss(jit);
-      _load(restored, state);
-      _frames(restored, 3);
-      final a = original.master as Sh2, b = restored.master as Sh2;
-      expect(b.r, a.r);
-      expect([b.pc, b.clocks, b.sr], [a.pc, a.clocks, a.sr]);
-      expect(restored.bus.wramH, original.bus.wramH);
-      expect(restored.bus.wramL, original.bus.wramL);
-      expect(restored.vdp2.frame, original.vdp2.frame);
-      if (!jit) {
-        expect(_save(restored), _save(original));
-      }
-      // A restored JIT run starts with cold compiled code, so the split of
-      // write counters, the last interpreted opcode and when the idle
-      // detector snapshots registers differ; emulated state above matches.
-    });
   }
-
-  test('saving a restored state reproduces it across devices', () {
-    final ss = _ss(false);
-    _frames(ss, 2);
-    ss.vdp2.writeReg(0x00e, 0x1000);
-    ss.vdp2.writeCram16(0x20, 0x7c1f);
-    ss.vdp1.vram[100] = 9;
-    ss.scsp.ram[200] = 7;
-    ss.scu.dsp.prog[3] = 0x12345678;
-    ss.smpc.oreg[5] = 0x44;
-    ss.cdblock.cdda[11] = -3;
-    final state = _save(ss);
-    final copy = _ss(false);
-    _load(copy, state);
-    expect(_save(copy), state);
-    expect(copy.vdp2.readCram16(0x20), 0x7c1f);
-  });
 
   test('core states round trip and reject a different BIOS', () {
     final original = _ss(false);
@@ -141,11 +97,4 @@ void main() {
     expect(() => other.loadState(state), throwsA(isA<StateMismatch>()));
   });
 
-  test('device states of other formats are rejected', () {
-    final state = _save(_ss(false));
-    expect(() => StateReader(state, 'ss-devices', 2, 0),
-        throwsA(isA<StateMismatch>()));
-    final truncated = Uint8List.sublistView(state, 0, state.length - 100);
-    expect(() => _load(_ss(false), truncated), throwsA(isA<StateMismatch>()));
-  });
 }

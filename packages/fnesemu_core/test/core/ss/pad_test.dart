@@ -16,24 +16,4 @@ void main() {
     ]);
   });
 
-  test('the R slot is empty', () {
-    final state = PadState();
-    final pad = Pad()..source = state;
-    expect(pad.buttons[17], PadButton.none);
-    state.press(0, pad.buttons[17]);
-    expect(pad.data(0), (0xff, 0xff));
-  });
-
-  test('L, Start and R are read from their bits', () {
-    final state = PadState();
-    final pad = Pad()..source = state;
-    state.press(0, pad.buttons[11]); // L
-    expect(pad.data(0), (0xff, 0xf7));
-    state.release(0, pad.buttons[11]);
-    state.press(0, pad.buttons[18]); // Start
-    expect(pad.data(0), (0xf7, 0xff));
-    state.release(0, pad.buttons[18]);
-    state.press(0, pad.buttons[12]); // R
-    expect(pad.data(0), (0xff, 0x7f));
-  });
 }

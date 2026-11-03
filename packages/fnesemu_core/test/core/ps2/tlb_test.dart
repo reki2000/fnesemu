@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:test/test.dart';
@@ -48,15 +49,43 @@ void _write(R5900 cpu, int index, int vaddr, int lo0, int lo1,
   _run(cpu, [_tlbwi]);
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('mapped segments translate to themselves until an entry is written', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('mapped segments translate to themselves until an entry is written', () {
     final cpu = _cpu();
     cpu.bus.write32(0x4000, 0x1234);
     expect(cpu.bus.read32(0x4000), 0x1234);
     expect(cpu.tlb.active, isFalse);
   });
 
-  test('a written entry maps its even and odd pages', () {
+  aggCase('a written entry maps its even and odd pages', () {
     final cpu = _cpu();
     cpu.bus.write32(0x200010, 0xaaaa);
     cpu.bus.write32(0x301010, 0xbbbb);
@@ -67,7 +96,7 @@ void main() {
     expect(cpu.bus.read32(0x80200020), 0xcccc);
   });
 
-  test('a miss raises a refill exception with the BadVAddr fields', () {
+  aggCase('a miss raises a refill exception with the BadVAddr fields', () {
     final cpu = _cpu();
     _write(cpu, 0, 0x00400000, _lo(0x200), _lo(0x201));
     // lw r2, 0(r1) with r1 = 0x00800004 (not mapped)
@@ -81,7 +110,7 @@ void main() {
     expect(cpu.cop0[R5900.cop0Context] >> 4 & 0x7ffff, 0x00800004 >> 13);
   });
 
-  test('a store miss reports a store exception', () {
+  aggCase('a store miss reports a store exception', () {
     final cpu = _cpu();
     _write(cpu, 0, 0x00400000, _lo(0x200), _lo(0x201));
     cpu.setReg(1, 0x00900000);
@@ -90,7 +119,7 @@ void main() {
     expect(cpu.pc, 0x80000000);
   });
 
-  test('an invalid page uses the general vector', () {
+  aggCase('an invalid page uses the general vector', () {
     final cpu = _cpu();
     _write(cpu, 0, 0x00400000, _lo(0x200, valid: false), _lo(0x201));
     cpu.setReg(1, 0x00400000);
@@ -99,7 +128,7 @@ void main() {
     expect(cpu.cop0[R5900.cop0Cause] >> 2 & 31, 2);
   });
 
-  test('a store to a clean page raises TLB modified', () {
+  aggCase('a store to a clean page raises TLB modified', () {
     final cpu = _cpu();
     _write(cpu, 0, 0x00400000, _lo(0x200, dirty: false), _lo(0x201));
     cpu.setReg(1, 0x00400000);
@@ -108,7 +137,7 @@ void main() {
     expect(cpu.pc, 0x80000180);
   });
 
-  test('ASIDs separate non-global entries', () {
+  aggCase('ASIDs separate non-global entries', () {
     final cpu = _cpu();
     cpu.bus.write32(0x200000, 0x11);
     cpu.bus.write32(0x300000, 0x22);
@@ -125,7 +154,7 @@ void main() {
     expect(cpu.bus.read32(0x00400000), 0x22);
   });
 
-  test('page masks select larger pages', () {
+  aggCase('page masks select larger pages', () {
     final cpu = _cpu();
     cpu.bus.write32(0x100100, 0x77);
     // 64 KiB pages (mask 0x1e000): even page at 0x00400000 -> 0x00100000
@@ -135,7 +164,7 @@ void main() {
     expect(cpu.bus.read32(0x0040fffc), 0x55);
   });
 
-  test('TLBR and TLBP read back and find an entry', () {
+  aggCase('TLBR and TLBP read back and find an entry', () {
     final cpu = _cpu();
     _write(cpu, 5, 0x00600000, _lo(0x210), _lo(0x211));
     cpu.cop0[R5900.cop0Index] = 5;
@@ -153,7 +182,7 @@ void main() {
     expect(cpu.cop0[R5900.cop0Index], 0x80000000);
   });
 
-  test('TLBWR picks an index at or above Wired', () {
+  aggCase('TLBWR picks an index at or above Wired', () {
     final cpu = _cpu();
     cpu.cop0[R5900.cop0Wired] = 40;
     for (var i = 0; i < 20; i++) {
@@ -170,7 +199,7 @@ void main() {
     expect(used.every((i) => i >= 40), isTrue);
   });
 
-  test('misaligned accesses raise address errors', () {
+  aggCase('misaligned accesses raise address errors', () {
     final cpu = _cpu();
     cpu.setReg(1, 0x1001);
     _run(cpu, [_i(35, 1, 2, 0)]);
@@ -186,7 +215,7 @@ void main() {
     expect(half.cop0[R5900.cop0Cause] >> 2 & 31, 0, reason: 'aligned halfword');
   });
 
-  test('LQ ignores the low address bits', () {
+  aggCase('LQ ignores the low address bits', () {
     final cpu = _cpu();
     cpu.bus.write64(0x2000, 5);
     cpu.setReg(1, 0x2007);
@@ -194,7 +223,7 @@ void main() {
     expect(cpu.reg(2), 5);
   });
 
-  test('trap instructions raise code 13', () {
+  aggCase('trap instructions raise code 13', () {
     final cpu = _cpu();
     cpu.setReg(1, 3);
     cpu.setReg(2, 3);
@@ -211,10 +240,21 @@ void main() {
     expect(imm.cop0[R5900.cop0Cause] >> 2 & 31, 13);
   });
 
-  test('DMA reaches memory without the TLB', () {
+  aggCase('DMA reaches memory without the TLB', () {
     final cpu = _cpu();
     _write(cpu, 0, 0x00000000, 0x2, 0x2, mask: 0);
     cpu.bus.write32(0x80003000, 0x99);
     expect(cpu.bus.readPhysical64(0x3000), 0x99);
   });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

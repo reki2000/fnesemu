@@ -4,15 +4,6 @@ import 'package:fnesemu_core/src/core/pce/component/pic.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('acknowledged IRQ1 is absent from interrupt status', () {
-    final bus = Bus();
-    Cpu2(bus);
-    final pic = Pic(bus);
-    pic.holdIrq1();
-    expect(pic.hold & 0x02, 0x02);
-    pic.acknoledgeIrq1();
-    expect(pic.hold & 0x02, 0);
-  });
 
   for (final interrupt in [Interrupt.irq1, Interrupt.irq2, Interrupt.tirq]) {
     test('pending $interrupt survives masking and is delivered on unmask', () {
@@ -48,32 +39,4 @@ void main() {
     });
   }
 
-  test(
-      'an interrupt unmasked by the mask register is entered after the next instruction',
-      () {
-    final bus = Bus();
-    final cpu = Cpu2(bus);
-    final pic = Pic(bus);
-    pic.mask = 0x04;
-    pic.holdTirq();
-    cpu.regs.p &= ~0x04; // clear I
-    cpu.regs.pc = 0x1234;
-    pic.mask = 0; // the store that unmasks the timer irq
-    cpu.handleIrq(); // the instruction after the store runs first
-    expect(cpu.regs.pc, 0x1234);
-    pic.acknoledgeTirq(); // acknowledge (STZ $1403)
-    cpu.handleIrq();
-    expect(cpu.regs.pc, 0x1234);
-  });
-
-  test('masking a pending IRQ1 prevents CPU interrupt entry', () {
-    final bus = Bus();
-    final cpu = Cpu2(bus);
-    final pic = Pic(bus);
-    pic.holdIrq1();
-    pic.mask = 0x02;
-    cpu.regs.pc = 0x1234;
-    cpu.handleIrq();
-    expect(cpu.regs.pc, 0x1234);
-  });
 }

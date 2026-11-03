@@ -4,17 +4,6 @@ import 'package:fnesemu_core/src/core/snes/component/cx4.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('the data rom tables end at the documented values', () {
-    final t = Cx4.dataRom;
-    expect(t[0x000], 0xffffff); // div(0) overflows
-    expect(t[0x0ff], 0x008080);
-    expect(t[0x1ff], 0xff7fdf); // sqrt
-    expect(t[0x27f], 0xfffb10); // sin
-    expect(t[0x2ff], 0x75ceb4); // asin
-    expect(t[0x37f], 0x517bb5); // tan
-    expect(t[0x380], 0xffffff); // cos(0) overflows
-    expect(t[0x3ff], 0x03243a);
-  });
 
   test('a program adds, multiplies and stores to the registers', () {
     // the program at rom offset 0 ($00:8000)

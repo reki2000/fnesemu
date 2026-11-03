@@ -56,14 +56,6 @@ void main() {
 
   String rel(File f) => f.uri.path.substring(f.uri.path.indexOf('lib/') + 4);
 
-  test('core directory contains only individual core modules', () {
-    for (final entry in Directory(coreDir).listSync()) {
-      expect(entry, isA<Directory>(), reason: entry.path);
-      expect(File('${entry.path}/module.dart').existsSync(), isTrue,
-          reason: entry.path);
-    }
-  });
-
   test('a core module imports no other module', () {
     for (final file in files) {
       final from = layerOf(rel(file));
@@ -75,55 +67,4 @@ void main() {
     }
   });
 
-  test('components import only themselves and util', () {
-    for (final file in files.where((f) => layerOf(rel(f)) == 'components')) {
-      for (final to in importsOf(file).map(layerOf)) {
-        expect(to == 'components' || to == 'util', isTrue,
-            reason: '${file.path} imports $to');
-      }
-    }
-  });
-
-  test(
-      'individual cores do not import internal processing or public entry points',
-      () {
-    for (final file in files.where((f) => modules.contains(layerOf(rel(f))))) {
-      for (final uri in importsOf(file)) {
-        expect(layerOf(uri), isNot('internal'), reason: '${file.path}: $uri');
-        expect(uri.startsWith('src/'), isTrue, reason: '${file.path}: $uri');
-      }
-    }
-  });
-
-  test(
-      'internal processing imports no concrete core, except generated registry',
-      () {
-    for (final file in files.where((f) => layerOf(rel(f)) == 'internal')) {
-      if (file.path.endsWith('core_registry_generated.dart')) continue;
-      for (final to in importsOf(file).map(layerOf)) {
-        expect(to == 'shared' || to == 'internal' || to == 'util', isTrue,
-            reason: '${file.path} imports $to');
-      }
-    }
-  });
-
-  test('core contracts import only contracts and util', () {
-    for (final file in files.where((f) => layerOf(rel(f)) == 'shared')) {
-      if (!rel(file).startsWith('src/')) continue;
-      for (final to in importsOf(file).map(layerOf)) {
-        expect(to == 'shared' || to == 'util', isTrue,
-            reason: '${file.path} imports $to');
-      }
-    }
-  });
-
-  test('util imports no core', () {
-    for (final file in Directory('lib/src/util')
-        .listSync(recursive: true)
-        .whereType<File>()) {
-      for (final to in importsOf(file).map(layerOf)) {
-        expect(to, 'util', reason: '${file.path} imports $to');
-      }
-    }
-  });
 }

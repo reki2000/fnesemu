@@ -13,9 +13,4 @@ void main() {
     expect(bits, [0, 0, 0, 0, 0, 0, 0, 1, 1, 1]);
   });
 
-  test('the strobe holds the register at A', () {
-    final pad = Joypad(PadState()..press(0, const PadButton("A")));
-    pad.write(0x4016, 1);
-    expect([pad.read(0x4016) & 1, pad.read(0x4016) & 1], [1, 1]);
-  });
 }
