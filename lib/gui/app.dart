@@ -181,6 +181,7 @@ class MainPageState extends State<MainPage> {
 
   @override
   void dispose() {
+    _progress.dispose();
     _debugGameWidth.dispose();
     unawaited(_controller.stop());
     ServicesBinding.instance.keyboard.removeHandler(_keyHandler.handle);
@@ -490,8 +491,10 @@ class MainPageState extends State<MainPage> {
               directory.id, folder.name, folder.restoreKey,
               path: folder.displayPath));
         }
-      } catch (_) {
+      } catch (e, st) {
         // Keep the saved token so the user can retry restoring access.
+        AppSnackBar.show(e.toString());
+        _log.errorc(() => "$e\n$st");
       }
     }
     await _storage.setSetting(_directoriesImportedKey, "1");
@@ -542,16 +545,21 @@ class MainPageState extends State<MainPage> {
       if (dialogOpen && mounted) Navigator.of(context).pop();
       Error.throwWithStackTrace(e, st);
     });
-    final selected = await showDialog<RomFile>(
-        context: context,
-        builder: (_) => GameListDialog(
-            title: folder.name,
-            scan: scan,
-            progress: _progress,
-            onRemove: () => _removeDirectory(folder)));
-    dialogOpen = false;
-    _cancelScan = true;
-    await scanning;
+    RomFile? selected;
+    try {
+      selected = await showDialog<RomFile>(
+          context: context,
+          builder: (_) => GameListDialog(
+              title: folder.name,
+              scan: scan,
+              progress: _progress,
+              onRemove: () => _removeDirectory(folder)));
+      dialogOpen = false;
+      _cancelScan = true;
+      await scanning;
+    } finally {
+      scan.dispose();
+    }
     if (selected != null && mounted) await _openRomFile(selected);
   }
 

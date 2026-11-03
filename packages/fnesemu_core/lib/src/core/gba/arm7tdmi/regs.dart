@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// ARM7TDMI processor modes (CPSR bits 4..0)
 class CpuMode {
@@ -171,5 +172,42 @@ class Regs {
       r[i] = 0;
     }
     cpsr = CpuMode.svc | _iBit | _fBit;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-regs');
+    w.ints(r);
+    w.ints(_fiqR8to12);
+    w.ints(_usrR8to12);
+    w.ints(_sp);
+    w.ints(_lr);
+    w.ints(_spsr);
+    w.int32(cpsr);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-regs');
+    List<int> read(List<int> into) {
+      final v = s.ints();
+      if (v.length != into.length) {
+        throw StateMismatch('gba register array of ${v.length} values, expected ${into.length}');
+      }
+      return v;
+    }
+
+    final savedR = read(r);
+    final savedFiq = read(_fiqR8to12);
+    final savedUsr = read(_usrR8to12);
+    final savedSp = read(_sp);
+    final savedLr = read(_lr);
+    final savedSpsr = read(_spsr);
+    final savedCpsr = s.int32();
+    r.setAll(0, savedR);
+    _fiqR8to12.setAll(0, savedFiq);
+    _usrR8to12.setAll(0, savedUsr);
+    _sp.setAll(0, savedSp);
+    _lr.setAll(0, savedLr);
+    _spsr.setAll(0, savedSpsr);
+    cpsr = savedCpsr;
   }
 }

@@ -1,5 +1,5 @@
 import '../../../util/int.dart';
-
+import '../../../util/state.dart';
 import '../bus.dart';
 import 'regs.dart';
 
@@ -200,6 +200,31 @@ class Arm7 {
     if (regs.fiqDisabled) return;
     _enterException(_vectorFiq, CpuMode.fiq, regs.pc - _opSize * 2 + 4,
         fiqDisable: true);
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-cpu');
+    w.ints([cycles, _fetched, _decoded]);
+    for (final b in [_shiftC, _aluC, _aluV, _pipelineValid, _pcDirty]) {
+      w.boolean(b);
+    }
+    regs.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-cpu');
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('gba cpu state layout');
+    final flags = [for (var i = 0; i < 5; i++) s.boolean()];
+    cycles = v[0];
+    _fetched = v[1];
+    _decoded = v[2];
+    _shiftC = flags[0];
+    _aluC = flags[1];
+    _aluV = flags[2];
+    _pipelineValid = flags[3];
+    _pcDirty = flags[4];
+    regs.loadState(s);
   }
 
   String dump() {

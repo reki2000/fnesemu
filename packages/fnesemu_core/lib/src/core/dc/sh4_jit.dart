@@ -4,11 +4,13 @@ part of 'sh4.dart';
 /// Main RAM is mapped at each physical mirror; any other access, and every
 /// instruction the translator rejects, returns to the interpreter. The bus
 /// cache must stay coherent so that RAM always holds current data.
-final class Sh4Jit {
-  Sh4Jit._(this.rt, this.compileThreshold);
+final class Sh4Jit extends JitAdapter {
+  // Only a native runtime is created, so the adapter is always native.
+  Sh4Jit._(JitRuntime rt, int compileThreshold)
+      : super(rt, true, compileThreshold: compileThreshold);
 
-  final JitRuntime rt;
-  final int compileThreshold;
+  @override
+  JitDriver get driver => _driver;
   late final Uint8List ram = rt.alloc(DcBus.ramSize);
   late final _queuePage = rt.alloc(rt.pageBytes);
   late final storeQueues = Uint8List.sublistView(_queuePage, 0, 64);
@@ -20,7 +22,7 @@ final class Sh4Jit {
       fpuHelper: rt.addHelper(_floatingPoint),
       prefetchHelper: rt.addHelper(_prefetch));
   late final _driver = JitDriver(rt,
-      translate: _translator.translate,
+      translate: (pc, tag) => _translator.translate(pc, tag: tag),
       codeWord: _fetch,
       codeMemory: _code,
       threshold: compileThreshold,
@@ -39,9 +41,6 @@ final class Sh4Jit {
         ? 'unsupportedInstruction'
         : null;
   });
-
-  /// Runs the interpreter instead while keeping compiled blocks.
-  bool suspended = false;
 
   static Sh4Jit? create({int compileThreshold = 4}) {
     // Dc creates its SH-4 runtime first when it initializes, so claiming
@@ -74,11 +73,6 @@ final class Sh4Jit {
     final offset = page.$2 + (pc & (rt.pageBytes - 1));
     return page.$1[offset] | (page.$1[offset + 1] << 8);
   }
-
-  /// Drops compiled code; guest state stays.
-  void reset() => _driver.reset();
-
-  void dispose() => rt.dispose();
 
   int _run(int budget) {
     final cpu = _cpu, ctx = rt.ctx;

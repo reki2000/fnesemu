@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../sram.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// Cartridge backup memory kind, auto-detected from identifier strings the
 /// developer tools embed in the ROM.
@@ -103,6 +104,87 @@ class Backup {
   }
 
   // --- region 0x0D (EEPROM serial) ------------------------------------------
+
+  void saveState(StateWriter w) {
+    w.section('gba-backup');
+    w.int32(type.index);
+    w.bytes(storage.data);
+    final flash = _flash;
+    w.boolean(flash != null);
+    if (flash != null) {
+      w.ints([flash._bank, flash._phase]);
+      for (final b in [flash._idMode, flash._eraseArmed, flash._writeArmed, flash._bankArmed]) {
+        w.boolean(b);
+      }
+    }
+    final eeprom = _eeprom;
+    w.boolean(eeprom != null);
+    if (eeprom != null) {
+      w.ints([eeprom._addrBits, eeprom._expected, eeprom._readAddr, eeprom._readCount]);
+      w.ints(eeprom._rx);
+      w.boolean(eeprom._reading);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-backup');
+    if (s.int32() != type.index) {
+      throw const StateMismatch('gba backup type');
+    }
+    final data = s.bytes();
+    if (data.length != storage.data.length) {
+      throw const StateMismatch('gba backup size');
+    }
+    final hasFlash = s.boolean();
+    if (hasFlash != (_flash != null)) {
+      throw const StateMismatch('gba backup flash state');
+    }
+    List<int>? flashInts;
+    List<bool>? flashFlags;
+    if (hasFlash) {
+      flashInts = s.ints();
+      if (flashInts.length != 2) {
+        throw const StateMismatch('gba backup flash state layout');
+      }
+      flashFlags = [for (var i = 0; i < 4; i++) s.boolean()];
+    }
+    final hasEeprom = s.boolean();
+    if (hasEeprom != (_eeprom != null)) {
+      throw const StateMismatch('gba backup eeprom state');
+    }
+    List<int>? eepromInts;
+    List<int>? eepromRx;
+    bool? eepromReading;
+    if (hasEeprom) {
+      eepromInts = s.ints();
+      if (eepromInts.length != 4) {
+        throw const StateMismatch('gba backup eeprom state layout');
+      }
+      eepromRx = s.ints();
+      eepromReading = s.boolean();
+    }
+    storage.data.setAll(0, data);
+    if (flashInts != null) {
+      _flash!
+        .._bank = flashInts[0]
+        .._phase = flashInts[1]
+        .._idMode = flashFlags![0]
+        .._eraseArmed = flashFlags[1]
+        .._writeArmed = flashFlags[2]
+        .._bankArmed = flashFlags[3];
+    }
+    if (eepromInts != null) {
+      _eeprom!
+        .._addrBits = eepromInts[0]
+        .._expected = eepromInts[1]
+        .._readAddr = eepromInts[2]
+        .._readCount = eepromInts[3]
+        .._reading = eepromReading!;
+      _eeprom!._rx
+        ..clear()
+        ..addAll(eepromRx!);
+    }
+  }
 
   /// called by DMA before an EEPROM command stream so the address width can be
   /// inferred from the transfer length.

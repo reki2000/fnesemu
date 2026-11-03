@@ -33,26 +33,45 @@ class Dc extends Core {
   Dc(
       {this.bootBringUp = const bool.fromEnvironment('DC_BOOT_BRINGUP'),
       bool jit = const bool.fromEnvironment('DC_JIT', defaultValue: true)})
-      : _jit = jit ? Sh4Jit.create() : null,
-        _armJit = jit ? DcArmJit.create(DcAica.memorySize) : null {
-    bus.onDeviceAccess = _syncDevices;
-    bus.systemBus.onSystemReset = () => _systemResetRequested = true;
-    bus.maple.source = padPort;
-    // Compiled code reads and writes main RAM directly.
-    if (_jit != null) bus.cache.coherent = true;
-    if (bootBringUp) {
-      bus.g1.bypassBiosVerification = true;
-      bus.aica.dsp.diagnosticBypassUnsupportedProgram = true;
-      bus.aica.sound.diagnosticByteAddressAdpcm = true;
-      bus.aica.sound.diagnosticFilterApproximation = true;
+      : _jits = _createJits(jit) {
+    try {
+      bus.onDeviceAccess = _syncDevices;
+      bus.systemBus.onSystemReset = () => _systemResetRequested = true;
+      bus.maple.source = padPort;
+      // Compiled code reads and writes main RAM directly.
+      if (_jit != null) bus.cache.coherent = true;
+      if (bootBringUp) {
+        bus.g1.bypassBiosVerification = true;
+        bus.aica.dsp.diagnosticBypassUnsupportedProgram = true;
+        bus.aica.sound.diagnosticByteAddressAdpcm = true;
+        bus.aica.sound.diagnosticFilterApproximation = true;
+      }
+    } catch (_) {
+      // A core that failed to construct is never disposed by its caller, so the JIT runtimes created for it must not outlive the failure.
+      _jit?.dispose();
+      _armJit?.dispose();
+      rethrow;
+    }
+  }
+
+  /// Creates the SH-4 and ARM JITs as a pair, disposing the SH-4 runtime when ARM creation fails so that it is not orphaned without a core to dispose it.
+  static (Sh4Jit?, DcArmJit?) _createJits(bool jit) {
+    if (!jit) return (null, null);
+    final sh4 = Sh4Jit.create();
+    try {
+      return (sh4, DcArmJit.create(DcAica.memorySize));
+    } catch (_) {
+      sh4?.dispose();
+      rethrow;
     }
   }
 
   /// Explicit experimental board, timing and audio policies used by BIOS bring-up.
   /// This does not authenticate media or establish hardware-matched DSP effects.
   final bool bootBringUp;
-  final Sh4Jit? _jit;
-  final DcArmJit? _armJit;
+  final (Sh4Jit?, DcArmJit?) _jits;
+  Sh4Jit? get _jit => _jits.$1;
+  DcArmJit? get _armJit => _jits.$2;
   late final bus =
       DcBus(ram: _jit?.ram, storeQueues: _jit?.storeQueues, armJit: _armJit);
   late final cpu = Sh4(bus, jit: _jit);
@@ -558,16 +577,23 @@ class Dc extends Core {
   }
 
   @override
-  Iterable<JitDiagnostics> get jitDiagnostics =>
-      [if (_jit case final jit?) jit.diagnostics];
+  Iterable<JitDiagnostics> get jitDiagnostics => [
+        if (_jit case final jit?) jit.diagnostics,
+        if (_armJit case final armJit?) armJit.diagnostics,
+      ];
   @override
-  bool get jitEnabled => _jit != null;
+  bool get jitEnabled => _jit != null || _armJit != null;
   @override
-  bool get jitSuspended => _jit?.suspended ?? false;
+  bool get jitSuspended =>
+      (_jit?.suspended ?? false) || (_armJit?.suspended ?? false);
   @override
-  set jitSuspended(bool value) => _jit?.suspended = value;
+  set jitSuspended(bool value) {
+    _jit?.suspended = value;
+    _armJit?.suspended = value;
+  }
+
   @override
-  int get jitClocks => _compiledClocks;
+  int get jitClocks => _compiledClocks + (_armJit?.compiledClocks ?? 0);
   @override
   void dispose() {
     _jit?.dispose();

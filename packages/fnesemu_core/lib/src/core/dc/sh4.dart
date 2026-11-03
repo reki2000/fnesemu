@@ -5,6 +5,7 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../state.dart';
 import '../../util/int.dart';
+import '../../util/jit_adapter.dart';
 import 'bus.dart';
 import 'cache.dart';
 import 'fault.dart';

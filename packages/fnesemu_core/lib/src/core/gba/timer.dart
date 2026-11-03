@@ -1,5 +1,5 @@
 import '../../util/int.dart';
-
+import '../../util/state.dart';
 import 'irq.dart';
 
 /// GBA timers (4 channels, registers 0x4000100..0x400010F).
@@ -103,5 +103,23 @@ class Timers {
       _control[ch] = 0;
       _sub[ch] = 0;
     }
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-timers');
+    w.ints(_counter);
+    w.ints(_reload);
+    w.ints(_control);
+    w.ints(_sub);
+    w.int32(_activeMask);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-timers');
+    s.intsInto(_counter);
+    s.intsInto(_reload);
+    s.intsInto(_control);
+    s.intsInto(_sub);
+    _activeMask = s.int32();
   }
 }

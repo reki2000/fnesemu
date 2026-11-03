@@ -1,6 +1,7 @@
 import '../../pad_button.dart';
 import '../../pad_source.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 
 /// joypad register P1 (FF00)
@@ -50,6 +51,19 @@ class Pad {
   void reset() {
     _select = 0x30;
     _sampled = _levels();
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gb-pad');
+    w.ints([_select, _sampled]);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-pad');
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('gb pad state layout');
+    _select = v[0];
+    _sampled = v[1];
   }
 
   // active low bits: right left up down / a b select start
