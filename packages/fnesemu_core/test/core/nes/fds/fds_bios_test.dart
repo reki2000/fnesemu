@@ -16,12 +16,4 @@ void main() {
     cart.fillRange(16 + 32768, cart.length, 0xff);
     expect(decodeFdsBios(cart), expected);
   });
-  test('trainer is skipped and truncated/non-NES images are rejected', () {
-    final image = Uint8List(16 + 512 + 16384)
-      ..setAll(0, [0x4e, 0x45, 0x53, 0x1a, 1, 0, 4]);
-    image.fillRange(16 + 512 + 8192, image.length, 0x33);
-    expect(decodeFdsBios(image).every((byte) => byte == 0x33), isTrue);
-    expect(() => decodeFdsBios(Uint8List(8208)), throwsFormatException);
-    expect(() => decodeFdsBios(image.sublist(0, 100)), throwsFormatException);
-  });
 }

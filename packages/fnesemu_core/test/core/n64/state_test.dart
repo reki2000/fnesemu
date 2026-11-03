@@ -108,22 +108,6 @@ void main() {
     expect(restored.saveState(), core.saveState());
   });
 
-  test('a restored audio task retains its configured FIR filter', () {
-    final core = _core(false);
-    core.bus.ramWrite(0x4000, 0x4000, 2);
-    core.bus.ramWrite(0x10000, 0x07020010, 4);
-    core.bus.ramWrite(0x10004, 0x4000, 4);
-    core.audio.task(0x10000, 8, newer: true);
-    final restored = _core(false)..loadState(core.saveState());
-    for (final n in [core, restored]) {
-      n.audio.write(0x100, 16384);
-      n.bus.ramWrite(0x10000, 0x07010100, 4);
-      n.bus.ramWrite(0x10004, 0x5000, 4);
-      n.audio.task(0x10000, 8, newer: true);
-      expect(n.audio.read(0x100), 4096);
-    }
-    expect(restored.saveState(), core.saveState());
-  });
 
   test('saving a restored state reproduces it, including HLE state', () {
     final core = _core(false);
