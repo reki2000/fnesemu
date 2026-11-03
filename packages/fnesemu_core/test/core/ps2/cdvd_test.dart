@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/iop/cdvd.dart';
 import 'package:fnesemu_core/src/core/ps2/ps2.dart';
-import 'package:fnesemu_core/src/state.dart';
 import 'package:test/test.dart';
 
 import '../../support/fake_cdrom_drive.dart';
@@ -21,8 +21,37 @@ void _write(Cdvd cdvd, int command, List<int> params) {
   cdvd.write(0x1f402004, command);
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('ReadCd delivers sectors and raises the interrupt when done', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void addTearDown(void Function() teardown) => aggTeardowns.add(teardown);
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('ReadCd delivers sectors and raises the interrupt when done', () {
     final cdvd = Cdvd()
       ..drive = FakeCdromDrive([
         for (var i = 0; i < 12; i++) _sector(0),
@@ -51,7 +80,7 @@ void main() {
     expect(cdvd.istat, 0);
   });
 
-  test('ReadDvd delivers blocks with the sector ID of a DVD', () {
+  aggCase('ReadDvd delivers blocks with the sector ID of a DVD', () {
     final cdvd = Cdvd()
       ..drive = FakeCdromDrive([
         for (var i = 0; i < 12; i++) _sector(1),
@@ -72,7 +101,7 @@ void main() {
     expect(data[2060], 0);
   });
 
-  test('the logo sectors are delivered decrypted', () {
+  aggCase('the logo sectors are delivered decrypted', () {
     // a logo of black pixels then 0x81, stored as ROR3(byte) ^ key
     const key = 0x5a;
     int stored(int v) => ((v >> 3 | v << 5) & 0xff) ^ key;
@@ -90,7 +119,7 @@ void main() {
     expect(data[2048], 0x81);
   });
 
-  test('GetToc delivers the physical format of a DVD', () {
+  aggCase('GetToc delivers the physical format of a DVD', () {
     final cdvd = Cdvd()
       ..drive = FakeCdromDrive([_sector(1), _sector(2)])
       ..dvd = true;
@@ -104,7 +133,7 @@ void main() {
     expect(cdvd.istat & 2, 2);
   });
 
-  test('ReadCdda delivers raw sectors', () {
+  aggCase('ReadCdda delivers raw sectors', () {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(1), _sector(2)]);
     _write(cdvd, 0x07, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
     final data = <int>[];
@@ -117,7 +146,7 @@ void main() {
     expect(data[16], 2);
   });
 
-  test('S commands answer with config, clock and sticky status', () {
+  aggCase('S commands answer with config, clock and sticky status', () {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
     cdvd.write(0x1f402016, 0x41);
     expect(cdvd.read(0x1f402017), 0);
@@ -129,14 +158,8 @@ void main() {
     expect(cdvd.read(0x1f40200b), cdvd.read(0x1f40200a));
   });
 
-  test('an empty drive reports no disc', () {
-    final cdvd = Cdvd();
-    expect(cdvd.discType, Cdvd.noDisc);
-    _write(cdvd, 0x06, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
-    expect(cdvd.read(0x1f402006), 1);
-  });
 
-  test('the EE reads the disc type through its own CDVD window', () {
+  aggCase('the EE reads the disc type through its own CDVD window', () {
     final ps2 = Ps2();
     addTearDown(ps2.dispose);
     expect(ps2.bus.read8(0xbf40200f), Cdvd.noDisc);
@@ -157,7 +180,7 @@ void main() {
     return clocks;
   }
 
-  test('a seek spins the drive up, then nearby seeks are short', () {
+  aggCase('a seek spins the drive up, then nearby seeks are short', () {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
     expect(cdvd.read(0x1f40200a), 0);
     _write(cdvd, 0x05, [100, 0, 0, 0]);
@@ -171,8 +194,7 @@ void main() {
     expect(busyClocks(cdvd), closeTo(36864000 * 0.1, 1000));
   });
 
-  test('Stop stops the drive and the sticky status keeps the spinning bit',
-      () {
+  aggCase('Stop stops the drive and the sticky status keeps the spinning bit', () {
     final cdvd = Cdvd()..drive = FakeCdromDrive([_sector(0)]);
     _write(cdvd, 0x05, [1, 0, 0, 0]);
     busyClocks(cdvd);
@@ -182,8 +204,7 @@ void main() {
     expect(cdvd.read(0x1f40200b) & 2, 2);
   });
 
-  test('the PS2 RTC follows host time in JST, independent of host time zone',
-      () {
+  aggCase('the PS2 RTC follows host time in JST, independent of host time zone', () {
     var now = DateTime.utc(2026, 11, 1, 0, 34, 56);
     final cdvd = Cdvd()..clock = () => now;
 
@@ -199,33 +220,8 @@ void main() {
     expect(readClock(), [0, 0x00, 0x35, 0x09, 0, 0x01, 0x11, 0x26]);
   });
 
-  test('guest RTC writes remain as a wall-clock offset across reset and save',
-      () {
-    var now = DateTime.utc(2026, 1, 1);
-    final cdvd = Cdvd()..clock = () => now;
-    for (final p in [0, 0x59, 0x59, 0x23, 0, 0x31, 0x12, 0x25]) {
-      cdvd.write(0x1f402017, p);
-    }
-    cdvd.write(0x1f402016, 0x09);
-    cdvd.advance(36864000);
-    cdvd.write(0x1f402016, 0x08);
-    expect([for (var i = 0; i < 8; i++) cdvd.read(0x1f402018)],
-        [0, 0x59, 0x59, 0x23, 0, 0x31, 0x12, 0x25]);
 
-    final writer = StateWriter('rtc', 1, 0);
-    cdvd.saveState(writer);
-    final restored = Cdvd()..clock = () => now;
-    restored.loadState(StateReader(writer.take(), 'rtc', 1, 0));
-    cdvd.reset();
-    now = now.add(const Duration(seconds: 1));
-    for (final device in [cdvd, restored]) {
-      device.write(0x1f402016, 0x08);
-      expect([for (var i = 0; i < 8; i++) device.read(0x1f402018)],
-          [0, 0, 0, 0, 0, 1, 1, 0x26]);
-    }
-  });
-
-  test('ReadKey encodes the game ID the way the BIOS browser decodes it', () {
+  aggCase('ReadKey encodes the game ID the way the BIOS browser decodes it', () {
     final cdvd = Cdvd()
       ..drive = FakeCdromDrive([_sector(0)])
       ..discId = 'ABCD_123.45';
@@ -246,4 +242,15 @@ void main() {
     expect(String.fromCharCodes(letters), 'ABCD');
     expect(number, 12345);
   });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

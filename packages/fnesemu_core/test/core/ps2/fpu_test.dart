@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
@@ -32,8 +33,36 @@ R5900 _run(int ir, {int a = 0, int b = 0}) {
   return cpu;
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('basic arithmetic', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('basic arithmetic', () {
     final one = _bits(1.5), two = _bits(2.25);
     expect(_val(_run(_s(0), a: one, b: two).fpr[3]), 3.75);
     expect(_val(_run(_s(1), a: one, b: two).fpr[3]), -0.75);
@@ -42,7 +71,7 @@ void main() {
     expect(_val(_run(_s(4), b: _bits(16)).fpr[3]), 4.0);
   });
 
-  test('results round toward zero', () {
+  aggCase('results round toward zero', () {
     // 1 + 2^-24 is halfway between two floats and truncates down
     final cpu = _run(_s(0), a: _bits(1.0), b: _bits(5.960464477539063e-8));
     expect(cpu.fpr[3], _bits(1.0));
@@ -51,7 +80,7 @@ void main() {
     expect(third, 0x3eaaaaaa);
   });
 
-  test('overflow clamps to the largest magnitude and denormals flush', () {
+  aggCase('overflow clamps to the largest magnitude and denormals flush', () {
     final big = 0x7f7fffff;
     final cpu = _run(_s(2), a: big, b: big);
     expect(cpu.fpr[3], 0x7fffffff);
@@ -62,12 +91,12 @@ void main() {
     expect(small.fcr31 & (1 << 14), isNonZero);
   });
 
-  test('exponent 255 is a normal number', () {
+  aggCase('exponent 255 is a normal number', () {
     final cpu = _run(_s(0), a: 0x7f800000, b: 0x7f800000);
     expect(cpu.fpr[3], 0x7fffffff);
   });
 
-  test('division by zero', () {
+  aggCase('division by zero', () {
     final cpu = _run(_s(3), a: _bits(1.0), b: 0);
     expect(cpu.fpr[3], 0x7fffffff);
     expect(cpu.fcr31 & (1 << 16), isNonZero);
@@ -77,7 +106,7 @@ void main() {
     expect(zero.fcr31 & (1 << 17), isNonZero);
   });
 
-  test('accumulator forms', () {
+  aggCase('accumulator forms', () {
     final cpu = R5900(Ps2Bus());
     cpu.bus.write32(0x100000, _s(0x1a)); // MULA
     cpu.bus.write32(0x100004, _s(0x1c, fd: 4)); // MADD
@@ -90,7 +119,7 @@ void main() {
     expect(_val(cpu.fpr[4]), 12.0);
   });
 
-  test('compare sets C and BC1T branches on it', () {
+  aggCase('compare sets C and BC1T branches on it', () {
     final cpu = R5900(Ps2Bus());
     cpu.bus.write32(0x100000, _s(0x34, fd: 0)); // C.LT f1, f2
     cpu.bus.write32(0x100004, 17 << 26 | 8 << 21 | 1 << 16 | 2); // bc1t +2
@@ -105,7 +134,7 @@ void main() {
     expect(cpu.pc, 0x100004 + 4 + 8);
   });
 
-  test('conversions and register moves', () {
+  aggCase('conversions and register moves', () {
     final w = _run(_cop1(20, fs: 1, fd: 3, fn: 0x20), a: 0xfffffffd);
     expect(_val(w.fpr[3]), -3.0);
     final i = _run(_s(0x24, fs: 1, fd: 3), a: _bits(-2.75));
@@ -123,7 +152,7 @@ void main() {
     expect(cpu.reg(6), -0x7fffffff);
   });
 
-  test('LWC1 and SWC1', () {
+  aggCase('LWC1 and SWC1', () {
     final cpu = R5900(Ps2Bus());
     cpu.bus.write32(0x100000, 49 << 26 | 1 << 21 | 7 << 16 | 0x200); // lwc1
     cpu.bus.write32(0x100004, 57 << 26 | 1 << 21 | 7 << 16 | 0x300); // swc1
@@ -136,7 +165,7 @@ void main() {
     expect(cpu.bus.read32(0x100300), 0x3f800000);
   });
 
-  test('MIN, MAX, ABS, NEG, MOV', () {
+  aggCase('MIN, MAX, ABS, NEG, MOV', () {
     final a = _bits(-1.0), b = _bits(2.0);
     expect(_run(_s(0x28), a: a, b: b).fpr[3], b);
     expect(_run(_s(0x29), a: a, b: b).fpr[3], a);
@@ -144,4 +173,15 @@ void main() {
     expect(_val(_run(_s(0x07), a: b).fpr[3]), -2.0);
     expect(_run(_s(0x06), a: b).fpr[3], b);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

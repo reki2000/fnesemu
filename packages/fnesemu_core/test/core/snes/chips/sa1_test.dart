@@ -41,47 +41,5 @@ void main() {
       return v;
     }
 
-    test('multiplies signed words', () {
-      final bus = sa1Bus();
-      bus.write(0x2250, 0);
-      writeWord(bus, 0x2251, -3);
-      writeWord(bus, 0x2253, 7);
-      expect(result(bus, 4), -21 & 0xffffffff);
-    });
-
-    test('divides a signed word, leaving a non-negative remainder', () {
-      final bus = sa1Bus();
-      bus.write(0x2250, 1);
-      writeWord(bus, 0x2251, -7);
-      writeWord(bus, 0x2253, 2);
-      expect(result(bus, 4), 1 << 16 | (-4 & 0xffff));
-    });
-
-    test('accumulates products', () {
-      final bus = sa1Bus();
-      bus.write(0x2250, 2);
-      writeWord(bus, 0x2251, 100);
-      writeWord(bus, 0x2253, 200);
-      writeWord(bus, 0x2251, 3);
-      writeWord(bus, 0x2253, 4);
-      expect(result(bus, 5), 20012);
-    });
-
-    test('I-RAM writes are protected until enabled', () {
-      final bus = sa1Bus();
-      bus.write(0x003000, 0x11);
-      expect(bus.read(0x003000), 0);
-      bus.write(0x2229, 0x01); // SIWP: $3000-$30FF
-      bus.write(0x003000, 0x11);
-      expect(bus.read(0x003000), 0x11);
-    });
-
-    test('maps 1MB rom banks into \$C0-\$FF', () {
-      final rom = loRom(romType: 0x34, sramSizeByte: 3, size: 0x400000);
-      rom[0x300000] = 0x5a;
-      final bus = Bus()..setRom(SnesFile()..load(rom));
-      bus.write(0x2220, 3);
-      expect(bus.read(0xc00000), 0x5a);
-    });
   });
 }

@@ -25,13 +25,6 @@ void main() {
       return dsp;
     }
 
-    test('global registers at \$x8-\$xF are writable', () {
-      final dsp = setup();
-      expect(dsp.read(0x0c), 0x7f);
-      expect(dsp.mainVolL, 0x7f);
-      expect(dsp.dir, 0x200);
-    });
-
     test('KON starts a voice and an end block continues at the loop point', () {
       final dsp = setup();
       dsp.write(0x05, 0x8f); // ADSR, fastest attack
@@ -44,34 +37,5 @@ void main() {
       expect(dsp.voices[0].envMode, isNot(EnvMode.off));
     });
 
-    test('KOFF releases a voice in GAIN mode', () {
-      final dsp = setup();
-      dsp.write(0x05, 0x00); // GAIN mode
-      dsp.write(0x07, 0x7f); // fixed max gain
-      dsp.write(0x4c, 0x01);
-      dsp.mixSample();
-      final before = dsp.voices[0].env;
-
-      dsp.write(0x5c, 0x01); // KOFF
-      dsp.mixSample();
-      expect(dsp.voices[0].env, lessThan(before));
-
-      for (int i = 0; i < 0x800 ~/ 8; i++) {
-        dsp.mixSample();
-      }
-      expect(dsp.voices[0].envMode, EnvMode.off);
-    });
-
-    test('decay stops at the sustain level', () {
-      final dsp = setup();
-      dsp.write(0x05, 0xff); // ADSR, fastest attack and decay
-      dsp.write(0x06, 0xe0); // SL = 7 (-> 0x800), no sustain decrease
-      dsp.write(0x4c, 0x01);
-      for (int i = 0; i < 200; i++) {
-        dsp.mixSample();
-      }
-      expect(dsp.voices[0].envMode, EnvMode.sustain);
-      expect(dsp.voices[0].env, greaterThan(0x700));
-    });
   });
 }

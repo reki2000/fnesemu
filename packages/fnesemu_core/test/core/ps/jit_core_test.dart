@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps/ps.dart';
@@ -48,8 +49,38 @@ List<int> _bios() => [
       0,
     ];
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('the default backend follows build flags and explicit overrides', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void addTearDown(void Function() teardown) => aggTeardowns.add(teardown);
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  void aggSkipCase(String reason) => throw const _CaseSkip();
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('the default backend follows build flags and explicit overrides', () {
     const enabled = bool.fromEnvironment('JIT', defaultValue: true);
     const trace = bool.fromEnvironment('PS_TRACE');
     final ps = Ps();
@@ -62,9 +93,9 @@ void main() {
     expect(interpreted.jitEnabled, isFalse);
   });
 
-  test('the recompiler takes the interrupts of the interpreter', () {
+  aggCase('the recompiler takes the interrupts of the interpreter', () {
     if (!JitRuntime.nativeSupported) {
-      markTestSkipped('no native recompiler on this host');
+      aggSkipCase('no native recompiler on this host');
       return;
     }
     final rom = Uint8List(512 * 1024);
@@ -94,4 +125,15 @@ void main() {
     expect((recompiled[1] - interpreted[1]).abs(), lessThan(1000));
     expect(recompiled[1], greaterThan(1000000));
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

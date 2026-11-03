@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/iop/iop.dart';
@@ -152,21 +153,50 @@ void _compare(IopJit? jit, String name, {int clocks = 300}) {
   _expectSame(cpu, memory, expected, expectedMemory, name);
 }
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('compiled IOP code matches the interpreter', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void addTearDown(void Function() teardown) => aggTeardowns.add(teardown);
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('compiled IOP code matches the interpreter', () {
     final jit = IopJit.create(compileThreshold: 1);
     if (jit == null) return; // no little-endian host
     addTearDown(jit.dispose);
     _compare(jit, 'native');
   });
 
-  test('reference IR IOP code matches the interpreter', () {
+  aggCase('reference IR IOP code matches the interpreter', () {
     final jit = IopJit.create(native: false, compileThreshold: 1)!;
     addTearDown(jit.dispose);
     _compare(jit, 'reference');
   });
 
-  test('an overflowing add hands its state to the interpreter', () {
+  aggCase('an overflowing add hands its state to the interpreter', () {
     for (final jit in [
       IopJit.create(compileThreshold: 1),
       IopJit.create(native: false, compileThreshold: 1),
@@ -196,7 +226,7 @@ void main() {
     }
   });
 
-  test('a misaligned load hands its state to the interpreter', () {
+  aggCase('a misaligned load hands its state to the interpreter', () {
     final jit = IopJit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -220,7 +250,7 @@ void main() {
     expect(cpu.r[6], 0);
   });
 
-  test('MFC0 of Cause sees the interrupt line mirror', () {
+  aggCase('MFC0 of Cause sees the interrupt line mirror', () {
     final jit = IopJit.create(compileThreshold: 1);
     if (jit == null) return;
     addTearDown(jit.dispose);
@@ -243,4 +273,15 @@ void main() {
     expect(cpu.r[5], expected.r[5]);
     expect(cpu.r[5] & 0x400, isNonZero);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

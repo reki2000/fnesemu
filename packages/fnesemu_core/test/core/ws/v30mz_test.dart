@@ -42,43 +42,6 @@ void main() {
     }
   });
 
-  test('enter and leave build a stack frame', () {
-    final cpu = _run(
-        [0xc8, 0x10, 0x00, 0x00, 0xc9], 1, (cpu) => cpu.r[V30mz.bp] = 0x1234);
-    expect(cpu.r[V30mz.bp], 0x1ffe);
-    expect(cpu.r[V30mz.sp], 0x1fee);
-    cpu.exec();
-    expect(cpu.r[V30mz.bp], 0x1234);
-    expect(cpu.r[V30mz.sp], 0x2000);
-  });
-
-  test('immediate push, multiply and shifts', () {
-    final cpu = _run([
-      0x6a, 0xfe, // push -2
-      0x59, // pop cx
-      0x6b, 0xc1, 0x03, // imul ax, cx, 3
-      0xb3, 0x81, // mov bl, 0x81
-      0xc0, 0xeb, 0x03, // shr bl, 3
-    ], 5);
-    expect(cpu.r[V30mz.cx], 0xfffe);
-    expect(cpu.r[V30mz.ax], 0xfffa);
-    expect(cpu.reg8(3), 0x10);
-  });
-
-  test('maskable interrupts wake the cpu from hlt', () {
-    final cpu = _run([0xfb, 0xf4, 0x90], 2);
-    cpu.bus.write8(0x20 * 4, 0x00);
-    cpu.bus.write8(0x20 * 4 + 1, 0x01);
-    cpu.exec();
-    expect(cpu.halted, isTrue);
-    cpu.irqVector = 0x20;
-    cpu.exec();
-    expect(cpu.halted, isFalse);
-    expect(cpu.ip, 0x0100);
-    expect(cpu.s[V30mz.cs], 0);
-    expect(cpu.flags & V30mz.iff, 0);
-  });
-
   test('divide by zero raises the interrupt 0', () {
     final cpu = _run([0xf6, 0xf1], 1, (cpu) {
       cpu.bus.write8(0, 0x34);

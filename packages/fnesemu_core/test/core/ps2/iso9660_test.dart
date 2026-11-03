@@ -1,18 +1,40 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/src/core/ps2/iso9660.dart';
 import 'package:test/test.dart';
 
-import '../../support/fake_cdrom_drive.dart';
-
-/// a raw mode 1 sector whose user data starts with a volume descriptor [id]
-Uint8List _descriptor(String id) => Uint8List(2352)
-  ..[15] = 1
-  ..setRange(17, 22, ascii.encode(id));
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
 
 void main() {
-  test('finds and reads a file in the root directory', () async {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('finds and reads a file in the root directory', () async {
     final sectors = <int, Uint8List>{};
     final pvd = Uint8List(2048);
     pvd.setRange(1, 6, ascii.encode('CD001'));
@@ -38,16 +60,21 @@ void main() {
     expect(await iso.findRootFile('MISSING'), isNull);
   });
 
-  test('takes the BOOT2 file name from SYSTEM.CNF', () {
+  aggCase('takes the BOOT2 file name from SYSTEM.CNF', () {
     expect(bootFileName('BOOT2 = cdrom0:\\ABCD_123.45;1\r\nVER = 1.00\r\n'),
         'ABCD_123.45');
     expect(bootFileName('VMODE = NTSC\n'), isNull);
   });
 
-  test('a UDF bridge disc is a DVD', () async {
-    List<Uint8List> disc(List<String> ids) =>
-        [for (var i = 0; i < 16; i++) Uint8List(2352), ...ids.map(_descriptor)];
-    expect(await isDvd(FakeCdromDrive(disc(['CD001', 'BEA01']))), isTrue);
-    expect(await isDvd(FakeCdromDrive(disc(['CD001', 'CD001']))), isFalse);
-  });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

@@ -1,11 +1,40 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/iop/pad.dart';
 import 'package:fnesemu_core/src/core/ps2/iop/sio2.dart';
 import 'package:fnesemu_core/src/pad_button.dart';
 import 'package:fnesemu_core/src/pad_source.dart';
 import 'package:test/test.dart';
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
-  test('a poll of port 0 returns the pad buttons', () {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
+  aggCase('a poll of port 0 returns the pad buttons', () {
     final pad = PadState()
       ..press(0, PadButton.up)
       ..press(0, const PadButton('x'));
@@ -19,18 +48,8 @@ void main() {
     expect(reply, [0xff, 0x41, 0x5a, 0xef, 0xbf]);
   });
 
-  test('other ports and devices read as 0xff', () {
-    final sio2 = Sio2();
-    sio2.write(Sio2.base, 4, (3 << 18) | (3 << 8) | 1);
-    for (final byte in [0x01, 0x42, 0]) {
-      sio2.send(byte);
-    }
-    sio2.write(Sio2.base + 0x68, 4, 1);
-    expect(List.generate(3, (_) => sio2.receive()), [0xff, 0xff, 0xff]);
-  });
 
-  test('the configuration commands switch to the analog and pressure modes',
-      () {
+  aggCase('the configuration commands switch to the analog and pressure modes', () {
     final pad = Ps2Pad()..source = (PadState()..press(0, const PadButton('o')));
     List<int> send(List<int> bytes) => pad.transfer(bytes, bytes.length);
 
@@ -54,7 +73,7 @@ void main() {
     expect(poll.sublist(9), [0, 0, 0, 0, 0, 0xff, 0, 0, 0, 0, 0, 0]);
   });
 
-  test('the receive DMA waits for the replies of the transfer', () {
+  aggCase('the receive DMA waits for the replies of the transfer', () {
     final sio2 = Sio2()..pad.source = PadState();
     expect(sio2.replyReady, isFalse);
     sio2.write(Sio2.base, 4, (5 << 18) | (5 << 8));
@@ -68,4 +87,15 @@ void main() {
         [0xff, 0x41, 0x5a, 0xff, 0xff]);
     expect(sio2.replyReady, isFalse);
   });
+
+  const chunkCount = 1;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }

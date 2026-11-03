@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fnesemu_core/src/core/ps2/bus.dart';
 import 'package:fnesemu_core/src/core/ps2/r5900/r5900.dart';
 import 'package:test/test.dart';
@@ -50,9 +51,37 @@ int _pair(int w0, int w1) => (w1 << 32) | (w0 & 0xffffffff);
 
 (int, int) _r3(R5900 cpu) => (cpu.gpr[6], cpu.gpr[7]);
 
+class _CaseSkip implements Exception {
+  const _CaseSkip();
+}
+
 void main() {
+  // Aggregated cases: the per-case tests of this file are collected
+  // in this table and executed by the aggregated test(s) at the end of
+  // main; every case name stays visible here and in the run output.
+  final aggCases = <(String, FutureOr<void> Function())>[];
+  final aggTeardowns = <void Function()>[];
+  void aggCase(String name, FutureOr<void> Function() body) =>
+      aggCases.add((name, body));
+  Future<void> runAggCases(
+      Iterable<(String, FutureOr<void> Function())> cases) async {
+    for (final (name, body) in cases) {
+      print('case: $name');
+      try {
+        await body();
+      } on _CaseSkip {
+        print('skipped: $name');
+      } finally {
+        for (final teardown in aggTeardowns) {
+          teardown();
+        }
+        aggTeardowns.clear();
+      }
+    }
+  }
+
   // r1 -> gpr[2], gpr[3]; r2 -> gpr[4], gpr[5]; r3 -> gpr[6], gpr[7]
-  test('PADDW wraps and PADDSW saturates', () {
+  aggCase('PADDW wraps and PADDSW saturates', () {
     final a = _w(0x7fffffff, 1, 0x80000000, 5);
     final b = _w(1, 2, 0xffffffff, 6);
     expect(_r3(_run(_mmi0(0x00, 1, 2, 3), a: a, b: b)),
@@ -61,19 +90,19 @@ void main() {
         _w(0x7fffffff, 3, 0x80000000, 11));
   });
 
-  test('PSUBUB saturates at zero', () {
+  aggCase('PSUBUB saturates at zero', () {
     expect(_r3(_run(_mmi1(0x19, 1, 2, 3), a: (0x0a05, 0), b: (0x0108, 0))),
         (0x0900, 0));
   });
 
-  test('PCGTH and PMAXH are signed', () {
+  aggCase('PCGTH and PMAXH are signed', () {
     final a = (0x0001ffff00020000, 0);
     final b = (0x0000000000000001, 0);
     expect(_r3(_run(_mmi0(0x06, 1, 2, 3), a: a, b: b)).$1, 0xffff0000ffff0000);
     expect(_r3(_run(_mmi0(0x07, 1, 2, 3), a: a, b: b)).$1, 0x0001000000020001);
   });
 
-  test('PEXTLW, PEXTUW and PPACW', () {
+  aggCase('PEXTLW, PEXTUW and PPACW', () {
     final a = _w(0xa0, 0xa1, 0xa2, 0xa3);
     final b = _w(0xb0, 0xb1, 0xb2, 0xb3);
     expect(_r3(_run(_mmi0(0x12, 1, 2, 3), a: a, b: b)),
@@ -84,14 +113,14 @@ void main() {
         _w(0xb0, 0xb2, 0xa0, 0xa2));
   });
 
-  test('PINTH takes the lower halves of rt and the upper halves of rs', () {
+  aggCase('PINTH takes the lower halves of rt and the upper halves of rs', () {
     final a = (0, 0x0008000700060005);
     final b = (0x0004000300020001, 0);
     expect(_r3(_run(_mmi2(0x0a, 1, 2, 3), a: a, b: b)),
         (0x0006000200050001, 0x0008000400070003));
   });
 
-  test('PCPYLD, PCPYUD and PCPYH', () {
+  aggCase('PCPYLD, PCPYUD and PCPYH', () {
     final a = (0x11, 0x22);
     final b = (0x33, 0x44);
     expect(_r3(_run(_mmi2(0x0e, 1, 2, 3), a: a, b: b)), (0x33, 0x11));
@@ -101,7 +130,7 @@ void main() {
     expect(_r3(h), (0xaaaaaaaaaaaaaaaa, 0x1111111111111111));
   });
 
-  test('PAND, POR, PXOR and PNOR work on 128 bits', () {
+  aggCase('PAND, POR, PXOR and PNOR work on 128 bits', () {
     final a = (0xff00, 0xf0f0);
     final b = (0x0ff0, 0x00ff);
     expect(_r3(_run(_mmi2(0x12, 1, 2, 3), a: a, b: b)), (0x0f00, 0x00f0));
@@ -110,7 +139,7 @@ void main() {
     expect(_r3(_run(_mmi3(0x13, 1, 2, 3), a: a, b: b)), (~0xfff0, ~0xf0ff));
   });
 
-  test('PSLLH, PSRAH and PSRAW shift lanes independently', () {
+  aggCase('PSLLH, PSRAH and PSRAW shift lanes independently', () {
     final v = (0x8000000180000001, 0);
     expect(_r3(_run(_mmi(0x34, sub: 1, rt: 1, rd: 3), a: v)).$1,
         0x0000000200000002);
@@ -122,13 +151,13 @@ void main() {
         _w(0xf8000000, 0x4, 0, 0));
   });
 
-  test('PSLLVW shifts words 0 and 2 and sign extends', () {
+  aggCase('PSLLVW shifts words 0 and 2 and sign extends', () {
     final cpu = _run(_mmi2(0x02, 1, 2, 3),
         a: _w(1, 9, 31, 9), b: _w(0x40000000, 0, 1, 0));
     expect(_r3(cpu), (-0x80000000, -0x80000000));
   });
 
-  test('PMULTW fills HI, LO and rd; PMFHL.LW gathers them', () {
+  aggCase('PMULTW fills HI, LO and rd; PMFHL.LW gathers them', () {
     final cpu = _run(_mmi2(0x0c, 1, 2, 3),
         a: _w(0xfffffffd, 0, 0x10000, 0), b: _w(7, 0, 0x10000, 0));
     expect(cpu.gpr[6], -21);
@@ -142,7 +171,7 @@ void main() {
     expect((cpu.gpr[16], cpu.gpr[17]), _w(0xffffffeb, 0xffffffff, 0, 1));
   });
 
-  test('PMADDW accumulates into HI and LO', () {
+  aggCase('PMADDW accumulates into HI and LO', () {
     final cpu = R5900(Ps2Bus());
     cpu.bus.write32(0x100000, _mmi2(0x00, 1, 2, 3));
     cpu.jumpTo(0x100000);
@@ -154,13 +183,13 @@ void main() {
     expect(cpu.gpr[6], 17);
   });
 
-  test('PDIVW divides two lanes', () {
+  aggCase('PDIVW divides two lanes', () {
     final cpu =
         _run(_mmi2(0x0d, 1, 2, 3), a: _w(17, 0, 100, 0), b: _w(5, 0, 7, 0));
     expect((cpu.lo, cpu.hi, cpu.lo1, cpu.hi1), (3, 2, 14, 2));
   });
 
-  test('MULT1 and DIVU1 use the second pipeline', () {
+  aggCase('MULT1 and DIVU1 use the second pipeline', () {
     final m = R5900(Ps2Bus());
     m.bus.write32(0x100000, _mmi(0x18, rs: 1, rt: 2, rd: 3));
     m.jumpTo(0x100000);
@@ -180,7 +209,7 @@ void main() {
     expect((d.lo1, d.hi1), (3, 2));
   });
 
-  test('MADD adds to HI/LO and writes rd', () {
+  aggCase('MADD adds to HI/LO and writes rd', () {
     final cpu = R5900(Ps2Bus());
     cpu.bus.write32(0x100000, _mmi(0x00, rs: 1, rt: 2, rd: 3));
     cpu.jumpTo(0x100000);
@@ -191,13 +220,13 @@ void main() {
     expect((cpu.lo, cpu.hi, cpu.reg(3)), (-2, -1, -2));
   });
 
-  test('PLZCW counts redundant sign bits', () {
+  aggCase('PLZCW counts redundant sign bits', () {
     final cpu =
         _run(_mmi(0x04, rs: 1, rd: 3), a: _w(0x00ffffff, 0xfffff000, 0, 0));
     expect(cpu.gpr[6], (19 << 32) | 7);
   });
 
-  test('PABSW, PEXEH, PREVH and PROT3W', () {
+  aggCase('PABSW, PEXEH, PREVH and PROT3W', () {
     expect(_r3(_run(_mmi1(0x01, 0, 1, 3), a: _w(0xfffffffe, 5, 0x80000000, 0))),
         _w(2, 5, 0x7fffffff, 0));
     final h = (0x0004000300020001, 0x0008000700060005);
@@ -208,19 +237,19 @@ void main() {
     expect(_r3(_run(_mmi2(0x1f, 0, 1, 3), a: _w(1, 2, 3, 4))), _w(2, 3, 1, 4));
   });
 
-  test('PMTHI moves 128 bits', () {
+  aggCase('PMTHI moves 128 bits', () {
     final cpu = _run(_mmi3(0x08, 1, 0, 0), a: (7, 9));
     expect((cpu.hi, cpu.hi1), (7, 9));
   });
 
-  test('instructions without an implementation are reported', () {
+  aggCase('instructions without an implementation are reported', () {
     final cpu = R5900(Ps2Bus());
     cpu.bus.write32(0x100000, _mmi(0x08, sub: 0x0b)); // undefined in MMI0
     cpu.jumpTo(0x100000);
     expect(cpu.step(), isFalse);
   });
 
-  test('QFSRV funnel shifts rs:rt right by the SA bytes', () {
+  aggCase('QFSRV funnel shifts rs:rt right by the SA bytes', () {
     final cpu = _run(_mmi1(0x1b, 1, 2, 3),
         a: _w(0x11111111, 0x22222222, 0x33333333, 0x44444444),
         b: _w(0xaaaaaaaa, 0xbbbbbbbb, 0xcccccccc, 0xdddddddd),
@@ -231,7 +260,7 @@ void main() {
   final ha = _h([1, 2, 3, 4, 5, 6, 7, -1]);
   final hb = _h([10, 10, 10, 10, 10, 10, 10, 10]);
 
-  test('PMULTH spreads the halfword products over LO and HI', () {
+  aggCase('PMULTH spreads the halfword products over LO and HI', () {
     final cpu = _run(_mmi2(0x1c, 1, 2, 3), a: ha, b: hb);
     expect(_r3(cpu), _w(10, 30, 50, 70));
     expect(cpu.lo, _pair(10, 20));
@@ -240,7 +269,7 @@ void main() {
     expect(cpu.hi1, _pair(70, -10));
   });
 
-  test('PMADDH accumulates and PHMADH adds product pairs', () {
+  aggCase('PMADDH accumulates and PHMADH adds product pairs', () {
     final madd = _run(_mmi2(0x10, 1, 2, 3), a: ha, b: hb, setup: (cpu) {
       cpu.lo = _pair(1, 2);
       cpu.hi1 = _pair(3, 4);
@@ -250,14 +279,14 @@ void main() {
     expect(_r3(_run(_mmi2(0x11, 1, 2, 3), a: ha, b: hb)), _w(30, 70, 110, 60));
   });
 
-  test('PEXT5 and PPAC5 convert between 1-5-5-5 and 8-8-8-8 colors', () {
+  aggCase('PEXT5 and PPAC5 convert between 1-5-5-5 and 8-8-8-8 colors', () {
     final packed = _w(0x801f, 0x7c00, 0x03e0, 0);
     final wide = _w(0x800000f8, 0x00f80000, 0x0000f800, 0);
     expect(_r3(_run(_mmi0(0x1e, 0, 2, 3), b: packed)), wide);
     expect(_r3(_run(_mmi0(0x1f, 0, 2, 3), b: wide)), packed);
   });
 
-  test('PMFHL.LH and PMTHL move between halves of LO/HI and a register', () {
+  aggCase('PMFHL.LH and PMTHL move between halves of LO/HI and a register', () {
     final lh = _run(_mmi(0x30, sub: 3, rd: 3), setup: (cpu) {
       cpu.lo = _pair(0x11110001, 0x22220002);
       cpu.hi = _pair(0x33330003, 0x44440004);
@@ -275,7 +304,7 @@ void main() {
     expect(mthl.hi1 & 0xffffffff, 4);
   });
 
-  test('PDIVBW divides each word by a halfword', () {
+  aggCase('PDIVBW divides each word by a halfword', () {
     final cpu = _run(_mmi2(0x1d, 1, 2, 0),
         a: _w(100, -7 & 0xffffffff, 9, 0), b: _h([3, 0, 0, 0, 0, 0, 0, 0]));
     expect(cpu.lo, _pair(33, -2));
@@ -283,4 +312,15 @@ void main() {
     expect(cpu.lo1, _pair(3, 0));
     expect(cpu.hi1, _pair(0, 0));
   });
+
+  const chunkCount = 2;
+  final chunkSize = (aggCases.length + chunkCount - 1) ~/ chunkCount;
+  for (var part = 0; part < chunkCount; part++) {
+    final partCases =
+        aggCases.skip(part * chunkSize).take(chunkSize).toList();
+    if (partCases.isEmpty) continue;
+    test('aggregated cases ${part + 1} of $chunkCount', () async {
+      await runAggCases(partCases);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  }
 }
