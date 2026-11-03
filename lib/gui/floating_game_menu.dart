@@ -8,6 +8,13 @@ class FloatingGameMenu extends StatelessWidget {
   final bool busy;
   final VoidCallback onToggle;
   final VoidCallback onResume;
+
+  /// F1: saves the state to slot 0 without opening a dialog
+  final VoidCallback? onQuickSave;
+
+  /// F2: loads the state from slot 0, with a confirmation
+  final VoidCallback? onQuickLoad;
+
   final Widget toolbar;
   final Widget? topRight;
   final Widget child;
@@ -19,6 +26,8 @@ class FloatingGameMenu extends StatelessWidget {
     required this.busy,
     required this.onToggle,
     required this.onResume,
+    this.onQuickSave,
+    this.onQuickLoad,
     required this.toolbar,
     this.topRight,
     required this.child,
@@ -31,6 +40,16 @@ class FloatingGameMenu extends StatelessWidget {
               includeRepeats: false): () {
             if (!busy) onToggle();
           },
+          if (onQuickSave != null)
+            const SingleActivator(LogicalKeyboardKey.f1,
+                includeRepeats: false): () {
+              if (!busy) onQuickSave!();
+            },
+          if (onQuickLoad != null)
+            const SingleActivator(LogicalKeyboardKey.f2,
+                includeRepeats: false): () {
+              if (!busy) onQuickLoad!();
+            },
         },
         child: Focus(
           autofocus: true,

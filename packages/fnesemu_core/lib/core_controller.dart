@@ -212,6 +212,43 @@ class CoreController {
     return;
   }
 
+  /// captures the state of the loaded core at a frame boundary.
+  /// the emulation is stopped while the state is captured, and resumed if
+  /// it was running. throws a StateError if no core is loaded, and whatever
+  /// [Core.saveState] throws if the core cannot save.
+  Future<Uint8List> saveState() async {
+    if (_system.isEmpty) {
+      throw StateError('CoreController.saveState: no core is loaded');
+    }
+    final wasRunning = _state.running;
+    await stop();
+    try {
+      return _core.saveState();
+    } finally {
+      if (wasRunning) run();
+    }
+  }
+
+  /// restores a state captured by [saveState] into the loaded core.
+  /// the emulation is stopped while the state is restored, and resumed if
+  /// it was running. an error of the core, such as a state of another media
+  /// or format version, is passed to the caller and the core is left as it
+  /// was before the call, apart from the frame position.
+  Future<void> loadState(Uint8List state) async {
+    if (_system.isEmpty) {
+      throw StateError('CoreController.loadState: no core is loaded');
+    }
+    final wasRunning = _state.running;
+    await stop();
+    try {
+      _core.loadState(state);
+      _currentCpuClocks = _scanline = 0;
+      _renderAll();
+    } finally {
+      if (wasRunning) run();
+    }
+  }
+
   /// reset emulation. keep run/stop state
   Future<void> reset() async {
     final wasRunning = _state.running;
