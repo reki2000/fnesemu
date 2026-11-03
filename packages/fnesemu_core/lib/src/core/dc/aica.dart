@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../components/arm7/jit/translator.dart';
 import '../../state.dart';
 import '../../util/uint8list.dart';
 import 'aica_dsp.dart';
@@ -7,7 +8,6 @@ import 'aica_midi.dart';
 import 'aica_sound.dart';
 import 'arm7di.dart';
 import 'arm_jit.dart';
-import 'arm_translator.dart';
 import 'fault.dart';
 
 /// Retail AICA memory, RTC and timer/interrupt subset from System Architecture.
@@ -221,7 +221,7 @@ class DcAica {
         values[8] > 7 ||
         !fits(9, 0xfe0f) ||
         values[11] < 1 ||
-        values[11] > 20 + DcArmTranslator.maxBlockCycles ||
+        values[11] > 20 + ArmTranslatorPolicy.dc.maxBlockCycles(64) ||
         [12, 13, 14].any((index) => !fits(index, 0xfffc)) ||
         values[15] > memorySize ||
         values[16] > 0x45c8 ||

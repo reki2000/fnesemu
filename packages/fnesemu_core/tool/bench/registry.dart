@@ -2,6 +2,7 @@
 //
 // A new core adds one file under tool/bench/ and one entry here.
 import 'dc.dart' as dc;
+import 'gba.dart' as gba;
 import 'n64.dart' as n64;
 import 'ps.dart' as ps;
 import 'ps2.dart' as ps2;
@@ -13,4 +14,5 @@ final benchCores = <String, Map<String, BenchWorkload>>{
   'n64': n64.n64Workloads,
   'ps2': ps2.ps2Workloads,
   'dc': dc.dcWorkloads,
+  'gba': gba.gbaWorkloads,
 };
