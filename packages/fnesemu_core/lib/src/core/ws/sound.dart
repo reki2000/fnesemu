@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// the four wavetable channels of the ws core, with the voice mode of the
 /// channel 2, the sweep of the channel 3 and the noise of the channel 4
@@ -36,6 +37,32 @@ class Sound {
     _noiseOut = 0;
     _clocks = 0;
     samples = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ws-sound');
+    w.ints(_counter);
+    w.ints(_position);
+    w.ints([_sweepCounter, _lfsr, _noiseOut, _clocks, samples]);
+    w.floats(buffer);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ws-sound');
+    s.intsInto(_counter);
+    s.intsInto(_position);
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('ws sound state layout');
+    _sweepCounter = v[0];
+    _lfsr = v[1];
+    _noiseOut = v[2];
+    _clocks = v[3];
+    samples = v[4];
+    final savedBuffer = s.floats();
+    if (savedBuffer.length != buffer.length) {
+      throw const StateMismatch('ws sound buffer state layout');
+    }
+    buffer.setAll(0, savedBuffer);
   }
 
   /// handles writes to the sound ports which have side effects

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'mapper.dart';
 import 'mirror.dart';
@@ -46,6 +47,40 @@ class MapperNamco163 extends Mapper {
       _chrBank[i] = chrRoms.length;
     }
     mirror(Mirror.external);
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('namco163');
+    w.ints(_chrBank);
+    w.ints(_prgBank);
+    w.ints([_prgBankMask, _irqCounter, _prevCycle]);
+    w.boolean(_chrRamEnabled[0]);
+    w.boolean(_chrRamEnabled[1]);
+    for (final protect in _ramProtect) {
+      w.boolean(protect);
+    }
+    w.boolean(_irqEnabled);
+    w.bytes(_chrRam);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('namco163');
+    s.intsInto(_chrBank);
+    s.intsInto(_prgBank);
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('namco163 state layout');
+    _prgBankMask = v[0];
+    _irqCounter = v[1];
+    _prevCycle = v[2];
+    _chrRamEnabled[0] = s.boolean();
+    _chrRamEnabled[1] = s.boolean();
+    for (var i = 0; i < _ramProtect.length; i++) {
+      _ramProtect[i] = s.boolean();
+    }
+    _irqEnabled = s.boolean();
+    s.bytesInto(_chrRam);
   }
 
   @override

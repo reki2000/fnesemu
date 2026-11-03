@@ -1,6 +1,7 @@
 import '../../../pad_button.dart';
 import '../../../pad_source.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 class Pad {
   static const select = PadButton("Select");
@@ -46,6 +47,22 @@ class Pad {
     selectLRDU = false;
     clear = false;
     counter = 0;
+  }
+
+  /// Saves the port select lines and the controller counter.
+  void saveState(StateWriter w) {
+    w.section('pce-pad');
+    w.int32(counter);
+    w.boolean(selectLRDU);
+    w.boolean(clear);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-pad');
+    counter = s.int32();
+    selectLRDU = s.boolean();
+    clear = s.boolean();
   }
 
   set port(int data) {

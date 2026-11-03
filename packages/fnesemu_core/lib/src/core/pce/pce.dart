@@ -5,6 +5,7 @@ import '../../core.dart';
 import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../types.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import 'component/bus.dart';
 import 'component/cpu.dart';
@@ -182,7 +183,7 @@ class Pce extends Core {
   void Function(AudioBuffer) _onAudio = (_) {};
 
   @override
-  onAudio(void Function(AudioBuffer) onAudio) {
+  void onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
 
@@ -214,6 +215,74 @@ class Pce extends Core {
 
   @override
   void dispose() {}
+
+  static const _stateVersion = 1;
+
+  // The media identity folds the HuCard CRC and, when a CD is attached, the disc TOC in the same shape the DC core binds its TOC.
+  int get _stateMedia {
+    var hash = stateMediaHash(crc.codeUnits);
+    final cdrom = bus.cdrom;
+    hash = stateMediaHashAll(hash, [cdrom.enabled ? 1 : 0]);
+    if (cdrom.enabled) {
+      final toc = cdrom.disc.status.toc;
+      hash = stateMediaHashAll(hash, [toc.totalSectors, toc.tracks.length]);
+      for (final track in toc.tracks) {
+        hash = stateMediaHashAll(hash,
+            [track.number, track.isAudio ? 1 : 0, track.startLba, track.sectors]);
+      }
+    }
+    return hash;
+  }
+
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('pce', _stateVersion, _stateMedia);
+    w.section('pce');
+    w.ints([_nextVdcClocks, _prevPsgClocks]);
+    w.boolean(_vdc2Synced);
+    cpu.saveState(w);
+    bus.saveState(w);
+    vdc.saveState(w);
+    vdc2.saveState(w);
+    w.section('pce-vce');
+    w.ints(vdc.colorTable);
+    vpc.saveState(w);
+    psg.saveState(w);
+    timer.saveState(w);
+    pic.saveState(w);
+    bus.rom.saveState(w);
+    bus.cdrom.saveState(w);
+    bus.arcadeCard.saveState(w);
+    return w.take();
+  }
+
+  /// The header and media are validated before any component is applied; a failure after that leaves a partially restored core, so reset it before running again. The second VDC is re-pointed at the shared VCE colour table after the restore.
+  @override
+  void loadState(Uint8List state) {
+    final s = StateReader(state, 'pce', _stateVersion, _stateMedia);
+    s.section('pce');
+    final clocks = s.ints();
+    if (clocks.length != 2) throw const StateMismatch('pce state layout');
+    final vdc2Synced = s.boolean();
+    cpu.loadState(s);
+    bus.loadState(s);
+    vdc.loadState(s);
+    vdc2.loadState(s);
+    s.section('pce-vce');
+    s.intsInto(vdc.colorTable);
+    vdc2.colorTable = vdc.colorTable;
+    vpc.loadState(s);
+    psg.loadState(s);
+    timer.loadState(s);
+    pic.loadState(s);
+    bus.rom.loadState(s);
+    bus.cdrom.loadState(s);
+    bus.arcadeCard.loadState(s);
+    s.end();
+    _nextVdcClocks = clocks[0];
+    _prevPsgClocks = clocks[1];
+    _vdc2Synced = vdc2Synced;
+  }
 
   @override
   void setSram(Sram sram) => bus.sram = sram;

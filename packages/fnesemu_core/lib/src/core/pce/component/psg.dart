@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../constants.dart' as hardware;
 import 'bus.dart';
 
@@ -31,7 +32,10 @@ class Wave {
   int noiseIndex = 0;
   int noiseCounter = 0;
   int noiseValue = 0;
-  final random = math.Random(0); // fixed seed: deterministic noise
+  math.Random random = math.Random(0); // fixed seed: deterministic noise
+
+  // The number of values drawn from [random]; a state restores the noise sequence by replaying this many draws on a fresh generator with the same seed.
+  int noiseDraws = 0;
 
   int currentL = 0;
   int currentR = 0;
@@ -62,6 +66,51 @@ class Wave {
 
     currentL = 0;
     currentR = 0;
+  }
+
+  /// Saves the channel registers, the wave table and the noise generator position.
+  void saveState(StateWriter w) {
+    w.section('pce-psg-wave');
+    w.ints([
+      freq, freqOffset, counter, tableIndex, tableWriteIndex, volume, //
+      volumeL, volumeR, ddaValue, noiseFreq, noiseIndex, noiseCounter, //
+      noiseValue, noiseDraws, currentL, currentR
+    ]);
+    w.ints(table);
+    w.boolean(enabled);
+    w.boolean(dda);
+    w.boolean(noise);
+  }
+
+  /// Restores the state written by [saveState], replaying the noise draws so the generator continues the saved sequence.
+  void loadState(StateReader s) {
+    s.section('pce-psg-wave');
+    final v = s.ints();
+    if (v.length != 16) throw const StateMismatch('psg wave state layout');
+    freq = v[0];
+    freqOffset = v[1];
+    counter = v[2];
+    tableIndex = v[3];
+    tableWriteIndex = v[4];
+    volume = v[5];
+    volumeL = v[6];
+    volumeR = v[7];
+    ddaValue = v[8];
+    noiseFreq = v[9];
+    noiseIndex = v[10];
+    noiseCounter = v[11];
+    noiseValue = v[12];
+    noiseDraws = v[13];
+    currentL = v[14];
+    currentR = v[15];
+    s.intsInto(table);
+    enabled = s.boolean();
+    dda = s.boolean();
+    noise = s.boolean();
+    random = math.Random(0);
+    for (var i = 0; i < noiseDraws; i++) {
+      random.nextDouble();
+    }
   }
 
   void pushWave(int val) {
@@ -100,6 +149,7 @@ class Wave {
       while (noiseCounter <= 0) {
         noiseCounter += period;
         noiseIndex = (noiseIndex + 1).mask6;
+        noiseDraws++;
         noiseValue = random.nextDouble() > 0.5 ? 15 : -16;
       }
       final level = volume == 0 ? 0 : noiseValue * (volume + 1);
@@ -183,6 +233,34 @@ class Psg {
   bool lfoEnabled = false;
   int lfoControl = 0;
   int lfoCounter = 0;
+
+  /// Saves the channel selection, the main amplitudes, the LFO state and every wave channel.
+  void saveState(StateWriter w) {
+    w.section('pce-psg');
+    w.ints([cycle, ch, ampL, ampR, lfoFreq, lfoControl, lfoCounter]);
+    w.boolean(lfoEnabled);
+    for (final wave in waves) {
+      wave.saveState(w);
+    }
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-psg');
+    final v = s.ints();
+    if (v.length != 7) throw const StateMismatch('psg state layout');
+    cycle = v[0];
+    ch = v[1];
+    ampL = v[2];
+    ampR = v[3];
+    lfoFreq = v[4];
+    lfoControl = v[5];
+    lfoCounter = v[6];
+    lfoEnabled = s.boolean();
+    for (final wave in waves) {
+      wave.loadState(s);
+    }
+  }
 
   void write(int reg, int val) {
     switch (reg) {

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 
 // https://www.nesdev.org/wiki/NROM
@@ -16,6 +17,26 @@ class MapperNROM extends Mapper {
       _highMemBank = prgRoms.length - 1;
     }
     _chrRam = chrRoms.isEmpty ? Uint8List(8 * 1024) : null;
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('nrom');
+    w.int32(_highMemBank);
+    w.boolean(_chrRam != null);
+    if (_chrRam != null) w.bytes(_chrRam!);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('nrom');
+    _highMemBank = s.int32();
+    if (s.boolean()) {
+      final ram = _chrRam ??= Uint8List(8 * 1024);
+      s.bytesInto(ram);
+    } else {
+      _chrRam = null;
+    }
   }
 
   @override

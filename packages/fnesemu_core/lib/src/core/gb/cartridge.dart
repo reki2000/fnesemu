@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../sram.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// cartridge header
 class CartridgeHeader {
@@ -106,6 +107,35 @@ abstract class Cartridge {
   int ramOffset(int bank, int addr) =>
       ramSize == 0 ? 0 : (bank.shl13 | addr.mask13) % ramSize;
 
+  /// Saves the mapper registers and the external RAM, which is reached
+  /// through the read and write callbacks given to [setRam].
+  void saveState(StateWriter w) {
+    w.section('gb-cart');
+    w.int32(header.type);
+    w.boolean(ramEnabled);
+    w.bytes(List.generate(ramSize, _ramRead));
+    saveMapper(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-cart');
+    if (s.int32() != header.type) {
+      throw const StateMismatch('gb cartridge type');
+    }
+    ramEnabled = s.boolean();
+    final ram = s.bytes();
+    if (ram.length != ramSize) {
+      throw const StateMismatch('gb cartridge ram state layout');
+    }
+    for (var i = 0; i < ram.length; i++) {
+      _ramWrite(i, ram[i]);
+    }
+    loadMapper(s);
+  }
+
+  void saveMapper(StateWriter w);
+  void loadMapper(StateReader s);
+
   int readRamBank(int bank, int addr) {
     if (!ramEnabled || ramSize == 0) {
       return 0xff;
@@ -140,6 +170,16 @@ class _RomOnly extends Cartridge {
   void writeRam(int addr, int data) => writeRamBank(0, addr, data);
 
   @override
+  void saveMapper(StateWriter w) => w.ints(const []);
+
+  @override
+  void loadMapper(StateReader s) {
+    if (s.ints().isNotEmpty) {
+      throw const StateMismatch('gb rom-only mapper state layout');
+    }
+  }
+
+  @override
   String dump() => "cart: rom only";
 }
 
@@ -170,6 +210,18 @@ class _Mbc1 extends Cartridge {
       case 3:
         _mode = data.mask1;
     }
+  }
+
+  @override
+  void saveMapper(StateWriter w) => w.ints([_bank1, _bank2, _mode]);
+
+  @override
+  void loadMapper(StateReader s) {
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('gb mbc1 state layout');
+    _bank1 = v[0];
+    _bank2 = v[1];
+    _mode = v[2];
   }
 
   int get _ramBank => _mode == 0 ? 0 : _bank2;
@@ -210,6 +262,16 @@ class _Mbc2 extends Cartridge {
         _bank = 1;
       }
     }
+  }
+
+  @override
+  void saveMapper(StateWriter w) => w.ints([_bank]);
+
+  @override
+  void loadMapper(StateReader s) {
+    final v = s.ints();
+    if (v.length != 1) throw const StateMismatch('gb mbc2 state layout');
+    _bank = v[0];
   }
 
   @override
@@ -291,6 +353,28 @@ class _Mbc3 extends Cartridge {
   }
 
   @override
+  void saveMapper(StateWriter w) {
+    w.ints([_romBank, _ramBank, _latch, _offsetSeconds, _haltedSeconds]);
+    w.boolean(_halted);
+    w.boolean(_dayCarry);
+    w.ints(_latched);
+  }
+
+  @override
+  void loadMapper(StateReader s) {
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('gb mbc3 state layout');
+    _romBank = v[0];
+    _ramBank = v[1];
+    _latch = v[2];
+    _offsetSeconds = v[3];
+    _haltedSeconds = v[4];
+    _halted = s.boolean();
+    _dayCarry = s.boolean();
+    s.intsInto(_latched);
+  }
+
+  @override
   int read(int addr) => addr < 0x4000 ? rom[addr] : romBank(_romBank, addr);
 
   @override
@@ -342,6 +426,17 @@ class _Mbc5 extends Cartridge {
   int _ramBank = 0;
 
   _Mbc5(super.rom, super.header);
+
+  @override
+  void saveMapper(StateWriter w) => w.ints([_romBank, _ramBank]);
+
+  @override
+  void loadMapper(StateReader s) {
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('gb mbc5 state layout');
+    _romBank = v[0];
+    _ramBank = v[1];
+  }
 
   @override
   int read(int addr) => addr < 0x4000 ? rom[addr] : romBank(_romBank, addr);

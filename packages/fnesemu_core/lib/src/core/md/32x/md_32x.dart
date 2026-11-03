@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../components/sh2/bus.dart';
 import '../../../components/sh2/jit/jit.dart';
 import '../../../util/int.dart';
 import '../../../util/state.dart';
@@ -47,7 +48,7 @@ class Md32x {
     if (sliceClocks <= 0) throw RangeError.value(sliceClocks, 'sliceClocks');
     // Both SH-2 runtimes below share the pool this core claims here.
     if (jit) JitRuntime.resetPool();
-    final owner = jit
+    var owner = jit
         ? Sh2Jit.create(
             maxInstructions: sliceClocks == 1 ? 1 : 24,
             addrMask: _jitAddrMask,
@@ -59,7 +60,7 @@ class Md32x {
             idleGuards: sliceClocks != 1,
             stopOnNoStore: true)
         : null;
-    final other = owner == null
+    var other = owner == null
         ? null
         : Sh2Jit.create(
             maxInstructions: sliceClocks == 1 ? 1 : 24,
@@ -71,15 +72,29 @@ class Md32x {
             alignMemory: false,
             idleGuards: sliceClocks != 1,
             stopOnNoStore: true);
-    ram = owner?.rt.alloc(0x40000) ?? Uint8List(0x40000);
+    // The guest buffers come out of the runtimes' shared memory pool, following the guarded pattern of the PS2 adapters: a pool with no room for them leaves this adapter without recompilers, with both runtimes disposed and plain buffers in their place, instead of orphaning the runtimes that were already created.
+    Uint8List ramBuffer;
+    List<Uint8List> cacheBuffers;
+    try {
+      ramBuffer = owner?.rt.alloc(0x40000) ?? Uint8List(0x40000);
+      cacheBuffers = [
+        for (final compiler in [owner, other])
+          compiler?.rt.alloc(0x1000) ?? Uint8List(0x1000)
+      ];
+    } on StateError {
+      other?.dispose();
+      owner?.dispose();
+      owner = null;
+      other = null;
+      ramBuffer = Uint8List(0x40000);
+      cacheBuffers = [Uint8List(0x1000), Uint8List(0x1000)];
+    }
+    ram = ramBuffer;
     for (final compiler in [owner, other]) {
       compiler?.map(0x6000000, ram.length, ram, owner: owner!.rt);
     }
     // The mask keeps bit 31, so the P4 cache data array has its own page.
-    cacheData = [
-      for (final compiler in [owner, other])
-        compiler?.rt.alloc(0x1000) ?? Uint8List(0x1000)
-    ];
+    cacheData = cacheBuffers;
     for (final (i, compiler) in [owner, other].indexed) {
       compiler?.map(0xc0000000, 0x1000, cacheData[i]);
     }

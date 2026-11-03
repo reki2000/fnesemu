@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../dyn_table.dart';
 import '../ir.dart';
 
 /// Linear-memory offsets and link slots shared by generated Wasm modules.
@@ -24,8 +25,8 @@ abstract interface class WasmEnv {
 /// next table index, or zero to leave the dispatcher. Chaining uses a loop
 /// rather than recursive calls, so guest loops cannot grow the host stack.
 abstract final class WasmBackend {
-  static const dynEntries = 4096;
-  static int dynIndex(int pc, int tag) => ((pc >>> 2) ^ tag) & (dynEntries - 1);
+  static const dynEntries = DynTable.entries;
+  static int dynIndex(int pc, int tag) => DynTable.index(pc, tag);
 
   static Uint8List dispatcher(int ctx) {
     final c = _Code();
@@ -655,7 +656,7 @@ abstract final class WasmBackend {
         c.set(address);
         c.i32(env.dyn);
         c.get(address);
-        c.i32(2);
+        c.i32(DynTable.pcShift);
         c.op(0x76);
         c.i32(tag);
         c.op(0x73);

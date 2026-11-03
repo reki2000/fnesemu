@@ -80,7 +80,7 @@ final class Sh4Translator {
     return true;
   }
 
-  IrBlock? translate(int pc, int tag) {
+  IrBlock? translate(int pc, {int tag = 0}) {
     this.tag = tag;
     values.clear();
     _constants.clear();

@@ -10,6 +10,7 @@ import 'mdec.dart';
 import 'r3000/r3000.dart';
 import 'serial.dart';
 import 'spu/spu.dart';
+import 'state.dart';
 import 'timer.dart';
 
 final _log = DebugLog('ps.bus');
@@ -65,6 +66,21 @@ class Bus implements BusR3000 {
     spu.reset();
     cdrom.reset();
     mdec.reset();
+  }
+
+  /// Saves only the memory this bus owns; the devices wired into it are saved by the core in their own sections, and the BIOS ROM is media.
+  void saveState(StateWriter w) {
+    w.section('ps-bus');
+    w.bytes(mem);
+    w.bytes(scratchPad);
+    w.boolean(useScratchPad);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-bus');
+    s.bytesInto(mem);
+    s.bytesInto(scratchPad);
+    useScratchPad = s.boolean();
   }
 
   @override

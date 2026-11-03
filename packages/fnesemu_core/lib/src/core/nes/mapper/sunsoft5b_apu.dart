@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// Sunsoft 5B audio: three square tone channels, a noise generator and an
 /// envelope, as on a general purpose sound generator, clocked by the cpu.
@@ -25,6 +26,41 @@ class Sunsoft5bApu {
   // 32 levels of 1.5dB; level 0 is silent
   static final _levels = List<double>.generate(
       32, (i) => i == 0 ? 0 : pow(10, -(31 - i) * 1.5 / 20).toDouble());
+
+  /// Saves the register file and the generator and envelope counters.
+  void saveState(StateWriter w) {
+    w.section('sunsoft5b-apu');
+    w.bytes(_reg);
+    w.ints(_tonePeriod);
+    w.ints(_toneTimer);
+    for (final out in _toneOut) {
+      w.boolean(out);
+    }
+    w.ints([_noiseTimer, _lfsr, _envTimer, _envStep]);
+    w.boolean(_noiseOut);
+    w.boolean(_envHolding);
+    w.boolean(_envAttack);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('sunsoft5b-apu');
+    s.bytesInto(_reg);
+    s.intsInto(_tonePeriod);
+    s.intsInto(_toneTimer);
+    for (var i = 0; i < _toneOut.length; i++) {
+      _toneOut[i] = s.boolean();
+    }
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('sunsoft5b state layout');
+    _noiseTimer = v[0];
+    _lfsr = v[1];
+    _envTimer = v[2];
+    _envStep = v[3];
+    _noiseOut = s.boolean();
+    _envHolding = s.boolean();
+    _envAttack = s.boolean();
+  }
 
   void write(int reg, int val) {
     reg &= 0xf;

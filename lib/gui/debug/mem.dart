@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fnesemu_core/app_api.dart';
 
 import '../../styles.dart';
+import 'hex_pager.dart';
 
 const _bytesPerLine = 16; //22; // 22 for exodus view
 
@@ -37,20 +38,15 @@ class MemPane extends StatefulWidget {
 class _MemPaneState extends State<MemPane> {
   final _scroll = ScrollController();
   late final _address = ValueNotifier<int>(widget.debugger.state.memAddress);
-  late final _input = TextEditingController(text: _format(_address.value));
   Debugger get debugger => widget.debugger;
   int get _bits => debugger.cpuInfo(widget.cpuNo).pcBitWidth;
   int get _mask => (1 << _bits) - 1;
-  int get _digits => (_bits + 3) ~/ 4;
   int get _pageSize => widget.visibleLines * _bytesPerLine;
-  String _format(int value) =>
-      (value & _mask).toRadixString(16).padLeft(_digits, '0');
 
   void _setAddress(int value) {
     final address = value & _mask;
     debugger.setMemoryAddress(address);
     _address.value = address;
-    _input.text = _format(address);
   }
 
   @override
@@ -59,7 +55,6 @@ class _MemPaneState extends State<MemPane> {
     final address = debugger.state.memAddress & _mask;
     if (address != _address.value) {
       _address.value = address;
-      _input.text = _format(address);
     }
   }
 
@@ -67,7 +62,6 @@ class _MemPaneState extends State<MemPane> {
   void dispose() {
     _scroll.dispose();
     _address.dispose();
-    _input.dispose();
     super.dispose();
   }
 
@@ -76,25 +70,15 @@ class _MemPaneState extends State<MemPane> {
       alignment: Alignment.topLeft,
       margin: const EdgeInsets.all(2),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          SizedBox(
-              width: 80,
-              child: TextField(
-                  controller: _input,
-                  decoration: denseTextDecoration,
-                  onChanged: (text) {
-                    final address = int.tryParse(text, radix: 16);
-                    if (text.length == _digits && address != null) {
-                      _setAddress(address);
-                    }
-                  })),
-          ElevatedButton(
-              onPressed: () => _setAddress(_address.value - _pageSize),
-              child: const Text('-')),
-          ElevatedButton(
-              onPressed: () => _setAddress(_address.value + _pageSize),
-              child: const Text('+')),
-        ]),
+        ValueListenableBuilder<int>(
+            valueListenable: _address,
+            builder: (context, address, _) => HexAddressPager(
+                address: address,
+                bits: _bits,
+                fieldWidth: 80,
+                elevated: true,
+                trailingSteps: [('-', -_pageSize), ('+', _pageSize)],
+                onAddress: _setAddress)),
         ValueListenableBuilder<int>(
             valueListenable: _address,
             builder: (context, address, _) => Scrollbar(

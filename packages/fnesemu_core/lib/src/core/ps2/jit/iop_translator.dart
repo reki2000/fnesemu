@@ -38,7 +38,7 @@ final class IopTranslator {
       required this.mfc0,
       required this.div});
 
-  IrBlock translate(int pc, int tag) => _Block(this, pc, tag).translate();
+  IrBlock? translate(int pc, {int tag = 0}) => _Block(this, pc, tag).translate();
 }
 
 enum _Kind { plain, overflow, branch, interpret }

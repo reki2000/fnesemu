@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../../../util/state.dart';
 import '../../../util/uint8list.dart';
 
 import 'mirror.dart';
@@ -55,6 +56,35 @@ abstract class Mapper {
   void handleClock(int cycles) {}
 
   Float32List handleApu(int cycles) => Float32List(0);
+
+  /// Saves the mapper type and the shared fetch state, then the concrete mapper state written by [saveMapperState]; the type name lets a reader reject a state of another mapper before any register is applied.
+  void saveState(StateWriter w) {
+    w.section('nes-mapper');
+    w.string(runtimeType.toString());
+    w.ints([fetchPhase, ppuCtl, ppuMask]);
+    saveMapperState(w);
+  }
+
+  /// Restores the state written by [saveState], checking the mapper type first.
+  void loadState(StateReader s) {
+    s.section('nes-mapper');
+    final type = s.string();
+    if (type != runtimeType.toString()) {
+      throw StateMismatch('state of mapper $type, not $runtimeType');
+    }
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('mapper state layout');
+    fetchPhase = v[0];
+    ppuCtl = v[1];
+    ppuMask = v[2];
+    loadMapperState(s);
+  }
+
+  /// Saves the concrete mapper registers and RAM; the base mapper has none.
+  void saveMapperState(StateWriter w) {}
+
+  /// Restores the state written by [saveMapperState].
+  void loadMapperState(StateReader s) {}
 
   String dump() => "rom: ";
 

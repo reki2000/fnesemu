@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 import 'sunsoft5b_apu.dart';
@@ -31,6 +32,45 @@ class MapperFme7 extends Mapper {
   @override
   void init() {
     _prgBank[3] = prgRoms.length - 1;
+  }
+
+  // The pattern memory is writable on CHR RAM boards, so its contents are part of the state along with the bank and IRQ registers.
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('fme7');
+    w.ints([_command, _audioReg, _bank6000, _irqCounter, _prevCycle]);
+    w.ints(_chrBank);
+    w.ints(_prgBank);
+    w.boolean(_ram6000);
+    w.boolean(_ramEnabled);
+    w.boolean(_irqEnabled);
+    w.boolean(_counterEnabled);
+    for (final bank in chrRoms) {
+      w.bytes(bank);
+    }
+    _apu.saveState(w);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('fme7');
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('fme7 state layout');
+    _command = v[0];
+    _audioReg = v[1];
+    _bank6000 = v[2];
+    _irqCounter = v[3];
+    _prevCycle = v[4];
+    s.intsInto(_chrBank);
+    s.intsInto(_prgBank);
+    _ram6000 = s.boolean();
+    _ramEnabled = s.boolean();
+    _irqEnabled = s.boolean();
+    _counterEnabled = s.boolean();
+    for (final bank in chrRoms) {
+      s.bytesInto(bank);
+    }
+    _apu.loadState(s);
   }
 
   @override

@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// Memory and I/O accesses needed by the V30MZ CPU, with 20-bit memory
 /// addresses and 8-bit I/O ports
@@ -62,6 +63,39 @@ class V30mz {
     flags = _flagsFixed;
     halted = false;
     irqVector = -1;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('v30mz');
+    w.ints(r);
+    w.ints(s);
+    w.ints([
+      ip, flags, cycles, irqVector, _segOverride, _rep, //
+      _mod, _reg, _rm, _eaSeg, _eaOff
+    ]);
+    w.boolean(halted);
+    w.boolean(_mulOverflow);
+  }
+
+  void loadState(StateReader s) {
+    s.section('v30mz');
+    s.intsInto(r);
+    s.intsInto(this.s);
+    final v = s.ints();
+    if (v.length != 11) throw const StateMismatch('v30mz state layout');
+    ip = v[0];
+    flags = v[1];
+    cycles = v[2];
+    irqVector = v[3];
+    _segOverride = v[4];
+    _rep = v[5];
+    _mod = v[6];
+    _reg = v[7];
+    _rm = v[8];
+    _eaSeg = v[9];
+    _eaOff = v[10];
+    halted = s.boolean();
+    _mulOverflow = s.boolean();
   }
 
   // ----------------------------------------------------------------------

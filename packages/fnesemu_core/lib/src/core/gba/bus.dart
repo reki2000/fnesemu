@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
-
+import '../../util/state.dart';
 import 'apu.dart';
 import 'cart.dart';
 import 'dma.dart';
@@ -54,6 +54,49 @@ class Bus {
   // set when BG2X/Y (index 0) or BG3X/Y (index 1) is written; the PPU reloads
   // its internal affine reference point from the register before the next line.
   final affineRefDirty = [false, false];
+
+  void saveState(StateWriter w) {
+    w.section('gba-bus');
+    w.bytes(ewram);
+    w.bytes(iwram);
+    w.bytes(io);
+    w.bytes(paletteRam);
+    w.bytes(vram);
+    w.bytes(oam);
+    w.ints([vcount]);
+    for (final b in [hblank, vblank, halted, affineRefDirty[0], affineRefDirty[1]]) {
+      w.boolean(b);
+    }
+    irq.saveState(w);
+    timers.saveState(w);
+    dma.saveState(w);
+    apu.saveState(w);
+    cart.backup.saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-bus');
+    s.bytesInto(ewram);
+    s.bytesInto(iwram);
+    s.bytesInto(io);
+    s.bytesInto(paletteRam);
+    s.bytesInto(vram);
+    s.bytesInto(oam);
+    final v = s.ints();
+    if (v.length != 1) throw const StateMismatch('gba bus state layout');
+    final flags = [for (var i = 0; i < 5; i++) s.boolean()];
+    vcount = v[0];
+    hblank = flags[0];
+    vblank = flags[1];
+    halted = flags[2];
+    affineRefDirty[0] = flags[3];
+    affineRefDirty[1] = flags[4];
+    irq.loadState(s);
+    timers.loadState(s);
+    dma.loadState(s);
+    apu.loadState(s);
+    cart.backup.loadState(s);
+  }
 
   void loadBios(Uint8List data) {
     final n = data.length < bios.length ? data.length : bios.length;

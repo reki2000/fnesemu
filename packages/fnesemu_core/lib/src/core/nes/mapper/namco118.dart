@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'mapper.dart';
 
@@ -25,6 +26,31 @@ class MapperNamco118 extends Mapper {
   void init() {
     _prgBanks[2] = prgRoms.length - 2;
     _prgBanks[3] = prgRoms.length - 1;
+  }
+
+  // The pattern memory is writable on CHR RAM boards, so its contents are part of the state along with the bank registers.
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('namco118');
+    w.int32(chrRomA16);
+    w.int32(_r);
+    w.ints(_chrBanks);
+    w.ints(_prgBanks);
+    for (final bank in chrRoms) {
+      w.bytes(bank);
+    }
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('namco118');
+    chrRomA16 = s.int32();
+    _r = s.int32();
+    s.intsInto(_chrBanks);
+    s.intsInto(_prgBanks);
+    for (final bank in chrRoms) {
+      s.bytesInto(bank);
+    }
   }
 
   @override

@@ -1310,13 +1310,7 @@ class DcOpticalDrive {
     q[2] = 1;
     time(3, lba - track.startLba);
     time(7, lba + 150);
-    var crc = 0;
-    for (var i = 0; i < 10; i++) {
-      crc ^= q[i] << 8;
-      for (var bit = 0; bit < 8; bit++) {
-        crc = ((crc << 1) ^ (crc & 0x8000 != 0 ? 0x1021 : 0)) & 0xffff;
-      }
-    }
+    final crc = cdromSubcodeCrc16(Uint8List.sublistView(q, 0, 10));
     q[10] = (~crc >> 8) & 255;
     q[11] = ~crc & 255;
     final raw = Uint8List(96);

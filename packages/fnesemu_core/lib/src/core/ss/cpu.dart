@@ -1,3 +1,5 @@
+import '../../components/sh2/bus.dart';
+
 /// CPU abstraction used by the SS core.
 ///
 /// The SH-2 interpreter is derived from another core of this project and plugged
@@ -39,15 +41,10 @@ abstract class SsCpu {
   (String, int) disasm(int addr);
 }
 
-/// memory bus seen from the SH-2 (external area only, big-endian)
-abstract class SsCpuBus {
-  int read8(int addr);
-  int read16(int addr);
-  int read32(int addr);
-  void write8(int addr, int data);
-  void write16(int addr, int data);
-  void write32(int addr, int data);
-}
+/// memory bus seen from the SH-2 (external area only, big-endian): the
+/// shared [Sh2Bus] shape, so an SS bus plugs straight into the shared SH-2
+/// components
+abstract class SsCpuBus extends Sh2Bus {}
 
 /// placeholder until the shared SH-2 interpreter is available
 class NullCpu extends SsCpu {

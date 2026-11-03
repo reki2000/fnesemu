@@ -127,7 +127,9 @@ final class _LinearMemory {
 
 final _linear = _LinearMemory();
 
-final class _WasmRuntime extends JitRuntime implements WasmEnv {
+final class _WasmRuntime extends JitRuntime
+    with CompiledRuntimeHelpers
+    implements WasmEnv {
   static const _maxSlots = 1 << 19;
   static const _maxBlocks = 4096;
 
@@ -161,7 +163,6 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
   int get helperCount => _helpers.length;
 
   JSFunction? _profileFn;
-  int? _profileBudget;
 
   @override
   bool get profileBlocks => _profileFn != null;
@@ -171,21 +172,9 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
     _checkAlive();
     if (_blocks.isNotEmpty) throw StateError('Clear blocks before profiling');
     _profileFn ??= ((int _, int __, int ___) {
-      _finishProfileBlock();
-      _profileBudget = _ctx[JitCtx.budget].toSigned(32);
+      beginProfileBlock();
       return 0;
     }).toJS;
-  }
-
-  void _finishProfileBlock() {
-    final before = _profileBudget;
-    _profileBudget = null;
-    if (before == null) return;
-    final spent = before - _ctx[JitCtx.budget].toSigned(32);
-    // Refunded entries which execute no guest work are not executed blocks.
-    if (spent > 0) {
-      executedBlockCycles.update(spent, (n) => n + 1, ifAbsent: () => 1);
-    }
   }
 
   _WasmRuntime(
@@ -337,42 +326,24 @@ final class _WasmRuntime extends JitRuntime implements WasmEnv {
       return _ctx[JitCtx.exitReason] = JitReason.miss;
     }
     nativeEntries++;
-    final observe = onNativeExit;
-    final budget = _ctx[JitCtx.budget].toSigned(32);
-    if (observe != null) _ctx[JitCtx.faultAddr] = 0xffffffff;
-    try {
-      final reason =
-          (_enter.callAsFunction(null, slot.toJS) as JSNumber).toDartInt;
-      if (reason == JitReason.miss) _refreshExitTarget();
-      if (observe != null) {
-        final fault = _ctx[JitCtx.faultAddr];
-        observe(
-          pc,
-          exitPc,
-          reason,
-          budget,
-          budget - _ctx[JitCtx.budget].toSigned(32),
-          _ctx[JitCtx.stop],
-          fault == 0xffffffff ? null : fault,
-        );
-      }
-      return reason;
-    } finally {
-      if (_profileFn != null) _finishProfileBlock();
-    }
+    return enterCompiled(
+        pc,
+        () => (_enter.callAsFunction(null, slot.toJS) as JSNumber).toDartInt,
+        _refreshExitTarget,
+        profiled: _profileFn != null);
   }
 
   // A cold installation may evict a hot indirect target from the direct-mapped table.
   // A miss to an installed block refreshes it without compilation.
-  void _refreshExitTarget() {
-    final pc = exitPc, tag = exitTag;
-    final target = _blocks[(pc, tag)];
-    if (target == null) return;
-    final d = WasmBackend.dynIndex(pc, tag) * 3;
-    _dynWords[d] = pc;
-    _dynWords[d + 1] = tag;
-    _dynWords[d + 2] = target;
-  }
+  void _refreshExitTarget() => refreshExitTarget(
+        (pc, tag) => _blocks[(pc, tag)],
+        (pc, tag, target) {
+          final d = WasmBackend.dynIndex(pc, tag) * 3;
+          _dynWords[d] = pc;
+          _dynWords[d + 1] = tag;
+          _dynWords[d + 2] = target;
+        },
+      );
 
   @override
   void clear() {

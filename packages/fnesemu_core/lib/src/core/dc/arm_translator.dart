@@ -44,7 +44,7 @@ final class DcArmTranslator {
     }
   }
 
-  IrBlock? translate(int pc, int tag) {
+  IrBlock? translate(int pc, {int tag = 0}) {
     _values.clear();
     _spent = 0;
     b = IrBuilder(pc, tag: tag);

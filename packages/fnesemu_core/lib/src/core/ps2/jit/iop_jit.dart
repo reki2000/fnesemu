@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../util/jit_adapter.dart';
 import '../iop/iop.dart';
 import '../iop/iop_memory.dart';
 import 'iop_translator.dart';
@@ -18,10 +19,9 @@ import 'iop_translator.dart';
 /// ([Iop.prepareCompiled]); hi, lo and the load in its delay are copied
 /// through the context around the run, as the interpreter keeps them in
 /// plain fields.
-final class IopJit {
-  final JitRuntime rt;
-  final bool native;
-  final int compileThreshold;
+final class IopJit extends JitAdapter {
+  late final diagnostics =
+      JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little);
   final Uint8List ram;
   late final ByteData _ram = ByteData.sublistView(ram);
   late final Uint32List regs =
@@ -33,7 +33,7 @@ final class IopJit {
   late final _driver = JitDriver(rt,
       translate: (pc, tag) {
         _translating = (pc, tag);
-        return _translator.translate(pc, tag);
+        return _translator.translate(pc, tag: tag);
       },
       codeWord: _codeWord,
       codeMemory: _code,
@@ -48,14 +48,11 @@ final class IopJit {
   static const reasonInterpret = JitReason.user;
   static const reasonStore = JitReason.user + 1;
 
-  /// Runs the interpreter instead while keeping the compiled blocks and
-  /// the shared state.
-  bool suspended = false;
+  IopJit._(super.rt, super.native, int? threshold, this.ram)
+      : super(compileThreshold: threshold);
 
-  int get compiledClocks => native ? _driver.executedClocks : 0;
-
-  IopJit._(this.rt, this.native, int? threshold, this.ram)
-      : compileThreshold = threshold ?? rt.compileThreshold;
+  @override
+  JitDriver get driver => _driver;
 
   /// The recompiler of this host, or null when it has none (or no room
   /// for the RAM). Unlike the EE recompiler this does not reset the
@@ -152,9 +149,6 @@ final class IopJit {
   bool _endsAfterStore(int pc) =>
       (pc & 0x1fffffff) < 0x800000 && _code.isReleased(pc);
 
-  void reset() => _driver.reset();
-
-  void dispose() => rt.dispose();
 
   /// Runs compiled code for up to [budget] instructions and returns how
   /// many ran; zero means the next instruction is the interpreter's.

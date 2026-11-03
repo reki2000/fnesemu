@@ -1,9 +1,22 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 class _Envelope {
   int control = 0x80, gain = 0, timer = 0;
+
+  void saveState(StateWriter w) {
+    w.ints([control, gain, timer]);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('fds envelope state layout');
+    control = v[0];
+    gain = v[1];
+    timer = v[2];
+  }
   void write(int value) {
     control = value;
     timer = 0;
@@ -47,6 +60,44 @@ class FdsAudio {
     _waveHalt = _modHalt = _envelopeHalt = true;
     _writeWave = false;
     _filtered = 0;
+  }
+
+  /// Saves the wave and modulation tables, both envelopes and the phase and counter state.
+  void saveState(StateWriter w) {
+    w.section('fds-audio');
+    w.bytes(wave);
+    w.bytes(modulation);
+    _volume.saveState(w);
+    _modGain.saveState(w);
+    w.ints([_pitch, _modPitch, _wavePhase, _modPhase, _modCounter, _masterSpeed, _masterVolume]);
+    w.boolean(_waveHalt);
+    w.boolean(_modHalt);
+    w.boolean(_envelopeHalt);
+    w.boolean(_writeWave);
+    w.float64(_filtered);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('fds-audio');
+    s.bytesInto(wave);
+    s.bytesInto(modulation);
+    _volume.loadState(s);
+    _modGain.loadState(s);
+    final v = s.ints();
+    if (v.length != 7) throw const StateMismatch('fds audio state layout');
+    _pitch = v[0];
+    _modPitch = v[1];
+    _wavePhase = v[2];
+    _modPhase = v[3];
+    _modCounter = v[4];
+    _masterSpeed = v[5];
+    _masterVolume = v[6];
+    _waveHalt = s.boolean();
+    _modHalt = s.boolean();
+    _envelopeHalt = s.boolean();
+    _writeWave = s.boolean();
+    _filtered = s.float64();
   }
 
   int read(int address) {

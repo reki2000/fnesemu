@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 // MMC5 expansion audio: 2 pulse channels (no sweep, length counter and
 // envelope are both clocked at 240Hz) and an 8bit PCM channel.
@@ -63,6 +64,31 @@ class _Pulse {
 
   int get volume => constantVolume ? volumeOrPeriod : _decay;
 
+  void saveState(StateWriter w) {
+    w.ints([dutyType, volumeOrPeriod, freq, lengthCounter, _timer, _index, _decay, _divider]);
+    w.boolean(enabled);
+    w.boolean(halt);
+    w.boolean(constantVolume);
+    w.boolean(_envStart);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.ints();
+    if (v.length != 8) throw const StateMismatch('mmc5 pulse state layout');
+    dutyType = v[0];
+    volumeOrPeriod = v[1];
+    freq = v[2];
+    lengthCounter = v[3];
+    _timer = v[4];
+    _index = v[5];
+    _decay = v[6];
+    _divider = v[7];
+    enabled = s.boolean();
+    halt = s.boolean();
+    constantVolume = s.boolean();
+    _envStart = s.boolean();
+  }
+
   // 240Hz clock for both the envelope and the length counter
   void clock240() {
     if (_envStart) {
@@ -117,6 +143,28 @@ class Mmc5Apu {
       List<double>.generate(31, (n) => n == 0 ? 0 : 95.52 / (8128.0 / n + 100));
   static final _pcmOutTable = List<double>.generate(
       128, (n) => n == 0 ? 0 : 163.67 / (24329.0 / n + 100));
+
+  /// Saves both pulse channels, the PCM channel and the 240 Hz divider.
+  void saveState(StateWriter w) {
+    w.section('mmc5-apu');
+    pulse0.saveState(w);
+    pulse1.saveState(w);
+    w.int32(pcm);
+    w.int32(_tickAcc);
+    w.boolean(pcmReadMode);
+    w.boolean(pcmIrqEnabled);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('mmc5-apu');
+    pulse0.loadState(s);
+    pulse1.loadState(s);
+    pcm = s.int32();
+    _tickAcc = s.int32();
+    pcmReadMode = s.boolean();
+    pcmIrqEnabled = s.boolean();
+  }
 
   void write(int addr, int data) {
     switch (addr) {

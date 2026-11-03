@@ -6,6 +6,7 @@ import '../../pad_button.dart';
 import '../../sram.dart';
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import 'component/apu.dart';
 import 'component/bus.dart';
@@ -170,7 +171,7 @@ class Snes extends Core {
       displayWidth_: Ppu.widthNormal, displayHeight: ppu.displayLines);
 
   @override
-  onAudio(void Function(AudioBuffer) onAudio) {
+  void onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
 
@@ -198,6 +199,74 @@ class Snes extends Core {
 
   @override
   void dispose() {}
+
+  static const _stateVersion = 1;
+
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('snes', _stateVersion, stateMediaHash(crc.codeUnits));
+    w.section('snes');
+    w.ints([_scanline, _frames, _nextScanlineCycle, _lastApuCycle, _nextAudioFlushCycle]);
+    w.boolean(_timerFiredThisLine);
+    cpu.saveState(w);
+    bus.saveState(w);
+    ppu.saveState(w);
+    apu.saveState(w);
+    w.section('snes-chips');
+    w.boolean(bus.sdd1 != null);
+    w.boolean(bus.sa1 != null);
+    w.boolean(bus.superFx != null);
+    w.boolean(bus.dsp1 != null);
+    w.boolean(bus.cx4 != null);
+    w.boolean(bus.spc7110 != null);
+    bus.sdd1?.saveState(w);
+    bus.sa1?.saveState(w);
+    bus.superFx?.saveState(w);
+    bus.dsp1?.saveState(w);
+    bus.cx4?.saveState(w);
+    bus.spc7110?.saveState(w);
+    return w.take();
+  }
+
+  /// The header and media are validated before any component is applied, and the cartridge chip set must match before the chip sections are read; a failure after that leaves a partially restored core, so reset it before running again.
+  @override
+  void loadState(Uint8List state) {
+    final s = StateReader(state, 'snes', _stateVersion, stateMediaHash(crc.codeUnits));
+    s.section('snes');
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('snes state layout');
+    final timerFired = s.boolean();
+    cpu.loadState(s);
+    bus.loadState(s);
+    ppu.loadState(s);
+    apu.loadState(s);
+    s.section('snes-chips');
+    final chips = [
+      s.boolean(), s.boolean(), s.boolean(), s.boolean(), s.boolean(),
+      s.boolean(),
+    ];
+    if (chips[0] != (bus.sdd1 != null) ||
+        chips[1] != (bus.sa1 != null) ||
+        chips[2] != (bus.superFx != null) ||
+        chips[3] != (bus.dsp1 != null) ||
+        chips[4] != (bus.cx4 != null) ||
+        chips[5] != (bus.spc7110 != null)) {
+      throw const StateMismatch('snes cartridge chips differ');
+    }
+    bus.sdd1?.loadState(s);
+    bus.sa1?.loadState(s);
+    bus.superFx?.loadState(s);
+    bus.dsp1?.loadState(s);
+    bus.cx4?.loadState(s);
+    bus.spc7110?.loadState(s);
+    s.end();
+    _scanline = v[0];
+    _frames = v[1];
+    _nextScanlineCycle = v[2];
+    _lastApuCycle = v[3];
+    _nextAudioFlushCycle = v[4];
+    _timerFiredThisLine = timerFired;
+  }
 
   @override
   void setSram(Sram sram) {

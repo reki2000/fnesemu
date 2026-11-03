@@ -2,21 +2,27 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../util/jit_adapter.dart';
 import 'arm7di.dart';
 import 'arm_translator.dart';
 
 /// Compiled AICA ARM execution over sound RAM, which this runtime owns.
 /// Registers live in the runtime context and the interpreter shares them.
-final class DcArmJit {
-  DcArmJit._(this.rt, this.memory);
+final class DcArmJit extends JitAdapter {
+  // Only a native runtime is created, so the adapter is always native.
+  DcArmJit._(JitRuntime rt, this.memory) : super(rt, true);
 
-  final JitRuntime rt;
+  @override
+  JitDriver get driver => _driver;
+
   final Uint8List memory;
+  late final diagnostics =
+      JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little);
   late final _code = JitCodeMemory(rt);
   late final _translator =
       DcArmTranslator(fetch: _fetch, protect: _code.protect);
   late final _driver = JitDriver(rt,
-      translate: _translator.translate,
+      translate: (pc, tag) => _translator.translate(pc, tag: tag),
       codeWord: _fetch,
       codeMemory: _code,
       threshold: 4,
@@ -41,7 +47,14 @@ final class DcArmJit {
     if (rt == null) return null;
     // No pool claim here: Dc initializes its SH-4 runtime first, which
     // claims the shared pool for the whole core (see Sh4Jit.create).
-    final jit = DcArmJit._(rt, rt.alloc(memorySize));
+    final Uint8List memory;
+    try {
+      memory = rt.alloc(memorySize);
+    } on StateError {
+      rt.dispose();
+      return null;
+    }
+    final jit = DcArmJit._(rt, memory);
     jit._code.map(0, memorySize, jit.memory);
     return jit;
   }
@@ -54,14 +67,10 @@ final class DcArmJit {
         (memory[pc + 3] << 24);
   }
 
-  /// Drops compiled code.
-  void reset() => _driver.reset();
-
-  void dispose() => rt.dispose();
-
   /// Runs compiled blocks from the ARM state for up to [budget] cycles and
   /// returns the cycles they took.
   int run(DcArm7di arm, int budget) {
+    if (suspended) return 0;
     final ctx = rt.ctx;
     if (_driver.isFallback(arm.pc, 0)) return 0;
     ctx[DcArmTranslator.cpsr] = arm.cpsr;

@@ -1,3 +1,4 @@
+import '../../../util/state.dart';
 import 'bus.dart';
 
 class Timer {
@@ -18,6 +19,24 @@ class Timer {
     size = 0;
     counter = 0;
     enabled = false;
+  }
+
+  /// Saves the prescaler phase, the reload value and the counter.
+  void saveState(StateWriter w) {
+    w.section('pce-timer');
+    w.ints([prescaler, size, counter]);
+    w.boolean(enabled);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-timer');
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('timer state layout');
+    prescaler = v[0];
+    size = v[1];
+    counter = v[2];
+    enabled = s.boolean();
   }
 
   exec(int elapsedClocks) {

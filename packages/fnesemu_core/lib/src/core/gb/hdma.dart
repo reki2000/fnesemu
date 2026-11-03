@@ -1,4 +1,5 @@
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 import 'ppu.dart';
 
@@ -13,6 +14,22 @@ class Hdma {
   bool _active = false; // HBlank transfer in progress
 
   Hdma(this._bus);
+
+  void saveState(StateWriter w) {
+    w.section('gb-hdma');
+    w.ints([_source, _dest, _blocksLeft]);
+    w.boolean(_active);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-hdma');
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('gb hdma state layout');
+    _source = v[0];
+    _dest = v[1];
+    _blocksLeft = v[2];
+    _active = s.boolean();
+  }
 
   void reset() {
     _source = 0;

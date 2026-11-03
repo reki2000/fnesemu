@@ -90,7 +90,8 @@ class Storage extends Sram {
           .toList();
       games.sort((a, b) => b.lastPlayed.compareTo(a.lastPlayed));
       return games;
-    } catch (_) {
+    } catch (e) {
+      onEvent('failed to load game history: $e');
       return [];
     }
   }
@@ -156,7 +157,8 @@ class Storage extends Sram {
           .map((json) => RomDirectory.fromJson(json as Map<String, dynamic>))
           .toList();
       return saved == null ? directories.reversed.toList() : directories;
-    } catch (_) {
+    } catch (e) {
+      onEvent('failed to load game directories: $e');
       return [];
     }
   }

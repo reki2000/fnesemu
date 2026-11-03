@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../util/jit_adapter.dart';
 import '../bus.dart';
 import '../cpu.dart';
 import '../fpu.dart';
@@ -10,13 +11,10 @@ import 'vr4300_translator.dart';
 
 /// Compiled blocks share RAM and complete integer/FPU register files with the
 /// interpreter. Memory faults and unsupported instructions exit before effects.
-final class N64Jit {
-  final JitRuntime rt;
+final class N64Jit extends JitAdapter {
   late final diagnostics =
       JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.big)
         ..memoryRegion = _memoryRegion;
-  final bool native;
-  final int compileThreshold;
   final int maxBlockInstructions;
   final bool fpuHelpers;
   final bool cop1;
@@ -41,11 +39,6 @@ final class N64Jit {
       codeMemory: _code,
       threshold: compileThreshold);
 
-  /// Runs the CPU interpreter instead while keeping compiled blocks and the
-  /// shared guest state, for tools that warm up with compiled code.
-  bool suspended = false;
-  int get compiledClocks => native ? _driver.executedClocks : 0;
-
   /// Optional compilation counts by guest instruction count, not execution hits.
   final Map<int, int>? blockSizes;
 
@@ -67,8 +60,8 @@ final class N64Jit {
   }
 
   N64Jit._(
-      this.rt,
-      this.native,
+      super.rt,
+      super.native,
       int? threshold,
       this.maxBlockInstructions,
       this.fpuHelpers,
@@ -76,11 +69,14 @@ final class N64Jit {
       this.nativeFpu,
       this.inlineJumps,
       bool statistics)
-      : compileThreshold = threshold ?? rt.compileThreshold,
-        blockSizes = statistics ? <int, int>{} : null,
+      : blockSizes = statistics ? <int, int>{} : null,
         blockEnds = statistics ? <String, int>{} : null,
         cpuFallbackOps = statistics ? <int, int>{} : null,
-        runtimeExits = statistics ? <(int, int), int>{} : null;
+        runtimeExits = statistics ? <(int, int), int>{} : null,
+        super(compileThreshold: threshold);
+
+  @override
+  JitDriver get driver => _driver;
 
   static N64Jit? create(
       {bool native = true,
@@ -198,8 +194,9 @@ final class N64Jit {
   int? _fetch(int pc) =>
       _canFetch(pc) ? bus.ramData.getUint32(pc & 0x1fffffff) : null;
 
+  @override
   void reset() {
-    _driver.reset();
+    super.reset();
     blockSizes?.clear();
     blockEnds?.clear();
     cpuFallbackOps?.clear();
@@ -231,5 +228,4 @@ final class N64Jit {
     return true;
   }
 
-  void dispose() => rt.dispose();
 }

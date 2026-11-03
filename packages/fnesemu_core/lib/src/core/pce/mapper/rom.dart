@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /*
  * 128kB: bank 0x00-0x0f (0x10 * 0x2000 = 0x20000 = 128kB)
@@ -86,6 +87,25 @@ class Rom {
     }
 
     return banks[bank][offset];
+  }
+
+  /// Saves the SF2 upper bank offset and the cartridge RAM contents; the bank map is derived from the offset and is rebuilt on load.
+  void saveState(StateWriter w) {
+    w.section('pce-rom');
+    w.int32(_upperBankOffset);
+    w.boolean(ram != null);
+    if (ram != null) w.bytes(ram!);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-rom');
+    upperBankOffset = s.int32();
+    if (s.boolean()) {
+      final target = ram;
+      if (target == null) throw const StateMismatch('pce rom ram layout');
+      s.bytesInto(target);
+    }
   }
 
   void write(int addr, int data) {

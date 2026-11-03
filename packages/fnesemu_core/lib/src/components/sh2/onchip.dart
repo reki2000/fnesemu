@@ -1,19 +1,28 @@
 import 'dart:typed_data';
 
-import '../../../state.dart';
-import '../../../util/int.dart';
-
-import '../cpu.dart';
+import '../../util/int.dart';
+import '../../util/state.dart';
+import 'bus.dart';
 
 /// SH7604 on-chip peripheral modules (0xfffffe00 - 0xffffffff):
 /// SCI (stub), FRT, WDT, INTC, DIVU, DMAC, BSC and cache control.
+///
+/// Shared by the SS and 32X cores. The cores differ only in the bus the
+/// DMAC sees, which arrives through [bus], and in the save-state section
+/// name, which the owning core passes as [stateSection]; the default names
+/// are the SS ones.
 class Sh2OnChip {
   final bool master;
 
-  /// bus seen by the DMAC (the CPU address space)
-  late SsCpuBus bus;
+  /// the save-state section name of this instance
+  final String stateSection;
 
-  Sh2OnChip(this.master);
+  /// bus seen by the DMAC (the CPU address space)
+  late Sh2Bus bus;
+
+  Sh2OnChip(this.master, {String? stateSection})
+      : stateSection = stateSection ??
+            (master ? 'sh2-onchip-master' : 'sh2-onchip-slave');
 
   // raw storage for registers without special behavior
   final _raw = Uint8List(0x200);
@@ -105,7 +114,7 @@ class Sh2OnChip {
       ];
 
   void saveState(StateWriter w) {
-    w.section(master ? 'sh2-onchip-master' : 'sh2-onchip-slave');
+    w.section(stateSection);
     w.bytes(_raw);
     w.ints(_scalars);
     for (final list in [sar, dar, tcrDma, chcr, vcrdma, drcr]) {
@@ -115,7 +124,7 @@ class Sh2OnChip {
   }
 
   void loadState(StateReader s) {
-    s.section(master ? 'sh2-onchip-master' : 'sh2-onchip-slave');
+    s.section(stateSection);
     s.bytesInto(_raw);
     final v = s.ints();
     if (v.length != _scalars.length) {
@@ -208,8 +217,12 @@ class Sh2OnChip {
         wtcsr & 0xc0 == 0x80;
   }
 
-  /// returns (level, vector) of the highest pending on-chip interrupt
-  (int, int) pendingInterrupt() {
+  /// the level and the vector of the highest pending on-chip interrupt, set by
+  /// [updatePendingInterrupt]
+  int pendingLevel = 0, pendingVector = 0;
+
+  /// finds the highest pending on-chip interrupt; the first source wins a tie
+  void updatePendingInterrupt() {
     int level = 0, vector = 0;
 
     void check(bool pending, int l, int v) {
@@ -229,7 +242,14 @@ class Sh2OnChip {
     check(ftcsr & tier & 0x0c != 0, frtLevel, vcrc.mask7);
     check((ftcsr & tier).bit1, frtLevel, vcrd.shr8.mask7);
 
-    return (level, vector);
+    pendingLevel = level;
+    pendingVector = vector;
+  }
+
+  /// returns (level, vector) of the highest pending on-chip interrupt
+  (int, int) pendingInterrupt() {
+    updatePendingInterrupt();
+    return (pendingLevel, pendingVector);
   }
 
   /// true when external interrupts use vectors supplied from outside (VECMD)
@@ -780,6 +800,41 @@ class Sh2OnChip {
     dar[ch] = dst;
     tcrDma[ch] = 0;
     chcr[ch] |= 2; // TE
+  }
+
+  /// one transfer unit of an external request (DREQ) DMA: the 32x FIFO between
+  /// the 68000 and the SH-2 asserts DREQ while it holds data. returns false when
+  /// the channel is not waiting for a request
+  bool dreqTransfer(int ch) {
+    final c = chcr[ch];
+    if (c.mask2 != 1 || dmaor.mask3 != 1 || c.bit9) {
+      return false; // disabled / ended / DMAC stopped / auto request
+    }
+
+    final ts = c.shr10.mask2;
+    final unit = _unitSizes[ts];
+    int step(int mode) => switch (mode) { 1 => unit, 2 => -unit, _ => 0 };
+
+    switch (ts) {
+      case 0:
+        bus.write8(dar[ch], bus.read8(sar[ch]));
+      case 1:
+        bus.write16(dar[ch], bus.read16(sar[ch]));
+      case 2:
+        bus.write32(dar[ch], bus.read32(sar[ch]));
+      default:
+        for (int i = 0; i < 16; i += 4) {
+          bus.write32(dar[ch] + i, bus.read32(sar[ch] + i));
+        }
+    }
+    sar[ch] = (sar[ch] + step(c.shr12.mask2)).mask32;
+    dar[ch] = (dar[ch] + step(c.shr14.mask2)).mask32;
+    tcrDma[ch] = (tcrDma[ch] - (ts == 3 ? 4 : 1)).mask24;
+    if (tcrDma[ch] == 0) {
+      chcr[ch] |= 2; // TE
+    }
+    _updatePending();
+    return true;
   }
 
   String dump() =>

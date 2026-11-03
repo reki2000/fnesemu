@@ -1,6 +1,7 @@
 part of 'r3000.dart';
 
-class Cop2 {
+/// The GTE, attached to the PS embedding of the shared core as its COP2 device.
+class Cop2 implements R3000Cop2 {
   final R3000 cpu;
 
   Cop2(this.cpu);
@@ -299,11 +300,127 @@ class Cop2 {
 
   reset() {}
 
+  // The register fields are saved directly, not through the register write path, whose clipping and FIFO pushes would change them.
+  void saveState(StateWriter w) {
+    w.section('ps-gte');
+    w.ints([
+      rt11, rt12, rt13, rt21, rt22, rt23, rt31, rt32, rt33, //
+      trx, try_, trz, //
+      l11, l12, l13, l21, l22, l23, l31, l32, l33, //
+      lc11, lc12, lc13, lc21, lc22, lc23, lc31, lc32, lc33, //
+      rbk, gbk, bbk, rfc, gfc, bfc, //
+      ofx, ofy, h, dqa, dqb, zsf3, zsf4, otz, //
+      sx0, sy0, sx1, sy1, _sx2, _sy2, //
+      sz0, sz1, sz2, _sz3, //
+      vx0, vy0, vz0, vx1, vy1, vz1, vx2, vy2, vz2, //
+      _ir0, _ir1, _ir2, _ir3, //
+      _mac0, _mac1, _mac2, _mac3, //
+      rgbc, rgb0, rgb1, rgb2, res1, //
+      lzcs, lzcr, flag, cmd, shift,
+    ]);
+    w.boolean(lm);
+    w.boolean(sf);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-gte');
+    final v = s.ints();
+    if (v.length != 81) throw const StateMismatch('ps gte state layout');
+    var i = 0;
+    rt11 = v[i++];
+    rt12 = v[i++];
+    rt13 = v[i++];
+    rt21 = v[i++];
+    rt22 = v[i++];
+    rt23 = v[i++];
+    rt31 = v[i++];
+    rt32 = v[i++];
+    rt33 = v[i++];
+    trx = v[i++];
+    try_ = v[i++];
+    trz = v[i++];
+    l11 = v[i++];
+    l12 = v[i++];
+    l13 = v[i++];
+    l21 = v[i++];
+    l22 = v[i++];
+    l23 = v[i++];
+    l31 = v[i++];
+    l32 = v[i++];
+    l33 = v[i++];
+    lc11 = v[i++];
+    lc12 = v[i++];
+    lc13 = v[i++];
+    lc21 = v[i++];
+    lc22 = v[i++];
+    lc23 = v[i++];
+    lc31 = v[i++];
+    lc32 = v[i++];
+    lc33 = v[i++];
+    rbk = v[i++];
+    gbk = v[i++];
+    bbk = v[i++];
+    rfc = v[i++];
+    gfc = v[i++];
+    bfc = v[i++];
+    ofx = v[i++];
+    ofy = v[i++];
+    h = v[i++];
+    dqa = v[i++];
+    dqb = v[i++];
+    zsf3 = v[i++];
+    zsf4 = v[i++];
+    otz = v[i++];
+    sx0 = v[i++];
+    sy0 = v[i++];
+    sx1 = v[i++];
+    sy1 = v[i++];
+    _sx2 = v[i++];
+    _sy2 = v[i++];
+    sz0 = v[i++];
+    sz1 = v[i++];
+    sz2 = v[i++];
+    _sz3 = v[i++];
+    vx0 = v[i++];
+    vy0 = v[i++];
+    vz0 = v[i++];
+    vx1 = v[i++];
+    vy1 = v[i++];
+    vz1 = v[i++];
+    vx2 = v[i++];
+    vy2 = v[i++];
+    vz2 = v[i++];
+    _ir0 = v[i++];
+    _ir1 = v[i++];
+    _ir2 = v[i++];
+    _ir3 = v[i++];
+    _mac0 = v[i++];
+    _mac1 = v[i++];
+    _mac2 = v[i++];
+    _mac3 = v[i++];
+    rgbc = v[i++];
+    rgb0 = v[i++];
+    rgb1 = v[i++];
+    rgb2 = v[i++];
+    res1 = v[i++];
+    lzcs = v[i++];
+    lzcr = v[i++];
+    flag = v[i++];
+    cmd = v[i++];
+    shift = v[i++];
+    lm = s.boolean();
+    sf = s.boolean();
+  }
+
   int _s16x2toU32(int l, int h) => l.mask16 | h.mask16.shl16;
 
+  @override
   int readCtrl(int reg) => _read(reg.mask5 | 0x20);
+  @override
   void writeCtrl(int reg, int value) => _write(reg.mask5 | 0x20, value);
+  @override
   int readReg(int reg) => _read(reg.mask5);
+  @override
   void writeReg(int reg, int value) => _write(reg.mask5, value);
 
   int _read(int reg) => switch (reg) {
@@ -553,6 +670,7 @@ class Cop2 {
     }
   }
 
+  @override
   void execCmd(int inst32) {
     cmd = inst32;
     lm = inst32.bit10;

@@ -1,4 +1,5 @@
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 
 /// DIV / TIMA / TMA / TAC. TIMA counts falling edges of a bit of the
@@ -16,6 +17,23 @@ class Timer {
   static const _bits = [1 << 9, 1 << 3, 1 << 5, 1 << 7];
 
   Timer(this._bus);
+
+  void saveState(StateWriter w) {
+    w.section('gb-timer');
+    w.ints([counter, tima, tma, tac]);
+    w.boolean(_reloading);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-timer');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('gb timer state layout');
+    counter = v[0];
+    tima = v[1];
+    tma = v[2];
+    tac = v[3];
+    _reloading = s.boolean();
+  }
 
   void reset() {
     counter = 0xabcc;

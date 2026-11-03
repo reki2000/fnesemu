@@ -113,7 +113,7 @@ final class Sh2Translator {
     return true;
   }
 
-  IrBlock? translate(int pc, {Map<int, int> memoryBases = const {}}) {
+  IrBlock? translate(int pc, {int tag = 0, Map<int, int> memoryBases = const {}}) {
     _memoryBases = memoryBases;
     values.clear();
     _entry.clear();
@@ -123,7 +123,7 @@ final class Sh2Translator {
     var endedByStore = false;
     spent = 0;
     last = 0;
-    b = IrBuilder(pc);
+    b = IrBuilder(pc, tag: tag);
     var at = pc;
     var count = 0;
     for (; count < maxInstructions; count++) {

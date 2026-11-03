@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../types.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import 'bus.dart';
 
 /// scanline based picture processor
@@ -92,6 +93,60 @@ class Ppu {
     oam.fillRange(0, oam.length, 0);
     _back.fillRange(0, _back.length, colors[0]);
     _front.fillRange(0, _front.length, colors[0]);
+  }
+
+  // Typed arrays are saved as their raw bytes, in host byte order.
+  void saveState(StateWriter w) {
+    w.section('gb-ppu');
+    w.ints([
+      lcdc, stat, scy, scx, ly, lyc, bgp, obp0, obp1, wy, wx, //
+      vramBank, _bcps, _ocps, _opri, mode, _dot, _windowLine, frames
+    ]);
+    w.boolean(_windowTriggered);
+    w.boolean(_statLine);
+    w.bytes(vram);
+    w.bytes(oam);
+    w.bytes(_bgPalette);
+    w.bytes(_objPalette);
+    w.bytes(_front.buffer.asUint8List(_front.offsetInBytes, _front.lengthInBytes));
+    w.bytes(_back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-ppu');
+    final v = s.ints();
+    if (v.length != 19) throw const StateMismatch('gb ppu state layout');
+    lcdc = v[0];
+    stat = v[1];
+    scy = v[2];
+    scx = v[3];
+    ly = v[4];
+    lyc = v[5];
+    bgp = v[6];
+    obp0 = v[7];
+    obp1 = v[8];
+    wy = v[9];
+    wx = v[10];
+    vramBank = v[11];
+    _bcps = v[12];
+    _ocps = v[13];
+    _opri = v[14];
+    mode = v[15];
+    _dot = v[16];
+    _windowLine = v[17];
+    frames = v[18];
+    _windowTriggered = s.boolean();
+    _statLine = s.boolean();
+    s.bytesInto(vram);
+    s.bytesInto(oam);
+    s.bytesInto(_bgPalette);
+    s.bytesInto(_objPalette);
+    _convertPalette(_bgPalette, _bgColors);
+    _convertPalette(_objPalette, _objColors);
+    s.bytesInto(
+        _front.buffer.asUint8List(_front.offsetInBytes, _front.lengthInBytes));
+    s.bytesInto(
+        _back.buffer.asUint8List(_back.offsetInBytes, _back.lengthInBytes));
   }
 
   ImageBuffer get imageBuffer => ImageBuffer(width, height, _front,

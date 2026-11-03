@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
 import '../../../util/int.dart';
+import '../../../util/jit_adapter.dart';
 import '../bus.dart';
 import '../r3000/r3000.dart';
 import 'r3000_translator.dart';
@@ -16,21 +17,11 @@ import 'r3000_translator.dart';
 /// interrupts, COP0, cache isolation and the BIOS hooks. It is entered and
 /// left only at instruction boundaries outside a branch delay slot; a load
 /// still in its delay is carried as the block tag, see [R3000Translator].
-final class PsJit {
-  final JitRuntime rt;
+final class PsJit extends JitAdapter {
   late final diagnostics =
       JitDiagnostics(rt, instructionBytes: 4, byteOrder: Endian.little)
         ..memoryRegion = _memoryRegion;
 
-  /// Whether this runtime executes compiled host code rather than reference IR.
-  final bool native;
-
-  /// Runs the CPU interpreter instead while keeping compiled blocks and the
-  /// shared guest state, for tools that warm up with compiled code.
-  bool suspended = false;
-
-  /// Guest clocks executed by compiled code, excluding interpreter fallbacks.
-  int get compiledClocks => native ? _driver.executedClocks : 0;
   late final R3000 cpu;
   late final Bus bus;
   late final R3000Translator _translator;
@@ -60,20 +51,20 @@ final class PsJit {
   late final _code = JitCodeMemory(rt);
   (int, int) _translating = (0, 0);
 
-  /// blocks are translated once they would have run this often; until
-  /// then the interpreter runs them, as most code runs only a few times
-  final int compileThreshold;
   late final _driver = JitDriver(rt, translate: (pc, tag) {
     _translating = (pc, tag);
-    return _translator.translate(pc, tag);
+    return _translator.translate(pc, tag: tag);
   },
       codeWord: _codeWord,
       codeMemory: _code,
       threshold: compileThreshold,
       recompileInvalid: true);
 
-  PsJit._(this.rt, this.native, int? compileThreshold)
-      : compileThreshold = compileThreshold ?? rt.compileThreshold;
+  PsJit._(super.rt, super.native, int? compileThreshold)
+      : super(compileThreshold: compileThreshold);
+
+  @override
+  JitDriver get driver => _driver;
 
   /// the recompiler of this host, or null if it has none; [native] false
   /// interprets the blocks instead, for tests. [compileThreshold] replaces
@@ -227,14 +218,6 @@ final class PsJit {
   /// Stores in released RAM pages end their block so the next block's guards observe code changes.
   bool _endsAfterStore(int pc) =>
       (pc & 0x1fffffff) < 0x800000 && _code.isReleased(pc);
-
-  /// drops every block, after the rom or the whole memory changes
-  void reset() {
-    _driver.reset();
-  }
-
-  /// frees the runtime with the memory; nothing runs afterwards
-  void dispose() => rt.dispose();
 
   bool _yieldRequested = false;
 

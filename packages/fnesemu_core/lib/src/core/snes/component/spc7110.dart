@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 /// SPC7110: a cartridge chip which decompresses graphics from the data rom
 /// (the rom after the first 1MB of program) to $4800 and bank $50, maps 1MB
@@ -132,6 +133,34 @@ class Spc7110 {
   bool _decompressing = false;
   bool _directActive = false; // after the pointer is written
 
+  /// Saves the register file, the data banks, the transfer flags, the decoder state and the RTC state.
+  void saveState(StateWriter w) {
+    w.section('snes-spc7110');
+    w.bytes(_reg);
+    w.ints(_dataBank);
+    w.int32(_offsetWritten);
+    w.boolean(_decompressing);
+    w.boolean(_directActive);
+    _decoder.saveState(w);
+    _rtc.saveState(w);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-spc7110');
+    s.bytesInto(_reg);
+    final banks = s.ints();
+    if (banks.length != 3) {
+      throw const StateMismatch('snes spc7110 state layout');
+    }
+    _dataBank.setAll(0, banks);
+    _offsetWritten = s.int32();
+    _decompressing = s.boolean();
+    _directActive = s.boolean();
+    _decoder.loadState(s);
+    _rtc.loadState(s);
+  }
+
   void _writeRegister(int page, int data) {
     final i = page - 0x4800;
     _reg[i] = data;
@@ -244,6 +273,44 @@ class Spc7110Decoder {
   final _contextInvert = List<int>.filled(32, 0);
   final _planes = List<int>.filled(16, 0);
   int _plane1 = 0;
+
+  /// Saves the arithmetic decoder state and the context model.
+  void saveState(StateWriter w) {
+    w.section('snes-spc7110-dec');
+    w.ints([
+      _mode, _src, _bufIndex, _out, _c, _top, _val, _inCount, _decoded,
+      _plane1,
+    ]);
+    w.ints(_pixelOrder);
+    w.ints(_realOrder);
+    w.ints(_contextIndex);
+    w.ints(_contextInvert);
+    w.ints(_planes);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-spc7110-dec');
+    final v = s.ints();
+    if (v.length != 10) {
+      throw const StateMismatch('snes spc7110 state layout');
+    }
+    _mode = v[0];
+    _src = v[1];
+    _bufIndex = v[2];
+    _out = v[3];
+    _c = v[4];
+    _top = v[5];
+    _val = v[6];
+    _inCount = v[7];
+    _decoded = v[8];
+    _plane1 = v[9];
+    _pixelOrder.setAll(0, s.ints());
+    _realOrder.setAll(0, s.ints());
+    _contextIndex.setAll(0, s.ints());
+    _contextInvert.setAll(0, s.ints());
+    _planes.setAll(0, s.ints());
+  }
 
   void start(int mode, int src) {
     _mode = mode;
@@ -405,6 +472,31 @@ class _Rtc4513 {
   bool _timeWritten = false;
   int _index = 0;
   final _regs = Uint8List(16);
+
+  /// Saves the transfer state, the registers and the clock itself; the clock normally starts from the host time, so a restored clock continues from the saved time instead.
+  void saveState(StateWriter w) {
+    w.section('snes-spc7110-rtc');
+    w.bytes(_regs);
+    w.ints([_state, _index, _time.millisecondsSinceEpoch, _week]);
+    w.boolean(_selected);
+    w.boolean(_reading);
+    w.boolean(_timeWritten);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('snes-spc7110-rtc');
+    s.bytesInto(_regs);
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('snes spc7110 state layout');
+    _state = v[0];
+    _index = v[1];
+    _time = DateTime.fromMillisecondsSinceEpoch(v[2], isUtc: true);
+    _week = v[3];
+    _selected = s.boolean();
+    _reading = s.boolean();
+    _timeWritten = s.boolean();
+  }
 
   // the clock, which counts emulated seconds from the host time at reset
   DateTime _time = DateTime.utc(2000);

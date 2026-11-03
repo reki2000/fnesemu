@@ -53,8 +53,6 @@ final class IntMap {
     }
   }
 
-  bool containsKey(int key) => get(key) != absent;
-
   void put(int key, int value) {
     if ((_length + 1) * 2 > _keys.length) _grow();
     final keys = _keys, mask = _mask;

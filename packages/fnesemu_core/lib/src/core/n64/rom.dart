@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../util/crc32.dart';
 import '../../util/int.dart';
 
 /// Cartridge dumps are normalized to the N64's big endian bus order.
@@ -17,17 +18,6 @@ class N64Rom {
         0xacc8580a => 0x85, // CIC-6106
         _ => 0x3f, // CIC-6101 / 6102
       };
-
-  static int _crc32(Uint8List data, int start, int end) {
-    var crc = 0xffffffff;
-    for (var i = start; i < end; i++) {
-      crc ^= data[i];
-      for (var k = 0; k < 8; k++) {
-        crc = crc.bit0 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
-      }
-    }
-    return (~crc).mask32;
-  }
 
   N64Rom._(this.bytes, int crc)
       : ipl3Crc = crc,
@@ -70,7 +60,8 @@ class N64Rom {
           'Invalid N64 cartridge byte order signature',
         );
     }
-    final rom = N64Rom._(bytes, _crc32(bytes, 0x40, 0x1000));
+    final rom =
+        N64Rom._(bytes, crc32(Uint8List.sublistView(bytes, 0x40, 0x1000)));
     final physical = rom.entryPoint & 0x1fffffff;
     if (rom.entryPoint < 0x80000000 ||
         rom.entryPoint >= 0xc0000000 ||

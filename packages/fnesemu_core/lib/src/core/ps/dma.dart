@@ -2,6 +2,7 @@ import '../../util/debug.dart';
 import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
+import 'state.dart';
 
 final _log = DebugLog('ps.dma');
 
@@ -91,6 +92,31 @@ class DmaChannel {
     priority = 0;
   }
 
+  void saveState(StateWriter w) {
+    w.ints([priority, _startAddr, _channelCtrl, syncMode, size, initialSize, amount, addr, incr]);
+    for (final b in [enabled, running, irqOnComplete, irqOnChunks, toRam]) {
+      w.boolean(b);
+    }
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(9, 'ps dma channel');
+    priority = v[0];
+    _startAddr = v[1];
+    _channelCtrl = v[2];
+    syncMode = v[3];
+    size = v[4];
+    initialSize = v[5];
+    amount = v[6];
+    addr = v[7];
+    incr = v[8];
+    enabled = s.boolean();
+    running = s.boolean();
+    irqOnComplete = s.boolean();
+    irqOnChunks = s.boolean();
+    toRam = s.boolean();
+  }
+
   String dump() => "DMA$ch: pr:$priority ${running ? "R" : "-"} "
       "${enabled ? "E" : "-"} "
       "${irqOnComplete ? "I" : "-"}${irqOnChunks ? "C" : "-"}  "
@@ -169,6 +195,28 @@ class Dma {
   }
 
   bool _irqPending = false;
+
+  void saveState(StateWriter w) {
+    w.section('ps-dma');
+    w.ints([_control, _interrupt]);
+    w.boolean(_irqPending);
+    w.boolean(_active);
+    for (final c in channels) {
+      c.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-dma');
+    final v = s.fields(2, 'ps dma');
+    _control = v[0];
+    _interrupt = v[1];
+    _irqPending = s.boolean();
+    _active = s.boolean();
+    for (final c in channels) {
+      c.loadState(s);
+    }
+  }
 
   bool _bit31() =>
       _interrupt.bit15 ||

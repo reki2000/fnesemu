@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'nrom.dart';
 
 // https://www.nesdev.org/wiki/UxROM
@@ -8,6 +9,20 @@ class MapperUxROM extends MapperNROM {
   int _progBank = 0;
 
   final Uint8List _vram = Uint8List(1024 * 8);
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('uxrom');
+    w.int32(_progBank);
+    w.bytes(_vram);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('uxrom');
+    _progBank = s.int32();
+    s.bytesInto(_vram);
+  }
 
   @override
   void write(int addr, int data) {

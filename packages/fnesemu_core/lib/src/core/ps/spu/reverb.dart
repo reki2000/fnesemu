@@ -1,5 +1,6 @@
 // import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../state.dart';
 import 'spu.dart';
 
 // final _log = DebugLog('ps.spu.reverb');
@@ -14,6 +15,18 @@ class ReverbUint {
     addr[1] = 0;
     volume = 0;
     offset = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.ints(addr);
+    w.ints([volume, offset]);
+  }
+
+  void loadState(StateReader s) {
+    s.intsInto(addr);
+    final v = s.fields(2, 'ps spu reverb unit');
+    volume = v[0];
+    offset = v[1];
   }
 
   String dump() =>
@@ -56,6 +69,16 @@ class FirFilter {
   void clear() {
     _buffer.fillRange(0, bufferSize, 0);
     _current = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.ints(_buffer);
+    w.int32(_current);
+  }
+
+  void loadState(StateReader s) {
+    s.intsInto(_buffer);
+    _current = s.int32();
   }
 
   // Canonical sparse taps, in accumulation order. Keep these constant so
@@ -260,6 +283,54 @@ class Reverb {
       0x1f => _inputVolume[1] = volume,
       _ => throw "spu: reverb: unreachable offset:${offset.x8}",
     };
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-spu-reverb');
+    for (final e in [..._apf, ..._comb, ..._ssr, ..._dsr]) {
+      e.saveState(w);
+    }
+    w.ints(_inputVolume);
+    w.ints(outputVolume);
+    w.ints([_baseAddr, _workAddr, outLeft, outRight]);
+    w.ints(_lastOutput);
+    for (final b in reverbEnabled) {
+      w.boolean(b);
+    }
+    w.boolean(writeEnabled);
+    w.boolean(_renderL);
+    for (final f in _firFilterInput) {
+      f.saveState(w);
+    }
+    for (final f in _firFilterOutput) {
+      f.saveState(w);
+    }
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-spu-reverb');
+    for (final e in [..._apf, ..._comb, ..._ssr, ..._dsr]) {
+      e.loadState(s);
+    }
+    s.intsInto(_inputVolume);
+    s.intsInto(outputVolume);
+    final v = s.fields(4, 'ps spu reverb');
+    _baseAddr = v[0];
+    _workAddr = v[1];
+    outLeft = v[2];
+    outRight = v[3];
+    s.intsInto(_lastOutput);
+    for (var i = 0; i < reverbEnabled.length; i++) {
+      reverbEnabled[i] = s.boolean();
+    }
+    writeEnabled = s.boolean();
+    _renderL = s.boolean();
+    for (final f in _firFilterInput) {
+      f.loadState(s);
+    }
+    for (final f in _firFilterOutput) {
+      f.loadState(s);
+    }
   }
 
   String dump() => "en:${reverbEnabled.map((e) => e ? "E" : "-").join("")} "

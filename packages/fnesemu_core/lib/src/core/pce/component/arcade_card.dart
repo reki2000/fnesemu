@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../../../util/state.dart';
+
 /// Optional 2 MiB RAM expansion accessed through four programmable ports.
 ///
 /// The physical banks 0x40-0x43 mirror the four data ports. Registers live
@@ -32,6 +34,38 @@ class ArcadeCard {
   void powerOn() {
     _ram?.fillRange(0, ramSize, 0);
     reset();
+  }
+
+  /// Saves the four port registers, the shift and rotate registers and the RAM contents when the RAM was allocated.
+  void saveState(StateWriter w) {
+    w.section('pce-arcade');
+    for (final port in _ports) {
+      w.ints([port.base, port.offset, port.increment, port.control]);
+    }
+    w.ints([_shiftData, _shiftAmount, _rotateAmount]);
+    w.boolean(_ram != null);
+    if (_ram != null) w.bytes(_ram!);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-arcade');
+    for (final port in _ports) {
+      final v = s.ints();
+      if (v.length != 4) throw const StateMismatch('arcade port layout');
+      port.base = v[0];
+      port.offset = v[1];
+      port.increment = v[2];
+      port.control = v[3];
+    }
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('arcade state layout');
+    _shiftData = v[0];
+    _shiftAmount = v[1];
+    _rotateAmount = v[2];
+    if (s.boolean()) {
+      s.bytesInto(_memory);
+    }
   }
 
   int _offsetValue(_ArcadePort port) {

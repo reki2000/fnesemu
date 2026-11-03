@@ -425,7 +425,7 @@ class Md extends Core {
 
   // set audio callback. used by CoreController
   @override
-  onAudio(void Function(AudioBuffer) onAudio) {
+  void onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
 
@@ -464,7 +464,8 @@ class Md extends Core {
     cdrom?.setSram(sram);
   }
 
-  static const _stateVersion = 3;
+  // version 4: the 32X on-chip SH-2 state moved to the shared list-based layout
+  static const _stateVersion = 4;
 
   void _checkStateSupport() {
     if (cdrom != null) {

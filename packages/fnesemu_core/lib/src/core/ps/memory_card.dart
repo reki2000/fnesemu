@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../../util/debug.dart';
 import '../../util/int.dart';
 import 'serial.dart' show SioResponse, SioDevice;
+import 'state.dart';
 
 final _log = DebugLog('ps.memory_card');
 
@@ -227,6 +228,55 @@ class MemoryCard extends SioDevice {
 
     step = waitIgnore;
     return SioResponse(0xff, ignored: true, ack: false);
+  }
+
+  @override
+  void saveState(StateWriter w) {
+    w.section('ps-memory-card');
+    w.ints([step, addr, count, command, checkSum, _pre]);
+    w.boolean(firstReadDone);
+  }
+
+  @override
+  void loadState(StateReader s) {
+    s.section('ps-memory-card');
+    final v = s.fields(6, 'ps memory card');
+    step = v[0];
+    addr = v[1];
+    count = v[2];
+    command = v[3];
+    checkSum = v[4];
+    _pre = v[5];
+    firstReadDone = s.boolean();
+  }
+
+  /// The size of a memory card image.
+  static const imageSize = 128 * 1024;
+
+  /// Saves the card image through its backing callbacks, or only a marker when the card has no backing in this instance.
+  void saveImage(StateWriter w) {
+    w.section('ps-memory-card-image');
+    final read = _readEx;
+    w.boolean(read != null);
+    if (read != null) {
+      w.bytes(Uint8List(imageSize)..setAll(0, Iterable.generate(imageSize, read)));
+    }
+  }
+
+  void loadImage(StateReader s) {
+    s.section('ps-memory-card-image');
+    if (!s.boolean()) return;
+    final image = s.bytes();
+    if (image.length != imageSize) {
+      throw const StateMismatch('ps memory card image size');
+    }
+    final read = _readEx, write = _writeEx;
+    if (read == null || write == null) {
+      throw const StateMismatch('ps memory card has no backing in this instance');
+    }
+    for (var a = 0; a < imageSize; a++) {
+      if (read(a) != image[a]) write(a, image[a]);
+    }
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// length counter / envelope shared by the channels
 abstract class _Channel {
@@ -369,6 +370,123 @@ class Apu {
     };
     init.forEach((addr, data) => write(addr, data));
     _ch1.enabled = true; // the boot program played a sound on channel 1
+  }
+
+  void _saveChannel(StateWriter w, _Channel ch) {
+    w.ints(
+        [ch.length, ch.initialVolume, ch.envelopePeriod, ch.volume, ch._envelopeTimer]);
+    w.boolean(ch.enabled);
+    w.boolean(ch.dacEnabled);
+    w.boolean(ch.lengthEnabled);
+    w.boolean(ch.envelopeUp);
+  }
+
+  void _loadChannel(StateReader s, _Channel ch) {
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('gb apu channel state layout');
+    ch.length = v[0];
+    ch.initialVolume = v[1];
+    ch.envelopePeriod = v[2];
+    ch.volume = v[3];
+    ch._envelopeTimer = v[4];
+    ch.enabled = s.boolean();
+    ch.dacEnabled = s.boolean();
+    ch.lengthEnabled = s.boolean();
+    ch.envelopeUp = s.boolean();
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gb-apu');
+    w.bytes(_regs);
+    w.boolean(_power);
+    w.ints([_frameStep, bufferIndex, _sampleClocks, _accCount]);
+    w.floats([_accL, _accR, _capL, _capR]);
+    w.floats(buffer);
+    w.section('gb-apu-square1');
+    _saveChannel(w, _ch1);
+    w.ints([
+      _ch1.duty, _ch1.frequency, _ch1._dutyPos, _ch1._timer, //
+      _ch1.sweepPeriod, _ch1.sweepShift, _ch1._sweepTimer, _ch1._shadow
+    ]);
+    w.boolean(_ch1.sweepNegate);
+    w.boolean(_ch1._sweepEnabled);
+    w.boolean(_ch1._negateUsed);
+    w.section('gb-apu-square2');
+    _saveChannel(w, _ch2);
+    w.ints([_ch2.duty, _ch2.frequency, _ch2._dutyPos, _ch2._timer]);
+    w.section('gb-apu-wave');
+    _saveChannel(w, _ch3);
+    w.bytes(_ch3.ram);
+    w.ints([_ch3.level, _ch3.frequency, _ch3._position, _ch3._timer, _ch3._sample]);
+    w.section('gb-apu-noise');
+    _saveChannel(w, _ch4);
+    w.ints([_ch4.clockShift, _ch4.divisorCode, _ch4._lfsr, _ch4._timer]);
+    w.boolean(_ch4.shortMode);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gb-apu');
+    s.bytesInto(_regs);
+    _power = s.boolean();
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('gb apu state layout');
+    _frameStep = v[0];
+    bufferIndex = v[1];
+    _sampleClocks = v[2];
+    _accCount = v[3];
+    final acc = s.floats();
+    if (acc.length != 4) throw const StateMismatch('gb apu state layout');
+    _accL = acc[0];
+    _accR = acc[1];
+    _capL = acc[2];
+    _capR = acc[3];
+    final savedBuffer = s.floats();
+    if (savedBuffer.length != buffer.length) {
+      throw const StateMismatch('gb apu buffer state layout');
+    }
+    buffer.setAll(0, savedBuffer);
+    s.section('gb-apu-square1');
+    _loadChannel(s, _ch1);
+    final sq1 = s.ints();
+    if (sq1.length != 8) throw const StateMismatch('gb apu square state layout');
+    _ch1.duty = sq1[0];
+    _ch1.frequency = sq1[1];
+    _ch1._dutyPos = sq1[2];
+    _ch1._timer = sq1[3];
+    _ch1.sweepPeriod = sq1[4];
+    _ch1.sweepShift = sq1[5];
+    _ch1._sweepTimer = sq1[6];
+    _ch1._shadow = sq1[7];
+    _ch1.sweepNegate = s.boolean();
+    _ch1._sweepEnabled = s.boolean();
+    _ch1._negateUsed = s.boolean();
+    s.section('gb-apu-square2');
+    _loadChannel(s, _ch2);
+    final sq2 = s.ints();
+    if (sq2.length != 4) throw const StateMismatch('gb apu square state layout');
+    _ch2.duty = sq2[0];
+    _ch2.frequency = sq2[1];
+    _ch2._dutyPos = sq2[2];
+    _ch2._timer = sq2[3];
+    s.section('gb-apu-wave');
+    _loadChannel(s, _ch3);
+    s.bytesInto(_ch3.ram);
+    final wave = s.ints();
+    if (wave.length != 5) throw const StateMismatch('gb apu wave state layout');
+    _ch3.level = wave[0];
+    _ch3.frequency = wave[1];
+    _ch3._position = wave[2];
+    _ch3._timer = wave[3];
+    _ch3._sample = wave[4];
+    s.section('gb-apu-noise');
+    _loadChannel(s, _ch4);
+    final noise = s.ints();
+    if (noise.length != 4) throw const StateMismatch('gb apu noise state layout');
+    _ch4.clockShift = noise[0];
+    _ch4.divisorCode = noise[1];
+    _ch4._lfsr = noise[2];
+    _ch4._timer = noise[3];
+    _ch4.shortMode = s.boolean();
   }
 
   /// 512Hz frame sequencer, clocked by the divider

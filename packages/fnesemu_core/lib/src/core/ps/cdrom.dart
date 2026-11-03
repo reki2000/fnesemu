@@ -7,6 +7,7 @@ import '../../util/int.dart';
 import 'bus.dart';
 import 'interrupt.dart';
 import 'log.dart';
+import 'state.dart';
 
 part 'cdrom_async.dart';
 part 'cdrom_xa.dart';
@@ -771,6 +772,128 @@ class Cdrom {
   void closeShell() {
     isSpindleMotorOn = true;
     isShellOpen = false;
+  }
+
+  /// The identity of the inserted disc, folded into the core media hash: the drive generation and the TOC.
+  int get driveMedia {
+    final s = _port.status;
+    return stateMediaHashAll(stateMediaHash(const []), [
+      s.discId, s.state.index, s.toc.totalSectors, //
+      for (final t in s.toc.tracks) ...[t.number, t.isAudio ? 1 : 0, t.startLba, t.sectors],
+    ]);
+  }
+
+  void saveState(StateWriter w) {
+    w.section('ps-cdrom');
+    w.ints([
+      _clock, bank, data, result, sectorBufferIndex, seekSector, playTrack, //
+      readingSector, sectorReadDelay, mode, file, channel, xaSampleRate, //
+      adpCtrl, intMask, cmdDelay, currentIntNo, //
+      toc.firstTrackBcd, toc.lastTrackBcd, toc.diskType, //
+      _port._discId, _port._seekIssuedAt,
+    ]);
+    for (final b in [
+      isPlaying, isSeeking, isReading, isShellOpen, isIdError, isSeekError, //
+      isSpindleMotorOn, isError, sectorBufferEmpty, isSeekPending, //
+      isXaAdpcmBusy, isMuted, isCmdBusy, _port._isSeeking,
+    ]) {
+      w.boolean(b);
+    }
+    w.bytes(rawSector);
+    w.ints(sectorBuffer);
+    w.queue(audioBufferL);
+    w.queue(audioBufferR);
+    w.ints(audioLastSample);
+    w.ints(xaOld);
+    w.ints(xaOldest);
+    w.ints(atv);
+    w.ints(atvApplied);
+    resampler.saveState(w);
+    w.queue(paramFifo);
+    w.queue(resultFifo);
+    w.int32(cmdResults.length);
+    for (final r in cmdResults) {
+      w.ints([r.delay, r.intNo]);
+      w.boolean(r.ack);
+      w.boolean(r.triggered);
+      w.queue(r.fifo);
+    }
+    w.boolean(_fetched != null);
+    if (_fetched != null) w.bytes(_fetched!);
+  }
+
+  void loadState(StateReader s) {
+    s.section('ps-cdrom');
+    final v = s.fields(22, 'ps cdrom');
+    _clock = v[0];
+    bank = v[1];
+    data = v[2];
+    result = v[3];
+    sectorBufferIndex = v[4];
+    seekSector = v[5];
+    playTrack = v[6];
+    readingSector = v[7];
+    sectorReadDelay = v[8];
+    mode = v[9];
+    file = v[10];
+    channel = v[11];
+    xaSampleRate = v[12];
+    adpCtrl = v[13];
+    intMask = v[14];
+    cmdDelay = v[15];
+    currentIntNo = v[16];
+    toc.firstTrackBcd = v[17];
+    toc.lastTrackBcd = v[18];
+    toc.diskType = v[19];
+    _port._discId = v[20];
+    _port._seekIssuedAt = v[21];
+    isPlaying = s.boolean();
+    isSeeking = s.boolean();
+    isReading = s.boolean();
+    isShellOpen = s.boolean();
+    isIdError = s.boolean();
+    isSeekError = s.boolean();
+    isSpindleMotorOn = s.boolean();
+    isError = s.boolean();
+    sectorBufferEmpty = s.boolean();
+    isSeekPending = s.boolean();
+    isXaAdpcmBusy = s.boolean();
+    isMuted = s.boolean();
+    isCmdBusy = s.boolean();
+    _port._isSeeking = s.boolean();
+    final raw = s.bytes();
+    if (raw.length != rawSector.length) {
+      throw const StateMismatch('ps cdrom sector size');
+    }
+    rawSector.setAll(0, raw);
+    s.intsInto(sectorBuffer);
+    s.queueInto(audioBufferL);
+    s.queueInto(audioBufferR);
+    s.intsInto(audioLastSample);
+    s.intsInto(xaOld);
+    s.intsInto(xaOldest);
+    s.intsInto(atv);
+    s.intsInto(atvApplied);
+    resampler.loadState(s);
+    s.queueInto(paramFifo);
+    s.queueInto(resultFifo);
+    final results = s.int32();
+    if (results < 0) throw const StateMismatch('ps cdrom result count');
+    final loaded = <CmdResult>[];
+    for (var i = 0; i < results; i++) {
+      final r = CmdResult();
+      final rv = s.fields(2, 'ps cdrom result');
+      r.delay = rv[0];
+      r.intNo = rv[1];
+      r.ack = s.boolean();
+      r.triggered = s.boolean();
+      s.queueInto(r.fifo);
+      loaded.add(r);
+    }
+    cmdResults
+      ..clear()
+      ..addAll(loaded);
+    _fetched = s.boolean() ? Uint8List.fromList(s.bytes()) : null;
   }
 
   void readSector(int sector) {}

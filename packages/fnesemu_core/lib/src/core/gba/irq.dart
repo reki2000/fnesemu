@@ -1,4 +1,5 @@
 import '../../util/int.dart';
+import '../../util/state.dart';
 
 /// GBA interrupt controller (IE/IF/IME).
 ///
@@ -26,6 +27,20 @@ class Irq {
     ie = 0;
     if_ = 0;
     ime = 0;
+  }
+
+  void saveState(StateWriter w) {
+    w.section('gba-irq');
+    w.ints([ie, if_, ime]);
+  }
+
+  void loadState(StateReader s) {
+    s.section('gba-irq');
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('gba irq state layout');
+    ie = v[0];
+    if_ = v[1];
+    ime = v[2];
   }
 }
 

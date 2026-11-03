@@ -8,6 +8,7 @@ import '../../trace_flow.dart';
 import '../../types.dart';
 import '../../util/disasm.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../video_debug.dart';
 import 'arm7tdmi/arm7.dart';
 import 'arm7tdmi/arm_disasm.dart';
@@ -227,6 +228,69 @@ class Gba extends Core {
     _nextEventClock = _hblankStart;
     _inHblank = false;
     _scanline = 0;
+  }
+
+  static const _stateVersion = 1;
+
+  /// The cartridge ROM and, when one is loaded, the BIOS bytes.
+  int get _media {
+    var h = stateMediaHash(bus.cart.rom);
+    h = stateMediaHashAll(h, [bus.biosLoaded ? 1 : 0, bus.cart.backup.type.index]);
+    if (bus.biosLoaded) h = stateMediaHashAll(h, bus.bios);
+    return h;
+  }
+
+  @override
+  Uint8List saveState() {
+    if (bus.cart.rom.isEmpty) {
+      throw const StateMismatch('GBA state requires a cartridge');
+    }
+    final w = StateWriter('gba', _stateVersion, _media);
+    w.section('gba');
+    w.ints([_clocks, _nextEventClock, _scanline, _audioIndex]);
+    w.boolean(_inHblank);
+    w.boolean(_rendered);
+    w.bytes(_audio.buffer.asUint8List(_audio.offsetInBytes, _audio.lengthInBytes));
+    cpu.saveState(w);
+    bus.saveState(w);
+    ppu.saveState(w);
+    return w.take();
+  }
+
+  /// The whole state is first read into throwaway components, so a state that fails validation leaves this core unchanged; only a state that parses completely is read again into the live components.
+  @override
+  void loadState(Uint8List state) {
+    if (bus.cart.rom.isEmpty) {
+      throw const StateMismatch('GBA state requires a cartridge');
+    }
+    final stagedBus = Bus();
+    stagedBus.cart.backup.init(bus.cart.backup.type, Sram(), 'gba-state-stage');
+    final stagedAudio = Float32List(_audio.length);
+    _restore(StateReader(state, 'gba', _stateVersion, _media), Arm7(stagedBus), stagedBus, Ppu(stagedBus), stagedAudio);
+    _restore(StateReader(state, 'gba', _stateVersion, _media), cpu, bus, ppu, _audio);
+  }
+
+  // Reads one state body into [cpu], [bus], [ppu] and [audio] and applies the core scheduling fields of this instance only when [bus] is the live bus.
+  void _restore(StateReader s, Arm7 cpu, Bus bus, Ppu ppu, Float32List audio) {
+    final live = identical(bus, this.bus);
+    s.section('gba');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('gba core state layout');
+    final inHblank = s.boolean();
+    final rendered = s.boolean();
+    s.bytesInto(audio.buffer.asUint8List(audio.offsetInBytes, audio.lengthInBytes));
+    cpu.loadState(s);
+    bus.loadState(s);
+    ppu.loadState(s);
+    s.end();
+    if (live) {
+      _clocks = v[0];
+      _nextEventClock = v[1];
+      _scanline = v[2];
+      _audioIndex = v[3];
+      _inHblank = inHblank;
+      _rendered = rendered;
+    }
   }
 
   @override

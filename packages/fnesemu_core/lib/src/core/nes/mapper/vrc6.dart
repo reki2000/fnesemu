@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 import 'vrc6_apu.dart';
@@ -67,6 +68,49 @@ class MapperVrc6 extends Mapper {
     _prgBank[1] = 0; // 0xa000-0xbfff
     _prgBank[2] = 0; // 0xc000-0xdfff
     _prgBank[3] = prgRoms.length - 1; // 0xe000-0xffff
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('vrc6');
+    w.ints([
+      _irqLatch, _irqCounter, _chrBankMask, _prgBankMask, _chrMode, //
+      _prgBank8000, mode, _prescaledClock, _prevCycle
+    ]);
+    w.ints(_chrBank);
+    w.ints(_ppuReg);
+    w.ints(_prgBank);
+    w.boolean(_irqEnabled);
+    w.boolean(_irqEnabledAfterAcknoledge);
+    w.boolean(_irqModeCycle);
+    w.boolean(_ramEnabled);
+    w.boolean(_chrA10);
+    _apu.saveState(w);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('vrc6');
+    final v = s.ints();
+    if (v.length != 9) throw const StateMismatch('vrc6 state layout');
+    _irqLatch = v[0];
+    _irqCounter = v[1];
+    _chrBankMask = v[2];
+    _prgBankMask = v[3];
+    _chrMode = v[4];
+    _prgBank8000 = v[5];
+    mode = v[6];
+    _prescaledClock = v[7];
+    _prevCycle = v[8];
+    s.intsInto(_chrBank);
+    s.intsInto(_ppuReg);
+    s.intsInto(_prgBank);
+    _irqEnabled = s.boolean();
+    _irqEnabledAfterAcknoledge = s.boolean();
+    _irqModeCycle = s.boolean();
+    _ramEnabled = s.boolean();
+    _chrA10 = s.boolean();
+    _apu.loadState(s);
   }
 
   @override

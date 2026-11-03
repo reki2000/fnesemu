@@ -1,8 +1,10 @@
 // import '../../../util/debug.dart';
 import 'dart:typed_data';
 
+import '../../../components/6502/bus.dart';
 import '../../../sram.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../mapper/rom.dart';
 import 'arcade_card.dart';
 import 'cdrom.dart';
@@ -16,7 +18,7 @@ import 'vpc.dart';
 
 // final _log = DebugLog('pce.bus');
 
-class Bus {
+class Bus implements Cpu6502Bus {
   Bus() {
     cdrom = PceCdrom(this);
   }
@@ -57,6 +59,7 @@ class Bus {
   // on sgx they are independent 8kb banks (32kb total).
   int _workRamIndex(int bank) => vpc.enabled ? bank.mask2 : 0;
 
+  @override
   int read(int addr) {
     final bank = addr.shr13;
     final offset = addr.mask13;
@@ -153,6 +156,7 @@ class Bus {
     return 0xff;
   }
 
+  @override
   void write(int addr, int data) {
     final bank = addr.shr13;
     final offset = addr.mask13;
@@ -323,6 +327,38 @@ class Bus {
     } else {
       pic.acknoledgeIrq1();
     }
+  }
+
+  /// Saves the RAM banks, the Super CD RAM, the backup RAM contents and the arcade card enable flag; the devices on the bus save their own state separately.
+  void saveState(StateWriter w) {
+    w.section('pce-bus');
+    for (final bank in ram) {
+      w.bytes(bank);
+    }
+    w.bytes(superCdRam);
+    w.boolean(arcadeCardEnabled);
+    w.boolean(sram.data.isNotEmpty);
+    if (sram.data.isNotEmpty) w.bytes(sram.data);
+    joypad.saveState(w);
+  }
+
+  /// Restores the state written by [saveState] into the existing buffers.
+  void loadState(StateReader s) {
+    s.section('pce-bus');
+    for (final bank in ram) {
+      s.bytesInto(bank);
+    }
+    s.bytesInto(superCdRam);
+    arcadeCardEnabled = s.boolean();
+    if (s.boolean()) {
+      final data = s.bytes();
+      if (data.length == sram.data.length) {
+        sram.data.setAll(0, data);
+      } else {
+        sram.data = List.from(data);
+      }
+    }
+    joypad.loadState(s);
   }
 
   void onNmi() => cpu.holdInterrupt(Interrupt.nmi);

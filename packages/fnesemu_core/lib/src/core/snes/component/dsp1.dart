@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import '../rom/snes_file.dart';
 
 /// DSP-1: a cartridge math coprocessor. The main cpu writes a command byte
@@ -43,6 +44,80 @@ class Dsp1 {
   int _command = 0;
   bool _highByte = false;
   int _lowByte = 0;
+
+  /// Saves the command transfer state and the persistent projection parameters and matrices a command leaves behind.
+  void saveState(StateWriter w) {
+    w.section('snes-dsp1');
+    w.ints([
+      _state, _command, _lowByte, _inputCount, _inputIndex, _outputIndex,
+      _centreZ, _les,
+    ]);
+    w.boolean(_highByte);
+    w.ints(_input);
+    w.ints(_output);
+    for (final m in [_matrixA, _matrixB, _matrixC]) {
+      for (final row in m) {
+        w.ints(row);
+      }
+    }
+    w.float64(_sinAas);
+    w.float64(_cosAas);
+    w.float64(_sinAzs);
+    w.float64(_cosAzs);
+    w.float64(_nx);
+    w.float64(_ny);
+    w.float64(_nz);
+    w.float64(_centreX);
+    w.float64(_centreY);
+    w.float64(_gx);
+    w.float64(_gy);
+    w.float64(_gz);
+    w.float64(_vOffset);
+    w.float64(_secZenith);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('snes-dsp1');
+    final v = s.ints();
+    if (v.length != 8) throw const StateMismatch('snes dsp1 state layout');
+    _state = v[0];
+    _command = v[1];
+    _lowByte = v[2];
+    _inputCount = v[3];
+    _inputIndex = v[4];
+    _outputIndex = v[5];
+    _centreZ = v[6];
+    _les = v[7];
+    _highByte = s.boolean();
+    final input = s.ints();
+    if (input.length != _input.length) {
+      throw const StateMismatch('snes dsp1 state layout');
+    }
+    _input.setAll(0, input);
+    _output = s.ints();
+    for (final m in [_matrixA, _matrixB, _matrixC]) {
+      for (final row in m) {
+        final r = s.ints();
+        if (r.length != 3) throw const StateMismatch('snes dsp1 state layout');
+        row.setAll(0, r);
+      }
+    }
+    _sinAas = s.float64();
+    _cosAas = s.float64();
+    _sinAzs = s.float64();
+    _cosAzs = s.float64();
+    _nx = s.float64();
+    _ny = s.float64();
+    _nz = s.float64();
+    _centreX = s.float64();
+    _centreY = s.float64();
+    _gx = s.float64();
+    _gy = s.float64();
+    _gz = s.float64();
+    _vOffset = s.float64();
+    _secZenith = s.float64();
+  }
 
   final _input = List<int>.filled(8, 0);
   int _inputCount = 0, _inputIndex = 0;

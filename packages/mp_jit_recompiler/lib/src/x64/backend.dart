@@ -1,3 +1,4 @@
+import '../dyn_table.dart';
 import '../ir.dart';
 import '../native_env.dart';
 import 'allocation.dart';
@@ -18,8 +19,8 @@ abstract final class X64Backend {
   /// the frame below the pushed registers, keeping rsp 16-byte aligned
   static const frame = _shadow + 8 * maxValues + 24;
 
-  static const dynEntries = 4096;
-  static const dynEntryBits = 4; // 16 bytes: pc, tag, entry
+  static const dynEntries = DynTable.entries;
+  static const dynEntryBits = DynTable.entryBits; // 16 bytes: pc, tag, entry
 
   static const _pinned = [R.rbx, R.rbp, R.r12, R.r13, R.r14, R.r15];
   static const _saved = [..._pinned, R.rsi, R.rdi];
@@ -632,7 +633,7 @@ abstract final class X64Backend {
         });
         load(R.rax, v.index);
         a.movRR(R.rcx, R.rax);
-        a.shiftRI(Shift.shr, R.rcx, 2);
+        a.shiftRI(Shift.shr, R.rcx, DynTable.pcShift);
         if (tag != 0) a.aluRI(Alu.xor, R.rcx, tag);
         a.aluRI(Alu.and, R.rcx, dynEntries - 1);
         a.shiftRI(Shift.shl, R.rcx, dynEntryBits);
@@ -663,5 +664,5 @@ abstract final class X64Backend {
   }
 
   /// the dynamic table index of (pc, tag), as computed by the code above
-  static int dynIndex(int pc, int tag) => ((pc >>> 2) ^ tag) & (dynEntries - 1);
+  static int dynIndex(int pc, int tag) => DynTable.index(pc, tag);
 }

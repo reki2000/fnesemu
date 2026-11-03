@@ -51,7 +51,7 @@ final class R3000Translator {
         pc == 0x80030000;
   }
 
-  IrBlock translate(int pc, int tag) => _Block(this, pc, tag).translate();
+  IrBlock? translate(int pc, {int tag = 0}) => _Block(this, pc, tag).translate();
 }
 
 enum _Kind { plain, overflow, branch, interpret }

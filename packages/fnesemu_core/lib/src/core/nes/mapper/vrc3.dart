@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 
 final _log = DebugLog('nes.mapper.vrc3');
@@ -34,6 +35,31 @@ class MapperVrc3 extends Mapper {
     }
     _prgBank = 0;
     _prevCycle = 0;
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('vrc3');
+    w.ints([_irqLatch, _irqCounter, _prgBank, _prevCycle]);
+    w.boolean(_irqEnabled);
+    w.boolean(_irqEnabledAfterAcknoledge);
+    w.boolean(_irqMode16bit);
+    w.bytes(chrRam);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('vrc3');
+    final v = s.ints();
+    if (v.length != 4) throw const StateMismatch('vrc3 state layout');
+    _irqLatch = v[0];
+    _irqCounter = v[1];
+    _prgBank = v[2];
+    _prevCycle = v[3];
+    _irqEnabled = s.boolean();
+    _irqEnabledAfterAcknoledge = s.boolean();
+    _irqMode16bit = s.boolean();
+    s.bytesInto(chrRam);
   }
 
   @override
