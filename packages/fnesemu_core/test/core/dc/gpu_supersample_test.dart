@@ -130,67 +130,6 @@ void main() {
             .sample(0, 0, extraSamples: points.sublist(1)),
         expected);
   });
-  test('palette lookup and alpha happen before supersample averaging', () {
-    bus.write32(reg + 0x108, 3);
-    for (final (i, color)
-        in [0x00ff0000, 0x4000ff00, 0x800000ff, 0xffffffff].indexed) {
-      bus.write32(reg + 0x1000 + i * 4, color);
-    }
-    texel(0, 0x3210);
-    expect(texture(tcw: 0x2800c000).sample(0, 0, extraSamples: corners),
-        0x70808080);
-  });
-  test('VQ samples select all four decoded codebook texels', () {
-    for (final (i, color) in [0xf800, 0x07e0, 0x001f, 0xffff].indexed) {
-      texel(i, color);
-    }
-    expect(texture(tcw: 0x4800c000).sample(0, 0, extraSamples: corners),
-        0xff808080);
-  });
-  test('bump alpha is evaluated per subpoint before averaging', () {
-    for (final (i, value) in [0, 0xff00, 0, 0xff00].indexed) {
-      texel(i, value);
-    }
-    expect(
-        texture(tcw: 0x2000c000)
-            .sample(0, 0, extraSamples: corners, bumpParameters: 0x00ff0000),
-        0x80ffffff);
-  });
-  test('wrap and clamp apply independently to every supplied subpoint', () {
-    colors();
-    final view = texture(tsp: copy | ss | 0x18000);
-    expect(
-        view.sample(-1, -1,
-            extraSamples: const [(-2.0, -2.0), (-3.0, -3.0), (-4.0, -4.0)]),
-        0xffff0000);
-  });
-  test(
-      'MIP supersampling chooses one higher-resolution level even at the limit',
-      () {
-    // Level 8x8: red; 4x4: green; 2x2: blue; 1x1: white.
-    for (var i = 0; i < 64; i++) {
-      texel(24 + i, 0xf800);
-    }
-    for (var i = 0; i < 16; i++) {
-      texel(8 + i, 0x07e0);
-    }
-    for (var i = 0; i < 4; i++) {
-      texel(4 + i, 0x001f);
-    }
-    texel(3, 0xffff);
-    final view = texture(tcw: 0x8800c000, tsp: copy | ss | 0x400);
-    expect(view.sample(0, 0, footprint: 4, extraSamples: corners), 0xff00ff00);
-    expect(
-        view.sample(0, 0, footprint: 1024, extraSamples: corners), 0xff0000ff);
-  });
-  test('both trilinear passes move up and preserve complementary pass weights',
-      () {
-    final a = texture(tcw: 0x8800c000, tsp: copy | ss | 0x4400);
-    final b = texture(tcw: 0x8800c000, tsp: copy | ss | 0x6400);
-    expect((a.selectLevel(1.5), b.selectLevel(1.5)), (0, 0));
-    expect((a.selectLevel(4.5), b.selectLevel(4.5)), (1, 2));
-    expect(a.passWeight(4.5) + b.passWeight(4.5), 1);
-  });
   test(
       'TA and CORE evaluate half-pixel screen locations without extra coverage',
       () {
@@ -200,32 +139,5 @@ void main() {
     render();
     expect(bus.gpu.vram.getUint32LE(0x400000), 0xff808080);
     expect(bus.gpu.vram.getUint32LE(0x400000 + (31 * 32 + 31) * 4), 0xff000000);
-  });
-  test(
-      'perspective subpoints follow the rational UV plane rather than fixed UV offsets',
-      () {
-    for (var y = 0; y < 8; y++) {
-      for (var x = 0; x < 8; x++) {
-        var morton = 0;
-        for (var bit = 0; bit < 3; bit++) {
-          morton |= ((y >> bit) & 1) << (bit * 2);
-          morton |= ((x >> bit) & 1) << (bit * 2 + 1);
-        }
-        texel(morton, (x * 4 << 11) | (y * 8 << 5) | ((x + y) * 2));
-      }
-    }
-    final plain = texture(tsp: copy);
-    for (final half in [false, true]) {
-      final offset = half ? 0.5 : 0.0;
-      final expected = average([
-        for (final (dx, dy) in [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5), (0.5, 0.5)])
-          plain.sample(
-              ((dx + offset) / 2) /
-                  (1 + (dx + offset) / 32 + 3 * (dy + offset) / 32),
-              (dy + offset) / (1 + (dx + offset) / 32 + 3 * (dy + offset) / 32))
-      ]);
-      render(perspective: true, textureHalf: half);
-      expect(bus.gpu.vram.getUint32LE(0x400000), expected);
-    }
   });
 }

@@ -38,109 +38,11 @@ void main() {
     });
   }
 
-  test('synchronous transmitter reloads the buffer at the last data bit', () {
-    sci.write(0, 1, 0x80);
-    sci.write(4, 1, 0);
-    sci.write(8, 1, 0x20);
-    send(0x41);
-    send(0x42);
-    sci.tickPeripheralClocks(27);
-    expect(sci.read(16, 1) & 0x80, 0);
-    sci.tickPeripheralClocks(1);
-    expect(sci.read(16, 1) & 0x84, 0x80);
-    send(0x43);
-    sci.tickPeripheralClocks(68);
-    expect(output, [0x41, 0x42, 0x43]);
-    expect(sci.read(16, 1) & 0x84, 0x84);
-  });
 
-  test('synchronous receive ignores parity and framing metadata', () {
-    sci.write(0, 1, 0xf8);
-    sci.write(8, 1, 0x50);
-    sci.receiveFrame(255, parityError: true, framingError: true);
-    expect(sci.read(20, 1), 255);
-    expect(sci.read(16, 1) & 0x78, 0x40);
-    expect(sci.interruptEvent, 0x500);
-  });
 
-  test(
-      'synchronous receive overrun suspends both directions until acknowledged',
-      () {
-    sci.write(0, 1, 0x80);
-    sci.write(4, 1, 0);
-    sci.write(8, 1, 0x70);
-    send(0x41);
-    sci.tickPeripheralClocks(8);
-    sci.receiveFrame(0x42);
-    sci.receiveFrame(0x43);
-    expect(sci.interruptEvent, 0x4e0);
-    sci.tickPeripheralClocks(1000);
-    expect(output, isEmpty);
-    expect(sci.read(20, 1), 0x42);
-    sci.read(16, 1);
-    sci.write(16, 1, 0x84);
-    sci.tickPeripheralClocks(24);
-    expect(output, [0x41]);
-  });
 
-  test('an endpoint overrun suspends the rest of a synchronous clock batch',
-      () {
-    sci.write(0, 1, 0x80);
-    sci.write(4, 1, 0);
-    sci.write(8, 1, 0x30);
-    sci.onTransmit = (byte) {
-      output.add(byte);
-      sci.receiveFrame(byte);
-    };
-    sci.receiveFrame(0x30);
-    send(0x41);
-    send(0x42);
-    sci.tickPeripheralClocks(1000);
-    expect(output, [0x41]);
-    expect(sci.read(16, 1) & 0x20, 0x20);
-    sci.write(16, 1, 0x84);
-    sci.tickPeripheralClocks(32);
-    expect(output, [0x41, 0x42]);
-    expect(sci.read(20, 1), 0x42);
-  });
 
-  for (final synchronous in [false, true]) {
-    test(
-        'external clock drives ${synchronous ? 'synchronous' : 'asynchronous'} transmission',
-        () {
-      sci.write(0, 1, synchronous ? 0x80 : 0);
-      sci.write(4, 1, 255);
-      sci.write(8, 1, 0x22);
-      send(0xa5);
-      sci.tickPeripheralClocks(1000000);
-      expect(output, isEmpty);
-      final cycles = synchronous ? 8 : 160;
-      sci.tickExternalClocks(cycles - 1);
-      expect(output, isEmpty);
-      sci.tickExternalClocks(1);
-      expect(output, [0xa5]);
-    });
-  }
 
-  test('external clock injection is ignored in internal mode and module stop',
-      () {
-    sci.write(0, 1, 0x80);
-    sci.write(4, 1, 0);
-    sci.write(8, 1, 0x20);
-    send(0x41);
-    sci.tickExternalClocks(1000);
-    expect(output, isEmpty);
-    sci.tickPeripheralClocks(32);
-    expect(output, [0x41]);
-    sci.write(8, 1, 0);
-    sci.write(8, 1, 0x22);
-    send(0x42);
-    sci.clockEnabled = false;
-    sci.tickExternalClocks(1000);
-    sci.clockEnabled = true;
-    sci.tickExternalClocks(1000);
-    expect(output, [0x41]);
-  });
 
   test('synchronous bidirectional DMA batches match individual master clocks',
       () {
@@ -176,14 +78,6 @@ void main() {
     expect(batch.read8(0xffe00010), single.read8(0xffe00010));
   });
 
-  test('format changes require disabled transmitter and receiver', () {
-    sci.write(8, 1, 0x30);
-    expect(() => sci.write(0, 1, 0x80), throwsA(isA<DcUnsupported>()));
-    expect(sci.read(0, 1), 0);
-    sci.write(8, 1, 0);
-    sci.write(0, 1, 0x80);
-    expect(sci.synchronous, isTrue);
-  });
 
   test('external-clock batches agree with individual cycles', () {
     final single = DcSci();

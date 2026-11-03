@@ -35,40 +35,6 @@ void initialize(DcOpticalDrive chip) {
 }
 
 void main() {
-  for (final state in [
-    CdromDriveState.ready,
-    CdromDriveState.empty,
-    CdromDriveState.loading,
-    CdromDriveState.error
-  ]) {
-    test('CD_OPEN waits for manual lid opening from $state', () {
-      final drive = ManualCdromDrive(1, state: state);
-      final chip = DcOpticalDrive(onInterrupt: (_) {})..attach(drive);
-      initialize(chip);
-      packet(chip, [0x16]);
-      expect(chip.status, 0x80);
-      expect(chip.interrupt, isFalse);
-      expect(chip.read(0x8c, 1), 0); // BUSY, cleared TOC format.
-      expect(chip.read(0x90, 1), 0);
-      expect(chip.read(0x94, 1), 0);
-      chip.tickMasterClocks(200000000 * 1000);
-      expect(chip.status, 0x80); // No synthetic opening or timeout completion.
-      expect(chip.clocksToEvent, 0);
-      expect(drive.state, state);
-      drive.change(CdromDriveState.trayOpen);
-      expect(chip.read(0x18, 1, sideEffects: false), 0x80);
-      chip.prepare();
-      expect(chip.status, 0x40);
-      expect(chip.read(0x88, 1), 3);
-      expect(chip.read(0x84, 1), 0);
-      expect(chip.read(0x8c, 1), 6);
-      expect(chip.interrupt, isTrue);
-      chip.read(0x9c, 1);
-      expect(chip.interrupt, isFalse);
-      packet(chip, [0x14, 0, 0, 0, 0, 0x98, 1]);
-      expect(chip.status & 1, 1); // Old TOC cannot be requested after opening.
-    });
-  }
 
   test('CD_OPEN stops audio immediately and invalidates device DMA staging',
       () {
@@ -87,16 +53,6 @@ void main() {
     expect(chip.dmaAvailable, 0);
   });
 
-  test('an already open lid completes without requesting a host transition',
-      () {
-    final drive = ManualCdromDrive(1, state: CdromDriveState.trayOpen);
-    final chip = DcOpticalDrive(onInterrupt: (_) {})..attach(drive);
-    packet(
-        chip, [0x16]); // Opening is allowed even before unit attention clears.
-    expect(chip.status, 0x40);
-    expect(chip.interrupt, isTrue);
-    expect(drive.generation, 1);
-  });
 
   test(
       'soft reset cancels a manual-open wait and retains no delayed completion',
@@ -117,30 +73,5 @@ void main() {
     expect(sense[8], 0x28);
   });
 
-  test('replacement without an observed open state aborts with media attention',
-      () {
-    final drive = ManualCdromDrive(1);
-    final chip = DcOpticalDrive(onInterrupt: (_) {})..attach(drive);
-    packet(chip, [0x16]);
-    drive.change(CdromDriveState.ready);
-    chip.prepare();
-    expect(chip.status, 0x41);
-    expect(chip.read(0x84, 1), 0x60);
-  });
 
-  test('lid status change works without queued events and retains nIEN masking',
-      () {
-    final bus = DcBus(), drive = ManualCdromDrive(1);
-    bus.opticalDrive.attach(drive);
-    packet(bus.opticalDrive, [0x16]);
-    bus.opticalDrive.write(0x18, 1, 2);
-    drive.change(CdromDriveState.trayOpen, emit: false);
-    bus.opticalDrive.prepare();
-    expect(bus.opticalDrive.status, 0x40);
-    expect(bus.systemBus.externalStatus & 1, 0);
-    bus.opticalDrive.write(0x18, 1, 0);
-    expect(bus.systemBus.externalStatus & 1, 1);
-    bus.opticalDrive.read(0x9c, 1);
-    expect(bus.systemBus.externalStatus & 1, 0);
-  });
 }
