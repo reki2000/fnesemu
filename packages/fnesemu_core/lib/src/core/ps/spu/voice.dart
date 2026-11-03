@@ -1,5 +1,7 @@
+import '../../../components/spu/adpcm.dart';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../state.dart';
 import 'spu.dart';
 
 part 'adpcm.dart';
@@ -44,6 +46,21 @@ class Envelope {
   }
 
   factory Envelope.none() => Envelope(false, 0, 0, false, false, false, 0);
+
+  void saveState(StateWriter w) {
+    w.ints([step, shift, couterDecrement, counter]);
+    for (final b in [enabled, exponential, decreasing, negativePhase]) {
+      w.boolean(b);
+    }
+  }
+
+  /// Reads an envelope saved by [saveState] as a new envelope, because the defining fields of an envelope are final.
+  static Envelope restore(StateReader s) {
+    final v = s.fields(4, 'ps spu envelope');
+    final flags = [for (var i = 0; i < 4; i++) s.boolean()];
+    return Envelope(flags[0], v[0], v[1], flags[1], flags[2], flags[3], v[2])
+      ..counter = v[3];
+  }
 
   int apply(int current) {
     if (!enabled) return current;
@@ -176,7 +193,7 @@ class Voice {
     final i = _blockIndex + blockOldSize;
     final val = noise
         ? spu.noiseLevel.rel16
-        : gaussian(_block[i], _block[i - 1], _block[i - 2], _block[i - 3],
+        : spuGaussian(_block[i], _block[i - 1], _block[i - 2], _block[i - 3],
             _counter.shr4.mask8);
 
     adsrVolume = envelope.apply(adsrVolume);
@@ -233,6 +250,50 @@ class Voice {
 
     // _log.debugc(() =>
     //     "keyOff ch:$no addr:${startAddr.x6} pitch:${pitch.x6} vol:${_volReg[0].x4},${_volReg[1].x4} e:${adsr.x8}");
+  }
+
+  void saveState(StateWriter w) {
+    w.ints([
+      adsr, adsrVolume, sustainLevel, _adsrPhase, startAddr, _repeatAddr, //
+      pitch, _addr, _blockIndex, _counter, logCounter, outLeft, outRight, outSample,
+    ]);
+    w.ints(_volReg);
+    w.ints(_vol);
+    w.ints(_block);
+    for (final b in [noise, pitchModulation, _repeatAddrSet, endx]) {
+      w.boolean(b);
+    }
+    envelope.saveState(w);
+    _volSweep[0].saveState(w);
+    _volSweep[1].saveState(w);
+  }
+
+  void loadState(StateReader s) {
+    final v = s.fields(14, 'ps spu voice');
+    adsr = v[0];
+    adsrVolume = v[1];
+    sustainLevel = v[2];
+    _adsrPhase = v[3];
+    startAddr = v[4];
+    _repeatAddr = v[5];
+    pitch = v[6];
+    _addr = v[7];
+    _blockIndex = v[8];
+    _counter = v[9];
+    logCounter = v[10];
+    outLeft = v[11];
+    outRight = v[12];
+    outSample = v[13];
+    s.intsInto(_volReg);
+    s.intsInto(_vol);
+    s.intsInto(_block);
+    noise = s.boolean();
+    pitchModulation = s.boolean();
+    _repeatAddrSet = s.boolean();
+    endx = s.boolean();
+    envelope = Envelope.restore(s);
+    _volSweep[0] = Envelope.restore(s);
+    _volSweep[1] = Envelope.restore(s);
   }
 
   String dump() => "${no.d2}${endx ? "E" : "R"}:"

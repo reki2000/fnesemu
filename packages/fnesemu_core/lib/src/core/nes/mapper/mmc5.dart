@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'mapper.dart';
 import 'mirror.dart';
@@ -113,6 +114,68 @@ class MapperMmc5 extends Mapper {
     _tileCol = 0;
     mirror(Mirror.external);
     holdIrq(false);
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('mmc5');
+    w.ints([
+      _prgMode, _chrMode, _ramProtect1, _ramProtect2, _exMode, _ntMap, //
+      _fillTile, _fillColor, _chrHi, _splitCtl, _splitScrollY, _splitBank, //
+      _irqCompare, _mulA, _mulB, _scanline, _lastNtAddr, _sameNtCount, //
+      _tileCol, _curCol, _exByte
+    ]);
+    w.ints(_prgReg);
+    w.ints(_chrA);
+    w.ints(_chrB);
+    for (final b in [
+      _lastChrIsB, _irqEnabled, _irqPending, _inFrame, _detectedInLine, _splitTile
+    ]) {
+      w.boolean(b);
+    }
+    w.bytes(_ciram);
+    w.bytes(_exram);
+    _apu.saveState(w);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('mmc5');
+    final v = s.ints();
+    if (v.length != 21) throw const StateMismatch('mmc5 state layout');
+    _prgMode = v[0];
+    _chrMode = v[1];
+    _ramProtect1 = v[2];
+    _ramProtect2 = v[3];
+    _exMode = v[4];
+    _ntMap = v[5];
+    _fillTile = v[6];
+    _fillColor = v[7];
+    _chrHi = v[8];
+    _splitCtl = v[9];
+    _splitScrollY = v[10];
+    _splitBank = v[11];
+    _irqCompare = v[12];
+    _mulA = v[13];
+    _mulB = v[14];
+    _scanline = v[15];
+    _lastNtAddr = v[16];
+    _sameNtCount = v[17];
+    _tileCol = v[18];
+    _curCol = v[19];
+    _exByte = v[20];
+    s.intsInto(_prgReg);
+    s.intsInto(_chrA);
+    s.intsInto(_chrB);
+    _lastChrIsB = s.boolean();
+    _irqEnabled = s.boolean();
+    _irqPending = s.boolean();
+    _inFrame = s.boolean();
+    _detectedInLine = s.boolean();
+    _splitTile = s.boolean();
+    s.bytesInto(_ciram);
+    s.bytesInto(_exram);
+    _apu.loadState(s);
   }
 
   // ---- cpu side ----------------------------------------------------------

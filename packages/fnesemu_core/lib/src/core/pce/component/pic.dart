@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'bus.dart';
 import 'cpu.dart';
 
@@ -25,6 +26,28 @@ class Pic {
     maskIrq2 = false;
     maskTIrq = false;
     _syncInterrupts();
+  }
+
+  /// Saves the pending interrupt lines and the mask register.
+  void saveState(StateWriter w) {
+    w.section('pce-pic');
+    w.boolean(_holdIrq1);
+    w.boolean(_holdIrq2);
+    w.boolean(_holdTirq);
+    w.boolean(maskIrq1);
+    w.boolean(maskIrq2);
+    w.boolean(maskTIrq);
+  }
+
+  /// Restores the state written by [saveState]; the CPU interrupt holds saved in the CPU state take precedence, so no resync is done here.
+  void loadState(StateReader s) {
+    s.section('pce-pic');
+    _holdIrq1 = s.boolean();
+    _holdIrq2 = s.boolean();
+    _holdTirq = s.boolean();
+    maskIrq1 = s.boolean();
+    maskIrq2 = s.boolean();
+    maskTIrq = s.boolean();
   }
 
   set mask(int data) {

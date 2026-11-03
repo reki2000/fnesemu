@@ -7,6 +7,76 @@ import 'cpu.dart';
 extension Cpu65c02 on Cpu {
   bool exec65c02(int op) {
     switch (op) {
+      // LDA (zero page indirect)
+      case 0xb2:
+        regs.a = readAddressing(op);
+        cycle += 2;
+        flagsNZ(regs.a);
+        break;
+
+      // STA (zero page indirect)
+      case 0x92:
+        write(address(op, st: true), regs.a);
+        cycle += 2;
+        break;
+
+      // ADC (zero page indirect): the arithmetic lives in the shared engine
+      case 0x72:
+        execAdc(op);
+        break;
+
+      // SBC (zero page indirect)
+      case 0xf2:
+        execSbc(op);
+        break;
+
+      // CMP (zero page indirect)
+      case 0xd2:
+        final cmp = regs.a - readAddressing(op);
+        cycle += 2;
+        flags(cmp, sub: true);
+        break;
+
+      // AND (zero page indirect)
+      case 0x32:
+        execAnd(op);
+        break;
+
+      // EOR (zero page indirect)
+      case 0x52:
+        execEor(op);
+        break;
+
+      // ORA (zero page indirect)
+      case 0x12:
+        execOra(op);
+        break;
+
+      // BIT zero page X, absolute X and immediate forms
+      case 0x34:
+      case 0x3c:
+      case 0x89:
+        final dst = switch (op) {
+          0x3c => read(absoluteXY(regs.x)),
+          0x34 => read(zeropageXY(regs.x)),
+          0x89 => immediate(),
+          _ => 0, // never reach
+        };
+        regs.p = (dst & 0xc0) |
+            ((dst & regs.a == 0) ? Flags.Z : 0) |
+            (regs.p & 0x3d);
+        cycle += 2;
+        break;
+
+      // JMP (indirect) and (absolute, X): the CMOS forms read the high byte
+      // from the next linear address, without the NMOS page wrap bug
+      case 0x6c:
+      case 0x7c:
+        final addr = absolute() + (op == 0x7c ? regs.x : 0);
+        regs.pc = read(addr) | (read((addr + 1).mask16).shl8);
+        cycle += 3;
+        break;
+
       // BRA
       case 0x80:
         branch(true);

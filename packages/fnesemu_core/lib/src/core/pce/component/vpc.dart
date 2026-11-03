@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 
 import 'vdc.dart';
 import 'vdc_render.dart'; // rgba (512-entry VCE->RGBA table)
@@ -46,6 +47,26 @@ class Vpc {
     window2 = 0;
     vdcSelect = 0;
     frameBuffer = Uint32List(0);
+  }
+
+  /// Saves the priority and window registers and the ST port select; the frame buffer and the converted palette are rebuilt by [render].
+  void saveState(StateWriter w) {
+    w.section('pce-vpc');
+    w.ints([priority0, priority1, window1, window2, vdcSelect]);
+    w.boolean(enabled);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-vpc');
+    final v = s.ints();
+    if (v.length != 5) throw const StateMismatch('vpc state layout');
+    priority0 = v[0];
+    priority1 = v[1];
+    window1 = v[2];
+    window2 = v[3];
+    vdcSelect = v[4];
+    enabled = s.boolean();
   }
 
   int read(int reg) {

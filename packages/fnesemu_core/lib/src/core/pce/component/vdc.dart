@@ -2,6 +2,7 @@
 import 'dart:typed_data';
 
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'bus.dart';
 import 'vdc_render.dart';
 
@@ -473,6 +474,157 @@ class Vdc {
         }
         break;
       }
+    }
+  }
+
+  // Packs 16-bit words as little-endian byte pairs, the state form of VRAM and the index buffer.
+  static Uint8List _pack16(List<int> words) {
+    final out = Uint8List(words.length * 2);
+    for (var i = 0; i < words.length; i++) {
+      out[i * 2] = words[i].mask8;
+      out[i * 2 + 1] = words[i].shr8.mask8;
+    }
+    return out;
+  }
+
+  static void _unpack16(Uint8List bytes, List<int> into) {
+    if (bytes.length != into.length * 2) {
+      throw const StateMismatch('vdc word array size');
+    }
+    for (var i = 0; i < into.length; i++) {
+      into[i] = bytes[i * 2] | bytes[i * 2 + 1].shl8;
+    }
+  }
+
+  /// Saves the registers, VRAM, the sprite attribute table and its decoded sprites, the DMA state and the renderer state; the shared VCE colour table contents are saved by the core, only its address is per-VDC state here.
+  void saveState(StateWriter w) {
+    w.section('pce-vdc');
+    w.ints([
+      scanLine, scanX, hSize, pendingHSize, hdrWidth, vSize, reg, readLatch, //
+      mawr, marr, addrInc, scrollX, scrollY, writeLatch, status, //
+      rasterCompareRegister, controlRegister, bgWidthBits, bgHeightBits, //
+      bgWidthMask, bgHeightMask, bgScrollMaskX, bgScrollMaskY, vramDotWidth, //
+      colorTableAddress, dmaSrc, dmaSrcDir, dmaDst, dmaDstDir, dmaLen, //
+      dmaSrcSatb, bgRenderLine, displayLine, paletteNo, pattern01, pattern23, //
+      spriteBufIndex
+    ]);
+    for (final b in [
+      enableBg, enableSprite, enableVBlank, enableRasterCompareIrq, //
+      enalbeSpriteCollision, enableSpriteOverflow, irqPending, //
+      bgTreatPlane23Zero, dma, enableDmaVramIrq, enableDmaSatIrq, dmaSatb, //
+      dmaSatbAlways
+    ]) {
+      w.boolean(b);
+    }
+    w.bytes(_pack16(vram));
+    w.ints(sat);
+    w.bytes(_pack16(indexBuffer));
+    w.ints(spriteLine);
+    w.ints(spritePixels);
+    for (final enabled in renderedSpriteEnabled) {
+      w.int32(enabled == null ? -1 : enabled ? 1 : 0);
+    }
+    for (final flag in sprite0) {
+      w.boolean(flag);
+    }
+    for (final sprite in sprites) {
+      w.ints([sprite.p0, sprite.p1, sprite.p2, sprite.p3, sprite.fetchedX2]);
+    }
+    w.ints([
+      for (var i = 0; i < spriteBufIndex; i++)
+        sprites.indexWhere((sprite) => identical(sprite, spriteBuf[i]))
+    ]);
+  }
+
+  /// Restores the state written by [saveState]; the decoded sprites are rebuilt from the restored attribute table before their fetch state and the line buffer selection are applied.
+  void loadState(StateReader s) {
+    s.section('pce-vdc');
+    final v = s.ints();
+    if (v.length != 37) throw const StateMismatch('vdc state layout');
+    scanLine = v[0];
+    scanX = v[1];
+    hSize = v[2];
+    pendingHSize = v[3];
+    hdrWidth = v[4];
+    vSize = v[5];
+    reg = v[6];
+    readLatch = v[7];
+    mawr = v[8];
+    marr = v[9];
+    addrInc = v[10];
+    scrollX = v[11];
+    scrollY = v[12];
+    writeLatch = v[13];
+    status = v[14];
+    rasterCompareRegister = v[15];
+    controlRegister = v[16];
+    bgWidthBits = v[17];
+    bgHeightBits = v[18];
+    bgWidthMask = v[19];
+    bgHeightMask = v[20];
+    bgScrollMaskX = v[21];
+    bgScrollMaskY = v[22];
+    vramDotWidth = v[23];
+    colorTableAddress = v[24];
+    dmaSrc = v[25];
+    dmaSrcDir = v[26];
+    dmaDst = v[27];
+    dmaDstDir = v[28];
+    dmaLen = v[29];
+    dmaSrcSatb = v[30];
+    bgRenderLine = v[31];
+    displayLine = v[32];
+    paletteNo = v[33];
+    pattern01 = v[34];
+    pattern23 = v[35];
+    spriteBufIndex = v[36];
+    enableBg = s.boolean();
+    enableSprite = s.boolean();
+    enableVBlank = s.boolean();
+    enableRasterCompareIrq = s.boolean();
+    enalbeSpriteCollision = s.boolean();
+    enableSpriteOverflow = s.boolean();
+    irqPending = s.boolean();
+    bgTreatPlane23Zero = s.boolean();
+    dma = s.boolean();
+    enableDmaVramIrq = s.boolean();
+    enableDmaSatIrq = s.boolean();
+    dmaSatb = s.boolean();
+    dmaSatbAlways = s.boolean();
+    _unpack16(s.bytes(), vram);
+    s.intsInto(sat);
+    final packed = s.bytes();
+    if (packed.length.isOdd) throw const StateMismatch('vdc index size');
+    indexBuffer = Uint16List(packed.length ~/ 2);
+    _unpack16(packed, indexBuffer);
+    s.intsInto(spriteLine);
+    s.intsInto(spritePixels);
+    for (var i = 0; i < renderedSpriteEnabled.length; i++) {
+      final enabled = s.int32();
+      renderedSpriteEnabled[i] = enabled < 0 ? null : enabled != 0;
+    }
+    for (var i = 0; i < sprite0.length; i++) {
+      sprite0[i] = s.boolean();
+    }
+    fetchSatb();
+    for (final sprite in sprites) {
+      final f = s.ints();
+      if (f.length != 5) throw const StateMismatch('vdc sprite layout');
+      sprite.p0 = f[0];
+      sprite.p1 = f[1];
+      sprite.p2 = f[2];
+      sprite.p3 = f[3];
+      sprite.fetchedX2 = f[4];
+    }
+    final buffered = s.ints();
+    if (buffered.length != spriteBufIndex) {
+      throw const StateMismatch('vdc sprite buffer layout');
+    }
+    for (var i = 0; i < buffered.length; i++) {
+      if (buffered[i] < 0 || buffered[i] >= sprites.length) {
+        throw const StateMismatch('vdc sprite buffer index');
+      }
+      spriteBuf[i] = sprites[buffered[i]];
     }
   }
 }

@@ -1,4 +1,5 @@
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'mapper.dart';
 import 'mirror.dart';
 
@@ -22,6 +23,25 @@ class MapperVrc1 extends Mapper {
   @override
   void init() {
     _prgBank[3] = prgRoms.length - 1;
+  }
+
+  @override
+  void saveMapperState(StateWriter w) {
+    w.section('vrc1');
+    w.ints(_chrBank);
+    w.ints([_chrBit0, _chrBit1]);
+    w.ints(_prgBank);
+  }
+
+  @override
+  void loadMapperState(StateReader s) {
+    s.section('vrc1');
+    s.intsInto(_chrBank);
+    final v = s.ints();
+    if (v.length != 2) throw const StateMismatch('vrc1 state layout');
+    _chrBit0 = v[0];
+    _chrBit1 = v[1];
+    s.intsInto(_prgBank);
   }
 
   @override

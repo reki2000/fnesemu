@@ -5,6 +5,7 @@ import '../../pad_button.dart';
 import '../../pad_source.dart';
 import '../../util/int.dart';
 import 'serial.dart' show SioResponse, SioDevice;
+import 'state.dart';
 
 // final _log = DebugLog('ps.pad');
 
@@ -223,6 +224,27 @@ class Pad extends SioDevice {
     } else if (_command == 0x44 && configMode) {
       analogMode = txData == 1;
     }
+  }
+
+  @override
+  void saveState(StateWriter w) {
+    w.section('ps-pad');
+    w.ints([padStep, _command, _replyPos]);
+    w.boolean(analogMode);
+    w.boolean(configMode);
+    w.bytes(_reply);
+  }
+
+  @override
+  void loadState(StateReader s) {
+    s.section('ps-pad');
+    final v = s.fields(3, 'ps pad');
+    padStep = v[0];
+    _command = v[1];
+    _replyPos = v[2];
+    analogMode = s.boolean();
+    configMode = s.boolean();
+    _reply = Uint8List.fromList(s.bytes());
   }
 
   @override

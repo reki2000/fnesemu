@@ -1,35 +1,21 @@
 import 'dart:core';
 import 'dart:typed_data';
 
+import '../../../components/6502/cpu6502.dart';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'bus.dart';
 import 'cpu_6280.dart';
-import 'cpu_6502.dart';
 import 'cpu_65c02.dart';
 
 final _log = DebugLog('pce.cpu');
 
-class Regs {
-  int a = 0;
-  int x = 0;
-  int y = 0;
-  int s = 0;
-  int p = 0;
-  int pc = 0;
+typedef Flags = Cpu6502Flags;
+
+class Regs extends Cpu6502Regs {
   List<int> mpr = List<int>.filled(8, 0);
   final mprAddress = Int32List(8); // mpr << 13
-}
-
-class Flags {
-  static const C = 0x01;
-  static const Z = 0x02;
-  static const I = 0x04;
-  static const D = 0x08;
-  static const B = 0x10;
-  static const T = 0x20;
-  static const V = 0x40;
-  static const N = 0x80;
 }
 
 class Cpu2 extends Cpu {
@@ -67,18 +53,41 @@ enum Interrupt {
   nmi,
 }
 
-class Cpu {
+/// The Hudson HuC6280 variant layer over the shared 6502 engine. This layer
+/// enables the engine's decimal mode and T flag hooks, drops the page cross
+/// penalties, and wires the engine to the PCE bus through the MPR memory
+/// paging: every engine access is a logical address that this layer
+/// translates, and the zero page and stack bases place them in the paged
+/// work ram page. The 65C02 additions live in cpu_65c02.dart and the
+/// HuC6280 only instructions, including the block transfers that run through
+/// this paging, live in cpu_6280.dart.
+class Cpu extends Cpu6502<Regs> {
   final Bus bus;
 
-  Cpu(this.bus);
+  Cpu(this.bus) : super(Regs());
 
-  final regs = Regs();
+  @override
+  bool get decimalEnabled => true;
+
+  @override
+  bool get supportsTFlag => true;
+
+  @override
+  bool get pageCrossPenalty => false;
+
+  @override
+  bool get zeroPageIndirect => true;
+
+  @override
+  int get zeroPageBase => Cpu.zeroAddr;
+
+  @override
+  int get stackBase => Cpu.stackAddr;
 
   bool isHighSpeed = false;
   static const highSpeedClockPerCycle = 3;
   static const lowSpeedClockPerCycle = 12;
 
-  int cycle = 0;
   int clock = 0;
 
   int cycles = 0;
@@ -89,23 +98,22 @@ class Cpu {
 
   bool tFlagOn = false;
 
+  @override
   @pragma('vm:prefer-inline')
   int read(int addr) =>
       bus.read(regs.mprAddress[addr.shr13.mask3] | addr.mask13);
 
-  int readzp(int addr, {int cycle = 0}) {
-    this.cycle += cycle;
-    return bus.read(regs.mprAddress[1] | addr.mask8);
-  }
+  int readzp(int addr, {int cycle = 0}) => readZeroPage(addr, cycle: cycle);
 
   int readsp(int addr) => bus.read(regs.mprAddress[1] | 0x100 | addr.mask8);
 
+  @override
   void write(int addr, int data) {
-    // if (data >= 256) {
-    //   _log.debugc(() => "cpu.write: data over 8bit: $data, regs: ${regs.pc.x4}\n");
-    // }
     bus.write(regs.mprAddress[(addr & 0xe000).shr13] | addr.mask13, data);
   }
+
+  @override
+  int statusForPhp() => (regs.p | Flags.B) & ~Flags.T;
 
   // the interrupt mask register is written in the last cycle of the store
   // instruction, so an interrupt unmasked by it is entered only after the next
@@ -197,6 +205,46 @@ class Cpu {
   bool holdIrq2 = false;
   bool holdTirq = false;
 
+  /// Saves the shared 6502 state, the MPR paging registers and this layer's speed, clock and interrupt state; the MPR address cache is derived from the MPR values and is rebuilt on load.
+  @override
+  void saveState(StateWriter w) {
+    super.saveState(w);
+    w.section('pce-cpu');
+    w.ints(regs.mpr);
+    w.ints([clock, cycles, clocks]);
+    w.boolean(isHighSpeed);
+    w.boolean(tFlagOn);
+    w.boolean(_irqInhibitOnce);
+    w.boolean(holdNmi);
+    w.boolean(holdIrq1);
+    w.boolean(holdIrq2);
+    w.boolean(holdTirq);
+  }
+
+  /// Restores the state written by [saveState].
+  @override
+  void loadState(StateReader s) {
+    super.loadState(s);
+    s.section('pce-cpu');
+    s.intsInto(regs.mpr);
+    for (var i = 0; i < 8; i++) {
+      regs.mprAddress[i] = regs.mpr[i].shl13;
+    }
+    final v = s.ints();
+    if (v.length != 3) throw const StateMismatch('pce cpu state layout');
+    clock = v[0];
+    cycles = v[1];
+    clocks = v[2];
+    isHighSpeed = s.boolean();
+    tFlagOn = s.boolean();
+    _irqInhibitOnce = s.boolean();
+    holdNmi = s.boolean();
+    holdIrq1 = s.boolean();
+    holdIrq2 = s.boolean();
+    holdTirq = s.boolean();
+  }
+
+  @override
   void interrupt(
       {bool brk = false,
       bool nmi = false,
@@ -231,6 +279,7 @@ class Cpu {
   }
 
   /// PLP and RTI: the B flag is not kept, and a pulled T flag stays set for the next instruction.
+  @override
   void pullFlags(int p) {
     regs.p = p & ~Flags.B;
     tFlagOn = p & Flags.T != 0;
@@ -267,125 +316,4 @@ class Cpu {
     regs.pc = read(addr) | read(addr + 1).shl8;
   }
 
-  // common operations
-
-  void push(int val) {
-    write(regs.s | stackAddr, val);
-    regs.s--;
-    regs.s &= 0xff;
-  }
-
-  int pop() {
-    regs.s++;
-    regs.s &= 0xff;
-    return readsp(regs.s);
-  }
-
-  @pragma('vm:prefer-inline')
-  int pc() {
-    final op = read(regs.pc);
-    regs.pc = (regs.pc + 1).mask16;
-    return op;
-  }
-
-  void branch(bool cond) {
-    final offset = (immediate() + 128).mask8 - 128;
-    if (cond) {
-      regs.pc = (regs.pc + offset).mask16;
-    }
-    cycle += 2;
-  }
-
-  void flagsV(int a, int b, int acm, {bool sub = false}) {
-    flags(acm, sub: sub);
-    final overflow = (((a ^ acm) & ((sub ? ~b : b) ^ acm)) & 0x80).shr1;
-    regs.p = (regs.p & ~Flags.V) | overflow;
-  }
-
-  void flags(int acm, {bool sub = false}) {
-    var carry = acm.bit8 ? Flags.C : 0;
-    if (sub) {
-      carry ^= Flags.C;
-    }
-    regs.p = (regs.p & ~Flags.C) | carry;
-    flagsNZ(acm);
-  }
-
-  void flagsNZ(int acm) {
-    final negative = acm.bit7 ? Flags.N : 0;
-    final zero = (acm.mask8 == 0) ? Flags.Z : 0;
-
-    regs.p = (regs.p & 0x7d) | Flags.T | negative | zero;
-  }
-
-  int carry() {
-    return regs.p & Flags.C;
-  }
-
-  bool isDecimal() {
-    return regs.p & Flags.D != 0;
-  }
-
-  int readAddressing(int op, {bool st = false}) => switch (op) {
-        0xa0 || 0xa2 || 0xc0 || 0xe0 => immediate(),
-        _ => switch (op & 0x1c) {
-            0x08 => immediate(),
-            0x04 => readzp(pc(), cycle: 1),
-            0x14 => readzp(pc() + regs.x, cycle: 2),
-            _ => read(address(op, st: st))
-          }
-      };
-
-  int address(int op, {bool st = false}) => switch (op & 0x1c) {
-        0x04 => zeropage(), // 001
-        0x14 => zeropageXY(regs.x), // 101
-        0x0c => absolute(), // 011
-        0x1c => absoluteXY(regs.x, st: st), // 111
-        0x18 => absoluteXY(regs.y, st: st), // 110
-        0x00 => indirectX(), // 000
-        0x10 => op.mask4 == 0x02 ? indirect() : indirectY(st: st), // 010
-        _ => 0, // _log.warnc(() => "unimplemented addressing mode: $op\n");
-      };
-
-  int immediate() => pc();
-
-  int zeropage() {
-    cycle += 1;
-    return pc() | zeroAddr;
-  }
-
-  int zeropageXY(int offset) {
-    cycle += 2;
-    return (pc() + offset).mask8 | zeroAddr;
-  }
-
-  int absolute() {
-    cycle += 2;
-    return pc() | pc().shl8;
-  }
-
-  int absoluteXY(int offset, {bool st = false}) {
-    cycle += 2;
-    final base = pc() | pc().shl8;
-    return (base + offset).mask16;
-  }
-
-  int indirect() {
-    cycle += 4;
-    final addr = pc();
-    return readzp(addr) | readzp(addr + 1).shl8;
-  }
-
-  int indirectX() {
-    cycle += 4;
-    final addr = pc() + regs.x;
-    return readzp(addr) | readzp(addr + 1).shl8;
-  }
-
-  int indirectY({bool st = false}) {
-    cycle += 3;
-    final addr = pc();
-    final base = readzp(addr) | readzp(addr + 1).shl8;
-    return (base + regs.y).mask16;
-  }
 }

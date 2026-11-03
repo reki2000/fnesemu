@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../../../cdrom.dart';
 import '../../../util/int.dart';
+import '../../../util/state.dart';
 import 'bus.dart';
 
 // Register-level CD interface.
@@ -48,6 +49,93 @@ class PceCdrom {
   final _latchedPcm = [0, 0];
 
   PceCdrom(this.bus);
+
+  /// Saves the SCSI phase and transfer state, the ADPCM decoder and RAM, and the CD audio playback position; the disc itself is external media bound by the core media hash.
+  void saveState(StateWriter w) {
+    w.section('pce-cdrom');
+    w.boolean(enabled);
+    w.boolean(backupEnabled);
+    w.int32(phase.index);
+    w.bytes(_ports);
+    w.ints(_command);
+    w.bytes(_data);
+    w.ints([
+      _dataIndex, _status, _sense, _senseCode, _readLba, _remaining, //
+      _readClocks, _dmaClocks, _address, _readAddress, _writeAddress, //
+      _length, _adpcmControl, _frequency, _nibble, _stepIndex, _sample, //
+      _readBuffer, _readPending, _audioStart, _audioEnd, _audioLba, //
+      _audioOffset, _audioMode, _fade
+    ]);
+    w.boolean(_ack);
+    w.boolean(_request);
+    w.boolean(_adpcmPlaying);
+    w.boolean(_adpcmEnd);
+    w.boolean(_audioPlaying);
+    w.boolean(_audioPaused);
+    w.bytes(adpcmRam);
+    w.bytes(_audioSector);
+    w.float64(_adpcmFraction);
+    w.float64(_audioFraction);
+    w.float64(_cdVolume);
+    w.float64(_adpcmVolume);
+    w.ints(_pcm);
+    w.ints(_latchedPcm);
+  }
+
+  /// Restores the state written by [saveState].
+  void loadState(StateReader s) {
+    s.section('pce-cdrom');
+    enabled = s.boolean();
+    backupEnabled = s.boolean();
+    phase = CdPhase.values[s.int32()];
+    s.bytesInto(_ports);
+    final command = s.ints();
+    _data = s.bytes();
+    final v = s.ints();
+    if (v.length != 25) throw const StateMismatch('cdrom state layout');
+    _dataIndex = v[0];
+    _status = v[1];
+    _sense = v[2];
+    _senseCode = v[3];
+    _readLba = v[4];
+    _remaining = v[5];
+    _readClocks = v[6];
+    _dmaClocks = v[7];
+    _address = v[8];
+    _readAddress = v[9];
+    _writeAddress = v[10];
+    _length = v[11];
+    _adpcmControl = v[12];
+    _frequency = v[13];
+    _nibble = v[14];
+    _stepIndex = v[15];
+    _sample = v[16];
+    _readBuffer = v[17];
+    _readPending = v[18];
+    _audioStart = v[19];
+    _audioEnd = v[20];
+    _audioLba = v[21];
+    _audioOffset = v[22];
+    _audioMode = v[23];
+    _fade = v[24];
+    _ack = s.boolean();
+    _request = s.boolean();
+    _adpcmPlaying = s.boolean();
+    _adpcmEnd = s.boolean();
+    _audioPlaying = s.boolean();
+    _audioPaused = s.boolean();
+    s.bytesInto(adpcmRam);
+    _audioSector = s.bytes();
+    _adpcmFraction = s.float64();
+    _audioFraction = s.float64();
+    _cdVolume = s.float64();
+    _adpcmVolume = s.float64();
+    s.intsInto(_pcm);
+    s.intsInto(_latchedPcm);
+    _command
+      ..clear()
+      ..addAll(command);
+  }
 
   void setDisc(CdromDrive value) {
     disc = value;

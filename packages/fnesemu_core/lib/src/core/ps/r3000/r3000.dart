@@ -2,15 +2,16 @@ import 'dart:typed_data';
 
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
+import '../../../components/r3000/bus.dart';
+import '../../../components/r3000/coprocessor.dart';
+import '../../../components/r3000/r3000.dart';
 import '../../../util/debug.dart';
 import '../../../util/int.dart';
 import '../../../util/uint8list.dart';
 import '../log.dart';
-import 'exception.dart';
+import '../state.dart';
 
-part 'alu.dart';
 part 'bios.dart';
-part 'cop0.dart';
 part 'cop2.dart';
 part 'cop2_command.dart';
 part 'cop2_math.dart';
@@ -18,54 +19,42 @@ part 'hook.dart';
 
 final _log = DebugLog('ps.r3000');
 
-/// A simple bus interface for MIPS memory accesses.
-abstract class BusR3000 {
-  int read8(int addr);
-  int read16(int addr);
-  int read32(int addr);
-  void write8(int addr, int value);
-  void write16(int addr, int value);
-  void write32(int addr, int value);
-}
+/// The bus interface of the PS CPU, the shared R3000 bus under its established name.
+typedef BusR3000 = R3000Bus;
 
 typedef RegNo = int;
 
-/// A minimal MIPS R3000 emulator in Dart.
-class R3000 {
-  final BusR3000 bus;
+/// The PS embedding of the shared R3000 core: the GTE on COP2, the COP0 registers as individual fields over the shared COP0 storage, the BIOS call hooks and the two-clocks-per-instruction step cycle.
+class R3000 extends R3000Core {
   JitExecutionStats? executionStats;
+
+  @override
   late final Cop2 cop2;
 
   /// [regs] places the registers in memory shared with a recompiler
-  R3000(this.bus, {Uint32List? regs}) : r = regs ?? Uint32List(32) {
+  R3000(super.bus, {super.regs}) {
     cop2 = Cop2(this);
   }
 
-  /// 32 general-purpose registers. Note: r0 is always 0.
-  final Uint32List r;
+  /// The COP0 status register.
+  int get sr => cop0[R3000Core.cop0Status];
+  set sr(int value) => cop0[R3000Core.cop0Status] = value;
 
-  int pc = 0; // the PC (actually the next instruction during execution)
-  int nextPc = 0; // the PC to be executed next, reflects branch delay slot
-  int instPc = 0; // the PC of the current instruction
+  /// The COP0 cause register.
+  int get cause => cop0[R3000Core.cop0Cause];
+  set cause(int value) => cop0[R3000Core.cop0Cause] = value;
 
-  /// HI and LO registers (used by multiply/divide instructions).
-  int hi = 0, lo = 0;
+  /// The COP0 exception program counter.
+  int get epc => cop0[R3000Core.cop0Epc];
+  set epc(int value) => cop0[R3000Core.cop0Epc] = value;
 
-  /// COP0 registers.
-  int sr = 0, cause = 0, epc = 0, badvaddr = 0, tar = 0;
+  /// The COP0 bad virtual address register.
+  int get badvaddr => cop0[R3000Core.cop0BadVAddr];
+  set badvaddr(int value) => cop0[R3000Core.cop0BadVAddr] = value;
 
-  /// A simple clock counter.
-  int clocks = 0;
-
-  //  slots to handle delay
-  int nextDelayReg = 0, nextDelayVal = 0;
-  int delayReg = 0, delayVal = 0;
-  int immediateReg = 0, immediateVal = 0;
-  bool inBranchTaken = false;
-  bool inBranchDelay = false;
-  // the current instruction is in the delay slot of a branch (taken or not)
-  bool inDelaySlot = false;
-  bool delaySlotTaken = false;
+  /// The COP0 target register.
+  int get tar => cop0[6];
+  set tar(int value) => cop0[6] = value;
 
   // bios putchar() hacking
   final console = StringBuffer();
@@ -76,6 +65,73 @@ class R3000 {
 
   // ps-exe bianry to be sideloaded
   Uint8List exe = Uint8List(0);
+
+  @override
+  bool linksRegimm(int rt) => rt == 0x10 || rt == 0x11;
+
+  @override
+  bool cop0CommandApplies(int rs) => rs >= 0x10;
+
+  @override
+  void recordMemory(int addr, int size, {bool write = false, bool fetch = false}) =>
+      executionStats?.recordMemory(addr, size, write: write, fetch: fetch);
+
+  @override
+  int readCop0(int reg) {
+    return switch (reg) {
+      6 => tar,
+      8 => badvaddr,
+      12 => sr,
+      13 => cause,
+      14 => epc,
+      15 => 0x00000002,
+      _ => 0,
+    };
+  }
+
+  @override
+  void writeCop0(int reg, int value) {
+    switch (reg) {
+      case 6:
+        tar = value;
+      case 8:
+        badvaddr = value;
+      case 12:
+        // _log.debugc(() => "sr <- ${value.x8}");
+        sr = value;
+      case 13:
+        cause = cause.masked(0x300, value);
+      case 14:
+        epc = value;
+    }
+  }
+
+  @override
+  void exception(int excode, {int coprocessor = 0, int? badvaddr}) {
+    sr = sr.masked(0x3f,
+        sr.shl2); // save old mode, ie bit0-1, and set new mode to kernel (0x00)
+
+    cause &= 0xff00; // clear, keep bit8-15 (IM)
+    cause |= excode.shl2;
+
+    if (badvaddr != null) {
+      this.badvaddr = badvaddr;
+    }
+
+    if (inDelaySlot) {
+      epc = instPc.dec4.mask32;
+      cause |= 0x80000000.setBit(30, delaySlotTaken);
+      tar = pc;
+    } else {
+      epc = instPc;
+    }
+
+    pc = sr.bit22 ? 0xbfc00180 : 0x80000080; // bit22: BEV
+    nextPc = pc.inc4;
+
+    // _log.debugc(() =>
+    //     "exception  excode:${excode.x2} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
+  }
 
   void reset() {
     pc = 0xbfc00000;
@@ -107,55 +163,46 @@ class R3000 {
     cop2.reset();
   }
 
-  bool get _cacheIsolated => sr.bit16;
-
-  int read8(int addr) {
-    executionStats?.recordMemory(addr.mask32, 1);
-    return bus.read8(addr.mask32).mask8;
+  void saveState(StateWriter w) {
+    w.section('ps-cpu');
+    w.typed(r);
+    w.typed(cop0);
+    w.ints([
+      pc, nextPc, instPc, hi, lo, clocks, nextDelayReg, nextDelayVal, //
+      delayReg, delayVal, immediateReg, immediateVal,
+    ]);
+    for (final b in [inBranchTaken, inBranchDelay, inDelaySlot, delaySlotTaken]) {
+      w.boolean(b);
+    }
+    w.string(console.toString());
+    cop2.saveState(w);
   }
 
-  // int read16(int addr) => (addr & 0x01 != 0)
-  //     ? throw ReadMisalignException(addr)
-  //     : bus.read16(addr & 0xfffffffe).mask16;
-  int read16(int addr) {
-    executionStats?.recordMemory(addr & 0xfffffffe, 2);
-    return bus.read16(addr & 0xfffffffe).mask16;
-  }
-
-  // int read32(int addr) => (addr & 0x03 != 0)
-  //     ? throw ReadMisalignException(addr)
-  //     : bus.read32(addr & 0xfffffffc);
-  int read32(int addr, {bool instruction = false}) {
-    executionStats?.recordMemory(addr & 0xfffffffc, 4, fetch: instruction);
-    return bus.read32(addr & 0xfffffffc);
-  }
-
-  void write8(int addr, int value) {
-    if (_cacheIsolated) return;
-    executionStats?.recordMemory(addr.mask32, 1, write: true);
-    bus.write8(addr.mask32, value.mask8);
-  }
-
-  // void write16(int addr, int value) => (addr & 0x01 != 0)
-  //     ? throw WriteMisalignException(addr)
-  //     : _cacheIsolated
-  //         ? 0
-  //         : bus.write16(addr & 0xfffffffe, value.mask16);
-  void write16(int addr, int value) {
-    if (_cacheIsolated) return;
-    executionStats?.recordMemory(addr & 0xfffffffe, 2, write: true);
-    bus.write16(addr & 0xfffffffe, value.mask16);
-  }
-
-  // void write32(int addr, int value) => (addr & 0x03 != 0)
-  //     ? throw WriteMisalignException(addr)
-  //     : _cacheIsolated
-  //         ? 0
-  //         : bus.write32(addr & 0xfffffffc, value.mask32);
-  void write32(int addr, int value) {
-    if (_cacheIsolated) return;
-    executionStats?.recordMemory(addr & 0xfffffffc, 4, write: true);
-    bus.write32(addr & 0xfffffffc, value.mask32);
+  void loadState(StateReader s) {
+    s.section('ps-cpu');
+    s.typed(r);
+    s.typed(cop0);
+    final v = s.fields(12, 'ps cpu');
+    pc = v[0];
+    nextPc = v[1];
+    instPc = v[2];
+    hi = v[3];
+    lo = v[4];
+    clocks = v[5];
+    nextDelayReg = v[6];
+    nextDelayVal = v[7];
+    delayReg = v[8];
+    delayVal = v[9];
+    immediateReg = v[10];
+    immediateVal = v[11];
+    inBranchTaken = s.boolean();
+    inBranchDelay = s.boolean();
+    inDelaySlot = s.boolean();
+    delaySlotTaken = s.boolean();
+    console
+      ..clear()
+      ..write(s.string());
+    cop2.loadState(s);
   }
 
   void setInterruptPending(bool onoff) =>
@@ -203,21 +250,9 @@ class R3000 {
         sr.bit0 &&
         read32(instPc, instruction: true).shr26 != 0x12) {
       // delay excaption if the current instruction is cop2
-      exception(Exception.interrupt);
+      exception(R3000Core.excInterrupt);
     } else {
-      // try {
       exec(read32(instPc, instruction: true));
-      // } catch (e) {
-      //   if (e is ReadMisalignException) {
-      //     exception(Exception.readalign, badvaddr: e.addr);
-      //   } else if (e is WriteMisalignException) {
-      //     exception(Exception.writeAlign, badvaddr: e.addr);
-      //   } else if (e is UnknownOpcodeException) {
-      //     exception(Exception.illegalInstruction);
-      //   } else {
-      //     rethrow;
-      //   }
-      // }
     }
 
     r[delayReg.mask5] = delayVal;
@@ -228,248 +263,6 @@ class R3000 {
     clocks += 2; // not accurate, but enough for now.
 
     return true;
-  }
-
-  /// raises Reserved Instruction exception instead of stopping the emulator
-  void _unknown(int inst32) => exception(Exception.illegalInstruction);
-
-  void delay(RegNo dst, int val) {
-    if (dst == delayReg) {
-      delayReg = 0;
-      delayVal = 0;
-    }
-    nextDelayReg = dst;
-    nextDelayVal = val;
-  }
-
-  void immediate(RegNo dst, int val) {
-    immediateReg = dst;
-    immediateVal = val;
-  }
-
-  void jump(int addr) {
-    inBranchTaken = true;
-    inBranchDelay = true;
-    nextPc = addr.mask32;
-  }
-
-  void exception(int excode, {int? badvaddr}) {
-    sr = sr.masked(0x3f,
-        sr.shl2); // save old mode, ie bit0-1, and set new mode to kernel (0x00)
-
-    cause &= 0xff00; // clear, keep bit8-15 (IM)
-    cause |= excode.shl2;
-
-    if (badvaddr != null) {
-      this.badvaddr = badvaddr;
-    }
-
-    if (inDelaySlot) {
-      epc = instPc.dec4.mask32;
-      cause |= 0x80000000.setBit(30, delaySlotTaken);
-      tar = pc;
-    } else {
-      epc = instPc;
-    }
-
-    pc = sr.bit22 ? 0xbfc00180 : 0x80000080; // bit22: BEV
-    nextPc = pc.inc4;
-
-    // _log.debugc(() =>
-    //     "exception  excode:${excode.x2} sr:${sr.x8} cause:${cause.x8} epc:${epc.x8}");
-  }
-
-  void branch(bool cond, int rel16) {
-    inBranchDelay = true;
-    if (cond) {
-      jump(pc + rel16.shl2);
-    }
-  }
-
-  /// Main instruction dispatch. Constant cases allow jump-table compilation.
-  /// rs/rt/rd are five-bit indices into the 32-entry register files. New
-  /// decoding paths must preserve those bounds under the unsafe pragma.
-  @pragma('vm:unsafe:no-bounds-checks')
-  void exec(int inst32) {
-    final r = this.r;
-    final rs = inst32.shr21.mask5;
-    final rt = inst32.shr16.mask5;
-
-    switch (inst32.shr26.mask6) {
-      case 0x00:
-        final rd = inst32.shr11.mask5;
-        switch (inst32.mask6) {
-          case 0x00: // sll
-            immediate(rd, (r[rt] << inst32.shr6.mask5).mask32);
-          case 0x02: // srl
-            immediate(rd, r[rt] >> inst32.shr6.mask5);
-          case 0x03: // sra
-            immediate(rd, (r[rt].rel32 >> inst32.shr6.mask5).mask32);
-          case 0x04: // sllv
-            immediate(rd, (r[rt] << r[rs].mask5).mask32);
-          case 0x06: // srlv
-            immediate(rd, r[rt] >> r[rs].mask5);
-          case 0x07: // srav
-            immediate(rd, (r[rt].rel32 >> r[rs].mask5).mask32);
-          case 0x08: // jr
-            jump(r[rs]);
-          case 0x09: // jalr
-            jal(true, rd, r[rs]);
-          case 0x0c:
-            exception(Exception.syscall);
-          case 0x0d:
-            exception(Exception.break_);
-          case 0x10: // mfhi
-            immediate(rd, hi);
-          case 0x11: // mthi
-            hi = r[rs];
-          case 0x12: // mflo
-            immediate(rd, lo);
-          case 0x13: // mtlo
-            lo = r[rs];
-          case 0x18:
-            mult(r[rs], r[rt]);
-          case 0x19:
-            multu(r[rs], r[rt]);
-          case 0x1a:
-            div(r[rs], r[rt]);
-          case 0x1b:
-            divu(r[rs], r[rt]);
-          case 0x20:
-            add(rd, r[rs], r[rt]);
-          case 0x21: // addu
-            immediate(rd, r[rs] + r[rt]);
-          case 0x22:
-            sub(rd, r[rs], r[rt]);
-          case 0x23: // subu
-            immediate(rd, r[rs] - r[rt]);
-          case 0x24: // and
-            immediate(rd, r[rs] & r[rt]);
-          case 0x25: // or
-            immediate(rd, r[rs] | r[rt]);
-          case 0x26: // xor
-            immediate(rd, r[rs] ^ r[rt]);
-          case 0x27: // nor
-            immediate(rd, ~(r[rs] | r[rt]));
-          case 0x2a: // slt
-            immediate(rd, r[rs].rel32 < r[rt].rel32 ? 1 : 0);
-          case 0x2b: // sltu
-            immediate(rd, r[rs] < r[rt] ? 1 : 0);
-          default:
-            _unknown(inst32);
-        }
-      case 0x01:
-        final rel = inst32.rel16;
-        switch (rt) {
-          case 0x10: // bltzal
-            jal(r[rs].rel32 < 0, 31, pc + rel.shl2);
-          case 0x11: // bgezal
-            jal(r[rs].rel32 >= 0, 31, pc + rel.shl2);
-          default:
-            if (!rt.bit0) {
-              branch(r[rs].rel32 < 0, rel); // bltz
-            } else {
-              branch(r[rs].rel32 >= 0, rel); // bgez
-            }
-        }
-      case 0x02: // j
-        jump(pc & 0xf0000000 | inst32.mask26.shl2);
-      case 0x03: // jal
-        jal(true, 31, pc & 0xf0000000 | inst32.mask26.shl2);
-      case 0x04: // beq
-        branch(r[rs] == r[rt], inst32.rel16);
-      case 0x05: // bne
-        branch(r[rs] != r[rt], inst32.rel16);
-      case 0x06: // blez
-        branch(r[rs].rel32 <= 0, inst32.rel16);
-      case 0x07: // bgtz
-        branch(r[rs].rel32 > 0, inst32.rel16);
-      case 0x08: // addi
-        add(rt, r[rs], inst32.rel16);
-      case 0x09: // addiu
-        immediate(rt, r[rs] + inst32.rel16.mask32);
-      case 0x0a: // slti
-        immediate(rt, r[rs].rel32 < inst32.rel16 ? 1 : 0);
-      case 0x0b: // sltiu
-        immediate(rt, r[rs] < inst32.rel16.mask32 ? 1 : 0);
-      case 0x0c: // andi
-        immediate(rt, r[rs] & inst32.mask16);
-      case 0x0d: // ori
-        immediate(rt, r[rs] | inst32.mask16);
-      case 0x0e: // xori
-        immediate(rt, r[rs] ^ inst32.mask16);
-      case 0x0f: // lui
-        immediate(rt, inst32.mask16.shl16);
-      case 0x10:
-        final rd = inst32.shr11.mask5;
-        if (rs >= 0x10) {
-          execCop0(inst32);
-        } else if (rs == 0x00) {
-          delay(rt, readCop0(rd)); // mfc0
-        } else if (rs == 0x04) {
-          writeCop0(rd, r[rt]); // mtc0
-        } else {
-          _unknown(inst32);
-        }
-      case 0x12:
-        final rd = inst32.shr11.mask5;
-        if (rs >= 0x10) {
-          cop2.execCmd(inst32);
-        } else {
-          switch (rs) {
-            case 0x00: // mfc2
-              delay(rt, cop2.readReg(rd));
-            case 0x02: // cfc2
-              delay(rt, cop2.readCtrl(rd));
-            case 0x04: // mtc2
-              cop2.writeReg(rd, r[rt]);
-            case 0x06: // ctc2
-              cop2.writeCtrl(rd, r[rt]);
-            default:
-              _unknown(inst32);
-          }
-        }
-      case 0x20: // lb
-        delay(rt, read8(r[rs] + inst32.rel16).rel8);
-      case 0x21: // lh
-        delay(rt, read16(r[rs] + inst32.rel16).rel16);
-      case 0x22: // lwl
-        delay(rt, lwl(r[rs] + inst32.rel16, rt == delayReg ? delayVal : r[rt]));
-      case 0x23: // lw
-        delay(rt, read32(r[rs] + inst32.rel16));
-      case 0x24: // lbu
-        delay(rt, read8(r[rs] + inst32.rel16));
-      case 0x25: // lhu
-        delay(rt, read16(r[rs] + inst32.rel16));
-      case 0x26: // lwr
-        delay(rt, lwr(r[rs] + inst32.rel16, rt == delayReg ? delayVal : r[rt]));
-      case 0x28: // sb
-        write8(r[rs] + inst32.rel16, r[rt]);
-      case 0x29: // sh
-        write16(r[rs] + inst32.rel16, r[rt]);
-      case 0x2a: // swl
-        swl(r[rs] + inst32.rel16, r[rt]);
-      case 0x2b: // sw
-        write32(r[rs] + inst32.rel16, r[rt]);
-      case 0x2e: // swr
-        swr(r[rs] + inst32.rel16, r[rt]);
-      case 0x32: // lwc2
-        cop2.writeReg(rt, read32(r[rs] + inst32.rel16));
-      case 0x3a: // swc2
-        write32(r[rs] + inst32.rel16, cop2.readReg(rt));
-      default:
-        _unknown(inst32);
-    }
-  }
-
-  void jal(bool cond, RegNo rd, int addr) {
-    immediate(rd, pc.inc4.mask32);
-    // The next instruction is in the delay slot even if not taken.
-    inBranchDelay = true;
-
-    if (cond) {
-      jump(addr);
-    }
   }
 
   String dump() {

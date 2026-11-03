@@ -8,6 +8,7 @@ import '../../sram.dart';
 import '../../types.dart';
 import '../../util/crc32.dart';
 import '../../util/int.dart';
+import '../../util/state.dart';
 import '../../util/uint8list.dart';
 import '../../video_debug.dart';
 import 'component/apu.dart';
@@ -163,7 +164,7 @@ class Nes extends Core {
   }
 
   @override
-  onAudio(void Function(AudioBuffer) onAudio) {
+  void onAudio(void Function(AudioBuffer) onAudio) {
     _onAudio = onAudio;
   }
 
@@ -245,6 +246,77 @@ class Nes extends Core {
 
   @override
   void dispose() {}
+
+  static const _stateVersion = 1;
+
+  // The media identity folds the ROM or disk CRC the loader computed, the disk system mode, the BIOS and the cartridge bank layout, so a state only loads on the same media and configuration.
+  int get _stateMedia {
+    var hash = stateMediaHash(crc.codeUnits);
+    hash = stateMediaHashAll(hash, [
+      diskSystem ? 1 : 0,
+      bus.mapper.prgRoms.length,
+      bus.mapper.chrRoms.length,
+      for (final bank in bus.mapper.prgRoms) bank.length,
+      for (final bank in bus.mapper.chrRoms) bank.length,
+    ]);
+    if (_bios != null) hash = stateMediaHashAll(hash, [stateMediaHash(_bios!)]);
+    final disk = _diskMapper;
+    if (disk != null) {
+      hash = stateMediaHashAll(hash, disk.sideOffsets);
+      hash = stateMediaHashAll(hash, disk.sideLengths);
+    }
+    return hash;
+  }
+
+  // The cartridge RAM behind the mapper callbacks: its size is the mapper default, which the loader also used for the battery-backed store.
+  int get _sramSize => bus.mapper.defaultSram().length;
+
+  @override
+  Uint8List saveState() {
+    final w = StateWriter('nes', _stateVersion, _stateMedia);
+    w.section('nes');
+    w.ints([_nextPpuCycle, _nextApuCycle]);
+    w.boolean(_flipDiskHeld);
+    cpu.saveState(w);
+    bus.saveState(w);
+    ppu.saveState(w);
+    apu.saveState(w);
+    bus.mapper.saveState(w);
+    if (!diskSystem) {
+      final mapper = bus.mapper;
+      w.bytes(List.generate(_sramSize, mapper.readSram));
+    }
+    return w.take();
+  }
+
+  /// The header, media and mapper type are validated before any component is applied; a failure after that leaves a partially restored core, so reset it before running again.
+  @override
+  void loadState(Uint8List state) {
+    final s = StateReader(state, 'nes', _stateVersion, _stateMedia);
+    s.section('nes');
+    final clocks = s.ints();
+    if (clocks.length != 2) throw const StateMismatch('nes state layout');
+    final flipDiskHeld = s.boolean();
+    cpu.loadState(s);
+    bus.loadState(s);
+    ppu.loadState(s);
+    apu.loadState(s);
+    bus.mapper.loadState(s);
+    if (!diskSystem) {
+      final data = s.bytes();
+      if (data.length != _sramSize) {
+        throw const StateMismatch('nes sram size');
+      }
+      final mapper = bus.mapper;
+      for (var i = 0; i < data.length; i++) {
+        mapper.writeSram(i, data[i]);
+      }
+    }
+    s.end();
+    _nextPpuCycle = clocks[0];
+    _nextApuCycle = clocks[1];
+    _flipDiskHeld = flipDiskHeld;
+  }
 
   @override
   void setSram(Sram sram) {
