@@ -1,0 +1,45 @@
+name: PS2 physics ELF execution test
+
+on:
+  push:
+    branches:
+      - test/ps2-physics-elf-execution-20261105
+  pull_request:
+    paths:
+      - 'packages/fnesemu_core/tool/ps2_physics_elf_runner.dart'
+      - 'packages/fnesemu_core/tool/fixtures/ps2_physics_elfs.tar.gz.b64'
+      - '.github/workflows/ps2-physics-elf.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve dependencies and restore exact original ELF files
+        working-directory: packages/fnesemu_core
+        run: |
+          dart --version
+          dart pub get
+          base64 -d tool/fixtures/ps2_physics_elfs.tar.gz.b64 | tar -xz
+          sha256sum ps2_ee_physics.elf ps2_ee_physics_smoke.elf
+          readelf -h ps2_ee_physics_smoke.elf | head -n 25
+      - name: Execute smoke physics ELF with native EE JIT
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 12
+        run: |
+          timeout 700s dart run tool/ps2_physics_elf_runner.dart jit ps2_ee_physics_smoke.elf 200000000
+      - name: Execute smoke ELF with interpreter
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 5
+        run: |
+          timeout 270s dart run tool/ps2_physics_elf_runner.dart interp ps2_ee_physics_smoke.elf 200000000
