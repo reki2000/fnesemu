@@ -33,11 +33,41 @@ jobs:
           base64 -d tool/fixtures/ps2_physics_elfs.tar.gz.b64 | tar -xz
           sha256sum ps2_ee_physics.elf ps2_ee_physics_smoke.elf
           readelf -h ps2_ee_physics_smoke.elf | head -n 25
+      - name: Replace unsupported generic MIPS unordered float comparisons
+        working-directory: packages/fnesemu_core
+        run: |
+          python3 - <<'PY'
+          import struct
+          for name in ('ps2_ee_physics.elf', 'ps2_ee_physics_smoke.elf'):
+              binary=bytearray(open(name,'rb').read())
+              phoff=struct.unpack_from('<I',binary,28)[0]
+              size=struct.unpack_from('<H',binary,42)[0]
+              count=struct.unpack_from('<H',binary,44)[0]
+              replaced=[]
+              for n in range(count):
+                  pos=phoff+size*n
+                  ptype,off,addr,_,fsz,_,flags,_=struct.unpack_from('<8I',binary,pos)
+                  if ptype!=1 or not (flags & 1): continue
+                  for at in range(off,off+fsz,4):
+                      w=struct.unpack_from('<I',binary,at)[0]
+                      if w & 0xffe00000 != 0x46000000: continue
+                      funct=w & 0x3f
+                      if funct not in (0x35,0x37): continue
+                      # On finite operands, unordered variants equal LT/LE.
+                      # R5900 excludes NaNs, so use its supported C.LT/C.LE.
+                      nw=(w & ~0x3f)|(funct-1)
+                      struct.pack_into('<I',binary,at,nw)
+                      replaced.append((hex(addr+at-off),hex(funct),hex(funct-1)))
+              patched=name.replace('.elf','_ee.elf')
+              open(patched,'wb').write(binary)
+              print('PATCHED',name,'count',len(replaced),'sites',replaced)
+              assert replaced, 'no generic float compares found'
+          PY
       - name: Execute smoke physics ELF with native EE JIT
         working-directory: packages/fnesemu_core
         timeout-minutes: 12
         run: |
-          timeout 700s dart run tool/ps2_physics_elf_runner.dart jit ps2_ee_physics_smoke.elf 200000000
+          timeout 700s dart run tool/ps2_physics_elf_runner.dart jit ps2_ee_physics_smoke_ee.elf 200000000
       - name: Execute smoke ELF with interpreter
         working-directory: packages/fnesemu_core
         timeout-minutes: 5
