@@ -73,7 +73,7 @@ void main(List<String> args) {
   // are included alongside FPU/math and contiguous RAM-access regions.
   final starts = <int>[
     0x100460, 0x100498, 0x1004f8,
-    0x100508, 0x100624, 0x1007f0,
+    0x100508, 0x100624, 0x100630, 0x100650, 0x100678, 0x1007f0,
     0x10081c, 0x1008fc, 0x1009f8, 0x100a20,
     0x100a4c, 0x100a70, 0x100a80,
   ];
@@ -99,6 +99,28 @@ void main(List<String> args) {
       histogram.update(inst.op.name, (v) => v + 1, ifAbsent: () => 1);
     }
     final selected = histogram.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));
+    // Direct duplicate pure IR nodes provide a lower bound for useful CSE.
+    final dedup = <String, int>{};
+    var duplicates = 0;
+    final pure = <IrOp>{
+      IrOp.add, IrOp.sub, IrOp.mul, IrOp.and, IrOp.or, IrOp.xor,
+      IrOp.shl, IrOp.shrU, IrOp.shrS, IrOp.eq, IrOp.ne,
+      IrOp.ltS, IrOp.ltU, IrOp.select, IrOp.sext32, IrOp.zext32,
+      IrOp.trunc32,
+    };
+    final byOp = <String, int>{};
+    for (final inst in optimized.insts) {
+      if (!pure.contains(inst.op)) continue;
+      final k = "${inst.op.index}/${inst.type.index}/${inst.a}/${inst.b}/${inst.c}/${inst.imm}/${inst.aux}";
+      if (dedup.containsKey(k)) {
+        duplicates++;
+        byOp.update(inst.op.name, (v) => v + 1, ifAbsent: () => 1);
+      } else {
+        dedup[k] = 1;
+      }
+    }
+    final sortedDups = byOp.entries.toList()..sort((a,b)=>b.value.compareTo(a.value));
+    print('CSE_DUP pc=0x${pc.toRadixString(16)} duplicates=$duplicates byOp=${sortedDups.map((e)=>"${e.key}:${e.value}").join(",")}');
     print('DUMP pc=0x${pc.toRadixString(16)} guestInstructions=${optimized.cost} ir=${optimized.insts.length} '
       'guards=${optimized.guards.length} nativeBytes=${bytes.length} file=$out '
       'topOps=${selected.take(12).map((e)=>"${e.key}:${e.value}").join(",")}');
