@@ -91,3 +91,16 @@ jobs:
         timeout-minutes: 8
         run: |
           timeout 420s dart run tool/ps2_physics_elf_runner.dart interp ps2_ee_physics_ee.elf 400000000
+
+      - name: Inspect production x64 backend output for physics hot paths
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          dart run tool/ps2_physics_x64_inspect.dart ps2_ee_physics_smoke_ee.elf
+          for addr in 100460 100498 1004f8 100508 100624 1007f0 10081c 1008fc 1009f8 100a20 100a4c 100a70 100a80; do
+            if [ ! -f physics_x64_${addr}.bin ]; then continue; fi
+            echo "===== PHYSICS X64 $addr ====="
+            objdump -D -b binary -m i386:x86-64 -M intel \
+              --adjust-vma=0x100010000 physics_x64_${addr}.bin | head -n 180
+          done
