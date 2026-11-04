@@ -80,3 +80,14 @@ jobs:
         timeout-minutes: 5
         run: |
           timeout 270s dart run tool/ps2_physics_elf_runner.dart interp ps2_ee_physics_smoke_ee.elf 200000000
+
+      - name: Execute full 240-frame physics ELF with native EE JIT
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 8
+        run: |
+          timeout 420s dart run tool/ps2_physics_elf_runner.dart jit ps2_ee_physics_ee.elf 400000000
+      - name: Execute full 240-frame physics ELF with interpreter
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 8
+        run: |
+          timeout 420s dart run tool/ps2_physics_elf_runner.dart interp ps2_ee_physics_ee.elf 400000000
