@@ -98,9 +98,30 @@ jobs:
         run: |
           set -euo pipefail
           dart run tool/ps2_physics_x64_inspect.dart ps2_ee_physics_smoke_ee.elf
-          for addr in 100460 100498 1004f8 100508 100624 1007f0 10081c 1008fc 1009f8 100a20 100a4c 100a70 100a80; do
+          for addr in 100460 100498 1004f8 100508 100624 100630 100650 100678 1007f0 10081c 1008fc 1009f8 100a20 100a4c 100a70 100a80; do
             if [ ! -f physics_x64_${addr}.bin ]; then continue; fi
             echo "===== PHYSICS X64 $addr ====="
             objdump -D -b binary -m i386:x86-64 -M intel \
               --adjust-vma=0x100010000 physics_x64_${addr}.bin | head -n 180
           done
+
+      - name: Count host instruction mix in actual emitted x64
+        working-directory: packages/fnesemu_core
+        run: |
+          python3 - <<'PY'
+          import glob, subprocess, re, collections
+          for file in sorted(glob.glob("physics_x64_*.bin")):
+              out = subprocess.check_output([
+                  'objdump','-D','-b','binary','-m','i386:x86-64','-M','intel',file
+              ], text=True)
+              instruction = re.compile(r'^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2}\s+)+\s+([a-z][a-z0-9]+)\b', re.I)
+              ops=collections.Counter()
+              for line in out.splitlines():
+                  m=instruction.match(line)
+                  if m: ops[m.group(1)]+=1
+              fp=sum(v for k,v in ops.items() if k in ('mulsd','divsd','addsd','subsd','sqrtsd','mulss','divss','addss','subss','sqrtss'))
+              moves=sum(v for k,v in ops.items() if k.startswith('mov') or k in ('cmove','cmovnz','cmovz'))
+              branches=sum(v for k,v in ops.items() if k.startswith('j'))
+              bitops=sum(v for k,v in ops.items() if k in ('and','or','shl','shr','sar','xor','andn','rol','ror'))
+              print(f'ASM_SUMMARY {file} instructions={sum(ops.values())} fpArithmetic={fp} moves={moves} branches={branches} bitops={bitops} top={ops.most_common(14)}')
+          PY
