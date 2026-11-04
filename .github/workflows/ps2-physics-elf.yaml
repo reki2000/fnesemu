@@ -1,0 +1,127 @@
+name: PS2 physics ELF execution test
+
+on:
+  push:
+    branches:
+      - test/ps2-physics-elf-execution-20261105
+  pull_request:
+    paths:
+      - 'packages/fnesemu_core/tool/ps2_physics_elf_runner.dart'
+      - 'packages/fnesemu_core/tool/fixtures/ps2_physics_elfs.tar.gz.b64'
+      - '.github/workflows/ps2-physics-elf.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve dependencies and restore exact original ELF files
+        working-directory: packages/fnesemu_core
+        run: |
+          dart --version
+          dart pub get
+          base64 -d tool/fixtures/ps2_physics_elfs.tar.gz.b64 | tar -xz
+          sha256sum ps2_ee_physics.elf ps2_ee_physics_smoke.elf
+          readelf -h ps2_ee_physics_smoke.elf | head -n 25
+      - name: Replace unsupported generic MIPS unordered float comparisons
+        working-directory: packages/fnesemu_core
+        run: |
+          python3 - <<'PY'
+          import struct
+          for name in ('ps2_ee_physics.elf', 'ps2_ee_physics_smoke.elf'):
+              binary=bytearray(open(name,'rb').read())
+              phoff=struct.unpack_from('<I',binary,28)[0]
+              size=struct.unpack_from('<H',binary,42)[0]
+              count=struct.unpack_from('<H',binary,44)[0]
+              replaced=[]
+              for n in range(count):
+                  pos=phoff+size*n
+                  ptype,off,addr,_,fsz,_,flags,_=struct.unpack_from('<8I',binary,pos)
+                  if ptype!=1 or not (flags & 1): continue
+                  for at in range(off,off+fsz,4):
+                      w=struct.unpack_from('<I',binary,at)[0]
+                      if w & 0xffe00000 != 0x46000000: continue
+                      funct=w & 0x3f
+                      if funct in (0x35, 0x37):
+                          # C.ULT/C.ULE -> EE-supported C.LT/C.LE.
+                          # Finite comparisons are equivalent.
+                          nw=(w & ~0x3f)|(funct-1)
+                          struct.pack_into('<I',binary,at,nw)
+                          replaced.append((hex(addr+at-off),'floatCompare',hex(funct),hex(funct-1)))
+                      elif funct == 0x04:
+                          # Generic MIPS II SQRT.S fd, fs uses fs as the operand.
+                          # The EE's SQRT.S fd, ft instead uses the ft field.
+                          fs=(w>>11)&31
+                          nw=(w & ~((31<<16)|(31<<11))) | (fs<<16)
+                          struct.pack_into('<I',binary,at,nw)
+                          replaced.append((hex(addr+at-off),'sqrtOperand',fs))
+              patched=name.replace('.elf','_ee.elf')
+              open(patched,'wb').write(binary)
+              print('PATCHED',name,'count',len(replaced),'sites',replaced)
+              assert replaced, 'no generic float compares found'
+          PY
+      - name: Execute smoke physics ELF with native EE JIT
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 12
+        run: |
+          timeout 700s dart run tool/ps2_physics_elf_runner.dart jit ps2_ee_physics_smoke_ee.elf 200000000
+      - name: Execute smoke ELF with interpreter
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 5
+        run: |
+          timeout 270s dart run tool/ps2_physics_elf_runner.dart interp ps2_ee_physics_smoke_ee.elf 200000000
+
+      - name: Execute full 240-frame physics ELF with native EE JIT
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 8
+        run: |
+          timeout 420s dart run tool/ps2_physics_elf_runner.dart jit ps2_ee_physics_ee.elf 400000000
+      - name: Execute full 240-frame physics ELF with interpreter
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 8
+        run: |
+          timeout 420s dart run tool/ps2_physics_elf_runner.dart interp ps2_ee_physics_ee.elf 400000000
+
+      - name: Inspect production x64 backend output for physics hot paths
+        working-directory: packages/fnesemu_core
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          dart run tool/ps2_physics_x64_inspect.dart ps2_ee_physics_smoke_ee.elf
+          for addr in 100460 100498 1004f8 100508 100624 100630 100650 100678 1007f0 10081c 1008fc 1009f8 100a20 100a4c 100a70 100a80; do
+            if [ ! -f physics_x64_${addr}.bin ]; then continue; fi
+            echo "===== PHYSICS X64 $addr ====="
+            objdump -D -b binary -m i386:x86-64 -M intel \
+              --adjust-vma=0x100010000 physics_x64_${addr}.bin | head -n 180
+          done
+
+      - name: Count host instruction mix in actual emitted x64
+        working-directory: packages/fnesemu_core
+        run: |
+          python3 - <<'PY'
+          import glob, subprocess, re, collections
+          for file in sorted(glob.glob("physics_x64_*.bin")):
+              out = subprocess.check_output([
+                  'objdump','-D','-b','binary','-m','i386:x86-64','-M','intel',file
+              ], text=True)
+              instruction = re.compile(r'^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2}\s+)+\s+([a-z][a-z0-9]+)\b', re.I)
+              ops=collections.Counter()
+              for line in out.splitlines():
+                  m=instruction.match(line)
+                  if m: ops[m.group(1)]+=1
+              fp=sum(v for k,v in ops.items() if k in ('mulsd','divsd','addsd','subsd','sqrtsd','mulss','divss','addss','subss','sqrtss'))
+              moves=sum(v for k,v in ops.items() if k.startswith('mov') or k in ('cmove','cmovnz','cmovz'))
+              branches=sum(v for k,v in ops.items() if k.startswith('j'))
+              bitops=sum(v for k,v in ops.items() if k in ('and','or','shl','shr','sar','xor','andn','rol','ror'))
+              print(f'ASM_SUMMARY {file} instructions={sum(ops.values())} fpArithmetic={fp} moves={moves} branches={branches} bitops={bitops} top={ops.most_common(14)}')
+          PY
