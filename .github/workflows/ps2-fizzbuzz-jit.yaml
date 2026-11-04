@@ -1,0 +1,43 @@
+name: PS2 R5900 FizzBuzz JIT x64 demonstration
+
+on:
+  pull_request:
+    paths:
+      - 'packages/fnesemu_core/tool/ps2_fizzbuzz_jit.dart'
+      - '.github/workflows/ps2-fizzbuzz-jit.yaml'
+  push:
+    branches:
+      - 'demo/ps2-fizzbuzz-jit-20261104'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fizzbuzz:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Setup
+        run: |
+          dart --version
+          cd packages/fnesemu_core
+          dart pub get
+      - name: Execute guest MIPS with interpreter and native EE JIT
+        working-directory: packages/fnesemu_core
+        run: dart run tool/ps2_fizzbuzz_jit.dart
+      - name: Disassemble real backend output for each MIPS block
+        working-directory: packages/fnesemu_core
+        run: |
+          set -euo pipefail
+          for name in loop fizz check5 store; do
+            echo "===== X64 BLOCK: $name ====="
+            objdump -D -b binary -m i386:x86-64 -M intel \
+              --adjust-vma=0x100010000 "fizz_${name}_x64.bin" | head -n 100
+          done
