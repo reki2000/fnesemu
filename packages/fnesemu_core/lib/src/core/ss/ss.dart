@@ -494,9 +494,6 @@ class Ss extends Core {
     bus.bios.setRange(
         0, body.length < bus.bios.length ? body.length : bus.bios.length, body);
 
-    _sram.init("ss_bram", Bus.blankBram);
-    bus.bramRead = _sram.read8;
-    bus.bramWrite = _sram.write8;
   }
 
   @override
@@ -510,7 +507,12 @@ class Ss extends Core {
   void setCdromDrive(CdromDrive drive) => cdblock.setDisc(drive);
 
   @override
-  void setSram(Sram sram) => _sram = sram;
+  void setSram(Sram sram) {
+    _sram = sram;
+    _sram.init("ss_bram", Bus.blankBram);
+    bus.bramRead = _sram.read8;
+    bus.bramWrite = _sram.write8;
+  }
 
   @override
   void reset() {
