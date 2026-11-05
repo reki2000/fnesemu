@@ -285,6 +285,14 @@ class Dmac {
     final c = channels[ch];
     switch (address & 0xf0) {
       case 0x00:
+        // While a channel runs, only STR can be written (the EE manual
+        // restricts the other fields to a stopped channel). A game that stops
+        // a chain transfer with a plain STR=0 value and restarts it with the
+        // CHCR it reads back relies on the mode bits surviving the stop.
+        if (c.chcr & _str != 0) {
+          if (value & _str == 0) c.chcr &= ~_str;
+          return;
+        }
         c.chcr = value;
         if (ch == sif0) _sif0End = _sif0Irq = false;
         if (value & _str != 0) _resume(c);
@@ -368,6 +376,9 @@ class Dmac {
   /// resumes the channel [ch] when it waits for its destination
   void serviceChannel(int ch) {
     if (ctrl & _dmaEnable == 0) return;
+    // the GIF chain already ended and only its completion is pending; going
+    // on would read the tags after the one that stopped the transfer
+    if (ch == gif && _gifFinishing) return;
     if (channels[ch].chcr & _str != 0) _run(ch);
   }
 

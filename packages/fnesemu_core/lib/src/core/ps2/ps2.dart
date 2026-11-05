@@ -223,17 +223,22 @@ class Ps2 extends Core {
       ..drive = drive
       ..discId = null
       ..dvd = false;
-    isDvd(drive).then((dvd) {
-      if (_drive != drive) return;
-      _dvd = dvd;
-      iopIo.cdvd.dvd = dvd;
-    });
-    readSystemCnf(drive).then((text) {
-      if (_drive != drive || text == null) return;
-      _discId = bootFileName(text);
-      iopIo.cdvd.discId = _discId;
-    });
+    discLookup = Future.wait([
+      isDvd(drive).then((dvd) {
+        if (_drive != drive) return;
+        _dvd = dvd;
+        iopIo.cdvd.dvd = dvd;
+      }),
+      readSystemCnf(drive).then((text) {
+        if (_drive != drive || text == null) return;
+        _discId = bootFileName(text);
+        iopIo.cdvd.discId = _discId;
+      }),
+    ]);
   }
+
+  /// completes when the media type and the disc ID of the drive are known
+  Future<void> discLookup = Future.value();
 
   @override
   void reset() {

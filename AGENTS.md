@@ -2,6 +2,35 @@
 
 Follow `docs/TEST.md` if it exists.
 
+# Python environment
+
+`scripts/e2e.py` and `scripts/regress.py` need Python 3.11 or later with Pillow and numpy (`scripts/requirements.txt`).
+The default `python3` on `PATH` (mise 3.15, or `/usr/bin/python3`) may lack them.
+Create a virtual environment once and run the scripts with it:
+
+```
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/requirements.txt
+.venv/bin/python scripts/e2e.py run --root docs/local-e2e <target>
+```
+
+`.venv/` must stay out of Git.
+
+When you try inputs by trial and error, do not rerun the case from frame 1 each time.
+Use the session mode of `scripts/e2e.py`, which keeps the emulator running between steps:
+
+```
+.venv/bin/python scripts/e2e.py session start --root docs/local-e2e <core>/<case>
+.venv/bin/python scripts/e2e.py session press --root docs/local-e2e "<sequence>"
+.venv/bin/python scripts/e2e.py session step --root docs/local-e2e FRAMES --every E
+.venv/bin/python scripts/e2e.py session input --root docs/local-e2e
+.venv/bin/python scripts/e2e.py session stop --root docs/local-e2e
+```
+
+`FRAMES` is the number of frames to advance from the current frame, not a target frame.
+Run `session input` to print the input to pass to `set --input`.
+Always run `session stop` when you finish.
+
 # Document Writing
 
 Use a simple technical style. Do not insert line breaks within a sentence. Follow `docs/DOCUMENT.md` if it exists.

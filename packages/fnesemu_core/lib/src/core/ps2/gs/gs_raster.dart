@@ -218,14 +218,19 @@ class GsRaster {
     final top = math.min(y0, y1), bottom = math.max(y0, y1);
     final width = right - left, height = bottom - top;
     if (width == 0 || height == 0) return;
-    var px0 = ((left - 8 + 15) >> 4);
-    var py0 = ((top - 8 + 15) >> 4);
+    // The GS samples a pixel at its integer coordinate: the sprite covers
+    // the pixels from the one at or after its left/top edge up to the one
+    // before its right/bottom edge, and the texture coordinate is the one
+    // at that point. A game that copies a buffer through 8-bit texture views
+    // picks the bytes by these exact coordinates.
+    var px0 = (left + 15) >> 4;
+    var py0 = (top + 15) >> 4;
     if (px0 < _sx0) px0 = _sx0;
     if (py0 < _sy0) py0 = _sy0;
     final textured = _tme, fixed = _fst;
-    for (var py = py0; py <= _sy1 && py * 16 + 8 < bottom; py++) {
+    for (var py = py0; py <= _sy1 && py * 16 < bottom; py++) {
       if (textured) {
-        final ty = (py * 16 + 8 - top) / height;
+        final ty = (py * 16 - top) / height;
         if (fixed) {
           _vv = (a.v + (b.v - a.v) * ty) / 16;
         } else {
@@ -233,9 +238,9 @@ class GsRaster {
           _q = b.q;
         }
       }
-      for (var px = px0; px <= _sx1 && px * 16 + 8 < right; px++) {
+      for (var px = px0; px <= _sx1 && px * 16 < right; px++) {
         if (textured) {
-          final tx = (px * 16 + 8 - left) / width;
+          final tx = (px * 16 - left) / width;
           if (fixed) {
             _uu = (a.u + (b.u - a.u) * tx) / 16;
           } else {
@@ -278,7 +283,8 @@ class GsRaster {
     final needColor = _iip, needFog = _fge;
     final needStq = _tme && !_fst, needUv = _tme && _fst;
     for (var py = minY; py <= maxY; py++) {
-      final qy = py * 16 + 8, qx = minX * 16 + 8;
+      // the pixel's integer coordinate is its sample point
+      final qy = py * 16, qx = minX * 16;
       var eab = (bx - ax) * (qy - ay) - (by - ay) * (qx - ax);
       var ebc = (cx - bx) * (qy - by) - (cy - by) * (qx - bx);
       var eca = (ax - cx) * (qy - cy) - (ay - cy) * (qx - cx);

@@ -27,6 +27,8 @@ class DcTa {
   List<int> _clip = [0, 0, 39, 14];
   final _vertices = <List<int>>[];
   final _blocks = <List<_Block>>[];
+  // the tiles that the triangles of the open modifier volume reach
+  final _volumeTiles = <int>{};
   bool _initialized = false, _header = false;
   final _float = ByteData(4);
 
@@ -81,6 +83,7 @@ class DcTa {
         writer.ints([block.address, block.words, block.used]);
       }
     }
+    writer.ints(_volumeTiles.toList()..sort());
   }
 
   void loadState(StateReader reader) {
@@ -164,6 +167,10 @@ class DcTa {
       }
       blocks.add(list);
     }
+    final volumeTiles = reader.ints();
+    if (volumeTiles.any((tile) => tile < 0 || tile >= 1024)) {
+      throw const StateMismatch('TA modifier volume tiles');
+    }
     objectBase = v[0];
     parameterBase = v[1];
     objectLimit = v[2];
@@ -204,6 +211,9 @@ class DcTa {
     _blocks
       ..clear()
       ..addAll(blocks);
+    _volumeTiles
+      ..clear()
+      ..addAll(volumeTiles);
   }
 
   double _value(int bits) {
@@ -233,6 +243,7 @@ class DcTa {
     _pendingPacket = null;
     _vertices.clear();
     _blocks.clear();
+    _volumeTiles.clear();
     _clip = [0, 0, 39, 14];
   }
 
@@ -325,6 +336,7 @@ class DcTa {
     _list = -1;
     _ended = 0;
     _triangle = 0;
+    _volumeTiles.clear();
     _clip = [0, 0, 39, 14];
   }
 
@@ -702,6 +714,19 @@ class DcTa {
         }
       }
     }
+    if (modifier) {
+      // The ISP closes a volume only at its last polygon, so a tile that an
+      // earlier triangle of the volume reaches also needs the last polygon,
+      // even when that triangle does not reach the tile. The documents do not
+      // describe how the TA bins it; this keeps every listed volume closed.
+      _volumeTiles.addAll(masks.keys);
+      if (_isp >> 29 != 0) {
+        for (final tile in _volumeTiles) {
+          masks[tile] ??= 0;
+        }
+        _volumeTiles.clear();
+      }
+    }
     // Provisional BIOS conversion-only path: no OPB means tile coverage must
     // not discard the converted parameters consumed separately by the CPU.
     if (masks.isNotEmpty || _blocks[_list].isEmpty) {
@@ -786,7 +811,10 @@ class DcTa {
   }
 
   void _endList() {
-    if (_list < 0) _illegal('end without a selected list');
+    // With no list open there is no list to terminate or to report. One game
+    // sends End of List again after a list ended; the documents do not
+    // describe this case, so it is ignored without the parameter error.
+    if (_list < 0) return;
     if (_vertices.isNotEmpty) {
       _illegal('end before the last vertex ends its strip');
     }
@@ -797,6 +825,7 @@ class DcTa {
     final list = _list;
     _ended |= 1 << list;
     _list = -1;
+    _volumeTiles.clear();
     _header = false;
     onNormal(1 << [7, 8, 9, 10, 21][list]);
   }

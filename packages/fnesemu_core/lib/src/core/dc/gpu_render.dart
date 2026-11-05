@@ -1699,10 +1699,6 @@ class DcGpuRender {
               off = sc.offsetColor;
             }
             if (_shadowObject && shadowIntensity && _shadowMask[index] != 0) {
-              if (_sortMode == 2 && tsp & 0x100000 != 0) {
-                throw const DcUnsupported(
-                    'CORE punch-through shadow alpha needs validation');
-              }
               color = _shadowColor(color);
               off = _shadowColor(off);
             }
@@ -1810,10 +1806,14 @@ class DcGpuRender {
         (roundByte((ca >> 24) * pa + (cb >> 24) * pb + (cc >> 24) * pc) << 24);
   }
 
+  /// Scales the RGB channels by FPU_SHAD_SCALE. The documents describe the
+  /// scale of the color but not its alpha; the alpha is kept, so a shadow
+  /// does not change blending or the punch-through test. This needs hardware
+  /// validation.
   int _shadowColor(int color) {
     final scale = read(0x74) & 255;
-    var result = 0;
-    for (var shift = 0; shift < 32; shift += 8) {
+    var result = color & 0xff000000;
+    for (var shift = 0; shift < 24; shift += 8) {
       result |= ((((color >> shift) & 255) * scale) >> 8) << shift;
     }
     return result & 0xffffffff;

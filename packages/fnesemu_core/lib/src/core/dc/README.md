@@ -511,7 +511,7 @@ The TA writes the documented packed ISP/TSP parameters and object pointers direc
 OPBs reserve a link/end entry and allocate additional blocks in either programmed address direction when full.
 Object List Set can register independently supplied VRAM parameters without regenerating them.
 End of List writes terminators for every tile of the selected list and raises its corresponding HOLLY completion source.
-Disabled/repeated lists and invalid sequences raise the TA parameter error and stop explicitly; parameter/OPB limit failures raise their separate overflow sources without reporting completion.
+Disabled/repeated lists and invalid sequences raise the TA parameter error and stop explicitly; an End of List with no open list is ignored, because the documents do not describe it and a game sends one; parameter/OPB limit failures raise their separate overflow sources without reporting completion.
 TA illegal-input recovery, pointer merging/array compaction and TA_OL_POINTERS inspection remain pending.
 
 `DcGpuRender` reads the CPU-authored five- or six-word Region Array, follows object-list links and fetches vertex data from VRAM at each tile deadline.
@@ -1213,17 +1213,17 @@ Triangle and quad arrays support counted records and OPB links, with cycle detec
 The functional parameter representation follows the generic three-word ISP/TSP header in §3.7.9 with XYZ-only vertices and skip zero; physical modifier packing still requires independent hardware confirmation.
 In-front tests use GEq as a functional coplanar policy; exact equality, raster precision and internal flag transitions remain unverified.
 A volume without a last polygon stops rather than emitting an incomplete area.
-Per-tile last-polygon propagation when the final face is clipped from a tile remains pending; such a tile can currently stop as an unfinished volume.
+TA also lists the last polygon in every tile that an earlier triangle of the volume reaches, so each tile list closes its volumes; the documents do not describe this binning, and the hardware output for such a tile remains unverified.
 
 FPU_SHAD_SCALE exposes the documented intensity enable bit and unsigned factor divided by 256.
-Area-one pixels on Shadow-enabled objects scale interpolated base and offset channels before texture/shading, clamp, fog and blending.
+Area-one pixels on Shadow-enabled objects scale the interpolated base and offset RGB channels before texture/shading, clamp, fog and blending. The documents describe the scale of the color but not its alpha, so the alpha is kept and a shadow changes neither blending nor the punch-through test; this needs hardware validation.
 The model applies the literal color multiplier to ARGB, then applies Use Alpha normally; the physical alpha/offset-alpha gating and multiplier rounding still require hardware observations.
 Opaque/punch-through depths are resolved before area evaluation, after which the tile is replayed from saved color, depth and secondary-buffer state to avoid duplicate blending.
 A failed depth/area prepass restores those buffers as well, allowing repaired VRAM data to be retried on a retained tile without applying the failed prepass twice.
 Auto-sorted translucent modifiers evaluate against each selected layer's fragment depths before that layer is shaded and composited.
 Opaque and translucent area masks are independent; pre-sorted translucent modifiers stop because §3.4.5.3 permits only auto-sort.
 Replay is a functional implementation strategy and does not model the hardware ISP/TSP phases or render duration.
-Modifier-enabled backgrounds and punch-through intensity shadows with Use Alpha remain explicit development stops; two-volume parameter selection is described below.
+Modifier-enabled backgrounds remain an explicit development stop; two-volume parameter selection is described below.
 Tests use analytical planes, closed slabs, inclusion/exclusion combinations and self-authored TA scenes, including secondary writes and per-layer translucent blending; they are not physical hardware measurements.
 
 ## Two-volume parameter selection

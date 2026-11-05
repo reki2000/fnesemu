@@ -89,8 +89,13 @@ Core createCore(String name) =>
 /// core has after its own buttons
 const resetButton = "Reset";
 
-List<String> buttonNames(Core core) =>
-    [...core.buttons.map((b) => b.name), resetButton];
+/// An analog axis is driven by two names after the buttons: `<axis>-` holds
+/// it at -1.0 (left / up) and `<axis>+` at 1.0 (right / down).
+List<String> buttonNames(Core core) => [
+      ...core.buttons.map((b) => b.name),
+      for (final a in core.axes) ...["${a.name}-", "${a.name}+"],
+      resetButton,
+    ];
 
 /// the presses of [input]; an error in it ends the runner
 List<(int, int, int)> readPresses(String? input, List<String> buttons) {
@@ -276,6 +281,12 @@ class Session {
     if (name != "mdcd" && drive != null && dcBootFrame == null) {
       core.setCdromDrive(drive);
     }
+    // ps2 looks up the media type and the disc ID in the background. Wait for
+    // the lookups, so that the result does not depend on how soon the first
+    // frame starts (a server waits for its first request).
+    if (core is Ps2 && drive != null) {
+      await core.discLookup;
+    }
     // gba boots from setRom; a reset afterwards drops the boot state
     if (name != "gba" && name != "mdcd" && name != "32x") core.reset();
     if (core is Ss) {
@@ -345,8 +356,14 @@ class Session {
           "after frame $frame");
     }
     pad.step(frame, (b, down) {
-      if (b == _pads.length) {
+      final axes = core.axes;
+      if (b == _pads.length + axes.length * 2) {
         if (down) core.reset();
+      } else if (b >= _pads.length) {
+        final axis = axes[(b - _pads.length) ~/ 2];
+        final dir = (b - _pads.length).isEven ? -1.0 : 1.0;
+        // releasing one direction leaves the other if both are held
+        input.setAxis(0, axis, down ? dir : 0);
       } else {
         down ? input.press(0, _pads[b]) : input.release(0, _pads[b]);
       }

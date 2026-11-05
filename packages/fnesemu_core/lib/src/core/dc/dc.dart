@@ -296,7 +296,7 @@ class Dc extends Core {
     }
   }
 
-  static const _stateVersion = 7;
+  static const _stateVersion = 8;
 
   // The drive interface supplies TOC/capabilities, not a whole-disc content hash.
   int get _stateMedia {

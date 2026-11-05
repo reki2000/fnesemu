@@ -282,4 +282,16 @@ void main() {
 
 
   });
+
+  test('an intensity shadow keeps the alpha of the punch-through test', () {
+    init();
+    // alpha 0x80 passes the reference 0x60; scaled by half it would not
+    layer(4, color: 0x80ff0000, shadow: true);
+    end();
+    modifier(1, 1);
+    end();
+    intensity();
+    draw(reference: 0x60);
+    expect(pixel(4, 4) & 0xffffff, 0x7f0000);
+  });
 }

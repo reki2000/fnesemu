@@ -115,4 +115,84 @@ void main() {
     expect(ta.currentParameter, 0x3000);
     expect(bus.systemBus.normalStatus, 0);
   });
+
+  test('End of List with no open list is ignored', () {
+    final bus = DcBus();
+    final ta = bus.gpu.ta;
+    ta.write(0x124, 0x1000);
+    ta.write(0x12c, 0x2000);
+    ta.write(0x128, 0x3000);
+    ta.write(0x130, 0x4000);
+    ta.write(0x140, 1);
+    ta.write(0x164, 0x1800);
+    ta.write(0x144, 0x80000000);
+    final end = Uint8List(32);
+    ta.accept(end);
+    expect(bus.systemBus.normalStatus, 0);
+    expect(bus.systemBus.errorStatus, 0);
+    // an opaque list (list type 0) with only its header, then two ends
+    final header = Uint8List(32)
+      ..buffer.asByteData().setUint32(0, 0x80000000, Endian.little);
+    ta.accept(header);
+    ta.accept(end);
+    expect(bus.systemBus.normalStatus, 1 << 7);
+    ta.accept(end);
+    expect(bus.systemBus.normalStatus, 1 << 7);
+    expect(bus.systemBus.errorStatus, 0);
+    expect(ByteData.sublistView(bus.gpu.vram).getUint32(0x1000, Endian.little),
+        0xf0000000);
+  });
+
+  test('the last polygon of a modifier volume reaches every tile of the volume',
+      () {
+    final bus = DcBus();
+    final ta = bus.gpu.ta;
+    ta.write(0x124, 0x1000);
+    ta.write(0x12c, 0x2000);
+    ta.write(0x128, 0x3000);
+    ta.write(0x130, 0x4000);
+    ta.write(0x13c, 1); // two tiles in one row
+    ta.write(0x140, 0x10); // an 8-word opaque modifier list
+    ta.write(0x164, 0x1800);
+    ta.write(0x144, 0x80000000);
+    int bits(double value) => (ByteData(4)..setFloat32(0, value, Endian.little))
+        .getUint32(0, Endian.little);
+    void packet(List<int> words) {
+      final data = ByteData(32);
+      for (var i = 0; i < words.length; i++) {
+        data.setUint32(i * 4, words[i], Endian.little);
+      }
+      ta.accept(data.buffer.asUint8List());
+    }
+
+    void triangle(List<(double, double)> points) {
+      final words = [
+        0xf0000000,
+        for (final (x, y) in points) ...[bits(x), bits(y), bits(1)],
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ];
+      packet(words.sublist(0, 8));
+      packet(words.sublist(8, 16));
+    }
+
+    // a triangle in tile 0, then the last polygon (Inside Last) in tile 1
+    packet([0x81000000, 0, 0, 0, 0, 0, 0, 0]);
+    triangle([(2, 2), (20, 2), (2, 20)]);
+    packet([0x81000040, 1 << 29, 0, 0, 0, 0, 0, 0]);
+    triangle([(40, 2), (60, 2), (40, 20)]);
+    packet([0, 0, 0, 0, 0, 0, 0, 0]);
+    final vram = ByteData.sublistView(bus.gpu.vram);
+    List<int> list(int address) => [
+          for (var i = 0; i < 3; i++)
+            vram.getUint32(address + i * 4, Endian.little)
+        ];
+    expect(list(0x1000), [0x80000c00, 0x80000c0c, 0xf0000000]);
+    expect(list(0x1020).sublist(0, 2), [0x80000c0c, 0xf0000000]);
+    expect(bus.systemBus.errorStatus, 0);
+  });
 }
