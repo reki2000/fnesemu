@@ -1331,11 +1331,14 @@ class DcGpuRender {
       return;
     }
     // The common case of [quick] with loop-invariant tests hoisted.
+    // The second visibility pass shades the fragments that are not hidden by
+    // a later one, in the same rows.
+    final shadePass = _visibility == 2;
     final quickRows = quick &&
         sameColors &&
         sameOffsets &&
         _materialArea < 0 &&
-        _visibility == 0;
+        (_visibility == 0 || shadePass);
     // Sorted translucent fragments of a cached bilinear texture, shaded
     // where they are rasterized.
     final sortedRows = texture != null &&
@@ -1349,6 +1352,19 @@ class DcGpuRender {
         _materialArea < 0 &&
         _visibility == 0 &&
         (texture.plainBilinear || texture.mipBilinear);
+    // Opaque fragments of a cached bilinear MIP-mapped texture, in both
+    // passes that shade. They take the arithmetic of the general loop below.
+    final mipRows = texture != null &&
+        texture.mipBilinear &&
+        plane == null &&
+        !background &&
+        samePosition &&
+        sameTexture &&
+        _sortMode == 0 &&
+        tsp & 0x02000000 == 0 &&
+        !(_shadowObject && shadowIntensity) &&
+        _materialArea < 0 &&
+        (_visibility == 0 || _visibility == 2);
     final compare = isp >> 29, writeDepth = isp & 0x04000000 == 0;
     final quickColor = sc.color | opaqueAlpha, quickOffset = sc.offsetColor;
     final shadeMode = (tsp >> 6) & 3, quickGray = quickColor & 255;
@@ -1428,6 +1444,7 @@ class DcGpuRender {
         var su = fixed ? fu.toInt() : 0, sv = fixed ? fv.toInt() : 0;
         final count = rowRight - rowLeft;
         if (grayRows &&
+            !shadePass &&
             fixed &&
             count > 0 &&
             texture.fixedSpanReady(
@@ -1489,8 +1506,19 @@ class DcGpuRender {
                           ? 2
                           : 4) !=
               0;
+          if (!pass) continue;
+          if (shadePass) {
+            if (order < _firstShaded[index]) {
+              // Hidden by a later replacing fragment: only the bookkeeping.
+              _hiddenFragments++;
+              if (replace) _firstShaded[index] = order;
+              if (writeDepth) depthBuffer[index] = z;
+              continue;
+            }
+            _shownFragments++;
+          }
           // A zero depth has no perspective; such fragments are dropped.
-          if (!pass || z == 0) continue;
+          if (z == 0) continue;
           final lanes = fixed ? texture.sampleLanesFixed(su, sv) : -1;
           int shaded;
           if (lanes >= 0 && gray) {
@@ -1587,6 +1615,81 @@ class DcGpuRender {
               DcGpuTexture.shade(color, texel, off, tsp), z, off, tsp,
               hasOffset: fogOffset);
           _addFragment(index, z, color, tsp, writeDepth, order);
+        }
+        continue;
+      }
+      if (mipRows) {
+        final numerators = mipNumerators!;
+        for (var x = rowLeft; x < rowRight; x++) {
+          final px = originX + x + offset;
+          final e0 = row0 - e0y * (px - b.x),
+              e1 = row1 - e1y * (px - c.x),
+              e2 = row2 - e2y * (px - a.x);
+          if (e0 < 0 ||
+              e1 < 0 ||
+              e2 < 0 ||
+              (e0 == 0 && !tl0) ||
+              (e1 == 0 && !tl1) ||
+              (e2 == 0 && !tl2)) {
+            continue;
+          }
+          final ia = e0 * inverseArea,
+              ib = e1 * inverseArea,
+              ic = e2 * inverseArea;
+          final z = za * ia + zb * ib + zc * ic;
+          if (!z.isFinite) {
+            throw const DcUnsupported('CORE nonfinite interpolated depth');
+          }
+          final index = y * 32 + x, previous = depthBuffer[index];
+          if (compare & (z < previous ? 1 : (z == previous ? 2 : 4)) == 0) {
+            continue;
+          }
+          if (_visibility == 2) {
+            if (order < _firstShaded[index]) {
+              _hiddenFragments++;
+              if (replace) _firstShaded[index] = order;
+              if (writeDepth) depthBuffer[index] = z;
+              continue;
+            }
+            _shownFragments++;
+          }
+          if (z == 0) {
+            throw DcUnsupported(gouraud
+                ? 'CORE shading perspective denominator is zero'
+                : 'CORE perspective UV denominator is zero');
+          }
+          final inverse = 1 / z;
+          var color = sc.color, off = sc.offsetColor;
+          if (!(sameColors && sameOffsets)) {
+            final pa = ia * za * inverse,
+                pb = ib * zb * inverse,
+                pc = ic * zc * inverse;
+            if (!sameColors) {
+              color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+            }
+            if (!sameOffsets) {
+              off = _gouraud(
+                  sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+            }
+          }
+          color |= opaqueAlpha;
+          final u = (uza * ia + uzb * ib + uzc * ic) * inverse;
+          final v = (vza * ia + vzb * ib + vzc * ic) * inverse;
+          final square = inverse * inverse;
+          final texel = texture.sampleMip(
+              u,
+              v,
+              texture.footprint(numerators[0] * square, numerators[1] * square,
+                  numerators[2] * square, numerators[3] * square));
+          color = fog.apply(DcGpuTexture.shade(color, texel, off, tsp), z, off,
+              tsp,
+              hasOffset: fogOffset);
+          if (replace) {
+            colorBuffer[index] = color;
+          } else {
+            _composite(index, color, tsp);
+          }
+          if (writeDepth) depthBuffer[index] = z;
         }
         continue;
       }
