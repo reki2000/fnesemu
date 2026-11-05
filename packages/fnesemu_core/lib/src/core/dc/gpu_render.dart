@@ -537,6 +537,17 @@ class DcGpuRender {
     }
   }
 
+  /// A modifier list pointer whose first entry is the end of the list holds
+  /// no volume. It is returned with the empty-list bit set, so the tile skips
+  /// the modifier passes, which would not change a pixel.
+  int _nonEmptyModifier(int pointer) {
+    if (pointer & 0x80000000 != 0) return pointer;
+    final first = _word(pointer & 0xfffffc);
+    return first >> 29 == 7 && first & 0x10000000 != 0
+        ? pointer | 0x80000000
+        : pointer;
+  }
+
   bool _tile() {
     _primitiveOrder = 0;
     final control = _word(_region);
@@ -567,9 +578,10 @@ class DcGpuRender {
     if (!drawsBackground && (x != _x || y != _y)) {
       throw const DcUnsupported('CORE retained tile is not the preceding tile');
     }
-    final opaque = _word(_region + 4), opaqueModifier = _word(_region + 8);
+    final opaque = _word(_region + 4);
+    final opaqueModifier = _nonEmptyModifier(_word(_region + 8));
     final translucent = _word(_region + 12),
-        translucentModifier = _word(_region + 16);
+        translucentModifier = _nonEmptyModifier(_word(_region + 16));
     final punch = type2 ? _word(_region + 20) : 0x80000000;
     if (opaqueModifier & 0x80000000 == 0) {
       if (drawsBackground) _background(x * 32, y * 32);
