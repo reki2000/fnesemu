@@ -99,8 +99,17 @@ class DcGpuFog {
   double _coefficient(double depth) {
     var mantissa = (depth * _scale).clamp(1.0, 255.9999);
     var index = 0;
-    while (mantissa >= 2) {
-      mantissa /= 2;
+    // Scaling by powers of two is exact, so the ladder equals halving until the value is below 2.
+    if (mantissa >= 16) {
+      mantissa *= 0.0625;
+      index = 64;
+    }
+    if (mantissa >= 4) {
+      mantissa *= 0.25;
+      index += 32;
+    }
+    if (mantissa >= 2) {
+      mantissa *= 0.5;
       index += 16;
     }
     final position = (mantissa - 1) * 16;
@@ -132,12 +141,11 @@ class DcGpuFog {
     if (mode == 3) {
       return ((coefficient.round() << 24) | fogColor) & 0xffffffff;
     }
+    final rest = 255 - coefficient;
     var result = color & 0xff000000;
     for (var shift = 0; shift < 24; shift += 8) {
       final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
-      result |=
-          roundByte((input * (255 - coefficient) + fog * coefficient) / 255) <<
-              shift;
+      result |= roundByte((input * rest + fog * coefficient) / 255) << shift;
     }
     return result & 0xffffffff;
   }

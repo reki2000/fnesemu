@@ -138,11 +138,21 @@ class DcGpuTexture {
     if (!mipMapped) return 0;
     var value = footprint * _adjust, level = 0;
     if (value >= width) return _maxLevel;
-    while (value >= 2 && level < _maxLevel) {
-      value /= 2;
-      level++;
+    // Scaling by powers of two is exact, so the ladder equals halving while the value is at least 2.
+    if (value >= 256) {
+      value *= 0.00390625;
+      level = 8;
     }
-    return level;
+    if (value >= 16) {
+      value *= 0.0625;
+      level += 4;
+    }
+    if (value >= 4) {
+      value *= 0.25;
+      level += 2;
+    }
+    if (value >= 2) level++;
+    return level < _maxLevel ? level : _maxLevel;
   }
 
   int selectLevel(double footprint) {
