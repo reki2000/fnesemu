@@ -147,7 +147,7 @@ void main() {
   });
 
   aggGroup('drawing', () {
-    aggCase('a sprite covers the pixels whose centres are inside', () {
+    aggCase('a sprite covers the pixels whose sample points are inside', () {
       final gs = _gs();
       _sprite(gs, 2, 3, 6, 5, _rgba(10, 20, 30));
       var count = 0;
@@ -162,14 +162,14 @@ void main() {
       expect(count, 8);
     });
 
-    aggCase('fractional sprite corners follow pixel centres', () {
+    aggCase('fractional sprite corners follow integer sample points', () {
       final gs = _gs();
       _sprite(gs, 1.5, 0, 3.5, 1, _rgba(1, 2, 3));
-      // pixel centres 1.5 (inclusive), 2.5; 3.5 is excluded
-      expect(_px(gs, 1, 0), _rgba(1, 2, 3));
+      // the sample points 2 and 3 are inside; 1 is before the left edge
+      expect(_px(gs, 1, 0), 0);
       expect(_px(gs, 2, 0), _rgba(1, 2, 3));
-      expect(_px(gs, 3, 0), 0);
-      expect(_px(gs, 0, 0), 0);
+      expect(_px(gs, 3, 0), _rgba(1, 2, 3));
+      expect(_px(gs, 4, 0), 0);
     });
 
     aggCase('two triangles of a quad cover every pixel exactly once', () {

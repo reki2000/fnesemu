@@ -453,6 +453,29 @@ void main() {
       expect(received, [0xa1, 0xa2, 0xa3, 0xc1]);
       expect(bus.read32(0x1000b400) & 0x100, 0);
     });
+
+    aggCase('a CHCR write to a running channel changes only STR', () {
+      final (bus, io) = _setup();
+      enable(bus);
+      final received = <int>[];
+      final gate = _Gate(received)..room = 1;
+      io.dmac.endpoints[Dmac.toIpu] = gate;
+      bus.write64(0x1000, _tag(2, 3, 0x3000)); // ref
+      bus.write64(0x1010, _tag(1, 7, 0)); // end
+      bus.write64(0x1020, 0xc1);
+      bus.write64(0x3000, 0xa1);
+      bus.write64(0x3010, 0xa2);
+      bus.write32(0x1000b430, 0x1000);
+      bus.write32(0x1000b400, 0x105);
+      expect(received, [0xa1]);
+
+      // a plain stop value keeps the chain mode
+      bus.write32(0x1000b400, 0x1);
+      expect(bus.read32(0x1000b400) & 0xffff, 0x5);
+      gate.room = 10;
+      bus.write32(0x1000b400, bus.read32(0x1000b400) | 0x100);
+      expect(received, [0xa1, 0xa2, 0xc1]);
+    });
   });
 
   const chunkCount = 2;

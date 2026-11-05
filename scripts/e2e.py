@@ -14,7 +14,7 @@ Writing a case:
   scripts/e2e.py buttons [<core>/<case>]
   scripts/e2e.py set <core>/<case> --frames N --shots F1,F2,... [--input SEQ] [--note TEXT] [--history TEXT]
   scripts/e2e.py session start <core>/<case>
-  scripts/e2e.py session step N [--every E] [--cols C] [--scale X]
+  scripts/e2e.py session step FRAMES [--every E] [--cols C] [--scale X]
   scripts/e2e.py session press SEQ
   scripts/e2e.py session input
   scripts/e2e.py session shot [NAME]
@@ -59,7 +59,7 @@ frames from frame S, with their frame numbers, into sheet.png. buttons prints th
 the session) as they are written in a sequence.
 
 session start runs core_headless serve for a case in the background; step, press, shot and state control it,
-and stop ends it. step advances N frames (with --every, it saves the screenshots of the frames that are
+and stop ends it. step advances the session by FRAMES frames from the current frame, not to frame FRAMES (with --every, it saves the screenshots of the frames that are
 multiples of E and tiles them into sheet.png). press adds the presses of SEQ, read with the cursor at the next
 frame (@F is an absolute frame), and logs it in press.log. input prints the input of the logged presses (one
 after another, or in parallel where they overlap), e.g. for set --input "$(scripts/e2e.py session input)".
@@ -735,9 +735,9 @@ def main(argv=None):
     p = session.add_parser("start", help="start the session of a case", parents=[common])
     p.add_argument("case")
     p.set_defaults(func=session_start)
-    p = session.add_parser("step", help="advance the session", parents=[common])
-    p.add_argument("frames", type=int)
-    p.add_argument("--every", type=int)
+    p = session.add_parser("step", help="advance the session by FRAMES frames from the current frame", parents=[common])
+    p.add_argument("frames", type=int, metavar="FRAMES", help="the number of frames to run, not a target frame")
+    p.add_argument("--every", type=int, help="save the screen at the frames that are multiples of E")
     p.add_argument("--cols", type=int, help="screenshots in a row (default: up to 12)")
     p.add_argument("--scale", type=float, default=0.5)
     p.set_defaults(func=session_step)

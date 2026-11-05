@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:fnesemu_core/src/core/dc/aica.dart';
 import 'package:fnesemu_core/src/core/dc/aica_sound.dart';
 import 'package:fnesemu_core/src/core/dc/dc.dart';
+import 'package:fnesemu_core/src/core/dc/fault.dart';
 import 'package:fnesemu_core/src/types.dart';
 import 'package:fnesemu_core/src/util/uint8list.dart';
 import 'package:test/test.dart';
@@ -68,10 +69,20 @@ void main() {
     expect(core.bus.read32(base + 0x2814), 255);
   });
 
-
-
-
-
+  test('clearing KYONB with the source of a held ADPCM voice retires it', () {
+    configure(0, format: 2, loop: true);
+    core.bus.aica.memory.fillRange(0x1000, 0x1080, 0x17);
+    key(0, format: 2, loop: true);
+    core.bus.tickMasterClocks(clocks(64));
+    expect(core.bus.aica.sound.active, isTrue);
+    // a source change that keeps KYONB is still rejected
+    expect(() => core.bus.write32(base, 0x4000), throwsA(isA<DcUnsupported>()));
+    core.bus.write32(base, 0);
+    expect(core.bus.aica.sound.active, isFalse);
+    core.bus.write32(base, 0x8000);
+    core.bus.tickMasterClocks(clocks(64));
+    expect(core.bus.aica.sound.active, isFalse);
+  });
 
   test('audio packets own their buffers and full reset discards partial output',
       () {
@@ -91,10 +102,6 @@ void main() {
     expect(packets, hasLength(1));
     expect(packets.single.buffer, everyElement(0));
   });
-
-
-
-
 
   test('batched audio matches individual clocks with shared wave-RAM DMA', () {
     final single = Dc();
@@ -124,5 +131,4 @@ void main() {
     expect(packets.single.buffer, singlePackets.single.buffer);
     expect(core.bus.read32(base + 0x2814), single.bus.read32(base + 0x2814));
   });
-
 }
