@@ -383,4 +383,62 @@ void main() {
       }
     }
   });
+  test('compiled code with the MMU on matches the interpreter', () {
+    // A loop in P2 that reads and writes P1 RAM, and RAM through a TLB entry
+    // whose virtual page has other contents at its untranslated address.
+    final code = <int>[];
+    void emit(int word) => code.add(word);
+    emit(0xd400); // mov.l @(disp,pc),r4: the virtual address
+    emit(0xd500); // mov.l @(disp,pc),r5: the P1 address
+    emit(0xe614); // mov #20,r6
+    final loop = code.length;
+    emit(0x6142); // mov.l @r4,r1
+    emit(0x7101); // add #1,r1
+    emit(0x2512); // mov.l r1,@r5
+    emit(0x6252); // mov.l @r5,r2
+    emit(0x312c); // add r2,r1
+    emit(0x2412); // mov.l r1,@r4
+    emit(0x7404); // add #4,r4
+    emit(0x7504); // add #4,r5
+    emit(0x4610); // dt r6
+    final branch = code.length;
+    emit(0x8b00 | ((loop - branch - 2) & 255)); // bf loop
+    emit(0xaffe); // bra self
+    emit(0x0009); // nop
+    while (code.length * 2 % 4 != 0) {
+      emit(0x0009);
+    }
+    final pool = code.length * 2;
+    code[0] = 0xd400 | ((pool - 4) ~/ 4);
+    code[1] = 0xd500 | ((pool + 4 - ((2 * 1 + 4) & ~3)) ~/ 4);
+    emit(0x0000); // r4 = 0x0c040000
+    emit(0x0c04);
+    emit(0x0000); // r5 = 0x8c030000
+    emit(0x8c03);
+
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      for (var i = 0; i < 20; i++) {
+        core.bus.write32(0x0c020000 + 4 * i, 100 + i); // translated
+        core.bus.write32(0x0c040000 + 4 * i, 5000 + i); // untranslated alias
+      }
+      core.bus.write32(0xf6000000, 0x0c040000);
+      core.bus.write32(0xf7000000, 0x0c020000 | 0x174);
+      core.bus.mmucr = 1;
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) expect(compiled.jitClocks, greaterThan(0));
+    expect(compiled.stopReason, interpreted.stopReason);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(compiled.bus.ram, interpreted.bus.ram);
+    // The translated reads saw the TLB's page, not the alias.
+    expect(interpreted.bus.read32(0x8c030000), 101);
+  });
 }

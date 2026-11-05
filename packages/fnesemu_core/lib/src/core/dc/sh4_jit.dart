@@ -64,7 +64,8 @@ final class Sh4Jit extends JitAdapter {
   Uint32List _view(int word) =>
       Uint32List.view(rt.ctx.buffer, rt.ctx.offsetInBytes + word * 4, 16);
 
-  int get _tag => Sh4Translator.tagOf(_cpu._sr, _cpu._fpscr);
+  int get _tag => Sh4Translator.tagOf(_cpu._sr, _cpu._fpscr,
+      mmu: _cpu.bus.mmu.enabled);
 
   int? _fetch(int pc) {
     if (pc & 1 != 0 || pc.mask32 >= 0xc0000000) return null;

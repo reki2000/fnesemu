@@ -1,26 +1,33 @@
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
-/// SH-4 blocks for privileged code with the MMU off and a coherent cache.
-/// Memory outside mapped main RAM, unaligned accesses, exceptions and mode
-/// changes leave before effects so the owning CPU interprets the instruction.
-/// The block tag holds FPSCR.SZ, FPSCR.PR and SR.FD.
+/// SH-4 blocks for privileged code with a coherent cache. With the MMU on,
+/// blocks run only in the untranslated P1 and P2 areas and leave before any
+/// access outside them. Memory outside mapped main RAM, unaligned accesses,
+/// exceptions and mode changes leave before effects so the owning CPU
+/// interprets the instruction.
+/// The block tag holds FPSCR.SZ, FPSCR.PR, SR.FD and whether the MMU is on.
 final class Sh4Translator {
   static const regs = JitCtx.user;
   static const sr = regs + 16, gbr = sr + 1, pr = sr + 2;
   static const mach = sr + 3, macl = sr + 4, fpul = sr + 5, fpscr = sr + 6;
   static const fr = sr + 7, xf = fr + 16, ctxWords = xf + 16;
   static const interpret = JitReason.user;
-  static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4;
+  static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
 
   /// Guest page holding the store queues. Store-queue stores are redirected
   /// here; the reserved area 7 page that it shadows is not used by software.
   static const queueAlias = 0x1ffff000;
 
   /// The block tag for the given status and FPU status registers.
-  static int tagOf(int status, int floatStatus) =>
+  static int tagOf(int status, int floatStatus, {bool mmu = false}) =>
       ((floatStatus >> 20) & 1) |
       ((floatStatus >> 18) & 2) |
-      ((status >> 13) & 4);
+      ((status >> 13) & 4) |
+      (mmu ? tagMmu : 0);
+
+  /// Whether an address is in the untranslated P1 or P2 area.
+  static bool untranslated(int address) =>
+      address >= 0x80000000 && address < 0xc0000000;
 
   final int? Function(int) fetch;
   final void Function(int) protect;
@@ -69,10 +76,14 @@ final class Sh4Translator {
     }
   }
 
+  /// The instruction word at [at]; with the MMU on, only untranslated code.
+  int? fetchAt(int at) =>
+      tag & tagMmu != 0 && !untranslated(at) ? null : fetch(at);
+
   bool guard(int at) {
     final aligned = at & ~3;
     if (_guarded.contains(aligned)) return true;
-    final lo = fetch(aligned), hi = fetch((aligned + 2) & 0xffffffff);
+    final lo = fetchAt(aligned), hi = fetchAt((aligned + 2) & 0xffffffff);
     if (hi == null || lo == null) return false;
     _guarded.add(aligned);
     b.guard(aligned, (hi << 16) | lo);
@@ -90,12 +101,12 @@ final class Sh4Translator {
     var at = pc;
     var count = 0;
     for (; count < maxInstructions; count++) {
-      final op = fetch(at);
+      final op = fetchAt(at);
       if (op == null) break;
       if (branch(op)) {
         final kind = op >>> 12, n = (op >>> 8) & 15;
         final delayed = kind != 8 || n >= 13;
-        final slot = delayed ? fetch((at + 2) & 0xffffffff) : null;
+        final slot = delayed ? fetchAt((at + 2) & 0xffffffff) : null;
         if (delayed &&
             (slot == null ||
                 !supported(slot, tag, slot: true) ||
@@ -244,20 +255,28 @@ final class Sh4Translator {
       return known == null ? b.add(value, c(amount)) : c(known + amount);
     }
 
+    final mmu = tag & tagMmu != 0;
     IrValue address(IrValue value, int size) {
       final known = _constants[value.index];
-      if (known != null && known < 0xc0000000 && known & (size - 1) == 0) {
+      if (known != null &&
+          (mmu ? untranslated(known) : known < 0xc0000000) &&
+          known & (size - 1) == 0) {
         return value;
       }
       // P3 and P4 are never ordinary RAM; unaligned accesses raise errors.
-      final outside = b.ltU(c(0xbfffffff), value);
+      // With the MMU on, the translated areas below P1 also stay with the
+      // CPU, which looks up the TLB.
+      final outside = mmu
+          ? b.ltU(c(0x3fffffff), b.sub(value, c(0x80000000)))
+          : b.ltU(c(0xbfffffff), value);
       b.exitIf(
           size == 1 ? outside : b.or(outside, b.and(value, c(size - 1))), exit);
       return value;
     }
 
     IrValue storeAddress(IrValue value, int size) {
-      if (size < 4) return address(value, size);
+      // Store-queue stores are translated by the TLB when the MMU is on.
+      if (size < 4 || mmu) return address(value, size);
       final known = _constants[value.index];
       if (known != null) {
         return address(

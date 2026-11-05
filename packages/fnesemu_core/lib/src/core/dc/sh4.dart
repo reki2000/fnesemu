@@ -298,7 +298,7 @@ class Sh4 {
         inDelaySlot ||
         sleeping ||
         !privileged ||
-        bus.mmu.enabled ||
+        bus.mmu.enabled && !Sh4Translator.untranslated(pc) ||
         bus.cpg.stabilizing ||
         bus.cpg.resetPending ||
         _interruptDue()) {
