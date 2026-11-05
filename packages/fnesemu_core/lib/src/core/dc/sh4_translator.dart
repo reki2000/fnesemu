@@ -653,8 +653,9 @@ final class Sh4Translator {
       return true;
     }
     final status = get(fpscr);
-    // Enabled exceptions and round-to-zero stay with the exact model.
-    bad = b.or(bad, b.and(status, c(0xf83)));
+    // Enabled exceptions and the reserved rounding mode stay with the exact
+    // model. Round-to-zero is handled below.
+    bad = b.or(bad, b.and(status, c(0xf82)));
     final f0 = low == 14 ? get(fr) : null;
     if (f0 != null) {
       // The exact model owns the sign of a zero sum of zeros.
@@ -664,6 +665,9 @@ final class Sh4Translator {
     b.exitIf(bad, exit);
     final wx = b.floatConvert(x), wy = b.floatConvert(y);
     final IrValue sum, error;
+    // Whether the exact value lies on the other side of the rounded result
+    // than zero is only needed for a sum, whose error has a sign.
+    IrValue errorSign = c(0);
     if (low == 2) {
       // A product of two singles is exact in a double.
       sum = b.floatBinary(IrOp.floatMul, wx, wy);
@@ -687,9 +691,22 @@ final class Sh4Translator {
           b.floatBinary(IrOp.floatSub, right, virtual));
       error =
           b.ne(b.and(residual, b.c64Parts(-1, 0x7fffffff)), b.c64Parts(0, 0));
+      // The error and the value have opposite signs.
+      errorSign = b.ne(b.and(b.xor(residual, sum), b.c64Parts(0, 0x80000000)),
+          b.c64Parts(0, 0));
     }
-    final result = b.floatConvert(sum);
-    final inexact = b.or(b.ne(b.floatConvert(result), sum), error);
+    final nearest = b.floatConvert(sum);
+    final rounded = b.floatConvert(nearest);
+    final inexact = b.or(b.ne(rounded, sum), error);
+    // Round-to-zero steps one unit back when the nearest result lies beyond
+    // the exact value in magnitude, or on it with the error toward zero.
+    final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+    final sumMagnitude = b.and(sum, magnitudeMask),
+        roundedMagnitude = b.and(rounded, magnitudeMask);
+    final beyond = b.or(b.ltU(sumMagnitude, roundedMagnitude),
+        b.and(b.eq(sumMagnitude, roundedMagnitude), b.and(error, errorSign)));
+    final toZero = b.and(b.and(status, c(1)), beyond);
+    final result = b.select(toZero, b.sub(nearest, c(1)), nearest);
     // Denormal, infinite or underflowed-to-zero results, and a double on a
     // single midpoint with a nonzero error, take the exact path.
     var unusual = b.or(
@@ -731,8 +748,10 @@ final class Sh4Translator {
       put(fpscr, b.and(status, c(~0x3f000)));
       return true;
     }
-    // Enabled exceptions and round-to-zero stay with the exact model.
-    var bad = b.ne(b.and(status, c(0xf83)), c(0));
+    // Enabled exceptions and round-to-zero stay with the exact model, except
+    // for FLOAT, which steps back below.
+    var bad =
+        b.ne(b.and(status, c(code == 0xf02d ? 0xf82 : 0xf83)), c(0));
     if (code == 0xf02d) {
       b.exitIf(bad, exit);
       // The word biased into a double mantissa at 2^52, minus the bias.
@@ -741,8 +760,15 @@ final class Sh4Translator {
           b.or(b.zext32(b.xor(get(fpul), c(0x80000000))),
               b.c64Parts(0, 0x43300000)),
           b.c64Parts(0x80000000, 0x43300000));
-      final result = b.floatConvert(wide);
-      final inexact = b.ne(b.floatConvert(result), wide);
+      final nearest = b.floatConvert(wide);
+      final rounded = b.floatConvert(nearest);
+      final inexact = b.ne(rounded, wide);
+      final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+      final over = b.ltU(
+          b.and(wide, magnitudeMask), b.and(rounded, magnitudeMask));
+      // A converted word is exact in a double, so only an overshoot matters.
+      final result = b.select(
+          b.and(b.and(status, c(1)), over), b.sub(nearest, c(1)), nearest);
       put(fr + n, result);
       put(fpscr,
           b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));

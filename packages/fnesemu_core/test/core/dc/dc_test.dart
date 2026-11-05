@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fnesemu_core/core_factory.dart';
@@ -200,5 +201,100 @@ void main() {
         [interpreted.cpu.sr, interpreted.cpu.fpscr, interpreted.cpu.gbr]);
     expect([compiled.cpu.mach, compiled.cpu.macl, compiled.cpu.fpul],
         [interpreted.cpu.mach, interpreted.cpu.macl, interpreted.cpu.fpul]);
+  });
+
+  test('compiled single FPU arithmetic matches the interpreter in both rounding modes',
+      () {
+    // Per iteration: load a, b, c; FADD, FSUB, FMUL, FMAC and FLOAT on them,
+    // storing every result and FPSCR.
+    const iterations = 120;
+    final code = <int>[];
+    void emit(int word) => code.add(word);
+    // r4 = input pointer and r5 = output pointer, from the literals below.
+    emit(0xd400); // mov.l @(disp,pc),r4, patched below
+    emit(0xd500); // mov.l @(disp,pc),r5, patched below
+    emit(0xe600 | iterations); // mov #iterations,r6
+    final loop = code.length;
+    emit(0xf049); // fmov.s @r4+,fr0
+    emit(0xf149); // fmov.s @r4+,fr1
+    emit(0xf249); // fmov.s @r4+,fr2
+    void store() {
+      emit(0xf53a); // fmov.s fr3,@r5
+      emit(0x7504); // add #4,r5
+      emit(0x016a); // sts fpscr,r1
+      emit(0x2512); // mov.l r1,@r5
+      emit(0x7504); // add #4,r5
+    }
+
+    for (final op in [0xf310, 0xf311, 0xf312]) {
+      emit(0xf30c); // fmov fr0,fr3
+      emit(op); // fadd / fsub / fmul fr1,fr3
+      store();
+    }
+    emit(0xf32c); // fmov fr2,fr3
+    emit(0xf31e); // fmac fr0,fr1,fr3
+    store();
+    emit(0xf01d); // flds fr0,fpul
+    emit(0xf32d); // float fpul,fr3
+    store();
+    emit(0x4610); // dt r6
+    final branch = code.length;
+    emit(0x8b00 | ((loop - branch - 2) & 255)); // bf loop
+    emit(0xaffe); // bra self
+    emit(0x0009); // nop
+    while (code.length * 2 % 4 != 0) {
+      emit(0x0009);
+    }
+    final pool = code.length * 2;
+    code[0] = 0xd400 | ((pool - 4) ~/ 4);
+    code[1] = 0xd500 | ((pool + 4 - 4) ~/ 4);
+    emit(0x0000); // r4 = 0x8c020000
+    emit(0x8c02);
+    emit(0x4000); // r5 = 0x8c024000
+    emit(0x8c02);
+
+    final random = Random(11);
+    int single(Random r) {
+      final kind = r.nextInt(4);
+      final exponent = 100 + r.nextInt(50);
+      final fraction = kind == 0 ? 0 : r.nextInt(1 << 23);
+      return (r.nextBool() ? 0x80000000 : 0) | (exponent << 23) | fraction;
+    }
+
+    final inputs = <int>[];
+    for (var i = 0; i < iterations; i++) {
+      final a = single(random);
+      // Every third pair cancels or ties: b is a with a small change.
+      var b = i % 3 == 0 ? (a ^ 0x80000000) + random.nextInt(8) - 3 : single(random);
+      if (i % 5 == 0) b = (a & 0x80000000) | ((a & 0x7fffffff) - (random.nextInt(30) << 23));
+      inputs.addAll([a, b & 0xffffffff, single(random)]);
+    }
+    for (final control in [0x40001, 0x40000, 0x00001]) {
+      List<int> run(bool jit) {
+        final core = Dc(jit: jit);
+        addTearDown(core.dispose);
+        core.setRom(Uint8List.fromList([
+          for (final w in code) ...[w & 255, w >> 8]
+        ]));
+        for (var i = 0; i < inputs.length; i++) {
+          core.bus.write32(0x8c020000 + 4 * i, inputs[i]);
+        }
+        core.cpu.fpscr = control;
+        core.runFrame(60);
+        expect(core.stopReason, isNull);
+        expect(core.cpu.r[6], 0, reason: 'the loop did not finish');
+        return [
+          for (var i = 0; i < iterations * 10; i++)
+            core.bus.read32(0x8c024000 + 4 * i)
+        ];
+      }
+
+      final compiled = run(true), interpreted = run(false);
+      for (var i = 0; i < compiled.length; i++) {
+        expect(compiled[i], interpreted[i],
+            reason: 'control=${control.toRadixString(16)} word $i '
+                '(iteration ${i ~/ 10}, slot ${i % 10})');
+      }
+    }
   });
 }
