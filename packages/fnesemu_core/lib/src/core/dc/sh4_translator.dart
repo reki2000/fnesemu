@@ -732,7 +732,8 @@ final class Sh4Translator {
 
   /// FLOAT, FTRC, FIPR and FTRV on host doubles. Inner products sum the
   /// exact products in double precision and round once more to single,
-  /// where the exact model rounds the exact sum once.
+  /// where the exact model rounds the exact sum once. Round-to-zero applies
+  /// to that last rounding only.
   bool _nativeConversion(int op, int n, IrExit exit) {
     final code = op & 0xf0ff;
     final transform = op & 0xf3ff == 0xf1fd;
@@ -748,10 +749,9 @@ final class Sh4Translator {
       put(fpscr, b.and(status, c(~0x3f000)));
       return true;
     }
-    // Enabled exceptions and round-to-zero stay with the exact model, except
-    // for FLOAT, which steps back below.
-    var bad =
-        b.ne(b.and(status, c(code == 0xf02d ? 0xf82 : 0xf83)), c(0));
+    // Enabled exceptions and the reserved rounding mode stay with the exact
+    // model. Round-to-zero steps back below.
+    var bad = b.ne(b.and(status, c(0xf82)), c(0));
     if (code == 0xf02d) {
       b.exitIf(bad, exit);
       // The word biased into a double mantissa at 2^52, minus the bias.
@@ -764,8 +764,8 @@ final class Sh4Translator {
       final rounded = b.floatConvert(nearest);
       final inexact = b.ne(rounded, wide);
       final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
-      final over = b.ltU(
-          b.and(wide, magnitudeMask), b.and(rounded, magnitudeMask));
+      final over =
+          b.ltU(b.and(wide, magnitudeMask), b.and(rounded, magnitudeMask));
       // A converted word is exact in a double, so only an overshoot matters.
       final result = b.select(
           b.and(b.and(status, c(1)), over), b.sub(nearest, c(1)), nearest);
@@ -793,7 +793,14 @@ final class Sh4Translator {
             b.floatBinary(
                 IrOp.floatMul, wideVector[i], b.floatConvert(row[i])));
       }
-      return b.floatConvert(sum);
+      // Round-to-zero steps one unit back when the nearest single lies
+      // beyond the double sum in magnitude.
+      final nearest = b.floatConvert(sum);
+      final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+      final beyond = b.ltU(b.and(sum, magnitudeMask),
+          b.and(b.floatConvert(nearest), magnitudeMask));
+      return b.select(
+          b.and(b.and(status, c(1)), beyond), b.sub(nearest, c(1)), nearest);
     }
 
     final List<IrValue> results;

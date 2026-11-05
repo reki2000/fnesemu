@@ -45,7 +45,6 @@ void main() {
     expect(core.cpu.r[0], 0);
   });
 
-
   test(
       'Core scheduling clocks TMU and accepts its interrupt at the next boundary',
       () {
@@ -76,8 +75,6 @@ void main() {
     expect(core.bus.read16(0xffd00004), 0);
   });
 
-
-
   test('boot ROM starts at reset vector; invalid replacement is atomic', () {
     final core = Dc();
     addTearDown(core.dispose);
@@ -94,12 +91,6 @@ void main() {
     expect(core.cpu.pc, 0xa0000002);
     expect(core.bus.bios[0], 42);
   });
-
-
-
-
-
-
 
   test('compiled SH-4 code matches the interpreter', () {
     // A loop mixing ALU, memory, GBR, store-queue, FPU and call forms.
@@ -203,7 +194,8 @@ void main() {
         [interpreted.cpu.mach, interpreted.cpu.macl, interpreted.cpu.fpul]);
   });
 
-  test('compiled single FPU arithmetic matches the interpreter in both rounding modes',
+  test(
+      'compiled single FPU arithmetic matches the interpreter in both rounding modes',
       () {
     // Per iteration: load a, b, c; FADD, FSUB, FMUL, FMAC and FLOAT on them,
     // storing every result and FPSCR.
@@ -265,8 +257,11 @@ void main() {
     for (var i = 0; i < iterations; i++) {
       final a = single(random);
       // Every third pair cancels or ties: b is a with a small change.
-      var b = i % 3 == 0 ? (a ^ 0x80000000) + random.nextInt(8) - 3 : single(random);
-      if (i % 5 == 0) b = (a & 0x80000000) | ((a & 0x7fffffff) - (random.nextInt(30) << 23));
+      var b = i % 3 == 0
+          ? (a ^ 0x80000000) + random.nextInt(8) - 3
+          : single(random);
+      if (i % 5 == 0)
+        b = (a & 0x80000000) | ((a & 0x7fffffff) - (random.nextInt(30) << 23));
       inputs.addAll([a, b & 0xffffffff, single(random)]);
     }
     for (final control in [0x40001, 0x40000, 0x00001]) {
@@ -294,6 +289,97 @@ void main() {
         expect(compiled[i], interpreted[i],
             reason: 'control=${control.toRadixString(16)} word $i '
                 '(iteration ${i ~/ 10}, slot ${i % 10})');
+      }
+    }
+  });
+  test('compiled FTRV and FIPR match the interpreter in both rounding modes',
+      () {
+    // Per iteration: a 4x4 matrix and a vector; FTRV, then FIPR on the
+    // matrix rows, storing every result and FPSCR.
+    const iterations = 60;
+    final code = <int>[];
+    void emit(int word) => code.add(word);
+    emit(0xd400); // mov.l @(disp,pc),r4, patched below
+    emit(0xd500); // mov.l @(disp,pc),r5, patched below
+    emit(0xe600 | iterations); // mov #iterations,r6
+    final loop = code.length;
+    void load(int register) => emit(0xf049 | (register << 8)); // fmov.s @r4+
+    void store(int register) {
+      emit(0xf50a | (register << 4)); // fmov.s frN,@r5
+      emit(0x7504); // add #4,r5
+    }
+
+    void storeStatus() {
+      emit(0x016a); // sts fpscr,r1
+      emit(0x2512); // mov.l r1,@r5
+      emit(0x7504); // add #4,r5
+    }
+
+    for (var i = 0; i < 16; i++) {
+      load(i);
+    }
+    emit(0xfbfd); // frchg: the matrix moves to XMTRX
+    for (var i = 0; i < 4; i++) {
+      load(i);
+    }
+    emit(0xf1fd); // ftrv xmtrx,fv0
+    for (var i = 0; i < 4; i++) {
+      store(i);
+    }
+    storeStatus();
+    emit(0xfbfd); // frchg: the matrix is back in fr0..fr15
+    emit(0xf1ed); // fipr fv4,fv0
+    store(3);
+    storeStatus();
+    emit(0x4610); // dt r6
+    final branch = code.length;
+    emit(0x8b00 | ((loop - branch - 2) & 255)); // bf loop
+    emit(0xaffe); // bra self
+    emit(0x0009); // nop
+    while (code.length * 2 % 4 != 0) {
+      emit(0x0009);
+    }
+    final pool = code.length * 2;
+    code[0] = 0xd400 | ((pool - 4) ~/ 4);
+    code[1] = 0xd500 | ((pool + 4 - 4) ~/ 4);
+    emit(0x0000); // r4 = 0x8c020000
+    emit(0x8c02);
+    emit(0x4000); // r5 = 0x8c024000
+    emit(0x8c02);
+
+    // Short mantissas in a narrow exponent range keep every double sum exact,
+    // so the compiled code must equal the exact model.
+    final random = Random(23);
+    int value() =>
+        (random.nextBool() ? 0x80000000 : 0) |
+        ((120 + random.nextInt(8)) << 23) |
+        (random.nextInt(1 << 11) << 12);
+    final inputs = [for (var i = 0; i < iterations * 20; i++) value()];
+    for (final control in [0x40001, 0x40000, 0x00001]) {
+      List<int> run(bool jit) {
+        final core = Dc(jit: jit);
+        addTearDown(core.dispose);
+        core.setRom(Uint8List.fromList([
+          for (final w in code) ...[w & 255, w >> 8]
+        ]));
+        for (var i = 0; i < inputs.length; i++) {
+          core.bus.write32(0x8c020000 + 4 * i, inputs[i]);
+        }
+        core.cpu.fpscr = control;
+        core.runFrame(60);
+        expect(core.stopReason, isNull);
+        expect(core.cpu.r[6], 0, reason: 'the loop did not finish');
+        return [
+          for (var i = 0; i < iterations * 7; i++)
+            core.bus.read32(0x8c024000 + 4 * i)
+        ];
+      }
+
+      final compiled = run(true), interpreted = run(false);
+      for (var i = 0; i < compiled.length; i++) {
+        expect(compiled[i], interpreted[i],
+            reason: 'control=${control.toRadixString(16)} word $i '
+                '(iteration ${i ~/ 7}, slot ${i % 7})');
       }
     }
   });
