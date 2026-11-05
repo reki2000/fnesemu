@@ -1375,6 +1375,18 @@ class DcGpuRender {
         (dvz * vScale).abs() < 1 << 40;
     final dsu = affine ? (duz * uScale).toInt() : 0,
         dsv = affine ? (dvz * vScale).toInt() : 0;
+    // Opaque-pass fragments of one flat color: no texture, shadow, sorting or
+    // visibility pass. The compare modes are masks of less (1), equal (2) and
+    // greater (4), which is the ISP depth mode itself.
+    final flatRows = flat &&
+        texture == null &&
+        plane == null &&
+        !background &&
+        _sortMode == 0 &&
+        _materialArea < 0 &&
+        _visibility == 0 &&
+        tsp & 0x02000000 == 0;
+    final flatReplace = replace && tsp & 0x01000000 == 0;
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1575,6 +1587,39 @@ class DcGpuRender {
               DcGpuTexture.shade(color, texel, off, tsp), z, off, tsp,
               hasOffset: fogOffset);
           _addFragment(index, z, color, tsp, writeDepth, order);
+        }
+        continue;
+      }
+      if (flatRows) {
+        for (var x = rowLeft; x < rowRight; x++) {
+          final px = originX + x + offset;
+          final e0 = row0 - e0y * (px - b.x),
+              e1 = row1 - e1y * (px - c.x),
+              e2 = row2 - e2y * (px - a.x);
+          if (e0 < 0 ||
+              e1 < 0 ||
+              e2 < 0 ||
+              (e0 == 0 && !tl0) ||
+              (e1 == 0 && !tl1) ||
+              (e2 == 0 && !tl2)) {
+            continue;
+          }
+          final z = za * (e0 * inverseArea) +
+              zb * (e1 * inverseArea) +
+              zc * (e2 * inverseArea);
+          if (!z.isFinite) {
+            throw const DcUnsupported('CORE nonfinite interpolated depth');
+          }
+          final index = y * 32 + x, previous = depthBuffer[index];
+          if (compare & (z < previous ? 1 : (z == previous ? 2 : 4)) == 0) {
+            continue;
+          }
+          if (flatReplace) {
+            colorBuffer[index] = flatColor;
+          } else {
+            _composite(index, flatColor, tsp);
+          }
+          if (writeDepth) depthBuffer[index] = z;
         }
         continue;
       }
