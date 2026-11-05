@@ -11,8 +11,8 @@ class DcTranslation {
 class _TlbEntry {
   int high = 0, low = 0, assistance = 0;
   bool get valid => low & 0x100 != 0;
-  int get offsetMask =>
-      [0x3ff, 0xfff, 0xffff, 0xfffff][((low >> 6) & 2) | ((low >> 4) & 1)];
+  static const _masks = [0x3ff, 0xfff, 0xffff, 0xfffff];
+  int get offsetMask => _masks[((low >> 6) & 2) | ((low >> 4) & 1)];
 }
 
 /// SH7750 unified/instruction TLBs and software-visible MMU state.
@@ -115,8 +115,11 @@ class DcMmu {
   int _find(List<_TlbEntry> entries, int address, bool privileged,
       {bool instruction = false}) {
     var found = -1;
-    for (var i = 0; i < entries.length; i++) {
-      if (!_matches(entries[i], address, privileged)) continue;
+    final length = entries.length;
+    for (var i = 0; i < length; i++) {
+      final entry = entries[i];
+      if (entry.low & 0x100 == 0) continue;
+      if (!_matches(entry, address, privileged)) continue;
       if (found >= 0) {
         throw DcCpuException(0x140, address: address, reset: true);
       }
