@@ -45,6 +45,35 @@ void main() {
     await controller.stop();
   });
 
+  test('DC startup restores saved flash after loading the factory image',
+      () async {
+    final saved = Uint8List(0x20000)..fillRange(0, 0x20000, 0xff);
+    saved[0] = 0x56;
+    final sram = _SavedDcFlashSram(saved);
+    final controller = CoreController((_) {}, (_) {}, (_) {}, sram);
+    final factory = Uint8List(0x20000)..fillRange(0, 0x20000, 0xff);
+    factory[0] = 0x12;
+
+    await controller.init('dc', bios: [Uint8List(2 * 1024 * 1024), factory]);
+    expect(sram.id, 'dc/sram/system_flash');
+    expect(sram.read8(0), 0x56);
+    await controller.stop();
+  });
+
+  test('PS and SS attach backup storage after loading their BIOS', () async {
+    final sram = Sram();
+    final controller = CoreController((_) {}, (_) {}, (_) {}, sram);
+
+    await controller.init('ps', bios: [Uint8List(512 * 1024)]);
+    expect(sram.id, 'ps/sram/memcard1');
+    expect(sram.data.length, 128 * 1024);
+
+    await controller.init('ss', bios: [Uint8List(512 * 1024)]);
+    expect(sram.id, 'ss_bram');
+    expect(sram.data.length, 0x8000);
+    await controller.stop();
+  });
+
   test('save and load resume a running emulation', () async {
     final transitions = <bool>[];
     final controller = CoreController(
@@ -60,4 +89,16 @@ void main() {
     await controller.stop();
     await _until(() => transitions.last == false);
   });
+}
+
+/// Simulates the app's preloaded persistent DC system flash.
+class _SavedDcFlashSram extends Sram {
+  _SavedDcFlashSram(this.saved);
+
+  final Uint8List saved;
+
+  @override
+  void init(String id, Uint8List initialData) {
+    super.init(id, id == 'dc/sram/system_flash' ? saved : initialData);
+  }
 }
