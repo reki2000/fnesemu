@@ -144,9 +144,41 @@ abstract final class X64Backend {
       int cc;
       if (fused[v] >= 0) {
         final cmp = insts[v];
-        load(R.rax, cmp.a);
-        aluValue(cmp.op == IrOp.and ? Alu.and : Alu.cmp,
-            R.rax, cmp.b, w: wide(cmp.a));
+        final w = wide(cmp.a);
+        // The operand's own register serves a comparison, which only reads.
+        int operand(int x) {
+          if (constant(x) == null && registers[x] >= 0) return registers[x];
+          load(R.rax, x);
+          return R.rax;
+        }
+
+        final ka = constant(cmp.a), kb = constant(cmp.b);
+        if (cmp.op == IrOp.ltU &&
+            ka != null &&
+            kb == null &&
+            !w &&
+            !wide(cmp.b) &&
+            immediate(ka, false)) {
+          // K < x unsigned is x above K.
+          a.aluRI(Alu.cmp, operand(cmp.b), ka);
+          a.jcc(whenTrue ? Cc.a : Cc.a ^ 1, target);
+          return;
+        }
+        final test = cmp.op == IrOp.and;
+        if (ka == null && kb != null && immediate(kb, w)) {
+          final reg = operand(cmp.a);
+          test
+              ? a.testRI(reg, kb, w: w)
+              : a.aluRI(Alu.cmp, reg, kb, w: w);
+        } else if (ka == null && kb == null && registers[cmp.b] >= 0) {
+          final reg = operand(cmp.a);
+          test
+              ? a.testRR(reg, registers[cmp.b], w: w)
+              : a.aluRR(Alu.cmp, reg, registers[cmp.b], w: w);
+        } else {
+          load(R.rax, cmp.a);
+          aluValue(test ? Alu.and : Alu.cmp, R.rax, cmp.b, w: w);
+        }
         cc = switch (cmp.op) {
           IrOp.eq => Cc.e,
           IrOp.ne || IrOp.and => Cc.ne,
@@ -162,6 +194,7 @@ abstract final class X64Backend {
     }
 
     final stubs = <void Function()>[];
+    final exitStubs = <int, Label>{};
     final win64 = env.win64;
     final arg0 = win64 ? R.rcx : R.rdi;
     final arg1 = win64 ? R.rdx : R.rsi;
@@ -513,11 +546,23 @@ abstract final class X64Backend {
                   a.jmp(done);
                 });
           load(R.rax, inst.a);
-          lookup(R.r12);
-          a.testRR64(R.rdx, R.rdx);
-          a.jcc(Cc.e, slow);
-          a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
-          final m = Mem(R.rdx, index: R.rcx);
+          final Mem m;
+          final address = wide(inst.a) ? null : constant(inst.a);
+          if (address != null) {
+            // The page and the offset are known when the code is generated.
+            final mapped = address.toUnsigned(32) & env.addrMask;
+            a.movRM64(R.rdx,
+                Mem(R.r12, disp: 8 * (mapped >>> env.pageShift)));
+            a.testRR64(R.rdx, R.rdx);
+            a.jcc(Cc.e, slow);
+            m = Mem(R.rdx, disp: mapped & ((1 << env.pageShift) - 1));
+          } else {
+            lookup(R.r12);
+            a.testRR64(R.rdx, R.rdx);
+            a.jcc(Cc.e, slow);
+            a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
+            m = Mem(R.rdx, index: R.rcx);
+          }
           switch (inst.imm) {
             case 1:
               a.movzx8RM(R.rax, m);
@@ -540,13 +585,24 @@ abstract final class X64Backend {
                   a.jmp(done);
                 });
           load(R.rax, inst.a);
-          lookup(R.r13);
-          a.testRR64(R.rdx, R.rdx);
-          a.jcc(Cc.e, slow);
-          a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
+          final Mem m;
+          final address = wide(inst.a) ? null : constant(inst.a);
+          if (address != null) {
+            final mapped = address.toUnsigned(32) & env.addrMask;
+            a.movRM64(R.rdx,
+                Mem(R.r13, disp: 8 * (mapped >>> env.pageShift)));
+            a.testRR64(R.rdx, R.rdx);
+            a.jcc(Cc.e, slow);
+            m = Mem(R.rdx, disp: mapped & ((1 << env.pageShift) - 1));
+          } else {
+            lookup(R.r13);
+            a.testRR64(R.rdx, R.rdx);
+            a.jcc(Cc.e, slow);
+            a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
+            m = Mem(R.rdx, index: R.rcx);
+          }
           load(R.rax, inst.b);
           swap(R.rax, inst.imm, inst.endian);
-          final m = Mem(R.rdx, index: R.rcx);
           switch (inst.imm) {
             case 1:
               a.mov8MR(m, R.rax);
@@ -593,7 +649,8 @@ abstract final class X64Backend {
           save(i, R.rax);
         case IrOp.exitIf:
           final e = block.exits[inst.aux];
-          final l = stub(
+          // Conditions split from one exit share its stub.
+          final l = exitStubs[inst.aux] ??= stub(
             () => exitTo(
               e.reason,
               e.pc,

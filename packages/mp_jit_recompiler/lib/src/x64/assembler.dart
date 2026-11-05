@@ -293,6 +293,14 @@ final class Assembler {
   }
 
   void testRR64(int a, int b) => _opReg([0x85], b, a, w: true);
+  void testRR(int a, int b, {bool w = false}) => _opReg([0x85], b, a, w: w);
+  void testRI(int reg, int imm, {bool w = false}) {
+    _rex(w, 0, 0, reg);
+    u8(0xf7);
+    _modrmReg(0, reg);
+    u32(imm);
+  }
+
   void shiftRCl(int shift, int dst, {bool w = false}) =>
       _opReg([0xd3], shift, dst, w: w);
   void shiftRI(int shift, int dst, int imm, {bool w = false}) {
