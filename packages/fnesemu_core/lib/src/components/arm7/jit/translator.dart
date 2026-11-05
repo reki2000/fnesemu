@@ -27,6 +27,8 @@ final class ArmTranslatorPolicy {
     required this.lenientTransfers,
     required this.loadToPcCycles,
     required this.maxInstructionCycles,
+    this.strictBlockTransfers = false,
+    this.blockLoadToPcCycles = 0,
   });
 
   /// Register-controlled operand2 shifts in data processing.
@@ -43,6 +45,14 @@ final class ArmTranslatorPolicy {
 
   /// Block transfers (unconditional, without the S bit).
   final bool blockTransfers;
+
+  /// The ARM7DI interpreter prohibits a block transfer based on PC, which
+  /// stays interpreted, and charges [blockLoadToPcCycles] more cycles for a
+  /// load that includes PC.
+  final bool strictBlockTransfers;
+
+  /// Extra cycles of a block load that includes PC.
+  final int blockLoadToPcCycles;
 
   /// Accepts the transfer forms the ARM7DI interpreter prohibits:
   /// writeback to PC, byte loads to PC, load/writeback overlap,
@@ -68,10 +78,13 @@ final class ArmTranslatorPolicy {
     multiply: false,
     swap: false,
     halfTransfers: false,
-    blockTransfers: false,
+    blockTransfers: true,
+    strictBlockTransfers: true,
+    blockLoadToPcCycles: 2,
     lenientTransfers: false,
     loadToPcCycles: 5,
-    maxInstructionCycles: 5,
+    // A block load of sixteen registers that includes PC takes 20.
+    maxInstructionCycles: 20,
   );
 
   /// The ARM7TDMI policy (GBA).
@@ -261,12 +274,14 @@ final class ArmTranslator {
       if (!policy.blockTransfers) return null;
       if (condition != 14) return null;
       if (op & 0x400000 != 0) return null; // the S bit stays interpreted
+      if (policy.strictBlockTransfers && (op >> 16) & 15 == 15) return null;
       var count = 0;
       for (var i = 0; i < 16; i++) {
         if (op & (1 << i) != 0) count++;
       }
       if (count == 0) return null;
-      return op & 0x100000 != 0 ? count + 2 : count + 1;
+      if (op & 0x100000 == 0) return count + 1;
+      return count + 2 + (op & 0x8000 != 0 ? policy.blockLoadToPcCycles : 0);
     }
     return null;
   }
