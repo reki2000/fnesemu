@@ -71,10 +71,12 @@ class CoreController {
     final Core core;
     try {
       core = created = CoreFactory.of(system);
+      // Load factory BIOS data before attaching persistent backup storage.
+      // Saved contents must take precedence over bundled initial images.
       core
+        ..setBiosFiles(bios)
         ..setSram(_sram)
-        ..onAudio(_onAudio)
-        ..setBiosFiles(bios);
+        ..onAudio(_onAudio);
 
       if (rom != null) {
         core.setRom(rom);
