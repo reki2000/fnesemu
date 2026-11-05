@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../state.dart';
 import '../../util/int.dart';
 import 'fault.dart';
@@ -9,7 +11,22 @@ class DcTranslation {
 }
 
 class _TlbEntry {
-  int high = 0, low = 0, assistance = 0;
+  /// Changes whenever any entry changes, so that lookup memos can be dropped.
+  static int version = 0;
+  int _high = 0, _low = 0;
+  int assistance = 0;
+  int get high => _high;
+  set high(int value) {
+    _high = value;
+    version++;
+  }
+
+  int get low => _low;
+  set low(int value) {
+    _low = value;
+    version++;
+  }
+
   bool get valid => low & 0x100 != 0;
   static const _masks = [0x3ff, 0xfff, 0xffff, 0xfffff];
   int get offsetMask => _masks[((low >> 6) & 2) | ((low >> 4) & 1)];
@@ -112,8 +129,23 @@ class DcMmu {
           (privileged && _control & 0x100 != 0) ||
           (entry.high & 255) == (pteh & 255));
 
+  final _memoKeys = Int64List(64), _memoValues = Int32List(64);
+  int _memoVersion = -1;
+
   int _find(List<_TlbEntry> entries, int address, bool privileged,
       {bool instruction = false}) {
+    // Entries match whole 1 KiB pages at least, so the page decides the result.
+    final asid = _control & 0x100 != 0 && privileged ? 256 : pteh & 255;
+    final key = (address >>> 10) |
+        (asid << 22) |
+        (instruction ? 1 << 31 : 0) |
+        (1 << 32);
+    if (_memoVersion != _TlbEntry.version) {
+      _memoKeys.fillRange(0, _memoKeys.length, 0);
+      _memoVersion = _TlbEntry.version;
+    }
+    final slot = (address >>> 10) & 63;
+    if (_memoKeys[slot] == key) return _memoValues[slot];
     var found = -1;
     final length = entries.length;
     for (var i = 0; i < length; i++) {
@@ -125,6 +157,8 @@ class DcMmu {
       }
       found = i;
     }
+    _memoKeys[slot] = key;
+    _memoValues[slot] = found;
     return found;
   }
 
