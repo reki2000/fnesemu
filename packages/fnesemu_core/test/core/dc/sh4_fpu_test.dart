@@ -179,4 +179,34 @@ void main() {
       expect(cpu.fpscr, control | (flags << 12) | (flags << 2), reason: reason);
     }
   });
+
+  test('FSQRT and FSRRA of single operands match the exact reference', () {
+    final random = Random(7);
+    final inputs = <int>[
+      0x00800000, 0x00800001, 0x3f800000, 0x40000000, 0x40800000, 0x3e800000,
+      0x7f7fffff, 0x7f000000, 0x00ffffff, 0x01000000, 0x3f800001, 0x3fffffff,
+      0x80800000, 0x00000000, 0x80000000, 0x7f800000, 0x7fc00000, 0x00400000,
+      for (var i = 0; i < 4000; i++) random.nextInt(1 << 32),
+      for (var i = 0; i < 4000; i++) (random.nextInt(254) + 1) << 23 | random.nextInt(1 << 23),
+    ];
+    for (final control in [0x40000, 0x40001, 0x00000, 0x00001]) {
+      for (final bits in inputs) {
+        for (final reciprocal in [false, true]) {
+          final reason = 'bits=${bits.toRadixString(16)} '
+              'control=${control.toRadixString(16)} reciprocal=$reciprocal';
+          final expected = reciprocal
+              ? DcFloat.single.reciprocalRoot(BigInt.from(bits), control)
+              : DcFloat.single.squareRoot(BigInt.from(bits), control);
+          if (expected.flags & DcFloat.error != 0) continue;
+          cpu.fpscr = control;
+          cpu.fr[3] = bits;
+          execute(reciprocal ? 0xf37d : 0xf36d);
+          expect(cpu.fr[3], expected.bits.toInt(), reason: reason);
+          final flags = expected.flags;
+          expect(cpu.fpscr, control | (flags << 12) | (flags << 2),
+              reason: reason);
+        }
+      }
+    }
+  });
 }
