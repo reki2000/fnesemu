@@ -173,9 +173,7 @@ class Ps extends Core {
 
     cdrom.closeShell();
 
-    _sram.init(StorageKey.of("ps", StorageKey.sram, "memcard1"),
-        MemoryCard.blankImage);
-    memoryCard.setRw(_sram.read8, _sram.write8);
+
   }
 
   int nextScanlineClock = 0;
@@ -451,7 +449,12 @@ class Ps extends Core {
   }
 
   @override
-  void setSram(Sram sram) => _sram = sram;
+  void setSram(Sram sram) {
+    _sram = sram;
+    _sram.init(StorageKey.of("ps", StorageKey.sram, "memcard1"),
+        MemoryCard.blankImage);
+    memoryCard.setRw(_sram.read8, _sram.write8);
+  }
 
   @override
   List<PadButton> get buttons => pad.buttons;
