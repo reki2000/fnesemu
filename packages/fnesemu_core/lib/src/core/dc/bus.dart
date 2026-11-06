@@ -485,9 +485,12 @@ class DcBus {
       syncDevices();
     }
     // Validate the whole burst before committing any external bytes.
-    _writeExternal(destination,
-        Uint8List.fromList(_storeQueues.sublist(queue * 32, queue * 32 + 32)));
+    // Every sink copies the burst before it returns, so one buffer serves all.
+    _burst.setRange(0, 32, _storeQueues, queue * 32);
+    _writeExternal(destination, _burst);
   }
+
+  final _burst = Uint8List(32);
 
   void resetCpuRegisters(
       {bool manual = false, bool preserveClockControl = false}) {
