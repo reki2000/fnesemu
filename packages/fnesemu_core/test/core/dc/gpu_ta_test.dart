@@ -109,7 +109,8 @@ void main() {
     expect(bus.read32(reg + 0x138), parameter);
     bus.write32(reg + 0x124, 0xffffffff);
     expect(bus.read32(reg + 0x124), 0xffffe0);
-    expect(() => bus.read16(reg + 0x124), throwsA(isA<DcUnsupported>()));
+    expect(bus.read16(reg + 0x124), 0xffe0);
+    expect(() => bus.read16(reg + 0x125), throwsA(isA<DcUnsupported>()));
   });
 
   test('TA stores a documented strip pointer, packed parameters and end marker',

@@ -939,6 +939,17 @@ class DcBus {
         : null;
   }
 
+  /// Undefined CPU control registers in the area-7 alias (`0x1f000000`-`0x1f0000ff`):
+  /// writes are ignored and reads return zero.
+  bool _reservedCpuRegister(int address) {
+    address = address.mask32;
+    if (address >= 0xc0000000 && address < 0xe0000000) return false;
+    final physical = address & 0x1fffffff;
+    return physical >= 0x1f000000 &&
+        physical < 0x1f000100 &&
+        _cpuRegister(physical & ~3) == null;
+  }
+
   (Uint8List, int) _resolve(int address, int size, bool write) {
     address = address.mask32;
     if (address & (size - 1) != 0) {
@@ -1000,7 +1011,7 @@ class DcBus {
     // Optional adapters are absent. All-ones reads in the external expansion
     // window extend the existing ID policy; electrical open-bus behavior is
     // not established. Writes still require an implemented device.
-    if ((size == 1 && (physical == 0x00600000 || physical == 0x00600004)) ||
+    if ((size == 1 && physical >= 0x00600000 && physical < 0x00600800) ||
         (physical >= 0x01000000 && physical + size <= 0x02000000 &&
             physical & (size - 1) == 0)) {
       return (1 << (size * 8)) - 1;
@@ -1010,6 +1021,7 @@ class DcBus {
 
   int read8(int address, {DcTranslation? mapping, bool peek = false}) {
     final decoded = mapping?.physical ?? address;
+    if (_reservedCpuRegister(decoded)) return 0;
     final absent = _absentG2Read(decoded, 1);
     if (absent != null) return absent;
     final fifoRegister = _fifoRegister(decoded);
@@ -1071,6 +1083,7 @@ class DcBus {
 
   int read16(int address, {DcTranslation? mapping, bool peek = false}) {
     final decoded = mapping?.physical ?? address;
+    if (_reservedCpuRegister(decoded)) return 0;
     final absent = _absentG2Read(decoded, 2);
     if (absent != null) return absent;
     if (_ordinaryRead(decoded)) {
@@ -1151,6 +1164,7 @@ class DcBus {
 
   int read32(int address, {DcTranslation? mapping, bool peek = false}) {
     final decoded = mapping?.physical ?? address;
+    if (_reservedCpuRegister(decoded)) return 0;
     final absent = _absentG2Read(decoded, 4);
     if (absent != null) return absent;
     if (_ordinaryRead(decoded)) {
@@ -1253,6 +1267,11 @@ class DcBus {
 
   void write8(int address, int value, {DcTranslation? mapping}) {
     final decoded = mapping?.physical ?? address;
+    if (_reservedCpuRegister(decoded)) return;
+    // Writes to the absent modem register window are ignored.
+    if (_absentG2Read(decoded, 1) != null && decoded & 0x1dffffff < 0x00600800) {
+      return;
+    }
     if (_ordinaryRam(decoded)) {
       cache.write(address, _valueBytes(1, value),
           physical: mapping?.physical,
@@ -1315,6 +1334,7 @@ class DcBus {
 
   void write16(int address, int value, {DcTranslation? mapping}) {
     final decoded = mapping?.physical ?? address;
+    if (_reservedCpuRegister(decoded)) return;
     if (_ordinaryRam(decoded)) {
       cache.write(address, _valueBytes(2, value),
           physical: mapping?.physical,
@@ -1386,6 +1406,7 @@ class DcBus {
   void write32(int address, int value,
       {bool allocate = false, DcTranslation? mapping}) {
     final decoded = mapping?.physical ?? address;
+    if (_reservedCpuRegister(decoded)) return;
     if (_ordinaryRam(decoded)) {
       cache.write(address, _valueBytes(4, value),
           allocate: allocate,

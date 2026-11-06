@@ -488,7 +488,8 @@ class DcAica {
     value &= 0xffff;
     if (value == 0 &&
         ((offset >= 0x3300 && offset < 0x3400) ||
-            (offset >= 0x3c00 && offset < 0x4000))) {
+            (offset >= 0x3c00 && offset < 0x4000) ||
+            (offset >= 0x45c8 && offset < 0x4800))) {
       return; // Inert writes while clearing the gaps in the DSP register map.
     }
     if (DcAicaDsp.handles(offset)) return dsp.write(offset, value);

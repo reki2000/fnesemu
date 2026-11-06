@@ -365,6 +365,9 @@ class DcG2 {
       0x94 => _trTimeout,
       0x98 => _modemTimeout,
       0x9c => _modemWait,
+      // The protection register is write-only. Reads return zero; the hardware
+      // value is not documented and no game is known to depend on it.
+      0xbc => 0,
       _ => throw DcUnsupported('unimplemented/write-only G2 read: $offset'),
     };
   }

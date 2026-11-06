@@ -349,7 +349,12 @@ class DcGpu {
 
   int read(int offset, int size) {
     if (size != 4) {
-      throw DcUnsupported('GPU registers require longword access');
+      // Byte and word reads return the addressed lanes of the longword.
+      if ((size != 1 && size != 2) || offset & (size - 1) != 0) {
+        throw DcUnsupported('GPU registers require aligned access');
+      }
+      final shift = (offset & 3) * 8;
+      return (read(offset & ~3, 4) >>> shift) & ((1 << (size * 8)) - 1);
     }
     if ([0xc4, 0xc8, 0xcc, 0xd0, 0xd4, 0xd8, 0xdc, 0xe0, 0x10c]
         .contains(offset)) {
