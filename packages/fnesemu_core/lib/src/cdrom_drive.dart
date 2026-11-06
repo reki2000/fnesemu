@@ -72,6 +72,17 @@ class CdromSession {
   const CdromSession(this.number, this.firstTrack, this.startLba);
 }
 
+/// The kind of disc, when the image format records it.
+enum CdromMedium {
+  /// The format does not say; the drive must not assume a kind.
+  unknown,
+  cd,
+
+  /// A GD-ROM: tracks in one LBA space, the high-density area from LBA 45000.
+  gd,
+  dvd,
+}
+
 class CdromToc {
   final List<CdromTrack> tracks;
 
@@ -84,7 +95,11 @@ class CdromToc {
   /// Explicit lead-in disc identity; null means XA identity is unavailable.
   final bool? isXa;
 
-  const CdromToc(this.tracks, this.totalSectors, {this.sessions, this.isXa});
+  /// The disc kind recorded by the image format.
+  final CdromMedium medium;
+
+  const CdromToc(this.tracks, this.totalSectors,
+      {this.sessions, this.isXa, this.medium = CdromMedium.unknown});
 
   static const empty = CdromToc([], 0);
 

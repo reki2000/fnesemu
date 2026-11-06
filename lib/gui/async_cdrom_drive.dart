@@ -171,7 +171,13 @@ class AsyncCdromDrive implements CdromDrive, CdromSubcodeDrive {
                   for (final session in image.toc.sessions!)
                     CdromSession(
                         session.number, session.firstTrack, session.startLba)
-                ]);
+                ],
+          medium: switch (image.toc.medium) {
+            DiscMedium.unknown => CdromMedium.unknown,
+            DiscMedium.cd => CdromMedium.cd,
+            DiscMedium.gd => CdromMedium.gd,
+            DiscMedium.dvd => CdromMedium.dvd,
+          });
       _log.infoc(() => "inserted ${next.$1.path}: "
           "${image.toc.tracks.length} track(s) ${image.totalSectors} sectors "
           "in ${watch.elapsedMilliseconds}ms");
