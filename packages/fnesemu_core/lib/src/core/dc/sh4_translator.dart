@@ -4,12 +4,13 @@ import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 /// main RAM, unaligned accesses, exceptions and mode changes leave before
 /// effects so the owning CPU interprets the instruction.
 ///
-/// With the MMU on, accesses to the translated P0 area look up two tables of
-/// 4 KiB pages, one for reads and instruction fetches and one for writes.
-/// Each slot holds a key word and the physical page. The owning CPU fills the
-/// slots from successful TLB translations to main RAM; a missing slot leaves
-/// the block. A block in P0 stays within one page and checks at entry that
-/// its page still translates to the physical page it was built from.
+/// With the MMU on, accesses to the translated P0 area go through two
+/// translation tables of the runtime, one for reads and instruction fetches
+/// and one for writes, whose direct window covers P1 and P2. The owning CPU
+/// fills the tables from successful TLB translations to main RAM; a missing
+/// slot leaves the block. A block in P0 stays within one page, guards the
+/// physical code and leaves at entry when its page has no slot. The owning
+/// CPU retires the block when the page later translates elsewhere.
 /// The block tag holds FPSCR.SZ, FPSCR.PR, SR.FD and whether the MMU is on;
 /// with the MMU on, it also holds user mode and the address space key.
 final class Sh4Translator {
@@ -21,13 +22,8 @@ final class Sh4Translator {
   static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
   static const tagUser = 16, tagSpaceShift = 5;
 
-  /// A P0 block whose page now translates to another physical page.
-  static const remapped = JitReason.user + 1;
-
-  /// Guest pages holding the read and write translation tables, mapped
-  /// read-only in the reserved area 7 like [queueAlias].
-  static const readTable = 0x1fffa000, writeTable = 0x1fffc000;
-  static const tableSlots = 1024;
+  /// The untranslated window of the translation tables: P1 and P2.
+  static const directStart = 0x80000000, directEnd = 0xc0000000;
 
   /// Guest page holding the store queues. Store-queue stores are redirected
   /// here; the reserved area 7 page that it shadows is not used by software.
@@ -49,15 +45,12 @@ final class Sh4Translator {
       (user ? tagUser : 0) |
       (space << tagSpaceShift);
 
-  /// The low bits of a table key for accesses under [tag]. Bit 11 marks a
-  /// valid slot, bit 10 user mode and bits 0 to 8 the address space key.
+  /// The translation key for accesses under [tag]: bit 11 is always set,
+  /// bit 10 marks user mode and bits 0 to 8 hold the address space key.
   static int keyBits(int tag) =>
       0x800 |
       (tag & tagUser != 0 ? 0x400 : 0) |
       ((tag >>> tagSpaceShift) & 511);
-
-  /// The table key for [address] under [tag].
-  static int key(int address, int tag) => (address & 0xfffff000) | keyBits(tag);
 
   /// Whether an address is in the untranslated P1 or P2 area.
   static bool untranslated(int address) =>
@@ -69,6 +62,9 @@ final class Sh4Translator {
   /// The physical page of a P0 code address under a tag, or null when the
   /// read table lacks it.
   final int? Function(int address, int tag) codePage;
+
+  /// The runtime's read and write translation tables.
+  final int readTable, writeTable;
 
   /// Helper id for FPU arithmetic, called with the opcode and its PC. It
   /// returns 0 on completion or nonzero when the CPU must interpret it.
@@ -82,6 +78,8 @@ final class Sh4Translator {
       {required this.fetch,
       required this.protect,
       this.codePage = _noPage,
+      this.readTable = 0,
+      this.writeTable = 1,
       required this.fpuHelper,
       required this.prefetchHelper,
       this.maxInstructions = 32});
@@ -92,6 +90,8 @@ final class Sh4Translator {
   final values = <int, IrValue>{};
   final _guarded = <int>{};
   final _constants = <int, int>{};
+  // The translations of the virtual addresses of loads and stores.
+  final _reads = <int, IrTranslation>{}, _writes = <int, IrTranslation>{};
   int spent = 0, tag = 0;
 
   // The virtual and physical pages of a P0 block, or -1.
@@ -104,6 +104,10 @@ final class Sh4Translator {
   }
 
   IrValue get(int word) => values[word] ??= b.ctxLoad(word);
+
+  /// The translation of an address checked for a load or a store, if any.
+  IrTranslation? via(IrValue address, {bool write = false}) =>
+      (write ? _writes : _reads)[address.index];
   void put(int word, IrValue value) => values[word] = value;
   IrValue r(int n) => get(regs + n);
   void setR(int n, IrValue value) => put(regs + n, value);
@@ -153,6 +157,8 @@ final class Sh4Translator {
     values.clear();
     _constants.clear();
     _guarded.clear();
+    _reads.clear();
+    _writes.clear();
     spent = 0;
     b = IrBuilder(pc, tag: tag);
     _page = _physicalPage = -1;
@@ -161,13 +167,10 @@ final class Sh4Translator {
       if (physical == null) return null;
       _page = pc & 0xfffff000;
       _physicalPage = physical;
-      // A missing slot leaves for the CPU, which refills it; another
-      // physical page retires the block.
-      final slot = readTable + ((pc >>> 12) & (tableSlots - 1)) * 8;
-      b.exitIf(b.ne(b.load(4, c(slot)), c(key(pc, tag))),
-          IrExit(interpret, pc, tag: tag, spent: 0));
-      b.exitIf(b.ne(b.load(4, c(slot + 4)), c(physical)),
-          IrExit(remapped, pc, tag: tag, spent: 0));
+      // A missing slot leaves for the CPU, which refills it.
+      b.load(2, c(pc),
+          unmapped: IrExit(interpret, pc, tag: tag, spent: 0),
+          translation: IrTranslation(readTable, keyBits(tag)));
     }
     var at = pc;
     var count = 0;
@@ -345,20 +348,11 @@ final class Sh4Translator {
       final outside = b.ltU(c(user ? 0x7fffffff : 0xbfffffff), value);
       b.exitIf(
           size == 1 ? outside : b.or(outside, b.and(value, c(size - 1))), exit);
-      if (!mmu) return value;
-      final slot = b.or(b.and(b.shrU(value, c(9)), c((tableSlots - 1) * 8)),
-          c(write ? writeTable : readTable));
-      final miss = b.ne(
-          b.load(4, slot), b.or(b.and(value, c(0xfffff000)), c(keyBits(tag))));
-      final physical =
-          b.or(b.load(4, b.or(slot, c(4))), b.and(value, c(0xfff)));
-      if (user) {
-        b.exitIf(miss, exit);
-        return physical;
+      if (mmu) {
+        (write ? _writes : _reads)[value.index] =
+            IrTranslation(write ? writeTable : readTable, keyBits(tag));
       }
-      final translated = b.ltU(value, c(0x80000000));
-      b.exitIf(b.and(miss, translated), exit);
-      return b.select(translated, physical, value);
+      return value;
     }
 
     IrValue storeAddress(IrValue value, int size) {
@@ -378,10 +372,17 @@ final class Sh4Translator {
           size);
     }
 
-    IrValue read(IrValue a, int size) =>
-        b.load(size, address(a, size), signed: size < 4, unmapped: exit);
-    void write(IrValue a, IrValue v, int size) =>
-        b.store(size, storeAddress(a, size), v, unmapped: exit);
+    IrValue read(IrValue a, int size) {
+      final checked = address(a, size);
+      return b.load(size, checked,
+          signed: size < 4, unmapped: exit, translation: via(checked));
+    }
+
+    void write(IrValue a, IrValue v, int size) {
+      final checked = storeAddress(a, size);
+      b.store(size, checked, v,
+          unmapped: exit, translation: via(checked, write: true));
+    }
 
     if (top == 14) {
       setR(n, c((op & 255).toSigned(8)));
@@ -1010,19 +1011,24 @@ final class Sh4Translator {
     // Both words of an 8-byte access share one page.
     final register = file(load ? n : m);
     if (load) {
-      final checked = address(a, size);
-      final first = b.load(4, checked, unmapped: exit);
+      final checked = address(a, size), translation = via(checked);
+      final first =
+          b.load(4, checked, unmapped: exit, translation: translation);
       if (pair) {
-        final second = b.load(4, b.add(checked, c(4)), unmapped: exit);
+        final second = b.load(4, b.add(checked, c(4)),
+            unmapped: exit, translation: translation);
         put(register + 1, second);
       }
       put(register, first);
       if (low == 9) setR(m, b.add(a, c(size)));
     } else {
-      final checked = storeAddress(a, size);
-      b.store(4, checked, get(register), unmapped: exit);
+      final checked = storeAddress(a, size),
+          translation = via(checked, write: true);
+      b.store(4, checked, get(register),
+          unmapped: exit, translation: translation);
       if (pair) {
-        b.store(4, b.add(checked, c(4)), get(register + 1), unmapped: exit);
+        b.store(4, b.add(checked, c(4)), get(register + 1),
+            unmapped: exit, translation: translation);
       }
       if (low == 11) setR(n, a);
     }
