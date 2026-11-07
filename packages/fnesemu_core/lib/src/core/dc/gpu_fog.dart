@@ -97,7 +97,9 @@ class DcGpuFog {
   }
 
   double _coefficient(double depth) {
-    var mantissa = (depth * _scale).clamp(1.0, 255.9999);
+    final scaled = depth * _scale;
+    var mantissa =
+        scaled < 255.9999 ? (scaled > 1.0 ? scaled : 1.0) : 255.9999;
     var index = 0;
     // Scaling by powers of two is exact, so the ladder equals halving until the value is below 2.
     if (mantissa >= 16) {
@@ -113,8 +115,10 @@ class DcGpuFog {
       index += 16;
     }
     final position = (mantissa - 1) * 16;
-    index += position.floor();
-    final fraction = position - position.floor();
+    // The position is not negative, so truncation is the floor.
+    final whole = position.toInt();
+    index += whole;
+    final fraction = position - whole;
     final pair = _table[index];
     return (pair >> 8) * (1 - fraction) + (pair & 255) * fraction;
   }
@@ -129,7 +133,9 @@ class DcGpuFog {
         if (low > high) {
           throw const DcUnsupported('CORE inverted color clamp bounds');
         }
-        clamped |= ((color >> shift) & 255).clamp(low, high) << shift;
+        final value = (color >> shift) & 255;
+        clamped |=
+            (value < low ? low : (value > high ? high : value)) << shift;
       }
       color = clamped;
     }
