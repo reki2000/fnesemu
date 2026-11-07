@@ -106,7 +106,8 @@ enum IrOp {
 
   /// loads imm bytes (1, 2, 4 or 8) at the guest address a; aux is 1 to sign
   /// extend. With an [IrInst.exit], an unmapped page exits the block instead
-  /// of calling the host read function
+  /// of calling the host read function. With an [IrInst.translation], a is
+  /// a virtual address translated by a table, see [IrTranslation]
   load,
 
   /// stores imm bytes (1, 2, 4 or 8) of b at the guest address a; an
@@ -232,6 +233,11 @@ final class IrInst {
   /// host read or write function
   final int exit;
 
+  /// the translation of a load or store as `table << 16 | key`, or -1
+  final int translation;
+  int get translationTable => translation >> 16;
+  int get translationKey => translation & 0xffff;
+
   const IrInst(
     this.op, {
     this.a = -1,
@@ -243,13 +249,32 @@ final class IrInst {
     this.type = IrType.i32,
     this.endian = IrEndian.little,
     this.immHi = 0,
+    this.translation = -1,
   });
 
   @override
   String toString() {
     final ops = [a, b, c].where((v) => v >= 0).map((v) => 'v$v').join(', ');
-    return '${op.name}.${type.name}.${endian.name}($ops${ops.isEmpty ? '' : ', '}imm: $imm, immHi: $immHi, aux: $aux${exit < 0 ? '' : ', exit: $exit'})';
+    return '${op.name}.${type.name}.${endian.name}($ops${ops.isEmpty ? '' : ', '}imm: $imm, immHi: $immHi, aux: $aux${exit < 0 ? '' : ', exit: $exit'}${translation < 0 ? '' : ', translation: $translationTable/$translationKey'})';
   }
+}
+
+/// The translation of a load or store address through a table of the
+/// runtime, see [JitRuntime.addTranslationTable].
+///
+/// An address outside the table's direct window is virtual. Its slot is
+/// chosen by the bits above the page offset, and it hits when the slot key
+/// equals the page bits of the address combined with [key]; the access then
+/// goes to the guest page that the slot maps. A miss leaves through the
+/// unmapped exit of the access, which is required, with the virtual address
+/// as the fault address. An address in the window is a guest address, as
+/// for an access without a translation.
+final class IrTranslation {
+  final int table;
+
+  /// the low bits of the slot key, nonzero and below the page size
+  final int key;
+  const IrTranslation(this.table, this.key);
 }
 
 /// A side exit either returns to the host or links to another block.
@@ -478,6 +503,13 @@ final class IrBlock {
       if (!(inst.op == IrOp.load || inst.op == IrOp.store || inst.exit == -1)) {
         fail('v$i has an unmapped exit on a non-memory operation');
       }
+      if (inst.translation != -1 &&
+          (!(inst.op == IrOp.load || inst.op == IrOp.store) ||
+              inst.exit < 0 ||
+              inst.translationTable < 0 ||
+              inst.translationKey == 0)) {
+        fail('v$i has an invalid translation');
+      }
       switch (inst.op) {
         case IrOp.constant:
           if (!(inst.type == IrType.i64 || inst.immHi == 0)) {
@@ -685,6 +717,7 @@ final class IrBuilder {
     IrType type = IrType.i32,
     IrEndian endian = IrEndian.little,
     IrExit? unmapped,
+    IrTranslation? translation,
   }) => _emit(
     IrInst(
       IrOp.load,
@@ -694,6 +727,7 @@ final class IrBuilder {
       exit: _exitIndex(unmapped),
       type: type,
       endian: endian,
+      translation: _translation(translation),
     ),
   );
   void store(
@@ -702,6 +736,7 @@ final class IrBuilder {
     IrValue v, {
     IrEndian endian = IrEndian.little,
     IrExit? unmapped,
+    IrTranslation? translation,
   }) => _emit(
     IrInst(
       IrOp.store,
@@ -711,8 +746,17 @@ final class IrBuilder {
       exit: _exitIndex(unmapped),
       type: typeOf(v),
       endian: endian,
+      translation: _translation(translation),
     ),
   );
+
+  static int _translation(IrTranslation? t) {
+    if (t == null) return -1;
+    if (t.table < 0 || t.table > 0x7fff || t.key <= 0 || t.key > 0xffff) {
+      throw ArgumentError('invalid translation table or key');
+    }
+    return t.table << 16 | t.key;
+  }
 
   IrValue floatBinary(IrOp op, IrValue a, IrValue value) {
     if (!const [

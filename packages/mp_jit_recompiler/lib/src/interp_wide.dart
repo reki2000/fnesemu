@@ -14,7 +14,7 @@ extension _Wide on IrInterpreterRuntime {
     return _floatData.getFloat64(0, Endian.little);
   }
 
-  Object _wide(IrInst inst, List<Object> values) {
+  Object _wide(IrInst inst, List<Object> values, int address) {
     BigInt a() => _bits(values[inst.a]);
     BigInt b() => _bits(values[inst.b]);
     Object result(BigInt value) =>
@@ -131,10 +131,11 @@ extension _Wide on IrInterpreterRuntime {
       case IrOp.trunc32:
         return _word(a());
       case IrOp.load:
-        return result(_loadWide(
-            values[inst.a] as int, inst.imm, inst.aux != 0, inst.endian));
+        return result(_loadWide(address >= 0 ? address : values[inst.a] as int,
+            inst.imm, inst.aux != 0, inst.endian));
       case IrOp.store:
-        _storeWide(values[inst.a] as int, inst.imm, b(), inst.endian);
+        _storeWide(address >= 0 ? address : values[inst.a] as int, inst.imm,
+            b(), inst.endian);
         return 0;
       default:
         throw StateError('unexpected wide operation ${inst.op.name}');

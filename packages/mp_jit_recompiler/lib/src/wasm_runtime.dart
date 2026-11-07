@@ -263,6 +263,36 @@ final class _WasmRuntime extends JitRuntime
     (write ? _writes : _reads)[page] = pointer;
   }
 
+  final _translationOffsets = <int>[];
+  final _translationWords = <Uint32List>[];
+
+  @override
+  void createTranslationTable(int table) {
+    _checkAlive();
+    final slots = translationTables[table].slots;
+    final offset = _allocate(slots * 8);
+    _translationOffsets.add(offset);
+    _translationWords.add(_buffer.asUint32List(offset, slots * 2));
+  }
+
+  @override
+  void writeTranslationSlot(
+    int table,
+    int slot,
+    int key,
+    (Uint8List, int)? host,
+  ) {
+    final words = _translationWords[table];
+    words[slot * 2] = key;
+    words[slot * 2 + 1] = host == null ? 0 : _hostOffsets[host.$1]! + host.$2;
+  }
+
+  @override
+  JitTranslationTable translationTable(int id) => translationTables[id];
+
+  @override
+  int translationAddress(int id) => _translationOffsets[id];
+
   @override
   int addHelper(JitHelper helper) {
     _checkAlive();

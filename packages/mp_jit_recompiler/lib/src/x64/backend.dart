@@ -286,6 +286,42 @@ abstract final class X64Backend {
       a.movRM64(R.rdx, Mem(table, index: R.rdx, scale: 8));
     }
 
+    // Like lookup, through the translation of inst for an address outside
+    // the table's direct window, jumping to miss when its slot misses.
+    void translatedLookup(IrInst inst, int table, Label miss) {
+      final id = inst.translationTable;
+      final t = env.translationTable(id);
+      final done = label(), direct = label();
+      final windowed = t.directEnd > t.directStart;
+      if (windowed) {
+        a.movRR(R.rcx, R.rax);
+        if (t.directStart != 0) a.aluRI(Alu.sub, R.rcx, t.directStart);
+        a.aluRI(Alu.cmp, R.rcx, t.directEnd - t.directStart);
+        a.jcc(Cc.b, direct);
+      }
+      a.movRR(R.rcx, R.rax);
+      a.shiftRI(Shift.shr, R.rcx, env.pageShift);
+      a.aluRI(Alu.and, R.rcx, t.slots - 1);
+      a.shiftRI(Shift.shl, R.rcx, 4);
+      a.movRI64(R.rdx, env.translationAddress(id));
+      a.aluRR(Alu.add, R.rdx, R.rcx, w: true);
+      a.movRR(R.rcx, R.rax);
+      a.aluRI(Alu.and, R.rcx, ~((1 << env.pageShift) - 1) & 0xffffffff);
+      a.aluRI(Alu.or, R.rcx, inst.translationKey);
+      a.aluRM(Alu.cmp, R.rcx, Mem(R.rdx));
+      a.jcc(Cc.ne, miss);
+      a.movRM64(R.rdx, Mem(R.rdx, disp: 8));
+      a.movRR(R.rcx, R.rax);
+      if (windowed) {
+        a.jmp(done);
+        a.bind(direct);
+        lookup(table);
+        a.testRR64(R.rdx, R.rdx);
+        a.jcc(Cc.e, miss);
+        a.bind(done);
+      }
+    }
+
     // leaves through e with the guest address in eax as the fault address
     Label unmappedExit(IrExit e) => stub(() {
       a.movMR(_ctx(JitCtx.faultAddr), R.rax);
@@ -547,8 +583,14 @@ abstract final class X64Backend {
                 });
           load(R.rax, inst.a);
           final Mem m;
-          final address = wide(inst.a) ? null : constant(inst.a);
-          if (address != null) {
+          final address = wide(inst.a) || inst.translation >= 0
+              ? null
+              : constant(inst.a);
+          if (inst.translation >= 0) {
+            translatedLookup(inst, R.r12, slow);
+            a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
+            m = Mem(R.rdx, index: R.rcx);
+          } else if (address != null) {
             // The page and the offset are known when the code is generated.
             final mapped = address.toUnsigned(32) & env.addrMask;
             a.movRM64(R.rdx,
@@ -586,8 +628,14 @@ abstract final class X64Backend {
                 });
           load(R.rax, inst.a);
           final Mem m;
-          final address = wide(inst.a) ? null : constant(inst.a);
-          if (address != null) {
+          final address = wide(inst.a) || inst.translation >= 0
+              ? null
+              : constant(inst.a);
+          if (inst.translation >= 0) {
+            translatedLookup(inst, R.r13, slow);
+            a.aluRI(Alu.and, R.rcx, (1 << env.pageShift) - 1);
+            m = Mem(R.rdx, index: R.rcx);
+          } else if (address != null) {
             final mapped = address.toUnsigned(32) & env.addrMask;
             a.movRM64(R.rdx,
                 Mem(R.r13, disp: 8 * (mapped >>> env.pageShift)));

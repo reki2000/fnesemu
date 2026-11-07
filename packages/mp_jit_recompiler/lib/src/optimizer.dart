@@ -337,7 +337,8 @@ IrInst _copy(IrInst i, int a, int b, int c) => i.a == a && i.b == b && i.c == c
         exit: i.exit,
         type: i.type,
         endian: i.endian,
-        immHi: i.immHi);
+        immHi: i.immHi,
+        translation: i.translation);
 
 int? _fold(IrInst i, int? a, int? b, int? c) {
   if (i.op == IrOp.constant) return i.imm;

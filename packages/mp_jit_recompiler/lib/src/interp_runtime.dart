@@ -244,14 +244,28 @@ final class IrInterpreterRuntime extends JitRuntime {
     for (int i = 0; i < insts.length; i++) {
       final inst = insts[i];
       // addresses are i32 at every value width
-      if (inst.exit >= 0 && _unmapped(inst, values[inst.a] as int)) {
+      var address = -1;
+      if (inst.translation >= 0) {
+        final virtual = values[inst.a] as int;
+        final translated = translate(
+          inst.translationTable,
+          inst.translationKey,
+          virtual,
+        );
+        if (translated == null) ctx[JitCtx.faultAddr] = virtual;
+        if (translated == null || _unmapped(inst, translated)) {
+          final e = block.exits[inst.exit];
+          return _leave(block, e, (v) => values[v.index]);
+        }
+        address = translated;
+      } else if (inst.exit >= 0 && _unmapped(inst, values[inst.a] as int)) {
         final e = block.exits[inst.exit];
         return _leave(block, e, (v) => values[v.index]);
       }
       if (wide &&
           (inst.type == IrType.i64 ||
               (inst.a >= 0 && insts[inst.a].type == IrType.i64))) {
-        values[i] = _wide(inst, values);
+        values[i] = _wide(inst, values, address);
         continue;
       }
       int a() => values[inst.a] as int;
@@ -293,9 +307,10 @@ final class IrInterpreterRuntime extends JitRuntime {
         IrOp.sext16 => a().toSigned(16),
         IrOp.zext8 => a() & 0xff,
         IrOp.zext16 => a() & 0xffff,
-        IrOp.load => _load(a(), inst.imm, inst.aux != 0, inst.endian),
+        IrOp.load => _load(
+            address >= 0 ? address : a(), inst.imm, inst.aux != 0, inst.endian),
         IrOp.store => () {
-            _store(a(), inst.imm, b(), inst.endian);
+            _store(address >= 0 ? address : a(), inst.imm, b(), inst.endian);
             return 0;
           }(),
         IrOp.call => _helpers[inst.imm](a(), b(), values[inst.c] as int),
