@@ -897,15 +897,15 @@ final class Sh4Translator {
     }
   }
 
-  /// Single FADD, FSUB, FMUL, FMAC, FCMP/EQ and FCMP/GT on host doubles.
-  /// Operands must be normal or zero; anything that could round twice,
-  /// leave the normal range or raise an exception exits to the CPU.
+  /// Single FADD, FSUB, FMUL, FDIV, FMAC, FCMP/EQ and FCMP/GT on host
+  /// doubles. Operands must be normal or zero; anything that could round
+  /// twice, leave the normal range or raise an exception exits to the CPU.
   bool _nativeFloat(int op, int n, int m, int low, IrExit exit) {
     if (op >>> 12 != 15 || tag & (tagDouble | tagFpuDisabled) != 0) {
       return false;
     }
     if (low == 13) return _nativeConversion(op, n, exit);
-    if (!(low <= 2 || low == 4 || low == 5 || low == 14)) return false;
+    if (!(low <= 5 || low == 14)) return false;
     IrValue magnitude(IrValue x) => b.and(x, c(0x7fffffff));
     IrValue zero(IrValue x) => b.eq(magnitude(x), c(0));
     final special = _special;
@@ -935,6 +935,7 @@ final class Sh4Translator {
       bad = b.or(bad, special(f0));
       bad = b.or(bad, b.and(b.or(zero(f0), zero(y)), zero(x)));
     }
+    if (low == 3) return _nativeDivide(n, x, y, status, bad, exit);
     b.exitIf(bad, exit);
     final wx = b.floatConvert(x), wy = b.floatConvert(y);
     final IrValue sum, error;
@@ -992,6 +993,42 @@ final class Sh4Translator {
       unusual = b.or(unusual, b.and(midpoint, error));
     }
     b.exitIf(unusual, exit);
+    put(fr + n, result);
+    put(fpscr,
+        b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
+    return true;
+  }
+
+  /// FDIV of normal or zero singles, the divisor nonzero. The double
+  /// quotient has more than twice the single precision plus two bits, so
+  /// rounding it to single gives the correctly rounded quotient. The
+  /// product of that single and the divisor is exact in a double, which
+  /// decides whether the result is inexact and lies beyond the exact
+  /// quotient.
+  bool _nativeDivide(
+      int n, IrValue x, IrValue y, IrValue status, IrValue bad, IrExit exit) {
+    final magnitude = c(0x7fffffff);
+    b.exitIf(b.or(bad, b.eq(b.and(y, magnitude), c(0))), exit);
+    final wx = b.floatConvert(x), wy = b.floatConvert(y);
+    final nearest =
+        b.floatConvert(b.floatBinary(IrOp.floatDiv, wx, wy));
+    final product = b.floatBinary(IrOp.floatMul, b.floatConvert(nearest), wy);
+    final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+    final productMagnitude = b.and(product, magnitudeMask),
+        dividendMagnitude = b.and(wx, magnitudeMask);
+    final inexact = b.ne(productMagnitude, dividendMagnitude);
+    // Round-to-zero steps one unit back when the nearest single lies beyond
+    // the exact quotient in magnitude.
+    final beyond = b.ltU(dividendMagnitude, productMagnitude);
+    final result = b.select(b.and(b.and(status, c(1)), beyond),
+        b.sub(nearest, c(1)), nearest);
+    // Denormal, infinite or underflowed-to-zero results take the exact path.
+    b.exitIf(
+        b.or(
+            _special(result),
+            b.and(b.eq(b.and(result, magnitude), c(0)),
+                b.ne(b.and(x, magnitude), c(0)))),
+        exit);
     put(fr + n, result);
     put(fpscr,
         b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));

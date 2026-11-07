@@ -197,7 +197,8 @@ void main() {
   test(
       'compiled single FPU arithmetic matches the interpreter in both rounding modes',
       () {
-    // Per iteration: load a, b, c; FADD, FSUB, FMUL, FMAC and FLOAT on them,
+    // Per iteration: load a, b, c; FADD, FSUB, FMUL, FDIV, FMAC and FLOAT
+    // on them,
     // storing every result and FPSCR.
     const iterations = 120;
     final code = <int>[];
@@ -218,9 +219,9 @@ void main() {
       emit(0x7504); // add #4,r5
     }
 
-    for (final op in [0xf310, 0xf311, 0xf312]) {
+    for (final op in [0xf310, 0xf311, 0xf312, 0xf313]) {
       emit(0xf30c); // fmov fr0,fr3
-      emit(op); // fadd / fsub / fmul fr1,fr3
+      emit(op); // fadd / fsub / fmul / fdiv fr1,fr3
       store();
     }
     emit(0xf32c); // fmov fr2,fr3
@@ -279,7 +280,7 @@ void main() {
         expect(core.stopReason, isNull);
         expect(core.cpu.r[6], 0, reason: 'the loop did not finish');
         return [
-          for (var i = 0; i < iterations * 10; i++)
+          for (var i = 0; i < iterations * 12; i++)
             core.bus.read32(0x8c024000 + 4 * i)
         ];
       }
@@ -288,7 +289,7 @@ void main() {
       for (var i = 0; i < compiled.length; i++) {
         expect(compiled[i], interpreted[i],
             reason: 'control=${control.toRadixString(16)} word $i '
-                '(iteration ${i ~/ 10}, slot ${i % 10})');
+                '(iteration ${i ~/ 12}, slot ${i % 12})');
       }
     }
   });
