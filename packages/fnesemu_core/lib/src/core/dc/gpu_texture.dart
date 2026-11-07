@@ -437,6 +437,23 @@ class DcGpuTexture {
   bool get plainBilinear =>
       bilinear && !mipMapped && format != 4 && !superSample && cache != null;
 
+  /// Whether [samplePoint] applies: a cached point-sampled texture without
+  /// MIP maps, bump mapping or supersampling.
+  bool get plainPoint =>
+      !bilinear && !mipMapped && format != 4 && !superSample && cache != null;
+
+  /// [sample] of a [plainPoint] texture.
+  @pragma('vm:prefer-inline')
+  int samplePoint(double u, double v) {
+    if (!u.isFinite || !v.isFinite) {
+      throw const DcUnsupported('CORE nonfinite texture coordinate');
+    }
+    // Positions are nonnegative, so truncation is the floor.
+    final left = _position(u, width, clampU, flipU).toInt(),
+        top = _position(v, height, clampV, flipV).toInt();
+    return _texel(left, top, 0, 0);
+  }
+
   /// Whether [sampleMip] applies: a cached bilinear MIP-mapped texture
   /// without trilinear passes, bump mapping or supersampling.
   bool get mipBilinear =>

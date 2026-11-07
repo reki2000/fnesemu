@@ -1413,8 +1413,8 @@ class DcGpuRender {
     final quickRows = quick &&
         _materialArea < 0 &&
         (_visibility == 0 || shadePass);
-    // Sorted translucent fragments of a cached bilinear texture, shaded
-    // where they are rasterized.
+    // Sorted translucent fragments of a cached bilinear or point-sampled
+    // texture, shaded where they are rasterized.
     final sortedRows = texture != null &&
         plane == null &&
         !background &&
@@ -1425,7 +1425,8 @@ class DcGpuRender {
         !(_shadowObject && shadowIntensity) &&
         _materialArea < 0 &&
         _visibility == 0 &&
-        (texture.plainBilinear || texture.mipBilinear);
+        (texture.plainBilinear || texture.mipBilinear || texture.plainPoint);
+    final pointRows = sortedRows && texture.plainPoint;
     // Opaque fragments of a cached bilinear MIP-mapped texture, in both
     // passes that shade. They take the arithmetic of the general loop below.
     final mipRows = texture != null &&
@@ -1734,6 +1735,8 @@ class DcGpuRender {
                     mipNumerators[1] * square,
                     mipNumerators[2] * square,
                     mipNumerators[3] * square));
+          } else if (pointRows) {
+            texel = texture.samplePoint(u, v);
           } else {
             texel = texture.sampleBilinear(u, v);
           }
