@@ -2168,22 +2168,43 @@ class DcGpuRender {
     }
   }
 
-  /// Perspective-weighted color channels, rounded and saturated per byte.
+  /// Perspective-weighted color channels. The weights of [cb] and [cc] are
+  /// taken in 1/65536 steps and that of [ca] makes up their sum, so a
+  /// channel may differ from the exact interpolation by one unit.
   @pragma('vm:prefer-inline')
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
     // Equal vertex colors interpolate to themselves.
     if (ca == cb && cb == cc) return ca;
-    return roundByte((ca & 255) * pa + (cb & 255) * pb + (cc & 255) * pc) |
-        (roundByte(((ca >> 8) & 255) * pa +
-                ((cb >> 8) & 255) * pb +
-                ((cc >> 8) & 255) * pc) <<
-            8) |
-        (roundByte(((ca >> 16) & 255) * pa +
-                ((cb >> 16) & 255) * pb +
-                ((cc >> 16) & 255) * pc) <<
-            16) |
-        (roundByte((ca >> 24) * pa + (cb >> 24) * pb + (cc >> 24) * pc) << 24);
+    var wb = pb > 0 ? (pb * 65536 + 0.5).toInt() : 0,
+        wc = pc > 0 ? (pc * 65536 + 0.5).toInt() : 0;
+    if (wb > 65536) wb = 65536;
+    if (wc > 65536 - wb) wc = 65536 - wb;
+    final wa = 65536 - wb - wc;
+    // Channels 0 and 2, and 1 and 3, in 32-bit lanes.
+    const lanes = 0x000000ff000000ff, half = 0x0000800000008000;
+    final even = ((_evenLanes(ca) * wa +
+                _evenLanes(cb) * wb +
+                _evenLanes(cc) * wc +
+                half) >>>
+            16) &
+        lanes;
+    final odd = ((_oddLanes(ca) * wa +
+                _oddLanes(cb) * wb +
+                _oddLanes(cc) * wc +
+                half) >>>
+            16) &
+        lanes;
+    return (even & 0xff) |
+        ((odd & 0xff) << 8) |
+        ((even >>> 16) & 0xff0000) |
+        ((odd >>> 8) & 0xff000000);
   }
+
+  @pragma('vm:prefer-inline')
+  static int _evenLanes(int c) => (c & 0xff) | ((c & 0xff0000) << 16);
+
+  @pragma('vm:prefer-inline')
+  static int _oddLanes(int c) => ((c >> 8) & 0xff) | ((c & 0xff000000) << 8);
 
   /// Scales the RGB channels by FPU_SHAD_SCALE. The documents describe the
   /// scale of the color but not its alpha; the alpha is kept, so a shadow

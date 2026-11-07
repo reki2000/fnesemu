@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import '../../state.dart';
 import 'fault.dart';
-import 'gpu_math.dart';
 
 /// Functional color clamp and fog, System Architecture §§3.4.8, 3.7.9.2, 8.4.2.
 /// Interpolation precision and rounding still require hardware measurements.
@@ -169,29 +168,29 @@ class DcGpuFog {
     if (coefficient == 255) {
       return ((color & 0xff000000) | (fogColor & 0xffffff)) & 0xffffffff;
     }
-    final rest = 255 - coefficient;
-    return ((color & 0xff000000) |
-            _blendLane(color, fogColor, rest, coefficient, 0) |
-            _blendLane(color, fogColor, rest, coefficient, 8) |
-            _blendLane(color, fogColor, rest, coefficient, 16)) &
-        0xffffffff;
+    // The RGB channels blend in 16-bit lanes with a weight in 1/256 steps,
+    // which may differ from the exact blend by one unit.
+    final weight = (coefficient * (256 / 255) + 0.5).toInt();
+    const lanes = 0x00ff00ff00ff00ff, half = 0x0080008000800080;
+    final blended = ((_lanes(color) * (256 - weight) +
+                _lanes(fogColor) * weight +
+                half) >>>
+            8) &
+        lanes;
+    return (color & 0xff000000) |
+        (blended & 0xff00ff) |
+        ((blended >>> 24) & 0xff00);
   }
+
+  /// The channels of a color at bits 0, 16, 32 and 48, in the order
+  /// 0, 2, 1, 3.
+  @pragma('vm:prefer-inline')
+  static int _lanes(int c) => (c & 0xff00ff) | ((c & 0xff00ff00) << 24);
 
   @pragma('vm:prefer-inline')
   int _clampLane(int color, int shift) {
     final low = (_minimum >> shift) & 255, high = (_maximum >> shift) & 255;
     final value = (color >> shift) & 255;
     return (value < low ? low : (value > high ? high : value)) << shift;
-  }
-
-  // A multiply in place of a divide; the rounding may differ by one unit
-  // in the last place.
-  static const _inverse255 = 1 / 255;
-
-  @pragma('vm:prefer-inline')
-  static int _blendLane(
-      int color, int fogColor, double rest, double coefficient, int shift) {
-    final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
-    return roundByte((input * rest + fog * coefficient) * _inverse255) << shift;
   }
 }
