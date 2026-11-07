@@ -1491,6 +1491,18 @@ class DcGpuRender {
     final step0 = b.y == c.y ? 0.0 : (c.x - b.x) / (c.y - b.y),
         step1 = c.y == a.y ? 0.0 : (a.x - c.x) / (a.y - c.y),
         step2 = a.y == b.y ? 0.0 : (b.x - a.x) / (b.y - a.y);
+    // Without one depth no row steps in fixed point, so every row of a
+    // replacing texture takes [_perspectiveRow].
+    if (quickRows && !affine && replace && !shadePass) {
+      _perspectiveRows(texture, top, bottom, left, right, originX, originY,
+          offset, a, b, c, step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y,
+          tl0, tl1, tl2, za, zb, zc, uza, uzb, uzc, vza, vzb, vzc,
+          inverseArea, dz, duz, dvz, compare, writeDepth, varying,
+          sameColors ? null : sa, sameOffsets ? null : sa, sb, sc,
+          quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
+          ignoredAlpha, tsp, quickFog, fogOffset);
+      return;
+    }
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1565,12 +1577,14 @@ class DcGpuRender {
           continue;
         }
         if (!fixed && replace && !shadePass) {
+          final wraps = texture.wrapsFixed;
           _perspectiveRow(texture, y * 32 + rowLeft, count, e0, e1, e2, e0y,
               e1y, e2y, tl0, tl1, tl2, z, dz, uz, duz, vz, dvz, compare,
               writeDepth, varying ? inverseArea : 0.0, za, zb, zc,
               sameColors ? null : sa, sameOffsets ? null : sa, sb, sc,
               quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
-              ignoredAlpha, tsp, quickFog, fogOffset);
+              ignoredAlpha, tsp, quickFog, fogOffset, wraps,
+              65536.0 * texture.width, 65536.0 * texture.height, offsetLanes);
           continue;
         }
         for (var x = rowLeft;
@@ -2197,12 +2211,159 @@ class DcGpuRender {
     }
   }
 
+  /// The rows of [_triangle] between [top] and [bottom] that all take
+  /// [_perspectiveRow], with the loop-invariant values computed once.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _perspectiveRows(
+      DcGpuTexture texture,
+      int top,
+      int bottom,
+      int left,
+      int right,
+      int originX,
+      int originY,
+      double offset,
+      _Vertex a,
+      _Vertex b,
+      _Vertex c,
+      double step0,
+      double step1,
+      double step2,
+      double e0x,
+      double e1x,
+      double e2x,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double za,
+      double zb,
+      double zc,
+      double uza,
+      double uzb,
+      double uzc,
+      double vza,
+      double vzb,
+      double vzc,
+      double inverseArea,
+      double dz,
+      double duz,
+      double dvz,
+      int compare,
+      bool writeDepth,
+      bool varying,
+      _Vertex? colors,
+      _Vertex? offsets,
+      _Vertex sb,
+      _Vertex sc,
+      int quickColor,
+      int quickOffset,
+      int opaqueAlpha,
+      int gray,
+      int ignoredAlpha,
+      int tsp,
+      bool quickFog,
+      bool fogOffset) {
+    final wraps = texture.wrapsFixed;
+    final uScale = 65536.0 * texture.width, vScale = 65536.0 * texture.height;
+    final offsetLanes = DcGpuTexture.toLanes(quickOffset & 0xffffff);
+    final shadeArea = varying ? inverseArea : 0.0;
+    final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
+    final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
+    final base = originX + offset;
+    for (var y = top; y < bottom; y++) {
+      // The narrowing of the loop in [_triangle], edge by edge.
+      final rowY = originY + y + offset;
+      var rowLeft = left, rowRight = right;
+      if (slope0 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, bx + step0 * (rowY - by) - base + 2);
+      } else if (slope0 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, bx + step0 * (rowY - by) - base - 1);
+      }
+      if (slope1 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, cx + step1 * (rowY - cy) - base + 2);
+      } else if (slope1 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, cx + step1 * (rowY - cy) - base - 1);
+      }
+      if (slope2 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, ax + step2 * (rowY - ay) - base + 2);
+      } else if (slope2 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
+      }
+      final x0 = originX + rowLeft + offset;
+      final e0 = e0x * (rowY - by) - e0y * (x0 - bx),
+          e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
+          e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      _perspectiveRow(
+          texture,
+          y * 32 + rowLeft,
+          rowRight - rowLeft,
+          e0,
+          e1,
+          e2,
+          e0y,
+          e1y,
+          e2y,
+          tl0,
+          tl1,
+          tl2,
+          (za * e0 + zb * e1 + zc * e2) * inverseArea,
+          dz,
+          (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+          duz,
+          (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+          dvz,
+          compare,
+          writeDepth,
+          shadeArea,
+          za,
+          zb,
+          zc,
+          colors,
+          offsets,
+          sb,
+          sc,
+          quickColor,
+          quickOffset,
+          opaqueAlpha,
+          gray,
+          ignoredAlpha,
+          tsp,
+          quickFog,
+          fogOffset,
+          wraps,
+          uScale,
+          vScale,
+          offsetLanes);
+    }
+  }
+
+  /// The right end of a row narrowed to [bound], as [_triangle] does.
+  @pragma('vm:prefer-inline')
+  static int _narrowRight(int rowLeft, int rowRight, double bound) =>
+      bound < rowRight ? (bound < rowLeft ? rowLeft : bound.toInt()) : rowRight;
+
+  /// The left end of a row narrowed to [bound], as [_triangle] does.
+  @pragma('vm:prefer-inline')
+  static int _narrowLeft(int rowLeft, int rowRight, double bound) =>
+      bound > rowLeft ? (bound > rowRight ? rowRight : bound.toInt()) : rowLeft;
+
   /// The quick row loop of perspective texels replacing the color buffer,
   /// apart from the loop of [_triangle] so that its values stay in
   /// registers. A nonzero [inverseArea] interpolates the vertex colors with
   /// [colors] and the offset colors with [offsets] as the first vertex,
   /// where they are given. A [gray] value of 0 or more shades as
-  /// [DcGpuTexture.shadeGray].
+  /// [DcGpuTexture.shadeGray]. Where [wraps], texel positions scaled by
+  /// [uScale] and [vScale] are sampled in 16.16 fixed point.
+  @pragma('vm:prefer-inline')
   @pragma('vm:unsafe:no-bounds-checks')
   void _perspectiveRow(
       DcGpuTexture texture,
@@ -2240,13 +2401,13 @@ class DcGpuRender {
       int ignoredAlpha,
       int tsp,
       bool quickFog,
-      bool fogOffset) {
+      bool fogOffset,
+      bool wraps,
+      double uScale,
+      double vScale,
+      int offsetLanes) {
     final depthBuffer = _depth, colorBuffer = _colors;
     final varying = inverseArea != 0;
-    // Texel positions in 16.16 fixed point, for taps that wrap with masks.
-    final wraps = texture.wrapsFixed;
-    final uScale = 65536.0 * texture.width, vScale = 65536.0 * texture.height;
-    final offsetLanes = DcGpuTexture.toLanes(quickOffset & 0xffffff);
     for (final end = index + count;
         index < end;
         index++,
