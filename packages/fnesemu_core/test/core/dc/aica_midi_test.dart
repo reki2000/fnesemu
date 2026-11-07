@@ -37,6 +37,11 @@ void main() {
     expect(aica.takeMidiOutput(), isNull);
     expect(aica.systemPending, 0);
   });
+  test('the MIDI output register reads back the monitor slot only', () {
+    write(0x280c, 0x4155);
+    expect(bus.read32(base + 0x280c), 0x4100);
+    expect(aica.takeMidiOutput(), 0x55);
+  });
   test('guest ARM byte instructions inspect status and echo one MIDI byte', () {
     const program = [
       0xe59f000c, // LDR r0,[pc,#12]: AICA MIDI registers.

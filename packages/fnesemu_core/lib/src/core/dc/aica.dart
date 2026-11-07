@@ -451,6 +451,8 @@ class DcAica {
     if (DcAicaSound.channelRegister(offset)) return sound.read(offset);
     return switch (offset) {
       0x2800 => 0, // Chip-revision identification remains unverified.
+      // MSLC reads back; the write-only MOBUF bits are assumed to read as 0.
+      0x280c => sound.monitor,
       0x2810 => sound.readMonitor(sideEffects: sideEffects),
       0x2814 => sound.currentAddress,
       0x2888 => _dmaRegister & 0x8000,
