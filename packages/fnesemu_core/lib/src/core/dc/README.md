@@ -224,6 +224,7 @@ Tests validate the agreed arithmetic and these deliberate stops; they do not est
 ## Floating-point implementation
 
 Scalar binary32/binary64 arithmetic uses exact BigInt significands and rational rounding, rather than host floating-point results.
+Common cases take host arithmetic where it gives the same result: single operations on normal or zero operands, and double operations on operands within 2^±400 while rounding to nearest with no exception enabled. Exact error terms from two-sum and Dekker's product decide the inexact flag.
 RN uses nearest-even and RZ truncates magnitude; the engine tracks inexact, underflow, overflow, divide-by-zero, invalid operation and denormal-input error.
 SH-4's signaling-NaN fraction bit is the inverse of modern host IEEE conventions; quiet results use the documented canonical payloads.
 Arithmetic refreshes FPSCR causes and preserves sticky flags; enabled exceptions suppress destination updates, including the documented unconditional O/U/I traps for normal arithmetic paths.
