@@ -2174,6 +2174,16 @@ class DcGpuRender {
     return sum > 255 ? 255 : sum;
   }
 
+  /// [_blendChannel] at bit [shift] with factors the same for every channel.
+  @pragma('vm:prefer-inline')
+  static int _scaleChannel(
+      int source, int destination, int sf, int df, int shift) {
+    final sum = div255(((source >> shift) & 255) * sf +
+        ((destination >> shift) & 255) * df +
+        127);
+    return (sum > 255 ? 255 : sum) << shift;
+  }
+
   static int _blend(int source, int destination, int tsp) {
     final sourceInstruction = (tsp >> 29) & 7;
     final destinationInstruction = (tsp >> 26) & 7;
@@ -2196,6 +2206,11 @@ class DcGpuRender {
         return DcGpuTexture.packLanes(
             ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes);
       }
+      // A larger factor sum can saturate: each channel on its own.
+      return _scaleChannel(source, destination, sf, df, 0) |
+          _scaleChannel(source, destination, sf, df, 8) |
+          _scaleChannel(source, destination, sf, df, 16) |
+          _scaleChannel(source, destination, sf, df, 24);
     }
     return _blendChannel(source & 255, destination & 255, sourceInstruction,
             destinationInstruction, sa, da) |

@@ -177,10 +177,14 @@ class DcGpuFog {
     return (value < low ? low : (value > high ? high : value)) << shift;
   }
 
+  // A multiply in place of a divide; the rounding may differ by one unit
+  // in the last place.
+  static const _inverse255 = 1 / 255;
+
   @pragma('vm:prefer-inline')
   static int _blendLane(
       int color, int fogColor, double rest, double coefficient, int shift) {
     final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
-    return roundByte((input * rest + fog * coefficient) / 255) << shift;
+    return roundByte((input * rest + fog * coefficient) * _inverse255) << shift;
   }
 }

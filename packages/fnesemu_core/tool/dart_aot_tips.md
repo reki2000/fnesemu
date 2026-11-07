@@ -158,6 +158,7 @@ The listing of the triangle loop, the texel fetch and the pixel write showed the
 - Check the hashes of the frame images and of the audio (`--checksum`) in every round. A rewrite that keeps the arithmetic order keeps the hashes equal.
 - Measure the path the application runs (`--frame-runner`) as well as the plain exec loop. They can differ by 2x.
 - A change that the profile does not explain, and that gains less than the noise, is not worth keeping for speed. Keep it only if it makes the code clearer.
+- A change in a function that the profile shows as hot is kept when the listing shows less work (fewer calls, allocations, divides or checks) and the game is not broken, even if its gain is below the noise of the frame time. The hashes may change. Check the combined effect of several such changes against the base branch.
 
 ## Where to profile
 
