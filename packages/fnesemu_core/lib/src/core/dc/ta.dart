@@ -26,6 +26,9 @@ class DcTa {
   List<int>? _pendingPacket;
   List<int> _clip = [0, 0, 39, 14];
   final _vertices = <List<int>>[];
+
+  /// The tile masks of the primitive [_emit] writes, reused across calls.
+  final _masks = <int, int>{};
   final _blocks = <List<_Block>>[];
   // the tiles that the triangles of the open modifier volume reach
   final _volumeTiles = <int>{};
@@ -693,16 +696,25 @@ class DcTa {
 
   void _emit({bool quad = false, bool modifier = false}) {
     final triangles = quad || modifier ? 1 : _vertices.length - 2;
-    final masks = <int, int>{};
+    final masks = _masks..clear();
     for (var i = 0; i < triangles; i++) {
-      final vs = quad ? _vertices : _vertices.sublist(i, i + 3);
-      final xs = vs.map((v) => _value(v[0]).truncateToDouble());
-      final ys = vs.map((v) => _value(v[1]).truncateToDouble());
-      final left = math.max(0.0, xs.reduce(math.min));
-      final right = math.min((_width * 32 - 1).toDouble(), xs.reduce(math.max));
-      final top = math.max(0.0, ys.reduce(math.min));
-      final bottom =
-          math.min((_height * 32 - 1).toDouble(), ys.reduce(math.max));
+      // The bounds of the triangle's vertices, or of all for a quad, taken
+      // in vertex order as a reduce with math.min and math.max does.
+      final first = quad ? 0 : i, end = quad ? _vertices.length : i + 3;
+      var minX = _value(_vertices[first][0]).truncateToDouble(), maxX = minX;
+      var minY = _value(_vertices[first][1]).truncateToDouble(), maxY = minY;
+      for (var j = first + 1; j < end; j++) {
+        final x = _value(_vertices[j][0]).truncateToDouble(),
+            y = _value(_vertices[j][1]).truncateToDouble();
+        minX = math.min(minX, x);
+        maxX = math.max(maxX, x);
+        minY = math.min(minY, y);
+        maxY = math.max(maxY, y);
+      }
+      final left = math.max(0.0, minX);
+      final right = math.min((_width * 32 - 1).toDouble(), maxX);
+      final top = math.max(0.0, minY);
+      final bottom = math.min((_height * 32 - 1).toDouble(), maxY);
       if (left > right || top > bottom) continue;
       for (var y = top.toInt() ~/ 32; y <= bottom.toInt() ~/ 32; y++) {
         for (var x = left.toInt() ~/ 32; x <= right.toInt() ~/ 32; x++) {
@@ -740,25 +752,27 @@ class DcTa {
         onError(1 << 2);
         throw const DcUnsupported('TA ISP/TSP parameter overflow');
       }
-      final data = <int>[
-        _isp,
-        _tsp,
-        _texture,
-        if (twoVolumes) ...[_tsp1, _texture1]
-      ];
+      _pages.markRange(currentParameter, size);
+      var cursor = currentParameter;
+      void put(int word) {
+        memory.setUint32LE(cursor, word);
+        cursor += 4;
+      }
+
+      put(_isp);
+      put(_tsp);
+      put(_texture);
+      if (twoVolumes) {
+        put(_tsp1);
+        put(_texture1);
+      }
       // One-triangle partitions retain the original strip's alternating winding.
-      final vertices = _vertices.toList();
-      if (!quad && _triangle.isOdd) {
-        final first = vertices[0];
-        vertices[0] = vertices[1];
-        vertices[1] = first;
-      }
-      for (final vertex in vertices) {
-        data.addAll(vertex);
-      }
-      for (final (i, word) in data.indexed) {
-        _pages.markRange(currentParameter + i * 4, 4);
-        memory.setUint32LE(currentParameter + i * 4, word);
+      final swap = !quad && _triangle.isOdd;
+      for (var i = 0; i < _vertices.length; i++) {
+        final vertex = _vertices[swap && i < 2 ? 1 - i : i];
+        for (var j = 0; j < vertex.length; j++) {
+          put(vertex[j]);
+        }
       }
       final pointer = (modifier
               ? 0x80000000
