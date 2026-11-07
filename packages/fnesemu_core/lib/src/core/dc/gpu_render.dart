@@ -1644,7 +1644,7 @@ class DcGpuRender {
               quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
               ignoredAlpha, tsp, quickFog, fogOffset, wraps,
               65536.0 * texture.width, 65536.0 * texture.height, offsetLanes,
-              varying);
+              varying, false);
           continue;
         }
         for (var x = rowLeft;
@@ -2175,8 +2175,15 @@ class DcGpuRender {
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
     // Equal vertex colors interpolate to themselves.
     if (ca == cb && cb == cc) return ca;
-    var wb = pb > 0 ? (pb * 65536 + 0.5).toInt() : 0,
-        wc = pc > 0 ? (pc * 65536 + 0.5).toInt() : 0;
+    return _gouraudWeights(ca, cb, cc, pb > 0 ? (pb * 65536 + 0.5).toInt() : 0,
+        pc > 0 ? (pc * 65536 + 0.5).toInt() : 0);
+  }
+
+  /// [_gouraud] with the weights of [cb] and [cc] in 1/65536 steps.
+  @pragma('vm:prefer-inline')
+  static int _gouraudWeights(int ca, int cb, int cc, int wb, int wc) {
+    if (wb < 0) wb = 0;
+    if (wc < 0) wc = 0;
     if (wb > 65536) wb = 65536;
     if (wc > 65536 - wb) wc = 65536 - wb;
     final wa = 65536 - wb - wc;
@@ -2436,6 +2443,7 @@ class DcGpuRender {
             uScale,
             vScale,
             offsetLanes,
+            true,
             true);
       } else if (kind == 2) {
         _perspectiveRow(
@@ -2479,7 +2487,8 @@ class DcGpuRender {
             uScale,
             vScale,
             offsetLanes,
-            false);
+            false,
+            true);
       } else {
         _perspectiveRow(
             texture,
@@ -2522,7 +2531,8 @@ class DcGpuRender {
             uScale,
             vScale,
             offsetLanes,
-            varying);
+            varying,
+            false);
       }
     }
   }
@@ -2793,6 +2803,9 @@ class DcGpuRender {
   /// The left end of a row narrowed to [bound], as [_triangle] does.
   static final _noTexels = Uint32List(0);
 
+  /// The fragments of a span of [_perspectiveRow].
+  static const _span = 16;
+
   @pragma('vm:prefer-inline')
   static int _narrowLeft(int rowLeft, int rowRight, double bound) =>
       bound > rowLeft ? (bound > rowRight ? rowRight : bound.toInt()) : rowLeft;
@@ -2847,13 +2860,19 @@ class DcGpuRender {
       double uScale,
       double vScale,
       int offsetLanes,
-      bool varying) {
+      bool varying,
+      bool spans) {
     final depthBuffer = _depth, colorBuffer = _colors;
     final cache = texture.cache;
     final texels = cache == null ? _noTexels : cache.texels,
         texelBase = cache == null ? 0 : cache.levelOffsets[0];
     final width = texture.width, height = texture.height;
     final flipU = texture.flipU, flipV = texture.flipV;
+    final gouraud = varying && colors != null;
+    // With [spans], texel positions and color weights are exact at the
+    // ends of spans of [_span] fragments and step linearly between them.
+    var span = 0, linear = false;
+    var su = 0, sv = 0, dsu = 0, dsv = 0, wb = 0, wc = 0, dwb = 0, dwc = 0;
     for (final end = index + count;
         index < end;
         index++,
@@ -2862,7 +2881,49 @@ class DcGpuRender {
         e2 -= e2y,
         z += dz,
         uz += duz,
-        vz += dvz) {
+        vz += dvz,
+        span--,
+        su += dsu,
+        sv += dsv,
+        wb += dwb,
+        wc += dwc) {
+      if (spans && span == 0) {
+        span = end - index < _span ? end - index : _span;
+        final z1 = z + dz * span;
+        linear = z > 0 && z1 > 0 && z.isFinite && z1.isFinite;
+        if (linear) {
+          final i0 = 1 / z, i1 = 1 / z1, step = 1 / span;
+          final u0 = uz * i0 * uScale, u1 = (uz + duz * span) * i1 * uScale;
+          final v0 = vz * i0 * vScale, v1 = (vz + dvz * span) * i1 * vScale;
+          linear = u0.abs() < 1 << 40 &&
+              u1.abs() < 1 << 40 &&
+              v0.abs() < 1 << 40 &&
+              v1.abs() < 1 << 40;
+          if (linear) {
+            su = u0.toInt();
+            sv = v0.toInt();
+            dsu = ((u1 - u0) * step).toInt();
+            dsv = ((v1 - v0) * step).toInt();
+            if (gouraud) {
+              final b0 = e1 * inverseArea * zb * i0 * 65536,
+                  b1 = (e1 - e1y * span) * inverseArea * zb * i1 * 65536;
+              final c0 = e2 * inverseArea * zc * i0 * 65536,
+                  c1 = (e2 - e2y * span) * inverseArea * zc * i1 * 65536;
+              linear = b0.abs() < 1 << 40 &&
+                  b1.abs() < 1 << 40 &&
+                  c0.abs() < 1 << 40 &&
+                  c1.abs() < 1 << 40;
+              if (linear) {
+                wb = b0.toInt();
+                wc = c0.toInt();
+                dwb = ((b1 - b0) * step).toInt();
+                dwc = ((c1 - c0) * step).toInt();
+              }
+            }
+          }
+        }
+        if (!linear) dsu = dsv = dwb = dwc = 0;
+      }
       if (e0 < 0 ||
           e1 < 0 ||
           e2 < 0 ||
@@ -2888,6 +2949,25 @@ class DcGpuRender {
         continue;
       }
       var color = quickColor, off = quickOffset;
+      if (spans && linear) {
+        if (gouraud) {
+          color = _gouraudWeights(colors.color, b.color, c.color, wb, wc) |
+              opaqueAlpha;
+        }
+        var shaded = DcGpuTexture.lanesWrapped(
+            texels, texelBase, width, height, flipU, flipV, su, sv);
+        shaded = gray >= 0
+            ? DcGpuTexture.shadeGrayLanes(
+                shaded, gray, offsetLanes, ignoredAlpha)
+            : DcGpuTexture.shade(
+                color, DcGpuTexture.packLanes(shaded), off, tsp);
+        if (quickFog) {
+          shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
+        }
+        colorBuffer[index] = shaded;
+        if (writeDepth) depthBuffer[index] = z;
+        continue;
+      }
       final inverse = 1 / z;
       if (varying) {
         final pa = e0 * inverseArea * za * inverse,

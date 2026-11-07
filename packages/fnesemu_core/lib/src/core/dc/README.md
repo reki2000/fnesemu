@@ -588,6 +588,7 @@ TA parameters retain 32-bit IEEE UV values or the documented packed upper halves
 Generated object pointers carry the corresponding skip size, and the CORE validates it against the parameter format before reading vertices.
 Texture UVs and Gouraud base/offset RGBA are interpolated using reciprocal depth for perspective correction, as required by section 3.1.1.8, independently of the integer/half-pixel position chosen for coverage through HALF_OFFSET.
 The color weights of the second and third vertices are quantized to 1/65536 and the first takes the rest, so a channel may differ from exact interpolation by one unit.
+In the quick rows of wrapped textures that replace the color, texel positions and color weights are exact every 16 fragments and step linearly between them; depth and fog stay exact per fragment.
 Zero perspective denominators and nonfinite/overflowing coordinates stop explicitly without a render-completion interrupt.
 
 `DcGpuTexture` reads texture data from the 64-bit VRAM layout and supports uncompressed ARGB1555, RGB565 and ARGB4444; format code 7 uses ARGB1555 as specified.
