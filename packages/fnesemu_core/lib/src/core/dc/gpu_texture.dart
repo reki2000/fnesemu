@@ -634,11 +634,12 @@ class DcGpuTexture {
     if (!value.isFinite) {
       throw const DcUnsupported('CORE texture coordinate overflow');
     }
+    // Adding to 0.0 converts inline; toDouble calls a constructor.
     if (clamp) {
-      final last = (size - 1).toDouble();
+      final last = 0.0 + (size - 1);
       return value < 0 ? 0.0 : (value > last ? last : value);
     }
-    return value % (flip ? size * 2 : size);
+    return value % (0.0 + (flip ? size * 2 : size));
   }
 
   /// System Architecture sections 3.4.7.3.1 and 3.6.1.3, with host-double trig/rounding.

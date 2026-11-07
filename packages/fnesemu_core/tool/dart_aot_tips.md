@@ -77,6 +77,7 @@ objdump -d -M intel --no-show-raw-insn \
 - Do not use records as map keys on a hot path. Each lookup allocates the record and hashes it through the generic record hash. Pack small integers into one int key.
 - Avoid a `static final` table in a hot loop. It is initialized lazily and every read checks the initialization. Use an instance field.
 - `double.round()` and `int.toDouble()` can be calls. For a value known to be in range, use `(v + 0.5).toInt()` and a lookup table of doubles.
+- `int.toDouble()` and an `int` operand of `double %` call `_Double.fromInteger`, which allocates a boxed double. `0.0 + i` and the comparison of a double with an int compile to an inline `cvtsi2sd`.
 - A divide by a power of two can be a multiply by its exact reciprocal, from a small table. Other divides must stay, because the rounding changes.
 - Write the highest index of a small fixed-size buffer first, so that the later constant-index bounds checks are redundant.
 - Mixing `int` and `double` in a ternary gives `num`, and the arithmetic on it is dynamic. Keep each branch in one type.
