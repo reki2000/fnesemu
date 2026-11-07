@@ -2684,12 +2684,13 @@ Dual issue and pipeline stalls are not modeled.
 ## Compiled code with the MMU on
 
 With the MMU on, compiled code runs in P0 in both modes and in P1 and P2 in privileged mode.
-Two tables of 1024 slots, one for reads and instruction fetches and one for writes, cache translations of 4 KiB pages to main RAM.
+Two translation tables of the JIT runtime, 1024 slots each, one for reads and instruction fetches and one for writes, cache translations of 4 KiB pages to main RAM; P1 and P2 form their direct window.
 The interpreter fills a slot from each successful TLB translation of a page of 4 KiB or more; a missing slot returns the access to the interpreter.
 A slot key holds the virtual page, user mode and the address space key (256 when MMUCR.SV shares privileged accesses, otherwise PTEH.ASID), so the tables need no flush when the ASID changes.
 Changing a valid TLB entry drops the slots of its old range; MMUCR.TI and changes of MMUCR.AT or MMUCR.SV drop every slot.
 The block tag includes user mode and the address space key, so each process has its own blocks.
-A block in P0 stays within one page, guards the physical code, and checks at entry that its page still translates to the same physical page; a different page retires the block.
+A block in P0 stays within one page, guards the physical code, and leaves at entry when its page has no slot.
+When the interpreter refills the slot of a page with another physical page, the blocks built from the old page are retired.
 User-mode blocks exclude the privileged STC SR forms.
 Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.
 
