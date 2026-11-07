@@ -2234,6 +2234,10 @@ class DcGpuRender {
       bool fogOffset) {
     final depthBuffer = _depth, colorBuffer = _colors;
     final varying = inverseArea != 0;
+    // Texel positions in 16.16 fixed point, for taps that wrap with masks.
+    final wraps = texture.wrapsFixed;
+    final uScale = 65536.0 * texture.width, vScale = 65536.0 * texture.height;
+    final offsetLanes = DcGpuTexture.toLanes(quickOffset & 0xffffff);
     for (final end = index + count;
         index < end;
         index++,
@@ -2282,10 +2286,25 @@ class DcGpuRender {
               offsets.offsetColor, b.offsetColor, c.offsetColor, pa, pb, pc);
         }
       }
-      final texel = texture.sampleBilinear(uz * inverse, vz * inverse);
-      var shaded = gray >= 0
-          ? DcGpuTexture.shadeGray(texel, gray, quickOffset, ignoredAlpha)
-          : DcGpuTexture.shade(color, texel, off, tsp);
+      var lanes = -1;
+      if (wraps) {
+        final fu = uz * inverse * uScale, fv = vz * inverse * vScale;
+        if (fu.abs() < 1 << 40 && fv.abs() < 1 << 40) {
+          lanes = texture.sampleLanesWrapped(fu.toInt(), fv.toInt());
+        }
+      }
+      int shaded;
+      if (lanes >= 0 && gray >= 0) {
+        shaded = DcGpuTexture.shadeGrayLanes(
+            lanes, gray, offsetLanes, ignoredAlpha);
+      } else {
+        final texel = lanes >= 0
+            ? DcGpuTexture.packLanes(lanes)
+            : texture.sampleBilinear(uz * inverse, vz * inverse);
+        shaded = gray >= 0
+            ? DcGpuTexture.shadeGray(texel, gray, quickOffset, ignoredAlpha)
+            : DcGpuTexture.shade(color, texel, off, tsp);
+      }
       if (quickFog) {
         shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
       }

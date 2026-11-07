@@ -539,6 +539,42 @@ class DcGpuTexture {
         sv1 < vEnd;
   }
 
+  /// Whether [sampleLanesWrapped] serves this texture: a complete cache
+  /// whose power-of-two sides wrap or mirror on both axes.
+  bool get wrapsFixed {
+    final cache = this.cache;
+    return cache != null &&
+        cache.complete == cache.generation &&
+        !clampU &&
+        !clampV &&
+        width & (width - 1) == 0 &&
+        height & (height - 1) == 0;
+  }
+
+  /// [sampleLanesInRange] at any position of a [wrapsFixed] texture, its
+  /// taps wrapped or mirrored.
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
+  int sampleLanesWrapped(int su, int sv) {
+    final w = width, h = height, cache = this.cache!;
+    final left = su >> 16, top = sv >> 16;
+    final x0 = _wrap(left, w, flipU), x1 = _wrap(left + 1, w, flipU);
+    final y0 = _wrap(top, h, flipV), y1 = _wrap(top + 1, h, flipV);
+    final base = cache.levelOffsets[0], texels = cache.texels;
+    final row0 = base + y0 * w, row1 = base + y1 * w;
+    final fx = ((su & 0xffff) + 128) >> 8, fy = ((sv & 0xffff) + 128) >> 8;
+    return _blend4Lanes(texels[row0 + x0], texels[row0 + x1],
+        texels[row1 + x0], texels[row1 + x1], fx, fy);
+  }
+
+  /// [_coordinate] of a power-of-two size that does not clamp.
+  @pragma('vm:prefer-inline')
+  static int _wrap(int value, int size, bool flip) {
+    if (!flip) return value & (size - 1);
+    value &= size * 2 - 1;
+    return value >= size ? size * 2 - value - 1 : value;
+  }
+
   /// [sampleBilinearFixed] with the channels in [_lanes] order, or -1.
   @pragma('vm:prefer-inline')
   int sampleLanesFixed(int su, int sv) {
