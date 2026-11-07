@@ -261,6 +261,11 @@ abstract final class WasmBackend {
       c.get(address);
       c.i32(env.pageShift);
       c.op(0x76);
+      final hash = t.slotHash(inst.translationKey) & (t.slots - 1);
+      if (hash != 0) {
+        c.i32(hash);
+        c.op(0x73);
+      }
       c.i32(t.slots - 1);
       c.op(0x71);
       c.i32(3);

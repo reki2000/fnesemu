@@ -19,11 +19,13 @@ final class Sh4Jit extends JitAdapter {
   late final int _reads = rt.addTranslationTable(
       write: false,
       directStart: Sh4Translator.directStart,
-      directEnd: Sh4Translator.directEnd);
+      directEnd: Sh4Translator.directEnd,
+      keyed: true);
   late final int _writes = rt.addTranslationTable(
       write: true,
       directStart: Sh4Translator.directStart,
-      directEnd: Sh4Translator.directEnd);
+      directEnd: Sh4Translator.directEnd,
+      keyed: true);
 
   /// The physical page and the blocks of each P0 page under a key, by
   /// `page | key`.

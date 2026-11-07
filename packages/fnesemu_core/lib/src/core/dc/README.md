@@ -2708,6 +2708,7 @@ Two translation tables of the JIT runtime, 1024 slots each, one for reads and in
 The interpreter fills a slot from each successful TLB translation of a page of 4 KiB or more; a missing slot returns the access to the interpreter.
 LDTLB also fills the slots of the page at TEA, in the mode of SSR.MD, so the access that missed resumes in compiled code after the handler's RTE.
 A slot key holds the virtual page, user mode and the address space key (256 when MMUCR.SV shares privileged accesses, otherwise PTEH.ASID), so the tables need no flush when the ASID changes.
+The slot index also depends on the key, so a page used in both modes or by two address spaces keeps a slot for each.
 Changing a valid TLB entry drops the slots of its old range; MMUCR.TI and changes of MMUCR.AT or MMUCR.SV drop every slot.
 The block tag includes user mode and the address space key, so each process has its own blocks.
 A block in P0 stays within one page, guards the physical code, and leaves at entry when its page has no slot.
