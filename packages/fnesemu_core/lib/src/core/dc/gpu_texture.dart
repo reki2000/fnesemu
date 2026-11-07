@@ -491,6 +491,26 @@ class DcGpuTexture {
         return _filter(texels[row0], texels[row0 + 1], texels[row1],
             texels[row1 + 1], su - left, sv - top);
       }
+    } else if (!clampU &&
+        !clampV &&
+        cache.complete == cache.generation &&
+        su.abs() < 0x40000000 &&
+        sv.abs() < 0x40000000) {
+      // A tap wraps or mirrors. The fractions equal those of the wrapped
+      // positions: both subtractions are exact.
+      // floorToDouble is a call; the truncation is corrected below zero.
+      var left = su.toInt(), top = sv.toInt();
+      if (su < left) left--;
+      if (sv < top) top--;
+      final fu = 0.0 + left, fv = 0.0 + top;
+      final x0 = _coordinate(left, w, false, flipU),
+          x1 = _coordinate(left + 1, w, false, flipU),
+          y0 = _coordinate(top, h, false, flipV),
+          y1 = _coordinate(top + 1, h, false, flipV);
+      final base = cache.levelOffsets[0], texels = cache.texels;
+      final row0 = base + y0 * w, row1 = base + y1 * w;
+      return _filter(texels[row0 + x0], texels[row0 + x1], texels[row1 + x0],
+          texels[row1 + x1], su - fu, sv - fv);
     }
     return _sampleBilinearSlow(u, v);
   }

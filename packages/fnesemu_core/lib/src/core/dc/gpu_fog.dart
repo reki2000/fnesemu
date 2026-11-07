@@ -141,6 +141,7 @@ class DcGpuFog {
     return (pair >> 8) * (1 - fraction) + (pair & 255) * fraction;
   }
 
+  @pragma('vm:prefer-inline')
   int apply(int color, double depth, int offsetColor, int tsp,
       {required bool hasOffset}) {
     // The lanes are written out: a loop over the shifts keeps a range check

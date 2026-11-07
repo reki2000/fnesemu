@@ -1555,6 +1555,15 @@ class DcGpuRender {
               ignoredAlpha);
           continue;
         }
+        if (!fixed && replace && !shadePass) {
+          _perspectiveRow(texture, y * 32 + rowLeft, count, e0, e1, e2, e0y,
+              e1y, e2y, tl0, tl1, tl2, z, dz, uz, duz, vz, dvz, compare,
+              writeDepth, varying ? inverseArea : 0.0, za, zb, zc,
+              sameColors ? null : sa, sameOffsets ? null : sa, sb, sc,
+              quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
+              ignoredAlpha, tsp, quickFog, fogOffset);
+          continue;
+        }
         for (var x = rowLeft;
             x < rowRight;
             x++,
@@ -2074,6 +2083,7 @@ class DcGpuRender {
   }
 
   /// Perspective-weighted color channels, rounded and saturated per byte.
+  @pragma('vm:prefer-inline')
   static int _gouraud(int ca, int cb, int cc, double pa, double pb, double pc) {
     // Equal vertex colors interpolate to themselves.
     if (ca == cb && cb == cc) return ca;
@@ -2174,6 +2184,112 @@ class DcGpuRender {
       }
       colorBuffer[index] = DcGpuTexture.shadeGrayLanes(
           texture.sampleLanesInRange(su, sv), gray, offset, alpha);
+      if (writeDepth) depthBuffer[index] = z;
+    }
+  }
+
+  /// The quick row loop of perspective texels replacing the color buffer,
+  /// apart from the loop of [_triangle] so that its values stay in
+  /// registers. A nonzero [inverseArea] interpolates the vertex colors with
+  /// [colors] and the offset colors with [offsets] as the first vertex,
+  /// where they are given. A [gray] value of 0 or more shades as
+  /// [DcGpuTexture.shadeGray].
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _perspectiveRow(
+      DcGpuTexture texture,
+      int index,
+      int count,
+      double e0,
+      double e1,
+      double e2,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double z,
+      double dz,
+      double uz,
+      double duz,
+      double vz,
+      double dvz,
+      int compare,
+      bool writeDepth,
+      double inverseArea,
+      double za,
+      double zb,
+      double zc,
+      _Vertex? colors,
+      _Vertex? offsets,
+      _Vertex b,
+      _Vertex c,
+      int quickColor,
+      int quickOffset,
+      int opaqueAlpha,
+      int gray,
+      int ignoredAlpha,
+      int tsp,
+      bool quickFog,
+      bool fogOffset) {
+    final depthBuffer = _depth, colorBuffer = _colors;
+    final varying = inverseArea != 0;
+    for (final end = index + count;
+        index < end;
+        index++,
+        e0 -= e0y,
+        e1 -= e1y,
+        e2 -= e2y,
+        z += dz,
+        uz += duz,
+        vz += dvz) {
+      if (e0 < 0 ||
+          e1 < 0 ||
+          e2 < 0 ||
+          (e0 == 0 && !tl0) ||
+          (e1 == 0 && !tl1) ||
+          (e2 == 0 && !tl2)) {
+        continue;
+      }
+      if (!z.isFinite) {
+        throw const DcUnsupported('CORE nonfinite interpolated depth');
+      }
+      final previous = depthBuffer[index];
+      // Compare modes are masks of less (1), equal (2) and greater (4). A
+      // zero depth has no perspective; such fragments are dropped.
+      if (compare &
+                  (z < previous
+                      ? 1
+                      : z == previous
+                          ? 2
+                          : 4) ==
+              0 ||
+          z == 0) {
+        continue;
+      }
+      var color = quickColor, off = quickOffset;
+      final inverse = 1 / z;
+      if (varying) {
+        final pa = e0 * inverseArea * za * inverse,
+            pb = e1 * inverseArea * zb * inverse,
+            pc = e2 * inverseArea * zc * inverse;
+        if (colors != null) {
+          color = _gouraud(colors.color, b.color, c.color, pa, pb, pc) |
+              opaqueAlpha;
+        }
+        if (offsets != null) {
+          off = _gouraud(
+              offsets.offsetColor, b.offsetColor, c.offsetColor, pa, pb, pc);
+        }
+      }
+      final texel = texture.sampleBilinear(uz * inverse, vz * inverse);
+      var shaded = gray >= 0
+          ? DcGpuTexture.shadeGray(texel, gray, quickOffset, ignoredAlpha)
+          : DcGpuTexture.shade(color, texel, off, tsp);
+      if (quickFog) {
+        shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
+      }
+      colorBuffer[index] = shaded;
       if (writeDepth) depthBuffer[index] = z;
     }
   }
