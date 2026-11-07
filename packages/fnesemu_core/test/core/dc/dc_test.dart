@@ -555,6 +555,56 @@ void main() {
     expect(interpreted.bus.read32(0xf7000000) & 0x1ffffc00, 0x1000);
   });
 
+  test('compiled LDC SR takes an IRL interrupt where the mask admits it', () {
+    // Each pass lowers SR.IMASK to r6; the level-8 IRL interrupt is taken
+    // right after the LDC that sets 7.
+    const code = [
+      0xe60f, // mov #15,r6
+      0x0002, // stc sr,r0
+      0xcaf0, // xor #240,r0
+      0x6103, // mov r0,r1
+      0xe000, // mov #0,r0
+      0x6263, // loop: mov r6,r2
+      0x4208, // shll2 r2
+      0x4208, // shll2 r2
+      0x221b, // or r1,r2
+      0x420e, // ldc r2,sr
+      0x7801, // add #1,r8: not banked
+      0x4610, // dt r6
+      0x8bf7, // bf loop
+      0xaffe, // bra self
+      0x0009, // nop
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      core.bus.write16(0x8c020600, 0xaffe);
+      core.bus.write16(0x8c020602, 0x0009);
+      core.cpu
+        ..sr = 0x400000f0
+        ..vbr = 0x8c020000
+        ..irlPins = 7;
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    // The handler spins in a branch and its delay slot.
+    expect(interpreted.cpu.pc & ~3, 0x8c020600);
+    expect(interpreted.cpu.spc, Dc.programAddress + 0x14);
+    expect(interpreted.cpu.r[8], 8);
+    expect(compiled.cpu.pc & ~3, 0x8c020600);
+    expect(compiled.cpu.spc, interpreted.cpu.spc);
+    expect(compiled.cpu.ssr, interpreted.cpu.ssr);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+  });
+
   test('compiled user code in translated pages follows TLB changes', () {
     // User code at virtual 0x10000 adds to the words of virtual 0x20000,
     // then spins. It runs again after both pages move.

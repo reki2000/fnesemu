@@ -17,7 +17,11 @@ final class Sh4Translator {
   static const regs = JitCtx.user;
   static const sr = regs + 16, gbr = sr + 1, pr = sr + 2;
   static const mach = sr + 3, macl = sr + 4, fpul = sr + 5, fpscr = sr + 6;
-  static const fr = sr + 7, xf = fr + 16, ctxWords = xf + 16;
+  static const fr = sr + 7, xf = fr + 16;
+
+  /// The priority of the highest pending interrupt, 16 for NMI, which the
+  /// host writes before a run; it does not change while compiled code runs.
+  static const pendingLevel = xf + 16, ctxWords = pendingLevel + 1;
   static const interpret = JitReason.user;
   static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
   static const tagUser = 16, tagSpaceShift = 5;
@@ -359,6 +363,8 @@ final class Sh4Translator {
     if (top == 4) {
       final kind = op & 255;
       if (low == 12 || low == 13) return true;
+      // LDC Rm,SR is privileged.
+      if (kind == 0x0e) return !slot && tag & tagUser == 0;
       if (const [0x52, 0x56, 0x5a, 0x62].contains(kind)) return fpu;
       return const [
         0x00, 0x20, 0x01, 0x21, 0x04, 0x05, 0x24, 0x25, //
@@ -741,6 +747,20 @@ final class Sh4Translator {
     }
     if (top == 4) {
       final kind = op & 255;
+      if (kind == 0x0e) {
+        final old = get(sr), next = b.and(r(n), c(0x700083f3));
+        // MD and FD select the tag, and RB the register bank.
+        b.exitIf(b.ne(b.and(b.xor(next, old), c(0x60008000)), c(0)), exit);
+        put(sr, next);
+        // The interpreter takes an interrupt that the new SR admits.
+        final level = get(pendingLevel);
+        final unmasked = b.ltU(b.and(b.shrU(next, c(4)), c(15)), level);
+        final unblocked = b.or(
+            b.eq(b.and(next, c(0x10000000)), c(0)), b.eq(level, c(16)));
+        b.exitIf(b.and(unmasked, unblocked),
+            snapshot((at + 2) & 0xffffffff, spent + 1));
+        return;
+      }
       if (low == 12 || low == 13) {
         final a = r(n), shift = r(m);
         final count = b.and(shift, c(31));

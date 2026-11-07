@@ -199,6 +199,8 @@ final class Sh4Jit extends JitAdapter {
     ctx[Sh4Translator.macl] = cpu.macl;
     ctx[Sh4Translator.fpul] = cpu.fpul;
     ctx[Sh4Translator.fpscr] = cpu._fpscr;
+    // [Sh4.runCompiled] has just evaluated the pending interrupts.
+    ctx[Sh4Translator.pendingLevel] = cpu._pendingPriority;
     ctx[JitCtx.faultAddr] = 0;
     final reason = _driver.runBudgeted(cpu.pc, tag, budget);
     // Blocks never change the register bank or FPU mode bits.
@@ -226,6 +228,8 @@ final class Sh4Jit extends JitAdapter {
     if (!DcBus.isStoreQueue(address)) return 0;
     try {
       _cpu.bus.transferStoreQueue(address, privileged: _cpu.privileged);
+      // The transfer may raise an interrupt, so a later LDC SR leaves.
+      rt.ctx[Sh4Translator.pendingLevel] = 16;
     } on DcCpuException {
       return 1;
     } on DcUnsupported {
