@@ -550,9 +550,9 @@ The alpha-test point follows PT_ALPHA_REF's pixel-alpha wording and the texture/
 These source discrepancies, exact tie precision and Z-mask interactions still require physical validation.
 
 Translucent pre-sort draws in input order using the programmed depth function.
-Auto-sort ignores that function and uses greater-or-equal, replaying the object list to select each pixel's next farthest eligible fragment before blending it.
-A previous (depth, primitive-order) key prevents equal-depth fragments from repeating and ensures that earlier input is farther away at a tie.
-Only one candidate and one previous key per pixel are held, so temporary storage does not grow with the number of overlap layers.
+Auto-sort ignores that function and uses greater-or-equal.
+The object list is rasterized once into per-pixel fragment lists, which are blended in ascending (depth, primitive order), so earlier input is farther away at a tie.
+This order equals peeling one layer per pass, because depth writes only grow along it; the temporary storage grows with the number of fragments.
 Opaque/punch-through depth rejection and programmed Z-write disable remain effective through retained multipass regions.
 Type-1 Region Arrays use ISP_FEED_CFG's sort mode, while type-2 arrays select it per region.
 Hardware ISP-cache capacities/overflow, discard scheduling, texture-cache phases and sort latency remain unmodeled; functional region timing is still the placeholder described above.
@@ -1228,7 +1228,8 @@ Area-one pixels on Shadow-enabled objects scale the interpolated base and offset
 The model applies the literal color multiplier to ARGB, then applies Use Alpha normally; the physical alpha/offset-alpha gating and multiplier rounding still require hardware observations.
 Opaque/punch-through depths are resolved before area evaluation, after which the tile is replayed from saved color, depth and secondary-buffer state to avoid duplicate blending.
 A failed depth/area prepass restores those buffers as well, allowing repaired VRAM data to be retried on a retained tile without applying the failed prepass twice.
-Auto-sorted translucent modifiers evaluate against each selected layer's fragment depths before that layer is shaded and composited.
+Auto-sorted translucent modifiers evaluate against the fragment depths of each layer before that layer is composited.
+A fragment whose material or intensity shadow depends on the area is collected for both areas, and the layer takes the one that matches the area of its pixel.
 Opaque and translucent area masks are independent; pre-sorted translucent modifiers stop because §3.4.5.3 permits only auto-sort.
 Replay is a functional implementation strategy and does not model the hardware ISP/TSP phases or render duration.
 Modifier-enabled backgrounds remain an explicit development stop; two-volume parameter selection is described below.
@@ -2199,7 +2200,7 @@ These component sections are integrated into the complete native DC save/load pa
 
 ## GPU CORE rendering component state
 
-`DcGpuRender` saves its register map, region cursor, retained tile coordinates, remaining functional tile deadline, sort/material state, primary/secondary color buffers, secondary-valid bits, depth buffer, shadow mask, depth-peeling history, fragment candidates and fog component.
+`DcGpuRender` saves its register map, region cursor, retained tile coordinates, remaining functional tile deadline, sort/material state, primary/secondary color buffers, secondary-valid bits, depth buffer, shadow mask, an unused depth-peeling history kept for the state format, fragment candidates and fog component.
 The negative-infinity depth-peeling sentinel is retained without conversion to a finite depth.
 Destination VRAM, palette and completion callbacks stay attached; their owning components restore VRAM bytes and palette state separately.
 The modifier evaluator has only scratch data and destination-owned callbacks, so it requires no independent persistent section.

@@ -90,6 +90,7 @@ class DcGpuRender {
   int _tileCount = 0, _hiddenFragments = 0, _shownFragments = 0;
   final _savedDepth = Float64List(1024);
   final _candidates = List<_Fragment?>.filled(1024, null);
+  // No longer used; kept so that the state format stays the same.
   final _lastDepth = Float64List(1024);
   final _lastOrder = Int32List(1024);
   // Translucent fragments collected in one pass, linked per pixel.
@@ -99,6 +100,12 @@ class DcGpuRender {
   var _fragmentColor = Uint32List(1024), _fragmentTsp = Uint32List(1024);
   var _fragmentDepth = Float64List(1024);
   var _fragmentWrite = Uint8List(1024), _fragmentSorted = Int32List(1024);
+  // The modifier area a fragment belongs to: -1 for both, otherwise the area
+  // that selects its material or its intensity shadow.
+  var _fragmentArea = Int8List(1024);
+  // While modifier fragments are collected, the area that the intensity
+  // shadow of the current object assumes, or -1.
+  int _shadowArea = -1;
   bool get busy => _remaining != 0;
   int? get clocksToEvent => busy && !_stripWaiting ? _remaining : null;
   static const offsets = [
@@ -704,65 +711,34 @@ class DcGpuRender {
 
   void _sortedObjects(int address, int x, int y,
       {required bool punch, int? modifierList}) {
-    if (!punch && modifierList == null) {
+    if (!punch) {
       // Collected fragments never use the candidate buffer.
-      _sortMode = 1;
       try {
-        _sortTranslucent(address, x, y);
+        if (modifierList == null) {
+          _sortTranslucent(address, x, y);
+        } else {
+          _sortModified(address, modifierList, x, y);
+        }
       } finally {
         _sortMode = 0;
       }
       return;
     }
-    _sortMode = punch ? 2 : 1;
+    _sortMode = 2;
     try {
-      if (!punch) {
-        _lastDepth.fillRange(0, 1024, double.negativeInfinity);
-        _lastOrder.fillRange(0, 1024, -1);
-      }
-      var more = true;
-      while (more) {
-        _candidates.fillRange(0, 1024, null);
-        _primitiveOrder = 0;
-        if (modifierList != null) _shadowMask.setRange(0, 1024, _zeroBytes);
-        _objects(address, x, y);
-        if (modifierList != null && _candidates.any((value) => value != null)) {
-          final surfaces = Float64List(1024), active = Uint8List(1024);
-          for (var i = 0; i < 1024; i++) {
-            final fragment = _candidates[i];
-            if (fragment != null) {
-              surfaces[i] = fragment.depth;
-              active[i] = 1;
-            }
-          }
-          _shadowMask = modifier.evaluate(modifierList, read(0x20), x, y,
-              surfaces, read(0x80) & 1 != 0 ? 0.5 : 0.0,
-              active: active);
-          _candidates.fillRange(0, 1024, null);
-          _primitiveOrder = 0;
-          _objects(address, x, y);
-        }
-        more = false;
-        for (var i = 0; i < 1024; i++) {
-          final fragment = _candidates[i];
-          if (fragment == null) continue;
-          if (punch) {
-            // System Architecture §3.4.3: accepted punch-through pixels are opaque.
-            _storeColor(
-                i,
-                _sourceColor(i, fragment.color, fragment.tsp) | 0xff000000,
-                fragment.tsp);
-          } else {
-            _composite(i, fragment.color, fragment.tsp);
-            _lastDepth[i] = fragment.depth;
-            _lastOrder[i] = fragment.order;
-            more = true;
-          }
-          if (fragment.writeDepth) _depth[i] = fragment.depth;
-        }
-        if (punch) {
-          break; // The nearest accepted fragment is already the final opaque result.
-        }
+      _candidates.fillRange(0, 1024, null);
+      _primitiveOrder = 0;
+      _objects(address, x, y);
+      // The nearest accepted fragment is already the final opaque result.
+      for (var i = 0; i < 1024; i++) {
+        final fragment = _candidates[i];
+        if (fragment == null) continue;
+        // System Architecture §3.4.3: accepted punch-through pixels are opaque.
+        _storeColor(
+            i,
+            _sourceColor(i, fragment.color, fragment.tsp) | 0xff000000,
+            fragment.tsp);
+        if (fragment.writeDepth) _depth[i] = fragment.depth;
       }
     } finally {
       _sortMode = 0;
@@ -806,8 +782,82 @@ class DcGpuRender {
     }
   }
 
+  /// Auto-sort with modifiers: rasterize once, keeping both modifier areas of
+  /// the fragments that depend on them, then composite one layer of each
+  /// pixel at a time in ascending (depth, input order). The volumes are
+  /// tested against the depths of each layer, as peeling one layer per pass
+  /// does.
+  void _sortModified(int address, int modifierList, int x, int y) {
+    _sortMode = 4;
+    _fragmentHead.setRange(0, 1024, _noFragments);
+    _fragmentCount = 0;
+    _primitiveOrder = 0;
+    _objects(address, x, y);
+    _shadowMask.setRange(0, 1024, _zeroBytes);
+    if (_fragmentCount == 0) return;
+    if (_fragmentSorted.length < _fragmentCount) {
+      _fragmentSorted = Int32List(_fragmentNext.length);
+    }
+    final sorted = _fragmentSorted, depth = _fragmentDepth;
+    final order = _fragmentOrder, area = _fragmentArea;
+    // The sorted fragments of pixel i run from start[i] to end[i].
+    final start = Int32List(1024), end = Int32List(1024);
+    var next = 0;
+    for (var i = 0; i < 1024; i++) {
+      final first = start[i] = next;
+      for (var f = _fragmentHead[i]; f >= 0; f = _fragmentNext[f]) {
+        final z = depth[f], o = order[f];
+        var j = next++;
+        while (j > first) {
+          final g = sorted[j - 1], zg = depth[g];
+          if (zg < z || (zg == z && order[g] < o)) break;
+          sorted[j] = g;
+          j--;
+        }
+        sorted[j] = f;
+      }
+      end[i] = next;
+    }
+    final surfaces = Float64List(1024), active = Uint8List(1024);
+    final sampleOffset = read(0x80) & 1 != 0 ? 0.5 : 0.0;
+    for (;;) {
+      var any = false;
+      for (var i = 0; i < 1024; i++) {
+        if (start[i] < end[i]) {
+          surfaces[i] = depth[sorted[start[i]]];
+          active[i] = 1;
+          any = true;
+        } else {
+          surfaces[i] = 0;
+          active[i] = 0;
+        }
+      }
+      if (!any) break;
+      final mask = modifier.evaluate(
+          modifierList, read(0x20), x, y, surfaces, sampleOffset,
+          active: active);
+      for (var i = 0; i < 1024; i++) {
+        var k = start[i];
+        if (k == end[i]) continue;
+        // One layer holds the fragments of one primitive at one depth.
+        final first = sorted[k], z = depth[first], o = order[first];
+        var chosen = -1;
+        for (; k < end[i]; k++) {
+          final f = sorted[k];
+          if (depth[f] != z || order[f] != o) break;
+          if (chosen < 0 && (area[f] < 0 || area[f] == mask[i])) chosen = f;
+        }
+        start[i] = k;
+        if (chosen < 0) continue;
+        _composite(i, _fragmentColor[chosen], _fragmentTsp[chosen]);
+        if (_fragmentWrite[chosen] != 0) _depth[i] = z;
+      }
+    }
+  }
+
   void _addFragment(
-      int index, double z, int color, int tsp, bool writeDepth, int order) {
+      int index, double z, int color, int tsp, bool writeDepth, int order,
+      [int area = -1]) {
     final f = _fragmentCount++;
     if (f == _fragmentNext.length) {
       final size = f * 2;
@@ -817,6 +867,7 @@ class DcGpuRender {
       _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
       _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
       _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
+      _fragmentArea = Int8List(size)..setAll(0, _fragmentArea);
     }
     _fragmentNext[f] = _fragmentHead[index];
     _fragmentHead[index] = f;
@@ -825,6 +876,7 @@ class DcGpuRender {
     _fragmentTsp[f] = tsp;
     _fragmentDepth[f] = z;
     _fragmentWrite[f] = writeDepth ? 1 : 0;
+    _fragmentArea[f] = area;
   }
 
   final _textureCaches = <int, DcTextureCache>{};
@@ -995,6 +1047,21 @@ class DcGpuRender {
         _primitiveOrder = nextOrder;
       } finally {
         _materialArea = previousArea;
+      }
+    } else if (_sortMode == 4 && _shadowObject) {
+      // The intensity shadow of a collected fragment depends on the layer's
+      // modifier area, so the object is collected for both areas.
+      final order = _primitiveOrder;
+      try {
+        _shadowArea = 0;
+        drawMaterial(0);
+        final nextOrder = _primitiveOrder;
+        _primitiveOrder = order;
+        _shadowArea = 1;
+        drawMaterial(0);
+        _primitiveOrder = nextOrder;
+      } finally {
+        _shadowArea = -1;
       }
     } else {
       drawMaterial(0);
@@ -1346,7 +1413,7 @@ class DcGpuRender {
         !background &&
         samePosition &&
         sameTexture &&
-        _sortMode == 3 &&
+        _sortMode >= 3 &&
         tsp & 0x02000000 == 0 &&
         !(_shadowObject && shadowIntensity) &&
         _materialArea < 0 &&
@@ -1748,7 +1815,11 @@ class DcGpuRender {
           throw const DcUnsupported('CORE nonfinite interpolated depth');
         }
         final index = y * 32 + x, previous = _depth[index];
-        if (_materialArea >= 0 && _shadowMask[index] != _materialArea) continue;
+        if (_materialArea >= 0 &&
+            _sortMode != 4 &&
+            _shadowMask[index] != _materialArea) {
+          continue;
+        }
         final pass = background ||
             (_sortMode != 0
                 ? z >= previous
@@ -1763,16 +1834,7 @@ class DcGpuRender {
                     _ => true,
                   });
         if (!pass) continue;
-        if (_sortMode == 1) {
-          final last = _lastDepth[index], lastOrder = _lastOrder[index];
-          if (z < last || (z == last && order <= lastOrder)) continue;
-          final current = _candidates[index];
-          if (current != null &&
-              (z > current.depth ||
-                  (z == current.depth && order >= current.order))) {
-            continue;
-          }
-        } else if (_sortMode == 2) {
+        if (_sortMode == 2) {
           final current = _candidates[index];
           if (current != null && z < current.depth) continue;
         } else if (_visibility != 0) {
@@ -1858,7 +1920,11 @@ class DcGpuRender {
               color = sc.color;
               off = sc.offsetColor;
             }
-            if (_shadowObject && shadowIntensity && _shadowMask[index] != 0) {
+            if (_shadowObject &&
+                shadowIntensity &&
+                (_shadowArea < 0
+                    ? _shadowMask[index] != 0
+                    : _shadowArea != 0)) {
               color = _shadowColor(color);
               off = _shadowColor(off);
             }
@@ -1937,8 +2003,9 @@ class DcGpuRender {
             _sourceColor(index, color, tsp) >> 24 < alphaReference) {
           continue;
         }
-        if (_sortMode == 3) {
-          _addFragment(index, z, color, tsp, isp & 0x04000000 == 0, order);
+        if (_sortMode >= 3) {
+          _addFragment(index, z, color, tsp, isp & 0x04000000 == 0, order,
+              _materialArea >= 0 ? _materialArea : _shadowArea);
         } else if (_sortMode != 0) {
           _candidates[index] =
               _Fragment(z, color, tsp, isp & 0x04000000 == 0, order);

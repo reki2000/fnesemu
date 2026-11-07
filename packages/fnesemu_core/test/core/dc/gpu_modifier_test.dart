@@ -283,6 +283,24 @@ void main() {
 
   });
 
+  for (final (near, shadowed) in [(3.0, false), (1.5, true)]) {
+    test(
+        'auto-sorted translucent layers test the volume at their own depth '
+        '(near layer ${shadowed ? 'inside' : 'outside'})', () {
+      init();
+      // The far layer at 0.5 is inside the volume at 2 and the near layer
+      // is drawn first; only the near layer carries the intensity shadow.
+      layer(2, color: 0xff00ff00, depth: near, shadow: true);
+      layer(2, color: 0xffff0000, depth: 0.5);
+      end();
+      modifier(3, 1);
+      end();
+      intensity();
+      draw();
+      expect(pixel(4, 4) & 0xffffff, shadowed ? 0x007f00 : 0x00ff00);
+    });
+  }
+
   test('an intensity shadow keeps the alpha of the punch-through test', () {
     init();
     // alpha 0x80 passes the reference 0x60; scaled by half it would not
