@@ -90,6 +90,9 @@ class DcGpuRender {
   int _tileCount = 0, _hiddenFragments = 0, _shownFragments = 0;
   final _savedDepth = Float64List(1024);
   final _candidates = List<_Fragment?>.filled(1024, null);
+
+  /// Whether a [_candidates] entry may be set; when false all are null.
+  bool _candidatesSet = false;
   // No longer used; kept so that the state format stays the same.
   final _lastDepth = Float64List(1024);
   final _lastOrder = Int32List(1024);
@@ -362,6 +365,7 @@ class DcGpuRender {
     _lastDepth.setAll(0, lastDepth);
     _lastOrder.setAll(0, lastOrder);
     _candidates.setAll(0, candidates);
+    _candidatesSet = candidates.any((fragment) => fragment != null);
     _scalerTiles
       ..clear()
       ..addAll(scalerTiles);
@@ -726,9 +730,11 @@ class DcGpuRender {
     }
     _sortMode = 2;
     try {
-      _candidates.fillRange(0, 1024, null);
+      if (_candidatesSet) _candidates.fillRange(0, 1024, null);
+      _candidatesSet = false;
       _primitiveOrder = 0;
       _objects(address, x, y);
+      if (!_candidatesSet) return;
       // The nearest accepted fragment is already the final opaque result.
       for (var i = 0; i < 1024; i++) {
         final fragment = _candidates[i];
@@ -742,7 +748,8 @@ class DcGpuRender {
       }
     } finally {
       _sortMode = 0;
-      _candidates.fillRange(0, 1024, null);
+      if (_candidatesSet) _candidates.fillRange(0, 1024, null);
+      _candidatesSet = false;
     }
   }
 
@@ -2100,6 +2107,7 @@ class DcGpuRender {
         } else if (_sortMode != 0) {
           _candidates[index] =
               _Fragment(z, color, tsp, isp & 0x04000000 == 0, order);
+          _candidatesSet = true;
         } else {
           _composite(index, color, tsp);
           if (isp & 0x04000000 == 0) _depth[index] = z;
