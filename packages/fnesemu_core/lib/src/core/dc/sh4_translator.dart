@@ -27,6 +27,10 @@ final class Sh4Translator {
   /// Exits at a load or a store whose page has no slot, with the address
   /// in [JitCtx.faultAddr]; the host checks it for a TLB miss.
   static const readFault = JitReason.user + 1, writeFault = JitReason.user + 2;
+
+  /// Exits after RTE and its NOP slot, which the block counts; the host
+  /// restores SR from SSR and the PC from SPC.
+  static const exceptionReturn = JitReason.user + 3;
   static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
   static const tagUser = 16, tagSpaceShift = 5;
 
@@ -279,6 +283,17 @@ final class Sh4Translator {
                     branchOnT ? next : target!,
                     tagTrue: after, tagFalse: after);
         return b.finish(term, cost: spent);
+      }
+      if (op == 0x002b &&
+          tag & tagUser == 0 &&
+          fetchAt((at + 2) & 0xffffffff) == 0x0009 &&
+          guard(at) &&
+          guard((at + 2) & 0xffffffff)) {
+        // SSR and SPC stay with the host, and SR may switch the bank.
+        spent += 2;
+        flush();
+        return b.finish(IrExitTerm(IrExit(exceptionReturn, at, tag: tag)),
+            cost: spent);
       }
       if (!supported(op, tag) ||
           op == 0x0038 && loadTlbHelper < 0 ||

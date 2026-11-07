@@ -705,12 +705,14 @@ void main() {
     }
     expect(interpreted.cpu.r[9], 20);
     expect(interpreted.cpu.r[8], 100);
-    expect(compiled.cpu.r.sublist(8), interpreted.cpu.r.sublist(8));
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(compiled.cpu.bank, interpreted.cpu.bank);
+    expect(compiled.cpu.sr, interpreted.cpu.sr);
     expect(compiled.bus.tea, interpreted.bus.tea);
      if (JitRuntime.nativeSupported) {
-      // The load resumes in compiled code after the handler's LDTLB.
-      // Interpreting it after each miss would add about 30 clocks.
-      expect(compiled.cpuClocks - compiled.jitClocks, lessThan(110));
+      // The handler's RTE runs in compiled code, and the load resumes there
+      // after its LDTLB; interpreting either adds 30 clocks or more.
+      expect(compiled.cpuClocks - compiled.jitClocks, lessThan(80));
     }
   });
 

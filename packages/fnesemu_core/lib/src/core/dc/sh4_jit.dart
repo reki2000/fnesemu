@@ -213,6 +213,10 @@ final class Sh4Jit extends JitAdapter {
     cpu._fpscr = ctx[Sh4Translator.fpscr];
     final steps = _driver.lastClocks;
     if (steps > 0) cpu.pc = rt.exitPc;
+    if (reason == Sh4Translator.exceptionReturn) {
+      cpu.sr = cpu.ssr;
+      cpu.pc = cpu.spc;
+    }
     if (reason == Sh4Translator.readFault ||
         reason == Sh4Translator.writeFault) {
       // A TLB miss enters its handler here; interpreting the access would
