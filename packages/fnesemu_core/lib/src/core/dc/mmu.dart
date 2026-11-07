@@ -308,6 +308,29 @@ class DcMmu {
     return true;
   }
 
+  /// Whether an instruction fetch at [address] misses both the ITLB and the
+  /// UTLB, where [translate] would raise a TLB miss; the miss advances the
+  /// replacement counter as [translate] does. A multiple hit is left to
+  /// [translate].
+  bool instructionMiss(int address, {required bool privileged}) {
+    address = address.mask32;
+    if (!enabled ||
+        (address >= 0x80000000 && address < 0xc0000000) ||
+        address >= 0xe0000000) {
+      return false;
+    }
+    try {
+      if (_find(_instruction, address, privileged, instruction: true) >= 0 ||
+          _find(_unified, address, privileged) >= 0) {
+        return false;
+      }
+    } on DcCpuException {
+      return false;
+    }
+    _advanceCounter();
+    return true;
+  }
+
   /// Reports to [onTranslate] the data translations of [address] that the
   /// UTLB grants, the read and, if allowed, the write, as [translate] would
   /// on an access. Nothing is reported for a miss, a multiple hit or an

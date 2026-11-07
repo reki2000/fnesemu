@@ -216,6 +216,14 @@ class Sh4 {
     if (bus.cpg.stabilizing) return;
     if (_acceptInterrupt()) return;
     if (sleeping) return;
+    if (!inDelaySlot &&
+        pc & 1 == 0 &&
+        (privileged || pc.mask32 < 0x80000000) &&
+        bus.mmu.instructionMiss(pc, privileged: privileged)) {
+      // An ITLB miss enters its handler without a costly Dart exception.
+      _raise(DcCpuException(0x40, address: pc.mask32, vector: 0x400));
+      return;
+    }
     try {
       _checkAccess(pc, 2, false,
           privileged: _slotFetchPrivileged, instruction: true);
