@@ -37,7 +37,12 @@ final class Sh4Jit extends JitAdapter {
       readTable: _reads,
       writeTable: _writes,
       fpuHelper: rt.addHelper(_floatingPoint),
-      prefetchHelper: rt.addHelper(_prefetch));
+      prefetchHelper: rt.addHelper(_prefetch),
+      registerReadHelper: rt.addHelper(_readRegister),
+      registerWriteHelper: rt.addHelper(_writeRegister),
+      // The driver translates the block about to run, so the context holds
+      // its entry state.
+      entryValue: (word) => rt.ctx[word]);
   late final _driver = JitDriver(rt,
       translate: _translate,
       codeWord: _codeWord,
@@ -225,6 +230,15 @@ final class Sh4Jit extends JitAdapter {
     } on DcUnsupported {
       return 1;
     }
+    return 0;
+  }
+
+  // CCN registers need no device sync; [Sh4Translator.plainRegister]
+  // selects the ones without other effects.
+  int _readRegister(int address, int _, int __) => _cpu.bus.read32(address);
+
+  int _writeRegister(int address, int value, int _) {
+    _cpu.bus.write32(address, value);
     return 0;
   }
 

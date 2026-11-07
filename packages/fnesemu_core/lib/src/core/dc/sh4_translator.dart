@@ -79,6 +79,14 @@ final class Sh4Translator {
   /// Helper id for PREF, called with the address. It transfers a store
   /// queue and returns 0, or nonzero when the CPU must interpret it.
   final int prefetchHelper;
+
+  /// Helper ids for a CCN register read, called with the address, and a
+  /// write, called with the address and the value, or -1.
+  final int registerReadHelper, registerWriteHelper;
+
+  /// The value of a context word at the entry of the block being
+  /// translated, or null when it is unknown.
+  final int? Function(int word) entryValue;
   final int maxInstructions;
   Sh4Translator(
       {required this.fetch,
@@ -88,13 +96,29 @@ final class Sh4Translator {
       this.writeTable = 1,
       required this.fpuHelper,
       required this.prefetchHelper,
+      this.registerReadHelper = -1,
+      this.registerWriteHelper = -1,
+      this.entryValue = _noValue,
       this.maxInstructions = 32});
 
   static int? _noPage(int _, int __) => null;
+  static int? _noValue(int _) => null;
+
+  /// Whether a CCN register access has no side effect beyond the register
+  /// and leaves the block's tag unchanged.
+  static bool plainRegister(int address, {required bool write}) {
+    final offset = address - 0xff000000;
+    // PTEL, TTB, TEA and PTEA; reads also PTEH, MMUCR, TRA, EXPEVT and INTEVT.
+    return write
+        ? const [4, 8, 12, 52].contains(offset)
+        : const [0, 4, 8, 12, 16, 32, 36, 40, 52].contains(offset);
+  }
 
   late IrBuilder b;
   final values = <int, IrValue>{};
   final _guarded = <int>{};
+  // The context words the block has assigned so far.
+  final _written = <int>{};
   final _constants = <int, int>{};
   // The translations of the virtual addresses of loads and stores.
   final _reads = <int, IrTranslation>{}, _writes = <int, IrTranslation>{};
@@ -114,7 +138,11 @@ final class Sh4Translator {
   /// The translation of an address checked for a load or a store, if any.
   IrTranslation? via(IrValue address, {bool write = false}) =>
       (write ? _writes : _reads)[address.index];
-  void put(int word, IrValue value) => values[word] = value;
+  void put(int word, IrValue value) {
+    _written.add(word);
+    values[word] = value;
+  }
+
   IrValue r(int n) => get(regs + n);
   void setR(int n, IrValue value) => put(regs + n, value);
   IrValue get t => b.and(get(sr), c(1));
@@ -163,6 +191,7 @@ final class Sh4Translator {
     values.clear();
     _constants.clear();
     _guarded.clear();
+    _written.clear();
     _reads.clear();
     _writes.clear();
     spent = 0;
@@ -385,6 +414,19 @@ final class Sh4Translator {
           bound: user ? b.select(queue, c(0), value) : null);
     }
 
+    // The CCN register at [offset] from Rn while Rn holds its entry value,
+    // which a guard checks; such registers are reached through helpers.
+    int? registerAt(int n, int offset, {required bool write}) {
+      final helper = write ? registerWriteHelper : registerReadHelper;
+      if (helper < 0 || _written.contains(regs + n)) return null;
+      final value = entryValue(regs + n);
+      if (value == null) return null;
+      final address = (value + offset) & 0xffffffff;
+      if (!plainRegister(address, write: write)) return null;
+      b.exitIf(b.ne(r(n), c(value)), exit);
+      return address;
+    }
+
     IrValue read(IrValue a, int size) {
       final checked = address(a, size);
       return b.load(size, checked,
@@ -413,11 +455,21 @@ final class Sh4Translator {
       return;
     }
     if (top == 1) {
-      write(add(r(n), low * 4), r(m), 4);
+      final register = registerAt(n, low * 4, write: true);
+      if (register != null) {
+        b.call(registerWriteHelper, c(register), r(m));
+      } else {
+        write(add(r(n), low * 4), r(m), 4);
+      }
       return;
     }
     if (top == 5) {
-      setR(n, read(add(r(m), low * 4), 4));
+      final register = registerAt(m, low * 4, write: false);
+      setR(
+          n,
+          register != null
+              ? b.call(registerReadHelper, c(register))
+              : read(add(r(m), low * 4), 4));
       return;
     }
     if (top == 6) {

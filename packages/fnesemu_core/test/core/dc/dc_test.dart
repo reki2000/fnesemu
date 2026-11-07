@@ -505,6 +505,52 @@ void main() {
     });
   }
 
+  test('compiled CCN register accesses through a base register match the '
+      'interpreter', () {
+    // The loop reads TEA and TTB through r7 = 0xff000000, then writes PTEL
+    // and the next TEA, as a TLB miss handler does.
+    const code = [
+      0xd706, // mov.l @(pool,pc),r7: 0xff000000
+      0xe614, // mov #20,r6
+      0xe000, // mov #0,r0
+      0x5173, // loop: mov.l @(12,r7),r1
+      0x5272, // mov.l @(8,r7),r2
+      0x301c, // add r1,r0
+      0x302c, // add r2,r0
+      0x7101, // add #1,r1
+      0x1711, // mov.l r1,@(4,r7)
+      0x1713, // mov.l r1,@(12,r7)
+      0x4610, // dt r6
+      0x8bf6, // bf loop
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0000, 0xff00, // pool: 0xff000000
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      core.bus.write32(0xff00000c, 0x1000);
+      core.bus.write32(0xff000008, 0x2000);
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    expect(compiled.stopReason, interpreted.stopReason);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(interpreted.cpu.r[0], 20 * 0x3000 + 190);
+    for (final address in [0xff000004, 0xff00000c]) {
+      expect(compiled.bus.read32(address), interpreted.bus.read32(address));
+    }
+    expect(interpreted.bus.read32(0xff000004), 0x1000 + 20);
+  });
+
   test('compiled user code in translated pages follows TLB changes', () {
     // User code at virtual 0x10000 adds to the words of virtual 0x20000,
     // then spins. It runs again after both pages move.
