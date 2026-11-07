@@ -777,7 +777,7 @@ Raw 128 KiB byte images can be imported/exported; an imported image is used as i
 For a formatted card, `Get_Media_Info` returns ROM-fixed capacity/partition/root values and the remaining metadata from the system block, following FT1.
 Unformatted factory media parameters and extended device information remain explicit development stops until their exact memory card definitions are verified.
 The original generic FT1 layout and independent memory card root observations name some fields differently; memory card-specific factory responses still need stronger hardware evidence.
-LCD packet state supports FT2 media information (48×32 dots, two levels, no contrast adjustment), a single 192-byte horizontal-1 plane, contrast reset/query and documented LCD error bits.
+LCD packet state supports FT2 media information (48×32 dots, two levels, no contrast adjustment, and a last byte of 2 that the documents do not describe but game system software requires), a single 192-byte horizontal-1 plane, contrast reset/query and documented LCD error bits.
 `lcd.exportPixels` returns an independent copy of panel bytes; `lcd.image` produces a 48×32 RGBA image using the row-major, left-MSB arrangement in FT2 figures 2.5/2.9 and memory card peripheral specification figure 4.6.
 Attached LCDs appear as core-owned memory card A1–D2 debug layers through the existing video descriptor interface.
 Physical mounting orientation, icon segments and display timing still need hardware validation.

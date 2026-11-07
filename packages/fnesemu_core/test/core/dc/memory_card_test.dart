@@ -207,6 +207,13 @@ void main() {
     expect(restored.exportImage().sublist(0, 512), everyElement(0x33));
   });
 
+  test('LCD media information reports a 48x32 one-bit panel', () {
+    final request = Uint8List.fromList([10, 1, 0, 2, 0, 0, 0, 4, 0, 0, 0, 0]);
+    final (code, data) = memoryCard.lcd.command(10, request);
+    expect(code, 8);
+    expect(data, [0, 0, 0, 4, 47, 31, 0x10, 2]);
+  });
+
   test('LCD image and core debug layer follow documented byte and bit order',
       () {
     discover();
