@@ -163,6 +163,12 @@ class DcGpuFog {
     if (mode == 3) {
       return ((coefficient.round() << 24) | fogColor) & 0xffffffff;
     }
+    // The blend of each lane returns the input at a zero coefficient and the
+    // fog color at 255: input * 255 / 255 rounds back to the input.
+    if (coefficient == 0) return color & 0xffffffff;
+    if (coefficient == 255) {
+      return ((color & 0xff000000) | (fogColor & 0xffffff)) & 0xffffffff;
+    }
     final rest = 255 - coefficient;
     return ((color & 0xff000000) |
             _blendLane(color, fogColor, rest, coefficient, 0) |
