@@ -587,6 +587,7 @@ Rendered scenes check flat/textured/offset sprites, derived depth/UV/color in th
 TA parameters retain 32-bit IEEE UV values or the documented packed upper halves of IEEE UV values; the latter are not IEEE binary16.
 Generated object pointers carry the corresponding skip size, and the CORE validates it against the parameter format before reading vertices.
 Texture UVs and Gouraud base/offset RGBA are interpolated using reciprocal depth for perspective correction, as required by section 3.1.1.8, independently of the integer/half-pixel position chosen for coverage through HALF_OFFSET.
+The color weights of the second and third vertices are quantized to 1/65536 and the first takes the rest, so a channel may differ from exact interpolation by one unit.
 Zero perspective denominators and nonfinite/overflowing coordinates stop explicitly without a render-completion interrupt.
 
 `DcGpuTexture` reads texture data from the 64-bit VRAM layout and supports uncompressed ARGB1555, RGB565 and ARGB4444; format code 7 uses ARGB1555 as specified.
@@ -1162,7 +1163,7 @@ Vertex fog uses flat or perspective-correct Gouraud offset alpha and its separat
 Normal fog changes RGB while preserving the shaded alpha, and Mode 2 replaces RGB and alpha with the table fog color and coefficient before blending.
 The Mode 2 implementation follows the explicit assignments in §3.4.8.1; the abbreviated wording in §3.7.9.2 is ambiguous about the substitution direction.
 Flat untextured backgrounds use the same clamp/fog stage with the programmed background depth.
-Table interpolation and RGB mixing use host double arithmetic with nearest integer color rounding; physical internal precision, coefficient quantization and rounding remain unverified.
+Table interpolation uses host double arithmetic; RGB mixing quantizes the coefficient to 1/256 steps and blends in integer lanes. Physical internal precision, coefficient quantization and rounding remain unverified.
 Table power-on contents are unspecified and initialized to zero for deterministic execution; physical table retention through pipeline resets is unverified.
 Reversed clamp bounds stop explicitly because their hardware behavior is not documented.
 
