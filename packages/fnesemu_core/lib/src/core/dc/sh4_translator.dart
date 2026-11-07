@@ -84,6 +84,9 @@ final class Sh4Translator {
   /// write, called with the address and the value, or -1.
   final int registerReadHelper, registerWriteHelper;
 
+  /// Helper id for LDTLB, or -1.
+  final int loadTlbHelper;
+
   /// The value of a context word at the entry of the block being
   /// translated, or null when it is unknown.
   final int? Function(int word) entryValue;
@@ -98,6 +101,7 @@ final class Sh4Translator {
       required this.prefetchHelper,
       this.registerReadHelper = -1,
       this.registerWriteHelper = -1,
+      this.loadTlbHelper = -1,
       this.entryValue = _noValue,
       this.maxInstructions = 32});
 
@@ -260,10 +264,19 @@ final class Sh4Translator {
                     tagTrue: after, tagFalse: after);
         return b.finish(term, cost: spent);
       }
-      if (!supported(op, tag) || !guard(at)) break;
+      if (!supported(op, tag) ||
+          op == 0x0038 && loadTlbHelper < 0 ||
+          !guard(at)) {
+        break;
+      }
       emit(op, at, snapshot(at, spent));
       spent++;
       at = (at + 2) & 0xffffffff;
+      if (op == 0x0038) {
+        // LDTLB drops translation slots; the next block starts after it.
+        flush();
+        return b.finish(IrJump(at, tag: tag), cost: spent);
+      }
       if (op == 0xf3fd) {
         // FSCHG continues in the block of the other transfer size.
         flush();
@@ -338,6 +351,8 @@ final class Sh4Translator {
       }
       if (const [0x0093, 0x00a3, 0x00b3, 0x00c3].contains(code)) return true;
       if (code == 0x005a || code == 0x006a) return fpu;
+      // LDTLB is privileged.
+      if (op == 0x0038) return !slot && tag & tagUser == 0;
       return const [0x0008, 0x0018, 0x0009, 0x0019, 0x0028, 0x0048, 0x0058]
           .contains(op);
     }
@@ -719,6 +734,8 @@ final class Sh4Translator {
           put(sr, b.and(get(sr), c(~2)));
         case 0x0058:
           put(sr, b.or(get(sr), c(2)));
+        case 0x0038:
+          b.call(loadTlbHelper);
       }
       return;
     }

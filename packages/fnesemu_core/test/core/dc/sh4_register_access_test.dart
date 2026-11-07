@@ -12,6 +12,7 @@ void main() {
         prefetchHelper: 1,
         registerReadHelper: 2,
         registerWriteHelper: 3,
+        loadTlbHelper: 4,
         entryValue: (word) => word == Sh4Translator.regs + 7 ? base : null,
       ).translate(0x100, tag: 0)!;
   List<int> calls(IrBlock block) => [
@@ -28,5 +29,19 @@ void main() {
   test('other base values keep the ordinary accesses', () {
     expect(calls(translate(0x8c000000)), isEmpty);
     expect(calls(translate(null)), isEmpty);
+  });
+
+  test('LDTLB calls its helper and ends the block', () {
+    final translator = Sh4Translator(
+      fetch: (pc) => const {0x100: 0x0038, 0x102: 0x0009}[pc],
+      protect: (_) {},
+      fpuHelper: 0,
+      prefetchHelper: 1,
+      loadTlbHelper: 4,
+    );
+    final block = translator.translate(0x100, tag: 0)!;
+    expect(calls(block), [4]);
+    expect((block.term as IrJump).pc, 0x102);
+    expect(translator.translate(0x100, tag: Sh4Translator.tagUser), isNull);
   });
 }

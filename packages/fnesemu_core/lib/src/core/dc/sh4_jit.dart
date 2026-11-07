@@ -40,6 +40,7 @@ final class Sh4Jit extends JitAdapter {
       prefetchHelper: rt.addHelper(_prefetch),
       registerReadHelper: rt.addHelper(_readRegister),
       registerWriteHelper: rt.addHelper(_writeRegister),
+      loadTlbHelper: rt.addHelper(_loadTlb),
       // The driver translates the block about to run, so the context holds
       // its entry state.
       entryValue: (word) => rt.ctx[word]);
@@ -239,6 +240,11 @@ final class Sh4Jit extends JitAdapter {
 
   int _writeRegister(int address, int value, int _) {
     _cpu.bus.write32(address, value);
+    return 0;
+  }
+
+  int _loadTlb(int _, int __, int ___) {
+    _cpu.bus.mmu.load();
     return 0;
   }
 
