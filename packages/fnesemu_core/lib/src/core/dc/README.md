@@ -2712,6 +2712,7 @@ The TLB does not translate stores to the store queues, so privileged blocks send
 A longword access with displacement whose base register is unchanged since block entry, and whose entry value then points at a CCN register without side effects (reads of PTEH, PTEL, TTB, TEA, MMUCR, TRA, EXPEVT, INTEVT and PTEA, writes of PTEL, TTB, TEA and PTEA), calls a helper instead of leaving the block; the block guards the base value, which it takes from the context when it is translated at its entry, and leaves when the value differs.
 Privileged blocks call a helper for LDTLB and end after it, so a TLB miss handler leaves compiled code only at RTE.
 In both MMU modes, privileged blocks run LDC Rm,SR unless it changes SR.MD, SR.RB or SR.FD; they leave after it when the new mask and SR.BL admit the highest pending interrupt, whose level the host writes to the context before each run and a store-queue transfer raises to 16.
+LDS and LDS.L to FPSCR end the block and continue on the tag of the new FPSCR.PR; a change of FPSCR.SZ or FPSCR.FR leaves the block before them. Single-precision FLOAT, FTRC, FIPR and FTRV, which run natively, are also accepted in delay slots.
 Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.
 
 ## Reserved and sub-word register accesses

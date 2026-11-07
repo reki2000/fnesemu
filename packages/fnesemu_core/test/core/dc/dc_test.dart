@@ -605,6 +605,49 @@ void main() {
     expect(compiled.cpu.r, interpreted.cpu.r);
   });
 
+  test('compiled FPSCR loads and delay-slot FLOAT match the interpreter', () {
+    // The loop rewrites FPSCR with its own value and converts the counter
+    // in a delay slot; the last LDS changes PR and leaves the block.
+    const code = [
+      0xe614, // mov #20,r6
+      0x016a, // loop: sts fpscr,r1
+      0x416a, // lds r1,fpscr
+      0x6263, // mov r6,r2
+      0x425a, // lds r2,fpul
+      0xa000, // bra next
+      0xf02d, // float fpul,fr0
+      0xf100, // next: fadd fr0,fr1
+      0x4610, // dt r6
+      0x8bf6, // bf loop
+      0xd302, // mov.l @(pool,pc),r3: 0x00080001
+      0x436a, // lds r3,fpscr
+      0x046a, // sts fpscr,r4
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0001, 0x0008, // pool: 0x00080001
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    expect(interpreted.cpu.r[4], 0x00080001);
+    expect(interpreted.cpu.fr[1], 0x43520000); // 210.0
+    expect(compiled.cpu.fpscr, interpreted.cpu.fpscr);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(compiled.cpu.fr, interpreted.cpu.fr);
+  });
+
   test('compiled user code in translated pages follows TLB changes', () {
     // User code at virtual 0x10000 adds to the words of virtual 0x20000,
     // then spins. It runs again after both pages move.

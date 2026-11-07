@@ -132,6 +132,9 @@ final class Sh4Translator {
   final _reads = <int, IrTranslation>{}, _writes = <int, IrTranslation>{};
   int spent = 0, tag = 0;
 
+  // FPSCR.PR after an LDS to FPSCR, which ends the block.
+  IrValue? _precision;
+
   // The virtual and physical pages of a P0 block, or -1.
   int _page = -1, _physicalPage = -1;
 
@@ -200,6 +203,7 @@ final class Sh4Translator {
     _constants.clear();
     _guarded.clear();
     _written.clear();
+    _precision = null;
     _reads.clear();
     _writes.clear();
     spent = 0;
@@ -281,6 +285,14 @@ final class Sh4Translator {
         flush();
         return b.finish(IrJump(at, tag: tag), cost: spent);
       }
+      final precision = _precision;
+      if (precision != null) {
+        flush();
+        return b.finish(
+            IrBranch(precision, at, at,
+                tagTrue: tag | tagDouble, tagFalse: tag & ~tagDouble),
+            cost: spent);
+      }
       if (op == 0xf3fd) {
         // FSCHG continues in the block of the other transfer size.
         flush();
@@ -301,6 +313,12 @@ final class Sh4Translator {
       (op >>> 12 == 8 && const [9, 11, 13, 15].contains((op >>> 8) & 15)) ||
       const [0x0003, 0x0023, 0x400b, 0x402b].contains(op & 0xf0ff) ||
       op == 0x000b;
+
+  /// FLOAT, FTRC, FIPR and FTRV, which single-precision blocks run
+  /// natively.
+  static bool nativeConversion(int op) =>
+      const [0xf02d, 0xf03d, 0xf0ed].contains(op & 0xf0ff) ||
+      op & 0xf3ff == 0xf1fd;
 
   /// FPU arithmetic executed through [fpuHelper].
   static bool helperOp(int op, int tag) {
@@ -332,7 +350,12 @@ final class Sh4Translator {
       // Single arithmetic and comparisons run natively, exiting like loads.
       if (helperOp(op, tag)) {
         return !slot ||
-            !double && (low <= 2 || low == 4 || low == 5 || low == 14);
+            !double &&
+                (low <= 2 ||
+                    low == 4 ||
+                    low == 5 ||
+                    low == 14 ||
+                    nativeConversion(op));
       }
       if (code == 0xf00d || code == 0xf01d) return true;
       if (code == 0xf04d || code == 0xf05d) return !double || n.isEven;
@@ -365,6 +388,8 @@ final class Sh4Translator {
       if (low == 12 || low == 13) return true;
       // LDC Rm,SR is privileged.
       if (kind == 0x0e) return !slot && tag & tagUser == 0;
+      // An LDS to FPSCR ends the block, so it stays out of delay slots.
+      if (kind == 0x66 || kind == 0x6a) return fpu && !slot;
       if (const [0x52, 0x56, 0x5a, 0x62].contains(kind)) return fpu;
       return const [
         0x00, 0x20, 0x01, 0x21, 0x04, 0x05, 0x24, 0x25, //
@@ -773,6 +798,19 @@ final class Sh4Translator {
         setR(n, b.select(b.ltS(shift, c(0)), right, left));
         return;
       }
+      if (kind == 0x66 || kind == 0x6a) {
+        final pointer = r(n);
+        final value = b.and(
+            kind == 0x6a ? pointer : read(pointer, 4), c(0x003fffff));
+        // FPSCR.FR swaps the banks and SZ selects the tag; the block ends
+        // after the load on the tag of the new PR.
+        b.exitIf(
+            b.ne(b.and(b.xor(value, get(fpscr)), c(0x300000)), c(0)), exit);
+        put(fpscr, value);
+        if (kind == 0x66) setR(n, add(pointer, 4));
+        _precision = b.and(b.shrU(value, c(19)), c(1));
+        return;
+      }
       final special = switch (kind) {
         0x02 || 0x06 || 0x0a => mach,
         0x12 || 0x16 || 0x1a => macl,
@@ -944,11 +982,8 @@ final class Sh4Translator {
   /// where the exact model rounds the exact sum once. Round-to-zero applies
   /// to that last rounding only.
   bool _nativeConversion(int op, int n, IrExit exit) {
-    final code = op & 0xf0ff;
-    final transform = op & 0xf3ff == 0xf1fd;
-    if (code != 0xf02d && code != 0xf03d && code != 0xf0ed && !transform) {
-      return false;
-    }
+    if (!nativeConversion(op)) return false;
+    final code = op & 0xf0ff, transform = op & 0xf3ff == 0xf1fd;
     final status = get(fpscr);
     if (code == 0xf03d) {
       // From 2^31 in magnitude, and for NaN, the exact model saturates.
