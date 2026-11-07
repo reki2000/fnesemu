@@ -136,8 +136,20 @@ class DcGpuRender {
     0x11c
   ];
 
+  /// Whether each longword offset below 0x200 is one of [offsets].
+  static final _handled = () {
+    final table = Uint8List(0x80);
+    for (final offset in offsets) {
+      table[offset >> 2] = 1;
+    }
+    return table;
+  }();
+
   static bool handles(int offset) =>
-      offsets.contains(offset) || DcGpuFog.handles(offset);
+      (offset >= 0 && offset < 0x200 && offset & 3 == 0
+          ? _handled[offset >> 2] != 0
+          : offsets.contains(offset)) ||
+      DcGpuFog.handles(offset);
 
   void saveState(StateWriter writer) {
     writer.section('dc.gpu.render');

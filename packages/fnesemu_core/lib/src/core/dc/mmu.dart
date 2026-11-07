@@ -353,8 +353,10 @@ class DcMmu {
         entry.low & 1 != 0);
   }
 
-  static bool isArray(int address) =>
-      [0xf2, 0xf3, 0xf6, 0xf7].contains(address.mask32 >> 24);
+  static bool isArray(int address) => switch (address.mask32 >> 24) {
+        0xf2 || 0xf3 || 0xf6 || 0xf7 => true,
+        _ => false,
+      };
 
   (_TlbEntry, bool, bool) _arrayEntry(int address) {
     if (address & 3 != 0) throw DcUnsupported('unaligned TLB array access');

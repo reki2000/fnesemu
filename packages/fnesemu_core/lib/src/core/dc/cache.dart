@@ -341,8 +341,10 @@ class DcCache {
     }
   }
 
-  static bool isArray(int address) =>
-      [0xf0, 0xf1, 0xf4, 0xf5].contains(address.mask32 >> 24);
+  static bool isArray(int address) => switch (address.mask32 >> 24) {
+        0xf0 || 0xf1 || 0xf4 || 0xf5 => true,
+        _ => false,
+      };
 
   int readArray(int address) {
     if (address & 3 != 0) throw DcUnsupported('unaligned cache array access');

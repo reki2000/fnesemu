@@ -356,8 +356,7 @@ class DcGpu {
       final shift = (offset & 3) * 8;
       return (read(offset & ~3, 4) >>> shift) & ((1 << (size * 8)) - 1);
     }
-    if ([0xc4, 0xc8, 0xcc, 0xd0, 0xd4, 0xd8, 0xdc, 0xe0, 0x10c]
-        .contains(offset)) {
+    if (_spgRegister(offset)) {
       return spg.read(offset);
     }
     if (offset >= 0x1000 && offset < 0x2000) {
@@ -401,8 +400,7 @@ class DcGpu {
       _memoryTiming[index] = value & const [0xff, 0x3fffff, 0x1fffffff][index];
       return;
     }
-    if ([0xc4, 0xc8, 0xcc, 0xd0, 0xd4, 0xd8, 0xdc, 0xe0, 0x10c]
-        .contains(offset)) {
+    if (_spgRegister(offset)) {
       return spg.write(offset, value);
     }
     if (offset >= 0x1000 && offset < 0x2000) {
@@ -467,6 +465,12 @@ class DcGpu {
         throw DcUnsupported('unimplemented GPU register: $offset');
     }
   }
+
+  static bool _spgRegister(int offset) => switch (offset) {
+        0xc4 || 0xc8 || 0xcc || 0xd0 || 0xd4 || 0xd8 || 0xdc || 0xe0 || 0x10c =>
+          true,
+        _ => false,
+      };
 
   bool _taRegister(int offset) => const [
         0x124,
