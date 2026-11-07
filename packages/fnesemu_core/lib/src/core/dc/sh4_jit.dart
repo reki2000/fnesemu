@@ -213,7 +213,15 @@ final class Sh4Jit extends JitAdapter {
     cpu._fpscr = ctx[Sh4Translator.fpscr];
     final steps = _driver.lastClocks;
     if (steps > 0) cpu.pc = rt.exitPc;
-    if (reason == Sh4Translator.interpret) {
+    if (reason == Sh4Translator.readFault ||
+        reason == Sh4Translator.writeFault) {
+      // A TLB miss enters its handler here; interpreting the access would
+      // raise it through a costly Dart exception.
+      cpu._raiseDataMiss(ctx[JitCtx.faultAddr],
+          write: reason == Sh4Translator.writeFault);
+    }
+    if (reason == Sh4Translator.interpret ||
+        reason == Sh4Translator.writeFault) {
       // A store into a code page: leave later stores to the entry guards.
       var fault = ctx[JitCtx.faultAddr];
       if (fault != 0 && fault < 0x80000000 && tag & Sh4Translator.tagMmu != 0) {

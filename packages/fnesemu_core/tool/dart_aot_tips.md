@@ -77,6 +77,7 @@ objdump -d -M intel --no-show-raw-insn \
 - Do not use records as map keys on a hot path. Each lookup allocates the record and hashes it through the generic record hash. Pack small integers into one int key.
 - Avoid a `static final` table in a hot loop. It is initialized lazily and every read checks the initialization. Use an instance field.
 - `double.round()` and `int.toDouble()` can be calls. For a value known to be in range, use `(v + 0.5).toInt()` and a lookup table of doubles.
+- A Dart `throw` and `catch` costs about 1.2 to 1.8 microseconds in the AOT build, with a const or a new exception object alike, against about 2 nanoseconds for a return. The DC core raised about 2,000 TLB misses per frame as exceptions in one scene, 3 ms of about 70 ms. Raising the miss without a throw on the path from compiled code saved that time. Keep exceptions off paths that run thousands of times per frame.
 - `int.toDouble()` and an `int` operand of `double %` call `_Double.fromInteger`, which allocates a boxed double. `0.0 + i` and the comparison of a double with an int compile to an inline `cvtsi2sd`.
 - A divide by a power of two can be a multiply by its exact reciprocal, from a small table. Other divides must stay, because the rounding changes.
 - Write the highest index of a small fixed-size buffer first, so that the later constant-index bounds checks are redundant.

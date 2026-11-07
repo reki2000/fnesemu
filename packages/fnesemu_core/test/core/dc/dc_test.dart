@@ -648,6 +648,67 @@ void main() {
     expect(compiled.cpu.fr, interpreted.cpu.fr);
   });
 
+  test('compiled loads that miss the UTLB enter the miss handler', () {
+    // The loop reads a new P0 page in each pass; the handler maps the page
+    // at TEA to the word at 0x0c030000 and counts the misses in r9.
+    const code = [
+      0xd405, // mov.l @(pool0,pc),r4: 0x00010000
+      0xe614, // mov #20,r6
+      0xe800, // mov #0,r8
+      0x6142, // loop: mov.l @r4,r1
+      0x381c, // add r1,r8
+      0xd304, // mov.l @(pool1,pc),r3: 0x1000
+      0x343c, // add r3,r4
+      0x4610, // dt r6
+      0x8bf9, // bf loop
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0x0001, // pool0
+      0x1000, 0x0000, // pool1
+    ];
+    const handler = [
+      0xd004, // mov.l @(pool,pc),r0: 0xff000000
+      0x5103, // mov.l @(12,r0),r1: TEA
+      0x1010, // mov.l r1,@(0,r0): PTEH
+      0xd104, // mov.l @(pool,pc),r1: 0x0c030174
+      0x1011, // mov.l r1,@(4,r0): PTEL
+      0x0038, // ldtlb
+      0x7901, // add #1,r9
+      0x002b, // rte
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0xff00, // pool
+      0x0174, 0x0c03, // pool
+    ];
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([
+        for (final w in code) ...[w & 255, w >> 8]
+      ]));
+      for (final (i, word) in handler.indexed) {
+        core.bus.write16(0x8c020400 + 2 * i, word);
+      }
+      core.bus.write32(0x8c030000, 5);
+      core.bus.mmucr = 1;
+      core.cpu
+        ..sr = 0x400000f0
+        ..vbr = 0x8c020000;
+      core.runFrame(8);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) {
+      expect(compiled.jitClocks, greaterThan(0));
+    }
+    expect(interpreted.cpu.r[9], 20);
+    expect(interpreted.cpu.r[8], 100);
+    expect(compiled.cpu.r.sublist(8), interpreted.cpu.r.sublist(8));
+    expect(compiled.bus.tea, interpreted.bus.tea);
+  });
+
   test('compiled user code in translated pages follows TLB changes', () {
     // User code at virtual 0x10000 adds to the words of virtual 0x20000,
     // then spins. It runs again after both pages move.

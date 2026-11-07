@@ -23,6 +23,10 @@ final class Sh4Translator {
   /// host writes before a run; it does not change while compiled code runs.
   static const pendingLevel = xf + 16, ctxWords = pendingLevel + 1;
   static const interpret = JitReason.user;
+
+  /// Exits at a load or a store whose page has no slot, with the address
+  /// in [JitCtx.faultAddr]; the host checks it for a TLB miss.
+  static const readFault = JitReason.user + 1, writeFault = JitReason.user + 2;
   static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
   static const tagUser = 16, tagSpaceShift = 5;
 
@@ -137,6 +141,10 @@ final class Sh4Translator {
 
   // The virtual and physical pages of a P0 block, or -1.
   int _page = -1, _physicalPage = -1;
+
+  IrExit _fault(IrExit exit, {required bool write}) =>
+      IrExit(write ? writeFault : readFault, exit.pc,
+          tag: exit.tag, spent: exit.spent, stores: exit.stores);
 
   IrValue c(int x) {
     final value = b.c32(x & 0xffffffff);
@@ -476,13 +484,16 @@ final class Sh4Translator {
     IrValue read(IrValue a, int size) {
       final checked = address(a, size);
       return b.load(size, checked,
-          signed: size < 4, unmapped: exit, translation: via(checked));
+          signed: size < 4,
+          unmapped: _fault(exit, write: false),
+          translation: via(checked));
     }
 
     void write(IrValue a, IrValue v, int size) {
       final checked = storeAddress(a, size);
       b.store(size, checked, v,
-          unmapped: exit, translation: via(checked, write: true));
+          unmapped: _fault(exit, write: true),
+          translation: via(checked, write: true));
     }
 
     if (top == 14) {
@@ -1149,11 +1160,11 @@ final class Sh4Translator {
     final register = file(load ? n : m);
     if (load) {
       final checked = address(a, size), translation = via(checked);
-      final first =
-          b.load(4, checked, unmapped: exit, translation: translation);
+      final first = b.load(4, checked,
+          unmapped: _fault(exit, write: false), translation: translation);
       if (pair) {
         final second = b.load(4, b.add(checked, c(4)),
-            unmapped: exit, translation: translation);
+            unmapped: _fault(exit, write: false), translation: translation);
         put(register + 1, second);
       }
       put(register, first);
@@ -1162,10 +1173,10 @@ final class Sh4Translator {
       final checked = storeAddress(a, size),
           translation = via(checked, write: true);
       b.store(4, checked, get(register),
-          unmapped: exit, translation: translation);
+          unmapped: _fault(exit, write: true), translation: translation);
       if (pair) {
         b.store(4, b.add(checked, c(4)), get(register + 1),
-            unmapped: exit, translation: translation);
+            unmapped: _fault(exit, write: true), translation: translation);
       }
       if (low == 11) setR(n, a);
     }

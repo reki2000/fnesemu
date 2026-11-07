@@ -261,6 +261,25 @@ class DcMmu {
     return DcTranslation(physical, entry.low & 8 != 0, entry.low & 1 != 0);
   }
 
+  /// Whether a data access at [address] misses the UTLB, where [translate]
+  /// would raise a TLB miss; the miss advances the replacement counter as
+  /// [translate] does. A multiple hit is left to [translate].
+  bool dataMiss(int address, {required bool privileged}) {
+    address = address.mask32;
+    if (!enabled ||
+        (address >= 0x80000000 && address < 0xc0000000) ||
+        address >= 0xe0000000) {
+      return false;
+    }
+    try {
+      if (_find(_unified, address, privileged) >= 0) return false;
+    } on DcCpuException {
+      return false;
+    }
+    _advanceCounter();
+    return true;
+  }
+
   /// Cache-array associative writes search existing entries without ITLB refill.
   DcTranslation? associative(int address, {bool instruction = false}) {
     if (!instruction) _advanceCounter();

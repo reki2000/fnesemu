@@ -222,32 +222,53 @@ class Sh4 {
       _step();
       _instructionExecuted = true;
     } on DcCpuException catch (error) {
-      if (sr.bit28 || error.reset) {
-        // A general exception with BL set causes a CPU/on-chip manual reset.
-        // External RAM and ROM remain connected and retain their contents.
-        reset(manual: true);
-        bus.expevt = error.reset ? error.event : 0x20;
-        if (error.reset && error.address != null) bus.tea = error.address!;
-        return;
-      }
-      final inSlot = inDelaySlot;
-      if (inSlot && _delayedPr != null) pr = _delayedPr!;
-      ssr = sr;
-      spc = (error.completed ? pc + 2 : (inSlot ? pc - 2 : pc)).mask32;
-      sgr = r[15];
-      if (error.address != null) {
-        bus.tea = error.address!;
-        bus.pteh = (bus.pteh & 0xff) | (error.address! & 0xfffffc00);
-      }
-      if (error.trap != null) bus.tra = error.trap! * 4;
-      bus.expevt = error.event;
-      sr |= 0x70000000;
-      pc = (vbr + error.vector).mask32;
-      _delayedTarget = null;
-      _delayedPr = null;
-      _slotFetchPrivileged = null;
-      _instructionExecuted = error.completed;
+      _raise(error);
     }
+  }
+
+  /// Raises the UTLB miss of a data access at which compiled code left, as
+  /// interpreting the instruction would, unless something else comes first.
+  /// Returns whether it raised the miss.
+  bool _raiseDataMiss(int address, {required bool write}) {
+    if (sr.bit28 ||
+        inDelaySlot ||
+        bus.cpg.stabilizing ||
+        bus.cpg.resetPending ||
+        _interruptDue() ||
+        !bus.mmu.dataMiss(address, privileged: privileged)) {
+      return false;
+    }
+    _raise(
+        DcCpuException(write ? 0x60 : 0x40, address: address, vector: 0x400));
+    return true;
+  }
+
+  void _raise(DcCpuException error) {
+    if (sr.bit28 || error.reset) {
+      // A general exception with BL set causes a CPU/on-chip manual reset.
+      // External RAM and ROM remain connected and retain their contents.
+      reset(manual: true);
+      bus.expevt = error.reset ? error.event : 0x20;
+      if (error.reset && error.address != null) bus.tea = error.address!;
+      return;
+    }
+    final inSlot = inDelaySlot;
+    if (inSlot && _delayedPr != null) pr = _delayedPr!;
+    ssr = sr;
+    spc = (error.completed ? pc + 2 : (inSlot ? pc - 2 : pc)).mask32;
+    sgr = r[15];
+    if (error.address != null) {
+      bus.tea = error.address!;
+      bus.pteh = (bus.pteh & 0xff) | (error.address! & 0xfffffc00);
+    }
+    if (error.trap != null) bus.tra = error.trap! * 4;
+    bus.expevt = error.event;
+    sr |= 0x70000000;
+    pc = (vbr + error.vector).mask32;
+    _delayedTarget = null;
+    _delayedPr = null;
+    _slotFetchPrivileged = null;
+    _instructionExecuted = error.completed;
   }
 
   /// Whether an interrupt is accepted before the next instruction.
