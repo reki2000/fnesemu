@@ -28,8 +28,13 @@ class _TlbEntry {
   }
 
   bool get valid => low & 0x100 != 0;
-  static const _masks = [0x3ff, 0xfff, 0xffff, 0xfffff];
-  int get offsetMask => _masks[((low >> 6) & 2) | ((low >> 4) & 1)];
+  @pragma('vm:prefer-inline')
+  int get offsetMask => switch (((_low >> 6) & 2) | ((_low >> 4) & 1)) {
+        0 => 0x3ff,
+        1 => 0xfff,
+        2 => 0xffff,
+        _ => 0xfffff,
+      };
 }
 
 /// SH7750 unified/instruction TLBs and software-visible MMU state.
@@ -135,11 +140,32 @@ class DcMmu {
   void load() {
     final entry = _unified[(_control >> 10) & 63];
     _changing(entry);
-    entry.high = pteh & 0xfffffcff;
-    entry.low = ptel & 0x1ffffdff;
+    _assign(entry, pteh & 0xfffffcff, ptel & 0x1ffffdff);
     entry.assistance = ptea & 15;
   }
 
+  /// Sets [entry] and keeps the lookup memos, apart from the pages that the
+  /// old or the new entry covers, when both cover at most 4 KiB.
+  void _assign(_TlbEntry entry, int high, int low) {
+    final current = _memoVersion == _TlbEntry.version;
+    final oldHigh = entry.high, oldMask = entry.offsetMask;
+    entry.high = high;
+    entry.low = low;
+    final mask = entry.offsetMask;
+    if (!current || oldMask > 0xfff || mask > 0xfff) return;
+    _forgetPages(oldHigh, oldMask);
+    _forgetPages(high, mask);
+    _memoVersion = _TlbEntry.version;
+  }
+
+  void _forgetPages(int high, int mask) {
+    final first = (high & ~mask & 0xffffffff) >>> 10;
+    for (var page = first; page <= first + (mask >> 10); page++) {
+      _memoKeys[page & 63] = 0;
+    }
+  }
+
+  @pragma('vm:prefer-inline')
   bool _matches(_TlbEntry entry, int address, bool privileged) =>
       entry.valid &&
       ((entry.high ^ address) & (~entry.offsetMask & 0xffffffff)) == 0 &&
@@ -240,8 +266,7 @@ class DcMmu {
       if (instruction && touch) {
         instructionIndex = _replacement();
         final target = _instruction[instructionIndex];
-        target.high = entry.high;
-        target.low = entry.low & 0x1ffffdda;
+        _assign(target, entry.high, entry.low & 0x1ffffdda);
         target.assistance = entry.assistance;
         entry = target;
       }
