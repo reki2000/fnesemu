@@ -1,11 +1,17 @@
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
-/// SH-4 blocks for privileged code with a coherent cache. With the MMU on,
-/// blocks run only in the untranslated P1 and P2 areas and leave before any
-/// access outside them. Memory outside mapped main RAM, unaligned accesses,
-/// exceptions and mode changes leave before effects so the owning CPU
-/// interprets the instruction.
-/// The block tag holds FPSCR.SZ, FPSCR.PR, SR.FD and whether the MMU is on.
+/// SH-4 blocks for code running with a coherent cache. Memory outside mapped
+/// main RAM, unaligned accesses, exceptions and mode changes leave before
+/// effects so the owning CPU interprets the instruction.
+///
+/// With the MMU on, accesses to the translated P0 area look up two tables of
+/// 4 KiB pages, one for reads and instruction fetches and one for writes.
+/// Each slot holds a key word and the physical page. The owning CPU fills the
+/// slots from successful TLB translations to main RAM; a missing slot leaves
+/// the block. A block in P0 stays within one page and checks at entry that
+/// its page still translates to the physical page it was built from.
+/// The block tag holds FPSCR.SZ, FPSCR.PR, SR.FD and whether the MMU is on;
+/// with the MMU on, it also holds user mode and the address space key.
 final class Sh4Translator {
   static const regs = JitCtx.user;
   static const sr = regs + 16, gbr = sr + 1, pr = sr + 2;
@@ -13,6 +19,15 @@ final class Sh4Translator {
   static const fr = sr + 7, xf = fr + 16, ctxWords = xf + 16;
   static const interpret = JitReason.user;
   static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
+  static const tagUser = 16, tagSpaceShift = 5;
+
+  /// A P0 block whose page now translates to another physical page.
+  static const remapped = JitReason.user + 1;
+
+  /// Guest pages holding the read and write translation tables, mapped
+  /// read-only in the reserved area 7 like [queueAlias].
+  static const readTable = 0x1fffa000, writeTable = 0x1fffc000;
+  static const tableSlots = 1024;
 
   /// Guest page holding the store queues. Store-queue stores are redirected
   /// here; the reserved area 7 page that it shadows is not used by software.
@@ -25,12 +40,35 @@ final class Sh4Translator {
       ((status >> 13) & 4) |
       (mmu ? tagMmu : 0);
 
+  /// The block tag with the MMU on, for user mode or the privileged mode and
+  /// the 9-bit address space key: 256 when MMUCR.SV shares privileged
+  /// accesses, otherwise PTEH.ASID.
+  static int mmuTag(int status, int floatStatus,
+          {required bool user, required int space}) =>
+      tagOf(status, floatStatus, mmu: true) |
+      (user ? tagUser : 0) |
+      (space << tagSpaceShift);
+
+  /// The low bits of a table key for accesses under [tag]. Bit 11 marks a
+  /// valid slot, bit 10 user mode and bits 0 to 8 the address space key.
+  static int keyBits(int tag) =>
+      0x800 |
+      (tag & tagUser != 0 ? 0x400 : 0) |
+      ((tag >>> tagSpaceShift) & 511);
+
+  /// The table key for [address] under [tag].
+  static int key(int address, int tag) => (address & 0xfffff000) | keyBits(tag);
+
   /// Whether an address is in the untranslated P1 or P2 area.
   static bool untranslated(int address) =>
       address >= 0x80000000 && address < 0xc0000000;
 
   final int? Function(int) fetch;
   final void Function(int) protect;
+
+  /// The physical page of a P0 code address under a tag, or null when the
+  /// read table lacks it.
+  final int? Function(int address, int tag) codePage;
 
   /// Helper id for FPU arithmetic, called with the opcode and its PC. It
   /// returns 0 on completion or nonzero when the CPU must interpret it.
@@ -43,15 +81,21 @@ final class Sh4Translator {
   Sh4Translator(
       {required this.fetch,
       required this.protect,
+      this.codePage = _noPage,
       required this.fpuHelper,
       required this.prefetchHelper,
       this.maxInstructions = 32});
+
+  static int? _noPage(int _, int __) => null;
 
   late IrBuilder b;
   final values = <int, IrValue>{};
   final _guarded = <int>{};
   final _constants = <int, int>{};
   int spent = 0, tag = 0;
+
+  // The virtual and physical pages of a P0 block, or -1.
+  int _page = -1, _physicalPage = -1;
 
   IrValue c(int x) {
     final value = b.c32(x & 0xffffffff);
@@ -76,9 +120,21 @@ final class Sh4Translator {
     }
   }
 
-  /// The instruction word at [at]; with the MMU on, only untranslated code.
-  int? fetchAt(int at) =>
-      tag & tagMmu != 0 && !untranslated(at) ? null : fetch(at);
+  /// The physical address of the instruction at [at], or null outside the
+  /// code the block may hold.
+  int? _codeAddress(int at) {
+    if (tag & tagMmu == 0) return at;
+    if (_physicalPage >= 0) {
+      return at & 0xfffff000 == _page ? _physicalPage | (at & 0xfff) : null;
+    }
+    return tag & tagUser == 0 && untranslated(at) ? at : null;
+  }
+
+  /// The instruction word at [at], or null outside the block's code.
+  int? fetchAt(int at) {
+    final address = _codeAddress(at);
+    return address == null ? null : fetch(address);
+  }
 
   bool guard(int at) {
     final aligned = at & ~3;
@@ -86,8 +142,9 @@ final class Sh4Translator {
     final lo = fetchAt(aligned), hi = fetchAt((aligned + 2) & 0xffffffff);
     if (hi == null || lo == null) return false;
     _guarded.add(aligned);
-    b.guard(aligned, (hi << 16) | lo);
-    protect(aligned);
+    final physical = _codeAddress(aligned)!;
+    b.guard(physical, (hi << 16) | lo);
+    protect(physical);
     return true;
   }
 
@@ -98,6 +155,20 @@ final class Sh4Translator {
     _guarded.clear();
     spent = 0;
     b = IrBuilder(pc, tag: tag);
+    _page = _physicalPage = -1;
+    if (tag & tagMmu != 0 && pc < 0x80000000) {
+      final physical = codePage(pc, tag);
+      if (physical == null) return null;
+      _page = pc & 0xfffff000;
+      _physicalPage = physical;
+      // A missing slot leaves for the CPU, which refills it; another
+      // physical page retires the block.
+      final slot = readTable + ((pc >>> 12) & (tableSlots - 1)) * 8;
+      b.exitIf(b.ne(b.load(4, c(slot)), c(key(pc, tag))),
+          IrExit(interpret, pc, tag: tag, spent: 0));
+      b.exitIf(b.ne(b.load(4, c(slot + 4)), c(physical)),
+          IrExit(remapped, pc, tag: tag, spent: 0));
+    }
     var at = pc;
     var count = 0;
     for (; count < maxInstructions; count++) {
@@ -146,12 +217,9 @@ final class Sh4Translator {
             ? IrJumpDyn(dynamicTarget, tag: after)
             : condition == null
                 ? IrJump(target!, tag: after)
-                : IrBranch(
-                    condition,
-                    branchOnT ? target! : next,
+                : IrBranch(condition, branchOnT ? target! : next,
                     branchOnT ? next : target!,
-                    tagTrue: after,
-                    tagFalse: after);
+                    tagTrue: after, tagFalse: after);
         return b.finish(term, cost: spent);
       }
       if (!supported(op, tag) || !guard(at)) break;
@@ -218,6 +286,11 @@ final class Sh4Translator {
           !double &&
           (!slot || op == 0xf3fd);
     }
+    // STC SR,Rn and STC.L SR,@-Rn are privileged.
+    if (tag & tagUser != 0 &&
+        (op & 0xf0ff == 0x0002 || op & 0xf0ff == 0x4003)) {
+      return false;
+    }
     if (top == 0) {
       if (const [4, 5, 6, 7, 12, 13, 14].contains(low)) return true;
       final code = op & 0xf0ff;
@@ -255,28 +328,42 @@ final class Sh4Translator {
       return known == null ? b.add(value, c(amount)) : c(known + amount);
     }
 
-    final mmu = tag & tagMmu != 0;
-    IrValue address(IrValue value, int size) {
+    final mmu = tag & tagMmu != 0, user = tag & tagUser != 0;
+    IrValue address(IrValue value, int size, {bool write = false}) {
       final known = _constants[value.index];
-      if (known != null &&
-          (mmu ? untranslated(known) : known < 0xc0000000) &&
-          known & (size - 1) == 0) {
-        return value;
+      if (known != null && known & (size - 1) == 0) {
+        if (mmu ? !user && untranslated(known) : known < 0xc0000000) {
+          return value;
+        }
+        // The entry check covers reads within the block's own page.
+        if (!write && _physicalPage >= 0 && known & 0xfffff000 == _page) {
+          return c(_physicalPage | (known & 0xfff));
+        }
       }
       // P3 and P4 are never ordinary RAM; unaligned accesses raise errors.
-      // With the MMU on, the translated areas below P1 also stay with the
-      // CPU, which looks up the TLB.
-      final outside = mmu
-          ? b.ltU(c(0x3fffffff), b.sub(value, c(0x80000000)))
-          : b.ltU(c(0xbfffffff), value);
+      // In user mode, everything from P1 up raises an address error.
+      final outside = b.ltU(c(user ? 0x7fffffff : 0xbfffffff), value);
       b.exitIf(
           size == 1 ? outside : b.or(outside, b.and(value, c(size - 1))), exit);
-      return value;
+      if (!mmu) return value;
+      final slot = b.or(b.and(b.shrU(value, c(9)), c((tableSlots - 1) * 8)),
+          c(write ? writeTable : readTable));
+      final miss = b.ne(
+          b.load(4, slot), b.or(b.and(value, c(0xfffff000)), c(keyBits(tag))));
+      final physical =
+          b.or(b.load(4, b.or(slot, c(4))), b.and(value, c(0xfff)));
+      if (user) {
+        b.exitIf(miss, exit);
+        return physical;
+      }
+      final translated = b.ltU(value, c(0x80000000));
+      b.exitIf(b.and(miss, translated), exit);
+      return b.select(translated, physical, value);
     }
 
     IrValue storeAddress(IrValue value, int size) {
       // Store-queue stores are translated by the TLB when the MMU is on.
-      if (size < 4 || mmu) return address(value, size);
+      if (size < 4 || mmu) return address(value, size, write: true);
       final known = _constants[value.index];
       if (known != null) {
         return address(

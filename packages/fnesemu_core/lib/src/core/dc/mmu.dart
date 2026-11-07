@@ -47,7 +47,22 @@ class DcMmu {
         entry.low &= ~0x100;
       }
     }
+    if (value & 4 != 0 || (value ^ _control) & 0x101 != 0) onFlush?.call();
     _control = value & 0xfcfcff01;
+  }
+
+  /// Observers for a translation cache outside the MMU. [onTranslate]
+  /// reports each successful TLB translation with the offset mask of its
+  /// page. [onEntryChange] reports the old range of a valid entry before
+  /// the entry changes, and [onFlush] reports changes to every entry or to
+  /// the address space identifier rules.
+  void Function(int address, int physical, int offsetMask, bool write,
+      bool privileged)? onTranslate;
+  void Function(int high, int offsetMask)? onEntryChange;
+  void Function()? onFlush;
+
+  void _changing(_TlbEntry entry) {
+    if (entry.valid) onEntryChange?.call(entry.high, entry.offsetMask);
   }
 
   void reset({bool manual = false}) {
@@ -57,6 +72,7 @@ class DcMmu {
         entry.low &= ~0x100;
       }
     }
+    onFlush?.call();
   }
 
   void saveState(StateWriter writer) {
@@ -100,6 +116,7 @@ class DcMmu {
         }
       }
     }
+    onFlush?.call();
     pteh = registers[0];
     ptel = registers[1];
     ptea = registers[2];
@@ -117,6 +134,7 @@ class DcMmu {
 
   void load() {
     final entry = _unified[(_control >> 10) & 63];
+    _changing(entry);
     entry.high = pteh & 0xfffffcff;
     entry.low = ptel & 0x1ffffdff;
     entry.assistance = ptea & 15;
@@ -239,6 +257,7 @@ class DcMmu {
     }
     final physical = (entry.low & (0x1ffffc00 & ~entry.offsetMask)) |
         (address & entry.offsetMask);
+    onTranslate?.call(address, physical, entry.offsetMask, write, privileged);
     return DcTranslation(physical, entry.low & 8 != 0, entry.low & 1 != 0);
   }
 
@@ -282,6 +301,7 @@ class DcMmu {
   void writeArray(int address, int value, {bool privileged = true}) {
     final (entry, data, instruction) = _arrayEntry(address);
     if (data) {
+      _changing(entry);
       if (address & 0x800000 != 0) {
         entry.assistance = value & 15;
       } else {
@@ -293,11 +313,13 @@ class DcMmu {
           instruction: true);
       if (unified >= 0) {
         final target = _unified[unified];
+        _changing(target);
         target.low =
             (target.low & ~0x104) | (value & 0x100) | ((value >> 7) & 4);
       }
       if (insn >= 0) {
         final target = _instruction[insn];
+        _changing(target);
         if (unified >= 0) {
           target.low = _unified[unified].low & 0x1ffffdda;
           target.assistance = _unified[unified].assistance;
@@ -306,6 +328,7 @@ class DcMmu {
         }
       }
     } else {
+      _changing(entry);
       entry.high = value & 0xfffffcff;
       entry.low = (entry.low & ~(instruction ? 0x100 : 0x104)) |
           (value & 0x100) |

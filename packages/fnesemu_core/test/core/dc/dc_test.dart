@@ -441,4 +441,67 @@ void main() {
     // The translated reads saw the TLB's page, not the alias.
     expect(interpreted.bus.read32(0x8c030000), 101);
   });
+
+  test('compiled user code in translated pages follows TLB changes', () {
+    // User code at virtual 0x10000 adds to the words of virtual 0x20000,
+    // then spins. It runs again after both pages move.
+    List<int> program(int increment) => [
+          0xd404, // mov.l @(pool,pc),r4
+          0xe614, // mov #20,r6
+          0x6142, // loop: mov.l @r4,r1
+          0x7100 | increment, // add #increment,r1
+          0x2412, // mov.l r1,@r4
+          0x7404, // add #4,r4
+          0x4610, // dt r6
+          0x8bf9, // bf loop
+          0xaffe, // bra self
+          0x0009, // nop
+          0x0000, 0x0002, // pool: 0x00020000
+        ];
+    const flags = 0x174; // Valid, 4 KiB, user read and write, dirty.
+
+    Dc run(bool jit) {
+      final core = Dc(jit: jit);
+      addTearDown(core.dispose);
+      core.setRom(Uint8List.fromList([0xfe, 0xaf, 0x09, 0x00]));
+      for (final (base, increment) in [(0x0c050000, 1), (0x0c060000, 2)]) {
+        for (final (i, word) in program(increment).indexed) {
+          core.bus.write16(0xa0000000 | base + 2 * i, word);
+        }
+      }
+      core.bus.write32(0xf6000000, 0x00010000);
+      core.bus.write32(0xf7000000, 0x0c050000 | flags);
+      core.bus.write32(0xf6000100, 0x00020000);
+      core.bus.write32(0xf7000100, 0x0c020000 | flags);
+      core.bus.mmucr = 1;
+      core.cpu
+        ..sr = 0xf0
+        ..pc = 0x00010000;
+      core.runFrame(4);
+      // Both pages move: the code to a copy that adds two.
+      core.bus.write32(0xf7000000, 0x0c060000 | flags);
+      core.bus.write32(0xf7000100, 0x0c040000 | flags);
+      core.bus.mmucr = 5; // Invalidate the ITLB, which keeps the old page.
+      core.bus.write32(0xf6000000, 0x00010000);
+      core.bus.write32(0xf7000000, 0x0c060000 | flags);
+      core.bus.write32(0xf6000100, 0x00020000);
+      core.bus.write32(0xf7000100, 0x0c040000 | flags);
+      core.cpu.pc = 0x00010000;
+      core.runFrame(8);
+      // Only the data entry changes, which the UTLB alone holds.
+      core.bus.write32(0xf7000100, 0x0c030000 | flags);
+      core.cpu.pc = 0x00010000;
+      core.runFrame(12);
+      return core;
+    }
+
+    final compiled = run(true), interpreted = run(false);
+    if (JitRuntime.nativeSupported) expect(compiled.jitClocks, greaterThan(0));
+    expect(compiled.stopReason, interpreted.stopReason);
+    expect(compiled.cpu.r, interpreted.cpu.r);
+    expect(compiled.bus.ram, interpreted.bus.ram);
+    expect(interpreted.bus.read32(0x8c020000), 1);
+    expect(interpreted.bus.read32(0x8c040000), 2);
+    expect(interpreted.bus.read32(0x8c030000), 2);
+  });
 }

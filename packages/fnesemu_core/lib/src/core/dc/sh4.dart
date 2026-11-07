@@ -25,7 +25,7 @@ class Sh4 {
       : r = jit?._view(Sh4Translator.regs) ?? Uint32List(16),
         fr = jit?._view(Sh4Translator.fr) ?? Uint32List(16),
         xf = jit?._view(Sh4Translator.xf) ?? Uint32List(16) {
-    jit?._cpu = this;
+    jit?._attach(this);
     reset();
   }
 
@@ -289,16 +289,19 @@ class Sh4 {
   }
 
   /// Runs compiled code for up to [budget] instructions when the next step
-  /// is an ordinary privileged instruction with the MMU off. Returns the
-  /// executed instruction count; 0 leaves the next step to [step].
+  /// is an ordinary instruction: privileged with the MMU off, or with the MMU
+  /// on, in P0 or in privileged P1 and P2. Returns the executed instruction
+  /// count; 0 leaves the next step to [step].
   int runCompiled(int budget) {
     final compiled = jit;
     if (compiled == null ||
         compiled.suspended ||
         inDelaySlot ||
         sleeping ||
-        !privileged ||
-        bus.mmu.enabled && !Sh4Translator.untranslated(pc) ||
+        !(bus.mmu.enabled
+            ? pc.mask32 < 0x80000000 ||
+                privileged && Sh4Translator.untranslated(pc)
+            : privileged) ||
         bus.cpg.stabilizing ||
         bus.cpg.resetPending ||
         _interruptDue()) {
