@@ -1643,7 +1643,8 @@ class DcGpuRender {
               sameColors ? null : sa, sameOffsets ? null : sa, sb, sc,
               quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
               ignoredAlpha, tsp, quickFog, fogOffset, wraps,
-              65536.0 * texture.width, 65536.0 * texture.height, offsetLanes);
+              65536.0 * texture.width, 65536.0 * texture.height, offsetLanes,
+              varying);
           continue;
         }
         for (var x = rowLeft;
@@ -2332,6 +2333,13 @@ class DcGpuRender {
     final uScale = 65536.0 * texture.width, vScale = 65536.0 * texture.height;
     final offsetLanes = DcGpuTexture.toLanes(quickOffset & 0xffffff);
     final shadeArea = varying ? inverseArea : 0.0;
+    final kind = !wraps
+        ? 0
+        : varying && colors != null && offsets == null && gray < 0
+            ? 1
+            : !varying && gray >= 0 && !quickFog
+                ? 2
+                : 0;
     final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
     final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
     final base = originX + offset;
@@ -2364,47 +2372,137 @@ class DcGpuRender {
       final e0 = e0x * (rowY - by) - e0y * (x0 - bx),
           e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
           e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
-      _perspectiveRow(
-          texture,
-          y * 32 + rowLeft,
-          rowRight - rowLeft,
-          e0,
-          e1,
-          e2,
-          e0y,
-          e1y,
-          e2y,
-          tl0,
-          tl1,
-          tl2,
-          (za * e0 + zb * e1 + zc * e2) * inverseArea,
-          dz,
-          (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
-          duz,
-          (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
-          dvz,
-          compare,
-          writeDepth,
-          shadeArea,
-          za,
-          zb,
-          zc,
-          colors,
-          offsets,
-          sb,
-          sc,
-          quickColor,
-          quickOffset,
-          opaqueAlpha,
-          gray,
-          ignoredAlpha,
-          tsp,
-          quickFog,
-          fogOffset,
-          wraps,
-          uScale,
-          vScale,
-          offsetLanes);
+      // The common cases take copies of the row with their tests folded.
+      if (kind == 1) {
+        _perspectiveRow(
+            texture,
+            y * 32 + rowLeft,
+            rowRight - rowLeft,
+            e0,
+            e1,
+            e2,
+            e0y,
+            e1y,
+            e2y,
+            tl0,
+            tl1,
+            tl2,
+            (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            dz,
+            (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            duz,
+            (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+            dvz,
+            compare,
+            writeDepth,
+            inverseArea,
+            za,
+            zb,
+            zc,
+            colors,
+            null,
+            sb,
+            sc,
+            quickColor,
+            quickOffset,
+            opaqueAlpha,
+            -1,
+            ignoredAlpha,
+            tsp,
+            quickFog,
+            fogOffset,
+            true,
+            uScale,
+            vScale,
+            offsetLanes,
+            true);
+      } else if (kind == 2) {
+        _perspectiveRow(
+            texture,
+            y * 32 + rowLeft,
+            rowRight - rowLeft,
+            e0,
+            e1,
+            e2,
+            e0y,
+            e1y,
+            e2y,
+            tl0,
+            tl1,
+            tl2,
+            (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            dz,
+            (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            duz,
+            (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+            dvz,
+            compare,
+            writeDepth,
+            0.0,
+            za,
+            zb,
+            zc,
+            null,
+            null,
+            sb,
+            sc,
+            quickColor,
+            quickOffset,
+            opaqueAlpha,
+            gray,
+            ignoredAlpha,
+            tsp,
+            false,
+            fogOffset,
+            true,
+            uScale,
+            vScale,
+            offsetLanes,
+            false);
+      } else {
+        _perspectiveRow(
+            texture,
+            y * 32 + rowLeft,
+            rowRight - rowLeft,
+            e0,
+            e1,
+            e2,
+            e0y,
+            e1y,
+            e2y,
+            tl0,
+            tl1,
+            tl2,
+            (za * e0 + zb * e1 + zc * e2) * inverseArea,
+            dz,
+            (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+            duz,
+            (vza * e0 + vzb * e1 + vzc * e2) * inverseArea,
+            dvz,
+            compare,
+            writeDepth,
+            shadeArea,
+            za,
+            zb,
+            zc,
+            colors,
+            offsets,
+            sb,
+            sc,
+            quickColor,
+            quickOffset,
+            opaqueAlpha,
+            gray,
+            ignoredAlpha,
+            tsp,
+            quickFog,
+            fogOffset,
+            wraps,
+            uScale,
+            vScale,
+            offsetLanes,
+            varying);
+      }
     }
   }
 
@@ -2725,9 +2823,9 @@ class DcGpuRender {
       bool wraps,
       double uScale,
       double vScale,
-      int offsetLanes) {
+      int offsetLanes,
+      bool varying) {
     final depthBuffer = _depth, colorBuffer = _colors;
-    final varying = inverseArea != 0;
     for (final end = index + count;
         index < end;
         index++,
