@@ -171,6 +171,40 @@ void main() {
 
 
 
+  test('the default card starts formatted unless storage holds data', () {
+    final fresh = Dc();
+    addTearDown(fresh.dispose);
+    final card =
+        fresh.bus.maple.controllers[0]!.expansions[0]! as DcMemoryCard;
+    final image = card.exportImage();
+    final root = 255 * 512, fat = 254 * 512;
+    expect(image.sublist(root, root + 16), everyElement(0x55));
+    expect(image.getUint16LE(root + 0x50), 200);
+    expect(image.getUint16LE(fat + 255 * 2), 0xfffa);
+    expect(image.getUint16LE(fat + 253 * 2), 252);
+    expect(image.getUint16LE(fat + 241 * 2), 0xfffa);
+    expect(image.getUint16LE(fat + 240 * 2), 0xfffc);
+    expect(image.getUint16LE(fat), 0xfffc);
+    expect(image.sublist(0, 200 * 512), everyElement(0));
+
+    // Media info answers from the system block of the new card.
+    dc = fresh;
+    discover();
+    final info = transfer(10, params(0, 0));
+    expect(info.first, 8);
+    expect(info.sublist(14, 20), [254, 0, 1, 0, 253, 0]);
+
+    final storage = _MemoryStorage()
+      ..init('dc/sram/memory_card_0_0',
+          Uint8List(DcMemoryCard.size)..fillRange(0, 512, 0x33));
+    final saved = Dc();
+    addTearDown(saved.dispose);
+    saved.setSram(storage);
+    final restored =
+        saved.bus.maple.controllers[0]!.expansions[0]! as DcMemoryCard;
+    expect(restored.exportImage().sublist(0, 512), everyElement(0x33));
+  });
+
   test('LCD image and core debug layer follow documented byte and bit order',
       () {
     discover();

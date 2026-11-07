@@ -761,13 +761,17 @@ Memory card physical LCD/buzzer behavior, factory media parameters and complete 
 `DcMapleDevice` separates packet endpoints from the host DMA engine.
 The controller owns two expansion slots and advertises connected children in its response AP; child discovery and transfers are routed only through an identified, operating parent.
 `Dc.attachMemoryCard` attaches a core-owned memory card to a port/slot and connects persistence regardless of whether `setSram` was called before or after attachment.
-No memory card is attached by default while factory initialization and standalone/pin behavior remain incomplete.
+One memory card is attached to the first slot of the first controller by default.
+A new card holds an empty formatted file system: 200 user blocks, a 13-block directory from block 253 down, the FAT in block 254 and the system block 255 with a fixed format date of 2000-01-01.
+Persistent storage that already holds data replaces this image when `setSram` binds the card, so the card is formatted only when no saved data exists.
+The system block words at 0x52 and 0x54 take the values seen on formatted cards; their meaning is not documented.
+Standalone and pin behavior remain incomplete.
 The endpoint advertises FT1/FT2/FT3 definitions, ordered by descending function number, and the documented product name.
 It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error`, documented partition/block/phase/length errors, reset and kill.
 A complete write group commits after phase 3; an interrupted or invalid group is discarded without changing the block.
 The functional packet endpoint applies effects when the host consumes the descriptor, not at individual wire-bit boundaries; flash programming latency, power-loss behavior and physical write failures remain pending.
 
-Raw 128 KiB byte images can be imported/exported without filesystem synthesis.
+Raw 128 KiB byte images can be imported/exported; an imported image is used as is.
 For a formatted card, `Get_Media_Info` returns ROM-fixed capacity/partition/root values and the remaining metadata from the system block, following FT1.
 Unformatted factory media parameters and extended device information remain explicit development stops until their exact memory card definitions are verified.
 The original generic FT1 layout and independent memory card root observations name some fields differently; memory card-specific factory responses still need stronger hardware evidence.

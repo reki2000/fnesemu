@@ -16,11 +16,48 @@ const dcMemoryCardProductName = '\x56\x49\x53\x55\x41\x4c\x20\x4d\x45\x4d\x4f'
 /// Memory card storage bring-up from the memory card peripheral specification Rev. 1.00 and FT1 Rev. 0.80.
 /// Packet-level LCD and timer state do not emulate the standalone memory card CPU.
 class DcMemoryCard implements DcMapleDevice {
+  /// A new card holds an empty formatted file system, which persistent
+  /// storage replaces when it already has data.
   DcMemoryCard({this.unit = 1}) {
     if (unit != 1 && unit != 2) throw ArgumentError.value(unit, 'unit');
-    _data.fillRange(0, size, 255);
+    _data.setAll(0, formattedImage());
   }
   static const size = 128 * 1024, blockSize = 512;
+
+  /// An empty file system: 200 user blocks, the directory in blocks
+  /// 253 down to 241, the FAT in block 254 and the system block 255.
+  /// The format date is fixed at 2000-01-01 00:00 so that runs repeat.
+  /// The system block words at 0x52 and 0x54 take the values seen on
+  /// formatted cards; their meaning is not documented.
+  static Uint8List formattedImage() {
+    final image = Uint8List(size);
+    const root = 255 * blockSize, fat = 254 * blockSize;
+    image.fillRange(root, root + 16, 0x55);
+    // Century, year, month, day, hour, minute, second in BCD, then the
+    // weekday from Monday = 0.
+    image.setAll(root + 0x30, [0x20, 0x00, 0x01, 0x01, 0, 0, 0, 5]);
+    for (final (offset, value) in [
+      (0x46, 254), // FAT block
+      (0x48, 1), // FAT blocks
+      (0x4a, 253), // directory block
+      (0x4c, 13), // directory blocks
+      (0x50, 200), // user blocks
+      (0x52, 31),
+      (0x54, 128),
+    ]) {
+      image.setUint16LE(root + offset, value);
+    }
+    for (var block = 0; block < 256; block++) {
+      // 0xfffc marks a free block and 0xfffa the end of a chain.
+      final next = block > 241 && block <= 253
+          ? block - 1
+          : block == 241 || block >= 254
+              ? 0xfffa
+              : 0xfffc;
+      image.setUint16LE(fat + block * 2, next);
+    }
+    return image;
+  }
   final int unit;
   final lcd = DcMemoryCardLcd();
   final timer = DcMemoryCardTimer();

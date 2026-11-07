@@ -38,6 +38,8 @@ class Dc extends Core {
       bus.onDeviceAccess = _syncDevices;
       bus.systemBus.onSystemReset = () => _systemResetRequested = true;
       bus.maple.source = padPort;
+      // One memory card sits in the first slot of the first controller.
+      attachMemoryCard(0, 0, DcMemoryCard());
       // Compiled code reads and writes main RAM directly.
       if (_jit != null) bus.cache.coherent = true;
       if (bootBringUp) {
