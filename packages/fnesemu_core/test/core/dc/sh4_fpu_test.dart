@@ -39,6 +39,16 @@ void main() {
   });
 
 
+  test('FLDI0 and FLDI1 load single values in double-precision mode', () {
+    cpu.fpscr = 0x80000;
+    cpu.fr[3] = 0x12345678;
+    execute(0xf38d);
+    expect(cpu.fr[3], 0);
+    expect(cpu.pc, code + 2);
+    execute(0xf39d);
+    expect(cpu.fr[3], 0x3f800000);
+  });
+
   test('single FMOV preserves NaN payloads and all transfer addressing modes',
       () {
     cpu.fr[2] = 0x7fc01234;

@@ -213,7 +213,7 @@ final class Sh4Translator {
       }
       if (code == 0xf00d || code == 0xf01d) return true;
       if (code == 0xf04d || code == 0xf05d) return !double || n.isEven;
-      if (code == 0xf08d || code == 0xf09d) return !double;
+      if (code == 0xf08d || code == 0xf09d) return true;
       return (op == 0xfbfd || op == 0xf3fd) &&
           !double &&
           (!slot || op == 0xf3fd);

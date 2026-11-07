@@ -325,7 +325,8 @@ extension _Sh4Fpu on Sh4 {
       return true;
     }
     if (code == 0xf08d || code == 0xf09d) {
-      if (fpscr.bit19) _illegal();
+      // The manual leaves FLDI0/FLDI1 undefined with FPSCR.PR = 1, but a
+      // shipped title executes them in that mode; load the single value.
       fr[n] = code == 0xf08d ? 0 : 0x3f800000;
       return true;
     }
