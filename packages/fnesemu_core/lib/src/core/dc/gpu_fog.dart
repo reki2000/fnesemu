@@ -11,9 +11,23 @@ class DcGpuFog {
   final _table = Uint16List(128);
   int _tableColor = 0, _vertexColor = 0, _density = 0;
   int _minimum = 0, _maximum = 0;
+  // Whether a lane of the clamp bounds has its minimum above its maximum.
+  bool _invertedClamp = false;
+  // The doubles of the byte values, so that a lookup replaces a conversion
+  // call.
+  final _bytes = Float64List.fromList([for (var i = 0; i < 256; i++) i + 0.0]);
   // The depth scale of the density register, which the table lookup of
   // every fragment uses.
   double _scale = 0;
+
+  void _updateClamp() {
+    _invertedClamp = false;
+    for (var shift = 0; shift < 32; shift += 8) {
+      if ((_minimum >> shift) & 255 > (_maximum >> shift) & 255) {
+        _invertedClamp = true;
+      }
+    }
+  }
 
   void _updateScale() {
     final exponent = (_density & 255).toSigned(8);
@@ -47,6 +61,7 @@ class DcGpuFog {
     _maximum = registers[4];
     _table.setAll(0, table);
     _updateScale();
+    _updateClamp();
   }
 
   static bool handles(int offset) =>
@@ -56,6 +71,7 @@ class DcGpuFog {
   void reset() {
     _tableColor = _vertexColor = _density = _minimum = _maximum = 0;
     _updateScale();
+    _updateClamp();
     // The table has no documented power-on contents; zero is deterministic.
     _table.fillRange(0, _table.length, 0);
   }
@@ -89,8 +105,10 @@ class DcGpuFog {
         _updateScale();
       case 0xbc:
         _maximum = value & 0xffffffff;
+        _updateClamp();
       case 0xc0:
         _minimum = value & 0xffffffff;
+        _updateClamp();
       default:
         throw const DcUnsupported('unimplemented fog register');
     }
@@ -125,34 +143,44 @@ class DcGpuFog {
 
   int apply(int color, double depth, int offsetColor, int tsp,
       {required bool hasOffset}) {
+    // The lanes are written out: a loop over the shifts keeps a range check
+    // of each shift and a stack check in the compiled code.
     if (tsp & 0x200000 != 0) {
-      var clamped = 0;
-      for (var shift = 0; shift < 32; shift += 8) {
-        final low = (_minimum >> shift) & 255;
-        final high = (_maximum >> shift) & 255;
-        if (low > high) {
-          throw const DcUnsupported('CORE inverted color clamp bounds');
-        }
-        final value = (color >> shift) & 255;
-        clamped |=
-            (value < low ? low : (value > high ? high : value)) << shift;
+      if (_invertedClamp) {
+        throw const DcUnsupported('CORE inverted color clamp bounds');
       }
-      color = clamped;
+      color = _clampLane(color, 0) |
+          _clampLane(color, 8) |
+          _clampLane(color, 16) |
+          _clampLane(color, 24);
     }
     final mode = (tsp >> 22) & 3;
     if (mode == 2 || (mode == 1 && !hasOffset)) return color;
     final coefficient =
-        mode == 1 ? (offsetColor >> 24).toDouble() : _coefficient(depth);
+        mode == 1 ? _bytes[(offsetColor >> 24) & 255] : _coefficient(depth);
     final fogColor = mode == 1 ? _vertexColor : _tableColor;
     if (mode == 3) {
       return ((coefficient.round() << 24) | fogColor) & 0xffffffff;
     }
     final rest = 255 - coefficient;
-    var result = color & 0xff000000;
-    for (var shift = 0; shift < 24; shift += 8) {
-      final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
-      result |= roundByte((input * rest + fog * coefficient) / 255) << shift;
-    }
-    return result & 0xffffffff;
+    return ((color & 0xff000000) |
+            _blendLane(color, fogColor, rest, coefficient, 0) |
+            _blendLane(color, fogColor, rest, coefficient, 8) |
+            _blendLane(color, fogColor, rest, coefficient, 16)) &
+        0xffffffff;
+  }
+
+  @pragma('vm:prefer-inline')
+  int _clampLane(int color, int shift) {
+    final low = (_minimum >> shift) & 255, high = (_maximum >> shift) & 255;
+    final value = (color >> shift) & 255;
+    return (value < low ? low : (value > high ? high : value)) << shift;
+  }
+
+  @pragma('vm:prefer-inline')
+  static int _blendLane(
+      int color, int fogColor, double rest, double coefficient, int shift) {
+    final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
+    return roundByte((input * rest + fog * coefficient) / 255) << shift;
   }
 }
