@@ -1402,8 +1402,6 @@ class DcGpuRender {
     // a later one, in the same rows.
     final shadePass = _visibility == 2;
     final quickRows = quick &&
-        sameColors &&
-        sameOffsets &&
         _materialArea < 0 &&
         (_visibility == 0 || shadePass);
     // Sorted translucent fragments of a cached bilinear texture, shaded
@@ -1435,7 +1433,9 @@ class DcGpuRender {
     final compare = isp >> 29, writeDepth = isp & 0x04000000 == 0;
     final quickColor = sc.color | opaqueAlpha, quickOffset = sc.offsetColor;
     final shadeMode = (tsp >> 6) & 3, quickGray = quickColor & 255;
-    final gray =
+    // Gouraud colors of the quick rows are interpolated per fragment.
+    final varying = !(sameColors && sameOffsets);
+    final gray = !varying &&
         (shadeMode == 1 || shadeMode == 3 && quickColor >>> 24 == 255) &&
             quickColor & 0xffffff == quickGray * 0x10101;
     final ignoredAlpha = tsp & 0x80000 != 0 ? 0xff000000 : 0;
@@ -1470,6 +1470,13 @@ class DcGpuRender {
         _visibility == 0 &&
         tsp & 0x02000000 == 0;
     final flatReplace = replace && tsp & 0x01000000 == 0;
+    // The first visibility pass only records depths and the replacing
+    // fragments that hide earlier ones; every fragment counts as hidden.
+    final visibilityRows = plane == null &&
+        !background &&
+        _sortMode == 0 &&
+        _materialArea < 0 &&
+        _visibility == 1;
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1586,6 +1593,21 @@ class DcGpuRender {
           }
           // A zero depth has no perspective; such fragments are dropped.
           if (z == 0) continue;
+          var color = quickColor, off = quickOffset;
+          if (varying) {
+            final inverse = 1 / z;
+            final pa = e0 * inverseArea * za * inverse,
+                pb = e1 * inverseArea * zb * inverse,
+                pc = e2 * inverseArea * zc * inverse;
+            if (!sameColors) {
+              color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc) |
+                  opaqueAlpha;
+            }
+            if (!sameOffsets) {
+              off = _gouraud(
+                  sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+            }
+          }
           final lanes = fixed ? texture.sampleLanesFixed(su, sv) : -1;
           int shaded;
           if (lanes >= 0 && gray) {
@@ -1598,11 +1620,10 @@ class DcGpuRender {
             shaded = gray
                 ? DcGpuTexture.shadeGray(
                     texel, quickGray, quickOffset, ignoredAlpha)
-                : DcGpuTexture.shade(quickColor, texel, quickOffset, tsp);
+                : DcGpuTexture.shade(color, texel, off, tsp);
           }
           if (quickFog) {
-            shaded =
-                fog.apply(shaded, z, quickOffset, tsp, hasOffset: fogOffset);
+            shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
           }
           if (replace) {
             colorBuffer[index] = shaded;
@@ -1789,6 +1810,35 @@ class DcGpuRender {
           } else {
             _composite(index, flatColor, tsp);
           }
+          if (writeDepth) depthBuffer[index] = z;
+        }
+        continue;
+      }
+      if (visibilityRows) {
+        for (var x = rowLeft; x < rowRight; x++) {
+          final px = originX + x + offset;
+          final e0 = row0 - e0y * (px - b.x),
+              e1 = row1 - e1y * (px - c.x),
+              e2 = row2 - e2y * (px - a.x);
+          if (e0 < 0 ||
+              e1 < 0 ||
+              e2 < 0 ||
+              (e0 == 0 && !tl0) ||
+              (e1 == 0 && !tl1) ||
+              (e2 == 0 && !tl2)) {
+            continue;
+          }
+          final z = za * (e0 * inverseArea) +
+              zb * (e1 * inverseArea) +
+              zc * (e2 * inverseArea);
+          if (!z.isFinite) {
+            throw const DcUnsupported('CORE nonfinite interpolated depth');
+          }
+          final index = y * 32 + x, previous = depthBuffer[index];
+          if (compare & (z < previous ? 1 : (z == previous ? 2 : 4)) == 0) {
+            continue;
+          }
+          if (replace) _firstShaded[index] = order;
           if (writeDepth) depthBuffer[index] = z;
         }
         continue;
