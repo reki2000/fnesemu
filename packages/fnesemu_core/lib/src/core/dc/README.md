@@ -30,7 +30,7 @@ Loading flash uses the same core API as the boot ROM, without a probe-only bus m
 Strict hardware matching and unrelated peripheral expansion are deferred while blocking startup operations are implemented.
 The normal core factory now enables the provisional BIOS startup profile by default; `DC_BOOT_BRINGUP=false` selects strict operation.
 Low-level callers can explicitly select `Dc(bootBringUp: true)`; direct `Dc()` construction remains strict unless the build-time define enables the profile.
-This profile bundles verification bypass, the provisional GPIO 0/1 shared net, eight master clocks per instruction, whole-program fallback for unsupported AICA DSP instructions, provisional AICA low-pass filtering and the diagnostic byte-addressed short-ADPCM policy inside the core.
+This profile bundles verification bypass, the provisional GPIO 0/1 shared net, whole-program fallback for unsupported AICA DSP instructions, provisional AICA low-pass filtering and the diagnostic byte-addressed short-ADPCM policy inside the core.
 The debugger identifies the profile, and its states have a distinct configuration identity.
 It enables BIOS bring-up through the ordinary core API without GUI-specific device setup, but does not add an automatic ISO bootstrap fallback or override disc format.
 The same profile can be exercised without individual GPIO/timing flags:
@@ -2317,7 +2317,7 @@ That run loads only the supplied boot ROM and flash, in reverse selection order,
 The lower part of the capture still contains visible rendering artifacts; this result establishes the default startup path, not strict hardware matching or complete BIOS navigation.
 A further 50 million observations of the no-disc core-profile run retain the logo and repeatedly sample VSYNC at `0xa05f810c` from `0x8c00cb2e`; progression to the date dialog or main menu on this particular path remains unresolved.
 Tracing that checkpoint shows that the 32-clock approximation lets interrupt service consume the VSYNC pulse before the foreground wait observes it: pulses occur, but the wait never returns during one million observations.
-The core-owned profile now uses eight master clocks per instruction instead.
+The core-owned profile then used eight master clocks per instruction instead.
 At the same checkpoint, the original BIOS returns through `0x8c00cb3a`, continues display initialization and executes five million additional observations without a development stop; this provisional timing adjustment is not a cycle-accurate SH-4 model.
 The earlier 32-clock cold-boot captures above describe the previous profile revision.
 Another 20 million observations with the eight-clock profile complete without a development stop and fade the logo to a plain background while native BIOS service processing continues; the date dialog and main menu are not yet established on this no-disc path.
@@ -2670,7 +2670,21 @@ No unit-test case was added, and the retained 30 DSP/public-state scenarios pass
 
 ## Optional expansion devices and pipeline reset
 
-No optional G2 network adapter is attached. Byte identification reads at 0x00600000/0x00600004 and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
-The electrical value of an unconnected bus remains unverified; writes and other unimplemented peripheral registers retain explicit unsupported behavior.
+No optional G2 network adapter is attached. Byte reads in the absent modem window 0x00600000–0x006007ff and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
+The electrical value of an unconnected bus remains unverified. Byte writes to the absent modem window are ignored; writes to the expansion window and other unimplemented peripheral registers retain explicit unsupported behavior.
 A pipeline-only GPU reset aborts pipeline work while preserving drawing and fog configuration; a full device reset restores register defaults.
 Descending additional OPB allocation subtracts the new list block's size before storing it, allowing the cursor to begin at the lower boundary of the initial OPBs without overwriting them.
+
+## Instruction timing
+
+Each SH-4 instruction advances the devices by one CPU clock (`cpuPeriod` master clocks), in the interpreter and in compiled code alike.
+The boot profile previously charged eight CPU clocks per instruction to work around a BIOS VSYNC wait; that slowed guest computation to about an eighth of the hardware rate, so CPU-bound titles ran at a fraction of their intended speed.
+Dual issue and pipeline stalls are not modeled.
+
+## Reserved and sub-word register accesses
+
+Undefined addresses among the CPU control registers in the area-7 alias (`0x1f000000`–`0x1f0000ff`) ignore writes and read as zero; the defined registers keep their behavior.
+Byte and word reads of PVR and HOLLY interrupt registers return the addressed lanes of the longword.
+Zero writes after the end of the AICA DSP register map (`0x45c8`–`0x47ff`) are ignored, like the other gaps in the map.
+Reads of the write-only G2 protection register return zero; the hardware value is undocumented.
+FLDI0 and FLDI1 load their single values regardless of FPSCR.PR; the manual leaves the PR = 1 case undefined, but a shipped title executes it.
