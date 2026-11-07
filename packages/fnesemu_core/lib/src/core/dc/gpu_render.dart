@@ -954,14 +954,15 @@ class DcGpuRender {
   }
 
   void _objects(int address, int x, int y) {
-    final visited = <int>{};
+    // Addresses only repeat through a link, so tracking links finds every cycle.
+    Set<int>? links;
     for (;; address += 4) {
-      if (!visited.add(address)) {
-        throw const DcUnsupported('CORE cyclic object list');
-      }
       final pointer = _word(address);
       if (pointer >> 29 == 7) {
         if (pointer & 0x10000000 != 0) return;
+        if (!(links ??= <int>{}).add(address)) {
+          throw const DcUnsupported('CORE cyclic object list');
+        }
         address = (pointer & 0xfffffc) - 4;
         continue;
       }
@@ -992,57 +993,17 @@ class DcGpuRender {
     }
     final stride = 3 + attributes * (twoVolumes ? 2 : 1);
     final header = twoVolumes ? 5 : 3;
-    void drawMaterial(int slot) {
-      final tsp = _word(parameter + 4 + slot * 8);
-      final sourceSecondary = tsp & 0x02000000 != 0;
-      final texture = textured && !sourceSecondary
-          ? _cachedTexture(_word(parameter + 8 + slot * 8), tsp)
-          : null;
-      if (texture?.format == 4 && (!hasOffset || isp & 0x00800000 != 0)) {
-        throw const DcUnsupported(
-            'CORE bump mapping requires offset parameters and flat shading');
-      }
-      if (_sortMode == 2 && texture?.trilinear == true) {
-        throw const DcUnsupported('CORE trilinear punch-through is prohibited');
-      }
-      List<_Vertex> vertices(int first, int count) => [
-            for (var i = 0; i < count; i++)
-              _vertex(parameter + header * 4 + (first + i) * stride * 4, isp,
-                  attributeOffset: slot * attributes * 4,
-                  ignoreShading: sourceSecondary)
-          ];
-      if (kind == 4) {
-        _triangle(vertices(0, 3), isp, tsp, texture, x, y);
-      } else if (kind == 5) {
-        final first = vertices(0, 3),
-            fourth = parameter + header * 4 + 3 * stride * 4;
-        // Only X/Y of D are defined; both materials derive their attributes from ABC.
-        final d = _Vertex(_number(fourth), _number(fourth + 4), 0, 0);
-        _quad([...first, d], isp, tsp, texture, x, y);
-      } else {
-        final mask = (pointer >> 25) & 63;
-        for (var triangle = 0; triangle < 6; triangle++) {
-          if (mask & (1 << (5 - triangle)) == 0) continue;
-          final strip = vertices(triangle, 3);
-          if (triangle.isOdd) {
-            final first = strip[0];
-            strip[0] = strip[1];
-            strip[1] = first;
-          }
-          _triangle(strip, isp, tsp, texture, x, y);
-        }
-      }
-    }
-
     if (twoVolumes) {
       final previousArea = _materialArea, order = _primitiveOrder;
       try {
         _materialArea = 0;
-        drawMaterial(0);
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 0);
         final nextOrder = _primitiveOrder;
         _primitiveOrder = order;
         _materialArea = 1;
-        drawMaterial(1);
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 1);
         // The two materials belong to one primitive, including auto-sort tie ordering.
         _primitiveOrder = nextOrder;
       } finally {
@@ -1054,23 +1015,71 @@ class DcGpuRender {
       final order = _primitiveOrder;
       try {
         _shadowArea = 0;
-        drawMaterial(0);
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 0);
         final nextOrder = _primitiveOrder;
         _primitiveOrder = order;
         _shadowArea = 1;
-        drawMaterial(0);
+        _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+            stride, header, 0);
         _primitiveOrder = nextOrder;
       } finally {
         _shadowArea = -1;
       }
     } else {
-      drawMaterial(0);
+      _drawMaterial(parameter, pointer, x, y, kind, isp, attributes,
+          stride, header, 0);
     }
     return kind == 4
         ? parameter + (header + 3 * stride) * 4
         : kind == 5
             ? parameter + (header + 4 * stride) * 4
             : parameter;
+  }
+
+  void _drawMaterial(int parameter, int pointer, int x, int y, int kind,
+      int isp, int attributes, int stride, int header, int slot) {
+    final textured = isp & 0x02000000 != 0;
+    final hasOffset = textured && isp & 0x01000000 != 0;
+    final tsp = _word(parameter + 4 + slot * 8);
+    final sourceSecondary = tsp & 0x02000000 != 0;
+    final texture = textured && !sourceSecondary
+        ? _cachedTexture(_word(parameter + 8 + slot * 8), tsp)
+        : null;
+    if (texture?.format == 4 && (!hasOffset || isp & 0x00800000 != 0)) {
+      throw const DcUnsupported(
+          'CORE bump mapping requires offset parameters and flat shading');
+    }
+    if (_sortMode == 2 && texture?.trilinear == true) {
+      throw const DcUnsupported('CORE trilinear punch-through is prohibited');
+    }
+    List<_Vertex> vertices(int first, int count) => [
+          for (var i = 0; i < count; i++)
+            _vertex(parameter + header * 4 + (first + i) * stride * 4, isp,
+                attributeOffset: slot * attributes * 4,
+                ignoreShading: sourceSecondary)
+        ];
+    if (kind == 4) {
+      _triangle(vertices(0, 3), isp, tsp, texture, x, y);
+    } else if (kind == 5) {
+      final first = vertices(0, 3),
+          fourth = parameter + header * 4 + 3 * stride * 4;
+      // Only X/Y of D are defined; both materials derive their attributes from ABC.
+      final d = _Vertex(_number(fourth), _number(fourth + 4), 0, 0);
+      _quad([...first, d], isp, tsp, texture, x, y);
+    } else {
+      final mask = (pointer >> 25) & 63;
+      for (var triangle = 0; triangle < 6; triangle++) {
+        if (mask & (1 << (5 - triangle)) == 0) continue;
+        final strip = vertices(triangle, 3);
+        if (triangle.isOdd) {
+          final first = strip[0];
+          strip[0] = strip[1];
+          strip[1] = first;
+        }
+        _triangle(strip, isp, tsp, texture, x, y);
+      }
+    }
   }
 
   _Vertex _vertex(int address, int isp,
