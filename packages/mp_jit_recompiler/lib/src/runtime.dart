@@ -243,7 +243,11 @@ abstract class JitRuntime {
       return;
     }
     if (t._keys[slot] == 0) t._live++;
-    if (t.keyed && !t._usedKeys.contains(key)) t._usedKeys.add(key);
+    if (t.keyed) {
+      final page = (address & 0xffffffff) >>> pageShift;
+      final keys = t._pageKeys[page] ??= <int>[];
+      if (!keys.contains(key)) keys.add(key);
+    }
     final slotKey = (address & ~(pageBytes - 1) & 0xffffffff) | key;
     t._keys[slot] = slotKey;
     t._pages[slot] = page;
@@ -251,14 +255,16 @@ abstract class JitRuntime {
   }
 
   /// Empties the slots of [address] when they hold that virtual page, under
-  /// every key that a [keyed] table has mapped.
+  /// every key that a [keyed] table has mapped it under.
   void unmapTranslation(int table, int address) {
     final t = translationTables[table];
     if (!t.keyed) {
       _unmapSlot(table, t.slotOf(address, pageShift, 0), address);
       return;
     }
-    for (final key in t._usedKeys) {
+    final keys = t._pageKeys.remove((address & 0xffffffff) >>> pageShift);
+    if (keys == null) return;
+    for (final key in keys) {
       _unmapSlot(table, t.slotOf(address, pageShift, key), address);
     }
   }
@@ -274,6 +280,7 @@ abstract class JitRuntime {
   /// Empties every slot of a table.
   void clearTranslations(int table) {
     final t = translationTables[table];
+    t._pageKeys.clear();
     if (t._live == 0) return;
     for (var slot = 0; slot < t.slots; slot++) {
       if (t._keys[slot] != 0) _clearSlot(table, slot);
@@ -419,8 +426,9 @@ final class JitTranslationTable {
   final Uint32List _keys;
   final Int32List _pages;
 
-  /// The keys that a [keyed] table has mapped.
-  final _usedKeys = <int>[];
+  /// The keys that a [keyed] table has mapped each virtual page under, by
+  /// page number, until the page is unmapped.
+  final _pageKeys = <int, List<int>>{};
   int _live = 0;
   JitTranslationTable._(
     this.write,
