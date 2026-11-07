@@ -1477,6 +1477,11 @@ class DcGpuRender {
         _sortMode == 0 &&
         _materialArea < 0 &&
         _visibility == 1;
+    // The x step of each edge per row, divided once per triangle; the
+    // rounding stays well inside the margin of the row narrowing.
+    final step0 = b.y == c.y ? 0.0 : (c.x - b.x) / (c.y - b.y),
+        step1 = c.y == a.y ? 0.0 : (a.x - c.x) / (a.y - c.y),
+        step2 = a.y == b.y ? 0.0 : (b.x - a.x) / (b.y - a.y);
     for (var y = top; y < bottom; y++) {
       // Narrow the row to the columns each edge can accept, with a one-pixel
       // margin; the exact edge tests below still decide coverage.
@@ -1487,7 +1492,8 @@ class DcGpuRender {
         final q = edge == 0 ? c : (edge == 1 ? a : b);
         final slope = q.y - p.y;
         if (slope == 0) continue;
-        final limit = p.x + (q.x - p.x) * (rowY - p.y) / slope - base;
+        final step = edge == 0 ? step0 : (edge == 1 ? step1 : step2);
+        final limit = p.x + step * (rowY - p.y) - base;
         if (slope > 0) {
           final bound = limit + 2;
           if (bound < rowRight) {
