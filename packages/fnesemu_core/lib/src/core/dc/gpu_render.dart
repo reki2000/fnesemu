@@ -2770,6 +2770,8 @@ class DcGpuRender {
       bound < rowRight ? (bound < rowLeft ? rowLeft : bound.toInt()) : rowRight;
 
   /// The left end of a row narrowed to [bound], as [_triangle] does.
+  static final _noTexels = Uint32List(0);
+
   @pragma('vm:prefer-inline')
   static int _narrowLeft(int rowLeft, int rowRight, double bound) =>
       bound > rowLeft ? (bound > rowRight ? rowRight : bound.toInt()) : rowLeft;
@@ -2826,6 +2828,11 @@ class DcGpuRender {
       int offsetLanes,
       bool varying) {
     final depthBuffer = _depth, colorBuffer = _colors;
+    final cache = texture.cache;
+    final texels = cache == null ? _noTexels : cache.texels,
+        texelBase = cache == null ? 0 : cache.levelOffsets[0];
+    final width = texture.width, height = texture.height;
+    final flipU = texture.flipU, flipV = texture.flipV;
     for (final end = index + count;
         index < end;
         index++,
@@ -2878,7 +2885,8 @@ class DcGpuRender {
       if (wraps) {
         final fu = uz * inverse * uScale, fv = vz * inverse * vScale;
         if (fu.abs() < 1 << 40 && fv.abs() < 1 << 40) {
-          lanes = texture.sampleLanesWrapped(fu.toInt(), fv.toInt());
+          lanes = DcGpuTexture.lanesWrapped(texels, texelBase, width, height,
+              flipU, flipV, fu.toInt(), fv.toInt());
         }
       }
       int shaded;
