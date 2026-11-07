@@ -272,12 +272,46 @@ class DcMmu {
       return false;
     }
     try {
-      if (_find(_unified, address, privileged) >= 0) return false;
+      if (_find(_unified, address, privileged) >= 0) {
+        prime(address, privileged: privileged);
+        return false;
+      }
     } on DcCpuException {
       return false;
     }
     _advanceCounter();
     return true;
+  }
+
+  /// Reports to [onTranslate] the data translations of [address] that the
+  /// UTLB grants, the read and, if allowed, the write, as [translate] would
+  /// on an access. Nothing is reported for a miss, a multiple hit or an
+  /// address outside the translated areas.
+  void prime(int address, {required bool privileged}) {
+    final report = onTranslate;
+    address = address.mask32;
+    if (report == null ||
+        !enabled ||
+        (address >= 0x80000000 && address < 0xc0000000) ||
+        address >= 0xe0000000) {
+      return;
+    }
+    final int index;
+    try {
+      index = _find(_unified, address, privileged);
+    } on DcCpuException {
+      return;
+    }
+    if (index < 0) return;
+    final entry = _unified[index];
+    final protection = (entry.low >> 5) & 3;
+    if (!privileged && protection < 2) return;
+    final physical = (entry.low & (0x1ffffc00 & ~entry.offsetMask)) |
+        (address & entry.offsetMask);
+    report(address, physical, entry.offsetMask, false, privileged);
+    if (protection & 1 != 0 && entry.low & 4 != 0) {
+      report(address, physical, entry.offsetMask, true, privileged);
+    }
   }
 
   /// Cache-array associative writes search existing entries without ITLB refill.

@@ -256,7 +256,7 @@ final class Sh4Jit extends JitAdapter {
   }
 
   int _loadTlb(int _, int __, int ___) {
-    _cpu.bus.mmu.load();
+    _cpu._loadTlb();
     return 0;
   }
 

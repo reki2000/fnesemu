@@ -229,6 +229,15 @@ class Sh4 {
   /// Raises the UTLB miss of a data access at which compiled code left, as
   /// interpreting the instruction would, unless something else comes first.
   /// Returns whether it raised the miss.
+  /// LDTLB. A TLB miss handler loads the entry for TEA and returns to the
+  /// access, so the translation is reported at once and compiled code
+  /// resumes at the access without leaving again.
+  void _loadTlb() {
+    bus.mmu
+      ..load()
+      ..prime(bus.tea, privileged: ssr & 0x40000000 != 0);
+  }
+
   bool _raiseDataMiss(int address, {required bool write}) {
     if (sr.bit28 ||
         inDelaySlot ||
@@ -401,7 +410,7 @@ class Sh4 {
       slotFetchPrivileged = privileged;
       sr = ssr;
     } else if (op == 0x0038) {
-      bus.mmu.load();
+      _loadTlb();
     } else if (_controlCandidate(op) && _controlOp(op, n)) {
       // The control transfer has already completed.
     } else if (_fpuCandidate(op) && _fpuOp(op, n, m)) {

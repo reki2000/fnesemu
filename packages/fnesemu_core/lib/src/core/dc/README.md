@@ -2702,6 +2702,7 @@ An image without settings blocks is left as it is, so that the boot ROM runs its
 With the MMU on, compiled code runs in P0 in both modes and in P1 and P2 in privileged mode.
 Two translation tables of the JIT runtime, 1024 slots each, one for reads and instruction fetches and one for writes, cache translations of 4 KiB pages to main RAM; P1 and P2 form their direct window.
 The interpreter fills a slot from each successful TLB translation of a page of 4 KiB or more; a missing slot returns the access to the interpreter.
+LDTLB also fills the slots of the page at TEA, in the mode of SSR.MD, so the access that missed resumes in compiled code after the handler's RTE.
 A slot key holds the virtual page, user mode and the address space key (256 when MMUCR.SV shares privileged accesses, otherwise PTEH.ASID), so the tables need no flush when the ASID changes.
 Changing a valid TLB entry drops the slots of its old range; MMUCR.TI and changes of MMUCR.AT or MMUCR.SV drop every slot.
 The block tag includes user mode and the address space key, so each process has its own blocks.
@@ -2711,7 +2712,7 @@ User-mode blocks exclude the privileged STC SR forms.
 The TLB does not translate stores to the store queues, so privileged blocks send them to the queue page at a P1 alias of the reserved area-7 page `0x1ffff000`, which the direct window passes without a table lookup; user-mode blocks do the same when MMUCR.SQMD is clear, which the block tag records, and otherwise return them to the interpreter.
 A longword access with displacement whose base register is unchanged since block entry, and whose entry value then points at a CCN register without side effects (reads of PTEH, PTEL, TTB, TEA, MMUCR, TRA, EXPEVT, INTEVT and PTEA, writes of PTEL, TTB, TEA and PTEA), calls a helper instead of leaving the block; the block guards the base value, which it takes from the context when it is translated at its entry, and leaves when the value differs.
 Privileged blocks call a helper for LDTLB and end after it, so a TLB miss handler leaves compiled code only at RTE.
-A load or store whose page has no slot leaves with its own reason; when the UTLB has no entry for the address, the host raises the TLB miss at once instead of interpreting the access, unless SR.BL, an admitted interrupt or a pending reset comes first.
+A load or store whose page has no slot leaves with its own reason; when the UTLB has no entry for the address, the host raises the TLB miss at once instead of interpreting the access, unless SR.BL, an admitted interrupt or a pending reset comes first; when it has one, the host fills the slots of the page and compiled code resumes at the access.
 In both MMU modes, privileged blocks run LDC Rm,SR unless it changes SR.MD, SR.RB or SR.FD; they leave after it when the new mask and SR.BL admit the highest pending interrupt, whose level the host writes to the context before each run and a store-queue transfer raises to 16.
 LDS and LDS.L to FPSCR end the block and continue on the tag of the new FPSCR.PR; a change of FPSCR.SZ or FPSCR.FR leaves the block before them. Single-precision FLOAT, FTRC, FIPR and FTRV, which run natively, are also accepted in delay slots.
 Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.

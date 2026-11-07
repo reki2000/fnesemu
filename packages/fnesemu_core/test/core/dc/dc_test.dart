@@ -707,6 +707,11 @@ void main() {
     expect(interpreted.cpu.r[8], 100);
     expect(compiled.cpu.r.sublist(8), interpreted.cpu.r.sublist(8));
     expect(compiled.bus.tea, interpreted.bus.tea);
+     if (JitRuntime.nativeSupported) {
+      // The load resumes in compiled code after the handler's LDTLB.
+      // Interpreting it after each miss would add about 30 clocks.
+      expect(compiled.cpuClocks - compiled.jitClocks, lessThan(110));
+    }
   });
 
   test('compiled user code in translated pages follows TLB changes', () {
