@@ -153,6 +153,46 @@ class DcFlash {
     }
   }
 
+  /// The block-allocated partition holding the system settings: a header
+  /// block, then 64-byte blocks that start with their 16-bit id and end with
+  /// a CRC-16 of the first 62 bytes, stored little-endian.
+  static const settingsStart = 0x1c000, settingsEnd = 0x20000;
+  static const settingsId = 5;
+
+  /// Dates the system settings blocks to [seconds] since 1950, as if the
+  /// date had just been confirmed. The boot ROM asks for the date when the
+  /// clock is earlier than the saved date or 30 days or more past it, which
+  /// is the usual case for an image saved long ago. An image without
+  /// settings blocks is left as it is, so that the boot ROM runs its first
+  /// setup.
+  void dateSettings(int seconds) {
+    for (var block = settingsStart + 64; block < settingsEnd; block += 64) {
+      if (_byte(block) | _byte(block + 1) << 8 != settingsId ||
+          _blockCrc(block) != _byte(block + 62) | _byte(block + 63) << 8) {
+        continue;
+      }
+      for (var i = 0; i < 4; i++) {
+        _store(block + 2 + i, (seconds >> (i * 8)) & 255);
+      }
+      final crc = _blockCrc(block);
+      _store(block + 62, crc & 255);
+      _store(block + 63, crc >> 8);
+    }
+  }
+
+  /// CRC-16 with polynomial 0x1021, initial value and final inversion.
+  int _blockCrc(int block) {
+    var crc = 0xffff;
+    for (var i = 0; i < 62; i++) {
+      crc ^= _byte(block + i) << 8;
+      for (var bit = 0; bit < 8; bit++) {
+        crc = crc & 0x8000 != 0 ? (crc << 1) ^ 0x1021 : crc << 1;
+      }
+      crc &= 0xffff;
+    }
+    return crc ^ 0xffff;
+  }
+
   Uint8List exportImage() =>
       Uint8List.fromList([for (var i = 0; i < size; i++) _byte(i)]);
 

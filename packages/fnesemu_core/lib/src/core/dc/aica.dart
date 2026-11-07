@@ -84,6 +84,9 @@ class DcAica {
               _rtc) &
       0xffffffff;
 
+  /// The RTC counter: local wall time in seconds since 1950.
+  int get rtcSeconds => _rtcCounter;
+
   void _setRtcCounter(int seconds, {bool resetFraction = false}) {
     // Low-half writes restart the subsecond fraction from the host instant.
     final milliseconds = _hostWallMilliseconds();

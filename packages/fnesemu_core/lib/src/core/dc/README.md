@@ -2681,6 +2681,13 @@ Each SH-4 instruction advances the devices by one CPU clock (`cpuPeriod` master 
 The boot profile previously charged eight CPU clocks per instruction to work around a BIOS VSYNC wait; that slowed guest computation to about an eighth of the hardware rate, so CPU-bound titles ran at a fraction of their intended speed.
 Dual issue and pipeline stalls are not modeled.
 
+## System settings date
+
+The boot ROM asks for the date when the RTC is earlier than the date saved in the flash settings blocks, or 30 days or more past it.
+The RTC follows the host's local time, so a flash image saved long ago would ask at every start.
+At each power-on reset, the core writes the RTC time into every settings block (id 5 in the block-allocated partition at `0x1c000`) and recomputes its CRC-16 (polynomial 0x1021, initial value 0xffff, inverted output, stored little-endian over the first 62 bytes).
+An image without settings blocks is left as it is, so that the boot ROM runs its first setup.
+
 ## Compiled code with the MMU on
 
 With the MMU on, compiled code runs in P0 in both modes and in P1 and P2 in privileged mode.

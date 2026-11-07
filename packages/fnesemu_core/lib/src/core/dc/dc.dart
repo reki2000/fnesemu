@@ -272,6 +272,8 @@ class Dc extends Core {
     bus.gpu.reset(clearMemory: !preserveMemory);
     bus.maple.reset();
     bus.flash.reset();
+    // Keeps the boot ROM from asking for the date at every start.
+    bus.flash.dateSettings(bus.aica.rtcSeconds);
     bus.systemBus.reset(clearExternal: true);
     bus.aica.reset(clearMemory: !preserveMemory);
     bus.g1.reset();
