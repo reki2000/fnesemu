@@ -907,8 +907,26 @@ class DcGpuRender {
 
   /// Builds a texture view with decoded texels shared across tiles and frames.
   /// The cache is revalidated against VRAM page stamps and the palette version.
+  /// The views [_cachedTexture] returned by TCW and TSP, while neither
+  /// VRAM, the palette nor the texture control register has changed.
+  final _textureViews = <int, DcGpuTexture>{};
+  int _viewsClock = -1, _viewsPalette = -1, _viewsControl = -1;
+
   DcGpuTexture _cachedTexture(int tcw, int tsp) {
     final control = read(0xe4);
+    if (_viewsClock != _pages.clock ||
+        _viewsPalette != palette.version ||
+        _viewsControl != control) {
+      _textureViews.clear();
+      _viewsClock = _pages.clock;
+      _viewsPalette = palette.version;
+      _viewsControl = control;
+    }
+    final key = (tcw & 0xffffffff) | ((tsp & 0xffffffff) << 32);
+    return _textureViews[key] ??= _newTextureView(tcw, tsp, control);
+  }
+
+  DcGpuTexture _newTextureView(int tcw, int tsp, int control) {
     final texture = DcGpuTexture(memory,
         tcw: tcw, tsp: tsp, control: control, palette: palette);
     // Bump texels depend on per-pixel parameters and are not cached.
@@ -932,6 +950,8 @@ class DcGpuRender {
           _textureCacheTexels + size > 1 << 23) {
         _textureCaches.clear();
         _textureCacheTexels = 0;
+        // The views hold caches that are no longer kept.
+        _textureViews.clear();
       }
       cache = _textureCaches[key] = DcTextureCache(size, offsets);
       _textureCacheTexels += size;
