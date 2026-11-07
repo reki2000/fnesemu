@@ -874,20 +874,13 @@ class DcGpuRender {
     }
   }
 
+  @pragma('vm:prefer-inline')
+  @pragma('vm:unsafe:no-bounds-checks')
   void _addFragment(
       int index, double z, int color, int tsp, bool writeDepth, int order,
       [int area = -1]) {
     final f = _fragmentCount++;
-    if (f == _fragmentNext.length) {
-      final size = f * 2;
-      _fragmentNext = Int32List(size)..setAll(0, _fragmentNext);
-      _fragmentOrder = Int32List(size)..setAll(0, _fragmentOrder);
-      _fragmentColor = Uint32List(size)..setAll(0, _fragmentColor);
-      _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
-      _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
-      _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
-      _fragmentArea = Int8List(size)..setAll(0, _fragmentArea);
-    }
+    if (f == _fragmentNext.length) _growFragments();
     _fragmentNext[f] = _fragmentHead[index];
     _fragmentHead[index] = f;
     _fragmentOrder[f] = order;
@@ -896,6 +889,17 @@ class DcGpuRender {
     _fragmentDepth[f] = z;
     _fragmentWrite[f] = writeDepth ? 1 : 0;
     _fragmentArea[f] = area;
+  }
+
+  void _growFragments() {
+    final size = _fragmentNext.length * 2;
+    _fragmentNext = Int32List(size)..setAll(0, _fragmentNext);
+    _fragmentOrder = Int32List(size)..setAll(0, _fragmentOrder);
+    _fragmentColor = Uint32List(size)..setAll(0, _fragmentColor);
+    _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
+    _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
+    _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
+    _fragmentArea = Int8List(size)..setAll(0, _fragmentArea);
   }
 
   final _textureCaches = <int, DcTextureCache>{};
@@ -1513,6 +1517,21 @@ class DcGpuRender {
         step2 = a.y == b.y ? 0.0 : (b.x - a.x) / (b.y - a.y);
     // Without one depth no row steps in fixed point, so every row of a
     // replacing texture takes [_perspectiveRow].
+    if (sortedRows) {
+      _sortedRows(texture, top, bottom, left, right, originX, originY, offset,
+          a, b, c, step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y, tl0,
+          tl1, tl2, za, zb, zc, uza, uzb, uzc, vza, vzb, vzc, inverseArea, dz,
+          duz, dvz, gouraud, sameColors, sameOffsets, sa, sb, sc, opaqueAlpha,
+          mipNumerators, pointRows, tsp, fogOffset, writeDepth, order);
+      return;
+    }
+    if (flatRows) {
+      _flatRows(top, bottom, left, right, originX, originY, offset, a, b, c,
+          step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y, tl0, tl1, tl2,
+          za, zb, zc, inverseArea, compare, writeDepth, flatReplace,
+          flatColor, tsp);
+      return;
+    }
     if (quickRows && !affine && replace && !shadePass) {
       _perspectiveRows(texture, top, bottom, left, right, originX, originY,
           offset, a, b, c, step0, step1, step2, e0x, e1x, e2x, e0y, e1y, e2y,
@@ -2366,6 +2385,264 @@ class DcGpuRender {
           uScale,
           vScale,
           offsetLanes);
+    }
+  }
+
+  /// The rows of [_triangle] between [top] and [bottom] when they all take
+  /// its sorted loop: translucent fragments of a cached texture, shaded
+  /// where they are rasterized and collected for sorting.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _sortedRows(
+      DcGpuTexture texture,
+      int top,
+      int bottom,
+      int left,
+      int right,
+      int originX,
+      int originY,
+      double offset,
+      _Vertex a,
+      _Vertex b,
+      _Vertex c,
+      double step0,
+      double step1,
+      double step2,
+      double e0x,
+      double e1x,
+      double e2x,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double za,
+      double zb,
+      double zc,
+      double uza,
+      double uzb,
+      double uzc,
+      double vza,
+      double vzb,
+      double vzc,
+      double inverseArea,
+      double dz,
+      double duz,
+      double dvz,
+      bool gouraud,
+      bool sameColors,
+      bool sameOffsets,
+      _Vertex sa,
+      _Vertex sb,
+      _Vertex sc,
+      int opaqueAlpha,
+      List<double>? mipNumerators,
+      bool pointRows,
+      int tsp,
+      bool fogOffset,
+      bool writeDepth,
+      int order) {
+    final depthBuffer = _depth;
+    final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
+    final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
+    final base = originX + offset;
+    final varying = gouraud && !(sameColors && sameOffsets);
+    for (var y = top; y < bottom; y++) {
+      // The narrowing of the loop in [_triangle], edge by edge.
+      final rowY = originY + y + offset;
+      var rowLeft = left, rowRight = right;
+      if (slope0 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, bx + step0 * (rowY - by) - base + 2);
+      } else if (slope0 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, bx + step0 * (rowY - by) - base - 1);
+      }
+      if (slope1 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, cx + step1 * (rowY - cy) - base + 2);
+      } else if (slope1 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, cx + step1 * (rowY - cy) - base - 1);
+      }
+      if (slope2 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, ax + step2 * (rowY - ay) - base + 2);
+      } else if (slope2 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
+      }
+      final x0 = originX + rowLeft + offset;
+      var e0 = e0x * (rowY - by) - e0y * (x0 - bx),
+          e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
+          e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      var z = (za * e0 + zb * e1 + zc * e2) * inverseArea,
+          uz = (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
+          vz = (vza * e0 + vzb * e1 + vzc * e2) * inverseArea;
+      for (var x = rowLeft;
+          x < rowRight;
+          x++,
+          e0 -= e0y,
+          e1 -= e1y,
+          e2 -= e2y,
+          z += dz,
+          uz += duz,
+          vz += dvz) {
+        if (e0 < 0 ||
+            e1 < 0 ||
+            e2 < 0 ||
+            (e0 == 0 && !tl0) ||
+            (e1 == 0 && !tl1) ||
+            (e2 == 0 && !tl2)) {
+          continue;
+        }
+        if (!z.isFinite) {
+          throw const DcUnsupported('CORE nonfinite interpolated depth');
+        }
+        final index = y * 32 + x;
+        if (!(z >= depthBuffer[index])) continue;
+        if (z == 0) {
+          throw DcUnsupported(gouraud
+              ? 'CORE shading perspective denominator is zero'
+              : 'CORE perspective UV denominator is zero');
+        }
+        final inverse = 1 / z;
+        var color = sc.color, off = sc.offsetColor;
+        if (varying) {
+          final pa = e0 * inverseArea * za * inverse,
+              pb = e1 * inverseArea * zb * inverse,
+              pc = e2 * inverseArea * zc * inverse;
+          if (!sameColors) {
+            color = _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+          }
+          if (!sameOffsets) {
+            off = _gouraud(
+                sa.offsetColor, sb.offsetColor, sc.offsetColor, pa, pb, pc);
+          }
+        }
+        color |= opaqueAlpha;
+        final u = uz * inverse, v = vz * inverse;
+        final int texel;
+        if (mipNumerators != null) {
+          final square = inverse * inverse;
+          texel = texture.sampleMip(
+              u,
+              v,
+              texture.footprint(
+                  mipNumerators[0] * square,
+                  mipNumerators[1] * square,
+                  mipNumerators[2] * square,
+                  mipNumerators[3] * square));
+        } else if (pointRows) {
+          texel = texture.samplePoint(u, v);
+        } else {
+          texel = texture.sampleBilinear(u, v);
+        }
+        color = fog.apply(
+            DcGpuTexture.shade(color, texel, off, tsp), z, off, tsp,
+            hasOffset: fogOffset);
+        _addFragment(index, z, color, tsp, writeDepth, order);
+      }
+    }
+  }
+
+  /// The rows of [_triangle] between [top] and [bottom] when they all take
+  /// its flat loop: one color, no texture, sorting or visibility pass.
+  @pragma('vm:unsafe:no-bounds-checks')
+  void _flatRows(
+      int top,
+      int bottom,
+      int left,
+      int right,
+      int originX,
+      int originY,
+      double offset,
+      _Vertex a,
+      _Vertex b,
+      _Vertex c,
+      double step0,
+      double step1,
+      double step2,
+      double e0x,
+      double e1x,
+      double e2x,
+      double e0y,
+      double e1y,
+      double e2y,
+      bool tl0,
+      bool tl1,
+      bool tl2,
+      double za,
+      double zb,
+      double zc,
+      double inverseArea,
+      int compare,
+      bool writeDepth,
+      bool flatReplace,
+      int flatColor,
+      int tsp) {
+    final depthBuffer = _depth, colorBuffer = _colors;
+    final ax = a.x, ay = a.y, bx = b.x, by = b.y, cx = c.x, cy = c.y;
+    final slope0 = cy - by, slope1 = ay - cy, slope2 = by - ay;
+    final base = originX + offset;
+    for (var y = top; y < bottom; y++) {
+      // The narrowing of the loop in [_triangle], edge by edge.
+      final rowY = originY + y + offset;
+      var rowLeft = left, rowRight = right;
+      if (slope0 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, bx + step0 * (rowY - by) - base + 2);
+      } else if (slope0 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, bx + step0 * (rowY - by) - base - 1);
+      }
+      if (slope1 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, cx + step1 * (rowY - cy) - base + 2);
+      } else if (slope1 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, cx + step1 * (rowY - cy) - base - 1);
+      }
+      if (slope2 > 0) {
+        rowRight = _narrowRight(
+            rowLeft, rowRight, ax + step2 * (rowY - ay) - base + 2);
+      } else if (slope2 < 0) {
+        rowLeft =
+            _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
+      }
+      final row0 = e0x * (rowY - by),
+          row1 = e1x * (rowY - cy),
+          row2 = e2x * (rowY - ay);
+      for (var x = rowLeft; x < rowRight; x++) {
+        final px = originX + x + offset;
+        final e0 = row0 - e0y * (px - bx),
+            e1 = row1 - e1y * (px - cx),
+            e2 = row2 - e2y * (px - ax);
+        if (e0 < 0 ||
+            e1 < 0 ||
+            e2 < 0 ||
+            (e0 == 0 && !tl0) ||
+            (e1 == 0 && !tl1) ||
+            (e2 == 0 && !tl2)) {
+          continue;
+        }
+        final z = za * (e0 * inverseArea) +
+            zb * (e1 * inverseArea) +
+            zc * (e2 * inverseArea);
+        if (!z.isFinite) {
+          throw const DcUnsupported('CORE nonfinite interpolated depth');
+        }
+        final index = y * 32 + x, previous = depthBuffer[index];
+        if (compare & (z < previous ? 1 : (z == previous ? 2 : 4)) == 0) {
+          continue;
+        }
+        if (flatReplace) {
+          colorBuffer[index] = flatColor;
+        } else {
+          _composite(index, flatColor, tsp);
+        }
+        if (writeDepth) depthBuffer[index] = z;
+      }
     }
   }
 
