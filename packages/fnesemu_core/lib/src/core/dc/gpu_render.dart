@@ -2935,6 +2935,10 @@ class DcGpuRender {
     // ends of spans of [_span] fragments and step linearly between them.
     var span = 0, linear = false;
     var su = 0, sv = 0, dsu = 0, dsv = 0, wb = 0, wc = 0, dwb = 0, dwc = 0;
+    // Table fog without a color clamp steps its weight the same way.
+    final tableFog =
+        spans && quickFog && tsp & 0x200000 == 0 && (tsp >> 22) & 3 == 0;
+    var fw = 0, dfw = 0;
     for (final end = index + count;
         index < end;
         index++,
@@ -2948,7 +2952,8 @@ class DcGpuRender {
         su += dsu,
         sv += dsv,
         wb += dwb,
-        wc += dwc) {
+        wc += dwc,
+        fw += dfw) {
       if (spans && span == 0) {
         span = end - index < _span ? end - index : _span;
         final z1 = z + dz * span;
@@ -2966,6 +2971,11 @@ class DcGpuRender {
             sv = v0.toInt();
             dsu = ((u1 - u0) * step).toInt();
             dsv = ((v1 - v0) * step).toInt();
+            if (tableFog) {
+              final f0 = fog.tableWeight(z), f1 = fog.tableWeight(z1);
+              fw = f0.toInt() + 0x8000;
+              dfw = ((f1 - f0) * step).toInt();
+            }
             if (gouraud) {
               final b0 = e1 * inverseArea * zb * i0 * 65536,
                   b1 = (e1 - e1y * span) * inverseArea * zb * i1 * 65536;
@@ -2984,7 +2994,7 @@ class DcGpuRender {
             }
           }
         }
-        if (!linear) dsu = dsv = dwb = dwc = 0;
+        if (!linear) dsu = dsv = dwb = dwc = dfw = 0;
       }
       if (!covered &&
               (e0 < 0 ||
@@ -3024,7 +3034,9 @@ class DcGpuRender {
                 shaded, gray, offsetLanes, ignoredAlpha)
             : DcGpuTexture.shade(
                 color, DcGpuTexture.packLanes(shaded), off, tsp);
-        if (quickFog) {
+        if (tableFog) {
+          shaded = fog.blendTable(shaded, fw >> 16);
+        } else if (quickFog) {
           shaded = fog.apply(shaded, z, off, tsp, hasOffset: fogOffset);
         }
         colorBuffer[index] = shaded;

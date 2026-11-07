@@ -140,6 +140,30 @@ class DcGpuFog {
     return (pair >> 8) * (1 - fraction) + (pair & 255) * fraction;
   }
 
+  /// The weight of the table fog color at [depth] in 1/256 steps, scaled
+  /// by 65536.
+  double tableWeight(double depth) =>
+      _coefficient(depth) * (256 / 255 * 65536);
+
+  /// [color] blended with the table fog color by [weight] in 1/256 steps,
+  /// as [apply] blends table fog without a color clamp.
+  @pragma('vm:prefer-inline')
+  int blendTable(int color, int weight) {
+    if (weight <= 0) return color & 0xffffffff;
+    if (weight >= 256) {
+      return ((color & 0xff000000) | (_tableColor & 0xffffff)) & 0xffffffff;
+    }
+    const lanes = 0x00ff00ff00ff00ff, half = 0x0080008000800080;
+    final blended = ((_lanes(color) * (256 - weight) +
+                _lanes(_tableColor) * weight +
+                half) >>>
+            8) &
+        lanes;
+    return (color & 0xff000000) |
+        (blended & 0xff00ff) |
+        ((blended >>> 24) & 0xff00);
+  }
+
   @pragma('vm:prefer-inline')
   int apply(int color, double depth, int offsetColor, int tsp,
       {required bool hasOffset}) {
