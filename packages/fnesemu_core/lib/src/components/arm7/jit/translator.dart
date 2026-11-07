@@ -57,7 +57,8 @@ final class ArmTranslatorPolicy {
 
   /// Unconditional MRS from the CPSR and MSR to the CPSR in the ARM7DI
   /// forms. An MSR that would change the mode leaves the block before it,
-  /// and one that enables an interrupt leaves the block after it.
+  /// and one that unmasks an asserted interrupt line, which the host
+  /// writes to [ArmTranslator.pending], leaves the block after it.
   final bool statusTransfers;
 
   /// Accepts the transfer forms the ARM7DI interpreter prohibits:
@@ -121,7 +122,12 @@ final class ArmTranslatorPolicy {
 /// owning adapter.
 final class ArmTranslator {
   static const regs = JitCtx.user;
-  static const cpsr = regs + 16, ctxWords = cpsr + 1;
+  static const cpsr = regs + 16;
+
+  /// The I and F bits of the interrupt lines that are asserted, which the
+  /// host writes before a run with [ArmTranslatorPolicy.statusTransfers];
+  /// the lines do not change while compiled code runs.
+  static const pending = cpsr + 1, ctxWords = pending + 1;
   static const interpret = JitReason.user;
 
   ArmTranslator({
@@ -513,8 +519,10 @@ final class ArmTranslator {
     // A mode change switches register banks, which the interpreter does.
     b.exitIf(b.ne(b.and(b.xor(next, flags), c(0x1f)), c(0)), _snapshot(at));
     _put(cpsr, next);
-    // Clearing I or F lets the interpreter take a pending interrupt.
-    final enables = b.and(b.and(flags, b.xor(next, c(0xffffffff))), c(0xc0));
+    // Clearing I or F of an asserted line lets the interpreter take the
+    // interrupt.
+    final enables =
+        b.and(b.and(flags, b.xor(next, c(0xffffffff))), _get(pending));
     b.exitIf(
         b.ne(enables, c(0)),
         IrExit(interpret, (at + 4) & 0xffffffff,
