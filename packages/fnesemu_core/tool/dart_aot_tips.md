@@ -161,6 +161,39 @@ The listing of the triangle loop, the texel fetch and the pixel write showed the
 - A change that the profile does not explain, and that gains less than the noise, is not worth keeping for speed. Keep it only if it makes the code clearer.
 - A change in a function that the profile shows as hot is kept when the listing shows less work (fewer calls, allocations, divides or checks) and the game is not broken, even if its gain is below the noise of the frame time. The hashes may change. Check the combined effect of several such changes against the base branch.
 
+- The bundle that `dart build cli -t tool/core_headless.dart` writes is an AOT executable, so its `bench` frame times are AOT numbers. The JIT caveat above applies to `dart tool/core_headless.dart`.
+- The frame time of one bundle moved by more than 20% between sessions on the same host. Compare only builds that run alternately in the same session.
+- A run of 60 frames had a noise of about ±0.5 ms with rare outliers of over 50 ms. Decide a gain below 1 ms with runs of 180 frames, several alternating rounds, and both the minimum and the median.
+- When an approximation changes the hashes, compare one frame of each scene as images: the number of differing pixels, the largest channel difference and the number of pixels that differ by more than 16. Check several scenes, including those that the change should not touch, where the difference must be zero.
+
+## Sampling the AOT bundle
+
+The VM sampler needs the JIT VM. To profile the AOT bundle itself, a small ptrace sampler that stops the busiest thread every 200 µs and records the instruction pointer and the frame-pointer chain works.
+
+- The bundle executable holds the AOT snapshot as an ELF image. Cut it out with `dd` at the file offset of its executable mapping in `/proc/<pid>/maps`, then read its symbols with `nm -n` and its code with `objdump`. An address maps to a symbol by its offset inside that mapping.
+- Count the leaf (self) samples per function first. A large function includes its inlined row loops, so bucket its samples by code offset and read the hot buckets in the listing with the count per instruction.
+- Frames under FFI callbacks are attributed unreliably. Do not chase a function that appears only there.
+
+## Result: DC CORE renderer
+
+The renderer loops are bound by instructions, not by memory: a texture working set of a few texels was not faster. Work per fragment is what counts.
+
+Kept:
+
+- Find the covered columns of a row by dividing each edge value by its step, and run them without a coverage test per fragment.
+- Make values that change smoothly along a row (perspective texel positions, Gouraud weights, the table fog weight) exact every 16 fragments and step them linearly between. The table fog lookup alone was about 15% of the hottest row loop.
+- Blend fog and Gouraud colors in 16-bit integer lanes of one `int`.
+- Call inlined copies of the row loop with literal flags for the common cases, so the tests fold away.
+
+Rejected, with no gain or a loss:
+
+- A modulate in 16-bit integer lanes, with four scalar products and the divide by 255 done in lanes. The output was equal, but the frame was not faster.
+- Linear stepping in the translucent sorted rows: slower, and the image changed visibly.
+- Gouraud channels in a `Float64List`, a pre-expanded texel lane table, decoding a whole texture before the sorted rows, a fog weight read from the bits of the depth, and more translation table slots.
+- Caching the triangle setup across tiles was not tried: the setup measured 1% to 2% of the frame.
+- `Int32x4` also has no conversion between integer and float lanes, so texel channels cannot move to `Float32x4` cheaply. The bilinear blend already runs in integer lanes.
+- A table keyed by more than the address must not visit every key on unmap. Record the keys per page; visiting all keys cost 1.4% of the frame.
+
 ## Where to profile
 
 - Profile a scene of the real workload, not the boot. A state saved after the warmup (`--save-state`, then `--load-state` with the same `--warmup`) gives the same scene for every run, for the sampler and for the A/B runs. In the boot and the BIOS wait loops of two cores, the interpreter and the BIOS reads dominated. In the game scene the hot spots were the JIT dispatch bookkeeping and the VDP2 renderer, which the boot profile did not show at all.
