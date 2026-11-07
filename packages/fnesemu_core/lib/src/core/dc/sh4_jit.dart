@@ -202,6 +202,10 @@ final class Sh4Jit extends JitAdapter {
     // [Sh4.runCompiled] has just evaluated the pending interrupts.
     ctx[Sh4Translator.pendingLevel] = cpu._pendingPriority;
     ctx[JitCtx.faultAddr] = 0;
+    if (_idleSkips > 0 && _idle(cpu.pc, tag)) {
+      _idleSkips--;
+      return budget;
+    }
     final reason = _driver.runBudgeted(cpu.pc, tag, budget);
     // Blocks never change the register bank or FPU mode bits.
     cpu._sr = ctx[Sh4Translator.sr];
@@ -233,7 +237,58 @@ final class Sh4Jit extends JitAdapter {
       }
       if (fault != 0 && _code.isProtected(fault)) _code.release(fault);
     }
+    if (reason != JitReason.budget) {
+      _forgetIdle();
+    } else if (_idle(cpu.pc, tag)) {
+      _idleSkips = idleSkips;
+    } else {
+      // The runs of a loop may end alternately at a few of its blocks.
+      final slot = _idleNext;
+      _idleNext = (slot + 1) % _idlePcs.length;
+      _idlePcs[slot] = cpu.pc;
+      _idleTags[slot] = tag;
+      _idleStates.setRange(
+          slot * _stateWords, (slot + 1) * _stateWords, ctx, Sh4Translator.regs);
+      _idleSkips = 0;
+    }
     return steps;
+  }
+
+  /// A run that spends its whole budget and ends at the PC, the tag and
+  /// the registers of one of the last such runs waits in a loop for a
+  /// change from outside: an interrupt, which changes the registers, or a
+  /// device or a DMA writing memory. The next [idleSkips] runs in that
+  /// state consume their budget without executing it; then one run
+  /// executes and reads memory again.
+  static const idleSkips = 15;
+  static const _stateWords = Sh4Translator.pendingLevel - Sh4Translator.regs;
+  final _idlePcs = Int64List(4)..fillRange(0, 4, -1), _idleTags = Int64List(4);
+  final _idleStates = Uint32List(4 * _stateWords);
+  int _idleNext = 0, _idleSkips = 0;
+
+  void _forgetIdle() {
+    _idlePcs.fillRange(0, _idlePcs.length, -1);
+    _idleSkips = 0;
+  }
+
+  @override
+  void reset() {
+    super.reset();
+    _forgetIdle();
+  }
+
+  bool _idle(int pc, int tag) {
+    final ctx = rt.ctx, states = _idleStates;
+    for (var slot = 0; slot < _idlePcs.length; slot++) {
+      if (pc != _idlePcs[slot] || tag != _idleTags[slot]) continue;
+      final base = slot * _stateWords;
+      var same = true;
+      for (var i = 0; i < _stateWords && same; i++) {
+        same = ctx[Sh4Translator.regs + i] == states[base + i];
+      }
+      if (same) return true;
+    }
+    return false;
   }
 
   int _prefetch(int address, int _, int __) {

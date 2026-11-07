@@ -717,6 +717,40 @@ void main() {
     }
   });
 
+  test('a compiled loop that waits for memory skips runs and sees the write',
+      () {
+    const code = [
+      0xd103, // mov.l @(pool,pc),r1: 0xac0f0000, uncached
+      0x6012, // loop: mov.l @r1,r0
+      0x2008, // tst r0,r0
+      0x89fc, // bt loop
+      0xe201, // mov #1,r2
+      0xaffe, // bra self
+      0x0009, // nop
+      0x0009, // nop
+      0x0000, 0xac0f, // pool
+    ];
+    final core = Dc(jit: true);
+    addTearDown(core.dispose);
+    core.setRom(Uint8List.fromList([
+      for (final w in code) ...[w & 255, w >> 8]
+    ]));
+    final jit = core.cpu.jit;
+    core.runFrame(8);
+    final entries = jit?.rt.nativeEntries ?? 0;
+    core.runFrame(8);
+    expect(core.cpu.r[2], 0);
+    if (JitRuntime.nativeSupported) {
+      // Each line is one run; most runs of the waiting loop consume their
+      // budget unexecuted.
+      expect(jit!.rt.nativeEntries - entries, lessThan(4));
+    }
+    // A write from outside, as a DMA makes, ends the wait within a few runs.
+    core.bus.write32(0xac0f0000, 5);
+    core.runFrame(20);
+    expect(core.cpu.r[2], 1);
+  });
+
   test('compiled user code in translated pages follows TLB changes', () {
     // User code at virtual 0x10000 adds to the words of virtual 0x20000,
     // then spins. It runs again after both pages move.

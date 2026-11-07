@@ -2689,6 +2689,9 @@ Descending additional OPB allocation subtracts the new list block's size before 
 Each SH-4 instruction advances the devices by one CPU clock (`cpuPeriod` master clocks), in the interpreter and in compiled code alike.
 The boot profile previously charged eight CPU clocks per instruction to work around a BIOS VSYNC wait; that slowed guest computation to about an eighth of the hardware rate, so CPU-bound titles ran at a fraction of their intended speed.
 Dual issue and pipeline stalls are not modeled.
+When compiled code spends its whole budget and ends at the PC, the tag and the registers of one of the last four such runs, it is taken to wait in a loop for an interrupt or for memory that a device or a DMA writes.
+The next 15 runs in that state then consume their budget without executing, and the run after them executes the loop again; any run that ends for another reason, such as the RTE of an interrupt handler, stops the skipping.
+A loop that changes memory but leaves the registers equal at those points would lose its effect on memory; such loops are not supported.
 
 ## System settings date
 
