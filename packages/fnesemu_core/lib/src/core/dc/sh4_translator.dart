@@ -22,12 +22,17 @@ final class Sh4Translator {
   static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
   static const tagUser = 16, tagSpaceShift = 5;
 
+  /// User-mode blocks may store to the store queues: MMUCR.SQMD is clear.
+  static const tagUserQueue = 1 << 14;
+
   /// The untranslated window of the translation tables: P1 and P2.
   static const directStart = 0x80000000, directEnd = 0xc0000000;
 
   /// Guest page holding the store queues. Store-queue stores are redirected
   /// here; the reserved area 7 page that it shadows is not used by software.
-  static const queueAlias = 0x1ffff000;
+  /// The P1 address lies in the direct window of the translation tables, so
+  /// the redirected stores also skip the tables with the MMU on.
+  static const queueAlias = 0x9ffff000;
 
   /// The block tag for the given status and FPU status registers.
   static int tagOf(int status, int floatStatus, {bool mmu = false}) =>
@@ -38,11 +43,12 @@ final class Sh4Translator {
 
   /// The block tag with the MMU on, for user mode or the privileged mode and
   /// the 9-bit address space key: 256 when MMUCR.SV shares privileged
-  /// accesses, otherwise PTEH.ASID.
+  /// accesses, otherwise PTEH.ASID. In user mode, [queue] tells that the
+  /// store queues accept stores.
   static int mmuTag(int status, int floatStatus,
-          {required bool user, required int space}) =>
+          {required bool user, required int space, bool queue = false}) =>
       tagOf(status, floatStatus, mmu: true) |
-      (user ? tagUser : 0) |
+      (user ? tagUser | (queue ? tagUserQueue : 0) : 0) |
       (space << tagSpaceShift);
 
   /// The translation key for accesses under [tag]: bit 11 is always set,
@@ -332,9 +338,11 @@ final class Sh4Translator {
     }
 
     final mmu = tag & tagMmu != 0, user = tag & tagUser != 0;
-    IrValue address(IrValue value, int size, {bool write = false}) {
+    // [bound] replaces the address in the range check of the access.
+    IrValue address(IrValue value, int size,
+        {bool write = false, IrValue? bound}) {
       final known = _constants[value.index];
-      if (known != null && known & (size - 1) == 0) {
+      if (bound == null && known != null && known & (size - 1) == 0) {
         if (mmu ? !user && untranslated(known) : known < 0xc0000000) {
           return value;
         }
@@ -345,7 +353,8 @@ final class Sh4Translator {
       }
       // P3 and P4 are never ordinary RAM; unaligned accesses raise errors.
       // In user mode, everything from P1 up raises an address error.
-      final outside = b.ltU(c(user ? 0x7fffffff : 0xbfffffff), value);
+      final outside =
+          b.ltU(c(user ? 0x7fffffff : 0xbfffffff), bound ?? value);
       b.exitIf(
           size == 1 ? outside : b.or(outside, b.and(value, c(size - 1))), exit);
       if (mmu) {
@@ -356,20 +365,24 @@ final class Sh4Translator {
     }
 
     IrValue storeAddress(IrValue value, int size) {
-      // Store-queue stores are translated by the TLB when the MMU is on.
-      if (size < 4 || mmu) return address(value, size, write: true);
+      // The TLB does not translate store-queue stores; only PREF uses it. In
+      // user mode they raise an address error when MMUCR.SQMD is set, so the
+      // interpreter takes them.
+      if (size < 4 || user && tag & tagUserQueue == 0) {
+        return address(value, size, write: true);
+      }
       final known = _constants[value.index];
       if (known != null) {
-        return address(
-            known - 0xe0000000 < 0x04000000 && known >= 0xe0000000
-                ? c(queueAlias | (known & 63))
-                : value,
-            size);
+        final queue = known - 0xe0000000 < 0x04000000 && known >= 0xe0000000;
+        return address(queue ? c(queueAlias | (known & 63)) : value, size,
+            write: true, bound: queue && user ? c(0) : null);
       }
       final queue = b.ltU(b.sub(value, c(0xe0000000)), c(0x04000000));
       return address(
           b.select(queue, b.or(b.and(value, c(63)), c(queueAlias)), value),
-          size);
+          size,
+          write: true,
+          bound: user ? b.select(queue, c(0), value) : null);
     }
 
     IrValue read(IrValue a, int size) {

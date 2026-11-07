@@ -2707,6 +2707,7 @@ The block tag includes user mode and the address space key, so each process has 
 A block in P0 stays within one page, guards the physical code, and leaves at entry when its page has no slot.
 When the interpreter refills the slot of a page with another physical page, the blocks built from the old page are retired.
 User-mode blocks exclude the privileged STC SR forms.
+The TLB does not translate stores to the store queues, so privileged blocks send them to the queue page at a P1 alias of the reserved area-7 page `0x1ffff000`, which the direct window passes without a table lookup; user-mode blocks do the same when MMUCR.SQMD is clear, which the block tag records, and otherwise return them to the interpreter.
 Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.
 
 ## Reserved and sub-word register accesses

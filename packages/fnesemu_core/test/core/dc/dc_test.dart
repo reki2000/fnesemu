@@ -442,6 +442,69 @@ void main() {
     expect(interpreted.bus.read32(0x8c030000), 101);
   });
 
+  for (final user in [false, true]) {
+    test('compiled store-queue stores with the MMU on match the interpreter '
+        '(${user ? 'user' : 'privileged'} mode)', () {
+      // The code fills store queue 0 and flushes it 100 times; PREF goes
+      // through a TLB entry for the store-queue page. User code runs from
+      // virtual 0x10000 with MMUCR.SQMD clear.
+      const code = [
+        0xd407, // mov.l @(pool,pc),r4: 0xe0000000
+        0xe764, // mov #100,r7
+        0xe10a, // mov #10,r1
+        0xe608, // outer: mov #8,r6
+        0x2412, // inner: mov.l r1,@r4
+        0x7103, // add #3,r1
+        0x7404, // add #4,r4
+        0x4610, // dt r6
+        0x8bfa, // bf inner
+        0x74e0, // add #-32,r4
+        0x0483, // pref @r4
+        0x4710, // dt r7
+        0x8bf5, // bf outer
+        0xaffe, // bra self
+        0x0009, // nop
+        0x0009, // nop
+        0x0000, 0xe000, // pool: 0xe0000000
+      ];
+
+      Dc run(bool jit) {
+        final core = Dc(jit: jit);
+        addTearDown(core.dispose);
+        core.setRom(Uint8List.fromList([
+          for (final w in code) ...[w & 255, w >> 8]
+        ]));
+        core.bus.write32(0xf6000000, 0xe0000000);
+        core.bus.write32(0xf7000000, 0x0c030000 | 0x174);
+        if (user) {
+          for (final (i, word) in code.indexed) {
+            core.bus.write16(0xac050000 + 2 * i, word);
+          }
+          core.bus.write32(0xf6000100, 0x00010000);
+          core.bus.write32(0xf7000100, 0x0c050000 | 0x174);
+        }
+        core.bus.mmucr = 1;
+        if (user) {
+          core.cpu
+            ..sr = 0xf0
+            ..pc = 0x00010000;
+        }
+        core.runFrame(8);
+        return core;
+      }
+
+      final compiled = run(true), interpreted = run(false);
+      if (JitRuntime.nativeSupported) {
+        expect(compiled.jitClocks, greaterThan(0));
+      }
+      expect(compiled.stopReason, interpreted.stopReason);
+      expect(compiled.cpu.r, interpreted.cpu.r);
+      expect(compiled.bus.ram, interpreted.bus.ram);
+      expect(interpreted.bus.read32(0x8c030000), 10 + 3 * 792);
+      expect(interpreted.bus.read32(0x8c03001c), 10 + 3 * 799);
+    });
+  }
+
   test('compiled user code in translated pages follows TLB changes', () {
     // User code at virtual 0x10000 adds to the words of virtual 0x20000,
     // then spins. It runs again after both pages move.

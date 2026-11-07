@@ -169,7 +169,9 @@ final class Sh4Jit extends JitAdapter {
     if (!mmu.enabled) return Sh4Translator.tagOf(cpu._sr, cpu._fpscr);
     final privileged = cpu.privileged;
     return Sh4Translator.mmuTag(cpu._sr, cpu._fpscr,
-        user: !privileged, space: _space(mmu.control, mmu.pteh, privileged));
+        user: !privileged,
+        space: _space(mmu.control, mmu.pteh, privileged),
+        queue: mmu.control & 0x200 == 0);
   }
 
   int? _fetch(int pc) {
