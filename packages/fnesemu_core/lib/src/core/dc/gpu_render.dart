@@ -1644,7 +1644,7 @@ class DcGpuRender {
               quickColor, quickOffset, opaqueAlpha, gray ? quickGray : -1,
               ignoredAlpha, tsp, quickFog, fogOffset, wraps,
               65536.0 * texture.width, 65536.0 * texture.height, offsetLanes,
-              varying, false);
+              varying, false, false);
           continue;
         }
         for (var x = rowLeft;
@@ -2396,10 +2396,28 @@ class DcGpuRender {
         rowLeft =
             _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
       }
-      final x0 = originX + rowLeft + offset;
-      final e0 = e0x * (rowY - by) - e0y * (x0 - bx),
+      var x0 = originX + rowLeft + offset;
+      var e0 = e0x * (rowY - by) - e0y * (x0 - bx),
           e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
           e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      // The columns that every edge accepts, so that the row needs no
+      // coverage test.
+      final count = rowRight - rowLeft;
+      var low = _spanLow(e0, e0y, tl0, 0, count);
+      low = _spanLow(e1, e1y, tl1, low, count);
+      low = _spanLow(e2, e2y, tl2, low, count);
+      var high = _spanHigh(e0, e0y, tl0, low, count);
+      high = _spanHigh(e1, e1y, tl1, low, high);
+      high = _spanHigh(e2, e2y, tl2, low, high);
+      if (low >= high) continue;
+      if (low > 0) {
+        rowLeft += low;
+        x0 = originX + rowLeft + offset;
+        e0 = e0x * (rowY - by) - e0y * (x0 - bx);
+        e1 = e1x * (rowY - cy) - e1y * (x0 - cx);
+        e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      }
+      rowRight = rowLeft + high - low;
       // The common cases take copies of the row with their tests folded.
       if (kind == 1) {
         _perspectiveRow(
@@ -2443,6 +2461,7 @@ class DcGpuRender {
             uScale,
             vScale,
             offsetLanes,
+            true,
             true,
             true);
       } else if (kind == 2) {
@@ -2488,6 +2507,7 @@ class DcGpuRender {
             vScale,
             offsetLanes,
             false,
+            true,
             true);
       } else {
         _perspectiveRow(
@@ -2532,7 +2552,8 @@ class DcGpuRender {
             vScale,
             offsetLanes,
             varying,
-            false);
+            false,
+            true);
       }
     }
   }
@@ -2621,10 +2642,28 @@ class DcGpuRender {
         rowLeft =
             _narrowLeft(rowLeft, rowRight, ax + step2 * (rowY - ay) - base - 1);
       }
-      final x0 = originX + rowLeft + offset;
+      var x0 = originX + rowLeft + offset;
       var e0 = e0x * (rowY - by) - e0y * (x0 - bx),
           e1 = e1x * (rowY - cy) - e1y * (x0 - cx),
           e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      // The columns that every edge accepts, so that the row needs no
+      // coverage test.
+      final count = rowRight - rowLeft;
+      var low = _spanLow(e0, e0y, tl0, 0, count);
+      low = _spanLow(e1, e1y, tl1, low, count);
+      low = _spanLow(e2, e2y, tl2, low, count);
+      var high = _spanHigh(e0, e0y, tl0, low, count);
+      high = _spanHigh(e1, e1y, tl1, low, high);
+      high = _spanHigh(e2, e2y, tl2, low, high);
+      if (low >= high) continue;
+      if (low > 0) {
+        rowLeft += low;
+        x0 = originX + rowLeft + offset;
+        e0 = e0x * (rowY - by) - e0y * (x0 - bx);
+        e1 = e1x * (rowY - cy) - e1y * (x0 - cx);
+        e2 = e2x * (rowY - ay) - e2y * (x0 - ax);
+      }
+      rowRight = rowLeft + high - low;
       var z = (za * e0 + zb * e1 + zc * e2) * inverseArea,
           uz = (uza * e0 + uzb * e1 + uzc * e2) * inverseArea,
           vz = (vza * e0 + vzb * e1 + vzc * e2) * inverseArea;
@@ -2637,14 +2676,6 @@ class DcGpuRender {
           z += dz,
           uz += duz,
           vz += dvz) {
-        if (e0 < 0 ||
-            e1 < 0 ||
-            e2 < 0 ||
-            (e0 == 0 && !tl0) ||
-            (e1 == 0 && !tl1) ||
-            (e2 == 0 && !tl2)) {
-          continue;
-        }
         if (!z.isFinite) {
           throw const DcUnsupported('CORE nonfinite interpolated depth');
         }
@@ -2762,19 +2793,22 @@ class DcGpuRender {
       final row0 = e0x * (rowY - by),
           row1 = e1x * (rowY - cy),
           row2 = e2x * (rowY - ay);
-      for (var x = rowLeft; x < rowRight; x++) {
+      final x0 = originX + rowLeft + offset;
+      // The columns that every edge accepts, so that the row needs no
+      // coverage test.
+      final count = rowRight - rowLeft;
+      var low = _spanLow(row0 - e0y * (x0 - bx), e0y, tl0, 0, count);
+      low = _spanLow(row1 - e1y * (x0 - cx), e1y, tl1, low, count);
+      low = _spanLow(row2 - e2y * (x0 - ax), e2y, tl2, low, count);
+      var high = _spanHigh(row0 - e0y * (x0 - bx), e0y, tl0, low, count);
+      high = _spanHigh(row1 - e1y * (x0 - cx), e1y, tl1, low, high);
+      high = _spanHigh(row2 - e2y * (x0 - ax), e2y, tl2, low, high);
+      if (low >= high) continue;
+      for (var x = rowLeft + low; x < rowLeft + high; x++) {
         final px = originX + x + offset;
         final e0 = row0 - e0y * (px - bx),
             e1 = row1 - e1y * (px - cx),
             e2 = row2 - e2y * (px - ax);
-        if (e0 < 0 ||
-            e1 < 0 ||
-            e2 < 0 ||
-            (e0 == 0 && !tl0) ||
-            (e1 == 0 && !tl1) ||
-            (e2 == 0 && !tl2)) {
-          continue;
-        }
         final z = za * (e0 * inverseArea) +
             zb * (e1 * inverseArea) +
             zc * (e2 * inverseArea);
@@ -2800,12 +2834,39 @@ class DcGpuRender {
   static int _narrowRight(int rowLeft, int rowRight, double bound) =>
       bound < rowRight ? (bound < rowLeft ? rowLeft : bound.toInt()) : rowRight;
 
-  /// The left end of a row narrowed to [bound], as [_triangle] does.
   static final _noTexels = Uint32List(0);
+
+  /// The first of the columns from [low] up to [high] where an edge of
+  /// value [e] at column 0, falling by [d] per column, accepts the pixel,
+  /// or [high] when it accepts none; [topLeft] accepts a zero value.
+  @pragma('vm:prefer-inline')
+  static int _spanLow(double e, double d, bool topLeft, int low, int high) {
+    if (d >= 0) {
+      return d == 0 && !(e > 0 || (e == 0 && topLeft)) ? high : low;
+    }
+    final limit = e / d;
+    if (!(limit >= low)) return low;
+    if (limit >= high) return high;
+    final whole = limit.toInt();
+    return whole == limit && topLeft ? whole : whole + 1;
+  }
+
+  /// The end of the columns from [low] up to [high] that an edge as in
+  /// [_spanLow] accepts.
+  @pragma('vm:prefer-inline')
+  static int _spanHigh(double e, double d, bool topLeft, int low, int high) {
+    if (!(d > 0)) return high;
+    final limit = e / d;
+    if (limit < low) return low;
+    if (limit >= high) return high;
+    final whole = limit.toInt();
+    return whole == limit && !topLeft ? whole : whole + 1;
+  }
 
   /// The fragments of a span of [_perspectiveRow].
   static const _span = 16;
 
+  /// The left end of a row narrowed to [bound], as [_triangle] does.
   @pragma('vm:prefer-inline')
   static int _narrowLeft(int rowLeft, int rowRight, double bound) =>
       bound > rowLeft ? (bound > rowRight ? rowRight : bound.toInt()) : rowLeft;
@@ -2861,7 +2922,8 @@ class DcGpuRender {
       double vScale,
       int offsetLanes,
       bool varying,
-      bool spans) {
+      bool spans,
+      bool covered) {
     final depthBuffer = _depth, colorBuffer = _colors;
     final cache = texture.cache;
     final texels = cache == null ? _noTexels : cache.texels,
@@ -2924,12 +2986,13 @@ class DcGpuRender {
         }
         if (!linear) dsu = dsv = dwb = dwc = 0;
       }
-      if (e0 < 0 ||
-          e1 < 0 ||
+      if (!covered &&
+              (e0 < 0 ||
+                  e1 < 0 ||
           e2 < 0 ||
           (e0 == 0 && !tl0) ||
           (e1 == 0 && !tl1) ||
-          (e2 == 0 && !tl2)) {
+                  (e2 == 0 && !tl2))) {
         continue;
       }
       if (!z.isFinite) {
