@@ -24,19 +24,28 @@ class DcMemoryCard implements DcMapleDevice {
   }
   static const size = 128 * 1024, blockSize = 512;
 
-  /// An empty file system: 200 user blocks, the directory in blocks
-  /// 253 down to 241, the FAT in block 254 and the system block 255.
-  /// The format date is fixed at 2000-01-01 00:00 so that runs repeat.
-  /// The system block words at 0x52 and 0x54 take the values seen on
-  /// formatted cards; their meaning is not documented.
+  /// An empty file system as the boot ROM's file screen writes it with
+  /// its default choices: 200 user blocks, the directory in blocks 253
+  /// down to 241, the FAT in block 254 and the system block 255. User
+  /// blocks stay erased (0xff). The format date is fixed at 2000-01-01
+  /// 00:00 so that runs repeat, where the boot ROM takes the clock.
+  /// The system block words from 0x52 take the values the boot ROM
+  /// writes; their meaning is not documented.
   static Uint8List formattedImage() {
-    final image = Uint8List(size);
     const root = 255 * blockSize, fat = 254 * blockSize;
+    final image = Uint8List(size)..fillRange(0, 241 * blockSize, 255);
     image.fillRange(root, root + 16, 0x55);
+    // A custom card color, opaque white.
+    image.setAll(root + 0x10, [1, 255, 255, 255, 255]);
     // Century, year, month, day, hour, minute, second in BCD, then the
     // weekday from Monday = 0.
     image.setAll(root + 0x30, [0x20, 0x00, 0x01, 0x01, 0, 0, 0, 5]);
     for (final (offset, value) in [
+      // The media information fields from 0x40 on, as Get_Media_Info
+      // answers them.
+      (0x40, 255), // last block
+      (0x42, 0), // partition
+      (0x44, 255), // system block
       (0x46, 254), // FAT block
       (0x48, 1), // FAT blocks
       (0x4a, 253), // directory block
@@ -44,6 +53,7 @@ class DcMemoryCard implements DcMapleDevice {
       (0x50, 200), // user blocks
       (0x52, 31),
       (0x54, 128),
+      (0x56, 128),
     ]) {
       image.setUint16LE(root + offset, value);
     }
@@ -288,7 +298,12 @@ class DcMemoryCard implements DcMapleDevice {
     if (block >= 256) return failure(4, block: block, phase: phase);
     if (command == 13) {
       if (request.length != 12) return failure(16);
-      if (block != _lastBlock || phase != _lastPhase + 1) return failure(2);
+      // A write asks with the phase after its last one; software also asks
+      // after a read with the phase of the read itself.
+      if (block != _lastBlock ||
+          phase != _lastPhase + 1 && phase != _lastPhase) {
+        return failure(2);
+      }
       return _error != 0 ? reply(0xfb, [0, 0, 0, _error]) : reply(7);
     }
     if (command == 11) {

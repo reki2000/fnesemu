@@ -185,7 +185,9 @@ void main() {
     expect(image.getUint16LE(fat + 241 * 2), 0xfffa);
     expect(image.getUint16LE(fat + 240 * 2), 0xfffc);
     expect(image.getUint16LE(fat), 0xfffc);
-    expect(image.sublist(0, 200 * 512), everyElement(0));
+    expect(image.sublist(0, 241 * 512), everyElement(255));
+    expect(image.sublist(241 * 512, 254 * 512), everyElement(0));
+    expect(image.getUint16LE(root + 0x56), 128);
 
     // Media info answers from the system block of the new card.
     dc = fresh;

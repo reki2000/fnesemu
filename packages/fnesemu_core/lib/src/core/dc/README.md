@@ -762,12 +762,14 @@ Memory card physical LCD/buzzer behavior, factory media parameters and complete 
 The controller owns two expansion slots and advertises connected children in its response AP; child discovery and transfers are routed only through an identified, operating parent.
 `Dc.attachMemoryCard` attaches a core-owned memory card to a port/slot and connects persistence regardless of whether `setSram` was called before or after attachment.
 One memory card is attached to the first slot of the first controller by default.
-A new card holds an empty formatted file system: 200 user blocks, a 13-block directory from block 253 down, the FAT in block 254 and the system block 255 with a fixed format date of 2000-01-01.
+A new card holds the empty file system that the boot ROM file screen writes with its default choices: 200 user blocks, a 13-block directory from block 253 down, the FAT in block 254 and the system block 255 with an opaque white card color.
+User blocks stay erased (0xff), and the system block repeats the `Get_Media_Info` fields from offset 0x40.
+The format date is fixed at 2000-01-01, where the boot ROM writes the clock, so that runs repeat.
 Persistent storage that already holds data replaces this image when `setSram` binds the card, so the card is formatted only when no saved data exists.
-The system block words at 0x52 and 0x54 take the values seen on formatted cards; their meaning is not documented.
+The system block words from 0x52 take the values the boot ROM writes; their meaning is not documented.
 Standalone and pin behavior remain incomplete.
 The endpoint advertises FT1/FT2/FT3 definitions, ordered by descending function number, and the documented product name.
-It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error`, documented partition/block/phase/length errors, reset and kill.
+It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error` (after a write group with the next phase, or after a read with the same phase), documented partition/block/phase/length errors, reset and kill.
 A complete write group commits after phase 3; an interrupted or invalid group is discarded without changing the block.
 The functional packet endpoint applies effects when the host consumes the descriptor, not at individual wire-bit boundaries; flash programming latency, power-loss behavior and physical write failures remain pending.
 
