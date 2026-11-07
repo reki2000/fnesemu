@@ -1,5 +1,6 @@
 import 'package:fnesemu_core/src/core/dc/bus.dart';
 import 'package:fnesemu_core/src/core/dc/fault.dart';
+import 'package:fnesemu_core/src/core/dc/mmu.dart';
 import 'package:fnesemu_core/src/core/dc/sh4.dart';
 import 'package:test/test.dart';
 
@@ -40,21 +41,6 @@ void main() {
     });
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   test('ITLB replacement agrees with independent least-recent-use ordering',
       () {
     for (var page = 0; page < 8; page++) {
@@ -91,9 +77,36 @@ void main() {
     expect(bus.read32(0xf3000300) & 0x100, 0);
   });
 
+  DcMmu enabledMmu() {
+    final mmu = DcMmu();
+    mmu.control = 1;
+    return mmu;
+  }
 
+  void mapPage(DcMmu mmu, int slot, int virtual, int physical) {
+    final base = 0xf6000000 | (slot << 8);
+    mmu.writeArray(base, (virtual & 0xfffffc00) | 0x100);
+    // Valid, shared, user read/write, 1 KiB page, cacheable.
+    mmu.writeArray(base | 0x01000000, (physical & 0x1ffffc00) | 0x10f);
+  }
 
+  test('lookups follow every change of the TLB entries', () {
+    final mmu = enabledMmu();
+    mapPage(mmu, 0, 0x00001000, 0x0c001000);
+    expect(mmu.translate(0x1010, privileged: true)!.physical, 0x0c001010);
+    mapPage(mmu, 0, 0x00001000, 0x0c002000);
+    expect(mmu.translate(0x1010, privileged: true)!.physical, 0x0c002010);
+    mmu.control = 1 | 4;
+    expect(() => mmu.translate(0x1010, privileged: true),
+        throwsA(isA<DcCpuException>()));
+  });
 
-
-
+  test('a second matching entry still raises the multiple hit exception', () {
+    final mmu = enabledMmu();
+    mapPage(mmu, 0, 0x00001000, 0x0c001000);
+    expect(mmu.translate(0x1010, privileged: true)!.physical, 0x0c001010);
+    mapPage(mmu, 1, 0x00001000, 0x0c003000);
+    expect(() => mmu.translate(0x1010, privileged: true),
+        throwsA(isA<DcCpuException>().having((e) => e.event, 'event', 0x140)));
+  });
 }

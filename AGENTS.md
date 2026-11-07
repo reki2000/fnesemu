@@ -58,6 +58,13 @@ Before changing Dart code for speed, read `packages/fnesemu_core/tool/dart_aot_t
 - Within a package's `lib/`, use relative imports for files in the same package (`prefer_relative_imports`). In tests and tools, use `package:` URIs to import files from `lib/`.
 - Keep import directives sorted (`directives_ordering`). Run `make format` to apply both import rules.
 
+# Formatting
+
+- Do not run `dart format` on existing files. The sources are not formatted as a whole, so it rewrites many lines unrelated to the change. `make format` does not run it either.
+- Write changed code by hand in the style of the surrounding code.
+- `dart format` may be used on a new file only. Run it on the file inside its package: the package's language version selects the style, and a copy formatted elsewhere, such as in a temporary directory, gets a different style.
+- Before committing, check with `git diff --stat` that only the intended lines changed.
+
 # Worktrees
 
 - Create working Git worktrees under the repository's `.worktrees/` directory. This directory is ignored by Git.

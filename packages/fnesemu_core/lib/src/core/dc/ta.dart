@@ -770,7 +770,7 @@ class DcTa {
           // CORE adds its 1 MiB-aligned PARAM_BASE when following this pointer.
           ((currentParameter - (parameterBase & 0xf00000)) >> 2);
       for (final entry in masks.entries) {
-        _append(entry.key, pointer | entry.value);
+        _append(entry.key, pointer | entry.value, merge: modifier);
       }
       currentParameter += size;
     }
@@ -788,10 +788,29 @@ class DcTa {
     }
   }
 
-  void _append(int tile, int pointer) {
+  void _append(int tile, int pointer, {bool merge = false}) {
     // No List suppresses OPB output; BIOS still uses parameter conversion.
     if (_blocks[_list].isEmpty) return;
     final block = _blocks[_list][tile];
+    if (merge && block.used > 0) {
+      // A modifier triangle that directly follows the last triangle array of
+      // the tile in parameter memory joins that array, up to 16 triangles.
+      // The renderer reads the same triangles in the same order, and the
+      // lists take far less object memory. The documents do not say whether
+      // the TA itself packs volumes this way; one game's shadow volumes
+      // overflow its object list area without it.
+      final last = block.address + (block.used - 1) * 4;
+      final previous = memory.getUint32LE(last);
+      final count = (previous >> 25) & 15;
+      if (previous >> 29 == 4 &&
+          count < 15 &&
+          (previous ^ pointer) & 0x01e00000 == 0 &&
+          (previous & 0x1fffff) + (count + 1) * 12 == pointer & 0x1fffff) {
+        _pages.markRange(last, 4);
+        memory.setUint32LE(last, previous + (1 << 25));
+        return;
+      }
+    }
     if (block.used == block.words - 1) {
       final bytes = block.words * 4;
       final descending = _activeAllocation & 0x100000 != 0;

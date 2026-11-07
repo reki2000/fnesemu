@@ -191,7 +191,8 @@ void main() {
           for (var i = 0; i < 3; i++)
             vram.getUint32(address + i * 4, Endian.little)
         ];
-    expect(list(0x1000), [0x80000c00, 0x80000c0c, 0xf0000000]);
+    // Tile 0 holds both triangles as one two-triangle array.
+    expect(list(0x1000).sublist(0, 2), [0x82000c00, 0xf0000000]);
     expect(list(0x1020).sublist(0, 2), [0x80000c0c, 0xf0000000]);
     expect(bus.systemBus.errorStatus, 0);
   });

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../dyn_table.dart';
 import '../ir.dart';
+import '../runtime.dart';
 
 /// Linear-memory offsets and link slots shared by generated Wasm modules.
 abstract interface class WasmEnv {
@@ -14,6 +15,11 @@ abstract interface class WasmEnv {
   int get addrMask;
   int get pageShift;
   int get helperCount;
+
+  /// a translation table and the linear-memory offset of its slots, each a
+  /// 32-bit key followed by the 32-bit offset of its page
+  JitTranslationTable translationTable(int id);
+  int translationAddress(int id);
 
   /// Whether blocks call the import after the helpers at their entry.
   bool get profileBlocks;
@@ -233,6 +239,47 @@ abstract final class WasmBackend {
       c.get(address);
       c.i32((1 << env.pageShift) - 1);
       c.op(0x71, 0x6a);
+    }
+
+    // Like lookup, through the translation of inst for an address outside
+    // the table's direct window, leaving through e when its slot misses.
+    void translatedLookup(IrInst inst, bool write, IrExit e) {
+      final id = inst.translationTable;
+      final t = env.translationTable(id);
+      final windowed = t.directEnd > t.directStart;
+      if (windowed) {
+        c.get(address);
+        c.i32(t.directStart);
+        c.op(0x6b);
+        c.i32(t.directEnd - t.directStart);
+        c.op(0x49, 0x04, 0x40);
+        lookup(write);
+        exitIfUnmapped(e);
+        c.op(0x05);
+      }
+      c.i32(env.translationAddress(id));
+      c.get(address);
+      c.i32(env.pageShift);
+      c.op(0x76);
+      c.i32(t.slots - 1);
+      c.op(0x71);
+      c.i32(3);
+      c.op(0x74, 0x6a);
+      c.set(temp);
+      c.get(temp);
+      c.load();
+      c.get(address);
+      c.i32(~((1 << env.pageShift) - 1));
+      c.op(0x71);
+      c.i32(inst.translationKey);
+      c.op(0x72, 0x47, 0x04, 0x40);
+      ctxStore(JitCtx.faultAddr, () => c.get(address));
+      sideExit(e);
+      c.op(0x0b);
+      c.get(temp);
+      c.load(offset: 4);
+      c.set(page);
+      if (windowed) c.op(0x0b);
     }
 
     ctxLoad(JitCtx.stop);
@@ -474,7 +521,9 @@ abstract final class WasmBackend {
         case IrOp.load:
           a();
           c.set(address);
-          lookup(false);
+          inst.translation >= 0
+              ? translatedLookup(inst, false, block.exits[inst.exit])
+              : lookup(false);
           final size = inst.imm;
           // Both paths leave the raw little-endian bytes: an i64 for eight
           // bytes, otherwise the low bytes of an i32.
@@ -493,7 +542,7 @@ abstract final class WasmBackend {
           }
 
           if (inst.exit >= 0) {
-            exitIfUnmapped(block.exits[inst.exit]);
+            if (inst.translation < 0) exitIfUnmapped(block.exits[inst.exit]);
             memory();
           } else {
             c.get(page);
@@ -534,7 +583,9 @@ abstract final class WasmBackend {
         case IrOp.store:
           a();
           c.set(address);
-          lookup(true);
+          inst.translation >= 0
+              ? translatedLookup(inst, true, block.exits[inst.exit])
+              : lookup(true);
           final size = inst.imm;
           final value = size == 8 ? value64 : value32;
           b();
@@ -561,7 +612,7 @@ abstract final class WasmBackend {
           }
 
           if (inst.exit >= 0) {
-            exitIfUnmapped(block.exits[inst.exit]);
+            if (inst.translation < 0) exitIfUnmapped(block.exits[inst.exit]);
             memory();
             break;
           }

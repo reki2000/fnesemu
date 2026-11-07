@@ -197,6 +197,49 @@ abstract final class Arm64Backend {
       a.alu(0x0a000000, 3, 3, 4);
     }
 
+    // Like lookup, through the translation of i for an address outside the
+    // table's direct window, branching to miss when its slot misses.
+    void translatedLookup(IrInst i, bool write, Arm64Label miss) {
+      final id = i.translationTable;
+      final t = env.translationTable(id);
+      final pageMask = (1 << env.pageShift) - 1;
+      final done = Arm64Label(), direct = Arm64Label();
+      final windowed = t.directEnd > t.directStart;
+      if (windowed) {
+        a.constant(3, t.directStart);
+        a.alu(0x4b000000, 3, 0, 3);
+        a.constant(4, t.directEnd - t.directStart);
+        a.cmp(3, 4);
+        a.branch(direct, 3);
+      }
+      a.constant(4, env.pageShift);
+      a.alu(0x1ac02400, 4, 0, 4);
+      a.constant(5, t.slots - 1);
+      a.alu(0x0a000000, 4, 4, 5);
+      a.constant(5, 4);
+      a.alu(0x1ac02000, 4, 4, 5);
+      a.constant(5, env.translationAddress(id), wide: true);
+      a.alu(0x0b000000, 4, 5, 4, wide: true);
+      a.memory(true, 5, 4, 0, size: 4);
+      a.constant(6, ~pageMask & 0xffffffff);
+      a.alu(0x0a000000, 6, 0, 6);
+      a.constant(7, i.translationKey);
+      a.alu(0x2a000000, 6, 6, 7);
+      a.cmp(6, 5);
+      a.branch(miss, 1);
+      a.memory(true, 5, 4, 8);
+      a.constant(3, pageMask);
+      a.alu(0x0a000000, 3, 0, 3);
+      if (windowed) {
+        a.branch(done);
+        a.bind(direct);
+        lookup(write);
+        a.cmp(5, 31, wide: true);
+        a.branch(miss, 0);
+        a.bind(done);
+      }
+    }
+
     void swap(int reg, int size, IrEndian endian) {
       if (endian == IrEndian.big && size > 1) a.reverse(reg, size);
     }
@@ -379,9 +422,13 @@ abstract final class Arm64Backend {
                   a.branch(done);
                 });
           load(0, i.a);
-          lookup(false);
-          a.cmp(5, 31, wide: true);
-          a.branch(slow, 0);
+          if (i.translation >= 0) {
+            translatedLookup(i, false, slow);
+          } else {
+            lookup(false);
+            a.cmp(5, 31, wide: true);
+            a.branch(slow, 0);
+          }
           a.alu(0x0b000000, 5, 5, 3, wide: true);
           a.memory(true, 0, 5, 0, size: i.imm);
           a.bind(done);
@@ -412,9 +459,13 @@ abstract final class Arm64Backend {
                   a.branch(done);
                 });
           load(0, i.a);
-          lookup(true);
-          a.cmp(5, 31, wide: true);
-          a.branch(slow, 0);
+          if (i.translation >= 0) {
+            translatedLookup(i, true, slow);
+          } else {
+            lookup(true);
+            a.cmp(5, 31, wide: true);
+            a.branch(slow, 0);
+          }
           a.alu(0x0b000000, 5, 5, 3, wide: true);
           load(0, i.b);
           swap(0, i.imm, i.endian);

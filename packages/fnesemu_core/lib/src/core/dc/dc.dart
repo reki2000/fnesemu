@@ -38,6 +38,8 @@ class Dc extends Core {
       bus.onDeviceAccess = _syncDevices;
       bus.systemBus.onSystemReset = () => _systemResetRequested = true;
       bus.maple.source = padPort;
+      // One memory card sits in the first slot of the first controller.
+      attachMemoryCard(0, 0, DcMemoryCard());
       // Compiled code reads and writes main RAM directly.
       if (_jit != null) bus.cache.coherent = true;
       if (bootBringUp) {
@@ -272,6 +274,8 @@ class Dc extends Core {
     bus.gpu.reset(clearMemory: !preserveMemory);
     bus.maple.reset();
     bus.flash.reset();
+    // Keeps the boot ROM from asking for the date at every start.
+    bus.flash.dateSettings(bus.aica.rtcSeconds);
     bus.systemBus.reset(clearExternal: true);
     bus.aica.reset(clearMemory: !preserveMemory);
     bus.g1.reset();
@@ -492,7 +496,7 @@ class Dc extends Core {
         return (0, _executionSh4);
       }
       sh4Executed = cpu.instructionExecuted;
-      _pendingClocks = duration * (bootBringUp ? 8 : 1);
+      _pendingClocks = duration;
     }
     var elapsed = _pendingClocks;
     // Preserve one ARM instruction per debugger observation even when the SH4
@@ -549,7 +553,7 @@ class Dc extends Core {
       final line = bus.gpu.spg.clocksToNextLine;
       _batchDeadline = line != null && line < _batchLimit ? line : _batchLimit;
     }
-    final period = bus.cpg.cpuPeriod * (bootBringUp ? 8 : 1);
+    final period = bus.cpg.cpuPeriod;
     final previousClocks = _clocks;
     final previousLines = bus.gpu.spg.completedLines;
     final wasVideoRunning = bus.gpu.spg.running;

@@ -155,4 +155,26 @@ void main() {
 
 
   });
+  test('the depth scale follows every change of the density register', () {
+    fog.write(0xb0, 0xffffff);
+    fog.write(0x200 + 16 * 4, 0xff00); // Depth 2 to 2 + 1/8: full fog.
+    // Scale 1 maps depth 2 to table entry 16; scale 2 maps it to entry 32.
+    fog.write(0xb8, 0x8000);
+    final one = apply(0x80000000, depth: 2);
+    fog.write(0xb8, 0x8001);
+    final two = apply(0x80000000, depth: 2);
+    expect(one, isNot(two));
+    fog.write(0xb8, 0x8000);
+    expect(apply(0x80000000, depth: 2), one);
+    fog.write(0xb8, 0x80ff); // Exponent -1.
+    final half = apply(0x80000000, depth: 2);
+    fog.write(0xb8, 0x8000);
+    fog.write(0xb8, 0x80ff);
+    expect(apply(0x80000000, depth: 2), half);
+    fog.reset();
+    fog.write(0xb0, 0xffffff);
+    fog.write(0x200 + 16 * 4, 0xff00);
+    fog.write(0xb8, 0x8000);
+    expect(apply(0x80000000, depth: 2), one);
+  });
 }

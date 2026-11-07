@@ -4,6 +4,8 @@ part of 'sh4.dart';
 /// Main RAM is mapped at each physical mirror; any other access, and every
 /// instruction the translator rejects, returns to the interpreter. The bus
 /// cache must stay coherent so that RAM always holds current data.
+/// The MMU observers keep the runtime's translation tables in step with the
+/// TLB, and retire P0 blocks whose page comes to translate elsewhere.
 final class Sh4Jit extends JitAdapter {
   // Only a native runtime is created, so the adapter is always native.
   Sh4Jit._(JitRuntime rt, int compileThreshold)
@@ -14,16 +16,31 @@ final class Sh4Jit extends JitAdapter {
   late final Uint8List ram = rt.alloc(DcBus.ramSize);
   late final _queuePage = rt.alloc(rt.pageBytes);
   late final storeQueues = Uint8List.sublistView(_queuePage, 0, 64);
+  late final int _reads = rt.addTranslationTable(
+      write: false,
+      directStart: Sh4Translator.directStart,
+      directEnd: Sh4Translator.directEnd);
+  late final int _writes = rt.addTranslationTable(
+      write: true,
+      directStart: Sh4Translator.directStart,
+      directEnd: Sh4Translator.directEnd);
+
+  /// The physical page and the blocks of each P0 page under a key, by
+  /// `page | key`.
+  final _blockPages = <int, (int, List<(int, int)>)>{};
   late final Sh4 _cpu;
   late final _code = JitCodeMemory(rt);
   late final _translator = Sh4Translator(
       fetch: _fetch,
       protect: _code.protect,
+      codePage: _codePage,
+      readTable: _reads,
+      writeTable: _writes,
       fpuHelper: rt.addHelper(_floatingPoint),
       prefetchHelper: rt.addHelper(_prefetch));
   late final _driver = JitDriver(rt,
-      translate: (pc, tag) => _translator.translate(pc, tag: tag),
-      codeWord: _fetch,
+      translate: _translate,
+      codeWord: _codeWord,
       codeMemory: _code,
       threshold: compileThreshold,
       prepareFirst: true,
@@ -33,10 +50,12 @@ final class Sh4Jit extends JitAdapter {
           reason == JitReason.miss &&
               rt.ctx[JitCtx.stop] == 0 &&
               rt.ctx[JitCtx.budget].toSigned(32) > 0);
+  // Blocks never change the mode, the MMU or the address space, so the
+  // tag found at entry holds for every block of a run.
   late final diagnostics = JitDiagnostics(rt,
       instructionBytes: 2, byteOrder: Endian.little, guestExit: (pc, reason) {
     if (reason != Sh4Translator.interpret) return null;
-    final opcode = _fetch(pc);
+    final opcode = _codeWord(pc);
     return opcode != null && !Sh4Translator.supported(opcode, _tag)
         ? 'unsupportedInstruction'
         : null;
@@ -61,10 +80,97 @@ final class Sh4Jit extends JitAdapter {
     return jit;
   }
 
+  void _attach(Sh4 cpu) {
+    _cpu = cpu;
+    cpu.bus.mmu
+      ..onTranslate = _record
+      ..onEntryChange = _forget
+      ..onFlush = _flush;
+  }
+
+  /// Records a translation of a 4 KiB or larger page to main RAM.
+  void _record(
+      int address, int physical, int offsetMask, bool write, bool privileged) {
+    if (offsetMask < 0xfff || address >= 0x80000000) return;
+    physical &= 0x1fffffff;
+    if (physical < 0x0c000000 || physical >= 0x10000000) return;
+    final mmu = _cpu.bus.mmu;
+    final key = Sh4Translator.keyBits(Sh4Translator.mmuTag(0, 0,
+        user: !privileged, space: _space(mmu.control, mmu.pteh, privileged)));
+    if (!write) {
+      final blocks = _blockPages[(address & 0xfffff000) | key];
+      if (blocks != null && blocks.$1 != physical & 0x1ffff000) {
+        _blockPages.remove((address & 0xfffff000) | key);
+        for (final (pc, tag) in blocks.$2) {
+          _driver.invalidate(pc, tag);
+        }
+      }
+    }
+    rt.mapTranslation(write ? _writes : _reads, address, key, physical);
+  }
+
+  /// Drops the slots of an entry's old range.
+  void _forget(int high, int offsetMask) {
+    if (offsetMask < 0xfff) return;
+    final base = high & ~offsetMask & 0xfffff000;
+    final pages = (offsetMask + 1) >>> 12;
+    for (var i = 0; i < pages && i < 1 << 20; i++) {
+      final page = (base + (i << 12)) & 0xffffffff;
+      rt.unmapTranslation(_reads, page);
+      rt.unmapTranslation(_writes, page);
+    }
+  }
+
+  void _flush() {
+    rt.clearTranslations(_reads);
+    rt.clearTranslations(_writes);
+  }
+
+  IrBlock? _translate(int pc, int tag) {
+    final block = _translator.translate(pc, tag: tag);
+    if (block != null && tag & Sh4Translator.tagMmu != 0 && pc < 0x80000000) {
+      final page = _codePage(pc, tag)!;
+      final key = (pc & 0xfffff000) | Sh4Translator.keyBits(tag);
+      final known = _blockPages[key];
+      if (known == null || known.$1 != page) {
+        _blockPages[key] = (page, [(pc, tag)]);
+      } else {
+        known.$2.add((pc, tag));
+      }
+    }
+    return block;
+  }
+
+  static int _space(int control, int pteh, bool privileged) =>
+      privileged && control & 0x100 != 0 ? 256 : pteh & 255;
+
+  int? _codePage(int address, int tag) =>
+      rt.translate(_reads, Sh4Translator.keyBits(tag), address & 0xfffff000);
+
+  /// The instruction word at a virtual [pc] under the current mode.
+  int? _codeWord(int pc) {
+    pc &= 0xffffffff;
+    final mmu = _cpu.bus.mmu;
+    if (!mmu.enabled) return _fetch(pc);
+    if (pc >= 0x80000000) {
+      return _cpu.privileged && Sh4Translator.untranslated(pc)
+          ? _fetch(pc)
+          : null;
+    }
+    final page = _codePage(pc, _tag);
+    return page == null ? null : _fetch(page | (pc & 0xfff));
+  }
+
   Uint32List _view(int word) =>
       Uint32List.view(rt.ctx.buffer, rt.ctx.offsetInBytes + word * 4, 16);
 
-  int get _tag => Sh4Translator.tagOf(_cpu._sr, _cpu._fpscr);
+  int get _tag {
+    final cpu = _cpu, mmu = cpu.bus.mmu;
+    if (!mmu.enabled) return Sh4Translator.tagOf(cpu._sr, cpu._fpscr);
+    final privileged = cpu.privileged;
+    return Sh4Translator.mmuTag(cpu._sr, cpu._fpscr,
+        user: !privileged, space: _space(mmu.control, mmu.pteh, privileged));
+  }
 
   int? _fetch(int pc) {
     if (pc & 1 != 0 || pc.mask32 >= 0xc0000000) return null;
@@ -99,7 +205,10 @@ final class Sh4Jit extends JitAdapter {
     if (steps > 0) cpu.pc = rt.exitPc;
     if (reason == Sh4Translator.interpret) {
       // A store into a code page: leave later stores to the entry guards.
-      final fault = ctx[JitCtx.faultAddr];
+      var fault = ctx[JitCtx.faultAddr];
+      if (fault != 0 && fault < 0x80000000 && tag & Sh4Translator.tagMmu != 0) {
+        fault = rt.translate(_reads, Sh4Translator.keyBits(tag), fault) ?? 0;
+      }
       if (fault != 0 && _code.isProtected(fault)) _code.release(fault);
     }
     return steps;
@@ -108,7 +217,7 @@ final class Sh4Jit extends JitAdapter {
   int _prefetch(int address, int _, int __) {
     if (!DcBus.isStoreQueue(address)) return 0;
     try {
-      _cpu.bus.transferStoreQueue(address);
+      _cpu.bus.transferStoreQueue(address, privileged: _cpu.privileged);
     } on DcCpuException {
       return 1;
     } on DcUnsupported {

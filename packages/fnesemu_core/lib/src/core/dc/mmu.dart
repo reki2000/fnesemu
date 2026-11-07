@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../state.dart';
 import '../../util/int.dart';
 import 'fault.dart';
@@ -9,10 +11,25 @@ class DcTranslation {
 }
 
 class _TlbEntry {
-  int high = 0, low = 0, assistance = 0;
+  /// Changes whenever any entry changes, so that lookup memos can be dropped.
+  static int version = 0;
+  int _high = 0, _low = 0;
+  int assistance = 0;
+  int get high => _high;
+  set high(int value) {
+    _high = value;
+    version++;
+  }
+
+  int get low => _low;
+  set low(int value) {
+    _low = value;
+    version++;
+  }
+
   bool get valid => low & 0x100 != 0;
-  int get offsetMask =>
-      [0x3ff, 0xfff, 0xffff, 0xfffff][((low >> 6) & 2) | ((low >> 4) & 1)];
+  static const _masks = [0x3ff, 0xfff, 0xffff, 0xfffff];
+  int get offsetMask => _masks[((low >> 6) & 2) | ((low >> 4) & 1)];
 }
 
 /// SH7750 unified/instruction TLBs and software-visible MMU state.
@@ -30,7 +47,22 @@ class DcMmu {
         entry.low &= ~0x100;
       }
     }
+    if (value & 4 != 0 || (value ^ _control) & 0x101 != 0) onFlush?.call();
     _control = value & 0xfcfcff01;
+  }
+
+  /// Observers for a translation cache outside the MMU. [onTranslate]
+  /// reports each successful TLB translation with the offset mask of its
+  /// page. [onEntryChange] reports the old range of a valid entry before
+  /// the entry changes, and [onFlush] reports changes to every entry or to
+  /// the address space identifier rules.
+  void Function(int address, int physical, int offsetMask, bool write,
+      bool privileged)? onTranslate;
+  void Function(int high, int offsetMask)? onEntryChange;
+  void Function()? onFlush;
+
+  void _changing(_TlbEntry entry) {
+    if (entry.valid) onEntryChange?.call(entry.high, entry.offsetMask);
   }
 
   void reset({bool manual = false}) {
@@ -40,6 +72,7 @@ class DcMmu {
         entry.low &= ~0x100;
       }
     }
+    onFlush?.call();
   }
 
   void saveState(StateWriter writer) {
@@ -83,6 +116,7 @@ class DcMmu {
         }
       }
     }
+    onFlush?.call();
     pteh = registers[0];
     ptel = registers[1];
     ptea = registers[2];
@@ -100,6 +134,7 @@ class DcMmu {
 
   void load() {
     final entry = _unified[(_control >> 10) & 63];
+    _changing(entry);
     entry.high = pteh & 0xfffffcff;
     entry.low = ptel & 0x1ffffdff;
     entry.assistance = ptea & 15;
@@ -112,16 +147,36 @@ class DcMmu {
           (privileged && _control & 0x100 != 0) ||
           (entry.high & 255) == (pteh & 255));
 
+  final _memoKeys = Int64List(64), _memoValues = Int32List(64);
+  int _memoVersion = -1;
+
   int _find(List<_TlbEntry> entries, int address, bool privileged,
       {bool instruction = false}) {
+    // Entries match whole 1 KiB pages at least, so the page decides the result.
+    final asid = _control & 0x100 != 0 && privileged ? 256 : pteh & 255;
+    final key = (address >>> 10) |
+        (asid << 22) |
+        (instruction ? 1 << 31 : 0) |
+        (1 << 32);
+    if (_memoVersion != _TlbEntry.version) {
+      _memoKeys.fillRange(0, _memoKeys.length, 0);
+      _memoVersion = _TlbEntry.version;
+    }
+    final slot = (address >>> 10) & 63;
+    if (_memoKeys[slot] == key) return _memoValues[slot];
     var found = -1;
-    for (var i = 0; i < entries.length; i++) {
-      if (!_matches(entries[i], address, privileged)) continue;
+    final length = entries.length;
+    for (var i = 0; i < length; i++) {
+      final entry = entries[i];
+      if (entry.low & 0x100 == 0) continue;
+      if (!_matches(entry, address, privileged)) continue;
       if (found >= 0) {
         throw DcCpuException(0x140, address: address, reset: true);
       }
       found = i;
     }
+    _memoKeys[slot] = key;
+    _memoValues[slot] = found;
     return found;
   }
 
@@ -202,6 +257,7 @@ class DcMmu {
     }
     final physical = (entry.low & (0x1ffffc00 & ~entry.offsetMask)) |
         (address & entry.offsetMask);
+    onTranslate?.call(address, physical, entry.offsetMask, write, privileged);
     return DcTranslation(physical, entry.low & 8 != 0, entry.low & 1 != 0);
   }
 
@@ -245,6 +301,7 @@ class DcMmu {
   void writeArray(int address, int value, {bool privileged = true}) {
     final (entry, data, instruction) = _arrayEntry(address);
     if (data) {
+      _changing(entry);
       if (address & 0x800000 != 0) {
         entry.assistance = value & 15;
       } else {
@@ -256,11 +313,13 @@ class DcMmu {
           instruction: true);
       if (unified >= 0) {
         final target = _unified[unified];
+        _changing(target);
         target.low =
             (target.low & ~0x104) | (value & 0x100) | ((value >> 7) & 4);
       }
       if (insn >= 0) {
         final target = _instruction[insn];
+        _changing(target);
         if (unified >= 0) {
           target.low = _unified[unified].low & 0x1ffffdda;
           target.assistance = _unified[unified].assistance;
@@ -269,6 +328,7 @@ class DcMmu {
         }
       }
     } else {
+      _changing(entry);
       entry.high = value & 0xfffffcff;
       entry.low = (entry.low & ~(instruction ? 0x100 : 0x104)) |
           (value & 0x100) |

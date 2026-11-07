@@ -174,7 +174,12 @@ class DcSystemBus {
 
   int read(int offset, int size) {
     if (size != 4) {
-      throw DcUnsupported('HOLLY interrupt registers require longword access');
+      // Byte and word reads return the addressed lanes of the longword.
+      if ((size != 1 && size != 2) || offset & (size - 1) != 0) {
+        throw DcUnsupported('HOLLY interrupt registers require aligned access');
+      }
+      final shift = (offset & 3) * 8;
+      return (read(offset & ~3, 4) >>> shift) & ((1 << (size * 8)) - 1);
     }
     if (((offset >= 0x1300 && offset <= 0x1318) ||
             (offset >= 0x13f0 && offset <= 0x13f8)) &&

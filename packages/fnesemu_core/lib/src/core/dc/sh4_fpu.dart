@@ -202,6 +202,32 @@ extension _Sh4Fpu on Sh4 {
     return true;
   }
 
+  /// FSQRT, or FSRRA with [reciprocal], of a positive normal single when no
+  /// exception is enabled. The double square root and quotient of singles,
+  /// rounded to single, equal the exact results (double rounding is
+  /// innocuous for these operations). FSRRA always rounds to nearest, as
+  /// the exact model does; FSQRT steps back one unit when round-to-zero is
+  /// selected and the nearest result overshoots.
+  bool _fastRoot(int n, bool reciprocal) {
+    final bits = fr[n];
+    if (bits & 0x80000000 != 0 || !_normalSingle(bits)) return false;
+    final x = _toSingle(bits);
+    _singleData.setFloat32(0, math.sqrt(x));
+    var result = _singleData.getUint32(0);
+    final root = _singleData.getFloat32(0);
+    if (reciprocal) {
+      _singleData.setFloat32(0, 1.0 / root);
+      fr[n] = _singleData.getUint32(0);
+      _setFloatFlags(DcFloat.inexact);
+      return true;
+    }
+    final square = root * root;
+    if (fpscr & 1 != 0 && square > x) result--;
+    fr[n] = result;
+    _setFloatFlags(square == x ? 0 : DcFloat.inexact);
+    return true;
+  }
+
   DcFloat get _floatFormat =>
       fpscr.bit19 ? DcFloat.doublePrecision : DcFloat.single;
 
@@ -299,7 +325,8 @@ extension _Sh4Fpu on Sh4 {
       return true;
     }
     if (code == 0xf08d || code == 0xf09d) {
-      if (fpscr.bit19) _illegal();
+      // The manual leaves FLDI0/FLDI1 undefined with FPSCR.PR = 1, but a
+      // shipped title executes them in that mode; load the single value.
       fr[n] = code == 0xf08d ? 0 : 0x3f800000;
       return true;
     }
@@ -449,12 +476,16 @@ extension _Sh4Fpu on Sh4 {
             _finishFloat(format.toInteger(_floatingBits(n), fpscr), possible: 0)
                 .toInt();
       case 0xf06d: // FSQRT.
+        if (!fpscr.bit19 && fpscr & 0xf80 == 0 && _fastRoot(n, false)) {
+          return true;
+        }
         _setFloatingBits(
             n,
             _finishFloat(format.squareRoot(_floatingBits(n), fpscr),
                 possible: 1));
       case 0xf07d: // SH7091 reciprocal square-root approximation.
         if (fpscr.bit19) _illegal();
+        if (fpscr & 0xf80 == 0 && _fastRoot(n, true)) return true;
         fr[n] = _finishFloat(
                 DcFloat.single.reciprocalRoot(BigInt.from(fr[n]), fpscr),
                 possible: 1)

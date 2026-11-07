@@ -104,6 +104,69 @@ void main() {
     bus = core.bus;
   });
 
+  test('a GD-ROM image answers each area with its own tracks and format', () {
+    core.setRom(Uint8List.fromList([9, 0, 0xfd, 0xaf, 9, 0]));
+    final shared = sector(1);
+    final drive = FakeCdromDrive(List.filled(45002, shared),
+        starts: const [0, 100, 45000],
+        audioTracks: const {2},
+        sessions: const [CdromSession(1, 1, 0), CdromSession(2, 3, 45000)],
+        medium: CdromMedium.gd);
+    core.setCdromDrive(drive);
+    clearAttention();
+    packet([0x10, 0, 0, 0, 10]);
+    expect(drain()[1] & 0xf0, 0x80);
+    packet([0x14, 0, 0, 1, 0x98]);
+    var toc = drain();
+    expect(toc.sublist(0, 8), [0x41, 0, 0, 150, 1, 0, 0, 250]);
+    expect(toc.sublist(8, 12), everyElement(255));
+    expect(toc.sublist(396), [0x41, 1, 0, 0, 1, 2, 0, 0, 1, 0, 0xb0, 0x5e]);
+    packet([0x14, 1, 0, 1, 0x98]);
+    toc = drain();
+    expect(toc.sublist(0, 8), everyElement(255));
+    expect(toc.sublist(8, 12), [0x41, 0, 0xb0, 0x5e]);
+    expect(
+        toc.sublist(396), [0x41, 3, 0, 0, 0x41, 3, 0, 0, 0x41, 0, 0xb0, 0x60]);
+  });
+
+  test('a GD-ROM drive reaches only the area its last TOC request named', () {
+    core.setRom(Uint8List.fromList([9, 0, 0xfd, 0xaf, 9, 0]));
+    final data = sector(5);
+    final drive = FakeCdromDrive(List.filled(45002, data),
+        starts: const [0, 100, 45000],
+        audioTracks: const {2},
+        sessions: const [CdromSession(1, 1, 0), CdromSession(2, 3, 45000)],
+        medium: CdromMedium.gd);
+    core.setCdromDrive(drive);
+    clearAttention();
+    const lowRead = [0x30, 0x24, 0, 0, 151, 0, 0, 0, 0, 0, 1];
+    const highRead = [0x30, 0x24, 0, 0xb0, 0x5e, 0, 0, 0, 0, 0, 1];
+    void expectRefused(List<int> command) {
+      packet(command);
+      expect(drain(), isEmpty);
+      expect(bus.read8(base + 0x18) & 1, 1);
+      clearAttention();
+    }
+
+    // The drive starts in the low-density area.
+    packet(lowRead);
+    expect(drain(), data.sublist(16, 2064));
+    expectRefused(highRead);
+    // Seek and play are bounded the same way.
+    expectRefused([0x21, 1, 0, 0xb0, 0x5e]);
+    expectRefused([0x20, 1, 0, 0xb0, 0x5e, 0, 0, 0, 0, 0xb0, 0x60]);
+    packet([0x14, 1, 0, 1, 0x98]);
+    drain();
+    packet(highRead);
+    expect(drain(), data.sublist(16, 2064));
+    // A low-density request returns the drive to the low-density area.
+    packet([0x14, 0, 0, 1, 0x98]);
+    drain();
+    expectRefused(highRead);
+    packet(lowRead);
+    expect(drain(), data.sublist(16, 2064));
+  });
+
   test(
       'verified boot media exposes a persistent virtual data area without relocating sectors',
       () {

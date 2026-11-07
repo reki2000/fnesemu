@@ -1,8 +1,10 @@
+import 'dart:math';
+
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 import 'package:mp_jit_recompiler/src/optimizer.dart';
 import 'package:test/test.dart';
 
-List<Object> execute(IrBlock block) {
+List<Object> execute(IrBlock block, {int x = 0x87654321, int y = 0}) {
   final effects = <String>[];
   final rt = JitRuntime.interpreter(
       ctxWords: 64,
@@ -18,7 +20,8 @@ List<Object> execute(IrBlock block) {
     effects.add('call $a $b $c');
     return a + b + c;
   });
-  rt.ctx[8] = 0x87654321;
+  rt.ctx[8] = x;
+  rt.ctx[9] = y;
   rt.ctx[JitCtx.budget] = 100;
   rt.install(block);
   rt.run(block.pc, block.tag);
@@ -128,5 +131,122 @@ void main() {
     expect(optimizedWide.insts.first.type, IrType.i64);
     expect(optimizedWide.insts.first.imm, -1);
     expect(optimizedWide.insts.first.immHi, 0x12345678);
+  });
+
+  test(
+    'bit extraction through or, and and shifts keeps the extracted value',
+    () {
+      final random = Random(5);
+      const inputs = [
+        (0, 0),
+        (-1, -1),
+        (0x87654321, 0x12345678),
+        (0x40000000, 1),
+        (0x7fffffff, -0x80000000),
+        (3, 0xc0000000),
+      ];
+      for (var round = 0; round < 400; round++) {
+        final b = IrBuilder(0x100);
+        final pool = <IrValue>[b.ctxLoad(8), b.ctxLoad(9), b.ctxLoad(24)];
+        IrValue pick() => pool[random.nextInt(pool.length)];
+        int maskConstant() {
+          final shape = random.nextInt(4);
+          if (shape == 0) return 1;
+          if (shape == 1) return ~(1 << random.nextInt(32));
+          if (shape == 2)
+            return (random.nextInt(0x7fffffff) << random.nextInt(2));
+          return random.nextInt(0x7fffffff);
+        }
+
+        for (var i = 0; i < 14; i++) {
+          final value = switch (random.nextInt(9)) {
+            0 => b.and(pick(), b.c32(maskConstant())),
+            1 => b.or(pick(), pick()),
+            2 => b.shl(pick(), b.c32(random.nextInt(32))),
+            3 => b.shrU(pick(), b.c32(random.nextInt(32))),
+            4 => b.eq(pick(), pick()),
+            5 => b.ltU(pick(), pick()),
+            6 => b.add(pick(), pick()),
+            7 => b.and(b.shrU(pick(), b.c32(random.nextInt(32))), b.c32(1)),
+            _ => b.xor(pick(), pick()),
+          };
+          pool.add(value);
+        }
+        for (var i = 0; i < 8; i++) {
+          b.ctxStore(16 + i, pool[pool.length - 1 - i]);
+        }
+        b.exitIf(
+          b.or(pick(), pick()),
+          const IrExit(JitReason.user, 0x300, spent: 1),
+        );
+        final block = b.finish(const IrExitTerm(IrExit(16, 0x104)), cost: 5);
+        final optimized = optimizeIrBlock(block);
+        for (final (x, y) in inputs) {
+          expect(
+            execute(optimized, x: x.toUnsigned(32), y: y.toUnsigned(32)),
+            execute(block, x: x.toUnsigned(32), y: y.toUnsigned(32)),
+            reason: 'round $round inputs $x $y',
+          );
+        }
+      }
+    },
+  );
+
+  test('a flag stored beside others and read back is the compared value', () {
+    final b = IrBuilder(0x100);
+    final status = b.ctxLoad(24);
+    final flag = b.eq(b.ctxLoad(8), b.c32(0));
+    final packed = b.or(b.and(status, b.c32(-2)), flag);
+    b.ctxStore(24, packed);
+    b.ctxStore(16, b.and(packed, b.c32(1)));
+    final block = b.finish(const IrExitTerm(IrExit(16, 0x104)), cost: 2);
+    final optimized = optimizeIrBlock(block);
+    // The stored bit is the comparison itself, not a re-extraction.
+    final extractions = optimized.insts.where(
+      (i) =>
+          i.op == IrOp.and &&
+          optimized.insts[i.b].op == IrOp.constant &&
+          optimized.insts[i.b].imm == 1,
+    );
+    expect(extractions, isEmpty);
+    for (final x in [0, 1, 0x87654321]) {
+      expect(execute(optimized, x: x), execute(block, x: x));
+    }
+  });
+
+  test('a shift right of a shift left by the same amount is the value', () {
+    final b = IrBuilder(0x100);
+    final flag = b.ltU(b.ctxLoad(8), b.ctxLoad(9));
+    b.ctxStore(16, b.shrU(b.shl(flag, b.c32(30)), b.c32(30)));
+    final block = b.finish(const IrExitTerm(IrExit(16, 0x104)), cost: 2);
+    final optimized = optimizeIrBlock(block);
+    expect(
+      optimized.insts.where((i) => i.op == IrOp.shl || i.op == IrOp.shrU),
+      isEmpty,
+    );
+    for (final (x, y) in [(1, 2), (2, 1), (5, 5)]) {
+      expect(execute(optimized, x: x, y: y), execute(block, x: x, y: y));
+    }
+  });
+
+  test('an exit on an or of conditions becomes one exit per condition', () {
+    final b = IrBuilder(0x100);
+    final address = b.ctxLoad(8);
+    final bad = b.or(
+      b.ltU(b.c32(0xbfffffff), address),
+      b.and(address, b.c32(3)),
+    );
+    b.exitIf(bad, const IrExit(JitReason.user, 0x200, spent: 1));
+    final block = b.finish(const IrJump(0x300), cost: 2);
+    final optimized = optimizeIrBlock(block);
+    expect(optimized.insts.where((i) => i.op == IrOp.exitIf), hasLength(2));
+    expect(optimized.insts.where((i) => i.op == IrOp.or), isEmpty);
+    for (final x in [0, 4, 6, 0xbfffffff, 0xc0000000, 0xffffffff, 0x1001]) {
+      expect(
+        execute(optimized, x: x),
+        execute(block, x: x),
+        reason: '$x',
+      );
+    }
   });
 }

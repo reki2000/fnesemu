@@ -98,6 +98,7 @@ Keep code-version validity separate from data-region stability. Entry guards rem
 
 1. Implemented in shared IR: `divS`, `divU`, `remS`, `remU` for i32/i64 with guarded zero and signed-overflow semantics in the reference, x86-64, ARM64 and Wasm backends. The PS1 frontend replaces its division helper, N64 translates DIV/DIVU/DDIV/DDIVU, and PS2 EE translates DIV/DIVU and MMI DIV1/DIVU1 with synchronized HI/LO pipelines. SH-2 and SH-4 already translate the iterative DIV1 and setup operations; their memory-mapped division peripherals and instruction-specific flags are not simple replacements with the quotient/remainder IR.
 2. Add a typed 64-bit helper ABI and further floating-point operations when a frontend needs them.
+3. Consider a dedicated IR operation for each guest instruction that a frontend expands into more than six IR instructions. List those instructions per frontend from the translator output, weight them by their execution counts in measured scenes, and compare the emitted host code of the expansion with a dedicated backend sequence before adding an operation.
 
 ## Core adapter candidates
 

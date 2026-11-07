@@ -6,18 +6,135 @@ IrBlock optimizeIrBlock(IrBlock block) {
   final values = <IrInst>[];
   final aliases = List<int>.filled(block.insts.length, -1);
   final constants = <int, int>{};
+  // The bits that can be set in each i32 value; 32-bit values of unknown
+  // content have every bit set.
+  final masks = <int>[];
+  const full = 0xffffffff;
+  int maskOfValue(int v) =>
+      v >= 0 && values[v].type == IrType.i32 ? masks[v] : full;
+  int maskOf(IrInst i, int? y) {
+    if (i.type != IrType.i32) return full;
+    final ma = maskOfValue(i.a), mb = maskOfValue(i.b);
+    switch (i.op) {
+      case IrOp.constant:
+        return i.imm.toUnsigned(32);
+      case IrOp.and:
+        return ma & mb;
+      case IrOp.or || IrOp.xor:
+        return ma | mb;
+      case IrOp.shl:
+        return y == null ? full : (ma << (y & 31)).toUnsigned(32);
+      case IrOp.shrU:
+        return y == null ? full : ma >>> (y & 31);
+      case IrOp.shrS:
+        return y == null || ma >>> 31 != 0 ? full : ma >>> (y & 31);
+      case IrOp.eq || IrOp.ne || IrOp.ltS || IrOp.ltU:
+        return 1;
+      case IrOp.select:
+        return maskOfValue(i.b) | maskOfValue(i.c);
+      case IrOp.zext8:
+        return 0xff;
+      case IrOp.zext16:
+        return 0xffff;
+      case IrOp.add when ma & mb == 0:
+        return ma | mb;
+      default:
+        return full;
+    }
+  }
+
   int remap(int v) => v < 0 ? -1 : aliases[v];
   int? constant(int v) =>
       v >= 0 && values[v].op == IrOp.constant && values[v].type == IrType.i32
           ? values[v].imm
           : null;
   bool narrowValue(int v) => v < 0 || values[v].type == IrType.i32;
+  int addValue(IrInst inst) {
+    final y = inst.b >= 0 && values[inst.b].op == IrOp.constant
+        ? values[inst.b].imm
+        : null;
+    // Reading the mask before the append keeps operand indices valid.
+    final mask = maskOf(inst, y);
+    values.add(inst);
+    masks.add(mask);
+    return values.length - 1;
+  }
+
   int emitConstant(int value) {
     value = value.toSigned(32);
     return constants.putIfAbsent(value, () {
-      values.add(IrInst(IrOp.constant, imm: value));
-      return values.length - 1;
+      return addValue(IrInst(IrOp.constant, imm: value));
     });
+  }
+
+  // A shift by a constant, simplified when it only undoes a shift left.
+  int emitShift(IrOp op, int x, int amount) {
+    final k = amount & 31;
+    if (k == 0) return x;
+    final xi = values[x];
+    if (xi.op == IrOp.constant) {
+      return emitConstant(op == IrOp.shl
+          ? xi.imm << k
+          : op == IrOp.shrU
+              ? xi.imm.toUnsigned(32) >>> k
+              : xi.imm >> k);
+    }
+    if (op == IrOp.shrU &&
+        xi.op == IrOp.shl &&
+        xi.type == IrType.i32 &&
+        constant(xi.b) == k &&
+        maskOfValue(xi.a) >>> (32 - k) == 0) {
+      return xi.a;
+    }
+    return addValue(IrInst(op, a: x, b: emitConstant(k)));
+  }
+
+  // A value equal to [v] on the bits of [demand]; the other bits are
+  // arbitrary. Bits that are known to be zero let an or drop an operand.
+  final extracted = <(int, int), int>{};
+  int extract(int v, int demand) {
+    if (maskOfValue(v) & demand == 0) return emitConstant(0);
+    final inst = values[v];
+    if (inst.type != IrType.i32) return v;
+    final key = (v, demand);
+    final known = extracted[key];
+    if (known != null) return known;
+    int result = v;
+    switch (inst.op) {
+      case IrOp.or:
+        final p = extract(inst.a, demand), q = extract(inst.b, demand);
+        if (constant(p) == 0) {
+          result = q;
+        } else if (constant(q) == 0) {
+          result = p;
+        } else if (p != inst.a || q != inst.b) {
+          result = addValue(IrInst(IrOp.or, a: p, b: q));
+        }
+      case IrOp.and:
+        final k = constant(inst.b);
+        if (k != null) {
+          final mask = k.toUnsigned(32);
+          final inner = extract(inst.a, demand & mask);
+          if (inner != inst.a) {
+            result = maskOfValue(inner) & demand & ~mask == 0
+                ? inner
+                : addValue(IrInst(IrOp.and, a: inner, b: inst.b));
+          }
+        }
+      case IrOp.shrU || IrOp.shl:
+        final k = constant(inst.b);
+        if (k != null && k & 31 != 0) {
+          final shift = k & 31;
+          final wanted = inst.op == IrOp.shrU
+              ? (demand << shift).toUnsigned(32)
+              : demand >>> shift;
+          final inner = extract(inst.a, wanted);
+          if (inner != inst.a) result = emitShift(inst.op, inner, shift);
+        }
+      default:
+        break;
+    }
+    return extracted[key] = result;
   }
 
   for (final (index, original) in block.insts.indexed) {
@@ -26,6 +143,31 @@ IrBlock optimizeIrBlock(IrBlock block) {
     final x = constant(a), y = constant(b);
     // A checked specialization can prove later address guards unnecessary.
     if (original.op == IrOp.exitIf && x == 0) continue;
+    if (original.op == IrOp.exitIf &&
+        a >= 0 &&
+        values[a].op == IrOp.or &&
+        values[a].type == IrType.i32) {
+      // An exit on an or of conditions is one exit per condition, each of
+      // which a backend can branch on directly.
+      final leaves = <int>[];
+      void split(int v) {
+        if (values[v].op == IrOp.or && values[v].type == IrType.i32) {
+          split(values[v].a);
+          split(values[v].b);
+        } else {
+          leaves.add(v);
+        }
+      }
+
+      split(a);
+      for (final leaf in leaves) {
+        if (constant(leaf) == 0) continue;
+        aliases[index] = values.length;
+        addValue(_copy(original, leaf, b, c));
+      }
+      aliases[index] = values.length - 1;
+      continue;
+    }
     final narrow = original.type == IrType.i32 &&
         narrowValue(a) &&
         narrowValue(b) &&
@@ -35,11 +177,43 @@ IrBlock optimizeIrBlock(IrBlock block) {
       aliases[index] = emitConstant(folded);
       continue;
     }
+    if (original.op == IrOp.and && narrow) {
+      // Only the bits of the constant mask are read, so the operand can
+      // drop the parts that cannot reach them.
+      final mask = (x ?? y);
+      final operand = x != null ? b : a;
+      if (mask != null && (x == null || y == null) && operand >= 0) {
+        final wanted = mask.toUnsigned(32);
+        final reduced = extract(operand, wanted);
+        final known = maskOfValue(reduced);
+        if (known & wanted == 0) {
+          aliases[index] = emitConstant(0);
+          continue;
+        }
+        if (known & ~wanted == 0) {
+          aliases[index] = reduced;
+          continue;
+        }
+        if (reduced != operand) {
+          aliases[index] =
+              addValue(IrInst(IrOp.and, a: reduced, b: emitConstant(mask)));
+          continue;
+        }
+      }
+    }
+    if (original.op == IrOp.shrU && narrow && y != null && a >= 0) {
+      final shifted = emitShift(IrOp.shrU, a, y);
+      if (shifted != a || y & 31 == 0) {
+        aliases[index] = shifted;
+        continue;
+      }
+    }
     int? alias;
     switch (original.op) {
       case IrOp.add || IrOp.or || IrOp.xor:
         if (y == 0) alias = a;
         if (x == 0) alias = b;
+        if (original.op == IrOp.or && a == b && a >= 0) alias = a;
       case IrOp.sub:
         if (y == 0) alias = a;
       case IrOp.mul:
@@ -48,6 +222,7 @@ IrBlock optimizeIrBlock(IrBlock block) {
       case IrOp.and:
         if (y == -1) alias = a;
         if (x == -1) alias = b;
+        if (a == b && a >= 0) alias = a;
       case IrOp.shl || IrOp.shrU || IrOp.shrS:
         if (y != null && y & (original.type.bits - 1) == 0) alias = a;
       case IrOp.select:
@@ -74,7 +249,7 @@ IrBlock optimizeIrBlock(IrBlock block) {
       (a, b) = (b, a);
     }
     aliases[index] = values.length;
-    values.add(_copy(original, a, b, c));
+    addValue(_copy(original, a, b, c));
   }
   IrExit mapExit(IrExit e, int Function(int) map) => IrExit(
     e.reason,
@@ -162,7 +337,8 @@ IrInst _copy(IrInst i, int a, int b, int c) => i.a == a && i.b == b && i.c == c
         exit: i.exit,
         type: i.type,
         endian: i.endian,
-        immHi: i.immHi);
+        immHi: i.immHi,
+        translation: i.translation);
 
 int? _fold(IrInst i, int? a, int? b, int? c) {
   if (i.op == IrOp.constant) return i.imm;

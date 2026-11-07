@@ -30,7 +30,7 @@ Loading flash uses the same core API as the boot ROM, without a probe-only bus m
 Strict hardware matching and unrelated peripheral expansion are deferred while blocking startup operations are implemented.
 The normal core factory now enables the provisional BIOS startup profile by default; `DC_BOOT_BRINGUP=false` selects strict operation.
 Low-level callers can explicitly select `Dc(bootBringUp: true)`; direct `Dc()` construction remains strict unless the build-time define enables the profile.
-This profile bundles verification bypass, the provisional GPIO 0/1 shared net, eight master clocks per instruction, whole-program fallback for unsupported AICA DSP instructions, provisional AICA low-pass filtering and the diagnostic byte-addressed short-ADPCM policy inside the core.
+This profile bundles verification bypass, the provisional GPIO 0/1 shared net, whole-program fallback for unsupported AICA DSP instructions, provisional AICA low-pass filtering and the diagnostic byte-addressed short-ADPCM policy inside the core.
 The debugger identifies the profile, and its states have a distinct configuration identity.
 It enables BIOS bring-up through the ordinary core API without GUI-specific device setup, but does not add an automatic ISO bootstrap fallback or override disc format.
 The same profile can be exercised without individual GPIO/timing flags:
@@ -761,17 +761,23 @@ Memory card physical LCD/buzzer behavior, factory media parameters and complete 
 `DcMapleDevice` separates packet endpoints from the host DMA engine.
 The controller owns two expansion slots and advertises connected children in its response AP; child discovery and transfers are routed only through an identified, operating parent.
 `Dc.attachMemoryCard` attaches a core-owned memory card to a port/slot and connects persistence regardless of whether `setSram` was called before or after attachment.
-No memory card is attached by default while factory initialization and standalone/pin behavior remain incomplete.
+One memory card is attached to the first slot of the first controller by default.
+A new card holds the empty file system that the boot ROM file screen writes with its default choices: 200 user blocks, a 13-block directory from block 253 down, the FAT in block 254 and the system block 255 with an opaque white card color.
+User blocks stay erased (0xff), and the system block repeats the `Get_Media_Info` fields from offset 0x40.
+The format date is fixed at 2000-01-01, where the boot ROM writes the clock, so that runs repeat.
+Persistent storage that already holds data replaces this image when `setSram` binds the card, so the card is formatted only when no saved data exists.
+The system block words from 0x52 take the values the boot ROM writes; their meaning is not documented.
+Standalone and pin behavior remain incomplete.
 The endpoint advertises FT1/FT2/FT3 definitions, ordered by descending function number, and the documented product name.
-It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error`, documented partition/block/phase/length errors, reset and kill.
+It supports single-access reads, four ordered 128-byte write phases, `Get_Last_Error` (after a write group with the next phase, or after a read with the same phase), documented partition/block/phase/length errors, reset and kill.
 A complete write group commits after phase 3; an interrupted or invalid group is discarded without changing the block.
 The functional packet endpoint applies effects when the host consumes the descriptor, not at individual wire-bit boundaries; flash programming latency, power-loss behavior and physical write failures remain pending.
 
-Raw 128 KiB byte images can be imported/exported without filesystem synthesis.
+Raw 128 KiB byte images can be imported/exported; an imported image is used as is.
 For a formatted card, `Get_Media_Info` returns ROM-fixed capacity/partition/root values and the remaining metadata from the system block, following FT1.
 Unformatted factory media parameters and extended device information remain explicit development stops until their exact memory card definitions are verified.
 The original generic FT1 layout and independent memory card root observations name some fields differently; memory card-specific factory responses still need stronger hardware evidence.
-LCD packet state supports FT2 media information (48×32 dots, two levels, no contrast adjustment), a single 192-byte horizontal-1 plane, contrast reset/query and documented LCD error bits.
+LCD packet state supports FT2 media information (48×32 dots, two levels, no contrast adjustment, and a last byte of 2 that the documents do not describe but game system software requires), a single 192-byte horizontal-1 plane, contrast reset/query and documented LCD error bits.
 `lcd.exportPixels` returns an independent copy of panel bytes; `lcd.image` produces a 48×32 RGBA image using the row-major, left-MSB arrangement in FT2 figures 2.5/2.9 and memory card peripheral specification figure 4.6.
 Attached LCDs appear as core-owned memory card A1–D2 debug layers through the existing video descriptor interface.
 Physical mounting orientation, icon segments and display timing still need hardware validation.
@@ -1214,6 +1220,8 @@ The functional parameter representation follows the generic three-word ISP/TSP h
 In-front tests use GEq as a functional coplanar policy; exact equality, raster precision and internal flag transitions remain unverified.
 A volume without a last polygon stops rather than emitting an incomplete area.
 TA also lists the last polygon in every tile that an earlier triangle of the volume reaches, so each tile list closes its volumes; the documents do not describe this binning, and the hardware output for such a tile remains unverified.
+A modifier triangle that directly follows the last triangle array of a tile in parameter memory joins that array, up to 16 triangles, so the renderer reads the same triangles in the same order with fewer object pointers.
+The documents do not say whether the TA packs volumes this way; a game's shadow volumes overflow its object list area with one pointer per triangle.
 
 FPU_SHAD_SCALE exposes the documented intensity enable bit and unsigned factor divided by 256.
 Area-one pixels on Shadow-enabled objects scale the interpolated base and offset RGB channels before texture/shading, clamp, fog and blending. The documents describe the scale of the color but not its alpha, so the alpha is kept and a shadow changes neither blending nor the punch-through test; this needs hardware validation.
@@ -2317,7 +2325,7 @@ That run loads only the supplied boot ROM and flash, in reverse selection order,
 The lower part of the capture still contains visible rendering artifacts; this result establishes the default startup path, not strict hardware matching or complete BIOS navigation.
 A further 50 million observations of the no-disc core-profile run retain the logo and repeatedly sample VSYNC at `0xa05f810c` from `0x8c00cb2e`; progression to the date dialog or main menu on this particular path remains unresolved.
 Tracing that checkpoint shows that the 32-clock approximation lets interrupt service consume the VSYNC pulse before the foreground wait observes it: pulses occur, but the wait never returns during one million observations.
-The core-owned profile now uses eight master clocks per instruction instead.
+The core-owned profile then used eight master clocks per instruction instead.
 At the same checkpoint, the original BIOS returns through `0x8c00cb3a`, continues display initialization and executes five million additional observations without a development stop; this provisional timing adjustment is not a cycle-accurate SH-4 model.
 The earlier 32-clock cold-boot captures above describe the previous profile revision.
 Another 20 million observations with the eight-clock profile complete without a development stop and fade the logo to a plain background while native BIOS service processing continues; the date dialog and main menu are not yet established on this no-disc path.
@@ -2670,7 +2678,41 @@ No unit-test case was added, and the retained 30 DSP/public-state scenarios pass
 
 ## Optional expansion devices and pipeline reset
 
-No optional G2 network adapter is attached. Byte identification reads at 0x00600000/0x00600004 and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
-The electrical value of an unconnected bus remains unverified; writes and other unimplemented peripheral registers retain explicit unsupported behavior.
+No optional G2 network adapter is attached. Byte reads in the absent modem window 0x00600000–0x006007ff and aligned byte/word/longword reads in the external 0x01000000–0x01ffffff expansion window use an all-ones absent-device policy.
+The electrical value of an unconnected bus remains unverified. Byte writes to the absent modem window are ignored; writes to the expansion window and other unimplemented peripheral registers retain explicit unsupported behavior.
 A pipeline-only GPU reset aborts pipeline work while preserving drawing and fog configuration; a full device reset restores register defaults.
 Descending additional OPB allocation subtracts the new list block's size before storing it, allowing the cursor to begin at the lower boundary of the initial OPBs without overwriting them.
+
+## Instruction timing
+
+Each SH-4 instruction advances the devices by one CPU clock (`cpuPeriod` master clocks), in the interpreter and in compiled code alike.
+The boot profile previously charged eight CPU clocks per instruction to work around a BIOS VSYNC wait; that slowed guest computation to about an eighth of the hardware rate, so CPU-bound titles ran at a fraction of their intended speed.
+Dual issue and pipeline stalls are not modeled.
+
+## System settings date
+
+The boot ROM asks for the date when the RTC is earlier than the date saved in the flash settings blocks, or 30 days or more past it.
+The RTC follows the host's local time, so a flash image saved long ago would ask at every start.
+At each power-on reset, the core writes the RTC time into every settings block (id 5 in the block-allocated partition at `0x1c000`) and recomputes its CRC-16 (polynomial 0x1021, initial value 0xffff, inverted output, stored little-endian over the first 62 bytes).
+An image without settings blocks is left as it is, so that the boot ROM runs its first setup.
+
+## Compiled code with the MMU on
+
+With the MMU on, compiled code runs in P0 in both modes and in P1 and P2 in privileged mode.
+Two translation tables of the JIT runtime, 1024 slots each, one for reads and instruction fetches and one for writes, cache translations of 4 KiB pages to main RAM; P1 and P2 form their direct window.
+The interpreter fills a slot from each successful TLB translation of a page of 4 KiB or more; a missing slot returns the access to the interpreter.
+A slot key holds the virtual page, user mode and the address space key (256 when MMUCR.SV shares privileged accesses, otherwise PTEH.ASID), so the tables need no flush when the ASID changes.
+Changing a valid TLB entry drops the slots of its old range; MMUCR.TI and changes of MMUCR.AT or MMUCR.SV drop every slot.
+The block tag includes user mode and the address space key, so each process has its own blocks.
+A block in P0 stays within one page, guards the physical code, and leaves at entry when its page has no slot.
+When the interpreter refills the slot of a page with another physical page, the blocks built from the old page are retired.
+User-mode blocks exclude the privileged STC SR forms.
+Accesses skip the UTLB replacement counter and the ITLB refill that the interpreter performs; software that depends on their exact values per access is not supported.
+
+## Reserved and sub-word register accesses
+
+Undefined addresses among the CPU control registers in the area-7 alias (`0x1f000000`–`0x1f0000ff`) ignore writes and read as zero; the defined registers keep their behavior.
+Byte and word reads of PVR and HOLLY interrupt registers return the addressed lanes of the longword.
+Zero writes after the end of the AICA DSP register map (`0x45c8`–`0x47ff`) are ignored, like the other gaps in the map.
+Reads of the write-only G2 protection register return zero; the hardware value is undocumented.
+FLDI0 and FLDI1 load their single values regardless of FPSCR.PR; the manual leaves the PR = 1 case undefined, but a shipped title executes it.

@@ -229,6 +229,38 @@ final class _NativeRuntime extends JitRuntime
     (write ? _writeTableView : _readTableView)[page] = entry;
   }
 
+  final _translationAddrs = <int>[];
+  final _translationViews = <Uint64List>[];
+
+  @override
+  void createTranslationTable(int table) {
+    _checkAlive();
+    final slots = translationTables[table].slots;
+    final address = _alloc(slots * 16);
+    _translationAddrs.add(address);
+    _translationViews.add(
+      Pointer<Uint64>.fromAddress(address).asTypedList(slots * 2),
+    );
+  }
+
+  @override
+  void writeTranslationSlot(
+    int table,
+    int slot,
+    int key,
+    (Uint8List, int)? host,
+  ) {
+    final view = _translationViews[table];
+    view[slot * 2] = key;
+    view[slot * 2 + 1] = host == null ? 0 : _hostAddr[host.$1]! + host.$2;
+  }
+
+  @override
+  JitTranslationTable translationTable(int id) => translationTables[id];
+
+  @override
+  int translationAddress(int id) => _translationAddrs[id];
+
   @override
   int addHelper(JitHelper f) {
     _helperAddrs.add(_callable(f));

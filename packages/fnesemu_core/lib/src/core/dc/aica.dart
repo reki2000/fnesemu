@@ -84,6 +84,9 @@ class DcAica {
               _rtc) &
       0xffffffff;
 
+  /// The RTC counter: local wall time in seconds since 1950.
+  int get rtcSeconds => _rtcCounter;
+
   void _setRtcCounter(int seconds, {bool resetFraction = false}) {
     // Low-half writes restart the subsecond fraction from the host instant.
     final milliseconds = _hostWallMilliseconds();
@@ -448,6 +451,8 @@ class DcAica {
     if (DcAicaSound.channelRegister(offset)) return sound.read(offset);
     return switch (offset) {
       0x2800 => 0, // Chip-revision identification remains unverified.
+      // MSLC reads back; the write-only MOBUF bits are assumed to read as 0.
+      0x280c => sound.monitor,
       0x2810 => sound.readMonitor(sideEffects: sideEffects),
       0x2814 => sound.currentAddress,
       0x2888 => _dmaRegister & 0x8000,
@@ -488,7 +493,8 @@ class DcAica {
     value &= 0xffff;
     if (value == 0 &&
         ((offset >= 0x3300 && offset < 0x3400) ||
-            (offset >= 0x3c00 && offset < 0x4000))) {
+            (offset >= 0x3c00 && offset < 0x4000) ||
+            (offset >= 0x45c8 && offset < 0x4800))) {
       return; // Inert writes while clearing the gaps in the DSP register map.
     }
     if (DcAicaDsp.handles(offset)) return dsp.write(offset, value);

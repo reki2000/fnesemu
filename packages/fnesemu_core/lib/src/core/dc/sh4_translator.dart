@@ -1,29 +1,70 @@
 import 'package:mp_jit_recompiler/mp_jit_recompiler.dart';
 
-/// SH-4 blocks for privileged code with the MMU off and a coherent cache.
-/// Memory outside mapped main RAM, unaligned accesses, exceptions and mode
-/// changes leave before effects so the owning CPU interprets the instruction.
-/// The block tag holds FPSCR.SZ, FPSCR.PR and SR.FD.
+/// SH-4 blocks for code running with a coherent cache. Memory outside mapped
+/// main RAM, unaligned accesses, exceptions and mode changes leave before
+/// effects so the owning CPU interprets the instruction.
+///
+/// With the MMU on, accesses to the translated P0 area go through two
+/// translation tables of the runtime, one for reads and instruction fetches
+/// and one for writes, whose direct window covers P1 and P2. The owning CPU
+/// fills the tables from successful TLB translations to main RAM; a missing
+/// slot leaves the block. A block in P0 stays within one page, guards the
+/// physical code and leaves at entry when its page has no slot. The owning
+/// CPU retires the block when the page later translates elsewhere.
+/// The block tag holds FPSCR.SZ, FPSCR.PR, SR.FD and whether the MMU is on;
+/// with the MMU on, it also holds user mode and the address space key.
 final class Sh4Translator {
   static const regs = JitCtx.user;
   static const sr = regs + 16, gbr = sr + 1, pr = sr + 2;
   static const mach = sr + 3, macl = sr + 4, fpul = sr + 5, fpscr = sr + 6;
   static const fr = sr + 7, xf = fr + 16, ctxWords = xf + 16;
   static const interpret = JitReason.user;
-  static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4;
+  static const tagSize = 1, tagDouble = 2, tagFpuDisabled = 4, tagMmu = 8;
+  static const tagUser = 16, tagSpaceShift = 5;
+
+  /// The untranslated window of the translation tables: P1 and P2.
+  static const directStart = 0x80000000, directEnd = 0xc0000000;
 
   /// Guest page holding the store queues. Store-queue stores are redirected
   /// here; the reserved area 7 page that it shadows is not used by software.
   static const queueAlias = 0x1ffff000;
 
   /// The block tag for the given status and FPU status registers.
-  static int tagOf(int status, int floatStatus) =>
+  static int tagOf(int status, int floatStatus, {bool mmu = false}) =>
       ((floatStatus >> 20) & 1) |
       ((floatStatus >> 18) & 2) |
-      ((status >> 13) & 4);
+      ((status >> 13) & 4) |
+      (mmu ? tagMmu : 0);
+
+  /// The block tag with the MMU on, for user mode or the privileged mode and
+  /// the 9-bit address space key: 256 when MMUCR.SV shares privileged
+  /// accesses, otherwise PTEH.ASID.
+  static int mmuTag(int status, int floatStatus,
+          {required bool user, required int space}) =>
+      tagOf(status, floatStatus, mmu: true) |
+      (user ? tagUser : 0) |
+      (space << tagSpaceShift);
+
+  /// The translation key for accesses under [tag]: bit 11 is always set,
+  /// bit 10 marks user mode and bits 0 to 8 hold the address space key.
+  static int keyBits(int tag) =>
+      0x800 |
+      (tag & tagUser != 0 ? 0x400 : 0) |
+      ((tag >>> tagSpaceShift) & 511);
+
+  /// Whether an address is in the untranslated P1 or P2 area.
+  static bool untranslated(int address) =>
+      address >= 0x80000000 && address < 0xc0000000;
 
   final int? Function(int) fetch;
   final void Function(int) protect;
+
+  /// The physical page of a P0 code address under a tag, or null when the
+  /// read table lacks it.
+  final int? Function(int address, int tag) codePage;
+
+  /// The runtime's read and write translation tables.
+  final int readTable, writeTable;
 
   /// Helper id for FPU arithmetic, called with the opcode and its PC. It
   /// returns 0 on completion or nonzero when the CPU must interpret it.
@@ -36,15 +77,25 @@ final class Sh4Translator {
   Sh4Translator(
       {required this.fetch,
       required this.protect,
+      this.codePage = _noPage,
+      this.readTable = 0,
+      this.writeTable = 1,
       required this.fpuHelper,
       required this.prefetchHelper,
       this.maxInstructions = 32});
+
+  static int? _noPage(int _, int __) => null;
 
   late IrBuilder b;
   final values = <int, IrValue>{};
   final _guarded = <int>{};
   final _constants = <int, int>{};
+  // The translations of the virtual addresses of loads and stores.
+  final _reads = <int, IrTranslation>{}, _writes = <int, IrTranslation>{};
   int spent = 0, tag = 0;
+
+  // The virtual and physical pages of a P0 block, or -1.
+  int _page = -1, _physicalPage = -1;
 
   IrValue c(int x) {
     final value = b.c32(x & 0xffffffff);
@@ -53,6 +104,10 @@ final class Sh4Translator {
   }
 
   IrValue get(int word) => values[word] ??= b.ctxLoad(word);
+
+  /// The translation of an address checked for a load or a store, if any.
+  IrTranslation? via(IrValue address, {bool write = false}) =>
+      (write ? _writes : _reads)[address.index];
   void put(int word, IrValue value) => values[word] = value;
   IrValue r(int n) => get(regs + n);
   void setR(int n, IrValue value) => put(regs + n, value);
@@ -69,14 +124,31 @@ final class Sh4Translator {
     }
   }
 
+  /// The physical address of the instruction at [at], or null outside the
+  /// code the block may hold.
+  int? _codeAddress(int at) {
+    if (tag & tagMmu == 0) return at;
+    if (_physicalPage >= 0) {
+      return at & 0xfffff000 == _page ? _physicalPage | (at & 0xfff) : null;
+    }
+    return tag & tagUser == 0 && untranslated(at) ? at : null;
+  }
+
+  /// The instruction word at [at], or null outside the block's code.
+  int? fetchAt(int at) {
+    final address = _codeAddress(at);
+    return address == null ? null : fetch(address);
+  }
+
   bool guard(int at) {
     final aligned = at & ~3;
     if (_guarded.contains(aligned)) return true;
-    final lo = fetch(aligned), hi = fetch((aligned + 2) & 0xffffffff);
+    final lo = fetchAt(aligned), hi = fetchAt((aligned + 2) & 0xffffffff);
     if (hi == null || lo == null) return false;
     _guarded.add(aligned);
-    b.guard(aligned, (hi << 16) | lo);
-    protect(aligned);
+    final physical = _codeAddress(aligned)!;
+    b.guard(physical, (hi << 16) | lo);
+    protect(physical);
     return true;
   }
 
@@ -85,17 +157,30 @@ final class Sh4Translator {
     values.clear();
     _constants.clear();
     _guarded.clear();
+    _reads.clear();
+    _writes.clear();
     spent = 0;
     b = IrBuilder(pc, tag: tag);
+    _page = _physicalPage = -1;
+    if (tag & tagMmu != 0 && pc < 0x80000000) {
+      final physical = codePage(pc, tag);
+      if (physical == null) return null;
+      _page = pc & 0xfffff000;
+      _physicalPage = physical;
+      // A missing slot leaves for the CPU, which refills it.
+      b.load(2, c(pc),
+          unmapped: IrExit(interpret, pc, tag: tag, spent: 0),
+          translation: IrTranslation(readTable, keyBits(tag)));
+    }
     var at = pc;
     var count = 0;
     for (; count < maxInstructions; count++) {
-      final op = fetch(at);
+      final op = fetchAt(at);
       if (op == null) break;
       if (branch(op)) {
         final kind = op >>> 12, n = (op >>> 8) & 15;
         final delayed = kind != 8 || n >= 13;
-        final slot = delayed ? fetch((at + 2) & 0xffffffff) : null;
+        final slot = delayed ? fetchAt((at + 2) & 0xffffffff) : null;
         if (delayed &&
             (slot == null ||
                 !supported(slot, tag, slot: true) ||
@@ -135,12 +220,9 @@ final class Sh4Translator {
             ? IrJumpDyn(dynamicTarget, tag: after)
             : condition == null
                 ? IrJump(target!, tag: after)
-                : IrBranch(
-                    condition,
-                    branchOnT ? target! : next,
+                : IrBranch(condition, branchOnT ? target! : next,
                     branchOnT ? next : target!,
-                    tagTrue: after,
-                    tagFalse: after);
+                    tagTrue: after, tagFalse: after);
         return b.finish(term, cost: spent);
       }
       if (!supported(op, tag) || !guard(at)) break;
@@ -202,10 +284,15 @@ final class Sh4Translator {
       }
       if (code == 0xf00d || code == 0xf01d) return true;
       if (code == 0xf04d || code == 0xf05d) return !double || n.isEven;
-      if (code == 0xf08d || code == 0xf09d) return !double;
+      if (code == 0xf08d || code == 0xf09d) return true;
       return (op == 0xfbfd || op == 0xf3fd) &&
           !double &&
           (!slot || op == 0xf3fd);
+    }
+    // STC SR,Rn and STC.L SR,@-Rn are privileged.
+    if (tag & tagUser != 0 &&
+        (op & 0xf0ff == 0x0002 || op & 0xf0ff == 0x4003)) {
+      return false;
     }
     if (top == 0) {
       if (const [4, 5, 6, 7, 12, 13, 14].contains(low)) return true;
@@ -244,20 +331,33 @@ final class Sh4Translator {
       return known == null ? b.add(value, c(amount)) : c(known + amount);
     }
 
-    IrValue address(IrValue value, int size) {
+    final mmu = tag & tagMmu != 0, user = tag & tagUser != 0;
+    IrValue address(IrValue value, int size, {bool write = false}) {
       final known = _constants[value.index];
-      if (known != null && known < 0xc0000000 && known & (size - 1) == 0) {
-        return value;
+      if (known != null && known & (size - 1) == 0) {
+        if (mmu ? !user && untranslated(known) : known < 0xc0000000) {
+          return value;
+        }
+        // The entry check covers reads within the block's own page.
+        if (!write && _physicalPage >= 0 && known & 0xfffff000 == _page) {
+          return c(_physicalPage | (known & 0xfff));
+        }
       }
       // P3 and P4 are never ordinary RAM; unaligned accesses raise errors.
-      final outside = b.ltU(c(0xbfffffff), value);
+      // In user mode, everything from P1 up raises an address error.
+      final outside = b.ltU(c(user ? 0x7fffffff : 0xbfffffff), value);
       b.exitIf(
           size == 1 ? outside : b.or(outside, b.and(value, c(size - 1))), exit);
+      if (mmu) {
+        (write ? _writes : _reads)[value.index] =
+            IrTranslation(write ? writeTable : readTable, keyBits(tag));
+      }
       return value;
     }
 
     IrValue storeAddress(IrValue value, int size) {
-      if (size < 4) return address(value, size);
+      // Store-queue stores are translated by the TLB when the MMU is on.
+      if (size < 4 || mmu) return address(value, size, write: true);
       final known = _constants[value.index];
       if (known != null) {
         return address(
@@ -272,10 +372,17 @@ final class Sh4Translator {
           size);
     }
 
-    IrValue read(IrValue a, int size) =>
-        b.load(size, address(a, size), signed: size < 4, unmapped: exit);
-    void write(IrValue a, IrValue v, int size) =>
-        b.store(size, storeAddress(a, size), v, unmapped: exit);
+    IrValue read(IrValue a, int size) {
+      final checked = address(a, size);
+      return b.load(size, checked,
+          signed: size < 4, unmapped: exit, translation: via(checked));
+    }
+
+    void write(IrValue a, IrValue v, int size) {
+      final checked = storeAddress(a, size);
+      b.store(size, checked, v,
+          unmapped: exit, translation: via(checked, write: true));
+    }
 
     if (top == 14) {
       setR(n, c((op & 255).toSigned(8)));
@@ -653,8 +760,9 @@ final class Sh4Translator {
       return true;
     }
     final status = get(fpscr);
-    // Enabled exceptions and round-to-zero stay with the exact model.
-    bad = b.or(bad, b.and(status, c(0xf83)));
+    // Enabled exceptions and the reserved rounding mode stay with the exact
+    // model. Round-to-zero is handled below.
+    bad = b.or(bad, b.and(status, c(0xf82)));
     final f0 = low == 14 ? get(fr) : null;
     if (f0 != null) {
       // The exact model owns the sign of a zero sum of zeros.
@@ -664,6 +772,9 @@ final class Sh4Translator {
     b.exitIf(bad, exit);
     final wx = b.floatConvert(x), wy = b.floatConvert(y);
     final IrValue sum, error;
+    // Whether the exact value lies on the other side of the rounded result
+    // than zero is only needed for a sum, whose error has a sign.
+    IrValue errorSign = c(0);
     if (low == 2) {
       // A product of two singles is exact in a double.
       sum = b.floatBinary(IrOp.floatMul, wx, wy);
@@ -687,9 +798,22 @@ final class Sh4Translator {
           b.floatBinary(IrOp.floatSub, right, virtual));
       error =
           b.ne(b.and(residual, b.c64Parts(-1, 0x7fffffff)), b.c64Parts(0, 0));
+      // The error and the value have opposite signs.
+      errorSign = b.ne(b.and(b.xor(residual, sum), b.c64Parts(0, 0x80000000)),
+          b.c64Parts(0, 0));
     }
-    final result = b.floatConvert(sum);
-    final inexact = b.or(b.ne(b.floatConvert(result), sum), error);
+    final nearest = b.floatConvert(sum);
+    final rounded = b.floatConvert(nearest);
+    final inexact = b.or(b.ne(rounded, sum), error);
+    // Round-to-zero steps one unit back when the nearest result lies beyond
+    // the exact value in magnitude, or on it with the error toward zero.
+    final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+    final sumMagnitude = b.and(sum, magnitudeMask),
+        roundedMagnitude = b.and(rounded, magnitudeMask);
+    final beyond = b.or(b.ltU(sumMagnitude, roundedMagnitude),
+        b.and(b.eq(sumMagnitude, roundedMagnitude), b.and(error, errorSign)));
+    final toZero = b.and(b.and(status, c(1)), beyond);
+    final result = b.select(toZero, b.sub(nearest, c(1)), nearest);
     // Denormal, infinite or underflowed-to-zero results, and a double on a
     // single midpoint with a nonzero error, take the exact path.
     var unusual = b.or(
@@ -715,7 +839,8 @@ final class Sh4Translator {
 
   /// FLOAT, FTRC, FIPR and FTRV on host doubles. Inner products sum the
   /// exact products in double precision and round once more to single,
-  /// where the exact model rounds the exact sum once.
+  /// where the exact model rounds the exact sum once. Round-to-zero applies
+  /// to that last rounding only.
   bool _nativeConversion(int op, int n, IrExit exit) {
     final code = op & 0xf0ff;
     final transform = op & 0xf3ff == 0xf1fd;
@@ -731,8 +856,9 @@ final class Sh4Translator {
       put(fpscr, b.and(status, c(~0x3f000)));
       return true;
     }
-    // Enabled exceptions and round-to-zero stay with the exact model.
-    var bad = b.ne(b.and(status, c(0xf83)), c(0));
+    // Enabled exceptions and the reserved rounding mode stay with the exact
+    // model. Round-to-zero steps back below.
+    var bad = b.ne(b.and(status, c(0xf82)), c(0));
     if (code == 0xf02d) {
       b.exitIf(bad, exit);
       // The word biased into a double mantissa at 2^52, minus the bias.
@@ -741,8 +867,15 @@ final class Sh4Translator {
           b.or(b.zext32(b.xor(get(fpul), c(0x80000000))),
               b.c64Parts(0, 0x43300000)),
           b.c64Parts(0x80000000, 0x43300000));
-      final result = b.floatConvert(wide);
-      final inexact = b.ne(b.floatConvert(result), wide);
+      final nearest = b.floatConvert(wide);
+      final rounded = b.floatConvert(nearest);
+      final inexact = b.ne(rounded, wide);
+      final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+      final over =
+          b.ltU(b.and(wide, magnitudeMask), b.and(rounded, magnitudeMask));
+      // A converted word is exact in a double, so only an overshoot matters.
+      final result = b.select(
+          b.and(b.and(status, c(1)), over), b.sub(nearest, c(1)), nearest);
       put(fr + n, result);
       put(fpscr,
           b.or(b.and(status, c(~0x3f000)), b.select(inexact, c(0x1004), c(0))));
@@ -767,7 +900,14 @@ final class Sh4Translator {
             b.floatBinary(
                 IrOp.floatMul, wideVector[i], b.floatConvert(row[i])));
       }
-      return b.floatConvert(sum);
+      // Round-to-zero steps one unit back when the nearest single lies
+      // beyond the double sum in magnitude.
+      final nearest = b.floatConvert(sum);
+      final magnitudeMask = b.c64Parts(-1, 0x7fffffff);
+      final beyond = b.ltU(b.and(sum, magnitudeMask),
+          b.and(b.floatConvert(nearest), magnitudeMask));
+      return b.select(
+          b.and(b.and(status, c(1)), beyond), b.sub(nearest, c(1)), nearest);
     }
 
     final List<IrValue> results;
@@ -871,19 +1011,24 @@ final class Sh4Translator {
     // Both words of an 8-byte access share one page.
     final register = file(load ? n : m);
     if (load) {
-      final checked = address(a, size);
-      final first = b.load(4, checked, unmapped: exit);
+      final checked = address(a, size), translation = via(checked);
+      final first =
+          b.load(4, checked, unmapped: exit, translation: translation);
       if (pair) {
-        final second = b.load(4, b.add(checked, c(4)), unmapped: exit);
+        final second = b.load(4, b.add(checked, c(4)),
+            unmapped: exit, translation: translation);
         put(register + 1, second);
       }
       put(register, first);
       if (low == 9) setR(m, b.add(a, c(size)));
     } else {
-      final checked = storeAddress(a, size);
-      b.store(4, checked, get(register), unmapped: exit);
+      final checked = storeAddress(a, size),
+          translation = via(checked, write: true);
+      b.store(4, checked, get(register),
+          unmapped: exit, translation: translation);
       if (pair) {
-        b.store(4, b.add(checked, c(4)), get(register + 1), unmapped: exit);
+        b.store(4, b.add(checked, c(4)), get(register + 1),
+            unmapped: exit, translation: translation);
       }
       if (low == 11) setR(n, a);
     }

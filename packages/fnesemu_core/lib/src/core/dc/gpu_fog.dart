@@ -11,6 +11,14 @@ class DcGpuFog {
   final _table = Uint16List(128);
   int _tableColor = 0, _vertexColor = 0, _density = 0;
   int _minimum = 0, _maximum = 0;
+  // The depth scale of the density register, which the table lookup of
+  // every fragment uses.
+  double _scale = 0;
+
+  void _updateScale() {
+    final exponent = (_density & 255).toSigned(8);
+    _scale = ((_density >> 8) / 128) * math.pow(2.0, exponent);
+  }
 
   void saveState(StateWriter writer) {
     writer.section('dc.gpu.fog');
@@ -38,6 +46,7 @@ class DcGpuFog {
     _minimum = registers[3];
     _maximum = registers[4];
     _table.setAll(0, table);
+    _updateScale();
   }
 
   static bool handles(int offset) =>
@@ -46,6 +55,7 @@ class DcGpuFog {
 
   void reset() {
     _tableColor = _vertexColor = _density = _minimum = _maximum = 0;
+    _updateScale();
     // The table has no documented power-on contents; zero is deterministic.
     _table.fillRange(0, _table.length, 0);
   }
@@ -76,6 +86,7 @@ class DcGpuFog {
         _vertexColor = value & 0xffffff;
       case 0xb8:
         _density = value & 0xffff;
+        _updateScale();
       case 0xbc:
         _maximum = value & 0xffffffff;
       case 0xc0:
@@ -86,12 +97,19 @@ class DcGpuFog {
   }
 
   double _coefficient(double depth) {
-    final exponent = (_density & 255).toSigned(8);
-    final scale = ((_density >> 8) / 128) * math.pow(2.0, exponent);
-    var mantissa = (depth * scale).clamp(1.0, 255.9999);
+    var mantissa = (depth * _scale).clamp(1.0, 255.9999);
     var index = 0;
-    while (mantissa >= 2) {
-      mantissa /= 2;
+    // Scaling by powers of two is exact, so the ladder equals halving until the value is below 2.
+    if (mantissa >= 16) {
+      mantissa *= 0.0625;
+      index = 64;
+    }
+    if (mantissa >= 4) {
+      mantissa *= 0.25;
+      index += 32;
+    }
+    if (mantissa >= 2) {
+      mantissa *= 0.5;
       index += 16;
     }
     final position = (mantissa - 1) * 16;
@@ -123,12 +141,11 @@ class DcGpuFog {
     if (mode == 3) {
       return ((coefficient.round() << 24) | fogColor) & 0xffffffff;
     }
+    final rest = 255 - coefficient;
     var result = color & 0xff000000;
     for (var shift = 0; shift < 24; shift += 8) {
       final input = (color >> shift) & 255, fog = (fogColor >> shift) & 255;
-      result |=
-          roundByte((input * (255 - coefficient) + fog * coefficient) / 255) <<
-              shift;
+      result |= roundByte((input * rest + fog * coefficient) / 255) << shift;
     }
     return result & 0xffffffff;
   }

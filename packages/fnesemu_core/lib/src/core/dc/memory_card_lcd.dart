@@ -49,7 +49,9 @@ class DcMemoryCardLcd {
       if (request[9] != 0 || request[10] != 0 || request[11] != 0) {
         return (0xfc, const []);
       }
-      return (8, const [0, 0, 0, 4, 47, 31, 0x10, 0]);
+      // The last byte is undocumented; the system software of at least one
+      // game re-enumerates the card forever unless it reads 2.
+      return (8, const [0, 0, 0, 4, 47, 31, 0x10, 2]);
     }
     if (code == 14) {
       if (request.length != 12) return error(16);

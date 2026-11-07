@@ -31,7 +31,8 @@ void main() {
     expect(bus.read32(base + 0xc8), 0x031d0000);
     expect(bus.read32(base + 0xcc), 0x01500104);
     expect(bus.read32(base + 0x10c), 0);
-    expect(() => bus.read16(base + 0xd8), throwsA(isA<DcUnsupported>()));
+    expect(bus.read16(base + 0xd8), 0x0359);
+    expect(() => bus.read16(base + 0xd9), throwsA(isA<DcUnsupported>()));
     expect(
         () => bus.write32(base + 0xc8, 0x3000), throwsA(isA<DcUnsupported>()));
     expect(

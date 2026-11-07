@@ -200,4 +200,93 @@ void main() {
     expect(
         memories[1].sublist(0x200, 0x300), memories[0].sublist(0x200, 0x300));
   });
+
+  test('compiled block transfers match the interpreter in results and cycles',
+      () {
+    final jit = DcArmJit.create(0x10000);
+    if (jit == null) return;
+    addTearDown(jit.dispose);
+    DcArm7di make(Uint8List memory, {DcArmJit? jit}) => DcArm7di(
+        read: (address, size) =>
+            size == 1 ? memory[address] : memory.getUint32LE(address),
+        write: (address, size, value) => size == 1
+            ? memory[address] = value
+            : memory.setUint32LE(address, value),
+        registers: jit?.registers)
+      ..compiled = jit?.run;
+    const end = 0x100;
+    const program = [
+      0xe3a0c014, // mov r12,#20
+      // loop:
+      0xe3a0dc04, // mov sp,#0x400
+      0xe3a00001, 0xe3a01002, 0xe3a02003, 0xe3a0e0ee, // r0-r2, lr
+      0xe3a05c01, // mov r5,#END (0x100)
+      0xe92d4007, // stmdb sp!,{r0-r2,lr}
+      0xe8bd00f0, // ldmia sp!,{r4-r7}
+      0xe88d000f, // stmia sp,{r0-r3}
+      0xe9bd0300, // ldmib sp!,{r8,r9}
+      0xe82d0003, // stmda sp!,{r0,r1}
+      0xe91d0c00, // ldmdb sp,{r10,r11}
+      0xe3a01c03, // mov r1,#0x300
+      0xe8a10007, // stmia r1!,{r0,r1,r2}: base not first, stores write-back
+      0xe3a00d0d, // mov r0,#0x340
+      0xe3a01002, // mov r1,#2
+      0xe8a00003, // stmia r0!,{r0,r1}: base first, stores the old base
+      0xe3a00001, // mov r0,#1
+      0xe3a02c02, // mov r2,#0x200
+      0xe8b2000c, // ldmia r2!,{r2,r3}: the loaded base wins
+      0xe3a0dc04, // mov sp,#0x400
+      0xe88d8001, // stmia sp,{r0,pc}
+      0xe92d0030, // stmdb sp!,{r4,r5}
+      0xe9ad0003, // stmib sp!,{r0,r1}
+      0xe3a0dc04, // mov sp,#0x400
+      0xe3a0de3f, // mov sp,#0x3f0 (a different base)
+      0xe83d0030, // ldmda sp!,{r4,r5}
+      0xe3a0dc04, // mov sp,#0x400
+      0xe3a04000 | (32 * 4), // mov r4,#address of the subs below
+      0xe92d0010, // stmdb sp!,{r4}
+      0xe8bd8000, // ldmia sp!,{pc}: a load that includes PC, every pass
+      0xe25cc001, // subs r12,r12,#1
+      0x1affffe0, // bne loop (patched below)
+      0xe3a0dc04, // mov sp,#0x400
+      0xe3a05c01, // mov r5,#END (0x100)
+      0xe92d0020, // stmdb sp!,{r5}
+      0xe8bd8000, // ldmia sp!,{pc}: returns to END
+      0xeafffffe, // b .
+    ];
+    final code = [...program];
+    // Patch the loop branch: find it and aim it at "loop".
+    final loopIndex = 1;
+    final branchIndex = code.indexOf(0x1affffe0);
+    code[branchIndex] =
+        0x1a000000 | ((loopIndex - branchIndex - 2) & 0xffffff);
+    // The last "b ." sits at END.
+    final tail = code.removeLast();
+    final memories = [Uint8List(0x10000), jit.memory];
+    final cpus = [make(memories[0]), make(memories[1], jit: jit)];
+    for (final memory in memories) {
+      for (var i = 0; i < code.length; i++) {
+        memory.setUint32LE(i * 4, code[i]);
+      }
+      memory.setUint32LE(end, tail);
+      for (var i = 0; i < 0x400; i++) {
+        memory[0x100 + 0x80 + i] = i * 37;
+      }
+    }
+    final interpreter = cpus[0];
+    for (var n = 0; n < 100000 && interpreter.pc != end; n++) {
+      interpreter.run(interpreter.cycles + 1);
+    }
+    expect(interpreter.pc, end);
+    final compiled = cpus[1];
+    compiled.run(interpreter.cycles);
+    expect(compiled.pc, end);
+    // Compiled code finishes the block that crosses the budget, so it can end
+    // a few cycles late. Every transfer runs in each of the 20 passes, so a
+    // wrong cost shows as at least 20 cycles.
+    expect(compiled.cycles - interpreter.cycles, inInclusiveRange(0, 2));
+    expect(compiled.r, interpreter.r);
+    expect(compiled.cpsr, interpreter.cpsr);
+    expect(memories[1].sublist(0, 0x600), memories[0].sublist(0, 0x600));
+  });
 }
