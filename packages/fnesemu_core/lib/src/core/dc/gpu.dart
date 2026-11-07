@@ -100,7 +100,7 @@ class DcGpu {
     ]);
     _saveImage(writer, _presented);
     writer.boolean(_scanning != null);
-    if (_scanning != null) _saveImage(writer, _scanning!);
+    if (_scanning != null) _saveImage(writer, _completeScan(_scanning!));
     _saveComponents(writer);
   }
 
@@ -152,6 +152,7 @@ class DcGpu {
     _memoryTiming.setAll(0, v.sublist(11));
     _presented = presented;
     _scanning = scanning;
+    _scanFilled = 1 << 30;
   }
 
   void loadState(StateReader reader) {
@@ -179,6 +180,9 @@ class DcGpu {
     _activeSof2 = staged._activeSof2;
     _presented = staged._presented;
     _scanning = staged._scanning;
+    _scanFilled = staged._scanFilled;
+    _scanBorder = staged._scanBorder;
+    _spareBuffer = null;
   }
 
   static bool polygonFifo(int address) {
@@ -250,16 +254,31 @@ class DcGpu {
 
   ImageBuffer _presented = ImageBuffer.empty();
   ImageBuffer? _scanning;
+
+  /// The rows of [_scanning] below [_scanFilled] hold their pixels; the
+  /// others still take [_scanBorder], the border when it was created.
+  int _scanFilled = 0, _scanBorder = 0;
+
+  /// A field buffer that no image refers to any more, for the next field.
+  Uint32List? _spareBuffer;
   int _scanStartY = 0;
   int _startY = 0x00150015;
   int _activeSof1 = 0, _activeSof2 = 0;
   ImageBuffer get presentedImage => _presented;
 
   void _finishField(bool field2) {
-    final field = _scanning ?? ImageBuffer.empty();
+    final scanning = _scanning;
+    final field =
+        scanning == null ? ImageBuffer.empty() : _completeScan(scanning);
     _scanning = null;
     if (!spg.interlaced || field.buffer.isEmpty) {
+      final previous = _presented.buffer;
       _presented = field;
+      // The image before last is no longer presented; its buffer takes the
+      // next field.
+      if (previous.isNotEmpty && !identical(previous, field.buffer)) {
+        _spareBuffer = previous;
+      }
     } else {
       final width = field.width, height = field.height * 2;
       final displayHeight = field.displayHeight ?? field.height;
@@ -276,6 +295,7 @@ class DcGpu {
         final target = (y * 2 + (field2 ? 1 : 0)) * width;
         pixels.setRange(target, target + width, field.buffer, y * width);
       }
+      _spareBuffer = field.buffer;
     }
     _activeSof1 = _sof1;
     _activeSof2 = _sof2;
@@ -334,6 +354,7 @@ class DcGpu {
     render.reset();
     _presented = ImageBuffer.empty();
     _scanning = null;
+    _spareBuffer = null;
     _scanStartY = 0;
     _startY = 0x00150015;
     _activeSof1 = _activeSof2 = 0;
@@ -515,16 +536,23 @@ class DcGpu {
     final stride = (words - 1 + ((_size >> 20) & 1023)) * 4;
     final border = _borderColor;
     final pixelRepeat = _videoControl & 0x100 != 0 ? 2 : 1;
-    if (_scanning == null) _scanStartY = firstLine;
-    _scanning ??= ImageBuffer(
-        sourceWidth,
-        sourceHeight * lineRepeat,
-        Uint32List(sourceWidth * sourceHeight * lineRepeat)
-          ..fill(0, sourceWidth * sourceHeight * lineRepeat, border),
-        displayWidth_: sourceWidth * pixelRepeat,
-        displayHeight: sourceHeight * lineRepeat);
+    if (_scanning == null) {
+      _scanStartY = firstLine;
+      final length = sourceWidth * sourceHeight * lineRepeat;
+      final spare = _spareBuffer;
+      _spareBuffer = null;
+      _scanning = ImageBuffer(sourceWidth, sourceHeight * lineRepeat,
+          spare != null && spare.length == length ? spare : Uint32List(length),
+          displayWidth_: sourceWidth * pixelRepeat,
+          displayHeight: sourceHeight * lineRepeat);
+      _scanFilled = 0;
+      _scanBorder = border;
+    }
     final frame = _scanning!;
     if (row >= frame.height) return;
+    // The line below writes every column of the row.
+    _fillScanRows(frame, row);
+    if (_scanFilled <= row) _scanFilled = row + 1;
     final stripLines = _stripLines;
     final start = stripLines == 0
         ? (second ? _activeSof2 : _activeSof1) + sourceRow * stride
@@ -620,6 +648,19 @@ class DcGpu {
         sourceLine % lineRepeat == lineRepeat - 1) {
       render.consumeStripRow(sourceRow, last: sourceRow == sourceHeight - 1);
     }
+  }
+
+  /// Gives the rows of [frame] from [_scanFilled] up to [row] the border.
+  void _fillScanRows(ImageBuffer frame, int row) {
+    if (_scanFilled >= row) return;
+    frame.buffer
+        .fill(_scanFilled * frame.width, row * frame.width, _scanBorder);
+    _scanFilled = row;
+  }
+
+  ImageBuffer _completeScan(ImageBuffer frame) {
+    _fillScanRows(frame, frame.height);
+    return frame;
   }
 
   int get _stripLines =>
