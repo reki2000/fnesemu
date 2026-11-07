@@ -1220,6 +1220,8 @@ The functional parameter representation follows the generic three-word ISP/TSP h
 In-front tests use GEq as a functional coplanar policy; exact equality, raster precision and internal flag transitions remain unverified.
 A volume without a last polygon stops rather than emitting an incomplete area.
 TA also lists the last polygon in every tile that an earlier triangle of the volume reaches, so each tile list closes its volumes; the documents do not describe this binning, and the hardware output for such a tile remains unverified.
+A modifier triangle that directly follows the last triangle array of a tile in parameter memory joins that array, up to 16 triangles, so the renderer reads the same triangles in the same order with fewer object pointers.
+The documents do not say whether the TA packs volumes this way; a game's shadow volumes overflow its object list area with one pointer per triangle.
 
 FPU_SHAD_SCALE exposes the documented intensity enable bit and unsigned factor divided by 256.
 Area-one pixels on Shadow-enabled objects scale the interpolated base and offset RGB channels before texture/shading, clamp, fog and blending. The documents describe the scale of the color but not its alpha, so the alpha is kept and a shadow changes neither blending nor the punch-through test; this needs hardware validation.
