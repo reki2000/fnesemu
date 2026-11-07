@@ -105,6 +105,13 @@ class DcGpuModifier {
       (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
   bool _topLeft(_Point a, _Point b) => b.y < a.y || (b.y == a.y && b.x > a.x);
 
+  // Conservative tile bounds with a one-pixel margin; the edge tests still
+  // decide coverage.
+  static int _lowBound(double value) =>
+      value <= 1 ? 0 : (value >= 33 ? 32 : value.floor() - 1);
+  static int _highBound(double value) =>
+      value < -2 ? 0 : (value >= 30 ? 32 : value.ceil() + 2);
+
   void _triangle(
       List<_Point> vertices,
       List<_Point> plane,
@@ -126,24 +133,65 @@ class DcGpuModifier {
     }
     final pa = plane[0], pb = plane[1], pc = plane[2];
     final planeArea = _edge(pa, pb, pc.x, pc.y);
-    for (var y = 0; y < 32; y++) {
-      for (var x = 0; x < 32; x++) {
+    final minX = a.x < b.x ? (a.x < c.x ? a.x : c.x) : (b.x < c.x ? b.x : c.x);
+    final maxX = a.x > b.x ? (a.x > c.x ? a.x : c.x) : (b.x > c.x ? b.x : c.x);
+    final minY = a.y < b.y ? (a.y < c.y ? a.y : c.y) : (b.y < c.y ? b.y : c.y);
+    final maxY = a.y > b.y ? (a.y > c.y ? a.y : c.y) : (b.y > c.y ? b.y : c.y);
+    final left = _lowBound(minX - originX - offset),
+        right = _highBound(maxX - originX - offset),
+        top = _lowBound(minY - originY - offset),
+        bottom = _highBound(maxY - originY - offset);
+    // The factors of [_edge], computed once with the same operations.
+    final abx = b.x - a.x, aby = b.y - a.y;
+    final bcx = c.x - b.x, bcy = c.y - b.y;
+    final cax = a.x - c.x, cay = a.y - c.y;
+    final pbcx = pc.x - pb.x, pbcy = pc.y - pb.y;
+    final pcax = pa.x - pc.x, pcay = pa.y - pc.y;
+    final tlBc = _topLeft(b, c), tlCa = _topLeft(c, a), tlAb = _topLeft(a, b);
+    final base = originX + offset;
+    for (var y = top; y < bottom; y++) {
+      final py = originY + y + offset;
+      // Narrow the row to the columns each edge can accept, with the margins
+      // of the polygon rasterizer.
+      var rowLeft = left, rowRight = right;
+      for (var edge = 0; edge < 3; edge++) {
+        final p = edge == 0 ? b : (edge == 1 ? c : a);
+        final q = edge == 0 ? c : (edge == 1 ? a : b);
+        final slope = q.y - p.y;
+        if (slope == 0) continue;
+        final limit = p.x + (q.x - p.x) * (py - p.y) / slope - base;
+        if (slope > 0) {
+          final bound = limit + 2;
+          if (bound < rowRight) {
+            rowRight = bound < rowLeft ? rowLeft : bound.toInt();
+          }
+        } else {
+          final bound = limit - 1;
+          if (bound > rowLeft) {
+            rowLeft = bound > rowRight ? rowRight : bound.toInt();
+          }
+        }
+      }
+      final rowA = bcx * (py - b.y),
+          rowB = cax * (py - c.y),
+          rowC = abx * (py - a.y);
+      for (var x = rowLeft; x < rowRight; x++) {
         final index = y * 32 + x;
         if (active != null && active[index] == 0) continue;
-        final px = originX + x + offset, py = originY + y + offset;
-        final ea = _edge(b, c, px, py),
-            eb = _edge(c, a, px, py),
-            ec = _edge(a, b, px, py);
+        final px = originX + x + offset;
+        final ea = rowA - bcy * (px - b.x),
+            eb = rowB - cay * (px - c.x),
+            ec = rowC - aby * (px - a.x);
         if (ea < 0 ||
             eb < 0 ||
             ec < 0 ||
-            (ea == 0 && !_topLeft(b, c)) ||
-            (eb == 0 && !_topLeft(c, a)) ||
-            (ec == 0 && !_topLeft(a, b))) {
+            (ea == 0 && !tlBc) ||
+            (eb == 0 && !tlCa) ||
+            (ec == 0 && !tlAb)) {
           continue;
         }
-        final wa = _edge(pb, pc, px, py) / planeArea;
-        final wb = _edge(pc, pa, px, py) / planeArea;
+        final wa = (pbcx * (py - pb.y) - pbcy * (px - pb.x)) / planeArea;
+        final wb = (pcax * (py - pc.y) - pcay * (px - pc.x)) / planeArea;
         final z = pa.z * wa + pb.z * wb + pc.z * (1 - wa - wb);
         if (!z.isFinite) {
           throw const DcUnsupported('CORE modifier depth overflow');
