@@ -576,6 +576,7 @@ Quad vertices follow the perimeter sequence in figure 3-1, with ABC defining the
 The same ABC plane supplies reciprocal depth, perspective UV, flat/Gouraud base and offset colors and MIP derivatives across both raster coverage triangles.
 Invalid fourth-vertex Z/UV/color fields are not fetched, including when they contain NaN bit patterns.
 Quad culling uses the defining ABC determinant once, and the shared diagonal uses the same top-left coverage convention to avoid double blending.
+The quick rows divide each edge value by its horizontal step to find the covered columns of a row under the same convention, and skip the coverage test per fragment.
 This is a functional triangulated coverage implementation; exact hardware quad edge precision, plane arithmetic and degenerate-case behavior remain unverified.
 Concave/crossed quads stop explicitly pending hardware evidence.
 
