@@ -78,7 +78,9 @@ final class DcArmJit extends JitAdapter {
     final reason = _driver.runBudgeted(arm.pc, 0, budget);
     final cycles = _driver.lastClocks;
     if (cycles > 0) {
-      arm.flags = ctx[ArmTranslator.cpsr];
+      // Blocks change the flags, and the interrupt masks through MSR; the
+      // mode stays, so no register bank switches.
+      arm.cpsr = ctx[ArmTranslator.cpsr];
       arm.pc = rt.exitPc;
     }
     if (reason == ArmTranslator.interpret) {
