@@ -764,8 +764,10 @@ class DcGpuTexture {
     final x = texel * gray + 0x007f007f007f007f;
     var m = ((x + ((x >>> 8) & lanes) + 0x0001000100010001) >>> 8) & lanes;
     // The RGB lanes add the offset and saturate; alpha stays the texel's.
-    m = (m & 0x0000ffffffffffff) + offset;
-    m |= ((m >>> 8) & 0x0000000100010001) * 255;
+    if (offset != 0) {
+      m = (m & 0x0000ffffffffffff) + offset;
+      m |= ((m >>> 8) & 0x0000000100010001) * 255;
+    }
     return packLanes((m & 0x000000ff00ff00ff) | (texel & 0x00ff000000000000)) |
         alpha;
   }
@@ -797,6 +799,7 @@ class DcGpuTexture {
         a = mode == 1 ? alpha : div255(ca * alpha + 127);
       }
     }
+    if (offset == 0) return (a << 24) | (r << 16) | (g << 8) | b;
     // Add the offset in 10-bit lanes; a carry out of a lane saturates it.
     var lanes = ((r << 20) | (g << 10) | b) +
         (((offset & 0xff0000) << 4) |
