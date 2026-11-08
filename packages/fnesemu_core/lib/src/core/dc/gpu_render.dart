@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../render_frame.dart';
 import '../../state.dart';
 import '../../util/uint32list.dart';
 import '../../util/uint8list.dart';
@@ -11,6 +12,8 @@ import 'gpu_modifier.dart';
 import 'gpu_palette.dart';
 import 'gpu_texture.dart';
 import 'vram_pages.dart';
+
+part 'gpu_frame.dart';
 
 /// Functional CORE display-list reader; raster precision and physical timing are pending.
 /// Data structures and register fields follow System Architecture §§3.7.7–3.7.9, 8.4.2.
@@ -27,6 +30,12 @@ class DcGpuRender {
   final fog = DcGpuFog();
   final void Function(int) onNormal;
   int Function()? displayReadControl;
+
+  /// Receives a [RenderFrame] of every render when it starts. With
+  /// [frameReference], the frame also gets the colors of this renderer.
+  RenderFrameSink? frameSink;
+  bool frameReference = false;
+  RenderFrame? _capturing;
   int _stripLines = 0, _stripProduced = -1, _stripConsumed = -1;
   int _stripScaleRow = -1;
   bool _scaleSourceEnded = false, _stripDrainPending = false;
@@ -454,6 +463,15 @@ class DcGpuRender {
         _remaining = 2;
         return;
       }
+      final sink = frameSink;
+      if (sink != null) {
+        final frame = _buildFrame();
+        if (frameReference) {
+          frame.reference = Uint32List(frame.width * frame.height);
+          _capturing = frame;
+        }
+        sink.submit(frame);
+      }
       _region = read(0x2c);
       _tileCount = _hiddenFragments = _shownFragments = 0;
       _stripLines = stripLines;
@@ -527,6 +545,7 @@ class DcGpuRender {
           if (_scaleSourceEnded) {
             _scaleSourceEnded = false;
             _remaining = 0;
+            _capturing = null;
             onNormal(7);
             return;
           }
@@ -549,6 +568,7 @@ class DcGpuRender {
           _scaleSourceEnded = _stripDrainPending = false;
           _stripScaleRow = -1;
           _remaining = 0;
+          _capturing = null;
           onNormal(7); // Video/ISP/TSP completion after committed output.
           return;
         }
@@ -3317,6 +3337,9 @@ class DcGpuRender {
 
   void _writeTile(int originX, int originY,
       {int? scaledFirst, int? scaledEnd}) {
+    if (_capturing != null && scaledFirst == null) {
+      _frameReference(originX, originY);
+    }
     if (scaledFirst == null && read(0xf4) & 0xffff != 1024) {
       _scalerTiles[(originY ~/ 32) * 64 + originX ~/ 32] =
           Uint32List.fromList(_colors);

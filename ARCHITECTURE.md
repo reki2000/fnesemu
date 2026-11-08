@@ -10,6 +10,7 @@ Each package owns its domain and communicates through the interfaces below.
 | Recompiler | `packages/mp_jit_recompiler` | Block IR, x86-64/ARM64/Wasm code generation, and the reference IR interpreter | Dart SDK, native C memory-publication helper (`dart:ffi`), Web interop; build hooks use a C toolchain; no Flutter, runtime `dart:io` or core dependencies |
 | Disc images | `packages/cdrom_image` | CUE/ISO/BIN/CHD parsing and sector reads | Dart SDK, `archive`; no `dart:io` |
 | Pixel images | `packages/mp_pixel_image` | `ui.Image` creation from 32-bit RGBA pixel buffers, fast on every platform | Flutter; `dart:js_interop` on the Web only; no app/core dependencies |
+| GPU frames | `packages/render_frame_gpu` | Experimental drawing of a core's `RenderFrame` with Flutter GPU, and a replay app for captured frames | Flutter, `flutter_gpu`, cores (`app_api.dart` only) |
 | File picker | `packages/mp_bigfile_picker` | Platform file/directory selection and random reads | Flutter and platform APIs; no app/core dependencies |
 | App | `lib/` | GUI, storage, and package adapters | All packages |
 | Core tools | `packages/fnesemu_core/tool` | Headless runs, benchmarks, and CPU tests | Cores, `dart:io`, disc images; never the app |

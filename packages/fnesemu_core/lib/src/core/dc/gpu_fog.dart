@@ -19,6 +19,22 @@ class DcGpuFog {
   // every fragment uses.
   double _scale = 0;
 
+  /// The fog table as pairs of bytes: the value at each entry and at the
+  /// next one.
+  Uint8List get tableBytes {
+    final bytes = Uint8List(256);
+    for (var i = 0; i < 128; i++) {
+      bytes[i * 2] = _table[i] >> 8;
+      bytes[i * 2 + 1] = _table[i] & 255;
+    }
+    return bytes;
+  }
+
+  /// The depth scale of the table lookup.
+  double get scale => _scale;
+  int get tableColor => _tableColor;
+  int get vertexColor => _vertexColor;
+
   void _updateClamp() {
     _invertedClamp = false;
     for (var shift = 0; shift < 32; shift += 8) {

@@ -277,6 +277,9 @@ class DcGpuTexture {
   DcTextureCache? cache;
 
   /// Reads a texel at coordinates already wrapped, clamped or mirrored.
+  /// The ARGB texel at [x], [y] of level 0.
+  int texelAt(int x, int y) => _texelAt(x, y, 0, 0);
+
   int _texelAt(int x, int y, int level, int bumpParameters) {
     final cache = this.cache;
     if (cache == null) return _decodeTexel(x, y, level, bumpParameters);
