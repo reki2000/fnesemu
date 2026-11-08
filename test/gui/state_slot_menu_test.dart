@@ -138,6 +138,8 @@ void main() {
             .widget<IconButton>(find.byKey(const ValueKey('save-state')))
             .onPressed,
         isNotNull);
+    await tester.ensureVisible(find.byTooltip('Save state'));
+    await tester.pumpAndSettle();
     await tester.runAsync(() => tester.tap(find.byTooltip('Save state')));
     await _untilFound(tester, find.byType(StateSlotDialog));
     expect(find.byType(StateSlotDialog), findsOneWidget);
@@ -166,6 +168,8 @@ void main() {
     await tester.runAsync(() => _untilSaved(storage, gameId, 3));
 
     // the load dialog disables the empty slots and shows the saved ones
+    await tester.ensureVisible(find.byTooltip('Load state'));
+    await tester.pumpAndSettle();
     await tester.runAsync(() => tester.tap(find.byTooltip('Load state')));
     await _untilFound(tester, find.byType(StateSlotDialog));
     expect(find.byType(StateSlotDialog), findsOneWidget);
