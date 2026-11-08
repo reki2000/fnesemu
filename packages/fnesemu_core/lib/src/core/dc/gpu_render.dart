@@ -2123,11 +2123,16 @@ class DcGpuRender {
                   pc = wc * zc * inverseDepth;
               color = sameColors
                   ? sc.color
-                  : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+                  : plane != null
+                      ? _planeGouraud(sa.color, sb.color, sc.color, pa, pb, pc)
+                      : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
               off = sameOffsets
                   ? sc.offsetColor
-                  : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor, pa,
-                      pb, pc);
+                  : plane != null
+                      ? _planeGouraud(sa.offsetColor, sb.offsetColor,
+                          sc.offsetColor, pa, pb, pc)
+                      : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor,
+                          pa, pb, pc);
             } else {
               color = sc.color;
               off = sc.offsetColor;
@@ -2239,6 +2244,26 @@ class DcGpuRender {
     if (ca == cb && cb == cc) return ca;
     return _gouraudWeights(ca, cb, cc, pb > 0 ? (pb * 65536 + 0.5).toInt() : 0,
         pc > 0 ? (pc * 65536 + 0.5).toInt() : 0);
+  }
+
+  /// [_gouraud] for a shading plane that extends past its triangle, as
+  /// for a background or the second half of a quad. Outside the triangle a
+  /// weight is negative; each channel follows the plane and is clamped.
+  static int _planeGouraud(
+      int ca, int cb, int cc, double pa, double pb, double pc) {
+    if (pa >= 0 && pb >= 0 && pc >= 0) {
+      return _gouraud(ca, cb, cc, pa, pb, pc);
+    }
+    var result = 0;
+    for (var shift = 0; shift < 32; shift += 8) {
+      final v = (((ca >> shift) & 255) * pa +
+              ((cb >> shift) & 255) * pb +
+              ((cc >> shift) & 255) * pc +
+              0.5)
+          .floor();
+      result |= (v < 0 ? 0 : (v > 255 ? 255 : v)) << shift;
+    }
+    return result;
   }
 
   /// [_gouraud] with the weights of [cb] and [cc] in 1/65536 steps.

@@ -150,6 +150,17 @@ void main() {
     }
   });
 
+  test('the core renderer extends a Gouraud background past its triangle',
+      () {
+    bus.gpu.render.hostSink = null;
+    render(
+        isp: 0x00800000, colors: [0xff100000, 0xff100000, 0xff900000]);
+    bus.tickMasterClocks(100000);
+    // The far corner lies outside the triangle; red follows the plane.
+    final pixel = bus.gpu.vram.getUint32LE(0x400000 + 31 * 128 + 31 * 4);
+    expect((pixel >> 16) & 255, closeTo(0x10 + 0x80 * 31 / 32, 1));
+  });
+
   test('a render through the scaler stays with the core renderer', () {
     render(scale: 0x800);
     expect(host.frames, isEmpty);
