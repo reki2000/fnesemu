@@ -8,11 +8,20 @@ An experimental renderer that draws a core's `RenderFrame`s with Flutter GPU.
 
 A core passes the same texel list for a texture that has not changed, and the renderer uploads a texel list only once.
 
-Flutter GPU needs the engine switches `enable-impeller` and `enable-flutter-gpu`. The Linux runner sets them through `FLUTTER_ENGINE_SWITCHES`, which only debug and profile engines read, so release builds on Linux draw in software. On the Web, the library exports a stub whose `create()` returns null.
+Flutter GPU needs Impeller and its own enable setting, which works in release builds too:
+
+| Platform | Setting |
+|---|---|
+| Linux | `fl_dart_project_set_enable_flutter_gpu` in `linux/runner/my_application.cc` |
+| Windows | `DartProject::set_enable_flutter_gpu` in `windows/runner/main.cpp` |
+| macOS, iOS | `FLTEnableFlutterGPU` in `Info.plist` |
+| Android | the `io.flutter.embedding.android.EnableFlutterGPU` meta-data in `AndroidManifest.xml` |
+
+Impeller is the default renderer on all of them; the Linux runner also enables it explicitly. On the Web, the library exports a stub whose `create()` returns null.
 
 ## Shaders
 
-Run `tool/build_shaders.sh` to compile `shaders/frame.vert` and `shaders/frame.frag` into `shaders/frame.shaderbundle` with the `impellerc` of the Flutter SDK. The bundle is checked in. Rebuild it after a Flutter upgrade; a bundle from another `impellerc` fails to load, and the sink is then not available.
+Run `tool/build_shaders.sh` to compile `shaders/frame.vert` and `shaders/frame.frag` into `shaders/frame.shaderbundle` with the `impellerc` of the Flutter SDK. In the bundle format `impellerc` writes the shaders of every backend, Metal, Vulkan and OpenGL ES, so one bundle serves all platforms. The bundle is checked in. Rebuild it after a Flutter upgrade; a bundle from another `impellerc` fails to load, and the sink is then not available.
 
 ## Capturing a frame
 
