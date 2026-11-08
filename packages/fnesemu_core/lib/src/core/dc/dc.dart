@@ -6,6 +6,7 @@ import '../../cdrom_drive.dart';
 import '../../core.dart';
 import '../../pad_button.dart';
 import '../../pad_source.dart';
+import '../../render_frame.dart';
 import '../../sram.dart';
 import '../../state.dart';
 import '../../types.dart';
@@ -640,6 +641,12 @@ class Dc extends Core {
       controller?.source = padPort;
     }
   }
+
+  @override
+  bool get rendersFrames => true;
+
+  @override
+  set renderFrameSink(RenderFrameSink? sink) => bus.gpu.render.hostSink = sink;
 
   @override
   List<PadButton> get buttons => DcMapleController.buttons;

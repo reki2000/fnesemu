@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../render_frame.dart';
 import '../../state.dart';
 import '../../util/uint32list.dart';
 import '../../util/uint8list.dart';
@@ -11,6 +12,8 @@ import 'gpu_modifier.dart';
 import 'gpu_palette.dart';
 import 'gpu_texture.dart';
 import 'vram_pages.dart';
+
+part 'gpu_frame.dart';
 
 /// Functional CORE display-list reader; raster precision and physical timing are pending.
 /// Data structures and register fields follow System Architecture §§3.7.7–3.7.9, 8.4.2.
@@ -27,6 +30,24 @@ class DcGpuRender {
   final fog = DcGpuFog();
   final void Function(int) onNormal;
   int Function()? displayReadControl;
+
+  /// Receives a [RenderFrame] of every render when it starts. With
+  /// [frameReference], the frame also gets the colors of this renderer.
+  RenderFrameSink? frameSink;
+  bool frameReference = false;
+  RenderFrame? _capturing;
+
+  /// Draws the renders in place of this renderer. The render ends after
+  /// the deadline of its tiles, and the drawn pixels are written to VRAM
+  /// when the host returns them through [RenderFrame.onDrawn]. Renders
+  /// through the strip buffer or the scaler stay with this renderer.
+  RenderFrameSink? hostSink;
+  bool _hostRender = false;
+  // The RGBA texels of a texture cache for the frames, with the count of
+  // changes of the cache they were made at.
+  final _frameTexels = Expando<(int, Uint8List)>();
+  // Pixels that come back after a reset or a state load are dropped.
+  int _hostGeneration = 0;
   int _stripLines = 0, _stripProduced = -1, _stripConsumed = -1;
   int _stripScaleRow = -1;
   bool _scaleSourceEnded = false, _stripDrainPending = false;
@@ -204,6 +225,9 @@ class DcGpuRender {
 
   void loadState(StateReader reader) {
     reader.section('dc.gpu.render');
+    // A render that the host was drawing is drawn again by this renderer.
+    _hostRender = false;
+    _hostGeneration++;
     final v = reader.ints();
     if ((v.length != 8 &&
             v.length != 9 &&
@@ -385,6 +409,8 @@ class DcGpuRender {
   }
 
   void reset({bool registers = true}) {
+    _hostRender = false;
+    _hostGeneration++;
     _scaleSourceEnded = _stripDrainPending = false;
     _stripLines = 0;
     _stripScaleRow = -1;
@@ -455,6 +481,27 @@ class DcGpuRender {
         _remaining = 2;
         return;
       }
+      final sink = frameSink;
+      if (sink != null) {
+        final frame = _buildFrame();
+        if (frameReference) {
+          frame.reference = Uint32List(frame.width * frame.height);
+          _capturing = frame;
+        }
+        sink.submit(frame);
+      }
+      final host = hostSink;
+      var hostTiles = 0;
+      if (host != null && stripLines == 0 && scale == 1024) {
+        final frame = _buildFrame();
+        final output = _frameOutput();
+        final generation = _hostGeneration;
+        frame.onDrawn = (rgba) {
+          if (generation == _hostGeneration) _writeFrame(output, frame, rgba);
+        };
+        host.submit(frame);
+        hostTiles = output.regions;
+      }
       _region = read(0x2c);
       _tileCount = _hiddenFragments = _shownFragments = 0;
       _stripLines = stripLines;
@@ -467,6 +514,11 @@ class DcGpuRender {
       _x = _y = -1;
       _remaining =
           2; // Functional tile deadline only; not a hardware render latency.
+      if (hostTiles != 0) {
+        // The same deadline as the tiles of this renderer.
+        _hostRender = true;
+        _remaining = hostTiles * 2;
+      }
       return;
     }
     if (busy || (_stripWatching && const [0x4c, 0x60, 0x64].contains(offset))) {
@@ -516,6 +568,14 @@ class DcGpuRender {
 
   void tickMasterClocks(int clocks) {
     if (!busy || _stripWaiting) return;
+    if (_hostRender) {
+      _remaining -= clocks;
+      if (_remaining > 0) return;
+      _hostRender = false;
+      _remaining = 0;
+      onNormal(7);
+      return;
+    }
     _remaining -= clocks;
     while (_remaining <= 0) {
       try {
@@ -528,6 +588,7 @@ class DcGpuRender {
           if (_scaleSourceEnded) {
             _scaleSourceEnded = false;
             _remaining = 0;
+            _capturing = null;
             onNormal(7);
             return;
           }
@@ -550,6 +611,7 @@ class DcGpuRender {
           _scaleSourceEnded = _stripDrainPending = false;
           _stripScaleRow = -1;
           _remaining = 0;
+          _capturing = null;
           onNormal(7); // Video/ISP/TSP completion after committed output.
           return;
         }
@@ -2070,11 +2132,16 @@ class DcGpuRender {
                   pc = wc * zc * inverseDepth;
               color = sameColors
                   ? sc.color
-                  : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
+                  : plane != null
+                      ? _planeGouraud(sa.color, sb.color, sc.color, pa, pb, pc)
+                      : _gouraud(sa.color, sb.color, sc.color, pa, pb, pc);
               off = sameOffsets
                   ? sc.offsetColor
-                  : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor, pa,
-                      pb, pc);
+                  : plane != null
+                      ? _planeGouraud(sa.offsetColor, sb.offsetColor,
+                          sc.offsetColor, pa, pb, pc)
+                      : _gouraud(sa.offsetColor, sb.offsetColor, sc.offsetColor,
+                          pa, pb, pc);
             } else {
               color = sc.color;
               off = sc.offsetColor;
@@ -2186,6 +2253,26 @@ class DcGpuRender {
     if (ca == cb && cb == cc) return ca;
     return _gouraudWeights(ca, cb, cc, pb > 0 ? (pb * 65536 + 0.5).toInt() : 0,
         pc > 0 ? (pc * 65536 + 0.5).toInt() : 0);
+  }
+
+  /// [_gouraud] for a shading plane that extends past its triangle, as
+  /// for a background or the second half of a quad. Outside the triangle a
+  /// weight is negative; each channel follows the plane and is clamped.
+  static int _planeGouraud(
+      int ca, int cb, int cc, double pa, double pb, double pc) {
+    if (pa >= 0 && pb >= 0 && pc >= 0) {
+      return _gouraud(ca, cb, cc, pa, pb, pc);
+    }
+    var result = 0;
+    for (var shift = 0; shift < 32; shift += 8) {
+      final v = (((ca >> shift) & 255) * pa +
+              ((cb >> shift) & 255) * pb +
+              ((cc >> shift) & 255) * pc +
+              0.5)
+          .floor();
+      result |= (v < 0 ? 0 : (v > 255 ? 255 : v)) << shift;
+    }
+    return result;
   }
 
   /// [_gouraud] with the weights of [cb] and [cc] in 1/65536 steps.
@@ -3326,6 +3413,9 @@ class DcGpuRender {
 
   void _writeTile(int originX, int originY,
       {int? scaledFirst, int? scaledEnd}) {
+    if (_capturing != null && scaledFirst == null) {
+      _frameReference(originX, originY);
+    }
     if (scaledFirst == null && read(0xf4) & 0xffff != 1024) {
       _scalerTiles[(originY ~/ 32) * 64 + originX ~/ 32] =
           Uint32List.fromList(_colors);

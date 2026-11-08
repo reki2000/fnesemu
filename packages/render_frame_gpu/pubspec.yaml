@@ -1,0 +1,20 @@
+name: render_frame_gpu
+description: Draws the render frames of a core with Flutter GPU.
+publish_to: none
+
+environment:
+  sdk: ^3.11.0
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_gpu:
+    sdk: flutter
+  fnesemu_core:
+    path: ../fnesemu_core
+  vector_math: ^2.1.4
+
+flutter:
+  assets:
+    - shaders/frame.shaderbundle

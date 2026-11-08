@@ -236,6 +236,7 @@ class DcGpuTexture {
       stamps[y * width + x] = 0;
     }
     cache.complete = 0;
+    cache.changes++;
   }
 
   static int _compact(int v) {
@@ -277,6 +278,9 @@ class DcGpuTexture {
   DcTextureCache? cache;
 
   /// Reads a texel at coordinates already wrapped, clamped or mirrored.
+  /// The ARGB texel at [x], [y] of level 0.
+  int texelAt(int x, int y) => _texelAt(x, y, 0, 0);
+
   int _texelAt(int x, int y, int level, int bumpParameters) {
     final cache = this.cache;
     if (cache == null) return _decodeTexel(x, y, level, bumpParameters);
@@ -829,7 +833,11 @@ class DcTextureCache {
   /// VRAM page clock and palette version when the contents were validated.
   int checked = 0, paletteVersion = -1;
 
+  /// Counts the invalidations, whole or partial.
+  int changes = 0;
+
   void invalidate() {
+    changes++;
     if (++generation == 0xffffffff) {
       stamps.fillRange(0, stamps.length, 0);
       generation = 1;

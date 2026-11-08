@@ -10,6 +10,7 @@ import 'src/internal/frame_counter.dart';
 import 'src/internal/frame_pacer.dart';
 import 'src/pad_button.dart';
 import 'src/pad_source.dart';
+import 'src/render_frame.dart';
 import 'src/sram.dart';
 import 'src/types.dart';
 import 'src/util/debug.dart';
@@ -95,7 +96,9 @@ class CoreController {
     }
 
     _core.dispose();
-    _core = core..input = _input;
+    _core = core
+      ..input = _input
+      ..renderFrameSink = _renderFrameSink;
     _system = system;
     final metadata = CoreFactory.system(system);
     debugger.setCore(_core,
@@ -351,6 +354,16 @@ class CoreController {
   set input(PadSource source) {
     _input = source;
     _core.input = source;
+  }
+
+  RenderFrameSink? _renderFrameSink;
+
+  /// the loaded core and the cores loaded later leave their 3D renders to
+  /// this sink; null draws them in the cores
+  RenderFrameSink? get renderFrameSink => _renderFrameSink;
+  set renderFrameSink(RenderFrameSink? sink) {
+    _renderFrameSink = sink;
+    _core.renderFrameSink = sink;
   }
 
   // returns a list of core's buttons
