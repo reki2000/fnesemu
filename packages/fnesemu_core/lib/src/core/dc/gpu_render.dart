@@ -100,12 +100,13 @@ class DcGpuRender {
   final _fragmentHead = Int32List(1024);
   var _fragmentCount = 0;
   var _fragmentNext = Int32List(1024), _fragmentOrder = Int32List(1024);
-  var _fragmentColor = Uint32List(1024), _fragmentTsp = Uint32List(1024);
+  var _fragmentColor = Uint32List(1024);
+  // The upper byte retains the TSP blend and buffer selectors. Bit 0 marks
+  // a depth write. Bits 1–2 select both modifier areas (0) or one area for
+  // its material or intensity shadow (1 or 2).
+  var _fragmentControl = Uint32List(1024);
   var _fragmentDepth = Float64List(1024);
-  var _fragmentWrite = Uint8List(1024), _fragmentSorted = Int32List(1024);
-  // The modifier area a fragment belongs to: -1 for both, otherwise the area
-  // that selects its material or its intensity shadow.
-  var _fragmentArea = Int8List(1024);
+  var _fragmentSorted = Int32List(1024);
   // While modifier fragments are collected, the area that the intensity
   // shadow of the current object assumes, or -1.
   int _shadowArea = -1;
@@ -781,8 +782,16 @@ class DcGpuRender {
     final sorted = _fragmentSorted, depth = _fragmentDepth;
     final order = _fragmentOrder;
     for (var i = 0; i < 1024; i++) {
+      final first = _fragmentHead[i];
+      if (first < 0) continue;
+      if (_fragmentNext[first] < 0) {
+        final control = _fragmentControl[first];
+        _composite(i, _fragmentColor[first], control);
+        if (control & 1 != 0) _depth[i] = depth[first];
+        continue;
+      }
       var count = 0;
-      for (var f = _fragmentHead[i]; f >= 0; f = _fragmentNext[f]) {
+      for (var f = first; f >= 0; f = _fragmentNext[f]) {
         final z = depth[f], o = order[f];
         var j = count++;
         while (j > 0) {
@@ -795,8 +804,9 @@ class DcGpuRender {
       }
       for (var k = 0; k < count; k++) {
         final f = sorted[k];
-        _composite(i, _fragmentColor[f], _fragmentTsp[f]);
-        if (_fragmentWrite[f] != 0) _depth[i] = depth[f];
+        final control = _fragmentControl[f];
+        _composite(i, _fragmentColor[f], control);
+        if (control & 1 != 0) _depth[i] = depth[f];
       }
     }
   }
@@ -818,7 +828,7 @@ class DcGpuRender {
       _fragmentSorted = Int32List(_fragmentNext.length);
     }
     final sorted = _fragmentSorted, depth = _fragmentDepth;
-    final order = _fragmentOrder, area = _fragmentArea;
+    final order = _fragmentOrder;
     // The sorted fragments of pixel i run from start[i] to end[i].
     final start = Int32List(1024), end = Int32List(1024);
     var next = 0;
@@ -864,12 +874,14 @@ class DcGpuRender {
         for (; k < end[i]; k++) {
           final f = sorted[k];
           if (depth[f] != z || order[f] != o) break;
-          if (chosen < 0 && (area[f] < 0 || area[f] == mask[i])) chosen = f;
+          final area = (_fragmentControl[f] >> 1) & 3;
+          if (chosen < 0 && (area == 0 || area == mask[i] + 1)) chosen = f;
         }
         start[i] = k;
         if (chosen < 0) continue;
-        _composite(i, _fragmentColor[chosen], _fragmentTsp[chosen]);
-        if (_fragmentWrite[chosen] != 0) _depth[i] = z;
+        final control = _fragmentControl[chosen];
+        _composite(i, _fragmentColor[chosen], control);
+        if (control & 1 != 0) _depth[i] = z;
       }
     }
   }
@@ -885,10 +897,9 @@ class DcGpuRender {
     _fragmentHead[index] = f;
     _fragmentOrder[f] = order;
     _fragmentColor[f] = color;
-    _fragmentTsp[f] = tsp;
+    _fragmentControl[f] =
+        (tsp & 0xff000000) | ((area + 1) << 1) | (writeDepth ? 1 : 0);
     _fragmentDepth[f] = z;
-    _fragmentWrite[f] = writeDepth ? 1 : 0;
-    _fragmentArea[f] = area;
   }
 
   void _growFragments() {
@@ -896,10 +907,8 @@ class DcGpuRender {
     _fragmentNext = Int32List(size)..setAll(0, _fragmentNext);
     _fragmentOrder = Int32List(size)..setAll(0, _fragmentOrder);
     _fragmentColor = Uint32List(size)..setAll(0, _fragmentColor);
-    _fragmentTsp = Uint32List(size)..setAll(0, _fragmentTsp);
+    _fragmentControl = Uint32List(size)..setAll(0, _fragmentControl);
     _fragmentDepth = Float64List(size)..setAll(0, _fragmentDepth);
-    _fragmentWrite = Uint8List(size)..setAll(0, _fragmentWrite);
-    _fragmentArea = Int8List(size)..setAll(0, _fragmentArea);
   }
 
   final _textureCaches = <int, DcTextureCache>{};
