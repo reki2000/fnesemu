@@ -61,6 +61,11 @@ class RenderFrame {
   /// if the core was asked for them.
   Uint32List? reference;
 
+  /// Set by a core that leaves the drawing of the frame to the host. The
+  /// host calls it with the drawn frame as RGBA bytes, row by row, and the
+  /// core writes them to its video memory. The core does not wait for it.
+  void Function(Uint8List rgba)? onDrawn;
+
   int get triangleCount => vertices.length ~/ (vertexFloats * 3);
 
   /// The table entry and the fraction toward the next one at [depth].

@@ -36,6 +36,15 @@ class DcGpuRender {
   RenderFrameSink? frameSink;
   bool frameReference = false;
   RenderFrame? _capturing;
+
+  /// Draws the renders in place of this renderer. The render ends after
+  /// the deadline of its tiles, and the drawn pixels are written to VRAM
+  /// when the host returns them through [RenderFrame.onDrawn]. Renders
+  /// through the strip buffer or the scaler stay with this renderer.
+  RenderFrameSink? hostSink;
+  bool _hostRender = false;
+  // Pixels that come back after a reset or a state load are dropped.
+  int _hostGeneration = 0;
   int _stripLines = 0, _stripProduced = -1, _stripConsumed = -1;
   int _stripScaleRow = -1;
   bool _scaleSourceEnded = false, _stripDrainPending = false;
@@ -212,6 +221,9 @@ class DcGpuRender {
 
   void loadState(StateReader reader) {
     reader.section('dc.gpu.render');
+    // A render that the host was drawing is drawn again by this renderer.
+    _hostRender = false;
+    _hostGeneration++;
     final v = reader.ints();
     if ((v.length != 8 &&
             v.length != 9 &&
@@ -393,6 +405,8 @@ class DcGpuRender {
   }
 
   void reset({bool registers = true}) {
+    _hostRender = false;
+    _hostGeneration++;
     _scaleSourceEnded = _stripDrainPending = false;
     _stripLines = 0;
     _stripScaleRow = -1;
@@ -472,6 +486,18 @@ class DcGpuRender {
         }
         sink.submit(frame);
       }
+      final host = hostSink;
+      var hostTiles = 0;
+      if (host != null && stripLines == 0 && scale == 1024) {
+        final frame = _buildFrame();
+        final output = _frameOutput();
+        final generation = _hostGeneration;
+        frame.onDrawn = (rgba) {
+          if (generation == _hostGeneration) _writeFrame(output, frame, rgba);
+        };
+        host.submit(frame);
+        hostTiles = output.regions;
+      }
       _region = read(0x2c);
       _tileCount = _hiddenFragments = _shownFragments = 0;
       _stripLines = stripLines;
@@ -484,6 +510,11 @@ class DcGpuRender {
       _x = _y = -1;
       _remaining =
           2; // Functional tile deadline only; not a hardware render latency.
+      if (hostTiles != 0) {
+        // The same deadline as the tiles of this renderer.
+        _hostRender = true;
+        _remaining = hostTiles * 2;
+      }
       return;
     }
     if (busy || (_stripWatching && const [0x4c, 0x60, 0x64].contains(offset))) {
@@ -533,6 +564,14 @@ class DcGpuRender {
 
   void tickMasterClocks(int clocks) {
     if (!busy || _stripWaiting) return;
+    if (_hostRender) {
+      _remaining -= clocks;
+      if (_remaining > 0) return;
+      _hostRender = false;
+      _remaining = 0;
+      onNormal(7);
+      return;
+    }
     _remaining -= clocks;
     while (_remaining <= 0) {
       try {

@@ -27,19 +27,31 @@ class FrameRenderer {
   final gpu.RenderPipeline _pipeline;
   final _host = gpu.gpuContext.createHostBuffer();
   gpu.Texture? _color, _depth;
-  late final gpu.Texture _white =
+  final gpu.Texture _white =
       _texture(1, 1, Uint8List.fromList([255, 255, 255, 255]));
 
   RenderFrame? _prepared;
   List<gpu.Texture> _textures = const [];
   gpu.Texture? _fog;
 
-  /// Uploads the textures and the fog table of [frame].
+  /// Creates the textures that [frame] draws with and into, and uploads the
+  /// textures and the fog table of [frame].
   ///
   /// On the GLES backend, textures that were uploaded once lost their
   /// contents after some tens of frames, so the textures of a frame drawn
   /// again are written again.
   void prepare(RenderFrame frame) {
+    final context = gpu.gpuContext;
+    final color = _color;
+    if (color == null ||
+        color.width != frame.width ||
+        color.height != frame.height) {
+      _color = createTarget(frame.width, frame.height);
+      _depth = context.createTexture(
+          gpu.StorageMode.deviceTransient, frame.width, frame.height,
+          format: context.defaultDepthStencilFormat,
+          enableShaderReadUsage: false);
+    }
     if (identical(frame, _prepared)) {
       for (var i = 0; i < _textures.length; i++) {
         _textures[i].overwrite(ByteData.sublistView(frame.textures[i].rgba));
@@ -59,7 +71,7 @@ class FrameRenderer {
     _prepared = frame;
   }
 
-  gpu.Texture _texture(int width, int height, Uint8List rgba) {
+  static gpu.Texture _texture(int width, int height, Uint8List rgba) {
     final texture = gpu.gpuContext.createTexture(
         gpu.StorageMode.hostVisible, width, height,
         enableRenderTargetUsage: false);
@@ -67,23 +79,20 @@ class FrameRenderer {
     return texture;
   }
 
-  /// Draws [frame] and returns its color texture. [onComplete] is called
-  /// when the GPU has finished.
-  gpu.Texture draw(RenderFrame frame, {void Function(bool)? onComplete}) {
+  /// A color texture that [draw] can draw a frame of this size into.
+  static gpu.Texture createTarget(int width, int height) {
+    final context = gpu.gpuContext;
+    return context.createTexture(gpu.StorageMode.devicePrivate, width, height,
+        format: context.defaultColorFormat);
+  }
+
+  /// Draws [frame] into [target], or into a texture of the renderer, and
+  /// returns the texture. [onComplete] is called when the GPU has finished.
+  gpu.Texture draw(RenderFrame frame,
+      {gpu.Texture? target, void Function(bool)? onComplete}) {
     prepare(frame);
     final context = gpu.gpuContext;
-    var color = _color, depth = _depth;
-    if (color == null ||
-        color.width != frame.width ||
-        color.height != frame.height) {
-      color = _color = context.createTexture(
-          gpu.StorageMode.devicePrivate, frame.width, frame.height,
-          format: context.defaultColorFormat);
-      depth = _depth = context.createTexture(
-          gpu.StorageMode.deviceTransient, frame.width, frame.height,
-          format: context.defaultDepthStencilFormat,
-          enableShaderReadUsage: false);
-    }
+    final color = target ?? _color!, depth = _depth;
     _host.reset();
     final vertices = context
         .createDeviceBufferWithCopy(ByteData.sublistView(frame.vertices));

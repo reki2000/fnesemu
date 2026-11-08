@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:fnesemu_core/app_api.dart';
+import 'package:render_frame_gpu/frame_renderer.dart';
 import 'package:render_frame_gpu/render_frame_gpu.dart';
 
 /// Draws a captured render frame with Flutter GPU, times it and compares it
@@ -115,6 +116,35 @@ class _FrameViewState extends State<FrameView> {
         '$over16 by more than 16, max $maximum',
       );
       _reference = await _decode(rgba, frame.width, frame.height);
+    }
+    // The path of a core that leaves its renders to the host: the sink
+    // draws the frame and returns its pixels through onDrawn.
+    // The path of a core that leaves its renders to the host: the sink
+    // draws each frame and returns its pixels through onDrawn.
+    final sink = await GpuFrameSink.create();
+    if (sink != null) {
+      final bytes = File(path).readAsBytesSync();
+      var wrong = 0;
+      final roundTrip = Stopwatch()..start();
+      for (var i = 0; i < rounds; i++) {
+        // Every tenth frame comes with new textures, as from a core.
+        final f = i % 10 == 0 ? RenderFrame.decode(bytes) : frame;
+        final drawn = Completer<Uint8List>();
+        f.onDrawn = drawn.complete;
+        sink.submit(f);
+        final rgba = await drawn.future;
+        for (var k = 0; k < rgba.length; k++) {
+          if (rgba[k] != pixels.getUint8(k)) {
+            wrong++;
+            break;
+          }
+        }
+      }
+      frame.onDrawn = null;
+      report.writeln(
+        'sink ${(roundTrip.elapsedMicroseconds / 1000 / rounds).toStringAsFixed(2)} ms per frame, '
+        'submit to pixels, $wrong of $rounds frames differ from the draw',
+      );
     }
     if (out != null) {
       final png = await image.toByteData(format: ui.ImageByteFormat.png);

@@ -1,5 +1,4 @@
 .dart_tool/
 build/
-shaders/*.shaderbundle
 pubspec.lock
 example/pubspec.lock

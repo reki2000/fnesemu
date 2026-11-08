@@ -338,4 +338,79 @@ extension _FrameBuilder on DcGpuRender {
       }
     }
   }
+
+  /// The tiles that a render writes and the registers that select where and
+  /// how, read when the render starts.
+  _FrameOutput _frameOutput() {
+    final type2 = read(0x7c) & 0x200000 != 0;
+    final tiles = <int>{};
+    var regions = 0;
+    for (var region = read(0x2c);; region += type2 ? 24 : 20) {
+      final control = _word(region);
+      regions++;
+      if (control & 0x10000000 == 0) {
+        tiles.add(((control >> 2) & 63) | (((control >> 8) & 63) << 6));
+      }
+      if (control & 0x80000000 != 0) break;
+    }
+    return _FrameOutput([for (final o in _FrameOutput.offsets) read(o)],
+        tiles.toList(), regions);
+  }
+
+  /// Writes the RGBA pixels that the host drew for [frame] to VRAM, as the
+  /// tiles of [output] with the registers of the render.
+  void _writeFrame(_FrameOutput output, RenderFrame frame, Uint8List rgba) {
+    final width = frame.width, height = frame.height;
+    if (rgba.length < width * height * 4) return;
+    final offsets = _FrameOutput.offsets;
+    final saved = [for (final o in offsets) _registerWords[o >> 2]];
+    final colors = Uint32List.fromList(_colors);
+    final stripLines = _stripLines, capturing = _capturing;
+    try {
+      for (var i = 0; i < offsets.length; i++) {
+        _registerWords[offsets[i] >> 2] = output.registers[i];
+      }
+      _stripLines = 0;
+      _capturing = null;
+      for (final tile in output.tiles) {
+        final originX = (tile & 63) * 32, originY = (tile >> 6) * 32;
+        for (var y = 0; y < 32; y++) {
+          final py = originY + y;
+          for (var x = 0; x < 32; x++) {
+            final px = originX + x;
+            var color = 0;
+            if (px < width && py < height) {
+              final i = (py * width + px) * 4;
+              color = (rgba[i + 3] << 24) |
+                  (rgba[i] << 16) |
+                  (rgba[i + 1] << 8) |
+                  rgba[i + 2];
+            }
+            _colors[y * 32 + x] = color;
+          }
+        }
+        _writeTile(originX, originY);
+      }
+    } finally {
+      for (var i = 0; i < offsets.length; i++) {
+        _registerWords[offsets[i] >> 2] = saved[i];
+      }
+      _stripLines = stripLines;
+      _capturing = capturing;
+      _colors.setAll(0, colors);
+    }
+  }
+}
+
+/// See [_FrameBuilder._frameOutput].
+class _FrameOutput {
+  _FrameOutput(this.registers, this.tiles, this.regions);
+
+  /// The registers that [DcGpuRender._writeTile] reads.
+  static const offsets = [0x48, 0x4c, 0x60, 0x64, 0x68, 0x6c, 0xf4];
+  final List<int> registers;
+
+  /// The written tiles as x | y << 6, and the number of region entries.
+  final List<int> tiles;
+  final int regions;
 }

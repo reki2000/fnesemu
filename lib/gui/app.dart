@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fnesemu_core/app_api.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
+import 'package:render_frame_gpu/render_frame_gpu.dart';
 
 import '../styles.dart';
 import 'async_cdrom_drive.dart';
@@ -98,6 +99,8 @@ class MainPage extends StatefulWidget {
 
 enum _DiscAction { eject, empty, select }
 
+enum _SetupAction { gpu }
+
 class MainPageState extends State<MainPage> {
   late final SoundPlayer _mPlayer;
   final _imageContainer = ImageContainer();
@@ -144,6 +147,12 @@ class MainPageState extends State<MainPage> {
 
   final _coreSetupKey = GlobalKey<PopupMenuButtonState>();
 
+  // draws the 3D renders of the cores when the GPU setting selects it; null
+  // until it is created, and when the platform has no Flutter GPU
+  GpuFrameSink? _gpu;
+  static const _gpuKey = "gpu";
+  bool get _gpuSelected => _gpu != null && _storage.setting(_gpuKey) == "gpu";
+
   @override
   void initState() {
     super.initState();
@@ -176,6 +185,14 @@ class MainPageState extends State<MainPage> {
         onPause: _padInput.clear);
 
     _restoreDiscFolder();
+
+    unawaited(GpuFrameSink.create().then((sink) {
+      _log.infoc(() => "${GpuFrameSink.name} is "
+          "${sink == null ? 'not available' : 'available'}");
+      _gpu = sink;
+      _applyGpu();
+      if (mounted) setState(() {});
+    }));
 
     _cdromWaitTimer = Timer.periodic(
         const Duration(milliseconds: 300), (_) => _tickCdromWait());
@@ -415,6 +432,30 @@ class MainPageState extends State<MainPage> {
       }
     }
     return true;
+  }
+
+  void _applyGpu() => _controller.renderFrameSink = _gpuSelected ? _gpu : null;
+
+  /// lets the user select the renderer of the 3D renders of the cores
+  Future<void> _selectGpu() async {
+    final selected = await showDialog<bool>(
+        context: context,
+        builder: (context) => SimpleDialog(title: const Text('GPU'), children: [
+              for (final (gpu, name) in [
+                (false, 'Software'),
+                if (_gpu != null) (true, GpuFrameSink.name),
+              ])
+                SimpleDialogOption(
+                    onPressed: () => Navigator.of(context).pop(gpu),
+                    child: ListTile(
+                        title: Text(name),
+                        trailing: gpu == _gpuSelected
+                            ? const Icon(Icons.check)
+                            : null)),
+            ]));
+    if (selected == null) return;
+    await _storage.setSetting(_gpuKey, selected ? "gpu" : "software");
+    _applyGpu();
   }
 
   /// lets the user select the BIOS files of [system] and saves them
@@ -868,7 +909,7 @@ class MainPageState extends State<MainPage> {
     }
   }
 
-  PopupMenuItem<BiosSetup> _coreSetupItem(BiosSetup setup) => PopupMenuItem(
+  PopupMenuItem<Object> _coreSetupItem(BiosSetup setup) => PopupMenuItem(
       value: setup,
       child: ListTile(
           title: Text(setup.name),
@@ -884,16 +925,27 @@ class MainPageState extends State<MainPage> {
               child: Wrap(
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  PopupMenuButton<BiosSetup>(
+                  PopupMenuButton<Object>(
                     key: _coreSetupKey,
                     icon: const Icon(Icons.settings),
                     tooltip: "Core setup",
-                    enabled: CoreFactory.biosSetups.isNotEmpty,
-                    onSelected: (system) =>
-                        _menuAction(() async => _selectBios(system)),
+                    onSelected: (item) => _menuAction(() async => item
+                            is BiosSetup
+                        ? _selectBios(item)
+                        : _selectGpu()),
                     itemBuilder: (_) => [
                       for (final setup in CoreFactory.biosSetups)
                         _coreSetupItem(setup),
+                      if (CoreFactory.biosSetups.isNotEmpty)
+                        const PopupMenuDivider(),
+                      PopupMenuItem(
+                          value: _SetupAction.gpu,
+                          child: ListTile(
+                              title: const Text('GPU'),
+                              subtitle: Text(_gpuSelected
+                                  ? GpuFrameSink.name
+                                  : 'Software'),
+                              trailing: const Icon(Icons.memory))),
                     ],
                   ),
 
