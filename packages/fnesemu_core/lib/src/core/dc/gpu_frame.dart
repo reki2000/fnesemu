@@ -88,25 +88,30 @@ extension _FrameBuilder on DcGpuRender {
     var index = 0, o = 0;
     var maximumDepth = _value(read(0x88));
     for (var pass = 0; pass < 3; pass++) {
+      // Sorted translucent fragments all blend over the opaque depths in
+      // front of them: the compare is greater or equal and nothing writes
+      // depth.
+      final sorted = pass == 2 && !presort;
       for (final t in triangles[pass]) {
+        final state = sorted ? (t.state & ~15) | 6 : t.state;
         final last = batches.isEmpty ? null : batches.last;
         if (last != null &&
             last.pass == pass &&
             last.texture == t.texture &&
-            last.state == t.state) {
+            last.state == state) {
           batches.last = RenderBatch(
               pass: pass,
               first: last.first,
               count: last.count + 1,
               texture: t.texture,
-              state: t.state);
+              state: state);
         } else {
           batches.add(RenderBatch(
               pass: pass,
               first: index,
               count: 1,
               texture: t.texture,
-              state: t.state));
+              state: state));
         }
         for (final v in [t.a, t.b, t.c]) {
           if (!t.background && v.z > maximumDepth) maximumDepth = v.z;

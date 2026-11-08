@@ -169,7 +169,15 @@ class _FrameViewState extends State<FrameView> {
       }
     }
     if (out != null) {
-      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      // The target keeps the blended alpha, which the PNG encoder would
+      // divide the colors by; the colors are saved as they are.
+      final rgba = Uint8List.fromList(pixels.buffer.asUint8List(
+          pixels.offsetInBytes, pixels.lengthInBytes));
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255;
+      }
+      final opaque = await _decode(rgba, frame.width, frame.height);
+      final png = await opaque.toByteData(format: ui.ImageByteFormat.png);
       File('$out/gpu.png').writeAsBytesSync(png!.buffer.asUint8List());
     }
     stdout.write(report);

@@ -37,7 +37,7 @@ FLUTTER_ENGINE_SWITCHES=2 FLUTTER_ENGINE_SWITCH_1=enable-impeller FLUTTER_ENGINE
 ## Known limits
 
 - Modifier volumes, the secondary accumulation buffer, bump maps and mipmaps are not drawn.
-- Automatic sorting of translucent triangles is approximated by the mean depth of each triangle.
+- Automatic sorting of translucent triangles is approximated by the mean depth of each triangle. The sorted triangles blend over every opaque depth they are not behind and write no depth, so that layers at the same depth all blend.
 - Renders through the strip buffer or the scaler stay with the core's renderer.
 
 ## Behavior of the Linux GLES backend
