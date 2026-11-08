@@ -62,7 +62,9 @@ void main() {
     color = vec4(info.fog_color.rgb, fog_coefficient(1.0 / v_w));
   }
   if (info.fog.z > 0.5) {
-    if (color.a * 255.0 < info.fog.w) {
+    // The test compares 8-bit alphas; rounding keeps an alpha of 1.0 from
+    // failing a reference of 255.
+    if (floor(color.a * 255.0 + 0.5) < info.fog.w) {
       discard;
     }
     color.a = 1.0;
