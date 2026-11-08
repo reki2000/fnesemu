@@ -284,15 +284,33 @@ extension _FrameBuilder on DcGpuRender {
 
   RenderTexture _frameTexture(DcGpuTexture view) {
     final width = view.width, height = view.height;
-    final rgba = Uint8List(width * height * 4);
-    var o = 0;
-    for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        final texel = view.texelAt(x, y);
-        rgba[o++] = (texel >> 16) & 255;
-        rgba[o++] = (texel >> 8) & 255;
-        rgba[o++] = texel & 255;
-        rgba[o++] = (texel >> 24) & 255;
+    final cache = view.cache;
+    final kept = cache == null ? null : _frameTexels[cache];
+    final Uint8List rgba;
+    if (kept != null && kept.$1 == cache!.changes) {
+      rgba = kept.$2;
+    } else {
+      rgba = Uint8List(width * height * 4);
+      final words = Uint32List.view(rgba.buffer);
+      if (cache != null) {
+        // The decoded texels of the cache, from ARGB to RGBA bytes, kept
+        // until the cache changes.
+        view.decodeAll();
+        final texels = cache.texels;
+        for (var i = 0; i < words.length; i++) {
+          final t = texels[i];
+          words[i] = (t & 0xff00ff00) | ((t >> 16) & 0xff) | ((t & 0xff) << 16);
+        }
+        _frameTexels[cache] = (cache.changes, rgba);
+      } else {
+        var i = 0;
+        for (var y = 0; y < height; y++) {
+          for (var x = 0; x < width; x++) {
+            final t = view.texelAt(x, y);
+            words[i++] =
+                (t & 0xff00ff00) | ((t >> 16) & 0xff) | ((t & 0xff) << 16);
+          }
+        }
       }
     }
     int address(bool clamp, bool flip) => clamp ? 2 : (flip ? 1 : 0);
@@ -364,7 +382,7 @@ extension _FrameBuilder on DcGpuRender {
     if (rgba.length < width * height * 4) return;
     final offsets = _FrameOutput.offsets;
     final saved = [for (final o in offsets) _registerWords[o >> 2]];
-    final colors = Uint32List.fromList(_colors);
+    final savedColors = Uint32List.fromList(_colors);
     final stripLines = _stripLines, capturing = _capturing;
     try {
       for (var i = 0; i < offsets.length; i++) {
@@ -372,22 +390,27 @@ extension _FrameBuilder on DcGpuRender {
       }
       _stripLines = 0;
       _capturing = null;
+      final pixels = rgba.offsetInBytes & 3 == 0
+          ? Uint32List.view(rgba.buffer, rgba.offsetInBytes, width * height)
+          : Uint32List.view(Uint8List.fromList(rgba).buffer);
+      final colors = _colors;
       for (final tile in output.tiles) {
         final originX = (tile & 63) * 32, originY = (tile >> 6) * 32;
+        final columns = math.max(0, math.min(32, width - originX));
         for (var y = 0; y < 32; y++) {
-          final py = originY + y;
-          for (var x = 0; x < 32; x++) {
-            final px = originX + x;
-            var color = 0;
-            if (px < width && py < height) {
-              final i = (py * width + px) * 4;
-              color = (rgba[i + 3] << 24) |
-                  (rgba[i] << 16) |
-                  (rgba[i + 1] << 8) |
-                  rgba[i + 2];
-            }
-            _colors[y * 32 + x] = color;
+          final py = originY + y, row = y * 32;
+          if (py >= height) {
+            colors.fillRange(row, row + 32, 0);
+            continue;
           }
+          final first = py * width + originX;
+          for (var x = 0; x < columns; x++) {
+            // RGBA bytes to ARGB.
+            final p = pixels[first + x];
+            colors[row + x] =
+                (p & 0xff00ff00) | ((p >> 16) & 0xff) | ((p & 0xff) << 16);
+          }
+          if (columns < 32) colors.fillRange(row + columns, row + 32, 0);
         }
         _writeTile(originX, originY);
       }
@@ -397,7 +420,7 @@ extension _FrameBuilder on DcGpuRender {
       }
       _stripLines = stripLines;
       _capturing = capturing;
-      _colors.setAll(0, colors);
+      _colors.setAll(0, savedColors);
     }
   }
 }

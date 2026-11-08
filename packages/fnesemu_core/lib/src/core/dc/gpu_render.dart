@@ -43,6 +43,9 @@ class DcGpuRender {
   /// through the strip buffer or the scaler stay with this renderer.
   RenderFrameSink? hostSink;
   bool _hostRender = false;
+  // The RGBA texels of a texture cache for the frames, with the count of
+  // changes of the cache they were made at.
+  final _frameTexels = Expando<(int, Uint8List)>();
   // Pixels that come back after a reset or a state load are dropped.
   int _hostGeneration = 0;
   int _stripLines = 0, _stripProduced = -1, _stripConsumed = -1;

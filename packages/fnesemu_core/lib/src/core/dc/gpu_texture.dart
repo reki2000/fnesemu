@@ -236,6 +236,7 @@ class DcGpuTexture {
       stamps[y * width + x] = 0;
     }
     cache.complete = 0;
+    cache.changes++;
   }
 
   static int _compact(int v) {
@@ -829,7 +830,11 @@ class DcTextureCache {
   /// VRAM page clock and palette version when the contents were validated.
   int checked = 0, paletteVersion = -1;
 
+  /// Counts the invalidations, whole or partial.
+  int changes = 0;
+
   void invalidate() {
+    changes++;
     if (++generation == 0xffffffff) {
       stamps.fillRange(0, stamps.length, 0);
       generation = 1;

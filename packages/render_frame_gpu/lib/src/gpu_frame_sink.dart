@@ -63,33 +63,32 @@ class GpuFrameSink implements RenderFrameSink {
 
   /// Draws [frame] into [target] and reads it back.
   ///
-  /// On the GLES backend, the pixels of a pass read back right after it were
-  /// zeros until a frame of the engine had passed, so the pixels are read
-  /// after the next frame.
+  /// On the GLES backend, a read often showed the texture as it was at the
+  /// read before. The pixels are read twice after the next frame of the
+  /// engine; that was right for all but about one frame in a few hundred,
+  /// which then shows the frame before.
   Future<Uint8List?> _draw(RenderFrame frame, gpu.Texture target) async {
-    final done = Completer<void>();
-    _renderer.draw(frame, target: target, onComplete: (_) => done.complete());
+    _renderer.draw(frame, target: target);
     await SchedulerBinding.instance.endOfFrame;
-    // The completion was not always reported; the frame read is a
-    // completion in itself.
-    await done.future.timeout(
-      const Duration(milliseconds: 500),
-      onTimeout: () {},
-    );
-    final image = target.asImage();
-    try {
-      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      return data == null ? null : Uint8List.sublistView(data);
-    } finally {
-      image.dispose();
+    Future<ByteData?> read() async {
+      final image = target.asImage();
+      try {
+        return await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      } finally {
+        image.dispose();
+      }
     }
+
+    await read();
+    final data = await read();
+    return data == null ? null : Uint8List.sublistView(data);
   }
 
   /// A target of the size, or null when it cannot be read back.
   ///
-  /// A new target is filled with a white triangle until the white comes
-  /// back: on the GLES backend, the first passes into a new texture read
-  /// back as zeros, and a pass that draws nothing is not run.
+  /// A new target is filled with a white textured triangle until the white
+  /// comes back, which also tells whether Flutter GPU works at all. A pass
+  /// that draws nothing was not run on the GLES backend.
   Future<gpu.Texture?> _target(int width, int height) async {
     final current = _texture;
     if (current != null && current.width == width && current.height == height) {
@@ -118,20 +117,27 @@ class GpuFrameSink implements RenderFrameSink {
           pass: RenderBatch.opaque,
           first: 0,
           count: 1,
-          texture: -1,
+          texture: 0,
           state: RenderBatch.pack(
             depthCompare: 7,
             depthWrite: false,
             sourceFactor: 1,
             destinationFactor: 0,
-            shading: 0,
-            fog: 2,
+            shading: 1,
+            fog: 0,
             textureAlpha: false,
             offset: false,
           ),
         ),
       ],
-      textures: const [],
+      textures: [
+        RenderTexture(
+          width: 8,
+          height: 8,
+          sampler: 1,
+          rgba: Uint8List(8 * 8 * 4)..fillRange(0, 8 * 8 * 4, 255),
+        ),
+      ],
       fogTable: Uint8List(256),
       fogScale: 1,
       fogColor: 0,

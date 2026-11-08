@@ -32,14 +32,12 @@ class FrameRenderer {
 
   RenderFrame? _prepared;
   List<gpu.Texture> _textures = const [];
+  final _uploaded = Expando<gpu.Texture>();
   gpu.Texture? _fog;
 
   /// Creates the textures that [frame] draws with and into, and uploads the
-  /// textures and the fog table of [frame].
-  ///
-  /// On the GLES backend, textures that were uploaded once lost their
-  /// contents after some tens of frames, so the textures of a frame drawn
-  /// again are written again.
+  /// textures and the fog table of [frame]. A texture whose texels are the
+  /// same list as in an earlier frame is not uploaded again.
   void prepare(RenderFrame frame) {
     final context = gpu.gpuContext;
     final color = _color;
@@ -52,14 +50,10 @@ class FrameRenderer {
           format: context.defaultDepthStencilFormat,
           enableShaderReadUsage: false);
     }
-    if (identical(frame, _prepared)) {
-      for (var i = 0; i < _textures.length; i++) {
-        _textures[i].overwrite(ByteData.sublistView(frame.textures[i].rgba));
-      }
-      return;
-    }
+    if (identical(frame, _prepared)) return;
     _textures = [
-      for (final t in frame.textures) _texture(t.width, t.height, t.rgba)
+      for (final t in frame.textures)
+        _uploaded[t.rgba] ??= _texture(t.width, t.height, t.rgba)
     ];
     final fog = Uint8List(128 * 4);
     for (var i = 0; i < 128; i++) {
